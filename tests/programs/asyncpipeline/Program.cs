@@ -25,11 +25,14 @@ var timeouts = await Task.WhenAll(WithTimeout(Work(10, 5), 50), WithTimeout(Work
 Console.WriteLine("timeouts: " + string.Join(", ", timeouts.Select(t => t?.ToString() ?? "timeout")));
 
 var queue = new AsyncQueue<int>(capacity: 2);
-var producer = Task.Run(async () =>
+// The queue isn't thread-safe, so producer and consumer interleave on one logical flow (TCS
+// continuations run inline) rather than racing on the thread pool.
+var producer = Produce(queue);
+static async Task Produce(AsyncQueue<int> queue)
 {
     for (int i = 0; i < 6; i++) await queue.EnqueueAsync(i * i);
     queue.Complete();
-});
+}
 var consumed = new List<int>();
 while (await queue.DequeueAsync() is { } item) consumed.Add(item);
 await producer;
