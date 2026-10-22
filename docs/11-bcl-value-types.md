@@ -13,12 +13,12 @@ Code map:
 | Member table (methods, getters, ctors, operators, static fields) | `src/Csharpc/CodeGen/BclValueTypes.cs` |
 | Per-function helpers (decimal ops, Type objects, loops, delegate calls) | `src/Csharpc/CodeGen/FunctionCodeGen.Bcl.cs` |
 | Array / enum / type-only method tables, IR comparers for `Array.Sort` | `src/Csharpc/CodeGen/ModuleCodeGen.Bcl.cs` |
-| Decimal arithmetic | `runtime/decimal.c` |
-| TimeSpan, DateTime, Stopwatch | `runtime/datetime.c` |
-| `System.Type` objects | `runtime/type.c` |
-| BigInteger | `runtime/bigint.c` |
-| Array helpers, introsort, Convert, Environment, collation, StringBuilder extras | `runtime/bclmisc.c` |
-| Decimal / custom-section number formatting | `runtime/format.c` |
+| Decimal arithmetic | `src/runtime/decimal.c` |
+| TimeSpan, DateTime, Stopwatch | `src/runtime/datetime.c` |
+| `System.Type` objects | `src/runtime/type.c` |
+| BigInteger | `src/runtime/bigint.c` |
+| Array helpers, introsort, Convert, Environment, collation, StringBuilder extras | `src/runtime/bclmisc.c` |
+| Decimal / custom-section number formatting | `src/runtime/format.c` |
 
 ## How library members are dispatched
 
@@ -44,7 +44,7 @@ implementations, and static library fields (`string.Empty`, `TimeSpan.Zero`,
 
 * **Representation:** the CLR's own layout, `{ i32 flags, i32 hi32, i64 lo64 }` (scale in bits
   16–23 of `flags`, sign in bit 31). Constants are emitted from `decimal.GetBits`.
-* **Arithmetic** (`runtime/decimal.c`) computes the *exact* result with a fixed 384-bit bignum,
+* **Arithmetic** (`src/runtime/decimal.c`) computes the *exact* result with a fixed 384-bit bignum,
   then fits it into 96 bits / scale ≤ 28 by dividing by a power of ten with round-half-to-even,
   which is the CLR's contract. Scale rules follow .NET: `+`/`-` keep the larger scale, `*` adds
   scales, `/` produces the smallest scale that represents the quotient exactly (up to 28 digits),
@@ -106,7 +106,7 @@ operators including the `(BigInteger, long)` overloads, implicit/explicit conver
 * `Array.Reverse/Copy/Clear/Fill/IndexOf/Resize/BinarySearch/Empty`, and `Exists/Find/FindIndex/
   TrueForAll/ForEach` with predicate delegates (IR loops calling the delegate).
 * `Array.Sort` is a **port of .NET's `ArraySortHelper<T>.IntrospectiveSort`**
-  (`runtime/bclmisc.c`), so the order of elements that compare equal matches the CLR exactly. It
+  (`src/runtime/bclmisc.c`), so the order of elements that compare equal matches the CLR exactly. It
   is not stable, and .NET isn't either. Comparers are generated in IR per element type:
   `Comparison<T>` delegates and `IComparable<T>` user types (`Comparer<T>.Default` semantics,
   nulls first; struct `CompareTo` receives the element's address). Primitive arrays use the

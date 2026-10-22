@@ -44,7 +44,10 @@ void csrt_init(int argc, char** argv) {
     setvbuf(stdout, s_stdout_buffer, _IOFBF, sizeof s_stdout_buffer);
 }
 
+void csrt_threads_wait_foreground(void);
+
 void csrt_shutdown(void) {
+    csrt_threads_wait_foreground();  // like .NET: the process outlives Main while foreground threads run
     fflush(stdout);
     csrt_gc_shutdown();
 }
@@ -218,13 +221,89 @@ static void* const* builtin_interface_slots(const csrt_MethodTable* objmt, const
     return NULL;
 }
 
+// Generic variance (IEnumerable<string> usable as IEnumerable<object>, Action<object> as
+// Action<string>). At startup the compiler registers a descriptor for every variant generic interface
+// instantiation it emitted: generic definition key, type-argument method tables, and per argument
+// 2 bits of variance (1 = out, 2 = in) plus bit 2 = "reference type". Variant interfaces over
+// reference types share their slot layout, so a compatible instantiation's slot table can be used.
+typedef struct {
+    const csrt_MethodTable* itf;
+    const void* definition;
+    int32_t argc;
+    const csrt_MethodTable* const* args;
+    uint32_t mask;  // 3 bits per argument
+} VariantDescriptor;
+static VariantDescriptor* s_variant;
+static int s_variant_count, s_variant_cap;
+
+void csrt_register_variant_interface(const csrt_MethodTable* itf, const void* definition, int32_t argc,
+                                     const csrt_MethodTable* const* args, uint32_t mask) {
+    if (s_variant_count == s_variant_cap) {
+        s_variant_cap = s_variant_cap ? s_variant_cap * 2 : 16;
+        s_variant = realloc(s_variant, sizeof *s_variant * (size_t)s_variant_cap);
+    }
+    s_variant[s_variant_count++] = (VariantDescriptor){ itf, definition, argc, args, mask };
+}
+
+static const VariantDescriptor* variant_descriptor(const csrt_MethodTable* itf) {
+    for (int i = 0; i < s_variant_count; i++) if (s_variant[i].itf == itf) return &s_variant[i];
+    return NULL;
+}
+
+static void* const* exact_interface_slots(const csrt_MethodTable* mt, const csrt_MethodTable* itf) {
+    for (uint32_t i = 0; i < mt->interface_count; i++)
+        if (mt->interfaces[i].interface_type == itf) return mt->interfaces[i].slots;
+    return builtin_interface_slots(mt, itf);
+}
+
+static bool variant_compatible(const csrt_MethodTable* from, const csrt_MethodTable* to, int depth);
+
+/// Is a reference of runtime type `src` (a type-argument MT) assignable to type-argument `dst`?
+static bool argument_assignable(const csrt_MethodTable* src, const csrt_MethodTable* dst, int depth) {
+    if (src == dst || dst == &csrt_Object_MT.header) return true;
+    if (dst->flags & CSRT_MT_INTERFACE) {
+        if (src->flags & CSRT_MT_INTERFACE) return variant_compatible(src, dst, depth + 1);
+        if (exact_interface_slots(src, dst)) return true;
+        for (uint32_t i = 0; i < src->interface_count; i++)
+            if (variant_compatible(src->interfaces[i].interface_type, dst, depth + 1)) return true;
+        return false;
+    }
+    for (const csrt_MethodTable* mt = src; mt; mt = mt->base) if (mt == dst) return true;
+    return false;
+}
+
+static bool variant_compatible(const csrt_MethodTable* from, const csrt_MethodTable* to, int depth) {
+    if (from == to) return true;
+    if (depth > 4) return false;
+    const VariantDescriptor* f = variant_descriptor(from);
+    const VariantDescriptor* t = variant_descriptor(to);
+    if (!f || !t || f->definition != t->definition || f->argc != t->argc) return false;
+    for (int32_t i = 0; i < t->argc; i++) {
+        const csrt_MethodTable* a = f->args[i];
+        const csrt_MethodTable* b = t->args[i];
+        if (a == b) continue;
+        uint32_t bits = (t->mask >> (3 * i)) & 7u;
+        uint32_t fbits = (f->mask >> (3 * i)) & 7u;
+        if (!(bits & 4u) || !(fbits & 4u)) return false;               // variance needs reference types
+        if ((bits & 1u) && argument_assignable(a, b, depth)) continue; // out T
+        if ((bits & 2u) && argument_assignable(b, a, depth)) continue; // in T
+        return false;
+    }
+    return true;
+}
+
+static void* const* variant_interface_slots(const csrt_MethodTable* mt, const csrt_MethodTable* itf) {
+    if (!variant_descriptor(itf)) return NULL;
+    for (uint32_t i = 0; i < mt->interface_count; i++)
+        if (variant_compatible(mt->interfaces[i].interface_type, itf, 0)) return mt->interfaces[i].slots;
+    return NULL;
+}
+
 void* csrt_isinst_class(void* obj, const csrt_MethodTable* type) {
     if (!obj) return NULL;
     const csrt_MethodTable* objmt = ((csrt_Object*)obj)->mt;
     if (type->flags & CSRT_MT_INTERFACE) {
-        for (uint32_t i = 0; i < objmt->interface_count; i++)
-            if (objmt->interfaces[i].interface_type == type) return obj;
-        return builtin_interface_slots(objmt, type) ? obj : NULL;
+        return exact_interface_slots(objmt, type) || variant_interface_slots(objmt, type) ? obj : NULL;
     }
     for (const csrt_MethodTable* mt = objmt; mt; mt = mt->base)
         if (mt == type) return obj;
@@ -237,6 +316,8 @@ void* const* csrt_interface_slots(void* obj, const csrt_MethodTable* interface_t
         if (mt->interfaces[i].interface_type == interface_type) return mt->interfaces[i].slots;
     void* const* builtin = builtin_interface_slots(mt, interface_type);
     if (builtin) return builtin;
+    void* const* variant = variant_interface_slots(mt, interface_type);
+    if (variant) return variant;
     fflush(stdout);
     fprintf(stderr, "Unhandled exception. System.InvalidCastException: Unable to cast object of type '%s' to type '%s'.\n",
             mt->name, interface_type->name);

@@ -1,38 +1,44 @@
 # Benchmark results
 
 csharpc against the two official .NET 11 code generators (RyuJIT and NativeAOT), on identical C#
-sources (`bench/programs/*.cs`). Every binary's output must be **byte-identical** to `dotnet run`;
-`bench/run.sh` marks a row `MISMATCH` otherwise.
+sources (`benchmarks/programs/*.cs`). Every binary's output must be **byte-identical** to `dotnet run`;
+`benchmarks/run.sh` marks a row `MISMATCH` otherwise.
 
 **Machine:** AMD EPYC 9354P (Zen 4, 4 vCPUs), x86_64 Linux 6.8, 15 GiB RAM.
 **Toolchain:** .NET SDK 11.0.100-rc.2.26504.105, LLVM 18.1.3 (system `libLLVM-18.so`, clang 18),
-csharpc branch `perf` (Release build of the compiler). **Date:** 2026-10-22.
+csharpc `main` with every feature branch merged (Release build of the compiler). **Date:** 2026-10-22.
 
-**How to read the times.** Each cell is `wall/CPU` in milliseconds, best of 5. CPU is user+sys
+**How to read the times.** Each cell is `wall/CPU` in milliseconds, best of 3. CPU is user+sys
 time. The machine was shared with several concurrent compiler builds (load average 6–9 on 4 vCPUs),
 so **wall times are noisy and CPU time is the number to compare**. JIT times include .NET runtime
 startup and tiering, which is what a user experiences.
 
 | benchmark | csharpc -O2 | csharpc -O3 | .NET JIT | NativeAOT | csharpc compile (ms) | csharpc size (KiB, stripped) | NativeAOT size (KiB) |
 |---|---:|---:|---:|---:|---:|---:|---:|
-| binarytrees | 292/**218** | 305/216 | 512/353 | 395/268 | 4502 | 22 | 1301 |
-| churn | 131/**101** | 137/107 | 725/368 | 470/327 | 3489 | 18 | 1309 |
-| fannkuchredux | 218/**205** | 238/194 | 278/268 | 228/213 | 2469 | 22 | 1309 |
-| fasta | 180/**149** | 211/147 | 290/206 | 230/173 | 3325 | 22 | 1301 |
-| fib | 59/**51** | 58/45 | 197/122 | 116/84 | 5679 | 18 | 1305 |
-| mandelbrot | 244/**93** | 104/91 | 149/132 | 157/106 | 5838 | 22 | 1301 |
-| matmul | 82/**64** | 96/60 | 182/110 | 184/65 | 3761 | 22 | 1309 |
-| nbody | 518/**362** | 617/363 | 696/455 | 556/394 | 5455 | 22 | 1309 |
-| output | 45/**39** | 68/41 | 8100/5614 | 8541/5675 | 2724 | 18 | 1309 |
-| quicksort | 715/**467** | 702/479 | 781/535 | 671/475 | 2803 | 22 | 1301 |
-| shapes | 358/**269** | 269/235 | 367/327 | 298/271 | 5320 | 26 | 1309 |
-| sieve | 78/**72** | 88/80 | 151/142 | 106/97 | 2172 | 22 | 1301 |
-| spectralnorm | 130/**121** | 127/118 | 205/193 | 470/201 | 2196 | 22 | 1309 |
-| strbuild | 129/**110** | 112/108 | 278/176 | 156/134 | 5615 | 30 | 1309 |
+| binarytrees | 210/206 | 198/193 | 362/361 | 251/249 | 2416 | 34 | 1301 |
+| churn | 90/86 | 88/84 | 389/360 | 397/366 | 2077 | 30 | 1309 |
+| fannkuchredux | 206/202 | 209/202 | 290/286 | 334/218 | 2970 | 34 | 1309 |
+| fasta | 160/155 | 156/152 | 218/210 | 180/175 | 3137 | 34 | 1301 |
+| fib | 56/52 | 58/53 | 126/122 | 95/90 | 2110 | 26 | 1305 |
+| listsort | 292/212 | 308/215 | 252/243 | 276/271 | 6544 | 82 | 1313 |
+| mandelbrot | 100/95 | 105/96 | 248/145 | 139/102 | 2106 | 30 | 1301 |
+| mandelbrot_parallel | 483/1061 | 340/1055 | 419/1160 | 459/1387 | 2686 | 34 | 1512 |
+| matmul | 68/63 | 65/62 | 111/108 | 68/65 | 2324 | 34 | 1309 |
+| nbody | 360/356 | 365/360 | 492/449 | 371/368 | 1994 | 34 | 1309 |
+| output | 41/36 | 35/30 | 5331/5356 | 5591/5510 | 2030 | 30 | 1309 |
+| quicksort | 465/457 | 473/468 | 572/570 | 433/429 | 2162 | 34 | 1301 |
+| shapes | 249/245 | 262/257 | 321/324 | 250/253 | 2149 | 34 | 1309 |
+| sieve | 72/68 | 77/73 | 139/134 | 113/107 | 2027 | 34 | 1301 |
+| spectralnorm | 123/119 | 126/121 | 209/197 | 143/135 | 2309 | 30 | 1309 |
+| spectralnorm_parallel | 259/594 | 305/508 | 587/1246 | 270/593 | 2622 | 38 | 1512 |
+| strbuild | 112/104 | 98/92 | 195/163 | 111/107 | 2491 | 42 | 1309 |
+| wordfreq | 73/66 | 88/70 | 229/205 | 99/72 | 3500 | 74 | 1330 |
 
-**Summary (CPU time, -O2):** csharpc beats the .NET JIT on all 14 benchmarks. It beats
-NativeAOT on 11 and is within noise (≤ 2%) on matmul, quicksort and shapes. On those three,
-csharpc -O3 is ahead on matmul (60 vs 65) and shapes (235 vs 271).
+**Summary (CPU time, -O2), 18 programs:** csharpc beats the .NET JIT on all 18 and NativeAOT on
+16. It ties NativeAOT on `spectralnorm_parallel` (594 vs 593 ms) and loses `quicksort` (457 vs 429 ms,
+about 6%: branch-misprediction-bound, and csharpc reloads the array length after each store — see
+gaps below). Binaries are 26–82 KiB stripped vs ~1.3 MiB for NativeAOT. Compile times include
+Roslyn start-up on the JIT and the machine load.
 
 ## What changed since the first measurement
 
@@ -42,12 +48,12 @@ by about 13%. These are the optimizations that closed those gaps, each measured 
 
 | change | where | effect |
 |---|---|---|
-| Bitmap-word small-object allocator: each size class caches a 64-slot free mask, so the fast path is `ctz` + clear lowest bit + multiply; no free-list threading; sweep is `allocated &= marked`; no `madvise` refaulting | `runtime/gc.c` | binarytrees 2.82G → 1.67G instr |
-| GC trigger: max(32 MiB, 2× live) instead of 4 MiB (`CSRT_GC_TRIGGER_MB` overrides) | `runtime/gc.c` | binarytrees 53 → 14 collections; 0.97 s → 0.31 s CPU |
-| Marking skips the method-table word, strings, and primitive arrays | `runtime/gc.c`, `csrt_PrimitiveArray_MT` | less conservative scanning (strbuild's 20 MB char buffer is no longer scanned) |
-| **Whole-program LTO with the runtime**: `runtime/*.c` compiled to bitcode (cached), linked into the program module, everything but `main` internalized, then `default<O2>` | `Driver/RuntimeLto.cs`, `Toolchain.cs` | `new T()` inlines as a ~9-instruction fast path with constant-folded size class and zeroing. binarytrees 1.67G → 0.90G instr; 0.27 → 0.18 s CPU |
+| Bitmap-word small-object allocator: each size class caches a 64-slot free mask, so the fast path is `ctz` + clear lowest bit + multiply; no free-list threading; sweep is `allocated &= marked`; no `madvise` refaulting | `src/runtime/gc.c` | binarytrees 2.82G → 1.67G instr |
+| GC trigger: max(32 MiB, 2× live) instead of 4 MiB (`CSRT_GC_TRIGGER_MB` overrides) | `src/runtime/gc.c` | binarytrees 53 → 14 collections; 0.97 s → 0.31 s CPU |
+| Marking skips the method-table word, strings, and primitive arrays | `src/runtime/gc.c`, `csrt_PrimitiveArray_MT` | less conservative scanning (strbuild's 20 MB char buffer is no longer scanned) |
+| **Whole-program LTO with the runtime**: `src/runtime/*.c` compiled to bitcode (cached), linked into the program module, everything but `main` internalized, then `default<O2>` | `Driver/RuntimeLto.cs`, `Toolchain.cs` | `new T()` inlines as a ~9-instruction fast path with constant-folded size class and zeroing. binarytrees 1.67G → 0.90G instr; 0.27 → 0.18 s CPU |
 | Default host CPU = best `x86-64-vN` level (v3 here) with generic tuning, not `-mcpu=znver4` | `Llvm/Llvm.cs` (`--cpu native` restores host tuning) | spectralnorm 135 → 121, matmul 82 → 65. With znver4, AVX-512's EVEX `vcvtsi2sd` merges into a register written inside the unrolled loop (false dependency), and the scheduling model unrolls worse |
-| Integer formatting without `snprintf`; `StringBuilder.Append(int/long/bool)` writes digits straight into the buffer; strings and builder buffers allocated without zeroing; ≥128 KiB blocks via `calloc` (pre-zeroed mmap pages); first-char-scan `IndexOf`; Latin-1 flag table for `char.IsLetter`/`IsDigit`/... | `runtime/csrt.c`, `runtime/strings.c`, `Intrinsics.cs` | strbuild 1.22G → 0.60G instr; 195 → 102 ms CPU |
+| Integer formatting without `snprintf`; `StringBuilder.Append(int/long/bool)` writes digits straight into the buffer; strings and builder buffers allocated without zeroing; ≥128 KiB blocks via `calloc` (pre-zeroed mmap pages); first-char-scan `IndexOf`; Latin-1 flag table for `char.IsLetter`/`IsDigit`/... | `src/runtime/csrt.c`, `src/runtime/strings.c`, `Intrinsics.cs` | strbuild 1.22G → 0.60G instr; 195 → 102 ms CPU |
 | Closed-world devirtualization (class hierarchy analysis): a virtual call whose static receiver subtree resolves the slot to a single method becomes a direct (inlinable) call | `CodeGen/ModuleCodeGen.Devirtualization.cs` | semantics checked by `tests/samples/80_devirtualization.cs` |
 | `zeroext` on small-int runtime parameters/returns (ABI correctness at -O0), `noalias`+`nonnull` on allocator returns | `CodeGen/Optimizations.cs` | correctness, plus null-check folding without LTO |
 
@@ -83,8 +89,8 @@ by about 13%. These are the optimizations that closed those gaps, each measured 
 
 ```bash
 export PATH=$HOME/.dotnet11:$PATH
-RUNS=5 bench/run.sh            # all benchmarks (NO_AOT=1 skips NativeAOT)
-bench/run.sh strbuild          # one benchmark
+RUNS=5 benchmarks/run.sh            # all benchmarks (NO_AOT=1 skips NativeAOT)
+benchmarks/run.sh strbuild          # one benchmark
 csharpc --cpu native ...       # opt into host-specific tuning
 CSHARPC_NO_RUNTIME_LTO=1 ...   # link the runtime as objects instead of bitcode
 ```

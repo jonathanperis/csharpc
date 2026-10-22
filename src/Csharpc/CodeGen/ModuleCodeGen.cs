@@ -22,6 +22,9 @@ public sealed partial class ModuleCodeGen
     public TextWriter? CfgDump { get; init; }
     public CoreLib CoreLib { get; }
 
+    /// <summary>DWARF emission (csharpc -g); null when debug info is off.</summary>
+    public DebugInfo? Debug { get; set; }
+
     private readonly Dictionary<IMethodSymbol, LoweredFunction> _functions = new(SymbolEqualityComparer.Default);
     private readonly Dictionary<INamedTypeSymbol, ClassLayout> _layouts = new(SymbolEqualityComparer.Default);
     private readonly Dictionary<IFieldSymbol, LLVMValueRef> _staticFields = new(SymbolEqualityComparer.Default);
@@ -595,10 +598,10 @@ public sealed partial class ModuleCodeGen
     }
 
     // ======================================================================================
-    // Library exception classes (System.Exception & friends) — layouts shared with runtime/eh.c
+    // Library exception classes (System.Exception & friends) — layouts shared with src/runtime/eh.c
     // ======================================================================================
 
-    /// <summary>Exception types whose method tables csrt defines (runtime/eh.c, "csrt_MT_" + name).</summary>
+    /// <summary>Exception types whose method tables csrt defines (src/runtime/eh.c, "csrt_MT_" + name).</summary>
     private static readonly HashSet<string> s_runtimeExceptionTypes =
     [
         "System.Exception", "System.SystemException", "System.ArgumentException", "System.ArgumentNullException",
@@ -608,6 +611,7 @@ public sealed partial class ModuleCodeGen
         "System.OverflowException", "System.InvalidCastException", "System.FormatException",
         "System.Collections.Generic.KeyNotFoundException", "System.OperationCanceledException",
         "System.Threading.Tasks.TaskCanceledException", "System.AggregateException",
+        "System.Threading.ThreadStateException", "System.Threading.SynchronizationLockException",
     ];
 
     public const int ExceptionMessageSlot = 3;
@@ -708,8 +712,11 @@ public sealed partial class ModuleCodeGen
         if (_staticFields.TryGetValue(field, out var global)) return global;
         if (!IsUserType(field.ContainingType)) throw CompileError.Unsupported($"static field '{field}' of a library type", field);
         var type = Types.Storage(field.Type);
-        return _staticFields[field] = Module.AddGlobal(Mangler.StaticField(field), type, LlvmContext.Null(type),
-            linkage: LLVMLinkage.Internal);
+        var created = Module.AddGlobal(Mangler.StaticField(field), type, LlvmContext.Null(type), linkage: LLVMLinkage.Internal);
+        // [ThreadStatic]: one copy per thread (the GC scans every thread's TLS block).
+        if (field.GetAttributes().Any(a => a.AttributeClass is { Name: "ThreadStaticAttribute", ContainingNamespace.Name: "System" }))
+            Native.LLVMSetThreadLocal(created, 1);
+        return _staticFields[field] = created;
     }
 
     /// <summary>A statically allocated, immutable instance of a library class (e.g. EventArgs.Empty).</summary>
@@ -769,17 +776,25 @@ public sealed partial class ModuleCodeGen
     /// Enum.ToString(): a generated `switch` from value to name literal; undefined values fall back
     /// to the number, as in .NET. [Flags] combinations are not decomposed yet.
     /// </summary>
-    public LoweredFunction EnumFormatter(INamedTypeSymbol enumType)
+    private readonly Dictionary<INamedTypeSymbol, LoweredFunction> _enumNameLookups = new(SymbolEqualityComparer.Default);
+
+    /// <summary>Enum.GetName: the declared name, or null for values that have no name.</summary>
+    public LoweredFunction EnumNameOrNull(INamedTypeSymbol enumType) => EnumFormatter(enumType, nullIfUndefined: true);
+
+    public LoweredFunction EnumFormatter(INamedTypeSymbol enumType) => EnumFormatter(enumType, nullIfUndefined: false);
+
+    private LoweredFunction EnumFormatter(INamedTypeSymbol enumType, bool nullIfUndefined)
     {
         enumType = enumType.OriginalDefinition;
-        if (_enumFormatters.TryGetValue(enumType, out var existing)) return existing;
-        var isFlags = enumType.GetAttributes().Any(a => a.AttributeClass?.Name == "FlagsAttribute");
+        var cache = nullIfUndefined ? _enumNameLookups : _enumFormatters;
+        if (cache.TryGetValue(enumType, out var existing)) return existing;
+        var isFlags = !nullIfUndefined && enumType.GetAttributes().Any(a => a.AttributeClass?.Name == "FlagsAttribute");
         var underlying = enumType.EnumUnderlyingType!;
         var valueType = Types.Value(underlying);
         var type = Llvm.FunctionType(Llvm.Ptr, valueType);
-        var fn = Module.AddFunction(Mangler.TypeSymbol(enumType, "ToString"), type);
+        var fn = Module.AddFunction(Mangler.TypeSymbol(enumType, nullIfUndefined ? "GetName" : "ToString"), type);
         Native.LLVMSetLinkage(fn, LLVMLinkage.Internal);
-        var lowered = _enumFormatters[enumType] = new LoweredFunction(fn, type);
+        var lowered = cache[enumType] = new LoweredFunction(fn, type);
 
         using var b = new IrBuilder(Llvm);
         var entry = b.AppendBlock(fn, "entry");
@@ -802,6 +817,11 @@ public sealed partial class ModuleCodeGen
         b.PositionAtEnd(entry);
         b.Switch(fn.Param(0), fallback, cases);
         b.PositionAtEnd(fallback);
+        if (nullIfUndefined)
+        {
+            b.Ret(LlvmContext.Null(Llvm.Ptr));
+            return lowered;
+        }
         if (isFlags)
         {
             // Not an exact name: let the runtime decompose into flag names (or fall back to the number).
@@ -922,15 +942,45 @@ public sealed partial class ModuleCodeGen
         return _globals[key] = fn;
     }
 
+    private readonly List<INamedTypeSymbol> _variantInterfaces = [];
+
+    /// <summary>Called for every interface MT: variant generic instantiations get a runtime descriptor.</summary>
+    internal void NoteInterfaceInstantiation(INamedTypeSymbol itf)
+    {
+        if (itf.IsGenericType && itf.OriginalDefinition.TypeParameters.Any(p => p.Variance != VarianceKind.None))
+            _variantInterfaces.Add(itf);
+    }
+
     private void EmitNativeMain(IMethodSymbol entryPoint)
     {
         var type = Llvm.FunctionType(Llvm.I32, Llvm.I32, Llvm.Ptr);
         var main = Module.AddFunction("main", type);
         using var b = new IrBuilder(Llvm);
         b.PositionAtEnd(b.AppendBlock(main, "entry"));
+        // -g: an artificial subprogram, so code inlined into main (at -O2, usually Main itself) keeps line info.
+        Debug?.BeginSynthetic(main, "main", entryPoint)?.SetLocation(b, 0, 0);
 
         var init = Runtime("csrt_init", Llvm.Void, Llvm.I32, Llvm.Ptr);
         b.Call(init.Type, init.Fn, [main.Param(0), main.Param(1)]);
+        // Generic variance descriptors (see csrt.c). Registering may create more interface MTs: iterate to a fixed point.
+        for (var i = 0; i < _variantInterfaces.Count; i++)
+        {
+            var itf = _variantInterfaces[i];
+            var definition = itf.OriginalDefinition;
+            var argTables = itf.TypeArguments.Select(a => TypeMethodTable(a, null!)).ToArray();
+            uint mask = 0;
+            for (var k = 0; k < itf.TypeArguments.Length; k++)
+            {
+                var bits = definition.TypeParameters[k].Variance switch { VarianceKind.Out => 1u, VarianceKind.In => 2u, _ => 0u };
+                if (itf.TypeArguments[k].IsReferenceType) bits |= 4u;
+                mask |= bits << (3 * k);
+            }
+            var argsInit = LlvmContext.ConstArray(Llvm.Ptr, argTables);
+            var argsTable = Module.AddGlobal(Mangler.TypeSymbol(itf, "VARGS"), Native.LLVMTypeOf(argsInit), argsInit, constant: true, linkage: LLVMLinkage.Internal);
+            var register = Runtime("csrt_register_variant_interface", Llvm.Void, Llvm.Ptr, Llvm.Ptr, Llvm.I32, Llvm.Ptr, Llvm.I32);
+            b.Call(register.Type, register.Fn, [InterfaceMethodTable(itf), CString("generic:" + Mangler.MetadataName(definition)),
+                Llvm.ConstInt(Llvm.I32, argTables.Length), argsTable, Llvm.ConstUInt(Llvm.I32, mask)]);
+        }
         b.Call(_staticInit.Type, _staticInit.Fn, []);
 
         var target = GetFunction(entryPoint);

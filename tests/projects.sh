@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Drop-in tests: real .NET projects built four ways, each compared against `dotnet run` output.
 #
-#   1. csharpc samples/HelloProject/HelloProject.csproj            (CLI, project input)
+#   1. csharpc tests/projects/HelloProject/HelloProject.csproj            (CLI, project input)
 #   2. dotnet build -p:UseCsharpc=true  (targets imported directly) (MSBuild integration)
 #   3. dotnet run   -p:UseCsharpc=true                              (`dotnet run` runs native code)
 #   4. dotnet publish -p:PublishCsharpc=true via the Csharpc.Sdk NuGet package from a local feed
@@ -24,9 +24,9 @@ CSHARPC_DLL="$ROOT/src/Csharpc/bin/Release/net11.0/csharpc.dll"
 TARGETS="$ROOT/src/Csharpc.Sdk/build/Csharpc.Sdk.targets"
 
 for app in HelloProject; do
-  src="$ROOT/samples/$app"
+  src="$ROOT/tests/projects/$app"
   # Fresh copies of the sample tree so builds never pollute the repository.
-  rm -rf "$WORK/samples"; cp -r "$ROOT/samples" "$WORK/samples"; find "$WORK/samples" -name bin -o -name obj | xargs rm -rf
+  rm -rf "$WORK/samples"; cp -r "$ROOT/tests/projects" "$WORK/samples"; find "$WORK/samples" -name bin -o -name obj | xargs rm -rf
   proj="$WORK/samples/$app/$app.csproj"
 
   (cd "$WORK/samples/$app" && "$DOTNET" run -v quiet 2>/dev/null) > "$WORK/expected" || { echo "FAIL $app: dotnet run failed"; fail=$((fail+1)); continue; }

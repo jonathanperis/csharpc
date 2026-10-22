@@ -263,7 +263,7 @@ public sealed partial class FunctionCodeGen
     {
         if (creation.Initializer is not null) throw CompileError.Unsupported("object initializer", creation);
         var type = (INamedTypeSymbol)TypeOf(creation)!;
-        if (TrySpanConstruction(creation, out var span) || TryStatelessLibraryCreation(creation, out span)) return span;
+        if (TrySpanConstruction(creation, out var span) || TryStatelessLibraryCreation(creation, out span) || TryThreadingCreation(creation, out span)) return span;
         if (type.IsValueType) return EmitValueTypeCreation(creation, type);
         if (type.SpecialType == SpecialType.System_Object)
             return Allocate(_m.ExternalGlobal("csrt_Object_MT"), L.ConstInt(L.I64, (long)T.PointerSize));
@@ -425,6 +425,7 @@ public sealed partial class FunctionCodeGen
             EmitInterfaceCall(property.SetMethod!, p.Instance!, p.Arguments, [assigned], null);
             return assigned;
         }
+        if (!_m.IsUserType(property.ContainingType) && TryThreadingPropertySet(p, value, valueType, out var threadingSet)) return threadingSet;
         if (!_m.IsUserType(property.ContainingType))
             throw CompileError.Unsupported($"setting '{property.ContainingType}.{property.Name}'", p);
         var self = property.IsStatic ? default
@@ -467,48 +468,80 @@ public sealed partial class FunctionCodeGen
     private LLVMValueRef EmitCollectionExpression(ICollectionExpressionOperation collection)
     {
         if (TypeMapper.IsSpan(TypeOf(collection))) return SpanFromCollection(collection, SpanElement(TypeOf(collection)!));
-        if (TypeOf(collection) is INamedTypeSymbol named) return CollectionExpressionToType(collection, named);
-        if (TypeOf(collection) is not IArrayTypeSymbol { Rank: 1 } arrayType)
+        var target = TypeOf(collection);
+        if (target is INamedTypeSymbol { TypeKind: TypeKind.Interface, TypeArguments.Length: 1 } itf)
+        {
+            // C# rules: read-only interfaces get an array; IList<T>/ICollection<T> get a List<T>.
+            var element = itf.TypeArguments[0];
+            target = itf.Name is "IList" or "ICollection"
+                ? _m.CoreLib.Map(_m.Compilation.GetTypeByMetadataName("System.Collections.Generic.List`1")!.Construct(element))
+                : _m.Compilation.CreateArrayTypeSymbol(element);
+            if (target is IArrayTypeSymbol) _m.RequestArrayInterface(itf); // the array is used through the interface
+        }
+        if (target is INamedTypeSymbol { TypeKind: TypeKind.Class } collectionClass) return CollectionViaAdd(collection, collectionClass);
+        if (target is not IArrayTypeSymbol { Rank: 1 } arrayType)
             throw CompileError.Unsupported($"collection expression of type '{collection.Type}'", collection);
-        if (collection.Elements.Any(e => e is ISpreadOperation)) throw CompileError.Unsupported("spread elements", collection);
+        if (collection.Elements.Any(e => e is ISpreadOperation))
+        {
+            // Spreads: build a List<T>, then ToArray().
+            var listType = (INamedTypeSymbol)_m.CoreLib.Map(_m.Compilation.GetTypeByMetadataName("System.Collections.Generic.List`1")!.Construct(arrayType.ElementType));
+            var list = CollectionViaAdd(collection, listType);
+            var toArray = listType.GetMembers("ToArray").OfType<IMethodSymbol>().First(m => m.Parameters.IsEmpty);
+            return DirectCall(toArray, [list]);
+        }
         var array = NewArray(arrayType.ElementType, L.ConstInt(L.I64, collection.Elements.Length));
         StoreElements(array, arrayType.ElementType, collection.Elements);
         return array;
     }
 
-    /// <summary>
-    /// `List<int> xs = [1, 2, ..other];` — collection types with a parameterless constructor and Add
-    /// (List, HashSet, Queue-like corelib shadows, user collections), and interface targets
-    /// (IEnumerable<T>, IList<T>, IReadOnlyList<T>...), which get a List<T> as .NET effectively does.
-    /// </summary>
-    private LLVMValueRef CollectionExpressionToType(ICollectionExpressionOperation collection, INamedTypeSymbol type)
+    /// <summary>`List&lt;T&gt; l = [a, ..xs, b]`: new T() then Add / AddRange-style loops for spreads.</summary>
+    private LLVMValueRef CollectionViaAdd(ICollectionExpressionOperation collection, INamedTypeSymbol type)
     {
-        if (type.TypeKind == TypeKind.Interface && type.TypeArguments.Length == 1)
-        {
-            var list = _m.Compilation.GetTypeByMetadataName("System.Collections.Generic.List`1")!.Construct(type.TypeArguments[0]);
-            type = (INamedTypeSymbol)S(list);
-        }
-        if (!_m.IsUserType(type) || type.TypeKind != TypeKind.Class || type.IsAbstract)
-            throw CompileError.Unsupported($"collection expression of type '{collection.Type}'", collection);
         var ctor = type.InstanceConstructors.FirstOrDefault(c => c.Parameters.IsEmpty)
             ?? throw CompileError.Unsupported($"collection expression of type '{type}' (no parameterless constructor)", collection);
         var add = type.GetMembers("Add").OfType<IMethodSymbol>().FirstOrDefault(m => m.Parameters.Length == 1 && !m.IsStatic);
-        if (add is null && collection.Elements.Any(e => e is not ISpreadOperation))
-            throw CompileError.Unsupported($"collection expression of type '{type}' (no Add method)", collection);
-
         var layout = _m.GetLayout(type);
         var obj = Allocate(layout.MethodTable, L.ConstInt(L.I64, (long)layout.InstanceSize));
         DirectCall(ctor, [obj]);
+        if (collection.Elements.IsEmpty) return obj; // `Dictionary<K, V> d = [];` needs no Add(T)
+        if (add is null) throw CompileError.Unsupported($"collection expression of type '{type}' (no Add method)", collection);
+        var elementType = S(add.Parameters[0].Type);
         foreach (var element in collection.Elements)
         {
             if (element is ISpreadOperation spread)
             {
-                var bulk = type.GetMembers().OfType<IMethodSymbol>().FirstOrDefault(m => m.Name is "AddRange" or "UnionWith" && m.Parameters.Length == 1)
-                    ?? throw CompileError.Unsupported($"spread into '{type}'", element);
-                DirectCall(bulk, [obj, Coerce(EmitValue(spread.Operand), TypeOf(spread.Operand), bulk.Parameters[0].Type)]);
+                if (TypeOf(spread.Operand) is not IArrayTypeSymbol { Rank: 1 } spreadArray)
+                {
+                    // Any other enumerable reference type: AddRange(IEnumerable<T>) on the target.
+                    var addRange = type.GetMembers("AddRange").OfType<IMethodSymbol>().FirstOrDefault(m => m.Parameters.Length == 1 && !m.IsStatic);
+                    if (addRange is null || TypeOf(spread.Operand) is not { IsReferenceType: true })
+                        throw CompileError.Unsupported($"spreading '{TypeOf(spread.Operand)}' into '{type}'", spread);
+                    var enumerable = EmitValue(spread.Operand);
+                    DirectCall(addRange, [obj, enumerable]);
+                    continue;
+                }
+                var source = EmitValue(spread.Operand);
+                NullCheck(source);
+                var length = _b.Load(L.I64, _b.StructGep(T.ArrayHeader(L.I8), source, 1), "len");
+                var index = NewTemp(L.I64, "spread.i");
+                _b.Store(L.ConstInt(L.I64, 0), index);
+                var head = NewBlock("spread.head");
+                var body = NewBlock("spread.body");
+                var done = NewBlock("spread.done");
+                _b.Br(head);
+                _b.PositionAtEnd(head);
+                var i = _b.Load(L.I64, index);
+                _b.CondBr(_b.ICmp(LLVMIntPredicate.SLT, i, length), body, done);
+                _b.PositionAtEnd(body);
+                var item = LoadValue(_b.InBoundsGep(T.ArrayHeader(T.Storage(spreadArray.ElementType)), source,
+                    [L.ConstInt(L.I32, 0), L.ConstInt(L.I32, 2), i]), spreadArray.ElementType);
+                DirectCall(add, [obj, Coerce(item, spreadArray.ElementType, elementType)]);
+                _b.Store(_b.BinOp(LLVMOpcode.Add, i, L.ConstInt(L.I64, 1)), index);
+                _b.Br(head);
+                _b.PositionAtEnd(done);
                 continue;
             }
-            DirectCall(add!, [obj, Coerce(EmitValue(element), TypeOf(element), add!.Parameters[0].Type)]);
+            DirectCall(add, [obj, Coerce(EmitValue(element), TypeOf(element), elementType)]);
         }
         return obj;
     }
@@ -703,7 +736,7 @@ public sealed partial class FunctionCodeGen
         return piece;
     }
 
-    /// <summary>value.ToString(format) with .NET standard/custom numeric format strings (runtime/format.c).</summary>
+    /// <summary>value.ToString(format) with .NET standard/custom numeric format strings (src/runtime/format.c).</summary>
     internal LLVMValueRef FormatWith(IOperation valueOp, LLVMValueRef format)
     {
         valueOp = Unbox(valueOp);

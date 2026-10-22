@@ -7,13 +7,13 @@ namespace Csharpc.CodeGen;
 /// Method tables for iterator objects (docs/10-async.md#iterators). Each element type gets one,
 /// with a real interface map — IEnumerable&lt;T&gt;, IEnumerable, IEnumerator&lt;T&gt;, IEnumerator,
 /// IDisposable (async: IAsyncEnumerable&lt;T&gt;, IAsyncEnumerator&lt;T&gt;, IAsyncDisposable) — whose
-/// slots are small thunks over the iterator runtime (runtime/async.c). So foreach, LINQ-style
+/// slots are small thunks over the iterator runtime (src/runtime/async.c). So foreach, LINQ-style
 /// helpers and any code holding an IEnumerable&lt;T&gt; reach iterators through ordinary interface
 /// dispatch.
 /// </summary>
 public sealed partial class ModuleCodeGen
 {
-    private const int IteratorMethodTableFlag = 4; // CSRT_MT_ITERATOR (runtime/csrt.h)
+    private const int IteratorMethodTableFlag = 4; // CSRT_MT_ITERATOR (src/runtime/csrt.h)
     private readonly Dictionary<(ITypeSymbol Element, bool Async), LLVMValueRef> _iteratorTables =
         new(new IteratorKeyComparer());
     private int _iteratorTableCounter;
@@ -68,7 +68,7 @@ public sealed partial class ModuleCodeGen
     /// <summary>
     /// csrt_call_catching_void(fn, arg) / csrt_call_catching_ptr(fn, arg, &amp;result): call fn(arg) and
     /// return the managed exception it threw, or null. C can't catch, so the runtime's scheduler
-    /// (Task.Run work items) uses these IR helpers; they replace weak fallbacks in runtime/async.c.
+    /// (Task.Run work items) uses these IR helpers; they replace weak fallbacks in src/runtime/async.c.
     /// </summary>
     public void EmitCallCatchingHelpers()
     {

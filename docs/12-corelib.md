@@ -19,7 +19,7 @@ csharpc:     CsharpcCoreLib.DictionaryImpl<string,int>.set_Item(string, int)    
 | `src/Csharpc/CodeGen/CoreLib.cs` | discovery of shadows + symbol mapping (types, methods, properties, fields) |
 | `src/Csharpc/CodeGen/FunctionCodeGen.CoreLib.cs` | `CoreIntrinsics` codegen, property lvalue captures, value-type null folds |
 | `src/Csharpc/CodeGen/ModuleCodeGen.CoreLib.cs` | arrays / strings as BCL interfaces |
-| `runtime/collation.c` | culture string comparison (ICU-root approximation) used by `Comparer<string>` |
+| `src/runtime/collation.c` | culture string comparison (ICU-root approximation) used by `Comparer<string>` |
 
 ## Declaring a shadow
 

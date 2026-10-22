@@ -11,7 +11,7 @@ corelib requires generics, structs, interfaces and exceptions, which the spike d
 
 ## Decision
 
-- **csrt** (`runtime/csrt.c`, `csrt.h`) is a small C11 runtime with a documented ABI
+- **csrt** (`src/runtime/csrt.c`, `csrt.h`) is a small C11 runtime with a documented ABI
   ([04-runtime.md](../04-runtime.md)). The driver compiles it with clang on demand and caches it.
 - **Library members are intrinsics** (`src/Csharpc/CodeGen/Intrinsics.cs`): Roslyn resolves calls
   against real .NET reference assemblies, and csharpc lowers each supported member to LLVM

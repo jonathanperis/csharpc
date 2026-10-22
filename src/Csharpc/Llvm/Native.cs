@@ -30,6 +30,10 @@ public enum LLVMIntPredicate { EQ = 32, NE, UGT, UGE, ULT, ULE, SGT, SGE, SLT, S
 
 public enum LLVMRealPredicate { False, OEQ, OGT, OGE, OLT, OLE, ONE, ORD, UNO, UEQ, UGT, UGE, ULT, ULE, UNE, True }
 
+public enum LLVMAtomicOrdering { NotAtomic = 0, Unordered = 1, Monotonic = 2, Acquire = 4, Release = 5, AcquireRelease = 6, SequentiallyConsistent = 7 }
+
+public enum LLVMAtomicRMWBinOp { Xchg, Add, Sub, And, Nand, Or, Xor, Max, Min, UMax, UMin, FAdd, FSub }
+
 public enum LLVMLinkage { External = 0, LinkOnceODR = 3, Internal = 8, Private = 9 }
 
 public enum LLVMCodeGenOptLevel { None, Less, Default, Aggressive }
@@ -234,6 +238,17 @@ internal static unsafe partial class Native
     [LibraryImport(Lib, StringMarshalling = StringMarshalling.Utf8)]
     public static partial LLVMValueRef LLVMBuildLoad2(LLVMBuilderRef b, LLVMTypeRef type, LLVMValueRef ptr, string name);
     [LibraryImport(Lib)] public static partial LLVMValueRef LLVMBuildStore(LLVMBuilderRef b, LLVMValueRef value, LLVMValueRef ptr);
+    [LibraryImport(Lib)]
+    public static partial LLVMValueRef LLVMBuildAtomicRMW(LLVMBuilderRef b, LLVMAtomicRMWBinOp op, LLVMValueRef ptr, LLVMValueRef value,
+        LLVMAtomicOrdering ordering, int singleThread);
+    [LibraryImport(Lib)]
+    public static partial LLVMValueRef LLVMBuildAtomicCmpXchg(LLVMBuilderRef b, LLVMValueRef ptr, LLVMValueRef cmp, LLVMValueRef value,
+        LLVMAtomicOrdering success, LLVMAtomicOrdering failure, int singleThread);
+    [LibraryImport(Lib, StringMarshalling = StringMarshalling.Utf8)]
+    public static partial LLVMValueRef LLVMBuildFence(LLVMBuilderRef b, LLVMAtomicOrdering ordering, int singleThread, string name);
+    [LibraryImport(Lib)] public static partial void LLVMSetOrdering(LLVMValueRef memoryAccess, LLVMAtomicOrdering ordering);
+    [LibraryImport(Lib)] public static partial void LLVMSetVolatile(LLVMValueRef memoryAccess, int isVolatile);
+    [LibraryImport(Lib)] public static partial void LLVMSetThreadLocal(LLVMValueRef global, int isThreadLocal);
     [LibraryImport(Lib, StringMarshalling = StringMarshalling.Utf8)]
     public static partial LLVMValueRef LLVMBuildInBoundsGEP2(LLVMBuilderRef b, LLVMTypeRef type, LLVMValueRef ptr, [In] LLVMValueRef[] indices, uint count, string name);
     [LibraryImport(Lib, StringMarshalling = StringMarshalling.Utf8)]

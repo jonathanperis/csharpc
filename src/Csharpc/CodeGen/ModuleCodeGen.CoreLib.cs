@@ -9,7 +9,7 @@ namespace Csharpc.CodeGen;
 /// *interface's* identity table carries the implementation: its `interfaces` field points at a slot
 /// table of CsharpcCoreLib.SZArrayHelper&lt;T&gt; static methods (used when the receiver is an array), its
 /// `base` field at CsharpcCoreLib.StringInterfaces methods (receiver is a string); csrt falls back
-/// to them (runtime/csrt.c builtin_interface_slots). A static (T[] self, args...) method has the
+/// to them (src/runtime/csrt.c builtin_interface_slots). A static (T[] self, args...) method has the
 /// same ABI as the interface method (ptr this, args...).
 ///
 /// Tables are only built for interfaces the program actually converts an array/string to.

@@ -235,7 +235,7 @@ public sealed class TargetMachine : IDisposable
     /// <summary>
     /// Default CPU for host builds on x86-64: the highest x86-64 microarchitecture level the host
     /// supports (v3 = AVX2/FMA/BMI2), with LLVM's generic tuning — not the host model. Measured on
-    /// Zen 4 (bench/RESULTS.md): -mcpu=znver4 (AVX-512 + its scheduling model) was up to 30% slower
+    /// Zen 4 (benchmarks/RESULTS.md): -mcpu=znver4 (AVX-512 + its scheduling model) was up to 30% slower
     /// on scalar FP loops (spectral-norm 121 -> 160 ms, matmul 63 -> 82 ms) because of false
     /// register dependencies in EVEX-encoded conversions and less suitable unrolling; nothing in the
     /// suite gained from it. `--cpu native` opts into full host tuning.

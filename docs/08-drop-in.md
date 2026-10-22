@@ -14,7 +14,7 @@ csharpc path/to/dir/                  # the single .csproj in that directory
 csharpc                               # the single .csproj in the current directory
 csharpc App.csproj -o out/            # -> out/App   (trailing '/' or an existing directory)
 csharpc App.csproj -o app.native      # explicit file name
-csharpc App.csproj -c Debug           # -O0  (Release, the default, is -O2; an explicit -O wins)
+csharpc App.csproj -c Debug           # -O0 -g (Release, the default, is -O2; explicit -O / -g0 win; see 13-debugging.md)
 csharpc App.csproj -p:TargetFramework=net11.0 -p:Foo=Bar   # MSBuild global properties
 csharpc App.csproj --emit llvm-ir     # every --emit kind works with projects too
 ```
@@ -62,7 +62,7 @@ dotnet pack src/Csharpc     -o artifacts/packages   # csharpc: a .NET tool
 dotnet tool install -g csharpc --add-source artifacts/packages --prerelease
 ```
 
-Both packages carry `runtime/*.c`. csrt is compiled on the user's machine on first use and
+Both packages carry `src/runtime/*.c`. csrt is compiled on the user's machine on first use and
 cached in `~/.cache/csharpc`, so the packages are architecture-neutral. You need `clang`, or
 `CSHARPC_CC`, plus libLLVM 18–20.
 
@@ -128,10 +128,10 @@ unless `NO_COLOR` is set. Exit codes:
 
 ## Tests
 
-`tests/projects.sh` builds `samples/HelloProject` four ways and compares each against
+`tests/projects.sh` builds `tests/projects/HelloProject` four ways and compares each against
 `dotnet run`. The sample has multiple files, file-scoped namespaces, a partial class split
 across files, `#if` on a `DefineConstants` symbol, `<Using>` items including an alias, and a
-`ProjectReference` to `samples/MathLib`. The four ways:
+`ProjectReference` to `tests/projects/MathLib`. The four ways:
 
 1. `csharpc HelloProject.csproj`
 2. `dotnet build -p:UseCsharpc=true`. The test checks that the output really is the native ELF

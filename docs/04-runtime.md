@@ -1,7 +1,7 @@
 # 04 — Runtime
 
-Every compiled program links against **csrt**, the csharpc bootstrap runtime: `runtime/csrt.h` and
-`runtime/csrt.c`, a few hundred lines of C11. The driver compiles it on demand and caches the object
+Every compiled program links against **csrt**, the csharpc bootstrap runtime: `src/runtime/csrt.h` and
+`src/runtime/csrt.c`, a few hundred lines of C11. The driver compiles it on demand and caches the object
 under `~/.cache/csharpc/` ([02-architecture.md](02-architecture.md#5-link-srccsharpcdrivertoolchaincs)).
 
 csrt is deliberately tiny. It's the "native layer" that will remain once most of the library is

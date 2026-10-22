@@ -16,7 +16,7 @@ public sealed class Toolchain(CompilerOptions options)
 
     private static string RuntimeDir => Path.Combine(AppContext.BaseDirectory, "runtime");
 
-    /// <summary>Compiles every runtime/*.c once per (sources, target, cc) and caches the objects.</summary>
+    /// <summary>Compiles every src/runtime/*.c once per (sources, target, cc) and caches the objects.</summary>
     public string[] RuntimeObjects(string triple) => CompileRuntime(triple, bitcode: false);
 
     /// <summary>
@@ -55,7 +55,7 @@ public sealed class Toolchain(CompilerOptions options)
     public void Link(string triple, string programObject, string output, bool runtimeLinkedIn = false)
     {
         string[] runtime = runtimeLinkedIn ? [] : RuntimeObjects(triple);
-        Run(options.CC, [$"--target={triple}", programObject, .. runtime, "-lm", "-o", output]);
+        Run(options.CC, [$"--target={triple}", programObject, .. runtime, "-lm", "-pthread", "-o", output]);
     }
 
     private void Run(string tool, string[] args)

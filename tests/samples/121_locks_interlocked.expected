@@ -1,0 +1,13 @@
+lock counter: 800000
+interlocked: 800000 1600000
+cas: 600000
+null
+first
+second
+1599999
+Lock: 200000 held=False
+False
+reentrant: True
+True
+SynchronizationLockException
+volatile flag observed

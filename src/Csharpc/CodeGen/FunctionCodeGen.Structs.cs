@@ -323,6 +323,7 @@ public sealed partial class FunctionCodeGen
 
     private LLVMValueRef BuildTuple(ITupleOperation tuple, INamedTypeSymbol type)
     {
+        type = (INamedTypeSymbol)S(type); // `(item1, item2)` typed (T1, T2) inside generic code
         var elements = type.TupleElements;
         if (elements.Length != tuple.Elements.Length) throw CompileError.Unsupported("tuple with more than 7 elements", tuple);
         var result = LlvmContext.Null(T.Value(type));
@@ -334,7 +335,7 @@ public sealed partial class FunctionCodeGen
             {
                 ITupleOperation nested when elementType is INamedTypeSymbol { IsTupleType: true } nestedType => BuildTuple(nested, nestedType),
                 { Type: null } => Constant(null, elementType, element),
-                _ => Coerce(EmitValue(element), element.Type, elementType),
+                _ => Coerce(EmitValue(element), TypeOf(element), elementType),
             };
             result = _b.InsertValue(result, ToStorage(value, elementType), (uint)i);
         }

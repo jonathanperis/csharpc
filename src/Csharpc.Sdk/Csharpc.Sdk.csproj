@@ -2,7 +2,7 @@
   <!--
     Packaging-only project: produces Csharpc.Sdk.nupkg containing
       build/Csharpc.Sdk.{props,targets}  - MSBuild integration (UseCsharpc / PublishCsharpc)
-      tools/csharpc/**                   - the compiler (framework-dependent) + runtime/*.c sources
+      tools/csharpc/**                   - the compiler (framework-dependent) + src/runtime/*.c sources
     Build it with: dotnet pack src/Csharpc.Sdk -o artifacts/packages
   -->
   <PropertyGroup>

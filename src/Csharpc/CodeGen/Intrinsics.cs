@@ -67,8 +67,10 @@ internal static class Intrinsics
         string[] printable = ["string", "object", "int", "long", "uint", "ulong", "bool", "double", "float", "char"];
         foreach (var type in printable)
         {
-            t[$"System.Console.Write({type})"] = (g, inv) => { WriteValue(g, inv.Arguments[0].Value); return default; };
-            t[$"System.Console.WriteLine({type})"] = (g, inv) => { WriteValue(g, inv.Arguments[0].Value); NewLine(g); return default; };
+            // Console.Out is synchronized in .NET: one Write/WriteLine never interleaves with another thread's.
+            // The argument is evaluated first, then the write (+ newline) happens under the stdout lock.
+            t[$"System.Console.Write({type})"] = (g, inv) => { WriteValue(g, inv.Arguments[0].Value, newline: false); return default; };
+            t[$"System.Console.WriteLine({type})"] = (g, inv) => { WriteValue(g, inv.Arguments[0].Value, newline: true); return default; };
         }
         t["System.Console.WriteLine()"] = (g, _) => { NewLine(g); return default; };
         t["System.Console.ReadLine()"] = (g, _) => g.CallRuntime("csrt_console_read_line", g.Module.Llvm.Ptr, []);
@@ -101,6 +103,30 @@ internal static class Intrinsics
         t["System.Array.GetLowerBound(int)"] = (g, inv) => { Arg(g, inv, 0); return g.Module.Llvm.ConstInt(g.Module.Llvm.I32, 0); };
         t["object.ReferenceEquals(object, object)"] = (g, inv) =>
             g.Builder.ICmp(LLVMIntPredicate.EQ, Arg(g, inv, 0), Arg(g, inv, 1));
+        // Enum.HasFlag(flag): (value & flag) == flag on the underlying integers (both arrive boxed to Enum).
+        t["System.Enum.HasFlag(System.Enum)"] = (g, inv) =>
+        {
+            var b = g.Builder;
+            var value = g.EmitValue(UnboxEnum(inv.Instance!));
+            var flag = g.EmitValue(UnboxEnum(inv.Arguments[0].Value));
+            return b.ICmp(LLVMIntPredicate.EQ, b.BinOp(LLVMOpcode.And, value, flag), flag);
+        };
+        t["System.Enum.GetName(System.Type, object)"] = (g, inv) =>
+        {
+            if (inv.Arguments.First(a => a.Parameter!.Ordinal == 0).Value is not ITypeOfOperation { TypeOperand: INamedTypeSymbol { TypeKind: TypeKind.Enum } enumType })
+                throw CompileError.Unsupported("Enum.GetName with a non-constant Type", inv);
+            var raw = UnboxEnum(inv.Arguments.First(a => a.Parameter!.Ordinal == 1).Value);
+            var value = g.Coerce(g.EmitValue(raw), raw.Type, enumType.EnumUnderlyingType!);
+            var lookup = g.Module.EnumNameOrNull(enumType);
+            return g.Builder.Call(lookup.Type, lookup.Fn, [value]);
+        };
+        t["System.Enum.GetName<TEnum>(TEnum)"] = (g, inv) =>
+        {
+            var arg = inv.Arguments[0].Value;
+            var enumType = (INamedTypeSymbol)(g.TypeOf(arg) ?? arg.Type!);
+            var lookup = g.Module.EnumNameOrNull(enumType);
+            return g.Builder.Call(lookup.Type, lookup.Fn, [g.EmitValue(arg)]);
+        };
         t["System.Enum.ToString()"] = (g, inv) =>
             g.ToStringValue(inv.Instance is IConversionOperation { Operand.Type.TypeKind: TypeKind.Enum } boxed ? boxed.Operand : inv.Instance!);
         t["System.Array.GetLength(int)"] = (g, inv) =>
@@ -223,7 +249,7 @@ internal static class Intrinsics
         AddStringMethods(t);
         AddTaskMethods(t);
 
-        // ---- System.Char / parsing (runtime/strings.c) -----------------------------------------
+        // ---- System.Char / parsing (src/runtime/strings.c) -----------------------------------------
         foreach (var (name, fn) in new[] { ("IsDigit", "csrt_char_is_digit"), ("IsLetter", "csrt_char_is_letter"),
                      ("IsLetterOrDigit", "csrt_char_is_letter_or_digit"), ("IsWhiteSpace", "csrt_char_is_white_space"),
                      ("IsUpper", "csrt_char_is_upper"), ("IsLower", "csrt_char_is_lower"), ("IsPunctuation", "csrt_char_is_punctuation") })
@@ -247,7 +273,7 @@ internal static class Intrinsics
                 return g.CallRuntime(fn, l.I1, [l.Ptr, l.Ptr], s, result);
             };
 
-        // ---- System.Text.StringBuilder (runtime/strings.c) -------------------------------------
+        // ---- System.Text.StringBuilder (src/runtime/strings.c) -------------------------------------
         IntrinsicHandler sbAppend(string fn, Func<FunctionCodeGen, IInvocationOperation, LLVMValueRef[]> extra, Func<LlvmContext, LLVMTypeRef[]> types) =>
             (g, inv) =>
             {
@@ -440,7 +466,7 @@ internal static class Intrinsics
         // Only array enumerators exist so far, and they need no disposal. Revisit with interfaces.
         t["System.IDisposable.Dispose()"] = (_, _) => default;
 
-        // ---- System.GC (runtime/gc.c) -----------------------------------------------------------
+        // ---- System.GC (src/runtime/gc.c) -----------------------------------------------------------
         t["System.GC.Collect()"] = (g, _) => { g.CallRuntime("csrt_gc_collect", g.Module.Llvm.Void, []); return default; };
         t["System.GC.GetTotalMemory(bool)"] = (g, inv) =>
         {
@@ -479,6 +505,9 @@ internal static class Intrinsics
         static LLVMValueRef I32(FunctionCodeGen g, int v) => g.Module.Llvm.ConstInt(g.Module.Llvm.I32, v);
         Func<LlvmContext, LLVMTypeRef> ptr = l => l.Ptr, i32 = l => l.I32, i1 = l => l.I1;
 
+        Add("string.Insert(int, string)", "csrt_string_insert", ptr, l => [l.I32, l.Ptr], (g, i) => [Arg(g, i, 0), Arg(g, i, 1)]);
+        Add("string.Remove(int)", "csrt_string_remove", ptr, l => [l.I32, l.I32], (g, i) => [Arg(g, i, 0), I32(g, -1)]);
+        Add("string.Remove(int, int)", "csrt_string_remove", ptr, l => [l.I32, l.I32], (g, i) => [Arg(g, i, 0), Arg(g, i, 1)]);
         Add("string.Substring(int)", "csrt_string_substring_from", ptr, l => [l.I32], (g, i) => [Arg(g, i, 0)]);
         Add("string.Substring(int, int)", "csrt_string_substring", ptr, l => [l.I32, l.I32], (g, i) => [Arg(g, i, 0), Arg(g, i, 1)]);
         Add("string.IndexOf(char)", "csrt_string_index_of_char", i32, l => [l.I16, l.I32], (g, i) => [Arg(g, i, 0), I32(g, 0)]);
@@ -513,7 +542,7 @@ internal static class Intrinsics
         Add("string.Split(char, System.StringSplitOptions)", "csrt_string_split_char", ptr, l => [l.I16, l.I32], (g, i) => [Arg(g, i, 0), Arg(g, i, 1)]);
         Add("string.ToCharArray()", "csrt_string_to_char_array", ptr, _ => [], (_, _) => []);
         Add("string.GetHashCode()", "csrt_string_get_hash_code", i32, _ => [], (_, _) => []);
-        // Culture-sensitive (ICU root collation approximation, runtime/bclmisc.c), like .NET's CompareTo.
+        // Culture-sensitive (ICU root collation approximation, src/runtime/bclmisc.c), like .NET's CompareTo.
         Add("string.CompareTo(string)", "csrt_string_compare_culture", i32, l => [l.Ptr, l.I1], (g, i) => [Arg(g, i, 0), g.Module.Llvm.False]);
 
         t["string.Join(string, string[])"] = (g, inv) =>
@@ -528,7 +557,7 @@ internal static class Intrinsics
         return g.Coerce(g.EmitValue(argument.Value), g.TypeOf(argument.Value), g.S(argument.Parameter!.Type));
     }
 
-    // ---- System.Threading.Tasks (runtime/async.c; docs/10-async.md) ---------------------------
+    // ---- System.Threading.Tasks (src/runtime/async.c; docs/10-async.md) ---------------------------
     private const string Tasks = "System.Threading.Tasks";
     private const string Rcs = "System.Runtime.CompilerServices";
 
@@ -865,16 +894,37 @@ internal static class Intrinsics
         return g.CallRuntime("csrt_sb_append_string", l.Ptr, [l.Ptr, l.Ptr], g.EmitValue(inv.Instance!), joined);
     }
 
+    private static void ConsoleLock(FunctionCodeGen g, bool acquire) =>
+        g.CallRuntime(acquire ? "csrt_console_lock" : "csrt_console_unlock", g.Module.Llvm.Void, []);
+
+    /// <summary>Strips the boxing conversion of an enum/integer value passed as Enum/object.</summary>
+    private static IOperation UnboxEnum(IOperation op)
+    {
+        while (op is IConversionOperation { Operand.Type: { IsValueType: true } } c) op = c.Operand;
+        return op;
+    }
+
     private static void NewLine(FunctionCodeGen g) => g.CallRuntime("csrt_console_newline", g.Module.Llvm.Void, []);
 
-    private static void WriteValue(FunctionCodeGen g, IOperation argument)
+    private static void WriteValue(FunctionCodeGen g, IOperation argument) => WriteValue(g, argument, null);
+
+    /// <summary>Writes a value; with <paramref name="newline"/> set, the write (+ newline) is atomic w.r.t. other threads.</summary>
+    private static void WriteValue(FunctionCodeGen g, IOperation argument, bool? newline)
     {
         var l = g.Module.Llvm;
         var op = FunctionCodeGen.Unbox(argument);
         var type = g.TypeOf(op);
+        void Emit(string name, LLVMTypeRef argType, LLVMValueRef value)
+        {
+            if (newline is null) { g.CallRuntime(name, l.Void, [argType], value); return; }
+            ConsoleLock(g, true);
+            g.CallRuntime(name, l.Void, [argType], value);
+            if (newline == true) NewLine(g);
+            ConsoleLock(g, false);
+        }
         if (op.ConstantValue.HasValue || type is null || type.TypeKind == TypeKind.Enum)
         {
-            g.CallRuntime("csrt_console_write_string", l.Void, [l.Ptr], g.ToStringValue(op));
+            Emit("csrt_console_write_string", l.Ptr, g.ToStringValue(op));
             return;
         }
         (string Name, LLVMTypeRef Type)? direct = type.SpecialType switch
@@ -891,9 +941,9 @@ internal static class Intrinsics
             _ => null,
         };
         if (direct is { } d)
-            g.CallRuntime(d.Name, l.Void, [d.Type], g.EmitValue(op));
+            Emit(d.Name, d.Type, g.EmitValue(op));
         else
-            g.CallRuntime("csrt_console_write_string", l.Void, [l.Ptr], g.ToStringValue(op));
+            Emit("csrt_console_write_string", l.Ptr, g.ToStringValue(op));
     }
 
     private static LLVMValueRef CallUnaryF64(FunctionCodeGen g, string name, LLVMValueRef x)

@@ -37,9 +37,26 @@ public sealed partial class FunctionCodeGen
         return _b.Cast(LLVMOpcode.Trunc, _b.Load(L.I8, result), L.I1);
     }
 
-    private LLVMValueRef BinaryPatternTest(LLVMValueRef value, ITypeSymbol? inputType, IBinaryPatternOperation binary) =>
-        ShortCircuit(binary.OperatorKind != BinaryOperatorKind.Or,
-            [() => PatternTest(value, inputType, binary.LeftPattern), () => PatternTest(value, inputType, binary.RightPattern)]);
+    private LLVMValueRef BinaryPatternTest(LLVMValueRef value, ITypeSymbol? inputType, IBinaryPatternOperation binary)
+    {
+        if (binary.OperatorKind == BinaryOperatorKind.Or)
+            return ShortCircuit(false, [() => PatternTest(value, inputType, binary.LeftPattern), () => PatternTest(value, inputType, binary.RightPattern)]);
+        // `o is int n and > 40`: the right pattern's input is the left pattern's narrowed type.
+        return ShortCircuit(true,
+        [
+            () => PatternTest(value, inputType, binary.LeftPattern),
+            () =>
+            {
+                var narrowed = binary.LeftPattern.NarrowedType is { } n ? S(n) : inputType;
+                var rightValue = value;
+                if (narrowed is { IsValueType: true } && value.Type.IsPointer && !TypeMapper.IsNullable(narrowed))
+                    rightValue = LoadValue(_b.InBoundsGep(L.I8, value, [L.ConstInt(L.I64, 8)]), narrowed); // unbox (test passed)
+                else if (narrowed is not null && inputType is not null && !value.Type.IsPointer)
+                    rightValue = Coerce(value, inputType, narrowed);
+                return PatternTest(rightValue, narrowed ?? inputType, binary.RightPattern);
+            },
+        ]);
+    }
 
     private LLVMValueRef RecursivePatternTest(LLVMValueRef value, ITypeSymbol? inputType, IRecursivePatternOperation pattern)
     {

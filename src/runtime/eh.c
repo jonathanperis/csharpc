@@ -17,6 +17,7 @@
 #define _GNU_SOURCE
 #include "csrt.h"
 
+#include <setjmp.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -48,6 +49,9 @@ DEF_EXC(System_DivideByZeroException, "System.DivideByZeroException", &csrt_MT_S
 DEF_EXC(System_OverflowException, "System.OverflowException", &csrt_MT_System_ArithmeticException.header)
 DEF_EXC(System_InvalidCastException, "System.InvalidCastException", &csrt_MT_System_SystemException.header)
 DEF_EXC(System_FormatException, "System.FormatException", &csrt_MT_System_SystemException.header)
+DEF_EXC(System_Threading_ThreadStateException, "System.Threading.ThreadStateException", &csrt_MT_System_SystemException.header)
+DEF_EXC(System_Threading_SynchronizationLockException, "System.Threading.SynchronizationLockException",
+        &csrt_MT_System_SystemException.header)
 DEF_EXC(System_Collections_Generic_KeyNotFoundException, "System.Collections.Generic.KeyNotFoundException",
         &csrt_MT_System_SystemException.header)
 DEF_EXC(System_OperationCanceledException, "System.OperationCanceledException", &csrt_MT_System_SystemException.header)
@@ -125,8 +129,8 @@ typedef struct {
 } csrt_Throw;
 
 // GC root for the exception currently being propagated (unwind headers live in malloc memory,
-// which the conservative collector doesn't scan). Single-threaded, like the rest of csrt.
-static void* volatile s_in_flight;
+// which the conservative collector doesn't scan). Thread-local: the GC scans every thread's TLS.
+static _Thread_local __attribute__((tls_model("local-exec"))) void* volatile s_in_flight;
 
 static void throw_cleanup(_Unwind_Reason_Code reason, struct _Unwind_Exception* unwind) {
     (void)reason;
@@ -154,6 +158,42 @@ static void* new_exception(const csrt_ExceptionMethodTable* mt, const char* mess
     void* e = csrt_alloc(&mt->header, sizeof(csrt_Exception));
     csrt_exception_init(e, message ? csrt_string_from_utf8(message) : NULL, NULL, NULL);
     return e;
+}
+
+// Exception traps (thread-pool workers): an exception no C# handler catches on this thread runs
+// its finally blocks (forced unwind) and then returns to the innermost csrt_trap_call instead of
+// terminating the process, so Parallel.For can rethrow it on the calling thread.
+typedef struct { jmp_buf env; uintptr_t frame; void* exception; } csrt_Trap;
+static _Thread_local __attribute__((tls_model("local-exec"))) csrt_Trap* tl_trap;
+
+static _Unwind_Reason_Code trap_stop(int version, _Unwind_Action actions, uint64_t exception_class,
+                                     struct _Unwind_Exception* unwind, struct _Unwind_Context* context, void* parameter) {
+    (void)version; (void)exception_class;
+    csrt_Trap* trap = parameter;
+    if ((actions & _UA_END_OF_STACK) || _Unwind_GetCFA(context) > trap->frame) {
+        csrt_Throw* t = (csrt_Throw*)((char*)unwind - offsetof(csrt_Throw, unwind));
+        trap->exception = t->exception;
+        free(t);
+        s_in_flight = NULL;
+        longjmp(trap->env, 1);
+    }
+    return _URC_NO_REASON;
+}
+
+/// Runs fn(arg); returns NULL, or the exception it threw that nothing on this thread caught.
+__attribute__((noinline)) void* csrt_trap_call(void (*fn)(void*), void* arg) {
+    csrt_Trap trap;
+    trap.exception = NULL;
+    trap.frame = (uintptr_t)__builtin_frame_address(0);
+    csrt_Trap* volatile outer = tl_trap;
+    if (setjmp(trap.env) == 0) {
+        tl_trap = &trap;
+        fn(arg);
+        tl_trap = outer;
+        return NULL;
+    }
+    tl_trap = outer;
+    return trap.exception;
 }
 
 /// An exception that escaped an `async void` method: crash like .NET (the finally blocks already ran).
@@ -190,6 +230,7 @@ void csrt_throw_object(void* exception) {
     t->unwind.exception_cleanup = throw_cleanup;
     s_in_flight = exception;
     _Unwind_RaiseException(&t->unwind);
+    if (tl_trap) _Unwind_ForcedUnwind(&t->unwind, trap_stop, tl_trap);  // never returns
     // Only returns when the search phase found no handler: the exception is unhandled. Like .NET,
     // still run the finally blocks on the way out (forced unwind), then report at the stack's end.
     _Unwind_ForcedUnwind(&t->unwind, unhandled_stop, NULL);
@@ -243,6 +284,8 @@ static const csrt_ExceptionMethodTable* const s_by_name[] = {
     &csrt_MT_System_NullReferenceException, &csrt_MT_System_IndexOutOfRangeException,
     &csrt_MT_System_ArithmeticException, &csrt_MT_System_DivideByZeroException, &csrt_MT_System_OverflowException,
     &csrt_MT_System_InvalidCastException, &csrt_MT_System_FormatException,
+    &csrt_MT_System_Collections_Generic_KeyNotFoundException,
+    &csrt_MT_System_Threading_ThreadStateException, &csrt_MT_System_Threading_SynchronizationLockException,
     &csrt_MT_System_Collections_Generic_KeyNotFoundException, &csrt_MT_System_OperationCanceledException,
     &csrt_MT_System_Threading_Tasks_TaskCanceledException, &csrt_MT_System_AggregateException,
 };

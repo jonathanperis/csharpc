@@ -42,8 +42,13 @@ public sealed class Compiler(CompilerOptions options)
                 GlobalUsings = options.ImplicitUsings ? RoslynFrontend.DefaultImplicitUsings : null,
             };
         }
-        var compilation = RoslynFrontend.Analyze(settings);
-        var diagnostics = RoslynFrontend.UserDiagnostics(compilation);
+        // Nullable analysis only produces warnings, never different code. Lowering uses a compilation
+        // with the nullable context disabled: with it enabled, Roslyn's CFG for `lock (System.Threading.Lock)`
+        // inside lambdas degrades to an Invalid operation. Warnings (-W) still come from the real settings.
+        var analyzed = RoslynFrontend.Analyze(settings);
+        var compilation = (Microsoft.CodeAnalysis.CSharp.CSharpCompilation)analyzed.WithOptions(
+            analyzed.Options.WithNullableContextOptions(Microsoft.CodeAnalysis.NullableContextOptions.Disable));
+        var diagnostics = RoslynFrontend.UserDiagnostics(options.ShowWarnings ? analyzed : compilation);
         Phase("parse + bind (Roslyn)");
 
         var errors = 0;
@@ -72,8 +77,12 @@ public sealed class Compiler(CompilerOptions options)
         var codegenCompilation = MethodGroupRewriter.Rewrite(
             compilation.WithOptions(compilation.Options.WithNullableContextOptions(NullableContextOptions.Disable)));
         var codegen = new ModuleCodeGen(codegenCompilation, llvm, module, target) { CfgDump = options.DumpCfg ? Console.Out : null };
+        using var debugInfo = options.Debug
+            ? codegen.Debug = new DebugInfo(codegen, settings.Files.Count > 0 ? settings.Files[0] : "program.cs", options.OptLevel > 0)
+            : null;
         try { codegen.Generate(); }
         catch (CompileError e) { codegen.Errors.Add(e); }
+        debugInfo?.Finish();
         Phase("lower CFG -> LLVM IR");
 
         if (codegen.Errors.Count > 0)

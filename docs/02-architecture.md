@@ -92,13 +92,13 @@ Like rustc and gollvm, csharpc doesn't drive `ld` directly. It runs
 `clang --target=<triple> prog.o <runtime objects> -lm -o out`, and clang supplies the crt objects,
 libc and platform flags.
 
-The runtime (`runtime/*.c`, `*.h`) ships as **source** next to the compiler (copied into
+The runtime (`src/runtime/*.c`, `*.h`) ships as **source** next to the compiler (copied into
 `bin/.../runtime/` by the `.csproj`). It is compiled on first use with
 `clang -c -O2 -std=c11 -fPIC --target=<triple>` and cached under
 `${XDG_CACHE_HOME:-~/.cache}/csharpc/` as `<name>-<hash>.o`. The hash covers the runtime sources,
 the triple and the C compiler path, so cross-targets and runtime edits get fresh objects. (The
 first version handled only `csrt.c`; as the runtime grows, for example with a GC, every `.c` file
-in `runtime/` is compiled.)
+in `src/runtime/` is compiled.)
 
 ## Roslyn's ControlFlowGraph is our MIR
 
@@ -203,7 +203,7 @@ before the capture is read.
 - **`nounwind` everywhere.** Nothing unwinds yet ([ADR 0005](adr/0005-exceptions.md)), so all
   functions get `nounwind`. csrt's `csrt_throw*` helpers are declared `noreturn cold`.
 - **Runtime functions are declared lazily** (`ModuleCodeGen.Runtime`) with the signatures that
-  match `runtime/csrt.h`. LLVM intrinsics (`llvm.sqrt.f64`, `llvm.fptosi.sat.i32.f64`, …) and libm
+  match `src/runtime/csrt.h`. LLVM intrinsics (`llvm.sqrt.f64`, `llvm.fptosi.sat.i32.f64`, …) and libm
   functions are declared the same way.
 
 ## LLVM bindings (`src/Csharpc/Llvm/`)
