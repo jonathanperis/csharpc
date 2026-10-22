@@ -269,6 +269,7 @@ public sealed partial class FunctionCodeGen
     {
         var property = S(p.Property);
         if (TypeMapper.IsNullable(property.ContainingType)) return EmitNullableMember(p);
+        if (property.ContainingType.IsAnonymousType) return AnonymousPropertyGet(p);
         // Generic math constants (T.Zero, T.One...) on a substituted primitive T.
         if (property is { IsStatic: true, ContainingType.TypeKind: TypeKind.Interface } && TypeOf(p) is { SpecialType: not SpecialType.None } numeric
             && property.Name is "Zero" or "One" or "AdditiveIdentity" or "MultiplicativeIdentity")
