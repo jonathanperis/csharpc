@@ -199,7 +199,7 @@ public sealed partial class FunctionCodeGen
         { SpecialType: SpecialType.System_Object } => _m.ExternalGlobal("csrt_Object_MT"),
         _ when IsBoxablePrimitive(type) => _m.ExternalGlobal($"csrt_Boxed_{type.MetadataName}_MT"),
         _ when BclValueTypes.IsDecimal(type) || BclValueTypes.IsTicks(type) => _m.TypeMethodTable(type, at),
-        { TypeKind: TypeKind.Enum } => throw CompileError.Unsupported($"boxing enum '{type}'", at),
+        INamedTypeSymbol { TypeKind: TypeKind.Enum } e => _m.EnumMethodTable(e),
         INamedTypeSymbol { TypeKind: TypeKind.Class } named when _m.IsUserType(named) => _m.GetLayout(named).MethodTable,
         INamedTypeSymbol { TypeKind: TypeKind.Struct } named when _m.IsUserType(named) => _m.StructMethodTable(named),
         _ => throw CompileError.Unsupported($"type test against '{type}'", at),

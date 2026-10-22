@@ -6,6 +6,42 @@ namespace Csharpc.CodeGen;
 public sealed partial class ModuleCodeGen
 {
     private readonly Dictionary<string, LLVMValueRef> _arrayMethodTables = [];
+    private readonly Dictionary<INamedTypeSymbol, LLVMValueRef> _enumMethodTables = new(SymbolEqualityComparer.Default);
+
+    /// <summary>
+    /// Method table for boxed enums: { csrt_Object_MT, "Ns.Color", 8 + size, 0, [ToString, Equals, GetHashCode] }.
+    /// ToString formats the payload by name (EnumFormatter); equality/hash are bytewise on the payload.
+    /// </summary>
+    public LLVMValueRef EnumMethodTable(INamedTypeSymbol enumType)
+    {
+        enumType = enumType.OriginalDefinition;
+        if (_enumMethodTables.TryGetValue(enumType, out var existing)) return existing;
+        var underlying = enumType.EnumUnderlyingType!;
+        var valueType = Types.Value(underlying);
+        var mtType = Llvm.Struct(Llvm.Ptr, Llvm.Ptr, Llvm.I32, Llvm.I32, LlvmContext.Array(Llvm.Ptr, ClassLayout.ObjectSlotCount));
+        var global = Module.AddGlobal(Mangler.TypeSymbol(enumType, "BoxMT"), mtType, constant: true, linkage: LLVMLinkage.Internal);
+        _enumMethodTables[enumType] = global;
+
+        // ToString thunk: (box) => EnumFormatter(*(T*)(box + 8))
+        var thunkType = Llvm.FunctionType(Llvm.Ptr, Llvm.Ptr);
+        var thunk = Module.AddFunction(Mangler.TypeSymbol(enumType, "BoxToString"), thunkType);
+        Native.LLVMSetLinkage(thunk, LLVMLinkage.Internal);
+        using (var b = new IrBuilder(Llvm))
+        {
+            b.PositionAtEnd(b.AppendBlock(thunk, "entry"));
+            var payload = b.Load(valueType, b.InBoundsGep(Llvm.I8, thunk.Param(0), [Llvm.ConstInt(Llvm.I64, 8)]));
+            var formatter = EnumFormatter(enumType);
+            b.Ret(b.Call(formatter.Type, formatter.Fn, [payload]));
+        }
+        Native.LLVMSetInitializer(global, Llvm.ConstStruct(
+            ExternalGlobal("csrt_Object_MT"),
+            CString(Mangler.MetadataName(enumType)),
+            Llvm.ConstInt(Llvm.I32, 8 + (long)Types.Target.SizeOf(valueType)),
+            Llvm.ConstInt(Llvm.I32, 0),
+            LlvmContext.ConstArray(Llvm.Ptr, thunk, Runtime("csrt_valuetype_equals", Llvm.I1, Llvm.Ptr, Llvm.Ptr).Fn,
+                Runtime("csrt_valuetype_get_hash_code", Llvm.I32, Llvm.Ptr).Fn)));
+        return global;
+    }
 
     /// <summary>CLR full name as Type.FullName reports it: "System.Int32", "Program+Nested", "System.String[]".</summary>
     public static string ClrName(ITypeSymbol type) => type switch
@@ -50,6 +86,7 @@ public sealed partial class ModuleCodeGen
         return type switch
         {
             IArrayTypeSymbol array => ArrayMethodTable(array.ElementType),
+            INamedTypeSymbol { TypeKind: TypeKind.Enum } e => EnumMethodTable(e),
             INamedTypeSymbol { TypeKind: TypeKind.Class } c when IsUserType(c) && !c.IsStatic && !c.IsGenericType => GetLayout(c).MethodTable,
             INamedTypeSymbol { TypeKind: TypeKind.Struct } s when IsUserType(s) && !s.IsGenericType => StructMethodTable(s),
             INamedTypeSymbol named => LibraryTypeMethodTable(named.OriginalDefinition),
