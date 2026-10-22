@@ -1,0 +1,42 @@
+[{0}] -> [42]
+[{0,5}|{1,-6}|{2:F1}] -> [   42|text  |-1.5]
+[{{0}}] -> [{0}]
+[a}}b{{c] -> [a}b{c]
+[}] -> FormatException: Input string was not in a correct format. Failure to parse near offset 1. Format item ends prematurely.
+[a}b] -> FormatException: Input string was not in a correct format. Failure to parse near offset 2. Unexpected closing brace without a corresponding opening brace.
+[x}] -> FormatException: Input string was not in a correct format. Failure to parse near offset 2. Format item ends prematurely.
+[{] -> FormatException: Input string was not in a correct format. Failure to parse near offset 1. Format item ends prematurely.
+[{{] -> [{]
+[{0] -> FormatException: Input string was not in a correct format. Failure to parse near offset 2. Format item ends prematurely.
+[{0,] -> FormatException: Input string was not in a correct format. Failure to parse near offset 3. Format item ends prematurely.
+[{0,-] -> FormatException: Input string was not in a correct format. Failure to parse near offset 4. Format item ends prematurely.
+[{0, 5] -> FormatException: Input string was not in a correct format. Failure to parse near offset 5. Format item ends prematurely.
+[{0:] -> FormatException: Input string was not in a correct format. Failure to parse near offset 3. Format item ends prematurely.
+[{0:N] -> FormatException: Input string was not in a correct format. Failure to parse near offset 4. Format item ends prematurely.
+[{a}] -> FormatException: Input string was not in a correct format. Failure to parse near offset 1. Expected an ASCII digit.
+[{ 0}] -> FormatException: Input string was not in a correct format. Failure to parse near offset 1. Expected an ASCII digit.
+[{0 }] -> [42]
+[{0 ,3}] -> [ 42]
+[{0, -3 }] -> [42 ]
+[{0,x}] -> FormatException: Input string was not in a correct format. Failure to parse near offset 3. Expected an ASCII digit.
+[{0,-x}] -> FormatException: Input string was not in a correct format. Failure to parse near offset 4. Expected an ASCII digit.
+[{0x}] -> FormatException: Input string was not in a correct format. Failure to parse near offset 2. Format item ends prematurely.
+[{0:{}] -> FormatException: Input string was not in a correct format. Failure to parse near offset 3. Format item ends prematurely.
+[{0:a{b}] -> FormatException: Input string was not in a correct format. Failure to parse near offset 4. Format item ends prematurely.
+[{3}] -> FormatException: Index (zero based) must be greater than or equal to zero and less than the size of the argument list.
+[{1000000}] -> FormatException: Index (zero based) must be greater than or equal to zero and less than the size of the argument list.
+[{9999999}] -> FormatException: Index (zero based) must be greater than or equal to zero and less than the size of the argument list.
+[{0,10000000}] -> FormatException: Input string was not in a correct format. Failure to parse near offset 10. Format item ends prematurely.
+[{0,1000}] -> [                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      42]
+[{0,99999999}] -> FormatException: Input string was not in a correct format. Failure to parse near offset 10. Format item ends prematurely.
+[{-1}] -> FormatException: Input string was not in a correct format. Failure to parse near offset 1. Expected an ASCII digit.
+[{0}{] -> FormatException: Input string was not in a correct format. Failure to parse near offset 4. Format item ends prematurely.
+[ab{0}}] -> FormatException: Input string was not in a correct format. Failure to parse near offset 6. Format item ends prematurely.
+[{0}{1}{2}{] -> FormatException: Input string was not in a correct format. Failure to parse near offset 10. Format item ends prematurely.
+[{0:X.}] -> [X42]
+[{2:E}{] -> FormatException: Input string was not in a correct format. Failure to parse near offset 6. Format item ends prematurely.
+[{1,3:abc}] -> [text]
+[{0:}] -> [42]
+[{0,0}] -> [42]
+[{00}] -> [42]
+[{01}] -> [text]
