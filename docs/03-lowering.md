@@ -272,14 +272,90 @@ of the constructor body, which already contains the `: base(...)` call. The comp
 default constructor runs the initializers and then calls the base class's parameterless constructor
 (`EmitImplicitConstructor`). The call to `object..ctor()` is a no-op.
 
-Not supported yet: interfaces, structs, generic classes, records, primary constructors, static
-classes as instances (static classes themselves work), and deriving from library classes.
+Not supported yet: structs, records, and deriving from library classes. Generic classes and
+interfaces are covered below.
+
+## Generics (monomorphization)
+
+Generic code is compiled per instantiation, like Rust and C++ templates (and like NativeAOT for
+value-type instantiations): `Stack<int>`, `Stack<string>` and `Max<double>` each get their own
+LLVM functions, instance layout and method table. There is no shared generic code and no runtime
+generic dictionary. See `src/Csharpc/CodeGen/Generics.cs`.
+
+* **Substitution.** Roslyn hands us the CFG of the generic *definition*, whose types mention type
+  parameters. `TypeSubstitution.For(method)` builds the map T → argument from a constructed method
+  (its own type arguments plus those of every containing type). `FunctionCodeGen` runs every type
+  and symbol it reads through `S(...)` / `TypeOf(op)`: operation types, local and parameter types,
+  and target methods, fields and properties. Members of constructed types are re-resolved through
+  the constructed type's `GetMembers()`, so `Box<T>.Value` inside the body becomes `Box<int>.Value`.
+* **Keys.** Functions, layouts, method tables and static fields in generic contexts are keyed by
+  the *constructed* symbol. Non-generic code keeps keying by `OriginalDefinition`.
+* **Worklist.** `GetFunction` on a constructed method declares it and queues the body
+  (`_pendingInstantiations`). Layouts and method tables for constructed classes are created on
+  first use, and building a method table pulls in the class's virtual methods. Generation therefore
+  starts at `Main` and only instantiates what is reachable.
+* **Lambdas and local functions** in generic code are emitted once per enclosing substitution.
+  They are keyed by (symbol, substitution) in `GetNestedFunction`, and closure environment layouts
+  are built per substitution (`EnvScope.TypeFor`). A generic local function adds its own type
+  arguments and is instantiated on first use.
+* **Mangling.** Type arguments are appended Itanium-style: `I<types>E` after a generic type or
+  method name, e.g. `_CN5Stack1`I` + `iE4PushEi` for `Stack<int>.Push(int)`. The runtime type name
+  follows the CLR format: ``Box`1[System.Int32]`` (that's what `object.ToString()` prints in .NET).
+* **Constrained calls.** After substitution `T` is concrete:
+  * `x.CompareTo(y)` with `T : IComparable<T>` is devirtualized: a direct call for user types, and
+    a few instructions for primitives (`int.CompareTo` and friends are intrinsics).
+  * `x.ToString()` / `Equals` / `GetHashCode` on a value-type `T` format the primitive directly or
+    box it.
+  * Generic math (`T : INumber<T>`): operators and `T.Zero`/`T.One` bind to static abstract
+    interface members. Once `T` is a primitive, csharpc emits the built-in instruction.
+* `new T()`, `default(T)`, `is T`/`as T`, `T[]`, nested generic types (`Outer<T>.Inner`) and
+  generic base classes all work.
+* Not yet: static field initializers and static constructors in generic types, variance, and
+  generic virtual methods (they would need per-instantiation vtable slots).
+
+## Interfaces
+
+Each interface has an identity "method table": a constant global flagged `CSRT_MT_INTERFACE`.
+Every constructed generic interface (`IComparable<Version>`) gets its own. Every class method table
+carries an **interface map**, and the method-table header grew to hold it (shared by
+`TypeMapper.MethodTableHeader`, `ModuleCodeGen.EmitMethodTable` and `csrt_MethodTable` in
+`runtime/csrt.h`):
+
+```
+{ ptr base, ptr name, i32 size, i32 flags, ptr interfaces, i32 interface_count, i32 reserved, [N x ptr] vtable }
+interfaces: [count x { ptr interface_MT, ptr slot_table }]   ; flattened over bases and interface inheritance
+slot_table: [members x ptr]                                   ; implementations, in interface member order
+```
+
+The vtable now starts at offset 40.
+
+* **Dispatch** (`Interfaces.cs`): `slots = csrt_interface_slots(obj, @IFoo.IMT)` does a linear scan
+  of a short map. The call then loads `slots[i]` and calls it indirectly. We chose this over
+  per-interface fixed itable offsets (which need a global coloring pass) and over hashed dispatch
+  cells: it's simple, it handles any number of interfaces, and most calls never reach it (see
+  devirtualization). A fast path that LLVM can see, caching the last (MT → slots) pair, is a
+  possible later improvement.
+* **Implementations** come from Roslyn's `FindImplementationForInterfaceMember`. When the
+  implementation is virtual, the slot takes the class's *vtable* entry, so overrides in derived
+  classes are honoured. Explicit implementations, default interface methods (compiled with an
+  interface-typed `this`) and interface inheritance all work.
+* **Devirtualization.** If the receiver's static type (after substitution, and after peeling the
+  implicit conversion to the interface) is a class or primitive, csharpc resolves the
+  implementation at compile time. That covers every constrained generic call.
+* **Type tests**: `csrt_isinst_class` checks the interface map when the target method table is
+  flagged as an interface, so `is IFoo`, `as IFoo` (`IConversionOperation.IsTryCast`) and casts work.
+* **foreach over user collections**: the pattern-based `GetEnumerator` (direct user calls), and
+  `IEnumerable<T>`/`IEnumerator<T>`/`IDisposable` implemented by user types (interface dispatch).
+  Arrays and strings keep their stack-enumerator fast path.
+* Not yet: boxed primitives and structs implementing interfaces (boxed method tables have no
+  interface map), arrays used through `IEnumerable<T>`, and library classes implementing
+  interfaces.
 
 ## Virtual dispatch
 
 A virtual call loads the method table, indexes the vtable at
 `sizeof(header) + slot * sizeof(ptr)`, and calls indirectly (`VirtualCall` in
-`FunctionCodeGen.Calls.cs`). Here, `a.Sound()` with `Sound` in slot 3 is at offset 24 + 3·8 = 48:
+`FunctionCodeGen.Calls.cs`). The header is 40 bytes (see [Interfaces](#interfaces)); the listing below predates the interface-map fields, when it was 24 bytes and `a.Sound()` in slot 3 sat at offset 24 + 3·8 = 48:
 
 ```llvm
 bb1:

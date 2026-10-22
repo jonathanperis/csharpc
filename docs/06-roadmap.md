@@ -39,8 +39,8 @@ table when a feature lands.**
 | Static fields and static constructors | 🟡 | eager initialization before `Main` (deviation) |
 | Properties (auto, computed, get-only), indexers on user types | ✅ | |
 | Structs | 🔜 | M1 |
-| Interfaces | 🔜 | M1: itables / interface dispatch |
-| Generics | 🔜 | M1: monomorphization |
+| Interfaces | ✅ | interface maps + `csrt_interface_slots`, devirtualized when the receiver type is known; DIMs, explicit impls |
+| Generics | ✅ | monomorphization (classes, methods, local functions, constraints, generic math on primitives); no statics initializers in generic types yet |
 | Records | ⏳ | after structs, interfaces and generics |
 | Nullable value types (`int?`) | 🔜 | needs generics and structs |
 | Tuples, deconstruction | 🔜 | |
@@ -58,7 +58,7 @@ table when a feature lands.**
 | Patterns: constant, relational, `and`/`or`/`not`, type, declaration, `var` | ✅ | |
 | Property/positional/list patterns | ⏳ | |
 | `foreach` over arrays | 🔜 | Roslyn lowers it to an enumerator inside try/finally; needs `finally` |
-| `foreach` over `IEnumerable<T>` | ⏳ | interfaces + generics + corelib |
+| `foreach` over `IEnumerable<T>` | 🟡 | user collections (pattern or interfaces) ✅; arrays as `IEnumerable<T>` and library collections ⏳ |
 | `try`/`finally`, `using`, `lock` | 🔜 | M1 |
 | `throw` of library exceptions | 🟡 | terminates the process like an unhandled exception |
 | `try`/`catch`, user exception types, rethrow | 🔜 | M1, [ADR 0005](adr/0005-exceptions.md) |
