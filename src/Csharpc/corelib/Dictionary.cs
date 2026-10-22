@@ -52,6 +52,12 @@ namespace CsharpcCoreLib
             return min;
         }
 
+        /// <summary>.NET's FastMod: value % divisor via 64-bit multiply-high (no hardware divide).</summary>
+        public static ulong GetFastModMultiplier(uint divisor) => ulong.MaxValue / divisor + 1;
+
+        public static uint FastMod(uint value, uint divisor, ulong multiplier) =>
+            (uint)(((((multiplier * value) >> 32) + 1) * divisor) >> 32);
+
         public static int ExpandPrime(int oldSize)
         {
             int newSize = 2 * oldSize;
@@ -113,6 +119,7 @@ namespace CsharpcCoreLib
         private const int StartOfFreeList = -3;
 
         private int[] _buckets;
+        private ulong _fastModMultiplier;
         internal Entry[] _entries;
         internal int _count;
         private int _freeList;
@@ -185,6 +192,7 @@ namespace CsharpcCoreLib
             _freeList = -1;
             _buckets = new int[size];
             _entries = new Entry[size];
+            _fastModMultiplier = HashHelpers.GetFastModMultiplier((uint)size);
             return size;
         }
 
@@ -193,7 +201,7 @@ namespace CsharpcCoreLib
             if (key == null) ThrowHelper.ArgumentNull("key");
             if (_buckets == null) return -1;
             uint hashCode = Hash(key);
-            int i = _buckets[(int)(hashCode % (uint)_buckets.Length)] - 1;
+            int i = _buckets[(int)HashHelpers.FastMod(hashCode, (uint)_buckets.Length, _fastModMultiplier)] - 1;
             Entry[] entries = _entries;
             while ((uint)i < (uint)entries.Length)
             {
@@ -209,7 +217,7 @@ namespace CsharpcCoreLib
             if (key == null) ThrowHelper.ArgumentNull("key");
             if (_buckets == null) Initialize(0);
             uint hashCode = Hash(key);
-            int bucket = (int)(hashCode % (uint)_buckets.Length);
+            int bucket = (int)HashHelpers.FastMod(hashCode, (uint)_buckets.Length, _fastModMultiplier);
             int i = _buckets[bucket] - 1;
             while ((uint)i < (uint)_entries.Length)
             {
@@ -238,7 +246,7 @@ namespace CsharpcCoreLib
                 if (_count == _entries.Length)
                 {
                     Resize(HashHelpers.ExpandPrime(_count));
-                    bucket = (int)(hashCode % (uint)_buckets.Length);
+                    bucket = (int)HashHelpers.FastMod(hashCode, (uint)_buckets.Length, _fastModMultiplier);
                 }
                 index = _count;
                 _count++;
@@ -258,11 +266,12 @@ namespace CsharpcCoreLib
             int count = _count;
             for (int i = 0; i < count; i++) entries[i] = _entries[i];
             _buckets = new int[newSize];
+            _fastModMultiplier = HashHelpers.GetFastModMultiplier((uint)newSize);
             for (int i = 0; i < count; i++)
             {
                 if (entries[i].next >= -1)
                 {
-                    int bucket = (int)(entries[i].hashCode % (uint)newSize);
+                    int bucket = (int)HashHelpers.FastMod(entries[i].hashCode, (uint)newSize, _fastModMultiplier);
                     entries[i].next = _buckets[bucket] - 1;
                     _buckets[bucket] = i + 1;
                 }
@@ -318,7 +327,7 @@ namespace CsharpcCoreLib
             if (_buckets != null)
             {
                 uint hashCode = Hash(key);
-                int bucket = (int)(hashCode % (uint)_buckets.Length);
+                int bucket = (int)HashHelpers.FastMod(hashCode, (uint)_buckets.Length, _fastModMultiplier);
                 int last = -1;
                 int i = _buckets[bucket] - 1;
                 while (i >= 0)
