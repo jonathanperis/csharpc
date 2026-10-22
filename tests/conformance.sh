@@ -18,7 +18,7 @@ exec python3 - "$@" <<'PYEOF'
 import argparse, collections, concurrent.futures as cf, json, os, re, subprocess, sys, tempfile, time
 
 ROOT = os.environ["CONF_ROOT"]
-CONF = os.path.join(ROOT, "tests", "conformance")
+CONF = os.path.join(ROOT, "tests", os.environ.get("CONF_CORPUS", "conformance"))
 DOTNET = os.environ.get("DOTNET", "dotnet")
 WARNING = re.compile(r"^\S+\(\d+,\d+\): warning ")
 

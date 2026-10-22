@@ -1,0 +1,2 @@
+Cannot read the Value property of a Nullable object that has no value. Check HasValue before reading Value.
+InvalidOperationException

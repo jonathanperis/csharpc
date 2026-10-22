@@ -59,9 +59,12 @@ csrt_String* csrt_type_full_name(TypeObject* t) { const char* n = full_name(t); 
 csrt_String* csrt_type_name(TypeObject* t) {
     const char* n = full_name(t);
     const char* start = n;
-    for (const char* p = n; *p && *p != '['; p++)
+    const char* end = n + strlen(n);
+    for (const char* p = n; *p; p++) {
+        if (*p == '[' && p[1] != ']' && p[1] != ',') { end = p; break; }  // generic arguments: List`1[System.Int32]
         if (*p == '.' || *p == '+') start = p + 1;
-    return from_ascii(start, strlen(start));
+    }
+    return from_ascii(start, (size_t)(end - start));
 }
 
 /// Type.Namespace: the part of the top-level type name before its last '.'; null if none.

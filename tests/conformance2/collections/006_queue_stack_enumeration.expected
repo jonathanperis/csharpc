@@ -1,0 +1,3 @@
+2,3,4 peek=2
+4,3,2,1 peek=4 arr=4,3,2,1
+Stack empty.

@@ -1,0 +1,3 @@
+{ Word = apple, Length = 5 }
+{ Word = banana, Length = 6 }
+True False

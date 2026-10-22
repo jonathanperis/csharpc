@@ -295,7 +295,30 @@ void csrt_throw(const csrt_MethodTable* type, csrt_String* message) {
     for (size_t i = 0; type && i < sizeof s_by_name / sizeof *s_by_name; i++)
         if (strcmp(s_by_name[i]->header.name, type->name) == 0) mt = s_by_name[i];
     void* e = csrt_alloc(&mt->header, sizeof(csrt_Exception));
-    csrt_exception_init(e, message, NULL, NULL);
+    // Runtime messages carry ArgumentException's " (Parameter 'x')" suffix: split it into ParamName
+    // (Message re-appends it, so the text is unchanged).
+    csrt_String* param = NULL;
+    if (message && message->length > 15) {
+        static const char suffix_start[] = " (Parameter '";
+        int32_t n = message->length;
+        if (message->chars[n - 1] == ')' && message->chars[n - 2] == '\'') {
+            for (int32_t i = n - 3; i >= 0; i--) {
+                bool match = i + 13 <= n;
+                for (int k = 0; match && k < 13; k++) if (message->chars[i + k] != (uint16_t)suffix_start[k]) match = false;
+                if (!match) continue;
+                int32_t plen = n - 2 - (i + 13);
+                param = csrt_alloc(&csrt_String_MT.header, (int64_t)(sizeof(csrt_String) + 2 * (size_t)plen));
+                param->length = plen;
+                memcpy(param->chars, message->chars + i + 13, 2 * (size_t)plen);
+                csrt_String* head = csrt_alloc(&csrt_String_MT.header, (int64_t)(sizeof(csrt_String) + 2 * (size_t)i));
+                head->length = i;
+                memcpy(head->chars, message->chars, 2 * (size_t)i);
+                message = head;
+                break;
+            }
+        }
+    }
+    csrt_exception_init(e, message, NULL, param);
     csrt_throw_object(e);
 }
 

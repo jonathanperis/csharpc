@@ -40,6 +40,19 @@ public sealed partial class ModuleCodeGen
     private int _lambdaCounter;
     private readonly List<INamedTypeSymbol> _userTypes = [];
 
+    /// <summary>Non-generic user classes deriving from (or equal to) <paramref name="root"/>, most-derived first.</summary>
+    internal IEnumerable<INamedTypeSymbol> ClassesDerivedFrom(INamedTypeSymbol root)
+    {
+        static int Depth(INamedTypeSymbol t) { var d = 0; for (var b = t.BaseType; b is not null; b = b.BaseType) d++; return d; }
+        bool Derives(INamedTypeSymbol t)
+        {
+            for (INamedTypeSymbol? b = t; b is not null; b = b.BaseType)
+                if (SymbolEqualityComparer.Default.Equals(b.OriginalDefinition, root.OriginalDefinition)) return true;
+            return false;
+        }
+        return _userTypes.Where(t => t.TypeKind == TypeKind.Class && !t.IsGenericType && !t.IsStatic && Derives(t)).OrderByDescending(Depth);
+    }
+
     public ModuleCodeGen(Compilation compilation, LlvmContext llvm, LlvmModule module, TargetMachine target)
     {
         Compilation = compilation;
@@ -565,6 +578,7 @@ public sealed partial class ModuleCodeGen
         foreach (var m in type.GetMembers().OfType<IMethodSymbol>())
         {
             if (!(m.IsVirtual || m.IsAbstract || m.IsOverride)) continue;
+            if (m.IsGenericMethod) continue; // generic virtuals: closed-world type switch at call sites (GenericVirtualCall)
             var root = RootOf(m);
             if (m.IsOverride)
             {
@@ -878,7 +892,7 @@ public sealed partial class ModuleCodeGen
             graphs.AddRange(InitializerGraphs(t, isStatic: true));
             cctors.AddRange(t.StaticConstructors.Where(c => !c.IsImplicitlyDeclared));
         }
-        foreach (var t in _userTypes.Where(t => t.TypeKind is TypeKind.Class or TypeKind.Struct))
+        foreach (var t in _userTypes.Where(t => t.TypeKind is TypeKind.Class or TypeKind.Struct or TypeKind.Interface))
         {
             if (TypeSubstitution.IsGenericContext(t))
             {
@@ -962,6 +976,27 @@ public sealed partial class ModuleCodeGen
 
         var init = Runtime("csrt_init", Llvm.Void, Llvm.I32, Llvm.Ptr);
         b.Call(init.Type, init.Fn, [main.Param(0), main.Param(1)]);
+        // Builtin types implementing the program's interfaces (string, boxed primitives, typed arrays):
+        // Roslyn's conversion classification decides, so variance (string[] as IEnumerable<object>) is covered.
+        SpecialType[] primitives = [SpecialType.System_Int32, SpecialType.System_Int64, SpecialType.System_Double, SpecialType.System_Boolean,
+            SpecialType.System_Char, SpecialType.System_Single, SpecialType.System_Int16, SpecialType.System_UInt16, SpecialType.System_UInt32,
+            SpecialType.System_UInt64, SpecialType.System_Byte, SpecialType.System_SByte];
+        var builtins = new List<(ITypeSymbol Type, LLVMValueRef MT)> { (Compilation.GetSpecialType(SpecialType.System_String), ExternalGlobal("csrt_String_MT")) };
+        foreach (var sp in primitives) builtins.Add((Compilation.GetSpecialType(sp), ExternalGlobal($"csrt_Boxed_{Compilation.GetSpecialType(sp).MetadataName}_MT")));
+        foreach (var (element, mt) in _typedArrays.ToList()) builtins.Add((Compilation.CreateArrayTypeSymbol(element), mt));
+        foreach (var itf in _interfaceTables.Keys.ToList())
+            foreach (var (builtinType, mt) in builtins)
+            {
+                var conversion = Compilation.ClassifyCommonConversion(builtinType, itf);
+                if (!conversion.Exists || !conversion.IsImplicit || conversion.IsUserDefined) continue;
+                if (builtinType is IArrayTypeSymbol { Rank: 1 }) RequestArrayInterface(itf);
+                else if (builtinType.SpecialType == SpecialType.System_String) RequestStringInterface(itf);
+                var registerBuiltin = Runtime("csrt_register_builtin_interface", Llvm.Void, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr);
+                var slots = builtinType.SpecialType != SpecialType.System_String && builtinType is not IArrayTypeSymbol
+                    ? PrimitiveInterfaceSlots(builtinType, itf) : LlvmContext.Null(Llvm.Ptr);
+                b.Call(registerBuiltin.Type, registerBuiltin.Fn, [mt, InterfaceMethodTable(itf), slots]);
+            }
+
         // Generic variance descriptors (see csrt.c). Registering may create more interface MTs: iterate to a fixed point.
         for (var i = 0; i < _variantInterfaces.Count; i++)
         {
@@ -1010,6 +1045,12 @@ public sealed partial class ModuleCodeGen
 
         var shutdown = Runtime("csrt_shutdown", Llvm.Void);
         b.Call(shutdown.Type, shutdown.Fn, []);
-        b.Ret(returnsVoid ? Llvm.ConstInt(Llvm.I32, 0) : result);
+        LLVMValueRef exitCode = result;
+        if (returnsVoid)
+        {
+            var getExit = Runtime("csrt_environment_get_exit_code", Llvm.I32);
+            exitCode = b.Call(getExit.Type, getExit.Fn, []); // Environment.ExitCode (0 unless set)
+        }
+        b.Ret(exitCode);
     }
 }

@@ -70,6 +70,20 @@ static void exact_digits(double v, Digits* out) {
     out->exp10 = exp + 1;
 }
 
+// Exact digits of an integer magnitude (no double round-trip: long.MaxValue stays exact).
+static void integer_digits(uint64_t mag, bool neg, Digits* out) {
+    char tmp[32];
+    snprintf(tmp, sizeof tmp, "%llu", (unsigned long long)mag);
+    int n = (int)strlen(tmp);
+    out->neg = neg;
+    out->half_up = false;
+    if (mag == 0) { out->n = 0; out->exp10 = 1; return; }
+    memcpy(out->d, tmp, (size_t)n);
+    out->exp10 = n;
+    while (n > 1 && out->d[n - 1] == '0') n--;
+    out->n = n;
+}
+
 // Round to keep `keep` digits total (may be <= 0), half away from zero. Updates exp on carry.
 static void round_digits(Digits* g, int keep) {
     if (keep >= g->n) return;
@@ -113,7 +127,7 @@ static void emit_fixed(Buf* b, Digits g, int decimals, bool group) {
 static void emit_exponent(Buf* b, Digits g, int decimals, char e, int min_exp_digits) {
     if (g.n == 0) { g.exp10 = 1; }
     round_digits(&g, decimals + 1);
-    if (g.neg && g.n) put(b, '-');
+    if (g.neg) put(b, '-');  // negative zero keeps its sign, as in .NET Core 3.0+
     put(b, g.n ? g.d[0] : '0');
     if (decimals > 0) { put(b, '.'); for (int i = 1; i <= decimals; i++) put(b, digit_at(&g, i)); }
     int exp = g.n ? g.exp10 - 1 : 0;
@@ -135,9 +149,18 @@ static bool is_custom(const char* f) {
 static void emit_custom_digits(Buf* b, Digits g, const char* f);
 
 static void emit_custom(Buf* b, double v, const char* f) {
-    bool percent = strchr(f, '%') != NULL;
-    Digits g; exact_digits(percent ? v * 100 : v, &g);
+    Digits g; exact_digits(v, &g);   // % / per-mille / ',' scaling is applied per section, on exact digits
     emit_custom_digits(b, g, f);
+}
+
+/// Invariant currency: "¤1,234.50" / negative pattern 0: "(¤1,234.50)".
+static void emit_currency(Buf* b, Digits g, int decimals) {
+    bool negative = g.neg;
+    g.neg = false;
+    if (negative) put(b, '(');
+    put(b, (char)0xA4);
+    emit_fixed(b, g, decimals, true);
+    if (negative) put(b, ')');
 }
 
 static void emit_custom_section(Buf* b, Digits g, const char* f);
@@ -163,42 +186,94 @@ static void emit_custom_digits(Buf* b, Digits g, const char* f) {
 }
 
 static void emit_custom_section(Buf* b, Digits g, const char* f) {
-    // Analyse the pattern: integer placeholders, decimal placeholders, grouping, percent.
-    int int_zeros = 0, dec_zeros = 0, dec_hashes = 0;
-    bool group = false, percent = false, seen_point = false, seen_digit = false;
-    const char* first = NULL; const char* last = NULL;
-    for (const char* p = f; *p; p++) {
+    // Tokenize: '0' '#' placeholders, '.', ',', '%', and literals (quoted text, \x escapes, other chars).
+    enum { T_ZERO, T_HASH, T_POINT, T_COMMA, T_PERCENT, T_LIT };
+    struct { int kind; char c; } tok[256];
+    int nt = 0;
+    for (const char* p = f; *p && nt < 255; p++) {
         char c = *p;
-        if (c == '0' || c == '#') {
-            if (!first) first = p;
-            last = p;
-            seen_digit = true;
-            if (seen_point) { if (c == '0') { dec_zeros += 1 + dec_hashes; dec_hashes = 0; } else dec_hashes++; }
-            else if (c == '0') int_zeros++;
-            else if (int_zeros) int_zeros++;  // "0#" counts as required
-        } else if (c == '.' && !seen_point) { seen_point = true; if (!first) first = p; last = p; }
-        else if (c == ',' && !seen_point && seen_digit) group = true;
-        else if (c == '%') percent = true;
+        if (c == '\'' || c == '"') { char q = c; for (p++; *p && *p != q && nt < 255; p++) { tok[nt].kind = T_LIT; tok[nt++].c = *p; } if (!*p) break; continue; }
+        if (c == '\\') { if (p[1]) { tok[nt].kind = T_LIT; tok[nt++].c = *++p; } continue; }
+        tok[nt].c = c;
+        tok[nt++].kind = c == '0' ? T_ZERO : c == '#' ? T_HASH : c == '.' ? T_POINT : c == ',' ? T_COMMA : c == '%' ? T_PERCENT : T_LIT;
     }
-    (void)percent;
-    int decimals = dec_zeros + dec_hashes;
+    int point = -1, first_ph = -1, last_int_ph = -1;
+    for (int i = 0; i < nt; i++) {
+        if (tok[i].kind == T_POINT && point < 0) point = i;
+        if ((tok[i].kind == T_ZERO || tok[i].kind == T_HASH)) { if (first_ph < 0) first_ph = i; if (point < 0) last_int_ph = i; }
+    }
+    int int_end = point >= 0 ? point : nt;
+    // Commas directly left of the point (or after the last integer placeholder) scale by 1000 each;
+    // a comma between integer placeholders turns on grouping.
+    bool group = false;
+    int scale = 0;
+    for (int i = 0; i < int_end; i++) {
+        if (tok[i].kind != T_COMMA) continue;
+        bool before_ph = false, after_ph = false;
+        for (int k = i - 1; k >= 0; k--) if (tok[k].kind == T_ZERO || tok[k].kind == T_HASH) { before_ph = true; break; }
+        for (int k = i + 1; k < int_end; k++) if (tok[k].kind == T_ZERO || tok[k].kind == T_HASH) { after_ph = true; break; }
+        if (before_ph && after_ph) group = true;
+        else if (before_ph && !after_ph) scale++;
+        tok[i].kind = -1;  // commas never print literally
+    }
+    int percents = 0;
+    for (int i = 0; i < nt; i++) if (tok[i].kind == T_PERCENT) percents++;
+    if (g.n) g.exp10 += 2 * percents - 3 * scale;
+
+    // Fraction placeholders: total and minimum (up to the last '0').
+    int decimals = 0, min_decimals = 0;
+    for (int i = point >= 0 ? point + 1 : nt; i < nt; i++) {
+        if (tok[i].kind == T_ZERO) { decimals++; min_decimals = decimals; }
+        else if (tok[i].kind == T_HASH) decimals++;
+    }
     round_digits(&g, g.exp10 + decimals);
-    // literal prefix
-    for (const char* p = f; first && p < first; p++) if (*p != ',' && *p != '#' && *p != '0') put(b, *p);
-    if (g.neg && g.n) put(b, '-');
-    int int_digits = g.n && g.exp10 > 0 ? g.exp10 : 0;
-    if (int_digits < int_zeros) int_digits = int_zeros;
-    for (int i = 0; i < int_digits; i++) {
-        int src = g.exp10 - int_digits + i;
-        put(b, digit_at(&g, src));
-        int left = int_digits - 1 - i;
-        if (group && left > 0 && left % 3 == 0) put(b, ',');
-    }
+    int int_count = g.n && g.exp10 > 0 ? g.exp10 : 0;     // significant integer digits
     int shown = decimals;
-    while (shown > dec_zeros && digit_at(&g, g.exp10 + shown - 1) == '0') shown--;
-    if (shown > 0) { put(b, '.'); for (int i = 0; i < shown; i++) put(b, digit_at(&g, g.exp10 + i)); }
-    // literal suffix
-    for (const char* p = last ? last + 1 : f; *p; p++) if (*p != ',' && *p != '#' && *p != '0') put(b, *p == '%' ? '%' : *p);
+    while (shown > min_decimals && digit_at(&g, g.exp10 + shown - 1) == '0') shown--;
+    bool is_zero = g.n == 0;
+
+    // Integer part: map digits right-to-left onto placeholders; extra digits go before the first one.
+    char rev[512]; int nr = 0, emitted = 0, di = int_count - 1;
+    for (int i = int_end - 1; i >= 0; i--) {
+        int k = tok[i].kind;
+        if (k == T_ZERO || k == T_HASH) {
+            bool have = di >= 0;
+            if (have || k == T_ZERO) {
+                char d = have ? digit_at(&g, di) : '0';
+                if (group && emitted > 0 && emitted % 3 == 0 && nr < 510) rev[nr++] = ',';
+                if (nr < 510) rev[nr++] = d;
+                emitted++;
+            }
+            if (have) di--;
+            if (i == first_ph) {
+                while (di >= 0 && nr < 509) {
+                    if (group && emitted > 0 && emitted % 3 == 0) rev[nr++] = ',';
+                    rev[nr++] = digit_at(&g, di--); emitted++;
+                }
+            }
+        } else if (k == T_LIT || k == T_PERCENT) {
+            if (nr < 510) rev[nr++] = tok[i].c;
+        }
+    }
+    if (first_ph < 0 || first_ph >= int_end) {  // no integer placeholders: digits still print (".00" style keeps none)
+        (void)0;
+    }
+    if (g.neg && !(is_zero && shown == 0)) put(b, '-');
+    for (int i = nr - 1; i >= 0; i--) put(b, rev[i]);
+    // Fraction part.
+    if (point >= 0) {
+        int fi = 0;
+        bool point_done = false;
+        for (int i = point + 1; i < nt; i++) {
+            int k = tok[i].kind;
+            if (k == T_ZERO || k == T_HASH) {
+                if (fi < shown) { if (!point_done) { put(b, '.'); point_done = true; } put(b, digit_at(&g, g.exp10 + fi)); }
+                fi++;
+            } else if (k == T_LIT || k == T_PERCENT) put(b, tok[i].c);
+            else if (k == T_POINT) { /* only the first point counts */ }
+        }
+    }
+    (void)last_int_ph;
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -215,7 +290,7 @@ static void format_integer(Buf* b, int64_t sv, uint64_t uv, bool is_signed, int 
         puts_(b, tmp);
         return;
     }
-    if (is_custom(f)) { emit_custom(b, is_signed ? (double)sv : (double)uv, f); return; }
+    if (is_custom(f)) { Digits gi; integer_digits(mag, neg, &gi); emit_custom_digits(b, gi, f); return; }
     switch (f[0]) {
         case 'D': case 'd': {
             int p = precision_of(f, 0);
@@ -231,22 +306,13 @@ static void format_integer(Buf* b, int64_t sv, uint64_t uv, bool is_signed, int 
             return;
         }
         default: {
-            double v = is_signed ? (double)sv : (double)uv;
-            // Exact digits of the integer (a double would lose precision above 2^53).
-            Digits g;
-            g.neg = neg;
-            char tmp2[32];
-            int nd = snprintf(tmp2, sizeof tmp2, "%llu", (unsigned long long)mag);
-            g.n = mag == 0 ? 0 : nd;
-            g.exp10 = mag == 0 ? 1 : nd;
-            memcpy(g.d, tmp2, (size_t)nd);
-            while (g.n > 0 && g.d[g.n - 1] == '0') g.n--;
+            Digits g; integer_digits(mag, neg, &g);
             switch (f[0]) {
                 case 'N': case 'n': emit_fixed(b, g, precision_of(f, 2), true); return;
                 case 'F': case 'f': emit_fixed(b, g, precision_of(f, 2), false); return;
                 case 'E': case 'e': emit_exponent(b, g, precision_of(f, 6), f[0], 3); return;
-                case 'P': case 'p': exact_digits(v * 100, &g); emit_fixed(b, g, precision_of(f, 2), true); puts_(b, " %"); return;
-                case 'C': case 'c': puts_(b, "\xA4"); emit_fixed(b, g, precision_of(f, 2), true); return;
+                case 'P': case 'p': if (g.n) g.exp10 += 2; emit_fixed(b, g, precision_of(f, 2), true); puts_(b, " %"); return;
+                case 'C': case 'c': emit_currency(b, g, precision_of(f, 2)); return;
                 case 'G': case 'g': {
                     int p = precision_of(f, 0);
                     snprintf(tmp, sizeof tmp, "%s%llu", neg ? "-" : "", (unsigned long long)mag);
@@ -276,10 +342,10 @@ static void format_double(Buf* b, double v, const char* f, bool single) {
         case 'N': case 'n': emit_fixed(b, g, precision_of(f, 2), true); return;
         case 'E': case 'e': emit_exponent(b, g, precision_of(f, 6), f[0], 3); return;
         case 'P': case 'p': exact_digits(v * 100, &g); emit_fixed(b, g, precision_of(f, 2), true); puts_(b, " %"); return;
-        case 'C': case 'c': puts_(b, "\xA4"); emit_fixed(b, g, precision_of(f, 2), true); return;
+        case 'C': case 'c': emit_currency(b, g, precision_of(f, 2)); return;
         case 'G': case 'g': {
             int p = precision_of(f, 15);
-            if (g.n == 0) { put(b, '0'); return; }
+            if (g.n == 0) { puts_(b, g.neg ? "-0" : "0"); return; }
             round_digits(&g, p);
             int exp = g.exp10 - 1;
             if (exp >= -4 && exp < p) {
@@ -433,7 +499,6 @@ csrt_String* csrt_format_decimal(const void* dp, csrt_String* fmt) {
     g.exp10 = zero ? 1 : (n - start) - scale;
     Buf b = {0};
     if (is_custom(f)) {
-        if (strchr(f, '%') && g.n) g.exp10 += 2;
         emit_custom_digits(&b, g, f);
         return buf_to_string(&b);
     }
@@ -442,7 +507,7 @@ csrt_String* csrt_format_decimal(const void* dp, csrt_String* fmt) {
         case 'N': case 'n': emit_fixed(&b, g, precision_of(f, 2), true); break;
         case 'E': case 'e': emit_exponent(&b, g, precision_of(f, 6), f[0], 3); break;
         case 'P': case 'p': if (g.n) g.exp10 += 2; emit_fixed(&b, g, precision_of(f, 2), true); puts_(&b, " %"); break;
-        case 'C': case 'c': puts_(&b, "\xA4"); emit_fixed(&b, g, precision_of(f, 2), true); break;
+        case 'C': case 'c': emit_currency(&b, g, precision_of(f, 2)); break;
         case 'G': case 'g': {
             int p = precision_of(f, 29);
             round_digits(&g, p);

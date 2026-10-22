@@ -23,8 +23,11 @@ public sealed partial class FunctionCodeGen
         if (TryGenericMathStatic(inv, target) is { } genericMath) return genericMath;
         if (target.ContainingType.SpecialType == SpecialType.System_Enum && target.IsStatic && TryEnumStatic(inv, target) is { } enumResult) return enumResult;
         if (TryNumericCreate(inv, target) is { } created) return created;
-        if (target is { Name: "GetType", Parameters.IsEmpty: true, ContainingType.SpecialType: SpecialType.System_Object })
+        if (target is { Name: "GetType", Parameters.IsEmpty: true } && (target.ContainingType.SpecialType == SpecialType.System_Object
+            || target.ContainingType is { Name: "Exception", ContainingNamespace.Name: "System" }))
             return EmitGetType(inv);
+        if (TryEmitTupleMethod(inv, target) is { } tupleMethodResult) return tupleMethodResult;
+        if (TryEmitStringBuilderInterpolation(inv, target) is { } sbResult) return sbResult;
         if (target.MethodKind == MethodKind.DelegateInvoke) return EmitDelegateInvoke(inv);
         if (target.MethodKind == MethodKind.LocalFunction) return CallLocalFunction(inv);
         if (TypeMapper.IsNullable(target.ContainingType)) return EmitNullableMethod(inv);
@@ -169,6 +172,9 @@ public sealed partial class FunctionCodeGen
     /// Calls a method compiled by csharpc. Arguments are evaluated in source (evaluation) order and
     /// then placed by parameter ordinal, which handles named/out-of-order arguments.
     /// </summary>
+    /// <summary>Pre-evaluated argument values (compound assignment through an indexer).</summary>
+    private Dictionary<IArgumentOperation, LLVMValueRef>? _argumentCache;
+
     internal LLVMValueRef EmitUserCall(IMethodSymbol target, LLVMValueRef self, bool selfIsNonNull,
         ImmutableArray<IArgumentOperation> arguments, bool isVirtual, LLVMValueRef[]? extraArgs = null)
     {
@@ -180,14 +186,57 @@ public sealed partial class FunctionCodeGen
             if (hasThis && !selfIsNonNull) NullCheck(self); // extension receivers may legitimately be null
             args[0] = self;
         }
-        foreach (var argument in arguments) args[offset + argument.Parameter!.Ordinal] = EmitArgument(argument, target);
+        foreach (var argument in arguments)
+            args[offset + argument.Parameter!.Ordinal] = _argumentCache is not null && _argumentCache.TryGetValue(argument, out var cached)
+                ? cached
+                : EmitArgument(argument, target);
         if (extraArgs is not null)
             for (var i = 0; i < extraArgs.Length; i++) args[args.Length - extraArgs.Length + i] = extraArgs[i];
 
         var dispatch = isVirtual && hasThis && (target.IsVirtual || target.IsAbstract || target.IsOverride)
             && !target.IsSealed && !target.ContainingType.IsSealed;
+        if (dispatch && target.IsGenericMethod) return GenericVirtualCall(target, self, args);
         if (dispatch && _m.Devirtualize(target) is { } only) return DirectCall(only, args); // closed-world CHA
         return dispatch ? VirtualCall(target, self, args) : DirectCall(target, args);
+    }
+
+    /// <summary>
+    /// Generic virtual methods have no vtable slot (one per instantiation would be needed). The program
+    /// is closed, so dispatch with a type switch over the classes that can receive the call, most-derived
+    /// first, each calling its override instantiated with the same type arguments.
+    /// </summary>
+    private LLVMValueRef GenericVirtualCall(IMethodSymbol target, LLVMValueRef self, LLVMValueRef[] args)
+    {
+        var root = ClassLayout.RootOf(target.OriginalDefinition);
+        var typeArgs = target.TypeArguments.ToArray();
+        LLVMValueRef? resultSlot = target.ReturnsVoid ? null : NewTemp(T.Value(target.ReturnType), "gvm.result");
+        var done = NewBlock("gvm.done");
+        IMethodSymbol? ImplementationIn(INamedTypeSymbol cls)
+        {
+            for (INamedTypeSymbol? t = cls; t is not null; t = t.BaseType)
+                foreach (var m in t.GetMembers(target.Name).OfType<IMethodSymbol>())
+                    if (m.IsGenericMethod && m.TypeParameters.Length == typeArgs.Length
+                        && SymbolEqualityComparer.Default.Equals(ClassLayout.RootOf(m.OriginalDefinition), root) && !m.IsAbstract)
+                        return m.Construct(typeArgs);
+            return null;
+        }
+        foreach (var cls in _m.ClassesDerivedFrom(target.ContainingType))
+        {
+            if (ImplementationIn(cls) is not { } impl) continue;
+            var next = NewBlock("gvm.next");
+            var hit = NewBlock("gvm.call");
+            var isCls = CallRuntime("csrt_isinst_class", L.Ptr, [L.Ptr, L.Ptr], self, _m.GetLayout(cls).MethodTable);
+            _b.CondBr(_b.ICmp(LLVMIntPredicate.NE, isCls, LlvmContext.Null(L.Ptr)), hit, next);
+            _b.PositionAtEnd(hit);
+            var r = DirectCall(impl, args);
+            if (resultSlot is { } slot) _b.Store(r, slot);
+            _b.Br(done);
+            _b.PositionAtEnd(next);
+        }
+        CallRuntime("csrt_throw_null_reference", L.Void, []); // unreachable for valid receivers
+        _b.Unreachable();
+        _b.PositionAtEnd(done);
+        return resultSlot is { } s ? _b.Load(T.Value(target.ReturnType), s) : default;
     }
 
     private LLVMValueRef DirectCall(IMethodSymbol target, LLVMValueRef[] args)
@@ -264,6 +313,8 @@ public sealed partial class FunctionCodeGen
         if (creation.Initializer is not null) throw CompileError.Unsupported("object initializer", creation);
         var type = (INamedTypeSymbol)TypeOf(creation)!;
         if (TrySpanConstruction(creation, out var span) || TryStatelessLibraryCreation(creation, out span) || TryThreadingCreation(creation, out span)) return span;
+        if (IsStringBuilderHandler(type))  // new AppendInterpolatedStringHandler(literalLength, formattedCount, sb[, provider])
+            return EmitValue(creation.Arguments.First(a => a.Parameter!.Ordinal == 2).Value);
         if (type.IsValueType) return EmitValueTypeCreation(creation, type);
         if (type.SpecialType == SpecialType.System_Object)
             return Allocate(_m.ExternalGlobal("csrt_Object_MT"), L.ConstInt(L.I64, (long)T.PointerSize));
@@ -364,6 +415,8 @@ public sealed partial class FunctionCodeGen
             _m.GetLayout(named).MethodTable,
         INamedTypeSymbol { TypeKind: TypeKind.Struct } named when _m.IsUserType(named) => _m.StructMethodTable(named),
         INamedTypeSymbol { TypeKind: TypeKind.Interface } itf => _m.InterfaceMethodTable(itf),
+        INamedTypeSymbol { IsTupleType: true } tuple => _m.TupleMethodTable(tuple, this),
+        IArrayTypeSymbol { Rank: 1 } array => _m.ArrayMethodTable(array.ElementType),
         _ => throw CompileError.Unsupported($"type test against '{type}'", at),
     };
 
@@ -382,6 +435,9 @@ public sealed partial class FunctionCodeGen
         var property = S(p.Property);
         if (TypeMapper.IsNullable(property.ContainingType)) return EmitNullableMember(p);
         if (property.ContainingType.IsAnonymousType) return AnonymousPropertyGet(p);
+        // `T.Zero` on a static abstract interface property implemented by a user type.
+        if (property is { IsStatic: true, GetMethod: { } staticAbstractGetter } && ResolveStaticInterfaceMember(staticAbstractGetter, p.ConstrainedToType) is { } staticGetter)
+            return EmitUserCall(staticGetter, default, true, p.Arguments, isVirtual: false);
         // Generic math constants (T.Zero, T.One...) on a substituted primitive T.
         if (property is { IsStatic: true, ContainingType.TypeKind: TypeKind.Interface } && TypeOf(p) is { SpecialType: not SpecialType.None } numeric
             && property.Name is "Zero" or "One" or "AdditiveIdentity" or "MultiplicativeIdentity")
@@ -426,6 +482,13 @@ public sealed partial class FunctionCodeGen
             return assigned;
         }
         if (!_m.IsUserType(property.ContainingType) && TryThreadingPropertySet(p, value, valueType, out var threadingSet)) return threadingSet;
+        if (!_m.IsUserType(property.ContainingType) && property.SetMethod is { } librarySetter && BclValueTypes.TryGet(librarySetter, out var bclSetter))
+        {
+            var setterSelf = property.IsStatic ? default : EmitValue(p.Instance!);
+            var assignedValue = Coerce(value(), valueType, property.Type);
+            bclSetter(this, librarySetter, setterSelf, [assignedValue], p);
+            return assignedValue;
+        }
         if (!_m.IsUserType(property.ContainingType))
             throw CompileError.Unsupported($"setting '{property.ContainingType}.{property.Name}'", p);
         var self = property.IsStatic ? default

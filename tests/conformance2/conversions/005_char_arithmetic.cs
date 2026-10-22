@@ -1,0 +1,12 @@
+char c = 'A';
+Console.WriteLine(c + 1);
+Console.WriteLine((char)(c + 1));
+c += (char)2;
+Console.WriteLine(c);
+c++;
+Console.WriteLine(c);
+Console.WriteLine('a' - 'A');
+Console.WriteLine("" + 'x' + 'y');
+Console.WriteLine('x' + 'y');
+int i = 'z';
+Console.WriteLine(i);

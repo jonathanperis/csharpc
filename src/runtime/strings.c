@@ -30,6 +30,7 @@ static csrt_String* from_chars(const uint16_t* chars, int32_t length) {
 
 static const csrt_MethodTable mt_argument_out_of_range = { NULL, "System.ArgumentOutOfRangeException", 0, 0 };
 static const csrt_MethodTable mt_argument_null = { NULL, "System.ArgumentNullException", 0, 0 };
+static const csrt_MethodTable mt_argument = { NULL, "System.ArgumentException", 0, 0 };
 static const csrt_MethodTable mt_format = { NULL, "System.FormatException", 0, 0 };
 static const csrt_MethodTable mt_overflow = { NULL, "System.OverflowException", 0, 0 };
 
@@ -49,16 +50,53 @@ static bool is_white_space(uint16_t c) {
            (c >= 0x2000 && c <= 0x200A) || c == 0x2028 || c == 0x2029 || c == 0x202F || c == 0x205F || c == 0x3000;
 }
 
+// Invariant simple case mapping: Latin-1, Latin Extended-A, Greek, Cyrillic, Armenian.
 static uint16_t to_upper(uint16_t c) {
     if ((c >= 'a' && c <= 'z') || (c >= 0xE0 && c <= 0xFE && c != 0xF7)) return (uint16_t)(c - 32);
     if (c == 0xFF) return 0x178;
+    if (c < 0x100) return c;
+    if (c >= 0x100 && c <= 0x17F) {
+        if (c == 0x131) return 'I';
+        if (c == 0x17F) return 'S';
+        if ((c >= 0x139 && c <= 0x148) || (c >= 0x179 && c <= 0x17E)) return (c & 1) ? c : (uint16_t)(c - 1);
+        if (c == 0x138 || c == 0x149 || c == 0x130) return c;
+        return (c & 1) ? (uint16_t)(c - 1) : c;
+    }
+    if (c >= 0x3B1 && c <= 0x3C9 && c != 0x3C2) return (uint16_t)(c - 0x20);
+    if (c == 0x3C2) return 0x3A3;
+    if (c >= 0x3AC && c <= 0x3AF) return c == 0x3AC ? 0x386 : (uint16_t)(c - 0x25);
+    if (c >= 0x430 && c <= 0x44F) return (uint16_t)(c - 0x20);
+    if (c >= 0x450 && c <= 0x45F) return (uint16_t)(c - 0x50);
+    if (c >= 0x561 && c <= 0x586) return (uint16_t)(c - 0x30);
     return c;
 }
 
 static uint16_t to_lower(uint16_t c) {
     if ((c >= 'A' && c <= 'Z') || (c >= 0xC0 && c <= 0xDE && c != 0xD7)) return (uint16_t)(c + 32);
     if (c == 0x178) return 0xFF;
+    if (c < 0x100) return c;
+    if (c >= 0x100 && c <= 0x17F) {
+        if (c == 0x130) return 'i';
+        if ((c >= 0x139 && c <= 0x148) || (c >= 0x179 && c <= 0x17E)) return (c & 1) ? (uint16_t)(c + 1) : c;
+        if (c == 0x138 || c == 0x149 || c == 0x131 || c == 0x17F) return c;
+        return (c & 1) ? c : (uint16_t)(c + 1);
+    }
+    if (c >= 0x391 && c <= 0x3A9 && c != 0x3A2) return (uint16_t)(c + 0x20);
+    if (c == 0x386) return 0x3AC;
+    if (c >= 0x388 && c <= 0x38A) return (uint16_t)(c + 0x25);
+    if (c >= 0x410 && c <= 0x42F) return (uint16_t)(c + 0x20);
+    if (c >= 0x400 && c <= 0x40F) return (uint16_t)(c + 0x50);
+    if (c >= 0x531 && c <= 0x556) return (uint16_t)(c + 0x30);
     return c;
+}
+
+// Unicode decimal digits (Nd) outside ASCII: zero code points of the common scripts.
+static int unicode_digit_value(uint16_t c) {
+    static const uint16_t zeros[] = { 0x660, 0x6F0, 0x7C0, 0x966, 0x9E6, 0xA66, 0xAE6, 0xB66, 0xBE6, 0xC66, 0xCE6, 0xD66,
+                                      0xDE6, 0xE50, 0xED0, 0xF20, 0x1040, 0x1090, 0x17E0, 0x1810, 0x1946, 0x19D0, 0xFF10 };
+    for (size_t i = 0; i < sizeof zeros / sizeof *zeros; i++)
+        if (c >= zeros[i] && c <= zeros[i] + 9) return c - zeros[i];
+    return -1;
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -91,11 +129,11 @@ static bool is_letter_slow(uint16_t c) {
            (c >= 0x3040 && c <= 0x30FF) || (c >= 0x4E00 && c <= 0x9FFF) || (c >= 0xAC00 && c <= 0xD7A3);
 }
 
-bool csrt_char_is_digit(uint16_t c) { return c < 256 ? (s_latin1[c] & CC_DIGIT) != 0 : false; }
+bool csrt_char_is_digit(uint16_t c) { return c < 256 ? (s_latin1[c] & CC_DIGIT) != 0 : unicode_digit_value(c) >= 0; }
 bool csrt_char_is_upper(uint16_t c) { return c < 256 ? (s_latin1[c] & CC_UPPER) != 0 : to_lower(c) != c; }
 bool csrt_char_is_lower(uint16_t c) { return c < 256 ? (s_latin1[c] & CC_LOWER) != 0 : to_upper(c) != c; }
 bool csrt_char_is_letter(uint16_t c) { return c < 256 ? (s_latin1[c] & CC_LETTER) != 0 : is_letter_slow(c); }
-bool csrt_char_is_letter_or_digit(uint16_t c) { return c < 256 ? (s_latin1[c] & (CC_LETTER | CC_DIGIT)) != 0 : is_letter_slow(c); }
+bool csrt_char_is_letter_or_digit(uint16_t c) { return c < 256 ? (s_latin1[c] & (CC_LETTER | CC_DIGIT)) != 0 : is_letter_slow(c) || unicode_digit_value(c) >= 0; }
 bool csrt_char_is_white_space(uint16_t c) { return c < 256 ? (s_latin1[c] & CC_SPACE) != 0 : is_white_space(c); }
 bool csrt_char_is_punctuation(uint16_t c) { return c < 256 ? (s_latin1[c] & CC_PUNCT) != 0 : false; }
 uint16_t csrt_char_to_upper(uint16_t c) { return to_upper(c); }
@@ -242,7 +280,7 @@ csrt_String* csrt_string_replace_char(csrt_String* s, uint16_t from, uint16_t to
 csrt_String* csrt_string_replace(csrt_String* s, csrt_String* from, csrt_String* to) {
     require(s);
     if (!from) csrt_throw(&mt_argument_null, ascii("Value cannot be null. (Parameter 'oldValue')"));
-    if (from->length == 0) csrt_throw(&mt_argument_null, ascii("String cannot be of zero length. (Parameter 'oldValue')"));
+    if (from->length == 0) csrt_throw(&mt_argument, ascii("String cannot be of zero length. (Parameter 'oldValue')"));
     int32_t to_len = to ? to->length : 0;
     int32_t count = 0;
     for (int32_t i = csrt_string_index_of(s, from, 0); i >= 0; i = csrt_string_index_of(s, from, i + from->length)) count++;
