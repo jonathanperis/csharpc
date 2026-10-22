@@ -1,0 +1,45 @@
+NaN
+negative
+zero
+zero
+other
+NaN
+other
+True
+False
+False
+True
+True
+False
++inf nan finite
+NaN: True False False False False False False False False False False False
+  double NaN
+1.5: False True False False False False False False False False False False
+  double 1.5
+2.5: False False True False False False False False False False False False
+  other
+1.5: False False False False True False False False False False False False
+  other
+NaN: False False False True False False False False False False False False
+  float NaN
+1: False False False False False True False False False False False False
+  int 1
+1: False False False False False False True False False False False False
+  other
+abc: False False False False False False False True False False False False
+  string abc
+abc: False False False False False False False True False False False False
+  string abc
+x: False False False False False False False False True False False False
+  other
+Red: False False False False False False False False False True False False
+  Color.Red
+Green: False False False False False False False False False False False False
+  other
+null: False False False False False False False False False False False True
+  null
+True: False False False False False False False False False False True False
+  other
+True
+False
+True

@@ -268,4 +268,43 @@ public sealed partial class FunctionCodeGen
         }
         throw CompileError.Unsupported($"positional pattern on '{type}' (ITuple)", pattern);
     }
+
+    // ---- constant patterns ------------------------------------------------------------------
+
+    /// <summary>`x is double.NaN` / `case float.NaN:`: C# constant patterns use double.Equals semantics.</summary>
+    private static bool IsNaNConstant(IConstantPatternOperation constant) =>
+        constant.Value.ConstantValue is { HasValue: true, Value: double.NaN or float.NaN };
+
+    private LLVMValueRef IsNaN(LLVMValueRef value) => _b.FCmp(LLVMRealPredicate.UNO, value, value, "isnan");
+
+    /// <summary>
+    /// A non-null constant tested against a reference (`object o is 1.5`, `o is "x"`, `o is Color.Red`):
+    /// a type test for the constant's type, then a comparison of the unboxed value.
+    /// </summary>
+    private bool IsBoxedConstantTest(LLVMValueRef value, ITypeSymbol? inputType, IConstantPatternOperation constant, out ITypeSymbol constantType)
+    {
+        constantType = TypeOf(constant.Value)!;
+        return value.Type.IsPointer && constantType is not null
+            && constant.Value.ConstantValue is { HasValue: true, Value: not null }
+            && (constantType.IsValueType || constantType.SpecialType == SpecialType.System_String)
+            && !SymbolEqualityComparer.Default.Equals(inputType, constantType);
+    }
+
+    private LLVMValueRef BoxedConstantPatternTest(LLVMValueRef value, ITypeSymbol? inputType, ITypeSymbol constantType, IConstantPatternOperation constant)
+    {
+        var result = NewTemp(L.I1, "const.match");
+        _b.Store(L.False, result);
+        var compare = NewBlock("const.compare");
+        var done = NewBlock("const.done");
+        _b.CondBr(IsInstance(value, inputType, constantType, constant), compare, done);
+        _b.PositionAtEnd(compare);
+        var unboxed = constantType.IsValueType ? LoadValue(_b.InBoundsGep(L.I8, value, [L.ConstInt(L.I64, 8)]), constantType) : value;
+        var match = IsNaNConstant(constant)
+            ? IsNaN(unboxed)
+            : Arithmetic(BinaryOperatorKind.Equals, unboxed, EmitValue(constant.Value), constantType, constantType, constant);
+        _b.Store(match, result);
+        _b.Br(done);
+        _b.PositionAtEnd(done);
+        return _b.Load(L.I1, result);
+    }
 }
