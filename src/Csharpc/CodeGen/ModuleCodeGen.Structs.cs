@@ -68,7 +68,10 @@ public sealed partial class ModuleCodeGen
         if (!layout.MethodTable.IsNull) return layout.MethodTable;
 
         var size = 8 + Types.Target.SizeOf(layout.LlvmType);
-        var mtType = Llvm.Struct(Llvm.Ptr, Llvm.Ptr, Llvm.I32, Llvm.I32, LlvmContext.Array(Llvm.Ptr, ClassLayout.ObjectSlotCount));
+        // Same header as class method tables (TypeMapper.MethodTableHeader): base, name, size, flags,
+        // interface map, interface count, reserved — then the vtable.
+        var mtType = Llvm.Struct(Llvm.Ptr, Llvm.Ptr, Llvm.I32, Llvm.I32, Llvm.Ptr, Llvm.I32, Llvm.I32,
+            LlvmContext.Array(Llvm.Ptr, ClassLayout.ObjectSlotCount));
         var global = Module.AddGlobal(Mangler.TypeSymbol(layout.Type, "MT"), mtType, constant: true, linkage: LLVMLinkage.Internal);
         layout.MethodTable = global;
 
@@ -86,6 +89,7 @@ public sealed partial class ModuleCodeGen
             CString(Mangler.MetadataName(layout.Type)),
             Llvm.ConstInt(Llvm.I32, (long)size),
             Llvm.ConstInt(Llvm.I32, 0),
+            LlvmContext.Null(Llvm.Ptr), Llvm.ConstInt(Llvm.I32, 0), Llvm.ConstInt(Llvm.I32, 0),
             LlvmContext.ConstArray(Llvm.Ptr, entries)));
         return global;
     }
