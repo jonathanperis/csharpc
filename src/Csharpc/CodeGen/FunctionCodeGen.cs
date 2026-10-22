@@ -77,7 +77,7 @@ public sealed partial class FunctionCodeGen
             _incomingEnv = fn.Fn.Param(index++);
             _incomingEnv.SetName("env");
         }
-        else if (method is { IsStatic: false })
+        else if (method is not null && ModuleCodeGen.HasThis(method))
         {
             _this = fn.Fn.Param(index++);
             _this.SetName("this");

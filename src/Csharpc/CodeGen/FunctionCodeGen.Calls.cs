@@ -20,7 +20,7 @@ public sealed partial class FunctionCodeGen
         if (target.MethodKind == MethodKind.LocalFunction) return CallLocalFunction(inv);
         if (_m.IsUserMethod(target))
         {
-            var self = target.IsStatic ? default : EmitValue(inv.Instance!);
+            var self = ModuleCodeGen.HasThis(target) ? EmitValue(inv.Instance!) : default;
             var isBaseCall = inv.Instance?.Syntax is BaseExpressionSyntax;
             return EmitUserCall(target, self, inv.Instance is IInstanceReferenceOperation, inv.Arguments, inv.IsVirtual && !isBaseCall);
         }
@@ -35,9 +35,9 @@ public sealed partial class FunctionCodeGen
     internal LLVMValueRef EmitUserCall(IMethodSymbol target, LLVMValueRef self, bool selfIsNonNull,
         ImmutableArray<IArgumentOperation> arguments, bool isVirtual, LLVMValueRef[]? extraArgs = null)
     {
-        var offset = target.IsStatic ? 0 : 1;
+        var offset = ModuleCodeGen.HasThis(target) ? 1 : 0;
         var args = new LLVMValueRef[offset + target.Parameters.Length];
-        if (!target.IsStatic)
+        if (offset == 1)
         {
             if (!selfIsNonNull) NullCheck(self);
             args[0] = self;
@@ -46,7 +46,7 @@ public sealed partial class FunctionCodeGen
         if (extraArgs is not null)
             for (var i = 0; i < extraArgs.Length; i++) args[args.Length - extraArgs.Length + i] = extraArgs[i];
 
-        var dispatch = isVirtual && !target.IsStatic && (target.IsVirtual || target.IsAbstract || target.IsOverride)
+        var dispatch = isVirtual && offset == 1 && (target.IsVirtual || target.IsAbstract || target.IsOverride)
             && !target.IsSealed && !target.ContainingType.IsSealed;
         return dispatch ? VirtualCall(target, self, args) : DirectCall(target, args);
     }
@@ -119,6 +119,8 @@ public sealed partial class FunctionCodeGen
         var type = (INamedTypeSymbol)creation.Type!;
         if (type.SpecialType == SpecialType.System_Object)
             return Allocate(_m.ExternalGlobal("csrt_Object_MT"), L.ConstInt(L.I64, (long)T.PointerSize));
+        if (!_m.IsUserType(type) && creation.Constructor is { } libraryCtor && Intrinsics.TryGetConstructor(libraryCtor, out var ctorHandler))
+            return ctorHandler(this, creation);
         if (!_m.IsUserType(type) || type.TypeKind != TypeKind.Class)
             throw CompileError.Unsupported($"creating instances of '{type}'", creation);
         if (type.IsAbstract) throw CompileError.Unsupported("instantiating an abstract class", creation);
@@ -324,6 +326,37 @@ public sealed partial class FunctionCodeGen
         return LoadValue(address, elementType);
     }
 
+    // foreach over string: string.GetEnumerator() -> CharEnumerator (pattern-based). Same trick:
+    // a stack { string, i32 index } that SROA turns into an index loop.
+    private LLVMTypeRef StringEnumeratorType => L.Struct(L.Ptr, L.I32);
+
+    internal LLVMValueRef StringGetEnumerator(LLVMValueRef str)
+    {
+        NullCheck(str);
+        var e = NewTemp(StringEnumeratorType, "string.enumerator");
+        _b.Store(str, _b.StructGep(StringEnumeratorType, e, 0));
+        _b.Store(L.ConstInt(L.I32, -1), _b.StructGep(StringEnumeratorType, e, 1));
+        return e;
+    }
+
+    internal LLVMValueRef StringEnumeratorMoveNext(LLVMValueRef e)
+    {
+        var indexAddress = _b.StructGep(StringEnumeratorType, e, 1);
+        var index = _b.BinOp(LLVMOpcode.Add, _b.Load(L.I32, indexAddress), L.ConstInt(L.I32, 1));
+        _b.Store(index, indexAddress);
+        var str = _b.Load(L.Ptr, _b.StructGep(StringEnumeratorType, e, 0));
+        var length = _b.Load(L.I32, _b.StructGep(T.StringHeader, str, 1), "strlen");
+        return _b.ICmp(LLVMIntPredicate.SLT, index, length);
+    }
+
+    internal LLVMValueRef StringEnumeratorCurrent(LLVMValueRef e)
+    {
+        var str = _b.Load(L.Ptr, _b.StructGep(StringEnumeratorType, e, 0));
+        var index = _b.Load(L.I32, _b.StructGep(StringEnumeratorType, e, 1));
+        var address = _b.InBoundsGep(T.StringHeader, str, [L.ConstInt(L.I32, 0), L.ConstInt(L.I32, 2), index]);
+        return _b.Load(L.I16, address);
+    }
+
     internal LLVMValueRef ArrayLength(LLVMValueRef array)
     {
         NullCheck(array);
@@ -364,8 +397,12 @@ public sealed partial class FunctionCodeGen
         var type = op.Type;
         if (type is null) return _m.StringLiteral("");
         if (type.SpecialType == SpecialType.System_String) return EmitValue(op);
-        if (type.TypeKind == TypeKind.Enum) throw CompileError.Unsupported("formatting enum values", op);
         var value = EmitValue(op);
+        if (type is INamedTypeSymbol { TypeKind: TypeKind.Enum } enumType)
+        {
+            var formatter = _m.EnumFormatter(enumType);
+            return _b.Call(formatter.Type, formatter.Fn, [value]);
+        }
         return FormatPrimitive(value, type) ?? (type.IsReferenceType ? ObjectToString(value) : throw CompileError.Unsupported($"formatting '{type}'", op));
     }
 
