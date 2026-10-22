@@ -1,0 +1,6 @@
+consumed 50005000
+before set: 0 False
+after set: 7 True
+max concurrent: 2 free: 2
+countdown done: True
+handoffs: 3

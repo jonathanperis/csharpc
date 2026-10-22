@@ -1,0 +1,12 @@
+sum = 499999500000
+worker-2 alive=False
+got 42
+hello from named-thread
+True
+True
+True
+still sleeping
+joined sleeper
+ThreadStateException: Thread is running or terminated; it cannot restart.
+main done
+last words from a foreground thread

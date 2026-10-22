@@ -71,12 +71,11 @@ public sealed partial class FunctionCodeGen
             IEventReferenceOperation e => EmitEventReference(e),
             IEventAssignmentOperation e => EmitEventAssignment(e),
             { Kind: OperationKind.None } => EmitNone(op),
-            // Roslyn (Release mode) leaves `lock (System.Threading.Lock)` as Invalid(lockExpr) followed by the
-            // body; with a single-threaded runtime the lock is just "evaluate + null check".
-            IInvalidOperation { Syntax.Parent: Microsoft.CodeAnalysis.CSharp.Syntax.LockStatementSyntax } invalidLock
-                when invalidLock.ChildOperations.Count == 1 && invalidLock.ChildOperations.First().Type is { } lockType
-                     && lockType.Name == "Lock" && lockType.IsReferenceType =>
-                NullCheckValue(EmitValue(invalidLock.ChildOperations.First())),
+            // With nullable analysis on (e.g. a `#nullable enable` region), Roslyn's CFG leaves
+            // `lock (System.Threading.Lock)` in lambdas as Invalid(lockExpr) + body, losing the lock. The driver
+            // lowers with the nullable context disabled; a source directive can still re-enable it.
+            IInvalidOperation { Syntax.Parent: Microsoft.CodeAnalysis.CSharp.Syntax.LockStatementSyntax } =>
+                throw CompileError.Unsupported("`lock` on a System.Threading.Lock inside a '#nullable enable' region (Roslyn CFG limitation; lock on an object, or disable nullable there)", op),
             IInvalidOperation => throw CompileError.Unsupported("invalid code", op),
             _ => throw CompileError.Unsupported($"operation {op.Kind}", op),
         };

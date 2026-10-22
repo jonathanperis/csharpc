@@ -123,7 +123,7 @@ public sealed partial class FunctionCodeGen
             return true;
         }
         if (owner is INamedTypeSymbol { ContainingNamespace: { } ns } && ns.ToDisplayString() == "System.Threading"
-            && owner.Name is "ManualResetEventSlim" or "ManualResetEvent" or "AutoResetEvent" or "SemaphoreSlim" or "CountdownEvent")
+            && owner.Name is "ManualResetEventSlim" or "ManualResetEvent" or "AutoResetEvent" or "SemaphoreSlim" or "CountdownEvent" or "EventWaitHandle" or "WaitHandle")
         {
             result = name switch
             {
@@ -227,7 +227,7 @@ public sealed partial class FunctionCodeGen
         }
 
         if (owner is INamedTypeSymbol { ContainingNamespace: { } ns } && ns.ToDisplayString() == "System.Threading"
-            && owner.Name is "ManualResetEventSlim" or "ManualResetEvent" or "AutoResetEvent" or "SemaphoreSlim" or "CountdownEvent")
+            && owner.Name is "ManualResetEventSlim" or "ManualResetEvent" or "AutoResetEvent" or "SemaphoreSlim" or "CountdownEvent" or "EventWaitHandle" or "WaitHandle")
         {
             if (m.Parameters.Any(p => p.Type.SpecialType is not (SpecialType.System_Int32 or SpecialType.System_Boolean))) return false;
             var self = Self();
