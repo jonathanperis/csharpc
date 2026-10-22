@@ -17,6 +17,7 @@ public sealed partial class FunctionCodeGen
             IFlowCaptureReferenceOperation r => LoadCapture(r),
             ILocalReferenceOperation l => LoadValue(LocalSlot(l.Local), l.Local.Type),
             IParameterReferenceOperation p => LoadValue(ParameterSlot(p.Parameter, p), p.Parameter.Type),
+            IInstanceReferenceOperation when InStructMember => LoadValue(_this, _method!.ContainingType),
             IInstanceReferenceOperation => ThisValue(op),
             IFieldReferenceOperation f => LoadValue(FieldAddress(f), f.Field.Type),
             IPropertyReferenceOperation p => EmitPropertyGet(p),
@@ -32,6 +33,7 @@ public sealed partial class FunctionCodeGen
             IArrayCreationOperation a => EmitArrayCreation(a),
             ICollectionExpressionOperation c => EmitCollectionExpression(c),
             IInterpolatedStringOperation s => EmitInterpolatedString(s),
+            IIsNullOperation n when TypeMapper.IsNullable(n.Operand.Type) => _b.Not(NullableHas(EmitValue(n.Operand))),
             IIsNullOperation n => _b.ICmp(LLVMIntPredicate.EQ, EmitValue(n.Operand), LlvmContext.Null(L.Ptr)),
             IIsTypeOperation t => EmitIsType(t),
             IIsPatternOperation p => PatternTest(EmitValue(p.Value), p.Value.Type, p.Pattern),
@@ -46,7 +48,9 @@ public sealed partial class FunctionCodeGen
             IInterpolatedStringHandlerCreationOperation =>
                 throw CompileError.Unsupported("interpolated string handlers", op),
             IDeconstructionAssignmentOperation d => EmitDeconstruction(d),
-            ITupleOperation => throw CompileError.Unsupported("tuple values (tuples need struct support)", op),
+            ITupleOperation { Type: INamedTypeSymbol { IsTupleType: true } tupleType } t => BuildTuple(t, tupleType),
+            ITupleOperation => throw CompileError.Unsupported("tuple without a natural type", op),
+            ITupleBinaryOperation t => EmitTupleBinary(t),
             IInvalidOperation => throw CompileError.Unsupported("invalid code", op),
             _ => throw CompileError.Unsupported($"operation {op.Kind}", op),
         };
@@ -100,6 +104,7 @@ public sealed partial class FunctionCodeGen
         IFieldReferenceOperation f => FieldAddress(f),
         IArrayElementReferenceOperation a => ElementAddress(a),
         IDeclarationExpressionOperation d => AddressOf(d.Expression),
+        IInstanceReferenceOperation when InStructMember => _this, // `this = other;` in a struct
         IDiscardOperation d => NewTemp(T.Storage(d.Type!), "discard"),
         IFlowCaptureReferenceOperation c when _cfg!.LvalueCaptures.Contains(c.Id) => CaptureAddress(c),
         _ => throw CompileError.Unsupported($"assignment to {target.Kind}", target),
@@ -112,6 +117,7 @@ public sealed partial class FunctionCodeGen
     {
         var field = f.Field;
         if (field.IsStatic) return _m.StaticField(field);
+        if (field.ContainingType.IsValueType) return FieldAddressOn(AddressOrSpill(f.Instance!), field);
         var instance = EmitValue(f.Instance!);
         if (f.Instance is not IInstanceReferenceOperation) NullCheck(instance);
         if (!_m.IsUserType(field.ContainingType)) throw CompileError.Unsupported($"field '{field}' of a library type", f);
@@ -142,6 +148,8 @@ public sealed partial class FunctionCodeGen
         var target = d.Target is IDeclarationExpressionOperation decl ? decl.Expression : d.Target;
         var value = d.Value;
         while (value is IConversionOperation { Conversion.IsImplicit: true } c) value = c.Operand;
+        if (target is ITupleOperation tupleTargets && value is not ITupleOperation)
+            return EmitTupleValueDeconstruction(tupleTargets, d.Value);
         if (target is not ITupleOperation targets || value is not ITupleOperation values || targets.Elements.Length != values.Elements.Length
             || targets.Elements.Any(e => e is ITupleOperation or IPropertyReferenceOperation))
             throw CompileError.Unsupported("deconstruction other than (a, b, ...) = (x, y, ...)", d);
@@ -163,7 +171,7 @@ public sealed partial class FunctionCodeGen
         if (target is IPropertyReferenceOperation p)
         {
             // Evaluate the receiver once, then call get + set on it.
-            var self = p.Property.IsStatic ? default : EmitValue(p.Instance!);
+            var self = p.Property.IsStatic ? default : Receiver(p.Instance!, p.Property.GetMethod!);
             var old = CallAccessor(p, p.Property.GetMethod!, self, []);
             var (newValue, result) = modify(old);
             CallAccessor(p, p.Property.SetMethod ?? throw CompileError.Unsupported("compound assignment to a get-only property", p), self, [newValue]);
@@ -178,8 +186,25 @@ public sealed partial class FunctionCodeGen
     private LLVMValueRef EmitCompoundAssignment(ICompoundAssignmentOperation c)
     {
         if (c.OperatorMethod is { } om && !IsBuiltInStringConcat(om))
-            throw CompileError.Unsupported("compound assignment with a user-defined operator", c);
+        {
+            // `x op= y` with a user-defined static operator: x = op(x, y).
+            if (!om.IsStatic || om.Parameters.Length != 2 || !_m.IsUserMethod(om))
+                throw CompileError.Unsupported($"compound assignment with operator '{om}'", c);
+            return ReadModifyWrite(c.Target, old =>
+            {
+                var result = DirectCall(om, [Coerce(old, c.Target.Type, om.Parameters[0].Type),
+                    Coerce(EmitValue(c.Value), c.Value.Type, om.Parameters[1].Type)]);
+                result = Coerce(result, om.ReturnType, c.Target.Type!);
+                return (result, result);
+            });
+        }
         var targetType = c.Target.Type!;
+        if (c.IsLifted)
+            return ReadModifyWrite(c.Target, old =>
+            {
+                var r = LiftedArithmetic(c.OperatorKind, old, targetType, EmitValue(c.Value), c.Value.Type!, targetType, c);
+                return (r, r);
+            });
         return ReadModifyWrite(c.Target, old =>
         {
             if (c.OperatorKind == BinaryOperatorKind.Add && targetType.SpecialType == SpecialType.System_String)
@@ -223,6 +248,18 @@ public sealed partial class FunctionCodeGen
         if (op.OperatorMethod is not null) throw CompileError.Unsupported("user-defined ++/--", op);
         var type = op.Target.Type!;
         var increment = op.Kind == OperationKind.Increment;
+        if (TypeMapper.IsNullable(type))
+            return ReadModifyWrite(op.Target, old =>
+            {
+                var (has, payload, underlying) = NullableParts(old, type);
+                var one = T.Value(underlying).IsFloatingPoint ? LlvmContext.ConstReal(payload.Type, 1) : L.ConstInt(payload.Type, 1);
+                var opcode = (payload.Type.IsFloatingPoint, increment) switch
+                {
+                    (true, true) => LLVMOpcode.FAdd, (true, false) => LLVMOpcode.FSub, (false, true) => LLVMOpcode.Add, _ => LLVMOpcode.Sub,
+                };
+                var updated = MakeNullable(type, has, _b.BinOp(opcode, payload, one));
+                return (updated, op.IsPostfix ? old : updated);
+            });
         return ReadModifyWrite(op.Target, old =>
         {
             var llvmType = T.Value(type);
@@ -250,6 +287,16 @@ public sealed partial class FunctionCodeGen
             if (!_m.IsUserMethod(om)) throw CompileError.Unsupported($"operator '{om}'", op);
             return EmitDirectCall(om, [op.LeftOperand, op.RightOperand]);
         }
+        if (op.OperatorKind is BinaryOperatorKind.Equals or BinaryOperatorKind.NotEquals
+            && NullableComparedWithNull(op) is { } nullableSide)
+        {
+            var has = NullableHas(EmitValue(nullableSide)); // `x == null` on a T?
+            return op.OperatorKind == BinaryOperatorKind.Equals ? _b.Not(has) : has;
+        }
+        if (op.IsLifted)
+            return LiftedArithmetic(op.OperatorKind, EmitValue(op.LeftOperand), op.LeftOperand.Type!,
+                EmitValue(op.RightOperand), op.RightOperand.Type!, op.Type!, op);
+
         var lt = op.LeftOperand.Type;
         var rt = op.RightOperand.Type;
         if (op.OperatorKind == BinaryOperatorKind.Add && (lt?.SpecialType == SpecialType.System_String || rt?.SpecialType == SpecialType.System_String))
@@ -261,6 +308,14 @@ public sealed partial class FunctionCodeGen
         var left = EmitValue(op.LeftOperand);
         var right = EmitValue(op.RightOperand);
         return Arithmetic(op.OperatorKind, left, right, lt ?? rt!, rt ?? lt!, op, op.IsChecked);
+    }
+
+    private static IOperation? NullableComparedWithNull(IBinaryOperation op)
+    {
+        static bool IsNull(IOperation o) => o.ConstantValue is { HasValue: true, Value: null };
+        if (TypeMapper.IsNullable(op.LeftOperand.Type) && IsNull(op.RightOperand)) return op.LeftOperand;
+        if (TypeMapper.IsNullable(op.RightOperand.Type) && IsNull(op.LeftOperand)) return op.RightOperand;
+        return null;
     }
 
     /// <summary>&amp;&amp; / || that survived CFG lowering (rare: e.g. inside a pattern) — lower it ourselves.</summary>
@@ -406,6 +461,7 @@ public sealed partial class FunctionCodeGen
             if (!_m.IsUserMethod(om)) throw CompileError.Unsupported($"operator '{om}'", op);
             return EmitDirectCall(om, [op.Operand]);
         }
+        if (op.IsLifted) return EmitLiftedUnary(op);
         var v = EmitValue(op.Operand);
         if (op.IsChecked && op.OperatorKind == UnaryOperatorKind.Minus && v.Type.IsInteger)
             return CheckedArithmetic("sub", L.ConstInt(v.Type, 0), v, TypeMapper.IsSigned(op.Operand.Type!));
@@ -441,7 +497,11 @@ public sealed partial class FunctionCodeGen
         }
         // ...and the foreach's finally tests `enumerator as IDisposable`: array enumerators never are.
         if (TryArrayEnumerator(c.Operand, out _)) return LlvmContext.Null(L.Ptr);
+        if (to is INamedTypeSymbol { IsTupleType: true } toTuple && c.Operand is ITupleOperation tupleLiteral)
+            return BuildTuple(tupleLiteral, toTuple);
         if (from is null) return Constant(null, to, c); // null literal / default
+        if (TryNullableConversion(c, from, to) is { } nullable) return nullable;
+        if (IsAggregate(from) && IsAggregate(to)) return Coerce(EmitValue(c.Operand), from, to);
         if (from.IsValueType && to.IsReferenceType) return Box(EmitValue(c.Operand), from, c);
         if (from.IsReferenceType && to.IsValueType)
         {
@@ -463,6 +523,7 @@ public sealed partial class FunctionCodeGen
     {
         if (from is null || SymbolEqualityComparer.Default.Equals(from, to)) return value;
         if (from.IsReferenceType || to.IsReferenceType) return value;
+        if (IsAggregate(from) || IsAggregate(to)) return CoerceAggregate(value, from, to);
         return ConvertNumeric(value, from, to, null);
     }
 
