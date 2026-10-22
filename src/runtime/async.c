@@ -10,7 +10,8 @@
 //   * Task.Run work items and `await` continuations run on a pool of background worker threads
 //     (processor-count workers; more are injected when all of them are blocked or starving).
 //   * An await on an already-completed task continues synchronously; otherwise the awaiting
-//     coroutine is resumed on a pool thread once the task completes.
+//     coroutine is resumed by the thread that completes the task (inline, like .NET), falling back
+//     to the pool when inlined continuations nest too deeply.
 //   * .Result / .Wait() / GetResult() / async Main block the calling thread on a condition variable.
 //   * A timer thread hands expired Task.Delay / CancelAfter timers to the pool.
 // Each task's state and continuation list are guarded by a per-task spinlock (the `lock` word).
@@ -335,12 +336,24 @@ static void when_any_hit(csrt_Task* any, csrt_Task* winner) {
     if (first) csrt_task_try_complete(any);
 }
 
+// Like .NET, `await` continuations run synchronously on the thread that completes the task (the
+// completing thread "inlines" them) — unless the stack of inlined continuations gets too deep, in
+// which case they go to the pool.
+static _Thread_local int tl_inline_depth;
+enum { MAX_INLINE_DEPTH = 32 };
+
 static void run_continuations(csrt_Task* t, csrt_Array* conts, int32_t n) {
     for (int32_t i = 0; i < n; i++) {
         intptr_t kind = (intptr_t)words(conts)[i * 2];
         void* p = words(conts)[i * 2 + 1];
         switch (kind) {
-            case K_RESUME: enqueue(K_RESUME, p, NULL); break;  // await continuations run on the pool
+            case K_RESUME:
+                if (tl_inline_depth < MAX_INLINE_DEPTH) {
+                    tl_inline_depth++;
+                    csrt_coro_resume(p);
+                    tl_inline_depth--;
+                } else enqueue(K_RESUME, p, NULL);
+                break;
             case K_WHEN_ALL: when_all_step(p); break;
             case K_CHAIN: chain(t, p); break;
             case K_WHEN_ANY: when_any_hit(p, t); break;
@@ -512,6 +525,7 @@ static void timer_loop(void) {
 }
 
 csrt_Task* csrt_task_delay_token(int32_t ms, CancellationSource* token);
+void csrt_token_register(CancellationSource* token, void* action);
 
 csrt_Task* csrt_task_delay(int32_t ms) { return csrt_task_delay_token(ms, NULL); }
 
@@ -525,7 +539,8 @@ csrt_Task* csrt_task_delay_token(int32_t ms, CancellationSource* token) {
     }
     csrt_Task* t = csrt_task_new(0);
     if (ms == -1 && !token) return t;  // never completes
-    add_timer(ms == -1 ? INT64_MAX : now_ms() + ms, t, token);
+    if (token) csrt_token_register(token, t);  // .NET: the delay's cancellation is a token callback
+    if (ms != -1) add_timer(now_ms() + ms, t, token);
     return t;
 }
 
@@ -539,24 +554,20 @@ void csrt_cts_cancel(CancellationSource* cts) {
     pthread_mutex_lock(&s_tlock);
     if (cts->canceled) { pthread_mutex_unlock(&s_tlock); return; }
     __atomic_store_n(&cts->canceled, 1, __ATOMIC_RELEASE);
-    // Delays waiting on this token are canceled (in creation order); callbacks are snapshotted.
-    int64_t n = 0;
-    for (int64_t i = 0; i < s_ntimers; i++)
-        if (words(s_timers)[i * 3 + 2] == cts && words(s_timers)[i * 3 + 1]) n++;
-    csrt_Array* canceled = n ? csrt_new_array(sizeof(void*), n) : NULL;
-    for (int64_t i = 0, k = 0; i < s_ntimers;) {
-        if (words(s_timers)[i * 3 + 2] == cts && words(s_timers)[i * 3 + 1]) {
-            words(canceled)[k++] = words(s_timers)[i * 3 + 1];
-            remove_timer_locked(i);
-        } else i++;
+    // Timers of delays bound to this token are dropped; the delays themselves are canceled below,
+    // as token callbacks (they registered one when created, as in .NET).
+    for (int64_t i = 0; i < s_ntimers;) {
+        if (words(s_timers)[i * 3 + 2] == cts && words(s_timers)[i * 3 + 1]) remove_timer_locked(i);
+        else i++;
     }
     csrt_Array* callbacks = cts->callbacks;
     int32_t ncallbacks = cts->ncallbacks;
     pthread_mutex_unlock(&s_tlock);
-    for (int64_t i = 0; i < n; i++) csrt_task_try_cancel(words(canceled)[i]);
     // Registered callbacks run synchronously, most recently registered first (like .NET).
     for (int32_t i = ncallbacks - 1; i >= 0; i--) {
-        Delegate* d = words(callbacks)[i];
+        void* entry = words(callbacks)[i];
+        if (((csrt_Object*)entry)->mt == &csrt_Task_MT.header) { csrt_task_try_cancel(entry); continue; }
+        Delegate* d = entry;
         ((void (*)(void*))d->fn)(d->target);
     }
 }
@@ -580,12 +591,14 @@ void csrt_token_throw_if_cancellation_requested(CancellationSource* token) {
     if (csrt_token_is_cancellation_requested(token)) csrt_throw_object(csrt_operation_canceled_exception_new());
 }
 
+/// Token.Register(Action); the runtime also registers Task.Delay tasks here (canceled, not invoked).
 void csrt_token_register(CancellationSource* token, void* action) {
     if (!action) csrt_throw_null_reference();
     if (!token) return;  // CancellationToken.None never cancels
     pthread_mutex_lock(&s_tlock);
     if (token->canceled) {
         pthread_mutex_unlock(&s_tlock);
+        if (((csrt_Object*)action)->mt == &csrt_Task_MT.header) { csrt_task_try_cancel(action); return; }
         Delegate* d = action;
         ((void (*)(void*))d->fn)(d->target);
         return;

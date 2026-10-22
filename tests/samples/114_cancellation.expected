@@ -1,6 +1,5 @@
 False True False
-callback 2
-callback 1
+callback 2;callback 1;
 delay canceled
 True True True
 OperationCanceledException: The operation was canceled.
