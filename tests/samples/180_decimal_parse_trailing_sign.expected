@@ -1,0 +1,42 @@
+[12-] -> -12
+  TryParse: -12
+[12 -] -> -12
+  TryParse: -12
+[12- ] -> -12
+  TryParse: -12
+[ 3+] -> 3
+  TryParse: 3
+[1,000.5-] -> -1000.5
+  TryParse: -1000.5
+[-1-] -> FormatException: The input string '-1-' was not in a correct format.
+  TryParse: no
+[1--] -> FormatException: The input string '1--' was not in a correct format.
+  TryParse: no
+[+-1] -> FormatException: The input string '+-1' was not in a correct format.
+  TryParse: no
+[- 1] -> FormatException: The input string '- 1' was not in a correct format.
+  TryParse: no
+[5-x] -> FormatException: The input string '5-x' was not in a correct format.
+  TryParse: no
+[] -> FormatException: The input string '' was not in a correct format.
+  TryParse: no
+[ ] -> FormatException: The input string ' ' was not in a correct format.
+  TryParse: no
+[-] -> FormatException: The input string '-' was not in a correct format.
+  TryParse: no
+[(1)] -> FormatException: The input string '(1)' was not in a correct format.
+  TryParse: no
+[1e3] -> FormatException: The input string '1e3' was not in a correct format.
+  TryParse: no
+[12abc] -> FormatException: The input string '12abc' was not in a correct format.
+  TryParse: no
+[.5-] -> -0.5
+  TryParse: -0.5
+[79228162514264337593543950335] -> 79228162514264337593543950335
+  TryParse: 79228162514264337593543950335
+[79228162514264337593543950336] -> OverflowException: Value was either too large or too small for a Decimal.
+  TryParse: no
+[79228162514264337593543950336-] -> OverflowException: Value was either too large or too small for a Decimal.
+  TryParse: no
+[792281625142643375935439503360x] -> FormatException: The input string '792281625142643375935439503360x' was not in a correct format.
+  TryParse: no
