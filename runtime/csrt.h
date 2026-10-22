@@ -50,6 +50,7 @@ typedef struct { csrt_MethodTable header; void* vtable[3]; } csrt_BuiltinMethodT
 extern const csrt_BuiltinMethodTable csrt_Object_MT;
 extern const csrt_BuiltinMethodTable csrt_String_MT;
 extern const csrt_BuiltinMethodTable csrt_Array_MT;
+extern const csrt_BuiltinMethodTable csrt_PrimitiveArray_MT;  // arrays of non-references: never scanned by the GC
 
 // Lifecycle -------------------------------------------------------------------------------
 void csrt_init(int argc, char** argv);
@@ -59,6 +60,12 @@ csrt_Array* csrt_get_args(void);
 // Allocation (conservative mark-sweep GC in gc.c — see docs/adr/0004-memory-management.md) --
 void* csrt_alloc(const csrt_MethodTable* mt, int64_t size);
 csrt_Array* csrt_new_array(int64_t element_size, int64_t length);
+csrt_Array* csrt_new_array_primitive(int64_t element_size, int64_t length);   // element type holds no references
+void* csrt_alloc_noclear(const csrt_MethodTable* mt, int64_t size);           // caller initializes every byte it reads
+csrt_Array* csrt_new_array_primitive_noclear(int64_t element_size, int64_t length);
+// Integer formatting into a caller buffer ending at `end`; returns the first character written.
+char* csrt_itoa_u64(uint64_t value, char* end);
+char* csrt_itoa_i64(int64_t value, char* end);
 void csrt_gc_collect(void);           // System.GC.Collect()
 int64_t csrt_gc_total_memory(void);  // System.GC.GetTotalMemory(bool)
 

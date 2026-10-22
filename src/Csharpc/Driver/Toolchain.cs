@@ -10,36 +10,52 @@ namespace Csharpc.Driver;
 /// </summary>
 public sealed class Toolchain(CompilerOptions options)
 {
+    /// <summary>-fexceptions: C# exceptions unwind through runtime frames (and, with runtime LTO,
+    /// keeps clang from marking csrt functions nounwind, which would delete landing pads).</summary>
+    private static readonly string[] RuntimeCFlags = ["-O2", "-std=c11", "-fPIC", "-funwind-tables", "-fexceptions"];
+
     private static string RuntimeDir => Path.Combine(AppContext.BaseDirectory, "runtime");
 
     /// <summary>Compiles every runtime/*.c once per (sources, target, cc) and caches the objects.</summary>
-    public string[] RuntimeObjects(string triple)
+    public string[] RuntimeObjects(string triple) => CompileRuntime(triple, bitcode: false);
+
+    /// <summary>
+    /// The runtime as LLVM bitcode, for whole-program LTO: linked into the program module before
+    /// optimization so allocation and other hot helpers inline into user code (see RuntimeLto).
+    /// </summary>
+    public string[] RuntimeBitcode(string triple) => CompileRuntime(triple, bitcode: true);
+
+    private string[] CompileRuntime(string triple, bool bitcode)
     {
         if (!Directory.Exists(RuntimeDir)) throw new FileNotFoundException($"csharpc runtime not found at '{RuntimeDir}'");
         var files = Directory.GetFiles(RuntimeDir).Where(f => f.EndsWith(".c") || f.EndsWith(".h")).Order().ToArray();
-        var hashInput = string.Concat(files.Select(File.ReadAllText)) + triple + options.CC;
+        // Key the cache on everything that affects the output, including the flags below.
+        var hashInput = string.Concat(files.Select(File.ReadAllText)) + triple + options.CC + string.Join(' ', RuntimeCFlags) + (bitcode ? "bc" : "o");
         var hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(hashInput)))[..16].ToLowerInvariant();
         var cacheDir = Path.Combine(
             Environment.GetEnvironmentVariable("XDG_CACHE_HOME") ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".cache"),
             "csharpc");
         Directory.CreateDirectory(cacheDir);
 
-        List<string> objects = [];
+        List<string> outputs = [];
         foreach (var source in files.Where(f => f.EndsWith(".c")))
         {
-            var obj = Path.Combine(cacheDir, $"{Path.GetFileNameWithoutExtension(source)}-{hash}.o");
-            objects.Add(obj);
-            if (File.Exists(obj)) continue;
-            var tmp = obj + "." + Environment.ProcessId + ".tmp";
-            Run(options.CC, ["-c", "-O2", "-std=c11", "-fPIC", "-funwind-tables", $"--target={triple}", source, "-o", tmp]);
-            File.Move(tmp, obj, overwrite: true);
+            var output = Path.Combine(cacheDir, $"{Path.GetFileNameWithoutExtension(source)}-{hash}{(bitcode ? ".bc" : ".o")}");
+            outputs.Add(output);
+            if (File.Exists(output)) continue;
+            var tmp = output + "." + Environment.ProcessId + ".tmp";
+            string[] mode = bitcode ? ["-emit-llvm", "-c"] : ["-c"];
+            Run(options.CC, [.. mode, .. RuntimeCFlags, $"--target={triple}", source, "-o", tmp]);
+            File.Move(tmp, output, overwrite: true);
         }
-        return [.. objects];
+        return [.. outputs];
     }
 
-    public void Link(string triple, string programObject, string output)
+    /// <param name="runtimeLinkedIn">The runtime was already linked into the program as bitcode (LTO).</param>
+    public void Link(string triple, string programObject, string output, bool runtimeLinkedIn = false)
     {
-        Run(options.CC, [$"--target={triple}", programObject, .. RuntimeObjects(triple), "-lm", "-o", output]);
+        string[] runtime = runtimeLinkedIn ? [] : RuntimeObjects(triple);
+        Run(options.CC, [$"--target={triple}", programObject, .. runtime, "-lm", "-o", output]);
     }
 
     private void Run(string tool, string[] args)

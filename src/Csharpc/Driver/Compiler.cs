@@ -60,7 +60,7 @@ public sealed class Compiler(CompilerOptions options)
             1 => LLVMCodeGenOptLevel.Less,
             3 => LLVMCodeGenOptLevel.Aggressive,
             _ => LLVMCodeGenOptLevel.Default,
-        });
+        }, options.Cpu, options.Features);
         using var module = new LlvmModule(llvm, compilation.AssemblyName ?? "program");
         module.ConfigureFor(target);
         module.SourceFileName = settings.Files.Count > 0 ? settings.Files[0] : "program";
@@ -84,6 +84,16 @@ public sealed class Compiler(CompilerOptions options)
             return 70;
         }
         Phase("verify");
+
+        // Whole-program LTO with the runtime (exe builds at -O1+): csrt's allocation fast path etc.
+        // inline into user code. --no-runtime-lto links the runtime as ordinary objects instead.
+        var toolchain = new Toolchain(options);
+        var runtimeLto = options.Emit == EmitKind.Exe && options.OptLevel > 0 && options.RuntimeLto;
+        if (runtimeLto)
+        {
+            RuntimeLto.LinkInto(module, llvm, toolchain.RuntimeBitcode(target.Triple));
+            Phase("link runtime bitcode (LTO)");
+        }
 
         if (options.OptLevel == 0 && codegen.HasCoroutines)
         {
@@ -111,7 +121,7 @@ public sealed class Compiler(CompilerOptions options)
                 {
                     target.Emit(module, obj, LLVMCodeGenFileType.Object);
                     Phase("codegen (LLVM backend)");
-                    new Toolchain(options).Link(target.Triple, obj, output);
+                    toolchain.Link(target.Triple, obj, output, runtimeLinkedIn: runtimeLto);
                     Phase("link");
                 }
                 finally { File.Delete(obj); }

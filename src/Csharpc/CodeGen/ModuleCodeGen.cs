@@ -237,6 +237,7 @@ public sealed partial class ModuleCodeGen
         // Allocation returns fresh memory nothing else points to (non-moving GC), which lets LLVM
         // forward stores into new objects — e.g. devirtualize and inline a just-created delegate.
         if (name is "csrt_alloc" or "csrt_new_array") Llvm.AddReturnAttribute(fn, "noalias");
+        if (name.StartsWith("csrt_", StringComparison.Ordinal)) Optimizations.AnnotateRuntimeDeclaration(Llvm, fn, ret, parameters);
         return _runtime[name] = new LoweredFunction(fn, type);
     }
 

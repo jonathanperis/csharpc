@@ -18,6 +18,7 @@ public readonly record struct LLVMTargetDataRef(nint Handle);
 public readonly record struct LLVMPassBuilderOptionsRef(nint Handle);
 public readonly record struct LLVMAttributeRef(nint Handle);
 public readonly record struct LLVMErrorRef(nint Handle);
+public readonly record struct LLVMMemoryBufferRef(nint Handle);
 
 public enum LLVMTypeKind
 {
@@ -64,6 +65,10 @@ internal static unsafe partial class Native
             "csharpc could not locate libLLVM (tried LLVM 18-20). Set CSHARPC_LIBLLVM to the shared library path.");
     }
 
+    /// <summary>The name of a global value.</summary>
+    public static string TakeName(LLVMValueRef value) =>
+        Marshal.PtrToStringUTF8(LLVMGetValueName2(value, out var length), (int)length) ?? "";
+
     /// <summary>Takes ownership of an LLVM-allocated C string.</summary>
     public static string? TakeMessage(nint message)
     {
@@ -90,6 +95,21 @@ internal static unsafe partial class Native
     [LibraryImport(Lib, StringMarshalling = StringMarshalling.Utf8)]
     public static partial int LLVMWriteBitcodeToFile(LLVMModuleRef m, string path);
 
+    // ---- Bitcode / linking (runtime LTO) ------------------------------------------------
+    [LibraryImport(Lib, StringMarshalling = StringMarshalling.Utf8)]
+    public static partial int LLVMCreateMemoryBufferWithContentsOfFile(string path, out LLVMMemoryBufferRef buffer, out nint message);
+    [LibraryImport(Lib)] public static partial void LLVMDisposeMemoryBuffer(LLVMMemoryBufferRef buffer);
+    [LibraryImport(Lib)]
+    public static partial int LLVMParseBitcodeInContext2(LLVMContextRef c, LLVMMemoryBufferRef buffer, out LLVMModuleRef module);
+    [LibraryImport(Lib)] public static partial int LLVMLinkModules2(LLVMModuleRef dest, LLVMModuleRef src);
+    [LibraryImport(Lib)] public static partial LLVMValueRef LLVMGetFirstFunction(LLVMModuleRef m);
+    [LibraryImport(Lib)] public static partial LLVMValueRef LLVMGetNextFunction(LLVMValueRef fn);
+    [LibraryImport(Lib)] public static partial LLVMValueRef LLVMGetFirstGlobal(LLVMModuleRef m);
+    [LibraryImport(Lib)] public static partial LLVMValueRef LLVMGetNextGlobal(LLVMValueRef global);
+    [LibraryImport(Lib)] public static partial int LLVMIsDeclaration(LLVMValueRef global);
+    [LibraryImport(Lib)] public static partial LLVMLinkage LLVMGetLinkage(LLVMValueRef global);
+    [LibraryImport(Lib)] public static partial nint LLVMGetValueName2(LLVMValueRef value, out nuint length);
+
     // ---- Types --------------------------------------------------------------------------
     [LibraryImport(Lib)] public static partial LLVMTypeRef LLVMInt1TypeInContext(LLVMContextRef c);
     [LibraryImport(Lib)] public static partial LLVMTypeRef LLVMInt8TypeInContext(LLVMContextRef c);
@@ -102,7 +122,6 @@ internal static unsafe partial class Native
     [LibraryImport(Lib)] public static partial LLVMTypeRef LLVMTokenTypeInContext(LLVMContextRef c);
     [LibraryImport(Lib)] public static partial LLVMTypeRef LLVMGetReturnType(LLVMTypeRef functionType);
     [LibraryImport(Lib)] public static partial LLVMTypeRef LLVMStructGetTypeAtIndex(LLVMTypeRef structType, uint index);
-    [LibraryImport(Lib)] private static partial nint LLVMGetValueName2(LLVMValueRef value, out nuint length);
     public static string LLVMGetValueName(LLVMValueRef value) =>
         System.Runtime.InteropServices.Marshal.PtrToStringUTF8(LLVMGetValueName2(value, out var n), (int)n);
     [LibraryImport(Lib)] public static partial LLVMTypeRef LLVMPointerTypeInContext(LLVMContextRef c, uint addressSpace);

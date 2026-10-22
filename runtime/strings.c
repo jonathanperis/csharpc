@@ -16,7 +16,8 @@
 // helpers
 // ---------------------------------------------------------------------------------------------
 static csrt_String* new_string(int32_t length) {
-    csrt_String* s = csrt_alloc(&csrt_String_MT.header, (int64_t)(sizeof(csrt_String) + sizeof(uint16_t) * (size_t)length));
+    // Not zeroed: every caller writes all `length` chars (and the GC never scans strings).
+    csrt_String* s = csrt_alloc_noclear(&csrt_String_MT.header, (int64_t)(sizeof(csrt_String) + sizeof(uint16_t) * (size_t)length));
     s->length = length;
     return s;
 }
@@ -63,20 +64,40 @@ static uint16_t to_lower(uint16_t c) {
 // ---------------------------------------------------------------------------------------------
 // System.Char
 // ---------------------------------------------------------------------------------------------
-bool csrt_char_is_digit(uint16_t c) { return c >= '0' && c <= '9'; }
-bool csrt_char_is_upper(uint16_t c) { return to_lower(c) != c; }
-bool csrt_char_is_lower(uint16_t c) { return to_upper(c) != c || c == 0xDF; }
-bool csrt_char_is_letter(uint16_t c) {
-    return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == 0xAA || c == 0xB5 || c == 0xBA ||
-           (c >= 0xC0 && c <= 0x24F && c != 0xD7 && c != 0xF7) || (c >= 0x370 && c <= 0x3FF) || (c >= 0x400 && c <= 0x4FF) ||
+// Latin-1 character classes (generated from Unicode categories, as .NET's Latin-1 fast path):
+// 1 = letter (L*), 2 = decimal digit (Nd), 4 = white space, 8 = upper (Lu), 16 = lower (Ll), 32 = punctuation (P*)
+enum { CC_LETTER = 1, CC_DIGIT = 2, CC_SPACE = 4, CC_UPPER = 8, CC_LOWER = 16, CC_PUNCT = 32 };
+static const uint8_t s_latin1[256] = {
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 4, 4, 4, 4, 4, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    4, 32, 32, 32, 0, 32, 32, 32, 32, 32, 32, 0, 32, 32, 32, 32,
+    2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 32, 32, 0, 0, 0, 32,
+    32, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9,
+    9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 32, 32, 32, 0, 32,
+    0, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17,
+    17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 32, 0, 32, 0, 0,
+    0, 0, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    4, 32, 0, 0, 0, 0, 0, 32, 0, 0, 1, 32, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 17, 32, 32, 0, 0, 1, 32, 0, 0, 0, 32,
+    9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9,
+    9, 9, 9, 9, 9, 9, 9, 0, 9, 9, 9, 9, 9, 9, 9, 17,
+    17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17,
+    17, 17, 17, 17, 17, 17, 17, 0, 17, 17, 17, 17, 17, 17, 17, 17
+};
+
+static bool is_letter_slow(uint16_t c) {
+    return (c >= 0x100 && c <= 0x24F) || (c >= 0x370 && c <= 0x3FF && c != 0x37E && c != 0x387) || (c >= 0x400 && c <= 0x4FF) ||
            (c >= 0x3040 && c <= 0x30FF) || (c >= 0x4E00 && c <= 0x9FFF) || (c >= 0xAC00 && c <= 0xD7A3);
 }
-bool csrt_char_is_letter_or_digit(uint16_t c) { return csrt_char_is_letter(c) || csrt_char_is_digit(c); }
-bool csrt_char_is_white_space(uint16_t c) { return is_white_space(c); }
-bool csrt_char_is_punctuation(uint16_t c) {
-    return (c >= '!' && c <= '#') || (c >= '%' && c <= '*') || (c >= ',' && c <= '/') || c == ':' || c == ';' ||
-           c == '?' || c == '@' || (c >= '[' && c <= ']') || c == '_' || c == '{' || c == '}' || c == 0xA1 || c == 0xBF;
-}
+
+bool csrt_char_is_digit(uint16_t c) { return c < 256 ? (s_latin1[c] & CC_DIGIT) != 0 : false; }
+bool csrt_char_is_upper(uint16_t c) { return c < 256 ? (s_latin1[c] & CC_UPPER) != 0 : to_lower(c) != c; }
+bool csrt_char_is_lower(uint16_t c) { return c < 256 ? (s_latin1[c] & CC_LOWER) != 0 : to_upper(c) != c; }
+bool csrt_char_is_letter(uint16_t c) { return c < 256 ? (s_latin1[c] & CC_LETTER) != 0 : is_letter_slow(c); }
+bool csrt_char_is_letter_or_digit(uint16_t c) { return c < 256 ? (s_latin1[c] & (CC_LETTER | CC_DIGIT)) != 0 : is_letter_slow(c); }
+bool csrt_char_is_white_space(uint16_t c) { return c < 256 ? (s_latin1[c] & CC_SPACE) != 0 : is_white_space(c); }
+bool csrt_char_is_punctuation(uint16_t c) { return c < 256 ? (s_latin1[c] & CC_PUNCT) != 0 : false; }
 uint16_t csrt_char_to_upper(uint16_t c) { return to_upper(c); }
 uint16_t csrt_char_to_lower(uint16_t c) { return to_lower(c); }
 
@@ -97,7 +118,7 @@ csrt_String* csrt_string_new_from_chars(csrt_Array* chars) {
 
 csrt_Array* csrt_string_to_char_array(csrt_String* s) {
     require(s);
-    csrt_Array* a = csrt_new_array(sizeof(uint16_t), s->length);
+    csrt_Array* a = csrt_new_array_primitive(sizeof(uint16_t), s->length);
     memcpy(a->data, s->chars, sizeof(uint16_t) * (size_t)s->length);
     return a;
 }
@@ -129,8 +150,17 @@ int32_t csrt_string_last_index_of_char(csrt_String* s, uint16_t c) {
 int32_t csrt_string_index_of(csrt_String* s, csrt_String* value, int32_t start) {
     require(s);
     if (!value) csrt_throw(&mt_argument_null, ascii("Value cannot be null. (Parameter 'value')"));
-    for (int32_t i = start; i + value->length <= s->length; i++)
-        if (memcmp(s->chars + i, value->chars, sizeof(uint16_t) * (size_t)value->length) == 0) return i;
+    if (value->length == 0) return start <= s->length ? start : -1;
+    // Scan for the first char, then compare the rest.
+    const uint16_t first = value->chars[0];
+    const int32_t rest = value->length - 1;
+    const int32_t last = s->length - value->length;
+    for (int32_t i = start; i <= last; i++) {
+        if (s->chars[i] != first) continue;
+        int32_t k = 0;
+        while (k < rest && s->chars[i + 1 + k] == value->chars[1 + k]) k++;
+        if (k == rest) return i;
+    }
     return -1;
 }
 
@@ -378,7 +408,8 @@ const csrt_BuiltinMethodTable csrt_StringBuilder_MT = {
 
 StringBuilder* csrt_sb_new(int32_t capacity) {
     StringBuilder* sb = csrt_alloc(&csrt_StringBuilder_MT.header, sizeof(StringBuilder));
-    sb->buffer = csrt_new_array(sizeof(uint16_t), capacity > 16 ? capacity : 16);
+    // Primitive + uncleared: the GC never scans it, and chars past `length` are never read.
+    sb->buffer = csrt_new_array_primitive_noclear(sizeof(uint16_t), capacity > 16 ? capacity : 16);
     return sb;
 }
 
@@ -388,7 +419,7 @@ static void sb_reserve(StringBuilder* sb, int64_t extra) {
     if (need <= sb->buffer->length) return;
     int64_t cap = sb->buffer->length * 2;
     if (cap < need) cap = need;
-    csrt_Array* grown = csrt_new_array(sizeof(uint16_t), cap);
+    csrt_Array* grown = csrt_new_array_primitive_noclear(sizeof(uint16_t), cap);
     memcpy(grown->data, sb->buffer->data, sizeof(uint16_t) * (size_t)sb->length);
     sb->buffer = grown;
 }
@@ -406,6 +437,23 @@ StringBuilder* csrt_sb_append_char(StringBuilder* sb, uint16_t c, int32_t repeat
     sb_reserve(sb, repeat);
     for (int32_t i = 0; i < repeat; i++) ((uint16_t*)sb->buffer->data)[sb->length++] = c;
     return sb;
+}
+
+static StringBuilder* sb_append_ascii(StringBuilder* sb, const char* begin, const char* end) {
+    int32_t n = (int32_t)(end - begin);
+    sb_reserve(sb, n);
+    uint16_t* dst = (uint16_t*)sb->buffer->data + sb->length;
+    for (int32_t i = 0; i < n; i++) dst[i] = (uint8_t)begin[i];
+    sb->length += n;
+    return sb;
+}
+
+// Append(int/long/uint/ulong/bool) format straight into the buffer — no temporary string.
+StringBuilder* csrt_sb_append_i64(StringBuilder* sb, int64_t v) { char b[24]; return sb_append_ascii(sb, csrt_itoa_i64(v, b + 24), b + 24); }
+StringBuilder* csrt_sb_append_u64(StringBuilder* sb, uint64_t v) { char b[24]; return sb_append_ascii(sb, csrt_itoa_u64(v, b + 24), b + 24); }
+StringBuilder* csrt_sb_append_bool(StringBuilder* sb, bool v) {
+    static const char t[] = "True", f[] = "False";
+    return v ? sb_append_ascii(sb, t, t + 4) : sb_append_ascii(sb, f, f + 5);
 }
 
 StringBuilder* csrt_sb_new_from_string(csrt_String* s) {
