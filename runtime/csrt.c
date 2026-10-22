@@ -329,3 +329,20 @@ void* csrt_unbox(void* obj, const csrt_MethodTable* type) {
     if (((csrt_Object*)obj)->mt != type) invalid_cast(((csrt_Object*)obj)->mt, type);
     return BOX_PAYLOAD(obj);
 }
+
+// ---------------------------------------------------------------------------------------------
+// Boxed user structs (payload at offset 8, instance_size = 8 + payload size)
+// ---------------------------------------------------------------------------------------------
+bool csrt_valuetype_equals(void* self, void* other) {
+    const csrt_MethodTable* mt = ((csrt_Object*)self)->mt;
+    if (!other || ((csrt_Object*)other)->mt != mt) return false;
+    return memcmp((char*)self + 8, (char*)other + 8, mt->instance_size - 8) == 0;
+}
+
+int32_t csrt_valuetype_get_hash_code(void* self) {
+    const csrt_MethodTable* mt = ((csrt_Object*)self)->mt;
+    const unsigned char* p = (const unsigned char*)self + 8;
+    uint32_t h = 2166136261u;
+    for (uint32_t i = 0; i < mt->instance_size - 8; i++) h = (h ^ p[i]) * 16777619u;
+    return (int32_t)h;
+}

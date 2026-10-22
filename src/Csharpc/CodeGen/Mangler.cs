@@ -112,6 +112,12 @@ public static class Mangler
         }
         sb.Append('N');
         AppendPath(sb, type);
+        if (type is INamedTypeSymbol { TypeArguments.Length: > 0 } generic)
+        {
+            sb.Append('I');
+            foreach (var argument in generic.TypeArguments) AppendType(sb, argument);
+            sb.Append('E');
+        }
         sb.Append('E');
     }
 }

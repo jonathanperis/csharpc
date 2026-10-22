@@ -51,6 +51,16 @@ dotnet src/Csharpc/bin/Debug/net11.0/csharpc.dll hello.cs -o hello
 If libLLVM isn't on the default library path, set `CSHARPC_LIBLLVM=/path/to/libLLVM.so`. To use a
 different C compiler or linker driver, pass `--cc` or set `CSHARPC_CC`.
 
+## Building real projects (drop-in)
+
+```sh
+csharpc path/to/App.csproj                 # evaluates the project with MSBuild; ProjectReferences included
+dotnet build   -p:UseCsharpc=true          # with the Csharpc.Sdk package: native exe replaces the apphost
+dotnet publish -p:PublishCsharpc=true      # one native executable, like PublishAot
+```
+
+See [docs/08-drop-in.md](docs/08-drop-in.md) and `tests/projects.sh`.
+
 ## Command line
 
 ```
@@ -167,6 +177,7 @@ See [docs/05-testing.md](docs/05-testing.md).
 | [05 — Testing](docs/05-testing.md) | Differential testing against .NET |
 | [06 — Roadmap](docs/06-roadmap.md) | Milestones and the feature matrix |
 | [07 — Spike log](docs/07-spike-log.md) | Journal of what happened and what we learned |
+| [08 — Drop-in toolchain](docs/08-drop-in.md) | Projects, `dotnet build -p:UseCsharpc=true`, `dotnet publish -p:PublishCsharpc=true` |
 | [ADRs](docs/adr/) | Architecture decision records |
 
 ## Repository layout

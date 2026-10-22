@@ -1,0 +1,15 @@
+<Project>
+  <!--
+    Csharpc.Sdk: build .NET projects to native executables with csharpc (C# -> LLVM).
+
+      <PackageReference Include="Csharpc.Sdk" Version="..." PrivateAssets="all" />
+      dotnet build   -p:UseCsharpc=true      # native exe replaces the apphost in $(OutDir); `dotnet run` runs it
+      dotnet publish -p:PublishCsharpc=true  # native exe in $(PublishDir), like PublishAot=true
+
+    Normal CoreCompile still runs, so diagnostics, IDE tooling and the managed build are unaffected.
+  -->
+  <PropertyGroup>
+    <UseCsharpc Condition="'$(UseCsharpc)' == ''">false</UseCsharpc>
+    <PublishCsharpc Condition="'$(PublishCsharpc)' == ''">false</PublishCsharpc>
+  </PropertyGroup>
+</Project>

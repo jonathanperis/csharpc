@@ -19,14 +19,36 @@ public sealed class Compiler(CompilerOptions options)
     public int Run()
     {
         _clock.Start();
-        var compilation = RoslynFrontend.Analyze(options.Inputs, options.ImplicitUsings, options.Defines);
+        FrontendSettings settings;
+        if (options.Project is { } project)
+        {
+            var (projectSettings, root, all) = ProjectLoader.Load(project, options.Configuration, options.Verbose ? Console.Error : null, options.Properties);
+            Phase($"evaluate project ({all.Count} project(s), {projectSettings.Files.Count} file(s))");
+            if (!root.OutputType.Equals("Exe", StringComparison.OrdinalIgnoreCase) && !root.OutputType.Equals("WinExe", StringComparison.OrdinalIgnoreCase)
+                && options.Emit == EmitKind.Exe)
+                return Fail($"'{Path.GetFileName(project)}' has OutputType={root.OutputType}; csharpc builds executables (use --emit obj for a library object)");
+            foreach (var p in all.Where(p => p.UnsupportedPackages.Count > 0))
+                Warn($"{Path.GetFileName(p.ProjectPath)}: PackageReference not supported yet (csharpc compiles from source only): {string.Join(", ", p.UnsupportedPackages)}");
+            options.DefaultOutputName = root.AssemblyName;
+            settings = projectSettings with { Defines = [.. projectSettings.Defines, .. options.Defines] };
+        }
+        else
+        {
+            settings = new FrontendSettings
+            {
+                Files = options.Inputs,
+                Defines = options.Defines,
+                GlobalUsings = options.ImplicitUsings ? RoslynFrontend.DefaultImplicitUsings : null,
+            };
+        }
+        var compilation = RoslynFrontend.Analyze(settings);
         var diagnostics = compilation.GetDiagnostics();
         Phase("parse + bind (Roslyn)");
 
         var errors = 0;
         foreach (var d in diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error || (options.ShowWarnings && d.Severity == DiagnosticSeverity.Warning)))
         {
-            Console.Error.WriteLine(d.ToString());
+            WriteDiagnostic(d.ToString(), d.Severity == DiagnosticSeverity.Error);
             if (d.Severity == DiagnosticSeverity.Error) errors++;
         }
         if (errors > 0) return Fail($"{errors} error(s) from the C# front-end");
@@ -41,7 +63,7 @@ public sealed class Compiler(CompilerOptions options)
         });
         using var module = new LlvmModule(llvm, compilation.AssemblyName ?? "program");
         module.ConfigureFor(target);
-        module.SourceFileName = options.Inputs[0];
+        module.SourceFileName = settings.Files.Count > 0 ? settings.Files[0] : "program";
 
         var codegen = new ModuleCodeGen(compilation, llvm, module, target) { CfgDump = options.DumpCfg ? Console.Out : null };
         try { codegen.Generate(); }
@@ -50,7 +72,7 @@ public sealed class Compiler(CompilerOptions options)
 
         if (codegen.Errors.Count > 0)
         {
-            foreach (var e in codegen.Errors.DistinctBy(e => e.Format())) Console.Error.WriteLine(e.Format());
+            foreach (var e in codegen.Errors.DistinctBy(e => e.Format())) WriteDiagnostic(e.Format(), isError: true);
             return Fail($"{codegen.Errors.Count} construct(s) not supported by csharpc yet");
         }
 
@@ -70,6 +92,7 @@ public sealed class Compiler(CompilerOptions options)
         }
 
         var output = options.OutputPath;
+        if (Path.GetDirectoryName(Path.GetFullPath(output)) is { } outDir) Directory.CreateDirectory(outDir);
         switch (options.Emit)
         {
             case EmitKind.LlvmIr: File.WriteAllText(output, module.PrintToString()); break;
@@ -103,9 +126,26 @@ public sealed class Compiler(CompilerOptions options)
         _last = now;
     }
 
+    private static readonly bool s_color =
+        !Console.IsErrorRedirected && Environment.GetEnvironmentVariable("NO_COLOR") is null && Environment.GetEnvironmentVariable("TERM") != "dumb";
+
+    /// <summary>Roslyn-format diagnostics ("path(l,c): error ID: msg"), colored on a terminal like dotnet.</summary>
+    private static void WriteDiagnostic(string text, bool isError)
+    {
+        if (!s_color) { Console.Error.WriteLine(text); return; }
+        var marker = isError ? ": error " : ": warning ";
+        var at = text.IndexOf(marker, StringComparison.Ordinal);
+        var color = isError ? "\e[1;31m" : "\e[1;33m";
+        Console.Error.WriteLine(at < 0
+            ? $"{color}{text}\e[0m"
+            : $"\e[1m{text[..at]}\e[0m: {color}{marker[2..^1]}\e[0m {text[(at + marker.Length)..]}");
+    }
+
+    private static void Warn(string message) => WriteDiagnostic($"csharpc: warning : {message}", isError: false);
+
     private static int Fail(string message)
     {
-        Console.Error.WriteLine($"csharpc: {message}");
+        WriteDiagnostic($"csharpc: error : {message}", isError: true);
         return 1;
     }
 }

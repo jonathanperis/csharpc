@@ -89,6 +89,13 @@ public sealed class LlvmContext : IDisposable
         LLVMAddAttributeAtIndex(fn, uint.MaxValue /* LLVMAttributeFunctionIndex */, LLVMCreateEnumAttribute(Ref, kind, value));
     }
 
+    /// <summary>Adds an enum attribute (e.g. "zeroext") to parameter <paramref name="index"/> (0-based).</summary>
+    public void AddParameterAttribute(LLVMValueRef fn, uint index, string name)
+    {
+        var kind = LLVMGetEnumAttributeKindForName(name, (nuint)name.Length);
+        LLVMAddAttributeAtIndex(fn, index + 1, LLVMCreateEnumAttribute(Ref, kind, 0));
+    }
+
     public void AddReturnAttribute(LLVMValueRef fn, string name)
     {
         var kind = LLVMGetEnumAttributeKindForName(name, (nuint)name.Length);

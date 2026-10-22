@@ -18,11 +18,12 @@ public sealed partial class FunctionCodeGen
         var target = inv.TargetMethod;
         if (target.MethodKind == MethodKind.DelegateInvoke) return EmitDelegateInvoke(inv);
         if (target.MethodKind == MethodKind.LocalFunction) return CallLocalFunction(inv);
+        if (TypeMapper.IsNullable(target.ContainingType)) return EmitNullableMethod(inv);
         if (_m.IsUserMethod(target))
         {
-            var self = ModuleCodeGen.HasThis(target) ? EmitValue(inv.Instance!) : default;
+            var self = ModuleCodeGen.HasThis(target) ? Receiver(inv.Instance!, target) : default;
             var isBaseCall = inv.Instance?.Syntax is BaseExpressionSyntax;
-            return EmitUserCall(target, self, inv.Instance is IInstanceReferenceOperation, inv.Arguments, inv.IsVirtual && !isBaseCall);
+            return EmitUserCall(target, self, ReceiverIsNonNull(inv.Instance, target), inv.Arguments, inv.IsVirtual && !isBaseCall);
         }
         if (Intrinsics.TryGet(target, out var handler)) return handler(this, inv);
         if (TryEmitLibraryExceptionCall(inv, out var result)) return result;
@@ -68,6 +69,7 @@ public sealed partial class FunctionCodeGen
     private LLVMValueRef EmitArgument(IArgumentOperation argument)
     {
         var parameter = argument.Parameter!;
+        if (parameter.RefKind is RefKind.In or RefKind.RefReadOnlyParameter) return AddressOrSpill(argument.Value);
         if (parameter.RefKind != RefKind.None) return AddressOf(argument.Value);
         return Coerce(EmitValue(argument.Value), argument.Value.Type, parameter.Type);
     }
@@ -118,6 +120,7 @@ public sealed partial class FunctionCodeGen
     {
         if (creation.Initializer is not null) throw CompileError.Unsupported("object initializer", creation);
         var type = (INamedTypeSymbol)creation.Type!;
+        if (type.IsValueType) return EmitValueTypeCreation(creation, type);
         if (type.SpecialType == SpecialType.System_Object)
             return Allocate(_m.ExternalGlobal("csrt_Object_MT"), L.ConstInt(L.I64, (long)T.PointerSize));
         if (_m.IsLibraryException(type)) return EmitLibraryExceptionCreation(creation);
@@ -160,6 +163,21 @@ public sealed partial class FunctionCodeGen
     /// <summary>Boxes a primitive: { mt = csrt_Boxed_&lt;T&gt;_MT, payload @ offset 8 }.</summary>
     internal LLVMValueRef Box(LLVMValueRef value, ITypeSymbol type, IOperation at)
     {
+        if (TypeMapper.IsNullable(type))
+        {
+            // Boxing T?: null becomes a null reference, otherwise a boxed T.
+            var (has, payload, underlying) = NullableParts(value, type);
+            var result = NewTemp(L.Ptr, "box.nullable");
+            _b.Store(LlvmContext.Null(L.Ptr), result);
+            var boxBlock = NewBlock("box");
+            var done = NewBlock("box.done");
+            _b.CondBr(has, boxBlock, done);
+            _b.PositionAtEnd(boxBlock);
+            _b.Store(Box(payload, underlying, at), result);
+            _b.Br(done);
+            _b.PositionAtEnd(done);
+            return _b.Load(L.Ptr, result);
+        }
         var mt = MethodTableFor(type, at);
         var storage = T.Storage(type);
         var box = Allocate(mt, L.ConstInt(L.I64, 8 + (long)T.Target.SizeOf(storage)));
@@ -180,6 +198,7 @@ public sealed partial class FunctionCodeGen
         { TypeKind: TypeKind.Enum } => throw CompileError.Unsupported($"boxing enum '{type}'", at),
         INamedTypeSymbol { TypeKind: TypeKind.Class } named when _m.IsUserType(named) || _m.IsLibraryException(named) =>
             _m.GetLayout(named).MethodTable,
+        INamedTypeSymbol { TypeKind: TypeKind.Struct } named when _m.IsUserType(named) => _m.StructMethodTable(named),
         _ => throw CompileError.Unsupported($"type test against '{type}'", at),
     };
 
@@ -196,10 +215,11 @@ public sealed partial class FunctionCodeGen
     private LLVMValueRef EmitPropertyGet(IPropertyReferenceOperation p)
     {
         var property = p.Property;
+        if (TypeMapper.IsNullable(property.ContainingType)) return EmitNullableMember(p);
         if (_m.IsUserType(property.ContainingType))
         {
             var getter = property.GetMethod ?? throw CompileError.Unsupported($"reading set-only property '{property.Name}'", p);
-            var self = property.IsStatic ? default : EmitValue(p.Instance!);
+            var self = property.IsStatic ? default : Receiver(p.Instance!, getter);
             return CallAccessor(p, getter, self, []);
         }
         if (Intrinsics.TryGetProperty(property, out var handler)) return handler(this, p);
@@ -212,7 +232,8 @@ public sealed partial class FunctionCodeGen
         var property = p.Property;
         if (!_m.IsUserType(property.ContainingType))
             throw CompileError.Unsupported($"setting '{property.ContainingType}.{property.Name}'", p);
-        var self = property.IsStatic ? default : EmitValue(p.Instance!);
+        var self = property.IsStatic ? default
+            : property.ContainingType.IsValueType ? AddressOrSpill(p.Instance!) : EmitValue(p.Instance!);
         var v = Coerce(value(), valueType, property.Type);
 
         if (property.SetMethod is null)
@@ -230,7 +251,7 @@ public sealed partial class FunctionCodeGen
     private LLVMValueRef CallAccessor(IPropertyReferenceOperation p, IMethodSymbol accessor, LLVMValueRef self, LLVMValueRef[] extra)
     {
         var isBase = p.Instance?.Syntax is BaseExpressionSyntax;
-        return EmitUserCall(accessor, self, p.Instance is IInstanceReferenceOperation, p.Arguments, isVirtual: !isBase, extra);
+        return EmitUserCall(accessor, self, ReceiverIsNonNull(p.Instance, accessor), p.Arguments, isVirtual: !isBase, extra);
     }
 
     // ======================================================================================
@@ -407,7 +428,7 @@ public sealed partial class FunctionCodeGen
             var formatter = _m.EnumFormatter(enumType);
             return _b.Call(formatter.Type, formatter.Fn, [value]);
         }
-        return FormatPrimitive(value, type) ?? (type.IsReferenceType ? ObjectToString(value) : throw CompileError.Unsupported($"formatting '{type}'", op));
+        return FormatValue(value, type, op);
     }
 
     internal LLVMValueRef? FormatPrimitive(LLVMValueRef value, ITypeSymbol type) => type.SpecialType switch
@@ -491,6 +512,7 @@ public sealed partial class FunctionCodeGen
 
     private LLVMValueRef PatternTest(LLVMValueRef value, ITypeSymbol? inputType, IPatternOperation pattern)
     {
+        if (TypeMapper.IsNullable(inputType)) return NullablePatternTest(value, inputType!, pattern);
         switch (pattern)
         {
             case IConstantPatternOperation constant:

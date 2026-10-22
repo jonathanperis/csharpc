@@ -235,6 +235,17 @@ public sealed partial class FunctionCodeGen
         _b.Unreachable();
     }
 
+    /// <summary>Throws a new library exception (e.g. InvalidOperationException) with a fixed message.</summary>
+    internal void ThrowNewLibraryException(INamedTypeSymbol type, string message)
+    {
+        var layout = _m.GetLayout(type);
+        var exception = Allocate(layout.MethodTable, L.ConstInt(L.I64, (long)layout.InstanceSize));
+        var none = LlvmContext.Null(L.Ptr);
+        CallRuntime("csrt_exception_init", L.Void, [L.Ptr, L.Ptr, L.Ptr, L.Ptr], exception, _m.StringLiteral(message), none, none);
+        CallRuntime("csrt_throw_object", L.Void, [L.Ptr], exception);
+        _b.Unreachable();
+    }
+
     private void EmitRethrow(IOperation? at)
     {
         var handler = HandlerOf(_currentBlock) ?? throw CompileError.Unsupported("rethrow outside a catch block", at);
