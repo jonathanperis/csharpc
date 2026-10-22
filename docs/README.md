@@ -33,3 +33,4 @@ matrix in [06-roadmap.md](06-roadmap.md) and add a dated entry to [07-spike-log.
 - [11 — BCL value types](11-bcl-value-types.md): decimal, TimeSpan/DateTime/Stopwatch, BigInteger, Type objects, Array helpers & sorting, culture comparison
 - [12 — Corelib](12-corelib.md): the shadow corelib — BCL collections and LINQ written in C#, redirected from the real reference assemblies
 - [13 — Debugging](13-debugging.md): `-g`, DWARF debug info, gdb/lldb pretty-printers
+- [14 — Threading](14-threading.md): threads, thread-safe GC (stop-the-world handshake), monitors, Interlocked, Parallel

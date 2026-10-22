@@ -67,8 +67,10 @@ internal static class Intrinsics
         string[] printable = ["string", "object", "int", "long", "uint", "ulong", "bool", "double", "float", "char"];
         foreach (var type in printable)
         {
-            t[$"System.Console.Write({type})"] = (g, inv) => { WriteValue(g, inv.Arguments[0].Value); return default; };
-            t[$"System.Console.WriteLine({type})"] = (g, inv) => { WriteValue(g, inv.Arguments[0].Value); NewLine(g); return default; };
+            // Console.Out is synchronized in .NET: one Write/WriteLine never interleaves with another thread's.
+            // The argument is evaluated first, then the write (+ newline) happens under the stdout lock.
+            t[$"System.Console.Write({type})"] = (g, inv) => { WriteValue(g, inv.Arguments[0].Value, newline: false); return default; };
+            t[$"System.Console.WriteLine({type})"] = (g, inv) => { WriteValue(g, inv.Arguments[0].Value, newline: true); return default; };
         }
         t["System.Console.WriteLine()"] = (g, _) => { NewLine(g); return default; };
         t["System.Console.ReadLine()"] = (g, _) => g.CallRuntime("csrt_console_read_line", g.Module.Llvm.Ptr, []);
@@ -782,6 +784,9 @@ internal static class Intrinsics
         g.CallRuntime("csrt_console_error_write_string", l.Void, [l.Ptr], text);
     }
 
+    private static void ConsoleLock(FunctionCodeGen g, bool acquire) =>
+        g.CallRuntime(acquire ? "csrt_console_lock" : "csrt_console_unlock", g.Module.Llvm.Void, []);
+
     /// <summary>Strips the boxing conversion of an enum/integer value passed as Enum/object.</summary>
     private static IOperation UnboxEnum(IOperation op)
     {
@@ -791,14 +796,25 @@ internal static class Intrinsics
 
     private static void NewLine(FunctionCodeGen g) => g.CallRuntime("csrt_console_newline", g.Module.Llvm.Void, []);
 
-    private static void WriteValue(FunctionCodeGen g, IOperation argument)
+    private static void WriteValue(FunctionCodeGen g, IOperation argument) => WriteValue(g, argument, null);
+
+    /// <summary>Writes a value; with <paramref name="newline"/> set, the write (+ newline) is atomic w.r.t. other threads.</summary>
+    private static void WriteValue(FunctionCodeGen g, IOperation argument, bool? newline)
     {
         var l = g.Module.Llvm;
         var op = FunctionCodeGen.Unbox(argument);
         var type = g.TypeOf(op);
+        void Emit(string name, LLVMTypeRef argType, LLVMValueRef value)
+        {
+            if (newline is null) { g.CallRuntime(name, l.Void, [argType], value); return; }
+            ConsoleLock(g, true);
+            g.CallRuntime(name, l.Void, [argType], value);
+            if (newline == true) NewLine(g);
+            ConsoleLock(g, false);
+        }
         if (op.ConstantValue.HasValue || type is null || type.TypeKind == TypeKind.Enum)
         {
-            g.CallRuntime("csrt_console_write_string", l.Void, [l.Ptr], g.ToStringValue(op));
+            Emit("csrt_console_write_string", l.Ptr, g.ToStringValue(op));
             return;
         }
         (string Name, LLVMTypeRef Type)? direct = type.SpecialType switch
@@ -815,9 +831,9 @@ internal static class Intrinsics
             _ => null,
         };
         if (direct is { } d)
-            g.CallRuntime(d.Name, l.Void, [d.Type], g.EmitValue(op));
+            Emit(d.Name, d.Type, g.EmitValue(op));
         else
-            g.CallRuntime("csrt_console_write_string", l.Void, [l.Ptr], g.ToStringValue(op));
+            Emit("csrt_console_write_string", l.Ptr, g.ToStringValue(op));
     }
 
     private static LLVMValueRef CallUnaryF64(FunctionCodeGen g, string name, LLVMValueRef x)

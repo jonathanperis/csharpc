@@ -56,8 +56,8 @@ public sealed class TypeMapper(LlvmContext llvm, TargetMachine target)
             Llvm.Struct([.. t.TupleElements.Select(e => Storage(e.Type))]),  // ValueTuple<...>: flattened
         INamedTypeSymbol n when IsSystemStruct(n, "Index") => Llvm.I32,                       // .NET's own encoding: ~n = from end
         INamedTypeSymbol n when IsSystemStruct(n, "Range") => Llvm.Struct(Llvm.I32, Llvm.I32), // { Index start, Index end }
-        // System.Threading.Lock.Scope: the runtime is single-threaded, so `lock (Lock)` scopes are empty.
-        INamedTypeSymbol { Name: "Scope", ContainingType: { Name: "Lock", ContainingNamespace.Name: "Threading" } } => Llvm.I8,
+        // System.Threading.Lock.Scope: represented by the Lock itself (Scope.Dispose exits it).
+        INamedTypeSymbol { Name: "Scope", ContainingType: { Name: "Lock", ContainingNamespace.Name: "Threading" } } => Llvm.Ptr,
         INamedTypeSymbol n when IsSpan(n) => Llvm.Struct(Llvm.Ptr, Llvm.I32),                  // { ref T, length }
         INamedTypeSymbol n when IsSpanEnumerator(n) => Llvm.Struct(Llvm.Ptr, Llvm.I32, Llvm.I32), // { ref T, length, index }
         INamedTypeSymbol { TypeKind: TypeKind.Struct } s when StructType?.Invoke(s) is { } user => user,
