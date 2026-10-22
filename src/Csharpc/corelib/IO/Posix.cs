@@ -20,9 +20,6 @@ namespace CsharpcCoreLib
         [DllImport("libc", SetLastError = true)] public static extern long lseek(int fd, long offset, int whence);
         [DllImport("libc", SetLastError = true)] public static extern int ftruncate(int fd, long length);
         [DllImport("libc", SetLastError = true)] public static extern int fsync(int fd);
-        [DllImport("libc", SetLastError = true)] public static extern int stat(byte* path, byte* buffer);
-        [DllImport("libc", SetLastError = true)] public static extern int lstat(byte* path, byte* buffer);
-        [DllImport("libc", SetLastError = true)] public static extern int fstat(int fd, byte* buffer);
         [DllImport("libc", SetLastError = true)] public static extern int mkdir(byte* path, int mode);
         [DllImport("libc", SetLastError = true)] public static extern int rmdir(byte* path);
         [DllImport("libc", SetLastError = true)] public static extern int unlink(byte* path);
@@ -40,14 +37,26 @@ namespace CsharpcCoreLib
         [DllImport("libc")] public static extern byte* strerror(int error);
         [DllImport("libc")] public static extern int getentropy(byte* buffer, nuint length);
 
-        // struct stat (x86-64 glibc): st_mode @24 (u32), st_size @48 (i64), st_mtim.tv_sec @88, tv_nsec @96; 144 bytes.
-        public const int StatSize = 144;
-        public static int Mode(byte* st) => *(int*)(st + 24);
-        public static long Size(byte* st) => *(long*)(st + 48);
-        public static long MTimeSeconds(byte* st) => *(long*)(st + 88);
-        public static long MTimeNanoseconds(byte* st) => *(long*)(st + 96);
+        // stat/lstat/fstat go through statx (glibc 2.28+): struct statx has one layout on every Linux
+        // architecture, while struct stat does not (st_mode is at offset 24 on x86-64 but 16 on AArch64).
+        // struct statx: stx_mode @28 (u16), stx_size @40 (u64), stx_mtime.tv_sec @112 (i64), tv_nsec @120 (u32); 256 bytes.
+        [DllImport("libc", SetLastError = true)] private static extern int statx(int dirfd, byte* path, int flags, uint mask, byte* buffer);
+        private const int AT_FDCWD = -100, AT_SYMLINK_NOFOLLOW = 0x100, AT_EMPTY_PATH = 0x1000;
+        private const uint STATX_BASIC_STATS = 0x7FF;
+        public const int StatSize = 256;
+        public static int stat(byte* path, byte* buffer) => statx(AT_FDCWD, path, 0, STATX_BASIC_STATS, buffer);
+        public static int lstat(byte* path, byte* buffer) => statx(AT_FDCWD, path, AT_SYMLINK_NOFOLLOW, STATX_BASIC_STATS, buffer);
+        public static int fstat(int fd, byte* buffer)
+        {
+            byte empty = 0;
+            return statx(fd, &empty, AT_EMPTY_PATH, STATX_BASIC_STATS, buffer);
+        }
+        public static int Mode(byte* st) => *(ushort*)(st + 28);
+        public static long Size(byte* st) => *(long*)(st + 40);
+        public static long MTimeSeconds(byte* st) => *(long*)(st + 112);
+        public static long MTimeNanoseconds(byte* st) => *(uint*)(st + 120);
 
-        // struct dirent (x86-64 glibc): d_type @18, d_name @19.
+        // struct dirent (glibc, LP64 Linux: x86-64 and AArch64 alike): d_type @18, d_name @19.
         public const int DirentTypeOffset = 18, DirentNameOffset = 19;
         public const byte DT_UNKNOWN = 0, DT_DIR = 4, DT_REG = 8, DT_LNK = 10;
 
