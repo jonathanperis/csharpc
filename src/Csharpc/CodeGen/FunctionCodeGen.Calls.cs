@@ -618,7 +618,7 @@ public sealed partial class FunctionCodeGen
             i = _b.Cast(LLVMOpcode.ZExt, raw, L.I64); // in [0, length) now
         }
         else FailIf(_b.ICmp(LLVMIntPredicate.UGE, i, length), "csrt_throw_index_out_of_range");
-        return DataAddress(_b.InBoundsGep(header, array, [L.ConstInt(L.I32, 0), L.ConstInt(L.I32, 2), i]));
+        return DataAddress(_b.InBoundsGep(header, array, [L.ConstInt(L.I32, 0), L.ConstInt(L.I32, 2), i]), DataKind.ArrayElement);
     }
 
     // foreach over T[]: Roslyn's CFG lowers it to the IEnumerable<T> pattern. We substitute a
@@ -653,7 +653,7 @@ public sealed partial class FunctionCodeGen
     {
         var data = _b.Load(L.Ptr, _b.StructGep(ArrayEnumeratorType, enumerator, 0));
         var index = _b.Load(L.I64, _b.StructGep(ArrayEnumeratorType, enumerator, 1));
-        var address = DataAddress(_b.InBoundsGep(T.Storage(elementType), data, [index]));
+        var address = DataAddress(_b.InBoundsGep(T.Storage(elementType), data, [index]), DataKind.ArrayElement);
         return LoadValue(address, elementType);
     }
 
@@ -684,8 +684,7 @@ public sealed partial class FunctionCodeGen
     {
         var str = _b.Load(L.Ptr, _b.StructGep(StringEnumeratorType, e, 0));
         var index = _b.Load(L.I32, _b.StructGep(StringEnumeratorType, e, 1));
-        var address = _b.InBoundsGep(T.StringHeader, str, [L.ConstInt(L.I32, 0), L.ConstInt(L.I32, 2), index]);
-        return _b.Load(L.I16, address);
+        return LoadStringChar(str, index);
     }
 
     internal LLVMValueRef ArrayLength(LLVMValueRef array)

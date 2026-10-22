@@ -167,7 +167,7 @@ public sealed partial class FunctionCodeGen
             case { SpecialType: SpecialType.System_String }:
                 elementType = _m.Compilation.GetSpecialType(SpecialType.System_Char);
                 length = () => LoadStringLength(value);
-                element = i => _b.Load(L.I16, _b.InBoundsGep(T.StringHeader, value, [L.ConstInt(L.I32, 0), L.ConstInt(L.I32, 2), i]));
+                element = i => LoadStringChar(value, i);
                 break;
             case var span when TypeMapper.IsSpan(span):
                 elementType = SpanElement(span);

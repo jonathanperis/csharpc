@@ -97,7 +97,7 @@ public sealed partial class FunctionCodeGen
             var str = EmitValue(op.Instance);
             var length = StringLength(str);
             if (IsIndexType(op.Argument.Type))
-                return CallRuntime("csrt_string_char_at", L.I16, [L.Ptr, L.I32], str, ResolveIndex(EmitValue(op.Argument), length));
+                return StringCharAt(str, ResolveIndex(EmitValue(op.Argument), length));
             // Roslyn lowers s[a..b] to s.Substring(a, b - a): Substring's own checks and messages apply.
             var (start, count) = UncheckedRange(EmitValue(op.Argument), length);
             return CallRuntime("csrt_string_substring", L.Ptr, [L.Ptr, L.I32, L.I32], str, start, count);

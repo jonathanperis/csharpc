@@ -225,7 +225,11 @@ array elements, span elements) accesses get distinct TBAA tags under a csharpc r
 elements or fields never clobber a length, so LLVM keeps the length in a register across them and
 removes the bounds checks that become loop-invariant or dominated. Lengths are immutable after
 allocation (RyuJIT assumes the same); the C runtime's accesses use clang's TBAA root and untagged
-accesses (pointers, refs) alias everything, so neither is affected.
+accesses (pointers, refs) alias everything, so neither is affected. Within managed data, each class
+field has its own tag, and array elements and string chars have one each: these never share memory
+(instance layouts are sequential). Struct fields and span elements keep the generic tag, since a
+struct can live in an array or a field and a span can view either. `string[int]` is lowered inline
+for the same reason: the C helper's clang-tagged length load aliased every store.
 
 ## Classes
 

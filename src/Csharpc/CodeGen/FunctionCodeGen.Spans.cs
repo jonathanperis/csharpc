@@ -118,7 +118,7 @@ public sealed partial class FunctionCodeGen
     private LLVMValueRef SpanElementAddress(LLVMValueRef span, ITypeSymbol element, LLVMValueRef index)
     {
         FailIf(_b.ICmp(LLVMIntPredicate.UGE, index, SpanLength(span)), "csrt_throw_index_out_of_range");
-        return DataAddress(_b.InBoundsGep(T.Storage(element), SpanPointer(span), [_b.Cast(LLVMOpcode.ZExt, index, L.I64)]));
+        return DataAddress(_b.InBoundsGep(T.Storage(element), SpanPointer(span), [_b.Cast(LLVMOpcode.ZExt, index, L.I64)]), DataKind.Any);
     }
 
     private LLVMValueRef SpanByteCount(LLVMValueRef span, ITypeSymbol element) =>
@@ -153,7 +153,7 @@ public sealed partial class FunctionCodeGen
             var enumType = T.Value(owner);
             var ptr = _b.Load(L.Ptr, _b.StructGep(enumType, e, 0));
             var index = _b.Load(L.I32, _b.StructGep(enumType, e, 2));
-            return DataAddress(_b.InBoundsGep(T.Storage(SpanElement(owner.ContainingType!)), ptr, [_b.Cast(LLVMOpcode.ZExt, index, L.I64)]));
+            return DataAddress(_b.InBoundsGep(T.Storage(SpanElement(owner.ContainingType!)), ptr, [_b.Cast(LLVMOpcode.ZExt, index, L.I64)]), DataKind.Any);
         }
         if (_m.IsUserType(owner))
         {

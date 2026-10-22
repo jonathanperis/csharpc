@@ -1,4 +1,5 @@
 using Csharpc.Llvm;
+using Microsoft.CodeAnalysis;
 
 namespace Csharpc.CodeGen;
 
@@ -9,7 +10,7 @@ namespace Csharpc.CodeGen;
 public sealed partial class FunctionCodeGen
 {
     /// <summary>Addresses of fields, bounds-checked array elements and span elements (by LLVM handle).</summary>
-    private readonly HashSet<nint> _dataAddresses = [];
+    private readonly Dictionary<nint, (DataKind Kind, IFieldSymbol? Field)> _dataAddresses = [];
 
     /// <summary>T[].Length (i64; the total element count for any rank) of a non-null array.</summary>
     internal LLVMValueRef LoadArrayLength(LLVMValueRef array)
@@ -27,19 +28,38 @@ public sealed partial class FunctionCodeGen
         return load;
     }
 
+    /// <summary>The char at a (checked) index of a non-null string.</summary>
+    internal LLVMValueRef LoadStringChar(LLVMValueRef str, LLVMValueRef index)
+    {
+        var load = _b.Load(L.I16, _b.InBoundsGep(T.StringHeader, str, [L.ConstInt(L.I32, 0), L.ConstInt(L.I32, 2), index]));
+        _m.Facts.StringCharLoad(load);
+        return load;
+    }
+
+    /// <summary>
+    /// string[int], inline rather than a csrt call: the C helper's loads carry clang's TBAA tags,
+    /// which alias everything of ours, so its length load couldn't be hoisted out of a loop that stores.
+    /// </summary>
+    internal LLVMValueRef StringCharAt(LLVMValueRef str, LLVMValueRef index)
+    {
+        NullCheck(str);
+        FailIf(_b.ICmp(LLVMIntPredicate.UGE, index, LoadStringLength(str)), "csrt_throw_index_out_of_range");
+        return LoadStringChar(str, _b.Cast(LLVMOpcode.ZExt, index, L.I64));
+    }
+
     /// <summary>
     /// Marks an address as managed data (a field, an array element or a span element), which can
     /// never be an array's or a string's length; <see cref="LoadValue"/>/<see cref="StoreValue"/> tag
     /// their accesses accordingly.
     /// </summary>
-    internal LLVMValueRef DataAddress(LLVMValueRef address)
+    internal LLVMValueRef DataAddress(LLVMValueRef address, DataKind kind, IFieldSymbol? field = null)
     {
-        _dataAddresses.Add(address.Handle);
+        _dataAddresses[address.Handle] = (kind, field?.OriginalDefinition);
         return address;
     }
 
     private void TagDataAccess(LLVMValueRef access, LLVMValueRef address)
     {
-        if (_dataAddresses.Contains(address.Handle)) _m.Facts.DataAccess(access);
+        if (_dataAddresses.TryGetValue(address.Handle, out var data)) _m.Facts.DataAccess(access, data.Kind, data.Field);
     }
 }

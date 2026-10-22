@@ -611,12 +611,12 @@ public sealed partial class FunctionCodeGen
         if (field.ContainingType.IsValueType)
         {
             var (structType, index) = _m.ValueTypeField(field);
-            return DataAddress(_b.StructGep(structType, instance, index, field.Name));
+            return DataAddress(_b.StructGep(structType, instance, index, field.Name), DataKind.Any); // the struct may be an array element
         }
         var layout = _m.GetLayout(field.ContainingType);
         if (!layout.FieldIndex.TryGetValue(field, out var slotIndex) && !layout.FieldIndex.TryGetValue(field.OriginalDefinition, out slotIndex))
             throw CompileError.Unsupported($"field '{field}' not found in the layout of '{layout.Type}'", field);
-        return DataAddress(_b.StructGep(layout.InstanceType, instance, slotIndex, field.Name));
+        return DataAddress(_b.StructGep(layout.InstanceType, instance, slotIndex, field.Name), DataKind.ObjectField, field);
     }
 
     // ======================================================================================
