@@ -201,9 +201,10 @@ for how this compares to Mono's LLVM backend, LLILC, NativeAOT(-LLVM), IL2CPP an
 ```
 src/
   Csharpc/          the compiler: Frontend (Roslyn), CodeGen (CFG → LLVM IR), Llvm (C API bindings), Driver
-  Csharpc/corelib/  BCL collections and LINQ written in C#, compiled with every program
+  Csharpc/corelib/  the BCL in C#: collections, LINQ, strings, StringBuilder, number formatting/parsing,
+                    decimal, BigInteger, DateTime; compiled with every program
   Csharpc.Sdk/      MSBuild integration (UseCsharpc / PublishCsharpc)
-  runtime/          csrt — the C runtime: GC, exceptions, threads, async, strings, formatting, decimal, ...
+  runtime/          csrt — the C runtime: GC, exceptions, threads, async scheduler, console/OS calls
 tests/
   samples/          differential tests (each .cs has .expected output recorded from real .NET)
   conformance/      the 195-program C# conformance corpus
