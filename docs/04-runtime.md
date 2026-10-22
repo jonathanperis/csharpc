@@ -88,7 +88,8 @@ itself, on top of a thin native layer.
 ├──────────────────────────────────────────────────────────────┤
 │ csharpc corelib (C#, src/Csharpc/corelib, compiled with the  │  collections, LINQ, strings, char,
 │ program; ADR 0008)                                           │  StringBuilder, number formatting and
-│                                                              │  parsing, Math.Round, ...
+│                                                              │  parsing, decimal, BigInteger,
+│                                                              │  DateTime/TimeSpan, Math.Round, ...
 ├──────────────────────────────────────────────────────────────┤
 │ csrt (C, src/runtime)                                        │  GC + allocator, unwinding/EH, threads,
 │                                                              │  async scheduler core, console + OS calls,
@@ -105,9 +106,9 @@ itself, on top of a thin native layer.
 - startup (`csrt_init`);
 - casts, interface dispatch and boxing method tables (`csrt.c`, `type.c`, `delegates.c`).
 
-Value types that haven't moved yet also live here: decimal arithmetic (`decimal.c`), `BigInteger`
-(`bigint.c`), `DateTime`/`TimeSpan` (`datetime.c`), culture-aware comparison and sorting
-(`bclmisc.c`) and `Enum.Parse` (`parse.c`). They're next in line.
+Also still in C, and next in line to move: culture-aware comparison and sorting (`bclmisc.c`) and
+`Enum.Parse` (`parse.c`). The `decimal.c`, `bigint.c` and `datetime.c` files that remain only hold
+boxed method tables and the clocks.
 
 **Lives in C#:** library logic that is ordinary code:
 
@@ -115,6 +116,7 @@ Value types that haven't moved yet also live here: decimal arithmetic (`decimal.
 - string operations and `char` with Unicode tables generated from .NET (`StringOps.cs`,
   `UnicodeData.g.cs`, `tools/unicode`);
 - `StringBuilder` (`StringBuilder.cs`);
+- `decimal` (`DecimalOps.cs`), `BigInteger` (`BigIntegerOps.cs`), and `DateTime`/`TimeSpan` (`DateTimeOps.cs`);
 - collections and LINQ.
 
 How the two sides call each other:

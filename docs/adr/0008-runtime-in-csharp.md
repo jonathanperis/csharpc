@@ -28,9 +28,9 @@ classification. That code has several costs:
 **What stays in C (`src/runtime`):** what has to be native or sits below the object model: the
 GC and allocator, exception unwinding (personality routine, throw/catch ABI, exception messages),
 threads and synchronization, the async scheduler core, console and OS syscalls, process startup,
-type-system primitives (casts, interface dispatch tables, boxing method tables), and the remaining
-value types that haven't moved yet (decimal arithmetic, BigInteger, DateTime/TimeSpan, culture
-collation).
+type-system primitives (casts, interface dispatch tables, boxing method tables), and what hasn't
+moved yet: culture collation and the remaining string helpers in `bclmisc.c`, plus `Enum.Parse`
+(`parse.c`).
 
 **What moves to C# (`src/Csharpc/corelib`):** library logic that is ordinary C#:
 
@@ -43,6 +43,9 @@ collation).
 | `char` classification and invariant case mapping, with Unicode tables generated from .NET | `StringOps.cs`, `UnicodeData.g.cs` (`tools/unicode`) | Latin-1 tables in `strings.c` |
 | `System.Text.StringBuilder` | `StringBuilder.cs` | `csrt_sb_*` in `strings.c`, `bclmisc.c` |
 | Integer → string | `Number.cs` | `csrt_string_from_i32/...` call sites (C keeps a small itoa for its own use) |
+| `System.Decimal`: arithmetic with exact 96-bit rounding, conversions, parsing, hashing | `DecimalOps.cs` | `decimal.c` |
+| `System.Numerics.BigInteger`: Knuth division, `Pow`/`ModPow`/`GCD`, conversions, parsing, formatting | `BigIntegerOps.cs` | `bigint.c` |
+| `TimeSpan`/`DateTime`: arithmetic, the CLR calendar, standard and custom formats | `DateTimeOps.cs` | `datetime.c` (the clocks stay in C) |
 
 ### Mechanisms
 
@@ -52,7 +55,8 @@ collation).
 - **`[ShadowInstance]`**: a static corelib method whose first parameter is the receiver implements
   a BCL *instance* method (`string.Replace`, `string.Split`, ...) without a shadow type.
 - **Core intrinsics** for the few things C# can't express without `unsafe`: `FastAllocateString`,
-  `StringChars` (a writable span over a fresh string), double/float bit casts, decimal fields.
+  `StringChars` (a writable span over a fresh string), double/float bit casts, reading and building
+  decimal fields.
 - **`[RuntimeExport("csrt_symbol", "trigger")]`** for the reverse direction, where C calls C#.
   Example: a boxed double's virtual `ToString` lives in a C method table. The compiler emits an
   external wrapper named `csrt_symbol` only when the program references `trigger` (here
@@ -61,10 +65,18 @@ collation).
 
 ## Consequences
 
+- C shrank from 7,286 to 4,727 lines, and the corelib grew from 5,500 to 9,698 lines.
 - Formatting and parsing follow .NET's own algorithms: exact digits with ties-to-even for doubles,
   Steele & White / Burger & Dybvig shortest digits, .NET's `NumberToString`/`NumberToStringFormat`
-  structure. They're verified differentially (`tests/samples/160`–`163`, including 20,000 random
-  round-trips through `R` and `E16`).
+  structure. They're verified differentially (`tests/samples/160`–`166`, including 20,000 random
+  round-trips through `R` and `E16`). Matching .NET's own algorithms also fixed several
+  divergences from .NET in the old C code:
+  - the scientific-notation threshold of `double.ToString()`;
+  - `Math.Round(1.115, 2)`;
+  - decimal `%` scales and `(decimal)double` digits;
+  - .NET 11's hex-float `"X"` format;
+  - boxed `DateTime`/`TimeSpan`/`IFormattable` values in composite formats;
+  - the overflow messages for `byte`, `sbyte` and `char`.
 - No fixed-size C buffers remain in these paths. BigNum storage is `stackalloc` with bounds
   checks.
 - Code that doesn't use formatting pays nothing: corelib code is compiled on demand and
@@ -76,7 +88,7 @@ collation).
 
 ## Alternatives considered
 
-- **Keep C, just fix the divergences:** that leaves the safety and optimizer problems, and a
+- **Keep C and fix the divergences there:** that leaves the safety and optimizer problems, and a
   correctly rounded `strtod`/shortest printer in C is no smaller than in C#.
 - **Ship .NET's own `System.Private.CoreLib` sources:** it depends on the CoreCLR type system,
   generic virtual methods, reflection and globalization data far beyond what csharpc implements.

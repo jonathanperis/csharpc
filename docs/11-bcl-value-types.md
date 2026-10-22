@@ -13,12 +13,13 @@ Code map:
 | Member table (methods, getters, ctors, operators, static fields) | `src/Csharpc/CodeGen/BclValueTypes.cs` |
 | Per-function helpers (decimal ops, Type objects, loops, delegate calls) | `src/Csharpc/CodeGen/FunctionCodeGen.Bcl.cs` |
 | Array / enum / type-only method tables, IR comparers for `Array.Sort` | `src/Csharpc/CodeGen/ModuleCodeGen.Bcl.cs` |
-| Decimal arithmetic | `src/runtime/decimal.c` |
-| TimeSpan, DateTime, Stopwatch | `src/runtime/datetime.c` |
+| Decimal arithmetic, conversions, parsing | `src/Csharpc/corelib/DecimalOps.cs` (C#, [ADR 0008](adr/0008-runtime-in-csharp.md)) |
+| TimeSpan, DateTime arithmetic, calendar and formatting | `src/Csharpc/corelib/DateTimeOps.cs`; clocks and Stopwatch in `src/runtime/datetime.c` |
 | `System.Type` objects | `src/runtime/type.c` |
-| BigInteger | `src/runtime/bigint.c` |
-| Array helpers, introsort, Convert, Environment, collation, StringBuilder extras | `src/runtime/bclmisc.c` |
-| Decimal / custom-section number formatting | `src/runtime/format.c` |
+| BigInteger | `src/Csharpc/corelib/BigIntegerOps.cs` |
+| Array helpers, introsort, Convert, Environment, collation | `src/runtime/bclmisc.c` |
+| Number formatting and parsing (decimal included) | `src/Csharpc/corelib/Number.Formatting.cs`, `Number.Parsing.cs` |
+| Boxed decimal / BigInteger / TimeSpan / DateTime method tables | `src/runtime/{decimal,bigint,datetime}.c` (their slots call corelib exports) |
 
 ## How library members are dispatched
 
@@ -44,11 +45,12 @@ implementations, and static library fields (`string.Empty`, `TimeSpan.Zero`,
 
 * **Representation:** the CLR's own layout, `{ i32 flags, i32 hi32, i64 lo64 }` (scale in bits
   16–23 of `flags`, sign in bit 31). Constants are emitted from `decimal.GetBits`.
-* **Arithmetic** (`src/runtime/decimal.c`) computes the *exact* result with a fixed 384-bit bignum,
+* **Arithmetic** (`corelib/DecimalOps.cs`) computes the *exact* result with a small bignum,
   then fits it into 96 bits / scale ≤ 28 by dividing by a power of ten with round-half-to-even,
   which is the CLR's contract. Scale rules follow .NET: `+`/`-` keep the larger scale, `*` adds
   scales, `/` produces the smallest scale that represents the quotient exactly (up to 28 digits),
-  `%` keeps the larger scale and the dividend's sign. Overflow throws `OverflowException`
+  `%` keeps the larger scale and the dividend's sign, and returns the dividend unchanged when
+  its magnitude is smaller than the divisor's (as `DecCalc.VarDecMod` does). Overflow throws `OverflowException`
   ("Value was either too large or too small for a Decimal."); division by zero throws
   `DivideByZeroException`.
 * **Conversions:** `int`/`long` → decimal are exact; `double` → decimal is **exact** in .NET 11
@@ -95,8 +97,8 @@ implementations, and static library fields (`string.Empty`, `TimeSpan.Zero`,
 
 ## BigInteger
 
-A `BigInteger` value is a pointer to an immutable GC-heap bignum (`null` is zero, so
-`default(BigInteger)` and zero-initialized arrays are correct). Schoolbook multiplication,
+A `BigInteger` value is a reference to an immutable `uint[]` (element 0 the sign, then the
+magnitude; `null` is zero, so `default(BigInteger)` and zero-initialized arrays are correct). Schoolbook multiplication,
 Knuth algorithm D for division (remainder takes the dividend's sign), exponentiation by squaring,
 `ModPow`, `GreatestCommonDivisor`, `Parse/TryParse`, `ToString("D"/"N"/"X")`, all comparison
 operators including the `(BigInteger, long)` overloads, implicit/explicit conversions, boxing.
