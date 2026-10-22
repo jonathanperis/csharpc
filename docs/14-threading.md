@@ -84,11 +84,10 @@ calling thread after the loop drains.
 - `Parallel.For` rethrows the first exception itself; .NET wraps all exceptions in an
   `AggregateException`. `ParallelLoopState`/`ParallelOptions`/`Break`/`Stop` overloads, `ForEach`
   over non-array `IEnumerable<T>`, and thread-local `localInit` overloads are not mapped yet.
-- **`Task.Run` still runs on the single-threaded async scheduler** (src/runtime/async.c). The plan:
-  back `Task.Run` with this worker pool, protect task state and continuation lists with a
-  per-task lock (or CAS on the state word), and run continuations on the pool (or post them to the
-  awaiting thread's queue when it blocks in `Wait`/`Result`). This waits for the async exception
-  work (faulted tasks) to land so the task object layout is settled.
+- `Task.Run` and `await` continuations run on the task scheduler's own pool (src/runtime/async.c,
+  see [10-async.md](10-async.md)). Those workers are started through `csrt_start_background_thread`
+  and are separate from the `Parallel.*` workers here, so `Parallel.For` inside `Task.Run` still
+  fans out.
 - `Thread.Sleep(TimeSpan)`, `Join(TimeSpan)`, `Thread.Interrupt`/`Abort` (obsolete), thread
   priorities and culture-per-thread are not supported. `ThreadLocal<T>`, `SpinLock`, `Barrier`,
   `ReaderWriterLockSlim`, `Mutex`/`Semaphore` (named, OS-level) and concurrent collections are not

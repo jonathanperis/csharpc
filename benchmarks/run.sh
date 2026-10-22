@@ -11,7 +11,7 @@
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-PROGRAMS="$ROOT/bench/programs"
+PROGRAMS="$ROOT/benchmarks/programs"
 DOTNET="${DOTNET:-dotnet}"
 RUNS="${RUNS:-3}"
 FILTER=""
@@ -106,4 +106,4 @@ done
   echo "| benchmark | csharpc -O2 | csharpc -O3 | .NET JIT | NativeAOT | csharpc compile (ms) | csharpc size (KiB, stripped) | NativeAOT size (KiB) |"
   echo "|---|---:|---:|---:|---:|---:|---:|---:|"
   printf '%s\n' "${rows[@]}"
-} | tee "$ROOT/bench/results-latest.md"
+} | tee "$ROOT/benchmarks/results-latest.md"
