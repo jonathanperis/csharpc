@@ -1,0 +1,5 @@
+# Raw logs, build trees and downloaded corpora stay out of git (run.sh defaults to /tmp anyway).
+work/
+corpus/
+*.log
+summary.md

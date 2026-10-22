@@ -1,0 +1,258 @@
+# repo	project	reason
+dotnet/samples	core/console-apps/NewTypesMsBuild/test/NewTypesTests/NewTypesTests.csproj	not an executable
+dotnet/samples	core/tutorials/Unloading/Interface/Interface.csproj	not an executable
+dotnet/samples	core/tutorials/Unloading/Plugin/Plugin.csproj	not an executable
+dotnet/samples	core/tutorials/Unloading/PluginDependency/PluginDependency.csproj	not an executable
+dotnet/samples	core/tutorials/buggyamb/BuggyAmb/BuggyAmb.csproj	SDK Microsoft.NET.Sdk.Web
+dotnet/samples	core/tutorials/cli-templates-create-item-template/AdatumCorporation.Utility.Templates.csproj	not an executable
+dotnet/samples	core/tutorials/using-on-mac-vs-full-solution/WordCounter/TestLibrary/TestLibrary.csproj	not an executable
+dotnet/samples	core/tutorials/using-on-mac-vs-full-solution/WordCounter/TextUtils/TextUtils.csproj	not an executable
+dotnet/samples	csharp/expression-trees/expression-trees.csproj	NuGet package reference
+dotnet/samples	csharp/getting-started/console-webapiclient/webapiclient.csproj	network
+dotnet/samples	csharp/parallel/ParallelExtensionsExtras/ParallelExtensionsExtras.csproj	not an executable
+dotnet/samples	csharp/parallel/Raytracer/Raytracer.csproj	SDK Microsoft.NET.Sdk.WindowsDesktop
+dotnet/samples	csharp/parallel/Raytracer.Wpf/Raytracer.Wpf.csproj	SDK Microsoft.NET.Sdk.WindowsDesktop
+dotnet/samples	csharp/roslyn-sdk/SemanticQuickStart/SemanticQuickStart.csproj	NuGet package reference
+dotnet/samples	csharp/roslyn-sdk/SyntaxQuickStart/HelloSyntaxTree/HelloSyntaxTree.csproj	NuGet package reference
+dotnet/samples	csharp/roslyn-sdk/SyntaxQuickStart/SyntaxWalker/SyntaxWalker.csproj	NuGet package reference
+dotnet/samples	csharp/roslyn-sdk/SyntaxTransformationQuickStart/ConstructionCS/ConstructionCS.csproj	NuGet package reference
+dotnet/samples	csharp/roslyn-sdk/SyntaxTransformationQuickStart/TransformationCS/TransformationCS.csproj	NuGet package reference
+dotnet/samples	csharp/roslyn-sdk/Tutorials/MakeConst/MakeConst/MakeConst.csproj	not an executable
+dotnet/samples	csharp/roslyn-sdk/Tutorials/MakeConst/MakeConst.CodeFixes/MakeConst.CodeFixes.csproj	not an executable
+dotnet/samples	csharp/roslyn-sdk/Tutorials/MakeConst/MakeConst.Package/MakeConst.Package.csproj	not an executable
+dotnet/samples	csharp/roslyn-sdk/Tutorials/MakeConst/MakeConst.Test/MakeConst.Test.csproj	not an executable
+dotnet/samples	csharp/roslyn-sdk/Tutorials/MakeConst/MakeConst.Vsix/MakeConst.Vsix.csproj	not an SDK-style project
+dotnet/samples	csharp/safe-efficient-code/benchmark/benchmark.csproj	NuGet package reference
+dotnet/samples	csharp/tutorials/AsyncStreams/finished/IssuePRreport/IssuePRreport/IssuePRreport.csproj	NuGet package reference
+dotnet/samples	csharp/tutorials/AsyncStreams/start/IssuePRreport/IssuePRreport/IssuePRreport.csproj	NuGet package reference
+dotnet/samples	csharp/tutorials/nullable-reference-migration/finished/SimpleFeedReader/SimpleFeedReader.csproj	SDK Microsoft.NET.Sdk.Web
+dotnet/samples	csharp/tutorials/nullable-reference-migration/finished/SimpleFeedReader.Tests/SimpleFeedReader.Tests.csproj	not an executable
+dotnet/samples	csharp/tutorials/nullable-reference-migration/start/SimpleFeedReader/SimpleFeedReader.csproj	SDK Microsoft.NET.Sdk.Web
+dotnet/samples	csharp/tutorials/nullable-reference-migration/start/SimpleFeedReader.Tests/SimpleFeedReader.Tests.csproj	not an executable
+dotnet/samples	csharp/unit-testing/MSTest.Project/MSTest.Project.csproj	not an executable
+dotnet/samples	csharp/unit-testing/NUnit.TestProject/NUnit.Project.csproj	not an executable
+dotnet/samples	csharp/unit-testing/XUnit.TestProject/XUnit.Project.csproj	not an executable
+dotnet/samples	csharp/unit-testing-best-practices/after/unit-testing-best-practices-after.csproj	not an executable
+dotnet/samples	csharp/unit-testing-best-practices/before/unit-testing-best-practices-before.csproj	not an executable
+dotnet/samples	csharp/unit-testing-best-practices/unit-testing-best-practices/unit-testing-best-practices.csproj	not an executable
+dotnet/samples	csharp/unit-testing-code-coverage/Numbers/Numbers.csproj	not an executable
+dotnet/samples	csharp/unit-testing-code-coverage/XUnit.Coverlet.Collector/XUnit.Coverlet.Collector.csproj	not an executable
+dotnet/samples	csharp/unit-testing-code-coverage/XUnit.Coverlet.MSBuild/XUnit.Coverlet.MSBuild.csproj	not an executable
+dotnet/docs	docs/csharp/advanced-topics/interop/snippets/ExampleComClass/ExampleComClass.csproj	not an executable
+dotnet/docs	docs/csharp/advanced-topics/interop/snippets/IndexedProperties/indexedpropscom.csproj	not an SDK-style project
+dotnet/docs	docs/csharp/advanced-topics/interop/snippets/NamedAndOptional/namedandoptionalsnippets.csproj	not an SDK-style project
+dotnet/docs	docs/csharp/advanced-topics/interop/snippets/OfficeInterop/officeprogrammingwalkthrough.csproj	not an SDK-style project
+dotnet/docs	docs/csharp/advanced-topics/interop/snippets/WinSound/WinSound.csproj	GUI
+dotnet/docs	docs/csharp/advanced-topics/interop/snippets/dynamic-iron-python-walkthrough/ironpythonsample.csproj	NuGet package reference
+dotnet/docs	docs/csharp/advanced-topics/interop/snippets/dynamic-walkthrough/dynamicwalkthroughcs.csproj	assembly/COM reference
+dotnet/docs	docs/csharp/advanced-topics/reflection-and-attributes/snippets/conceptual/AttributesAndReflection.csproj	starts processes/loads assemblies
+dotnet/docs	docs/csharp/asynchronous-programming/snippets/access-web/access-web.csproj	network
+dotnet/docs	docs/csharp/asynchronous-programming/snippets/async-scenarios/async-scenarios.csproj	NuGet package reference
+dotnet/docs	docs/csharp/asynchronous-programming/snippets/cancel-task-after-period-of-time/cancel-task-after-period-of-time.csproj	network
+dotnet/docs	docs/csharp/asynchronous-programming/snippets/cancel-tasks/cancel-tasks.csproj	network
+dotnet/docs	docs/csharp/asynchronous-programming/snippets/generate-consume-asynchronous-streams/finished/IssuePRreport.csproj	NuGet package reference
+dotnet/docs	docs/csharp/asynchronous-programming/snippets/generate-consume-asynchronous-streams/start/IssuePRreport.csproj	NuGet package reference
+dotnet/docs	docs/csharp/asynchronous-programming/snippets/multiple-tasks-6-0/MultipleTasks.csproj	network
+dotnet/docs	docs/csharp/fundamentals/coding-style/snippets/coding-conventions/coding-conventions.csproj	GUI
+dotnet/docs	docs/csharp/fundamentals/coding-style/snippets/identifier-names/identifier-names.csproj	NuGet package reference
+dotnet/docs	docs/csharp/fundamentals/types/snippets/interfaces/interfaces.csproj	not an executable
+dotnet/docs	docs/csharp/language-reference/compiler-messages/snippets/ImportedTypes/ImportedTypes.csproj	not an executable
+dotnet/docs	docs/csharp/language-reference/compiler-messages/snippets/null-warnings/null-warnings.csproj	NuGet package reference
+dotnet/docs	docs/csharp/language-reference/keywords/snippets/keywords.csproj	GUI
+dotnet/docs	docs/csharp/language-reference/operators/snippets/shared/operators.csproj	NuGet package reference
+dotnet/docs	docs/csharp/linq/snippets/HowToBuildDynamicQueries/HowToBuildDynamicQueries.csproj	NuGet package reference
+dotnet/docs	docs/csharp/programming-guide/classes-and-structs/snippets/NamedAndOptional/namedandoptionalsnippets.csproj	NuGet package reference
+dotnet/docs	docs/csharp/roslyn-sdk/tutorials/snippets/how-to-write-csharp-analyzer-code-fix/MakeConst/MakeConst/MakeConst.csproj	not an executable
+dotnet/docs	docs/csharp/roslyn-sdk/tutorials/snippets/how-to-write-csharp-analyzer-code-fix/MakeConst/MakeConst.CodeFixes/MakeConst.CodeFixes.csproj	not an executable
+dotnet/docs	docs/csharp/roslyn-sdk/tutorials/snippets/how-to-write-csharp-analyzer-code-fix/MakeConst/MakeConst.Package/MakeConst.Package.csproj	not an executable
+dotnet/docs	docs/csharp/roslyn-sdk/tutorials/snippets/how-to-write-csharp-analyzer-code-fix/MakeConst/MakeConst.Test/MakeConst.Test.csproj	not an executable
+dotnet/docs	docs/csharp/roslyn-sdk/tutorials/snippets/how-to-write-csharp-analyzer-code-fix/MakeConst/MakeConst.Vsix/MakeConst.Vsix.csproj	not an SDK-style project
+dotnet/docs	docs/csharp/tour-of-csharp/snippets/shared/TourOfCsharp.csproj	network
+dotnet/docs	docs/csharp/tutorials/snippets/WebAPIClient/WebAPIClient.csproj	network
+dotnet/docs	docs/csharp/whats-new/tutorials/snippets/PointExtensions/PointExtensions.csproj	GUI/Windows API
+dotnet/docs	docs/csharp/whats-new/tutorials/snippets/primary-constructors/primary-constructors.csproj	NuGet package reference
+dotnet/docs	docs/csharp/whats-new/tutorials/snippets/shared/telemetry-monitor/SmartHome.Core/SmartHome.Core.csproj	not an executable
+dotnet/docs	docs/csharp/whats-new/tutorials/snippets/shared/telemetry-monitor/SmartHome.Extensions/SmartHome.Extensions.csproj	not an executable
+dotnet/docs	docs/standard/assembly/snippets/identify/csharp/AssemblySnippets.csproj	NuGet package reference
+dotnet/docs	docs/standard/assembly/snippets/inspect-contents-using-metadataloadcontext/AssemblySnippets.csproj	NuGet package reference
+dotnet/docs	docs/standard/assembly/snippets/type-forwarders/before/Common/Common.csproj	not an executable
+dotnet/docs	docs/standard/assembly/snippets/type-forwarders/before/Utility/Utility.csproj	not an executable
+dotnet/docs	docs/standard/asynchronous-programming-patterns/snippets/cancel-non-cancelable-async-operations/csharp/CancelNonCancelableAsyncOperations.csproj	network
+dotnet/docs	docs/standard/asynchronous-programming-patterns/snippets/component-that-supports-the-event-based-asynchronous-pattern/csharp/projectcs.csproj	SDK Microsoft.NET.Sdk.WindowsDesktop
+dotnet/docs	docs/standard/asynchronous-programming-patterns/snippets/consuming-the-task-based-asynchronous-pattern/csharp/consuming-the-task-based-asynchronous-pattern.csproj	NuGet package reference
+dotnet/docs	docs/standard/asynchronous-programming-patterns/snippets/implementing-the-task-based-asynchronous-pattern/csharp/implementing-the-task-based-asynchronous-pattern.csproj	NuGet package reference
+dotnet/docs	docs/standard/base-types/snippets/regex/csharp/Project.csproj	network
+dotnet/docs	docs/standard/commandline/snippets/configuration/csharp/scl.csproj	NuGet package reference
+dotnet/docs	docs/standard/commandline/snippets/customize-help/csharp/scl.csproj	NuGet package reference
+dotnet/docs	docs/standard/commandline/snippets/define-symbols/csharp/scl.csproj	NuGet package reference
+dotnet/docs	docs/standard/commandline/snippets/get-started-tutorial/csharp/Stage0/scl.csproj	NuGet package reference
+dotnet/docs	docs/standard/commandline/snippets/get-started-tutorial/csharp/Stage1/scl.csproj	NuGet package reference
+dotnet/docs	docs/standard/commandline/snippets/get-started-tutorial/csharp/Stage2/scl.csproj	NuGet package reference
+dotnet/docs	docs/standard/commandline/snippets/get-started-tutorial/csharp/Stage3/scl.csproj	NuGet package reference
+dotnet/docs	docs/standard/commandline/snippets/global-options/csharp/scl.csproj	NuGet package reference
+dotnet/docs	docs/standard/commandline/snippets/handle-termination/csharp/scl.csproj	NuGet package reference
+dotnet/docs	docs/standard/commandline/snippets/model-binding/csharp/scl.csproj	NuGet package reference
+dotnet/docs	docs/standard/commandline/snippets/tab-completion/csharp/scl.csproj	NuGet package reference
+dotnet/docs	docs/standard/datetime/snippets/instantiating-a-datetimeoffset-object/csharp/Project.csproj	not an executable
+dotnet/docs	docs/standard/datetime/snippets/timezone-concepts/project.csproj	GUI
+dotnet/docs	docs/standard/garbage-collection/snippets/dispose-pattern/csharp/project.csproj	not an executable
+dotnet/docs	docs/standard/io/snippets/add-remove-acls/csharp/Project.csproj	Windows-only target framework
+dotnet/docs	docs/standard/io/snippets/how-to-use-named-pipes-for-network-interprocess-communication/csharp/NamedPipeClientStream_ImpersonationSample/NamedPipeClientStream_ImpersonationSample.csproj	starts processes/loads assemblies
+dotnet/docs	docs/standard/io/snippets/pipelines_1/Pipes.csproj	NuGet package reference
+dotnet/docs	docs/standard/io/snippets/pipelines_2/ConsoleApp.csproj	NuGet package reference
+dotnet/docs	docs/standard/parallel-programming/snippets/cs/snippets.csproj	network
+dotnet/docs	docs/standard/security/snippets/how-to-use-data-protection/framework/csharp/DataProtectionSample.csproj	not an SDK-style project
+dotnet/docs	docs/standard/security/snippets/how-to-use-data-protection/net/csharp/DataProtectionSample.csproj	Windows-only target framework
+dotnet/docs	docs/standard/security/snippets/replacing-a-principal-object/csharp/SetCurrentPrincipal.csproj	NuGet package reference
+dotnet/docs	docs/standard/serialization/system-text-json/snippets/how-to-contd/csharp/SystemTextJsonHowTo.csproj	NuGet package reference
+dotnet/docs	docs/standard/snippets/simd/csharp/SimdSnippets.csproj	NuGet package reference
+dotnet/docs	docs/standard/threading/snippets/scheduling-threads/ThreadSnippets.csproj	not an executable
+dotnet/docs	docs/fundamentals/code-analysis/quality-rules/snippets/ca1873/csharp/CA1873Example/CA1873Example.csproj	NuGet package reference
+dotnet/docs	docs/fundamentals/code-analysis/quality-rules/snippets/csharp/all-rules/all-rules.csproj	NuGet package reference
+dotnet/docs	docs/fundamentals/code-analysis/quality-rules/snippets/csharp/extra-rules/extra-rules.csproj	not an executable
+dotnet/docs	docs/fundamentals/code-analysis/quality-rules/snippets/csharp/netfx/project.csproj	not an executable
+dotnet/docs	docs/fundamentals/networking/http/snippets/httpclient-guidelines/Project.csproj	not an executable
+dotnet/docs	docs/fundamentals/networking/snippets/httpclient/httpclient.csproj	network
+dotnet/docs	docs/fundamentals/networking/snippets/internal-diag-telemetry/internal-diag-telemetry.csproj	network
+dotnet/docs	docs/fundamentals/networking/snippets/misc/misc.csproj	network
+dotnet/docs	docs/fundamentals/networking/snippets/shared/shared.csproj	not an executable
+dotnet/docs	docs/fundamentals/networking/snippets/socket/socket-client/socket-client.csproj	network
+dotnet/docs	docs/fundamentals/networking/snippets/socket/socket-server/socket-server.csproj	network
+dotnet/docs	docs/fundamentals/networking/snippets/tcp/tcp-client/tcp-client.csproj	network
+dotnet/docs	docs/fundamentals/networking/snippets/tcp/tcp-listener/tcp-listener.csproj	network
+dotnet/docs	docs/fundamentals/networking/telemetry/snippets/metrics/HelloBuiltinMetrics.csproj	NuGet package reference
+dotnet/docs	docs/fundamentals/networking/telemetry/snippets/tracing/ConnectionTracingDemo.ServiceDefaults/ConnectionTracingDemo.ServiceDefaults.csproj	not an executable
+dotnet/docs	docs/fundamentals/reflection/snippets/csharp/instantiate-generic-type/Project.csproj	not an executable
+dotnet/docs	docs/core/compatibility/core-libraries/6.0/snippets/project.csproj	network
+dotnet/docs	docs/core/containers/snippets/Worker/DotNet.ContainerImage.csproj	SDK Microsoft.NET.Sdk.Worker
+dotnet/docs	docs/core/deploying/trimming/snippets/MyLibrary/MyLibrary.csproj	not an executable
+dotnet/docs	docs/core/diagnostics/ambient-metadata/snippets/buildmetadata/buildmetadata.csproj	NuGet package reference
+dotnet/docs	docs/core/diagnostics/ambient-metadata/snippets/buildmetadata-access/buildmetadata-access.csproj	NuGet package reference
+dotnet/docs	docs/core/diagnostics/ambient-metadata/snippets/buildmetadata-msbuild-azure/buildmetadata-msbuild-azure.csproj	NuGet package reference
+dotnet/docs	docs/core/diagnostics/ambient-metadata/snippets/buildmetadata-usebuildmetadata/buildmetadata-usebuildmetadata.csproj	NuGet package reference
+dotnet/docs	docs/core/diagnostics/snippets/EventCounters/EventCounters.csproj	not an executable
+dotnet/docs	docs/core/diagnostics/snippets/Metrics/metric-instr.csproj	NuGet package reference
+dotnet/docs	docs/core/diagnostics/snippets/MetricsGen/MetricsGen.csproj	not an executable
+dotnet/docs	docs/core/diagnostics/snippets/Microsoft.Diagnostics.NETCore.Client/csharp/Microsoft.Diagnostics.NETCore.Client.Samples.csproj	not an executable
+dotnet/docs	docs/core/diagnostics/snippets/OTLP-Example/csharp/OTLP-Example.csproj	SDK Microsoft.NET.Sdk.Web
+dotnet/docs	docs/core/diagnostics/snippets/OTel-Prometheus-Grafana-Jaeger/csharp/OTel-Prometheus-Grafana-Jaeger.csproj	SDK Microsoft.NET.Sdk.Web
+dotnet/docs	docs/core/diagnostics/snippets/exception-summary/exception-summary.csproj	NuGet package reference
+dotnet/docs	docs/core/diagnostics/snippets/health-checks/health-checks.csproj	NuGet package reference
+dotnet/docs	docs/core/diagnostics/snippets/lifetime-health-checks/lifetime-health-checks.csproj	NuGet package reference
+dotnet/docs	docs/core/diagnostics/snippets/observability-otlp-example/csharp/observability-otlp-example.csproj	SDK Microsoft.NET.Sdk.Web
+dotnet/docs	docs/core/diagnostics/snippets/resource-monitoring/resource-monitoring.csproj	NuGet package reference
+dotnet/docs	docs/core/diagnostics/snippets/resource-monitoring-kubernetes/resource-monitoring-kubernetes.csproj	NuGet package reference
+dotnet/docs	docs/core/diagnostics/snippets/resource-monitoring-with-manual-metrics/resource-monitoring-with-manual-metrics.csproj	NuGet package reference
+dotnet/docs	docs/core/enrichment/snippets/applicationlogenricher/applogenricher.csproj	NuGet package reference
+dotnet/docs	docs/core/enrichment/snippets/enrichment/Enrichment.csproj	NuGet package reference
+dotnet/docs	docs/core/enrichment/snippets/httpclientlogenricher/httpclientlogenricher.csproj	NuGet package reference
+dotnet/docs	docs/core/extensions/dependency-injection/snippets/anti-patterns/di-anti-patterns.csproj	SDK Microsoft.NET.Sdk.Worker
+dotnet/docs	docs/core/extensions/dependency-injection/snippets/anykey/AnyKeyExamples.csproj	NuGet package reference
+dotnet/docs	docs/core/extensions/dependency-injection/snippets/basics/di-basics.csproj	NuGet package reference
+dotnet/docs	docs/core/extensions/dependency-injection/snippets/console/console-di.csproj	NuGet package reference
+dotnet/docs	docs/core/extensions/dependency-injection/snippets/console-disposable/console-di-disposable.csproj	NuGet package reference
+dotnet/docs	docs/core/extensions/dependency-injection/snippets/console-ienumerable/console-di-ienumerable.csproj	NuGet package reference
+dotnet/docs	docs/core/extensions/dependency-injection/snippets/overview/dependency-injection.csproj	SDK Microsoft.NET.Sdk.Worker
+dotnet/docs	docs/core/extensions/logging/snippets/source-generation/csharp/csharp.csproj	NuGet package reference
+dotnet/docs	docs/core/extensions/snippets/async-state/csharp/AspNetCoreIntegration/AspNetCoreIntegration.csproj	SDK Microsoft.NET.Sdk.Web
+dotnet/docs	docs/core/extensions/snippets/async-state/csharp/IAsyncContextExample/IAsyncContextExample.csproj	NuGet package reference
+dotnet/docs	docs/core/extensions/snippets/async-state/csharp/RequestCorrelation/RequestCorrelation.csproj	NuGet package reference
+dotnet/docs	docs/core/extensions/snippets/caching/distributed/distributed-apis.csproj	NuGet package reference
+dotnet/docs	docs/core/extensions/snippets/caching/hybrid-cache/csharp/HybridCacheExample.csproj	NuGet package reference
+dotnet/docs	docs/core/extensions/snippets/caching/memory-apis/memory-apis.csproj	NuGet package reference
+dotnet/docs	docs/core/extensions/snippets/caching/memory-worker/memory-worker.csproj	SDK Microsoft.NET.Sdk.Worker
+dotnet/docs	docs/core/extensions/snippets/configuration/app-lifetime/app-lifetime.csproj	NuGet package reference
+dotnet/docs	docs/core/extensions/snippets/configuration/binding-scenarios/DictionaryBinding/DictionaryBinding.csproj	NuGet package reference
+dotnet/docs	docs/core/extensions/snippets/configuration/console/console.csproj	NuGet package reference
+dotnet/docs	docs/core/extensions/snippets/configuration/console-basic/console-basic.csproj	NuGet package reference
+dotnet/docs	docs/core/extensions/snippets/configuration/console-basic-builder/console-basic-builder.csproj	NuGet package reference
+dotnet/docs	docs/core/extensions/snippets/configuration/console-binder-gen/console-binder-gen.csproj	NuGet package reference
+dotnet/docs	docs/core/extensions/snippets/configuration/console-custom-logging/console-custom-logging.csproj	NuGet package reference
+dotnet/docs	docs/core/extensions/snippets/configuration/console-env/console-env.csproj	NuGet package reference
+dotnet/docs	docs/core/extensions/snippets/configuration/console-host/console-host.csproj	NuGet package reference
+dotnet/docs	docs/core/extensions/snippets/configuration/console-indexer/console-indexer.csproj	NuGet package reference
+dotnet/docs	docs/core/extensions/snippets/configuration/console-ini/console-ini.csproj	NuGet package reference
+dotnet/docs	docs/core/extensions/snippets/configuration/console-json/console-json.csproj	NuGet package reference
+dotnet/docs	docs/core/extensions/snippets/configuration/console-memory/console-memory.csproj	NuGet package reference
+dotnet/docs	docs/core/extensions/snippets/configuration/console-raw/console-raw.csproj	NuGet package reference
+dotnet/docs	docs/core/extensions/snippets/configuration/console-validation-gen/console-validation-gen.csproj	NuGet package reference
+dotnet/docs	docs/core/extensions/snippets/configuration/console-xml/console-xml.csproj	NuGet package reference
+dotnet/docs	docs/core/extensions/snippets/configuration/custom-provider/custom-provider.csproj	NuGet package reference
+dotnet/docs	docs/core/extensions/snippets/configuration/options-action/options-action.csproj	NuGet package reference
+dotnet/docs	docs/core/extensions/snippets/configuration/options-configparam/options-configparam.csproj	NuGet package reference
+dotnet/docs	docs/core/extensions/snippets/configuration/options-noparams/options-noparams.csproj	NuGet package reference
+dotnet/docs	docs/core/extensions/snippets/configuration/options-object/options-object.csproj	NuGet package reference
+dotnet/docs	docs/core/extensions/snippets/configuration/options-postconfig/options-postconfig.csproj	NuGet package reference
+dotnet/docs	docs/core/extensions/snippets/configuration/options-recursive-validation/options-recursive-validation.csproj	NuGet package reference
+dotnet/docs	docs/core/extensions/snippets/configuration/options-validation-onstart/options-validation-onstart.csproj	NuGet package reference
+dotnet/docs	docs/core/extensions/snippets/configuration/worker-scope/worker-scope.csproj	SDK Microsoft.NET.Sdk.Worker
+dotnet/docs	docs/core/extensions/snippets/configuration/worker-service/worker-service.csproj	SDK Microsoft.NET.Sdk.Worker
+dotnet/docs	docs/core/extensions/snippets/dependency-injection-auto-activation/csharp/CompleteExample/CompleteExample.csproj	NuGet package reference
+dotnet/docs	docs/core/extensions/snippets/dependency-injection-auto-activation/csharp/DependenciesExample/DependenciesExample.csproj	NuGet package reference
+dotnet/docs	docs/core/extensions/snippets/fileglobbing/example/example.csproj	NuGet package reference
+dotnet/docs	docs/core/extensions/snippets/hosts/ShortLived.App/ShortLived.App.csproj	SDK Microsoft.NET.Sdk.Worker
+dotnet/docs	docs/core/extensions/snippets/http/basic/basic.csproj	NuGet package reference
+dotnet/docs	docs/core/extensions/snippets/http/configurehandler/configurehandler.csproj	NuGet package reference
+dotnet/docs	docs/core/extensions/snippets/http/generated/generated.csproj	NuGet package reference
+dotnet/docs	docs/core/extensions/snippets/http/http3/http3test.csproj	network
+dotnet/docs	docs/core/extensions/snippets/http/keyedservices/keyedservices.csproj	SDK Microsoft.NET.Sdk.Web
+dotnet/docs	docs/core/extensions/snippets/http/latency/latency.csproj	NuGet package reference
+dotnet/docs	docs/core/extensions/snippets/http/named/named.csproj	NuGet package reference
+dotnet/docs	docs/core/extensions/snippets/http/scopeworkaround/scopeworkaround.csproj	SDK Microsoft.NET.Sdk.Web
+dotnet/docs	docs/core/extensions/snippets/http/shared/shared.csproj	not an executable
+dotnet/docs	docs/core/extensions/snippets/http/typed/typed.csproj	NuGet package reference
+dotnet/docs	docs/core/extensions/snippets/localization/example/example.csproj	NuGet package reference
+dotnet/docs	docs/core/extensions/snippets/logging/console-formatter-custom/console-formatter-custom.csproj	NuGet package reference
+dotnet/docs	docs/core/extensions/snippets/logging/console-formatter-custom-with-config/console-formatter-custom-with-config.csproj	NuGet package reference
+dotnet/docs	docs/core/extensions/snippets/logging/console-formatter-json/console-formatter-json.csproj	SDK Microsoft.NET.Sdk.Web
+dotnet/docs	docs/core/extensions/snippets/logging/console-formatter-simple/console-formatter-simple.csproj	NuGet package reference
+dotnet/docs	docs/core/extensions/snippets/logging/console-formatter-systemd/console-formatter-systemd.csproj	NuGet package reference
+dotnet/docs	docs/core/extensions/snippets/logging/di-without-host/di-without-host.csproj	NuGet package reference
+dotnet/docs	docs/core/extensions/snippets/logging/getting-started/getting-started.csproj	NuGet package reference
+dotnet/docs	docs/core/extensions/snippets/logging/getting-started-logger-message/getting-started-logger-message.csproj	NuGet package reference
+dotnet/docs	docs/core/extensions/snippets/logging/getting-started-open-telemetry/getting-started-open-telemetry.csproj	NuGet package reference
+dotnet/docs	docs/core/extensions/snippets/logging/getting-started-type-category-name/getting-started-type-category-name.csproj	NuGet package reference
+dotnet/docs	docs/core/extensions/snippets/logging/library-authors/library-authors.csproj	NuGet package reference
+dotnet/docs	docs/core/extensions/snippets/logging/log-buffering/global/basic/GlobalLogBufferingBasic.csproj	NuGet package reference
+dotnet/docs	docs/core/extensions/snippets/logging/log-buffering/global/code-based/GlobalLogBufferingCodeBased.csproj	NuGet package reference
+dotnet/docs	docs/core/extensions/snippets/logging/log-buffering/global/file-based/GlobalLogBufferingFileBased.csproj	NuGet package reference
+dotnet/docs	docs/core/extensions/snippets/logging/log-buffering/per-request/basic/PerRequestLogBufferingBasic.csproj	NuGet package reference
+dotnet/docs	docs/core/extensions/snippets/logging/log-buffering/per-request/code-based/PerRequestLogBufferingCodeBased.csproj	NuGet package reference
+dotnet/docs	docs/core/extensions/snippets/logging/log-buffering/per-request/file-based/PerRequestLogBufferingFileBased.csproj	NuGet package reference
+dotnet/docs	docs/core/extensions/snippets/logging/log-sampling/code-config/LogSamplingCodeConfig.csproj	NuGet package reference
+dotnet/docs	docs/core/extensions/snippets/logging/log-sampling/file-config/LogSamplingFileConfig.csproj	NuGet package reference
+dotnet/docs	docs/core/extensions/snippets/logging/log-sampling/trace-based/LogSamplingTraceBased.csproj	NuGet package reference
+dotnet/docs	docs/core/extensions/snippets/logging/minimal-web/minimal-web.csproj	SDK Microsoft.NET.Sdk.Web
+dotnet/docs	docs/core/extensions/snippets/logging/minimal-web-open-telemetry/minimal-web-open-telemetry.csproj	SDK Microsoft.NET.Sdk.Web
+dotnet/docs	docs/core/extensions/snippets/logging/worker-service-options/worker-service-options.csproj	SDK Microsoft.NET.Sdk.Worker
+dotnet/docs	docs/core/extensions/snippets/primitives/change/tokens.csproj	NuGet package reference
+dotnet/docs	docs/core/extensions/snippets/primitives/string/tokenizers.csproj	NuGet package reference
+dotnet/docs	docs/core/extensions/snippets/ratelimit/http/http.csproj	NuGet package reference
+dotnet/docs	docs/core/extensions/snippets/timeprovider-testing/csharp/timeprovider-testing.csproj	NuGet package reference
+dotnet/docs	docs/core/extensions/snippets/timeprovider-testing/csharp-tests/timeprovider-testing-tests.csproj	not an executable
+dotnet/docs	docs/core/extensions/snippets/workers/background-service/App.WorkerService.csproj	SDK Microsoft.NET.Sdk.Worker
+dotnet/docs	docs/core/extensions/snippets/workers/cloud-service/App.CloudService.csproj	SDK Microsoft.NET.Sdk.Worker;Microsoft.NET.Sdk.Publish
+dotnet/docs	docs/core/extensions/snippets/workers/queue-service/App.QueueService.csproj	SDK Microsoft.NET.Sdk.Worker
+dotnet/docs	docs/core/extensions/snippets/workers/scoped-service/App.ScopedService.csproj	SDK Microsoft.NET.Sdk.Worker
+dotnet/docs	docs/core/extensions/snippets/workers/signal-completion-service/App.SignalCompletionService/App.SignalCompletionService.csproj	SDK Microsoft.NET.Sdk.Worker
+dotnet/docs	docs/core/extensions/snippets/workers/timer-service/App.TimerHostedService.csproj	SDK Microsoft.NET.Sdk.Worker
+dotnet/docs	docs/core/extensions/snippets/workers/windows-service/App.WindowsService.csproj	SDK Microsoft.NET.Sdk.Worker
+dotnet/docs	docs/core/resilience/snippets/http-resilience/http-resilience.csproj	NuGet package reference
+dotnet/docs	docs/core/resilience/snippets/resilience/resilience.csproj	NuGet package reference
+dotnet/docs	docs/core/testing/snippets/order-unit-tests/csharp/MSTest.Project/MSTest.Project.csproj	not an executable
+dotnet/docs	docs/core/testing/snippets/order-unit-tests/csharp/NUnit.TestProject/NUnit.Project.csproj	not an executable
+dotnet/docs	docs/core/testing/snippets/order-unit-tests/csharp/XUnit.TestProject/XUnit.Project.csproj	not an executable
+dotnet/docs	docs/core/testing/snippets/testcontext/csharp/project.csproj	not an executable
+dotnet/docs	docs/core/testing/snippets/testcontext/csharp-cancellation/project.csproj	not an executable
+dotnet/docs	docs/core/testing/snippets/unit-testing-mstest-ui-automation/csharp/UIAutomationExample/UIAutomationExample.csproj	not an executable
+dotnet/docs	docs/core/testing/snippets/unit-testing-mstest-writing-tests-data-driven/csharp/CombinatorialExample.csproj	not an executable
+dotnet/docs	docs/core/testing/snippets/unit-testing-using-mstest/csharp/PrimeService/PrimeService.csproj	not an executable
+dotnet/docs	docs/core/testing/snippets/unit-testing-using-mstest/csharp/PrimeService.Tests/PrimeService.Tests.csproj	not an executable
+dotnet/docs	docs/core/tutorials/snippets/create-class-library/csharp/StringLibrary/StringLibrary.csproj	not an executable
+dotnet/docs	docs/core/tutorials/snippets/create-class-library/csharp/StringLibraryTest/StringLibraryTest.csproj	NuGet package reference
+dotnet/docs	docs/core/whats-new/dotnet-10/snippets/csharp/snippets.csproj	not an executable
+dotnet/docs	docs/core/whats-new/dotnet-11/snippets/csharp/snippets.csproj	NuGet package reference
+dotnet/docs	docs/core/whats-new/snippets/dotnet-8/csharp/ConsoleApp/Project.csproj	NuGet package reference
+dotnet/docs	docs/core/whats-new/snippets/dotnet-8/csharp/WebSDK/Project.csproj	SDK Microsoft.NET.Sdk.Web
+dotnet/docs	docs/core/whats-new/snippets/dotnet-9/csharp/Project.csproj	NuGet package reference
+dotnet/docs	docs/core/whats-new/snippets/dotnet-core-3-0/csharp/whats-new.csproj	network

@@ -36,3 +36,4 @@ matrix in [06-roadmap.md](06-roadmap.md) and add a dated entry to [07-spike-log.
 - [13 — Debugging](13-debugging.md): `-g`, DWARF debug info, gdb/lldb pretty-printers
 - [14 — Threading](14-threading.md): threads, thread-safe GC (stop-the-world handshake), monitors, Interlocked, Parallel
 - [17 — Security](17-security.md): memory safety, exploit mitigations (`--hardening`), sanitizers and fuzzing, reproducible builds
+- [18 — Compatibility](18-compatibility.md): real-world compatibility report — unmodified Microsoft sample/docs console programs vs .NET, pass rate, ranked blockers, bugs found

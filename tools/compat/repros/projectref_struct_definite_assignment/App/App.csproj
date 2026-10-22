@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- csharpc folds ProjectReference sources into one compilation (ADR 0006). That changes C#
+       semantics: definite-assignment rules for a struct with private fields are relaxed when the
+       struct comes from another assembly (only warning CS8882 under warning wave 5), but strict
+       when it is in the same compilation, so `dotnet build` succeeds and csharpc fails with
+       error CS0177. Found in dotnet/docs docs/csharp/language-reference/compiler-messages/snippets/WarningWaves. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net11.0</TargetFramework>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Lib/Lib.csproj" />
+  </ItemGroup>
+</Project>

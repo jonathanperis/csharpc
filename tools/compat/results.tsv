@@ -1,0 +1,324 @@
+# id	category	detail   (run 2026-10-22, csharpc integ@8183dfb, .NET SDK 11.0.100-rc.2.26504.105)
+samples-core-console-apps-FibonacciBetterMsBuild-Fibonacci	PASS	
+samples-core-console-apps-HelloMsBuild-Hello	PASS	
+samples-core-console-apps-NewTypesMsBuild-src-NewTypes-NewTypes	PASS	
+samples-core-console-apps-fibonacci-msbuild-Hello	PASS	
+samples-core-linq-aggregate-aggregate	COMPILE-UNSUPPORTED	error CSLLVM0002: 'System.DateTime.Parse(string)' has no implementation in the csharpc runtime yet
+samples-core-linq-concatenation-concatenation	PASS	
+samples-core-linq-conversion-conversion	RUNTIME-CRASH	signal 6 (dotnet exit 0): Unhandled exception. System.InvalidCastException: Unable to cast object of type 'System.Object[]' to type 'System.Collections.IEnumerable'.
+samples-core-linq-customsequence-customsequence	PASS	
+samples-core-linq-element-element	PASS	
+samples-core-linq-equality-equality	COMPILE-UNSUPPORTED	error CSLLVM0002: 'System.MemoryExtensions.SequenceEqual(System.ReadOnlySpan<string>, System.ReadOnlySpan<string>, System.Collections.Generic.IEqualityComparer<string>)' has no implementation in the csharpc runtime yet
+samples-core-linq-generation-generation	PASS	
+samples-core-linq-grouping-grouping	COMPILE-UNSUPPORTED	error CSLLVM0002: 'System.DateTime.Parse(string)' has no implementation in the csharpc runtime yet
+samples-core-linq-join-join	PASS	
+samples-core-linq-ordering-ordering	PASS	
+samples-core-linq-partitioning-partitioning	PASS	
+samples-core-linq-projection-projection	COMPILE-UNSUPPORTED	error CSLLVM0002: 'System.Xml.Linq.XContainer.Elements(System.Xml.Linq.XName)' has no implementation in the csharpc runtime yet
+samples-core-linq-quantifier-quantifier	PASS	
+samples-core-linq-queryexecution-queryexecution	PASS	
+samples-core-linq-restriction-restriction	PASS	
+samples-core-linq-setoperators-setoperators	COMPILE-UNSUPPORTED	error CSLLVM0002: 'System.DateTime.Parse(string)' has no implementation in the csharpc runtime yet
+samples-core-tutorials-Unloading-Host-Host	COMPILE-UNSUPPORTED	error CSLLVM0001: not supported by csharpc yet: deriving from library class 'System.Runtime.Loader.AssemblyLoadContext'
+samples-core-tutorials-cli-templates-create-item-template-content-consoleasync-consoleasync	COMPILE-UNSUPPORTED	error CSLLVM0002: 'System.IO.TextWriter.WriteAsync(string)' has no implementation in the csharpc runtime yet
+samples-core-tutorials-using-on-mac-vs-full-solution-WordCounter-WordCounterApp-WordCounterApp	PASS	
+samples-NullableIntroduction-NullableIntroduction-NullableIntroduction	SKIPPED	non-deterministic under .NET
+samples-PatternMatching-PatternMatching	PASS	
+samples-api-datetime-parse-datetime-parse	SKIPPED	times out under .NET (waits for input or runs > 30s)
+samples-api-string-format-string-format-examples	SKIPPED	times out under .NET (waits for input or runs > 30s)
+samples-branches-quickstart-BranchesAndLoops	PASS	
+samples-classes-quickstart-classes	COMPILE-UNSUPPORTED	error CSLLVM0001: not supported by csharpc yet: struct 'System.Text.StringBuilder.AppendInterpolatedStringHandler'
+samples-delegates-and-events-delegates-and-events	PASS	
+samples-events-events	COMPILE-UNSUPPORTED	error CSLLVM0001: not supported by csharpc yet: deriving from library class 'System.EventArgs'
+samples-getting-started-console-linq-console-linq	COMPILE-UNSUPPORTED	error CSLLVM0002: 'System.Enum.GetValues(System.Type)' has no implementation in the csharpc runtime yet
+samples-getting-started-console-teleprompter-console-teleprompter	COMPILE-UNSUPPORTED	error CSLLVM0001: not supported by csharpc yet: struct 'System.ConsoleKeyInfo'
+samples-indexers-indexers	SKIPPED	non-deterministic under .NET
+samples-iterators-iterators	PASS	
+samples-list-quickstart-list-quickstart	PASS	
+samples-numbers-quickstart-NumbersInCSharp	PASS	
+samples-parallel-ComputePi-ComputePi	SKIPPED	non-deterministic under .NET
+samples-parallel-EditDistance-EditDistance	SKIPPED	does not build under .NET net11.0
+samples-parallel-PLINQ-PLINQ	SKIPPED	non-deterministic under .NET
+samples-parallel-ParallelGrep-ParallelGrep	COMPILE-UNSUPPORTED	error CSLLVM0001: not supported by csharpc yet: creating instances of 'System.Threading.ThreadLocal<System.Text.RegularExpressions.Regex>'
+samples-ref-tutorial-IntruderAlert-finished-IntruderAlert	SKIPPED	non-deterministic under .NET
+samples-ref-tutorial-IntruderAlert-starter-IntruderAlert	SKIPPED	non-deterministic under .NET
+samples-roslyn-sdk-Tutorials-MakeConstTestProject-MakeConstTestProject-MakeConstTestProject	PASS	
+samples-safe-efficient-code-ref-readonly-struct-ref-readonly-struct	PASS	
+samples-serialization-serialization	SKIPPED	non-deterministic under .NET
+samples-tutorials-default-interface-members-versions-finished-customer-relationship-customer-relationship	COMPILE-UNSUPPORTED	error CSLLVM0001: not supported by csharpc yet: deconstruction other than (a, b, ...) = (x, y, ...)
+samples-tutorials-default-interface-members-versions-starter-customer-relationship-customer-relationship	COMPILE-UNSUPPORTED	error CSLLVM0001: not supported by csharpc yet: deconstruction other than (a, b, ...) = (x, y, ...)
+samples-tutorials-exploration-csharp6-finished-csharp6-finished	PASS	
+samples-tutorials-exploration-csharp6-starter-csharp6-starter	PASS	
+samples-tutorials-mixins-with-interfaces-mixins-with-interfaces	PASS	
+samples-tutorials-patterns-finished-toll-calculator-toll-calculator	PASS	
+samples-tutorials-patterns-start-toll-calculator-toll-calculator	PASS	
+samples-versioning-new-new	PASS	
+samples-versioning-override-override	PASS	
+docs-csharp-advanced-topics-expression-trees-ExpressionTreeExample	COMPILE-UNSUPPORTED	error CSLLVM0001: not supported by csharpc yet: deriving from library class 'System.Linq.Expressions.ExpressionVisitor'
+docs-csharp-advanced-topics-interface-implementation-default-interface-members-versions-finished-customer-relationship-customer-relationship	COMPILE-UNSUPPORTED	error CSLLVM0001: not supported by csharpc yet: deconstruction other than (a, b, ...) = (x, y, ...)
+docs-csharp-advanced-topics-interface-implementation-default-interface-members-versions-starter-customer-relationship-customer-relationship	COMPILE-UNSUPPORTED	error CSLLVM0001: not supported by csharpc yet: deconstruction other than (a, b, ...) = (x, y, ...)
+docs-csharp-advanced-topics-interface-implementation-mixins-with-default-interface-methods-mixins-with-interfaces	PASS	
+docs-csharp-advanced-topics-interface-implementation-staticinterfaces-staticinterfaces	COMPILE-UNSUPPORTED	error CSLLVM0001: not supported by csharpc yet: user-defined ++/--
+docs-csharp-advanced-topics-interop-using-dynamic-using-dynamic	COMPILE-UNSUPPORTED	error CSLLVM0001: not supported by csharpc yet: operation DynamicInvocation
+docs-csharp-advanced-topics-performance-interpolated-string-handler-interpolated-string-handler	SKIPPED	non-deterministic under .NET
+docs-csharp-advanced-topics-performance-ref-safety-ref-safety	PASS	
+docs-csharp-advanced-topics-performance-ref-tutorial-IntruderAlert-finished-IntruderAlert	SKIPPED	non-deterministic under .NET
+docs-csharp-advanced-topics-performance-ref-tutorial-IntruderAlert-starter-IntruderAlert	SKIPPED	non-deterministic under .NET
+docs-csharp-advanced-topics-reflection-and-attributes-tutorial-attributes	COMPILE-UNSUPPORTED	error CSLLVM0001: not supported by csharpc yet: deriving from library class 'System.Attribute'
+docs-csharp-advanced-topics-update-applications-nullable-migration-strategies-nullable-migration-strategies	PASS	
+docs-csharp-asynchronous-programming-async-return-types-AsyncExamples	SKIPPED	non-deterministic under .NET
+docs-csharp-asynchronous-programming-file-access-file-access	COMPILE-UNSUPPORTED	error CSLLVM0002: 'System.IO.File.WriteAllTextAsync(string, string, System.Threading.CancellationToken)' has no implementation in the csharpc runtime yet
+docs-csharp-asynchronous-programming-index-AsyncBreakfast-V2-AsyncBreakfast	PASS	
+docs-csharp-asynchronous-programming-index-AsyncBreakfast-V3-AsyncBreakfast	PASS	
+docs-csharp-asynchronous-programming-index-AsyncBreakfast-final-AsyncBreakfast	SKIPPED	non-deterministic under .NET
+docs-csharp-asynchronous-programming-index-AsyncBreakfast-starter-AsyncBreakfast	PASS	
+docs-csharp-asynchronous-programming-index-ContinueWith-comparison-ContinueWith-comparison	COMPILE-UNSUPPORTED	error CSLLVM0002: 'System.Threading.Tasks.Task<object>.ContinueWith(System.Action<System.Threading.Tasks.Task<object>>)' has no implementation in the csharpc runtime yet
+docs-csharp-fundamentals-building-software-iterators-iterators	PASS	
+docs-csharp-fundamentals-building-software-lambdas-lambdas	PASS	
+docs-csharp-fundamentals-building-software-local-functions-local-functions	PASS	
+docs-csharp-fundamentals-building-software-overview-overview	PASS	
+docs-csharp-fundamentals-exceptions-exceptions-exceptions	COMPILE-ERROR	exit 1: error CSLLVM0003: program has no entry point (Main method or top-level statements)
+docs-csharp-fundamentals-expressions-equality-equality	PASS	
+docs-csharp-fundamentals-expressions-expressions-expressions	PASS	
+docs-csharp-fundamentals-expressions-operators-operators	PASS	
+docs-csharp-fundamentals-null-safety-common-tasks-resolve-warnings-resolve-warnings	PASS	
+docs-csharp-fundamentals-null-safety-null-operators-null-operators	PASS	
+docs-csharp-fundamentals-null-safety-null-safety-overview-null-safety-overview	PASS	
+docs-csharp-fundamentals-null-safety-nullable-reference-types-nullable-reference-types	PASS	
+docs-csharp-fundamentals-null-safety-nullable-value-types-nullable-value-types	PASS	
+docs-csharp-fundamentals-object-oriented-inheritance-inheritance	PASS	
+docs-csharp-fundamentals-object-oriented-objects-objects	COMPILE-ERROR	exit 1: error CSLLVM0003: program has no entry point (Main method or top-level statements)
+docs-csharp-fundamentals-patterns-discards-discards	PASS	
+docs-csharp-fundamentals-patterns-patterns-patterns	COMPILE-UNSUPPORTED	error CSLLVM0001: not supported by csharpc yet: creating instances of 'System.Uri'
+docs-csharp-fundamentals-program-structure-main-arguments-main-arguments	PASS	
+docs-csharp-fundamentals-program-structure-main-command-line-main-command-line	COMPILE-ERROR	exit 1: error CSLLVM0003: program has no entry point (Main method or top-level statements)
+docs-csharp-fundamentals-program-structure-namespaces-namespaces	COMPILE-UNSUPPORTED	error CSLLVM0001: not supported by csharpc yet: 'System.Globalization.CultureInfo.Name' has no implementation in the csharpc runtime yet
+docs-csharp-fundamentals-program-structure-organizing-programs-organizing-programs	PASS	
+docs-csharp-fundamentals-program-structure-preprocessor-directives-preprocessor-directives	RUNTIME-DIFF	exit 0 vs dotnet 0; -Running on .NET 10 or later.
+docs-csharp-fundamentals-program-structure-structure-structure	PASS	
+docs-csharp-fundamentals-program-structure-top-level-statements-1-top-level-statements	COMPILE-UNSUPPORTED	error CSLLVM0001: not supported by csharpc yet: struct 'System.Text.StringBuilder.AppendInterpolatedStringHandler'
+docs-csharp-fundamentals-program-structure-top-level-statements-2-top-level-statements	PASS	
+docs-csharp-fundamentals-program-structure-top-level-statements-3-top-level-statements	PASS	
+docs-csharp-fundamentals-program-structure-top-level-statements-4-top-level-statements	PASS	
+docs-csharp-fundamentals-program-structure-top-level-statements-5-top-level-statements	PASS	
+docs-csharp-fundamentals-program-structure-toplevel-structure-toplevel-structure	PASS	
+docs-csharp-fundamentals-statements-collections-statements-collections-statements	PASS	
+docs-csharp-fundamentals-statements-iteration-statements-iteration-statements	PASS	
+docs-csharp-fundamentals-statements-linq-statements-linq-statements	COMPILE-UNSUPPORTED	error CSLLVM0001: not supported by csharpc yet: type test against '(string Area, int Priority)'
+docs-csharp-fundamentals-statements-selection-statements-selection-statements	PASS	
+docs-csharp-fundamentals-statements-statements-overview-statements-overview	PASS	
+docs-csharp-fundamentals-strings-common-tasks-compare-compare	PASS	
+docs-csharp-fundamentals-strings-common-tasks-concatenate-concatenate	COMPILE-UNSUPPORTED	error CSLLVM0001: not supported by csharpc yet: struct 'System.Text.StringBuilder.AppendInterpolatedStringHandler'
+docs-csharp-fundamentals-strings-common-tasks-modify-modify	COMPILE-UNSUPPORTED	error CSLLVM0002: 'System.Text.RegularExpressions.Regex.Replace(string, string, System.Text.RegularExpressions.MatchEvaluator, System.Text.RegularExpressions.RegexOptions)' has no implementation in the csharpc runtime yet
+docs-csharp-fundamentals-strings-common-tasks-search-search	COMPILE-UNSUPPORTED	error CSLLVM0002: 'string.StartsWith(string, System.StringComparison)' has no implementation in the csharpc runtime yet
+docs-csharp-fundamentals-strings-common-tasks-split-split	COMPILE-UNSUPPORTED	error CSLLVM0002: 'string.Split(string[], System.StringSplitOptions)' has no implementation in the csharpc runtime yet
+docs-csharp-fundamentals-strings-interpolation-interpolation	COMPILE-UNSUPPORTED	error CSLLVM0001: not supported by csharpc yet: creating instances of 'System.Random'
+docs-csharp-fundamentals-strings-nameof-nameof	COMPILE-UNSUPPORTED	error CSLLVM0001: not supported by csharpc yet: creating instances of 'System.ComponentModel.PropertyChangedEventArgs'
+docs-csharp-fundamentals-strings-raw-string-literals-raw-string-literals	PASS	
+docs-csharp-fundamentals-strings-strings-overview-strings-overview	PASS	
+docs-csharp-fundamentals-tutorials-NullableIntroduction-NullableIntroduction	SKIPPED	non-deterministic under .NET
+docs-csharp-fundamentals-tutorials-command-line-arguments-command-line-arguments	PASS	
+docs-csharp-fundamentals-tutorials-inheritance-inheritance	COMPILE-ERROR	exit 1: error CSLLVM0003: program has no entry point (Main method or top-level statements)
+docs-csharp-fundamentals-tutorials-introduction-to-classes-classes	COMPILE-UNSUPPORTED	error CSLLVM0001: not supported by csharpc yet: struct 'System.Text.StringBuilder.AppendInterpolatedStringHandler'
+docs-csharp-fundamentals-tutorials-object-oriented-programming-object-oriented-programming	COMPILE-UNSUPPORTED	error CSLLVM0002: 'System.ArgumentOutOfRangeException.ThrowIfNegativeOrZero(decimal, string)' has no implementation in the csharpc runtime yet
+docs-csharp-fundamentals-tutorials-pattern-matching-objects-pattern-matching-objects	PASS	
+docs-csharp-fundamentals-tutorials-patterns-finished-toll-calculator-toll-calculator	PASS	
+docs-csharp-fundamentals-tutorials-patterns-start-toll-calculator-toll-calculator	PASS	
+docs-csharp-fundamentals-tutorials-records-record-types	COMPILE-UNSUPPORTED	error CSLLVM0001: not supported by csharpc yet: struct 'System.Text.StringBuilder.AppendInterpolatedStringHandler'
+docs-csharp-fundamentals-tutorials-safelycast-asandis-asandis	COMPILE-UNSUPPORTED	error CSLLVM0002: 'System.ValueType.ToString()' has no implementation in the csharpc runtime yet
+docs-csharp-fundamentals-tutorials-safelycast-nullablepatternmatching-nullablepatternmatching	COMPILE-UNSUPPORTED	error CSLLVM0002: 'System.ValueType.ToString()' has no implementation in the csharpc runtime yet
+docs-csharp-fundamentals-tutorials-safelycast-patternmatching-patternmatching	PASS	
+docs-csharp-fundamentals-tutorials-xml-documentation-object-oriented-programming	COMPILE-UNSUPPORTED	error CSLLVM0001: not supported by csharpc yet: struct 'System.Text.StringBuilder.AppendInterpolatedStringHandler'
+docs-csharp-fundamentals-types-built-in-types-built-in-types	COMPILE-UNSUPPORTED	error CSLLVM0001: not supported by csharpc yet: operation DynamicInvocation
+docs-csharp-fundamentals-types-classes-classes	PASS	
+docs-csharp-fundamentals-types-conversions-conversions	PASS	
+docs-csharp-fundamentals-types-delegates-lambdas-delegates-lambdas	PASS	
+docs-csharp-fundamentals-types-enums-enums	PASS	
+docs-csharp-fundamentals-types-generics-generics	PASS	
+docs-csharp-fundamentals-types-index-index	PASS	
+docs-csharp-fundamentals-types-records-Records	COMPILE-ERROR	exit 1: error CSLLVM0003: program has no entry point (Main method or top-level statements)
+docs-csharp-fundamentals-types-structs-structs	PASS	
+docs-csharp-fundamentals-types-tuples-tuples	PASS	
+docs-csharp-language-reference-attributes-attributes	SKIPPED	non-deterministic under .NET
+docs-csharp-language-reference-builtin-types-shared-builtin-types	SKIPPED	non-deterministic under .NET
+docs-csharp-language-reference-builtin-types-string-operations-string-operations	COMPILE-UNSUPPORTED	error CSLLVM0002: 'System.Text.RegularExpressions.Regex.IsMatch(string, string, System.Text.RegularExpressions.RegexOptions)' has no implementation in the csharpc runtime yet
+docs-csharp-language-reference-builtin-types-unions-unions	COMPILE-ERROR	exit 1: docs/docs/csharp/language-reference/builtin-types/snippets/unions/UnionPatternMatching.cs(20,36): error CS0117: 'object' does not contain a definition for 'Name'
+docs-csharp-language-reference-compiler-messages-WarningWaves-WarningWaves	COMPILE-ERROR	exit 1: docs/docs/csharp/language-reference/compiler-messages/snippets/WarningWaves/WaveFive.cs(131,21): error CS0177: The out parameter 's' must be assigned to before control leaves the current method
+docs-csharp-language-reference-compiler-messages-array-warnings-array-warnings	PASS	
+docs-csharp-language-reference-operators-EqualityHierarchies-EqualityHierarchies	PASS	
+docs-csharp-language-reference-operators-lambda-expressions-lambda-expressions	COMPILE-ERROR	exit 1: error CSLLVM0003: program has no entry point (Main method or top-level statements)
+docs-csharp-language-reference-operators-patterns-patterns	COMPILE-UNSUPPORTED	error CSLLVM0001: not supported by csharpc yet: list pattern on 'CsharpcCoreLib.ListImpl<int>'
+docs-csharp-language-reference-operators-with-expression-with-expression	COMPILE-ERROR	exit 1: error CSLLVM0003: program has no entry point (Main method or top-level statements)
+docs-csharp-language-reference-memory-safety-memory-safety	COMPILE-UNSUPPORTED	error CSLLVM0001: not supported by csharpc yet: struct 'System.Guid'
+docs-csharp-language-reference-unsafe-code-UnsafeCodePointers	COMPILE-UNSUPPORTED	error CSLLVM0001: not supported by csharpc yet: generic type parameter 'T'
+docs-csharp-language-reference-statements-checked-and-unchecked-checked-and-unchecked	PASS	
+docs-csharp-language-reference-statements-declarations-declarations	PASS	
+docs-csharp-language-reference-statements-exception-handling-statements-exception-handling-statements	COMPILE-UNSUPPORTED	error CSLLVM0001: not supported by csharpc yet: branch with Rethrow semantics
+docs-csharp-language-reference-statements-fixed-fixed	SKIPPED	non-deterministic under .NET
+docs-csharp-language-reference-statements-iteration-statements-iteration-statements	PASS	
+docs-csharp-language-reference-statements-jump-statements-jump-statements	RUNTIME-DIFF	exit 0 vs dotnet 0; -Failed measurement.
+docs-csharp-language-reference-statements-lock-lock	PASS	
+docs-csharp-language-reference-statements-selection-statements-selection-statements	RUNTIME-DIFF	exit 0 vs dotnet 0; -Failed measurement.
+docs-csharp-language-reference-statements-using-using	PASS	
+docs-csharp-language-reference-statements-yield-yield	PASS	
+docs-csharp-language-reference-tokens-string-interpolation	COMPILE-UNSUPPORTED	error CSLLVM0001: not supported by csharpc yet: setting 'System.Globalization.CultureInfo.CurrentCulture'
+docs-csharp-language-reference-xmldoc-xmldoc-xmldoc	COMPILE-ERROR	exit 1: error CSLLVM0003: program has no entry point (Main method or top-level statements)
+docs-csharp-linq-get-started-SnippetApp-LinqGetStarted	COMPILE-UNSUPPORTED	error CSLLVM0002: 'System.Xml.Linq.XElement.Load(string)' has no implementation in the csharpc runtime yet
+docs-csharp-linq-get-started-WalkthroughWritingLinqQueries-WalkthroughWritingLinqQueries	PASS	
+docs-csharp-linq-HowToCollections-HowToCollections	COMPILE-UNSUPPORTED	error CSLLVM0001: not supported by csharpc yet: creating instances of 'System.Collections.ArrayList'
+docs-csharp-linq-HowToExtend-HowToExtend	COMPILE-CRASH	exit 139: timeout: the monitored command dumped core
+docs-csharp-linq-HowToFilesAndDirectories-HowToFilesAndDirectories	COMPILE-UNSUPPORTED	error CSLLVM0002: '(string Name, System.DateTime LastWriteTime, long Length).ToString()' has no implementation in the csharpc runtime yet
+docs-csharp-linq-HowToStrings-HowToStrings	COMPILE-UNSUPPORTED	error CSLLVM0002: 'string.Split(System.ReadOnlySpan<char>)' has no implementation in the csharpc runtime yet
+docs-csharp-linq-linq-index-linq-index	PASS	
+docs-csharp-linq-standard-query-operators-standard-query-operators-standard-query-operators	COMPILE-UNSUPPORTED	error CSLLVM0001: not supported by csharpc yet: creating instances of 'System.Xml.Linq.XElement'
+docs-csharp-programming-guide-classes-and-structs-ExtensionMembers-ExtensionMembers	COMPILE-CRASH	exit 70: internal compiler error: csharpc produced invalid LLVM IR (written to native/app.invalid.ll):
+docs-csharp-programming-guide-classes-and-structs-access-modifiers-objectoriented	PASS	
+docs-csharp-programming-guide-classes-and-structs-anonymous-types-AnonymousTypes	PASS	
+docs-csharp-programming-guide-classes-and-structs-classes-and-structs-methods-methods	PASS	
+docs-csharp-programming-guide-classes-and-structs-constants-Calendar	PASS	
+docs-csharp-programming-guide-classes-and-structs-constructors-constructors	RUNTIME-DIFF	exit 0 vs dotnet 0; +Static constructor called.
+docs-csharp-programming-guide-classes-and-structs-fields-fields	COMPILE-UNSUPPORTED	error CSLLVM0002: 'System.Convert.ToDateTime(string)' has no implementation in the csharpc runtime yet
+docs-csharp-programming-guide-classes-and-structs-finalizers-finalizers	PASS	
+docs-csharp-programming-guide-classes-and-structs-how-to-declare-and-use-read-write-properties-Properties	COMPILE-UNSUPPORTED	error CSLLVM0002: 'System.Console.ReadKey()' has no implementation in the csharpc runtime yet
+docs-csharp-programming-guide-classes-and-structs-how-to-define-constants-Constants	PASS	
+docs-csharp-programming-guide-classes-and-structs-how-to-implement-and-call-a-custom-extension-method-how-to-implement-and-call-a-custom-extension-method	PASS	
+docs-csharp-programming-guide-classes-and-structs-how-to-implement-and-call-a-custom-extension-method-classic-how-to-implement-and-call-a-custom-extension-method-classic	PASS	
+docs-csharp-programming-guide-classes-and-structs-how-to-write-a-copy-constructor-CopyConstructor	COMPILE-UNSUPPORTED	error CSLLVM0002: 'System.Console.ReadKey()' has no implementation in the csharpc runtime yet
+docs-csharp-programming-guide-classes-and-structs-instance-constructors-coords-Coords	PASS	
+docs-csharp-programming-guide-classes-and-structs-instance-constructors-person-Person	PASS	
+docs-csharp-programming-guide-classes-and-structs-instance-constructors-shapes-Shapes	PASS	
+docs-csharp-programming-guide-classes-and-structs-instance-constructors-widgets-widgets	COMPILE-UNSUPPORTED	error CSLLVM0001: not supported by csharpc yet: deriving from library class 'System.Attribute'
+docs-csharp-programming-guide-classes-and-structs-methods-Methods	PASS	
+docs-csharp-programming-guide-classes-and-structs-object-collection-initializers-object-collection-initializers	COMPILE-ERROR	exit 1: error CSLLVM0003: program has no entry point (Main method or top-level statements)
+docs-csharp-programming-guide-classes-and-structs-partial-classes-and-methods-PartialClassesAndMethods	COMPILE-ERROR	exit 1: error CSLLVM0003: program has no entry point (Main method or top-level statements)
+docs-csharp-programming-guide-classes-and-structs-private-constructors-PrivateConstructors	COMPILE-UNSUPPORTED	error CSLLVM0002: 'System.Console.ReadKey()' has no implementation in the csharpc runtime yet
+docs-csharp-programming-guide-classes-and-structs-properties-properties	COMPILE-UNSUPPORTED	error CSLLVM0002: 'System.Console.ReadKey()' has no implementation in the csharpc runtime yet
+docs-csharp-programming-guide-classes-and-structs-static-classes-and-static-class-members-static-classes-and-static-class-members	COMPILE-UNSUPPORTED	error CSLLVM0002: 'System.Console.ReadKey()' has no implementation in the csharpc runtime yet
+docs-csharp-programming-guide-classes-and-structs-static-constructors-static-constructors	SKIPPED	non-deterministic under .NET
+docs-csharp-programming-guide-classes-and-structs-using-constructors-UsingConstructors	PASS	
+docs-csharp-programming-guide-concepts-covariance-contravariance-using-variance-in-delegates-ContravarianceExample	SKIPPED	non-deterministic under .NET
+docs-csharp-programming-guide-delegates-DelegateExamples	COMPILE-ERROR	exit 1: error CSLLVM0003: program has no entry point (Main method or top-level statements)
+docs-csharp-programming-guide-generics-generics	COMPILE-UNSUPPORTED	error CSLLVM0001: not supported by csharpc yet: deconstruction other than (a, b, ...) = (x, y, ...)
+docs-csharp-programming-guide-indexers-DayOfWeekIndexers-DayOfWeekIndexers	PASS	
+docs-csharp-programming-guide-indexers-StringIndexers-StringIndexers	PASS	
+docs-csharp-programming-guide-indexers-Temperatures-Temperatures	PASS	
+docs-csharp-programming-guide-indexers-indexers-Indexers	COMPILE-UNSUPPORTED	error CSLLVM0001: not supported by csharpc yet: creating instances of 'System.Random'
+docs-csharp-programming-guide-strings-StringExamples	COMPILE-UNSUPPORTED	error CSLLVM0002: 'byte.TryParse(string, byte)' has no implementation in the csharpc runtime yet
+docs-csharp-programming-guide-types-CastingAndConversions-CastingAndConversions	SKIPPED	does not build under .NET net11.0
+docs-csharp-events-events	COMPILE-UNSUPPORTED	error CSLLVM0001: not supported by csharpc yet: deriving from library class 'System.EventArgs'
+docs-csharp-methods-methods	COMPILE-ERROR	exit 1: error CSLLVM0003: program has no entry point (Main method or top-level statements)
+docs-csharp-tutorials-RangesIndexes-RangesIndexes	COMPILE-UNSUPPORTED	error CSLLVM0001: not supported by csharpc yet: formatting 'System.Index'
+docs-csharp-tutorials-console-linq-LInqFaroShuffle	COMPILE-UNSUPPORTED	error CSLLVM0002: 'System.Enum.GetValues(System.Type)' has no implementation in the csharpc runtime yet
+docs-csharp-tutorials-top-level-statements-TopLevelStatements	COMPILE-UNSUPPORTED	error CSLLVM0002: 'System.Random.Next(int)' has no implementation in the csharpc runtime yet
+docs-csharp-whats-new-tutorials-CompoundAssignment-CompoundAssignment	SKIPPED	non-deterministic under .NET
+docs-csharp-whats-new-tutorials-shared-telemetry-monitor-SmartHome-App-SmartHome-App	COMPILE-CRASH	exit 134:    at Csharpc.Llvm.Native.LLVMBuildStore(Csharpc.Llvm.LLVMBuilderRef, Csharpc.Llvm.LLVMValueRef, Csharpc.Llvm.LLVMValueRef)
+docs-standard-assembly-type-forwarders-before-Consumer-Consumer	SKIPPED	non-deterministic under .NET
+docs-standard-asynchronous-programming-patterns-async-coordination-primitives-AsyncCoordinationPrimitives	COMPILE-UNSUPPORTED	error CSLLVM0002: 'System.ArgumentOutOfRangeException.ThrowIfNegativeOrZero(int, string)' has no implementation in the csharpc runtime yet
+docs-standard-asynchronous-programming-patterns-async-coordination-primitives-advanced-AsyncCoordinationPrimitivesAdvanced	SKIPPED	non-deterministic under .NET
+docs-standard-asynchronous-programming-patterns-async-lambda-pitfalls-AsyncLambdaPitfalls	SKIPPED	non-deterministic under .NET
+docs-standard-asynchronous-programming-patterns-async-wrappers-for-synchronous-methods-AsyncWrappersForSync	COMPILE-UNSUPPORTED	error CSLLVM0001: not supported by csharpc yet: creating instances of 'System.Threading.Timer'
+docs-standard-asynchronous-programming-patterns-coalescing-cancellation-tokens-from-timeouts-CoalescingCancellationTokensFromTimeouts	COMPILE-UNSUPPORTED	error CSLLVM0001: not supported by csharpc yet: creating instances of 'System.Threading.CancellationTokenSource'
+docs-standard-asynchronous-programming-patterns-common-async-bugs-CommonAsyncBugs	SKIPPED	non-deterministic under .NET
+docs-standard-asynchronous-programming-patterns-complete-your-tasks-CompleteYourTasks	COMPILE-UNSUPPORTED	error CSLLVM0002: 'System.Threading.Tasks.Task.Wait(int)' has no implementation in the csharpc runtime yet
+docs-standard-asynchronous-programming-patterns-executioncontext-synchronizationcontext-ExecutionContextAndSyncContext	COMPILE-UNSUPPORTED	error CSLLVM0001: not supported by csharpc yet: deriving from library class 'System.Threading.SynchronizationContext'
+docs-standard-asynchronous-programming-patterns-keeping-async-methods-alive-KeepingAsyncMethodsAlive	COMPILE-UNSUPPORTED	error CSLLVM0001: not supported by csharpc yet: 'System.Threading.Tasks.Task.Id' has no implementation in the csharpc runtime yet
+docs-standard-asynchronous-programming-patterns-synchronizationcontext-console-apps-SyncContextConsoleApps	SKIPPED	non-deterministic under .NET
+docs-standard-asynchronous-programming-patterns-synchronous-wrappers-for-async-methods-SyncWrappersForAsync	PASS	
+docs-standard-asynchronous-programming-patterns-task-based-asynchronous-pattern-tap-task-based-asynchronous-pattern-tap	COMPILE-UNSUPPORTED	error CSLLVM0002: 'System.Threading.Tasks.Task.Run(System.Action, System.Threading.CancellationToken)' has no implementation in the csharpc runtime yet
+docs-standard-asynchronous-programming-patterns-task-exception-handling-TaskExceptionHandling	SKIPPED	non-deterministic under .NET
+docs-standard-base-types-alternation-constructs-in-regular-expressions-csharp	COMPILE-UNSUPPORTED	error CSLLVM0002: 'System.Text.RegularExpressions.MatchCollection.GetEnumerator()' has no implementation in the csharpc runtime yet
+docs-standard-base-types-best-practices-display-data-formattable-formattable	COMPILE-UNSUPPORTED	error CSLLVM0001: not supported by csharpc yet: type test against 'System.FormattableString'
+docs-standard-base-types-best-practices-display-data-tostring-tostring	PASS	
+docs-standard-base-types-best-practices-strings-comparison1-comparison	COMPILE-UNSUPPORTED	error CSLLVM0001: not supported by csharpc yet: 'System.Globalization.CultureInfo.Name' has no implementation in the csharpc runtime yet
+docs-standard-base-types-best-practices-strings-comparison2-comparison	RUNTIME-DIFF	exit 0 vs dotnet 0; -0
+docs-standard-base-types-best-practices-strings-comparison3-comparison	PASS	
+docs-standard-base-types-best-practices-strings-embeddednulls1-embeddednulls	COMPILE-UNSUPPORTED	error CSLLVM0002: 'System.Globalization.CultureInfo.GetCultureInfo(string)' has no implementation in the csharpc runtime yet
+docs-standard-base-types-best-practices-strings-embeddednulls2-embeddednulls	PASS	
+docs-standard-base-types-best-practices-strings-everythingelse-everythingelse	COMPILE-UNSUPPORTED	error CSLLVM0002: 'System.Buffers.SearchValues<string>.Contains(string)' has no implementation in the csharpc runtime yet
+docs-standard-base-types-best-practices-strings-explicitargs-explicitargs	COMPILE-UNSUPPORTED	error CSLLVM0001: not supported by csharpc yet: creating instances of 'System.Uri'
+docs-standard-base-types-best-practices-strings-indirect1-indirect1	COMPILE-UNSUPPORTED	error CSLLVM0001: not supported by csharpc yet: creating instances of 'System.Collections.Hashtable'
+docs-standard-base-types-best-practices-strings-stringcomparer-api1	PASS	
+docs-standard-base-types-best-practices-strings-turkish-turkish	COMPILE-UNSUPPORTED	error CSLLVM0001: not supported by csharpc yet: creating instances of 'System.Globalization.CultureInfo'
+docs-standard-base-types-character-classes-in-regular-expressions-RegexSnippets	COMPILE-UNSUPPORTED	error CSLLVM0002: 'System.Text.RegularExpressions.Regex.Matches(string, string)' has no implementation in the csharpc runtime yet
+docs-standard-base-types-character-encoding-introduction-RuneSamples	COMPILE-UNSUPPORTED	error CSLLVM0001: not supported by csharpc yet: struct 'System.Text.Rune'
+docs-standard-base-types-composite-formatting-framework-Formatting	PASS	
+docs-standard-base-types-composite-formatting-net-Formatting	COMPILE-UNSUPPORTED	error CSLLVM0002: 'System.Text.CompositeFormat.Parse(string)' has no implementation in the csharpc runtime yet
+docs-standard-base-types-creating-new-creating-new	COMPILE-UNSUPPORTED	error CSLLVM0002: 'string.Create(int, char, System.Buffers.SpanAction<char, char>)' has no implementation in the csharpc runtime yet
+docs-standard-base-types-how-to-display-milliseconds-in-date-and-time-values-DateTimeCode	COMPILE-UNSUPPORTED	error CSLLVM0002: 'System.DateTime.Parse(string)' has no implementation in the csharpc runtime yet
+docs-standard-base-types-how-to-verify-that-strings-are-in-valid-email-format-email-cs	COMPILE-UNSUPPORTED	error CSLLVM0002: 'System.Text.RegularExpressions.Regex.Replace(string, string, System.Text.RegularExpressions.MatchEvaluator, System.Text.RegularExpressions.RegexOptions, System.TimeSpan)' has no implementation in the csharpc runtime yet
+docs-standard-base-types-parse-strings-parse-strings	COMPILE-UNSUPPORTED	error CSLLVM0002: 'string.Split(System.ReadOnlySpan<char>)' has no implementation in the csharpc runtime yet
+docs-standard-base-types-parsing-datetime-parsing-datetime	COMPILE-UNSUPPORTED	error CSLLVM0002: 'System.DateTime.Parse(string)' has no implementation in the csharpc runtime yet
+docs-standard-base-types-regex-backtracking-Project	SKIPPED	times out under .NET (waits for input or runs > 30s)
+docs-standard-base-types-regular-expression-example-scanning-for-hrefs-regex	COMPILE-UNSUPPORTED	error CSLLVM0002: 'System.Text.RegularExpressions.Regex.Match(string, string, System.Text.RegularExpressions.RegexOptions, System.TimeSpan)' has no implementation in the csharpc runtime yet
+docs-standard-datetime-how-to-use-dateonly-timeonly-dateonlytimeonly	SKIPPED	non-deterministic under .NET
+docs-standard-datetime-system-text-json-support-computing-with-jsondocument-error-computing-with-jsondocument-error	COMPILE-UNSUPPORTED	error CSLLVM0001: not supported by csharpc yet: struct 'System.Text.Json.JsonDocumentOptions'
+docs-standard-datetime-system-text-json-support-computing-with-jsondocument-valid-computing-with-jsondocument-valid	COMPILE-UNSUPPORTED	error CSLLVM0001: not supported by csharpc yet: struct 'System.Text.Json.JsonDocumentOptions'
+docs-standard-datetime-system-text-json-support-custom-reading-with-utf8jsonreader-custom-reading-with-utf8jsonreader	COMPILE-UNSUPPORTED	error CSLLVM0001: not supported by csharpc yet: struct 'System.Text.Json.Utf8JsonReader'
+docs-standard-datetime-system-text-json-support-custom-writing-with-utf8jsonwriter-custom-writing-with-utf8jsonwriter	COMPILE-UNSUPPORTED	error CSLLVM0001: not supported by csharpc yet: struct 'System.Text.Json.JsonWriterOptions'
+docs-standard-datetime-system-text-json-support-datetime-converter-examples-example1-example1	COMPILE-UNSUPPORTED	error CSLLVM0001: not supported by csharpc yet: deriving from library class 'System.Text.Json.Serialization.JsonConverter<System.DateTime>'
+docs-standard-datetime-system-text-json-support-datetime-converter-examples-example2-example2	COMPILE-UNSUPPORTED	error CSLLVM0001: not supported by csharpc yet: deriving from library class 'System.Text.Json.Serialization.JsonConverter<System.DateTime>'
+docs-standard-datetime-system-text-json-support-datetime-converter-examples-example3-example3	COMPILE-UNSUPPORTED	error CSLLVM0001: not supported by csharpc yet: deriving from library class 'System.Text.Json.Serialization.JsonConverter<System.DateTime>'
+docs-standard-datetime-system-text-json-support-deserializing-with-jsonserializer-error-deserializing-with-jsonserializer-error	COMPILE-UNSUPPORTED	error CSLLVM0002: 'System.Text.Json.JsonSerializer.Deserialize(string, System.Text.Json.JsonSerializerOptions)' has no implementation in the csharpc runtime yet
+docs-standard-datetime-system-text-json-support-deserializing-with-jsonserializer-valid-deserializing-with-jsonserializer-valid	COMPILE-UNSUPPORTED	error CSLLVM0002: 'System.Text.Json.JsonSerializer.Deserialize(string, System.Text.Json.JsonSerializerOptions)' has no implementation in the csharpc runtime yet
+docs-standard-datetime-system-text-json-support-reading-with-utf8jsonreader-error-reading-with-utf8jsonreader-error	COMPILE-UNSUPPORTED	error CSLLVM0001: not supported by csharpc yet: struct 'System.Text.Json.Utf8JsonReader'
+docs-standard-datetime-system-text-json-support-reading-with-utf8jsonreader-valid-reading-with-utf8jsonreader-valid	COMPILE-UNSUPPORTED	error CSLLVM0001: not supported by csharpc yet: struct 'System.Text.Json.Utf8JsonReader'
+docs-standard-datetime-system-text-json-support-serializing-with-jsonserializer-serializing-with-jsonserializer	COMPILE-UNSUPPORTED	error CSLLVM0002: 'System.Text.Json.JsonSerializer.Serialize(Example.Product, System.Text.Json.JsonSerializerOptions)' has no implementation in the csharpc runtime yet
+docs-standard-datetime-system-text-json-support-writing-with-utf8jsonwriter-writing-with-utf8jsonwriter	SKIPPED	non-deterministic under .NET
+docs-standard-datetime-timeprovider-overview-myproject	SKIPPED	non-deterministic under .NET
+docs-standard-datetime-working-with-calendars-ChangeCalendar	COMPILE-UNSUPPORTED	error CSLLVM0001: not supported by csharpc yet: setting 'System.Console.OutputEncoding'
+docs-standard-events-how-to-handle-multiple-events-using-event-properties-EventProperties	COMPILE-UNSUPPORTED	error CSLLVM0001: not supported by csharpc yet: deriving from library class 'System.EventArgs'
+docs-standard-events-how-to-raise-and-consume-events-csharp	COMPILE-ERROR	exit 1: error CSLLVM0003: program has no entry point (Main method or top-level statements)
+docs-standard-events-index-eventsCS	COMPILE-UNSUPPORTED	error CSLLVM0001: not supported by csharpc yet: deriving from library class 'System.EventArgs'
+docs-standard-events-observables-Observables	COMPILE-UNSUPPORTED	error CSLLVM0002: 'System.ArgumentException.ThrowIfNullOrEmpty(string, string)' has no implementation in the csharpc runtime yet
+docs-standard-events-shared-how-to-provider-observer-temperaturemonitorcs	SKIPPED	non-deterministic under .NET
+docs-standard-exceptions-best-practices-Project	COMPILE-UNSUPPORTED	error CSLLVM0002: 'System.ArgumentNullException.ThrowIfNull(object, string)' has no implementation in the csharpc runtime yet
+docs-standard-exceptions-how-to-use-finally-blocks-Project	RUNTIME-DIFF	exit 134 vs dotnet 134; -Error: System.ArgumentOutOfRangeException: length ('-1') must be a non-negative value. (Parameter 'length')
+docs-standard-exceptions-how-to-use-specific-exceptions-in-a-catch-block-CatchException	PASS	
+docs-standard-exceptions-how-to-use-the-try-catch-block-to-catch-exceptions-CatchException	RUNTIME-DIFF	exit 0 vs dotnet 0; -The file was not found: 'System.IO.FileNotFoundException: Could not find file 'cwd/data.txt'.
+docs-standard-garbage-collection-dispose-async-dispose-async	COMPILE-ERROR	exit 1: error CSLLVM0003: program has no entry point (Main method or top-level statements)
+docs-standard-io-composing-streams-Article	COMPILE-UNSUPPORTED	error CSLLVM0002: 'System.Convert.ToByte(int)' has no implementation in the csharpc runtime yet
+docs-standard-io-how-to-copy-directories-AppCS	PASS	
+docs-standard-io-how-to-read-text-from-a-file-FileReader	COMPILE-UNSUPPORTED	error CSLLVM0002: 'System.IO.TextReader.ReadToEndAsync()' has no implementation in the csharpc runtime yet
+docs-standard-io-how-to-use-named-pipes-for-network-interprocess-communication-NamedPipeServerStream-ImpersonationSample-NamedPipeServerStream-ImpersonationSample	SKIPPED	times out under .NET (waits for input or runs > 30s)
+docs-standard-io-zip-tar-best-practices-Project	COMPILE-UNSUPPORTED	error CSLLVM0001: not supported by csharpc yet: 'System.IO.Compression.ZipArchiveEntry.Length' has no implementation in the csharpc runtime yet
+docs-standard-linq-preserve-white-space-serializing-preserve-white-space-serializing	COMPILE-UNSUPPORTED	error CSLLVM0002: 'System.Xml.Linq.XDocument.Parse(string)' has no implementation in the csharpc runtime yet
+docs-standard-memory-and-spans-usage-guidelines-owner-owner	COMPILE-UNSUPPORTED	error CSLLVM0002: 'System.Buffers.MemoryPool<char>.Rent(int)' has no implementation in the csharpc runtime yet
+docs-standard-memory-and-spans-usage-guidelines-owner-using-owner-using	COMPILE-UNSUPPORTED	error CSLLVM0002: 'System.Buffers.MemoryPool<char>.Rent(int)' has no implementation in the csharpc runtime yet
+docs-standard-memory-and-spans-usage-guidelines-ownerless-ownerless	COMPILE-UNSUPPORTED	error CSLLVM0001: not supported by csharpc yet: formatting 'System.Memory<char>'
+docs-standard-memory-and-spans-usage-guidelines-task-returning-task-returning	COMPILE-UNSUPPORTED	error CSLLVM0002: 'System.Buffers.MemoryPool<char>.Rent(int)' has no implementation in the csharpc runtime yet
+docs-standard-memory-and-spans-usage-guidelines-task-returning-async-project	COMPILE-UNSUPPORTED	error CSLLVM0002: 'System.Buffers.MemoryPool<char>.Rent(int)' has no implementation in the csharpc runtime yet
+docs-standard-memory-and-spans-usage-guidelines-void-returning-void-returning	COMPILE-UNSUPPORTED	error CSLLVM0002: 'System.Buffers.MemoryPool<char>.Rent(int)' has no implementation in the csharpc runtime yet
+docs-standard-native-interop-marshalling-data-with-platform-invoke-PInvokeLibManaged-PInvokeLibManaged	PASS	
+docs-standard-parallel-programming-potential-pitfalls-with-plinq-RaceConditionExample-RaceConditionExample	COMPILE-UNSUPPORTED	error CSLLVM0002: 'System.Linq.ParallelEnumerable.ForAll(System.Linq.ParallelQuery<int>, System.Action<int>)' has no implementation in the csharpc runtime yet
+docs-standard-security-cryptographic-signatures-example	COMPILE-UNSUPPORTED	error CSLLVM0002: 'System.Security.Cryptography.SHA256.Create()' has no implementation in the csharpc runtime yet
+docs-standard-security-decrypting-data-aesdecrypt	COMPILE-UNSUPPORTED	error CSLLVM0002: 'System.Security.Cryptography.Aes.Create()' has no implementation in the csharpc runtime yet
+docs-standard-security-encrypting-data-aesencrypt	COMPILE-UNSUPPORTED	error CSLLVM0002: 'System.Security.Cryptography.Aes.Create()' has no implementation in the csharpc runtime yet
+docs-standard-serialization-binaryformatter-event-source-binaryformatter-event-source	SKIPPED	Windows-only under .NET
+docs-standard-serialization-system-text-json-converters-how-to-SystemTextJsonSamples	COMPILE-ERROR	exit 1: error CSLLVM0003: program has no entry point (Main method or top-level statements)
+docs-standard-serialization-system-text-json-custom-contracts-Project	COMPILE-UNSUPPORTED	error CSLLVM0001: not supported by csharpc yet: deriving from library class 'System.Attribute'
+docs-standard-serialization-system-text-json-how-to-SystemTextJsonSamples	COMPILE-ERROR	exit 1: error CSLLVM0003: program has no entry point (Main method or top-level statements)
+docs-standard-serialization-system-text-json-how-to-6-0-SystemTextJsonSamples	COMPILE-ERROR	exit 1: error CSLLVM0003: program has no entry point (Main method or top-level statements)
+docs-standard-serialization-system-text-json-nullable-annotations-Project	COMPILE-UNSUPPORTED	error CSLLVM0001: not supported by csharpc yet: creating instances of 'System.Text.Json.JsonSerializerOptions'
+docs-standard-serialization-system-text-json-populate-properties-Project	COMPILE-UNSUPPORTED	error CSLLVM0002: 'System.Text.Json.JsonSerializer.Deserialize(string, System.Text.Json.JsonSerializerOptions)' has no implementation in the csharpc runtime yet
+docs-standard-serialization-system-text-json-required-properties-Project	COMPILE-UNSUPPORTED	error CSLLVM0002: 'System.Text.Json.JsonSerializer.Deserialize(string, System.Text.Json.JsonSerializerOptions)' has no implementation in the csharpc runtime yet
+docs-standard-serialization-system-text-json-schema-exporter-Project	COMPILE-UNSUPPORTED	error CSLLVM0001: not supported by csharpc yet: 'System.Text.Json.JsonSerializerOptions.Default' has no implementation in the csharpc runtime yet
+docs-standard-serialization-system-text-json-source-generation-SystemTextJsonSamples	COMPILE-ERROR	exit 1: error CSLLVM0003: program has no entry point (Main method or top-level statements)
+docs-standard-serialization-system-text-json-supported-types-SystemTextJsonSamples	COMPILE-UNSUPPORTED	error CSLLVM0002: 'System.Text.Json.JsonSerializer.DeserializeAsyncEnumerable(System.IO.Stream, System.Text.Json.JsonSerializerOptions, System.Threading.CancellationToken)' has no implementation in the csharpc runtime yet
+docs-standard-serialization-system-text-json-use-dom-utf8jsonreader-utf8jsonwriter-SystemTextJsonSamples	COMPILE-UNSUPPORTED	error CSLLVM0002: 'System.Text.Json.JsonSerializer.Serialize(JsonDocumentWithJsonSerializerOptions.Person, System.Text.Json.JsonSerializerOptions)' has no implementation in the csharpc runtime yet
+docs-standard-threading-cancellation-in-managed-threads-LinkedTokens-LinkedTokens	COMPILE-UNSUPPORTED	error CSLLVM0002: 'System.Threading.CancellationTokenSource.CreateLinkedTokenSource(System.Threading.CancellationToken)' has no implementation in the csharpc runtime yet
+docs-standard-threading-pausing-and-resuming-threads-InterruptThread-InterruptThread	COMPILE-UNSUPPORTED	error CSLLVM0002: 'System.Threading.Thread.Interrupt()' has no implementation in the csharpc runtime yet
+docs-fundamentals-reflection-csharp-construct-generic-method-Project	SKIPPED	does not build under .NET net11.0
+docs-fundamentals-reflection-csharp-emit-generic-type-Project	SKIPPED	does not build under .NET net11.0
+docs-core-compatibility-core-libraries-10-0-bufferedstream-writebyte-flush-BufferedStreamWriteByteFlush	COMPILE-UNSUPPORTED	error CSLLVM0001: not supported by csharpc yet: creating instances of 'System.IO.BufferedStream'
+docs-core-deploying-trimming-ConsoleApp1-ConsoleApp1	COMPILE-UNSUPPORTED	error CSLLVM0002: 'System.Type.GetMethods()' has no implementation in the csharpc runtime yet
+docs-core-diagnostics-diagnosticsource-DiagnosticSource	COMPILE-UNSUPPORTED	error CSLLVM0002: 'System.Diagnostics.DiagnosticSource.IsEnabled(string)' has no implementation in the csharpc runtime yet
+docs-core-diagnostics-distributed-tracing-configuration-TracingConfiguration	COMPILE-ERROR	exit 1: docs/docs/core/diagnostics/snippets/distributed-tracing-configuration/csharp/Program.cs(7,40): error CS0246: The type or namespace name 'ConfigurationBuilder' could not be found (are you missing a using directive or an assembly refe
+docs-core-docker-App-DotNet-Docker	SKIPPED	times out under .NET (waits for input or runs > 30s)
+docs-core-extensions-channels-channels	SKIPPED	non-deterministic under .NET
+docs-core-extensions-configuration-binding-scenarios-ConfigurationIgnore-ConfigurationIgnore	COMPILE-ERROR	exit 1: docs/docs/core/extensions/snippets/configuration/binding-scenarios/ConfigurationIgnore/Program.cs(17,33): error CS0246: The type or namespace name 'ConfigurationManager' could not be found (are you missing a using directive or an as
+docs-core-get-started-get-started	PASS	
+docs-core-tools-global-tools-how-to-create-dotnet-env	COMPILE-UNSUPPORTED	error CSLLVM0002: 'System.Reflection.Assembly.GetEntryAssembly()' has no implementation in the csharpc runtime yet
+docs-core-tutorials-create-class-library-ShowCase-ShowCase	COMPILE-UNSUPPORTED	error CSLLVM0002: 'System.Console.ReadKey()' has no implementation in the csharpc runtime yet
+docs-core-tutorials-create-console-app-HelloWorld	PASS	
+docs-core-whats-new-dotnet-10-Project	COMPILE-UNSUPPORTED	error CSLLVM0001: not supported by csharpc yet: deriving from library class 'System.Text.Json.Serialization.JsonSerializerContext'
+docs-core-whats-new-dotnet-core-2-1-whats-new	COMPILE-UNSUPPORTED	error CSLLVM0001: not supported by csharpc yet: creating instances of 'System.IO.Compression.BrotliStream'

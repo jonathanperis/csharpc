@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Two classes with a Main; <StartupObject> picks one (dotnet build passes it to Roslyn as
+       MainTypeName). csharpc ignores the property and fails with CSLLVM0003 "program has no entry
+       point". Found in dotnet/docs docs/csharp/fundamentals/exceptions/snippets/exceptions. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net11.0</TargetFramework>
+    <StartupObject>Demo.Program</StartupObject>
+  </PropertyGroup>
+</Project>
