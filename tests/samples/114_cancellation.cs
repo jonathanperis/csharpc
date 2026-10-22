@@ -1,14 +1,18 @@
-// CancellationTokenSource / CancellationToken on the single-threaded scheduler.
+// CancellationTokenSource / CancellationToken. Output only depends on ordering .NET guarantees:
+// callbacks run synchronously inside Cancel(), most recent first; the delay's continuation may run
+// on another thread, so its effect is printed after awaiting it.
 var cts = new CancellationTokenSource();
 var token = cts.Token;
 Console.WriteLine($"{token.IsCancellationRequested} {token.CanBeCanceled} {CancellationToken.None.CanBeCanceled}");
-token.Register(() => Console.WriteLine("callback 1"));
-token.Register(() => Console.WriteLine("callback 2"));
+var log = new System.Text.StringBuilder();
+token.Register(() => log.Append("callback 1;"));
+token.Register(() => log.Append("callback 2;"));
 
 var slow = Task.Delay(10_000, token);
 var watcher = Watch(slow);
 cts.Cancel();
-await watcher;
+Console.WriteLine(log);
+Console.WriteLine(await watcher);
 Console.WriteLine($"{token.IsCancellationRequested} {cts.IsCancellationRequested} {slow.IsCanceled}");
 
 try { token.ThrowIfCancellationRequested(); }
@@ -30,10 +34,10 @@ var stopper = new CancellationTokenSource();
 stopper.Cancel();
 try { await Work(stopper.Token); } catch (OperationCanceledException) { Console.WriteLine("work canceled"); }
 
-async Task Watch(Task t)
+async Task<string> Watch(Task t)
 {
-    try { await t; Console.WriteLine("completed?"); }
-    catch (TaskCanceledException) { Console.WriteLine("delay canceled"); }
+    try { await t; return "completed?"; }
+    catch (TaskCanceledException) { return "delay canceled"; }
 }
 
 async Task<int> Work(CancellationToken ct)

@@ -50,24 +50,49 @@ the `Configured*` ones, `YieldAwaitable`) and `CancellationToken` are all repres
 to one csrt task object (`TypeMapper` maps these library types to `ptr`):
 
 ```
-{ mt, i32 state, i32 payload_size, conts, i32 ncont, pad, reserved×2, payload @ +48 }
+{ mt, i32 state, i32 payload_size, conts, i32 ncont, i32 lock, exception, aggregate, payload @ +48 }
 ```
 
 `default(ValueTask)` is a null pointer, meaning "completed".
 
-**Threading model.** Everything runs on the main thread. A FIFO run queue (continuations,
-`Task.Yield`, `Task.Run` work items) and a timer list (`Task.Delay`) are drained whenever someone
-blocks on a task: `async Main` (the native `main` calls `csrt_task_wait` on the returned task),
-`.Result`, `.Wait()` and `GetAwaiter().GetResult()`. With nothing runnable it sleeps until the
-earliest timer. With no timers either, it reports a deadlock.
+**Threading model** (.NET semantics for console apps, `src/runtime/async.c`):
+
+- **Thread pool.** `Task.Run` work items run on a pool of background worker threads
+  (processor-count workers, minimum 2), concurrently with the caller. Pool threads never keep the
+  process alive: when `Main` returns, the process exits.
+- **Continuations.** An `await` on an already-completed task continues synchronously. Otherwise the
+  coroutine registers itself as a continuation and is resumed by the thread that completes the task,
+  inline, as .NET does. Past 32 nested inlined continuations it is resumed on the pool instead.
+  `Task.Yield()` always resumes on the pool. There is no `SynchronizationContext`.
+- **Publishing a frame safely.** Before handing its frame to the runtime, a coroutine executes
+  `llvm.coro.save`. From that point it counts as suspended, so another thread may resume it even
+  before it reaches `llvm.coro.suspend`. Without an explicit save, LLVM would place an implicit one
+  just before the suspend, after the frame was already published, and a fast resume on another
+  thread would use a stale resume index.
+- **Blocking.** `.Result`, `.Wait()`, `GetAwaiter().GetResult()` and `async Main` (the native `main`
+  calls `csrt_task_wait` on the returned task) block on a condition variable. If a pool worker
+  blocks this way and no other worker is free, another one is started.
+- **Timers.** A timer thread hands expired `Task.Delay` / `CancelAfter` timers to the pool, earliest
+  deadline first. Once every 100 ms it also checks for starvation: queued work with no progress and
+  no idle worker. When that happens it injects a worker, up to 512. This is the
+  `CountdownEvent`/`Monitor.Wait`-on-pool-threads case, which .NET handles with its starvation
+  detector.
+- **Thread safety.** Each task's state and continuation list are guarded by a per-task spinlock,
+  held in the former padding word, so the compiler ABI is unchanged. State reads are atomic;
+  `WhenAll` counts down atomically; `WhenAny` picks the first completion under the result's lock.
+- **Cancellation.** Callbacks run synchronously inside `Cancel()`, most recently registered first.
+  A `Task.Delay(ms, token)` registers its own cancellation as one of those callbacks, as in .NET.
+- **GC.** Work queues, timers and continuation lists are GC arrays rooted by globals. Iterator
+  exceptions are parked in thread-local storage, which the collector also scans.
 
 Supported: `await` on tasks, value tasks and configured awaitables; `Task.FromResult`,
-`CompletedTask`, `Delay`, `Yield`, `WhenAll` (`Task[]` and `Task<T>[]`, with the result as `T[]`,
-including loose `params` arguments), `WhenAny`; `Task.Run(Action | Func<Task> | Func<Task<T>>)`
-queued on the scheduler, and `Task.Run(Func<T>)`, which runs inline; `.Result`, `.Wait()`,
-`GetAwaiter().GetResult()`, `IsCompleted`, `ConfigureAwait`, which is a no-op; `ValueTask<T>`
-constructors and `AsTask()`; async lambdas and local functions; async instance methods; async
-`void`.
+`CompletedTask`, `Delay` (with tokens), `Yield`, `WhenAll` (`Task[]` and `Task<T>[]`, with the
+result as `T[]`, including loose `params` arguments), `WhenAny`; `Task.Run(Action | Func<T> |
+Func<Task> | Func<Task<T>>)` on the pool, where `Func<T>` uses a compiler-generated per-`T` thunk;
+`.Result`, `.Wait()`, `GetAwaiter().GetResult()`, `IsCompleted`/`IsFaulted`/`IsCanceled`,
+`ConfigureAwait` (a no-op without a synchronization context); `ValueTask<T>` constructors and
+`AsTask()`; async lambdas and local functions; async instance methods; async `void`; faulted and
+canceled tasks, `AggregateException`, `TaskCompletionSource`, `CancellationTokenSource`.
 
 ## Iterators
 
@@ -94,14 +119,10 @@ an `IEnumerable<T>` reach iterators through ordinary interface dispatch.
 
 ## Deviations from .NET
 
-- **No thread pool.** Work queued by `Task.Run` and the continuations of `Task.Delay` run on the
-  main thread, in FIFO / deadline order. Programs whose output depends on true parallelism or
-  thread identity behave differently. Programs that are deterministic under .NET behave the same.
-- **`Task.Run(Func<T>)` with a non-task `T` runs the delegate immediately,** at the call site.
-- **Background work is abandoned when `Main` returns,** as in .NET; the queue is not drained.
-- **Exceptions.** An exception in an async method terminates the process like any unhandled
-  exception. Faulted tasks, and rethrowing at `await`, come with exception-handling support.
-  Cancellation tokens are accepted and ignored.
+- **Thread injection.** The pool doesn't do .NET's hill-climbing. It starts processor-count workers
+  and injects more only when work is starving or a worker blocks on a task.
+- **Thread identity.** Which pool thread runs a continuation may differ from .NET. Programs whose
+  output depends on thread ids or on interleaving are nondeterministic under both runtimes.
 - **Elision.** `CoroElide` doesn't fire for iterators: the frame handle escapes into the heap
   iterator object, and `MoveNext` goes through the runtime. A future optimization could resume
   directly when the enumerator's concrete iterator is statically known.
@@ -109,4 +130,4 @@ an `IEnumerable<T>` reach iterators through ordinary interface dispatch.
   struct. Enums are not supported yet.
 - **Not yet supported:** custom awaitables (user `GetAwaiter` patterns), `IAsyncEnumerable`
   `WithCancellation`/`ConfigureAwait`, `SynchronizationContext`/`TaskScheduler`, `Task.Wait`
-  timeouts, and `TaskCompletionSource`.
+  timeouts, `TaskCreationOptions` (`LongRunning`, `RunContinuationsAsynchronously`).

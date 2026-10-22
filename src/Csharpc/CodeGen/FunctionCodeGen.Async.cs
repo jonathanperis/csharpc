@@ -180,13 +180,24 @@ public sealed partial class FunctionCodeGen
             && SymbolEqualityComparer.Default.Equals(other.ContainingSymbol.OriginalDefinition, p.ContainingSymbol.OriginalDefinition)).Value;
 
     /// <summary>suspend; resume continues in a fresh block, destroy goes to <paramref name="onDestroy"/>.</summary>
-    private void Suspend(LLVMBasicBlockRef onDestroy)
+    private void Suspend(LLVMBasicBlockRef onDestroy, LLVMValueRef? saveToken = null)
     {
         var suspend = CoroIntrinsic("llvm.coro.suspend", L.I8, L.Token, L.I1);
-        var state = _b.Call(suspend.Type, suspend.Fn, [TokenNone, L.False], "suspend");
+        var state = _b.Call(suspend.Type, suspend.Fn, [saveToken ?? TokenNone, L.False], "suspend");
         var resume = NewBlock("resume");
         _b.Switch(state, _coro!.SuspendReturn, [(L.ConstInt(L.I8, 0), resume), (L.ConstInt(L.I8, 1), onDestroy)]);
         _b.PositionAtEnd(resume);
+    }
+
+    /// <summary>
+    /// llvm.coro.save: from here on the coroutine counts as suspended and may be resumed by another
+    /// thread (a pool worker completing the awaited task) even before it reaches llvm.coro.suspend.
+    /// Must precede handing the frame to anyone who might resume it.
+    /// </summary>
+    private LLVMValueRef CoroSave()
+    {
+        var save = CoroIntrinsic("llvm.coro.save", L.Token, L.Ptr);
+        return _b.Call(save.Type, save.Fn, [_coro!.Handle], "coro.save");
     }
 
     private LLVMValueRef PromisePayload => _b.InBoundsGep(L.I8, _coro!.Promise, [L.ConstInt(L.I64, PromisePayloadOffset)], "payload");
@@ -215,10 +226,14 @@ public sealed partial class FunctionCodeGen
         if (valueType is { IsValueType: true } && elementType.IsReferenceType) v = Box(v, valueType, value);
         StoreValue(ToStorage(v, elementType), PromisePayload);
         _b.Store(L.ConstInt(L.I32, 1), _b.InBoundsGep(L.I8, coro.Promise, [L.ConstInt(L.I64, IteratorStateOffset)]));
+        LLVMValueRef? save = null;
         if (coro.Kind == CoroutineKind.AsyncIterator)
+        {
+            save = CoroSave(); // the consumer may call MoveNextAsync() (resume) on another thread right away
             CallRuntime("csrt_async_iterator_yielded", L.Void, [L.Ptr], coro.Promise); // MoveNextAsync() -> true
+        }
         // Dispose() while suspended here destroys the coroutine: run the enclosing finally blocks first.
-        Suspend(ThroughFinally(EnclosingFinallyRegions(_currentBlock), coro.Cleanup));
+        Suspend(ThroughFinally(EnclosingFinallyRegions(_currentBlock), coro.Cleanup), save);
     }
 
     /// <summary>Finally regions around a block, innermost first.</summary>
@@ -243,8 +258,9 @@ public sealed partial class FunctionCodeGen
         var task = EmitValue(operand);
         if (Coroutines.IsYieldAwaitable(operandType))
         {
+            var yieldSave = CoroSave();
             CallRuntime("csrt_async_yield", L.Void, [L.Ptr], coro.Handle);
-            Suspend(coro.Cleanup);
+            Suspend(coro.Cleanup, yieldSave);
             return default;
         }
 
@@ -252,8 +268,9 @@ public sealed partial class FunctionCodeGen
         var ready = NewBlock("await.ready");
         _b.CondBr(CallRuntime("csrt_task_is_completed", L.I1, [L.Ptr], task), ready, wait);
         _b.PositionAtEnd(wait);
+        var awaitSave = CoroSave();
         CallRuntime("csrt_task_on_completed", L.Void, [L.Ptr, L.Ptr], task, coro.Handle);
-        Suspend(coro.Cleanup);
+        Suspend(coro.Cleanup, awaitSave);
         _b.Br(ready);
         _b.PositionAtEnd(ready);
         CallRuntime("csrt_task_throw_if_faulted", L.Void, [L.Ptr], task); // rethrows the original exception
@@ -311,6 +328,21 @@ public sealed partial class FunctionCodeGen
         _b.PositionAtEnd(done);
         CallRuntime("csrt_task_complete", L.Void, [L.Ptr], task);
         return default;
+    }
+
+    /// <summary>
+    /// Body of the Task.Run(Func&lt;T&gt;) thunk for one T: pack = { mt, delegate, task, thunk };
+    /// invoke the delegate and store the result into the task payload (runtime/async.c completes it).
+    /// </summary>
+    internal void EmitTaskRunThunk(ITypeSymbol resultType)
+    {
+        var pack = _fn.Fn.Param(0);
+        var del = _b.Load(L.Ptr, _b.InBoundsGep(L.I8, pack, [L.ConstInt(L.I64, 8)]), "del");
+        var task = _b.Load(L.Ptr, _b.InBoundsGep(L.I8, pack, [L.ConstInt(L.I64, 16)]), "task");
+        var value = InvokeDelegate0(del, T.Value(resultType));
+        StoreValue(ToStorage(value, resultType), _b.InBoundsGep(L.I8, task, [L.ConstInt(L.I64, PromisePayloadOffset)]));
+        _b.RetVoid();
+        Finish();
     }
 
     /// <summary>Calls a delegate object with no arguments: fn(target).</summary>

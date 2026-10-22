@@ -418,7 +418,7 @@ typedef struct {
 } csrt_Event;
 
 #define EVENT_MT(sym, name) \
-    const csrt_BuiltinMethodTable sym = { { &csrt_Object_MT.header, name, sizeof(csrt_Event), 0, NULL, 0, 0 }, \
+    const csrt_BuiltinMethodTable sym = { { &csrt_Object_MT.header, name, sizeof(csrt_Event), CSRT_MT_DISPOSABLE, NULL, 0, 0 }, \
         { (void*)csrt_object_to_string_default, (void*)csrt_object_equals_default, (void*)csrt_object_get_hash_code_default } };
 EVENT_MT(csrt_ManualResetEventSlim_MT, "System.Threading.ManualResetEventSlim")
 EVENT_MT(csrt_ManualResetEvent_MT, "System.Threading.ManualResetEvent")
@@ -623,6 +623,41 @@ static void ensure_pool(int workers) {
         s_pool_size++;
     }
     pthread_mutex_unlock(&s_pool_lock);
+}
+
+// ---------------------------------------------------------------------------------------------
+// Background managed threads for the task scheduler (runtime/async.c): thread-pool workers and the
+// timer thread. They're `background` (never keep the process alive) and registered with the GC.
+// ---------------------------------------------------------------------------------------------
+typedef struct { csrt_GcThread* gt; void (*loop)(void); } LoopStart;
+
+static void* loop_thread_main(void* arg) {
+    LoopStart start = *(LoopStart*)arg;
+    free(arg);
+    csrt_gc_thread_attach(start.gt);
+    tl_current = start.gt->managed;
+    start.loop();  // never returns
+    return NULL;
+}
+
+bool csrt_start_background_thread(void (*loop)(void)) {
+    csrt_Thread* t = thread_alloc();
+    t->background = true;
+    atomic_store(&t->state, THREAD_RUNNING);
+    csrt_GcThread* gt = csrt_gc_thread_prepare(t);
+    LoopStart* start = malloc(sizeof *start);
+    if (!gt || !start) { if (gt) csrt_gc_thread_abandon(gt); free(start); return false; }
+    start->gt = gt;
+    start->loop = loop;
+    pthread_attr_t attr;
+    pthread_attr_init(&attr);
+    pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
+    pthread_attr_setstacksize(&attr, (size_t)8 * 1024 * 1024);
+    pthread_t tid;
+    int rc = pthread_create(&tid, &attr, loop_thread_main, start);
+    pthread_attr_destroy(&attr);
+    if (rc != 0) { csrt_gc_thread_abandon(gt); free(start); return false; }
+    return true;
 }
 
 static pthread_mutex_t s_parallel_lock = PTHREAD_MUTEX_INITIALIZER;  // one parallel job at a time

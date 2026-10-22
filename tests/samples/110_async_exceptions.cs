@@ -1,8 +1,10 @@
 // Exceptions in async methods are captured in the task and rethrown at await.
 try { await Boom("first"); } catch (InvalidOperationException e) { Console.WriteLine("caught " + e.Message); }
 
-var pending = Boom("later");
+var gate = new TaskCompletionSource();
+var pending = BoomAfter(gate.Task, "later");   // can't fault until the gate opens (deterministic under real threads)
 Console.WriteLine($"faulted before running: {pending.IsFaulted}");
+gate.SetResult();
 try { await pending; } catch (Exception e) { Console.WriteLine($"{e.GetType().Name}: {e.Message}"); }
 Console.WriteLine($"faulted after: {pending.IsFaulted}, completed: {pending.IsCompleted}, ok: {pending.IsCompletedSuccessfully}");
 
@@ -29,6 +31,12 @@ try { await Outer(); } catch (FormatException e) { Console.WriteLine($"outer saw
 
 var fromEx = Task.FromException<int>(new NotSupportedException("nope"));
 try { Console.WriteLine(await fromEx); } catch (NotSupportedException e) { Console.WriteLine("FromException -> " + e.Message); }
+
+async Task BoomAfter(Task gate, string message)
+{
+    await gate;
+    throw new InvalidOperationException(message);
+}
 
 async Task Boom(string message)
 {
