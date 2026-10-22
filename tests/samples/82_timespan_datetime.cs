@@ -1,0 +1,54 @@
+// TimeSpan / DateTime (deterministic parts) and Stopwatch.
+using System.Diagnostics;
+
+var t = TimeSpan.FromMinutes(90);
+Console.WriteLine(t.TotalHours + " " + t + " " + t.Hours + ":" + t.Minutes);
+var span = new TimeSpan(1, 2, 3, 4, 567);
+Console.WriteLine($"{span} | {span.Days} {span.Hours} {span.Minutes} {span.Seconds} {span.Milliseconds} | {span.TotalSeconds}");
+Console.WriteLine(span.ToString("c") + " " + span.ToString("g") + " " + span.ToString("G"));
+Console.WriteLine(span.ToString(@"hh\:mm\:ss") + " " + span.ToString(@"d\.hh\:mm"));
+Console.WriteLine(TimeSpan.FromSeconds(1.5) + " " + TimeSpan.FromMilliseconds(2500) + " " + TimeSpan.FromSeconds(90) + " " + TimeSpan.FromHours(25));
+Console.WriteLine(TimeSpan.FromDays(1.25).TotalMinutes + " " + TimeSpan.FromTicks(123456789));
+var neg = -span;
+Console.WriteLine(neg + " " + neg.Duration() + " " + (span - t) + " " + (span + t) + " " + (t * 2.5) + " " + (t / 4) + " " + (span / t));
+Console.WriteLine((t < span) + " " + (t == TimeSpan.FromHours(1.5)) + " " + t.CompareTo(span) + " " + TimeSpan.Zero + " " + TimeSpan.MaxValue);
+Console.WriteLine(new TimeSpan(0, 0, 0, 0, 1) + " " + new TimeSpan(36000000001L) + " " + new TimeSpan(10, 0, 0));
+var total = TimeSpan.Zero;
+for (int i = 1; i <= 4; i++) total += TimeSpan.FromMinutes(i * 15);
+Console.WriteLine(total);
+
+var d = new DateTime(2024, 2, 28);
+Console.WriteLine(d.AddDays(1).ToString("yyyy-MM-dd") + " " + d.AddDays(2).ToString("yyyy-MM-dd"));
+Console.WriteLine(d.DayOfWeek + " " + d.DayOfYear + " " + DateTime.IsLeapYear(2024) + " " + DateTime.IsLeapYear(1900) + " " + DateTime.DaysInMonth(2023, 2));
+Console.WriteLine((new DateTime(2024, 3, 1) - d).Days);
+var dt = new DateTime(2026, 10, 22, 14, 5, 9, 123);
+Console.WriteLine(dt);
+Console.WriteLine(dt.ToString("yyyy-MM-dd HH:mm:ss.fff") + " | " + dt.ToString("dddd, MMMM d, yyyy h:mm tt") + " | " + dt.ToString("ddd MMM yy"));
+Console.WriteLine(dt.ToString("s") + " | " + dt.ToString("o") + " | " + dt.ToString("d") + " | " + dt.ToString("D") + " | " + dt.ToString("t"));
+Console.WriteLine(dt.ToString("u") + " | " + dt.ToString("R") + " | " + dt.ToString("M") + " | " + dt.ToString("Y") + " | " + dt.ToString("HH:mm:ss.FFF"));
+Console.WriteLine($"{dt.Year} {dt.Month} {dt.Day} {dt.Hour} {dt.Minute} {dt.Second} {dt.Millisecond} {dt.Ticks}");
+Console.WriteLine(dt.Date + " | " + dt.TimeOfDay + " | " + dt.AddMonths(4) + " | " + dt.AddYears(-26).AddMonths(-9));
+Console.WriteLine(new DateTime(2024, 1, 31).AddMonths(1).ToShortDateString() + " " + dt.ToLongDateString() + " " + dt.ToShortTimeString() + " " + dt.ToLongTimeString());
+Console.WriteLine(dt.AddHours(10.5) + " | " + dt.AddMinutes(-90) + " | " + dt.AddSeconds(3600.25).ToString("HH:mm:ss.ff") + " | " + dt.AddTicks(1));
+Console.WriteLine((dt > d) + " " + (dt == new DateTime(2026, 10, 22, 14, 5, 9, 123)) + " " + dt.CompareTo(d) + " " + (dt - TimeSpan.FromDays(365)).Year);
+Console.WriteLine(DateTime.MinValue + " | " + DateTime.MaxValue.ToString("yyyy-MM-dd HH:mm:ss.fffffff") + " | " + DateTime.UnixEpoch.ToString("s"));
+Console.WriteLine($"{dt:yyyyMMdd} {dt,25:G} {t:c}");
+var start = new DateTime(2000, 1, 1);
+int sundays = 0;
+for (var day = start; day.Year == 2000; day = day.AddDays(1)) if (day.DayOfWeek == DayOfWeek.Sunday) sundays++;
+Console.WriteLine("sundays in 2000: " + sundays);
+
+var now = DateTime.Now;
+var utc = DateTime.UtcNow;
+Console.WriteLine(now.Year >= 2024 && utc.Year >= 2024);
+var sw = Stopwatch.StartNew();
+long work = 0;
+for (int i = 0; i < 1000000; i++) work += i % 7;
+sw.Stop();
+Console.WriteLine(work + " " + (sw.ElapsedMilliseconds >= 0) + " " + (sw.Elapsed >= TimeSpan.Zero) + " " + sw.IsRunning + " " + (Stopwatch.Frequency > 0));
+var sw2 = new Stopwatch();
+Console.WriteLine(sw2.IsRunning + " " + sw2.ElapsedTicks);
+sw2.Start(); sw2.Restart(); sw2.Reset();
+Console.WriteLine(sw2.ElapsedMilliseconds);
+long ts0 = Stopwatch.GetTimestamp();
+Console.WriteLine(Stopwatch.GetElapsedTime(ts0) >= TimeSpan.Zero);

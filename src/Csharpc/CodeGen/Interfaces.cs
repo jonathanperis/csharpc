@@ -121,6 +121,7 @@ public sealed partial class FunctionCodeGen
                 return EmitUserCall(impl, self, concrete is IInstanceReferenceOperation, arguments, isVirtual: true, extra.Length > 0 ? extra : null);
             }
             if (invocation is not null && Intrinsics.TryGet(impl, out var handler)) return handler(this, invocation);
+            if (invocation is not null && BclValueTypes.TryGet(impl, out var bcl)) return CallBcl(bcl, impl, concrete, invocation.Arguments, invocation);
             if (staticType.IsValueType) throw CompileError.Unsupported($"interface call '{target}' on value type '{staticType}'", receiver);
         }
 

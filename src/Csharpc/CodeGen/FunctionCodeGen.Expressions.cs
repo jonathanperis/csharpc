@@ -21,7 +21,11 @@ public sealed partial class FunctionCodeGen
             IInstanceReferenceOperation when InStructMember => LoadValue(_this, S(_method!.ContainingType)),
             IInstanceReferenceOperation => ThisValue(op),
             IFieldReferenceOperation f when TryLowLevelLibraryMember(f, out var libraryField) => libraryField,
+            IFieldReferenceOperation { Field.IsStatic: true } f when !_m.IsUserType(f.Field.ContainingType) =>
+                BclValueTypes.TryGetField(f.Field, out var bclField) ? bclField(this, f)
+                    : throw CompileError.Unsupported($"static field '{f.Field}' of a library type", f),
             IFieldReferenceOperation f => LoadValue(FieldAddress(f), S(f.Field.Type)),
+            ITypeOfOperation t => TypeObject(S(t.TypeOperand), t),
             IPropertyReferenceOperation { Property.RefKind: not RefKind.None } p => LoadValue(RefPropertyAddress(p), TypeOf(p)!),
             IPropertyReferenceOperation p => EmitPropertyGet(p),
             IArrayElementReferenceOperation { Indices: [{ Type: var rangeType }] } a when IsRangeType(rangeType) => EmitArrayRange(a),
@@ -105,6 +109,7 @@ public sealed partial class FunctionCodeGen
     {
         if (value is null) return LlvmContext.Null(type is null ? L.Ptr : T.Value(type));
         if (value is string s) return _m.StringLiteral(s);
+        if (value is decimal dec) return DecimalConstant(dec);
 
         var llvmType = type is not null && type.SpecialType != SpecialType.System_Object ? T.Value(type) : value switch
         {
@@ -245,8 +250,17 @@ public sealed partial class FunctionCodeGen
         {
             // `x op= y` with a user-defined static operator: x = op(x, y).
             om = S(om);
-            if (!om.IsStatic || om.Parameters.Length != 2 || !_m.IsUserMethod(om))
+            if (!om.IsStatic || om.Parameters.Length != 2)
                 throw CompileError.Unsupported($"compound assignment with operator '{om}'", c);
+            if (!_m.IsUserMethod(om))
+                return ReadModifyWrite(c.Target, old =>
+                {
+                    if (!BclValueTypes.TryGet(om, out var handler)) throw CompileError.Unsupported($"compound assignment with operator '{om}'", c);
+                    var r = handler(this, om, default, [Coerce(old, c.Target.Type, om.Parameters[0].Type),
+                        Coerce(EmitValue(c.Value), c.Value.Type, om.Parameters[1].Type)], c);
+                    r = Coerce(r, om.ReturnType, c.Target.Type!);
+                    return (r, r);
+                });
             return ReadModifyWrite(c.Target, old =>
             {
                 var result = DirectCall(om, [Coerce(old, TypeOf(c.Target), om.Parameters[0].Type),
@@ -303,6 +317,13 @@ public sealed partial class FunctionCodeGen
 
     private LLVMValueRef EmitIncrementOrDecrement(IIncrementOrDecrementOperation op)
     {
+        if (op.OperatorMethod is { } incrementMethod && !_m.IsUserMethod(incrementMethod)
+            && BclValueTypes.TryGet(S(incrementMethod), out var libraryIncrement))
+            return ReadModifyWrite(op.Target, old =>
+            {
+                var updated = libraryIncrement(this, S(incrementMethod), default, [old], op);
+                return (updated, op.IsPostfix ? old : updated);
+            });
         if (op.OperatorMethod is not null) throw CompileError.Unsupported("user-defined ++/--", op);
         var type = TypeOf(op.Target)!;
         var increment = op.Kind == OperationKind.Increment;
@@ -322,6 +343,12 @@ public sealed partial class FunctionCodeGen
                     (true, true) => LLVMOpcode.FAdd, (true, false) => LLVMOpcode.FSub, (false, true) => LLVMOpcode.Add, _ => LLVMOpcode.Sub,
                 };
                 var updated = MakeNullable(type, has, _b.BinOp(opcode, payload, one));
+                return (updated, op.IsPostfix ? old : updated);
+            });
+        if (BclValueTypes.IsDecimal(type))
+            return ReadModifyWrite(op.Target, old =>
+            {
+                var updated = DecimalArithmetic(increment ? BinaryOperatorKind.Add : BinaryOperatorKind.Subtract, old, DecimalOne, op);
                 return (updated, op.IsPostfix ? old : updated);
             });
         return ReadModifyWrite(op.Target, old =>
@@ -362,7 +389,7 @@ public sealed partial class FunctionCodeGen
             && !IsGenericMathOnPrimitive(om0, op.LeftOperand))
         {
             var om = S(om0);
-            if (!_m.IsUserMethod(om)) throw CompileError.Unsupported($"operator '{om}'", op);
+            if (!_m.IsUserMethod(om)) return LibraryOperator(om, [op.LeftOperand, op.RightOperand], op);
             return EmitDirectCall(om, [op.LeftOperand, op.RightOperand]);
         }
         if (op.OperatorKind is BinaryOperatorKind.Equals or BinaryOperatorKind.NotEquals
@@ -427,6 +454,7 @@ public sealed partial class FunctionCodeGen
     internal LLVMValueRef Arithmetic(BinaryOperatorKind kind, LLVMValueRef l, LLVMValueRef r, ITypeSymbol lt, ITypeSymbol rt, IOperation at,
         bool isChecked = false)
     {
+        if (BclValueTypes.IsDecimal(lt) || BclValueTypes.IsDecimal(rt)) return DecimalArithmetic(kind, l, r, at);
         if (IsPointer(lt) || IsPointer(rt)) return PointerArithmetic(kind, l, r, lt, rt, at);
         // Reference types: string value equality, otherwise reference equality.
         if (l.Type.IsPointer || r.Type.IsPointer)
@@ -538,11 +566,13 @@ public sealed partial class FunctionCodeGen
         if (op.OperatorMethod is { } om0 && !IsGenericMathOnPrimitive(om0, op.Operand))
         {
             var om = S(om0);
-            if (!_m.IsUserMethod(om)) throw CompileError.Unsupported($"operator '{om}'", op);
+            if (!_m.IsUserMethod(om)) return LibraryOperator(om, [op.Operand], op);
             return EmitDirectCall(om, [op.Operand]);
         }
         if (op.IsLifted) return EmitLiftedUnary(op);
         var v = EmitValue(op.Operand);
+        if (BclValueTypes.IsDecimal(op.Operand.Type))
+            return op.OperatorKind == UnaryOperatorKind.Minus ? DecimalNegate(v) : v;
         if (op.IsChecked && op.OperatorKind == UnaryOperatorKind.Minus && v.Type.IsInteger)
             return CheckedArithmetic("sub", L.ConstInt(v.Type, 0), v, TypeMapper.IsSigned(op.Operand.Type!));
         return op.OperatorKind switch
@@ -567,7 +597,7 @@ public sealed partial class FunctionCodeGen
         if (c.OperatorMethod is { } om0)
         {
             var om = S(om0);
-            if (!_m.IsUserMethod(om)) throw CompileError.Unsupported($"conversion operator '{om}'", c);
+            if (!_m.IsUserMethod(om)) return LibraryOperator(om, [c.Operand], c);
             return EmitDirectCall(om, [c.Operand]);
         }
         if (c.Conversion.IsIdentity || (from is not null && SymbolEqualityComparer.Default.Equals(from, to))) return EmitValue(c.Operand);
@@ -655,6 +685,7 @@ public sealed partial class FunctionCodeGen
 
     internal LLVMValueRef ConvertNumeric(LLVMValueRef value, ITypeSymbol from, ITypeSymbol to, IOperation? at, bool isChecked = false)
     {
+        if (BclValueTypes.IsDecimal(from) || BclValueTypes.IsDecimal(to)) return DecimalConvert(value, from, to, at);
         var src = value.Type;
         var dst = T.Value(to);
         if (isChecked) CheckConversionRange(value, from, to);

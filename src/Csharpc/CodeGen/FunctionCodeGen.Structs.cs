@@ -94,7 +94,12 @@ public sealed partial class FunctionCodeGen
                 tuple = _b.InsertValue(tuple, ToStorage(EmitArgumentValue(args[i]), args[i].Parameter!.Type), (uint)i);
             return tuple;
         }
-        if (!_m.IsUserType(type)) throw CompileError.Unsupported($"creating instances of library struct '{type}'", creation);
+        if (!_m.IsUserType(type))
+        {
+            if (creation.Constructor is null or { Parameters.IsEmpty: true }) return LlvmContext.Null(llvmType); // new TimeSpan() etc.
+            if (BclValueTypes.TryGet(creation.Constructor, out var bcl)) return CallBcl(bcl, creation.Constructor, null, creation.Arguments, creation);
+            throw CompileError.Unsupported($"creating instances of library struct '{type}'", creation);
+        }
 
         // `new S()` without an explicit parameterless constructor is just default(S).
         if (creation.Constructor is null or { IsImplicitlyDeclared: true, Parameters.IsEmpty: true })

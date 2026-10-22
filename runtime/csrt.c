@@ -16,7 +16,7 @@ const csrt_BuiltinMethodTable csrt_Object_MT = {
     { (void*)csrt_object_to_string_default, (void*)csrt_object_equals_default, (void*)csrt_object_get_hash_code_default },
 };
 const csrt_BuiltinMethodTable csrt_String_MT = {
-    { &csrt_Object_MT.header, "System.String", 0, 0 },
+    { &csrt_Object_MT.header, "System.String", 0, CSRT_MT_NO_REFERENCES },
     { (void*)string_to_string, (void*)csrt_string_equals, (void*)csrt_object_get_hash_code_default },
 };
 const csrt_BuiltinMethodTable csrt_Array_MT = {
@@ -24,7 +24,7 @@ const csrt_BuiltinMethodTable csrt_Array_MT = {
     { (void*)csrt_object_to_string_default, (void*)csrt_object_equals_default, (void*)csrt_object_get_hash_code_default },
 };
 const csrt_BuiltinMethodTable csrt_PrimitiveArray_MT = {
-    { &csrt_Object_MT.header, "System.Array", 0, 0 },
+    { &csrt_Object_MT.header, "System.Array", 0, CSRT_MT_NO_REFERENCES },
     { (void*)csrt_object_to_string_default, (void*)csrt_object_equals_default, (void*)csrt_object_get_hash_code_default },
 };
 

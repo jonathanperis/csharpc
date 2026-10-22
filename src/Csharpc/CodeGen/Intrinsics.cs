@@ -29,7 +29,7 @@ internal static class Intrinsics
         .RemoveMiscellaneousOptions(SymbolDisplayMiscellaneousOptions.IncludeNullableReferenceTypeModifier)
         .RemoveMiscellaneousOptions(SymbolDisplayMiscellaneousOptions.IncludeNotNullableReferenceTypeModifier);
 
-    private static string TypeName(ITypeSymbol t) => t.WithNullableAnnotation(NullableAnnotation.None).ToDisplayString(s_keyFormat);
+    internal static string TypeName(ITypeSymbol t) => t.WithNullableAnnotation(NullableAnnotation.None).ToDisplayString(s_keyFormat);
 
     public static bool TryGet(IMethodSymbol method, out IntrinsicHandler handler) =>
         s_methods.TryGetValue(Key(method.OriginalDefinition), out handler!);
@@ -428,7 +428,8 @@ internal static class Intrinsics
         Add("string.Split(char, System.StringSplitOptions)", "csrt_string_split_char", ptr, l => [l.I16, l.I32], (g, i) => [Arg(g, i, 0), Arg(g, i, 1)]);
         Add("string.ToCharArray()", "csrt_string_to_char_array", ptr, _ => [], (_, _) => []);
         Add("string.GetHashCode()", "csrt_string_get_hash_code", i32, _ => [], (_, _) => []);
-        Add("string.CompareTo(string)", "csrt_string_compare_ordinal", i32, l => [l.Ptr], (g, i) => [Arg(g, i, 0)]);
+        // Culture-sensitive (ICU root collation approximation, runtime/bclmisc.c), like .NET's CompareTo.
+        Add("string.CompareTo(string)", "csrt_string_compare_culture", i32, l => [l.Ptr, l.I1], (g, i) => [Arg(g, i, 0), g.Module.Llvm.False]);
 
         t["string.Join(string, string[])"] = (g, inv) =>
             g.CallRuntime("csrt_string_join", g.Module.Llvm.Ptr, [g.Module.Llvm.Ptr, g.Module.Llvm.Ptr], Arg(g, inv, 0), Arg(g, inv, 1));

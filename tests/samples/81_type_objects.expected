@@ -1,0 +1,24 @@
+Int32      System.Int32         System.Int32
+String     System.String        System.String
+Double     System.Double        System.Double
+Char       System.Char          System.Char
+Boolean    System.Boolean       System.Boolean
+Decimal    System.Decimal       System.Decimal
+Dog        Dog                  Dog
+Point      Point                Point
+Color      Color                Color
+Int32[]    System.Int32[]       System.Int32[]
+String[]   System.String[]      System.String[]
+TimeSpan   System.TimeSpan      System.TimeSpan
+True
+String Animal Outer+Inner Inner
+True
+False
+True
+Shapes Shapes.Circle
+Double[] Point[][]
+Circle
+System.DayOfWeek Monday
+Int32 Color
+System.Int32[] Dog
+Dog Dog

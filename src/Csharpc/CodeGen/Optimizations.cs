@@ -41,6 +41,7 @@ internal static class Optimizations
             or SpecialType.System_Int64 or SpecialType.System_UInt64 or SpecialType.System_Single or SpecialType.System_Double
             or SpecialType.System_IntPtr or SpecialType.System_UIntPtr } => true,
         { TypeKind: TypeKind.Enum } => true,
+        _ when BclValueTypes.IsDecimal(type) || BclValueTypes.IsTicks(type) => true, // plain bits (BclValueTypes)
         _ => false,
     };
 }

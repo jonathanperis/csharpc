@@ -30,3 +30,4 @@ The docs describe the code as of the commit they were written at. When a feature
 matrix in [06-roadmap.md](06-roadmap.md) and add a dated entry to [07-spike-log.md](07-spike-log.md).
 - [09 — Conformance](09-conformance.md): conformance corpus, coverage per area, prioritized failure reasons
 - [10 — Async](10-async.md): async/await, iterators and async iterators as LLVM coroutines; the single-threaded scheduler
+- [11 — BCL value types](11-bcl-value-types.md): decimal, TimeSpan/DateTime/Stopwatch, BigInteger, Type objects, Array helpers & sorting, culture comparison
