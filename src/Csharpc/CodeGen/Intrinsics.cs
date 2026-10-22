@@ -762,7 +762,7 @@ internal static class Intrinsics
             var s = g.EmitValue(p.Instance!);
             g.NullCheck(s);
             var l = g.Module.Llvm;
-            return g.Builder.Load(l.I32, g.Builder.StructGep(g.Module.Types.StringHeader, s, 1), "strlen");
+            return g.LoadStringLength(s);
         };
         t["string.this[int]"] = (g, p) =>
         {

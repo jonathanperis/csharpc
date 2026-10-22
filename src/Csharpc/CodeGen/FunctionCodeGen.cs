@@ -553,6 +553,7 @@ public sealed partial class FunctionCodeGen
     internal LLVMValueRef LoadValue(LLVMValueRef address, ITypeSymbol type)
     {
         var value = _b.Load(T.Storage(type), address);
+        TagDataAccess(value, address);
         return type.SpecialType == SpecialType.System_Boolean ? _b.Cast(LLVMOpcode.Trunc, value, L.I1) : value;
     }
 
@@ -560,7 +561,7 @@ public sealed partial class FunctionCodeGen
     internal LLVMValueRef ToStorage(LLVMValueRef value, ITypeSymbol type) =>
         type.SpecialType == SpecialType.System_Boolean && value.Type.IntWidth == 1 ? _b.Cast(LLVMOpcode.ZExt, value, L.I8) : value;
 
-    internal void StoreValue(LLVMValueRef storageValue, LLVMValueRef address) => _b.Store(storageValue, address);
+    internal void StoreValue(LLVMValueRef storageValue, LLVMValueRef address) => TagDataAccess(_b.Store(storageValue, address), address);
 
     internal LLVMValueRef LocalSlot(ILocalSymbol local)
     {
@@ -610,12 +611,12 @@ public sealed partial class FunctionCodeGen
         if (field.ContainingType.IsValueType)
         {
             var (structType, index) = _m.ValueTypeField(field);
-            return _b.StructGep(structType, instance, index, field.Name);
+            return DataAddress(_b.StructGep(structType, instance, index, field.Name));
         }
         var layout = _m.GetLayout(field.ContainingType);
         if (!layout.FieldIndex.TryGetValue(field, out var slotIndex) && !layout.FieldIndex.TryGetValue(field.OriginalDefinition, out slotIndex))
             throw CompileError.Unsupported($"field '{field}' not found in the layout of '{layout.Type}'", field);
-        return _b.StructGep(layout.InstanceType, instance, slotIndex, field.Name);
+        return DataAddress(_b.StructGep(layout.InstanceType, instance, slotIndex, field.Name));
     }
 
     // ======================================================================================

@@ -18,6 +18,7 @@ public sealed partial class ModuleCodeGen
     public LlvmContext Llvm { get; }
     public LlvmModule Module { get; }
     public TypeMapper Types { get; }
+    public MemoryFacts Facts { get; }
     public List<CompileError> Errors { get; } = [];
     public TextWriter? CfgDump { get; init; }
     public CoreLib CoreLib { get; }
@@ -46,6 +47,7 @@ public sealed partial class ModuleCodeGen
         Llvm = llvm;
         Module = module;
         Types = new TypeMapper(llvm, target);
+        Facts = new MemoryFacts(llvm);
         Types.StructType = ResolveStructType;
         CoreLib = new CoreLib(compilation);
         Mangler.RealNameOf = CoreLib.RealNameOf; // shadow types report their BCL names (List`1[...])

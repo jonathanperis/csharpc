@@ -539,7 +539,7 @@ public sealed partial class FunctionCodeGen
                 }
                 var source = EmitValue(spread.Operand);
                 NullCheck(source);
-                var length = _b.Load(L.I64, _b.StructGep(T.ArrayHeader(L.I8), source, 1), "len");
+                var length = LoadArrayLength(source);
                 var index = NewTemp(L.I64, "spread.i");
                 _b.Store(L.ConstInt(L.I64, 0), index);
                 var head = NewBlock("spread.head");
@@ -583,8 +583,14 @@ public sealed partial class FunctionCodeGen
         }
     }
 
-    private LLVMValueRef ToIndex(LLVMValueRef value, ITypeSymbol type) =>
-        value.Type.IntWidth == 64 ? value : _b.Cast(TypeMapper.IsSigned(type) ? LLVMOpcode.SExt : LLVMOpcode.ZExt, value, L.I64);
+    private LLVMValueRef ToIndex(LLVMValueRef value, ITypeSymbol type)
+    {
+        // A ulong index or size goes through conv.ovf.i.un in IL: above long.MaxValue it is an
+        // OverflowException, not an IndexOutOfRangeException.
+        if (type.SpecialType == SpecialType.System_UInt64)
+            FailIf(_b.ICmp(LLVMIntPredicate.SLT, value, L.ConstInt(L.I64, 0)), "csrt_throw_overflow");
+        return value.Type.IntWidth == 64 ? value : _b.Cast(TypeMapper.IsSigned(type) ? LLVMOpcode.SExt : LLVMOpcode.ZExt, value, L.I64);
+    }
 
     private LLVMValueRef ElementAddress(IArrayElementReferenceOperation element)
     {
@@ -595,16 +601,24 @@ public sealed partial class FunctionCodeGen
         if (!isIndex && indexType?.SpecialType is not (SpecialType.System_Int32 or SpecialType.System_Int64 or SpecialType.System_UInt32 or SpecialType.System_UInt64))
             throw CompileError.Unsupported($"array index of type '{indexType}'", element);
         var array = EmitValue(element.ArrayReference);
-        var i = isIndex
-            ? _b.Cast(LLVMOpcode.SExt, ArrayIndexFromIndex(array, EmitValue(index)), L.I64)
-            : ToIndex(EmitValue(index), indexType!);
+        var raw = isIndex ? ArrayIndexFromIndex(array, EmitValue(index)) : EmitValue(index);
+        if (raw.Type.IntWidth == 64) raw = ToIndex(raw, indexType!); // the ulong overflow check precedes the null check, as in IL
         NullCheck(array);
         var storage = T.Storage(TypeOf(element)!);
         var header = T.ArrayHeader(storage);
-        var length = _b.Load(L.I64, _b.StructGep(header, array, 1), "len");
-        // One unsigned compare also catches negative indices.
-        FailIf(_b.ICmp(LLVMIntPredicate.UGE, i, length), "csrt_throw_index_out_of_range");
-        return _b.InBoundsGep(header, array, [L.ConstInt(L.I32, 0), L.ConstInt(L.I32, 2), i]);
+        var length = LoadArrayLength(array);
+        // One unsigned compare also catches negative (or, for uint/ulong, too large) indices. int/uint
+        // indices are compared in 32 bits (lossless: the length is below 2^31), so the check bounds
+        // the int itself, in the same width as `i < a.Length`: LLVM can then fold the check into the
+        // loop condition and prove `i + 1` doesn't wrap, instead of sign-extending i for every access.
+        var i = raw;
+        if (raw.Type.IntWidth == 32)
+        {
+            FailIf(_b.ICmp(LLVMIntPredicate.UGE, raw, _b.Cast(LLVMOpcode.Trunc, length, L.I32)), "csrt_throw_index_out_of_range");
+            i = _b.Cast(LLVMOpcode.ZExt, raw, L.I64); // in [0, length) now
+        }
+        else FailIf(_b.ICmp(LLVMIntPredicate.UGE, i, length), "csrt_throw_index_out_of_range");
+        return DataAddress(_b.InBoundsGep(header, array, [L.ConstInt(L.I32, 0), L.ConstInt(L.I32, 2), i]));
     }
 
     // foreach over T[]: Roslyn's CFG lowers it to the IEnumerable<T> pattern. We substitute a
@@ -622,7 +636,7 @@ public sealed partial class FunctionCodeGen
         var enumerator = NewTemp(ArrayEnumeratorType, "array.enumerator");
         _b.Store(ArrayDataStart(array, arrayType), _b.StructGep(ArrayEnumeratorType, enumerator, 0));
         _b.Store(L.ConstInt(L.I64, -1), _b.StructGep(ArrayEnumeratorType, enumerator, 1));
-        _b.Store(_b.Load(L.I64, _b.StructGep(T.ArrayHeader(L.I8), array, 1), "len"), _b.StructGep(ArrayEnumeratorType, enumerator, 2));
+        _b.Store(LoadArrayLength(array), _b.StructGep(ArrayEnumeratorType, enumerator, 2));
         return enumerator;
     }
 
@@ -639,7 +653,7 @@ public sealed partial class FunctionCodeGen
     {
         var data = _b.Load(L.Ptr, _b.StructGep(ArrayEnumeratorType, enumerator, 0));
         var index = _b.Load(L.I64, _b.StructGep(ArrayEnumeratorType, enumerator, 1));
-        var address = _b.InBoundsGep(T.Storage(elementType), data, [index]);
+        var address = DataAddress(_b.InBoundsGep(T.Storage(elementType), data, [index]));
         return LoadValue(address, elementType);
     }
 
@@ -662,7 +676,7 @@ public sealed partial class FunctionCodeGen
         var index = _b.BinOp(LLVMOpcode.Add, _b.Load(L.I32, indexAddress), L.ConstInt(L.I32, 1));
         _b.Store(index, indexAddress);
         var str = _b.Load(L.Ptr, _b.StructGep(StringEnumeratorType, e, 0));
-        var length = _b.Load(L.I32, _b.StructGep(T.StringHeader, str, 1), "strlen");
+        var length = LoadStringLength(str);
         return _b.ICmp(LLVMIntPredicate.SLT, index, length);
     }
 
@@ -677,7 +691,7 @@ public sealed partial class FunctionCodeGen
     internal LLVMValueRef ArrayLength(LLVMValueRef array)
     {
         NullCheck(array);
-        return _b.Load(L.I64, _b.StructGep(T.ArrayHeader(L.I8), array, 1), "len");
+        return LoadArrayLength(array);
     }
 
     // ======================================================================================

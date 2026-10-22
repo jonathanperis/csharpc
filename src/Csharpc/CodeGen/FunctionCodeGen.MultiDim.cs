@@ -79,7 +79,7 @@ public sealed partial class FunctionCodeGen
             FailIf(_b.ICmp(LLVMIntPredicate.UGE, indices[d], length), "csrt_throw_index_out_of_range");
             linear = _b.BinOp(LLVMOpcode.Add, _b.BinOp(LLVMOpcode.Mul, linear, length), indices[d]);
         }
-        return _b.InBoundsGep(header, array, [L.ConstInt(L.I32, 0), L.ConstInt(L.I32, 3), linear]);
+        return DataAddress(_b.InBoundsGep(header, array, [L.ConstInt(L.I32, 0), L.ConstInt(L.I32, 3), linear]));
     }
 
     /// <summary>array.GetLength(d) / GetUpperBound(d) for any rank (T[] has rank 1, length at offset 8).</summary>

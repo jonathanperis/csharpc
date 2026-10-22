@@ -100,7 +100,7 @@ public sealed partial class FunctionCodeGen
             "Box" => BoxOrThrow(t!, args[0], inv),
             "Unbox" => UnboxOrThrow(t!, args[0], inv),
             "FastAllocateString" => FastAllocateString(args[0]),
-            "StringChars" => MakeSpan(_b.StructGep(T.StringHeader, args[0], 2), _b.Load(L.I32, _b.StructGep(T.StringHeader, args[0], 1), "strlen")),
+            "StringChars" => MakeSpan(_b.StructGep(T.StringHeader, args[0], 2), LoadStringLength(args[0])),
             "DoubleToBits" => _b.Cast(LLVMOpcode.BitCast, args[0], L.I64),
             "BitsToDouble" => _b.Cast(LLVMOpcode.BitCast, args[0], L.F64),
             "SingleToBits" => _b.Cast(LLVMOpcode.BitCast, args[0], L.I32),
