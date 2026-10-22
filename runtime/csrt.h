@@ -93,3 +93,14 @@ int64_t csrt_environment_tick_count64(void);
 _Noreturn void csrt_environment_exit(int32_t code);
 
 #endif
+
+// Boxing -------------------------------------------------------------------------------------
+// A boxed primitive is { mt, value } with the value at offset 8. One method table per primitive,
+// whose vtable formats / compares the payload (so `object o = 42; o.ToString()` is "42").
+#define CSRT_BOXED_TYPES(X) \
+    X(Int32, int32_t) X(Int64, int64_t) X(UInt32, uint32_t) X(UInt64, uint64_t) \
+    X(Int16, int16_t) X(UInt16, uint16_t) X(Byte, uint8_t) X(SByte, int8_t) \
+    X(Double, double) X(Single, float) X(Boolean, bool) X(Char, uint16_t)
+#define CSRT_DECLARE_BOXED_MT(Name, CType) extern const csrt_BuiltinMethodTable csrt_Boxed_##Name##_MT;
+CSRT_BOXED_TYPES(CSRT_DECLARE_BOXED_MT)
+void* csrt_unbox(void* obj, const csrt_MethodTable* type);   // payload address, or NRE / InvalidCast

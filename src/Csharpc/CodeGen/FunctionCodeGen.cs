@@ -40,6 +40,12 @@ public sealed partial class FunctionCodeGen
         public Dictionary<CaptureId, (LLVMValueRef Slot, ITypeSymbol? Type)> Captures { get; } = [];
         /// <summary>Captures used as assignment targets: they hold an address, not a value.</summary>
         public HashSet<CaptureId> LvalueCaptures { get; } = [];
+        /// <summary>Captures holding a foreach-over-array enumerator -> element type.</summary>
+        public Dictionary<CaptureId, ITypeSymbol> ArrayEnumerators { get; } = [];
+        /// <summary>Per finally region: the continuation selector and where each value resumes.</summary>
+        public Dictionary<ControlFlowRegion, (LLVMValueRef Selector, List<LLVMBasicBlockRef> Continuations)> Finally { get; } =
+            new(ReferenceEqualityComparer.Instance);
+        public List<(LLVMBasicBlockRef Block, ControlFlowRegion Region)> FinallyEnds { get; } = [];
         public LLVMBasicBlockRef Exit { get; set; }
     }
 
@@ -114,6 +120,27 @@ public sealed partial class FunctionCodeGen
         Finish();
     }
 
+    public void EmitPrimaryConstructor(IReadOnlyList<ControlFlowGraph> initializers, ControlFlowGraph? baseCall)
+    {
+        // Parameters used outside initializers live in compiler-synthesized "<name>P" fields.
+        foreach (var p in _method!.Parameters)
+            if (CapturedParameterField(p) is { } field)
+                StoreValue(ToStorage(LoadValue(_slots[p], p.Type), p.Type), FieldAddressOn(_this, field));
+        if (baseCall is null)
+        {
+            EmitImplicitConstructor(initializers);
+            return;
+        }
+        LowerPrologue(initializers);
+        LowerCfg(baseCall, continuation: null);
+        Finish();
+    }
+
+    private static IFieldSymbol? CapturedParameterField(IParameterSymbol p) =>
+        p.ContainingSymbol is IMethodSymbol { MethodKind: MethodKind.Constructor } ctor
+            ? ctor.ContainingType.GetMembers($"<{p.Name}>P").OfType<IFieldSymbol>().FirstOrDefault()
+            : null;
+
     public void EmitAutoPropertyAccessor()
     {
         var property = (IPropertySymbol)_method!.AssociatedSymbol!;
@@ -171,6 +198,7 @@ public sealed partial class FunctionCodeGen
         _m.EnqueueLocalFunctions(graph);
         ScanRegions(graph, graph.Root);
         FindLvalueCaptures(graph, state.LvalueCaptures);
+        FindArrayEnumerators(graph, state.ArrayEnumerators);
 
         foreach (var block in graph.Blocks)
             if (block is { Kind: BasicBlockKind.Block, IsReachable: true })
@@ -184,18 +212,30 @@ public sealed partial class FunctionCodeGen
             foreach (var operation in block.Operations) EmitStatement(operation);
             EmitTerminator(block);
         }
+
+        // End of each finally: dispatch to whichever continuation entered it.
+        foreach (var (block, region) in state.FinallyEnds)
+        {
+            _b.PositionAtEnd(block);
+            if (!state.Finally.TryGetValue(region, out var info) || info.Continuations.Count == 0) { _b.Unreachable(); continue; }
+            if (info.Continuations.Count == 1) { _b.Br(info.Continuations[0]); continue; }
+            var selector = _b.Load(L.I32, info.Selector, "finally.next");
+            var cases = info.Continuations.Skip(1).Select((c, i) => (L.ConstInt(L.I32, i + 1), c)).ToList();
+            _b.Switch(selector, info.Continuations[0], cases);
+        }
         _cfg = outer;
     }
 
     private void ScanRegions(ControlFlowGraph graph, ControlFlowRegion region)
     {
-        if (region.Kind is ControlFlowRegionKind.Try or ControlFlowRegionKind.TryAndCatch or ControlFlowRegionKind.TryAndFinally
-            or ControlFlowRegionKind.Catch or ControlFlowRegionKind.Finally or ControlFlowRegionKind.Filter
+        // try/finally is lowered without unwinding (exceptions are fatal for now, and an unhandled
+        // .NET exception doesn't run finally blocks either). Catch handlers need real EH (ADR 0005).
+        if (region.Kind is ControlFlowRegionKind.TryAndCatch or ControlFlowRegionKind.Catch or ControlFlowRegionKind.Filter
             or ControlFlowRegionKind.FilterAndHandler)
         {
             var at = graph.Blocks[region.FirstBlockOrdinal].Operations.FirstOrDefault()
                 ?? graph.Blocks[region.FirstBlockOrdinal].BranchValue;
-            throw CompileError.Unsupported("try/catch/finally (and constructs lowered to it: using, foreach over IEnumerable, lock)", at);
+            throw CompileError.Unsupported("try/catch (exception handling)", at);
         }
         foreach (var local in region.Locals) _ownLocals.Add(local);
         foreach (var nested in region.NestedRegions) ScanRegions(graph, nested);
@@ -225,7 +265,58 @@ public sealed partial class FunctionCodeGen
         }
     }
 
-    private LLVMBasicBlockRef Target(ControlFlowBranch branch)
+    private static void FindArrayEnumerators(ControlFlowGraph graph, Dictionary<CaptureId, ITypeSymbol> result)
+    {
+        foreach (var capture in graph.Blocks.SelectMany(b => b.Operations).OfType<IFlowCaptureOperation>())
+        {
+            if (capture.Value is not IInvocationOperation { TargetMethod.Name: "GetEnumerator", Instance: { } instance }) continue;
+            while (instance is IConversionOperation { Conversion.IsImplicit: true } c) instance = c.Operand;
+            if (instance.Type is IArrayTypeSymbol { Rank: 1 } array) result[capture.Id] = array.ElementType;
+        }
+    }
+
+    internal bool TryArrayEnumerator(IOperation? enumerator, out ITypeSymbol elementType)
+    {
+        elementType = null!;
+        return enumerator is IFlowCaptureReferenceOperation r && _cfg!.ArrayEnumerators.TryGetValue(r.Id, out elementType!);
+    }
+
+    private LLVMBasicBlockRef Target(ControlFlowBranch branch) => ThroughFinally(branch, DirectTarget(branch));
+
+    /// <summary>
+    /// A branch that leaves try regions must first run their finally blocks (innermost first). Each
+    /// finally is emitted once; a trampoline stores which continuation to resume and jumps in.
+    /// </summary>
+    private LLVMBasicBlockRef ThroughFinally(ControlFlowBranch branch, LLVMBasicBlockRef dest)
+    {
+        var regions = branch.FinallyRegions;
+        var target = dest;
+        for (var i = regions.Length - 1; i >= 0; i--)
+        {
+            var region = regions[i];
+            if (!_cfg!.Finally.TryGetValue(region, out var info))
+                _cfg.Finally[region] = info = (_allocas.Alloca(L.I32, "finally.sel"), []);
+            var index = info.Continuations.Count;
+            info.Continuations.Add(target);
+            var current = _b.InsertBlock;
+            var trampoline = _b.AppendBlock(_fn.Fn, "to.finally");
+            _b.PositionAtEnd(trampoline);
+            _b.Store(L.ConstInt(L.I32, index), info.Selector);
+            _b.Br(_cfg.Blocks[_cfg.Graph.Blocks[region.FirstBlockOrdinal]]);
+            _b.PositionAtEnd(current);
+            target = trampoline;
+        }
+        return target;
+    }
+
+    private static ControlFlowRegion? EnclosingFinally(BasicBlock block)
+    {
+        for (var r = block.EnclosingRegion; r is not null; r = r.EnclosingRegion)
+            if (r.Kind == ControlFlowRegionKind.Finally) return r;
+        return null;
+    }
+
+    private LLVMBasicBlockRef DirectTarget(ControlFlowBranch branch)
     {
         var dest = branch.Destination ?? throw CompileError.Unsupported($"branch with {branch.Semantics} semantics");
         if (dest.Kind != BasicBlockKind.Exit) return _cfg!.Blocks[dest];
@@ -263,7 +354,10 @@ public sealed partial class FunctionCodeGen
                 _b.Br(Target(next));
                 break;
             case ControlFlowBranchSemantics.Return:
-                EmitReturn(block.BranchValue);
+                EmitReturn(block.BranchValue, next);
+                break;
+            case ControlFlowBranchSemantics.StructuredExceptionHandling when EnclosingFinally(block) is { } finallyRegion:
+                _cfg!.FinallyEnds.Add((_b.InsertBlock, finallyRegion)); // terminated once all entries are known
                 break;
             case ControlFlowBranchSemantics.Throw:
                 EmitThrow(block.BranchValue);
@@ -278,22 +372,36 @@ public sealed partial class FunctionCodeGen
         }
     }
 
-    private void EmitReturn(IOperation? value)
+    private void EmitReturn(IOperation? value, ControlFlowBranch branch)
     {
-        if (_cfg!.Continuation is { } next)
+        var isVoid = value is null || ReturnType is null or { SpecialType: SpecialType.System_Void };
+        if (_cfg!.Continuation is { } next || isVoid)
         {
             if (value is not null) EmitValue(value);
-            _b.Br(next);
+            if (_cfg.Continuation is { } cont) _b.Br(ThroughFinally(branch, cont));
+            else if (branch.FinallyRegions.IsEmpty) _b.RetVoid();
+            else _b.Br(ThroughFinally(branch, DirectTarget(branch)));
             return;
         }
-        if (value is null || ReturnType is null or { SpecialType: SpecialType.System_Void })
+        var result = Coerce(EmitValue(value!), value!.Type, ReturnType!);
+        if (branch.FinallyRegions.IsEmpty) { _b.Ret(result); return; }
+
+        // `return x;` inside try/finally: x is evaluated before the finally runs.
+        _retSlot = _retSlot.IsNull ? _allocas.Alloca(result.Type, "retval") : _retSlot;
+        _b.Store(result, _retSlot);
+        if (_retBlock.IsNull)
         {
-            if (value is not null) EmitValue(value);
-            _b.RetVoid();
-            return;
+            var current = _b.InsertBlock;
+            _retBlock = _b.AppendBlock(_fn.Fn, "return");
+            _b.PositionAtEnd(_retBlock);
+            _b.Ret(_b.Load(result.Type, _retSlot));
+            _b.PositionAtEnd(current);
         }
-        _b.Ret(Coerce(EmitValue(value), value.Type, ReturnType));
+        _b.Br(ThroughFinally(branch, _retBlock));
     }
+
+    private LLVMValueRef _retSlot;
+    private LLVMBasicBlockRef _retBlock;
 
     private void EmitStatement(IOperation operation)
     {
@@ -347,10 +455,14 @@ public sealed partial class FunctionCodeGen
         return _slots[local] = _allocas.Alloca(T.Storage(local.Type), local.Name);
     }
 
-    internal LLVMValueRef ParameterSlot(IParameterSymbol parameter, IOperation at) =>
-        _slots.TryGetValue(parameter, out var slot)
-            ? slot
-            : throw CompileError.Unsupported($"closure: local function or lambda capturing parameter '{parameter.Name}'", at);
+    internal LLVMValueRef ParameterSlot(IParameterSymbol parameter, IOperation at)
+    {
+        if (_slots.TryGetValue(parameter, out var slot)) return slot;
+        // A primary-constructor parameter referenced from a member: read its captured field.
+        if (_this.Handle != 0 && CapturedParameterField(parameter) is { } field)
+            return FieldAddressOn(_this, field);
+        throw CompileError.Unsupported($"closure: local function or lambda capturing parameter '{parameter.Name}'", at);
+    }
 
     internal IFieldSymbol BackingField(IPropertySymbol property) =>
         property.ContainingType.GetMembers().OfType<IFieldSymbol>()

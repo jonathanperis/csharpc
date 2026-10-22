@@ -163,6 +163,9 @@ internal static unsafe partial class Native
     [LibraryImport(Lib)]
     public static partial LLVMValueRef LLVMBuildCondBr(LLVMBuilderRef b, LLVMValueRef cond, LLVMBasicBlockRef then, LLVMBasicBlockRef @else);
     [LibraryImport(Lib)] public static partial LLVMValueRef LLVMBuildUnreachable(LLVMBuilderRef b);
+    [LibraryImport(Lib)]
+    public static partial LLVMValueRef LLVMBuildSwitch(LLVMBuilderRef b, LLVMValueRef value, LLVMBasicBlockRef @else, uint numCases);
+    [LibraryImport(Lib)] public static partial void LLVMAddCase(LLVMValueRef @switch, LLVMValueRef onValue, LLVMBasicBlockRef dest);
 
     [LibraryImport(Lib, StringMarshalling = StringMarshalling.Utf8)]
     public static partial LLVMValueRef LLVMBuildBinOp(LLVMBuilderRef b, LLVMOpcode op, LLVMValueRef lhs, LLVMValueRef rhs, string name);

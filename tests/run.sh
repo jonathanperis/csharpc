@@ -29,7 +29,7 @@ if [[ $REGEN == 1 ]]; then
     [[ -n "$FILTER" && "$name" != *"$FILTER"* ]] && continue
     printf 'recording %-32s' "$name"
     # File-based apps (dotnet run app.cs) — the real .NET compiler and runtime.
-    (cd "$SAMPLES" && "$DOTNET" run "$name.cs" > "$name.expected" 2>/dev/null)
+    (cd "$SAMPLES" && "$DOTNET" run "$name.cs" 2>/dev/null | grep -Ev "^\S+\([0-9]+,[0-9]+\): warning " > "$name.expected"; exit ${PIPESTATUS[0]})
     code=$?
     if [[ $code != 0 ]]; then echo "$code" > "$SAMPLES/$name.exitcode"; else rm -f "$SAMPLES/$name.exitcode"; fi
     echo "exit=$code"

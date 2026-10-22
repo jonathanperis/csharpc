@@ -184,8 +184,16 @@ public sealed class ModuleCodeGen
         List<ControlFlowGraph> prologue = [];
         if (method.MethodKind == MethodKind.Constructor)
         {
-            if (syntax is ParameterListSyntax or TypeDeclarationSyntax { ParameterList: not null })
-                throw CompileError.Unsupported("primary constructors", method);
+            if (syntax is TypeDeclarationSyntax { ParameterList: not null } typeDecl)
+            {
+                // Primary constructor: captured-parameter fields, field initializers, then base(...).
+                // Roslyn exposes the base call as a ConstructorBodyOperation on the type declaration.
+                var model = ModelFor(typeDecl.SyntaxTree);
+                var body = model.GetOperation(typeDecl) is not null ? ControlFlowGraph.Create(typeDecl, model) : null;
+                if (body is not null) Dump(method, body);
+                gen.EmitPrimaryConstructor([.. InitializerGraphs(method.ContainingType, isStatic: false)], body);
+                return;
+            }
             // C# runs field initializers before the base constructor call, except when chaining to this(...).
             var chainsToThis = syntax is ConstructorDeclarationSyntax { Initializer.ThisOrBaseKeyword.Text: "this" };
             if (!chainsToThis) prologue.AddRange(InitializerGraphs(method.ContainingType, isStatic: false));

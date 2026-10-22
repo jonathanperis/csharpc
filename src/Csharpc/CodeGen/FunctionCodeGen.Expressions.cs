@@ -44,7 +44,8 @@ public sealed partial class FunctionCodeGen
                 throw CompileError.Unsupported("lambdas and delegates", op),
             IInterpolatedStringHandlerCreationOperation =>
                 throw CompileError.Unsupported("interpolated string handlers", op),
-            ITupleOperation or IDeconstructionAssignmentOperation => throw CompileError.Unsupported("tuples", op),
+            IDeconstructionAssignmentOperation d => EmitDeconstruction(d),
+            ITupleOperation => throw CompileError.Unsupported("tuple values (tuples need struct support)", op),
             IInvalidOperation => throw CompileError.Unsupported("invalid code", op),
             _ => throw CompileError.Unsupported($"operation {op.Kind}", op),
         };
@@ -128,6 +129,29 @@ public sealed partial class FunctionCodeGen
         var value = Coerce(EmitValue(a.Value), a.Value.Type, a.Target.Type!);
         StoreValue(ToStorage(value, a.Target.Type!), address);
         return value;
+    }
+
+    /// <summary>
+    /// `(a, b) = (x, y)` / `var (a, b) = (x, y)`: evaluate target locations, then all values, then store
+    /// — so swaps like `(a[i], a[j]) = (a[j], a[i])` work. Tuple *values* need structs (not yet).
+    /// </summary>
+    private LLVMValueRef EmitDeconstruction(IDeconstructionAssignmentOperation d)
+    {
+        var target = d.Target is IDeclarationExpressionOperation decl ? decl.Expression : d.Target;
+        var value = d.Value;
+        while (value is IConversionOperation { Conversion.IsImplicit: true } c) value = c.Operand;
+        if (target is not ITupleOperation targets || value is not ITupleOperation values || targets.Elements.Length != values.Elements.Length
+            || targets.Elements.Any(e => e is ITupleOperation or IPropertyReferenceOperation))
+            throw CompileError.Unsupported("deconstruction other than (a, b, ...) = (x, y, ...)", d);
+
+        var addresses = targets.Elements.Select(e => e is IDiscardOperation ? default : AddressOf(e)).ToArray();
+        var results = values.Elements.Select((v, i) => targets.Elements[i] is IDiscardOperation
+            ? EmitValue(v)
+            : Coerce(EmitValue(v), v.Type, targets.Elements[i].Type!)).ToArray();
+        for (var i = 0; i < addresses.Length; i++)
+            if (addresses[i].Handle != 0)
+                StoreValue(ToStorage(results[i], targets.Elements[i].Type!), addresses[i]);
+        return default;
     }
 
     /// <summary>Read-modify-write on any assignable target (locals, fields, elements, properties).</summary>
@@ -383,11 +407,22 @@ public sealed partial class FunctionCodeGen
             return EmitDirectCall(om, [c.Operand]);
         }
         if (c.Conversion.IsIdentity) return EmitValue(c.Operand);
+        // foreach over T[]: `(V)enumerator.Current` (object) becomes a typed element load.
+        if (c.Operand is IPropertyReferenceOperation { Property.Name: "Current" } current
+            && TryArrayEnumerator(current.Instance, out var elementType))
+        {
+            var element = ArrayEnumeratorCurrent(EmitValue(current.Instance!), elementType);
+            return elementType.IsReferenceType ? element : Coerce(element, elementType, to);
+        }
+        // ...and the foreach's finally tests `enumerator as IDisposable`: array enumerators never are.
+        if (TryArrayEnumerator(c.Operand, out _)) return LlvmContext.Null(L.Ptr);
         if (from is null) return Constant(null, to, c); // null literal / default
-        if (from.IsValueType && to.IsReferenceType)
-            throw CompileError.Unsupported($"boxing a '{from}' to '{to}'", c);
+        if (from.IsValueType && to.IsReferenceType) return Box(EmitValue(c.Operand), from, c);
         if (from.IsReferenceType && to.IsValueType)
-            throw CompileError.Unsupported($"unboxing to '{to}'", c);
+        {
+            var payload = CallRuntime("csrt_unbox", L.Ptr, [L.Ptr, L.Ptr], EmitValue(c.Operand), MethodTableFor(to, c));
+            return LoadValue(payload, to);
+        }
         if (c.IsChecked && !c.Conversion.IsImplicit && from.IsValueType)
             throw CompileError.Unsupported("checked conversion", c);
 

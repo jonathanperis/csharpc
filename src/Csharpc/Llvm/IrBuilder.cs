@@ -32,6 +32,13 @@ public sealed class IrBuilder(LlvmContext context) : IDisposable
         LLVMBuildCondBr(Ref, cond, then, @else);
     public LLVMValueRef Unreachable() => LLVMBuildUnreachable(Ref);
 
+    public LLVMValueRef Switch(LLVMValueRef value, LLVMBasicBlockRef @default, IReadOnlyList<(LLVMValueRef Value, LLVMBasicBlockRef Dest)> cases)
+    {
+        var sw = LLVMBuildSwitch(Ref, value, @default, (uint)cases.Count);
+        foreach (var (v, dest) in cases) LLVMAddCase(sw, v, dest);
+        return sw;
+    }
+
     // Arithmetic
     public LLVMValueRef BinOp(LLVMOpcode op, LLVMValueRef lhs, LLVMValueRef rhs, string name = "") =>
         LLVMBuildBinOp(Ref, op, lhs, rhs, name);

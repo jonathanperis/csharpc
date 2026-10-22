@@ -63,6 +63,18 @@ internal static class Intrinsics
             g.NullCheck(self);
             return g.VirtualCall(inv.TargetMethod, self, [self]);
         };
+        t["object.Equals(object)"] = (g, inv) =>
+        {
+            var self = g.EmitValue(inv.Instance!);
+            g.NullCheck(self);
+            return g.VirtualCall(inv.TargetMethod, self, [self, Arg(g, inv, 0)]);
+        };
+        t["object.GetHashCode()"] = (g, inv) =>
+        {
+            var self = g.EmitValue(inv.Instance!);
+            g.NullCheck(self);
+            return g.VirtualCall(inv.TargetMethod, self, [self]);
+        };
         foreach (var type in new[] { "int", "long", "uint", "ulong", "short", "ushort", "byte", "sbyte", "double", "float", "bool", "char", "string" })
             t[$"{type}.ToString()"] = (g, inv) => g.ToStringValue(inv.Instance!);
 
@@ -141,6 +153,13 @@ internal static class Intrinsics
             return SelectCompare(g, SelectCompare(g, v, lo, LLVMIntPredicate.SGT), hi, LLVMIntPredicate.SLT);
         };
 
+        // ---- foreach over arrays (see FunctionCodeGen.ArrayGetEnumerator) ------------------------
+        t["System.Collections.Generic.IEnumerable<T>.GetEnumerator()"] = (g, inv) => g.ArrayGetEnumerator(inv.Instance!, inv);
+        t["System.Collections.IEnumerable.GetEnumerator()"] = (g, inv) => g.ArrayGetEnumerator(inv.Instance!, inv);
+        t["System.Collections.IEnumerator.MoveNext()"] = (g, inv) => g.ArrayEnumeratorMoveNext(g.EmitValue(inv.Instance!));
+        // Only array enumerators exist so far, and they need no disposal. Revisit with interfaces.
+        t["System.IDisposable.Dispose()"] = (_, _) => default;
+
         // ---- System.Environment ----------------------------------------------------------------
         t["System.Environment.Exit(int)"] = (g, inv) =>
         {
@@ -173,6 +192,15 @@ internal static class Intrinsics
         t["System.Array.LongLength"] = (g, p) => g.ArrayLength(g.EmitValue(p.Instance!));
         t["System.Environment.TickCount64"] = (g, _) =>
             g.CallRuntime("csrt_environment_tick_count64", g.Module.Llvm.I64, []);
+        t["System.Collections.Generic.IEnumerator<T>.Current"] = (g, p) =>
+            g.ArrayEnumeratorCurrent(g.EmitValue(p.Instance!), p.Type!);
+        t["System.Collections.IEnumerator.Current"] = (g, p) =>
+        {
+            if (!g.TryArrayEnumerator(p.Instance, out var element))
+                throw CompileError.Unsupported("IEnumerator.Current on a non-array enumerator", p);
+            var value = g.ArrayEnumeratorCurrent(g.EmitValue(p.Instance!), element);
+            return element.IsValueType ? g.Box(value, element, p) : value;
+        };
         t["System.Environment.NewLine"] = (g, _) => g.Module.StringLiteral("\n");
         return t.ToFrozenDictionary();
     }

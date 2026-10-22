@@ -151,9 +151,27 @@ public sealed partial class FunctionCodeGen
     private LLVMValueRef CastClass(LLVMValueRef value, ITypeSymbol target, IOperation at) =>
         CallRuntime("csrt_castclass", L.Ptr, [L.Ptr, L.Ptr], value, MethodTableFor(target, at));
 
+    /// <summary>Boxes a primitive: { mt = csrt_Boxed_&lt;T&gt;_MT, payload @ offset 8 }.</summary>
+    internal LLVMValueRef Box(LLVMValueRef value, ITypeSymbol type, IOperation at)
+    {
+        var mt = MethodTableFor(type, at);
+        var storage = T.Storage(type);
+        var box = Allocate(mt, L.ConstInt(L.I64, 8 + (long)T.Target.SizeOf(storage)));
+        StoreValue(ToStorage(value, type), _b.InBoundsGep(L.I8, box, [L.ConstInt(L.I64, 8)]));
+        return box;
+    }
+
+    private static bool IsBoxablePrimitive(ITypeSymbol type) => type.SpecialType is SpecialType.System_Int32 or SpecialType.System_Int64
+        or SpecialType.System_UInt32 or SpecialType.System_UInt64 or SpecialType.System_Int16 or SpecialType.System_UInt16
+        or SpecialType.System_Byte or SpecialType.System_SByte or SpecialType.System_Double or SpecialType.System_Single
+        or SpecialType.System_Boolean or SpecialType.System_Char;
+
     private LLVMValueRef MethodTableFor(ITypeSymbol type, IOperation at) => type switch
     {
         { SpecialType: SpecialType.System_String } => _m.ExternalGlobal("csrt_String_MT"),
+        { SpecialType: SpecialType.System_Object } => _m.ExternalGlobal("csrt_Object_MT"),
+        _ when IsBoxablePrimitive(type) => _m.ExternalGlobal($"csrt_Boxed_{type.MetadataName}_MT"),
+        { TypeKind: TypeKind.Enum } => throw CompileError.Unsupported($"boxing enum '{type}'", at),
         INamedTypeSymbol { TypeKind: TypeKind.Class } named when _m.IsUserType(named) => _m.GetLayout(named).MethodTable,
         _ => throw CompileError.Unsupported($"type test against '{type}'", at),
     };
@@ -266,6 +284,42 @@ public sealed partial class FunctionCodeGen
         // One unsigned compare also catches negative indices.
         FailIf(_b.ICmp(LLVMIntPredicate.UGE, i, length), "csrt_throw_index_out_of_range");
         return _b.InBoundsGep(header, array, [L.ConstInt(L.I32, 0), L.ConstInt(L.I32, 2), i]);
+    }
+
+    // foreach over T[]: Roslyn's CFG lowers it to the IEnumerable<T> pattern. We substitute a
+    // stack-allocated { T[] array, i64 index } "enumerator"; after SROA this is a plain index loop.
+    private LLVMTypeRef ArrayEnumeratorType => L.Struct(L.Ptr, L.I64);
+
+    internal LLVMValueRef ArrayGetEnumerator(IOperation instance, IOperation at)
+    {
+        var source = instance;
+        while (source is IConversionOperation { Conversion.IsImplicit: true } c) source = c.Operand;
+        if (source.Type is not IArrayTypeSymbol { Rank: 1 })
+            throw CompileError.Unsupported($"foreach over '{source.Type}' (only arrays so far)", at);
+        var array = EmitValue(source);
+        NullCheck(array);
+        var enumerator = NewTemp(ArrayEnumeratorType, "array.enumerator");
+        _b.Store(array, _b.StructGep(ArrayEnumeratorType, enumerator, 0));
+        _b.Store(L.ConstInt(L.I64, -1), _b.StructGep(ArrayEnumeratorType, enumerator, 1));
+        return enumerator;
+    }
+
+    internal LLVMValueRef ArrayEnumeratorMoveNext(LLVMValueRef enumerator)
+    {
+        var indexAddress = _b.StructGep(ArrayEnumeratorType, enumerator, 1);
+        var index = _b.BinOp(LLVMOpcode.Add, _b.Load(L.I64, indexAddress), L.ConstInt(L.I64, 1));
+        _b.Store(index, indexAddress);
+        var array = _b.Load(L.Ptr, _b.StructGep(ArrayEnumeratorType, enumerator, 0));
+        var length = _b.Load(L.I64, _b.StructGep(T.ArrayHeader(L.I8), array, 1), "len");
+        return _b.ICmp(LLVMIntPredicate.SLT, index, length);
+    }
+
+    internal LLVMValueRef ArrayEnumeratorCurrent(LLVMValueRef enumerator, ITypeSymbol elementType)
+    {
+        var array = _b.Load(L.Ptr, _b.StructGep(ArrayEnumeratorType, enumerator, 0));
+        var index = _b.Load(L.I64, _b.StructGep(ArrayEnumeratorType, enumerator, 1));
+        var address = _b.InBoundsGep(T.ArrayHeader(T.Storage(elementType)), array, [L.ConstInt(L.I32, 0), L.ConstInt(L.I32, 2), index]);
+        return LoadValue(address, elementType);
     }
 
     internal LLVMValueRef ArrayLength(LLVMValueRef array)
@@ -401,7 +455,20 @@ public sealed partial class FunctionCodeGen
             {
                 var test = declaration.MatchesNull ? L.True : IsInstance(value, inputType, declaration.MatchedType ?? inputType!, pattern);
                 if (declaration.DeclaredSymbol is ILocalSymbol local)
-                    StoreValue(ToStorage(value, local.Type), LocalSlot(local));
+                {
+                    if (local.Type.IsValueType && value.Type.IsPointer)
+                    {
+                        // `obj is int n`: unbox only when the type test succeeded.
+                        var unbox = NewBlock("pattern.unbox");
+                        var done = NewBlock("pattern.done");
+                        _b.CondBr(test, unbox, done);
+                        _b.PositionAtEnd(unbox);
+                        StoreValue(ToStorage(LoadValue(_b.InBoundsGep(L.I8, value, [L.ConstInt(L.I64, 8)]), local.Type), local.Type), LocalSlot(local));
+                        _b.Br(done);
+                        _b.PositionAtEnd(done);
+                    }
+                    else StoreValue(ToStorage(Coerce(value, inputType, local.Type), local.Type), LocalSlot(local));
+                }
                 return test;
             }
             default:

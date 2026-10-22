@@ -153,11 +153,11 @@ void csrt_throw(const csrt_MethodTable* exception_type, csrt_String* message) {
 
 // ---------------------------------------------------------------------------------------------
 // Number formatting, matching .NET Core 3.0+ semantics (shortest round-trippable "R" output,
-// scientific notation outside [1e-4, 1e15), "E+XX" exponents, "NaN", "∞").
+// scientific notation outside [1e-4, 1e15), "E+XX" exponents, and the invariant culture's "NaN"/"Infinity").
 // ---------------------------------------------------------------------------------------------
 static void format_real(char* out, size_t cap, double v, int max_digits, bool is_float) {
     if (isnan(v)) { snprintf(out, cap, "NaN"); return; }
-    if (isinf(v)) { snprintf(out, cap, v > 0 ? "\xE2\x88\x9E" : "-\xE2\x88\x9E"); return; }
+    if (isinf(v)) { snprintf(out, cap, v > 0 ? "Infinity" : "-Infinity"); return; }  // invariant culture
     if (v == 0) { snprintf(out, cap, signbit(v) ? "-0" : "0"); return; }
 
     // Find the shortest digit string that round-trips.
@@ -208,8 +208,16 @@ void* csrt_isinst_class(void* obj, const csrt_MethodTable* type) {
     return NULL;
 }
 
+_Noreturn static void invalid_cast(const csrt_MethodTable* from, const csrt_MethodTable* to) {
+    fflush(stdout);
+    fprintf(stderr, "Unhandled exception. System.InvalidCastException: Unable to cast object of type '%s' to type '%s'.\n",
+            from->name, to->name);
+    fflush(stderr);
+    abort();
+}
+
 void* csrt_castclass(void* obj, const csrt_MethodTable* type) {
-    if (obj && !csrt_isinst_class(obj, type)) csrt_throw_invalid_cast();
+    if (obj && !csrt_isinst_class(obj, type)) invalid_cast(((csrt_Object*)obj)->mt, type);
     return obj;
 }
 
@@ -304,4 +312,43 @@ int64_t csrt_environment_tick_count64(void) {
     struct timespec ts;
     clock_gettime(CLOCK_MONOTONIC, &ts);
     return (int64_t)ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
+}
+
+// ---------------------------------------------------------------------------------------------
+// Boxing
+// ---------------------------------------------------------------------------------------------
+#define BOX_PAYLOAD(obj) ((void*)((char*)(obj) + 8))
+
+static csrt_String* box_to_string_Int32(void* o) { return csrt_string_from_i32(*(int32_t*)BOX_PAYLOAD(o)); }
+static csrt_String* box_to_string_Int64(void* o) { return csrt_string_from_i64(*(int64_t*)BOX_PAYLOAD(o)); }
+static csrt_String* box_to_string_UInt32(void* o) { return csrt_string_from_u32(*(uint32_t*)BOX_PAYLOAD(o)); }
+static csrt_String* box_to_string_UInt64(void* o) { return csrt_string_from_u64(*(uint64_t*)BOX_PAYLOAD(o)); }
+static csrt_String* box_to_string_Int16(void* o) { return csrt_string_from_i32(*(int16_t*)BOX_PAYLOAD(o)); }
+static csrt_String* box_to_string_UInt16(void* o) { return csrt_string_from_i32(*(uint16_t*)BOX_PAYLOAD(o)); }
+static csrt_String* box_to_string_Byte(void* o) { return csrt_string_from_i32(*(uint8_t*)BOX_PAYLOAD(o)); }
+static csrt_String* box_to_string_SByte(void* o) { return csrt_string_from_i32(*(int8_t*)BOX_PAYLOAD(o)); }
+static csrt_String* box_to_string_Double(void* o) { return csrt_string_from_f64(*(double*)BOX_PAYLOAD(o)); }
+static csrt_String* box_to_string_Single(void* o) { return csrt_string_from_f32(*(float*)BOX_PAYLOAD(o)); }
+static csrt_String* box_to_string_Boolean(void* o) { return csrt_string_from_bool(*(uint8_t*)BOX_PAYLOAD(o) != 0); }
+static csrt_String* box_to_string_Char(void* o) { return csrt_string_from_char(*(uint16_t*)BOX_PAYLOAD(o)); }
+
+#define DEFINE_BOXED(Name, CType) \
+    static bool box_equals_##Name(void* self, void* other) { \
+        return other && ((csrt_Object*)other)->mt == ((csrt_Object*)self)->mt && \
+               memcmp(BOX_PAYLOAD(self), BOX_PAYLOAD(other), sizeof(CType)) == 0; \
+    } \
+    static int32_t box_hash_##Name(void* self) { \
+        uint64_t bits = 0; memcpy(&bits, BOX_PAYLOAD(self), sizeof(CType)); \
+        return (int32_t)(bits ^ (bits >> 32)); \
+    } \
+    const csrt_BuiltinMethodTable csrt_Boxed_##Name##_MT = { \
+        { &csrt_Object_MT.header, "System." #Name, 8 + sizeof(CType), 0 }, \
+        { (void*)box_to_string_##Name, (void*)box_equals_##Name, (void*)box_hash_##Name }, \
+    };
+CSRT_BOXED_TYPES(DEFINE_BOXED)
+
+void* csrt_unbox(void* obj, const csrt_MethodTable* type) {
+    if (!obj) csrt_throw_null_reference();
+    if (((csrt_Object*)obj)->mt != type) invalid_cast(((csrt_Object*)obj)->mt, type);
+    return BOX_PAYLOAD(obj);
 }
