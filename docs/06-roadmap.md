@@ -83,13 +83,13 @@ every failure is a clean "not supported by csharpc yet" diagnostic.
 
 ## Milestones
 
-### M0 — Spike ✅ (2026-10-22, morning)
+### M0 — Spike ✅
 Roslyn front-end, CFG → LLVM lowering, csrt runtime, differential tests, docs.
 
-### M1 — "Real programs" ✅ (2026-10-22, same day)
+### M1 — "Real programs" ✅
 Structs, generics, interfaces, exceptions, closures, async/iterators, GC, records, spans, unsafe,
-drop-in MSBuild integration, conformance corpus, benchmarks beating NativeAOT on CPU time on all 14
-benchmark programs ([benchmarks/RESULTS.md](../bench/RESULTS.md)).
+drop-in MSBuild integration, conformance corpus, threads, debug info; benchmarks ahead of the .NET JIT
+on every program and of NativeAOT on nearly all ([benchmarks/RESULTS.md](../benchmarks/RESULTS.md)).
 
 ### M2 — Self-hosted corelib (🚧)
 The BCL surface written in C# and compiled by csharpc together with the program; library symbols that
