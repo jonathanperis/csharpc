@@ -343,9 +343,9 @@ internal static class Intrinsics
 
         t[$"{Tasks}.Task.Delay(int)"] = (g, inv) => g.CallRuntime("csrt_task_delay", g.Module.Llvm.Ptr, [g.Module.Llvm.I32], Arg(g, inv, 0));
         t[$"{Tasks}.Task.Yield()"] = (g, _) => LlvmContext.Null(g.Module.Llvm.Ptr);
-        t[$"{Tasks}.Task.FromResult<TResult>(TResult)"] = (g, inv) =>
+        t[$"{Tasks}.Task.FromResult(TResult)"] = (g, inv) =>
             g.CompletedTask(Arg(g, inv, 0), ((INamedTypeSymbol)inv.Type!).TypeArguments[0]);
-        t[$"{Tasks}.ValueTask.FromResult<TResult>(TResult)"] = t[$"{Tasks}.Task.FromResult<TResult>(TResult)"];
+        t[$"{Tasks}.ValueTask.FromResult(TResult)"] = t[$"{Tasks}.Task.FromResult(TResult)"];
 
         IntrinsicHandler whenAll = (g, inv) =>
         {
@@ -356,28 +356,33 @@ internal static class Intrinsics
         };
         t[$"{Tasks}.Task.WhenAll({Tasks}.Task[])"] = whenAll;
         t[$"{Tasks}.Task.WhenAll(System.ReadOnlySpan<{Tasks}.Task>)"] = whenAll;
-        t[$"{Tasks}.Task.WhenAll<TResult>({Tasks}.Task<TResult>[])"] = whenAll;
-        t[$"{Tasks}.Task.WhenAll<TResult>(System.ReadOnlySpan<{Tasks}.Task<TResult>>)"] = whenAll;
+        t[$"{Tasks}.Task.WhenAll({Tasks}.Task<TResult>[])"] = whenAll;
+        t[$"{Tasks}.Task.WhenAll(System.ReadOnlySpan<{Tasks}.Task<TResult>>)"] = whenAll;
         IntrinsicHandler whenAny = (g, inv) =>
             g.CallRuntime("csrt_task_when_any", g.Module.Llvm.Ptr, [g.Module.Llvm.Ptr], g.TaskArrayArgument(inv.Arguments[0]));
         t[$"{Tasks}.Task.WhenAny({Tasks}.Task[])"] = whenAny;
+        IntrinsicHandler whenAnyPair = (g, inv) =>
+            g.CallRuntime("csrt_task_when_any", g.Module.Llvm.Ptr, [g.Module.Llvm.Ptr],
+                g.ObjectArray([.. inv.Arguments.OrderBy(a => a.Parameter!.Ordinal).Select(a => a.Value)]));
+        t[$"{Tasks}.Task.WhenAny({Tasks}.Task, {Tasks}.Task)"] = whenAnyPair;
+        t[$"{Tasks}.Task.WhenAny({Tasks}.Task<TResult>, {Tasks}.Task<TResult>)"] = whenAnyPair;
         t[$"{Tasks}.Task.WhenAny(System.ReadOnlySpan<{Tasks}.Task>)"] = whenAny;
-        t[$"{Tasks}.Task.WhenAny<TResult>({Tasks}.Task<TResult>[])"] = whenAny;
-        t[$"{Tasks}.Task.WhenAny<TResult>(System.ReadOnlySpan<{Tasks}.Task<TResult>>)"] = whenAny;
+        t[$"{Tasks}.Task.WhenAny({Tasks}.Task<TResult>[])"] = whenAny;
+        t[$"{Tasks}.Task.WhenAny(System.ReadOnlySpan<{Tasks}.Task<TResult>>)"] = whenAny;
 
         // Task.Run queues the work on the single-threaded scheduler (see docs/10-async.md).
         t[$"{Tasks}.Task.Run(System.Action)"] = (g, inv) =>
             g.CallRuntime("csrt_task_run_action", g.Module.Llvm.Ptr, [g.Module.Llvm.Ptr], Arg(g, inv, 0));
         t[$"{Tasks}.Task.Run(System.Func<{Tasks}.Task>)"] = (g, inv) =>
             g.CallRuntime("csrt_task_run_func_task", g.Module.Llvm.Ptr, [g.Module.Llvm.Ptr, g.Module.Llvm.I32], Arg(g, inv, 0), g.Module.Llvm.ConstInt(g.Module.Llvm.I32, 0));
-        t[$"{Tasks}.Task.Run<TResult>(System.Func<{Tasks}.Task<TResult>>)"] = (g, inv) =>
+        t[$"{Tasks}.Task.Run(System.Func<{Tasks}.Task<TResult>>)"] = (g, inv) =>
         {
             var result = ((INamedTypeSymbol)inv.Type!).TypeArguments[0];
             var size = (long)g.Module.Types.Target.SizeOf(g.Module.Types.Storage(result));
             return g.CallRuntime("csrt_task_run_func_task", g.Module.Llvm.Ptr, [g.Module.Llvm.Ptr, g.Module.Llvm.I32], Arg(g, inv, 0), g.Module.Llvm.ConstInt(g.Module.Llvm.I32, size));
         };
         // Func<T> with a non-task T: run it now (a C runtime can't call an arbitrary-signature delegate).
-        t[$"{Tasks}.Task.Run<TResult>(System.Func<TResult>)"] = (g, inv) =>
+        t[$"{Tasks}.Task.Run(System.Func<TResult>)"] = (g, inv) =>
         {
             var result = ((INamedTypeSymbol)inv.Type!).TypeArguments[0];
             var value = g.InvokeDelegate0(Arg(g, inv, 0), g.Module.Types.Value(result));

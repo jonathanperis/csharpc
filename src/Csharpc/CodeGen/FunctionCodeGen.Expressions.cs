@@ -498,6 +498,9 @@ public sealed partial class FunctionCodeGen
         }
         // ...and the foreach's finally tests `enumerator as IDisposable`: array enumerators never are.
         if (TryArrayEnumerator(c.Operand, out _)) return LlvmContext.Null(L.Ptr);
+        // `e as IDisposable` on a non-generic enumerator: iterator objects are disposable (runtime/async.c).
+        if (to.SpecialType == SpecialType.System_IDisposable && from is { IsReferenceType: true } && !c.Conversion.IsImplicit)
+            return CallRuntime("csrt_iterator_as_disposable", L.Ptr, [L.Ptr], EmitValue(c.Operand));
         if (to is INamedTypeSymbol { IsTupleType: true } toTuple && c.Operand is ITupleOperation tupleLiteral)
             return BuildTuple(tupleLiteral, toTuple);
         if (from is null) return Constant(null, to, c); // null literal / default

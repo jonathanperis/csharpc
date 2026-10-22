@@ -393,3 +393,6 @@ csrt_Task* csrt_valuetask_as_task(csrt_Task* t, int32_t payload_size) {
     done->state = 1;
     return done;
 }
+
+/// `enumerator as IDisposable` for non-generic enumerators: iterators are, nothing else is (yet).
+void* csrt_iterator_as_disposable(void* obj) { return csrt_is_iterator(obj) ? obj : NULL; }
