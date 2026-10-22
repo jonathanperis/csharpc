@@ -1,0 +1,10 @@
+double d = 3.99;
+Console.WriteLine((int)d);
+Console.WriteLine((long)-2.5);
+int big = 300, mid = 200, minusOne = -1;
+Console.WriteLine((byte)big);
+Console.WriteLine((sbyte)mid);
+Console.WriteLine((char)65);
+Console.WriteLine((float)1 / 3);
+Console.WriteLine(Convert.ToInt32(3.5) + " " + Convert.ToInt32(4.5));
+Console.WriteLine((uint)minusOne);
