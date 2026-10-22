@@ -1,0 +1,411 @@
+using System.Collections.Immutable;
+using Csharpc.Llvm;
+using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp.Syntax;
+using Microsoft.CodeAnalysis.FlowAnalysis;
+using Microsoft.CodeAnalysis.Operations;
+
+namespace Csharpc.CodeGen;
+
+public sealed partial class FunctionCodeGen
+{
+    // ======================================================================================
+    // Calls
+    // ======================================================================================
+
+    private LLVMValueRef EmitInvocation(IInvocationOperation inv)
+    {
+        var target = inv.TargetMethod;
+        if (_m.IsUserMethod(target))
+        {
+            var self = target.IsStatic ? default : EmitValue(inv.Instance!);
+            var isBaseCall = inv.Instance?.Syntax is BaseExpressionSyntax;
+            return EmitUserCall(target, self, inv.Instance is IInstanceReferenceOperation, inv.Arguments, inv.IsVirtual && !isBaseCall);
+        }
+        if (Intrinsics.TryGet(target, out var handler)) return handler(this, inv);
+        throw CompileError.MissingIntrinsic(target, inv);
+    }
+
+    /// <summary>
+    /// Calls a method compiled by csharpc. Arguments are evaluated in source (evaluation) order and
+    /// then placed by parameter ordinal, which handles named/out-of-order arguments.
+    /// </summary>
+    internal LLVMValueRef EmitUserCall(IMethodSymbol target, LLVMValueRef self, bool selfIsNonNull,
+        ImmutableArray<IArgumentOperation> arguments, bool isVirtual, LLVMValueRef[]? extraArgs = null)
+    {
+        var offset = target.IsStatic ? 0 : 1;
+        var args = new LLVMValueRef[offset + target.Parameters.Length];
+        if (!target.IsStatic)
+        {
+            if (!selfIsNonNull) NullCheck(self);
+            args[0] = self;
+        }
+        foreach (var argument in arguments) args[offset + argument.Parameter!.Ordinal] = EmitArgument(argument);
+        if (extraArgs is not null)
+            for (var i = 0; i < extraArgs.Length; i++) args[args.Length - extraArgs.Length + i] = extraArgs[i];
+
+        var dispatch = isVirtual && !target.IsStatic && (target.IsVirtual || target.IsAbstract || target.IsOverride)
+            && !target.IsSealed && !target.ContainingType.IsSealed;
+        return dispatch ? VirtualCall(target, self, args) : DirectCall(target, args);
+    }
+
+    private LLVMValueRef DirectCall(IMethodSymbol target, LLVMValueRef[] args)
+    {
+        var f = _m.GetFunction(target);
+        return _b.Call(f.Type, f.Fn, args);
+    }
+
+    /// <summary>Static call to a user-defined operator/conversion with operand expressions as arguments.</summary>
+    private LLVMValueRef EmitDirectCall(IMethodSymbol target, IOperation[] operands)
+    {
+        var args = operands.Select((o, i) => Coerce(EmitValue(o), o.Type, target.Parameters[i].Type)).ToArray();
+        return DirectCall(target, args);
+    }
+
+    private LLVMValueRef EmitArgument(IArgumentOperation argument)
+    {
+        var parameter = argument.Parameter!;
+        if (parameter.RefKind != RefKind.None) return AddressOf(argument.Value);
+        return Coerce(EmitValue(argument.Value), argument.Value.Type, parameter.Type);
+    }
+
+    /// <summary>
+    /// mt = obj->mt; fn = mt->vtable[slot]; call fn(obj, ...). The vtable sits right after the
+    /// 24-byte method-table header (docs/03-lowering.md#virtual-dispatch).
+    /// </summary>
+    internal LLVMValueRef VirtualCall(IMethodSymbol target, LLVMValueRef self, LLVMValueRef[] args)
+    {
+        var root = ClassLayout.RootOf(target);
+        int slot;
+        LLVMTypeRef fnType;
+        if (_m.IsUserType(target.ContainingType))
+        {
+            var layout = _m.GetLayout(target.ContainingType);
+            slot = layout.SlotOf.TryGetValue(root, out var s) ? s : throw CompileError.Unsupported($"virtual call to '{target}'", target);
+            fnType = _m.FunctionTypeOf(target);
+        }
+        else
+        {
+            slot = root.Name switch
+            {
+                "ToString" => ClassLayout.ToStringSlot,
+                "Equals" => ClassLayout.EqualsSlot,
+                "GetHashCode" => ClassLayout.GetHashCodeSlot,
+                _ => throw CompileError.Unsupported($"virtual call to library method '{target}'", target),
+            };
+            fnType = slot switch
+            {
+                ClassLayout.EqualsSlot => L.FunctionType(L.I1, L.Ptr, L.Ptr),
+                ClassLayout.GetHashCodeSlot => L.FunctionType(L.I32, L.Ptr),
+                _ => L.FunctionType(L.Ptr, L.Ptr),
+            };
+        }
+        var mt = _b.Load(L.Ptr, self, "mt");
+        var offset = T.Target.SizeOf(T.MethodTableHeader) + (ulong)slot * T.PointerSize;
+        var slotAddress = _b.InBoundsGep(L.I8, mt, [L.ConstUInt(L.I64, offset)], "slot");
+        var fn = _b.Load(L.Ptr, slotAddress, "vfn");
+        return _b.Call(fnType, fn, args);
+    }
+
+    // ======================================================================================
+    // Objects
+    // ======================================================================================
+
+    private LLVMValueRef EmitObjectCreation(IObjectCreationOperation creation)
+    {
+        if (creation.Initializer is not null) throw CompileError.Unsupported("object initializer", creation);
+        var type = (INamedTypeSymbol)creation.Type!;
+        if (type.SpecialType == SpecialType.System_Object)
+            return Allocate(_m.ExternalGlobal("csrt_Object_MT"), L.ConstInt(L.I64, (long)T.PointerSize));
+        if (!_m.IsUserType(type) || type.TypeKind != TypeKind.Class)
+            throw CompileError.Unsupported($"creating instances of '{type}'", creation);
+        if (type.IsAbstract) throw CompileError.Unsupported("instantiating an abstract class", creation);
+
+        var layout = _m.GetLayout(type);
+        var obj = Allocate(layout.MethodTable, L.ConstInt(L.I64, (long)layout.InstanceSize));
+        EmitUserCall(creation.Constructor!, obj, selfIsNonNull: true, creation.Arguments, isVirtual: false);
+        return obj;
+    }
+
+    private LLVMValueRef Allocate(LLVMValueRef methodTable, LLVMValueRef size) =>
+        CallRuntime("csrt_alloc", L.Ptr, [L.Ptr, L.I64], methodTable, size);
+
+    internal LLVMValueRef ObjectToString(LLVMValueRef obj) =>
+        CallRuntime("csrt_object_to_string", L.Ptr, [L.Ptr], obj);
+
+    /// <summary>`obj is T` for classes: walk the method-table base chain in the runtime.</summary>
+    private LLVMValueRef IsInstance(LLVMValueRef value, ITypeSymbol? from, ITypeSymbol target, IOperation at)
+    {
+        if (from is not null)
+        {
+            var conversion = _m.Compilation.ClassifyCommonConversion(from, target);
+            if (conversion.IsIdentity && from.IsValueType) return L.True;
+            if (from.IsReferenceType && conversion is { IsImplicit: true, IsReference: true } or { IsIdentity: true })
+                return _b.ICmp(LLVMIntPredicate.NE, value, LlvmContext.Null(L.Ptr));
+        }
+        var mt = MethodTableFor(target, at);
+        var result = CallRuntime("csrt_isinst_class", L.Ptr, [L.Ptr, L.Ptr], value, mt);
+        return _b.ICmp(LLVMIntPredicate.NE, result, LlvmContext.Null(L.Ptr));
+    }
+
+    private LLVMValueRef CastClass(LLVMValueRef value, ITypeSymbol target, IOperation at) =>
+        CallRuntime("csrt_castclass", L.Ptr, [L.Ptr, L.Ptr], value, MethodTableFor(target, at));
+
+    private LLVMValueRef MethodTableFor(ITypeSymbol type, IOperation at) => type switch
+    {
+        { SpecialType: SpecialType.System_String } => _m.ExternalGlobal("csrt_String_MT"),
+        INamedTypeSymbol { TypeKind: TypeKind.Class } named when _m.IsUserType(named) => _m.GetLayout(named).MethodTable,
+        _ => throw CompileError.Unsupported($"type test against '{type}'", at),
+    };
+
+    private LLVMValueRef EmitIsType(IIsTypeOperation op)
+    {
+        var test = IsInstance(EmitValue(op.ValueOperand), op.ValueOperand.Type, op.TypeOperand, op);
+        return op.IsNegated ? _b.Not(test) : test;
+    }
+
+    // ======================================================================================
+    // Properties
+    // ======================================================================================
+
+    private LLVMValueRef EmitPropertyGet(IPropertyReferenceOperation p)
+    {
+        var property = p.Property;
+        if (_m.IsUserType(property.ContainingType))
+        {
+            var getter = property.GetMethod ?? throw CompileError.Unsupported($"reading set-only property '{property.Name}'", p);
+            var self = property.IsStatic ? default : EmitValue(p.Instance!);
+            return CallAccessor(p, getter, self, []);
+        }
+        if (Intrinsics.TryGetProperty(property, out var handler)) return handler(this, p);
+        throw CompileError.Unsupported($"'{property.ContainingType}.{property.Name}' has no implementation in the csharpc runtime yet", p);
+    }
+
+    private LLVMValueRef EmitPropertySet(IPropertyReferenceOperation p, Func<LLVMValueRef> value, ITypeSymbol? valueType)
+    {
+        var property = p.Property;
+        if (!_m.IsUserType(property.ContainingType))
+            throw CompileError.Unsupported($"setting '{property.ContainingType}.{property.Name}'", p);
+        var self = property.IsStatic ? default : EmitValue(p.Instance!);
+        var v = Coerce(value(), valueType, property.Type);
+
+        if (property.SetMethod is null)
+        {
+            // Get-only auto-property assigned in a constructor: write the backing field directly.
+            var field = BackingField(property);
+            var address = field.IsStatic ? _m.StaticField(field) : FieldAddressOn(self, field);
+            StoreValue(ToStorage(v, property.Type), address);
+            return v;
+        }
+        CallAccessor(p, property.SetMethod, self, [v]);
+        return v;
+    }
+
+    private LLVMValueRef CallAccessor(IPropertyReferenceOperation p, IMethodSymbol accessor, LLVMValueRef self, LLVMValueRef[] extra)
+    {
+        var isBase = p.Instance?.Syntax is BaseExpressionSyntax;
+        return EmitUserCall(accessor, self, p.Instance is IInstanceReferenceOperation, p.Arguments, isVirtual: !isBase, extra);
+    }
+
+    // ======================================================================================
+    // Arrays:  { mt, i64 length, [0 x T] }
+    // ======================================================================================
+
+    private LLVMValueRef EmitArrayCreation(IArrayCreationOperation creation)
+    {
+        var arrayType = (IArrayTypeSymbol)creation.Type!;
+        if (arrayType.Rank != 1) throw CompileError.Unsupported("multi-dimensional arrays", creation);
+        var length = ToIndex(EmitValue(creation.DimensionSizes[0]), creation.DimensionSizes[0].Type!);
+        var array = NewArray(arrayType.ElementType, length);
+        if (creation.Initializer is { } init)
+            StoreElements(array, arrayType.ElementType, init.ElementValues);
+        return array;
+    }
+
+    private LLVMValueRef EmitCollectionExpression(ICollectionExpressionOperation collection)
+    {
+        if (collection.Type is not IArrayTypeSymbol { Rank: 1 } arrayType)
+            throw CompileError.Unsupported($"collection expression of type '{collection.Type}'", collection);
+        if (collection.Elements.Any(e => e is ISpreadOperation)) throw CompileError.Unsupported("spread elements", collection);
+        var array = NewArray(arrayType.ElementType, L.ConstInt(L.I64, collection.Elements.Length));
+        StoreElements(array, arrayType.ElementType, collection.Elements);
+        return array;
+    }
+
+    private LLVMValueRef NewArray(ITypeSymbol elementType, LLVMValueRef length)
+    {
+        var elementSize = T.Target.SizeOf(T.Storage(elementType));
+        return CallRuntime("csrt_new_array", L.Ptr, [L.I64, L.I64], L.ConstInt(L.I64, (long)elementSize), length);
+    }
+
+    private void StoreElements(LLVMValueRef array, ITypeSymbol elementType, ImmutableArray<IOperation> values)
+    {
+        var storage = T.Storage(elementType);
+        for (var i = 0; i < values.Length; i++)
+        {
+            var address = _b.InBoundsGep(T.ArrayHeader(storage), array, [L.ConstInt(L.I32, 0), L.ConstInt(L.I32, 2), L.ConstInt(L.I64, i)]);
+            StoreValue(ToStorage(Coerce(EmitValue(values[i]), values[i].Type, elementType), elementType), address);
+        }
+    }
+
+    private LLVMValueRef ToIndex(LLVMValueRef value, ITypeSymbol type) =>
+        value.Type.IntWidth == 64 ? value : _b.Cast(TypeMapper.IsSigned(type) ? LLVMOpcode.SExt : LLVMOpcode.ZExt, value, L.I64);
+
+    private LLVMValueRef ElementAddress(IArrayElementReferenceOperation element)
+    {
+        if (element.Indices.Length != 1) throw CompileError.Unsupported("multi-dimensional arrays", element);
+        var index = element.Indices[0];
+        if (index.Type?.SpecialType is not (SpecialType.System_Int32 or SpecialType.System_Int64 or SpecialType.System_UInt32 or SpecialType.System_UInt64))
+            throw CompileError.Unsupported($"array index of type '{index.Type}'", element);
+        var array = EmitValue(element.ArrayReference);
+        var i = ToIndex(EmitValue(index), index.Type);
+        NullCheck(array);
+        var storage = T.Storage(element.Type!);
+        var header = T.ArrayHeader(storage);
+        var length = _b.Load(L.I64, _b.StructGep(header, array, 1), "len");
+        // One unsigned compare also catches negative indices.
+        FailIf(_b.ICmp(LLVMIntPredicate.UGE, i, length), "csrt_throw_index_out_of_range");
+        return _b.InBoundsGep(header, array, [L.ConstInt(L.I32, 0), L.ConstInt(L.I32, 2), i]);
+    }
+
+    internal LLVMValueRef ArrayLength(LLVMValueRef array)
+    {
+        NullCheck(array);
+        return _b.Load(L.I64, _b.StructGep(T.ArrayHeader(L.I8), array, 1), "len");
+    }
+
+    // ======================================================================================
+    // Strings
+    // ======================================================================================
+
+    internal LLVMValueRef ConcatStrings(LLVMValueRef a, LLVMValueRef b) =>
+        CallRuntime("csrt_string_concat", L.Ptr, [L.Ptr, L.Ptr], a, b);
+
+    /// <summary>Strips conversions to object (boxing) so the value can be formatted by its real type.</summary>
+    internal static IOperation Unbox(IOperation op)
+    {
+        while (op is IConversionOperation { OperatorMethod: null, Type.SpecialType: SpecialType.System_Object or SpecialType.System_String } c
+               && c.Operand.Type is { } from && (from.IsValueType || c.Conversion.IsReference || c.Conversion.IsIdentity))
+            op = c.Operand;
+        return op;
+    }
+
+    /// <summary>The string a value formats to in string concatenation / interpolation / Console.Write.</summary>
+    internal LLVMValueRef ToStringValue(IOperation op)
+    {
+        op = Unbox(op);
+        if (op.ConstantValue is { HasValue: true, Value: var constant } && op.Type?.TypeKind != TypeKind.Enum)
+        {
+            // Fold constants at compile time, using .NET's own formatting.
+            return _m.StringLiteral(constant switch
+            {
+                null => "",
+                bool b => b ? "True" : "False",
+                IFormattable f => f.ToString(null, System.Globalization.CultureInfo.InvariantCulture),
+                _ => constant.ToString() ?? "",
+            });
+        }
+        var type = op.Type;
+        if (type is null) return _m.StringLiteral("");
+        if (type.SpecialType == SpecialType.System_String) return EmitValue(op);
+        if (type.TypeKind == TypeKind.Enum) throw CompileError.Unsupported("formatting enum values", op);
+        var value = EmitValue(op);
+        return FormatPrimitive(value, type) ?? (type.IsReferenceType ? ObjectToString(value) : throw CompileError.Unsupported($"formatting '{type}'", op));
+    }
+
+    internal LLVMValueRef? FormatPrimitive(LLVMValueRef value, ITypeSymbol type) => type.SpecialType switch
+    {
+        SpecialType.System_Int32 => CallRuntime("csrt_string_from_i32", L.Ptr, [L.I32], value),
+        SpecialType.System_Int64 => CallRuntime("csrt_string_from_i64", L.Ptr, [L.I64], value),
+        SpecialType.System_UInt32 => CallRuntime("csrt_string_from_u32", L.Ptr, [L.I32], value),
+        SpecialType.System_UInt64 => CallRuntime("csrt_string_from_u64", L.Ptr, [L.I64], value),
+        SpecialType.System_SByte or SpecialType.System_Int16 =>
+            CallRuntime("csrt_string_from_i32", L.Ptr, [L.I32], _b.Cast(LLVMOpcode.SExt, value, L.I32)),
+        SpecialType.System_Byte or SpecialType.System_UInt16 =>
+            CallRuntime("csrt_string_from_i32", L.Ptr, [L.I32], _b.Cast(LLVMOpcode.ZExt, value, L.I32)),
+        SpecialType.System_Double => CallRuntime("csrt_string_from_f64", L.Ptr, [L.F64], value),
+        SpecialType.System_Single => CallRuntime("csrt_string_from_f32", L.Ptr, [L.F32], value),
+        SpecialType.System_Boolean => CallRuntime("csrt_string_from_bool", L.Ptr, [L.I1], value),
+        SpecialType.System_Char => CallRuntime("csrt_string_from_char", L.Ptr, [L.I16], value),
+        _ => null,
+    };
+
+    private LLVMValueRef EmitInterpolatedString(IInterpolatedStringOperation s)
+    {
+        LLVMValueRef? result = null;
+        foreach (var part in s.Parts)
+        {
+            var piece = part switch
+            {
+                IInterpolatedStringTextOperation text => ToStringValue(text.Text),
+                IInterpolationOperation { Alignment: null, FormatString: null } hole => ToStringValue(hole.Expression),
+                IInterpolationOperation hole => throw CompileError.Unsupported("interpolation alignment/format specifiers", hole),
+                _ => throw CompileError.Unsupported($"interpolated string part {part.Kind}", part),
+            };
+            result = result is { } r ? ConcatStrings(r, piece) : piece;
+        }
+        return result ?? _m.StringLiteral("");
+    }
+
+    // ======================================================================================
+    // Exceptions (spike: throw == unhandled exception; see ADR 0005)
+    // ======================================================================================
+
+    private void EmitThrow(IOperation? exception)
+    {
+        var e = exception;
+        while (e is IConversionOperation { Conversion.IsImplicit: true } c) e = c.Operand;
+        if (e is not IObjectCreationOperation { Type: INamedTypeSymbol type } creation || _m.IsUserType(type))
+            throw CompileError.Unsupported("throwing anything but `new SomeLibraryException(...)`", exception);
+
+        var messageArg = creation.Arguments.FirstOrDefault(a => a.Parameter?.Name == "message" && a.ArgumentKind != ArgumentKind.DefaultValue);
+        var message = messageArg is not null
+            ? EmitValue(messageArg.Value)
+            : _m.StringLiteral($"Exception of type '{Mangler.MetadataName(type)}' was thrown.");
+        CallRuntime("csrt_throw", L.Void, [L.Ptr, L.Ptr], _m.LibraryTypeMethodTable(type), message);
+        _b.Unreachable();
+    }
+
+    // ======================================================================================
+    // Patterns (`is`, switch arms after CFG lowering)
+    // ======================================================================================
+
+    private LLVMValueRef PatternTest(LLVMValueRef value, ITypeSymbol? inputType, IPatternOperation pattern)
+    {
+        switch (pattern)
+        {
+            case IConstantPatternOperation constant:
+            {
+                var c = EmitValue(constant.Value);
+                if (inputType is not null && !value.Type.IsPointer) c = Coerce(c, constant.Value.Type, inputType);
+                return Arithmetic(BinaryOperatorKind.Equals, value, c, inputType ?? constant.Value.Type!, constant.Value.Type ?? inputType!, pattern);
+            }
+            case IRelationalPatternOperation relational:
+            {
+                var c = Coerce(EmitValue(relational.Value), relational.Value.Type, inputType!);
+                return Arithmetic(relational.OperatorKind, value, c, inputType!, inputType!, pattern);
+            }
+            case IDiscardPatternOperation:
+                return L.True;
+            case INegatedPatternOperation negated:
+                return _b.Not(PatternTest(value, inputType, negated.Pattern));
+            case IBinaryPatternOperation binary:
+            {
+                var left = PatternTest(value, inputType, binary.LeftPattern);
+                var right = PatternTest(value, inputType, binary.RightPattern);
+                return _b.BinOp(binary.OperatorKind == BinaryOperatorKind.Or ? LLVMOpcode.Or : LLVMOpcode.And, left, right);
+            }
+            case ITypePatternOperation typePattern:
+                return IsInstance(value, inputType, typePattern.MatchedType, pattern);
+            case IDeclarationPatternOperation declaration:
+            {
+                var test = declaration.MatchesNull ? L.True : IsInstance(value, inputType, declaration.MatchedType ?? inputType!, pattern);
+                if (declaration.DeclaredSymbol is ILocalSymbol local)
+                    StoreValue(ToStorage(value, local.Type), LocalSlot(local));
+                return test;
+            }
+            default:
+                throw CompileError.Unsupported($"pattern {pattern.Kind}", pattern);
+        }
+    }
+}

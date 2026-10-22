@@ -1,0 +1,100 @@
+using Csharpc.Llvm;
+using Microsoft.CodeAnalysis;
+
+namespace Csharpc.CodeGen;
+
+/// <summary>
+/// Maps C# types to LLVM types. Like clang, we distinguish the SSA "value" type (bool is i1)
+/// from the in-memory "storage" type (bool is i8) — see docs/03-lowering.md#primitive-types.
+/// </summary>
+public sealed class TypeMapper(LlvmContext llvm, TargetMachine target)
+{
+    public LlvmContext Llvm { get; } = llvm;
+    public TargetMachine Target { get; } = target;
+    public LLVMTypeRef NativeInt { get; } = target.SizeOf(llvm.Ptr) == 8 ? llvm.I64 : llvm.I32;
+    public ulong PointerSize { get; } = target.SizeOf(llvm.Ptr);
+
+    /// <summary>The method-table header, shared with csrt.h: { base, name, instance_size, flags }.</summary>
+    public LLVMTypeRef MethodTableHeader => field.IsNull
+        ? field = Llvm.Struct(Llvm.Ptr, Llvm.Ptr, Llvm.I32, Llvm.I32)
+        : field;
+
+    /// <summary>string: { mt, i32 length, [0 x i16] chars }.</summary>
+    public LLVMTypeRef StringHeader => field.IsNull
+        ? field = Llvm.Struct(Llvm.Ptr, Llvm.I32, LlvmContext.Array(Llvm.I16, 0))
+        : field;
+
+    /// <summary>T[]: { mt, i64 length, [0 x T] data } — element data starts at offset 16.</summary>
+    public LLVMTypeRef ArrayHeader(LLVMTypeRef element) => Llvm.Struct(Llvm.Ptr, Llvm.I64, LlvmContext.Array(element, 0));
+
+    public LLVMTypeRef Value(ITypeSymbol type) => type switch
+    {
+        { SpecialType: SpecialType.System_Void } => Llvm.Void,
+        { SpecialType: SpecialType.System_Boolean } => Llvm.I1,
+        { SpecialType: SpecialType.System_SByte or SpecialType.System_Byte } => Llvm.I8,
+        { SpecialType: SpecialType.System_Int16 or SpecialType.System_UInt16 or SpecialType.System_Char } => Llvm.I16,
+        { SpecialType: SpecialType.System_Int32 or SpecialType.System_UInt32 } => Llvm.I32,
+        { SpecialType: SpecialType.System_Int64 or SpecialType.System_UInt64 } => Llvm.I64,
+        { SpecialType: SpecialType.System_IntPtr or SpecialType.System_UIntPtr } => NativeInt,
+        { SpecialType: SpecialType.System_Single } => Llvm.F32,
+        { SpecialType: SpecialType.System_Double } => Llvm.F64,
+        INamedTypeSymbol { TypeKind: TypeKind.Enum, EnumUnderlyingType: { } underlying } => Value(underlying),
+        IPointerTypeSymbol or IFunctionPointerTypeSymbol => Llvm.Ptr,
+        { IsReferenceType: true } => Llvm.Ptr,
+        { SpecialType: SpecialType.System_Decimal } => throw CompileError.Unsupported("System.Decimal", type),
+        INamedTypeSymbol { OriginalDefinition.SpecialType: SpecialType.System_Nullable_T } =>
+            throw CompileError.Unsupported($"nullable value type '{type}'", type),
+        { TypeKind: TypeKind.Struct } => throw CompileError.Unsupported($"user-defined struct '{type}'", type),
+        { TypeKind: TypeKind.TypeParameter } => throw CompileError.Unsupported($"generic type parameter '{type}'", type),
+        _ => throw CompileError.Unsupported($"type '{type}'", type),
+    };
+
+    public LLVMTypeRef Storage(ITypeSymbol type) =>
+        type.SpecialType == SpecialType.System_Boolean ? Llvm.I8 : Value(type);
+
+    public static bool IsSigned(ITypeSymbol type) => type switch
+    {
+        { SpecialType: SpecialType.System_SByte or SpecialType.System_Int16 or SpecialType.System_Int32
+            or SpecialType.System_Int64 or SpecialType.System_IntPtr } => true,
+        INamedTypeSymbol { TypeKind: TypeKind.Enum, EnumUnderlyingType: { } underlying } => IsSigned(underlying),
+        _ => false,
+    };
+
+    public static bool IsFloatingPoint(ITypeSymbol type) =>
+        type.SpecialType is SpecialType.System_Single or SpecialType.System_Double;
+}
+
+/// <summary>
+/// Instance layout + method table for one class:
+///   instance: { ptr mt, &lt;base fields...&gt;, &lt;own fields...&gt; }
+///   method table: { ptr base, ptr name, i32 size, i32 flags, [N x ptr] vtable }
+/// vtable slots 0..2 are System.Object's ToString / Equals / GetHashCode (docs/03-lowering.md#classes).
+/// </summary>
+public sealed class ClassLayout
+{
+    public const int ToStringSlot = 0, EqualsSlot = 1, GetHashCodeSlot = 2, ObjectSlotCount = 3;
+
+    public required INamedTypeSymbol Type { get; init; }
+    public required LLVMTypeRef InstanceType { get; init; }
+    public required ClassLayout? Base { get; init; }
+    public Dictionary<IFieldSymbol, uint> FieldIndex { get; } = new(SymbolEqualityComparer.Default);
+    public List<IFieldSymbol> Fields { get; } = [];
+
+    /// <summary>Slot -> implementing method (null = System.Object default / abstract).</summary>
+    public List<IMethodSymbol?> VTable { get; } = [];
+
+    /// <summary>Root virtual method (the original "virtual" declaration) -> slot.</summary>
+    public Dictionary<IMethodSymbol, int> SlotOf { get; } = new(SymbolEqualityComparer.Default);
+
+    public LLVMTypeRef MethodTableType { get; set; }
+    public LLVMValueRef MethodTable { get; set; }
+    public ulong InstanceSize { get; set; }
+
+    /// <summary>The method a virtual slot is keyed by: walk overrides back to the introducing declaration.</summary>
+    public static IMethodSymbol RootOf(IMethodSymbol method)
+    {
+        method = method.OriginalDefinition;
+        while (method is { IsOverride: true, OverriddenMethod: { } overridden }) method = overridden.OriginalDefinition;
+        return method;
+    }
+}

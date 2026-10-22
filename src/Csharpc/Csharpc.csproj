@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net11.0</TargetFramework>
+    <LangVersion>preview</LangVersion>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <AssemblyName>csharpc</AssemblyName>
+    <RootNamespace>Csharpc</RootNamespace>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="5.9.0" />
+  </ItemGroup>
+
+  <!-- The C runtime (csrt) ships next to the compiler and is compiled/linked on demand. -->
+  <ItemGroup>
+    <None Include="../../runtime/**/*.c;../../runtime/**/*.h" LinkBase="runtime" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>
