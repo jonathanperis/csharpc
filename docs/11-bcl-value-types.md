@@ -67,6 +67,9 @@ implementations, and static library fields (`string.Empty`, `TimeSpan.Zero`,
 
 * `TimeSpan` and `DateTime` are lowered to their **tick count** (`i64`, 100 ns units).
   `DateTime.Kind` is not modelled (always Unspecified); `DateTime.Now` uses the local UTC offset.
+  The `z` format specifier writes the local zone's offset for that wall-clock time (libc
+  `localtime_r` over tzdata), resolved like .NET: ambiguous times take standard time, skipped times
+  the offset before the transition; a `DateTime` that .NET would mark as Utc still gets the local offset.
 * Calendar math is the CLR's own algorithm (proleptic Gregorian, years 1–9999):
   `AddMonths` clamps the day, `AddDays(double)` adds integral and fractional parts separately
   (.NET 7+ behaviour), range errors throw `ArgumentOutOfRangeException` with .NET's messages.

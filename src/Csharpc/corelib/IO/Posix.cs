@@ -39,6 +39,8 @@ namespace CsharpcCoreLib
         [DllImport("libc")] public static extern int gethostname(byte* name, nuint length);
         [DllImport("libc")] public static extern byte* strerror(int error);
         [DllImport("libc")] public static extern int getentropy(byte* buffer, nuint length);
+        [DllImport("libc")] public static extern long time(long* result);
+        [DllImport("libc")] public static extern byte* localtime_r(long* time, byte* result);
 
         // struct stat (x86-64 glibc): st_mode @24 (u32), st_size @48 (i64), st_mtim.tv_sec @88, tv_nsec @96; 144 bytes.
         public const int StatSize = 144;
