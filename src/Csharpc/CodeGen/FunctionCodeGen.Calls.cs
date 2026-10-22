@@ -16,6 +16,8 @@ public sealed partial class FunctionCodeGen
     private LLVMValueRef EmitInvocation(IInvocationOperation inv)
     {
         var target = inv.TargetMethod;
+        if (target.MethodKind == MethodKind.DelegateInvoke) return EmitDelegateInvoke(inv);
+        if (target.MethodKind == MethodKind.LocalFunction) return CallLocalFunction(inv);
         if (_m.IsUserMethod(target))
         {
             var self = ModuleCodeGen.HasThis(target) ? EmitValue(inv.Instance!) : default;
@@ -421,6 +423,48 @@ public sealed partial class FunctionCodeGen
         _ => null,
     };
 
+    /// <summary>`{value,alignment:format}` in an interpolated string.</summary>
+    private LLVMValueRef AlignAndFormat(IInterpolationOperation hole)
+    {
+        var piece = hole.FormatString is { } format ? FormatWith(hole.Expression, EmitValue(format)) : ToStringValue(hole.Expression);
+        if (hole.Alignment is { } alignment)
+            piece = CallRuntime("csrt_string_align", L.Ptr, [L.Ptr, L.I32], piece, Coerce(EmitValue(alignment), alignment.Type, _m.Compilation.GetSpecialType(SpecialType.System_Int32)));
+        return piece;
+    }
+
+    /// <summary>value.ToString(format) with .NET standard/custom numeric format strings (runtime/format.c).</summary>
+    internal LLVMValueRef FormatWith(IOperation valueOp, LLVMValueRef format)
+    {
+        valueOp = Unbox(valueOp);
+        var type = valueOp.Type!;
+        var value = EmitValue(valueOp);
+        if (type.TypeKind == TypeKind.Enum) return ToStringValue(valueOp);
+        switch (type.SpecialType)
+        {
+            case SpecialType.System_SByte or SpecialType.System_Int16 or SpecialType.System_Int32 or SpecialType.System_Int64:
+                return CallRuntime("csrt_format_i64", L.Ptr, [L.I64, L.Ptr, L.I32],
+                    value.Type.IntWidth == 64 ? value : _b.Cast(LLVMOpcode.SExt, value, L.I64), format, L.ConstInt(L.I32, value.Type.IntWidth));
+            case SpecialType.System_Byte or SpecialType.System_UInt16 or SpecialType.System_UInt32 or SpecialType.System_UInt64:
+                return CallRuntime("csrt_format_u64", L.Ptr, [L.I64, L.Ptr, L.I32],
+                    value.Type.IntWidth == 64 ? value : _b.Cast(LLVMOpcode.ZExt, value, L.I64), format, L.ConstInt(L.I32, value.Type.IntWidth));
+            case SpecialType.System_Double:
+                return CallRuntime("csrt_format_f64", L.Ptr, [L.F64, L.Ptr, L.I1], value, format, L.False);
+            case SpecialType.System_Single:
+                return CallRuntime("csrt_format_f64", L.Ptr, [L.F64, L.Ptr, L.I1], _b.Cast(LLVMOpcode.FPExt, value, L.F64), format, L.True);
+        }
+        var obj = type.IsValueType ? Box(value, type, valueOp) : value;
+        return CallRuntime("csrt_format_object", L.Ptr, [L.Ptr, L.Ptr], obj, format);
+    }
+
+    /// <summary>Builds an object[] from argument expressions (each already converted/boxed to object).</summary>
+    internal LLVMValueRef ObjectArray(IReadOnlyList<IOperation> values)
+    {
+        var objectType = _m.Compilation.GetSpecialType(SpecialType.System_Object);
+        var array = NewArray(objectType, L.ConstInt(L.I64, values.Count));
+        StoreElements(array, objectType, [.. values]);
+        return array;
+    }
+
     private LLVMValueRef EmitInterpolatedString(IInterpolatedStringOperation s)
     {
         LLVMValueRef? result = null;
@@ -429,8 +473,7 @@ public sealed partial class FunctionCodeGen
             var piece = part switch
             {
                 IInterpolatedStringTextOperation text => ToStringValue(text.Text),
-                IInterpolationOperation { Alignment: null, FormatString: null } hole => ToStringValue(hole.Expression),
-                IInterpolationOperation hole => throw CompileError.Unsupported("interpolation alignment/format specifiers", hole),
+                IInterpolationOperation hole => AlignAndFormat(hole),
                 _ => throw CompileError.Unsupported($"interpolated string part {part.Kind}", part),
             };
             result = result is { } r ? ConcatStrings(r, piece) : piece;

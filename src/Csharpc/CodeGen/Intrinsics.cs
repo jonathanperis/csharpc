@@ -90,6 +90,34 @@ internal static class Intrinsics
         foreach (var type in new[] { "int", "long", "uint", "ulong", "short", "ushort", "byte", "sbyte", "double", "float", "bool", "char", "string" })
             t[$"{type}.ToString()"] = (g, inv) => g.ToStringValue(inv.Instance!);
 
+        foreach (var type in new[] { "int", "long", "uint", "ulong", "short", "ushort", "byte", "sbyte", "double", "float" })
+            t[$"{type}.ToString(string)"] = (g, inv) => g.FormatWith(inv.Instance!, Arg(g, inv, 0));
+
+        // Composite formatting: fixed-arity overloads (the params ReadOnlySpan<object> ones need spans).
+        IntrinsicHandler composite(Action<FunctionCodeGen, LLVMValueRef>? sink, bool newline) => (g, inv) =>
+        {
+            var l = g.Module.Llvm;
+            var ordered = inv.Arguments.OrderBy(a => a.Parameter!.Ordinal).ToList();
+            var format = g.EmitValue(ordered[0].Value);
+            var args = ordered.Count == 2 && ordered[1].Value.Type is IArrayTypeSymbol && ordered[1].ArgumentKind != ArgumentKind.ParamArray
+                ? g.EmitValue(ordered[1].Value)
+                : ordered.Count == 2 && ordered[1].Value is IArrayCreationOperation { Initializer: { } init }
+                    ? g.ObjectArray(init.ElementValues)
+                    : g.ObjectArray([.. ordered.Skip(1).Select(a => a.Value)]);
+            var text = g.CallRuntime("csrt_string_format", l.Ptr, [l.Ptr, l.Ptr], format, args);
+            if (sink is null) return text;
+            sink(g, text);
+            if (newline) NewLine(g);
+            return default;
+        };
+        Action<FunctionCodeGen, LLVMValueRef> write = (g, s) => g.CallRuntime("csrt_console_write_string", g.Module.Llvm.Void, [g.Module.Llvm.Ptr], s);
+        foreach (var arity in new[] { "object", "object, object", "object, object, object", "object[]" })
+        {
+            t[$"string.Format(string, {arity})"] = composite(null, false);
+            t[$"System.Console.WriteLine(string, {arity})"] = composite(write, true);
+            t[$"System.Console.Write(string, {arity})"] = composite(write, false);
+        }
+
         // ---- System.String ---------------------------------------------------------------------
         IntrinsicHandler concat = (g, inv) =>
         {
