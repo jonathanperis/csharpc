@@ -103,7 +103,10 @@ public sealed class Compiler(CompilerOptions options)
         // Whole-program LTO with the runtime (exe builds at -O1+): csrt's allocation fast path etc.
         // inline into user code. --no-runtime-lto links the runtime as ordinary objects instead.
         var toolchain = new Toolchain(options);
-        var runtimeLto = options.Emit == EmitKind.Exe && options.OptLevel > 0 && options.RuntimeLto;
+        Hardening.ApplyFunctionAttributes(module, llvm, options.Hardening); // generated functions only
+        Hardening.ApplyModuleFlags(module, llvm, options.Hardening);
+        // Sanitizer builds link the instrumented runtime as objects (no runtime LTO).
+        var runtimeLto = options.Emit == EmitKind.Exe && options.OptLevel > 0 && options.RuntimeLto && options.Sanitize is null;
         if (runtimeLto)
         {
             RuntimeLto.LinkInto(module, llvm, toolchain.RuntimeBitcode(target.Triple));

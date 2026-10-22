@@ -24,6 +24,9 @@ public sealed record CompilerOptions
     public bool Verbose { get; set; }
     public bool ShowWarnings { get; set; }
     public bool ImplicitUsings { get; set; } = true;
+    public HardeningLevel Hardening { get; set; } = HardeningLevel.Default;
+    /// <summary>Sanitizers for the C runtime (e.g. "address,undefined"); test builds only.</summary>
+    public string? Sanitize { get; set; } = Environment.GetEnvironmentVariable("CSHARPC_SANITIZE") is { Length: > 0 } s ? s : null;
     public bool RuntimeLto { get; set; } = Environment.GetEnvironmentVariable("CSHARPC_NO_RUNTIME_LTO") != "1";
     public List<string> Defines { get; } = [];
     public string CC { get; set; } = Environment.GetEnvironmentVariable("CSHARPC_CC") ?? "clang";
@@ -58,6 +61,8 @@ public sealed record CompilerOptions
           -D <symbol>            Define a preprocessor symbol
           --no-implicit-usings   Don't add the SDK's implicit global usings
           --no-runtime-lto       Link the runtime as objects instead of LTO-ing its bitcode
+          --hardening <level>    none | default (full RELRO, NX, stack probes, hardened runtime) | max (+ CET IBT/SHSTK, SLH)
+          --sanitize <list>      Build the runtime with sanitizers, e.g. address,undefined (testing; $CSHARPC_SANITIZE)
           --cc <path>            C compiler used as linker driver (default: $CSHARPC_CC or clang)
           --dump-cfg             Print Roslyn's control-flow graphs (csharpc's "MIR")
           --intrinsics           List the library members csharpc implements
@@ -116,6 +121,10 @@ public sealed record CompilerOptions
                 case "-D": o.Defines.Add(Next()); break;
                 case "--no-implicit-usings": o.ImplicitUsings = false; break;
                 case "--no-runtime-lto": o.RuntimeLto = false; break;
+                case "--hardening": o.Hardening = Driver.Hardening.Parse(Next()); break;
+                case "--sanitize": o.Sanitize = Next(); break;
+                case var _ when a.StartsWith("--sanitize="): o.Sanitize = a["--sanitize=".Length..]; break;
+                case var _ when a.StartsWith("--hardening="): o.Hardening = Driver.Hardening.Parse(a["--hardening=".Length..]); break;
                 case "--cc": o.CC = Next(); break;
                 case "--dump-cfg": o.DumpCfg = true; break;
                 case "-g" or "--debug": o.Debug = true; o.DebugExplicit = true; break;

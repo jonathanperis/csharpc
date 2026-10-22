@@ -1,0 +1,10 @@
+plain
+lone continuation € and Ώ
+invalid leads ΐΑυÿ
+overlong ΐ― ΰ€― π€€―
+surrogate ν €
+above max τ€€
+truncated β‚ euro
+truncated4 π face
+valid β‚¬ π€ Γ©
+end π

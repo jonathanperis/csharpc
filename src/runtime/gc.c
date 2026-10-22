@@ -564,7 +564,18 @@ static inline __attribute__((always_inline)) void mark_candidate(uintptr_t word)
     }
 }
 
-static void scan_range(const void* from, const void* to) {
+// Conservative scanning reads every word of stacks, TLS and data segments on purpose; under
+// AddressSanitizer (csharpc --sanitize=address) those reads must not be checked.
+#if defined(__SANITIZE_ADDRESS__) || (defined(__has_feature) && __has_feature(address_sanitizer))
+#define CSRT_GC_NO_SANITIZE __attribute__((no_sanitize("address")))
+// The fake stack (use-after-return detection) moves locals off the real stack, where a conservative
+// collector can't see them; leak detection doesn't understand GC-managed memory.
+const char* __asan_default_options(void) { return "detect_stack_use_after_return=0:detect_leaks=0"; }
+#else
+#define CSRT_GC_NO_SANITIZE
+#endif
+
+CSRT_GC_NO_SANITIZE static void scan_range(const void* from, const void* to) {
     uintptr_t lo = ((uintptr_t)from + sizeof(void*) - 1) & ~(uintptr_t)(sizeof(void*) - 1);
     for (const uintptr_t* p = (const uintptr_t*)lo; (const void*)(p + 1) <= to; p++) mark_candidate(*p);
 }
@@ -584,7 +595,7 @@ static void drain(void) {
 }
 
 /// noinline so the caller's frame (and every frame above it) lies inside the scanned range.
-__attribute__((noinline)) static void scan_own_stack(const void* bottom) {
+CSRT_GC_NO_SANITIZE __attribute__((noinline)) static void scan_own_stack(const void* bottom) {
     jmp_buf registers;  // spills callee-saved registers onto this frame
     setjmp(registers);
     __builtin_unwind_init();

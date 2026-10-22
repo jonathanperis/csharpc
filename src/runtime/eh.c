@@ -58,6 +58,7 @@ DEF_EXC(System_OperationCanceledException, "System.OperationCanceledException", 
 DEF_EXC(System_Threading_Tasks_TaskCanceledException, "System.Threading.Tasks.TaskCanceledException",
         &csrt_MT_System_OperationCanceledException.header)
 DEF_EXC(System_AggregateException, "System.AggregateException", &csrt_MT_System_Exception.header)
+DEF_EXC(System_OutOfMemoryException, "System.OutOfMemoryException", &csrt_MT_System_SystemException.header)
 
 // ---------------------------------------------------------------------------------------------
 // Exception members
@@ -262,6 +263,11 @@ void csrt_throw_divide_by_zero(void) {
 void csrt_throw_overflow(void) {
     csrt_throw_object(new_exception(&csrt_MT_System_OverflowException, "Arithmetic operation resulted in an overflow."));
 }
+/// Allocation failed / exceeded a CLR size limit: a catchable OutOfMemoryException (never abort).
+void csrt_throw_out_of_memory(const char* message) {
+    csrt_throw_object(new_exception(&csrt_MT_System_OutOfMemoryException,
+        message ? message : "Insufficient memory to continue the execution of the program."));
+}
 void csrt_throw_negate_overflow(void) {
     csrt_throw_object(new_exception(&csrt_MT_System_OverflowException, "Negating the minimum value of a twos complement number is invalid."));
 }
@@ -288,6 +294,7 @@ static const csrt_ExceptionMethodTable* const s_by_name[] = {
     &csrt_MT_System_Threading_ThreadStateException, &csrt_MT_System_Threading_SynchronizationLockException,
     &csrt_MT_System_Collections_Generic_KeyNotFoundException, &csrt_MT_System_OperationCanceledException,
     &csrt_MT_System_Threading_Tasks_TaskCanceledException, &csrt_MT_System_AggregateException,
+    &csrt_MT_System_OutOfMemoryException,
 };
 
 void csrt_throw(const csrt_MethodTable* type, csrt_String* message) {

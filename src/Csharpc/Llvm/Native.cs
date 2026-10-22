@@ -175,6 +175,8 @@ internal static unsafe partial class Native
     [LibraryImport(Lib, StringMarshalling = StringMarshalling.Utf8)]
     public static partial uint LLVMGetEnumAttributeKindForName(string name, nuint length);
     [LibraryImport(Lib)] public static partial LLVMAttributeRef LLVMCreateEnumAttribute(LLVMContextRef c, uint kind, ulong value);
+    [LibraryImport(Lib, StringMarshalling = StringMarshalling.Utf8)]
+    public static partial LLVMAttributeRef LLVMCreateStringAttribute(LLVMContextRef c, string key, uint keyLength, string value, uint valueLength);
     [LibraryImport(Lib)] public static partial void LLVMAddAttributeAtIndex(LLVMValueRef fn, uint index, LLVMAttributeRef attribute);
 
     // ---- Basic blocks / builder ---------------------------------------------------------

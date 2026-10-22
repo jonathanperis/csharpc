@@ -93,6 +93,12 @@ public sealed class LlvmContext : IDisposable
         LLVMAddAttributeAtIndex(fn, index, LLVMCreateEnumAttribute(Ref, kind, 0));
     }
 
+    public void AddStringFunctionAttribute(LLVMValueRef fn, string key, string value)
+    {
+        var attribute = LLVMCreateStringAttribute(Ref, key, (uint)Encoding.UTF8.GetByteCount(key), value, (uint)Encoding.UTF8.GetByteCount(value));
+        LLVMAddAttributeAtIndex(fn, uint.MaxValue /* LLVMAttributeFunctionIndex */, attribute);
+    }
+
     public void AddFunctionAttribute(LLVMValueRef fn, string name, ulong value = 0)
     {
         var kind = LLVMGetEnumAttributeKindForName(name, (nuint)name.Length);

@@ -22,8 +22,20 @@ public sealed partial class FunctionCodeGen
         LLVMValueRef total = L.ConstInt(L.I64, 1);
         foreach (var length in lengths)
         {
-            FailIf(_b.ICmp(LLVMIntPredicate.SLT, length, L.ConstInt(L.I64, 0)), "csrt_throw_overflow");
+            // Like .NET: each dimension must be in [0, int.MaxValue] (else OverflowException) and the total
+            // element count within Array.MaxLength (else OutOfMemoryException). Checking the running total
+            // after every step keeps the product far from i64 overflow (≤ 2^31 * 2^31), so the size passed to
+            // the allocator can never wrap into an undersized block.
+            FailIf(_b.ICmp(LLVMIntPredicate.UGT, length, L.ConstInt(L.I64, int.MaxValue)), "csrt_throw_overflow");
             total = _b.BinOp(LLVMOpcode.Mul, total, length);
+            var tooBig = _b.ICmp(LLVMIntPredicate.UGT, total, L.ConstInt(L.I64, 0x7FFFFFC7));
+            var fail = NewBlock("md.too_big");
+            var ok = NewBlock("md.ok");
+            _b.CondBr(tooBig, fail, ok);
+            _b.PositionAtEnd(fail);
+            CallRuntime("csrt_throw_out_of_memory", L.Void, [L.Ptr], _m.CString("Array dimensions exceeded supported range."));
+            _b.Unreachable();
+            _b.PositionAtEnd(ok);
         }
         var headerSize = 16 + 8L * rank;
         var size = _b.BinOp(LLVMOpcode.Add, L.ConstInt(L.I64, headerSize),

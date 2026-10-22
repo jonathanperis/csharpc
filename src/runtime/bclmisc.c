@@ -20,14 +20,14 @@ static const csrt_MethodTable mt_overflow = { NULL, "System.OverflowException", 
 
 static csrt_String* ascii(const char* text) {
     int32_t n = (int32_t)strlen(text);
-    csrt_String* s = csrt_alloc(&csrt_String_MT.header, (int64_t)(sizeof(csrt_String) + 2 * (size_t)n));
+    csrt_String* s = csrt_string_alloc_zeroed((int64_t)n);
     s->length = n;
     for (int32_t i = 0; i < n; i++) s->chars[i] = (uint8_t)text[i];
     return s;
 }
 
 static csrt_String* from_chars(const uint16_t* chars, int32_t n) {
-    csrt_String* s = csrt_alloc(&csrt_String_MT.header, (int64_t)(sizeof(csrt_String) + 2 * (size_t)n));
+    csrt_String* s = csrt_string_alloc_zeroed((int64_t)n);
     s->length = n;
     if (n) memcpy(s->chars, chars, 2 * (size_t)n);
     return s;
@@ -77,8 +77,13 @@ void csrt_array_copy(csrt_Array* src, int64_t si, csrt_Array* dst, int64_t di, i
     need_array(src, "sourceArray");
     need_array(dst, "destinationArray");
     if (length < 0) csrt_throw(&mt_range, ascii("Non-negative number required. (Parameter 'length')"));
-    if (si < 0 || di < 0 || si + length > src->length || di + length > dst->length)
+    // .NET checks the source window first, then the destination (and blames the right array).
+    if (si < 0) csrt_throw(&mt_range, ascii("Number was less than the array's lower bound in the first dimension. (Parameter 'sourceIndex')"));
+    if (di < 0) csrt_throw(&mt_range, ascii("Number was less than the array's lower bound in the first dimension. (Parameter 'destinationIndex')"));
+    if (si > src->length - length)
         csrt_throw(&mt_argument, ascii("Source array was not long enough. Check the source index, length, and the array's lower bounds. (Parameter 'sourceArray')"));
+    if (di > dst->length - length)
+        csrt_throw(&mt_argument, ascii("Destination array was not long enough. Check the destination index, length, and the array's lower bounds. (Parameter 'destinationArray')"));
     memmove(dst->data + di * elem, src->data + si * elem, (size_t)(length * elem));
 }
 

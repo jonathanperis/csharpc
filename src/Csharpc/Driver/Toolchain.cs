@@ -12,7 +12,14 @@ public sealed class Toolchain(CompilerOptions options)
 {
     /// <summary>-fexceptions: C# exceptions unwind through runtime frames (and, with runtime LTO,
     /// keeps clang from marking csrt functions nounwind, which would delete landing pads).</summary>
-    private static readonly string[] RuntimeCFlags = ["-O2", "-std=c11", "-fPIC", "-funwind-tables", "-fexceptions"];
+    private static readonly string[] BaseRuntimeCFlags = ["-O2", "-std=c11", "-fPIC", "-funwind-tables", "-fexceptions"];
+
+    private string[] RuntimeCFlags => [.. BaseRuntimeCFlags, .. Hardening.RuntimeCFlags(options.Hardening), .. SanitizerFlags];
+
+    /// <summary>--sanitize: instrument the runtime (generated code is bounds/null-checked by construction).</summary>
+    private string[] SanitizerFlags => options.Sanitize is { } list
+        ? [$"-fsanitize={list}", "-fno-omit-frame-pointer", "-g", "-fno-sanitize-recover=undefined"]
+        : [];
 
     private static string RuntimeDir => Path.Combine(AppContext.BaseDirectory, "runtime");
 
@@ -68,7 +75,8 @@ public sealed class Toolchain(CompilerOptions options)
     public void Link(string triple, string programObject, string output, bool runtimeLinkedIn = false)
     {
         string[] runtime = runtimeLinkedIn ? [] : RuntimeObjects(triple);
-        Run(options.CC, [$"--target={triple}", programObject, .. runtime, "-lm", "-pthread", .. LinkFlags(), "-o", output]);
+        string[] sanitize = options.Sanitize is { } list ? [$"-fsanitize={list}"] : [];
+        Run(options.CC, [$"--target={triple}", programObject, .. runtime, "-lm", "-pthread", .. LinkFlags(), .. Hardening.LinkFlags(options.Hardening), .. sanitize, "-o", output]);
     }
 
     /// <summary>

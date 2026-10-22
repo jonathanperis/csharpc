@@ -55,11 +55,8 @@ void csrt_shutdown(void) {
 // ---------------------------------------------------------------------------------------------
 // Allocation
 // ---------------------------------------------------------------------------------------------
-_Noreturn static void out_of_memory(void) {
-    fflush(stdout);
-    fputs("Unhandled exception. System.OutOfMemoryException: Insufficient memory to continue the execution of the program.\n", stderr);
-    abort();
-}
+// Allocation failure is a catchable OutOfMemoryException, as in .NET (eh.c).
+_Noreturn static void out_of_memory(void) { csrt_throw_out_of_memory(NULL); }
 
 void* csrt_alloc(const csrt_MethodTable* mt, int64_t size) {
     csrt_Object* obj = csrt_gc_alloc((size_t)size);
@@ -76,8 +73,9 @@ void* csrt_alloc_noclear(const csrt_MethodTable* mt, int64_t size) {
 }
 
 static inline csrt_Array* new_array(const csrt_MethodTable* mt, int64_t element_size, int64_t length, bool clear) {
-    if (length < 0) csrt_throw_overflow();
-    if (element_size > 0 && length > (INT64_MAX - (int64_t)sizeof(csrt_Array)) / element_size) out_of_memory();
+    // .NET: negative or > int.MaxValue lengths overflow; > Array.MaxLength is OutOfMemoryException.
+    if (length < 0 || length > INT32_MAX) csrt_throw_overflow();
+    if (length > CSRT_MAX_ARRAY_LENGTH) csrt_throw_out_of_memory("Array dimensions exceeded supported range.");
     size_t size = sizeof(csrt_Array) + (size_t)(element_size * length);
     csrt_Array* arr = clear ? csrt_gc_alloc(size) : csrt_gc_alloc_noclear(size);
     if (!arr) out_of_memory();
@@ -98,14 +96,29 @@ csrt_Array* csrt_new_array_primitive_noclear(int64_t element_size, int64_t lengt
     return new_array(&csrt_PrimitiveArray_MT.header, element_size, length, false);
 }
 
-static csrt_String* string_alloc(int32_t length) {
+/// Every runtime string allocation goes through here. Lengths are 64-bit so callers can pass sums
+/// (a + b, count * n) without wrapping; anything above the CLR limit is an OutOfMemoryException.
+csrt_String* csrt_string_alloc_checked(int64_t length) {
+    if (length < 0 || length > CSRT_MAX_STRING_LENGTH) out_of_memory();
     // Not zeroed: every caller writes all `length` chars, and the GC never scans strings.
     csrt_String* s = csrt_gc_alloc_noclear(sizeof(csrt_String) + sizeof(uint16_t) * (size_t)length);
     if (!s) out_of_memory();
     s->mt = &csrt_String_MT.header;
-    s->length = length;
+    s->length = (int32_t)length;
     return s;
 }
+
+/// Same limit check, zero-filled (for callers that may not write every char).
+csrt_String* csrt_string_alloc_zeroed(int64_t length) {
+    if (length < 0 || length > CSRT_MAX_STRING_LENGTH) out_of_memory();
+    csrt_String* s = csrt_gc_alloc(sizeof(csrt_String) + sizeof(uint16_t) * (size_t)length);
+    if (!s) out_of_memory();
+    s->mt = &csrt_String_MT.header;
+    s->length = (int32_t)length;
+    return s;
+}
+
+static csrt_String* string_alloc(int64_t length) { return csrt_string_alloc_checked(length); }
 
 static csrt_String* string_from_ascii(const char* text) {
     int32_t n = (int32_t)strlen(text);
@@ -114,34 +127,59 @@ static csrt_String* string_from_ascii(const char* text) {
     return s;
 }
 
-static csrt_String* string_from_utf8(const char* text) {
-    // Decode UTF-8 to UTF-16 (two passes: count, then fill).
-    const unsigned char* p = (const unsigned char*)text;
-    int32_t units = 0;
-    for (const unsigned char* q = p; *q;) {
-        if (*q < 0x80) q += 1, units += 1;
-        else if (*q < 0xE0) q += 2, units += 1;
-        else if (*q < 0xF0) q += 3, units += 1;
-        else q += 4, units += 2;
+/// Decodes one UTF-8 sequence at p[0..n) (n >= 1) the way .NET's UTF8Encoding does: well-formed
+/// sequences only (no overlongs, surrogates or > U+10FFFF); an ill-formed one becomes U+FFFD and
+/// consumes just its maximal valid prefix (Unicode "substitution of maximal subparts"). Never reads
+/// past p + n — input may come from stdin, files or argv.
+static uint32_t utf8_decode_one(const unsigned char* p, size_t n, size_t* consumed) {
+    unsigned char c = p[0];
+    if (c < 0x80) { *consumed = 1; return c; }
+    size_t need;
+    uint32_t cp;
+    unsigned char lo = 0x80, hi = 0xBF;  // allowed range of the *first* continuation byte
+    if (c >= 0xC2 && c <= 0xDF) { need = 1; cp = c & 0x1Fu; }
+    else if (c >= 0xE0 && c <= 0xEF) {
+        need = 2; cp = c & 0x0Fu;
+        if (c == 0xE0) lo = 0xA0;        // no overlongs
+        else if (c == 0xED) hi = 0x9F;   // no surrogates
+    } else if (c >= 0xF0 && c <= 0xF4) {
+        need = 3; cp = c & 0x07u;
+        if (c == 0xF0) lo = 0x90;        // no overlongs
+        else if (c == 0xF4) hi = 0x8F;   // <= U+10FFFF
+    } else { *consumed = 1; return 0xFFFD; }  // continuation byte or invalid lead (C0, C1, F5..FF)
+    size_t i = 1;
+    for (; i <= need; i++) {
+        if (i >= n) break;
+        unsigned char b = p[i];
+        if (b < (i == 1 ? lo : 0x80) || b > (i == 1 ? hi : 0xBF)) break;
+        cp = (cp << 6) | (b & 0x3Fu);
     }
+    if (i <= need) { *consumed = i; return 0xFFFD; }  // truncated or bad continuation
+    *consumed = need + 1;
+    return cp;
+}
+
+/// UTF-8 bytes p[0..n) → string (two passes: count UTF-16 units, then fill).
+csrt_String* csrt_string_from_utf8_n(const char* text, size_t n) {
+    const unsigned char* p = (const unsigned char*)text;
+    int64_t units = 0;
+    for (size_t i = 0, k; i < n; i += k) units += utf8_decode_one(p + i, n - i, &k) >= 0x10000 ? 2 : 1;
     csrt_String* s = string_alloc(units);
-    int32_t i = 0;
-    while (*p) {
-        uint32_t cp;
-        if (*p < 0x80) cp = *p++;
-        else if (*p < 0xE0) { cp = (*p++ & 0x1Fu) << 6; cp |= (*p++ & 0x3Fu); }
-        else if (*p < 0xF0) { cp = (*p++ & 0x0Fu) << 12; cp |= (*p++ & 0x3Fu) << 6; cp |= (*p++ & 0x3Fu); }
-        else { cp = (*p++ & 0x07u) << 18; cp |= (*p++ & 0x3Fu) << 12; cp |= (*p++ & 0x3Fu) << 6; cp |= (*p++ & 0x3Fu); }
+    int32_t o = 0;
+    for (size_t i = 0, k; i < n; i += k) {
+        uint32_t cp = utf8_decode_one(p + i, n - i, &k);
         if (cp >= 0x10000) {
             cp -= 0x10000;
-            s->chars[i++] = (uint16_t)(0xD800 + (cp >> 10));
-            s->chars[i++] = (uint16_t)(0xDC00 + (cp & 0x3FF));
+            s->chars[o++] = (uint16_t)(0xD800 + (cp >> 10));
+            s->chars[o++] = (uint16_t)(0xDC00 + (cp & 0x3FF));
         } else {
-            s->chars[i++] = (uint16_t)cp;
+            s->chars[o++] = (uint16_t)cp;
         }
     }
     return s;
 }
+
+static csrt_String* string_from_utf8(const char* text) { return csrt_string_from_utf8_n(text, strlen(text)); }
 
 csrt_Array* csrt_get_args(void) {
     // Like .NET, args excludes the program name.
@@ -360,7 +398,7 @@ bool csrt_string_is_null_or_empty(csrt_String* s) { return !s || s->length == 0;
 
 csrt_String* csrt_string_concat(csrt_String* a, csrt_String* b) {
     int32_t la = a ? a->length : 0, lb = b ? b->length : 0;
-    csrt_String* s = string_alloc(la + lb);
+    csrt_String* s = string_alloc((int64_t)la + lb);
     if (la) memcpy(s->chars, a->chars, sizeof(uint16_t) * (size_t)la);
     if (lb) memcpy(s->chars + la, b->chars, sizeof(uint16_t) * (size_t)lb);
     return s;

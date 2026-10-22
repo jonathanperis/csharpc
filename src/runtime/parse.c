@@ -96,7 +96,7 @@ static const csrt_MethodTable mt_argument_null = { NULL, "System.ArgumentNullExc
 
 static csrt_String* make(const char* text) {
     int32_t n = (int32_t)strlen(text);
-    csrt_String* s = csrt_alloc(&csrt_String_MT.header, (int64_t)(sizeof(csrt_String) + 2 * (size_t)n));
+    csrt_String* s = csrt_string_alloc_zeroed((int64_t)n);
     s->length = n;
     for (int32_t i = 0; i < n; i++) s->chars[i] = (uint8_t)text[i];
     return s;
@@ -106,7 +106,7 @@ _Noreturn static void format_error(csrt_String* s) {
     char head[] = "The input string '";
     char tail[] = "' was not in a correct format.";
     int32_t n = (int32_t)(sizeof head - 1 + (size_t)s->length + sizeof tail - 1);
-    csrt_String* msg = csrt_alloc(&csrt_String_MT.header, (int64_t)(sizeof(csrt_String) + 2 * (size_t)n));
+    csrt_String* msg = csrt_string_alloc_zeroed((int64_t)n);
     msg->length = n;
     int32_t k = 0;
     for (const char* p = head; *p; p++) msg->chars[k++] = (uint8_t)*p;
@@ -159,7 +159,7 @@ int32_t csrt_enum_parse(csrt_String* s, bool ignore_case, const uint64_t* values
     if (start == end) return 0;
     uint16_t first = s->chars[start];
     if ((first >= '0' && first <= '9') || first == '-' || first == '+') {
-        csrt_String* tmp = csrt_alloc(&csrt_String_MT.header, (int64_t)(sizeof(csrt_String) + 2 * (size_t)(end - start)));
+        csrt_String* tmp = csrt_string_alloc_zeroed((int64_t)(end - start));
         tmp->length = end - start;
         memcpy(tmp->chars, s->chars + start, 2 * (size_t)(end - start));
         return csrt_parse_i64_styled(tmp, 7 /* Integer */, bits, is_signed, result) == 1;
@@ -193,7 +193,7 @@ int64_t csrt_enum_parse_or_throw(csrt_String* s, bool ignore_case, const uint64_
     char head[] = "Requested value '";
     char tail[] = "' was not found.";
     int32_t n = (int32_t)(sizeof head - 1 + (size_t)s->length + sizeof tail - 1);
-    csrt_String* msg = csrt_alloc(&csrt_String_MT.header, (int64_t)(sizeof(csrt_String) + 2 * (size_t)n));
+    csrt_String* msg = csrt_string_alloc_zeroed((int64_t)n);
     msg->length = n;
     int32_t k = 0;
     for (const char* p = head; *p; p++) msg->chars[k++] = (uint8_t)*p;
@@ -211,7 +211,7 @@ csrt_String* csrt_format_i128(uint64_t lo, uint64_t hi, bool is_signed) {
     int n = 0;
     do { buf[n++] = (char)('0' + (int)(v % 10)); v /= 10; } while (v);
     if (negative) buf[n++] = '-';
-    csrt_String* s = csrt_alloc(&csrt_String_MT.header, (int64_t)(sizeof(csrt_String) + 2 * (size_t)n));
+    csrt_String* s = csrt_string_alloc_zeroed((int64_t)n);
     s->length = n;
     for (int i = 0; i < n; i++) s->chars[i] = (uint8_t)buf[n - 1 - i];
     return s;

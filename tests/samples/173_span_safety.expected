@@ -1,0 +1,15 @@
+span[4]: IndexOutOfRangeException: Index was outside the bounds of the array.
+span[-1]: IndexOutOfRangeException: Index was outside the bounds of the array.
+new Span(data, 2, 5): ArgumentOutOfRangeException: Specified argument was out of the range of valid values.
+new Span(data, 5, 0): ArgumentOutOfRangeException: Specified argument was out of the range of valid values.
+Slice(3, 2): ArgumentOutOfRangeException: Specified argument was out of the range of valid values.
+Slice(-1): ArgumentOutOfRangeException: Specified argument was out of the range of valid values.
+AsSpan(5): ArgumentOutOfRangeException: Specified argument was out of the range of valid values.
+stackalloc span[3]: IndexOutOfRangeException: Index was outside the bounds of the array.
+ROS<char>[3]: IndexOutOfRangeException: Index was outside the bounds of the array.
+ROS<char> Slice(2,2): ArgumentOutOfRangeException: Specified argument was out of the range of valid values.
+CopyTo shorter: ArgumentException: Destination is too short. (Parameter 'destination')
+Memory.Slice(1,9): ArgumentOutOfRangeException: Specified argument was out of the range of valid values.
+span[^0]: IndexOutOfRangeException: Index was outside the bounds of the array.
+span[1..9]: ArgumentOutOfRangeException: Specified argument was out of the range of valid values.
+10,20,30,40

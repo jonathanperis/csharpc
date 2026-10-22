@@ -53,12 +53,23 @@ public sealed partial class FunctionCodeGen
     }
 
     /// <summary>Range → (start, count), with .NET's ArgumentOutOfRange check.</summary>
-    private (LLVMValueRef Start, LLVMValueRef Count) ResolveRange(LLVMValueRef range, LLVMValueRef length)
+    /// <param name="parameterName">Range.GetOffsetAndLength reports "(Parameter 'length')" (arrays, GetSubArray);
+    /// Span.Slice reports no parameter.</param>
+    private (LLVMValueRef Start, LLVMValueRef Count) ResolveRange(LLVMValueRef range, LLVMValueRef length, string? parameterName = null)
+    {
+        var (start, count) = UncheckedRange(range, length);
+        var end = _b.BinOp(LLVMOpcode.Add, start, count);
+        var bad = _b.BinOp(LLVMOpcode.Or, _b.ICmp(LLVMIntPredicate.UGT, end, length), _b.ICmp(LLVMIntPredicate.UGT, start, end));
+        ThrowLibraryExceptionIf(bad, "System.ArgumentOutOfRangeException",
+            "Specified argument was out of the range of valid values." + (parameterName is null ? "" : $" (Parameter '{parameterName}')"));
+        return (start, count);
+    }
+
+    /// <summary>Range → (start, end - start) with no validation: the consumer checks (string.Substring).</summary>
+    private (LLVMValueRef Start, LLVMValueRef Count) UncheckedRange(LLVMValueRef range, LLVMValueRef length)
     {
         var start = ResolveIndex(_b.ExtractValue(range, 0), length);
         var end = ResolveIndex(_b.ExtractValue(range, 1), length);
-        var bad = _b.BinOp(LLVMOpcode.Or, _b.ICmp(LLVMIntPredicate.UGT, end, length), _b.ICmp(LLVMIntPredicate.UGT, start, end));
-        ThrowArgumentOutOfRangeIf(bad);
         return (start, _b.BinOp(LLVMOpcode.Sub, end, start));
     }
 
@@ -87,7 +98,8 @@ public sealed partial class FunctionCodeGen
             var length = StringLength(str);
             if (IsIndexType(op.Argument.Type))
                 return CallRuntime("csrt_string_char_at", L.I16, [L.Ptr, L.I32], str, ResolveIndex(EmitValue(op.Argument), length));
-            var (start, count) = ResolveRange(EmitValue(op.Argument), length);
+            // Roslyn lowers s[a..b] to s.Substring(a, b - a): Substring's own checks and messages apply.
+            var (start, count) = UncheckedRange(EmitValue(op.Argument), length);
             return CallRuntime("csrt_string_substring", L.Ptr, [L.Ptr, L.I32, L.I32], str, start, count);
         }
         // Pattern-based: any compiled type (user types, corelib shadows like List<T>) with Count/Length plus
@@ -135,7 +147,7 @@ public sealed partial class FunctionCodeGen
         NullCheck(array);
         var header = T.ArrayHeader(T.Storage(element));
         var length = _b.Cast(LLVMOpcode.Trunc, _b.Load(L.I64, _b.StructGep(header, array, 1), "len"), L.I32);
-        var (start, count) = ResolveRange(EmitValue(op.Indices[0]), length);
+        var (start, count) = ResolveRange(EmitValue(op.Indices[0]), length, parameterName: "length");
         var data = _b.InBoundsGep(header, array, [L.ConstInt(L.I32, 0), L.ConstInt(L.I32, 2), _b.Cast(LLVMOpcode.ZExt, start, L.I64)]);
         return CallRuntime("csrt_span_to_array", L.Ptr, [L.Ptr, L.I32, L.I64], data, count, ElementSize(element));
     }

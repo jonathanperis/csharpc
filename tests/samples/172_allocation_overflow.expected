@@ -1,0 +1,17 @@
+new int[-1]: OverflowException: Arithmetic operation resulted in an overflow.
+new int[1L<<40]: OverflowException: Arithmetic operation resulted in an overflow.
+new long[int.MaxValue]: OutOfMemoryException: Array dimensions exceeded supported range.
+new byte[int.MaxValue]: OutOfMemoryException: Array dimensions exceeded supported range.
+new int[-1, 2]: OverflowException: Arithmetic operation resulted in an overflow.
+new int[65536, 65536]: OutOfMemoryException: Array dimensions exceeded supported range.
+new string('x', -1): ArgumentOutOfRangeException: count ('-1') must be a non-negative value. (Parameter 'count')
+Actual value was -1.
+new string('x', int.MaxValue): OutOfMemoryException: Insufficient memory to continue the execution of the program.
+PadLeft(int.MaxValue): OutOfMemoryException: Insufficient memory to continue the execution of the program.
+Array.Resize(-1): ArgumentOutOfRangeException: Non-negative number required. (Parameter 'newSize')
+new List<int>(-1): ArgumentOutOfRangeException: Non-negative number required. (Parameter 'capacity')
+StringBuilder(-1): ArgumentOutOfRangeException: capacity ('-1') must be a non-negative value. (Parameter 'capacity')
+Actual value was -1.
+Append('x', -1): ArgumentOutOfRangeException: repeatCount ('-1') must be a non-negative value. (Parameter 'repeatCount')
+Actual value was -1.
+survived
