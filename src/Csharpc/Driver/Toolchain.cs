@@ -12,30 +12,34 @@ public sealed class Toolchain(CompilerOptions options)
 {
     private static string RuntimeDir => Path.Combine(AppContext.BaseDirectory, "runtime");
 
-    /// <summary>Compiles csrt.c once per (source, target, cc) and caches the object file.</summary>
-    public string RuntimeObject(string triple)
+    /// <summary>Compiles every runtime/*.c once per (sources, target, cc) and caches the objects.</summary>
+    public string[] RuntimeObjects(string triple)
     {
-        var source = Path.Combine(RuntimeDir, "csrt.c");
-        if (!File.Exists(source)) throw new FileNotFoundException($"csharpc runtime source not found at '{source}'");
-
-        var hashInput = File.ReadAllText(source) + File.ReadAllText(Path.Combine(RuntimeDir, "csrt.h")) + triple + options.CC;
+        if (!Directory.Exists(RuntimeDir)) throw new FileNotFoundException($"csharpc runtime not found at '{RuntimeDir}'");
+        var files = Directory.GetFiles(RuntimeDir).Where(f => f.EndsWith(".c") || f.EndsWith(".h")).Order().ToArray();
+        var hashInput = string.Concat(files.Select(File.ReadAllText)) + triple + options.CC;
         var hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(hashInput)))[..16].ToLowerInvariant();
         var cacheDir = Path.Combine(
             Environment.GetEnvironmentVariable("XDG_CACHE_HOME") ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".cache"),
             "csharpc");
         Directory.CreateDirectory(cacheDir);
-        var obj = Path.Combine(cacheDir, $"csrt-{hash}.o");
-        if (File.Exists(obj)) return obj;
 
-        var tmp = obj + "." + Environment.ProcessId + ".tmp";
-        Run(options.CC, ["-c", "-O2", "-std=c11", "-fPIC", $"--target={triple}", source, "-o", tmp]);
-        File.Move(tmp, obj, overwrite: true);
-        return obj;
+        List<string> objects = [];
+        foreach (var source in files.Where(f => f.EndsWith(".c")))
+        {
+            var obj = Path.Combine(cacheDir, $"{Path.GetFileNameWithoutExtension(source)}-{hash}.o");
+            objects.Add(obj);
+            if (File.Exists(obj)) continue;
+            var tmp = obj + "." + Environment.ProcessId + ".tmp";
+            Run(options.CC, ["-c", "-O2", "-std=c11", "-fPIC", $"--target={triple}", source, "-o", tmp]);
+            File.Move(tmp, obj, overwrite: true);
+        }
+        return [.. objects];
     }
 
     public void Link(string triple, string programObject, string output)
     {
-        Run(options.CC, [$"--target={triple}", programObject, RuntimeObject(triple), "-lm", "-o", output]);
+        Run(options.CC, [$"--target={triple}", programObject, .. RuntimeObjects(triple), "-lm", "-o", output]);
     }
 
     private void Run(string tool, string[] args)

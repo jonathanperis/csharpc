@@ -1,6 +1,7 @@
 // csrt — the csharpc bootstrap runtime. See csrt.h for the ABI contract.
 #define _POSIX_C_SOURCE 200809L
 #include "csrt.h"
+#include "gc.h"
 
 #include <math.h>
 #include <stdio.h>
@@ -35,10 +36,14 @@ static char s_stdout_buffer[1 << 16];
 void csrt_init(int argc, char** argv) {
     s_argc = argc;
     s_argv = argv;
+    csrt_gc_init();
     setvbuf(stdout, s_stdout_buffer, _IOFBF, sizeof s_stdout_buffer);
 }
 
-void csrt_shutdown(void) { fflush(stdout); }
+void csrt_shutdown(void) {
+    fflush(stdout);
+    csrt_gc_shutdown();
+}
 
 // ---------------------------------------------------------------------------------------------
 // Allocation
@@ -50,7 +55,7 @@ _Noreturn static void out_of_memory(void) {
 }
 
 void* csrt_alloc(const csrt_MethodTable* mt, int64_t size) {
-    csrt_Object* obj = calloc(1, (size_t)size);
+    csrt_Object* obj = csrt_gc_alloc((size_t)size);
     if (!obj) out_of_memory();
     obj->mt = mt;
     return obj;
@@ -58,7 +63,8 @@ void* csrt_alloc(const csrt_MethodTable* mt, int64_t size) {
 
 csrt_Array* csrt_new_array(int64_t element_size, int64_t length) {
     if (length < 0) csrt_throw_overflow();
-    csrt_Array* arr = calloc(1, sizeof(csrt_Array) + (size_t)(element_size * length));
+    if (element_size > 0 && length > (INT64_MAX - (int64_t)sizeof(csrt_Array)) / element_size) out_of_memory();
+    csrt_Array* arr = csrt_gc_alloc(sizeof(csrt_Array) + (size_t)(element_size * length));
     if (!arr) out_of_memory();
     arr->mt = &csrt_Array_MT.header;
     arr->length = length;
@@ -66,7 +72,7 @@ csrt_Array* csrt_new_array(int64_t element_size, int64_t length) {
 }
 
 static csrt_String* string_alloc(int32_t length) {
-    csrt_String* s = calloc(1, sizeof(csrt_String) + sizeof(uint16_t) * (size_t)length);
+    csrt_String* s = csrt_gc_alloc(sizeof(csrt_String) + sizeof(uint16_t) * (size_t)length);
     if (!s) out_of_memory();
     s->mt = &csrt_String_MT.header;
     s->length = length;
