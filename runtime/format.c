@@ -140,8 +140,29 @@ static void emit_custom(Buf* b, double v, const char* f) {
     emit_custom_digits(b, g, f);
 }
 
-/// Custom format over exact digits (the caller applies any % scaling).
+static void emit_custom_section(Buf* b, Digits g, const char* f);
+
+/// Custom format over exact digits (the caller applies any % scaling). Supports up to three
+/// ';'-separated sections: positive;negative;zero (the negative section prints no '-').
 static void emit_custom_digits(Buf* b, Digits g, const char* f) {
+    char sections[3][64] = { "", "", "" };
+    int count = 0, len = 0;
+    char quote = 0;
+    for (const char* p = f; *p && count < 3; p++) {
+        if (quote) { if (*p == quote) quote = 0; }
+        else if (*p == '\'' || *p == '"') quote = *p;
+        else if (*p == ';') { sections[count][len] = 0; count++; len = 0; continue; }
+        if (len < 63) sections[count][len++] = *p;
+    }
+    if (count < 3) { sections[count][len] = 0; count++; }
+    if (count == 1) { emit_custom_section(b, g, f); return; }
+    const char* chosen = sections[0];
+    if (g.neg && g.n > 0 && sections[1][0]) { chosen = sections[1]; g.neg = false; }
+    else if (g.n == 0 && count >= 3 && sections[2][0]) chosen = sections[2];
+    emit_custom_section(b, g, chosen);
+}
+
+static void emit_custom_section(Buf* b, Digits g, const char* f) {
     // Analyse the pattern: integer placeholders, decimal placeholders, grouping, percent.
     int int_zeros = 0, dec_zeros = 0, dec_hashes = 0;
     bool group = false, percent = false, seen_point = false, seen_digit = false;

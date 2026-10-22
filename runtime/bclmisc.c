@@ -488,3 +488,59 @@ int32_t csrt_string_compare_with(csrt_String* a, csrt_String* b, int32_t compari
         default: return csrt_string_compare_culture(a, b, comparison & 1);
     }
 }
+
+bool csrt_string_is_null_or_white_space(csrt_String* s) {
+    if (!s) return true;
+    for (int32_t i = 0; i < s->length; i++) if (!is_ws(s->chars[i]) && s->chars[i] != 0x85 && !(s->chars[i] >= 0x2000 && s->chars[i] <= 0x200A) && s->chars[i] != 0x3000) return false;
+    return true;
+}
+
+/// static object.Equals(a, b): reference-equal, or both non-null and a.Equals(b) (virtual).
+bool csrt_object_equals_static(void* a, void* b) {
+    if (a == b) return true;
+    if (!a || !b) return false;
+    const void* const* vtable = (const void* const*)(((csrt_Object*)a)->mt + 1);
+    return ((EqualsFn)vtable[CSRT_SLOT_EQUALS])(a, b);
+}
+
+/// Math.Round(double, digits, MidpointRounding) on the exact decimal value of the double.
+/// mode: 0 ToEven, 1 AwayFromZero, 2 ToZero, 3 ToNegativeInfinity, 4 ToPositiveInfinity.
+double csrt_math_round_mode(double value, int32_t digits, int32_t mode) {
+    if (digits < 0 || digits > 15) {
+        static const csrt_MethodTable mt_r = { NULL, "System.ArgumentOutOfRangeException", 0, 0 };
+        csrt_throw(&mt_r, ascii("Rounding digits must be between 0 and 15, inclusive. (Parameter 'digits')"));
+    }
+    if (!isfinite(value) || fabs(value) >= 1e16) return value;
+    char buf[1200];
+    snprintf(buf, sizeof buf, "%.1100f", fabs(value));  // exact expansion
+    char* point = strchr(buf, '.');
+    // kept = integer part + `digits` fractional digits; rest decides the rounding
+    size_t keep_len = (size_t)(point - buf) + 1 + (size_t)digits;
+    bool rest_nonzero = false, half = false, above_half = false;
+    char first = point[1 + digits];
+    for (char* p = point + 2 + digits; *p; p++) if (*p != '0') { rest_nonzero = true; break; }
+    half = first == '5' && !rest_nonzero;
+    above_half = first > '5' || (first == '5' && rest_nonzero);
+    bool any = first != '0' || rest_nonzero;
+    char kept[1200];
+    memcpy(kept, buf, keep_len);
+    kept[keep_len] = 0;
+    if (digits == 0) kept[keep_len - 1] = 0;  // drop the '.'
+    double magnitude = strtod(kept, NULL);
+    bool negative = signbit(value);
+    char last = digits > 0 ? point[digits] : point[-1];
+    bool odd = (last - '0') % 2 == 1;
+    bool up;
+    switch (mode) {
+        case 1: up = above_half || half; break;
+        case 2: up = false; break;
+        case 3: up = negative && any; break;
+        case 4: up = !negative && any; break;
+        default: up = above_half || (half && odd); break;
+    }
+    if (up) magnitude += pow(10.0, -digits);
+    // re-round to `digits` decimals to clean binary noise from the addition
+    snprintf(kept, sizeof kept, "%.*f", digits, magnitude);
+    double r = strtod(kept, NULL);
+    return negative ? -r : r;
+}

@@ -537,6 +537,14 @@ internal static class BclValueTypes
             g.Builder.ICmp(LLVMIntPredicate.EQ, Rt(g, "csrt_string_compare_with", g.Llvm.I32, (a[0], g.Llvm.Ptr), (a[1], g.Llvm.Ptr), (a[2], g.Llvm.I32)), I32(g, 0));
         t["string.Equals(string, System.StringComparison)"] = (g, _, self, a, _) =>
             g.Builder.ICmp(LLVMIntPredicate.EQ, Rt(g, "csrt_string_compare_with", g.Llvm.I32, (self, g.Llvm.Ptr), (a[0], g.Llvm.Ptr), (a[1], g.Llvm.I32)), I32(g, 0));
+        t["System.Math.Round(double, System.MidpointRounding)"] = (g, _, _, a, _) =>
+            Rt(g, "csrt_math_round_mode", g.Llvm.F64, (a[0], g.Llvm.F64), (I32(g, 0), g.Llvm.I32), (a[1], g.Llvm.I32));
+        t["System.Math.Round(double, int, System.MidpointRounding)"] = (g, _, _, a, _) =>
+            Rt(g, "csrt_math_round_mode", g.Llvm.F64, (a[0], g.Llvm.F64), (a[1], g.Llvm.I32), (a[2], g.Llvm.I32));
+        t["string.IsNullOrWhiteSpace(string)"] = (g, _, _, a, _) => Rt(g, "csrt_string_is_null_or_white_space", g.Llvm.I1, (a[0], g.Llvm.Ptr));
+        t["object.ReferenceEquals(object, object)"] = (g, _, _, a, _) => g.Builder.ICmp(LLVMIntPredicate.EQ, a[0], a[1]);
+        t["object.Equals(object, object)"] = (g, _, _, a, _) => Rt(g, "csrt_object_equals_static", g.Llvm.I1, (a[0], g.Llvm.Ptr), (a[1], g.Llvm.Ptr));
+        t["nint.get_Size()"] = t["System.IntPtr.get_Size()"] = t["nuint.get_Size()"] = (g, _, _, _, _) => I32(g, (int)g.Types.PointerSize);
         t["bool.CompareTo(bool)"] = (g, _, self, a, _) => ICompare(g, self, a[0], false);
         t["bool.Parse(string)"] = (g, _, _, a, _) => Rt(g, "csrt_bool_parse", g.Llvm.I1, (a[0], g.Llvm.Ptr));
         t["double.Parse(string, System.IFormatProvider)"] = (g, _, _, a, _) => Rt(g, "csrt_double_parse", g.Llvm.F64, (a[0], g.Llvm.Ptr));

@@ -40,3 +40,7 @@ int q = Math.DivRem(17, 5, out int rem);
 Console.WriteLine(q + " " + rem);
 Console.WriteLine("{0}-{1}-{2}-{3:F1}", 1, "two", 'c', 4.25);
 Console.WriteLine(string.Join(",", 1, "b", 2.5) + " " + string.Join(" ", "x", "y", "z") + " " + string.Concat("p", "q", "r", "s", "t") + " " + string.Format("{0}{1}{2}{3}", 'a', 'b', 'c', 'd'));
+double[] vs = [2.5, 3.5, -2.5, 2.355, 2.345, 1.005, 2.675, -1.125, 0.5, 12345.6785];
+foreach (var v in vs)
+    Console.WriteLine($"{v}: {Math.Round(v, MidpointRounding.AwayFromZero)} {Math.Round(v, MidpointRounding.ToZero)} {Math.Round(v, 2, MidpointRounding.AwayFromZero)} {Math.Round(v, 2, MidpointRounding.ToEven)} {Math.Round(v, 1, MidpointRounding.ToPositiveInfinity)} {Math.Round(v, 3, MidpointRounding.ToNegativeInfinity)}");
+Console.WriteLine(string.IsNullOrWhiteSpace("  \t") + " " + object.ReferenceEquals(names, names) + " " + object.Equals("a", "a") + " " + nint.Size);

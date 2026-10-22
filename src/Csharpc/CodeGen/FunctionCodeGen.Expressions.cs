@@ -536,6 +536,8 @@ public sealed partial class FunctionCodeGen
         if (from.IsReferenceType)
         {
             if (c.Conversion.IsImplicit) return value; // upcast: same pointer
+            if (c.IsTryCast) // `x as T`: the object if it is a T, else null
+                return CallRuntime("csrt_isinst_class", L.Ptr, [L.Ptr, L.Ptr], value, MethodTableFor(to, c));
             return CastClass(value, to, c);
         }
         return ConvertNumeric(value, from, to, c, c.IsChecked && !c.Conversion.IsImplicit);
