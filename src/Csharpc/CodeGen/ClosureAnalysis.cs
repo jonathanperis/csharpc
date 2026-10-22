@@ -107,6 +107,12 @@ public sealed class ClosureAnalysis
                                                              && FunctionFor(m) is { } pf && pf != f:
                         Capture(p.Parameter, pf, pf.Cfg.Root);
                         break;
+                    // The receiver of a C# 14 extension block belongs to the block, not to a method:
+                    // nested functions of an extension member capture it from the member (the root).
+                    case IParameterReferenceOperation { Parameter.ContainingSymbol: INamedTypeSymbol { TypeKind: TypeKind.Extension } } p
+                        when f != Root:
+                        Capture(p.Parameter, Root, Root.Cfg.Root);
+                        break;
                     case IInstanceReferenceOperation when f != Root:
                     // A primary-constructor parameter used from a nested function is read through `this`.
                     case IParameterReferenceOperation { Parameter.ContainingSymbol: IMethodSymbol { MethodKind: MethodKind.Constructor } }

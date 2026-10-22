@@ -169,6 +169,7 @@ public sealed partial class ModuleCodeGen
         if (IsPInvoke(method)) return PInvokeStub(method);
         if (IsNestedFunction(method)) return GetNestedFunction(method, TypeSubstitution.Identity);
         method = CoreLib.Map(method);
+        if (IsExtensionImplementation(method)) method = ExtensionMemberFor(method);
         // Generic code is keyed by the *constructed* symbol: one function per instantiation.
         var generic = TypeSubstitution.IsGenericContext(method);
         if (!generic) method = method.OriginalDefinition;
@@ -222,20 +223,49 @@ public sealed partial class ModuleCodeGen
     /// <summary>C# 14 `extension(T x) { ... }` members: lowered as static functions of their receiver.</summary>
     public static bool IsExtensionMember(IMethodSymbol method) => method.ContainingType?.TypeKind == TypeKind.Extension;
 
-    private HashSet<IMethodSymbol>? _extensionImplementations;
+    private Dictionary<IMethodSymbol, IMethodSymbol>? _extensionImplementations;
 
-    private bool IsExtensionImplementation(IMethodSymbol method)
+    /// <summary>Implementation method -> extension block member, for every user extension member.</summary>
+    private Dictionary<IMethodSymbol, IMethodSymbol> ExtensionImplementations
     {
-        if (!method.IsStatic || !method.IsImplicitlyDeclared) return false;
-        _extensionImplementations ??= new HashSet<IMethodSymbol>(
-            _userTypes.Where(t => t.TypeKind == TypeKind.Extension)
-                .SelectMany(t => t.GetMembers().OfType<IMethodSymbol>())
-                .Select(m => m.AssociatedExtensionImplementation)
-                .OfType<IMethodSymbol>(), SymbolEqualityComparer.Default);
-        return _extensionImplementations.Contains(method.OriginalDefinition);
+        get
+        {
+            if (_extensionImplementations is { } existing) return existing;
+            var map = new Dictionary<IMethodSymbol, IMethodSymbol>(SymbolEqualityComparer.Default);
+            foreach (var member in _userTypes.Where(t => t.TypeKind == TypeKind.Extension).SelectMany(t => t.GetMembers().OfType<IMethodSymbol>()))
+                if (member.AssociatedExtensionImplementation is { } implementation) map[implementation.OriginalDefinition] = member;
+            return _extensionImplementations = map;
+        }
     }
 
-    public static bool HasExtensionReceiver(IMethodSymbol method) => IsExtensionMember(method) && !method.IsStatic;
+    private bool IsExtensionImplementation(IMethodSymbol method) =>
+        method.IsStatic && method.IsImplicitlyDeclared && ExtensionImplementations.ContainsKey(method.OriginalDefinition);
+
+    /// <summary>
+    /// A call to an extension member in its static form (`E.WordCount(s)`) binds to Roslyn's synthesized
+    /// implementation method, which has no body of its own: call the member's lowering instead. Its
+    /// signature is the same (receiver first). Generic extension blocks take the implementation's
+    /// leading type arguments, the member's own type parameters the rest.
+    /// </summary>
+    private IMethodSymbol ExtensionMemberFor(IMethodSymbol implementation)
+    {
+        var member = ExtensionImplementations[implementation.OriginalDefinition];
+        if (implementation.TypeArguments.IsEmpty || SymbolEqualityComparer.Default.Equals(implementation, implementation.OriginalDefinition))
+            return member;
+        var block = member.ContainingType;
+        var blockArity = block.TypeParameters.Length;
+        if (blockArity > 0)
+        {
+            var constructed = block.Construct([.. implementation.TypeArguments.Take(blockArity)]);
+            member = constructed.GetMembers(member.Name).OfType<IMethodSymbol>()
+                .First(m => SymbolEqualityComparer.Default.Equals(m.OriginalDefinition, member));
+        }
+        return member.IsGenericMethod ? member.Construct([.. implementation.TypeArguments.Skip(blockArity)]) : member;
+    }
+
+    // Lambdas and local functions declared in an extension member have the extension type as their
+    // containing type too, but reach the receiver through their closure environment.
+    public static bool HasExtensionReceiver(IMethodSymbol method) => IsExtensionMember(method) && !method.IsStatic && !IsNestedFunction(method);
 
     /// <summary>
     /// env (nested functions) or this (instance) + parameters (by-ref as ptr) -> return; constructors
