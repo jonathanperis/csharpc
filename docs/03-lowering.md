@@ -299,7 +299,7 @@ generic dictionary. See `src/Csharpc/CodeGen/Generics.cs`.
   are built per substitution (`EnvScope.TypeFor`). A generic local function adds its own type
   arguments and is instantiated on first use.
 * **Mangling.** Type arguments are appended Itanium-style: `I<types>E` after a generic type or
-  method name, e.g. `_CN5Stack1`I` + `iE4PushEi` for `Stack<int>.Push(int)`. The runtime type name
+  method name, e.g. ``_CN7Stack`1IiE4PushEi`` for `Stack<int>.Push(int)`. The runtime type name
   follows the CLR format: ``Box`1[System.Int32]`` (that's what `object.ToString()` prints in .NET).
 * **Constrained calls.** After substitution `T` is concrete:
   * `x.CompareTo(y)` with `T : IComparable<T>` is devirtualized: a direct call for user types, and
