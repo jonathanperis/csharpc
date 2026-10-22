@@ -9,6 +9,8 @@ public sealed record CompilerOptions
     public EmitKind Emit { get; set; } = EmitKind.Exe;
     public int OptLevel { get; set; } = 2;
     public string? Target { get; set; }
+    public string? Cpu { get; set; }
+    public string? Features { get; set; }
     public bool DumpCfg { get; set; }
     public bool Verbose { get; set; }
     public bool ShowWarnings { get; set; }
@@ -27,6 +29,8 @@ public sealed record CompilerOptions
           --emit <kind>          exe (default) | obj | asm | llvm-ir | llvm-bc
           -O0 | -O1 | -O2 | -O3  Optimization level (default: -O2)
           --target <triple>      Target triple (default: host)
+          --cpu <name>           Target CPU: native, x86-64-v3, znver4, ... (default: best x86-64-vN the host supports)
+          --features <list>      Extra LLVM target features, e.g. +avx512f
           -D <symbol>            Define a preprocessor symbol
           --no-implicit-usings   Don't add the SDK's implicit global usings
           --no-runtime-lto       Link the runtime as objects instead of LTO-ing its bitcode
@@ -70,6 +74,8 @@ public sealed record CompilerOptions
                     break;
                 case "-O0" or "-O1" or "-O2" or "-O3": o.OptLevel = a[2] - '0'; break;
                 case "--target": o.Target = Next(); break;
+                case "--cpu": o.Cpu = Next(); break;
+                case "--features": o.Features = Next(); break;
                 case "-D": o.Defines.Add(Next()); break;
                 case "--no-implicit-usings": o.ImplicitUsings = false; break;
                 case "--no-runtime-lto": o.RuntimeLto = false; break;

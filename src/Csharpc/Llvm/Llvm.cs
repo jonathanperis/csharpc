@@ -192,17 +192,39 @@ public sealed class TargetMachine : IDisposable
         get { InitializeTargets(); return TakeMessage(LLVMGetDefaultTargetTriple())!; }
     }
 
-    public static TargetMachine Create(string? triple, LLVMCodeGenOptLevel level)
+    /// <param name="cpu">LLVM CPU name; null = host CPU (native builds) or "generic".</param>
+    /// <param name="features">LLVM feature string ("+avx2,-avx512f"); null = host features for native builds.</param>
+    public static TargetMachine Create(string? triple, LLVMCodeGenOptLevel level, string? cpu = null, string? features = null)
     {
         InitializeTargets();
         var host = triple is null;
         triple ??= HostTriple;
         if (LLVMGetTargetFromTriple(triple, out var target, out var error) != 0)
             throw new InvalidOperationException($"unknown target '{triple}': {TakeMessage(error)}");
-        var cpu = host ? TakeMessage(LLVMGetHostCPUName())! : "generic";
-        var features = host ? TakeMessage(LLVMGetHostCPUFeatures())! : "";
+        var hostCpu = TakeMessage(LLVMGetHostCPUName())!;
+        if (cpu is "native") cpu = hostCpu;
+        cpu ??= host ? DefaultHostCpu(triple, hostCpu) : "generic";
+        features ??= host && cpu == hostCpu ? TakeMessage(LLVMGetHostCPUFeatures())! : "";
         var machine = LLVMCreateTargetMachine(target, triple, cpu, features, level, LLVMRelocMode.PIC, LLVMCodeModel.Default);
         return new TargetMachine(machine, triple);
+    }
+
+    /// <summary>
+    /// Default CPU for host builds on x86-64: the highest x86-64 microarchitecture level the host
+    /// supports (v3 = AVX2/FMA/BMI2), with LLVM's generic tuning — not the host model. Measured on
+    /// Zen 4 (bench/RESULTS.md): -mcpu=znver4 (AVX-512 + its scheduling model) was up to 30% slower
+    /// on scalar FP loops (spectral-norm 121 -> 160 ms, matmul 63 -> 82 ms) because of false
+    /// register dependencies in EVEX-encoded conversions and less suitable unrolling; nothing in the
+    /// suite gained from it. `--cpu native` opts into full host tuning.
+    /// </summary>
+    private static string DefaultHostCpu(string triple, string hostCpu)
+    {
+        if (!triple.StartsWith("x86_64", StringComparison.Ordinal)) return hostCpu;
+        var features = (TakeMessage(LLVMGetHostCPUFeatures()) ?? "").Split(',').ToHashSet();
+        bool Has(params string[] names) => names.All(n => features.Contains("+" + n));
+        if (Has("avx2", "fma", "bmi", "bmi2", "lzcnt", "movbe", "f16c")) return "x86-64-v3";
+        if (Has("sse4.2", "popcnt", "ssse3", "cx16")) return "x86-64-v2";
+        return "x86-64";
     }
 
     public ulong SizeOf(LLVMTypeRef type) => LLVMABISizeOfType(DataLayout, type);

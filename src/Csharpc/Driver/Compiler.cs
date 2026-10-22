@@ -38,7 +38,7 @@ public sealed class Compiler(CompilerOptions options)
             1 => LLVMCodeGenOptLevel.Less,
             3 => LLVMCodeGenOptLevel.Aggressive,
             _ => LLVMCodeGenOptLevel.Default,
-        });
+        }, options.Cpu, options.Features);
         using var module = new LlvmModule(llvm, compilation.AssemblyName ?? "program");
         module.ConfigureFor(target);
         module.SourceFileName = options.Inputs[0];
