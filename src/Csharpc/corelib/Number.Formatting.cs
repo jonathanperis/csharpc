@@ -510,7 +510,7 @@ namespace CsharpcCoreLib
             if ((fmt == 'R' || fmt == 'r' || ((fmt == 'G' || fmt == 'g') && precision <= 0)))
             {
                 bool done = single ? ShortestSingle((float)value, ref g, ref sb) : ShortestDouble(value, ref g, ref sb);
-                if (!done) FormatGeneral(ref sb, ref g, single ? 9 : 17, fmt == 'g' ? 'e' : 'E');
+                if (!done) FormatGeneral(ref sb, ref g, single ? 9 : 17, fmt == 'g' || fmt == 'r' ? 'e' : 'E');
                 return sb.Build();
             }
             if (value != value) return "NaN";
@@ -693,14 +693,19 @@ namespace CsharpcCoreLib
                 FormatCustom(ref sb, ref g, format);
                 return sb.Build();
             }
-            if ((fmt == 'G' || fmt == 'g') && precision < 1)
+            // "R<n>" is "G<n>" for decimal (case preserved for the exponent character).
+            if (fmt == 'R' || fmt == 'r') fmt = (char)(fmt - ('R' - 'G'));
+            if ((fmt == 'G' || fmt == 'g') && precision < 0)
             {
                 // ECMA: all digits, trailing zeros included, never scientific; no "-0".
                 if (g.N > 0 && g.Neg) sb.Append('-');
                 FormatGeneral(ref sb, ref g, 0, 'E', suppressScientific: true);
                 return sb.Build();
             }
-            if (fmt == 'D' || fmt == 'd' || fmt == 'X' || fmt == 'x' || fmt == 'B' || fmt == 'b' || fmt == 'R' || fmt == 'r') ThrowBadFormat();
+            if (fmt == 'D' || fmt == 'd' || fmt == 'X' || fmt == 'x' || fmt == 'B' || fmt == 'b') ThrowBadFormat();
+            // "G0" means "as many digits as the decimal has", trailing zeros counted (1e20m.ToString("G0")
+            // stays fixed-point because its 21 digits exceed the exponent) but not printed.
+            if ((fmt == 'G' || fmt == 'g') && precision == 0) precision = g.N > 0 ? g.N : 1;
             TrimTrailingZeros(ref g);
             FormatStandard(ref sb, ref g, fmt, precision, false);
             return sb.Build();
@@ -946,7 +951,9 @@ namespace CsharpcCoreLib
                         break;
                 }
             }
-            if (negative && (g.Exp10 != 0 || sb.Length > start)) sb.Insert(start, '-');
+            // A value that rounded to zero keeps its '-' only when the format has no negative section
+            // of its own: (-0.4).ToString("0") is "-0", but (-0.4).ToString("0;(0)") is "0".
+            if (negative && (g.Exp10 != 0 || (sb.Length > start && FindSection(format, 1) == 0))) sb.Insert(start, '-');
         }
 
         // ==========================================================================================
