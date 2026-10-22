@@ -65,6 +65,10 @@ internal static unsafe partial class Native
             "csharpc could not locate libLLVM (tried LLVM 18-20). Set CSHARPC_LIBLLVM to the shared library path.");
     }
 
+    /// <summary>The name of a global value.</summary>
+    public static string TakeName(LLVMValueRef value) =>
+        Marshal.PtrToStringUTF8(LLVMGetValueName2(value, out var length), (int)length) ?? "";
+
     /// <summary>Takes ownership of an LLVM-allocated C string.</summary>
     public static string? TakeMessage(nint message)
     {

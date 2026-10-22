@@ -83,6 +83,13 @@ public sealed class LlvmContext : IDisposable
         fixed (byte* p = bytes) return LLVMConstStringInContext(Ref, p, (uint)bytes.Length, 0);
     }
 
+    /// <summary>Adds an enum attribute at an attribute index (0 = return value, i + 1 = parameter i).</summary>
+    public void AddAttributeAt(LLVMValueRef fn, uint index, string name)
+    {
+        var kind = LLVMGetEnumAttributeKindForName(name, (nuint)name.Length);
+        LLVMAddAttributeAtIndex(fn, index, LLVMCreateEnumAttribute(Ref, kind, 0));
+    }
+
     public void AddFunctionAttribute(LLVMValueRef fn, string name)
     {
         var kind = LLVMGetEnumAttributeKindForName(name, (nuint)name.Length);

@@ -168,6 +168,7 @@ public sealed class ModuleCodeGen
             Llvm.AddFunctionAttribute(fn, "cold");
         }
         Llvm.AddFunctionAttribute(fn, "nounwind");
+        if (name.StartsWith("csrt_", StringComparison.Ordinal)) Optimizations.AnnotateRuntimeDeclaration(Llvm, fn, ret, parameters);
         return _runtime[name] = new LoweredFunction(fn, type);
     }
 
