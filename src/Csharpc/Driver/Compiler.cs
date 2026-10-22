@@ -38,7 +38,7 @@ public sealed class Compiler(CompilerOptions options)
             settings = new FrontendSettings
             {
                 Files = options.Inputs,
-                Defines = options.Defines,
+                Defines = [.. ProjectLoader.ImplicitDefines(options.Configuration), .. options.Defines],
                 GlobalUsings = options.ImplicitUsings ? RoslynFrontend.DefaultImplicitUsings : null,
             };
         }

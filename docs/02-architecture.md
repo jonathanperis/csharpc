@@ -30,7 +30,11 @@ the time spent in each phase.
 ### 1. Front-end: Roslyn (`src/Csharpc/Frontend/RoslynFrontend.cs`)
 
 - Parses each input with `LanguageVersion.Preview` and defines `CSHARPC` (plus any `-D` symbols), so
-  sources can `#if CSHARPC`.
+  sources can `#if CSHARPC`. It also defines the symbols the SDK defines for a net11.0 build:
+  `TRACE`, `DEBUG`/`RELEASE` per configuration, `NET`, `NET11_0`, `NETCOREAPP`,
+  `NET5_0_OR_GREATER` … `NET11_0_OR_GREATER` and `NETCOREAPP1_0_OR_GREATER` …
+  `NETCOREAPP3_1_OR_GREATER`. For a project, the evaluation runs the SDK's
+  `AddImplicitDefineConstants` target, so `DefineConstants` is exactly what `csc` would receive.
 - Adds a synthetic `<implicit-usings>.g.cs` with the same `global using` set the .NET SDK injects
   for console apps, unless `--no-implicit-usings` is given.
 - Creates a `CSharpCompilation` (`OutputKind.ConsoleApplication`, nullable enabled, unsafe allowed).

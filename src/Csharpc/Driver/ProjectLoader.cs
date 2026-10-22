@@ -37,6 +37,29 @@ public static class ProjectLoader
         "ImplicitUsings", "TargetFramework", "TargetFrameworks", "MSBuildProjectFullPath",
     ];
 
+    /// <summary>
+    /// The SDK adds the target-framework symbols (NET, NET11_0, NETCOREAPP, NET5_0_OR_GREATER ...
+    /// NETCOREAPP3_1_OR_GREATER) to DefineConstants in this target, not during evaluation, so the
+    /// project evaluation runs it: the values reported then are exactly what csc receives.
+    /// </summary>
+    private const string DefineConstantsTarget = "AddImplicitDefineConstants";
+
+    /// <summary>
+    /// What `DefineConstants` holds for a net11.0 C# build when there is no project file (single
+    /// files): the C# SDK's configuration symbols plus the target's framework symbols.
+    /// </summary>
+    public static IEnumerable<string> ImplicitDefines(string configuration)
+    {
+        yield return "TRACE";
+        if (configuration.Equals("Debug", StringComparison.OrdinalIgnoreCase)) yield return "DEBUG";
+        else if (configuration.Equals("Release", StringComparison.OrdinalIgnoreCase)) yield return "RELEASE";
+        yield return "NET";
+        yield return "NET11_0";
+        yield return "NETCOREAPP";
+        for (var v = 5; v <= 11; v++) yield return $"NET{v}_0_OR_GREATER";
+        foreach (var v in new[] { "1_0", "1_1", "2_0", "2_1", "2_2", "3_0", "3_1" }) yield return $"NETCOREAPP{v}_OR_GREATER";
+    }
+
     private static readonly string[] Items = ["Compile", "Using", "ProjectReference", "PackageReference"];
 
     /// <summary>Finds the single project file in a directory (like `dotnet build` with no arguments).</summary>
@@ -56,7 +79,7 @@ public static class ProjectLoader
         projectPath = Path.GetFullPath(projectPath);
         if (!File.Exists(projectPath)) throw new FileNotFoundException($"project file '{projectPath}' not found");
 
-        var args = new List<string> { "msbuild", projectPath, "-nologo", $"-p:Configuration={configuration}" };
+        var args = new List<string> { "msbuild", projectPath, "-nologo", $"-p:Configuration={configuration}", $"-t:{DefineConstantsTarget}" };
         foreach (var (k, v) in globalProperties ?? new Dictionary<string, string>()) args.Add($"-p:{k}={v}");
         args.AddRange(Properties.Select(p => $"-getProperty:{p}"));
         args.AddRange(Items.Select(i => $"-getItem:{i}"));
