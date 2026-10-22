@@ -191,6 +191,8 @@ public sealed class ModuleCodeGen
             or MethodKind.PropertyGet or MethodKind.PropertySet or MethodKind.UserDefinedOperator or MethodKind.Conversion))
             return;
         if (method.MethodKind == MethodKind.Constructor && method.ContainingType.IsStatic) return;
+        // Implicit static constructors only exist for static field initializers, which run in __csharpc_static_init.
+        if (method is { MethodKind: MethodKind.StaticConstructor, IsImplicitlyDeclared: true }) return;
 
         var syntax = method.DeclaringSyntaxReferences.FirstOrDefault()?.GetSyntax();
         var fn = GetFunction(method);
