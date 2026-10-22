@@ -54,7 +54,7 @@ namespace CsharpcCoreLib
         }
 
         public T Current => _array[_index];
-        object IEnumerator.Current => _array[_index];
+        object IEnumerator.Current => CoreIntrinsics.Box(_array[_index]);
         public void Reset() { _index = -1; }
         public void Dispose() { }
     }
@@ -78,7 +78,7 @@ namespace CsharpcCoreLib
         }
 
         public char Current => _s[_index];
-        object IEnumerator.Current => _s[_index];
+        object IEnumerator.Current => CoreIntrinsics.Box(_s[_index]);
         public void Reset() { _index = -1; }
         public void Dispose() { }
     }

@@ -446,7 +446,7 @@ namespace CsharpcCoreLib
             }
 
             public KeyValuePair<TKey, TValue> Current => _current;
-            object IEnumerator.Current => _current;
+            object IEnumerator.Current => CoreIntrinsics.Box(_current);
             public void Reset() { _index = 0; }
             public void Dispose() { }
         }
@@ -534,7 +534,7 @@ namespace CsharpcCoreLib
             }
 
             public TKey Current => _current;
-            object IEnumerator.Current => _current;
+            object IEnumerator.Current => CoreIntrinsics.Box(_current);
             public void Reset() { _index = 0; }
             public void Dispose() { }
         }
@@ -622,7 +622,7 @@ namespace CsharpcCoreLib
             }
 
             public TValue Current => _current;
-            object IEnumerator.Current => _current;
+            object IEnumerator.Current => CoreIntrinsics.Box(_current);
             public void Reset() { _index = 0; }
             public void Dispose() { }
         }

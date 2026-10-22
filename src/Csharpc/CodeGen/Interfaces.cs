@@ -38,7 +38,8 @@ public sealed partial class ModuleCodeGen
 
     /// <summary>Dispatchable members of one interface (not inherited ones), in slot order.</summary>
     public static List<IMethodSymbol> InterfaceSlots(INamedTypeSymbol itf) =>
-        [.. itf.GetMembers().OfType<IMethodSymbol>().Where(m => !m.IsStatic && (m.IsAbstract || m.IsVirtual))];
+        // Generic interface methods (generic virtual methods) have no slots: they'd need one per instantiation.
+        [.. itf.GetMembers().OfType<IMethodSymbol>().Where(m => !m.IsStatic && (m.IsAbstract || m.IsVirtual) && !m.IsGenericMethod)];
 
     public static int InterfaceSlotIndex(INamedTypeSymbol itf, IMethodSymbol member)
     {

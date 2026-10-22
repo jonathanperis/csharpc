@@ -90,6 +90,8 @@ public sealed partial class FunctionCodeGen
             "HashOf" => HashOf(t!, args[0], inv),
             "Compare" => CompareOf(t!, args[0], args[1], inv),
             "IsValueType" => t!.IsValueType ? L.True : L.False,
+            "Box" => BoxOrThrow(t!, args[0], inv),
+            "Unbox" => UnboxOrThrow(t!, args[0], inv),
             "CompareStrings" => CallRuntime("csrt_string_compare_culture", L.I32, [L.Ptr, L.Ptr], args[0], args[1]),
             _ => throw CompileError.Unsupported($"corelib intrinsic '{target.Name}'", inv),
         };
@@ -119,6 +121,37 @@ public sealed partial class FunctionCodeGen
             StoreValue(ToStorage(element, targetType), addresses[i]);
         }
         return default;
+    }
+
+    /// <summary>(object)value for any T; value types without a boxed representation yet throw at run time only.</summary>
+    private LLVMValueRef BoxOrThrow(ITypeSymbol t, LLVMValueRef value, IOperation at)
+    {
+        if (!t.IsValueType) return value;
+        try { return Box(value, t, at); }
+        catch (CompileError)
+        {
+            CallRuntime("csrt_throw", L.Void, [L.Ptr, L.Ptr],
+                _m.LibraryTypeMethodTable(_m.Compilation.GetTypeByMetadataName("System.NotSupportedException")!),
+                _m.StringLiteral($"csharpc: boxing '{t}' is not supported yet."));
+            return LlvmContext.Null(L.Ptr);
+        }
+    }
+
+    private LLVMValueRef UnboxOrThrow(ITypeSymbol t, LLVMValueRef obj, IOperation at)
+    {
+        if (!t.IsValueType) return obj; // reference types: the corelib only uses this where the type is known
+        try
+        {
+            var payload = CallRuntime("csrt_unbox", L.Ptr, [L.Ptr, L.Ptr], obj, MethodTableFor(t, at));
+            return LoadValue(payload, t);
+        }
+        catch (CompileError)
+        {
+            CallRuntime("csrt_throw", L.Void, [L.Ptr, L.Ptr],
+                _m.LibraryTypeMethodTable(_m.Compilation.GetTypeByMetadataName("System.NotSupportedException")!),
+                _m.StringLiteral($"csharpc: unboxing '{t}' is not supported yet."));
+            return LlvmContext.Null(T.Value(t));
+        }
     }
 
     private IMethodSymbol ObjectMethod(string name, int parameters) =>

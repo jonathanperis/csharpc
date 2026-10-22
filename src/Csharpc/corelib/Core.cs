@@ -28,6 +28,8 @@ namespace CsharpcCoreLib
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern int HashOf<T>(T value);
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern int Compare<T>(T a, T b);
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern bool IsValueType<T>();
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern object Box<T>(T value);
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern T Unbox<T>(object value);
     }
 
     internal static class ThrowHelper
@@ -74,8 +76,8 @@ namespace CsharpcCoreLib
         public abstract bool Equals(T x, T y);
         public abstract int GetHashCode(T obj);
 
-        bool System.Collections.IEqualityComparer.Equals(object x, object y) => Equals((T)x, (T)y);
-        int System.Collections.IEqualityComparer.GetHashCode(object obj) => obj == null ? 0 : GetHashCode((T)obj);
+        bool System.Collections.IEqualityComparer.Equals(object x, object y) => Equals(CoreIntrinsics.Unbox<T>(x), CoreIntrinsics.Unbox<T>(y));
+        int System.Collections.IEqualityComparer.GetHashCode(object obj) => obj == null ? 0 : GetHashCode(CoreIntrinsics.Unbox<T>(obj));
     }
 
     internal sealed class DefaultEqualityComparer<T> : EqualityComparerImpl<T>
@@ -111,7 +113,7 @@ namespace CsharpcCoreLib
 
         public abstract int Compare(T x, T y);
 
-        int System.Collections.IComparer.Compare(object x, object y) => Compare((T)x, (T)y);
+        int System.Collections.IComparer.Compare(object x, object y) => Compare(CoreIntrinsics.Unbox<T>(x), CoreIntrinsics.Unbox<T>(y));
     }
 
     internal sealed class DefaultComparer<T> : ComparerImpl<T>

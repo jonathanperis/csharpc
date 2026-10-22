@@ -434,7 +434,7 @@ namespace CsharpcCoreLib
             }
 
             public T Current => _current;
-            object IEnumerator.Current => _current;
+            object IEnumerator.Current => CoreIntrinsics.Box(_current);
             public void Reset() { _index = 0; }
             public void Dispose() { }
         }

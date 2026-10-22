@@ -311,7 +311,7 @@ namespace CsharpcCoreLib
         public SimpleEnumerator(T[] items) { _items = items; }
         public bool MoveNext() => ++_index < _items.Length;
         public T Current => _items[_index];
-        object IEnumerator.Current => _items[_index];
+        object IEnumerator.Current => CoreIntrinsics.Box(_items[_index]);
         public void Reset() { _index = -1; }
         public void Dispose() { }
     }
@@ -954,7 +954,7 @@ namespace CsharpcCoreLib
         }
 
         public KeyValuePair<TKey, TValue> Current => new KeyValuePair<TKey, TValue>(_store.keys[_index], _store.values[_index]);
-        object IEnumerator.Current => Current;
+        object IEnumerator.Current => CoreIntrinsics.Box(Current);
         public void Reset() { _index = -1; }
         public void Dispose() { }
     }
