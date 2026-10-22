@@ -602,7 +602,7 @@ namespace CsharpcCoreLib
         private static string FormatInteger(ulong magnitude, bool negative, ulong raw, string format, int bits)
         {
             char fmt = ParseFormatSpecifier(format, out int precision);
-            if ((fmt == 'G' || fmt == 'g') && precision < 1 || ((fmt == 'R' || fmt == 'r') && precision < 0))
+            if ((fmt == 'G' || fmt == 'g' || fmt == 'R' || fmt == 'r') && precision < 1)
                 return negative ? Int64ToDecStr(-(long)(magnitude - 1) - 1) : UInt64ToDecStr(magnitude);
             if (bits < 64) raw &= (1UL << bits) - 1;
             Span<char> chars = stackalloc char[72];
@@ -644,7 +644,8 @@ namespace CsharpcCoreLib
             g.Neg = negative;
             IntegerDigits(magnitude, ref g);
             if (fmt == '\0') FormatCustom(ref sb, ref g, format);
-            else if (fmt == 'R' || fmt == 'r') ThrowBadFormat();
+            // Integers format "R<n>" as "G<n>" (case preserved: "r5" gives a lowercase exponent).
+            else if (fmt == 'R' || fmt == 'r') FormatStandard(ref sb, ref g, (char)(fmt - ('R' - 'G')), precision, false);
             else FormatStandard(ref sb, ref g, fmt, precision, false);
             return sb.Build();
         }
