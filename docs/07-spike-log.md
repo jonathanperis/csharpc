@@ -121,9 +121,9 @@ constructor crashes the compiler. Roslyn reports an implicit static constructor 
 (That crash was fixed shortly after: implicit static constructors are skipped, since static field
 initializers run from `__csharpc_static_init`.)
 
-## 2026-10-22, later the same day — from spike to M1 with parallel agents
+## 2026-10-22, later the same day — from spike to M1 with parallel workstreams
 
-The work was split into independent branches, each in its own git worktree, each owned by one agent
+The work was split into independent branches, each in its own git worktree, each owned by one workstream
 with a clear file-ownership boundary, and merged by an integrator (main thread) that kept the
 differential suite green after every merge. Order of merges and what each taught us:
 
