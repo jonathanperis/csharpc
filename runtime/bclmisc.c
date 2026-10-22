@@ -153,9 +153,13 @@ static CmpFn comparer(int32_t kind) {
     return fns[kind];
 }
 
+static int32_t kind_cmp(void* ctx, const void* a, const void* b);
+void csrt_array_introsort(csrt_Array* a, int64_t index, int64_t length, int64_t elem,
+                          int32_t (*cmp)(void*, const void*, const void*), void* ctx);
+
 void csrt_array_sort(csrt_Array* a, int32_t kind) {
     need_array(a, "array");
-    qsort(a->data, (size_t)a->length, (size_t)elem_size(kind), comparer(kind));
+    csrt_array_introsort(a, 0, a->length, elem_size(kind), kind_cmp, (void*)comparer(kind));
 }
 
 /// Array.BinarySearch: index, or the bitwise complement of the insertion point.
@@ -538,3 +542,98 @@ double csrt_math_round_mode(double value, int32_t digits, int32_t mode) {
     double r = strtod(kept, NULL);
     return negative ? -r : r;
 }
+
+// ---------------------------------------------------------------------------------------------
+// Array.Sort: a port of .NET's ArraySortHelper<T>.IntrospectiveSort, so results (including the
+// order of elements that compare equal) match the CLR exactly. Works on elements of any size;
+// cmp(ctx, a, b) receives element addresses.
+// ---------------------------------------------------------------------------------------------
+typedef int32_t (*CtxCmp)(void* ctx, const void* a, const void* b);
+typedef struct { uint8_t* base; int64_t elem; CtxCmp cmp; void* ctx; uint8_t* tmp; uint8_t* tmp2; } Sorter;
+
+#define AT(s, i) ((s)->base + (int64_t)(i) * (s)->elem)
+
+static void sw_swap(Sorter* s, int64_t i, int64_t j) {
+    if (i == j) return;
+    memcpy(s->tmp, AT(s, i), (size_t)s->elem);
+    memmove(AT(s, i), AT(s, j), (size_t)s->elem);
+    memcpy(AT(s, j), s->tmp, (size_t)s->elem);
+}
+static void swap_if_greater(Sorter* s, int64_t i, int64_t j) {
+    if (s->cmp(s->ctx, AT(s, i), AT(s, j)) > 0) sw_swap(s, i, j);
+}
+static void insertion_sort(Sorter* s, int64_t lo, int64_t n) {
+    for (int64_t i = 0; i < n - 1; i++) {
+        memcpy(s->tmp2, AT(s, lo + i + 1), (size_t)s->elem);
+        int64_t j = i;
+        while (j >= 0 && s->cmp(s->ctx, s->tmp2, AT(s, lo + j)) < 0) {
+            memcpy(AT(s, lo + j + 1), AT(s, lo + j), (size_t)s->elem);
+            j--;
+        }
+        memcpy(AT(s, lo + j + 1), s->tmp2, (size_t)s->elem);
+    }
+}
+static void down_heap(Sorter* s, int64_t lo, int64_t i, int64_t n) {
+    memcpy(s->tmp2, AT(s, lo + i - 1), (size_t)s->elem);
+    while (i <= n >> 1) {
+        int64_t child = 2 * i;
+        if (child < n && s->cmp(s->ctx, AT(s, lo + child - 1), AT(s, lo + child)) < 0) child++;
+        if (!(s->cmp(s->ctx, s->tmp2, AT(s, lo + child - 1)) < 0)) break;
+        memcpy(AT(s, lo + i - 1), AT(s, lo + child - 1), (size_t)s->elem);
+        i = child;
+    }
+    memcpy(AT(s, lo + i - 1), s->tmp2, (size_t)s->elem);
+}
+static void heap_sort(Sorter* s, int64_t lo, int64_t n) {
+    for (int64_t i = n >> 1; i >= 1; i--) down_heap(s, lo, i, n);
+    for (int64_t i = n; i > 1; i--) { sw_swap(s, lo, lo + i - 1); down_heap(s, lo, 1, i - 1); }
+}
+static int64_t pick_pivot_and_partition(Sorter* s, int64_t lo, int64_t n) {
+    int64_t hi = n - 1, middle = hi >> 1;
+    swap_if_greater(s, lo, lo + middle);
+    swap_if_greater(s, lo, lo + hi);
+    swap_if_greater(s, lo + middle, lo + hi);
+    uint8_t* pivot = malloc((size_t)s->elem);
+    memcpy(pivot, AT(s, lo + middle), (size_t)s->elem);
+    sw_swap(s, lo + middle, lo + hi - 1);
+    int64_t left = 0, right = hi - 1;
+    while (left < right) {
+        while (s->cmp(s->ctx, AT(s, lo + ++left), pivot) < 0) {}
+        while (s->cmp(s->ctx, pivot, AT(s, lo + --right)) < 0) {}
+        if (left >= right) break;
+        sw_swap(s, lo + left, lo + right);
+    }
+    if (left != hi - 1) sw_swap(s, lo + left, lo + hi - 1);
+    free(pivot);
+    return left;
+}
+static void intro_sort(Sorter* s, int64_t lo, int64_t n, int depth) {
+    while (n > 1) {
+        if (n <= 16) {
+            if (n == 2) { swap_if_greater(s, lo, lo + 1); return; }
+            if (n == 3) { swap_if_greater(s, lo, lo + 1); swap_if_greater(s, lo, lo + 2); swap_if_greater(s, lo + 1, lo + 2); return; }
+            insertion_sort(s, lo, n);
+            return;
+        }
+        if (depth == 0) { heap_sort(s, lo, n); return; }
+        depth--;
+        int64_t p = pick_pivot_and_partition(s, lo, n);
+        intro_sort(s, lo + p + 1, n - (p + 1), depth);
+        n = p;
+    }
+}
+
+void csrt_array_introsort(csrt_Array* a, int64_t index, int64_t length, int64_t elem, CtxCmp cmp, void* ctx) {
+    need_array(a, "array");
+    if (length < 0) { index = 0; length = a->length; }
+    if (index < 0 || index + length > a->length)
+        csrt_throw(&mt_argument, ascii("Offset and length were out of bounds for the array or count is greater than the number of elements from index to the end of the source collection."));
+    if (length < 2) return;
+    Sorter s = { a->data, elem, cmp, ctx, malloc((size_t)elem), malloc((size_t)elem) };
+    int depth = 2 * ((63 - __builtin_clzll((uint64_t)length)) + 1);
+    intro_sort(&s, index, length, depth);
+    free(s.tmp);
+    free(s.tmp2);
+}
+
+static int32_t kind_cmp(void* ctx, const void* a, const void* b) { return ((CmpFn)ctx)(a, b); }

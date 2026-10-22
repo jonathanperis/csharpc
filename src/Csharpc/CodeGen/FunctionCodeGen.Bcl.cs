@@ -13,6 +13,16 @@ namespace Csharpc.CodeGen;
 public sealed partial class FunctionCodeGen
 {
     internal LlvmContext Llvm => L;
+
+    /// <summary>Parameter i of the function being generated (for synthesized helpers).</summary>
+    internal LLVMValueRef ParamOf(uint index) => _fn.Fn.Param(index);
+
+    /// <summary>Emits the body of a compiler-synthesized function (no Roslyn method behind it).</summary>
+    internal void EmitSynthetic(Action body)
+    {
+        body();
+        Finish();
+    }
     internal TypeMapper Types => T;
 
     // ======================================================================================

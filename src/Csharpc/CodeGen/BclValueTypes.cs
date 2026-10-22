@@ -542,6 +542,67 @@ internal static class BclValueTypes
             Rt(g, "csrt_math_round_mode", g.Llvm.F64, (a[0], g.Llvm.F64), (I32(g, 0), g.Llvm.I32), (a[1], g.Llvm.I32));
         t["System.Math.Round(double, int, System.MidpointRounding)"] = (g, _, _, a, _) =>
             Rt(g, "csrt_math_round_mode", g.Llvm.F64, (a[0], g.Llvm.F64), (a[1], g.Llvm.I32), (a[2], g.Llvm.I32));
+        // Generic-math statics (INumber<T> & co.) that code calls as double.Round(x), int.Max(a, b), ...
+        foreach (var (type, bits) in new[] { ("double", 64), ("float", 32) })
+        {
+            var suffix = bits == 64 ? "f64" : "f32";
+            BclHandler unary(string llvm) => (g, _, _, a, _) =>
+            {
+                var f = g.Module.Intrinsic($"llvm.{llvm}.{suffix}", a[0].Type, a[0].Type);
+                return g.Builder.Call(f.Type, f.Fn, [a[0]]);
+            };
+            t[$"{type}.Round({type})"] = unary("roundeven");
+            t[$"{type}.Floor({type})"] = unary("floor");
+            t[$"{type}.Ceiling({type})"] = unary("ceil");
+            t[$"{type}.Truncate({type})"] = unary("trunc");
+            t[$"{type}.Sqrt({type})"] = unary("sqrt");
+            t[$"{type}.Abs({type})"] = unary("fabs");
+            t[$"{type}.Max({type}, {type})"] = (g, _, _, a, _) =>
+            {
+                var f = g.Module.Intrinsic($"llvm.maximum.{suffix}", a[0].Type, a[0].Type, a[0].Type);
+                return g.Builder.Call(f.Type, f.Fn, [a[0], a[1]]);
+            };
+            t[$"{type}.Min({type}, {type})"] = (g, _, _, a, _) =>
+            {
+                var f = g.Module.Intrinsic($"llvm.minimum.{suffix}", a[0].Type, a[0].Type, a[0].Type);
+                return g.Builder.Call(f.Type, f.Fn, [a[0], a[1]]);
+            };
+        }
+        t["double.Round(double, int)"] = (g, _, _, a, _) =>
+            Rt(g, "csrt_math_round_mode", g.Llvm.F64, (a[0], g.Llvm.F64), (a[1], g.Llvm.I32), (I32(g, 0), g.Llvm.I32));
+        t["double.Round(double, System.MidpointRounding)"] = (g, _, _, a, _) =>
+            Rt(g, "csrt_math_round_mode", g.Llvm.F64, (a[0], g.Llvm.F64), (I32(g, 0), g.Llvm.I32), (a[1], g.Llvm.I32));
+        t["double.Round(double, int, System.MidpointRounding)"] = (g, _, _, a, _) =>
+            Rt(g, "csrt_math_round_mode", g.Llvm.F64, (a[0], g.Llvm.F64), (a[1], g.Llvm.I32), (a[2], g.Llvm.I32));
+        foreach (var (type, signed) in new[] { ("int", true), ("long", true), ("uint", false), ("ulong", false), ("short", true), ("byte", false) })
+        {
+            t[$"{type}.Max({type}, {type})"] = (g, _, _, a, _) =>
+                g.Builder.Select(g.Builder.ICmp(signed ? LLVMIntPredicate.SGT : LLVMIntPredicate.UGT, a[0], a[1]), a[0], a[1]);
+            t[$"{type}.Min({type}, {type})"] = (g, _, _, a, _) =>
+                g.Builder.Select(g.Builder.ICmp(signed ? LLVMIntPredicate.SLT : LLVMIntPredicate.ULT, a[0], a[1]), a[0], a[1]);
+            t[$"{type}.Clamp({type}, {type}, {type})"] = (g, _, _, a, _) =>
+            {
+                var b = g.Builder;
+                var lo = b.Select(b.ICmp(signed ? LLVMIntPredicate.SLT : LLVMIntPredicate.ULT, a[0], a[1]), a[1], a[0]);
+                return b.Select(b.ICmp(signed ? LLVMIntPredicate.SGT : LLVMIntPredicate.UGT, lo, a[2]), a[2], lo);
+            };
+            if (signed)
+                t[$"{type}.Abs({type})"] = (g, _, _, a, _) =>
+                {
+                    var b = g.Builder; // .NET throws OverflowException for MinValue
+                    g.FailIf(b.ICmp(LLVMIntPredicate.EQ, a[0], g.Llvm.ConstUInt(a[0].Type, 1UL << (int)(a[0].Type.IntWidth - 1))), "csrt_throw_overflow");
+                    return b.Select(b.ICmp(LLVMIntPredicate.SLT, a[0], g.Llvm.ConstInt(a[0].Type, 0)), b.Neg(a[0]), a[0]);
+                };
+            t[$"{type}.Sign({type})"] = (g, _, _, a, _) => ICompare(g, a[0], g.Llvm.ConstInt(a[0].Type, 0), signed);
+            t[$"{type}.IsPow2({type})"] = (g, _, _, a, _) =>
+            {
+                var b = g.Builder;
+                var zero = g.Llvm.ConstInt(a[0].Type, 0);
+                var positive = signed ? b.ICmp(LLVMIntPredicate.SGT, a[0], zero) : b.ICmp(LLVMIntPredicate.NE, a[0], zero);
+                return b.BinOp(LLVMOpcode.And, positive,
+                    b.ICmp(LLVMIntPredicate.EQ, b.BinOp(LLVMOpcode.And, a[0], b.BinOp(LLVMOpcode.Sub, a[0], g.Llvm.ConstInt(a[0].Type, 1))), zero));
+            };
+        }
         t["string.IsNullOrWhiteSpace(string)"] = (g, _, _, a, _) => Rt(g, "csrt_string_is_null_or_white_space", g.Llvm.I1, (a[0], g.Llvm.Ptr));
         t["object.ReferenceEquals(object, object)"] = (g, _, _, a, _) => g.Builder.ICmp(LLVMIntPredicate.EQ, a[0], a[1]);
         t["object.Equals(object, object)"] = (g, _, _, a, _) => Rt(g, "csrt_object_equals_static", g.Llvm.I1, (a[0], g.Llvm.Ptr), (a[1], g.Llvm.Ptr));
@@ -786,12 +847,29 @@ internal static class BclValueTypes
             return g.Builder.Cast(LLVMOpcode.Trunc, Rt(g, "csrt_array_index_of", g.Llvm.I64, (a[0], g.Llvm.Ptr), (value, g.Llvm.Ptr),
                 (size(g, e), g.Llvm.I64), (I32(g, ElementKind(e)), g.Llvm.I32)), g.Llvm.I32);
         };
-        t[$"{A}.Sort(T[])"] = t[$"{A}.Sort({A})"] = (g, m, _, a, at) =>
+        // Array.Sort = .NET's introsort (runtime/bclmisc.c), so even ties end up in the CLR's order.
+        LLVMValueRef sortRange(FunctionCodeGen g, ITypeSymbol e, LLVMValueRef array, LLVMValueRef index, LLVMValueRef length, IOperation at)
         {
-            var e = ElementOrThrow(m, at, 0);
             var kind = ElementKind(e);
-            if (kind is 0 or 12) throw CompileError.Unsupported($"Array.Sort on '{e}' (needs IComparable dispatch)", at);
-            Rt(g, "csrt_array_sort", g.Llvm.Void, (a[0], g.Llvm.Ptr), (I32(g, kind), g.Llvm.I32));
+            var l = g.Llvm;
+            if (kind is not (0 or 12))
+            {
+                if (index.Handle == 0) return Rt(g, "csrt_array_sort", l.Void, (array, l.Ptr), (I32(g, kind), l.I32));
+                throw CompileError.Unsupported("Array.Sort(array, index, length) on primitives", at);
+            }
+            var cmp = g.Module.ComparableComparer(e) ?? throw CompileError.Unsupported($"Array.Sort on '{e}' (it does not implement IComparable<{e.Name}>)", at);
+            return Rt(g, "csrt_array_introsort", l.Void, (array, l.Ptr), (index.Handle == 0 ? I64(g, 0) : ToI64(g, index), l.I64),
+                (length.Handle == 0 ? I64(g, -1) : ToI64(g, length), l.I64), (size(g, e), l.I64), (cmp, l.Ptr), (LlvmContext.Null(l.Ptr), l.Ptr));
+        }
+        t[$"{A}.Sort(T[])"] = t[$"{A}.Sort({A})"] = (g, m, _, a, at) => { sortRange(g, ElementOrThrow(m, at, 0), a[0], default, default, at); return default; };
+        t[$"{A}.Sort(T[], int, int)"] = (g, m, _, a, at) => { sortRange(g, ElementOrThrow(m, at, 0), a[0], a[1], a[2], at); return default; };
+        t[$"{A}.Sort(T[], System.Comparison<T>)"] = (g, m, _, a, at) =>
+        {
+            var e = m.TypeArguments[0];
+            var l = g.Llvm;
+            g.NullCheck(a[1]);
+            var cmp = g.Module.DelegateComparer(e, (INamedTypeSymbol)m.Parameters[1].Type);
+            Rt(g, "csrt_array_introsort", l.Void, (a[0], l.Ptr), (I64(g, 0), l.I64), (I64(g, -1), l.I64), (size(g, e), l.I64), (cmp, l.Ptr), (a[1], l.Ptr));
             return default;
         };
         t[$"{A}.BinarySearch(T[], T)"] = (g, m, _, a, at) =>

@@ -6,6 +6,81 @@ namespace Csharpc.CodeGen;
 public sealed partial class ModuleCodeGen
 {
     private readonly Dictionary<string, LLVMValueRef> _arrayMethodTables = [];
+    private readonly Dictionary<string, LLVMValueRef> _comparers = [];
+
+    private LoweredFunction NewComparer(string key, out bool existed)
+    {
+        var type = Llvm.FunctionType(Llvm.I32, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr);
+        if (_comparers.TryGetValue(key, out var fn)) { existed = true; return new LoweredFunction(fn, type); }
+        existed = false;
+        fn = Module.AddFunction("csharpc.compare." + key, type);
+        Native.LLVMSetLinkage(fn, LLVMLinkage.Internal);
+        _comparers[key] = fn;
+        return new LoweredFunction(fn, type);
+    }
+
+    /// <summary>int cmp(ctx = Comparison&lt;T&gt; delegate, T* a, T* b) for csrt_array_introsort.</summary>
+    public LLVMValueRef DelegateComparer(ITypeSymbol element, INamedTypeSymbol comparison)
+    {
+        var lowered = NewComparer("delegate." + ClrName(element), out var existed);
+        if (existed) return lowered.Fn;
+        var g = new FunctionCodeGen(this, null, lowered);
+        g.EmitSynthetic(() =>
+        {
+            var a = g.LoadValue(g.ParamOf(1), element);
+            var b = g.LoadValue(g.ParamOf(2), element);
+            g.Builder.Ret(g.InvokeDelegate(g.ParamOf(0), comparison, a, b));
+        });
+        return lowered.Fn;
+    }
+
+    /// <summary>
+    /// Comparer&lt;T&gt;.Default for a user type implementing IComparable&lt;T&gt;: nulls sort first, then
+    /// a.CompareTo(b) (devirtualized when possible). Null if the type isn't IComparable&lt;T&gt;.
+    /// </summary>
+    public LLVMValueRef? ComparableComparer(ITypeSymbol element)
+    {
+        var comparable = element.AllInterfaces.FirstOrDefault(i =>
+            i.OriginalDefinition.ToDisplayString() == "System.IComparable<T>" && SymbolEqualityComparer.Default.Equals(i.TypeArguments[0], element));
+        if (comparable is null || !IsUserType(element)) return null;
+        var member = comparable.GetMembers("CompareTo").OfType<IMethodSymbol>().First();
+        if (element.FindImplementationForInterfaceMember(member) is not IMethodSymbol impl) return null;
+
+        var lowered = NewComparer("comparable." + ClrName(element), out var existed);
+        if (existed) return lowered.Fn;
+        var g = new FunctionCodeGen(this, null, lowered);
+        g.EmitSynthetic(() =>
+        {
+            var b = g.Builder;
+            if (element.IsValueType)
+            {
+                // struct: CompareTo(this = &a, other = b)
+                var other = g.LoadValue(g.ParamOf(2), element);
+                var f = GetFunction(impl);
+                b.Ret(b.Call(f.Type, f.Fn, [g.ParamOf(1), other]));
+                return;
+            }
+            var x = b.Load(Llvm.Ptr, g.ParamOf(1));
+            var y = b.Load(Llvm.Ptr, g.ParamOf(2));
+            var xNull = b.ICmp(LLVMIntPredicate.EQ, x, LlvmContext.Null(Llvm.Ptr));
+            var yNull = b.ICmp(LLVMIntPredicate.EQ, y, LlvmContext.Null(Llvm.Ptr));
+            var call = g.NewBlock("cmp.call");
+            var nulls = g.NewBlock("cmp.nulls");
+            b.CondBr(b.BinOp(LLVMOpcode.Or, xNull, yNull), nulls, call);
+            b.PositionAtEnd(nulls);
+            // both null: 0; x null: -1; y null: 1
+            b.Ret(b.Select(xNull, b.Select(yNull, Llvm.ConstInt(Llvm.I32, 0), Llvm.ConstInt(Llvm.I32, -1)), Llvm.ConstInt(Llvm.I32, 1)));
+            b.PositionAtEnd(call);
+            var dispatch = (impl.IsVirtual || impl.IsOverride || impl.IsAbstract) && !impl.IsSealed && !element.IsSealed;
+            if (dispatch) b.Ret(g.VirtualCall(impl, x, [x, y]));
+            else
+            {
+                var f = GetFunction(impl);
+                b.Ret(b.Call(f.Type, f.Fn, [x, y]));
+            }
+        });
+        return lowered.Fn;
+    }
     private readonly Dictionary<INamedTypeSymbol, LLVMValueRef> _enumMethodTables = new(SymbolEqualityComparer.Default);
 
     /// <summary>
