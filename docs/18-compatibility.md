@@ -137,42 +137,70 @@ Other COMPILE-ERROR causes:
 ## Bugs: wrong output and crashes
 
 Each bug has a minimal reproducer in `tools/compat/repros/`. Run `tools/compat/repro.sh FILE.cs`,
-which runs the file under `dotnet run` and under csharpc and diffs the results. None of the bugs
-are fixed here.
+which runs the file under `dotnet run` and under csharpc and diffs the results. The **status**
+column shows what changed after the report (branch `compat-fixes`, regression samples
+`tests/samples/220`–`229`, project tests in `tests/projects/cli`).
 
 ### RUNTIME-DIFF / RUNTIME-CRASH (silent differences — the worst category)
 
-| repro | found in | bug |
-|---|---|---|
-| [`oftype_object_array.cs`](../tools/compat/repros/oftype_object_array.cs) | samples `core/linq/csharp/conversion` (RUNTIME-CRASH) | Arrays don't implement non-generic `System.Collections.IEnumerable` at run time. `o is IEnumerable` is silently `False`, and a cast throws `InvalidCastException`, so `OfType<T>()`/`Cast<T>()` on arrays crash |
-| [`nan_constant_pattern.cs`](../tools/compat/repros/nan_constant_pattern.cs) | docs `language-reference/statements/{jump,selection}-statements` (2 programs) | `case double.NaN:` / `is float.NaN` never matches. Patterns use `Equals` semantics, but csharpc uses ordered `fcmp oeq` |
-| [`tfm_define_constants.cs`](../tools/compat/repros/tfm_define_constants.cs) | docs `fundamentals/program-structure/preprocessor-directives` | `NET`, `NET11_0`, `NET10_0_OR_GREATER`, `NETCOREAPP` … are not defined. The SDK adds them in a build target, after the evaluation that csharpc reads, so `#if` silently picks another branch |
-| [`static_ctor_eager.cs`](../tools/compat/repros/static_ctor_eager.cs) | docs `programming-guide/classes-and-structs/constructors` | Static constructors run eagerly at startup. .NET runs them on first use of the type, and never for an unused type, so output appears early or spuriously |
-| [`ordinal_ignore_case_non_ascii.cs`](../tools/compat/repros/ordinal_ignore_case_non_ascii.cs) | docs `standard/base-types/best-practices-strings/comparison2` | `StringComparison.OrdinalIgnoreCase` folds only ASCII. Cyrillic, Greek and Latin-1 case variants compare unequal (`Compare` returns 32 instead of 0) |
-| [`array_copy_negative_length_message.cs`](../tools/compat/repros/array_copy_negative_length_message.cs) | docs `standard/exceptions/how-to-use-finally-blocks` | `Array.Copy` with a negative length gives an old-style message ("Non-negative number required.") instead of .NET 11's `ThrowNegative` text, and `ParamName` is empty |
-| [`exception_tostring_stack_trace.cs`](../tools/compat/repros/exception_tostring_stack_trace.cs) | docs `standard/exceptions/how-to-use-the-try-catch-block-to-catch-exceptions` | `Exception.ToString()` has no stack-trace lines. Byte-identical stack traces are not achievable, but the difference is silent. The program prints `$"... {e}"` |
+| repro | found in | bug | status |
+|---|---|---|---|
+| [`oftype_object_array.cs`](../tools/compat/repros/oftype_object_array.cs) | samples `core/linq/csharp/conversion` (RUNTIME-CRASH) | Arrays don't implement non-generic `System.Collections.IEnumerable` at run time. `o is IEnumerable` is silently `False`, and a cast throws `InvalidCastException`, so `OfType<T>()`/`Cast<T>()` on arrays crash | fixed: arrays get exact per-element-type interface maps, including non-generic `IEnumerable`/`IList` (sample 224) |
+| [`nan_constant_pattern.cs`](../tools/compat/repros/nan_constant_pattern.cs) | docs `language-reference/statements/{jump,selection}-statements` (2 programs) | `case double.NaN:` / `is float.NaN` never matches. Patterns use `Equals` semantics, but csharpc uses ordered `fcmp oeq` | fixed (sample 223) |
+| [`tfm_define_constants.cs`](../tools/compat/repros/tfm_define_constants.cs) | docs `fundamentals/program-structure/preprocessor-directives` | `NET`, `NET11_0`, `NET10_0_OR_GREATER`, `NETCOREAPP` … are not defined. The SDK adds them in a build target, after the evaluation that csharpc reads, so `#if` silently picks another branch | fixed: projects run the SDK's `AddImplicitDefineConstants` target, and single files get the same set plus `TRACE` and `DEBUG`/`RELEASE` (sample 220, `tests/projects/cli/TfmDefines`) |
+| [`static_ctor_eager.cs`](../tools/compat/repros/static_ctor_eager.cs) | docs `programming-guide/classes-and-structs/constructors` | Static constructors run eagerly at startup. .NET runs them on first use of the type, and never for an unused type, so output appears early or spuriously | fixed: lazy initialization with CoreCLR's triggers, `TypeInitializationException` (samples 227, 228) |
+| [`ordinal_ignore_case_non_ascii.cs`](../tools/compat/repros/ordinal_ignore_case_non_ascii.cs) | docs `standard/base-types/best-practices-strings/comparison2` | `StringComparison.OrdinalIgnoreCase` folds only ASCII. Cyrillic, Greek and Latin-1 case variants compare unequal (`Compare` returns 32 instead of 0) | fixed: full simple case mapping, including surrogate pairs (sample 225) |
+| [`array_copy_negative_length_message.cs`](../tools/compat/repros/array_copy_negative_length_message.cs) | docs `standard/exceptions/how-to-use-finally-blocks` | `Array.Copy` with a negative length gives an old-style message ("Non-negative number required.") instead of .NET 11's `ThrowNegative` text, and `ParamName` is empty | fixed, together with the other `Array` and collection argument checks (samples 221, 222) |
+| [`exception_tostring_stack_trace.cs`](../tools/compat/repros/exception_tostring_stack_trace.cs) | docs `standard/exceptions/how-to-use-the-try-catch-block-to-catch-exceptions` | `Exception.ToString()` has no stack-trace lines. Byte-identical stack traces are not achievable, but the difference is silent. The program prints `$"... {e}"` | not fixable byte for byte. The output stays as is, and the compiler now warns with `CSLLVM0006` wherever a program turns an exception into text ([04-runtime.md](04-runtime.md)) |
 
 ### COMPILE-CRASH and compile bugs
 
-| repro | found in | bug |
-|---|---|---|
-| [`ice_lambda_in_extension_block.cs`](../tools/compat/repros/ice_lambda_in_extension_block.cs) | docs `linq/HowToExtend` | SIGSEGV, with no diagnostic, on a lambda inside a member of a C# 14 `extension(...)` block, even when the member is never called |
-| [`ice_extension_block_static_call.cs`](../tools/compat/repros/ice_extension_block_static_call.cs) | docs `programming-guide/classes-and-structs/ExtensionMembers` | Invalid IR (`Global is external, but doesn't have external or weak linkage`) when an extension-block method is called in static form, `E.WordCount(s)` |
-| [`ice_union_collection_expression.cs`](../tools/compat/repros/ice_union_collection_expression.cs) | docs `whats-new/tutorials/.../SmartHome.App` | C# 15 `union` types crash the compiler (SIGSEGV / stack overflow in `LLVMBuildStore` via `EmitCollectionExpression`) instead of producing `CSLLVM0001` |
-| [`ice_object_is_double_constant.cs`](../tools/compat/repros/ice_object_is_double_constant.cs) | (found while minimizing the NaN bug) | `object o; o is 1.5` / `o is double.NaN` emits `icmp eq ptr, double`, which is invalid IR, because the operand is never type-tested or unboxed |
-| [`startup_object/`](../tools/compat/repros/startup_object/) | 18 docs projects | `<StartupObject>` ignored, giving `CSLLVM0003` (blocker row 2) |
-| [`projectref_struct_definite_assignment/`](../tools/compat/repros/projectref_struct_definite_assignment/) | docs `compiler-messages/WarningWaves` | Folding `ProjectReference` sources into one compilation (ADR 0006) changes C# semantics. Definite-assignment rules are relaxed for structs imported from another assembly (warning `CS8882`), but strict within one compilation (error `CS0177`) |
+| repro | found in | bug | status |
+|---|---|---|---|
+| [`ice_lambda_in_extension_block.cs`](../tools/compat/repros/ice_lambda_in_extension_block.cs) | docs `linq/HowToExtend` | SIGSEGV, with no diagnostic, on a lambda inside a member of a C# 14 `extension(...)` block, even when the member is never called | fixed (sample 226) |
+| [`ice_extension_block_static_call.cs`](../tools/compat/repros/ice_extension_block_static_call.cs) | docs `programming-guide/classes-and-structs/ExtensionMembers` | Invalid IR (`Global is external, but doesn't have external or weak linkage`) when an extension-block method is called in static form, `E.WordCount(s)` | fixed (sample 226) |
+| [`ice_union_collection_expression.cs`](../tools/compat/repros/ice_union_collection_expression.cs) | docs `whats-new/tutorials/.../SmartHome.App` | C# 15 `union` types crash the compiler (SIGSEGV / stack overflow in `LLVMBuildStore` via `EmitCollectionExpression`) instead of producing `CSLLVM0001` | now `CSLLVM0001` (union types) |
+| [`ice_object_is_double_constant.cs`](../tools/compat/repros/ice_object_is_double_constant.cs) | (found while minimizing the NaN bug) | `object o; o is 1.5` / `o is double.NaN` emits `icmp eq ptr, double`, which is invalid IR, because the operand is never type-tested or unboxed | fixed (sample 223) |
+| [`startup_object/`](../tools/compat/repros/startup_object/) | 18 docs projects | `<StartupObject>` ignored, giving `CSLLVM0003` (blocker row 2) | fixed (`tests/projects/cli/StartupObject`) |
+| [`projectref_struct_definite_assignment/`](../tools/compat/repros/projectref_struct_definite_assignment/) | docs `compiler-messages/WarningWaves` | Folding `ProjectReference` sources into one compilation (ADR 0006) changes C# semantics. Definite-assignment rules are relaxed for structs imported from another assembly (warning `CS8882`), but strict within one compilation (error `CS0177`) | fixed: diagnostics come from per-project compilations, files are parsed with their own project's symbols, and other merged-only errors are explicit (`tests/projects/cli/ProjectRefs`) |
+
+### Re-run of the affected programs after the fixes
+
+All 31 programs listed above as COMPILE-CRASH, COMPILE-ERROR (except the two `FrameworkReference`
+programs) or RUNTIME-DIFF/CRASH were re-run with `tools/compat/run.sh` at the end of the fix
+branch. **17 now pass**: `samples core/linq/conversion`, the NaN, preprocessor, constructors,
+`comparison2`, extension-member and `WarningWaves` programs, and 10 of the 18 `<StartupObject>`
+programs. The other 14 now stop at the following causes:
+
+- **Explicit diagnostics**, most of them blockers already listed above:
+  `Exception.GetType()`, `ulong.TryParse`, `Console.ReadKey` (2), deriving from `EventArgs` and
+  `JsonConverter<T>`/`JsonSerializerContext`, `DateTimeOffset`, `GC.SuppressFinalize`, and C# 15
+  unions.
+- **Unions**: Roslyn binding error `CS0117`, as before.
+- **Stack traces** (2 programs): only the `   at ...` lines differ. In the `CatchException`
+  program, the `File name: '...'` line that `FileNotFoundException.ToString()` adds is also
+  missing.
+- **New bugs**, previously hidden behind `<StartupObject>`:
+  - `object-collection-initializers` crashes with `InvalidCastException`. A corelib struct
+    enumerator (`List<T>.Enumerator`), returned as the non-generic `IEnumerator`, isn't castable
+    to it.
+  - The JSON `how-to` project crashes the compiler (SIGSEGV while computing class layouts).
+- **Fixed during the re-run**: the `lambda-expressions` program silently printed an empty line
+  for an `Expression<Func<...>>`. Expression trees are now `CSLLVM0001`. The `WarningWaves`
+  program needed `CS0269` in the set of merged-compilation definite-assignment errors. It then
+  produced invalid IR for user-defined operators lifted to nullable structs, which are now
+  lowered (sample 229), and it passes.
 
 ## Recommendations
 
 In order of programs gained per unit of work:
 
-1. **Fix the silent bugs first.** These break the one rule. The fixes: arrays as non-generic
+1. **Fix the silent bugs first** (done on `compat-fixes`, see the status column above). These break the one rule. The fixes: arrays as non-generic
    `IEnumerable`, NaN constant patterns, TFM define constants, lazy static constructors (with
    `beforefieldinit` semantics), non-ASCII `OrdinalIgnoreCase`, the `Array.Copy` message. Each
    gets a sample in `tests/samples/`. The extension-block and union crashes should at least become
    `CSLLVM0001` diagnostics.
-2. **`<StartupObject>`.** One property affects 18 programs, 6.4 % of the corpus. For now they stop
+2. **`<StartupObject>`** (done). One property affects 18 programs, 6.4 % of the corpus. For now they stop
    at `CSLLVM0003`, so other blockers may still surface behind it.
 3. **Small corelib gaps with a high "only" count:** `StringBuilder.Append($"...")` (6 programs
    with no other blocker), `Console.ReadKey` with redirected input (7), the argument throw
