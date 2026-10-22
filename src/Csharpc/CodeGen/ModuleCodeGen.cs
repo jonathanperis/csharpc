@@ -28,7 +28,8 @@ public sealed class ModuleCodeGen
     private readonly Dictionary<string, LLVMValueRef> _globals = [];
     private readonly Dictionary<string, LLVMValueRef> _strings = [];
     private readonly Dictionary<SyntaxTree, SemanticModel> _models = [];
-    private readonly Queue<(IMethodSymbol Method, ControlFlowGraph Cfg)> _pendingLocalFunctions = new();
+    private readonly Queue<ClosureFunction> _pendingNested = new();
+    private int _lambdaCounter;
     private readonly List<INamedTypeSymbol> _userTypes = [];
 
     public ModuleCodeGen(Compilation compilation, LlvmContext llvm, LlvmModule module, TargetMachine target)
@@ -69,7 +70,7 @@ public sealed class ModuleCodeGen
                     case TypeKind.Class or TypeKind.Enum: break;
                     case TypeKind.Struct: throw CompileError.Unsupported($"struct '{type.Name}'", type);
                     case TypeKind.Interface: throw CompileError.Unsupported($"interface '{type.Name}'", type);
-                    case TypeKind.Delegate: throw CompileError.Unsupported($"delegate '{type.Name}'", type);
+                    case TypeKind.Delegate: break; // runtime-implemented: { mt, target, fn } objects
                     default: throw CompileError.Unsupported($"{type.TypeKind} '{type.Name}'", type);
                 }
                 if (type.IsGenericType) throw CompileError.Unsupported($"generic type '{type.Name}'", type);
@@ -83,8 +84,8 @@ public sealed class ModuleCodeGen
             foreach (var method in type.GetMembers().OfType<IMethodSymbol>())
                 Guard(method, () => EmitMethod(method));
 
-        while (_pendingLocalFunctions.TryDequeue(out var local))
-            Guard(local.Method, () => EmitLocalFunction(local.Method, local.Cfg));
+        while (_pendingNested.TryDequeue(out var nested))
+            Guard(nested.Symbol!, () => EmitNestedFunction(nested));
 
         // 3. Static initialization + the native entry point.
         Guard(entryPoint, EmitStaticInitializer);
@@ -131,7 +132,9 @@ public sealed class ModuleCodeGen
         if (method.IsAsync) throw CompileError.Unsupported($"async method '{method.Name}'", method);
 
         var type = FunctionTypeOf(method);
-        var fn = Module.AddFunction(Mangler.Method(method), type);
+        var name = Mangler.Method(method);
+        if (method.MethodKind == MethodKind.AnonymousFunction) name += "$lambda" + _lambdaCounter++;
+        var fn = Module.AddFunction(name, type);
         // Closed-world, whole-program compilation (like NativeAOT): everything but main is internal,
         // which lets LLVM's IPO passes inline, specialize and delete freely.
         Native.LLVMSetLinkage(fn, LLVMLinkage.Internal);
@@ -143,13 +146,14 @@ public sealed class ModuleCodeGen
     /// Whether the lowered function takes `this`. Non-static local functions report IsStatic=false
     /// but have no receiver (capturing ones get an environment from closure conversion instead).
     /// </summary>
-    public static bool HasThis(IMethodSymbol method) => !method.IsStatic && method.MethodKind != MethodKind.LocalFunction;
+    public static bool HasThis(IMethodSymbol method) => !method.IsStatic && !IsNestedFunction(method);
 
     /// <summary>this (if instance) + parameters (by-ref as ptr) -> return; constructors return void.</summary>
     public LLVMTypeRef FunctionTypeOf(IMethodSymbol method)
     {
         List<LLVMTypeRef> parameters = [];
-        if (HasThis(method)) parameters.Add(Llvm.Ptr);
+        if (IsNestedFunction(method)) parameters.Add(Llvm.Ptr); // closure environment (may be null)
+        else if (HasThis(method)) parameters.Add(Llvm.Ptr);
         foreach (var p in method.Parameters)
             parameters.Add(p.RefKind == RefKind.None ? Types.Value(p.Type) : Llvm.Ptr);
         var returnType = method.MethodKind == MethodKind.Constructor ? Llvm.Void : Types.Value(method.ReturnType);
@@ -168,6 +172,9 @@ public sealed class ModuleCodeGen
             Llvm.AddFunctionAttribute(fn, "cold");
         }
         Llvm.AddFunctionAttribute(fn, "nounwind");
+        // Allocation returns fresh memory nothing else points to (non-moving GC), which lets LLVM
+        // forward stores into new objects — e.g. devirtualize and inline a just-created delegate.
+        if (name is "csrt_alloc" or "csrt_new_array") Llvm.AddReturnAttribute(fn, "noalias");
         return _runtime[name] = new LoweredFunction(fn, type);
     }
 
@@ -228,19 +235,61 @@ public sealed class ModuleCodeGen
         }
     }
 
-    internal void EnqueueLocalFunctions(ControlFlowGraph cfg)
+    /// <summary>Lambdas and local functions use the closure calling convention: env first.</summary>
+    public static bool IsNestedFunction(IMethodSymbol method) =>
+        method.MethodKind is MethodKind.LocalFunction or MethodKind.AnonymousFunction;
+
+    internal void EnqueueNested(ClosureFunction function)
     {
-        foreach (var local in cfg.LocalFunctions)
+        foreach (var child in function.Children)
         {
-            var localCfg = cfg.GetLocalFunctionControlFlowGraph(local);
-            _pendingLocalFunctions.Enqueue((local, localCfg));
+            if (child.Enqueued) continue;
+            child.Enqueued = true;
+            _pendingNested.Enqueue(child);
         }
     }
 
-    private void EmitLocalFunction(IMethodSymbol method, ControlFlowGraph cfg)
+    private void EmitNestedFunction(ClosureFunction function)
     {
-        Dump(method, cfg);
-        new FunctionCodeGen(this, method, GetFunction(method)).Emit([], cfg);
+        Dump(function.Symbol!, function.Cfg);
+        new FunctionCodeGen(this, function.Symbol, GetFunction(function.Symbol!), function).Emit([], function.Cfg);
+    }
+
+    /// <summary>
+    /// Adapts a static method to the delegate convention fn(target, args...): the thunk ignores target.
+    /// </summary>
+    public LLVMValueRef StaticThunk(IMethodSymbol method)
+    {
+        var key = "thunk:" + Mangler.Method(method);
+        if (_globals.TryGetValue(key, out var existing)) return existing;
+        var target = GetFunction(method);
+        List<LLVMTypeRef> parameters = [Llvm.Ptr];
+        foreach (var p in method.Parameters) parameters.Add(p.RefKind == RefKind.None ? Types.Value(p.Type) : Llvm.Ptr);
+        var returnType = Types.Value(method.ReturnType);
+        var type = Llvm.FunctionType(returnType, [.. parameters]);
+        var thunk = Module.AddFunction(Mangler.Method(method) + "$thunk", type);
+        Native.LLVMSetLinkage(thunk, LLVMLinkage.Internal);
+        using var b = new IrBuilder(Llvm);
+        b.PositionAtEnd(b.AppendBlock(thunk, "entry"));
+        var args = Enumerable.Range(1, method.Parameters.Length).Select(i => thunk.Param((uint)i)).ToArray();
+        var result = b.Call(target.Type, target.Fn, args);
+        if (returnType.IsVoid) b.RetVoid(); else b.Ret(result);
+        return _globals[key] = thunk;
+    }
+
+    /// <summary>Delegate objects get a per-type method table with System.Object's default vtable.</summary>
+    public LLVMValueRef DelegateMethodTable(INamedTypeSymbol type)
+    {
+        var name = Mangler.MetadataName(type);
+        if (type.IsGenericType)
+            name += "[" + string.Join(",", type.TypeArguments.Select(t => t is INamedTypeSymbol n ? Mangler.MetadataName(n) : t.ToDisplayString())) + "]";
+        var key = "dmt:" + name;
+        if (_globals.TryGetValue(key, out var g)) return g;
+        string[] defaults = ["csrt_object_to_string_default", "csrt_object_equals_default", "csrt_object_get_hash_code_default"];
+        var init = Llvm.ConstStruct(ExternalGlobal("csrt_Object_MT"), CString(name), Llvm.ConstInt(Llvm.I32, 24), Llvm.ConstInt(Llvm.I32, 0),
+            LlvmContext.ConstArray(Llvm.Ptr, [.. defaults.Select(d => Runtime(d, Llvm.Ptr, Llvm.Ptr).Fn)]));
+        g = Module.AddGlobal("csrt.dmt." + name, Native.LLVMTypeOf(init), init, constant: true, linkage: LLVMLinkage.Private);
+        return _globals[key] = g;
     }
 
     /// <summary>Field and auto-property initializers of a type, each as its own small CFG.</summary>
