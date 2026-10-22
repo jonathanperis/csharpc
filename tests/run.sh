@@ -9,7 +9,7 @@
 #   tests/run.sh --all-opts   run the suite at -O0 and -O2
 #   tests/run.sh 06           only samples whose name contains "06"
 #
-# Environment: CSHARPC_OPT=-O0 (same as --opt), CSHARPC_TEST_TIMEOUT=20 (seconds per binary),
+# Environment: CSHARPC_FLAGS="-g" (extra compiler flags, e.g. run the suite with debug info), CSHARPC_OPT=-O0 (same as --opt), CSHARPC_TEST_TIMEOUT=20 (seconds per binary),
 #              DOTNET=path/to/dotnet.
 set -uo pipefail
 
@@ -68,7 +68,7 @@ for opt in "${OPTS[@]}"; do
     [[ -f "$SAMPLES/$name.exitcode" ]] && want_code="$(cat "$SAMPLES/$name.exitcode")"
 
     exe="$OUT/$name$opt"
-    if ! "${CSHARPC[@]}" "$opt" "$src" -o "$exe" 2> "$OUT/$name.compile"; then
+    if ! "${CSHARPC[@]}" "$opt" ${CSHARPC_FLAGS:-} "$src" -o "$exe" 2> "$OUT/$name.compile"; then
       echo "FAIL $label (compile error)"; sed 's/^/     /' "$OUT/$name.compile" | head -8
       fail=$((fail + 1)); failed+=("$label"); continue
     fi

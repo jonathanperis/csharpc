@@ -72,6 +72,13 @@ public sealed partial class FunctionCodeGen
         _allocas = new IrBuilder(module.Llvm);
         _entry = _b.AppendBlock(fn.Fn, "entry");
         _allocas.PositionAtEnd(_entry);
+        // -g: describe the function and give every instruction a location (starting at its declaration).
+        _dbg = module.Debug?.BeginFunction(fn.Fn, method);
+        if (_dbg is not null)
+        {
+            _dbg.SetLocation(_b, _dbg.Line, 0);
+            _dbg.SetLocation(_allocas, _dbg.Line, 0);
+        }
 
         // Spill parameters to allocas (mem2reg will undo this) so they're assignable like locals.
         uint index = 0;
@@ -84,6 +91,7 @@ public sealed partial class FunctionCodeGen
         {
             _this = fn.Fn.Param(index++);
             _this.SetName("this");
+            if (_dbg is not null) _dbg.Owner.DeclareThis(_dbg, _this, S(method.ContainingType), _entry);
         }
         if (method is not null && ModuleCodeGen.HasExtensionReceiver(method) && method.ContainingType.ExtensionParameter is { } receiver)
         {
@@ -116,6 +124,7 @@ public sealed partial class FunctionCodeGen
             if (pType.SpecialType == SpecialType.System_Boolean) value = _allocas.Cast(LLVMOpcode.ZExt, value, L.I8);
             _allocas.Store(value, slot);
             _slots[p.OriginalDefinition] = slot;
+            _dbg?.Owner.DeclareVariable(_dbg, slot, p.Name, pType, p.Locations.FirstOrDefault(), index, _entry);
         }
 
         // Partial members: the implementation part's parameters are distinct symbols — alias them.
@@ -278,8 +287,9 @@ public sealed partial class FunctionCodeGen
     }
 
     /// <summary>Errors raised deep inside (e.g. mapping a library type) get the operation's source location.</summary>
-    private static void WithLocation(IOperation? at, Action action)
+    private void WithLocation(IOperation? at, Action action)
     {
+        SetDebugLocation(at);
         try { action(); }
         catch (CompileError e) when (e.Location is not { IsInSource: true } && at is not null)
         {
@@ -549,7 +559,19 @@ public sealed partial class FunctionCodeGen
         if (local.IsRef) return _b.Load(L.Ptr, RefLocalPointer(local), local.Name); // ref locals hold an address
         if (!_ownLocals.Contains(local))
             throw CompileError.Unsupported($"closure: local function or lambda capturing '{local.Name}'", local);
-        return _slots[local] = _allocas.Alloca(T.Storage(S(local.Type)), local.Name);
+        var localSlot = _slots[local] = _allocas.Alloca(T.Storage(S(local.Type)), local.Name);
+        _dbg?.Owner.DeclareVariable(_dbg, localSlot, local.Name, S(local.Type), local.Locations.FirstOrDefault(), 0, _entry);
+        return localSlot;
+    }
+
+    private readonly FunctionDebug? _dbg;
+
+    /// <summary>-g: subsequent instructions get the source position of <paramref name="at"/>.</summary>
+    private void SetDebugLocation(IOperation? at)
+    {
+        if (_dbg is null || at is null || at.Syntax.SyntaxTree.FilePath is not { Length: > 0 }) return;
+        var position = at.Syntax.GetLocation().GetLineSpan().StartLinePosition;
+        _dbg.SetLocation(_b, position.Line + 1, position.Character + 1);
     }
 
     private readonly Dictionary<ILocalSymbol, LLVMValueRef> _refLocals = new(SymbolEqualityComparer.Default);

@@ -14,7 +14,7 @@ csharpc path/to/dir/                  # the single .csproj in that directory
 csharpc                               # the single .csproj in the current directory
 csharpc App.csproj -o out/            # -> out/App   (trailing '/' or an existing directory)
 csharpc App.csproj -o app.native      # explicit file name
-csharpc App.csproj -c Debug           # -O0  (Release, the default, is -O2; an explicit -O wins)
+csharpc App.csproj -c Debug           # -O0 -g (Release, the default, is -O2; explicit -O / -g0 win; see 11-debugging.md)
 csharpc App.csproj -p:TargetFramework=net11.0 -p:Foo=Bar   # MSBuild global properties
 csharpc App.csproj --emit llvm-ir     # every --emit kind works with projects too
 ```

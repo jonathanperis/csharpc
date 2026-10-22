@@ -12,6 +12,9 @@ public sealed record CompilerOptions
     public string? Cpu { get; set; }
     public string? Features { get; set; }
     public bool DumpCfg { get; set; }
+    /// <summary>Emit DWARF debug info (-g; implied by -c Debug).</summary>
+    public bool Debug { get; set; }
+    public bool DebugExplicit { get; set; }
     public bool Verbose { get; set; }
     public bool ShowWarnings { get; set; }
     public bool ImplicitUsings { get; set; } = true;
@@ -38,6 +41,8 @@ public sealed record CompilerOptions
           -p:<Name>=<Value>      MSBuild global property used when evaluating a project
           --emit <kind>          exe (default) | obj | asm | llvm-ir | llvm-bc
           -O0 | -O1 | -O2 | -O3  Optimization level (default: -O2)
+          -g, --debug            Emit DWARF debug info (C# source-level debugging with gdb/lldb)
+          -g0                    No debug info (default; overrides -c Debug)
           --target <triple>      Target triple (default: host)
           --cpu <name>           Target CPU: native, x86-64-v3, znver4, ... (default: best x86-64-vN the host supports)
           --features <list>      Extra LLVM target features, e.g. +avx512f
@@ -100,6 +105,8 @@ public sealed record CompilerOptions
                 case "--no-runtime-lto": o.RuntimeLto = false; break;
                 case "--cc": o.CC = Next(); break;
                 case "--dump-cfg": o.DumpCfg = true; break;
+                case "-g" or "--debug": o.Debug = true; o.DebugExplicit = true; break;
+                case "-g0": o.Debug = false; o.DebugExplicit = true; break;
                 case "-W": o.ShowWarnings = true; break;
                 case "-v" or "--verbose": o.Verbose = true; break;
                 case var _ when a.StartsWith('-'): throw new ArgumentException($"unknown option '{a}'");
@@ -108,6 +115,7 @@ public sealed record CompilerOptions
         }
         if (!o.OptLevelExplicit)
             o.OptLevel = o.Configuration.Equals("Debug", StringComparison.OrdinalIgnoreCase) ? 0 : 2;
+        if (!o.DebugExplicit && o.Configuration.Equals("Debug", StringComparison.OrdinalIgnoreCase)) o.Debug = true;
 
         // Drop-in mode: a .csproj, a directory, or nothing (the project in the current directory).
         var projects = o.Inputs.Where(i => i.EndsWith(".csproj", StringComparison.OrdinalIgnoreCase) || Directory.Exists(i)).ToList();
