@@ -372,4 +372,62 @@ namespace CsharpcCoreLib
 
         public static void Free(IntPtr handle) { }
     }
+
+#pragma warning disable CS8500 // blittable element types only (what the generator uses these for)
+    [Shadows("System.Runtime.InteropServices.Marshalling.SpanMarshaller`2")]
+    internal static unsafe class SpanMarshallerImpl<T, TUnmanaged> where TUnmanaged : unmanaged
+    {
+        [Shadows("System.Runtime.InteropServices.Marshalling.SpanMarshaller`2+ManagedToUnmanagedIn")]
+        internal ref struct ManagedToUnmanagedIn
+        {
+            public static ref T GetPinnableReference(Span<T> managed)
+            {
+                if (managed.Length == 0) return ref *(T*)null;
+                return ref managed[0];
+            }
+        }
+    }
+
+    [Shadows("System.Runtime.InteropServices.Marshalling.ReadOnlySpanMarshaller`2")]
+    internal static unsafe class ReadOnlySpanMarshallerImpl<T, TUnmanaged> where TUnmanaged : unmanaged
+    {
+        [Shadows("System.Runtime.InteropServices.Marshalling.ReadOnlySpanMarshaller`2+ManagedToUnmanagedIn")]
+        internal ref struct ManagedToUnmanagedIn
+        {
+            public static ref readonly T GetPinnableReference(ReadOnlySpan<T> managed)
+            {
+                if (managed.Length == 0) return ref *(T*)null;
+                return ref managed[0];
+            }
+        }
+    }
+
+    [Shadows("System.Runtime.InteropServices.Marshalling.ArrayMarshaller`2")]
+    internal static unsafe class ArrayMarshallerImpl<T, TUnmanaged> where TUnmanaged : unmanaged
+    {
+        public static TUnmanaged* AllocateContainerForUnmanagedElements(T[] managed, out int numElements)
+        {
+            if (managed == null) { numElements = 0; return null; }
+            numElements = managed.Length;
+            return (TUnmanaged*)Libc.Alloc((nuint)(numElements * sizeof(TUnmanaged)));
+        }
+
+        public static ReadOnlySpan<T> GetManagedValuesSource(T[] managed) => managed;
+        public static Span<TUnmanaged> GetUnmanagedValuesDestination(TUnmanaged* unmanaged, int numElements) => new Span<TUnmanaged>(unmanaged, numElements);
+        public static T[] AllocateContainerForManagedElements(TUnmanaged* unmanaged, int numElements) => unmanaged == null ? null : new T[numElements];
+        public static Span<T> GetManagedValuesDestination(T[] managed) => managed;
+        public static ReadOnlySpan<TUnmanaged> GetUnmanagedValuesSource(TUnmanaged* unmanagedValue, int numElements) => new ReadOnlySpan<TUnmanaged>(unmanagedValue, numElements);
+        public static void Free(TUnmanaged* unmanaged) => Libc.free(unmanaged);
+
+        [Shadows("System.Runtime.InteropServices.Marshalling.ArrayMarshaller`2+ManagedToUnmanagedIn")]
+        internal ref struct ManagedToUnmanagedIn
+        {
+            public static ref T GetPinnableReference(T[] array)
+            {
+                if (array == null || array.Length == 0) return ref *(T*)null;
+                return ref array[0];
+            }
+        }
+    }
+#pragma warning restore CS8500
 }
