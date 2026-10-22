@@ -35,7 +35,10 @@ were already correct in `corelib/Number.Formatting.cs` / `StringOps.cs`. The rem
 (`strings2.c`) became C#: string members with `StringComparison`, `Split(char, count, options)`,
 `StartsWith/EndsWith(char)`, `string.Equals(object)` (`StringOps.cs`), `StringBuilder.AppendFormat`,
 `Console.Write(char[])`, `Math.IEEERemainder`; primitive hashes reuse the compiler's `HashOf`, and
-boxed-primitive `IComparable`/`IFormattable` slots are generated thunks.
+boxed-primitive `IComparable`/`IFormattable` slots are generated thunks. The merge also fixed
+`CreateSaturating` between integers (it truncated) and compound assignment to an interface property
+through an interface-typed receiver (`N++` in a default interface method crashed); regression sample
+`179_conformance2_merge_fixes`.
 
 Areas: evalorder, overloads, conversions, interpolation, switches, structs, boxing, dispatch,
 interfaces, generics, generics2, exceptions, closures, lambdas2, iterators, async, linq, records,

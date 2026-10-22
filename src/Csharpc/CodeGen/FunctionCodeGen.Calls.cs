@@ -143,7 +143,26 @@ public sealed partial class FunctionCodeGen
         if (from is null || to.SpecialType == SpecialType.None || from.SpecialType == SpecialType.None
             || to.SpecialType == SpecialType.System_Decimal || from.SpecialType == SpecialType.System_Decimal) return null;
         var value = EmitValue(argument);
+        if (target.Name == "CreateSaturating" && value.Type.IsInteger && T.Value(to).IsInteger && !to.IsReferenceType)
+            return SaturateInteger(value, from, to);
+        // Float sources already saturate in ConvertNumeric (.NET 9+ conversion semantics).
         return ConvertNumeric(value, from, to, inv, isChecked: target.Name == "CreateChecked");
+    }
+
+    /// <summary>Integer → integer CreateSaturating: clamp to the target's range (in 128 bits, so every pair fits).</summary>
+    private LLVMValueRef SaturateInteger(LLVMValueRef value, ITypeSymbol from, ITypeSymbol to)
+    {
+        var dst = T.Value(to);
+        var i128 = L.IntType(128);
+        var wide = _b.Cast(TypeMapper.IsSigned(from) ? LLVMOpcode.SExt : LLVMOpcode.ZExt, value, i128);
+        var bits = (int)dst.IntWidth;
+        var signed = TypeMapper.IsSigned(to);
+        var min = signed ? L.ConstInt(i128, bits == 64 ? long.MinValue : -(1L << (bits - 1))) : L.ConstInt(i128, 0);
+        var max = signed ? L.ConstInt(i128, bits == 64 ? long.MaxValue : (1L << (bits - 1)) - 1)
+            : L.ConstUInt(i128, bits == 64 ? ulong.MaxValue : (1UL << bits) - 1);
+        var low = _b.Select(_b.ICmp(LLVMIntPredicate.SLT, wide, min), min, wide);
+        var clamped = _b.Select(_b.ICmp(LLVMIntPredicate.SGT, low, max), max, low);
+        return _b.Cast(LLVMOpcode.Trunc, clamped, dst);
     }
 
     /// <summary>ValueTuple instance methods: element-wise comparison/equality/hashing like .NET's ValueTuple.</summary>
@@ -528,6 +547,20 @@ public sealed partial class FunctionCodeGen
     private LLVMValueRef CallAccessor(IPropertyReferenceOperation p, IMethodSymbol accessor, LLVMValueRef self, LLVMValueRef[] extra)
     {
         var isBase = p.Instance?.Syntax is BaseExpressionSyntax;
+        // Interface property through an interface-typed receiver (`ic.N += 1`, `N++` inside a default
+        // interface method): interface dispatch — interface members have no class vtable slot.
+        if (accessor.ContainingType.TypeKind == TypeKind.Interface && !accessor.IsStatic && !isBase
+            && TypeOf(p.Instance) is { TypeKind: TypeKind.Interface })
+        {
+            if (!ReceiverIsNonNull(p.Instance, accessor)) NullCheck(self);
+            var args = new LLVMValueRef[1 + accessor.Parameters.Length];
+            args[0] = self;
+            foreach (var argument in p.Arguments)
+                args[1 + argument.Parameter!.Ordinal] = _argumentCache is not null && _argumentCache.TryGetValue(argument, out var cached)
+                    ? cached : EmitArgument(argument, accessor);
+            for (var i = 0; i < extra.Length; i++) args[args.Length - extra.Length + i] = extra[i];
+            return InterfaceDispatch(accessor, self, args);
+        }
         return EmitUserCall(accessor, self, ReceiverIsNonNull(p.Instance, accessor), p.Arguments, isVirtual: !isBase, extra);
     }
 
