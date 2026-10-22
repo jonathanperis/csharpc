@@ -53,6 +53,13 @@ internal static class Intrinsics
         return g.Coerce(g.EmitValue(argument.Value), argument.Value.Type, argument.Parameter!.Type);
     }
 
+    /// <summary>Argument 0 widened to i64 (sign- or zero-extended).</summary>
+    private static LLVMValueRef ArgAsI64(FunctionCodeGen g, IInvocationOperation inv, bool signed)
+    {
+        var value = Arg(g, inv, 0);
+        return value.Type.IntWidth == 64 ? value : g.Builder.Cast(signed ? LLVMOpcode.SExt : LLVMOpcode.ZExt, value, g.Module.Llvm.I64);
+    }
+
     private static FrozenDictionary<string, IntrinsicHandler> BuildMethods()
     {
         Dictionary<string, IntrinsicHandler> t = [];
@@ -151,9 +158,14 @@ internal static class Intrinsics
         t["System.Text.StringBuilder.Append(string)"] = sbAppend("csrt_sb_append_string", (g, inv) => [Arg(g, inv, 0)], l => [l.Ptr]);
         t["System.Text.StringBuilder.Append(char)"] = sbAppend("csrt_sb_append_char", (g, inv) => [Arg(g, inv, 0), g.Module.Llvm.ConstInt(g.Module.Llvm.I32, 1)], l => [l.I16, l.I32]);
         t["System.Text.StringBuilder.Append(char, int)"] = sbAppend("csrt_sb_append_char", (g, inv) => [Arg(g, inv, 0), Arg(g, inv, 1)], l => [l.I16, l.I32]);
-        foreach (var type in new[] { "int", "long", "uint", "ulong", "double", "float", "bool", "object", "short", "byte" })
+        foreach (var type in new[] { "double", "float", "object" })
             t[$"System.Text.StringBuilder.Append({type})"] = sbAppend("csrt_sb_append_string",
                 (g, inv) => [g.ToStringValue(inv.Arguments[0].Value)], l => [l.Ptr]);
+        // Integers and bools format straight into the builder's buffer (no temporary string).
+        foreach (var (type, signed) in new[] { ("int", true), ("long", true), ("short", true), ("sbyte", true), ("uint", false), ("ulong", false), ("ushort", false), ("byte", false) })
+            t[$"System.Text.StringBuilder.Append({type})"] = sbAppend(signed ? "csrt_sb_append_i64" : "csrt_sb_append_u64",
+                (g, inv) => [ArgAsI64(g, inv, signed)], l => [l.I64]);
+        t["System.Text.StringBuilder.Append(bool)"] = sbAppend("csrt_sb_append_bool", (g, inv) => [Arg(g, inv, 0)], l => [l.I1]);
         t["System.Text.StringBuilder.AppendLine()"] = sbAppend("csrt_sb_append_char",
             (g, _) => [g.Module.Llvm.ConstInt(g.Module.Llvm.I16, '\n'), g.Module.Llvm.ConstInt(g.Module.Llvm.I32, 1)], l => [l.I16, l.I32]);
         t["System.Text.StringBuilder.AppendLine(string)"] = (g, inv) =>

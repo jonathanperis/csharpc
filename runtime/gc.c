@@ -272,11 +272,19 @@ void csrt_gc_init(void) {
 #endif
 }
 
-static void* alloc_large(size_t size) {
+#define CALLOC_THRESHOLD ((size_t)128 * 1024)
+
+static void* alloc_large(size_t size, bool clear) {
     size = (size + 15) & ~(size_t)15;
     void* p = NULL;
-    if (posix_memalign(&p, 16, size) != 0) return NULL;
-    memset(p, 0, size);
+    if (size >= CALLOC_THRESHOLD) {
+        // glibc serves these with fresh mmap'd pages: zeroed for free, no memset touching every page.
+        p = calloc(1, size);
+        if (!p) return NULL;
+    } else {
+        if (posix_memalign(&p, 16, size) != 0) return NULL;
+        if (clear) memset(p, 0, size);
+    }
     if (g.large_count == g.large_capacity) {
         size_t capacity = g.large_capacity ? g.large_capacity * 2 : 64;
         LargeObject* grown = realloc(g.large, capacity * sizeof *grown);
@@ -307,11 +315,11 @@ __attribute__((noinline, cold)) static void* alloc_small_slow(uint32_t cls) {
     return sc->word_base + (size_t)__builtin_ctzll(bits) * k_size_classes[cls];
 }
 
-__attribute__((noinline)) static void* alloc_large_slow(size_t size) {
+__attribute__((noinline)) static void* alloc_large_slow(size_t size, bool clear) {
     if (!g.initialized) csrt_gc_init();
     if (g.enabled && g.allocated_since_gc >= g.trigger) collect();
-    void* result = alloc_large(size);
-    if (!result && g.enabled) { collect(); result = alloc_large(size); }
+    void* result = alloc_large(size, clear);
+    if (!result && g.enabled) { collect(); result = alloc_large(size, clear); }
     if (result) {
         size_t charged = (size + 15) & ~(size_t)15;
         g.allocated_since_gc += charged;
@@ -322,8 +330,8 @@ __attribute__((noinline)) static void* alloc_large_slow(size_t size) {
     return result;
 }
 
-void* csrt_gc_alloc(size_t size) {
-    if (__builtin_expect(size > LARGE_LIMIT, 0)) return alloc_large_slow(size);
+static inline void* gc_alloc(size_t size, bool clear) {
+    if (__builtin_expect(size > LARGE_LIMIT, 0)) return alloc_large_slow(size, clear);
     uint32_t cls = size_class_of(size);
     SizeClass* sc = &g.classes[cls];
     uint64_t bits = sc->free_bits;
@@ -335,9 +343,13 @@ void* csrt_gc_alloc(size_t size) {
         slot = alloc_small_slow(cls);
         if (!slot) return NULL;
     }
-    memset(slot, 0, k_size_classes[cls]);  // C# semantics: fresh objects are zeroed
+    if (clear) memset(slot, 0, k_size_classes[cls]);  // C# semantics: fresh objects are zeroed
     return slot;
 }
+
+void* csrt_gc_alloc(size_t size) { return gc_alloc(size, true); }
+
+void* csrt_gc_alloc_noclear(size_t size) { return gc_alloc(size, false); }
 
 int64_t csrt_gc_total_memory(void) { return (int64_t)(g.live_bytes + g.allocated_since_gc); }
 
@@ -405,9 +417,10 @@ static void drain(void) {
         g.mark_count--;
         uint8_t* start = g.mark_stack[g.mark_count].start;
         size_t size = g.mark_stack[g.mark_count].size;
-        // Word 0 is the method-table pointer (static data, never a heap reference); strings hold
-        // only UTF-16 data, so they have nothing to scan at all.
-        if (*(const void* const*)start == (const void*)&csrt_String_MT.header) continue;
+        // Word 0 is the method-table pointer (static data, never a heap reference); strings and
+        // arrays of primitives hold no references, so they have nothing to scan at all.
+        const void* mt = *(const void* const*)start;
+        if (mt == (const void*)&csrt_String_MT.header || mt == (const void*)&csrt_PrimitiveArray_MT.header) continue;
         scan_range(start + sizeof(void*), start + size);
     }
 }

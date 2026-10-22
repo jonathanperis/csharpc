@@ -255,7 +255,9 @@ public sealed partial class FunctionCodeGen
     private LLVMValueRef NewArray(ITypeSymbol elementType, LLVMValueRef length)
     {
         var elementSize = T.Target.SizeOf(T.Storage(elementType));
-        return CallRuntime("csrt_new_array", L.Ptr, [L.I64, L.I64], L.ConstInt(L.I64, (long)elementSize), length);
+        // Arrays of primitives/enums hold no references: a distinct method table lets the GC skip them.
+        var helper = Optimizations.HoldsNoReferences(elementType) ? "csrt_new_array_primitive" : "csrt_new_array";
+        return CallRuntime(helper, L.Ptr, [L.I64, L.I64], L.ConstInt(L.I64, (long)elementSize), length);
     }
 
     private void StoreElements(LLVMValueRef array, ITypeSymbol elementType, ImmutableArray<IOperation> values)
