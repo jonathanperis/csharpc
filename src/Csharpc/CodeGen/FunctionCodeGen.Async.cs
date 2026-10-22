@@ -36,6 +36,10 @@ public sealed partial class FunctionCodeGen
         public LLVMBasicBlockRef Cleanup { get; set; }
         public LLVMBasicBlockRef SuspendReturn { get; set; }
         public LLVMBasicBlockRef Complete { get; set; }
+        /// <summary>Entered with the escaping exception in <see cref="ExceptionSlot"/>: fault the task / iterator.</summary>
+        public LLVMBasicBlockRef Fault { get; set; }
+        public LLVMBasicBlockRef Pad { get; set; }
+        public LLVMValueRef ExceptionSlot { get; set; }
     }
 
     private CoroutineState? _coro;
@@ -96,12 +100,53 @@ public sealed partial class FunctionCodeGen
             CallRuntime("csrt_async_iterator_finished", L.Void, [L.Ptr], coro.Promise); // MoveNextAsync() -> false
         _b.Br(coro.Cleanup);
 
+        // Exceptions escaping the body (C# semantics): captured into the task (even before the first
+        // await), parked for the iterator's MoveNext() caller, or — async void — a process crash.
+        coro.ExceptionSlot = _allocas.Alloca(L.Ptr, "coro.exn");
+        coro.Fault = NewBlock("coro.fault");
+        _b.PositionAtEnd(coro.Fault);
+        var escaped = _b.Load(L.Ptr, coro.ExceptionSlot, "exn");
+        if (kind == CoroutineKind.Async && _fn.Type.ReturnType().IsVoid)
+        {
+            CallRuntime("csrt_unhandled_exception", L.Void, [L.Ptr], escaped);
+            _b.Unreachable();
+        }
+        else
+        {
+            var faultFn = kind switch
+            {
+                CoroutineKind.Async => "csrt_task_fault",
+                CoroutineKind.Iterator => "csrt_iterator_fault",
+                _ => "csrt_async_iterator_fault",
+            };
+            CallRuntime(faultFn, L.Void, [L.Ptr, L.Ptr], coro.Promise, escaped);
+            _b.Br(coro.Cleanup);
+        }
+
         _b.PositionAtEnd(current);
         if (isIterator)
         {
             CallRuntime("csrt_iterator_set_frame", L.Void, [L.Ptr, L.Ptr], coro.Promise, coro.Handle);
             Suspend(coro.Cleanup); // initial suspend: nothing runs until MoveNext()
         }
+    }
+
+    /// <summary>Catch-all landing pad for code of a coroutine body that no try region protects.</summary>
+    private LLVMBasicBlockRef CoroutinePad()
+    {
+        var coro = _coro!;
+        if (!coro.Pad.IsNull) return coro.Pad;
+        EnsurePersonality();
+        var (savedBlock, savedUnwind) = (_b.InsertBlock, _b.UnwindDest);
+        _b.UnwindDest = default;
+        coro.Pad = NewBlock("coro.lpad");
+        _b.PositionAtEnd(coro.Pad);
+        var lp = _b.LandingPad(LandingPadType, _m.Runtime("csrt_personality", L.I32).Fn, [LlvmContext.Null(L.Ptr)], cleanup: false);
+        _b.Store(CallRuntime("csrt_begin_catch", L.Ptr, [L.Ptr], _b.ExtractValue(lp, 0)), coro.ExceptionSlot);
+        _b.Br(coro.Fault);
+        _b.PositionAtEnd(savedBlock);
+        _b.UnwindDest = savedUnwind;
+        return coro.Pad;
     }
 
     /// <summary>
@@ -211,6 +256,7 @@ public sealed partial class FunctionCodeGen
         Suspend(coro.Cleanup);
         _b.Br(ready);
         _b.PositionAtEnd(ready);
+        CallRuntime("csrt_task_throw_if_faulted", L.Void, [L.Ptr], task); // rethrows the original exception
         return TaskResult(task, TypeOf(await));
     }
 
@@ -230,6 +276,41 @@ public sealed partial class FunctionCodeGen
         StoreValue(ToStorage(value, resultType), _b.InBoundsGep(L.I8, task, [L.ConstInt(L.I64, PromisePayloadOffset)]));
         CallRuntime("csrt_task_complete", L.Void, [L.Ptr], task);
         return task;
+    }
+
+    /// <summary>
+    /// TaskCompletionSource&lt;T&gt;.SetResult / TrySetResult (the TCS *is* its task). Set*: throws if the
+    /// task already completed; TrySet*: returns false instead and leaves the result untouched.
+    /// </summary>
+    internal LLVMValueRef SetTaskResult(LLVMValueRef task, LLVMValueRef? value, ITypeSymbol? type, bool tryMode)
+    {
+        NullCheck(task);
+        if (value is null || type is null)
+            return tryMode ? CallRuntime("csrt_task_try_complete", L.I1, [L.Ptr], task)
+                : CallRuntime("csrt_task_complete", L.Void, [L.Ptr], task);
+        var pending = NewBlock("tcs.pending");
+        var done = NewBlock("tcs.done");
+        var already = CallRuntime("csrt_task_is_completed", L.I1, [L.Ptr], task);
+        if (tryMode)
+        {
+            var result = NewTemp(L.I8, "tcs.ok");
+            _b.Store(L.ConstInt(L.I8, 0), result);
+            _b.CondBr(already, done, pending);
+            _b.PositionAtEnd(pending);
+            StoreValue(ToStorage(value.Value, type), _b.InBoundsGep(L.I8, task, [L.ConstInt(L.I64, PromisePayloadOffset)]));
+            CallRuntime("csrt_task_complete", L.Void, [L.Ptr], task);
+            _b.Store(L.ConstInt(L.I8, 1), result);
+            _b.Br(done);
+            _b.PositionAtEnd(done);
+            return _b.Cast(LLVMOpcode.Trunc, _b.Load(L.I8, result), L.I1);
+        }
+        _b.CondBr(already, done, pending); // completed: csrt_task_complete below throws InvalidOperationException
+        _b.PositionAtEnd(pending);
+        StoreValue(ToStorage(value.Value, type), _b.InBoundsGep(L.I8, task, [L.ConstInt(L.I64, PromisePayloadOffset)]));
+        _b.Br(done);
+        _b.PositionAtEnd(done);
+        CallRuntime("csrt_task_complete", L.Void, [L.Ptr], task);
+        return default;
     }
 
     /// <summary>Calls a delegate object with no arguments: fn(target).</summary>

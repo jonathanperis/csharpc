@@ -33,13 +33,13 @@ static const csrt_BuiltinMethodTable csrt_CoroFrame_MT = {
 // Layout shared with the compiler (FunctionCodeGen.Async.cs): payload at offset 48.
 typedef struct csrt_Task {
     const csrt_MethodTable* mt;
-    int32_t state;            // 0 pending, 1 completed
+    int32_t state;            // 0 pending, 1 ran to completion, 2 faulted, 3 canceled
     int32_t payload_size;
     csrt_Array* conts;        // pairs (kind, ptr)
     int32_t ncont;
     int32_t pad;
-    void* reserved0;
-    void* reserved1;
+    void* exception;          // faulted: the exception `await` rethrows (the first one)
+    void* aggregate;          // faulted: Task.Exception (AggregateException), created lazily
     uint8_t payload[];        // Task<T> result
 } csrt_Task;
 
@@ -59,9 +59,20 @@ typedef struct csrt_Iterator {
 _Static_assert(offsetof(csrt_Iterator, payload) == 48, "iterator payload offset is part of the compiler ABI");
 _Static_assert(offsetof(csrt_Iterator, state) == 8, "iterator state offset is part of the compiler ABI");
 
-enum { K_RESUME = 1, K_WHEN_ALL = 2, K_CHAIN = 3, K_WHEN_ANY = 4, K_RUN_ACTION = 5, K_RUN_FUNC_TASK = 6 };
+enum { K_RESUME = 1, K_WHEN_ALL = 2, K_CHAIN = 3, K_WHEN_ANY = 4, K_RUN_ACTION = 5, K_RUN_FUNC_TASK = 6, K_CANCEL_SOURCE = 7 };
 
 typedef struct { const csrt_MethodTable* mt; void* target; void* fn; } Delegate;
+
+enum { T_PENDING = 0, T_DONE = 1, T_FAULTED = 2, T_CANCELED = 3 };
+
+// Calls fn(arg) and returns the managed exception it threw (or null). Defined by csharpc in LLVM IR
+// (invoke + catch-all landing pad — C can't catch); these weak fallbacks don't catch.
+__attribute__((weak)) void* csrt_call_catching_void(void (*fn)(void*), void* arg) { fn(arg); return NULL; }
+__attribute__((weak)) void* csrt_call_catching_ptr(void* (*fn)(void*), void* arg, void** result) { *result = fn(arg); return NULL; }
+
+static void finish(csrt_Task* t, int32_t state);
+static const csrt_MethodTable mt_invalid_operation = { NULL, "System.InvalidOperationException", 0, 0 };
+static const char k_already_completed[] = "An attempt was made to transition a task to a final state when it had already completed.";
 
 typedef struct {
     const csrt_MethodTable* mt;
@@ -143,7 +154,10 @@ static uint8_t s_zero_payload[64];
 
 void* csrt_task_result_ptr(csrt_Task* t) { return t ? (void*)t->payload : (void*)s_zero_payload; }
 
-bool csrt_task_is_completed(csrt_Task* t) { return !t || t->state != 0; }
+bool csrt_task_is_completed(csrt_Task* t) { return !t || t->state != T_PENDING; }
+bool csrt_task_is_faulted(csrt_Task* t) { return t && t->state == T_FAULTED; }
+bool csrt_task_is_canceled(csrt_Task* t) { return t && t->state == T_CANCELED; }
+bool csrt_task_is_completed_successfully(csrt_Task* t) { return !t || t->state == T_DONE; }
 
 static void add_continuation(csrt_Task* t, intptr_t kind, void* p) {
     int64_t cap = t->conts ? t->conts->length / 2 : 0;
@@ -162,6 +176,29 @@ void csrt_task_complete(csrt_Task* t);
 
 static void when_all_step(WhenAllState* s) {
     if (--s->remaining > 0) return;
+    // Faulted inputs: the result faults with all their exceptions (await rethrows the first);
+    // otherwise any canceled input cancels the result.
+    int64_t n = s->tasks->length, faulted = 0;
+    bool canceled = false;
+    for (int64_t i = 0; i < n; i++) {
+        csrt_Task* t = words(s->tasks)[i];
+        if (t->state == T_FAULTED) faulted++;
+        else if (t->state == T_CANCELED) canceled = true;
+    }
+    if (faulted > 0) {
+        void** inners = malloc(sizeof(void*) * (size_t)faulted);
+        int64_t k = 0;
+        for (int64_t i = 0; i < n; i++) {
+            csrt_Task* t = words(s->tasks)[i];
+            if (t->state == T_FAULTED) inners[k++] = t->exception;
+        }
+        s->result->exception = inners[0];
+        s->result->aggregate = csrt_aggregate_exception_new(inners, faulted);
+        free(inners);
+        finish(s->result, T_FAULTED);
+        return;
+    }
+    if (canceled) { finish(s->result, T_CANCELED); return; }
     if (s->element_size > 0) {
         int64_t n = s->tasks->length;
         csrt_Array* values = csrt_new_array(s->element_size, n);
@@ -173,14 +210,69 @@ static void when_all_step(WhenAllState* s) {
 }
 
 static void chain(csrt_Task* from, csrt_Task* to) {
+    if (from && from->state == T_FAULTED) { to->exception = from->exception; finish(to, T_FAULTED); return; }
+    if (from && from->state == T_CANCELED) { finish(to, T_CANCELED); return; }
     int32_t n = to->payload_size < (from ? from->payload_size : 0) ? to->payload_size : (from ? from->payload_size : 0);
     if (n > 0) memcpy(to->payload, from->payload, (size_t)n);
     csrt_task_complete(to);
 }
 
 void csrt_task_complete(csrt_Task* t) {
-    if (t->state != 0) async_fail("An attempt was made to transition a task to a final state when it had already completed.");
-    t->state = 1;
+    if (t->state != T_PENDING) csrt_throw(&mt_invalid_operation, csrt_string_from_utf8(k_already_completed));
+    finish(t, T_DONE);
+}
+
+/// Stores an exception that escaped an async method (or SetException) and completes the task.
+void csrt_task_fault(csrt_Task* t, void* exception) {
+    if (t->state != T_PENDING) csrt_throw(&mt_invalid_operation, csrt_string_from_utf8(k_already_completed));
+    t->exception = exception;
+    finish(t, T_FAULTED);
+}
+
+void csrt_task_cancel(csrt_Task* t) {
+    if (t->state != T_PENDING) csrt_throw(&mt_invalid_operation, csrt_string_from_utf8(k_already_completed));
+    finish(t, T_CANCELED);
+}
+
+bool csrt_task_try_complete(csrt_Task* t) { if (t->state != T_PENDING) return false; finish(t, T_DONE); return true; }
+bool csrt_task_try_fault(csrt_Task* t, void* e) { if (t->state != T_PENDING) return false; t->exception = e; finish(t, T_FAULTED); return true; }
+bool csrt_task_try_cancel(csrt_Task* t) { if (t->state != T_PENDING) return false; finish(t, T_CANCELED); return true; }
+
+/// `await t` / GetAwaiter().GetResult(): rethrow the original exception; canceled -> TaskCanceledException.
+void csrt_task_throw_if_faulted(csrt_Task* t) {
+    if (!t) return;
+    if (t->state == T_FAULTED) csrt_rethrow(t->exception);
+    if (t->state == T_CANCELED) csrt_throw_object(csrt_task_canceled_exception_new());
+}
+
+/// Task.Exception: an AggregateException for faulted tasks, else null.
+void* csrt_task_exception(csrt_Task* t) {
+    if (!t || t->state != T_FAULTED) return NULL;
+    if (!t->aggregate) t->aggregate = csrt_aggregate_exception_new(&t->exception, 1);
+    return t->aggregate;
+}
+
+/// .Result / .Wait(): failures surface wrapped in an AggregateException.
+void csrt_task_throw_aggregate_if_faulted(csrt_Task* t) {
+    if (!t) return;
+    if (t->state == T_FAULTED) csrt_throw_object(csrt_task_exception(t));
+    if (t->state == T_CANCELED) {
+        void* inner = csrt_task_canceled_exception_new();
+        csrt_throw_object(csrt_aggregate_exception_new(&inner, 1));
+    }
+}
+
+/// Task.FromException(e) / FromException<T>(e)
+csrt_Task* csrt_task_from_exception(void* exception, int32_t payload_size) {
+    if (!exception) csrt_throw_null_reference();
+    csrt_Task* t = csrt_task_new(payload_size);
+    t->exception = exception;
+    t->state = T_FAULTED;
+    return t;
+}
+
+static void finish(csrt_Task* t, int32_t state) {
+    t->state = state;
     for (int32_t i = 0; i < t->ncont; i++) {
         intptr_t kind = (intptr_t)words(t->conts)[i * 2];
         void* p = words(t->conts)[i * 2 + 1];
@@ -210,15 +302,19 @@ csrt_Task* csrt_task_completed_task(void) {
     return s_completed;
 }
 
-csrt_Task* csrt_task_delay(int32_t ms) {
-    if (ms == 0) return csrt_task_completed_task();
-    if (ms < -1) {
-        fflush(stdout);
-        fputs("Unhandled exception. System.ArgumentOutOfRangeException: The value needs to be either -1 (signifying an infinite timeout), 0 or a positive integer. (Parameter 'millisecondsDelay')\n", stderr);
-        abort();
-    }
-    csrt_Task* t = csrt_task_new(0);
-    if (ms == -1) return t;  // never completes
+typedef struct CancellationSource {
+    const csrt_MethodTable* mt;
+    int32_t canceled;
+    int32_t ncallbacks;
+    csrt_Array* callbacks;   // registered Action delegates
+} CancellationSource;
+
+const csrt_BuiltinMethodTable csrt_CancellationTokenSource_MT = {
+    { &csrt_Object_MT.header, "System.Threading.CancellationTokenSource", sizeof(CancellationSource), 0 },
+    { (void*)csrt_object_to_string_default, (void*)csrt_object_equals_default, (void*)csrt_object_get_hash_code_default },
+};
+
+static void add_timer(int64_t deadline, csrt_Task* task, CancellationSource* token) {
     int64_t cap = s_timers ? s_timers->length / 3 : 0;
     if (s_ntimers == cap) {
         int64_t ncap = cap ? cap * 2 : 16;
@@ -226,11 +322,90 @@ csrt_Task* csrt_task_delay(int32_t ms) {
         if (s_timers) memcpy(grown->data, s_timers->data, (size_t)s_ntimers * 3 * sizeof(void*));
         s_timers = grown;
     }
-    words(s_timers)[s_ntimers * 3] = (void*)(intptr_t)(now_ms() + ms);
-    words(s_timers)[s_ntimers * 3 + 1] = t;
-    words(s_timers)[s_ntimers * 3 + 2] = NULL;
+    words(s_timers)[s_ntimers * 3] = (void*)(intptr_t)deadline;
+    words(s_timers)[s_ntimers * 3 + 1] = task;
+    words(s_timers)[s_ntimers * 3 + 2] = token;
     s_ntimers++;
+}
+
+static void remove_timer(int64_t index) {
+    memmove(words(s_timers) + index * 3, words(s_timers) + (index + 1) * 3, (size_t)(s_ntimers - index - 1) * 3 * sizeof(void*));
+    s_ntimers--;
+    words(s_timers)[s_ntimers * 3 + 1] = words(s_timers)[s_ntimers * 3 + 2] = NULL;
+}
+
+csrt_Task* csrt_task_delay_token(int32_t ms, CancellationSource* token);
+
+csrt_Task* csrt_task_delay(int32_t ms) { return csrt_task_delay_token(ms, NULL); }
+
+csrt_Task* csrt_task_delay_token(int32_t ms, CancellationSource* token) {
+    if (token && token->canceled) { csrt_Task* t = csrt_task_new(0); t->state = T_CANCELED; return t; }
+    if (ms == 0) return csrt_task_completed_task();
+    if (ms < -1) {
+        fflush(stdout);
+        fputs("Unhandled exception. System.ArgumentOutOfRangeException: The value needs to be either -1 (signifying an infinite timeout), 0 or a positive integer. (Parameter 'millisecondsDelay')\n", stderr);
+        abort();
+    }
+    csrt_Task* t = csrt_task_new(0);
+    if (ms == -1 && !token) return t;  // never completes
+    add_timer(ms == -1 ? INT64_MAX : now_ms() + ms, t, token);
     return t;
+}
+
+// ---------------------------------------------------------------------------------------------
+// CancellationTokenSource / CancellationToken (a token is its source pointer; default = null)
+// ---------------------------------------------------------------------------------------------
+CancellationSource* csrt_cts_new(void) { return csrt_alloc(&csrt_CancellationTokenSource_MT.header, sizeof(CancellationSource)); }
+
+void csrt_cts_cancel(CancellationSource* cts) {
+    if (!cts) csrt_throw_null_reference();
+    if (cts->canceled) return;
+    cts->canceled = 1;
+    // Delays waiting on this token are canceled (in creation order).
+    for (int64_t i = 0; i < s_ntimers;) {
+        if (words(s_timers)[i * 3 + 2] == cts && words(s_timers)[i * 3 + 1]) {
+            csrt_Task* t = words(s_timers)[i * 3 + 1];
+            remove_timer(i);
+            if (t->state == T_PENDING) finish(t, T_CANCELED);
+        } else i++;
+    }
+    // Registered callbacks run synchronously, most recently registered first (like .NET).
+    for (int32_t i = cts->ncallbacks - 1; i >= 0; i--) {
+        Delegate* d = words(cts->callbacks)[i];
+        ((void (*)(void*))d->fn)(d->target);
+    }
+}
+
+CancellationSource* csrt_cts_new_after(int32_t ms) {
+    CancellationSource* cts = csrt_cts_new();
+    if (ms == 0) cts->canceled = 1;
+    else if (ms > 0) add_timer(now_ms() + ms, NULL, cts);
+    return cts;
+}
+
+void csrt_cts_cancel_after(CancellationSource* cts, int32_t ms) {
+    if (!cts) csrt_throw_null_reference();
+    if (ms == 0) csrt_cts_cancel(cts);
+    else if (ms > 0) add_timer(now_ms() + ms, NULL, cts);
+}
+
+bool csrt_token_is_cancellation_requested(CancellationSource* token) { return token && token->canceled; }
+
+void csrt_token_throw_if_cancellation_requested(CancellationSource* token) {
+    if (token && token->canceled) csrt_throw_object(csrt_operation_canceled_exception_new());
+}
+
+void csrt_token_register(CancellationSource* token, void* action) {
+    if (!action) csrt_throw_null_reference();
+    if (!token) return;  // CancellationToken.None never cancels
+    if (token->canceled) { Delegate* d = action; ((void (*)(void*))d->fn)(d->target); return; }
+    int64_t cap = token->callbacks ? token->callbacks->length : 0;
+    if (token->ncallbacks == cap) {
+        csrt_Array* grown = csrt_new_array(sizeof(void*), cap ? cap * 2 : 4);
+        if (token->callbacks) memcpy(grown->data, token->callbacks->data, (size_t)token->ncallbacks * sizeof(void*));
+        token->callbacks = grown;
+    }
+    words(token->callbacks)[token->ncallbacks++] = action;
 }
 
 csrt_Task* csrt_task_when_all(csrt_Array* tasks, int32_t element_size) {
@@ -285,17 +460,21 @@ static void run_item(intptr_t kind, void* a, void* b) {
         case K_RESUME: csrt_coro_resume(a); break;
         case K_RUN_ACTION: {
             Delegate* d = a;
-            ((void (*)(void*))d->fn)(d->target);
-            csrt_task_complete(b);
+            void* exception = csrt_call_catching_void((void (*)(void*))d->fn, d->target);
+            if (exception) csrt_task_fault(b, exception);
+            else csrt_task_complete(b);
             break;
         }
         case K_RUN_FUNC_TASK: {
             Delegate* d = a;
-            csrt_Task* inner = ((csrt_Task * (*)(void*)) d->fn)(d->target);
-            if (csrt_task_is_completed(inner)) chain(inner, b);
+            csrt_Task* inner = NULL;
+            void* exception = csrt_call_catching_ptr((void* (*)(void*))d->fn, d->target, (void**)&inner);
+            if (exception) csrt_task_fault(b, exception);
+            else if (csrt_task_is_completed(inner)) chain(inner, b);
             else add_continuation(inner, K_CHAIN, b);
             break;
         }
+        case K_CANCEL_SOURCE: break;
     }
 }
 
@@ -311,11 +490,12 @@ static bool fire_timers(void) {
         struct timespec ts = { wait / 1000, (wait % 1000) * 1000000 };
         nanosleep(&ts, NULL);
     }
+    if (deadline == INT64_MAX) return false;  // only token-bound infinite delays left
     csrt_Task* t = words(s_timers)[best * 3 + 1];
-    memmove(words(s_timers) + best * 3, words(s_timers) + (best + 1) * 3, (size_t)(s_ntimers - best - 1) * 3 * sizeof(void*));
-    s_ntimers--;
-    words(s_timers)[s_ntimers * 3 + 1] = NULL;
-    csrt_task_complete(t);
+    CancellationSource* token = words(s_timers)[best * 3 + 2];
+    remove_timer(best);
+    if (!t) csrt_cts_cancel(token);              // CancelAfter
+    else if (t->state == T_PENDING) csrt_task_complete(t);
     return true;
 }
 
@@ -365,11 +545,28 @@ void* csrt_iterator_get_enumerator(void* obj) {
     return fresh;
 }
 
+// An exception that escaped an iterator body during MoveNext()/Dispose(): the coroutine catches it,
+// finishes, and parks it here; the C caller rethrows it to the foreach (single-threaded runtime).
+static void* volatile s_iterator_exception;
+
+void csrt_iterator_fault(csrt_Iterator* it, void* exception) {
+    it->state = 2;
+    s_iterator_exception = exception;
+}
+
+static void rethrow_iterator_exception(void) {
+    void* e = s_iterator_exception;
+    if (!e) return;
+    s_iterator_exception = NULL;
+    csrt_rethrow(e);
+}
+
 bool csrt_iterator_move_next(void* obj) {
     csrt_Iterator* it = require_iterator(obj);
     if (it->state == 2) return false;
     it->state = 0;
     csrt_coro_resume(it->frame);
+    rethrow_iterator_exception();
     return it->state == 1;
 }
 
@@ -389,6 +586,7 @@ void csrt_iterator_dispose(void* obj) {
     if (it->state == 2) return;
     it->state = 2;
     csrt_coro_destroy(it->frame);
+    rethrow_iterator_exception();
 }
 
 /// ValueTask.AsTask(): default(ValueTask) is a null task pointer meaning "completed, default result".
@@ -413,6 +611,15 @@ static void complete_pending(csrt_Iterator* it, bool value) {
 }
 
 void csrt_async_iterator_yielded(csrt_Iterator* it) { complete_pending(it, true); }
+
+/// An exception escaped an async iterator: the pending MoveNextAsync() task faults with it.
+void csrt_async_iterator_fault(csrt_Iterator* it, void* exception) {
+    it->state = 2;
+    csrt_Task* t = it->reserved;
+    if (!t) { s_iterator_exception = exception; return; }
+    it->reserved = NULL;
+    csrt_task_fault(t, exception);
+}
 void csrt_async_iterator_finished(csrt_Iterator* it) { complete_pending(it, false); }
 
 csrt_Task* csrt_async_iterator_move_next(void* obj) {

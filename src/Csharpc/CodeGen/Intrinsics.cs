@@ -29,7 +29,7 @@ internal static class Intrinsics
         .RemoveMiscellaneousOptions(SymbolDisplayMiscellaneousOptions.IncludeNullableReferenceTypeModifier)
         .RemoveMiscellaneousOptions(SymbolDisplayMiscellaneousOptions.IncludeNotNullableReferenceTypeModifier);
 
-    private static string TypeName(ITypeSymbol t) => t.WithNullableAnnotation(NullableAnnotation.None).ToDisplayString(s_keyFormat);
+    internal static string TypeName(ITypeSymbol t) => t.WithNullableAnnotation(NullableAnnotation.None).ToDisplayString(s_keyFormat);
 
     public static bool TryGet(IMethodSymbol method, out IntrinsicHandler handler) =>
         s_methods.TryGetValue(Key(method.OriginalDefinition), out handler!);
@@ -92,10 +92,24 @@ internal static class Intrinsics
             var self = ObjectReceiver(g, inv.Instance!);
             return g.VirtualCall(inv.TargetMethod, self, [self]);
         };
+        t["System.Array.GetLength(int)"] = (g, inv) =>
+            g.Builder.Cast(LLVMOpcode.Trunc, g.ArrayDimensionLength(g.EmitValue(inv.Instance!), inv.Instance!.Type!, Arg(g, inv, 0)), g.Module.Llvm.I32);
+        t["System.Array.GetLongLength(int)"] = (g, inv) => g.ArrayDimensionLength(g.EmitValue(inv.Instance!), inv.Instance!.Type!, Arg(g, inv, 0));
+        t["System.Array.GetUpperBound(int)"] = (g, inv) => g.Builder.BinOp(LLVMOpcode.Sub,
+            g.Builder.Cast(LLVMOpcode.Trunc, g.ArrayDimensionLength(g.EmitValue(inv.Instance!), inv.Instance!.Type!, Arg(g, inv, 0)), g.Module.Llvm.I32),
+            g.Module.Llvm.ConstInt(g.Module.Llvm.I32, 1));
+        t["System.Array.GetLowerBound(int)"] = (g, inv) => { Arg(g, inv, 0); return g.Module.Llvm.ConstInt(g.Module.Llvm.I32, 0); };
         t["object.ReferenceEquals(object, object)"] = (g, inv) =>
             g.Builder.ICmp(LLVMIntPredicate.EQ, Arg(g, inv, 0), Arg(g, inv, 1));
         t["System.Enum.ToString()"] = (g, inv) =>
             g.ToStringValue(inv.Instance is IConversionOperation { Operand.Type.TypeKind: TypeKind.Enum } boxed ? boxed.Operand : inv.Instance!);
+        t["System.Array.GetLength(int)"] = (g, inv) =>
+            g.Builder.Cast(LLVMOpcode.Trunc, g.ArrayDimensionLength(g.EmitValue(inv.Instance!), inv.Instance!.Type!, Arg(g, inv, 0)), g.Module.Llvm.I32);
+        t["System.Array.GetLongLength(int)"] = (g, inv) => g.ArrayDimensionLength(g.EmitValue(inv.Instance!), inv.Instance!.Type!, Arg(g, inv, 0));
+        t["System.Array.GetUpperBound(int)"] = (g, inv) => g.Builder.BinOp(LLVMOpcode.Sub,
+            g.Builder.Cast(LLVMOpcode.Trunc, g.ArrayDimensionLength(g.EmitValue(inv.Instance!), inv.Instance!.Type!, Arg(g, inv, 0)), g.Module.Llvm.I32),
+            g.Module.Llvm.ConstInt(g.Module.Llvm.I32, 1));
+        t["System.Array.GetLowerBound(int)"] = (g, inv) => { Arg(g, inv, 0); return g.Module.Llvm.ConstInt(g.Module.Llvm.I32, 0); };
         t["object.ReferenceEquals(object, object)"] = (g, inv) =>
             g.Builder.ICmp(LLVMIntPredicate.EQ, Arg(g, inv, 0), Arg(g, inv, 1));
         t["object.Equals(object, object)"] = (g, inv) =>
@@ -414,7 +428,8 @@ internal static class Intrinsics
         Add("string.Split(char, System.StringSplitOptions)", "csrt_string_split_char", ptr, l => [l.I16, l.I32], (g, i) => [Arg(g, i, 0), Arg(g, i, 1)]);
         Add("string.ToCharArray()", "csrt_string_to_char_array", ptr, _ => [], (_, _) => []);
         Add("string.GetHashCode()", "csrt_string_get_hash_code", i32, _ => [], (_, _) => []);
-        Add("string.CompareTo(string)", "csrt_string_compare_ordinal", i32, l => [l.Ptr], (g, i) => [Arg(g, i, 0)]);
+        // Culture-sensitive (ICU root collation approximation, runtime/bclmisc.c), like .NET's CompareTo.
+        Add("string.CompareTo(string)", "csrt_string_compare_culture", i32, l => [l.Ptr, l.I1], (g, i) => [Arg(g, i, 0), g.Module.Llvm.False]);
 
         t["string.Join(string, string[])"] = (g, inv) =>
             g.CallRuntime("csrt_string_join", g.Module.Llvm.Ptr, [g.Module.Llvm.Ptr, g.Module.Llvm.Ptr], Arg(g, inv, 0), Arg(g, inv, 1));
@@ -442,6 +457,76 @@ internal static class Intrinsics
         static ITypeSymbol? ResultOf(FunctionCodeGen g, IInvocationOperation inv) => g.TypeOf(inv) is { SpecialType: SpecialType.System_Void } ? null : g.TypeOf(inv);
         // Tasks, awaiters and configured awaitables are the same task pointer.
         IntrinsicHandler self = (g, inv) => { foreach (var a in inv.Arguments) g.EmitValue(a.Value); return g.EmitValue(inv.Instance!); };
+
+        // Faulted tasks.
+        IntrinsicHandler fromException = (g, inv) =>
+        {
+            var result = ((INamedTypeSymbol)g.TypeOf(inv)!).TypeArguments.FirstOrDefault();
+            var size = result is null ? 0 : (long)g.Module.Types.Target.SizeOf(g.Module.Types.Storage(result));
+            return g.CallRuntime("csrt_task_from_exception", g.Module.Llvm.Ptr, [g.Module.Llvm.Ptr, g.Module.Llvm.I32], Arg(g, inv, 0),
+                g.Module.Llvm.ConstInt(g.Module.Llvm.I32, size));
+        };
+        t[$"{Tasks}.Task.FromException(System.Exception)"] = fromException;
+        t[$"{Tasks}.Task.FromException<TResult>(System.Exception)"] = fromException;
+        t[$"{Tasks}.ValueTask.FromException(System.Exception)"] = fromException;
+        t[$"{Tasks}.ValueTask.FromException<TResult>(System.Exception)"] = fromException;
+
+        // TaskCompletionSource(<T>): the source object is its task.
+        foreach (var tcs in new[] { $"{Tasks}.TaskCompletionSource", $"{Tasks}.TaskCompletionSource<TResult>" })
+        {
+            var generic = tcs.EndsWith('>');
+            foreach (var tryMode in new[] { false, true })
+            {
+                var prefix = tryMode ? "TrySet" : "Set";
+                t[generic ? $"{tcs}.{prefix}Result(TResult)" : $"{tcs}.{prefix}Result()"] = (g, inv) =>
+                {
+                    var self = g.EmitValue(inv.Instance!);
+                    if (!generic) return g.SetTaskResult(self, null, null, tryMode);
+                    var type = ((INamedTypeSymbol)g.TypeOf(inv.Instance!)!).TypeArguments[0];
+                    return g.SetTaskResult(self, Arg(g, inv, 0), type, tryMode);
+                };
+                t[$"{tcs}.{prefix}Exception(System.Exception)"] = (g, inv) =>
+                {
+                    var self = g.EmitValue(inv.Instance!);
+                    g.NullCheck(self);
+                    var e = Arg(g, inv, 0);
+                    return tryMode
+                        ? g.CallRuntime("csrt_task_try_fault", g.Module.Llvm.I1, [g.Module.Llvm.Ptr, g.Module.Llvm.Ptr], self, e)
+                        : g.CallRuntime("csrt_task_fault", g.Module.Llvm.Void, [g.Module.Llvm.Ptr, g.Module.Llvm.Ptr], self, e);
+                };
+                t[$"{tcs}.{prefix}Canceled()"] = (g, inv) =>
+                {
+                    var self = g.EmitValue(inv.Instance!);
+                    g.NullCheck(self);
+                    return tryMode
+                        ? g.CallRuntime("csrt_task_try_cancel", g.Module.Llvm.I1, [g.Module.Llvm.Ptr], self)
+                        : g.CallRuntime("csrt_task_cancel", g.Module.Llvm.Void, [g.Module.Llvm.Ptr], self);
+                };
+            }
+        }
+
+        // Cancellation: a CancellationToken is its source pointer (CancellationToken.None == null).
+        const string Th = "System.Threading";
+        t[$"{Th}.CancellationTokenSource.Cancel()"] = (g, inv) =>
+        { g.CallRuntime("csrt_cts_cancel", g.Module.Llvm.Void, [g.Module.Llvm.Ptr], g.EmitValue(inv.Instance!)); return default; };
+        t[$"{Th}.CancellationTokenSource.CancelAfter(int)"] = (g, inv) =>
+        {
+            g.CallRuntime("csrt_cts_cancel_after", g.Module.Llvm.Void, [g.Module.Llvm.Ptr, g.Module.Llvm.I32], g.EmitValue(inv.Instance!), Arg(g, inv, 0));
+            return default;
+        };
+        t[$"{Th}.CancellationTokenSource.Dispose()"] = (g, inv) => { g.EmitValue(inv.Instance!); return default; };
+        t[$"{Th}.CancellationToken.ThrowIfCancellationRequested()"] = (g, inv) =>
+        {
+            g.CallRuntime("csrt_token_throw_if_cancellation_requested", g.Module.Llvm.Void, [g.Module.Llvm.Ptr], g.EmitValue(inv.Instance!));
+            return default;
+        };
+        t[$"{Th}.CancellationToken.Register(System.Action)"] = (g, inv) =>
+        {
+            g.CallRuntime("csrt_token_register", g.Module.Llvm.Void, [g.Module.Llvm.Ptr, g.Module.Llvm.Ptr], g.EmitValue(inv.Instance!), Arg(g, inv, 0));
+            return default; // the CancellationTokenRegistration isn't modeled (Dispose/Unregister unsupported)
+        };
+        t[$"{Tasks}.Task.Delay(int, {Th}.CancellationToken)"] = (g, inv) =>
+            g.CallRuntime("csrt_task_delay_token", g.Module.Llvm.Ptr, [g.Module.Llvm.I32, g.Module.Llvm.Ptr], Arg(g, inv, 0), Arg(g, inv, 1));
 
         t[$"{Tasks}.Task.Delay(int)"] = (g, inv) => g.CallRuntime("csrt_task_delay", g.Module.Llvm.Ptr, [g.Module.Llvm.I32], Arg(g, inv, 0));
         t[$"{Tasks}.Task.Yield()"] = (g, _) => LlvmContext.Null(g.Module.Llvm.Ptr);
@@ -495,7 +580,7 @@ internal static class Intrinsics
         {
             t[$"{Tasks}.{type}.GetAwaiter()"] = self;
             t[$"{Tasks}.{type}.ConfigureAwait(bool)"] = self;
-            t[$"{Tasks}.{type}.Wait()"] = (g, inv) => { Wait(g, g.EmitValue(inv.Instance!)); return default; };
+            t[$"{Tasks}.{type}.Wait()"] = (g, inv) => { ThrowAggregate(g, Wait(g, g.EmitValue(inv.Instance!))); return default; };
         }
         t[$"{Tasks}.ValueTask.AsTask()"] = (g, inv) =>
             g.CallRuntime("csrt_valuetask_as_task", g.Module.Llvm.Ptr, [g.Module.Llvm.Ptr, g.Module.Llvm.I32], g.EmitValue(inv.Instance!), g.Module.Llvm.ConstInt(g.Module.Llvm.I32, 0));
@@ -508,23 +593,51 @@ internal static class Intrinsics
         foreach (var awaiter in new[] { $"{Rcs}.TaskAwaiter", $"{Rcs}.TaskAwaiter<TResult>", $"{Rcs}.ValueTaskAwaiter", $"{Rcs}.ValueTaskAwaiter<TResult>",
                      $"{Rcs}.ConfiguredTaskAwaitable.ConfiguredTaskAwaiter", $"{Rcs}.ConfiguredTaskAwaitable<TResult>.ConfiguredTaskAwaiter",
                      $"{Rcs}.ConfiguredValueTaskAwaitable.ConfiguredValueTaskAwaiter", $"{Rcs}.ConfiguredValueTaskAwaitable<TResult>.ConfiguredValueTaskAwaiter" })
-            t[$"{awaiter}.GetResult()"] = (g, inv) => g.TaskResult(Wait(g, g.EmitValue(inv.Instance!)), ResultOf(g, inv));
+            t[$"{awaiter}.GetResult()"] = (g, inv) =>
+            {
+                var task = Wait(g, g.EmitValue(inv.Instance!));
+                g.CallRuntime("csrt_task_throw_if_faulted", g.Module.Llvm.Void, [g.Module.Llvm.Ptr], task); // the original exception
+                return g.TaskResult(task, ResultOf(g, inv));
+            };
         foreach (var awaitable in new[] { $"{Rcs}.ConfiguredTaskAwaitable", $"{Rcs}.ConfiguredTaskAwaitable<TResult>",
                      $"{Rcs}.ConfiguredValueTaskAwaitable", $"{Rcs}.ConfiguredValueTaskAwaitable<TResult>" })
             t[$"{awaitable}.GetAwaiter()"] = self;
     }
 
+    private static void ThrowAggregate(FunctionCodeGen g, LLVMValueRef task) =>
+        g.CallRuntime("csrt_task_throw_aggregate_if_faulted", g.Module.Llvm.Void, [g.Module.Llvm.Ptr], task);
+
     private static void AddTaskProperties(Dictionary<string, PropertyHandler> t)
     {
+        foreach (var type in new[] { $"{Tasks}.Task", $"{Tasks}.ValueTask", $"{Tasks}.ValueTask<TResult>" })
+        {
+            t[$"{type}.IsFaulted"] = (g, p) => g.CallRuntime("csrt_task_is_faulted", g.Module.Llvm.I1, [g.Module.Llvm.Ptr], g.EmitValue(p.Instance!));
+            t[$"{type}.IsCanceled"] = (g, p) => g.CallRuntime("csrt_task_is_canceled", g.Module.Llvm.I1, [g.Module.Llvm.Ptr], g.EmitValue(p.Instance!));
+        }
+        t[$"{Tasks}.Task.Exception"] = (g, p) => g.CallRuntime("csrt_task_exception", g.Module.Llvm.Ptr, [g.Module.Llvm.Ptr], g.EmitValue(p.Instance!));
+        foreach (var tcs in new[] { $"{Tasks}.TaskCompletionSource", $"{Tasks}.TaskCompletionSource<TResult>" })
+            t[$"{tcs}.Task"] = (g, p) => g.EmitValue(p.Instance!);
+        const string Th = "System.Threading";
+        t[$"{Th}.CancellationTokenSource.Token"] = (g, p) => g.EmitValue(p.Instance!);
+        t[$"{Th}.CancellationTokenSource.IsCancellationRequested"] = (g, p) =>
+            g.CallRuntime("csrt_token_is_cancellation_requested", g.Module.Llvm.I1, [g.Module.Llvm.Ptr], g.EmitValue(p.Instance!));
+        t[$"{Th}.CancellationToken.IsCancellationRequested"] = t[$"{Th}.CancellationTokenSource.IsCancellationRequested"];
+        t[$"{Th}.CancellationToken.CanBeCanceled"] = (g, p) =>
+            g.Builder.ICmp(LLVMIntPredicate.NE, g.EmitValue(p.Instance!), LlvmContext.Null(g.Module.Llvm.Ptr));
+        t[$"{Th}.CancellationToken.None"] = (g, _) => LlvmContext.Null(g.Module.Llvm.Ptr);
         PropertyHandler isCompleted = (g, p) => g.CallRuntime("csrt_task_is_completed", g.Module.Llvm.I1, [g.Module.Llvm.Ptr], g.EmitValue(p.Instance!));
         foreach (var type in new[] { $"{Tasks}.Task", $"{Tasks}.ValueTask", $"{Tasks}.ValueTask<TResult>", $"{Rcs}.TaskAwaiter", $"{Rcs}.TaskAwaiter<TResult>",
                      $"{Rcs}.ValueTaskAwaiter", $"{Rcs}.ValueTaskAwaiter<TResult>" })
             t[$"{type}.IsCompleted"] = isCompleted;
-        t[$"{Tasks}.Task.IsCompletedSuccessfully"] = isCompleted;
+        t[$"{Tasks}.Task.IsCompletedSuccessfully"] = (g, p) =>
+            g.CallRuntime("csrt_task_is_completed_successfully", g.Module.Llvm.I1, [g.Module.Llvm.Ptr], g.EmitValue(p.Instance!));
+        t[$"{Tasks}.ValueTask.IsCompletedSuccessfully"] = t[$"{Tasks}.Task.IsCompletedSuccessfully"];
+        t[$"{Tasks}.ValueTask<TResult>.IsCompletedSuccessfully"] = t[$"{Tasks}.Task.IsCompletedSuccessfully"];
         PropertyHandler result = (g, p) =>
         {
             var task = g.EmitValue(p.Instance!);
             g.CallRuntime("csrt_task_wait", g.Module.Llvm.Void, [g.Module.Llvm.Ptr], task);
+            ThrowAggregate(g, task); // .Result wraps failures in an AggregateException
             return g.TaskResult(task, g.TypeOf(p));
         };
         t[$"{Tasks}.Task<TResult>.Result"] = result;
@@ -539,6 +652,21 @@ internal static class Intrinsics
         t[$"{Tasks}.ValueTask<TResult>..ctor(TResult)"] = (g, c) =>
             g.CompletedTask(CtorArg(g, c, 0), ((INamedTypeSymbol)g.TypeOf(c)!).TypeArguments[0]);
         t[$"{Tasks}.ValueTask..ctor({Tasks}.Task)"] = (g, c) => CtorArg(g, c, 0);
+        ConstructorHandler newTcs = (g, c) =>
+        {
+            foreach (var a in c.Arguments) g.EmitValue(a.Value); // TaskCreationOptions / state: ignored (continuations are always queued)
+            var result = ((INamedTypeSymbol)g.TypeOf(c)!).TypeArguments.FirstOrDefault();
+            var size = result is null ? 0 : (long)g.Module.Types.Target.SizeOf(g.Module.Types.Storage(result));
+            return g.CallRuntime("csrt_task_new", g.Module.Llvm.Ptr, [g.Module.Llvm.I32], g.Module.Llvm.ConstInt(g.Module.Llvm.I32, size));
+        };
+        foreach (var tcs in new[] { $"{Tasks}.TaskCompletionSource", $"{Tasks}.TaskCompletionSource<TResult>" })
+        {
+            t[$"{tcs}..ctor()"] = newTcs;
+            t[$"{tcs}..ctor({Tasks}.TaskCreationOptions)"] = newTcs;
+        }
+        t["System.Threading.CancellationTokenSource..ctor()"] = (g, _) => g.CallRuntime("csrt_cts_new", g.Module.Llvm.Ptr, []);
+        t["System.Threading.CancellationTokenSource..ctor(int)"] = (g, c) =>
+            g.CallRuntime("csrt_cts_new_after", g.Module.Llvm.Ptr, [g.Module.Llvm.I32], CtorArg(g, c, 0));
         t[$"{Tasks}.ValueTask<TResult>..ctor({Tasks}.Task<TResult>)"] = (g, c) => CtorArg(g, c, 0);
         t["string..ctor(char, int)"] = (g, c) =>
             g.CallRuntime("csrt_string_new_repeat", g.Module.Llvm.Ptr, [g.Module.Llvm.I16, g.Module.Llvm.I32], CtorArg(g, c, 0), CtorArg(g, c, 1));
@@ -575,6 +703,7 @@ internal static class Intrinsics
         };
         t["System.Array.Length"] = (g, p) =>
             g.Builder.Cast(LLVMOpcode.Trunc, g.ArrayLength(g.EmitValue(p.Instance!)), g.Module.Llvm.I32);
+        t["System.Array.Rank"] = (g, p) => g.Module.Llvm.ConstInt(g.Module.Llvm.I32, p.Instance!.Type is IArrayTypeSymbol a ? a.Rank : 1);
         t["System.Array.LongLength"] = (g, p) => g.ArrayLength(g.EmitValue(p.Instance!));
         t["System.Environment.TickCount64"] = (g, _) =>
             g.CallRuntime("csrt_environment_tick_count64", g.Module.Llvm.I64, []);

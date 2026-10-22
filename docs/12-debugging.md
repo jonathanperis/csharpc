@@ -1,4 +1,4 @@
-# 11 — Debugging native C# (DWARF debug info)
+# 12 — Debugging native C# (DWARF debug info)
 
 `csharpc -g` emits DWARF debug info, so the native executables can be debugged at the C# source
 level with gdb or lldb: breakpoints by `file.cs:line`, stepping through C# statements, C# names in

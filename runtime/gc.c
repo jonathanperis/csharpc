@@ -419,8 +419,9 @@ static void drain(void) {
         size_t size = g.mark_stack[g.mark_count].size;
         // Word 0 is the method-table pointer (static data, never a heap reference); strings and
         // arrays of primitives hold no references, so they have nothing to scan at all.
-        const void* mt = *(const void* const*)start;
-        if (mt == (const void*)&csrt_String_MT.header || mt == (const void*)&csrt_PrimitiveArray_MT.header) continue;
+        // (The compiler also emits element-typed array method tables, e.g. "System.Int32[]", with the flag.)
+        const csrt_MethodTable* mt = *(const csrt_MethodTable* const*)start;
+        if (mt && (mt->flags & CSRT_MT_NO_REFERENCES)) continue;
         scan_range(start + sizeof(void*), start + size);
     }
 }

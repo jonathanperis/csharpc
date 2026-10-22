@@ -52,10 +52,11 @@ static void spec_to_c(csrt_String* fmt, char* out, size_t cap) {
 // exact decimal digits
 // ---------------------------------------------------------------------------------------------
 // Digits of |v| as a string with decimal exponent: v = 0.d1d2d3... * 10^exp10 (d1 != 0).
-typedef struct { char d[800]; int n; int exp10; bool neg; } Digits;
+typedef struct { char d[800]; int n; int exp10; bool neg; bool half_up; } Digits;  // half_up: decimal's rounding
 
 static void exact_digits(double v, Digits* out) {
     out->neg = signbit(v);
+    out->half_up = false;
     v = fabs(v);
     if (v == 0) { out->n = 0; out->exp10 = 1; return; }
     char tmp[900];
@@ -74,7 +75,7 @@ static void round_digits(Digits* g, int keep) {
     if (keep >= g->n) return;
     if (keep < 0) { g->n = 0; return; }
     // IEEE-correct rounding of the exact expansion, ties to even (what .NET Core 3.0+ does).
-    bool up = g->d[keep] > '5' || (g->d[keep] == '5' &&
+    bool up = g->half_up ? g->d[keep] >= '5' : g->d[keep] > '5' || (g->d[keep] == '5' &&
               (keep + 1 < g->n || (keep > 0 && (g->d[keep - 1] - '0') % 2 == 1)));
     g->n = keep;
     if (!up) { while (g->n > 0 && g->d[g->n - 1] == '0') g->n--; return; }
@@ -131,28 +132,37 @@ static bool is_custom(const char* f) {
     return !standard;
 }
 
-static void emit_custom_section(Buf* b, double v, const char* f);
+static void emit_custom_digits(Buf* b, Digits g, const char* f);
 
-// "pos;neg;zero" sections: the negative section formats |v| without a sign.
 static void emit_custom(Buf* b, double v, const char* f) {
-    const char* semi = strchr(f, ';');
-    if (!semi) { emit_custom_section(b, v, f); return; }
-    char sections[3][128] = {{0}};
-    int count = 0;
-    for (const char* start = f; count < 3; count++) {
-        const char* end = strchr(start, ';');
-        size_t n = end ? (size_t)(end - start) : strlen(start);
-        if (n >= sizeof sections[0]) n = sizeof sections[0] - 1;
-        memcpy(sections[count], start, n);
-        if (!end) { count++; break; }
-        start = end + 1;
-    }
-    if (v < 0 && count >= 2 && sections[1][0]) { emit_custom_section(b, -v, sections[1]); return; }
-    if (v == 0 && count >= 3 && sections[2][0]) { emit_custom_section(b, v, sections[2]); return; }
-    emit_custom_section(b, v, sections[0]);
+    bool percent = strchr(f, '%') != NULL;
+    Digits g; exact_digits(percent ? v * 100 : v, &g);
+    emit_custom_digits(b, g, f);
 }
 
-static void emit_custom_section(Buf* b, double v, const char* f) {
+static void emit_custom_section(Buf* b, Digits g, const char* f);
+
+/// Custom format over exact digits (the caller applies any % scaling). Supports up to three
+/// ';'-separated sections: positive;negative;zero (the negative section prints no '-').
+static void emit_custom_digits(Buf* b, Digits g, const char* f) {
+    char sections[3][64] = { "", "", "" };
+    int count = 0, len = 0;
+    char quote = 0;
+    for (const char* p = f; *p && count < 3; p++) {
+        if (quote) { if (*p == quote) quote = 0; }
+        else if (*p == '\'' || *p == '"') quote = *p;
+        else if (*p == ';') { sections[count][len] = 0; count++; len = 0; continue; }
+        if (len < 63) sections[count][len++] = *p;
+    }
+    if (count < 3) { sections[count][len] = 0; count++; }
+    if (count == 1) { emit_custom_section(b, g, f); return; }
+    const char* chosen = sections[0];
+    if (g.neg && g.n > 0 && sections[1][0]) { chosen = sections[1]; g.neg = false; }
+    else if (g.n == 0 && count >= 3 && sections[2][0]) chosen = sections[2];
+    emit_custom_section(b, g, chosen);
+}
+
+static void emit_custom_section(Buf* b, Digits g, const char* f) {
     // Analyse the pattern: integer placeholders, decimal placeholders, grouping, percent.
     int int_zeros = 0, dec_zeros = 0, dec_hashes = 0;
     bool group = false, percent = false, seen_point = false, seen_digit = false;
@@ -170,9 +180,8 @@ static void emit_custom_section(Buf* b, double v, const char* f) {
         else if (c == ',' && !seen_point && seen_digit) group = true;
         else if (c == '%') percent = true;
     }
-    if (percent) v *= 100;
+    (void)percent;
     int decimals = dec_zeros + dec_hashes;
-    Digits g; exact_digits(v, &g);
     round_digits(&g, g.exp10 + decimals);
     // literal prefix
     for (const char* p = f; first && p < first; p++) if (*p != ',' && *p != '#' && *p != '0') put(b, *p);
@@ -229,7 +238,7 @@ static void format_integer(Buf* b, int64_t sv, uint64_t uv, bool is_signed, int 
                 case 'F': case 'f': emit_fixed(b, g, precision_of(f, 2), false); return;
                 case 'E': case 'e': emit_exponent(b, g, precision_of(f, 6), f[0], 3); return;
                 case 'P': case 'p': exact_digits(v * 100, &g); emit_fixed(b, g, precision_of(f, 2), true); puts_(b, " %"); return;
-                case 'C': case 'c': puts_(b, "\xC2\xA4"); emit_fixed(b, g, precision_of(f, 2), true); return;
+                case 'C': case 'c': puts_(b, "\xA4"); emit_fixed(b, g, precision_of(f, 2), true); return;
                 case 'G': case 'g': {
                     int p = precision_of(f, 0);
                     snprintf(tmp, sizeof tmp, "%s%llu", neg ? "-" : "", (unsigned long long)mag);
@@ -259,7 +268,7 @@ static void format_double(Buf* b, double v, const char* f, bool single) {
         case 'N': case 'n': emit_fixed(b, g, precision_of(f, 2), true); return;
         case 'E': case 'e': emit_exponent(b, g, precision_of(f, 6), f[0], 3); return;
         case 'P': case 'p': exact_digits(v * 100, &g); emit_fixed(b, g, precision_of(f, 2), true); puts_(b, " %"); return;
-        case 'C': case 'c': puts_(b, "\xC2\xA4"); emit_fixed(b, g, precision_of(f, 2), true); return;
+        case 'C': case 'c': puts_(b, "\xA4"); emit_fixed(b, g, precision_of(f, 2), true); return;
         case 'G': case 'g': {
             int p = precision_of(f, 15);
             if (g.n == 0) { put(b, '0'); return; }
@@ -309,6 +318,9 @@ csrt_String* csrt_string_align(csrt_String* s, int32_t width) {
     return r;
 }
 
+extern const csrt_BuiltinMethodTable csrt_Boxed_Decimal_MT;
+csrt_String* csrt_format_decimal(const void* dp, csrt_String* fmt);
+
 /// Formats any object with an optional format string (boxed primitives honour it).
 csrt_String* csrt_format_object(void* obj, csrt_String* fmt) {
     if (!obj) return ascii("");
@@ -325,6 +337,7 @@ csrt_String* csrt_format_object(void* obj, csrt_String* fmt) {
         if (mt == &csrt_Boxed_Byte_MT.header) return csrt_format_u64(*(const uint8_t*)p, fmt, 8);
         if (mt == &csrt_Boxed_Double_MT.header) return csrt_format_f64(*(const double*)p, fmt, false);
         if (mt == &csrt_Boxed_Single_MT.header) return csrt_format_f64(*(const float*)p, fmt, true);
+        if (mt == &csrt_Boxed_Decimal_MT.header) return csrt_format_decimal(p, fmt);
     }
     return csrt_object_to_string(obj);
 }
@@ -383,4 +396,55 @@ csrt_String* csrt_string_format(csrt_String* fmt, csrt_Array* args) {
     memcpy(s->chars, out, 2 * (size_t)n);
     free(out);
     return s;
+}
+
+// ---------------------------------------------------------------------------------------------
+// System.Decimal formatting: exact digits, rounded half away from zero (unlike double).
+// ---------------------------------------------------------------------------------------------
+typedef struct { int32_t flags; uint32_t hi; uint64_t lo; } csrt_DecimalLayout;
+int csrt_decimal_digits(const void* d, char* buf);
+csrt_String* csrt_decimal_to_string(const void* d);
+
+csrt_String* csrt_format_decimal(const void* dp, csrt_String* fmt) {
+    const csrt_DecimalLayout* d = dp;
+    char f[64]; spec_to_c(fmt, f, sizeof f);
+    if (!f[0] || ((f[0] == 'G' || f[0] == 'g') && !f[1])) return csrt_decimal_to_string(d);
+    Digits g;
+    char raw[40];
+    int n = csrt_decimal_digits(d, raw);
+    int scale = (int)(((uint32_t)d->flags >> 16) & 0xFF);
+    bool zero = d->lo == 0 && d->hi == 0;
+    g.neg = (((uint32_t)d->flags & 0x80000000u) != 0) && !zero;
+    g.half_up = true;
+    // normalize: strip leading zeros, compute exponent of 0.d1d2..
+    int start = 0;
+    while (start < n - 1 && raw[start] == '0') start++;
+    g.n = 0;
+    if (!zero) for (int i = start; i < n; i++) g.d[g.n++] = raw[i];
+    while (g.n > 0 && g.d[g.n - 1] == '0') g.n--;
+    g.exp10 = zero ? 1 : (n - start) - scale;
+    Buf b = {0};
+    if (is_custom(f)) {
+        if (strchr(f, '%') && g.n) g.exp10 += 2;
+        emit_custom_digits(&b, g, f);
+        return buf_to_string(&b);
+    }
+    switch (f[0]) {
+        case 'F': case 'f': emit_fixed(&b, g, precision_of(f, 2), false); break;
+        case 'N': case 'n': emit_fixed(&b, g, precision_of(f, 2), true); break;
+        case 'E': case 'e': emit_exponent(&b, g, precision_of(f, 6), f[0], 3); break;
+        case 'P': case 'p': if (g.n) g.exp10 += 2; emit_fixed(&b, g, precision_of(f, 2), true); puts_(&b, " %"); break;
+        case 'C': case 'c': puts_(&b, "\xA4"); emit_fixed(&b, g, precision_of(f, 2), true); break;
+        case 'G': case 'g': {
+            int p = precision_of(f, 29);
+            round_digits(&g, p);
+            int exp = g.exp10 - 1;
+            if (g.n == 0) { put(&b, '0'); break; }
+            if (exp >= -5 && exp < p) { int dec = g.n - g.exp10; emit_fixed(&b, g, dec > 0 ? dec : 0, false); }
+            else emit_exponent(&b, g, g.n - 1, f[0] == 'G' ? 'E' : 'e', 2);
+            break;
+        }
+        default: free(b.p); format_error();
+    }
+    return buf_to_string(&b);
 }

@@ -6,7 +6,7 @@ using static Csharpc.Llvm.Native;
 namespace Csharpc.CodeGen;
 
 /// <summary>
-/// DWARF debug info (`csharpc -g`), built with LLVM's DIBuilder (docs/11-debugging.md).
+/// DWARF debug info (`csharpc -g`), built with LLVM's DIBuilder (docs/12-debugging.md).
 ///
 /// - One compile unit per program; DW_LANG_C_plus_plus (there is no DWARF code for C#), producer "csharpc".
 /// - Every function lowered from C# gets a DISubprogram named like the C# member ("Program.Fib", "Circle.Area")

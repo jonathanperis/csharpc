@@ -65,6 +65,38 @@ public sealed partial class ModuleCodeGen
         return _iteratorTables[(element, isAsync)] = mt;
     }
 
+    /// <summary>
+    /// csrt_call_catching_void(fn, arg) / csrt_call_catching_ptr(fn, arg, &amp;result): call fn(arg) and
+    /// return the managed exception it threw, or null. C can't catch, so the runtime's scheduler
+    /// (Task.Run work items) uses these IR helpers; they replace weak fallbacks in runtime/async.c.
+    /// </summary>
+    public void EmitCallCatchingHelpers()
+    {
+        foreach (var returnsPtr in new[] { false, true })
+        {
+            var name = returnsPtr ? "csrt_call_catching_ptr" : "csrt_call_catching_void";
+            var type = returnsPtr ? Llvm.FunctionType(Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr) : Llvm.FunctionType(Llvm.Ptr, Llvm.Ptr, Llvm.Ptr);
+            if (!Module.GetFunction(name).IsNull) continue;
+            var fn = Module.AddFunction(name, type);
+            Llvm.AddFunctionAttribute(fn, "uwtable", 2);
+            var personality = Runtime("csrt_personality", Llvm.I32).Fn;
+            Native.LLVMSetPersonalityFn(fn, personality);
+            using var b = new IrBuilder(Llvm);
+            b.PositionAtEnd(b.AppendBlock(fn, "entry"));
+            var pad = b.AppendBlock(fn, "lpad");
+            b.UnwindDest = pad;
+            var calleeType = Llvm.FunctionType(returnsPtr ? Llvm.Ptr : Llvm.Void, Llvm.Ptr);
+            var result = b.Call(calleeType, fn.Param(0), [fn.Param(1)]);
+            b.UnwindDest = default;
+            if (returnsPtr) b.Store(result, fn.Param(2));
+            b.Ret(LlvmContext.Null(Llvm.Ptr));
+            b.PositionAtEnd(pad);
+            var lp = b.LandingPad(Llvm.Struct(Llvm.Ptr, Llvm.I32), personality, [LlvmContext.Null(Llvm.Ptr)], cleanup: false);
+            var beginCatch = Runtime("csrt_begin_catch", Llvm.Ptr, Llvm.Ptr);
+            b.Ret(b.Call(beginCatch.Type, beginCatch.Fn, [b.ExtractValue(lp, 0)]));
+        }
+    }
+
     private INamedTypeSymbol Constructed(string metadataName, ITypeSymbol element) =>
         (Compilation.GetTypeByMetadataName(metadataName)
          ?? throw new CompileError("CSLLVM0005", $"reference assemblies lack '{metadataName}'", null)).Construct(element);
