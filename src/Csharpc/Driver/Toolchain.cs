@@ -11,8 +11,10 @@ namespace Csharpc.Driver;
 public sealed class Toolchain(CompilerOptions options, Csharpc.Llvm.TargetMachine target)
 {
     /// <summary>-fexceptions: C# exceptions unwind through runtime frames (and, with runtime LTO,
-    /// keeps clang from marking csrt functions nounwind, which would delete landing pads).</summary>
-    private static readonly string[] BaseRuntimeCFlags = ["-O2", "-std=c11", "-fPIC", "-funwind-tables", "-fexceptions"];
+    /// keeps clang from marking csrt functions nounwind, which would delete landing pads).
+    /// -ffp-contract=off: clang's default fuses a*b+c into one FMA wherever the target has it
+    /// (always on AArch64), which rounds differently from .NET's separate multiply and add.</summary>
+    private static readonly string[] BaseRuntimeCFlags = ["-O2", "-std=c11", "-fPIC", "-funwind-tables", "-fexceptions", "-ffp-contract=off"];
 
     private string[] RuntimeCFlags => [.. BaseRuntimeCFlags, .. Hardening.RuntimeCFlags(options.Hardening, target), .. SanitizerFlags];
 
