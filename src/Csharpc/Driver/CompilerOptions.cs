@@ -56,12 +56,12 @@ public sealed record CompilerOptions
           -g, --debug            Emit DWARF debug info (C# source-level debugging with gdb/lldb)
           -g0                    No debug info (default; overrides -c Debug)
           --target <triple>      Target triple (default: host)
-          --cpu <name>           Target CPU: native, x86-64-v3, znver4, ... (default: best x86-64-vN the host supports)
+          --cpu <name>           Target CPU: native, x86-64-v3, znver4, ... (default: best x86-64-vN the host supports; host CPU on AArch64)
           --features <list>      Extra LLVM target features, e.g. +avx512f
           -D <symbol>            Define a preprocessor symbol
           --no-implicit-usings   Don't add the SDK's implicit global usings
           --no-runtime-lto       Link the runtime as objects instead of LTO-ing its bitcode
-          --hardening <level>    none | default (full RELRO, NX, stack probes, hardened runtime) | max (+ CET IBT/SHSTK, SLH)
+          --hardening <level>    none | default (full RELRO, NX, stack probes, hardened runtime) | max (+ CET IBT/SHSTK or BTI/PAC, SLH)
           --sanitize <list>      Build the runtime with sanitizers, e.g. address,undefined (testing; $CSHARPC_SANITIZE)
           --cc <path>            C compiler used as linker driver (default: $CSHARPC_CC or clang)
           --dump-cfg             Print Roslyn's control-flow graphs (csharpc's "MIR")
