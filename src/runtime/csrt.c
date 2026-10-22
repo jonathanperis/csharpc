@@ -199,53 +199,6 @@ csrt_String* csrt_string_from_utf8(const char* text) { return string_from_utf8(t
 void csrt_stderr_write_string(csrt_String* s) { if (s) write_utf16(stderr, s->chars, s->length); }
 
 // ---------------------------------------------------------------------------------------------
-// Number formatting, matching .NET Core 3.0+ semantics (shortest round-trippable "R" output,
-// scientific notation outside [1e-4, 1e15), "E+XX" exponents, and the invariant culture's "NaN"/"Infinity").
-// ---------------------------------------------------------------------------------------------
-static void format_real(char* out, size_t cap, double v, int max_digits, bool is_float) {
-    if (isnan(v)) { snprintf(out, cap, "NaN"); return; }
-    if (isinf(v)) { snprintf(out, cap, v > 0 ? "Infinity" : "-Infinity"); return; }  // invariant culture
-    if (v == 0) { snprintf(out, cap, signbit(v) ? "-0" : "0"); return; }
-
-    // Find the shortest digit string that round-trips.
-    char sci[64];
-    for (int p = 1; p <= max_digits; p++) {
-        snprintf(sci, sizeof sci, "%.*e", p - 1, v);
-        if (is_float ? (strtof(sci, NULL) == (float)v) : (strtod(sci, NULL) == v)) break;
-    }
-
-    // sci looks like "-d.ddddde+XX". Split into sign, digits and decimal exponent.
-    bool negative = sci[0] == '-';
-    const char* s = sci + (negative ? 1 : 0);
-    char digits[32];
-    int nd = 0;
-    for (; *s && *s != 'e'; s++)
-        if (*s != '.') digits[nd++] = *s;
-    while (nd > 1 && digits[nd - 1] == '0') nd--;  // trim trailing zeros
-    digits[nd] = 0;
-    int exp = atoi(s + 1);
-
-    char* o = out;
-    char* end = out + cap - 1;
-    if (negative && o < end) *o++ = '-';
-    if (exp >= 15 || exp < -4) {
-        *o++ = digits[0];
-        if (nd > 1) { *o++ = '.'; for (int i = 1; i < nd && o < end; i++) *o++ = digits[i]; }
-        snprintf(o, (size_t)(end - o + 1), "E%c%02d", exp < 0 ? '-' : '+', exp < 0 ? -exp : exp);
-        return;
-    }
-    if (exp < 0) {
-        *o++ = '0'; *o++ = '.';
-        for (int i = 0; i < -exp - 1; i++) *o++ = '0';
-        for (int i = 0; i < nd; i++) *o++ = digits[i];
-    } else {
-        for (int i = 0; i <= exp; i++) *o++ = i < nd ? digits[i] : '0';
-        if (nd > exp + 1) { *o++ = '.'; for (int i = exp + 1; i < nd; i++) *o++ = digits[i]; }
-    }
-    *o = 0;
-}
-
-// ---------------------------------------------------------------------------------------------
 // Type system
 // ---------------------------------------------------------------------------------------------
 // Arrays and strings implement BCL generic interfaces (IList<T>, IEnumerable<char>...) through
@@ -454,8 +407,6 @@ csrt_String* csrt_string_from_i32(int32_t v) { char b[24]; return string_from_di
 csrt_String* csrt_string_from_i64(int64_t v) { char b[24]; return string_from_digits(csrt_itoa_i64(v, b + 24), b + 24); }
 csrt_String* csrt_string_from_u32(uint32_t v) { char b[24]; return string_from_digits(csrt_itoa_u64(v, b + 24), b + 24); }
 csrt_String* csrt_string_from_u64(uint64_t v) { char b[24]; return string_from_digits(csrt_itoa_u64(v, b + 24), b + 24); }
-csrt_String* csrt_string_from_f64(double v) { char b[64]; format_real(b, sizeof b, v, 17, false); return string_from_utf8(b); }
-csrt_String* csrt_string_from_f32(float v) { char b[64]; format_real(b, sizeof b, v, 9, true); return string_from_utf8(b); }
 csrt_String* csrt_string_from_bool(bool v) { return string_from_ascii(v ? "True" : "False"); }
 csrt_String* csrt_string_from_char(uint16_t v) { csrt_String* s = string_alloc(1); s->chars[0] = v; return s; }
 
@@ -487,8 +438,6 @@ void csrt_console_write_i32(int32_t v) { char b[24]; write_digits(csrt_itoa_i64(
 void csrt_console_write_i64(int64_t v) { char b[24]; write_digits(csrt_itoa_i64(v, b + 24), b + 24); }
 void csrt_console_write_u32(uint32_t v) { char b[24]; write_digits(csrt_itoa_u64(v, b + 24), b + 24); }
 void csrt_console_write_u64(uint64_t v) { char b[24]; write_digits(csrt_itoa_u64(v, b + 24), b + 24); }
-void csrt_console_write_f64(double v) { char b[64]; format_real(b, sizeof b, v, 17, false); fputs(b, stdout); }
-void csrt_console_write_f32(float v) { char b[64]; format_real(b, sizeof b, v, 9, true); fputs(b, stdout); }
 void csrt_console_write_bool(bool v) { fputs(v ? "True" : "False", stdout); }
 void csrt_console_write_char(uint16_t v) { write_utf16(stdout, &v, 1); }
 void csrt_console_newline(void) { fputc('\n', stdout); }
@@ -561,4 +510,29 @@ int32_t csrt_valuetype_get_hash_code(void* self) {
     uint32_t h = 2166136261u;
     for (uint32_t i = 0; i < mt->instance_size - 8; i++) h = (h ^ p[i]) * 16777619u;
     return (int32_t)h;
+}
+
+// ---------------------------------------------------------------------------------------------
+// Corelib exports (ADR 0008). Number formatting and parsing are C# (src/Csharpc/corelib/Number.*.cs);
+// the compiler emits these symbols from the corelib whenever the program references the runtime
+// code that calls them (boxed doubles, Enum.Parse, ...). These weak definitions only satisfy the
+// linker in programs where that code is dead.
+// ---------------------------------------------------------------------------------------------
+_Noreturn static void missing_export(const char* name) {
+    fprintf(stderr, "csrt: corelib export %s was not emitted\n", name);
+    abort();
+}
+__attribute__((weak)) csrt_String* csrt_string_from_f64(double v) { (void)v; missing_export("csrt_string_from_f64"); }
+__attribute__((weak)) csrt_String* csrt_string_from_f32(float v) { (void)v; missing_export("csrt_string_from_f32"); }
+__attribute__((weak)) csrt_String* csrt_decimal_to_string(const void* d) { (void)d; missing_export("csrt_decimal_to_string"); }
+__attribute__((weak)) int32_t csrt_decimal_compare(const void* a, const void* b) { (void)a; (void)b; missing_export("csrt_decimal_compare"); }
+__attribute__((weak)) int32_t csrt_decimal_get_hash_code(const void* d) { (void)d; missing_export("csrt_decimal_get_hash_code"); }
+__attribute__((weak)) csrt_String* csrt_bigint_to_string(void* a) { (void)a; missing_export("csrt_bigint_to_string"); }
+__attribute__((weak)) int32_t csrt_bigint_compare(void* a, void* b) { (void)a; (void)b; missing_export("csrt_bigint_compare"); }
+__attribute__((weak)) int32_t csrt_bigint_get_hash_code(void* a) { (void)a; missing_export("csrt_bigint_get_hash_code"); }
+__attribute__((weak)) csrt_String* csrt_timespan_to_string(int64_t ticks) { (void)ticks; missing_export("csrt_timespan_to_string"); }
+__attribute__((weak)) csrt_String* csrt_datetime_to_string(int64_t ticks) { (void)ticks; missing_export("csrt_datetime_to_string"); }
+__attribute__((weak)) int32_t csrt_parse_i64_styled(csrt_String* s, int32_t styles, int32_t bits, bool is_signed, int64_t* result) {
+    (void)s; (void)styles; (void)bits; (void)is_signed; (void)result;
+    missing_export("csrt_parse_i64_styled");
 }

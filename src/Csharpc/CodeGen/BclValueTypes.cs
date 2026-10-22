@@ -92,12 +92,6 @@ internal static class BclValueTypes
         foreach (var element in new[] { "string", "object" })
             t[$"string.Concat(System.ReadOnlySpan<{element}>)"] = (g, inv) =>
                 Rt(g, "csrt_string_join", g.Llvm.Ptr, (g.Module.StringLiteral(""), g.Llvm.Ptr), (SpanArgumentAsStrings(g, inv, 0), g.Llvm.Ptr));
-        t["System.Text.StringBuilder.AppendJoin(string, System.ReadOnlySpan<string>)"] = (g, inv) =>
-        {
-            var self = g.EmitValue(inv.Instance!);
-            var joined = Rt(g, "csrt_string_join", g.Llvm.Ptr, (separator(g, inv), g.Llvm.Ptr), (SpanArgumentAsStrings(g, inv, 1), g.Llvm.Ptr));
-            return Rt(g, "csrt_sb_append_string", g.Llvm.Ptr, (self, g.Llvm.Ptr), (joined, g.Llvm.Ptr));
-        };
         // Composite formatting with 4+ arguments binds to params ReadOnlySpan<object?>.
         foreach (var (name, newline) in new[] { ("Write", false), ("WriteLine", true) })
             t[$"System.Console.{name}(string, System.ReadOnlySpan<object>)"] = (g, inv) =>
@@ -266,9 +260,9 @@ internal static class BclValueTypes
         t[$"{D}.Equals({D})"] = (g, _, self, a, at) => g.DecimalArithmetic(BinaryOperatorKind.Equals, self, a[0], at);
         t[$"{D}.Equals({D}, {D})"] = (g, _, _, a, at) => g.DecimalArithmetic(BinaryOperatorKind.Equals, a[0], a[1], at);
         t[$"{D}.GetHashCode()"] = (g, _, self, _, _) => Rt(g, "csrt_decimal_get_hash_code", g.Llvm.I32, (g.Spill(self), g.Llvm.Ptr));
-        t[$"{D}.ToString()"] = (g, _, self, _, _) => Rt(g, "csrt_decimal_to_string", g.Llvm.Ptr, (g.Spill(self), g.Llvm.Ptr));
+        t[$"{D}.ToString()"] = (g, _, self, _, _) => g.CallCoreLib("Number", "DecimalToString", self);
         t[$"{D}.ToString(string)"] = (g, _, self, a, _) =>
-            Rt(g, "csrt_format_decimal", g.Llvm.Ptr, (g.Spill(self), g.Llvm.Ptr), (a[0], g.Llvm.Ptr));
+            g.CallCoreLib("Number", "FormatDecimal", self, a[0]);
         t[$"{D}.Parse(string)"] = (g, _, _, a, _) => g.DecimalCall("csrt_decimal_parse", [g.Llvm.Ptr], a[0]);
         t[$"{D}.TryParse(string, {D})"] = (g, _, _, a, _) =>
             Rt(g, "csrt_decimal_try_parse", g.Llvm.I1, (a[0], g.Llvm.Ptr), (a[1], g.Llvm.Ptr));
@@ -334,12 +328,10 @@ internal static class BclValueTypes
         {
             t[$"System.Console.{w}({D})"] = (g, _, _, a, _) =>
             {
-                Write(g, Rt(g, "csrt_decimal_to_string", g.Llvm.Ptr, (g.Spill(a[0]), g.Llvm.Ptr)), w == "WriteLine");
+                Write(g, g.CallCoreLib("Number", "DecimalToString", a[0]), w == "WriteLine");
                 return default;
             };
         }
-        t["System.Text.StringBuilder.Append(decimal)"] = (g, _, self, a, _) =>
-            Rt(g, "csrt_sb_append_string", g.Llvm.Ptr, (self, g.Llvm.Ptr), (Rt(g, "csrt_decimal_to_string", g.Llvm.Ptr, (g.Spill(a[0]), g.Llvm.Ptr)), g.Llvm.Ptr));
         foreach (var target in new[] { "int", "long", "double" })
             t[$"{D}.To{(target == "int" ? "Int32" : target == "long" ? "Int64" : "Double")}({D})"] = (g, m, _, a, at) =>
                 g.DecimalConvert(a[0], m.Parameters[0].Type, m.ReturnType, at);
@@ -725,21 +717,6 @@ internal static class BclValueTypes
             g.TagArray(array, g.Module.Compilation.GetSpecialType(SpecialType.System_String));
             return array;
         };
-
-        // ===== StringBuilder extras =====
-        const string SB = "System.Text.StringBuilder";
-        t[$"{SB}.Insert(int, string)"] = (g, _, self, a, _) => Rt(g, "csrt_sb_insert", g.Llvm.Ptr, (self, g.Llvm.Ptr), (a[0], g.Llvm.I32), (a[1], g.Llvm.Ptr));
-        t[$"{SB}.Insert(int, char)"] = (g, _, self, a, _) => Rt(g, "csrt_sb_insert", g.Llvm.Ptr, (self, g.Llvm.Ptr), (a[0], g.Llvm.I32),
-            (Rt(g, "csrt_string_from_char", g.Llvm.Ptr, (a[1], g.Llvm.I16)), g.Llvm.Ptr));
-        t[$"{SB}.Insert(int, int)"] = (g, _, self, a, _) => Rt(g, "csrt_sb_insert", g.Llvm.Ptr, (self, g.Llvm.Ptr), (a[0], g.Llvm.I32),
-            (Rt(g, "csrt_string_from_i32", g.Llvm.Ptr, (a[1], g.Llvm.I32)), g.Llvm.Ptr));
-        t[$"{SB}.Remove(int, int)"] = (g, _, self, a, _) => Rt(g, "csrt_sb_remove", g.Llvm.Ptr, (self, g.Llvm.Ptr), (a[0], g.Llvm.I32), (a[1], g.Llvm.I32));
-        t[$"{SB}.Replace(string, string)"] = (g, _, self, a, _) => Rt(g, "csrt_sb_replace", g.Llvm.Ptr, (self, g.Llvm.Ptr), (a[0], g.Llvm.Ptr), (a[1], g.Llvm.Ptr));
-        t[$"{SB}.Replace(char, char)"] = (g, _, self, a, _) => Rt(g, "csrt_sb_replace", g.Llvm.Ptr, (self, g.Llvm.Ptr),
-            (Rt(g, "csrt_string_from_char", g.Llvm.Ptr, (a[0], g.Llvm.I16)), g.Llvm.Ptr), (Rt(g, "csrt_string_from_char", g.Llvm.Ptr, (a[1], g.Llvm.I16)), g.Llvm.Ptr));
-        t[$"{SB}.get_Chars(int)"] = (g, _, self, a, _) => Rt(g, "csrt_sb_get_char", g.Llvm.I16, (self, g.Llvm.Ptr), (a[0], g.Llvm.I32));
-        t[$"{SB}.AppendJoin(string, string[])"] = (g, _, self, a, _) =>
-            Rt(g, "csrt_sb_append_string", g.Llvm.Ptr, (self, g.Llvm.Ptr), (Rt(g, "csrt_string_join", g.Llvm.Ptr, (a[0], g.Llvm.Ptr), (a[1], g.Llvm.Ptr)), g.Llvm.Ptr));
 
         // ===== Math extras =====
         t["System.Math.BigMul(int, int)"] = (g, _, _, a, _) => g.Builder.BinOp(LLVMOpcode.Mul, ToI64(g, a[0]), ToI64(g, a[1]));

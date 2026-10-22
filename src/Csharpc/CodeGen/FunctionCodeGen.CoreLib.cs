@@ -99,10 +99,41 @@ public sealed partial class FunctionCodeGen
             "IsValueType" => t!.IsValueType ? L.True : L.False,
             "Box" => BoxOrThrow(t!, args[0], inv),
             "Unbox" => UnboxOrThrow(t!, args[0], inv),
+            "FastAllocateString" => FastAllocateString(args[0]),
+            "StringChars" => MakeSpan(_b.StructGep(T.StringHeader, args[0], 2), _b.Load(L.I32, _b.StructGep(T.StringHeader, args[0], 1), "strlen")),
+            "DoubleToBits" => _b.Cast(LLVMOpcode.BitCast, args[0], L.I64),
+            "BitsToDouble" => _b.Cast(LLVMOpcode.BitCast, args[0], L.F64),
+            "SingleToBits" => _b.Cast(LLVMOpcode.BitCast, args[0], L.I32),
+            "BitsToSingle" => _b.Cast(LLVMOpcode.BitCast, args[0], L.F32),
+            // decimal is { i32 flags, i32 hi, i64 lo } (runtime/decimal.c)
+            "DecimalFlags" => _b.ExtractValue(args[0], 0),
+            "DecimalHi" => _b.ExtractValue(args[0], 1),
+            "DecimalLo" => _b.ExtractValue(args[0], 2),
+            "MakeDecimal" => _b.InsertValue(_b.InsertValue(_b.InsertValue(LlvmContext.Null(DecimalType), args[0], 0), args[1], 1), args[2], 2),
             "CompareStrings" => CallRuntime("csrt_string_compare_culture", L.I32, [L.Ptr, L.Ptr, L.I1], args[0], args[1], L.False),
             _ => throw CompileError.Unsupported($"corelib intrinsic '{target.Name}'", inv),
         };
     }
+
+    /// <summary>
+    /// Calls a static CsharpcCoreLib.&lt;type&gt;.&lt;method&gt; (an implementation moved from the C runtime to C#),
+    /// picked by name and parameter count. Its body is lowered on demand.
+    /// </summary>
+    internal LLVMValueRef CallCoreLib(string type, string method, params LLVMValueRef[] args)
+    {
+        var owner = _m.Compilation.GetTypeByMetadataName(CoreLib.Namespace + "." + type)
+            ?? throw CompileError.Unsupported($"corelib type '{type}' not found (is src/Csharpc/corelib shipped?)", (ISymbol?)null!);
+        var target = owner.GetMembers(method).OfType<IMethodSymbol>().Single(m => m.IsStatic && m.Parameters.Length == args.Length);
+        return DirectCall(target, args);
+    }
+
+    /// <summary>
+    /// string with `length` uninitialized chars (the GC never scans strings). The runtime helper throws
+    /// OutOfMemoryException for negative lengths and above .NET's maximum string length, so no size
+    /// computation in the corelib can turn into an undersized allocation.
+    /// </summary>
+    internal LLVMValueRef FastAllocateString(LLVMValueRef length)
+        => CallRuntime("csrt_string_alloc_checked", L.Ptr, [L.I64], _b.Cast(LLVMOpcode.SExt, length, L.I64));
 
     /// <summary>Throws a library exception; code emitted afterwards lands in an unreachable block.</summary>
     private void ThrowAndContinue(string typeName, string message)

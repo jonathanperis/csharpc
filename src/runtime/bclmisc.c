@@ -356,61 +356,6 @@ csrt_Array* csrt_string_split_chars(csrt_String* s, csrt_Array* separators, int3
 }
 
 // ---------------------------------------------------------------------------------------------
-// StringBuilder extras (layout shared with strings.c: { mt, char[] buffer, i32 length })
-// ---------------------------------------------------------------------------------------------
-typedef struct { const csrt_MethodTable* mt; csrt_Array* buffer; int32_t length; } StringBuilder;
-StringBuilder* csrt_sb_append_string(StringBuilder* sb, csrt_String* s);
-
-static void sb_reserve(StringBuilder* sb, int64_t extra) {
-    if (!sb) csrt_throw_null_reference();
-    int64_t need = sb->length + extra;
-    if (need <= sb->buffer->length) return;
-    int64_t cap = sb->buffer->length * 2;
-    if (cap < need) cap = need;
-    csrt_Array* grown = csrt_new_array(sizeof(uint16_t), cap);
-    memcpy(grown->data, sb->buffer->data, sizeof(uint16_t) * (size_t)sb->length);
-    sb->buffer = grown;
-}
-
-StringBuilder* csrt_sb_insert(StringBuilder* sb, int32_t index, csrt_String* s) {
-    if (!sb) csrt_throw_null_reference();
-    if (index < 0 || index > sb->length) csrt_throw(&mt_range, ascii("Index was out of range. Must be non-negative and less than or equal to the size of the collection. (Parameter 'index')"));
-    if (!s || !s->length) return sb;
-    sb_reserve(sb, s->length);
-    uint16_t* chars = (uint16_t*)sb->buffer->data;
-    memmove(chars + index + s->length, chars + index, 2 * (size_t)(sb->length - index));
-    memcpy(chars + index, s->chars, 2 * (size_t)s->length);
-    sb->length += s->length;
-    return sb;
-}
-
-StringBuilder* csrt_sb_remove(StringBuilder* sb, int32_t start, int32_t length) {
-    if (!sb) csrt_throw_null_reference();
-    if (length < 0 || start < 0 || start + length > sb->length)
-        csrt_throw(&mt_range, ascii("Index was out of range. Must be non-negative and less than the size of the collection. (Parameter 'startIndex')"));
-    uint16_t* chars = (uint16_t*)sb->buffer->data;
-    memmove(chars + start, chars + start + length, 2 * (size_t)(sb->length - start - length));
-    sb->length -= length;
-    return sb;
-}
-
-csrt_String* csrt_string_replace(csrt_String* s, csrt_String* from, csrt_String* to);
-
-StringBuilder* csrt_sb_replace(StringBuilder* sb, csrt_String* from, csrt_String* to) {
-    if (!sb) csrt_throw_null_reference();
-    csrt_String* current = from_chars((const uint16_t*)sb->buffer->data, sb->length);
-    csrt_String* replaced = csrt_string_replace(current, from, to);
-    sb->length = 0;
-    return csrt_sb_append_string(sb, replaced);
-}
-
-uint16_t csrt_sb_get_char(StringBuilder* sb, int32_t index) {
-    if (!sb) csrt_throw_null_reference();
-    if (index < 0 || index >= sb->length) csrt_throw(&mt_range, ascii("Index was out of range. Must be non-negative and less than the size of the collection. (Parameter 'index')"));
-    return ((uint16_t*)sb->buffer->data)[index];
-}
-
-// ---------------------------------------------------------------------------------------------
 // Culture-sensitive string comparison (string.Compare/CompareTo, Array.Sort of strings).
 // .NET uses ICU; with the invariant culture that is the CLDR root collation. This approximates
 // it for Latin text with three levels: base letter (case/accent-insensitive) < accent < case
@@ -506,47 +451,6 @@ bool csrt_string_is_null_or_white_space(csrt_String* s) {
 
 // static object.Equals(a, b) lives in src/runtime/records.c (csrt_object_equals_static).
 
-/// Math.Round(double, digits, MidpointRounding) on the exact decimal value of the double.
-/// mode: 0 ToEven, 1 AwayFromZero, 2 ToZero, 3 ToNegativeInfinity, 4 ToPositiveInfinity.
-double csrt_math_round_mode(double value, int32_t digits, int32_t mode) {
-    if (digits < 0 || digits > 15) {
-        static const csrt_MethodTable mt_r = { NULL, "System.ArgumentOutOfRangeException", 0, 0 };
-        csrt_throw(&mt_r, ascii("Rounding digits must be between 0 and 15, inclusive. (Parameter 'digits')"));
-    }
-    if (!isfinite(value) || fabs(value) >= 1e16) return value;
-    char buf[1200];
-    snprintf(buf, sizeof buf, "%.1100f", fabs(value));  // exact expansion
-    char* point = strchr(buf, '.');
-    // kept = integer part + `digits` fractional digits; rest decides the rounding
-    size_t keep_len = (size_t)(point - buf) + 1 + (size_t)digits;
-    bool rest_nonzero = false, half = false, above_half = false;
-    char first = point[1 + digits];
-    for (char* p = point + 2 + digits; *p; p++) if (*p != '0') { rest_nonzero = true; break; }
-    half = first == '5' && !rest_nonzero;
-    above_half = first > '5' || (first == '5' && rest_nonzero);
-    bool any = first != '0' || rest_nonzero;
-    char kept[1200];
-    memcpy(kept, buf, keep_len);
-    kept[keep_len] = 0;
-    if (digits == 0) kept[keep_len - 1] = 0;  // drop the '.'
-    double magnitude = strtod(kept, NULL);
-    bool negative = signbit(value);
-    char last = digits > 0 ? point[digits] : point[-1];
-    bool odd = (last - '0') % 2 == 1;
-    bool up;
-    switch (mode) {
-        case 1: up = above_half || half; break;
-        case 2: up = false; break;
-        case 3: up = negative && any; break;
-        case 4: up = !negative && any; break;
-        default: up = above_half || (half && odd); break;
-    }
-    if (up) magnitude += pow(10.0, -digits);
-    // re-round to `digits` decimals to clean binary noise from the addition
-    snprintf(kept, sizeof kept, "%.*f", digits, magnitude);
-    double r = strtod(kept, NULL);
-    return negative ? -r : r;
-}
 
 // ---------------------------------------------------------------------------------------------
 // Array.Sort: a port of .NET's ArraySortHelper<T>.IntrospectiveSort, so results (including the

@@ -49,7 +49,8 @@ public sealed partial class FunctionCodeGen
         }
         if (_m.IsUserMethod(target))
         {
-            var self = ModuleCodeGen.HasThis(target) || ModuleCodeGen.HasExtensionReceiver(target) ? Receiver(inv.Instance!, target) : default;
+            var self = ModuleCodeGen.HasThis(target) || ModuleCodeGen.HasExtensionReceiver(target) || (CoreLib.IsInstanceShadow(target) && inv.Instance is not null)
+                ? Receiver(inv.Instance!, target) : default;
             var isBaseCall = inv.Instance?.Syntax is BaseExpressionSyntax;
             return EmitUserCall(target, self, ReceiverIsNonNull(inv.Instance, target), inv.Arguments, inv.IsVirtual && !isBaseCall);
         }
@@ -174,14 +175,21 @@ public sealed partial class FunctionCodeGen
         ImmutableArray<IArgumentOperation> arguments, bool isVirtual, LLVMValueRef[]? extraArgs = null)
     {
         var hasThis = ModuleCodeGen.HasThis(target);
-        var offset = hasThis || ModuleCodeGen.HasExtensionReceiver(target) ? 1 : 0;
-        var args = new LLVMValueRef[offset + target.Parameters.Length];
+        // A corelib [ShadowInstance] static implementing a library instance method: the receiver is its
+        // first parameter, and the call site's arguments (ordinals of the library method) shift by one.
+        var instanceShadow = self.Handle != 0 && CoreLib.IsInstanceShadow(target);
+        var offset = hasThis || ModuleCodeGen.HasExtensionReceiver(target) || instanceShadow ? 1 : 0;
+        var args = new LLVMValueRef[(instanceShadow ? 0 : offset) + target.Parameters.Length];
         if (offset == 1)
         {
-            if (hasThis && !selfIsNonNull) NullCheck(self); // extension receivers may legitimately be null
+            // Extension receivers may legitimately be null; instance methods (incl. shadows) throw NRE.
+            if ((hasThis || (instanceShadow && !target.Parameters[0].Type.IsValueType)) && !selfIsNonNull) NullCheck(self);
             args[0] = self;
         }
-        foreach (var argument in arguments) args[offset + argument.Parameter!.Ordinal] = EmitArgument(argument, target);
+        foreach (var argument in arguments)
+            args[offset + argument.Parameter!.Ordinal] = instanceShadow
+                ? EmitShadowArgument(argument, target.Parameters[argument.Parameter.Ordinal + 1])
+                : EmitArgument(argument, target);
         if (extraArgs is not null)
             for (var i = 0; i < extraArgs.Length; i++) args[args.Length - extraArgs.Length + i] = extraArgs[i];
 
@@ -205,6 +213,14 @@ public sealed partial class FunctionCodeGen
     }
 
     private LLVMValueRef EmitArgument(IArgumentOperation argument) => EmitArgument(argument, null);
+
+    private LLVMValueRef EmitShadowArgument(IArgumentOperation argument, IParameterSymbol shadowParameter)
+    {
+        var parameter = argument.Parameter!;
+        if (parameter.RefKind is RefKind.In or RefKind.RefReadOnlyParameter) return AddressOrSpill(argument.Value);
+        if (parameter.RefKind != RefKind.None) return AddressOf(argument.Value);
+        return Coerce(EmitValue(argument.Value), TypeOf(argument.Value), S(shadowParameter.Type));
+    }
 
     /// <summary>Evaluates an argument and converts it to the (substituted) parameter type of <paramref name="target"/>.</summary>
     private LLVMValueRef EmitArgument(IArgumentOperation argument, IMethodSymbol? target)
@@ -709,7 +725,7 @@ public sealed partial class FunctionCodeGen
 
     internal LLVMValueRef? FormatPrimitive(LLVMValueRef value, ITypeSymbol type) => type.SpecialType switch
     {
-        SpecialType.System_Decimal => CallRuntime("csrt_decimal_to_string", L.Ptr, [L.Ptr], Spill(value, "dec")),
+        SpecialType.System_Decimal => CallCoreLib("Number", "DecimalToString", value),
         SpecialType.System_DateTime => CallRuntime("csrt_datetime_to_string", L.Ptr, [L.I64], value),
         _ when BclValueTypes.IsTimeSpan(type) => CallRuntime("csrt_timespan_to_string", L.Ptr, [L.I64], value),
         _ when BclValueTypes.IsBigInteger(type) => CallRuntime("csrt_bigint_to_string", L.Ptr, [L.Ptr], value),
@@ -737,14 +753,14 @@ public sealed partial class FunctionCodeGen
         return piece;
     }
 
-    /// <summary>value.ToString(format) with .NET standard/custom numeric format strings (src/runtime/format.c).</summary>
+    /// <summary>value.ToString(format) with .NET standard/custom numeric format strings (corelib/Number.Formatting.cs).</summary>
     internal LLVMValueRef FormatWith(IOperation valueOp, LLVMValueRef format)
     {
         valueOp = Unbox(valueOp);
         var type = TypeOf(valueOp)!;
         var value = EmitValue(valueOp);
         if (type.TypeKind == TypeKind.Enum) return ToStringValue(valueOp);
-        if (BclValueTypes.IsDecimal(type)) return CallRuntime("csrt_format_decimal", L.Ptr, [L.Ptr, L.Ptr], Spill(value, "dec"), format);
+        if (BclValueTypes.IsDecimal(type)) return CallCoreLib("Number", "FormatDecimal", value, format);
         if (BclValueTypes.IsDateTime(type)) return CallRuntime("csrt_datetime_format", L.Ptr, [L.I64, L.Ptr], value, format);
         if (BclValueTypes.IsTimeSpan(type)) return CallRuntime("csrt_timespan_format", L.Ptr, [L.I64, L.Ptr], value, format);
         if (BclValueTypes.IsBigInteger(type)) return CallRuntime("csrt_bigint_format", L.Ptr, [L.Ptr, L.Ptr], value, format);

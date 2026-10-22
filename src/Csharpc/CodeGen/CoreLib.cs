@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 
@@ -205,15 +206,21 @@ public sealed class CoreLib
         // call still dispatches virtually to whatever the shadow hierarchy overrides.
         else if (method.OverriddenMethod is { } overridden && method.ContainingType is { } derived && TryMap(derived) is not null)
             result = Map(overridden);
-        else if (method.IsStatic && method.ContainingType is { } owner
+        else if (method.ContainingType is { } owner
                  && _memberShadowNames.TryGetValue(Mangler.MetadataName(owner.OriginalDefinition), out var extensions))
         {
             foreach (var extensionName in extensions)
-                if (Resolve(extensionName) is { } extension && MatchDefinition(method.OriginalDefinition, extension) is IMethodSymbol extra)
-                {
-                    result = method.IsGenericMethod && !method.IsDefinition ? extra.Construct([.. method.TypeArguments]) : extra;
-                    break;
-                }
+            {
+                if (Resolve(extensionName) is not { } extension) continue;
+                // Static members match static members; instance members match [ShadowInstance] statics
+                // that take the receiver as their first parameter.
+                var extra = method.IsStatic
+                    ? MatchDefinition(method.OriginalDefinition, extension) as IMethodSymbol
+                    : MatchInstanceShadow(method.OriginalDefinition, extension);
+                if (extra is null) continue;
+                result = method.IsGenericMethod && !method.IsDefinition ? extra.Construct([.. method.TypeArguments]) : extra;
+                break;
+            }
         }
         _cache[method] = result;
         return result;
@@ -253,6 +260,28 @@ public sealed class CoreLib
             result = match;
         _cache[field] = result;
         return result;
+    }
+
+    /// <summary>
+    /// <c>[ShadowInstance] static R Name(T @this, P1 p1, ...)</c> in a [ShadowMembers("T")] class implements the
+    /// library instance method <c>T.Name(P1, ...)</c> (e.g. string.Substring) in C#.
+    /// </summary>
+    public static bool IsInstanceShadow(IMethodSymbol method) =>
+        method.IsStatic && method.Parameters.Length > 0 && IsCoreLib(method)
+        && s_instanceShadow.GetValue(method.OriginalDefinition, m =>
+            new StrongBox<bool>(m.GetAttributes().Any(a => a.AttributeClass?.Name == "ShadowInstanceAttribute"))).Value;
+
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<IMethodSymbol, StrongBox<bool>> s_instanceShadow = new();
+
+    private IMethodSymbol? MatchInstanceShadow(IMethodSymbol real, INamedTypeSymbol shadow)
+    {
+        if (_definitionMatch.TryGetValue((real, shadow), out var known)) return known as IMethodSymbol;
+        var key = $"{real.MetadataName}`{real.Arity}({string.Join(",", real.Parameters.Select(Param))})";
+        var match = shadow.GetMembers(real.MetadataName).OfType<IMethodSymbol>().FirstOrDefault(m =>
+            m.IsStatic && m.Arity == real.Arity && m.Parameters.Length == real.Parameters.Length + 1 && IsInstanceShadow(m)
+            && $"{m.MetadataName}`{m.Arity}({string.Join(",", m.Parameters.Skip(1).Select(Param))})" == key);
+        _definitionMatch[(real, shadow)] = match;
+        return match;
     }
 
     private static T InConstructed<T>(T definitionMember, INamedTypeSymbol constructedType) where T : class, ISymbol =>

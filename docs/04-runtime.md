@@ -1,11 +1,12 @@
 # 04 — Runtime
 
-Every compiled program links against **csrt**, the csharpc bootstrap runtime: `src/runtime/csrt.h` and
-`src/runtime/csrt.c`, a few hundred lines of C11. The driver compiles it on demand and caches the object
+Every compiled program links against **csrt**, the csharpc native runtime: the C11 sources in
+`src/runtime` (`csrt.h` is the ABI). The driver compiles it on demand and caches the object
 under `~/.cache/csharpc/` ([02-architecture.md](02-architecture.md#5-link-srccsharpcdrivertoolchaincs)).
 
-csrt is deliberately tiny. It's the "native layer" that will remain once most of the library is
-written in C# ([ADR 0007](adr/0007-runtime-in-c-first.md)).
+csrt is the "native layer". Library logic lives in the C# corelib instead
+([ADR 0007](adr/0007-runtime-in-c-first.md), [ADR 0008](adr/0008-runtime-in-csharp.md)); see
+[the C / C# boundary](#the-c--c-boundary).
 
 ## ABI contract
 
@@ -39,28 +40,31 @@ the same header. Their `base` points at the base class's table or at `csrt_Objec
 | Lifecycle | `csrt_init(argc, argv)` (64 KiB fully-buffered stdout), `csrt_shutdown()` (flush), `csrt_get_args()` (`string[]` without argv[0]) |
 | Allocation | `csrt_alloc(mt, size)` (zeroed), `csrt_new_array(element_size, length)` (`OverflowException` if `length < 0`). **Memory is never freed** ([ADR 0004](adr/0004-memory-management.md)) |
 | Type system | `csrt_isinst_class`, `csrt_castclass` (walk the `base` chain), `csrt_object_to_string` (null → `""`, else vtable slot 0), default `ToString` (type name), `Equals` (reference equality), `GetHashCode` (address hash) |
-| Strings | `concat` (null = empty), `equals` (ordinal), `is_null_or_empty`, `char_at` (bounds-checked), `from_{i32,i64,u32,u64,f64,f32,bool,char}` |
-| Console | `csrt_console_write_{string,i32,i64,u32,u64,f64,f32,bool,char}`, `csrt_console_newline`. UTF-16 → UTF-8 with surrogate pairs; lone surrogates become U+FFFD |
+| Strings | `concat` (null = empty), `equals` (ordinal), `is_null_or_empty`, `char_at` (bounds-checked), `from_{i32,i64,u32,u64,bool,char}` (doubles: corelib) |
+| Console | `csrt_console_write_{string,i32,i64,u32,u64,bool,char}`, `csrt_console_newline`. UTF-16 → UTF-8 with surrogate pairs; lone surrogates become U+FFFD |
 | Exceptions | `csrt_throw_{null_reference,index_out_of_range,divide_by_zero,overflow,invalid_cast}()`, `csrt_throw(mt, message)` |
 | Environment | `csrt_environment_tick_count64()` (`CLOCK_MONOTONIC` ms), `csrt_environment_exit(code)` |
 
-### Number formatting
+### Number formatting and parsing (C#)
 
-`format_real` reproduces .NET Core 3.0+ `double.ToString()` / `float.ToString()` in the **invariant
-culture**:
+Number formatting and parsing aren't in csrt anymore. They're corelib C#
+(`src/Csharpc/corelib/Number*.cs`, [ADR 0008](adr/0008-runtime-in-csharp.md)) and follow .NET's
+own algorithms for the **invariant culture**:
 
-- The output is the shortest digit string that round-trips (try 1…17 significant digits for
-  `double`, 1…9 for `float`, keep the first that parses back to the same value).
-- Scientific notation is used when the decimal exponent is ≥ 15 or < −4, written as `E+XX`/`E-XX`
-  with at least two exponent digits (`1E+15`, `1E-05`).
-- Special values: `NaN`, `-0`, and infinities. The target is the invariant culture's `Infinity`
-  / `-Infinity`, which is what .NET 11 printed in our test environment. Under ICU cultures such as
-  en-US, .NET prints `∞`. The first csrt version printed `∞`, and that is being switched; see the
-  spike log.
+- `double.ToString()` / `"R"` / `"G"`: the shortest digits that round-trip, from the Steele & White
+  / Burger & Dybvig free-format algorithm on exact big integers (`BigNum.cs`). Fixed notation is
+  used while the decimal exponent is at most 17 for `double` (9 for `float`) and at least −5;
+  otherwise scientific notation (`1E+18`, `1E-05`). Special values print as `NaN`, `Infinity`,
+  `-Infinity` and `-0`.
+- `F`/`E`/`N`/`P`/`C`/`G<n>` on doubles round the **exact** binary value, ties to even
+  (`0.125.ToString("F2") == "0.12"`). Custom formats first round doubles to 15 significant digits
+  (floats: 7), then round half up, as .NET does. Integers and decimals round half up and never
+  print `-0`.
+- Parsing is correctly rounded: Clinger's fast path when the digits and the power of ten are exact
+  doubles, otherwise an exact big-integer quotient with a sticky bit.
 
 Because the test oracle is real .NET ([05-testing.md](05-testing.md)), any divergence shows up as a
-test failure. This is how the `Infinity` vs `∞` question was settled
-([07-spike-log.md](07-spike-log.md)).
+test failure (`tests/samples/162_number_format`, `163_number_parse`).
 
 ### Exceptions: unhandled-only
 
@@ -73,40 +77,64 @@ Linux also ends with SIGABRT, so both exit with status **134**. The differential
 The .NET stack trace isn't reproduced. Real exceptions are designed in
 [ADR 0005](adr/0005-exceptions.md).
 
-## The long-term plan: a corelib in C#
+## The C / C# boundary
 
-csrt's C functions (and the compiler's `Intrinsics.cs` table) are scaffolding. The target
-architecture is what Rust and NativeAOT do:
+The target architecture is the one Rust and NativeAOT use: library code written in the language
+itself, on top of a thin native layer.
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
 │ user code (C#)                                               │
 ├──────────────────────────────────────────────────────────────┤
-│ csharpc corelib (C#, compiled by csharpc)                    │  System.Object, String, Array, Span<T>,
-│                                                              │  Math, Console, List<T>, Dictionary<K,V>,
-│                                                              │  StringBuilder, number formatting/parsing,
-│                                                              │  exceptions, LINQ subset, ...
+│ csharpc corelib (C#, src/Csharpc/corelib, compiled with the  │  collections, LINQ, strings, char,
+│ program; ADR 0008)                                           │  StringBuilder, number formatting and
+│                                                              │  parsing, decimal, BigInteger,
+│                                                              │  DateTime/TimeSpan, Math.Round, ...
 ├──────────────────────────────────────────────────────────────┤
-│ csrt (C, small)                                              │  GC, allocation, unwinding personality,
-│                                                              │  thread/TLS, OS calls (write, mmap, clock)
+│ csrt (C, src/runtime)                                        │  GC + allocator, unwinding/EH, threads,
+│                                                              │  async scheduler core, console + OS calls,
+│                                                              │  startup, type-system primitives
 └──────────────────────────────────────────────────────────────┘
 ```
 
-- Rust's `core`/`alloc`/`std` are ordinary Rust compiled by rustc. NativeAOT's
-  `System.Private.CoreLib` is ordinary C# compiled by the same AOT compiler on top of a thin native
-  layer. csharpc follows both.
-- The corelib compiles together with the user program in the same closed-world module
-  ([ADR 0006](adr/0006-closed-world-compilation.md)), so LLVM inlines and specializes across
-  user/library boundaries and drops whatever is unused.
-- **Binding strategy during the transition.** Roslyn still binds user code against the real .NET
-  reference assemblies, so API shapes and overload resolution stay exact. For each resolved library
-  member, csharpc uses, in order: (1) a corelib implementation compiled from C# source, (2) an
-  `Intrinsics.cs` entry, or (3) a `CSLLVM0002` error. Eventually, binding against the corelib's own
-  reference assembly (as bflat's zerolib does) would make the supported surface explicit.
-- Formatting and parsing move to C# first, since those are where .NET's behavior is subtle and
-  where exact compatibility matters.
-- This requires generics, structs, interfaces and exceptions in the compiler (milestone M1), which
-  is why those come first in [06-roadmap.md](06-roadmap.md).
+**Stays in C:** things that are native by nature or live below the object model:
+
+- the GC and allocator (`gc.c`);
+- exception unwinding and messages (`eh.c`);
+- threads and monitors (`threads.c`) and the async scheduler core (`async.c`);
+- console I/O and syscalls (`console.c`, `csrt.c`);
+- startup (`csrt_init`);
+- casts, interface dispatch and boxing method tables (`csrt.c`, `type.c`, `delegates.c`).
+
+Also still in C, and next in line to move: culture-aware comparison and sorting (`bclmisc.c`) and
+`Enum.Parse` (`parse.c`). The `decimal.c`, `bigint.c` and `datetime.c` files that remain only hold
+boxed method tables and the clocks.
+
+**Lives in C#:** library logic that is ordinary code:
+
+- number formatting and parsing (`Number.Formatting.cs`, `Number.Parsing.cs`, `Number.cs`, `BigNum.cs`);
+- string operations and `char` with Unicode tables generated from .NET (`StringOps.cs`,
+  `UnicodeData.g.cs`, `tools/unicode`);
+- `StringBuilder` (`StringBuilder.cs`);
+- `decimal` (`DecimalOps.cs`), `BigInteger` (`BigIntegerOps.cs`), and `DateTime`/`TimeSpan` (`DateTimeOps.cs`);
+- collections and LINQ.
+
+How the two sides call each other:
+
+- **Compiler → C#.** Library members are implemented, in order of preference, by:
+  1. a corelib shadow (`[Shadows]`, `[ShadowMembers]`, `[ShadowInstance]`; [12-corelib.md](12-corelib.md));
+  2. an `Intrinsics.cs` entry (an LLVM intrinsic or a runtime call);
+  3. a `CSLLVM0002` "not supported" error.
+
+  A runtime call whose function has moved to C# is redirected by `CodeGen/CoreLibRuntime.cs`, so
+  call sites keep naming the old `csrt_*` symbol.
+- **C → C#.** A corelib method marked `[RuntimeExport("csrt_x", "trigger")]` is emitted under the C
+  name `csrt_x` when the program references `trigger`. For example, a boxed double's `ToString`
+  slot in `csrt_Boxed_Double_MT` calls `csrt_string_from_f64`. csrt declares weak fallbacks for
+  these symbols so that programs which never reach that code still link.
+- **C# → C.** Corelib code reaches the runtime through ordinary BCL calls that lower to `csrt_*`
+  (`Console.Write`, `new string`, ...) and through a few `CoreIntrinsics` (`FastAllocateString`,
+  `StringChars`, bit casts) that need no `unsafe` code.
 
 ## GC plan
 

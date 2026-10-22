@@ -1,7 +1,7 @@
 // csrt exception handling: exception classes, throw/rethrow, and the unwinder personality.
 //
 // Design (docs/adr/0005-exceptions.md):
-//  * Exceptions are ordinary GC objects: { mt, message, inner, paramName } (csrt_Exception).
+//  * Exceptions are ordinary GC objects: { mt, message, inner, paramName, actualValue } (csrt_Exception).
 //  * `throw` wraps the object in an Itanium-ABI _Unwind_Exception and calls
 //    _Unwind_RaiseException (libgcc_s / libunwind). Two-phase unwinding, as in C++ and .NET.
 //  * csharpc emits LLVM `invoke` + `landingpad` for calls inside try regions. Catch clauses use
@@ -89,7 +89,16 @@ csrt_String* csrt_exception_get_message(void* exception) {
         message = csrt_string_concat(message, e->param_name);
         message = concat_utf8(message, "')");
     }
+    if (e->actual_value) {  // ArgumentOutOfRangeException.Message: "...\nActual value was X."
+        message = concat_utf8(message, "\nActual value was ");
+        message = csrt_string_concat(message, e->actual_value);
+        message = concat_utf8(message, ".");
+    }
     return message;
+}
+
+void csrt_exception_set_actual_value(void* exception, csrt_String* actual_value) {
+    ((csrt_Exception*)exception)->actual_value = actual_value;
 }
 
 typedef csrt_String* (*csrt_MessageFn)(void*);

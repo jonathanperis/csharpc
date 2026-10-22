@@ -61,6 +61,10 @@ public sealed partial class FunctionCodeGen
     /// <summary>The `this` argument for an instance member: a pointer for structs, the reference for classes.</summary>
     internal LLVMValueRef Receiver(IOperation instance, IMethodSymbol member)
     {
+        if (CoreLib.IsInstanceShadow(member)) // receiver passed by value as the shadow's first parameter
+            return member.Parameters[0].RefKind != RefKind.None
+                ? AddressOrSpill(instance)
+                : Coerce(EmitValue(instance), TypeOf(instance), S(member.Parameters[0].Type));
         if (ModuleCodeGen.IsExtensionMember(member) && member.ContainingType.ExtensionParameter is { } receiver)
             return receiver.RefKind != RefKind.None
                 ? AddressOf(instance)

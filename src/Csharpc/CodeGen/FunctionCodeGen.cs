@@ -512,7 +512,9 @@ public sealed partial class FunctionCodeGen
             EmitYieldReturn(yieldReturn);
             return;
         }
-        if (operation is IFlowCaptureOperation { Value: IPropertyReferenceOperation capturedProperty } propertyCapture
+        // Captured get/set properties are re-invoked later; ref-returning ones (Span<T>'s indexer) are
+        // captured as an address by the general lvalue path below.
+        if (operation is IFlowCaptureOperation { Value: IPropertyReferenceOperation { Property.RefKind: RefKind.None } capturedProperty } propertyCapture
             && _cfg!.LvalueCaptures.Contains(propertyCapture.Id))
         {
             _cfg.PropertyCaptures[propertyCapture.Id] = CaptureProperty(capturedProperty);
@@ -648,6 +650,8 @@ public sealed partial class FunctionCodeGen
 
     internal LLVMValueRef CallRuntime(string name, LLVMTypeRef ret, LLVMTypeRef[] parameterTypes, params LLVMValueRef[] args)
     {
+        // Runtime entry points that moved from C to the C# corelib: call the C# implementation instead.
+        if (CoreLibRuntime.TryGet(name, out var moved)) return CallCoreLib(moved.Type, moved.Method, args);
         var f = _m.Runtime(name, ret, parameterTypes);
         return _b.Call(f.Type, f.Fn, args);
     }

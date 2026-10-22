@@ -313,22 +313,32 @@ public sealed partial class FunctionCodeGen
     /// <summary>Runs a BCL exception constructor: binds message / innerException / paramName by name.</summary>
     private void EmitExceptionConstructor(IMethodSymbol constructor, LLVMValueRef exception, ImmutableArray<IArgumentOperation> arguments)
     {
-        LLVMValueRef? message = null, inner = null, paramName = null;
+        LLVMValueRef? message = null, inner = null, paramName = null, actualValue = null;
         foreach (var argument in arguments)
         {
+            if (argument.Parameter?.Name == "actualValue")
+            {
+                // ArgumentOutOfRangeException(paramName, actualValue, message): keep the formatted value
+                // (null when the argument is null), shown by Message as "\nActual value was X.".
+                var raw = argument.Value;
+                while (raw is IConversionOperation { Type.SpecialType: SpecialType.System_Object } c) raw = c.Operand;
+                actualValue = raw.ConstantValue is { HasValue: true, Value: null } ? null : ToStringValue(argument.Value);
+                continue;
+            }
             var value = EmitValue(argument.Value);
             switch (argument.Parameter?.Name)
             {
                 case "message": message = value; break;
                 case "innerException": inner = value; break;
                 case "paramName": paramName = value; break;
-                // other parameters (actualValue, unmatchedValue, ...) are evaluated for side effects only
+                // other parameters (unmatchedValue, ...) are evaluated for side effects only
             }
         }
         if (message is null && s_defaultMessages.TryGetValue(Mangler.MetadataName(constructor.ContainingType), out var text))
             message = _m.StringLiteral(text);
         var none = LlvmContext.Null(L.Ptr);
         CallRuntime("csrt_exception_init", L.Void, [L.Ptr, L.Ptr, L.Ptr, L.Ptr], exception, message ?? none, inner ?? none, paramName ?? none);
+        if (actualValue is { } actual) CallRuntime("csrt_exception_set_actual_value", L.Void, [L.Ptr, L.Ptr], exception, actual);
     }
 
     private bool TryEmitLibraryExceptionCall(IInvocationOperation inv, out LLVMValueRef result)

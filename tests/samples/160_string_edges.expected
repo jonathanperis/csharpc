@@ -1,0 +1,33 @@
+ArgumentOutOfRangeException: startIndex cannot be larger than length of string. (Parameter 'startIndex')
+ArgumentOutOfRangeException: startIndex ('-1') must be a non-negative value. (Parameter 'startIndex')
+Actual value was -1.
+ArgumentOutOfRangeException: Index and length must refer to a location within the string. (Parameter 'length')
+ArgumentOutOfRangeException: startIndex ('99') must be less than or equal to '12'. (Parameter 'startIndex')
+Actual value was 99.
+ArgumentNullException: Value cannot be null. (Parameter 'value')
+ArgumentOutOfRangeException: StartIndex cannot be less than zero. (Parameter 'startIndex')
+Hello, World
+ArgumentOutOfRangeException: count ('-1') must be a non-negative value. (Parameter 'count')
+Actual value was -1.
+ArgumentOutOfRangeException: count ('5') must be less than or equal to '2'. (Parameter 'count')
+Actual value was 5.
+ArgumentOutOfRangeException: Index was out of range. Must be non-negative and less than or equal to the size of the collection. (Parameter 'startIndex')
+ArgumentOutOfRangeException: Index was out of range. Must be non-negative and less than or equal to the size of the collection. (Parameter 'startIndex')
+ArgumentNullException: Value cannot be null. (Parameter 'value')
+ArgumentException: The value cannot be an empty string. (Parameter 'oldValue')
+ArgumentNullException: Value cannot be null. (Parameter 'oldValue')
+ArgumentOutOfRangeException: totalWidth ('-1') must be a non-negative value. (Parameter 'totalWidth')
+Actual value was -1.
+ArgumentNullException: Value cannot be null. (Parameter 'anyOf')
+ArgumentOutOfRangeException: count ('-2') must be a non-negative value. (Parameter 'count')
+Actual value was -2.
+ArgumentNullException: Value cannot be null. (Parameter 'value')
+ArgumentNullException: Value cannot be null. (Parameter 'value')
+True True True
+True True True
+4 12 -1 0
+a||b| a|b
+ÀÉÎÕÜŸ STRAßE àéîõüÿ Ÿÿ
+True True True True True True True
+hi a-- ab t|
+-1 -1 1

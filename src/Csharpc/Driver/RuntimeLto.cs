@@ -56,8 +56,10 @@ public static class RuntimeLto
                 LLVMSetLinkage(global, LLVMLinkage.Internal);
     }
 
+    // Weak definitions too: csrt's fallbacks for corelib exports (ADR 0008) are final once linked, and
+    // must be internal for GlobalDCE to drop them when nothing calls them.
     private static bool ShouldInternalize(LLVMValueRef value) =>
-        LLVMIsDeclaration(value) == 0 && LLVMGetLinkage(value) == LLVMLinkage.External;
+        LLVMIsDeclaration(value) == 0 && LLVMGetLinkage(value) is LLVMLinkage.External or LLVMLinkage.WeakAny;
 
     private static string NameOf(LLVMValueRef value) =>
         Marshal.PtrToStringUTF8(LLVMGetValueName2(value, out var length), (int)length) ?? "";
