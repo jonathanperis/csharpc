@@ -106,8 +106,10 @@ public sealed partial class FunctionCodeGen
         Finish();
     }
 
-    public void EmitImplicitConstructor(IReadOnlyList<ControlFlowGraph> prologue)
+    public void EmitImplicitConstructor(IReadOnlyList<ControlFlowGraph> prologue, bool zeroThis = false)
     {
+        // A struct's implicit parameterless constructor (reached via `: this()`) zero-initializes.
+        if (zeroThis) _b.Store(LlvmContext.Null(T.Value(_method!.ContainingType)), _this);
         LowerPrologue(prologue);
         if (_method!.ContainingType.BaseType is { } baseType && _m.IsUserType(baseType))
         {
@@ -209,8 +211,8 @@ public sealed partial class FunctionCodeGen
         foreach (var (block, llvmBlock) in state.Blocks)
         {
             _b.PositionAtEnd(llvmBlock);
-            foreach (var operation in block.Operations) EmitStatement(operation);
-            EmitTerminator(block);
+            foreach (var operation in block.Operations) WithLocation(operation, () => EmitStatement(operation));
+            WithLocation(block.BranchValue ?? block.Operations.LastOrDefault(), () => EmitTerminator(block));
         }
 
         // End of each finally: dispatch to whichever continuation entered it.
@@ -224,6 +226,16 @@ public sealed partial class FunctionCodeGen
             _b.Switch(selector, info.Continuations[0], cases);
         }
         _cfg = outer;
+    }
+
+    /// <summary>Errors raised deep inside (e.g. mapping a library type) get the operation's source location.</summary>
+    private static void WithLocation(IOperation? at, Action action)
+    {
+        try { action(); }
+        catch (CompileError e) when (e.Location is not { IsInSource: true } && at is not null)
+        {
+            throw new CompileError(e.Id, e.Message, at.Syntax.GetLocation());
+        }
     }
 
     private void ScanRegions(ControlFlowGraph graph, ControlFlowRegion region)
@@ -258,8 +270,13 @@ public sealed partial class FunctionCodeGen
                     IAssignmentOperation a => a.Target,
                     IIncrementOrDecrementOperation i => i.Target,
                     IArgumentOperation { Parameter.RefKind: not RefKind.None } arg => arg.Value,
+                    // Mutating struct members through a captured receiver must reach the original storage.
+                    IInvocationOperation { Instance.Type.IsValueType: true, TargetMethod.IsReadOnly: false } inv => inv.Instance,
                     _ => null,
                 };
+                // `s.X = v` / `s.P = v` where s is a captured struct: the capture is an lvalue too.
+                while (target is IFieldReferenceOperation { Instance.Type.IsValueType: true } or IPropertyReferenceOperation { Instance.Type.IsValueType: true })
+                    target = target is IFieldReferenceOperation f ? f.Instance : ((IPropertyReferenceOperation)target).Instance;
                 if (target is IFlowCaptureReferenceOperation r) result.Add(r.Id);
             }
         }
@@ -407,7 +424,7 @@ public sealed partial class FunctionCodeGen
     {
         if (operation is IFlowCaptureOperation { Value.Type: { } lvalueType } lvalue && _cfg!.LvalueCaptures.Contains(lvalue.Id))
         {
-            var address = AddressOf(lvalue.Value);
+            var address = AddressOrSpill(lvalue.Value);
             _cfg.Captures[lvalue.Id] = (_allocas.Alloca(L.Ptr, "capture.addr"), lvalueType);
             _b.Store(address, _cfg.Captures[lvalue.Id].Slot);
             return;
@@ -471,6 +488,11 @@ public sealed partial class FunctionCodeGen
 
     internal LLVMValueRef FieldAddressOn(LLVMValueRef instance, IFieldSymbol field)
     {
+        if (field.ContainingType.IsValueType)
+        {
+            var (structType, index) = _m.ValueTypeField(field);
+            return _b.StructGep(structType, instance, index, field.Name);
+        }
         var layout = _m.GetLayout(field.ContainingType);
         return _b.StructGep(layout.InstanceType, instance, layout.FieldIndex[field.OriginalDefinition], field.Name);
     }

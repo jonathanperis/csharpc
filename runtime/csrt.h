@@ -106,3 +106,7 @@ _Noreturn void csrt_environment_exit(int32_t code);
 #define CSRT_DECLARE_BOXED_MT(Name, CType) extern const csrt_BuiltinMethodTable csrt_Boxed_##Name##_MT;
 CSRT_BOXED_TYPES(CSRT_DECLARE_BOXED_MT)
 void* csrt_unbox(void* obj, const csrt_MethodTable* type);   // payload address, or NRE / InvalidCast
+
+// Boxed user structs: default ValueType.Equals / GetHashCode compare the payload bytes.
+bool csrt_valuetype_equals(void* self, void* other);
+int32_t csrt_valuetype_get_hash_code(void* self);
