@@ -76,8 +76,10 @@ public sealed partial class ModuleCodeGen
         {
             var name = returnsPtr ? "csrt_call_catching_ptr" : "csrt_call_catching_void";
             var type = returnsPtr ? Llvm.FunctionType(Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr) : Llvm.FunctionType(Llvm.Ptr, Llvm.Ptr, Llvm.Ptr);
-            if (!Module.GetFunction(name).IsNull) continue;
-            var fn = Module.AddFunction(name, type);
+            // May already be declared (by a caller lowered earlier); define it once.
+            var fn = Module.GetFunction(name);
+            if (!fn.IsNull && Native.LLVMIsDeclaration(fn) == 0) continue;
+            if (fn.IsNull) fn = Module.AddFunction(name, type);
             Llvm.AddFunctionAttribute(fn, "uwtable", 2);
             var personality = Runtime("csrt_personality", Llvm.I32).Fn;
             Native.LLVMSetPersonalityFn(fn, personality);

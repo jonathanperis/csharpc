@@ -107,7 +107,7 @@ public sealed partial class ModuleCodeGen
     private void DrainWorklists()
     {
         do DrainFunctionWorklists();
-        while (EmitPendingBuiltinInterfaceTables());
+        while (EmitPendingClassInits() | EmitPendingBuiltinInterfaceTables());
     }
 
     private void DrainFunctionWorklists()
@@ -906,8 +906,9 @@ public sealed partial class ModuleCodeGen
     private LoweredFunction _staticInit;
 
     /// <summary>
-    /// Runs every static field initializer and static constructor, in declaration order, before Main.
-    /// (Deviation: .NET runs these lazily per type — docs/03-lowering.md#static-initialization.)
+    /// Runs, before Main, the static initializers whose timing is unobservable: referenced corelib
+    /// types and user types whose initializers are all constants. Everything else is initialized
+    /// lazily, with .NET's triggers (ModuleCodeGen.StaticInit.cs).
     /// </summary>
     private void EmitStaticInitializer()
     {
@@ -936,8 +937,7 @@ public sealed partial class ModuleCodeGen
                     throw CompileError.Unsupported($"static field initializers in generic type '{t.Name}'", t);
                 continue;
             }
-            graphs.AddRange(InitializerGraphs(t, isStatic: true));
-            cctors.AddRange(t.StaticConstructors.Where(c => !c.IsImplicitlyDeclared));
+            if (IsEagerlyInitialized(t)) graphs.AddRange(InitializerGraphs(t, isStatic: true));
         }
         new FunctionCodeGen(this, null, _staticInit).EmitStaticInit(graphs, cctors);
     }

@@ -453,7 +453,7 @@ public sealed partial class FunctionCodeGen
         {
             // Get-only auto-property assigned in a constructor: write the backing field directly.
             var field = BackingField(property);
-            var address = field.IsStatic ? _m.StaticField(field) : FieldAddressOn(self, field);
+            var address = field.IsStatic ? StaticFieldAddress(field) : FieldAddressOn(self, field);
             StoreValue(ToStorage(v, property.Type), address);
             return v;
         }

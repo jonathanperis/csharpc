@@ -1,0 +1,8 @@
+Program field init
+Program cctor
+Main: Program field init
+Inner cctor
+2
+Outer cctor
+1
+x

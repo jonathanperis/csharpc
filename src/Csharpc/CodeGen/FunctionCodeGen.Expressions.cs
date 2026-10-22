@@ -174,7 +174,7 @@ public sealed partial class FunctionCodeGen
     private LLVMValueRef FieldAddress(IFieldReferenceOperation f)
     {
         var field = S(f.Field);
-        if (field.IsStatic) return _m.StaticField(field);
+        if (field.IsStatic) return StaticFieldAddress(field);
         if (field.ContainingType.IsValueType) return FieldAddressOn(AddressOrSpill(f.Instance!), field);
         var instance = EmitValue(f.Instance!);
         if (f.Instance is not IInstanceReferenceOperation) NullCheck(instance);

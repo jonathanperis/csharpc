@@ -59,7 +59,9 @@ the time spent in each phase.
 3. Lowers every method body of every class (ordinary methods, constructors, static constructors,
    accessors, operators, conversions), then drains a queue of **local functions** discovered while
    lowering.
-4. Emits `__csharpc_static_init`, which runs all static field initializers and static constructors.
+4. Emits `__csharpc_static_init`, which runs the static initializers whose timing is unobservable
+   (constant-only initializers, corelib types). Other types get a lazy initialization check with
+   .NET's triggers ([03-lowering.md](03-lowering.md#static-initialization)).
 5. Emits the native `main` shim.
 
 Errors are collected per symbol (`Guard`), so one unsupported construct doesn't hide the rest. All

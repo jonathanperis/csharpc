@@ -88,7 +88,7 @@ public sealed partial class FunctionCodeGen
     {
         var e = reference.Event;
         if (!_m.IsUserType(e.ContainingType)) throw CompileError.Unsupported($"event '{e}' of a library type", reference);
-        if (e.IsStatic) return EventBackingField(e) is { } staticField ? _m.StaticField(staticField) : _m.StaticEventField(e);
+        if (e.IsStatic) return EventBackingField(e) is { } staticField ? StaticFieldAddress(staticField) : _m.StaticEventField(e);
         var instance = EmitValue(reference.Instance!);
         if (reference.Instance is not IInstanceReferenceOperation) NullCheck(instance);
         if (EventBackingField(e) is { } field) return FieldAddressOn(instance, field);

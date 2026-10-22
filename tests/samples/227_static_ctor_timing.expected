@@ -1,0 +1,56 @@
+start
+calling BFI.M
+BFI.M
+new BFI
+reading BFI.X
+BFI init
+1
+reading BFI2.X in a helper
+BFI2 init
+2
+Explicit.M
+Explicit field init
+Explicit cctor
+Explicit.M
+Explicit.M again
+Explicit.M
+Derived.S
+Derived cctor
+Derived.S
+new Derived
+Base cctor
+Base ctor
+Derived ctor
+Const 5
+typeof Explicit2
+Nested
+Inner.M
+Thrower cctor
+TypeInitializationException: The type initializer for 'Thrower' threw an exception. / InvalidOperationException: bad
+TypeInitializationException: The type initializer for 'Thrower' threw an exception. / bad
+TypeInitializationException: The type initializer for 'BfiThrower' threw an exception. / nope
+True
+S struct
+S cctor
+S.Inst
+S.Static
+S.Static
+CycB cctor
+CycA cctor
+cycle 11 10
+WithProperty cctor
+property 42
+event
+WithEvent cctor
+handler
+delegate
+created
+ViaDelegate cctor
+7
+async
+AsyncHolder cctor
+99
+constants 3 constants
+threads
+5,5,5,5 initialized 1 time(s)
+end
