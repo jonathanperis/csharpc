@@ -1012,6 +1012,14 @@ public sealed partial class ModuleCodeGen
 
         var shutdown = Runtime("csrt_shutdown", Llvm.Void);
         b.Call(shutdown.Type, shutdown.Fn, []);
-        b.Ret(returnsVoid ? Llvm.ConstInt(Llvm.I32, 0) : result);
+        LLVMValueRef exitCode;
+        if (returnsVoid)
+        {
+            // void Main: the exit status is Environment.ExitCode (0 unless the program set it).
+            var getExitCode = Runtime("csrt_get_exit_code", Llvm.I32);
+            exitCode = b.Call(getExitCode.Type, getExitCode.Fn, []);
+        }
+        else exitCode = result;
+        b.Ret(exitCode);
     }
 }

@@ -160,3 +160,34 @@ csrt_String* csrt_string_new_from_utf16(const uint16_t* chars, int32_t length) {
 
 /// Address of a string's first char (pinning: the GC never moves objects).
 const uint16_t* csrt_string_chars(csrt_String* s) { return s ? s->chars : NULL; }
+
+// Environment.ExitCode: the process exit status when Main returns void (main shim reads it).
+static int s_exit_code;
+int32_t csrt_get_exit_code(void) { return s_exit_code; }
+void csrt_set_exit_code(int32_t code) { s_exit_code = code; }
+
+// Console.Error / Console.In as TextWriter/TextReader objects (corelib) go through these.
+void csrt_console_error_write_string(csrt_String* s);
+void csrt_console_error_write_utf8(const char* text) {
+    csrt_console_error_write_string(csrt_string_from_utf8(text));
+}
+
+/// Console.In.ReadToEnd() through a stored TextReader: all of stdin as a malloc'd NUL-terminated UTF-8 buffer.
+char* csrt_console_read_to_end_utf8(void) {
+    size_t cap = 4096, n = 0, got;
+    char* buf = malloc(cap);
+    fflush(stdout);
+    while ((got = fread(buf + n, 1, cap - 1 - n, stdin)) > 0) {
+        n += got;
+        if (n == cap - 1) { cap *= 2; buf = realloc(buf, cap); }
+    }
+    buf[n] = 0;
+    return buf;
+}
+
+/// new string(char[] value, int startIndex, int length)
+csrt_String* csrt_string_new_from_char_range(csrt_Array* chars, int32_t start, int32_t length) {
+    if (!chars) csrt_throw_null_reference();
+    if (start < 0 || length < 0 || (int64_t)start + length > chars->length) csrt_throw_index_out_of_range();
+    return csrt_string_new_from_utf16((const uint16_t*)chars->data + start, length);
+}

@@ -1,0 +1,40 @@
+wrote sales.csv: 192303 bytes
+parsed 5000 sales
+== Revenue by region ==
+Central   1045 orders     1807406.78
+South     1038 orders     1779655.89
+East      1015 orders     1754949.60
+North      959 orders     1694287.22
+West       943 orders     1637368.93
+== Top products ==
+Gadget, Deluxe   units= 10864 avg=166.45
+Doohickey        units= 10662 avg=166.09
+Thingamajig      units= 10320 avg=164.31
+Widget           units= 10257 avg=169.84
+Gizmo "Pro"      units= 10229 avg=160.43
+== Best customer per region ==
+North: Globex (235992.35)
+South: Initech (238825.66)
+East: Hooli (256159.80)
+West: Wayne (229194.87)
+Central: Globex (273727.35)
+== Largest orders ==
+#1066 Stark Widget x20 = 6562.80
+#2537 Initech Gizmo "Pro" x20 = 6562.80
+#523 Hooli Gadget, Deluxe x20 = 6543.60
+== grep Hooli ==
+data/2026/central.txt: 127 match(es)
+data/2026/central.txt:12: 57	Hooli	Gizmo "Pro"
+data/2026/east.txt: 135 match(es)
+data/2026/east.txt:35: 149	Hooli	Gizmo "Pro"
+data/2026/north.txt: 114 match(es)
+data/2026/north.txt:27: 186	Hooli	Gadget, Deluxe
+data/2026/south.txt: 125 match(es)
+data/2026/south.txt:2: 6	Hooli	Gizmo "Pro"
+data/2026/west.txt: 121 match(es)
+data/2026/west.txt:2: 4	Hooli	Doohickey
+data/notes.md: 1 match(es)
+data/notes.md:1: Remember: Hooli owes us.
+report.txt: 2 match(es)
+report.txt:16: East: Hooli (256159.80)
+error: Could not find file '<root>/missing.csv'.

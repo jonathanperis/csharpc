@@ -24,7 +24,7 @@ public sealed partial class FunctionCodeGen
             IFieldReferenceOperation { Field: { IsStatic: true, Name: "Zero", ContainingType.SpecialType: SpecialType.System_IntPtr or SpecialType.System_UIntPtr } } zf =>
                 LlvmContext.Null(T.Value(zf.Field.Type)),
             IFieldReferenceOperation f when TryLowLevelLibraryMember(f, out var libraryField) => libraryField,
-            IFieldReferenceOperation { Field.IsStatic: true } f when !_m.IsUserType(f.Field.ContainingType) =>
+            IFieldReferenceOperation { Field.IsStatic: true } f when !_m.IsUserType(_m.CoreLib.Map(f.Field).ContainingType) =>
                 BclValueTypes.TryGetField(f.Field, out var bclField) ? bclField(this, f)
                     : throw CompileError.Unsupported($"static field '{f.Field}' of a library type", f),
             IFieldReferenceOperation { Field.IsVolatile: true } vf => VolatileLoad(FieldAddress(vf), S(vf.Field.Type)),
