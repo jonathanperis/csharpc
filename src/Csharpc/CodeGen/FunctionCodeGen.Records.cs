@@ -128,6 +128,7 @@ public sealed partial class FunctionCodeGen
     {
         if (type.SpecialType == SpecialType.System_String)
             return CallRuntime("csrt_string_equals", L.I1, [L.Ptr, L.Ptr], a, b);
+        if (BclValueTypes.IsDateTime(type)) return EqualsOf(type, a, b, null!);  // ticks only, not the Kind
         if (a.Type.IsFloatingPoint) // double.Equals: NaN equals NaN
             return _b.BinOp(LLVMOpcode.Or, _b.FCmp(LLVMRealPredicate.OEQ, a, b),
                 _b.BinOp(LLVMOpcode.And, _b.FCmp(LLVMRealPredicate.UNO, a, a), _b.FCmp(LLVMRealPredicate.UNO, b, b)));
@@ -160,6 +161,7 @@ public sealed partial class FunctionCodeGen
         if (type.SpecialType == SpecialType.System_String)
             return _b.Select(_b.ICmp(LLVMIntPredicate.EQ, v, LlvmContext.Null(L.Ptr)), L.ConstInt(L.I32, 0),
                 CallRuntime("csrt_string_get_hash_code_or_zero", L.I32, [L.Ptr], v));
+        if (BclValueTypes.IsDateTime(type)) return HashOf(type, v, null!);  // DateTime.GetHashCode: ticks only
         if (v.Type.IsFloatingPoint) v = _b.Cast(LLVMOpcode.BitCast, v, v.Type.Kind == LLVMTypeKind.Double ? L.I64 : L.I32);
         if (v.Type.IsInteger)
             return v.Type.IntWidth switch

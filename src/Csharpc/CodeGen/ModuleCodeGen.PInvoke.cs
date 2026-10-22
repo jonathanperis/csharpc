@@ -258,6 +258,9 @@ public sealed partial class ModuleCodeGen
     {
         var type = p.Type;
         var marshalAs = MarshalAsOf(p.GetAttributes());
+        // .NET marshals DateTime as an OLE Automation date (a double), not as its 64-bit value.
+        if (BclValueTypes.IsDateTime(type))
+            throw CompileError.Unsupported("P/Invoke DateTime parameter (.NET marshals it as an OLE Automation date)", p);
         if (p.RefKind != RefKind.None)
         {
             if (!IsBlittable(type)) throw CompileError.Unsupported($"P/Invoke by-ref parameter of non-blittable type '{type}'", p);
@@ -306,6 +309,8 @@ public sealed partial class ModuleCodeGen
         if (method.ReturnsVoid) return (Llvm.Void, ParamKind.Direct, default, false);
         var type = method.ReturnType;
         var marshalAs = MarshalAsOf(method.GetReturnTypeAttributes());
+        if (BclValueTypes.IsDateTime(type))
+            throw CompileError.Unsupported("P/Invoke DateTime return (.NET marshals it as an OLE Automation date)", method);
         switch (type)
         {
             case { SpecialType: SpecialType.System_Boolean }:

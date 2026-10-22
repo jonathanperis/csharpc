@@ -83,11 +83,14 @@ public sealed partial class ModuleCodeGen
 
         (string Name, string Default)[] slots =
             [("ToString", "csrt_object_to_string_default"), ("Equals", "csrt_valuetype_equals"), ("GetHashCode", "csrt_valuetype_get_hash_code")];
+        var masked = DateTimeMaskedSlots(layout);
         var entries = slots.Select(slot =>
         {
             var overrider = layout.Type.GetMembers(slot.Name).OfType<IMethodSymbol>()
                 .FirstOrDefault(m => m.IsOverride && ClassLayout.RootOf(m).ContainingType.SpecialType == SpecialType.System_Object);
-            return overrider is not null ? UnboxingThunk(overrider) : Runtime(slot.Default, Llvm.Ptr, Llvm.Ptr).Fn;
+            if (overrider is not null) return UnboxingThunk(overrider);
+            if (masked is { } dt && slot.Name != "ToString") return slot.Name == "Equals" ? dt.Eq : dt.Hash;
+            return Runtime(slot.Default, Llvm.Ptr, Llvm.Ptr).Fn;
         }).ToArray();
 
         var (interfaceMap, interfaceCount) = EmitStructInterfaceMap(layout.Type);

@@ -482,6 +482,9 @@ public sealed partial class FunctionCodeGen
     {
         if (BclValueTypes.IsDecimal(lt) || BclValueTypes.IsDecimal(rt)) return DecimalArithmetic(kind, l, r, at);
         if (IsPointer(lt) || IsPointer(rt)) return PointerArithmetic(kind, l, r, lt, rt, at);
+        // DateTime comparisons (tuple ==, lifted operators) look at the ticks, never the Kind bits.
+        if (BclValueTypes.IsDateTime(lt) && BclValueTypes.IsDateTime(rt))
+            (l, r) = (BclValueTypes.TicksOf(this, lt, l), BclValueTypes.TicksOf(this, rt, r));
         // Reference types: string value equality, otherwise reference equality.
         if (l.Type.IsPointer || r.Type.IsPointer)
         {

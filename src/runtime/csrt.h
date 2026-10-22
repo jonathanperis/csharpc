@@ -169,3 +169,5 @@ void* csrt_unbox(void* obj, const csrt_MethodTable* type);   // payload address,
 // Boxed user structs: default ValueType.Equals / GetHashCode compare the payload bytes.
 bool csrt_valuetype_equals(void* self, void* other);
 int32_t csrt_valuetype_get_hash_code(void* self);
+bool csrt_valuetype_equals_masked(void* self, void* other, const uint32_t* offsets, int32_t count);
+int32_t csrt_valuetype_get_hash_code_masked(void* self, const uint32_t* offsets, int32_t count);

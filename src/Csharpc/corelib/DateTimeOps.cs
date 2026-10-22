@@ -1,9 +1,11 @@
-// System.TimeSpan and System.DateTime logic in C# (formerly src/runtime/datetime.c; ADR 0008). Both
-// types stay represented by their tick count (long, 100 ns units); the codegen (BclValueTypes.cs)
-// still asks for the csrt_timespan_* / csrt_datetime_* entry points, which CoreLibRuntime redirects
-// here. DateTime's Kind is not modelled. Calendar math is the CLR's own algorithm (proleptic
-// Gregorian, years 1..9999); formatting follows the invariant culture. The clocks (UtcNow, Now,
-// Stopwatch) stay in C.
+// System.TimeSpan and System.DateTime logic in C# (formerly src/runtime/datetime.c; ADR 0008).
+// TimeSpan is its tick count (long, 100 ns units). DateTime is .NET's `_dateData`: the ticks in the
+// low 62 bits and the Kind in the top two (00 Unspecified, 01 Utc, 10 Local, 11 Local in the
+// daylight-saving occurrence of an ambiguous hour), so every entry point here that takes a DateTime
+// takes that whole word. The codegen (BclValueTypes.cs) still asks for the csrt_timespan_* /
+// csrt_datetime_* entry points, which CoreLibRuntime redirects here. Calendar math is the CLR's own
+// algorithm (proleptic Gregorian, years 1..9999); formatting follows the invariant culture. The
+// clocks (UtcNow, Stopwatch) stay in C; the local time zone is libc's (TZ / tzdata, as .NET reads).
 #nullable disable
 using System;
 
@@ -18,10 +20,32 @@ namespace CsharpcCoreLib
         private const long TicksPerDay = 864000000000L;
         private const long MaxTicks = 3155378975999999999L;  // DateTime.MaxValue
 
+        // DateTime._dateData layout (dotnet/runtime DateTime.cs).
+        private const ulong TicksMask = 0x3FFFFFFFFFFFFFFF;
+        private const ulong FlagsMask = 0xC000000000000000;
+        private const long KindUtc = 0x4000000000000000;
+        private const long KindLocal = unchecked((long)0x8000000000000000);
+        private const long KindLocalAmbiguousDst = unchecked((long)0xC000000000000000);
+        private const long TicksCeiling = 0x4000000000000000;
+
+        internal static long TicksOf(long data) => (long)((ulong)data & TicksMask);
+        private static long FlagsOf(long data) => (long)((ulong)data & FlagsMask);
+        private static bool IsUtc(long data) => FlagsOf(data) == KindUtc;
+        private static bool IsLocal(long data) => (data & KindLocal) != 0;
+        private static bool IsAmbiguousDst(long data) => FlagsOf(data) == KindLocalAmbiguousDst;
+
+        /// <summary>DateTime.Kind: both local states read as Local.</summary>
+        internal static int Kind(long data)
+        {
+            int k = (int)((ulong)data >> 62);
+            return k == 3 ? 2 : k;
+        }
+
         private static void TimeSpanOverflow() => throw new OverflowException("TimeSpan overflowed because the duration is too long.");
 
-        private static void DateTimeRange() =>
-            throw new ArgumentOutOfRangeException("value", "The added or subtracted value results in an un-representable DateTime.");
+        /// <summary>.NET's ThrowDateArithmetic: the parameter is "value" for methods, "t" for operators, "months" for AddMonths.</summary>
+        private static void DateTimeRange(string param = "value") =>
+            throw new ArgumentOutOfRangeException(param, "The added or subtracted value results in an un-representable DateTime.");
 
         // ==========================================================================================
         // TimeSpan
@@ -320,6 +344,24 @@ namespace CsharpcCoreLib
             return ticks;
         }
 
+        private static long KindBits(int kind)
+        {
+            if ((uint)kind > 2) throw new ArgumentException("Invalid DateTimeKind value.", "kind");
+            return (long)((ulong)(uint)kind << 62);
+        }
+
+        /// <summary>new DateTime(ticks, kind): the ticks are checked before the kind, as in .NET.</summary>
+        internal static long FromTicksKind(long ticks, int kind) => FromTicks(ticks) | KindBits(kind);
+
+        /// <summary>new DateTime(y, M, d, h, m, s[, ms], kind): the kind is checked first, as in .NET.</summary>
+        internal static long NewKind(int y, int mo, int d, int h, int mi, int s, int ms, int kind)
+        {
+            long bits = KindBits(kind);
+            return New(y, mo, d, h, mi, s, ms) | bits;
+        }
+
+        internal static long SpecifyKind(long data, int kind) => TicksOf(data) | KindBits(kind);
+
         private static void DateParts(long ticks, out int year, out int month, out int day, out int dayOfYear)
         {
             int n = (int)(ticks / TicksPerDay);
@@ -339,8 +381,9 @@ namespace CsharpcCoreLib
 
         /// <summary>part: 0 year, 1 month, 2 day, 3 day-of-year, 4 day-of-week, 5 hour, 6 minute, 7 second,
         /// 8 millisecond, 9 microsecond, 10 nanosecond.</summary>
-        internal static int Part(long ticks, int part)
+        internal static int Part(long data, int part)
         {
+            long ticks = TicksOf(data);
             switch (part)
             {
                 case 0: case 1: case 2: case 3:
@@ -357,15 +400,22 @@ namespace CsharpcCoreLib
             return 0;
         }
 
-        internal static long AddTicks(long ticks, long value)
+        /// <summary>AddTicks / Add(TimeSpan) / Subtract(TimeSpan): the result keeps all kind flags, as in .NET.</summary>
+        internal static long AddTicks(long data, long value) => AddTicks(data, value, "value");
+
+        /// <summary>DateTime + TimeSpan / DateTime - TimeSpan.</summary>
+        internal static long AddTicksOperator(long data, long value) => AddTicks(data, value, "t");
+
+        private static long AddTicks(long data, long value, string param)
         {
+            long ticks = TicksOf(data);
             long r = ticks + value;
-            if (((ticks ^ r) & (value ^ r)) < 0 || r < 0 || r > MaxTicks) DateTimeRange();
-            return r;
+            if (((ticks ^ r) & (value ^ r)) < 0 || r < 0 || r > MaxTicks) DateTimeRange(param);
+            return r | FlagsOf(data);
         }
 
         /// <summary>AddDays/AddHours/...(double): integral and fractional parts separately (.NET 7+).</summary>
-        internal static long AddUnits(long ticks, double value, long ticksPerUnit)
+        internal static long AddUnits(long data, double value, long ticksPerUnit)
         {
             double maxUnits = (double)MaxTicks / ticksPerUnit;
             if (value != value || Math.Abs(value) > maxUnits)
@@ -373,33 +423,37 @@ namespace CsharpcCoreLib
             double integral = Math.Truncate(value);
             double fractional = value - integral;
             long delta = (long)integral * ticksPerUnit + (long)(fractional * ticksPerUnit);
-            return AddTicks(ticks, delta);
+            return AddTicks(data, delta);
         }
 
-        internal static long AddMonths(long ticks, int months)
+        internal static long AddMonths(long data, int months)
         {
+            long ticks = TicksOf(data);
             if (months < -120000 || months > 120000)
                 throw new ArgumentOutOfRangeException("months", "Months value must be between +/-120000.");
             DateParts(ticks, out int y, out int m, out int d, out int _);
             int i = m - 1 + months;
             if (i >= 0) { m = i % 12 + 1; y += i / 12; }
             else { m = 12 + (i + 1) % 12; y += (i - 11) / 12; }
-            if (y < 1 || y > 9999) DateTimeRange();
+            if (y < 1 || y > 9999) DateTimeRange("months");
             int dim = DaysInMonth(y, m);
             if (d > dim) d = dim;
-            return DateToTicks(y, m, d) + ticks % TicksPerDay;
+            return (DateToTicks(y, m, d) + ticks % TicksPerDay) | FlagsOf(data);
         }
 
-        internal static long AddYears(long ticks, int years)
+        internal static long AddYears(long data, int years)
         {
             if (years < -10000 || years > 10000)
-                throw new ArgumentOutOfRangeException("years", "Years value must be between +/-10000.");
-            return AddMonths(ticks, years * 12);
+                throw new ArgumentOutOfRangeException("value", "Years value must be between +/-10000.");
+            DateParts(TicksOf(data), out int y, out int _, out int _, out int _);
+            if (y + years < 1 || y + years > 9999) DateTimeRange();
+            return AddMonths(data, years * 12);
         }
 
         /// <summary>.NET's DateTimeFormat.FormatCustomized for the invariant culture and the Gregorian calendar.</summary>
-        private static void FormatCustom(ref CharBuilder sb, long ticks, string f)
+        private static void FormatCustom(ref CharBuilder sb, long data, string f)
         {
+            long ticks = TicksOf(data);
             DateParts(ticks, out int y, out int mo, out int d, out int _);
             int h = (int)(ticks / TicksPerHour % 24), mi = (int)(ticks / TicksPerMinute % 60), s = (int)(ticks / TicksPerSecond % 60);
             long fraction = ticks % TicksPerSecond;
@@ -443,9 +497,16 @@ namespace CsharpcCoreLib
                     }
                     case 't': if (n == 1) sb.Append(h < 12 ? 'A' : 'P'); else sb.Append(h < 12 ? "AM" : "PM"); break;
                     case 'z':
-                        AppendUtcOffset(ref sb, timeOnly && ticks < TicksPerDay ? LocalOffsetNow() : LocalUtcOffset(ticks), n);
+                        // .NET checks the bare time of day first: even a Utc one gets the local offset now.
+                        AppendUtcOffset(ref sb, timeOnly && ticks < TicksPerDay ? LocalOffsetNow()
+                            : IsUtc(data) ? 0 : LocalUtcOffset(ticks, IsAmbiguousDst(data)), n);
                         break;
-                    case 'K': n = 1; break;  // Kind is not modelled: an unspecified DateTime writes nothing
+                    case 'K':
+                        // Round-trip zone: Utc writes "Z", Local its offset, Unspecified nothing.
+                        n = 1;
+                        if (IsUtc(data)) sb.Append('Z');
+                        else if (IsLocal(data)) AppendUtcOffset(ref sb, LocalUtcOffset(ticks, IsAmbiguousDst(data)), 3);
+                        break;
                     case '\'':
                     case '"':
                         n = ParseQuoteString(ref sb, f, i);
@@ -454,7 +515,7 @@ namespace CsharpcCoreLib
                     {
                         char next = NextFormatChar(f, i);
                         if (next == '%') ThrowInvalidFormat();
-                        FormatCustom(ref sb, ticks, next.ToString());
+                        FormatCustom(ref sb, data, next.ToString());
                         n = 2;
                         break;
                     }
@@ -469,17 +530,36 @@ namespace CsharpcCoreLib
         }
 
         // ------------------------------------------------------------------------------------------
-        // 'z': the local time zone's UTC offset. DateTime's Kind is not modelled, so every DateTime is
-        // treated like .NET treats an unspecified one: as a wall-clock time of the local zone (TZ / tzdata
-        // through libc, as .NET reads them).
+        // The local time zone (TZ / tzdata through libc localtime_r, which .NET also reads), resolved
+        // like TimeZoneInfo.Local: GetUtcOffset for wall-clock (Unspecified / Local) times and
+        // GetUtcOffsetFromUtc for UTC instants.
         // ------------------------------------------------------------------------------------------
 
         private const long UnixEpochTicks = 621355968000000000L;
+        private const long FileTimeOffset = 504911232000000000L;  // 1601-01-01
 
-        /// <summary>UTC offset (seconds) and DST flag of the local zone at a UTC instant.</summary>
-        private static unsafe long LocalOffsetAt(long unixSeconds, out bool dst)
+        private const long Year10000UnixSeconds = 253402300800L;
+
+        /// <summary>
+        /// UTC offset (seconds) and DST flag of the local zone at a UTC instant. Like .NET's adjustment
+        /// rules, a daylight-saving period still running at the end of year 9999 (southern hemisphere)
+        /// ends at local midnight, when the clocks would go back to standard time.
+        /// </summary>
+        private static long LocalOffsetAt(long unixSeconds, out bool dst)
         {
-            // struct tm (x86-64 glibc): tm_isdst @32 (int), tm_gmtoff @40 (long); 56 bytes.
+            long offset = LibcOffsetAt(unixSeconds, out dst);
+            if (dst && unixSeconds + offset >= Year10000UnixSeconds)
+            {
+                bool earlierDst = true;
+                for (int month = 1; earlierDst && month < 12; month++) offset = LibcOffsetAt(unixSeconds - month * 30 * 86400L, out earlierDst);
+                dst = false;
+            }
+            return offset;
+        }
+
+        private static unsafe long LibcOffsetAt(long unixSeconds, out bool dst)
+        {
+            // struct tm (LP64 glibc): tm_isdst @32 (int), tm_gmtoff @40 (long); 56 bytes.
             byte* tm = stackalloc byte[64];
             long t = unixSeconds;
             if (Posix.localtime_r(&t, tm) == null) { dst = false; return 0; }
@@ -491,35 +571,175 @@ namespace CsharpcCoreLib
 
         private static long LocalOffsetNow() => LocalOffsetAt(UnixNow(), out bool _);
 
-        /// <summary>
-        /// The offset of a local wall-clock time, like TimeZoneInfo.Local.GetUtcOffset: an ambiguous time
-        /// (clocks turned back) gets the standard offset, a skipped one (clocks turned forward) the offset
-        /// in force before the transition.
-        /// </summary>
-        private static long LocalUtcOffset(long ticks)
+        private static long UnixSeconds(long ticks)
         {
             long diff = ticks - UnixEpochTicks;
-            long local = diff / TicksPerSecond;
-            if (diff % TicksPerSecond < 0) local--;
+            long seconds = diff / TicksPerSecond;
+            if (diff % TicksPerSecond < 0) seconds--;
+            return seconds;
+        }
+
+        private const long MaxOffset = 14 * 3600;  // TimeZoneInfo's offset range is +/-14 hours
+
+        /// <summary>TimeZoneInfo.Local.BaseUtcOffset: the zone's current standard offset.</summary>
+        private static long BaseOffset()
+        {
+            long now = UnixNow();
+            long baseOffset = LocalOffsetAt(now, out bool dst);
+            for (int month = 1; dst && month < 12; month++) baseOffset = LocalOffsetAt(now + month * 30 * 86400L, out dst);
+            return baseOffset;
+        }
+
+        /// <summary>
+        /// A tzdata offset as .NET's adjustment rules (TimeZoneInfo.Unix.cs) hold it: the difference to the
+        /// base offset, if it has seconds (local mean time), keeps only its hours and minutes components
+        /// (New York's -4:56:02 is -4:57, Apia's -11:26:04 against +13 is +12:34), and the total is
+        /// clamped to +/-14 hours (Yakutat's +14:41 is +14:00).
+        /// </summary>
+        private static long RuleOffset(long offset)
+        {
+            if (offset % 60 == 0 && offset >= -MaxOffset && offset <= MaxOffset) return offset;
+            long baseOffset = BaseOffset();
+            long delta = offset - baseOffset;
+            if (delta % 60 != 0) delta = (delta - delta % 60) % 86400;
+            return Math.Clamp(baseOffset + delta, -MaxOffset, MaxOffset);
+        }
+
+        /// <summary>
+        /// The offset of a local wall-clock time, like TimeZoneInfo.Local.GetUtcOffset: an ambiguous time
+        /// (clocks turned back) gets standard time unless it is a Local DateTime flagged as the
+        /// daylight-saving occurrence; a skipped one (clocks turned forward, or a whole day skipped
+        /// across the date line) gets the zone's base offset. <paramref name="dst"/> is
+        /// IsDaylightSavingTime for that time (false for ambiguous and skipped times, as in .NET);
+        /// <paramref name="invalid"/> marks a skipped time.
+        /// </summary>
+        private static long LocalUtcOffset(long ticks, bool ambiguousDst, out bool dst, out bool invalid)
+        {
+            long local = UnixSeconds(ticks);
             // Zone offsets are below a day, so these two instants lie on either side of any transition
             // that could make this wall-clock time ambiguous or skipped.
             long before = LocalOffsetAt(local - 172800, out bool dstBefore);
             long after = LocalOffsetAt(local + 172800, out bool dstAfter);
             bool validBefore = LocalOffsetAt(local - before, out bool _) == before;
             bool validAfter = LocalOffsetAt(local - after, out bool _) == after;
-            long offset = validBefore && validAfter ? (dstBefore && !dstAfter ? after : before) : validAfter ? after : before;
-            if (offset % 60 != 0)
-            {
-                // A local mean time with seconds: .NET's adjustment rules hold the difference to the zone's
-                // base (current standard) offset truncated to whole minutes (New York's -4:56:02 is -4:57).
-                long now = UnixNow();
-                long baseOffset = LocalOffsetAt(now, out bool dst);
-                for (int month = 1; dst && month < 12; month++) baseOffset = LocalOffsetAt(now + month * 30 * 86400L, out dst);
-                long delta = offset - baseOffset;
-                offset = baseOffset + (delta - delta % 60);
-            }
-            return offset;
+            bool ambiguous = validBefore && validAfter && dstBefore && !dstAfter;
+            bool useAfter = ambiguous ? !ambiguousDst : !validBefore && validAfter;
+            invalid = !validBefore && !validAfter;
+            dst = !ambiguous && !invalid && (useAfter ? dstAfter : dstBefore);
+            return invalid ? BaseOffset() : RuleOffset(useAfter ? after : before);
         }
+
+        private static long LocalUtcOffset(long ticks, bool ambiguousDst) => LocalUtcOffset(ticks, ambiguousDst, out bool _, out bool _);
+
+        /// <summary>
+        /// The offset at a UTC instant, like TimeZoneInfo.GetUtcOffsetFromUtc; <paramref name="ambiguousDst"/>
+        /// is set when the resulting local time is the daylight-saving occurrence of an ambiguous hour.
+        /// </summary>
+        private static long OffsetFromUtc(long utcTicks, out bool ambiguousDst)
+        {
+            long u = UnixSeconds(utcTicks);
+            long offset = LocalOffsetAt(u, out bool dst);
+            ambiguousDst = false;
+            if (dst)
+            {
+                // Clocks turned back within the next `offset - next` seconds: this local time recurs.
+                long next = LocalOffsetAt(u + 172800, out bool _);
+                if (next < offset && LocalOffsetAt(u + (offset - next), out bool _) == next) ambiguousDst = true;
+            }
+            return RuleOffset(offset);
+        }
+
+        /// <summary>A UTC tick count as a Local DateTime (ToLocalTime, Now): clamped to the DateTime range.</summary>
+        private static long UtcToLocal(long utcTicks)
+        {
+            long ticks = utcTicks + OffsetFromUtc(utcTicks, out bool ambiguousDst) * TicksPerSecond;
+            if (ticks > MaxTicks) return MaxTicks | KindLocal;
+            if (ticks < 0) return KindLocal;
+            return ticks | (ambiguousDst ? KindLocalAmbiguousDst : KindLocal);
+        }
+
+        internal static long Now(long utcNow) => UtcToLocal(TicksOf(utcNow));
+
+        internal static long Today(long utcNow)
+        {
+            long now = Now(utcNow);
+            return now - TicksOf(now) % TicksPerDay;
+        }
+
+        internal static long ToLocalTime(long data) => IsLocal(data) ? data : UtcToLocal(TicksOf(data));
+
+        /// <summary>ToUniversalTime: an Unspecified DateTime counts as local time; the result is clamped.</summary>
+        internal static long ToUniversalTime(long data)
+        {
+            if (IsUtc(data)) return data;
+            long ticks = TicksOf(data);
+            long offset = LocalUtcOffset(ticks, IsAmbiguousDst(data), out bool _, out bool invalid) * TicksPerSecond;
+            // .NET (TimeZoneInfo.ConvertTime with NoThrowOnInvalidTime) adds the offset of a skipped time
+            // instead of subtracting it: 02:30 on a New York spring-forward day becomes 21:30Z the day before.
+            long utc = invalid ? ticks + offset : ticks - offset;
+            if (utc > MaxTicks) utc = MaxTicks;
+            else if (utc < 0) utc = 0;
+            return utc | KindUtc;
+        }
+
+        internal static bool IsDaylightSavingTime(long data)
+        {
+            if (IsUtc(data)) return false;
+            LocalUtcOffset(TicksOf(data), IsAmbiguousDst(data), out bool dst, out bool _);
+            return dst;
+        }
+
+        /// <summary>ToBinary: a Local DateTime is stored as UTC ticks (wrapped below zero) with the local bit.</summary>
+        internal static long ToBinary(long data)
+        {
+            if (!IsLocal(data)) return data;
+            long ticks = TicksOf(data);
+            long stored = ticks - LocalUtcOffset(ticks, IsAmbiguousDst(data)) * TicksPerSecond;
+            if (stored < 0) stored = TicksCeiling + stored;
+            return stored | KindLocal;
+        }
+
+        internal static long FromBinary(long binary)
+        {
+            if ((binary & KindLocal) != 0)
+            {
+                long ticks = TicksOf(binary);
+                if (ticks > TicksCeiling - TicksPerDay) ticks -= TicksCeiling;
+                bool ambiguousDst = false;
+                long offset;
+                if (ticks < 0) offset = LocalUtcOffset(0, false);
+                else if (ticks > MaxTicks) offset = LocalUtcOffset(MaxTicks, false);
+                else offset = OffsetFromUtc(ticks, out ambiguousDst);
+                ticks += offset * TicksPerSecond;
+                if (ticks < 0) ticks += TicksPerDay;  // .NET's own wrap for MinValue round trips
+                if (ticks < 0 || ticks > MaxTicks) BadBinaryData();
+                return ticks | (ambiguousDst ? KindLocalAmbiguousDst : KindLocal);
+            }
+            if (TicksOf(binary) > MaxTicks) BadBinaryData();
+            return binary;
+        }
+
+        private static void BadBinaryData() => throw new ArgumentException(
+            "The binary data must result in a DateTime with ticks between DateTime.MinValue.Ticks and DateTime.MaxValue.Ticks.", "dateData");
+
+        internal static long ToFileTimeUtc(long data)
+        {
+            long ticks = IsLocal(data) ? TicksOf(ToUniversalTime(data)) : TicksOf(data);
+            ticks -= FileTimeOffset;
+            if (ticks < 0) throw new ArgumentOutOfRangeException(null, "Not a valid Win32 FileTime.");
+            return ticks;
+        }
+
+        internal static long ToFileTime(long data) => ToFileTimeUtc(ToUniversalTime(data));
+
+        internal static long FromFileTimeUtc(long fileTime)
+        {
+            if ((ulong)fileTime > (ulong)(MaxTicks - FileTimeOffset))
+                throw new ArgumentOutOfRangeException("fileTime", "Not a valid Win32 FileTime.");
+            return (fileTime + FileTimeOffset) | KindUtc;
+        }
+
+        internal static long FromFileTime(long fileTime) => ToLocalTime(FromFileTimeUtc(fileTime));
 
         private static void AppendUtcOffset(ref CharBuilder sb, long offsetSeconds, int n)
         {
@@ -538,7 +758,7 @@ namespace CsharpcCoreLib
             'd' => "MM/dd/yyyy",
             'D' => "dddd, dd MMMM yyyy",
             'f' => "dddd, dd MMMM yyyy HH:mm",
-            'F' => "dddd, dd MMMM yyyy HH:mm:ss",
+            'F' or 'U' => "dddd, dd MMMM yyyy HH:mm:ss",
             'g' => "MM/dd/yyyy HH:mm",
             'G' => "MM/dd/yyyy HH:mm:ss",
             'M' or 'm' => "MMMM dd",
@@ -547,27 +767,60 @@ namespace CsharpcCoreLib
             'T' => "HH:mm:ss",
             's' => "yyyy'-'MM'-'dd'T'HH':'mm':'ss",
             'u' => "yyyy'-'MM'-'dd HH':'mm':'ss'Z'",
-            'o' or 'O' => "yyyy'-'MM'-'dd'T'HH':'mm':'ss.fffffff",
+            'o' or 'O' => "yyyy'-'MM'-'dd'T'HH':'mm':'ss.fffffffK",
             'R' or 'r' => "ddd, dd MMM yyyy HH':'mm':'ss 'GMT'",
             _ => null,
         };
 
         [RuntimeExport("csrt_datetime_to_string", "csrt_Boxed_DateTime_MT")]
-        internal static string DateTimeToString(long ticks) => Format(ticks, null);
+        internal static string DateTimeToString(long data) => Format(data, null);
 
-        internal static string Format(long ticks, string format)
+        internal static string Format(long data, string format)
         {
             Span<char> chars = stackalloc char[64];
             var sb = new CharBuilder(chars);
-            if (format == null || format.Length == 0) FormatCustom(ref sb, ticks, "MM/dd/yyyy HH:mm:ss");
+            if (format == null || format.Length == 0) FormatCustom(ref sb, data, "MM/dd/yyyy HH:mm:ss");
             else if (format.Length == 1)
             {
                 string pattern = StandardPattern(format[0]);
                 if (pattern == null) ThrowInvalidFormat();
-                FormatCustom(ref sb, ticks, pattern);
+                // 'U' is the full pattern in universal time ('u' and 'r' do not convert a DateTime).
+                FormatCustom(ref sb, format[0] == 'U' ? ToUniversalTime(data) : data, pattern);
             }
-            else FormatCustom(ref sb, ticks, format);
+            else FormatCustom(ref sb, data, format);
             return sb.Build();
+        }
+    }
+
+    /// <summary>
+    /// DateTime members beyond the codegen's inline ones (BclValueTypes.cs), on the raw `_dateData`
+    /// word (CoreIntrinsics.DateTimeData / MakeDateTime).
+    /// </summary>
+    [ShadowMembers("System.DateTime")]
+    internal static class DateTimeMembers
+    {
+        private static long D(DateTime d) => CoreIntrinsics.DateTimeData(d);
+        private static DateTime M(long data) => CoreIntrinsics.MakeDateTime(data);
+
+        public static DateTime SpecifyKind(DateTime value, DateTimeKind kind) => M(DateTimeOps.SpecifyKind(D(value), (int)kind));
+        [ShadowInstance] public static DateTime ToUniversalTime(DateTime @this) => M(DateTimeOps.ToUniversalTime(D(@this)));
+        [ShadowInstance] public static DateTime ToLocalTime(DateTime @this) => M(DateTimeOps.ToLocalTime(D(@this)));
+        [ShadowInstance] public static bool IsDaylightSavingTime(DateTime @this) => DateTimeOps.IsDaylightSavingTime(D(@this));
+        [ShadowInstance] public static long ToBinary(DateTime @this) => DateTimeOps.ToBinary(D(@this));
+        public static DateTime FromBinary(long dateData) => M(DateTimeOps.FromBinary(dateData));
+        [ShadowInstance] public static long ToFileTime(DateTime @this) => DateTimeOps.ToFileTime(D(@this));
+        [ShadowInstance] public static long ToFileTimeUtc(DateTime @this) => DateTimeOps.ToFileTimeUtc(D(@this));
+        public static DateTime FromFileTime(long fileTime) => M(DateTimeOps.FromFileTime(fileTime));
+        public static DateTime FromFileTimeUtc(long fileTime) => M(DateTimeOps.FromFileTimeUtc(fileTime));
+
+        [ShadowInstance] public static bool Equals(DateTime @this, object value) => value is DateTime other && @this.Ticks == other.Ticks;
+
+        [ShadowInstance]
+        public static int CompareTo(DateTime @this, object value)
+        {
+            if (value == null) return 1;
+            if (!(value is DateTime other)) throw new ArgumentException("Object must be of type DateTime.");
+            return @this.Ticks.CompareTo(other.Ticks);
         }
     }
 }

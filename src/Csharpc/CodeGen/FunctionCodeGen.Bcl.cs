@@ -8,7 +8,7 @@ namespace Csharpc.CodeGen;
 /// <summary>
 /// Lowering support for BCL value types and reflection-lite (see BclValueTypes.cs):
 /// System.Decimal ({ i32 flags, i32 hi, i64 lo }, arithmetic in src/runtime/decimal.c),
-/// TimeSpan/DateTime (an i64 tick count), System.Type objects (one per method table).
+/// TimeSpan (an i64 tick count), DateTime (an i64 _dateData: ticks and Kind), System.Type objects (one per method table).
 /// </summary>
 public sealed partial class FunctionCodeGen
 {
@@ -53,8 +53,40 @@ public sealed partial class FunctionCodeGen
         }
         if (!BclValueTypes.TryGet(method, out var handler))
             throw CompileError.Unsupported($"operator '{method}'", at);
+        if (at is IBinaryOperation { IsLifted: true } lifted) return LiftedLibraryOperator(handler, method, lifted);
         var args = operands.Select((o, i) => Coerce(EmitValue(o), TypeOf(o), S(method.Parameters[i].Type))).ToArray();
         return handler(this, method, default, args, at);
+    }
+
+    /// <summary>
+    /// A library operator lifted to nullable operands (`DateTime? == DateTime`, `TimeSpan? + TimeSpan`):
+    /// the operator only runs when both operands have a value, as it may throw; otherwise == is true
+    /// for two nulls, != for exactly one, relational operators are false and the rest yield null.
+    /// </summary>
+    private LLVMValueRef LiftedLibraryOperator(BclHandler handler, IMethodSymbol method, IBinaryOperation op)
+    {
+        var (lh, lv, lu) = NullableParts(EmitValue(op.LeftOperand), TypeOf(op.LeftOperand)!);
+        var (rh, rv, ru) = NullableParts(EmitValue(op.RightOperand), TypeOf(op.RightOperand)!);
+        var resultType = TypeOf(op)!;
+        var nullableResult = TypeMapper.IsNullable(resultType);
+        var result = NewTemp(T.Value(resultType), "lifted");
+        _b.Store(op.OperatorKind switch
+        {
+            _ when nullableResult => LlvmContext.Null(T.Value(resultType)),
+            BinaryOperatorKind.Equals => _b.BinOp(LLVMOpcode.And, _b.Not(lh), _b.Not(rh)),
+            BinaryOperatorKind.NotEquals => _b.BinOp(LLVMOpcode.Xor, lh, rh),
+            _ => L.False,
+        }, result);
+        var compute = NewBlock("lifted.compute");
+        var done = NewBlock("lifted.done");
+        _b.CondBr(_b.BinOp(LLVMOpcode.And, lh, rh), compute, done);
+        _b.PositionAtEnd(compute);
+        var value = handler(this, method, default,
+            [Coerce(lv, lu, S(method.Parameters[0].Type)), Coerce(rv, ru, S(method.Parameters[1].Type))], op);
+        _b.Store(nullableResult ? MakeNullable(resultType, L.True, value) : value, result);
+        _b.Br(done);
+        _b.PositionAtEnd(done);
+        return _b.Load(T.Value(resultType), result);
     }
 
     internal LLVMValueRef Spill(LLVMValueRef value, string name = "spill")

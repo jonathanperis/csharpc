@@ -1,0 +1,35 @@
+Utc Unspecified Local Unspecified Unspecified Unspecified Utc
+Utc Unspecified Local Unspecified
+Utc Local Local 00:00:00 True
+638448111301230000 638448111301230000 638448111301230000 True Unspecified
+Utc Utc Utc Utc Utc Utc
+Utc Local Utc Utc Local 2024-02-29T00:00:00.0000000Z
+00:00:00 00:00:00 00:00:00 13:45:30.1230000 2024 2 29 13 45 30 123 Thursday 60
+True False True True 0 0 False True
+True True -1183005540
+True True True 0 1 02/29/2024 13:45:30
+1 local 1 True 0
+True True True True True 0
+True True True True False
+True False False True True True False Local Local
+Utc False False False 00:00:00 True True
+02-28L 03-01U 03-02U Utc Local
+2024-02-29T13:45:30.1230000Z | 2024-02-29T13:45:30.1230000 | 2024-02-29T13:45:30.1230000Z | Thu, 29 Feb 2024 13:45:30 GMT | Thu, 29 Feb 2024 13:45:30 GMT | 2024-02-29 13:45:30Z | 2024-02-29T13:45:30
+2024-02-29T13:45:30.123Z | 2024-02-29T13:45:30| 2024-02-29 +0 +00 +00:00 | 29 K Z K
+2024-02-29T13:45:30.1230000Z 2024-02-29T13:45:30.1230000 Z| 02/29/2024 13:45:30 02/29/2024 13:45:30 02/29/2024 13:45:30
+Thursday, 29 February 2024 13:45:30 | 1970-01-01T00:00:00.0000000Z | 9999-12-31T23:59:59.9999999 | 0001-01-01T00:00:00.0000000Z
+True Utc Local True False
+5250134129728617904 638448111301230000 2024-02-29T13:45:30.1230000Z Utc Unspecified
+133536879301230000 2024-02-29T13:45:30.1230000Z 1601-01-01T00:00:00.0000000Z Local True
+True True True
+ArgumentException: Invalid DateTimeKind value. (Parameter 'kind')
+ArgumentException: Invalid DateTimeKind value. (Parameter 'kind')
+ArgumentOutOfRangeException: Ticks must be between DateTime.MinValue.Ticks and DateTime.MaxValue.Ticks. (Parameter 'ticks')
+ArgumentException: Invalid DateTimeKind value. (Parameter 'kind')
+ArgumentException: Invalid DateTimeKind value. (Parameter 'kind')
+ArgumentException: The binary data must result in a DateTime with ticks between DateTime.MinValue.Ticks and DateTime.MaxValue.Ticks. (Parameter 'dateData')
+ArgumentOutOfRangeException: Not a valid Win32 FileTime. (Parameter 'fileTime')
+ArgumentOutOfRangeException: Not a valid Win32 FileTime.
+ArgumentOutOfRangeException: The added or subtracted value results in an un-representable DateTime. (Parameter 'value')
+ArgumentException: Object must be of type DateTime.
+ArgumentOutOfRangeException: The added or subtracted value results in an un-representable DateTime. (Parameter 't')

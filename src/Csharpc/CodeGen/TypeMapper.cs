@@ -45,7 +45,7 @@ public sealed class TypeMapper(LlvmContext llvm, TargetMachine target)
         INamedTypeSymbol t when Coroutines.IsTaskHandleType(t) => Llvm.Ptr,
         // System.Decimal: the CLR layout { int flags; uint hi32; ulong lo64 } (src/runtime/decimal.c).
         { SpecialType: SpecialType.System_Decimal } => Llvm.Struct(Llvm.I32, Llvm.I32, Llvm.I64),
-        // TimeSpan / DateTime: a tick count (BclValueTypes.cs, src/runtime/datetime.c).
+        // TimeSpan: a tick count; DateTime: its _dateData, ticks and Kind (BclValueTypes.cs, corelib DateTimeOps.cs).
         _ when BclValueTypes.IsTicks(type) => Llvm.I64,
         // Int128 / UInt128: LLVM's native i128 (CodeGen/Int128Support.cs).
         _ when Int128Support.Is128(type) => Llvm.IntTypeOf(128),
