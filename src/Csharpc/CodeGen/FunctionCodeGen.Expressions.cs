@@ -42,6 +42,7 @@ public sealed partial class FunctionCodeGen
             IDeclarationExpressionOperation d => EmitValue(d.Expression),
             ILocalFunctionOperation => default, // body is lowered separately (ModuleCodeGen.EnqueueNested)
             IDelegateCreationOperation d => EmitDelegateCreation(d),
+            IAwaitOperation a => EmitAwait(a),
             IEmptyOperation => default,
             IAnonymousFunctionOperation or IFlowAnonymousFunctionOperation =>
                 throw CompileError.Unsupported("lambda not converted to a delegate (e.g. expression trees)", op),

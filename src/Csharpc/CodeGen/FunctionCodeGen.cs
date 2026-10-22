@@ -112,6 +112,7 @@ public sealed partial class FunctionCodeGen
     /// <summary>Lowers <paramref name="prologue"/> graphs (field initializers) in sequence, then the body.</summary>
     public void Emit(IReadOnlyList<ControlFlowGraph> prologue, ControlFlowGraph body)
     {
+        if (_method is not null && Coroutines.KindOf(_method) is var kind and not CoroutineKind.None) BeginCoroutine(kind);
         LowerPrologue(prologue);
         LowerCfg(body, continuation: null);
         Finish();
@@ -226,6 +227,7 @@ public sealed partial class FunctionCodeGen
         foreach (var (block, llvmBlock) in state.Blocks)
         {
             _b.PositionAtEnd(llvmBlock);
+            _currentBlock = block;
             foreach (var operation in block.Operations) WithLocation(operation, () => EmitStatement(operation));
             WithLocation(block.BranchValue ?? block.Operations.LastOrDefault(), () => EmitTerminator(block));
         }
@@ -319,9 +321,11 @@ public sealed partial class FunctionCodeGen
     /// A branch that leaves try regions must first run their finally blocks (innermost first). Each
     /// finally is emitted once; a trampoline stores which continuation to resume and jumps in.
     /// </summary>
-    private LLVMBasicBlockRef ThroughFinally(ControlFlowBranch branch, LLVMBasicBlockRef dest)
+    private LLVMBasicBlockRef ThroughFinally(ControlFlowBranch branch, LLVMBasicBlockRef dest) =>
+        ThroughFinally(branch.FinallyRegions, dest);
+
+    private LLVMBasicBlockRef ThroughFinally(System.Collections.Immutable.ImmutableArray<ControlFlowRegion> regions, LLVMBasicBlockRef dest)
     {
-        var regions = branch.FinallyRegions;
         var target = dest;
         for (var i = regions.Length - 1; i >= 0; i--)
         {
@@ -359,7 +363,8 @@ public sealed partial class FunctionCodeGen
             var current = _b.InsertBlock;
             _cfg.Exit = _b.AppendBlock(_fn.Fn, "exit");
             _b.PositionAtEnd(_cfg.Exit);
-            if (_cfg.Continuation is { } next) _b.Br(next);
+            if (_coro is not null && _cfg.Continuation is null) _b.Br(_coro.Complete); // end of async method / iterator
+            else if (_cfg.Continuation is { } next) _b.Br(next);
             else if (ReturnType is null or { SpecialType: SpecialType.System_Void }) _b.RetVoid();
             else _b.Unreachable();
             _b.PositionAtEnd(current);
@@ -406,6 +411,7 @@ public sealed partial class FunctionCodeGen
 
     private void EmitReturn(IOperation? value, ControlFlowBranch branch)
     {
+        if (_coro is not null) { CoroutineReturn(value, branch); return; }
         var isVoid = value is null || ReturnType is null or { SpecialType: SpecialType.System_Void };
         if (_cfg!.Continuation is { } next || isVoid)
         {
@@ -437,6 +443,11 @@ public sealed partial class FunctionCodeGen
 
     private void EmitStatement(IOperation operation)
     {
+        if (operation is IReturnOperation { Kind: OperationKind.YieldReturn } yieldReturn)
+        {
+            EmitYieldReturn(yieldReturn);
+            return;
+        }
         if (operation is IFlowCaptureOperation { Value.Type: { } lvalueType } lvalue && _cfg!.LvalueCaptures.Contains(lvalue.Id))
         {
             var address = AddressOrSpill(lvalue.Value);

@@ -42,6 +42,8 @@ public sealed class LlvmContext : IDisposable
     public LLVMTypeRef F32 => LLVMFloatTypeInContext(Ref);
     public LLVMTypeRef F64 => LLVMDoubleTypeInContext(Ref);
     public LLVMTypeRef Void => LLVMVoidTypeInContext(Ref);
+    /// <summary>The `token` type (coroutine ids, `token none`).</summary>
+    public LLVMTypeRef Token => LLVMTokenTypeInContext(Ref);
     /// <summary>LLVM 15+ uses opaque pointers: every managed reference is just <c>ptr</c>.</summary>
     public LLVMTypeRef Ptr => LLVMPointerTypeInContext(Ref, 0);
 
