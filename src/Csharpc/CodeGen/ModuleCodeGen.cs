@@ -209,7 +209,9 @@ public sealed partial class ModuleCodeGen
         else if (HasThis(method)) parameters.Add(Llvm.Ptr);
         foreach (var p in method.Parameters)
             parameters.Add(p.RefKind == RefKind.None ? Types.Value(subst.Apply(p.Type)) : Llvm.Ptr);
-        var returnType = method.MethodKind == MethodKind.Constructor ? Llvm.Void : Types.Value(subst.Apply(method.ReturnType));
+        var returnType = method.MethodKind == MethodKind.Constructor ? Llvm.Void
+            : method.RefKind != RefKind.None ? Llvm.Ptr // `ref T M()` returns the address
+            : Types.Value(subst.Apply(method.ReturnType));
         return Llvm.FunctionType(returnType, [.. parameters]);
     }
 
@@ -232,8 +234,8 @@ public sealed partial class ModuleCodeGen
         // C ABI: bool/uint8_t/uint16_t arguments must be zero-extended by the caller (clang's
         // callees rely on it). Without `zeroext`, an i1 produced by `trunc` can carry garbage bits.
         for (var i = 0; i < parameters.Length; i++)
-            if (parameters[i].IsInteger && parameters[i].IntWidth < 32)
-                Llvm.AddParameterAttribute(fn, (uint)i, "zeroext");
+            if (parameters[i].IsInteger && parameters[i].IntWidth < 32 && !name.StartsWith("llvm.", StringComparison.Ordinal))
+                Llvm.AddParameterAttribute(fn, (uint)i, "zeroext"); // (LLVM intrinsics have their own attributes, e.g. immarg)
         // Allocation returns fresh memory nothing else points to (non-moving GC), which lets LLVM
         // forward stores into new objects — e.g. devirtualize and inline a just-created delegate.
         if (name is "csrt_alloc" or "csrt_new_array") Llvm.AddReturnAttribute(fn, "noalias");
@@ -287,8 +289,10 @@ public sealed partial class ModuleCodeGen
         }
         if (method.MethodKind is not (MethodKind.Ordinary or MethodKind.Constructor or MethodKind.StaticConstructor
             or MethodKind.PropertyGet or MethodKind.PropertySet or MethodKind.UserDefinedOperator or MethodKind.Conversion
-            or MethodKind.ExplicitInterfaceImplementation))
+            or MethodKind.EventAdd or MethodKind.EventRemove or MethodKind.ExplicitInterfaceImplementation))
             return;
+        // Field-like events have synthesized accessors; `+=`/`-=` update the backing field inline instead.
+        if (method.MethodKind is MethodKind.EventAdd or MethodKind.EventRemove && method.IsImplicitlyDeclared) return;
         if (method.MethodKind == MethodKind.Constructor && method.ContainingType.IsStatic) return;
         if (method.MethodKind == MethodKind.StaticConstructor && TypeSubstitution.IsGenericContext(method))
             throw CompileError.Unsupported("static constructors in generic types", method);
@@ -405,7 +409,7 @@ public sealed partial class ModuleCodeGen
         var key = "dmt:" + name;
         if (_globals.TryGetValue(key, out var g)) return g;
         string[] defaults = ["csrt_object_to_string_default", "csrt_object_equals_default", "csrt_object_get_hash_code_default"];
-        var init = Llvm.ConstStruct(ExternalGlobal("csrt_Object_MT"), CString(name), Llvm.ConstInt(Llvm.I32, 24), Llvm.ConstInt(Llvm.I32, 0),
+        var init = Llvm.ConstStruct(ExternalGlobal("csrt_Object_MT"), CString(name), Llvm.ConstInt(Llvm.I32, 32), Llvm.ConstInt(Llvm.I32, 0),
             LlvmContext.Null(Llvm.Ptr), Llvm.ConstInt(Llvm.I32, 0), Llvm.ConstInt(Llvm.I32, 0),
             LlvmContext.ConstArray(Llvm.Ptr, [.. defaults.Select(d => Runtime(d, Llvm.Ptr, Llvm.Ptr).Fn)]));
         g = Module.AddGlobal("csrt.dmt." + name, Native.LLVMTypeOf(init), init, constant: true, linkage: LLVMLinkage.Private);
@@ -476,6 +480,8 @@ public sealed partial class ModuleCodeGen
         _layouts[type] = layout;
 
         // Fields: header, then inherited fields (same indices as in the base), then our own.
+        // Inherit the base's storage verbatim (including synthesized library bases like System.Exception),
+        // so every inherited field/event keeps its index.
         var elements = layout.Elements;
         if (baseLayout is null) elements.Add(Llvm.Ptr);
         else
@@ -483,12 +489,21 @@ public sealed partial class ModuleCodeGen
             elements.AddRange(baseLayout.Elements);
             layout.Fields.AddRange(baseLayout.Fields);
             foreach (var (f, index) in baseLayout.FieldIndex) layout.FieldIndex[f] = index;
+            foreach (var (e, index) in baseLayout.EventFieldIndex) layout.EventFieldIndex[e] = index;
+            layout.SlotOrder.AddRange(baseLayout.SlotOrder);
         }
         foreach (var f in type.GetMembers().OfType<IFieldSymbol>().Where(f => !f.IsStatic && !f.IsConst))
         {
             layout.FieldIndex[f] = (uint)elements.Count;
             layout.Fields.Add(f);
+            layout.SlotOrder.Add(f);
             elements.Add(Types.Storage(f.Type));
+        }
+        foreach (var e in type.GetMembers().OfType<IEventSymbol>().Where(e => !e.IsStatic && e.AddMethod is null or { IsImplicitlyDeclared: true }))
+        {
+            layout.EventFieldIndex[e] = (uint)elements.Count;
+            layout.SlotOrder.Add(e);
+            elements.Add(Llvm.Ptr);
         }
         LlvmContext.SetBody(structType, [.. elements]);
         layout.InstanceSize = Types.Target.SizeOf(structType);
@@ -650,6 +665,24 @@ public sealed partial class ModuleCodeGen
         var type = Types.Storage(field.Type);
         return _staticFields[field] = Module.AddGlobal(Mangler.StaticField(field), type, LlvmContext.Null(type),
             linkage: LLVMLinkage.Internal);
+    }
+
+    /// <summary>A statically allocated, immutable instance of a library class (e.g. EventArgs.Empty).</summary>
+    public LLVMValueRef LibrarySingleton(INamedTypeSymbol type)
+    {
+        var key = "single:" + Mangler.MetadataName(type);
+        if (_globals.TryGetValue(key, out var g)) return g;
+        var init = Llvm.ConstStruct(DelegateMethodTable(type), Llvm.ConstInt(Llvm.I64, 0));
+        return _globals[key] = Module.AddGlobal("csrt.singleton." + Mangler.MetadataName(type), Native.LLVMTypeOf(init), init,
+            constant: true, linkage: LLVMLinkage.Private);
+    }
+
+    /// <summary>Delegate slot of a static field-like event.</summary>
+    public LLVMValueRef StaticEventField(IEventSymbol e)
+    {
+        var name = Mangler.TypeSymbol(e.ContainingType, e.Name + "$event");
+        if (_globals.TryGetValue(name, out var g)) return g;
+        return _globals[name] = Module.AddGlobal(name, Llvm.Ptr, LlvmContext.Null(Llvm.Ptr), linkage: LLVMLinkage.Internal);
     }
 
     public LLVMValueRef ExternalGlobal(string name)

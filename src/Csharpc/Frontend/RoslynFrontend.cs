@@ -45,7 +45,9 @@ public static class RoslynFrontend
             languageVersion = LanguageVersion.Preview;
 
         var parseOptions = new CSharpParseOptions(languageVersion, DocumentationMode.None, SourceCodeKind.Regular,
-            ["CSHARPC", .. settings.Defines]);
+            ["CSHARPC", .. settings.Defines])
+            // Accept file-based app directives (`#:property ...`, `#:package ...`) like `dotnet run app.cs`.
+            .WithFeatures([new("FileBasedProgram", "true")]);
 
         List<SyntaxTree> trees = [.. settings.Files.Select(f =>
             CSharpSyntaxTree.ParseText(File.ReadAllText(f), parseOptions, path: Path.GetFullPath(f)))];

@@ -19,6 +19,8 @@ public sealed partial class FunctionCodeGen
         if (target.MethodKind == MethodKind.DelegateInvoke) return EmitDelegateInvoke(inv);
         if (target.MethodKind == MethodKind.LocalFunction) return CallLocalFunction(inv);
         if (TypeMapper.IsNullable(target.ContainingType)) return EmitNullableMethod(inv);
+        // Span enumerators are ref structs with no state to dispose (the foreach finally calls IDisposable.Dispose).
+        if (target.Name == "Dispose" && TypeMapper.IsSpanEnumerator(TypeOf(inv.Instance))) return default;
         if (!target.IsStatic && inv.Instance is { } receiver)
         {
             var receiverType = TypeOf(receiver);
@@ -40,6 +42,7 @@ public sealed partial class FunctionCodeGen
             var isBaseCall = inv.Instance?.Syntax is BaseExpressionSyntax;
             return EmitUserCall(target, self, ReceiverIsNonNull(inv.Instance, target), inv.Arguments, inv.IsVirtual && !isBaseCall);
         }
+        if (TrySpanMethod(inv, out var spanResult)) return spanResult;
         if (Intrinsics.TryGet(target, out var handler)) return handler(this, inv);
         if (TryEmitLibraryExceptionCall(inv, out var result)) return result;
         throw CompileError.MissingIntrinsic(target, inv);
@@ -142,6 +145,7 @@ public sealed partial class FunctionCodeGen
     {
         if (creation.Initializer is not null) throw CompileError.Unsupported("object initializer", creation);
         var type = (INamedTypeSymbol)TypeOf(creation)!;
+        if (TrySpanConstruction(creation, out var span) || TryStatelessLibraryCreation(creation, out span)) return span;
         if (type.IsValueType) return EmitValueTypeCreation(creation, type);
         if (type.SpecialType == SpecialType.System_Object)
             return Allocate(_m.ExternalGlobal("csrt_Object_MT"), L.ConstInt(L.I64, (long)T.PointerSize));
@@ -265,6 +269,7 @@ public sealed partial class FunctionCodeGen
             var self = property.IsStatic ? default : Receiver(p.Instance!, getter);
             return CallAccessor(p, getter, self, []);
         }
+        if (TrySpanProperty(p, out var spanResult)) return spanResult;
         if (Intrinsics.TryGetProperty(property, out var handler)) return handler(this, p);
         if (TryEmitLibraryExceptionProperty(p, out var exceptionMember)) return exceptionMember;
         throw CompileError.Unsupported($"'{property.ContainingType}.{property.Name}' has no implementation in the csharpc runtime yet", p);
@@ -320,6 +325,7 @@ public sealed partial class FunctionCodeGen
 
     private LLVMValueRef EmitCollectionExpression(ICollectionExpressionOperation collection)
     {
+        if (TypeMapper.IsSpan(TypeOf(collection))) return SpanFromCollection(collection, SpanElement(TypeOf(collection)!));
         if (TypeOf(collection) is not IArrayTypeSymbol { Rank: 1 } arrayType)
             throw CompileError.Unsupported($"collection expression of type '{collection.Type}'", collection);
         if (collection.Elements.Any(e => e is ISpreadOperation)) throw CompileError.Unsupported("spread elements", collection);
@@ -354,10 +360,13 @@ public sealed partial class FunctionCodeGen
         if (element.Indices.Length != 1) throw CompileError.Unsupported("multi-dimensional arrays", element);
         var index = element.Indices[0];
         var indexType = TypeOf(index);
-        if (indexType?.SpecialType is not (SpecialType.System_Int32 or SpecialType.System_Int64 or SpecialType.System_UInt32 or SpecialType.System_UInt64))
+        var isIndex = IsIndexType(indexType); // array[^n]
+        if (!isIndex && indexType?.SpecialType is not (SpecialType.System_Int32 or SpecialType.System_Int64 or SpecialType.System_UInt32 or SpecialType.System_UInt64))
             throw CompileError.Unsupported($"array index of type '{indexType}'", element);
         var array = EmitValue(element.ArrayReference);
-        var i = ToIndex(EmitValue(index), indexType);
+        var i = isIndex
+            ? _b.Cast(LLVMOpcode.SExt, ArrayIndexFromIndex(array, EmitValue(index)), L.I64)
+            : ToIndex(EmitValue(index), indexType!);
         NullCheck(array);
         var storage = T.Storage(TypeOf(element)!);
         var header = T.ArrayHeader(storage);

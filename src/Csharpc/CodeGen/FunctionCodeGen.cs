@@ -292,6 +292,7 @@ public sealed partial class FunctionCodeGen
             {
                 var target = op switch
                 {
+                    ISimpleAssignmentOperation { IsRef: true, Value: IFlowCaptureReferenceOperation source } => source, // `ref (c ? ref a : ref b)`
                     IAssignmentOperation a => a.Target,
                     IIncrementOrDecrementOperation i => i.Target,
                     IArgumentOperation { Parameter.RefKind: not RefKind.None } arg => arg.Value,
@@ -457,7 +458,7 @@ public sealed partial class FunctionCodeGen
             else _b.Br(ThroughFinally(branch, DirectTarget(branch)));
             return;
         }
-        var result = Coerce(EmitValue(value!), TypeOf(value), ReturnType!);
+        var result = _method!.RefKind != RefKind.None ? AddressOf(value!) : Coerce(EmitValue(value!), TypeOf(value), ReturnType!);
         if (branch.FinallyRegions.IsEmpty) { _b.Ret(result); return; }
 
         // `return x;` inside try/finally: x is evaluated before the finally runs.
@@ -530,11 +531,17 @@ public sealed partial class FunctionCodeGen
     {
         if (CapturedAddress(local) is { } captured) return captured;
         if (_slots.TryGetValue(local, out var slot)) return slot;
-        if (local.IsRef) throw CompileError.Unsupported($"ref local '{local.Name}'", local);
+        if (local.IsRef) return _b.Load(L.Ptr, RefLocalPointer(local), local.Name); // ref locals hold an address
         if (!_ownLocals.Contains(local))
             throw CompileError.Unsupported($"closure: local function or lambda capturing '{local.Name}'", local);
         return _slots[local] = _allocas.Alloca(T.Storage(S(local.Type)), local.Name);
     }
+
+    private readonly Dictionary<ILocalSymbol, LLVMValueRef> _refLocals = new(SymbolEqualityComparer.Default);
+
+    /// <summary>The slot holding a ref local's target address.</summary>
+    internal LLVMValueRef RefLocalPointer(ILocalSymbol local) =>
+        _refLocals.TryGetValue(local, out var slot) ? slot : _refLocals[local] = _allocas.Alloca(L.Ptr, local.Name + ".ref");
 
     internal LLVMValueRef ParameterSlot(IParameterSymbol parameter, IOperation at)
     {

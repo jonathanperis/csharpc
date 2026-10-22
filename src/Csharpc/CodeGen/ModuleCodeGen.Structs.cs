@@ -53,7 +53,9 @@ public sealed partial class ModuleCodeGen
             return (Types.Value(owner), n - 1);
         }
         var layout = GetStructLayout(owner);
-        return (layout.LlvmType, layout.FieldIndex[field.OriginalDefinition]);
+        return layout.FieldIndex.TryGetValue(field.OriginalDefinition, out var index)
+            ? (layout.LlvmType, index)
+            : throw CompileError.Unsupported($"field '{field.Name}' of struct '{owner.Name}' (its layout could not be built)", field);
     }
 
     /// <summary>
