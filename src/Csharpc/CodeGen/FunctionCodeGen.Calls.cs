@@ -16,6 +16,8 @@ public sealed partial class FunctionCodeGen
     private LLVMValueRef EmitInvocation(IInvocationOperation inv)
     {
         var target = inv.TargetMethod;
+        if (target.MethodKind == MethodKind.DelegateInvoke) return EmitDelegateInvoke(inv);
+        if (target.MethodKind == MethodKind.LocalFunction) return CallLocalFunction(inv);
         if (_m.IsUserMethod(target))
         {
             var self = target.IsStatic ? default : EmitValue(inv.Instance!);
