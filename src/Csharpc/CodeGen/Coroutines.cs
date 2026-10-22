@@ -3,7 +3,7 @@ using Microsoft.CodeAnalysis.CSharp.Syntax;
 
 namespace Csharpc.CodeGen;
 
-public enum CoroutineKind { None, Async, Iterator }
+public enum CoroutineKind { None, Async, Iterator, AsyncIterator }
 
 /// <summary>
 /// Classification helpers for async methods and iterators, which csharpc lowers to LLVM
@@ -14,7 +14,10 @@ public static class Coroutines
 {
     public static CoroutineKind KindOf(IMethodSymbol method)
     {
-        if (method.IsAsync) return CoroutineKind.Async;
+        if (method.IsAsync)
+            return method.ReturnType.OriginalDefinition is INamedTypeSymbol { Name: "IAsyncEnumerable" or "IAsyncEnumerator" }
+                ? CoroutineKind.AsyncIterator
+                : CoroutineKind.Async;
         if (IsEnumerableLike(method.ReturnType) && HasYield(method)) return CoroutineKind.Iterator;
         return CoroutineKind.None;
     }
@@ -52,6 +55,7 @@ public static class Coroutines
     public static bool IsTaskHandleType(ITypeSymbol? type) => type is INamedTypeSymbol named && (Namespace(named), named.Name) switch
     {
         ("System.Threading.Tasks", "Task" or "ValueTask") => true,
+        ("System.Threading", "CancellationToken") => true, // ignored by the single-threaded scheduler; default == null
         ("System.Runtime.CompilerServices", "TaskAwaiter" or "ValueTaskAwaiter" or "ConfiguredTaskAwaitable" or "ConfiguredTaskAwaiter"
             or "ConfiguredValueTaskAwaitable" or "ConfiguredValueTaskAwaiter" or "YieldAwaitable" or "YieldAwaiter") => true,
         _ => false,

@@ -434,6 +434,14 @@ internal static class Intrinsics
             return g.CompletedTask(value, result);
         };
 
+        // await foreach over async iterators (IAsyncEnumerable<T>).
+        t["System.Collections.Generic.IAsyncEnumerable<T>.GetAsyncEnumerator(System.Threading.CancellationToken)"] = (g, inv) =>
+            g.CallRuntime("csrt_iterator_get_enumerator", g.Module.Llvm.Ptr, [g.Module.Llvm.Ptr], g.EmitValue(inv.Instance!));
+        t["System.Collections.Generic.IAsyncEnumerator<T>.MoveNextAsync()"] = (g, inv) =>
+            g.CallRuntime("csrt_async_iterator_move_next", g.Module.Llvm.Ptr, [g.Module.Llvm.Ptr], g.EmitValue(inv.Instance!));
+        t["System.IAsyncDisposable.DisposeAsync()"] = (g, inv) =>
+            g.CallRuntime("csrt_async_iterator_dispose", g.Module.Llvm.Ptr, [g.Module.Llvm.Ptr], g.EmitValue(inv.Instance!));
+
         foreach (var type in new[] { "Task", "Task<TResult>", "ValueTask", "ValueTask<TResult>" })
         {
             t[$"{Tasks}.{type}.GetAwaiter()"] = self;
@@ -459,6 +467,7 @@ internal static class Intrinsics
 
     private static void AddTaskProperties(Dictionary<string, PropertyHandler> t)
     {
+        t["System.Collections.Generic.IAsyncEnumerator<T>.Current"] = (g, p) => g.IteratorCurrent(g.EmitValue(p.Instance!), p.Type!);
         PropertyHandler isCompleted = (g, p) => g.CallRuntime("csrt_task_is_completed", g.Module.Llvm.I1, [g.Module.Llvm.Ptr], g.EmitValue(p.Instance!));
         foreach (var type in new[] { $"{Tasks}.Task", $"{Tasks}.ValueTask", $"{Tasks}.ValueTask<TResult>", $"{Rcs}.TaskAwaiter", $"{Rcs}.TaskAwaiter<TResult>",
                      $"{Rcs}.ValueTaskAwaiter", $"{Rcs}.ValueTaskAwaiter<TResult>" })

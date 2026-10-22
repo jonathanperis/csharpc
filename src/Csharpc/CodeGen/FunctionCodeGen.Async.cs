@@ -49,11 +49,10 @@ public sealed partial class FunctionCodeGen
     private void BeginCoroutine(CoroutineKind kind)
     {
         var method = _method!;
-        var valueType = kind == CoroutineKind.Iterator
+        var isIterator = kind is CoroutineKind.Iterator or CoroutineKind.AsyncIterator;
+        var valueType = isIterator
             ? Coroutines.IteratorElementType(method, _m.Compilation)
             : Coroutines.AsyncResultType(method.ReturnType);
-        if (method.ReturnType.OriginalDefinition is INamedTypeSymbol { Name: "IAsyncEnumerable" or "IAsyncEnumerator" })
-            throw CompileError.Unsupported("async iterators (IAsyncEnumerable<T>)", method);
         var coro = _coro = new CoroutineState { Kind = kind, ValueType = valueType };
         var payloadSize = valueType is null ? 0 : (long)T.Target.SizeOf(T.Storage(valueType));
 
@@ -73,7 +72,7 @@ public sealed partial class FunctionCodeGen
         var current = _b.InsertBlock;
         coro.SuspendReturn = NewBlock("coro.suspend.ret");
         coro.Cleanup = NewBlock("coro.cleanup");
-        coro.Complete = NewBlock(kind == CoroutineKind.Async ? "coro.complete" : "coro.finished");
+        coro.Complete = NewBlock(isIterator ? "coro.finished" : "coro.complete");
 
         _b.PositionAtEnd(coro.SuspendReturn);
         var end = CoroIntrinsic("llvm.coro.end", L.I1, L.Ptr, L.I1, L.Token);
@@ -91,10 +90,12 @@ public sealed partial class FunctionCodeGen
             CallRuntime("csrt_task_complete", L.Void, [L.Ptr], coro.Promise);
         else
             _b.Store(L.ConstInt(L.I32, 2), _b.InBoundsGep(L.I8, coro.Promise, [L.ConstInt(L.I64, IteratorStateOffset)]));
+        if (kind == CoroutineKind.AsyncIterator)
+            CallRuntime("csrt_async_iterator_finished", L.Void, [L.Ptr], coro.Promise); // MoveNextAsync() -> false
         _b.Br(coro.Cleanup);
 
         _b.PositionAtEnd(current);
-        if (kind == CoroutineKind.Iterator)
+        if (isIterator)
         {
             CallRuntime("csrt_iterator_set_frame", L.Void, [L.Ptr, L.Ptr], coro.Promise, coro.Handle);
             Suspend(coro.Cleanup); // initial suspend: nothing runs until MoveNext()
@@ -161,6 +162,8 @@ public sealed partial class FunctionCodeGen
         if (value.Type is { IsValueType: true } && elementType.IsReferenceType) v = Box(v, value.Type, value);
         StoreValue(ToStorage(v, elementType), PromisePayload);
         _b.Store(L.ConstInt(L.I32, 1), _b.InBoundsGep(L.I8, coro.Promise, [L.ConstInt(L.I64, IteratorStateOffset)]));
+        if (coro.Kind == CoroutineKind.AsyncIterator)
+            CallRuntime("csrt_async_iterator_yielded", L.Void, [L.Ptr], coro.Promise); // MoveNextAsync() -> true
         // Dispose() while suspended here destroys the coroutine: run the enclosing finally blocks first.
         Suspend(ThroughFinally(EnclosingFinallyRegions(_currentBlock), coro.Cleanup));
     }
@@ -207,7 +210,7 @@ public sealed partial class FunctionCodeGen
     /// <summary>`await e` on Task / Task&lt;T&gt; / ValueTask(&lt;T&gt;) / configured awaitables / Task.Yield().</summary>
     private LLVMValueRef EmitAwait(IAwaitOperation await)
     {
-        var coro = _coro is { Kind: CoroutineKind.Async } c ? c : throw CompileError.Unsupported("await outside an async method", await);
+        var coro = _coro is { Kind: CoroutineKind.Async or CoroutineKind.AsyncIterator } c ? c : throw CompileError.Unsupported("await outside an async method", await);
         var operand = await.Operation;
         if (!Coroutines.IsTaskHandleType(operand.Type))
             throw CompileError.Unsupported($"awaiting '{operand.Type}' (custom awaitables)", await);

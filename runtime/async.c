@@ -396,3 +396,35 @@ csrt_Task* csrt_valuetask_as_task(csrt_Task* t, int32_t payload_size) {
 
 /// `enumerator as IDisposable` for non-generic enumerators: iterators are, nothing else is (yet).
 void* csrt_iterator_as_disposable(void* obj) { return csrt_is_iterator(obj) ? obj : NULL; }
+
+// ---------------------------------------------------------------------------------------------
+// Async iterators (IAsyncEnumerable<T>): each MoveNextAsync() returns a pending ValueTask<bool>
+// (a csrt task) that the next `yield return` completes with true, or the end with false.
+// The pending task lives in the iterator's `reserved` slot.
+// ---------------------------------------------------------------------------------------------
+static void complete_pending(csrt_Iterator* it, bool value) {
+    csrt_Task* t = it->reserved;
+    if (!t) return;
+    it->reserved = NULL;
+    t->payload[0] = value;
+    csrt_task_complete(t);
+}
+
+void csrt_async_iterator_yielded(csrt_Iterator* it) { complete_pending(it, true); }
+void csrt_async_iterator_finished(csrt_Iterator* it) { complete_pending(it, false); }
+
+csrt_Task* csrt_async_iterator_move_next(void* obj) {
+    csrt_Iterator* it = require_iterator(obj);
+    csrt_Task* t = csrt_task_new(1);
+    if (it->state == 2) { t->state = 1; return t; }
+    if (it->reserved) async_fail("MoveNextAsync() called while a previous MoveNextAsync() is still pending.");
+    it->reserved = t;
+    it->state = 0;
+    csrt_coro_resume(it->frame);
+    return t;
+}
+
+csrt_Task* csrt_async_iterator_dispose(void* obj) {
+    csrt_iterator_dispose(obj);
+    return NULL;  // default(ValueTask): already completed
+}
