@@ -39,36 +39,50 @@ linked binary.
 1. **Faithful C# semantics.** A program's observable behavior must match .NET. The differential test
    suite ([05-testing.md](05-testing.md)) enforces this. When csharpc can't compile something
    correctly, it must refuse with a diagnostic (`CSLLVM0001`), never silently miscompile.
-2. **A real front-end shape.** The structure should be recognizably like clang/rustc: a
-   module-level and a function-level code generator, a mangling scheme, an explicit runtime ABI, and
-   the platform toolchain for linking.
-3. **Native, VM-free output.** A small runtime (C now, C# later), no IL, no JIT, closed-world
-   compilation ([ADR 0006](adr/0006-closed-world-compilation.md)).
-4. **Self-hosting eventually.** csharpc should one day compile its own corelib and then itself
-   (milestone M4 in [06-roadmap.md](06-roadmap.md)).
+2. **A drop-in toolchain, long term.** Existing .NET projects should build with csharpc unchanged:
+   `dotnet build`/`dotnet publish` integration (done), the BCL surface they use (a corelib written in
+   C#, growing), and eventually the NuGet packages they depend on (an IL front-end, see the roadmap).
+3. **Better than the original where it counts.** Smaller binaries, faster start-up, lower memory,
+   competitive or better throughput, and stronger exploit mitigations by default — measured
+   reproducibly against NativeAOT and the JIT, including the cases where csharpc loses.
+4. **As much C# as possible.** The compiler is C#; the library surface moves from the C bootstrap
+   runtime into a C# corelib compiled with each program; only the GC, unwinding, threads and the OS
+   boundary stay in C.
+5. **A complete, mature toolset for one target.** csharpc targets **.NET 11 (RC2 → GA) and C# 14**:
+   a fixed language version, library surface and Roslyn release, so the work can converge on
+   completeness and polish instead of tracking moving targets.
+6. **Multi-platform evidence.** Linux x86-64 today; Linux ARM64, macOS and Windows next, each with
+   its own CI job running the same differential suite against real .NET on that platform.
+
+## Why it matters
+
+csharpc is meant as a **demonstration for the .NET ecosystem**, not a competitor to it: a compiler
+built from the official C# front-end plus LLVM, verified against .NET itself, that shows a different
+point in the design space is viable — whole-program compilation, a library written in C#, LLVM's
+optimizer and tooling. If the ideas are useful to the .NET team — to borrow, to build on, or to adopt
+csharpc itself — the project has done its job. That is why rigor (differential testing, honest
+benchmarks, documented trade-offs) matters more here than feature count.
 
 ## Non-goals
 
-- **Replacing CoreCLR or NativeAOT.** Those are production systems with decades of work behind them:
-  precise GC, reflection, the full BCL, tiered compilation, diagnostics. csharpc aims at a different
-  point in the design space and will not reach BCL compatibility for a long time, if ever.
-- **Running arbitrary existing .NET assemblies.** csharpc compiles C# *source*. It doesn't consume
-  IL from NuGet packages ([01-prior-art.md](01-prior-art.md#why-source-to-llvm-rather-than-il-to-llvm)
-  discusses this trade-off).
+- **Tracking future .NET releases.** The scope is fixed to .NET 11 / C# 14 (see goal 5).
 - **Unrestricted reflection, `Reflection.Emit` or dynamic loading of code.** These are incompatible
   with closed-world AOT, as they are under NativeAOT.
 - **Reimplementing the C# language front-end.** Roslyn does parsing, binding, overload resolution,
   nullable analysis and lowering of language sugar. Duplicating that would be a multi-year detour
   ([ADR 0001](adr/0001-roslyn-as-frontend.md)).
+- **A JIT or interpreter mode.** csharpc is an ahead-of-time compiler only.
 
 ## What success looks like
 
-- **Near term (M1):** classic benchmarks-game programs (n-body, binary-trees, fannkuch,
-  spectral-norm) compile unchanged and perform in the same league as `clang -O2` and NativeAOT.
-- **Medium term (M2/M3):** a meaningful subset of idiomatic C# (generics, interfaces, exceptions,
-  lambdas, `List<T>`, `Dictionary<K,V>`, LINQ basics) compiles. Programs get DWARF debug info and can
-  be cross-compiled, including to wasm32.
-- **Long term (M4):** csharpc compiles itself.
+- **Done (M0/M1):** idiomatic C# — generics, interfaces, exceptions, closures, async, records, LINQ,
+  collections — compiles and matches .NET; DWARF debug info; real threads; binaries 20–160× smaller
+  than NativeAOT's with faster start-up; benchmark throughput ahead of the JIT and mostly ahead of
+  NativeAOT ([benchmarks/RESULTS.md](../benchmarks/RESULTS.md)).
+- **Next:** the same evidence on Linux ARM64, macOS and Windows; unmodified open-source C# tools
+  compiling, with a published compatibility report.
+- **Long term:** NuGet packages consumed through an IL front-end — a true drop-in — and csharpc
+  compiling itself.
 
 ## Further reading
 
