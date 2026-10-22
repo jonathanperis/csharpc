@@ -27,7 +27,8 @@ typedef struct {
 } csrt_InterfaceMapEntry;
 
 enum { CSRT_MT_ABSTRACT = 1, CSRT_MT_INTERFACE = 2, CSRT_MT_ITERATOR = 4 /* src/runtime/async.c */,
-       CSRT_MT_NO_REFERENCES = 8 /* instances hold no heap references: the GC never scans them */ };
+       CSRT_MT_NO_REFERENCES = 8 /* instances hold no heap references: the GC never scans them */,
+       CSRT_MT_DISPOSABLE = 16 /* runtime-implemented IDisposable whose Dispose() is a no-op (wait handles, CTS) */ };
 
 struct csrt_MethodTable {
     const csrt_MethodTable* base;   // null for System.Object and interfaces
