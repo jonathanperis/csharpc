@@ -267,7 +267,9 @@ static void* const* builtin_interface_slots(const csrt_MethodTable* objmt, const
         if (!slots && objmt == &csrt_String_MT.header) slots = (void* const*)itf->base;
         return slots ? slots : s_unsupported_slots;
     }
-    if (!is_untyped_array_mt(objmt) && objmt != &csrt_String_MT.header) return NULL;
+    if (!is_untyped_array_mt(objmt) && objmt != &csrt_String_MT.header)
+        // Runtime-implemented disposables (CountdownEvent...): IDisposable.Dispose is a no-op.
+        return (objmt->flags & CSRT_MT_DISPOSABLE) && strcmp(itf->name, "System.IDisposable") == 0 ? s_noop_dispose_slots : NULL;
     // Untyped arrays (allocated by runtime C code) and strings: the per-interface tables, unchecked.
     return builtin_interface_slots_untyped(objmt, itf);
 }
