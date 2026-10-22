@@ -69,22 +69,19 @@ internal static class Intrinsics
         t["object..ctor()"] = (_, _) => default;
         t["object.ToString()"] = (g, inv) =>
         {
-            var self = g.EmitValue(inv.Instance!);
-            g.NullCheck(self);
+            var self = ObjectReceiver(g, inv.Instance!);
             return g.VirtualCall(inv.TargetMethod, self, [self]);
         };
         t["System.Enum.ToString()"] = (g, inv) =>
             g.ToStringValue(inv.Instance is IConversionOperation { Operand.Type.TypeKind: TypeKind.Enum } boxed ? boxed.Operand : inv.Instance!);
         t["object.Equals(object)"] = (g, inv) =>
         {
-            var self = g.EmitValue(inv.Instance!);
-            g.NullCheck(self);
+            var self = ObjectReceiver(g, inv.Instance!);
             return g.VirtualCall(inv.TargetMethod, self, [self, Arg(g, inv, 0)]);
         };
         t["object.GetHashCode()"] = (g, inv) =>
         {
-            var self = g.EmitValue(inv.Instance!);
-            g.NullCheck(self);
+            var self = ObjectReceiver(g, inv.Instance!);
             return g.VirtualCall(inv.TargetMethod, self, [self]);
         };
         foreach (var type in new[] { "int", "long", "uint", "ulong", "short", "ushort", "byte", "sbyte", "double", "float", "bool", "char", "string" })
@@ -382,6 +379,15 @@ internal static class Intrinsics
     }
 
     // ---- helpers ------------------------------------------------------------------------------
+
+    /// <summary>Receiver for System.Object's virtuals: value types (without an override) are boxed first.</summary>
+    private static LLVMValueRef ObjectReceiver(FunctionCodeGen g, IOperation instance)
+    {
+        var value = g.EmitValue(instance);
+        if (instance.Type is { IsValueType: true } valueType) return g.Box(value, valueType, instance);
+        g.NullCheck(value);
+        return value;
+    }
 
     private static void NewLine(FunctionCodeGen g) => g.CallRuntime("csrt_console_newline", g.Module.Llvm.Void, []);
 

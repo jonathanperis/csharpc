@@ -12,7 +12,7 @@ public readonly record struct LoweredFunction(LLVMValueRef Fn, LLVMTypeRef Type)
 /// Lowers a whole Roslyn <see cref="Compilation"/> into one LLVM module. This is csharpc's
 /// equivalent of clang's CodeGenModule / rustc's codegen_llvm crate-level driver.
 /// </summary>
-public sealed class ModuleCodeGen
+public sealed partial class ModuleCodeGen
 {
     public Compilation Compilation { get; }
     public LlvmContext Llvm { get; }
@@ -38,6 +38,7 @@ public sealed class ModuleCodeGen
         Llvm = llvm;
         Module = module;
         Types = new TypeMapper(llvm, target);
+        Types.StructType = ResolveStructType;
     }
 
     public SemanticModel ModelFor(SyntaxTree tree) =>
@@ -68,7 +69,7 @@ public sealed class ModuleCodeGen
                 {
                     case TypeKind.Class when !type.IsStatic: GetLayout(type); break;
                     case TypeKind.Class or TypeKind.Enum: break;
-                    case TypeKind.Struct: throw CompileError.Unsupported($"struct '{type.Name}'", type);
+                    case TypeKind.Struct: GetStructLayout(type); break;
                     case TypeKind.Interface: throw CompileError.Unsupported($"interface '{type.Name}'", type);
                     case TypeKind.Delegate: break; // runtime-implemented: { mt, target, fn } objects
                     default: throw CompileError.Unsupported($"{type.TypeKind} '{type.Name}'", type);
@@ -80,7 +81,7 @@ public sealed class ModuleCodeGen
         foreach (var layout in _layouts.Values.ToList()) Guard(layout.Type, () => EmitMethodTable(layout));
 
         // 2. Method bodies.
-        foreach (var type in _userTypes.Where(t => t.TypeKind == TypeKind.Class && !t.IsRecord))
+        foreach (var type in _userTypes.Where(t => t.TypeKind is TypeKind.Class or TypeKind.Struct && !t.IsRecord))
             foreach (var method in type.GetMembers().OfType<IMethodSymbol>())
                 Guard(method, () => EmitMethod(method));
 
@@ -100,7 +101,8 @@ public sealed class ModuleCodeGen
         try { action(); }
         catch (CompileError error)
         {
-            Errors.Add(error.Location is null && symbol.Locations.FirstOrDefault() is { } loc
+            // Errors raised while mapping library types carry metadata locations; point at our symbol instead.
+            Errors.Add(error.Location is not { IsInSource: true } && symbol.Locations.FirstOrDefault() is { IsInSource: true } loc
                 ? new CompileError(error.Id, error.Message, loc)
                 : error);
         }
@@ -172,6 +174,11 @@ public sealed class ModuleCodeGen
             Llvm.AddFunctionAttribute(fn, "cold");
         }
         Llvm.AddFunctionAttribute(fn, "nounwind");
+        // C ABI: bool/uint8_t/uint16_t arguments must be zero-extended by the caller (clang's
+        // callees rely on it). Without `zeroext`, an i1 produced by `trunc` can carry garbage bits.
+        for (var i = 0; i < parameters.Length; i++)
+            if (parameters[i].IsInteger && parameters[i].IntWidth < 32)
+                Llvm.AddParameterAttribute(fn, (uint)i, "zeroext");
         // Allocation returns fresh memory nothing else points to (non-moving GC), which lets LLVM
         // forward stores into new objects — e.g. devirtualize and inline a just-created delegate.
         if (name is "csrt_alloc" or "csrt_new_array") Llvm.AddReturnAttribute(fn, "noalias");
@@ -199,7 +206,7 @@ public sealed class ModuleCodeGen
         List<ControlFlowGraph> prologue = [];
         if (method.MethodKind == MethodKind.Constructor)
         {
-            if (syntax is TypeDeclarationSyntax { ParameterList: not null } typeDecl)
+            if (syntax is TypeDeclarationSyntax { ParameterList: not null } typeDecl && !method.IsImplicitlyDeclared)
             {
                 // Primary constructor: captured-parameter fields, field initializers, then base(...).
                 // Roslyn exposes the base call as a ConstructorBodyOperation on the type declaration.
@@ -211,7 +218,9 @@ public sealed class ModuleCodeGen
             }
             // C# runs field initializers before the base constructor call, except when chaining to this(...).
             var chainsToThis = syntax is ConstructorDeclarationSyntax { Initializer.ThisOrBaseKeyword.Text: "this" };
-            if (!chainsToThis) prologue.AddRange(InitializerGraphs(method.ContainingType, isStatic: false));
+            // A struct's implicit parameterless constructor means default(S): no initializers run.
+            var structDefault = method.IsImplicitlyDeclared && method.ContainingType.IsValueType;
+            if (!chainsToThis && !structDefault) prologue.AddRange(InitializerGraphs(method.ContainingType, isStatic: false));
         }
 
         switch (syntax)
@@ -227,8 +236,8 @@ public sealed class ModuleCodeGen
                 Dump(method, cfg);
                 gen.Emit(prologue, cfg);
                 break;
-            case null or ClassDeclarationSyntax when method.MethodKind == MethodKind.Constructor:
-                gen.EmitImplicitConstructor(prologue); // compiler-generated default constructor
+            case null or ClassDeclarationSyntax or StructDeclarationSyntax when method.MethodKind == MethodKind.Constructor:
+                gen.EmitImplicitConstructor(prologue, zeroThis: method.ContainingType.IsValueType); // compiler-generated
                 break;
             default:
                 throw CompileError.Unsupported($"method body of kind {syntax.GetType().Name}", method);
@@ -558,7 +567,7 @@ public sealed class ModuleCodeGen
 
         List<ControlFlowGraph> graphs = [];
         List<IMethodSymbol> cctors = [];
-        foreach (var t in _userTypes.Where(t => t.TypeKind == TypeKind.Class))
+        foreach (var t in _userTypes.Where(t => t.TypeKind is TypeKind.Class or TypeKind.Struct))
         {
             graphs.AddRange(InitializerGraphs(t, isStatic: true));
             cctors.AddRange(t.StaticConstructors.Where(c => !c.IsImplicitlyDeclared));
