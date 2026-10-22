@@ -16,6 +16,9 @@ public sealed partial class FunctionCodeGen
     private LLVMValueRef EmitInvocation(IInvocationOperation inv)
     {
         var target = S(inv.TargetMethod);
+        // `T.Create()` on a static abstract/virtual interface member: after substitution T is concrete.
+        if (ResolveStaticInterfaceMember(target, inv.ConstrainedToType) is { } staticImpl)
+            return EmitUserCall(staticImpl, default, true, inv.Arguments, isVirtual: false);
         if (target.MethodKind == MethodKind.DelegateInvoke) return EmitDelegateInvoke(inv);
         if (target.MethodKind == MethodKind.LocalFunction) return CallLocalFunction(inv);
         if (TypeMapper.IsNullable(target.ContainingType)) return EmitNullableMethod(inv);
@@ -46,6 +49,16 @@ public sealed partial class FunctionCodeGen
         if (Intrinsics.TryGet(target, out var handler)) return handler(this, inv);
         if (TryEmitLibraryExceptionCall(inv, out var result)) return result;
         throw CompileError.MissingIntrinsic(target, inv);
+    }
+
+    /// <summary>Static abstract/virtual interface member + constrained type → the concrete implementation.</summary>
+    internal IMethodSymbol? ResolveStaticInterfaceMember(IMethodSymbol target, ITypeSymbol? constrainedTo)
+    {
+        if (!target.IsStatic || target.ContainingType.TypeKind != TypeKind.Interface || constrainedTo is null) return null;
+        var concrete = S(constrainedTo);
+        if (concrete is ITypeParameterSymbol || !_m.IsUserType(concrete)) return null; // primitives: generic-math paths
+        return concrete.FindImplementationForInterfaceMember(target) as IMethodSymbol
+            ?? (target.IsAbstract ? throw CompileError.Unsupported($"no implementation of '{target}' on '{concrete}'", target) : target);
     }
 
     /// <summary>

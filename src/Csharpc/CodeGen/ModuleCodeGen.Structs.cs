@@ -22,9 +22,10 @@ public sealed partial class ModuleCodeGen
 
     public StructLayout GetStructLayout(INamedTypeSymbol type)
     {
-        type = type.OriginalDefinition;
+        // Generic structs are monomorphized: one layout per constructed type (Pair<int>, Pair<string>...).
+        if (!type.IsGenericType) type = type.OriginalDefinition;
         if (_structs.TryGetValue(type, out var existing)) return existing;
-        if (type.IsGenericType) throw CompileError.Unsupported($"generic struct '{type.Name}'", type);
+        if (TypeSubstitution.IsOpen(type)) throw CompileError.Unsupported($"open generic struct '{type}'", type);
 
         var layout = new StructLayout { Type = type, LlvmType = Llvm.NamedStruct("struct." + Mangler.MetadataName(type)) };
         _structs[type] = layout; // register first: field types may mention other structs
@@ -33,6 +34,7 @@ public sealed partial class ModuleCodeGen
         foreach (var f in type.GetMembers().OfType<IFieldSymbol>().Where(f => !f.IsStatic && !f.IsConst))
         {
             layout.FieldIndex[f] = (uint)elements.Count;
+            layout.FieldIndex[f.OriginalDefinition] = (uint)elements.Count; // same index in every instantiation
             elements.Add(Types.Storage(f.Type));
         }
         if (elements.Count == 0) elements.Add(Llvm.I8); // an empty struct still occupies a byte, as in the CLR

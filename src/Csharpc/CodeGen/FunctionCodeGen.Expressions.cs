@@ -352,6 +352,9 @@ public sealed partial class FunctionCodeGen
 
     private LLVMValueRef EmitBinary(IBinaryOperation op)
     {
+        // User type implementing a static abstract operator (generic math on user types).
+        if (op.OperatorMethod is { } staticOp && ResolveStaticInterfaceMember(S(staticOp), op.ConstrainedToType) is { } opImpl)
+            return EmitDirectCall(opImpl, [op.LeftOperand, op.RightOperand]);
         if (TryDelegateBinary(op) is { } delegates) return delegates;
         if (op.OperatorMethod is { } om0 && !IsBuiltInStringConcat(om0) && om0.ContainingType.SpecialType != SpecialType.System_String
             && om0.ContainingType.SpecialType is not (SpecialType.System_Delegate or SpecialType.System_MulticastDelegate)

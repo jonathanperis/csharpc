@@ -235,7 +235,16 @@ public sealed partial class FunctionCodeGen
         }
         if (!TypeMapper.IsNullable(resultType)) throw CompileError.Unsupported($"lifted operator {kind}", at);
         if (lu.SpecialType == SpecialType.System_Boolean && kind is BinaryOperatorKind.And or BinaryOperatorKind.Or)
-            throw CompileError.Unsupported("three-valued logic on bool?", at);
+        {
+            // C# three-valued logic: false & null == false, true | null == true, otherwise null wins.
+            var isAnd = kind == BinaryOperatorKind.And;
+            var lDecides = _b.BinOp(LLVMOpcode.And, lh, isAnd ? _b.Not(lv) : lv);
+            var rDecides = _b.BinOp(LLVMOpcode.And, rh, isAnd ? _b.Not(rv) : rv);
+            var decided = _b.BinOp(LLVMOpcode.Or, lDecides, rDecides);
+            var has = _b.BinOp(LLVMOpcode.Or, decided, both);
+            var value = isAnd ? _b.BinOp(LLVMOpcode.And, has, _b.Not(decided)) : decided;
+            return MakeNullable(resultType, has, value);
+        }
 
         if (kind is BinaryOperatorKind.Divide or BinaryOperatorKind.Remainder && lv.Type.IsInteger)
         {

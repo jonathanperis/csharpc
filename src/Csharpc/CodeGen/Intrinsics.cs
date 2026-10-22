@@ -145,7 +145,13 @@ internal static class Intrinsics
             };
 
         foreach (var type in new[] { "int", "long", "uint", "ulong", "short", "ushort", "byte", "sbyte", "double", "float" })
+        {
             t[$"{type}.ToString(string)"] = (g, inv) => g.FormatWith(inv.Instance!, Arg(g, inv, 0));
+            // csrt formats with the invariant culture: an IFormatProvider can only be invariant
+            // (CultureInfo.InvariantCulture maps to null; constructing other cultures is a compile error).
+            t[$"{type}.ToString(string, System.IFormatProvider)"] = (g, inv) => { Arg(g, inv, 1); return g.FormatWith(inv.Instance!, Arg(g, inv, 0)); };
+            t[$"{type}.ToString(System.IFormatProvider)"] = (g, inv) => { Arg(g, inv, 0); return g.ToStringValue(inv.Instance!); };
+        }
 
         // Composite formatting: fixed-arity overloads (the params ReadOnlySpan<object> ones need spans).
         IntrinsicHandler composite(Action<FunctionCodeGen, LLVMValueRef>? sink, bool newline) => (g, inv) =>
@@ -212,6 +218,9 @@ internal static class Intrinsics
         t["char.ToLower(char)"] = (g, inv) => g.CallRuntime("csrt_char_to_lower", g.Module.Llvm.I16, [g.Module.Llvm.I16], Arg(g, inv, 0));
         t["char.ToUpperInvariant(char)"] = t["char.ToUpper(char)"];
         t["char.ToLowerInvariant(char)"] = t["char.ToLower(char)"];
+        t["int.Parse(string, System.IFormatProvider)"] = (g, inv) => { Arg(g, inv, 1); return g.CallRuntime("csrt_int32_parse", g.Module.Llvm.I32, [g.Module.Llvm.Ptr], Arg(g, inv, 0)); };
+        t["long.Parse(string, System.IFormatProvider)"] = (g, inv) => { Arg(g, inv, 1); return g.CallRuntime("csrt_int64_parse", g.Module.Llvm.I64, [g.Module.Llvm.Ptr], Arg(g, inv, 0)); };
+        t["double.Parse(string, System.IFormatProvider)"] = (g, inv) => { Arg(g, inv, 1); return g.CallRuntime("csrt_double_parse", g.Module.Llvm.F64, [g.Module.Llvm.Ptr], Arg(g, inv, 0)); };
         t["int.Parse(string)"] = (g, inv) => g.CallRuntime("csrt_int32_parse", g.Module.Llvm.I32, [g.Module.Llvm.Ptr], Arg(g, inv, 0));
         t["long.Parse(string)"] = (g, inv) => g.CallRuntime("csrt_int64_parse", g.Module.Llvm.I64, [g.Module.Llvm.Ptr], Arg(g, inv, 0));
         t["double.Parse(string)"] = (g, inv) => g.CallRuntime("csrt_double_parse", g.Module.Llvm.F64, [g.Module.Llvm.Ptr], Arg(g, inv, 0));
@@ -579,6 +588,9 @@ internal static class Intrinsics
             return element.IsValueType ? g.Box(value, element, p) : value;
         };
         t["System.CharEnumerator.Current"] = (g, p) => g.StringEnumeratorCurrent(g.EmitValue(p.Instance!));
+        foreach (var culture in new[] { "System.Globalization.CultureInfo.InvariantCulture", "System.Globalization.CultureInfo.CurrentCulture",
+                     "System.Globalization.NumberFormatInfo.InvariantInfo", "System.Globalization.CultureInfo.CurrentUICulture" })
+            t[culture] = (g, _) => LlvmContext.Null(g.Module.Llvm.Ptr);
         t["System.Environment.NewLine"] = (g, _) => g.Module.StringLiteral("\n");
         return t.ToFrozenDictionary();
     }
