@@ -184,6 +184,14 @@ public sealed partial class FunctionCodeGen
             var done = NewBlock("unbox.done");
             _b.CondBr(_b.ICmp(LLVMIntPredicate.EQ, obj, LlvmContext.Null(L.Ptr)), done, unbox);
             _b.PositionAtEnd(unbox);
+            if (c.IsTryCast)
+            {
+                // `o as int?`: a box of another type gives null instead of throwing (csrt_unbox's exact check).
+                var matches = NewBlock("unbox.match");
+                var mt = _b.Load(L.Ptr, obj, "mt");
+                _b.CondBr(_b.ICmp(LLVMIntPredicate.EQ, mt, MethodTableFor(underlying, c)), matches, done);
+                _b.PositionAtEnd(matches);
+            }
             var payload = CallRuntime("csrt_unbox", L.Ptr, [L.Ptr, L.Ptr], obj, MethodTableFor(underlying, c));
             _b.Store(MakeNullable(to, L.True, LoadValue(payload, underlying)), result);
             _b.Br(done);
@@ -213,14 +221,14 @@ public sealed partial class FunctionCodeGen
         return p.Property.Name switch
         {
             "HasValue" => NullableHas(value),
-            "Value" => NullableValueOrThrow(value, p.Property.ContainingType),
+            "Value" => NullableValueOrThrow(value, S(p.Property.ContainingType)),
             _ => throw CompileError.Unsupported($"Nullable<T>.{p.Property.Name}", p),
         };
     }
 
     private LLVMValueRef EmitNullableMethod(IInvocationOperation inv)
     {
-        var type = inv.TargetMethod.ContainingType;
+        var type = S(inv.TargetMethod.ContainingType);
         var value = EmitValue(inv.Instance!);
         var underlying = TypeMapper.NullableUnderlying(type);
         return (inv.TargetMethod.Name, inv.Arguments.Length) switch
