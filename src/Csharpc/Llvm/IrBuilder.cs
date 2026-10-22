@@ -60,7 +60,7 @@ public sealed class IrBuilder(LlvmContext context) : IDisposable
         LLVMBuildInsertValue(Ref, aggregate, element, index, name);
 
     // Memory
-    public LLVMValueRef Alloca(LLVMTypeRef type, string name = "") => LLVMBuildAlloca(Ref, type, name);
+    public LLVMValueRef Alloca(LLVMTypeRef type, string? name = "") => LLVMBuildAlloca(Ref, type, name ?? ""); // synthesized locals (e.g. lock's lockTaken) have null names
     public LLVMValueRef Load(LLVMTypeRef type, LLVMValueRef ptr, string name = "") => LLVMBuildLoad2(Ref, type, ptr, name);
     public LLVMValueRef Store(LLVMValueRef value, LLVMValueRef ptr) => LLVMBuildStore(Ref, value, ptr);
     public LLVMValueRef StructGep(LLVMTypeRef type, LLVMValueRef ptr, uint index, string name = "") =>

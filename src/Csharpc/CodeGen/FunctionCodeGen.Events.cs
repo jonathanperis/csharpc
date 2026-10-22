@@ -15,6 +15,53 @@ namespace Csharpc.CodeGen;
 /// </summary>
 public sealed partial class FunctionCodeGen
 {
+    // ======================================================================================
+    // Small library surface used around events and locking (single-threaded runtime)
+    // ======================================================================================
+
+    private static bool IsLibraryClass(ITypeSymbol? type, string ns, string name) =>
+        type is INamedTypeSymbol { ContainingType: null } n && n.Name == name && n.ContainingNamespace.ToDisplayString() == ns;
+
+    /// <summary>`new EventArgs()`, `new object()`-like library classes with no state, `new Lock()`.</summary>
+    private bool TryStatelessLibraryCreation(IObjectCreationOperation creation, out LLVMValueRef result)
+    {
+        result = default;
+        if (creation.Type is not INamedTypeSymbol type || creation.Arguments.Length != 0) return false;
+        if (!IsLibraryClass(type, "System", "EventArgs") && !IsLibraryClass(type, "System.Threading", "Lock")) return false;
+        result = CallRuntime("csrt_alloc", L.Ptr, [L.Ptr, L.I64], _m.DelegateMethodTable(type), L.ConstInt(L.I64, 16));
+        return true;
+    }
+
+    private bool TryLowLevelLibraryMember(IOperation op, out LLVMValueRef result)
+    {
+        result = default;
+        switch (op)
+        {
+            case IFieldReferenceOperation { Field: { IsStatic: true, Name: "Empty" } field } when IsLibraryClass(field.ContainingType, "System", "EventArgs"):
+                result = _m.LibrarySingleton(field.ContainingType);
+                return true;
+            case IPropertyReferenceOperation { Property: { IsStatic: true, Name: "Size" } property }
+                when property.ContainingType.SpecialType is SpecialType.System_IntPtr or SpecialType.System_UIntPtr:
+                result = L.ConstInt(L.I32, (long)T.PointerSize);
+                return true;
+            case IInvocationOperation { TargetMethod: { ContainingType: var owner, Name: var name } } inv when IsLibraryClass(owner, "System.Threading", "Monitor"):
+                // Single-threaded runtime: locks are uncontended; Enter(obj, ref lockTaken) just sets lockTaken.
+                foreach (var argument in inv.Arguments.OrderBy(a => a.Parameter!.Ordinal))
+                {
+                    if (argument.Parameter!.RefKind == RefKind.Ref) StoreValue(L.ConstInt(L.I8, 1), AddressOf(argument.Value));
+                    else NullCheck(EmitValue(argument.Value));
+                }
+                result = name is "TryEnter" ? L.True : default;
+                return true;
+            case IInvocationOperation { TargetMethod.Name: "EnterScope" or "Enter" or "Exit" or "Dispose", TargetMethod.ContainingType: var owner } inv
+                when IsLibraryClass(owner, "System.Threading", "Lock") || owner is { Name: "Scope", ContainingType.Name: "Lock" }:
+                if (inv.Instance is { } instance && instance.Type?.IsReferenceType == true) NullCheck(EmitValue(instance));
+                result = inv.TargetMethod.ReturnsVoid ? default : L.ConstInt(L.I8, 0);
+                return true;
+        }
+        return false;
+    }
+
     internal LLVMValueRef CombineDelegates(LLVMValueRef a, LLVMValueRef b) =>
         CallRuntime("csrt_delegate_combine", L.Ptr, [L.Ptr, L.Ptr], a, b);
 

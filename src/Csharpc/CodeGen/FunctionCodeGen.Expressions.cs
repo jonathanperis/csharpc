@@ -19,14 +19,19 @@ public sealed partial class FunctionCodeGen
             IParameterReferenceOperation p => LoadValue(ParameterSlot(p.Parameter, p), p.Parameter.Type),
             IInstanceReferenceOperation when InStructMember => LoadValue(_this, _method!.ContainingType),
             IInstanceReferenceOperation => ThisValue(op),
+            IFieldReferenceOperation f when TryLowLevelLibraryMember(f, out var libraryField) => libraryField,
             IFieldReferenceOperation f => LoadValue(FieldAddress(f), f.Field.Type),
             IPropertyReferenceOperation { Property.RefKind: not RefKind.None } p => LoadValue(RefPropertyAddress(p), p.Type!),
             IPropertyReferenceOperation p => EmitPropertyGet(p),
+            IArrayElementReferenceOperation { Indices: [{ Type: var rangeType }] } a when IsRangeType(rangeType) => EmitArrayRange(a),
             IArrayElementReferenceOperation a => LoadValue(ElementAddress(a), a.Type!),
+            IImplicitIndexerReferenceOperation ii => EmitImplicitIndexer(ii),
+            IRangeOperation r => EmitRange(r),
             ISimpleAssignmentOperation a => EmitSimpleAssignment(a),
             ICompoundAssignmentOperation c => EmitCompoundAssignment(c),
             IIncrementOrDecrementOperation i => EmitIncrementOrDecrement(i),
             IBinaryOperation b => EmitBinary(b),
+            IUnaryOperation { OperatorKind: UnaryOperatorKind.Hat } u => EmitHat(u),
             IUnaryOperation u => EmitUnary(u),
             IConversionOperation c => EmitConversion(c),
             IInvocationOperation { TargetMethod.RefKind: not RefKind.None } i => LoadValue(EmitInvocation(i), i.Type!),
@@ -60,9 +65,21 @@ public sealed partial class FunctionCodeGen
             IEventReferenceOperation e => EmitEventReference(e),
             IEventAssignmentOperation e => EmitEventAssignment(e),
             { Kind: OperationKind.None } => EmitNone(op),
+            // Roslyn (Release mode) leaves `lock (System.Threading.Lock)` as Invalid(lockExpr) followed by the
+            // body; with a single-threaded runtime the lock is just "evaluate + null check".
+            IInvalidOperation { Syntax.Parent: Microsoft.CodeAnalysis.CSharp.Syntax.LockStatementSyntax } invalidLock
+                when invalidLock.ChildOperations.Count == 1 && invalidLock.ChildOperations.First().Type is { } lockType
+                     && lockType.Name == "Lock" && lockType.IsReferenceType =>
+                NullCheckValue(EmitValue(invalidLock.ChildOperations.First())),
             IInvalidOperation => throw CompileError.Unsupported("invalid code", op),
             _ => throw CompileError.Unsupported($"operation {op.Kind}", op),
         };
+    }
+
+    private LLVMValueRef NullCheckValue(LLVMValueRef reference)
+    {
+        NullCheck(reference);
+        return default;
     }
 
     private LLVMValueRef LoadCapture(IFlowCaptureReferenceOperation r)
@@ -117,6 +134,7 @@ public sealed partial class FunctionCodeGen
         IDiscardOperation d => NewTemp(T.Storage(d.Type!), "discard"),
         IFlowCaptureReferenceOperation c when _cfg!.LvalueCaptures.Contains(c.Id) => CaptureAddress(c),
         IPropertyReferenceOperation { Property.RefKind: not RefKind.None } p => RefPropertyAddress(p),
+        IImplicitIndexerReferenceOperation ii => ImplicitIndexerAddress(ii),
         IInvocationOperation { TargetMethod.RefKind: not RefKind.None } i => EmitInvocation(i),
         _ when TryAddressOfNone(target, out var pointee) => pointee,
         _ => throw CompileError.Unsupported($"assignment to {target.Kind}", target),
@@ -520,6 +538,7 @@ public sealed partial class FunctionCodeGen
         var from = c.Operand.Type;
         var to = c.Type!;
         if (TrySpanConversion(c) is { } span) return span;
+        if (TryIndexConversion(c) is { } index) return index;
         if (c.OperatorMethod is { } om)
         {
             if (!_m.IsUserMethod(om)) throw CompileError.Unsupported($"conversion operator '{om}'", c);

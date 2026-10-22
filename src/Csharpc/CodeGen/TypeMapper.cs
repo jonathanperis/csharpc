@@ -47,6 +47,10 @@ public sealed class TypeMapper(LlvmContext llvm, TargetMachine target)
             Llvm.Struct(Llvm.I8, Storage(n.TypeArguments[0])),              // { hasValue, value }
         INamedTypeSymbol { IsTupleType: true } t when t.TupleElements.Length <= 7 =>
             Llvm.Struct([.. t.TupleElements.Select(e => Storage(e.Type))]),  // ValueTuple<...>: flattened
+        INamedTypeSymbol n when IsSystemStruct(n, "Index") => Llvm.I32,                       // .NET's own encoding: ~n = from end
+        INamedTypeSymbol n when IsSystemStruct(n, "Range") => Llvm.Struct(Llvm.I32, Llvm.I32), // { Index start, Index end }
+        // System.Threading.Lock.Scope: the runtime is single-threaded, so `lock (Lock)` scopes are empty.
+        INamedTypeSymbol { Name: "Scope", ContainingType: { Name: "Lock", ContainingNamespace.Name: "Threading" } } => Llvm.I8,
         INamedTypeSymbol n when IsSpan(n) => Llvm.Struct(Llvm.Ptr, Llvm.I32),                  // { ref T, length }
         INamedTypeSymbol n when IsSpanEnumerator(n) => Llvm.Struct(Llvm.Ptr, Llvm.I32, Llvm.I32), // { ref T, length, index }
         INamedTypeSymbol { TypeKind: TypeKind.Struct } s when StructType?.Invoke(s) is { } user => user,
@@ -58,9 +62,17 @@ public sealed class TypeMapper(LlvmContext llvm, TargetMachine target)
     /// <summary>Resolves user-defined structs to their named LLVM type (set by ModuleCodeGen); null if not user-defined.</summary>
     public Func<INamedTypeSymbol, LLVMTypeRef?>? StructType { get; set; }
 
-    /// <summary>System.Span&lt;T&gt; / System.ReadOnlySpan&lt;T&gt;.</summary>
+    public static bool IsSystemStruct(ITypeSymbol? type, string name) =>
+        type is INamedTypeSymbol { TypeKind: TypeKind.Struct, ContainingType: null } n && n.MetadataName == name
+        && n.ContainingNamespace is { Name: "System", ContainingNamespace.IsGlobalNamespace: true };
+
+    /// <summary>
+    /// System.Span&lt;T&gt; / ReadOnlySpan&lt;T&gt; — and Memory&lt;T&gt; / ReadOnlyMemory&lt;T&gt;, which share the
+    /// { ptr, length } representation: the GC is conservative and non-moving, so an interior data
+    /// pointer keeps the owning array/string alive and `.Span` is the identity.
+    /// </summary>
     public static bool IsSpan(ITypeSymbol? type) =>
-        type is INamedTypeSymbol { MetadataName: "Span`1" or "ReadOnlySpan`1", ContainingType: null } n
+        type is INamedTypeSymbol { MetadataName: "Span`1" or "ReadOnlySpan`1" or "Memory`1" or "ReadOnlyMemory`1", ContainingType: null } n
         && n.ContainingNamespace is { Name: "System", ContainingNamespace.IsGlobalNamespace: true };
 
     /// <summary>Span&lt;T&gt;.Enumerator / ReadOnlySpan&lt;T&gt;.Enumerator.</summary>

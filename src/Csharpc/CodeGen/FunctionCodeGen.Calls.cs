@@ -120,7 +120,7 @@ public sealed partial class FunctionCodeGen
     {
         if (creation.Initializer is not null) throw CompileError.Unsupported("object initializer", creation);
         var type = (INamedTypeSymbol)creation.Type!;
-        if (TrySpanConstruction(creation, out var span)) return span;
+        if (TrySpanConstruction(creation, out var span) || TryStatelessLibraryCreation(creation, out span)) return span;
         if (type.IsValueType) return EmitValueTypeCreation(creation, type);
         if (type.SpecialType == SpecialType.System_Object)
             return Allocate(_m.ExternalGlobal("csrt_Object_MT"), L.ConstInt(L.I64, (long)T.PointerSize));
@@ -302,10 +302,13 @@ public sealed partial class FunctionCodeGen
     {
         if (element.Indices.Length != 1) throw CompileError.Unsupported("multi-dimensional arrays", element);
         var index = element.Indices[0];
-        if (index.Type?.SpecialType is not (SpecialType.System_Int32 or SpecialType.System_Int64 or SpecialType.System_UInt32 or SpecialType.System_UInt64))
+        var isIndex = IsIndexType(index.Type); // array[^n]
+        if (!isIndex && index.Type?.SpecialType is not (SpecialType.System_Int32 or SpecialType.System_Int64 or SpecialType.System_UInt32 or SpecialType.System_UInt64))
             throw CompileError.Unsupported($"array index of type '{index.Type}'", element);
         var array = EmitValue(element.ArrayReference);
-        var i = ToIndex(EmitValue(index), index.Type);
+        var i = isIndex
+            ? _b.Cast(LLVMOpcode.SExt, ArrayIndexFromIndex(array, EmitValue(index)), L.I64)
+            : ToIndex(EmitValue(index), index.Type!);
         NullCheck(array);
         var storage = T.Storage(element.Type!);
         var header = T.ArrayHeader(storage);

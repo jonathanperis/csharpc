@@ -166,7 +166,7 @@ public sealed partial class FunctionCodeGen
 
     private bool TrySpanProperty(IPropertyReferenceOperation p, out LLVMValueRef result)
     {
-        result = default;
+        if (TryIndexRangeMember(p, out result) || TryLowLevelLibraryMember(p, out result)) return true;
         var owner = p.Property.ContainingType;
         if (p.Property.RefKind != RefKind.None && (TypeMapper.IsSpan(owner) || TypeMapper.IsSpanEnumerator(owner)))
         {
@@ -179,6 +179,7 @@ public sealed partial class FunctionCodeGen
             case "Length": result = SpanLength(SpanReceiver(p.Instance!)); return true;
             case "IsEmpty": result = _b.ICmp(LLVMIntPredicate.EQ, SpanLength(SpanReceiver(p.Instance!)), L.ConstInt(L.I32, 0)); return true;
             case "Empty": result = LlvmContext.Null(SpanType); return true;
+            case "Span": result = SpanReceiver(p.Instance!); return true; // Memory<T>.Span
         }
         return false;
     }
@@ -215,7 +216,7 @@ public sealed partial class FunctionCodeGen
 
     private bool TrySpanMethod(IInvocationOperation inv, out LLVMValueRef result)
     {
-        result = default;
+        if (TryIndexRangeMember(inv, out result) || TryLowLevelLibraryMember(inv, out result)) return true;
         var method = inv.TargetMethod;
         var owner = method.ContainingType;
         if (TypeMapper.IsSpanEnumerator(owner) && method.Name == "MoveNext")
@@ -349,7 +350,7 @@ public sealed partial class FunctionCodeGen
         // Evaluate arguments in source order first.
         switch (method.Name)
         {
-            case "AsSpan" when args.Length is >= 1 and <= 3 && args.Skip(1).All(a => a.Parameter!.Type.SpecialType == SpecialType.System_Int32):
+            case "AsSpan" or "AsMemory" when args.Length is >= 1 and <= 3 && args.Skip(1).All(a => a.Parameter!.Type.SpecialType == SpecialType.System_Int32):
             {
                 var source = args[0];
                 LLVMValueRef? start = args.Length > 1 ? Coerce(EmitValue(args[1].Value), args[1].Value.Type, args[1].Parameter!.Type) : null;

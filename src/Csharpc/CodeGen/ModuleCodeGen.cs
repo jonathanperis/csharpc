@@ -489,6 +489,16 @@ public sealed partial class ModuleCodeGen
             linkage: LLVMLinkage.Internal);
     }
 
+    /// <summary>A statically allocated, immutable instance of a library class (e.g. EventArgs.Empty).</summary>
+    public LLVMValueRef LibrarySingleton(INamedTypeSymbol type)
+    {
+        var key = "single:" + Mangler.MetadataName(type);
+        if (_globals.TryGetValue(key, out var g)) return g;
+        var init = Llvm.ConstStruct(DelegateMethodTable(type), Llvm.ConstInt(Llvm.I64, 0));
+        return _globals[key] = Module.AddGlobal("csrt.singleton." + Mangler.MetadataName(type), Native.LLVMTypeOf(init), init,
+            constant: true, linkage: LLVMLinkage.Private);
+    }
+
     /// <summary>Delegate slot of a static field-like event.</summary>
     public LLVMValueRef StaticEventField(IEventSymbol e)
     {
