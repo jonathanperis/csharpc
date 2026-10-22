@@ -106,7 +106,7 @@ public sealed partial class FunctionCodeGen
             return LlvmContext.Null(llvmType);
         var temp = NewTemp(llvmType, "new." + type.Name);
         _b.Store(LlvmContext.Null(llvmType), temp); // fields the constructor doesn't assign are zero
-        EmitUserCall(creation.Constructor, temp, selfIsNonNull: true, creation.Arguments, isVirtual: false);
+        EmitUserCall(S(creation.Constructor), temp, selfIsNonNull: true, creation.Arguments, isVirtual: false);
         return _b.Load(llvmType, temp);
     }
 

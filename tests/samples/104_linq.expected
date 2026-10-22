@@ -1,0 +1,18 @@
+64,4,16,36,100
+55 1 10 5.5 5
+9,6,3,10,7,4,1,8,5,2
+10,6,8,3,5
+a: apple|avocado|apricot (3)
+b: banana|blueberry (2)
+c: cherry (1)
+BANANA CHERRY APRICOT AVOCADO BLUEBERRY
+banana !TrueTrue
+6 36 blueberry
+x1,x2,x3
+1,2,3 17,22,16
+12,13,23
+3,4/8,9,7,6,10/True
+blueberry apple h,e,l,o 2
+25=Bob+Dee
+31=Ann+Cid
+1,2,3,4 9,2,7,4,6,10

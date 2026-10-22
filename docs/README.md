@@ -31,3 +31,4 @@ matrix in [06-roadmap.md](06-roadmap.md) and add a dated entry to [07-spike-log.
 - [09 — Conformance](09-conformance.md): conformance corpus, coverage per area, prioritized failure reasons
 - [10 — Async](10-async.md): async/await, iterators and async iterators as LLVM coroutines; the single-threaded scheduler
 - [11 — BCL value types](11-bcl-value-types.md): decimal, TimeSpan/DateTime/Stopwatch, BigInteger, Type objects, Array helpers & sorting, culture comparison
+- [12 — Corelib](12-corelib.md): the shadow corelib — BCL collections and LINQ written in C#, redirected from the real reference assemblies

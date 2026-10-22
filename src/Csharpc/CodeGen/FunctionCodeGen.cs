@@ -43,6 +43,8 @@ public sealed partial class FunctionCodeGen
         public Dictionary<CaptureId, (LLVMValueRef Slot, ITypeSymbol? Type)> Captures { get; } = [];
         /// <summary>Captures used as assignment targets: they hold an address, not a value.</summary>
         public HashSet<CaptureId> LvalueCaptures { get; } = [];
+        /// <summary>Lvalue captures of property/indexer references: saved receiver + arguments (FunctionCodeGen.CoreLib.cs).</summary>
+        public Dictionary<CaptureId, PropertyCapture> PropertyCaptures { get; } = [];
         /// <summary>Captures holding a foreach enumerator -> the (unsubstituted) enumerable type, if it may be an array.</summary>
         public Dictionary<CaptureId, ITypeSymbol> ArrayEnumerators { get; } = [];
         /// <summary>Per finally region: the continuation selector and where each value resumes.</summary>
@@ -498,6 +500,12 @@ public sealed partial class FunctionCodeGen
         if (operation is IReturnOperation { Kind: OperationKind.YieldReturn } yieldReturn)
         {
             EmitYieldReturn(yieldReturn);
+            return;
+        }
+        if (operation is IFlowCaptureOperation { Value: IPropertyReferenceOperation capturedProperty } propertyCapture
+            && _cfg!.LvalueCaptures.Contains(propertyCapture.Id))
+        {
+            _cfg.PropertyCaptures[propertyCapture.Id] = CaptureProperty(capturedProperty);
             return;
         }
         if (operation is IFlowCaptureOperation { Value.Type: not null } lvalue && _cfg!.LvalueCaptures.Contains(lvalue.Id))

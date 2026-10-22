@@ -1,0 +1,27 @@
+// HashSet set algebra, Queue, Stack, LinkedList, PriorityQueue (4-ary heap tie order), Sorted*.
+var hs = new HashSet<int> { 5, 3, 9, 1 };
+hs.Remove(3); hs.Add(7); hs.Add(5);
+Console.WriteLine(string.Join(",", hs) + " " + hs.Count + " " + hs.Contains(9));
+var other = new HashSet<int> { 1, 2, 7, 8 };
+var u = new HashSet<int>(hs); u.UnionWith(other); Console.WriteLine(string.Join(",", u));
+var i = new HashSet<int>(hs); i.IntersectWith(other); Console.WriteLine(string.Join(",", i));
+var e = new HashSet<int>(hs); e.ExceptWith(other); Console.WriteLine(string.Join(",", e));
+var s = new HashSet<int>(hs); s.SymmetricExceptWith(other); Console.WriteLine(string.Join(",", s));
+var s2 = new HashSet<int>(hs); s2.SymmetricExceptWith(new List<int> { 1, 2, 7, 8, 2 }); Console.WriteLine(string.Join(",", s2));
+Console.WriteLine(i.IsSubsetOf(hs) + " " + hs.Overlaps(other) + " " + hs.SetEquals(new[] { 1, 5, 7, 9 }));
+var q = new Queue<string>(); q.Enqueue("a"); q.Enqueue("b"); q.Enqueue("c");
+Console.WriteLine(q.Dequeue() + q.Peek() + q.Count);
+foreach (var x in q) Console.Write(x); Console.WriteLine();
+var st = new Stack<int>(); for (int k = 0; k < 5; k++) st.Push(k * k);
+Console.WriteLine(st.Pop() + " " + st.Peek() + " " + string.Join(",", st.ToArray()));
+foreach (var x in st) Console.Write(x + ";"); Console.WriteLine();
+var ll = new LinkedList<string>(); ll.AddLast("b"); ll.AddFirst("a"); var n = ll.AddLast("d"); ll.AddBefore(n, "c");
+foreach (var x in ll) Console.Write(x); Console.WriteLine(" " + ll.Count + " " + ll.First!.Value + ll.Last!.Value + ll.Find("c")!.Next!.Value);
+ll.Remove("b"); ll.RemoveFirst(); Console.WriteLine(string.Join("-", ll));
+var pq = new PriorityQueue<string, int>();
+pq.Enqueue("low", 5); pq.Enqueue("high", 1); pq.Enqueue("mid", 3); pq.Enqueue("high2", 1); pq.Enqueue("mid2", 3); pq.Enqueue("x", 0);
+while (pq.TryDequeue(out var item, out var pri)) Console.Write($"{item}:{pri} "); Console.WriteLine();
+var sd = new SortedDictionary<string, int> { ["pear"] = 3, ["apple"] = 1, ["Banana"] = 2 };
+foreach (var kv in sd) Console.Write(kv + " "); Console.WriteLine(string.Join(",", sd.Keys));
+var ss = new SortedSet<int> { 5, 1, 9, 3, 1 }; Console.WriteLine(string.Join(",", ss) + " " + ss.Min + " " + ss.Max);
+var sl = new SortedList<int, string> { [3] = "c", [1] = "a", [2] = "b" }; Console.WriteLine(string.Join(",", sl.Values) + sl.IndexOfKey(2));

@@ -107,7 +107,20 @@ public sealed partial class FunctionCodeGen
             Microsoft.CodeAnalysis.CSharp.Syntax.ForEachVariableStatementSyntax f => model.GetDeconstructionInfo(f),
             _ => default,
         };
-        if (info.Method is not { } method || targets.Elements.Any(e => e is ITupleOperation)) return null;
+        var method = info.Method;
+        // `foreach (var (k, v) in dict)`: the operation's syntax is the declaration; look further up.
+        for (var node = syntax.Parent; method is null && node is not null && node is not Microsoft.CodeAnalysis.CSharp.Syntax.StatementSyntax; node = node.Parent)
+            method = node switch
+            {
+                Microsoft.CodeAnalysis.CSharp.Syntax.AssignmentExpressionSyntax a => model.GetDeconstructionInfo(a).Method,
+                _ => null,
+            };
+        if (method is null && syntax.FirstAncestorOrSelf<Microsoft.CodeAnalysis.CSharp.Syntax.ForEachVariableStatementSyntax>() is { } loop)
+            method = model.GetDeconstructionInfo(loop).Method;
+        // Last resort: an instance Deconstruct(out ...) with the right arity on the (corelib-mapped) type.
+        method ??= TypeOf(value)?.GetMembers("Deconstruct").OfType<IMethodSymbol>()
+            .FirstOrDefault(m => !m.IsStatic && m.Parameters.Length == targets.Elements.Length && m.Parameters.All(p => p.RefKind == RefKind.Out));
+        if (method is null || targets.Elements.Any(e => e is ITupleOperation)) return null;
         var addresses = targets.Elements.Select(e => e is IDiscardOperation ? default : AddressOf(e)).ToArray();
         var (values, types) = CallDeconstruct(method, EmitValue(value), TypeOf(value)!, value);
         for (var i = 0; i < addresses.Length; i++)

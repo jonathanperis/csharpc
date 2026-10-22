@@ -1,0 +1,24 @@
+// LINQ: deferred operators, stable OrderBy/ThenBy, GroupBy order, query syntax, sets, aggregates.
+int[] nums = [5, 3, 8, 1, 9, 2, 7, 4, 6, 10];
+var evens = nums.Where(n => n % 2 == 0).Select(n => n * n);
+Console.WriteLine(string.Join(",", evens));
+var numList = nums.ToList();
+Console.WriteLine(numList.Sum() + " " + numList.Min() + " " + numList.Max() + " " + numList.Average() + " " + nums.Count(n => n > 5));
+Console.WriteLine(string.Join(",", nums.OrderBy(n => n % 3).ThenByDescending(n => n)));
+Console.WriteLine(string.Join(",", nums.Take(3).Concat(nums.Skip(8)).Reverse()));
+var words = new List<string> { "apple", "banana", "avocado", "cherry", "blueberry", "apricot" };
+foreach (var g in words.GroupBy(w => w[0])) Console.WriteLine($"{g.Key}: {string.Join("|", g)} ({g.Count()})");
+var q = from w in words where w.Length > 5 orderby w.Length, w select w.ToUpper();
+Console.WriteLine(string.Join(" ", q));
+Console.WriteLine(words.First(w => w.StartsWith("b")) + " " + words.LastOrDefault(w => w.StartsWith("z")) + "!" + words.Any(w => w.Contains("rr")) + words.All(w => w.Length > 4));
+var dict = words.ToDictionary(w => w, w => w.Length);
+Console.WriteLine(dict["cherry"] + " " + words.Select((w, i) => i * w.Length).Max() + " " + words.Aggregate((a, b) => a.Length >= b.Length ? a : b));
+Console.WriteLine(string.Join(",", Enumerable.Range(1, 5).Zip(Enumerable.Repeat("x", 3), (a, b) => b + a)));
+Console.WriteLine(string.Join(",", new[] { 1, 2, 2, 3, 3, 3 }.Distinct()) + " " + string.Join(",", nums.Chunk(4).Select(c => c.Sum())));
+var pairs = Enumerable.Range(1, 3).SelectMany(a => Enumerable.Range(1, 3), (a, b) => a < b ? a * 10 + b : 0).Where(x => x > 0);
+Console.WriteLine(string.Join(",", pairs));
+Console.WriteLine(string.Join(",", nums.Intersect(new[] { 3, 4, 11 })) + "/" + string.Join(",", nums.Except(new[] { 1, 2, 3, 4, 5 })) + "/" + nums.SequenceEqual(nums.ToList()));
+Console.WriteLine(words.MaxBy(w => w.Length) + " " + words.MinBy(w => w.Length) + " " + string.Join(",", "hello".Distinct()) + " " + "hello".Count(c => c == 'l'));
+var people = new[] { ("Ann", 31), ("Bob", 25), ("Cid", 31), ("Dee", 25) };
+foreach (var grp in people.GroupBy(p => p.Item2, p => p.Item1).OrderBy(g => g.Key)) Console.WriteLine(grp.Key + "=" + string.Join("+", grp));
+Console.WriteLine(string.Join(",", nums.Order().TakeWhile(n => n < 5)) + " " + string.Join(",", nums.SkipWhile(n => n != 9)));

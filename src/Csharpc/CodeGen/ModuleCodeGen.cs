@@ -20,6 +20,7 @@ public sealed partial class ModuleCodeGen
     public TypeMapper Types { get; }
     public List<CompileError> Errors { get; } = [];
     public TextWriter? CfgDump { get; init; }
+    public CoreLib CoreLib { get; }
 
     private readonly Dictionary<IMethodSymbol, LoweredFunction> _functions = new(SymbolEqualityComparer.Default);
     private readonly Dictionary<INamedTypeSymbol, ClassLayout> _layouts = new(SymbolEqualityComparer.Default);
@@ -43,6 +44,8 @@ public sealed partial class ModuleCodeGen
         Module = module;
         Types = new TypeMapper(llvm, target);
         Types.StructType = ResolveStructType;
+        CoreLib = new CoreLib(compilation);
+        Mangler.RealNameOf = CoreLib.RealNameOf; // shadow types report their BCL names (List`1[...])
     }
 
     public SemanticModel ModelFor(SyntaxTree tree) =>
@@ -98,6 +101,12 @@ public sealed partial class ModuleCodeGen
 
     private void DrainWorklists()
     {
+        do DrainFunctionWorklists();
+        while (EmitPendingBuiltinInterfaceTables());
+    }
+
+    private void DrainFunctionWorklists()
+    {
         while (true)
         {
             if (_pendingNested.TryDequeue(out var nested))
@@ -137,7 +146,8 @@ public sealed partial class ModuleCodeGen
         foreach (var member in container.GetMembers())
         {
             if (member is INamespaceSymbol ns) CollectTypes(ns);
-            else if (member is INamedTypeSymbol type && IsUserType(type) && type.Locations.Any(l => l.IsInSource))
+            // Corelib types are lowered on demand only (through GetFunction/GetLayout), never eagerly.
+            else if (member is INamedTypeSymbol type && IsUserType(type) && type.Locations.Any(l => l.IsInSource) && !CoreLib.IsCoreLib(type))
             {
                 if (type.IsImplicitlyDeclared && type.TypeKind != TypeKind.Class) continue;
                 _userTypes.Add(type);
@@ -153,6 +163,7 @@ public sealed partial class ModuleCodeGen
     public LoweredFunction GetFunction(IMethodSymbol method)
     {
         if (IsNestedFunction(method)) return GetNestedFunction(method, TypeSubstitution.Identity);
+        method = CoreLib.Map(method);
         // Generic code is keyed by the *constructed* symbol: one function per instantiation.
         var generic = TypeSubstitution.IsGenericContext(method);
         if (!generic) method = method.OriginalDefinition;
@@ -168,7 +179,8 @@ public sealed partial class ModuleCodeGen
         Native.LLVMSetLinkage(fn, LLVMLinkage.Internal);
         Llvm.AddFunctionAttribute(fn, "uwtable", 2); // C# code may throw: keep async unwind tables (ADR 0005)
         MarkIfCoroutine(method, fn);
-        if (generic && IsUserMethod(method) && !method.IsAbstract) _pendingInstantiations.Enqueue(method);
+        if ((generic || CoreLib.IsCoreLib(method)) && IsUserMethod(method) && !method.IsAbstract && !method.IsExtern)
+            _pendingInstantiations.Enqueue(method);
         return _functions[method] = new LoweredFunction(fn, type);
     }
 
@@ -482,8 +494,12 @@ public sealed partial class ModuleCodeGen
     // Classes: layout + method tables
     // ======================================================================================
 
+    /// <summary>The introducing virtual declaration of a method, redirected to the corelib when it's a shadowed library member.</summary>
+    public IMethodSymbol RootOf(IMethodSymbol method) => CoreLib.Map(ClassLayout.RootOf(method));
+
     public ClassLayout GetLayout(INamedTypeSymbol type)
     {
+        type = CoreLib.TryMap(type) ?? type;
         if (!TypeSubstitution.IsGenericContext(type)) type = type.OriginalDefinition;
         if (_layouts.TryGetValue(type, out var existing)) return existing;
         if (!IsUserType(type))
@@ -493,8 +509,9 @@ public sealed partial class ModuleCodeGen
         if (TypeSubstitution.IsOpen(type)) throw CompileError.Unsupported($"open generic type '{type}'", type);
 
         ClassLayout? baseLayout = null;
-        if (type.BaseType is { SpecialType: not SpecialType.System_Object } baseType)
+        if (type.BaseType is { SpecialType: not SpecialType.System_Object } declaredBase)
         {
+            var baseType = CoreLib.TryMap(declaredBase) ?? declaredBase; // e.g. `class ByLength : Comparer<string>`
             if (!IsUserType(baseType) && !IsLibraryException(baseType))
                 throw CompileError.Unsupported($"deriving from library class '{baseType}'", type);
             baseLayout = GetLayout(baseType);
@@ -544,7 +561,7 @@ public sealed partial class ModuleCodeGen
         foreach (var m in type.GetMembers().OfType<IMethodSymbol>())
         {
             if (!(m.IsVirtual || m.IsAbstract || m.IsOverride)) continue;
-            var root = ClassLayout.RootOf(m);
+            var root = RootOf(m);
             if (m.IsOverride)
             {
                 if (!layout.SlotOf.TryGetValue(root, out var slot))
@@ -685,6 +702,7 @@ public sealed partial class ModuleCodeGen
 
     public LLVMValueRef StaticField(IFieldSymbol field)
     {
+        field = CoreLib.Map(field);
         if (!TypeSubstitution.IsGenericContext(field.ContainingType)) field = field.OriginalDefinition;
         if (_staticFields.TryGetValue(field, out var global)) return global;
         if (!IsUserType(field.ContainingType)) throw CompileError.Unsupported($"static field '{field}' of a library type", field);

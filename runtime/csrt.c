@@ -207,13 +207,24 @@ static void format_real(char* out, size_t cap, double v, int max_digits, bool is
 // ---------------------------------------------------------------------------------------------
 // Type system
 // ---------------------------------------------------------------------------------------------
+// Arrays and strings implement BCL generic interfaces (IList<T>, IEnumerable<char>...) through
+// corelib helpers: an interface MT's otherwise-unused `interfaces` field holds the slot table used
+// when the receiver is an array, and its `base` field the one used for strings (CodeGen/CoreLib*.cs).
+static void* const* builtin_interface_slots(const csrt_MethodTable* objmt, const csrt_MethodTable* itf) {
+    // Arrays may have a per-element-type MT ("System.Int32[]") whose base is one of the shared array MTs.
+    for (const csrt_MethodTable* mt = objmt; mt; mt = mt->base)
+        if (mt == &csrt_Array_MT.header || mt == &csrt_PrimitiveArray_MT.header) return (void* const*)itf->interfaces;
+    if (objmt == &csrt_String_MT.header) return (void* const*)itf->base;
+    return NULL;
+}
+
 void* csrt_isinst_class(void* obj, const csrt_MethodTable* type) {
     if (!obj) return NULL;
     const csrt_MethodTable* objmt = ((csrt_Object*)obj)->mt;
     if (type->flags & CSRT_MT_INTERFACE) {
         for (uint32_t i = 0; i < objmt->interface_count; i++)
             if (objmt->interfaces[i].interface_type == type) return obj;
-        return NULL;
+        return builtin_interface_slots(objmt, type) ? obj : NULL;
     }
     for (const csrt_MethodTable* mt = objmt; mt; mt = mt->base)
         if (mt == type) return obj;
@@ -224,6 +235,8 @@ void* const* csrt_interface_slots(void* obj, const csrt_MethodTable* interface_t
     const csrt_MethodTable* mt = ((csrt_Object*)obj)->mt;
     for (uint32_t i = 0; i < mt->interface_count; i++)
         if (mt->interfaces[i].interface_type == interface_type) return mt->interfaces[i].slots;
+    void* const* builtin = builtin_interface_slots(mt, interface_type);
+    if (builtin) return builtin;
     fflush(stdout);
     fprintf(stderr, "Unhandled exception. System.InvalidCastException: Unable to cast object of type '%s' to type '%s'.\n",
             mt->name, interface_type->name);

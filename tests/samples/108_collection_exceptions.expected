@@ -1,0 +1,8 @@
+KNF: The given key 'zz' was not present in the dictionary.
+Arg: An item with the same key has already been added. Key: a
+AOOR: Index was out of range. Must be non-negative and less than the size of the collection. (Parameter 'index')
+IOE: Collection was modified; enumeration operation may not execute.
+First: Sequence contains no elements
+Pop: Stack empty.
+Sum: Arithmetic operation resulted in an overflow.
+InvalidOperationException: Sequence contains more than one element

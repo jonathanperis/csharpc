@@ -16,6 +16,7 @@ public sealed partial class FunctionCodeGen
     private LLVMValueRef EmitInvocation(IInvocationOperation inv)
     {
         var target = S(inv.TargetMethod);
+        if (IsCoreIntrinsic(target)) return EmitCoreIntrinsic(target, inv);
         // `T.Create()` on a static abstract/virtual interface member: after substitution T is concrete.
         if (ResolveStaticInterfaceMember(target, inv.ConstrainedToType) is { } staticImpl)
             return EmitUserCall(staticImpl, default, true, inv.Arguments, isVirtual: false);
@@ -35,7 +36,7 @@ public sealed partial class FunctionCodeGen
             // object.ToString/Equals/GetHashCode on a value-type receiver (a substituted T): box, then dispatch.
             if (receiverType is { IsValueType: true } && target.ContainingType.SpecialType is SpecialType.System_Object or SpecialType.System_ValueType)
             {
-                if (target.Name == "ToString" && FormatPrimitive(EmitValue(receiver), receiverType) is { } formatted) return formatted;
+                if (target.Name == "ToString" && target.Parameters.IsEmpty) return FormatValue(EmitValue(receiver), receiverType, inv);
                 var boxed = Box(EmitValue(receiver), receiverType, inv);
                 var extra = inv.Arguments.OrderBy(a => a.Parameter!.Ordinal).Select(EmitArgument);
                 return VirtualCall(target, boxed, [boxed, .. extra]);
@@ -123,7 +124,7 @@ public sealed partial class FunctionCodeGen
     /// </summary>
     internal LLVMValueRef VirtualCall(IMethodSymbol target, LLVMValueRef self, LLVMValueRef[] args)
     {
-        var root = ClassLayout.RootOf(target);
+        var root = _m.RootOf(target);
         int slot;
         LLVMTypeRef fnType;
         if (_m.IsUserType(target.ContainingType) || _m.IsLibraryException(target.ContainingType))
@@ -249,7 +250,7 @@ public sealed partial class FunctionCodeGen
         or SpecialType.System_Byte or SpecialType.System_SByte or SpecialType.System_Double or SpecialType.System_Single
         or SpecialType.System_Boolean or SpecialType.System_Char;
 
-    private LLVMValueRef MethodTableFor(ITypeSymbol type, IOperation at) => type switch
+    private LLVMValueRef MethodTableFor(ITypeSymbol type, IOperation at) => _m.CoreLib.Map(type) switch
     {
         { SpecialType: SpecialType.System_String } => _m.ExternalGlobal("csrt_String_MT"),
         { SpecialType: SpecialType.System_Object } => _m.ExternalGlobal("csrt_Object_MT"),
