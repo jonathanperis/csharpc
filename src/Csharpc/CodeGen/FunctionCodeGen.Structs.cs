@@ -356,6 +356,8 @@ public sealed partial class FunctionCodeGen
     /// <summary>`var (a, b) = tupleValue;` — targets first, then the value, then element-wise stores.</summary>
     private LLVMValueRef EmitTupleValueDeconstruction(ITupleOperation targets, IOperation value)
     {
+        if (TypeOf(value) is { IsTupleType: false } && !targets.Elements.Any(e => e is ITupleOperation or IPropertyReferenceOperation))
+            return EmitDeconstructCall(targets, value);
         if (value.Type is not INamedTypeSymbol { IsTupleType: true } tupleType || tupleType.TupleElements.Length != targets.Elements.Length
             || targets.Elements.Any(e => e is ITupleOperation or IPropertyReferenceOperation))
             throw CompileError.Unsupported("deconstruction of this value (user Deconstruct methods are not supported yet)", value);

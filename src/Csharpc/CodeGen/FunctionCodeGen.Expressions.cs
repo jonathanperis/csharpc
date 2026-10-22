@@ -61,6 +61,7 @@ public sealed partial class FunctionCodeGen
     private LLVMValueRef LoadCapture(IFlowCaptureReferenceOperation r)
     {
         var rType = TypeOf(r);
+        if (_cfg!.PropertyCaptures.TryGetValue(r.Id, out var propertyCapture)) return GetCapturedProperty(propertyCapture);
         if (_cfg!.LvalueCaptures.Contains(r.Id)) return LoadValue(CaptureAddress(r), rType!);
         var (slot, type) = CaptureSlot(r.Id, rType);
         if (type is null) return _b.Load(L.Ptr, slot);
@@ -135,6 +136,8 @@ public sealed partial class FunctionCodeGen
     {
         if (a.IsRef) throw CompileError.Unsupported("ref assignment", a);
         if (a.Target is IPropertyReferenceOperation p) return EmitPropertySet(p, () => EmitValue(a.Value), TypeOf(a.Value));
+        if (a.Target is IFlowCaptureReferenceOperation r && _cfg!.PropertyCaptures.TryGetValue(r.Id, out var pc))
+            return SetCapturedProperty(pc, Coerce(EmitValue(a.Value), TypeOf(a.Value), pc.Property.Type));
 
         var targetType = TypeOf(a.Target)!;
         var address = AddressOf(a.Target);           // C#: target sub-expressions are evaluated first
@@ -172,6 +175,12 @@ public sealed partial class FunctionCodeGen
     private LLVMValueRef ReadModifyWrite(IOperation target, Func<LLVMValueRef, (LLVMValueRef NewValue, LLVMValueRef Result)> modify)
     {
         var type = TypeOf(target)!;
+        if (target is IFlowCaptureReferenceOperation r && _cfg!.PropertyCaptures.TryGetValue(r.Id, out var pc))
+        {
+            var (newValue, result) = modify(GetCapturedProperty(pc));
+            SetCapturedProperty(pc, newValue);
+            return result;
+        }
         if (target is IPropertyReferenceOperation p)
         {
             // Evaluate the receiver once, then call get + set on it.

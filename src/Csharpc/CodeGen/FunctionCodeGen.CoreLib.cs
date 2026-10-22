@@ -1,5 +1,6 @@
 using Csharpc.Llvm;
 using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.FlowAnalysis;
 using Microsoft.CodeAnalysis.Operations;
 
 namespace Csharpc.CodeGen;
@@ -15,8 +16,67 @@ namespace Csharpc.CodeGen;
 ///   Compare&lt;T&gt;(a, b)   — Comparer&lt;T&gt;.Default.Compare: primitives directly, strings with culture (ICU root)
 ///                         collation, IComparable&lt;T&gt; / IComparable; null sorts first.
 /// </summary>
+/// <summary>A property/indexer reference captured as an assignment target: receiver and arguments, already evaluated.</summary>
+public sealed record PropertyCapture(IPropertySymbol Property, LLVMValueRef Self, LLVMValueRef[] Arguments);
+
 public sealed partial class FunctionCodeGen
 {
+    /// <summary>
+    /// `dict[key] = c ? a : b`: Roslyn's CFG captures the indexer reference before the branches.
+    /// Evaluate its receiver and arguments once (spilled to slots); later reads/writes of the capture
+    /// call the getter/setter with them.
+    /// </summary>
+    private PropertyCapture CaptureProperty(IPropertyReferenceOperation p)
+    {
+        var property = S(p.Property);
+        var accessor = property.SetMethod ?? property.GetMethod!;
+        LLVMValueRef self = default;
+        if (!property.IsStatic)
+        {
+            var value = Receiver(p.Instance!, accessor);
+            self = NewTemp(L.Ptr, "prop.self");
+            _b.Store(value, self);
+        }
+        var args = p.Arguments.OrderBy(a => a.Parameter!.Ordinal).Select(a =>
+        {
+            var v = EmitArgument(a, accessor);
+            var slot = NewTemp(v.Type, "prop.arg");
+            _b.Store(v, slot);
+            return slot;
+        }).ToArray();
+        return new PropertyCapture(property, self, args);
+    }
+
+    private LLVMValueRef[] CapturedAccessorArgs(PropertyCapture pc, IMethodSymbol accessor, LLVMValueRef[] extra)
+    {
+        List<LLVMValueRef> args = [];
+        if (pc.Self.Handle != 0) args.Add(_b.Load(L.Ptr, pc.Self));
+        args.AddRange(pc.Arguments.Select(slot => _b.Load(Native.LLVMGetAllocatedType(slot), slot)));
+        args.AddRange(extra);
+        return [.. args];
+    }
+
+    private LLVMValueRef CallAccessorDirect(IMethodSymbol accessor, LLVMValueRef[] args)
+    {
+        if (accessor.ContainingType.TypeKind == TypeKind.Interface) return InterfaceDispatch(accessor, args[0], args);
+        if (!_m.IsUserMethod(accessor)) throw CompileError.Unsupported($"captured library property accessor '{accessor}'", accessor);
+        if (ModuleCodeGen.HasThis(accessor) && !accessor.ContainingType.IsValueType) NullCheck(args[0]);
+        return CallMethod(accessor, args);
+    }
+
+    private LLVMValueRef GetCapturedProperty(PropertyCapture pc)
+    {
+        var getter = pc.Property.GetMethod ?? throw CompileError.Unsupported($"reading set-only property '{pc.Property.Name}'", pc.Property);
+        return CallAccessorDirect(getter, CapturedAccessorArgs(pc, getter, []));
+    }
+
+    private LLVMValueRef SetCapturedProperty(PropertyCapture pc, LLVMValueRef value)
+    {
+        var setter = pc.Property.SetMethod ?? throw CompileError.Unsupported($"assigning get-only property '{pc.Property.Name}'", pc.Property);
+        CallAccessorDirect(setter, CapturedAccessorArgs(pc, setter, [value]));
+        return value;
+    }
+
     private bool IsCoreIntrinsic(IMethodSymbol target) =>
         _m.CoreLib.IntrinsicsType is { } ci && SymbolEqualityComparer.Default.Equals(target.ContainingType.OriginalDefinition, ci);
 
@@ -33,6 +93,32 @@ public sealed partial class FunctionCodeGen
             "CompareStrings" => CallRuntime("csrt_string_compare_culture", L.I32, [L.Ptr, L.Ptr], args[0], args[1]),
             _ => throw CompileError.Unsupported($"corelib intrinsic '{target.Name}'", inv),
         };
+    }
+
+    /// <summary>`var (a, b) = value;` via an instance Deconstruct(out ..., out ...) method (KeyValuePair, user types).</summary>
+    private LLVMValueRef EmitDeconstructCall(ITupleOperation targets, IOperation value)
+    {
+        var type = TypeOf(value)!;
+        var n = targets.Elements.Length;
+        var deconstruct = type.GetMembers("Deconstruct").OfType<IMethodSymbol>()
+            .FirstOrDefault(m => !m.IsStatic && m.Parameters.Length == n && m.Parameters.All(p => p.RefKind == RefKind.Out))
+            ?? throw CompileError.Unsupported($"deconstruction of '{type}' (no instance Deconstruct method)", value);
+        if (!_m.IsUserMethod(deconstruct)) throw CompileError.Unsupported($"library Deconstruct on '{type}'", value);
+
+        var addresses = targets.Elements.Select(e => e is IDiscardOperation ? default : AddressOf(e)).ToArray();
+        var self = type.IsValueType ? AddressOrSpill(value) : EmitValue(value);
+        if (!type.IsValueType) NullCheck(self);
+        var temps = deconstruct.Parameters.Select(p => NewTemp(T.Storage(p.Type), "deconstruct")).ToArray();
+        CallMethod(deconstruct, [self, .. temps]);
+        for (var i = 0; i < n; i++)
+        {
+            if (addresses[i].Handle == 0) continue;
+            var parameterType = deconstruct.Parameters[i].Type;
+            var targetType = TypeOf(targets.Elements[i])!;
+            var element = Coerce(LoadValue(temps[i], parameterType), parameterType, targetType);
+            StoreValue(ToStorage(element, targetType), addresses[i]);
+        }
+        return default;
     }
 
     private IMethodSymbol ObjectMethod(string name, int parameters) =>

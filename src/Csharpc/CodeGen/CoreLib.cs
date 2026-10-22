@@ -1,4 +1,5 @@
 using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp.Syntax;
 
 namespace Csharpc.CodeGen;
 
@@ -26,50 +27,78 @@ public sealed class CoreLib
     public const string TreePrefix = "<corelib>/";
 
     private readonly Compilation _compilation;
-    private readonly Dictionary<string, INamedTypeSymbol> _shadowByReal = [];
-    private readonly Dictionary<INamedTypeSymbol, string> _realByShadow = new(SymbolEqualityComparer.Default);
-    /// <summary>[ShadowMembers]: extra static members for library types we don't replace (e.g. string.Join&lt;T&gt;).</summary>
-    private readonly Dictionary<string, List<INamedTypeSymbol>> _memberShadows = [];
+    // Shadow declarations are discovered from syntax (no binding: hello world must not pay for the
+    // corelib) and resolved to symbols lazily, by metadata name.
+    private readonly Dictionary<string, string> _shadowNameByReal = [];      // real -> shadow metadata name
+    private readonly Dictionary<string, string> _realByShadowName = [];      // shadow metadata name -> real
+    private readonly Dictionary<string, List<string>> _memberShadowNames = []; // real -> [ShadowMembers] classes
+    private readonly Dictionary<string, INamedTypeSymbol?> _resolved = [];
     private readonly Dictionary<ISymbol, ISymbol> _cache = new(SymbolEqualityComparer.Default);
     private readonly Dictionary<(ISymbol Real, ISymbol Shadow), ISymbol?> _definitionMatch = [];
+    private INamedTypeSymbol? _intrinsics;
+    private bool _intrinsicsResolved;
 
     /// <summary>CsharpcCoreLib.CoreIntrinsics: extern helpers whose bodies codegen synthesizes per instantiation.</summary>
-    public INamedTypeSymbol? IntrinsicsType { get; }
+    public INamedTypeSymbol? IntrinsicsType
+    {
+        get
+        {
+            if (!_intrinsicsResolved) { _intrinsics = Resolve(Namespace + ".CoreIntrinsics"); _intrinsicsResolved = true; }
+            return _intrinsics;
+        }
+    }
 
     public CoreLib(Compilation compilation)
     {
         _compilation = compilation;
-        var ns = compilation.Assembly.GlobalNamespace.GetNamespaceMembers().FirstOrDefault(n => n.Name == Namespace);
-        if (ns is null) return;
-        Scan(ns);
-        IntrinsicsType = ns.GetTypeMembers("CoreIntrinsics").FirstOrDefault();
+        foreach (var tree in compilation.SyntaxTrees)
+            if (tree.FilePath.StartsWith(TreePrefix, StringComparison.Ordinal))
+                Scan(tree.GetRoot(), "");
     }
 
-    private void Scan(INamespaceOrTypeSymbol container)
+    private void Scan(SyntaxNode node, string prefix)
     {
-        foreach (var member in container.GetMembers())
+        foreach (var child in node.ChildNodes())
         {
-            if (member is INamespaceSymbol ns) { Scan(ns); continue; }
-            if (member is not INamedTypeSymbol type) continue;
-            foreach (var attr in type.GetAttributes())
+            switch (child)
             {
-                if (attr.ConstructorArguments.FirstOrDefault().Value is not string real) continue;
-                if (attr.AttributeClass?.Name == "ShadowsAttribute")
+                case BaseNamespaceDeclarationSyntax ns:
+                    Scan(ns, prefix + ns.Name + ".");
+                    break;
+                case BaseTypeDeclarationSyntax type:
                 {
-                    _shadowByReal[real] = type;
-                    _realByShadow[type] = real;
-                }
-                else if (attr.AttributeClass?.Name == "ShadowMembersAttribute")
-                {
-                    if (!_memberShadows.TryGetValue(real, out var list)) _memberShadows[real] = list = [];
-                    list.Add(type);
+                    var arity = type is TypeDeclarationSyntax { TypeParameterList: { } tps } ? tps.Parameters.Count : 0;
+                    var metadataName = prefix + type.Identifier.ValueText + (arity > 0 ? "`" + arity : "");
+                    foreach (var attribute in type.AttributeLists.SelectMany(l => l.Attributes))
+                    {
+                        var name = attribute.Name.ToString();
+                        if (attribute.ArgumentList?.Arguments.FirstOrDefault()?.Expression is not LiteralExpressionSyntax { Token.Value: string real })
+                            continue;
+                        if (name is "Shadows" or "ShadowsAttribute")
+                        {
+                            _shadowNameByReal[real] = metadataName;
+                            _realByShadowName[metadataName] = real;
+                        }
+                        else if (name is "ShadowMembers" or "ShadowMembersAttribute")
+                        {
+                            if (!_memberShadowNames.TryGetValue(real, out var list)) _memberShadowNames[real] = list = [];
+                            list.Add(metadataName);
+                        }
+                    }
+                    if (type is TypeDeclarationSyntax nested) Scan(nested, metadataName + "+");
+                    break;
                 }
             }
-            Scan(type);
         }
     }
 
-    public bool HasShadows => _shadowByReal.Count > 0 || _memberShadows.Count > 0;
+    private INamedTypeSymbol? Resolve(string metadataName)
+    {
+        if (_resolved.TryGetValue(metadataName, out var symbol)) return symbol;
+        return _resolved[metadataName] = _compilation.GetTypeByMetadataName(metadataName);
+    }
+
+    public bool HasShadows => _shadowNameByReal.Count > 0 || _memberShadowNames.Count > 0;
 
     /// <summary>True for any symbol declared in the corelib sources.</summary>
     public static bool IsCoreLib(ISymbol symbol)
@@ -80,7 +109,13 @@ public sealed class CoreLib
     }
 
     /// <summary>"System.Collections.Generic.List`1" for a shadow definition, else null.</summary>
-    public string? RealNameOf(INamedTypeSymbol type) => _realByShadow.GetValueOrDefault(type.OriginalDefinition);
+    public string? RealNameOf(INamedTypeSymbol type) =>
+        _realByShadowName.Count == 0 || !IsCoreLib(type) ? null : _realByShadowName.GetValueOrDefault(PlainMetadataName(type.OriginalDefinition));
+
+    private static string PlainMetadataName(INamedTypeSymbol type) =>
+        type.ContainingType is { } outer
+            ? PlainMetadataName(outer) + "+" + type.MetadataName
+            : type.ContainingNamespace is { IsGlobalNamespace: false } ns ? ns.ToDisplayString() + "." + type.MetadataName : type.MetadataName;
 
     private bool IsLibrary(ISymbol symbol) =>
         !SymbolEqualityComparer.Default.Equals(symbol.ContainingAssembly, _compilation.Assembly);
@@ -96,7 +131,8 @@ public sealed class CoreLib
         if (!HasShadows || !IsLibrary(type)) return null;
         if (_cache.TryGetValue(type, out var cached)) return (INamedTypeSymbol)cached;
         var definition = type.OriginalDefinition;
-        if (!_shadowByReal.TryGetValue(Mangler.MetadataName(definition), out var shadow)) return null;
+        if (!_shadowNameByReal.TryGetValue(Mangler.MetadataName(definition), out var shadowName) || Resolve(shadowName) is not { } shadow)
+            return null;
 
         INamedTypeSymbol result;
         if (type.ContainingType is { } outer && TryMap(outer) is { } mappedOuter)
@@ -129,10 +165,10 @@ public sealed class CoreLib
             if (method.IsGenericMethod && !method.IsDefinition) result = result.Construct([.. method.TypeArguments]);
         }
         else if (method.IsStatic && method.ContainingType is { } owner
-                 && _memberShadows.TryGetValue(Mangler.MetadataName(owner.OriginalDefinition), out var extensions))
+                 && _memberShadowNames.TryGetValue(Mangler.MetadataName(owner.OriginalDefinition), out var extensions))
         {
-            foreach (var extension in extensions)
-                if (MatchDefinition(method.OriginalDefinition, extension) is IMethodSymbol extra)
+            foreach (var extensionName in extensions)
+                if (Resolve(extensionName) is { } extension && MatchDefinition(method.OriginalDefinition, extension) is IMethodSymbol extra)
                 {
                     result = method.IsGenericMethod && !method.IsDefinition ? extra.Construct([.. method.TypeArguments]) : extra;
                     break;
