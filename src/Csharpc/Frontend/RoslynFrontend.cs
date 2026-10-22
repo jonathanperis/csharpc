@@ -37,31 +37,26 @@ public static class RoslynFrontend
 
     public static CSharpCompilation Analyze(FrontendSettings settings)
     {
-        var languageVersion = LanguageVersion.Preview;
-        if (settings.LanguageVersion is { Length: > 0 } lv && !LanguageVersionFacts.TryParse(lv, out languageVersion))
-            languageVersion = LanguageVersion.Preview;
-        // Versions newer than our Roslyn knows (or "default"/"latest") fall back to preview: csharpc tracks the newest language.
-        if (languageVersion is LanguageVersion.Default or LanguageVersion.Latest or LanguageVersion.LatestMajor)
-            languageVersion = LanguageVersion.Preview;
+        var languageVersion = LanguageVersionOf(settings.LanguageVersion);
 
-        var parseOptions = new CSharpParseOptions(languageVersion, DocumentationMode.None, SourceCodeKind.Regular,
-            ["CSHARPC", .. settings.Defines])
-            // Accept file-based app directives (`#:property ...`, `#:package ...`) like `dotnet run app.cs`.
-            .WithFeatures([new("FileBasedProgram", "true")]);
+        var parseOptions = ParseOptions(languageVersion, settings.Defines);
 
-        List<SyntaxTree> trees = [.. settings.Files.Select(f =>
-            CSharpSyntaxTree.ParseText(File.ReadAllText(f), parseOptions, path: Path.GetFullPath(f)))];
+        // Each project's files are parsed with that project's own symbols (DefineConstants).
+        s_parsed.Clear();
+        foreach (var project in settings.Projects)
+        {
+            var projectOptions = ParseOptions(LanguageVersionOf(project.LanguageVersion), project.Defines);
+            foreach (var f in project.Files)
+                if (!s_parsed.ContainsKey(Path.GetFullPath(f)))
+                    s_parsed[Path.GetFullPath(f)] = CSharpSyntaxTree.ParseText(File.ReadAllText(f), projectOptions, path: Path.GetFullPath(f));
+        }
+        List<SyntaxTree> trees = [.. settings.Files.Select(f => s_parsed.TryGetValue(Path.GetFullPath(f), out var parsed) ? parsed
+            : CSharpSyntaxTree.ParseText(File.ReadAllText(f), parseOptions, path: Path.GetFullPath(f)))];
         if (settings.GlobalUsings is { Length: > 0 } usings)
             trees.Add(CSharpSyntaxTree.ParseText(usings, parseOptions, path: "<global-usings>.g.cs"));
         trees.AddRange(CoreLibTrees(parseOptions));
 
-        var nullable = settings.Nullable?.ToLowerInvariant() switch
-        {
-            "disable" => NullableContextOptions.Disable,
-            "warnings" => NullableContextOptions.Warnings,
-            "annotations" => NullableContextOptions.Annotations,
-            _ => NullableContextOptions.Enable,
-        };
+        var nullable = NullableOf(settings.Nullable);
         var options = new CSharpCompilationOptions(OutputKind.ConsoleApplication,
             nullableContextOptions: nullable,
             allowUnsafe: settings.AllowUnsafe,
@@ -75,6 +70,76 @@ public static class RoslynFrontend
         compilation = SourceGenerators.Run(compilation, trees.Where(t => !IsCoreLibTree(t)), out var generatorDiagnostics);
         GeneratorDiagnostics = generatorDiagnostics;
         return compilation;
+    }
+
+    private static LanguageVersion LanguageVersionOf(string? text)
+    {
+        var languageVersion = LanguageVersion.Preview;
+        if (text is { Length: > 0 } lv && !LanguageVersionFacts.TryParse(lv, out languageVersion))
+            languageVersion = LanguageVersion.Preview;
+        // Versions newer than our Roslyn knows (or "default"/"latest") fall back to preview: csharpc tracks the newest language.
+        if (languageVersion is LanguageVersion.Default or LanguageVersion.Latest or LanguageVersion.LatestMajor)
+            languageVersion = LanguageVersion.Preview;
+        return languageVersion;
+    }
+
+    private static CSharpParseOptions ParseOptions(LanguageVersion languageVersion, IEnumerable<string> defines) =>
+        new CSharpParseOptions(languageVersion, DocumentationMode.None, SourceCodeKind.Regular, ["CSHARPC", .. defines])
+            // Accept file-based app directives (`#:property ...`, `#:package ...`) like `dotnet run app.cs`.
+            .WithFeatures([new("FileBasedProgram", "true")]);
+
+    private static NullableContextOptions NullableOf(string? text) => text?.ToLowerInvariant() switch
+    {
+        "disable" => NullableContextOptions.Disable,
+        "warnings" => NullableContextOptions.Warnings,
+        "annotations" => NullableContextOptions.Annotations,
+        _ => NullableContextOptions.Enable,
+    };
+
+    private static readonly Dictionary<string, SyntaxTree> s_parsed = new(StringComparer.Ordinal);
+
+    /// <summary>
+    /// Errors that compiling several projects as one compilation can introduce although C# semantics
+    /// (and the generated code) are the same: definite-assignment rules are relaxed for structs
+    /// imported from another assembly (their inaccessible fields don't count; warning CS8882).
+    /// </summary>
+    public static readonly IReadOnlySet<string> DefiniteAssignmentErrors = new HashSet<string> { "CS0165", "CS0170", "CS0171", "CS0177", "CS0188" };
+
+    /// <summary>
+    /// What `dotnet build` reports: each project compiled on its own, referencing the compilations
+    /// of the projects it references (csharpc still generates code from one merged compilation).
+    /// </summary>
+    public static ImmutableArray<Diagnostic> ProjectDiagnostics(FrontendSettings settings)
+    {
+        var byPath = settings.Projects.ToDictionary(p => p.ProjectPath, StringComparer.Ordinal);
+        var built = new Dictionary<string, CSharpCompilation>(StringComparer.Ordinal);
+        var builder = ImmutableArray.CreateBuilder<Diagnostic>();
+        foreach (var project in settings.Projects) Build(project);
+        return builder.ToImmutable();
+
+        CSharpCompilation Build(ProjectUnit project)
+        {
+            if (built.TryGetValue(project.ProjectPath, out var existing)) return existing;
+            List<MetadataReference> references = [.. ReferenceAssemblies()];
+            foreach (var reference in project.References)
+                if (byPath.TryGetValue(reference, out var referenced)) references.Add(Build(referenced).ToMetadataReference());
+            var parseOptions = ParseOptions(LanguageVersionOf(project.LanguageVersion), project.Defines);
+            List<SyntaxTree> trees = [.. project.Files.Select(f => s_parsed[Path.GetFullPath(f)])];
+            if (project.GlobalUsings is { Length: > 0 } usings)
+                trees.Add(CSharpSyntaxTree.ParseText(usings, parseOptions, path: "<global-usings>.g.cs"));
+            var options = new CSharpCompilationOptions(project.IsRoot ? OutputKind.ConsoleApplication : OutputKind.DynamicallyLinkedLibrary,
+                nullableContextOptions: NullableOf(project.Nullable),
+                allowUnsafe: project.AllowUnsafe,
+                optimizationLevel: OptimizationLevel.Release,
+                mainTypeName: project.IsRoot ? settings.MainTypeName : null,
+                specificDiagnosticOptions: new Dictionary<string, ReportDiagnostic> { ["CS8019"] = ReportDiagnostic.Suppress });
+            var compilation = CSharpCompilation.Create(project.AssemblyName, trees, references, options);
+            compilation = SourceGenerators.Run(compilation, trees, out var generatorDiagnostics);
+            builder.AddRange(generatorDiagnostics);
+            foreach (var tree in compilation.SyntaxTrees)
+                builder.AddRange(compilation.GetSemanticModel(tree).GetDiagnostics());
+            return built[project.ProjectPath] = compilation;
+        }
     }
 
     /// <summary>Diagnostics reported by source generators during the last Analyze call.</summary>
@@ -188,4 +253,22 @@ public sealed record FrontendSettings
     public string? AssemblyName { get; init; }
     /// <summary>Type whose Main is the entry point (&lt;StartupObject&gt;); null = the only one.</summary>
     public string? MainTypeName { get; init; }
+    /// <summary>The root project and the projects it references, when there are several.</summary>
+    public IReadOnlyList<ProjectUnit> Projects { get; init; } = [];
+}
+
+/// <summary>One project's own compilation settings (projects keep them when folded into one program).</summary>
+public sealed record ProjectUnit
+{
+    public required string ProjectPath { get; init; }
+    public required string AssemblyName { get; init; }
+    public required bool IsRoot { get; init; }
+    public required IReadOnlyList<string> Files { get; init; }
+    public IReadOnlyList<string> Defines { get; init; } = [];
+    public string? LanguageVersion { get; init; }
+    public string? Nullable { get; init; }
+    public bool AllowUnsafe { get; init; }
+    public string? GlobalUsings { get; init; }
+    /// <summary>Full paths of the referenced projects.</summary>
+    public IReadOnlyList<string> References { get; init; } = [];
 }

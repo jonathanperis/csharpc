@@ -140,8 +140,10 @@ public static class ProjectLoader
 
     /// <summary>
     /// Evaluates the root project and every transitively referenced project, and merges them into
-    /// one whole-program compilation input. Settings (defines, language version, nullable) come from
-    /// the root; global usings are the union (they're compilation-wide in a single compilation).
+    /// one whole-program compilation input. Each project's files are parsed with its own symbols;
+    /// compilation settings (language version, nullable) come from the root; global usings are the
+    /// union (they're compilation-wide in a single compilation). Diagnostics come from per-project
+    /// compilations (RoslynFrontend.ProjectDiagnostics), like `dotnet build`.
     /// </summary>
     public static (FrontendSettings Settings, ProjectInfo Root, IReadOnlyList<ProjectInfo> All) Load(
         string projectPath, string configuration, TextWriter? log = null, IReadOnlyDictionary<string, string>? globalProperties = null)
@@ -172,6 +174,19 @@ public static class ProjectLoader
             GlobalUsings = usings.Count > 0 ? string.Join('\n', usings) : null,
             AssemblyName = root.AssemblyName,
             MainTypeName = root.StartupObject,
+            Projects = all.Count > 1 ? [.. all.Select(p => new ProjectUnit
+            {
+                ProjectPath = p.ProjectPath,
+                AssemblyName = p.AssemblyName,
+                IsRoot = ReferenceEquals(p, root),
+                Files = p.Files,
+                Defines = p.Defines,
+                LanguageVersion = p.LanguageVersion,
+                Nullable = p.Nullable,
+                AllowUnsafe = p.AllowUnsafe,
+                GlobalUsings = p.GlobalUsings.Count > 0 ? string.Join('\n', p.GlobalUsings) : null,
+                References = [.. p.ProjectReferences.Select(Path.GetFullPath)],
+            })] : [],
         };
         return (settings, root, all);
     }

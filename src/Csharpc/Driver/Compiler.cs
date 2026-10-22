@@ -49,6 +49,19 @@ public sealed class Compiler(CompilerOptions options)
         var compilation = (Microsoft.CodeAnalysis.CSharp.CSharpCompilation)analyzed.WithOptions(
             analyzed.Options.WithNullableContextOptions(Microsoft.CodeAnalysis.NullableContextOptions.Disable));
         var diagnostics = RoslynFrontend.UserDiagnostics(options.ShowWarnings ? analyzed : compilation);
+        if (settings.Projects.Count > 1)
+        {
+            // Referenced projects are folded into one compilation for codegen (ADR 0006), but C#
+            // checks each project on its own, as `dotnet build` does.
+            var perProject = RoslynFrontend.ProjectDiagnostics(settings);
+            var mergedOnly = diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error && !RoslynFrontend.DefiniteAssignmentErrors.Contains(d.Id)).ToList();
+            diagnostics = options.ShowWarnings ? perProject : [.. perProject.Where(d => d.Severity == DiagnosticSeverity.Error)];
+            if (!perProject.Any(d => d.Severity == DiagnosticSeverity.Error) && mergedOnly.Count > 0)
+            {
+                foreach (var d in mergedOnly) WriteDiagnostic(d.ToString(), isError: true);
+                return Fail("these errors only appear when the referenced projects are compiled together; csharpc folds ProjectReferences into one program and can't compile this combination yet");
+            }
+        }
         Phase("parse + bind (Roslyn)");
 
         var errors = 0;
