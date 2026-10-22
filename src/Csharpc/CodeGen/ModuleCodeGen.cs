@@ -183,6 +183,10 @@ public sealed partial class ModuleCodeGen
         // which lets LLVM's IPO passes inline, specialize and delete freely.
         Native.LLVMSetLinkage(fn, LLVMLinkage.Internal);
         Llvm.AddFunctionAttribute(fn, "uwtable", 2); // C# code may throw: keep async unwind tables (ADR 0005)
+        // [MethodImpl(NoInlining)] keeps cold paths (growth, throw helpers) out of hot callers: LLVM
+        // otherwise inlines every internal function with a single call site, however big.
+        if ((method.MethodImplementationFlags & System.Reflection.MethodImplAttributes.NoInlining) != 0)
+            Llvm.AddFunctionAttribute(fn, "noinline");
         MarkIfCoroutine(method, fn);
         if ((generic || CoreLib.IsCoreLib(method)) && IsUserMethod(method) && !method.IsAbstract && !method.IsExtern)
             _pendingInstantiations.Enqueue(method);

@@ -197,18 +197,29 @@ namespace CsharpcCoreLib
             return IndexOfOrdinal(s.AsSpan(), value.AsSpan(), startIndex);
         }
 
-        /// <summary>Scan for the first char, then compare the rest.</summary>
-        internal static int IndexOfOrdinal(ReadOnlySpan<char> s, ReadOnlySpan<char> value, int startIndex)
+        /// <summary>
+        /// Scan for the first char, then compare the rest. Pointers rather than span indexing: the
+        /// `i <= last` bound already covers every access, but LLVM can't prove it and keeps a range
+        /// check per char.
+        /// </summary>
+        internal static unsafe int IndexOfOrdinal(ReadOnlySpan<char> s, ReadOnlySpan<char> value, int startIndex)
         {
             if (value.Length == 0) return startIndex;
-            char first = value[0];
             int last = s.Length - value.Length;
-            for (int i = startIndex; i <= last; i++)
+            if ((uint)startIndex > (uint)s.Length) return -1;
+            fixed (char* sp = s, vp = value)
             {
-                if (s[i] != first) continue;
-                int k = 1;
-                while (k < value.Length && s[i + k] == value[k]) k++;
-                if (k == value.Length) return i;
+                // nint indices: C# int arithmetic wraps (no `nsw`), so an int counter would be
+                // sign-extended on every access instead of becoming a 64-bit induction variable.
+                char first = vp[0];
+                nint rest = value.Length - 1;
+                for (nint i = startIndex; i <= last; i++)
+                {
+                    if (sp[i] != first) continue;
+                    nint k = 0;
+                    while (k < rest && sp[i + 1 + k] == vp[1 + k]) k++;
+                    if (k == rest) return (int)i;
+                }
             }
             return -1;
         }

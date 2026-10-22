@@ -72,11 +72,20 @@ namespace CsharpcCoreLib
             _chars = grown;
         }
 
-        /// <summary>Makes room for `extra` more chars (doubling, like .NET's amortized growth).</summary>
+        /// <summary>
+        /// Makes room for `extra` more chars. Every append calls this, so it is only the capacity test;
+        /// growing lives in Grow, which keeps this small enough for LLVM to inline into the callers.
+        /// </summary>
         private void Reserve(int extra)
         {
+            if (_length + extra > _chars.Length) Grow(extra);
+        }
+
+        /// <summary>Doubling, like .NET's amortized growth.</summary>
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private void Grow(int extra)
+        {
             int needed = _length + extra;
-            if (needed <= _chars.Length) return;
             int capacity = _chars.Length * 2;
             Resize(capacity < needed ? needed : capacity);
         }
