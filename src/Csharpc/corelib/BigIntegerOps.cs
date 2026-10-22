@@ -410,26 +410,39 @@ namespace CsharpcCoreLib
                 int decimals = precision < 0 ? 2 : precision;
                 if (decimals > 0) { sb.Append('.'); sb.Append('0', decimals); }
             }
-            else if ((f == 'X' || f == 'x') && !negative)
+            else if (f == 'X' || f == 'x')
             {
+                // Two's complement with one extra limb of sign extension, then the shortest prefix whose
+                // top nibble still carries the sign: 128 is "080", -1 is "F", -980362 is "F10A76".
                 char letter = f == 'X' ? 'A' : 'a';
-                bool started = false;
-                for (int i = LengthOf(a); i >= 1; i--)
+                int len = LengthOf(a);
+                uint[] words = new uint[len + 1];
+                uint carry = 1;
+                for (int i = 0; i < len; i++)
                 {
-                    for (int k = 7; k >= 0; k--)
-                    {
-                        int d = (int)((a[i] >> (k * 4)) & 0xF);
-                        if (!started && d == 0 && !(i == 1 && k == 0)) continue;
-                        if (!started && d > 7) sb.Append('0');  // keep the value positive in two's complement
-                        started = true;
-                        sb.Append(d < 10 ? (char)('0' + d) : (char)(letter + d - 10));
-                    }
+                    uint w = a[i + 1];
+                    if (negative) { w = ~w + carry; carry = w == 0 && carry == 1 ? 1U : 0U; }
+                    words[i] = w;
                 }
-                if (!started) sb.Append('0');
+                words[len] = negative ? uint.MaxValue : 0U;
+                int total = (len + 1) * 8;
+                uint fill = negative ? 0xFU : 0U;
+                int top = total - 1;
+                while (top > 0 && Nibble(words, top) == fill && (Nibble(words, top - 1) >= 8) == negative) top--;
+                char pad = negative ? (f == 'X' ? 'F' : 'f') : '0';
+                sb.Append(pad, precision - (top + 1));
+                for (int k = top; k >= 0; k--)
+                {
+                    int d = Nibble(words, k);
+                    sb.Append(d < 10 ? (char)('0' + d) : (char)(letter + d - 10));
+                }
             }
             else throw new FormatException("Format specifier was invalid.");
             return sb.Build();
         }
+
+        /// <summary>Nibble k (counted from the least significant) of little-endian limbs.</summary>
+        private static int Nibble(uint[] words, int k) => (int)((words[k / 8] >> ((k % 8) * 4)) & 0xF);
 
         private static bool TryParseCore(string s, out uint[] result)
         {
