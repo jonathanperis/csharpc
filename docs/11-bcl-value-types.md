@@ -14,7 +14,7 @@ Code map:
 | Per-function helpers (decimal ops, Type objects, loops, delegate calls) | `src/Csharpc/CodeGen/FunctionCodeGen.Bcl.cs` |
 | Array / enum / type-only method tables, IR comparers for `Array.Sort` | `src/Csharpc/CodeGen/ModuleCodeGen.Bcl.cs` |
 | Decimal arithmetic, conversions, parsing | `src/Csharpc/corelib/DecimalOps.cs` (C#, [ADR 0008](adr/0008-runtime-in-csharp.md)) |
-| TimeSpan, DateTime arithmetic, calendar and formatting | `src/Csharpc/corelib/DateTimeOps.cs`; clocks and Stopwatch in `src/runtime/datetime.c` |
+| TimeSpan, DateTime arithmetic, calendar, time zones and formatting | `src/Csharpc/corelib/DateTimeOps.cs` (`DateTimeMembers` shadows the rest of `DateTime`); clocks and Stopwatch in `src/runtime/datetime.c` |
 | `System.Type` objects | `src/runtime/type.c` |
 | BigInteger | `src/Csharpc/corelib/BigIntegerOps.cs` |
 | Array helpers, introsort, Convert, Environment, collation | `src/runtime/bclmisc.c` |
@@ -65,11 +65,38 @@ implementations, and static library fields (`string.Empty`, `TimeSpan.Zero`,
 
 ## TimeSpan, DateTime, Stopwatch
 
-* `TimeSpan` and `DateTime` are lowered to their **tick count** (`i64`, 100 ns units).
-  `DateTime.Kind` is not modelled (always Unspecified); `DateTime.Now` uses the local UTC offset.
-  The `z` format specifier writes the local zone's offset for that wall-clock time (libc
-  `localtime_r` over tzdata), resolved like .NET: ambiguous times take standard time, skipped times
-  the offset before the transition; a `DateTime` that .NET would mark as Utc still gets the local offset.
+* `TimeSpan` is lowered to its **tick count** (`i64`, 100 ns units). `DateTime` is .NET's own
+  `_dateData` word (`i64`): ticks in bits 0–61 and the **Kind** in bits 62–63 (Unspecified 0,
+  Utc 1, Local 2, and 3 for a Local time in the daylight-saving occurrence of an ambiguous hour,
+  .NET's `KindLocalAmbiguousDst`). `Ticks` masks the Kind off; arithmetic (`Add*`, `+`/`-`
+  `TimeSpan`, `Date`) keeps every kind bit; equality, ordering and hashing look at the ticks only
+  (`==`, `Equals`, `CompareTo`, `EqualityComparer`/`Comparer`, `Dictionary` keys, boxed `Equals` and
+  `GetHashCode`, records, tuples, and the byte-wise `ValueType.Equals`/`GetHashCode` of structs with
+  `DateTime` fields, which mask those bits). `UtcNow` and `UnixEpoch` are Utc; `Now` and `Today` are
+  Local; `MinValue`, `MaxValue` and `default` are Unspecified.
+* **Time zones** come from libc (`localtime_r` over tzdata and `TZ`, which .NET reads too), resolved
+  like `TimeZoneInfo.Local` (checked against .NET in New York, London, Amsterdam, Dublin, Moscow,
+  Sao Paulo, St. John's, Monrovia, Kolkata, Sydney, Lord Howe, Chatham, Apia, Kiritimati, Yakutat,
+  Sitka, Manila, Guam and UTC):
+  * a wall-clock (Unspecified or Local) time in an ambiguous hour takes standard time unless it is a
+    Local value flagged as the daylight-saving occurrence; a skipped time takes the zone's base
+    offset and is never daylight-saving time; `IsDaylightSavingTime()` is false in both cases;
+  * `ToUniversalTime()` treats Unspecified as local and, like .NET, *adds* the offset of a skipped
+    time (02:30 on a New York spring-forward day becomes 21:30Z the day before);
+  * `ToLocalTime()` treats Unspecified as UTC and sets the ambiguous-hour flag; both conversions
+    clamp to `MinValue`/`MaxValue`;
+  * local mean times keep only the hours and minutes of their difference to the base offset (New
+    York's -4:56:02 is -4:57; Apia's -11:26:04 against +13 wraps to +12:34), offsets are clamped to
+    ±14 h (Yakutat's +14:41 is +14:00), and a daylight-saving period still running at the end of year
+    9999 ends at local midnight.
+
+  Samples `188`–`190` pin a zone with `Environment.SetEnvironmentVariable("TZ", ...)` before
+  anything reads the local zone (both .NET and libc load it lazily), so their recorded output does
+  not depend on the machine's zone.
+* `SpecifyKind`, `ToBinary`/`FromBinary`, `ToFileTime[Utc]`/`FromFileTime[Utc]`, `Equals(object)`,
+  `CompareTo(object)` and the conversions above are C# shadows (`DateTimeMembers`); invalid kinds
+  throw `ArgumentException` like .NET. A `DateTime` P/Invoke parameter or return is diagnosed as
+  unsupported (.NET marshals it as an OLE Automation date).
 * Calendar math is the CLR's own algorithm (proleptic Gregorian, years 1–9999):
   `AddMonths` clamps the day, `AddDays(double)` adds integral and fractional parts separately
   (.NET 7+ behaviour), range errors throw `ArgumentOutOfRangeException` with .NET's messages.
@@ -77,8 +104,12 @@ implementations, and static library fields (`string.Empty`, `TimeSpan.Zero`,
   (`FromSeconds(long)`, `FromHours(int, long minutes = 0, ...)`) are recognised by parameter
   names. `TimeSpan * double` and `/ double` round ticks to even like .NET.
 * Formatting follows the invariant culture: `TimeSpan` `c`/`g`/`G` and custom formats
-  (`hh\:mm\:ss`); `DateTime` standard formats (`d D f F g G M Y t T s u o R`) and custom formats
+  (`hh\:mm\:ss`); `DateTime` standard formats (`d D f F g G M Y t T s u U o R`) and custom formats
   (`yyyy-MM-dd HH:mm:ss.fff`, `dddd`, `MMMM`, `tt`, `F` trimming that drops a dangling `.`).
+  `K` writes `Z` for Utc, the local offset for Local and nothing for Unspecified; `z`/`zz`/`zzz` write
+  `+00:00` for Utc and the local offset otherwise (a bare time of day below one day gets today's
+  offset, even for Utc, as in .NET); `o`/`O` end with `K`; `U` converts to universal time first, while
+  `r` and `u` format the value as it is.
 * `Stopwatch` is a runtime object on `CLOCK_MONOTONIC`; `Stopwatch.Frequency` is 1 000 000 000
   (so its ticks are nanoseconds, as on Linux .NET). `ToString()` returns `Elapsed.ToString()`.
 
@@ -143,7 +174,9 @@ parsing are always invariant.
 
 ## Known gaps
 
-* `DateTimeKind`/time zones, `DateTimeOffset`, `DateOnly`/`TimeOnly`, `DateTime.Parse`.
+* `TimeZoneInfo`, `DateTimeOffset`, `DateOnly`/`TimeOnly`, `DateTime.Parse` (diagnosed as unsupported).
+  Historical daylight-saving gaps take the zone's *current* base offset, which can differ from .NET
+  where the standard offset has changed since.
 * Decimal `G` with precision follows double-style rules only approximately; `decimal.Parse`
   does not accept exponents (NumberStyles.Number, as .NET's default).
 * `Type` members other than names/identity; generic type names print as `List`1` without arguments.

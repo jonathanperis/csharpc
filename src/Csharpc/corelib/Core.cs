@@ -43,6 +43,9 @@ namespace CsharpcCoreLib
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern uint DecimalHi(decimal value);
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern ulong DecimalLo(decimal value);
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern decimal MakeDecimal(int flags, uint hi, ulong lo);
+        /// <summary>DateTime's raw `_dateData`: ticks in bits 0-61, the kind in bits 62-63 (DateTimeOps.cs).</summary>
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern long DateTimeData(DateTime value);
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern DateTime MakeDateTime(long data);
     }
 
     /// <summary>

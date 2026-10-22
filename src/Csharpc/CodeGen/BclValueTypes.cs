@@ -14,7 +14,8 @@ internal delegate LLVMValueRef BclRawHandler(FunctionCodeGen g, IInvocationOpera
 /// <summary>
 /// BCL value types and friends, implemented natively:
 ///   System.Decimal   — CLR layout { i32 flags, i32 hi, i64 lo }; src/runtime/decimal.c
-///   System.TimeSpan, System.DateTime — an i64 tick count; src/runtime/datetime.c
+///   System.TimeSpan — an i64 tick count; System.DateTime — .NET's i64 _dateData (ticks in bits 0-61,
+///   Kind in bits 62-63); corelib DateTimeOps.cs, clocks in src/runtime/datetime.c
 ///   System.Diagnostics.Stopwatch, System.Type (reflection-lite) — runtime objects
 ///   plus BitOperations, Array helpers, CompareTo, Convert, Environment extras.
 /// Keys use the same format as <see cref="Intrinsics.Key"/> (accessors as get_X, ctors as .ctor,
@@ -131,6 +132,16 @@ internal static class BclValueTypes
     // ---- helpers --------------------------------------------------------------------------------
 
     private static LLVMValueRef I64(FunctionCodeGen g, long v) => g.Llvm.ConstInt(g.Llvm.I64, v);
+
+    // DateTime._dateData (dotnet/runtime DateTime.cs; corelib DateTimeOps.cs).
+    private const long DateTimeTicksMask = 0x3FFF_FFFF_FFFF_FFFF, DateTimeKindUtc = 0x4000_0000_0000_0000;
+
+    private static LLVMValueRef DateTicks(FunctionCodeGen g, LLVMValueRef data) =>
+        g.Builder.BinOp(LLVMOpcode.And, data, I64(g, DateTimeTicksMask));
+
+    /// <summary>The tick count of a TimeSpan or DateTime value: DateTime's Kind never takes part in
+    /// equality, ordering or hashing.</summary>
+    public static LLVMValueRef TicksOf(FunctionCodeGen g, ITypeSymbol t, LLVMValueRef v) => IsDateTime(t) ? DateTicks(g, v) : v;
     private static LLVMValueRef I32(FunctionCodeGen g, int v) => g.Llvm.ConstInt(g.Llvm.I32, v);
     private static LLVMValueRef ToI64(FunctionCodeGen g, LLVMValueRef v, bool signed = true) =>
         v.Type.IntWidth == 64 ? v : g.Builder.Cast(signed ? LLVMOpcode.SExt : LLVMOpcode.ZExt, v, g.Llvm.I64);
@@ -221,8 +232,11 @@ internal static class BclValueTypes
     private static BclHandler TotalUnits(double unit) => (g, _, self, _, _) =>
         g.Builder.BinOp(LLVMOpcode.FDiv, g.Builder.Cast(LLVMOpcode.SIToFP, self, g.Llvm.F64), LlvmContext.ConstReal(g.Llvm.F64, unit));
 
-    private static BclHandler TicksCompare(LLVMIntPredicate predicate) => (g, _, self, a, _) =>
-        g.Builder.ICmp(predicate, self.Handle != 0 ? self : a[0], self.Handle != 0 ? a[0] : a[1]);
+    private static BclHandler TicksCompare(LLVMIntPredicate predicate, bool date) => (g, _, self, a, _) =>
+    {
+        var (x, y) = self.Handle != 0 ? (self, a[0]) : (a[0], a[1]);
+        return date ? g.Builder.ICmp(predicate, DateTicks(g, x), DateTicks(g, y)) : g.Builder.ICmp(predicate, x, y);
+    };
 
     // ---- DateTime ----------------------------------------------------------------------------
 
@@ -235,12 +249,18 @@ internal static class BclValueTypes
     private static BclHandler DateTimeFormatted(string format) => (g, _, self, _, _) =>
         Rt(g, "csrt_datetime_format", g.Llvm.Ptr, (self, g.Llvm.I64), (g.Module.StringLiteral(format), g.Llvm.Ptr));
 
-    private static LLVMValueRef NewDateTime(FunctionCodeGen g, LLVMValueRef[] a, int count)
+    /// <summary>new DateTime(y, M, d[, h, m, s[, ms]][, kind]).</summary>
+    private static LLVMValueRef NewDateTime(FunctionCodeGen g, LLVMValueRef[] a, int count, bool kind = false)
     {
         var l = g.Llvm;
-        var parts = new (LLVMValueRef, LLVMTypeRef)[7];
-        for (var i = 0; i < 7; i++) parts[i] = (i < count ? ToI32(g, a[i]) : I32(g, 0), l.I32);
-        return Rt(g, "csrt_datetime_new", l.I64, parts);
+        var parts = new LLVMValueRef[kind ? 8 : 7];
+        for (var i = 0; i < 7; i++) parts[i] = i < count ? ToI32(g, a[i]) : I32(g, 0);
+        if (kind)
+        {
+            parts[7] = ToI32(g, a[count]);
+            return g.CallCoreLib("DateTimeOps", "NewKind", parts);
+        }
+        return Rt(g, "csrt_datetime_new", l.I64, [.. parts.Select(p => (p, l.I32))]);
     }
 
     // ---- table ---------------------------------------------------------------------------------
@@ -398,43 +418,48 @@ internal static class BclValueTypes
         foreach (var owner in new[] { TS, "System.DateTime" })
         {
             var self = owner;
-            t[$"{owner}.op_Equality({self}, {self})"] = t[$"{owner}.Equals({self})"] = t[$"{owner}.Equals({self}, {self})"] = TicksCompare(LLVMIntPredicate.EQ);
-            t[$"{owner}.op_Inequality({self}, {self})"] = TicksCompare(LLVMIntPredicate.NE);
-            t[$"{owner}.op_LessThan({self}, {self})"] = TicksCompare(LLVMIntPredicate.SLT);
-            t[$"{owner}.op_LessThanOrEqual({self}, {self})"] = TicksCompare(LLVMIntPredicate.SLE);
-            t[$"{owner}.op_GreaterThan({self}, {self})"] = TicksCompare(LLVMIntPredicate.SGT);
-            t[$"{owner}.op_GreaterThanOrEqual({self}, {self})"] = TicksCompare(LLVMIntPredicate.SGE);
-            t[$"{owner}.CompareTo({self})"] = (g, _, s, a, _) => ICompare(g, s, a[0], true);
-            t[$"{owner}.Compare({self}, {self})"] = (g, _, _, a, _) => ICompare(g, a[0], a[1], true);
+            // DateTime compares and hashes its ticks only: values of different Kind can be equal (.NET).
+            var date = owner != TS;
+            LLVMValueRef ticks(FunctionCodeGen g, LLVMValueRef v) => date ? DateTicks(g, v) : v;
+            t[$"{owner}.op_Equality({self}, {self})"] = t[$"{owner}.Equals({self})"] = t[$"{owner}.Equals({self}, {self})"] = TicksCompare(LLVMIntPredicate.EQ, date);
+            t[$"{owner}.op_Inequality({self}, {self})"] = TicksCompare(LLVMIntPredicate.NE, date);
+            t[$"{owner}.op_LessThan({self}, {self})"] = TicksCompare(LLVMIntPredicate.SLT, date);
+            t[$"{owner}.op_LessThanOrEqual({self}, {self})"] = TicksCompare(LLVMIntPredicate.SLE, date);
+            t[$"{owner}.op_GreaterThan({self}, {self})"] = TicksCompare(LLVMIntPredicate.SGT, date);
+            t[$"{owner}.op_GreaterThanOrEqual({self}, {self})"] = TicksCompare(LLVMIntPredicate.SGE, date);
+            t[$"{owner}.CompareTo({self})"] = (g, _, s, a, _) => ICompare(g, ticks(g, s), ticks(g, a[0]), true);
+            t[$"{owner}.Compare({self}, {self})"] = (g, _, _, a, _) => ICompare(g, ticks(g, a[0]), ticks(g, a[1]), true);
             t[$"{owner}.GetHashCode()"] = (g, _, s, _, _) =>
-                g.Builder.BinOp(LLVMOpcode.Xor, g.Builder.Cast(LLVMOpcode.Trunc, s, g.Llvm.I32),
+            {
+                s = ticks(g, s);
+                return g.Builder.BinOp(LLVMOpcode.Xor, g.Builder.Cast(LLVMOpcode.Trunc, s, g.Llvm.I32),
                     g.Builder.Cast(LLVMOpcode.Trunc, g.Builder.BinOp(LLVMOpcode.AShr, s, I64(g, 32)), g.Llvm.I32));
+            };
         }
         t[$"{TS}.ToString()"] = (g, _, self, _, _) => Rt(g, "csrt_timespan_to_string", g.Llvm.Ptr, (self, g.Llvm.I64));
         t[$"{TS}.ToString(string)"] = (g, _, self, a, _) => Rt(g, "csrt_timespan_format", g.Llvm.Ptr, (self, g.Llvm.I64), (a[0], g.Llvm.Ptr));
 
-        // ===== System.DateTime (i64 ticks; Kind not modelled) =====
+        // ===== System.DateTime (i64 _dateData: ticks | Kind << 62; more members in corelib DateTimeMembers) =====
         const string DT = "System.DateTime";
         t[$"{DT}..ctor(long)"] = (g, _, _, a, _) => Rt(g, "csrt_datetime_from_ticks", g.Llvm.I64, (a[0], g.Llvm.I64));
-        t[$"{DT}..ctor(long, System.DateTimeKind)"] = t[$"{DT}..ctor(long)"];
+        t[$"{DT}..ctor(long, System.DateTimeKind)"] = (g, _, _, a, _) => g.CallCoreLib("DateTimeOps", "FromTicksKind", a[0], ToI32(g, a[1]));
         t[$"{DT}..ctor(int, int, int)"] = (g, _, _, a, _) => NewDateTime(g, a, 3);
         t[$"{DT}..ctor(int, int, int, int, int, int)"] = (g, _, _, a, _) => NewDateTime(g, a, 6);
-        t[$"{DT}..ctor(int, int, int, int, int, int, System.DateTimeKind)"] = (g, _, _, a, _) => NewDateTime(g, a, 6);
+        t[$"{DT}..ctor(int, int, int, int, int, int, System.DateTimeKind)"] = (g, _, _, a, _) => NewDateTime(g, a, 6, kind: true);
         t[$"{DT}..ctor(int, int, int, int, int, int, int)"] = (g, _, _, a, _) => NewDateTime(g, a, 7);
-        t[$"{DT}..ctor(int, int, int, int, int, int, int, System.DateTimeKind)"] = (g, _, _, a, _) => NewDateTime(g, a, 7);
+        t[$"{DT}..ctor(int, int, int, int, int, int, int, System.DateTimeKind)"] = (g, _, _, a, _) => NewDateTime(g, a, 7, kind: true);
         string[] parts = ["Year", "Month", "Day", "DayOfYear", "DayOfWeek", "Hour", "Minute", "Second", "Millisecond", "Microsecond", "Nanosecond"];
         for (var i = 0; i < parts.Length; i++) t[$"{DT}.get_{parts[i]}()"] = DatePart(i);
-        t[$"{DT}.get_Ticks()"] = (_, _, self, _, _) => self;
-        t[$"{DT}.get_Date()"] = (g, _, self, _, _) => g.Builder.BinOp(LLVMOpcode.Sub, self, g.Builder.BinOp(LLVMOpcode.SRem, self, I64(g, TicksPerDay)));
-        t[$"{DT}.get_TimeOfDay()"] = (g, _, self, _, _) => g.Builder.BinOp(LLVMOpcode.SRem, self, I64(g, TicksPerDay));
-        t[$"{DT}.get_Kind()"] = (g, _, _, _, _) => I32(g, 0);
-        t[$"{DT}.get_Now()"] = (g, _, _, _, _) => Rt(g, "csrt_datetime_now", g.Llvm.I64);
-        t[$"{DT}.get_UtcNow()"] = (g, _, _, _, _) => Rt(g, "csrt_datetime_utc_now", g.Llvm.I64);
-        t[$"{DT}.get_Today()"] = (g, _, _, _, _) =>
-        {
-            var now = Rt(g, "csrt_datetime_now", g.Llvm.I64);
-            return g.Builder.BinOp(LLVMOpcode.Sub, now, g.Builder.BinOp(LLVMOpcode.SRem, now, I64(g, TicksPerDay)));
-        };
+        t[$"{DT}.get_Ticks()"] = (g, _, self, _, _) => DateTicks(g, self);
+        // Date keeps every kind flag (.NET: (ticks - ticks % TicksPerDay) | InternalKind).
+        t[$"{DT}.get_Date()"] = (g, _, self, _, _) => g.Builder.BinOp(LLVMOpcode.Sub, self, g.Builder.BinOp(LLVMOpcode.URem, DateTicks(g, self), I64(g, TicksPerDay)));
+        t[$"{DT}.get_TimeOfDay()"] = (g, _, self, _, _) => g.Builder.BinOp(LLVMOpcode.URem, DateTicks(g, self), I64(g, TicksPerDay));
+        t[$"{DT}.get_Kind()"] = (g, _, self, _, _) => g.CallCoreLib("DateTimeOps", "Kind", self);
+        static LLVMValueRef utcNow(FunctionCodeGen g) =>
+            g.Builder.BinOp(LLVMOpcode.Or, Rt(g, "csrt_datetime_utc_now", g.Llvm.I64), I64(g, DateTimeKindUtc));
+        t[$"{DT}.get_UtcNow()"] = (g, _, _, _, _) => utcNow(g);
+        t[$"{DT}.get_Now()"] = (g, _, _, _, _) => g.CallCoreLib("DateTimeOps", "Now", utcNow(g));
+        t[$"{DT}.get_Today()"] = (g, _, _, _, _) => g.CallCoreLib("DateTimeOps", "Today", utcNow(g));
         t[$"{DT}.AddDays(double)"] = AddUnits(TicksPerDay);
         t[$"{DT}.AddHours(double)"] = AddUnits(TicksPerHour);
         t[$"{DT}.AddMinutes(double)"] = AddUnits(TicksPerMinute);
@@ -445,12 +470,10 @@ internal static class BclValueTypes
             Rt(g, "csrt_datetime_add_ticks", g.Llvm.I64, (self, g.Llvm.I64), (a[0], g.Llvm.I64));
         t[$"{DT}.Subtract({TS})"] = (g, _, self, a, _) =>
             Rt(g, "csrt_datetime_add_ticks", g.Llvm.I64, (self, g.Llvm.I64), (g.Builder.Neg(a[0]), g.Llvm.I64));
-        t[$"{DT}.Subtract({DT})"] = (g, _, self, a, _) => g.Builder.BinOp(LLVMOpcode.Sub, self, a[0]);
-        t[$"{DT}.op_Addition({DT}, {TS})"] = (g, _, _, a, _) =>
-            Rt(g, "csrt_datetime_add_ticks", g.Llvm.I64, (a[0], g.Llvm.I64), (a[1], g.Llvm.I64));
-        t[$"{DT}.op_Subtraction({DT}, {TS})"] = (g, _, _, a, _) =>
-            Rt(g, "csrt_datetime_add_ticks", g.Llvm.I64, (a[0], g.Llvm.I64), (g.Builder.Neg(a[1]), g.Llvm.I64));
-        t[$"{DT}.op_Subtraction({DT}, {DT})"] = (g, _, _, a, _) => g.Builder.BinOp(LLVMOpcode.Sub, a[0], a[1]);
+        t[$"{DT}.Subtract({DT})"] = (g, _, self, a, _) => g.Builder.BinOp(LLVMOpcode.Sub, DateTicks(g, self), DateTicks(g, a[0]));
+        t[$"{DT}.op_Addition({DT}, {TS})"] = (g, _, _, a, _) => g.CallCoreLib("DateTimeOps", "AddTicksOperator", a[0], a[1]);
+        t[$"{DT}.op_Subtraction({DT}, {TS})"] = (g, _, _, a, _) => g.CallCoreLib("DateTimeOps", "AddTicksOperator", a[0], g.Builder.Neg(a[1]));
+        t[$"{DT}.op_Subtraction({DT}, {DT})"] = (g, _, _, a, _) => g.Builder.BinOp(LLVMOpcode.Sub, DateTicks(g, a[0]), DateTicks(g, a[1]));
         t[$"{DT}.AddMonths(int)"] = (g, _, self, a, _) => Rt(g, "csrt_datetime_add_months", g.Llvm.I64, (self, g.Llvm.I64), (a[0], g.Llvm.I32));
         t[$"{DT}.AddYears(int)"] = (g, _, self, a, _) => Rt(g, "csrt_datetime_add_years", g.Llvm.I64, (self, g.Llvm.I64), (a[0], g.Llvm.I32));
         t[$"{DT}.DaysInMonth(int, int)"] = (g, _, _, a, _) => Rt(g, "csrt_datetime_days_in_month", g.Llvm.I32, (a[0], g.Llvm.I32), (a[1], g.Llvm.I32));
@@ -1096,7 +1119,7 @@ internal static class BclValueTypes
         t["System.TimeSpan.MinValue"] = (g, _) => I64(g, long.MinValue);
         t["System.DateTime.MinValue"] = (g, _) => I64(g, 0);
         t["System.DateTime.MaxValue"] = (g, _) => I64(g, 3155378975999999999);
-        t["System.DateTime.UnixEpoch"] = (g, _) => I64(g, 621355968000000000);
+        t["System.DateTime.UnixEpoch"] = (g, _) => I64(g, 621355968000000000 | DateTimeKindUtc);  // a Utc DateTime
         t["System.Diagnostics.Stopwatch.Frequency"] = (g, _) => I64(g, 1_000_000_000);
         t["System.Diagnostics.Stopwatch.IsHighResolution"] = (g, _) => g.Llvm.True;
         t["System.BitConverter.IsLittleEndian"] = (g, _) => g.Llvm.True;

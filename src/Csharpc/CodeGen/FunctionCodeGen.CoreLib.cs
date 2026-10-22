@@ -110,6 +110,8 @@ public sealed partial class FunctionCodeGen
             "DecimalHi" => _b.ExtractValue(args[0], 1),
             "DecimalLo" => _b.ExtractValue(args[0], 2),
             "MakeDecimal" => _b.InsertValue(_b.InsertValue(_b.InsertValue(LlvmContext.Null(DecimalType), args[0], 0), args[1], 1), args[2], 2),
+            // DateTime is its i64 _dateData (BclValueTypes.cs)
+            "DateTimeData" or "MakeDateTime" => args[0],
             "CompareStrings" => CallRuntime("csrt_string_compare_culture", L.I32, [L.Ptr, L.Ptr, L.I1], args[0], args[1], L.False),
             _ => throw CompileError.Unsupported($"corelib intrinsic '{target.Name}'", inv),
         };
@@ -240,7 +242,7 @@ public sealed partial class FunctionCodeGen
         t = _m.CoreLib.Map(t);
         t = EnumBase(t);
         if (IsIntegral(t)) return _b.ICmp(LLVMIntPredicate.EQ, a, b);
-        if (BclValueTypes.IsTicks(t)) return _b.ICmp(LLVMIntPredicate.EQ, a, b);
+        if (BclValueTypes.IsTicks(t)) return _b.ICmp(LLVMIntPredicate.EQ, BclValueTypes.TicksOf(this, t, a), BclValueTypes.TicksOf(this, t, b));
         if (BclValueTypes.IsBigInteger(t))
             return _b.ICmp(LLVMIntPredicate.EQ, CallRuntime("csrt_bigint_compare", L.I32, [L.Ptr, L.Ptr], a, b), L.ConstInt(L.I32, 0));
         if (t.SpecialType == SpecialType.System_Decimal) // decimal equality is by value (1.0m == 1.00m)
@@ -297,8 +299,11 @@ public sealed partial class FunctionCodeGen
         var i32 = L.I32;
         if (t.SpecialType == SpecialType.System_Decimal) return CallRuntime("csrt_decimal_get_hash_code", i32, [L.Ptr], Spill(a));
         if (BclValueTypes.IsBigInteger(t)) return CallRuntime("csrt_bigint_get_hash_code", i32, [L.Ptr], a);
-        if (BclValueTypes.IsTicks(t)) // TimeSpan/DateTime.GetHashCode: (int)ticks ^ (int)(ticks >> 32)
+        if (BclValueTypes.IsTicks(t)) // TimeSpan/DateTime.GetHashCode: (int)ticks ^ (int)(ticks >> 32), DateTime's Kind excluded
+        {
+            a = BclValueTypes.TicksOf(this, t, a);
             return _b.Cast(LLVMOpcode.Trunc, _b.BinOp(LLVMOpcode.Xor, a, _b.BinOp(LLVMOpcode.AShr, a, L.ConstInt(L.I64, 32))), i32);
+        }
         switch (t.SpecialType)
         {
             case SpecialType.System_Boolean: return _b.Cast(LLVMOpcode.ZExt, a, i32);
@@ -399,7 +404,11 @@ public sealed partial class FunctionCodeGen
             return CallRuntime("csrt_string_compare_culture", i32, [L.Ptr, L.Ptr, L.I1], a, b, L.False);
         if (t.SpecialType == SpecialType.System_Decimal)
             return CallRuntime("csrt_decimal_compare", i32, [L.Ptr, L.Ptr], Spill(a), Spill(b));
-        if (BclValueTypes.IsTicks(t)) return Sign(_b.ICmp(LLVMIntPredicate.SGT, a, b), _b.ICmp(LLVMIntPredicate.SLT, a, b));
+        if (BclValueTypes.IsTicks(t))
+        {
+            (a, b) = (BclValueTypes.TicksOf(this, t, a), BclValueTypes.TicksOf(this, t, b));
+            return Sign(_b.ICmp(LLVMIntPredicate.SGT, a, b), _b.ICmp(LLVMIntPredicate.SLT, a, b));
+        }
         if (TypeMapper.IsNullable(t))
         {
             // Comparer<T?>.Default: null < any value; two nulls are equal.

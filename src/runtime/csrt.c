@@ -512,6 +512,33 @@ int32_t csrt_valuetype_get_hash_code(void* self) {
     return (int32_t)h;
 }
 
+// Structs with DateTime fields: the Kind (top two bits of each DateTime, the high byte's 0xC0 on
+// little-endian targets) takes no part in equality or hashing, as DateTime.Equals compares ticks only.
+// `offsets` lists the payload offsets of those DateTime fields in increasing order.
+static unsigned char masked_byte(const unsigned char* p, uint32_t i, const uint32_t* offsets, int32_t count) {
+    for (int32_t k = 0; k < count; k++)
+        if (i == offsets[k] + 7) return p[i] & 0x3F;
+    return p[i];
+}
+
+bool csrt_valuetype_equals_masked(void* self, void* other, const uint32_t* offsets, int32_t count) {
+    const csrt_MethodTable* mt = ((csrt_Object*)self)->mt;
+    if (!other || ((csrt_Object*)other)->mt != mt) return false;
+    const unsigned char* a = (const unsigned char*)self + 8;
+    const unsigned char* b = (const unsigned char*)other + 8;
+    for (uint32_t i = 0; i < mt->instance_size - 8; i++)
+        if (masked_byte(a, i, offsets, count) != masked_byte(b, i, offsets, count)) return false;
+    return true;
+}
+
+int32_t csrt_valuetype_get_hash_code_masked(void* self, const uint32_t* offsets, int32_t count) {
+    const csrt_MethodTable* mt = ((csrt_Object*)self)->mt;
+    const unsigned char* p = (const unsigned char*)self + 8;
+    uint32_t h = 2166136261u;
+    for (uint32_t i = 0; i < mt->instance_size - 8; i++) h = (h ^ masked_byte(p, i, offsets, count)) * 16777619u;
+    return (int32_t)h;
+}
+
 // ---------------------------------------------------------------------------------------------
 // Corelib exports (ADR 0008). Number formatting and parsing are C# (src/Csharpc/corelib/Number.*.cs);
 // the compiler emits these symbols from the corelib whenever the program references the runtime

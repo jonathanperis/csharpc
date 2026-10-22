@@ -66,7 +66,7 @@ string Run(int target)
         case 5:
         {
             var span = new TimeSpan(Value());
-            var date = new DateTime((long)(NextU64() % (ulong)DateTime.MaxValue.Ticks));
+            var date = new DateTime((long)(NextU64() % (ulong)DateTime.MaxValue.Ticks), (DateTimeKind)Next(3));
             string f = Text(DateAlphabet, 8);
             return Escape(f) + " -> " + span.ToString() + " " + date.ToString(f) + " " + span.ToString(f);
         }

@@ -992,7 +992,7 @@ namespace CsharpcCoreLib
                 if (value is ushort u16) return FormatUInt64(u16, format, 16);
                 if (value is byte u8) return FormatUInt64(u8, format, 8);
                 if (value is sbyte i8) return FormatInt64(i8, format, 8);
-                if (value is DateTime dt) return DateTimeOps.Format(dt.Ticks, format);
+                if (value is DateTime dt) return DateTimeOps.Format(CoreIntrinsics.DateTimeData(dt), format);
                 if (value is TimeSpan ts) return DateTimeOps.TimeSpanFormat(ts.Ticks, format);
                 if (value is IFormattable formattable) return formattable.ToString(format, null) ?? "";
             }

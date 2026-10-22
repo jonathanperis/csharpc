@@ -1,7 +1,8 @@
 // csrt datetime: the clocks behind DateTime.UtcNow/Now and System.Diagnostics.Stopwatch, and the
-// method tables of boxed TimeSpan/DateTime. TimeSpan and DateTime are their tick count (int64,
-// 100 ns units); their arithmetic, calendar and formatting are C# (corelib DateTimeOps.cs, ADR 0008).
-#define _DEFAULT_SOURCE  // struct tm::tm_gmtoff
+// method tables of boxed TimeSpan/DateTime. TimeSpan is its tick count (int64, 100 ns units);
+// DateTime is .NET's _dateData (ticks in bits 0-61, Kind in bits 62-63). Their arithmetic, calendar,
+// time zones and formatting are C# (corelib DateTimeOps.cs, ADR 0008).
+#define _DEFAULT_SOURCE  // clock_gettime
 #include "csrt.h"
 
 #include <time.h>
@@ -11,21 +12,12 @@
 
 // DateTimeOps.TimeSpanToString / DateTimeToString (C# exports).
 csrt_String* csrt_timespan_to_string(int64_t ticks);
-csrt_String* csrt_datetime_to_string(int64_t ticks);
+csrt_String* csrt_datetime_to_string(int64_t date_data);
 
 int64_t csrt_datetime_utc_now(void) {
     struct timespec ts;
     clock_gettime(CLOCK_REALTIME, &ts);
     return UNIX_EPOCH_TICKS + (int64_t)ts.tv_sec * TICKS_PER_SECOND + ts.tv_nsec / 100;
-}
-
-int64_t csrt_datetime_now(void) {
-    struct timespec ts;
-    clock_gettime(CLOCK_REALTIME, &ts);
-    struct tm local;
-    time_t secs = ts.tv_sec;
-    localtime_r(&secs, &local);
-    return UNIX_EPOCH_TICKS + ((int64_t)ts.tv_sec + local.tm_gmtoff) * TICKS_PER_SECOND + ts.tv_nsec / 100;
 }
 
 // Boxed TimeSpan / DateTime (payload @ 8): ToString / Equals / GetHashCode.
@@ -36,6 +28,13 @@ static bool box_ticks_equals(void* self, void* other) {
            *(int64_t*)((char*)self + 8) == *(int64_t*)((char*)other + 8);
 }
 static int32_t box_ticks_hash(void* self) { int64_t t = *(int64_t*)((char*)self + 8); return (int32_t)t ^ (int32_t)(t >> 32); }
+// DateTime equality and hashing ignore the Kind bits, as in .NET.
+#define DATETIME_TICKS_MASK 0x3FFFFFFFFFFFFFFFLL
+static bool box_dt_equals(void* self, void* other) {
+    return other && ((csrt_Object*)other)->mt == ((csrt_Object*)self)->mt &&
+           (*(int64_t*)((char*)self + 8) & DATETIME_TICKS_MASK) == (*(int64_t*)((char*)other + 8) & DATETIME_TICKS_MASK);
+}
+static int32_t box_dt_hash(void* self) { int64_t t = *(int64_t*)((char*)self + 8) & DATETIME_TICKS_MASK; return (int32_t)t ^ (int32_t)(t >> 32); }
 
 const csrt_BuiltinMethodTable csrt_Boxed_TimeSpan_MT = {
     { &csrt_Object_MT.header, "System.TimeSpan", 16, 0 },
@@ -43,7 +42,7 @@ const csrt_BuiltinMethodTable csrt_Boxed_TimeSpan_MT = {
 };
 const csrt_BuiltinMethodTable csrt_Boxed_DateTime_MT = {
     { &csrt_Object_MT.header, "System.DateTime", 16, 0 },
-    { (void*)box_dt_to_string, (void*)box_ticks_equals, (void*)box_ticks_hash },
+    { (void*)box_dt_to_string, (void*)box_dt_equals, (void*)box_dt_hash },
 };
 
 // ---------------------------------------------------------------------------------------------
