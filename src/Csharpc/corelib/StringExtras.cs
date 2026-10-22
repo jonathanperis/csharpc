@@ -82,3 +82,28 @@ namespace CsharpcCoreLib
         public static int Compare(string strA, string strB) => CoreIntrinsics.Compare(strA, strB);
     }
 }
+
+namespace CsharpcCoreLib
+{
+    [ShadowMembers("System.Double")]
+    internal static class DoubleExtras
+    {
+        public static bool IsNaN(double d) => d != d;
+        public static bool IsInfinity(double d) => d == double.PositiveInfinity || d == double.NegativeInfinity;
+        public static bool IsPositiveInfinity(double d) => d == double.PositiveInfinity;
+        public static bool IsNegativeInfinity(double d) => d == double.NegativeInfinity;
+        public static bool IsFinite(double d) => d == d && !IsInfinity(d);
+        public static bool IsNegative(double d) => d < 0 || (d == 0 && 1 / d < 0);
+        public static bool IsInteger(double d) => IsFinite(d) && d == Math.Floor(d);
+    }
+
+    [ShadowMembers("System.Single")]
+    internal static class SingleExtras
+    {
+        public static bool IsNaN(float f) => f != f;
+        public static bool IsInfinity(float f) => f == float.PositiveInfinity || f == float.NegativeInfinity;
+        public static bool IsPositiveInfinity(float f) => f == float.PositiveInfinity;
+        public static bool IsNegativeInfinity(float f) => f == float.NegativeInfinity;
+        public static bool IsFinite(float f) => f == f && !IsInfinity(f);
+    }
+}

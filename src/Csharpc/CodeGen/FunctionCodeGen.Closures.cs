@@ -188,7 +188,7 @@ public sealed partial class FunctionCodeGen
     private LLVMValueRef LoadVirtualFunction(IMethodSymbol method, LLVMValueRef self)
     {
         var layout = _m.GetLayout(method.ContainingType);
-        if (!layout.SlotOf.TryGetValue(ClassLayout.RootOf(method), out var slot))
+        if (!layout.SlotOf.TryGetValue(_m.RootOf(method), out var slot))
             throw CompileError.Unsupported($"delegate to virtual method '{method}'", method);
         var mt = _b.Load(L.Ptr, self, "mt");
         var offset = T.Target.SizeOf(T.MethodTableHeader) + (ulong)slot * T.PointerSize;

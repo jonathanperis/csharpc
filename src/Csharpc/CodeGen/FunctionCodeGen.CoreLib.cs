@@ -154,6 +154,21 @@ public sealed partial class FunctionCodeGen
         }
     }
 
+    /// <summary>
+    /// `t == null` / `t != null` where an unconstrained T was substituted with a non-nullable value
+    /// type: constant false / true (C# semantics) instead of boxing t.
+    /// </summary>
+    private LLVMValueRef? FoldValueTypeNullComparison(IBinaryOperation op)
+    {
+        if (op.OperatorKind is not (BinaryOperatorKind.Equals or BinaryOperatorKind.NotEquals)) return null;
+        static IOperation Peel(IOperation o) { while (o is IConversionOperation c) o = c.Operand; return o; }
+        var (l, r) = (Peel(op.LeftOperand), Peel(op.RightOperand));
+        var other = l.ConstantValue is { HasValue: true, Value: null } ? r : r.ConstantValue is { HasValue: true, Value: null } ? l : null;
+        if (other is null || TypeOf(other) is not { IsValueType: true } t || TypeMapper.IsNullable(t)) return null;
+        EmitValue(other); // keep side effects
+        return op.OperatorKind == BinaryOperatorKind.Equals ? L.False : L.True;
+    }
+
     private IMethodSymbol ObjectMethod(string name, int parameters) =>
         _m.Compilation.GetSpecialType(SpecialType.System_Object).GetMembers(name).OfType<IMethodSymbol>()
             .First(m => !m.IsStatic && m.Parameters.Length == parameters);

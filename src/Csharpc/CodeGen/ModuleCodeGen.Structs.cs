@@ -31,7 +31,8 @@ public sealed partial class ModuleCodeGen
         if (_structs.TryGetValue(type, out var existing)) return existing;
         if (TypeSubstitution.IsOpen(type)) throw CompileError.Unsupported($"open generic struct '{type}'", type);
         if (type.IsRecord) throw CompileError.Unsupported($"record struct '{type.Name}'", type);
-        if (!type.Interfaces.IsEmpty) throw CompileError.Unsupported($"interface implementation on '{type.Name}'", type);
+        // Structs may implement interfaces (IEquatable<T>, IComparable<T>...): calls on struct receivers are
+        // devirtualized (constrained calls). Boxed structs don't carry interface maps yet.
 
         var layout = new StructLayout { Type = type, LlvmType = Llvm.NamedStruct("struct." + Mangler.MetadataName(type)) };
         _structs[type] = layout; // register first: field types may mention other structs

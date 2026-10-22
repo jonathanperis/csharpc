@@ -29,7 +29,7 @@ public sealed partial class FunctionCodeGen
             // object.ToString/Equals/GetHashCode on a value-type receiver (a substituted T): box, then dispatch.
             if (receiverType is { IsValueType: true } && target.ContainingType.SpecialType is SpecialType.System_Object or SpecialType.System_ValueType)
             {
-                if (target.Name == "ToString" && FormatPrimitive(EmitValue(receiver), receiverType) is { } formatted) return formatted;
+                if (target.Name == "ToString" && target.Parameters.IsEmpty) return FormatValue(EmitValue(receiver), receiverType, inv);
                 var boxed = Box(EmitValue(receiver), receiverType, inv);
                 var extra = inv.Arguments.OrderBy(a => a.Parameter!.Ordinal).Select(EmitArgument);
                 return VirtualCall(target, boxed, [boxed, .. extra]);
@@ -101,7 +101,7 @@ public sealed partial class FunctionCodeGen
     /// </summary>
     internal LLVMValueRef VirtualCall(IMethodSymbol target, LLVMValueRef self, LLVMValueRef[] args)
     {
-        var root = ClassLayout.RootOf(target);
+        var root = _m.RootOf(target);
         int slot;
         LLVMTypeRef fnType;
         if (_m.IsUserType(target.ContainingType))

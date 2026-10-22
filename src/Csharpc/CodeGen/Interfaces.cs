@@ -73,11 +73,12 @@ public sealed partial class ModuleCodeGen
     private LLVMValueRef ImplementationFor(ClassLayout layout, IMethodSymbol member)
     {
         var impl = layout.Type.FindImplementationForInterfaceMember(member) as IMethodSymbol;
+        if (impl is not null) impl = CoreLib.Map(impl); // implemented by a shadowed library base class
         if (impl is null)
             return member.IsAbstract ? LlvmContext.Null(Llvm.Ptr) : GetFunction(member).Fn; // default interface method
         // A virtual implementation may be overridden further down: take this class's vtable entry.
         if (impl.ContainingType.TypeKind != TypeKind.Interface && (impl.IsVirtual || impl.IsOverride || impl.IsAbstract)
-            && layout.SlotOf.TryGetValue(ClassLayout.RootOf(impl), out var slot))
+            && layout.SlotOf.TryGetValue(RootOf(impl), out var slot))
             impl = layout.VTable[slot];
         if (impl is null || impl.IsAbstract) return LlvmContext.Null(Llvm.Ptr);
         if (!IsUserMethod(impl)) return LlvmContext.Null(Llvm.Ptr); // e.g. object.ToString satisfying an interface

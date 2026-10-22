@@ -314,6 +314,7 @@ public sealed partial class FunctionCodeGen
             if (!_m.IsUserMethod(om)) throw CompileError.Unsupported($"operator '{om}'", op);
             return EmitDirectCall(om, [op.LeftOperand, op.RightOperand]);
         }
+        if (FoldValueTypeNullComparison(op) is { } folded) return folded;
         if (op.OperatorKind is BinaryOperatorKind.Equals or BinaryOperatorKind.NotEquals
             && NullableComparedWithNull(op) is { } nullableSide)
         {

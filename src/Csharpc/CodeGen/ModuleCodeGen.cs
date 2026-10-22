@@ -416,6 +416,9 @@ public sealed partial class ModuleCodeGen
     // Classes: layout + method tables
     // ======================================================================================
 
+    /// <summary>The introducing virtual declaration of a method, redirected to the corelib when it's a shadowed library member.</summary>
+    public IMethodSymbol RootOf(IMethodSymbol method) => CoreLib.Map(ClassLayout.RootOf(method));
+
     public ClassLayout GetLayout(INamedTypeSymbol type)
     {
         type = CoreLib.TryMap(type) ?? type;
@@ -425,8 +428,9 @@ public sealed partial class ModuleCodeGen
         if (TypeSubstitution.IsOpen(type)) throw CompileError.Unsupported($"open generic type '{type}'", type);
 
         ClassLayout? baseLayout = null;
-        if (type.BaseType is { SpecialType: not SpecialType.System_Object } baseType)
+        if (type.BaseType is { SpecialType: not SpecialType.System_Object } declaredBase)
         {
+            var baseType = CoreLib.TryMap(declaredBase) ?? declaredBase; // e.g. `class ByLength : Comparer<string>`
             if (!IsUserType(baseType)) throw CompileError.Unsupported($"deriving from library class '{baseType}'", type);
             baseLayout = GetLayout(baseType);
         }
@@ -476,7 +480,7 @@ public sealed partial class ModuleCodeGen
         foreach (var m in type.GetMembers().OfType<IMethodSymbol>())
         {
             if (!(m.IsVirtual || m.IsAbstract || m.IsOverride)) continue;
-            var root = ClassLayout.RootOf(m);
+            var root = RootOf(m);
             if (m.IsOverride)
             {
                 if (!layout.SlotOf.TryGetValue(root, out var slot))
