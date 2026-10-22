@@ -90,6 +90,15 @@ public sealed class ClassLayout
     public required LLVMTypeRef InstanceType { get; init; }
     public required ClassLayout? Base { get; init; }
     public Dictionary<IFieldSymbol, uint> FieldIndex { get; } = new(SymbolEqualityComparer.Default);
+
+    /// <summary>LLVM struct element types (header + inherited + own fields), so derived classes can extend it.</summary>
+    public List<LLVMTypeRef> Elements { get; } = [];
+
+    /// <summary>Slots implemented by a csrt function (library base classes such as System.Exception).</summary>
+    public Dictionary<int, string> RuntimeSlots { get; } = [];
+
+    /// <summary>A library class (e.g. System.Exception) whose layout/method table csrt defines.</summary>
+    public bool IsLibrary { get; init; }
     public List<IFieldSymbol> Fields { get; } = [];
 
     /// <summary>Slot -> implementing method (null = System.Object default / abstract).</summary>

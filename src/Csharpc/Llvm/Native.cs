@@ -167,6 +167,19 @@ internal static unsafe partial class Native
     public static partial LLVMValueRef LLVMBuildSwitch(LLVMBuilderRef b, LLVMValueRef value, LLVMBasicBlockRef @else, uint numCases);
     [LibraryImport(Lib)] public static partial void LLVMAddCase(LLVMValueRef @switch, LLVMValueRef onValue, LLVMBasicBlockRef dest);
 
+    // ---- Exception handling (invoke / landingpad) -----------------------------------------
+    [LibraryImport(Lib, StringMarshalling = StringMarshalling.Utf8)]
+    public static partial LLVMValueRef LLVMBuildInvoke2(LLVMBuilderRef b, LLVMTypeRef fnType, LLVMValueRef fn, [In] LLVMValueRef[] args,
+        uint count, LLVMBasicBlockRef then, LLVMBasicBlockRef @catch, string name);
+    [LibraryImport(Lib, StringMarshalling = StringMarshalling.Utf8)]
+    public static partial LLVMValueRef LLVMBuildLandingPad(LLVMBuilderRef b, LLVMTypeRef type, LLVMValueRef personality, uint numClauses, string name);
+    [LibraryImport(Lib)] public static partial void LLVMAddClause(LLVMValueRef landingPad, LLVMValueRef clause);
+    [LibraryImport(Lib)] public static partial void LLVMSetCleanup(LLVMValueRef landingPad, int value);
+    [LibraryImport(Lib)] public static partial void LLVMSetPersonalityFn(LLVMValueRef fn, LLVMValueRef personality);
+    [LibraryImport(Lib, StringMarshalling = StringMarshalling.Utf8)]
+    public static partial LLVMValueRef LLVMBuildExtractValue(LLVMBuilderRef b, LLVMValueRef aggregate, uint index, string name);
+    [LibraryImport(Lib)] public static partial LLVMValueRef LLVMGetBasicBlockParent(LLVMBasicBlockRef block);
+
     [LibraryImport(Lib, StringMarshalling = StringMarshalling.Utf8)]
     public static partial LLVMValueRef LLVMBuildBinOp(LLVMBuilderRef b, LLVMOpcode op, LLVMValueRef lhs, LLVMValueRef rhs, string name);
     [LibraryImport(Lib, StringMarshalling = StringMarshalling.Utf8)]
@@ -184,8 +197,6 @@ internal static unsafe partial class Native
     [LibraryImport(Lib, StringMarshalling = StringMarshalling.Utf8)]
     public static partial LLVMValueRef LLVMBuildSelect(LLVMBuilderRef b, LLVMValueRef cond, LLVMValueRef then, LLVMValueRef @else, string name);
 
-    [LibraryImport(Lib, StringMarshalling = StringMarshalling.Utf8)]
-    public static partial LLVMValueRef LLVMBuildExtractValue(LLVMBuilderRef b, LLVMValueRef aggregate, uint index, string name);
     [LibraryImport(Lib, StringMarshalling = StringMarshalling.Utf8)]
     public static partial LLVMValueRef LLVMBuildInsertValue(LLVMBuilderRef b, LLVMValueRef aggregate, LLVMValueRef element, uint index, string name);
 

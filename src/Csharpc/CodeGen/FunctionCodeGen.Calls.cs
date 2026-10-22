@@ -41,6 +41,7 @@ public sealed partial class FunctionCodeGen
             return EmitUserCall(target, self, ReceiverIsNonNull(inv.Instance, target), inv.Arguments, inv.IsVirtual && !isBaseCall);
         }
         if (Intrinsics.TryGet(target, out var handler)) return handler(this, inv);
+        if (TryEmitLibraryExceptionCall(inv, out var result)) return result;
         throw CompileError.MissingIntrinsic(target, inv);
     }
 
@@ -103,7 +104,7 @@ public sealed partial class FunctionCodeGen
         var root = ClassLayout.RootOf(target);
         int slot;
         LLVMTypeRef fnType;
-        if (_m.IsUserType(target.ContainingType))
+        if (_m.IsUserType(target.ContainingType) || _m.IsLibraryException(target.ContainingType))
         {
             var layout = _m.GetLayout(target.ContainingType);
             slot = layout.SlotOf.TryGetValue(root, out var s) ? s : throw CompileError.Unsupported($"virtual call to '{target}'", target);
@@ -143,6 +144,7 @@ public sealed partial class FunctionCodeGen
         if (type.IsValueType) return EmitValueTypeCreation(creation, type);
         if (type.SpecialType == SpecialType.System_Object)
             return Allocate(_m.ExternalGlobal("csrt_Object_MT"), L.ConstInt(L.I64, (long)T.PointerSize));
+        if (_m.IsLibraryException(type)) return EmitLibraryExceptionCreation(creation);
         if (!_m.IsUserType(type) && creation.Constructor is { } libraryCtor && Intrinsics.TryGetConstructor(libraryCtor, out var ctorHandler))
             return ctorHandler(this, creation);
         if (!_m.IsUserType(type) || type.TypeKind != TypeKind.Class)
@@ -228,7 +230,8 @@ public sealed partial class FunctionCodeGen
         { SpecialType: SpecialType.System_Object } => _m.ExternalGlobal("csrt_Object_MT"),
         _ when IsBoxablePrimitive(type) => _m.ExternalGlobal($"csrt_Boxed_{type.MetadataName}_MT"),
         { TypeKind: TypeKind.Enum } => throw CompileError.Unsupported($"boxing enum '{type}'", at),
-        INamedTypeSymbol { TypeKind: TypeKind.Class } named when _m.IsUserType(named) => _m.GetLayout(named).MethodTable,
+        INamedTypeSymbol { TypeKind: TypeKind.Class } named when _m.IsUserType(named) || _m.IsLibraryException(named) =>
+            _m.GetLayout(named).MethodTable,
         INamedTypeSymbol { TypeKind: TypeKind.Struct } named when _m.IsUserType(named) => _m.StructMethodTable(named),
         INamedTypeSymbol { TypeKind: TypeKind.Interface } itf => _m.InterfaceMethodTable(itf),
         _ => throw CompileError.Unsupported($"type test against '{type}'", at),
@@ -262,6 +265,7 @@ public sealed partial class FunctionCodeGen
             return CallAccessor(p, getter, self, []);
         }
         if (Intrinsics.TryGetProperty(property, out var handler)) return handler(this, p);
+        if (TryEmitLibraryExceptionProperty(p, out var exceptionMember)) return exceptionMember;
         throw CompileError.Unsupported($"'{property.ContainingType}.{property.Name}' has no implementation in the csharpc runtime yet", p);
     }
 
@@ -549,25 +553,6 @@ public sealed partial class FunctionCodeGen
             result = result is { } r ? ConcatStrings(r, piece) : piece;
         }
         return result ?? _m.StringLiteral("");
-    }
-
-    // ======================================================================================
-    // Exceptions (spike: throw == unhandled exception; see ADR 0005)
-    // ======================================================================================
-
-    private void EmitThrow(IOperation? exception)
-    {
-        var e = exception;
-        while (e is IConversionOperation { Conversion.IsImplicit: true } c) e = c.Operand;
-        if (e is not IObjectCreationOperation { Type: INamedTypeSymbol type } creation || _m.IsUserType(type))
-            throw CompileError.Unsupported("throwing anything but `new SomeLibraryException(...)`", exception);
-
-        var messageArg = creation.Arguments.FirstOrDefault(a => a.Parameter?.Name == "message" && a.ArgumentKind != ArgumentKind.DefaultValue);
-        var message = messageArg is not null
-            ? EmitValue(messageArg.Value)
-            : _m.StringLiteral($"Exception of type '{Mangler.MetadataName(type)}' was thrown.");
-        CallRuntime("csrt_throw", L.Void, [L.Ptr, L.Ptr], _m.LibraryTypeMethodTable(type), message);
-        _b.Unreachable();
     }
 
     // ======================================================================================

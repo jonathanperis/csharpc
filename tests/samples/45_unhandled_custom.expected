@@ -1,0 +1,2 @@
+start
+finally runs even though the exception is unhandled

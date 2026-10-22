@@ -132,9 +132,7 @@ public sealed partial class FunctionCodeGen
         var ok = NewBlock("ok");
         _b.CondBr(failed, fail, ok);
         _b.PositionAtEnd(fail);
-        var type = _m.Compilation.GetTypeByMetadataName(typeName)!;
-        CallRuntime("csrt_throw", L.Void, [L.Ptr, L.Ptr], _m.LibraryTypeMethodTable(type), _m.StringLiteral(message));
-        _b.Unreachable();
+        ThrowNewLibraryException(_m.Compilation.GetTypeByMetadataName(typeName)!, message);
         _b.PositionAtEnd(ok);
     }
 

@@ -41,6 +41,7 @@ public sealed partial class FunctionCodeGen
             IIsPatternOperation p => PatternTest(EmitValue(p.Value), TypeOf(p.Value), p.Pattern),
             IDefaultValueOperation d => LlvmContext.Null(T.Value(TypeOf(d)!)),
             IExpressionStatementOperation e => EmitValue(e.Operation),
+            ICaughtExceptionOperation c => EmitCaughtException(c),
             IDeclarationExpressionOperation d => EmitValue(d.Expression),
             ILocalFunctionOperation => default, // body is lowered separately (ModuleCodeGen.EnqueueNested)
             IDelegateCreationOperation d => EmitDelegateCreation(d),

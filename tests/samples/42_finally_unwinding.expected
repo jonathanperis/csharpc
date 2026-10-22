@@ -1,0 +1,8 @@
+C throws
+B inner finally
+B outer finally
+A finally
+caught in Main: from C
+Main finally
+111
+stopped at 5 after 117

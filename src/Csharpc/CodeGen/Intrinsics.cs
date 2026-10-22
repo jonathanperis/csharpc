@@ -85,6 +85,8 @@ internal static class Intrinsics
             var self = ObjectReceiver(g, inv.Instance!);
             return g.VirtualCall(inv.TargetMethod, self, [self]);
         };
+        t["object.ReferenceEquals(object, object)"] = (g, inv) =>
+            g.Builder.ICmp(LLVMIntPredicate.EQ, Arg(g, inv, 0), Arg(g, inv, 1));
         t["System.Enum.ToString()"] = (g, inv) =>
             g.ToStringValue(inv.Instance is IConversionOperation { Operand.Type.TypeKind: TypeKind.Enum } boxed ? boxed.Operand : inv.Instance!);
         t["object.ReferenceEquals(object, object)"] = (g, inv) =>
@@ -266,7 +268,7 @@ internal static class Intrinsics
                 var b = g.Builder;
                 var v = Arg(g, inv, 0);
                 var width = v.Type.IntWidth;
-                g.FailIf(b.ICmp(LLVMIntPredicate.EQ, v, g.Module.Llvm.ConstUInt(v.Type, 1UL << (int)(width - 1))), "csrt_throw_overflow");
+                g.FailIf(b.ICmp(LLVMIntPredicate.EQ, v, g.Module.Llvm.ConstUInt(v.Type, 1UL << (int)(width - 1))), "csrt_throw_negate_overflow");
                 return b.Select(b.ICmp(LLVMIntPredicate.SLT, v, g.Module.Llvm.ConstInt(v.Type, 0)), b.Neg(v), v);
             };
         }

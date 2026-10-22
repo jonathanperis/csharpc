@@ -239,10 +239,13 @@ public sealed partial class FunctionCodeGen
 
         foreach (var (block, llvmBlock) in state.Blocks)
         {
+            BeginBlock(block); // selects the landing pad for calls in this block (if inside a try)
             _b.PositionAtEnd(llvmBlock);
             foreach (var operation in block.Operations) WithLocation(operation, () => EmitStatement(operation));
             WithLocation(block.BranchValue ?? block.Operations.LastOrDefault(), () => EmitTerminator(block));
         }
+
+        EndCfg();
 
         // End of each finally: dispatch to whichever continuation entered it.
         foreach (var (block, region) in state.FinallyEnds)
@@ -269,15 +272,6 @@ public sealed partial class FunctionCodeGen
 
     private void ScanRegions(ControlFlowGraph graph, ControlFlowRegion region)
     {
-        // try/finally is lowered without unwinding (exceptions are fatal for now, and an unhandled
-        // .NET exception doesn't run finally blocks either). Catch handlers need real EH (ADR 0005).
-        if (region.Kind is ControlFlowRegionKind.TryAndCatch or ControlFlowRegionKind.Catch or ControlFlowRegionKind.Filter
-            or ControlFlowRegionKind.FilterAndHandler)
-        {
-            var at = graph.Blocks[region.FirstBlockOrdinal].Operations.FirstOrDefault()
-                ?? graph.Blocks[region.FirstBlockOrdinal].BranchValue;
-            throw CompileError.Unsupported("try/catch (exception handling)", at);
-        }
         foreach (var local in region.Locals) _ownLocals.Add(local);
         foreach (var nested in region.NestedRegions) ScanRegions(graph, nested);
     }
@@ -374,6 +368,10 @@ public sealed partial class FunctionCodeGen
 
     private LLVMBasicBlockRef DirectTarget(ControlFlowBranch branch)
     {
+        // The false edge of a `when` filter leaves the filter region: try the next handler.
+        if (branch is { Destination: null, Semantics: ControlFlowBranchSemantics.StructuredExceptionHandling }
+            && branch.Source.EnclosingRegion?.Kind == ControlFlowRegionKind.Filter)
+            return FilterRejected(branch.Source);
         var dest = branch.Destination ?? throw CompileError.Unsupported($"branch with {branch.Semantics} semantics");
         if (dest.Kind != BasicBlockKind.Exit)
         {
@@ -432,7 +430,8 @@ public sealed partial class FunctionCodeGen
                 EmitThrow(block.BranchValue);
                 break;
             case ControlFlowBranchSemantics.Rethrow:
-                throw CompileError.Unsupported("rethrow", block.BranchValue);
+                EmitRethrow(block.BranchValue);
+                break;
             case ControlFlowBranchSemantics.ProgramTermination or ControlFlowBranchSemantics.Error:
                 _b.Unreachable();
                 break;
@@ -558,7 +557,9 @@ public sealed partial class FunctionCodeGen
 
     private LLVMBasicBlockRef ThrowBlock(string helper)
     {
-        if (_throwBlocks.TryGetValue(helper, out var block)) return block;
+        // One shared block per helper *and* landing pad: inside a try the throw must be an invoke.
+        var key = $"{helper}@{_b.UnwindDest.Handle}";
+        if (_throwBlocks.TryGetValue(key, out var block)) return block;
         var current = _b.InsertBlock;
         block = _b.AppendBlock(_fn.Fn, helper["csrt_".Length..]);
         _b.PositionAtEnd(block);
@@ -566,7 +567,7 @@ public sealed partial class FunctionCodeGen
         _b.Call(f.Type, f.Fn, []);
         _b.Unreachable();
         _b.PositionAtEnd(current);
-        return _throwBlocks[helper] = block;
+        return _throwBlocks[key] = block;
     }
 
     /// <summary>Branches to a shared throw block when <paramref name="failed"/> is true.</summary>

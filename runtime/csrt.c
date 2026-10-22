@@ -125,37 +125,12 @@ csrt_Array* csrt_get_args(void) {
 }
 
 // ---------------------------------------------------------------------------------------------
-// Exceptions. The spike has no unwinding yet (docs/adr/0005-exceptions.md): every throw is an
-// unhandled exception, reported with .NET's exact wording, and exits via abort() which gives
-// the same 134 exit status a real .NET process has on Linux.
+// Exceptions live in eh.c (exception classes, throw/catch, the unwinder personality routine).
 // ---------------------------------------------------------------------------------------------
 static void write_utf16(FILE* f, const uint16_t* chars, int32_t length);
 
-_Noreturn static void unhandled(const char* type, const char* message) {
-    fflush(stdout);
-    fprintf(stderr, "Unhandled exception. %s: %s\n", type, message);
-    fflush(stderr);
-    abort();
-}
-
-void csrt_throw_null_reference(void) {
-    unhandled("System.NullReferenceException", "Object reference not set to an instance of an object.");
-}
-void csrt_throw_index_out_of_range(void) {
-    unhandled("System.IndexOutOfRangeException", "Index was outside the bounds of the array.");
-}
-void csrt_throw_divide_by_zero(void) { unhandled("System.DivideByZeroException", "Attempted to divide by zero."); }
-void csrt_throw_overflow(void) { unhandled("System.OverflowException", "Arithmetic operation resulted in an overflow."); }
-void csrt_throw_invalid_cast(void) { unhandled("System.InvalidCastException", "Specified cast is not valid."); }
-
-void csrt_throw(const csrt_MethodTable* exception_type, csrt_String* message) {
-    fflush(stdout);
-    fprintf(stderr, "Unhandled exception. %s: ", exception_type ? exception_type->name : "System.Exception");
-    if (message) write_utf16(stderr, message->chars, message->length);
-    fputc('\n', stderr);
-    fflush(stderr);
-    abort();
-}
+csrt_String* csrt_string_from_utf8(const char* text) { return string_from_utf8(text); }
+void csrt_stderr_write_string(csrt_String* s) { if (s) write_utf16(stderr, s->chars, s->length); }
 
 // ---------------------------------------------------------------------------------------------
 // Number formatting, matching .NET Core 3.0+ semantics (shortest round-trippable "R" output,
@@ -231,11 +206,7 @@ void* const* csrt_interface_slots(void* obj, const csrt_MethodTable* interface_t
 }
 
 _Noreturn static void invalid_cast(const csrt_MethodTable* from, const csrt_MethodTable* to) {
-    fflush(stdout);
-    fprintf(stderr, "Unhandled exception. System.InvalidCastException: Unable to cast object of type '%s' to type '%s'.\n",
-            from->name, to->name);
-    fflush(stderr);
-    abort();
+    csrt_throw_invalid_cast_from(from, to);
 }
 
 void* csrt_castclass(void* obj, const csrt_MethodTable* type) {
