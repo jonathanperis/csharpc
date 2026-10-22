@@ -50,7 +50,7 @@ internal static class Intrinsics
     private static LLVMValueRef Arg(FunctionCodeGen g, IInvocationOperation inv, int ordinal)
     {
         var argument = inv.Arguments.First(a => a.Parameter!.Ordinal == ordinal);
-        return g.Coerce(g.EmitValue(argument.Value), argument.Value.Type, argument.Parameter!.Type);
+        return g.Coerce(g.EmitValue(argument.Value), g.TypeOf(argument.Value), g.S(argument.Parameter!.Type));
     }
 
     private static FrozenDictionary<string, IntrinsicHandler> BuildMethods()
@@ -99,6 +99,37 @@ internal static class Intrinsics
         };
         foreach (var type in new[] { "int", "long", "uint", "ulong", "short", "ushort", "byte", "sbyte", "double", "float", "bool", "char", "string" })
             t[$"{type}.ToString()"] = (g, inv) => g.ToStringValue(inv.Instance!);
+
+        // ---- IComparable<T>.CompareTo on primitives (reached via generic constraints) -------------
+        foreach (var (type, signed) in new[] { ("int", true), ("long", true), ("short", true), ("sbyte", true),
+                     ("uint", false), ("ulong", false), ("ushort", false), ("byte", false), ("char", false) })
+            t[$"{type}.CompareTo({type})"] = (g, inv) =>
+            {
+                var b = g.Builder;
+                var x = g.EmitValue(g.ConcreteReceiver(inv.Instance!));
+                var y = Arg(g, inv, 0);
+                var l = g.Module.Llvm;
+                var lt = b.ICmp(signed ? LLVMIntPredicate.SLT : LLVMIntPredicate.ULT, x, y);
+                var gt = b.ICmp(signed ? LLVMIntPredicate.SGT : LLVMIntPredicate.UGT, x, y);
+                return b.Select(lt, l.ConstInt(l.I32, -1), b.Cast(LLVMOpcode.ZExt, gt, l.I32));
+            };
+        foreach (var type in new[] { "double", "float" })
+            t[$"{type}.CompareTo({type})"] = (g, inv) =>
+            {
+                // NaN sorts first and equals itself, as in .NET.
+                var b = g.Builder;
+                var l = g.Module.Llvm;
+                var x = g.EmitValue(g.ConcreteReceiver(inv.Instance!));
+                var y = Arg(g, inv, 0);
+                var lt = b.FCmp(LLVMRealPredicate.OLT, x, y);
+                var gt = b.FCmp(LLVMRealPredicate.OGT, x, y);
+                var xNaN = b.FCmp(LLVMRealPredicate.UNO, x, x);
+                var yNaN = b.FCmp(LLVMRealPredicate.UNO, y, y);
+                var result = b.Select(lt, l.ConstInt(l.I32, -1), b.Cast(LLVMOpcode.ZExt, gt, l.I32));
+                result = b.Select(b.BinOp(LLVMOpcode.And, xNaN, b.Not(yNaN)), l.ConstInt(l.I32, -1), result);
+                result = b.Select(b.BinOp(LLVMOpcode.And, yNaN, b.Not(xNaN)), l.ConstInt(l.I32, 1), result);
+                return result;
+            };
 
         foreach (var type in new[] { "int", "long", "uint", "ulong", "short", "ushort", "byte", "sbyte", "double", "float" })
             t[$"{type}.ToString(string)"] = (g, inv) => g.FormatWith(inv.Instance!, Arg(g, inv, 0));
@@ -285,12 +316,11 @@ internal static class Intrinsics
         };
 
         // ---- foreach over arrays (see FunctionCodeGen.ArrayGetEnumerator) ------------------------
-        // ...and over iterator objects (yield return; FunctionCodeGen.Async.cs / runtime/async.c).
-        t["System.Collections.Generic.IEnumerable<T>.GetEnumerator()"] = (g, inv) => g.EnumerableGetEnumerator(inv.Instance!, inv);
-        t["System.Collections.IEnumerable.GetEnumerator()"] = (g, inv) => g.EnumerableGetEnumerator(inv.Instance!, inv);
-        t["System.Collections.IEnumerator.MoveNext()"] = (g, inv) => g.EnumeratorMoveNext(inv.Instance!);
+        t["System.Collections.Generic.IEnumerable<T>.GetEnumerator()"] = (g, inv) => g.ArrayGetEnumerator(inv.Instance!, inv);
+        t["System.Collections.IEnumerable.GetEnumerator()"] = (g, inv) => g.ArrayGetEnumerator(inv.Instance!, inv);
+        t["System.Collections.IEnumerator.MoveNext()"] = (g, inv) => g.ArrayEnumeratorMoveNext(g.EmitValue(inv.Instance!));
         // Only array enumerators exist so far, and they need no disposal. Revisit with interfaces.
-        t["System.IDisposable.Dispose()"] = (g, inv) => { g.EnumeratorDispose(inv.Instance!); return default; };
+        t["System.IDisposable.Dispose()"] = (_, _) => default;
 
         // ---- System.GC (runtime/gc.c) -----------------------------------------------------------
         t["System.GC.Collect()"] = (g, _) => { g.CallRuntime("csrt_gc_collect", g.Module.Llvm.Void, []); return default; };
@@ -368,7 +398,7 @@ internal static class Intrinsics
     private static LLVMValueRef CtorArg(FunctionCodeGen g, IObjectCreationOperation c, int ordinal)
     {
         var argument = c.Arguments.First(a => a.Parameter!.Ordinal == ordinal);
-        return g.Coerce(g.EmitValue(argument.Value), argument.Value.Type, argument.Parameter!.Type);
+        return g.Coerce(g.EmitValue(argument.Value), g.TypeOf(argument.Value), g.S(argument.Parameter!.Type));
     }
 
     // ---- System.Threading.Tasks (runtime/async.c; docs/10-async.md) ---------------------------
@@ -382,20 +412,20 @@ internal static class Intrinsics
             g.CallRuntime("csrt_task_wait", g.Module.Llvm.Void, [g.Module.Llvm.Ptr], task);
             return task;
         }
-        static ITypeSymbol? ResultOf(IInvocationOperation inv) => inv.Type is { SpecialType: SpecialType.System_Void } ? null : inv.Type;
+        static ITypeSymbol? ResultOf(FunctionCodeGen g, IInvocationOperation inv) => g.TypeOf(inv) is { SpecialType: SpecialType.System_Void } ? null : g.TypeOf(inv);
         // Tasks, awaiters and configured awaitables are the same task pointer.
         IntrinsicHandler self = (g, inv) => { foreach (var a in inv.Arguments) g.EmitValue(a.Value); return g.EmitValue(inv.Instance!); };
 
         t[$"{Tasks}.Task.Delay(int)"] = (g, inv) => g.CallRuntime("csrt_task_delay", g.Module.Llvm.Ptr, [g.Module.Llvm.I32], Arg(g, inv, 0));
         t[$"{Tasks}.Task.Yield()"] = (g, _) => LlvmContext.Null(g.Module.Llvm.Ptr);
         t[$"{Tasks}.Task.FromResult(TResult)"] = (g, inv) =>
-            g.CompletedTask(Arg(g, inv, 0), ((INamedTypeSymbol)inv.Type!).TypeArguments[0]);
+            g.CompletedTask(Arg(g, inv, 0), ((INamedTypeSymbol)g.TypeOf(inv)!).TypeArguments[0]);
         t[$"{Tasks}.ValueTask.FromResult(TResult)"] = t[$"{Tasks}.Task.FromResult(TResult)"];
 
         IntrinsicHandler whenAll = (g, inv) =>
         {
             var tasks = g.TaskArrayArgument(inv.Arguments[0]);
-            var result = ((INamedTypeSymbol)inv.Type!).TypeArguments.FirstOrDefault() is IArrayTypeSymbol array ? array.ElementType : null;
+            var result = ((INamedTypeSymbol)g.TypeOf(inv)!).TypeArguments.FirstOrDefault() is IArrayTypeSymbol array ? array.ElementType : null;
             var size = result is null ? 0 : (long)g.Module.Types.Target.SizeOf(g.Module.Types.Storage(result));
             return g.CallRuntime("csrt_task_when_all", g.Module.Llvm.Ptr, [g.Module.Llvm.Ptr, g.Module.Llvm.I32], tasks, g.Module.Llvm.ConstInt(g.Module.Llvm.I32, size));
         };
@@ -422,25 +452,17 @@ internal static class Intrinsics
             g.CallRuntime("csrt_task_run_func_task", g.Module.Llvm.Ptr, [g.Module.Llvm.Ptr, g.Module.Llvm.I32], Arg(g, inv, 0), g.Module.Llvm.ConstInt(g.Module.Llvm.I32, 0));
         t[$"{Tasks}.Task.Run(System.Func<{Tasks}.Task<TResult>>)"] = (g, inv) =>
         {
-            var result = ((INamedTypeSymbol)inv.Type!).TypeArguments[0];
+            var result = ((INamedTypeSymbol)g.TypeOf(inv)!).TypeArguments[0];
             var size = (long)g.Module.Types.Target.SizeOf(g.Module.Types.Storage(result));
             return g.CallRuntime("csrt_task_run_func_task", g.Module.Llvm.Ptr, [g.Module.Llvm.Ptr, g.Module.Llvm.I32], Arg(g, inv, 0), g.Module.Llvm.ConstInt(g.Module.Llvm.I32, size));
         };
         // Func<T> with a non-task T: run it now (a C runtime can't call an arbitrary-signature delegate).
         t[$"{Tasks}.Task.Run(System.Func<TResult>)"] = (g, inv) =>
         {
-            var result = ((INamedTypeSymbol)inv.Type!).TypeArguments[0];
+            var result = ((INamedTypeSymbol)g.TypeOf(inv)!).TypeArguments[0];
             var value = g.InvokeDelegate0(Arg(g, inv, 0), g.Module.Types.Value(result));
             return g.CompletedTask(value, result);
         };
-
-        // await foreach over async iterators (IAsyncEnumerable<T>).
-        t["System.Collections.Generic.IAsyncEnumerable<T>.GetAsyncEnumerator(System.Threading.CancellationToken)"] = (g, inv) =>
-            g.CallRuntime("csrt_iterator_get_enumerator", g.Module.Llvm.Ptr, [g.Module.Llvm.Ptr], g.EmitValue(inv.Instance!));
-        t["System.Collections.Generic.IAsyncEnumerator<T>.MoveNextAsync()"] = (g, inv) =>
-            g.CallRuntime("csrt_async_iterator_move_next", g.Module.Llvm.Ptr, [g.Module.Llvm.Ptr], g.EmitValue(inv.Instance!));
-        t["System.IAsyncDisposable.DisposeAsync()"] = (g, inv) =>
-            g.CallRuntime("csrt_async_iterator_dispose", g.Module.Llvm.Ptr, [g.Module.Llvm.Ptr], g.EmitValue(inv.Instance!));
 
         foreach (var type in new[] { "Task", "Task<TResult>", "ValueTask", "ValueTask<TResult>" })
         {
@@ -452,14 +474,14 @@ internal static class Intrinsics
             g.CallRuntime("csrt_valuetask_as_task", g.Module.Llvm.Ptr, [g.Module.Llvm.Ptr, g.Module.Llvm.I32], g.EmitValue(inv.Instance!), g.Module.Llvm.ConstInt(g.Module.Llvm.I32, 0));
         t[$"{Tasks}.ValueTask<TResult>.AsTask()"] = (g, inv) =>
         {
-            var result = ((INamedTypeSymbol)inv.Type!).TypeArguments[0];
+            var result = ((INamedTypeSymbol)g.TypeOf(inv)!).TypeArguments[0];
             var size = (long)g.Module.Types.Target.SizeOf(g.Module.Types.Storage(result));
             return g.CallRuntime("csrt_valuetask_as_task", g.Module.Llvm.Ptr, [g.Module.Llvm.Ptr, g.Module.Llvm.I32], g.EmitValue(inv.Instance!), g.Module.Llvm.ConstInt(g.Module.Llvm.I32, size));
         };
         foreach (var awaiter in new[] { $"{Rcs}.TaskAwaiter", $"{Rcs}.TaskAwaiter<TResult>", $"{Rcs}.ValueTaskAwaiter", $"{Rcs}.ValueTaskAwaiter<TResult>",
                      $"{Rcs}.ConfiguredTaskAwaitable.ConfiguredTaskAwaiter", $"{Rcs}.ConfiguredTaskAwaitable<TResult>.ConfiguredTaskAwaiter",
                      $"{Rcs}.ConfiguredValueTaskAwaitable.ConfiguredValueTaskAwaiter", $"{Rcs}.ConfiguredValueTaskAwaitable<TResult>.ConfiguredValueTaskAwaiter" })
-            t[$"{awaiter}.GetResult()"] = (g, inv) => g.TaskResult(Wait(g, g.EmitValue(inv.Instance!)), ResultOf(inv));
+            t[$"{awaiter}.GetResult()"] = (g, inv) => g.TaskResult(Wait(g, g.EmitValue(inv.Instance!)), ResultOf(g, inv));
         foreach (var awaitable in new[] { $"{Rcs}.ConfiguredTaskAwaitable", $"{Rcs}.ConfiguredTaskAwaitable<TResult>",
                      $"{Rcs}.ConfiguredValueTaskAwaitable", $"{Rcs}.ConfiguredValueTaskAwaitable<TResult>" })
             t[$"{awaitable}.GetAwaiter()"] = self;
@@ -467,7 +489,6 @@ internal static class Intrinsics
 
     private static void AddTaskProperties(Dictionary<string, PropertyHandler> t)
     {
-        t["System.Collections.Generic.IAsyncEnumerator<T>.Current"] = (g, p) => g.IteratorCurrent(g.EmitValue(p.Instance!), p.Type!);
         PropertyHandler isCompleted = (g, p) => g.CallRuntime("csrt_task_is_completed", g.Module.Llvm.I1, [g.Module.Llvm.Ptr], g.EmitValue(p.Instance!));
         foreach (var type in new[] { $"{Tasks}.Task", $"{Tasks}.ValueTask", $"{Tasks}.ValueTask<TResult>", $"{Rcs}.TaskAwaiter", $"{Rcs}.TaskAwaiter<TResult>",
                      $"{Rcs}.ValueTaskAwaiter", $"{Rcs}.ValueTaskAwaiter<TResult>" })
@@ -477,7 +498,7 @@ internal static class Intrinsics
         {
             var task = g.EmitValue(p.Instance!);
             g.CallRuntime("csrt_task_wait", g.Module.Llvm.Void, [g.Module.Llvm.Ptr], task);
-            return g.TaskResult(task, p.Type);
+            return g.TaskResult(task, g.TypeOf(p));
         };
         t[$"{Tasks}.Task<TResult>.Result"] = result;
         t[$"{Tasks}.ValueTask<TResult>.Result"] = result;
@@ -489,7 +510,7 @@ internal static class Intrinsics
     {
         Dictionary<string, ConstructorHandler> t = [];
         t[$"{Tasks}.ValueTask<TResult>..ctor(TResult)"] = (g, c) =>
-            g.CompletedTask(CtorArg(g, c, 0), ((INamedTypeSymbol)c.Type!).TypeArguments[0]);
+            g.CompletedTask(CtorArg(g, c, 0), ((INamedTypeSymbol)g.TypeOf(c)!).TypeArguments[0]);
         t[$"{Tasks}.ValueTask..ctor({Tasks}.Task)"] = (g, c) => CtorArg(g, c, 0);
         t[$"{Tasks}.ValueTask<TResult>..ctor({Tasks}.Task<TResult>)"] = (g, c) => CtorArg(g, c, 0);
         t["string..ctor(char, int)"] = (g, c) =>
@@ -531,12 +552,11 @@ internal static class Intrinsics
         t["System.Environment.TickCount64"] = (g, _) =>
             g.CallRuntime("csrt_environment_tick_count64", g.Module.Llvm.I64, []);
         t["System.Collections.Generic.IEnumerator<T>.Current"] = (g, p) =>
-            g.TryArrayEnumerator(p.Instance, out _)
-                ? g.ArrayEnumeratorCurrent(g.EmitValue(p.Instance!), p.Type!)
-                : g.IteratorCurrent(g.EmitValue(p.Instance!), p.Type!);
+            g.ArrayEnumeratorCurrent(g.EmitValue(p.Instance!), g.TypeOf(p)!);
         t["System.Collections.IEnumerator.Current"] = (g, p) =>
         {
-            if (!g.TryArrayEnumerator(p.Instance, out var element)) return g.IteratorCurrent(g.EmitValue(p.Instance!), p.Type!);
+            if (!g.TryArrayEnumerator(p.Instance, out var element))
+                throw CompileError.Unsupported("IEnumerator.Current on a non-array enumerator", p);
             var value = g.ArrayEnumeratorCurrent(g.EmitValue(p.Instance!), element);
             return element.IsValueType ? g.Box(value, element, p) : value;
         };
@@ -582,7 +602,7 @@ internal static class Intrinsics
     {
         var l = g.Module.Llvm;
         var op = FunctionCodeGen.Unbox(argument);
-        var type = op.Type;
+        var type = g.TypeOf(op);
         if (op.ConstantValue.HasValue || type is null || type.TypeKind == TypeKind.Enum)
         {
             g.CallRuntime("csrt_console_write_string", l.Void, [l.Ptr], g.ToStringValue(op));

@@ -28,7 +28,11 @@ public sealed partial class ModuleCodeGen
     private readonly Dictionary<string, LLVMValueRef> _globals = [];
     private readonly Dictionary<string, LLVMValueRef> _strings = [];
     private readonly Dictionary<SyntaxTree, SemanticModel> _models = [];
-    private readonly Queue<ClosureFunction> _pendingNested = new();
+    /// <summary>Generic instantiations (constructed methods) whose bodies still need lowering.</summary>
+    private readonly Queue<IMethodSymbol> _pendingInstantiations = new();
+    private readonly Queue<(ClosureFunction Function, IMethodSymbol Symbol, TypeSubstitution Subst)> _pendingNested = new();
+    private readonly HashSet<(ClosureFunction, string)> _enqueuedNested = [];
+    private readonly Dictionary<IMethodSymbol, Dictionary<string, LoweredFunction>> _nestedFunctions = new(SymbolEqualityComparer.Default);
     private int _lambdaCounter;
     private readonly List<INamedTypeSymbol> _userTypes = [];
 
@@ -67,30 +71,41 @@ public sealed partial class ModuleCodeGen
             {
                 switch (type.TypeKind)
                 {
-                    case TypeKind.Class when !type.IsStatic: GetLayout(type); break;
-                    case TypeKind.Class or TypeKind.Enum: break;
-                    case TypeKind.Struct: GetStructLayout(type); break;
-                    case TypeKind.Interface: throw CompileError.Unsupported($"interface '{type.Name}'", type);
+                    // Generic definitions get layouts per instantiation, on demand (monomorphization).
+                    case TypeKind.Class when !type.IsStatic && !TypeSubstitution.IsGenericContext(type): GetLayout(type); break;
+                    case TypeKind.Class or TypeKind.Enum or TypeKind.Interface: break;
+                    case TypeKind.Struct when !TypeSubstitution.IsGenericContext(type): GetStructLayout(type); break;
+                    case TypeKind.Struct: break;
                     case TypeKind.Delegate: break; // runtime-implemented: { mt, target, fn } objects
                     default: throw CompileError.Unsupported($"{type.TypeKind} '{type.Name}'", type);
                 }
-                if (type.IsGenericType) throw CompileError.Unsupported($"generic type '{type.Name}'", type);
                 if (type.IsRecord) throw CompileError.Unsupported($"record '{type.Name}'", type);
             });
 
-        foreach (var layout in _layouts.Values.ToList()) Guard(layout.Type, () => EmitMethodTable(layout));
-
-        // 2. Method bodies.
-        foreach (var type in _userTypes.Where(t => t.TypeKind is TypeKind.Class or TypeKind.Struct && !t.IsRecord))
-            foreach (var method in type.GetMembers().OfType<IMethodSymbol>())
+        // 2. Method bodies of non-generic code; generic instantiations are queued as they're referenced.
+        foreach (var type in _userTypes.Where(t => t.TypeKind is TypeKind.Class or TypeKind.Interface or TypeKind.Struct && !t.IsRecord
+                     && !TypeSubstitution.IsGenericContext(t)))
+            foreach (var method in type.GetMembers().OfType<IMethodSymbol>().Where(m => !m.IsGenericMethod))
                 Guard(method, () => EmitMethod(method));
 
-        while (_pendingNested.TryDequeue(out var nested))
-            Guard(nested.Symbol!, () => EmitNestedFunction(nested));
+        DrainWorklists();
 
         // 3. Static initialization + the native entry point.
         Guard(entryPoint, EmitStaticInitializer);
         Guard(entryPoint, () => EmitNativeMain(entryPoint));
+        DrainWorklists();
+    }
+
+    private void DrainWorklists()
+    {
+        while (true)
+        {
+            if (_pendingNested.TryDequeue(out var nested))
+                Guard(nested.Symbol, () => EmitNestedFunction(nested.Function, nested.Symbol, nested.Subst));
+            else if (_pendingInstantiations.TryDequeue(out var instance))
+                Guard(instance, () => EmitMethod(instance));
+            else break;
+        }
     }
 
     private static readonly bool s_trace = Environment.GetEnvironmentVariable("CSHARPC_TRACE") == "1";
@@ -101,6 +116,7 @@ public sealed partial class ModuleCodeGen
         try { action(); }
         catch (CompileError error)
         {
+            if (s_trace) Console.Error.WriteLine(error.StackTrace);
             // Errors raised while mapping library types carry metadata locations; point at our symbol instead.
             Errors.Add(error.Location is not { IsInSource: true } && symbol.Locations.FirstOrDefault() is { IsInSource: true } loc
                 ? new CompileError(error.Id, error.Message, loc)
@@ -128,25 +144,44 @@ public sealed partial class ModuleCodeGen
 
     public LoweredFunction GetFunction(IMethodSymbol method)
     {
-        method = method.OriginalDefinition;
+        if (IsNestedFunction(method)) return GetNestedFunction(method, TypeSubstitution.Identity);
+        // Generic code is keyed by the *constructed* symbol: one function per instantiation.
+        var generic = TypeSubstitution.IsGenericContext(method);
+        if (!generic) method = method.OriginalDefinition;
         if (method.PartialDefinitionPart is { } partialDefinition) method = partialDefinition; // one function per partial member
         if (_functions.TryGetValue(method, out var existing)) return existing;
-        if (method.IsGenericMethod) throw CompileError.Unsupported($"generic method '{method.Name}'", method);
+        if (generic && TypeSubstitution.IsOpen(method))
+            throw CompileError.Unsupported($"open generic instantiation '{method}'", method);
 
         var type = FunctionTypeOf(method);
-        var name = Mangler.Method(method);
-        if (method.MethodKind == MethodKind.AnonymousFunction) name += "$lambda" + _lambdaCounter++;
-        var fn = Module.AddFunction(name, type);
+        var fn = Module.AddFunction(Mangler.Method(method), type);
         // Closed-world, whole-program compilation (like NativeAOT): everything but main is internal,
         // which lets LLVM's IPO passes inline, specialize and delete freely.
         Native.LLVMSetLinkage(fn, LLVMLinkage.Internal);
         Llvm.AddFunctionAttribute(fn, "nounwind"); // no unwinding until exceptions land (ADR 0005)
-        if (Coroutines.KindOf(method) != CoroutineKind.None)
-        {
-            Llvm.AddFunctionAttribute(fn, "presplitcoroutine"); // async/iterator: split by CoroSplit
-            EnsureCoroutineSupport();
-        }
+        MarkIfCoroutine(method, fn);
+        if (generic && IsUserMethod(method) && !method.IsAbstract) _pendingInstantiations.Enqueue(method);
         return _functions[method] = new LoweredFunction(fn, type);
+    }
+
+    /// <summary>
+    /// Lambdas and local functions get one copy per substitution of their enclosing generic code
+    /// (plus their own type arguments for generic local functions), keyed by (symbol, substitution).
+    /// </summary>
+    public LoweredFunction GetNestedFunction(IMethodSymbol method, TypeSubstitution subst)
+    {
+        var definition = method.OriginalDefinition;
+        if (!_nestedFunctions.TryGetValue(definition, out var bySubst)) _nestedFunctions[definition] = bySubst = [];
+        if (bySubst.TryGetValue(subst.Key, out var existing)) return existing;
+        var type = FunctionTypeOf(definition, subst);
+        var name = Mangler.Method(method);
+        if (method.MethodKind == MethodKind.AnonymousFunction) name += "$lambda" + _lambdaCounter++;
+        if (!subst.IsIdentity) name += "I" + subst.Key + "E";
+        var fn = Module.AddFunction(name, type);
+        Native.LLVMSetLinkage(fn, LLVMLinkage.Internal);
+        MarkIfCoroutine(method, fn);
+        Llvm.AddFunctionAttribute(fn, "nounwind");
+        return bySubst[subst.Key] = new LoweredFunction(fn, type);
     }
 
     /// <summary>
@@ -155,15 +190,19 @@ public sealed partial class ModuleCodeGen
     /// </summary>
     public static bool HasThis(IMethodSymbol method) => !method.IsStatic && !IsNestedFunction(method);
 
-    /// <summary>this (if instance) + parameters (by-ref as ptr) -> return; constructors return void.</summary>
-    public LLVMTypeRef FunctionTypeOf(IMethodSymbol method)
+    /// <summary>
+    /// env (nested functions) or this (instance) + parameters (by-ref as ptr) -> return; constructors
+    /// return void. <paramref name="subst"/> maps type parameters when the signature mentions them.
+    /// </summary>
+    public LLVMTypeRef FunctionTypeOf(IMethodSymbol method, TypeSubstitution? subst = null)
     {
+        subst ??= TypeSubstitution.Identity;
         List<LLVMTypeRef> parameters = [];
         if (IsNestedFunction(method)) parameters.Add(Llvm.Ptr); // closure environment (may be null)
         else if (HasThis(method)) parameters.Add(Llvm.Ptr);
         foreach (var p in method.Parameters)
-            parameters.Add(p.RefKind == RefKind.None ? Types.Value(p.Type) : Llvm.Ptr);
-        var returnType = method.MethodKind == MethodKind.Constructor ? Llvm.Void : Types.Value(method.ReturnType);
+            parameters.Add(p.RefKind == RefKind.None ? Types.Value(subst.Apply(p.Type)) : Llvm.Ptr);
+        var returnType = method.MethodKind == MethodKind.Constructor ? Llvm.Void : Types.Value(subst.Apply(method.ReturnType));
         return Llvm.FunctionType(returnType, [.. parameters]);
     }
 
@@ -208,13 +247,17 @@ public sealed partial class ModuleCodeGen
             return;
         }
         if (method.MethodKind is not (MethodKind.Ordinary or MethodKind.Constructor or MethodKind.StaticConstructor
-            or MethodKind.PropertyGet or MethodKind.PropertySet or MethodKind.UserDefinedOperator or MethodKind.Conversion))
+            or MethodKind.PropertyGet or MethodKind.PropertySet or MethodKind.UserDefinedOperator or MethodKind.Conversion
+            or MethodKind.ExplicitInterfaceImplementation))
             return;
         if (method.MethodKind == MethodKind.Constructor && method.ContainingType.IsStatic) return;
+        if (method.MethodKind == MethodKind.StaticConstructor && TypeSubstitution.IsGenericContext(method))
+            throw CompileError.Unsupported("static constructors in generic types", method);
         // Static field initializers run from __csharpc_static_init; only explicit cctors get a function.
         if (method.MethodKind == MethodKind.StaticConstructor && method.IsImplicitlyDeclared) return;
 
-        var syntax = (method.PartialImplementationPart ?? method).DeclaringSyntaxReferences.FirstOrDefault()?.GetSyntax();
+        var definition = method.OriginalDefinition;
+        var syntax = (definition.PartialImplementationPart ?? definition).DeclaringSyntaxReferences.FirstOrDefault()?.GetSyntax();
         var fn = GetFunction(method);
         var gen = new FunctionCodeGen(this, method, fn);
 
@@ -263,20 +306,26 @@ public sealed partial class ModuleCodeGen
     public static bool IsNestedFunction(IMethodSymbol method) =>
         method.MethodKind is MethodKind.LocalFunction or MethodKind.AnonymousFunction;
 
-    internal void EnqueueNested(ClosureFunction function)
+    /// <summary>Queues the nested functions of a just-lowered body, instantiated with its substitution.</summary>
+    internal void EnqueueNested(ClosureFunction function, TypeSubstitution subst)
     {
         foreach (var child in function.Children)
         {
-            if (child.Enqueued) continue;
-            child.Enqueued = true;
-            _pendingNested.Enqueue(child);
+            if (child.Symbol!.IsGenericMethod) continue; // generic local functions: instantiated on use
+            RequestNested(child, child.Symbol, subst);
         }
     }
 
-    private void EmitNestedFunction(ClosureFunction function)
+    /// <summary>Ensures (function, substitution) gets lowered; used directly for generic local functions.</summary>
+    internal void RequestNested(ClosureFunction function, IMethodSymbol symbol, TypeSubstitution subst)
     {
-        Dump(function.Symbol!, function.Cfg);
-        new FunctionCodeGen(this, function.Symbol, GetFunction(function.Symbol!), function).Emit([], function.Cfg);
+        if (_enqueuedNested.Add((function, subst.Key))) _pendingNested.Enqueue((function, symbol, subst));
+    }
+
+    private void EmitNestedFunction(ClosureFunction function, IMethodSymbol symbol, TypeSubstitution subst)
+    {
+        Dump(symbol, function.Cfg);
+        new FunctionCodeGen(this, symbol, GetNestedFunction(symbol, subst), function, subst).Emit([], function.Cfg);
     }
 
     /// <summary>
@@ -304,13 +353,12 @@ public sealed partial class ModuleCodeGen
     /// <summary>Delegate objects get a per-type method table with System.Object's default vtable.</summary>
     public LLVMValueRef DelegateMethodTable(INamedTypeSymbol type)
     {
-        var name = Mangler.MetadataName(type);
-        if (type.IsGenericType)
-            name += "[" + string.Join(",", type.TypeArguments.Select(t => t is INamedTypeSymbol n ? Mangler.MetadataName(n) : t.ToDisplayString())) + "]";
+        var name = Mangler.MetadataName(type); // includes generic arguments, e.g. System.Func`2[System.Int32,System.Int32]
         var key = "dmt:" + name;
         if (_globals.TryGetValue(key, out var g)) return g;
         string[] defaults = ["csrt_object_to_string_default", "csrt_object_equals_default", "csrt_object_get_hash_code_default"];
         var init = Llvm.ConstStruct(ExternalGlobal("csrt_Object_MT"), CString(name), Llvm.ConstInt(Llvm.I32, 24), Llvm.ConstInt(Llvm.I32, 0),
+            LlvmContext.Null(Llvm.Ptr), Llvm.ConstInt(Llvm.I32, 0), Llvm.ConstInt(Llvm.I32, 0),
             LlvmContext.ConstArray(Llvm.Ptr, [.. defaults.Select(d => Runtime(d, Llvm.Ptr, Llvm.Ptr).Fn)]));
         g = Module.AddGlobal("csrt.dmt." + name, Native.LLVMTypeOf(init), init, constant: true, linkage: LLVMLinkage.Private);
         return _globals[key] = g;
@@ -359,9 +407,10 @@ public sealed partial class ModuleCodeGen
 
     public ClassLayout GetLayout(INamedTypeSymbol type)
     {
-        type = type.OriginalDefinition;
+        if (!TypeSubstitution.IsGenericContext(type)) type = type.OriginalDefinition;
         if (_layouts.TryGetValue(type, out var existing)) return existing;
         if (!IsUserType(type)) throw CompileError.Unsupported($"instances of library class '{type}'", type);
+        if (TypeSubstitution.IsOpen(type)) throw CompileError.Unsupported($"open generic type '{type}'", type);
 
         ClassLayout? baseLayout = null;
         if (type.BaseType is { SpecialType: not SpecialType.System_Object } baseType)
@@ -369,7 +418,6 @@ public sealed partial class ModuleCodeGen
             if (!IsUserType(baseType)) throw CompileError.Unsupported($"deriving from library class '{baseType}'", type);
             baseLayout = GetLayout(baseType);
         }
-        if (!type.Interfaces.IsEmpty) throw CompileError.Unsupported($"interface implementation on '{type.Name}'", type);
 
         var structType = Llvm.NamedStruct("class." + Mangler.MetadataName(type));
         var layout = new ClassLayout { Type = type, InstanceType = structType, Base = baseLayout };
@@ -429,13 +477,15 @@ public sealed partial class ModuleCodeGen
                 layout.VTable.Add(m.IsAbstract ? null : m);
             }
         }
+        EmitMethodTable(layout);
         return layout;
     }
 
     private void EmitMethodTable(ClassLayout layout)
     {
         var vtableType = LlvmContext.Array(Llvm.Ptr, (ulong)layout.VTable.Count);
-        layout.MethodTableType = Llvm.Struct(Llvm.Ptr, Llvm.Ptr, Llvm.I32, Llvm.I32, vtableType);
+        // Same prefix as TypeMapper.MethodTableHeader / csrt_MethodTable, followed by the vtable.
+        layout.MethodTableType = Llvm.Struct(Llvm.Ptr, Llvm.Ptr, Llvm.I32, Llvm.I32, Llvm.Ptr, Llvm.I32, Llvm.I32, vtableType);
         var global = Module.AddGlobal(Mangler.TypeSymbol(layout.Type, "MT"), layout.MethodTableType,
             constant: true, linkage: LLVMLinkage.Internal);
         layout.MethodTable = global; // set before initializing: methods may reference it
@@ -449,11 +499,15 @@ public sealed partial class ModuleCodeGen
 
         var baseMt = layout.Base?.MethodTable ?? ExternalGlobal("csrt_Object_MT");
         var flags = layout.Type.IsAbstract ? 1 : 0;
+        var (interfaceMap, interfaceCount) = EmitInterfaceMap(layout);
         Native.LLVMSetInitializer(global, Llvm.ConstStruct(
             baseMt,
             CString(Mangler.MetadataName(layout.Type)),
             Llvm.ConstInt(Llvm.I32, (long)layout.InstanceSize),
             Llvm.ConstInt(Llvm.I32, flags),
+            interfaceMap,
+            Llvm.ConstInt(Llvm.I32, interfaceCount),
+            Llvm.ConstInt(Llvm.I32, 0),
             LlvmContext.ConstArray(Llvm.Ptr, slots)));
     }
 
@@ -463,7 +517,7 @@ public sealed partial class ModuleCodeGen
 
     public LLVMValueRef StaticField(IFieldSymbol field)
     {
-        field = field.OriginalDefinition;
+        if (!TypeSubstitution.IsGenericContext(field.ContainingType)) field = field.OriginalDefinition;
         if (_staticFields.TryGetValue(field, out var global)) return global;
         if (!IsUserType(field.ContainingType)) throw CompileError.Unsupported($"static field '{field}' of a library type", field);
         var type = Types.Storage(field.Type);
@@ -510,7 +564,8 @@ public sealed partial class ModuleCodeGen
         var name = Mangler.MetadataName(type);
         var key = "mt:" + name;
         if (_globals.TryGetValue(key, out var g)) return g;
-        var init = Llvm.ConstStruct(ExternalGlobal("csrt_Object_MT"), CString(name), Llvm.ConstInt(Llvm.I32, 0), Llvm.ConstInt(Llvm.I32, 0));
+        var init = Llvm.ConstStruct(ExternalGlobal("csrt_Object_MT"), CString(name), Llvm.ConstInt(Llvm.I32, 0), Llvm.ConstInt(Llvm.I32, 0),
+            LlvmContext.Null(Llvm.Ptr), Llvm.ConstInt(Llvm.I32, 0), Llvm.ConstInt(Llvm.I32, 0));
         g = Module.AddGlobal("csrt.mt." + name, Native.LLVMTypeOf(init), init, constant: true, linkage: LLVMLinkage.Private);
         return _globals[key] = g;
     }
@@ -584,6 +639,12 @@ public sealed partial class ModuleCodeGen
         List<IMethodSymbol> cctors = [];
         foreach (var t in _userTypes.Where(t => t.TypeKind is TypeKind.Class or TypeKind.Struct))
         {
+            if (TypeSubstitution.IsGenericContext(t))
+            {
+                if (InitializerGraphs(t, isStatic: true).Any())
+                    throw CompileError.Unsupported($"static field initializers in generic type '{t.Name}'", t);
+                continue;
+            }
             graphs.AddRange(InitializerGraphs(t, isStatic: true));
             cctors.AddRange(t.StaticConstructors.Where(c => !c.IsImplicitlyDeclared));
         }
@@ -597,6 +658,13 @@ public sealed partial class ModuleCodeGen
     /// C-ABI entry points the runtime uses to resume/destroy coroutine frames. The split resume and
     /// destroy functions are fastcc, so the runtime goes through llvm.coro.resume/destroy here.
     /// </summary>
+    private void MarkIfCoroutine(IMethodSymbol method, LLVMValueRef fn)
+    {
+        if (Coroutines.KindOf(method) == CoroutineKind.None) return;
+        Llvm.AddFunctionAttribute(fn, "presplitcoroutine"); // async/iterator: split by CoroSplit
+        EnsureCoroutineSupport();
+    }
+
     private void EnsureCoroutineSupport()
     {
         if (HasCoroutines) return;

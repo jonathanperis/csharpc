@@ -25,10 +25,6 @@ const csrt_BuiltinMethodTable csrt_Task_MT = {
     { &csrt_Object_MT.header, "System.Threading.Tasks.Task", 0, 0 },
     { (void*)csrt_object_to_string_default, (void*)csrt_object_equals_default, (void*)csrt_object_get_hash_code_default },
 };
-const csrt_BuiltinMethodTable csrt_Iterator_MT = {
-    { &csrt_Object_MT.header, "System.Collections.Generic.IEnumerable", 0, 0 },
-    { (void*)csrt_object_to_string_default, (void*)csrt_object_equals_default, (void*)csrt_object_get_hash_code_default },
-};
 static const csrt_BuiltinMethodTable csrt_CoroFrame_MT = {
     { &csrt_Object_MT.header, "<coroutine frame>", 0, 0 },
     { (void*)csrt_object_to_string_default, (void*)csrt_object_equals_default, (void*)csrt_object_get_hash_code_default },
@@ -336,8 +332,10 @@ void csrt_task_wait(csrt_Task* t) {
 // ---------------------------------------------------------------------------------------------
 // Iterators
 // ---------------------------------------------------------------------------------------------
-csrt_Iterator* csrt_iterator_new(int32_t payload_size, void* clone, void* args) {
-    csrt_Iterator* it = csrt_alloc(&csrt_Iterator_MT.header, (int64_t)sizeof(csrt_Iterator) + (payload_size > 0 ? payload_size : 0));
+/// `mt` is a compiler-emitted iterator method table (ModuleCodeGen.Async.cs) whose interface map
+/// implements IEnumerable<T>/IEnumerator<T>/IDisposable (or the async counterparts).
+csrt_Iterator* csrt_iterator_new(const csrt_MethodTable* mt, int32_t payload_size, void* clone, void* args) {
+    csrt_Iterator* it = csrt_alloc(mt, (int64_t)sizeof(csrt_Iterator) + (payload_size > 0 ? payload_size : 0));
     it->clone = (void* (*)(void*))clone;
     it->args = args;
     return it;
@@ -345,7 +343,7 @@ csrt_Iterator* csrt_iterator_new(int32_t payload_size, void* clone, void* args) 
 
 void csrt_iterator_set_frame(csrt_Iterator* it, void* frame) { it->frame = frame; }
 
-bool csrt_is_iterator(void* obj) { return obj && ((csrt_Object*)obj)->mt == &csrt_Iterator_MT.header; }
+bool csrt_is_iterator(void* obj) { return obj && (((csrt_Object*)obj)->mt->flags & CSRT_MT_ITERATOR); }
 
 static csrt_Iterator* require_iterator(void* obj) {
     if (!obj) csrt_throw_null_reference();
@@ -377,6 +375,13 @@ bool csrt_iterator_move_next(void* obj) {
 
 void* csrt_iterator_current_ptr(void* obj) { return require_iterator(obj)->payload; }
 
+_Noreturn void csrt_iterator_reset(void* obj) {
+    (void)obj;
+    fflush(stdout);
+    fputs("Unhandled exception. System.NotSupportedException: Specified method is not supported.\n", stderr);
+    abort();
+}
+
 /// Dispose(): a suspended iterator is destroyed, which runs its pending finally blocks.
 void csrt_iterator_dispose(void* obj) {
     if (!obj || !csrt_is_iterator(obj)) return;
@@ -393,9 +398,6 @@ csrt_Task* csrt_valuetask_as_task(csrt_Task* t, int32_t payload_size) {
     done->state = 1;
     return done;
 }
-
-/// `enumerator as IDisposable` for non-generic enumerators: iterators are, nothing else is (yet).
-void* csrt_iterator_as_disposable(void* obj) { return csrt_is_iterator(obj) ? obj : NULL; }
 
 // ---------------------------------------------------------------------------------------------
 // Async iterators (IAsyncEnumerable<T>): each MoveNextAsync() returns a pending ValueTask<bool>

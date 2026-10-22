@@ -51,14 +51,14 @@ public sealed partial class FunctionCodeGen
         var method = _method!;
         var isIterator = kind is CoroutineKind.Iterator or CoroutineKind.AsyncIterator;
         var valueType = isIterator
-            ? Coroutines.IteratorElementType(method, _m.Compilation)
-            : Coroutines.AsyncResultType(method.ReturnType);
+            ? S(Coroutines.IteratorElementType(method, _m.Compilation))
+            : Coroutines.AsyncResultType(S(method.ReturnType));
         var coro = _coro = new CoroutineState { Kind = kind, ValueType = valueType };
         var payloadSize = valueType is null ? 0 : (long)T.Target.SizeOf(T.Storage(valueType));
 
         coro.Promise = kind == CoroutineKind.Async
             ? CallRuntime("csrt_task_new", L.Ptr, [L.I32], L.ConstInt(L.I32, payloadSize))
-            : NewIterator(method, payloadSize);
+            : NewIterator(method, payloadSize, _m.IteratorMethodTable(valueType!, kind == CoroutineKind.AsyncIterator));
         coro.Promise.SetName(kind == CoroutineKind.Async ? "task" : "iterator");
 
         var id = CoroIntrinsic("llvm.coro.id", L.Token, L.I32, L.Ptr, L.Ptr, L.Ptr);
@@ -106,13 +106,13 @@ public sealed partial class FunctionCodeGen
     /// csrt_iterator_new(payload, clone, args). The arguments are saved so that calling
     /// GetEnumerator() on an enumerable that's already been enumerated can start over.
     /// </summary>
-    private LLVMValueRef NewIterator(IMethodSymbol method, long payloadSize)
+    private LLVMValueRef NewIterator(IMethodSymbol method, long payloadSize, LLVMValueRef methodTable)
     {
         List<(LLVMTypeRef Type, LLVMValueRef Value)> saved = [];
         if (_incomingEnv.Handle != 0) saved.Add((L.Ptr, _incomingEnv));
         else if (_this.Handle != 0) saved.Add((L.Ptr, _this));
         foreach (var p in method.Parameters)
-            saved.Add((T.Value(p.Type), LoadValue(_slots[p], p.Type)));
+            saved.Add((T.Value(S(p.Type)), LoadValue(ParameterSpill(p), S(p.Type))));
 
         var argsType = L.Struct([.. saved.Select(s => s.Type)]);
         LLVMValueRef args = LlvmContext.Null(L.Ptr);
@@ -124,8 +124,13 @@ public sealed partial class FunctionCodeGen
                 _b.Store(saved[i].Value, _b.StructGep(argsType, args, (uint)i));
         }
         var clone = _m.IteratorCloneThunk(method, _fn, argsType, saved.Count);
-        return CallRuntime("csrt_iterator_new", L.Ptr, [L.I32, L.Ptr, L.Ptr], L.ConstInt(L.I32, payloadSize), clone, args);
+        return CallRuntime("csrt_iterator_new", L.Ptr, [L.Ptr, L.I32, L.Ptr, L.Ptr], methodTable, L.ConstInt(L.I32, payloadSize), clone, args);
     }
+
+    /// <summary>A parameter's spill slot (generic instantiations key slots by the definition's symbols).</summary>
+    private LLVMValueRef ParameterSpill(IParameterSymbol p) =>
+        _slots.TryGetValue(p, out var slot) ? slot : _slots.First(kv => kv.Key is IParameterSymbol other && other.Ordinal == p.Ordinal
+            && SymbolEqualityComparer.Default.Equals(other.ContainingSymbol.OriginalDefinition, p.ContainingSymbol.OriginalDefinition)).Value;
 
     /// <summary>suspend; resume continues in a fresh block, destroy goes to <paramref name="onDestroy"/>.</summary>
     private void Suspend(LLVMBasicBlockRef onDestroy)
@@ -147,7 +152,7 @@ public sealed partial class FunctionCodeGen
         {
             var v = EmitValue(value);
             if (coro.Kind == CoroutineKind.Async && coro.ValueType is { } resultType)
-                StoreValue(ToStorage(Coerce(v, value.Type, resultType), resultType), PromisePayload);
+                StoreValue(ToStorage(Coerce(v, TypeOf(value), resultType), resultType), PromisePayload);
         }
         _b.Br(ThroughFinally(branch.FinallyRegions, coro.Complete));
     }
@@ -158,43 +163,15 @@ public sealed partial class FunctionCodeGen
         var coro = _coro ?? throw CompileError.Unsupported("yield return outside an iterator", yieldReturn);
         var elementType = coro.ValueType!;
         var value = yieldReturn.ReturnedValue!;
-        var v = Coerce(EmitValue(value), value.Type, elementType);
-        if (value.Type is { IsValueType: true } && elementType.IsReferenceType) v = Box(v, value.Type, value);
+        var valueType = TypeOf(value);
+        var v = Coerce(EmitValue(value), valueType, elementType);
+        if (valueType is { IsValueType: true } && elementType.IsReferenceType) v = Box(v, valueType, value);
         StoreValue(ToStorage(v, elementType), PromisePayload);
         _b.Store(L.ConstInt(L.I32, 1), _b.InBoundsGep(L.I8, coro.Promise, [L.ConstInt(L.I64, IteratorStateOffset)]));
         if (coro.Kind == CoroutineKind.AsyncIterator)
             CallRuntime("csrt_async_iterator_yielded", L.Void, [L.Ptr], coro.Promise); // MoveNextAsync() -> true
         // Dispose() while suspended here destroys the coroutine: run the enclosing finally blocks first.
         Suspend(ThroughFinally(EnclosingFinallyRegions(_currentBlock), coro.Cleanup));
-    }
-
-    // ---- foreach over iterators (until interface dispatch exists, enumerables that aren't arrays
-    // ---- are iterator objects; the runtime reports anything else as not supported) -----------
-
-    internal LLVMValueRef EnumerableGetEnumerator(IOperation instance, IOperation at)
-    {
-        var source = instance;
-        while (source is IConversionOperation { Conversion.IsImplicit: true } c) source = c.Operand;
-        if (source.Type is IArrayTypeSymbol) return ArrayGetEnumerator(instance, at);
-        return CallRuntime("csrt_iterator_get_enumerator", L.Ptr, [L.Ptr], EmitValue(source));
-    }
-
-    internal LLVMValueRef EnumeratorMoveNext(IOperation enumerator) =>
-        TryArrayEnumerator(enumerator, out _)
-            ? ArrayEnumeratorMoveNext(EmitValue(enumerator))
-            : CallRuntime("csrt_iterator_move_next", L.I1, [L.Ptr], EmitValue(enumerator));
-
-    internal LLVMValueRef IteratorCurrent(LLVMValueRef enumerator, ITypeSymbol type) =>
-        LoadValue(CallRuntime("csrt_iterator_current_ptr", L.Ptr, [L.Ptr], enumerator), type);
-
-    internal void EnumeratorDispose(IOperation disposable)
-    {
-        var source = disposable;
-        while (source is IConversionOperation { Conversion.IsImplicit: true } c) source = c.Operand;
-        if (TryArrayEnumerator(source, out _)) return;
-        var value = EmitValue(disposable);
-        if (!value.Type.IsPointer) return; // CharEnumerator etc. (stack enumerators): nothing to dispose
-        CallRuntime("csrt_iterator_dispose", L.Void, [L.Ptr], value);
     }
 
     /// <summary>Finally regions around a block, innermost first.</summary>
@@ -212,11 +189,12 @@ public sealed partial class FunctionCodeGen
     {
         var coro = _coro is { Kind: CoroutineKind.Async or CoroutineKind.AsyncIterator } c ? c : throw CompileError.Unsupported("await outside an async method", await);
         var operand = await.Operation;
-        if (!Coroutines.IsTaskHandleType(operand.Type))
-            throw CompileError.Unsupported($"awaiting '{operand.Type}' (custom awaitables)", await);
+        var operandType = TypeOf(operand);
+        if (!Coroutines.IsTaskHandleType(operandType))
+            throw CompileError.Unsupported($"awaiting '{operandType}' (custom awaitables)", await);
 
         var task = EmitValue(operand);
-        if (Coroutines.IsYieldAwaitable(operand.Type))
+        if (Coroutines.IsYieldAwaitable(operandType))
         {
             CallRuntime("csrt_async_yield", L.Void, [L.Ptr], coro.Handle);
             Suspend(coro.Cleanup);
@@ -231,7 +209,7 @@ public sealed partial class FunctionCodeGen
         Suspend(coro.Cleanup);
         _b.Br(ready);
         _b.PositionAtEnd(ready);
-        return TaskResult(task, await.Type);
+        return TaskResult(task, TypeOf(await));
     }
 
     /// <summary>Reads a completed task's result (nothing for void / non-generic tasks).</summary>
