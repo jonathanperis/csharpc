@@ -166,6 +166,9 @@ public sealed class ModuleCodeGen
             Llvm.AddFunctionAttribute(fn, "cold");
         }
         Llvm.AddFunctionAttribute(fn, "nounwind");
+        // Allocation returns fresh memory nothing else points to (non-moving GC), which lets LLVM
+        // forward stores into new objects — e.g. devirtualize and inline a just-created delegate.
+        if (name is "csrt_alloc" or "csrt_new_array") Llvm.AddReturnAttribute(fn, "noalias");
         return _runtime[name] = new LoweredFunction(fn, type);
     }
 
