@@ -98,6 +98,14 @@ public sealed partial class FunctionCodeGen
             _slots[p] = slot;
         }
 
+        // Partial members: the implementation part's parameters are distinct symbols — alias them.
+        if (method?.PartialImplementationPart is { } impl)
+            for (var i = 0; i < impl.Parameters.Length; i++)
+                if (_slots.TryGetValue(method.Parameters[i], out var shared)) _slots[impl.Parameters[i]] = shared;
+        if (method?.AssociatedSymbol is IPropertySymbol { PartialImplementationPart: { } implProperty } && method.MethodKind == MethodKind.PropertySet
+            && implProperty.SetMethod is { } implSetter)
+            for (var i = 0; i < implSetter.Parameters.Length; i++)
+                if (_slots.TryGetValue(method.Parameters[i], out var shared)) _slots[implSetter.Parameters[i]] = shared;
         _start = _b.AppendBlock(fn.Fn, "start");
         _b.PositionAtEnd(_start);
     }

@@ -129,6 +129,7 @@ public sealed partial class ModuleCodeGen
     public LoweredFunction GetFunction(IMethodSymbol method)
     {
         method = method.OriginalDefinition;
+        if (method.PartialDefinitionPart is { } partialDefinition) method = partialDefinition; // one function per partial member
         if (_functions.TryGetValue(method, out var existing)) return existing;
         if (method.IsGenericMethod) throw CompileError.Unsupported($"generic method '{method.Name}'", method);
 
@@ -195,7 +196,17 @@ public sealed partial class ModuleCodeGen
 
     private void EmitMethod(IMethodSymbol method)
     {
-        if (method.IsAbstract || method.IsExtern || method.IsPartialDefinition) return;
+        if (method.IsAbstract || method.IsExtern) return;
+        if (method.IsPartialDefinition && method.PartialImplementationPart is null)
+        {
+            // Unimplemented partial void method: Roslyn drops the calls; give it an empty body anyway.
+            if (!method.ReturnsVoid) return;
+            var stub = GetFunction(method);
+            using var sb = new IrBuilder(Llvm);
+            sb.PositionAtEnd(sb.AppendBlock(stub.Fn, "entry"));
+            sb.RetVoid();
+            return;
+        }
         if (method.MethodKind is not (MethodKind.Ordinary or MethodKind.Constructor or MethodKind.StaticConstructor
             or MethodKind.PropertyGet or MethodKind.PropertySet or MethodKind.UserDefinedOperator or MethodKind.Conversion))
             return;
@@ -203,7 +214,7 @@ public sealed partial class ModuleCodeGen
         // Static field initializers run from __csharpc_static_init; only explicit cctors get a function.
         if (method.MethodKind == MethodKind.StaticConstructor && method.IsImplicitlyDeclared) return;
 
-        var syntax = method.DeclaringSyntaxReferences.FirstOrDefault()?.GetSyntax();
+        var syntax = (method.PartialImplementationPart ?? method).DeclaringSyntaxReferences.FirstOrDefault()?.GetSyntax();
         var fn = GetFunction(method);
         var gen = new FunctionCodeGen(this, method, fn);
 

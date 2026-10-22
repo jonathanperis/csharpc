@@ -40,7 +40,8 @@ if [[ $REGEN == 1 ]]; then
     printf 'recording %-32s' "$name"
     # File-based apps (dotnet run app.cs) — the real .NET compiler and runtime.
     # WarningLevel=0 keeps compiler warnings out of stdout; strip_warnings is a safety net.
-    (cd "$SAMPLES" && "$DOTNET" run "$name.cs" -p:WarningLevel=0 2>/dev/null) > "$SAMPLES/$name.raw"
+    stdin_file=/dev/null; [[ -f "$SAMPLES/$name.stdin" ]] && stdin_file="$SAMPLES/$name.stdin"
+    (cd "$SAMPLES" && "$DOTNET" run "$name.cs" -p:WarningLevel=0 2>/dev/null < "$stdin_file") > "$SAMPLES/$name.raw"
     code=$?
     strip_warnings < "$SAMPLES/$name.raw" > "$SAMPLES/$name.expected"
     rm -f "$SAMPLES/$name.raw"
@@ -73,8 +74,9 @@ for opt in "${OPTS[@]}"; do
     fi
     # Run in a child bash so the parent shell doesn't print "Aborted (core dumped)" job noise
     # for samples that intentionally die with an unhandled exception (SIGABRT, exit 134).
-    bash -c 'ulimit -c 0; timeout "$1" "$2" > "$3" 2> "$4"' _ \
-      "${CSHARPC_TEST_TIMEOUT:-90}" "$exe" "$OUT/$name.stdout" "$OUT/$name.stderr" 2>/dev/null
+    stdin_file=/dev/null; [[ -f "$SAMPLES/$name.stdin" ]] && stdin_file="$SAMPLES/$name.stdin"
+    bash -c 'ulimit -c 0; timeout "$1" "$2" > "$3" 2> "$4" < "$5"' _ \
+      "${CSHARPC_TEST_TIMEOUT:-90}" "$exe" "$OUT/$name.stdout" "$OUT/$name.stderr" "$stdin_file" 2>/dev/null
     got_code=$?
     if diff -u "$expected" "$OUT/$name.stdout" > "$OUT/$name.diff" && [[ "$got_code" == "$want_code" ]]; then
       echo "PASS $label"
