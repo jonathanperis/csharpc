@@ -42,9 +42,11 @@ void csrt_init(int argc, char** argv);
 void csrt_shutdown(void);
 csrt_Array* csrt_get_args(void);
 
-// Allocation (no GC yet: memory is never freed — see docs/adr/0004-memory-management.md) --
+// Allocation (conservative mark-sweep GC in gc.c — see docs/adr/0004-memory-management.md) --
 void* csrt_alloc(const csrt_MethodTable* mt, int64_t size);
 csrt_Array* csrt_new_array(int64_t element_size, int64_t length);
+void csrt_gc_collect(void);           // System.GC.Collect()
+int64_t csrt_gc_total_memory(void);  // System.GC.GetTotalMemory(bool)
 
 // Exceptions (spike: unhandled-only, they terminate the process like .NET does) -------------
 _Noreturn void csrt_throw_null_reference(void);
