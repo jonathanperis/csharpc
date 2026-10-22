@@ -103,7 +103,7 @@ public static class RoslynFrontend
     /// (and the generated code) are the same: definite-assignment rules are relaxed for structs
     /// imported from another assembly (their inaccessible fields don't count; warning CS8882).
     /// </summary>
-    public static readonly IReadOnlySet<string> DefiniteAssignmentErrors = new HashSet<string> { "CS0165", "CS0170", "CS0171", "CS0177", "CS0188" };
+    public static readonly IReadOnlySet<string> DefiniteAssignmentErrors = new HashSet<string> { "CS0165", "CS0170", "CS0171", "CS0177", "CS0188", "CS0269" };
 
     /// <summary>
     /// What `dotnet build` reports: each project compiled on its own, referencing the compilations
