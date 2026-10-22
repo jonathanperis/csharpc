@@ -165,6 +165,7 @@ public sealed partial class ModuleCodeGen
 
     public LoweredFunction GetFunction(IMethodSymbol method)
     {
+        if (IsPInvoke(method)) return PInvokeStub(method);
         if (IsNestedFunction(method)) return GetNestedFunction(method, TypeSubstitution.Identity);
         method = CoreLib.Map(method);
         // Generic code is keyed by the *constructed* symbol: one function per instantiation.
@@ -612,6 +613,7 @@ public sealed partial class ModuleCodeGen
         "System.Collections.Generic.KeyNotFoundException", "System.OperationCanceledException",
         "System.Threading.Tasks.TaskCanceledException", "System.AggregateException",
         "System.Threading.ThreadStateException", "System.Threading.SynchronizationLockException",
+        "System.TypeLoadException", "System.DllNotFoundException", "System.EntryPointNotFoundException",
     ];
 
     public const int ExceptionMessageSlot = 3;
@@ -1032,6 +1034,14 @@ public sealed partial class ModuleCodeGen
 
         var shutdown = Runtime("csrt_shutdown", Llvm.Void);
         b.Call(shutdown.Type, shutdown.Fn, []);
-        b.Ret(returnsVoid ? Llvm.ConstInt(Llvm.I32, 0) : result);
+        LLVMValueRef exitCode;
+        if (returnsVoid)
+        {
+            // void Main: the exit status is Environment.ExitCode (0 unless the program set it).
+            var getExitCode = Runtime("csrt_get_exit_code", Llvm.I32);
+            exitCode = b.Call(getExitCode.Type, getExitCode.Fn, []);
+        }
+        else exitCode = result;
+        b.Ret(exitCode);
     }
 }

@@ -127,6 +127,11 @@ internal static unsafe partial class Native
     [LibraryImport(Lib)] public static partial LLVMTypeRef LLVMTokenTypeInContext(LLVMContextRef c);
     [LibraryImport(Lib)] public static partial LLVMTypeRef LLVMGetReturnType(LLVMTypeRef functionType);
     [LibraryImport(Lib)] public static partial LLVMTypeRef LLVMStructGetTypeAtIndex(LLVMTypeRef structType, uint index);
+    [LibraryImport(Lib)] public static partial uint LLVMCountStructElementTypes(LLVMTypeRef structType);
+    [LibraryImport(Lib)] public static partial ulong LLVMGetArrayLength2(LLVMTypeRef arrayType);
+    [LibraryImport(Lib)] public static partial LLVMTypeRef LLVMGetElementType(LLVMTypeRef type);
+    [LibraryImport(Lib)] public static partial LLVMTypeRef LLVMVectorType(LLVMTypeRef element, uint count);
+    [LibraryImport(Lib)] public static partial LLVMAttributeRef LLVMCreateTypeAttribute(LLVMContextRef c, uint kind, LLVMTypeRef type);
     public static string LLVMGetValueName(LLVMValueRef value) =>
         System.Runtime.InteropServices.Marshal.PtrToStringUTF8(LLVMGetValueName2(value, out var n), (int)n);
     [LibraryImport(Lib)] public static partial LLVMTypeRef LLVMPointerTypeInContext(LLVMContextRef c, uint addressSpace);

@@ -1,0 +1,28 @@
+41-C3-A9-E2-82-AC-F0-9F-98-80
+41-00-E9-00-AC-20-3D-D8-00-DE
+00-41-00-E9-20-AC-D8-3D-DE-00
+41-3F-3F-3F-3F
+41-E9-3F-3F-3F
+10 10 5
+5
+EF-BB-BF | FF-FE | 
+utf-8 utf-16 us-ascii iso-8859-1
+4
+A?B
+Aé
+round trip
+utf-8 utf-16
+26 [línea 1] [line2] [€ end] True utf-8
+23 [línea 1] [line2] [€ end] True utf-8
+42 [línea 1] [line2] [€ end] True utf-16
+42 [línea 1] [line2] [€ end] True utf-16BE
+True
+5 5 3
+4 5 -1
+01-02 2
+01-02-00-00-00-00-09
+3 30 0
+NotSupportedException
+1 2.5 True!
+a-3
+x x \ny

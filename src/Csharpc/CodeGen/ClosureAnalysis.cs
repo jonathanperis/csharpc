@@ -147,7 +147,7 @@ public sealed class ClosureAnalysis
     private void Discover(ClosureFunction f)
     {
         foreach (var region in Regions(f.Cfg.Root))
-            foreach (var local in region.LocalFunctions)
+            foreach (var local in region.LocalFunctions.Where(l => !l.IsExtern)) // extern = P/Invoke, no body
                 Discover(Register(f.Cfg.GetLocalFunctionControlFlowGraph(local), local, f, region));
 
         foreach (var block in f.Cfg.Blocks)

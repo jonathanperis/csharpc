@@ -45,6 +45,36 @@ internal static class Intrinsics
     private static readonly FrozenDictionary<string, ConstructorHandler> s_constructors = BuildConstructors();
 
     private static readonly FrozenDictionary<string, IntrinsicHandler> s_methods = BuildMethods();
+    private static readonly FrozenDictionary<string, IntrinsicHandler> s_consoleFastPaths = BuildConsoleFastPaths();
+
+    /// <summary>
+    /// `Console.Out.WriteLine(x)` / `Console.Error.Write(x)` / `Console.In.ReadLine()` written literally: skip the
+    /// TextWriter/TextReader objects (corelib shadows) and go straight to the console runtime. Any other receiver
+    /// (a stored TextWriter, a StreamWriter...) takes the normal virtual call.
+    /// </summary>
+    public static bool TryGetConsoleFastPath(IInvocationOperation inv, out IntrinsicHandler handler)
+    {
+        handler = null!;
+        return inv.Instance is IPropertyReferenceOperation { Property: { ContainingType.Name: "Console", Name: "Out" or "Error" or "In" } property }
+               && property.ContainingType.ContainingNamespace?.ToDisplayString() == "System"
+               && s_consoleFastPaths.TryGetValue(Key(inv.TargetMethod.OriginalDefinition), out handler!);
+    }
+
+    private static FrozenDictionary<string, IntrinsicHandler> BuildConsoleFastPaths()
+    {
+        Dictionary<string, IntrinsicHandler> t = [];
+        string[] printable = ["string", "object", "int", "long", "uint", "ulong", "bool", "double", "float", "char"];
+        foreach (var type in printable)
+        {
+            t[$"System.IO.TextWriter.Write({type})"] = (g, inv) => { WriteTo(g, inv, inv.Arguments[0].Value, newline: false); return default; };
+            t[$"System.IO.TextWriter.WriteLine({type})"] = (g, inv) => { WriteTo(g, inv, inv.Arguments[0].Value, newline: true); return default; };
+        }
+        t["System.IO.TextWriter.WriteLine()"] = (g, inv) => { WriteTo(g, inv, null, newline: true); return default; };
+        t["System.IO.TextWriter.Flush()"] = (g, inv) => { ConsoleStream(inv); g.CallRuntime("csrt_console_flush", g.Module.Llvm.Void, []); return default; };
+        t["System.IO.TextReader.ReadLine()"] = (g, inv) => { ConsoleStream(inv); return g.CallRuntime("csrt_console_read_line", g.Module.Llvm.Ptr, []); };
+        t["System.IO.TextReader.ReadToEnd()"] = (g, inv) => { ConsoleStream(inv); return g.CallRuntime("csrt_console_read_to_end", g.Module.Llvm.Ptr, []); };
+        return t.ToFrozenDictionary();
+    }
     private static readonly FrozenDictionary<string, PropertyHandler> s_properties = BuildProperties();
 
     private static LLVMValueRef Arg(FunctionCodeGen g, IInvocationOperation inv, int ordinal)
@@ -75,17 +105,6 @@ internal static class Intrinsics
         t["System.Console.WriteLine()"] = (g, _) => { NewLine(g); return default; };
         t["System.Console.ReadLine()"] = (g, _) => g.CallRuntime("csrt_console_read_line", g.Module.Llvm.Ptr, []);
         t["System.Console.Read()"] = (g, _) => g.CallRuntime("csrt_console_read", g.Module.Llvm.I32, []);
-
-        // Console.Out / Console.Error / Console.In: TextWriter/TextReader calls on those properties.
-        foreach (var type in printable)
-        {
-            t[$"System.IO.TextWriter.Write({type})"] = (g, inv) => { WriteTo(g, inv, inv.Arguments[0].Value, newline: false); return default; };
-            t[$"System.IO.TextWriter.WriteLine({type})"] = (g, inv) => { WriteTo(g, inv, inv.Arguments[0].Value, newline: true); return default; };
-        }
-        t["System.IO.TextWriter.WriteLine()"] = (g, inv) => { WriteTo(g, inv, null, newline: true); return default; };
-        t["System.IO.TextWriter.Flush()"] = (g, inv) => { ConsoleStream(inv); g.CallRuntime("csrt_console_flush", g.Module.Llvm.Void, []); return default; };
-        t["System.IO.TextReader.ReadLine()"] = (g, inv) => { ConsoleStream(inv); return g.CallRuntime("csrt_console_read_line", g.Module.Llvm.Ptr, []); };
-        t["System.IO.TextReader.ReadToEnd()"] = (g, inv) => { ConsoleStream(inv); return g.CallRuntime("csrt_console_read_to_end", g.Module.Llvm.Ptr, []); };
 
         // ---- System.Object / ToString ----------------------------------------------------------
         t["object..ctor()"] = (_, _) => default;
@@ -786,6 +805,23 @@ internal static class Intrinsics
         t[$"{Tasks}.ValueTask<TResult>..ctor({Tasks}.Task<TResult>)"] = (g, c) => CtorArg(g, c, 0);
         t["string..ctor(char, int)"] = (g, c) =>
             g.CallRuntime("csrt_string_new_repeat", g.Module.Llvm.Ptr, [g.Module.Llvm.I16, g.Module.Llvm.I32], CtorArg(g, c, 0), CtorArg(g, c, 1));
+        // Strings from native memory: new string(char*, int, int) / (char*) / (sbyte*).
+        t["string..ctor(char*, int, int)"] = (g, c) =>
+        {
+            var l = g.Module.Llvm;
+            var start = g.Builder.Cast(LLVMOpcode.SExt, CtorArg(g, c, 1), l.I64);
+            var first = g.Builder.InBoundsGep(l.I16, CtorArg(g, c, 0), [start]);
+            return g.CallRuntime("csrt_string_new_from_utf16", l.Ptr, [l.Ptr, l.I32], first, CtorArg(g, c, 2));
+        };
+        t["string..ctor(char*)"] = (g, c) =>
+            g.CallRuntime("csrt_pinvoke_string_from_native", g.Module.Llvm.Ptr, [g.Module.Llvm.Ptr, g.Module.Llvm.I1, g.Module.Llvm.I1],
+                CtorArg(g, c, 0), g.Module.Llvm.True, g.Module.Llvm.False);
+        t["string..ctor(sbyte*)"] = (g, c) =>
+            g.CallRuntime("csrt_pinvoke_string_from_native", g.Module.Llvm.Ptr, [g.Module.Llvm.Ptr, g.Module.Llvm.I1, g.Module.Llvm.I1],
+                CtorArg(g, c, 0), g.Module.Llvm.False, g.Module.Llvm.False);
+        t["string..ctor(char[], int, int)"] = (g, c) =>
+            g.CallRuntime("csrt_string_new_from_char_range", g.Module.Llvm.Ptr, [g.Module.Llvm.Ptr, g.Module.Llvm.I32, g.Module.Llvm.I32],
+                CtorArg(g, c, 0), CtorArg(g, c, 1), CtorArg(g, c, 2));
         t["string..ctor(char[])"] = (g, c) =>
             g.CallRuntime("csrt_string_new_from_chars", g.Module.Llvm.Ptr, [g.Module.Llvm.Ptr], CtorArg(g, c, 0));
         t["System.Text.StringBuilder..ctor()"] = (g, _) =>

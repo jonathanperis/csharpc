@@ -75,6 +75,9 @@ before every commit that touches `src/`.
   threading and OS boundaries.
 - New language feature: a focused `FunctionCodeGen.<Feature>.cs` / `ModuleCodeGen.<Feature>.cs`
   partial with small hooks into the existing dispatch, rather than growing shared files.
+- OS-facing library code (files, environment, native libraries): C# in `src/Csharpc/corelib/IO`
+  calling libc through `[DllImport]` (see `corelib/IO/Posix.cs`, docs/16-interop-io.md), not new C.
+  Intrinsics outrank shadows in `CoreLib.Map`, so remove an intrinsic when a shadow replaces it.
 - Generic code: always read types through `S(...)` / `TypeOf(op)` so substitution and corelib
   redirection apply.
 - Shared runtime ABI (method-table header, object/string/array layout) is defined once in

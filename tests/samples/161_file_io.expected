@@ -1,0 +1,44 @@
+True 17
+[hello]
+[world]
+[last]
+17
+hello
+world
+last
+more ünïcødé €
+38
+1000 1498500
+1000
+6 bom
+12 wide€
+sub/deep/y.cs;sub/x.cs
+a.txt
+b.txt
+bom.txt
+u16.txt
+1
+IOException: The file 'DIR/c.txt' already exists.
+False True
+FNF: Could not find file 'DIR/missing.txt'.
+DNF: Could not find a part of the path 'DIR/nodir/missing.txt'.
+UA: Access to the path 'DIR' is denied.
+IO: Directory not empty : 'DIR/sub'
+42 3.5 str€ True -7 z
+29 29
+Unable to read beyond the end of the stream.
+7
+abc|def|True
+x=5
+1.5
+<a>
+<b>
+<c>
+via TextWriter 1
+c2
+fast
+False
+val True
+DIR/r.txt
+6 ok€ Hi
+False

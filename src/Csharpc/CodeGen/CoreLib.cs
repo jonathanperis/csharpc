@@ -201,6 +201,10 @@ public sealed class CoreLib
             result = InConstructed(match, shadowType);
             if (method.IsGenericMethod && !method.IsDefinition) result = result.Construct([.. method.TypeArguments]);
         }
+        // An override the shadow doesn't redeclare (UTF8Encoding.GetPreamble): bind to the base member; the
+        // call still dispatches virtually to whatever the shadow hierarchy overrides.
+        else if (method.OverriddenMethod is { } overridden && method.ContainingType is { } derived && TryMap(derived) is not null)
+            result = Map(overridden);
         else if (method.IsStatic && method.ContainingType is { } owner
                  && _memberShadowNames.TryGetValue(Mangler.MetadataName(owner.OriginalDefinition), out var extensions))
         {
@@ -224,6 +228,17 @@ public sealed class CoreLib
         if (property.ContainingType is { } type && TryMap(type) is { } shadowType
             && MatchDefinition(property.OriginalDefinition, shadowType.OriginalDefinition) is IPropertySymbol match)
             result = InConstructed(match, shadowType);
+        else if (property.IsStatic && property.ContainingType is { } owner
+                 && _memberShadowNames.TryGetValue(Mangler.MetadataName(owner.OriginalDefinition), out var extensions))
+        {
+            // [ShadowMembers] classes can supply static properties too (Console.Out, Environment.CurrentDirectory).
+            foreach (var extensionName in extensions)
+                if (Resolve(extensionName) is { } extension && MatchDefinition(property.OriginalDefinition, extension) is IPropertySymbol extra)
+                {
+                    result = extra;
+                    break;
+                }
+        }
         _cache[property] = result;
         return result;
     }

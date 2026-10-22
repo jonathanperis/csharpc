@@ -15,6 +15,7 @@ public sealed partial class FunctionCodeGen
 
     private LLVMValueRef EmitInvocation(IInvocationOperation inv)
     {
+        if (Intrinsics.TryGetConsoleFastPath(inv, out var consoleFastPath)) return consoleFastPath(this, inv);
         var target = S(inv.TargetMethod);
         if (IsCoreIntrinsic(target)) return EmitCoreIntrinsic(target, inv);
         // `T.Create()` on a static abstract/virtual interface member: after substitution T is concrete.

@@ -1,0 +1,45 @@
+'': name='' stem='' ext='' has=False dir='<null>' rooted=False root='' ends=False
+'/': name='' stem='' ext='' has=False dir='<null>' rooted=True root='/' ends=True
+'a': name='a' stem='a' ext='' has=False dir='' rooted=False root='' ends=False
+'/a': name='a' stem='a' ext='' has=False dir='/' rooted=True root='/' ends=False
+'a/': name='' stem='' ext='' has=False dir='a' rooted=False root='' ends=True
+'/a/b/': name='' stem='' ext='' has=False dir='/a/b' rooted=True root='/' ends=True
+'a/b.c': name='b.c' stem='b' ext='.c' has=True dir='a' rooted=False root='' ends=False
+'/a/b.c.d': name='b.c.d' stem='b.c' ext='.d' has=True dir='/a' rooted=True root='/' ends=False
+'.bashrc': name='.bashrc' stem='' ext='.bashrc' has=True dir='' rooted=False root='' ends=False
+'dir.d/file': name='file' stem='file' ext='' has=False dir='dir.d' rooted=False root='' ends=False
+'a//b': name='b' stem='b' ext='' has=False dir='a' rooted=False root='' ends=False
+'../x/./y': name='y' stem='y' ext='' has=False dir='../x/.' rooted=False root='' ends=False
+'/x/../../y': name='y' stem='y' ext='' has=False dir='/x/../..' rooted=True root='/' ends=False
+'file.': name='file.' stem='file' ext='' has=False dir='' rooted=False root='' ends=False
+'/a/b/c.tar.gz': name='c.tar.gz' stem='c.tar' ext='.gz' has=True dir='/a/b' rooted=True root='/' ends=False
+a/b/c
+a/b
+/b
+b
+a
+/z/w
+a/b
+a//b
+b/c
+a/b.md
+a/b.md
+a/b
+a/b.
+/a/c/d/
+/a/b/c
+/
+/base/dir/y
+../../d/e
+.
+c/d
+../..
+/a/b
+/
+/ / :
+2 1
+True False
+12 .
+True
+ArgumentException
+ArgumentNullException
