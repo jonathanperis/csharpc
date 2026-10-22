@@ -79,6 +79,7 @@ typedef struct csrt_Exception {
     csrt_String* message;
     struct csrt_Exception* inner;
     csrt_String* param_name;
+    csrt_String* actual_value;  // ArgumentOutOfRangeException(paramName, actualValue, message), formatted
 } csrt_Exception;
 typedef struct { csrt_MethodTable header; void* vtable[4]; } csrt_ExceptionMethodTable;
 enum { CSRT_SLOT_GET_MESSAGE = 3 };
@@ -88,6 +89,7 @@ _Noreturn void csrt_rethrow(void* exception);
 _Noreturn void csrt_throw(const csrt_MethodTable* exception_type, csrt_String* message);  // by type name
 void* csrt_begin_catch(void* unwind_exception);
 void csrt_exception_init(void* exception, csrt_String* message, void* inner, csrt_String* param_name);
+void csrt_exception_set_actual_value(void* exception, csrt_String* actual_value);
 csrt_String* csrt_exception_get_message(void* exception);
 csrt_String* csrt_exception_to_string(void* exception);
 _Noreturn void csrt_unhandled_exception(void* exception);
@@ -134,8 +136,6 @@ void csrt_console_write_i32(int32_t v);
 void csrt_console_write_i64(int64_t v);
 void csrt_console_write_u32(uint32_t v);
 void csrt_console_write_u64(uint64_t v);
-void csrt_console_write_f64(double v);
-void csrt_console_write_f32(float v);
 void csrt_console_write_bool(bool v);
 void csrt_console_write_char(uint16_t v);
 void csrt_console_newline(void);

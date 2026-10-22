@@ -77,20 +77,30 @@ public sealed partial class FunctionCodeGen
         return L.ConstStruct(L.ConstInt(L.I32, bits[3]), L.ConstInt(L.I32, bits[2]), L.ConstUInt(L.I64, lo64));
     }
 
-    /// <summary>result = fn(&amp;result, &amp;a, &amp;b) style runtime call returning a decimal value.</summary>
+    /// <summary>
+    /// A decimal operation returning a decimal value, by its former runtime name; decimals are C#
+    /// (corelib DecimalOps.cs, ADR 0008) and take and return the { flags, hi, lo } struct by value.
+    /// </summary>
     internal LLVMValueRef DecimalCall(string fn, LLVMTypeRef[] extraTypes, params LLVMValueRef[] operands)
     {
-        var result = NewTemp(DecimalType, "dec");
-        var args = new List<LLVMValueRef> { result };
-        var types = new List<LLVMTypeRef> { L.Ptr };
-        var extra = 0;
-        foreach (var operand in operands)
+        _ = extraTypes;
+        var method = fn switch
         {
-            if (operand.Type.Handle == DecimalType.Handle) { args.Add(Spill(operand, "dec.arg")); types.Add(L.Ptr); }
-            else { args.Add(operand); types.Add(extraTypes[extra++]); }
-        }
-        CallRuntime(fn, L.Void, [.. types], [.. args]);
-        return _b.Load(DecimalType, result);
+            "csrt_decimal_add" => "Add",
+            "csrt_decimal_sub" => "Subtract",
+            "csrt_decimal_mul" => "Multiply",
+            "csrt_decimal_div" => "Divide",
+            "csrt_decimal_rem" => "Remainder",
+            "csrt_decimal_negate" => "Negate",
+            "csrt_decimal_round" => "Round",
+            "csrt_decimal_from_i64" => "FromInt64",
+            "csrt_decimal_from_u64" => "FromUInt64",
+            "csrt_decimal_from_f64" => "FromDouble",
+            "csrt_decimal_from_f32" => "FromSingle",
+            "csrt_decimal_parse" => "Parse",
+            _ => throw new InvalidOperationException($"unknown decimal operation {fn}"),
+        };
+        return CallCoreLib("DecimalOps", method, operands);
     }
 
     internal LLVMValueRef DecimalCompare(LLVMValueRef a, LLVMValueRef b) =>

@@ -86,12 +86,3 @@ void csrt_console_error_write_string(csrt_String* s) {
 }
 
 void csrt_console_flush(void) { fflush(stdout); }
-
-/// Math.Round(double, int digits), MidpointRounding.ToEven. .NET rounds the exact decimal value of
-/// the double (2.355 is really 2.35499999... -> 2.35), which is precisely what glibc's %.*f does.
-double csrt_math_round_digits(double value, int32_t digits) {
-    if (digits < 0 || digits > 15 || !isfinite(value) || fabs(value) >= 1e16) return value;
-    char buf[400];
-    snprintf(buf, sizeof buf, "%.*f", digits, value);
-    return strtod(buf, NULL);
-}

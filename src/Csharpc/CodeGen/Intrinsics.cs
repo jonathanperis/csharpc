@@ -249,15 +249,8 @@ internal static class Intrinsics
         AddStringMethods(t);
         AddTaskMethods(t);
 
-        // ---- System.Char / parsing (src/runtime/strings.c) -----------------------------------------
-        foreach (var (name, fn) in new[] { ("IsDigit", "csrt_char_is_digit"), ("IsLetter", "csrt_char_is_letter"),
-                     ("IsLetterOrDigit", "csrt_char_is_letter_or_digit"), ("IsWhiteSpace", "csrt_char_is_white_space"),
-                     ("IsUpper", "csrt_char_is_upper"), ("IsLower", "csrt_char_is_lower"), ("IsPunctuation", "csrt_char_is_punctuation") })
-            t[$"char.{name}(char)"] = (g, inv) => g.CallRuntime(fn, g.Module.Llvm.I1, [g.Module.Llvm.I16], Arg(g, inv, 0));
-        t["char.ToUpper(char)"] = (g, inv) => g.CallRuntime("csrt_char_to_upper", g.Module.Llvm.I16, [g.Module.Llvm.I16], Arg(g, inv, 0));
-        t["char.ToLower(char)"] = (g, inv) => g.CallRuntime("csrt_char_to_lower", g.Module.Llvm.I16, [g.Module.Llvm.I16], Arg(g, inv, 0));
-        t["char.ToUpperInvariant(char)"] = t["char.ToUpper(char)"];
-        t["char.ToLowerInvariant(char)"] = t["char.ToLower(char)"];
+        // ---- parsing (src/runtime/strings.c) ---------------------------------------------------------
+        // System.Char classification/casing: src/Csharpc/corelib/StringOps.cs (CharOps).
         t["int.Parse(string, System.IFormatProvider)"] = (g, inv) => { Arg(g, inv, 1); return g.CallRuntime("csrt_int32_parse", g.Module.Llvm.I32, [g.Module.Llvm.Ptr], Arg(g, inv, 0)); };
         t["long.Parse(string, System.IFormatProvider)"] = (g, inv) => { Arg(g, inv, 1); return g.CallRuntime("csrt_int64_parse", g.Module.Llvm.I64, [g.Module.Llvm.Ptr], Arg(g, inv, 0)); };
         t["double.Parse(string, System.IFormatProvider)"] = (g, inv) => { Arg(g, inv, 1); return g.CallRuntime("csrt_double_parse", g.Module.Llvm.F64, [g.Module.Llvm.Ptr], Arg(g, inv, 0)); };
@@ -273,42 +266,7 @@ internal static class Intrinsics
                 return g.CallRuntime(fn, l.I1, [l.Ptr, l.Ptr], s, result);
             };
 
-        // ---- System.Text.StringBuilder (src/runtime/strings.c) -------------------------------------
-        IntrinsicHandler sbAppend(string fn, Func<FunctionCodeGen, IInvocationOperation, LLVMValueRef[]> extra, Func<LlvmContext, LLVMTypeRef[]> types) =>
-            (g, inv) =>
-            {
-                var self = g.EmitValue(inv.Instance!);
-                return g.CallRuntime(fn, g.Module.Llvm.Ptr, [g.Module.Llvm.Ptr, .. types(g.Module.Llvm)], [self, .. extra(g, inv)]);
-            };
-        t["System.Text.StringBuilder.Append(string)"] = sbAppend("csrt_sb_append_string", (g, inv) => [Arg(g, inv, 0)], l => [l.Ptr]);
-        // AppendJoin: join with the corelib's string.Join (or the runtime one for arrays), then append.
-        foreach (var separator in new[] { "char", "string" })
-        {
-            t[$"System.Text.StringBuilder.AppendJoin({separator}, System.Collections.Generic.IEnumerable<T>)"] = (g, inv) =>
-                AppendJoined(g, inv, g.CallCoreLib("StringExtras", "Join", inv, inv.TargetMethod.TypeArguments[0], Separator(g, inv), Arg(g, inv, 1)));
-            t[$"System.Text.StringBuilder.AppendJoin({separator}, string[])"] = (g, inv) =>
-                AppendJoined(g, inv, g.CallRuntime("csrt_string_join", g.Module.Llvm.Ptr, [g.Module.Llvm.Ptr, g.Module.Llvm.Ptr], Separator(g, inv), Arg(g, inv, 1)));
-        }
-        t["System.Text.StringBuilder.Append(char)"] = sbAppend("csrt_sb_append_char", (g, inv) => [Arg(g, inv, 0), g.Module.Llvm.ConstInt(g.Module.Llvm.I32, 1)], l => [l.I16, l.I32]);
-        t["System.Text.StringBuilder.Append(char, int)"] = sbAppend("csrt_sb_append_char", (g, inv) => [Arg(g, inv, 0), Arg(g, inv, 1)], l => [l.I16, l.I32]);
-        foreach (var type in new[] { "double", "float", "object" })
-            t[$"System.Text.StringBuilder.Append({type})"] = sbAppend("csrt_sb_append_string",
-                (g, inv) => [g.ToStringValue(inv.Arguments[0].Value)], l => [l.Ptr]);
-        // Integers and bools format straight into the builder's buffer (no temporary string).
-        foreach (var (type, signed) in new[] { ("int", true), ("long", true), ("short", true), ("sbyte", true), ("uint", false), ("ulong", false), ("ushort", false), ("byte", false) })
-            t[$"System.Text.StringBuilder.Append({type})"] = sbAppend(signed ? "csrt_sb_append_i64" : "csrt_sb_append_u64",
-                (g, inv) => [ArgAsI64(g, inv, signed)], l => [l.I64]);
-        t["System.Text.StringBuilder.Append(bool)"] = sbAppend("csrt_sb_append_bool", (g, inv) => [Arg(g, inv, 0)], l => [l.I1]);
-        t["System.Text.StringBuilder.AppendLine()"] = sbAppend("csrt_sb_append_char",
-            (g, _) => [g.Module.Llvm.ConstInt(g.Module.Llvm.I16, '\n'), g.Module.Llvm.ConstInt(g.Module.Llvm.I32, 1)], l => [l.I16, l.I32]);
-        t["System.Text.StringBuilder.AppendLine(string)"] = (g, inv) =>
-        {
-            var l = g.Module.Llvm;
-            var sb = g.CallRuntime("csrt_sb_append_string", l.Ptr, [l.Ptr, l.Ptr], g.EmitValue(inv.Instance!), Arg(g, inv, 0));
-            return g.CallRuntime("csrt_sb_append_char", l.Ptr, [l.Ptr, l.I16, l.I32], sb, l.ConstInt(l.I16, '\n'), l.ConstInt(l.I32, 1));
-        };
-        t["System.Text.StringBuilder.ToString()"] = (g, inv) => g.CallRuntime("csrt_sb_to_string", g.Module.Llvm.Ptr, [g.Module.Llvm.Ptr], g.EmitValue(inv.Instance!));
-        t["System.Text.StringBuilder.Clear()"] = (g, inv) => g.CallRuntime("csrt_sb_clear", g.Module.Llvm.Ptr, [g.Module.Llvm.Ptr], g.EmitValue(inv.Instance!));
+        // System.Text.StringBuilder: src/Csharpc/corelib/StringBuilder.cs (StringBuilderImpl).
 
         // ---- System.Math -----------------------------------------------------------------------
         foreach (var (name, llvm) in new[] { ("Sqrt", "llvm.sqrt"), ("Floor", "llvm.floor"), ("Ceiling", "llvm.ceil"),
@@ -349,6 +307,14 @@ internal static class Intrinsics
         }
         t["System.Math.Round(double, int)"] = (g, inv) =>
             g.CallRuntime("csrt_math_round_digits", g.Module.Llvm.F64, [g.Module.Llvm.F64, g.Module.Llvm.I32], Arg(g, inv, 0), Arg(g, inv, 1));
+        foreach (var (name, to) in new[] { ("DoubleToInt64Bits(double)", "i64"), ("Int64BitsToDouble(long)", "f64"), ("DoubleToUInt64Bits(double)", "i64"),
+                     ("UInt64BitsToDouble(ulong)", "f64"), ("SingleToInt32Bits(float)", "i32"), ("Int32BitsToSingle(int)", "f32"),
+                     ("SingleToUInt32Bits(float)", "i32"), ("UInt32BitsToSingle(uint)", "f32") })
+            t[$"System.BitConverter.{name}"] = (g, inv) =>
+            {
+                var l = g.Module.Llvm;
+                return g.Builder.Cast(LLVMOpcode.BitCast, Arg(g, inv, 0), to switch { "i64" => l.I64, "f64" => l.F64, "i32" => l.I32, _ => l.F32 });
+            };
         t["System.Math.Log2(double)"] = (g, inv) => CallUnaryF64(g, "llvm.log2.f64", Arg(g, inv, 0));
         foreach (var type in new[] { "int", "long", "double", "float", "short", "sbyte" })
             t[$"System.Math.Sign({type})"] = (g, inv) =>
@@ -382,16 +348,16 @@ internal static class Intrinsics
         // IEEE 754-2019 maximum/minimum: NaN-propagating and -0 < +0, exactly .NET Core 3.0+ Math.Max/Min.
         t["System.Math.Max(double, double)"] = (g, inv) => CallBinaryF64(g, "llvm.maximum.f64", Arg(g, inv, 0), Arg(g, inv, 1));
         t["System.Math.Min(double, double)"] = (g, inv) => CallBinaryF64(g, "llvm.minimum.f64", Arg(g, inv, 0), Arg(g, inv, 1));
-        // NumberStyles-aware parsing (runtime/parse.c); the IFormatProvider is invariant by construction.
-        foreach (var (type, bits, signed, name) in new[] { ("int", 32, true, "Int32"), ("long", 64, true, "Int64"), ("short", 16, true, "Int16"),
+        // NumberStyles-aware parsing (corelib/Number.Parsing.cs); the IFormatProvider is invariant by construction.
+        foreach (var (type, bits, signed, _) in new[] { ("int", 32, true, "Int32"), ("long", 64, true, "Int64"), ("short", 16, true, "Int16"),
                      ("byte", 8, false, "Byte"), ("uint", 32, false, "UInt32"), ("ulong", 64, false, "UInt64"), ("sbyte", 8, true, "SByte"), ("ushort", 16, false, "UInt16") })
         {
             IntrinsicHandler parse = (g, inv) =>
             {
                 var l = g.Module.Llvm;
                 if (inv.Arguments.Length > 2) Arg(g, inv, 2);
-                var v = g.CallRuntime("csrt_parse_i64_styled_or_throw", l.I64, [l.Ptr, l.I32, l.I32, l.I1, l.Ptr],
-                    Arg(g, inv, 0), Arg(g, inv, 1), l.ConstInt(l.I32, bits), signed ? l.True : l.False, g.Module.CString(name));
+                var v = g.CallCoreLib("Number", "ParseInt64StyledOrThrow",
+                    Arg(g, inv, 0), Arg(g, inv, 1), l.ConstInt(l.I32, bits), signed ? l.True : l.False);
                 return bits == 64 ? v : g.Builder.Cast(LLVMOpcode.Trunc, v, l.IntTypeOf(bits));
             };
             t[$"{type}.Parse(string, System.Globalization.NumberStyles)"] = parse;
@@ -432,7 +398,7 @@ internal static class Intrinsics
             var l = g.Module.Llvm;
             Arg(g, inv, 1);
             var target = g.AddressOf(inv.Arguments.First(a => a.Parameter!.Ordinal == 2).Value);
-            var status = g.CallRuntime("csrt_parse_f64_styled", l.I32, [l.Ptr, l.I32, l.Ptr], Arg(g, inv, 0), l.ConstInt(l.I32, 167 /* Float | AllowThousands */), target);
+            var status = g.CallRuntime("csrt_parse_f64_styled", l.I32, [l.Ptr, l.I32, l.Ptr], Arg(g, inv, 0), l.ConstInt(l.I32, 231 /* Float | AllowThousands */), target);
             return g.Builder.ICmp(LLVMIntPredicate.EQ, status, l.ConstInt(l.I32, 1));
         };
 
@@ -505,50 +471,10 @@ internal static class Intrinsics
         static LLVMValueRef I32(FunctionCodeGen g, int v) => g.Module.Llvm.ConstInt(g.Module.Llvm.I32, v);
         Func<LlvmContext, LLVMTypeRef> ptr = l => l.Ptr, i32 = l => l.I32, i1 = l => l.I1;
 
-        Add("string.Insert(int, string)", "csrt_string_insert", ptr, l => [l.I32, l.Ptr], (g, i) => [Arg(g, i, 0), Arg(g, i, 1)]);
-        Add("string.Remove(int)", "csrt_string_remove", ptr, l => [l.I32, l.I32], (g, i) => [Arg(g, i, 0), I32(g, -1)]);
-        Add("string.Remove(int, int)", "csrt_string_remove", ptr, l => [l.I32, l.I32], (g, i) => [Arg(g, i, 0), Arg(g, i, 1)]);
-        Add("string.Substring(int)", "csrt_string_substring_from", ptr, l => [l.I32], (g, i) => [Arg(g, i, 0)]);
-        Add("string.Substring(int, int)", "csrt_string_substring", ptr, l => [l.I32, l.I32], (g, i) => [Arg(g, i, 0), Arg(g, i, 1)]);
-        Add("string.IndexOf(char)", "csrt_string_index_of_char", i32, l => [l.I16, l.I32], (g, i) => [Arg(g, i, 0), I32(g, 0)]);
-        Add("string.IndexOf(char, int)", "csrt_string_index_of_char", i32, l => [l.I16, l.I32], (g, i) => [Arg(g, i, 0), Arg(g, i, 1)]);
-        Add("string.IndexOf(string)", "csrt_string_index_of", i32, l => [l.Ptr, l.I32], (g, i) => [Arg(g, i, 0), I32(g, 0)]);
-        Add("string.IndexOf(string, int)", "csrt_string_index_of", i32, l => [l.Ptr, l.I32], (g, i) => [Arg(g, i, 0), Arg(g, i, 1)]);
-        Add("string.LastIndexOf(char)", "csrt_string_last_index_of_char", i32, l => [l.I16], (g, i) => [Arg(g, i, 0)]);
-        Add("string.Contains(string)", "csrt_string_contains", i1, l => [l.Ptr], (g, i) => [Arg(g, i, 0)]);
-        Add("string.Contains(char)", "csrt_string_contains_char", i1, l => [l.I16], (g, i) => [Arg(g, i, 0)]);
-        Add("string.StartsWith(string)", "csrt_string_starts_with", i1, l => [l.Ptr], (g, i) => [Arg(g, i, 0)]);
-        Add("string.EndsWith(string)", "csrt_string_ends_with", i1, l => [l.Ptr], (g, i) => [Arg(g, i, 0)]);
-        foreach (var (name, fn) in new[] { ("ToUpper", "csrt_string_to_upper"), ("ToUpperInvariant", "csrt_string_to_upper"),
-                     ("ToLower", "csrt_string_to_lower"), ("ToLowerInvariant", "csrt_string_to_lower") })
-            Add($"string.{name}()", fn, ptr, _ => [], (_, _) => []);
-        Add("string.Trim()", "csrt_string_trim", ptr, l => [l.I32], (g, _) => [I32(g, 3)]);
-        Add("string.IndexOfAny(char[])", "csrt_string_index_of_any", i32, l => [l.Ptr, l.I32], (g, i) => [Arg(g, i, 0), I32(g, 0)]);
-        Add("string.IndexOfAny(char[], int)", "csrt_string_index_of_any", i32, l => [l.Ptr, l.I32], (g, i) => [Arg(g, i, 0), Arg(g, i, 1)]);
-        Add("string.LastIndexOfAny(char[])", "csrt_string_last_index_of_any", i32, l => [l.Ptr], (g, i) => [Arg(g, i, 0)]);
-        foreach (var (name, mode) in new[] { ("Trim", 3), ("TrimStart", 1), ("TrimEnd", 2) })
-        {
-            Add($"string.{name}(char)", "csrt_string_trim_char", ptr, l => [l.I16, l.I32], (g, i) => [Arg(g, i, 0), I32(g, mode)]);
-            Add($"string.{name}(char[])", "csrt_string_trim_chars", ptr, l => [l.Ptr, l.I32], (g, i) => [Arg(g, i, 0), I32(g, mode)]);
-        }
-        Add("string.TrimStart()", "csrt_string_trim", ptr, l => [l.I32], (g, _) => [I32(g, 1)]);
-        Add("string.TrimEnd()", "csrt_string_trim", ptr, l => [l.I32], (g, _) => [I32(g, 2)]);
-        Add("string.Replace(char, char)", "csrt_string_replace_char", ptr, l => [l.I16, l.I16], (g, i) => [Arg(g, i, 0), Arg(g, i, 1)]);
-        Add("string.Replace(string, string)", "csrt_string_replace", ptr, l => [l.Ptr, l.Ptr], (g, i) => [Arg(g, i, 0), Arg(g, i, 1)]);
-        Add("string.PadLeft(int)", "csrt_string_pad", ptr, l => [l.I32, l.I16, l.I1], (g, i) => [Arg(g, i, 0), g.Module.Llvm.ConstInt(g.Module.Llvm.I16, ' '), g.Module.Llvm.True]);
-        Add("string.PadRight(int)", "csrt_string_pad", ptr, l => [l.I32, l.I16, l.I1], (g, i) => [Arg(g, i, 0), g.Module.Llvm.ConstInt(g.Module.Llvm.I16, ' '), g.Module.Llvm.False]);
-        Add("string.PadLeft(int, char)", "csrt_string_pad", ptr, l => [l.I32, l.I16, l.I1], (g, i) => [Arg(g, i, 0), Arg(g, i, 1), g.Module.Llvm.True]);
-        Add("string.PadRight(int, char)", "csrt_string_pad", ptr, l => [l.I32, l.I16, l.I1], (g, i) => [Arg(g, i, 0), Arg(g, i, 1), g.Module.Llvm.False]);
-        Add("string.Split(char, System.StringSplitOptions)", "csrt_string_split_char", ptr, l => [l.I16, l.I32], (g, i) => [Arg(g, i, 0), Arg(g, i, 1)]);
-        Add("string.ToCharArray()", "csrt_string_to_char_array", ptr, _ => [], (_, _) => []);
         Add("string.GetHashCode()", "csrt_string_get_hash_code", i32, _ => [], (_, _) => []);
         // Culture-sensitive (ICU root collation approximation, src/runtime/bclmisc.c), like .NET's CompareTo.
         Add("string.CompareTo(string)", "csrt_string_compare_culture", i32, l => [l.Ptr, l.I1], (g, i) => [Arg(g, i, 0), g.Module.Llvm.False]);
 
-        t["string.Join(string, string[])"] = (g, inv) =>
-            g.CallRuntime("csrt_string_join", g.Module.Llvm.Ptr, [g.Module.Llvm.Ptr, g.Module.Llvm.Ptr], Arg(g, inv, 0), Arg(g, inv, 1));
-        t["string.CompareOrdinal(string, string)"] = (g, inv) =>
-            g.CallRuntime("csrt_string_compare_ordinal", g.Module.Llvm.I32, [g.Module.Llvm.Ptr, g.Module.Llvm.Ptr], Arg(g, inv, 0), Arg(g, inv, 1));
     }
 
     private static LLVMValueRef CtorArg(FunctionCodeGen g, IObjectCreationOperation c, int ordinal)
@@ -788,12 +714,6 @@ internal static class Intrinsics
             g.CallRuntime("csrt_string_new_repeat", g.Module.Llvm.Ptr, [g.Module.Llvm.I16, g.Module.Llvm.I32], CtorArg(g, c, 0), CtorArg(g, c, 1));
         t["string..ctor(char[])"] = (g, c) =>
             g.CallRuntime("csrt_string_new_from_chars", g.Module.Llvm.Ptr, [g.Module.Llvm.Ptr], CtorArg(g, c, 0));
-        t["System.Text.StringBuilder..ctor()"] = (g, _) =>
-            g.CallRuntime("csrt_sb_new", g.Module.Llvm.Ptr, [g.Module.Llvm.I32], g.Module.Llvm.ConstInt(g.Module.Llvm.I32, 16));
-        t["System.Text.StringBuilder..ctor(int)"] = (g, c) =>
-            g.CallRuntime("csrt_sb_new", g.Module.Llvm.Ptr, [g.Module.Llvm.I32], CtorArg(g, c, 0));
-        t["System.Text.StringBuilder..ctor(string)"] = (g, c) =>
-            g.CallRuntime("csrt_sb_new_from_string", g.Module.Llvm.Ptr, [g.Module.Llvm.Ptr], CtorArg(g, c, 0));
         return t.ToFrozenDictionary();
     }
 
@@ -801,8 +721,6 @@ internal static class Intrinsics
     {
         Dictionary<string, PropertyHandler> t = [];
         AddTaskProperties(t);
-        t["System.Text.StringBuilder.Length"] = (g, p) =>
-            g.CallRuntime("csrt_sb_length", g.Module.Llvm.I32, [g.Module.Llvm.Ptr], g.EmitValue(p.Instance!));
         t["string.Length"] = (g, p) =>
         {
             var s = g.EmitValue(p.Instance!);

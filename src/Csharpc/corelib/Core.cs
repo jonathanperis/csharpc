@@ -30,6 +30,36 @@ namespace CsharpcCoreLib
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern bool IsValueType<T>();
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern object Box<T>(T value);
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern T Unbox<T>(object value);
+        /// <summary>A new string of `length` chars whose contents are NOT initialized: write every char before use.</summary>
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern string FastAllocateString(int length);
+        /// <summary>The chars of a string as a writable span — only for strings that haven't escaped yet.</summary>
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern Span<char> StringChars(string s);
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern long DoubleToBits(double value);
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern double BitsToDouble(long bits);
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern int SingleToBits(float value);
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern float BitsToSingle(int bits);
+        /// <summary>decimal's raw fields: flags (sign bit 31, scale in bits 16-23), high 32 and low 64 bits of the 96-bit integer.</summary>
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern int DecimalFlags(decimal value);
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern uint DecimalHi(decimal value);
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern ulong DecimalLo(decimal value);
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern decimal MakeDecimal(int flags, uint hi, ulong lo);
+    }
+
+    /// <summary>
+    /// On a static method of a [ShadowMembers("T")] class: implements the library *instance* method of
+    /// the same name whose parameters are this method's parameters after the first (the receiver).
+    /// </summary>
+    [AttributeUsage(AttributeTargets.Method, Inherited = false)]
+    internal sealed class ShadowInstanceAttribute : Attribute { }
+
+    /// <summary>
+    /// On a static method: also emitted as the C symbol `symbol` for the C runtime to call, in programs
+    /// that reference the runtime global `trigger` (ModuleCodeGen.RuntimeExports.cs).
+    /// </summary>
+    [AttributeUsage(AttributeTargets.Method, AllowMultiple = true, Inherited = false)]
+    internal sealed class RuntimeExportAttribute : Attribute
+    {
+        public RuntimeExportAttribute(string symbol, string trigger) { }
     }
 
     internal static class ThrowHelper
@@ -50,6 +80,27 @@ namespace CsharpcCoreLib
         public static void DuplicateKey(string key) => throw new ArgumentException("An item with the same key has already been added. Key: " + key);
         public static void EmptyQueue() => throw new InvalidOperationException("Queue empty.");
         public static void EmptyStack() => throw new InvalidOperationException("Stack empty.");
+
+        // ArgumentOutOfRangeException.ThrowIf* (.NET 8+): exact messages, with the actual value.
+        public static void IfNegative(int value, string paramName)
+        {
+            if (value < 0) throw new ArgumentOutOfRangeException(paramName, value, paramName + " ('" + value + "') must be a non-negative value.");
+        }
+
+        public static void IfGreaterThan(int value, int other, string paramName)
+        {
+            if (value > other)
+                throw new ArgumentOutOfRangeException(paramName, value, paramName + " ('" + value + "') must be less than or equal to '" + other + "'.");
+        }
+
+        public static void IfGreaterThan(uint value, uint other, string paramName)
+        {
+            if (value > other)
+                throw new ArgumentOutOfRangeException(paramName, value, paramName + " ('" + value + "') must be less than or equal to '" + other + "'.");
+        }
+
+        public static void IndexMustBeLessOrEqual(string paramName) =>
+            throw new ArgumentOutOfRangeException(paramName, "Index was out of range. Must be non-negative and less than or equal to the size of the collection.");
     }
 
     // ---------------------------------------------------------------------------------------------
