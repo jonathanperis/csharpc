@@ -54,3 +54,47 @@ csrt_String* csrt_enum_format_flags(uint64_t value, const uint64_t* values, csrt
     }
     return result;
 }
+
+static const csrt_MethodTable mt_format_exception = { NULL, "System.FormatException", 0, 0 };
+
+/// Enum.ToString(format) / "{e:F}": NULL means "G" (the caller formats by name). D: the number;
+/// X: hex digits for the full underlying width (uppercase for 'x' too, as in .NET); F: flags
+/// decomposition like .NET's TryFormatFlagNames (exact match searched from the highest index, then
+/// largest flags first, listed in ascending order; leftover bits give the number).
+/// `values` are all members sorted ascending (aliases included); `names` match.
+csrt_String* csrt_enum_format(uint64_t value, int64_t signed_value, csrt_String* format,
+                              const uint64_t* values, csrt_String* const* names, int32_t count, int32_t bits, bool is_signed) {
+    if (!format || format->length == 0) return NULL;
+    if (format->length == 1) {
+        switch (format->chars[0]) {
+        case 'G': case 'g': return NULL;
+        case 'D': case 'd': return is_signed ? csrt_string_from_i64(signed_value) : csrt_string_from_u64(value);
+        case 'X': case 'x': {
+            int digits = bits / 4;
+            csrt_String* s = csrt_alloc(&csrt_String_MT.header, (int64_t)(sizeof(csrt_String) + 2 * (size_t)digits));
+            s->length = digits;
+            for (int i = digits - 1; i >= 0; i--) { s->chars[i] = (uint16_t)"0123456789ABCDEF"[value & 15]; value >>= 4; }
+            return s;
+        }
+        case 'F': case 'f': {
+            for (int32_t i = count - 1; i >= 0; i--) if (values[i] == value) return names[i];
+            if (value == 0) return csrt_string_from_u64(0);
+            uint64_t remaining = value;
+            bool used[256] = {false};
+            for (int32_t i = count - 1; i >= 0; i--) {
+                if (values[i] != 0 && (remaining & values[i]) == values[i] && i < 256) { used[i] = true; remaining &= ~values[i]; }
+            }
+            if (remaining != 0) return is_signed ? csrt_string_from_i64(signed_value) : csrt_string_from_u64(value);
+            csrt_String* result = NULL;
+            csrt_String* separator = csrt_string_from_utf8(", ");
+            for (int32_t i = 0; i < count && i < 256; i++) {
+                if (!used[i]) continue;
+                result = result ? csrt_string_concat(csrt_string_concat(result, separator), names[i]) : names[i];
+            }
+            return result;
+        }
+        }
+    }
+    csrt_throw(&mt_format_exception,
+               csrt_string_from_utf8("Format string can be only \"G\", \"g\", \"X\", \"x\", \"F\", \"f\", \"D\" or \"d\"."));
+}

@@ -1,0 +1,42 @@
+Red Green Blue 
+0 5 6 
+None,Read,Write,Exec,All
+Zero,Max,Min
+True True True False
+Read, Exec Read, Exec 5 05 Read, Exec All 8 9 None
+7 7 00000007 00000005 Blue 6
+Part0+Pt Pt2(3) RS { A = 4 }
+Part0+Pt
+Pt Part0+Pt
+Color Part0+Color Int32 System.String List`1
+5 All
+Blue Read, Write False Red
+Green Blue System.Byte
+Blue Green Red
+8000000000000000 -9223372036854775808 255 FF
+1 True 6 True
+Part0+Pt Pt Part0
+FFFE FFFE 000A -2 B 3 RW, X RW, X 8 None RW RW, X
+A B B, C 3
+10 000A B R, X
+Format string can be only "G", "g", "X", "x", "F", "f", "D" or "d".
+AA
+R, X
+-2 -2 200 705032702 3 -7 60000 -294967296
+-2 -2 705032702 3 60000 -294967296
+-2 True False True
+{ s = Clubs, r = Two }
+{ s = Clubs, r = Three }
+{ s = Clubs, r = Four }
+{ s = Diamonds, r = Two }
+{ s = Diamonds, r = Three }
+{ s = Diamonds, r = Four }
+{ s = Hearts, r = Two }
+{ s = Hearts, r = Three }
+{ s = Hearts, r = Four }
+{ s = Spades, r = Two }
+{ s = Spades, r = Three }
+{ s = Spades, r = Four }
+4
+5 True 5
+x Hearts

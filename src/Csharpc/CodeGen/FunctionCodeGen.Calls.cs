@@ -856,7 +856,11 @@ public sealed partial class FunctionCodeGen
         valueOp = Unbox(valueOp);
         var type = TypeOf(valueOp)!;
         var value = EmitValue(valueOp);
-        if (type.TypeKind == TypeKind.Enum) return ToStringValue(valueOp);
+        if (type is INamedTypeSymbol { TypeKind: TypeKind.Enum } enumType)
+        {
+            var formatter = _m.EnumFormatWith(enumType);
+            return _b.Call(formatter.Type, formatter.Fn, [value, format]);
+        }
         if (BclValueTypes.IsDecimal(type)) return CallCoreLib("Number", "FormatDecimal", value, format);
         if (BclValueTypes.IsDateTime(type)) return CallRuntime("csrt_datetime_format", L.Ptr, [L.I64, L.Ptr], value, format);
         if (BclValueTypes.IsTimeSpan(type)) return CallRuntime("csrt_timespan_format", L.Ptr, [L.I64, L.Ptr], value, format);

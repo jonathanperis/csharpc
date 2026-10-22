@@ -32,4 +32,52 @@ public sealed partial class ModuleCodeGen
         var names = Module.AddGlobal(Mangler.TypeSymbol(enumType, "EnumNames"), Native.LLVMTypeOf(namesInit), namesInit, constant: true, linkage: LLVMLinkage.Internal);
         return _enumTables[enumType] = (values, names, members.Count);
     }
+
+    private readonly Dictionary<INamedTypeSymbol, LoweredFunction> _enumFormatWith = new(SymbolEqualityComparer.Default);
+
+    /// <summary>
+    /// string EnumFormat(T value, string format): Enum.ToString(format) and "{e:X}". "G" (or no format)
+    /// is the name formatter (EnumFormatter); D/X/F go through csrt_enum_format.
+    /// </summary>
+    public LoweredFunction EnumFormatWith(INamedTypeSymbol enumType)
+    {
+        enumType = enumType.OriginalDefinition;
+        if (_enumFormatWith.TryGetValue(enumType, out var existing)) return existing;
+        var underlying = enumType.EnumUnderlyingType!;
+        var valueType = Types.Value(underlying);
+        var signed = TypeMapper.IsSigned(underlying);
+        var type = Llvm.FunctionType(Llvm.Ptr, valueType, Llvm.Ptr);
+        var fn = Module.AddFunction(Mangler.TypeSymbol(enumType, "ToStringFormat"), type);
+        Native.LLVMSetLinkage(fn, LLVMLinkage.Internal);
+        var lowered = _enumFormatWith[enumType] = new LoweredFunction(fn, type);
+
+        var (values, names, count) = EnumTable(enumType);
+        using var b = new IrBuilder(Llvm);
+        b.PositionAtEnd(b.AppendBlock(fn, "entry"));
+        var value = fn.Param(0);
+        var asU64 = valueType.IntWidth == 64 ? value : b.Cast(LLVMOpcode.ZExt, value, Llvm.I64);
+        var asI64 = valueType.IntWidth == 64 ? value : b.Cast(signed ? LLVMOpcode.SExt : LLVMOpcode.ZExt, value, Llvm.I64);
+        var format = Runtime("csrt_enum_format", Llvm.Ptr, Llvm.I64, Llvm.I64, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.I32, Llvm.I32, Llvm.I1);
+        var formatted = b.Call(format.Type, format.Fn, [asU64, asI64, fn.Param(1), values, names,
+            Llvm.ConstInt(Llvm.I32, count), Llvm.ConstInt(Llvm.I32, valueType.IntWidth), signed ? Llvm.True : Llvm.False]);
+        var byName = b.AppendBlock(fn, "general");
+        var done = b.AppendBlock(fn, "done");
+        b.CondBr(b.ICmp(LLVMIntPredicate.EQ, formatted, LlvmContext.Null(Llvm.Ptr)), byName, done);
+        b.PositionAtEnd(done);
+        b.Ret(formatted);
+        b.PositionAtEnd(byName);
+        var general = EnumFormatter(enumType);
+        b.Ret(b.Call(general.Type, general.Fn, [value]));
+        return lowered;
+    }
+    /// <summary>Enum.GetHashCode(): the underlying integer's GetHashCode (small types widen, 64-bit folds lo ^ hi).</summary>
+    public LLVMValueRef EnumHash(IrBuilder b, LLVMValueRef value, INamedTypeSymbol enumType)
+    {
+        var underlying = enumType.EnumUnderlyingType!;
+        var width = Types.Value(underlying).IntWidth;
+        if (width < 32) return b.Cast(TypeMapper.IsSigned(underlying) ? LLVMOpcode.SExt : LLVMOpcode.ZExt, value, Llvm.I32);
+        if (width == 32) return value;
+        var high = b.Cast(LLVMOpcode.Trunc, b.BinOp(LLVMOpcode.LShr, value, Llvm.ConstInt(Llvm.I64, 32)), Llvm.I32);
+        return b.BinOp(LLVMOpcode.Xor, b.Cast(LLVMOpcode.Trunc, value, Llvm.I32), high);
+    }
 }

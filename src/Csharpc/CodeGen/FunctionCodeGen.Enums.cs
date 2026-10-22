@@ -9,12 +9,33 @@ public sealed partial class FunctionCodeGen
 {
     private LLVMValueRef? TryEnumStatic(IInvocationOperation inv, IMethodSymbol target)
     {
-        if (!target.IsGenericMethod || target.TypeArguments[0] is not INamedTypeSymbol { TypeKind: TypeKind.Enum } enumType) return null;
+        var args = inv.Arguments.OrderBy(a => a.Parameter!.Ordinal).ToList();
+        INamedTypeSymbol enumType;
+        if (target.IsGenericMethod)
+        {
+            if (S(target.TypeArguments[0]) is not INamedTypeSymbol { TypeKind: TypeKind.Enum } generic) return null;
+            enumType = generic;
+        }
+        else
+        {
+            // The Type overloads (Enum.GetValues(typeof(Color))): with a typeof operand they are the
+            // generic ones in disguise; the leading Type argument is dropped.
+            if (target.Parameters.FirstOrDefault()?.Type is not { Name: "Type", ContainingNamespace.Name: "System" }) return null;
+            if (args[0].Value is not ITypeOfOperation typeOf || S(typeOf.TypeOperand) is not INamedTypeSymbol { TypeKind: TypeKind.Enum } named)
+            {
+                if (target.Name is "GetValues" or "GetNames" or "IsDefined" or "Parse" or "GetUnderlyingType")
+                    throw CompileError.Unsupported($"Enum.{target.Name} with a Type that is not typeof(an enum)", inv);
+                return null;
+            }
+            enumType = named;
+            args.RemoveAt(0);
+            if (TryEnumTypeOverload(inv, target, enumType, args) is { } handled) return handled;
+            if (target.Name is not ("GetValues" or "GetNames" or "Parse")) return null;  // GetName(Type, object): Intrinsics
+        }
         var underlying = enumType.EnumUnderlyingType!;
         var valueType = T.Value(underlying);
         var bits = (int)valueType.IntWidth;
         var signed = TypeMapper.IsSigned(underlying);
-        var args = inv.Arguments.OrderBy(a => a.Parameter!.Ordinal).ToList();
         LLVMValueRef Arg(int i) => Coerce(EmitValue(args[i].Value), TypeOf(args[i].Value), S(args[i].Parameter!.Type));
         LLVMValueRef Narrow(LLVMValueRef v64) => bits == 64 ? v64 : _b.Cast(LLVMOpcode.Trunc, v64, valueType);
         LLVMValueRef[] Table()
@@ -25,7 +46,7 @@ public sealed partial class FunctionCodeGen
 
         switch (target.Name, args.Count)
         {
-            case ("TryParse", 2 or 3):
+            case ("TryParse", 2 or 3) when target.IsGenericMethod:
             {
                 var s = Arg(0);
                 var ignoreCase = args.Count == 3 ? Arg(1) : L.False;
@@ -40,6 +61,9 @@ public sealed partial class FunctionCodeGen
             {
                 var s = Arg(0);
                 var ignoreCase = args.Count == 2 ? Arg(1) : L.False;
+                if (!target.IsGenericMethod)  // Enum.Parse(Type, string): the parsed value, boxed
+                    return Box(Narrow(CallRuntime("csrt_enum_parse_or_throw", L.I64, [L.Ptr, L.I1, L.Ptr, L.Ptr, L.I32, L.I32, L.I1],
+                        [s, ignoreCase, .. Table()])), enumType, inv);
                 return Narrow(CallRuntime("csrt_enum_parse_or_throw", L.I64, [L.Ptr, L.I1, L.Ptr, L.Ptr, L.I32, L.I32, L.I1],
                     [s, ignoreCase, .. Table()]));
             }
@@ -75,6 +99,41 @@ public sealed partial class FunctionCodeGen
                 foreach (var (raw, n) in Enumerable.Reverse(members))
                     name = _b.Select(_b.ICmp(LLVMIntPredicate.EQ, v, L.ConstUInt(valueType, raw)), _m.StringLiteral(n), name);
                 return name;
+            }
+        }
+        return null;
+    }
+    /// <summary>Type overloads without a generic counterpart: GetUnderlyingType, IsDefined(Type, object).</summary>
+    private LLVMValueRef? TryEnumTypeOverload(IInvocationOperation inv, IMethodSymbol target, INamedTypeSymbol enumType, List<IArgumentOperation> args)
+    {
+        var underlying = enumType.EnumUnderlyingType!;
+        switch (target.Name)
+        {
+            case "GetUnderlyingType":
+                return TypeObject(underlying, inv);
+            case "IsDefined":
+            {
+                // The value is a boxed enum of this type, a boxed integer of its underlying type, or a name.
+                var raw = args[0].Value;
+                while (raw is IConversionOperation { Operand.Type: not null } c && (c.Operand.Type.IsValueType || c.Operand.Type.SpecialType == SpecialType.System_String)) raw = c.Operand;
+                var type = TypeOf(raw);
+                if (type?.SpecialType == SpecialType.System_String)
+                {
+                    var name = EmitValue(raw);
+                    NullCheck(name);
+                    LLVMValueRef any = L.False;
+                    foreach (var (_, n) in _m.EnumMembers(enumType))
+                        any = _b.BinOp(LLVMOpcode.Or, any, CallRuntime("csrt_string_equals", L.I1, [L.Ptr, L.Ptr], name, _m.StringLiteral(n)));
+                    return any;
+                }
+                if (!SymbolEqualityComparer.Default.Equals(type, enumType) && !SymbolEqualityComparer.Default.Equals(type, underlying))
+                    throw CompileError.Unsupported($"Enum.IsDefined with a value of type '{type}' (only '{enumType}', '{underlying}' or string)", inv);
+                var v = EmitValue(raw);
+                var valueType = T.Value(underlying);
+                LLVMValueRef found = L.False;
+                foreach (var (r, _) in _m.EnumMembers(enumType))
+                    found = _b.BinOp(LLVMOpcode.Or, found, _b.ICmp(LLVMIntPredicate.EQ, v, L.ConstUInt(valueType, r)));
+                return found;
             }
         }
         return null;
