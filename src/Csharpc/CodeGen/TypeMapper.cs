@@ -14,9 +14,9 @@ public sealed class TypeMapper(LlvmContext llvm, TargetMachine target)
     public LLVMTypeRef NativeInt { get; } = target.SizeOf(llvm.Ptr) == 8 ? llvm.I64 : llvm.I32;
     public ulong PointerSize { get; } = target.SizeOf(llvm.Ptr);
 
-    /// <summary>The method-table header, shared with csrt.h: { base, name, instance_size, flags }.</summary>
+    /// <summary>The method-table header, shared with csrt.h: { base, name, instance_size, flags, interfaces, interface_count, reserved }.</summary>
     public LLVMTypeRef MethodTableHeader => field.IsNull
-        ? field = Llvm.Struct(Llvm.Ptr, Llvm.Ptr, Llvm.I32, Llvm.I32)
+        ? field = Llvm.Struct(Llvm.Ptr, Llvm.Ptr, Llvm.I32, Llvm.I32, Llvm.Ptr, Llvm.I32, Llvm.I32)
         : field;
 
     /// <summary>string: { mt, i32 length, [0 x i16] chars }.</summary>
