@@ -90,6 +90,7 @@ _Noreturn void csrt_throw(const csrt_MethodTable* exception_type, csrt_String* m
 void* csrt_begin_catch(void* unwind_exception);
 void csrt_exception_init(void* exception, csrt_String* message, void* inner, csrt_String* param_name);
 void csrt_exception_set_actual_value(void* exception, csrt_String* actual_value);
+csrt_String* csrt_object_disposed_message(csrt_String* message, csrt_String* object_name);
 csrt_String* csrt_exception_get_message(void* exception);
 csrt_String* csrt_exception_to_string(void* exception);
 _Noreturn void csrt_unhandled_exception(void* exception);

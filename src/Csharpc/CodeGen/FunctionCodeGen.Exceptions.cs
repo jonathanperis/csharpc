@@ -313,7 +313,7 @@ public sealed partial class FunctionCodeGen
     /// <summary>Runs a BCL exception constructor: binds message / innerException / paramName by name.</summary>
     private void EmitExceptionConstructor(IMethodSymbol constructor, LLVMValueRef exception, ImmutableArray<IArgumentOperation> arguments)
     {
-        LLVMValueRef? message = null, inner = null, paramName = null, actualValue = null;
+        LLVMValueRef? message = null, inner = null, paramName = null, actualValue = null, objectName = null;
         foreach (var argument in arguments)
         {
             if (argument.Parameter?.Name == "actualValue")
@@ -331,9 +331,12 @@ public sealed partial class FunctionCodeGen
                 case "message": message = value; break;
                 case "innerException": inner = value; break;
                 case "paramName": paramName = value; break;
+                case "objectName": objectName = value; break;
                 // other parameters (unmatchedValue, ...) are evaluated for side effects only
             }
         }
+        if (objectName is { } name)  // ObjectDisposedException: "\nObject name: 'X'." is part of Message
+            message = CallRuntime("csrt_object_disposed_message", L.Ptr, [L.Ptr, L.Ptr], message ?? LlvmContext.Null(L.Ptr), name);
         if (message is null && s_defaultMessages.TryGetValue(Mangler.MetadataName(constructor.ContainingType), out var text))
             message = _m.StringLiteral(text);
         var none = LlvmContext.Null(L.Ptr);
