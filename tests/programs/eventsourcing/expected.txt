@@ -1,0 +1,31 @@
+PlaceOrder   o-1: 1 event(s)
+AddLine      o-1: 1 event(s)
+AddLine      o-1: 1 event(s)
+PlaceOrder   o-2: 1 event(s)
+AddLine      o-2: 1 event(s)
+SubmitOrder  o-1: 1 event(s)
+AddLine      o-1: REJECTED (only draft orders can change)
+PlaceOrder   o-3: 1 event(s)
+SubmitOrder  o-3: REJECTED (cannot submit an empty order)
+AddLine      o-3: 1 event(s)
+SubmitOrder  o-2: 1 event(s)
+  [audit] order o-2 cancelled: customer changed mind
+CancelOrder  o-2: 1 event(s)
+SubmitOrder  o-3: 1 event(s)
+ShipOrder    o-1: 1 event(s)
+CancelOrder  o-1: REJECTED (cannot cancel a shipped order)
+ShipOrder    o-9: REJECTED (unknown order)
+
+event stream (12 events, version by order):
+  o-1: v5
+  o-2: v4
+  o-3: v3
+
+read model:
+  o-1 alice  Shipped    lines=2 total=   54.47
+  o-2 bob    Cancelled  lines=1 total=   94.90
+  o-3 carol  Submitted  lines=1 total=  199.90
+
+revenue: shipped 54.47, pending 199.90, lost 94.90
+replayed o-1: o-1 by alice: Shipped, 2 lines, 54.47, v5
+snapshot without lines: 0 lines, same id: True, equal: False

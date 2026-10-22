@@ -281,6 +281,14 @@ internal static class Intrinsics
                 return g.CallRuntime(fn, g.Module.Llvm.Ptr, [g.Module.Llvm.Ptr, .. types(g.Module.Llvm)], [self, .. extra(g, inv)]);
             };
         t["System.Text.StringBuilder.Append(string)"] = sbAppend("csrt_sb_append_string", (g, inv) => [Arg(g, inv, 0)], l => [l.Ptr]);
+        // AppendJoin: join with the corelib's string.Join (or the runtime one for arrays), then append.
+        foreach (var separator in new[] { "char", "string" })
+        {
+            t[$"System.Text.StringBuilder.AppendJoin({separator}, System.Collections.Generic.IEnumerable<T>)"] = (g, inv) =>
+                AppendJoined(g, inv, g.CallCoreLib("StringExtras", "Join", inv, inv.TargetMethod.TypeArguments[0], Separator(g, inv), Arg(g, inv, 1)));
+            t[$"System.Text.StringBuilder.AppendJoin({separator}, string[])"] = (g, inv) =>
+                AppendJoined(g, inv, g.CallRuntime("csrt_string_join", g.Module.Llvm.Ptr, [g.Module.Llvm.Ptr, g.Module.Llvm.Ptr], Separator(g, inv), Arg(g, inv, 1)));
+        }
         t["System.Text.StringBuilder.Append(char)"] = sbAppend("csrt_sb_append_char", (g, inv) => [Arg(g, inv, 0), g.Module.Llvm.ConstInt(g.Module.Llvm.I32, 1)], l => [l.I16, l.I32]);
         t["System.Text.StringBuilder.Append(char, int)"] = sbAppend("csrt_sb_append_char", (g, inv) => [Arg(g, inv, 0), Arg(g, inv, 1)], l => [l.I16, l.I32]);
         foreach (var type in new[] { "double", "float", "object" })
@@ -374,6 +382,75 @@ internal static class Intrinsics
         // IEEE 754-2019 maximum/minimum: NaN-propagating and -0 < +0, exactly .NET Core 3.0+ Math.Max/Min.
         t["System.Math.Max(double, double)"] = (g, inv) => CallBinaryF64(g, "llvm.maximum.f64", Arg(g, inv, 0), Arg(g, inv, 1));
         t["System.Math.Min(double, double)"] = (g, inv) => CallBinaryF64(g, "llvm.minimum.f64", Arg(g, inv, 0), Arg(g, inv, 1));
+        // NumberStyles-aware parsing (runtime/parse.c); the IFormatProvider is invariant by construction.
+        foreach (var (type, bits, signed, name) in new[] { ("int", 32, true, "Int32"), ("long", 64, true, "Int64"), ("short", 16, true, "Int16"),
+                     ("byte", 8, false, "Byte"), ("uint", 32, false, "UInt32"), ("ulong", 64, false, "UInt64"), ("sbyte", 8, true, "SByte"), ("ushort", 16, false, "UInt16") })
+        {
+            IntrinsicHandler parse = (g, inv) =>
+            {
+                var l = g.Module.Llvm;
+                if (inv.Arguments.Length > 2) Arg(g, inv, 2);
+                var v = g.CallRuntime("csrt_parse_i64_styled_or_throw", l.I64, [l.Ptr, l.I32, l.I32, l.I1, l.Ptr],
+                    Arg(g, inv, 0), Arg(g, inv, 1), l.ConstInt(l.I32, bits), signed ? l.True : l.False, g.Module.CString(name));
+                return bits == 64 ? v : g.Builder.Cast(LLVMOpcode.Trunc, v, l.IntTypeOf(bits));
+            };
+            t[$"{type}.Parse(string, System.Globalization.NumberStyles)"] = parse;
+            t[$"{type}.Parse(string, System.Globalization.NumberStyles, System.IFormatProvider)"] = parse;
+            t[$"{type}.TryParse(string, System.Globalization.NumberStyles, System.IFormatProvider, {type})"] = (g, inv) =>
+            {
+                var l = g.Module.Llvm;
+                Arg(g, inv, 2);
+                var temp = g.NewTemp(l.I64, "parsed");
+                var status = g.CallRuntime("csrt_parse_i64_styled", l.I32, [l.Ptr, l.I32, l.I32, l.I1, l.Ptr],
+                    Arg(g, inv, 0), Arg(g, inv, 1), l.ConstInt(l.I32, bits), signed ? l.True : l.False, temp);
+                var ok = g.Builder.ICmp(LLVMIntPredicate.EQ, status, l.ConstInt(l.I32, 1));
+                var parsed = g.Builder.Load(l.I64, temp);
+                var value = g.Builder.Select(ok, parsed, l.ConstInt(l.I64, 0));
+                var target = g.AddressOf(inv.Arguments.First(a => a.Parameter!.Ordinal == 3).Value);
+                g.Builder.Store(bits == 64 ? value : g.Builder.Cast(LLVMOpcode.Trunc, value, l.IntTypeOf(bits)), target);
+                return ok;
+            };
+        }
+        IntrinsicHandler parseDouble = (g, inv) =>
+        {
+            var l = g.Module.Llvm;
+            if (inv.Arguments.Length > 2) Arg(g, inv, 2);
+            return g.CallRuntime("csrt_parse_f64_styled_or_throw", l.F64, [l.Ptr, l.I32], Arg(g, inv, 0), Arg(g, inv, 1));
+        };
+        t["double.Parse(string, System.Globalization.NumberStyles)"] = parseDouble;
+        t["double.Parse(string, System.Globalization.NumberStyles, System.IFormatProvider)"] = parseDouble;
+        t["double.TryParse(string, System.Globalization.NumberStyles, System.IFormatProvider, double)"] = (g, inv) =>
+        {
+            var l = g.Module.Llvm;
+            Arg(g, inv, 2);
+            var target = g.AddressOf(inv.Arguments.First(a => a.Parameter!.Ordinal == 3).Value);
+            var status = g.CallRuntime("csrt_parse_f64_styled", l.I32, [l.Ptr, l.I32, l.Ptr], Arg(g, inv, 0), Arg(g, inv, 1), target);
+            return g.Builder.ICmp(LLVMIntPredicate.EQ, status, l.ConstInt(l.I32, 1));
+        };
+        t["double.TryParse(string, System.IFormatProvider, double)"] = (g, inv) =>
+        {
+            var l = g.Module.Llvm;
+            Arg(g, inv, 1);
+            var target = g.AddressOf(inv.Arguments.First(a => a.Parameter!.Ordinal == 2).Value);
+            var status = g.CallRuntime("csrt_parse_f64_styled", l.I32, [l.Ptr, l.I32, l.Ptr], Arg(g, inv, 0), l.ConstInt(l.I32, 167 /* Float | AllowThousands */), target);
+            return g.Builder.ICmp(LLVMIntPredicate.EQ, status, l.ConstInt(l.I32, 1));
+        };
+
+        // Math.Clamp for the other numeric types: value < min ? min : value > max ? max : value.
+        foreach (var (type, signed) in new[] { ("long", true), ("short", true), ("sbyte", true), ("uint", false), ("ulong", false), ("byte", false), ("ushort", false) })
+            t[$"System.Math.Clamp({type}, {type}, {type})"] = (g, inv) =>
+            {
+                var (v, lo, hi) = (Arg(g, inv, 0), Arg(g, inv, 1), Arg(g, inv, 2));
+                return SelectCompare(g, SelectCompare(g, v, lo, signed ? LLVMIntPredicate.SGT : LLVMIntPredicate.UGT), hi, signed ? LLVMIntPredicate.SLT : LLVMIntPredicate.ULT);
+            };
+        foreach (var type in new[] { "double", "float" })
+            t[$"System.Math.Clamp({type}, {type}, {type})"] = (g, inv) =>
+            {
+                var b = g.Builder;
+                var (v, lo, hi) = (Arg(g, inv, 0), Arg(g, inv, 1), Arg(g, inv, 2));
+                var low = b.Select(b.FCmp(LLVMRealPredicate.OLT, v, lo), lo, v);   // NaN stays NaN
+                return b.Select(b.FCmp(LLVMRealPredicate.OGT, low, hi), hi, low);
+            };
         t["System.Math.Clamp(int, int, int)"] = (g, inv) =>
         {
             var v = Arg(g, inv, 0);
@@ -446,6 +523,14 @@ internal static class Intrinsics
                      ("ToLower", "csrt_string_to_lower"), ("ToLowerInvariant", "csrt_string_to_lower") })
             Add($"string.{name}()", fn, ptr, _ => [], (_, _) => []);
         Add("string.Trim()", "csrt_string_trim", ptr, l => [l.I32], (g, _) => [I32(g, 3)]);
+        Add("string.IndexOfAny(char[])", "csrt_string_index_of_any", i32, l => [l.Ptr, l.I32], (g, i) => [Arg(g, i, 0), I32(g, 0)]);
+        Add("string.IndexOfAny(char[], int)", "csrt_string_index_of_any", i32, l => [l.Ptr, l.I32], (g, i) => [Arg(g, i, 0), Arg(g, i, 1)]);
+        Add("string.LastIndexOfAny(char[])", "csrt_string_last_index_of_any", i32, l => [l.Ptr], (g, i) => [Arg(g, i, 0)]);
+        foreach (var (name, mode) in new[] { ("Trim", 3), ("TrimStart", 1), ("TrimEnd", 2) })
+        {
+            Add($"string.{name}(char)", "csrt_string_trim_char", ptr, l => [l.I16, l.I32], (g, i) => [Arg(g, i, 0), I32(g, mode)]);
+            Add($"string.{name}(char[])", "csrt_string_trim_chars", ptr, l => [l.Ptr, l.I32], (g, i) => [Arg(g, i, 0), I32(g, mode)]);
+        }
         Add("string.TrimStart()", "csrt_string_trim", ptr, l => [l.I32], (g, _) => [I32(g, 1)]);
         Add("string.TrimEnd()", "csrt_string_trim", ptr, l => [l.I32], (g, _) => [I32(g, 2)]);
         Add("string.Replace(char, char)", "csrt_string_replace_char", ptr, l => [l.I16, l.I16], (g, i) => [Arg(g, i, 0), Arg(g, i, 1)]);
@@ -751,6 +836,18 @@ internal static class Intrinsics
         foreach (var culture in new[] { "System.Globalization.CultureInfo.InvariantCulture", "System.Globalization.CultureInfo.CurrentCulture",
                      "System.Globalization.NumberFormatInfo.InvariantInfo", "System.Globalization.CultureInfo.CurrentUICulture" })
             t[culture] = (g, _) => LlvmContext.Null(g.Module.Llvm.Ptr);
+        // Int128 / UInt128 constants (i128; built with shifts since LLVMConstInt takes 64 bits).
+        foreach (var type in new[] { "System.Int128", "System.UInt128" })
+        {
+            var signed = type == "System.Int128";
+            LLVMValueRef AllOnes(FunctionCodeGen g) => g.Module.Llvm.ConstInt(g.Module.Llvm.IntTypeOf(128), -1);
+            LLVMValueRef TopBit(FunctionCodeGen g) => g.Builder.BinOp(LLVMOpcode.Shl, g.Module.Llvm.ConstInt(g.Module.Llvm.IntTypeOf(128), 1),
+                g.Module.Llvm.ConstInt(g.Module.Llvm.IntTypeOf(128), 127));
+            t[$"{type}.Zero"] = (g, _) => g.Module.Llvm.ConstInt(g.Module.Llvm.IntTypeOf(128), 0);
+            t[$"{type}.One"] = (g, _) => g.Module.Llvm.ConstInt(g.Module.Llvm.IntTypeOf(128), 1);
+            t[$"{type}.MinValue"] = (g, _) => signed ? TopBit(g) : g.Module.Llvm.ConstInt(g.Module.Llvm.IntTypeOf(128), 0);
+            t[$"{type}.MaxValue"] = (g, _) => signed ? g.Builder.BinOp(LLVMOpcode.LShr, AllOnes(g), g.Module.Llvm.ConstInt(g.Module.Llvm.IntTypeOf(128), 1)) : AllOnes(g);
+        }
         t["System.Environment.NewLine"] = (g, _) => g.Module.StringLiteral("\n");
         return t.ToFrozenDictionary();
     }
@@ -784,6 +881,19 @@ internal static class Intrinsics
         var text = value is null ? g.Module.StringLiteral("") : g.ToStringValue(value);
         if (newline) text = g.ConcatStrings(text, g.Module.StringLiteral("\n"));
         g.CallRuntime("csrt_console_error_write_string", l.Void, [l.Ptr], text);
+    }
+
+    private static LLVMValueRef Separator(FunctionCodeGen g, IInvocationOperation inv)
+    {
+        var l = g.Module.Llvm;
+        var sep = Arg(g, inv, 0);
+        return sep.Type.IsPointer ? sep : g.CallRuntime("csrt_string_from_char", l.Ptr, [l.I16], sep);
+    }
+
+    private static LLVMValueRef AppendJoined(FunctionCodeGen g, IInvocationOperation inv, LLVMValueRef joined)
+    {
+        var l = g.Module.Llvm;
+        return g.CallRuntime("csrt_sb_append_string", l.Ptr, [l.Ptr, l.Ptr], g.EmitValue(inv.Instance!), joined);
     }
 
     private static void ConsoleLock(FunctionCodeGen g, bool acquire) =>

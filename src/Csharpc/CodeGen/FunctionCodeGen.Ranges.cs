@@ -90,6 +90,23 @@ public sealed partial class FunctionCodeGen
             var (start, count) = ResolveRange(EmitValue(op.Argument), length);
             return CallRuntime("csrt_string_substring", L.Ptr, [L.Ptr, L.I32, L.I32], str, start, count);
         }
+        // Pattern-based: any compiled type (user types, corelib shadows like List<T>) with Count/Length plus
+        // this[int] (for Index) or Slice(int, int) (for Range).
+        if (TypeOf(op.Instance) is INamedTypeSymbol owner && _m.IsUserType(owner) && op.LengthSymbol is IPropertySymbol lengthProperty)
+        {
+            var lengthGetter = S(lengthProperty).GetMethod!;
+            var self = Receiver(op.Instance, lengthGetter);
+            if (owner.IsReferenceType) NullCheck(self);
+            var length = DirectCall(lengthGetter, [self]);
+            switch (op.IndexerSymbol)
+            {
+                case IPropertySymbol indexer when IsIndexType(op.Argument.Type):
+                    return DirectCall(S(indexer).GetMethod!, [self, ResolveIndex(EmitValue(op.Argument), length)]);
+                case IMethodSymbol slice when IsRangeType(op.Argument.Type):
+                    var (start, count) = ResolveRange(EmitValue(op.Argument), length);
+                    return DirectCall(S(slice), [self, start, count]);
+            }
+        }
         throw CompileError.Unsupported($"Index/Range indexer on '{instanceType}'", op);
     }
 
