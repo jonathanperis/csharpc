@@ -33,6 +33,7 @@ public sealed partial class FunctionCodeGen
         if (target.MethodKind == MethodKind.LocalFunction) return CallLocalFunction(inv);
         if (TypeMapper.IsNullable(target.ContainingType)) return EmitNullableMethod(inv);
         if (target.ContainingType is { IsTupleType: true } && !target.IsStatic && TryTupleMethod(inv, target) is { } tupleResult) return tupleResult;
+        if (TryValueEqualityCall(inv, target) is { } equalityResult) return equalityResult;
         // Span enumerators are ref structs with no state to dispose (the foreach finally calls IDisposable.Dispose).
         if (target.Name == "Dispose" && TypeMapper.IsSpanEnumerator(TypeOf(inv.Instance))) return default;
         if (!target.IsStatic && inv.Instance is { } receiver)

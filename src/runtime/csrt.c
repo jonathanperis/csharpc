@@ -532,15 +532,49 @@ static csrt_String* box_to_string_Single(void* o) { return csrt_string_from_f32(
 static csrt_String* box_to_string_Boolean(void* o) { return csrt_string_from_bool(*(uint8_t*)BOX_PAYLOAD(o) != 0); }
 static csrt_String* box_to_string_Char(void* o) { return csrt_string_from_char(*(uint16_t*)BOX_PAYLOAD(o)); }
 
+// Boxed primitives: Equals(object) is true for a box of the same type holding an Equal value, and
+// GetHashCode is the primitive's own .NET GetHashCode (deterministic, so programs can print it).
+// double/float: NaN equals NaN and 0.0 equals -0.0 (double.Equals), and both hash alike.
+static bool box_eq_Int32(int32_t a, int32_t b) { return a == b; }
+static bool box_eq_Int64(int64_t a, int64_t b) { return a == b; }
+static bool box_eq_UInt32(uint32_t a, uint32_t b) { return a == b; }
+static bool box_eq_UInt64(uint64_t a, uint64_t b) { return a == b; }
+static bool box_eq_Int16(int16_t a, int16_t b) { return a == b; }
+static bool box_eq_UInt16(uint16_t a, uint16_t b) { return a == b; }
+static bool box_eq_Byte(uint8_t a, uint8_t b) { return a == b; }
+static bool box_eq_SByte(int8_t a, int8_t b) { return a == b; }
+static bool box_eq_Double(double a, double b) { return a == b || (a != a && b != b); }
+static bool box_eq_Single(float a, float b) { return a == b || (a != a && b != b); }
+static bool box_eq_Boolean(bool a, bool b) { return a == b; }
+static bool box_eq_Char(uint16_t a, uint16_t b) { return a == b; }
+
+static int32_t box_h_Int32(int32_t v) { return v; }
+static int32_t box_h_Int64(int64_t v) { return (int32_t)v ^ (int32_t)(v >> 32); }
+static int32_t box_h_UInt32(uint32_t v) { return (int32_t)v; }
+static int32_t box_h_UInt64(uint64_t v) { return (int32_t)v ^ (int32_t)(v >> 32); }
+static int32_t box_h_Int16(int16_t v) { return v; }
+static int32_t box_h_UInt16(uint16_t v) { return v; }
+static int32_t box_h_Byte(uint8_t v) { return v; }
+static int32_t box_h_SByte(int8_t v) { return v; }
+static int32_t box_h_Double(double v) {
+    int64_t bits; memcpy(&bits, &v, sizeof bits);
+    if ((((uint64_t)bits - 1) & 0x7FFFFFFFFFFFFFFFull) >= 0x7FEFFFFFFFFFFFFFull) bits &= 0x7FF0000000000000ll;
+    return (int32_t)bits ^ (int32_t)(bits >> 32);
+}
+static int32_t box_h_Single(float v) {
+    int32_t bits; memcpy(&bits, &v, sizeof bits);
+    if ((((uint32_t)bits - 1) & 0x7FFFFFFFu) >= 0x7F7FFFFFu) bits &= 0x7F800000;
+    return bits;
+}
+static int32_t box_h_Boolean(bool v) { return v ? 1 : 0; }
+static int32_t box_h_Char(uint16_t v) { return (int32_t)v | ((int32_t)v << 16); }
+
 #define DEFINE_BOXED(Name, CType) \
     static bool box_equals_##Name(void* self, void* other) { \
         return other && ((csrt_Object*)other)->mt == ((csrt_Object*)self)->mt && \
-               memcmp(BOX_PAYLOAD(self), BOX_PAYLOAD(other), sizeof(CType)) == 0; \
+               box_eq_##Name(*(CType*)BOX_PAYLOAD(self), *(CType*)BOX_PAYLOAD(other)); \
     } \
-    static int32_t box_hash_##Name(void* self) { \
-        uint64_t bits = 0; memcpy(&bits, BOX_PAYLOAD(self), sizeof(CType)); \
-        return (int32_t)(bits ^ (bits >> 32)); \
-    } \
+    static int32_t box_hash_##Name(void* self) { return box_h_##Name(*(CType*)BOX_PAYLOAD(self)); } \
     const csrt_BuiltinMethodTable csrt_Boxed_##Name##_MT = { \
         { &csrt_Object_MT.header, "System." #Name, 8 + sizeof(CType), 0 }, \
         { (void*)box_to_string_##Name, (void*)box_equals_##Name, (void*)box_hash_##Name }, \
@@ -553,48 +587,13 @@ void* csrt_unbox(void* obj, const csrt_MethodTable* type) {
     return BOX_PAYLOAD(obj);
 }
 
-// ---------------------------------------------------------------------------------------------
-// Boxed user structs (payload at offset 8, instance_size = 8 + payload size)
-// ---------------------------------------------------------------------------------------------
+// Boxed enums (payload at offset 8, instance_size = 8 + payload size): Enum.Equals is a same-type,
+// same-value test. Their GetHashCode, and both members of boxed structs, are generated per type
+// (ModuleCodeGen.EnumMethodTable, ModuleCodeGen.StructEquality.cs).
 bool csrt_valuetype_equals(void* self, void* other) {
     const csrt_MethodTable* mt = ((csrt_Object*)self)->mt;
     if (!other || ((csrt_Object*)other)->mt != mt) return false;
     return memcmp((char*)self + 8, (char*)other + 8, mt->instance_size - 8) == 0;
-}
-
-int32_t csrt_valuetype_get_hash_code(void* self) {
-    const csrt_MethodTable* mt = ((csrt_Object*)self)->mt;
-    const unsigned char* p = (const unsigned char*)self + 8;
-    uint32_t h = 2166136261u;
-    for (uint32_t i = 0; i < mt->instance_size - 8; i++) h = (h ^ p[i]) * 16777619u;
-    return (int32_t)h;
-}
-
-// Structs with DateTime fields: the Kind (top two bits of each DateTime, the high byte's 0xC0 on
-// little-endian targets) takes no part in equality or hashing, as DateTime.Equals compares ticks only.
-// `offsets` lists the payload offsets of those DateTime fields in increasing order.
-static unsigned char masked_byte(const unsigned char* p, uint32_t i, const uint32_t* offsets, int32_t count) {
-    for (int32_t k = 0; k < count; k++)
-        if (i == offsets[k] + 7) return p[i] & 0x3F;
-    return p[i];
-}
-
-bool csrt_valuetype_equals_masked(void* self, void* other, const uint32_t* offsets, int32_t count) {
-    const csrt_MethodTable* mt = ((csrt_Object*)self)->mt;
-    if (!other || ((csrt_Object*)other)->mt != mt) return false;
-    const unsigned char* a = (const unsigned char*)self + 8;
-    const unsigned char* b = (const unsigned char*)other + 8;
-    for (uint32_t i = 0; i < mt->instance_size - 8; i++)
-        if (masked_byte(a, i, offsets, count) != masked_byte(b, i, offsets, count)) return false;
-    return true;
-}
-
-int32_t csrt_valuetype_get_hash_code_masked(void* self, const uint32_t* offsets, int32_t count) {
-    const csrt_MethodTable* mt = ((csrt_Object*)self)->mt;
-    const unsigned char* p = (const unsigned char*)self + 8;
-    uint32_t h = 2166136261u;
-    for (uint32_t i = 0; i < mt->instance_size - 8; i++) h = (h ^ masked_byte(p, i, offsets, count)) * 16777619u;
-    return (int32_t)h;
 }
 
 // ---------------------------------------------------------------------------------------------

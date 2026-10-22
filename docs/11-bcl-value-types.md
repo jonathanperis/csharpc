@@ -71,8 +71,8 @@ implementations, and static library fields (`string.Empty`, `TimeSpan.Zero`,
   .NET's `KindLocalAmbiguousDst`). `Ticks` masks the Kind off; arithmetic (`Add*`, `+`/`-`
   `TimeSpan`, `Date`) keeps every kind bit; equality, ordering and hashing look at the ticks only
   (`==`, `Equals`, `CompareTo`, `EqualityComparer`/`Comparer`, `Dictionary` keys, boxed `Equals` and
-  `GetHashCode`, records, tuples, and the byte-wise `ValueType.Equals`/`GetHashCode` of structs with
-  `DateTime` fields, which mask those bits). `UtcNow` and `UnixEpoch` are Utc; `Now` and `Today` are
+  `GetHashCode`, records, tuples, and the default `ValueType.Equals`/`GetHashCode` of structs with
+  `DateTime` fields, which compare field by field with each field's own `Equals`). `UtcNow` and `UnixEpoch` are Utc; `Now` and `Today` are
   Local; `MinValue`, `MaxValue` and `default` are Unspecified.
 * **Time zones** come from libc (`localtime_r` over tzdata and `TZ`, which .NET reads too), resolved
   like `TimeZoneInfo.Local` (checked against .NET in New York, London, Amsterdam, Dublin, Moscow,

@@ -228,20 +228,31 @@ public sealed partial class FunctionCodeGen
             ("GetValueOrDefault", 0) => NullablePayload(value, underlying),
             ("GetValueOrDefault", 1) => _b.Select(NullableHas(value), NullablePayload(value, underlying), EmitArgumentValue(inv.Arguments[0])),
             ("ToString", 0) => FormatValue(value, type, inv),
-            // Equals(object): empty == null; otherwise box the payload and compare (boxing T? yields a boxed T).
-            ("Equals", 1) => ShortCircuit(isAnd: false,
-            [
-                () => _b.BinOp(LLVMOpcode.And, _b.Not(NullableHas(value)), _b.ICmp(LLVMIntPredicate.EQ, EmitArgumentValue(inv.Arguments[0]), LlvmContext.Null(L.Ptr))),
-                () => ShortCircuit(isAnd: true,
-                [
-                    () => NullableHas(value),
-                    () => CallRuntime("csrt_object_equals_static", L.I1, [L.Ptr, L.Ptr], Box(NullablePayload(value, underlying), underlying, inv), EmitArgumentValue(inv.Arguments[0])),
-                ]),
-            ]),
-            ("GetHashCode", 0) => _b.Select(NullableHas(value),
-                CallRuntime("csrt_object_get_hash_code_or_zero", L.I32, [L.Ptr], Box(NullablePayload(value, underlying), underlying, inv)), L.ConstInt(L.I32, 0)),
+            ("GetHashCode", 0) => HashOf(type, value, inv),
+            // Nullable<T>.Equals(object): an empty T? equals only null, otherwise T's Equals(object).
+            ("Equals", 1) when inv.TargetMethod.Parameters[0].Type.SpecialType == SpecialType.System_Object
+                => NullableEqualsObject(value, underlying, EmitArgument(inv.Arguments[0]), inv),
             _ => throw CompileError.Unsupported($"Nullable<T>.{inv.TargetMethod.Name}", inv),
         };
+    }
+
+    private LLVMValueRef NullableEqualsObject(LLVMValueRef value, ITypeSymbol underlying, LLVMValueRef other, IOperation at)
+    {
+        var isNull = _b.ICmp(LLVMIntPredicate.EQ, other, LlvmContext.Null(L.Ptr));
+        var result = NewTemp(L.I1, "nullable.eq");
+        _b.Store(isNull, result);
+        var set = NewBlock("nullable.eq.set");
+        var done = NewBlock("nullable.eq.done");
+        _b.CondBr(NullableHas(value), set, done);
+        _b.PositionAtEnd(set);
+        _b.Store(ShortCircuit(isAnd: true,
+        [
+            () => _b.Not(isNull),
+            () => { var boxed = Box(NullablePayload(value, underlying), underlying, at); return VirtualCall(ObjectMethod("Equals", 1), boxed, [boxed, other]); },
+        ]), result);
+        _b.Br(done);
+        _b.PositionAtEnd(done);
+        return _b.Load(L.I1, result);
     }
 
     /// <summary>Lifted operators: null if either operand is null; lifted comparisons are false, except == on two nulls.</summary>

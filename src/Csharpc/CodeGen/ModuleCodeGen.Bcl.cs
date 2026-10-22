@@ -109,14 +109,29 @@ public sealed partial class ModuleCodeGen
             var formatter = EnumFormatter(enumType);
             b.Ret(b.Call(formatter.Type, formatter.Fn, [payload]));
         }
+        // Enum.GetHashCode is the underlying value's GetHashCode: sign- or zero-extended, longs folded.
+        var hash = Module.AddFunction(Mangler.TypeSymbol(enumType, "BoxHash"), Llvm.FunctionType(Llvm.I32, Llvm.Ptr));
+        Native.LLVMSetLinkage(hash, LLVMLinkage.Internal);
+        using (var b = new IrBuilder(Llvm))
+        {
+            b.PositionAtEnd(b.AppendBlock(hash, "entry"));
+            var v = b.Load(valueType, b.InBoundsGep(Llvm.I8, hash.Param(0), [Llvm.ConstInt(Llvm.I64, 8)]));
+            var width = valueType.IntWidth;
+            b.Ret(width switch
+            {
+                64 => b.BinOp(LLVMOpcode.Xor, b.Cast(LLVMOpcode.Trunc, v, Llvm.I32),
+                    b.Cast(LLVMOpcode.Trunc, b.BinOp(LLVMOpcode.AShr, v, Llvm.ConstInt(Llvm.I64, 32)), Llvm.I32)),
+                32 => v,
+                _ => b.Cast(TypeMapper.IsSigned(underlying) ? LLVMOpcode.SExt : LLVMOpcode.ZExt, v, Llvm.I32),
+            });
+        }
         Native.LLVMSetInitializer(global, Llvm.ConstStruct(
             ExternalGlobal("csrt_Object_MT"),
             CString(Mangler.MetadataName(enumType)),
             Llvm.ConstInt(Llvm.I32, 8 + (long)Types.Target.SizeOf(valueType)),
             Llvm.ConstInt(Llvm.I32, 0),
             LlvmContext.Null(Llvm.Ptr), Llvm.ConstInt(Llvm.I32, 0), Llvm.ConstInt(Llvm.I32, 0), // no interface map
-            LlvmContext.ConstArray(Llvm.Ptr, thunk, Runtime("csrt_valuetype_equals", Llvm.I1, Llvm.Ptr, Llvm.Ptr).Fn,
-                Runtime("csrt_valuetype_get_hash_code", Llvm.I32, Llvm.Ptr).Fn)));
+            LlvmContext.ConstArray(Llvm.Ptr, thunk, Runtime("csrt_valuetype_equals", Llvm.I1, Llvm.Ptr, Llvm.Ptr).Fn, hash)));
         return global;
     }
 

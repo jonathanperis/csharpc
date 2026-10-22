@@ -166,8 +166,5 @@ _Noreturn void csrt_environment_exit(int32_t code);
 CSRT_BOXED_TYPES(CSRT_DECLARE_BOXED_MT)
 void* csrt_unbox(void* obj, const csrt_MethodTable* type);   // payload address, or NRE / InvalidCast
 
-// Boxed user structs: default ValueType.Equals / GetHashCode compare the payload bytes.
+// Boxed enums: Enum.Equals (same type, same payload bytes). Structs get generated Equals/GetHashCode.
 bool csrt_valuetype_equals(void* self, void* other);
-int32_t csrt_valuetype_get_hash_code(void* self);
-bool csrt_valuetype_equals_masked(void* self, void* other, const uint32_t* offsets, int32_t count);
-int32_t csrt_valuetype_get_hash_code_masked(void* self, const uint32_t* offsets, int32_t count);

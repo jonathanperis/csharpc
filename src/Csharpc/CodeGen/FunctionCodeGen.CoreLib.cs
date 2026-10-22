@@ -241,7 +241,7 @@ public sealed partial class FunctionCodeGen
     {
         t = _m.CoreLib.Map(t);
         t = EnumBase(t);
-        if (IsIntegral(t)) return _b.ICmp(LLVMIntPredicate.EQ, a, b);
+        if (IsIntegral(t) || Int128Support.Is128(t)) return _b.ICmp(LLVMIntPredicate.EQ, a, b);
         if (BclValueTypes.IsTicks(t)) return _b.ICmp(LLVMIntPredicate.EQ, BclValueTypes.TicksOf(this, t, a), BclValueTypes.TicksOf(this, t, b));
         if (BclValueTypes.IsBigInteger(t))
             return _b.ICmp(LLVMIntPredicate.EQ, CallRuntime("csrt_bigint_compare", L.I32, [L.Ptr, L.Ptr], a, b), L.ConstInt(L.I32, 0));
@@ -254,12 +254,12 @@ public sealed partial class FunctionCodeGen
             return CallRuntime("csrt_string_equals", L.I1, [L.Ptr, L.Ptr], a, b);
         if (t is INamedTypeSymbol { IsTupleType: true } tuple)
         {
+            // ValueTuple.Equals: Item1 && Item2 && ... — short-circuit once an element's Equals may run user code.
+            var elements = Enumerable.Range(0, tuple.TupleElements.Length).Select(i => (Func<LLVMValueRef>)(() =>
+                EqualsOf(tuple.TupleElements[i].Type, TupleElement(a, tuple, i), TupleElement(b, tuple, i), at))).ToList();
+            if (!RunsNoUserCode(tuple, hash: false)) return ShortCircuit(isAnd: true, elements);
             var result = L.True;
-            for (var i = 0; i < tuple.TupleElements.Length; i++)
-            {
-                var et = tuple.TupleElements[i].Type;
-                result = _b.BinOp(LLVMOpcode.And, result, EqualsOf(et, TupleElement(a, tuple, i), TupleElement(b, tuple, i), at));
-            }
+            foreach (var element in elements) result = _b.BinOp(LLVMOpcode.And, result, element());
             return result;
         }
         if (TypeMapper.IsNullable(t))
@@ -280,12 +280,18 @@ public sealed partial class FunctionCodeGen
         if (t.IsValueType)
         {
             if (equatable is not null) return CallMethod(equatable, [Spill(a), b]);
+            if (UserStruct(t) is { } s) return ObjectEquals(s, a, b);  // its Equals override, or ValueType.Equals without boxing
             var boxA = Box(a, t, at);
             return VirtualCall(ObjectMethod("Equals", 1), boxA, [boxA, Box(b, t, at)]);
         }
+        // (Object|Generic)EqualityComparer<T>.Equals: x.Equals(y) runs only when both are non-null.
         return BranchOnNull(a, L.I1,
             () => _b.ICmp(LLVMIntPredicate.EQ, b, LlvmContext.Null(L.Ptr)),
-            () => equatable is not null ? CallMethod(equatable, [a, b]) : VirtualCall(ObjectMethod("Equals", 1), a, [a, b]));
+            () => ShortCircuit(isAnd: true,
+            [
+                () => _b.ICmp(LLVMIntPredicate.NE, b, LlvmContext.Null(L.Ptr)),
+                () => equatable is not null ? CallMethod(equatable, [a, b]) : VirtualCall(ObjectMethod("Equals", 1), a, [a, b]),
+            ]));
     }
 
     // ======================================================================================
@@ -298,6 +304,12 @@ public sealed partial class FunctionCodeGen
         t = EnumBase(t);
         var i32 = L.I32;
         if (t.SpecialType == SpecialType.System_Decimal) return CallRuntime("csrt_decimal_get_hash_code", i32, [L.Ptr], Spill(a));
+        if (Int128Support.Is128(t)) // .NET combines the halves with the randomized HashCode: any fold of the bits will do
+        {
+            var folded = _b.BinOp(LLVMOpcode.Xor, _b.Cast(LLVMOpcode.Trunc, a, L.I64),
+                _b.Cast(LLVMOpcode.Trunc, _b.BinOp(LLVMOpcode.LShr, a, L.ConstInt(a.Type, 64)), L.I64));
+            return _b.Cast(LLVMOpcode.Trunc, _b.BinOp(LLVMOpcode.Xor, folded, _b.BinOp(LLVMOpcode.LShr, folded, L.ConstInt(L.I64, 32))), i32);
+        }
         if (BclValueTypes.IsBigInteger(t)) return CallRuntime("csrt_bigint_get_hash_code", i32, [L.Ptr], a);
         if (BclValueTypes.IsTicks(t)) // TimeSpan/DateTime.GetHashCode: (int)ticks ^ (int)(ticks >> 32), DateTime's Kind excluded
         {
@@ -322,14 +334,16 @@ public sealed partial class FunctionCodeGen
             }
             case SpecialType.System_Double or SpecialType.System_Single:
             {
-                // .NET: ±0 and every NaN hash alike — their bits are masked down to the exponent (infinity's bits).
+                // double/float.GetHashCode: ±0 and every NaN (all Equal to each other) hash alike —
+                // if (((bits - 1) & 0x7FF...F) >= 0x7FEF...F) bits &= 0x7FF0...0 (also maps ±infinity to itself).
                 var isDouble = a.Type.Kind == LLVMTypeKind.Double;
-                var intType = isDouble ? L.I64 : L.I32;
-                var raw = _b.Cast(LLVMOpcode.BitCast, a, intType);
-                var nanOrZero = _b.FCmp(LLVMRealPredicate.UEQ, a, LlvmContext.ConstReal(a.Type, 0.0)); // unordered-or-equal
-                var mask = isDouble ? L.ConstInt(L.I64, 0x7FF0000000000000L) : L.ConstInt(L.I32, 0x7F800000);
-                var bits = _b.Select(nanOrZero, _b.BinOp(LLVMOpcode.And, raw, mask), raw);
-                if (bits.Type.IntWidth == 32) return bits;
+                var bt = isDouble ? L.I64 : L.I32;
+                var bits = _b.Cast(LLVMOpcode.BitCast, a, bt);
+                var special = _b.ICmp(LLVMIntPredicate.UGE,
+                    _b.BinOp(LLVMOpcode.And, _b.BinOp(LLVMOpcode.Sub, bits, L.ConstInt(bt, 1)), L.ConstInt(bt, isDouble ? long.MaxValue : int.MaxValue)),
+                    L.ConstInt(bt, isDouble ? 0x7FEFFFFFFFFFFFFF : 0x7F7FFFFF));
+                bits = _b.Select(special, _b.BinOp(LLVMOpcode.And, bits, L.ConstInt(bt, isDouble ? 0x7FF0000000000000 : 0x7F800000)), bits);
+                if (!isDouble) return bits;
                 return _b.BinOp(LLVMOpcode.Xor, _b.Cast(LLVMOpcode.Trunc, bits, i32),
                     _b.Cast(LLVMOpcode.Trunc, _b.BinOp(LLVMOpcode.LShr, bits, L.ConstInt(L.I64, 32)), i32));
             }
@@ -348,9 +362,26 @@ public sealed partial class FunctionCodeGen
         {
             var u = ((INamedTypeSymbol)t).TypeArguments[0];
             var has = NullableHas(a);
-            return _b.Select(has, HashOf(u, NullablePayload(a, u), at), L.ConstInt(i32, 0));
+            if (RunsNoUserCode(u, hash: true)) return _b.Select(has, HashOf(u, NullablePayload(a, u), at), L.ConstInt(i32, 0));
+            // An empty T? hashes to 0 without calling T's GetHashCode.
+            var result = NewTemp(i32, "nullable.hash");
+            _b.Store(L.ConstInt(i32, 0), result);
+            var call = NewBlock("nullable.hash.call");
+            var done = NewBlock("nullable.hash.done");
+            _b.CondBr(has, call, done);
+            _b.PositionAtEnd(call);
+            _b.Store(HashOf(u, NullablePayload(a, u), at), result);
+            _b.Br(done);
+            _b.PositionAtEnd(done);
+            return _b.Load(i32, result);
         }
         var getHashCode = ObjectMethod("GetHashCode", 0);
+        if (UserStruct(t) is { } s)
+        {
+            if (ModuleCodeGen.StructOverride(s, "GetHashCode") is { } overrider) return CallMethod(overrider, [Spill(a)]);
+            var hash = _m.StructDefaultHash(s);
+            return _b.Call(hash.Type, hash.Fn, [Spill(a)]);
+        }
         if (t.IsValueType)
         {
             var box = Box(a, t, at);
