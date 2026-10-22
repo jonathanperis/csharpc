@@ -28,6 +28,7 @@ public sealed partial class FunctionCodeGen
         if (Intrinsics.TryGet(target, out var handler)) return handler(this, inv);
         if (target is { Name: "GetType", Parameters.IsEmpty: true, ContainingType.SpecialType: SpecialType.System_Object })
             return EmitGetType(inv);
+        if (BclValueTypes.TryGetRaw(target, out var raw)) return raw(this, inv);
         if (BclValueTypes.TryGet(target, out var bcl)) return CallBcl(bcl, target, inv.Instance, inv.Arguments, inv);
         throw CompileError.MissingIntrinsic(target, inv);
     }

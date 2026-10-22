@@ -8,6 +8,8 @@ namespace Csharpc.CodeGen;
 /// <summary>Lowers one BCL member given the evaluated receiver (default if static) and arguments.</summary>
 internal delegate LLVMValueRef BclHandler(FunctionCodeGen g, IMethodSymbol method, LLVMValueRef self, LLVMValueRef[] args, IOperation at);
 internal delegate LLVMValueRef BclFieldHandler(FunctionCodeGen g, IOperation at);
+/// <summary>Handlers that need the unevaluated invocation (params ReadOnlySpan&lt;T&gt; arguments).</summary>
+internal delegate LLVMValueRef BclRawHandler(FunctionCodeGen g, IInvocationOperation invocation);
 
 /// <summary>
 /// BCL value types and friends, implemented natively:
@@ -38,6 +40,86 @@ internal static class BclValueTypes
             return true;
         }
         return false;
+    }
+
+    public static bool TryGetRaw(IMethodSymbol method, out BclRawHandler handler) =>
+        s_raw.TryGetValue(Intrinsics.Key(method.OriginalDefinition), out handler!);
+
+    private static readonly FrozenDictionary<string, BclRawHandler> s_raw = BuildRaw();
+
+    /// <summary>
+    /// `params ReadOnlySpan&lt;T&gt;` arguments written as a collection expression or as loose params
+    /// (C# 13 prefers these overloads): materialize the elements as strings into a string[].
+    /// </summary>
+    private static LLVMValueRef SpanArgumentAsStrings(FunctionCodeGen g, IInvocationOperation inv, int ordinal)
+    {
+        var value = inv.Arguments.First(a => a.Parameter!.Ordinal == ordinal).Value;
+        while (value is IConversionOperation { Conversion.IsImplicit: true } c) value = c.Operand;
+        var elements = value switch
+        {
+            ICollectionExpressionOperation coll when !coll.Elements.Any(e => e is ISpreadOperation) => coll.Elements,
+            IArrayCreationOperation { Initializer: { } init } => init.ElementValues,
+            _ => throw CompileError.Unsupported($"'{Intrinsics.Key(inv.TargetMethod.OriginalDefinition)}' with a span argument", inv),
+        };
+        var l = g.Llvm;
+        var stringType = g.Module.Compilation.GetSpecialType(SpecialType.System_String);
+        var array = g.CallRuntime("csrt_new_array", l.Ptr, [l.I64, l.I64], I64(g, (long)g.Types.PointerSize), I64(g, elements.Length));
+        g.TagArray(array, stringType);
+        for (var i = 0; i < elements.Length; i++)
+            g.Builder.Store(g.ToStringValue(elements[i]), g.ArrayElementAddress(array, stringType, I64(g, i)));
+        return array;
+    }
+
+    private static FrozenDictionary<string, BclRawHandler> BuildRaw()
+    {
+        Dictionary<string, BclRawHandler> t = [];
+        LLVMValueRef separator(FunctionCodeGen g, IInvocationOperation inv)
+        {
+            var arg = inv.Arguments.First(a => a.Parameter!.Ordinal == 0);
+            var v = g.EmitValue(arg.Value);
+            return arg.Parameter!.Type.SpecialType == SpecialType.System_Char ? Rt(g, "csrt_string_from_char", g.Llvm.Ptr, (v, g.Llvm.I16)) : v;
+        }
+        foreach (var sep in new[] { "string", "char" })
+            foreach (var element in new[] { "string", "object" })
+                t[$"string.Join({sep}, System.ReadOnlySpan<{element}>)"] = (g, inv) =>
+                {
+                    var s = separator(g, inv);
+                    return Rt(g, "csrt_string_join", g.Llvm.Ptr, (s, g.Llvm.Ptr), (SpanArgumentAsStrings(g, inv, 1), g.Llvm.Ptr));
+                };
+        foreach (var element in new[] { "string", "object" })
+            t[$"string.Concat(System.ReadOnlySpan<{element}>)"] = (g, inv) =>
+                Rt(g, "csrt_string_join", g.Llvm.Ptr, (g.Module.StringLiteral(""), g.Llvm.Ptr), (SpanArgumentAsStrings(g, inv, 0), g.Llvm.Ptr));
+        t["System.Text.StringBuilder.AppendJoin(string, System.ReadOnlySpan<string>)"] = (g, inv) =>
+        {
+            var self = g.EmitValue(inv.Instance!);
+            var joined = Rt(g, "csrt_string_join", g.Llvm.Ptr, (separator(g, inv), g.Llvm.Ptr), (SpanArgumentAsStrings(g, inv, 1), g.Llvm.Ptr));
+            return Rt(g, "csrt_sb_append_string", g.Llvm.Ptr, (self, g.Llvm.Ptr), (joined, g.Llvm.Ptr));
+        };
+        // Composite formatting with 4+ arguments binds to params ReadOnlySpan<object?>.
+        foreach (var (name, newline) in new[] { ("Write", false), ("WriteLine", true) })
+            t[$"System.Console.{name}(string, System.ReadOnlySpan<object>)"] = (g, inv) =>
+            {
+                Write(g, Composite(g, inv), newline);
+                return default;
+            };
+        t["string.Format(string, System.ReadOnlySpan<object>)"] = Composite;
+        return t.ToFrozenDictionary();
+    }
+
+    /// <summary>string.Format(format, params ReadOnlySpan&lt;object?&gt;): box the arguments into an object[].</summary>
+    private static LLVMValueRef Composite(FunctionCodeGen g, IInvocationOperation inv)
+    {
+        var format = g.EmitValue(inv.Arguments.First(a => a.Parameter!.Ordinal == 0).Value);
+        var value = inv.Arguments.First(a => a.Parameter!.Ordinal == 1).Value;
+        while (value is IConversionOperation { Conversion.IsImplicit: true } c) value = c.Operand;
+        var elements = value switch
+        {
+            ICollectionExpressionOperation coll when !coll.Elements.Any(e => e is ISpreadOperation) => coll.Elements,
+            IArrayCreationOperation { Initializer: { } init } => init.ElementValues,
+            _ => throw CompileError.Unsupported("composite formatting with a span argument", inv),
+        };
+        var args = g.ObjectArray([.. elements]);
+        return Rt(g, "csrt_string_format", g.Llvm.Ptr, (format, g.Llvm.Ptr), (args, g.Llvm.Ptr));
     }
 
     public static bool TryGetField(IFieldSymbol field, out BclFieldHandler handler) =>
@@ -441,6 +523,20 @@ internal static class BclValueTypes
                 return g.Builder.FCmp(LLVMRealPredicate.OLT, g.Builder.Call(f.Type, f.Fn, [a[0]]), LlvmContext.ConstReal(a[0].Type, double.PositiveInfinity));
             };
         }
+        // IFormatProvider/CultureInfo: csharpc formats and parses with the invariant culture, so
+        // provider objects are placeholders (null) that the providers' consumers ignore.
+        foreach (var culture in new[] { "InvariantCulture", "CurrentCulture", "CurrentUICulture" })
+            t[$"System.Globalization.CultureInfo.get_{culture}()"] = (g, _, _, _, _) => LlvmContext.Null(g.Llvm.Ptr);
+        t["string.Compare(string, string)"] = (g, _, _, a, _) =>
+            Rt(g, "csrt_string_compare_culture", g.Llvm.I32, (a[0], g.Llvm.Ptr), (a[1], g.Llvm.Ptr), (g.Llvm.False, g.Llvm.I1));
+        t["string.Compare(string, string, bool)"] = (g, _, _, a, _) =>
+            Rt(g, "csrt_string_compare_culture", g.Llvm.I32, (a[0], g.Llvm.Ptr), (a[1], g.Llvm.Ptr), (a[2], g.Llvm.I1));
+        t["string.Compare(string, string, System.StringComparison)"] = (g, _, _, a, _) =>
+            Rt(g, "csrt_string_compare_with", g.Llvm.I32, (a[0], g.Llvm.Ptr), (a[1], g.Llvm.Ptr), (a[2], g.Llvm.I32));
+        t["string.Equals(string, string, System.StringComparison)"] = (g, _, _, a, _) =>
+            g.Builder.ICmp(LLVMIntPredicate.EQ, Rt(g, "csrt_string_compare_with", g.Llvm.I32, (a[0], g.Llvm.Ptr), (a[1], g.Llvm.Ptr), (a[2], g.Llvm.I32)), I32(g, 0));
+        t["string.Equals(string, System.StringComparison)"] = (g, _, self, a, _) =>
+            g.Builder.ICmp(LLVMIntPredicate.EQ, Rt(g, "csrt_string_compare_with", g.Llvm.I32, (self, g.Llvm.Ptr), (a[0], g.Llvm.Ptr), (a[1], g.Llvm.I32)), I32(g, 0));
         t["bool.CompareTo(bool)"] = (g, _, self, a, _) => ICompare(g, self, a[0], false);
         t["bool.Parse(string)"] = (g, _, _, a, _) => Rt(g, "csrt_bool_parse", g.Llvm.I1, (a[0], g.Llvm.Ptr));
         t["double.Parse(string, System.IFormatProvider)"] = (g, _, _, a, _) => Rt(g, "csrt_double_parse", g.Llvm.F64, (a[0], g.Llvm.Ptr));

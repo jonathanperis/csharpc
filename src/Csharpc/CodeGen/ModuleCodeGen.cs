@@ -177,7 +177,8 @@ public sealed partial class ModuleCodeGen
         Llvm.AddFunctionAttribute(fn, "nounwind");
         // C ABI: bool/uint8_t/uint16_t arguments must be zero-extended by the caller (clang's
         // callees rely on it). Without `zeroext`, an i1 produced by `trunc` can carry garbage bits.
-        for (var i = 0; i < parameters.Length; i++)
+        // (Not for LLVM intrinsics: their i1 flags are `immarg`, which excludes other attributes.)
+        for (var i = 0; i < parameters.Length && !name.StartsWith("llvm.", StringComparison.Ordinal); i++)
             if (parameters[i].IsInteger && parameters[i].IntWidth < 32)
                 Llvm.AddParameterAttribute(fn, (uint)i, "zeroext");
         // Allocation returns fresh memory nothing else points to (non-moving GC), which lets LLVM

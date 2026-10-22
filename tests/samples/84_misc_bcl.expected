@@ -1,0 +1,26 @@
+1 -1 0 -1 1 0 1
+-1 -1 -1 0 32
+True False
+_under !bang ~tilde 10 123 9 a b a-b ab alpha Alpha Bravo charlie delta eclair Eclair éclair zebra Zulu
+True True True True True
+11111111 ffffffff 255 -42 10
+2 4 -2 1 65 1.25 B
+True False 7 -1
+5
+True
+True
+True
+1 True 0 True
+[heLLo there] 13 h
+[there]
+>[42there]
+a+b+c
+3,1,2 | 1.5; 2.25 | x/y | abc
+True, False | q-r | 1,two,3
+a|b,c ,|d
+one|two|three
+a|b|c 2
+x|y| 10000000000
+3 2
+1-two-c-4.2
+1,b,2.5 x y z pqrst abcd
