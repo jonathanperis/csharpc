@@ -70,6 +70,7 @@ csrt_String* csrt_exception_to_string(void* exception);
 _Noreturn void csrt_throw_invalid_cast_from(const csrt_MethodTable* from, const csrt_MethodTable* to);
 csrt_String* csrt_string_from_utf8(const char* text);
 void csrt_stderr_write_string(csrt_String* s);
+csrt_String* csrt_object_type_name(void* obj, bool full);  // obj.GetType().Name / FullName
 _Noreturn void csrt_throw_null_reference(void);
 _Noreturn void csrt_throw_index_out_of_range(void);
 _Noreturn void csrt_throw_divide_by_zero(void);

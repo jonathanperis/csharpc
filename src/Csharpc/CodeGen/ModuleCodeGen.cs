@@ -191,11 +191,27 @@ public sealed partial class ModuleCodeGen
 
     private readonly HashSet<nint> _noThrow = [];
 
-    /// <summary>Runtime helpers that can raise a managed exception (directly or via virtual calls).</summary>
+    /// <summary>
+    /// Can a runtime helper raise a managed exception (directly, or through a virtual call back into
+    /// C# code)? Conservative: every csrt_* function may, except this allowlist of helpers that
+    /// provably don't. LLVM intrinsics and libm never do. (Only matters inside try regions, where a
+    /// may-throw call becomes an `invoke`.)
+    /// </summary>
     private static bool RuntimeMayThrow(string name) =>
-        name.StartsWith("csrt_throw", StringComparison.Ordinal)
-        || name is "csrt_rethrow" or "csrt_new_array" or "csrt_castclass" or "csrt_unbox" or "csrt_string_char_at"
-            or "csrt_object_to_string";
+        name.StartsWith("csrt_", StringComparison.Ordinal)
+        && !(s_noThrowRuntime.Contains(name)
+             || name.StartsWith("csrt_string_from_", StringComparison.Ordinal)
+             || name.StartsWith("csrt_console_write_", StringComparison.Ordinal)
+             || name.StartsWith("csrt_gc_", StringComparison.Ordinal));
+
+    private static readonly HashSet<string> s_noThrowRuntime =
+    [
+        "csrt_init", "csrt_shutdown", "csrt_get_args", "csrt_alloc", "csrt_begin_catch", "csrt_personality",
+        "csrt_isinst_class", "csrt_string_concat", "csrt_string_equals", "csrt_string_is_null_or_empty",
+        "csrt_console_newline", "csrt_object_to_string_default", "csrt_object_equals_default",
+        "csrt_object_get_hash_code_default", "csrt_exception_init", "csrt_environment_tick_count64",
+        "csrt_environment_exit",
+    ];
 
     /// <summary>False for callees known not to unwind (LLVM intrinsics, libm, most of csrt): no invoke needed.</summary>
     public bool MayThrow(LLVMValueRef callee) => !_noThrow.Contains(callee.Handle);

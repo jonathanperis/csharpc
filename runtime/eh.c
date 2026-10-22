@@ -100,6 +100,16 @@ csrt_String* csrt_exception_to_string(void* exception) {
     return s;
 }
 
+// obj.GetType().Name / .FullName, folded by the compiler (no System.Type objects yet).
+csrt_String* csrt_object_type_name(void* obj, bool full) {
+    if (!obj) csrt_throw_null_reference();
+    const char* name = ((csrt_Object*)obj)->mt->name;
+    if (!full)
+        for (const char* p = name; *p; p++)
+            if (*p == '.' || *p == '+') name = p + 1;
+    return csrt_string_from_utf8(name);
+}
+
 // ---------------------------------------------------------------------------------------------
 // Throwing
 // ---------------------------------------------------------------------------------------------
