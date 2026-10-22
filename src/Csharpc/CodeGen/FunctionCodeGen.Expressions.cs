@@ -179,7 +179,6 @@ public sealed partial class FunctionCodeGen
     {
         if (c.OperatorMethod is { } om && !IsBuiltInStringConcat(om))
             throw CompileError.Unsupported("compound assignment with a user-defined operator", c);
-        if (c.IsChecked) throw CompileError.Unsupported("checked arithmetic", c);
         var targetType = c.Target.Type!;
         return ReadModifyWrite(c.Target, old =>
         {
@@ -194,7 +193,10 @@ public sealed partial class FunctionCodeGen
             var right = c.OperatorKind is BinaryOperatorKind.LeftShift or BinaryOperatorKind.RightShift or BinaryOperatorKind.UnsignedRightShift
                 ? EmitValue(c.Value)
                 : Coerce(EmitValue(c.Value), c.Value.Type, opType);
-            var result = Coerce(Arithmetic(c.OperatorKind, left, right, opType, c.Value.Type!, c), opType, targetType);
+            var computed = Arithmetic(c.OperatorKind, left, right, opType, c.Value.Type!, c, c.IsChecked);
+            var result = c.IsChecked && !SymbolEqualityComparer.Default.Equals(opType, targetType)
+                ? ConvertNumeric(computed, opType, targetType, c, isChecked: true)
+                : Coerce(computed, opType, targetType);
             return (result, result);
         });
     }
@@ -219,7 +221,6 @@ public sealed partial class FunctionCodeGen
     private LLVMValueRef EmitIncrementOrDecrement(IIncrementOrDecrementOperation op)
     {
         if (op.OperatorMethod is not null) throw CompileError.Unsupported("user-defined ++/--", op);
-        if (op.IsChecked) throw CompileError.Unsupported("checked arithmetic", op);
         var type = op.Target.Type!;
         var increment = op.Kind == OperationKind.Increment;
         return ReadModifyWrite(op.Target, old =>
@@ -227,7 +228,9 @@ public sealed partial class FunctionCodeGen
             var llvmType = T.Value(type);
             var updated = llvmType.IsFloatingPoint
                 ? _b.BinOp(increment ? LLVMOpcode.FAdd : LLVMOpcode.FSub, old, LlvmContext.ConstReal(llvmType, 1))
-                : _b.BinOp(increment ? LLVMOpcode.Add : LLVMOpcode.Sub, old, L.ConstInt(llvmType, 1));
+                : op.IsChecked
+                    ? CheckedArithmetic(increment ? "add" : "sub", old, L.ConstInt(llvmType, 1), TypeMapper.IsSigned(type))
+                    : _b.BinOp(increment ? LLVMOpcode.Add : LLVMOpcode.Sub, old, L.ConstInt(llvmType, 1));
             return (updated, op.IsPostfix ? old : updated);
         });
     }
@@ -247,9 +250,6 @@ public sealed partial class FunctionCodeGen
             if (!_m.IsUserMethod(om)) throw CompileError.Unsupported($"operator '{om}'", op);
             return EmitDirectCall(om, [op.LeftOperand, op.RightOperand]);
         }
-        if (op.IsChecked && op.OperatorKind is BinaryOperatorKind.Add or BinaryOperatorKind.Subtract or BinaryOperatorKind.Multiply)
-            throw CompileError.Unsupported("checked arithmetic", op);
-
         var lt = op.LeftOperand.Type;
         var rt = op.RightOperand.Type;
         if (op.OperatorKind == BinaryOperatorKind.Add && (lt?.SpecialType == SpecialType.System_String || rt?.SpecialType == SpecialType.System_String))
@@ -260,7 +260,7 @@ public sealed partial class FunctionCodeGen
 
         var left = EmitValue(op.LeftOperand);
         var right = EmitValue(op.RightOperand);
-        return Arithmetic(op.OperatorKind, left, right, lt ?? rt!, rt ?? lt!, op);
+        return Arithmetic(op.OperatorKind, left, right, lt ?? rt!, rt ?? lt!, op, op.IsChecked);
     }
 
     /// <summary>&amp;&amp; / || that survived CFG lowering (rare: e.g. inside a pattern) — lower it ourselves.</summary>
@@ -280,7 +280,19 @@ public sealed partial class FunctionCodeGen
         return _b.Cast(LLVMOpcode.Trunc, _b.Load(L.I8, result), L.I1);
     }
 
-    internal LLVMValueRef Arithmetic(BinaryOperatorKind kind, LLVMValueRef l, LLVMValueRef r, ITypeSymbol lt, ITypeSymbol rt, IOperation at)
+    /// <summary>checked(a op b): llvm.{s,u}{add,sub,mul}.with.overflow + OverflowException.</summary>
+    internal LLVMValueRef CheckedArithmetic(string op, LLVMValueRef l, LLVMValueRef r, bool signed)
+    {
+        var type = l.Type;
+        var pair = L.Struct(type, L.I1);
+        var f = _m.Intrinsic($"llvm.{(signed ? "s" : "u")}{op}.with.overflow.i{type.IntWidth}", pair, type, type);
+        var result = _b.Call(f.Type, f.Fn, [l, r]);
+        FailIf(_b.ExtractValue(result, 1), "csrt_throw_overflow");
+        return _b.ExtractValue(result, 0);
+    }
+
+    internal LLVMValueRef Arithmetic(BinaryOperatorKind kind, LLVMValueRef l, LLVMValueRef r, ITypeSymbol lt, ITypeSymbol rt, IOperation at,
+        bool isChecked = false)
     {
         // Reference types: string value equality, otherwise reference equality.
         if (l.Type.IsPointer || r.Type.IsPointer)
@@ -318,6 +330,15 @@ public sealed partial class FunctionCodeGen
         }
 
         var signed = TypeMapper.IsSigned(lt);
+        if (isChecked && l.Type.IntWidth > 1)
+        {
+            switch (kind)
+            {
+                case BinaryOperatorKind.Add: return CheckedArithmetic("add", l, r, signed);
+                case BinaryOperatorKind.Subtract: return CheckedArithmetic("sub", l, r, signed);
+                case BinaryOperatorKind.Multiply: return CheckedArithmetic("mul", l, r, signed);
+            }
+        }
         switch (kind)
         {
             case BinaryOperatorKind.Add: return _b.BinOp(LLVMOpcode.Add, l, r);
@@ -385,8 +406,9 @@ public sealed partial class FunctionCodeGen
             if (!_m.IsUserMethod(om)) throw CompileError.Unsupported($"operator '{om}'", op);
             return EmitDirectCall(om, [op.Operand]);
         }
-        if (op.IsChecked && op.OperatorKind == UnaryOperatorKind.Minus) throw CompileError.Unsupported("checked arithmetic", op);
         var v = EmitValue(op.Operand);
+        if (op.IsChecked && op.OperatorKind == UnaryOperatorKind.Minus && v.Type.IsInteger)
+            return CheckedArithmetic("sub", L.ConstInt(v.Type, 0), v, TypeMapper.IsSigned(op.Operand.Type!));
         return op.OperatorKind switch
         {
             UnaryOperatorKind.Plus => v,
@@ -426,8 +448,6 @@ public sealed partial class FunctionCodeGen
             var payload = CallRuntime("csrt_unbox", L.Ptr, [L.Ptr, L.Ptr], EmitValue(c.Operand), MethodTableFor(to, c));
             return LoadValue(payload, to);
         }
-        if (c.IsChecked && !c.Conversion.IsImplicit && from.IsValueType)
-            throw CompileError.Unsupported("checked conversion", c);
 
         var value = EmitValue(c.Operand);
         if (from.IsReferenceType)
@@ -435,7 +455,7 @@ public sealed partial class FunctionCodeGen
             if (c.Conversion.IsImplicit) return value; // upcast: same pointer
             return CastClass(value, to, c);
         }
-        return ConvertNumeric(value, from, to, c);
+        return ConvertNumeric(value, from, to, c, c.IsChecked && !c.Conversion.IsImplicit);
     }
 
     /// <summary>Converts between types that may differ only in representation (numeric/enum), else passes through.</summary>
@@ -446,10 +466,51 @@ public sealed partial class FunctionCodeGen
         return ConvertNumeric(value, from, to, null);
     }
 
-    internal LLVMValueRef ConvertNumeric(LLVMValueRef value, ITypeSymbol from, ITypeSymbol to, IOperation? at)
+    /// <summary>checked((T)x): OverflowException unless x is representable in T (NaN never is).</summary>
+    private void CheckConversionRange(LLVMValueRef value, ITypeSymbol from, ITypeSymbol to)
     {
         var src = value.Type;
         var dst = T.Value(to);
+        if (!dst.IsInteger) return; // to float/double never overflows in C#
+        var (srcSigned, dstSigned) = (TypeMapper.IsSigned(from), TypeMapper.IsSigned(to));
+        var width = (int)dst.IntWidth;
+        if (src.IsFloatingPoint)
+        {
+            double lo = dstSigned ? -Math.Pow(2, width - 1) - 1 : -1;
+            double hi = dstSigned ? Math.Pow(2, width - 1) : Math.Pow(2, width);
+            if (width == 64 && dstSigned) lo = -9223372036854777856.0; // next double below -2^63
+            var ok = _b.BinOp(LLVMOpcode.And,
+                _b.FCmp(LLVMRealPredicate.OGT, value, LlvmContext.ConstReal(src, lo)),
+                _b.FCmp(LLVMRealPredicate.OLT, value, LlvmContext.ConstReal(src, hi)));
+            FailIf(_b.Not(ok), "csrt_throw_overflow");
+            return;
+        }
+        var sw = (int)src.IntWidth;
+        LLVMValueRef fail = L.False;
+        if (width < sw || (width == sw && srcSigned != dstSigned))
+        {
+            var narrowed = width < sw ? _b.Cast(LLVMOpcode.Trunc, value, dst) : value;
+            var back = width < sw ? _b.Cast(dstSigned ? LLVMOpcode.SExt : LLVMOpcode.ZExt, narrowed, src) : value;
+            fail = _b.ICmp(LLVMIntPredicate.NE, back, value);
+            if (srcSigned != dstSigned)
+            {
+                var negative = srcSigned
+                    ? _b.ICmp(LLVMIntPredicate.SLT, value, L.ConstInt(src, 0))
+                    : _b.ICmp(LLVMIntPredicate.SLT, narrowed, L.ConstInt(dst, 0));
+                fail = _b.BinOp(LLVMOpcode.Or, fail, negative);
+            }
+        }
+        else if (srcSigned && !dstSigned)
+            fail = _b.ICmp(LLVMIntPredicate.SLT, value, L.ConstInt(src, 0)); // widening signed -> unsigned
+        else return;
+        FailIf(fail, "csrt_throw_overflow");
+    }
+
+    internal LLVMValueRef ConvertNumeric(LLVMValueRef value, ITypeSymbol from, ITypeSymbol to, IOperation? at, bool isChecked = false)
+    {
+        var src = value.Type;
+        var dst = T.Value(to);
+        if (isChecked) CheckConversionRange(value, from, to);
         if (src.Handle == dst.Handle) return value;
 
         if (src.IsInteger && dst.IsInteger)
