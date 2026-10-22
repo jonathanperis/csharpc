@@ -618,6 +618,10 @@ public sealed partial class FunctionCodeGen
     {
         var from = TypeOf(c.Operand);
         var to = TypeOf(c)!;
+        // A lambda converted to Expression<TDelegate> is data (an expression tree), not a delegate.
+        if (c.Operand is IAnonymousFunctionOperation or IFlowAnonymousFunctionOperation or IDelegateCreationOperation
+            && to.ContainingNamespace?.ToDisplayString() == "System.Linq.Expressions")
+            throw CompileError.Unsupported("expression trees (a lambda converted to System.Linq.Expressions.Expression<T>)", c);
         // `(T)(object)x` in generic code where, after substitution, x is already a T: a no-op (no box/unbox).
         if (c.OperatorMethod is null && c.Operand is IConversionOperation { OperatorMethod: null } inner
             && TypeOf(inner)?.SpecialType == SpecialType.System_Object && TypeOf(inner.Operand) is { } original

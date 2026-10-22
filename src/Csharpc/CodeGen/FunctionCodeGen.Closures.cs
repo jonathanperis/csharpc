@@ -151,6 +151,9 @@ public sealed partial class FunctionCodeGen
 
     private LLVMValueRef EmitDelegateCreation(IDelegateCreationOperation creation)
     {
+        // A lambda converted to Expression<TDelegate> is data (an expression tree), not a delegate.
+        if (creation.Type?.ContainingNamespace?.ToDisplayString() == "System.Linq.Expressions")
+            throw CompileError.Unsupported("expression trees (a lambda converted to System.Linq.Expressions.Expression<T>)", creation);
         LLVMValueRef target, fn;
         switch (creation.Target)
         {
