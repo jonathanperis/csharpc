@@ -68,6 +68,7 @@ public sealed partial class ModuleCodeGen
     {
         var entryPoint = Compilation.GetEntryPoint(CancellationToken.None)
             ?? throw new CompileError("CSLLVM0003", "program has no entry point (Main method or top-level statements)", null);
+        RejectUnionTypes();
 
         CollectTypes(Compilation.Assembly.GlobalNamespace);
 
@@ -261,6 +262,17 @@ public sealed partial class ModuleCodeGen
                 .First(m => SymbolEqualityComparer.Default.Equals(m.OriginalDefinition, member));
         }
         return member.IsGenericMethod ? member.Construct([.. implementation.TypeArguments.Skip(blockArity)]) : member;
+    }
+
+    /// <summary>C# 15 union types: Roslyn lowers them to constructs csharpc doesn't model yet.</summary>
+    private void RejectUnionTypes()
+    {
+#pragma warning disable RSEXPERIMENTAL006 // the union syntax is a preview API
+        const Microsoft.CodeAnalysis.CSharp.SyntaxKind unionDeclaration = Microsoft.CodeAnalysis.CSharp.SyntaxKind.UnionDeclaration;
+#pragma warning restore RSEXPERIMENTAL006
+        foreach (var tree in Compilation.SyntaxTrees.Where(t => !Frontend.RoslynFrontend.IsCoreLibTree(t)))
+            if (tree.GetRoot().DescendantNodes().FirstOrDefault(n => n.IsKind(unionDeclaration)) is { } union)
+                throw new CompileError("CSLLVM0001", "not supported by csharpc yet: union types (C# 15 `union` declarations)", union.GetLocation());
     }
 
     // Lambdas and local functions declared in an extension member have the extension type as their
