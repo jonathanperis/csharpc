@@ -194,6 +194,7 @@ internal static class Intrinsics
 
         // String instance methods: (key, runtime fn, return type, extra-arg types, constant extra args)
         AddStringMethods(t);
+        AddTaskMethods(t);
 
         // ---- System.Char / parsing (runtime/strings.c) -----------------------------------------
         foreach (var (name, fn) in new[] { ("IsDigit", "csrt_char_is_digit"), ("IsLetter", "csrt_char_is_letter"),
@@ -406,9 +407,118 @@ internal static class Intrinsics
         return g.Coerce(g.EmitValue(argument.Value), g.TypeOf(argument.Value), g.S(argument.Parameter!.Type));
     }
 
+    // ---- System.Threading.Tasks (runtime/async.c; docs/10-async.md) ---------------------------
+    private const string Tasks = "System.Threading.Tasks";
+    private const string Rcs = "System.Runtime.CompilerServices";
+
+    private static void AddTaskMethods(Dictionary<string, IntrinsicHandler> t)
+    {
+        static LLVMValueRef Wait(FunctionCodeGen g, LLVMValueRef task)
+        {
+            g.CallRuntime("csrt_task_wait", g.Module.Llvm.Void, [g.Module.Llvm.Ptr], task);
+            return task;
+        }
+        static ITypeSymbol? ResultOf(FunctionCodeGen g, IInvocationOperation inv) => g.TypeOf(inv) is { SpecialType: SpecialType.System_Void } ? null : g.TypeOf(inv);
+        // Tasks, awaiters and configured awaitables are the same task pointer.
+        IntrinsicHandler self = (g, inv) => { foreach (var a in inv.Arguments) g.EmitValue(a.Value); return g.EmitValue(inv.Instance!); };
+
+        t[$"{Tasks}.Task.Delay(int)"] = (g, inv) => g.CallRuntime("csrt_task_delay", g.Module.Llvm.Ptr, [g.Module.Llvm.I32], Arg(g, inv, 0));
+        t[$"{Tasks}.Task.Yield()"] = (g, _) => LlvmContext.Null(g.Module.Llvm.Ptr);
+        t[$"{Tasks}.Task.FromResult(TResult)"] = (g, inv) =>
+            g.CompletedTask(Arg(g, inv, 0), ((INamedTypeSymbol)g.TypeOf(inv)!).TypeArguments[0]);
+        t[$"{Tasks}.ValueTask.FromResult(TResult)"] = t[$"{Tasks}.Task.FromResult(TResult)"];
+
+        IntrinsicHandler whenAll = (g, inv) =>
+        {
+            var tasks = g.TaskArrayArgument(inv.Arguments[0]);
+            var result = ((INamedTypeSymbol)g.TypeOf(inv)!).TypeArguments.FirstOrDefault() is IArrayTypeSymbol array ? array.ElementType : null;
+            var size = result is null ? 0 : (long)g.Module.Types.Target.SizeOf(g.Module.Types.Storage(result));
+            return g.CallRuntime("csrt_task_when_all", g.Module.Llvm.Ptr, [g.Module.Llvm.Ptr, g.Module.Llvm.I32], tasks, g.Module.Llvm.ConstInt(g.Module.Llvm.I32, size));
+        };
+        t[$"{Tasks}.Task.WhenAll({Tasks}.Task[])"] = whenAll;
+        t[$"{Tasks}.Task.WhenAll(System.ReadOnlySpan<{Tasks}.Task>)"] = whenAll;
+        t[$"{Tasks}.Task.WhenAll({Tasks}.Task<TResult>[])"] = whenAll;
+        t[$"{Tasks}.Task.WhenAll(System.ReadOnlySpan<{Tasks}.Task<TResult>>)"] = whenAll;
+        IntrinsicHandler whenAny = (g, inv) =>
+            g.CallRuntime("csrt_task_when_any", g.Module.Llvm.Ptr, [g.Module.Llvm.Ptr], g.TaskArrayArgument(inv.Arguments[0]));
+        t[$"{Tasks}.Task.WhenAny({Tasks}.Task[])"] = whenAny;
+        IntrinsicHandler whenAnyPair = (g, inv) =>
+            g.CallRuntime("csrt_task_when_any", g.Module.Llvm.Ptr, [g.Module.Llvm.Ptr],
+                g.ObjectArray([.. inv.Arguments.OrderBy(a => a.Parameter!.Ordinal).Select(a => a.Value)]));
+        t[$"{Tasks}.Task.WhenAny({Tasks}.Task, {Tasks}.Task)"] = whenAnyPair;
+        t[$"{Tasks}.Task.WhenAny({Tasks}.Task<TResult>, {Tasks}.Task<TResult>)"] = whenAnyPair;
+        t[$"{Tasks}.Task.WhenAny(System.ReadOnlySpan<{Tasks}.Task>)"] = whenAny;
+        t[$"{Tasks}.Task.WhenAny({Tasks}.Task<TResult>[])"] = whenAny;
+        t[$"{Tasks}.Task.WhenAny(System.ReadOnlySpan<{Tasks}.Task<TResult>>)"] = whenAny;
+
+        // Task.Run queues the work on the single-threaded scheduler (see docs/10-async.md).
+        t[$"{Tasks}.Task.Run(System.Action)"] = (g, inv) =>
+            g.CallRuntime("csrt_task_run_action", g.Module.Llvm.Ptr, [g.Module.Llvm.Ptr], Arg(g, inv, 0));
+        t[$"{Tasks}.Task.Run(System.Func<{Tasks}.Task>)"] = (g, inv) =>
+            g.CallRuntime("csrt_task_run_func_task", g.Module.Llvm.Ptr, [g.Module.Llvm.Ptr, g.Module.Llvm.I32], Arg(g, inv, 0), g.Module.Llvm.ConstInt(g.Module.Llvm.I32, 0));
+        t[$"{Tasks}.Task.Run(System.Func<{Tasks}.Task<TResult>>)"] = (g, inv) =>
+        {
+            var result = ((INamedTypeSymbol)g.TypeOf(inv)!).TypeArguments[0];
+            var size = (long)g.Module.Types.Target.SizeOf(g.Module.Types.Storage(result));
+            return g.CallRuntime("csrt_task_run_func_task", g.Module.Llvm.Ptr, [g.Module.Llvm.Ptr, g.Module.Llvm.I32], Arg(g, inv, 0), g.Module.Llvm.ConstInt(g.Module.Llvm.I32, size));
+        };
+        // Func<T> with a non-task T: run it now (a C runtime can't call an arbitrary-signature delegate).
+        t[$"{Tasks}.Task.Run(System.Func<TResult>)"] = (g, inv) =>
+        {
+            var result = ((INamedTypeSymbol)g.TypeOf(inv)!).TypeArguments[0];
+            var value = g.InvokeDelegate0(Arg(g, inv, 0), g.Module.Types.Value(result));
+            return g.CompletedTask(value, result);
+        };
+
+        foreach (var type in new[] { "Task", "Task<TResult>", "ValueTask", "ValueTask<TResult>" })
+        {
+            t[$"{Tasks}.{type}.GetAwaiter()"] = self;
+            t[$"{Tasks}.{type}.ConfigureAwait(bool)"] = self;
+            t[$"{Tasks}.{type}.Wait()"] = (g, inv) => { Wait(g, g.EmitValue(inv.Instance!)); return default; };
+        }
+        t[$"{Tasks}.ValueTask.AsTask()"] = (g, inv) =>
+            g.CallRuntime("csrt_valuetask_as_task", g.Module.Llvm.Ptr, [g.Module.Llvm.Ptr, g.Module.Llvm.I32], g.EmitValue(inv.Instance!), g.Module.Llvm.ConstInt(g.Module.Llvm.I32, 0));
+        t[$"{Tasks}.ValueTask<TResult>.AsTask()"] = (g, inv) =>
+        {
+            var result = ((INamedTypeSymbol)g.TypeOf(inv)!).TypeArguments[0];
+            var size = (long)g.Module.Types.Target.SizeOf(g.Module.Types.Storage(result));
+            return g.CallRuntime("csrt_valuetask_as_task", g.Module.Llvm.Ptr, [g.Module.Llvm.Ptr, g.Module.Llvm.I32], g.EmitValue(inv.Instance!), g.Module.Llvm.ConstInt(g.Module.Llvm.I32, size));
+        };
+        foreach (var awaiter in new[] { $"{Rcs}.TaskAwaiter", $"{Rcs}.TaskAwaiter<TResult>", $"{Rcs}.ValueTaskAwaiter", $"{Rcs}.ValueTaskAwaiter<TResult>",
+                     $"{Rcs}.ConfiguredTaskAwaitable.ConfiguredTaskAwaiter", $"{Rcs}.ConfiguredTaskAwaitable<TResult>.ConfiguredTaskAwaiter",
+                     $"{Rcs}.ConfiguredValueTaskAwaitable.ConfiguredValueTaskAwaiter", $"{Rcs}.ConfiguredValueTaskAwaitable<TResult>.ConfiguredValueTaskAwaiter" })
+            t[$"{awaiter}.GetResult()"] = (g, inv) => g.TaskResult(Wait(g, g.EmitValue(inv.Instance!)), ResultOf(g, inv));
+        foreach (var awaitable in new[] { $"{Rcs}.ConfiguredTaskAwaitable", $"{Rcs}.ConfiguredTaskAwaitable<TResult>",
+                     $"{Rcs}.ConfiguredValueTaskAwaitable", $"{Rcs}.ConfiguredValueTaskAwaitable<TResult>" })
+            t[$"{awaitable}.GetAwaiter()"] = self;
+    }
+
+    private static void AddTaskProperties(Dictionary<string, PropertyHandler> t)
+    {
+        PropertyHandler isCompleted = (g, p) => g.CallRuntime("csrt_task_is_completed", g.Module.Llvm.I1, [g.Module.Llvm.Ptr], g.EmitValue(p.Instance!));
+        foreach (var type in new[] { $"{Tasks}.Task", $"{Tasks}.ValueTask", $"{Tasks}.ValueTask<TResult>", $"{Rcs}.TaskAwaiter", $"{Rcs}.TaskAwaiter<TResult>",
+                     $"{Rcs}.ValueTaskAwaiter", $"{Rcs}.ValueTaskAwaiter<TResult>" })
+            t[$"{type}.IsCompleted"] = isCompleted;
+        t[$"{Tasks}.Task.IsCompletedSuccessfully"] = isCompleted;
+        PropertyHandler result = (g, p) =>
+        {
+            var task = g.EmitValue(p.Instance!);
+            g.CallRuntime("csrt_task_wait", g.Module.Llvm.Void, [g.Module.Llvm.Ptr], task);
+            return g.TaskResult(task, g.TypeOf(p));
+        };
+        t[$"{Tasks}.Task<TResult>.Result"] = result;
+        t[$"{Tasks}.ValueTask<TResult>.Result"] = result;
+        t[$"{Tasks}.Task.CompletedTask"] = (g, _) => g.CallRuntime("csrt_task_completed_task", g.Module.Llvm.Ptr, []);
+        t[$"{Tasks}.ValueTask.CompletedTask"] = t[$"{Tasks}.Task.CompletedTask"];
+    }
+
     private static FrozenDictionary<string, ConstructorHandler> BuildConstructors()
     {
         Dictionary<string, ConstructorHandler> t = [];
+        t[$"{Tasks}.ValueTask<TResult>..ctor(TResult)"] = (g, c) =>
+            g.CompletedTask(CtorArg(g, c, 0), ((INamedTypeSymbol)g.TypeOf(c)!).TypeArguments[0]);
+        t[$"{Tasks}.ValueTask..ctor({Tasks}.Task)"] = (g, c) => CtorArg(g, c, 0);
+        t[$"{Tasks}.ValueTask<TResult>..ctor({Tasks}.Task<TResult>)"] = (g, c) => CtorArg(g, c, 0);
         t["string..ctor(char, int)"] = (g, c) =>
             g.CallRuntime("csrt_string_new_repeat", g.Module.Llvm.Ptr, [g.Module.Llvm.I16, g.Module.Llvm.I32], CtorArg(g, c, 0), CtorArg(g, c, 1));
         t["string..ctor(char[])"] = (g, c) =>
@@ -425,6 +535,7 @@ internal static class Intrinsics
     private static FrozenDictionary<string, PropertyHandler> BuildProperties()
     {
         Dictionary<string, PropertyHandler> t = [];
+        AddTaskProperties(t);
         t["System.Text.StringBuilder.Length"] = (g, p) =>
             g.CallRuntime("csrt_sb_length", g.Module.Llvm.I32, [g.Module.Llvm.Ptr], g.EmitValue(p.Instance!));
         t["string.Length"] = (g, p) =>

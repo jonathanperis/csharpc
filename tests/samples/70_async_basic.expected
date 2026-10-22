@@ -1,0 +1,15 @@
+start
+sum = 42
+after delay
+after yield
+enter 3
+enter 2
+enter 1
+enter 0
+leave 0
+leave 1
+leave 2
+leave 3
+hello from csharpc (1)
+15
+done

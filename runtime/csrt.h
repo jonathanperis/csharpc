@@ -26,7 +26,7 @@ typedef struct {
     void* const* slots;
 } csrt_InterfaceMapEntry;
 
-enum { CSRT_MT_ABSTRACT = 1, CSRT_MT_INTERFACE = 2 };
+enum { CSRT_MT_ABSTRACT = 1, CSRT_MT_INTERFACE = 2, CSRT_MT_ITERATOR = 4 /* runtime/async.c */ };
 
 struct csrt_MethodTable {
     const csrt_MethodTable* base;   // null for System.Object and interfaces

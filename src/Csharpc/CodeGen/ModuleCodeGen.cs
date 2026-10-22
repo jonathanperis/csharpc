@@ -159,7 +159,6 @@ public sealed partial class ModuleCodeGen
         if (_functions.TryGetValue(method, out var existing)) return existing;
         if (generic && TypeSubstitution.IsOpen(method))
             throw CompileError.Unsupported($"open generic instantiation '{method}'", method);
-        if (method.IsAsync) throw CompileError.Unsupported($"async method '{method.Name}'", method);
 
         var type = FunctionTypeOf(method);
         var fn = Module.AddFunction(Mangler.Method(method), type);
@@ -167,6 +166,7 @@ public sealed partial class ModuleCodeGen
         // which lets LLVM's IPO passes inline, specialize and delete freely.
         Native.LLVMSetLinkage(fn, LLVMLinkage.Internal);
         Llvm.AddFunctionAttribute(fn, "uwtable", 2); // C# code may throw: keep async unwind tables (ADR 0005)
+        MarkIfCoroutine(method, fn);
         if (generic && IsUserMethod(method) && !method.IsAbstract) _pendingInstantiations.Enqueue(method);
         return _functions[method] = new LoweredFunction(fn, type);
     }
@@ -187,6 +187,7 @@ public sealed partial class ModuleCodeGen
         var fn = Module.AddFunction(name, type);
         Native.LLVMSetLinkage(fn, LLVMLinkage.Internal);
         Llvm.AddFunctionAttribute(fn, "uwtable", 2); // lambdas / local functions may throw (ADR 0005)
+        MarkIfCoroutine(method, fn);
         return bySubst[subst.Key] = new LoweredFunction(fn, type);
     }
 
@@ -764,6 +765,56 @@ public sealed partial class ModuleCodeGen
         new FunctionCodeGen(this, null, _staticInit).EmitStaticInit(graphs, cctors);
     }
 
+    /// <summary>True once any async method or iterator was lowered (the driver must run CoroSplit).</summary>
+    public bool HasCoroutines { get; set; }
+
+    /// <summary>
+    /// C-ABI entry points the runtime uses to resume/destroy coroutine frames. The split resume and
+    /// destroy functions are fastcc, so the runtime goes through llvm.coro.resume/destroy here.
+    /// </summary>
+    private void MarkIfCoroutine(IMethodSymbol method, LLVMValueRef fn)
+    {
+        if (Coroutines.KindOf(method) == CoroutineKind.None) return;
+        Llvm.AddFunctionAttribute(fn, "presplitcoroutine"); // async/iterator: split by CoroSplit
+        EnsureCoroutineSupport();
+    }
+
+    private void EnsureCoroutineSupport()
+    {
+        if (HasCoroutines) return;
+        HasCoroutines = true;
+        foreach (var (name, intrinsic) in new[] { ("csrt_coro_resume", "llvm.coro.resume"), ("csrt_coro_destroy", "llvm.coro.destroy") })
+        {
+            var type = Llvm.FunctionType(Llvm.Void, Llvm.Ptr);
+            var fn = Module.AddFunction(name, type);
+            var target = Intrinsic(intrinsic, Llvm.Void, Llvm.Ptr);
+            using var b = new IrBuilder(Llvm);
+            b.PositionAtEnd(b.AppendBlock(fn, "entry"));
+            b.Call(target.Type, target.Fn, [fn.Param(0)]);
+            b.RetVoid();
+        }
+    }
+
+    /// <summary>
+    /// ptr clone(ptr args): re-invokes an iterator method with its saved arguments, for
+    /// GetEnumerator() on an enumerable that has already been enumerated.
+    /// </summary>
+    public LLVMValueRef IteratorCloneThunk(IMethodSymbol method, LoweredFunction target, LLVMTypeRef argsType, int count)
+    {
+        var key = "clone:" + Native.LLVMGetValueName(target.Fn);
+        if (_globals.TryGetValue(key, out var existing)) return existing;
+        var type = Llvm.FunctionType(Llvm.Ptr, Llvm.Ptr);
+        var fn = Module.AddFunction(Mangler.Method(method) + "$clone", type);
+        Native.LLVMSetLinkage(fn, LLVMLinkage.Internal);
+        using var b = new IrBuilder(Llvm);
+        b.PositionAtEnd(b.AppendBlock(fn, "entry"));
+        var args = new LLVMValueRef[count];
+        for (var i = 0; i < count; i++)
+            args[i] = b.Load(Native.LLVMStructGetTypeAtIndex(argsType, (uint)i), b.StructGep(argsType, fn.Param(0), (uint)i));
+        b.Ret(b.Call(target.Type, target.Fn, args));
+        return _globals[key] = fn;
+    }
+
     private void EmitNativeMain(IMethodSymbol entryPoint)
     {
         var type = Llvm.FunctionType(Llvm.I32, Llvm.I32, Llvm.Ptr);
@@ -783,9 +834,22 @@ public sealed partial class ModuleCodeGen
             args = [b.Call(getArgs.Type, getArgs.Fn, [])];
         }
         var result = b.Call(target.Type, target.Fn, args);
+        var returnsVoid = entryPoint.ReturnsVoid;
+        if (Coroutines.IsTaskLike(entryPoint.ReturnType))
+        {
+            // async Main: drive the scheduler until the returned task completes.
+            var wait = Runtime("csrt_task_wait", Llvm.Void, Llvm.Ptr);
+            b.Call(wait.Type, wait.Fn, [result]);
+            returnsVoid = Coroutines.AsyncResultType(entryPoint.ReturnType) is null;
+            if (!returnsVoid)
+            {
+                var payload = Runtime("csrt_task_result_ptr", Llvm.Ptr, Llvm.Ptr);
+                result = b.Load(Llvm.I32, b.Call(payload.Type, payload.Fn, [result]));
+            }
+        }
 
         var shutdown = Runtime("csrt_shutdown", Llvm.Void);
         b.Call(shutdown.Type, shutdown.Fn, []);
-        b.Ret(entryPoint.ReturnsVoid ? Llvm.ConstInt(Llvm.I32, 0) : result);
+        b.Ret(returnsVoid ? Llvm.ConstInt(Llvm.I32, 0) : result);
     }
 }

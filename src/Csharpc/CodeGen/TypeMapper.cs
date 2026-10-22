@@ -41,6 +41,8 @@ public sealed class TypeMapper(LlvmContext llvm, TargetMachine target)
         INamedTypeSymbol { TypeKind: TypeKind.Enum, EnumUnderlyingType: { } underlying } => Value(underlying),
         IPointerTypeSymbol or IFunctionPointerTypeSymbol => Llvm.Ptr,
         { IsReferenceType: true } => Llvm.Ptr,
+        // Tasks, awaiters and configured awaitables are all a pointer to the csrt task (docs/10-async.md).
+        INamedTypeSymbol t when Coroutines.IsTaskHandleType(t) => Llvm.Ptr,
         { SpecialType: SpecialType.System_Decimal } => throw CompileError.Unsupported("System.Decimal", type),
         // Value types (docs/03-lowering.md#structs): first-class LLVM aggregates of storage types.
         INamedTypeSymbol { OriginalDefinition.SpecialType: SpecialType.System_Nullable_T } n =>

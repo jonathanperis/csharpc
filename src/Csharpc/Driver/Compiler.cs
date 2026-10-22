@@ -85,6 +85,12 @@ public sealed class Compiler(CompilerOptions options)
         }
         Phase("verify");
 
+        if (options.OptLevel == 0 && codegen.HasCoroutines)
+        {
+            // async methods / iterators are LLVM coroutines: CoroSplit must run even at -O0.
+            module.RunPasses("default<O0>", target);
+            Phase("coroutine lowering (default<O0>)");
+        }
         if (options.OptLevel > 0)
         {
             module.RunPasses($"default<O{options.OptLevel}>", target);
