@@ -485,3 +485,7 @@ $RECYCLE.BIN/
 
 # Vim temporary swap files
 *.swp
+
+# csharpc native outputs / local package feed
+**/bin/csharpc/
+artifacts/

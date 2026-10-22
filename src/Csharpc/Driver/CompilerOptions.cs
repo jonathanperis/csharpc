@@ -15,14 +15,24 @@ public sealed record CompilerOptions
     public bool ImplicitUsings { get; set; } = true;
     public List<string> Defines { get; } = [];
     public string CC { get; set; } = Environment.GetEnvironmentVariable("CSHARPC_CC") ?? "clang";
+    /// <summary>A .csproj to evaluate instead of loose files (drop-in mode).</summary>
+    public string? Project { get; set; }
+    public string Configuration { get; set; } = "Release";
+    public bool OptLevelExplicit { get; set; }
+    public Dictionary<string, string> Properties { get; } = [];
+    /// <summary>Default output name when the input is a project (its AssemblyName).</summary>
+    public string? DefaultOutputName { get; set; }
 
     public const string Usage = """
         csharpc — a C# compiler front-end for LLVM
 
         Usage: csharpc [options] <file.cs>...
+               csharpc [options] [<project.csproj> | <directory>]   (drop-in: compiles a .NET project)
 
         Options:
-          -o, --output <path>    Output file
+          -o, --output <path>    Output file, or directory (trailing '/' or existing dir) for <AssemblyName>
+          -c, --configuration <c> Debug (-O0) | Release (-O2, default); explicit -O wins
+          -p:<Name>=<Value>      MSBuild global property used when evaluating a project
           --emit <kind>          exe (default) | obj | asm | llvm-ir | llvm-bc
           -O0 | -O1 | -O2 | -O3  Optimization level (default: -O2)
           --target <triple>      Target triple (default: host)
@@ -66,7 +76,16 @@ public sealed record CompilerOptions
                         var k => throw new ArgumentException($"unknown --emit kind '{k}'"),
                     };
                     break;
-                case "-O0" or "-O1" or "-O2" or "-O3": o.OptLevel = a[2] - '0'; break;
+                case "-O0" or "-O1" or "-O2" or "-O3": o.OptLevel = a[2] - '0'; o.OptLevelExplicit = true; break;
+                case "-c" or "--configuration": o.Configuration = Next(); break;
+                case var _ when a.StartsWith("-p:", StringComparison.Ordinal) || a.StartsWith("/p:", StringComparison.Ordinal):
+                {
+                    var kv = a[3..];
+                    var eq = kv.IndexOf('=');
+                    if (eq <= 0) throw new ArgumentException($"expected -p:Name=Value, got '{a}'");
+                    o.Properties[kv[..eq]] = kv[(eq + 1)..];
+                    break;
+                }
                 case "--target": o.Target = Next(); break;
                 case "-D": o.Defines.Add(Next()); break;
                 case "--no-implicit-usings": o.ImplicitUsings = false; break;
@@ -78,11 +97,45 @@ public sealed record CompilerOptions
                 default: o.Inputs.Add(a); break;
             }
         }
-        if (o.Inputs.Count == 0) throw new ArgumentException("no input files");
+        if (!o.OptLevelExplicit)
+            o.OptLevel = o.Configuration.Equals("Debug", StringComparison.OrdinalIgnoreCase) ? 0 : 2;
+
+        // Drop-in mode: a .csproj, a directory, or nothing (the project in the current directory).
+        var projects = o.Inputs.Where(i => i.EndsWith(".csproj", StringComparison.OrdinalIgnoreCase) || Directory.Exists(i)).ToList();
+        if (projects.Count > 1 || (projects.Count == 1 && o.Inputs.Count > 1))
+            throw new ArgumentException("pass either one project (or directory) or a list of .cs files, not both");
+        if (projects.Count == 1)
+        {
+            var target = projects[0];
+            o.Project = Directory.Exists(target)
+                ? ProjectLoader.FindProject(target) ?? throw new ArgumentException($"no .csproj found in '{target}'")
+                : target;
+            o.Inputs.Clear();
+        }
+        else if (o.Inputs.Count == 0)
+        {
+            o.Project = ProjectLoader.FindProject(Directory.GetCurrentDirectory())
+                ?? throw new ArgumentException("no input files (and no .csproj in the current directory)");
+        }
         return o;
     }
 
-    public string OutputPath => Output ?? Path.ChangeExtension(Path.GetFileName(Inputs[0]), Emit switch
+    public string OutputPath
+    {
+        get
+        {
+            var name = DefaultOutputName ?? Path.GetFileNameWithoutExtension(Inputs.Count > 0 ? Inputs[0] : Project ?? "program");
+            var file = name + Extension; // not ChangeExtension: "My.App" must stay "My.App"
+            if (Output is null)
+                // Projects build into <projectdir>/bin/csharpc/<AssemblyName> by default.
+                return Project is not null ? Path.Combine(Path.GetDirectoryName(Path.GetFullPath(Project))!, "bin", "csharpc", file) : file;
+            if (Output.EndsWith('/') || Output.EndsWith(Path.DirectorySeparatorChar) || Directory.Exists(Output))
+                return Path.Combine(Output, file);
+            return Output;
+        }
+    }
+
+    private string? Extension => Emit switch
     {
         EmitKind.Exe => OperatingSystem.IsWindows() ? ".exe" : null,
         EmitKind.Obj => ".o",
@@ -90,5 +143,5 @@ public sealed record CompilerOptions
         EmitKind.LlvmIr => ".ll",
         EmitKind.LlvmBc => ".bc",
         _ => null,
-    });
+    };
 }
