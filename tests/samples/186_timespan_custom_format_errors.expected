@@ -1,0 +1,37 @@
+[c] -> [1.02:03:04.5670000] [-00:20:34.5678901] [00:00:00]
+[t] -> [1.02:03:04.5670000] [-00:20:34.5678901] [00:00:00]
+[T] -> [1.02:03:04.5670000] [-00:20:34.5678901] [00:00:00]
+[g] -> [1:2:03:04.567] [-0:20:34.5678901] [0:00:00]
+[G] -> [1:02:03:04.5670000] [-0:00:20:34.5678901] [0:00:00:00.0000000]
+[d] -> [ FormatException: Input string was not in a correct format. [ FormatException: Input string was not in a correct format. [ FormatException: Input string was not in a correct format.
+[h] -> [ FormatException: Input string was not in a correct format. [ FormatException: Input string was not in a correct format. [ FormatException: Input string was not in a correct format.
+[m] -> [ FormatException: Input string was not in a correct format. [ FormatException: Input string was not in a correct format. [ FormatException: Input string was not in a correct format.
+[s] -> [ FormatException: Input string was not in a correct format. [ FormatException: Input string was not in a correct format. [ FormatException: Input string was not in a correct format.
+[f] -> [ FormatException: Input string was not in a correct format. [ FormatException: Input string was not in a correct format. [ FormatException: Input string was not in a correct format.
+[F] -> [ FormatException: Input string was not in a correct format. [ FormatException: Input string was not in a correct format. [ FormatException: Input string was not in a correct format.
+[%d] -> [1] [0] [0]
+[%h] -> [2] [0] [0]
+[%F] -> [5] [5] []
+[%%] -> [ FormatException: Input string was not in a correct format. [ FormatException: Input string was not in a correct format. [ FormatException: Input string was not in a correct format.
+[%] -> [ FormatException: Input string was not in a correct format. [ FormatException: Input string was not in a correct format. [ FormatException: Input string was not in a correct format.
+[\] -> [ FormatException: Input string was not in a correct format. [ FormatException: Input string was not in a correct format. [ FormatException: Input string was not in a correct format.
+[dd\.hh\:mm] -> [01.02:03] [00.00:20] [00.00:00]
+[dddddddd] -> [00000001] [00000000] [00000000]
+[ddddddddd] -> [ FormatException: Input string was not in a correct format. [ FormatException: Input string was not in a correct format. [ FormatException: Input string was not in a correct format.
+[hhh] -> [ FormatException: Input string was not in a correct format. [ FormatException: Input string was not in a correct format. [ FormatException: Input string was not in a correct format.
+[mm':'ss] -> [03:04] [20:34] [00:00]
+[ss'.'fffffff] -> [04.5670000] [34.5678901] [00.0000000]
+[ffffffff] -> [ FormatException: Input string was not in a correct format. [ FormatException: Input string was not in a correct format. [ FormatException: Input string was not in a correct format.
+[FFFFFFF] -> [567] [5678901] []
+[FFFFFFFF] -> [ FormatException: Input string was not in a correct format. [ FormatException: Input string was not in a correct format. [ FormatException: Input string was not in a correct format.
+['abc] -> [ FormatException: Cannot find a matching quote character for the character '''. [ FormatException: Cannot find a matching quote character for the character '''. [ FormatException: Cannot find a matching quote character for the character '''.
+["x] -> [ FormatException: Cannot find a matching quote character for the character '"'. [ FormatException: Cannot find a matching quote character for the character '"'. [ FormatException: Cannot find a matching quote character for the character '"'.
+['a\'b'] -> [a'b] [a'b] [a'b]
+[hh:mm] -> [ FormatException: Input string was not in a correct format. [ FormatException: Input string was not in a correct format. [ FormatException: Input string was not in a correct format.
+[h x] -> [ FormatException: Input string was not in a correct format. [ FormatException: Input string was not in a correct format. [ FormatException: Input string was not in a correct format.
+[d'd' h'h'] -> [ FormatException: Input string was not in a correct format. [ FormatException: Input string was not in a correct format. [ FormatException: Input string was not in a correct format.
+[] -> [1.02:03:04.5670000] [-00:20:34.5678901] [00:00:00]
+[ ] -> [ FormatException: Input string was not in a correct format. [ FormatException: Input string was not in a correct format. [ FormatException: Input string was not in a correct format.
+[\'] -> ['] ['] [']
+[hh\] -> [ FormatException: Input string was not in a correct format. [ FormatException: Input string was not in a correct format. [ FormatException: Input string was not in a correct format.
+[%'] -> [ FormatException: Cannot find a matching quote character for the character '''. [ FormatException: Cannot find a matching quote character for the character '''. [ FormatException: Cannot find a matching quote character for the character '''.

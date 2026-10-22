@@ -156,6 +156,35 @@ namespace CsharpcCoreLib
 
         private static void ThrowInvalidFormat() => throw new FormatException("Input string was not in a correct format.");
 
+        /// <summary>
+        /// .NET's DateTimeFormat.ParseQuoteString: copies a quoted literal (backslash escapes inside it)
+        /// and returns its length including both quotes; an unterminated quote is an error.
+        /// </summary>
+        private static int ParseQuoteString(ref CharBuilder sb, string f, int pos)
+        {
+            int begin = pos;
+            char quote = f[pos++];
+            while (pos < f.Length)
+            {
+                char ch = f[pos++];
+                if (ch == quote) return pos - begin;
+                if (ch == '\\')
+                {
+                    if (pos >= f.Length) ThrowInvalidFormat();
+                    sb.Append(f[pos++]);
+                }
+                else sb.Append(ch);
+            }
+            throw new FormatException("Cannot find a matching quote character for the character '" + quote.ToString() + "'.");
+        }
+
+        /// <summary>The character after a '%' or '\\'; a format ending there is an error.</summary>
+        private static char NextFormatChar(string f, int i)
+        {
+            if (i + 1 >= f.Length) ThrowInvalidFormat();
+            return f[i + 1];
+        }
+
         internal static string TimeSpanFormat(long ticks, string format)
         {
             Span<char> chars = stackalloc char[64];
@@ -166,6 +195,15 @@ namespace CsharpcCoreLib
                 TimeSpanStandard(ref sb, ticks, f.Length == 0 ? 'c' : f[0] == 'g' ? 'g' : f[0] == 'G' ? 'G' : 'c');
                 return sb.Build();
             }
+            // Any other single character is an unknown standard format, not a custom one.
+            if (f.Length == 1) ThrowInvalidFormat();
+            TimeSpanCustom(ref sb, ticks, f);
+            return sb.Build();
+        }
+
+        /// <summary>.NET's TimeSpanFormat.FormatCustomized: anything but a known specifier, a quote or an escape is an error.</summary>
+        private static void TimeSpanCustom(ref CharBuilder sb, long ticks, string f)
+        {
             ulong magnitude = ticks < 0 ? 0UL - (ulong)ticks : (ulong)ticks;
             ulong days = magnitude / TicksPerDay, rem = magnitude % TicksPerDay;
             int hours = (int)(rem / TicksPerHour), minutes = (int)(rem / TicksPerMinute % 60), seconds = (int)(rem / TicksPerSecond % 60);
@@ -173,29 +211,50 @@ namespace CsharpcCoreLib
             for (int i = 0; i < f.Length;)
             {
                 char c = f[i];
-                int n = RunLength(f, i);
+                int n;
                 switch (c)
                 {
-                    case 'd': AppendNumber(ref sb, (long)days, n); i += n; break;
-                    case 'h': AppendNumber(ref sb, hours, n > 1 ? 2 : 1); i += n; break;
-                    case 'm': AppendNumber(ref sb, minutes, n > 1 ? 2 : 1); i += n; break;
-                    case 's': AppendNumber(ref sb, seconds, n > 1 ? 2 : 1); i += n; break;
-                    case 'f': AppendFraction(ref sb, fraction, n > 7 ? 7 : n, false); i += n; break;
-                    case 'F': AppendFraction(ref sb, fraction, n > 7 ? 7 : n, true); i += n; break;
-                    case '\\': if (i + 1 < f.Length) sb.Append(f[i + 1]); i += 2; break;
+                    case 'h':
+                    case 'm':
+                    case 's':
+                        n = RunLength(f, i);
+                        if (n > 2) ThrowInvalidFormat();
+                        AppendNumber(ref sb, c == 'h' ? hours : c == 'm' ? minutes : seconds, n);
+                        break;
+                    case 'f':
+                    case 'F':
+                        n = RunLength(f, i);
+                        if (n > 7) ThrowInvalidFormat();
+                        AppendFraction(ref sb, fraction, n, c == 'F');
+                        break;
+                    case 'd':
+                        n = RunLength(f, i);
+                        if (n > 8) ThrowInvalidFormat();
+                        AppendNumber(ref sb, (long)days, n);
+                        break;
                     case '\'':
                     case '"':
+                        n = ParseQuoteString(ref sb, f, i);
+                        break;
+                    case '%':
                     {
-                        int j = i + 1;
-                        while (j < f.Length && f[j] != c) sb.Append(f[j++]);
-                        i = j < f.Length ? j + 1 : j;
+                        char next = NextFormatChar(f, i);
+                        if (next == '%') ThrowInvalidFormat();
+                        TimeSpanCustom(ref sb, ticks, next.ToString());
+                        n = 2;
                         break;
                     }
-                    case '%': i++; break;
-                    default: ThrowInvalidFormat(); break;
+                    case '\\':
+                        sb.Append(NextFormatChar(f, i));
+                        n = 2;
+                        break;
+                    default:
+                        ThrowInvalidFormat();
+                        n = 0;
+                        break;
                 }
+                i += n;
             }
-            return sb.Build();
         }
 
         // ==========================================================================================
@@ -338,6 +397,7 @@ namespace CsharpcCoreLib
             return AddMonths(ticks, years * 12);
         }
 
+        /// <summary>.NET's DateTimeFormat.FormatCustomized for the invariant culture and the Gregorian calendar.</summary>
         private static void FormatCustom(ref CharBuilder sb, long ticks, string f)
         {
             DateParts(ticks, out int y, out int mo, out int d, out int _);
@@ -350,45 +410,55 @@ namespace CsharpcCoreLib
                 int n = RunLength(f, i);
                 switch (c)
                 {
+                    case 'g': sb.Append("A.D."); break;  // the invariant culture's only era
                     case 'y':
                         AppendNumber(ref sb, n <= 2 ? y % 100 : y, n);
-                        i += n; break;
+                        break;
                     case 'M':
                         if (n <= 2) AppendNumber(ref sb, mo, n);
                         else if (n == 3) sb.Append(MonthName(mo).Substring(0, 3));
                         else sb.Append(MonthName(mo));
-                        i += n; break;
+                        break;
                     case 'd':
                         if (n <= 2) AppendNumber(ref sb, d, n);
                         else if (n == 3) sb.Append(DayName(dow).Substring(0, 3));
                         else sb.Append(DayName(dow));
-                        i += n; break;
-                    case 'H': AppendNumber(ref sb, h, n > 1 ? 2 : 1); i += n; break;
-                    case 'h': AppendNumber(ref sb, h % 12 == 0 ? 12 : h % 12, n > 1 ? 2 : 1); i += n; break;
-                    case 'm': AppendNumber(ref sb, mi, n > 1 ? 2 : 1); i += n; break;
-                    case 's': AppendNumber(ref sb, s, n > 1 ? 2 : 1); i += n; break;
-                    case 'f': AppendFraction(ref sb, fraction, n > 7 ? 7 : n, false); i += n; break;
+                        break;
+                    case 'H': AppendNumber(ref sb, h, n > 1 ? 2 : 1); break;
+                    case 'h': AppendNumber(ref sb, h % 12 == 0 ? 12 : h % 12, n > 1 ? 2 : 1); break;
+                    case 'm': AppendNumber(ref sb, mi, n > 1 ? 2 : 1); break;
+                    case 's': AppendNumber(ref sb, s, n > 1 ? 2 : 1); break;
+                    case 'f':
                     case 'F':
                     {
+                        if (n > 7) ThrowInvalidFormat();
                         int before = sb.Length;
-                        AppendFraction(ref sb, fraction, n > 7 ? 7 : n, true);
-                        if (sb.Length == before && before > 0 && sb.LastChar == '.') sb.Truncate(before - 1);  // drop a dangling '.'
-                        i += n; break;
-                    }
-                    case 't': if (n == 1) sb.Append(h < 12 ? 'A' : 'P'); else sb.Append(h < 12 ? "AM" : "PM"); i += n; break;
-                    case 'K': case 'z': i += n; break;  // Kind/offset not modelled (Unspecified)
-                    case '\\': if (i + 1 < f.Length) sb.Append(f[i + 1]); i += 2; break;
-                    case '\'':
-                    case '"':
-                    {
-                        int j = i + 1;
-                        while (j < f.Length && f[j] != c) sb.Append(f[j++]);
-                        i = j < f.Length ? j + 1 : j;
+                        AppendFraction(ref sb, fraction, n, c == 'F');
+                        if (c == 'F' && sb.Length == before && before > 0 && sb.LastChar == '.') sb.Truncate(before - 1);  // drop a dangling '.'
                         break;
                     }
-                    case '%': i++; break;
-                    default: sb.Append(c); i++; break;
+                    case 't': if (n == 1) sb.Append(h < 12 ? 'A' : 'P'); else sb.Append(h < 12 ? "AM" : "PM"); break;
+                    case 'z': break;  // the local UTC offset is not modelled yet
+                    case 'K': n = 1; break;  // Kind is not modelled: an unspecified DateTime writes nothing
+                    case '\'':
+                    case '"':
+                        n = ParseQuoteString(ref sb, f, i);
+                        break;
+                    case '%':
+                    {
+                        char next = NextFormatChar(f, i);
+                        if (next == '%') ThrowInvalidFormat();
+                        FormatCustom(ref sb, ticks, next.ToString());
+                        n = 2;
+                        break;
+                    }
+                    case '\\':
+                        sb.Append(NextFormatChar(f, i));
+                        n = 2;
+                        break;
+                    default: sb.Append(c); n = 1; break;
                 }
+                i += n;
             }
         }
 
