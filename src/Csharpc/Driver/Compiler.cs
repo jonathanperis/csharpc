@@ -66,8 +66,12 @@ public sealed class Compiler(CompilerOptions options)
         module.SourceFileName = settings.Files.Count > 0 ? settings.Files[0] : "program";
 
         var codegen = new ModuleCodeGen(compilation, llvm, module, target) { CfgDump = options.DumpCfg ? Console.Out : null };
+        using var debugInfo = options.Debug
+            ? codegen.Debug = new DebugInfo(codegen, settings.Files.Count > 0 ? settings.Files[0] : "program.cs", options.OptLevel > 0)
+            : null;
         try { codegen.Generate(); }
         catch (CompileError e) { codegen.Errors.Add(e); }
+        debugInfo?.Finish();
         Phase("lower CFG -> LLVM IR");
 
         if (codegen.Errors.Count > 0)

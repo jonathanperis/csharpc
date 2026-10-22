@@ -65,7 +65,10 @@ public sealed partial class FunctionCodeGen
         coro.Promise.SetName(kind == CoroutineKind.Async ? "task" : "iterator");
 
         var id = CoroIntrinsic("llvm.coro.id", L.Token, L.I32, L.Ptr, L.Ptr, L.Ptr);
-        coro.Id = _b.Call(id.Type, id.Fn, [L.ConstInt(L.I32, 16), LlvmContext.Null(L.Ptr), LlvmContext.Null(L.Ptr), LlvmContext.Null(L.Ptr)], "coro.id");
+        // -g: LLVM 18's coroutine frame debug info (buildFrameDebugInfo) dereferences the promise
+        // alloca, so give the coroutine a dummy one, as clang always has a promise.
+        var promise = _dbg is not null ? _allocas.Alloca(L.I8, "coro.promise") : LlvmContext.Null(L.Ptr);
+        coro.Id = _b.Call(id.Type, id.Fn, [L.ConstInt(L.I32, 16), promise, LlvmContext.Null(L.Ptr), LlvmContext.Null(L.Ptr)], "coro.id");
         var sizeFn = CoroIntrinsic("llvm.coro.size.i64", L.I64);
         var size = _b.Call(sizeFn.Type, sizeFn.Fn, [], "coro.size");
         var mem = CallRuntime("csrt_coro_alloc", L.Ptr, [L.I64], size);

@@ -22,6 +22,9 @@ public sealed partial class ModuleCodeGen
     public TextWriter? CfgDump { get; init; }
     public CoreLib CoreLib { get; }
 
+    /// <summary>DWARF emission (csharpc -g); null when debug info is off.</summary>
+    public DebugInfo? Debug { get; set; }
+
     private readonly Dictionary<IMethodSymbol, LoweredFunction> _functions = new(SymbolEqualityComparer.Default);
     private readonly Dictionary<INamedTypeSymbol, ClassLayout> _layouts = new(SymbolEqualityComparer.Default);
     private readonly Dictionary<IFieldSymbol, LLVMValueRef> _staticFields = new(SymbolEqualityComparer.Default);
@@ -939,6 +942,8 @@ public sealed partial class ModuleCodeGen
         var main = Module.AddFunction("main", type);
         using var b = new IrBuilder(Llvm);
         b.PositionAtEnd(b.AppendBlock(main, "entry"));
+        // -g: an artificial subprogram, so code inlined into main (at -O2, usually Main itself) keeps line info.
+        Debug?.BeginSynthetic(main, "main", entryPoint)?.SetLocation(b, 0, 0);
 
         var init = Runtime("csrt_init", Llvm.Void, Llvm.I32, Llvm.Ptr);
         b.Call(init.Type, init.Fn, [main.Param(0), main.Param(1)]);
