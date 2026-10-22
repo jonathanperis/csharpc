@@ -58,12 +58,13 @@ forecast.
 
 ## Current results
 
-Run on 2026-10-22 against main `877db85` (structs, `Nullable<T>`, tuples, lambdas/closures/delegates,
-numeric formatting and MSBuild support merged; generics, interfaces and exceptions still in flight), `-O2`:
+Run on 2026-10-22 on branch `bclvalues` with main merged (structs, generics, interfaces, exceptions,
+async/iterators, spans/pointers, records, perf/LTO, BCL value types), `-O2`:
 
 **159 / 195 programs pass — 81.5% coverage** (merged main + BCL value types, 2026-10-22; history: 41.0% → 51.3% → 65.1% → 81.5%).
-Of the failures, 115 are compile-time "not supported" diagnostics and 0 compile but produce wrong output (none at this point —
-everything csharpc accepts behaves like .NET).
+Of the 36 failures, 34 are compile-time "not supported" diagnostics (mostly `List<T>`/collections and LINQ,
+which await the C# corelib), one is an internal compiler error (static abstract interface members) and one
+is a runtime difference (exception propagation out of a `ValueTask`).
 
 | area | pass | total | coverage |
 |---|---:|---:|---:|
