@@ -1,0 +1,129 @@
+[13/1/2025] -> fail
+[2015-13-05] -> fail
+[1/13/2025] -> 2025-01-13 00:00:00.0000000 Unspecified
+[2015-02-30] -> fail
+[Jan 32 2025] -> fail
+[garbage] -> fail
+[] -> fail
+[  ] -> fail
+[12:61] -> fail
+[25:00] -> fail
+[2015-11-05] -> 2015-11-05 00:00:00.0000000 Unspecified
+[1/15/2025 3:30 PM] -> 2025-01-15 15:30:00.0000000 Unspecified
+[January 15, 2025] -> 2025-01-15 00:00:00.0000000 Unspecified
+[15 January 2025] -> 2025-01-15 00:00:00.0000000 Unspecified
+[Jan 15 2025] -> 2025-01-15 00:00:00.0000000 Unspecified
+[2025-01-15T14:30:00] -> 2025-01-15 14:30:00.0000000 Unspecified
+[2025-01-15T14:30:00Z] -> 2025-01-15 09:30:00.0000000 Local
+[2025-01-15T14:30:00.1234567+02:00] -> 2025-01-15 07:30:00.1234567 Local
+[2025-01-15 14:30] -> 2025-01-15 14:30:00.0000000 Unspecified
+[Wednesday, January 15, 2025] -> 2025-01-15 00:00:00.0000000 Unspecified
+[Wed, 15 Jan 2025 14:30:00 GMT] -> 2025-01-15 09:30:00.0000000 Local
+[1/15/25] -> 2025-01-15 00:00:00.0000000 Unspecified
+[01/15/2025 23:59:59] -> 2025-01-15 23:59:59.0000000 Unspecified
+[2025/01/15] -> 2025-01-15 00:00:00.0000000 Unspecified
+[1-15-2025] -> 2025-01-15 00:00:00.0000000 Unspecified
+[January 2025] -> 2025-01-01 00:00:00.0000000 Unspecified
+[2025-01-15T14:30] -> 2025-01-15 14:30:00.0000000 Unspecified
+[  2015-11-05  ] -> 2015-11-05 00:00:00.0000000 Unspecified
+[2015-11-05T10:00:00.5] -> 2015-11-05 10:00:00.5000000 Unspecified
+[12/31/1999 12:00:00 AM] -> 1999-12-31 00:00:00.0000000 Unspecified
+[12/31/1999 12:00 PM] -> 1999-12-31 12:00:00.0000000 Unspecified
+[2025-1-5] -> 2025-01-05 00:00:00.0000000 Unspecified
+[2025-01-15 2:30:00 PM] -> 2025-01-15 14:30:00.0000000 Unspecified
+[Jan 15, 2025 3:45:10 AM] -> 2025-01-15 03:45:10.0000000 Unspecified
+[15-Jan-2025] -> 2025-01-15 00:00:00.0000000 Unspecified
+[2025-01-15T14:30:00-05:00] -> 2025-01-15 14:30:00.0000000 Local
+[2025-01-15 14:30:00Z] -> 2025-01-15 09:30:00.0000000 Local
+[20250115] -> fail
+The string 'garbage' was not recognized as a valid DateTime. There is an unknown word starting at index '0'.
+Value cannot be null. (Parameter 's')
+[2025-01-15T14:30:00|yyyy-MM-ddTHH:mm:ss] -> 2025-01-15 14:30:00.0000000 Unspecified
+[15/01/2025|dd/MM/yyyy] -> 2025-01-15 00:00:00.0000000 Unspecified
+[1/5/2025|M/d/yyyy] -> 2025-01-05 00:00:00.0000000 Unspecified
+[Jan 05 2025|MMM dd yyyy] -> 2025-01-05 00:00:00.0000000 Unspecified
+[20250115|yyyyMMdd] -> 2025-01-15 00:00:00.0000000 Unspecified
+[2025-01-15T14:30:00.12|yyyy-MM-ddTHH:mm:ss.FFF] -> 2025-01-15 14:30:00.1200000 Unspecified
+[Wednesday 15 January 2025|dddd dd MMMM yyyy] -> 2025-01-15 00:00:00.0000000 Unspecified
+[Tuesday 15 January 2025|dddd dd MMMM yyyy] -> String 'Tuesday 15 January 2025' was not recognized as a valid DateTime because the day of week was incorrect.
+[2025-01-15 +02:00|yyyy-MM-dd zzz] -> 2025-01-14 17:00:00.0000000 Local
+[2025-01-15T10:00:00Z|yyyy-MM-ddTHH:mm:ssK] -> 2025-01-15 05:00:00.0000000 Local
+[25|yy] -> 2025-01-01 00:00:00.0000000 Unspecified
+[75-03|yy-MM] -> 1975-03-01 00:00:00.0000000 Unspecified
+[2025-01-15|d] -> String '2025-01-15' was not recognized as a valid DateTime.
+[01/15/2025|d] -> 2025-01-15 00:00:00.0000000 Unspecified
+[2025-01-15T14:30:00.0000000|o] -> 2025-01-15 14:30:00.0000000 Unspecified
+[2025-01-15T14:30:00.0000000Z|o] -> 2025-01-15 09:30:00.0000000 Local
+[Wed, 15 Jan 2025 14:30:00 GMT|R] -> 2025-01-15 14:30:00.0000000 Unspecified
+[2025-01-15T14:30:00|s] -> 2025-01-15 14:30:00.0000000 Unspecified
+[2025-1-15|yyyy-MM-dd] -> String '2025-1-15' was not recognized as a valid DateTime.
+[ 2025-01-15|yyyy-MM-dd] -> String ' 2025-01-15' was not recognized as a valid DateTime.
+[2025-01-15 |yyyy-MM-dd] -> String '2025-01-15 ' was not recognized as a valid DateTime.
+[2025.01.15|yyyy'.'MM'.'dd] -> 2025-01-15 00:00:00.0000000 Unspecified
+[2025-01-15|yyyy\-MM\-dd] -> 2025-01-15 00:00:00.0000000 Unspecified
+True 2025-01-15T00:00:00.0000000
+False 0001-01-01T00:00:00.0000000
+2025-01-15T10:00:00.0000000
+2025-01-15T10:00:00.0000000Z
+2025-01-15T10:00:00.0000000Z
+2025-01-15T05:00:00.0000000-05:00
+2025-01-15T00:00:00.0000000Z
+[13/1/2025] -> String '13/1/2025' was not recognized as a valid DateTime.
+[2015-13-05] -> String '2015-13-05' was not recognized as a valid DateTime.
+[2015-02-30] -> String '2015-02-30' was not recognized as a valid DateTime.
+[Jan 32 2025] -> String 'Jan 32 2025' was not recognized as a valid DateTime.
+[garbage] -> The string 'garbage' was not recognized as a valid DateTime. There is an unknown word starting at index '0'.
+[] -> String '' was not recognized as a valid DateTime.
+[  ] -> String '  ' was not recognized as a valid DateTime.
+[12:61] -> The DateTime represented by the string '12:61' is not supported in calendar 'System.Globalization.GregorianCalendar'.
+[25:00] -> The DateTime represented by the string '25:00' is not supported in calendar 'System.Globalization.GregorianCalendar'.
+[20250115] -> String '20250115' was not recognized as a valid DateTime.
+[2025-01-15 xyz] -> The string '2025-01-15 xyz' was not recognized as a valid DateTime. There is an unknown word starting at index '11'.
+[2025-01-15T] -> String '2025-01-15T' was not recognized as a valid DateTime.
+[10:00 XM] -> The string '10:00 XM' was not recognized as a valid DateTime. There is an unknown word starting at index '6'.
+[2025-01-15T25:00] -> The DateTime represented by the string '2025-01-15T25:00' is not supported in calendar 'System.Globalization.GregorianCalendar'.
+[Febr 3 2025] -> The string 'Febr 3 2025' was not recognized as a valid DateTime. There is an unknown word starting at index '0'.
+[2025-01-15 10:00:00 +25:00] -> The time zone offset of string '2025-01-15 10:00:00 +25:00' must be within plus or minus 14 hours.
+[2025] -> String '2025' was not recognized as a valid DateTime.
+[5] -> String '5' was not recognized as a valid DateTime.
+[2025-01] -> 2025-01-01 00:00:00.0000000 Unspecified
+[Monday, January 15, 2025] -> String 'Monday, January 15, 2025' was not recognized as a valid DateTime because the day of week was incorrect.
+[12/31/1999 13:00 PM] -> 1999-12-31 13:00:00.0000000 Unspecified
+[1/1/0001] -> 0001-01-01 00:00:00.0000000 Unspecified
+[12/31/9999 23:59:59.9999999] -> 9999-12-31 23:59:59.9999999 Unspecified
+[2025-01-15T14:30:00.12345678] -> 2025-01-15 14:30:00.1234568 Unspecified
+[Jan] -> String 'Jan' was not recognized as a valid DateTime.
+02/29/2024 2024 2 29 Thursday 60 738944
+2024-02-29 Thursday, 29 February 2024 2024-02-29 Thu, 29 Feb 2024 February 29 2024 February 29 Feb 2024 Thursday, 29 February 2024 02/29/2024
+03/01/2024 02/28/2025 02/28/2025 12/31/2023
+01/01/0001 12/31/9999 07/30/2021 01/02/2020
+True True 1 True 738944
+02/29/2024 13:45:00 Utc
+2024 2 29
+ArgumentOutOfRangeException: Year, Month, and Day parameters describe an un-representable DateTime.
+ArgumentOutOfRangeException: Day number must be between 0 and DateOnly.MaxValue.DayNumber. (Parameter 'dayNumber')
+Actual value was -1.
+01/15/2025
+01/15/2025
+01/15/2025
+FormatException: String '2025-01-15 10:00' contains parts which are not specific to the DateOnly.
+FormatException: String 'garbage' was not recognized as a valid DateOnly.
+10/21/2015
+01/15/2025
+FormatException: String '2025-01-15' was not recognized as a valid DateOnly.
+FormatException: String 'x' was not recognized as a valid DateOnly.
+False 01/01/0001
+2 True
+14:30 14 30 15 123 522151230000 14:30:15.123 14:30 14:30:15 14:30:15.1230000 14:30:15 14:30:15 14:30
+00:30 23:30 02:30 14:30:15.1230000 01:15 07:08
+True False 22:00:00 00:00 23:59
+True True -1 -1834780087
+ArgumentOutOfRangeException: Hour, Minute, and Second parameters describe an un-representable DateTime.
+14:30
+14:30
+14:30
+FormatException: String '2025-01-15 10:00' contains parts which are not specific to the TimeOnly.
+17:00
+17:30
+14:30
+False 00:00

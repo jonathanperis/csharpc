@@ -285,22 +285,22 @@ namespace CsharpcCoreLib
         // DateTime (the CLR's calendar algorithms)
         // ==========================================================================================
 
-        private static int DaysToMonth(bool leap, int month) => leap
+        internal static int DaysToMonth(bool leap, int month) => leap
             ? month switch { 0 => 0, 1 => 31, 2 => 60, 3 => 91, 4 => 121, 5 => 152, 6 => 182, 7 => 213, 8 => 244, 9 => 274, 10 => 305, 11 => 335, _ => 366 }
             : month switch { 0 => 0, 1 => 31, 2 => 59, 3 => 90, 4 => 120, 5 => 151, 6 => 181, 7 => 212, 8 => 243, 9 => 273, 10 => 304, 11 => 334, _ => 365 };
 
-        private static string MonthName(int month) => month switch
+        internal static string MonthName(int month) => month switch
         {
             1 => "January", 2 => "February", 3 => "March", 4 => "April", 5 => "May", 6 => "June", 7 => "July",
             8 => "August", 9 => "September", 10 => "October", 11 => "November", _ => "December",
         };
 
-        private static string DayName(int dayOfWeek) => dayOfWeek switch
+        internal static string DayName(int dayOfWeek) => dayOfWeek switch
         {
             0 => "Sunday", 1 => "Monday", 2 => "Tuesday", 3 => "Wednesday", 4 => "Thursday", 5 => "Friday", _ => "Saturday",
         };
 
-        private static bool IsLeap(int year) => (year & 3) == 0 && ((year % 100) != 0 || (year % 400) == 0);
+        internal static bool IsLeap(int year) => (year & 3) == 0 && ((year % 100) != 0 || (year % 400) == 0);
 
         internal static bool IsLeapYear(int year)
         {
@@ -315,7 +315,7 @@ namespace CsharpcCoreLib
             return DaysToMonth(leap, month) - DaysToMonth(leap, month - 1);
         }
 
-        private static long DateToTicks(int y, int m, int d)
+        internal static long DateToTicks(int y, int m, int d)
         {
             if (y < 1 || y > 9999 || m < 1 || m > 12)
                 throw new ArgumentOutOfRangeException(null, "Year, Month, and Day parameters describe an un-representable DateTime.");
@@ -812,6 +812,38 @@ namespace CsharpcCoreLib
         [ShadowInstance] public static long ToFileTimeUtc(DateTime @this) => DateTimeOps.ToFileTimeUtc(D(@this));
         public static DateTime FromFileTime(long fileTime) => M(DateTimeOps.FromFileTime(fileTime));
         public static DateTime FromFileTimeUtc(long fileTime) => M(DateTimeOps.FromFileTimeUtc(fileTime));
+
+        // Parsing (DateTimeParse.cs); the provider can only be the invariant culture.
+        public static DateTime Parse(string s) => DateTimeParse.Parse(s, System.Globalization.DateTimeStyles.AllowWhiteSpaces);
+        public static DateTime Parse(string s, IFormatProvider provider) => DateTimeParse.Parse(s, System.Globalization.DateTimeStyles.AllowWhiteSpaces);
+        public static DateTime Parse(string s, IFormatProvider provider, System.Globalization.DateTimeStyles styles) => DateTimeParse.Parse(s, styles);
+        public static bool TryParse(string s, out DateTime result) => DateTimeParse.TryParse(s, System.Globalization.DateTimeStyles.AllowWhiteSpaces, out result);
+        public static bool TryParse(string s, IFormatProvider provider, out DateTime result) =>
+            DateTimeParse.TryParse(s, System.Globalization.DateTimeStyles.AllowWhiteSpaces, out result);
+        public static bool TryParse(string s, IFormatProvider provider, System.Globalization.DateTimeStyles styles, out DateTime result) =>
+            DateTimeParse.TryParse(s, styles, out result);
+
+        public static DateTime ParseExact(string s, string format, IFormatProvider provider) =>
+            ParseExact(s, format, provider, System.Globalization.DateTimeStyles.None);
+
+        public static DateTime ParseExact(string s, string format, IFormatProvider provider, System.Globalization.DateTimeStyles style)
+        {
+            if (s == null) throw new ArgumentNullException("s");
+            if (format == null) throw new ArgumentNullException("format");
+            return DateTimeParse.ParseExact(s, new string[] { format }, style);
+        }
+
+        public static DateTime ParseExact(string s, string[] formats, IFormatProvider provider, System.Globalization.DateTimeStyles style) =>
+            DateTimeParse.ParseExact(s, formats, style);
+
+        public static bool TryParseExact(string s, string format, IFormatProvider provider, System.Globalization.DateTimeStyles style, out DateTime result)
+        {
+            if (format == null) { result = default; return false; }
+            return DateTimeParse.TryParseExact(s, new string[] { format }, style, out result);
+        }
+
+        public static bool TryParseExact(string s, string[] formats, IFormatProvider provider, System.Globalization.DateTimeStyles style, out DateTime result) =>
+            DateTimeParse.TryParseExact(s, formats, style, out result);
 
         [ShadowInstance] public static bool Equals(DateTime @this, object value) => value is DateTime other && @this.Ticks == other.Ticks;
 
