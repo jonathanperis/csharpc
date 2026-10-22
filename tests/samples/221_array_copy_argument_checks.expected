@@ -1,0 +1,53 @@
+negative length: ArgumentOutOfRangeException
+  Message: length ('-1') must be a non-negative value. (Parameter 'length')
+Actual value was -1.
+  ParamName: length
+negative length (5 args): ArgumentOutOfRangeException
+  Message: length ('-1') must be a non-negative value. (Parameter 'length')
+Actual value was -1.
+  ParamName: length
+long negative length: ArgumentOutOfRangeException
+  Message: length ('-5') must be a non-negative value. (Parameter 'length')
+Actual value was -5.
+  ParamName: length
+negative source index: ArgumentOutOfRangeException
+  Message: sourceIndex ('-1') must be greater than or equal to '0'. (Parameter 'sourceIndex')
+Actual value was -1.
+  ParamName: sourceIndex
+negative destination index: ArgumentOutOfRangeException
+  Message: destinationIndex ('-2') must be greater than or equal to '0'. (Parameter 'destinationIndex')
+Actual value was -2.
+  ParamName: destinationIndex
+source too short: ArgumentException
+  Message: Source array was not long enough. Check the source index, length, and the array's lower bounds. (Parameter 'sourceArray')
+  ParamName: sourceArray
+destination too short: ArgumentException
+  Message: Destination array was not long enough. Check the destination index, length, and the array's lower bounds. (Parameter 'destinationArray')
+  ParamName: destinationArray
+length too long: ArgumentException
+  Message: Source array was not long enough. Check the source index, length, and the array's lower bounds. (Parameter 'sourceArray')
+  ParamName: sourceArray
+null source: ArgumentNullException
+  Message: Value cannot be null. (Parameter 'sourceArray')
+  ParamName: sourceArray
+null destination: ArgumentNullException
+  Message: Value cannot be null. (Parameter 'destinationArray')
+  ParamName: destinationArray
+null source (5 args): ArgumentNullException
+  Message: Value cannot be null. (Parameter 'sourceArray')
+  ParamName: sourceArray
+null destination (5 args): ArgumentNullException
+  Message: Value cannot be null. (Parameter 'destinationArray')
+  ParamName: destinationArray
+negative length and index: ArgumentOutOfRangeException
+  Message: length ('-1') must be a non-negative value. (Parameter 'length')
+Actual value was -1.
+  ParamName: length
+zero length at end: no exception
+huge long length: ArgumentOutOfRangeException
+  Message: Arrays larger than 2GB are not supported. (Parameter 'length')
+  ParamName: length
+x,y
+string[] to object[]: no exception
+1,1,2
+ok overlapping: no exception

@@ -135,7 +135,7 @@ namespace CsharpcCoreLib
 
         public DictionaryImpl(int capacity, IEqualityComparer<TKey> comparer)
         {
-            if (capacity < 0) ThrowHelper.ArgumentOutOfRange("capacity", "Non-negative number required.");
+            if (capacity < 0) throw new ArgumentOutOfRangeException("capacity");
             if (capacity > 0) Initialize(capacity);
             if (comparer != null && (object)comparer != (object)EqualityComparer<TKey>.Default) _comparer = comparer;
         }
@@ -354,7 +354,7 @@ namespace CsharpcCoreLib
 
         public int EnsureCapacity(int capacity)
         {
-            if (capacity < 0) ThrowHelper.ArgumentOutOfRange("capacity", "Non-negative number required.");
+            if (capacity < 0) throw new ArgumentOutOfRangeException("capacity");
             int current = Capacity;
             if (current >= capacity) return current;
             _version++;

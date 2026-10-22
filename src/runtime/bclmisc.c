@@ -16,6 +16,7 @@ static const csrt_MethodTable mt_argument = { NULL, "System.ArgumentException", 
 static const csrt_MethodTable mt_argument_null = { NULL, "System.ArgumentNullException", 0, 0 };
 static const csrt_MethodTable mt_range = { NULL, "System.ArgumentOutOfRangeException", 0, 0 };
 static const csrt_MethodTable mt_format = { NULL, "System.FormatException", 0, 0 };
+static const csrt_MethodTable mt_index = { NULL, "System.IndexOutOfRangeException", 0, 0 };
 static const csrt_MethodTable mt_overflow = { NULL, "System.OverflowException", 0, 0 };
 
 static csrt_String* ascii(const char* text) {
@@ -45,8 +46,10 @@ static void need_array(csrt_Array* a, const char* param) {
 // System.Array
 // ---------------------------------------------------------------------------------------------
 static void range_check(csrt_Array* a, int64_t index, int64_t* length) {
-    if (*length < 0) *length = a->length - index;
-    if (index < 0 || *length < 0 || index + *length > a->length)
+    if (*length == INT64_MIN) { *length = a->length - index; return; }  // whole array (Reverse(array))
+    if (index < 0) csrt_throw(&mt_range, ascii("Non-negative number required. (Parameter 'index')"));
+    if (*length < 0) csrt_throw(&mt_range, ascii("Non-negative number required. (Parameter 'length')"));
+    if (a->length - index < *length)
         csrt_throw(&mt_argument, ascii("Offset and length were out of bounds for the array or count is greater than the number of elements from index to the end of the source collection."));
 }
 
@@ -68,8 +71,9 @@ void csrt_array_reverse(csrt_Array* a, int64_t index, int64_t length, int64_t el
 void csrt_array_clear(csrt_Array* a, int64_t index, int64_t length, int64_t elem) {
     need_array(a, "array");
     if (length < 0) { index = 0; length = a->length; }
+    // .NET: IndexOutOfRangeException, not an ArgumentException.
     if (index < 0 || length < 0 || index + length > a->length)
-        csrt_throw(&mt_range, ascii("Index was out of range. Must be non-negative and less than the size of the collection."));
+        csrt_throw(&mt_index, ascii("Index was outside the bounds of the array."));
     memset(a->data + index * elem, 0, (size_t)(length * elem));
 }
 
