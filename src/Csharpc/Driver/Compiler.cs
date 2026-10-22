@@ -105,7 +105,8 @@ public sealed class Compiler(CompilerOptions options)
         var toolchain = new Toolchain(options);
         Hardening.ApplyFunctionAttributes(module, llvm, options.Hardening); // generated functions only
         Hardening.ApplyModuleFlags(module, llvm, options.Hardening);
-        var runtimeLto = options.Emit == EmitKind.Exe && options.OptLevel > 0 && options.RuntimeLto;
+        // Sanitizer builds link the instrumented runtime as objects (no runtime LTO).
+        var runtimeLto = options.Emit == EmitKind.Exe && options.OptLevel > 0 && options.RuntimeLto && options.Sanitize is null;
         if (runtimeLto)
         {
             RuntimeLto.LinkInto(module, llvm, toolchain.RuntimeBitcode(target.Triple));

@@ -14,7 +14,12 @@ public sealed class Toolchain(CompilerOptions options)
     /// keeps clang from marking csrt functions nounwind, which would delete landing pads).</summary>
     private static readonly string[] BaseRuntimeCFlags = ["-O2", "-std=c11", "-fPIC", "-funwind-tables", "-fexceptions"];
 
-    private string[] RuntimeCFlags => [.. BaseRuntimeCFlags, .. Hardening.RuntimeCFlags(options.Hardening)];
+    private string[] RuntimeCFlags => [.. BaseRuntimeCFlags, .. Hardening.RuntimeCFlags(options.Hardening), .. SanitizerFlags];
+
+    /// <summary>--sanitize: instrument the runtime (generated code is bounds/null-checked by construction).</summary>
+    private string[] SanitizerFlags => options.Sanitize is { } list
+        ? [$"-fsanitize={list}", "-fno-omit-frame-pointer", "-g", "-fno-sanitize-recover=undefined"]
+        : [];
 
     private static string RuntimeDir => Path.Combine(AppContext.BaseDirectory, "runtime");
 
@@ -57,7 +62,8 @@ public sealed class Toolchain(CompilerOptions options)
     public void Link(string triple, string programObject, string output, bool runtimeLinkedIn = false)
     {
         string[] runtime = runtimeLinkedIn ? [] : RuntimeObjects(triple);
-        Run(options.CC, [$"--target={triple}", programObject, .. runtime, "-lm", "-pthread", .. Hardening.LinkFlags(options.Hardening), "-o", output]);
+        string[] sanitize = options.Sanitize is { } list ? [$"-fsanitize={list}"] : [];
+        Run(options.CC, [$"--target={triple}", programObject, .. runtime, "-lm", "-pthread", .. Hardening.LinkFlags(options.Hardening), .. sanitize, "-o", output]);
     }
 
     private void Run(string tool, string[] args)
