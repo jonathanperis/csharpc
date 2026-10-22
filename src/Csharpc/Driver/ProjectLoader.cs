@@ -17,6 +17,8 @@ public sealed record ProjectInfo
     public string? Nullable { get; init; }
     public bool AllowUnsafe { get; init; }
     public bool ImplicitUsings { get; init; }
+    /// <summary>&lt;StartupObject&gt;: the type whose Main is the entry point (csc -main).</summary>
+    public string? StartupObject { get; init; }
     public List<string> GlobalUsings { get; } = [];
     public List<string> ProjectReferences { get; } = [];
     public List<string> UnsupportedPackages { get; } = [];
@@ -35,6 +37,7 @@ public static class ProjectLoader
     [
         "AssemblyName", "OutputType", "DefineConstants", "LangVersion", "Nullable", "AllowUnsafeBlocks",
         "ImplicitUsings", "TargetFramework", "TargetFrameworks", "MSBuildProjectFullPath",
+        "StartupObject",
     ];
 
     /// <summary>
@@ -106,6 +109,7 @@ public static class ProjectLoader
             Nullable = Prop("Nullable"),
             AllowUnsafe = string.Equals(Prop("AllowUnsafeBlocks"), "true", StringComparison.OrdinalIgnoreCase),
             ImplicitUsings = Prop("ImplicitUsings") is "enable" or "true",
+            StartupObject = Prop("StartupObject"),
         };
 
         info.Defines.AddRange((Prop("DefineConstants") ?? "").Split([';', ','], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
@@ -167,6 +171,7 @@ public static class ProjectLoader
             AllowUnsafe = all.Any(p => p.AllowUnsafe),
             GlobalUsings = usings.Count > 0 ? string.Join('\n', usings) : null,
             AssemblyName = root.AssemblyName,
+            MainTypeName = root.StartupObject,
         };
         return (settings, root, all);
     }

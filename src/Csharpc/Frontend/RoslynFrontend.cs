@@ -66,6 +66,7 @@ public static class RoslynFrontend
             nullableContextOptions: nullable,
             allowUnsafe: settings.AllowUnsafe,
             optimizationLevel: OptimizationLevel.Release,
+            mainTypeName: settings.MainTypeName,
             specificDiagnosticOptions: new Dictionary<string, ReportDiagnostic> { ["CS8019"] = ReportDiagnostic.Suppress });
 
         var name = settings.AssemblyName ?? (settings.Files.Count > 0 ? Path.GetFileNameWithoutExtension(settings.Files[0]) : "program");
@@ -185,4 +186,6 @@ public sealed record FrontendSettings
     /// <summary>Source of a synthesized global-usings file (null = none).</summary>
     public string? GlobalUsings { get; init; }
     public string? AssemblyName { get; init; }
+    /// <summary>Type whose Main is the entry point (&lt;StartupObject&gt;); null = the only one.</summary>
+    public string? MainTypeName { get; init; }
 }

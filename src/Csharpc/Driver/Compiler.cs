@@ -57,6 +57,15 @@ public sealed class Compiler(CompilerOptions options)
             WriteDiagnostic(d.ToString(), d.Severity == DiagnosticSeverity.Error);
             if (d.Severity == DiagnosticSeverity.Error) errors++;
         }
+        // Entry-point errors (several Mains, a bad <StartupObject>) are compilation-level diagnostics
+        // that the per-tree diagnostics above don't include; only look for them when there's no entry
+        // point, since collecting them binds the whole corelib.
+        if (errors == 0 && options.Emit == EmitKind.Exe && compilation.GetEntryPoint(CancellationToken.None) is null)
+            foreach (var d in compilation.GetDiagnostics().Where(d => d.Severity == DiagnosticSeverity.Error && d.Id is "CS0017" or "CS1555" or "CS1556" or "CS1558" or "CS5001" or "CS7022"))
+            {
+                WriteDiagnostic(d.ToString(), isError: true);
+                errors++;
+            }
         if (errors > 0) return Fail($"{errors} error(s) from the C# front-end");
 
         using var llvm = new LlvmContext();
