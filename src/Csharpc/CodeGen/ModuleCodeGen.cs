@@ -159,14 +159,14 @@ public sealed partial class ModuleCodeGen
         if (_functions.TryGetValue(method, out var existing)) return existing;
         if (generic && TypeSubstitution.IsOpen(method))
             throw CompileError.Unsupported($"open generic instantiation '{method}'", method);
-        if (method.IsAsync) throw CompileError.Unsupported($"async method '{method.Name}'", method);
 
         var type = FunctionTypeOf(method);
         var fn = Module.AddFunction(Mangler.Method(method), type);
         // Closed-world, whole-program compilation (like NativeAOT): everything but main is internal,
         // which lets LLVM's IPO passes inline, specialize and delete freely.
         Native.LLVMSetLinkage(fn, LLVMLinkage.Internal);
-        Llvm.AddFunctionAttribute(fn, "nounwind"); // no unwinding until exceptions land (ADR 0005)
+        Llvm.AddFunctionAttribute(fn, "uwtable", 2); // C# code may throw: keep async unwind tables (ADR 0005)
+        MarkIfCoroutine(method, fn);
         if (generic && IsUserMethod(method) && !method.IsAbstract) _pendingInstantiations.Enqueue(method);
         return _functions[method] = new LoweredFunction(fn, type);
     }
@@ -186,7 +186,8 @@ public sealed partial class ModuleCodeGen
         if (!subst.IsIdentity) name += "I" + subst.Key + "E";
         var fn = Module.AddFunction(name, type);
         Native.LLVMSetLinkage(fn, LLVMLinkage.Internal);
-        Llvm.AddFunctionAttribute(fn, "nounwind");
+        Llvm.AddFunctionAttribute(fn, "uwtable", 2); // lambdas / local functions may throw (ADR 0005)
+        MarkIfCoroutine(method, fn);
         return bySubst[subst.Key] = new LoweredFunction(fn, type);
     }
 
@@ -208,7 +209,9 @@ public sealed partial class ModuleCodeGen
         else if (HasThis(method)) parameters.Add(Llvm.Ptr);
         foreach (var p in method.Parameters)
             parameters.Add(p.RefKind == RefKind.None ? Types.Value(subst.Apply(p.Type)) : Llvm.Ptr);
-        var returnType = method.MethodKind == MethodKind.Constructor ? Llvm.Void : Types.Value(subst.Apply(method.ReturnType));
+        var returnType = method.MethodKind == MethodKind.Constructor ? Llvm.Void
+            : method.RefKind != RefKind.None ? Llvm.Ptr // `ref T M()` returns the address
+            : Types.Value(subst.Apply(method.ReturnType));
         return Llvm.FunctionType(returnType, [.. parameters]);
     }
 
@@ -218,23 +221,54 @@ public sealed partial class ModuleCodeGen
         if (_runtime.TryGetValue(name, out var existing)) return existing;
         var type = Llvm.FunctionType(ret, parameters);
         var fn = Module.GetOrDeclare(name, type);
-        if (name.StartsWith("csrt_throw", StringComparison.Ordinal))
+        if (name.StartsWith("csrt_throw", StringComparison.Ordinal) || name == "csrt_rethrow")
         {
             Llvm.AddFunctionAttribute(fn, "noreturn");
             Llvm.AddFunctionAttribute(fn, "cold");
         }
-        Llvm.AddFunctionAttribute(fn, "nounwind");
+        if (!RuntimeMayThrow(name))
+        {
+            Llvm.AddFunctionAttribute(fn, "nounwind");
+            _noThrow.Add(fn.Handle);
+        }
         // C ABI: bool/uint8_t/uint16_t arguments must be zero-extended by the caller (clang's
         // callees rely on it). Without `zeroext`, an i1 produced by `trunc` can carry garbage bits.
-        // (Not for LLVM intrinsics: their i1 flags are `immarg`, which excludes other attributes.)
-        for (var i = 0; i < parameters.Length && !name.StartsWith("llvm.", StringComparison.Ordinal); i++)
-            if (parameters[i].IsInteger && parameters[i].IntWidth < 32)
-                Llvm.AddParameterAttribute(fn, (uint)i, "zeroext");
+        for (var i = 0; i < parameters.Length; i++)
+            if (parameters[i].IsInteger && parameters[i].IntWidth < 32 && !name.StartsWith("llvm.", StringComparison.Ordinal))
+                Llvm.AddParameterAttribute(fn, (uint)i, "zeroext"); // (LLVM intrinsics have their own attributes, e.g. immarg)
         // Allocation returns fresh memory nothing else points to (non-moving GC), which lets LLVM
         // forward stores into new objects — e.g. devirtualize and inline a just-created delegate.
         if (name is "csrt_alloc" or "csrt_new_array") Llvm.AddReturnAttribute(fn, "noalias");
+        if (name.StartsWith("csrt_", StringComparison.Ordinal)) Optimizations.AnnotateRuntimeDeclaration(Llvm, fn, ret, parameters);
         return _runtime[name] = new LoweredFunction(fn, type);
     }
+
+    private readonly HashSet<nint> _noThrow = [];
+
+    /// <summary>
+    /// Can a runtime helper raise a managed exception (directly, or through a virtual call back into
+    /// C# code)? Conservative: every csrt_* function may, except this allowlist of helpers that
+    /// provably don't. LLVM intrinsics and libm never do. (Only matters inside try regions, where a
+    /// may-throw call becomes an `invoke`.)
+    /// </summary>
+    private static bool RuntimeMayThrow(string name) =>
+        name.StartsWith("csrt_", StringComparison.Ordinal)
+        && !(s_noThrowRuntime.Contains(name)
+             || name.StartsWith("csrt_string_from_", StringComparison.Ordinal)
+             || name.StartsWith("csrt_console_write_", StringComparison.Ordinal)
+             || name.StartsWith("csrt_gc_", StringComparison.Ordinal));
+
+    private static readonly HashSet<string> s_noThrowRuntime =
+    [
+        "csrt_init", "csrt_shutdown", "csrt_get_args", "csrt_alloc", "csrt_begin_catch", "csrt_personality",
+        "csrt_isinst_class", "csrt_string_concat", "csrt_string_equals", "csrt_string_is_null_or_empty",
+        "csrt_console_newline", "csrt_object_to_string_default", "csrt_object_equals_default",
+        "csrt_object_get_hash_code_default", "csrt_exception_init", "csrt_environment_tick_count64",
+        "csrt_environment_exit",
+    ];
+
+    /// <summary>False for callees known not to unwind (LLVM intrinsics, libm, most of csrt): no invoke needed.</summary>
+    public bool MayThrow(LLVMValueRef callee) => !_noThrow.Contains(callee.Handle);
 
     /// <summary>Declares an LLVM intrinsic or libm function, e.g. "llvm.sqrt.f64" or "pow".</summary>
     public LoweredFunction Intrinsic(string name, LLVMTypeRef ret, params LLVMTypeRef[] parameters) =>
@@ -255,8 +289,10 @@ public sealed partial class ModuleCodeGen
         }
         if (method.MethodKind is not (MethodKind.Ordinary or MethodKind.Constructor or MethodKind.StaticConstructor
             or MethodKind.PropertyGet or MethodKind.PropertySet or MethodKind.UserDefinedOperator or MethodKind.Conversion
-            or MethodKind.ExplicitInterfaceImplementation))
+            or MethodKind.EventAdd or MethodKind.EventRemove or MethodKind.ExplicitInterfaceImplementation))
             return;
+        // Field-like events have synthesized accessors; `+=`/`-=` update the backing field inline instead.
+        if (method.MethodKind is MethodKind.EventAdd or MethodKind.EventRemove && method.IsImplicitlyDeclared) return;
         if (method.MethodKind == MethodKind.Constructor && method.ContainingType.IsStatic) return;
         if (method.MethodKind == MethodKind.StaticConstructor && TypeSubstitution.IsGenericContext(method))
             throw CompileError.Unsupported("static constructors in generic types", method);
@@ -373,7 +409,7 @@ public sealed partial class ModuleCodeGen
         var key = "dmt:" + name;
         if (_globals.TryGetValue(key, out var g)) return g;
         string[] defaults = ["csrt_object_to_string_default", "csrt_object_equals_default", "csrt_object_get_hash_code_default"];
-        var init = Llvm.ConstStruct(ExternalGlobal("csrt_Object_MT"), CString(name), Llvm.ConstInt(Llvm.I32, 24), Llvm.ConstInt(Llvm.I32, 0),
+        var init = Llvm.ConstStruct(ExternalGlobal("csrt_Object_MT"), CString(name), Llvm.ConstInt(Llvm.I32, 32), Llvm.ConstInt(Llvm.I32, 0),
             LlvmContext.Null(Llvm.Ptr), Llvm.ConstInt(Llvm.I32, 0), Llvm.ConstInt(Llvm.I32, 0),
             LlvmContext.ConstArray(Llvm.Ptr, [.. defaults.Select(d => Runtime(d, Llvm.Ptr, Llvm.Ptr).Fn)]));
         g = Module.AddGlobal("csrt.dmt." + name, Native.LLVMTypeOf(init), init, constant: true, linkage: LLVMLinkage.Private);
@@ -425,13 +461,17 @@ public sealed partial class ModuleCodeGen
     {
         if (!TypeSubstitution.IsGenericContext(type)) type = type.OriginalDefinition;
         if (_layouts.TryGetValue(type, out var existing)) return existing;
-        if (!IsUserType(type)) throw CompileError.Unsupported($"instances of library class '{type}'", type);
+        if (!IsUserType(type))
+            return IsLibraryException(type)
+                ? GetLibraryExceptionLayout(type)
+                : throw CompileError.Unsupported($"instances of library class '{type}'", type);
         if (TypeSubstitution.IsOpen(type)) throw CompileError.Unsupported($"open generic type '{type}'", type);
 
         ClassLayout? baseLayout = null;
         if (type.BaseType is { SpecialType: not SpecialType.System_Object } baseType)
         {
-            if (!IsUserType(baseType)) throw CompileError.Unsupported($"deriving from library class '{baseType}'", type);
+            if (!IsUserType(baseType) && !IsLibraryException(baseType))
+                throw CompileError.Unsupported($"deriving from library class '{baseType}'", type);
             baseLayout = GetLayout(baseType);
         }
 
@@ -440,19 +480,30 @@ public sealed partial class ModuleCodeGen
         _layouts[type] = layout;
 
         // Fields: header, then inherited fields (same indices as in the base), then our own.
-        List<LLVMTypeRef> elements = [Llvm.Ptr];
-        if (baseLayout is not null)
-            foreach (var f in baseLayout.Fields)
-            {
-                layout.FieldIndex[f] = (uint)elements.Count;
-                layout.Fields.Add(f);
-                elements.Add(Types.Storage(f.Type));
-            }
+        // Inherit the base's storage verbatim (including synthesized library bases like System.Exception),
+        // so every inherited field/event keeps its index.
+        var elements = layout.Elements;
+        if (baseLayout is null) elements.Add(Llvm.Ptr);
+        else
+        {
+            elements.AddRange(baseLayout.Elements);
+            layout.Fields.AddRange(baseLayout.Fields);
+            foreach (var (f, index) in baseLayout.FieldIndex) layout.FieldIndex[f] = index;
+            foreach (var (e, index) in baseLayout.EventFieldIndex) layout.EventFieldIndex[e] = index;
+            layout.SlotOrder.AddRange(baseLayout.SlotOrder);
+        }
         foreach (var f in type.GetMembers().OfType<IFieldSymbol>().Where(f => !f.IsStatic && !f.IsConst))
         {
             layout.FieldIndex[f] = (uint)elements.Count;
             layout.Fields.Add(f);
+            layout.SlotOrder.Add(f);
             elements.Add(Types.Storage(f.Type));
+        }
+        foreach (var e in type.GetMembers().OfType<IEventSymbol>().Where(e => !e.IsStatic && e.AddMethod is null or { IsImplicitlyDeclared: true }))
+        {
+            layout.EventFieldIndex[e] = (uint)elements.Count;
+            layout.SlotOrder.Add(e);
+            elements.Add(Llvm.Ptr);
         }
         LlvmContext.SetBody(structType, [.. elements]);
         layout.InstanceSize = Types.Target.SizeOf(structType);
@@ -462,21 +513,9 @@ public sealed partial class ModuleCodeGen
         {
             layout.VTable.AddRange(baseLayout.VTable);
             foreach (var (root, slot) in baseLayout.SlotOf) layout.SlotOf[root] = slot;
+            foreach (var (slot, fn) in baseLayout.RuntimeSlots) layout.RuntimeSlots[slot] = fn;
         }
-        else
-        {
-            layout.VTable.AddRange([null, null, null]);
-            var obj = Compilation.GetSpecialType(SpecialType.System_Object);
-            foreach (var m in obj.GetMembers().OfType<IMethodSymbol>())
-            {
-                switch (m.Name)
-                {
-                    case "ToString" when m.Parameters.IsEmpty: layout.SlotOf[m] = ClassLayout.ToStringSlot; break;
-                    case "Equals" when m.Parameters.Length == 1 && m.IsVirtual: layout.SlotOf[m] = ClassLayout.EqualsSlot; break;
-                    case "GetHashCode" when m.Parameters.IsEmpty: layout.SlotOf[m] = ClassLayout.GetHashCodeSlot; break;
-                }
-            }
-        }
+        else AddObjectSlots(layout);
         foreach (var m in type.GetMembers().OfType<IMethodSymbol>())
         {
             if (!(m.IsVirtual || m.IsAbstract || m.IsOverride)) continue;
@@ -497,8 +536,93 @@ public sealed partial class ModuleCodeGen
         return layout;
     }
 
+    private void AddObjectSlots(ClassLayout layout)
+    {
+        layout.VTable.AddRange([null, null, null]);
+        var obj = Compilation.GetSpecialType(SpecialType.System_Object);
+        foreach (var m in obj.GetMembers().OfType<IMethodSymbol>())
+        {
+            switch (m.Name)
+            {
+                case "ToString" when m.Parameters.IsEmpty: layout.SlotOf[m] = ClassLayout.ToStringSlot; break;
+                case "Equals" when m.Parameters.Length == 1 && m.IsVirtual: layout.SlotOf[m] = ClassLayout.EqualsSlot; break;
+                case "GetHashCode" when m.Parameters.IsEmpty: layout.SlotOf[m] = ClassLayout.GetHashCodeSlot; break;
+            }
+        }
+    }
+
+    // ======================================================================================
+    // Library exception classes (System.Exception & friends) — layouts shared with runtime/eh.c
+    // ======================================================================================
+
+    /// <summary>Exception types whose method tables csrt defines (runtime/eh.c, "csrt_MT_" + name).</summary>
+    private static readonly HashSet<string> s_runtimeExceptionTypes =
+    [
+        "System.Exception", "System.SystemException", "System.ArgumentException", "System.ArgumentNullException",
+        "System.ArgumentOutOfRangeException", "System.InvalidOperationException", "System.ObjectDisposedException",
+        "System.NotSupportedException", "System.NotImplementedException", "System.NullReferenceException",
+        "System.IndexOutOfRangeException", "System.ArithmeticException", "System.DivideByZeroException",
+        "System.OverflowException", "System.InvalidCastException", "System.FormatException",
+        "System.Collections.Generic.KeyNotFoundException",
+    ];
+
+    public const int ExceptionMessageSlot = 3;
+    public const uint ExceptionMessageField = 1, ExceptionInnerField = 2, ExceptionParamNameField = 3;
+
+    public bool IsLibraryException(ITypeSymbol? type)
+    {
+        if (type is not INamedTypeSymbol named || IsUserType(named)) return false;
+        for (var t = named; t is not null; t = t.BaseType)
+            if (t.SpecialType == SpecialType.System_Object) return false;
+            else if (t.ContainingNamespace?.ToDisplayString() == "System" && t.MetadataName == "Exception") return true;
+        return false;
+    }
+
+    /// <summary>
+    /// System.Exception and its library subclasses: { mt, message, inner, paramName }, vtable
+    /// [ToString, Equals, GetHashCode, get_Message] implemented in csrt. Types csrt doesn't define
+    /// (e.g. SwitchExpressionException) get a compiler-emitted method table chained to their base.
+    /// </summary>
+    private ClassLayout GetLibraryExceptionLayout(INamedTypeSymbol type)
+    {
+        type = type.OriginalDefinition;
+        if (_layouts.TryGetValue(type, out var existing)) return existing;
+        var name = Mangler.MetadataName(type);
+        var baseLayout = type.BaseType is { SpecialType: not SpecialType.System_Object } b ? GetLibraryExceptionLayout(b) : null;
+
+        var structType = Llvm.NamedStruct("class." + name);
+        LlvmContext.SetBody(structType, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr);
+        var layout = new ClassLayout { Type = type, InstanceType = structType, Base = baseLayout, IsLibrary = true };
+        layout.Elements.AddRange([Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr]);
+        layout.InstanceSize = Types.Target.SizeOf(structType);
+        AddObjectSlots(layout);
+        layout.VTable.Add(null);
+        layout.RuntimeSlots[ClassLayout.ToStringSlot] = "csrt_exception_to_string";
+        layout.RuntimeSlots[ClassLayout.EqualsSlot] = "csrt_object_equals_default";
+        layout.RuntimeSlots[ClassLayout.GetHashCodeSlot] = "csrt_object_get_hash_code_default";
+        layout.RuntimeSlots[ExceptionMessageSlot] = "csrt_exception_get_message";
+        var exception = Compilation.GetTypeByMetadataName("System.Exception")!;
+        var getMessage = exception.GetMembers("Message").OfType<IPropertySymbol>().First().GetMethod!;
+        layout.SlotOf[getMessage.OriginalDefinition] = ExceptionMessageSlot;
+        _layouts[type] = layout;
+
+        if (s_runtimeExceptionTypes.Contains(name))
+            layout.MethodTable = ExternalGlobal("csrt_MT_" + name.Replace('.', '_'));
+        else
+            EmitMethodTable(layout);
+        return layout;
+    }
+
+    private LLVMValueRef RuntimeSlotFunction(string name) => name switch
+    {
+        "csrt_object_equals_default" => Runtime(name, Llvm.I1, Llvm.Ptr, Llvm.Ptr).Fn,
+        "csrt_object_get_hash_code_default" => Runtime(name, Llvm.I32, Llvm.Ptr).Fn,
+        _ => Runtime(name, Llvm.Ptr, Llvm.Ptr).Fn,
+    };
+
     private void EmitMethodTable(ClassLayout layout)
     {
+        if (layout.IsLibrary && !layout.MethodTable.IsNull) return; // defined by csrt
         var vtableType = LlvmContext.Array(Llvm.Ptr, (ulong)layout.VTable.Count);
         // Same prefix as TypeMapper.MethodTableHeader / csrt_MethodTable, followed by the vtable.
         layout.MethodTableType = Llvm.Struct(Llvm.Ptr, Llvm.Ptr, Llvm.I32, Llvm.I32, Llvm.Ptr, Llvm.I32, Llvm.I32, vtableType);
@@ -509,6 +633,8 @@ public sealed partial class ModuleCodeGen
         string[] defaults = ["csrt_object_to_string_default", "csrt_object_equals_default", "csrt_object_get_hash_code_default"];
         var slots = layout.VTable.Select((m, i) => m is not null
             ? GetFunction(m).Fn
+            : layout.RuntimeSlots.TryGetValue(i, out var runtimeSlot)
+                ? RuntimeSlotFunction(runtimeSlot)
             : i < ClassLayout.ObjectSlotCount
                 ? Runtime(defaults[i], Llvm.Ptr, Llvm.Ptr).Fn
                 : LlvmContext.Null(Llvm.Ptr)).ToArray();
@@ -539,6 +665,24 @@ public sealed partial class ModuleCodeGen
         var type = Types.Storage(field.Type);
         return _staticFields[field] = Module.AddGlobal(Mangler.StaticField(field), type, LlvmContext.Null(type),
             linkage: LLVMLinkage.Internal);
+    }
+
+    /// <summary>A statically allocated, immutable instance of a library class (e.g. EventArgs.Empty).</summary>
+    public LLVMValueRef LibrarySingleton(INamedTypeSymbol type)
+    {
+        var key = "single:" + Mangler.MetadataName(type);
+        if (_globals.TryGetValue(key, out var g)) return g;
+        var init = Llvm.ConstStruct(DelegateMethodTable(type), Llvm.ConstInt(Llvm.I64, 0));
+        return _globals[key] = Module.AddGlobal("csrt.singleton." + Mangler.MetadataName(type), Native.LLVMTypeOf(init), init,
+            constant: true, linkage: LLVMLinkage.Private);
+    }
+
+    /// <summary>Delegate slot of a static field-like event.</summary>
+    public LLVMValueRef StaticEventField(IEventSymbol e)
+    {
+        var name = Mangler.TypeSymbol(e.ContainingType, e.Name + "$event");
+        if (_globals.TryGetValue(name, out var g)) return g;
+        return _globals[name] = Module.AddGlobal(name, Llvm.Ptr, LlvmContext.Null(Llvm.Ptr), linkage: LLVMLinkage.Internal);
     }
 
     public LLVMValueRef ExternalGlobal(string name)
@@ -572,18 +716,6 @@ public sealed partial class ModuleCodeGen
         Native.LLVMSetUnnamedAddress(g, 2);
         Native.LLVMSetAlignment(g, 8);
         return _strings[value] = g;
-    }
-
-    /// <summary>Minimal method table for library exception types we can throw (name only).</summary>
-    public LLVMValueRef LibraryTypeMethodTable(INamedTypeSymbol type)
-    {
-        var name = Mangler.MetadataName(type);
-        var key = "mt:" + name;
-        if (_globals.TryGetValue(key, out var g)) return g;
-        var init = Llvm.ConstStruct(ExternalGlobal("csrt_Object_MT"), CString(name), Llvm.ConstInt(Llvm.I32, 0), Llvm.ConstInt(Llvm.I32, 0),
-            LlvmContext.Null(Llvm.Ptr), Llvm.ConstInt(Llvm.I32, 0), Llvm.ConstInt(Llvm.I32, 0));
-        g = Module.AddGlobal("csrt.mt." + name, Native.LLVMTypeOf(init), init, constant: true, linkage: LLVMLinkage.Private);
-        return _globals[key] = g;
     }
 
     private readonly Dictionary<INamedTypeSymbol, LoweredFunction> _enumFormatters = new(SymbolEqualityComparer.Default);
@@ -667,6 +799,56 @@ public sealed partial class ModuleCodeGen
         new FunctionCodeGen(this, null, _staticInit).EmitStaticInit(graphs, cctors);
     }
 
+    /// <summary>True once any async method or iterator was lowered (the driver must run CoroSplit).</summary>
+    public bool HasCoroutines { get; set; }
+
+    /// <summary>
+    /// C-ABI entry points the runtime uses to resume/destroy coroutine frames. The split resume and
+    /// destroy functions are fastcc, so the runtime goes through llvm.coro.resume/destroy here.
+    /// </summary>
+    private void MarkIfCoroutine(IMethodSymbol method, LLVMValueRef fn)
+    {
+        if (Coroutines.KindOf(method) == CoroutineKind.None) return;
+        Llvm.AddFunctionAttribute(fn, "presplitcoroutine"); // async/iterator: split by CoroSplit
+        EnsureCoroutineSupport();
+    }
+
+    private void EnsureCoroutineSupport()
+    {
+        if (HasCoroutines) return;
+        HasCoroutines = true;
+        foreach (var (name, intrinsic) in new[] { ("csrt_coro_resume", "llvm.coro.resume"), ("csrt_coro_destroy", "llvm.coro.destroy") })
+        {
+            var type = Llvm.FunctionType(Llvm.Void, Llvm.Ptr);
+            var fn = Module.AddFunction(name, type);
+            var target = Intrinsic(intrinsic, Llvm.Void, Llvm.Ptr);
+            using var b = new IrBuilder(Llvm);
+            b.PositionAtEnd(b.AppendBlock(fn, "entry"));
+            b.Call(target.Type, target.Fn, [fn.Param(0)]);
+            b.RetVoid();
+        }
+    }
+
+    /// <summary>
+    /// ptr clone(ptr args): re-invokes an iterator method with its saved arguments, for
+    /// GetEnumerator() on an enumerable that has already been enumerated.
+    /// </summary>
+    public LLVMValueRef IteratorCloneThunk(IMethodSymbol method, LoweredFunction target, LLVMTypeRef argsType, int count)
+    {
+        var key = "clone:" + Native.LLVMGetValueName(target.Fn);
+        if (_globals.TryGetValue(key, out var existing)) return existing;
+        var type = Llvm.FunctionType(Llvm.Ptr, Llvm.Ptr);
+        var fn = Module.AddFunction(Mangler.Method(method) + "$clone", type);
+        Native.LLVMSetLinkage(fn, LLVMLinkage.Internal);
+        using var b = new IrBuilder(Llvm);
+        b.PositionAtEnd(b.AppendBlock(fn, "entry"));
+        var args = new LLVMValueRef[count];
+        for (var i = 0; i < count; i++)
+            args[i] = b.Load(Native.LLVMStructGetTypeAtIndex(argsType, (uint)i), b.StructGep(argsType, fn.Param(0), (uint)i));
+        b.Ret(b.Call(target.Type, target.Fn, args));
+        return _globals[key] = fn;
+    }
+
     private void EmitNativeMain(IMethodSymbol entryPoint)
     {
         var type = Llvm.FunctionType(Llvm.I32, Llvm.I32, Llvm.Ptr);
@@ -686,9 +868,22 @@ public sealed partial class ModuleCodeGen
             args = [b.Call(getArgs.Type, getArgs.Fn, [])];
         }
         var result = b.Call(target.Type, target.Fn, args);
+        var returnsVoid = entryPoint.ReturnsVoid;
+        if (Coroutines.IsTaskLike(entryPoint.ReturnType))
+        {
+            // async Main: drive the scheduler until the returned task completes.
+            var wait = Runtime("csrt_task_wait", Llvm.Void, Llvm.Ptr);
+            b.Call(wait.Type, wait.Fn, [result]);
+            returnsVoid = Coroutines.AsyncResultType(entryPoint.ReturnType) is null;
+            if (!returnsVoid)
+            {
+                var payload = Runtime("csrt_task_result_ptr", Llvm.Ptr, Llvm.Ptr);
+                result = b.Load(Llvm.I32, b.Call(payload.Type, payload.Fn, [result]));
+            }
+        }
 
         var shutdown = Runtime("csrt_shutdown", Llvm.Void);
         b.Call(shutdown.Type, shutdown.Fn, []);
-        b.Ret(entryPoint.ReturnsVoid ? Llvm.ConstInt(Llvm.I32, 0) : result);
+        b.Ret(returnsVoid ? Llvm.ConstInt(Llvm.I32, 0) : result);
     }
 }

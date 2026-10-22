@@ -125,6 +125,7 @@ public sealed partial class FunctionCodeGen
     /// <summary>Lowers <paramref name="prologue"/> graphs (field initializers) in sequence, then the body.</summary>
     public void Emit(IReadOnlyList<ControlFlowGraph> prologue, ControlFlowGraph body)
     {
+        if (_method is not null && Coroutines.KindOf(_method) is var kind and not CoroutineKind.None) BeginCoroutine(kind);
         LowerPrologue(prologue);
         LowerCfg(body, continuation: null);
         Finish();
@@ -239,10 +240,14 @@ public sealed partial class FunctionCodeGen
 
         foreach (var (block, llvmBlock) in state.Blocks)
         {
+            BeginBlock(block); // selects the landing pad for calls in this block (if inside a try)
             _b.PositionAtEnd(llvmBlock);
+            _currentBlock = block;
             foreach (var operation in block.Operations) WithLocation(operation, () => EmitStatement(operation));
             WithLocation(block.BranchValue ?? block.Operations.LastOrDefault(), () => EmitTerminator(block));
         }
+
+        EndCfg();
 
         // End of each finally: dispatch to whichever continuation entered it.
         foreach (var (block, region) in state.FinallyEnds)
@@ -269,15 +274,6 @@ public sealed partial class FunctionCodeGen
 
     private void ScanRegions(ControlFlowGraph graph, ControlFlowRegion region)
     {
-        // try/finally is lowered without unwinding (exceptions are fatal for now, and an unhandled
-        // .NET exception doesn't run finally blocks either). Catch handlers need real EH (ADR 0005).
-        if (region.Kind is ControlFlowRegionKind.TryAndCatch or ControlFlowRegionKind.Catch or ControlFlowRegionKind.Filter
-            or ControlFlowRegionKind.FilterAndHandler)
-        {
-            var at = graph.Blocks[region.FirstBlockOrdinal].Operations.FirstOrDefault()
-                ?? graph.Blocks[region.FirstBlockOrdinal].BranchValue;
-            throw CompileError.Unsupported("try/catch (exception handling)", at);
-        }
         foreach (var local in region.Locals) _ownLocals.Add(local);
         foreach (var nested in region.NestedRegions) ScanRegions(graph, nested);
     }
@@ -296,6 +292,7 @@ public sealed partial class FunctionCodeGen
             {
                 var target = op switch
                 {
+                    ISimpleAssignmentOperation { IsRef: true, Value: IFlowCaptureReferenceOperation source } => source, // `ref (c ? ref a : ref b)`
                     IAssignmentOperation a => a.Target,
                     IIncrementOrDecrementOperation i => i.Target,
                     IArgumentOperation { Parameter.RefKind: not RefKind.None } arg => arg.Value,
@@ -343,9 +340,11 @@ public sealed partial class FunctionCodeGen
     /// A branch that leaves try regions must first run their finally blocks (innermost first). Each
     /// finally is emitted once; a trampoline stores which continuation to resume and jumps in.
     /// </summary>
-    private LLVMBasicBlockRef ThroughFinally(ControlFlowBranch branch, LLVMBasicBlockRef dest)
+    private LLVMBasicBlockRef ThroughFinally(ControlFlowBranch branch, LLVMBasicBlockRef dest) =>
+        ThroughFinally(branch.FinallyRegions, dest);
+
+    private LLVMBasicBlockRef ThroughFinally(System.Collections.Immutable.ImmutableArray<ControlFlowRegion> regions, LLVMBasicBlockRef dest)
     {
-        var regions = branch.FinallyRegions;
         var target = dest;
         for (var i = regions.Length - 1; i >= 0; i--)
         {
@@ -374,6 +373,10 @@ public sealed partial class FunctionCodeGen
 
     private LLVMBasicBlockRef DirectTarget(ControlFlowBranch branch)
     {
+        // The false edge of a `when` filter leaves the filter region: try the next handler.
+        if (branch is { Destination: null, Semantics: ControlFlowBranchSemantics.StructuredExceptionHandling }
+            && branch.Source.EnclosingRegion?.Kind == ControlFlowRegionKind.Filter)
+            return FilterRejected(branch.Source);
         var dest = branch.Destination ?? throw CompileError.Unsupported($"branch with {branch.Semantics} semantics");
         if (dest.Kind != BasicBlockKind.Exit)
         {
@@ -396,7 +399,8 @@ public sealed partial class FunctionCodeGen
             var current = _b.InsertBlock;
             _cfg.Exit = _b.AppendBlock(_fn.Fn, "exit");
             _b.PositionAtEnd(_cfg.Exit);
-            if (_cfg.Continuation is { } next) _b.Br(next);
+            if (_coro is not null && _cfg.Continuation is null) _b.Br(_coro.Complete); // end of async method / iterator
+            else if (_cfg.Continuation is { } next) _b.Br(next);
             else if (ReturnType is null or { SpecialType: SpecialType.System_Void }) _b.RetVoid();
             else _b.Unreachable();
             _b.PositionAtEnd(current);
@@ -432,7 +436,8 @@ public sealed partial class FunctionCodeGen
                 EmitThrow(block.BranchValue);
                 break;
             case ControlFlowBranchSemantics.Rethrow:
-                throw CompileError.Unsupported("rethrow", block.BranchValue);
+                EmitRethrow(block.BranchValue);
+                break;
             case ControlFlowBranchSemantics.ProgramTermination or ControlFlowBranchSemantics.Error:
                 _b.Unreachable();
                 break;
@@ -443,6 +448,7 @@ public sealed partial class FunctionCodeGen
 
     private void EmitReturn(IOperation? value, ControlFlowBranch branch)
     {
+        if (_coro is not null) { CoroutineReturn(value, branch); return; }
         var isVoid = value is null || ReturnType is null or { SpecialType: SpecialType.System_Void };
         if (_cfg!.Continuation is { } next || isVoid)
         {
@@ -452,7 +458,7 @@ public sealed partial class FunctionCodeGen
             else _b.Br(ThroughFinally(branch, DirectTarget(branch)));
             return;
         }
-        var result = Coerce(EmitValue(value!), TypeOf(value), ReturnType!);
+        var result = _method!.RefKind != RefKind.None ? AddressOf(value!) : Coerce(EmitValue(value!), TypeOf(value), ReturnType!);
         if (branch.FinallyRegions.IsEmpty) { _b.Ret(result); return; }
 
         // `return x;` inside try/finally: x is evaluated before the finally runs.
@@ -474,6 +480,11 @@ public sealed partial class FunctionCodeGen
 
     private void EmitStatement(IOperation operation)
     {
+        if (operation is IReturnOperation { Kind: OperationKind.YieldReturn } yieldReturn)
+        {
+            EmitYieldReturn(yieldReturn);
+            return;
+        }
         if (operation is IFlowCaptureOperation { Value.Type: not null } lvalue && _cfg!.LvalueCaptures.Contains(lvalue.Id))
         {
             var address = AddressOrSpill(lvalue.Value);
@@ -520,11 +531,17 @@ public sealed partial class FunctionCodeGen
     {
         if (CapturedAddress(local) is { } captured) return captured;
         if (_slots.TryGetValue(local, out var slot)) return slot;
-        if (local.IsRef) throw CompileError.Unsupported($"ref local '{local.Name}'", local);
+        if (local.IsRef) return _b.Load(L.Ptr, RefLocalPointer(local), local.Name); // ref locals hold an address
         if (!_ownLocals.Contains(local))
             throw CompileError.Unsupported($"closure: local function or lambda capturing '{local.Name}'", local);
         return _slots[local] = _allocas.Alloca(T.Storage(S(local.Type)), local.Name);
     }
+
+    private readonly Dictionary<ILocalSymbol, LLVMValueRef> _refLocals = new(SymbolEqualityComparer.Default);
+
+    /// <summary>The slot holding a ref local's target address.</summary>
+    internal LLVMValueRef RefLocalPointer(ILocalSymbol local) =>
+        _refLocals.TryGetValue(local, out var slot) ? slot : _refLocals[local] = _allocas.Alloca(L.Ptr, local.Name + ".ref");
 
     internal LLVMValueRef ParameterSlot(IParameterSymbol parameter, IOperation at)
     {
@@ -558,7 +575,9 @@ public sealed partial class FunctionCodeGen
 
     private LLVMBasicBlockRef ThrowBlock(string helper)
     {
-        if (_throwBlocks.TryGetValue(helper, out var block)) return block;
+        // One shared block per helper *and* landing pad: inside a try the throw must be an invoke.
+        var key = $"{helper}@{_b.UnwindDest.Handle}";
+        if (_throwBlocks.TryGetValue(key, out var block)) return block;
         var current = _b.InsertBlock;
         block = _b.AppendBlock(_fn.Fn, helper["csrt_".Length..]);
         _b.PositionAtEnd(block);
@@ -566,7 +585,7 @@ public sealed partial class FunctionCodeGen
         _b.Call(f.Type, f.Fn, []);
         _b.Unreachable();
         _b.PositionAtEnd(current);
-        return _throwBlocks[helper] = block;
+        return _throwBlocks[key] = block;
     }
 
     /// <summary>Branches to a shared throw block when <paramref name="failed"/> is true.</summary>

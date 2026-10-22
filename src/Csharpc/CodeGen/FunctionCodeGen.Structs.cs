@@ -18,13 +18,17 @@ public sealed partial class FunctionCodeGen
 {
     /// <summary>Struct-like value types lowered to LLVM aggregates.</summary>
     internal bool IsAggregate(ITypeSymbol? type) => type is INamedTypeSymbol named
-        && (TypeMapper.IsNullable(named) || named.IsTupleType || (named.TypeKind == TypeKind.Struct && _m.IsUserType(named)));
+        && (TypeMapper.IsNullable(named) || named.IsTupleType || (named.TypeKind == TypeKind.Struct && _m.IsUserType(named))
+            || TypeMapper.IsSpan(named) || TypeMapper.IsSpanEnumerator(named));
 
     private bool InStructMember => _method is { ContainingType.IsValueType: true } m && ModuleCodeGen.HasThis(m);
 
     /// <summary>Address of a value-type operand: its storage if it is an lvalue, else a spilled copy.</summary>
     internal LLVMValueRef AddressOrSpill(IOperation op)
     {
+        if (TryAddressOfNone(op, out var pointee)) return pointee; // `p->f`, `(*p).f`, `p[i].f`
+        if (op is IPropertyReferenceOperation { Property.RefKind: not RefKind.None } refProperty) return RefPropertyAddress(refProperty);
+        if (op is IInvocationOperation { TargetMethod.RefKind: not RefKind.None } refCall) return EmitInvocation(refCall);
         switch (op)
         {
             case IInstanceReferenceOperation { ReferenceKind: InstanceReferenceKind.PatternInput }:
@@ -137,9 +141,7 @@ public sealed partial class FunctionCodeGen
         var ok = NewBlock("ok");
         _b.CondBr(failed, fail, ok);
         _b.PositionAtEnd(fail);
-        var type = _m.Compilation.GetTypeByMetadataName(typeName)!;
-        CallRuntime("csrt_throw", L.Void, [L.Ptr, L.Ptr], _m.LibraryTypeMethodTable(type), _m.StringLiteral(message));
-        _b.Unreachable();
+        ThrowNewLibraryException(_m.Compilation.GetTypeByMetadataName(typeName)!, message);
         _b.PositionAtEnd(ok);
     }
 

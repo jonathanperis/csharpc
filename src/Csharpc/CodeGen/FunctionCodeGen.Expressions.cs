@@ -20,19 +20,26 @@ public sealed partial class FunctionCodeGen
             IInstanceReferenceOperation { ReferenceKind: InstanceReferenceKind.PatternInput } => PatternInputValue(op),
             IInstanceReferenceOperation when InStructMember => LoadValue(_this, S(_method!.ContainingType)),
             IInstanceReferenceOperation => ThisValue(op),
+            IFieldReferenceOperation f when TryLowLevelLibraryMember(f, out var libraryField) => libraryField,
             IFieldReferenceOperation { Field.IsStatic: true } f when !_m.IsUserType(f.Field.ContainingType) =>
-                BclValueTypes.TryGetField(f.Field, out var libraryField) ? libraryField(this, f)
+                BclValueTypes.TryGetField(f.Field, out var bclField) ? bclField(this, f)
                     : throw CompileError.Unsupported($"static field '{f.Field}' of a library type", f),
             IFieldReferenceOperation f => LoadValue(FieldAddress(f), S(f.Field.Type)),
             ITypeOfOperation t => TypeObject(S(t.TypeOperand), t),
+            IPropertyReferenceOperation { Property.RefKind: not RefKind.None } p => LoadValue(RefPropertyAddress(p), TypeOf(p)!),
             IPropertyReferenceOperation p => EmitPropertyGet(p),
+            IArrayElementReferenceOperation { Indices: [{ Type: var rangeType }] } a when IsRangeType(rangeType) => EmitArrayRange(a),
             IArrayElementReferenceOperation a => LoadValue(ElementAddress(a), TypeOf(a)!),
+            IImplicitIndexerReferenceOperation ii => EmitImplicitIndexer(ii),
+            IRangeOperation r => EmitRange(r),
             ISimpleAssignmentOperation a => EmitSimpleAssignment(a),
             ICompoundAssignmentOperation c => EmitCompoundAssignment(c),
             IIncrementOrDecrementOperation i => EmitIncrementOrDecrement(i),
             IBinaryOperation b => EmitBinary(b),
+            IUnaryOperation { OperatorKind: UnaryOperatorKind.Hat } u => EmitHat(u),
             IUnaryOperation u => EmitUnary(u),
             IConversionOperation c => EmitConversion(c),
+            IInvocationOperation { TargetMethod.RefKind: not RefKind.None } i => LoadValue(EmitInvocation(i), i.Type!),
             IInvocationOperation i => EmitInvocation(i),
             IObjectCreationOperation o => EmitObjectCreation(o),
             ITypeParameterObjectCreationOperation o => EmitNewT(o),
@@ -45,9 +52,11 @@ public sealed partial class FunctionCodeGen
             IIsPatternOperation p => PatternTest(EmitValue(p.Value), TypeOf(p.Value), p.Pattern),
             IDefaultValueOperation d => LlvmContext.Null(T.Value(TypeOf(d)!)),
             IExpressionStatementOperation e => EmitValue(e.Operation),
+            ICaughtExceptionOperation c => EmitCaughtException(c),
             IDeclarationExpressionOperation d => EmitValue(d.Expression),
             ILocalFunctionOperation => default, // body is lowered separately (ModuleCodeGen.EnqueueNested)
             IDelegateCreationOperation d => EmitDelegateCreation(d),
+            IAwaitOperation a => EmitAwait(a),
             IEmptyOperation => default,
             IAnonymousFunctionOperation or IFlowAnonymousFunctionOperation =>
                 throw CompileError.Unsupported("lambda not converted to a delegate (e.g. expression trees)", op),
@@ -57,9 +66,28 @@ public sealed partial class FunctionCodeGen
             ITupleOperation { Type: INamedTypeSymbol { IsTupleType: true } tupleType } t => BuildTuple(t, tupleType),
             ITupleOperation => throw CompileError.Unsupported("tuple without a natural type", op),
             ITupleBinaryOperation t => EmitTupleBinary(t),
+            IAddressOfOperation a => EmitAddressOf(a),
+            ISizeOfOperation s => EmitSizeOf(s),
+            IFunctionPointerInvocationOperation f => EmitFunctionPointerInvocation(f),
+            IUtf8StringOperation u => EmitUtf8String(u),
+            IEventReferenceOperation e => EmitEventReference(e),
+            IEventAssignmentOperation e => EmitEventAssignment(e),
+            { Kind: OperationKind.None } => EmitNone(op),
+            // Roslyn (Release mode) leaves `lock (System.Threading.Lock)` as Invalid(lockExpr) followed by the
+            // body; with a single-threaded runtime the lock is just "evaluate + null check".
+            IInvalidOperation { Syntax.Parent: Microsoft.CodeAnalysis.CSharp.Syntax.LockStatementSyntax } invalidLock
+                when invalidLock.ChildOperations.Count == 1 && invalidLock.ChildOperations.First().Type is { } lockType
+                     && lockType.Name == "Lock" && lockType.IsReferenceType =>
+                NullCheckValue(EmitValue(invalidLock.ChildOperations.First())),
             IInvalidOperation => throw CompileError.Unsupported("invalid code", op),
             _ => throw CompileError.Unsupported($"operation {op.Kind}", op),
         };
+    }
+
+    private LLVMValueRef NullCheckValue(LLVMValueRef reference)
+    {
+        NullCheck(reference);
+        return default;
     }
 
     private LLVMValueRef LoadCapture(IFlowCaptureReferenceOperation r)
@@ -116,6 +144,10 @@ public sealed partial class FunctionCodeGen
         IInstanceReferenceOperation when InStructMember => _this, // `this = other;` in a struct
         IDiscardOperation d => NewTemp(T.Storage(TypeOf(d)!), "discard"),
         IFlowCaptureReferenceOperation c when _cfg!.LvalueCaptures.Contains(c.Id) => CaptureAddress(c),
+        IPropertyReferenceOperation { Property.RefKind: not RefKind.None } p => RefPropertyAddress(p),
+        IImplicitIndexerReferenceOperation ii => ImplicitIndexerAddress(ii),
+        IInvocationOperation { TargetMethod.RefKind: not RefKind.None } i => EmitInvocation(i),
+        _ when TryAddressOfNone(target, out var pointee) => pointee,
         _ => throw CompileError.Unsupported($"assignment to {target.Kind}", target),
     };
 
@@ -139,8 +171,8 @@ public sealed partial class FunctionCodeGen
 
     private LLVMValueRef EmitSimpleAssignment(ISimpleAssignmentOperation a)
     {
-        if (a.IsRef) throw CompileError.Unsupported("ref assignment", a);
-        if (a.Target is IPropertyReferenceOperation p) return EmitPropertySet(p, () => EmitValue(a.Value), TypeOf(a.Value));
+        if (a.IsRef) return EmitRefAssignment(a);
+        if (a.Target is IPropertyReferenceOperation { Property.RefKind: RefKind.None } p) return EmitPropertySet(p, () => EmitValue(a.Value), TypeOf(a.Value));
 
         var targetType = TypeOf(a.Target)!;
         var address = AddressOf(a.Target);           // C#: target sub-expressions are evaluated first
@@ -174,11 +206,21 @@ public sealed partial class FunctionCodeGen
         return default;
     }
 
+    /// <summary>`ref T x = ref expr;` / `x = ref y;` — the ref local's pointer slot gets the location's address.</summary>
+    private LLVMValueRef EmitRefAssignment(ISimpleAssignmentOperation a)
+    {
+        if (a.Target is not ILocalReferenceOperation { Local.IsRef: true } refLocal)
+            throw CompileError.Unsupported("ref assignment to anything but a ref local", a);
+        var address = AddressOf(a.Value);
+        _b.Store(address, RefLocalPointer(refLocal.Local));
+        return IsAggregate(a.Type) || a.Type is null ? default : LoadValue(address, a.Type);
+    }
+
     /// <summary>Read-modify-write on any assignable target (locals, fields, elements, properties).</summary>
     private LLVMValueRef ReadModifyWrite(IOperation target, Func<LLVMValueRef, (LLVMValueRef NewValue, LLVMValueRef Result)> modify)
     {
         var type = TypeOf(target)!;
-        if (target is IPropertyReferenceOperation p)
+        if (target is IPropertyReferenceOperation { Property.RefKind: RefKind.None } p)
         {
             // Evaluate the receiver once, then call get + set on it.
             var property = S(p.Property);
@@ -196,6 +238,13 @@ public sealed partial class FunctionCodeGen
 
     private LLVMValueRef EmitCompoundAssignment(ICompoundAssignmentOperation c)
     {
+        if (TryDelegateCompound(c) is { } combined) return combined;
+        if (IsPointer(c.Target.Type))
+            return ReadModifyWrite(c.Target, old =>
+            {
+                var moved = PointerArithmetic(c.OperatorKind, old, EmitValue(c.Value), c.Target.Type!, c.Value.Type!, c);
+                return (moved, moved);
+            });
         if (c.OperatorMethod is { } om && !IsBuiltInStringConcat(om) && !IsGenericMathOnPrimitive(om, c.Target))
         {
             // `x op= y` with a user-defined static operator: x = op(x, y).
@@ -277,6 +326,12 @@ public sealed partial class FunctionCodeGen
         if (op.OperatorMethod is not null) throw CompileError.Unsupported("user-defined ++/--", op);
         var type = TypeOf(op.Target)!;
         var increment = op.Kind == OperationKind.Increment;
+        if (IsPointer(type))
+            return ReadModifyWrite(op.Target, old =>
+            {
+                var moved = PointerStep(old, type, increment ? 1 : -1);
+                return (moved, op.IsPostfix ? old : moved);
+            });
         if (TypeMapper.IsNullable(type))
             return ReadModifyWrite(op.Target, old =>
             {
@@ -324,6 +379,7 @@ public sealed partial class FunctionCodeGen
 
     private LLVMValueRef EmitBinary(IBinaryOperation op)
     {
+        if (TryDelegateBinary(op) is { } delegates) return delegates;
         if (op.OperatorMethod is { } om0 && !IsBuiltInStringConcat(om0) && om0.ContainingType.SpecialType != SpecialType.System_String
             && om0.ContainingType.SpecialType is not (SpecialType.System_Delegate or SpecialType.System_MulticastDelegate)
             && !IsGenericMathOnPrimitive(om0, op.LeftOperand))
@@ -395,6 +451,7 @@ public sealed partial class FunctionCodeGen
         bool isChecked = false)
     {
         if (BclValueTypes.IsDecimal(lt) || BclValueTypes.IsDecimal(rt)) return DecimalArithmetic(kind, l, r, at);
+        if (IsPointer(lt) || IsPointer(rt)) return PointerArithmetic(kind, l, r, lt, rt, at);
         // Reference types: string value equality, otherwise reference equality.
         if (l.Type.IsPointer || r.Type.IsPointer)
         {
@@ -531,6 +588,8 @@ public sealed partial class FunctionCodeGen
     {
         var from = TypeOf(c.Operand);
         var to = TypeOf(c)!;
+        if (TrySpanConversion(c) is { } span) return span;
+        if (TryIndexConversion(c) is { } index) return index;
         if (c.OperatorMethod is { } om0)
         {
             var om = S(om0);
@@ -627,6 +686,9 @@ public sealed partial class FunctionCodeGen
         var dst = T.Value(to);
         if (isChecked) CheckConversionRange(value, from, to);
         if (src.Handle == dst.Handle) return value;
+        if (src.IsPointer && dst.IsInteger) return _b.Cast(LLVMOpcode.PtrToInt, value, dst);
+        if (src.IsInteger && dst.IsPointer)
+            return _b.Cast(LLVMOpcode.IntToPtr, src.IntWidth == 64 ? value : _b.Cast(TypeMapper.IsSigned(from) ? LLVMOpcode.SExt : LLVMOpcode.ZExt, value, L.I64), dst);
 
         if (src.IsInteger && dst.IsInteger)
         {

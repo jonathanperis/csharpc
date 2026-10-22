@@ -29,3 +29,4 @@ Start with the [top-level README](../README.md) for the quick start.
 The docs describe the code as of the commit they were written at. When a feature lands, update the
 matrix in [06-roadmap.md](06-roadmap.md) and add a dated entry to [07-spike-log.md](07-spike-log.md).
 - [09 — Conformance](09-conformance.md): conformance corpus, coverage per area, prioritized failure reasons
+- [10 — Async](10-async.md): async/await, iterators and async iterators as LLVM coroutines; the single-threaded scheduler

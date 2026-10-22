@@ -16,11 +16,15 @@ const csrt_BuiltinMethodTable csrt_Object_MT = {
     { (void*)csrt_object_to_string_default, (void*)csrt_object_equals_default, (void*)csrt_object_get_hash_code_default },
 };
 const csrt_BuiltinMethodTable csrt_String_MT = {
-    { &csrt_Object_MT.header, "System.String", 0, 0 },
+    { &csrt_Object_MT.header, "System.String", 0, CSRT_MT_NO_REFERENCES },
     { (void*)string_to_string, (void*)csrt_string_equals, (void*)csrt_object_get_hash_code_default },
 };
 const csrt_BuiltinMethodTable csrt_Array_MT = {
     { &csrt_Object_MT.header, "System.Array", 0, 0 },
+    { (void*)csrt_object_to_string_default, (void*)csrt_object_equals_default, (void*)csrt_object_get_hash_code_default },
+};
+const csrt_BuiltinMethodTable csrt_PrimitiveArray_MT = {
+    { &csrt_Object_MT.header, "System.Array", 0, CSRT_MT_NO_REFERENCES },
     { (void*)csrt_object_to_string_default, (void*)csrt_object_equals_default, (void*)csrt_object_get_hash_code_default },
 };
 
@@ -61,18 +65,39 @@ void* csrt_alloc(const csrt_MethodTable* mt, int64_t size) {
     return obj;
 }
 
-csrt_Array* csrt_new_array(int64_t element_size, int64_t length) {
+void* csrt_alloc_noclear(const csrt_MethodTable* mt, int64_t size) {
+    csrt_Object* obj = csrt_gc_alloc_noclear((size_t)size);
+    if (!obj) out_of_memory();
+    obj->mt = mt;
+    return obj;
+}
+
+static inline csrt_Array* new_array(const csrt_MethodTable* mt, int64_t element_size, int64_t length, bool clear) {
     if (length < 0) csrt_throw_overflow();
     if (element_size > 0 && length > (INT64_MAX - (int64_t)sizeof(csrt_Array)) / element_size) out_of_memory();
-    csrt_Array* arr = csrt_gc_alloc(sizeof(csrt_Array) + (size_t)(element_size * length));
+    size_t size = sizeof(csrt_Array) + (size_t)(element_size * length);
+    csrt_Array* arr = clear ? csrt_gc_alloc(size) : csrt_gc_alloc_noclear(size);
     if (!arr) out_of_memory();
-    arr->mt = &csrt_Array_MT.header;
+    arr->mt = mt;
     arr->length = length;
     return arr;
 }
 
+csrt_Array* csrt_new_array(int64_t element_size, int64_t length) {
+    return new_array(&csrt_Array_MT.header, element_size, length, true);
+}
+
+csrt_Array* csrt_new_array_primitive(int64_t element_size, int64_t length) {
+    return new_array(&csrt_PrimitiveArray_MT.header, element_size, length, true);
+}
+
+csrt_Array* csrt_new_array_primitive_noclear(int64_t element_size, int64_t length) {
+    return new_array(&csrt_PrimitiveArray_MT.header, element_size, length, false);
+}
+
 static csrt_String* string_alloc(int32_t length) {
-    csrt_String* s = csrt_gc_alloc(sizeof(csrt_String) + sizeof(uint16_t) * (size_t)length);
+    // Not zeroed: every caller writes all `length` chars, and the GC never scans strings.
+    csrt_String* s = csrt_gc_alloc_noclear(sizeof(csrt_String) + sizeof(uint16_t) * (size_t)length);
     if (!s) out_of_memory();
     s->mt = &csrt_String_MT.header;
     s->length = length;
@@ -125,37 +150,12 @@ csrt_Array* csrt_get_args(void) {
 }
 
 // ---------------------------------------------------------------------------------------------
-// Exceptions. The spike has no unwinding yet (docs/adr/0005-exceptions.md): every throw is an
-// unhandled exception, reported with .NET's exact wording, and exits via abort() which gives
-// the same 134 exit status a real .NET process has on Linux.
+// Exceptions live in eh.c (exception classes, throw/catch, the unwinder personality routine).
 // ---------------------------------------------------------------------------------------------
 static void write_utf16(FILE* f, const uint16_t* chars, int32_t length);
 
-_Noreturn static void unhandled(const char* type, const char* message) {
-    fflush(stdout);
-    fprintf(stderr, "Unhandled exception. %s: %s\n", type, message);
-    fflush(stderr);
-    abort();
-}
-
-void csrt_throw_null_reference(void) {
-    unhandled("System.NullReferenceException", "Object reference not set to an instance of an object.");
-}
-void csrt_throw_index_out_of_range(void) {
-    unhandled("System.IndexOutOfRangeException", "Index was outside the bounds of the array.");
-}
-void csrt_throw_divide_by_zero(void) { unhandled("System.DivideByZeroException", "Attempted to divide by zero."); }
-void csrt_throw_overflow(void) { unhandled("System.OverflowException", "Arithmetic operation resulted in an overflow."); }
-void csrt_throw_invalid_cast(void) { unhandled("System.InvalidCastException", "Specified cast is not valid."); }
-
-void csrt_throw(const csrt_MethodTable* exception_type, csrt_String* message) {
-    fflush(stdout);
-    fprintf(stderr, "Unhandled exception. %s: ", exception_type ? exception_type->name : "System.Exception");
-    if (message) write_utf16(stderr, message->chars, message->length);
-    fputc('\n', stderr);
-    fflush(stderr);
-    abort();
-}
+csrt_String* csrt_string_from_utf8(const char* text) { return string_from_utf8(text); }
+void csrt_stderr_write_string(csrt_String* s) { if (s) write_utf16(stderr, s->chars, s->length); }
 
 // ---------------------------------------------------------------------------------------------
 // Number formatting, matching .NET Core 3.0+ semantics (shortest round-trippable "R" output,
@@ -231,11 +231,7 @@ void* const* csrt_interface_slots(void* obj, const csrt_MethodTable* interface_t
 }
 
 _Noreturn static void invalid_cast(const csrt_MethodTable* from, const csrt_MethodTable* to) {
-    fflush(stdout);
-    fprintf(stderr, "Unhandled exception. System.InvalidCastException: Unable to cast object of type '%s' to type '%s'.\n",
-            from->name, to->name);
-    fflush(stderr);
-    abort();
+    csrt_throw_invalid_cast_from(from, to);
 }
 
 void* csrt_castclass(void* obj, const csrt_MethodTable* type) {
@@ -282,10 +278,44 @@ uint16_t csrt_string_char_at(csrt_String* s, int32_t index) {
     return s->chars[index];
 }
 
-csrt_String* csrt_string_from_i32(int32_t v) { char b[16]; snprintf(b, sizeof b, "%d", v); return string_from_ascii(b); }
-csrt_String* csrt_string_from_i64(int64_t v) { char b[24]; snprintf(b, sizeof b, "%lld", (long long)v); return string_from_ascii(b); }
-csrt_String* csrt_string_from_u32(uint32_t v) { char b[16]; snprintf(b, sizeof b, "%u", v); return string_from_ascii(b); }
-csrt_String* csrt_string_from_u64(uint64_t v) { char b[24]; snprintf(b, sizeof b, "%llu", (unsigned long long)v); return string_from_ascii(b); }
+char* csrt_itoa_u64(uint64_t value, char* end) {
+    static const char digits2[] =
+        "00010203040506070809101112131415161718192021222324252627282930313233343536373839"
+        "40414243444546474849505152535455565758596061626364656667686970717273747576777879"
+        "8081828384858687888990919293949596979899";
+    char* p = end;
+    while (value >= 100) {
+        unsigned r = (unsigned)(value % 100);
+        value /= 100;
+        *--p = digits2[r * 2 + 1];
+        *--p = digits2[r * 2];
+    }
+    if (value >= 10) {
+        *--p = digits2[value * 2 + 1];
+        *--p = digits2[value * 2];
+    } else {
+        *--p = (char)('0' + value);
+    }
+    return p;
+}
+
+char* csrt_itoa_i64(int64_t value, char* end) {
+    if (value >= 0) return csrt_itoa_u64((uint64_t)value, end);
+    char* p = csrt_itoa_u64(0 - (uint64_t)value, end);
+    *--p = '-';
+    return p;
+}
+
+static csrt_String* string_from_digits(const char* begin, const char* end) {
+    csrt_String* s = string_alloc((int32_t)(end - begin));
+    for (int32_t i = 0; begin + i < end; i++) s->chars[i] = (uint8_t)begin[i];
+    return s;
+}
+
+csrt_String* csrt_string_from_i32(int32_t v) { char b[24]; return string_from_digits(csrt_itoa_i64(v, b + 24), b + 24); }
+csrt_String* csrt_string_from_i64(int64_t v) { char b[24]; return string_from_digits(csrt_itoa_i64(v, b + 24), b + 24); }
+csrt_String* csrt_string_from_u32(uint32_t v) { char b[24]; return string_from_digits(csrt_itoa_u64(v, b + 24), b + 24); }
+csrt_String* csrt_string_from_u64(uint64_t v) { char b[24]; return string_from_digits(csrt_itoa_u64(v, b + 24), b + 24); }
 csrt_String* csrt_string_from_f64(double v) { char b[64]; format_real(b, sizeof b, v, 17, false); return string_from_utf8(b); }
 csrt_String* csrt_string_from_f32(float v) { char b[64]; format_real(b, sizeof b, v, 9, true); return string_from_utf8(b); }
 csrt_String* csrt_string_from_bool(bool v) { return string_from_ascii(v ? "True" : "False"); }
@@ -314,10 +344,11 @@ static void write_utf16(FILE* f, const uint16_t* chars, int32_t length) {
 }
 
 void csrt_console_write_string(csrt_String* s) { if (s) write_utf16(stdout, s->chars, s->length); }
-void csrt_console_write_i32(int32_t v) { printf("%d", v); }
-void csrt_console_write_i64(int64_t v) { printf("%lld", (long long)v); }
-void csrt_console_write_u32(uint32_t v) { printf("%u", v); }
-void csrt_console_write_u64(uint64_t v) { printf("%llu", (unsigned long long)v); }
+static void write_digits(const char* begin, const char* end) { fwrite(begin, 1, (size_t)(end - begin), stdout); }
+void csrt_console_write_i32(int32_t v) { char b[24]; write_digits(csrt_itoa_i64(v, b + 24), b + 24); }
+void csrt_console_write_i64(int64_t v) { char b[24]; write_digits(csrt_itoa_i64(v, b + 24), b + 24); }
+void csrt_console_write_u32(uint32_t v) { char b[24]; write_digits(csrt_itoa_u64(v, b + 24), b + 24); }
+void csrt_console_write_u64(uint64_t v) { char b[24]; write_digits(csrt_itoa_u64(v, b + 24), b + 24); }
 void csrt_console_write_f64(double v) { char b[64]; format_real(b, sizeof b, v, 17, false); fputs(b, stdout); }
 void csrt_console_write_f32(float v) { char b[64]; format_real(b, sizeof b, v, 9, true); fputs(b, stdout); }
 void csrt_console_write_bool(bool v) { fputs(v ? "True" : "False", stdout); }

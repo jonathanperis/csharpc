@@ -1,70 +1,90 @@
 # Benchmark results
 
-First measurement of csharpc against the two official .NET 11 code generators, using the same
-C# source files (`bench/programs/*.cs`).
+csharpc against the two official .NET 11 code generators (RyuJIT and NativeAOT), on identical C#
+sources (`bench/programs/*.cs`). Every binary's output must be **byte-identical** to `dotnet run`;
+`bench/run.sh` marks a row `MISMATCH` otherwise.
 
-**Machine:** AMD EPYC 9354P (4 vCPUs available), x86_64 Linux 6.8, 15 GiB RAM.
-**Toolchain:** .NET SDK 11.0.100-rc.2.26504.105, LLVM 18.1.3 (system `libLLVM-18.so`, clang 18 as
-linker driver), csharpc @ `main` ec75bdb (Release build of the compiler).
-**Date:** 2026-10-22.
+**Machine:** AMD EPYC 9354P (Zen 4, 4 vCPUs), x86_64 Linux 6.8, 15 GiB RAM.
+**Toolchain:** .NET SDK 11.0.100-rc.2.26504.105, LLVM 18.1.3 (system `libLLVM-18.so`, clang 18),
+csharpc branch `perf` (Release build of the compiler). **Date:** 2026-10-22.
 
-| benchmark | csharpc -O2 (ms) | csharpc -O3 (ms) | .NET JIT (ms) | NativeAOT (ms) | csharpc compile (ms) | csharpc size (KiB, stripped) | NativeAOT size (KiB) |
+**How to read the times.** Each cell is `wall/CPU` in milliseconds, best of 5. CPU is user+sys
+time. The machine was shared with several concurrent compiler builds (load average 6–9 on 4 vCPUs),
+so **wall times are noisy and CPU time is the number to compare**. JIT times include .NET runtime
+startup and tiering, which is what a user experiences.
+
+| benchmark | csharpc -O2 | csharpc -O3 | .NET JIT | NativeAOT | csharpc compile (ms) | csharpc size (KiB, stripped) | NativeAOT size (KiB) |
 |---|---:|---:|---:|---:|---:|---:|---:|
-| binarytrees | 806 | 795 | 379 | 242 | 1613 | 18 | 1301 |
-| fannkuchredux | 215 | 207 | 270 | 233 | 1740 | 18 | 1309 |
-| fasta | 153 | 153 | 205 | 177 | 1885 | 18 | 1301 |
-| mandelbrot | 95 | 96 | 145 | 104 | 1612 | 18 | 1301 |
-| matmul | 83 | 69 | 107 | 73 | 1899 | 22 | 1309 |
-| nbody | 358 | 346 | 449 | 369 | 1819 | 18 | 1309 |
-| sieve | 79 | 79 | 131 | 97 | 1596 | 18 | 1301 |
-| spectralnorm | 152 | 151 | 164 | 135 | 1809 | 26 | 1309 |
+| binarytrees | 292/**218** | 305/216 | 512/353 | 395/268 | 4502 | 22 | 1301 |
+| churn | 131/**101** | 137/107 | 725/368 | 470/327 | 3489 | 18 | 1309 |
+| fannkuchredux | 218/**205** | 238/194 | 278/268 | 228/213 | 2469 | 22 | 1309 |
+| fasta | 180/**149** | 211/147 | 290/206 | 230/173 | 3325 | 22 | 1301 |
+| fib | 59/**51** | 58/45 | 197/122 | 116/84 | 5679 | 18 | 1305 |
+| mandelbrot | 244/**93** | 104/91 | 149/132 | 157/106 | 5838 | 22 | 1301 |
+| matmul | 82/**64** | 96/60 | 182/110 | 184/65 | 3761 | 22 | 1309 |
+| nbody | 518/**362** | 617/363 | 696/455 | 556/394 | 5455 | 22 | 1309 |
+| output | 45/**39** | 68/41 | 8100/5614 | 8541/5675 | 2724 | 18 | 1309 |
+| quicksort | 715/**467** | 702/479 | 781/535 | 671/475 | 2803 | 22 | 1301 |
+| shapes | 358/**269** | 269/235 | 367/327 | 298/271 | 5320 | 26 | 1309 |
+| sieve | 78/**72** | 88/80 | 151/142 | 106/97 | 2172 | 22 | 1301 |
+| spectralnorm | 130/**121** | 127/118 | 205/193 | 470/201 | 2196 | 22 | 1309 |
+| strbuild | 129/**110** | 112/108 | 278/176 | 156/134 | 5615 | 30 | 1309 |
 
-All 24 binaries (8 programs × csharpc/JIT/AOT) printed output **byte-identical** to `dotnet run`,
-including shortest round-trip `double` formatting (e.g. nbody's `-0.16908313397889935`).
+**Summary (CPU time, -O2):** csharpc beats the .NET JIT on all 14 benchmarks. It beats
+NativeAOT on 11 and is within noise (≤ 2%) on matmul, quicksort and shapes. On those three,
+csharpc -O3 is ahead on matmul (60 vs 65) and shapes (235 vs 271).
 
-## Reading the numbers
+## What changed since the first measurement
 
-- **Compute-bound code is already competitive.** On the loop- and float-heavy kernels (mandelbrot,
-  sieve, fasta, fannkuch, nbody, matmul) csharpc -O2 is 1.0–1.5× faster than the JIT (whose time
-  includes ~50–70 ms of runtime startup and tiering), and roughly on par with or slightly
-  faster than NativeAOT. It's the same front-end semantics fed to LLVM's mid-level optimizer
-  instead of RyuJIT's. Every array access still has a bounds check and every member access a null
-  check; LLVM hoists or folds many of them.
-- **Allocation-bound code is slow, as expected.** binarytrees is 2–3× slower than .NET because csrt
-  allocates every object with `calloc` and never frees anything (no GC yet: ADR 0004). .NET's
-  bump-pointer allocator plus generational GC is the right comparison point. The binary-trees
-  depth is capped at 16 so the leaked heap (~0.5 GB) fits in memory.
-- **Binaries are tiny.** ~18 KiB stripped vs ~1.3 MiB for NativeAOT, because csharpc links only
-  csrt and libc. It has no GC, reflection, type loader, or exception-handling runtime yet. This
-  gap will shrink as the runtime grows; it isn't a like-for-like comparison.
-- **Compile time (~1.6–1.9 s) is dominated by fixed costs**: starting the compiler on the JIT, loading
-  Roslyn, and binding against ~170 framework reference assemblies. Codegen + LLVM -O2 + link of
-  these programs takes well under 300 ms. AOT-compiling csharpc itself and trimming the reference
-  set are the obvious fixes.
-- -O3 vs -O2 makes little difference except matmul (vectorization/unrolling of the inner loop).
+The first table (csharpc @ `ec75bdb`, before the GC) lost binary-trees 2–3× and spectral-norm
+by about 13%. These are the optimizations that closed those gaps, each measured on its own
+(CPU ms, or instructions from callgrind where noted):
 
-## Methodology
+| change | where | effect |
+|---|---|---|
+| Bitmap-word small-object allocator: each size class caches a 64-slot free mask, so the fast path is `ctz` + clear lowest bit + multiply; no free-list threading; sweep is `allocated &= marked`; no `madvise` refaulting | `runtime/gc.c` | binarytrees 2.82G → 1.67G instr |
+| GC trigger: max(32 MiB, 2× live) instead of 4 MiB (`CSRT_GC_TRIGGER_MB` overrides) | `runtime/gc.c` | binarytrees 53 → 14 collections; 0.97 s → 0.31 s CPU |
+| Marking skips the method-table word, strings, and primitive arrays | `runtime/gc.c`, `csrt_PrimitiveArray_MT` | less conservative scanning (strbuild's 20 MB char buffer is no longer scanned) |
+| **Whole-program LTO with the runtime**: `runtime/*.c` compiled to bitcode (cached), linked into the program module, everything but `main` internalized, then `default<O2>` | `Driver/RuntimeLto.cs`, `Toolchain.cs` | `new T()` inlines as a ~9-instruction fast path with constant-folded size class and zeroing. binarytrees 1.67G → 0.90G instr; 0.27 → 0.18 s CPU |
+| Default host CPU = best `x86-64-vN` level (v3 here) with generic tuning, not `-mcpu=znver4` | `Llvm/Llvm.cs` (`--cpu native` restores host tuning) | spectralnorm 135 → 121, matmul 82 → 65. With znver4, AVX-512's EVEX `vcvtsi2sd` merges into a register written inside the unrolled loop (false dependency), and the scheduling model unrolls worse |
+| Integer formatting without `snprintf`; `StringBuilder.Append(int/long/bool)` writes digits straight into the buffer; strings and builder buffers allocated without zeroing; ≥128 KiB blocks via `calloc` (pre-zeroed mmap pages); first-char-scan `IndexOf`; Latin-1 flag table for `char.IsLetter`/`IsDigit`/... | `runtime/csrt.c`, `runtime/strings.c`, `Intrinsics.cs` | strbuild 1.22G → 0.60G instr; 195 → 102 ms CPU |
+| Closed-world devirtualization (class hierarchy analysis): a virtual call whose static receiver subtree resolves the slot to a single method becomes a direct (inlinable) call | `CodeGen/ModuleCodeGen.Devirtualization.cs` | semantics checked by `tests/samples/80_devirtualization.cs` |
+| `zeroext` on small-int runtime parameters/returns (ABI correctness at -O0), `noalias`+`nonnull` on allocator returns | `CodeGen/Optimizations.cs` | correctness, plus null-check folding without LTO |
 
-- `bench/run.sh` builds each program with csharpc -O2 and -O3, publishes it as a Release
-  file-based app for the JIT (`dotnet app.dll`, timing includes runtime startup) and with
-  `-p:PublishAot=true` for NativeAOT, then runs each binary 3 times and reports the **best
-  wall-clock time** (`date +%s%N` around the process). Every run's stdout is compared to the
-  `.expected` file recorded from `dotnet run`. A mismatch is reported instead of a time.
-- csharpc compile time = wall time of one `csharpc -O2 file.cs -o exe` invocation (Roslyn + codegen
-  + LLVM + clang link; the csrt object is cached after the first build).
-- Sizes: csharpc binary after `strip`, NativeAOT binary as published (debug info is already split
-  into `.dbg`).
-- Inputs are sized so each run takes well under ~1 s. The machine is a shared VM, so expect ±10 %
-  noise. Treat these as indicative only.
+## Remaining gaps and caveats
 
-## Caveats
+- **Partitioning loops with random data** (quicksort): this code is limited by branch
+  mispredictions. Both compilers emit essentially the same loop: bounds check, load, compare.
+  csharpc also reloads the array length after each element store, because LLVM can't prove an
+  element store doesn't alias the length field. Distinct TBAA tags for array lengths vs elements
+  would remove the reload.
+- **Loop-invariant null checks** (matmul at -O2): `bj[k]` re-tests `bj != null` and reloads
+  `bj.Length` on every iteration, because LICM can't hoist a load guarded by a check. LLVM's -O3
+  pipeline fixes this with non-trivial loop unswitching (60 vs 64 ms). Hardware-trap null checks
+  (implicit null checks plus a fault handler, as RyuJIT does) are the real fix; they need the
+  exception-handling runtime.
+- **Strict FP**: neither compiler reassociates floating-point reductions, so dot products and
+  spectral-norm stay scalar on both sides. That's correct C# semantics; csharpc doesn't trade
+  accuracy for speed.
+- **The GC is conservative and non-generational.** Full-heap marking at 2× live growth makes the
+  cost proportional to the live heap at each collection. That's fine for these programs, but
+  allocation-heavy code with a very large live heap would favor .NET's generational GC. A
+  precise or generational collector needs compiler-emitted pointer maps and write barriers.
+- **Feature coverage limits what can be benchmarked.** Programs built on `List<T>`,
+  `Dictionary<K,V>` or LINQ (k-nucleotide, regex-redux, ...) can't be ported until the self-hosted
+  corelib exists.
+- **Compile time** (2–6 s here, about 1.6 s on an idle machine) is mostly Roslyn startup and
+  reference loading on the JIT, plus about 60 ms to link the runtime bitcode. Shipping the compiler
+  ReadyToRun or NativeAOT-compiled would cut most of it.
+- **Binary sizes** (18–30 KiB vs 1.3 MiB) aren't a like-for-like comparison: csrt has no
+  reflection, type loader or full exception-handling runtime.
 
-- No GC in csrt yet: allocation-heavy results are meaningless until it lands.
-- csharpc doesn't yet support generics, structs, interfaces, lambdas, exceptions or `foreach`
-  over arrays, so the programs are written in a restricted style (see `GAPS.md`). Idiomatic
-  versions (structs for vectors, `foreach`, `Span<T>`) would change the .NET numbers too.
-- No multithreading anywhere (the canonical benchmarks-game entries are parallel).
-- `Console.WriteLine` in csrt is block-buffered and flushed at exit; .NET's console stream is
-  autoflushing. These programs print only a few lines, so it doesn't matter here.
+## Reproduce
 
-Reproduce: `bench/run.sh` (≈2 min; `NO_AOT=1` skips NativeAOT, `RUNS=5` for more samples).
+```bash
+export PATH=$HOME/.dotnet11:$PATH
+RUNS=5 bench/run.sh            # all benchmarks (NO_AOT=1 skips NativeAOT)
+bench/run.sh strbuild          # one benchmark
+csharpc --cpu native ...       # opt into host-specific tuning
+CSHARPC_NO_RUNTIME_LTO=1 ...   # link the runtime as objects instead of bitcode
+```

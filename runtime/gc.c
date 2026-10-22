@@ -5,21 +5,27 @@
 //     single size class. A chunk starts with a header holding the per-slot "allocated" and "mark"
 //     bitmaps, so any candidate pointer maps to (chunk, slot) with a mask, a hash lookup and a
 //     division — interior pointers included.
+//   * Allocation works directly on the allocated bitmap: each size class caches one 64-slot
+//     bitmap word's free mask, and the fast path is ctz + clear-lowest-bit + multiply (no free
+//     lists to thread or rebuild). A whole word is claimed at once; before marking, the unused
+//     part of each claimed word is handed back. Sweeping is just `allocated &= marked`.
 //   * Large objects get their own calloc'd block and are tracked in an array that is sorted at the
 //     start of each collection, so candidate pointers are resolved by binary search.
 //   * Roots are scanned conservatively: the main thread's stack (with callee-saved registers
 //     spilled by setjmp) and the writable segments (.data/.bss) of the main executable, which is
 //     where the compiler puts static fields. Pointers outside the heap — e.g. string literals in
 //     .rodata — are ignored. Every word of a reachable object is scanned conservatively, too.
-//   * A collection runs when the bytes allocated since the last one exceed max(4 MiB, 2 x live bytes).
+//   * A collection runs when the bytes allocated since the last one exceed max(32 MiB, 2 x live bytes)
+//     (CSRT_GC_TRIGGER_MB overrides the minimum).
 //
 // Limitations: single-threaded (no thread registration or safepoints); conservative scanning can
-// retain garbage that happens to look like a pointer; no finalizers; empty chunks are kept and
-// their pages returned to the OS with madvise.
+// retain garbage that happens to look like a pointer; no finalizers; empty chunks are kept
+// (resident) for reuse by any size class.
 //
 // Environment: CSRT_GC=0 disables collection; CSRT_GC_STATS=1 prints statistics at exit.
 #define _GNU_SOURCE
 #include "gc.h"
+#include "csrt.h"
 
 #include <link.h>
 #include <setjmp.h>
@@ -34,7 +40,7 @@
 #define CHUNK_HEADER ((size_t)4096)
 #define MAX_SLOTS    ((CHUNK_SIZE - CHUNK_HEADER) / 16)
 #define LARGE_LIMIT  ((size_t)2048)
-#define MIN_TRIGGER  ((size_t)4 * 1024 * 1024)
+#define MIN_TRIGGER  ((size_t)32 * 1024 * 1024)
 
 static const uint32_t k_size_classes[] = {16, 32, 48, 64, 80, 96, 128, 160, 192, 256, 320, 384, 512, 768, 1024, 1536, 2048};
 #define NUM_CLASSES (sizeof k_size_classes / sizeof k_size_classes[0])
@@ -43,15 +49,22 @@ typedef struct Chunk Chunk;
 struct Chunk {
     uint32_t object_size;  // 0 = empty chunk, available for any size class
     uint32_t slots;
-    uint32_t live;         // allocated slots
+    uint32_t live;         // live slots after the last sweep
     uint32_t size_class;
     Chunk* next;           // all chunks
+    Chunk* next_free;      // per-class list of chunks with free slots / list of empty chunks
     uint64_t allocated[MAX_SLOTS / 64];
     uint64_t marked[MAX_SLOTS / 64];
 };
 _Static_assert(sizeof(Chunk) <= CHUNK_HEADER, "chunk header too large");
 
-typedef struct { void* next; } FreeSlot;
+typedef struct {
+    uint64_t free_bits;   // unallocated slots of the claimed word: bit i -> word_base + i * size
+    uint8_t* word_base;
+    Chunk* chunk;         // chunk currently being allocated from
+    size_t word;          // next bitmap word to look at in `chunk`
+    Chunk* partial;       // other chunks of this class that have free slots
+} SizeClass;
 
 typedef struct {
     uint8_t* start;
@@ -62,7 +75,8 @@ typedef struct {
 static struct {
     bool enabled, stats, initialized, collecting;
     Chunk* chunks;
-    FreeSlot* free_lists[NUM_CLASSES];
+    Chunk* empty;         // chunks with no live objects, reusable by any size class
+    SizeClass classes[NUM_CLASSES];
 
     // Open-addressing hash set of chunk base addresses (chunks are never unmapped, so no deletes).
     uintptr_t* chunk_set;
@@ -79,12 +93,27 @@ static struct {
     struct { uint8_t* start; size_t size; }* mark_stack;
     size_t mark_count, mark_capacity;
 
-    size_t allocated_since_gc, live_bytes, trigger;
+    size_t allocated_since_gc, live_bytes, trigger, min_trigger;
     size_t collections, peak_heap, total_allocated;
     double total_gc_seconds;
 } g;
 
-static uint8_t s_size_class_for[LARGE_LIMIT / 16 + 1];  // (size+15)/16 -> class index
+/// Size -> class index. Written as comparisons (not a table) so it constant-folds when the
+/// allocation size is a compile-time constant, which it is after LTO inlines csrt_alloc.
+static inline uint32_t size_class_of(size_t size) {
+    if (size <= 96) return size <= 16 ? 0 : (uint32_t)((size + 15) / 16) - 1;
+    if (size <= 128) return 6;
+    if (size <= 160) return 7;
+    if (size <= 192) return 8;
+    if (size <= 256) return 9;
+    if (size <= 320) return 10;
+    if (size <= 384) return 11;
+    if (size <= 512) return 12;
+    if (size <= 768) return 13;
+    if (size <= 1024) return 14;
+    if (size <= 1536) return 15;
+    return 16;
+}
 
 // ---------------------------------------------------------------------------------------------
 // Bitmaps / chunk lookup
@@ -152,7 +181,7 @@ static Chunk* chunk_map(void) {
     return c;
 }
 
-/// Gives an empty (or fresh) chunk a size class and threads its slots onto the free list.
+/// Gives an empty (or fresh) chunk a size class. Slots are zeroed at allocation time.
 static void chunk_format(Chunk* c, uint32_t cls) {
     uint32_t size = k_size_classes[cls];
     c->object_size = size;
@@ -161,23 +190,63 @@ static void chunk_format(Chunk* c, uint32_t cls) {
     c->live = 0;
     memset(c->allocated, 0, sizeof c->allocated);
     memset(c->marked, 0, sizeof c->marked);
-    uint8_t* base = (uint8_t*)c + CHUNK_HEADER;
-    FreeSlot* head = g.free_lists[cls];
-    for (uint32_t i = c->slots; i-- > 0;) {
-        FreeSlot* slot = (FreeSlot*)(base + (size_t)i * size);
-        slot->next = head;
-        head = slot;
-    }
-    g.free_lists[cls] = head;
 }
 
-static bool refill(uint32_t cls) {
-    for (Chunk* c = g.chunks; c; c = c->next)
-        if (c->object_size == 0) { chunk_format(c, cls); return true; }
-    Chunk* c = chunk_map();
-    if (!c) return false;
-    chunk_format(c, cls);
-    return true;
+static inline uint64_t valid_mask(const Chunk* c, size_t w) {
+    size_t last = c->slots / 64;
+    if (w < last) return ~(uint64_t)0;
+    return w == last ? (((uint64_t)1 << (c->slots % 64)) - 1) : 0;
+}
+
+/// Claims the next bitmap word with free slots for `sc`, moving to other chunks as needed.
+static bool claim_word(SizeClass* sc, uint32_t cls) {
+    for (;;) {
+        Chunk* c = sc->chunk;
+        if (!c) {
+            if (sc->partial) {
+                c = sc->partial;
+                sc->partial = c->next_free;
+            } else if (g.empty) {
+                c = g.empty;
+                g.empty = c->next_free;
+                chunk_format(c, cls);
+            } else {
+                c = chunk_map();
+                if (!c) return false;
+                chunk_format(c, cls);
+            }
+            sc->chunk = c;
+            sc->word = 0;
+        }
+        size_t words = (c->slots + 63) / 64;
+        for (size_t w = sc->word; w < words; w++) {
+            uint64_t free_bits = ~c->allocated[w] & valid_mask(c, w);
+            if (!free_bits) continue;
+            c->allocated[w] |= free_bits;  // claim the whole word; unused slots are returned before marking
+            sc->free_bits = free_bits;
+            sc->word_base = (uint8_t*)c + CHUNK_HEADER + w * 64 * (size_t)c->object_size;
+            sc->word = w + 1;
+            size_t bytes = (size_t)__builtin_popcountll(free_bits) * c->object_size;
+            g.allocated_since_gc += bytes;
+            g.total_allocated += bytes;
+            return true;
+        }
+        sc->chunk = NULL;
+    }
+}
+
+/// Returns the unallocated part of every claimed word to its chunk (before marking).
+static void release_claims(void) {
+    for (size_t cls = 0; cls < NUM_CLASSES; cls++) {
+        SizeClass* sc = &g.classes[cls];
+        if (sc->free_bits && sc->chunk) {
+            sc->chunk->allocated[sc->word - 1] &= ~sc->free_bits;
+            size_t unused = (size_t)__builtin_popcountll(sc->free_bits) * sc->chunk->object_size;
+            g.allocated_since_gc -= unused;
+            g.total_allocated -= unused;
+        }
+        sc->free_bits = 0;
+    }
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -192,11 +261,9 @@ void csrt_gc_init(void) {
     g.enabled = !(env && env[0] == '0');
     env = getenv("CSRT_GC_STATS");
     g.stats = env && env[0] == '1';
-    g.trigger = MIN_TRIGGER;
-    for (size_t units = 0, cls = 0; units <= LARGE_LIMIT / 16; units++) {
-        while (k_size_classes[cls] < units * 16) cls++;
-        s_size_class_for[units] = (uint8_t)cls;
-    }
+    env = getenv("CSRT_GC_TRIGGER_MB");
+    g.min_trigger = env && atol(env) > 0 ? (size_t)atol(env) * 1024 * 1024 : MIN_TRIGGER;
+    g.trigger = g.min_trigger;
 #ifdef __GLIBC__
     extern void* __libc_stack_end;
     g.stack_bottom = __libc_stack_end;
@@ -205,11 +272,19 @@ void csrt_gc_init(void) {
 #endif
 }
 
-static void* alloc_large(size_t size) {
+#define CALLOC_THRESHOLD ((size_t)128 * 1024)
+
+static void* alloc_large(size_t size, bool clear) {
     size = (size + 15) & ~(size_t)15;
     void* p = NULL;
-    if (posix_memalign(&p, 16, size) != 0) return NULL;
-    memset(p, 0, size);
+    if (size >= CALLOC_THRESHOLD) {
+        // glibc serves these with fresh mmap'd pages: zeroed for free, no memset touching every page.
+        p = calloc(1, size);
+        if (!p) return NULL;
+    } else {
+        if (posix_memalign(&p, 16, size) != 0) return NULL;
+        if (clear) memset(p, 0, size);
+    }
     if (g.large_count == g.large_capacity) {
         size_t capacity = g.large_capacity ? g.large_capacity * 2 : 64;
         LargeObject* grown = realloc(g.large, capacity * sizeof *grown);
@@ -222,34 +297,31 @@ static void* alloc_large(size_t size) {
     return p;
 }
 
-void* csrt_gc_alloc(size_t size) {
+__attribute__((noinline, cold)) static void* alloc_small_slow(uint32_t cls) {
     if (!g.initialized) csrt_gc_init();
-    if (size == 0) size = 16;
-    if (g.enabled && g.allocated_since_gc >= g.trigger) collect();
-
-    void* result;
-    size_t charged;
-    if (size > LARGE_LIMIT) {
-        result = alloc_large(size);
-        if (!result && g.enabled) { collect(); result = alloc_large(size); }
-        charged = (size + 15) & ~(size_t)15;
-    } else {
-        uint32_t cls = s_size_class_for[(size + 15) / 16];
-        if (!g.free_lists[cls] && !refill(cls)) {
-            if (g.enabled) collect();
-            if (!g.free_lists[cls] && !refill(cls)) return NULL;
-        }
-        FreeSlot* slot = g.free_lists[cls];
-        g.free_lists[cls] = slot->next;
-        Chunk* c = (Chunk*)((uintptr_t)slot & ~(CHUNK_SIZE - 1));
-        size_t index = ((uint8_t*)slot - ((uint8_t*)c + CHUNK_HEADER)) / c->object_size;
-        bit_set(c->allocated, index);
-        c->live++;
-        charged = c->object_size;
-        memset(slot, 0, charged);  // C# semantics: fresh objects are zeroed
-        result = slot;
+    SizeClass* sc = &g.classes[cls];
+    bool collected = false;
+    for (;;) {
+        if (g.enabled && g.allocated_since_gc >= g.trigger && !g.collecting) { collect(); collected = true; }
+        if (claim_word(sc, cls)) break;
+        if (!g.enabled || collected) return NULL;
+        collect();
+        collected = true;
     }
+    size_t heap = g.live_bytes + g.allocated_since_gc;
+    if (heap > g.peak_heap) g.peak_heap = heap;
+    uint64_t bits = sc->free_bits;
+    sc->free_bits = bits & (bits - 1);
+    return sc->word_base + (size_t)__builtin_ctzll(bits) * k_size_classes[cls];
+}
+
+__attribute__((noinline)) static void* alloc_large_slow(size_t size, bool clear) {
+    if (!g.initialized) csrt_gc_init();
+    if (g.enabled && g.allocated_since_gc >= g.trigger) collect();
+    void* result = alloc_large(size, clear);
+    if (!result && g.enabled) { collect(); result = alloc_large(size, clear); }
     if (result) {
+        size_t charged = (size + 15) & ~(size_t)15;
         g.allocated_since_gc += charged;
         g.total_allocated += charged;
         size_t heap = g.live_bytes + g.allocated_since_gc;
@@ -257,6 +329,27 @@ void* csrt_gc_alloc(size_t size) {
     }
     return result;
 }
+
+static inline void* gc_alloc(size_t size, bool clear) {
+    if (__builtin_expect(size > LARGE_LIMIT, 0)) return alloc_large_slow(size, clear);
+    uint32_t cls = size_class_of(size);
+    SizeClass* sc = &g.classes[cls];
+    uint64_t bits = sc->free_bits;
+    void* slot;
+    if (__builtin_expect(bits != 0, 1)) {
+        sc->free_bits = bits & (bits - 1);
+        slot = sc->word_base + (size_t)__builtin_ctzll(bits) * k_size_classes[cls];
+    } else {
+        slot = alloc_small_slow(cls);
+        if (!slot) return NULL;
+    }
+    if (clear) memset(slot, 0, k_size_classes[cls]);  // C# semantics: fresh objects are zeroed
+    return slot;
+}
+
+void* csrt_gc_alloc(size_t size) { return gc_alloc(size, true); }
+
+void* csrt_gc_alloc_noclear(size_t size) { return gc_alloc(size, false); }
 
 int64_t csrt_gc_total_memory(void) { return (int64_t)(g.live_bytes + g.allocated_since_gc); }
 
@@ -324,7 +417,12 @@ static void drain(void) {
         g.mark_count--;
         uint8_t* start = g.mark_stack[g.mark_count].start;
         size_t size = g.mark_stack[g.mark_count].size;
-        scan_range(start, start + size);
+        // Word 0 is the method-table pointer (static data, never a heap reference); strings and
+        // arrays of primitives hold no references, so they have nothing to scan at all.
+        // (The compiler also emits element-typed array method tables, e.g. "System.Int32[]", with the flag.)
+        const csrt_MethodTable* mt = *(const csrt_MethodTable* const*)start;
+        if (mt && (mt->flags & CSRT_MT_NO_REFERENCES)) continue;
+        scan_range(start + sizeof(void*), start + size);
     }
 }
 
@@ -356,37 +454,34 @@ __attribute__((noinline)) static void scan_stack(void) {
 // ---------------------------------------------------------------------------------------------
 static size_t sweep(void) {
     size_t live = 0;
-    for (size_t cls = 0; cls < NUM_CLASSES; cls++) g.free_lists[cls] = NULL;
+    for (size_t cls = 0; cls < NUM_CLASSES; cls++) {
+        g.classes[cls].chunk = NULL;
+        g.classes[cls].partial = NULL;
+        g.classes[cls].free_bits = 0;
+    }
+    g.empty = NULL;
 
     for (Chunk* c = g.chunks; c; c = c->next) {
-        if (c->object_size == 0) continue;
-        uint8_t* base = (uint8_t*)c + CHUNK_HEADER;
+        if (c->object_size == 0) { c->next_free = g.empty; g.empty = c; continue; }
         uint32_t still_live = 0;
-        FreeSlot* head = g.free_lists[c->size_class];
-        for (size_t w = 0; w < (c->slots + 63) / 64; w++) {
+        size_t words = (c->slots + 63) / 64;
+        for (size_t w = 0; w < words; w++) {
             c->allocated[w] &= c->marked[w];
             still_live += (uint32_t)__builtin_popcountll(c->allocated[w]);
             c->marked[w] = 0;
         }
         c->live = still_live;
         if (still_live == 0) {
-            // Release the pages to the OS but keep the address range for reuse by any size class.
-            c->object_size = 0;
-            madvise(base, CHUNK_SIZE - CHUNK_HEADER, MADV_DONTNEED);
+            c->object_size = 0;  // reusable by any size class (pages stay resident: refaulting is costly)
+            c->next_free = g.empty;
+            g.empty = c;
             continue;
         }
-        for (size_t w = (c->slots + 63) / 64; w-- > 0;) {
-            uint64_t free_bits = ~c->allocated[w];
-            if (w == c->slots / 64) free_bits &= ((uint64_t)1 << (c->slots % 64)) - 1;  // past the last slot
-            while (free_bits) {
-                unsigned bit = 63 - (unsigned)__builtin_clzll(free_bits);  // highest first, so the list ascends
-                free_bits &= ~((uint64_t)1 << bit);
-                FreeSlot* slot = (FreeSlot*)(base + (w * 64 + bit) * (size_t)c->object_size);
-                slot->next = head;
-                head = slot;
-            }
+        if (still_live < c->slots) {
+            SizeClass* sc = &g.classes[c->size_class];
+            c->next_free = sc->partial;
+            sc->partial = c;
         }
-        g.free_lists[c->size_class] = head;
         live += (size_t)still_live * c->object_size;
     }
 
@@ -411,13 +506,14 @@ static void collect(void) {
     struct timespec t0, t1;
     if (g.stats) clock_gettime(CLOCK_MONOTONIC, &t0);
 
+    release_claims();
     qsort(g.large, g.large_count, sizeof *g.large, compare_large);
     scan_stack();
     dl_iterate_phdr(scan_segments, NULL);
     drain();
     g.live_bytes = sweep();
     g.allocated_since_gc = 0;
-    g.trigger = 2 * g.live_bytes > MIN_TRIGGER ? 2 * g.live_bytes : MIN_TRIGGER;
+    g.trigger = 2 * g.live_bytes > g.min_trigger ? 2 * g.live_bytes : g.min_trigger;
     g.collections++;
 
     if (g.stats) {

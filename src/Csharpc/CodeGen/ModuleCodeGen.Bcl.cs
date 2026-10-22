@@ -140,11 +140,23 @@ public sealed partial class ModuleCodeGen
         string[] defaults = ["csrt_object_to_string_default", "csrt_object_equals_default", "csrt_object_get_hash_code_default"];
         var slots = defaults.Select(d => Runtime(d, Llvm.Ptr, Llvm.Ptr).Fn).ToArray();
         // Header layout = TypeMapper.MethodTableHeader (interface map: none; csrt handles array interfaces).
-        var init = Llvm.ConstStruct(ExternalGlobal("csrt_Array_MT"), CString(name), Llvm.ConstInt(Llvm.I32, 0), Llvm.ConstInt(Llvm.I32, 0),
+        var flags = Optimizations.HoldsNoReferences(elementType) ? 8 /* CSRT_MT_NO_REFERENCES */ : 0;
+        var init = Llvm.ConstStruct(ExternalGlobal("csrt_Array_MT"), CString(name), Llvm.ConstInt(Llvm.I32, 0), Llvm.ConstInt(Llvm.I32, flags),
             LlvmContext.Null(Llvm.Ptr), Llvm.ConstInt(Llvm.I32, 0), Llvm.ConstInt(Llvm.I32, 0),
             LlvmContext.ConstArray(Llvm.Ptr, slots));
         var global = Module.AddGlobal("csrt.arraymt." + name, Native.LLVMTypeOf(init), init, constant: true, linkage: LLVMLinkage.Private);
         return _arrayMethodTables[name] = global;
+    }
+
+    /// <summary>A name-only method table identifying a library type for Type objects (never instantiated).</summary>
+    private LLVMValueRef TypeOnlyMethodTable(INamedTypeSymbol type)
+    {
+        var name = Mangler.MetadataName(type);
+        if (_arrayMethodTables.TryGetValue("type:" + name, out var existing)) return existing;
+        var init = Llvm.ConstStruct(ExternalGlobal("csrt_Object_MT"), CString(name), Llvm.ConstInt(Llvm.I32, 0), Llvm.ConstInt(Llvm.I32, 0),
+            LlvmContext.Null(Llvm.Ptr), Llvm.ConstInt(Llvm.I32, 0), Llvm.ConstInt(Llvm.I32, 0));
+        var global = Module.AddGlobal("csrt.typemt." + name, Native.LLVMTypeOf(init), init, constant: true, linkage: LLVMLinkage.Private);
+        return _arrayMethodTables["type:" + name] = global;
     }
 
     /// <summary>The method table that identifies a type at runtime (for typeof / Type objects).</summary>
@@ -169,7 +181,8 @@ public sealed partial class ModuleCodeGen
             INamedTypeSymbol { TypeKind: TypeKind.Enum } e => EnumMethodTable(e),
             INamedTypeSymbol { TypeKind: TypeKind.Class } c when IsUserType(c) && !c.IsStatic && !c.IsGenericType => GetLayout(c).MethodTable,
             INamedTypeSymbol { TypeKind: TypeKind.Struct } s when IsUserType(s) && !s.IsGenericType => StructMethodTable(s),
-            INamedTypeSymbol named => LibraryTypeMethodTable(named.OriginalDefinition),
+            INamedTypeSymbol ex when IsLibraryException(ex) => GetLayout(ex).MethodTable,
+            INamedTypeSymbol named => TypeOnlyMethodTable(named.OriginalDefinition),
             _ => throw CompileError.Unsupported($"typeof({type})", at),
         };
     }

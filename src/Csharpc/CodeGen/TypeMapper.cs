@@ -41,6 +41,8 @@ public sealed class TypeMapper(LlvmContext llvm, TargetMachine target)
         INamedTypeSymbol { TypeKind: TypeKind.Enum, EnumUnderlyingType: { } underlying } => Value(underlying),
         IPointerTypeSymbol or IFunctionPointerTypeSymbol => Llvm.Ptr,
         { IsReferenceType: true } => Llvm.Ptr,
+        // Tasks, awaiters and configured awaitables are all a pointer to the csrt task (docs/10-async.md).
+        INamedTypeSymbol t when Coroutines.IsTaskHandleType(t) => Llvm.Ptr,
         // System.Decimal: the CLR layout { int flags; uint hi32; ulong lo64 } (runtime/decimal.c).
         { SpecialType: SpecialType.System_Decimal } => Llvm.Struct(Llvm.I32, Llvm.I32, Llvm.I64),
         // TimeSpan / DateTime: a tick count (BclValueTypes.cs, runtime/datetime.c).
@@ -52,6 +54,12 @@ public sealed class TypeMapper(LlvmContext llvm, TargetMachine target)
             Llvm.Struct(Llvm.I8, Storage(n.TypeArguments[0])),              // { hasValue, value }
         INamedTypeSymbol { IsTupleType: true } t when t.TupleElements.Length <= 7 =>
             Llvm.Struct([.. t.TupleElements.Select(e => Storage(e.Type))]),  // ValueTuple<...>: flattened
+        INamedTypeSymbol n when IsSystemStruct(n, "Index") => Llvm.I32,                       // .NET's own encoding: ~n = from end
+        INamedTypeSymbol n when IsSystemStruct(n, "Range") => Llvm.Struct(Llvm.I32, Llvm.I32), // { Index start, Index end }
+        // System.Threading.Lock.Scope: the runtime is single-threaded, so `lock (Lock)` scopes are empty.
+        INamedTypeSymbol { Name: "Scope", ContainingType: { Name: "Lock", ContainingNamespace.Name: "Threading" } } => Llvm.I8,
+        INamedTypeSymbol n when IsSpan(n) => Llvm.Struct(Llvm.Ptr, Llvm.I32),                  // { ref T, length }
+        INamedTypeSymbol n when IsSpanEnumerator(n) => Llvm.Struct(Llvm.Ptr, Llvm.I32, Llvm.I32), // { ref T, length, index }
         INamedTypeSymbol { TypeKind: TypeKind.Struct } s when StructType?.Invoke(s) is { } user => user,
         { TypeKind: TypeKind.Struct } => throw CompileError.Unsupported($"struct '{type}'", type),
         { TypeKind: TypeKind.TypeParameter } => throw CompileError.Unsupported($"generic type parameter '{type}'", type),
@@ -60,6 +68,23 @@ public sealed class TypeMapper(LlvmContext llvm, TargetMachine target)
 
     /// <summary>Resolves user-defined structs to their named LLVM type (set by ModuleCodeGen); null if not user-defined.</summary>
     public Func<INamedTypeSymbol, LLVMTypeRef?>? StructType { get; set; }
+
+    public static bool IsSystemStruct(ITypeSymbol? type, string name) =>
+        type is INamedTypeSymbol { TypeKind: TypeKind.Struct, ContainingType: null } n && n.MetadataName == name
+        && n.ContainingNamespace is { Name: "System", ContainingNamespace.IsGlobalNamespace: true };
+
+    /// <summary>
+    /// System.Span&lt;T&gt; / ReadOnlySpan&lt;T&gt; — and Memory&lt;T&gt; / ReadOnlyMemory&lt;T&gt;, which share the
+    /// { ptr, length } representation: the GC is conservative and non-moving, so an interior data
+    /// pointer keeps the owning array/string alive and `.Span` is the identity.
+    /// </summary>
+    public static bool IsSpan(ITypeSymbol? type) =>
+        type is INamedTypeSymbol { MetadataName: "Span`1" or "ReadOnlySpan`1" or "Memory`1" or "ReadOnlyMemory`1", ContainingType: null } n
+        && n.ContainingNamespace is { Name: "System", ContainingNamespace.IsGlobalNamespace: true };
+
+    /// <summary>Span&lt;T&gt;.Enumerator / ReadOnlySpan&lt;T&gt;.Enumerator.</summary>
+    public static bool IsSpanEnumerator(ITypeSymbol? type) =>
+        type is INamedTypeSymbol { Name: "Enumerator", ContainingType: { } owner } && IsSpan(owner);
 
     public static bool IsNullable(ITypeSymbol? type) =>
         type is INamedTypeSymbol { OriginalDefinition.SpecialType: SpecialType.System_Nullable_T };
@@ -95,7 +120,20 @@ public sealed class ClassLayout
     public required LLVMTypeRef InstanceType { get; init; }
     public required ClassLayout? Base { get; init; }
     public Dictionary<IFieldSymbol, uint> FieldIndex { get; } = new(SymbolEqualityComparer.Default);
+
+    /// <summary>LLVM struct element types (header + inherited + own fields), so derived classes can extend it.</summary>
+    public List<LLVMTypeRef> Elements { get; } = [];
+
+    /// <summary>Slots implemented by a csrt function (library base classes such as System.Exception).</summary>
+    public Dictionary<int, string> RuntimeSlots { get; } = [];
+
+    /// <summary>A library class (e.g. System.Exception) whose layout/method table csrt defines.</summary>
+    public bool IsLibrary { get; init; }
     public List<IFieldSymbol> Fields { get; } = [];
+    /// <summary>Field-like events' synthesized delegate slots (Roslyn doesn't expose their backing fields).</summary>
+    public Dictionary<IEventSymbol, uint> EventFieldIndex { get; } = new(SymbolEqualityComparer.Default);
+    /// <summary>Fields and event slots in element order, so derived layouts stay prefix-compatible.</summary>
+    public List<ISymbol> SlotOrder { get; } = [];
 
     /// <summary>Slot -> implementing method (null = System.Object default / abstract).</summary>
     public List<IMethodSymbol?> VTable { get; } = [];

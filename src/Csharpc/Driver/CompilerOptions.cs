@@ -9,10 +9,13 @@ public sealed record CompilerOptions
     public EmitKind Emit { get; set; } = EmitKind.Exe;
     public int OptLevel { get; set; } = 2;
     public string? Target { get; set; }
+    public string? Cpu { get; set; }
+    public string? Features { get; set; }
     public bool DumpCfg { get; set; }
     public bool Verbose { get; set; }
     public bool ShowWarnings { get; set; }
     public bool ImplicitUsings { get; set; } = true;
+    public bool RuntimeLto { get; set; } = Environment.GetEnvironmentVariable("CSHARPC_NO_RUNTIME_LTO") != "1";
     public List<string> Defines { get; } = [];
     public string CC { get; set; } = Environment.GetEnvironmentVariable("CSHARPC_CC") ?? "clang";
     /// <summary>A .csproj to evaluate instead of loose files (drop-in mode).</summary>
@@ -36,8 +39,11 @@ public sealed record CompilerOptions
           --emit <kind>          exe (default) | obj | asm | llvm-ir | llvm-bc
           -O0 | -O1 | -O2 | -O3  Optimization level (default: -O2)
           --target <triple>      Target triple (default: host)
+          --cpu <name>           Target CPU: native, x86-64-v3, znver4, ... (default: best x86-64-vN the host supports)
+          --features <list>      Extra LLVM target features, e.g. +avx512f
           -D <symbol>            Define a preprocessor symbol
           --no-implicit-usings   Don't add the SDK's implicit global usings
+          --no-runtime-lto       Link the runtime as objects instead of LTO-ing its bitcode
           --cc <path>            C compiler used as linker driver (default: $CSHARPC_CC or clang)
           --dump-cfg             Print Roslyn's control-flow graphs (csharpc's "MIR")
           --intrinsics           List the library members csharpc implements
@@ -87,8 +93,11 @@ public sealed record CompilerOptions
                     break;
                 }
                 case "--target": o.Target = Next(); break;
+                case "--cpu": o.Cpu = Next(); break;
+                case "--features": o.Features = Next(); break;
                 case "-D": o.Defines.Add(Next()); break;
                 case "--no-implicit-usings": o.ImplicitUsings = false; break;
+                case "--no-runtime-lto": o.RuntimeLto = false; break;
                 case "--cc": o.CC = Next(); break;
                 case "--dump-cfg": o.DumpCfg = true; break;
                 case "-W": o.ShowWarnings = true; break;

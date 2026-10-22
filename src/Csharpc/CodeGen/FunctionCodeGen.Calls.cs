@@ -21,6 +21,8 @@ public sealed partial class FunctionCodeGen
         if (target.MethodKind == MethodKind.DelegateInvoke) return EmitDelegateInvoke(inv);
         if (target.MethodKind == MethodKind.LocalFunction) return CallLocalFunction(inv);
         if (TypeMapper.IsNullable(target.ContainingType)) return EmitNullableMethod(inv);
+        // Span enumerators are ref structs with no state to dispose (the foreach finally calls IDisposable.Dispose).
+        if (target.Name == "Dispose" && TypeMapper.IsSpanEnumerator(TypeOf(inv.Instance))) return default;
         if (!target.IsStatic && inv.Instance is { } receiver)
         {
             var receiverType = TypeOf(receiver);
@@ -42,7 +44,9 @@ public sealed partial class FunctionCodeGen
             var isBaseCall = inv.Instance?.Syntax is BaseExpressionSyntax;
             return EmitUserCall(target, self, ReceiverIsNonNull(inv.Instance, target), inv.Arguments, inv.IsVirtual && !isBaseCall);
         }
+        if (TrySpanMethod(inv, out var spanResult)) return spanResult;
         if (Intrinsics.TryGet(target, out var handler)) return handler(this, inv);
+        if (TryEmitLibraryExceptionCall(inv, out var result)) return result;
         if (BclValueTypes.TryGetRaw(target, out var raw)) return raw(this, inv);
         if (BclValueTypes.TryGet(target, out var bcl)) return CallBcl(bcl, target, inv.Instance, inv.Arguments, inv);
         throw CompileError.MissingIntrinsic(target, inv);
@@ -68,6 +72,7 @@ public sealed partial class FunctionCodeGen
 
         var dispatch = isVirtual && offset == 1 && (target.IsVirtual || target.IsAbstract || target.IsOverride)
             && !target.IsSealed && !target.ContainingType.IsSealed;
+        if (dispatch && _m.Devirtualize(target) is { } only) return DirectCall(only, args); // closed-world CHA
         return dispatch ? VirtualCall(target, self, args) : DirectCall(target, args);
     }
 
@@ -107,7 +112,7 @@ public sealed partial class FunctionCodeGen
         var root = ClassLayout.RootOf(target);
         int slot;
         LLVMTypeRef fnType;
-        if (_m.IsUserType(target.ContainingType))
+        if (_m.IsUserType(target.ContainingType) || _m.IsLibraryException(target.ContainingType))
         {
             var layout = _m.GetLayout(target.ContainingType);
             slot = layout.SlotOf.TryGetValue(root, out var s) ? s : throw CompileError.Unsupported($"virtual call to '{target}'", target);
@@ -144,9 +149,11 @@ public sealed partial class FunctionCodeGen
     {
         if (creation.Initializer is not null) throw CompileError.Unsupported("object initializer", creation);
         var type = (INamedTypeSymbol)TypeOf(creation)!;
+        if (TrySpanConstruction(creation, out var span) || TryStatelessLibraryCreation(creation, out span)) return span;
         if (type.IsValueType) return EmitValueTypeCreation(creation, type);
         if (type.SpecialType == SpecialType.System_Object)
             return Allocate(_m.ExternalGlobal("csrt_Object_MT"), L.ConstInt(L.I64, (long)T.PointerSize));
+        if (_m.IsLibraryException(type)) return EmitLibraryExceptionCreation(creation);
         if (!_m.IsUserType(type) && creation.Constructor is { } libraryCtor && Intrinsics.TryGetConstructor(libraryCtor, out var ctorHandler))
             return ctorHandler(this, creation);
         if (!_m.IsUserType(type) && creation.Constructor is { } bclCtor && BclValueTypes.TryGet(bclCtor, out var bclHandler))
@@ -235,7 +242,8 @@ public sealed partial class FunctionCodeGen
         _ when IsBoxablePrimitive(type) => _m.ExternalGlobal($"csrt_Boxed_{type.MetadataName}_MT"),
         _ when BclValueTypes.IsDecimal(type) || BclValueTypes.IsTicks(type) || BclValueTypes.IsBigInteger(type) => _m.TypeMethodTable(type, at),
         INamedTypeSymbol { TypeKind: TypeKind.Enum } e => _m.EnumMethodTable(e),
-        INamedTypeSymbol { TypeKind: TypeKind.Class } named when _m.IsUserType(named) => _m.GetLayout(named).MethodTable,
+        INamedTypeSymbol { TypeKind: TypeKind.Class } named when _m.IsUserType(named) || _m.IsLibraryException(named) =>
+            _m.GetLayout(named).MethodTable,
         INamedTypeSymbol { TypeKind: TypeKind.Struct } named when _m.IsUserType(named) => _m.StructMethodTable(named),
         INamedTypeSymbol { TypeKind: TypeKind.Interface } itf => _m.InterfaceMethodTable(itf),
         _ => throw CompileError.Unsupported($"type test against '{type}'", at),
@@ -268,7 +276,9 @@ public sealed partial class FunctionCodeGen
             var self = property.IsStatic ? default : Receiver(p.Instance!, getter);
             return CallAccessor(p, getter, self, []);
         }
+        if (TrySpanProperty(p, out var spanResult)) return spanResult;
         if (Intrinsics.TryGetProperty(property, out var handler)) return handler(this, p);
+        if (TryEmitLibraryExceptionProperty(p, out var exceptionMember)) return exceptionMember;
         if (property.GetMethod is { } getter2 && BclValueTypes.TryGet(getter2, out var bcl))
             return CallBcl(bcl, getter2, p.Instance, p.Arguments, p);
         throw CompileError.Unsupported($"'{property.ContainingType}.{property.Name}' has no implementation in the csharpc runtime yet", p);
@@ -324,6 +334,7 @@ public sealed partial class FunctionCodeGen
 
     private LLVMValueRef EmitCollectionExpression(ICollectionExpressionOperation collection)
     {
+        if (TypeMapper.IsSpan(TypeOf(collection))) return SpanFromCollection(collection, SpanElement(TypeOf(collection)!));
         if (TypeOf(collection) is not IArrayTypeSymbol { Rank: 1 } arrayType)
             throw CompileError.Unsupported($"collection expression of type '{collection.Type}'", collection);
         if (collection.Elements.Any(e => e is ISpreadOperation)) throw CompileError.Unsupported("spread elements", collection);
@@ -335,8 +346,10 @@ public sealed partial class FunctionCodeGen
     private LLVMValueRef NewArray(ITypeSymbol elementType, LLVMValueRef length)
     {
         var elementSize = T.Target.SizeOf(T.Storage(elementType));
-        var array = CallRuntime("csrt_new_array", L.Ptr, [L.I64, L.I64], L.ConstInt(L.I64, (long)elementSize), length);
-        TagArray(array, elementType); // "System.Int32[]" for GetType()/ToString()
+        // Arrays of primitives/enums hold no references: a distinct method table lets the GC skip them.
+        var helper = Optimizations.HoldsNoReferences(elementType) ? "csrt_new_array_primitive" : "csrt_new_array";
+        var array = CallRuntime(helper, L.Ptr, [L.I64, L.I64], L.ConstInt(L.I64, (long)elementSize), length);
+        TagArray(array, elementType); // "System.Int32[]" for GetType()/ToString(); keeps the no-references flag
         return array;
     }
 
@@ -358,10 +371,13 @@ public sealed partial class FunctionCodeGen
         if (element.Indices.Length != 1) throw CompileError.Unsupported("multi-dimensional arrays", element);
         var index = element.Indices[0];
         var indexType = TypeOf(index);
-        if (indexType?.SpecialType is not (SpecialType.System_Int32 or SpecialType.System_Int64 or SpecialType.System_UInt32 or SpecialType.System_UInt64))
+        var isIndex = IsIndexType(indexType); // array[^n]
+        if (!isIndex && indexType?.SpecialType is not (SpecialType.System_Int32 or SpecialType.System_Int64 or SpecialType.System_UInt32 or SpecialType.System_UInt64))
             throw CompileError.Unsupported($"array index of type '{indexType}'", element);
         var array = EmitValue(element.ArrayReference);
-        var i = ToIndex(EmitValue(index), indexType);
+        var i = isIndex
+            ? _b.Cast(LLVMOpcode.SExt, ArrayIndexFromIndex(array, EmitValue(index)), L.I64)
+            : ToIndex(EmitValue(index), indexType!);
         NullCheck(array);
         var storage = T.Storage(TypeOf(element)!);
         var header = T.ArrayHeader(storage);
@@ -568,25 +584,6 @@ public sealed partial class FunctionCodeGen
             result = result is { } r ? ConcatStrings(r, piece) : piece;
         }
         return result ?? _m.StringLiteral("");
-    }
-
-    // ======================================================================================
-    // Exceptions (spike: throw == unhandled exception; see ADR 0005)
-    // ======================================================================================
-
-    private void EmitThrow(IOperation? exception)
-    {
-        var e = exception;
-        while (e is IConversionOperation { Conversion.IsImplicit: true } c) e = c.Operand;
-        if (e is not IObjectCreationOperation { Type: INamedTypeSymbol type } creation || _m.IsUserType(type))
-            throw CompileError.Unsupported("throwing anything but `new SomeLibraryException(...)`", exception);
-
-        var messageArg = creation.Arguments.FirstOrDefault(a => a.Parameter?.Name == "message" && a.ArgumentKind != ArgumentKind.DefaultValue);
-        var message = messageArg is not null
-            ? EmitValue(messageArg.Value)
-            : _m.StringLiteral($"Exception of type '{Mangler.MetadataName(type)}' was thrown.");
-        CallRuntime("csrt_throw", L.Void, [L.Ptr, L.Ptr], _m.LibraryTypeMethodTable(type), message);
-        _b.Unreachable();
     }
 
     // ======================================================================================

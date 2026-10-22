@@ -41,19 +41,22 @@ trap 'rm -rf "$WORK"' EXIT
 
 now_ms() { echo $(( $(date +%s%N) / 1000000 )); }
 
-# best_of <expected-file> <cmd...>: prints best wall time in ms, or MISMATCH / FAIL.
+# best_of <expected-file> <cmd...>: prints "wall/cpu" — best wall time and best CPU time
+# (user+sys, which is robust against other load on the machine) in ms, or MISMATCH / FAIL.
 best_of() {
   local expected="$1"; shift
-  local best="" t0 t1 dt
+  local best="" bestcpu="" t0 t1 dt cpu
   for ((i = 0; i < RUNS; i++)); do
     t0=$(now_ms)
-    if ! "$@" > "$WORK/out" 2> "$WORK/err"; then echo "FAIL"; return; fi
+    if ! { TIMEFORMAT="%3U %3S"; time "$@" > "$WORK/out" 2> "$WORK/err"; } 2> "$WORK/time"; then echo "FAIL"; return; fi
     t1=$(now_ms)
     if ! cmp -s "$WORK/out" "$expected"; then echo "MISMATCH"; return; fi
     dt=$((t1 - t0))
+    cpu=$(awk '{printf "%d", ($1 + $2) * 1000}' "$WORK/time")
     if [[ -z "$best" || $dt -lt $best ]]; then best=$dt; fi
+    if [[ -z "$bestcpu" || $cpu -lt $bestcpu ]]; then bestcpu=$cpu; fi
   done
-  echo "$best"
+  echo "$best/$bestcpu"
 }
 
 size_kb() { [[ -f "$1" ]] && echo "$(( $(stat -c %s "$1") / 1024 ))" || echo "-"; }
@@ -98,7 +101,9 @@ for src in "$PROGRAMS"/*.cs; do
 done
 
 {
-  echo "| benchmark | csharpc -O2 (ms) | csharpc -O3 (ms) | .NET JIT (ms) | NativeAOT (ms) | csharpc compile (ms) | csharpc size (KiB, stripped) | NativeAOT size (KiB) |"
+  echo "Times are wall/CPU (user+sys) in ms, best of $RUNS."
+  echo
+  echo "| benchmark | csharpc -O2 | csharpc -O3 | .NET JIT | NativeAOT | csharpc compile (ms) | csharpc size (KiB, stripped) | NativeAOT size (KiB) |"
   echo "|---|---:|---:|---:|---:|---:|---:|---:|"
   printf '%s\n' "${rows[@]}"
 } | tee "$ROOT/bench/results-latest.md"

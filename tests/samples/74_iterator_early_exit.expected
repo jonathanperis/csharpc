@@ -1,0 +1,22 @@
+A: begin
+got 1
+got 2
+A: finally
+---
+B: begin
+got 1
+got 2
+got 3
+B: finally
+B: end
+---
+naturals disposed
+6
+---
+nested outer
+nested inner-1
+inner finally
+outer finally
+---
+each disposed
+found y
