@@ -138,14 +138,9 @@ public sealed partial class FunctionCodeGen
         method ??= TypeOf(value)?.GetMembers("Deconstruct").OfType<IMethodSymbol>()
             .FirstOrDefault(m => !m.IsStatic && m.Parameters.Length == targets.Elements.Length && m.Parameters.All(p => p.RefKind == RefKind.Out));
         if (method is null || targets.Elements.Any(e => e is ITupleOperation)) return null;
-        var addresses = targets.Elements.Select(e => e is IDiscardOperation ? default : AddressOf(e)).ToArray();
+        var plan = targets.Elements.Select(PlanTarget).ToArray();
         var (values, types) = CallDeconstruct(method, EmitValue(value), TypeOf(value)!, value);
-        for (var i = 0; i < addresses.Length; i++)
-        {
-            if (addresses[i].Handle == 0) continue;
-            var targetType = TypeOf(targets.Elements[i])!;
-            StoreValue(ToStorage(Coerce(values[i], types[i], targetType), targetType), addresses[i]);
-        }
+        for (var i = 0; i < plan.Length; i++) StoreTarget(plan[i], values[i], types[i]);
         return default(LLVMValueRef);
     }
 
