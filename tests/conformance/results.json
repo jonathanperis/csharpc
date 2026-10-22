@@ -1,9 +1,9 @@
 {
  "date": "2026-10-22",
  "opt": "-O2",
- "passed": 91,
+ "passed": 109,
  "total": 195,
- "coverage": 46.7,
+ "coverage": 55.9,
  "areas": {
   "async": {
    "pass": 0,
@@ -16,9 +16,9 @@
    "coverage": 16.7
   },
   "classes": {
-   "pass": 14,
+   "pass": 15,
    "total": 15,
-   "coverage": 93.3
+   "coverage": 100.0
   },
   "collections": {
    "pass": 0,
@@ -36,9 +36,9 @@
    "coverage": 100.0
   },
   "expressions": {
-   "pass": 7,
+   "pass": 8,
    "total": 20,
-   "coverage": 35.0
+   "coverage": 40.0
   },
   "formatting": {
    "pass": 3,
@@ -46,14 +46,14 @@
    "coverage": 60.0
   },
   "generics": {
-   "pass": 0,
+   "pass": 4,
    "total": 8,
-   "coverage": 0.0
+   "coverage": 50.0
   },
   "interfaces": {
-   "pass": 0,
+   "pass": 6,
    "total": 9,
-   "coverage": 0.0
+   "coverage": 66.7
   },
   "iterators": {
    "pass": 0,
@@ -76,14 +76,14 @@
    "coverage": 0.0
   },
   "localfunctions": {
-   "pass": 3,
+   "pass": 4,
    "total": 4,
-   "coverage": 75.0
+   "coverage": 100.0
   },
   "members": {
-   "pass": 12,
+   "pass": 15,
    "total": 18,
-   "coverage": 66.7
+   "coverage": 83.3
   },
   "patterns": {
    "pass": 3,
@@ -96,42 +96,20 @@
    "coverage": 33.3
   },
   "statements": {
-   "pass": 8,
+   "pass": 9,
    "total": 12,
-   "coverage": 66.7
+   "coverage": 75.0
   },
   "types": {
-   "pass": 10,
+   "pass": 11,
    "total": 25,
-   "coverage": 40.0
+   "coverage": 44.0
   }
  },
  "reasons": [
   {
-   "reason": "interface implementation on '*'",
-   "programs": 16,
-   "examples": [
-    "collections/006_list_of_objects",
-    "expressions/012_target_typed_new",
-    "generics/007_generic_interface",
-    "interfaces/001_basic",
-    "interfaces/002_multiple"
-   ]
-  },
-  {
-   "reason": "interface '*'",
-   "programs": 7,
-   "examples": [
-    "generics/007_generic_interface",
-    "interfaces/001_basic",
-    "interfaces/002_multiple",
-    "interfaces/003_explicit_impl",
-    "interfaces/004_default_methods"
-   ]
-  },
-  {
    "reason": "creating instances of 'System.Collections.Generic.List<>'",
-   "programs": 6,
+   "programs": 7,
    "examples": [
     "collections/001_list",
     "collections/006_list_of_objects",
@@ -141,36 +119,14 @@
    ]
   },
   {
-   "reason": "generic local function '*'",
-   "programs": 6,
-   "examples": [
-    "expressions/008_default_literal",
-    "generics/002_generic_methods",
-    "generics/003_constraints",
-    "interfaces/006_static_abstract",
-    "localfunctions/004_generic_local"
-   ]
-  },
-  {
-   "reason": "generic method '*'",
-   "programs": 6,
-   "examples": [
-    "expressions/008_default_literal",
-    "generics/002_generic_methods",
-    "generics/003_constraints",
-    "interfaces/006_static_abstract",
-    "localfunctions/004_generic_local"
-   ]
-  },
-  {
-   "reason": "foreach over 'System.Collections.Generic.IEnumerable<>' (only arrays so far)",
+   "reason": "operation YieldReturn",
    "programs": 5,
    "examples": [
+    "interfaces/009_ienumerable_impl",
     "iterators/001_yield_return",
     "iterators/002_yield_break_lazy",
     "iterators/003_iterator_finally",
-    "iterators/004_fibonacci",
-    "linq/004_join_tolist_todict"
+    "iterators/004_fibonacci"
    ]
   },
   {
@@ -184,13 +140,13 @@
    ]
   },
   {
-   "reason": "operation YieldReturn",
+   "reason": "record '*'",
    "programs": 4,
    "examples": [
-    "iterators/001_yield_return",
-    "iterators/002_yield_break_lazy",
-    "iterators/003_iterator_finally",
-    "iterators/004_fibonacci"
+    "collections/006_list_of_objects",
+    "expressions/012_target_typed_new",
+    "patterns/004_positional_patterns",
+    "types/015_record_class"
    ]
   },
   {
@@ -204,21 +160,21 @@
    ]
   },
   {
-   "reason": "missing library member: int.CompareTo",
+   "reason": "System.Decimal",
    "programs": 3,
    "examples": [
-    "collections/001_list",
-    "collections/006_list_of_objects",
-    "interfaces/007_icomparable"
+    "patterns/003_property_patterns",
+    "programs/003_bank_simulation",
+    "types/003_decimal"
    ]
   },
   {
-   "reason": "generic type parameter '*'",
+   "reason": "pattern RecursivePattern",
    "programs": 3,
    "examples": [
-    "generics/001_generic_class",
-    "generics/004_generic_struct",
-    "generics/005_nested_instantiations"
+    "patterns/004_positional_patterns",
+    "patterns/006_tuple_patterns",
+    "programs/006_state_machine_enum"
    ]
   },
   {
@@ -278,43 +234,11 @@
    ]
   },
   {
-   "reason": "generic type '*'",
-   "programs": 2,
-   "examples": [
-    "generics/001_generic_class",
-    "generics/008_static_generic_cache"
-   ]
-  },
-  {
    "reason": "struct 'System.ReadOnlySpan<>'",
    "programs": 2,
    "examples": [
     "lexical/007_utf8_literals",
     "members/015_params_span"
-   ]
-  },
-  {
-   "reason": "internal compiler error: invalid LLVM IR",
-   "programs": 2,
-   "examples": [
-    "members/011_partial_methods",
-    "members/012_partial_properties"
-   ]
-  },
-  {
-   "reason": "pattern RecursivePattern",
-   "programs": 2,
-   "examples": [
-    "patterns/006_tuple_patterns",
-    "programs/006_state_machine_enum"
-   ]
-  },
-  {
-   "reason": "System.Decimal",
-   "programs": 2,
-   "examples": [
-    "programs/003_bank_simulation",
-    "types/003_decimal"
    ]
   },
   {
@@ -378,13 +302,6 @@
    "programs": 1,
    "examples": [
     "bcl/012_tuple_valuetuple_methods"
-   ]
-  },
-  {
-   "reason": "runtime abort: Unhandled exception. System.InvalidCastException: Unable to cast object of type '*' to type 'Syste",
-   "programs": 1,
-   "examples": [
-    "classes/011_is_as_cast"
    ]
   },
   {
@@ -479,6 +396,13 @@
    ]
   },
   {
+   "reason": "missing library member: System.Array.Resize",
+   "programs": 1,
+   "examples": [
+    "generics/001_generic_class"
+   ]
+  },
+  {
    "reason": "generic struct '*'",
    "programs": 1,
    "examples": [
@@ -490,6 +414,34 @@
    "programs": 1,
    "examples": [
     "generics/007_generic_interface"
+   ]
+  },
+  {
+   "reason": "missing library member: System.Collections.Generic.List<>.Count",
+   "programs": 1,
+   "examples": [
+    "generics/007_generic_interface"
+   ]
+  },
+  {
+   "reason": "internal compiler error: invalid LLVM IR",
+   "programs": 1,
+   "examples": [
+    "interfaces/006_static_abstract"
+   ]
+  },
+  {
+   "reason": "missing library member: System.Array.Sort",
+   "programs": 1,
+   "examples": [
+    "interfaces/007_icomparable"
+   ]
+  },
+  {
+   "reason": "missing library member: System.Linq.Enumerable.Take",
+   "programs": 1,
+   "examples": [
+    "iterators/004_fibonacci"
    ]
   },
   {
@@ -514,17 +466,17 @@
    ]
   },
   {
-   "reason": "foreach over 'System.Linq.IOrderedEnumerable<System.Linq.IGrouping<,,>>' (only arrays so far)",
+   "reason": "missing library member: System.Linq.Enumerable.OrderBy",
    "programs": 1,
    "examples": [
     "linq/003_groupby_orderby"
    ]
   },
   {
-   "reason": "missing library member: System.Linq.IGrouping<,,>.Key",
+   "reason": "missing library member: System.Linq.Enumerable.Join",
    "programs": 1,
    "examples": [
-    "linq/003_groupby_orderby"
+    "linq/004_join_tolist_todict"
    ]
   },
   {
@@ -577,14 +529,14 @@
    ]
   },
   {
-   "reason": "missing library member: System.Linq.Enumerable.ThenBy",
+   "reason": "missing library member: System.Linq.Enumerable.Count",
    "programs": 1,
    "examples": [
     "programs/005_word_frequency_linq"
    ]
   },
   {
-   "reason": "missing library member: System.Linq.IGrouping<,>.Key",
+   "reason": "missing library member: System.Linq.Enumerable.ThenBy",
    "programs": 1,
    "examples": [
     "programs/005_word_frequency_linq"
@@ -626,13 +578,6 @@
    ]
   },
   {
-   "reason": "missing library member: char.CompareTo",
-   "programs": 1,
-   "examples": [
-    "types/005_bool_char"
-   ]
-  },
-  {
    "reason": "formatting [Flags] enum '*'",
    "programs": 1,
    "examples": [
@@ -651,6 +596,13 @@
    "programs": 1,
    "examples": [
     "types/011_arrays_multidim"
+   ]
+  },
+  {
+   "reason": "deconstruction of this value (user Deconstruct methods are not supported yet)",
+   "programs": 1,
+   "examples": [
+    "types/015_record_class"
    ]
   },
   {
@@ -682,7 +634,7 @@
    "reasons": [
     "async method '*'"
    ],
-   "compile_ms": 4633
+   "compile_ms": 6875
   },
   {
    "program": "async/002_task_whenall",
@@ -690,7 +642,7 @@
    "reasons": [
     "async method '*'"
    ],
-   "compile_ms": 3168
+   "compile_ms": 7372
   },
   {
    "program": "async/003_valuetask_exceptions",
@@ -698,7 +650,7 @@
    "reasons": [
     "async method '*'"
    ],
-   "compile_ms": 3423
+   "compile_ms": 7519
   },
   {
    "program": "async/004_async_enumerable",
@@ -706,7 +658,7 @@
    "reasons": [
     "async method '*'"
    ],
-   "compile_ms": 3074
+   "compile_ms": 5219
   },
   {
    "program": "bcl/001_stringbuilder",
@@ -714,7 +666,7 @@
    "reasons": [
     "missing library member: System.Text.StringBuilder.Insert"
    ],
-   "compile_ms": 3304
+   "compile_ms": 5513
   },
   {
    "program": "bcl/002_string_methods",
@@ -722,7 +674,7 @@
    "reasons": [
     "missing library member: string.Split"
    ],
-   "compile_ms": 2663
+   "compile_ms": 6235
   },
   {
    "program": "bcl/003_math",
@@ -730,7 +682,7 @@
    "reasons": [
     "missing library member: System.Math.Round"
    ],
-   "compile_ms": 3854
+   "compile_ms": 6021
   },
   {
    "program": "bcl/004_span_memory",
@@ -738,13 +690,13 @@
    "reasons": [
     "struct 'System.Span<>'"
    ],
-   "compile_ms": 5138
+   "compile_ms": 5328
   },
   {
    "program": "bcl/005_console_apis",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 2906
+   "compile_ms": 8014
   },
   {
    "program": "bcl/006_environment",
@@ -752,7 +704,7 @@
    "reasons": [
     "missing library member: System.Environment.ProcessorCount"
    ],
-   "compile_ms": 2492
+   "compile_ms": 8075
   },
   {
    "program": "bcl/007_datetime_timespan",
@@ -760,13 +712,13 @@
    "reasons": [
     "struct 'System.DateTime'"
    ],
-   "compile_ms": 3340
+   "compile_ms": 8945
   },
   {
    "program": "bcl/008_gc",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 4376
+   "compile_ms": 8974
   },
   {
    "program": "bcl/009_char_parse_convert",
@@ -774,7 +726,7 @@
    "reasons": [
     "missing library member: double.Parse"
    ],
-   "compile_ms": 3449
+   "compile_ms": 5841
   },
   {
    "program": "bcl/010_bitoperations",
@@ -782,7 +734,7 @@
    "reasons": [
     "missing library member: System.Numerics.BitOperations.PopCount"
    ],
-   "compile_ms": 2941
+   "compile_ms": 6097
   },
   {
    "program": "bcl/011_biginteger",
@@ -790,7 +742,7 @@
    "reasons": [
     "struct 'System.Numerics.BigInteger'"
    ],
-   "compile_ms": 4133
+   "compile_ms": 7460
   },
   {
    "program": "bcl/012_tuple_valuetuple_methods",
@@ -798,108 +750,105 @@
    "reasons": [
     "missing library member: System.Tuple.Create"
    ],
-   "compile_ms": 5323
+   "compile_ms": 6806
   },
   {
    "program": "classes/001_fields_ctors",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 4751
+   "compile_ms": 8094
   },
   {
    "program": "classes/002_inheritance_virtual",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 3989
+   "compile_ms": 7028
   },
   {
    "program": "classes/003_abstract",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 3428
+   "compile_ms": 8308
   },
   {
    "program": "classes/004_sealed_new",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 3317
+   "compile_ms": 7880
   },
   {
    "program": "classes/005_static_class",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 3877
+   "compile_ms": 4214
   },
   {
    "program": "classes/006_ctor_chaining",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 3419
+   "compile_ms": 5484
   },
   {
    "program": "classes/007_base_ctor",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 4717
+   "compile_ms": 6278
   },
   {
    "program": "classes/008_init_order",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 3140
+   "compile_ms": 6311
   },
   {
    "program": "classes/009_nested_types",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 3737
+   "compile_ms": 4647
   },
   {
    "program": "classes/010_tostring_equals_hash",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 3980
+   "compile_ms": 7584
   },
   {
    "program": "classes/011_is_as_cast",
-   "status": "fail",
-   "reasons": [
-    "runtime abort: Unhandled exception. System.InvalidCastException: Unable to cast object of type '*' to type 'Syste"
-   ],
-   "compile_ms": 3875
+   "status": "pass",
+   "reasons": [],
+   "compile_ms": 6857
   },
   {
    "program": "classes/012_partial_class",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 4451
+   "compile_ms": 6532
   },
   {
    "program": "classes/013_finalizer",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 3341
+   "compile_ms": 6285
   },
   {
    "program": "classes/014_object_initializer",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 3406
+   "compile_ms": 4684
   },
   {
    "program": "classes/015_primary_ctor",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 3591
+   "compile_ms": 6784
   },
   {
    "program": "collections/001_list",
    "status": "compile-error",
    "reasons": [
-    "creating instances of 'System.Collections.Generic.List<>'",
-    "missing library member: int.CompareTo"
+    "creating instances of 'System.Collections.Generic.List<>'"
    ],
-   "compile_ms": 4713
+   "compile_ms": 7561
   },
   {
    "program": "collections/002_dictionary",
@@ -907,7 +856,7 @@
    "reasons": [
     "creating instances of 'System.Collections.Generic.Dictionary<,>'"
    ],
-   "compile_ms": 4579
+   "compile_ms": 7858
   },
   {
    "program": "collections/003_hashset",
@@ -915,7 +864,7 @@
    "reasons": [
     "creating instances of 'System.Collections.Generic.HashSet<>'"
    ],
-   "compile_ms": 3620
+   "compile_ms": 7437
   },
   {
    "program": "collections/004_queue_stack",
@@ -923,7 +872,7 @@
    "reasons": [
     "creating instances of 'System.Collections.Generic.Queue<>'"
    ],
-   "compile_ms": 3019
+   "compile_ms": 6470
   },
   {
    "program": "collections/005_sorted_linked",
@@ -931,17 +880,16 @@
    "reasons": [
     "creating instances of 'System.Collections.Generic.SortedDictionary<,>'"
    ],
-   "compile_ms": 6887
+   "compile_ms": 5739
   },
   {
    "program": "collections/006_list_of_objects",
    "status": "compile-error",
    "reasons": [
     "creating instances of 'System.Collections.Generic.List<>'",
-    "interface implementation on '*'",
-    "missing library member: int.CompareTo"
+    "record '*'"
    ],
-   "compile_ms": 6614
+   "compile_ms": 4827
   },
   {
    "program": "collections/007_priority_queue",
@@ -949,7 +897,7 @@
    "reasons": [
     "creating instances of 'System.Collections.Generic.PriorityQueue<,>'"
    ],
-   "compile_ms": 5904
+   "compile_ms": 5450
   },
   {
    "program": "collections/008_array_methods",
@@ -957,19 +905,19 @@
    "reasons": [
     "missing library member: System.Array.Reverse"
    ],
-   "compile_ms": 4912
+   "compile_ms": 5526
   },
   {
    "program": "delegates/001_func_action",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 4669
+   "compile_ms": 6173
   },
   {
    "program": "delegates/002_custom_delegate",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 4320
+   "compile_ms": 5676
   },
   {
    "program": "delegates/003_multicast",
@@ -977,7 +925,7 @@
    "reasons": [
     "operator Add on reference types"
    ],
-   "compile_ms": 5180
+   "compile_ms": 7162
   },
   {
    "program": "delegates/004_events",
@@ -986,91 +934,91 @@
     "operation EventAssignment",
     "operation EventReference"
    ],
-   "compile_ms": 4105
+   "compile_ms": 4892
   },
   {
    "program": "delegates/005_method_group_instance",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 3768
+   "compile_ms": 4975
   },
   {
    "program": "exceptions/001_try_catch",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 3775
+   "compile_ms": 6300
   },
   {
    "program": "exceptions/002_finally",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 3196
+   "compile_ms": 8569
   },
   {
    "program": "exceptions/003_custom",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 4660
+   "compile_ms": 8109
   },
   {
    "program": "exceptions/004_filters",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 4186
+   "compile_ms": 9621
   },
   {
    "program": "exceptions/005_rethrow",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 2673
+   "compile_ms": 8324
   },
   {
    "program": "exceptions/006_inner_exception",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 4482
+   "compile_ms": 5582
   },
   {
    "program": "exceptions/007_runtime_exceptions",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 5056
+   "compile_ms": 8787
   },
   {
    "program": "exceptions/008_unhandled",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 2955
+   "compile_ms": 5698
   },
   {
    "program": "exceptions/009_exception_tostring",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 3396
+   "compile_ms": 6136
   },
   {
    "program": "exceptions/010_finally_return_order",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 3316
+   "compile_ms": 5407
   },
   {
    "program": "expressions/001_arithmetic_precedence",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 5143
+   "compile_ms": 6931
   },
   {
    "program": "expressions/002_increment",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 2998
+   "compile_ms": 5047
   },
   {
    "program": "expressions/003_null_conditional",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 4525
+   "compile_ms": 5611
   },
   {
    "program": "expressions/004_null_coalescing_assign",
@@ -1078,7 +1026,7 @@
    "reasons": [
     "creating instances of 'System.Collections.Generic.List<>'"
    ],
-   "compile_ms": 3016
+   "compile_ms": 4969
   },
   {
    "program": "expressions/005_conditional",
@@ -1086,7 +1034,7 @@
    "reasons": [
     "ref assignment"
    ],
-   "compile_ms": 5455
+   "compile_ms": 5160
   },
   {
    "program": "expressions/006_conversions_numeric",
@@ -1094,7 +1042,7 @@
    "reasons": [
     "missing library member: System.Convert.ToInt32"
    ],
-   "compile_ms": 5828
+   "compile_ms": 5955
   },
   {
    "program": "expressions/007_nameof_typeof_sizeof",
@@ -1102,16 +1050,13 @@
    "reasons": [
     "missing library member: System.Reflection.MemberInfo.Name"
    ],
-   "compile_ms": 4483
+   "compile_ms": 5114
   },
   {
    "program": "expressions/008_default_literal",
-   "status": "compile-error",
-   "reasons": [
-    "generic local function '*'",
-    "generic method '*'"
-   ],
-   "compile_ms": 5163
+   "status": "pass",
+   "reasons": [],
+   "compile_ms": 6045
   },
   {
    "program": "expressions/009_ranges_indices",
@@ -1119,7 +1064,7 @@
    "reasons": [
     "array index of type 'System.Index'"
    ],
-   "compile_ms": 4299
+   "compile_ms": 5408
   },
   {
    "program": "expressions/010_collection_expressions",
@@ -1127,7 +1072,7 @@
    "reasons": [
     "collection expression of type 'System.Collections.Generic.List<>'"
    ],
-   "compile_ms": 5297
+   "compile_ms": 8085
   },
   {
    "program": "expressions/011_collection_initializers",
@@ -1135,22 +1080,22 @@
    "reasons": [
     "creating instances of 'System.Collections.Generic.List<>'"
    ],
-   "compile_ms": 3630
+   "compile_ms": 6496
   },
   {
    "program": "expressions/012_target_typed_new",
    "status": "compile-error",
    "reasons": [
     "creating instances of 'System.Collections.Generic.List<>'",
-    "interface implementation on '*'"
+    "record '*'"
    ],
-   "compile_ms": 4140
+   "compile_ms": 6995
   },
   {
    "program": "expressions/013_throw_expression",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 6089
+   "compile_ms": 9426
   },
   {
    "program": "expressions/014_with_expression_anonymous",
@@ -1158,13 +1103,13 @@
    "reasons": [
     "operation AnonymousObjectCreation"
    ],
-   "compile_ms": 5388
+   "compile_ms": 6010
   },
   {
    "program": "expressions/015_string_interpolation",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 4046
+   "compile_ms": 9652
   },
   {
    "program": "expressions/016_user_defined_conversions_chain",
@@ -1172,19 +1117,19 @@
    "reasons": [
     "record struct '*'"
    ],
-   "compile_ms": 5964
+   "compile_ms": 3882
   },
   {
    "program": "expressions/017_compound_on_properties",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 5871
+   "compile_ms": 6606
   },
   {
    "program": "expressions/018_short_circuit_side_effects",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 5840
+   "compile_ms": 8148
   },
   {
    "program": "expressions/019_equality_reference_value",
@@ -1192,7 +1137,7 @@
    "reasons": [
     "missing library member: object.Equals"
    ],
-   "compile_ms": 4304
+   "compile_ms": 6298
   },
   {
    "program": "expressions/020_lifted_operators",
@@ -1200,7 +1145,7 @@
    "reasons": [
     "three-valued logic on bool?"
    ],
-   "compile_ms": 5338
+   "compile_ms": 8207
   },
   {
    "program": "formatting/001_numeric_format_strings",
@@ -1208,13 +1153,13 @@
    "reasons": [
     "missing library member: double.ToString"
    ],
-   "compile_ms": 3854
+   "compile_ms": 5139
   },
   {
    "program": "formatting/002_composite",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 3527
+   "compile_ms": 5245
   },
   {
    "program": "formatting/003_custom_formats",
@@ -1222,63 +1167,53 @@
    "reasons": [
     "missing library member: double.ToString"
    ],
-   "compile_ms": 3381
+   "compile_ms": 5500
   },
   {
    "program": "formatting/004_tostring_roundtrip",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 5911
+   "compile_ms": 6522
   },
   {
    "program": "formatting/005_interpolation_alignment",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 5428
+   "compile_ms": 6570
   },
   {
    "program": "generics/001_generic_class",
    "status": "compile-error",
    "reasons": [
-    "generic type '*'",
-    "generic type parameter '*'"
+    "missing library member: System.Array.Resize"
    ],
-   "compile_ms": 5632
+   "compile_ms": 5835
   },
   {
    "program": "generics/002_generic_methods",
-   "status": "compile-error",
-   "reasons": [
-    "generic local function '*'",
-    "generic method '*'"
-   ],
-   "compile_ms": 4385
+   "status": "pass",
+   "reasons": [],
+   "compile_ms": 5822
   },
   {
    "program": "generics/003_constraints",
-   "status": "compile-error",
-   "reasons": [
-    "generic local function '*'",
-    "generic method '*'"
-   ],
-   "compile_ms": 5399
+   "status": "pass",
+   "reasons": [],
+   "compile_ms": 3980
   },
   {
    "program": "generics/004_generic_struct",
    "status": "compile-error",
    "reasons": [
-    "generic struct '*'",
-    "generic type parameter '*'"
+    "generic struct '*'"
    ],
-   "compile_ms": 3911
+   "compile_ms": 9843
   },
   {
    "program": "generics/005_nested_instantiations",
-   "status": "compile-error",
-   "reasons": [
-    "generic type parameter '*'"
-   ],
-   "compile_ms": 5001
+   "status": "pass",
+   "reasons": [],
+   "compile_ms": 9031
   },
   {
    "program": "generics/006_variance",
@@ -1286,148 +1221,122 @@
    "reasons": [
     "creating instances of 'System.Collections.Generic.List<>'"
    ],
-   "compile_ms": 4719
+   "compile_ms": 10662
   },
   {
    "program": "generics/007_generic_interface",
    "status": "compile-error",
    "reasons": [
-    "interface '*'",
-    "interface implementation on '*'",
-    "missing library member: System.Collections.Generic.List<>.Add"
+    "creating instances of 'System.Collections.Generic.List<>'",
+    "missing library member: System.Collections.Generic.List<>.Add",
+    "missing library member: System.Collections.Generic.List<>.Count"
    ],
-   "compile_ms": 8979
+   "compile_ms": 11512
   },
   {
    "program": "generics/008_static_generic_cache",
-   "status": "compile-error",
-   "reasons": [
-    "generic type '*'"
-   ],
-   "compile_ms": 6408
+   "status": "pass",
+   "reasons": [],
+   "compile_ms": 7151
   },
   {
    "program": "interfaces/001_basic",
-   "status": "compile-error",
-   "reasons": [
-    "interface '*'",
-    "interface implementation on '*'"
-   ],
-   "compile_ms": 9269
+   "status": "pass",
+   "reasons": [],
+   "compile_ms": 7871
   },
   {
    "program": "interfaces/002_multiple",
-   "status": "compile-error",
-   "reasons": [
-    "interface '*'",
-    "interface implementation on '*'"
-   ],
-   "compile_ms": 7231
+   "status": "pass",
+   "reasons": [],
+   "compile_ms": 7130
   },
   {
    "program": "interfaces/003_explicit_impl",
-   "status": "compile-error",
-   "reasons": [
-    "interface '*'",
-    "interface implementation on '*'"
-   ],
-   "compile_ms": 4128
+   "status": "pass",
+   "reasons": [],
+   "compile_ms": 5975
   },
   {
    "program": "interfaces/004_default_methods",
-   "status": "compile-error",
-   "reasons": [
-    "interface '*'",
-    "interface implementation on '*'"
-   ],
-   "compile_ms": 4976
+   "status": "pass",
+   "reasons": [],
+   "compile_ms": 5098
   },
   {
    "program": "interfaces/005_inheritance",
-   "status": "compile-error",
-   "reasons": [
-    "interface '*'",
-    "interface implementation on '*'"
-   ],
-   "compile_ms": 5240
+   "status": "pass",
+   "reasons": [],
+   "compile_ms": 5562
   },
   {
    "program": "interfaces/006_static_abstract",
    "status": "compile-error",
    "reasons": [
-    "generic local function '*'",
-    "generic method '*'",
-    "interface '*'",
-    "interface implementation on '*'"
+    "internal compiler error: invalid LLVM IR"
    ],
-   "compile_ms": 5411
+   "compile_ms": 5764
   },
   {
    "program": "interfaces/007_icomparable",
    "status": "compile-error",
    "reasons": [
-    "interface implementation on '*'",
-    "missing library member: int.CompareTo"
+    "missing library member: System.Array.Sort"
    ],
-   "compile_ms": 6409
+   "compile_ms": 5429
   },
   {
    "program": "interfaces/008_idisposable_using",
-   "status": "compile-error",
-   "reasons": [
-    "interface implementation on '*'"
-   ],
-   "compile_ms": 5925
+   "status": "pass",
+   "reasons": [],
+   "compile_ms": 7199
   },
   {
    "program": "interfaces/009_ienumerable_impl",
    "status": "compile-error",
    "reasons": [
-    "interface implementation on '*'"
+    "operation YieldReturn"
    ],
-   "compile_ms": 4767
+   "compile_ms": 7336
   },
   {
    "program": "iterators/001_yield_return",
    "status": "compile-error",
    "reasons": [
-    "foreach over 'System.Collections.Generic.IEnumerable<>' (only arrays so far)",
     "operation YieldReturn"
    ],
-   "compile_ms": 5666
+   "compile_ms": 6897
   },
   {
    "program": "iterators/002_yield_break_lazy",
    "status": "compile-error",
    "reasons": [
-    "foreach over 'System.Collections.Generic.IEnumerable<>' (only arrays so far)",
     "operation YieldReturn"
    ],
-   "compile_ms": 5804
+   "compile_ms": 9398
   },
   {
    "program": "iterators/003_iterator_finally",
    "status": "compile-error",
    "reasons": [
-    "foreach over 'System.Collections.Generic.IEnumerable<>' (only arrays so far)",
     "operation YieldReturn"
    ],
-   "compile_ms": 5770
+   "compile_ms": 8144
   },
   {
    "program": "iterators/004_fibonacci",
    "status": "compile-error",
    "reasons": [
-    "foreach over 'System.Collections.Generic.IEnumerable<>' (only arrays so far)",
+    "missing library member: System.Linq.Enumerable.Take",
     "operation YieldReturn"
    ],
-   "compile_ms": 7006
+   "compile_ms": 7009
   },
   {
    "program": "lambdas/001_closure_counter",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 5531
+   "compile_ms": 5791
   },
   {
    "program": "lambdas/002_loop_capture",
@@ -1435,67 +1344,67 @@
    "reasons": [
     "creating instances of 'System.Collections.Generic.List<System.Func<>>'"
    ],
-   "compile_ms": 6137
+   "compile_ms": 5370
   },
   {
    "program": "lambdas/003_higher_order",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 5912
+   "compile_ms": 7538
   },
   {
    "program": "lambdas/004_static_lambda_natural_type",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 6641
+   "compile_ms": 6630
   },
   {
    "program": "lambdas/005_capture_this",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 6306
+   "compile_ms": 3864
   },
   {
    "program": "lambdas/006_recursive_lambda",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 5455
+   "compile_ms": 5689
   },
   {
    "program": "lexical/001_int_literals",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 5541
+   "compile_ms": 4741
   },
   {
    "program": "lexical/002_real_literals",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 5476
+   "compile_ms": 4489
   },
   {
    "program": "lexical/003_char_escapes",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 5441
+   "compile_ms": 4023
   },
   {
    "program": "lexical/004_verbatim_strings",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 5177
+   "compile_ms": 4482
   },
   {
    "program": "lexical/005_raw_strings",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 3757
+   "compile_ms": 5156
   },
   {
    "program": "lexical/006_interpolated_raw",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 4514
+   "compile_ms": 4902
   },
   {
    "program": "lexical/007_utf8_literals",
@@ -1503,25 +1412,25 @@
    "reasons": [
     "struct 'System.ReadOnlySpan<>'"
    ],
-   "compile_ms": 3789
+   "compile_ms": 3490
   },
   {
    "program": "lexical/008_verbatim_interpolated",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 4857
+   "compile_ms": 4798
   },
   {
    "program": "lexical/009_unicode_identifiers",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 3266
+   "compile_ms": 4000
   },
   {
    "program": "lexical/010_comments_preprocessor",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 4177
+   "compile_ms": 4028
   },
   {
    "program": "linq/001_method_syntax",
@@ -1529,7 +1438,7 @@
    "reasons": [
     "missing library member: System.Linq.Enumerable.Range"
    ],
-   "compile_ms": 5391
+   "compile_ms": 3611
   },
   {
    "program": "linq/002_query_syntax",
@@ -1537,24 +1446,23 @@
    "reasons": [
     "operation TranslatedQuery"
    ],
-   "compile_ms": 4793
+   "compile_ms": 5828
   },
   {
    "program": "linq/003_groupby_orderby",
    "status": "compile-error",
    "reasons": [
-    "foreach over 'System.Linq.IOrderedEnumerable<System.Linq.IGrouping<,,>>' (only arrays so far)",
-    "missing library member: System.Linq.IGrouping<,,>.Key"
+    "missing library member: System.Linq.Enumerable.OrderBy"
    ],
-   "compile_ms": 4423
+   "compile_ms": 6138
   },
   {
    "program": "linq/004_join_tolist_todict",
    "status": "compile-error",
    "reasons": [
-    "foreach over 'System.Collections.Generic.IEnumerable<>' (only arrays so far)"
+    "missing library member: System.Linq.Enumerable.Join"
    ],
-   "compile_ms": 4478
+   "compile_ms": 4746
   },
   {
    "program": "linq/005_aggregate_distinct_zip",
@@ -1563,7 +1471,7 @@
     "missing library member: System.Linq.Enumerable.Sum",
     "missing library member: string.Join"
    ],
-   "compile_ms": 3587
+   "compile_ms": 7758
   },
   {
    "program": "linq/006_selectmany_let",
@@ -1572,76 +1480,73 @@
     "missing library member: string.Join",
     "operation AnonymousObjectCreation"
    ],
-   "compile_ms": 4827
+   "compile_ms": 8787
   },
   {
    "program": "localfunctions/001_static",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 2578
+   "compile_ms": 5482
   },
   {
    "program": "localfunctions/002_capturing",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 5343
+   "compile_ms": 6599
   },
   {
    "program": "localfunctions/003_nested_in_method",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 4098
+   "compile_ms": 7657
   },
   {
    "program": "localfunctions/004_generic_local",
-   "status": "compile-error",
-   "reasons": [
-    "generic local function '*'",
-    "generic method '*'"
-   ],
-   "compile_ms": 4987
+   "status": "pass",
+   "reasons": [],
+   "compile_ms": 4998
   },
   {
    "program": "members/001_properties",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 4524
+   "compile_ms": 6666
   },
   {
    "program": "members/002_auto_init_props",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 4395
+   "compile_ms": 6852
   },
   {
    "program": "members/003_required",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 4862
+   "compile_ms": 6359
   },
   {
    "program": "members/004_field_keyword",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 4236
+   "compile_ms": 5991
   },
   {
    "program": "members/005_indexers",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 3933
+   "compile_ms": 5258
   },
   {
    "program": "members/006_static_ctor",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 3708
+   "compile_ms": 5462
   },
   {
    "program": "members/007_operator_overloading",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 6353
+   "compile_ms": 6538
   },
   {
    "program": "members/008_conversion_operators",
@@ -1653,7 +1558,7 @@
    "program": "members/009_extension_methods",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 4833
+   "compile_ms": 4120
   },
   {
    "program": "members/010_extension_members_cs14",
@@ -1662,35 +1567,31 @@
     "Extension '*'",
     "closure: local function or lambda capturing parameter '*'"
    ],
-   "compile_ms": 4400
+   "compile_ms": 5921
   },
   {
    "program": "members/011_partial_methods",
-   "status": "compile-error",
-   "reasons": [
-    "internal compiler error: invalid LLVM IR"
-   ],
-   "compile_ms": 4116
+   "status": "pass",
+   "reasons": [],
+   "compile_ms": 5570
   },
   {
    "program": "members/012_partial_properties",
-   "status": "compile-error",
-   "reasons": [
-    "internal compiler error: invalid LLVM IR"
-   ],
-   "compile_ms": 3458
+   "status": "pass",
+   "reasons": [],
+   "compile_ms": 5820
   },
   {
    "program": "members/013_ref_out_in",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 3826
+   "compile_ms": 3586
   },
   {
    "program": "members/014_params_optional_named",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 4864
+   "compile_ms": 4844
   },
   {
    "program": "members/015_params_span",
@@ -1699,13 +1600,13 @@
     "collection expression of type 'System.ReadOnlySpan<>'",
     "struct 'System.ReadOnlySpan<>'"
    ],
-   "compile_ms": 3234
+   "compile_ms": 5027
   },
   {
    "program": "members/016_overloading",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 4053
+   "compile_ms": 5821
   },
   {
    "program": "members/017_ref_returns_locals",
@@ -1713,44 +1614,42 @@
    "reasons": [
     "ref assignment"
    ],
-   "compile_ms": 4469
+   "compile_ms": 3944
   },
   {
    "program": "members/018_static_members_generic_math",
-   "status": "compile-error",
-   "reasons": [
-    "generic local function '*'",
-    "generic method '*'"
-   ],
-   "compile_ms": 4667
+   "status": "pass",
+   "reasons": [],
+   "compile_ms": 7320
   },
   {
    "program": "patterns/001_type_patterns",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 4794
+   "compile_ms": 5433
   },
   {
    "program": "patterns/002_relational_logical",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 4325
+   "compile_ms": 4882
   },
   {
    "program": "patterns/003_property_patterns",
    "status": "compile-error",
    "reasons": [
-    "interface implementation on '*'"
+    "System.Decimal"
    ],
-   "compile_ms": 3185
+   "compile_ms": 4810
   },
   {
    "program": "patterns/004_positional_patterns",
    "status": "compile-error",
    "reasons": [
-    "interface implementation on '*'"
+    "pattern RecursivePattern",
+    "record '*'"
    ],
-   "compile_ms": 4736
+   "compile_ms": 6218
   },
   {
    "program": "patterns/005_list_patterns",
@@ -1758,7 +1657,7 @@
    "reasons": [
     "pattern ListPattern"
    ],
-   "compile_ms": 4369
+   "compile_ms": 5290
   },
   {
    "program": "patterns/006_tuple_patterns",
@@ -1766,7 +1665,7 @@
    "reasons": [
     "pattern RecursivePattern"
    ],
-   "compile_ms": 4015
+   "compile_ms": 3670
   },
   {
    "program": "patterns/007_is_not_null_var",
@@ -1774,13 +1673,13 @@
    "reasons": [
     "operator GreaterThan on reference types"
    ],
-   "compile_ms": 2704
+   "compile_ms": 5923
   },
   {
    "program": "patterns/008_switch_when_guards",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 3594
+   "compile_ms": 5930
   },
   {
    "program": "programs/001_quicksort",
@@ -1788,13 +1687,13 @@
    "reasons": [
     "missing library member: string.Join"
    ],
-   "compile_ms": 4707
+   "compile_ms": 6813
   },
   {
    "program": "programs/002_linked_list_class",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 3673
+   "compile_ms": 6765
   },
   {
    "program": "programs/003_bank_simulation",
@@ -1804,22 +1703,22 @@
     "creating instances of 'System.Collections.Generic.Dictionary<,>'",
     "struct 'System.Collections.Generic.KeyValuePair<,>'"
    ],
-   "compile_ms": 4675
+   "compile_ms": 7571
   },
   {
    "program": "programs/004_matrix_struct",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 4624
+   "compile_ms": 6527
   },
   {
    "program": "programs/005_word_frequency_linq",
    "status": "compile-error",
    "reasons": [
-    "missing library member: System.Linq.Enumerable.ThenBy",
-    "missing library member: System.Linq.IGrouping<,>.Key"
+    "missing library member: System.Linq.Enumerable.Count",
+    "missing library member: System.Linq.Enumerable.ThenBy"
    ],
-   "compile_ms": 6195
+   "compile_ms": 6948
   },
   {
    "program": "programs/006_state_machine_enum",
@@ -1827,43 +1726,43 @@
    "reasons": [
     "pattern RecursivePattern"
    ],
-   "compile_ms": 5551
+   "compile_ms": 5766
   },
   {
    "program": "statements/001_loops",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 5216
+   "compile_ms": 7627
   },
   {
    "program": "statements/002_break_continue_labels",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 4633
+   "compile_ms": 6717
   },
   {
    "program": "statements/003_switch_statement",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 5215
+   "compile_ms": 9052
   },
   {
    "program": "statements/004_switch_goto_case",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 4172
+   "compile_ms": 8301
   },
   {
    "program": "statements/005_switch_on_string",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 4985
+   "compile_ms": 11134
   },
   {
    "program": "statements/006_checked_unchecked",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 5126
+   "compile_ms": 9847
   },
   {
    "program": "statements/007_lock",
@@ -1871,7 +1770,7 @@
    "reasons": [
     "missing library member: System.Threading.Monitor.Enter"
    ],
-   "compile_ms": 4480
+   "compile_ms": 7247
   },
   {
    "program": "statements/008_unsafe_pointers",
@@ -1879,7 +1778,7 @@
    "reasons": [
     "operation AddressOf"
    ],
-   "compile_ms": 4989
+   "compile_ms": 5211
   },
   {
    "program": "statements/009_fixed",
@@ -1887,33 +1786,31 @@
    "reasons": [
     "operation None"
    ],
-   "compile_ms": 4998
+   "compile_ms": 5820
   },
   {
    "program": "statements/010_nested_loops_return",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 5911
+   "compile_ms": 6016
   },
   {
    "program": "statements/011_using_declaration_order",
-   "status": "compile-error",
-   "reasons": [
-    "interface implementation on '*'"
-   ],
-   "compile_ms": 5482
+   "status": "pass",
+   "reasons": [],
+   "compile_ms": 5402
   },
   {
    "program": "statements/012_top_level_args_return",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 4748
+   "compile_ms": 4857
   },
   {
    "program": "types/001_integral_ranges",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 4709
+   "compile_ms": 5462
   },
   {
    "program": "types/002_floating",
@@ -1921,7 +1818,7 @@
    "reasons": [
     "missing library member: double.IsNaN"
    ],
-   "compile_ms": 5447
+   "compile_ms": 5297
   },
   {
    "program": "types/003_decimal",
@@ -1929,7 +1826,7 @@
    "reasons": [
     "System.Decimal"
    ],
-   "compile_ms": 4863
+   "compile_ms": 5385
   },
   {
    "program": "types/004_nint",
@@ -1937,15 +1834,13 @@
    "reasons": [
     "missing library member: nint.Size"
    ],
-   "compile_ms": 3247
+   "compile_ms": 5408
   },
   {
    "program": "types/005_bool_char",
-   "status": "compile-error",
-   "reasons": [
-    "missing library member: char.CompareTo"
-   ],
-   "compile_ms": 4206
+   "status": "pass",
+   "reasons": [],
+   "compile_ms": 6088
   },
   {
    "program": "types/006_enum_flags",
@@ -1953,7 +1848,7 @@
    "reasons": [
     "formatting [Flags] enum '*'"
    ],
-   "compile_ms": 4273
+   "compile_ms": 5945
   },
   {
    "program": "types/007_enum_basic",
@@ -1961,19 +1856,19 @@
    "reasons": [
     "missing library member: System.Enum.GetName"
    ],
-   "compile_ms": 4756
+   "compile_ms": 5601
   },
   {
    "program": "types/008_nullable_value",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 5060
+   "compile_ms": 5901
   },
   {
    "program": "types/009_nullable_value_methods",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 3944
+   "compile_ms": 7147
   },
   {
    "program": "types/010_arrays_1d",
@@ -1981,7 +1876,7 @@
    "reasons": [
     "missing library member: string.Join"
    ],
-   "compile_ms": 4660
+   "compile_ms": 5021
   },
   {
    "program": "types/011_arrays_multidim",
@@ -1989,33 +1884,34 @@
    "reasons": [
     "multi-dimensional arrays"
    ],
-   "compile_ms": 4582
+   "compile_ms": 4364
   },
   {
    "program": "types/012_arrays_jagged",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 4110
+   "compile_ms": 5700
   },
   {
    "program": "types/013_tuples",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 4533
+   "compile_ms": 8322
   },
   {
    "program": "types/014_tuple_returns",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 11448
+   "compile_ms": 7927
   },
   {
    "program": "types/015_record_class",
    "status": "compile-error",
    "reasons": [
-    "interface implementation on '*'"
+    "deconstruction of this value (user Deconstruct methods are not supported yet)",
+    "record '*'"
    ],
-   "compile_ms": 11890
+   "compile_ms": 7211
   },
   {
    "program": "types/016_record_struct",
@@ -2023,13 +1919,13 @@
    "reasons": [
     "record struct '*'"
    ],
-   "compile_ms": 6924
+   "compile_ms": 5693
   },
   {
    "program": "types/017_struct_basic",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 12046
+   "compile_ms": 6216
   },
   {
    "program": "types/018_readonly_struct",
@@ -2037,7 +1933,7 @@
    "reasons": [
     "compiler crash: System.Collections.Generic.KeyNotFoundException"
    ],
-   "compile_ms": 9836
+   "compile_ms": 6762
   },
   {
    "program": "types/019_ref_struct_span",
@@ -2045,13 +1941,13 @@
    "reasons": [
     "struct 'System.Span<>'"
    ],
-   "compile_ms": 7746
+   "compile_ms": 6281
   },
   {
    "program": "types/020_struct_default",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 7639
+   "compile_ms": 6404
   },
   {
    "program": "types/021_object_methods",
@@ -2059,7 +1955,7 @@
    "reasons": [
     "missing library member: System.Type.FullName"
    ],
-   "compile_ms": 8068
+   "compile_ms": 5198
   },
   {
    "program": "types/022_string_basics",
@@ -2067,7 +1963,7 @@
    "reasons": [
     "missing library member: string.IsNullOrWhiteSpace"
    ],
-   "compile_ms": 5874
+   "compile_ms": 4059
   },
   {
    "program": "types/023_dynamic_free_var",
@@ -2075,19 +1971,19 @@
    "reasons": [
     "missing library member: System.Reflection.MemberInfo.Name"
    ],
-   "compile_ms": 4356
+   "compile_ms": 5279
   },
   {
    "program": "types/024_boxing_unboxing",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 5851
+   "compile_ms": 5867
   },
   {
    "program": "types/025_const_readonly",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 4529
+   "compile_ms": 4114
   }
  ]
 }

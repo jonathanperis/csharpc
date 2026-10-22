@@ -184,9 +184,25 @@ static void format_real(char* out, size_t cap, double v, int max_digits, bool is
 // ---------------------------------------------------------------------------------------------
 void* csrt_isinst_class(void* obj, const csrt_MethodTable* type) {
     if (!obj) return NULL;
-    for (const csrt_MethodTable* mt = ((csrt_Object*)obj)->mt; mt; mt = mt->base)
+    const csrt_MethodTable* objmt = ((csrt_Object*)obj)->mt;
+    if (type->flags & CSRT_MT_INTERFACE) {
+        for (uint32_t i = 0; i < objmt->interface_count; i++)
+            if (objmt->interfaces[i].interface_type == type) return obj;
+        return NULL;
+    }
+    for (const csrt_MethodTable* mt = objmt; mt; mt = mt->base)
         if (mt == type) return obj;
     return NULL;
+}
+
+void* const* csrt_interface_slots(void* obj, const csrt_MethodTable* interface_type) {
+    const csrt_MethodTable* mt = ((csrt_Object*)obj)->mt;
+    for (uint32_t i = 0; i < mt->interface_count; i++)
+        if (mt->interfaces[i].interface_type == interface_type) return mt->interfaces[i].slots;
+    fflush(stdout);
+    fprintf(stderr, "Unhandled exception. System.InvalidCastException: Unable to cast object of type '%s' to type '%s'.\n",
+            mt->name, interface_type->name);
+    abort();
 }
 
 _Noreturn static void invalid_cast(const csrt_MethodTable* from, const csrt_MethodTable* to) {
@@ -214,6 +230,8 @@ int32_t csrt_object_get_hash_code_default(void* self) { return (int32_t)(((uintp
 // Strings
 // ---------------------------------------------------------------------------------------------
 bool csrt_string_is_null_or_empty(csrt_String* s) { return !s || s->length == 0; }
+
+
 
 csrt_String* csrt_string_concat(csrt_String* a, csrt_String* b) {
     int32_t la = a ? a->length : 0, lb = b ? b->length : 0;
