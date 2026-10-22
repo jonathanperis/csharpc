@@ -233,8 +233,7 @@ static void format_integer(Buf* b, int64_t sv, uint64_t uv, bool is_signed, int 
         default: {
             double v = is_signed ? (double)sv : (double)uv;
             // Exact digits of the integer (a double would lose precision above 2^53).
-            Digits g;
-            g.neg = neg;
+            Digits g = { .neg = neg };  // every field defined (half_up = false: ties-to-even)
             char tmp2[32];
             int nd = snprintf(tmp2, sizeof tmp2, "%llu", (unsigned long long)mag);
             g.n = mag == 0 ? 0 : nd;
