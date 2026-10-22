@@ -99,6 +99,7 @@ public sealed partial class FunctionCodeGen
         IFieldReferenceOperation f => FieldAddress(f),
         IArrayElementReferenceOperation a => ElementAddress(a),
         IDeclarationExpressionOperation d => AddressOf(d.Expression),
+        IDiscardOperation d => NewTemp(T.Storage(d.Type!), "discard"),
         IFlowCaptureReferenceOperation c when _cfg!.LvalueCaptures.Contains(c.Id) => CaptureAddress(c),
         _ => throw CompileError.Unsupported($"assignment to {target.Kind}", target),
     };

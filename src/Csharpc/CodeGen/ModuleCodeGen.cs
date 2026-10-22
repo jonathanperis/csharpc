@@ -79,7 +79,7 @@ public sealed class ModuleCodeGen
         foreach (var layout in _layouts.Values.ToList()) Guard(layout.Type, () => EmitMethodTable(layout));
 
         // 2. Method bodies.
-        foreach (var type in _userTypes.Where(t => t.TypeKind == TypeKind.Class))
+        foreach (var type in _userTypes.Where(t => t.TypeKind == TypeKind.Class && !t.IsRecord))
             foreach (var method in type.GetMembers().OfType<IMethodSymbol>())
                 Guard(method, () => EmitMethod(method));
 
@@ -139,11 +139,17 @@ public sealed class ModuleCodeGen
         return _functions[method] = new LoweredFunction(fn, type);
     }
 
+    /// <summary>
+    /// Whether the lowered function takes `this`. Non-static local functions report IsStatic=false
+    /// but have no receiver (capturing ones get an environment from closure conversion instead).
+    /// </summary>
+    public static bool HasThis(IMethodSymbol method) => !method.IsStatic && method.MethodKind != MethodKind.LocalFunction;
+
     /// <summary>this (if instance) + parameters (by-ref as ptr) -> return; constructors return void.</summary>
     public LLVMTypeRef FunctionTypeOf(IMethodSymbol method)
     {
         List<LLVMTypeRef> parameters = [];
-        if (!method.IsStatic) parameters.Add(Llvm.Ptr);
+        if (HasThis(method)) parameters.Add(Llvm.Ptr);
         foreach (var p in method.Parameters)
             parameters.Add(p.RefKind == RefKind.None ? Types.Value(p.Type) : Llvm.Ptr);
         var returnType = method.MethodKind == MethodKind.Constructor ? Llvm.Void : Types.Value(method.ReturnType);
@@ -434,6 +440,54 @@ public sealed class ModuleCodeGen
         var init = Llvm.ConstStruct(ExternalGlobal("csrt_Object_MT"), CString(name), Llvm.ConstInt(Llvm.I32, 0), Llvm.ConstInt(Llvm.I32, 0));
         g = Module.AddGlobal("csrt.mt." + name, Native.LLVMTypeOf(init), init, constant: true, linkage: LLVMLinkage.Private);
         return _globals[key] = g;
+    }
+
+    private readonly Dictionary<INamedTypeSymbol, LoweredFunction> _enumFormatters = new(SymbolEqualityComparer.Default);
+
+    /// <summary>
+    /// Enum.ToString(): a generated `switch` from value to name literal; undefined values fall back
+    /// to the number, as in .NET. [Flags] combinations are not decomposed yet.
+    /// </summary>
+    public LoweredFunction EnumFormatter(INamedTypeSymbol enumType)
+    {
+        enumType = enumType.OriginalDefinition;
+        if (_enumFormatters.TryGetValue(enumType, out var existing)) return existing;
+        if (enumType.GetAttributes().Any(a => a.AttributeClass?.Name == "FlagsAttribute"))
+            throw CompileError.Unsupported($"formatting [Flags] enum '{enumType.Name}'", enumType);
+        var underlying = enumType.EnumUnderlyingType!;
+        var valueType = Types.Value(underlying);
+        var type = Llvm.FunctionType(Llvm.Ptr, valueType);
+        var fn = Module.AddFunction(Mangler.TypeSymbol(enumType, "ToString"), type);
+        Native.LLVMSetLinkage(fn, LLVMLinkage.Internal);
+        var lowered = _enumFormatters[enumType] = new LoweredFunction(fn, type);
+
+        using var b = new IrBuilder(Llvm);
+        var entry = b.AppendBlock(fn, "entry");
+        var fallback = b.AppendBlock(fn, "number");
+        List<(LLVMValueRef, LLVMBasicBlockRef)> cases = [];
+        HashSet<ulong> seen = [];
+        foreach (var field in enumType.GetMembers().OfType<IFieldSymbol>().Where(f => f.HasConstantValue))
+        {
+            var raw = field.ConstantValue switch
+            {
+                ulong u => u, uint u => u, ushort u => u, byte u => u,
+                var v => unchecked((ulong)Convert.ToInt64(v)),
+            };
+            if (!seen.Add(raw)) continue; // first declared name wins for duplicate values
+            var block = b.AppendBlock(fn, field.Name);
+            b.PositionAtEnd(block);
+            b.Ret(StringLiteral(field.Name));
+            cases.Add((Llvm.ConstUInt(valueType, raw), block));
+        }
+        b.PositionAtEnd(entry);
+        b.Switch(fn.Param(0), fallback, cases);
+        b.PositionAtEnd(fallback);
+        var (name, argType, arg) = TypeMapper.IsSigned(underlying)
+            ? ("csrt_string_from_i64", Llvm.I64, valueType.IntWidth == 64 ? fn.Param(0) : b.Cast(LLVMOpcode.SExt, fn.Param(0), Llvm.I64))
+            : ("csrt_string_from_u64", Llvm.I64, valueType.IntWidth == 64 ? fn.Param(0) : b.Cast(LLVMOpcode.ZExt, fn.Param(0), Llvm.I64));
+        var format = Runtime(name, Llvm.Ptr, argType);
+        b.Ret(b.Call(format.Type, format.Fn, [arg]));
+        return lowered;
     }
 
     // ======================================================================================

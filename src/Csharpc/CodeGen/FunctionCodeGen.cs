@@ -66,7 +66,7 @@ public sealed partial class FunctionCodeGen
 
         // Spill parameters to allocas (mem2reg will undo this) so they're assignable like locals.
         uint index = 0;
-        if (method is { IsStatic: false })
+        if (method is not null && ModuleCodeGen.HasThis(method))
         {
             _this = fn.Fn.Param(index++);
             _this.SetName("this");
