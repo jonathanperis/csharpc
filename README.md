@@ -139,7 +139,7 @@ parsing, `StringBuilder`, GC). Conformance against real .NET: **100 %** of a 195
 morning), zero wrong-output cases; the full matrix is in [docs/06-roadmap.md](docs/06-roadmap.md).
 
 Also: collections and LINQ (a C# corelib compiled with your program), `decimal`/`DateTime`/`BigInteger`,
-DWARF debug info (`-g`). In progress: multithreading.
+DWARF debug info (`-g`). Plus real multithreading (`Thread`, `lock`, `Interlocked`, `Parallel`).
 
 Performance: on 14 benchmark programs csharpc beats the .NET JIT on all of them and beats or ties
 NativeAOT on CPU time, with 18–30 KiB binaries ([bench/RESULTS.md](bench/RESULTS.md)).

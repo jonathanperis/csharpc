@@ -50,7 +50,7 @@ every failure is a clean "not supported by csharpc yet" diagnostic.
 | Patterns: type, constant, relational, logical, property, positional, list, `var` | ✅ | slice sub-patterns ⬜ |
 | `try`/`catch`/`finally`, filters, rethrow, custom exceptions | ✅ | Itanium EH; no stack traces |
 | `checked`/`unchecked` | ✅ | |
-| `using` statements/declarations, `lock` | ✅ | `lock` is a no-op until 🚧 threading |
+| `using` statements/declarations, `lock` | ✅ | real monitors |
 | Iterators (`yield`), `async`/`await`, `await foreach` | ✅ | LLVM coroutines |
 | Exceptions inside async methods, `TaskCompletionSource`, cancellation | ✅ | |
 | Object/collection initializers, collection expressions (incl. spreads) | ✅ | |
@@ -63,8 +63,8 @@ every failure is a clean "not supported by csharpc yet" diagnostic.
 
 | Feature | Status | Notes |
 |---|---|---|
-| Garbage collection | ✅ | conservative, non-moving mark-sweep; single-threaded |
-| Multithreading (`Thread`, `Monitor`, `Interlocked`, `Parallel`) | 🚧 | `threading` branch |
+| Garbage collection | ✅ | conservative, non-moving mark-sweep; thread-safe (stop-the-world) |
+| Multithreading (`Thread`, `Monitor`, `Interlocked`, `Parallel`) | ✅ | `Task.Run` still on the single-threaded scheduler |
 | Unhandled exceptions (message + exit 134) | ✅ | |
 | Static initialization | 🟡 | eager before `Main` (.NET: lazy per type) |
 | Reflection | 🟡 | `GetType()`, `typeof`, names; no member reflection ❌ |
