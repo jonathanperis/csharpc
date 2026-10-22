@@ -54,11 +54,14 @@ public sealed partial class FunctionCodeGen
     {
         var e = reference.Event;
         if (!_m.IsUserType(e.ContainingType)) throw CompileError.Unsupported($"event '{e}' of a library type", reference);
-        var field = EventBackingField(e) ?? throw CompileError.Unsupported($"event '{e.Name}' without a backing field", reference);
-        if (field.IsStatic) return _m.StaticField(field);
+        if (e.IsStatic) return EventBackingField(e) is { } staticField ? _m.StaticField(staticField) : _m.StaticEventField(e);
         var instance = EmitValue(reference.Instance!);
         if (reference.Instance is not IInstanceReferenceOperation) NullCheck(instance);
-        return FieldAddressOn(instance, field);
+        if (EventBackingField(e) is { } field) return FieldAddressOn(instance, field);
+        var layout = _m.GetLayout(e.ContainingType);
+        if (!layout.EventFieldIndex.TryGetValue(e.OriginalDefinition, out var index))
+            throw CompileError.Unsupported($"event '{e.Name}' without a backing field", reference);
+        return _b.StructGep(layout.InstanceType, instance, index, e.Name);
     }
 
     /// <summary>Reading a field-like event inside its class (`Changed?.Invoke()`) reads the backing field.</summary>

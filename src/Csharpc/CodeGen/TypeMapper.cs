@@ -102,6 +102,10 @@ public sealed class ClassLayout
     public required ClassLayout? Base { get; init; }
     public Dictionary<IFieldSymbol, uint> FieldIndex { get; } = new(SymbolEqualityComparer.Default);
     public List<IFieldSymbol> Fields { get; } = [];
+    /// <summary>Field-like events' synthesized delegate slots (Roslyn doesn't expose their backing fields).</summary>
+    public Dictionary<IEventSymbol, uint> EventFieldIndex { get; } = new(SymbolEqualityComparer.Default);
+    /// <summary>Fields and event slots in element order, so derived layouts stay prefix-compatible.</summary>
+    public List<ISymbol> SlotOrder { get; } = [];
 
     /// <summary>Slot -> implementing method (null = System.Object default / abstract).</summary>
     public List<IMethodSymbol?> VTable { get; } = [];

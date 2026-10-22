@@ -430,9 +430,41 @@ public sealed partial class FunctionCodeGen
         return CallRuntime("csrt_span_to_array", L.Ptr, [L.Ptr, L.I32, L.I64], SpanPointer(span), SpanLength(span), ElementSize(element));
     }
 
+    /// <summary>string.Join(sep, IEnumerable&lt;T&gt;) over an array: format each element, then join.</summary>
+    private bool TryJoinArray(IInvocationOperation inv, out LLVMValueRef result)
+    {
+        result = default;
+        var method = inv.TargetMethod;
+        if (method is not { Name: "Join", ContainingType.SpecialType: SpecialType.System_String, Parameters.Length: 2 }
+            || method.Parameters[1].Type is not INamedTypeSymbol { MetadataName: "IEnumerable`1" }) return false;
+        var args = inv.Arguments.OrderBy(a => a.Parameter!.Ordinal).ToArray();
+        var source = args[1].Value;
+        while (source is IConversionOperation { Conversion.IsImplicit: true } c) source = c.Operand;
+        if (source.Type is not IArrayTypeSymbol { Rank: 1 } arrayType) return false;
+        var separator = args[0].Parameter!.Type.SpecialType == SpecialType.System_Char
+            ? CallRuntime("csrt_string_from_char", L.Ptr, [L.I16], EmitValue(args[0].Value))
+            : EmitValue(args[0].Value);
+        var element = arrayType.ElementType;
+        var array = EmitValue(source);
+        var length = ArrayLength(array);
+        var strings = NewArray(_m.Compilation.GetSpecialType(SpecialType.System_String), length);
+        var header = T.ArrayHeader(T.Storage(element));
+        var stringsHeader = T.ArrayHeader(L.Ptr);
+        ForEachIndex(_b.Cast(LLVMOpcode.Trunc, length, L.I32), i =>
+        {
+            var value = LoadValue(_b.InBoundsGep(header, array, [L.ConstInt(L.I32, 0), L.ConstInt(L.I32, 2), i]), element);
+            var text = element.SpecialType == SpecialType.System_String ? value
+                : FormatPrimitive(value, element) ?? (element.IsReferenceType ? ObjectToString(value) : throw CompileError.Unsupported($"joining '{element}'", inv));
+            _b.Store(text, _b.InBoundsGep(stringsHeader, strings, [L.ConstInt(L.I32, 0), L.ConstInt(L.I32, 2), i]));
+        });
+        result = CallRuntime("csrt_string_join", L.Ptr, [L.Ptr, L.Ptr], separator, strings);
+        return true;
+    }
+
     private bool TryParamsSpanMethod(IInvocationOperation inv, out LLVMValueRef result)
     {
         result = default;
+        if (TryJoinArray(inv, out result)) return true;
         var method = inv.TargetMethod;
         var spanParam = method.Parameters.LastOrDefault();
         if (spanParam is null || !TypeMapper.IsSpan(spanParam.Type)) return false;

@@ -379,17 +379,34 @@ public sealed partial class ModuleCodeGen
         // Fields: header, then inherited fields (same indices as in the base), then our own.
         List<LLVMTypeRef> elements = [Llvm.Ptr];
         if (baseLayout is not null)
-            foreach (var f in baseLayout.Fields)
+            foreach (var member in baseLayout.SlotOrder)
             {
-                layout.FieldIndex[f] = (uint)elements.Count;
-                layout.Fields.Add(f);
-                elements.Add(Types.Storage(f.Type));
+                if (member is IEventSymbol inheritedEvent)
+                {
+                    layout.EventFieldIndex[inheritedEvent] = (uint)elements.Count;
+                    elements.Add(Llvm.Ptr);
+                }
+                else
+                {
+                    var f = (IFieldSymbol)member;
+                    layout.FieldIndex[f] = (uint)elements.Count;
+                    layout.Fields.Add(f);
+                    elements.Add(Types.Storage(f.Type));
+                }
+                layout.SlotOrder.Add(member);
             }
         foreach (var f in type.GetMembers().OfType<IFieldSymbol>().Where(f => !f.IsStatic && !f.IsConst))
         {
             layout.FieldIndex[f] = (uint)elements.Count;
             layout.Fields.Add(f);
+            layout.SlotOrder.Add(f);
             elements.Add(Types.Storage(f.Type));
+        }
+        foreach (var e in type.GetMembers().OfType<IEventSymbol>().Where(e => !e.IsStatic && e.AddMethod is null or { IsImplicitlyDeclared: true }))
+        {
+            layout.EventFieldIndex[e] = (uint)elements.Count;
+            layout.SlotOrder.Add(e);
+            elements.Add(Llvm.Ptr);
         }
         LlvmContext.SetBody(structType, [.. elements]);
         layout.InstanceSize = Types.Target.SizeOf(structType);
@@ -470,6 +487,14 @@ public sealed partial class ModuleCodeGen
         var type = Types.Storage(field.Type);
         return _staticFields[field] = Module.AddGlobal(Mangler.StaticField(field), type, LlvmContext.Null(type),
             linkage: LLVMLinkage.Internal);
+    }
+
+    /// <summary>Delegate slot of a static field-like event.</summary>
+    public LLVMValueRef StaticEventField(IEventSymbol e)
+    {
+        var name = Mangler.TypeSymbol(e.ContainingType, e.Name + "$event");
+        if (_globals.TryGetValue(name, out var g)) return g;
+        return _globals[name] = Module.AddGlobal(name, Llvm.Ptr, LlvmContext.Null(Llvm.Ptr), linkage: LLVMLinkage.Internal);
     }
 
     public LLVMValueRef ExternalGlobal(string name)
