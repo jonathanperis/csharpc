@@ -87,6 +87,21 @@ public sealed partial class FunctionCodeGen
             _this = fn.Fn.Param(index++);
             _this.SetName("this");
         }
+        if (method is not null && ModuleCodeGen.HasExtensionReceiver(method) && method.ContainingType.ExtensionParameter is { } receiver)
+        {
+            var value = fn.Fn.Param(index++);
+            value.SetName(receiver.Name);
+            LLVMValueRef slot;
+            if (receiver.RefKind != RefKind.None) slot = value; // `extension(ref T x)`: already an address
+            else
+            {
+                var receiverType = S(receiver.Type);
+                slot = _allocas.Alloca(T.Storage(receiverType), receiver.Name + ".addr");
+                _allocas.Store(receiverType.SpecialType == SpecialType.System_Boolean ? _allocas.Cast(LLVMOpcode.ZExt, value, L.I8) : value, slot);
+            }
+            _slots[receiver] = slot;
+            _slots[receiver.OriginalDefinition] = slot;
+        }
         foreach (var p in method?.Parameters ?? [])
         {
             var value = fn.Fn.Param(index++);

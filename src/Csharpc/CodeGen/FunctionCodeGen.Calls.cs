@@ -17,6 +17,9 @@ public sealed partial class FunctionCodeGen
     {
         var target = S(inv.TargetMethod);
         if (IsCoreIntrinsic(target)) return EmitCoreIntrinsic(target, inv);
+        // `T.Create()` on a static abstract/virtual interface member: after substitution T is concrete.
+        if (ResolveStaticInterfaceMember(target, inv.ConstrainedToType) is { } staticImpl)
+            return EmitUserCall(staticImpl, default, true, inv.Arguments, isVirtual: false);
         if (target.MethodKind == MethodKind.DelegateInvoke) return EmitDelegateInvoke(inv);
         if (target.MethodKind == MethodKind.LocalFunction) return CallLocalFunction(inv);
         if (TypeMapper.IsNullable(target.ContainingType)) return EmitNullableMethod(inv);
@@ -39,7 +42,7 @@ public sealed partial class FunctionCodeGen
         }
         if (_m.IsUserMethod(target))
         {
-            var self = ModuleCodeGen.HasThis(target) ? Receiver(inv.Instance!, target) : default;
+            var self = ModuleCodeGen.HasThis(target) || ModuleCodeGen.HasExtensionReceiver(target) ? Receiver(inv.Instance!, target) : default;
             var isBaseCall = inv.Instance?.Syntax is BaseExpressionSyntax;
             return EmitUserCall(target, self, ReceiverIsNonNull(inv.Instance, target), inv.Arguments, inv.IsVirtual && !isBaseCall);
         }
@@ -49,6 +52,16 @@ public sealed partial class FunctionCodeGen
         throw CompileError.MissingIntrinsic(target, inv);
     }
 
+    /// <summary>Static abstract/virtual interface member + constrained type → the concrete implementation.</summary>
+    internal IMethodSymbol? ResolveStaticInterfaceMember(IMethodSymbol target, ITypeSymbol? constrainedTo)
+    {
+        if (!target.IsStatic || target.ContainingType.TypeKind != TypeKind.Interface || constrainedTo is null) return null;
+        var concrete = S(constrainedTo);
+        if (concrete is ITypeParameterSymbol || !_m.IsUserType(concrete)) return null; // primitives: generic-math paths
+        return concrete.FindImplementationForInterfaceMember(target) as IMethodSymbol
+            ?? (target.IsAbstract ? throw CompileError.Unsupported($"no implementation of '{target}' on '{concrete}'", target) : target);
+    }
+
     /// <summary>
     /// Calls a method compiled by csharpc. Arguments are evaluated in source (evaluation) order and
     /// then placed by parameter ordinal, which handles named/out-of-order arguments.
@@ -56,18 +69,19 @@ public sealed partial class FunctionCodeGen
     internal LLVMValueRef EmitUserCall(IMethodSymbol target, LLVMValueRef self, bool selfIsNonNull,
         ImmutableArray<IArgumentOperation> arguments, bool isVirtual, LLVMValueRef[]? extraArgs = null)
     {
-        var offset = ModuleCodeGen.HasThis(target) ? 1 : 0;
+        var hasThis = ModuleCodeGen.HasThis(target);
+        var offset = hasThis || ModuleCodeGen.HasExtensionReceiver(target) ? 1 : 0;
         var args = new LLVMValueRef[offset + target.Parameters.Length];
         if (offset == 1)
         {
-            if (!selfIsNonNull) NullCheck(self);
+            if (hasThis && !selfIsNonNull) NullCheck(self); // extension receivers may legitimately be null
             args[0] = self;
         }
         foreach (var argument in arguments) args[offset + argument.Parameter!.Ordinal] = EmitArgument(argument, target);
         if (extraArgs is not null)
             for (var i = 0; i < extraArgs.Length; i++) args[args.Length - extraArgs.Length + i] = extraArgs[i];
 
-        var dispatch = isVirtual && offset == 1 && (target.IsVirtual || target.IsAbstract || target.IsOverride)
+        var dispatch = isVirtual && hasThis && (target.IsVirtual || target.IsAbstract || target.IsOverride)
             && !target.IsSealed && !target.ContainingType.IsSealed;
         if (dispatch && _m.Devirtualize(target) is { } only) return DirectCall(only, args); // closed-world CHA
         return dispatch ? VirtualCall(target, self, args) : DirectCall(target, args);
@@ -257,6 +271,7 @@ public sealed partial class FunctionCodeGen
     {
         var property = S(p.Property);
         if (TypeMapper.IsNullable(property.ContainingType)) return EmitNullableMember(p);
+        if (property.ContainingType.IsAnonymousType) return AnonymousPropertyGet(p);
         // Generic math constants (T.Zero, T.One...) on a substituted primitive T.
         if (property is { IsStatic: true, ContainingType.TypeKind: TypeKind.Interface } && TypeOf(p) is { SpecialType: not SpecialType.None } numeric
             && property.Name is "Zero" or "One" or "AdditiveIdentity" or "MultiplicativeIdentity")

@@ -37,7 +37,8 @@ public sealed partial class ModuleCodeGen
         List<LLVMTypeRef> elements = [];
         foreach (var f in type.GetMembers().OfType<IFieldSymbol>().Where(f => !f.IsStatic && !f.IsConst))
         {
-            layout.FieldIndex[f.OriginalDefinition] = (uint)elements.Count;
+            layout.FieldIndex[f] = (uint)elements.Count;
+            layout.FieldIndex[f.OriginalDefinition] = (uint)elements.Count; // same index in every instantiation
             elements.Add(Types.Storage(f.Type));
         }
         if (elements.Count == 0) elements.Add(Llvm.I8); // an empty struct still occupies a byte, as in the CLR

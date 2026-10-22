@@ -131,7 +131,28 @@ static bool is_custom(const char* f) {
     return !standard;
 }
 
+static void emit_custom_section(Buf* b, double v, const char* f);
+
+// "pos;neg;zero" sections: the negative section formats |v| without a sign.
 static void emit_custom(Buf* b, double v, const char* f) {
+    const char* semi = strchr(f, ';');
+    if (!semi) { emit_custom_section(b, v, f); return; }
+    char sections[3][128] = {{0}};
+    int count = 0;
+    for (const char* start = f; count < 3; count++) {
+        const char* end = strchr(start, ';');
+        size_t n = end ? (size_t)(end - start) : strlen(start);
+        if (n >= sizeof sections[0]) n = sizeof sections[0] - 1;
+        memcpy(sections[count], start, n);
+        if (!end) { count++; break; }
+        start = end + 1;
+    }
+    if (v < 0 && count >= 2 && sections[1][0]) { emit_custom_section(b, -v, sections[1]); return; }
+    if (v == 0 && count >= 3 && sections[2][0]) { emit_custom_section(b, v, sections[2]); return; }
+    emit_custom_section(b, v, sections[0]);
+}
+
+static void emit_custom_section(Buf* b, double v, const char* f) {
     // Analyse the pattern: integer placeholders, decimal placeholders, grouping, percent.
     int int_zeros = 0, dec_zeros = 0, dec_hashes = 0;
     bool group = false, percent = false, seen_point = false, seen_digit = false;
