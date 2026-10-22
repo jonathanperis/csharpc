@@ -92,6 +92,7 @@ public sealed partial class ModuleCodeGen
         // 3. Static initialization + the native entry point.
         Guard(entryPoint, EmitStaticInitializer);
         Guard(entryPoint, () => EmitNativeMain(entryPoint));
+        Guard(entryPoint, EmitCallCatchingHelpers);
         DrainWorklists();
     }
 
@@ -563,7 +564,8 @@ public sealed partial class ModuleCodeGen
         "System.NotSupportedException", "System.NotImplementedException", "System.NullReferenceException",
         "System.IndexOutOfRangeException", "System.ArithmeticException", "System.DivideByZeroException",
         "System.OverflowException", "System.InvalidCastException", "System.FormatException",
-        "System.Collections.Generic.KeyNotFoundException",
+        "System.Collections.Generic.KeyNotFoundException", "System.OperationCanceledException",
+        "System.Threading.Tasks.TaskCanceledException", "System.AggregateException",
     ];
 
     public const int ExceptionMessageSlot = 3;
@@ -874,6 +876,9 @@ public sealed partial class ModuleCodeGen
             // async Main: drive the scheduler until the returned task completes.
             var wait = Runtime("csrt_task_wait", Llvm.Void, Llvm.Ptr);
             b.Call(wait.Type, wait.Fn, [result]);
+            // A faulted main task rethrows its exception: unhandled, as in .NET (GetAwaiter().GetResult()).
+            var rethrow = Runtime("csrt_task_throw_if_faulted", Llvm.Void, Llvm.Ptr);
+            b.Call(rethrow.Type, rethrow.Fn, [result]);
             returnsVoid = Coroutines.AsyncResultType(entryPoint.ReturnType) is null;
             if (!returnsVoid)
             {

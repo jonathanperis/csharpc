@@ -1,0 +1,16 @@
+1
+2
+3
+4
+5
+iterator(5) finally
+caught: failed at 6
+iterator(2) finally
+sum 3
+True 1
+True 2
+MoveNext threw third
+after fault MoveNext: False
+async 1
+async 2
+await foreach caught: bad stream

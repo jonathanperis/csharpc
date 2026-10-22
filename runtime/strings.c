@@ -336,7 +336,7 @@ int32_t csrt_int32_parse(csrt_String* s) {
     int64_t v; bool overflow;
     if (parse_i64(s, INT32_MIN, INT32_MAX, &v, &overflow)) return (int32_t)v;
     if (overflow) csrt_throw(&mt_overflow, ascii("Value was either too large or too small for an Int32."));
-    csrt_throw(&mt_format, ascii("The input string was not in a correct format."));
+    csrt_throw(&mt_format, csrt_string_concat(csrt_string_concat(ascii("The input string '"), s), ascii("' was not in a correct format.")));
 }
 
 int64_t csrt_int64_parse(csrt_String* s) {
@@ -344,7 +344,7 @@ int64_t csrt_int64_parse(csrt_String* s) {
     int64_t v; bool overflow;
     if (parse_i64(s, INT64_MIN, INT64_MAX, &v, &overflow)) return v;
     if (overflow) csrt_throw(&mt_overflow, ascii("Value was either too large or too small for an Int64."));
-    csrt_throw(&mt_format, ascii("The input string was not in a correct format."));
+    csrt_throw(&mt_format, csrt_string_concat(csrt_string_concat(ascii("The input string '"), s), ascii("' was not in a correct format.")));
 }
 
 bool csrt_int32_try_parse(csrt_String* s, int32_t* result) {
@@ -380,7 +380,7 @@ double csrt_double_parse(csrt_String* s) {
     if (!s) csrt_throw(&mt_argument_null, ascii("Value cannot be null. (Parameter 's')"));
     double v;
     if (parse_f64(s, &v)) return v;
-    csrt_throw(&mt_format, ascii("The input string was not in a correct format."));
+    csrt_throw(&mt_format, csrt_string_concat(csrt_string_concat(ascii("The input string '"), s), ascii("' was not in a correct format.")));
 }
 
 bool csrt_double_try_parse(csrt_String* s, double* result) {

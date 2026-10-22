@@ -50,6 +50,10 @@ DEF_EXC(System_InvalidCastException, "System.InvalidCastException", &csrt_MT_Sys
 DEF_EXC(System_FormatException, "System.FormatException", &csrt_MT_System_SystemException.header)
 DEF_EXC(System_Collections_Generic_KeyNotFoundException, "System.Collections.Generic.KeyNotFoundException",
         &csrt_MT_System_SystemException.header)
+DEF_EXC(System_OperationCanceledException, "System.OperationCanceledException", &csrt_MT_System_SystemException.header)
+DEF_EXC(System_Threading_Tasks_TaskCanceledException, "System.Threading.Tasks.TaskCanceledException",
+        &csrt_MT_System_OperationCanceledException.header)
+DEF_EXC(System_AggregateException, "System.AggregateException", &csrt_MT_System_Exception.header)
 
 // ---------------------------------------------------------------------------------------------
 // Exception members
@@ -152,6 +156,30 @@ static void* new_exception(const csrt_ExceptionMethodTable* mt, const char* mess
     return e;
 }
 
+/// An exception that escaped an `async void` method: crash like .NET (the finally blocks already ran).
+void csrt_unhandled_exception(void* exception) { unhandled(exception); }
+
+/// new AggregateException(inners): "One or more errors occurred. (m1) (m2)", InnerException = first.
+void* csrt_aggregate_exception_new(void** inners, int64_t count) {
+    csrt_String* message = csrt_string_from_utf8("One or more errors occurred.");
+    for (int64_t i = 0; i < count; i++) {
+        message = concat_utf8(message, " (");
+        message = csrt_string_concat(message, virtual_message(inners[i]));
+        message = concat_utf8(message, ")");
+    }
+    void* e = csrt_alloc(&csrt_MT_System_AggregateException.header, sizeof(csrt_Exception));
+    csrt_exception_init(e, message, count > 0 ? inners[0] : NULL, NULL);
+    return e;
+}
+
+void* csrt_task_canceled_exception_new(void) {
+    return new_exception(&csrt_MT_System_Threading_Tasks_TaskCanceledException, "A task was canceled.");
+}
+
+void* csrt_operation_canceled_exception_new(void) {
+    return new_exception(&csrt_MT_System_OperationCanceledException, "The operation was canceled.");
+}
+
 void csrt_throw_object(void* exception) {
     if (!exception)  // `throw null;` throws a NullReferenceException
         exception = new_exception(&csrt_MT_System_NullReferenceException, "Object reference not set to an instance of an object.");
@@ -215,7 +243,8 @@ static const csrt_ExceptionMethodTable* const s_by_name[] = {
     &csrt_MT_System_NullReferenceException, &csrt_MT_System_IndexOutOfRangeException,
     &csrt_MT_System_ArithmeticException, &csrt_MT_System_DivideByZeroException, &csrt_MT_System_OverflowException,
     &csrt_MT_System_InvalidCastException, &csrt_MT_System_FormatException,
-    &csrt_MT_System_Collections_Generic_KeyNotFoundException,
+    &csrt_MT_System_Collections_Generic_KeyNotFoundException, &csrt_MT_System_OperationCanceledException,
+    &csrt_MT_System_Threading_Tasks_TaskCanceledException, &csrt_MT_System_AggregateException,
 };
 
 void csrt_throw(const csrt_MethodTable* type, csrt_String* message) {
