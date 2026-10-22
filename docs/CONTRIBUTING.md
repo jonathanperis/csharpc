@@ -1,6 +1,6 @@
 # Contributing to csharpc
 
-Thanks for helping! csharpc is a C# front-end for LLVM; the bar for every change is simple:
+Thanks for helping! (Automated coding agents: see [AGENTS.md](../AGENTS.md).) csharpc is a C# front-end for LLVM; the bar for every change is simple:
 **the output of a compiled program must be byte-identical to real .NET.**
 
 ## Reporting a bug
