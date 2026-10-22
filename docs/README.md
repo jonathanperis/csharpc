@@ -25,6 +25,7 @@ Start with the [top-level README](../README.md) for the quick start.
 | [0005](adr/0005-exceptions.md) | Exceptions: abort now, LLVM EH with an Itanium-style personality next |
 | [0006](adr/0006-closed-world-compilation.md) | Closed-world, whole-program compilation |
 | [0007](adr/0007-runtime-in-c-first.md) | Bootstrap runtime in C, corelib in C# later |
+| [0009](adr/0009-hardening-by-default.md) | Exploit mitigations on by default, CET opt-in |
 
 The docs describe the code as of the commit they were written at. When a feature lands, update the
 matrix in [06-roadmap.md](06-roadmap.md) and add a dated entry to [07-spike-log.md](07-spike-log.md).
@@ -34,3 +35,4 @@ matrix in [06-roadmap.md](06-roadmap.md) and add a dated entry to [07-spike-log.
 - [12 — Corelib](12-corelib.md): the shadow corelib — BCL collections and LINQ written in C#, redirected from the real reference assemblies
 - [13 — Debugging](13-debugging.md): `-g`, DWARF debug info, gdb/lldb pretty-printers
 - [14 — Threading](14-threading.md): threads, thread-safe GC (stop-the-world handshake), monitors, Interlocked, Parallel
+- [17 — Security](17-security.md): memory safety, exploit mitigations (`--hardening`), sanitizers and fuzzing, reproducible builds

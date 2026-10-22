@@ -3,16 +3,17 @@ using static Csharpc.Llvm.Native;
 
 namespace Csharpc.Driver;
 
-/// <summary>Exploit-mitigation level for the produced executable (docs/16-security.md).</summary>
+/// <summary>Exploit-mitigation level for the produced executable (docs/17-security.md).</summary>
 public enum HardeningLevel
 {
     /// <summary>Nothing beyond the platform defaults (PIE, NX).</summary>
     None,
-    /// <summary>Full RELRO + BIND_NOW, CET (IBT + SHSTK), stack probes, and for the C runtime: stack
-    /// protector, _FORTIFY_SOURCE=3, zero-initialized locals. Costs ≲1 % on the benchmarks.</summary>
+    /// <summary>Full RELRO + BIND_NOW, non-executable stack, separate code, stack-clash probes, and for the
+    /// C runtime: stack protector, _FORTIFY_SOURCE=3, zero-initialized locals. Within noise on the benchmarks.</summary>
     Default,
-    /// <summary>Default + stack protector and call-used-register zeroing on generated code, and
-    /// Spectre v1 speculative load hardening. Measurably slower; for hostile-input services.</summary>
+    /// <summary>Default + CET (IBT landing pads, shadow-stack marking), stack protector and call-used-register
+    /// zeroing on generated code, and Spectre v1 speculative load hardening. Measurably slower; for
+    /// hostile-input services.</summary>
     Max,
 }
 
@@ -35,9 +36,11 @@ public static class Hardening
     public static string[] RuntimeCFlags(HardeningLevel level) => level switch
     {
         HardeningLevel.None => [],
+        // CET (-fcf-protection) is Max-only: it measured +8-16% on call-heavy benchmarks, and Linux
+        // does not enforce user-space IBT at all (only the shadow stack), so it is opt-in.
         HardeningLevel.Default =>
         [
-            "-fstack-protector-strong", "-D_FORTIFY_SOURCE=3", "-fcf-protection=full",
+            "-fstack-protector-strong", "-D_FORTIFY_SOURCE=3",
             "-fstack-clash-protection", "-ftrivial-auto-var-init=zero",
         ],
         _ =>
@@ -60,7 +63,7 @@ public static class Hardening
     /// </summary>
     public static void ApplyModuleFlags(LlvmModule module, LlvmContext llvm, HardeningLevel level)
     {
-        if (level == HardeningLevel.None) return;
+        if (level != HardeningLevel.Max) return; // CET: endbr64 landing pads + shadow-stack marking
         AddFlag(module, llvm, 8 /* Min */, "cf-protection-branch", 1);
         AddFlag(module, llvm, 8 /* Min */, "cf-protection-return", 1);
     }

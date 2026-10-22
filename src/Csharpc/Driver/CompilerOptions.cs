@@ -52,7 +52,7 @@ public sealed record CompilerOptions
           -D <symbol>            Define a preprocessor symbol
           --no-implicit-usings   Don't add the SDK's implicit global usings
           --no-runtime-lto       Link the runtime as objects instead of LTO-ing its bitcode
-          --hardening <level>    none | default (RELRO+NOW, CET, stack probes, hardened runtime) | max
+          --hardening <level>    none | default (full RELRO, NX, stack probes, hardened runtime) | max (+ CET IBT/SHSTK, SLH)
           --sanitize <list>      Build the runtime with sanitizers, e.g. address,undefined (testing; $CSHARPC_SANITIZE)
           --cc <path>            C compiler used as linker driver (default: $CSHARPC_CC or clang)
           --dump-cfg             Print Roslyn's control-flow graphs (csharpc's "MIR")
