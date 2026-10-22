@@ -14,8 +14,16 @@ what `clang` is to C, `rustc` to Rust and `gollvm` to Go.
 
 </div>
 
-```
-hello.cs ──Roslyn──▶ IOperation / ControlFlowGraph ──csharpc──▶ LLVM IR ──LLVM──▶ object ──clang──▶ ./hello
+```mermaid
+flowchart LR
+    src["C# source<br/>.cs / .csproj"] --> roslyn["Roslyn<br/>parse · bind · diagnose"]
+    roslyn --> cfg["ControlFlowGraph<br/>csharpc's MIR"]
+    cfg --> lower["csharpc lowering<br/>generics · closures · async · EH"]
+    corelib["C# corelib<br/>collections · LINQ · BCL"] --> lower
+    lower --> ir["LLVM IR"]
+    ir --> opt["LLVM optimizer<br/>whole-program LTO"]
+    rt["csrt runtime<br/>GC · threads · unwinding"] --> opt
+    opt --> link["codegen + clang link"] --> exe(["native executable"])
 ```
 
 csharpc is written in C# (.NET 11). It uses **Roslyn** as its parser and type checker — so every
@@ -120,24 +128,73 @@ csharpc [options] [<project.csproj> | <directory>]
   -v, --verbose           Pipeline phases and timings
 ```
 
+## Why LLVM?
+
+LLVM separates a language from its machine code: a front-end only has to translate the language to
+LLVM IR, and gets a world-class optimizer, every CPU target and the surrounding tooling (linkers,
+debuggers, sanitizers) for free. That is how clang, rustc, Swift and Zig work — and the idea behind
+csharpc: Roslyn already knows C# perfectly, LLVM already knows machines perfectly, and csharpc is the
+bridge between them. For an introduction to why that design is so effective:
+
+<a href="https://www.youtube.com/watch?v=3WojCM9r0Ls"><img src="https://i.ytimg.com/vi/3WojCM9r0Ls/hqdefault.jpg" alt="Why LLVM is a Game Changer for Compilers (The Coding Gopher)" width="360"></a>
+
+*[Why LLVM is a Game Changer for Compilers](https://www.youtube.com/watch?v=3WojCM9r0Ls) — The Coding Gopher*
+
 ## How it works
 
+```mermaid
+flowchart TB
+    subgraph frontend["Front-end — the official C# compiler"]
+        direction LR
+        parse["Roslyn parser"] --> bind["binding · overload resolution<br/>against real .NET reference assemblies"] --> diag["diagnostics"]
+    end
+    subgraph middle["csharpc"]
+        direction LR
+        cfg["ControlFlowGraph per method"] --> mono["monomorphize generics<br/>closure conversion"] --> lowerops["lower operations to LLVM IR<br/>objects · vtables · interfaces<br/>exceptions · coroutines"]
+    end
+    subgraph library["Library compiled with your program"]
+        direction LR
+        corelib["corelib in C#<br/>src/Csharpc/corelib"]
+        csrt["csrt in C<br/>src/runtime"]
+    end
+    subgraph backend["Back-end — LLVM"]
+        direction LR
+        opt["default#lt;O2#gt; pipeline<br/>inlining · devirtualization · vectorization"] --> code["x86-64 codegen"] --> link["clang link<br/>hardened ELF"]
+    end
+    frontend --> middle --> backend
+    corelib --> middle
+    csrt -- "bitcode, LTO-linked" --> backend
+```
+
 1. **Front-end — Roslyn.** Parsing, binding, overload resolution and diagnostics come from the official
-   C# compiler, bound against the real .NET reference assemblies.
+   C# compiler, bound against the real .NET reference assemblies, so language semantics are exactly
+   the official compiler's.
 2. **Middle — Roslyn's `ControlFlowGraph` as MIR.** Loops, `&&`/`||`, `?:`, `??`, `?.`, `switch` and
    patterns arrive already lowered to basic blocks, much like rustc's MIR. csharpc maps blocks 1:1 to
    LLVM blocks and lowers each operation, with entry-block `alloca`s that `mem2reg` promotes (the clang
    strategy). Generics are monomorphized; closures, iterators, `async` (LLVM coroutines), exceptions
    (`invoke`/`landingpad`), records and the rest are lowered by csharpc itself.
-3. **Library — csrt + corelib.** A small C runtime (`src/runtime`: GC, exceptions, threads, formatting)
-   plus a corelib written in C# (`src/Csharpc/corelib`: collections, LINQ) that library calls are
-   redirected to, compiled together with your program.
+3. **Library — corelib + csrt.** The .NET library surface is implemented in C# wherever possible
+   (`src/Csharpc/corelib`) and compiled together with your program; a small C runtime
+   (`src/runtime`) provides the GC, stack unwinding, threads and the OS boundary.
 4. **Back-end — LLVM.** The module, with the runtime's bitcode linked in, goes through LLVM's
-   `default<O2>` pipeline and the target backend; `clang` links the executable.
+   optimization pipeline and the target backend; `clang` links a hardened executable.
 
-Read [docs/02-architecture.md](docs/02-architecture.md) and [docs/03-lowering.md](docs/03-lowering.md)
-for the details, and [docs/01-prior-art.md](docs/01-prior-art.md) for how this compares to Mono's LLVM
-backend, LLILC, NativeAOT(-LLVM), IL2CPP and bflat.
+### The C# corelib: your code binds to .NET, runs on csharpc
+
+```mermaid
+flowchart LR
+    code["your code<br/>new List#lt;int#gt;()<br/>xs.Where(...).ToList()"] -- "Roslyn binds to" --> ref["System.Collections.Generic.List#lt;T#gt;<br/>System.Linq.Enumerable<br/>(real .NET reference assemblies)"]
+    ref -- "csharpc redirects" --> shadow["[Shadows] implementations<br/>written in C#, src/Csharpc/corelib"]
+    shadow -- "monomorphized, inlined,<br/>optimized with your code" --> ir["one LLVM module"]
+```
+
+Overload resolution, IDE experience and diagnostics stay exactly .NET's; only the implementation
+behind the symbols is csharpc's — closed-world, specialized for your program, and dead-stripped.
+
+Read [docs/02-architecture.md](docs/02-architecture.md), [docs/03-lowering.md](docs/03-lowering.md) and
+[docs/12-corelib.md](docs/12-corelib.md) for the details, and [docs/01-prior-art.md](docs/01-prior-art.md)
+for how this compares to Mono's LLVM backend, LLILC, NativeAOT(-LLVM), IL2CPP and bflat.
 
 ## Repository layout
 
@@ -159,10 +216,24 @@ tools/              gdb and lldb pretty-printers for csharpc binaries
 
 ## Testing
 
+Real .NET is the oracle: every test program runs under `dotnet run` once to record its output, and
+csharpc's binaries must reproduce it byte for byte, at every optimization level, on every commit.
+
+```mermaid
+flowchart LR
+    prog["test program<br/>tests/**/*.cs"] --> net["dotnet run<br/>real .NET"] --> exp[".expected<br/>+ exit code"]
+    prog --> cs["csharpc -O0 / -O2"] --> bin["native binary"] --> out["stdout<br/>+ exit code"]
+    exp --> cmp{"byte-identical?"}
+    out --> cmp
+    cmp -- yes --> pass(["pass"])
+    cmp -- no --> fix(["fix csharpc —<br/>never the expectation"])
+```
+
 ```bash
 tests/run.sh --all-opts     # differential suite at -O0 and -O2 (compares against recorded .NET output)
 tests/run.sh --regen 42     # re-record expectations for samples matching "42" with real .NET
 tests/conformance.sh -j 4   # conformance corpus, per-area coverage report
+tests/programs.sh           # larger real-world programs (interpreter, JSON, ray tracer, ...)
 tests/projects.sh           # csproj input, dotnet build/run/publish integration
 tests/debuginfo.sh          # gdb-driven debug-info checks
 benchmarks/run.sh           # csharpc vs .NET JIT vs NativeAOT
@@ -179,13 +250,21 @@ See [docs/05-testing.md](docs/05-testing.md).
 | [05 Testing](docs/05-testing.md) · [09 Conformance](docs/09-conformance.md) · [13 Debugging](docs/13-debugging.md) · [08 Drop-in](docs/08-drop-in.md) | using and verifying it |
 | [06 Roadmap](docs/06-roadmap.md) · [07 Spike log](docs/07-spike-log.md) · [ADRs](docs/adr/) | where it's going and how it got here |
 
-## Status
+## Project status
 
-csharpc went from an empty directory to the state above in its first day of development
-([docs/07-spike-log.md](docs/07-spike-log.md)). It is young: expect gaps outside the tested surface,
-and please open an issue with a minimal program when you find one — the differential test format
-makes every bug report directly turnable into a regression test. Contributions are welcome; see
-[docs/CONTRIBUTING.md](docs/CONTRIBUTING.md).
+csharpc is **pre-1.0** and under active development. What that means in practice:
+
+| | |
+|---|---|
+| **Guarantee** | A compiled program behaves exactly like it does on .NET — same output, same exceptions and messages, same exit code. Anything csharpc can't compile faithfully is rejected at compile time with a `CSLLVM0001: not supported by csharpc yet` diagnostic; a silent behavioral difference is treated as the highest-priority bug. |
+| **Verified surface** | The language and library features in the table above, checked on every commit by CI: the differential samples at `-O0` and `-O2`, the conformance corpus, and a set of larger real-world programs. |
+| **Platforms** | Linux x86-64 today. AArch64, WebAssembly, Windows and macOS are on the [roadmap](docs/06-roadmap.md). |
+| **Not supported** | `dynamic`, member reflection and runtime code loading (the same limits NativeAOT has); NuGet packages that ship only IL (an IL front-end is planned); parts of the BCL such as networking, regular expressions and JSON, which grow with the corelib. |
+| **Stability** | Whole-program compilation with no stable ABI between csharpc versions: rebuild everything when you upgrade. Command-line options may still change. |
+
+Found a gap? Open an issue with a **minimal program** and what `dotnet run` prints — the differential
+test format turns every report directly into a regression test. Contributions are welcome; see
+[docs/CONTRIBUTING.md](docs/CONTRIBUTING.md) (and [AGENTS.md](AGENTS.md) for automated coding agents).
 
 ## License
 

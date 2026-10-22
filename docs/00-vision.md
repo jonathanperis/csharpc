@@ -69,3 +69,9 @@ linked binary.
   lambdas, `List<T>`, `Dictionary<K,V>`, LINQ basics) compiles. Programs get DWARF debug info and can
   be cross-compiled, including to wasm32.
 - **Long term (M4):** csharpc compiles itself.
+
+## Further reading
+
+- [Why LLVM is a Game Changer for Compilers](https://www.youtube.com/watch?v=3WojCM9r0Ls) (The Coding
+  Gopher, video): the front-end / LLVM IR / back-end split that csharpc builds on.
+- [docs/01-prior-art.md](01-prior-art.md): clang, rustc, gollvm and the .NET-specific predecessors.
