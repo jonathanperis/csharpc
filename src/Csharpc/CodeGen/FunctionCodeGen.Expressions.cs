@@ -35,6 +35,7 @@ public sealed partial class FunctionCodeGen
             ICollectionExpressionOperation c => EmitCollectionExpression(c),
             IInterpolatedStringOperation s => EmitInterpolatedString(s),
             IIsNullOperation n when TypeMapper.IsNullable(n.Operand.Type) => _b.Not(NullableHas(EmitValue(n.Operand))),
+            IIsNullOperation n when TypeOf(n.Operand) is { IsValueType: true } => L.False, // a (non-nullable) struct is never null
             IIsNullOperation n => _b.ICmp(LLVMIntPredicate.EQ, EmitValue(n.Operand), LlvmContext.Null(L.Ptr)),
             IIsTypeOperation t => EmitIsType(t),
             IIsPatternOperation p => PatternTest(EmitValue(p.Value), TypeOf(p.Value), p.Pattern),
@@ -518,6 +519,12 @@ public sealed partial class FunctionCodeGen
         if (to is INamedTypeSymbol { IsTupleType: true } toTuple && c.Operand is ITupleOperation tupleLiteral)
             return BuildTuple(tupleLiteral, toTuple);
         if (from is null) return Constant(null, to, c); // null literal / default
+        // T[] / string used as a BCL interface: make sure the corelib helper tables exist.
+        if (to is INamedTypeSymbol { TypeKind: TypeKind.Interface } targetInterface)
+        {
+            if (from is IArrayTypeSymbol { Rank: 1 }) _m.RequestArrayInterface(targetInterface);
+            else if (from.SpecialType == SpecialType.System_String) _m.RequestStringInterface(targetInterface);
+        }
         if (TryNullableConversion(c, from, to) is { } nullable) return nullable;
         if (IsAggregate(from) && IsAggregate(to)) return Coerce(EmitValue(c.Operand), from, to);
         if (from.IsValueType && to.IsReferenceType) return Box(EmitValue(c.Operand), from, c);

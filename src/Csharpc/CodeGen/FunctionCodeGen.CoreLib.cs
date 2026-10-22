@@ -1,0 +1,236 @@
+using Csharpc.Llvm;
+using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.Operations;
+
+namespace Csharpc.CodeGen;
+
+/// <summary>
+/// CsharpcCoreLib.CoreIntrinsics: extern generic helpers whose bodies codegen synthesizes per
+/// instantiation. They give the corelib's EqualityComparer&lt;T&gt;.Default / Comparer&lt;T&gt;.Default exact
+/// .NET semantics without boxing primitives (Dictionary&lt;int, V&gt; hashes an int inline):
+///
+///   AreEqual&lt;T&gt;(a, b)  — EqualityComparer&lt;T&gt;.Default.Equals: IEquatable&lt;T&gt; if implemented, else Equals(object);
+///                         double.Equals(NaN, NaN) is true; nulls compare equal to each other only.
+///   HashOf&lt;T&gt;(a)       — EqualityComparer&lt;T&gt;.Default.GetHashCode (0 for null).
+///   Compare&lt;T&gt;(a, b)   — Comparer&lt;T&gt;.Default.Compare: primitives directly, strings with culture (ICU root)
+///                         collation, IComparable&lt;T&gt; / IComparable; null sorts first.
+/// </summary>
+public sealed partial class FunctionCodeGen
+{
+    private bool IsCoreIntrinsic(IMethodSymbol target) =>
+        _m.CoreLib.IntrinsicsType is { } ci && SymbolEqualityComparer.Default.Equals(target.ContainingType.OriginalDefinition, ci);
+
+    private LLVMValueRef EmitCoreIntrinsic(IMethodSymbol target, IInvocationOperation inv)
+    {
+        var args = inv.Arguments.OrderBy(a => a.Parameter!.Ordinal).Select(a => EmitArgument(a, target)).ToArray();
+        var t = target.TypeArguments.Length > 0 ? target.TypeArguments[0] : null;
+        return target.Name switch
+        {
+            "AreEqual" => EqualsOf(t!, args[0], args[1], inv),
+            "HashOf" => HashOf(t!, args[0], inv),
+            "Compare" => CompareOf(t!, args[0], args[1], inv),
+            "IsValueType" => t!.IsValueType ? L.True : L.False,
+            "CompareStrings" => CallRuntime("csrt_string_compare_culture", L.I32, [L.Ptr, L.Ptr], args[0], args[1]),
+            _ => throw CompileError.Unsupported($"corelib intrinsic '{target.Name}'", inv),
+        };
+    }
+
+    private IMethodSymbol ObjectMethod(string name, int parameters) =>
+        _m.Compilation.GetSpecialType(SpecialType.System_Object).GetMembers(name).OfType<IMethodSymbol>()
+            .First(m => !m.IsStatic && m.Parameters.Length == parameters);
+
+    /// <summary>Implementation of IEquatable&lt;T&gt;.Equals / IComparable&lt;T&gt;.CompareTo on a user/corelib type, if any.</summary>
+    private IMethodSymbol? GenericInterfaceImpl(ITypeSymbol t, string interfaceMetadataName, string member)
+    {
+        if (_m.Compilation.GetTypeByMetadataName(interfaceMetadataName) is not { } itfDef) return null;
+        var itf = itfDef.Construct(t);
+        if (!t.AllInterfaces.Contains(itf, SymbolEqualityComparer.Default)) return null;
+        var slot = itf.GetMembers(member).OfType<IMethodSymbol>().First();
+        return t.FindImplementationForInterfaceMember(slot) as IMethodSymbol is { } impl && _m.IsUserMethod(impl) ? impl : null;
+    }
+
+    private LLVMValueRef CallMethod(IMethodSymbol method, LLVMValueRef[] args)
+    {
+        var dispatch = ModuleCodeGen.HasThis(method) && (method.IsVirtual || method.IsOverride || method.IsAbstract)
+            && !method.IsSealed && !method.ContainingType.IsSealed && method.ContainingType.TypeKind == TypeKind.Class;
+        return dispatch ? VirtualCall(method, args[0], args) : DirectCall(method, args);
+    }
+
+    /// <summary>if (v == null) whenNull() else whenNotNull(), as a value of <paramref name="type"/>.</summary>
+    private LLVMValueRef BranchOnNull(LLVMValueRef v, LLVMTypeRef type, Func<LLVMValueRef> whenNull, Func<LLVMValueRef> whenNotNull)
+    {
+        var result = NewTemp(type, "nullsel");
+        var isNull = NewBlock("isnull");
+        var notNull = NewBlock("notnull");
+        var done = NewBlock("nulldone");
+        _b.CondBr(_b.ICmp(LLVMIntPredicate.EQ, v, LlvmContext.Null(L.Ptr)), isNull, notNull);
+        _b.PositionAtEnd(isNull);
+        _b.Store(whenNull(), result);
+        _b.Br(done);
+        _b.PositionAtEnd(notNull);
+        _b.Store(whenNotNull(), result);
+        _b.Br(done);
+        _b.PositionAtEnd(done);
+        return _b.Load(type, result);
+    }
+
+    private static bool IsIntegral(ITypeSymbol t) => t.SpecialType is SpecialType.System_Boolean or SpecialType.System_Char
+        or SpecialType.System_SByte or SpecialType.System_Byte or SpecialType.System_Int16 or SpecialType.System_UInt16
+        or SpecialType.System_Int32 or SpecialType.System_UInt32 or SpecialType.System_Int64 or SpecialType.System_UInt64
+        or SpecialType.System_IntPtr or SpecialType.System_UIntPtr;
+
+    private ITypeSymbol EnumBase(ITypeSymbol t) => t is INamedTypeSymbol { TypeKind: TypeKind.Enum, EnumUnderlyingType: { } u } ? u : t;
+
+    // ======================================================================================
+    // Equality
+    // ======================================================================================
+
+    private LLVMValueRef EqualsOf(ITypeSymbol t, LLVMValueRef a, LLVMValueRef b, IOperation at)
+    {
+        t = EnumBase(t);
+        if (IsIntegral(t)) return _b.ICmp(LLVMIntPredicate.EQ, a, b);
+        if (TypeMapper.IsFloatingPoint(t))
+            return _b.BinOp(LLVMOpcode.Or, _b.FCmp(LLVMRealPredicate.OEQ, a, b),
+                _b.BinOp(LLVMOpcode.And, _b.FCmp(LLVMRealPredicate.UNO, a, a), _b.FCmp(LLVMRealPredicate.UNO, b, b)));
+        if (t.SpecialType == SpecialType.System_String)
+            return CallRuntime("csrt_string_equals", L.I1, [L.Ptr, L.Ptr], a, b);
+        if (t is INamedTypeSymbol { IsTupleType: true } tuple)
+        {
+            var result = L.True;
+            for (var i = 0; i < tuple.TupleElements.Length; i++)
+            {
+                var et = tuple.TupleElements[i].Type;
+                result = _b.BinOp(LLVMOpcode.And, result, EqualsOf(et, TupleElement(a, tuple, i), TupleElement(b, tuple, i), at));
+            }
+            return result;
+        }
+        if (TypeMapper.IsNullable(t)) throw CompileError.Unsupported($"EqualityComparer<{t}>", at);
+
+        var equatable = GenericInterfaceImpl(t, "System.IEquatable`1", "Equals");
+        if (t.IsValueType)
+        {
+            if (equatable is not null) return CallMethod(equatable, [Spill(a), b]);
+            var boxA = Box(a, t, at);
+            return VirtualCall(ObjectMethod("Equals", 1), boxA, [boxA, Box(b, t, at)]);
+        }
+        return BranchOnNull(a, L.I1,
+            () => _b.ICmp(LLVMIntPredicate.EQ, b, LlvmContext.Null(L.Ptr)),
+            () => equatable is not null ? CallMethod(equatable, [a, b]) : VirtualCall(ObjectMethod("Equals", 1), a, [a, b]));
+    }
+
+    // ======================================================================================
+    // Hashing
+    // ======================================================================================
+
+    private LLVMValueRef HashOf(ITypeSymbol t, LLVMValueRef a, IOperation at)
+    {
+        t = EnumBase(t);
+        var i32 = L.I32;
+        switch (t.SpecialType)
+        {
+            case SpecialType.System_Boolean: return _b.Cast(LLVMOpcode.ZExt, a, i32);
+            case SpecialType.System_Char or SpecialType.System_UInt16 or SpecialType.System_Byte:
+            {
+                var v = _b.Cast(LLVMOpcode.ZExt, a, i32);
+                return t.SpecialType == SpecialType.System_Char ? _b.BinOp(LLVMOpcode.Or, v, _b.BinOp(LLVMOpcode.Shl, v, L.ConstInt(i32, 16))) : v;
+            }
+            case SpecialType.System_SByte or SpecialType.System_Int16: return _b.Cast(LLVMOpcode.SExt, a, i32);
+            case SpecialType.System_Int32 or SpecialType.System_UInt32: return a;
+            case SpecialType.System_Int64 or SpecialType.System_UInt64 or SpecialType.System_IntPtr or SpecialType.System_UIntPtr:
+            {
+                var lo = _b.Cast(LLVMOpcode.Trunc, a, i32);
+                var hi = _b.Cast(LLVMOpcode.Trunc, _b.BinOp(LLVMOpcode.LShr, a, L.ConstInt(a.Type, 32)), i32);
+                return _b.BinOp(LLVMOpcode.Xor, lo, hi);
+            }
+            case SpecialType.System_Double or SpecialType.System_Single:
+            {
+                // Normalize -0.0 to 0.0 (they're Equal), then hash the bits.
+                var normalized = _b.BinOp(LLVMOpcode.FAdd, a, LlvmContext.ConstReal(a.Type, 0.0));
+                var bits = _b.Cast(LLVMOpcode.BitCast, normalized, a.Type.Kind == LLVMTypeKind.Double ? L.I64 : L.I32);
+                if (bits.Type.IntWidth == 32) return bits;
+                return _b.BinOp(LLVMOpcode.Xor, _b.Cast(LLVMOpcode.Trunc, bits, i32),
+                    _b.Cast(LLVMOpcode.Trunc, _b.BinOp(LLVMOpcode.LShr, bits, L.ConstInt(L.I64, 32)), i32));
+            }
+            case SpecialType.System_String:
+                return BranchOnNull(a, i32, () => L.ConstInt(i32, 0),
+                    () => CallRuntime("csrt_string_get_hash_code", i32, [L.Ptr], a));
+        }
+        if (t is INamedTypeSymbol { IsTupleType: true } tuple)
+        {
+            LLVMValueRef h = L.ConstInt(i32, 17);
+            for (var i = 0; i < tuple.TupleElements.Length; i++)
+                h = _b.BinOp(LLVMOpcode.Add, _b.BinOp(LLVMOpcode.Mul, h, L.ConstInt(i32, 31)), HashOf(tuple.TupleElements[i].Type, TupleElement(a, tuple, i), at));
+            return h;
+        }
+        if (TypeMapper.IsNullable(t)) throw CompileError.Unsupported($"EqualityComparer<{t}>.GetHashCode", at);
+        var getHashCode = ObjectMethod("GetHashCode", 0);
+        if (t.IsValueType)
+        {
+            var box = Box(a, t, at);
+            return VirtualCall(getHashCode, box, [box]);
+        }
+        return BranchOnNull(a, i32, () => L.ConstInt(i32, 0), () => VirtualCall(getHashCode, a, [a]));
+    }
+
+    // ======================================================================================
+    // Ordering
+    // ======================================================================================
+
+    private LLVMValueRef CompareOf(ITypeSymbol t, LLVMValueRef a, LLVMValueRef b, IOperation at)
+    {
+        t = EnumBase(t);
+        var i32 = L.I32;
+        LLVMValueRef Sign(LLVMValueRef gt, LLVMValueRef lt) =>
+            _b.BinOp(LLVMOpcode.Sub, _b.Cast(LLVMOpcode.ZExt, gt, i32), _b.Cast(LLVMOpcode.ZExt, lt, i32));
+
+        if (IsIntegral(t))
+        {
+            var signed = TypeMapper.IsSigned(t);
+            return Sign(_b.ICmp(signed ? LLVMIntPredicate.SGT : LLVMIntPredicate.UGT, a, b),
+                        _b.ICmp(signed ? LLVMIntPredicate.SLT : LLVMIntPredicate.ULT, a, b));
+        }
+        if (TypeMapper.IsFloatingPoint(t))
+        {
+            // double.CompareTo: NaN is smaller than everything (and equal to NaN).
+            var ordered = Sign(_b.FCmp(LLVMRealPredicate.OGT, a, b), _b.FCmp(LLVMRealPredicate.OLT, a, b));
+            var aNaN = _b.FCmp(LLVMRealPredicate.UNO, a, a);
+            var bNaN = _b.FCmp(LLVMRealPredicate.UNO, b, b);
+            var nanResult = _b.Select(aNaN, _b.Select(bNaN, L.ConstInt(i32, 0), L.ConstInt(i32, -1)), L.ConstInt(i32, 1));
+            return _b.Select(_b.BinOp(LLVMOpcode.Or, aNaN, bNaN), nanResult, ordered);
+        }
+        if (t.SpecialType == SpecialType.System_String)
+            return CallRuntime("csrt_string_compare_culture", i32, [L.Ptr, L.Ptr], a, b);
+
+        var comparable = GenericInterfaceImpl(t, "System.IComparable`1", "CompareTo");
+        var nonGeneric = comparable is null ? NonGenericComparable(t) : null;
+        if (comparable is null && nonGeneric is null && t.TypeKind is not (TypeKind.Interface or TypeKind.TypeParameter) && t.SpecialType != SpecialType.System_Object)
+        {
+            // .NET throws InvalidOperationException("Failed to compare two elements in the array.") at runtime.
+            CallRuntime("csrt_throw", L.Void, [L.Ptr, L.Ptr],
+                _m.LibraryTypeMethodTable(_m.Compilation.GetTypeByMetadataName("System.InvalidOperationException")!),
+                _m.StringLiteral("Failed to compare two elements in the array."));
+            return L.ConstInt(i32, 0);
+        }
+
+        LLVMValueRef Call()
+        {
+            if (comparable is not null) return CallMethod(comparable, [t.IsValueType ? Spill(a) : a, b]);
+            if (nonGeneric is not null)
+                return CallMethod(nonGeneric, [t.IsValueType ? Spill(a) : a, t.IsValueType ? Box(b, t, at) : b]);
+            // Interface-/object-typed T: dispatch IComparable<T> at runtime.
+            var itf = _m.Compilation.GetTypeByMetadataName("System.IComparable`1")!.Construct(t);
+            return InterfaceDispatch(itf.GetMembers("CompareTo").OfType<IMethodSymbol>().First(), a, [a, b]);
+        }
+        if (t.IsValueType) return Call();
+        return BranchOnNull(a, i32,
+            () => _b.Select(_b.ICmp(LLVMIntPredicate.EQ, b, LlvmContext.Null(L.Ptr)), L.ConstInt(i32, 0), L.ConstInt(i32, -1)),
+            () => BranchOnNull(b, i32, () => L.ConstInt(i32, 1), Call));
+    }
+
+    private IMethodSymbol? NonGenericComparable(ITypeSymbol t)
+    {
+        var itf = _m.Compilation.GetTypeByMetadataName("System.IComparable");
+        if (itf is null || !t.AllInterfaces.Contains(itf, SymbolEqualityComparer.Default)) return null;
+        return t.FindImplementationForInterfaceMember(itf.GetMembers("CompareTo").First()) as IMethodSymbol is { } impl && _m.IsUserMethod(impl) ? impl : null;
+    }
+}

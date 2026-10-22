@@ -42,7 +42,7 @@ public sealed class Compiler(CompilerOptions options)
             };
         }
         var compilation = RoslynFrontend.Analyze(settings);
-        var diagnostics = compilation.GetDiagnostics();
+        var diagnostics = RoslynFrontend.UserDiagnostics(compilation);
         Phase("parse + bind (Roslyn)");
 
         var errors = 0;

@@ -51,6 +51,7 @@ public static class RoslynFrontend
             CSharpSyntaxTree.ParseText(File.ReadAllText(f), parseOptions, path: Path.GetFullPath(f)))];
         if (settings.GlobalUsings is { Length: > 0 } usings)
             trees.Add(CSharpSyntaxTree.ParseText(usings, parseOptions, path: "<global-usings>.g.cs"));
+        trees.AddRange(CoreLibTrees(parseOptions));
 
         var nullable = settings.Nullable?.ToLowerInvariant() switch
         {
@@ -67,6 +68,37 @@ public static class RoslynFrontend
 
         var name = settings.AssemblyName ?? (settings.Files.Count > 0 ? Path.GetFileNameWithoutExtension(settings.Files[0]) : "program");
         return CSharpCompilation.Create(name, trees, ReferenceAssemblies(), options);
+    }
+
+    /// <summary>
+    /// The shadow corelib (src/Csharpc/corelib/**.cs, shipped next to the compiler): C# implementations
+    /// of BCL types that codegen redirects library symbols to (CodeGen/CoreLib.cs). Parsed with the
+    /// user's options so the compilation stays consistent; written in conservative C# for that reason.
+    /// Only the members a program actually uses get bound and lowered.
+    /// </summary>
+    private static IEnumerable<SyntaxTree> CoreLibTrees(CSharpParseOptions parseOptions)
+    {
+        if (Environment.GetEnvironmentVariable("CSHARPC_NO_CORELIB") == "1") yield break;
+        var dir = Path.Combine(AppContext.BaseDirectory, "corelib");
+        if (!Directory.Exists(dir)) yield break;
+        foreach (var file in Directory.EnumerateFiles(dir, "*.cs", SearchOption.AllDirectories).Order())
+            yield return CSharpSyntaxTree.ParseText(File.ReadAllText(file), parseOptions,
+                path: CodeGen.CoreLib.TreePrefix + Path.GetRelativePath(dir, file));
+    }
+
+    public static bool IsCoreLibTree(SyntaxTree tree) => tree.FilePath.StartsWith(CodeGen.CoreLib.TreePrefix, StringComparison.Ordinal);
+
+    /// <summary>
+    /// Diagnostics for the user's sources only. The corelib is bound lazily, member by member, as
+    /// codegen needs it (set CSHARPC_CHECK_CORELIB=1 to validate the whole corelib instead).
+    /// </summary>
+    public static ImmutableArray<Diagnostic> UserDiagnostics(CSharpCompilation compilation)
+    {
+        if (Environment.GetEnvironmentVariable("CSHARPC_CHECK_CORELIB") == "1") return compilation.GetDiagnostics();
+        var builder = ImmutableArray.CreateBuilder<Diagnostic>();
+        foreach (var tree in compilation.SyntaxTrees.Where(t => !IsCoreLibTree(t)))
+            builder.AddRange(compilation.GetSemanticModel(tree).GetDiagnostics());
+        return builder.ToImmutable();
     }
 
     /// <summary>

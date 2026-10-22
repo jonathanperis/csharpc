@@ -95,6 +95,14 @@ public sealed partial class FunctionCodeGen
         return TypeOf(source) is IArrayTypeSymbol;
     }
 
+    /// <summary>
+    /// A struct's public method matching an interface member by name and arity. Corelib shadow structs
+    /// (List&lt;T&gt;.Enumerator...) implement the BCL interfaces by pattern rather than declaration.
+    /// </summary>
+    private static IMethodSymbol? PatternImplementation(ITypeSymbol type, IMethodSymbol member) =>
+        type.GetMembers(member.Name).OfType<IMethodSymbol>()
+            .FirstOrDefault(m => !m.IsStatic && m.DeclaredAccessibility == Accessibility.Public && m.Parameters.Length == member.Parameters.Length);
+
     /// <summary>Peels implicit conversions (boxing, upcasts to the interface) off a receiver.</summary>
     internal IOperation ConcreteReceiver(IOperation receiver)
     {
@@ -113,16 +121,28 @@ public sealed partial class FunctionCodeGen
 
         // Devirtualize when the receiver's type is known to be a class / primitive.
         if (staticType is not null && staticType.TypeKind is not (TypeKind.Interface or TypeKind.TypeParameter)
-            && staticType.FindImplementationForInterfaceMember(target) is IMethodSymbol impl)
+            && (staticType.FindImplementationForInterfaceMember(target) as IMethodSymbol
+                ?? (staticType.IsValueType ? PatternImplementation(staticType, target) : null)) is IMethodSymbol impl)
         {
             if (_m.IsUserMethod(impl) && impl.ContainingType.TypeKind == TypeKind.Class)
             {
                 var self = EmitValue(concrete);
                 return EmitUserCall(impl, self, concrete is IInstanceReferenceOperation, arguments, isVirtual: true, extra.Length > 0 ? extra : null);
             }
+            // Constrained call on a struct (e.g. `using`/foreach disposing a struct enumerator): no boxing,
+            // `this` is the receiver's address.
+            if (_m.IsUserMethod(impl) && impl.ContainingType.IsValueType)
+                return EmitUserCall(impl, AddressOrSpill(concrete), selfIsNonNull: true, arguments, isVirtual: false, extra.Length > 0 ? extra : null);
             if (invocation is not null && Intrinsics.TryGet(impl, out var handler)) return handler(this, invocation);
             if (staticType.IsValueType) throw CompileError.Unsupported($"interface call '{target}' on value type '{staticType}'", receiver);
         }
+
+        // Arrays / strings statically known: call the corelib helper directly (no runtime lookup).
+        if (staticType is IArrayTypeSymbol { Rank: 1 } && target.ContainingType is { } arrayItf
+            && _m.ArrayInterfaceHelper(arrayItf, target) is { } arrayHelper)
+            return CallBuiltinHelper(arrayHelper, concrete, arguments, extra, target);
+        if (staticType?.SpecialType == SpecialType.System_String && _m.StringInterfaceHelper(target.ContainingType, target) is { } stringHelper)
+            return CallBuiltinHelper(stringHelper, concrete, arguments, extra, target);
 
         var receiverValue = EmitValue(receiver);
         NullCheck(receiverValue);
@@ -131,6 +151,19 @@ public sealed partial class FunctionCodeGen
         foreach (var argument in arguments) args[1 + argument.Parameter!.Ordinal] = EmitArgument(argument, target);
         for (var i = 0; i < extra.Length; i++) args[args.Length - extra.Length + i] = extra[i];
         return InterfaceDispatch(target, receiverValue, args);
+    }
+
+    private LLVMValueRef CallBuiltinHelper(IMethodSymbol helper, IOperation receiver, ImmutableArray<IArgumentOperation> arguments,
+        LLVMValueRef[] extra, IMethodSymbol target)
+    {
+        var self = EmitValue(receiver);
+        NullCheck(self);
+        var args = new LLVMValueRef[1 + target.Parameters.Length];
+        args[0] = self;
+        foreach (var argument in arguments) args[1 + argument.Parameter!.Ordinal] = EmitArgument(argument, target);
+        for (var i = 0; i < extra.Length; i++) args[args.Length - extra.Length + i] = extra[i];
+        var f = _m.GetFunction(helper);
+        return _b.Call(f.Type, f.Fn, args);
     }
 
     private LLVMValueRef InterfaceDispatch(IMethodSymbol target, LLVMValueRef self, LLVMValueRef[] args)

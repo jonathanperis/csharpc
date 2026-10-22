@@ -16,6 +16,7 @@ public sealed partial class FunctionCodeGen
     private LLVMValueRef EmitInvocation(IInvocationOperation inv)
     {
         var target = S(inv.TargetMethod);
+        if (IsCoreIntrinsic(target)) return EmitCoreIntrinsic(target, inv);
         if (target.MethodKind == MethodKind.DelegateInvoke) return EmitDelegateInvoke(inv);
         if (target.MethodKind == MethodKind.LocalFunction) return CallLocalFunction(inv);
         if (TypeMapper.IsNullable(target.ContainingType)) return EmitNullableMethod(inv);

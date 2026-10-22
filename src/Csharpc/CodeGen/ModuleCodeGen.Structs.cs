@@ -17,14 +17,19 @@ public sealed partial class ModuleCodeGen
 {
     private readonly Dictionary<INamedTypeSymbol, StructLayout> _structs = new(SymbolEqualityComparer.Default);
 
-    private LLVMTypeRef? ResolveStructType(INamedTypeSymbol type) =>
-        IsUserType(type) && type.TypeKind == TypeKind.Struct ? GetStructLayout(type).LlvmType : null;
+    private LLVMTypeRef? ResolveStructType(INamedTypeSymbol type)
+    {
+        type = CoreLib.TryMap(type) ?? type; // e.g. KeyValuePair<K,V>, List<T>.Enumerator -> corelib structs
+        return IsUserType(type) && type.TypeKind == TypeKind.Struct ? GetStructLayout(type).LlvmType : null;
+    }
 
     public StructLayout GetStructLayout(INamedTypeSymbol type)
     {
-        type = type.OriginalDefinition;
+        type = CoreLib.TryMap(type) ?? type;
+        // Generic structs are laid out per instantiation (the constructed type's fields are substituted).
+        if (!TypeSubstitution.IsGenericContext(type)) type = type.OriginalDefinition;
         if (_structs.TryGetValue(type, out var existing)) return existing;
-        if (type.IsGenericType) throw CompileError.Unsupported($"generic struct '{type.Name}'", type);
+        if (TypeSubstitution.IsOpen(type)) throw CompileError.Unsupported($"open generic struct '{type}'", type);
         if (type.IsRecord) throw CompileError.Unsupported($"record struct '{type.Name}'", type);
         if (!type.Interfaces.IsEmpty) throw CompileError.Unsupported($"interface implementation on '{type.Name}'", type);
 
@@ -34,7 +39,7 @@ public sealed partial class ModuleCodeGen
         List<LLVMTypeRef> elements = [];
         foreach (var f in type.GetMembers().OfType<IFieldSymbol>().Where(f => !f.IsStatic && !f.IsConst))
         {
-            layout.FieldIndex[f] = (uint)elements.Count;
+            layout.FieldIndex[f.OriginalDefinition] = (uint)elements.Count;
             elements.Add(Types.Storage(f.Type));
         }
         if (elements.Count == 0) elements.Add(Llvm.I8); // an empty struct still occupies a byte, as in the CLR
