@@ -15,7 +15,22 @@ public sealed partial class FunctionCodeGen
 
     private LLVMValueRef EmitInvocation(IInvocationOperation inv)
     {
-        var target = inv.TargetMethod;
+        var target = S(inv.TargetMethod);
+        if (!target.IsStatic && inv.Instance is { } receiver)
+        {
+            var receiverType = TypeOf(receiver);
+            // Interface members (user or library, e.g. IComparable<T>.CompareTo): devirtualize or dispatch.
+            if (target.ContainingType.TypeKind == TypeKind.Interface && !IsArrayEnumeration(receiver))
+                return EmitInterfaceCall(target, receiver, inv.Arguments, [], inv);
+            // object.ToString/Equals/GetHashCode on a value-type receiver (a substituted T): box, then dispatch.
+            if (receiverType is { IsValueType: true } && target.ContainingType.SpecialType is SpecialType.System_Object or SpecialType.System_ValueType)
+            {
+                if (target.Name == "ToString" && FormatPrimitive(EmitValue(receiver), receiverType) is { } formatted) return formatted;
+                var boxed = Box(EmitValue(receiver), receiverType, inv);
+                var extra = inv.Arguments.OrderBy(a => a.Parameter!.Ordinal).Select(EmitArgument);
+                return VirtualCall(target, boxed, [boxed, .. extra]);
+            }
+        }
         if (_m.IsUserMethod(target))
         {
             var self = target.IsStatic ? default : EmitValue(inv.Instance!);
@@ -40,7 +55,7 @@ public sealed partial class FunctionCodeGen
             if (!selfIsNonNull) NullCheck(self);
             args[0] = self;
         }
-        foreach (var argument in arguments) args[offset + argument.Parameter!.Ordinal] = EmitArgument(argument);
+        foreach (var argument in arguments) args[offset + argument.Parameter!.Ordinal] = EmitArgument(argument, target);
         if (extraArgs is not null)
             for (var i = 0; i < extraArgs.Length; i++) args[args.Length - extraArgs.Length + i] = extraArgs[i];
 
@@ -51,22 +66,28 @@ public sealed partial class FunctionCodeGen
 
     private LLVMValueRef DirectCall(IMethodSymbol target, LLVMValueRef[] args)
     {
-        var f = _m.GetFunction(target);
+        var f = target.MethodKind == MethodKind.LocalFunction ? _m.GetLocalFunction(target, _subst) : _m.GetFunction(target);
         return _b.Call(f.Type, f.Fn, args);
     }
 
     /// <summary>Static call to a user-defined operator/conversion with operand expressions as arguments.</summary>
     private LLVMValueRef EmitDirectCall(IMethodSymbol target, IOperation[] operands)
     {
-        var args = operands.Select((o, i) => Coerce(EmitValue(o), o.Type, target.Parameters[i].Type)).ToArray();
+        var args = operands.Select((o, i) => Coerce(EmitValue(o), TypeOf(o), target.Parameters[i].Type)).ToArray();
         return DirectCall(target, args);
     }
 
-    private LLVMValueRef EmitArgument(IArgumentOperation argument)
+    private LLVMValueRef EmitArgument(IArgumentOperation argument) => EmitArgument(argument, null);
+
+    /// <summary>Evaluates an argument and converts it to the (substituted) parameter type of <paramref name="target"/>.</summary>
+    private LLVMValueRef EmitArgument(IArgumentOperation argument, IMethodSymbol? target)
     {
         var parameter = argument.Parameter!;
         if (parameter.RefKind != RefKind.None) return AddressOf(argument.Value);
-        return Coerce(EmitValue(argument.Value), argument.Value.Type, parameter.Type);
+        var parameterType = target is not null && parameter.Ordinal < target.Parameters.Length
+            ? target.Parameters[parameter.Ordinal].Type
+            : S(parameter.Type);
+        return Coerce(EmitValue(argument.Value), TypeOf(argument.Value), parameterType);
     }
 
     /// <summary>
@@ -114,7 +135,7 @@ public sealed partial class FunctionCodeGen
     private LLVMValueRef EmitObjectCreation(IObjectCreationOperation creation)
     {
         if (creation.Initializer is not null) throw CompileError.Unsupported("object initializer", creation);
-        var type = (INamedTypeSymbol)creation.Type!;
+        var type = (INamedTypeSymbol)TypeOf(creation)!;
         if (type.SpecialType == SpecialType.System_Object)
             return Allocate(_m.ExternalGlobal("csrt_Object_MT"), L.ConstInt(L.I64, (long)T.PointerSize));
         if (!_m.IsUserType(type) || type.TypeKind != TypeKind.Class)
@@ -123,7 +144,20 @@ public sealed partial class FunctionCodeGen
 
         var layout = _m.GetLayout(type);
         var obj = Allocate(layout.MethodTable, L.ConstInt(L.I64, (long)layout.InstanceSize));
-        EmitUserCall(creation.Constructor!, obj, selfIsNonNull: true, creation.Arguments, isVirtual: false);
+        EmitUserCall(S(creation.Constructor!), obj, selfIsNonNull: true, creation.Arguments, isVirtual: false);
+        return obj;
+    }
+
+    /// <summary>`new T()` — after substitution T is a concrete class with a parameterless constructor.</summary>
+    private LLVMValueRef EmitNewT(ITypeParameterObjectCreationOperation creation)
+    {
+        var type = TypeOf(creation)!;
+        if (type is not INamedTypeSymbol { TypeKind: TypeKind.Class } named || !_m.IsUserType(named))
+            throw CompileError.Unsupported($"new T() with T = '{type}'", creation);
+        var layout = _m.GetLayout(named);
+        var obj = Allocate(layout.MethodTable, L.ConstInt(L.I64, (long)layout.InstanceSize));
+        var ctor = named.InstanceConstructors.First(c => c.Parameters.IsEmpty);
+        DirectCall(ctor, [obj]);
         return obj;
     }
 
@@ -173,12 +207,13 @@ public sealed partial class FunctionCodeGen
         _ when IsBoxablePrimitive(type) => _m.ExternalGlobal($"csrt_Boxed_{type.MetadataName}_MT"),
         { TypeKind: TypeKind.Enum } => throw CompileError.Unsupported($"boxing enum '{type}'", at),
         INamedTypeSymbol { TypeKind: TypeKind.Class } named when _m.IsUserType(named) => _m.GetLayout(named).MethodTable,
+        INamedTypeSymbol { TypeKind: TypeKind.Interface } itf => _m.InterfaceMethodTable(itf),
         _ => throw CompileError.Unsupported($"type test against '{type}'", at),
     };
 
     private LLVMValueRef EmitIsType(IIsTypeOperation op)
     {
-        var test = IsInstance(EmitValue(op.ValueOperand), op.ValueOperand.Type, op.TypeOperand, op);
+        var test = IsInstance(EmitValue(op.ValueOperand), TypeOf(op.ValueOperand), S(op.TypeOperand), op);
         return op.IsNegated ? _b.Not(test) : test;
     }
 
@@ -188,7 +223,9 @@ public sealed partial class FunctionCodeGen
 
     private LLVMValueRef EmitPropertyGet(IPropertyReferenceOperation p)
     {
-        var property = p.Property;
+        var property = S(p.Property);
+        if (property.ContainingType.TypeKind == TypeKind.Interface && !property.IsStatic && !IsArrayEnumeration(p.Instance!))
+            return EmitInterfaceCall(property.GetMethod!, p.Instance!, p.Arguments, [], null);
         if (_m.IsUserType(property.ContainingType))
         {
             var getter = property.GetMethod ?? throw CompileError.Unsupported($"reading set-only property '{property.Name}'", p);
@@ -201,7 +238,13 @@ public sealed partial class FunctionCodeGen
 
     private LLVMValueRef EmitPropertySet(IPropertyReferenceOperation p, Func<LLVMValueRef> value, ITypeSymbol? valueType)
     {
-        var property = p.Property;
+        var property = S(p.Property);
+        if (property.ContainingType.TypeKind == TypeKind.Interface && !property.IsStatic)
+        {
+            var assigned = Coerce(value(), valueType, property.Type);
+            EmitInterfaceCall(property.SetMethod!, p.Instance!, p.Arguments, [assigned], null);
+            return assigned;
+        }
         if (!_m.IsUserType(property.ContainingType))
             throw CompileError.Unsupported($"setting '{property.ContainingType}.{property.Name}'", p);
         var self = property.IsStatic ? default : EmitValue(p.Instance!);
@@ -231,9 +274,9 @@ public sealed partial class FunctionCodeGen
 
     private LLVMValueRef EmitArrayCreation(IArrayCreationOperation creation)
     {
-        var arrayType = (IArrayTypeSymbol)creation.Type!;
+        var arrayType = (IArrayTypeSymbol)TypeOf(creation)!;
         if (arrayType.Rank != 1) throw CompileError.Unsupported("multi-dimensional arrays", creation);
-        var length = ToIndex(EmitValue(creation.DimensionSizes[0]), creation.DimensionSizes[0].Type!);
+        var length = ToIndex(EmitValue(creation.DimensionSizes[0]), TypeOf(creation.DimensionSizes[0])!);
         var array = NewArray(arrayType.ElementType, length);
         if (creation.Initializer is { } init)
             StoreElements(array, arrayType.ElementType, init.ElementValues);
@@ -242,7 +285,7 @@ public sealed partial class FunctionCodeGen
 
     private LLVMValueRef EmitCollectionExpression(ICollectionExpressionOperation collection)
     {
-        if (collection.Type is not IArrayTypeSymbol { Rank: 1 } arrayType)
+        if (TypeOf(collection) is not IArrayTypeSymbol { Rank: 1 } arrayType)
             throw CompileError.Unsupported($"collection expression of type '{collection.Type}'", collection);
         if (collection.Elements.Any(e => e is ISpreadOperation)) throw CompileError.Unsupported("spread elements", collection);
         var array = NewArray(arrayType.ElementType, L.ConstInt(L.I64, collection.Elements.Length));
@@ -262,7 +305,7 @@ public sealed partial class FunctionCodeGen
         for (var i = 0; i < values.Length; i++)
         {
             var address = _b.InBoundsGep(T.ArrayHeader(storage), array, [L.ConstInt(L.I32, 0), L.ConstInt(L.I32, 2), L.ConstInt(L.I64, i)]);
-            StoreValue(ToStorage(Coerce(EmitValue(values[i]), values[i].Type, elementType), elementType), address);
+            StoreValue(ToStorage(Coerce(EmitValue(values[i]), TypeOf(values[i]), elementType), elementType), address);
         }
     }
 
@@ -273,12 +316,13 @@ public sealed partial class FunctionCodeGen
     {
         if (element.Indices.Length != 1) throw CompileError.Unsupported("multi-dimensional arrays", element);
         var index = element.Indices[0];
-        if (index.Type?.SpecialType is not (SpecialType.System_Int32 or SpecialType.System_Int64 or SpecialType.System_UInt32 or SpecialType.System_UInt64))
-            throw CompileError.Unsupported($"array index of type '{index.Type}'", element);
+        var indexType = TypeOf(index);
+        if (indexType?.SpecialType is not (SpecialType.System_Int32 or SpecialType.System_Int64 or SpecialType.System_UInt32 or SpecialType.System_UInt64))
+            throw CompileError.Unsupported($"array index of type '{indexType}'", element);
         var array = EmitValue(element.ArrayReference);
-        var i = ToIndex(EmitValue(index), index.Type);
+        var i = ToIndex(EmitValue(index), indexType);
         NullCheck(array);
-        var storage = T.Storage(element.Type!);
+        var storage = T.Storage(TypeOf(element)!);
         var header = T.ArrayHeader(storage);
         var length = _b.Load(L.I64, _b.StructGep(header, array, 1), "len");
         // One unsigned compare also catches negative indices.
@@ -294,8 +338,8 @@ public sealed partial class FunctionCodeGen
     {
         var source = instance;
         while (source is IConversionOperation { Conversion.IsImplicit: true } c) source = c.Operand;
-        if (source.Type is not IArrayTypeSymbol { Rank: 1 })
-            throw CompileError.Unsupported($"foreach over '{source.Type}' (only arrays so far)", at);
+        if (TypeOf(source) is not IArrayTypeSymbol { Rank: 1 })
+            throw CompileError.Unsupported($"foreach over '{TypeOf(source)}' (only arrays so far)", at);
         var array = EmitValue(source);
         NullCheck(array);
         var enumerator = NewTemp(ArrayEnumeratorType, "array.enumerator");
@@ -348,7 +392,7 @@ public sealed partial class FunctionCodeGen
     internal LLVMValueRef ToStringValue(IOperation op)
     {
         op = Unbox(op);
-        if (op.ConstantValue is { HasValue: true, Value: var constant } && op.Type?.TypeKind != TypeKind.Enum)
+        if (op.ConstantValue is { HasValue: true, Value: var constant } && TypeOf(op)?.TypeKind != TypeKind.Enum)
         {
             // Fold constants at compile time, using .NET's own formatting.
             return _m.StringLiteral(constant switch
@@ -359,7 +403,7 @@ public sealed partial class FunctionCodeGen
                 _ => constant.ToString() ?? "",
             });
         }
-        var type = op.Type;
+        var type = TypeOf(op);
         if (type is null) return _m.StringLiteral("");
         if (type.SpecialType == SpecialType.System_String) return EmitValue(op);
         if (type.TypeKind == TypeKind.Enum) throw CompileError.Unsupported("formatting enum values", op);
@@ -431,12 +475,13 @@ public sealed partial class FunctionCodeGen
             case IConstantPatternOperation constant:
             {
                 var c = EmitValue(constant.Value);
-                if (inputType is not null && !value.Type.IsPointer) c = Coerce(c, constant.Value.Type, inputType);
-                return Arithmetic(BinaryOperatorKind.Equals, value, c, inputType ?? constant.Value.Type!, constant.Value.Type ?? inputType!, pattern);
+                var constantType = TypeOf(constant.Value);
+                if (inputType is not null && !value.Type.IsPointer) c = Coerce(c, constantType, inputType);
+                return Arithmetic(BinaryOperatorKind.Equals, value, c, inputType ?? constantType!, constantType ?? inputType!, pattern);
             }
             case IRelationalPatternOperation relational:
             {
-                var c = Coerce(EmitValue(relational.Value), relational.Value.Type, inputType!);
+                var c = Coerce(EmitValue(relational.Value), TypeOf(relational.Value), inputType!);
                 return Arithmetic(relational.OperatorKind, value, c, inputType!, inputType!, pattern);
             }
             case IDiscardPatternOperation:
@@ -450,24 +495,25 @@ public sealed partial class FunctionCodeGen
                 return _b.BinOp(binary.OperatorKind == BinaryOperatorKind.Or ? LLVMOpcode.Or : LLVMOpcode.And, left, right);
             }
             case ITypePatternOperation typePattern:
-                return IsInstance(value, inputType, typePattern.MatchedType, pattern);
+                return IsInstance(value, inputType, S(typePattern.MatchedType), pattern);
             case IDeclarationPatternOperation declaration:
             {
-                var test = declaration.MatchesNull ? L.True : IsInstance(value, inputType, declaration.MatchedType ?? inputType!, pattern);
+                var test = declaration.MatchesNull ? L.True : IsInstance(value, inputType, declaration.MatchedType is { } mt ? S(mt) : inputType!, pattern);
                 if (declaration.DeclaredSymbol is ILocalSymbol local)
                 {
-                    if (local.Type.IsValueType && value.Type.IsPointer)
+                    var localType = S(local.Type);
+                    if (localType.IsValueType && value.Type.IsPointer)
                     {
                         // `obj is int n`: unbox only when the type test succeeded.
                         var unbox = NewBlock("pattern.unbox");
                         var done = NewBlock("pattern.done");
                         _b.CondBr(test, unbox, done);
                         _b.PositionAtEnd(unbox);
-                        StoreValue(ToStorage(LoadValue(_b.InBoundsGep(L.I8, value, [L.ConstInt(L.I64, 8)]), local.Type), local.Type), LocalSlot(local));
+                        StoreValue(ToStorage(LoadValue(_b.InBoundsGep(L.I8, value, [L.ConstInt(L.I64, 8)]), localType), localType), LocalSlot(local));
                         _b.Br(done);
                         _b.PositionAtEnd(done);
                     }
-                    else StoreValue(ToStorage(Coerce(value, inputType, local.Type), local.Type), LocalSlot(local));
+                    else StoreValue(ToStorage(Coerce(value, inputType, localType), localType), LocalSlot(local));
                 }
                 return test;
             }
