@@ -61,71 +61,79 @@ forecast.
 Run on 2026-10-22 against main `877db85` (structs, `Nullable<T>`, tuples, lambdas/closures/delegates,
 numeric formatting and MSBuild support merged; generics, interfaces and exceptions still in flight), `-O2`:
 
-**80 / 195 programs pass — 41.0% coverage.**
+**159 / 195 programs pass — 81.5% coverage** (merged main + BCL value types, 2026-10-22; history: 41.0% → 51.3% → 65.1% → 81.5%).
 Of the failures, 115 are compile-time "not supported" diagnostics and 0 compile but produce wrong output (none at this point —
 everything csharpc accepts behaves like .NET).
 
 | area | pass | total | coverage |
 |---|---:|---:|---:|
-| async | 0 | 4 | 0.0% |
-| bcl | 1 | 12 | 8.3% |
-| classes | 14 | 15 | 93.3% |
-| collections | 0 | 8 | 0.0% |
-| delegates | 3 | 5 | 60.0% |
-| exceptions | 2 | 10 | 20.0% |
-| expressions | 6 | 20 | 30.0% |
-| formatting | 3 | 5 | 60.0% |
-| generics | 0 | 8 | 0.0% |
-| interfaces | 0 | 9 | 0.0% |
-| iterators | 0 | 4 | 0.0% |
+| async | 3 | 4 | 75.0% |
+| bcl | 11 | 12 | 91.7% |
+| classes | 15 | 15 | 100.0% |
+| collections | 1 | 8 | 12.5% |
+| delegates | 5 | 5 | 100.0% |
+| exceptions | 10 | 10 | 100.0% |
+| expressions | 14 | 20 | 70.0% |
+| formatting | 5 | 5 | 100.0% |
+| generics | 5 | 8 | 62.5% |
+| interfaces | 8 | 9 | 88.9% |
+| iterators | 3 | 4 | 75.0% |
 | lambdas | 5 | 6 | 83.3% |
-| lexical | 9 | 10 | 90.0% |
+| lexical | 10 | 10 | 100.0% |
 | linq | 0 | 6 | 0.0% |
-| localfunctions | 3 | 4 | 75.0% |
-| members | 12 | 18 | 66.7% |
-| patterns | 3 | 8 | 37.5% |
-| programs | 2 | 6 | 33.3% |
-| statements | 7 | 12 | 58.3% |
-| types | 10 | 25 | 40.0% |
-| **total** | **80** | **195** | **41.0%** |
+| localfunctions | 4 | 4 | 100.0% |
+| members | 17 | 18 | 94.4% |
+| patterns | 6 | 8 | 75.0% |
+| programs | 4 | 6 | 66.7% |
+| statements | 12 | 12 | 100.0% |
+| types | 21 | 25 | 84.0% |
+| **total** | **159** | **195** | **81.5%** |
 
 Progression during the session: 29.2% at `4d91990` (before lambdas/structs), 36.9% after the
 lambdas/closures/delegates and numeric-formatting merges, 41.0% after structs/`Nullable<T>`/tuples.
 
-## Top-30 failure reasons (the prioritized roadmap)
+## Top failure reasons (the prioritized roadmap)
 
-| # | programs blocked | reason | examples |
+From `tests/conformance/results.md` of the latest run:
+
+| # | programs | reason | e.g. |
 |---:|---:|---|---|
-| 1 | 16 | interface implementation on '*' | `collections/006_list_of_objects`, `expressions/012_target_typed_new` |
-| 2 | 11 | try/catch (exception handling) | `collections/002_dictionary`, `exceptions/001_try_catch` |
-| 3 | 7 | interface '*' | `generics/007_generic_interface`, `interfaces/001_basic` |
-| 4 | 6 | creating instances of 'System.Collections.Generic.List<>' | `collections/001_list`, `collections/006_list_of_objects` |
-| 5 | 6 | generic local function '*' | `expressions/008_default_literal`, `generics/002_generic_methods` |
-| 6 | 6 | generic method '*' | `expressions/008_default_literal`, `generics/002_generic_methods` |
-| 7 | 5 | foreach over 'System.Collections.Generic.IEnumerable<>' (only arrays so far) | `iterators/001_yield_return`, `iterators/002_yield_break_lazy` |
-| 8 | 4 | async method '*' | `async/001_async_main`, `async/002_task_whenall` |
-| 9 | 4 | operation YieldReturn | `iterators/001_yield_return`, `iterators/002_yield_break_lazy` |
-| 10 | 4 | missing library member: string.Join | `linq/005_aggregate_distinct_zip`, `linq/006_selectmany_let` |
-| 11 | 3 | missing library member: System.Reflection.MemberInfo.Name | `classes/011_is_as_cast`, `expressions/007_nameof_typeof_sizeof` |
-| 12 | 3 | missing library member: int.CompareTo | `collections/001_list`, `collections/006_list_of_objects` |
-| 13 | 3 | generic type parameter '*' | `generics/001_generic_class`, `generics/004_generic_struct` |
-| 14 | 2 | struct 'System.Span<>' | `bcl/004_span_memory`, `types/019_ref_struct_span` |
-| 15 | 2 | ref assignment | `expressions/005_conditional`, `members/017_ref_returns_locals` |
-| 16 | 2 | operation AnonymousObjectCreation | `expressions/014_with_expression_anonymous`, `linq/006_selectmany_let` |
-| 17 | 2 | record struct '*' | `expressions/016_user_defined_conversions_chain`, `types/016_record_struct` |
-| 18 | 2 | missing library member: double.ToString | `formatting/001_numeric_format_strings`, `formatting/003_custom_formats` |
-| 19 | 2 | generic type '*' | `generics/001_generic_class`, `generics/008_static_generic_cache` |
-| 20 | 2 | struct 'System.ReadOnlySpan<>' | `lexical/007_utf8_literals`, `members/015_params_span` |
-| 21 | 2 | internal compiler error: invalid LLVM IR | `members/011_partial_methods`, `members/012_partial_properties` |
-| 22 | 2 | pattern RecursivePattern | `patterns/006_tuple_patterns`, `programs/006_state_machine_enum` |
-| 23 | 2 | System.Decimal | `programs/003_bank_simulation`, `types/003_decimal` |
-| 24 | 1 | missing library member: System.Text.StringBuilder.Insert | `bcl/001_stringbuilder` |
-| 25 | 1 | missing library member: string.Split | `bcl/002_string_methods` |
-| 26 | 1 | missing library member: System.Math.Round | `bcl/003_math` |
-| 27 | 1 | missing library member: System.IO.TextWriter.WriteLine | `bcl/005_console_apis` |
-| 28 | 1 | missing library member: System.Environment.ProcessorCount | `bcl/006_environment` |
-| 29 | 1 | struct 'System.DateTime' | `bcl/007_datetime_timespan` |
-| 30 | 1 | missing library member: double.Parse | `bcl/009_char_parse_convert` |
+| 1 | 7 | creating instances of 'System.Collections.Generic.List<>' | collections/001_list, collections/006_list_of_objects, expressions/004_null_coalescing_assign |
+| 2 | 2 | creating instances of 'System.Collections.Generic.Dictionary<,>' | collections/002_dictionary, programs/003_bank_simulation |
+| 3 | 2 | operation AnonymousObjectCreation | expressions/014_with_expression_anonymous, linq/006_selectmany_let |
+| 4 | 1 | runtime abort: Unhandled exception. System.InvalidOperationException: async boom | async/003_valuetask_exceptions |
+| 5 | 1 | missing library member: System.Tuple.Create | bcl/012_tuple_valuetuple_methods |
+| 6 | 1 | creating instances of 'System.Collections.Generic.HashSet<>' | collections/003_hashset |
+| 7 | 1 | creating instances of 'System.Collections.Generic.Queue<>' | collections/004_queue_stack |
+| 8 | 1 | creating instances of 'System.Collections.Generic.SortedDictionary<,>' | collections/005_sorted_linked |
+| 9 | 1 | creating instances of 'System.Collections.Generic.PriorityQueue<,>' | collections/007_priority_queue |
+| 10 | 1 | collection expression of type 'System.Collections.Generic.List<>' | expressions/010_collection_expressions |
+| 11 | 1 | three-valued logic on bool? | expressions/020_lifted_operators |
+| 12 | 1 | generic struct '*' | generics/004_generic_struct |
+| 13 | 1 | missing library member: System.Collections.Generic.List<>.Add | generics/007_generic_interface |
+| 14 | 1 | missing library member: System.Collections.Generic.List<>.Count | generics/007_generic_interface |
+| 15 | 1 | internal compiler error: invalid LLVM IR | interfaces/006_static_abstract |
+| 16 | 1 | missing library member: System.Linq.Enumerable.Take | iterators/004_fibonacci |
+| 17 | 1 | creating instances of 'System.Collections.Generic.List<System.Func<>>' | lambdas/002_loop_capture |
+| 18 | 1 | missing library member: System.Linq.Enumerable.Range | linq/001_method_syntax |
+| 19 | 1 | operation TranslatedQuery | linq/002_query_syntax |
+| 20 | 1 | missing library member: System.Linq.Enumerable.OrderBy | linq/003_groupby_orderby |
+| 21 | 1 | missing library member: System.Linq.Enumerable.Join | linq/004_join_tolist_todict |
+| 22 | 1 | missing library member: System.Linq.Enumerable.Distinct | linq/005_aggregate_distinct_zip |
+| 23 | 1 | missing library member: System.Linq.Enumerable.Sum | linq/005_aggregate_distinct_zip |
+| 24 | 1 | missing library member: System.Linq.Enumerable.SelectMany | linq/006_selectmany_let |
+| 25 | 1 | Extension '*' | members/010_extension_members_cs14 |
+| 26 | 1 | closure: local function or lambda capturing parameter '*' | members/010_extension_members_cs14 |
+| 27 | 1 | pattern ListPattern | patterns/005_list_patterns |
+| 28 | 1 | operator GreaterThan on reference types | patterns/007_is_not_null_var |
+| 29 | 1 | missing library member: System.Collections.Generic.Dictionary<,>.this[] | programs/003_bank_simulation |
+| 30 | 1 | struct 'System.Collections.Generic.KeyValuePair<,>' | programs/003_bank_simulation |
+| 31 | 1 | missing library member: System.Linq.Enumerable.Count | programs/005_word_frequency_linq |
+| 32 | 1 | missing library member: System.Linq.Enumerable.ThenBy | programs/005_word_frequency_linq |
+| 33 | 1 | formatting [Flags] enum '*' | types/006_enum_flags |
+| 34 | 1 | missing library member: System.Enum.GetName | types/007_enum_basic |
+| 35 | 1 | multi-dimensional arrays | types/011_arrays_multidim |
+| 36 | 1 | missing library member: string.Remove | types/022_string_basics |
 
 ### Reading the ranking
 
