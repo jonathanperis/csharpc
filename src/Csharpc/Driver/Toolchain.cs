@@ -12,7 +12,9 @@ public sealed class Toolchain(CompilerOptions options)
 {
     /// <summary>-fexceptions: C# exceptions unwind through runtime frames (and, with runtime LTO,
     /// keeps clang from marking csrt functions nounwind, which would delete landing pads).</summary>
-    private static readonly string[] RuntimeCFlags = ["-O2", "-std=c11", "-fPIC", "-funwind-tables", "-fexceptions"];
+    private static readonly string[] BaseRuntimeCFlags = ["-O2", "-std=c11", "-fPIC", "-funwind-tables", "-fexceptions"];
+
+    private string[] RuntimeCFlags => [.. BaseRuntimeCFlags, .. Hardening.RuntimeCFlags(options.Hardening)];
 
     private static string RuntimeDir => Path.Combine(AppContext.BaseDirectory, "runtime");
 
@@ -55,7 +57,7 @@ public sealed class Toolchain(CompilerOptions options)
     public void Link(string triple, string programObject, string output, bool runtimeLinkedIn = false)
     {
         string[] runtime = runtimeLinkedIn ? [] : RuntimeObjects(triple);
-        Run(options.CC, [$"--target={triple}", programObject, .. runtime, "-lm", "-pthread", "-o", output]);
+        Run(options.CC, [$"--target={triple}", programObject, .. runtime, "-lm", "-pthread", .. Hardening.LinkFlags(options.Hardening), "-o", output]);
     }
 
     private void Run(string tool, string[] args)

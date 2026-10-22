@@ -90,5 +90,13 @@ internal static unsafe partial class Native
     [LibraryImport(Lib)] public static partial LLVMMetadataRef LLVMValueAsMetadata(LLVMValueRef value);
 
     [LibraryImport(Lib, StringMarshalling = StringMarshalling.Utf8)]
+    public static partial LLVMMetadataRef LLVMMDStringInContext2(LLVMContextRef c, string str, nuint length);
+    [LibraryImport(Lib)]
+    public static partial LLVMMetadataRef LLVMMDNodeInContext2(LLVMContextRef c, [In] LLVMMetadataRef[] mds, nuint count);
+    [LibraryImport(Lib)] public static partial LLVMValueRef LLVMMetadataAsValue(LLVMContextRef c, LLVMMetadataRef md);
+    [LibraryImport(Lib, StringMarshalling = StringMarshalling.Utf8)]
+    public static partial void LLVMAddNamedMetadataOperand(LLVMModuleRef m, string name, LLVMValueRef value);
+
+    [LibraryImport(Lib, StringMarshalling = StringMarshalling.Utf8)]
     public static partial void LLVMAddModuleFlag(LLVMModuleRef m, int behavior, string key, nuint keyLen, LLVMMetadataRef value);
 }

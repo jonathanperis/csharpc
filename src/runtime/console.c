@@ -16,7 +16,7 @@ static csrt_String* utf8_to_string(const char* p, size_t n) {
         units += len == 4 ? 2 : 1;
         i += len;
     }
-    csrt_String* s = csrt_alloc(&csrt_String_MT.header, (int64_t)(sizeof(csrt_String) + 2 * units));
+    csrt_String* s = csrt_string_alloc_zeroed((int64_t)units);
     s->length = (int32_t)units;
     size_t o = 0;
     for (size_t i = 0; i < n;) {

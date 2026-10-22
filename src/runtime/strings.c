@@ -15,12 +15,8 @@
 // ---------------------------------------------------------------------------------------------
 // helpers
 // ---------------------------------------------------------------------------------------------
-static csrt_String* new_string(int32_t length) {
-    // Not zeroed: every caller writes all `length` chars (and the GC never scans strings).
-    csrt_String* s = csrt_alloc_noclear(&csrt_String_MT.header, (int64_t)(sizeof(csrt_String) + sizeof(uint16_t) * (size_t)length));
-    s->length = length;
-    return s;
-}
+/// Uninitialized string of `length` chars; 64-bit so sums can't wrap; OOM above the CLR limit.
+static csrt_String* new_string(int64_t length) { return csrt_string_alloc_checked(length); }
 
 static csrt_String* from_chars(const uint16_t* chars, int32_t length) {
     csrt_String* s = new_string(length);
@@ -41,6 +37,15 @@ static csrt_String* ascii(const char* text) {
 }
 
 _Noreturn static void out_of_range(const char* message) { csrt_throw(&mt_argument_out_of_range, ascii(message)); }
+
+// .NET's ArgumentOutOfRangeException.ThrowIfNegative message: "x ('-1') must be a non-negative value. ...".
+_Noreturn static void negative_argument(const char* name, int64_t value) {
+    char message[160];
+    snprintf(message, sizeof message, "%s ('%lld') must be a non-negative value. (Parameter '%s')\nActual value was %lld.",
+             name, (long long)value, name, (long long)value);
+    out_of_range(message);
+}
+
 
 static void require(const csrt_String* s) { if (!s) csrt_throw_null_reference(); }
 
@@ -105,7 +110,7 @@ uint16_t csrt_char_to_lower(uint16_t c) { return to_lower(c); }
 // System.String
 // ---------------------------------------------------------------------------------------------
 csrt_String* csrt_string_new_repeat(uint16_t c, int32_t count) {
-    if (count < 0) out_of_range("Non-negative number required. (Parameter 'count')");
+    if (count < 0) negative_argument("count", count);
     csrt_String* s = new_string(count);
     for (int32_t i = 0; i < count; i++) s->chars[i] = c;
     return s;
@@ -123,10 +128,13 @@ csrt_Array* csrt_string_to_char_array(csrt_String* s) {
     return a;
 }
 
+/// string.Substring(start, length) — and s[a..b], which Roslyn lowers to it without range checks.
 csrt_String* csrt_string_substring(csrt_String* s, int32_t start, int32_t length) {
     require(s);
-    if (start < 0 || start > s->length) out_of_range("startIndex cannot be larger than length of string. (Parameter 'startIndex')");
-    if (length < 0 || start > s->length - length) out_of_range("Index and length must refer to a location within the string. (Parameter 'length')");
+    if (start < 0) negative_argument("startIndex", start);
+    if (start > s->length) out_of_range("startIndex cannot be larger than length of string. (Parameter 'startIndex')");
+    if (length < 0) negative_argument("length", length);
+    if (start > s->length - length) out_of_range("Index and length must refer to a location within the string. (Parameter 'length')");
     return from_chars(s->chars + start, length);
 }
 
@@ -135,7 +143,7 @@ csrt_String* csrt_string_insert(csrt_String* s, int32_t start, csrt_String* valu
     require(s);
     if (!value) csrt_throw(&mt_argument_null, ascii("Value cannot be null. (Parameter 'value')"));
     if (start < 0 || start > s->length) out_of_range("Index was out of range. Must be non-negative and less than or equal to the size of the collection. (Parameter 'startIndex')");
-    csrt_String* r = new_string(s->length + value->length);
+    csrt_String* r = new_string((int64_t)s->length + value->length);
     memcpy(r->chars, s->chars, sizeof(uint16_t) * (size_t)start);
     memcpy(r->chars + start, value->chars, sizeof(uint16_t) * (size_t)value->length);
     memcpy(r->chars + start + value->length, s->chars + start, sizeof(uint16_t) * (size_t)(s->length - start));
@@ -247,7 +255,7 @@ csrt_String* csrt_string_replace(csrt_String* s, csrt_String* from, csrt_String*
     int32_t count = 0;
     for (int32_t i = csrt_string_index_of(s, from, 0); i >= 0; i = csrt_string_index_of(s, from, i + from->length)) count++;
     if (count == 0) return s;
-    csrt_String* r = new_string(s->length + count * (to_len - from->length));
+    csrt_String* r = new_string((int64_t)s->length + (int64_t)count * (to_len - from->length));
     int32_t src = 0, dst = 0;
     for (int32_t i = csrt_string_index_of(s, from, 0); i >= 0; i = csrt_string_index_of(s, from, src)) {
         memcpy(r->chars + dst, s->chars + src, sizeof(uint16_t) * (size_t)(i - src));
@@ -302,7 +310,7 @@ csrt_String* csrt_string_join(csrt_String* separator, csrt_Array* values) {
     int32_t sep_len = separator ? separator->length : 0;
     int64_t total = 0;
     for (int64_t i = 0; i < values->length; i++) total += (items[i] ? items[i]->length : 0) + (i ? sep_len : 0);
-    csrt_String* r = new_string((int32_t)total);
+    csrt_String* r = new_string(total);
     int32_t at = 0;
     for (int64_t i = 0; i < values->length; i++) {
         if (i && sep_len) { memcpy(r->chars + at, separator->chars, sizeof(uint16_t) * (size_t)sep_len); at += sep_len; }
@@ -435,6 +443,7 @@ const csrt_BuiltinMethodTable csrt_StringBuilder_MT = {
 };
 
 StringBuilder* csrt_sb_new(int32_t capacity) {
+    if (capacity < 0) negative_argument("capacity", capacity);
     StringBuilder* sb = csrt_alloc(&csrt_StringBuilder_MT.header, sizeof(StringBuilder));
     // Primitive + uncleared: the GC never scans it, and chars past `length` are never read.
     sb->buffer = csrt_new_array_primitive_noclear(sizeof(uint16_t), capacity > 16 ? capacity : 16);
@@ -461,7 +470,7 @@ StringBuilder* csrt_sb_append_string(StringBuilder* sb, csrt_String* s) {
 }
 
 StringBuilder* csrt_sb_append_char(StringBuilder* sb, uint16_t c, int32_t repeat) {
-    if (repeat < 0) out_of_range("Count cannot be less than zero. (Parameter 'repeatCount')");
+    if (repeat < 0) negative_argument("repeatCount", repeat);
     sb_reserve(sb, repeat);
     for (int32_t i = 0; i < repeat; i++) ((uint16_t*)sb->buffer->data)[sb->length++] = c;
     return sb;

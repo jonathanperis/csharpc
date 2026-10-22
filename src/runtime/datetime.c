@@ -34,7 +34,7 @@ static void puts_(Buf* b, const char* s) { while (*s) put(b, *s++); }
 static void putnum(Buf* b, long long v, int width) { char t[32]; snprintf(t, sizeof t, "%0*lld", width, v); puts_(b, t); }
 
 static csrt_String* buf_to_string(Buf* b) {
-    csrt_String* s = csrt_alloc(&csrt_String_MT.header, (int64_t)(sizeof(csrt_String) + 2 * b->n));
+    csrt_String* s = csrt_string_alloc_zeroed((int64_t)b->n);
     s->length = (int32_t)b->n;
     for (size_t i = 0; i < b->n; i++) s->chars[i] = (uint8_t)b->p[i];
     free(b->p);

@@ -27,7 +27,7 @@ static const csrt_MethodTable mt_argument_null = { NULL, "System.ArgumentNullExc
 
 static csrt_String* ascii(const char* text) {
     int32_t n = (int32_t)strlen(text);
-    csrt_String* s = csrt_alloc(&csrt_String_MT.header, (int64_t)(sizeof(csrt_String) + 2 * (size_t)n));
+    csrt_String* s = csrt_string_alloc_zeroed((int64_t)n);
     s->length = n;
     for (int32_t i = 0; i < n; i++) s->chars[i] = (uint8_t)text[i];
     return s;

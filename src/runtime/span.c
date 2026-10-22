@@ -8,7 +8,7 @@
 #include <string.h>
 
 csrt_String* csrt_string_from_chars(const uint16_t* chars, int32_t length) {
-    csrt_String* s = csrt_alloc(&csrt_String_MT.header, (int64_t)(sizeof(csrt_String) + 2 * (size_t)length));
+    csrt_String* s = csrt_string_alloc_zeroed((int64_t)length);
     s->length = length;
     if (length) memcpy(s->chars, chars, 2 * (size_t)length);
     return s;

@@ -103,6 +103,14 @@ _Noreturn void csrt_throw_index_out_of_range(void);
 _Noreturn void csrt_throw_divide_by_zero(void);
 _Noreturn void csrt_throw_overflow(void);
 _Noreturn void csrt_throw_negate_overflow(void);
+_Noreturn void csrt_throw_out_of_memory(const char* message);  // NULL: "Insufficient memory to continue..."
+
+// CLR size limits (Array.MaxLength, string length): checked *before* any size arithmetic so a
+// huge request can never wrap into an undersized allocation.
+#define CSRT_MAX_ARRAY_LENGTH 0x7FFFFFC7LL
+#define CSRT_MAX_STRING_LENGTH 0x3FFFFFDFLL
+csrt_String* csrt_string_alloc_checked(int64_t length);  // uninitialized chars; OOM above the limit
+csrt_String* csrt_string_alloc_zeroed(int64_t length);   // zero-filled; OOM above the limit
 _Noreturn void csrt_throw_invalid_cast(void);
 
 // Type system -------------------------------------------------------------------------------

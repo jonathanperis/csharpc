@@ -1,0 +1,18 @@
+arr.Length: NullReferenceException: Object reference not set to an instance of an object.
+arr[0]: NullReferenceException: Object reference not set to an instance of an object.
+str.Length: NullReferenceException: Object reference not set to an instance of an object.
+str[0]: NullReferenceException: Object reference not set to an instance of an object.
+node.Value: NullReferenceException: Object reference not set to an instance of an object.
+node.Value = 1: NullReferenceException: Object reference not set to an instance of an object.
+node.Next.Value: NullReferenceException: Object reference not set to an instance of an object.
+node.Method(): NullReferenceException: Object reference not set to an instance of an object.
+node.Virtual(): NullReferenceException: Object reference not set to an instance of an object.
+fn(): NullReferenceException: Object reference not set to an instance of an object.
+shape.Area(): NullReferenceException: Object reference not set to an instance of an object.
+(int)boxed: NullReferenceException: Object reference not set to an instance of an object.
+list.Count: NullReferenceException: Object reference not set to an instance of an object.
+foreach over null: NullReferenceException: Object reference not set to an instance of an object.
+lock(null): ArgumentNullException: Value cannot be null. (Parameter 'obj')
+null?.Length = -1
+throw null: NullReferenceException: Object reference not set to an instance of an object.
+str.ToUpper(): NullReferenceException: Object reference not set to an instance of an object.

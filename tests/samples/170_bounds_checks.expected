@@ -1,0 +1,24 @@
+a[-1]: IndexOutOfRangeException: Index was outside the bounds of the array.
+a[3]: IndexOutOfRangeException: Index was outside the bounds of the array.
+a[int.MaxValue]: IndexOutOfRangeException: Index was outside the bounds of the array.
+a[1L<<40]: IndexOutOfRangeException: Index was outside the bounds of the array.
+a[^0]: IndexOutOfRangeException: Index was outside the bounds of the array.
+a[^4]: IndexOutOfRangeException: Index was outside the bounds of the array.
+a[1..5]: ArgumentOutOfRangeException: Specified argument was out of the range of valid values. (Parameter 'length')
+a[2..1]: ArgumentOutOfRangeException: Specified argument was out of the range of valid values. (Parameter 'length')
+write a[3]: IndexOutOfRangeException: Index was outside the bounds of the array.
+grid[2,0]: IndexOutOfRangeException: Index was outside the bounds of the array.
+grid[0,3]: IndexOutOfRangeException: Index was outside the bounds of the array.
+grid[-1,0]: IndexOutOfRangeException: Index was outside the bounds of the array.
+jagged[1][0]: NullReferenceException: Object reference not set to an instance of an object.
+s[3]: IndexOutOfRangeException: Index was outside the bounds of the array.
+s[-1]: IndexOutOfRangeException: Index was outside the bounds of the array.
+s[^0]: IndexOutOfRangeException: Index was outside the bounds of the array.
+s[1..9]: ArgumentOutOfRangeException: Index and length must refer to a location within the string. (Parameter 'length')
+s.Substring(-1): ArgumentOutOfRangeException: startIndex ('-1') must be a non-negative value. (Parameter 'startIndex')
+Actual value was -1.
+s.Substring(1, 5): ArgumentOutOfRangeException: Index and length must refer to a location within the string. (Parameter 'length')
+list[2]: ArgumentOutOfRangeException: Index was out of range. Must be non-negative and less than the size of the collection. (Parameter 'index')
+list[-1]: ArgumentOutOfRangeException: Index was out of range. Must be non-negative and less than the size of the collection. (Parameter 'index')
+Array.Copy past end: ArgumentException: Destination array was not long enough. Check the destination index, length, and the array's lower bounds. (Parameter 'destinationArray')
+1,2,3

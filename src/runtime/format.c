@@ -28,7 +28,7 @@ static void put(Buf* b, char c) {
 static void puts_(Buf* b, const char* s) { while (*s) put(b, *s++); }
 
 static csrt_String* buf_to_string(Buf* b) {
-    csrt_String* s = csrt_alloc(&csrt_String_MT.header, (int64_t)(sizeof(csrt_String) + 2 * b->n));
+    csrt_String* s = csrt_string_alloc_zeroed((int64_t)b->n);
     s->length = (int32_t)b->n;
     for (size_t i = 0; i < b->n; i++) s->chars[i] = (uint8_t)b->p[i];
     free(b->p);
@@ -318,7 +318,7 @@ csrt_String* csrt_string_align(csrt_String* s, int32_t width) {
     int32_t len = s ? s->length : 0;
     int32_t w = width < 0 ? -width : width;
     if (w <= len) return s ? s : ascii("");
-    csrt_String* r = csrt_alloc(&csrt_String_MT.header, (int64_t)(sizeof(csrt_String) + 2 * (size_t)w));
+    csrt_String* r = csrt_string_alloc_zeroed((int64_t)w);
     r->length = w;
     int32_t pad = w - len;
     for (int32_t i = 0; i < w; i++) r->chars[i] = ' ';
@@ -384,7 +384,7 @@ csrt_String* csrt_string_format(csrt_String* fmt, csrt_Array* args) {
         if (i < fmt->length && fmt->chars[i] == ':') {
             int32_t start = ++i;
             while (i < fmt->length && fmt->chars[i] != '}') i++;
-            spec = csrt_alloc(&csrt_String_MT.header, (int64_t)(sizeof(csrt_String) + 2 * (size_t)(i - start)));
+            spec = csrt_string_alloc_zeroed((int64_t)(i - start));
             spec->length = i - start;
             memcpy(spec->chars, fmt->chars + start, 2 * (size_t)(i - start));
         }
@@ -399,7 +399,7 @@ csrt_String* csrt_string_format(csrt_String* fmt, csrt_Array* args) {
         for (int32_t k = 0; k < piece->length; k++) EMIT(piece->chars[k]);
     }
 #undef EMIT
-    csrt_String* s = csrt_alloc(&csrt_String_MT.header, (int64_t)(sizeof(csrt_String) + 2 * (size_t)n));
+    csrt_String* s = csrt_string_alloc_zeroed((int64_t)n);
     s->length = n;
     memcpy(s->chars, out, 2 * (size_t)n);
     free(out);

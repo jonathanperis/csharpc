@@ -55,11 +55,8 @@ void csrt_shutdown(void) {
 // ---------------------------------------------------------------------------------------------
 // Allocation
 // ---------------------------------------------------------------------------------------------
-_Noreturn static void out_of_memory(void) {
-    fflush(stdout);
-    fputs("Unhandled exception. System.OutOfMemoryException: Insufficient memory to continue the execution of the program.\n", stderr);
-    abort();
-}
+// Allocation failure is a catchable OutOfMemoryException, as in .NET (eh.c).
+_Noreturn static void out_of_memory(void) { csrt_throw_out_of_memory(NULL); }
 
 void* csrt_alloc(const csrt_MethodTable* mt, int64_t size) {
     csrt_Object* obj = csrt_gc_alloc((size_t)size);
@@ -76,8 +73,9 @@ void* csrt_alloc_noclear(const csrt_MethodTable* mt, int64_t size) {
 }
 
 static inline csrt_Array* new_array(const csrt_MethodTable* mt, int64_t element_size, int64_t length, bool clear) {
-    if (length < 0) csrt_throw_overflow();
-    if (element_size > 0 && length > (INT64_MAX - (int64_t)sizeof(csrt_Array)) / element_size) out_of_memory();
+    // .NET: negative or > int.MaxValue lengths overflow; > Array.MaxLength is OutOfMemoryException.
+    if (length < 0 || length > INT32_MAX) csrt_throw_overflow();
+    if (length > CSRT_MAX_ARRAY_LENGTH) csrt_throw_out_of_memory("Array dimensions exceeded supported range.");
     size_t size = sizeof(csrt_Array) + (size_t)(element_size * length);
     csrt_Array* arr = clear ? csrt_gc_alloc(size) : csrt_gc_alloc_noclear(size);
     if (!arr) out_of_memory();
@@ -98,14 +96,29 @@ csrt_Array* csrt_new_array_primitive_noclear(int64_t element_size, int64_t lengt
     return new_array(&csrt_PrimitiveArray_MT.header, element_size, length, false);
 }
 
-static csrt_String* string_alloc(int32_t length) {
+/// Every runtime string allocation goes through here. Lengths are 64-bit so callers can pass sums
+/// (a + b, count * n) without wrapping; anything above the CLR limit is an OutOfMemoryException.
+csrt_String* csrt_string_alloc_checked(int64_t length) {
+    if (length < 0 || length > CSRT_MAX_STRING_LENGTH) out_of_memory();
     // Not zeroed: every caller writes all `length` chars, and the GC never scans strings.
     csrt_String* s = csrt_gc_alloc_noclear(sizeof(csrt_String) + sizeof(uint16_t) * (size_t)length);
     if (!s) out_of_memory();
     s->mt = &csrt_String_MT.header;
-    s->length = length;
+    s->length = (int32_t)length;
     return s;
 }
+
+/// Same limit check, zero-filled (for callers that may not write every char).
+csrt_String* csrt_string_alloc_zeroed(int64_t length) {
+    if (length < 0 || length > CSRT_MAX_STRING_LENGTH) out_of_memory();
+    csrt_String* s = csrt_gc_alloc(sizeof(csrt_String) + sizeof(uint16_t) * (size_t)length);
+    if (!s) out_of_memory();
+    s->mt = &csrt_String_MT.header;
+    s->length = (int32_t)length;
+    return s;
+}
+
+static csrt_String* string_alloc(int64_t length) { return csrt_string_alloc_checked(length); }
 
 static csrt_String* string_from_ascii(const char* text) {
     int32_t n = (int32_t)strlen(text);
@@ -360,7 +373,7 @@ bool csrt_string_is_null_or_empty(csrt_String* s) { return !s || s->length == 0;
 
 csrt_String* csrt_string_concat(csrt_String* a, csrt_String* b) {
     int32_t la = a ? a->length : 0, lb = b ? b->length : 0;
-    csrt_String* s = string_alloc(la + lb);
+    csrt_String* s = string_alloc((int64_t)la + lb);
     if (la) memcpy(s->chars, a->chars, sizeof(uint16_t) * (size_t)la);
     if (lb) memcpy(s->chars + la, b->chars, sizeof(uint16_t) * (size_t)lb);
     return s;
