@@ -90,8 +90,8 @@ before every commit that touches `src/`.
 - The system libLLVM is a release build without assertions: crashes inside LLVM usually mean
   malformed IR — use `gdb` and `--emit llvm-ir`.
 - `-g` produces DWARF; `tools/gdb/csharpc.py` pretty-prints strings and arrays.
-- `--sanitize=address,undefined` builds the runtime with sanitizers; `tools/fuzz/` has libFuzzer
-  harnesses for runtime parsers and formatters.
+- `--sanitize=address,undefined` builds the runtime with sanitizers; `tools/fuzz/run.sh` fuzzes the
+  C runtime's input handling (libFuzzer), `tools/fuzz/corelib.sh` diff-fuzzes the C# corelib against .NET.
 - The runtime is cached in `~/.cache/csharpc`, keyed on sources and flags.
 
 ## Code style

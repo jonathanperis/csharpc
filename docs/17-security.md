@@ -54,10 +54,15 @@ afford it.
 - `--sanitize=address,undefined` (or `CSHARPC_SANITIZE=...`) builds the C runtime with ASan/UBSan and
   links the program against them. The conservative GC's stack and heap scanning is exempt from ASan,
   and ASan's fake stacks are disabled because they would hide roots from the collector.
-- `tools/fuzz/run.sh` builds a libFuzzer harness (`tools/fuzz/fuzz_runtime.cpp`) over the runtime's
-  parsers and formatters (integer/floating-point parsing, UTF-8 decoding, numeric format strings,
-  composite formatting, string replace/split/trim/pad, TimeSpan/DateTime formatting) under
-  ASan + UBSan.
+- `tools/fuzz/run.sh` builds a libFuzzer harness (`tools/fuzz/fuzz_runtime.cpp`) over the input
+  handling that is still C (UTF-8 decoding, UTF-16 strings from native memory, ordinal string
+  primitives, `Enum.Parse` name matching) under ASan + UBSan.
+- `tools/fuzz/corelib.sh` is a differential fuzzer for everything that moved to the C# corelib
+  (number parsing and formatting, composite formatting, decimal, BigInteger, TimeSpan/DateTime
+  formatting, string operations). `tools/fuzz/corelib/CorelibFuzz.cs` generates reproducible cases
+  from a seed; the script runs it under real .NET and as a csharpc binary built with
+  `--sanitize=address,undefined`, so it catches memory errors *and* any output that differs from
+  .NET — exception types and messages included.
 
 Fuzzing has already found and fixed two real bugs:
 
@@ -66,6 +71,8 @@ Fuzzing has already found and fixed two real bugs:
    substitutes U+FFFD exactly like .NET (regression test `174_utf8_input`).
 2. An **uninitialized rounding flag** in integer `N`/`F`/`E` formatting that could switch rounding
    modes at random — undefined behaviour with visible wrong output.
+3. Integer `"R<n>"` formats threw `FormatException` after formatting moved to C#; .NET treats them
+   as `"G<n>"` (differential fuzzer; regression test `175_integer_r_format`).
 
 ## Reproducible builds
 

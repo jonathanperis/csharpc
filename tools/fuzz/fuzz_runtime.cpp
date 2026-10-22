@@ -1,39 +1,34 @@
-// libFuzzer harness for csrt's input-handling code (number parsing, format strings, composite
-// formatting, UTF-8 decoding, string operations, decimal/BigInteger/DateTime formatting).
-// See tools/fuzz/run.sh. The first input byte selects the target; the rest is the input.
+// libFuzzer harness for the input-handling code that is still C in csrt: UTF-8 decoding, UTF-16
+// strings from native memory (P/Invoke), ordinal string primitives and Enum.Parse's name matching.
+// Number/date formatting and parsing, decimal and BigInteger are C# (src/Csharpc/corelib) and are
+// covered by the differential fuzzer in tools/fuzz/corelib (see tools/fuzz/run.sh).
+// The first input byte selects the target; the rest is the input.
 //
-// The runtime raises C# exceptions (FormatException, ArgumentOutOfRangeException, ...) with the
-// Itanium unwinder; a C++ catch(...) catches those foreign exceptions, which is the *correct*
-// outcome for bad input. Only sanitizer reports, crashes and hangs are bugs.
+// The runtime raises C# exceptions (FormatException, ArgumentException, ...) with the Itanium
+// unwinder; a C++ catch(...) catches those foreign exceptions, which is the *correct* outcome for
+// bad input. Only sanitizer reports, crashes and hangs are bugs.
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
 #include <string>
+#include <vector>
 
 extern "C" {
 #include "../../src/runtime/csrt.h"
-csrt_String* csrt_format_i64(int64_t v, csrt_String* fmt, int32_t bits);
-csrt_String* csrt_format_u64(uint64_t v, csrt_String* fmt, int32_t bits);
-csrt_String* csrt_format_f64(double v, csrt_String* fmt, bool single);
-csrt_String* csrt_string_format(csrt_String* fmt, csrt_Array* args);
-bool csrt_int32_try_parse(csrt_String* s, int32_t* result);
-bool csrt_int64_try_parse(csrt_String* s, int64_t* result);
-bool csrt_double_try_parse(csrt_String* s, double* result);
-int32_t csrt_int32_parse(csrt_String* s);
-double csrt_double_parse(csrt_String* s);
-csrt_String* csrt_string_replace(csrt_String* s, csrt_String* from, csrt_String* to);
-csrt_Array* csrt_string_split_char(csrt_String* s, uint16_t sep, int32_t options);
-csrt_String* csrt_string_pad(csrt_String* s, int32_t width, uint16_t c, bool left);
-csrt_String* csrt_string_trim(csrt_String* s, int32_t mode);
-csrt_String* csrt_string_substring(csrt_String* s, int32_t start, int32_t length);
-csrt_String* csrt_timespan_format(int64_t ticks, csrt_String* fmt);
-csrt_String* csrt_datetime_format(int64_t ticks, csrt_String* fmt);
-csrt_String* csrt_string_align(csrt_String* s, int32_t width);
+int32_t csrt_string_compare_ordinal(csrt_String* a, csrt_String* b);
+int32_t csrt_string_get_hash_code(csrt_String* s);
+csrt_String* csrt_string_new_from_utf16(const uint16_t* chars, int32_t length);
+csrt_String* csrt_pinvoke_string_from_native(void* p, bool unicode, bool release);
+int32_t csrt_enum_parse(csrt_String* s, bool ignore_case, const uint64_t* values, csrt_String* const* names, int32_t count,
+                        int32_t bits, bool is_signed, int64_t* result);
+
+// Enum.Parse hands numeric input to the corelib's C# parser (an export of compiled programs). The
+// harness has no corelib, so numeric pieces simply fail to parse here.
+int32_t csrt_parse_i64_styled(csrt_String*, int32_t, int32_t, bool, int64_t* result) { *result = 0; return 0; }
 }
 
 static csrt_String* str(const uint8_t* data, size_t size) {
-    std::string text(reinterpret_cast<const char*>(data), size);  // NUL-terminated copy
-    return csrt_string_from_utf8(text.c_str());
+    return csrt_string_from_utf8_n(reinterpret_cast<const char*>(data), size);
 }
 
 template <typename T> static T take(const uint8_t*& data, size_t& size) {
@@ -53,44 +48,41 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
     if (size < 1) return 0;
     uint8_t selector = *data++; size--;
     try {
-        switch (selector % 10) {
-            case 0: {  // integer / double parsing (and UTF-8 decoding of the input)
-                csrt_String* s = str(data, size);
-                int32_t i; int64_t l; double d;
-                csrt_int32_try_parse(s, &i); csrt_int64_try_parse(s, &l); csrt_double_try_parse(s, &d);
-                csrt_int32_parse(s);
+        switch (selector % 4) {
+            case 0: {  // UTF-8 decoding: length-delimited and NUL-terminated
+                str(data, size);
+                std::string text(reinterpret_cast<const char*>(data), size);
+                csrt_string_from_utf8(text.c_str());
                 break;
             }
-            case 1: { int64_t v = take<int64_t>(data, size); csrt_format_i64(v, str(data, size), 64); break; }
-            case 2: { uint64_t v = take<uint64_t>(data, size); csrt_format_u64(v, str(data, size), 32); break; }
-            case 3: { double v = take<double>(data, size); csrt_format_f64(v, str(data, size), false); break; }
-            case 4: {  // composite formatting with three boxed-int / string arguments
-                csrt_Array* args = csrt_new_array(sizeof(void*), 3);
-                void** items = reinterpret_cast<void**>(args->data);
-                items[0] = csrt_string_from_utf8("zero"); items[1] = csrt_string_from_i32(42); items[2] = nullptr;
-                csrt_string_format(str(data, size), args);
+            case 1: {  // UTF-16 from native memory: counted and NUL-terminated (LPWStr marshalling)
+                std::vector<uint16_t> units(size / 2 + 1, 0);
+                std::memcpy(units.data(), data, size & ~size_t{1});
+                csrt_string_new_from_utf16(units.data(), static_cast<int32_t>(size / 2));
+                csrt_pinvoke_string_from_native(units.data(), true, false);
                 break;
             }
-            case 5: {  // replace / split / trim on fuzzed pieces
+            case 2: {  // ordinal primitives on two fuzzed halves
                 size_t cut = size ? data[0] % (size + 1) : 0;
                 csrt_String* a = str(data, cut);
                 csrt_String* b = str(data + cut, size - cut);
-                if (b->length) csrt_string_replace(a, b, a);
-                csrt_string_split_char(a, b->length ? b->chars[0] : ',', (int32_t)(cut & 3));
-                csrt_string_trim(b, (int32_t)(cut % 3) + 1);
+                csrt_string_compare_ordinal(a, b);
+                csrt_string_get_hash_code(a);
+                csrt_string_equals(a, b);
+                csrt_string_concat(a, b);
                 break;
             }
-            case 6: {  // pad / substring / align with fuzzed (bounded) widths
-                int32_t w = take<int32_t>(data, size), start = take<int32_t>(data, size), len = take<int32_t>(data, size);
-                csrt_String* s = str(data, size);
-                csrt_string_pad(s, w % 4096, '*', w & 1);
-                csrt_string_substring(s, start, len);
-                csrt_string_align(s, w % 4096);
+            case 3: {  // Enum.Parse name matching ([Flags]-style comma lists, case folding)
+                static csrt_String* names[4];
+                static const uint64_t values[4] = { 0, 1, 2, 4 };
+                if (!names[0]) {
+                    const char* n[4] = { "None", "Read", "Write", "Execute" };
+                    for (int i = 0; i < 4; i++) names[i] = csrt_string_from_utf8(n[i]);
+                }
+                int64_t result;
+                csrt_enum_parse(str(data, size), selector & 0x80, values, names, 4, 32, true, &result);
                 break;
             }
-            case 7: { int64_t t = take<int64_t>(data, size); csrt_timespan_format(t, str(data, size)); break; }
-            case 8: { uint64_t t = take<uint64_t>(data, size) % 3155378975999999999ULL; csrt_datetime_format((int64_t)t, str(data, size)); break; }
-            case 9: { csrt_double_parse(str(data, size)); break; }
         }
     } catch (...) {
         // A C# exception: the runtime rejected the input the way .NET does.
