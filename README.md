@@ -122,6 +122,18 @@ csharpc [options] [<project.csproj> | <directory>]
   -v, --verbose           Pipeline phases and timings
 ```
 
+## Why LLVM?
+
+LLVM separates a language from its machine code: a front-end only has to translate the language to
+LLVM IR, and gets a world-class optimizer, every CPU target and the surrounding tooling (linkers,
+debuggers, sanitizers) for free. That is how clang, rustc, Swift and Zig work — and the idea behind
+csharpc: Roslyn already knows C# perfectly, LLVM already knows machines perfectly, and csharpc is the
+bridge between them. For an introduction to why that design is so effective:
+
+<a href="https://www.youtube.com/watch?v=3WojCM9r0Ls"><img src="https://i.ytimg.com/vi/3WojCM9r0Ls/hqdefault.jpg" alt="Why LLVM is a Game Changer for Compilers (The Coding Gopher)" width="360"></a>
+
+*[Why LLVM is a Game Changer for Compilers](https://www.youtube.com/watch?v=3WojCM9r0Ls) — The Coding Gopher*
+
 ## How it works
 
 ```mermaid
