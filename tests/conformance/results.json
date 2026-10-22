@@ -1,9 +1,9 @@
 {
  "date": "2026-10-22",
  "opt": "-O2",
- "passed": 188,
+ "passed": 195,
  "total": 195,
- "coverage": 96.4,
+ "coverage": 100.0,
  "areas": {
   "async": {
    "pass": 4,
@@ -11,9 +11,9 @@
    "coverage": 100.0
   },
   "bcl": {
-   "pass": 11,
+   "pass": 12,
    "total": 12,
-   "coverage": 91.7
+   "coverage": 100.0
   },
   "classes": {
    "pass": 15,
@@ -36,9 +36,9 @@
    "coverage": 100.0
   },
   "expressions": {
-   "pass": 19,
+   "pass": 20,
    "total": 20,
-   "coverage": 95.0
+   "coverage": 100.0
   },
   "formatting": {
    "pass": 5,
@@ -46,9 +46,9 @@
    "coverage": 100.0
   },
   "generics": {
-   "pass": 7,
+   "pass": 8,
    "total": 8,
-   "coverage": 87.5
+   "coverage": 100.0
   },
   "interfaces": {
    "pass": 9,
@@ -86,9 +86,9 @@
    "coverage": 100.0
   },
   "patterns": {
-   "pass": 7,
+   "pass": 8,
    "total": 8,
-   "coverage": 87.5
+   "coverage": 100.0
   },
   "programs": {
    "pass": 6,
@@ -101,1246 +101,1182 @@
    "coverage": 100.0
   },
   "types": {
-   "pass": 22,
+   "pass": 25,
    "total": 25,
-   "coverage": 88.0
+   "coverage": 100.0
   }
  },
- "reasons": [
-  {
-   "reason": "missing library member: System.Tuple.Create",
-   "programs": 1,
-   "examples": [
-    "bcl/012_tuple_valuetuple_methods"
-   ]
-  },
-  {
-   "reason": "collection expression of type 'System.Collections.Generic.List<>'",
-   "programs": 1,
-   "examples": [
-    "expressions/010_collection_expressions"
-   ]
-  },
-  {
-   "reason": "runtime abort: Unhandled exception. System.InvalidCastException: Unable to cast object of type 'System.Collections.",
-   "programs": 1,
-   "examples": [
-    "generics/006_variance"
-   ]
-  },
-  {
-   "reason": "operator GreaterThan on reference types",
-   "programs": 1,
-   "examples": [
-    "patterns/007_is_not_null_var"
-   ]
-  },
-  {
-   "reason": "missing library member: System.Enum.HasFlag",
-   "programs": 1,
-   "examples": [
-    "types/006_enum_flags"
-   ]
-  },
-  {
-   "reason": "missing library member: System.Enum.GetName",
-   "programs": 1,
-   "examples": [
-    "types/007_enum_basic"
-   ]
-  },
-  {
-   "reason": "missing library member: string.Remove",
-   "programs": 1,
-   "examples": [
-    "types/022_string_basics"
-   ]
-  }
- ],
+ "reasons": [],
  "results": [
   {
    "program": "async/001_async_main",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 3695
+   "compile_ms": 4116
   },
   {
    "program": "async/002_task_whenall",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 5923
+   "compile_ms": 4281
   },
   {
    "program": "async/003_valuetask_exceptions",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 5213
+   "compile_ms": 4221
   },
   {
    "program": "async/004_async_enumerable",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 4111
+   "compile_ms": 6377
   },
   {
    "program": "bcl/001_stringbuilder",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 5608
+   "compile_ms": 3854
   },
   {
    "program": "bcl/002_string_methods",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 5927
+   "compile_ms": 5945
   },
   {
    "program": "bcl/003_math",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 4413
+   "compile_ms": 5416
   },
   {
    "program": "bcl/004_span_memory",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 4062
+   "compile_ms": 5248
   },
   {
    "program": "bcl/005_console_apis",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 5181
+   "compile_ms": 5317
   },
   {
    "program": "bcl/006_environment",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 3510
+   "compile_ms": 4223
   },
   {
    "program": "bcl/007_datetime_timespan",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 4821
+   "compile_ms": 4820
   },
   {
    "program": "bcl/008_gc",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 4661
+   "compile_ms": 4662
   },
   {
    "program": "bcl/009_char_parse_convert",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 3774
+   "compile_ms": 4448
   },
   {
    "program": "bcl/010_bitoperations",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 3183
+   "compile_ms": 4302
   },
   {
    "program": "bcl/011_biginteger",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 3764
+   "compile_ms": 3785
   },
   {
    "program": "bcl/012_tuple_valuetuple_methods",
-   "status": "compile-error",
-   "reasons": [
-    "missing library member: System.Tuple.Create"
-   ],
-   "compile_ms": 3830
+   "status": "pass",
+   "reasons": [],
+   "compile_ms": 5279
   },
   {
    "program": "classes/001_fields_ctors",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 3797
+   "compile_ms": 3806
   },
   {
    "program": "classes/002_inheritance_virtual",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 4281
+   "compile_ms": 4520
   },
   {
    "program": "classes/003_abstract",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 4213
+   "compile_ms": 4323
   },
   {
    "program": "classes/004_sealed_new",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 4228
+   "compile_ms": 3751
   },
   {
    "program": "classes/005_static_class",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 4497
+   "compile_ms": 3591
   },
   {
    "program": "classes/006_ctor_chaining",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 4553
+   "compile_ms": 3428
   },
   {
    "program": "classes/007_base_ctor",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 5413
+   "compile_ms": 3717
   },
   {
    "program": "classes/008_init_order",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 5186
+   "compile_ms": 4222
   },
   {
    "program": "classes/009_nested_types",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 3755
+   "compile_ms": 3210
   },
   {
    "program": "classes/010_tostring_equals_hash",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 5739
+   "compile_ms": 4260
   },
   {
    "program": "classes/011_is_as_cast",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 5261
+   "compile_ms": 4541
   },
   {
    "program": "classes/012_partial_class",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 4990
+   "compile_ms": 4341
   },
   {
    "program": "classes/013_finalizer",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 3998
+   "compile_ms": 3671
   },
   {
    "program": "classes/014_object_initializer",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 4229
+   "compile_ms": 4282
   },
   {
    "program": "classes/015_primary_ctor",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 4388
+   "compile_ms": 4523
   },
   {
    "program": "collections/001_list",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 5489
+   "compile_ms": 5924
   },
   {
    "program": "collections/002_dictionary",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 8586
+   "compile_ms": 7496
   },
   {
    "program": "collections/003_hashset",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 6587
+   "compile_ms": 6517
   },
   {
    "program": "collections/004_queue_stack",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 10489
+   "compile_ms": 3998
   },
   {
    "program": "collections/005_sorted_linked",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 14013
+   "compile_ms": 6689
   },
   {
    "program": "collections/006_list_of_objects",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 10786
+   "compile_ms": 5809
   },
   {
    "program": "collections/007_priority_queue",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 6557
+   "compile_ms": 4517
   },
   {
    "program": "collections/008_array_methods",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 7498
+   "compile_ms": 4710
   },
   {
    "program": "delegates/001_func_action",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 4673
+   "compile_ms": 5456
   },
   {
    "program": "delegates/002_custom_delegate",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 4815
+   "compile_ms": 5148
   },
   {
    "program": "delegates/003_multicast",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 5136
+   "compile_ms": 4665
   },
   {
    "program": "delegates/004_events",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 4112
+   "compile_ms": 3583
   },
   {
    "program": "delegates/005_method_group_instance",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 4885
+   "compile_ms": 5096
   },
   {
    "program": "exceptions/001_try_catch",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 3900
+   "compile_ms": 4651
   },
   {
    "program": "exceptions/002_finally",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 3779
+   "compile_ms": 5948
   },
   {
    "program": "exceptions/003_custom",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 4322
+   "compile_ms": 4607
   },
   {
    "program": "exceptions/004_filters",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 4793
+   "compile_ms": 5203
   },
   {
    "program": "exceptions/005_rethrow",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 4667
+   "compile_ms": 4946
   },
   {
    "program": "exceptions/006_inner_exception",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 4068
+   "compile_ms": 4396
   },
   {
    "program": "exceptions/007_runtime_exceptions",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 4352
+   "compile_ms": 4313
   },
   {
    "program": "exceptions/008_unhandled",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 4294
+   "compile_ms": 4678
   },
   {
    "program": "exceptions/009_exception_tostring",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 4600
+   "compile_ms": 3527
   },
   {
    "program": "exceptions/010_finally_return_order",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 3880
+   "compile_ms": 3666
   },
   {
    "program": "expressions/001_arithmetic_precedence",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 3646
+   "compile_ms": 3788
   },
   {
    "program": "expressions/002_increment",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 4112
+   "compile_ms": 4014
   },
   {
    "program": "expressions/003_null_conditional",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 4253
+   "compile_ms": 4039
   },
   {
    "program": "expressions/004_null_coalescing_assign",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 5188
+   "compile_ms": 4896
   },
   {
    "program": "expressions/005_conditional",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 3430
+   "compile_ms": 4707
   },
   {
    "program": "expressions/006_conversions_numeric",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 4611
+   "compile_ms": 3967
   },
   {
    "program": "expressions/007_nameof_typeof_sizeof",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 4571
+   "compile_ms": 4442
   },
   {
    "program": "expressions/008_default_literal",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 4056
+   "compile_ms": 4907
   },
   {
    "program": "expressions/009_ranges_indices",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 5986
+   "compile_ms": 4917
   },
   {
    "program": "expressions/010_collection_expressions",
-   "status": "compile-error",
-   "reasons": [
-    "collection expression of type 'System.Collections.Generic.List<>'"
-   ],
-   "compile_ms": 3211
+   "status": "pass",
+   "reasons": [],
+   "compile_ms": 5173
   },
   {
    "program": "expressions/011_collection_initializers",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 6892
+   "compile_ms": 6507
   },
   {
    "program": "expressions/012_target_typed_new",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 4726
+   "compile_ms": 5437
   },
   {
    "program": "expressions/013_throw_expression",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 4136
+   "compile_ms": 3600
   },
   {
    "program": "expressions/014_with_expression_anonymous",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 4682
+   "compile_ms": 4257
   },
   {
    "program": "expressions/015_string_interpolation",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 5957
+   "compile_ms": 4302
   },
   {
    "program": "expressions/016_user_defined_conversions_chain",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 5456
+   "compile_ms": 5121
   },
   {
    "program": "expressions/017_compound_on_properties",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 4823
+   "compile_ms": 3554
   },
   {
    "program": "expressions/018_short_circuit_side_effects",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 3436
+   "compile_ms": 3614
   },
   {
    "program": "expressions/019_equality_reference_value",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 3194
+   "compile_ms": 4404
   },
   {
    "program": "expressions/020_lifted_operators",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 3552
+   "compile_ms": 5103
   },
   {
    "program": "formatting/001_numeric_format_strings",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 4128
+   "compile_ms": 4940
   },
   {
    "program": "formatting/002_composite",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 4039
+   "compile_ms": 5886
   },
   {
    "program": "formatting/003_custom_formats",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 3202
+   "compile_ms": 4219
   },
   {
    "program": "formatting/004_tostring_roundtrip",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 3231
+   "compile_ms": 3213
   },
   {
    "program": "formatting/005_interpolation_alignment",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 3981
+   "compile_ms": 3779
   },
   {
    "program": "generics/001_generic_class",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 3730
+   "compile_ms": 4600
   },
   {
    "program": "generics/002_generic_methods",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 4763
+   "compile_ms": 4717
   },
   {
    "program": "generics/003_constraints",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 3545
+   "compile_ms": 4144
   },
   {
    "program": "generics/004_generic_struct",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 4012
+   "compile_ms": 5019
   },
   {
    "program": "generics/005_nested_instantiations",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 3451
+   "compile_ms": 4974
   },
   {
    "program": "generics/006_variance",
-   "status": "fail",
-   "reasons": [
-    "runtime abort: Unhandled exception. System.InvalidCastException: Unable to cast object of type 'System.Collections."
-   ],
-   "compile_ms": 4668
+   "status": "pass",
+   "reasons": [],
+   "compile_ms": 7031
   },
   {
    "program": "generics/007_generic_interface",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 4334
+   "compile_ms": 6670
   },
   {
    "program": "generics/008_static_generic_cache",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 3646
+   "compile_ms": 3669
   },
   {
    "program": "interfaces/001_basic",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 4013
+   "compile_ms": 4515
   },
   {
    "program": "interfaces/002_multiple",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 5483
+   "compile_ms": 4089
   },
   {
    "program": "interfaces/003_explicit_impl",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 4803
+   "compile_ms": 4468
   },
   {
    "program": "interfaces/004_default_methods",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 4305
+   "compile_ms": 4254
   },
   {
    "program": "interfaces/005_inheritance",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 3972
+   "compile_ms": 3860
   },
   {
    "program": "interfaces/006_static_abstract",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 5053
+   "compile_ms": 3923
   },
   {
    "program": "interfaces/007_icomparable",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 6114
+   "compile_ms": 5516
   },
   {
    "program": "interfaces/008_idisposable_using",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 3685
+   "compile_ms": 4212
   },
   {
    "program": "interfaces/009_ienumerable_impl",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 4029
+   "compile_ms": 5074
   },
   {
    "program": "iterators/001_yield_return",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 5002
+   "compile_ms": 5861
   },
   {
    "program": "iterators/002_yield_break_lazy",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 5356
+   "compile_ms": 6366
   },
   {
    "program": "iterators/003_iterator_finally",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 4550
+   "compile_ms": 5802
   },
   {
    "program": "iterators/004_fibonacci",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 5795
+   "compile_ms": 5449
   },
   {
    "program": "lambdas/001_closure_counter",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 7074
+   "compile_ms": 4871
   },
   {
    "program": "lambdas/002_loop_capture",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 6719
+   "compile_ms": 5601
   },
   {
    "program": "lambdas/003_higher_order",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 4438
+   "compile_ms": 5541
   },
   {
    "program": "lambdas/004_static_lambda_natural_type",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 3562
+   "compile_ms": 5692
   },
   {
    "program": "lambdas/005_capture_this",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 3945
+   "compile_ms": 4273
   },
   {
    "program": "lambdas/006_recursive_lambda",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 3922
+   "compile_ms": 5144
   },
   {
    "program": "lexical/001_int_literals",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 4270
+   "compile_ms": 3937
   },
   {
    "program": "lexical/002_real_literals",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 5246
+   "compile_ms": 3679
   },
   {
    "program": "lexical/003_char_escapes",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 3367
+   "compile_ms": 4863
   },
   {
    "program": "lexical/004_verbatim_strings",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 4430
+   "compile_ms": 4595
   },
   {
    "program": "lexical/005_raw_strings",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 4586
+   "compile_ms": 4104
   },
   {
    "program": "lexical/006_interpolated_raw",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 4405
+   "compile_ms": 4710
   },
   {
    "program": "lexical/007_utf8_literals",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 3370
+   "compile_ms": 5039
   },
   {
    "program": "lexical/008_verbatim_interpolated",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 3608
+   "compile_ms": 5184
   },
   {
    "program": "lexical/009_unicode_identifiers",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 3213
+   "compile_ms": 4086
   },
   {
    "program": "lexical/010_comments_preprocessor",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 3244
+   "compile_ms": 3842
   },
   {
    "program": "linq/001_method_syntax",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 4864
+   "compile_ms": 6243
   },
   {
    "program": "linq/002_query_syntax",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 4889
+   "compile_ms": 6596
   },
   {
    "program": "linq/003_groupby_orderby",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 5908
+   "compile_ms": 13087
   },
   {
    "program": "linq/004_join_tolist_todict",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 6359
+   "compile_ms": 10498
   },
   {
    "program": "linq/005_aggregate_distinct_zip",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 5772
+   "compile_ms": 9971
   },
   {
    "program": "linq/006_selectmany_let",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 4802
+   "compile_ms": 5760
   },
   {
    "program": "localfunctions/001_static",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 3216
+   "compile_ms": 6762
   },
   {
    "program": "localfunctions/002_capturing",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 3103
+   "compile_ms": 5034
   },
   {
    "program": "localfunctions/003_nested_in_method",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 3246
+   "compile_ms": 6217
   },
   {
    "program": "localfunctions/004_generic_local",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 3728
+   "compile_ms": 6739
   },
   {
    "program": "members/001_properties",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 3471
+   "compile_ms": 4878
   },
   {
    "program": "members/002_auto_init_props",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 3751
+   "compile_ms": 4850
   },
   {
    "program": "members/003_required",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 4580
+   "compile_ms": 6275
   },
   {
    "program": "members/004_field_keyword",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 5134
+   "compile_ms": 6177
   },
   {
    "program": "members/005_indexers",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 5557
+   "compile_ms": 4951
   },
   {
    "program": "members/006_static_ctor",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 4408
+   "compile_ms": 3753
   },
   {
    "program": "members/007_operator_overloading",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 3857
+   "compile_ms": 6117
   },
   {
    "program": "members/008_conversion_operators",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 3848
+   "compile_ms": 5475
   },
   {
    "program": "members/009_extension_methods",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 5879
+   "compile_ms": 5329
   },
   {
    "program": "members/010_extension_members_cs14",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 6205
+   "compile_ms": 4920
   },
   {
    "program": "members/011_partial_methods",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 4346
+   "compile_ms": 4743
   },
   {
    "program": "members/012_partial_properties",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 4414
+   "compile_ms": 4498
   },
   {
    "program": "members/013_ref_out_in",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 5823
+   "compile_ms": 3983
   },
   {
    "program": "members/014_params_optional_named",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 5444
+   "compile_ms": 5016
   },
   {
    "program": "members/015_params_span",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 4177
+   "compile_ms": 3634
   },
   {
    "program": "members/016_overloading",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 4814
+   "compile_ms": 3373
   },
   {
    "program": "members/017_ref_returns_locals",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 6090
+   "compile_ms": 4930
   },
   {
    "program": "members/018_static_members_generic_math",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 5072
+   "compile_ms": 4451
   },
   {
    "program": "patterns/001_type_patterns",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 4989
+   "compile_ms": 4841
   },
   {
    "program": "patterns/002_relational_logical",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 4522
+   "compile_ms": 3763
   },
   {
    "program": "patterns/003_property_patterns",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 5650
+   "compile_ms": 4221
   },
   {
    "program": "patterns/004_positional_patterns",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 7315
+   "compile_ms": 4169
   },
   {
    "program": "patterns/005_list_patterns",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 6964
+   "compile_ms": 4399
   },
   {
    "program": "patterns/006_tuple_patterns",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 6637
+   "compile_ms": 4285
   },
   {
    "program": "patterns/007_is_not_null_var",
-   "status": "compile-error",
-   "reasons": [
-    "operator GreaterThan on reference types"
-   ],
-   "compile_ms": 3864
+   "status": "pass",
+   "reasons": [],
+   "compile_ms": 4264
   },
   {
    "program": "patterns/008_switch_when_guards",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 4425
+   "compile_ms": 7925
   },
   {
    "program": "programs/001_quicksort",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 4319
+   "compile_ms": 11553
   },
   {
    "program": "programs/002_linked_list_class",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 3445
+   "compile_ms": 10002
   },
   {
    "program": "programs/003_bank_simulation",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 5983
+   "compile_ms": 7300
   },
   {
    "program": "programs/004_matrix_struct",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 4073
+   "compile_ms": 4322
   },
   {
    "program": "programs/005_word_frequency_linq",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 6197
+   "compile_ms": 12467
   },
   {
    "program": "programs/006_state_machine_enum",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 3636
+   "compile_ms": 4731
   },
   {
    "program": "statements/001_loops",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 3238
+   "compile_ms": 4780
   },
   {
    "program": "statements/002_break_continue_labels",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 3027
+   "compile_ms": 4660
   },
   {
    "program": "statements/003_switch_statement",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 3860
+   "compile_ms": 6006
   },
   {
    "program": "statements/004_switch_goto_case",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 3361
+   "compile_ms": 6664
   },
   {
    "program": "statements/005_switch_on_string",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 3995
+   "compile_ms": 5142
   },
   {
    "program": "statements/006_checked_unchecked",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 3824
+   "compile_ms": 5405
   },
   {
    "program": "statements/007_lock",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 3885
+   "compile_ms": 6357
   },
   {
    "program": "statements/008_unsafe_pointers",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 5304
+   "compile_ms": 4972
   },
   {
    "program": "statements/009_fixed",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 5735
+   "compile_ms": 4689
   },
   {
    "program": "statements/010_nested_loops_return",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 5524
+   "compile_ms": 5559
   },
   {
    "program": "statements/011_using_declaration_order",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 3678
+   "compile_ms": 4509
   },
   {
    "program": "statements/012_top_level_args_return",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 3709
+   "compile_ms": 3813
   },
   {
    "program": "types/001_integral_ranges",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 3757
+   "compile_ms": 3713
   },
   {
    "program": "types/002_floating",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 3428
+   "compile_ms": 4541
   },
   {
    "program": "types/003_decimal",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 4779
+   "compile_ms": 4440
   },
   {
    "program": "types/004_nint",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 3707
+   "compile_ms": 4469
   },
   {
    "program": "types/005_bool_char",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 4545
+   "compile_ms": 5243
   },
   {
    "program": "types/006_enum_flags",
-   "status": "compile-error",
-   "reasons": [
-    "missing library member: System.Enum.HasFlag"
-   ],
-   "compile_ms": 3872
+   "status": "pass",
+   "reasons": [],
+   "compile_ms": 4455
   },
   {
    "program": "types/007_enum_basic",
-   "status": "compile-error",
-   "reasons": [
-    "missing library member: System.Enum.GetName"
-   ],
-   "compile_ms": 3264
+   "status": "pass",
+   "reasons": [],
+   "compile_ms": 4875
   },
   {
    "program": "types/008_nullable_value",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 5059
+   "compile_ms": 3756
   },
   {
    "program": "types/009_nullable_value_methods",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 5043
+   "compile_ms": 4442
   },
   {
    "program": "types/010_arrays_1d",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 4936
+   "compile_ms": 5209
   },
   {
    "program": "types/011_arrays_multidim",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 3754
+   "compile_ms": 5103
   },
   {
    "program": "types/012_arrays_jagged",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 4941
+   "compile_ms": 4460
   },
   {
    "program": "types/013_tuples",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 3376
+   "compile_ms": 4646
   },
   {
    "program": "types/014_tuple_returns",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 4362
+   "compile_ms": 4325
   },
   {
    "program": "types/015_record_class",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 5188
+   "compile_ms": 6104
   },
   {
    "program": "types/016_record_struct",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 4985
+   "compile_ms": 3947
   },
   {
    "program": "types/017_struct_basic",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 5773
+   "compile_ms": 3775
   },
   {
    "program": "types/018_readonly_struct",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 7993
+   "compile_ms": 4412
   },
   {
    "program": "types/019_ref_struct_span",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 6584
+   "compile_ms": 4625
   },
   {
    "program": "types/020_struct_default",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 5006
+   "compile_ms": 5424
   },
   {
    "program": "types/021_object_methods",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 4822
+   "compile_ms": 3999
   },
   {
    "program": "types/022_string_basics",
-   "status": "compile-error",
-   "reasons": [
-    "missing library member: string.Remove"
-   ],
-   "compile_ms": 3501
+   "status": "pass",
+   "reasons": [],
+   "compile_ms": 4555
   },
   {
    "program": "types/023_dynamic_free_var",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 6632
+   "compile_ms": 4398
   },
   {
    "program": "types/024_boxing_unboxing",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 4690
+   "compile_ms": 4621
   },
   {
    "program": "types/025_const_readonly",
    "status": "pass",
    "reasons": [],
-   "compile_ms": 3957
+   "compile_ms": 3077
   }
  ]
 }

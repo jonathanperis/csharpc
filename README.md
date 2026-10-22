@@ -135,11 +135,11 @@ Nearly all of the C# language through C# 14 — classes, structs, records, gener
 interfaces (incl. static abstract members), delegates/lambdas/closures/events, exceptions (real
 unwinding), async/await and iterators (LLVM coroutines), patterns, tuples, `Nullable<T>`, spans,
 unsafe code, extension members — plus a growing library surface (console, math, strings, formatting,
-parsing, `StringBuilder`, GC). Conformance against real .NET: **70 %** of a 195-program corpus with
-zero wrong-output cases; the full matrix is in [docs/06-roadmap.md](docs/06-roadmap.md).
+parsing, `StringBuilder`, GC). Conformance against real .NET: **100 %** of a 195-program corpus (41 % that
+morning), zero wrong-output cases; the full matrix is in [docs/06-roadmap.md](docs/06-roadmap.md).
 
-In progress: collections and LINQ (a C# corelib compiled with your program), `decimal`/`DateTime`,
-multithreading, DWARF debug info.
+Also: collections and LINQ (a C# corelib compiled with your program), `decimal`/`DateTime`/`BigInteger`,
+DWARF debug info (`-g`). In progress: multithreading.
 
 Performance: on 14 benchmark programs csharpc beats the .NET JIT on all of them and beats or ties
 NativeAOT on CPU time, with 18–30 KiB binaries ([bench/RESULTS.md](bench/RESULTS.md)).
