@@ -16,10 +16,12 @@ public sealed partial class FunctionCodeGen
     private LLVMValueRef EmitInvocation(IInvocationOperation inv)
     {
         var target = inv.TargetMethod;
+        if (target.MethodKind == MethodKind.DelegateInvoke) return EmitDelegateInvoke(inv);
+        if (target.MethodKind == MethodKind.LocalFunction) return CallLocalFunction(inv);
         if (TypeMapper.IsNullable(target.ContainingType)) return EmitNullableMethod(inv);
         if (_m.IsUserMethod(target))
         {
-            var self = target.IsStatic ? default : Receiver(inv.Instance!, target);
+            var self = ModuleCodeGen.HasThis(target) ? Receiver(inv.Instance!, target) : default;
             var isBaseCall = inv.Instance?.Syntax is BaseExpressionSyntax;
             return EmitUserCall(target, self, ReceiverIsNonNull(inv.Instance, target), inv.Arguments, inv.IsVirtual && !isBaseCall);
         }
@@ -34,9 +36,9 @@ public sealed partial class FunctionCodeGen
     internal LLVMValueRef EmitUserCall(IMethodSymbol target, LLVMValueRef self, bool selfIsNonNull,
         ImmutableArray<IArgumentOperation> arguments, bool isVirtual, LLVMValueRef[]? extraArgs = null)
     {
-        var offset = target.IsStatic ? 0 : 1;
+        var offset = ModuleCodeGen.HasThis(target) ? 1 : 0;
         var args = new LLVMValueRef[offset + target.Parameters.Length];
-        if (!target.IsStatic)
+        if (offset == 1)
         {
             if (!selfIsNonNull) NullCheck(self);
             args[0] = self;
@@ -45,7 +47,7 @@ public sealed partial class FunctionCodeGen
         if (extraArgs is not null)
             for (var i = 0; i < extraArgs.Length; i++) args[args.Length - extraArgs.Length + i] = extraArgs[i];
 
-        var dispatch = isVirtual && !target.IsStatic && (target.IsVirtual || target.IsAbstract || target.IsOverride)
+        var dispatch = isVirtual && offset == 1 && (target.IsVirtual || target.IsAbstract || target.IsOverride)
             && !target.IsSealed && !target.ContainingType.IsSealed;
         return dispatch ? VirtualCall(target, self, args) : DirectCall(target, args);
     }
@@ -120,6 +122,8 @@ public sealed partial class FunctionCodeGen
         if (type.IsValueType) return EmitValueTypeCreation(creation, type);
         if (type.SpecialType == SpecialType.System_Object)
             return Allocate(_m.ExternalGlobal("csrt_Object_MT"), L.ConstInt(L.I64, (long)T.PointerSize));
+        if (!_m.IsUserType(type) && creation.Constructor is { } libraryCtor && Intrinsics.TryGetConstructor(libraryCtor, out var ctorHandler))
+            return ctorHandler(this, creation);
         if (!_m.IsUserType(type) || type.TypeKind != TypeKind.Class)
             throw CompileError.Unsupported($"creating instances of '{type}'", creation);
         if (type.IsAbstract) throw CompileError.Unsupported("instantiating an abstract class", creation);
@@ -343,6 +347,37 @@ public sealed partial class FunctionCodeGen
         return LoadValue(address, elementType);
     }
 
+    // foreach over string: string.GetEnumerator() -> CharEnumerator (pattern-based). Same trick:
+    // a stack { string, i32 index } that SROA turns into an index loop.
+    private LLVMTypeRef StringEnumeratorType => L.Struct(L.Ptr, L.I32);
+
+    internal LLVMValueRef StringGetEnumerator(LLVMValueRef str)
+    {
+        NullCheck(str);
+        var e = NewTemp(StringEnumeratorType, "string.enumerator");
+        _b.Store(str, _b.StructGep(StringEnumeratorType, e, 0));
+        _b.Store(L.ConstInt(L.I32, -1), _b.StructGep(StringEnumeratorType, e, 1));
+        return e;
+    }
+
+    internal LLVMValueRef StringEnumeratorMoveNext(LLVMValueRef e)
+    {
+        var indexAddress = _b.StructGep(StringEnumeratorType, e, 1);
+        var index = _b.BinOp(LLVMOpcode.Add, _b.Load(L.I32, indexAddress), L.ConstInt(L.I32, 1));
+        _b.Store(index, indexAddress);
+        var str = _b.Load(L.Ptr, _b.StructGep(StringEnumeratorType, e, 0));
+        var length = _b.Load(L.I32, _b.StructGep(T.StringHeader, str, 1), "strlen");
+        return _b.ICmp(LLVMIntPredicate.SLT, index, length);
+    }
+
+    internal LLVMValueRef StringEnumeratorCurrent(LLVMValueRef e)
+    {
+        var str = _b.Load(L.Ptr, _b.StructGep(StringEnumeratorType, e, 0));
+        var index = _b.Load(L.I32, _b.StructGep(StringEnumeratorType, e, 1));
+        var address = _b.InBoundsGep(T.StringHeader, str, [L.ConstInt(L.I32, 0), L.ConstInt(L.I32, 2), index]);
+        return _b.Load(L.I16, address);
+    }
+
     internal LLVMValueRef ArrayLength(LLVMValueRef array)
     {
         NullCheck(array);
@@ -383,8 +418,13 @@ public sealed partial class FunctionCodeGen
         var type = op.Type;
         if (type is null) return _m.StringLiteral("");
         if (type.SpecialType == SpecialType.System_String) return EmitValue(op);
-        if (type.TypeKind == TypeKind.Enum) throw CompileError.Unsupported("formatting enum values", op);
-        return FormatValue(EmitValue(op), type, op);
+        var value = EmitValue(op);
+        if (type is INamedTypeSymbol { TypeKind: TypeKind.Enum } enumType)
+        {
+            var formatter = _m.EnumFormatter(enumType);
+            return _b.Call(formatter.Type, formatter.Fn, [value]);
+        }
+        return FormatValue(value, type, op);
     }
 
     internal LLVMValueRef? FormatPrimitive(LLVMValueRef value, ITypeSymbol type) => type.SpecialType switch
@@ -404,6 +444,48 @@ public sealed partial class FunctionCodeGen
         _ => null,
     };
 
+    /// <summary>`{value,alignment:format}` in an interpolated string.</summary>
+    private LLVMValueRef AlignAndFormat(IInterpolationOperation hole)
+    {
+        var piece = hole.FormatString is { } format ? FormatWith(hole.Expression, EmitValue(format)) : ToStringValue(hole.Expression);
+        if (hole.Alignment is { } alignment)
+            piece = CallRuntime("csrt_string_align", L.Ptr, [L.Ptr, L.I32], piece, Coerce(EmitValue(alignment), alignment.Type, _m.Compilation.GetSpecialType(SpecialType.System_Int32)));
+        return piece;
+    }
+
+    /// <summary>value.ToString(format) with .NET standard/custom numeric format strings (runtime/format.c).</summary>
+    internal LLVMValueRef FormatWith(IOperation valueOp, LLVMValueRef format)
+    {
+        valueOp = Unbox(valueOp);
+        var type = valueOp.Type!;
+        var value = EmitValue(valueOp);
+        if (type.TypeKind == TypeKind.Enum) return ToStringValue(valueOp);
+        switch (type.SpecialType)
+        {
+            case SpecialType.System_SByte or SpecialType.System_Int16 or SpecialType.System_Int32 or SpecialType.System_Int64:
+                return CallRuntime("csrt_format_i64", L.Ptr, [L.I64, L.Ptr, L.I32],
+                    value.Type.IntWidth == 64 ? value : _b.Cast(LLVMOpcode.SExt, value, L.I64), format, L.ConstInt(L.I32, value.Type.IntWidth));
+            case SpecialType.System_Byte or SpecialType.System_UInt16 or SpecialType.System_UInt32 or SpecialType.System_UInt64:
+                return CallRuntime("csrt_format_u64", L.Ptr, [L.I64, L.Ptr, L.I32],
+                    value.Type.IntWidth == 64 ? value : _b.Cast(LLVMOpcode.ZExt, value, L.I64), format, L.ConstInt(L.I32, value.Type.IntWidth));
+            case SpecialType.System_Double:
+                return CallRuntime("csrt_format_f64", L.Ptr, [L.F64, L.Ptr, L.I1], value, format, L.False);
+            case SpecialType.System_Single:
+                return CallRuntime("csrt_format_f64", L.Ptr, [L.F64, L.Ptr, L.I1], _b.Cast(LLVMOpcode.FPExt, value, L.F64), format, L.True);
+        }
+        var obj = type.IsValueType ? Box(value, type, valueOp) : value;
+        return CallRuntime("csrt_format_object", L.Ptr, [L.Ptr, L.Ptr], obj, format);
+    }
+
+    /// <summary>Builds an object[] from argument expressions (each already converted/boxed to object).</summary>
+    internal LLVMValueRef ObjectArray(IReadOnlyList<IOperation> values)
+    {
+        var objectType = _m.Compilation.GetSpecialType(SpecialType.System_Object);
+        var array = NewArray(objectType, L.ConstInt(L.I64, values.Count));
+        StoreElements(array, objectType, [.. values]);
+        return array;
+    }
+
     private LLVMValueRef EmitInterpolatedString(IInterpolatedStringOperation s)
     {
         LLVMValueRef? result = null;
@@ -412,8 +494,7 @@ public sealed partial class FunctionCodeGen
             var piece = part switch
             {
                 IInterpolatedStringTextOperation text => ToStringValue(text.Text),
-                IInterpolationOperation { Alignment: null, FormatString: null } hole => ToStringValue(hole.Expression),
-                IInterpolationOperation hole => throw CompileError.Unsupported("interpolation alignment/format specifiers", hole),
+                IInterpolationOperation hole => AlignAndFormat(hole),
                 _ => throw CompileError.Unsupported($"interpolated string part {part.Kind}", part),
             };
             result = result is { } r ? ConcatStrings(r, piece) : piece;

@@ -20,7 +20,7 @@ public sealed partial class FunctionCodeGen
     internal bool IsAggregate(ITypeSymbol? type) => type is INamedTypeSymbol named
         && (TypeMapper.IsNullable(named) || named.IsTupleType || (named.TypeKind == TypeKind.Struct && _m.IsUserType(named)));
 
-    private bool InStructMember => _method is { IsStatic: false, ContainingType.IsValueType: true };
+    private bool InStructMember => _method is { ContainingType.IsValueType: true } m && ModuleCodeGen.HasThis(m);
 
     /// <summary>Address of a value-type operand: its storage if it is an lvalue, else a spilled copy.</summary>
     internal LLVMValueRef AddressOrSpill(IOperation op)
@@ -379,7 +379,11 @@ public sealed partial class FunctionCodeGen
     {
         if (type.SpecialType == SpecialType.System_String) return value;
         if (FormatPrimitive(value, type) is { } primitive) return primitive;
-        if (type.TypeKind == TypeKind.Enum) throw CompileError.Unsupported("formatting enum values", at);
+        if (type is INamedTypeSymbol { TypeKind: TypeKind.Enum } enumType)
+        {
+            var formatter = _m.EnumFormatter(enumType);
+            return _b.Call(formatter.Type, formatter.Fn, [value]);
+        }
         if (type.IsReferenceType) return ObjectToString(value);
 
         if (TypeMapper.IsNullable(type))
