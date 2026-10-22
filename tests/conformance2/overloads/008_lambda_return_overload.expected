@@ -1,0 +1,5 @@
+Func<int> 1
+Func<double> 1.5
+Action
+side
+Func<string> val

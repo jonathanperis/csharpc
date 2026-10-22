@@ -1,0 +1,3 @@
+local WriteLine List Name
+System.Int32 System.Collections.Generic.List`1[System.String] System.Int32[] P
+4 8 1 2 16

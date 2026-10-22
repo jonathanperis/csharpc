@@ -61,3 +61,12 @@ Delegate* csrt_delegate_remove(Delegate* source, Delegate* value) {
     }
     return source;
 }
+
+/// Delegate.GetInvocationList(): a Delegate[] of the single-cast entries, in invocation order.
+csrt_Array* csrt_delegate_get_invocation_list(Delegate* d) {
+    if (!d) csrt_throw_null_reference();
+    int64_t n = count_of(d);
+    csrt_Array* result = csrt_new_array(sizeof(void*), n);
+    for (int64_t i = 0; i < n; i++) ((Delegate**)result->data)[i] = entry_at(d, i);
+    return result;
+}

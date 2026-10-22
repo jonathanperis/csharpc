@@ -1,0 +1,12 @@
+Action a = A, b = B;
+var both = a + b;
+both();
+Console.WriteLine(both.GetInvocationList().Length);
+var again = both - a;
+again();
+Console.WriteLine((a + b - b) == a);
+Func<int> f1 = () => 1, f2 = () => 2;
+var last = f1 + f2;
+Console.WriteLine(last());
+static void A() => Console.WriteLine("A");
+static void B() => Console.WriteLine("B");

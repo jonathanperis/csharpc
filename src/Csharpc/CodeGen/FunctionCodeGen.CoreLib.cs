@@ -290,7 +290,7 @@ public sealed partial class FunctionCodeGen
     // Hashing
     // ======================================================================================
 
-    private LLVMValueRef HashOf(ITypeSymbol t, LLVMValueRef a, IOperation at)
+    internal LLVMValueRef HashOf(ITypeSymbol t, LLVMValueRef a, IOperation at)
     {
         t = _m.CoreLib.Map(t);
         t = EnumBase(t);
@@ -317,9 +317,13 @@ public sealed partial class FunctionCodeGen
             }
             case SpecialType.System_Double or SpecialType.System_Single:
             {
-                // Normalize -0.0 to 0.0 (they're Equal), then hash the bits.
-                var normalized = _b.BinOp(LLVMOpcode.FAdd, a, LlvmContext.ConstReal(a.Type, 0.0));
-                var bits = _b.Cast(LLVMOpcode.BitCast, normalized, a.Type.Kind == LLVMTypeKind.Double ? L.I64 : L.I32);
+                // .NET: ±0 and every NaN hash alike — their bits are masked down to the exponent (infinity's bits).
+                var isDouble = a.Type.Kind == LLVMTypeKind.Double;
+                var intType = isDouble ? L.I64 : L.I32;
+                var raw = _b.Cast(LLVMOpcode.BitCast, a, intType);
+                var nanOrZero = _b.FCmp(LLVMRealPredicate.UEQ, a, LlvmContext.ConstReal(a.Type, 0.0)); // unordered-or-equal
+                var mask = isDouble ? L.ConstInt(L.I64, 0x7FF0000000000000L) : L.ConstInt(L.I32, 0x7F800000);
+                var bits = _b.Select(nanOrZero, _b.BinOp(LLVMOpcode.And, raw, mask), raw);
                 if (bits.Type.IntWidth == 32) return bits;
                 return _b.BinOp(LLVMOpcode.Xor, _b.Cast(LLVMOpcode.Trunc, bits, i32),
                     _b.Cast(LLVMOpcode.Trunc, _b.BinOp(LLVMOpcode.LShr, bits, L.ConstInt(L.I64, 32)), i32));

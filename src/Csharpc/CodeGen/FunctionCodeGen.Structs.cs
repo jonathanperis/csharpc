@@ -70,6 +70,10 @@ public sealed partial class FunctionCodeGen
                 ? AddressOf(instance)
                 : Coerce(EmitValue(instance), TypeOf(instance), S(receiver.Type));
         if (!member.ContainingType.IsValueType) return EmitValue(instance);
+        // `in` / `ref readonly` receivers are readonly too: a non-readonly member works on a copy.
+        if (!member.IsReadOnly && instance is IParameterReferenceOperation { Parameter.RefKind: RefKind.In or RefKind.RefReadOnlyParameter }
+            or ILocalReferenceOperation { Local.RefKind: RefKind.RefReadOnly })
+            return Spill(EmitValue(instance));
         // C# makes a defensive copy when a non-readonly member is invoked on a readonly field.
         if (instance is IFieldReferenceOperation { Field.IsReadOnly: true } f && !member.IsReadOnly
             && !(_method is { MethodKind: MethodKind.Constructor } && SymbolEqualityComparer.Default.Equals(_method.ContainingType, f.Field.ContainingType)))
@@ -224,6 +228,18 @@ public sealed partial class FunctionCodeGen
             ("GetValueOrDefault", 0) => NullablePayload(value, underlying),
             ("GetValueOrDefault", 1) => _b.Select(NullableHas(value), NullablePayload(value, underlying), EmitArgumentValue(inv.Arguments[0])),
             ("ToString", 0) => FormatValue(value, type, inv),
+            // Equals(object): empty == null; otherwise box the payload and compare (boxing T? yields a boxed T).
+            ("Equals", 1) => ShortCircuit(isAnd: false,
+            [
+                () => _b.BinOp(LLVMOpcode.And, _b.Not(NullableHas(value)), _b.ICmp(LLVMIntPredicate.EQ, EmitArgumentValue(inv.Arguments[0]), LlvmContext.Null(L.Ptr))),
+                () => ShortCircuit(isAnd: true,
+                [
+                    () => NullableHas(value),
+                    () => CallRuntime("csrt_object_equals_static", L.I1, [L.Ptr, L.Ptr], Box(NullablePayload(value, underlying), underlying, inv), EmitArgumentValue(inv.Arguments[0])),
+                ]),
+            ]),
+            ("GetHashCode", 0) => _b.Select(NullableHas(value),
+                CallRuntime("csrt_object_get_hash_code_or_zero", L.I32, [L.Ptr], Box(NullablePayload(value, underlying), underlying, inv)), L.ConstInt(L.I32, 0)),
             _ => throw CompileError.Unsupported($"Nullable<T>.{inv.TargetMethod.Name}", inv),
         };
     }
@@ -386,19 +402,43 @@ public sealed partial class FunctionCodeGen
     private LLVMValueRef EmitTupleValueDeconstruction(ITupleOperation targets, IOperation value)
     {
         if (TypeOf(value) is not INamedTypeSymbol { IsTupleType: true } && UserDeconstruct(targets, value) is { } viaMethod) return viaMethod;
-        if (value.Type is not INamedTypeSymbol { IsTupleType: true } tupleType || tupleType.TupleElements.Length != targets.Elements.Length
-            || targets.Elements.Any(e => e is ITupleOperation or IPropertyReferenceOperation))
+        if (TypeOf(value) is not INamedTypeSymbol { IsTupleType: true } tupleType || tupleType.TupleElements.Length != targets.Elements.Length
+            || targets.Elements.Any(e => e is IPropertyReferenceOperation))
             throw CompileError.Unsupported("deconstruction of this value", value);
-        var addresses = targets.Elements.Select(e => e is IDiscardOperation ? default : AddressOf(e)).ToArray();
+        // Target locations are evaluated first (left to right, nested included), then the value.
+        var plan = PlanTupleTargets(targets);
         var tuple = EmitValue(value);
-        for (var i = 0; i < addresses.Length; i++)
-        {
-            if (addresses[i].Handle == 0) continue;
-            var targetType = targets.Elements[i].Type!;
-            var element = Coerce(TupleElement(tuple, tupleType, i), tupleType.TupleElements[i].Type, targetType);
-            StoreValue(ToStorage(element, targetType), addresses[i]);
-        }
+        StoreTupleTargets(plan, tuple, tupleType);
         return default;
+    }
+
+    private sealed record TupleTargetPlan(IOperation Target, LLVMValueRef Address, List<TupleTargetPlan>? Nested);
+
+    private List<TupleTargetPlan> PlanTupleTargets(ITupleOperation targets) =>
+        [.. targets.Elements.Select(e =>
+        {
+            var inner = e is IDeclarationExpressionOperation { Expression: ITupleOperation dt } ? dt : e as ITupleOperation;
+            if (inner is not null) return new TupleTargetPlan(e, default, PlanTupleTargets(inner));
+            return new TupleTargetPlan(e, e is IDiscardOperation ? default : AddressOf(e), null);
+        })];
+
+    private void StoreTupleTargets(List<TupleTargetPlan> plan, LLVMValueRef tuple, INamedTypeSymbol tupleType)
+    {
+        for (var i = 0; i < plan.Count; i++)
+        {
+            var elementType = S(tupleType.TupleElements[i].Type);
+            var element = TupleElement(tuple, tupleType, i);
+            if (plan[i].Nested is { } nested)
+            {
+                if (elementType is not INamedTypeSymbol { IsTupleType: true } nestedType || nestedType.TupleElements.Length != nested.Count)
+                    throw CompileError.Unsupported("nested deconstruction of a non-tuple element", plan[i].Target);
+                StoreTupleTargets(nested, element, nestedType);
+                continue;
+            }
+            if (plan[i].Address.Handle == 0) continue;
+            var targetType = TypeOf(plan[i].Target)!;
+            StoreValue(ToStorage(Coerce(element, elementType, targetType), targetType), plan[i].Address);
+        }
     }
 
     // ======================================================================================

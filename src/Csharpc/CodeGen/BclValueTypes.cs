@@ -20,7 +20,7 @@ internal delegate LLVMValueRef BclRawHandler(FunctionCodeGen g, IInvocationOpera
 /// Keys use the same format as <see cref="Intrinsics.Key"/> (accessors as get_X, ctors as .ctor,
 /// operators as op_X). Covers methods, property getters, constructors and operator methods.
 /// </summary>
-internal static class BclValueTypes
+internal static partial class BclValueTypes
 {
     public static bool IsDecimal(ITypeSymbol? t) => t?.SpecialType == SpecialType.System_Decimal;
     public static bool IsDateTime(ITypeSymbol? t) => t?.SpecialType == SpecialType.System_DateTime;
@@ -691,6 +691,7 @@ internal static class BclValueTypes
 
         // ===== System.Array (single-dimensional) =====
         AddArrayMethods(t);
+        AddMoreMethods(t);
 
         // ===== string.Join over arrays / IEnumerable<T> backed by arrays =====
         t["string.Join(string, System.Collections.Generic.IEnumerable<string>)"] = (g, m, _, a, at) => JoinArray(g, m, a, at, charSeparator: false);

@@ -1,0 +1,5 @@
+int
+generic Int64
+generic String
+generic Int32
+object

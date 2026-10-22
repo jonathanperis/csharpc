@@ -246,6 +246,84 @@ namespace CsharpcCoreLib
             return value.Length <= s.Length && EqualsOrdinal(s.AsSpan(s.Length - value.Length), value.AsSpan());
         }
 
+        [ShadowInstance]
+        public static bool StartsWith(string s, char value) => s.Length != 0 && s[0] == value;
+
+        [ShadowInstance]
+        public static bool EndsWith(string s, char value) => s.Length != 0 && s[s.Length - 1] == value;
+
+        [ShadowInstance]
+        public static bool Equals(string s, object obj) => obj is string other && EqualsOrdinal(s.AsSpan(), other.AsSpan());
+
+        // ---- StringComparison overloads -----------------------------------------------------------
+        // csharpc runs in the invariant culture: the culture comparisons match ordinally (the *IgnoreCase
+        // ones with invariant simple case folding, like OrdinalIgnoreCase). Exact for text without
+        // culture-ignorable characters or contractions.
+        private static bool IgnoreCase(StringComparison comparisonType)
+        {
+            if ((uint)comparisonType > (uint)StringComparison.OrdinalIgnoreCase)
+                throw new ArgumentException("The string comparison type passed in is currently not supported.", "comparisonType");
+            return ((int)comparisonType & 1) != 0;
+        }
+
+        private static bool Matches(ReadOnlySpan<char> s, int at, ReadOnlySpan<char> value, bool ignoreCase)
+        {
+            for (int k = 0; k < value.Length; k++)
+            {
+                char x = s[at + k], y = value[k];
+                if (x != y && (!ignoreCase || CharOps.ToUpperInvariant(x) != CharOps.ToUpperInvariant(y))) return false;
+            }
+            return true;
+        }
+
+        [ShadowInstance]
+        public static int IndexOf(string s, string value, StringComparison comparisonType) => IndexOf(s, value, 0, comparisonType);
+
+        [ShadowInstance]
+        public static int IndexOf(string s, string value, int startIndex, StringComparison comparisonType)
+        {
+            if (value == null) throw new ArgumentNullException("value");
+            if ((uint)startIndex > (uint)s.Length) ThrowHelper.IndexMustBeLessOrEqual("startIndex");
+            bool ignoreCase = IgnoreCase(comparisonType);
+            ReadOnlySpan<char> chars = s.AsSpan();
+            for (int i = startIndex; i <= chars.Length - value.Length; i++)
+                if (Matches(chars, i, value.AsSpan(), ignoreCase)) return i;
+            return -1;
+        }
+
+        [ShadowInstance]
+        public static int LastIndexOf(string s, string value) => LastIndexOf(s, value, StringComparison.CurrentCulture);
+
+        [ShadowInstance]
+        public static int LastIndexOf(string s, string value, StringComparison comparisonType)
+        {
+            if (value == null) throw new ArgumentNullException("value");
+            bool ignoreCase = IgnoreCase(comparisonType);
+            ReadOnlySpan<char> chars = s.AsSpan();
+            for (int i = chars.Length - value.Length; i >= 0; i--)
+                if (Matches(chars, i, value.AsSpan(), ignoreCase)) return i;
+            return -1;
+        }
+
+        [ShadowInstance]
+        public static bool Contains(string s, string value, StringComparison comparisonType) => IndexOf(s, value, 0, comparisonType) >= 0;
+
+        [ShadowInstance]
+        public static bool StartsWith(string s, string value, StringComparison comparisonType)
+        {
+            if (value == null) throw new ArgumentNullException("value");
+            bool ignoreCase = IgnoreCase(comparisonType);
+            return value.Length <= s.Length && Matches(s.AsSpan(), 0, value.AsSpan(), ignoreCase);
+        }
+
+        [ShadowInstance]
+        public static bool EndsWith(string s, string value, StringComparison comparisonType)
+        {
+            if (value == null) throw new ArgumentNullException("value");
+            bool ignoreCase = IgnoreCase(comparisonType);
+            return value.Length <= s.Length && Matches(s.AsSpan(), s.Length - value.Length, value.AsSpan(), ignoreCase);
+        }
+
         internal static bool EqualsOrdinal(ReadOnlySpan<char> a, ReadOnlySpan<char> b)
         {
             if (a.Length != b.Length) return false;
@@ -431,31 +509,59 @@ namespace CsharpcCoreLib
 
         // ---- splitting / conversion -------------------------------------------------------------
         [ShadowInstance]
-        public static string[] Split(string s, char separator, StringSplitOptions options)
+        public static string[] Split(string s, char separator, StringSplitOptions options) => Split(s, separator, int.MaxValue, options);
+
+        /// <summary>
+        /// .NET's SplitWithPostProcessing: at most <paramref name="count"/> pieces, the last one keeps the rest;
+        /// with RemoveEmptyEntries, empty pieces don't count and are skipped before the final piece.
+        /// </summary>
+        [ShadowInstance]
+        public static string[] Split(string s, char separator, int count, StringSplitOptions options)
         {
-            ReadOnlySpan<char> chars = s.AsSpan();
+            ThrowHelper.IfNegative(count, "count");
             bool removeEmpty = (options & StringSplitOptions.RemoveEmptyEntries) != 0;
             bool trim = (options & StringSplitOptions.TrimEntries) != 0;
-            int pieces = 1;
-            for (int i = 0; i < chars.Length; i++) if (chars[i] == separator) pieces++;
-            string[] parts = new string[pieces];
+            if (count == 0 || (removeEmpty && s.Length == 0)) return new string[0];
+            ReadOnlySpan<char> chars = s.AsSpan();
+            int separators = 0;
+            if (count > 1) for (int i = 0; i < chars.Length; i++) if (chars[i] == separator) separators++;
+            string[] parts = new string[separators + 1 < count ? separators + 1 : count];
             int n = 0, start = 0;
-            for (int i = 0; i <= chars.Length; i++)
+            for (int i = 0; i < chars.Length && separators > 0 && n < count - 1; i++)
             {
-                if (i < chars.Length && chars[i] != separator) continue;
-                int a = start, b = i;
-                if (trim)
-                {
-                    while (a < b && CharOps.IsWhiteSpace(chars[a])) a++;
-                    while (b > a && CharOps.IsWhiteSpace(chars[b - 1])) b--;
-                }
-                if (!(removeEmpty && a == b)) parts[n++] = b - a == chars.Length ? s : Copy(chars.Slice(a, b - a));
+                if (chars[i] != separator) continue;
+                string piece = SplitPiece(s, start, i, trim, removeEmpty);
+                if (piece != null) parts[n++] = piece;
                 start = i + 1;
+                if (n == count - 1 && removeEmpty)
+                {
+                    // Skip empty pieces before the final one (it takes the remainder).
+                    for (int k = start; k < chars.Length; k++)
+                    {
+                        if (chars[k] != separator) continue;
+                        if (SplitPiece(s, start, k, trim, removeEmpty) != null) break;
+                        start = k + 1;
+                    }
+                }
             }
+            string last = SplitPiece(s, start, chars.Length, trim, removeEmpty);
+            if (last != null) parts[n++] = last;
             if (n == parts.Length) return parts;
             string[] result = new string[n];
             Array.Copy(parts, result, n);
             return result;
+        }
+
+        /// <summary>s[a..b], optionally trimmed; null when it is empty and empty pieces are removed.</summary>
+        private static string SplitPiece(string s, int a, int b, bool trim, bool removeEmpty)
+        {
+            ReadOnlySpan<char> chars = s.AsSpan();
+            if (trim)
+            {
+                while (a < b && CharOps.IsWhiteSpace(chars[a])) a++;
+                while (b > a && CharOps.IsWhiteSpace(chars[b - 1])) b--;
+            }
+            return removeEmpty && a == b ? null : b - a == chars.Length ? s : Copy(chars.Slice(a, b - a));
         }
 
         public static string Join(string separator, string[] value)

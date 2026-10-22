@@ -125,7 +125,7 @@ public sealed partial class ModuleCodeGen
     {
         IArrayTypeSymbol { Rank: 1 } a => ClrName(a.ElementType) + "[]",
         IArrayTypeSymbol a => ClrName(a.ElementType) + "[" + new string(',', a.Rank - 1) + "]",
-        INamedTypeSymbol named => Mangler.MetadataName(named.OriginalDefinition),
+        INamedTypeSymbol named => Mangler.MetadataName(TypeSubstitution.IsOpen(named) ? named.OriginalDefinition : named),
         _ => type.Name,
     };
 
@@ -133,6 +133,9 @@ public sealed partial class ModuleCodeGen
     /// Per-element-type array method table: { csrt_Array_MT, "System.Int32[]", 0, 0, [Object virtuals] }.
     /// Arrays get it right after allocation so GetType() and ToString() report the element type.
     /// </summary>
+    /// <summary>Element type of every element-typed array MT, for interface registration at startup.</summary>
+    private readonly List<(ITypeSymbol Element, LLVMValueRef MethodTable)> _typedArrays = [];
+
     public LLVMValueRef ArrayMethodTable(ITypeSymbol elementType)
     {
         var name = ClrName(elementType) + "[]";
@@ -145,6 +148,7 @@ public sealed partial class ModuleCodeGen
             LlvmContext.Null(Llvm.Ptr), Llvm.ConstInt(Llvm.I32, 0), Llvm.ConstInt(Llvm.I32, 0),
             LlvmContext.ConstArray(Llvm.Ptr, slots));
         var global = Module.AddGlobal("csrt.arraymt." + name, Native.LLVMTypeOf(init), init, constant: true, linkage: LLVMLinkage.Private);
+        _typedArrays.Add((elementType, global));
         return _arrayMethodTables[name] = global;
     }
 
@@ -182,7 +186,7 @@ public sealed partial class ModuleCodeGen
             INamedTypeSymbol { TypeKind: TypeKind.Class } c when IsUserType(c) && !c.IsStatic && !c.IsGenericType => GetLayout(c).MethodTable,
             INamedTypeSymbol { TypeKind: TypeKind.Struct } s when IsUserType(s) && !s.IsGenericType => StructMethodTable(s),
             INamedTypeSymbol ex when IsLibraryException(ex) => GetLayout(ex).MethodTable,
-            INamedTypeSymbol named => TypeOnlyMethodTable(named.OriginalDefinition),
+            INamedTypeSymbol named => TypeOnlyMethodTable(TypeSubstitution.IsOpen(named) ? named.OriginalDefinition : named),
             _ => throw CompileError.Unsupported($"typeof({type})", at),
         };
     }

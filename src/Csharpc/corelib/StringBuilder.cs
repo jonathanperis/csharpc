@@ -210,6 +210,24 @@ namespace CsharpcCoreLib
         public StringBuilderImpl Append(decimal value) => Append(value.ToString());
         public StringBuilderImpl Append(object value) => value == null ? This : Append(value.ToString());
 
+        // Composite formatting shares string.Format's engine (Number.FormatComposite); the invariant
+        // culture ignores providers.
+        public StringBuilderImpl AppendFormat(string format, object arg0) => Append(Number.FormatComposite(format, new[] { arg0 }));
+        public StringBuilderImpl AppendFormat(string format, object arg0, object arg1) => Append(Number.FormatComposite(format, new[] { arg0, arg1 }));
+        public StringBuilderImpl AppendFormat(string format, object arg0, object arg1, object arg2) =>
+            Append(Number.FormatComposite(format, new[] { arg0, arg1, arg2 }));
+        public StringBuilderImpl AppendFormat(string format, params object[] args)
+        {
+            if (args == null) throw new ArgumentNullException(format == null ? "format" : "args");
+            return Append(Number.FormatComposite(format, args));
+        }
+        public StringBuilderImpl AppendFormat(string format, params ReadOnlySpan<object> args) => Append(Number.FormatComposite(format, args.ToArray()));
+        public StringBuilderImpl AppendFormat(IFormatProvider provider, string format, object arg0) => AppendFormat(format, arg0);
+        public StringBuilderImpl AppendFormat(IFormatProvider provider, string format, object arg0, object arg1) => AppendFormat(format, arg0, arg1);
+        public StringBuilderImpl AppendFormat(IFormatProvider provider, string format, object arg0, object arg1, object arg2) =>
+            AppendFormat(format, arg0, arg1, arg2);
+        public StringBuilderImpl AppendFormat(IFormatProvider provider, string format, params object[] args) => AppendFormat(format, args);
+
         public StringBuilderImpl AppendLine() => Append('\n');
         public StringBuilderImpl AppendLine(string value) => Append(value).Append('\n');
 
