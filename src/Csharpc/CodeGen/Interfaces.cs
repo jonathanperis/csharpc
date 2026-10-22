@@ -124,9 +124,6 @@ public sealed partial class FunctionCodeGen
             if (staticType.IsValueType) throw CompileError.Unsupported($"interface call '{target}' on value type '{staticType}'", receiver);
         }
 
-        if (!_m.IsUserType(target.ContainingType) && invocation is not null && Intrinsics.TryGet(target, out var intrinsic))
-            return intrinsic(this, invocation);
-
         var receiverValue = EmitValue(receiver);
         NullCheck(receiverValue);
         var args = new LLVMValueRef[1 + target.Parameters.Length];

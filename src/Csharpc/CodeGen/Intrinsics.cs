@@ -40,7 +40,7 @@ internal static class Intrinsics
     private static LLVMValueRef Arg(FunctionCodeGen g, IInvocationOperation inv, int ordinal)
     {
         var argument = inv.Arguments.First(a => a.Parameter!.Ordinal == ordinal);
-        return g.Coerce(g.EmitValue(argument.Value), argument.Value.Type, argument.Parameter!.Type);
+        return g.Coerce(g.EmitValue(argument.Value), g.TypeOf(argument.Value), g.S(argument.Parameter!.Type));
     }
 
     private static FrozenDictionary<string, IntrinsicHandler> BuildMethods()
@@ -77,6 +77,47 @@ internal static class Intrinsics
         };
         foreach (var type in new[] { "int", "long", "uint", "ulong", "short", "ushort", "byte", "sbyte", "double", "float", "bool", "char", "string" })
             t[$"{type}.ToString()"] = (g, inv) => g.ToStringValue(inv.Instance!);
+
+        // ---- IComparable<T>.CompareTo on primitives (reached via generic constraints) -------------
+        foreach (var (type, signed) in new[] { ("int", true), ("long", true), ("short", true), ("sbyte", true),
+                     ("uint", false), ("ulong", false), ("ushort", false), ("byte", false), ("char", false) })
+            t[$"{type}.CompareTo({type})"] = (g, inv) =>
+            {
+                var b = g.Builder;
+                var x = g.EmitValue(g.ConcreteReceiver(inv.Instance!));
+                var y = Arg(g, inv, 0);
+                var l = g.Module.Llvm;
+                var lt = b.ICmp(signed ? LLVMIntPredicate.SLT : LLVMIntPredicate.ULT, x, y);
+                var gt = b.ICmp(signed ? LLVMIntPredicate.SGT : LLVMIntPredicate.UGT, x, y);
+                return b.Select(lt, l.ConstInt(l.I32, -1), b.Cast(LLVMOpcode.ZExt, gt, l.I32));
+            };
+        foreach (var type in new[] { "double", "float" })
+            t[$"{type}.CompareTo({type})"] = (g, inv) =>
+            {
+                // NaN sorts first and equals itself, as in .NET.
+                var b = g.Builder;
+                var l = g.Module.Llvm;
+                var x = g.EmitValue(g.ConcreteReceiver(inv.Instance!));
+                var y = Arg(g, inv, 0);
+                var lt = b.FCmp(LLVMRealPredicate.OLT, x, y);
+                var gt = b.FCmp(LLVMRealPredicate.OGT, x, y);
+                var xNaN = b.FCmp(LLVMRealPredicate.UNO, x, x);
+                var yNaN = b.FCmp(LLVMRealPredicate.UNO, y, y);
+                var result = b.Select(lt, l.ConstInt(l.I32, -1), b.Cast(LLVMOpcode.ZExt, gt, l.I32));
+                result = b.Select(b.BinOp(LLVMOpcode.And, xNaN, b.Not(yNaN)), l.ConstInt(l.I32, -1), result);
+                result = b.Select(b.BinOp(LLVMOpcode.And, yNaN, b.Not(xNaN)), l.ConstInt(l.I32, 1), result);
+                return result;
+            };
+        t["string.CompareTo(string)"] = (g, inv) =>
+        {
+            var l = g.Module.Llvm;
+            return g.CallRuntime("csrt_string_compare", l.I32, [l.Ptr, l.Ptr], g.EmitValue(g.ConcreteReceiver(inv.Instance!)), Arg(g, inv, 0));
+        };
+        t["string.Compare(string, string)"] = (g, inv) =>
+        {
+            var l = g.Module.Llvm;
+            return g.CallRuntime("csrt_string_compare", l.I32, [l.Ptr, l.Ptr], Arg(g, inv, 0), Arg(g, inv, 1));
+        };
 
         // ---- System.String ---------------------------------------------------------------------
         IntrinsicHandler concat = (g, inv) =>
@@ -160,6 +201,11 @@ internal static class Intrinsics
         // Only array enumerators exist so far, and they need no disposal. Revisit with interfaces.
         t["System.IDisposable.Dispose()"] = (_, _) => default;
 
+        // ---- foreach over string --------------------------------------------------------------
+        t["string.GetEnumerator()"] = (g, inv) => g.StringGetEnumerator(g.EmitValue(inv.Instance!));
+        t["System.CharEnumerator.MoveNext()"] = (g, inv) => g.StringEnumeratorMoveNext(g.EmitValue(inv.Instance!));
+        t["System.CharEnumerator.Dispose()"] = (_, _) => default;
+
         // ---- System.GC (runtime/gc.c) -----------------------------------------------------------
         t["System.GC.Collect()"] = (g, _) => { g.CallRuntime("csrt_gc_collect", g.Module.Llvm.Void, []); return default; };
         t["System.GC.GetTotalMemory(bool)"] = (g, inv) =>
@@ -209,6 +255,7 @@ internal static class Intrinsics
             var value = g.ArrayEnumeratorCurrent(g.EmitValue(p.Instance!), element);
             return element.IsValueType ? g.Box(value, element, p) : value;
         };
+        t["System.CharEnumerator.Current"] = (g, p) => g.StringEnumeratorCurrent(g.EmitValue(p.Instance!));
         t["System.Environment.NewLine"] = (g, _) => g.Module.StringLiteral("\n");
         return t.ToFrozenDictionary();
     }

@@ -179,7 +179,7 @@ public sealed partial class FunctionCodeGen
 
     private LLVMValueRef EmitCompoundAssignment(ICompoundAssignmentOperation c)
     {
-        if (c.OperatorMethod is { } om && !IsBuiltInStringConcat(om))
+        if (c.OperatorMethod is { } om && !IsBuiltInStringConcat(om) && !IsGenericMathOnPrimitive(om, c.Target))
             throw CompileError.Unsupported("compound assignment with a user-defined operator", c);
         if (c.IsChecked) throw CompileError.Unsupported("checked arithmetic", c);
         var targetType = TypeOf(c.Target)!;
@@ -239,12 +239,21 @@ public sealed partial class FunctionCodeGen
     // Operators
     // ======================================================================================
 
+    /// <summary>
+    /// Generic math: `a + b` on `T : INumber&lt;T&gt;` binds to a static abstract interface operator. Once
+    /// T is substituted with a primitive, it's just the built-in operator.
+    /// </summary>
+    private bool IsGenericMathOnPrimitive(IMethodSymbol op, IOperation operand) =>
+        op.IsStatic && op.ContainingType.TypeKind == TypeKind.Interface
+        && TypeOf(operand) is { SpecialType: not SpecialType.None } t && t.SpecialType != SpecialType.System_Object;
+
     private static bool IsBuiltInStringConcat(IMethodSymbol method) =>
         method.ContainingType.SpecialType == SpecialType.System_String && method.Name is "op_Addition" or "Concat";
 
     private LLVMValueRef EmitBinary(IBinaryOperation op)
     {
-        if (op.OperatorMethod is { } om0 && !IsBuiltInStringConcat(om0) && om0.ContainingType.SpecialType != SpecialType.System_String)
+        if (op.OperatorMethod is { } om0 && !IsBuiltInStringConcat(om0) && om0.ContainingType.SpecialType != SpecialType.System_String
+            && !IsGenericMathOnPrimitive(om0, op.LeftOperand))
         {
             var om = S(om0);
             if (!_m.IsUserMethod(om)) throw CompileError.Unsupported($"operator '{om}'", op);
@@ -383,7 +392,7 @@ public sealed partial class FunctionCodeGen
 
     private LLVMValueRef EmitUnary(IUnaryOperation op)
     {
-        if (op.OperatorMethod is { } om0)
+        if (op.OperatorMethod is { } om0 && !IsGenericMathOnPrimitive(om0, op.Operand))
         {
             var om = S(om0);
             if (!_m.IsUserMethod(om)) throw CompileError.Unsupported($"operator '{om}'", op);

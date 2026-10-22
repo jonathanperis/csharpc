@@ -260,6 +260,25 @@ int32_t csrt_object_get_hash_code_default(void* self) { return (int32_t)(((uintp
 // ---------------------------------------------------------------------------------------------
 bool csrt_string_is_null_or_empty(csrt_String* s) { return !s || s->length == 0; }
 
+// Approximates the invariant culture's ordering for ASCII: compare case-insensitively first, then
+// lowercase before uppercase. (Full ICU collation is out of scope for the bootstrap runtime.)
+static uint16_t fold_case(uint16_t c) { return (c >= 'A' && c <= 'Z') ? (uint16_t)(c + 32) : c; }
+
+int32_t csrt_string_compare(csrt_String* a, csrt_String* b) {
+    if (a == b) return 0;
+    if (!a) return -1;
+    if (!b) return 1;
+    int32_t n = a->length < b->length ? a->length : b->length;
+    for (int32_t i = 0; i < n; i++) {
+        uint16_t x = fold_case(a->chars[i]), y = fold_case(b->chars[i]);
+        if (x != y) return x < y ? -1 : 1;
+    }
+    if (a->length != b->length) return a->length < b->length ? -1 : 1;
+    for (int32_t i = 0; i < n; i++)
+        if (a->chars[i] != b->chars[i]) return a->chars[i] > b->chars[i] ? -1 : 1;  // lowercase first
+    return 0;
+}
+
 csrt_String* csrt_string_concat(csrt_String* a, csrt_String* b) {
     int32_t la = a ? a->length : 0, lb = b ? b->length : 0;
     csrt_String* s = string_alloc(la + lb);

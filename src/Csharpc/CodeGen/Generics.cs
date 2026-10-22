@@ -41,6 +41,15 @@ public sealed class TypeSubstitution
                 s._map[parameters[i]] = arguments[i];
     }
 
+    /// <summary>This substitution extended with more bindings (e.g. a generic local function's own type parameters).</summary>
+    public TypeSubstitution With(IReadOnlyList<ITypeParameterSymbol> parameters, IReadOnlyList<ITypeSymbol> arguments, Compilation compilation)
+    {
+        var s = new TypeSubstitution(compilation);
+        foreach (var (k, v) in _map) s._map[k] = v;
+        Add(s, parameters, arguments);
+        return s._map.Count == 0 ? Identity : s;
+    }
+
     public string Key => string.Join(",", _map.Select(kv => kv.Key.Name + "=" + kv.Value.ToDisplayString()));
 
     public ITypeSymbol Apply(ITypeSymbol type)

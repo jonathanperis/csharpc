@@ -224,6 +224,11 @@ public sealed partial class FunctionCodeGen
     private LLVMValueRef EmitPropertyGet(IPropertyReferenceOperation p)
     {
         var property = S(p.Property);
+        // Generic math constants (T.Zero, T.One...) on a substituted primitive T.
+        if (property is { IsStatic: true, ContainingType.TypeKind: TypeKind.Interface } && TypeOf(p) is { SpecialType: not SpecialType.None } numeric
+            && property.Name is "Zero" or "One" or "AdditiveIdentity" or "MultiplicativeIdentity")
+            return Constant(property.Name is "Zero" or "AdditiveIdentity" ? 0 : 1, _m.Compilation.GetSpecialType(SpecialType.System_Int32)) is var c
+                ? ConvertNumeric(c, _m.Compilation.GetSpecialType(SpecialType.System_Int32), numeric, p) : default;
         if (property.ContainingType.TypeKind == TypeKind.Interface && !property.IsStatic && !IsArrayEnumeration(p.Instance!))
             return EmitInterfaceCall(property.GetMethod!, p.Instance!, p.Arguments, [], null);
         if (_m.IsUserType(property.ContainingType))
@@ -364,6 +369,34 @@ public sealed partial class FunctionCodeGen
         var index = _b.Load(L.I64, _b.StructGep(ArrayEnumeratorType, enumerator, 1));
         var address = _b.InBoundsGep(T.ArrayHeader(T.Storage(elementType)), array, [L.ConstInt(L.I32, 0), L.ConstInt(L.I32, 2), index]);
         return LoadValue(address, elementType);
+    }
+
+    // foreach over string: string.GetEnumerator() returns a CharEnumerator, called directly by the
+    // CFG. Same trick as arrays: a stack { string, i64 index } pair that SROA dissolves.
+    internal LLVMValueRef StringGetEnumerator(LLVMValueRef str)
+    {
+        NullCheck(str);
+        var enumerator = NewTemp(ArrayEnumeratorType, "string.enumerator");
+        _b.Store(str, _b.StructGep(ArrayEnumeratorType, enumerator, 0));
+        _b.Store(L.ConstInt(L.I64, -1), _b.StructGep(ArrayEnumeratorType, enumerator, 1));
+        return enumerator;
+    }
+
+    internal LLVMValueRef StringEnumeratorMoveNext(LLVMValueRef enumerator)
+    {
+        var indexAddress = _b.StructGep(ArrayEnumeratorType, enumerator, 1);
+        var index = _b.BinOp(LLVMOpcode.Add, _b.Load(L.I64, indexAddress), L.ConstInt(L.I64, 1));
+        _b.Store(index, indexAddress);
+        var str = _b.Load(L.Ptr, _b.StructGep(ArrayEnumeratorType, enumerator, 0));
+        var length = _b.Cast(LLVMOpcode.SExt, _b.Load(L.I32, _b.StructGep(T.StringHeader, str, 1)), L.I64);
+        return _b.ICmp(LLVMIntPredicate.SLT, index, length);
+    }
+
+    internal LLVMValueRef StringEnumeratorCurrent(LLVMValueRef enumerator)
+    {
+        var str = _b.Load(L.Ptr, _b.StructGep(ArrayEnumeratorType, enumerator, 0));
+        var index = _b.Load(L.I64, _b.StructGep(ArrayEnumeratorType, enumerator, 1));
+        return _b.Load(L.I16, _b.InBoundsGep(T.StringHeader, str, [L.ConstInt(L.I32, 0), L.ConstInt(L.I32, 2), index]));
     }
 
     internal LLVMValueRef ArrayLength(LLVMValueRef array)

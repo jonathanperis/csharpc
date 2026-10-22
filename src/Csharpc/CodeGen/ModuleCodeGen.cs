@@ -32,6 +32,7 @@ public sealed partial class ModuleCodeGen
     /// <summary>Generic instantiations (constructed methods) whose bodies still need lowering.</summary>
     private readonly Queue<IMethodSymbol> _pendingInstantiations = new();
     private readonly Dictionary<string, LoweredFunction> _localFunctions = [];
+    private readonly Dictionary<IMethodSymbol, (ControlFlowGraph Cfg, TypeSubstitution Subst)> _genericLocalFunctions = new(SymbolEqualityComparer.Default);
     private readonly List<INamedTypeSymbol> _userTypes = [];
 
     public ModuleCodeGen(Compilation compilation, LlvmContext llvm, LlvmModule module, TargetMachine target)
@@ -162,15 +163,28 @@ public sealed partial class ModuleCodeGen
     /// </summary>
     public LoweredFunction GetLocalFunction(IMethodSymbol method, TypeSubstitution subst)
     {
-        if (method.IsGenericMethod) throw CompileError.Unsupported($"generic local function '{method.Name}'", method);
-        var name = Mangler.Method(method) + (subst.IsIdentity ? "" : "I" + subst.Key + "E");
+        var enqueue = false;
+        if (method.IsGenericMethod)
+        {
+            // Instantiate a generic local function: its CFG + the enclosing substitution + its own type arguments.
+            if (!_genericLocalFunctions.TryGetValue(method.OriginalDefinition, out var source))
+                throw CompileError.Unsupported($"generic local function '{method.Name}' used before its declaration was lowered", method);
+            if (TypeSubstitution.IsOpen(method)) throw CompileError.Unsupported($"open generic instantiation '{method}'", method);
+            subst = source.Subst.With(method.OriginalDefinition.TypeParameters, method.TypeArguments, Compilation);
+            enqueue = true;
+        }
+        var name = LocalFunctionName(method, subst);
         if (_localFunctions.TryGetValue(name, out var existing)) return existing;
+        if (enqueue) _pendingLocalFunctions.Enqueue((method, _genericLocalFunctions[method.OriginalDefinition].Cfg, subst));
         var type = FunctionTypeOf(method, subst);
         var fn = Module.AddFunction(name, type);
         Native.LLVMSetLinkage(fn, LLVMLinkage.Internal);
         Llvm.AddFunctionAttribute(fn, "nounwind");
         return _localFunctions[name] = new LoweredFunction(fn, type);
     }
+
+    private static string LocalFunctionName(IMethodSymbol method, TypeSubstitution subst) =>
+        Mangler.Method(method) + (subst.IsIdentity ? "" : "I" + subst.Key + "E");
 
     /// <summary>this (if instance) + parameters (by-ref as ptr) -> return; constructors return void.</summary>
     public LLVMTypeRef FunctionTypeOf(IMethodSymbol method, TypeSubstitution? subst = null)
@@ -262,14 +276,16 @@ public sealed partial class ModuleCodeGen
         foreach (var local in cfg.LocalFunctions)
         {
             var localCfg = cfg.GetLocalFunctionControlFlowGraph(local);
-            _pendingLocalFunctions.Enqueue((local, localCfg, subst));
+            if (local.IsGenericMethod) _genericLocalFunctions[local] = (localCfg, subst); // instantiated on use
+            else _pendingLocalFunctions.Enqueue((local, localCfg, subst));
         }
     }
 
     private void EmitLocalFunction(IMethodSymbol method, ControlFlowGraph cfg, TypeSubstitution subst)
     {
         Dump(method, cfg);
-        new FunctionCodeGen(this, method, GetLocalFunction(method, subst), subst).Emit([], cfg);
+        var fn = method.IsGenericMethod ? _localFunctions[LocalFunctionName(method, subst)] : GetLocalFunction(method, subst);
+        new FunctionCodeGen(this, method, fn, subst).Emit([], cfg);
     }
 
     /// <summary>Field and auto-property initializers of a type, each as its own small CFG.</summary>
