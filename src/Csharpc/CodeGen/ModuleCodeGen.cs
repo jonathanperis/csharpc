@@ -12,7 +12,7 @@ public readonly record struct LoweredFunction(LLVMValueRef Fn, LLVMTypeRef Type)
 /// Lowers a whole Roslyn <see cref="Compilation"/> into one LLVM module. This is csharpc's
 /// equivalent of clang's CodeGenModule / rustc's codegen_llvm crate-level driver.
 /// </summary>
-public sealed class ModuleCodeGen
+public sealed partial class ModuleCodeGen
 {
     public Compilation Compilation { get; }
     public LlvmContext Llvm { get; }

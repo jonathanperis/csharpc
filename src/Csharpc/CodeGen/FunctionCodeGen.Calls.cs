@@ -46,6 +46,7 @@ public sealed partial class FunctionCodeGen
 
         var dispatch = isVirtual && offset == 1 && (target.IsVirtual || target.IsAbstract || target.IsOverride)
             && !target.IsSealed && !target.ContainingType.IsSealed;
+        if (dispatch && _m.Devirtualize(target) is { } only) return DirectCall(only, args); // closed-world CHA
         return dispatch ? VirtualCall(target, self, args) : DirectCall(target, args);
     }
 
