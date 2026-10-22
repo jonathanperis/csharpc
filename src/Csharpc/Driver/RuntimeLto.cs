@@ -13,7 +13,22 @@ namespace Csharpc.Driver;
 /// </summary>
 public static class RuntimeLto
 {
+    /// <summary>Links several runtime bitcode files into one (cached by Toolchain).</summary>
+    public static void Merge(IReadOnlyList<string> bitcodeFiles, string output)
+    {
+        using var context = new LlvmContext();
+        using var module = new LlvmModule(context, "csrt");
+        LinkFiles(module, context, bitcodeFiles);
+        module.WriteBitcode(output);
+    }
+
     public static void LinkInto(LlvmModule module, LlvmContext context, IEnumerable<string> bitcodeFiles)
+    {
+        LinkFiles(module, context, bitcodeFiles);
+        Internalize(module);
+    }
+
+    private static void LinkFiles(LlvmModule module, LlvmContext context, IEnumerable<string> bitcodeFiles)
     {
         foreach (var path in bitcodeFiles)
         {
@@ -28,7 +43,6 @@ public static class RuntimeLto
             }
             finally { LLVMDisposeMemoryBuffer(buffer); }
         }
-        Internalize(module);
     }
 
     /// <summary>Closed world: only the process entry point needs external linkage.</summary>

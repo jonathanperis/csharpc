@@ -7,6 +7,21 @@ namespace Csharpc.CodeGen;
 internal static class Optimizations
 {
     /// <summary>
+    /// -Os / -Oz: mark every function defined in the module (user code and the LTO-linked runtime)
+    /// optsize (+ minsize for -Oz), the attributes clang uses, so inlining, unrolling and the backend
+    /// all favor code size.
+    /// </summary>
+    public static void MarkOptimizeForSize(LlvmModule module, LlvmContext llvm, bool minimize)
+    {
+        for (var fn = Native.LLVMGetFirstFunction(module.Ref); fn.Handle != 0; fn = Native.LLVMGetNextFunction(fn))
+        {
+            if (Native.LLVMIsDeclaration(fn) != 0) continue;
+            llvm.AddFunctionAttribute(fn, "optsize");
+            if (minimize) llvm.AddFunctionAttribute(fn, "minsize");
+        }
+    }
+
+    /// <summary>
     /// ABI and aliasing facts for calls into csrt (C):
     ///  * small integers in the csrt API are all unsigned (bool, uint8_t, uint16_t), and the SysV
     ///    ABI makes the *caller* extend them — clang-compiled callees rely on it — so mark them zeroext;

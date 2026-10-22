@@ -23,7 +23,20 @@ public sealed class Toolchain(CompilerOptions options)
     /// The runtime as LLVM bitcode, for whole-program LTO: linked into the program module before
     /// optimization so allocation and other hot helpers inline into user code (see RuntimeLto).
     /// </summary>
-    public string[] RuntimeBitcode(string triple) => CompileRuntime(triple, bitcode: true);
+    public string[] RuntimeBitcode(string triple)
+    {
+        // The per-file bitcode is merged once into a single cached module, so each compile parses
+        // and links one file instead of ~20 (link-runtime time roughly halves).
+        var parts = CompileRuntime(triple, bitcode: true);
+        var merged = Path.Combine(Path.GetDirectoryName(parts[0])!, "runtime-merged-" + Path.GetFileNameWithoutExtension(parts[0]).Split('-')[^1] + ".bc");
+        if (!File.Exists(merged))
+        {
+            var tmp = merged + "." + Environment.ProcessId + ".tmp";
+            RuntimeLto.Merge(parts, tmp);
+            File.Move(tmp, merged, overwrite: true);
+        }
+        return [merged];
+    }
 
     private string[] CompileRuntime(string triple, bool bitcode)
     {
@@ -55,7 +68,51 @@ public sealed class Toolchain(CompilerOptions options)
     public void Link(string triple, string programObject, string output, bool runtimeLinkedIn = false)
     {
         string[] runtime = runtimeLinkedIn ? [] : RuntimeObjects(triple);
-        Run(options.CC, [$"--target={triple}", programObject, .. runtime, "-lm", "-pthread", "-o", output]);
+        Run(options.CC, [$"--target={triple}", programObject, .. runtime, "-lm", "-pthread", .. LinkFlags(), "-o", output]);
+    }
+
+    /// <summary>
+    /// Size-oriented link flags (see benchmarks/RESULTS.md, "Size and startup"): lld when available
+    /// (it doesn't pad segments to page boundaries in the file), section GC, safe identical-code folding
+    /// (`safe` keeps functions whose address is taken distinct, which delegate equality relies on),
+    /// packed RELR relocations for PIE when the host glibc understands them, and stripping.
+    /// </summary>
+    private IEnumerable<string> LinkFlags()
+    {
+        var lld = HasLld;
+        if (lld) yield return "-fuse-ld=lld";
+        yield return "-Wl,--gc-sections";
+        if (lld) yield return "-Wl,--icf=safe";
+        if (options.Static) yield return StaticFlag;
+        else if (lld && options.Target is null && HostGlibcAtLeast(2, 36)) yield return "-Wl,-z,pack-relative-relocs";
+        if (options.Strip ?? !options.Debug) yield return "-s";
+    }
+
+    private static bool? s_hasLld;
+
+    private bool HasLld => s_hasLld ??= Environment.GetEnvironmentVariable("CSHARPC_LD") switch
+    {
+        "lld" => true,
+        { Length: > 0 } => false,
+        _ => (Environment.GetEnvironmentVariable("PATH") ?? "").Split(Path.PathSeparator)
+            .Any(dir => dir.Length > 0 && File.Exists(Path.Combine(dir, "ld.lld"))),
+    };
+
+    /// <summary>static-pie keeps ASLR for static executables (glibc supports it via rcrt1.o).</summary>
+    private const string StaticFlag = "-static-pie";
+
+    [System.Runtime.InteropServices.DllImport("libc", EntryPoint = "gnu_get_libc_version")]
+    private static extern nint GnuGetLibcVersion();
+
+    private static bool HostGlibcAtLeast(int major, int minor)
+    {
+        try
+        {
+            if (!OperatingSystem.IsLinux()) return false;
+            var text = System.Runtime.InteropServices.Marshal.PtrToStringUTF8(GnuGetLibcVersion()) ?? "";
+            return Version.TryParse(text, out var v) && (v.Major > major || (v.Major == major && v.Minor >= minor));
+        }
+        catch (Exception e) when (e is DllNotFoundException or EntryPointNotFoundException) { return false; } // musl etc.
     }
 
     private void Run(string tool, string[] args)
