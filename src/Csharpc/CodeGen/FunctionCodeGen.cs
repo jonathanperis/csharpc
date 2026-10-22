@@ -50,6 +50,7 @@ public sealed partial class FunctionCodeGen
             new(ReferenceEqualityComparer.Instance);
         public List<(LLVMBasicBlockRef Block, ControlFlowRegion Region)> FinallyEnds { get; } = [];
         public LLVMBasicBlockRef Exit { get; set; }
+        public LLVMBasicBlockRef Unreachable { get; set; }
         /// <summary>The closure-tree node for this graph (captured variables live in env scopes).</summary>
         public ClosureFunction Closure { get; set; } = null!;
     }
@@ -151,6 +152,7 @@ public sealed partial class FunctionCodeGen
         foreach (var p in _method!.Parameters)
             if (CapturedParameterField(p) is { } field)
                 StoreValue(ToStorage(LoadValue(_slots[p.OriginalDefinition], p.Type), p.Type), FieldAddressOn(_this, S(field)));
+        InitializePositionalProperties();
         if (baseCall is null)
         {
             EmitImplicitConstructor(initializers);
@@ -307,6 +309,12 @@ public sealed partial class FunctionCodeGen
                 if (target is IFlowCaptureReferenceOperation r) result.Add(r.Id);
             }
         }
+        // `s with { X = 1 }` on a struct captures a *copy* of s and mutates that copy.
+        foreach (var capture in graph.Blocks.SelectMany(b => b.Operations).OfType<IFlowCaptureOperation>())
+            if (capture.Value.Syntax is Microsoft.CodeAnalysis.CSharp.Syntax.WithExpressionSyntax
+                || capture.Value.Syntax.Parent is Microsoft.CodeAnalysis.CSharp.Syntax.WithExpressionSyntax { Expression: var operand }
+                    && operand == capture.Value.Syntax)
+                result.Remove(capture.Id);
     }
 
     private static void FindArrayEnumerators(ControlFlowGraph graph, Dictionary<CaptureId, ITypeSymbol> result)
@@ -367,7 +375,20 @@ public sealed partial class FunctionCodeGen
     private LLVMBasicBlockRef DirectTarget(ControlFlowBranch branch)
     {
         var dest = branch.Destination ?? throw CompileError.Unsupported($"branch with {branch.Semantics} semantics");
-        if (dest.Kind != BasicBlockKind.Exit) return _cfg!.Blocks[dest];
+        if (dest.Kind != BasicBlockKind.Exit)
+        {
+            if (_cfg!.Blocks.TryGetValue(dest, out var block)) return block;
+            // A reachable block may branch to one Roslyn proved unreachable (e.g. an impossible switch arm).
+            if (_cfg.Unreachable.IsNull)
+            {
+                var current = _b.InsertBlock;
+                _cfg.Unreachable = _b.AppendBlock(_fn.Fn, "unreachable");
+                _b.PositionAtEnd(_cfg.Unreachable);
+                _b.Unreachable();
+                _b.PositionAtEnd(current);
+            }
+            return _cfg.Unreachable;
+        }
 
         // Falling into the exit block: continue to the next prologue graph, or return void.
         if (_cfg!.Exit.IsNull)

@@ -79,11 +79,10 @@ public sealed partial class ModuleCodeGen
                     case TypeKind.Delegate: break; // runtime-implemented: { mt, target, fn } objects
                     default: throw CompileError.Unsupported($"{type.TypeKind} '{type.Name}'", type);
                 }
-                if (type.IsRecord) throw CompileError.Unsupported($"record '{type.Name}'", type);
             });
 
         // 2. Method bodies of non-generic code; generic instantiations are queued as they're referenced.
-        foreach (var type in _userTypes.Where(t => t.TypeKind is TypeKind.Class or TypeKind.Interface or TypeKind.Struct && !t.IsRecord
+        foreach (var type in _userTypes.Where(t => t.TypeKind is TypeKind.Class or TypeKind.Interface or TypeKind.Struct
                      && !TypeSubstitution.IsGenericContext(t)))
             foreach (var method in type.GetMembers().OfType<IMethodSymbol>().Where(m => !m.IsGenericMethod))
                 Guard(method, () => EmitMethod(method));
@@ -121,6 +120,14 @@ public sealed partial class ModuleCodeGen
             Errors.Add(error.Location is not { IsInSource: true } && symbol.Locations.FirstOrDefault() is { IsInSource: true } loc
                 ? new CompileError(error.Id, error.Message, loc)
                 : error);
+        }
+        catch (Exception e) when (e is not OutOfMemoryException)
+        {
+            // A bug in csharpc: report it against the symbol being lowered instead of crashing.
+            if (s_trace) Console.Error.WriteLine(e);
+            Errors.Add(new CompileError("CSLLVM9999",
+                $"internal compiler error while lowering '{symbol.ToDisplayString()}': {e.GetType().Name}: {e.Message} (set CSHARPC_TRACE=1 for details)",
+                symbol.Locations.FirstOrDefault()));
         }
     }
 
@@ -255,6 +262,15 @@ public sealed partial class ModuleCodeGen
         // Static field initializers run from __csharpc_static_init; only explicit cctors get a function.
         if (method.MethodKind == MethodKind.StaticConstructor && method.IsImplicitlyDeclared) return;
 
+        // Records: members the compiler synthesizes have no syntax; generate their bodies.
+        if (method.ContainingType.IsRecord && method.IsImplicitlyDeclared
+            && !(method.MethodKind == MethodKind.Constructor && method.Parameters.Length != 1))
+        {
+            var recordGen = new FunctionCodeGen(this, method, GetFunction(method));
+            if (method.AssociatedSymbol is IPropertySymbol { Name: not "EqualityContract" }) recordGen.EmitAutoPropertyAccessor();
+            else recordGen.EmitRecordMember();
+            return;
+        }
         var definition = method.OriginalDefinition;
         var syntax = (definition.PartialImplementationPart ?? definition).DeclaringSyntaxReferences.FirstOrDefault()?.GetSyntax();
         var fn = GetFunction(method);

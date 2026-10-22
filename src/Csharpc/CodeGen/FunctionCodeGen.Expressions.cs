@@ -17,6 +17,7 @@ public sealed partial class FunctionCodeGen
             IFlowCaptureReferenceOperation r => LoadCapture(r),
             ILocalReferenceOperation l => LoadValue(LocalSlot(l.Local), S(l.Local.Type)),
             IParameterReferenceOperation p => LoadValue(ParameterSlot(p.Parameter, p), S(p.Parameter.Type)),
+            IInstanceReferenceOperation { ReferenceKind: InstanceReferenceKind.PatternInput } => PatternInputValue(op),
             IInstanceReferenceOperation when InStructMember => LoadValue(_this, S(_method!.ContainingType)),
             IInstanceReferenceOperation => ThisValue(op),
             IFieldReferenceOperation f => LoadValue(FieldAddress(f), S(f.Field.Type)),
@@ -106,6 +107,7 @@ public sealed partial class FunctionCodeGen
         IFieldReferenceOperation f => FieldAddress(f),
         IArrayElementReferenceOperation a => ElementAddress(a),
         IDeclarationExpressionOperation d => AddressOf(d.Expression),
+        IInstanceReferenceOperation { ReferenceKind: InstanceReferenceKind.PatternInput } => Spill(PatternInputValue(target)),
         IInstanceReferenceOperation when InStructMember => _this, // `this = other;` in a struct
         IDiscardOperation d => NewTemp(T.Storage(TypeOf(d)!), "discard"),
         IFlowCaptureReferenceOperation c when _cfg!.LvalueCaptures.Contains(c.Id) => CaptureAddress(c),

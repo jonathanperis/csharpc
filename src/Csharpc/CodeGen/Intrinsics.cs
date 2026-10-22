@@ -87,6 +87,10 @@ internal static class Intrinsics
         };
         t["System.Enum.ToString()"] = (g, inv) =>
             g.ToStringValue(inv.Instance is IConversionOperation { Operand.Type.TypeKind: TypeKind.Enum } boxed ? boxed.Operand : inv.Instance!);
+        t["object.ReferenceEquals(object, object)"] = (g, inv) =>
+            g.Builder.ICmp(LLVMIntPredicate.EQ, Arg(g, inv, 0), Arg(g, inv, 1));
+        t["object.Equals(object, object)"] = (g, inv) =>
+            g.CallRuntime("csrt_object_equals_static", g.Module.Llvm.I1, [g.Module.Llvm.Ptr, g.Module.Llvm.Ptr], Arg(g, inv, 0), Arg(g, inv, 1));
         t["object.Equals(object)"] = (g, inv) =>
         {
             var self = ObjectReceiver(g, inv.Instance!);

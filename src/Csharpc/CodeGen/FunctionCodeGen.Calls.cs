@@ -596,11 +596,9 @@ public sealed partial class FunctionCodeGen
             case INegatedPatternOperation negated:
                 return _b.Not(PatternTest(value, inputType, negated.Pattern));
             case IBinaryPatternOperation binary:
-            {
-                var left = PatternTest(value, inputType, binary.LeftPattern);
-                var right = PatternTest(value, inputType, binary.RightPattern);
-                return _b.BinOp(binary.OperatorKind == BinaryOperatorKind.Or ? LLVMOpcode.Or : LLVMOpcode.And, left, right);
-            }
+                return BinaryPatternTest(value, inputType, binary);
+            case IRecursivePatternOperation recursive:
+                return RecursivePatternTest(value, inputType, recursive);
             case ITypePatternOperation typePattern:
                 return IsInstance(value, inputType, S(typePattern.MatchedType), pattern);
             case IDeclarationPatternOperation declaration:
