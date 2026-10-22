@@ -34,7 +34,7 @@ public enum LLVMAtomicOrdering { NotAtomic = 0, Unordered = 1, Monotonic = 2, Ac
 
 public enum LLVMAtomicRMWBinOp { Xchg, Add, Sub, And, Nand, Or, Xor, Max, Min, UMax, UMin, FAdd, FSub }
 
-public enum LLVMLinkage { External = 0, LinkOnceODR = 3, Internal = 8, Private = 9 }
+public enum LLVMLinkage { External = 0, LinkOnceODR = 3, WeakAny = 5, Internal = 8, Private = 9 }
 
 public enum LLVMCodeGenOptLevel { None, Less, Default, Aggressive }
 public enum LLVMRelocMode { Default, Static, PIC, DynamicNoPic }
