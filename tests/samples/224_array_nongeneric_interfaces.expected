@@ -1,0 +1,30 @@
+Object[]: IEnumerable=True ICollection=True IList=True IEnumerable<int>=False IEnumerable<object>=True IList<string>=False IReadOnlyList<int[]>=False
+  items: 1 a null 2.5 count=4
+String[]: IEnumerable=True ICollection=True IList=True IEnumerable<int>=False IEnumerable<object>=True IList<string>=True IReadOnlyList<int[]>=False
+  items: b c count=2
+Int32[]: IEnumerable=True ICollection=True IList=True IEnumerable<int>=True IEnumerable<object>=False IList<string>=False IReadOnlyList<int[]>=False
+  items: 3 4 5 count=3
+Double[]: IEnumerable=True ICollection=True IList=True IEnumerable<int>=False IEnumerable<object>=False IList<string>=False IReadOnlyList<int[]>=False
+  items: 1.5 count=1
+Point[]: IEnumerable=True ICollection=True IList=True IEnumerable<int>=False IEnumerable<object>=False IList<string>=False IReadOnlyList<int[]>=False
+  items: Point { X = 1, Y = 2 } count=1
+Day[]: IEnumerable=True ICollection=True IList=True IEnumerable<int>=True IEnumerable<object>=False IList<string>=False IReadOnlyList<int[]>=False
+  items: Mon Tue count=2
+Int32[][]: IEnumerable=True ICollection=True IList=True IEnumerable<int>=False IEnumerable<object>=True IList<string>=False IReadOnlyList<int[]>=True
+  items: System.Int32[] System.Int32[] count=2
+String[]: IEnumerable=True ICollection=True IList=True IEnumerable<int>=False IEnumerable<object>=True IList<string>=True IReadOnlyList<int[]>=False
+  items:  count=0
+1,7
+two,four,six
+3,5
+b,c
+1,2
+InvalidCastException
+Mon,Tue
+4 True False 2 True False 3
+30,4,5
+Collection was of a fixed size.
+Collection was of a fixed size.
+1 True False
+True
+2

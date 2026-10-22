@@ -99,6 +99,7 @@ public sealed partial class FunctionCodeGen
             "IsValueType" => t!.IsValueType ? L.True : L.False,
             "Box" => BoxOrThrow(t!, args[0], inv),
             "Unbox" => UnboxOrThrow(t!, args[0], inv),
+            "CastOrThrow" => CastOrThrow(t!, args[0], inv),
             "FastAllocateString" => FastAllocateString(args[0]),
             "StringChars" => MakeSpan(_b.StructGep(T.StringHeader, args[0], 2), _b.Load(L.I32, _b.StructGep(T.StringHeader, args[0], 1), "strlen")),
             "DoubleToBits" => _b.Cast(LLVMOpcode.BitCast, args[0], L.I64),
@@ -150,6 +151,18 @@ public sealed partial class FunctionCodeGen
         catch (CompileError)
         {
             ThrowAndContinue("System.NotSupportedException", $"csharpc: boxing '{t}' is not supported yet.");
+            return LlvmContext.Null(L.Ptr);
+        }
+    }
+
+    /// <summary>(T)obj with a checked cast; types csharpc can't type-test yet throw at run time only.</summary>
+    private LLVMValueRef CastOrThrow(ITypeSymbol t, LLVMValueRef obj, IOperation at)
+    {
+        if (t.IsValueType) return UnboxOrThrow(t, obj, at);
+        try { return CastClass(obj, t, at); }
+        catch (CompileError)
+        {
+            ThrowAndContinue("System.NotSupportedException", $"csharpc: casting to '{t}' is not supported yet.");
             return LlvmContext.Null(L.Ptr);
         }
     }

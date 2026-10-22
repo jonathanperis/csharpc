@@ -14,10 +14,41 @@ namespace CsharpcCoreLib
         public static int ICollection_get_Count(Array a) => a.Length;
         public static bool ICollection_get_IsSynchronized(Array a) => false;
         public static object ICollection_get_SyncRoot(Array a) => a;
+
+        // Arrays made by the C runtime have no per-element-type method table, so boxing their
+        // elements isn't possible; generated code tags every array it allocates.
+        public static IEnumerator IEnumerable_GetEnumerator(Array a) =>
+            throw new NotSupportedException("csharpc: non-generic enumeration of an array created by the runtime is not supported yet.");
     }
 
     internal static class SZArrayHelper<T>
     {
+        // Non-generic IEnumerable / IList over T[] (per element type: elements are boxed).
+        public static IEnumerator IEnumerable_GetEnumerator(T[] a) => new ArrayEnumerator<T>(a);
+
+        public static object IList_get_Item(T[] a, int index) => CoreIntrinsics.Box(a[index]);
+        public static void IList_set_Item(T[] a, int index, object value) { a[index] = CoreIntrinsics.CastOrThrow<T>(value); }
+        public static bool IList_get_IsReadOnly(T[] a) => false;
+        public static bool IList_get_IsFixedSize(T[] a) => true;
+        public static int IList_Add(T[] a, object value) => throw new NotSupportedException("Collection was of a fixed size.");
+        public static bool IList_Contains(T[] a, object value) => IList_IndexOf(a, value) >= 0;
+        public static void IList_Clear(T[] a)
+        {
+            for (int i = 0; i < a.Length; i++) a[i] = default(T);
+        }
+        public static int IList_IndexOf(T[] a, object value)
+        {
+            for (int i = 0; i < a.Length; i++)
+            {
+                object element = CoreIntrinsics.Box(a[i]);
+                if (element == null ? value == null : element.Equals(value)) return i;
+            }
+            return -1;
+        }
+        public static void IList_Insert(T[] a, int index, object value) => throw new NotSupportedException("Collection was of a fixed size.");
+        public static void IList_Remove(T[] a, object value) => throw new NotSupportedException("Collection was of a fixed size.");
+        public static void IList_RemoveAt(T[] a, int index) => throw new NotSupportedException("Collection was of a fixed size.");
+
         public static IEnumerator<T> IEnumerable1_GetEnumerator(T[] a) => new ArrayEnumerator<T>(a);
 
         public static int ICollection1_get_Count(T[] a) => a.Length;

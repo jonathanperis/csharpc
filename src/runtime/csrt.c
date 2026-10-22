@@ -208,9 +208,10 @@ static void noop_dispose(void* self) { (void)self; }
 static void* const s_noop_dispose_slots[] = { (void*)noop_dispose };
 
 static void* const* builtin_interface_slots(const csrt_MethodTable* objmt, const csrt_MethodTable* itf) {
-    // Arrays may have a per-element-type MT ("System.Int32[]") whose base is one of the shared array MTs.
-    for (const csrt_MethodTable* mt = objmt; mt; mt = mt->base)
-        if (mt == &csrt_Array_MT.header || mt == &csrt_PrimitiveArray_MT.header) return (void* const*)itf->interfaces;
+    // Arrays allocated by generated code have a per-element-type MT ("System.Int32[]") whose
+    // interface map lists exactly the interfaces of that element type; the shared tables only serve
+    // untagged arrays (made by the runtime), whose element type is unknown.
+    if (objmt == &csrt_Array_MT.header || objmt == &csrt_PrimitiveArray_MT.header) return (void* const*)itf->interfaces;
     if (objmt == &csrt_String_MT.header) return (void* const*)itf->base;
     // Runtime-implemented disposables (`using var e = new CountdownEvent(n)`): IDisposable.Dispose
     // (its only slot) is a no-op — their native resources live as long as the object.

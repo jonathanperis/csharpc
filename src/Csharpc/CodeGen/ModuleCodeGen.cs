@@ -1017,6 +1017,7 @@ public sealed partial class ModuleCodeGen
             {
                 var getArgs = Runtime("csrt_get_args", Llvm.Ptr);
                 args = [b.Call(getArgs.Type, getArgs.Fn, [])];
+                b.Store(ArrayMethodTable(Compilation.GetSpecialType(SpecialType.System_String)), args[0]); // "System.String[]"
             }
             else args = [LlvmContext.Null(Llvm.Ptr)];
         }
