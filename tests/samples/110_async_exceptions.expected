@@ -1,0 +1,13 @@
+caught first
+faulted before running: False
+InvalidOperationException: later
+faulted after: True, completed: True, ok: False
+sync fault captured: True
+bad argument
+5
+Attempted to divide by zero.
+try;catch;finally;
+WhenAll -> a
+GetResult -> direct
+outer saw The input string 'not a number' was not in a correct format.
+FromException -> nope
