@@ -12,6 +12,7 @@ Start with the [top-level README](../README.md) for the quick start.
 | 05 | [Testing](05-testing.md) | Differential testing against `dotnet run` |
 | 06 | [Roadmap](06-roadmap.md) | Milestones M0–M4 and the feature-support matrix |
 | 07 | [Spike log](07-spike-log.md) | Dated journal and lessons learned |
+| 08 | [Drop-in toolchain](08-drop-in.md) | `.csproj` input, `dotnet build/run/publish` integration, packaging, gaps |
 
 ## Architecture decision records
 
