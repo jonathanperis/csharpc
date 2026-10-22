@@ -137,10 +137,9 @@ csrt_String* csrt_pinvoke_string_from_native(void* p, bool unicode, bool release
     csrt_String* s;
     if (unicode) {
         const uint16_t* u = p;
-        int32_t n = 0;
+        int64_t n = 0;  // 64-bit: a native string longer than .NET's limit is OutOfMemoryException, not a wrap
         while (u[n]) n++;
-        s = csrt_alloc(&csrt_String_MT.header, (int64_t)(sizeof(csrt_String) + 2 * (size_t)n));
-        s->length = n;
+        s = csrt_string_alloc_checked(n);
         memcpy(s->chars, u, 2 * (size_t)n);
     } else {
         s = csrt_string_from_utf8(p);
@@ -152,8 +151,7 @@ csrt_String* csrt_pinvoke_string_from_native(void* p, bool unicode, bool release
 /// string from a char*/length (new string(char*, int, int) and Marshal.PtrToStringUni).
 csrt_String* csrt_string_new_from_utf16(const uint16_t* chars, int32_t length) {
     if (length < 0) length = 0;
-    csrt_String* s = csrt_alloc(&csrt_String_MT.header, (int64_t)(sizeof(csrt_String) + 2 * (size_t)length));
-    s->length = length;
+    csrt_String* s = csrt_string_alloc_checked(length);
     if (length) memcpy(s->chars, chars, 2 * (size_t)length);
     return s;
 }
