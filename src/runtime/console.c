@@ -7,30 +7,8 @@
 #include <stdlib.h>
 #include <string.h>
 
-static csrt_String* utf8_to_string(const char* p, size_t n) {
-    // Decode UTF-8 (count, then fill), same rules as csrt.c's string_from_utf8.
-    size_t units = 0;
-    for (size_t i = 0; i < n;) {
-        unsigned char c = (unsigned char)p[i];
-        size_t len = c < 0x80 ? 1 : c < 0xE0 ? 2 : c < 0xF0 ? 3 : 4;
-        units += len == 4 ? 2 : 1;
-        i += len;
-    }
-    csrt_String* s = csrt_string_alloc_zeroed((int64_t)units);
-    s->length = (int32_t)units;
-    size_t o = 0;
-    for (size_t i = 0; i < n;) {
-        unsigned char c = (unsigned char)p[i];
-        uint32_t cp;
-        if (c < 0x80) { cp = c; i += 1; }
-        else if (c < 0xE0) { cp = (c & 0x1Fu) << 6 | ((unsigned char)p[i + 1] & 0x3Fu); i += 2; }
-        else if (c < 0xF0) { cp = (c & 0x0Fu) << 12 | ((unsigned char)p[i + 1] & 0x3Fu) << 6 | ((unsigned char)p[i + 2] & 0x3Fu); i += 3; }
-        else { cp = (c & 0x07u) << 18 | ((unsigned char)p[i + 1] & 0x3Fu) << 12 | ((unsigned char)p[i + 2] & 0x3Fu) << 6 | ((unsigned char)p[i + 3] & 0x3Fu); i += 4; }
-        if (cp >= 0x10000) { cp -= 0x10000; s->chars[o++] = (uint16_t)(0xD800 + (cp >> 10)); s->chars[o++] = (uint16_t)(0xDC00 + (cp & 0x3FF)); }
-        else s->chars[o++] = (uint16_t)cp;
-    }
-    return s;
-}
+// One validating UTF-8 decoder for the whole runtime (csrt.c): stdin is untrusted input.
+static csrt_String* utf8_to_string(const char* p, size_t n) { return csrt_string_from_utf8_n(p, n); }
 
 /// Console.ReadLine(): null at end of input; strips "\n" / "\r\n".
 csrt_String* csrt_console_read_line(void) {

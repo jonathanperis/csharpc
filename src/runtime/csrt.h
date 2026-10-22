@@ -96,6 +96,7 @@ void* csrt_task_canceled_exception_new(void);
 void* csrt_operation_canceled_exception_new(void);
 _Noreturn void csrt_throw_invalid_cast_from(const csrt_MethodTable* from, const csrt_MethodTable* to);
 csrt_String* csrt_string_from_utf8(const char* text);
+csrt_String* csrt_string_from_utf8_n(const char* text, size_t n);  // validating; ill-formed -> U+FFFD
 void csrt_stderr_write_string(csrt_String* s);
 csrt_String* csrt_object_type_name(void* obj, bool full);  // obj.GetType().Name / FullName
 _Noreturn void csrt_throw_null_reference(void);

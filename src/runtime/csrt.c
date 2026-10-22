@@ -127,34 +127,59 @@ static csrt_String* string_from_ascii(const char* text) {
     return s;
 }
 
-static csrt_String* string_from_utf8(const char* text) {
-    // Decode UTF-8 to UTF-16 (two passes: count, then fill).
-    const unsigned char* p = (const unsigned char*)text;
-    int32_t units = 0;
-    for (const unsigned char* q = p; *q;) {
-        if (*q < 0x80) q += 1, units += 1;
-        else if (*q < 0xE0) q += 2, units += 1;
-        else if (*q < 0xF0) q += 3, units += 1;
-        else q += 4, units += 2;
+/// Decodes one UTF-8 sequence at p[0..n) (n >= 1) the way .NET's UTF8Encoding does: well-formed
+/// sequences only (no overlongs, surrogates or > U+10FFFF); an ill-formed one becomes U+FFFD and
+/// consumes just its maximal valid prefix (Unicode "substitution of maximal subparts"). Never reads
+/// past p + n — input may come from stdin, files or argv.
+static uint32_t utf8_decode_one(const unsigned char* p, size_t n, size_t* consumed) {
+    unsigned char c = p[0];
+    if (c < 0x80) { *consumed = 1; return c; }
+    size_t need;
+    uint32_t cp;
+    unsigned char lo = 0x80, hi = 0xBF;  // allowed range of the *first* continuation byte
+    if (c >= 0xC2 && c <= 0xDF) { need = 1; cp = c & 0x1Fu; }
+    else if (c >= 0xE0 && c <= 0xEF) {
+        need = 2; cp = c & 0x0Fu;
+        if (c == 0xE0) lo = 0xA0;        // no overlongs
+        else if (c == 0xED) hi = 0x9F;   // no surrogates
+    } else if (c >= 0xF0 && c <= 0xF4) {
+        need = 3; cp = c & 0x07u;
+        if (c == 0xF0) lo = 0x90;        // no overlongs
+        else if (c == 0xF4) hi = 0x8F;   // <= U+10FFFF
+    } else { *consumed = 1; return 0xFFFD; }  // continuation byte or invalid lead (C0, C1, F5..FF)
+    size_t i = 1;
+    for (; i <= need; i++) {
+        if (i >= n) break;
+        unsigned char b = p[i];
+        if (b < (i == 1 ? lo : 0x80) || b > (i == 1 ? hi : 0xBF)) break;
+        cp = (cp << 6) | (b & 0x3Fu);
     }
+    if (i <= need) { *consumed = i; return 0xFFFD; }  // truncated or bad continuation
+    *consumed = need + 1;
+    return cp;
+}
+
+/// UTF-8 bytes p[0..n) → string (two passes: count UTF-16 units, then fill).
+csrt_String* csrt_string_from_utf8_n(const char* text, size_t n) {
+    const unsigned char* p = (const unsigned char*)text;
+    int64_t units = 0;
+    for (size_t i = 0, k; i < n; i += k) units += utf8_decode_one(p + i, n - i, &k) >= 0x10000 ? 2 : 1;
     csrt_String* s = string_alloc(units);
-    int32_t i = 0;
-    while (*p) {
-        uint32_t cp;
-        if (*p < 0x80) cp = *p++;
-        else if (*p < 0xE0) { cp = (*p++ & 0x1Fu) << 6; cp |= (*p++ & 0x3Fu); }
-        else if (*p < 0xF0) { cp = (*p++ & 0x0Fu) << 12; cp |= (*p++ & 0x3Fu) << 6; cp |= (*p++ & 0x3Fu); }
-        else { cp = (*p++ & 0x07u) << 18; cp |= (*p++ & 0x3Fu) << 12; cp |= (*p++ & 0x3Fu) << 6; cp |= (*p++ & 0x3Fu); }
+    int32_t o = 0;
+    for (size_t i = 0, k; i < n; i += k) {
+        uint32_t cp = utf8_decode_one(p + i, n - i, &k);
         if (cp >= 0x10000) {
             cp -= 0x10000;
-            s->chars[i++] = (uint16_t)(0xD800 + (cp >> 10));
-            s->chars[i++] = (uint16_t)(0xDC00 + (cp & 0x3FF));
+            s->chars[o++] = (uint16_t)(0xD800 + (cp >> 10));
+            s->chars[o++] = (uint16_t)(0xDC00 + (cp & 0x3FF));
         } else {
-            s->chars[i++] = (uint16_t)cp;
+            s->chars[o++] = (uint16_t)cp;
         }
     }
     return s;
 }
+
+static csrt_String* string_from_utf8(const char* text) { return csrt_string_from_utf8_n(text, strlen(text)); }
 
 csrt_Array* csrt_get_args(void) {
     // Like .NET, args excludes the program name.
