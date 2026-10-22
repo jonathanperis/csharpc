@@ -26,6 +26,9 @@ public sealed partial class FunctionCodeGen
     private readonly LLVMBasicBlockRef _entry;
     private readonly LLVMBasicBlockRef _start;
     private readonly LLVMValueRef _this;
+    /// <summary>Set when this is a lambda / local function: its closure-tree node and incoming env.</summary>
+    private readonly ClosureFunction? _nested;
+    private readonly LLVMValueRef _incomingEnv;
     private readonly Dictionary<ISymbol, LLVMValueRef> _slots = new(SymbolEqualityComparer.Default);
     private readonly HashSet<IParameterSymbol> _byRefParams = new(SymbolEqualityComparer.Default);
     private readonly HashSet<ILocalSymbol> _ownLocals = new(SymbolEqualityComparer.Default);
@@ -47,6 +50,8 @@ public sealed partial class FunctionCodeGen
             new(ReferenceEqualityComparer.Instance);
         public List<(LLVMBasicBlockRef Block, ControlFlowRegion Region)> FinallyEnds { get; } = [];
         public LLVMBasicBlockRef Exit { get; set; }
+        /// <summary>The closure-tree node for this graph (captured variables live in env scopes).</summary>
+        public ClosureFunction Closure { get; set; } = null!;
     }
 
     private LlvmContext L => _m.Llvm;
@@ -54,9 +59,11 @@ public sealed partial class FunctionCodeGen
     internal ModuleCodeGen Module => _m;
     internal IrBuilder Builder => _b;
 
-    public FunctionCodeGen(ModuleCodeGen module, IMethodSymbol? method, LoweredFunction fn, TypeSubstitution? substitution = null)
+    public FunctionCodeGen(ModuleCodeGen module, IMethodSymbol? method, LoweredFunction fn, ClosureFunction? nested = null,
+        TypeSubstitution? substitution = null)
     {
         _m = module;
+        _nested = nested;
         _method = method;
         _subst = substitution ?? TypeSubstitution.For(method, module.Compilation);
         _fn = fn;
@@ -67,7 +74,12 @@ public sealed partial class FunctionCodeGen
 
         // Spill parameters to allocas (mem2reg will undo this) so they're assignable like locals.
         uint index = 0;
-        if (method is { IsStatic: false })
+        if (method is not null && ModuleCodeGen.IsNestedFunction(method))
+        {
+            _incomingEnv = fn.Fn.Param(index++);
+            _incomingEnv.SetName("env");
+        }
+        else if (method is not null && ModuleCodeGen.HasThis(method))
         {
             _this = fn.Fn.Param(index++);
             _this.SetName("this");
@@ -198,7 +210,10 @@ public sealed partial class FunctionCodeGen
     {
         var outer = _cfg;
         var state = _cfg = new CfgState(graph, continuation);
-        _m.EnqueueLocalFunctions(graph, _subst);
+        state.Closure = _nested is { } n && ReferenceEquals(n.Cfg, graph)
+            ? n
+            : new ClosureAnalysis(graph, _method?.OriginalDefinition, _m).Root;
+        _m.EnqueueNested(state.Closure, _subst);
         ScanRegions(graph, graph.Root);
         FindLvalueCaptures(graph, state.LvalueCaptures);
         FindArrayEnumerators(graph, state.ArrayEnumerators);
@@ -207,6 +222,7 @@ public sealed partial class FunctionCodeGen
             if (block is { Kind: BasicBlockKind.Block, IsReachable: true })
                 state.Blocks[block] = _b.AppendBlock(_fn.Fn, $"bb{block.Ordinal}");
 
+        EnterFunctionScope();
         _b.Br(Target(graph.Blocks[0].FallThroughSuccessor!));
 
         foreach (var (block, llvmBlock) in state.Blocks)
@@ -288,7 +304,7 @@ public sealed partial class FunctionCodeGen
         return true;
     }
 
-    private LLVMBasicBlockRef Target(ControlFlowBranch branch) => ThroughFinally(branch, DirectTarget(branch));
+    private LLVMBasicBlockRef Target(ControlFlowBranch branch) => ThroughFinally(branch, EnterScopes(branch, DirectTarget(branch)));
 
     /// <summary>
     /// A branch that leaves try regions must first run their finally blocks (innermost first). Each
@@ -456,6 +472,7 @@ public sealed partial class FunctionCodeGen
 
     internal LLVMValueRef LocalSlot(ILocalSymbol local)
     {
+        if (CapturedAddress(local) is { } captured) return captured;
         if (_slots.TryGetValue(local, out var slot)) return slot;
         if (local.IsRef) throw CompileError.Unsupported($"ref local '{local.Name}'", local);
         if (!_ownLocals.Contains(local))
@@ -465,10 +482,11 @@ public sealed partial class FunctionCodeGen
 
     internal LLVMValueRef ParameterSlot(IParameterSymbol parameter, IOperation at)
     {
+        if (CapturedAddress(parameter) is { } captured) return captured;
         if (_slots.TryGetValue(parameter, out var slot)) return slot;
         // A primary-constructor parameter referenced from a member: read its captured field.
-        if (_this.Handle != 0 && CapturedParameterField(parameter) is { } field)
-            return FieldAddressOn(_this, S(field));
+        if (CapturedParameterField(parameter) is { } field)
+            return FieldAddressOn(ThisValue(at), S(field));
         throw CompileError.Unsupported($"closure: local function or lambda capturing parameter '{parameter.Name}'", at);
     }
 

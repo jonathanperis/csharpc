@@ -17,7 +17,7 @@ public sealed partial class FunctionCodeGen
             IFlowCaptureReferenceOperation r => LoadCapture(r),
             ILocalReferenceOperation l => LoadValue(LocalSlot(l.Local), S(l.Local.Type)),
             IParameterReferenceOperation p => LoadValue(ParameterSlot(p.Parameter, p), S(p.Parameter.Type)),
-            IInstanceReferenceOperation => _this.Handle != 0 ? _this : throw CompileError.Unsupported("'this' outside an instance member", op),
+            IInstanceReferenceOperation => ThisValue(op),
             IFieldReferenceOperation f => LoadValue(FieldAddress(f), S(f.Field.Type)),
             IPropertyReferenceOperation p => EmitPropertyGet(p),
             IArrayElementReferenceOperation a => LoadValue(ElementAddress(a), TypeOf(a)!),
@@ -39,10 +39,11 @@ public sealed partial class FunctionCodeGen
             IDefaultValueOperation d => LlvmContext.Null(T.Value(TypeOf(d)!)),
             IExpressionStatementOperation e => EmitValue(e.Operation),
             IDeclarationExpressionOperation d => EmitValue(d.Expression),
-            ILocalFunctionOperation => default, // body is lowered separately (EnqueueLocalFunctions)
+            ILocalFunctionOperation => default, // body is lowered separately (ModuleCodeGen.EnqueueNested)
+            IDelegateCreationOperation d => EmitDelegateCreation(d),
             IEmptyOperation => default,
-            IAnonymousFunctionOperation or IFlowAnonymousFunctionOperation or IDelegateCreationOperation =>
-                throw CompileError.Unsupported("lambdas and delegates", op),
+            IAnonymousFunctionOperation or IFlowAnonymousFunctionOperation =>
+                throw CompileError.Unsupported("lambda not converted to a delegate (e.g. expression trees)", op),
             IInterpolatedStringHandlerCreationOperation =>
                 throw CompileError.Unsupported("interpolated string handlers", op),
             IDeconstructionAssignmentOperation d => EmitDeconstruction(d),
@@ -101,6 +102,7 @@ public sealed partial class FunctionCodeGen
         IFieldReferenceOperation f => FieldAddress(f),
         IArrayElementReferenceOperation a => ElementAddress(a),
         IDeclarationExpressionOperation d => AddressOf(d.Expression),
+        IDiscardOperation d => NewTemp(T.Storage(d.Type!), "discard"),
         IFlowCaptureReferenceOperation c when _cfg!.LvalueCaptures.Contains(c.Id) => CaptureAddress(c),
         _ => throw CompileError.Unsupported($"assignment to {target.Kind}", target),
     };
@@ -253,6 +255,7 @@ public sealed partial class FunctionCodeGen
     private LLVMValueRef EmitBinary(IBinaryOperation op)
     {
         if (op.OperatorMethod is { } om0 && !IsBuiltInStringConcat(om0) && om0.ContainingType.SpecialType != SpecialType.System_String
+            && om0.ContainingType.SpecialType is not (SpecialType.System_Delegate or SpecialType.System_MulticastDelegate)
             && !IsGenericMathOnPrimitive(om0, op.LeftOperand))
         {
             var om = S(om0);

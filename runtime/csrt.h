@@ -83,7 +83,6 @@ int32_t csrt_object_get_hash_code_default(void* self);
 csrt_String* csrt_string_concat(csrt_String* a, csrt_String* b);
 bool csrt_string_equals(csrt_String* a, csrt_String* b);
 bool csrt_string_is_null_or_empty(csrt_String* s);
-int32_t csrt_string_compare(csrt_String* a, csrt_String* b);
 uint16_t csrt_string_char_at(csrt_String* s, int32_t index);
 csrt_String* csrt_string_from_i32(int32_t v);
 csrt_String* csrt_string_from_i64(int64_t v);
