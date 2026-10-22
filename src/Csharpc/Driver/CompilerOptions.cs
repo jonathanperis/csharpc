@@ -8,6 +8,12 @@ public sealed record CompilerOptions
     public string? Output { get; set; }
     public EmitKind Emit { get; set; } = EmitKind.Exe;
     public int OptLevel { get; set; } = 2;
+    /// <summary>0 = optimize for speed, 1 = -Os, 2 = -Oz (smallest).</summary>
+    public int SizeLevel { get; set; }
+    /// <summary>Strip symbols from executables (null = default: strip unless -g).</summary>
+    public bool? Strip { get; set; }
+    /// <summary>Link a fully static executable (no libc.so at run time).</summary>
+    public bool Static { get; set; }
     public string? Target { get; set; }
     public string? Cpu { get; set; }
     public string? Features { get; set; }
@@ -41,6 +47,9 @@ public sealed record CompilerOptions
           -p:<Name>=<Value>      MSBuild global property used when evaluating a project
           --emit <kind>          exe (default) | obj | asm | llvm-ir | llvm-bc
           -O0 | -O1 | -O2 | -O3  Optimization level (default: -O2)
+          -Os | -Oz              Optimize for size (-Oz: smallest), at -O2 speed otherwise
+          --strip | --no-strip   Strip symbols from the executable (default: strip unless -g)
+          --static               Link a fully static executable (no shared libc at run time)
           -g, --debug            Emit DWARF debug info (C# source-level debugging with gdb/lldb)
           -g0                    No debug info (default; overrides -c Debug)
           --target <triple>      Target triple (default: host)
@@ -88,6 +97,10 @@ public sealed record CompilerOptions
                     };
                     break;
                 case "-O0" or "-O1" or "-O2" or "-O3": o.OptLevel = a[2] - '0'; o.OptLevelExplicit = true; break;
+                case "-Os" or "-Oz": o.OptLevel = 2; o.SizeLevel = a == "-Os" ? 1 : 2; o.OptLevelExplicit = true; break;
+                case "--strip": o.Strip = true; break;
+                case "--no-strip": o.Strip = false; break;
+                case "--static": o.Static = true; break;
                 case "-c" or "--configuration": o.Configuration = Next(); break;
                 case var _ when a.StartsWith("-p:", StringComparison.Ordinal) || a.StartsWith("/p:", StringComparison.Ordinal):
                 {

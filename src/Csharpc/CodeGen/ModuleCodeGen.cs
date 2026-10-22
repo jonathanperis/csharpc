@@ -953,6 +953,22 @@ public sealed partial class ModuleCodeGen
             _variantInterfaces.Add(itf);
     }
 
+    /// <summary>Does any syntax in the method (incl. lambdas/local functions inside it) bind to the parameter?</summary>
+    private bool ParameterIsReferenced(IMethodSymbol method, IParameterSymbol parameter)
+    {
+        foreach (var reference in method.DeclaringSyntaxReferences)
+        {
+            var root = reference.GetSyntax();
+            var model = ModelFor(root.SyntaxTree);
+            // Top-level statements: the declaring syntax is the compilation unit.
+            foreach (var id in root.DescendantNodes().OfType<Microsoft.CodeAnalysis.CSharp.Syntax.IdentifierNameSyntax>())
+                if (id.Identifier.ValueText == parameter.Name
+                    && SymbolEqualityComparer.Default.Equals(model.GetSymbolInfo(id).Symbol, parameter))
+                    return true;
+        }
+        return false;
+    }
+
     private void EmitNativeMain(IMethodSymbol entryPoint)
     {
         var type = Llvm.FunctionType(Llvm.I32, Llvm.I32, Llvm.Ptr);
@@ -989,8 +1005,14 @@ public sealed partial class ModuleCodeGen
         LLVMValueRef[] args = [];
         if (entryPoint.Parameters.Length == 1)
         {
-            var getArgs = Runtime("csrt_get_args", Llvm.Ptr);
-            args = [b.Call(getArgs.Type, getArgs.Fn, [])];
+            // Building string[] args allocates; skip it when Main never reads `args` (top-level
+            // statements always declare it). Unobservable, and hello world then needs no GC at all.
+            if (ParameterIsReferenced(entryPoint, entryPoint.Parameters[0]))
+            {
+                var getArgs = Runtime("csrt_get_args", Llvm.Ptr);
+                args = [b.Call(getArgs.Type, getArgs.Fn, [])];
+            }
+            else args = [LlvmContext.Null(Llvm.Ptr)];
         }
         var result = b.Call(target.Type, target.Fn, args);
         var returnsVoid = entryPoint.ReturnsVoid;

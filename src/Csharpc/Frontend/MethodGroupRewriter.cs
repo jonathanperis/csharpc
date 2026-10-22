@@ -19,12 +19,17 @@ public static class MethodGroupRewriter
         var result = compilation;
         foreach (var tree in compilation.SyntaxTrees)
         {
-            var model = compilation.GetSemanticModel(tree);
+            // The corelib writes lambdas where it needs them; binding all of it here would cost
+            // ~1-2 s per compile (GetOperation forces method-body binding).
+            if (RoslynFrontend.IsCoreLibTree(tree)) continue;
+            SemanticModel? model = null;
             var root = tree.GetRoot();
             var replacements = new Dictionary<SyntaxNode, SyntaxNode>();
             foreach (var node in root.DescendantNodes().OfType<ExpressionSyntax>())
             {
                 if (node is not (IdentifierNameSyntax or MemberAccessExpressionSyntax or GenericNameSyntax)) continue;
+                if (!CanBeMethodGroupConversion(node)) continue;
+                model ??= compilation.GetSemanticModel(tree);
                 if (model.GetOperation(node) is not IMethodReferenceOperation { Method: { IsStatic: true } method } reference) continue;
                 if (reference.Parent is not IDelegateCreationOperation) continue;
                 if (SymbolEqualityComparer.Default.Equals(method.ContainingAssembly, compilation.Assembly)) continue;
@@ -40,5 +45,21 @@ public static class MethodGroupRewriter
             result = result.ReplaceSyntaxTree(tree, tree.WithRootAndOptions(newRoot, tree.Options));
         }
         return result;
+    }
+
+    /// <summary>Syntactic positions where a method group can be converted to a delegate.</summary>
+    private static bool CanBeMethodGroupConversion(ExpressionSyntax node)
+    {
+        // `a.b` as the receiver of a member access or the target of a call is not a method group value.
+        var parent = node.Parent;
+        if (parent is MemberAccessExpressionSyntax access && access.Expression == node) return false;
+        return parent switch
+        {
+            ArgumentSyntax or EqualsValueClauseSyntax or ReturnStatementSyntax or ArrowExpressionClauseSyntax
+                or CastExpressionSyntax or YieldStatementSyntax => true,
+            AssignmentExpressionSyntax assignment => assignment.Right == node,
+            ConditionalExpressionSyntax or CollectionElementSyntax or InitializerExpressionSyntax => true,
+            _ => false,
+        };
     }
 }

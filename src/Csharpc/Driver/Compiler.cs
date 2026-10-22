@@ -107,6 +107,9 @@ public sealed class Compiler(CompilerOptions options)
         if (runtimeLto)
         {
             RuntimeLto.LinkInto(module, llvm, toolchain.RuntimeBitcode(target.Triple));
+            // Everything but main is internal now: drop the runtime code this program never reaches
+            // before the (much more expensive) optimization pipeline sees it.
+            module.RunPasses("globaldce", target);
             Phase("link runtime bitcode (LTO)");
         }
 
@@ -118,8 +121,10 @@ public sealed class Compiler(CompilerOptions options)
         }
         if (options.OptLevel > 0)
         {
-            module.RunPasses($"default<O{options.OptLevel}>", target);
-            Phase($"optimize (default<O{options.OptLevel}>)");
+            var pipeline = options.SizeLevel switch { 1 => "default<Os>", 2 => "default<Oz>", _ => $"default<O{options.OptLevel}>" };
+            if (options.SizeLevel > 0) Optimizations.MarkOptimizeForSize(module, llvm, minimize: options.SizeLevel == 2);
+            module.RunPasses(pipeline, target);
+            Phase($"optimize ({pipeline})");
         }
 
         var output = options.OutputPath;
@@ -139,7 +144,7 @@ public sealed class Compiler(CompilerOptions options)
                     toolchain.Link(target.Triple, obj, output, runtimeLinkedIn: runtimeLto);
                     Phase("link");
                 }
-                finally { File.Delete(obj); }
+                finally { if (Environment.GetEnvironmentVariable("CSHARPC_KEEP_OBJ") is not { Length: > 0 } keep) File.Delete(obj); else File.Move(obj, keep, overwrite: true); }
                 break;
         }
         if (options.Emit != EmitKind.Exe) Phase("emit");

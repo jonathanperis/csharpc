@@ -1,27 +1,57 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
-  "extends": ["config:recommended", ":dependencyDashboard"],
-  "schedule": ["before 6am on monday"],
+  "extends": [
+    "config:recommended"
+  ],
+  "schedule": [
+    "before 6am on monday"
+  ],
   "timezone": "America/Sao_Paulo",
-  "labels": ["dependencies"],
+  "labels": [
+    "dependencies"
+  ],
   "packageRules": [
     {
       "description": "Roslyn is csharpc's front-end: one PR for all Microsoft.CodeAnalysis packages, always reviewed by hand",
-      "matchPackageNames": ["Microsoft.CodeAnalysis*"],
+      "matchPackageNames": [
+        "Microsoft.CodeAnalysis*"
+      ],
       "groupName": "Roslyn",
       "automerge": false
     },
     {
       "description": ".NET SDK pin in global.json (csharpc tracks the newest SDK, previews included)",
-      "matchFileNames": ["global.json"],
+      "matchFileNames": [
+        "global.json"
+      ],
       "ignoreUnstable": false,
       "automerge": false
     },
     {
       "description": "GitHub Actions minor/patch updates merge automatically once CI passes",
-      "matchManagers": ["github-actions"],
-      "matchUpdateTypes": ["minor", "patch", "digest"],
+      "matchManagers": [
+        "github-actions"
+      ],
+      "matchUpdateTypes": [
+        "minor",
+        "patch",
+        "digest"
+      ],
       "automerge": true
+    },
+    {
+      "description": "CI stays on Ubuntu 24.04: csharpc targets LLVM 18-20 through the LLVM C API, and newer Ubuntu releases ship a newer LLVM. Revisit together with the LLVM version.",
+      "matchManagers": [
+        "github-actions"
+      ],
+      "matchDepNames": [
+        "ubuntu"
+      ],
+      "matchUpdateTypes": [
+        "major"
+      ],
+      "enabled": false
     }
-  ]
+  ],
+  "dependencyDashboard": false
 }

@@ -104,17 +104,65 @@ public static class RoslynFrontend
     }
 
     /// <summary>
-    /// Bind against the framework assemblies of the runtime csharpc itself runs on (.NET 11). The
-    /// metadata only drives overload resolution and typing; none of that IL is ever compiled.
+    /// The .NET 11 reference assemblies Roslyn binds user code against. The metadata only drives
+    /// overload resolution and typing; none of that IL is ever compiled. Preferred source: the SDK's
+    /// reference pack (packs/Microsoft.NETCore.App.Ref/&lt;ver&gt;/ref/net11.0) — the exact API surface a
+    /// normal build uses, and it works when csharpc itself runs as a NativeAOT executable, where there
+    /// is no TRUSTED_PLATFORM_ASSEMBLIES list. Fallback: the framework csharpc runs on.
+    /// Override with CSHARPC_REFERENCES=&lt;directory of reference assemblies&gt;.
     /// </summary>
-    private static ImmutableArray<MetadataReference> ReferenceAssemblies()
+    private static ImmutableArray<MetadataReference> ReferenceAssemblies() => s_references ??= LoadReferences();
+
+    private static ImmutableArray<MetadataReference>? s_references;
+
+    private static ImmutableArray<MetadataReference> LoadReferences()
     {
+        var dir = Environment.GetEnvironmentVariable("CSHARPC_REFERENCES") is { Length: > 0 } explicitDir ? explicitDir : FindReferencePack();
+        if (dir is not null)
+            return [.. Directory.EnumerateFiles(dir, "*.dll").Order()
+                .Select(p => (MetadataReference)MetadataReference.CreateFromFile(p))];
+
         var runtimeDir = RuntimeEnvironment.GetRuntimeDirectory();
         var tpa = (AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES") as string ?? "").Split(Path.PathSeparator);
         return [.. tpa
-            .Where(p => p.StartsWith(runtimeDir, StringComparison.Ordinal))
+            .Where(p => p.Length > 0 && p.StartsWith(runtimeDir, StringComparison.Ordinal))
             .Where(p => Path.GetFileName(p) is var n && (n.StartsWith("System.", StringComparison.Ordinal) || n is "netstandard.dll" or "mscorlib.dll"))
             .Select(p => (MetadataReference)MetadataReference.CreateFromFile(p))];
+    }
+
+    /// <summary>Newest net11.0 reference pack among the usual dotnet installation roots.</summary>
+    private static string? FindReferencePack()
+    {
+        IEnumerable<string?> roots =
+        [
+            Environment.GetEnvironmentVariable("DOTNET_ROOT"),
+            DotnetOnPath(),
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".dotnet"),
+            "/usr/share/dotnet", "/usr/lib/dotnet", "/usr/local/share/dotnet",
+        ];
+        return roots.Where(r => r is not null && Directory.Exists(Path.Combine(r, "packs", "Microsoft.NETCore.App.Ref")))
+            .SelectMany(r => Directory.EnumerateDirectories(Path.Combine(r!, "packs", "Microsoft.NETCore.App.Ref")))
+            .Select(versionDir => (Version: ParseVersion(Path.GetFileName(versionDir)), Dir: Path.Combine(versionDir, "ref", "net11.0")))
+            .Where(c => c.Version.Major == 11 && Directory.Exists(c.Dir))
+            .OrderByDescending(c => c.Version)
+            .Select(c => c.Dir)
+            .FirstOrDefault();
+
+        static Version ParseVersion(string text) =>
+            Version.TryParse(text.Split('-')[0], out var v) ? v : new Version(0, 0);
+    }
+
+    private static string? DotnetOnPath()
+    {
+        foreach (var dir in (Environment.GetEnvironmentVariable("PATH") ?? "").Split(Path.PathSeparator))
+        {
+            if (dir.Length == 0) continue;
+            var candidate = Path.Combine(dir, "dotnet");
+            if (!File.Exists(candidate)) continue;
+            var resolved = new FileInfo(candidate).ResolveLinkTarget(returnFinalTarget: true)?.FullName ?? candidate;
+            return Path.GetDirectoryName(resolved);
+        }
+        return null;
     }
 }
 

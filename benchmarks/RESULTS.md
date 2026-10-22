@@ -57,6 +57,60 @@ by about 13%. These are the optimizations that closed those gaps, each measured 
 | Closed-world devirtualization (class hierarchy analysis): a virtual call whose static receiver subtree resolves the slot to a single method becomes a direct (inlinable) call | `CodeGen/ModuleCodeGen.Devirtualization.cs` | semantics checked by `tests/samples/80_devirtualization.cs` |
 | `zeroext` on small-int runtime parameters/returns (ABI correctness at -O0), `noalias`+`nonnull` on allocator returns | `CodeGen/Optimizations.cs` | correctness, plus null-check folding without LTO |
 
+## Size, start-up, memory and compile time
+
+Measured on the same machine (heavily loaded: load average 7–12, so treat wall times as upper
+bounds; CPU times are the stable numbers). Start-up and peak RSS come from `tools/startup.py`
+(median of N runs; peak RSS of one run via the tiny C launcher `tools/maxrss.c`).
+
+**Binary size** (stripped, as csharpc now emits by default; NativeAOT is its default publish output):
+
+| program | csharpc -O2 | csharpc -Oz | NativeAOT |
+|---|---:|---:|---:|
+| hello world | **17 KiB** | 20 KiB | 1,302 KiB |
+| fib | 8 KiB | 8 KiB | 1,305 KiB |
+| binarytrees | 23 KiB | 21 KiB | 1,301 KiB |
+| nbody | 24 KiB | 22 KiB | 1,309 KiB |
+| strbuild | 32 KiB | 29 KiB | 1,309 KiB |
+| wordfreq (Dictionary, LINQ) | 60 KiB | 51 KiB | 1,330 KiB |
+| listsort (List, Comparer) | 68 KiB | 57 KiB | 1,313 KiB |
+| tests/programs/interpreter (records, patterns, collections) | 190 KiB | — | 1,641 KiB |
+
+All 19 benchmark programs are 8–68 KiB at -O2 (they were 26–82 KiB before this round).
+`--static` produces a fully static, ASLR-enabled (`static-pie`) executable that needs no shared
+libraries at all: 740 KiB for hello world with glibc — still about half of NativeAOT's output, which
+additionally needs the system glibc at run time.
+
+**Start-up and memory:**
+
+| program | | csharpc | NativeAOT | .NET JIT |
+|---|---|---:|---:|---:|
+| hello world | median start-up | **2.8 ms** | 10.5 ms | 145 ms |
+| | peak RSS | **1.6 MiB** | 3.6 MiB | 23.2 MiB |
+| interpreter | median start-up | **13.3 ms** | 34.6 ms | 279 ms |
+| | peak RSS | **3.0 MiB** | 9.4 MiB | 29.4 MiB |
+
+**Compile time** (source to native executable; best of 3):
+
+| program | csharpc, NativeAOT-compiled | csharpc on the JIT | `dotnet publish -p:PublishAot=true` |
+|---|---:|---:|---:|
+| hello world | **0.55 s CPU** / 2.4 s wall | 2.6 s CPU / 9.7 s wall | 32.7 s wall |
+| interpreter | **4.6 s CPU** / 15.4 s wall | 10.9 s CPU / 33.2 s wall | 43.0 s wall |
+
+(`dotnet publish` CPU is not comparable: MSBuild's build-server processes aren't children of the
+measured process. For reference, a JIT `dotnet publish` of the same programs took 16–19 s wall.)
+
+What made the difference:
+
+| change | effect |
+|---|---|
+| lld instead of ld.bfd when installed: no page padding between segments in the file | hello 27.2 → 22.7 KiB |
+| `--gc-sections`, `--icf=safe`, packed RELR relocations (`-z pack-relative-relocs`, when the host glibc ≥ 2.36 supports them), strip by default unless `-g` | → 21.8 KiB |
+| `Main` doesn't build `string[] args` when it never reads `args` (top-level statements always declare it): hello world then allocates nothing, so the GC, the allocator slow paths and exception formatting are dead and LTO drops them | → **17.3 KiB** |
+| csharpc itself published with NativeAOT (`tools/publish-native.sh`); reference assemblies come from the SDK's reference pack instead of the host runtime's TPA list, which doesn't exist in a NativeAOT process | ~5× less CPU per compile |
+| `MethodGroupRewriter` no longer calls `GetOperation` on every expression of the corelib (that bound ~5,000 lines of method bodies on every compile) | "lower" phase 1.3–2.1 s → 0.2–0.3 s |
+| runtime bitcode merged once into a single cached module; `globaldce` right after it is linked in | runtime link ≈ −30 %, `default<O2>` ≈ −40 % for small programs |
+
 ## Remaining gaps and caveats
 
 - **Partitioning loops with random data** (quicksort): this code is limited by branch
