@@ -27,6 +27,8 @@ internal static class BclValueTypes
     public static bool IsTimeSpan(ITypeSymbol? t) =>
         t is INamedTypeSymbol { Name: "TimeSpan", ContainingNamespace: { Name: "System", ContainingNamespace.IsGlobalNamespace: true } };
     public static bool IsTicks(ITypeSymbol? t) => IsTimeSpan(t) || IsDateTime(t);
+    public static bool IsBigInteger(ITypeSymbol? t) =>
+        t is INamedTypeSymbol { Name: "BigInteger", ContainingNamespace: { Name: "Numerics", ContainingNamespace: { Name: "System" } } };
 
     public static bool TryGet(IMethodSymbol method, out BclHandler handler)
     {
@@ -467,6 +469,8 @@ internal static class BclValueTypes
         t[$"{DT}.ToShortTimeString()"] = DateTimeFormatted("HH:mm");
         t[$"{DT}.ToLongTimeString()"] = DateTimeFormatted("HH:mm:ss");
 
+        AddBigInteger(t);
+
         // ===== System.Diagnostics.Stopwatch =====
         const string SW = "System.Diagnostics.Stopwatch";
         t[$"{SW}..ctor()"] = (g, _, _, _, _) => Rt(g, "csrt_stopwatch_new", g.Llvm.Ptr, (g.Llvm.False, g.Llvm.I1));
@@ -747,6 +751,105 @@ internal static class BclValueTypes
             return q;
         };
         return t.ToFrozenDictionary();
+    }
+
+    // ---- System.Numerics.BigInteger (runtime/bigint.c; value = immutable bignum pointer) -----------
+
+    private static LLVMValueRef ToBig(FunctionCodeGen g, LLVMValueRef v, ITypeSymbol type)
+    {
+        var l = g.Llvm;
+        if (IsBigInteger(type)) return v;
+        if (TypeMapper.IsSigned(type)) return Rt(g, "csrt_bigint_from_i64", l.Ptr, (ToI64(g, v), l.I64));
+        return Rt(g, "csrt_bigint_from_u64", l.Ptr, (ToI64(g, v, false), l.I64));
+    }
+
+    private static void AddBigInteger(Dictionary<string, BclHandler> t)
+    {
+        const string B = "System.Numerics.BigInteger";
+        BclHandler binary(string fn) => (g, m, self, a, _) =>
+        {
+            var l = g.Llvm;
+            var (x, xt, y, yt) = self.Handle != 0
+                ? (self, (ITypeSymbol)m.ContainingType, a[0], m.Parameters[0].Type)
+                : (a[0], m.Parameters[0].Type, a[1], m.Parameters[1].Type);
+            return Rt(g, fn, l.Ptr, (ToBig(g, x, xt), l.Ptr), (ToBig(g, y, yt), l.Ptr));
+        };
+        foreach (var (op, method, fn) in new[] { ("op_Addition", "Add", "csrt_bigint_add"), ("op_Subtraction", "Subtract", "csrt_bigint_sub"),
+                     ("op_Multiply", "Multiply", "csrt_bigint_mul"), ("op_Division", "Divide", "csrt_bigint_div"), ("op_Modulus", "Remainder", "csrt_bigint_rem") })
+        {
+            t[$"{B}.{op}({B}, {B})"] = binary(fn);
+            t[$"{B}.{method}({B}, {B})"] = binary(fn);
+        }
+        t[$"{B}.GreatestCommonDivisor({B}, {B})"] = binary("csrt_bigint_gcd");
+        t[$"{B}.op_UnaryNegation({B})"] = t[$"{B}.Negate({B})"] = (g, _, _, a, _) => Rt(g, "csrt_bigint_negate", g.Llvm.Ptr, (a[0], g.Llvm.Ptr));
+        t[$"{B}.op_UnaryPlus({B})"] = (_, _, _, a, _) => a[0];
+        t[$"{B}.Abs({B})"] = (g, _, _, a, _) => Rt(g, "csrt_bigint_abs", g.Llvm.Ptr, (a[0], g.Llvm.Ptr));
+        t[$"{B}.op_Increment({B})"] = (g, _, _, a, _) => Rt(g, "csrt_bigint_add", g.Llvm.Ptr, (a[0], g.Llvm.Ptr), (Rt(g, "csrt_bigint_from_i64", g.Llvm.Ptr, (I64(g, 1), g.Llvm.I64)), g.Llvm.Ptr));
+        t[$"{B}.op_Decrement({B})"] = (g, _, _, a, _) => Rt(g, "csrt_bigint_sub", g.Llvm.Ptr, (a[0], g.Llvm.Ptr), (Rt(g, "csrt_bigint_from_i64", g.Llvm.Ptr, (I64(g, 1), g.Llvm.I64)), g.Llvm.Ptr));
+        t[$"{B}.Pow({B}, int)"] = (g, _, _, a, _) => Rt(g, "csrt_bigint_pow", g.Llvm.Ptr, (a[0], g.Llvm.Ptr), (a[1], g.Llvm.I32));
+        t[$"{B}.ModPow({B}, {B}, {B})"] = (g, _, _, a, _) => Rt(g, "csrt_bigint_mod_pow", g.Llvm.Ptr, (a[0], g.Llvm.Ptr), (a[1], g.Llvm.Ptr), (a[2], g.Llvm.Ptr));
+        t[$"{B}.DivRem({B}, {B}, {B})"] = (g, _, _, a, _) => Rt(g, "csrt_bigint_divrem", g.Llvm.Ptr, (a[0], g.Llvm.Ptr), (a[1], g.Llvm.Ptr), (a[2], g.Llvm.Ptr));
+        BclHandler compare(Func<FunctionCodeGen, LLVMValueRef, LLVMValueRef> fromSign) => (g, m, self, a, _) =>
+        {
+            var l = g.Llvm;
+            var (x, xt, y, yt) = self.Handle != 0
+                ? (self, (ITypeSymbol)m.ContainingType, a[0], m.Parameters[0].Type)
+                : (a[0], m.Parameters[0].Type, a[1], m.Parameters[1].Type);
+            var c = Rt(g, "csrt_bigint_compare", l.I32, (ToBig(g, x, xt), l.Ptr), (ToBig(g, y, yt), l.Ptr));
+            return fromSign(g, c);
+        };
+        LLVMValueRef sign(FunctionCodeGen g, LLVMValueRef c, LLVMIntPredicate p) => g.Builder.ICmp(p, c, I32(g, 0));
+        string[] operands = [B, "long", "ulong"];
+        foreach (var left in operands)
+            foreach (var right in operands)
+            {
+                if (left != B && right != B) continue;
+                foreach (var (op, p) in new[] { ("op_Equality", LLVMIntPredicate.EQ), ("op_Inequality", LLVMIntPredicate.NE), ("op_LessThan", LLVMIntPredicate.SLT),
+                             ("op_LessThanOrEqual", LLVMIntPredicate.SLE), ("op_GreaterThan", LLVMIntPredicate.SGT), ("op_GreaterThanOrEqual", LLVMIntPredicate.SGE) })
+                    t[$"{B}.{op}({left}, {right})"] = compare((g, c) => sign(g, c, p));
+            }
+        t[$"{B}.Compare({B}, {B})"] = compare((_, c) => c);
+        t[$"{B}.CompareTo({B})"] = t[$"{B}.CompareTo(long)"] = t[$"{B}.CompareTo(ulong)"] = compare((_, c) => c);
+        t[$"{B}.Equals({B})"] = t[$"{B}.Equals(long)"] = compare((g, c) => sign(g, c, LLVMIntPredicate.EQ));
+        t[$"{B}.Max({B}, {B})"] = (g, _, _, a, _) =>
+            g.Builder.Select(sign(g, Rt(g, "csrt_bigint_compare", g.Llvm.I32, (a[0], g.Llvm.Ptr), (a[1], g.Llvm.Ptr)), LLVMIntPredicate.SGE), a[0], a[1]);
+        t[$"{B}.Min({B}, {B})"] = (g, _, _, a, _) =>
+            g.Builder.Select(sign(g, Rt(g, "csrt_bigint_compare", g.Llvm.I32, (a[0], g.Llvm.Ptr), (a[1], g.Llvm.Ptr)), LLVMIntPredicate.SLE), a[0], a[1]);
+        foreach (var source in new[] { "int", "long", "uint", "ulong", "short", "ushort", "byte", "sbyte", "char" })
+        {
+            t[$"{B}.op_Implicit({source})"] = (g, m, _, a, _) => ToBig(g, a[0], m.Parameters[0].Type);
+            if (source is "int" or "long" or "uint" or "ulong") t[$"{B}..ctor({source})"] = (g, m, _, a, _) => ToBig(g, a[0], m.Parameters[0].Type);
+        }
+        BclHandler fromDouble = (g, _, _, a, _) => Rt(g, "csrt_bigint_from_f64", g.Llvm.Ptr, (ToF64(g, a[0]), g.Llvm.F64));
+        t[$"{B}.op_Explicit(double)"] = t[$"{B}.op_Explicit(float)"] = t[$"{B}..ctor(double)"] = t[$"{B}..ctor(float)"] = fromDouble;
+        t[$"{B}.op_Explicit({B})"] = (g, m, _, a, at) =>
+        {
+            var l = g.Llvm;
+            var to = m.ReturnType;
+            if (to.SpecialType == SpecialType.System_Double) return Rt(g, "csrt_bigint_to_f64", l.F64, (a[0], l.Ptr));
+            if (to.SpecialType == SpecialType.System_Single)
+                return g.Builder.Cast(LLVMOpcode.FPTrunc, Rt(g, "csrt_bigint_to_f64", l.F64, (a[0], l.Ptr)), l.F32);
+            var kind = to.SpecialType switch
+            {
+                SpecialType.System_Int32 => 5, SpecialType.System_UInt32 => 6, SpecialType.System_Int64 => 7, SpecialType.System_UInt64 => 8,
+                _ => throw CompileError.Unsupported($"(explicit) BigInteger to '{to}'", at),
+            };
+            var raw = Rt(g, "csrt_bigint_to_integer", l.I64, (a[0], l.Ptr), (I32(g, kind), l.I32));
+            return kind is 5 or 6 ? g.Builder.Cast(LLVMOpcode.Trunc, raw, l.I32) : raw;
+        };
+        t[$"{B}.Parse(string)"] = (g, _, _, a, _) => Rt(g, "csrt_bigint_parse", g.Llvm.Ptr, (a[0], g.Llvm.Ptr));
+        t[$"{B}.TryParse(string, {B})"] = (g, _, _, a, _) => Rt(g, "csrt_bigint_try_parse", g.Llvm.I1, (a[0], g.Llvm.Ptr), (a[1], g.Llvm.Ptr));
+        t[$"{B}.ToString()"] = (g, _, self, _, _) => Rt(g, "csrt_bigint_to_string", g.Llvm.Ptr, (self, g.Llvm.Ptr));
+        t[$"{B}.ToString(string)"] = (g, _, self, a, _) => Rt(g, "csrt_bigint_format", g.Llvm.Ptr, (self, g.Llvm.Ptr), (a[0], g.Llvm.Ptr));
+        t[$"{B}.GetHashCode()"] = (g, _, self, _, _) => Rt(g, "csrt_bigint_get_hash_code", g.Llvm.I32, (self, g.Llvm.Ptr));
+        t[$"{B}.get_IsZero()"] = (g, _, self, _, _) => g.Builder.ICmp(LLVMIntPredicate.EQ, self, LlvmContext.Null(g.Llvm.Ptr));
+        t[$"{B}.get_IsOne()"] = (g, _, self, _, _) =>
+            sign(g, Rt(g, "csrt_bigint_compare", g.Llvm.I32, (self, g.Llvm.Ptr), (Rt(g, "csrt_bigint_from_i64", g.Llvm.Ptr, (I64(g, 1), g.Llvm.I64)), g.Llvm.Ptr)), LLVMIntPredicate.EQ);
+        t[$"{B}.get_IsEven()"] = (g, _, self, _, _) => Rt(g, "csrt_bigint_is_even", g.Llvm.I1, (self, g.Llvm.Ptr));
+        t[$"{B}.get_Sign()"] = (g, _, self, _, _) => Rt(g, "csrt_bigint_sign", g.Llvm.I32, (self, g.Llvm.Ptr));
+        t[$"{B}.get_Zero()"] = (g, _, _, _, _) => LlvmContext.Null(g.Llvm.Ptr);
+        t[$"{B}.get_One()"] = (g, _, _, _, _) => Rt(g, "csrt_bigint_from_i64", g.Llvm.Ptr, (I64(g, 1), g.Llvm.I64));
+        t[$"{B}.get_MinusOne()"] = (g, _, _, _, _) => Rt(g, "csrt_bigint_from_i64", g.Llvm.Ptr, (I64(g, -1), g.Llvm.I64));
     }
 
     private static LLVMValueRef Widen(FunctionCodeGen g, LLVMValueRef i32, LLVMTypeRef to) =>

@@ -153,6 +153,7 @@ public sealed partial class ModuleCodeGen
         if (BclValueTypes.IsDecimal(type)) return ExternalGlobal("csrt_Boxed_Decimal_MT");
         if (BclValueTypes.IsTimeSpan(type)) return ExternalGlobal("csrt_Boxed_TimeSpan_MT");
         if (BclValueTypes.IsDateTime(type)) return ExternalGlobal("csrt_Boxed_DateTime_MT");
+        if (BclValueTypes.IsBigInteger(type)) return ExternalGlobal("csrt_Boxed_BigInteger_MT");
         switch (type.SpecialType)
         {
             case SpecialType.System_String: return ExternalGlobal("csrt_String_MT");

@@ -267,6 +267,13 @@ public sealed partial class FunctionCodeGen
 
     private LLVMValueRef EmitIncrementOrDecrement(IIncrementOrDecrementOperation op)
     {
+        if (op.OperatorMethod is { } incrementMethod && !_m.IsUserMethod(incrementMethod)
+            && BclValueTypes.TryGet(S(incrementMethod), out var libraryIncrement))
+            return ReadModifyWrite(op.Target, old =>
+            {
+                var updated = libraryIncrement(this, S(incrementMethod), default, [old], op);
+                return (updated, op.IsPostfix ? old : updated);
+            });
         if (op.OperatorMethod is not null) throw CompileError.Unsupported("user-defined ++/--", op);
         var type = TypeOf(op.Target)!;
         var increment = op.Kind == OperationKind.Increment;
