@@ -176,6 +176,8 @@ public sealed class ModuleCodeGen
             or MethodKind.PropertyGet or MethodKind.PropertySet or MethodKind.UserDefinedOperator or MethodKind.Conversion))
             return;
         if (method.MethodKind == MethodKind.Constructor && method.ContainingType.IsStatic) return;
+        // Static field initializers run from __csharpc_static_init; only explicit cctors get a function.
+        if (method.MethodKind == MethodKind.StaticConstructor && method.IsImplicitlyDeclared) return;
 
         var syntax = method.DeclaringSyntaxReferences.FirstOrDefault()?.GetSyntax();
         var fn = GetFunction(method);
