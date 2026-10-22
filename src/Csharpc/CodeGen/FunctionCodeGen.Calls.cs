@@ -25,6 +25,7 @@ public sealed partial class FunctionCodeGen
             var isBaseCall = inv.Instance?.Syntax is BaseExpressionSyntax;
             return EmitUserCall(target, self, ReceiverIsNonNull(inv.Instance, target), inv.Arguments, inv.IsVirtual && !isBaseCall);
         }
+        if (TrySpanMethod(inv, out var spanResult)) return spanResult;
         if (Intrinsics.TryGet(target, out var handler)) return handler(this, inv);
         throw CompileError.MissingIntrinsic(target, inv);
     }
@@ -119,6 +120,7 @@ public sealed partial class FunctionCodeGen
     {
         if (creation.Initializer is not null) throw CompileError.Unsupported("object initializer", creation);
         var type = (INamedTypeSymbol)creation.Type!;
+        if (TrySpanConstruction(creation, out var span)) return span;
         if (type.IsValueType) return EmitValueTypeCreation(creation, type);
         if (type.SpecialType == SpecialType.System_Object)
             return Allocate(_m.ExternalGlobal("csrt_Object_MT"), L.ConstInt(L.I64, (long)T.PointerSize));
@@ -219,6 +221,7 @@ public sealed partial class FunctionCodeGen
             var self = property.IsStatic ? default : Receiver(p.Instance!, getter);
             return CallAccessor(p, getter, self, []);
         }
+        if (TrySpanProperty(p, out var spanResult)) return spanResult;
         if (Intrinsics.TryGetProperty(property, out var handler)) return handler(this, p);
         throw CompileError.Unsupported($"'{property.ContainingType}.{property.Name}' has no implementation in the csharpc runtime yet", p);
     }
@@ -267,6 +270,7 @@ public sealed partial class FunctionCodeGen
 
     private LLVMValueRef EmitCollectionExpression(ICollectionExpressionOperation collection)
     {
+        if (TypeMapper.IsSpan(collection.Type)) return SpanFromCollection(collection, SpanElement(collection.Type!));
         if (collection.Type is not IArrayTypeSymbol { Rank: 1 } arrayType)
             throw CompileError.Unsupported($"collection expression of type '{collection.Type}'", collection);
         if (collection.Elements.Any(e => e is ISpreadOperation)) throw CompileError.Unsupported("spread elements", collection);

@@ -47,6 +47,8 @@ public sealed class TypeMapper(LlvmContext llvm, TargetMachine target)
             Llvm.Struct(Llvm.I8, Storage(n.TypeArguments[0])),              // { hasValue, value }
         INamedTypeSymbol { IsTupleType: true } t when t.TupleElements.Length <= 7 =>
             Llvm.Struct([.. t.TupleElements.Select(e => Storage(e.Type))]),  // ValueTuple<...>: flattened
+        INamedTypeSymbol n when IsSpan(n) => Llvm.Struct(Llvm.Ptr, Llvm.I32),                  // { ref T, length }
+        INamedTypeSymbol n when IsSpanEnumerator(n) => Llvm.Struct(Llvm.Ptr, Llvm.I32, Llvm.I32), // { ref T, length, index }
         INamedTypeSymbol { TypeKind: TypeKind.Struct } s when StructType?.Invoke(s) is { } user => user,
         { TypeKind: TypeKind.Struct } => throw CompileError.Unsupported($"struct '{type}'", type),
         { TypeKind: TypeKind.TypeParameter } => throw CompileError.Unsupported($"generic type parameter '{type}'", type),
@@ -55,6 +57,15 @@ public sealed class TypeMapper(LlvmContext llvm, TargetMachine target)
 
     /// <summary>Resolves user-defined structs to their named LLVM type (set by ModuleCodeGen); null if not user-defined.</summary>
     public Func<INamedTypeSymbol, LLVMTypeRef?>? StructType { get; set; }
+
+    /// <summary>System.Span&lt;T&gt; / System.ReadOnlySpan&lt;T&gt;.</summary>
+    public static bool IsSpan(ITypeSymbol? type) =>
+        type is INamedTypeSymbol { MetadataName: "Span`1" or "ReadOnlySpan`1", ContainingType: null } n
+        && n.ContainingNamespace is { Name: "System", ContainingNamespace.IsGlobalNamespace: true };
+
+    /// <summary>Span&lt;T&gt;.Enumerator / ReadOnlySpan&lt;T&gt;.Enumerator.</summary>
+    public static bool IsSpanEnumerator(ITypeSymbol? type) =>
+        type is INamedTypeSymbol { Name: "Enumerator", ContainingType: { } owner } && IsSpan(owner);
 
     public static bool IsNullable(ITypeSymbol? type) =>
         type is INamedTypeSymbol { OriginalDefinition.SpecialType: SpecialType.System_Nullable_T };

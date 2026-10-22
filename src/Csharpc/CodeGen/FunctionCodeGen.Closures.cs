@@ -123,10 +123,10 @@ public sealed partial class FunctionCodeGen
     }
 
     // ======================================================================================
-    // Delegates: { ptr mt, ptr target, ptr fn }
+    // Delegates: { ptr mt, ptr target, ptr fn, ptr invocationList } (list: see FunctionCodeGen.Events.cs)
     // ======================================================================================
 
-    private LLVMTypeRef DelegateType => L.Struct(L.Ptr, L.Ptr, L.Ptr);
+    private LLVMTypeRef DelegateType => L.Struct(L.Ptr, L.Ptr, L.Ptr, L.Ptr);
 
     private LLVMValueRef EmitDelegateCreation(IDelegateCreationOperation creation)
     {
@@ -185,13 +185,16 @@ public sealed partial class FunctionCodeGen
         var d = EmitValue(inv.Instance!);
         NullCheck(d);
         var args = new LLVMValueRef[1 + invoke.Parameters.Length];
-        args[0] = _b.Load(L.Ptr, _b.StructGep(DelegateType, d, 1), "target");
         foreach (var argument in inv.Arguments) args[1 + argument.Parameter!.Ordinal] = EmitArgument(argument);
-        var fn = _b.Load(L.Ptr, _b.StructGep(DelegateType, d, 2), "fn");
 
         List<LLVMTypeRef> parameters = [L.Ptr];
         foreach (var p in invoke.Parameters) parameters.Add(p.RefKind == RefKind.None ? T.Value(p.Type) : L.Ptr);
-        var fnType = L.FunctionType(T.Value(invoke.ReturnType), [.. parameters]);
-        return _b.Call(fnType, fn, args);
+        var returnType = T.Value(invoke.ReturnType);
+        var fnType = L.FunctionType(returnType, [.. parameters]);
+        return InvokeDelegate(d, returnType, (target, fn) =>
+        {
+            args[0] = target;
+            return _b.Call(fnType, fn, args);
+        });
     }
 }

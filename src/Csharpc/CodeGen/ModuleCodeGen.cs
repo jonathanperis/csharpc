@@ -159,7 +159,9 @@ public sealed partial class ModuleCodeGen
         else if (HasThis(method)) parameters.Add(Llvm.Ptr);
         foreach (var p in method.Parameters)
             parameters.Add(p.RefKind == RefKind.None ? Types.Value(p.Type) : Llvm.Ptr);
-        var returnType = method.MethodKind == MethodKind.Constructor ? Llvm.Void : Types.Value(method.ReturnType);
+        var returnType = method.MethodKind == MethodKind.Constructor ? Llvm.Void
+            : method.RefKind != RefKind.None ? Llvm.Ptr // `ref T M()` returns the address
+            : Types.Value(method.ReturnType);
         return Llvm.FunctionType(returnType, [.. parameters]);
     }
 
@@ -178,8 +180,8 @@ public sealed partial class ModuleCodeGen
         // C ABI: bool/uint8_t/uint16_t arguments must be zero-extended by the caller (clang's
         // callees rely on it). Without `zeroext`, an i1 produced by `trunc` can carry garbage bits.
         for (var i = 0; i < parameters.Length; i++)
-            if (parameters[i].IsInteger && parameters[i].IntWidth < 32)
-                Llvm.AddParameterAttribute(fn, (uint)i, "zeroext");
+            if (parameters[i].IsInteger && parameters[i].IntWidth < 32 && !name.StartsWith("llvm.", StringComparison.Ordinal))
+                Llvm.AddParameterAttribute(fn, (uint)i, "zeroext"); // (LLVM intrinsics have their own attributes, e.g. immarg)
         // Allocation returns fresh memory nothing else points to (non-moving GC), which lets LLVM
         // forward stores into new objects — e.g. devirtualize and inline a just-created delegate.
         if (name is "csrt_alloc" or "csrt_new_array") Llvm.AddReturnAttribute(fn, "noalias");
@@ -204,8 +206,11 @@ public sealed partial class ModuleCodeGen
             return;
         }
         if (method.MethodKind is not (MethodKind.Ordinary or MethodKind.Constructor or MethodKind.StaticConstructor
-            or MethodKind.PropertyGet or MethodKind.PropertySet or MethodKind.UserDefinedOperator or MethodKind.Conversion))
+            or MethodKind.PropertyGet or MethodKind.PropertySet or MethodKind.UserDefinedOperator or MethodKind.Conversion
+            or MethodKind.EventAdd or MethodKind.EventRemove))
             return;
+        // Field-like events have synthesized accessors; `+=`/`-=` update the backing field inline instead.
+        if (method.MethodKind is MethodKind.EventAdd or MethodKind.EventRemove && method.IsImplicitlyDeclared) return;
         if (method.MethodKind == MethodKind.Constructor && method.ContainingType.IsStatic) return;
         // Static field initializers run from __csharpc_static_init; only explicit cctors get a function.
         if (method.MethodKind == MethodKind.StaticConstructor && method.IsImplicitlyDeclared) return;
@@ -306,7 +311,7 @@ public sealed partial class ModuleCodeGen
         var key = "dmt:" + name;
         if (_globals.TryGetValue(key, out var g)) return g;
         string[] defaults = ["csrt_object_to_string_default", "csrt_object_equals_default", "csrt_object_get_hash_code_default"];
-        var init = Llvm.ConstStruct(ExternalGlobal("csrt_Object_MT"), CString(name), Llvm.ConstInt(Llvm.I32, 24), Llvm.ConstInt(Llvm.I32, 0),
+        var init = Llvm.ConstStruct(ExternalGlobal("csrt_Object_MT"), CString(name), Llvm.ConstInt(Llvm.I32, 32), Llvm.ConstInt(Llvm.I32, 0),
             LlvmContext.ConstArray(Llvm.Ptr, [.. defaults.Select(d => Runtime(d, Llvm.Ptr, Llvm.Ptr).Fn)]));
         g = Module.AddGlobal("csrt.dmt." + name, Native.LLVMTypeOf(init), init, constant: true, linkage: LLVMLinkage.Private);
         return _globals[key] = g;

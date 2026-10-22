@@ -18,13 +18,17 @@ public sealed partial class FunctionCodeGen
 {
     /// <summary>Struct-like value types lowered to LLVM aggregates.</summary>
     internal bool IsAggregate(ITypeSymbol? type) => type is INamedTypeSymbol named
-        && (TypeMapper.IsNullable(named) || named.IsTupleType || (named.TypeKind == TypeKind.Struct && _m.IsUserType(named)));
+        && (TypeMapper.IsNullable(named) || named.IsTupleType || (named.TypeKind == TypeKind.Struct && _m.IsUserType(named))
+            || TypeMapper.IsSpan(named) || TypeMapper.IsSpanEnumerator(named));
 
     private bool InStructMember => _method is { ContainingType.IsValueType: true } m && ModuleCodeGen.HasThis(m);
 
     /// <summary>Address of a value-type operand: its storage if it is an lvalue, else a spilled copy.</summary>
     internal LLVMValueRef AddressOrSpill(IOperation op)
     {
+        if (TryAddressOfNone(op, out var pointee)) return pointee; // `p->f`, `(*p).f`, `p[i].f`
+        if (op is IPropertyReferenceOperation { Property.RefKind: not RefKind.None } refProperty) return RefPropertyAddress(refProperty);
+        if (op is IInvocationOperation { TargetMethod.RefKind: not RefKind.None } refCall) return EmitInvocation(refCall);
         switch (op)
         {
             case IInstanceReferenceOperation when InStructMember:
