@@ -27,7 +27,8 @@ public sealed partial class ModuleCodeGen
     public void RequestArrayInterface(INamedTypeSymbol itf)
     {
         foreach (var i in (IEnumerable<INamedTypeSymbol>)[itf, .. itf.AllInterfaces])
-            if (i.IsGenericType && !TypeSubstitution.IsOpen(i) && _arrayInterfaces.Add(i)) _pendingBuiltinInterfaces.Enqueue(i);
+            if ((i.IsGenericType ? !TypeSubstitution.IsOpen(i) : i.ToDisplayString() == "System.Collections.ICollection")
+                && _arrayInterfaces.Add(i)) _pendingBuiltinInterfaces.Enqueue(i);
     }
 
     public void RequestStringInterface(INamedTypeSymbol itf)

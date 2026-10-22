@@ -476,3 +476,46 @@ StringBuilder* csrt_sb_clear(StringBuilder* sb) {
     sb->length = 0;
     return sb;
 }
+
+// ---------------------------------------------------------------------------------------------
+// IndexOfAny / LastIndexOfAny / Trim(chars)
+// ---------------------------------------------------------------------------------------------
+static bool any_of(uint16_t c, csrt_Array* set) {
+    const uint16_t* chars = (const uint16_t*)set->data;
+    for (int64_t i = 0; i < set->length; i++) if (chars[i] == c) return true;
+    return false;
+}
+
+int32_t csrt_string_index_of_any(csrt_String* s, csrt_Array* set, int32_t start) {
+    require(s);
+    if (!set) csrt_throw(&mt_argument_null, ascii("Value cannot be null. (Parameter 'anyOf')"));
+    for (int32_t i = start; i < s->length; i++) if (any_of(s->chars[i], set)) return i;
+    return -1;
+}
+
+int32_t csrt_string_last_index_of_any(csrt_String* s, csrt_Array* set) {
+    require(s);
+    if (!set) csrt_throw(&mt_argument_null, ascii("Value cannot be null. (Parameter 'anyOf')"));
+    for (int32_t i = s->length - 1; i >= 0; i--) if (any_of(s->chars[i], set)) return i;
+    return -1;
+}
+
+/// Trim(params char[]) / TrimStart / TrimEnd with a character set; null or empty set = whitespace.
+csrt_String* csrt_string_trim_chars(csrt_String* s, csrt_Array* set, int32_t mode) {
+    require(s);
+    if (!set || set->length == 0) return csrt_string_trim(s, mode);
+    int32_t start = 0, end = s->length;
+    if (mode & 1) while (start < end && any_of(s->chars[start], set)) start++;
+    if (mode & 2) while (end > start && any_of(s->chars[end - 1], set)) end--;
+    if (start == 0 && end == s->length) return s;
+    return from_chars(s->chars + start, end - start);
+}
+
+csrt_String* csrt_string_trim_char(csrt_String* s, uint16_t c, int32_t mode) {
+    require(s);
+    int32_t start = 0, end = s->length;
+    if (mode & 1) while (start < end && s->chars[start] == c) start++;
+    if (mode & 2) while (end > start && s->chars[end - 1] == c) end--;
+    if (start == 0 && end == s->length) return s;
+    return from_chars(s->chars + start, end - start);
+}

@@ -47,6 +47,8 @@ public sealed class TypeMapper(LlvmContext llvm, TargetMachine target)
         { SpecialType: SpecialType.System_Decimal } => Llvm.Struct(Llvm.I32, Llvm.I32, Llvm.I64),
         // TimeSpan / DateTime: a tick count (BclValueTypes.cs, runtime/datetime.c).
         _ when BclValueTypes.IsTicks(type) => Llvm.I64,
+        // Int128 / UInt128: LLVM's native i128 (CodeGen/Int128Support.cs).
+        _ when Int128Support.Is128(type) => Llvm.IntTypeOf(128),
         // BigInteger: pointer to an immutable runtime bignum, null == 0 (runtime/bigint.c).
         _ when BclValueTypes.IsBigInteger(type) => Llvm.Ptr,
         // Value types (docs/03-lowering.md#structs): first-class LLVM aggregates of storage types.
@@ -99,6 +101,7 @@ public sealed class TypeMapper(LlvmContext llvm, TargetMachine target)
         { SpecialType: SpecialType.System_SByte or SpecialType.System_Int16 or SpecialType.System_Int32
             or SpecialType.System_Int64 or SpecialType.System_IntPtr } => true,
         INamedTypeSymbol { TypeKind: TypeKind.Enum, EnumUnderlyingType: { } underlying } => IsSigned(underlying),
+        INamedTypeSymbol { Name: "Int128", ContainingNamespace.Name: "System" } => true,
         _ => false,
     };
 

@@ -232,7 +232,15 @@ static void format_integer(Buf* b, int64_t sv, uint64_t uv, bool is_signed, int 
         }
         default: {
             double v = is_signed ? (double)sv : (double)uv;
-            Digits g; exact_digits(v, &g);
+            // Exact digits of the integer (a double would lose precision above 2^53).
+            Digits g;
+            g.neg = neg;
+            char tmp2[32];
+            int nd = snprintf(tmp2, sizeof tmp2, "%llu", (unsigned long long)mag);
+            g.n = mag == 0 ? 0 : nd;
+            g.exp10 = mag == 0 ? 1 : nd;
+            memcpy(g.d, tmp2, (size_t)nd);
+            while (g.n > 0 && g.d[g.n - 1] == '0') g.n--;
             switch (f[0]) {
                 case 'N': case 'n': emit_fixed(b, g, precision_of(f, 2), true); return;
                 case 'F': case 'f': emit_fixed(b, g, precision_of(f, 2), false); return;

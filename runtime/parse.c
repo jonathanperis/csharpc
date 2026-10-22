@@ -201,3 +201,18 @@ int64_t csrt_enum_parse_or_throw(csrt_String* s, bool ignore_case, const uint64_
     for (const char* p = tail; *p; p++) msg->chars[k++] = (uint8_t)*p;
     csrt_throw(&mt_argument, msg);
 }
+
+/// Int128/UInt128.ToString(): decimal digits of the 128-bit value (lo, hi halves).
+csrt_String* csrt_format_i128(uint64_t lo, uint64_t hi, bool is_signed) {
+    unsigned __int128 v = ((unsigned __int128)hi << 64) | lo;
+    bool negative = is_signed && (hi >> 63);
+    if (negative) v = (unsigned __int128)0 - v;
+    char buf[48];
+    int n = 0;
+    do { buf[n++] = (char)('0' + (int)(v % 10)); v /= 10; } while (v);
+    if (negative) buf[n++] = '-';
+    csrt_String* s = csrt_alloc(&csrt_String_MT.header, (int64_t)(sizeof(csrt_String) + 2 * (size_t)n));
+    s->length = n;
+    for (int i = 0; i < n; i++) s->chars[i] = (uint8_t)buf[n - 1 - i];
+    return s;
+}

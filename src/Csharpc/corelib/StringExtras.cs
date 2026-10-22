@@ -44,6 +44,9 @@ namespace CsharpcCoreLib
         }
 
         public static string Join(char separator, string[] value) => string.Join(separator.ToString(), value);
+        public static string Join(char separator, IEnumerable<string> values) => Join(separator.ToString(), values);
+        public static string Join<T>(char separator, IEnumerable<T> values) => Join(separator.ToString(), values);
+        public static string Join(char separator, object[] values) => Join(separator.ToString(), values);
 
         public static string Join(string separator, object[] values)
         {
@@ -156,6 +159,66 @@ namespace CsharpcCoreLib
             for (int i = 0; i < span.Length; i++)
                 if (comparer != null ? comparer.Equals(span[i], value) : CoreIntrinsics.AreEqual(span[i], value)) n++;
             return n;
+        }
+    }
+}
+
+namespace CsharpcCoreLib
+{
+    using System.Collections.Generic;
+    using System.Linq;
+    using System.Threading.Tasks;
+
+    // Task combinators over IEnumerable: materialize, then use the runtime's array overloads.
+    [ShadowMembers("System.Threading.Tasks.Task")]
+    internal static class TaskExtras
+    {
+        public static Task<TResult[]> WhenAll<TResult>(IEnumerable<Task<TResult>> tasks) => Task.WhenAll(Enumerable.ToArray(tasks));
+        public static Task WhenAll(IEnumerable<Task> tasks) => Task.WhenAll(Enumerable.ToArray(tasks));
+        public static Task<Task> WhenAny(IEnumerable<Task> tasks) => Task.WhenAny(Enumerable.ToArray(tasks));
+        public static Task<Task<TResult>> WhenAny<TResult>(IEnumerable<Task<TResult>> tasks) => Task.WhenAny(Enumerable.ToArray(tasks));
+    }
+}
+
+namespace CsharpcCoreLib
+{
+    using System;
+    using System.Collections;
+    using System.Collections.Generic;
+
+    /// <summary>System.StringComparer: the six standard comparers (culture = the invariant culture).</summary>
+    [Shadows("System.StringComparer")]
+    public abstract class StringComparerImpl : IComparer<string>, IEqualityComparer<string>, IComparer, IEqualityComparer
+    {
+        // Lazily created: corelib types get no static constructor run (only user types are statically initialized).
+        private static StringComparerImpl s_ordinal, s_ordinalIgnoreCase, s_invariant, s_invariantIgnoreCase;
+        public static StringComparerImpl Ordinal => s_ordinal ??= new Standard(StringComparison.Ordinal);
+        public static StringComparerImpl OrdinalIgnoreCase => s_ordinalIgnoreCase ??= new Standard(StringComparison.OrdinalIgnoreCase);
+        public static StringComparerImpl InvariantCulture => s_invariant ??= new Standard(StringComparison.InvariantCulture);
+        public static StringComparerImpl InvariantCultureIgnoreCase => s_invariantIgnoreCase ??= new Standard(StringComparison.InvariantCultureIgnoreCase);
+        public static StringComparerImpl CurrentCulture => InvariantCulture;
+        public static StringComparerImpl CurrentCultureIgnoreCase => InvariantCultureIgnoreCase;
+
+        public abstract int Compare(string x, string y);
+        public abstract bool Equals(string x, string y);
+        public abstract int GetHashCode(string obj);
+
+        public int Compare(object x, object y) => x == y ? 0 : x == null ? -1 : y == null ? 1 : Compare((string)x, (string)y);
+        public new bool Equals(object x, object y) => x == y || (x is string a && y is string b && Equals(a, b));
+        public int GetHashCode(object obj) => obj is string s ? GetHashCode(s) : obj.GetHashCode();
+
+        private sealed class Standard(StringComparison comparison) : StringComparerImpl
+        {
+            private bool IgnoreCase => comparison is StringComparison.OrdinalIgnoreCase or StringComparison.InvariantCultureIgnoreCase
+                or StringComparison.CurrentCultureIgnoreCase;
+
+            public override int Compare(string x, string y) => string.Compare(x, y, comparison);
+            public override bool Equals(string x, string y) => string.Equals(x, y, comparison);
+            public override int GetHashCode(string obj)
+            {
+                if (obj == null) throw new ArgumentNullException(nameof(obj));
+                return IgnoreCase ? obj.ToUpperInvariant().GetHashCode() : obj.GetHashCode();
+            }
         }
     }
 }

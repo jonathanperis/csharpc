@@ -22,6 +22,7 @@ public sealed partial class FunctionCodeGen
             return EmitUserCall(staticImpl, default, true, inv.Arguments, isVirtual: false);
         if (TryGenericMathStatic(inv, target) is { } genericMath) return genericMath;
         if (target.ContainingType.SpecialType == SpecialType.System_Enum && target.IsStatic && TryEnumStatic(inv, target) is { } enumResult) return enumResult;
+        if (TryNumericCreate(inv, target) is { } created) return created;
         if (target is { Name: "GetType", Parameters.IsEmpty: true, ContainingType.SpecialType: SpecialType.System_Object })
             return EmitGetType(inv);
         if (target.MethodKind == MethodKind.DelegateInvoke) return EmitDelegateInvoke(inv);
@@ -72,6 +73,18 @@ public sealed partial class FunctionCodeGen
         bool Matches(IMethodSymbol m) => m.IsStatic && m.Parameters.Length == parameters.Length
             && m.Parameters.Select(p => p.Type).SequenceEqual(parameters, SymbolEqualityComparer.Default);
 
+        // BigInteger predicates: null is zero in the runtime representation (runtime/bigint.c).
+        if (BclValueTypes.IsBigInteger(concrete) && parameters.Length == 1 && target.Name is "IsZero" or "IsNegative" or "IsPositive")
+        {
+            var x = Coerce(EmitValue(inv.Arguments[0].Value), TypeOf(inv.Arguments[0].Value), concrete);
+            var cmp = CallRuntime("csrt_bigint_compare", L.I32, [L.Ptr, L.Ptr], x, LlvmContext.Null(L.Ptr));
+            return target.Name switch
+            {
+                "IsZero" => _b.ICmp(LLVMIntPredicate.EQ, cmp, L.ConstInt(L.I32, 0)),
+                "IsNegative" => _b.ICmp(LLVMIntPredicate.SLT, cmp, L.ConstInt(L.I32, 0)),
+                _ => _b.ICmp(LLVMIntPredicate.SGE, cmp, L.ConstInt(L.I32, 0)),
+            };
+        }
         // decimal predicates: compare with 0m (all-zero bits); the sign bit of `flags` means negative (-0m too).
         if (concrete.SpecialType == SpecialType.System_Decimal && parameters.Length == 1 && target.Name is "IsZero" or "IsNegative" or "IsPositive")
         {
@@ -110,6 +123,22 @@ public sealed partial class FunctionCodeGen
             if (BclValueTypes.TryGet(method, out var bcl)) return CallBcl(bcl, method, null, inv.Arguments, inv);
         }
         return null;
+    }
+
+    /// <summary>
+    /// `double.CreateChecked(x)` / CreateSaturating / CreateTruncating (generic math conversions) between
+    /// primitives — directly or via T.CreateChecked in generic code: a numeric conversion.
+    /// </summary>
+    private LLVMValueRef? TryNumericCreate(IInvocationOperation inv, IMethodSymbol target)
+    {
+        if (!target.IsStatic || target.Name is not ("CreateChecked" or "CreateSaturating" or "CreateTruncating") || target.Parameters.Length != 1) return null;
+        var to = target.ContainingType.TypeKind == TypeKind.Interface && inv.ConstrainedToType is { } ct ? S(ct) : S(target.ContainingType);
+        var argument = inv.Arguments[0].Value;
+        var from = TypeOf(argument);
+        if (from is null || to.SpecialType == SpecialType.None || from.SpecialType == SpecialType.None
+            || to.SpecialType == SpecialType.System_Decimal || from.SpecialType == SpecialType.System_Decimal) return null;
+        var value = EmitValue(argument);
+        return ConvertNumeric(value, from, to, inv, isChecked: target.Name == "CreateChecked");
     }
 
     /// <summary>ValueTuple instance methods: element-wise comparison/equality/hashing like .NET's ValueTuple.</summary>
@@ -275,6 +304,10 @@ public sealed partial class FunctionCodeGen
     /// <summary>`obj is T` for classes: walk the method-table base chain in the runtime.</summary>
     private LLVMValueRef IsInstance(LLVMValueRef value, ITypeSymbol? from, ITypeSymbol target, IOperation at)
     {
+        // `x is ICollection` / `x is IList<int>` where x may be an array: make sure the array tables exist.
+        if (target is INamedTypeSymbol { TypeKind: TypeKind.Interface } itf
+            && (from is null or IArrayTypeSymbol { Rank: 1 } || from.SpecialType == SpecialType.System_Object || from.TypeKind == TypeKind.Interface))
+            _m.RequestArrayInterface(itf);
         if (from is not null)
         {
             var conversion = _m.Compilation.ClassifyCommonConversion(from, target);
@@ -354,6 +387,19 @@ public sealed partial class FunctionCodeGen
             && property.Name is "Zero" or "One" or "AdditiveIdentity" or "MultiplicativeIdentity")
             return Constant(property.Name is "Zero" or "AdditiveIdentity" ? 0 : 1, _m.Compilation.GetSpecialType(SpecialType.System_Int32)) is var c
                 ? ConvertNumeric(c, _m.Compilation.GetSpecialType(SpecialType.System_Int32), numeric, p) : default;
+        // Other static abstract properties (T.Zero on BigInteger, user types implementing INumber-like
+        // interfaces...): the concrete type's own static property after substitution.
+        if (property is { IsStatic: true, ContainingType.TypeKind: TypeKind.Interface, GetMethod: { } abstractGetter }
+            && p.ConstrainedToType is { } constrained && S(constrained) is INamedTypeSymbol concrete && concrete.TypeKind != TypeKind.TypeParameter)
+        {
+            if (concrete.FindImplementationForInterfaceMember(abstractGetter) is IMethodSymbol implGetter && _m.IsUserMethod(implGetter))
+                return DirectCall(implGetter, []);
+            if (concrete.GetMembers(property.Name).OfType<IPropertySymbol>().FirstOrDefault(cp => cp.IsStatic) is { GetMethod: { } concreteGetter } concreteProperty)
+            {
+                if (Intrinsics.TryGetProperty(concreteProperty, out var concreteHandler)) return concreteHandler(this, p);
+                if (BclValueTypes.TryGet(concreteGetter, out var concreteBcl)) return CallBcl(concreteBcl, concreteGetter, null, [], p);
+            }
+        }
         if (property.ContainingType.TypeKind == TypeKind.Interface && !property.IsStatic && !IsArrayEnumeration(p.Instance!))
             return EmitInterfaceCall(property.GetMethod!, p.Instance!, p.Arguments, [], null);
         if (_m.IsUserType(property.ContainingType))

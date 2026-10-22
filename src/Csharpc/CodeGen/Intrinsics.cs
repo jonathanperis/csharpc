@@ -255,6 +255,14 @@ internal static class Intrinsics
                 return g.CallRuntime(fn, g.Module.Llvm.Ptr, [g.Module.Llvm.Ptr, .. types(g.Module.Llvm)], [self, .. extra(g, inv)]);
             };
         t["System.Text.StringBuilder.Append(string)"] = sbAppend("csrt_sb_append_string", (g, inv) => [Arg(g, inv, 0)], l => [l.Ptr]);
+        // AppendJoin: join with the corelib's string.Join (or the runtime one for arrays), then append.
+        foreach (var separator in new[] { "char", "string" })
+        {
+            t[$"System.Text.StringBuilder.AppendJoin({separator}, System.Collections.Generic.IEnumerable<T>)"] = (g, inv) =>
+                AppendJoined(g, inv, g.CallCoreLib("StringExtras", "Join", inv, inv.TargetMethod.TypeArguments[0], Separator(g, inv), Arg(g, inv, 1)));
+            t[$"System.Text.StringBuilder.AppendJoin({separator}, string[])"] = (g, inv) =>
+                AppendJoined(g, inv, g.CallRuntime("csrt_string_join", g.Module.Llvm.Ptr, [g.Module.Llvm.Ptr, g.Module.Llvm.Ptr], Separator(g, inv), Arg(g, inv, 1)));
+        }
         t["System.Text.StringBuilder.Append(char)"] = sbAppend("csrt_sb_append_char", (g, inv) => [Arg(g, inv, 0), g.Module.Llvm.ConstInt(g.Module.Llvm.I32, 1)], l => [l.I16, l.I32]);
         t["System.Text.StringBuilder.Append(char, int)"] = sbAppend("csrt_sb_append_char", (g, inv) => [Arg(g, inv, 0), Arg(g, inv, 1)], l => [l.I16, l.I32]);
         foreach (var type in new[] { "double", "float", "object" })
@@ -486,6 +494,14 @@ internal static class Intrinsics
                      ("ToLower", "csrt_string_to_lower"), ("ToLowerInvariant", "csrt_string_to_lower") })
             Add($"string.{name}()", fn, ptr, _ => [], (_, _) => []);
         Add("string.Trim()", "csrt_string_trim", ptr, l => [l.I32], (g, _) => [I32(g, 3)]);
+        Add("string.IndexOfAny(char[])", "csrt_string_index_of_any", i32, l => [l.Ptr, l.I32], (g, i) => [Arg(g, i, 0), I32(g, 0)]);
+        Add("string.IndexOfAny(char[], int)", "csrt_string_index_of_any", i32, l => [l.Ptr, l.I32], (g, i) => [Arg(g, i, 0), Arg(g, i, 1)]);
+        Add("string.LastIndexOfAny(char[])", "csrt_string_last_index_of_any", i32, l => [l.Ptr], (g, i) => [Arg(g, i, 0)]);
+        foreach (var (name, mode) in new[] { ("Trim", 3), ("TrimStart", 1), ("TrimEnd", 2) })
+        {
+            Add($"string.{name}(char)", "csrt_string_trim_char", ptr, l => [l.I16, l.I32], (g, i) => [Arg(g, i, 0), I32(g, mode)]);
+            Add($"string.{name}(char[])", "csrt_string_trim_chars", ptr, l => [l.Ptr, l.I32], (g, i) => [Arg(g, i, 0), I32(g, mode)]);
+        }
         Add("string.TrimStart()", "csrt_string_trim", ptr, l => [l.I32], (g, _) => [I32(g, 1)]);
         Add("string.TrimEnd()", "csrt_string_trim", ptr, l => [l.I32], (g, _) => [I32(g, 2)]);
         Add("string.Replace(char, char)", "csrt_string_replace_char", ptr, l => [l.I16, l.I16], (g, i) => [Arg(g, i, 0), Arg(g, i, 1)]);
@@ -789,6 +805,18 @@ internal static class Intrinsics
         foreach (var culture in new[] { "System.Globalization.CultureInfo.InvariantCulture", "System.Globalization.CultureInfo.CurrentCulture",
                      "System.Globalization.NumberFormatInfo.InvariantInfo", "System.Globalization.CultureInfo.CurrentUICulture" })
             t[culture] = (g, _) => LlvmContext.Null(g.Module.Llvm.Ptr);
+        // Int128 / UInt128 constants (i128; built with shifts since LLVMConstInt takes 64 bits).
+        foreach (var type in new[] { "System.Int128", "System.UInt128" })
+        {
+            var signed = type == "System.Int128";
+            LLVMValueRef AllOnes(FunctionCodeGen g) => g.Module.Llvm.ConstInt(g.Module.Llvm.IntTypeOf(128), -1);
+            LLVMValueRef TopBit(FunctionCodeGen g) => g.Builder.BinOp(LLVMOpcode.Shl, g.Module.Llvm.ConstInt(g.Module.Llvm.IntTypeOf(128), 1),
+                g.Module.Llvm.ConstInt(g.Module.Llvm.IntTypeOf(128), 127));
+            t[$"{type}.Zero"] = (g, _) => g.Module.Llvm.ConstInt(g.Module.Llvm.IntTypeOf(128), 0);
+            t[$"{type}.One"] = (g, _) => g.Module.Llvm.ConstInt(g.Module.Llvm.IntTypeOf(128), 1);
+            t[$"{type}.MinValue"] = (g, _) => signed ? TopBit(g) : g.Module.Llvm.ConstInt(g.Module.Llvm.IntTypeOf(128), 0);
+            t[$"{type}.MaxValue"] = (g, _) => signed ? g.Builder.BinOp(LLVMOpcode.LShr, AllOnes(g), g.Module.Llvm.ConstInt(g.Module.Llvm.IntTypeOf(128), 1)) : AllOnes(g);
+        }
         t["System.Environment.NewLine"] = (g, _) => g.Module.StringLiteral("\n");
         return t.ToFrozenDictionary();
     }
@@ -822,6 +850,19 @@ internal static class Intrinsics
         var text = value is null ? g.Module.StringLiteral("") : g.ToStringValue(value);
         if (newline) text = g.ConcatStrings(text, g.Module.StringLiteral("\n"));
         g.CallRuntime("csrt_console_error_write_string", l.Void, [l.Ptr], text);
+    }
+
+    private static LLVMValueRef Separator(FunctionCodeGen g, IInvocationOperation inv)
+    {
+        var l = g.Module.Llvm;
+        var sep = Arg(g, inv, 0);
+        return sep.Type.IsPointer ? sep : g.CallRuntime("csrt_string_from_char", l.Ptr, [l.I16], sep);
+    }
+
+    private static LLVMValueRef AppendJoined(FunctionCodeGen g, IInvocationOperation inv, LLVMValueRef joined)
+    {
+        var l = g.Module.Llvm;
+        return g.CallRuntime("csrt_sb_append_string", l.Ptr, [l.Ptr, l.Ptr], g.EmitValue(inv.Instance!), joined);
     }
 
     private static void NewLine(FunctionCodeGen g) => g.CallRuntime("csrt_console_newline", g.Module.Llvm.Void, []);

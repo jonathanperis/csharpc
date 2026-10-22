@@ -72,7 +72,14 @@ public sealed partial class FunctionCodeGen
 
     private LLVMValueRef SetCapturedProperty(PropertyCapture pc, LLVMValueRef value)
     {
-        var setter = pc.Property.SetMethod ?? throw CompileError.Unsupported($"assigning get-only property '{pc.Property.Name}'", pc.Property);
+        if (pc.Property.SetMethod is not { } setter)
+        {
+            // Get-only auto-property assigned in a constructor: write its backing field.
+            var field = BackingField(pc.Property);
+            var address = field.IsStatic ? _m.StaticField(field) : FieldAddressOn(_b.Load(L.Ptr, pc.Self), field);
+            StoreValue(ToStorage(value, S(field.Type)), address);
+            return value;
+        }
         CallAccessorDirect(setter, CapturedAccessorArgs(pc, setter, [value]));
         return value;
     }
@@ -315,6 +322,24 @@ public sealed partial class FunctionCodeGen
     // ======================================================================================
     // Ordering
     // ======================================================================================
+
+    /// <summary>
+    /// Calls a non-generic static corelib helper by name whose parameters are (string, IEnumerable&lt;string&gt;)-like:
+    /// picks the overload whose parameter count matches and whose first parameter is a string.
+    /// </summary>
+    internal LLVMValueRef CallCoreLib(string typeName, string methodName, IOperation at, ITypeSymbol elementType, params LLVMValueRef[] args)
+    {
+        var type = _m.Compilation.GetTypeByMetadataName(CoreLib.Namespace + "." + typeName)
+            ?? throw CompileError.Unsupported($"corelib type {typeName}", at);
+        // Join(string, IEnumerable<string>) for strings, Join<T>(string, IEnumerable<T>) otherwise.
+        var element = S(elementType);
+        var isString = element.SpecialType == SpecialType.System_String;
+        var method = type.GetMembers(methodName).OfType<IMethodSymbol>().FirstOrDefault(m => m.IsStatic && m.IsGenericMethod != isString
+            && m.Parameters.Length == args.Length && m.Parameters[0].Type.SpecialType == SpecialType.System_String
+            && m.Parameters[^1].Type is INamedTypeSymbol { IsGenericType: true })
+            ?? throw CompileError.Unsupported($"corelib helper {typeName}.{methodName}", at);
+        return DirectCall(isString ? method : method.Construct(element), args);
+    }
 
     private LLVMValueRef CompareOf(ITypeSymbol t, LLVMValueRef a, LLVMValueRef b, IOperation at)
     {

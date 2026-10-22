@@ -126,6 +126,40 @@ public sealed class CoreLib
 
     public ITypeSymbol Map(ITypeSymbol type) => type is INamedTypeSymbol named && TryMap(named) is { } mapped ? mapped : type;
 
+    /// <summary>
+    /// The inverse of <see cref="TryMap"/>, recursively: shadow types (anywhere in the type, e.g. as a type
+    /// argument) become their real BCL types. Used to give types one canonical identity — e.g. an
+    /// iterator implementing IAsyncEnumerable&lt;ListImpl&lt;int&gt;&gt; must match IAsyncEnumerable&lt;List&lt;int&gt;&gt;.
+    /// </summary>
+    public ITypeSymbol Unmap(ITypeSymbol type)
+    {
+        if (!HasShadows) return type;
+        switch (type)
+        {
+            case IArrayTypeSymbol array:
+            {
+                var element = Unmap(array.ElementType);
+                return ReferenceEquals(element, array.ElementType) ? array : _compilation.CreateArrayTypeSymbol(element, array.Rank);
+            }
+            case INamedTypeSymbol named:
+            {
+                var args = named.TypeArguments.Select(Unmap).ToArray();
+                var definition = named.OriginalDefinition;
+                var rawName = definition.ContainingNamespace is { IsGlobalNamespace: false } ns
+                    ? ns.ToDisplayString() + "." + definition.MetadataName : definition.MetadataName;
+                if (named.ContainingType is null && _realByShadowName.TryGetValue(rawName, out var realName)
+                    && _compilation.GetTypeByMetadataName(realName) is { } real && real.Arity == definition.Arity)
+                    return args.Length > 0 ? real.Construct(args) : real;
+                if (args.Length > 0 && args.Where((a, i) => !ReferenceEquals(a, named.TypeArguments[i])).Any()
+                    && named.ContainingType is null)
+                    return definition.Construct(args);
+                return named;
+            }
+            default:
+                return type;
+        }
+    }
+
     public INamedTypeSymbol? TryMap(INamedTypeSymbol type)
     {
         if (!HasShadows || !IsLibrary(type)) return null;

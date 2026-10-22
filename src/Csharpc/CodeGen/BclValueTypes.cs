@@ -34,6 +34,7 @@ internal static class BclValueTypes
     {
         var key = Intrinsics.Key(method.OriginalDefinition);
         if (s_methods.TryGetValue(key, out handler!)) return true;
+        if (Int128Support.TryGet(method, out handler)) return true;
         // TimeSpan.FromDays/Hours/.../Microseconds integer overloads (.NET 9): sum of named units.
         if (IsTimeSpan(method.ContainingType) && method.IsStatic && method.Name.StartsWith("From", StringComparison.Ordinal)
             && method.Parameters.All(p => p.Type.SpecialType is SpecialType.System_Int32 or SpecialType.System_Int64))

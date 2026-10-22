@@ -401,6 +401,7 @@ public sealed partial class FunctionCodeGen
     internal LLVMValueRef FormatValue(LLVMValueRef value, ITypeSymbol type, IOperation at)
     {
         if (type.SpecialType == SpecialType.System_String) return value;
+        if (Int128Support.Is128(type)) return Int128Support.Format(this, value, TypeMapper.IsSigned(type));
         if (FormatPrimitive(value, type) is { } primitive) return primitive;
         if (type is INamedTypeSymbol { TypeKind: TypeKind.Enum } enumType)
         {

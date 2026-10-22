@@ -848,6 +848,16 @@ public sealed partial class ModuleCodeGen
 
         List<ControlFlowGraph> graphs = [];
         List<IMethodSymbol> cctors = [];
+        // Corelib types are lowered on demand: initialize the (non-generic) ones whose static fields the
+        // program actually references — first, since user initializers may depend on them.
+        var referencedCoreLibTypes = _staticFields.Keys.Select(f => f.ContainingType.OriginalDefinition)
+            .Where(t => CoreLib.IsCoreLib(t) && !TypeSubstitution.IsGenericContext(t))
+            .Distinct<INamedTypeSymbol>(SymbolEqualityComparer.Default).ToList();
+        foreach (var t in referencedCoreLibTypes)
+        {
+            graphs.AddRange(InitializerGraphs(t, isStatic: true));
+            cctors.AddRange(t.StaticConstructors.Where(c => !c.IsImplicitlyDeclared));
+        }
         foreach (var t in _userTypes.Where(t => t.TypeKind is TypeKind.Class or TypeKind.Struct))
         {
             if (TypeSubstitution.IsGenericContext(t))
