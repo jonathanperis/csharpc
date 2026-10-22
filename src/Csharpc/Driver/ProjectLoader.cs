@@ -122,14 +122,15 @@ public static class ProjectLoader
         var root = Evaluate(projectPath, configuration, globalProperties);
         var all = new List<ProjectInfo> { root };
         var seen = new HashSet<string>(StringComparer.Ordinal) { root.ProjectPath };
-        var queue = new Queue<string>(root.ProjectReferences);
-        while (queue.TryDequeue(out var reference))
+        // Breadth-first over the reference graph; each level's evaluations run in parallel
+        // (every `dotnet msbuild` evaluation costs ~1 s of process startup).
+        var level = root.ProjectReferences.Select(Path.GetFullPath).Where(seen.Add).ToList();
+        while (level.Count > 0)
         {
-            if (!seen.Add(Path.GetFullPath(reference))) continue;
-            log?.WriteLine($"  project reference: {reference}");
-            var p = Evaluate(reference, configuration, globalProperties);
-            all.Add(p);
-            foreach (var next in p.ProjectReferences) queue.Enqueue(next);
+            foreach (var reference in level) log?.WriteLine($"  project reference: {reference}");
+            var evaluated = level.AsParallel().AsOrdered().Select(r => Evaluate(r, configuration, globalProperties)).ToList();
+            all.AddRange(evaluated);
+            level = [.. evaluated.SelectMany(p => p.ProjectReferences).Select(Path.GetFullPath).Where(seen.Add)];
         }
 
         var files = all.SelectMany(p => p.Files).Distinct(StringComparer.Ordinal).ToList();
