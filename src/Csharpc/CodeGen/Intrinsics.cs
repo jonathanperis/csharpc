@@ -586,7 +586,7 @@ internal static class Intrinsics
         t[$"{Tasks}.Task.WhenAny({Tasks}.Task<TResult>[])"] = whenAny;
         t[$"{Tasks}.Task.WhenAny(System.ReadOnlySpan<{Tasks}.Task<TResult>>)"] = whenAny;
 
-        // Task.Run queues the work on the single-threaded scheduler (see docs/10-async.md).
+        // Task.Run queues the work on the thread pool (runtime/async.c, docs/10-async.md).
         t[$"{Tasks}.Task.Run(System.Action)"] = (g, inv) =>
             g.CallRuntime("csrt_task_run_action", g.Module.Llvm.Ptr, [g.Module.Llvm.Ptr], Arg(g, inv, 0));
         t[$"{Tasks}.Task.Run(System.Func<{Tasks}.Task>)"] = (g, inv) =>
@@ -597,12 +597,14 @@ internal static class Intrinsics
             var size = (long)g.Module.Types.Target.SizeOf(g.Module.Types.Storage(result));
             return g.CallRuntime("csrt_task_run_func_task", g.Module.Llvm.Ptr, [g.Module.Llvm.Ptr, g.Module.Llvm.I32], Arg(g, inv, 0), g.Module.Llvm.ConstInt(g.Module.Llvm.I32, size));
         };
-        // Func<T> with a non-task T: run it now (a C runtime can't call an arbitrary-signature delegate).
+        // Func<T> with a non-task T: a compiler-generated per-T thunk runs it on the pool.
         t[$"{Tasks}.Task.Run(System.Func<TResult>)"] = (g, inv) =>
         {
+            var l = g.Module.Llvm;
             var result = ((INamedTypeSymbol)g.TypeOf(inv)!).TypeArguments[0];
-            var value = g.InvokeDelegate0(Arg(g, inv, 0), g.Module.Types.Value(result));
-            return g.CompletedTask(value, result);
+            var size = (long)g.Module.Types.Target.SizeOf(g.Module.Types.Storage(result));
+            var thunk = g.Module.TaskRunThunk(result);
+            return g.CallRuntime("csrt_task_run_thunk", l.Ptr, [l.Ptr, l.Ptr, l.I32], thunk.Fn, Arg(g, inv, 0), l.ConstInt(l.I32, size));
         };
 
         foreach (var type in new[] { "Task", "Task<TResult>", "ValueTask", "ValueTask<TResult>" })

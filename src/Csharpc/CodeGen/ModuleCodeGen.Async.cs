@@ -97,6 +97,20 @@ public sealed partial class ModuleCodeGen
         }
     }
 
+    private readonly Dictionary<ITypeSymbol, LoweredFunction> _taskRunThunks = new(SymbolEqualityComparer.Default);
+
+    /// <summary>Task.Run(Func&lt;T&gt;) for a non-task T: a per-T thunk the pool calls (see csrt_task_run_thunk).</summary>
+    public LoweredFunction TaskRunThunk(ITypeSymbol resultType)
+    {
+        if (_taskRunThunks.TryGetValue(resultType, out var existing)) return existing;
+        var type = Llvm.FunctionType(Llvm.Void, Llvm.Ptr);
+        var fn = Module.AddFunction("__csharpc_taskrun_" + _taskRunThunks.Count, type);
+        Native.LLVMSetLinkage(fn, LLVMLinkage.Internal);
+        var lowered = _taskRunThunks[resultType] = new LoweredFunction(fn, type);
+        new FunctionCodeGen(this, null, lowered).EmitTaskRunThunk(resultType);
+        return lowered;
+    }
+
     private INamedTypeSymbol Constructed(string metadataName, ITypeSymbol element) =>
         (Compilation.GetTypeByMetadataName(metadataName)
          ?? throw new CompileError("CSLLVM0005", $"reference assemblies lack '{metadataName}'", null)).Construct(element);
