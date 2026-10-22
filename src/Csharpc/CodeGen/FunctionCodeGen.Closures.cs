@@ -113,6 +113,14 @@ public sealed partial class FunctionCodeGen
     private LLVMValueRef CallLocalFunction(IInvocationOperation inv)
     {
         var target = S(inv.TargetMethod);
+        if (ModuleCodeGen.IsPInvoke(target))
+        {
+            // Local `static extern` P/Invoke (what the [LibraryImport] generator emits): no environment.
+            var stub = _m.PInvokeStub(target);
+            var pinvokeArgs = new LLVMValueRef[target.Parameters.Length];
+            foreach (var argument in inv.Arguments) pinvokeArgs[argument.Parameter!.Ordinal] = EmitArgument(argument, target);
+            return _b.Call(stub.Type, stub.Fn, pinvokeArgs);
+        }
         var callee = NestedFunction(target.OriginalDefinition, inv);
         var args = new LLVMValueRef[1 + target.Parameters.Length];
         args[0] = EnvValue(callee.Incoming);

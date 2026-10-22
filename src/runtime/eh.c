@@ -58,6 +58,9 @@ DEF_EXC(System_OperationCanceledException, "System.OperationCanceledException", 
 DEF_EXC(System_Threading_Tasks_TaskCanceledException, "System.Threading.Tasks.TaskCanceledException",
         &csrt_MT_System_OperationCanceledException.header)
 DEF_EXC(System_AggregateException, "System.AggregateException", &csrt_MT_System_Exception.header)
+DEF_EXC(System_TypeLoadException, "System.TypeLoadException", &csrt_MT_System_SystemException.header)
+DEF_EXC(System_DllNotFoundException, "System.DllNotFoundException", &csrt_MT_System_TypeLoadException.header)
+DEF_EXC(System_EntryPointNotFoundException, "System.EntryPointNotFoundException", &csrt_MT_System_TypeLoadException.header)
 
 // ---------------------------------------------------------------------------------------------
 // Exception members
@@ -288,6 +291,7 @@ static const csrt_ExceptionMethodTable* const s_by_name[] = {
     &csrt_MT_System_Threading_ThreadStateException, &csrt_MT_System_Threading_SynchronizationLockException,
     &csrt_MT_System_Collections_Generic_KeyNotFoundException, &csrt_MT_System_OperationCanceledException,
     &csrt_MT_System_Threading_Tasks_TaskCanceledException, &csrt_MT_System_AggregateException,
+    &csrt_MT_System_TypeLoadException, &csrt_MT_System_DllNotFoundException, &csrt_MT_System_EntryPointNotFoundException,
 };
 
 void csrt_throw(const csrt_MethodTable* type, csrt_String* message) {

@@ -38,6 +38,7 @@ public sealed class LlvmContext : IDisposable
     public LLVMTypeRef I8 => LLVMInt8TypeInContext(Ref);
     public LLVMTypeRef I16 => LLVMInt16TypeInContext(Ref);
     public LLVMTypeRef I32 => LLVMInt32TypeInContext(Ref);
+    public LLVMTypeRef IntType(int bits) => LLVMIntTypeInContext(Ref, (uint)bits);
     public LLVMTypeRef I64 => LLVMInt64TypeInContext(Ref);
     public LLVMTypeRef IntTypeOf(int bits) => bits switch { 1 => I1, 8 => I8, 16 => I16, 32 => I32, 64 => I64, _ => LLVMIntTypeInContext(Ref, (uint)bits) };
     public LLVMTypeRef F32 => LLVMFloatTypeInContext(Ref);

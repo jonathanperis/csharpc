@@ -69,8 +69,15 @@ public static class RoslynFrontend
             specificDiagnosticOptions: new Dictionary<string, ReportDiagnostic> { ["CS8019"] = ReportDiagnostic.Suppress });
 
         var name = settings.AssemblyName ?? (settings.Files.Count > 0 ? Path.GetFileNameWithoutExtension(settings.Files[0]) : "program");
-        return CSharpCompilation.Create(name, trees, ReferenceAssemblies(), options);
+        var compilation = CSharpCompilation.Create(name, trees, ReferenceAssemblies(), options);
+        // Source generators the SDK runs implicitly ([LibraryImport], [GeneratedRegex], [JsonSerializable]).
+        compilation = SourceGenerators.Run(compilation, trees.Where(t => !IsCoreLibTree(t)), out var generatorDiagnostics);
+        GeneratorDiagnostics = generatorDiagnostics;
+        return compilation;
     }
+
+    /// <summary>Diagnostics reported by source generators during the last Analyze call.</summary>
+    public static IReadOnlyList<Diagnostic> GeneratorDiagnostics { get; private set; } = [];
 
     /// <summary>
     /// The shadow corelib (src/Csharpc/corelib/**.cs, shipped next to the compiler): C# implementations
@@ -98,6 +105,7 @@ public static class RoslynFrontend
     {
         if (Environment.GetEnvironmentVariable("CSHARPC_CHECK_CORELIB") == "1") return compilation.GetDiagnostics();
         var builder = ImmutableArray.CreateBuilder<Diagnostic>();
+        builder.AddRange(GeneratorDiagnostics);
         foreach (var tree in compilation.SyntaxTrees.Where(t => !IsCoreLibTree(t)))
             builder.AddRange(compilation.GetSemanticModel(tree).GetDiagnostics());
         return builder.ToImmutable();

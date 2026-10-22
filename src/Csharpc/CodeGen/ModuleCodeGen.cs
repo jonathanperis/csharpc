@@ -165,6 +165,7 @@ public sealed partial class ModuleCodeGen
 
     public LoweredFunction GetFunction(IMethodSymbol method)
     {
+        if (IsPInvoke(method)) return PInvokeStub(method);
         if (IsNestedFunction(method)) return GetNestedFunction(method, TypeSubstitution.Identity);
         method = CoreLib.Map(method);
         // Generic code is keyed by the *constructed* symbol: one function per instantiation.
@@ -612,6 +613,7 @@ public sealed partial class ModuleCodeGen
         "System.Collections.Generic.KeyNotFoundException", "System.OperationCanceledException",
         "System.Threading.Tasks.TaskCanceledException", "System.AggregateException",
         "System.Threading.ThreadStateException", "System.Threading.SynchronizationLockException",
+        "System.TypeLoadException", "System.DllNotFoundException", "System.EntryPointNotFoundException",
     ];
 
     public const int ExceptionMessageSlot = 3;

@@ -786,6 +786,20 @@ internal static class Intrinsics
         t[$"{Tasks}.ValueTask<TResult>..ctor({Tasks}.Task<TResult>)"] = (g, c) => CtorArg(g, c, 0);
         t["string..ctor(char, int)"] = (g, c) =>
             g.CallRuntime("csrt_string_new_repeat", g.Module.Llvm.Ptr, [g.Module.Llvm.I16, g.Module.Llvm.I32], CtorArg(g, c, 0), CtorArg(g, c, 1));
+        // Strings from native memory: new string(char*, int, int) / (char*) / (sbyte*).
+        t["string..ctor(char*, int, int)"] = (g, c) =>
+        {
+            var l = g.Module.Llvm;
+            var start = g.Builder.Cast(LLVMOpcode.SExt, CtorArg(g, c, 1), l.I64);
+            var first = g.Builder.InBoundsGep(l.I16, CtorArg(g, c, 0), [start]);
+            return g.CallRuntime("csrt_string_new_from_utf16", l.Ptr, [l.Ptr, l.I32], first, CtorArg(g, c, 2));
+        };
+        t["string..ctor(char*)"] = (g, c) =>
+            g.CallRuntime("csrt_pinvoke_string_from_native", g.Module.Llvm.Ptr, [g.Module.Llvm.Ptr, g.Module.Llvm.I1, g.Module.Llvm.I1],
+                CtorArg(g, c, 0), g.Module.Llvm.True, g.Module.Llvm.False);
+        t["string..ctor(sbyte*)"] = (g, c) =>
+            g.CallRuntime("csrt_pinvoke_string_from_native", g.Module.Llvm.Ptr, [g.Module.Llvm.Ptr, g.Module.Llvm.I1, g.Module.Llvm.I1],
+                CtorArg(g, c, 0), g.Module.Llvm.False, g.Module.Llvm.False);
         t["string..ctor(char[])"] = (g, c) =>
             g.CallRuntime("csrt_string_new_from_chars", g.Module.Llvm.Ptr, [g.Module.Llvm.Ptr], CtorArg(g, c, 0));
         t["System.Text.StringBuilder..ctor()"] = (g, _) =>
