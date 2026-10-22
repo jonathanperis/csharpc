@@ -94,7 +94,7 @@ const csrt_BuiltinMethodTable csrt_Thread_MT = {
     { (void*)csrt_object_to_string_default, (void*)csrt_object_equals_default, (void*)csrt_object_get_hash_code_default },
 };
 
-static _Thread_local csrt_Thread* tl_current;  // rooted: the GC scans every thread's TLS
+static _Thread_local __attribute__((tls_model("local-exec"))) csrt_Thread* tl_current;  // rooted: the GC scans every thread's TLS
 static atomic_int s_next_id = 2;               // the main thread is 1, like .NET
 static pthread_mutex_t s_join_lock = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t s_join_cond = PTHREAD_COND_INITIALIZER;

@@ -126,7 +126,7 @@ typedef struct {
 
 // GC root for the exception currently being propagated (unwind headers live in malloc memory,
 // which the conservative collector doesn't scan). Thread-local: the GC scans every thread's TLS.
-static _Thread_local void* volatile s_in_flight;
+static _Thread_local __attribute__((tls_model("local-exec"))) void* volatile s_in_flight;
 
 static void throw_cleanup(_Unwind_Reason_Code reason, struct _Unwind_Exception* unwind) {
     (void)reason;
@@ -160,7 +160,7 @@ static void* new_exception(const csrt_ExceptionMethodTable* mt, const char* mess
 // its finally blocks (forced unwind) and then returns to the innermost csrt_trap_call instead of
 // terminating the process, so Parallel.For can rethrow it on the calling thread.
 typedef struct { jmp_buf env; uintptr_t frame; void* exception; } csrt_Trap;
-static _Thread_local csrt_Trap* tl_trap;
+static _Thread_local __attribute__((tls_model("local-exec"))) csrt_Trap* tl_trap;
 
 static _Unwind_Reason_Code trap_stop(int version, _Unwind_Action actions, uint64_t exception_class,
                                      struct _Unwind_Exception* unwind, struct _Unwind_Context* context, void* parameter) {

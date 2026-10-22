@@ -76,7 +76,9 @@ typedef struct {
     uint8_t* word_base;
 } AllocCache;
 
-static _Thread_local AllocCache tl_cache[17];
+// local-exec: csrt is always linked into the executable, so TLS is a direct %fs-relative access.
+#define CSRT_TLS _Thread_local __attribute__((tls_model("local-exec")))
+static CSRT_TLS AllocCache tl_cache[17];
 
 /// Shared per-class state (guarded by g.lock).
 typedef struct {
@@ -87,7 +89,7 @@ typedef struct {
 
 enum { THREAD_STARTING, THREAD_RUNNING };
 
-static _Thread_local csrt_GcThread* tl_self;
+static CSRT_TLS csrt_GcThread* tl_self;
 
 #define SIG_SUSPEND SIGPWR
 #define SIG_RESUME  SIGXCPU
@@ -320,6 +322,11 @@ static void protect_caches(void) {
 // ---------------------------------------------------------------------------------------------
 static void collect(void);
 
+// The lock only matters once a second thread exists. g.multithreaded flips once, set by the only
+// running thread (in csrt_gc_thread_prepare, before the new thread starts), and never resets.
+static inline void gc_lock(void) { if (g.multithreaded) pthread_mutex_lock(&g.lock); }
+static inline void gc_unlock(void) { if (g.multithreaded) pthread_mutex_unlock(&g.lock); }
+
 static int cache_segments(struct dl_phdr_info* info, size_t size, void* data) {
     (void)size; (void)data;
     // The first entry is the main executable; static fields live in its writable PT_LOAD segments.
@@ -409,7 +416,7 @@ static void* alloc_large(size_t size, bool clear) {
 
 __attribute__((noinline, cold)) static void* alloc_small_slow(uint32_t cls) {
     if (!g.initialized) csrt_gc_init();
-    pthread_mutex_lock(&g.lock);
+    gc_lock();
     SizeClass* sc = &g.classes[cls];
     AllocCache* cache = &tl_cache[cls];
     bool collected = false;
@@ -427,15 +434,15 @@ __attribute__((noinline, cold)) static void* alloc_small_slow(uint32_t cls) {
     cache->free_bits = bits & (bits - 1);
     result = cache->word_base + (size_t)__builtin_ctzll(bits) * k_size_classes[cls];
 out:
-    pthread_mutex_unlock(&g.lock);
+    gc_unlock();
     return result;
 }
 
 __attribute__((noinline)) static void* alloc_large_slow(size_t size, bool clear) {
     if (!g.initialized) csrt_gc_init();
-    pthread_mutex_lock(&g.lock);
+    gc_lock();
     void* result = alloc_large_locked(size, clear);
-    pthread_mutex_unlock(&g.lock);
+    gc_unlock();
     return result;
 }
 
@@ -475,9 +482,9 @@ void* csrt_gc_alloc(size_t size) { return gc_alloc(size, true); }
 void* csrt_gc_alloc_noclear(size_t size) { return gc_alloc(size, false); }
 
 int64_t csrt_gc_total_memory(void) {
-    pthread_mutex_lock(&g.lock);
+    gc_lock();
     int64_t total = (int64_t)(g.live_bytes + g.allocated_since_gc);
-    pthread_mutex_unlock(&g.lock);
+    gc_unlock();
     return total;
 }
 
@@ -491,14 +498,15 @@ static void* mmap_grow(void* old, size_t old_bytes, size_t new_bytes) {
     return grown;
 }
 
-static void mark_push(uint8_t* start, size_t size) {
-    if (g.mark_count == g.mark_capacity) {
-        // mmap, not realloc: this runs with the world stopped.
-        size_t capacity = g.mark_capacity ? g.mark_capacity * 2 : 4096;
-        void* grown = mmap_grow(g.mark_stack, g.mark_capacity * sizeof *g.mark_stack, capacity * sizeof *g.mark_stack);
-        g.mark_stack = grown;
-        g.mark_capacity = capacity;
-    }
+__attribute__((noinline, cold)) static void mark_stack_grow(void) {
+    // mmap, not realloc: this runs with the world stopped.
+    size_t capacity = g.mark_capacity ? g.mark_capacity * 2 : 4096;
+    g.mark_stack = mmap_grow(g.mark_stack, g.mark_capacity * sizeof *g.mark_stack, capacity * sizeof *g.mark_stack);
+    g.mark_capacity = capacity;
+}
+
+static inline __attribute__((always_inline)) void mark_push(uint8_t* start, size_t size) {
+    if (__builtin_expect(g.mark_count == g.mark_capacity, 0)) mark_stack_grow();
     g.mark_stack[g.mark_count].start = start;
     g.mark_stack[g.mark_count].size = size;
     g.mark_count++;
@@ -524,7 +532,7 @@ static void sort_large(LargeObject* a, size_t n) {
 }
 
 /// If `word` points into a live, unmarked heap object, marks it and queues it for scanning.
-static inline void mark_candidate(uintptr_t word) {
+static inline __attribute__((always_inline)) void mark_candidate(uintptr_t word) {
     if (word < g.heap_min || word >= g.heap_max) return;
 
     uintptr_t base = word & ~(CHUNK_SIZE - 1);
@@ -795,9 +803,9 @@ static void collect(void) {
 void csrt_gc_collect(void) {
     if (!g.initialized) csrt_gc_init();
     if (!g.enabled) return;
-    pthread_mutex_lock(&g.lock);
+    gc_lock();
     collect();
-    pthread_mutex_unlock(&g.lock);
+    gc_unlock();
 }
 
 void csrt_gc_shutdown(void) {
