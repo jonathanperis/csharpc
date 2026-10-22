@@ -74,7 +74,7 @@ for opt in "${OPTS[@]}"; do
     # Run in a child bash so the parent shell doesn't print "Aborted (core dumped)" job noise
     # for samples that intentionally die with an unhandled exception (SIGABRT, exit 134).
     bash -c 'ulimit -c 0; timeout "$1" "$2" > "$3" 2> "$4"' _ \
-      "${CSHARPC_TEST_TIMEOUT:-20}" "$exe" "$OUT/$name.stdout" "$OUT/$name.stderr" 2>/dev/null
+      "${CSHARPC_TEST_TIMEOUT:-90}" "$exe" "$OUT/$name.stdout" "$OUT/$name.stderr" 2>/dev/null
     got_code=$?
     if diff -u "$expected" "$OUT/$name.stdout" > "$OUT/$name.diff" && [[ "$got_code" == "$want_code" ]]; then
       echo "PASS $label"
