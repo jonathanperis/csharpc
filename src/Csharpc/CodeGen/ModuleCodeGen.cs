@@ -20,6 +20,7 @@ public sealed partial class ModuleCodeGen
     public TypeMapper Types { get; }
     public List<CompileError> Errors { get; } = [];
     public TextWriter? CfgDump { get; init; }
+    public CoreLib CoreLib { get; }
 
     private readonly Dictionary<IMethodSymbol, LoweredFunction> _functions = new(SymbolEqualityComparer.Default);
     private readonly Dictionary<INamedTypeSymbol, ClassLayout> _layouts = new(SymbolEqualityComparer.Default);
@@ -43,6 +44,8 @@ public sealed partial class ModuleCodeGen
         Module = module;
         Types = new TypeMapper(llvm, target);
         Types.StructType = ResolveStructType;
+        CoreLib = new CoreLib(compilation);
+        Mangler.RealNameOf = CoreLib.RealNameOf; // shadow types report their BCL names (List`1[...])
     }
 
     public SemanticModel ModelFor(SyntaxTree tree) =>
@@ -92,10 +95,17 @@ public sealed partial class ModuleCodeGen
         // 3. Static initialization + the native entry point.
         Guard(entryPoint, EmitStaticInitializer);
         Guard(entryPoint, () => EmitNativeMain(entryPoint));
+        Guard(entryPoint, EmitCallCatchingHelpers);
         DrainWorklists();
     }
 
     private void DrainWorklists()
+    {
+        do DrainFunctionWorklists();
+        while (EmitPendingBuiltinInterfaceTables());
+    }
+
+    private void DrainFunctionWorklists()
     {
         while (true)
         {
@@ -136,7 +146,8 @@ public sealed partial class ModuleCodeGen
         foreach (var member in container.GetMembers())
         {
             if (member is INamespaceSymbol ns) CollectTypes(ns);
-            else if (member is INamedTypeSymbol type && IsUserType(type) && type.Locations.Any(l => l.IsInSource))
+            // Corelib types are lowered on demand only (through GetFunction/GetLayout), never eagerly.
+            else if (member is INamedTypeSymbol type && IsUserType(type) && type.Locations.Any(l => l.IsInSource) && !CoreLib.IsCoreLib(type))
             {
                 if (type.IsImplicitlyDeclared && type.TypeKind != TypeKind.Class) continue;
                 _userTypes.Add(type);
@@ -152,6 +163,7 @@ public sealed partial class ModuleCodeGen
     public LoweredFunction GetFunction(IMethodSymbol method)
     {
         if (IsNestedFunction(method)) return GetNestedFunction(method, TypeSubstitution.Identity);
+        method = CoreLib.Map(method);
         // Generic code is keyed by the *constructed* symbol: one function per instantiation.
         var generic = TypeSubstitution.IsGenericContext(method);
         if (!generic) method = method.OriginalDefinition;
@@ -167,7 +179,8 @@ public sealed partial class ModuleCodeGen
         Native.LLVMSetLinkage(fn, LLVMLinkage.Internal);
         Llvm.AddFunctionAttribute(fn, "uwtable", 2); // C# code may throw: keep async unwind tables (ADR 0005)
         MarkIfCoroutine(method, fn);
-        if (generic && IsUserMethod(method) && !method.IsAbstract) _pendingInstantiations.Enqueue(method);
+        if ((generic || CoreLib.IsCoreLib(method)) && IsUserMethod(method) && !method.IsAbstract && !method.IsExtern)
+            _pendingInstantiations.Enqueue(method);
         return _functions[method] = new LoweredFunction(fn, type);
     }
 
@@ -481,8 +494,12 @@ public sealed partial class ModuleCodeGen
     // Classes: layout + method tables
     // ======================================================================================
 
+    /// <summary>The introducing virtual declaration of a method, redirected to the corelib when it's a shadowed library member.</summary>
+    public IMethodSymbol RootOf(IMethodSymbol method) => CoreLib.Map(ClassLayout.RootOf(method));
+
     public ClassLayout GetLayout(INamedTypeSymbol type)
     {
+        type = CoreLib.TryMap(type) ?? type;
         if (!TypeSubstitution.IsGenericContext(type)) type = type.OriginalDefinition;
         if (_layouts.TryGetValue(type, out var existing)) return existing;
         if (!IsUserType(type))
@@ -492,8 +509,9 @@ public sealed partial class ModuleCodeGen
         if (TypeSubstitution.IsOpen(type)) throw CompileError.Unsupported($"open generic type '{type}'", type);
 
         ClassLayout? baseLayout = null;
-        if (type.BaseType is { SpecialType: not SpecialType.System_Object } baseType)
+        if (type.BaseType is { SpecialType: not SpecialType.System_Object } declaredBase)
         {
+            var baseType = CoreLib.TryMap(declaredBase) ?? declaredBase; // e.g. `class ByLength : Comparer<string>`
             if (!IsUserType(baseType) && !IsLibraryException(baseType))
                 throw CompileError.Unsupported($"deriving from library class '{baseType}'", type);
             baseLayout = GetLayout(baseType);
@@ -543,7 +561,7 @@ public sealed partial class ModuleCodeGen
         foreach (var m in type.GetMembers().OfType<IMethodSymbol>())
         {
             if (!(m.IsVirtual || m.IsAbstract || m.IsOverride)) continue;
-            var root = ClassLayout.RootOf(m);
+            var root = RootOf(m);
             if (m.IsOverride)
             {
                 if (!layout.SlotOf.TryGetValue(root, out var slot))
@@ -587,7 +605,8 @@ public sealed partial class ModuleCodeGen
         "System.NotSupportedException", "System.NotImplementedException", "System.NullReferenceException",
         "System.IndexOutOfRangeException", "System.ArithmeticException", "System.DivideByZeroException",
         "System.OverflowException", "System.InvalidCastException", "System.FormatException",
-        "System.Collections.Generic.KeyNotFoundException",
+        "System.Collections.Generic.KeyNotFoundException", "System.OperationCanceledException",
+        "System.Threading.Tasks.TaskCanceledException", "System.AggregateException",
         "System.Threading.ThreadStateException", "System.Threading.SynchronizationLockException",
     ];
 
@@ -684,6 +703,7 @@ public sealed partial class ModuleCodeGen
 
     public LLVMValueRef StaticField(IFieldSymbol field)
     {
+        field = CoreLib.Map(field);
         if (!TypeSubstitution.IsGenericContext(field.ContainingType)) field = field.OriginalDefinition;
         if (_staticFields.TryGetValue(field, out var global)) return global;
         if (!IsUserType(field.ContainingType)) throw CompileError.Unsupported($"static field '{field}' of a library type", field);
@@ -752,18 +772,25 @@ public sealed partial class ModuleCodeGen
     /// Enum.ToString(): a generated `switch` from value to name literal; undefined values fall back
     /// to the number, as in .NET. [Flags] combinations are not decomposed yet.
     /// </summary>
-    public LoweredFunction EnumFormatter(INamedTypeSymbol enumType)
+    private readonly Dictionary<INamedTypeSymbol, LoweredFunction> _enumNameLookups = new(SymbolEqualityComparer.Default);
+
+    /// <summary>Enum.GetName: the declared name, or null for values that have no name.</summary>
+    public LoweredFunction EnumNameOrNull(INamedTypeSymbol enumType) => EnumFormatter(enumType, nullIfUndefined: true);
+
+    public LoweredFunction EnumFormatter(INamedTypeSymbol enumType) => EnumFormatter(enumType, nullIfUndefined: false);
+
+    private LoweredFunction EnumFormatter(INamedTypeSymbol enumType, bool nullIfUndefined)
     {
         enumType = enumType.OriginalDefinition;
-        if (_enumFormatters.TryGetValue(enumType, out var existing)) return existing;
-        if (enumType.GetAttributes().Any(a => a.AttributeClass?.Name == "FlagsAttribute"))
-            throw CompileError.Unsupported($"formatting [Flags] enum '{enumType.Name}'", enumType);
+        var cache = nullIfUndefined ? _enumNameLookups : _enumFormatters;
+        if (cache.TryGetValue(enumType, out var existing)) return existing;
+        var isFlags = !nullIfUndefined && enumType.GetAttributes().Any(a => a.AttributeClass?.Name == "FlagsAttribute");
         var underlying = enumType.EnumUnderlyingType!;
         var valueType = Types.Value(underlying);
         var type = Llvm.FunctionType(Llvm.Ptr, valueType);
-        var fn = Module.AddFunction(Mangler.TypeSymbol(enumType, "ToString"), type);
+        var fn = Module.AddFunction(Mangler.TypeSymbol(enumType, nullIfUndefined ? "GetName" : "ToString"), type);
         Native.LLVMSetLinkage(fn, LLVMLinkage.Internal);
-        var lowered = _enumFormatters[enumType] = new LoweredFunction(fn, type);
+        var lowered = cache[enumType] = new LoweredFunction(fn, type);
 
         using var b = new IrBuilder(Llvm);
         var entry = b.AppendBlock(fn, "entry");
@@ -786,6 +813,30 @@ public sealed partial class ModuleCodeGen
         b.PositionAtEnd(entry);
         b.Switch(fn.Param(0), fallback, cases);
         b.PositionAtEnd(fallback);
+        if (nullIfUndefined)
+        {
+            b.Ret(LlvmContext.Null(Llvm.Ptr));
+            return lowered;
+        }
+        if (isFlags)
+        {
+            // Not an exact name: let the runtime decompose into flag names (or fall back to the number).
+            var members = enumType.GetMembers().OfType<IFieldSymbol>().Where(f => f.HasConstantValue)
+                .Select(f => (Raw: f.ConstantValue switch { ulong u => u, uint u => u, ushort u => u, byte u => u, var v => unchecked((ulong)Convert.ToInt64(v)) }, f.Name))
+                .Select(m => (Raw: valueType.IntWidth == 64 ? m.Raw : m.Raw & ((1UL << (int)valueType.IntWidth) - 1), m.Name))
+                .GroupBy(m => m.Raw).Select(g => g.First()).OrderBy(m => m.Raw).ToList();
+            var valuesInit = LlvmContext.ConstArray(Llvm.I64, [.. members.Select(m => Llvm.ConstUInt(Llvm.I64, m.Raw))]);
+            var namesInit = LlvmContext.ConstArray(Llvm.Ptr, [.. members.Select(m => StringLiteral(m.Name))]);
+            var valuesTable = Module.AddGlobal(Mangler.TypeSymbol(enumType, "FlagValues"), Native.LLVMTypeOf(valuesInit), valuesInit, constant: true, linkage: LLVMLinkage.Internal);
+            var namesTable = Module.AddGlobal(Mangler.TypeSymbol(enumType, "FlagNames"), Native.LLVMTypeOf(namesInit), namesInit, constant: true, linkage: LLVMLinkage.Internal);
+            var signed = TypeMapper.IsSigned(underlying);
+            var asU64 = valueType.IntWidth == 64 ? fn.Param(0) : b.Cast(LLVMOpcode.ZExt, fn.Param(0), Llvm.I64);
+            var asI64 = valueType.IntWidth == 64 ? fn.Param(0) : b.Cast(signed ? LLVMOpcode.SExt : LLVMOpcode.ZExt, fn.Param(0), Llvm.I64);
+            var flags = Runtime("csrt_enum_format_flags", Llvm.Ptr, Llvm.I64, Llvm.Ptr, Llvm.Ptr, Llvm.I32, Llvm.I1, Llvm.I64);
+            b.Ret(b.Call(flags.Type, flags.Fn, [asU64, valuesTable, namesTable, Llvm.ConstInt(Llvm.I32, members.Count),
+                signed ? Llvm.True : Llvm.False, asI64]));
+            return lowered;
+        }
         var (name, argType, arg) = TypeMapper.IsSigned(underlying)
             ? ("csrt_string_from_i64", Llvm.I64, valueType.IntWidth == 64 ? fn.Param(0) : b.Cast(LLVMOpcode.SExt, fn.Param(0), Llvm.I64))
             : ("csrt_string_from_u64", Llvm.I64, valueType.IntWidth == 64 ? fn.Param(0) : b.Cast(LLVMOpcode.ZExt, fn.Param(0), Llvm.I64));
@@ -877,6 +928,15 @@ public sealed partial class ModuleCodeGen
         return _globals[key] = fn;
     }
 
+    private readonly List<INamedTypeSymbol> _variantInterfaces = [];
+
+    /// <summary>Called for every interface MT: variant generic instantiations get a runtime descriptor.</summary>
+    internal void NoteInterfaceInstantiation(INamedTypeSymbol itf)
+    {
+        if (itf.IsGenericType && itf.OriginalDefinition.TypeParameters.Any(p => p.Variance != VarianceKind.None))
+            _variantInterfaces.Add(itf);
+    }
+
     private void EmitNativeMain(IMethodSymbol entryPoint)
     {
         var type = Llvm.FunctionType(Llvm.I32, Llvm.I32, Llvm.Ptr);
@@ -886,6 +946,25 @@ public sealed partial class ModuleCodeGen
 
         var init = Runtime("csrt_init", Llvm.Void, Llvm.I32, Llvm.Ptr);
         b.Call(init.Type, init.Fn, [main.Param(0), main.Param(1)]);
+        // Generic variance descriptors (see csrt.c). Registering may create more interface MTs: iterate to a fixed point.
+        for (var i = 0; i < _variantInterfaces.Count; i++)
+        {
+            var itf = _variantInterfaces[i];
+            var definition = itf.OriginalDefinition;
+            var argTables = itf.TypeArguments.Select(a => TypeMethodTable(a, null!)).ToArray();
+            uint mask = 0;
+            for (var k = 0; k < itf.TypeArguments.Length; k++)
+            {
+                var bits = definition.TypeParameters[k].Variance switch { VarianceKind.Out => 1u, VarianceKind.In => 2u, _ => 0u };
+                if (itf.TypeArguments[k].IsReferenceType) bits |= 4u;
+                mask |= bits << (3 * k);
+            }
+            var argsInit = LlvmContext.ConstArray(Llvm.Ptr, argTables);
+            var argsTable = Module.AddGlobal(Mangler.TypeSymbol(itf, "VARGS"), Native.LLVMTypeOf(argsInit), argsInit, constant: true, linkage: LLVMLinkage.Internal);
+            var register = Runtime("csrt_register_variant_interface", Llvm.Void, Llvm.Ptr, Llvm.Ptr, Llvm.I32, Llvm.Ptr, Llvm.I32);
+            b.Call(register.Type, register.Fn, [InterfaceMethodTable(itf), CString("generic:" + Mangler.MetadataName(definition)),
+                Llvm.ConstInt(Llvm.I32, argTables.Length), argsTable, Llvm.ConstUInt(Llvm.I32, mask)]);
+        }
         b.Call(_staticInit.Type, _staticInit.Fn, []);
 
         var target = GetFunction(entryPoint);
@@ -902,6 +981,9 @@ public sealed partial class ModuleCodeGen
             // async Main: drive the scheduler until the returned task completes.
             var wait = Runtime("csrt_task_wait", Llvm.Void, Llvm.Ptr);
             b.Call(wait.Type, wait.Fn, [result]);
+            // A faulted main task rethrows its exception: unhandled, as in .NET (GetAwaiter().GetResult()).
+            var rethrow = Runtime("csrt_task_throw_if_faulted", Llvm.Void, Llvm.Ptr);
+            b.Call(rethrow.Type, rethrow.Fn, [result]);
             returnsVoid = Coroutines.AsyncResultType(entryPoint.ReturnType) is null;
             if (!returnsVoid)
             {

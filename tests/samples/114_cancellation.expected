@@ -1,0 +1,10 @@
+False True False
+callback 2
+callback 1
+delay canceled
+True True True
+OperationCanceledException: The operation was canceled.
+already canceled -> A task was canceled.
+timed out
+3
+work canceled

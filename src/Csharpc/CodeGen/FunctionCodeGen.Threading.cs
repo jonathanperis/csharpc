@@ -5,7 +5,7 @@ using Microsoft.CodeAnalysis.Operations;
 namespace Csharpc.CodeGen;
 
 /// <summary>
-/// System.Threading surface (docs/11-threading.md): Thread, Monitor/`lock`, Lock, wait handles and
+/// System.Threading surface (docs/13-threading.md): Thread, Monitor/`lock`, Lock, wait handles and
 /// Parallel map onto runtime/threads.c; Interlocked and Volatile are LLVM atomics inline.
 /// </summary>
 public sealed partial class FunctionCodeGen

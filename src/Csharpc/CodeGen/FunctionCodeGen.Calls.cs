@@ -16,9 +16,12 @@ public sealed partial class FunctionCodeGen
     private LLVMValueRef EmitInvocation(IInvocationOperation inv)
     {
         var target = S(inv.TargetMethod);
+        if (IsCoreIntrinsic(target)) return EmitCoreIntrinsic(target, inv);
         // `T.Create()` on a static abstract/virtual interface member: after substitution T is concrete.
         if (ResolveStaticInterfaceMember(target, inv.ConstrainedToType) is { } staticImpl)
             return EmitUserCall(staticImpl, default, true, inv.Arguments, isVirtual: false);
+        if (target is { Name: "GetType", Parameters.IsEmpty: true, ContainingType.SpecialType: SpecialType.System_Object })
+            return EmitGetType(inv);
         if (target.MethodKind == MethodKind.DelegateInvoke) return EmitDelegateInvoke(inv);
         if (target.MethodKind == MethodKind.LocalFunction) return CallLocalFunction(inv);
         if (TypeMapper.IsNullable(target.ContainingType)) return EmitNullableMethod(inv);
@@ -33,7 +36,7 @@ public sealed partial class FunctionCodeGen
             // object.ToString/Equals/GetHashCode on a value-type receiver (a substituted T): box, then dispatch.
             if (receiverType is { IsValueType: true } && target.ContainingType.SpecialType is SpecialType.System_Object or SpecialType.System_ValueType)
             {
-                if (target.Name == "ToString" && FormatPrimitive(EmitValue(receiver), receiverType) is { } formatted) return formatted;
+                if (target.Name == "ToString" && target.Parameters.IsEmpty) return FormatValue(EmitValue(receiver), receiverType, inv);
                 var boxed = Box(EmitValue(receiver), receiverType, inv);
                 var extra = inv.Arguments.OrderBy(a => a.Parameter!.Ordinal).Select(EmitArgument);
                 return VirtualCall(target, boxed, [boxed, .. extra]);
@@ -48,6 +51,8 @@ public sealed partial class FunctionCodeGen
         if (TrySpanMethod(inv, out var spanResult)) return spanResult;
         if (Intrinsics.TryGet(target, out var handler)) return handler(this, inv);
         if (TryEmitLibraryExceptionCall(inv, out var result)) return result;
+        if (BclValueTypes.TryGetRaw(target, out var raw)) return raw(this, inv);
+        if (BclValueTypes.TryGet(target, out var bcl)) return CallBcl(bcl, target, inv.Instance, inv.Arguments, inv);
         throw CompileError.MissingIntrinsic(target, inv);
     }
 
@@ -119,7 +124,7 @@ public sealed partial class FunctionCodeGen
     /// </summary>
     internal LLVMValueRef VirtualCall(IMethodSymbol target, LLVMValueRef self, LLVMValueRef[] args)
     {
-        var root = ClassLayout.RootOf(target);
+        var root = _m.RootOf(target);
         int slot;
         LLVMTypeRef fnType;
         if (_m.IsUserType(target.ContainingType) || _m.IsLibraryException(target.ContainingType))
@@ -166,6 +171,8 @@ public sealed partial class FunctionCodeGen
         if (_m.IsLibraryException(type)) return EmitLibraryExceptionCreation(creation);
         if (!_m.IsUserType(type) && creation.Constructor is { } libraryCtor && Intrinsics.TryGetConstructor(libraryCtor, out var ctorHandler))
             return ctorHandler(this, creation);
+        if (!_m.IsUserType(type) && creation.Constructor is { } bclCtor && BclValueTypes.TryGet(bclCtor, out var bclHandler))
+            return CallBcl(bclHandler, bclCtor, null, creation.Arguments, creation);
         if (!_m.IsUserType(type) || type.TypeKind != TypeKind.Class)
             throw CompileError.Unsupported($"creating instances of '{type}'", creation);
         if (type.IsAbstract) throw CompileError.Unsupported("instantiating an abstract class", creation);
@@ -243,12 +250,13 @@ public sealed partial class FunctionCodeGen
         or SpecialType.System_Byte or SpecialType.System_SByte or SpecialType.System_Double or SpecialType.System_Single
         or SpecialType.System_Boolean or SpecialType.System_Char;
 
-    private LLVMValueRef MethodTableFor(ITypeSymbol type, IOperation at) => type switch
+    private LLVMValueRef MethodTableFor(ITypeSymbol type, IOperation at) => _m.CoreLib.Map(type) switch
     {
         { SpecialType: SpecialType.System_String } => _m.ExternalGlobal("csrt_String_MT"),
         { SpecialType: SpecialType.System_Object } => _m.ExternalGlobal("csrt_Object_MT"),
         _ when IsBoxablePrimitive(type) => _m.ExternalGlobal($"csrt_Boxed_{type.MetadataName}_MT"),
-        { TypeKind: TypeKind.Enum } => throw CompileError.Unsupported($"boxing enum '{type}'", at),
+        _ when BclValueTypes.IsDecimal(type) || BclValueTypes.IsTicks(type) || BclValueTypes.IsBigInteger(type) => _m.TypeMethodTable(type, at),
+        INamedTypeSymbol { TypeKind: TypeKind.Enum } e => _m.EnumMethodTable(e),
         INamedTypeSymbol { TypeKind: TypeKind.Class } named when _m.IsUserType(named) || _m.IsLibraryException(named) =>
             _m.GetLayout(named).MethodTable,
         INamedTypeSymbol { TypeKind: TypeKind.Struct } named when _m.IsUserType(named) => _m.StructMethodTable(named),
@@ -287,6 +295,8 @@ public sealed partial class FunctionCodeGen
         if (TrySpanProperty(p, out var spanResult)) return spanResult;
         if (Intrinsics.TryGetProperty(property, out var handler)) return handler(this, p);
         if (TryEmitLibraryExceptionProperty(p, out var exceptionMember)) return exceptionMember;
+        if (property.GetMethod is { } getter2 && BclValueTypes.TryGet(getter2, out var bcl))
+            return CallBcl(bcl, getter2, p.Instance, p.Arguments, p);
         throw CompileError.Unsupported($"'{property.ContainingType}.{property.Name}' has no implementation in the csharpc runtime yet", p);
     }
 
@@ -331,7 +341,7 @@ public sealed partial class FunctionCodeGen
     private LLVMValueRef EmitArrayCreation(IArrayCreationOperation creation)
     {
         var arrayType = (IArrayTypeSymbol)TypeOf(creation)!;
-        if (arrayType.Rank != 1) throw CompileError.Unsupported("multi-dimensional arrays", creation);
+        if (arrayType.Rank != 1) return EmitMdArrayCreation(creation, arrayType);
         var length = ToIndex(EmitValue(creation.DimensionSizes[0]), TypeOf(creation.DimensionSizes[0])!);
         var array = NewArray(arrayType.ElementType, length);
         if (creation.Initializer is { } init)
@@ -342,12 +352,81 @@ public sealed partial class FunctionCodeGen
     private LLVMValueRef EmitCollectionExpression(ICollectionExpressionOperation collection)
     {
         if (TypeMapper.IsSpan(TypeOf(collection))) return SpanFromCollection(collection, SpanElement(TypeOf(collection)!));
-        if (TypeOf(collection) is not IArrayTypeSymbol { Rank: 1 } arrayType)
+        var target = TypeOf(collection);
+        if (target is INamedTypeSymbol { TypeKind: TypeKind.Interface, TypeArguments.Length: 1 } itf)
+        {
+            // C# rules: read-only interfaces get an array; IList<T>/ICollection<T> get a List<T>.
+            var element = itf.TypeArguments[0];
+            target = itf.Name is "IList" or "ICollection"
+                ? _m.CoreLib.Map(_m.Compilation.GetTypeByMetadataName("System.Collections.Generic.List`1")!.Construct(element))
+                : _m.Compilation.CreateArrayTypeSymbol(element);
+            if (target is IArrayTypeSymbol) _m.RequestArrayInterface(itf); // the array is used through the interface
+        }
+        if (target is INamedTypeSymbol { TypeKind: TypeKind.Class } collectionClass) return CollectionViaAdd(collection, collectionClass);
+        if (target is not IArrayTypeSymbol { Rank: 1 } arrayType)
             throw CompileError.Unsupported($"collection expression of type '{collection.Type}'", collection);
-        if (collection.Elements.Any(e => e is ISpreadOperation)) throw CompileError.Unsupported("spread elements", collection);
+        if (collection.Elements.Any(e => e is ISpreadOperation))
+        {
+            // Spreads: build a List<T>, then ToArray().
+            var listType = (INamedTypeSymbol)_m.CoreLib.Map(_m.Compilation.GetTypeByMetadataName("System.Collections.Generic.List`1")!.Construct(arrayType.ElementType));
+            var list = CollectionViaAdd(collection, listType);
+            var toArray = listType.GetMembers("ToArray").OfType<IMethodSymbol>().First(m => m.Parameters.IsEmpty);
+            return DirectCall(toArray, [list]);
+        }
         var array = NewArray(arrayType.ElementType, L.ConstInt(L.I64, collection.Elements.Length));
         StoreElements(array, arrayType.ElementType, collection.Elements);
         return array;
+    }
+
+    /// <summary>`List&lt;T&gt; l = [a, ..xs, b]`: new T() then Add / AddRange-style loops for spreads.</summary>
+    private LLVMValueRef CollectionViaAdd(ICollectionExpressionOperation collection, INamedTypeSymbol type)
+    {
+        var ctor = type.InstanceConstructors.FirstOrDefault(c => c.Parameters.IsEmpty)
+            ?? throw CompileError.Unsupported($"collection expression of type '{type}' (no parameterless constructor)", collection);
+        var add = type.GetMembers("Add").OfType<IMethodSymbol>().FirstOrDefault(m => m.Parameters.Length == 1 && !m.IsStatic)
+            ?? throw CompileError.Unsupported($"collection expression of type '{type}' (no Add method)", collection);
+        var layout = _m.GetLayout(type);
+        var obj = Allocate(layout.MethodTable, L.ConstInt(L.I64, (long)layout.InstanceSize));
+        DirectCall(ctor, [obj]);
+        var elementType = S(add.Parameters[0].Type);
+        foreach (var element in collection.Elements)
+        {
+            if (element is ISpreadOperation spread)
+            {
+                if (TypeOf(spread.Operand) is not IArrayTypeSymbol { Rank: 1 } spreadArray)
+                {
+                    // Any other enumerable reference type: AddRange(IEnumerable<T>) on the target.
+                    var addRange = type.GetMembers("AddRange").OfType<IMethodSymbol>().FirstOrDefault(m => m.Parameters.Length == 1 && !m.IsStatic);
+                    if (addRange is null || TypeOf(spread.Operand) is not { IsReferenceType: true })
+                        throw CompileError.Unsupported($"spreading '{TypeOf(spread.Operand)}' into '{type}'", spread);
+                    var enumerable = EmitValue(spread.Operand);
+                    DirectCall(addRange, [obj, enumerable]);
+                    continue;
+                }
+                var source = EmitValue(spread.Operand);
+                NullCheck(source);
+                var length = _b.Load(L.I64, _b.StructGep(T.ArrayHeader(L.I8), source, 1), "len");
+                var index = NewTemp(L.I64, "spread.i");
+                _b.Store(L.ConstInt(L.I64, 0), index);
+                var head = NewBlock("spread.head");
+                var body = NewBlock("spread.body");
+                var done = NewBlock("spread.done");
+                _b.Br(head);
+                _b.PositionAtEnd(head);
+                var i = _b.Load(L.I64, index);
+                _b.CondBr(_b.ICmp(LLVMIntPredicate.SLT, i, length), body, done);
+                _b.PositionAtEnd(body);
+                var item = LoadValue(_b.InBoundsGep(T.ArrayHeader(T.Storage(spreadArray.ElementType)), source,
+                    [L.ConstInt(L.I32, 0), L.ConstInt(L.I32, 2), i]), spreadArray.ElementType);
+                DirectCall(add, [obj, Coerce(item, spreadArray.ElementType, elementType)]);
+                _b.Store(_b.BinOp(LLVMOpcode.Add, i, L.ConstInt(L.I64, 1)), index);
+                _b.Br(head);
+                _b.PositionAtEnd(done);
+                continue;
+            }
+            DirectCall(add, [obj, Coerce(EmitValue(element), TypeOf(element), elementType)]);
+        }
+        return obj;
     }
 
     private LLVMValueRef NewArray(ITypeSymbol elementType, LLVMValueRef length)
@@ -355,7 +434,9 @@ public sealed partial class FunctionCodeGen
         var elementSize = T.Target.SizeOf(T.Storage(elementType));
         // Arrays of primitives/enums hold no references: a distinct method table lets the GC skip them.
         var helper = Optimizations.HoldsNoReferences(elementType) ? "csrt_new_array_primitive" : "csrt_new_array";
-        return CallRuntime(helper, L.Ptr, [L.I64, L.I64], L.ConstInt(L.I64, (long)elementSize), length);
+        var array = CallRuntime(helper, L.Ptr, [L.I64, L.I64], L.ConstInt(L.I64, (long)elementSize), length);
+        TagArray(array, elementType); // "System.Int32[]" for GetType()/ToString(); keeps the no-references flag
+        return array;
     }
 
     private void StoreElements(LLVMValueRef array, ITypeSymbol elementType, ImmutableArray<IOperation> values)
@@ -373,7 +454,7 @@ public sealed partial class FunctionCodeGen
 
     private LLVMValueRef ElementAddress(IArrayElementReferenceOperation element)
     {
-        if (element.Indices.Length != 1) throw CompileError.Unsupported("multi-dimensional arrays", element);
+        if (element.Indices.Length != 1) return MdElementAddress(element, (IArrayTypeSymbol)TypeOf(element.ArrayReference)!);
         var index = element.Indices[0];
         var indexType = TypeOf(index);
         var isIndex = IsIndexType(indexType); // array[^n]
@@ -394,19 +475,20 @@ public sealed partial class FunctionCodeGen
 
     // foreach over T[]: Roslyn's CFG lowers it to the IEnumerable<T> pattern. We substitute a
     // stack-allocated { T[] array, i64 index } "enumerator"; after SROA this is a plain index loop.
-    private LLVMTypeRef ArrayEnumeratorType => L.Struct(L.Ptr, L.I64);
+    private LLVMTypeRef ArrayEnumeratorType => L.Struct(L.Ptr, L.I64, L.I64); // { data, index, length }
 
     internal LLVMValueRef ArrayGetEnumerator(IOperation instance, IOperation at)
     {
         var source = instance;
         while (source is IConversionOperation { Conversion.IsImplicit: true } c) source = c.Operand;
-        if (TypeOf(source) is not IArrayTypeSymbol { Rank: 1 })
+        if (TypeOf(source) is not IArrayTypeSymbol arrayType)
             throw CompileError.Unsupported($"foreach over '{TypeOf(source)}' (only arrays so far)", at);
         var array = EmitValue(source);
         NullCheck(array);
         var enumerator = NewTemp(ArrayEnumeratorType, "array.enumerator");
-        _b.Store(array, _b.StructGep(ArrayEnumeratorType, enumerator, 0));
+        _b.Store(ArrayDataStart(array, arrayType), _b.StructGep(ArrayEnumeratorType, enumerator, 0));
         _b.Store(L.ConstInt(L.I64, -1), _b.StructGep(ArrayEnumeratorType, enumerator, 1));
+        _b.Store(_b.Load(L.I64, _b.StructGep(T.ArrayHeader(L.I8), array, 1), "len"), _b.StructGep(ArrayEnumeratorType, enumerator, 2));
         return enumerator;
     }
 
@@ -415,16 +497,15 @@ public sealed partial class FunctionCodeGen
         var indexAddress = _b.StructGep(ArrayEnumeratorType, enumerator, 1);
         var index = _b.BinOp(LLVMOpcode.Add, _b.Load(L.I64, indexAddress), L.ConstInt(L.I64, 1));
         _b.Store(index, indexAddress);
-        var array = _b.Load(L.Ptr, _b.StructGep(ArrayEnumeratorType, enumerator, 0));
-        var length = _b.Load(L.I64, _b.StructGep(T.ArrayHeader(L.I8), array, 1), "len");
+        var length = _b.Load(L.I64, _b.StructGep(ArrayEnumeratorType, enumerator, 2), "len");
         return _b.ICmp(LLVMIntPredicate.SLT, index, length);
     }
 
     internal LLVMValueRef ArrayEnumeratorCurrent(LLVMValueRef enumerator, ITypeSymbol elementType)
     {
-        var array = _b.Load(L.Ptr, _b.StructGep(ArrayEnumeratorType, enumerator, 0));
+        var data = _b.Load(L.Ptr, _b.StructGep(ArrayEnumeratorType, enumerator, 0));
         var index = _b.Load(L.I64, _b.StructGep(ArrayEnumeratorType, enumerator, 1));
-        var address = _b.InBoundsGep(T.ArrayHeader(T.Storage(elementType)), array, [L.ConstInt(L.I32, 0), L.ConstInt(L.I32, 2), index]);
+        var address = _b.InBoundsGep(T.Storage(elementType), data, [index]);
         return LoadValue(address, elementType);
     }
 
@@ -510,6 +591,10 @@ public sealed partial class FunctionCodeGen
 
     internal LLVMValueRef? FormatPrimitive(LLVMValueRef value, ITypeSymbol type) => type.SpecialType switch
     {
+        SpecialType.System_Decimal => CallRuntime("csrt_decimal_to_string", L.Ptr, [L.Ptr], Spill(value, "dec")),
+        SpecialType.System_DateTime => CallRuntime("csrt_datetime_to_string", L.Ptr, [L.I64], value),
+        _ when BclValueTypes.IsTimeSpan(type) => CallRuntime("csrt_timespan_to_string", L.Ptr, [L.I64], value),
+        _ when BclValueTypes.IsBigInteger(type) => CallRuntime("csrt_bigint_to_string", L.Ptr, [L.Ptr], value),
         SpecialType.System_Int32 => CallRuntime("csrt_string_from_i32", L.Ptr, [L.I32], value),
         SpecialType.System_Int64 => CallRuntime("csrt_string_from_i64", L.Ptr, [L.I64], value),
         SpecialType.System_UInt32 => CallRuntime("csrt_string_from_u32", L.Ptr, [L.I32], value),
@@ -541,6 +626,10 @@ public sealed partial class FunctionCodeGen
         var type = TypeOf(valueOp)!;
         var value = EmitValue(valueOp);
         if (type.TypeKind == TypeKind.Enum) return ToStringValue(valueOp);
+        if (BclValueTypes.IsDecimal(type)) return CallRuntime("csrt_format_decimal", L.Ptr, [L.Ptr, L.Ptr], Spill(value, "dec"), format);
+        if (BclValueTypes.IsDateTime(type)) return CallRuntime("csrt_datetime_format", L.Ptr, [L.I64, L.Ptr], value, format);
+        if (BclValueTypes.IsTimeSpan(type)) return CallRuntime("csrt_timespan_format", L.Ptr, [L.I64, L.Ptr], value, format);
+        if (BclValueTypes.IsBigInteger(type)) return CallRuntime("csrt_bigint_format", L.Ptr, [L.Ptr, L.Ptr], value, format);
         switch (type.SpecialType)
         {
             case SpecialType.System_SByte or SpecialType.System_Int16 or SpecialType.System_Int32 or SpecialType.System_Int64:
@@ -612,6 +701,8 @@ public sealed partial class FunctionCodeGen
                 return BinaryPatternTest(value, inputType, binary);
             case IRecursivePatternOperation recursive:
                 return RecursivePatternTest(value, inputType, recursive);
+            case IListPatternOperation list:
+                return ListPatternTest(value, inputType, list);
             case ITypePatternOperation typePattern:
                 return IsInstance(value, inputType, S(typePattern.MatchedType), pattern);
             case IDeclarationPatternOperation declaration:

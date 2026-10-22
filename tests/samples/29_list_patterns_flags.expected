@@ -1,0 +1,16 @@
+empty
+one: 1
+exactly 1,2
+starts with 1
+long (4) ending 10
+bookends 5
+two-char single 'a' exclaims
+span ok
+xy
+ReadWrite
+All
+None
+Read, Execute
+64
+65
+Write, Execute True

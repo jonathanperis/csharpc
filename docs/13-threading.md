@@ -1,4 +1,4 @@
-# 11 — Threading
+# 13 — Threading
 
 csharpc programs can run on real OS threads with .NET semantics. This page describes how the
 garbage collector, the runtime and the compiler cooperate, what is supported, and what still

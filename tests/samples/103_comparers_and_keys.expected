@@ -1,0 +1,7 @@
+fig,date,kiwi,apple,banana,cherry
+kiwi,fig,date,cherry,banana,apple
+banana,date,apple,fig,kiwi,cherry
+Amy(25) Bob(30) Zed(30)
+2
+bTrue
+. False

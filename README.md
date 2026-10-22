@@ -131,24 +131,18 @@ csharpc emitted naive alloca/load/store code, and LLVM did the rest:
 
 ## Supported today
 
-An overview; the authoritative matrix is in [docs/06-roadmap.md](docs/06-roadmap.md).
+Nearly all of the C# language through C# 14 — classes, structs, records, generics (monomorphized),
+interfaces (incl. static abstract members), delegates/lambdas/closures/events, exceptions (real
+unwinding), async/await and iterators (LLVM coroutines), patterns, tuples, `Nullable<T>`, spans,
+unsafe code, extension members — plus a growing library surface (console, math, strings, formatting,
+parsing, `StringBuilder`, GC). Conformance against real .NET: **70 %** of a 195-program corpus with
+zero wrong-output cases; the full matrix is in [docs/06-roadmap.md](docs/06-roadmap.md).
 
-- **Program structure:** top-level statements or `static void/int Main([string[] args])`, static methods, recursion, non-capturing local functions
-- **Types:** `bool`, `char`, all integer types, `float` and `double`, enums (as integers), `string`, one-dimensional (including jagged) arrays, classes
-- **Statements and control flow:** `if`/`else`, `while`, `do`, `for`, `break`, `continue`, `goto`, `switch` statements and expressions, `?:`, `??`, `?.`, `&&`/`||`
-- **Patterns:** constant, relational, `and`/`or`/`not`, type and declaration patterns
-- **Integer semantics:** exact .NET behavior, including wraparound, shift-count masking, `DivideByZeroException`, `OverflowException` on `MinValue / -1`, and saturating float→int conversions
-- **Strings:** concatenation, interpolation (without alignment or format specifiers), `Length`, the indexer, `==`
-- **Classes:** fields, constructors, field initializers, static fields and static constructors, auto and computed properties, inheritance, `virtual`/`abstract`/`override`/`sealed`, `base` calls, `ToString()` overrides, `is`/`as`/casts
-- **Arrays:** bounds checks, `Length`, collection expressions
-- **Runtime errors:** null, index and division failures raise the .NET exception messages and exit with status 134, like an unhandled .NET exception
-- **Library:** `Console.Write`/`WriteLine`, `System.Math`, and a few `string` and `Environment` members (`csharpc --intrinsics` prints the list)
+In progress: collections and LINQ (a C# corelib compiled with your program), `decimal`/`DateTime`,
+multithreading, DWARF debug info.
 
-**Not yet supported:** structs, generics, interfaces, `try`/`catch`/`finally`, lambdas and delegates,
-closures, `foreach` over arrays (Roslyn lowers it to an enumerator inside try/finally), primary
-constructors, tuples, `decimal`, nullable value types, boxing, async, LINQ, and garbage collection
-(memory is never freed). csharpc reports each of these as `error CSLLVM0001` with a source location
-instead of miscompiling.
+Performance: on 14 benchmark programs csharpc beats the .NET JIT on all of them and beats or ties
+NativeAOT on CPU time, with 18–30 KiB binaries ([bench/RESULTS.md](bench/RESULTS.md)).
 
 ## Tests
 

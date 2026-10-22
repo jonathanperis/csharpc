@@ -1,5 +1,5 @@
 // csrt threads: System.Threading.Thread, Monitor (`lock`), System.Threading.Lock, wait handles,
-// a worker pool for Parallel.For/ForEach/Invoke. Built on pthreads; see docs/11-threading.md.
+// a worker pool for Parallel.For/ForEach/Invoke. Built on pthreads; see docs/13-threading.md.
 //
 // Every managed thread registers with the collector (gc.c) before it touches the managed heap and
 // unregisters before it exits. Blocking calls here are fine during a collection: a blocked thread
@@ -530,7 +530,7 @@ bool csrt_event_wait(csrt_Event* e, int32_t ms) {
 // range with an atomic counter until it's exhausted. `body(context, i)` is a compiler-generated
 // thunk that invokes the user's delegate for index i. The first exception thrown by an
 // iteration stops the loop and is rethrown on the calling thread (.NET wraps it in an
-// AggregateException; see docs/11-threading.md).
+// AggregateException; see docs/13-threading.md).
 typedef struct Job {
     void (*body)(void* context, int64_t index);
     void* context;

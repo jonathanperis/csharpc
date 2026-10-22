@@ -1,0 +1,8 @@
+w,y,v
+w=4 [w, 4]
+y=2 [y, 2]
+v=5 [v, 5]
+3 True True 4
+h:1 e:1 l:3 o:2  :1 w:1 r:1 d:1 
+332833500 998001 -1
+System.Collections.Generic.Dictionary`2[System.String,System.Int32]

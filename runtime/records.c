@@ -24,3 +24,33 @@ bool csrt_object_equals_static(void* a, void* b) {
 
 /// Hash of an address (used for a record's EqualityContract, i.e. its runtime type).
 int32_t csrt_pointer_hash(const void* p) { return (int32_t)(((uintptr_t)p >> 3) * 2654435761u); }
+
+/// [Flags] enum ToString, as .NET does it: exact name if defined; otherwise decompose into the
+/// defined flags (largest first, listed in ascending value order, ", "-separated); if bits remain
+/// that no flag covers, the plain number. `values` are sorted ascending; names are csrt strings.
+csrt_String* csrt_string_from_u64(uint64_t v);
+csrt_String* csrt_string_from_i64(int64_t v);
+csrt_String* csrt_string_concat(csrt_String* a, csrt_String* b);
+
+csrt_String* csrt_enum_format_flags(uint64_t value, const uint64_t* values, csrt_String* const* names, int32_t count,
+                                    bool is_signed, int64_t signed_value) {
+    for (int32_t i = 0; i < count; i++) if (values[i] == value) return names[i];
+    if (value == 0) return csrt_string_from_u64(0);
+    uint64_t remaining = value;
+    bool used[64] = {false};
+    for (int32_t i = count - 1; i >= 0; i--) {
+        if (values[i] != 0 && (remaining & values[i]) == values[i] && i < 64) { used[i] = true; remaining &= ~values[i]; }
+    }
+    if (remaining != 0) return is_signed ? csrt_string_from_i64(signed_value) : csrt_string_from_u64(value);
+    csrt_String* result = NULL;
+    static csrt_String* separator;
+    if (!separator) {
+        separator = csrt_alloc(&csrt_String_MT.header, (int64_t)(sizeof(csrt_String) + 4));
+        separator->length = 2; separator->chars[0] = ','; separator->chars[1] = ' ';
+    }
+    for (int32_t i = 0; i < count && i < 64; i++) {
+        if (!used[i]) continue;
+        result = result ? csrt_string_concat(csrt_string_concat(result, separator), names[i]) : names[i];
+    }
+    return result;
+}

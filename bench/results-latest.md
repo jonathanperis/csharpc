@@ -1,6 +1,5 @@
-Times are wall/CPU (user+sys) in ms, best of 5.
+Times are wall/CPU (user+sys) in ms, best of 3.
 
 | benchmark | csharpc -O2 | csharpc -O3 | .NET JIT | NativeAOT | csharpc compile (ms) | csharpc size (KiB, stripped) | NativeAOT size (KiB) |
 |---|---:|---:|---:|---:|---:|---:|---:|
-| mandelbrot_parallel | 460/1047 | 540/1057 | 502/1160 | 512/1271 | 2417 | 34 | 1512 |
-| spectralnorm_parallel | 310/685 | 273/598 | 657/1164 | 291/639 | 3028 | 38 | 1512 |
+| listsort | 276/211 | 278/226 | 338/255 | 332/260 | 5759 | 78 | 1313 |

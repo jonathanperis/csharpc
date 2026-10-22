@@ -37,9 +37,26 @@ public sealed partial class FunctionCodeGen
         return _b.Cast(LLVMOpcode.Trunc, _b.Load(L.I8, result), L.I1);
     }
 
-    private LLVMValueRef BinaryPatternTest(LLVMValueRef value, ITypeSymbol? inputType, IBinaryPatternOperation binary) =>
-        ShortCircuit(binary.OperatorKind != BinaryOperatorKind.Or,
-            [() => PatternTest(value, inputType, binary.LeftPattern), () => PatternTest(value, inputType, binary.RightPattern)]);
+    private LLVMValueRef BinaryPatternTest(LLVMValueRef value, ITypeSymbol? inputType, IBinaryPatternOperation binary)
+    {
+        if (binary.OperatorKind == BinaryOperatorKind.Or)
+            return ShortCircuit(false, [() => PatternTest(value, inputType, binary.LeftPattern), () => PatternTest(value, inputType, binary.RightPattern)]);
+        // `o is int n and > 40`: the right pattern's input is the left pattern's narrowed type.
+        return ShortCircuit(true,
+        [
+            () => PatternTest(value, inputType, binary.LeftPattern),
+            () =>
+            {
+                var narrowed = binary.LeftPattern.NarrowedType is { } n ? S(n) : inputType;
+                var rightValue = value;
+                if (narrowed is { IsValueType: true } && value.Type.IsPointer && !TypeMapper.IsNullable(narrowed))
+                    rightValue = LoadValue(_b.InBoundsGep(L.I8, value, [L.ConstInt(L.I64, 8)]), narrowed); // unbox (test passed)
+                else if (narrowed is not null && inputType is not null && !value.Type.IsPointer)
+                    rightValue = Coerce(value, inputType, narrowed);
+                return PatternTest(rightValue, narrowed ?? inputType, binary.RightPattern);
+            },
+        ]);
+    }
 
     private LLVMValueRef RecursivePatternTest(LLVMValueRef value, ITypeSymbol? inputType, IRecursivePatternOperation pattern)
     {
@@ -107,7 +124,20 @@ public sealed partial class FunctionCodeGen
             Microsoft.CodeAnalysis.CSharp.Syntax.ForEachVariableStatementSyntax f => model.GetDeconstructionInfo(f),
             _ => default,
         };
-        if (info.Method is not { } method || targets.Elements.Any(e => e is ITupleOperation)) return null;
+        var method = info.Method;
+        // `foreach (var (k, v) in dict)`: the operation's syntax is the declaration; look further up.
+        for (var node = syntax.Parent; method is null && node is not null && node is not Microsoft.CodeAnalysis.CSharp.Syntax.StatementSyntax; node = node.Parent)
+            method = node switch
+            {
+                Microsoft.CodeAnalysis.CSharp.Syntax.AssignmentExpressionSyntax a => model.GetDeconstructionInfo(a).Method,
+                _ => null,
+            };
+        if (method is null && syntax.FirstAncestorOrSelf<Microsoft.CodeAnalysis.CSharp.Syntax.ForEachVariableStatementSyntax>() is { } loop)
+            method = model.GetDeconstructionInfo(loop).Method;
+        // Last resort: an instance Deconstruct(out ...) with the right arity on the (corelib-mapped) type.
+        method ??= TypeOf(value)?.GetMembers("Deconstruct").OfType<IMethodSymbol>()
+            .FirstOrDefault(m => !m.IsStatic && m.Parameters.Length == targets.Elements.Length && m.Parameters.All(p => p.RefKind == RefKind.Out));
+        if (method is null || targets.Elements.Any(e => e is ITupleOperation)) return null;
         var addresses = targets.Elements.Select(e => e is IDiscardOperation ? default : AddressOf(e)).ToArray();
         var (values, types) = CallDeconstruct(method, EmitValue(value), TypeOf(value)!, value);
         for (var i = 0; i < addresses.Length; i++)
@@ -117,6 +147,67 @@ public sealed partial class FunctionCodeGen
             StoreValue(ToStorage(Coerce(values[i], types[i], targetType), targetType), addresses[i]);
         }
         return default(LLVMValueRef);
+    }
+
+    /// <summary>List patterns `[p0, p1, .., pk]` over arrays, strings and spans.</summary>
+    private LLVMValueRef ListPatternTest(LLVMValueRef value, ITypeSymbol? inputType, IListPatternOperation pattern)
+    {
+        var type = S(inputType!);
+        Func<LLVMValueRef> length;
+        Func<LLVMValueRef, LLVMValueRef> element; // index (i32) -> element value
+        ITypeSymbol elementType;
+        switch (type)
+        {
+            case IArrayTypeSymbol { Rank: 1 } array:
+                elementType = array.ElementType;
+                length = () => _b.Cast(LLVMOpcode.Trunc, _b.Load(L.I64, _b.StructGep(T.ArrayHeader(L.I8), value, 1), "len"), L.I32);
+                element = i => LoadValue(_b.InBoundsGep(T.ArrayHeader(T.Storage(elementType)), value,
+                    [L.ConstInt(L.I32, 0), L.ConstInt(L.I32, 2), _b.Cast(LLVMOpcode.SExt, i, L.I64)]), elementType);
+                break;
+            case { SpecialType: SpecialType.System_String }:
+                elementType = _m.Compilation.GetSpecialType(SpecialType.System_Char);
+                length = () => _b.Load(L.I32, _b.StructGep(T.StringHeader, value, 1), "strlen");
+                element = i => _b.Load(L.I16, _b.InBoundsGep(T.StringHeader, value, [L.ConstInt(L.I32, 0), L.ConstInt(L.I32, 2), i]));
+                break;
+            case var span when TypeMapper.IsSpan(span):
+                elementType = SpanElement(span);
+                length = () => _b.ExtractValue(value, 1);
+                element = i => LoadValue(_b.InBoundsGep(T.Storage(elementType), _b.ExtractValue(value, 0), [_b.Cast(LLVMOpcode.SExt, i, L.I64)]), elementType);
+                break;
+            default:
+                throw CompileError.Unsupported($"list pattern on '{type}'", pattern);
+        }
+
+        var patterns = pattern.Patterns;
+        var slice = patterns.ToList().FindIndex(p => p is ISlicePatternOperation);
+        var fixedCount = patterns.Length - (slice >= 0 ? 1 : 0);
+        if (slice >= 0 && ((ISlicePatternOperation)patterns[slice]).Pattern is { } slicePattern and not IDiscardPatternOperation)
+            throw CompileError.Unsupported("sub-pattern on a slice (`.. var rest`)", slicePattern);
+
+        LLVMValueRef len = default;
+        List<Func<LLVMValueRef>> steps = [];
+        if (type.IsReferenceType) steps.Add(() => _b.ICmp(LLVMIntPredicate.NE, value, LlvmContext.Null(L.Ptr)));
+        steps.Add(() =>
+        {
+            len = length();
+            return slice >= 0
+                ? _b.ICmp(LLVMIntPredicate.SGE, len, L.ConstInt(L.I32, fixedCount))
+                : _b.ICmp(LLVMIntPredicate.EQ, len, L.ConstInt(L.I32, fixedCount));
+        });
+        if (pattern.DeclaredSymbol is ILocalSymbol local)
+            steps.Add(() => { StoreValue(ToStorage(value, S(local.Type)), LocalSlot(local)); return L.True; });
+        for (var i = 0; i < patterns.Length; i++)
+        {
+            if (i == slice) continue;
+            var position = i;
+            var fromEnd = slice >= 0 && i > slice ? patterns.Length - i : 0;
+            steps.Add(() =>
+            {
+                var index = fromEnd > 0 ? _b.BinOp(LLVMOpcode.Sub, len, L.ConstInt(L.I32, fromEnd)) : L.ConstInt(L.I32, position);
+                return PatternTest(element(index), elementType, patterns[position]);
+            });
+        }
+        return ShortCircuit(isAnd: true, steps);
     }
 
     private (LLVMValueRef[] Values, ITypeSymbol[] Types) Deconstruct(LLVMValueRef value, ITypeSymbol type, IRecursivePatternOperation pattern) =>

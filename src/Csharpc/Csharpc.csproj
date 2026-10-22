@@ -27,6 +27,8 @@
 
   <!-- The C runtime (csrt) ships next to the compiler and is compiled/linked on demand. -->
   <ItemGroup>
+    <Compile Remove="corelib/**" />
+    <None Include="corelib/**/*.cs" LinkBase="corelib" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <None Include="../../runtime/**/*.c;../../runtime/**/*.h" LinkBase="runtime" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
 

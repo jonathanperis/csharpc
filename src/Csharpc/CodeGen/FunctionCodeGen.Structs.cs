@@ -94,14 +94,19 @@ public sealed partial class FunctionCodeGen
                 tuple = _b.InsertValue(tuple, ToStorage(EmitArgumentValue(args[i]), args[i].Parameter!.Type), (uint)i);
             return tuple;
         }
-        if (!_m.IsUserType(type)) throw CompileError.Unsupported($"creating instances of library struct '{type}'", creation);
+        if (!_m.IsUserType(type))
+        {
+            if (creation.Constructor is null or { Parameters.IsEmpty: true }) return LlvmContext.Null(llvmType); // new TimeSpan() etc.
+            if (BclValueTypes.TryGet(creation.Constructor, out var bcl)) return CallBcl(bcl, creation.Constructor, null, creation.Arguments, creation);
+            throw CompileError.Unsupported($"creating instances of library struct '{type}'", creation);
+        }
 
         // `new S()` without an explicit parameterless constructor is just default(S).
         if (creation.Constructor is null or { IsImplicitlyDeclared: true, Parameters.IsEmpty: true })
             return LlvmContext.Null(llvmType);
         var temp = NewTemp(llvmType, "new." + type.Name);
         _b.Store(LlvmContext.Null(llvmType), temp); // fields the constructor doesn't assign are zero
-        EmitUserCall(creation.Constructor, temp, selfIsNonNull: true, creation.Arguments, isVirtual: false);
+        EmitUserCall(S(creation.Constructor), temp, selfIsNonNull: true, creation.Arguments, isVirtual: false);
         return _b.Load(llvmType, temp);
     }
 
@@ -318,6 +323,7 @@ public sealed partial class FunctionCodeGen
 
     private LLVMValueRef BuildTuple(ITupleOperation tuple, INamedTypeSymbol type)
     {
+        type = (INamedTypeSymbol)S(type); // `(item1, item2)` typed (T1, T2) inside generic code
         var elements = type.TupleElements;
         if (elements.Length != tuple.Elements.Length) throw CompileError.Unsupported("tuple with more than 7 elements", tuple);
         var result = LlvmContext.Null(T.Value(type));
@@ -329,7 +335,7 @@ public sealed partial class FunctionCodeGen
             {
                 ITupleOperation nested when elementType is INamedTypeSymbol { IsTupleType: true } nestedType => BuildTuple(nested, nestedType),
                 { Type: null } => Constant(null, elementType, element),
-                _ => Coerce(EmitValue(element), element.Type, elementType),
+                _ => Coerce(EmitValue(element), TypeOf(element), elementType),
             };
             result = _b.InsertValue(result, ToStorage(value, elementType), (uint)i);
         }

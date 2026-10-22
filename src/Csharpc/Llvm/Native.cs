@@ -141,6 +141,7 @@ internal static unsafe partial class Native
     [LibraryImport(Lib)] public static partial LLVMTypeKind LLVMGetTypeKind(LLVMTypeRef type);
     [LibraryImport(Lib)] public static partial uint LLVMGetIntTypeWidth(LLVMTypeRef type);
     [LibraryImport(Lib)] public static partial LLVMTypeRef LLVMTypeOf(LLVMValueRef value);
+    [LibraryImport(Lib)] public static partial LLVMTypeRef LLVMGetAllocatedType(LLVMValueRef alloca);
 
     // ---- Values / globals / functions ----------------------------------------------------
     [LibraryImport(Lib, StringMarshalling = StringMarshalling.Utf8)]

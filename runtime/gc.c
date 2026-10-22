@@ -18,7 +18,7 @@
 //   * A collection runs when the bytes allocated since the last one exceed max(32 MiB, 2 x live bytes)
 //     (CSRT_GC_TRIGGER_MB overrides the minimum).
 //
-// Threads (docs/11-threading.md): every managed thread registers itself (stack bounds, TLS block,
+// Threads (docs/13-threading.md): every managed thread registers itself (stack bounds, TLS block,
 // allocation cache). Allocation caches are thread-local, so the fast path stays lock-free; slow
 // paths take one global lock. A collection stops the world with a signal handshake (as Boehm GC
 // does): each mutator spills its registers in a signal handler, records its stack pointer, acks and
@@ -576,8 +576,9 @@ static void drain(void) {
         size_t size = g.mark_stack[g.mark_count].size;
         // Word 0 is the method-table pointer (static data, never a heap reference); strings and
         // arrays of primitives hold no references, so they have nothing to scan at all.
-        const void* mt = *(const void* const*)start;
-        if (mt == (const void*)&csrt_String_MT.header || mt == (const void*)&csrt_PrimitiveArray_MT.header) continue;
+        // (The compiler also emits element-typed array method tables, e.g. "System.Int32[]", with the flag.)
+        const csrt_MethodTable* mt = *(const csrt_MethodTable* const*)start;
+        if (mt && (mt->flags & CSRT_MT_NO_REFERENCES)) continue;
         scan_range(start + sizeof(void*), start + size);
     }
 }

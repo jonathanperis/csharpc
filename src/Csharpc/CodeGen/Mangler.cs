@@ -59,10 +59,14 @@ public static class Mangler
     /// CLR-style metadata name ("Ns.Outer+Inner", "Box`1[System.Int32]"), used for Type.FullName /
     /// default ToString().
     /// </summary>
+    /// <summary>Set by codegen: the BCL name a corelib shadow type stands for (CoreLib.RealNameOf).</summary>
+    public static Func<INamedTypeSymbol, string?>? RealNameOf { get; set; }
+
     public static string MetadataName(INamedTypeSymbol type)
     {
         var name = type.MetadataName;
-        if (type.ContainingType is { } outer) name = MetadataName(outer) + "+" + name;
+        if (RealNameOf?.Invoke(type) is { } real) name = real;
+        else if (type.ContainingType is { } outer) name = MetadataName(outer) + "+" + name;
         else if (type.ContainingNamespace is { IsGlobalNamespace: false } ns) name = ns.ToDisplayString() + "." + name;
         if (type.TypeArguments.Length > 0 && !type.IsDefinition)
             name += "[" + string.Join(",", type.TypeArguments.Select(TypeName)) + "]";

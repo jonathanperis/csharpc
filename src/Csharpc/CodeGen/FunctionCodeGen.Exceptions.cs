@@ -88,7 +88,7 @@ public sealed partial class FunctionCodeGen
     {
         _currentBlock = block;
         var tryRegion = ProtectingTry(block.EnclosingRegion);
-        _b.UnwindDest = tryRegion is null ? default : LandingPad(tryRegion);
+        _b.UnwindDest = tryRegion is not null ? LandingPad(tryRegion) : _coro is not null ? CoroutinePad() : default;
         _b.MayThrow = _m.MayThrow;
     }
 
@@ -105,11 +105,7 @@ public sealed partial class FunctionCodeGen
     private LLVMBasicBlockRef LandingPad(ControlFlowRegion tryRegion)
     {
         if (_landingPads.TryGetValue(tryRegion, out var pad)) return pad;
-        if (!_hasPersonality)
-        {
-            Native.LLVMSetPersonalityFn(_fn.Fn, _m.Runtime("csrt_personality", L.I32).Fn);
-            _hasPersonality = true;
-        }
+        EnsurePersonality();
 
         // Clauses for this try and every enclosing try (innermost first) so the search phase sees all handlers.
         List<LLVMValueRef> clauses = [];
@@ -117,6 +113,8 @@ public sealed partial class FunctionCodeGen
             if (t.EnclosingRegion!.Kind == ControlFlowRegionKind.TryAndCatch)
                 foreach (var handler in Handlers(t.EnclosingRegion))
                     clauses.Add(IsCatchAll(handler.ExceptionType) ? LlvmContext.Null(L.Ptr) : CatchTypeInfo(handler.ExceptionType!));
+        // A coroutine body catches everything at its outermost level (the exception goes into the task).
+        if (_coro is not null) clauses.Add(LlvmContext.Null(L.Ptr));
 
         var (savedBlock, savedUnwind) = (_b.InsertBlock, _b.UnwindDest);
         _b.UnwindDest = default;
@@ -129,6 +127,13 @@ public sealed partial class FunctionCodeGen
         _b.PositionAtEnd(savedBlock);
         _b.UnwindDest = savedUnwind;
         return pad;
+    }
+
+    private void EnsurePersonality()
+    {
+        if (_hasPersonality) return;
+        Native.LLVMSetPersonalityFn(_fn.Fn, _m.Runtime("csrt_personality", L.I32).Fn);
+        _hasPersonality = true;
     }
 
     private LLVMValueRef CatchTypeInfo(ITypeSymbol type) => type switch
@@ -195,6 +200,11 @@ public sealed partial class FunctionCodeGen
         {
             _b.Store(exception, ExceptionSlot(outer));
             _b.Br(Dispatch(outer));
+        }
+        else if (_coro is not null)
+        {
+            _b.Store(exception, _coro.ExceptionSlot); // escapes the coroutine body: fault the task
+            _b.Br(_coro.Fault);
         }
         else
         {
@@ -284,6 +294,9 @@ public sealed partial class FunctionCodeGen
         ["System.InvalidCastException"] = "Specified cast is not valid.",
         ["System.FormatException"] = "One of the identified items was in an invalid format.",
         ["System.Collections.Generic.KeyNotFoundException"] = "The given key was not present in the dictionary.",
+        ["System.OperationCanceledException"] = "The operation was canceled.",
+        ["System.Threading.Tasks.TaskCanceledException"] = "A task was canceled.",
+        ["System.AggregateException"] = "One or more errors occurred.",
         ["System.Runtime.CompilerServices.SwitchExpressionException"] = "Non-exhaustive switch expression failed to match its input.",
     };
 

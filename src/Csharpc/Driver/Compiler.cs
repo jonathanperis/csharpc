@@ -47,7 +47,7 @@ public sealed class Compiler(CompilerOptions options)
         var analyzed = RoslynFrontend.Analyze(settings);
         var compilation = (Microsoft.CodeAnalysis.CSharp.CSharpCompilation)analyzed.WithOptions(
             analyzed.Options.WithNullableContextOptions(Microsoft.CodeAnalysis.NullableContextOptions.Disable));
-        var diagnostics = (options.ShowWarnings ? analyzed : compilation).GetDiagnostics();
+        var diagnostics = RoslynFrontend.UserDiagnostics(options.ShowWarnings ? analyzed : compilation);
         Phase("parse + bind (Roslyn)");
 
         var errors = 0;

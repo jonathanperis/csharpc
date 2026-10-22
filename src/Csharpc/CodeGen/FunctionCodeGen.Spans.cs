@@ -454,8 +454,7 @@ public sealed partial class FunctionCodeGen
         ForEachIndex(_b.Cast(LLVMOpcode.Trunc, length, L.I32), i =>
         {
             var value = LoadValue(_b.InBoundsGep(header, array, [L.ConstInt(L.I32, 0), L.ConstInt(L.I32, 2), i]), element);
-            var text = element.SpecialType == SpecialType.System_String ? value
-                : FormatPrimitive(value, element) ?? (element.IsReferenceType ? ObjectToString(value) : throw CompileError.Unsupported($"joining '{element}'", inv));
+            var text = FormatValue(value, element, inv); // strings, primitives, enums, structs (ToString), objects
             _b.Store(text, _b.InBoundsGep(stringsHeader, strings, [L.ConstInt(L.I32, 0), L.ConstInt(L.I32, 2), i]));
         });
         result = CallRuntime("csrt_string_join", L.Ptr, [L.Ptr, L.Ptr], separator, strings);

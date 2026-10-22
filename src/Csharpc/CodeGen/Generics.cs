@@ -150,11 +150,13 @@ public sealed partial class FunctionCodeGen
 
     internal TypeSubstitution Substitution => _subst;
 
-    internal ITypeSymbol S(ITypeSymbol type) => _subst.Apply(type);
-    internal IMethodSymbol S(IMethodSymbol method) => _subst.Apply(method);
-    internal IFieldSymbol S(IFieldSymbol field) => _subst.Apply(field);
-    internal IPropertySymbol S(IPropertySymbol property) => _subst.Apply(property);
+    // Every symbol codegen reads goes through substitution (generics) and then the corelib redirect
+    // (library type/member -> its C# shadow implementation, CoreLib.cs).
+    internal ITypeSymbol S(ITypeSymbol type) => _m.CoreLib.Map(_subst.Apply(type));
+    internal IMethodSymbol S(IMethodSymbol method) => _m.CoreLib.Map(_subst.Apply(method));
+    internal IFieldSymbol S(IFieldSymbol field) => _m.CoreLib.Map(_subst.Apply(field));
+    internal IPropertySymbol S(IPropertySymbol property) => _m.CoreLib.Map(_subst.Apply(property));
 
-    /// <summary>The (substituted) static type of an operation.</summary>
-    internal ITypeSymbol? TypeOf(IOperation? op) => op?.Type is { } t ? _subst.Apply(t) : null;
+    /// <summary>The (substituted, corelib-redirected) static type of an operation.</summary>
+    internal ITypeSymbol? TypeOf(IOperation? op) => op?.Type is { } t ? _m.CoreLib.Map(_subst.Apply(t)) : null;
 }

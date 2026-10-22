@@ -17,13 +17,17 @@ public sealed partial class ModuleCodeGen
 {
     private readonly Dictionary<INamedTypeSymbol, StructLayout> _structs = new(SymbolEqualityComparer.Default);
 
-    private LLVMTypeRef? ResolveStructType(INamedTypeSymbol type) =>
-        IsUserType(type) && type.TypeKind == TypeKind.Struct ? GetStructLayout(type).LlvmType : null;
+    private LLVMTypeRef? ResolveStructType(INamedTypeSymbol type)
+    {
+        type = CoreLib.TryMap(type) ?? type; // e.g. KeyValuePair<K,V>, List<T>.Enumerator -> corelib structs
+        return IsUserType(type) && type.TypeKind == TypeKind.Struct ? GetStructLayout(type).LlvmType : null;
+    }
 
     public StructLayout GetStructLayout(INamedTypeSymbol type)
     {
-        // Generic structs are monomorphized: one layout per constructed type (Pair<int>, Pair<string>...).
-        if (!type.IsGenericType) type = type.OriginalDefinition;
+        type = CoreLib.TryMap(type) ?? type;
+        // Generic structs are laid out per instantiation (the constructed type's fields are substituted).
+        if (!TypeSubstitution.IsGenericContext(type)) type = type.OriginalDefinition;
         if (_structs.TryGetValue(type, out var existing)) return existing;
         if (TypeSubstitution.IsOpen(type)) throw CompileError.Unsupported($"open generic struct '{type}'", type);
 
