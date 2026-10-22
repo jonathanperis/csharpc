@@ -47,7 +47,7 @@ bindings in `src/Csharpc/Llvm/NativeDebugInfo.cs`), plus small hooks in `Functio
 | Variables | locals and parameters: `dbg.declare` on their entry-block allocas (mem2reg/SROA turn them into `dbg.value`s at -O2). `this`: `dbg.value` on the incoming argument (artificial, object pointer). Compiler temporaries (unnamed or `<…>` names) are skipped. |
 | Types | primitives as DWARF base types (`char` is UTF-16, `bool` 8 bits); `string` → pointer to `System.String { __mt, Length, chars[] }`; `T[]` → pointer to `T[] { __mt, Length, data[] }`; classes → pointer to a struct with `__mt` and all instance fields at their real offsets (from `ClassLayout`; self-referential classes go through a replaceable placeholder); structs → by-value struct; enums → their underlying type; other reference types → pointer to `System.Object { __mt }`. Auto-property backing fields are shown under the property's name. Not described yet: `Nullable<T>`, tuples, spans, decimal (such variables are omitted). |
 
-`-g` changes **only** metadata: the `.text` of every `bench/programs` binary is byte-identical with
+`-g` changes **only** metadata: the `.text` of every `benchmarks/programs` binary is byte-identical with
 and without `-g` at -O2 (checked with `objcopy --only-section=.text` + `cmp`). Binary size grows by
 0–4 KiB for those programs.
 

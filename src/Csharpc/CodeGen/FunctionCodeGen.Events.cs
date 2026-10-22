@@ -8,7 +8,7 @@ namespace Csharpc.CodeGen;
 /// Multicast delegates and events (docs/03-lowering.md#delegates).
 ///
 /// A delegate is { mt, target, fn, invocationList }. Single-cast delegates have a null list.
-/// Delegate.Combine / Remove (runtime/delegates.c) produce a new delegate whose list is a flat
+/// Delegate.Combine / Remove (src/runtime/delegates.c) produce a new delegate whose list is a flat
 /// array of single-cast delegates; invoking it calls each in order and yields the last result.
 /// Field-like events are their (synthesized) backing delegate field; `+=`/`-=` on them combine
 /// and remove in place. Events with custom accessors call the user's add/remove methods.

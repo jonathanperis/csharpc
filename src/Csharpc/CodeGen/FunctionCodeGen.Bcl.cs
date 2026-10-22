@@ -7,7 +7,7 @@ namespace Csharpc.CodeGen;
 
 /// <summary>
 /// Lowering support for BCL value types and reflection-lite (see BclValueTypes.cs):
-/// System.Decimal ({ i32 flags, i32 hi, i64 lo }, arithmetic in runtime/decimal.c),
+/// System.Decimal ({ i32 flags, i32 hi, i64 lo }, arithmetic in src/runtime/decimal.c),
 /// TimeSpan/DateTime (an i64 tick count), System.Type objects (one per method table).
 /// </summary>
 public sealed partial class FunctionCodeGen

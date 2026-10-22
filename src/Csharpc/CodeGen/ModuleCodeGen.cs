@@ -597,10 +597,10 @@ public sealed partial class ModuleCodeGen
     }
 
     // ======================================================================================
-    // Library exception classes (System.Exception & friends) — layouts shared with runtime/eh.c
+    // Library exception classes (System.Exception & friends) — layouts shared with src/runtime/eh.c
     // ======================================================================================
 
-    /// <summary>Exception types whose method tables csrt defines (runtime/eh.c, "csrt_MT_" + name).</summary>
+    /// <summary>Exception types whose method tables csrt defines (src/runtime/eh.c, "csrt_MT_" + name).</summary>
     private static readonly HashSet<string> s_runtimeExceptionTypes =
     [
         "System.Exception", "System.SystemException", "System.ArgumentException", "System.ArgumentNullException",

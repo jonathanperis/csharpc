@@ -249,7 +249,7 @@ internal static class Intrinsics
         AddStringMethods(t);
         AddTaskMethods(t);
 
-        // ---- System.Char / parsing (runtime/strings.c) -----------------------------------------
+        // ---- System.Char / parsing (src/runtime/strings.c) -----------------------------------------
         foreach (var (name, fn) in new[] { ("IsDigit", "csrt_char_is_digit"), ("IsLetter", "csrt_char_is_letter"),
                      ("IsLetterOrDigit", "csrt_char_is_letter_or_digit"), ("IsWhiteSpace", "csrt_char_is_white_space"),
                      ("IsUpper", "csrt_char_is_upper"), ("IsLower", "csrt_char_is_lower"), ("IsPunctuation", "csrt_char_is_punctuation") })
@@ -273,7 +273,7 @@ internal static class Intrinsics
                 return g.CallRuntime(fn, l.I1, [l.Ptr, l.Ptr], s, result);
             };
 
-        // ---- System.Text.StringBuilder (runtime/strings.c) -------------------------------------
+        // ---- System.Text.StringBuilder (src/runtime/strings.c) -------------------------------------
         IntrinsicHandler sbAppend(string fn, Func<FunctionCodeGen, IInvocationOperation, LLVMValueRef[]> extra, Func<LlvmContext, LLVMTypeRef[]> types) =>
             (g, inv) =>
             {
@@ -389,7 +389,7 @@ internal static class Intrinsics
         // Only array enumerators exist so far, and they need no disposal. Revisit with interfaces.
         t["System.IDisposable.Dispose()"] = (_, _) => default;
 
-        // ---- System.GC (runtime/gc.c) -----------------------------------------------------------
+        // ---- System.GC (src/runtime/gc.c) -----------------------------------------------------------
         t["System.GC.Collect()"] = (g, _) => { g.CallRuntime("csrt_gc_collect", g.Module.Llvm.Void, []); return default; };
         t["System.GC.GetTotalMemory(bool)"] = (g, inv) =>
         {
@@ -457,7 +457,7 @@ internal static class Intrinsics
         Add("string.Split(char, System.StringSplitOptions)", "csrt_string_split_char", ptr, l => [l.I16, l.I32], (g, i) => [Arg(g, i, 0), Arg(g, i, 1)]);
         Add("string.ToCharArray()", "csrt_string_to_char_array", ptr, _ => [], (_, _) => []);
         Add("string.GetHashCode()", "csrt_string_get_hash_code", i32, _ => [], (_, _) => []);
-        // Culture-sensitive (ICU root collation approximation, runtime/bclmisc.c), like .NET's CompareTo.
+        // Culture-sensitive (ICU root collation approximation, src/runtime/bclmisc.c), like .NET's CompareTo.
         Add("string.CompareTo(string)", "csrt_string_compare_culture", i32, l => [l.Ptr, l.I1], (g, i) => [Arg(g, i, 0), g.Module.Llvm.False]);
 
         t["string.Join(string, string[])"] = (g, inv) =>
@@ -472,7 +472,7 @@ internal static class Intrinsics
         return g.Coerce(g.EmitValue(argument.Value), g.TypeOf(argument.Value), g.S(argument.Parameter!.Type));
     }
 
-    // ---- System.Threading.Tasks (runtime/async.c; docs/10-async.md) ---------------------------
+    // ---- System.Threading.Tasks (src/runtime/async.c; docs/10-async.md) ---------------------------
     private const string Tasks = "System.Threading.Tasks";
     private const string Rcs = "System.Runtime.CompilerServices";
 

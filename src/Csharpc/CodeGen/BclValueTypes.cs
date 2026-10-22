@@ -13,8 +13,8 @@ internal delegate LLVMValueRef BclRawHandler(FunctionCodeGen g, IInvocationOpera
 
 /// <summary>
 /// BCL value types and friends, implemented natively:
-///   System.Decimal   — CLR layout { i32 flags, i32 hi, i64 lo }; runtime/decimal.c
-///   System.TimeSpan, System.DateTime — an i64 tick count; runtime/datetime.c
+///   System.Decimal   — CLR layout { i32 flags, i32 hi, i64 lo }; src/runtime/decimal.c
+///   System.TimeSpan, System.DateTime — an i64 tick count; src/runtime/datetime.c
 ///   System.Diagnostics.Stopwatch, System.Type (reflection-lite) — runtime objects
 ///   plus BitOperations, Array helpers, CompareTo, Convert, Environment extras.
 /// Keys use the same format as <see cref="Intrinsics.Key"/> (accessors as get_X, ctors as .ctor,
@@ -753,7 +753,7 @@ internal static class BclValueTypes
         return t.ToFrozenDictionary();
     }
 
-    // ---- System.Numerics.BigInteger (runtime/bigint.c; value = immutable bignum pointer) -----------
+    // ---- System.Numerics.BigInteger (src/runtime/bigint.c; value = immutable bignum pointer) -----------
 
     private static LLVMValueRef ToBig(FunctionCodeGen g, LLVMValueRef v, ITypeSymbol type)
     {
@@ -877,7 +877,7 @@ internal static class BclValueTypes
 
     // ---- System.Array ---------------------------------------------------------------------------
 
-    /// <summary>Element kind codes shared with runtime/bclmisc.c (sorting, searching, equality).</summary>
+    /// <summary>Element kind codes shared with src/runtime/bclmisc.c (sorting, searching, equality).</summary>
     private static int ElementKind(ITypeSymbol element) => element.SpecialType switch
     {
         SpecialType.System_SByte => 1, SpecialType.System_Int16 => 2, SpecialType.System_Int32 => 3, SpecialType.System_Int64 => 4,
@@ -950,7 +950,7 @@ internal static class BclValueTypes
             return g.Builder.Cast(LLVMOpcode.Trunc, Rt(g, "csrt_array_index_of", g.Llvm.I64, (a[0], g.Llvm.Ptr), (value, g.Llvm.Ptr),
                 (size(g, e), g.Llvm.I64), (I32(g, ElementKind(e)), g.Llvm.I32)), g.Llvm.I32);
         };
-        // Array.Sort = .NET's introsort (runtime/bclmisc.c), so even ties end up in the CLR's order.
+        // Array.Sort = .NET's introsort (src/runtime/bclmisc.c), so even ties end up in the CLR's order.
         LLVMValueRef sortRange(FunctionCodeGen g, ITypeSymbol e, LLVMValueRef array, LLVMValueRef index, LLVMValueRef length, IOperation at)
         {
             var kind = ElementKind(e);

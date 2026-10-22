@@ -1,189 +1,186 @@
+<div align="center">
+
 # csharpc
 
-**A C# front-end for LLVM.** csharpc compiles C# source code straight to LLVM IR and then to a native
-executable. It is to C# what `clang` is to C, `rustc` to Rust and `gollvm` to Go.
+**A C# front-end for LLVM.**
+csharpc compiles C# source code straight to LLVM IR and then to small, fast native executables —
+what `clang` is to C, `rustc` to Rust and `gollvm` to Go.
+
+[![CI](https://github.com/jonathanperis/csharpc/actions/workflows/ci.yml/badge.svg)](https://github.com/jonathanperis/csharpc/actions/workflows/ci.yml)
+![.NET 11](https://img.shields.io/badge/.NET-11-512BD4)
+![LLVM 18](https://img.shields.io/badge/LLVM-18-262D3A)
+![C# 14](https://img.shields.io/badge/C%23-14-239120)
+![license MIT](https://img.shields.io/badge/license-MIT-blue)
+
+</div>
 
 ```
-hello.cs ──Roslyn──▶ IOperation / ControlFlowGraph ──csharpc──▶ LLVM IR ──opt/llc──▶ hello.o ──clang──▶ ./hello
+hello.cs ──Roslyn──▶ IOperation / ControlFlowGraph ──csharpc──▶ LLVM IR ──LLVM──▶ object ──clang──▶ ./hello
 ```
 
-csharpc is written in C# (.NET 11, C# 14/preview). It uses **Roslyn** as its parser and type checker
-and the **LLVM C API**, called through `[LibraryImport]` P/Invoke, as its backend. Everything in between
-is csharpc: lowering, object model, runtime and driver. There is no IL, no JIT and no CoreCLR at run
-time. The output is an ordinary ELF executable linked against a ~300-line C runtime (`csrt`).
+csharpc is written in C# (.NET 11). It uses **Roslyn** as its parser and type checker — so every
+diagnostic, overload resolution and language rule is exactly the official compiler's — and the
+**LLVM C API** as its backend. Everything in between is csharpc: lowering Roslyn's control-flow graph
+to LLVM IR, the object model, a garbage-collected runtime, a C# corelib, and the driver. No IL, no JIT
+and no CoreCLR at run time: the output is an ordinary native executable.
 
-> **Status: spike (M0).** csharpc compiles a growing but still small subset of C#. Read
-> [docs/06-roadmap.md](docs/06-roadmap.md) for what works today and what comes next. Don't use it for
-> anything you care about yet.
+```console
+$ csharpc hello.cs -o hello && ./hello
+Hello from C# compiled by LLVM!
+$ ls -lh hello
+-rwxr-xr-x 1 dev dev 32K hello
+```
+
+## Highlights
+
+- **Real C#, verified against real .NET.** Every test program runs under `dotnet run` (the oracle)
+  and under csharpc, and the outputs must be byte-identical. **100 %** of the
+  [195-program conformance corpus](docs/09-conformance.md) passes, with zero silent miscompilations.
+- **Fast.** On [18 benchmark programs](benchmarks/RESULTS.md) csharpc beats the .NET JIT on every
+  one and beats or ties NativeAOT on 17 (CPU time), with binaries **50× smaller** (26–82 KiB vs ~1.3 MiB).
+- **Drop-in.** Compile a `.csproj` directly, or keep using `dotnet build` / `dotnet publish` with
+  `-p:UseCsharpc=true` / `-p:PublishCsharpc=true` ([docs/08-drop-in.md](docs/08-drop-in.md)).
+- **Debuggable.** `-g` emits DWARF: breakpoints on C# lines, C# names in backtraces, locals in gdb/lldb.
+- **Whole-program optimization.** Closed-world compilation: internal linkage everywhere, class-hierarchy
+  devirtualization, generics monomorphized, and the runtime itself LTO-linked into your program.
+
+## Language and library support
+
+| | |
+|---|---|
+| **Types** | classes, structs, records (class & struct), enums, interfaces (default & static abstract members), generics (monomorphized, constraints, variance, generic math), tuples, `Nullable<T>`, anonymous types, delegates & events, arrays (incl. multi-dimensional), `Span<T>`/`Memory<T>`, pointers & `unsafe`, `decimal`, `BigInteger` |
+| **Code** | lambdas & closures, local functions, all statements, `switch` expressions, every pattern kind (type, property, positional, list, relational, logical), `try`/`catch`/`finally`/filters, `checked`, `using`, `lock`, iterators, `async`/`await`, `await foreach`, LINQ (method and query syntax), C# 14 extension members, primary constructors, `required`/`init`/`field` |
+| **Runtime** | conservative garbage collector (thread-safe, stop-the-world), real threads (`Thread`, `Monitor`, `Interlocked`, `Parallel`), Itanium-ABI exceptions with .NET's exact messages, async scheduler on LLVM coroutines |
+| **Library** | `Console`, `Math`, strings & `StringBuilder`, number formatting/parsing (all standard and custom format strings), `DateTime`/`TimeSpan`/`Stopwatch`, `Type` objects, `System.Collections.Generic` and `System.Linq` (a corelib written in C# and compiled with your program), tasks, cancellation |
+
+Not supported, by design or for now (the same limits NativeAOT has in the first group):
+`dynamic`, runtime code loading and member reflection; NuGet packages that ship only IL; file and
+network I/O beyond the console. The full matrix is in [docs/06-roadmap.md](docs/06-roadmap.md).
 
 ## Quick start
 
-Requirements (Linux x86-64 tested; AArch64 targets are initialized but untested):
-
-- .NET 11 SDK (RC2 or later)
-- LLVM 18 shared library (`libLLVM-18.so`; 19 and 20 are also probed) and `clang` (used as the linker
-  driver and to build the runtime)
+Requirements: Linux x86-64, the .NET 11 SDK, LLVM 18 (`libLLVM-18.so`; 19/20 are also probed) and
+`clang` (linker driver and runtime compiler).
 
 ```bash
-# .NET 11 RC2, installed side-by-side in ~/.dotnet11
-curl -sSL https://dot.net/v1/dotnet-install.sh -o dotnet-install.sh
-bash dotnet-install.sh --channel 11.0 --quality preview --install-dir ~/.dotnet11
+# .NET 11 (side by side in ~/.dotnet11)
+curl -sSL https://dot.net/v1/dotnet-install.sh | bash -s -- --channel 11.0 --quality preview --install-dir ~/.dotnet11
 export PATH=$HOME/.dotnet11:$PATH
 
-# LLVM + clang (Ubuntu 24.04)
-sudo apt install llvm-18 clang-18      # provides libLLVM-18.so and clang
+# LLVM 18 + clang (Ubuntu 24.04)
+sudo apt install llvm-18 clang-18
 
-# build csharpc
-dotnet build src/Csharpc
+# Build csharpc
+git clone https://github.com/jonathanperis/csharpc && cd csharpc
+dotnet build src/Csharpc -c Release
+alias csharpc="dotnet $PWD/src/Csharpc/bin/Release/net11.0/csharpc.dll"
 
-# compile and run a program
+# Compile and run
 cat > hello.cs <<'EOF'
-Console.WriteLine("Hello from C# compiled by LLVM!");
-for (int i = 0; i <= 10; i++)
-    Console.WriteLine($"fib({i}) = {Fib(i)}");
-
-static int Fib(int n) => n < 2 ? n : Fib(n - 1) + Fib(n - 2);
+var primes = Enumerable.Range(2, 50).Where(n => Enumerable.Range(2, (int)Math.Sqrt(n) - 1).All(d => n % d != 0));
+Console.WriteLine($"Hello from C# compiled by LLVM! Primes: {string.Join(", ", primes)}");
 EOF
-dotnet src/Csharpc/bin/Debug/net11.0/csharpc.dll hello.cs -o hello
-./hello
+csharpc hello.cs -o hello && ./hello
 ```
 
-If libLLVM isn't on the default library path, set `CSHARPC_LIBLLVM=/path/to/libLLVM.so`. To use a
-different C compiler or linker driver, pass `--cc` or set `CSHARPC_CC`.
+If libLLVM isn't on the default library path set `CSHARPC_LIBLLVM=/path/to/libLLVM.so`; to use another
+C compiler or linker driver pass `--cc` or set `CSHARPC_CC`.
 
-## Building real projects (drop-in)
+### Building real projects
 
-```sh
+```bash
 csharpc path/to/App.csproj                 # evaluates the project with MSBuild; ProjectReferences included
 dotnet build   -p:UseCsharpc=true          # with the Csharpc.Sdk package: native exe replaces the apphost
 dotnet publish -p:PublishCsharpc=true      # one native executable, like PublishAot
+dotnet pack src/Csharpc && dotnet tool install -g csharpc --add-source src/Csharpc/bin/Release   # as a dotnet tool
 ```
-
-See [docs/08-drop-in.md](docs/08-drop-in.md) and `tests/projects.sh`.
 
 ## Command line
 
 ```
 csharpc [options] <file.cs>...
+csharpc [options] [<project.csproj> | <directory>]
 
-  -o, --output <path>    Output file
-  --emit <kind>          exe (default) | obj | asm | llvm-ir | llvm-bc
-  -O0 | -O1 | -O2 | -O3  Optimization level (default: -O2)
-  --target <triple>      Target triple (default: host)
-  -D <symbol>            Define a preprocessor symbol
-  --no-implicit-usings   Don't add the SDK's implicit global usings
-  --cc <path>            C compiler used as linker driver (default: $CSHARPC_CC or clang)
-  --dump-cfg             Print Roslyn's control-flow graphs (csharpc's "MIR")
-  --intrinsics           List the library members csharpc implements
-  -W                     Show Roslyn warnings
-  -v, --verbose          Print pipeline phases and timings
-  --version              Print version information
-  -h, --help             Show this help
+  -o, --output <path>     Output file, or directory for <AssemblyName>
+  -c, --configuration <c> Debug (-O0 -g) | Release (-O2, default)
+  -p:<Name>=<Value>       MSBuild property used when evaluating a project
+  --emit <kind>           exe (default) | obj | asm | llvm-ir | llvm-bc
+  -O0 | -O1 | -O2 | -O3   Optimization level (default -O2)
+  -g, --debug             DWARF debug info (C# source-level debugging)
+  --target <triple>       Target triple (default: host)
+  --cpu <name>            native, x86-64-v3, znver4, ... (default: best x86-64-vN of the host)
+  --dump-cfg              Print Roslyn's control-flow graphs (csharpc's "MIR")
+  --intrinsics            List the library members implemented by the runtime
+  -v, --verbose           Pipeline phases and timings
 ```
 
-`-v` prints the pipeline, which is a good way to see what csharpc does:
+## How it works
+
+1. **Front-end — Roslyn.** Parsing, binding, overload resolution and diagnostics come from the official
+   C# compiler, bound against the real .NET reference assemblies.
+2. **Middle — Roslyn's `ControlFlowGraph` as MIR.** Loops, `&&`/`||`, `?:`, `??`, `?.`, `switch` and
+   patterns arrive already lowered to basic blocks, much like rustc's MIR. csharpc maps blocks 1:1 to
+   LLVM blocks and lowers each operation, with entry-block `alloca`s that `mem2reg` promotes (the clang
+   strategy). Generics are monomorphized; closures, iterators, `async` (LLVM coroutines), exceptions
+   (`invoke`/`landingpad`), records and the rest are lowered by csharpc itself.
+3. **Library — csrt + corelib.** A small C runtime (`src/runtime`: GC, exceptions, threads, formatting)
+   plus a corelib written in C# (`src/Csharpc/corelib`: collections, LINQ) that library calls are
+   redirected to, compiled together with your program.
+4. **Back-end — LLVM.** The module, with the runtime's bitcode linked in, goes through LLVM's
+   `default<O2>` pipeline and the target backend; `clang` links the executable.
+
+Read [docs/02-architecture.md](docs/02-architecture.md) and [docs/03-lowering.md](docs/03-lowering.md)
+for the details, and [docs/01-prior-art.md](docs/01-prior-art.md) for how this compares to Mono's LLVM
+backend, LLILC, NativeAOT(-LLVM), IL2CPP and bflat.
+
+## Repository layout
 
 ```
-    1440.8 ms  parse + bind (Roslyn)
-     215.5 ms  lower CFG -> LLVM IR
-       1.1 ms  verify
-       8.4 ms  optimize (default<O2>)
-       8.5 ms  codegen (LLVM backend)
-  $ clang --target=x86_64-pc-linux-gnu /tmp/csharpc-…-hello.o ~/.cache/csharpc/csrt-….o -lm -o hello
-     317.5 ms  link
+src/
+  Csharpc/          the compiler: Frontend (Roslyn), CodeGen (CFG → LLVM IR), Llvm (C API bindings), Driver
+  Csharpc/corelib/  BCL collections and LINQ written in C#, compiled with every program
+  Csharpc.Sdk/      MSBuild integration (UseCsharpc / PublishCsharpc)
+  runtime/          csrt — the C runtime: GC, exceptions, threads, async, strings, formatting, decimal, ...
+tests/
+  samples/          differential tests (each .cs has .expected output recorded from real .NET)
+  conformance/      the 195-program C# conformance corpus
+  projects/         multi-project solutions for the drop-in / MSBuild tests
+  run.sh, conformance.sh, projects.sh, debuginfo.sh
+benchmarks/         benchmark programs, harness (run.sh) and RESULTS.md
+docs/               architecture, lowering, runtime, roadmap, ADRs, spike log
+tools/              gdb and lldb pretty-printers for csharpc binaries
 ```
 
-## What the output looks like
-
-`static int Fib(int n) => n < 2 ? n : Fib(n - 1) + Fib(n - 2);` at `-O2`
-(`--emit llvm-ir`):
-
-```llvm
-define internal fastcc i32 @"_CN7Program7<Main>$3FibEi"(i32 %n) unnamed_addr #1 {
-entry:
-  %0 = icmp slt i32 %n, 2
-  br i1 %0, label %bb4, label %bb3
-
-bb3:                                              ; preds = %entry, %bb3
-  %n.tr5 = phi i32 [ %3, %bb3 ], [ %n, %entry ]
-  %accumulator.tr4 = phi i32 [ %4, %bb3 ], [ 0, %entry ]
-  %1 = add nsw i32 %n.tr5, -1
-  %2 = tail call fastcc i32 @"_CN7Program7<Main>$3FibEi"(i32 %1)
-  %3 = add nsw i32 %n.tr5, -2
-  %4 = add i32 %2, %accumulator.tr4
-  %5 = icmp ult i32 %n.tr5, 4
-  br i1 %5, label %bb4, label %bb3
-
-bb4:
-  %accumulator.tr.lcssa = phi i32 [ 0, %entry ], [ %4, %bb3 ]
-  %n.tr.lcssa = phi i32 [ %n, %entry ], [ %3, %bb3 ]
-  %accumulator.ret.tr = add i32 %n.tr.lcssa, %accumulator.tr.lcssa
-  ret i32 %accumulator.ret.tr
-}
-```
-
-csharpc emitted naive alloca/load/store code, and LLVM did the rest:
-
-- **mem2reg** promoted the allocas to registers.
-- **Tail-recursion elimination** turned one of the two recursive calls into a loop with an accumulator.
-- Every function except `main` has internal linkage (closed-world compilation), so LLVM switched it to `fastcc`.
-- The `nsw` flags were *inferred* by LLVM from the `n >= 2` range check. csharpc itself never emits `nsw`, because C# arithmetic wraps.
-
-## Supported today
-
-Nearly all of the C# language through C# 14 — classes, structs, records, generics (monomorphized),
-interfaces (incl. static abstract members), delegates/lambdas/closures/events, exceptions (real
-unwinding), async/await and iterators (LLVM coroutines), patterns, tuples, `Nullable<T>`, spans,
-unsafe code, extension members — plus a growing library surface (console, math, strings, formatting,
-parsing, `StringBuilder`, GC). Conformance against real .NET: **100 %** of a 195-program corpus (41 % that
-morning), zero wrong-output cases; the full matrix is in [docs/06-roadmap.md](docs/06-roadmap.md).
-
-Also: collections and LINQ (a C# corelib compiled with your program), `decimal`/`DateTime`/`BigInteger`,
-DWARF debug info (`-g`). Plus real multithreading (`Thread`, `lock`, `Interlocked`, `Parallel`).
-
-Performance: on 14 benchmark programs csharpc beats the .NET JIT on all of them and beats or ties
-NativeAOT on CPU time, with 18–30 KiB binaries ([bench/RESULTS.md](bench/RESULTS.md)).
-
-## Tests
-
-The test suite is **differential**: each sample in `tests/samples/` is first run on real .NET
-(`dotnet run sample.cs`) to record the expected stdout and exit code. Then csharpc compiles and runs
-it, and the results must match byte for byte.
+## Testing
 
 ```bash
-tests/run.sh              # compile + run every sample with csharpc, compare with .NET's results
-tests/run.sh 06           # only samples whose name contains "06"
-tests/run.sh --regen      # re-record expected results from real .NET
-CSHARPC_OPT=-O0 tests/run.sh
+tests/run.sh --all-opts     # differential suite at -O0 and -O2 (compares against recorded .NET output)
+tests/run.sh --regen 42     # re-record expectations for samples matching "42" with real .NET
+tests/conformance.sh -j 4   # conformance corpus, per-area coverage report
+tests/projects.sh           # csproj input, dotnet build/run/publish integration
+tests/debuginfo.sh          # gdb-driven debug-info checks
+benchmarks/run.sh           # csharpc vs .NET JIT vs NativeAOT
 ```
 
 See [docs/05-testing.md](docs/05-testing.md).
 
 ## Documentation
 
-| Doc | |
+| | |
 |---|---|
-| [00 — Vision](docs/00-vision.md) | Why C# on LLVM; goals and non-goals |
-| [01 — Prior art](docs/01-prior-art.md) | clang, rustc, gollvm, Mono-LLVM, LLILC, NativeAOT(-LLVM), IL2CPP, bflat |
-| [02 — Architecture](docs/02-architecture.md) | The pipeline, phase by phase |
-| [03 — Lowering](docs/03-lowering.md) | How each C# construct becomes LLVM IR |
-| [04 — Runtime](docs/04-runtime.md) | csrt today; the self-hosted corelib plan |
-| [05 — Testing](docs/05-testing.md) | Differential testing against .NET |
-| [06 — Roadmap](docs/06-roadmap.md) | Milestones and the feature matrix |
-| [07 — Spike log](docs/07-spike-log.md) | Journal of what happened and what we learned |
-| [08 — Drop-in toolchain](docs/08-drop-in.md) | Projects, `dotnet build -p:UseCsharpc=true`, `dotnet publish -p:PublishCsharpc=true` |
-| [ADRs](docs/adr/) | Architecture decision records |
+| [00 Vision](docs/00-vision.md) · [01 Prior art](docs/01-prior-art.md) · [02 Architecture](docs/02-architecture.md) · [03 Lowering](docs/03-lowering.md) | how csharpc is built and why |
+| [04 Runtime](docs/04-runtime.md) · [10 Async](docs/10-async.md) · [11 BCL value types](docs/11-bcl-value-types.md) · [12 Corelib](docs/12-corelib.md) · [14 Threading](docs/14-threading.md) | the runtime and library |
+| [05 Testing](docs/05-testing.md) · [09 Conformance](docs/09-conformance.md) · [13 Debugging](docs/13-debugging.md) · [08 Drop-in](docs/08-drop-in.md) | using and verifying it |
+| [06 Roadmap](docs/06-roadmap.md) · [07 Spike log](docs/07-spike-log.md) · [ADRs](docs/adr/) | where it's going and how it got here |
 
-## Repository layout
+## Status
 
-```
-src/Csharpc/
-  Program.cs              entry point
-  Driver/                 CLI options, pipeline orchestration, linking (Compiler.cs, Toolchain.cs)
-  Frontend/               Roslyn compilation setup (RoslynFrontend.cs)
-  CodeGen/                module/function lowering, type mapping, mangling, intrinsics
-  Llvm/                   LLVM C API bindings (Native.cs) and thin wrappers
-runtime/                  csrt.c / csrt.h — the bootstrap C runtime
-tests/                    run.sh + samples/*.cs with recorded .NET results
-docs/                     design documentation and ADRs
-```
+csharpc went from an empty directory to the state above in its first day of development
+([docs/07-spike-log.md](docs/07-spike-log.md)). It is young: expect gaps outside the tested surface,
+and please open an issue with a minimal program when you find one — the differential test format
+makes every bug report directly turnable into a regression test. Contributions are welcome; see
+[docs/CONTRIBUTING.md](docs/CONTRIBUTING.md).
+
+## License
+
+[MIT](LICENSE)

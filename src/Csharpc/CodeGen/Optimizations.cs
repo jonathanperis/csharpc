@@ -3,7 +3,7 @@ using Microsoft.CodeAnalysis;
 
 namespace Csharpc.CodeGen;
 
-/// <summary>Type facts used for performance decisions (see bench/RESULTS.md).</summary>
+/// <summary>Type facts used for performance decisions (see benchmarks/RESULTS.md).</summary>
 internal static class Optimizations
 {
     /// <summary>

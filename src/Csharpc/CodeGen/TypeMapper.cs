@@ -43,11 +43,11 @@ public sealed class TypeMapper(LlvmContext llvm, TargetMachine target)
         { IsReferenceType: true } => Llvm.Ptr,
         // Tasks, awaiters and configured awaitables are all a pointer to the csrt task (docs/10-async.md).
         INamedTypeSymbol t when Coroutines.IsTaskHandleType(t) => Llvm.Ptr,
-        // System.Decimal: the CLR layout { int flags; uint hi32; ulong lo64 } (runtime/decimal.c).
+        // System.Decimal: the CLR layout { int flags; uint hi32; ulong lo64 } (src/runtime/decimal.c).
         { SpecialType: SpecialType.System_Decimal } => Llvm.Struct(Llvm.I32, Llvm.I32, Llvm.I64),
-        // TimeSpan / DateTime: a tick count (BclValueTypes.cs, runtime/datetime.c).
+        // TimeSpan / DateTime: a tick count (BclValueTypes.cs, src/runtime/datetime.c).
         _ when BclValueTypes.IsTicks(type) => Llvm.I64,
-        // BigInteger: pointer to an immutable runtime bignum, null == 0 (runtime/bigint.c).
+        // BigInteger: pointer to an immutable runtime bignum, null == 0 (src/runtime/bigint.c).
         _ when BclValueTypes.IsBigInteger(type) => Llvm.Ptr,
         // Value types (docs/03-lowering.md#structs): first-class LLVM aggregates of storage types.
         INamedTypeSymbol { OriginalDefinition.SpecialType: SpecialType.System_Nullable_T } n =>

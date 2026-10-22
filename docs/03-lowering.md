@@ -159,7 +159,7 @@ yet. User-defined conversion operators compile to direct calls.
 
 ## Strings
 
-Layout, shared with `runtime/csrt.h`:
+Layout, shared with `src/runtime/csrt.h`:
 
 ```
 string: { ptr mt, i32 length, [length x i16] chars }     ; UTF-16, like .NET
@@ -238,7 +238,7 @@ fields, including auto-property backing fields:
 { ptr base_mt, ptr name, i32 instance_size, i32 flags, [N x ptr] vtable }
 ```
 
-The first 24 bytes are `csrt_MethodTable` from `runtime/csrt.h`: `base` (the base class's method
+The first 24 bytes are `csrt_MethodTable` from `src/runtime/csrt.h`: `base` (the base class's method
 table, or `csrt_Object_MT`), `name` (CLR-style full name, e.g. `Ns.Outer+Inner`, as a C string),
 `instance_size` (from the target data layout), and `flags` (bit 0 = abstract). The vtable follows
 immediately. Real output for `class Animal { public virtual string Sound() … }` and
@@ -319,7 +319,7 @@ Each interface has an identity "method table": a constant global flagged `CSRT_M
 Every constructed generic interface (`IComparable<Version>`) gets its own. Every class method table
 carries an **interface map**, and the method-table header grew to hold it (shared by
 `TypeMapper.MethodTableHeader`, `ModuleCodeGen.EmitMethodTable` and `csrt_MethodTable` in
-`runtime/csrt.h`):
+`src/runtime/csrt.h`):
 
 ```
 { ptr base, ptr name, i32 size, i32 flags, ptr interfaces, i32 interface_count, i32 reserved, [N x ptr] vtable }

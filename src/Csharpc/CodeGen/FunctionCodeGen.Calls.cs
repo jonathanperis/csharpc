@@ -619,7 +619,7 @@ public sealed partial class FunctionCodeGen
         return piece;
     }
 
-    /// <summary>value.ToString(format) with .NET standard/custom numeric format strings (runtime/format.c).</summary>
+    /// <summary>value.ToString(format) with .NET standard/custom numeric format strings (src/runtime/format.c).</summary>
     internal LLVMValueRef FormatWith(IOperation valueOp, LLVMValueRef format)
     {
         valueOp = Unbox(valueOp);

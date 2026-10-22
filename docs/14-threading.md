@@ -21,7 +21,7 @@ isn't.
 | `Environment` | `ProcessorCount`, `CurrentManagedThreadId` |
 | Console | each `Console.Write`/`WriteLine` is atomic with respect to other threads (as `Console.Out` is synchronized in .NET) |
 
-## Garbage collection with threads (runtime/gc.c)
+## Garbage collection with threads (src/runtime/gc.c)
 
 The collector stays conservative, non-moving, mark-sweep; threads add four things:
 
@@ -56,7 +56,7 @@ only in a register. So after marking, every slot of each thread's currently cach
 allocated for this cycle ("cache protection"); dead objects there are reclaimed by a later
 collection. Thread caches are never reset by the collector.
 
-## Monitors (runtime/threads.c)
+## Monitors (src/runtime/threads.c)
 
 Objects never move, so monitors live in a striped hash table keyed by object address. An entry
 holds a `pthread_mutex_t` (the lock), a condition variable (`Wait`/`Pulse`), the owner and the
@@ -75,7 +75,7 @@ Nested parallel loops, and loops started on pool threads, run inline.
 
 Exceptions: an iteration that throws on the calling thread propagates out of `Parallel.For` (a
 C `cleanup` handler retires the job first, so workers never see a dead frame). An exception on a
-pool worker is captured with an *exception trap* (runtime/eh.c: if no C# handler catches it on
+pool worker is captured with an *exception trap* (src/runtime/eh.c: if no C# handler catches it on
 that thread, its finally blocks run and control returns to `csrt_trap_call`) and rethrown on the
 calling thread after the loop drains.
 
@@ -84,7 +84,7 @@ calling thread after the loop drains.
 - `Parallel.For` rethrows the first exception itself; .NET wraps all exceptions in an
   `AggregateException`. `ParallelLoopState`/`ParallelOptions`/`Break`/`Stop` overloads, `ForEach`
   over non-array `IEnumerable<T>`, and thread-local `localInit` overloads are not mapped yet.
-- **`Task.Run` still runs on the single-threaded async scheduler** (runtime/async.c). The plan:
+- **`Task.Run` still runs on the single-threaded async scheduler** (src/runtime/async.c). The plan:
   back `Task.Run` with this worker pool, protect task state and continuation lists with a
   per-task lock (or CAS on the state word), and run continuations on the pool (or post them to the
   awaiting thread's queue when it blocks in `Wait`/`Result`). This waits for the async exception

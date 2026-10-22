@@ -89,7 +89,7 @@ Roslyn front-end, CFG → LLVM lowering, csrt runtime, differential tests, docs.
 ### M1 — "Real programs" ✅ (2026-10-22, same day)
 Structs, generics, interfaces, exceptions, closures, async/iterators, GC, records, spans, unsafe,
 drop-in MSBuild integration, conformance corpus, benchmarks beating NativeAOT on CPU time on all 14
-benchmark programs ([bench/RESULTS.md](../bench/RESULTS.md)).
+benchmark programs ([benchmarks/RESULTS.md](../bench/RESULTS.md)).
 
 ### M2 — Self-hosted corelib (🚧)
 The BCL surface written in C# and compiled by csharpc together with the program; library symbols that

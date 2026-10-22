@@ -158,7 +158,7 @@ public sealed class CoreLib
         if (!HasShadows || !IsLibrary(method)) return method;
         if (_cache.TryGetValue(method, out var cached)) return (IMethodSymbol)cached;
         var result = method;
-        // Hand-written intrinsics (runtime/*.c, LLVM intrinsics) take priority over C# shadows.
+        // Hand-written intrinsics (src/runtime/*.c, LLVM intrinsics) take priority over C# shadows.
         if (Intrinsics.TryGet(method, out _) || (method.MethodKind == MethodKind.Constructor && Intrinsics.TryGetConstructor(method, out _)))
         { _cache[method] = method; return method; }
         if (method.ContainingType is { } type && TryMap(type) is { } shadowType

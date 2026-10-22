@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Benchmark harness: csharpc (-O2, -O3) vs .NET JIT vs NativeAOT on bench/programs/*.cs.
+# Benchmark harness: csharpc (-O2, -O3) vs .NET JIT vs NativeAOT on benchmarks/programs/*.cs.
 #
-#   bench/run.sh               run everything, print a Markdown table (also bench/results-latest.md)
-#   bench/run.sh nbody         only programs whose name contains "nbody"
-#   bench/run.sh --regen       re-record bench/programs/*.expected with `dotnet run` (the oracle)
+#   benchmarks/run.sh               run everything, print a Markdown table (also benchmarks/results-latest.md)
+#   benchmarks/run.sh nbody         only programs whose name contains "nbody"
+#   benchmarks/run.sh --regen       re-record benchmarks/programs/*.expected with `dotnet run` (the oracle)
 #
 # Every binary's stdout must match the .expected file recorded from real .NET, otherwise the row
 # is marked MISMATCH. Times are wall-clock, best of $RUNS (default 3), in milliseconds.

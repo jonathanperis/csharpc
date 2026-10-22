@@ -1,4 +1,4 @@
-// Static System.String members that need generics (the rest of string is runtime/strings.c intrinsics).
+// Static System.String members that need generics (the rest of string is src/runtime/strings.c intrinsics).
 #nullable disable
 using System;
 using System.Collections.Generic;

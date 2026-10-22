@@ -19,7 +19,7 @@ namespace Csharpc.CodeGen;
 ///
 /// CoroSplit turns this into ramp/resume/destroy functions and moves everything live across a
 /// suspend point into the frame, which is a GC object (so references there stay alive).
-/// Object layouts (payload at +48, iterator state at +8) are shared with runtime/async.c.
+/// Object layouts (payload at +48, iterator state at +8) are shared with src/runtime/async.c.
 /// </summary>
 public sealed partial class FunctionCodeGen
 {

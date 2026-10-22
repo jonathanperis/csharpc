@@ -499,7 +499,7 @@ bool csrt_string_is_null_or_white_space(csrt_String* s) {
     return true;
 }
 
-// static object.Equals(a, b) lives in runtime/records.c (csrt_object_equals_static).
+// static object.Equals(a, b) lives in src/runtime/records.c (csrt_object_equals_static).
 
 /// Math.Round(double, digits, MidpointRounding) on the exact decimal value of the double.
 /// mode: 0 ToEven, 1 AwayFromZero, 2 ToZero, 3 ToNegativeInfinity, 4 ToPositiveInfinity.

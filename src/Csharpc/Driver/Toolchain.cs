@@ -16,7 +16,7 @@ public sealed class Toolchain(CompilerOptions options)
 
     private static string RuntimeDir => Path.Combine(AppContext.BaseDirectory, "runtime");
 
-    /// <summary>Compiles every runtime/*.c once per (sources, target, cc) and caches the objects.</summary>
+    /// <summary>Compiles every src/runtime/*.c once per (sources, target, cc) and caches the objects.</summary>
     public string[] RuntimeObjects(string triple) => CompileRuntime(triple, bitcode: false);
 
     /// <summary>

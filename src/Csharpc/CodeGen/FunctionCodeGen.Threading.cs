@@ -6,7 +6,7 @@ namespace Csharpc.CodeGen;
 
 /// <summary>
 /// System.Threading surface (docs/13-threading.md): Thread, Monitor/`lock`, Lock, wait handles and
-/// Parallel map onto runtime/threads.c; Interlocked and Volatile are LLVM atomics inline.
+/// Parallel map onto src/runtime/threads.c; Interlocked and Volatile are LLVM atomics inline.
 /// </summary>
 public sealed partial class FunctionCodeGen
 {

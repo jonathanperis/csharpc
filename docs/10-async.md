@@ -8,7 +8,7 @@ machinery clang uses for C++20 coroutines. Roslyn's IOperation/CFG doesn't lower
 not by csharpc.
 
 Code: `src/Csharpc/CodeGen/Coroutines.cs` (classification), `FunctionCodeGen.Async.cs`
-(lowering), `ModuleCodeGen.Async.cs` (iterator method tables), `runtime/async.c` (tasks,
+(lowering), `ModuleCodeGen.Async.cs` (iterator method tables), `src/runtime/async.c` (tasks,
 scheduler, iterator objects).
 
 ## Lowering
@@ -36,7 +36,7 @@ suspend: switch (llvm.coro.suspend(none, false)) { 0: resume, 1: cleanup, defaul
   `llvm.coro.free` frees nothing.
 - **Resuming from C.** The split resume and destroy functions use `fastcc`, so the runtime never
   calls `frame[0]` directly. Modules containing coroutines emit C-ABI `csrt_coro_resume` and
-  `csrt_coro_destroy` wrappers around `llvm.coro.resume`/`llvm.coro.destroy`. `runtime/async.c`
+  `csrt_coro_destroy` wrappers around `llvm.coro.resume`/`llvm.coro.destroy`. `src/runtime/async.c`
   has weak fallbacks so programs without coroutines still link.
 - **-O0.** CoroSplit is mandatory, so the driver runs `default<O0>` when the module contains
   coroutines and no other pipeline is requested.
