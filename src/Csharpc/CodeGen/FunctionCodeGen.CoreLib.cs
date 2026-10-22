@@ -221,6 +221,7 @@ public sealed partial class FunctionCodeGen
 
     private LLVMValueRef EqualsOf(ITypeSymbol t, LLVMValueRef a, LLVMValueRef b, IOperation at)
     {
+        t = _m.CoreLib.Map(t);
         t = EnumBase(t);
         if (IsIntegral(t)) return _b.ICmp(LLVMIntPredicate.EQ, a, b);
         if (TypeMapper.IsFloatingPoint(t))
@@ -258,6 +259,7 @@ public sealed partial class FunctionCodeGen
 
     private LLVMValueRef HashOf(ITypeSymbol t, LLVMValueRef a, IOperation at)
     {
+        t = _m.CoreLib.Map(t);
         t = EnumBase(t);
         var i32 = L.I32;
         switch (t.SpecialType)
@@ -312,6 +314,7 @@ public sealed partial class FunctionCodeGen
 
     private LLVMValueRef CompareOf(ITypeSymbol t, LLVMValueRef a, LLVMValueRef b, IOperation at)
     {
+        t = _m.CoreLib.Map(t);
         t = EnumBase(t);
         var i32 = L.I32;
         LLVMValueRef Sign(LLVMValueRef gt, LLVMValueRef lt) =>

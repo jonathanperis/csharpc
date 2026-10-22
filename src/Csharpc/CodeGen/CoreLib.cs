@@ -158,6 +158,9 @@ public sealed class CoreLib
         if (!HasShadows || !IsLibrary(method)) return method;
         if (_cache.TryGetValue(method, out var cached)) return (IMethodSymbol)cached;
         var result = method;
+        // Hand-written intrinsics (runtime/*.c, LLVM intrinsics) take priority over C# shadows.
+        if (Intrinsics.TryGet(method, out _) || (method.MethodKind == MethodKind.Constructor && Intrinsics.TryGetConstructor(method, out _)))
+        { _cache[method] = method; return method; }
         if (method.ContainingType is { } type && TryMap(type) is { } shadowType
             && MatchDefinition(method.OriginalDefinition, shadowType.OriginalDefinition) is IMethodSymbol match)
         {
@@ -183,6 +186,7 @@ public sealed class CoreLib
         if (!HasShadows || !IsLibrary(property)) return property;
         if (_cache.TryGetValue(property, out var cached)) return (IPropertySymbol)cached;
         var result = property;
+        if (Intrinsics.TryGetProperty(property, out _)) { _cache[property] = property; return property; }
         if (property.ContainingType is { } type && TryMap(type) is { } shadowType
             && MatchDefinition(property.OriginalDefinition, shadowType.OriginalDefinition) is IPropertySymbol match)
             result = InConstructed(match, shadowType);

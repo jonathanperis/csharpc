@@ -223,7 +223,7 @@ public sealed partial class FunctionCodeGen
         or SpecialType.System_Byte or SpecialType.System_SByte or SpecialType.System_Double or SpecialType.System_Single
         or SpecialType.System_Boolean or SpecialType.System_Char;
 
-    private LLVMValueRef MethodTableFor(ITypeSymbol type, IOperation at) => type switch
+    private LLVMValueRef MethodTableFor(ITypeSymbol type, IOperation at) => _m.CoreLib.Map(type) switch
     {
         { SpecialType: SpecialType.System_String } => _m.ExternalGlobal("csrt_String_MT"),
         { SpecialType: SpecialType.System_Object } => _m.ExternalGlobal("csrt_Object_MT"),
