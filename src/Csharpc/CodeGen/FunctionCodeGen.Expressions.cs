@@ -21,6 +21,7 @@ public sealed partial class FunctionCodeGen
             IInstanceReferenceOperation when InStructMember => LoadValue(_this, S(_method!.ContainingType)),
             IInstanceReferenceOperation => ThisValue(op),
             IFieldReferenceOperation f when TryLowLevelLibraryMember(f, out var libraryField) => libraryField,
+            IFieldReferenceOperation { Field.IsVolatile: true } vf => VolatileLoad(FieldAddress(vf), S(vf.Field.Type)),
             IFieldReferenceOperation f => LoadValue(FieldAddress(f), S(f.Field.Type)),
             IPropertyReferenceOperation { Property.RefKind: not RefKind.None } p => LoadValue(RefPropertyAddress(p), TypeOf(p)!),
             IPropertyReferenceOperation p => EmitPropertyGet(p),
@@ -173,7 +174,8 @@ public sealed partial class FunctionCodeGen
         var targetType = TypeOf(a.Target)!;
         var address = AddressOf(a.Target);           // C#: target sub-expressions are evaluated first
         var value = Coerce(EmitValue(a.Value), TypeOf(a.Value), targetType);
-        StoreValue(ToStorage(value, targetType), address);
+        if (a.Target is IFieldReferenceOperation { Field.IsVolatile: true }) VolatileStore(value, address, targetType);
+        else StoreValue(ToStorage(value, targetType), address);
         return value;
     }
 

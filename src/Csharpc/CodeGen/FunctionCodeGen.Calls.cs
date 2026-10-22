@@ -159,7 +159,7 @@ public sealed partial class FunctionCodeGen
     {
         if (creation.Initializer is not null) throw CompileError.Unsupported("object initializer", creation);
         var type = (INamedTypeSymbol)TypeOf(creation)!;
-        if (TrySpanConstruction(creation, out var span) || TryStatelessLibraryCreation(creation, out span)) return span;
+        if (TrySpanConstruction(creation, out var span) || TryStatelessLibraryCreation(creation, out span) || TryThreadingCreation(creation, out span)) return span;
         if (type.IsValueType) return EmitValueTypeCreation(creation, type);
         if (type.SpecialType == SpecialType.System_Object)
             return Allocate(_m.ExternalGlobal("csrt_Object_MT"), L.ConstInt(L.I64, (long)T.PointerSize));
@@ -299,6 +299,7 @@ public sealed partial class FunctionCodeGen
             EmitInterfaceCall(property.SetMethod!, p.Instance!, p.Arguments, [assigned], null);
             return assigned;
         }
+        if (!_m.IsUserType(property.ContainingType) && TryThreadingPropertySet(p, value, valueType, out var threadingSet)) return threadingSet;
         if (!_m.IsUserType(property.ContainingType))
             throw CompileError.Unsupported($"setting '{property.ContainingType}.{property.Name}'", p);
         var self = property.IsStatic ? default

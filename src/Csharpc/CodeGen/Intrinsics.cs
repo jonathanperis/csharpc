@@ -67,8 +67,9 @@ internal static class Intrinsics
         string[] printable = ["string", "object", "int", "long", "uint", "ulong", "bool", "double", "float", "char"];
         foreach (var type in printable)
         {
-            t[$"System.Console.Write({type})"] = (g, inv) => { WriteValue(g, inv.Arguments[0].Value); return default; };
-            t[$"System.Console.WriteLine({type})"] = (g, inv) => { WriteValue(g, inv.Arguments[0].Value); NewLine(g); return default; };
+            // Console.Out is synchronized in .NET: one Write/WriteLine never interleaves with another thread's.
+            t[$"System.Console.Write({type})"] = (g, inv) => { ConsoleLock(g, true); WriteValue(g, inv.Arguments[0].Value); ConsoleLock(g, false); return default; };
+            t[$"System.Console.WriteLine({type})"] = (g, inv) => { ConsoleLock(g, true); WriteValue(g, inv.Arguments[0].Value); NewLine(g); ConsoleLock(g, false); return default; };
         }
         t["System.Console.WriteLine()"] = (g, _) => { NewLine(g); return default; };
         t["System.Console.ReadLine()"] = (g, _) => g.CallRuntime("csrt_console_read_line", g.Module.Llvm.Ptr, []);
@@ -625,6 +626,9 @@ internal static class Intrinsics
         if (newline) text = g.ConcatStrings(text, g.Module.StringLiteral("\n"));
         g.CallRuntime("csrt_console_error_write_string", l.Void, [l.Ptr], text);
     }
+
+    private static void ConsoleLock(FunctionCodeGen g, bool acquire) =>
+        g.CallRuntime(acquire ? "csrt_console_lock" : "csrt_console_unlock", g.Module.Llvm.Void, []);
 
     private static void NewLine(FunctionCodeGen g) => g.CallRuntime("csrt_console_newline", g.Module.Llvm.Void, []);
 

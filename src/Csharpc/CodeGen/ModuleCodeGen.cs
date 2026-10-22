@@ -588,6 +588,7 @@ public sealed partial class ModuleCodeGen
         "System.IndexOutOfRangeException", "System.ArithmeticException", "System.DivideByZeroException",
         "System.OverflowException", "System.InvalidCastException", "System.FormatException",
         "System.Collections.Generic.KeyNotFoundException",
+        "System.Threading.ThreadStateException", "System.Threading.SynchronizationLockException",
     ];
 
     public const int ExceptionMessageSlot = 3;
@@ -687,8 +688,11 @@ public sealed partial class ModuleCodeGen
         if (_staticFields.TryGetValue(field, out var global)) return global;
         if (!IsUserType(field.ContainingType)) throw CompileError.Unsupported($"static field '{field}' of a library type", field);
         var type = Types.Storage(field.Type);
-        return _staticFields[field] = Module.AddGlobal(Mangler.StaticField(field), type, LlvmContext.Null(type),
-            linkage: LLVMLinkage.Internal);
+        var created = Module.AddGlobal(Mangler.StaticField(field), type, LlvmContext.Null(type), linkage: LLVMLinkage.Internal);
+        // [ThreadStatic]: one copy per thread (the GC scans every thread's TLS block).
+        if (field.GetAttributes().Any(a => a.AttributeClass is { Name: "ThreadStaticAttribute", ContainingNamespace.Name: "System" }))
+            Native.LLVMSetThreadLocal(created, 1);
+        return _staticFields[field] = created;
     }
 
     /// <summary>A statically allocated, immutable instance of a library class (e.g. EventArgs.Empty).</summary>

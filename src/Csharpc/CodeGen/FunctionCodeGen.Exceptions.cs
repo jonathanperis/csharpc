@@ -272,6 +272,8 @@ public sealed partial class FunctionCodeGen
         ["System.ArgumentOutOfRangeException"] = "Specified argument was out of the range of valid values.",
         ["System.InvalidOperationException"] = "Operation is not valid due to the current state of the object.",
         ["System.ObjectDisposedException"] = "Cannot access a disposed object.",
+        ["System.Threading.ThreadStateException"] = "Thread was in an invalid state for the operation being executed.",
+        ["System.Threading.SynchronizationLockException"] = "Object synchronization method was called from an unsynchronized block of code.",
         ["System.NotSupportedException"] = "Specified method is not supported.",
         ["System.NotImplementedException"] = "The method or operation is not implemented.",
         ["System.NullReferenceException"] = "Object reference not set to an instance of an object.",

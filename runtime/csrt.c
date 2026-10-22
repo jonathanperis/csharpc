@@ -44,7 +44,10 @@ void csrt_init(int argc, char** argv) {
     setvbuf(stdout, s_stdout_buffer, _IOFBF, sizeof s_stdout_buffer);
 }
 
+void csrt_threads_wait_foreground(void);
+
 void csrt_shutdown(void) {
+    csrt_threads_wait_foreground();  // like .NET: the process outlives Main while foreground threads run
     fflush(stdout);
     csrt_gc_shutdown();
 }
