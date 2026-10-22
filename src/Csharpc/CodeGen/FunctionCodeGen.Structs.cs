@@ -415,7 +415,11 @@ public sealed partial class FunctionCodeGen
             var formatter = _m.EnumFormatter(enumType);
             return _b.Call(formatter.Type, formatter.Fn, [value]);
         }
-        if (type.IsReferenceType) return ObjectToString(value);
+        if (type.IsReferenceType)
+        {
+            _m.WarnExceptionToString(type, at);
+            return ObjectToString(value);
+        }
 
         if (TypeMapper.IsNullable(type))
         {

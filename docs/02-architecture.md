@@ -236,4 +236,5 @@ builder, for example) shows up as a segfault inside libLLVM. Debug it with
 | `CSLLVM0001` | Valid C#, but the construct isn't supported by csharpc yet |
 | `CSLLVM0002` | A library member with no csharpc implementation (`'System.Foo.Bar(int)' has no implementation in the csharpc runtime yet`) |
 | `CSLLVM0003` | No entry point |
+| `CSLLVM0006` (warning) | A known run-time difference from .NET that can't be avoided yet. Today: turning an exception into text (`ToString()`, `$"{e}"`, `Console.WriteLine(e)`). .NET appends the stack trace of a thrown exception; csharpc prints only the type, the message and inner exceptions |
 | exit code 70 | Internal compiler error: invalid LLVM IR was produced |

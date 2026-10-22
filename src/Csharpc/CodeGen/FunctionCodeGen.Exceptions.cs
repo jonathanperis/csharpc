@@ -356,6 +356,7 @@ public sealed partial class FunctionCodeGen
         {
             var self = EmitValue(inv.Instance!);
             NullCheck(self);
+            _m.WarnExceptionToString(inv.Instance?.Type, inv);
             result = inv.Instance?.Syntax is Microsoft.CodeAnalysis.CSharp.Syntax.BaseExpressionSyntax
                 ? CallRuntime("csrt_exception_to_string", L.Ptr, [L.Ptr], self) // base.ToString(): non-virtual
                 : VirtualCall(target, self, [self]);

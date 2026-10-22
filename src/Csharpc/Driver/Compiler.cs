@@ -107,6 +107,8 @@ public sealed class Compiler(CompilerOptions options)
         debugInfo?.Finish();
         Phase("lower CFG -> LLVM IR");
 
+        foreach (var w in codegen.Warnings.DistinctBy(w => w.Format()))
+            WriteDiagnostic(w.Format().Replace(": error ", ": warning "), isError: false);
         if (codegen.Errors.Count > 0)
         {
             foreach (var e in codegen.Errors.DistinctBy(e => e.Format())) WriteDiagnostic(e.Format(), isError: true);

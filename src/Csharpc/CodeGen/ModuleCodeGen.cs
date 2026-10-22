@@ -19,6 +19,31 @@ public sealed partial class ModuleCodeGen
     public LlvmModule Module { get; }
     public TypeMapper Types { get; }
     public List<CompileError> Errors { get; } = [];
+
+    /// <summary>Compile-time warnings about known run-time differences from .NET (printed, not fatal).</summary>
+    public List<CompileError> Warnings { get; } = [];
+
+    /// <summary>
+    /// Exception.ToString() in .NET appends the stack trace ("   at Type.Method(...) in file:line N")
+    /// of a thrown exception. csharpc can't reproduce those frames, so its text stops after the
+    /// message (and inner exceptions): say so where a program turns an exception into text.
+    /// </summary>
+    public void WarnExceptionToString(ITypeSymbol? type, IOperation? at)
+    {
+        if (type is not INamedTypeSymbol named || at is null || !DerivesFromException(named)) return;
+        // A user override decides the text itself.
+        for (var t = named; t is not null && !IsLibraryException(t); t = t.BaseType)
+            if (t.GetMembers("ToString").OfType<IMethodSymbol>().Any(m => m.IsOverride && m.Parameters.IsEmpty)) return;
+        Warnings.Add(new CompileError("CSLLVM0006",
+            "Exception.ToString() includes no stack trace in csharpc: the \"   at ...\" lines .NET prints for a thrown exception are missing", at.Syntax.GetLocation()));
+    }
+
+    private static bool DerivesFromException(INamedTypeSymbol type)
+    {
+        for (var t = type; t is not null; t = t.BaseType)
+            if (t.ContainingNamespace?.ToDisplayString() == "System" && t.MetadataName == "Exception") return true;
+        return false;
+    }
     public TextWriter? CfgDump { get; init; }
     public CoreLib CoreLib { get; }
 
