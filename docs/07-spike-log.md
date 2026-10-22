@@ -117,3 +117,44 @@ features (finally, `foreach`, primary constructors, tuples).
 Known issue at time of writing: a class with a static field initializer and no explicit static
 constructor crashes the compiler. Roslyn reports an implicit static constructor with no syntax, and
 `ModuleCodeGen.EmitMethod`'s fallback dereferences that null syntax.
+
+(That crash was fixed shortly after: implicit static constructors are skipped, since static field
+initializers run from `__csharpc_static_init`.)
+
+## 2026-10-22, later the same day — from spike to M1 with parallel agents
+
+The work was split into independent branches, each in its own git worktree, each owned by one agent
+with a clear file-ownership boundary, and merged by an integrator (main thread) that kept the
+differential suite green after every merge. Order of merges and what each taught us:
+
+| Branch | What it added | Lesson |
+|---|---|---|
+| `gc` | conservative mark-sweep collector in csrt | 2 GB allocated in 112 MiB RSS; no libgc needed |
+| `docs` | this documentation set | found the implicit-cctor crash by building examples |
+| `bench` | 8 benchmarks-game programs + harness | csharpc already beat the JIT on compute-bound code |
+| `lambdas` | closure conversion, delegates | `noalias` on `csrt_alloc` lets LLVM fold whole closures |
+| `structs` | structs, `Nullable<T>`, tuples | narrow integer runtime params need `zeroext` (ABI bug only visible at -O0) |
+| `msbuild` | `.csproj` input, `Csharpc.Sdk`, dotnet tool | evaluate projects with MSBuild itself (`-getItem`) |
+| `generics` | monomorphization + interfaces | MT header grew 24→40 bytes; every hand-built MT had to follow |
+| `conformance` | 195-program corpus | 41 % → the backlog became data-driven |
+| `exceptions` | Itanium EH (invoke/landingpad + personality) | runtime-raised errors become catchable .NET exceptions |
+| `async` | async/await, iterators, async iterators | LLVM coroutines (CoroSplit must run even at -O0) |
+| `perf` | runtime LTO, allocator, devirtualization | default to `x86-64-vN` — `znver4` tuning cost up to 30 % |
+| `lowlevel` | pointers, spans, ref locals, events | Roslyn models some unsafe constructs as `OperationKind.None` |
+
+Integration bugs worth remembering:
+
+- **Runtime LTO vs. exceptions.** Linking csrt as bitcode made clang's default `nounwind` on C
+  functions visible to LLVM, which then turned `invoke`s of throwing helpers into `call`s and deleted
+  the landing pads. Fix: build the runtime with `-fexceptions`. The fix first appeared not to work
+  because the runtime cache key didn't include compiler flags — now it does.
+- **Boxed struct method tables** were still built with the old 24-byte header after the interface
+  map extension; struct `ToString` jumped into the interface-map pointer. Every hand-built method
+  table now uses the shared header layout.
+- **`with` on record structs** must copy: the struct-capture aliasing rule (a captured struct that is
+  later mutated aliases the original) must not apply to the operand of a `with` expression.
+- **Extension members (C# 14)**: Roslyn synthesizes static implementation methods that *share the
+  member's syntax*; lowering them as ordinary methods binds the body against the wrong parameter.
+
+End of day: 138/138 differential runs (-O0 and -O2), 5/5 project-build routes, conformance 70.3 %,
+benchmarks ahead of NativeAOT on CPU time across the board.

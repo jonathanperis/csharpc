@@ -45,6 +45,7 @@ public sealed partial class FunctionCodeGen
             IIsNullOperation n when TypeMapper.IsNullable(n.Operand.Type) => _b.Not(NullableHas(EmitValue(n.Operand))),
             IIsNullOperation n => _b.ICmp(LLVMIntPredicate.EQ, EmitValue(n.Operand), LlvmContext.Null(L.Ptr)),
             IIsTypeOperation t => EmitIsType(t),
+            IAnonymousObjectCreationOperation a => EmitAnonymousCreation(a),
             IIsPatternOperation p => PatternTest(EmitValue(p.Value), TypeOf(p.Value), p.Pattern),
             IDefaultValueOperation d => LlvmContext.Null(T.Value(TypeOf(d)!)),
             IExpressionStatementOperation e => EmitValue(e.Operation),

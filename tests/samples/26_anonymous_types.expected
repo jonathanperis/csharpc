@@ -1,0 +1,11 @@
+{ Name = Ada, Age = 36 }
+{ X = 1.5, Y = -2, Label =  }
+Ada is 36
+True
+False
+True
+Ada 2 { }
+{ Sku = A, Qty = 3 }
+{ Sku = C, Qty = 7 }
+10
+{ name = Grace, year = 1906, Decade = 1900 }

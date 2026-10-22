@@ -73,7 +73,7 @@ public sealed partial class ModuleCodeGen
                 {
                     // Generic definitions get layouts per instantiation, on demand (monomorphization).
                     case TypeKind.Class when !type.IsStatic && !TypeSubstitution.IsGenericContext(type): GetLayout(type); break;
-                    case TypeKind.Class or TypeKind.Enum or TypeKind.Interface: break;
+                    case TypeKind.Class or TypeKind.Enum or TypeKind.Interface or TypeKind.Extension: break;
                     case TypeKind.Struct when !TypeSubstitution.IsGenericContext(type): GetStructLayout(type); break;
                     case TypeKind.Struct: break;
                     case TypeKind.Delegate: break; // runtime-implemented: { mt, target, fn } objects
@@ -82,7 +82,7 @@ public sealed partial class ModuleCodeGen
             });
 
         // 2. Method bodies of non-generic code; generic instantiations are queued as they're referenced.
-        foreach (var type in _userTypes.Where(t => t.TypeKind is TypeKind.Class or TypeKind.Interface or TypeKind.Struct
+        foreach (var type in _userTypes.Where(t => t.TypeKind is TypeKind.Class or TypeKind.Interface or TypeKind.Struct or TypeKind.Extension
                      && !TypeSubstitution.IsGenericContext(t)))
             foreach (var method in type.GetMembers().OfType<IMethodSymbol>().Where(m => !m.IsGenericMethod))
                 Guard(method, () => EmitMethod(method));
@@ -196,7 +196,25 @@ public sealed partial class ModuleCodeGen
     /// Whether the lowered function takes `this`. Non-static local functions report IsStatic=false
     /// but have no receiver (capturing ones get an environment from closure conversion instead).
     /// </summary>
-    public static bool HasThis(IMethodSymbol method) => !method.IsStatic && !IsNestedFunction(method);
+    public static bool HasThis(IMethodSymbol method) => !method.IsStatic && !IsNestedFunction(method) && !IsExtensionMember(method);
+
+    /// <summary>C# 14 `extension(T x) { ... }` members: lowered as static functions of their receiver.</summary>
+    public static bool IsExtensionMember(IMethodSymbol method) => method.ContainingType?.TypeKind == TypeKind.Extension;
+
+    private HashSet<IMethodSymbol>? _extensionImplementations;
+
+    private bool IsExtensionImplementation(IMethodSymbol method)
+    {
+        if (!method.IsStatic || !method.IsImplicitlyDeclared) return false;
+        _extensionImplementations ??= new HashSet<IMethodSymbol>(
+            _userTypes.Where(t => t.TypeKind == TypeKind.Extension)
+                .SelectMany(t => t.GetMembers().OfType<IMethodSymbol>())
+                .Select(m => m.AssociatedExtensionImplementation)
+                .OfType<IMethodSymbol>(), SymbolEqualityComparer.Default);
+        return _extensionImplementations.Contains(method.OriginalDefinition);
+    }
+
+    public static bool HasExtensionReceiver(IMethodSymbol method) => IsExtensionMember(method) && !method.IsStatic;
 
     /// <summary>
     /// env (nested functions) or this (instance) + parameters (by-ref as ptr) -> return; constructors
@@ -208,6 +226,8 @@ public sealed partial class ModuleCodeGen
         List<LLVMTypeRef> parameters = [];
         if (IsNestedFunction(method)) parameters.Add(Llvm.Ptr); // closure environment (may be null)
         else if (HasThis(method)) parameters.Add(Llvm.Ptr);
+        else if (HasExtensionReceiver(method) && method.ContainingType.ExtensionParameter is { } receiver)
+            parameters.Add(receiver.RefKind == RefKind.None ? Types.Value(subst.Apply(receiver.Type)) : Llvm.Ptr);
         foreach (var p in method.Parameters)
             parameters.Add(p.RefKind == RefKind.None ? Types.Value(subst.Apply(p.Type)) : Llvm.Ptr);
         var returnType = method.MethodKind == MethodKind.Constructor ? Llvm.Void
@@ -299,6 +319,10 @@ public sealed partial class ModuleCodeGen
             throw CompileError.Unsupported("static constructors in generic types", method);
         // Static field initializers run from __csharpc_static_init; only explicit cctors get a function.
         if (method.MethodKind == MethodKind.StaticConstructor && method.IsImplicitlyDeclared) return;
+
+        // Extension blocks: Roslyn also synthesizes static "implementation" methods (sharing the member's
+        // syntax); we lower the extension members themselves instead.
+        if (IsExtensionImplementation(method)) return;
 
         // Records: members the compiler synthesizes have no syntax; generate their bodies.
         if (method.ContainingType.IsRecord && method.IsImplicitlyDeclared
