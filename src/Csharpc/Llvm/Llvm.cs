@@ -195,6 +195,8 @@ public sealed class TargetMachine : IDisposable
     public LLVMTargetMachineRef Ref { get; }
     public LLVMTargetDataRef DataLayout { get; }
     public string Triple { get; }
+    public bool IsX86_64 => Triple.StartsWith("x86_64", StringComparison.Ordinal);
+    public bool IsAArch64 => Triple.StartsWith("aarch64", StringComparison.Ordinal) || Triple.StartsWith("arm64", StringComparison.Ordinal);
 
     private TargetMachine(LLVMTargetMachineRef machine, string triple)
     {

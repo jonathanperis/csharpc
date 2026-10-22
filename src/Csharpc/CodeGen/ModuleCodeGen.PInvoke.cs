@@ -6,7 +6,7 @@ namespace Csharpc.CodeGen;
 /// <summary>
 /// [DllImport] (and the extern stubs the [LibraryImport] source generator emits): every P/Invoke
 /// method becomes an internal function with the method's managed signature that marshals its
-/// arguments, calls the native symbol with the platform C ABI (System V x86-64), captures errno for
+/// arguments, calls the native symbol with the platform C ABI (System V x86-64 or AAPCS64), captures errno for
 /// SetLastError, and converts the result back.
 ///
 /// Libraries: libc/libm (and "__Internal"/"csrt") are resolved by the static linker — a direct call,
@@ -57,6 +57,7 @@ public sealed partial class ModuleCodeGen
         var library = data.ModuleName ?? "";
         var entry = data.EntryPointName ?? method.Name;
         var direct = s_directLinkLibraries.Contains(library);
+        var nativeAttributes = NativeAttributes(parameters, retKind, method, sret, retStruct);
         LLVMValueRef native = default;
         if (direct)
         {
@@ -67,7 +68,7 @@ public sealed partial class ModuleCodeGen
                 // Weak: a symbol missing from libc becomes null (EntryPointNotFoundException at the call,
                 // like .NET) instead of a link error.
                 Native.LLVMSetLinkage(native, (LLVMLinkage)12 /* LLVMExternalWeakLinkage */);
-                ApplyNativeAttributes(native, parameters, retKind, method, sret, retStruct);
+                foreach (var (index, attribute) in nativeAttributes) Native.LLVMAddAttributeAtIndex(native, index, attribute);
             }
         }
 
@@ -118,7 +119,8 @@ public sealed partial class ModuleCodeGen
                 }
                 case ParamKind.Struct:
                 {
-                    // ≤ 16 bytes: split into the eightbyte scalars the System V ABI passes in registers.
+                    // Register-passed struct: split into the scalars the C ABI passes (System V eightbytes,
+                    // or the single i64 / [2 x i64] / HFA array clang uses for AAPCS64).
                     var slot = b.Alloca(LargerOf(p.StructType, CoercedStruct(p.NativeTypes)), "abi");
                     b.Store(value, slot);
                     var coerced = CoercedStruct(p.NativeTypes);
@@ -170,6 +172,7 @@ public sealed partial class ModuleCodeGen
             b.Call(clear.Type, clear.Fn, []);
         }
         var result = b.Call(nativeType, callee, [.. args]);
+        foreach (var (index, attribute) in nativeAttributes) Native.LLVMAddCallSiteAttribute(result, index, attribute);
         if (data.SetLastError)
         {
             var save = Runtime("csrt_pinvoke_save_errno", Llvm.Void);
@@ -219,30 +222,36 @@ public sealed partial class ModuleCodeGen
         return lowered;
     }
 
-    private void ApplyNativeAttributes(LLVMValueRef native, List<NativeParam> parameters, ParamKind retKind, IMethodSymbol method,
-        bool sret, LLVMTypeRef retStruct)
+    /// <summary>ABI attributes of the native call (sret, byval, extension of small integers). They go on
+    /// the call instruction too: LLVM lowers a call from its call-site attributes and only falls back to
+    /// the callee's when it calls a known function, which a dlsym'd pointer is not.</summary>
+    private List<(uint Index, LLVMAttributeRef Attribute)> NativeAttributes(List<NativeParam> parameters, ParamKind retKind,
+        IMethodSymbol method, bool sret, LLVMTypeRef retStruct)
     {
+        List<(uint, LLVMAttributeRef)> attributes = [];
+        LLVMAttributeRef Enum(string name, ulong value = 0) =>
+            Native.LLVMCreateEnumAttribute(Llvm.Ref, Native.LLVMGetEnumAttributeKindForName(name, (nuint)name.Length), value);
+        LLVMAttributeRef Typed(string name, LLVMTypeRef type) =>
+            Native.LLVMCreateTypeAttribute(Llvm.Ref, Native.LLVMGetEnumAttributeKindForName(name, (nuint)name.Length), type);
         uint index = 1;
-        if (sret)
-        {
-            var kind = Native.LLVMGetEnumAttributeKindForName("sret", 4);
-            Native.LLVMAddAttributeAtIndex(native, index, Native.LLVMCreateTypeAttribute(Llvm.Ref, kind, retStruct));
-            index++;
-        }
+        if (sret) attributes.Add((index++, Typed("sret", retStruct)));
         foreach (var p in parameters)
         {
-            if (p.Kind == ParamKind.StructByVal)
-            {
-                var kind = Native.LLVMGetEnumAttributeKindForName("byval", 5);
-                Native.LLVMAddAttributeAtIndex(native, index, Native.LLVMCreateTypeAttribute(Llvm.Ref, kind, p.StructType));
-            }
+            // AAPCS64 passes large structs as a plain pointer to a caller-owned copy (the slot the stub
+            // made); byval would copy them onto the stack instead, which is the System V convention.
+            if (p.Kind == ParamKind.StructByVal && Types.Target.IsX86_64)
+                attributes.Add((index, Typed("byval", p.StructType)));
+            // AAPCS64 composites that spill to the stack take 8-byte-aligned slots (clang: alignstack(8)).
+            else if (p.Kind == ParamKind.Struct && Types.Target.IsAArch64)
+                attributes.Add((index, Enum("alignstack", 8)));
             else if (p.NativeTypes.Length == 1 && p.NativeTypes[0].IsInteger && p.NativeTypes[0].IntWidth < 32)
-                Llvm.AddAttributeAt(native, index, p.Kind == ParamKind.Direct && TypeMapper.IsSigned(p.Type) ? "signext" : "zeroext");
+                attributes.Add((index, Enum(p.Kind == ParamKind.Direct && TypeMapper.IsSigned(p.Type) ? "signext" : "zeroext")));
             index += (uint)p.NativeTypes.Length;
         }
         if (!method.ReturnsVoid && retKind is ParamKind.Direct or ParamKind.Bool or ParamKind.Char
             && Types.Value(method.ReturnType) is { IsInteger: true } rt && rt.IntWidth < 32 && retKind == ParamKind.Direct)
-            Llvm.AddAttributeAt(native, 0, TypeMapper.IsSigned(method.ReturnType) ? "signext" : "zeroext");
+            attributes.Add((0, Enum(TypeMapper.IsSigned(method.ReturnType) ? "signext" : "zeroext")));
+        return attributes;
     }
 
     private NativeParam ClassifyParameter(IParameterSymbol p, bool unicodeDefault)
@@ -278,8 +287,7 @@ public sealed partial class ModuleCodeGen
             {
                 if (!IsBlittable(s)) throw CompileError.Unsupported($"P/Invoke parameter of non-blittable struct '{s}'", p);
                 var llvmType = Types.Value(s);
-                var classes = ClassifySysV(llvmType);
-                return classes is { } eightbytes
+                return ClassifyStruct(llvmType, p) is { } eightbytes
                     ? new NativeParam(ParamKind.Struct, type, eightbytes, StructType: llvmType)
                     : new NativeParam(ParamKind.StructByVal, type, [Llvm.Ptr], StructType: llvmType);
             }
@@ -310,7 +318,7 @@ public sealed partial class ModuleCodeGen
             {
                 if (!IsBlittable(s)) throw CompileError.Unsupported($"P/Invoke return of non-blittable struct '{s}'", method);
                 var llvmType = Types.Value(s);
-                return ClassifySysV(llvmType) is { } eightbytes
+                return ClassifyStruct(llvmType, method) is { } eightbytes
                     ? (CoercedStruct(eightbytes), ParamKind.Struct, llvmType, false)
                     : (Llvm.Void, ParamKind.StructByVal, llvmType, true);
             }
@@ -347,6 +355,33 @@ public sealed partial class ModuleCodeGen
             s.GetMembers().OfType<IFieldSymbol>().Where(f => !f.IsStatic && !f.IsConst).All(f => IsBlittable(f.Type)),
         _ => false,
     };
+
+    /// <summary>Register types of a by-value struct under the target's C ABI, or null if it goes through
+    /// memory (System V: byval / sret; AAPCS64: pointer to a copy / sret in x8).</summary>
+    private LLVMTypeRef[]? ClassifyStruct(LLVMTypeRef type, ISymbol at) =>
+        Types.Target.IsX86_64 ? ClassifySysV(type)
+        : Types.Target.IsAArch64 ? ClassifyAapcs64(type)
+        : throw CompileError.Unsupported($"P/Invoke struct passing on target '{Types.Target.Triple}'", at);
+
+    // ---- AAPCS64 (Linux) classification, mirroring clang's AArch64ABIInfo ------------------------
+
+    private LLVMTypeRef[]? ClassifyAapcs64(LLVMTypeRef type)
+    {
+        var size = Types.Target.SizeOf(type);
+        if (size == 0) return null;
+        List<(ulong Offset, LLVMTypeRef Type)> scalars = [];
+        Flatten(type, 0, scalars);
+        // Homogeneous floating-point aggregate: 1-4 members of one FP type and no padding, passed in
+        // consecutive SIMD registers (s0-s3 / d0-d3) whatever the total size.
+        var first = scalars.Count > 0 ? scalars[0].Type : default;
+        if (scalars.Count is >= 1 and <= 4 && first.IsFloatingPoint
+            && scalars.All(s => s.Type.Kind == first.Kind)
+            && size == (ulong)scalars.Count * Types.Target.SizeOf(first))
+            return [LlvmContext.Array(first, (ulong)scalars.Count)];
+        // Other composites ≤ 16 bytes travel in one or two GPRs; larger ones by reference.
+        if (size > 16) return null;
+        return [size <= 8 ? Llvm.I64 : LlvmContext.Array(Llvm.I64, 2)];
+    }
 
     // ---- System V x86-64 classification of small structs ---------------------------------------
 
