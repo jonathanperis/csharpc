@@ -11,6 +11,9 @@ public sealed class StructLayout
     public Dictionary<IFieldSymbol, uint> FieldIndex { get; } = new(SymbolEqualityComparer.Default);
     /// <summary>Method table used only when the struct is boxed (created lazily).</summary>
     public LLVMValueRef MethodTable { get; set; }
+    /// <summary>Generated ValueType.Equals / GetHashCode on the unboxed value (ModuleCodeGen.StructEquality.cs).</summary>
+    public LoweredFunction? DefaultEquals { get; set; }
+    public LoweredFunction? DefaultHash { get; set; }
 }
 
 public sealed partial class ModuleCodeGen
@@ -30,6 +33,12 @@ public sealed partial class ModuleCodeGen
         if (!TypeSubstitution.IsGenericContext(type)) type = type.OriginalDefinition;
         if (_structs.TryGetValue(type, out var existing)) return existing;
         if (TypeSubstitution.IsOpen(type)) throw CompileError.Unsupported($"open generic struct '{type}'", type);
+
+        // Both repeat their element in memory; laid out as a single field they would silently shrink.
+        if (type.GetAttributes().Any(a => a.AttributeClass?.ToDisplayString() == "System.Runtime.CompilerServices.InlineArrayAttribute"))
+            throw CompileError.Unsupported($"[InlineArray] struct '{type.Name}'", type);
+        if (type.GetMembers().OfType<IFieldSymbol>().FirstOrDefault(f => f.IsFixedSizeBuffer) is { } buffer)
+            throw CompileError.Unsupported($"fixed-size buffer '{type.Name}.{buffer.Name}'", buffer);
 
         var layout = new StructLayout { Type = type, LlvmType = Llvm.NamedStruct("struct." + Mangler.MetadataName(type)) };
         _structs[type] = layout; // register first: field types may mention other structs
@@ -81,17 +90,13 @@ public sealed partial class ModuleCodeGen
         var global = Module.AddGlobal(Mangler.TypeSymbol(layout.Type, "MT"), mtType, constant: true, linkage: LLVMLinkage.Internal);
         layout.MethodTable = global;
 
-        (string Name, string Default)[] slots =
-            [("ToString", "csrt_object_to_string_default"), ("Equals", "csrt_valuetype_equals"), ("GetHashCode", "csrt_valuetype_get_hash_code")];
-        var masked = DateTimeMaskedSlots(layout);
-        var entries = slots.Select(slot =>
-        {
-            var overrider = layout.Type.GetMembers(slot.Name).OfType<IMethodSymbol>()
-                .FirstOrDefault(m => m.IsOverride && ClassLayout.RootOf(m).ContainingType.SpecialType == SpecialType.System_Object);
-            if (overrider is not null) return UnboxingThunk(overrider);
-            if (masked is { } dt && slot.Name != "ToString") return slot.Name == "Equals" ? dt.Eq : dt.Hash;
-            return Runtime(slot.Default, Llvm.Ptr, Llvm.Ptr).Fn;
-        }).ToArray();
+        // ToString, Equals, GetHashCode: the struct's overrides (through unboxing thunks), else the defaults.
+        LLVMValueRef[] entries =
+        [
+            StructOverride(layout.Type, "ToString") is { } toString ? UnboxingThunk(toString) : Runtime("csrt_object_to_string_default", Llvm.Ptr, Llvm.Ptr).Fn,
+            StructOverride(layout.Type, "Equals") is { } equals ? UnboxingThunk(equals) : BoxedDefaultEquals(layout),
+            StructOverride(layout.Type, "GetHashCode") is { } hash ? UnboxingThunk(hash) : BoxedDefaultHash(layout),
+        ];
 
         var (interfaceMap, interfaceCount) = EmitStructInterfaceMap(layout.Type);
         Native.LLVMSetInitializer(global, Llvm.ConstStruct(

@@ -123,57 +123,11 @@ public sealed partial class FunctionCodeGen
         _b.Ret(members.Count > 0 ? L.True : anyBefore);
     }
 
-    /// <summary>EqualityComparer&lt;T&gt;.Default.Equals(a, b) for one field.</summary>
-    private LLVMValueRef FieldEquals(LLVMValueRef a, LLVMValueRef b, ITypeSymbol type)
-    {
-        if (type.SpecialType == SpecialType.System_String)
-            return CallRuntime("csrt_string_equals", L.I1, [L.Ptr, L.Ptr], a, b);
-        if (BclValueTypes.IsDateTime(type)) return EqualsOf(type, a, b, null!);  // ticks only, not the Kind
-        if (a.Type.IsFloatingPoint) // double.Equals: NaN equals NaN
-            return _b.BinOp(LLVMOpcode.Or, _b.FCmp(LLVMRealPredicate.OEQ, a, b),
-                _b.BinOp(LLVMOpcode.And, _b.FCmp(LLVMRealPredicate.UNO, a, a), _b.FCmp(LLVMRealPredicate.UNO, b, b)));
-        if (a.Type.IsInteger) return _b.ICmp(LLVMIntPredicate.EQ, a, b);
-        if (type.IsReferenceType)
-        {
-            // (object)a == b || (a != null && a.Equals(b))
-            var same = _b.ICmp(LLVMIntPredicate.EQ, a, b);
-            var objectEquals = _m.Compilation.GetSpecialType(SpecialType.System_Object).GetMembers("Equals").OfType<IMethodSymbol>()
-                .First(e => e.Parameters.Length == 1 && !e.IsStatic);
-            return ShortCircuit(isAnd: false,
-            [
-                () => same,
-                () => ShortCircuit(isAnd: true,
-                [
-                    () => _b.ICmp(LLVMIntPredicate.NE, a, LlvmContext.Null(L.Ptr)),
-                    () => VirtualCall(objectEquals, a, [a, b]),
-                ]),
-            ]);
-        }
-        // Other value types (structs, nullables, tuples): box both and use the virtual Equals.
-        var objEquals = _m.Compilation.GetSpecialType(SpecialType.System_Object).GetMembers("Equals").OfType<IMethodSymbol>()
-            .First(e => e.Parameters.Length == 1 && !e.IsStatic);
-        var boxedA = Box(a, type, null!);
-        return VirtualCall(objEquals, boxedA, [boxedA, Box(b, type, null!)]);
-    }
+    /// <summary>EqualityComparer&lt;T&gt;.Default.Equals(a, b) for one field (IEquatable&lt;T&gt; first, no reference shortcut).</summary>
+    private LLVMValueRef FieldEquals(LLVMValueRef a, LLVMValueRef b, ITypeSymbol type) => EqualsOf(type, a, b, null!);
 
-    private LLVMValueRef FieldHash(LLVMValueRef v, ITypeSymbol type)
-    {
-        if (type.SpecialType == SpecialType.System_String)
-            return _b.Select(_b.ICmp(LLVMIntPredicate.EQ, v, LlvmContext.Null(L.Ptr)), L.ConstInt(L.I32, 0),
-                CallRuntime("csrt_string_get_hash_code_or_zero", L.I32, [L.Ptr], v));
-        if (BclValueTypes.IsDateTime(type)) return HashOf(type, v, null!);  // DateTime.GetHashCode: ticks only
-        if (v.Type.IsFloatingPoint) v = _b.Cast(LLVMOpcode.BitCast, v, v.Type.Kind == LLVMTypeKind.Double ? L.I64 : L.I32);
-        if (v.Type.IsInteger)
-            return v.Type.IntWidth switch
-            {
-                64 => _b.Cast(LLVMOpcode.Trunc, _b.BinOp(LLVMOpcode.Xor, v, _b.BinOp(LLVMOpcode.LShr, v, L.ConstInt(L.I64, 32))), L.I32),
-                32 => v,
-                _ => _b.Cast(TypeMapper.IsSigned(type) ? LLVMOpcode.SExt : LLVMOpcode.ZExt, v, L.I32),
-            };
-        if (type.IsReferenceType) return CallRuntime("csrt_object_get_hash_code_or_zero", L.I32, [L.Ptr], v);
-        var boxed = Box(v, type, null!);
-        return CallRuntime("csrt_object_get_hash_code_or_zero", L.I32, [L.Ptr], boxed);
-    }
+    /// <summary>EqualityComparer&lt;T&gt;.Default.GetHashCode(v) for one field (0 for null).</summary>
+    private LLVMValueRef FieldHash(LLVMValueRef v, ITypeSymbol type) => HashOf(type, v, null!);
 
     // Equals(R? other)
     private void EmitRecordEqualsTyped()
@@ -181,12 +135,17 @@ public sealed partial class FunctionCodeGen
         var other = _fn.Fn.Param(1);
         if (!IsRecordClass)
         {
-            // record struct: `other` is the struct value; compare fields.
+            // record struct: `other` is the struct value; f1 == other.f1 && ... (short-circuit once user code may run).
             var otherAddress = Spill(other);
-            LLVMValueRef all = L.True;
-            foreach (var f in RecordFields)
-                all = _b.BinOp(LLVMOpcode.And, all, FieldEquals(SelfFieldValue(_this, f), SelfFieldValue(otherAddress, f), S(f.Type)));
-            _b.Ret(all);
+            var fields = RecordFields.ToList();
+            Func<LLVMValueRef> Compare(IFieldSymbol f) => () => FieldEquals(SelfFieldValue(_this, f), SelfFieldValue(otherAddress, f), S(f.Type));
+            if (fields.All(f => RunsNoUserCode(S(f.Type), hash: false)))
+            {
+                LLVMValueRef all = L.True;
+                foreach (var f in fields) all = _b.BinOp(LLVMOpcode.And, all, Compare(f)());
+                _b.Ret(all);
+            }
+            else _b.Ret(ShortCircuit(isAnd: true, fields.Select(Compare)));
             return;
         }
         List<Func<LLVMValueRef>> conditions = [];

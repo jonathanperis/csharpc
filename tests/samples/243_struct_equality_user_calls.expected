@@ -1,0 +1,54 @@
+  Loud1.Equals(Loud)
+  Loud2.Equals(Loud)
+Equals: False
+  Loud9.Equals(Loud)
+Equals: False
+  Loud2.Equals(Loud)
+Equals: True
+Equals: False
+  Loud1.Equals(Loud)
+  Loud2.Equals(null)
+Equals: False
+-- hash
+  Loud1.GetHashCode
+  Loud2.GetHashCode
+  Loud4.GetHashCode
+  Mod.GetHashCode
+  Mod.GetHashCode
+  Loud10.GetHashCode
+  Loud11.GetHashCode
+-- nullable
+  Mod.Equals(null)
+False
+False
+  Mod.Equals(Mod)
+True
+  Mod.Equals(Mod)
+True True False 0
+0
+-- tuple
+  Loud1.Equals(Loud)
+False
+-- base
+  ViaBase.Equals
+  Loud12.Equals(Loud)
+  ViaBase.Equals
+True False True
+-- comparer
+False
+False
+  Loud1.Equals(Loud)
+  Loud2.Equals(Loud)
+False
+  Loud1.Equals(Loud)
+  Loud3.Equals(Loud)
+  Loud1.Equals(Loud)
+  Loud2.Equals(Loud)
+1
+-- record struct
+False
+  Loud15.Equals(Loud)
+True
+  IEquatable<Eqt>.Equals
+True
+-1549650380
