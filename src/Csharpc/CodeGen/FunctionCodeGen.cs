@@ -336,7 +336,7 @@ public sealed partial class FunctionCodeGen
             if (capture.Value is not IInvocationOperation { TargetMethod.Name: "GetEnumerator", Instance: { } instance }) continue;
             while (instance is IConversionOperation { Conversion.IsImplicit: true } c) instance = c.Operand;
             // Store the enumerable's type; whether it's an array is decided after substitution.
-            if (instance.Type is IArrayTypeSymbol { Rank: 1 } or ITypeParameterSymbol) result[capture.Id] = instance.Type;
+            if (instance.Type is IArrayTypeSymbol or ITypeParameterSymbol) result[capture.Id] = instance.Type;
         }
     }
 
@@ -344,7 +344,7 @@ public sealed partial class FunctionCodeGen
     {
         elementType = null!;
         if (enumerator is not IFlowCaptureReferenceOperation r || !_cfg!.ArrayEnumerators.TryGetValue(r.Id, out var raw)) return false;
-        if (S(raw) is not IArrayTypeSymbol { Rank: 1 } array) return false;
+        if (S(raw) is not IArrayTypeSymbol array) return false;
         elementType = array.ElementType;
         return true;
     }

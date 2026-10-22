@@ -752,8 +752,7 @@ public sealed partial class ModuleCodeGen
     {
         enumType = enumType.OriginalDefinition;
         if (_enumFormatters.TryGetValue(enumType, out var existing)) return existing;
-        if (enumType.GetAttributes().Any(a => a.AttributeClass?.Name == "FlagsAttribute"))
-            throw CompileError.Unsupported($"formatting [Flags] enum '{enumType.Name}'", enumType);
+        var isFlags = enumType.GetAttributes().Any(a => a.AttributeClass?.Name == "FlagsAttribute");
         var underlying = enumType.EnumUnderlyingType!;
         var valueType = Types.Value(underlying);
         var type = Llvm.FunctionType(Llvm.Ptr, valueType);
@@ -782,6 +781,25 @@ public sealed partial class ModuleCodeGen
         b.PositionAtEnd(entry);
         b.Switch(fn.Param(0), fallback, cases);
         b.PositionAtEnd(fallback);
+        if (isFlags)
+        {
+            // Not an exact name: let the runtime decompose into flag names (or fall back to the number).
+            var members = enumType.GetMembers().OfType<IFieldSymbol>().Where(f => f.HasConstantValue)
+                .Select(f => (Raw: f.ConstantValue switch { ulong u => u, uint u => u, ushort u => u, byte u => u, var v => unchecked((ulong)Convert.ToInt64(v)) }, f.Name))
+                .Select(m => (Raw: valueType.IntWidth == 64 ? m.Raw : m.Raw & ((1UL << (int)valueType.IntWidth) - 1), m.Name))
+                .GroupBy(m => m.Raw).Select(g => g.First()).OrderBy(m => m.Raw).ToList();
+            var valuesInit = LlvmContext.ConstArray(Llvm.I64, [.. members.Select(m => Llvm.ConstUInt(Llvm.I64, m.Raw))]);
+            var namesInit = LlvmContext.ConstArray(Llvm.Ptr, [.. members.Select(m => StringLiteral(m.Name))]);
+            var valuesTable = Module.AddGlobal(Mangler.TypeSymbol(enumType, "FlagValues"), Native.LLVMTypeOf(valuesInit), valuesInit, constant: true, linkage: LLVMLinkage.Internal);
+            var namesTable = Module.AddGlobal(Mangler.TypeSymbol(enumType, "FlagNames"), Native.LLVMTypeOf(namesInit), namesInit, constant: true, linkage: LLVMLinkage.Internal);
+            var signed = TypeMapper.IsSigned(underlying);
+            var asU64 = valueType.IntWidth == 64 ? fn.Param(0) : b.Cast(LLVMOpcode.ZExt, fn.Param(0), Llvm.I64);
+            var asI64 = valueType.IntWidth == 64 ? fn.Param(0) : b.Cast(signed ? LLVMOpcode.SExt : LLVMOpcode.ZExt, fn.Param(0), Llvm.I64);
+            var flags = Runtime("csrt_enum_format_flags", Llvm.Ptr, Llvm.I64, Llvm.Ptr, Llvm.Ptr, Llvm.I32, Llvm.I1, Llvm.I64);
+            b.Ret(b.Call(flags.Type, flags.Fn, [asU64, valuesTable, namesTable, Llvm.ConstInt(Llvm.I32, members.Count),
+                signed ? Llvm.True : Llvm.False, asI64]));
+            return lowered;
+        }
         var (name, argType, arg) = TypeMapper.IsSigned(underlying)
             ? ("csrt_string_from_i64", Llvm.I64, valueType.IntWidth == 64 ? fn.Param(0) : b.Cast(LLVMOpcode.SExt, fn.Param(0), Llvm.I64))
             : ("csrt_string_from_u64", Llvm.I64, valueType.IntWidth == 64 ? fn.Param(0) : b.Cast(LLVMOpcode.ZExt, fn.Param(0), Llvm.I64));

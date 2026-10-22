@@ -119,6 +119,67 @@ public sealed partial class FunctionCodeGen
         return default(LLVMValueRef);
     }
 
+    /// <summary>List patterns `[p0, p1, .., pk]` over arrays, strings and spans.</summary>
+    private LLVMValueRef ListPatternTest(LLVMValueRef value, ITypeSymbol? inputType, IListPatternOperation pattern)
+    {
+        var type = S(inputType!);
+        Func<LLVMValueRef> length;
+        Func<LLVMValueRef, LLVMValueRef> element; // index (i32) -> element value
+        ITypeSymbol elementType;
+        switch (type)
+        {
+            case IArrayTypeSymbol { Rank: 1 } array:
+                elementType = array.ElementType;
+                length = () => _b.Cast(LLVMOpcode.Trunc, _b.Load(L.I64, _b.StructGep(T.ArrayHeader(L.I8), value, 1), "len"), L.I32);
+                element = i => LoadValue(_b.InBoundsGep(T.ArrayHeader(T.Storage(elementType)), value,
+                    [L.ConstInt(L.I32, 0), L.ConstInt(L.I32, 2), _b.Cast(LLVMOpcode.SExt, i, L.I64)]), elementType);
+                break;
+            case { SpecialType: SpecialType.System_String }:
+                elementType = _m.Compilation.GetSpecialType(SpecialType.System_Char);
+                length = () => _b.Load(L.I32, _b.StructGep(T.StringHeader, value, 1), "strlen");
+                element = i => _b.Load(L.I16, _b.InBoundsGep(T.StringHeader, value, [L.ConstInt(L.I32, 0), L.ConstInt(L.I32, 2), i]));
+                break;
+            case var span when TypeMapper.IsSpan(span):
+                elementType = SpanElement(span);
+                length = () => _b.ExtractValue(value, 1);
+                element = i => LoadValue(_b.InBoundsGep(T.Storage(elementType), _b.ExtractValue(value, 0), [_b.Cast(LLVMOpcode.SExt, i, L.I64)]), elementType);
+                break;
+            default:
+                throw CompileError.Unsupported($"list pattern on '{type}'", pattern);
+        }
+
+        var patterns = pattern.Patterns;
+        var slice = patterns.ToList().FindIndex(p => p is ISlicePatternOperation);
+        var fixedCount = patterns.Length - (slice >= 0 ? 1 : 0);
+        if (slice >= 0 && ((ISlicePatternOperation)patterns[slice]).Pattern is { } slicePattern and not IDiscardPatternOperation)
+            throw CompileError.Unsupported("sub-pattern on a slice (`.. var rest`)", slicePattern);
+
+        LLVMValueRef len = default;
+        List<Func<LLVMValueRef>> steps = [];
+        if (type.IsReferenceType) steps.Add(() => _b.ICmp(LLVMIntPredicate.NE, value, LlvmContext.Null(L.Ptr)));
+        steps.Add(() =>
+        {
+            len = length();
+            return slice >= 0
+                ? _b.ICmp(LLVMIntPredicate.SGE, len, L.ConstInt(L.I32, fixedCount))
+                : _b.ICmp(LLVMIntPredicate.EQ, len, L.ConstInt(L.I32, fixedCount));
+        });
+        if (pattern.DeclaredSymbol is ILocalSymbol local)
+            steps.Add(() => { StoreValue(ToStorage(value, S(local.Type)), LocalSlot(local)); return L.True; });
+        for (var i = 0; i < patterns.Length; i++)
+        {
+            if (i == slice) continue;
+            var position = i;
+            var fromEnd = slice >= 0 && i > slice ? patterns.Length - i : 0;
+            steps.Add(() =>
+            {
+                var index = fromEnd > 0 ? _b.BinOp(LLVMOpcode.Sub, len, L.ConstInt(L.I32, fromEnd)) : L.ConstInt(L.I32, position);
+                return PatternTest(element(index), elementType, patterns[position]);
+            });
+        }
+        return ShortCircuit(isAnd: true, steps);
+    }
+
     private (LLVMValueRef[] Values, ITypeSymbol[] Types) Deconstruct(LLVMValueRef value, ITypeSymbol type, IRecursivePatternOperation pattern) =>
         pattern.DeconstructSymbol is IMethodSymbol method ? CallDeconstruct(method, value, type, pattern) : DeconstructTuple(value, type, pattern);
 

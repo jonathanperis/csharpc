@@ -330,7 +330,7 @@ public sealed partial class FunctionCodeGen
     private LLVMValueRef EmitArrayCreation(IArrayCreationOperation creation)
     {
         var arrayType = (IArrayTypeSymbol)TypeOf(creation)!;
-        if (arrayType.Rank != 1) throw CompileError.Unsupported("multi-dimensional arrays", creation);
+        if (arrayType.Rank != 1) return EmitMdArrayCreation(creation, arrayType);
         var length = ToIndex(EmitValue(creation.DimensionSizes[0]), TypeOf(creation.DimensionSizes[0])!);
         var array = NewArray(arrayType.ElementType, length);
         if (creation.Initializer is { } init)
@@ -372,7 +372,7 @@ public sealed partial class FunctionCodeGen
 
     private LLVMValueRef ElementAddress(IArrayElementReferenceOperation element)
     {
-        if (element.Indices.Length != 1) throw CompileError.Unsupported("multi-dimensional arrays", element);
+        if (element.Indices.Length != 1) return MdElementAddress(element, (IArrayTypeSymbol)TypeOf(element.ArrayReference)!);
         var index = element.Indices[0];
         var indexType = TypeOf(index);
         var isIndex = IsIndexType(indexType); // array[^n]
@@ -393,19 +393,20 @@ public sealed partial class FunctionCodeGen
 
     // foreach over T[]: Roslyn's CFG lowers it to the IEnumerable<T> pattern. We substitute a
     // stack-allocated { T[] array, i64 index } "enumerator"; after SROA this is a plain index loop.
-    private LLVMTypeRef ArrayEnumeratorType => L.Struct(L.Ptr, L.I64);
+    private LLVMTypeRef ArrayEnumeratorType => L.Struct(L.Ptr, L.I64, L.I64); // { data, index, length }
 
     internal LLVMValueRef ArrayGetEnumerator(IOperation instance, IOperation at)
     {
         var source = instance;
         while (source is IConversionOperation { Conversion.IsImplicit: true } c) source = c.Operand;
-        if (TypeOf(source) is not IArrayTypeSymbol { Rank: 1 })
+        if (TypeOf(source) is not IArrayTypeSymbol arrayType)
             throw CompileError.Unsupported($"foreach over '{TypeOf(source)}' (only arrays so far)", at);
         var array = EmitValue(source);
         NullCheck(array);
         var enumerator = NewTemp(ArrayEnumeratorType, "array.enumerator");
-        _b.Store(array, _b.StructGep(ArrayEnumeratorType, enumerator, 0));
+        _b.Store(ArrayDataStart(array, arrayType), _b.StructGep(ArrayEnumeratorType, enumerator, 0));
         _b.Store(L.ConstInt(L.I64, -1), _b.StructGep(ArrayEnumeratorType, enumerator, 1));
+        _b.Store(_b.Load(L.I64, _b.StructGep(T.ArrayHeader(L.I8), array, 1), "len"), _b.StructGep(ArrayEnumeratorType, enumerator, 2));
         return enumerator;
     }
 
@@ -414,16 +415,15 @@ public sealed partial class FunctionCodeGen
         var indexAddress = _b.StructGep(ArrayEnumeratorType, enumerator, 1);
         var index = _b.BinOp(LLVMOpcode.Add, _b.Load(L.I64, indexAddress), L.ConstInt(L.I64, 1));
         _b.Store(index, indexAddress);
-        var array = _b.Load(L.Ptr, _b.StructGep(ArrayEnumeratorType, enumerator, 0));
-        var length = _b.Load(L.I64, _b.StructGep(T.ArrayHeader(L.I8), array, 1), "len");
+        var length = _b.Load(L.I64, _b.StructGep(ArrayEnumeratorType, enumerator, 2), "len");
         return _b.ICmp(LLVMIntPredicate.SLT, index, length);
     }
 
     internal LLVMValueRef ArrayEnumeratorCurrent(LLVMValueRef enumerator, ITypeSymbol elementType)
     {
-        var array = _b.Load(L.Ptr, _b.StructGep(ArrayEnumeratorType, enumerator, 0));
+        var data = _b.Load(L.Ptr, _b.StructGep(ArrayEnumeratorType, enumerator, 0));
         var index = _b.Load(L.I64, _b.StructGep(ArrayEnumeratorType, enumerator, 1));
-        var address = _b.InBoundsGep(T.ArrayHeader(T.Storage(elementType)), array, [L.ConstInt(L.I32, 0), L.ConstInt(L.I32, 2), index]);
+        var address = _b.InBoundsGep(T.Storage(elementType), data, [index]);
         return LoadValue(address, elementType);
     }
 
@@ -611,6 +611,8 @@ public sealed partial class FunctionCodeGen
                 return BinaryPatternTest(value, inputType, binary);
             case IRecursivePatternOperation recursive:
                 return RecursivePatternTest(value, inputType, recursive);
+            case IListPatternOperation list:
+                return ListPatternTest(value, inputType, list);
             case ITypePatternOperation typePattern:
                 return IsInstance(value, inputType, S(typePattern.MatchedType), pattern);
             case IDeclarationPatternOperation declaration:

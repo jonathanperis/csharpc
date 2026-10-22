@@ -92,10 +92,24 @@ internal static class Intrinsics
             var self = ObjectReceiver(g, inv.Instance!);
             return g.VirtualCall(inv.TargetMethod, self, [self]);
         };
+        t["System.Array.GetLength(int)"] = (g, inv) =>
+            g.Builder.Cast(LLVMOpcode.Trunc, g.ArrayDimensionLength(g.EmitValue(inv.Instance!), inv.Instance!.Type!, Arg(g, inv, 0)), g.Module.Llvm.I32);
+        t["System.Array.GetLongLength(int)"] = (g, inv) => g.ArrayDimensionLength(g.EmitValue(inv.Instance!), inv.Instance!.Type!, Arg(g, inv, 0));
+        t["System.Array.GetUpperBound(int)"] = (g, inv) => g.Builder.BinOp(LLVMOpcode.Sub,
+            g.Builder.Cast(LLVMOpcode.Trunc, g.ArrayDimensionLength(g.EmitValue(inv.Instance!), inv.Instance!.Type!, Arg(g, inv, 0)), g.Module.Llvm.I32),
+            g.Module.Llvm.ConstInt(g.Module.Llvm.I32, 1));
+        t["System.Array.GetLowerBound(int)"] = (g, inv) => { Arg(g, inv, 0); return g.Module.Llvm.ConstInt(g.Module.Llvm.I32, 0); };
         t["object.ReferenceEquals(object, object)"] = (g, inv) =>
             g.Builder.ICmp(LLVMIntPredicate.EQ, Arg(g, inv, 0), Arg(g, inv, 1));
         t["System.Enum.ToString()"] = (g, inv) =>
             g.ToStringValue(inv.Instance is IConversionOperation { Operand.Type.TypeKind: TypeKind.Enum } boxed ? boxed.Operand : inv.Instance!);
+        t["System.Array.GetLength(int)"] = (g, inv) =>
+            g.Builder.Cast(LLVMOpcode.Trunc, g.ArrayDimensionLength(g.EmitValue(inv.Instance!), inv.Instance!.Type!, Arg(g, inv, 0)), g.Module.Llvm.I32);
+        t["System.Array.GetLongLength(int)"] = (g, inv) => g.ArrayDimensionLength(g.EmitValue(inv.Instance!), inv.Instance!.Type!, Arg(g, inv, 0));
+        t["System.Array.GetUpperBound(int)"] = (g, inv) => g.Builder.BinOp(LLVMOpcode.Sub,
+            g.Builder.Cast(LLVMOpcode.Trunc, g.ArrayDimensionLength(g.EmitValue(inv.Instance!), inv.Instance!.Type!, Arg(g, inv, 0)), g.Module.Llvm.I32),
+            g.Module.Llvm.ConstInt(g.Module.Llvm.I32, 1));
+        t["System.Array.GetLowerBound(int)"] = (g, inv) => { Arg(g, inv, 0); return g.Module.Llvm.ConstInt(g.Module.Llvm.I32, 0); };
         t["object.ReferenceEquals(object, object)"] = (g, inv) =>
             g.Builder.ICmp(LLVMIntPredicate.EQ, Arg(g, inv, 0), Arg(g, inv, 1));
         t["object.Equals(object, object)"] = (g, inv) =>
@@ -575,6 +589,7 @@ internal static class Intrinsics
         };
         t["System.Array.Length"] = (g, p) =>
             g.Builder.Cast(LLVMOpcode.Trunc, g.ArrayLength(g.EmitValue(p.Instance!)), g.Module.Llvm.I32);
+        t["System.Array.Rank"] = (g, p) => g.Module.Llvm.ConstInt(g.Module.Llvm.I32, p.Instance!.Type is IArrayTypeSymbol a ? a.Rank : 1);
         t["System.Array.LongLength"] = (g, p) => g.ArrayLength(g.EmitValue(p.Instance!));
         t["System.Environment.TickCount64"] = (g, _) =>
             g.CallRuntime("csrt_environment_tick_count64", g.Module.Llvm.I64, []);
