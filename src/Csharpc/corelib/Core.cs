@@ -31,6 +31,8 @@ namespace CsharpcCoreLib
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern object Box<T>(T value);
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern T Unbox<T>(object value);
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern T CastOrThrow<T>(object value);
+        /// <summary>csrt_string_compare_with: culture and ordinal comparisons (StringComparison 0..4).</summary>
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern int CompareStringsWith(string a, string b, int comparison);
         /// <summary>A new string of `length` chars whose contents are NOT initialized: write every char before use.</summary>
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern string FastAllocateString(int length);
         /// <summary>The chars of a string as a writable span — only for strings that haven't escaped yet.</summary>

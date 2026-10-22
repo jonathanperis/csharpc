@@ -544,12 +544,11 @@ internal static class BclValueTypes
             Rt(g, "csrt_string_compare_culture", g.Llvm.I32, (a[0], g.Llvm.Ptr), (a[1], g.Llvm.Ptr), (g.Llvm.False, g.Llvm.I1));
         t["string.Compare(string, string, bool)"] = (g, _, _, a, _) =>
             Rt(g, "csrt_string_compare_culture", g.Llvm.I32, (a[0], g.Llvm.Ptr), (a[1], g.Llvm.Ptr), (a[2], g.Llvm.I1));
-        t["string.Compare(string, string, System.StringComparison)"] = (g, _, _, a, _) =>
-            Rt(g, "csrt_string_compare_with", g.Llvm.I32, (a[0], g.Llvm.Ptr), (a[1], g.Llvm.Ptr), (a[2], g.Llvm.I32));
-        t["string.Equals(string, string, System.StringComparison)"] = (g, _, _, a, _) =>
-            g.Builder.ICmp(LLVMIntPredicate.EQ, Rt(g, "csrt_string_compare_with", g.Llvm.I32, (a[0], g.Llvm.Ptr), (a[1], g.Llvm.Ptr), (a[2], g.Llvm.I32)), I32(g, 0));
-        t["string.Equals(string, System.StringComparison)"] = (g, _, self, a, _) =>
-            g.Builder.ICmp(LLVMIntPredicate.EQ, Rt(g, "csrt_string_compare_with", g.Llvm.I32, (self, g.Llvm.Ptr), (a[0], g.Llvm.Ptr), (a[1], g.Llvm.I32)), I32(g, 0));
+        // OrdinalIgnoreCase (full simple case mapping, surrogate pairs) and argument validation in C#
+        // (corelib OrdinalCasing); culture and ordinal comparisons stay in csrt.
+        t["string.Compare(string, string, System.StringComparison)"] = (g, _, _, a, _) => g.CallCoreLib("OrdinalCasing", "CompareWith", a[0], a[1], a[2]);
+        t["string.Equals(string, string, System.StringComparison)"] = (g, _, _, a, _) => g.CallCoreLib("OrdinalCasing", "EqualsWith", a[0], a[1], a[2]);
+        t["string.Equals(string, System.StringComparison)"] = (g, _, self, a, _) => g.CallCoreLib("OrdinalCasing", "EqualsWith", self, a[0], a[1]);
         t["System.Math.Round(double, System.MidpointRounding)"] = (g, _, _, a, _) =>
             Rt(g, "csrt_math_round_mode", g.Llvm.F64, (a[0], g.Llvm.F64), (I32(g, 0), g.Llvm.I32), (a[1], g.Llvm.I32));
         t["System.Math.Round(double, int, System.MidpointRounding)"] = (g, _, _, a, _) =>

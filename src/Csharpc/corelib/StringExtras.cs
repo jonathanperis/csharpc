@@ -217,6 +217,7 @@ namespace CsharpcCoreLib
             public override int GetHashCode(string obj)
             {
                 if (obj == null) throw new ArgumentNullException(nameof(obj));
+                if (comparison == StringComparison.OrdinalIgnoreCase) return OrdinalCasing.ToUpperOrdinal(obj).GetHashCode();
                 return IgnoreCase ? obj.ToUpperInvariant().GetHashCode() : obj.GetHashCode();
             }
         }

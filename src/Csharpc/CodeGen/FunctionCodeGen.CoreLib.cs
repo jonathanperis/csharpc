@@ -112,6 +112,7 @@ public sealed partial class FunctionCodeGen
             "DecimalLo" => _b.ExtractValue(args[0], 2),
             "MakeDecimal" => _b.InsertValue(_b.InsertValue(_b.InsertValue(LlvmContext.Null(DecimalType), args[0], 0), args[1], 1), args[2], 2),
             "CompareStrings" => CallRuntime("csrt_string_compare_culture", L.I32, [L.Ptr, L.Ptr, L.I1], args[0], args[1], L.False),
+            "CompareStringsWith" => CallRuntime("csrt_string_compare_with", L.I32, [L.Ptr, L.Ptr, L.I32], args[0], args[1], args[2]),
             _ => throw CompileError.Unsupported($"corelib intrinsic '{target.Name}'", inv),
         };
     }

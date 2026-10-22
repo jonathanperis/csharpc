@@ -1,0 +1,34 @@
+0
+True
+True
+0
+True
+True
+False
+232
+300
+136
+-872
+106
+-1
+-1
+1
+-4
+-1 1
+True False
+True
+0
+-1
+1
+1024
+823 letters, 0 mismatches
+True -1
+True
+True
+Straße: 2
+STRASSE: 1
+Владимир: 2
+𐐨: 2
+2
+ArgumentException: The string comparison type passed in is currently not supported. (Parameter 'comparisonType')
+ArgumentException: The string comparison type passed in is currently not supported. (Parameter 'comparisonType')
