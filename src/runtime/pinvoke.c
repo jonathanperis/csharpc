@@ -79,6 +79,12 @@ void* csrt_pinvoke_resolve(const char* library, const char* entry) {
     return symbol;
 }
 
+/// A statically linked (weak) P/Invoke target that the linker didn't find.
+_Noreturn void csrt_pinvoke_missing_entry(const char* library, const char* entry) {
+    csrt_throw(&csrt_MT_System_EntryPointNotFoundException.header,
+               message("Unable to find an entry point named '%s' in shared library '%s'.", entry, library));
+}
+
 void* csrt_native_library_get_export(void* handle, const char* entry, bool throw_on_error) {
     void* symbol = handle ? dlsym(handle, entry) : NULL;
     if (!symbol && throw_on_error)

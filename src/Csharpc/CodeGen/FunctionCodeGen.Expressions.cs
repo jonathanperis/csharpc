@@ -20,6 +20,9 @@ public sealed partial class FunctionCodeGen
             IInstanceReferenceOperation { ReferenceKind: InstanceReferenceKind.PatternInput } => PatternInputValue(op),
             IInstanceReferenceOperation when InStructMember => LoadValue(_this, S(_method!.ContainingType)),
             IInstanceReferenceOperation => ThisValue(op),
+            // IntPtr.Zero / UIntPtr.Zero: the only static fields interop code reads off these types.
+            IFieldReferenceOperation { Field: { IsStatic: true, Name: "Zero", ContainingType.SpecialType: SpecialType.System_IntPtr or SpecialType.System_UIntPtr } } zf =>
+                LlvmContext.Null(T.Value(zf.Field.Type)),
             IFieldReferenceOperation f when TryLowLevelLibraryMember(f, out var libraryField) => libraryField,
             IFieldReferenceOperation { Field.IsStatic: true } f when !_m.IsUserType(f.Field.ContainingType) =>
                 BclValueTypes.TryGetField(f.Field, out var bclField) ? bclField(this, f)
@@ -149,6 +152,8 @@ public sealed partial class FunctionCodeGen
     {
         ILocalReferenceOperation l => LocalSlot(l.Local),
         IParameterReferenceOperation p => ParameterSlot(p.Parameter, p),
+        IFieldReferenceOperation { Field: { IsStatic: true, Name: "Zero", ContainingType.SpecialType: SpecialType.System_IntPtr or SpecialType.System_UIntPtr } } z =>
+            Spill(LlvmContext.Null(T.Value(z.Field.Type))),
         IFieldReferenceOperation f => FieldAddress(f),
         IArrayElementReferenceOperation a => ElementAddress(a),
         IDeclarationExpressionOperation d => AddressOf(d.Expression),

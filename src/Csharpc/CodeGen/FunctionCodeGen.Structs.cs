@@ -38,6 +38,8 @@ public sealed partial class FunctionCodeGen
             case ILocalReferenceOperation or IParameterReferenceOperation or IArrayElementReferenceOperation
                 or IDeclarationExpressionOperation:
                 return AddressOf(op);
+            case IFieldReferenceOperation { Field: { IsStatic: true, Name: "Zero", ContainingType.SpecialType: SpecialType.System_IntPtr or SpecialType.System_UIntPtr } }:
+                return Spill(EmitValue(op));
             case IFieldReferenceOperation f when f.Field.IsStatic || f.Instance is not null:
                 return AddressOf(op);
             case IFlowCaptureReferenceOperation c when _cfg!.LvalueCaptures.Contains(c.Id):

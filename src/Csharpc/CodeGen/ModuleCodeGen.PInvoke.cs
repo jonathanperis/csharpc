@@ -64,6 +64,9 @@ public sealed partial class ModuleCodeGen
             if (native.IsNull)
             {
                 native = Module.AddFunction(entry, nativeType);
+                // Weak: a symbol missing from libc becomes null (EntryPointNotFoundException at the call,
+                // like .NET) instead of a link error.
+                Native.LLVMSetLinkage(native, (LLVMLinkage)12 /* LLVMExternalWeakLinkage */);
                 ApplyNativeAttributes(native, parameters, retKind, method, sret, retStruct);
             }
         }
@@ -135,6 +138,17 @@ public sealed partial class ModuleCodeGen
 
         // ---- call ----
         LLVMValueRef callee = native;
+        if (direct && Native.LLVMGetLinkage(native) == (LLVMLinkage)12)
+        {
+            var missing = b.AppendBlock(stub, "missing");
+            var present = b.AppendBlock(stub, "present");
+            b.CondBr(b.ICmp(LLVMIntPredicate.EQ, native, LlvmContext.Null(Llvm.Ptr)), missing, present);
+            b.PositionAtEnd(missing);
+            var thrower = Runtime("csrt_pinvoke_missing_entry", Llvm.Void, Llvm.Ptr, Llvm.Ptr);
+            b.Call(thrower.Type, thrower.Fn, [CString(library), CString(entry)]);
+            b.Unreachable();
+            b.PositionAtEnd(present);
+        }
         if (!direct)
         {
             var cache = Module.AddGlobal($"__pinvoke_cache{_pinvokeCounter}", Llvm.Ptr, LlvmContext.Null(Llvm.Ptr), linkage: LLVMLinkage.Internal);
