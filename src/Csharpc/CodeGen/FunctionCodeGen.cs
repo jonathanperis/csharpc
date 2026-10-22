@@ -26,6 +26,9 @@ public sealed partial class FunctionCodeGen
     private readonly LLVMBasicBlockRef _entry;
     private readonly LLVMBasicBlockRef _start;
     private readonly LLVMValueRef _this;
+    /// <summary>Set when this is a lambda / local function: its closure-tree node and incoming env.</summary>
+    private readonly ClosureFunction? _nested;
+    private readonly LLVMValueRef _incomingEnv;
     private readonly Dictionary<ISymbol, LLVMValueRef> _slots = new(SymbolEqualityComparer.Default);
     private readonly HashSet<IParameterSymbol> _byRefParams = new(SymbolEqualityComparer.Default);
     private readonly HashSet<ILocalSymbol> _ownLocals = new(SymbolEqualityComparer.Default);
@@ -40,13 +43,15 @@ public sealed partial class FunctionCodeGen
         public Dictionary<CaptureId, (LLVMValueRef Slot, ITypeSymbol? Type)> Captures { get; } = [];
         /// <summary>Captures used as assignment targets: they hold an address, not a value.</summary>
         public HashSet<CaptureId> LvalueCaptures { get; } = [];
-        /// <summary>Captures holding a foreach-over-array enumerator -> element type.</summary>
+        /// <summary>Captures holding a foreach enumerator -> the (unsubstituted) enumerable type, if it may be an array.</summary>
         public Dictionary<CaptureId, ITypeSymbol> ArrayEnumerators { get; } = [];
         /// <summary>Per finally region: the continuation selector and where each value resumes.</summary>
         public Dictionary<ControlFlowRegion, (LLVMValueRef Selector, List<LLVMBasicBlockRef> Continuations)> Finally { get; } =
             new(ReferenceEqualityComparer.Instance);
         public List<(LLVMBasicBlockRef Block, ControlFlowRegion Region)> FinallyEnds { get; } = [];
         public LLVMBasicBlockRef Exit { get; set; }
+        /// <summary>The closure-tree node for this graph (captured variables live in env scopes).</summary>
+        public ClosureFunction Closure { get; set; } = null!;
     }
 
     private LlvmContext L => _m.Llvm;
@@ -54,10 +59,13 @@ public sealed partial class FunctionCodeGen
     internal ModuleCodeGen Module => _m;
     internal IrBuilder Builder => _b;
 
-    public FunctionCodeGen(ModuleCodeGen module, IMethodSymbol? method, LoweredFunction fn)
+    public FunctionCodeGen(ModuleCodeGen module, IMethodSymbol? method, LoweredFunction fn, ClosureFunction? nested = null,
+        TypeSubstitution? substitution = null)
     {
         _m = module;
+        _nested = nested;
         _method = method;
+        _subst = substitution ?? TypeSubstitution.For(method, module.Compilation);
         _fn = fn;
         _b = new IrBuilder(module.Llvm);
         _allocas = new IrBuilder(module.Llvm);
@@ -66,7 +74,12 @@ public sealed partial class FunctionCodeGen
 
         // Spill parameters to allocas (mem2reg will undo this) so they're assignable like locals.
         uint index = 0;
-        if (method is not null && ModuleCodeGen.HasThis(method))
+        if (method is not null && ModuleCodeGen.IsNestedFunction(method))
+        {
+            _incomingEnv = fn.Fn.Param(index++);
+            _incomingEnv.SetName("env");
+        }
+        else if (method is not null && ModuleCodeGen.HasThis(method))
         {
             _this = fn.Fn.Param(index++);
             _this.SetName("this");
@@ -75,24 +88,34 @@ public sealed partial class FunctionCodeGen
         {
             var value = fn.Fn.Param(index++);
             value.SetName(p.Name);
+            // CFG operations reference the *definition's* parameter symbols, so key by those.
             if (p.RefKind != RefKind.None)
             {
-                _slots[p] = value; // already an address
+                _slots[p.OriginalDefinition] = value; // already an address
                 _byRefParams.Add(p);
                 continue;
             }
-            var slot = _allocas.Alloca(T.Storage(p.Type), p.Name + ".addr");
-            if (p.Type.SpecialType == SpecialType.System_Boolean) value = _allocas.Cast(LLVMOpcode.ZExt, value, L.I8);
+            var pType = S(p.Type);
+            var slot = _allocas.Alloca(T.Storage(pType), p.Name + ".addr");
+            if (pType.SpecialType == SpecialType.System_Boolean) value = _allocas.Cast(LLVMOpcode.ZExt, value, L.I8);
             _allocas.Store(value, slot);
-            _slots[p] = slot;
+            _slots[p.OriginalDefinition] = slot;
         }
 
+        // Partial members: the implementation part's parameters are distinct symbols — alias them.
+        if (method?.PartialImplementationPart is { } impl)
+            for (var i = 0; i < impl.Parameters.Length; i++)
+                if (_slots.TryGetValue(method.Parameters[i], out var shared)) _slots[impl.Parameters[i]] = shared;
+        if (method?.AssociatedSymbol is IPropertySymbol { PartialImplementationPart: { } implProperty } && method.MethodKind == MethodKind.PropertySet
+            && implProperty.SetMethod is { } implSetter)
+            for (var i = 0; i < implSetter.Parameters.Length; i++)
+                if (_slots.TryGetValue(method.Parameters[i], out var shared)) _slots[implSetter.Parameters[i]] = shared;
         _start = _b.AppendBlock(fn.Fn, "start");
         _b.PositionAtEnd(_start);
     }
 
     private ITypeSymbol? ReturnType =>
-        _method is null || _method.MethodKind == MethodKind.Constructor ? null : _method.ReturnType;
+        _method is null || _method.MethodKind == MethodKind.Constructor ? null : S(_method.ReturnType);
 
     // ======================================================================================
     // Entry points
@@ -106,8 +129,10 @@ public sealed partial class FunctionCodeGen
         Finish();
     }
 
-    public void EmitImplicitConstructor(IReadOnlyList<ControlFlowGraph> prologue)
+    public void EmitImplicitConstructor(IReadOnlyList<ControlFlowGraph> prologue, bool zeroThis = false)
     {
+        // A struct's implicit parameterless constructor (reached via `: this()`) zero-initializes.
+        if (zeroThis) _b.Store(LlvmContext.Null(T.Value(_method!.ContainingType)), _this);
         LowerPrologue(prologue);
         if (_method!.ContainingType.BaseType is { } baseType && _m.IsUserType(baseType))
         {
@@ -125,7 +150,7 @@ public sealed partial class FunctionCodeGen
         // Parameters used outside initializers live in compiler-synthesized "<name>P" fields.
         foreach (var p in _method!.Parameters)
             if (CapturedParameterField(p) is { } field)
-                StoreValue(ToStorage(LoadValue(_slots[p], p.Type), p.Type), FieldAddressOn(_this, field));
+                StoreValue(ToStorage(LoadValue(_slots[p.OriginalDefinition], p.Type), p.Type), FieldAddressOn(_this, S(field)));
         if (baseCall is null)
         {
             EmitImplicitConstructor(initializers);
@@ -195,7 +220,10 @@ public sealed partial class FunctionCodeGen
     {
         var outer = _cfg;
         var state = _cfg = new CfgState(graph, continuation);
-        _m.EnqueueLocalFunctions(graph);
+        state.Closure = _nested is { } n && ReferenceEquals(n.Cfg, graph)
+            ? n
+            : new ClosureAnalysis(graph, _method?.OriginalDefinition, _m).Root;
+        _m.EnqueueNested(state.Closure, _subst);
         ScanRegions(graph, graph.Root);
         FindLvalueCaptures(graph, state.LvalueCaptures);
         FindArrayEnumerators(graph, state.ArrayEnumerators);
@@ -204,13 +232,14 @@ public sealed partial class FunctionCodeGen
             if (block is { Kind: BasicBlockKind.Block, IsReachable: true })
                 state.Blocks[block] = _b.AppendBlock(_fn.Fn, $"bb{block.Ordinal}");
 
+        EnterFunctionScope();
         _b.Br(Target(graph.Blocks[0].FallThroughSuccessor!));
 
         foreach (var (block, llvmBlock) in state.Blocks)
         {
             _b.PositionAtEnd(llvmBlock);
-            foreach (var operation in block.Operations) EmitStatement(operation);
-            EmitTerminator(block);
+            foreach (var operation in block.Operations) WithLocation(operation, () => EmitStatement(operation));
+            WithLocation(block.BranchValue ?? block.Operations.LastOrDefault(), () => EmitTerminator(block));
         }
 
         // End of each finally: dispatch to whichever continuation entered it.
@@ -224,6 +253,16 @@ public sealed partial class FunctionCodeGen
             _b.Switch(selector, info.Continuations[0], cases);
         }
         _cfg = outer;
+    }
+
+    /// <summary>Errors raised deep inside (e.g. mapping a library type) get the operation's source location.</summary>
+    private static void WithLocation(IOperation? at, Action action)
+    {
+        try { action(); }
+        catch (CompileError e) when (e.Location is not { IsInSource: true } && at is not null)
+        {
+            throw new CompileError(e.Id, e.Message, at.Syntax.GetLocation());
+        }
     }
 
     private void ScanRegions(ControlFlowGraph graph, ControlFlowRegion region)
@@ -258,8 +297,13 @@ public sealed partial class FunctionCodeGen
                     IAssignmentOperation a => a.Target,
                     IIncrementOrDecrementOperation i => i.Target,
                     IArgumentOperation { Parameter.RefKind: not RefKind.None } arg => arg.Value,
+                    // Mutating struct members through a captured receiver must reach the original storage.
+                    IInvocationOperation { Instance.Type.IsValueType: true, TargetMethod.IsReadOnly: false } inv => inv.Instance,
                     _ => null,
                 };
+                // `s.X = v` / `s.P = v` where s is a captured struct: the capture is an lvalue too.
+                while (target is IFieldReferenceOperation { Instance.Type.IsValueType: true } or IPropertyReferenceOperation { Instance.Type.IsValueType: true })
+                    target = target is IFieldReferenceOperation f ? f.Instance : ((IPropertyReferenceOperation)target).Instance;
                 if (target is IFlowCaptureReferenceOperation r) result.Add(r.Id);
             }
         }
@@ -271,17 +315,21 @@ public sealed partial class FunctionCodeGen
         {
             if (capture.Value is not IInvocationOperation { TargetMethod.Name: "GetEnumerator", Instance: { } instance }) continue;
             while (instance is IConversionOperation { Conversion.IsImplicit: true } c) instance = c.Operand;
-            if (instance.Type is IArrayTypeSymbol { Rank: 1 } array) result[capture.Id] = array.ElementType;
+            // Store the enumerable's type; whether it's an array is decided after substitution.
+            if (instance.Type is IArrayTypeSymbol { Rank: 1 } or ITypeParameterSymbol) result[capture.Id] = instance.Type;
         }
     }
 
     internal bool TryArrayEnumerator(IOperation? enumerator, out ITypeSymbol elementType)
     {
         elementType = null!;
-        return enumerator is IFlowCaptureReferenceOperation r && _cfg!.ArrayEnumerators.TryGetValue(r.Id, out elementType!);
+        if (enumerator is not IFlowCaptureReferenceOperation r || !_cfg!.ArrayEnumerators.TryGetValue(r.Id, out var raw)) return false;
+        if (S(raw) is not IArrayTypeSymbol { Rank: 1 } array) return false;
+        elementType = array.ElementType;
+        return true;
     }
 
-    private LLVMBasicBlockRef Target(ControlFlowBranch branch) => ThroughFinally(branch, DirectTarget(branch));
+    private LLVMBasicBlockRef Target(ControlFlowBranch branch) => ThroughFinally(branch, EnterScopes(branch, DirectTarget(branch)));
 
     /// <summary>
     /// A branch that leaves try regions must first run their finally blocks (innermost first). Each
@@ -383,7 +431,7 @@ public sealed partial class FunctionCodeGen
             else _b.Br(ThroughFinally(branch, DirectTarget(branch)));
             return;
         }
-        var result = Coerce(EmitValue(value!), value!.Type, ReturnType!);
+        var result = Coerce(EmitValue(value!), TypeOf(value), ReturnType!);
         if (branch.FinallyRegions.IsEmpty) { _b.Ret(result); return; }
 
         // `return x;` inside try/finally: x is evaluated before the finally runs.
@@ -405,18 +453,19 @@ public sealed partial class FunctionCodeGen
 
     private void EmitStatement(IOperation operation)
     {
-        if (operation is IFlowCaptureOperation { Value.Type: { } lvalueType } lvalue && _cfg!.LvalueCaptures.Contains(lvalue.Id))
+        if (operation is IFlowCaptureOperation { Value.Type: not null } lvalue && _cfg!.LvalueCaptures.Contains(lvalue.Id))
         {
-            var address = AddressOf(lvalue.Value);
-            _cfg.Captures[lvalue.Id] = (_allocas.Alloca(L.Ptr, "capture.addr"), lvalueType);
+            var address = AddressOrSpill(lvalue.Value);
+            _cfg.Captures[lvalue.Id] = (_allocas.Alloca(L.Ptr, "capture.addr"), TypeOf(lvalue.Value));
             _b.Store(address, _cfg.Captures[lvalue.Id].Slot);
             return;
         }
         if (operation is IFlowCaptureOperation capture)
         {
             var value = EmitValue(capture.Value);
-            var (slot, type) = CaptureSlot(capture.Id, capture.Value.Type);
-            if (type is not null && capture.Value.Type is not null) value = Coerce(value, capture.Value.Type, type);
+            var valueType = TypeOf(capture.Value);
+            var (slot, type) = CaptureSlot(capture.Id, valueType);
+            if (type is not null && valueType is not null) value = Coerce(value, valueType, type);
             StoreValue(type is null ? value : ToStorage(value, type), slot);
             return;
         }
@@ -448,19 +497,21 @@ public sealed partial class FunctionCodeGen
 
     internal LLVMValueRef LocalSlot(ILocalSymbol local)
     {
+        if (CapturedAddress(local) is { } captured) return captured;
         if (_slots.TryGetValue(local, out var slot)) return slot;
         if (local.IsRef) throw CompileError.Unsupported($"ref local '{local.Name}'", local);
         if (!_ownLocals.Contains(local))
             throw CompileError.Unsupported($"closure: local function or lambda capturing '{local.Name}'", local);
-        return _slots[local] = _allocas.Alloca(T.Storage(local.Type), local.Name);
+        return _slots[local] = _allocas.Alloca(T.Storage(S(local.Type)), local.Name);
     }
 
     internal LLVMValueRef ParameterSlot(IParameterSymbol parameter, IOperation at)
     {
+        if (CapturedAddress(parameter) is { } captured) return captured;
         if (_slots.TryGetValue(parameter, out var slot)) return slot;
         // A primary-constructor parameter referenced from a member: read its captured field.
-        if (_this.Handle != 0 && CapturedParameterField(parameter) is { } field)
-            return FieldAddressOn(_this, field);
+        if (CapturedParameterField(parameter) is { } field)
+            return FieldAddressOn(ThisValue(at), S(field));
         throw CompileError.Unsupported($"closure: local function or lambda capturing parameter '{parameter.Name}'", at);
     }
 
@@ -471,8 +522,13 @@ public sealed partial class FunctionCodeGen
 
     internal LLVMValueRef FieldAddressOn(LLVMValueRef instance, IFieldSymbol field)
     {
+        if (field.ContainingType.IsValueType)
+        {
+            var (structType, index) = _m.ValueTypeField(field);
+            return _b.StructGep(structType, instance, index, field.Name);
+        }
         var layout = _m.GetLayout(field.ContainingType);
-        return _b.StructGep(layout.InstanceType, instance, layout.FieldIndex[field.OriginalDefinition], field.Name);
+        return _b.StructGep(layout.InstanceType, instance, layout.FieldIndex[field], field.Name);
     }
 
     // ======================================================================================

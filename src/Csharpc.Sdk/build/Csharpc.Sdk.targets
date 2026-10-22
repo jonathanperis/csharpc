@@ -1,0 +1,65 @@
+<Project>
+  <PropertyGroup>
+    <!-- The compiler bundled in this package (override to use a locally built csharpc.dll). -->
+    <CsharpcCompilerPath Condition="'$(CsharpcCompilerPath)' == ''">$(MSBuildThisFileDirectory)../tools/csharpc/csharpc.dll</CsharpcCompilerPath>
+    <CsharpcDotnetHost Condition="'$(CsharpcDotnetHost)' == '' and '$(DOTNET_HOST_PATH)' != ''">$(DOTNET_HOST_PATH)</CsharpcDotnetHost>
+    <CsharpcDotnetHost Condition="'$(CsharpcDotnetHost)' == ''">dotnet</CsharpcDotnetHost>
+    <!-- Debug -> -O0, everything else -> -O2 (csharpc maps -c itself); extra flags via CsharpcArgs, e.g. -O3. -->
+    <CsharpcConfiguration Condition="'$(CsharpcConfiguration)' == ''">$(Configuration)</CsharpcConfiguration>
+    <_CsharpcExeSuffix Condition="'$(OS)' == 'Windows_NT'">.exe</_CsharpcExeSuffix>
+    <!-- By default the native binary takes the apphost's place, so `dotnet run` / bin/.../App run native code. -->
+    <CsharpcOutputPath Condition="'$(CsharpcOutputPath)' == ''">$(OutDir)$(AssemblyName)$(_CsharpcExeSuffix)</CsharpcOutputPath>
+    <_CsharpcCommand>&quot;$(CsharpcDotnetHost)&quot; &quot;$(CsharpcCompilerPath)&quot; &quot;$(MSBuildProjectFullPath)&quot; -c $(CsharpcConfiguration) -p:TargetFramework=$(TargetFramework)</_CsharpcCommand>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <_CsharpcIsExe Condition="'$(OutputType)' == 'Exe' or '$(OutputType)' == 'WinExe'">true</_CsharpcIsExe>
+  </PropertyGroup>
+
+  <Target Name="_CsharpcValidate">
+    <Error Condition="!Exists('$(CsharpcCompilerPath)')" Text="csharpc compiler not found at '$(CsharpcCompilerPath)'. Set CsharpcCompilerPath." />
+  </Target>
+
+  <!-- dotnet build -p:UseCsharpc=true (libraries are skipped: their sources are folded into the
+       referencing executable). The native image is built incrementally into obj/ and then copied over
+       the apphost (which the regular build may have just refreshed). -->
+  <PropertyGroup>
+    <_CsharpcIntermediateOutput>$(ProjectDir)$(IntermediateOutputPath)csharpc/$(AssemblyName)$(_CsharpcExeSuffix)</_CsharpcIntermediateOutput>
+  </PropertyGroup>
+
+  <Target Name="CsharpcCompile"
+          AfterTargets="Build"
+          DependsOnTargets="_CsharpcValidate"
+          Condition="'$(UseCsharpc)' == 'true' and '$(_CsharpcIsExe)' == 'true'"
+          Inputs="@(Compile);@(ReferencePath);$(MSBuildProjectFullPath);$(CsharpcCompilerPath)"
+          Outputs="$(_CsharpcIntermediateOutput)">
+    <Exec Command="$(_CsharpcCommand) -o &quot;$(_CsharpcIntermediateOutput)&quot; $(CsharpcArgs)" />
+    <Touch Files="$(_CsharpcIntermediateOutput)" />
+  </Target>
+
+  <Target Name="CsharpcCopyToOutput"
+          AfterTargets="CsharpcCompile"
+          Condition="'$(UseCsharpc)' == 'true' and '$(_CsharpcIsExe)' == 'true'">
+    <Copy SourceFiles="$(_CsharpcIntermediateOutput)" DestinationFiles="$(CsharpcOutputPath)" SkipUnchangedFiles="true" />
+    <Message Importance="high" Text="$(MSBuildProjectName) -> $(CsharpcOutputPath) (native, csharpc)" />
+  </Target>
+
+  <!-- dotnet publish -p:PublishCsharpc=true: like PublishAot, the published app is one native executable. -->
+  <Target Name="CsharpcPublish"
+          AfterTargets="Publish"
+          DependsOnTargets="_CsharpcValidate"
+          Condition="'$(PublishCsharpc)' == 'true'">
+    <Error Condition="'$(_CsharpcIsExe)' != 'true'"
+           Text="PublishCsharpc requires an executable project (OutputType=Exe); libraries are compiled into the executable that references them." />
+    <PropertyGroup>
+      <_CsharpcPublishOutput>$(PublishDir)$(AssemblyName)$(_CsharpcExeSuffix)</_CsharpcPublishOutput>
+    </PropertyGroup>
+    <Exec Command="$(_CsharpcCommand) -o &quot;$(_CsharpcPublishOutput)&quot; $(CsharpcArgs)" />
+    <ItemGroup>
+      <!-- Remove the managed payload: the native executable is self-contained. -->
+      <_CsharpcManagedPublished Include="$(PublishDir)*.dll;$(PublishDir)*.pdb;$(PublishDir)*.deps.json;$(PublishDir)*.runtimeconfig.json" />
+    </ItemGroup>
+    <Delete Files="@(_CsharpcManagedPublished)" Condition="'$(CsharpcKeepManagedPublishOutput)' != 'true'" />
+    <Message Importance="high" Text="$(MSBuildProjectName) -> $(_CsharpcPublishOutput) (native, csharpc)" />
+  </Target>
+</Project>

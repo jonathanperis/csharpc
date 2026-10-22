@@ -50,7 +50,7 @@ internal static class Intrinsics
     private static LLVMValueRef Arg(FunctionCodeGen g, IInvocationOperation inv, int ordinal)
     {
         var argument = inv.Arguments.First(a => a.Parameter!.Ordinal == ordinal);
-        return g.Coerce(g.EmitValue(argument.Value), argument.Value.Type, argument.Parameter!.Type);
+        return g.Coerce(g.EmitValue(argument.Value), g.TypeOf(argument.Value), g.S(argument.Parameter!.Type));
     }
 
     /// <summary>Argument 0 widened to i64 (sign- or zero-extended).</summary>
@@ -71,31 +71,100 @@ internal static class Intrinsics
             t[$"System.Console.WriteLine({type})"] = (g, inv) => { WriteValue(g, inv.Arguments[0].Value); NewLine(g); return default; };
         }
         t["System.Console.WriteLine()"] = (g, _) => { NewLine(g); return default; };
+        t["System.Console.ReadLine()"] = (g, _) => g.CallRuntime("csrt_console_read_line", g.Module.Llvm.Ptr, []);
+        t["System.Console.Read()"] = (g, _) => g.CallRuntime("csrt_console_read", g.Module.Llvm.I32, []);
+
+        // Console.Out / Console.Error / Console.In: TextWriter/TextReader calls on those properties.
+        foreach (var type in printable)
+        {
+            t[$"System.IO.TextWriter.Write({type})"] = (g, inv) => { WriteTo(g, inv, inv.Arguments[0].Value, newline: false); return default; };
+            t[$"System.IO.TextWriter.WriteLine({type})"] = (g, inv) => { WriteTo(g, inv, inv.Arguments[0].Value, newline: true); return default; };
+        }
+        t["System.IO.TextWriter.WriteLine()"] = (g, inv) => { WriteTo(g, inv, null, newline: true); return default; };
+        t["System.IO.TextWriter.Flush()"] = (g, inv) => { ConsoleStream(inv); g.CallRuntime("csrt_console_flush", g.Module.Llvm.Void, []); return default; };
+        t["System.IO.TextReader.ReadLine()"] = (g, inv) => { ConsoleStream(inv); return g.CallRuntime("csrt_console_read_line", g.Module.Llvm.Ptr, []); };
+        t["System.IO.TextReader.ReadToEnd()"] = (g, inv) => { ConsoleStream(inv); return g.CallRuntime("csrt_console_read_to_end", g.Module.Llvm.Ptr, []); };
 
         // ---- System.Object / ToString ----------------------------------------------------------
         t["object..ctor()"] = (_, _) => default;
         t["object.ToString()"] = (g, inv) =>
         {
-            var self = g.EmitValue(inv.Instance!);
-            g.NullCheck(self);
+            var self = ObjectReceiver(g, inv.Instance!);
             return g.VirtualCall(inv.TargetMethod, self, [self]);
         };
         t["System.Enum.ToString()"] = (g, inv) =>
             g.ToStringValue(inv.Instance is IConversionOperation { Operand.Type.TypeKind: TypeKind.Enum } boxed ? boxed.Operand : inv.Instance!);
         t["object.Equals(object)"] = (g, inv) =>
         {
-            var self = g.EmitValue(inv.Instance!);
-            g.NullCheck(self);
+            var self = ObjectReceiver(g, inv.Instance!);
             return g.VirtualCall(inv.TargetMethod, self, [self, Arg(g, inv, 0)]);
         };
         t["object.GetHashCode()"] = (g, inv) =>
         {
-            var self = g.EmitValue(inv.Instance!);
-            g.NullCheck(self);
+            var self = ObjectReceiver(g, inv.Instance!);
             return g.VirtualCall(inv.TargetMethod, self, [self]);
         };
         foreach (var type in new[] { "int", "long", "uint", "ulong", "short", "ushort", "byte", "sbyte", "double", "float", "bool", "char", "string" })
             t[$"{type}.ToString()"] = (g, inv) => g.ToStringValue(inv.Instance!);
+
+        // ---- IComparable<T>.CompareTo on primitives (reached via generic constraints) -------------
+        foreach (var (type, signed) in new[] { ("int", true), ("long", true), ("short", true), ("sbyte", true),
+                     ("uint", false), ("ulong", false), ("ushort", false), ("byte", false), ("char", false) })
+            t[$"{type}.CompareTo({type})"] = (g, inv) =>
+            {
+                var b = g.Builder;
+                var x = g.EmitValue(g.ConcreteReceiver(inv.Instance!));
+                var y = Arg(g, inv, 0);
+                var l = g.Module.Llvm;
+                var lt = b.ICmp(signed ? LLVMIntPredicate.SLT : LLVMIntPredicate.ULT, x, y);
+                var gt = b.ICmp(signed ? LLVMIntPredicate.SGT : LLVMIntPredicate.UGT, x, y);
+                return b.Select(lt, l.ConstInt(l.I32, -1), b.Cast(LLVMOpcode.ZExt, gt, l.I32));
+            };
+        foreach (var type in new[] { "double", "float" })
+            t[$"{type}.CompareTo({type})"] = (g, inv) =>
+            {
+                // NaN sorts first and equals itself, as in .NET.
+                var b = g.Builder;
+                var l = g.Module.Llvm;
+                var x = g.EmitValue(g.ConcreteReceiver(inv.Instance!));
+                var y = Arg(g, inv, 0);
+                var lt = b.FCmp(LLVMRealPredicate.OLT, x, y);
+                var gt = b.FCmp(LLVMRealPredicate.OGT, x, y);
+                var xNaN = b.FCmp(LLVMRealPredicate.UNO, x, x);
+                var yNaN = b.FCmp(LLVMRealPredicate.UNO, y, y);
+                var result = b.Select(lt, l.ConstInt(l.I32, -1), b.Cast(LLVMOpcode.ZExt, gt, l.I32));
+                result = b.Select(b.BinOp(LLVMOpcode.And, xNaN, b.Not(yNaN)), l.ConstInt(l.I32, -1), result);
+                result = b.Select(b.BinOp(LLVMOpcode.And, yNaN, b.Not(xNaN)), l.ConstInt(l.I32, 1), result);
+                return result;
+            };
+
+        foreach (var type in new[] { "int", "long", "uint", "ulong", "short", "ushort", "byte", "sbyte", "double", "float" })
+            t[$"{type}.ToString(string)"] = (g, inv) => g.FormatWith(inv.Instance!, Arg(g, inv, 0));
+
+        // Composite formatting: fixed-arity overloads (the params ReadOnlySpan<object> ones need spans).
+        IntrinsicHandler composite(Action<FunctionCodeGen, LLVMValueRef>? sink, bool newline) => (g, inv) =>
+        {
+            var l = g.Module.Llvm;
+            var ordered = inv.Arguments.OrderBy(a => a.Parameter!.Ordinal).ToList();
+            var format = g.EmitValue(ordered[0].Value);
+            var args = ordered.Count == 2 && ordered[1].Value.Type is IArrayTypeSymbol && ordered[1].ArgumentKind != ArgumentKind.ParamArray
+                ? g.EmitValue(ordered[1].Value)
+                : ordered.Count == 2 && ordered[1].Value is IArrayCreationOperation { Initializer: { } init }
+                    ? g.ObjectArray(init.ElementValues)
+                    : g.ObjectArray([.. ordered.Skip(1).Select(a => a.Value)]);
+            var text = g.CallRuntime("csrt_string_format", l.Ptr, [l.Ptr, l.Ptr], format, args);
+            if (sink is null) return text;
+            sink(g, text);
+            if (newline) NewLine(g);
+            return default;
+        };
+        Action<FunctionCodeGen, LLVMValueRef> write = (g, s) => g.CallRuntime("csrt_console_write_string", g.Module.Llvm.Void, [g.Module.Llvm.Ptr], s);
+        foreach (var arity in new[] { "object", "object, object", "object, object, object", "object[]" })
+        {
+            t[$"string.Format(string, {arity})"] = composite(null, false);
+            t[$"System.Console.WriteLine(string, {arity})"] = composite(write, true);
+            t[$"System.Console.Write(string, {arity})"] = composite(write, false);
+        }
 
         // ---- System.String ---------------------------------------------------------------------
         IntrinsicHandler concat = (g, inv) =>
@@ -214,6 +283,38 @@ internal static class Intrinsics
             t[$"System.Math.Max({type}, {type})"] = (g, inv) => SelectCompare(g, Arg(g, inv, 0), Arg(g, inv, 1), signed ? LLVMIntPredicate.SGT : LLVMIntPredicate.UGT);
             t[$"System.Math.Min({type}, {type})"] = (g, inv) => SelectCompare(g, Arg(g, inv, 0), Arg(g, inv, 1), signed ? LLVMIntPredicate.SLT : LLVMIntPredicate.ULT);
         }
+        t["System.Math.Round(double, int)"] = (g, inv) =>
+            g.CallRuntime("csrt_math_round_digits", g.Module.Llvm.F64, [g.Module.Llvm.F64, g.Module.Llvm.I32], Arg(g, inv, 0), Arg(g, inv, 1));
+        t["System.Math.Log2(double)"] = (g, inv) => CallUnaryF64(g, "llvm.log2.f64", Arg(g, inv, 0));
+        foreach (var type in new[] { "int", "long", "double", "float", "short", "sbyte" })
+            t[$"System.Math.Sign({type})"] = (g, inv) =>
+            {
+                var b = g.Builder;
+                var l = g.Module.Llvm;
+                var v = Arg(g, inv, 0);
+                LLVMValueRef gt, lt;
+                if (v.Type.IsFloatingPoint)
+                {
+                    var zero = LlvmContext.ConstReal(v.Type, 0);
+                    // Math.Sign(NaN) throws ArithmeticException in .NET.
+                    g.FailIf(b.FCmp(LLVMRealPredicate.UNO, v, v), "csrt_throw_overflow");
+                    (gt, lt) = (b.FCmp(LLVMRealPredicate.OGT, v, zero), b.FCmp(LLVMRealPredicate.OLT, v, zero));
+                }
+                else
+                {
+                    var zero = l.ConstInt(v.Type, 0);
+                    (gt, lt) = (b.ICmp(LLVMIntPredicate.SGT, v, zero), b.ICmp(LLVMIntPredicate.SLT, v, zero));
+                }
+                return b.BinOp(LLVMOpcode.Sub, b.Cast(LLVMOpcode.ZExt, gt, l.I32), b.Cast(LLVMOpcode.ZExt, lt, l.I32));
+            };
+        t["System.Math.Max(float, float)"] = (g, inv) => CallBinary(g, "llvm.maximum.f32", g.Module.Llvm.F32, Arg(g, inv, 0), Arg(g, inv, 1));
+        t["System.Math.Min(float, float)"] = (g, inv) => CallBinary(g, "llvm.minimum.f32", g.Module.Llvm.F32, Arg(g, inv, 0), Arg(g, inv, 1));
+        t["System.MathF.Sqrt(float)"] = (g, inv) =>
+        {
+            var f = g.Module.Intrinsic("llvm.sqrt.f32", g.Module.Llvm.F32, g.Module.Llvm.F32);
+            return g.Builder.Call(f.Type, f.Fn, [Arg(g, inv, 0)]);
+        };
+
         // IEEE 754-2019 maximum/minimum: NaN-propagating and -0 < +0, exactly .NET Core 3.0+ Math.Max/Min.
         t["System.Math.Max(double, double)"] = (g, inv) => CallBinaryF64(g, "llvm.maximum.f64", Arg(g, inv, 0), Arg(g, inv, 1));
         t["System.Math.Min(double, double)"] = (g, inv) => CallBinaryF64(g, "llvm.minimum.f64", Arg(g, inv, 0), Arg(g, inv, 1));
@@ -308,7 +409,7 @@ internal static class Intrinsics
     private static LLVMValueRef CtorArg(FunctionCodeGen g, IObjectCreationOperation c, int ordinal)
     {
         var argument = c.Arguments.First(a => a.Parameter!.Ordinal == ordinal);
-        return g.Coerce(g.EmitValue(argument.Value), argument.Value.Type, argument.Parameter!.Type);
+        return g.Coerce(g.EmitValue(argument.Value), g.TypeOf(argument.Value), g.S(argument.Parameter!.Type));
     }
 
     private static FrozenDictionary<string, ConstructorHandler> BuildConstructors()
@@ -352,7 +453,7 @@ internal static class Intrinsics
         t["System.Environment.TickCount64"] = (g, _) =>
             g.CallRuntime("csrt_environment_tick_count64", g.Module.Llvm.I64, []);
         t["System.Collections.Generic.IEnumerator<T>.Current"] = (g, p) =>
-            g.ArrayEnumeratorCurrent(g.EmitValue(p.Instance!), p.Type!);
+            g.ArrayEnumeratorCurrent(g.EmitValue(p.Instance!), g.TypeOf(p)!);
         t["System.Collections.IEnumerator.Current"] = (g, p) =>
         {
             if (!g.TryArrayEnumerator(p.Instance, out var element))
@@ -367,13 +468,42 @@ internal static class Intrinsics
 
     // ---- helpers ------------------------------------------------------------------------------
 
+    /// <summary>Receiver for System.Object's virtuals: value types (without an override) are boxed first.</summary>
+    private static LLVMValueRef ObjectReceiver(FunctionCodeGen g, IOperation instance)
+    {
+        var value = g.EmitValue(instance);
+        if (instance.Type is { IsValueType: true } valueType) return g.Box(value, valueType, instance);
+        g.NullCheck(value);
+        return value;
+    }
+
+    /// <summary>Which console stream a TextWriter/TextReader receiver is ("Out", "Error", "In").</summary>
+    private static string ConsoleStream(IInvocationOperation inv) =>
+        inv.Instance is IPropertyReferenceOperation { Property.ContainingType.Name: "Console", Property.Name: var name }
+            ? name
+            : throw CompileError.Unsupported("TextWriter/TextReader other than Console.Out/Error/In", inv);
+
+    private static void WriteTo(FunctionCodeGen g, IInvocationOperation inv, IOperation? value, bool newline)
+    {
+        var l = g.Module.Llvm;
+        if (ConsoleStream(inv) == "Out")
+        {
+            if (value is not null) WriteValue(g, value);
+            if (newline) NewLine(g);
+            return;
+        }
+        var text = value is null ? g.Module.StringLiteral("") : g.ToStringValue(value);
+        if (newline) text = g.ConcatStrings(text, g.Module.StringLiteral("\n"));
+        g.CallRuntime("csrt_console_error_write_string", l.Void, [l.Ptr], text);
+    }
+
     private static void NewLine(FunctionCodeGen g) => g.CallRuntime("csrt_console_newline", g.Module.Llvm.Void, []);
 
     private static void WriteValue(FunctionCodeGen g, IOperation argument)
     {
         var l = g.Module.Llvm;
         var op = FunctionCodeGen.Unbox(argument);
-        var type = op.Type;
+        var type = g.TypeOf(op);
         if (op.ConstantValue.HasValue || type is null || type.TypeKind == TypeKind.Enum)
         {
             g.CallRuntime("csrt_console_write_string", l.Void, [l.Ptr], g.ToStringValue(op));
@@ -408,6 +538,12 @@ internal static class Intrinsics
     {
         var l = g.Module.Llvm;
         var f = g.Module.Intrinsic(name, l.F64, l.F64, l.F64);
+        return g.Builder.Call(f.Type, f.Fn, [x, y]);
+    }
+
+    private static LLVMValueRef CallBinary(FunctionCodeGen g, string name, LLVMTypeRef type, LLVMValueRef x, LLVMValueRef y)
+    {
+        var f = g.Module.Intrinsic(name, type, type, type);
         return g.Builder.Call(f.Type, f.Fn, [x, y]);
     }
 

@@ -11,6 +11,14 @@
     <RootNamespace>Csharpc</RootNamespace>
     <InvariantGlobalization>true</InvariantGlobalization>
     <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+
+    <!-- `dotnet pack` => a .NET tool: dotnet tool install -g csharpc -->
+    <PackAsTool>true</PackAsTool>
+    <ToolCommandName>csharpc</ToolCommandName>
+    <PackageId>csharpc</PackageId>
+    <Version>0.1.0-spike</Version>
+    <Description>csharpc: a C# compiler front-end for LLVM (Roslyn -> LLVM IR -> native).</Description>
+    <Authors>csharpc contributors</Authors>
   </PropertyGroup>
 
   <ItemGroup>
@@ -19,7 +27,7 @@
 
   <!-- The C runtime (csrt) ships next to the compiler and is compiled/linked on demand. -->
   <ItemGroup>
-    <None Include="../../runtime/**/*.c;../../runtime/**/*.h" LinkBase="runtime" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="../../runtime/**/*.c;../../runtime/**/*.h" LinkBase="runtime" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

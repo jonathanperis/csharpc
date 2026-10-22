@@ -14,9 +14,9 @@ public sealed class TypeMapper(LlvmContext llvm, TargetMachine target)
     public LLVMTypeRef NativeInt { get; } = target.SizeOf(llvm.Ptr) == 8 ? llvm.I64 : llvm.I32;
     public ulong PointerSize { get; } = target.SizeOf(llvm.Ptr);
 
-    /// <summary>The method-table header, shared with csrt.h: { base, name, instance_size, flags }.</summary>
+    /// <summary>The method-table header, shared with csrt.h: { base, name, instance_size, flags, interfaces, interface_count, reserved }.</summary>
     public LLVMTypeRef MethodTableHeader => field.IsNull
-        ? field = Llvm.Struct(Llvm.Ptr, Llvm.Ptr, Llvm.I32, Llvm.I32)
+        ? field = Llvm.Struct(Llvm.Ptr, Llvm.Ptr, Llvm.I32, Llvm.I32, Llvm.Ptr, Llvm.I32, Llvm.I32)
         : field;
 
     /// <summary>string: { mt, i32 length, [0 x i16] chars }.</summary>
@@ -42,12 +42,24 @@ public sealed class TypeMapper(LlvmContext llvm, TargetMachine target)
         IPointerTypeSymbol or IFunctionPointerTypeSymbol => Llvm.Ptr,
         { IsReferenceType: true } => Llvm.Ptr,
         { SpecialType: SpecialType.System_Decimal } => throw CompileError.Unsupported("System.Decimal", type),
-        INamedTypeSymbol { OriginalDefinition.SpecialType: SpecialType.System_Nullable_T } =>
-            throw CompileError.Unsupported($"nullable value type '{type}'", type),
-        { TypeKind: TypeKind.Struct } => throw CompileError.Unsupported($"user-defined struct '{type}'", type),
+        // Value types (docs/03-lowering.md#structs): first-class LLVM aggregates of storage types.
+        INamedTypeSymbol { OriginalDefinition.SpecialType: SpecialType.System_Nullable_T } n =>
+            Llvm.Struct(Llvm.I8, Storage(n.TypeArguments[0])),              // { hasValue, value }
+        INamedTypeSymbol { IsTupleType: true } t when t.TupleElements.Length <= 7 =>
+            Llvm.Struct([.. t.TupleElements.Select(e => Storage(e.Type))]),  // ValueTuple<...>: flattened
+        INamedTypeSymbol { TypeKind: TypeKind.Struct } s when StructType?.Invoke(s) is { } user => user,
+        { TypeKind: TypeKind.Struct } => throw CompileError.Unsupported($"struct '{type}'", type),
         { TypeKind: TypeKind.TypeParameter } => throw CompileError.Unsupported($"generic type parameter '{type}'", type),
         _ => throw CompileError.Unsupported($"type '{type}'", type),
     };
+
+    /// <summary>Resolves user-defined structs to their named LLVM type (set by ModuleCodeGen); null if not user-defined.</summary>
+    public Func<INamedTypeSymbol, LLVMTypeRef?>? StructType { get; set; }
+
+    public static bool IsNullable(ITypeSymbol? type) =>
+        type is INamedTypeSymbol { OriginalDefinition.SpecialType: SpecialType.System_Nullable_T };
+
+    public static ITypeSymbol NullableUnderlying(ITypeSymbol type) => ((INamedTypeSymbol)type).TypeArguments[0];
 
     public LLVMTypeRef Storage(ITypeSymbol type) =>
         type.SpecialType == SpecialType.System_Boolean ? Llvm.I8 : Value(type);

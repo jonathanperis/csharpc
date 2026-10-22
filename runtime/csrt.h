@@ -17,11 +17,25 @@
 #include <stdint.h>
 
 typedef struct csrt_MethodTable csrt_MethodTable;
+
+// Interface map entry: for each interface a class implements (including inherited ones), the
+// interface's identity method table and a table of implementation function pointers in the
+// interface's member order. Interface calls look the table up with csrt_interface_slots.
+typedef struct {
+    const csrt_MethodTable* interface_type;
+    void* const* slots;
+} csrt_InterfaceMapEntry;
+
+enum { CSRT_MT_ABSTRACT = 1, CSRT_MT_INTERFACE = 2 };
+
 struct csrt_MethodTable {
-    const csrt_MethodTable* base;   // null for System.Object
+    const csrt_MethodTable* base;   // null for System.Object and interfaces
     const char* name;               // fully qualified type name, UTF-8
     uint32_t instance_size;         // bytes, including the header
-    uint32_t flags;
+    uint32_t flags;                 // CSRT_MT_*
+    const csrt_InterfaceMapEntry* interfaces;  // all implemented interfaces (flattened)
+    uint32_t interface_count;
+    uint32_t reserved;
     // void* vtable[] follows — the compiler emits it as part of the same global.
 };
 
@@ -50,8 +64,8 @@ csrt_Array* csrt_new_array_primitive(int64_t element_size, int64_t length);   //
 void* csrt_alloc_noclear(const csrt_MethodTable* mt, int64_t size);           // caller initializes every byte it reads
 csrt_Array* csrt_new_array_primitive_noclear(int64_t element_size, int64_t length);
 // Integer formatting into a caller buffer ending at `end`; returns the first character written.
-char* csrt_format_u64(uint64_t value, char* end);
-char* csrt_format_i64(int64_t value, char* end);
+char* csrt_itoa_u64(uint64_t value, char* end);
+char* csrt_itoa_i64(int64_t value, char* end);
 void csrt_gc_collect(void);           // System.GC.Collect()
 int64_t csrt_gc_total_memory(void);  // System.GC.GetTotalMemory(bool)
 
@@ -66,6 +80,7 @@ _Noreturn void csrt_throw(const csrt_MethodTable* exception_type, csrt_String* m
 // Type system -------------------------------------------------------------------------------
 void* csrt_isinst_class(void* obj, const csrt_MethodTable* type);   // obj if it is a `type`, else null
 void* csrt_castclass(void* obj, const csrt_MethodTable* type);      // obj, or InvalidCastException
+void* const* csrt_interface_slots(void* obj, const csrt_MethodTable* interface_type);  // obj non-null
 csrt_String* csrt_object_to_string(void* obj);                      // virtual ToString(); null -> ""
 csrt_String* csrt_object_to_string_default(void* obj);              // System.Object.ToString()
 bool csrt_object_equals_default(void* self, void* other);
@@ -113,3 +128,7 @@ _Noreturn void csrt_environment_exit(int32_t code);
 #define CSRT_DECLARE_BOXED_MT(Name, CType) extern const csrt_BuiltinMethodTable csrt_Boxed_##Name##_MT;
 CSRT_BOXED_TYPES(CSRT_DECLARE_BOXED_MT)
 void* csrt_unbox(void* obj, const csrt_MethodTable* type);   // payload address, or NRE / InvalidCast
+
+// Boxed user structs: default ValueType.Equals / GetHashCode compare the payload bytes.
+bool csrt_valuetype_equals(void* self, void* other);
+int32_t csrt_valuetype_get_hash_code(void* self);

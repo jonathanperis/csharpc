@@ -12,6 +12,7 @@ Start with the [top-level README](../README.md) for the quick start.
 | 05 | [Testing](05-testing.md) | Differential testing against `dotnet run` |
 | 06 | [Roadmap](06-roadmap.md) | Milestones M0–M4 and the feature-support matrix |
 | 07 | [Spike log](07-spike-log.md) | Dated journal and lessons learned |
+| 08 | [Drop-in toolchain](08-drop-in.md) | `.csproj` input, `dotnet build/run/publish` integration, packaging, gaps |
 
 ## Architecture decision records
 
@@ -27,3 +28,4 @@ Start with the [top-level README](../README.md) for the quick start.
 
 The docs describe the code as of the commit they were written at. When a feature lands, update the
 matrix in [06-roadmap.md](06-roadmap.md) and add a dated entry to [07-spike-log.md](07-spike-log.md).
+- [09 — Conformance](09-conformance.md): conformance corpus, coverage per area, prioritized failure reasons

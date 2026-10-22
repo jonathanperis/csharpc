@@ -28,6 +28,7 @@ public static class Mangler
             _ => method.Name,
         };
         AppendName(sb, name);
+        if (method.IsGenericMethod) AppendTypeArguments(sb, method.TypeArguments);
         sb.Append('E');
         if (method.Parameters.IsEmpty) sb.Append('v');
         foreach (var p in method.Parameters)
@@ -54,13 +55,32 @@ public static class Mangler
         return sb.Append('E').ToString();
     }
 
-    /// <summary>CLR-style metadata name ("Ns.Outer+Inner"), used for Type.FullName / default ToString().</summary>
+    /// <summary>
+    /// CLR-style metadata name ("Ns.Outer+Inner", "Box`1[System.Int32]"), used for Type.FullName /
+    /// default ToString().
+    /// </summary>
     public static string MetadataName(INamedTypeSymbol type)
     {
         var name = type.MetadataName;
-        if (type.ContainingType is { } outer) return MetadataName(outer) + "+" + name;
-        var ns = type.ContainingNamespace;
-        return ns is null || ns.IsGlobalNamespace ? name : ns.ToDisplayString() + "." + name;
+        if (type.ContainingType is { } outer) name = MetadataName(outer) + "+" + name;
+        else if (type.ContainingNamespace is { IsGlobalNamespace: false } ns) name = ns.ToDisplayString() + "." + name;
+        if (type.TypeArguments.Length > 0 && !type.IsDefinition)
+            name += "[" + string.Join(",", type.TypeArguments.Select(TypeName)) + "]";
+        return name;
+
+        static string TypeName(ITypeSymbol t) => t switch
+        {
+            INamedTypeSymbol n => MetadataName(n),
+            IArrayTypeSymbol a => TypeName(a.ElementType) + "[]",
+            _ => t.Name,
+        };
+    }
+
+    private static void AppendTypeArguments(StringBuilder sb, IEnumerable<ITypeSymbol> arguments)
+    {
+        sb.Append('I');
+        foreach (var t in arguments) AppendType(sb, t);
+        sb.Append('E');
     }
 
     private static void AppendPath(StringBuilder sb, ISymbol? symbol)
@@ -77,6 +97,8 @@ public static class Mangler
             default:
                 AppendPath(sb, symbol.ContainingSymbol);
                 AppendName(sb, symbol.MetadataName);
+                if (symbol is INamedTypeSymbol { IsDefinition: false, TypeArguments.Length: > 0 } constructed)
+                    AppendTypeArguments(sb, constructed.TypeArguments);
                 return;
         }
     }
@@ -104,6 +126,12 @@ public static class Mangler
             case SpecialType.System_String: sb.Append('u'); return;
             case SpecialType.System_Object: sb.Append('o'); return;
         }
+        if (type is ITypeParameterSymbol tp)
+        {
+            sb.Append('T');
+            AppendName(sb, tp.Name);
+            return;
+        }
         if (type is IArrayTypeSymbol array)
         {
             sb.Append('A');
@@ -112,6 +140,12 @@ public static class Mangler
         }
         sb.Append('N');
         AppendPath(sb, type);
+        if (type is INamedTypeSymbol { TypeArguments.Length: > 0 } generic)
+        {
+            sb.Append('I');
+            foreach (var argument in generic.TypeArguments) AppendType(sb, argument);
+            sb.Append('E');
+        }
         sb.Append('E');
     }
 }

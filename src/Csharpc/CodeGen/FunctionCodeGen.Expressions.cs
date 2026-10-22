@@ -10,17 +10,18 @@ public sealed partial class FunctionCodeGen
     /// <summary>Evaluates an operation to an SSA value (bool as i1; default for void).</summary>
     internal LLVMValueRef EmitValue(IOperation op)
     {
-        if (op.ConstantValue.HasValue) return Constant(op.ConstantValue.Value, op.Type, op);
+        if (op.ConstantValue.HasValue) return Constant(op.ConstantValue.Value, TypeOf(op), op);
 
         return op switch
         {
             IFlowCaptureReferenceOperation r => LoadCapture(r),
-            ILocalReferenceOperation l => LoadValue(LocalSlot(l.Local), l.Local.Type),
-            IParameterReferenceOperation p => LoadValue(ParameterSlot(p.Parameter, p), p.Parameter.Type),
-            IInstanceReferenceOperation => _this.Handle != 0 ? _this : throw CompileError.Unsupported("'this' outside an instance member", op),
-            IFieldReferenceOperation f => LoadValue(FieldAddress(f), f.Field.Type),
+            ILocalReferenceOperation l => LoadValue(LocalSlot(l.Local), S(l.Local.Type)),
+            IParameterReferenceOperation p => LoadValue(ParameterSlot(p.Parameter, p), S(p.Parameter.Type)),
+            IInstanceReferenceOperation when InStructMember => LoadValue(_this, S(_method!.ContainingType)),
+            IInstanceReferenceOperation => ThisValue(op),
+            IFieldReferenceOperation f => LoadValue(FieldAddress(f), S(f.Field.Type)),
             IPropertyReferenceOperation p => EmitPropertyGet(p),
-            IArrayElementReferenceOperation a => LoadValue(ElementAddress(a), a.Type!),
+            IArrayElementReferenceOperation a => LoadValue(ElementAddress(a), TypeOf(a)!),
             ISimpleAssignmentOperation a => EmitSimpleAssignment(a),
             ICompoundAssignmentOperation c => EmitCompoundAssignment(c),
             IIncrementOrDecrementOperation i => EmitIncrementOrDecrement(i),
@@ -29,23 +30,28 @@ public sealed partial class FunctionCodeGen
             IConversionOperation c => EmitConversion(c),
             IInvocationOperation i => EmitInvocation(i),
             IObjectCreationOperation o => EmitObjectCreation(o),
+            ITypeParameterObjectCreationOperation o => EmitNewT(o),
             IArrayCreationOperation a => EmitArrayCreation(a),
             ICollectionExpressionOperation c => EmitCollectionExpression(c),
             IInterpolatedStringOperation s => EmitInterpolatedString(s),
+            IIsNullOperation n when TypeMapper.IsNullable(n.Operand.Type) => _b.Not(NullableHas(EmitValue(n.Operand))),
             IIsNullOperation n => _b.ICmp(LLVMIntPredicate.EQ, EmitValue(n.Operand), LlvmContext.Null(L.Ptr)),
             IIsTypeOperation t => EmitIsType(t),
-            IIsPatternOperation p => PatternTest(EmitValue(p.Value), p.Value.Type, p.Pattern),
-            IDefaultValueOperation d => LlvmContext.Null(T.Value(d.Type!)),
+            IIsPatternOperation p => PatternTest(EmitValue(p.Value), TypeOf(p.Value), p.Pattern),
+            IDefaultValueOperation d => LlvmContext.Null(T.Value(TypeOf(d)!)),
             IExpressionStatementOperation e => EmitValue(e.Operation),
             IDeclarationExpressionOperation d => EmitValue(d.Expression),
-            ILocalFunctionOperation => default, // body is lowered separately (EnqueueLocalFunctions)
+            ILocalFunctionOperation => default, // body is lowered separately (ModuleCodeGen.EnqueueNested)
+            IDelegateCreationOperation d => EmitDelegateCreation(d),
             IEmptyOperation => default,
-            IAnonymousFunctionOperation or IFlowAnonymousFunctionOperation or IDelegateCreationOperation =>
-                throw CompileError.Unsupported("lambdas and delegates", op),
+            IAnonymousFunctionOperation or IFlowAnonymousFunctionOperation =>
+                throw CompileError.Unsupported("lambda not converted to a delegate (e.g. expression trees)", op),
             IInterpolatedStringHandlerCreationOperation =>
                 throw CompileError.Unsupported("interpolated string handlers", op),
             IDeconstructionAssignmentOperation d => EmitDeconstruction(d),
-            ITupleOperation => throw CompileError.Unsupported("tuple values (tuples need struct support)", op),
+            ITupleOperation { Type: INamedTypeSymbol { IsTupleType: true } tupleType } t => BuildTuple(t, tupleType),
+            ITupleOperation => throw CompileError.Unsupported("tuple without a natural type", op),
+            ITupleBinaryOperation t => EmitTupleBinary(t),
             IInvalidOperation => throw CompileError.Unsupported("invalid code", op),
             _ => throw CompileError.Unsupported($"operation {op.Kind}", op),
         };
@@ -53,11 +59,12 @@ public sealed partial class FunctionCodeGen
 
     private LLVMValueRef LoadCapture(IFlowCaptureReferenceOperation r)
     {
-        if (_cfg!.LvalueCaptures.Contains(r.Id)) return LoadValue(CaptureAddress(r), r.Type!);
-        var (slot, type) = CaptureSlot(r.Id, r.Type);
+        var rType = TypeOf(r);
+        if (_cfg!.LvalueCaptures.Contains(r.Id)) return LoadValue(CaptureAddress(r), rType!);
+        var (slot, type) = CaptureSlot(r.Id, rType);
         if (type is null) return _b.Load(L.Ptr, slot);
         var value = LoadValue(slot, type);
-        return r.Type is null ? value : Coerce(value, type, r.Type);
+        return rType is null ? value : Coerce(value, type, rType);
     }
 
     // ======================================================================================
@@ -99,7 +106,8 @@ public sealed partial class FunctionCodeGen
         IFieldReferenceOperation f => FieldAddress(f),
         IArrayElementReferenceOperation a => ElementAddress(a),
         IDeclarationExpressionOperation d => AddressOf(d.Expression),
-        IDiscardOperation d => NewTemp(T.Storage(d.Type!), "discard"),
+        IInstanceReferenceOperation when InStructMember => _this, // `this = other;` in a struct
+        IDiscardOperation d => NewTemp(T.Storage(TypeOf(d)!), "discard"),
         IFlowCaptureReferenceOperation c when _cfg!.LvalueCaptures.Contains(c.Id) => CaptureAddress(c),
         _ => throw CompileError.Unsupported($"assignment to {target.Kind}", target),
     };
@@ -109,8 +117,9 @@ public sealed partial class FunctionCodeGen
 
     private LLVMValueRef FieldAddress(IFieldReferenceOperation f)
     {
-        var field = f.Field;
+        var field = S(f.Field);
         if (field.IsStatic) return _m.StaticField(field);
+        if (field.ContainingType.IsValueType) return FieldAddressOn(AddressOrSpill(f.Instance!), field);
         var instance = EmitValue(f.Instance!);
         if (f.Instance is not IInstanceReferenceOperation) NullCheck(instance);
         if (!_m.IsUserType(field.ContainingType)) throw CompileError.Unsupported($"field '{field}' of a library type", f);
@@ -124,11 +133,12 @@ public sealed partial class FunctionCodeGen
     private LLVMValueRef EmitSimpleAssignment(ISimpleAssignmentOperation a)
     {
         if (a.IsRef) throw CompileError.Unsupported("ref assignment", a);
-        if (a.Target is IPropertyReferenceOperation p) return EmitPropertySet(p, () => EmitValue(a.Value), a.Value.Type);
+        if (a.Target is IPropertyReferenceOperation p) return EmitPropertySet(p, () => EmitValue(a.Value), TypeOf(a.Value));
 
+        var targetType = TypeOf(a.Target)!;
         var address = AddressOf(a.Target);           // C#: target sub-expressions are evaluated first
-        var value = Coerce(EmitValue(a.Value), a.Value.Type, a.Target.Type!);
-        StoreValue(ToStorage(value, a.Target.Type!), address);
+        var value = Coerce(EmitValue(a.Value), TypeOf(a.Value), targetType);
+        StoreValue(ToStorage(value, targetType), address);
         return value;
     }
 
@@ -141,6 +151,8 @@ public sealed partial class FunctionCodeGen
         var target = d.Target is IDeclarationExpressionOperation decl ? decl.Expression : d.Target;
         var value = d.Value;
         while (value is IConversionOperation { Conversion.IsImplicit: true } c) value = c.Operand;
+        if (target is ITupleOperation tupleTargets && value is not ITupleOperation)
+            return EmitTupleValueDeconstruction(tupleTargets, d.Value);
         if (target is not ITupleOperation targets || value is not ITupleOperation values || targets.Elements.Length != values.Elements.Length
             || targets.Elements.Any(e => e is ITupleOperation or IPropertyReferenceOperation))
             throw CompileError.Unsupported("deconstruction other than (a, b, ...) = (x, y, ...)", d);
@@ -148,24 +160,25 @@ public sealed partial class FunctionCodeGen
         var addresses = targets.Elements.Select(e => e is IDiscardOperation ? default : AddressOf(e)).ToArray();
         var results = values.Elements.Select((v, i) => targets.Elements[i] is IDiscardOperation
             ? EmitValue(v)
-            : Coerce(EmitValue(v), v.Type, targets.Elements[i].Type!)).ToArray();
+            : Coerce(EmitValue(v), TypeOf(v), TypeOf(targets.Elements[i])!)).ToArray();
         for (var i = 0; i < addresses.Length; i++)
             if (addresses[i].Handle != 0)
-                StoreValue(ToStorage(results[i], targets.Elements[i].Type!), addresses[i]);
+                StoreValue(ToStorage(results[i], TypeOf(targets.Elements[i])!), addresses[i]);
         return default;
     }
 
     /// <summary>Read-modify-write on any assignable target (locals, fields, elements, properties).</summary>
     private LLVMValueRef ReadModifyWrite(IOperation target, Func<LLVMValueRef, (LLVMValueRef NewValue, LLVMValueRef Result)> modify)
     {
-        var type = target.Type!;
+        var type = TypeOf(target)!;
         if (target is IPropertyReferenceOperation p)
         {
             // Evaluate the receiver once, then call get + set on it.
-            var self = p.Property.IsStatic ? default : EmitValue(p.Instance!);
-            var old = CallAccessor(p, p.Property.GetMethod!, self, []);
+            var property = S(p.Property);
+            var self = property.IsStatic ? default : Receiver(p.Instance!, property.GetMethod!);
+            var old = CallAccessor(p, property.GetMethod!, self, []);
             var (newValue, result) = modify(old);
-            CallAccessor(p, p.Property.SetMethod ?? throw CompileError.Unsupported("compound assignment to a get-only property", p), self, [newValue]);
+            CallAccessor(p, property.SetMethod ?? throw CompileError.Unsupported("compound assignment to a get-only property", p), self, [newValue]);
             return result;
         }
         var address = AddressOf(target);
@@ -176,10 +189,28 @@ public sealed partial class FunctionCodeGen
 
     private LLVMValueRef EmitCompoundAssignment(ICompoundAssignmentOperation c)
     {
-        if (c.OperatorMethod is { } om && !IsBuiltInStringConcat(om))
-            throw CompileError.Unsupported("compound assignment with a user-defined operator", c);
-        if (c.IsChecked) throw CompileError.Unsupported("checked arithmetic", c);
-        var targetType = c.Target.Type!;
+        if (c.OperatorMethod is { } om && !IsBuiltInStringConcat(om) && !IsGenericMathOnPrimitive(om, c.Target))
+        {
+            // `x op= y` with a user-defined static operator: x = op(x, y).
+            om = S(om);
+            if (!om.IsStatic || om.Parameters.Length != 2 || !_m.IsUserMethod(om))
+                throw CompileError.Unsupported($"compound assignment with operator '{om}'", c);
+            return ReadModifyWrite(c.Target, old =>
+            {
+                var result = DirectCall(om, [Coerce(old, TypeOf(c.Target), om.Parameters[0].Type),
+                    Coerce(EmitValue(c.Value), TypeOf(c.Value), om.Parameters[1].Type)]);
+                result = Coerce(result, om.ReturnType, TypeOf(c.Target)!);
+                return (result, result);
+            });
+        }
+        var targetType = TypeOf(c.Target)!;
+        var valueType = TypeOf(c.Value)!;
+        if (c.IsLifted)
+            return ReadModifyWrite(c.Target, old =>
+            {
+                var r = LiftedArithmetic(c.OperatorKind, old, targetType, EmitValue(c.Value), valueType, targetType, c);
+                return (r, r);
+            });
         return ReadModifyWrite(c.Target, old =>
         {
             if (c.OperatorKind == BinaryOperatorKind.Add && targetType.SpecialType == SpecialType.System_String)
@@ -188,12 +219,15 @@ public sealed partial class FunctionCodeGen
                 return (concat, concat);
             }
             // e.g. `byte b += 1` computes in int, then narrows back (OutConversion).
-            var opType = OperationTypeFor(targetType, c.Value.Type!, c.OperatorKind);
+            var opType = OperationTypeFor(targetType, valueType, c.OperatorKind);
             var left = Coerce(old, targetType, opType);
             var right = c.OperatorKind is BinaryOperatorKind.LeftShift or BinaryOperatorKind.RightShift or BinaryOperatorKind.UnsignedRightShift
                 ? EmitValue(c.Value)
-                : Coerce(EmitValue(c.Value), c.Value.Type, opType);
-            var result = Coerce(Arithmetic(c.OperatorKind, left, right, opType, c.Value.Type!, c), opType, targetType);
+                : Coerce(EmitValue(c.Value), valueType, opType);
+            var computed = Arithmetic(c.OperatorKind, left, right, opType, valueType, c, c.IsChecked);
+            var result = c.IsChecked && !SymbolEqualityComparer.Default.Equals(opType, targetType)
+                ? ConvertNumeric(computed, opType, targetType, c, isChecked: true)
+                : Coerce(computed, opType, targetType);
             return (result, result);
         });
     }
@@ -218,15 +252,28 @@ public sealed partial class FunctionCodeGen
     private LLVMValueRef EmitIncrementOrDecrement(IIncrementOrDecrementOperation op)
     {
         if (op.OperatorMethod is not null) throw CompileError.Unsupported("user-defined ++/--", op);
-        if (op.IsChecked) throw CompileError.Unsupported("checked arithmetic", op);
-        var type = op.Target.Type!;
+        var type = TypeOf(op.Target)!;
         var increment = op.Kind == OperationKind.Increment;
+        if (TypeMapper.IsNullable(type))
+            return ReadModifyWrite(op.Target, old =>
+            {
+                var (has, payload, underlying) = NullableParts(old, type);
+                var one = T.Value(underlying).IsFloatingPoint ? LlvmContext.ConstReal(payload.Type, 1) : L.ConstInt(payload.Type, 1);
+                var opcode = (payload.Type.IsFloatingPoint, increment) switch
+                {
+                    (true, true) => LLVMOpcode.FAdd, (true, false) => LLVMOpcode.FSub, (false, true) => LLVMOpcode.Add, _ => LLVMOpcode.Sub,
+                };
+                var updated = MakeNullable(type, has, _b.BinOp(opcode, payload, one));
+                return (updated, op.IsPostfix ? old : updated);
+            });
         return ReadModifyWrite(op.Target, old =>
         {
             var llvmType = T.Value(type);
             var updated = llvmType.IsFloatingPoint
                 ? _b.BinOp(increment ? LLVMOpcode.FAdd : LLVMOpcode.FSub, old, LlvmContext.ConstReal(llvmType, 1))
-                : _b.BinOp(increment ? LLVMOpcode.Add : LLVMOpcode.Sub, old, L.ConstInt(llvmType, 1));
+                : op.IsChecked
+                    ? CheckedArithmetic(increment ? "add" : "sub", old, L.ConstInt(llvmType, 1), TypeMapper.IsSigned(type))
+                    : _b.BinOp(increment ? LLVMOpcode.Add : LLVMOpcode.Sub, old, L.ConstInt(llvmType, 1));
             return (updated, op.IsPostfix ? old : updated);
         });
     }
@@ -235,21 +282,39 @@ public sealed partial class FunctionCodeGen
     // Operators
     // ======================================================================================
 
+    /// <summary>
+    /// Generic math: `a + b` on `T : INumber&lt;T&gt;` binds to a static abstract interface operator. Once
+    /// T is substituted with a primitive, it's just the built-in operator.
+    /// </summary>
+    private bool IsGenericMathOnPrimitive(IMethodSymbol op, IOperation operand) =>
+        op.IsStatic && op.ContainingType.TypeKind == TypeKind.Interface
+        && TypeOf(operand) is { SpecialType: not SpecialType.None } t && t.SpecialType != SpecialType.System_Object;
+
     private static bool IsBuiltInStringConcat(IMethodSymbol method) =>
         method.ContainingType.SpecialType == SpecialType.System_String && method.Name is "op_Addition" or "Concat";
 
     private LLVMValueRef EmitBinary(IBinaryOperation op)
     {
-        if (op.OperatorMethod is { } om && !IsBuiltInStringConcat(om) && om.ContainingType.SpecialType != SpecialType.System_String)
+        if (op.OperatorMethod is { } om0 && !IsBuiltInStringConcat(om0) && om0.ContainingType.SpecialType != SpecialType.System_String
+            && om0.ContainingType.SpecialType is not (SpecialType.System_Delegate or SpecialType.System_MulticastDelegate)
+            && !IsGenericMathOnPrimitive(om0, op.LeftOperand))
         {
+            var om = S(om0);
             if (!_m.IsUserMethod(om)) throw CompileError.Unsupported($"operator '{om}'", op);
             return EmitDirectCall(om, [op.LeftOperand, op.RightOperand]);
         }
-        if (op.IsChecked && op.OperatorKind is BinaryOperatorKind.Add or BinaryOperatorKind.Subtract or BinaryOperatorKind.Multiply)
-            throw CompileError.Unsupported("checked arithmetic", op);
+        if (op.OperatorKind is BinaryOperatorKind.Equals or BinaryOperatorKind.NotEquals
+            && NullableComparedWithNull(op) is { } nullableSide)
+        {
+            var has = NullableHas(EmitValue(nullableSide)); // `x == null` on a T?
+            return op.OperatorKind == BinaryOperatorKind.Equals ? _b.Not(has) : has;
+        }
+        if (op.IsLifted)
+            return LiftedArithmetic(op.OperatorKind, EmitValue(op.LeftOperand), TypeOf(op.LeftOperand)!,
+                EmitValue(op.RightOperand), TypeOf(op.RightOperand)!, TypeOf(op)!, op);
 
-        var lt = op.LeftOperand.Type;
-        var rt = op.RightOperand.Type;
+        var lt = TypeOf(op.LeftOperand);
+        var rt = TypeOf(op.RightOperand);
         if (op.OperatorKind == BinaryOperatorKind.Add && (lt?.SpecialType == SpecialType.System_String || rt?.SpecialType == SpecialType.System_String))
             return ConcatStrings(ToStringValue(op.LeftOperand), ToStringValue(op.RightOperand));
 
@@ -258,7 +323,15 @@ public sealed partial class FunctionCodeGen
 
         var left = EmitValue(op.LeftOperand);
         var right = EmitValue(op.RightOperand);
-        return Arithmetic(op.OperatorKind, left, right, lt ?? rt!, rt ?? lt!, op);
+        return Arithmetic(op.OperatorKind, left, right, lt ?? rt!, rt ?? lt!, op, op.IsChecked);
+    }
+
+    private static IOperation? NullableComparedWithNull(IBinaryOperation op)
+    {
+        static bool IsNull(IOperation o) => o.ConstantValue is { HasValue: true, Value: null };
+        if (TypeMapper.IsNullable(op.LeftOperand.Type) && IsNull(op.RightOperand)) return op.LeftOperand;
+        if (TypeMapper.IsNullable(op.RightOperand.Type) && IsNull(op.LeftOperand)) return op.RightOperand;
+        return null;
     }
 
     /// <summary>&amp;&amp; / || that survived CFG lowering (rare: e.g. inside a pattern) — lower it ourselves.</summary>
@@ -278,7 +351,19 @@ public sealed partial class FunctionCodeGen
         return _b.Cast(LLVMOpcode.Trunc, _b.Load(L.I8, result), L.I1);
     }
 
-    internal LLVMValueRef Arithmetic(BinaryOperatorKind kind, LLVMValueRef l, LLVMValueRef r, ITypeSymbol lt, ITypeSymbol rt, IOperation at)
+    /// <summary>checked(a op b): llvm.{s,u}{add,sub,mul}.with.overflow + OverflowException.</summary>
+    internal LLVMValueRef CheckedArithmetic(string op, LLVMValueRef l, LLVMValueRef r, bool signed)
+    {
+        var type = l.Type;
+        var pair = L.Struct(type, L.I1);
+        var f = _m.Intrinsic($"llvm.{(signed ? "s" : "u")}{op}.with.overflow.i{type.IntWidth}", pair, type, type);
+        var result = _b.Call(f.Type, f.Fn, [l, r]);
+        FailIf(_b.ExtractValue(result, 1), "csrt_throw_overflow");
+        return _b.ExtractValue(result, 0);
+    }
+
+    internal LLVMValueRef Arithmetic(BinaryOperatorKind kind, LLVMValueRef l, LLVMValueRef r, ITypeSymbol lt, ITypeSymbol rt, IOperation at,
+        bool isChecked = false)
     {
         // Reference types: string value equality, otherwise reference equality.
         if (l.Type.IsPointer || r.Type.IsPointer)
@@ -316,6 +401,15 @@ public sealed partial class FunctionCodeGen
         }
 
         var signed = TypeMapper.IsSigned(lt);
+        if (isChecked && l.Type.IntWidth > 1)
+        {
+            switch (kind)
+            {
+                case BinaryOperatorKind.Add: return CheckedArithmetic("add", l, r, signed);
+                case BinaryOperatorKind.Subtract: return CheckedArithmetic("sub", l, r, signed);
+                case BinaryOperatorKind.Multiply: return CheckedArithmetic("mul", l, r, signed);
+            }
+        }
         switch (kind)
         {
             case BinaryOperatorKind.Add: return _b.BinOp(LLVMOpcode.Add, l, r);
@@ -378,13 +472,16 @@ public sealed partial class FunctionCodeGen
 
     private LLVMValueRef EmitUnary(IUnaryOperation op)
     {
-        if (op.OperatorMethod is { } om)
+        if (op.OperatorMethod is { } om0 && !IsGenericMathOnPrimitive(om0, op.Operand))
         {
+            var om = S(om0);
             if (!_m.IsUserMethod(om)) throw CompileError.Unsupported($"operator '{om}'", op);
             return EmitDirectCall(om, [op.Operand]);
         }
-        if (op.IsChecked && op.OperatorKind == UnaryOperatorKind.Minus) throw CompileError.Unsupported("checked arithmetic", op);
+        if (op.IsLifted) return EmitLiftedUnary(op);
         var v = EmitValue(op.Operand);
+        if (op.IsChecked && op.OperatorKind == UnaryOperatorKind.Minus && v.Type.IsInteger)
+            return CheckedArithmetic("sub", L.ConstInt(v.Type, 0), v, TypeMapper.IsSigned(op.Operand.Type!));
         return op.OperatorKind switch
         {
             UnaryOperatorKind.Plus => v,
@@ -400,14 +497,15 @@ public sealed partial class FunctionCodeGen
 
     private LLVMValueRef EmitConversion(IConversionOperation c)
     {
-        var from = c.Operand.Type;
-        var to = c.Type!;
-        if (c.OperatorMethod is { } om)
+        var from = TypeOf(c.Operand);
+        var to = TypeOf(c)!;
+        if (c.OperatorMethod is { } om0)
         {
+            var om = S(om0);
             if (!_m.IsUserMethod(om)) throw CompileError.Unsupported($"conversion operator '{om}'", c);
             return EmitDirectCall(om, [c.Operand]);
         }
-        if (c.Conversion.IsIdentity) return EmitValue(c.Operand);
+        if (c.Conversion.IsIdentity || (from is not null && SymbolEqualityComparer.Default.Equals(from, to))) return EmitValue(c.Operand);
         // foreach over T[]: `(V)enumerator.Current` (object) becomes a typed element load.
         if (c.Operand is IPropertyReferenceOperation { Property.Name: "Current" } current
             && TryArrayEnumerator(current.Instance, out var elementType))
@@ -417,23 +515,28 @@ public sealed partial class FunctionCodeGen
         }
         // ...and the foreach's finally tests `enumerator as IDisposable`: array enumerators never are.
         if (TryArrayEnumerator(c.Operand, out _)) return LlvmContext.Null(L.Ptr);
+        if (to is INamedTypeSymbol { IsTupleType: true } toTuple && c.Operand is ITupleOperation tupleLiteral)
+            return BuildTuple(tupleLiteral, toTuple);
         if (from is null) return Constant(null, to, c); // null literal / default
+        if (TryNullableConversion(c, from, to) is { } nullable) return nullable;
+        if (IsAggregate(from) && IsAggregate(to)) return Coerce(EmitValue(c.Operand), from, to);
         if (from.IsValueType && to.IsReferenceType) return Box(EmitValue(c.Operand), from, c);
         if (from.IsReferenceType && to.IsValueType)
         {
             var payload = CallRuntime("csrt_unbox", L.Ptr, [L.Ptr, L.Ptr], EmitValue(c.Operand), MethodTableFor(to, c));
             return LoadValue(payload, to);
         }
-        if (c.IsChecked && !c.Conversion.IsImplicit && from.IsValueType)
-            throw CompileError.Unsupported("checked conversion", c);
 
         var value = EmitValue(c.Operand);
         if (from.IsReferenceType)
         {
-            if (c.Conversion.IsImplicit) return value; // upcast: same pointer
+            // After substitution the definition's classification may not apply (T -> U), so re-classify.
+            var conversion = _subst.IsIdentity ? c.Conversion : _m.Compilation.ClassifyCommonConversion(from, to);
+            if (conversion.IsImplicit && (conversion.IsReference || conversion.IsIdentity)) return value; // upcast: same pointer
+            if (c.IsTryCast) return CallRuntime("csrt_isinst_class", L.Ptr, [L.Ptr, L.Ptr], value, MethodTableFor(to, c));
             return CastClass(value, to, c);
         }
-        return ConvertNumeric(value, from, to, c);
+        return ConvertNumeric(value, from, to, c, c.IsChecked && !c.Conversion.IsImplicit);
     }
 
     /// <summary>Converts between types that may differ only in representation (numeric/enum), else passes through.</summary>
@@ -441,13 +544,55 @@ public sealed partial class FunctionCodeGen
     {
         if (from is null || SymbolEqualityComparer.Default.Equals(from, to)) return value;
         if (from.IsReferenceType || to.IsReferenceType) return value;
+        if (IsAggregate(from) || IsAggregate(to)) return CoerceAggregate(value, from, to);
         return ConvertNumeric(value, from, to, null);
     }
 
-    internal LLVMValueRef ConvertNumeric(LLVMValueRef value, ITypeSymbol from, ITypeSymbol to, IOperation? at)
+    /// <summary>checked((T)x): OverflowException unless x is representable in T (NaN never is).</summary>
+    private void CheckConversionRange(LLVMValueRef value, ITypeSymbol from, ITypeSymbol to)
     {
         var src = value.Type;
         var dst = T.Value(to);
+        if (!dst.IsInteger) return; // to float/double never overflows in C#
+        var (srcSigned, dstSigned) = (TypeMapper.IsSigned(from), TypeMapper.IsSigned(to));
+        var width = (int)dst.IntWidth;
+        if (src.IsFloatingPoint)
+        {
+            double lo = dstSigned ? -Math.Pow(2, width - 1) - 1 : -1;
+            double hi = dstSigned ? Math.Pow(2, width - 1) : Math.Pow(2, width);
+            if (width == 64 && dstSigned) lo = -9223372036854777856.0; // next double below -2^63
+            var ok = _b.BinOp(LLVMOpcode.And,
+                _b.FCmp(LLVMRealPredicate.OGT, value, LlvmContext.ConstReal(src, lo)),
+                _b.FCmp(LLVMRealPredicate.OLT, value, LlvmContext.ConstReal(src, hi)));
+            FailIf(_b.Not(ok), "csrt_throw_overflow");
+            return;
+        }
+        var sw = (int)src.IntWidth;
+        LLVMValueRef fail = L.False;
+        if (width < sw || (width == sw && srcSigned != dstSigned))
+        {
+            var narrowed = width < sw ? _b.Cast(LLVMOpcode.Trunc, value, dst) : value;
+            var back = width < sw ? _b.Cast(dstSigned ? LLVMOpcode.SExt : LLVMOpcode.ZExt, narrowed, src) : value;
+            fail = _b.ICmp(LLVMIntPredicate.NE, back, value);
+            if (srcSigned != dstSigned)
+            {
+                var negative = srcSigned
+                    ? _b.ICmp(LLVMIntPredicate.SLT, value, L.ConstInt(src, 0))
+                    : _b.ICmp(LLVMIntPredicate.SLT, narrowed, L.ConstInt(dst, 0));
+                fail = _b.BinOp(LLVMOpcode.Or, fail, negative);
+            }
+        }
+        else if (srcSigned && !dstSigned)
+            fail = _b.ICmp(LLVMIntPredicate.SLT, value, L.ConstInt(src, 0)); // widening signed -> unsigned
+        else return;
+        FailIf(fail, "csrt_throw_overflow");
+    }
+
+    internal LLVMValueRef ConvertNumeric(LLVMValueRef value, ITypeSymbol from, ITypeSymbol to, IOperation? at, bool isChecked = false)
+    {
+        var src = value.Type;
+        var dst = T.Value(to);
+        if (isChecked) CheckConversionRange(value, from, to);
         if (src.Handle == dst.Handle) return value;
 
         if (src.IsInteger && dst.IsInteger)

@@ -1,0 +1,36 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    Packaging-only project: produces Csharpc.Sdk.nupkg containing
+      build/Csharpc.Sdk.{props,targets}  - MSBuild integration (UseCsharpc / PublishCsharpc)
+      tools/csharpc/**                   - the compiler (framework-dependent) + runtime/*.c sources
+    Build it with: dotnet pack src/Csharpc.Sdk -o artifacts/packages
+  -->
+  <PropertyGroup>
+    <TargetFramework>net11.0</TargetFramework>
+    <PackageId>Csharpc.Sdk</PackageId>
+    <Version>0.1.0-spike</Version>
+    <Description>Build .NET projects to native executables with csharpc, a C# front-end for LLVM.</Description>
+    <Authors>csharpc contributors</Authors>
+    <IncludeBuildOutput>false</IncludeBuildOutput>
+    <IncludeSymbols>false</IncludeSymbols>
+    <DevelopmentDependency>true</DevelopmentDependency>
+    <SuppressDependenciesWhenPacking>true</SuppressDependenciesWhenPacking>
+    <NoWarn>$(NoWarn);NU5100;NU5128</NoWarn>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <TargetsForTfmSpecificContentInPackage>$(TargetsForTfmSpecificContentInPackage);_CsharpcPackCompiler</TargetsForTfmSpecificContentInPackage>
+    <_CsharpcPublishDir>$(BaseIntermediateOutputPath)compiler/</_CsharpcPublishDir>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="build/**" Pack="true" PackagePath="build/" />
+  </ItemGroup>
+
+  <Target Name="_CsharpcPackCompiler">
+    <MSBuild Projects="../Csharpc/Csharpc.csproj" Targets="Publish"
+             Properties="Configuration=Release;PublishDir=$([System.IO.Path]::GetFullPath('$(_CsharpcPublishDir)'));UseAppHost=false" />
+    <ItemGroup>
+      <_CsharpcCompilerFiles Include="$(_CsharpcPublishDir)**/*" />
+      <TfmSpecificPackageFile Include="@(_CsharpcCompilerFiles)" PackagePath="tools/csharpc/%(RecursiveDir)%(Filename)%(Extension)" />
+    </ItemGroup>
+  </Target>
+</Project>

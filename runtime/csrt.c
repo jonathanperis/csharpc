@@ -234,9 +234,25 @@ static void format_real(char* out, size_t cap, double v, int max_digits, bool is
 // ---------------------------------------------------------------------------------------------
 void* csrt_isinst_class(void* obj, const csrt_MethodTable* type) {
     if (!obj) return NULL;
-    for (const csrt_MethodTable* mt = ((csrt_Object*)obj)->mt; mt; mt = mt->base)
+    const csrt_MethodTable* objmt = ((csrt_Object*)obj)->mt;
+    if (type->flags & CSRT_MT_INTERFACE) {
+        for (uint32_t i = 0; i < objmt->interface_count; i++)
+            if (objmt->interfaces[i].interface_type == type) return obj;
+        return NULL;
+    }
+    for (const csrt_MethodTable* mt = objmt; mt; mt = mt->base)
         if (mt == type) return obj;
     return NULL;
+}
+
+void* const* csrt_interface_slots(void* obj, const csrt_MethodTable* interface_type) {
+    const csrt_MethodTable* mt = ((csrt_Object*)obj)->mt;
+    for (uint32_t i = 0; i < mt->interface_count; i++)
+        if (mt->interfaces[i].interface_type == interface_type) return mt->interfaces[i].slots;
+    fflush(stdout);
+    fprintf(stderr, "Unhandled exception. System.InvalidCastException: Unable to cast object of type '%s' to type '%s'.\n",
+            mt->name, interface_type->name);
+    abort();
 }
 
 _Noreturn static void invalid_cast(const csrt_MethodTable* from, const csrt_MethodTable* to) {
@@ -269,6 +285,8 @@ int32_t csrt_object_get_hash_code_default(void* self) { return (int32_t)(((uintp
 // ---------------------------------------------------------------------------------------------
 bool csrt_string_is_null_or_empty(csrt_String* s) { return !s || s->length == 0; }
 
+
+
 csrt_String* csrt_string_concat(csrt_String* a, csrt_String* b) {
     int32_t la = a ? a->length : 0, lb = b ? b->length : 0;
     csrt_String* s = string_alloc(la + lb);
@@ -289,7 +307,7 @@ uint16_t csrt_string_char_at(csrt_String* s, int32_t index) {
     return s->chars[index];
 }
 
-char* csrt_format_u64(uint64_t value, char* end) {
+char* csrt_itoa_u64(uint64_t value, char* end) {
     static const char digits2[] =
         "00010203040506070809101112131415161718192021222324252627282930313233343536373839"
         "40414243444546474849505152535455565758596061626364656667686970717273747576777879"
@@ -310,9 +328,9 @@ char* csrt_format_u64(uint64_t value, char* end) {
     return p;
 }
 
-char* csrt_format_i64(int64_t value, char* end) {
-    if (value >= 0) return csrt_format_u64((uint64_t)value, end);
-    char* p = csrt_format_u64(0 - (uint64_t)value, end);
+char* csrt_itoa_i64(int64_t value, char* end) {
+    if (value >= 0) return csrt_itoa_u64((uint64_t)value, end);
+    char* p = csrt_itoa_u64(0 - (uint64_t)value, end);
     *--p = '-';
     return p;
 }
@@ -323,10 +341,10 @@ static csrt_String* string_from_digits(const char* begin, const char* end) {
     return s;
 }
 
-csrt_String* csrt_string_from_i32(int32_t v) { char b[24]; return string_from_digits(csrt_format_i64(v, b + 24), b + 24); }
-csrt_String* csrt_string_from_i64(int64_t v) { char b[24]; return string_from_digits(csrt_format_i64(v, b + 24), b + 24); }
-csrt_String* csrt_string_from_u32(uint32_t v) { char b[24]; return string_from_digits(csrt_format_u64(v, b + 24), b + 24); }
-csrt_String* csrt_string_from_u64(uint64_t v) { char b[24]; return string_from_digits(csrt_format_u64(v, b + 24), b + 24); }
+csrt_String* csrt_string_from_i32(int32_t v) { char b[24]; return string_from_digits(csrt_itoa_i64(v, b + 24), b + 24); }
+csrt_String* csrt_string_from_i64(int64_t v) { char b[24]; return string_from_digits(csrt_itoa_i64(v, b + 24), b + 24); }
+csrt_String* csrt_string_from_u32(uint32_t v) { char b[24]; return string_from_digits(csrt_itoa_u64(v, b + 24), b + 24); }
+csrt_String* csrt_string_from_u64(uint64_t v) { char b[24]; return string_from_digits(csrt_itoa_u64(v, b + 24), b + 24); }
 csrt_String* csrt_string_from_f64(double v) { char b[64]; format_real(b, sizeof b, v, 17, false); return string_from_utf8(b); }
 csrt_String* csrt_string_from_f32(float v) { char b[64]; format_real(b, sizeof b, v, 9, true); return string_from_utf8(b); }
 csrt_String* csrt_string_from_bool(bool v) { return string_from_ascii(v ? "True" : "False"); }
@@ -356,10 +374,10 @@ static void write_utf16(FILE* f, const uint16_t* chars, int32_t length) {
 
 void csrt_console_write_string(csrt_String* s) { if (s) write_utf16(stdout, s->chars, s->length); }
 static void write_digits(const char* begin, const char* end) { fwrite(begin, 1, (size_t)(end - begin), stdout); }
-void csrt_console_write_i32(int32_t v) { char b[24]; write_digits(csrt_format_i64(v, b + 24), b + 24); }
-void csrt_console_write_i64(int64_t v) { char b[24]; write_digits(csrt_format_i64(v, b + 24), b + 24); }
-void csrt_console_write_u32(uint32_t v) { char b[24]; write_digits(csrt_format_u64(v, b + 24), b + 24); }
-void csrt_console_write_u64(uint64_t v) { char b[24]; write_digits(csrt_format_u64(v, b + 24), b + 24); }
+void csrt_console_write_i32(int32_t v) { char b[24]; write_digits(csrt_itoa_i64(v, b + 24), b + 24); }
+void csrt_console_write_i64(int64_t v) { char b[24]; write_digits(csrt_itoa_i64(v, b + 24), b + 24); }
+void csrt_console_write_u32(uint32_t v) { char b[24]; write_digits(csrt_itoa_u64(v, b + 24), b + 24); }
+void csrt_console_write_u64(uint64_t v) { char b[24]; write_digits(csrt_itoa_u64(v, b + 24), b + 24); }
 void csrt_console_write_f64(double v) { char b[64]; format_real(b, sizeof b, v, 17, false); fputs(b, stdout); }
 void csrt_console_write_f32(float v) { char b[64]; format_real(b, sizeof b, v, 9, true); fputs(b, stdout); }
 void csrt_console_write_bool(bool v) { fputs(v ? "True" : "False", stdout); }
@@ -417,4 +435,21 @@ void* csrt_unbox(void* obj, const csrt_MethodTable* type) {
     if (!obj) csrt_throw_null_reference();
     if (((csrt_Object*)obj)->mt != type) invalid_cast(((csrt_Object*)obj)->mt, type);
     return BOX_PAYLOAD(obj);
+}
+
+// ---------------------------------------------------------------------------------------------
+// Boxed user structs (payload at offset 8, instance_size = 8 + payload size)
+// ---------------------------------------------------------------------------------------------
+bool csrt_valuetype_equals(void* self, void* other) {
+    const csrt_MethodTable* mt = ((csrt_Object*)self)->mt;
+    if (!other || ((csrt_Object*)other)->mt != mt) return false;
+    return memcmp((char*)self + 8, (char*)other + 8, mt->instance_size - 8) == 0;
+}
+
+int32_t csrt_valuetype_get_hash_code(void* self) {
+    const csrt_MethodTable* mt = ((csrt_Object*)self)->mt;
+    const unsigned char* p = (const unsigned char*)self + 8;
+    uint32_t h = 2166136261u;
+    for (uint32_t i = 0; i < mt->instance_size - 8; i++) h = (h ^ p[i]) * 16777619u;
+    return (int32_t)h;
 }

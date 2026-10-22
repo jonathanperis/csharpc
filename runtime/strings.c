@@ -449,8 +449,8 @@ static StringBuilder* sb_append_ascii(StringBuilder* sb, const char* begin, cons
 }
 
 // Append(int/long/uint/ulong/bool) format straight into the buffer — no temporary string.
-StringBuilder* csrt_sb_append_i64(StringBuilder* sb, int64_t v) { char b[24]; return sb_append_ascii(sb, csrt_format_i64(v, b + 24), b + 24); }
-StringBuilder* csrt_sb_append_u64(StringBuilder* sb, uint64_t v) { char b[24]; return sb_append_ascii(sb, csrt_format_u64(v, b + 24), b + 24); }
+StringBuilder* csrt_sb_append_i64(StringBuilder* sb, int64_t v) { char b[24]; return sb_append_ascii(sb, csrt_itoa_i64(v, b + 24), b + 24); }
+StringBuilder* csrt_sb_append_u64(StringBuilder* sb, uint64_t v) { char b[24]; return sb_append_ascii(sb, csrt_itoa_u64(v, b + 24), b + 24); }
 StringBuilder* csrt_sb_append_bool(StringBuilder* sb, bool v) {
     static const char t[] = "True", f[] = "False";
     return v ? sb_append_ascii(sb, t, t + 4) : sb_append_ascii(sb, f, f + 5);
