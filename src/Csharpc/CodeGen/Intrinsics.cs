@@ -355,7 +355,7 @@ internal static class Intrinsics
     private static LLVMValueRef CtorArg(FunctionCodeGen g, IObjectCreationOperation c, int ordinal)
     {
         var argument = c.Arguments.First(a => a.Parameter!.Ordinal == ordinal);
-        return g.Coerce(g.EmitValue(argument.Value), argument.Value.Type, argument.Parameter!.Type);
+        return g.Coerce(g.EmitValue(argument.Value), g.TypeOf(argument.Value), g.S(argument.Parameter!.Type));
     }
 
     private static FrozenDictionary<string, ConstructorHandler> BuildConstructors()
@@ -399,7 +399,7 @@ internal static class Intrinsics
         t["System.Environment.TickCount64"] = (g, _) =>
             g.CallRuntime("csrt_environment_tick_count64", g.Module.Llvm.I64, []);
         t["System.Collections.Generic.IEnumerator<T>.Current"] = (g, p) =>
-            g.ArrayEnumeratorCurrent(g.EmitValue(p.Instance!), p.Type!);
+            g.ArrayEnumeratorCurrent(g.EmitValue(p.Instance!), g.TypeOf(p)!);
         t["System.Collections.IEnumerator.Current"] = (g, p) =>
         {
             if (!g.TryArrayEnumerator(p.Instance, out var element))
@@ -420,7 +420,7 @@ internal static class Intrinsics
     {
         var l = g.Module.Llvm;
         var op = FunctionCodeGen.Unbox(argument);
-        var type = op.Type;
+        var type = g.TypeOf(op);
         if (op.ConstantValue.HasValue || type is null || type.TypeKind == TypeKind.Enum)
         {
             g.CallRuntime("csrt_console_write_string", l.Void, [l.Ptr], g.ToStringValue(op));

@@ -477,7 +477,7 @@ public sealed partial class FunctionCodeGen
     {
         var piece = hole.FormatString is { } format ? FormatWith(hole.Expression, EmitValue(format)) : ToStringValue(hole.Expression);
         if (hole.Alignment is { } alignment)
-            piece = CallRuntime("csrt_string_align", L.Ptr, [L.Ptr, L.I32], piece, Coerce(EmitValue(alignment), alignment.Type, _m.Compilation.GetSpecialType(SpecialType.System_Int32)));
+            piece = CallRuntime("csrt_string_align", L.Ptr, [L.Ptr, L.I32], piece, Coerce(EmitValue(alignment), TypeOf(alignment), _m.Compilation.GetSpecialType(SpecialType.System_Int32)));
         return piece;
     }
 
@@ -485,7 +485,7 @@ public sealed partial class FunctionCodeGen
     internal LLVMValueRef FormatWith(IOperation valueOp, LLVMValueRef format)
     {
         valueOp = Unbox(valueOp);
-        var type = valueOp.Type!;
+        var type = TypeOf(valueOp)!;
         var value = EmitValue(valueOp);
         if (type.TypeKind == TypeKind.Enum) return ToStringValue(valueOp);
         switch (type.SpecialType)
