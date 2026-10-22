@@ -26,6 +26,9 @@ public sealed partial class FunctionCodeGen
             return EmitUserCall(target, self, ReceiverIsNonNull(inv.Instance, target), inv.Arguments, inv.IsVirtual && !isBaseCall);
         }
         if (Intrinsics.TryGet(target, out var handler)) return handler(this, inv);
+        if (target is { Name: "GetType", Parameters.IsEmpty: true, ContainingType.SpecialType: SpecialType.System_Object })
+            return EmitGetType(inv);
+        if (BclValueTypes.TryGet(target, out var bcl)) return CallBcl(bcl, target, inv.Instance, inv.Arguments, inv);
         throw CompileError.MissingIntrinsic(target, inv);
     }
 
@@ -124,6 +127,8 @@ public sealed partial class FunctionCodeGen
             return Allocate(_m.ExternalGlobal("csrt_Object_MT"), L.ConstInt(L.I64, (long)T.PointerSize));
         if (!_m.IsUserType(type) && creation.Constructor is { } libraryCtor && Intrinsics.TryGetConstructor(libraryCtor, out var ctorHandler))
             return ctorHandler(this, creation);
+        if (!_m.IsUserType(type) && creation.Constructor is { } bclCtor && BclValueTypes.TryGet(bclCtor, out var bclHandler))
+            return CallBcl(bclHandler, bclCtor, null, creation.Arguments, creation);
         if (!_m.IsUserType(type) || type.TypeKind != TypeKind.Class)
             throw CompileError.Unsupported($"creating instances of '{type}'", creation);
         if (type.IsAbstract) throw CompileError.Unsupported("instantiating an abstract class", creation);
@@ -193,6 +198,7 @@ public sealed partial class FunctionCodeGen
         { SpecialType: SpecialType.System_String } => _m.ExternalGlobal("csrt_String_MT"),
         { SpecialType: SpecialType.System_Object } => _m.ExternalGlobal("csrt_Object_MT"),
         _ when IsBoxablePrimitive(type) => _m.ExternalGlobal($"csrt_Boxed_{type.MetadataName}_MT"),
+        _ when BclValueTypes.IsDecimal(type) || BclValueTypes.IsTicks(type) => _m.TypeMethodTable(type, at),
         { TypeKind: TypeKind.Enum } => throw CompileError.Unsupported($"boxing enum '{type}'", at),
         INamedTypeSymbol { TypeKind: TypeKind.Class } named when _m.IsUserType(named) => _m.GetLayout(named).MethodTable,
         INamedTypeSymbol { TypeKind: TypeKind.Struct } named when _m.IsUserType(named) => _m.StructMethodTable(named),
@@ -220,6 +226,8 @@ public sealed partial class FunctionCodeGen
             return CallAccessor(p, getter, self, []);
         }
         if (Intrinsics.TryGetProperty(property, out var handler)) return handler(this, p);
+        if (property.GetMethod is { } getter2 && BclValueTypes.TryGet(getter2, out var bcl))
+            return CallBcl(bcl, getter2, p.Instance, p.Arguments, p);
         throw CompileError.Unsupported($"'{property.ContainingType}.{property.Name}' has no implementation in the csharpc runtime yet", p);
     }
 
@@ -278,7 +286,9 @@ public sealed partial class FunctionCodeGen
     private LLVMValueRef NewArray(ITypeSymbol elementType, LLVMValueRef length)
     {
         var elementSize = T.Target.SizeOf(T.Storage(elementType));
-        return CallRuntime("csrt_new_array", L.Ptr, [L.I64, L.I64], L.ConstInt(L.I64, (long)elementSize), length);
+        var array = CallRuntime("csrt_new_array", L.Ptr, [L.I64, L.I64], L.ConstInt(L.I64, (long)elementSize), length);
+        TagArray(array, elementType); // "System.Int32[]" for GetType()/ToString()
+        return array;
     }
 
     private void StoreElements(LLVMValueRef array, ITypeSymbol elementType, ImmutableArray<IOperation> values)
@@ -429,6 +439,9 @@ public sealed partial class FunctionCodeGen
 
     internal LLVMValueRef? FormatPrimitive(LLVMValueRef value, ITypeSymbol type) => type.SpecialType switch
     {
+        SpecialType.System_Decimal => CallRuntime("csrt_decimal_to_string", L.Ptr, [L.Ptr], Spill(value, "dec")),
+        SpecialType.System_DateTime => CallRuntime("csrt_datetime_to_string", L.Ptr, [L.I64], value),
+        _ when BclValueTypes.IsTimeSpan(type) => CallRuntime("csrt_timespan_to_string", L.Ptr, [L.I64], value),
         SpecialType.System_Int32 => CallRuntime("csrt_string_from_i32", L.Ptr, [L.I32], value),
         SpecialType.System_Int64 => CallRuntime("csrt_string_from_i64", L.Ptr, [L.I64], value),
         SpecialType.System_UInt32 => CallRuntime("csrt_string_from_u32", L.Ptr, [L.I32], value),
@@ -460,6 +473,9 @@ public sealed partial class FunctionCodeGen
         var type = valueOp.Type!;
         var value = EmitValue(valueOp);
         if (type.TypeKind == TypeKind.Enum) return ToStringValue(valueOp);
+        if (BclValueTypes.IsDecimal(type)) return CallRuntime("csrt_format_decimal", L.Ptr, [L.Ptr, L.Ptr], Spill(value, "dec"), format);
+        if (BclValueTypes.IsDateTime(type)) return CallRuntime("csrt_datetime_format", L.Ptr, [L.I64, L.Ptr], value, format);
+        if (BclValueTypes.IsTimeSpan(type)) return CallRuntime("csrt_timespan_format", L.Ptr, [L.I64, L.Ptr], value, format);
         switch (type.SpecialType)
         {
             case SpecialType.System_SByte or SpecialType.System_Int16 or SpecialType.System_Int32 or SpecialType.System_Int64:

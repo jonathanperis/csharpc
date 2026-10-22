@@ -41,7 +41,10 @@ public sealed class TypeMapper(LlvmContext llvm, TargetMachine target)
         INamedTypeSymbol { TypeKind: TypeKind.Enum, EnumUnderlyingType: { } underlying } => Value(underlying),
         IPointerTypeSymbol or IFunctionPointerTypeSymbol => Llvm.Ptr,
         { IsReferenceType: true } => Llvm.Ptr,
-        { SpecialType: SpecialType.System_Decimal } => throw CompileError.Unsupported("System.Decimal", type),
+        // System.Decimal: the CLR layout { int flags; uint hi32; ulong lo64 } (runtime/decimal.c).
+        { SpecialType: SpecialType.System_Decimal } => Llvm.Struct(Llvm.I32, Llvm.I32, Llvm.I64),
+        // TimeSpan / DateTime: a tick count (BclValueTypes.cs, runtime/datetime.c).
+        _ when BclValueTypes.IsTicks(type) => Llvm.I64,
         // Value types (docs/03-lowering.md#structs): first-class LLVM aggregates of storage types.
         INamedTypeSymbol { OriginalDefinition.SpecialType: SpecialType.System_Nullable_T } n =>
             Llvm.Struct(Llvm.I8, Storage(n.TypeArguments[0])),              // { hasValue, value }

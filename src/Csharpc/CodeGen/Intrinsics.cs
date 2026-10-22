@@ -29,7 +29,7 @@ internal static class Intrinsics
         .RemoveMiscellaneousOptions(SymbolDisplayMiscellaneousOptions.IncludeNullableReferenceTypeModifier)
         .RemoveMiscellaneousOptions(SymbolDisplayMiscellaneousOptions.IncludeNotNullableReferenceTypeModifier);
 
-    private static string TypeName(ITypeSymbol t) => t.WithNullableAnnotation(NullableAnnotation.None).ToDisplayString(s_keyFormat);
+    internal static string TypeName(ITypeSymbol t) => t.WithNullableAnnotation(NullableAnnotation.None).ToDisplayString(s_keyFormat);
 
     public static bool TryGet(IMethodSymbol method, out IntrinsicHandler handler) =>
         s_methods.TryGetValue(Key(method.OriginalDefinition), out handler!);
