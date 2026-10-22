@@ -37,7 +37,7 @@ $ ls -lh hello
   and under csharpc, and the outputs must be byte-identical. **100 %** of the
   [195-program conformance corpus](docs/09-conformance.md) passes, with zero silent miscompilations.
 - **Fast.** On [18 benchmark programs](benchmarks/RESULTS.md) csharpc beats the .NET JIT on every
-  one and beats or ties NativeAOT on 17 (CPU time), with binaries **50× smaller** (26–82 KiB vs ~1.3 MiB).
+  one and beats or ties NativeAOT on 17 (CPU time), with binaries **20–160× smaller** (8–68 KiB vs ~1.3 MiB; hello world is 17 KiB), 3–4× faster start-up and a fraction of the memory ([size, start-up and memory](benchmarks/RESULTS.md#size-start-up-memory-and-compile-time)).
 - **Drop-in.** Compile a `.csproj` directly, or keep using `dotnet build` / `dotnet publish` with
   `-p:UseCsharpc=true` / `-p:PublishCsharpc=true` ([docs/08-drop-in.md](docs/08-drop-in.md)).
 - **Debuggable.** `-g` emits DWARF: breakpoints on C# lines, C# names in backtraces, locals in gdb/lldb.
@@ -83,6 +83,9 @@ EOF
 csharpc hello.cs -o hello && ./hello
 ```
 
+For fast compiles, build csharpc itself as a native executable (about 5× less CPU per compile):
+`tools/publish-native.sh`, then use `artifacts/csharpc-native/csharpc`.
+
 If libLLVM isn't on the default library path set `CSHARPC_LIBLLVM=/path/to/libLLVM.so`; to use another
 C compiler or linker driver pass `--cc` or set `CSHARPC_CC`.
 
@@ -106,6 +109,9 @@ csharpc [options] [<project.csproj> | <directory>]
   -p:<Name>=<Value>       MSBuild property used when evaluating a project
   --emit <kind>           exe (default) | obj | asm | llvm-ir | llvm-bc
   -O0 | -O1 | -O2 | -O3   Optimization level (default -O2)
+  -Os | -Oz               Optimize for size (-Oz: smallest)
+  --static                Fully static executable (static-pie, no shared libraries)
+  --strip | --no-strip    Strip symbols (default: strip unless -g)
   -g, --debug             DWARF debug info (C# source-level debugging)
   --target <triple>       Target triple (default: host)
   --cpu <name>            native, x86-64-v3, znver4, ... (default: best x86-64-vN of the host)
