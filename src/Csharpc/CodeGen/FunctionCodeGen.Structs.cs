@@ -59,6 +59,10 @@ public sealed partial class FunctionCodeGen
     /// <summary>The `this` argument for an instance member: a pointer for structs, the reference for classes.</summary>
     internal LLVMValueRef Receiver(IOperation instance, IMethodSymbol member)
     {
+        if (ModuleCodeGen.IsExtensionMember(member) && member.ContainingType.ExtensionParameter is { } receiver)
+            return receiver.RefKind != RefKind.None
+                ? AddressOf(instance)
+                : Coerce(EmitValue(instance), TypeOf(instance), S(receiver.Type));
         if (!member.ContainingType.IsValueType) return EmitValue(instance);
         // C# makes a defensive copy when a non-readonly member is invoked on a readonly field.
         if (instance is IFieldReferenceOperation { Field.IsReadOnly: true } f && !member.IsReadOnly
