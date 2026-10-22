@@ -45,6 +45,16 @@ Console.WriteLine($"{slist.IndexOf("c")} {slist.Contains("b")} {slist.Contains(n
 slist.Clear();
 Console.WriteLine(strings[0] == null);
 
+// Element types the corelib shadows (List<T>, Dictionary<K,V>) work like any other.
+List<int>[] lists = { new() { 1 }, new() { 2, 3 } };
+IEnumerable<List<int>> listSequence = lists;
+Console.WriteLine(listSequence.Sum(l => l.Count) + " " + ((object)lists is IEnumerable<List<int>>) + " " + ((object)lists is IReadOnlyList<Dictionary<int, int>>));
+List<string>[] stringLists = { new() { "x" } }; // same display name as List<int>[], other interfaces
+IEnumerable<List<string>> stringListSequence = stringLists;
+Console.WriteLine(stringListSequence.First()[0] + " " + ((object)stringLists is IEnumerable<List<int>>) + " " + ((object)lists is IEnumerable<List<string>>));
+Dictionary<string, int>[] maps = { new() { ["a"] = 1 } };
+Console.WriteLine(maps.Select(m => m["a"]).First() + " " + ((object)maps is IEnumerable<IDictionary<string, int>>));
+
 IEnumerable<object> covariant = strings;
 Console.WriteLine(covariant.Count());
 

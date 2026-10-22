@@ -34,7 +34,7 @@ public sealed partial class ModuleCodeGen
     }
 
     private readonly List<TaggedArray> _taggedArrays = [];
-    private readonly Dictionary<(INamedTypeSymbol, string), LLVMValueRef> _elementSlotTables = [];
+    private readonly Dictionary<(INamedTypeSymbol, nint), LLVMValueRef> _elementSlotTables = [];
 
     /// <summary>Non-generic interfaces of T[] (System.Array) that csharpc implements.</summary>
     private static bool IsNonGenericArrayInterface(INamedTypeSymbol itf) =>
@@ -59,7 +59,9 @@ public sealed partial class ModuleCodeGen
         var name = itf.OriginalDefinition.ToDisplayString();
         if (name is not ("System.Collections.Generic.IEnumerable<T>" or "System.Collections.Generic.ICollection<T>" or "System.Collections.Generic.IList<T>"
             or "System.Collections.Generic.IReadOnlyCollection<T>" or "System.Collections.Generic.IReadOnlyList<T>")) return false;
-        var u = itf.TypeArguments[0];
+        // Compare as codegen sees types: List<T> and its corelib shadow are the same element type.
+        element = CoreLib.Map(element);
+        var u = CoreLib.Map(itf.TypeArguments[0]);
         if (SymbolEqualityComparer.Default.Equals(element, u)) return true;
         // Array covariance: string[] is an IList<object>.
         if (element.IsReferenceType && u.IsReferenceType)
@@ -114,12 +116,12 @@ public sealed partial class ModuleCodeGen
                 _arraySlotTables[itf] = shared = SlotTable(itf, "ATBL", m => ArrayInterfaceHelper(itf, m));
             return shared;
         }
-        if (_elementSlotTables.TryGetValue((itf, array.Name), out var table)) return table;
+        if (_elementSlotTables.TryGetValue((itf, array.Global.Handle), out var table)) return table;
         var element = array.ElementType;
         var slots = InterfaceSlots(itf).Select(m => BuiltinHelper("SZArrayHelper", itf, m, element) is { } h ? GetFunction(h).Fn : LlvmContext.Null(Llvm.Ptr)).ToArray();
         var init = LlvmContext.ConstArray(Llvm.Ptr, slots);
         table = Module.AddGlobal($"csrt.arraytbl.{array.Name}.{itf.Name}", Native.LLVMTypeOf(init), init, constant: true, linkage: LLVMLinkage.Private);
-        return _elementSlotTables[(itf, array.Name)] = table;
+        return _elementSlotTables[(itf, array.Global.Handle)] = table;
     }
 
     public void RequestStringInterface(INamedTypeSymbol itf)
