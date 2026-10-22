@@ -495,13 +495,7 @@ bool csrt_string_is_null_or_white_space(csrt_String* s) {
     return true;
 }
 
-/// static object.Equals(a, b): reference-equal, or both non-null and a.Equals(b) (virtual).
-bool csrt_object_equals_static(void* a, void* b) {
-    if (a == b) return true;
-    if (!a || !b) return false;
-    const void* const* vtable = (const void* const*)(((csrt_Object*)a)->mt + 1);
-    return ((EqualsFn)vtable[CSRT_SLOT_EQUALS])(a, b);
-}
+// static object.Equals(a, b) lives in runtime/records.c (csrt_object_equals_static).
 
 /// Math.Round(double, digits, MidpointRounding) on the exact decimal value of the double.
 /// mode: 0 ToEven, 1 AwayFromZero, 2 ToZero, 3 ToNegativeInfinity, 4 ToPositiveInfinity.

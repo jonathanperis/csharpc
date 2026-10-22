@@ -1,0 +1,18 @@
+Person { Name = Ada, Age = 36 }
+Person { Name = Bob, Age = 36 }
+True
+True
+True
+False
+True
+Bob is 36
+Employee { Name = Grace, Age = 45, Org = Navy }
+False
+True
+Employee { Name = Grace, Age = 46, Org = Harvard }
+Item { Sku = X1, Price = 9.5 }
+Item { Sku = X1, Price = 10 }
+Point { X = 1, Y = 2 } Point { X = 1, Y = 5 } True False
+True
+Empty { }
+Tagged { Label = a, Note =  }

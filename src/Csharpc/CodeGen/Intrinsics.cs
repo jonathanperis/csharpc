@@ -50,7 +50,7 @@ internal static class Intrinsics
     private static LLVMValueRef Arg(FunctionCodeGen g, IInvocationOperation inv, int ordinal)
     {
         var argument = inv.Arguments.First(a => a.Parameter!.Ordinal == ordinal);
-        return g.Coerce(g.EmitValue(argument.Value), argument.Value.Type, argument.Parameter!.Type);
+        return g.Coerce(g.EmitValue(argument.Value), g.TypeOf(argument.Value), g.S(argument.Parameter!.Type));
     }
 
     private static FrozenDictionary<string, IntrinsicHandler> BuildMethods()
@@ -87,6 +87,10 @@ internal static class Intrinsics
         };
         t["System.Enum.ToString()"] = (g, inv) =>
             g.ToStringValue(inv.Instance is IConversionOperation { Operand.Type.TypeKind: TypeKind.Enum } boxed ? boxed.Operand : inv.Instance!);
+        t["object.ReferenceEquals(object, object)"] = (g, inv) =>
+            g.Builder.ICmp(LLVMIntPredicate.EQ, Arg(g, inv, 0), Arg(g, inv, 1));
+        t["object.Equals(object, object)"] = (g, inv) =>
+            g.CallRuntime("csrt_object_equals_static", g.Module.Llvm.I1, [g.Module.Llvm.Ptr, g.Module.Llvm.Ptr], Arg(g, inv, 0), Arg(g, inv, 1));
         t["object.Equals(object)"] = (g, inv) =>
         {
             var self = ObjectReceiver(g, inv.Instance!);
@@ -99,6 +103,37 @@ internal static class Intrinsics
         };
         foreach (var type in new[] { "int", "long", "uint", "ulong", "short", "ushort", "byte", "sbyte", "double", "float", "bool", "char", "string" })
             t[$"{type}.ToString()"] = (g, inv) => g.ToStringValue(inv.Instance!);
+
+        // ---- IComparable<T>.CompareTo on primitives (reached via generic constraints) -------------
+        foreach (var (type, signed) in new[] { ("int", true), ("long", true), ("short", true), ("sbyte", true),
+                     ("uint", false), ("ulong", false), ("ushort", false), ("byte", false), ("char", false) })
+            t[$"{type}.CompareTo({type})"] = (g, inv) =>
+            {
+                var b = g.Builder;
+                var x = g.EmitValue(g.ConcreteReceiver(inv.Instance!));
+                var y = Arg(g, inv, 0);
+                var l = g.Module.Llvm;
+                var lt = b.ICmp(signed ? LLVMIntPredicate.SLT : LLVMIntPredicate.ULT, x, y);
+                var gt = b.ICmp(signed ? LLVMIntPredicate.SGT : LLVMIntPredicate.UGT, x, y);
+                return b.Select(lt, l.ConstInt(l.I32, -1), b.Cast(LLVMOpcode.ZExt, gt, l.I32));
+            };
+        foreach (var type in new[] { "double", "float" })
+            t[$"{type}.CompareTo({type})"] = (g, inv) =>
+            {
+                // NaN sorts first and equals itself, as in .NET.
+                var b = g.Builder;
+                var l = g.Module.Llvm;
+                var x = g.EmitValue(g.ConcreteReceiver(inv.Instance!));
+                var y = Arg(g, inv, 0);
+                var lt = b.FCmp(LLVMRealPredicate.OLT, x, y);
+                var gt = b.FCmp(LLVMRealPredicate.OGT, x, y);
+                var xNaN = b.FCmp(LLVMRealPredicate.UNO, x, x);
+                var yNaN = b.FCmp(LLVMRealPredicate.UNO, y, y);
+                var result = b.Select(lt, l.ConstInt(l.I32, -1), b.Cast(LLVMOpcode.ZExt, gt, l.I32));
+                result = b.Select(b.BinOp(LLVMOpcode.And, xNaN, b.Not(yNaN)), l.ConstInt(l.I32, -1), result);
+                result = b.Select(b.BinOp(LLVMOpcode.And, yNaN, b.Not(xNaN)), l.ConstInt(l.I32, 1), result);
+                return result;
+            };
 
         foreach (var type in new[] { "int", "long", "uint", "ulong", "short", "ushort", "byte", "sbyte", "double", "float" })
             t[$"{type}.ToString(string)"] = (g, inv) => g.FormatWith(inv.Instance!, Arg(g, inv, 0));
@@ -367,7 +402,7 @@ internal static class Intrinsics
     private static LLVMValueRef CtorArg(FunctionCodeGen g, IObjectCreationOperation c, int ordinal)
     {
         var argument = c.Arguments.First(a => a.Parameter!.Ordinal == ordinal);
-        return g.Coerce(g.EmitValue(argument.Value), argument.Value.Type, argument.Parameter!.Type);
+        return g.Coerce(g.EmitValue(argument.Value), g.TypeOf(argument.Value), g.S(argument.Parameter!.Type));
     }
 
     private static FrozenDictionary<string, ConstructorHandler> BuildConstructors()
@@ -411,7 +446,7 @@ internal static class Intrinsics
         t["System.Environment.TickCount64"] = (g, _) =>
             g.CallRuntime("csrt_environment_tick_count64", g.Module.Llvm.I64, []);
         t["System.Collections.Generic.IEnumerator<T>.Current"] = (g, p) =>
-            g.ArrayEnumeratorCurrent(g.EmitValue(p.Instance!), p.Type!);
+            g.ArrayEnumeratorCurrent(g.EmitValue(p.Instance!), g.TypeOf(p)!);
         t["System.Collections.IEnumerator.Current"] = (g, p) =>
         {
             if (!g.TryArrayEnumerator(p.Instance, out var element))
@@ -461,7 +496,7 @@ internal static class Intrinsics
     {
         var l = g.Module.Llvm;
         var op = FunctionCodeGen.Unbox(argument);
-        var type = op.Type;
+        var type = g.TypeOf(op);
         if (op.ConstantValue.HasValue || type is null || type.TypeKind == TypeKind.Enum)
         {
             g.CallRuntime("csrt_console_write_string", l.Void, [l.Ptr], g.ToStringValue(op));

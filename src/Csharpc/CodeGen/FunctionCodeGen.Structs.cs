@@ -27,6 +27,8 @@ public sealed partial class FunctionCodeGen
     {
         switch (op)
         {
+            case IInstanceReferenceOperation { ReferenceKind: InstanceReferenceKind.PatternInput }:
+                return Spill(PatternInputValue(op));
             case IInstanceReferenceOperation when InStructMember:
                 return _this;
             case ILocalReferenceOperation or IParameterReferenceOperation or IArrayElementReferenceOperation
@@ -361,9 +363,10 @@ public sealed partial class FunctionCodeGen
     /// <summary>`var (a, b) = tupleValue;` — targets first, then the value, then element-wise stores.</summary>
     private LLVMValueRef EmitTupleValueDeconstruction(ITupleOperation targets, IOperation value)
     {
+        if (TypeOf(value) is not INamedTypeSymbol { IsTupleType: true } && UserDeconstruct(targets, value) is { } viaMethod) return viaMethod;
         if (value.Type is not INamedTypeSymbol { IsTupleType: true } tupleType || tupleType.TupleElements.Length != targets.Elements.Length
             || targets.Elements.Any(e => e is ITupleOperation or IPropertyReferenceOperation))
-            throw CompileError.Unsupported("deconstruction of this value (user Deconstruct methods are not supported yet)", value);
+            throw CompileError.Unsupported("deconstruction of this value", value);
         var addresses = targets.Elements.Select(e => e is IDiscardOperation ? default : AddressOf(e)).ToArray();
         var tuple = EmitValue(value);
         for (var i = 0; i < addresses.Length; i++)

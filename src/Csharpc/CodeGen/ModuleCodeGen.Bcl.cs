@@ -18,7 +18,8 @@ public sealed partial class ModuleCodeGen
         if (_enumMethodTables.TryGetValue(enumType, out var existing)) return existing;
         var underlying = enumType.EnumUnderlyingType!;
         var valueType = Types.Value(underlying);
-        var mtType = Llvm.Struct(Llvm.Ptr, Llvm.Ptr, Llvm.I32, Llvm.I32, LlvmContext.Array(Llvm.Ptr, ClassLayout.ObjectSlotCount));
+        var mtType = Llvm.Struct(Llvm.Ptr, Llvm.Ptr, Llvm.I32, Llvm.I32, Llvm.Ptr, Llvm.I32, Llvm.I32,
+            LlvmContext.Array(Llvm.Ptr, ClassLayout.ObjectSlotCount));
         var global = Module.AddGlobal(Mangler.TypeSymbol(enumType, "BoxMT"), mtType, constant: true, linkage: LLVMLinkage.Internal);
         _enumMethodTables[enumType] = global;
 
@@ -38,6 +39,7 @@ public sealed partial class ModuleCodeGen
             CString(Mangler.MetadataName(enumType)),
             Llvm.ConstInt(Llvm.I32, 8 + (long)Types.Target.SizeOf(valueType)),
             Llvm.ConstInt(Llvm.I32, 0),
+            LlvmContext.Null(Llvm.Ptr), Llvm.ConstInt(Llvm.I32, 0), Llvm.ConstInt(Llvm.I32, 0), // no interface map
             LlvmContext.ConstArray(Llvm.Ptr, thunk, Runtime("csrt_valuetype_equals", Llvm.I1, Llvm.Ptr, Llvm.Ptr).Fn,
                 Runtime("csrt_valuetype_get_hash_code", Llvm.I32, Llvm.Ptr).Fn)));
         return global;
@@ -62,7 +64,9 @@ public sealed partial class ModuleCodeGen
         if (_arrayMethodTables.TryGetValue(name, out var existing)) return existing;
         string[] defaults = ["csrt_object_to_string_default", "csrt_object_equals_default", "csrt_object_get_hash_code_default"];
         var slots = defaults.Select(d => Runtime(d, Llvm.Ptr, Llvm.Ptr).Fn).ToArray();
+        // Header layout = TypeMapper.MethodTableHeader (interface map: none; csrt handles array interfaces).
         var init = Llvm.ConstStruct(ExternalGlobal("csrt_Array_MT"), CString(name), Llvm.ConstInt(Llvm.I32, 0), Llvm.ConstInt(Llvm.I32, 0),
+            LlvmContext.Null(Llvm.Ptr), Llvm.ConstInt(Llvm.I32, 0), Llvm.ConstInt(Llvm.I32, 0),
             LlvmContext.ConstArray(Llvm.Ptr, slots));
         var global = Module.AddGlobal("csrt.arraymt." + name, Native.LLVMTypeOf(init), init, constant: true, linkage: LLVMLinkage.Private);
         return _arrayMethodTables[name] = global;

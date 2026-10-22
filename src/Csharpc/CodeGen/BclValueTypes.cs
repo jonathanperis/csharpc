@@ -184,9 +184,10 @@ internal static class BclValueTypes
         return arg?.Type is IArrayTypeSymbol { Rank: 1 } array ? array.ElementType : null;
     }
 
+    // Generic helpers (Array.Reverse<T>): the method is already substituted, so prefer its T.
     private static ITypeSymbol ElementOrThrow(IMethodSymbol method, IOperation at, int ordinal) =>
-        ArrayElementOf(at, ordinal)
-        ?? (method.TypeArguments.Length == 1 ? method.TypeArguments[0] : null)
+        (method.TypeArguments.Length == 1 ? method.TypeArguments[0] : null)
+        ?? ArrayElementOf(at, ordinal)
         ?? throw CompileError.Unsupported($"'{method}' on a non-array argument", at);
 
     // ---- TimeSpan ----------------------------------------------------------------------------
@@ -903,7 +904,7 @@ internal static class BclValueTypes
     private static LLVMValueRef JoinArray(FunctionCodeGen g, IMethodSymbol m, LLVMValueRef[] a, IOperation at, bool charSeparator)
     {
         var l = g.Llvm;
-        var element = ArrayElementOf(at, 1)
+        var element = (ArrayElementOf(at, 1) is { } syntactic ? (m.TypeArguments.Length == 1 ? m.TypeArguments[0] : syntactic) : null)
             ?? throw CompileError.Unsupported($"'{Intrinsics.Key(m.OriginalDefinition)}' over a non-array sequence", at);
         var separator = charSeparator ? Rt(g, "csrt_string_from_char", l.Ptr, (a[0], l.I16)) : a[0];
         var array = a[1];

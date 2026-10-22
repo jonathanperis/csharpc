@@ -153,9 +153,9 @@ public sealed partial class FunctionCodeGen
     internal LLVMValueRef EmitGetType(IInvocationOperation inv)
     {
         var instance = inv.Instance!;
-        while (instance is IConversionOperation { Conversion.IsImplicit: true, Operand.Type.IsValueType: true } boxing)
+        while (instance is IConversionOperation { Conversion.IsImplicit: true } boxing && TypeOf(boxing.Operand) is { IsValueType: true })
             instance = boxing.Operand;
-        if (instance.Type is { IsValueType: true } valueType)
+        if (TypeOf(instance) is { IsValueType: true } valueType)
         {
             if (TypeMapper.IsNullable(valueType))
                 throw CompileError.Unsupported("GetType() on a nullable value type", inv);

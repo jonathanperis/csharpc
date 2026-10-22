@@ -30,9 +30,9 @@ public sealed partial class FunctionCodeGen
         var env = AllocateEnv(scope);
         foreach (var p in scope.Vars.OfType<IParameterSymbol>())
             if (_slots.TryGetValue(p, out var spilled))
-                _b.Store(_b.Load(T.Storage(p.Type), spilled), _b.StructGep(scope.Type, env, scope.FieldIndex[p]));
+                _b.Store(_b.Load(T.Storage(S(p.Type)), spilled), _b.StructGep(scope.TypeFor(_subst), env, scope.FieldIndex[p]));
         if (scope.ThisField is { } thisField && _this.Handle != 0)
-            _b.Store(_this, _b.StructGep(scope.Type, env, thisField));
+            _b.Store(_this, _b.StructGep(scope.TypeFor(_subst), env, thisField));
     }
 
     /// <summary>On a branch that enters regions with captured variables, allocate fresh environments.</summary>
@@ -60,10 +60,10 @@ public sealed partial class FunctionCodeGen
 
     private LLVMValueRef AllocateEnv(EnvScope scope)
     {
-        var size = T.Target.SizeOf(scope.Type);
+        var size = T.Target.SizeOf(scope.TypeFor(_subst));
         var env = CallRuntime("csrt_alloc", L.Ptr, [L.Ptr, L.I64], _m.ExternalGlobal("csrt_Object_MT"), L.ConstInt(L.I64, (long)size));
         env.SetName("env");
-        _b.Store(EnvValue(scope.Parent), _b.StructGep(scope.Type, env, EnvScope.ParentField));
+        _b.Store(EnvValue(scope.Parent), _b.StructGep(scope.TypeFor(_subst), env, EnvScope.ParentField));
         if (!_envSlots.TryGetValue(scope, out var slot)) _envSlots[scope] = slot = NewTemp(L.Ptr, "env.slot");
         _b.Store(env, slot);
         return env;
@@ -83,7 +83,7 @@ public sealed partial class FunctionCodeGen
         for (var scope = closure.Incoming; scope != target; scope = scope.Parent)
         {
             if (scope is null) throw new CompileError("CSLLVM0004", "internal error: closure environment not reachable", null);
-            env = _b.Load(L.Ptr, _b.StructGep(scope.Type, env, EnvScope.ParentField), "env.parent");
+            env = _b.Load(L.Ptr, _b.StructGep(scope.TypeFor(_subst), env, EnvScope.ParentField), "env.parent");
         }
         return env;
     }
@@ -91,14 +91,14 @@ public sealed partial class FunctionCodeGen
     private LLVMValueRef? CapturedAddress(ISymbol variable)
     {
         if (_cfg is null || CurrentClosure.Analysis.ScopeOfVar(variable) is not { } scope) return null;
-        return _b.StructGep(scope.Type, EnvValue(scope), scope.FieldIndex[variable], variable.Name);
+        return _b.StructGep(scope.TypeFor(_subst), EnvValue(scope), scope.FieldIndex[variable], variable.Name);
     }
 
     private LLVMValueRef ThisValue(IOperation at)
     {
         if (_this.Handle != 0) return _this;
         if (_cfg is not null && CurrentClosure.Analysis.ThisScope is { ThisField: { } field } scope)
-            return _b.Load(L.Ptr, _b.StructGep(scope.Type, EnvValue(scope), field), "this");
+            return _b.Load(L.Ptr, _b.StructGep(scope.TypeFor(_subst), EnvValue(scope), field), "this");
         throw CompileError.Unsupported("'this' outside an instance member", at);
     }
 
@@ -112,14 +112,27 @@ public sealed partial class FunctionCodeGen
 
     private LLVMValueRef CallLocalFunction(IInvocationOperation inv)
     {
-        var target = inv.TargetMethod;
-        if (target.IsGenericMethod) throw CompileError.Unsupported($"generic local function '{target.Name}'", inv);
-        var callee = NestedFunction(target, inv);
+        var target = S(inv.TargetMethod);
+        var callee = NestedFunction(target.OriginalDefinition, inv);
         var args = new LLVMValueRef[1 + target.Parameters.Length];
         args[0] = EnvValue(callee.Incoming);
-        foreach (var argument in inv.Arguments) args[1 + argument.Parameter!.Ordinal] = EmitArgument(argument);
-        var f = _m.GetFunction(target);
+        foreach (var argument in inv.Arguments) args[1 + argument.Parameter!.Ordinal] = EmitArgument(argument, target);
+        var f = NestedFunctionInstance(callee, target, inv);
         return _b.Call(f.Type, f.Fn, args);
+    }
+
+    /// <summary>
+    /// The lowered function for a lambda / local function referenced from this body. Nested functions
+    /// share the enclosing substitution; a generic local function adds its own type arguments and is
+    /// instantiated on first use (monomorphization, like generic methods).
+    /// </summary>
+    private LoweredFunction NestedFunctionInstance(ClosureFunction callee, IMethodSymbol symbol, IOperation at)
+    {
+        if (!symbol.IsGenericMethod) return _m.GetNestedFunction(symbol, _subst);
+        if (TypeSubstitution.IsOpen(symbol)) throw CompileError.Unsupported($"open generic instantiation '{symbol}'", at);
+        var subst = _subst.With(symbol.OriginalDefinition.TypeParameters, symbol.TypeArguments, _m.Compilation);
+        _m.RequestNested(callee, symbol, subst);
+        return _m.GetNestedFunction(symbol, subst);
     }
 
     // ======================================================================================
@@ -135,22 +148,25 @@ public sealed partial class FunctionCodeGen
         {
             case IFlowAnonymousFunctionOperation lambda:
                 target = EnvValue(NestedFunction(lambda.Symbol, creation).Incoming);
-                fn = _m.GetFunction(lambda.Symbol).Fn;
+                fn = _m.GetNestedFunction(lambda.Symbol, _subst).Fn;
                 break;
             case IMethodReferenceOperation { Method.MethodKind: MethodKind.LocalFunction } local:
-                target = EnvValue(NestedFunction(local.Method, creation).Incoming);
-                fn = _m.GetFunction(local.Method).Fn;
+            {
+                var callee = NestedFunction(local.Method.OriginalDefinition, creation);
+                target = EnvValue(callee.Incoming);
+                fn = NestedFunctionInstance(callee, S(local.Method), creation).Fn;
                 break;
+            }
             case IMethodReferenceOperation { Method.IsStatic: true } group when _m.IsUserMethod(group.Method):
                 target = LlvmContext.Null(L.Ptr);
-                fn = _m.StaticThunk(group.Method);
+                fn = _m.StaticThunk(S(group.Method));
                 break;
             case IMethodReferenceOperation group when _m.IsUserMethod(group.Method):
             {
                 // obj.Method: the receiver is the target; virtual methods are resolved now, as in .NET.
                 target = EmitValue(group.Instance!);
                 if (group.Instance is not IInstanceReferenceOperation) NullCheck(target);
-                var method = group.Method;
+                var method = S(group.Method);
                 var isVirtual = group.IsVirtual && (method.IsVirtual || method.IsAbstract || method.IsOverride)
                     && !method.IsSealed && !method.ContainingType.IsSealed;
                 fn = isVirtual ? LoadVirtualFunction(method, target) : _m.GetFunction(method).Fn;
@@ -161,7 +177,7 @@ public sealed partial class FunctionCodeGen
             default:
                 throw CompileError.Unsupported($"delegate creation from {creation.Target.Kind}", creation);
         }
-        var mt = _m.DelegateMethodTable((INamedTypeSymbol)creation.Type!);
+        var mt = _m.DelegateMethodTable((INamedTypeSymbol)TypeOf(creation)!);
         var obj = CallRuntime("csrt_alloc", L.Ptr, [L.Ptr, L.I64], mt, L.ConstInt(L.I64, (long)T.Target.SizeOf(DelegateType)));
         _b.Store(target, _b.StructGep(DelegateType, obj, 1));
         _b.Store(fn, _b.StructGep(DelegateType, obj, 2));
@@ -181,12 +197,12 @@ public sealed partial class FunctionCodeGen
 
     private LLVMValueRef EmitDelegateInvoke(IInvocationOperation inv)
     {
-        var invoke = inv.TargetMethod;
+        var invoke = S(inv.TargetMethod);
         var d = EmitValue(inv.Instance!);
         NullCheck(d);
         var args = new LLVMValueRef[1 + invoke.Parameters.Length];
         args[0] = _b.Load(L.Ptr, _b.StructGep(DelegateType, d, 1), "target");
-        foreach (var argument in inv.Arguments) args[1 + argument.Parameter!.Ordinal] = EmitArgument(argument);
+        foreach (var argument in inv.Arguments) args[1 + argument.Parameter!.Ordinal] = EmitArgument(argument, invoke);
         var fn = _b.Load(L.Ptr, _b.StructGep(DelegateType, d, 2), "fn");
 
         List<LLVMTypeRef> parameters = [L.Ptr];

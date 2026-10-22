@@ -36,7 +36,25 @@ public sealed class EnvScope
     public EnvScope? Parent { get; set; }
     public List<ISymbol> Vars { get; } = [];
     public Dictionary<ISymbol, uint> FieldIndex { get; } = new(SymbolEqualityComparer.Default);
-    public LLVMTypeRef Type { get; set; }
+    /// <summary>Captured variable types may mention type parameters, so the LLVM layout is built per substitution.</summary>
+    public LLVMTypeRef TypeFor(TypeSubstitution subst)
+    {
+        if (_types.TryGetValue(subst.Key, out var type)) return type;
+        var llvm = Module!.Llvm;
+        List<LLVMTypeRef> fields = [llvm.Ptr, llvm.Ptr];
+        if (ThisField is not null) fields.Add(llvm.Ptr);
+        foreach (var v in Vars)
+            fields.Add(Module.Types.Storage(subst.Apply(v switch
+            {
+                ILocalSymbol l => l.Type,
+                IParameterSymbol p => p.Type,
+                _ => throw new InvalidOperationException(),
+            })));
+        return _types[subst.Key] = llvm.Struct([.. fields]);
+    }
+
+    private readonly Dictionary<string, LLVMTypeRef> _types = [];
+    public ModuleCodeGen? Module { get; set; }
     /// <summary>Field holding a captured <c>this</c> (root scope only).</summary>
     public uint? ThisField { get; set; }
     public const uint ParentField = 1;
@@ -107,31 +125,15 @@ public sealed class ClosureAnalysis
                 scope.Parent = InnermostScope(f, scope.Region.EnclosingRegion);
         }
 
-        // Layouts.
-        var llvm = module.Llvm;
+        // Field indices (layouts are built lazily per substitution, see EnvScope.TypeFor).
         foreach (var scope in _scopes.Values)
         {
-            List<LLVMTypeRef> fields = [llvm.Ptr, llvm.Ptr];
-            if (scope == _thisScope)
-            {
-                scope.ThisField = (uint)fields.Count;
-                fields.Add(llvm.Ptr);
-            }
-            foreach (var v in scope.Vars)
-            {
-                scope.FieldIndex[v] = (uint)fields.Count;
-                fields.Add(module.Types.Storage(TypeOf(v)));
-            }
-            scope.Type = llvm.Struct([.. fields]);
+            scope.Module = module;
+            uint next = 2;
+            if (scope == _thisScope) scope.ThisField = next++;
+            foreach (var v in scope.Vars) scope.FieldIndex[v] = next++;
         }
     }
-
-    private static ITypeSymbol TypeOf(ISymbol v) => v switch
-    {
-        ILocalSymbol l => l.Type,
-        IParameterSymbol p => p.Type,
-        _ => throw new InvalidOperationException(),
-    };
 
     private ClosureFunction Register(ControlFlowGraph cfg, IMethodSymbol? symbol, ClosureFunction? parent, ControlFlowRegion? creation)
     {
