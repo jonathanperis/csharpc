@@ -60,7 +60,7 @@ public sealed class IrBuilder(LlvmContext context) : IDisposable
         LLVMBuildInsertValue(Ref, aggregate, element, index, name);
 
     // Memory
-    public LLVMValueRef Alloca(LLVMTypeRef type, string name = "") => LLVMBuildAlloca(Ref, type, name);
+    public LLVMValueRef Alloca(LLVMTypeRef type, string? name = "") => LLVMBuildAlloca(Ref, type, name ?? ""); // synthesized locals (e.g. lock's lockTaken) have null names
     public LLVMValueRef Load(LLVMTypeRef type, LLVMValueRef ptr, string name = "") => LLVMBuildLoad2(Ref, type, ptr, name);
     public LLVMValueRef Store(LLVMValueRef value, LLVMValueRef ptr) => LLVMBuildStore(Ref, value, ptr);
     public LLVMValueRef StructGep(LLVMTypeRef type, LLVMValueRef ptr, uint index, string name = "") =>
@@ -69,8 +69,33 @@ public sealed class IrBuilder(LlvmContext context) : IDisposable
         LLVMBuildInBoundsGEP2(Ref, type, ptr, indices, (uint)indices.Length, name);
 
     // Calls
-    public LLVMValueRef Call(LLVMTypeRef fnType, LLVMValueRef fn, LLVMValueRef[] args, string name = "") =>
-        LLVMBuildCall2(Ref, fnType, fn, args, (uint)args.Length, name);
+
+    /// <summary>
+    /// While set (inside a try region), calls that may throw become `invoke`s unwinding to this
+    /// landing pad; the builder then continues in the normal-return block.
+    /// </summary>
+    public LLVMBasicBlockRef UnwindDest { get; set; }
+
+    /// <summary>Decides whether a callee may throw (null: assume it may).</summary>
+    public Func<LLVMValueRef, bool>? MayThrow { get; set; }
+
+    public LLVMValueRef Call(LLVMTypeRef fnType, LLVMValueRef fn, LLVMValueRef[] args, string name = "")
+    {
+        if (UnwindDest.IsNull || MayThrow?.Invoke(fn) == false)
+            return LLVMBuildCall2(Ref, fnType, fn, args, (uint)args.Length, name);
+        var normal = LLVMAppendBasicBlockInContext(Context.Ref, LLVMGetBasicBlockParent(InsertBlock), "invoke.cont");
+        var result = LLVMBuildInvoke2(Ref, fnType, fn, args, (uint)args.Length, normal, UnwindDest, name);
+        LLVMPositionBuilderAtEnd(Ref, normal);
+        return result;
+    }
+
+    public LLVMValueRef LandingPad(LLVMTypeRef type, LLVMValueRef personality, IReadOnlyList<LLVMValueRef> clauses, bool cleanup)
+    {
+        var pad = LLVMBuildLandingPad(Ref, type, personality, (uint)clauses.Count, "lpad");
+        foreach (var clause in clauses) LLVMAddClause(pad, clause);
+        LLVMSetCleanup(pad, cleanup ? 1 : 0);
+        return pad;
+    }
 
     public void Dispose() => LLVMDisposeBuilder(Ref);
 }

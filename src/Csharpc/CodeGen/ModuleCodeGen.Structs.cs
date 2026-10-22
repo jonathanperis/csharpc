@@ -30,9 +30,6 @@ public sealed partial class ModuleCodeGen
         if (!TypeSubstitution.IsGenericContext(type)) type = type.OriginalDefinition;
         if (_structs.TryGetValue(type, out var existing)) return existing;
         if (TypeSubstitution.IsOpen(type)) throw CompileError.Unsupported($"open generic struct '{type}'", type);
-        if (type.IsRecord) throw CompileError.Unsupported($"record struct '{type.Name}'", type);
-        // Structs may implement interfaces (IEquatable<T>, IComparable<T>...): calls on struct receivers are
-        // devirtualized (constrained calls). Boxed structs don't carry interface maps yet.
 
         var layout = new StructLayout { Type = type, LlvmType = Llvm.NamedStruct("struct." + Mangler.MetadataName(type)) };
         _structs[type] = layout; // register first: field types may mention other structs
@@ -61,7 +58,9 @@ public sealed partial class ModuleCodeGen
             return (Types.Value(owner), n - 1);
         }
         var layout = GetStructLayout(owner);
-        return (layout.LlvmType, layout.FieldIndex[field.OriginalDefinition]);
+        return layout.FieldIndex.TryGetValue(field.OriginalDefinition, out var index)
+            ? (layout.LlvmType, index)
+            : throw CompileError.Unsupported($"field '{field.Name}' of struct '{owner.Name}' (its layout could not be built)", field);
     }
 
     /// <summary>
@@ -90,14 +89,39 @@ public sealed partial class ModuleCodeGen
             return overrider is not null ? UnboxingThunk(overrider) : Runtime(slot.Default, Llvm.Ptr, Llvm.Ptr).Fn;
         }).ToArray();
 
+        var (interfaceMap, interfaceCount) = EmitStructInterfaceMap(layout.Type);
         Native.LLVMSetInitializer(global, Llvm.ConstStruct(
             ExternalGlobal("csrt_Object_MT"),
             CString(Mangler.MetadataName(layout.Type)),
             Llvm.ConstInt(Llvm.I32, (long)size),
             Llvm.ConstInt(Llvm.I32, 0),
-            LlvmContext.Null(Llvm.Ptr), Llvm.ConstInt(Llvm.I32, 0), Llvm.ConstInt(Llvm.I32, 0),
+            interfaceMap, Llvm.ConstInt(Llvm.I32, interfaceCount), Llvm.ConstInt(Llvm.I32, 0),
             LlvmContext.ConstArray(Llvm.Ptr, entries)));
         return global;
+    }
+
+    /// <summary>Interface map for a boxed struct: slots are unboxing thunks into the struct's methods.</summary>
+    private (LLVMValueRef Map, int Count) EmitStructInterfaceMap(INamedTypeSymbol type)
+    {
+        var interfaces = type.AllInterfaces;
+        if (interfaces.IsEmpty) return (LlvmContext.Null(Llvm.Ptr), 0);
+        var entryType = Llvm.Struct(Llvm.Ptr, Llvm.Ptr);
+        List<LLVMValueRef> entries = [];
+        foreach (var itf in interfaces)
+        {
+            var slots = InterfaceSlots(itf).Select(member =>
+                type.FindImplementationForInterfaceMember(member) is IMethodSymbol impl && IsUserMethod(impl) && !impl.IsAbstract
+                    ? UnboxingThunk(impl)
+                    : LlvmContext.Null(Llvm.Ptr)).ToArray();
+            var slotsInit = LlvmContext.ConstArray(Llvm.Ptr, slots);
+            var slotTable = Module.AddGlobal(Mangler.TypeSymbol(type, "ITBL" + entries.Count), Native.LLVMTypeOf(slotsInit), slotsInit,
+                constant: true, linkage: LLVMLinkage.Internal);
+            entries.Add(LlvmContext.ConstNamedStruct(entryType, InterfaceMethodTable(itf), slotTable));
+        }
+        var mapInit = LlvmContext.ConstArray(entryType, [.. entries]);
+        var map = Module.AddGlobal(Mangler.TypeSymbol(type, "IMAP"), Native.LLVMTypeOf(mapInit), mapInit,
+            constant: true, linkage: LLVMLinkage.Internal);
+        return (map, entries.Count);
     }
 
     /// <summary>thunk(box, args...) => method(box + 8, args...)</summary>

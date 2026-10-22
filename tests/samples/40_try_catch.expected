@@ -1,0 +1,19 @@
+in try
+Fail finally 1
+caught InvalidOperationException: boom
+outer finally
+Fail finally 2
+caught: Value cannot be null. (Parameter 'value')
+Fail finally 3
+caught with a catch-all
+format: bad digit 'x'
+argument: empty input (Parameter 'text') / text
+-59
+caught at depth 10: too deep at 50
+10
+inner finally
+outer caught: Specified method is not supported.
+retry 1
+retry 2
+succeeded after 3
+done

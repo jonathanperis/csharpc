@@ -97,30 +97,11 @@ public sealed partial class FunctionCodeGen
         };
     }
 
-    /// <summary>`var (a, b) = value;` via an instance Deconstruct(out ..., out ...) method (KeyValuePair, user types).</summary>
-    private LLVMValueRef EmitDeconstructCall(ITupleOperation targets, IOperation value)
+    /// <summary>Throws a library exception; code emitted afterwards lands in an unreachable block.</summary>
+    private void ThrowAndContinue(string typeName, string message)
     {
-        var type = TypeOf(value)!;
-        var n = targets.Elements.Length;
-        var deconstruct = type.GetMembers("Deconstruct").OfType<IMethodSymbol>()
-            .FirstOrDefault(m => !m.IsStatic && m.Parameters.Length == n && m.Parameters.All(p => p.RefKind == RefKind.Out))
-            ?? throw CompileError.Unsupported($"deconstruction of '{type}' (no instance Deconstruct method)", value);
-        if (!_m.IsUserMethod(deconstruct)) throw CompileError.Unsupported($"library Deconstruct on '{type}'", value);
-
-        var addresses = targets.Elements.Select(e => e is IDiscardOperation ? default : AddressOf(e)).ToArray();
-        var self = type.IsValueType ? AddressOrSpill(value) : EmitValue(value);
-        if (!type.IsValueType) NullCheck(self);
-        var temps = deconstruct.Parameters.Select(p => NewTemp(T.Storage(p.Type), "deconstruct")).ToArray();
-        CallMethod(deconstruct, [self, .. temps]);
-        for (var i = 0; i < n; i++)
-        {
-            if (addresses[i].Handle == 0) continue;
-            var parameterType = deconstruct.Parameters[i].Type;
-            var targetType = TypeOf(targets.Elements[i])!;
-            var element = Coerce(LoadValue(temps[i], parameterType), parameterType, targetType);
-            StoreValue(ToStorage(element, targetType), addresses[i]);
-        }
-        return default;
+        ThrowNewLibraryException(_m.Compilation.GetTypeByMetadataName(typeName)!, message);
+        _b.PositionAtEnd(NewBlock("after.throw"));
     }
 
     /// <summary>(object)value for any T; value types without a boxed representation yet throw at run time only.</summary>
@@ -130,9 +111,7 @@ public sealed partial class FunctionCodeGen
         try { return Box(value, t, at); }
         catch (CompileError)
         {
-            CallRuntime("csrt_throw", L.Void, [L.Ptr, L.Ptr],
-                _m.LibraryTypeMethodTable(_m.Compilation.GetTypeByMetadataName("System.NotSupportedException")!),
-                _m.StringLiteral($"csharpc: boxing '{t}' is not supported yet."));
+            ThrowAndContinue("System.NotSupportedException", $"csharpc: boxing '{t}' is not supported yet.");
             return LlvmContext.Null(L.Ptr);
         }
     }
@@ -147,9 +126,7 @@ public sealed partial class FunctionCodeGen
         }
         catch (CompileError)
         {
-            CallRuntime("csrt_throw", L.Void, [L.Ptr, L.Ptr],
-                _m.LibraryTypeMethodTable(_m.Compilation.GetTypeByMetadataName("System.NotSupportedException")!),
-                _m.StringLiteral($"csharpc: unboxing '{t}' is not supported yet."));
+            ThrowAndContinue("System.NotSupportedException", $"csharpc: unboxing '{t}' is not supported yet.");
             return LlvmContext.Null(T.Value(t));
         }
     }
@@ -164,7 +141,8 @@ public sealed partial class FunctionCodeGen
         static IOperation Peel(IOperation o) { while (o is IConversionOperation c) o = c.Operand; return o; }
         var (l, r) = (Peel(op.LeftOperand), Peel(op.RightOperand));
         var other = l.ConstantValue is { HasValue: true, Value: null } ? r : r.ConstantValue is { HasValue: true, Value: null } ? l : null;
-        if (other is null || TypeOf(other) is not { IsValueType: true } t || TypeMapper.IsNullable(t)) return null;
+        if (other is null || TypeOf(other) is not { IsValueType: true } t || TypeMapper.IsNullable(t)
+            || t.TypeKind is TypeKind.Pointer or TypeKind.FunctionPointer) return null;
         EmitValue(other); // keep side effects
         return op.OperatorKind == BinaryOperatorKind.Equals ? L.False : L.True;
     }
@@ -343,9 +321,7 @@ public sealed partial class FunctionCodeGen
         if (comparable is null && nonGeneric is null && t.TypeKind is not (TypeKind.Interface or TypeKind.TypeParameter) && t.SpecialType != SpecialType.System_Object)
         {
             // .NET throws InvalidOperationException("Failed to compare two elements in the array.") at runtime.
-            CallRuntime("csrt_throw", L.Void, [L.Ptr, L.Ptr],
-                _m.LibraryTypeMethodTable(_m.Compilation.GetTypeByMetadataName("System.InvalidOperationException")!),
-                _m.StringLiteral("Failed to compare two elements in the array."));
+            ThrowAndContinue("System.InvalidOperationException", "Failed to compare two elements in the array.");
             return L.ConstInt(i32, 0);
         }
 

@@ -18,15 +18,21 @@ public sealed partial class FunctionCodeGen
 {
     /// <summary>Struct-like value types lowered to LLVM aggregates.</summary>
     internal bool IsAggregate(ITypeSymbol? type) => type is INamedTypeSymbol named
-        && (TypeMapper.IsNullable(named) || named.IsTupleType || (named.TypeKind == TypeKind.Struct && _m.IsUserType(named)));
+        && (TypeMapper.IsNullable(named) || named.IsTupleType || (named.TypeKind == TypeKind.Struct && _m.IsUserType(named))
+            || TypeMapper.IsSpan(named) || TypeMapper.IsSpanEnumerator(named));
 
     private bool InStructMember => _method is { ContainingType.IsValueType: true } m && ModuleCodeGen.HasThis(m);
 
     /// <summary>Address of a value-type operand: its storage if it is an lvalue, else a spilled copy.</summary>
     internal LLVMValueRef AddressOrSpill(IOperation op)
     {
+        if (TryAddressOfNone(op, out var pointee)) return pointee; // `p->f`, `(*p).f`, `p[i].f`
+        if (op is IPropertyReferenceOperation { Property.RefKind: not RefKind.None } refProperty) return RefPropertyAddress(refProperty);
+        if (op is IInvocationOperation { TargetMethod.RefKind: not RefKind.None } refCall) return EmitInvocation(refCall);
         switch (op)
         {
+            case IInstanceReferenceOperation { ReferenceKind: InstanceReferenceKind.PatternInput }:
+                return Spill(PatternInputValue(op));
             case IInstanceReferenceOperation when InStructMember:
                 return _this;
             case ILocalReferenceOperation or IParameterReferenceOperation or IArrayElementReferenceOperation
@@ -130,9 +136,7 @@ public sealed partial class FunctionCodeGen
         var ok = NewBlock("ok");
         _b.CondBr(failed, fail, ok);
         _b.PositionAtEnd(fail);
-        var type = _m.Compilation.GetTypeByMetadataName(typeName)!;
-        CallRuntime("csrt_throw", L.Void, [L.Ptr, L.Ptr], _m.LibraryTypeMethodTable(type), _m.StringLiteral(message));
-        _b.Unreachable();
+        ThrowNewLibraryException(_m.Compilation.GetTypeByMetadataName(typeName)!, message);
         _b.PositionAtEnd(ok);
     }
 
@@ -356,11 +360,10 @@ public sealed partial class FunctionCodeGen
     /// <summary>`var (a, b) = tupleValue;` — targets first, then the value, then element-wise stores.</summary>
     private LLVMValueRef EmitTupleValueDeconstruction(ITupleOperation targets, IOperation value)
     {
-        if (TypeOf(value) is { IsTupleType: false } && !targets.Elements.Any(e => e is ITupleOperation or IPropertyReferenceOperation))
-            return EmitDeconstructCall(targets, value);
+        if (TypeOf(value) is not INamedTypeSymbol { IsTupleType: true } && UserDeconstruct(targets, value) is { } viaMethod) return viaMethod;
         if (value.Type is not INamedTypeSymbol { IsTupleType: true } tupleType || tupleType.TupleElements.Length != targets.Elements.Length
             || targets.Elements.Any(e => e is ITupleOperation or IPropertyReferenceOperation))
-            throw CompileError.Unsupported("deconstruction of this value (user Deconstruct methods are not supported yet)", value);
+            throw CompileError.Unsupported("deconstruction of this value", value);
         var addresses = targets.Elements.Select(e => e is IDiscardOperation ? default : AddressOf(e)).ToArray();
         var tuple = EmitValue(value);
         for (var i = 0; i < addresses.Length; i++)
