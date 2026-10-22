@@ -30,7 +30,7 @@ are recorded from real .NET like every other test.
 |---|---|
 | `none` | platform defaults (PIE, NX stack) |
 | **`default`** | full RELRO + BIND_NOW, non-executable stack, separate code segment, stack-clash probes on generated code; the C runtime built with `-fstack-protector-strong`, `_FORTIFY_SOURCE=3`, `-fstack-clash-protection` and zero-initialized locals |
-| `max` | default + Intel CET (IBT landing pads, shadow-stack marking), stack protector and call-used-register zeroing on generated code, Spectre v1 speculative load hardening |
+| `max` | default + control-flow protection (x86-64: Intel CET IBT landing pads and shadow-stack marking; AArch64: BTI landing pads and PAC return-address signing), stack protector and call-used-register zeroing on generated code, Spectre v1 speculative load hardening |
 
 `tools/checksec.sh` on the same hello world:
 

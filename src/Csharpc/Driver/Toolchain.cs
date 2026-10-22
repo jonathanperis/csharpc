@@ -8,13 +8,13 @@ namespace Csharpc.Driver;
 /// Linking. Like rustc and gollvm, csharpc delegates the final link to the system C toolchain
 /// (clang as a linker driver), which knows the platform's crt objects, libc and linker flags.
 /// </summary>
-public sealed class Toolchain(CompilerOptions options)
+public sealed class Toolchain(CompilerOptions options, Csharpc.Llvm.TargetMachine target)
 {
     /// <summary>-fexceptions: C# exceptions unwind through runtime frames (and, with runtime LTO,
     /// keeps clang from marking csrt functions nounwind, which would delete landing pads).</summary>
     private static readonly string[] BaseRuntimeCFlags = ["-O2", "-std=c11", "-fPIC", "-funwind-tables", "-fexceptions"];
 
-    private string[] RuntimeCFlags => [.. BaseRuntimeCFlags, .. Hardening.RuntimeCFlags(options.Hardening), .. SanitizerFlags];
+    private string[] RuntimeCFlags => [.. BaseRuntimeCFlags, .. Hardening.RuntimeCFlags(options.Hardening, target), .. SanitizerFlags];
 
     /// <summary>--sanitize: instrument the runtime (generated code is bounds/null-checked by construction).</summary>
     private string[] SanitizerFlags => options.Sanitize is { } list
