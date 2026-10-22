@@ -72,7 +72,14 @@ public sealed partial class FunctionCodeGen
 
     private LLVMValueRef SetCapturedProperty(PropertyCapture pc, LLVMValueRef value)
     {
-        var setter = pc.Property.SetMethod ?? throw CompileError.Unsupported($"assigning get-only property '{pc.Property.Name}'", pc.Property);
+        if (pc.Property.SetMethod is not { } setter)
+        {
+            // Get-only auto-property assigned in a constructor: write its backing field.
+            var field = BackingField(pc.Property);
+            var address = field.IsStatic ? _m.StaticField(field) : FieldAddressOn(_b.Load(L.Ptr, pc.Self), field);
+            StoreValue(ToStorage(value, S(field.Type)), address);
+            return value;
+        }
         CallAccessorDirect(setter, CapturedAccessorArgs(pc, setter, [value]));
         return value;
     }
@@ -202,6 +209,11 @@ public sealed partial class FunctionCodeGen
         t = _m.CoreLib.Map(t);
         t = EnumBase(t);
         if (IsIntegral(t)) return _b.ICmp(LLVMIntPredicate.EQ, a, b);
+        if (BclValueTypes.IsTicks(t)) return _b.ICmp(LLVMIntPredicate.EQ, a, b);
+        if (BclValueTypes.IsBigInteger(t))
+            return _b.ICmp(LLVMIntPredicate.EQ, CallRuntime("csrt_bigint_compare", L.I32, [L.Ptr, L.Ptr], a, b), L.ConstInt(L.I32, 0));
+        if (t.SpecialType == SpecialType.System_Decimal) // decimal equality is by value (1.0m == 1.00m)
+            return _b.ICmp(LLVMIntPredicate.EQ, CallRuntime("csrt_decimal_compare", L.I32, [L.Ptr, L.Ptr], Spill(a), Spill(b)), L.ConstInt(L.I32, 0));
         if (TypeMapper.IsFloatingPoint(t))
             return _b.BinOp(LLVMOpcode.Or, _b.FCmp(LLVMRealPredicate.OEQ, a, b),
                 _b.BinOp(LLVMOpcode.And, _b.FCmp(LLVMRealPredicate.UNO, a, a), _b.FCmp(LLVMRealPredicate.UNO, b, b)));
@@ -217,7 +229,19 @@ public sealed partial class FunctionCodeGen
             }
             return result;
         }
-        if (TypeMapper.IsNullable(t)) throw CompileError.Unsupported($"EqualityComparer<{t}>", at);
+        if (TypeMapper.IsNullable(t))
+        {
+            // Nullable<T>: both null, or both set with equal values. Payloads are zero when empty, but
+            // only compare them when both are set (keeps user Equals out of the null case).
+            var u = ((INamedTypeSymbol)t).TypeArguments[0];
+            var (ha, hb) = (NullableHas(a), NullableHas(b));
+            var bothSet = _b.BinOp(LLVMOpcode.And, ha, hb);
+            return ShortCircuit(isAnd: false,
+            [
+                () => _b.BinOp(LLVMOpcode.And, _b.Not(ha), _b.Not(hb)),
+                () => ShortCircuit(isAnd: true, [() => bothSet, () => EqualsOf(u, NullablePayload(a, u), NullablePayload(b, u), at)]),
+            ]);
+        }
 
         var equatable = GenericInterfaceImpl(t, "System.IEquatable`1", "Equals");
         if (t.IsValueType)
@@ -240,6 +264,10 @@ public sealed partial class FunctionCodeGen
         t = _m.CoreLib.Map(t);
         t = EnumBase(t);
         var i32 = L.I32;
+        if (t.SpecialType == SpecialType.System_Decimal) return CallRuntime("csrt_decimal_get_hash_code", i32, [L.Ptr], Spill(a));
+        if (BclValueTypes.IsBigInteger(t)) return CallRuntime("csrt_bigint_get_hash_code", i32, [L.Ptr], a);
+        if (BclValueTypes.IsTicks(t)) // TimeSpan/DateTime.GetHashCode: (int)ticks ^ (int)(ticks >> 32)
+            return _b.Cast(LLVMOpcode.Trunc, _b.BinOp(LLVMOpcode.Xor, a, _b.BinOp(LLVMOpcode.AShr, a, L.ConstInt(L.I64, 32))), i32);
         switch (t.SpecialType)
         {
             case SpecialType.System_Boolean: return _b.Cast(LLVMOpcode.ZExt, a, i32);
@@ -276,7 +304,12 @@ public sealed partial class FunctionCodeGen
                 h = _b.BinOp(LLVMOpcode.Add, _b.BinOp(LLVMOpcode.Mul, h, L.ConstInt(i32, 31)), HashOf(tuple.TupleElements[i].Type, TupleElement(a, tuple, i), at));
             return h;
         }
-        if (TypeMapper.IsNullable(t)) throw CompileError.Unsupported($"EqualityComparer<{t}>.GetHashCode", at);
+        if (TypeMapper.IsNullable(t))
+        {
+            var u = ((INamedTypeSymbol)t).TypeArguments[0];
+            var has = NullableHas(a);
+            return _b.Select(has, HashOf(u, NullablePayload(a, u), at), L.ConstInt(i32, 0));
+        }
         var getHashCode = ObjectMethod("GetHashCode", 0);
         if (t.IsValueType)
         {
@@ -289,6 +322,24 @@ public sealed partial class FunctionCodeGen
     // ======================================================================================
     // Ordering
     // ======================================================================================
+
+    /// <summary>
+    /// Calls a non-generic static corelib helper by name whose parameters are (string, IEnumerable&lt;string&gt;)-like:
+    /// picks the overload whose parameter count matches and whose first parameter is a string.
+    /// </summary>
+    internal LLVMValueRef CallCoreLib(string typeName, string methodName, IOperation at, ITypeSymbol elementType, params LLVMValueRef[] args)
+    {
+        var type = _m.Compilation.GetTypeByMetadataName(CoreLib.Namespace + "." + typeName)
+            ?? throw CompileError.Unsupported($"corelib type {typeName}", at);
+        // Join(string, IEnumerable<string>) for strings, Join<T>(string, IEnumerable<T>) otherwise.
+        var element = S(elementType);
+        var isString = element.SpecialType == SpecialType.System_String;
+        var method = type.GetMembers(methodName).OfType<IMethodSymbol>().FirstOrDefault(m => m.IsStatic && m.IsGenericMethod != isString
+            && m.Parameters.Length == args.Length && m.Parameters[0].Type.SpecialType == SpecialType.System_String
+            && m.Parameters[^1].Type is INamedTypeSymbol { IsGenericType: true })
+            ?? throw CompileError.Unsupported($"corelib helper {typeName}.{methodName}", at);
+        return DirectCall(isString ? method : method.Construct(element), args);
+    }
 
     private LLVMValueRef CompareOf(ITypeSymbol t, LLVMValueRef a, LLVMValueRef b, IOperation at)
     {
@@ -315,6 +366,28 @@ public sealed partial class FunctionCodeGen
         }
         if (t.SpecialType == SpecialType.System_String)
             return CallRuntime("csrt_string_compare_culture", i32, [L.Ptr, L.Ptr, L.I1], a, b, L.False);
+        if (t.SpecialType == SpecialType.System_Decimal)
+            return CallRuntime("csrt_decimal_compare", i32, [L.Ptr, L.Ptr], Spill(a), Spill(b));
+        if (BclValueTypes.IsTicks(t)) return Sign(_b.ICmp(LLVMIntPredicate.SGT, a, b), _b.ICmp(LLVMIntPredicate.SLT, a, b));
+        if (TypeMapper.IsNullable(t))
+        {
+            // Comparer<T?>.Default: null < any value; two nulls are equal.
+            var u = ((INamedTypeSymbol)t).TypeArguments[0];
+            var (ha, hb) = (NullableHas(a), NullableHas(b));
+            var nullOrder = Sign(_b.BinOp(LLVMOpcode.And, ha, _b.Not(hb)), _b.BinOp(LLVMOpcode.And, _b.Not(ha), hb));
+            var valueOrder = CompareOf(u, NullablePayload(a, u), NullablePayload(b, u), at);
+            return _b.Select(_b.BinOp(LLVMOpcode.And, ha, hb), valueOrder, nullOrder);
+        }
+        if (BclValueTypes.IsBigInteger(t)) return CallRuntime("csrt_bigint_compare", i32, [L.Ptr, L.Ptr], a, b);
+        if (t is INamedTypeSymbol { IsTupleType: true } tuple)
+        {
+            // ValueTuple.CompareTo: lexicographic over the elements with Comparer<Ti>.Default.
+            var parts = tuple.TupleElements.Select((e, i) => CompareOf(e.Type, TupleElement(a, tuple, i), TupleElement(b, tuple, i), at)).ToList();
+            var result = parts[^1];
+            for (var i = parts.Count - 2; i >= 0; i--)
+                result = _b.Select(_b.ICmp(LLVMIntPredicate.NE, parts[i], L.ConstInt(i32, 0)), parts[i], result);
+            return result;
+        }
 
         var comparable = GenericInterfaceImpl(t, "System.IComparable`1", "CompareTo");
         var nonGeneric = comparable is null ? NonGenericComparable(t) : null;

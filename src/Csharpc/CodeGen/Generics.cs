@@ -106,6 +106,13 @@ public sealed class TypeSubstitution
     {
         if (IsIdentity || field.ContainingType is not { } ct || Apply(ct) is not INamedTypeSymbol newType
             || SymbolEqualityComparer.Default.Equals(newType, ct)) return field;
+        if (ct.IsTupleType)
+        {
+            // Named tuple elements (`t.Value`) alias ValueTuple's ItemN fields; substitution may drop the names.
+            var item = (field.CorrespondingTupleField ?? field).Name;
+            return newType.GetMembers(item).OfType<IFieldSymbol>().FirstOrDefault()
+                ?? newType.GetMembers(field.Name).OfType<IFieldSymbol>().First();
+        }
         var definition = field.OriginalDefinition;
         return newType.GetMembers(field.Name).OfType<IFieldSymbol>()
             .First(f => SymbolEqualityComparer.Default.Equals(f.OriginalDefinition, definition));
@@ -119,6 +126,37 @@ public sealed class TypeSubstitution
         return newType.GetMembers(property.Name).OfType<IPropertySymbol>()
             .First(p => SymbolEqualityComparer.Default.Equals(p.OriginalDefinition, definition));
     }
+
+    /// <summary>
+    /// Tuple element names are not part of a type's runtime identity (`List<(int a, int b)>` and
+    /// `List<(int, int)>` are the same type), but Roslyn's symbol equality distinguishes them. Caches
+    /// keyed by type identity (layouts, method tables) canonicalize through this first.
+    /// </summary>
+    public static ITypeSymbol EraseTupleNames(ITypeSymbol type, Compilation compilation)
+    {
+        switch (type)
+        {
+            case IArrayTypeSymbol array:
+            {
+                var element = EraseTupleNames(array.ElementType, compilation);
+                return ReferenceEquals(element, array.ElementType) ? array : compilation.CreateArrayTypeSymbol(element, array.Rank);
+            }
+            case INamedTypeSymbol { IsTupleType: true, TupleUnderlyingType: { } underlying } when !ReferenceEquals(underlying, type):
+                return EraseTupleNames(underlying, compilation);
+            case INamedTypeSymbol { IsGenericType: true } named when named.ContainingType is null || !named.ContainingType.IsGenericType:
+            {
+                var args = named.TypeArguments.Select(a => EraseTupleNames(a, compilation)).ToArray();
+                return args.Where((a, i) => !ReferenceEquals(a, named.TypeArguments[i])).Any()
+                    ? named.OriginalDefinition.Construct(args)
+                    : named;
+            }
+            default:
+                return type;
+        }
+    }
+
+    public static INamedTypeSymbol EraseTupleNames(INamedTypeSymbol type, Compilation compilation) =>
+        EraseTupleNames((ITypeSymbol)type, compilation) as INamedTypeSymbol ?? type;
 
     /// <summary>True if any type parameter remains (an open instantiation we can't compile).</summary>
     public static bool IsOpen(ITypeSymbol type) => type switch

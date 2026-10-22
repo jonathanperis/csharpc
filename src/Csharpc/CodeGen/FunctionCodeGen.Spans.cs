@@ -88,9 +88,9 @@ public sealed partial class FunctionCodeGen
     /// <summary>Conversions into spans: T[] → Span/ReadOnlySpan, string → ReadOnlySpan&lt;char&gt;, Span → ReadOnlySpan.</summary>
     private LLVMValueRef? TrySpanConversion(IConversionOperation c)
     {
-        if (!TypeMapper.IsSpan(c.Type)) return null;
-        var from = c.Operand.Type;
-        if (c.Operand is ICollectionExpressionOperation collection) return SpanFromCollection(collection, SpanElement(c.Type!));
+        if (!TypeMapper.IsSpan(TypeOf(c))) return null;
+        var from = TypeOf(c.Operand);
+        if (c.Operand is ICollectionExpressionOperation collection) return SpanFromCollection(collection, SpanElement(TypeOf(c)!));
         if (TypeMapper.IsSpan(from)) return EmitValue(c.Operand);
         if (from is IArrayTypeSymbol { Rank: 1 } array) return ArraySpan(EmitValue(c.Operand), array.ElementType);
         if (from?.SpecialType == SpecialType.System_String) return StringSpan(EmitValue(c.Operand));
@@ -133,18 +133,18 @@ public sealed partial class FunctionCodeGen
     private LLVMValueRef ArgValue(IInvocationOperation inv, int ordinal)
     {
         var argument = inv.Arguments.First(a => a.Parameter!.Ordinal == ordinal);
-        return Coerce(EmitValue(argument.Value), argument.Value.Type, argument.Parameter!.Type);
+        return Coerce(EmitValue(argument.Value), TypeOf(argument.Value), S(argument.Parameter!.Type));
     }
 
     /// <summary>Address of a `ref`-returning property: span indexer / enumerator Current / user getter.</summary>
     internal LLVMValueRef RefPropertyAddress(IPropertyReferenceOperation p)
     {
-        var property = p.Property;
+        var property = S(p.Property);
         var owner = property.ContainingType;
         if (TypeMapper.IsSpan(owner) && property.IsIndexer)
         {
             var span = SpanReceiver(p.Instance!);
-            var index = Coerce(EmitValue(p.Arguments[0].Value), p.Arguments[0].Value.Type, _m.Compilation.GetSpecialType(SpecialType.System_Int32));
+            var index = Coerce(EmitValue(p.Arguments[0].Value), TypeOf(p.Arguments[0].Value), _m.Compilation.GetSpecialType(SpecialType.System_Int32));
             return SpanElementAddress(span, SpanElement(owner), index);
         }
         if (TypeMapper.IsSpanEnumerator(owner) && property.Name == "Current")
@@ -167,10 +167,10 @@ public sealed partial class FunctionCodeGen
     private bool TrySpanProperty(IPropertyReferenceOperation p, out LLVMValueRef result)
     {
         if (TryIndexRangeMember(p, out result) || TryLowLevelLibraryMember(p, out result)) return true;
-        var owner = p.Property.ContainingType;
+        var owner = S(p.Property).ContainingType;
         if (p.Property.RefKind != RefKind.None && (TypeMapper.IsSpan(owner) || TypeMapper.IsSpanEnumerator(owner)))
         {
-            result = LoadValue(RefPropertyAddress(p), p.Type!);
+            result = LoadValue(RefPropertyAddress(p), TypeOf(p)!);
             return true;
         }
         if (!TypeMapper.IsSpan(owner)) return false;
@@ -187,10 +187,10 @@ public sealed partial class FunctionCodeGen
     private bool TrySpanConstruction(IObjectCreationOperation creation, out LLVMValueRef result)
     {
         result = default;
-        var type = creation.Type as INamedTypeSymbol;
+        var type = TypeOf(creation) as INamedTypeSymbol;
         var args = creation.Arguments.OrderBy(a => a.Parameter!.Ordinal).ToArray();
         LLVMValueRef Arg(int i) => Coerce(EmitValue(args[i].Value), args[i].Value.Type, args[i].Parameter!.Type);
-        if (type?.SpecialType == SpecialType.System_String && args.Length == 1 && TypeMapper.IsSpan(args[0].Parameter!.Type))
+        if (type?.SpecialType == SpecialType.System_String && args.Length == 1 && TypeMapper.IsSpan(S(args[0].Parameter!.Type)))
         {
             var span = Arg(0);
             result = CallRuntime("csrt_string_from_chars", L.Ptr, [L.Ptr, L.I32], SpanPointer(span), SpanLength(span));
@@ -201,9 +201,9 @@ public sealed partial class FunctionCodeGen
         switch (args.Length)
         {
             case 0: result = LlvmContext.Null(SpanType); return true;
-            case 1 when args[0].Parameter!.Type is IArrayTypeSymbol: result = ArraySpan(Arg(0), element); return true;
-            case 3 when args[0].Parameter!.Type is IArrayTypeSymbol: result = ArraySpan(Arg(0), element, Arg(1), Arg(2)); return true;
-            case 2 when args[0].Parameter!.Type is IPointerTypeSymbol:
+            case 1 when S(args[0].Parameter!.Type) is IArrayTypeSymbol: result = ArraySpan(Arg(0), element); return true;
+            case 3 when S(args[0].Parameter!.Type) is IArrayTypeSymbol: result = ArraySpan(Arg(0), element, Arg(1), Arg(2)); return true;
+            case 2 when S(args[0].Parameter!.Type) is IPointerTypeSymbol:
             {
                 var length = Arg(1);
                 ThrowArgumentOutOfRangeIf(_b.ICmp(LLVMIntPredicate.SLT, length, L.ConstInt(L.I32, 0)));
@@ -217,7 +217,7 @@ public sealed partial class FunctionCodeGen
     private bool TrySpanMethod(IInvocationOperation inv, out LLVMValueRef result)
     {
         if (TryIndexRangeMember(inv, out result) || TryLowLevelLibraryMember(inv, out result)) return true;
-        var method = inv.TargetMethod;
+        var method = S(inv.TargetMethod);
         var owner = method.ContainingType;
         if (TypeMapper.IsSpanEnumerator(owner) && method.Name == "MoveNext")
         {
@@ -336,9 +336,9 @@ public sealed partial class FunctionCodeGen
     /// <summary>The span from an argument that is a span, an array, or a string (MemoryExtensions overloads).</summary>
     private LLVMValueRef SpanArgument(IArgumentOperation argument, out ITypeSymbol element)
     {
-        var type = argument.Parameter!.Type;
-        if (TypeMapper.IsSpan(type)) { element = SpanElement(type); return Coerce(EmitValue(argument.Value), argument.Value.Type, type); }
-        if (type is IArrayTypeSymbol array) { element = ((IArrayTypeSymbol)argument.Value.Type!).ElementType; return ArraySpan(EmitValue(argument.Value), element); }
+        var type = S(argument.Parameter!.Type);
+        if (TypeMapper.IsSpan(type)) { element = SpanElement(type); return Coerce(EmitValue(argument.Value), TypeOf(argument.Value), type); }
+        if (type is IArrayTypeSymbol array) { element = ((IArrayTypeSymbol)TypeOf(argument.Value)!).ElementType; return ArraySpan(EmitValue(argument.Value), element); }
         if (type.SpecialType == SpecialType.System_String) { element = _m.Compilation.GetSpecialType(SpecialType.System_Char); return StringSpan(EmitValue(argument.Value)); }
         throw CompileError.Unsupported($"span argument of type '{type}'", argument);
     }
@@ -350,14 +350,14 @@ public sealed partial class FunctionCodeGen
         // Evaluate arguments in source order first.
         switch (method.Name)
         {
-            case "AsSpan" or "AsMemory" when args.Length is >= 1 and <= 3 && args.Skip(1).All(a => a.Parameter!.Type.SpecialType == SpecialType.System_Int32):
+            case "AsSpan" or "AsMemory" when args.Length is >= 1 and <= 3 && args.Skip(1).All(a => S(a.Parameter!.Type).SpecialType == SpecialType.System_Int32):
             {
                 var source = args[0];
-                LLVMValueRef? start = args.Length > 1 ? Coerce(EmitValue(args[1].Value), args[1].Value.Type, args[1].Parameter!.Type) : null;
-                LLVMValueRef? length = args.Length > 2 ? Coerce(EmitValue(args[2].Value), args[2].Value.Type, args[2].Parameter!.Type) : null;
-                if (source.Parameter!.Type is IArrayTypeSymbol)
+                LLVMValueRef? start = args.Length > 1 ? Coerce(EmitValue(args[1].Value), TypeOf(args[1].Value), S(args[1].Parameter!.Type)) : null;
+                LLVMValueRef? length = args.Length > 2 ? Coerce(EmitValue(args[2].Value), TypeOf(args[2].Value), S(args[2].Parameter!.Type)) : null;
+                if (S(source.Parameter!.Type) is IArrayTypeSymbol)
                 {
-                    var element = ((IArrayTypeSymbol)source.Value.Type!).ElementType;
+                    var element = ((IArrayTypeSymbol)TypeOf(source.Value)!).ElementType;
                     return ArraySpan(EmitValue(source.Value), element, start, length);
                 }
                 var span = StringSpan(EmitValue(source.Value));
@@ -366,10 +366,10 @@ public sealed partial class FunctionCodeGen
                 CheckWindow(start.Value, len, SpanLength(span));
                 return MakeSpan(_b.InBoundsGep(L.I16, SpanPointer(span), [_b.Cast(LLVMOpcode.ZExt, start.Value, L.I64)]), len);
             }
-            case "IndexOf" or "LastIndexOf" or "Contains" when args.Length == 2 && !TypeMapper.IsSpan(args[1].Parameter!.Type):
+            case "IndexOf" or "LastIndexOf" or "Contains" when args.Length == 2 && !TypeMapper.IsSpan(S(args[1].Parameter!.Type)):
             {
                 var span = SpanArgument(args[0], out var element);
-                var value = Spill(ToStorage(Coerce(EmitValue(args[1].Value), args[1].Value.Type, element), element));
+                var value = Spill(ToStorage(Coerce(EmitValue(args[1].Value), TypeOf(args[1].Value), element), element));
                 var index = CallRuntime(method.Name == "LastIndexOf" ? "csrt_span_last_index_of" : "csrt_span_index_of", L.I32,
                     [L.Ptr, L.I32, L.I64, L.Ptr], SpanPointer(span), SpanLength(span), ElementSize(element), value);
                 return method.Name == "Contains" ? _b.ICmp(LLVMIntPredicate.SGE, index, L.ConstInt(L.I32, 0)) : index;
@@ -420,13 +420,13 @@ public sealed partial class FunctionCodeGen
             var storage = T.Storage(element);
             for (var i = 0; i < collection.Elements.Length; i++)
             {
-                var value = asStrings ? ToStringValue(collection.Elements[i]) : Coerce(EmitValue(collection.Elements[i]), collection.Elements[i].Type, element);
+                var value = asStrings ? ToStringValue(collection.Elements[i]) : Coerce(EmitValue(collection.Elements[i]), TypeOf(collection.Elements[i]), element);
                 var address = _b.InBoundsGep(T.ArrayHeader(storage), array, [L.ConstInt(L.I32, 0), L.ConstInt(L.I32, 2), L.ConstInt(L.I64, i)]);
                 StoreValue(ToStorage(value, element), address);
             }
             return array;
         }
-        var span = Coerce(EmitValue(argument.Value), argument.Value.Type, argument.Parameter!.Type);
+        var span = Coerce(EmitValue(argument.Value), TypeOf(argument.Value), S(argument.Parameter!.Type));
         if (asStrings) throw CompileError.Unsupported("joining a non-literal span of objects", argument);
         return CallRuntime("csrt_span_to_array", L.Ptr, [L.Ptr, L.I32, L.I64], SpanPointer(span), SpanLength(span), ElementSize(element));
     }
@@ -441,8 +441,8 @@ public sealed partial class FunctionCodeGen
         var args = inv.Arguments.OrderBy(a => a.Parameter!.Ordinal).ToArray();
         var source = args[1].Value;
         while (source is IConversionOperation { Conversion.IsImplicit: true } c) source = c.Operand;
-        if (source.Type is not IArrayTypeSymbol { Rank: 1 } arrayType) return false;
-        var separator = args[0].Parameter!.Type.SpecialType == SpecialType.System_Char
+        if (TypeOf(source) is not IArrayTypeSymbol { Rank: 1 } arrayType) return false;
+        var separator = S(args[0].Parameter!.Type).SpecialType == SpecialType.System_Char
             ? CallRuntime("csrt_string_from_char", L.Ptr, [L.I16], EmitValue(args[0].Value))
             : EmitValue(args[0].Value);
         var element = arrayType.ElementType;
@@ -467,14 +467,14 @@ public sealed partial class FunctionCodeGen
         if (TryJoinArray(inv, out result)) return true;
         var method = inv.TargetMethod;
         var spanParam = method.Parameters.LastOrDefault();
-        if (spanParam is null || !TypeMapper.IsSpan(spanParam.Type)) return false;
+        if (spanParam is null || !TypeMapper.IsSpan(S(spanParam.Type))) return false;
         var owner = method.ContainingType.ToDisplayString();
-        var element = SpanElement(spanParam.Type);
+        var element = SpanElement(S(spanParam.Type));
         var args = inv.Arguments.OrderBy(a => a.Parameter!.Ordinal).ToArray();
         var stringType = _m.Compilation.GetSpecialType(SpecialType.System_String);
         switch (owner, method.Name, method.Parameters.Length)
         {
-            case ("System.Console", "WriteLine" or "Write", 2) or ("string", "Format", 2) when args[0].Parameter!.Type.SpecialType == SpecialType.System_String:
+            case ("System.Console", "WriteLine" or "Write", 2) or ("string", "Format", 2) when S(args[0].Parameter!.Type).SpecialType == SpecialType.System_String:
             {
                 var format = EmitValue(args[0].Value);
                 var array = ParamsArray(args[1], element, asStrings: false);
@@ -487,7 +487,7 @@ public sealed partial class FunctionCodeGen
             case ("string", "Join", 2):
             {
                 var separatorArg = args[0];
-                var separator = separatorArg.Parameter!.Type.SpecialType == SpecialType.System_Char
+                var separator = S(separatorArg.Parameter!.Type).SpecialType == SpecialType.System_Char
                     ? CallRuntime("csrt_string_from_char", L.Ptr, [L.I16], EmitValue(separatorArg.Value))
                     : EmitValue(separatorArg.Value);
                 var array = ParamsArray(args[1], stringType, asStrings: element.SpecialType != SpecialType.System_String);

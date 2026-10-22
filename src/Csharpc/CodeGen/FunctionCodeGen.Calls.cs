@@ -20,11 +20,15 @@ public sealed partial class FunctionCodeGen
         // `T.Create()` on a static abstract/virtual interface member: after substitution T is concrete.
         if (ResolveStaticInterfaceMember(target, inv.ConstrainedToType) is { } staticImpl)
             return EmitUserCall(staticImpl, default, true, inv.Arguments, isVirtual: false);
+        if (TryGenericMathStatic(inv, target) is { } genericMath) return genericMath;
+        if (target.ContainingType.SpecialType == SpecialType.System_Enum && target.IsStatic && TryEnumStatic(inv, target) is { } enumResult) return enumResult;
+        if (TryNumericCreate(inv, target) is { } created) return created;
         if (target is { Name: "GetType", Parameters.IsEmpty: true, ContainingType.SpecialType: SpecialType.System_Object })
             return EmitGetType(inv);
         if (target.MethodKind == MethodKind.DelegateInvoke) return EmitDelegateInvoke(inv);
         if (target.MethodKind == MethodKind.LocalFunction) return CallLocalFunction(inv);
         if (TypeMapper.IsNullable(target.ContainingType)) return EmitNullableMethod(inv);
+        if (target.ContainingType is { IsTupleType: true } && !target.IsStatic && TryTupleMethod(inv, target) is { } tupleResult) return tupleResult;
         // Span enumerators are ref structs with no state to dispose (the foreach finally calls IDisposable.Dispose).
         if (target.Name == "Dispose" && TypeMapper.IsSpanEnumerator(TypeOf(inv.Instance))) return default;
         if (!target.IsStatic && inv.Instance is { } receiver)
@@ -54,6 +58,101 @@ public sealed partial class FunctionCodeGen
         if (BclValueTypes.TryGetRaw(target, out var raw)) return raw(this, inv);
         if (BclValueTypes.TryGet(target, out var bcl)) return CallBcl(bcl, target, inv.Instance, inv.Arguments, inv);
         throw CompileError.MissingIntrinsic(target, inv);
+    }
+
+    /// <summary>
+    /// Generic-math statics on a library numeric T (`T.Abs(x)`, `T.Max(a, b)`, `T.IsZero(x)`...): after
+    /// substitution, call the concrete type's own static (double.Abs), or its System.Math equivalent.
+    /// </summary>
+    private LLVMValueRef? TryGenericMathStatic(IInvocationOperation inv, IMethodSymbol target)
+    {
+        if (!target.IsStatic || target.ContainingType.TypeKind != TypeKind.Interface || inv.ConstrainedToType is null) return null;
+        var concrete = S(inv.ConstrainedToType);
+        if (concrete is ITypeParameterSymbol || _m.IsUserType(concrete)) return null;
+        var parameters = target.Parameters.Select(p => S(p.Type)).ToArray();
+        bool Matches(IMethodSymbol m) => m.IsStatic && m.Parameters.Length == parameters.Length
+            && m.Parameters.Select(p => p.Type).SequenceEqual(parameters, SymbolEqualityComparer.Default);
+
+        // BigInteger predicates: null is zero in the runtime representation (runtime/bigint.c).
+        if (BclValueTypes.IsBigInteger(concrete) && parameters.Length == 1 && target.Name is "IsZero" or "IsNegative" or "IsPositive")
+        {
+            var x = Coerce(EmitValue(inv.Arguments[0].Value), TypeOf(inv.Arguments[0].Value), concrete);
+            var cmp = CallRuntime("csrt_bigint_compare", L.I32, [L.Ptr, L.Ptr], x, LlvmContext.Null(L.Ptr));
+            return target.Name switch
+            {
+                "IsZero" => _b.ICmp(LLVMIntPredicate.EQ, cmp, L.ConstInt(L.I32, 0)),
+                "IsNegative" => _b.ICmp(LLVMIntPredicate.SLT, cmp, L.ConstInt(L.I32, 0)),
+                _ => _b.ICmp(LLVMIntPredicate.SGE, cmp, L.ConstInt(L.I32, 0)),
+            };
+        }
+        // decimal predicates: compare with 0m (all-zero bits); the sign bit of `flags` means negative (-0m too).
+        if (concrete.SpecialType == SpecialType.System_Decimal && parameters.Length == 1 && target.Name is "IsZero" or "IsNegative" or "IsPositive")
+        {
+            var x = Coerce(EmitValue(inv.Arguments[0].Value), TypeOf(inv.Arguments[0].Value), concrete);
+            if (target.Name == "IsZero")
+                return _b.ICmp(LLVMIntPredicate.EQ, CallRuntime("csrt_decimal_compare", L.I32, [L.Ptr, L.Ptr], Spill(x), Spill(LlvmContext.Null(x.Type))), L.ConstInt(L.I32, 0));
+            var negative = _b.ICmp(LLVMIntPredicate.SLT, _b.ExtractValue(x, 0), L.ConstInt(L.I32, 0));
+            return target.Name == "IsNegative" ? negative : _b.Not(negative);
+        }
+        // Simple predicates, inline (no BCL method needed).
+        if (parameters.Length == 1 && SymbolEqualityComparer.Default.Equals(parameters[0], concrete)
+            && target.Name is "IsZero" or "IsNegative" or "IsPositive" && concrete.SpecialType != SpecialType.None && concrete.SpecialType != SpecialType.System_Decimal)
+        {
+            var x = Coerce(EmitValue(inv.Arguments[0].Value), TypeOf(inv.Arguments[0].Value), concrete);
+            var zero = x.Type.IsFloatingPoint ? LlvmContext.ConstReal(x.Type, 0) : L.ConstInt(x.Type, 0);
+            var signed = TypeMapper.IsSigned(concrete);
+            return (target.Name, x.Type.IsFloatingPoint) switch
+            {
+                ("IsZero", true) => _b.FCmp(LLVMRealPredicate.OEQ, x, zero),
+                ("IsZero", false) => _b.ICmp(LLVMIntPredicate.EQ, x, zero),
+                ("IsNegative", true) => _b.ICmp(LLVMIntPredicate.SLT, _b.Cast(LLVMOpcode.BitCast, x, x.Type.Kind == LLVMTypeKind.Double ? L.I64 : L.I32),
+                    L.ConstInt(x.Type.Kind == LLVMTypeKind.Double ? L.I64 : L.I32, 0)),
+                ("IsNegative", false) => signed ? _b.ICmp(LLVMIntPredicate.SLT, x, zero) : L.False,
+                ("IsPositive", true) => _b.ICmp(LLVMIntPredicate.SGE, _b.Cast(LLVMOpcode.BitCast, x, x.Type.Kind == LLVMTypeKind.Double ? L.I64 : L.I32),
+                    L.ConstInt(x.Type.Kind == LLVMTypeKind.Double ? L.I64 : L.I32, 0)),
+                _ => signed ? _b.ICmp(LLVMIntPredicate.SGE, x, zero) : L.True,
+            };
+        }
+
+        IEnumerable<IMethodSymbol> candidates = concrete.GetMembers(target.Name).OfType<IMethodSymbol>().Where(Matches);
+        var math = _m.Compilation.GetTypeByMetadataName("System.Math");
+        if (math is not null) candidates = candidates.Concat(math.GetMembers(target.Name).OfType<IMethodSymbol>().Where(Matches));
+        foreach (var method in candidates)
+        {
+            if (Intrinsics.TryGet(method, out var handler)) return handler(this, inv);
+            if (BclValueTypes.TryGet(method, out var bcl)) return CallBcl(bcl, method, null, inv.Arguments, inv);
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// `double.CreateChecked(x)` / CreateSaturating / CreateTruncating (generic math conversions) between
+    /// primitives — directly or via T.CreateChecked in generic code: a numeric conversion.
+    /// </summary>
+    private LLVMValueRef? TryNumericCreate(IInvocationOperation inv, IMethodSymbol target)
+    {
+        if (!target.IsStatic || target.Name is not ("CreateChecked" or "CreateSaturating" or "CreateTruncating") || target.Parameters.Length != 1) return null;
+        var to = target.ContainingType.TypeKind == TypeKind.Interface && inv.ConstrainedToType is { } ct ? S(ct) : S(target.ContainingType);
+        var argument = inv.Arguments[0].Value;
+        var from = TypeOf(argument);
+        if (from is null || to.SpecialType == SpecialType.None || from.SpecialType == SpecialType.None
+            || to.SpecialType == SpecialType.System_Decimal || from.SpecialType == SpecialType.System_Decimal) return null;
+        var value = EmitValue(argument);
+        return ConvertNumeric(value, from, to, inv, isChecked: target.Name == "CreateChecked");
+    }
+
+    /// <summary>ValueTuple instance methods: element-wise comparison/equality/hashing like .NET's ValueTuple.</summary>
+    private LLVMValueRef? TryTupleMethod(IInvocationOperation inv, IMethodSymbol target)
+    {
+        var tupleType = (INamedTypeSymbol)TypeOf(inv.Instance!)!;
+        LLVMValueRef Other() => Coerce(EmitValue(inv.Arguments[0].Value), TypeOf(inv.Arguments[0].Value), tupleType);
+        return (target.Name, target.Parameters.Length) switch
+        {
+            ("CompareTo", 1) when target.Parameters[0].Type.IsTupleType => CompareOf(tupleType, EmitValue(inv.Instance!), Other(), inv),
+            ("Equals", 1) when target.Parameters[0].Type.IsTupleType => EqualsOf(tupleType, EmitValue(inv.Instance!), Other(), inv),
+            ("GetHashCode", 0) => HashOf(tupleType, EmitValue(inv.Instance!), inv),
+            _ => null,
+        };
     }
 
     /// <summary>Static abstract/virtual interface member + constrained type → the concrete implementation.</summary>
@@ -205,6 +304,10 @@ public sealed partial class FunctionCodeGen
     /// <summary>`obj is T` for classes: walk the method-table base chain in the runtime.</summary>
     private LLVMValueRef IsInstance(LLVMValueRef value, ITypeSymbol? from, ITypeSymbol target, IOperation at)
     {
+        // `x is ICollection` / `x is IList<int>` where x may be an array: make sure the array tables exist.
+        if (target is INamedTypeSymbol { TypeKind: TypeKind.Interface } itf
+            && (from is null or IArrayTypeSymbol { Rank: 1 } || from.SpecialType == SpecialType.System_Object || from.TypeKind == TypeKind.Interface))
+            _m.RequestArrayInterface(itf);
         if (from is not null)
         {
             var conversion = _m.Compilation.ClassifyCommonConversion(from, target);
@@ -284,6 +387,19 @@ public sealed partial class FunctionCodeGen
             && property.Name is "Zero" or "One" or "AdditiveIdentity" or "MultiplicativeIdentity")
             return Constant(property.Name is "Zero" or "AdditiveIdentity" ? 0 : 1, _m.Compilation.GetSpecialType(SpecialType.System_Int32)) is var c
                 ? ConvertNumeric(c, _m.Compilation.GetSpecialType(SpecialType.System_Int32), numeric, p) : default;
+        // Other static abstract properties (T.Zero on BigInteger, user types implementing INumber-like
+        // interfaces...): the concrete type's own static property after substitution.
+        if (property is { IsStatic: true, ContainingType.TypeKind: TypeKind.Interface, GetMethod: { } abstractGetter }
+            && p.ConstrainedToType is { } constrained && S(constrained) is INamedTypeSymbol concrete && concrete.TypeKind != TypeKind.TypeParameter)
+        {
+            if (concrete.FindImplementationForInterfaceMember(abstractGetter) is IMethodSymbol implGetter && _m.IsUserMethod(implGetter))
+                return DirectCall(implGetter, []);
+            if (concrete.GetMembers(property.Name).OfType<IPropertySymbol>().FirstOrDefault(cp => cp.IsStatic) is { GetMethod: { } concreteGetter } concreteProperty)
+            {
+                if (Intrinsics.TryGetProperty(concreteProperty, out var concreteHandler)) return concreteHandler(this, p);
+                if (BclValueTypes.TryGet(concreteGetter, out var concreteBcl)) return CallBcl(concreteBcl, concreteGetter, null, [], p);
+            }
+        }
         if (property.ContainingType.TypeKind == TypeKind.Interface && !property.IsStatic && !IsArrayEnumeration(p.Instance!))
             return EmitInterfaceCall(property.GetMethod!, p.Instance!, p.Arguments, [], null);
         if (_m.IsUserType(property.ContainingType))
@@ -383,11 +499,12 @@ public sealed partial class FunctionCodeGen
     {
         var ctor = type.InstanceConstructors.FirstOrDefault(c => c.Parameters.IsEmpty)
             ?? throw CompileError.Unsupported($"collection expression of type '{type}' (no parameterless constructor)", collection);
-        var add = type.GetMembers("Add").OfType<IMethodSymbol>().FirstOrDefault(m => m.Parameters.Length == 1 && !m.IsStatic)
-            ?? throw CompileError.Unsupported($"collection expression of type '{type}' (no Add method)", collection);
+        var add = type.GetMembers("Add").OfType<IMethodSymbol>().FirstOrDefault(m => m.Parameters.Length == 1 && !m.IsStatic);
         var layout = _m.GetLayout(type);
         var obj = Allocate(layout.MethodTable, L.ConstInt(L.I64, (long)layout.InstanceSize));
         DirectCall(ctor, [obj]);
+        if (collection.Elements.IsEmpty) return obj; // `Dictionary<K, V> d = [];` needs no Add(T)
+        if (add is null) throw CompileError.Unsupported($"collection expression of type '{type}' (no Add method)", collection);
         var elementType = S(add.Parameters[0].Type);
         foreach (var element in collection.Elements)
         {
@@ -681,6 +798,8 @@ public sealed partial class FunctionCodeGen
         if (TypeMapper.IsNullable(inputType)) return NullablePatternTest(value, inputType!, pattern);
         switch (pattern)
         {
+            case IConstantPatternOperation { Value.ConstantValue: { HasValue: true, Value: null } } when inputType is { IsValueType: true } && !TypeMapper.IsNullable(inputType):
+                return L.False; // `x is null` with a non-nullable value type T (generic code)
             case IConstantPatternOperation constant:
             {
                 var c = EmitValue(constant.Value);

@@ -1,0 +1,64 @@
+{
+  "store": "Corner Books",
+  "open": true,
+  "rating": 4.75,
+  "founded": 1998,
+  "tags": [
+    "books",
+    "coffee",
+    "events"
+  ],
+  "address": {
+    "street": "12 Main St",
+    "city": "Springfield",
+    "zip": null
+  },
+  "inventory": [
+    {
+      "isbn": "978-0",
+      "title": "The Pragmatic Programmer",
+      "price": 39.99,
+      "stock": 4
+    },
+    {
+      "isbn": "978-1",
+      "title": "Structure and Interpretation",
+      "price": 54.5,
+      "stock": 0
+    },
+    {
+      "isbn": "978-2",
+      "title": "G\u00f6del, Escher, Bach",
+      "price": 22,
+      "stock": 11,
+      "notes": "tab\there \"quoted\" \u00e9"
+    }
+  ],
+  "empty": {},
+  "nothing": [],
+  "big": 1.2345678901234567E+19,
+  "tiny": -0.0015
+}
+515
+3 books, 2 in stock
+inventory value: 401.96
+Gödel, Escher, Bach | The Pragmatic Programmer | Structure and Interpretation
+Springfield
+tab	here "quoted" é
+zip is null
+missing
+round-trip ok
+{
+  "generated": "2026-10-22",
+  "count": 3,
+  "outOfStock": [
+    "978-1"
+  ]
+}
+{"a": }          => unexpected character '}' at position 6
+[1, 2            => expected ',' or ']' at position 5
+{"a" 1}          => expected ':' at position 5
+tru              => invalid literal (expected 'true') at position 0
+"unterminated    => unterminated string at position 0
+[1,,2]           => unexpected ',' at position 3
+01x              => trailing characters at position 2

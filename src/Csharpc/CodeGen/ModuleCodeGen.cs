@@ -502,7 +502,7 @@ public sealed partial class ModuleCodeGen
 
     public ClassLayout GetLayout(INamedTypeSymbol type)
     {
-        type = CoreLib.TryMap(type) ?? type;
+        type = TypeSubstitution.EraseTupleNames(CoreLib.TryMap(type) ?? type, Compilation);
         if (!TypeSubstitution.IsGenericContext(type)) type = type.OriginalDefinition;
         if (_layouts.TryGetValue(type, out var existing)) return existing;
         if (!IsUserType(type))
@@ -540,6 +540,7 @@ public sealed partial class ModuleCodeGen
         foreach (var f in type.GetMembers().OfType<IFieldSymbol>().Where(f => !f.IsStatic && !f.IsConst))
         {
             layout.FieldIndex[f] = (uint)elements.Count;
+            layout.FieldIndex.TryAdd(f.OriginalDefinition, (uint)elements.Count); // tuple-name-insensitive lookups
             layout.Fields.Add(f);
             layout.SlotOrder.Add(f);
             elements.Add(Types.Storage(f.Type));
@@ -867,6 +868,16 @@ public sealed partial class ModuleCodeGen
 
         List<ControlFlowGraph> graphs = [];
         List<IMethodSymbol> cctors = [];
+        // Corelib types are lowered on demand: initialize the (non-generic) ones whose static fields the
+        // program actually references — first, since user initializers may depend on them.
+        var referencedCoreLibTypes = _staticFields.Keys.Select(f => f.ContainingType.OriginalDefinition)
+            .Where(t => CoreLib.IsCoreLib(t) && !TypeSubstitution.IsGenericContext(t))
+            .Distinct<INamedTypeSymbol>(SymbolEqualityComparer.Default).ToList();
+        foreach (var t in referencedCoreLibTypes)
+        {
+            graphs.AddRange(InitializerGraphs(t, isStatic: true));
+            cctors.AddRange(t.StaticConstructors.Where(c => !c.IsImplicitlyDeclared));
+        }
         foreach (var t in _userTypes.Where(t => t.TypeKind is TypeKind.Class or TypeKind.Struct))
         {
             if (TypeSubstitution.IsGenericContext(t))

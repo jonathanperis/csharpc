@@ -635,6 +635,54 @@ namespace CsharpcCoreLib
         public static float Sum<TSource>(IEnumerable<TSource> source, Func<TSource, float> selector)
         { Check(source, "source"); Check(selector, "selector"); double sum = 0; foreach (TSource v in source) sum += selector(v); return (float)sum; }
 
+        // decimal and nullable aggregates (.NET: nulls are skipped; Sum of nothing is 0, Average/Min/Max of
+        // no non-null values is null for nullable overloads).
+        public static decimal Sum(IEnumerable<decimal> source) { Check(source, "source"); decimal sum = 0; foreach (decimal v in source) sum += v; return sum; }
+        public static decimal Sum<TSource>(IEnumerable<TSource> source, Func<TSource, decimal> selector)
+        { Check(source, "source"); Check(selector, "selector"); decimal sum = 0; foreach (TSource v in source) sum += selector(v); return sum; }
+        public static decimal Average(IEnumerable<decimal> source)
+        {
+            Check(source, "source");
+            decimal sum = 0; long n = 0;
+            foreach (decimal v in source) { sum += v; n++; }
+            if (n == 0) ThrowHelper.NoElements();
+            return sum / n;
+        }
+        public static decimal Average<TSource>(IEnumerable<TSource> source, Func<TSource, decimal> selector) => Average(Select(source, selector));
+        public static decimal Min(IEnumerable<decimal> source) => MinMax(source, null, 1);
+        public static decimal Max(IEnumerable<decimal> source) => MinMax(source, null, -1);
+        public static decimal Min<TSource>(IEnumerable<TSource> source, Func<TSource, decimal> selector) => MinMax(Select(source, selector), null, 1);
+        public static decimal Max<TSource>(IEnumerable<TSource> source, Func<TSource, decimal> selector) => MinMax(Select(source, selector), null, -1);
+
+        public static int? Sum(IEnumerable<int?> source) { Check(source, "source"); int sum = 0; foreach (int? v in source) if (v.HasValue) sum = checked(sum + v.Value); return sum; }
+        public static long? Sum(IEnumerable<long?> source) { Check(source, "source"); long sum = 0; foreach (long? v in source) if (v.HasValue) sum = checked(sum + v.Value); return sum; }
+        public static double? Sum(IEnumerable<double?> source) { Check(source, "source"); double sum = 0; foreach (double? v in source) if (v.HasValue) sum += v.Value; return sum; }
+        public static decimal? Sum(IEnumerable<decimal?> source) { Check(source, "source"); decimal sum = 0; foreach (decimal? v in source) if (v.HasValue) sum += v.Value; return sum; }
+        public static int? Sum<TSource>(IEnumerable<TSource> source, Func<TSource, int?> selector) => Sum(Select(source, selector));
+        public static long? Sum<TSource>(IEnumerable<TSource> source, Func<TSource, long?> selector) => Sum(Select(source, selector));
+        public static double? Sum<TSource>(IEnumerable<TSource> source, Func<TSource, double?> selector) => Sum(Select(source, selector));
+        public static decimal? Sum<TSource>(IEnumerable<TSource> source, Func<TSource, decimal?> selector) => Sum(Select(source, selector));
+        public static double? Average(IEnumerable<int?> source)
+        {
+            Check(source, "source");
+            long sum = 0; long n = 0;
+            foreach (int? v in source) if (v.HasValue) { sum += v.Value; n++; }
+            return n == 0 ? null : (double)sum / n;
+        }
+        public static double? Average(IEnumerable<double?> source)
+        {
+            Check(source, "source");
+            double sum = 0; long n = 0;
+            foreach (double? v in source) if (v.HasValue) { sum += v.Value; n++; }
+            return n == 0 ? null : sum / n;
+        }
+        public static double? Average<TSource>(IEnumerable<TSource> source, Func<TSource, int?> selector) => Average(Select(source, selector));
+        public static double? Average<TSource>(IEnumerable<TSource> source, Func<TSource, double?> selector) => Average(Select(source, selector));
+        public static int? Min(IEnumerable<int?> source) { Check(source, "source"); int? best = null; foreach (int? v in source) if (v.HasValue && (!best.HasValue || v.Value < best.Value)) best = v; return best; }
+        public static int? Max(IEnumerable<int?> source) { Check(source, "source"); int? best = null; foreach (int? v in source) if (v.HasValue && (!best.HasValue || v.Value > best.Value)) best = v; return best; }
+        public static int? Min<TSource>(IEnumerable<TSource> source, Func<TSource, int?> selector) => Min(Select(source, selector));
+        public static int? Max<TSource>(IEnumerable<TSource> source, Func<TSource, int?> selector) => Max(Select(source, selector));
+
         public static double Average(IEnumerable<int> source)
         {
             Check(source, "source");

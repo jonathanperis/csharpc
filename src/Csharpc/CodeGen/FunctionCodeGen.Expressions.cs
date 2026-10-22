@@ -50,6 +50,7 @@ public sealed partial class FunctionCodeGen
             IIsNullOperation n when TypeMapper.IsNullable(n.Operand.Type) => _b.Not(NullableHas(EmitValue(n.Operand))),
             IIsNullOperation n when TypeOf(n.Operand) is { IsValueType: true, TypeKind: not (TypeKind.Pointer or TypeKind.FunctionPointer) }
                 => L.False, // a (non-nullable) struct is never null
+            IIsNullOperation n when TypeOf(n.Operand) is { IsValueType: true } vt && !TypeMapper.IsNullable(vt) => EmitValueThenFalse(n.Operand),
             IIsNullOperation n => _b.ICmp(LLVMIntPredicate.EQ, EmitValue(n.Operand), LlvmContext.Null(L.Ptr)),
             IIsTypeOperation t => EmitIsType(t),
             IAnonymousObjectCreationOperation a => EmitAnonymousCreation(a),
@@ -68,7 +69,7 @@ public sealed partial class FunctionCodeGen
             IInterpolatedStringHandlerCreationOperation =>
                 throw CompileError.Unsupported("interpolated string handlers", op),
             IDeconstructionAssignmentOperation d => EmitDeconstruction(d),
-            ITupleOperation { Type: INamedTypeSymbol { IsTupleType: true } tupleType } t => BuildTuple(t, tupleType),
+            ITupleOperation t when TypeOf(t) is INamedTypeSymbol { IsTupleType: true } tupleType => BuildTuple(t, tupleType),
             ITupleOperation => throw CompileError.Unsupported("tuple without a natural type", op),
             ITupleBinaryOperation t => EmitTupleBinary(t),
             IAddressOfOperation a => EmitAddressOf(a),
@@ -92,6 +93,12 @@ public sealed partial class FunctionCodeGen
     {
         NullCheck(reference);
         return default;
+    }
+
+    private LLVMValueRef EmitValueThenFalse(IOperation operand)
+    {
+        EmitValue(operand);
+        return L.False;
     }
 
     private LLVMValueRef LoadCapture(IFlowCaptureReferenceOperation r)
@@ -585,7 +592,7 @@ public sealed partial class FunctionCodeGen
         }
         if (op.IsLifted) return EmitLiftedUnary(op);
         var v = EmitValue(op.Operand);
-        if (BclValueTypes.IsDecimal(op.Operand.Type))
+        if (BclValueTypes.IsDecimal(TypeOf(op.Operand)))
             return op.OperatorKind == UnaryOperatorKind.Minus ? DecimalNegate(v) : v;
         if (op.IsChecked && op.OperatorKind == UnaryOperatorKind.Minus && v.Type.IsInteger)
             return CheckedArithmetic("sub", L.ConstInt(v.Type, 0), v, TypeMapper.IsSigned(op.Operand.Type!));
@@ -606,6 +613,11 @@ public sealed partial class FunctionCodeGen
     {
         var from = TypeOf(c.Operand);
         var to = TypeOf(c)!;
+        // `(T)(object)x` in generic code where, after substitution, x is already a T: a no-op (no box/unbox).
+        if (c.OperatorMethod is null && c.Operand is IConversionOperation { OperatorMethod: null } inner
+            && TypeOf(inner)?.SpecialType == SpecialType.System_Object && TypeOf(inner.Operand) is { } original
+            && SymbolEqualityComparer.Default.Equals(TypeSubstitution.EraseTupleNames(original, _m.Compilation), TypeSubstitution.EraseTupleNames(to, _m.Compilation)))
+            return EmitValue(inner.Operand);
         if (TrySpanConversion(c) is { } span) return span;
         if (TryIndexConversion(c) is { } index) return index;
         if (c.OperatorMethod is { } om0)
@@ -658,7 +670,16 @@ public sealed partial class FunctionCodeGen
     internal LLVMValueRef Coerce(LLVMValueRef value, ITypeSymbol? from, ITypeSymbol to)
     {
         if (from is null || SymbolEqualityComparer.Default.Equals(from, to)) return value;
-        if (from.IsReferenceType || to.IsReferenceType) return value;
+        if (from.IsReferenceType || to.IsReferenceType)
+        {
+            // Implicit T[]/string -> BCL interface (argument passing, spreads...): ensure the corelib slot tables exist.
+            if (to is INamedTypeSymbol { TypeKind: TypeKind.Interface } itf)
+            {
+                if (from is IArrayTypeSymbol { Rank: 1 }) _m.RequestArrayInterface(itf);
+                else if (from.SpecialType == SpecialType.System_String) _m.RequestStringInterface(itf);
+            }
+            return value;
+        }
         if (IsAggregate(from) || IsAggregate(to)) return CoerceAggregate(value, from, to);
         return ConvertNumeric(value, from, to, null);
     }

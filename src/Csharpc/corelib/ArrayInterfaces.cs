@@ -7,6 +7,15 @@ using System.Collections.Generic;
 
 namespace CsharpcCoreLib
 {
+    // Non-generic ICollection on any array: one slot table serves every element type, so only
+    // element-type-agnostic members are implemented (the length is at the same offset for all arrays).
+    internal static class SZArrayHelper
+    {
+        public static int ICollection_get_Count(Array a) => a.Length;
+        public static bool ICollection_get_IsSynchronized(Array a) => false;
+        public static object ICollection_get_SyncRoot(Array a) => a;
+    }
+
     internal static class SZArrayHelper<T>
     {
         public static IEnumerator<T> IEnumerable1_GetEnumerator(T[] a) => new ArrayEnumerator<T>(a);

@@ -1,0 +1,19 @@
+graph: 60 nodes, 175 edges
+0 -> 5: cost 25, path 0 > 12 > 20 > 5
+0 -> 17: cost 17, path 0 > 12 > 18 > 17
+0 -> 42: cost 18, path 0 > 8 > 58 > 42
+0 -> 59: cost 45, path 0 > 8 > 58 > 42 > 21 > 59
+BFS layers from 0: 0:1, 1:3, 2:8, 3:15, 4:21, 5:7, 6:4
+DFS preorder (first 15): 0 12 20 5 1 54 35 17 10 57 51 15 37 45 9
+SCCs: 2, largest 59, singletons 1
+MST (undirected view): 59 edges, total weight 252
+build order: net http log web sql data app
+cycle detected: app -> web -> http -> net -> app
+A*: 21 steps
+  S***.#****
+  .##*.#*##*
+  ..#****#**
+  #.####.#*#
+  ......#.**
+  .####.#.#*
+  ......#.#G

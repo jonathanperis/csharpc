@@ -120,6 +120,7 @@ internal static unsafe partial class Native
     [LibraryImport(Lib)] public static partial LLVMTypeRef LLVMInt16TypeInContext(LLVMContextRef c);
     [LibraryImport(Lib)] public static partial LLVMTypeRef LLVMInt32TypeInContext(LLVMContextRef c);
     [LibraryImport(Lib)] public static partial LLVMTypeRef LLVMInt64TypeInContext(LLVMContextRef c);
+    [LibraryImport(Lib)] public static partial LLVMTypeRef LLVMIntTypeInContext(LLVMContextRef c, uint bits);
     [LibraryImport(Lib)] public static partial LLVMTypeRef LLVMFloatTypeInContext(LLVMContextRef c);
     [LibraryImport(Lib)] public static partial LLVMTypeRef LLVMDoubleTypeInContext(LLVMContextRef c);
     [LibraryImport(Lib)] public static partial LLVMTypeRef LLVMVoidTypeInContext(LLVMContextRef c);

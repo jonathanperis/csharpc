@@ -1,0 +1,35 @@
+60 words, 20 distinct
+  it           10 **********
+  of           10 **********
+  the          10 **********
+  was          10 **********
+  age           2 **
+  epoch         2 **
+  season        2 **
+  times         2 **
+longest: foolishness, incredulity, darkness
+average word length: 3.617
+wisdon   -> wisdom(1)
+seasn    -> season(1)
+despare  -> despair(2)
+times    -> times(0)
+zebra    -> (none)
+levenshtein(kitten, sitting) = 3
+csv: 5 rows x 4 columns
+  1 | Ada | London | likes "engines"
+  2 | Hopper, Grace | Arlington | multi\nline
+  3 | Alan |  | 
+  4 | Edsger | Nuenen | a,b,c
+id,name,city,notes\n1,Ada,London,"likes ""engines"""\n2,"Hopper, Grace",Arlington,"multi\nline"\n
+tokens: ID:sum '(' NUM:3 ',' NUM:4.5 ')' '*' '(' ID:max '(' NUM:1 ',' NUM:2 ')' '-' '-' NUM:7 ')' '/' NUM:2
+|It  was  the  best  of times, it was the|
+|worst  of  times,  it  was  the  age  of|
+|wisdom,  it  was the age of foolishness,|
+|it  was  the epoch of belief, it was the|
+|epoch  of incredulity, it was the season|
+|of Light, it was the season of Darkness,|
+|it  was  the  spring of hope, it was the|
+|winter of despair.                      |
+~~~~~~~csharpc~~~~~~~
+title case: The Quick Brown Fox Jumps
+is palindrome: True False

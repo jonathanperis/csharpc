@@ -3,6 +3,7 @@ using Csharpc.CodeGen;
 using Csharpc.Frontend;
 using Csharpc.Llvm;
 using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp;
 
 namespace Csharpc.Driver;
 
@@ -70,7 +71,12 @@ public sealed class Compiler(CompilerOptions options)
         module.ConfigureFor(target);
         module.SourceFileName = settings.Files.Count > 0 ? settings.Files[0] : "program";
 
-        var codegen = new ModuleCodeGen(compilation, llvm, module, target) { CfgDump = options.DumpCfg ? Console.Out : null };
+        // Codegen binds against a nullable-oblivious copy of the compilation: nullability never affects
+        // generated code, and Roslyn's nullable re-inference can surface error types in IOperation
+        // (e.g. `Select` over an array of tuples with mixed element names yields `Select<T, ?>`).
+        var codegenCompilation = MethodGroupRewriter.Rewrite(
+            compilation.WithOptions(compilation.Options.WithNullableContextOptions(NullableContextOptions.Disable)));
+        var codegen = new ModuleCodeGen(codegenCompilation, llvm, module, target) { CfgDump = options.DumpCfg ? Console.Out : null };
         using var debugInfo = options.Debug
             ? codegen.Debug = new DebugInfo(codegen, settings.Files.Count > 0 ? settings.Files[0] : "program.cs", options.OptLevel > 0)
             : null;

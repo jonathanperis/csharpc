@@ -69,7 +69,9 @@ public sealed partial class FunctionCodeGen
         return null;
     }
 
-    private bool IsCatchAll(ITypeSymbol? type) =>
+    private bool IsCatchAll(ITypeSymbol? type) => IsCatchAllType(type is null ? null : S(type));
+
+    private static bool IsCatchAllType(ITypeSymbol? type) =>
         type is null or { SpecialType: SpecialType.System_Object }
         || (type is INamedTypeSymbol { MetadataName: "Exception" } t && t.ContainingNamespace?.ToDisplayString() == "System");
 
@@ -136,7 +138,7 @@ public sealed partial class FunctionCodeGen
         _hasPersonality = true;
     }
 
-    private LLVMValueRef CatchTypeInfo(ITypeSymbol type) => type switch
+    private LLVMValueRef CatchTypeInfo(ITypeSymbol type) => S(type) switch
     {
         INamedTypeSymbol { TypeKind: TypeKind.Class } named when _m.IsUserType(named) || _m.IsLibraryException(named) =>
             _m.GetLayout(named).MethodTable,
