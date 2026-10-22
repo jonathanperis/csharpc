@@ -657,7 +657,16 @@ public sealed partial class FunctionCodeGen
     internal LLVMValueRef Coerce(LLVMValueRef value, ITypeSymbol? from, ITypeSymbol to)
     {
         if (from is null || SymbolEqualityComparer.Default.Equals(from, to)) return value;
-        if (from.IsReferenceType || to.IsReferenceType) return value;
+        if (from.IsReferenceType || to.IsReferenceType)
+        {
+            // Implicit T[]/string -> BCL interface (argument passing, spreads...): ensure the corelib slot tables exist.
+            if (to is INamedTypeSymbol { TypeKind: TypeKind.Interface } itf)
+            {
+                if (from is IArrayTypeSymbol { Rank: 1 }) _m.RequestArrayInterface(itf);
+                else if (from.SpecialType == SpecialType.System_String) _m.RequestStringInterface(itf);
+            }
+            return value;
+        }
         if (IsAggregate(from) || IsAggregate(to)) return CoerceAggregate(value, from, to);
         return ConvertNumeric(value, from, to, null);
     }

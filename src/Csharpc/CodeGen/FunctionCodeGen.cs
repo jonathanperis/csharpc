@@ -589,7 +589,9 @@ public sealed partial class FunctionCodeGen
             return _b.StructGep(structType, instance, index, field.Name);
         }
         var layout = _m.GetLayout(field.ContainingType);
-        return _b.StructGep(layout.InstanceType, instance, layout.FieldIndex[field], field.Name);
+        if (!layout.FieldIndex.TryGetValue(field, out var slotIndex) && !layout.FieldIndex.TryGetValue(field.OriginalDefinition, out slotIndex))
+            throw CompileError.Unsupported($"field '{field}' not found in the layout of '{layout.Type}'", field);
+        return _b.StructGep(layout.InstanceType, instance, slotIndex, field.Name);
     }
 
     // ======================================================================================

@@ -26,6 +26,7 @@ public sealed partial class ModuleCodeGen
 
     public LLVMValueRef InterfaceMethodTable(INamedTypeSymbol itf)
     {
+        itf = TypeSubstitution.EraseTupleNames(itf, Compilation);
         if (_interfaceTables.TryGetValue(itf, out var g)) return g;
         if (TypeSubstitution.IsOpen(itf)) throw CompileError.Unsupported($"open generic interface '{itf}'", itf);
         var init = Llvm.ConstStruct(LlvmContext.Null(Llvm.Ptr), CString(Mangler.MetadataName(itf)),

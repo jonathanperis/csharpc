@@ -25,7 +25,7 @@ public sealed partial class ModuleCodeGen
 
     public StructLayout GetStructLayout(INamedTypeSymbol type)
     {
-        type = CoreLib.TryMap(type) ?? type;
+        type = TypeSubstitution.EraseTupleNames(CoreLib.TryMap(type) ?? type, Compilation);
         // Generic structs are laid out per instantiation (the constructed type's fields are substituted).
         if (!TypeSubstitution.IsGenericContext(type)) type = type.OriginalDefinition;
         if (_structs.TryGetValue(type, out var existing)) return existing;

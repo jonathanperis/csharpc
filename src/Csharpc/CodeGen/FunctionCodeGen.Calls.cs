@@ -351,12 +351,49 @@ public sealed partial class FunctionCodeGen
     private LLVMValueRef EmitCollectionExpression(ICollectionExpressionOperation collection)
     {
         if (TypeMapper.IsSpan(TypeOf(collection))) return SpanFromCollection(collection, SpanElement(TypeOf(collection)!));
+        if (TypeOf(collection) is INamedTypeSymbol named) return CollectionExpressionToType(collection, named);
         if (TypeOf(collection) is not IArrayTypeSymbol { Rank: 1 } arrayType)
             throw CompileError.Unsupported($"collection expression of type '{collection.Type}'", collection);
         if (collection.Elements.Any(e => e is ISpreadOperation)) throw CompileError.Unsupported("spread elements", collection);
         var array = NewArray(arrayType.ElementType, L.ConstInt(L.I64, collection.Elements.Length));
         StoreElements(array, arrayType.ElementType, collection.Elements);
         return array;
+    }
+
+    /// <summary>
+    /// `List<int> xs = [1, 2, ..other];` — collection types with a parameterless constructor and Add
+    /// (List, HashSet, Queue-like corelib shadows, user collections), and interface targets
+    /// (IEnumerable<T>, IList<T>, IReadOnlyList<T>...), which get a List<T> as .NET effectively does.
+    /// </summary>
+    private LLVMValueRef CollectionExpressionToType(ICollectionExpressionOperation collection, INamedTypeSymbol type)
+    {
+        if (type.TypeKind == TypeKind.Interface && type.TypeArguments.Length == 1)
+        {
+            var list = _m.Compilation.GetTypeByMetadataName("System.Collections.Generic.List`1")!.Construct(type.TypeArguments[0]);
+            type = (INamedTypeSymbol)S(list);
+        }
+        if (!_m.IsUserType(type) || type.TypeKind != TypeKind.Class || type.IsAbstract)
+            throw CompileError.Unsupported($"collection expression of type '{collection.Type}'", collection);
+        var ctor = type.InstanceConstructors.FirstOrDefault(c => c.Parameters.IsEmpty)
+            ?? throw CompileError.Unsupported($"collection expression of type '{type}' (no parameterless constructor)", collection);
+        var add = type.GetMembers("Add").OfType<IMethodSymbol>().FirstOrDefault(m => m.Parameters.Length == 1 && !m.IsStatic)
+            ?? throw CompileError.Unsupported($"collection expression of type '{type}' (no Add method)", collection);
+
+        var layout = _m.GetLayout(type);
+        var obj = Allocate(layout.MethodTable, L.ConstInt(L.I64, (long)layout.InstanceSize));
+        DirectCall(ctor, [obj]);
+        foreach (var element in collection.Elements)
+        {
+            if (element is ISpreadOperation spread)
+            {
+                var bulk = type.GetMembers().OfType<IMethodSymbol>().FirstOrDefault(m => m.Name is "AddRange" or "UnionWith" && m.Parameters.Length == 1)
+                    ?? throw CompileError.Unsupported($"spread into '{type}'", element);
+                DirectCall(bulk, [obj, Coerce(EmitValue(spread.Operand), TypeOf(spread.Operand), bulk.Parameters[0].Type)]);
+                continue;
+            }
+            DirectCall(add, [obj, Coerce(EmitValue(element), TypeOf(element), add.Parameters[0].Type)]);
+        }
+        return obj;
     }
 
     private LLVMValueRef NewArray(ITypeSymbol elementType, LLVMValueRef length)

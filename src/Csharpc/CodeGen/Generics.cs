@@ -120,6 +120,37 @@ public sealed class TypeSubstitution
             .First(p => SymbolEqualityComparer.Default.Equals(p.OriginalDefinition, definition));
     }
 
+    /// <summary>
+    /// Tuple element names are not part of a type's runtime identity (`List<(int a, int b)>` and
+    /// `List<(int, int)>` are the same type), but Roslyn's symbol equality distinguishes them. Caches
+    /// keyed by type identity (layouts, method tables) canonicalize through this first.
+    /// </summary>
+    public static ITypeSymbol EraseTupleNames(ITypeSymbol type, Compilation compilation)
+    {
+        switch (type)
+        {
+            case IArrayTypeSymbol array:
+            {
+                var element = EraseTupleNames(array.ElementType, compilation);
+                return ReferenceEquals(element, array.ElementType) ? array : compilation.CreateArrayTypeSymbol(element, array.Rank);
+            }
+            case INamedTypeSymbol { IsTupleType: true, TupleUnderlyingType: { } underlying } when !ReferenceEquals(underlying, type):
+                return EraseTupleNames(underlying, compilation);
+            case INamedTypeSymbol { IsGenericType: true } named when named.ContainingType is null || !named.ContainingType.IsGenericType:
+            {
+                var args = named.TypeArguments.Select(a => EraseTupleNames(a, compilation)).ToArray();
+                return args.Where((a, i) => !ReferenceEquals(a, named.TypeArguments[i])).Any()
+                    ? named.OriginalDefinition.Construct(args)
+                    : named;
+            }
+            default:
+                return type;
+        }
+    }
+
+    public static INamedTypeSymbol EraseTupleNames(INamedTypeSymbol type, Compilation compilation) =>
+        EraseTupleNames((ITypeSymbol)type, compilation) as INamedTypeSymbol ?? type;
+
     /// <summary>True if any type parameter remains (an open instantiation we can't compile).</summary>
     public static bool IsOpen(ITypeSymbol type) => type switch
     {

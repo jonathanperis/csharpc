@@ -1,0 +1,24 @@
+383 tokens
+21 statements
+fib(0) = 0
+fib(1) = 1
+fib(2) = 1
+fib(3) = 2
+fib(4) = 3
+fib(5) = 5
+fib(6) = 8
+fib(7) = 13
+fib(8) = 21
+fib(9) = 34
+c1=3 c2=1
+sum=31 len=8
+[1, 4, 9, 16]
+Ada is 36
+next year: 37
+true 1 -5 false
+error at line 24: undefined variable 'undefinedVariable'
+steps executed: 624
+let = 5;                   -> SyntaxError: expected a name after 'let', found '='
+print(1 +);                -> SyntaxError: unexpected ')'
+let s = "unterminated;     -> SyntaxError: unterminated string
+1 + true;                  -> RuntimeError: expected a number, got true
