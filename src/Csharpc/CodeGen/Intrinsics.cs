@@ -101,6 +101,30 @@ internal static class Intrinsics
         t["System.Array.GetLowerBound(int)"] = (g, inv) => { Arg(g, inv, 0); return g.Module.Llvm.ConstInt(g.Module.Llvm.I32, 0); };
         t["object.ReferenceEquals(object, object)"] = (g, inv) =>
             g.Builder.ICmp(LLVMIntPredicate.EQ, Arg(g, inv, 0), Arg(g, inv, 1));
+        // Enum.HasFlag(flag): (value & flag) == flag on the underlying integers (both arrive boxed to Enum).
+        t["System.Enum.HasFlag(System.Enum)"] = (g, inv) =>
+        {
+            var b = g.Builder;
+            var value = g.EmitValue(UnboxEnum(inv.Instance!));
+            var flag = g.EmitValue(UnboxEnum(inv.Arguments[0].Value));
+            return b.ICmp(LLVMIntPredicate.EQ, b.BinOp(LLVMOpcode.And, value, flag), flag);
+        };
+        t["System.Enum.GetName(System.Type, object)"] = (g, inv) =>
+        {
+            if (inv.Arguments.First(a => a.Parameter!.Ordinal == 0).Value is not ITypeOfOperation { TypeOperand: INamedTypeSymbol { TypeKind: TypeKind.Enum } enumType })
+                throw CompileError.Unsupported("Enum.GetName with a non-constant Type", inv);
+            var raw = UnboxEnum(inv.Arguments.First(a => a.Parameter!.Ordinal == 1).Value);
+            var value = g.Coerce(g.EmitValue(raw), raw.Type, enumType.EnumUnderlyingType!);
+            var lookup = g.Module.EnumNameOrNull(enumType);
+            return g.Builder.Call(lookup.Type, lookup.Fn, [value]);
+        };
+        t["System.Enum.GetName<TEnum>(TEnum)"] = (g, inv) =>
+        {
+            var arg = inv.Arguments[0].Value;
+            var enumType = (INamedTypeSymbol)(g.TypeOf(arg) ?? arg.Type!);
+            var lookup = g.Module.EnumNameOrNull(enumType);
+            return g.Builder.Call(lookup.Type, lookup.Fn, [g.EmitValue(arg)]);
+        };
         t["System.Enum.ToString()"] = (g, inv) =>
             g.ToStringValue(inv.Instance is IConversionOperation { Operand.Type.TypeKind: TypeKind.Enum } boxed ? boxed.Operand : inv.Instance!);
         t["System.Array.GetLength(int)"] = (g, inv) =>
@@ -402,6 +426,9 @@ internal static class Intrinsics
         static LLVMValueRef I32(FunctionCodeGen g, int v) => g.Module.Llvm.ConstInt(g.Module.Llvm.I32, v);
         Func<LlvmContext, LLVMTypeRef> ptr = l => l.Ptr, i32 = l => l.I32, i1 = l => l.I1;
 
+        Add("string.Insert(int, string)", "csrt_string_insert", ptr, l => [l.I32, l.Ptr], (g, i) => [Arg(g, i, 0), Arg(g, i, 1)]);
+        Add("string.Remove(int)", "csrt_string_remove", ptr, l => [l.I32, l.I32], (g, i) => [Arg(g, i, 0), I32(g, -1)]);
+        Add("string.Remove(int, int)", "csrt_string_remove", ptr, l => [l.I32, l.I32], (g, i) => [Arg(g, i, 0), Arg(g, i, 1)]);
         Add("string.Substring(int)", "csrt_string_substring_from", ptr, l => [l.I32], (g, i) => [Arg(g, i, 0)]);
         Add("string.Substring(int, int)", "csrt_string_substring", ptr, l => [l.I32, l.I32], (g, i) => [Arg(g, i, 0), Arg(g, i, 1)]);
         Add("string.IndexOf(char)", "csrt_string_index_of_char", i32, l => [l.I16, l.I32], (g, i) => [Arg(g, i, 0), I32(g, 0)]);
@@ -753,6 +780,13 @@ internal static class Intrinsics
         var text = value is null ? g.Module.StringLiteral("") : g.ToStringValue(value);
         if (newline) text = g.ConcatStrings(text, g.Module.StringLiteral("\n"));
         g.CallRuntime("csrt_console_error_write_string", l.Void, [l.Ptr], text);
+    }
+
+    /// <summary>Strips the boxing conversion of an enum/integer value passed as Enum/object.</summary>
+    private static IOperation UnboxEnum(IOperation op)
+    {
+        while (op is IConversionOperation { Operand.Type: { IsValueType: true } } c) op = c.Operand;
+        return op;
     }
 
     private static void NewLine(FunctionCodeGen g) => g.CallRuntime("csrt_console_newline", g.Module.Llvm.Void, []);

@@ -130,6 +130,34 @@ csrt_String* csrt_string_substring(csrt_String* s, int32_t start, int32_t length
     return from_chars(s->chars + start, length);
 }
 
+/// string.Insert(startIndex, value)
+csrt_String* csrt_string_insert(csrt_String* s, int32_t start, csrt_String* value) {
+    require(s);
+    if (!value) csrt_throw(&mt_argument_null, ascii("Value cannot be null. (Parameter 'value')"));
+    if (start < 0 || start > s->length) out_of_range("Index was out of range. Must be non-negative and less than or equal to the size of the collection. (Parameter 'startIndex')");
+    csrt_String* r = new_string(s->length + value->length);
+    memcpy(r->chars, s->chars, sizeof(uint16_t) * (size_t)start);
+    memcpy(r->chars + start, value->chars, sizeof(uint16_t) * (size_t)value->length);
+    memcpy(r->chars + start + value->length, s->chars + start, sizeof(uint16_t) * (size_t)(s->length - start));
+    return r;
+}
+
+/// string.Remove(start[, count]); count < 0 means "to the end" (the one-argument overload).
+csrt_String* csrt_string_remove(csrt_String* s, int32_t start, int32_t count) {
+    require(s);
+    if (count < 0) {
+        if (start < 0) out_of_range("StartIndex cannot be less than zero. (Parameter 'startIndex')");
+        if (start >= s->length) out_of_range("startIndex must be less than length of string. (Parameter 'startIndex')");
+        return from_chars(s->chars, start);
+    }
+    if (start < 0) out_of_range("StartIndex cannot be less than zero. (Parameter 'startIndex')");
+    if (start > s->length - count) out_of_range("Index and count must refer to a location within the string. (Parameter 'count')");
+    csrt_String* r = new_string(s->length - count);
+    memcpy(r->chars, s->chars, sizeof(uint16_t) * (size_t)start);
+    memcpy(r->chars + start, s->chars + start + count, sizeof(uint16_t) * (size_t)(s->length - start - count));
+    return r;
+}
+
 csrt_String* csrt_string_substring_from(csrt_String* s, int32_t start) {
     require(s);
     return csrt_string_substring(s, start, s->length - start);

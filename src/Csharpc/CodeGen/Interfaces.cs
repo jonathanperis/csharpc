@@ -33,6 +33,7 @@ public sealed partial class ModuleCodeGen
             LlvmContext.Null(Llvm.Ptr), Llvm.ConstInt(Llvm.I32, 0), Llvm.ConstInt(Llvm.I32, 0));
         g = Module.AddGlobal(Mangler.TypeSymbol(itf, "IMT"), Native.LLVMTypeOf(init), init, constant: true, linkage: LLVMLinkage.Internal);
         Native.LLVMSetAlignment(g, 8);
+        NoteInterfaceInstantiation(itf);
         return _interfaceTables[itf] = g;
     }
 
