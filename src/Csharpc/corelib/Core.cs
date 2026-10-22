@@ -342,3 +342,112 @@ namespace CsharpcCoreLib
         }
     }
 }
+
+namespace CsharpcCoreLib
+{
+    using System.Collections.Generic;
+
+    /// <summary>
+    /// System.HashCode: .NET's xxHash32-based combiner. .NET seeds it randomly per process, so hash
+    /// values are never stable across runs anyway; csharpc uses a fixed seed (deterministic builds).
+    /// </summary>
+    [Shadows("System.HashCode")]
+    public struct HashCodeImpl
+    {
+        private const uint Seed = 0x9E3779B9u, Prime1 = 2654435761u, Prime2 = 2246822519u, Prime3 = 3266489917u, Prime4 = 668265263u, Prime5 = 374761393u;
+        private uint _v1, _v2, _v3, _v4, _queue1, _queue2, _queue3, _length;
+
+        private static uint Rol(uint v, int n) => (v << n) | (v >> (32 - n));
+        private static uint Round(uint hash, uint input) => Rol(hash + input * Prime2, 13) * Prime1;
+        private static uint QueueRound(uint hash, uint queued) => Rol(hash + queued * Prime3, 17) * Prime4;
+        private static uint MixFinal(uint hash)
+        {
+            hash ^= hash >> 15; hash *= Prime2;
+            hash ^= hash >> 13; hash *= Prime3;
+            hash ^= hash >> 16;
+            return hash;
+        }
+        private static uint Hash<T>(T value) => value is null ? 0u : (uint)CoreIntrinsics.HashOf(value);
+
+        public static int Combine<T1>(T1 value1)
+        {
+            uint hash = unchecked(Seed + Prime5 + 4);
+            hash = QueueRound(hash, Hash(value1));
+            return (int)MixFinal(hash);
+        }
+
+        public static int Combine<T1, T2>(T1 value1, T2 value2)
+        {
+            uint hash = unchecked(Seed + Prime5 + 8);
+            hash = QueueRound(hash, Hash(value1));
+            hash = QueueRound(hash, Hash(value2));
+            return (int)MixFinal(hash);
+        }
+
+        public static int Combine<T1, T2, T3>(T1 value1, T2 value2, T3 value3)
+        {
+            uint hash = unchecked(Seed + Prime5 + 12);
+            hash = QueueRound(hash, Hash(value1));
+            hash = QueueRound(hash, Hash(value2));
+            hash = QueueRound(hash, Hash(value3));
+            return (int)MixFinal(hash);
+        }
+
+        public static int Combine<T1, T2, T3, T4>(T1 value1, T2 value2, T3 value3, T4 value4)
+        {
+            var h = new HashCodeImpl();
+            h.Add(value1); h.Add(value2); h.Add(value3); h.Add(value4);
+            return h.ToHashCode();
+        }
+
+        public static int Combine<T1, T2, T3, T4, T5>(T1 value1, T2 value2, T3 value3, T4 value4, T5 value5)
+        {
+            var h = new HashCodeImpl();
+            h.Add(value1); h.Add(value2); h.Add(value3); h.Add(value4); h.Add(value5);
+            return h.ToHashCode();
+        }
+
+        public static int Combine<T1, T2, T3, T4, T5, T6>(T1 value1, T2 value2, T3 value3, T4 value4, T5 value5, T6 value6)
+        {
+            var h = new HashCodeImpl();
+            h.Add(value1); h.Add(value2); h.Add(value3); h.Add(value4); h.Add(value5); h.Add(value6);
+            return h.ToHashCode();
+        }
+
+        public static int Combine<T1, T2, T3, T4, T5, T6, T7>(T1 value1, T2 value2, T3 value3, T4 value4, T5 value5, T6 value6, T7 value7)
+        {
+            var h = new HashCodeImpl();
+            h.Add(value1); h.Add(value2); h.Add(value3); h.Add(value4); h.Add(value5); h.Add(value6); h.Add(value7);
+            return h.ToHashCode();
+        }
+
+        public void Add<T>(T value) => AddHash(Hash(value));
+
+        public void Add<T>(T value, IEqualityComparer<T> comparer) =>
+            AddHash(value is null ? 0u : comparer != null ? (uint)comparer.GetHashCode(value) : Hash(value));
+
+        private void AddHash(uint hash)
+        {
+            uint previous = _length++;
+            uint position = previous % 4;
+            if (position == 0) _queue1 = hash;
+            else if (position == 1) _queue2 = hash;
+            else if (position == 2) _queue3 = hash;
+            else
+            {
+                if (previous == 3) { _v1 = unchecked(Seed + Prime1 + Prime2); _v2 = unchecked(Seed + Prime2); _v3 = Seed; _v4 = unchecked(Seed - Prime1); }
+                _v1 = Round(_v1, _queue1); _v2 = Round(_v2, _queue2); _v3 = Round(_v3, _queue3); _v4 = Round(_v4, hash);
+            }
+        }
+
+        public int ToHashCode()
+        {
+            uint length = _length;
+            uint position = length % 4;
+            uint hash = length < 4 ? unchecked(Seed + Prime5) : Rol(_v1, 1) + Rol(_v2, 7) + Rol(_v3, 12) + Rol(_v4, 18);
+            hash += length * 4;
+            if (position > 0) { hash = QueueRound(hash, _queue1); if (position > 1) { hash = QueueRound(hash, _queue2); if (position > 2) hash = QueueRound(hash, _queue3); } }
+            return (int)MixFinal(hash);
+        }
+    }
+}

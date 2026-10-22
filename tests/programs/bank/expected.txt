@@ -1,0 +1,28 @@
+=== First Csharpc Bank ===
+Owner   Type      Opened           Balance  Txns
+Dave    Savings   2026-01-04      2,354.74    40
+Bob     Savings   2026-01-01      1,971.50    29
+Alice   Checking  2026-01-01      1,665.31    38
+Carol   Checking  2026-01-11      1,110.20    29
+Total                             7,101.76
+
+Transactions by category:
+  atm          29    -1,707.29
+  interest      2        59.07
+  refund       27       597.30
+  salary       32     8,152.67
+  transfer     46         0.00
+
+Monthly net flow:
+  2026-01:   2,023.21 over 25 txns, largest 397.02
+  2026-02:   1,524.51 over 28 txns, largest 443.29
+  2026-03:     382.10 over 34 txns, largest 408.11
+  2026-04:   1,977.97 over 32 txns, largest 492.52
+  2026-05:   1,193.97 over 17 txns, largest 474.12
+
+Largest credit: Alice ¤492.52 on Friday, Apr 10
+Declined operations: 1
+  2026-01-01 opened Checking(Alice, 0.00)
+  2026-01-01 opened Savings(Bob, 0.00)
+  2026-01-11 opened Checking(Carol, 0.00)
+Activity span: 133 days (133.00:00:00)

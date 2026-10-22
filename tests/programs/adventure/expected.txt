@@ -1,0 +1,69 @@
+> look
+  [hall] A dusty entrance hall. Light spills in from the south.
+  You see: lamp
+  Exits: north, south
+> inventory
+  You are empty-handed.
+> take lamp
+  Taken: lamp.
+> go north
+  [library] Shelves of mouldy books line the walls.
+  You see: key
+  Exits: south, east
+  (first visit)
+> look
+  [library] Shelves of mouldy books line the walls.
+  You see: key
+  Exits: south, east
+> take key
+  Taken: key.
+> go east
+  [study] A cramped study with a heavy oak desk.
+  Exits: west, east
+  (first visit)
+> use key
+  Click! The door to the east unlocks.
+> go east
+  [vault] A small vault, cold and silent.
+  You see: coin, note
+  Exits: west
+  (first visit)
+> read note
+  "The troll likes gold."
+> take coin
+  Taken: coin. (+50)
+> take coin
+  There is no coin here.
+> drop lamp
+  Dropped.
+> go west
+  [study] A cramped study with a heavy oak desk.
+  Exits: west, east
+> go west
+  It is pitch dark. You might be eaten by a grue.
+> south
+  [hall] A dusty entrance hall. Light spills in from the south.
+  Exits: north, south
+> go south
+  [garden] An overgrown garden. A troll guards a bridge to the east.
+  Exits: north, up
+  (first visit)
+> go up
+  [tower] The top of a crumbling tower. You can see for miles.
+  Exits: down
+  (first visit)
+> dance
+  I don't know how to 'dance'.
+> xyzzy
+  A hollow voice says "fool".
+> go north
+  You can't go that way.
+> go north
+  You can't go that way.
+> go east
+  You can't go that way.
+> go east
+  You can't go that way.
+> give coin
+  There is nobody here to give things to.
+moves: 25, score: 80, visited: garden, hall, library, study, tower, vault

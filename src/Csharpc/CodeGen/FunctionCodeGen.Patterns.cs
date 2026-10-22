@@ -164,8 +164,8 @@ public sealed partial class FunctionCodeGen
         var patterns = pattern.Patterns;
         var slice = patterns.ToList().FindIndex(p => p is ISlicePatternOperation);
         var fixedCount = patterns.Length - (slice >= 0 ? 1 : 0);
-        if (slice >= 0 && ((ISlicePatternOperation)patterns[slice]).Pattern is { } slicePattern and not IDiscardPatternOperation)
-            throw CompileError.Unsupported("sub-pattern on a slice (`.. var rest`)", slicePattern);
+        var slicePattern = slice >= 0 ? ((ISlicePatternOperation)patterns[slice]).Pattern : null;
+        if (slicePattern is IDiscardPatternOperation) slicePattern = null;
 
         LLVMValueRef len = default;
         List<Func<LLVMValueRef>> steps = [];
@@ -179,6 +179,34 @@ public sealed partial class FunctionCodeGen
         });
         if (pattern.DeclaredSymbol is ILocalSymbol local)
             steps.Add(() => { StoreValue(ToStorage(value, S(local.Type)), LocalSlot(local)); return L.True; });
+        if (slicePattern is not null)
+        {
+            // `.. var rest`: the middle part as a new array / substring / span slice (like .NET's indexer with a Range).
+            steps.Add(() =>
+            {
+                var start = L.ConstInt(L.I32, slice);
+                var count = _b.BinOp(LLVMOpcode.Sub, len, L.ConstInt(L.I32, fixedCount));
+                LLVMValueRef sliced;
+                if (type is IArrayTypeSymbol arrayType)
+                {
+                    var storage = T.Storage(arrayType.ElementType);
+                    var size = (long)T.Target.SizeOf(storage);
+                    sliced = NewArray(arrayType.ElementType, _b.Cast(LLVMOpcode.SExt, count, L.I64));
+                    var header = T.ArrayHeader(storage);
+                    var dst = _b.InBoundsGep(header, sliced, [L.ConstInt(L.I32, 0), L.ConstInt(L.I32, 2), L.ConstInt(L.I64, 0)]);
+                    var src = _b.InBoundsGep(header, value, [L.ConstInt(L.I32, 0), L.ConstInt(L.I32, 2), L.ConstInt(L.I64, slice)]);
+                    var bytes = _b.BinOp(LLVMOpcode.Mul, _b.Cast(LLVMOpcode.SExt, count, L.I64), L.ConstInt(L.I64, size));
+                    var memcpy = _m.Intrinsic("llvm.memcpy.p0.p0.i64", L.Void, L.Ptr, L.Ptr, L.I64, L.I1);
+                    _b.Call(memcpy.Type, memcpy.Fn, [dst, src, bytes, L.False]);
+                }
+                else if (type.SpecialType == SpecialType.System_String)
+                    sliced = CallRuntime("csrt_string_substring", L.Ptr, [L.Ptr, L.I32, L.I32], value, start, count);
+                else
+                    sliced = _b.InsertValue(_b.InsertValue(value,
+                        _b.InBoundsGep(T.Storage(elementType), _b.ExtractValue(value, 0), [L.ConstInt(L.I64, slice)]), 0), count, 1);
+                return PatternTest(sliced, type, slicePattern);
+            });
+        }
         for (var i = 0; i < patterns.Length; i++)
         {
             if (i == slice) continue;

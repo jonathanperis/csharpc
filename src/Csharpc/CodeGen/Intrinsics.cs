@@ -348,6 +348,75 @@ internal static class Intrinsics
         // IEEE 754-2019 maximum/minimum: NaN-propagating and -0 < +0, exactly .NET Core 3.0+ Math.Max/Min.
         t["System.Math.Max(double, double)"] = (g, inv) => CallBinaryF64(g, "llvm.maximum.f64", Arg(g, inv, 0), Arg(g, inv, 1));
         t["System.Math.Min(double, double)"] = (g, inv) => CallBinaryF64(g, "llvm.minimum.f64", Arg(g, inv, 0), Arg(g, inv, 1));
+        // NumberStyles-aware parsing (runtime/parse.c); the IFormatProvider is invariant by construction.
+        foreach (var (type, bits, signed, name) in new[] { ("int", 32, true, "Int32"), ("long", 64, true, "Int64"), ("short", 16, true, "Int16"),
+                     ("byte", 8, false, "Byte"), ("uint", 32, false, "UInt32"), ("ulong", 64, false, "UInt64"), ("sbyte", 8, true, "SByte"), ("ushort", 16, false, "UInt16") })
+        {
+            IntrinsicHandler parse = (g, inv) =>
+            {
+                var l = g.Module.Llvm;
+                if (inv.Arguments.Length > 2) Arg(g, inv, 2);
+                var v = g.CallRuntime("csrt_parse_i64_styled_or_throw", l.I64, [l.Ptr, l.I32, l.I32, l.I1, l.Ptr],
+                    Arg(g, inv, 0), Arg(g, inv, 1), l.ConstInt(l.I32, bits), signed ? l.True : l.False, g.Module.CString(name));
+                return bits == 64 ? v : g.Builder.Cast(LLVMOpcode.Trunc, v, l.IntTypeOf(bits));
+            };
+            t[$"{type}.Parse(string, System.Globalization.NumberStyles)"] = parse;
+            t[$"{type}.Parse(string, System.Globalization.NumberStyles, System.IFormatProvider)"] = parse;
+            t[$"{type}.TryParse(string, System.Globalization.NumberStyles, System.IFormatProvider, {type})"] = (g, inv) =>
+            {
+                var l = g.Module.Llvm;
+                Arg(g, inv, 2);
+                var temp = g.NewTemp(l.I64, "parsed");
+                var status = g.CallRuntime("csrt_parse_i64_styled", l.I32, [l.Ptr, l.I32, l.I32, l.I1, l.Ptr],
+                    Arg(g, inv, 0), Arg(g, inv, 1), l.ConstInt(l.I32, bits), signed ? l.True : l.False, temp);
+                var ok = g.Builder.ICmp(LLVMIntPredicate.EQ, status, l.ConstInt(l.I32, 1));
+                var parsed = g.Builder.Load(l.I64, temp);
+                var value = g.Builder.Select(ok, parsed, l.ConstInt(l.I64, 0));
+                var target = g.AddressOf(inv.Arguments.First(a => a.Parameter!.Ordinal == 3).Value);
+                g.Builder.Store(bits == 64 ? value : g.Builder.Cast(LLVMOpcode.Trunc, value, l.IntTypeOf(bits)), target);
+                return ok;
+            };
+        }
+        IntrinsicHandler parseDouble = (g, inv) =>
+        {
+            var l = g.Module.Llvm;
+            if (inv.Arguments.Length > 2) Arg(g, inv, 2);
+            return g.CallRuntime("csrt_parse_f64_styled_or_throw", l.F64, [l.Ptr, l.I32], Arg(g, inv, 0), Arg(g, inv, 1));
+        };
+        t["double.Parse(string, System.Globalization.NumberStyles)"] = parseDouble;
+        t["double.Parse(string, System.Globalization.NumberStyles, System.IFormatProvider)"] = parseDouble;
+        t["double.TryParse(string, System.Globalization.NumberStyles, System.IFormatProvider, double)"] = (g, inv) =>
+        {
+            var l = g.Module.Llvm;
+            Arg(g, inv, 2);
+            var target = g.AddressOf(inv.Arguments.First(a => a.Parameter!.Ordinal == 3).Value);
+            var status = g.CallRuntime("csrt_parse_f64_styled", l.I32, [l.Ptr, l.I32, l.Ptr], Arg(g, inv, 0), Arg(g, inv, 1), target);
+            return g.Builder.ICmp(LLVMIntPredicate.EQ, status, l.ConstInt(l.I32, 1));
+        };
+        t["double.TryParse(string, System.IFormatProvider, double)"] = (g, inv) =>
+        {
+            var l = g.Module.Llvm;
+            Arg(g, inv, 1);
+            var target = g.AddressOf(inv.Arguments.First(a => a.Parameter!.Ordinal == 2).Value);
+            var status = g.CallRuntime("csrt_parse_f64_styled", l.I32, [l.Ptr, l.I32, l.Ptr], Arg(g, inv, 0), l.ConstInt(l.I32, 167 /* Float | AllowThousands */), target);
+            return g.Builder.ICmp(LLVMIntPredicate.EQ, status, l.ConstInt(l.I32, 1));
+        };
+
+        // Math.Clamp for the other numeric types: value < min ? min : value > max ? max : value.
+        foreach (var (type, signed) in new[] { ("long", true), ("short", true), ("sbyte", true), ("uint", false), ("ulong", false), ("byte", false), ("ushort", false) })
+            t[$"System.Math.Clamp({type}, {type}, {type})"] = (g, inv) =>
+            {
+                var (v, lo, hi) = (Arg(g, inv, 0), Arg(g, inv, 1), Arg(g, inv, 2));
+                return SelectCompare(g, SelectCompare(g, v, lo, signed ? LLVMIntPredicate.SGT : LLVMIntPredicate.UGT), hi, signed ? LLVMIntPredicate.SLT : LLVMIntPredicate.ULT);
+            };
+        foreach (var type in new[] { "double", "float" })
+            t[$"System.Math.Clamp({type}, {type}, {type})"] = (g, inv) =>
+            {
+                var b = g.Builder;
+                var (v, lo, hi) = (Arg(g, inv, 0), Arg(g, inv, 1), Arg(g, inv, 2));
+                var low = b.Select(b.FCmp(LLVMRealPredicate.OLT, v, lo), lo, v);   // NaN stays NaN
+                return b.Select(b.FCmp(LLVMRealPredicate.OGT, low, hi), hi, low);
+            };
         t["System.Math.Clamp(int, int, int)"] = (g, inv) =>
         {
             var v = Arg(g, inv, 0);

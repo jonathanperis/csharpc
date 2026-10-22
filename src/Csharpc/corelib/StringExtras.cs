@@ -107,3 +107,55 @@ namespace CsharpcCoreLib
         public static bool IsFinite(float f) => f == f && !IsInfinity(f);
     }
 }
+
+namespace CsharpcCoreLib
+{
+    using System;
+    using System.Collections.Generic;
+
+    // .NET 11's span aggregates. With C# 14 first-class span conversions, `array.Min()` / `array.Max()`
+    // bind to these instead of System.Linq.Enumerable.
+    [ShadowMembers("System.MemoryExtensions")]
+    internal static class MemoryExtensionsExtras
+    {
+        public static T Min<T>(ReadOnlySpan<T> span) => MinMax(span, null, 1);
+        public static T Max<T>(ReadOnlySpan<T> span) => MinMax(span, null, -1);
+        public static T Min<T>(ReadOnlySpan<T> span, IComparer<T> comparer) => MinMax(span, comparer, 1);
+        public static T Max<T>(ReadOnlySpan<T> span, IComparer<T> comparer) => MinMax(span, comparer, -1);
+
+        private static T MinMax<T>(ReadOnlySpan<T> span, IComparer<T> comparer, int sign)
+        {
+            if (span.Length == 0) throw new InvalidOperationException("Sequence contains no elements");
+            T best = span[0];
+            for (int i = 1; i < span.Length; i++)
+            {
+                T v = span[i];
+                int c = comparer != null ? comparer.Compare(best, v) : CoreIntrinsics.Compare(best, v);
+                if (c * sign > 0) best = v;
+            }
+            return best;
+        }
+
+        public static int Count<T>(ReadOnlySpan<T> span, T value)
+        {
+            int n = 0;
+            for (int i = 0; i < span.Length; i++) if (CoreIntrinsics.AreEqual(span[i], value)) n++;
+            return n;
+        }
+
+        public static int Count<T>(Span<T> span, T value)
+        {
+            int n = 0;
+            for (int i = 0; i < span.Length; i++) if (CoreIntrinsics.AreEqual(span[i], value)) n++;
+            return n;
+        }
+
+        public static int Count<T>(ReadOnlySpan<T> span, T value, IEqualityComparer<T> comparer)
+        {
+            int n = 0;
+            for (int i = 0; i < span.Length; i++)
+                if (comparer != null ? comparer.Equals(span[i], value) : CoreIntrinsics.AreEqual(span[i], value)) n++;
+            return n;
+        }
+    }
+}

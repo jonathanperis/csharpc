@@ -70,7 +70,7 @@ public sealed partial class FunctionCodeGen
         SbText(sb, RecordType.Name);
         SbText(sb, " { ");
         var printMembers = RecordType.GetMembers("PrintMembers").OfType<IMethodSymbol>().First();
-        var any = IsRecordClass ? VirtualCall(printMembers, _this, [_this, sb]) : DirectCall(printMembers, [_this, sb]);
+        var any = RecordCall(printMembers, _this, [_this, sb]);
         var space = NewBlock("space");
         var close = NewBlock("close");
         _b.CondBr(any, space, close);
@@ -209,6 +209,12 @@ public sealed partial class FunctionCodeGen
         _b.Ret(ShortCircuit(isAnd: false, [() => same, () => ShortCircuit(isAnd: true, conditions)]));
     }
 
+    /// <summary>Synthesized members of sealed records (and record structs) are not virtual: call them directly.</summary>
+    private LLVMValueRef RecordCall(IMethodSymbol method, LLVMValueRef self, LLVMValueRef[] args) =>
+        IsRecordClass && (method.IsVirtual || method.IsOverride || method.IsAbstract) && !method.IsSealed && !RecordType.IsSealed
+            ? VirtualCall(method, self, args)
+            : DirectCall(method, args);
+
     private IMethodSymbol TypedEquals => RecordType.GetMembers("Equals").OfType<IMethodSymbol>()
         .First(e => e.Parameters.Length == 1 && SymbolEqualityComparer.Default.Equals(S(e.Parameters[0].Type), RecordType));
 
@@ -229,7 +235,7 @@ public sealed partial class FunctionCodeGen
             return;
         }
         var asR = CallRuntime("csrt_isinst_class", L.Ptr, [L.Ptr, L.Ptr], obj, _m.GetLayout(RecordType).MethodTable);
-        _b.Ret(VirtualCall(TypedEquals, _this, [_this, asR]));
+        _b.Ret(RecordCall(TypedEquals, _this, [_this, asR]));
     }
 
     // Derived record: sealed override bool Equals(Base? other) => Equals((object?)other)
@@ -269,7 +275,7 @@ public sealed partial class FunctionCodeGen
             result = ShortCircuit(isAnd: false,
             [
                 () => same,
-                () => ShortCircuit(isAnd: true, [() => _b.ICmp(LLVMIntPredicate.NE, l, LlvmContext.Null(L.Ptr)), () => VirtualCall(TypedEquals, l, [l, r])]),
+                () => ShortCircuit(isAnd: true, [() => _b.ICmp(LLVMIntPredicate.NE, l, LlvmContext.Null(L.Ptr)), () => RecordCall(TypedEquals, l, [l, r])]),
             ]);
         }
         _b.Ret(equality ? result : _b.Not(result));

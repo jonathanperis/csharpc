@@ -106,6 +106,13 @@ public sealed class TypeSubstitution
     {
         if (IsIdentity || field.ContainingType is not { } ct || Apply(ct) is not INamedTypeSymbol newType
             || SymbolEqualityComparer.Default.Equals(newType, ct)) return field;
+        if (ct.IsTupleType)
+        {
+            // Named tuple elements (`t.Value`) alias ValueTuple's ItemN fields; substitution may drop the names.
+            var item = (field.CorrespondingTupleField ?? field).Name;
+            return newType.GetMembers(item).OfType<IFieldSymbol>().FirstOrDefault()
+                ?? newType.GetMembers(field.Name).OfType<IFieldSymbol>().First();
+        }
         var definition = field.OriginalDefinition;
         return newType.GetMembers(field.Name).OfType<IFieldSymbol>()
             .First(f => SymbolEqualityComparer.Default.Equals(f.OriginalDefinition, definition));

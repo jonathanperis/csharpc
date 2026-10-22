@@ -43,6 +43,11 @@ fi
 "$DOTNET" build "$ROOT/src/Csharpc" -c Release -v quiet -nologo > /dev/null || { echo "build failed"; exit 1; }
 CSHARPC=("$DOTNET" "$ROOT/src/Csharpc/bin/Release/net11.0/csharpc.dll")
 OUT="$(mktemp -d)"
+# The corelib's own diagnostics are skipped in normal compiles (speed); check them once here so a
+# broken corelib fails loudly instead of producing wrong code.
+if ! CSHARPC_CHECK_CORELIB=1 "${CSHARPC[@]}" --emit obj "$ROOT/tests/samples/01_hello.cs" -o "$OUT/corelib-check.o" 2> "$OUT/corelib.err"; then
+  echo "corelib check FAILED:"; head -20 "$OUT/corelib.err"; exit 1
+fi
 trap 'rm -rf "$OUT"' EXIT
 
 pass=0; fail=0; failed=()

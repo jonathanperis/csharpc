@@ -1,0 +1,16 @@
+True Green
+False Red
+Blue Blue Read, Write
+Red,Green,Blue | None,Read,Write,Exec
+True False Blue
+Requested value 'Mauve' was not found.
+1 [2,3,4] 5
+h+ello
+go/north quickly
+6.5 3.25 -4.5 2 2
+True False
+True
+1 -1 True True
+1
+Row { Name = x, Count = 1 } Row { Name = x, Count = 2 } False True
+1=one;2=two False True

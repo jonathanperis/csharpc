@@ -42,9 +42,18 @@ public sealed partial class FunctionCodeGen
     /// <summary>A library operator / conversion method (op_Addition etc.) applied to operand expressions.</summary>
     internal LLVMValueRef LibraryOperator(IMethodSymbol method, IOperation[] operands, IOperation at)
     {
+        // Generic math (`a + b` with T = decimal) binds to INumber<T>'s static abstract operator: use the
+        // concrete type's own operator after substitution.
+        if (method.IsStatic && method.ContainingType.TypeKind == TypeKind.Interface && operands.Length > 0
+            && TypeOf(operands[0]) is INamedTypeSymbol concrete && concrete.TypeKind != TypeKind.Interface)
+        {
+            var parameterTypes = method.Parameters.Select(p => S(p.Type)).ToArray();
+            method = concrete.GetMembers(method.Name).OfType<IMethodSymbol>().FirstOrDefault(m => m.IsStatic
+                && m.Parameters.Select(p => p.Type).SequenceEqual(parameterTypes, SymbolEqualityComparer.Default)) ?? method;
+        }
         if (!BclValueTypes.TryGet(method, out var handler))
             throw CompileError.Unsupported($"operator '{method}'", at);
-        var args = operands.Select((o, i) => Coerce(EmitValue(o), o.Type, method.Parameters[i].Type)).ToArray();
+        var args = operands.Select((o, i) => Coerce(EmitValue(o), TypeOf(o), S(method.Parameters[i].Type))).ToArray();
         return handler(this, method, default, args, at);
     }
 
