@@ -217,7 +217,7 @@ namespace CsharpcCoreLib
                 mPlus.MulPow10(-k);
                 mMinus.MulPow10(-k);
             }
-            int high = BigNum.CompareSum(ref r, ref mPlus, ref s);
+            int high = BigNum.CompareSum(in r, in mPlus, in s);
             if (even ? high >= 0 : high > 0) { s.MulSmall(10); k++; }
 
             int n = 0;
@@ -226,16 +226,16 @@ namespace CsharpcCoreLib
                 r.MulSmall(10);
                 mPlus.MulSmall(10);
                 mMinus.MulSmall(10);
-                uint digit = r.DivRemDigit(ref s);
-                int low = BigNum.Compare(ref r, ref mMinus);
-                high = BigNum.CompareSum(ref r, ref mPlus, ref s);
+                uint digit = r.DivRemDigit(in s);
+                int low = BigNum.Compare(in r, in mMinus);
+                high = BigNum.CompareSum(in r, in mPlus, in s);
                 bool tc1 = even ? low <= 0 : low < 0;
                 bool tc2 = even ? high >= 0 : high > 0;
                 if (!tc1 && !tc2) { g.D[n++] = (byte)('0' + digit); continue; }
                 if (tc1 && tc2)
                 {
                     // Both neighbours round-trip: take the closer one (ties to even).
-                    int half = BigNum.CompareSum(ref r, ref r, ref s);
+                    int half = BigNum.CompareSum(in r, in r, in s);
                     if (half > 0 || (half == 0 && (digit & 1) == 1)) digit++;
                 }
                 else if (tc2) digit++;

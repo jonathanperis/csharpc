@@ -44,11 +44,11 @@ namespace CsharpcCoreLib
         private static bool IsOdd(ref BigNum m) => m.Len > 0 && (m.W[0] & 1) != 0;
 
         /// <summary>q = a / b, r = a % b (b != 0); a is preserved.</summary>
-        private static void DivMod(ref BigNum a, ref BigNum b, ref BigNum q, ref BigNum r)
+        private static void DivMod(in BigNum a, in BigNum b, ref BigNum q, ref BigNum r)
         {
             if (b.Len == 1)
             {
-                q.CopyFrom(ref a);
+                q.CopyFrom(in a);
                 r.SetUInt64(q.DivRemSmall(b.W[0]));
                 return;
             }
@@ -61,9 +61,9 @@ namespace CsharpcCoreLib
             {
                 r.ShiftLeft(1);
                 if (((a.W[bit >> 5] >> (bit & 31)) & 1) != 0) r.AddSmall(1);
-                if (BigNum.Compare(ref r, ref b) >= 0)
+                if (BigNum.Compare(in r, in b) >= 0)
                 {
-                    r.Subtract(ref b);
+                    r.Subtract(in b);
                     q.W[bit >> 5] |= 1U << (bit & 31);
                 }
             }
@@ -122,9 +122,9 @@ namespace CsharpcCoreLib
                 if (k > scale) Overflow();
                 divisor.SetUInt64(1);
                 divisor.MulPow10(k);
-                DivMod(ref m, ref divisor, ref q, ref rem);
+                DivMod(in m, in divisor, ref q, ref rem);
                 rem.ShiftLeft(1);
-                int c = BigNum.Compare(ref rem, ref divisor);
+                int c = BigNum.Compare(in rem, in divisor);
                 if (c > 0 || (c == 0 && IsOdd(ref q))) q.AddSmall(1);
                 if (q.Len <= 3) return Pack(ref q, scale - k, negative);
             }
@@ -157,12 +157,12 @@ namespace CsharpcCoreLib
                 AddMagnitudes(ref ma, ref mb);
                 return Fit(ref ma, scale, na);
             }
-            if (BigNum.Compare(ref ma, ref mb) >= 0)
+            if (BigNum.Compare(in ma, in mb) >= 0)
             {
-                ma.Subtract(ref mb);
+                ma.Subtract(in mb);
                 return Fit(ref ma, scale, na);
             }
-            mb.Subtract(ref ma);
+            mb.Subtract(in ma);
             return Fit(ref mb, scale, nb);
         }
 
@@ -205,7 +205,7 @@ namespace CsharpcCoreLib
 
             var q = new BigNum(sq);
             var rem = new BigNum(sr);
-            DivMod(ref ma, ref mb, ref q, ref rem);
+            DivMod(in ma, in mb, ref q, ref rem);
             // Extend the quotient digit by digit while it's inexact, the scale allows and it still fits.
             var q10 = new BigNum(sq10);
             var r10 = new BigNum(sr10);
@@ -213,21 +213,21 @@ namespace CsharpcCoreLib
             var nrem = new BigNum(sn);
             while (!rem.IsZero && scale < 28)
             {
-                q10.CopyFrom(ref q);
+                q10.CopyFrom(in q);
                 q10.MulSmall(10);
-                r10.CopyFrom(ref rem);
+                r10.CopyFrom(in rem);
                 r10.MulSmall(10);
-                DivMod(ref r10, ref mb, ref digit, ref nrem);
+                DivMod(in r10, in mb, ref digit, ref nrem);
                 AddMagnitudes(ref q10, ref digit);
                 if (q10.Len > 3) break;
-                q.CopyFrom(ref q10);
-                rem.CopyFrom(ref nrem);
+                q.CopyFrom(in q10);
+                rem.CopyFrom(in nrem);
                 scale++;
             }
             if (!rem.IsZero)
             {
                 rem.ShiftLeft(1);
-                int c = BigNum.Compare(ref rem, ref mb);
+                int c = BigNum.Compare(in rem, in mb);
                 if (c > 0 || (c == 0 && IsOdd(ref q))) q.AddSmall(1);
             }
             if (q.IsZero) scale = 0;  // .NET: 1e-28m / 3 == 0 (scale 0)
@@ -256,7 +256,7 @@ namespace CsharpcCoreLib
             if (mb.IsZero) throw new DivideByZeroException();
             var q = new BigNum(sq);
             var rem = new BigNum(sr);
-            DivMod(ref ma, ref mb, ref q, ref rem);
+            DivMod(in ma, in mb, ref q, ref rem);
             return Fit(ref rem, scale, IsNegative(a));
         }
 
@@ -269,7 +269,7 @@ namespace CsharpcCoreLib
             Align(a, b, ref ma, ref mb);
             bool na = IsNegative(a) && !ma.IsZero, nb = IsNegative(b) && !mb.IsZero;
             if (na != nb) return na ? -1 : 1;
-            int c = BigNum.Compare(ref ma, ref mb);
+            int c = BigNum.Compare(in ma, in mb);
             return na ? -c : c;
         }
 
@@ -293,9 +293,9 @@ namespace CsharpcCoreLib
             int scale = Scale(d);
             while (scale > 0)
             {
-                t.CopyFrom(ref m);
+                t.CopyFrom(in m);
                 if (t.DivRemSmall(10) != 0) break;
-                m.CopyFrom(ref t);
+                m.CopyFrom(in t);
                 scale--;
             }
             uint h = (m.Len > 0 ? m.W[0] : 0U) ^ (m.Len > 1 ? m.W[1] : 0U) ^ (m.Len > 2 ? m.W[2] : 0U) ^ (uint)scale;
@@ -325,13 +325,13 @@ namespace CsharpcCoreLib
             Load(a, ref m);
             divisor.SetUInt64(1);
             divisor.MulPow10(scale - decimals);
-            DivMod(ref m, ref divisor, ref q, ref rem);
+            DivMod(in m, in divisor, ref q, ref rem);
             bool negative = IsNegative(a);
             bool up = false;
             if (!rem.IsZero)
             {
                 rem.ShiftLeft(1);
-                int c = BigNum.Compare(ref rem, ref divisor);
+                int c = BigNum.Compare(in rem, in divisor);
                 up = mode switch
                 {
                     1 => c >= 0,
@@ -381,9 +381,9 @@ namespace CsharpcCoreLib
                 if (firstDropped >= 0) { if (digit != 0) droppedNonZero = true; continue; }
                 if (scale < 28)
                 {
-                    t.CopyFrom(ref m);
+                    t.CopyFrom(in m);
                     t.MulAdd10(digit);
-                    if (t.Len <= 3) { m.CopyFrom(ref t); scale++; continue; }
+                    if (t.Len <= 3) { m.CopyFrom(in t); scale++; continue; }
                 }
                 firstDropped = (int)digit;
             }
@@ -476,11 +476,11 @@ namespace CsharpcCoreLib
                 if (c < '0' || c > '9') break;
                 any = true;
                 uint digit = (uint)(c - '0');
-                t.CopyFrom(ref m);
+                t.CopyFrom(in m);
                 t.MulAdd10(digit);
                 if (t.Len <= 3 && (!point || scale < 28))
                 {
-                    m.CopyFrom(ref t);
+                    m.CopyFrom(in t);
                     if (point) scale++;
                 }
                 else if (point)

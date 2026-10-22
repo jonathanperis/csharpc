@@ -302,7 +302,7 @@ namespace CsharpcCoreLib
             ulong q = 0;
             for (int bit = 63; bit >= 0; bit--)
             {
-                if (BigNum.Compare(ref num, ref den) >= 0) { num.Subtract(ref den); q |= 1UL << bit; }
+                if (BigNum.Compare(in num, in den) >= 0) { num.Subtract(in den); q |= 1UL << bit; }
                 den.ShiftRightOne();
             }
             bool restNonZero = !num.IsZero;

@@ -22,7 +22,7 @@ namespace CsharpcCoreLib
             Len = W[1] != 0 ? 2 : W[0] != 0 ? 1 : 0;
         }
 
-        public void CopyFrom(ref BigNum other)
+        public void CopyFrom(in BigNum other)
         {
             for (int i = 0; i < other.Len; i++) W[i] = other.W[i];
             Len = other.Len;
@@ -137,7 +137,7 @@ namespace CsharpcCoreLib
             while (Len > 0 && W[Len - 1] == 0) Len--;
         }
 
-        public static int Compare(ref BigNum a, ref BigNum b)
+        public static int Compare(in BigNum a, in BigNum b)
         {
             if (a.Len != b.Len) return a.Len < b.Len ? -1 : 1;
             for (int i = a.Len - 1; i >= 0; i--)
@@ -146,7 +146,7 @@ namespace CsharpcCoreLib
         }
 
         /// <summary>Compares a + b with c.</summary>
-        public static int CompareSum(ref BigNum a, ref BigNum b, ref BigNum c)
+        public static int CompareSum(in BigNum a, in BigNum b, in BigNum c)
         {
             int n = a.Len > b.Len ? a.Len : b.Len;
             if (n + 1 < c.Len) return -1;
@@ -167,7 +167,7 @@ namespace CsharpcCoreLib
         }
 
         /// <summary>this -= other (requires this >= other).</summary>
-        public void Subtract(ref BigNum other)
+        public void Subtract(in BigNum other)
         {
             long borrow = 0;
             for (int i = 0; i < Len; i++)
@@ -180,10 +180,10 @@ namespace CsharpcCoreLib
         }
 
         /// <summary>Small quotient (a decimal digit) of this / divisor; this becomes the remainder.</summary>
-        public uint DivRemDigit(ref BigNum divisor)
+        public uint DivRemDigit(in BigNum divisor)
         {
             uint q = 0;
-            while (Compare(ref this, ref divisor) >= 0) { Subtract(ref divisor); q++; }
+            while (Compare(in this, in divisor) >= 0) { Subtract(in divisor); q++; }
             return q;
         }
     }
