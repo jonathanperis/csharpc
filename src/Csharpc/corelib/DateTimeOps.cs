@@ -156,6 +156,35 @@ namespace CsharpcCoreLib
 
         private static void ThrowInvalidFormat() => throw new FormatException("Input string was not in a correct format.");
 
+        /// <summary>
+        /// .NET's DateTimeFormat.ParseQuoteString: copies a quoted literal (backslash escapes inside it)
+        /// and returns its length including both quotes; an unterminated quote is an error.
+        /// </summary>
+        private static int ParseQuoteString(ref CharBuilder sb, string f, int pos)
+        {
+            int begin = pos;
+            char quote = f[pos++];
+            while (pos < f.Length)
+            {
+                char ch = f[pos++];
+                if (ch == quote) return pos - begin;
+                if (ch == '\\')
+                {
+                    if (pos >= f.Length) ThrowInvalidFormat();
+                    sb.Append(f[pos++]);
+                }
+                else sb.Append(ch);
+            }
+            throw new FormatException("Cannot find a matching quote character for the character '" + quote.ToString() + "'.");
+        }
+
+        /// <summary>The character after a '%' or '\\'; a format ending there is an error.</summary>
+        private static char NextFormatChar(string f, int i)
+        {
+            if (i + 1 >= f.Length) ThrowInvalidFormat();
+            return f[i + 1];
+        }
+
         internal static string TimeSpanFormat(long ticks, string format)
         {
             Span<char> chars = stackalloc char[64];
@@ -166,6 +195,15 @@ namespace CsharpcCoreLib
                 TimeSpanStandard(ref sb, ticks, f.Length == 0 ? 'c' : f[0] == 'g' ? 'g' : f[0] == 'G' ? 'G' : 'c');
                 return sb.Build();
             }
+            // Any other single character is an unknown standard format, not a custom one.
+            if (f.Length == 1) ThrowInvalidFormat();
+            TimeSpanCustom(ref sb, ticks, f);
+            return sb.Build();
+        }
+
+        /// <summary>.NET's TimeSpanFormat.FormatCustomized: anything but a known specifier, a quote or an escape is an error.</summary>
+        private static void TimeSpanCustom(ref CharBuilder sb, long ticks, string f)
+        {
             ulong magnitude = ticks < 0 ? 0UL - (ulong)ticks : (ulong)ticks;
             ulong days = magnitude / TicksPerDay, rem = magnitude % TicksPerDay;
             int hours = (int)(rem / TicksPerHour), minutes = (int)(rem / TicksPerMinute % 60), seconds = (int)(rem / TicksPerSecond % 60);
@@ -173,29 +211,50 @@ namespace CsharpcCoreLib
             for (int i = 0; i < f.Length;)
             {
                 char c = f[i];
-                int n = RunLength(f, i);
+                int n;
                 switch (c)
                 {
-                    case 'd': AppendNumber(ref sb, (long)days, n); i += n; break;
-                    case 'h': AppendNumber(ref sb, hours, n > 1 ? 2 : 1); i += n; break;
-                    case 'm': AppendNumber(ref sb, minutes, n > 1 ? 2 : 1); i += n; break;
-                    case 's': AppendNumber(ref sb, seconds, n > 1 ? 2 : 1); i += n; break;
-                    case 'f': AppendFraction(ref sb, fraction, n > 7 ? 7 : n, false); i += n; break;
-                    case 'F': AppendFraction(ref sb, fraction, n > 7 ? 7 : n, true); i += n; break;
-                    case '\\': if (i + 1 < f.Length) sb.Append(f[i + 1]); i += 2; break;
+                    case 'h':
+                    case 'm':
+                    case 's':
+                        n = RunLength(f, i);
+                        if (n > 2) ThrowInvalidFormat();
+                        AppendNumber(ref sb, c == 'h' ? hours : c == 'm' ? minutes : seconds, n);
+                        break;
+                    case 'f':
+                    case 'F':
+                        n = RunLength(f, i);
+                        if (n > 7) ThrowInvalidFormat();
+                        AppendFraction(ref sb, fraction, n, c == 'F');
+                        break;
+                    case 'd':
+                        n = RunLength(f, i);
+                        if (n > 8) ThrowInvalidFormat();
+                        AppendNumber(ref sb, (long)days, n);
+                        break;
                     case '\'':
                     case '"':
+                        n = ParseQuoteString(ref sb, f, i);
+                        break;
+                    case '%':
                     {
-                        int j = i + 1;
-                        while (j < f.Length && f[j] != c) sb.Append(f[j++]);
-                        i = j < f.Length ? j + 1 : j;
+                        char next = NextFormatChar(f, i);
+                        if (next == '%') ThrowInvalidFormat();
+                        TimeSpanCustom(ref sb, ticks, next.ToString());
+                        n = 2;
                         break;
                     }
-                    case '%': i++; break;
-                    default: ThrowInvalidFormat(); break;
+                    case '\\':
+                        sb.Append(NextFormatChar(f, i));
+                        n = 2;
+                        break;
+                    default:
+                        ThrowInvalidFormat();
+                        n = 0;
+                        break;
                 }
+                i += n;
             }
-            return sb.Build();
         }
 
         // ==========================================================================================
@@ -338,57 +397,139 @@ namespace CsharpcCoreLib
             return AddMonths(ticks, years * 12);
         }
 
+        /// <summary>.NET's DateTimeFormat.FormatCustomized for the invariant culture and the Gregorian calendar.</summary>
         private static void FormatCustom(ref CharBuilder sb, long ticks, string f)
         {
             DateParts(ticks, out int y, out int mo, out int d, out int _);
             int h = (int)(ticks / TicksPerHour % 24), mi = (int)(ticks / TicksPerMinute % 60), s = (int)(ticks / TicksPerSecond % 60);
             long fraction = ticks % TicksPerSecond;
             int dow = (int)((ticks / TicksPerDay + 1) % 7);
+            bool timeOnly = true;  // no date specifier yet: a bare time of day gets today's offset for 'z'
             for (int i = 0; i < f.Length;)
             {
                 char c = f[i];
                 int n = RunLength(f, i);
                 switch (c)
                 {
+                    case 'g': sb.Append("A.D."); break;  // the invariant culture's only era
                     case 'y':
                         AppendNumber(ref sb, n <= 2 ? y % 100 : y, n);
-                        i += n; break;
+                        timeOnly = false;
+                        break;
                     case 'M':
                         if (n <= 2) AppendNumber(ref sb, mo, n);
                         else if (n == 3) sb.Append(MonthName(mo).Substring(0, 3));
                         else sb.Append(MonthName(mo));
-                        i += n; break;
+                        timeOnly = false;
+                        break;
                     case 'd':
                         if (n <= 2) AppendNumber(ref sb, d, n);
                         else if (n == 3) sb.Append(DayName(dow).Substring(0, 3));
                         else sb.Append(DayName(dow));
-                        i += n; break;
-                    case 'H': AppendNumber(ref sb, h, n > 1 ? 2 : 1); i += n; break;
-                    case 'h': AppendNumber(ref sb, h % 12 == 0 ? 12 : h % 12, n > 1 ? 2 : 1); i += n; break;
-                    case 'm': AppendNumber(ref sb, mi, n > 1 ? 2 : 1); i += n; break;
-                    case 's': AppendNumber(ref sb, s, n > 1 ? 2 : 1); i += n; break;
-                    case 'f': AppendFraction(ref sb, fraction, n > 7 ? 7 : n, false); i += n; break;
+                        timeOnly = false;
+                        break;
+                    case 'H': AppendNumber(ref sb, h, n > 1 ? 2 : 1); break;
+                    case 'h': AppendNumber(ref sb, h % 12 == 0 ? 12 : h % 12, n > 1 ? 2 : 1); break;
+                    case 'm': AppendNumber(ref sb, mi, n > 1 ? 2 : 1); break;
+                    case 's': AppendNumber(ref sb, s, n > 1 ? 2 : 1); break;
+                    case 'f':
                     case 'F':
                     {
+                        if (n > 7) ThrowInvalidFormat();
                         int before = sb.Length;
-                        AppendFraction(ref sb, fraction, n > 7 ? 7 : n, true);
-                        if (sb.Length == before && before > 0 && sb.LastChar == '.') sb.Truncate(before - 1);  // drop a dangling '.'
-                        i += n; break;
-                    }
-                    case 't': if (n == 1) sb.Append(h < 12 ? 'A' : 'P'); else sb.Append(h < 12 ? "AM" : "PM"); i += n; break;
-                    case 'K': case 'z': i += n; break;  // Kind/offset not modelled (Unspecified)
-                    case '\\': if (i + 1 < f.Length) sb.Append(f[i + 1]); i += 2; break;
-                    case '\'':
-                    case '"':
-                    {
-                        int j = i + 1;
-                        while (j < f.Length && f[j] != c) sb.Append(f[j++]);
-                        i = j < f.Length ? j + 1 : j;
+                        AppendFraction(ref sb, fraction, n, c == 'F');
+                        if (c == 'F' && sb.Length == before && before > 0 && sb.LastChar == '.') sb.Truncate(before - 1);  // drop a dangling '.'
                         break;
                     }
-                    case '%': i++; break;
-                    default: sb.Append(c); i++; break;
+                    case 't': if (n == 1) sb.Append(h < 12 ? 'A' : 'P'); else sb.Append(h < 12 ? "AM" : "PM"); break;
+                    case 'z':
+                        AppendUtcOffset(ref sb, timeOnly && ticks < TicksPerDay ? LocalOffsetNow() : LocalUtcOffset(ticks), n);
+                        break;
+                    case 'K': n = 1; break;  // Kind is not modelled: an unspecified DateTime writes nothing
+                    case '\'':
+                    case '"':
+                        n = ParseQuoteString(ref sb, f, i);
+                        break;
+                    case '%':
+                    {
+                        char next = NextFormatChar(f, i);
+                        if (next == '%') ThrowInvalidFormat();
+                        FormatCustom(ref sb, ticks, next.ToString());
+                        n = 2;
+                        break;
+                    }
+                    case '\\':
+                        sb.Append(NextFormatChar(f, i));
+                        n = 2;
+                        break;
+                    default: sb.Append(c); n = 1; break;
                 }
+                i += n;
+            }
+        }
+
+        // ------------------------------------------------------------------------------------------
+        // 'z': the local time zone's UTC offset. DateTime's Kind is not modelled, so every DateTime is
+        // treated like .NET treats an unspecified one: as a wall-clock time of the local zone (TZ / tzdata
+        // through libc, as .NET reads them).
+        // ------------------------------------------------------------------------------------------
+
+        private const long UnixEpochTicks = 621355968000000000L;
+
+        /// <summary>UTC offset (seconds) and DST flag of the local zone at a UTC instant.</summary>
+        private static unsafe long LocalOffsetAt(long unixSeconds, out bool dst)
+        {
+            // struct tm (x86-64 glibc): tm_isdst @32 (int), tm_gmtoff @40 (long); 56 bytes.
+            byte* tm = stackalloc byte[64];
+            long t = unixSeconds;
+            if (Posix.localtime_r(&t, tm) == null) { dst = false; return 0; }
+            dst = *(int*)(tm + 32) > 0;
+            return *(long*)(tm + 40);
+        }
+
+        private static unsafe long UnixNow() => Posix.time(null);
+
+        private static long LocalOffsetNow() => LocalOffsetAt(UnixNow(), out bool _);
+
+        /// <summary>
+        /// The offset of a local wall-clock time, like TimeZoneInfo.Local.GetUtcOffset: an ambiguous time
+        /// (clocks turned back) gets the standard offset, a skipped one (clocks turned forward) the offset
+        /// in force before the transition.
+        /// </summary>
+        private static long LocalUtcOffset(long ticks)
+        {
+            long diff = ticks - UnixEpochTicks;
+            long local = diff / TicksPerSecond;
+            if (diff % TicksPerSecond < 0) local--;
+            // Zone offsets are below a day, so these two instants lie on either side of any transition
+            // that could make this wall-clock time ambiguous or skipped.
+            long before = LocalOffsetAt(local - 172800, out bool dstBefore);
+            long after = LocalOffsetAt(local + 172800, out bool dstAfter);
+            bool validBefore = LocalOffsetAt(local - before, out bool _) == before;
+            bool validAfter = LocalOffsetAt(local - after, out bool _) == after;
+            long offset = validBefore && validAfter ? (dstBefore && !dstAfter ? after : before) : validAfter ? after : before;
+            if (offset % 60 != 0)
+            {
+                // A local mean time with seconds: .NET's adjustment rules hold the difference to the zone's
+                // base (current standard) offset truncated to whole minutes (New York's -4:56:02 is -4:57).
+                long now = UnixNow();
+                long baseOffset = LocalOffsetAt(now, out bool dst);
+                for (int month = 1; dst && month < 12; month++) baseOffset = LocalOffsetAt(now + month * 30 * 86400L, out dst);
+                long delta = offset - baseOffset;
+                offset = baseOffset + (delta - delta % 60);
+            }
+            return offset;
+        }
+
+        private static void AppendUtcOffset(ref CharBuilder sb, long offsetSeconds, int n)
+        {
+            if (offsetSeconds >= 0) sb.Append('+');
+            else { sb.Append('-'); offsetSeconds = -offsetSeconds; }
+            AppendNumber(ref sb, offsetSeconds / 3600, n <= 1 ? 1 : 2);
+            if (n >= 3)
+            {
+                sb.Append(':');
+                AppendNumber(ref sb, offsetSeconds / 60 % 60, 2);
             }
         }
 

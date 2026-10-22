@@ -510,7 +510,7 @@ namespace CsharpcCoreLib
             if ((fmt == 'R' || fmt == 'r' || ((fmt == 'G' || fmt == 'g') && precision <= 0)))
             {
                 bool done = single ? ShortestSingle((float)value, ref g, ref sb) : ShortestDouble(value, ref g, ref sb);
-                if (!done) FormatGeneral(ref sb, ref g, single ? 9 : 17, fmt == 'g' ? 'e' : 'E');
+                if (!done) FormatGeneral(ref sb, ref g, single ? 9 : 17, fmt == 'g' || fmt == 'r' ? 'e' : 'E');
                 return sb.Build();
             }
             if (value != value) return "NaN";
@@ -693,14 +693,19 @@ namespace CsharpcCoreLib
                 FormatCustom(ref sb, ref g, format);
                 return sb.Build();
             }
-            if ((fmt == 'G' || fmt == 'g') && precision < 1)
+            // "R<n>" is "G<n>" for decimal (case preserved for the exponent character).
+            if (fmt == 'R' || fmt == 'r') fmt = (char)(fmt - ('R' - 'G'));
+            if ((fmt == 'G' || fmt == 'g') && precision < 0)
             {
                 // ECMA: all digits, trailing zeros included, never scientific; no "-0".
                 if (g.N > 0 && g.Neg) sb.Append('-');
                 FormatGeneral(ref sb, ref g, 0, 'E', suppressScientific: true);
                 return sb.Build();
             }
-            if (fmt == 'D' || fmt == 'd' || fmt == 'X' || fmt == 'x' || fmt == 'B' || fmt == 'b' || fmt == 'R' || fmt == 'r') ThrowBadFormat();
+            if (fmt == 'D' || fmt == 'd' || fmt == 'X' || fmt == 'x' || fmt == 'B' || fmt == 'b') ThrowBadFormat();
+            // "G0" means "as many digits as the decimal has", trailing zeros counted (1e20m.ToString("G0")
+            // stays fixed-point because its 21 digits exceed the exponent) but not printed.
+            if ((fmt == 'G' || fmt == 'g') && precision == 0) precision = g.N > 0 ? g.N : 1;
             TrimTrailingZeros(ref g);
             FormatStandard(ref sb, ref g, fmt, precision, false);
             return sb.Build();
@@ -946,7 +951,9 @@ namespace CsharpcCoreLib
                         break;
                 }
             }
-            if (negative && (g.Exp10 != 0 || sb.Length > start)) sb.Insert(start, '-');
+            // A value that rounded to zero keeps its '-' only when the format has no negative section
+            // of its own: (-0.4).ToString("0") is "-0", but (-0.4).ToString("0;(0)") is "0".
+            if (negative && (g.Exp10 != 0 || (sb.Length > start && FindSection(format, 1) == 0))) sb.Insert(start, '-');
         }
 
         // ==========================================================================================
@@ -992,58 +999,105 @@ namespace CsharpcCoreLib
             return value.ToString() ?? "";
         }
 
-        private static void ThrowInvalidComposite() => throw new FormatException("Input string was not in a correct format.");
+        // .NET's ThrowHelper.ThrowFormatInvalidString(offset, reason).
+        private static void ThrowInvalidComposite(int offset, string reason) =>
+            throw new FormatException("Input string was not in a correct format. Failure to parse near offset " +
+                Int32ToDecStr(offset) + ". " + reason);
 
-        /// <summary>string.Format(format, args): "{index[,alignment][:format]}" with "{{" / "}}" escapes.</summary>
+        private const string UnclosedFormatItem = "Format item ends prematurely.";
+        private const string ExpectedAsciiDigit = "Expected an ASCII digit.";
+
+        // Advances to the next character of a format item; running off the end is an unclosed item.
+        private static char MoveNext(string format, ref int pos)
+        {
+            pos++;
+            if (pos >= format.Length) ThrowInvalidComposite(pos, UnclosedFormatItem);
+            return format[pos];
+        }
+
+        /// <summary>
+        /// string.Format(format, args): "{index[,alignment][:format]}" with "{{" / "}}" escapes. Mirrors
+        /// .NET's ValueStringBuilder.AppendFormatHelper step by step, so a malformed format reports the
+        /// same offset and reason, and argument formatting errors surface in the same order.
+        /// </summary>
         internal static string FormatComposite(string format, object[] args)
         {
-            if (format == null) throw new NullReferenceException();
+            if (format == null) throw new ArgumentNullException("format");
+            const int IndexLimit = 1000000, WidthLimit = 1000000;  // exclusive limits, as in .NET
             int count = args == null ? 0 : args.Length;
             Span<char> chars = stackalloc char[256];
             var sb = new CharBuilder(chars);
-            int n = format.Length;
-            for (int i = 0; i < n; i++)
+            int pos = 0;
+            char ch;
+            while (true)
             {
-                char c = format[i];
-                if (c == '}')
+                // Literal text up to the next unescaped '{'.
+                while (true)
                 {
-                    if (i + 1 < n && format[i + 1] == '}') { sb.Append('}'); i++; continue; }
-                    ThrowInvalidComposite();
+                    if (pos >= format.Length) return sb.Build();
+                    char c = format[pos];
+                    if (c != '{' && c != '}') { sb.Append(c); pos++; continue; }
+                    ch = MoveNext(format, ref pos);
+                    if (c == ch) { sb.Append(ch); pos++; continue; }
+                    if (c != '{') ThrowInvalidComposite(pos, "Unexpected closing brace without a corresponding opening brace.");
+                    break;
                 }
-                if (c != '{') { sb.Append(c); continue; }
-                if (i + 1 < n && format[i + 1] == '{') { sb.Append('{'); i++; continue; }
-                i++;
-                long index = 0;
-                bool any = false;
-                while (i < n && format[i] >= '0' && format[i] <= '9') { index = index * 10 + (format[i++] - '0'); any = true; if (index > 1000000) break; }
-                int align = 0;
-                if (i < n && format[i] == ',')
-                {
-                    i++;
-                    bool neg = false;
-                    while (i < n && format[i] == ' ') i++;
-                    if (i < n && format[i] == '-') { neg = true; i++; }
-                    while (i < n && format[i] >= '0' && format[i] <= '9') { align = align * 10 + (format[i++] - '0'); if (align > 1000000) break; }
-                    if (neg) align = -align;
-                }
+
+                int width = 0;
+                bool leftJustify = false;
                 string spec = null;
-                if (i < n && format[i] == ':')
+                int index = ch - '0';
+                if ((uint)index >= 10u) ThrowInvalidComposite(pos, ExpectedAsciiDigit);
+                ch = MoveNext(format, ref pos);
+                if (ch != '}')
                 {
-                    int start = ++i;
-                    while (i < n && format[i] != '}') i++;
-                    spec = format.Substring(start, i - start);
+                    while (ch >= '0' && ch <= '9' && index < IndexLimit)
+                    {
+                        index = index * 10 + ch - '0';
+                        ch = MoveNext(format, ref pos);
+                    }
+                    while (ch == ' ') ch = MoveNext(format, ref pos);
+                    if (ch == ',')
+                    {
+                        do { ch = MoveNext(format, ref pos); } while (ch == ' ');
+                        if (ch == '-')
+                        {
+                            leftJustify = true;
+                            ch = MoveNext(format, ref pos);
+                        }
+                        width = ch - '0';
+                        if ((uint)width >= 10u) ThrowInvalidComposite(pos, ExpectedAsciiDigit);
+                        ch = MoveNext(format, ref pos);
+                        while (ch >= '0' && ch <= '9' && width < WidthLimit)
+                        {
+                            width = width * 10 + ch - '0';
+                            ch = MoveNext(format, ref pos);
+                        }
+                        while (ch == ' ') ch = MoveNext(format, ref pos);
+                    }
+                    if (ch != '}')
+                    {
+                        if (ch != ':') ThrowInvalidComposite(pos, UnclosedFormatItem);
+                        int startingPos = pos;
+                        while (true)
+                        {
+                            ch = MoveNext(format, ref pos);
+                            if (ch == '}') break;
+                            if (ch == '{') ThrowInvalidComposite(pos, UnclosedFormatItem);
+                        }
+                        startingPos++;
+                        spec = format.Substring(startingPos, pos - startingPos);
+                    }
                 }
-                if (!any || i >= n || format[i] != '}') ThrowInvalidComposite();
+                pos++;
                 if (index >= count)
                     throw new FormatException("Index (zero based) must be greater than or equal to zero and less than the size of the argument list.");
                 string piece = FormatObject(args[index], spec);
                 int len = piece.Length;
-                int w = align < 0 ? -align : align;
-                if (align > 0 && w > len) sb.Append(' ', w - len);
+                if (!leftJustify && width > len) sb.Append(' ', width - len);
                 sb.Append(piece);
-                if (align < 0 && w > len) sb.Append(' ', w - len);
+                if (leftJustify && width > len) sb.Append(' ', width - len);
             }
-            return sb.Build();
         }
 
         /// <summary>Console.Write(double/float) (formerly csrt_console_write_f64/f32).</summary>

@@ -73,6 +73,11 @@ Fuzzing has already found and fixed two real bugs:
    modes at random — undefined behaviour with visible wrong output.
 3. Integer `"R<n>"` formats threw `FormatException` after formatting moved to C#; .NET treats them
    as `"G<n>"` (differential fuzzer; regression test `175_integer_r_format`).
+4. Long-standing gaps in error handling and edge cases that predate the move (regression tests
+   `180`–`186`): `decimal.Parse` rejected trailing signs and left the input out of its message;
+   `string.Format` errors lacked .NET's offset and reason; DateTime/TimeSpan custom formats accepted
+   unterminated quotes, trailing escapes and unknown specifiers; decimal `"R"`, negative `BigInteger`
+   `"X"`, double `"r"` and the sign of custom-formatted values that round to zero differed.
 
 ## Reproducible builds
 

@@ -458,15 +458,15 @@ namespace CsharpcCoreLib
             if (s == null) return 0;
             int i = 0, n = s.Length;
             while (i < n && (s[i] == ' ' || (s[i] >= '\t' && s[i] <= '\r'))) i++;
-            bool negative = false;
-            if (i < n && (s[i] == '-' || s[i] == '+')) { negative = s[i] == '-'; i++; }
+            bool negative = false, signed = false;
+            if (i < n && (s[i] == '-' || s[i] == '+')) { negative = s[i] == '-'; signed = true; i++; }
             Span<uint> sm = stackalloc uint[Limbs];
             Span<uint> st = stackalloc uint[Limbs];
             var m = new BigNum(sm);
             var t = new BigNum(st);
             m.Len = 0;
             int scale = 0;
-            bool point = false, any = false, dropped = false;
+            bool point = false, any = false, dropped = false, overflow = false;
             int firstDropped = -1;
             for (; i < n; i++)
             {
@@ -488,10 +488,22 @@ namespace CsharpcCoreLib
                     if (firstDropped < 0) firstDropped = (int)digit;
                     else if (digit != 0) dropped = true;
                 }
-                else return 2;
+                else overflow = true;  // reported only if the rest of the input is well-formed
             }
-            while (i < n && (s[i] == ' ' || (s[i] >= '\t' && s[i] <= '\r'))) i++;
+            // NumberStyles.Number allows a trailing sign (when there is no leading one) among the
+            // trailing white space: "12- " is -12.
+            if (any)
+            {
+                for (; i < n; i++)
+                {
+                    char c = s[i];
+                    if (c == ' ' || (c >= '\t' && c <= '\r')) continue;
+                    if (!signed && (c == '-' || c == '+')) { negative = c == '-'; signed = true; continue; }
+                    break;
+                }
+            }
             if (!any || i != n) return 0;
+            if (overflow) return 2;
             if (firstDropped >= 0 && (firstDropped > 5 || (firstDropped == 5 && (dropped || IsOdd(ref m)))))
             {
                 m.AddSmall(1);
@@ -507,7 +519,7 @@ namespace CsharpcCoreLib
             int status = TryParseCore(s, out decimal result);
             if (status == 1) return result;
             if (status == 2) Overflow();
-            throw new FormatException("The input string was not in a correct format.");
+            throw new FormatException("The input string '" + s + "' was not in a correct format.");
         }
 
         internal static bool TryParse(string s, ref decimal result)

@@ -36,6 +36,8 @@ namespace CsharpcCoreLib
         [DllImport("libc")] public static extern int gethostname(byte* name, nuint length);
         [DllImport("libc")] public static extern byte* strerror(int error);
         [DllImport("libc")] public static extern int getentropy(byte* buffer, nuint length);
+        [DllImport("libc")] public static extern long time(long* result);
+        [DllImport("libc")] public static extern byte* localtime_r(long* time, byte* result);
 
         // stat/lstat/fstat go through statx (glibc 2.28+): struct statx has one layout on every Linux
         // architecture, while struct stat does not (st_mode is at offset 24 on x86-64 but 16 on AArch64).
