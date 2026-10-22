@@ -1,0 +1,9 @@
+True & True = True   True | True = True   ^ = False
+True & False = False   True | False = True   ^ = True
+True & null = null   True | null = True   ^ = null
+False & True = False   False | True = True   ^ = True
+False & False = False   False | False = False   ^ = False
+False & null = False   False | null = null   ^ = null
+null & True = null   null | True = True   ^ = null
+null & False = False   null | False = null   ^ = null
+null & null = null   null | null = null   ^ = null

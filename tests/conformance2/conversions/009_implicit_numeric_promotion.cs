@@ -1,0 +1,10 @@
+byte a = 200, b = 100;
+var s = a + b;
+Console.WriteLine(s.GetType().Name + " " + s);
+short x = -1; ushort y = 1;
+Console.WriteLine((x + y).GetType().Name);
+uint u = 1; int i = -1;
+Console.WriteLine((u + i).GetType().Name + " " + (u + i));
+Console.WriteLine((1u + 1L).GetType().Name);
+float f = 1; double d = f + 0.1;
+Console.WriteLine(d);

@@ -1,0 +1,8 @@
+created
+yield 0
+got 0
+yield 1
+got 1
+yield 2
+got 2
+end

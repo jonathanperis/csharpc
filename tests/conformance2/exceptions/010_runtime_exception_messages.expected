@@ -1,0 +1,7 @@
+DivideByZeroException: Attempted to divide by zero.
+IndexOutOfRangeException: Index was outside the bounds of the array.
+NullReferenceException: Object reference not set to an instance of an object.
+InvalidCastException: Unable to cast object of type 'System.String' to type 'System.Int32'.
+FormatException: The input string 'abc' was not in a correct format.
+ArgumentOutOfRangeException: Index was out of range. Must be non-negative and less than the size of the collection. (Parameter 'index')
+KeyNotFoundException: The given key 'k' was not present in the dictionary.

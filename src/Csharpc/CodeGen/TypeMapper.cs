@@ -58,6 +58,8 @@ public sealed class TypeMapper(LlvmContext llvm, TargetMachine target)
             Llvm.Struct([.. t.TupleElements.Select(e => Storage(e.Type))]),  // ValueTuple<...>: flattened
         INamedTypeSymbol n when IsSystemStruct(n, "Index") => Llvm.I32,                       // .NET's own encoding: ~n = from end
         INamedTypeSymbol n when IsSystemStruct(n, "Range") => Llvm.Struct(Llvm.I32, Llvm.I32), // { Index start, Index end }
+        // StringBuilder.AppendInterpolatedStringHandler: represented by the StringBuilder it appends into.
+        INamedTypeSymbol { Name: "AppendInterpolatedStringHandler", ContainingType.Name: "StringBuilder" } => Llvm.Ptr,
         // System.Threading.Lock.Scope: represented by the Lock itself (Scope.Dispose exits it).
         INamedTypeSymbol { Name: "Scope", ContainingType: { Name: "Lock", ContainingNamespace.Name: "Threading" } } => Llvm.Ptr,
         INamedTypeSymbol n when IsSpan(n) => Llvm.Struct(Llvm.Ptr, Llvm.I32),                  // { ref T, length }

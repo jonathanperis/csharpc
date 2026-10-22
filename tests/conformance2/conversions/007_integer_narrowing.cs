@@ -1,0 +1,11 @@
+int big = 300, seventy = 70000, minusOne = -1;
+long minusOneL = -1;
+Console.WriteLine((byte)big);
+Console.WriteLine((sbyte)big);
+Console.WriteLine((short)seventy);
+Console.WriteLine(unchecked((ushort)minusOne));
+Console.WriteLine((uint)minusOneL);
+long l = long.MinValue;
+Console.WriteLine((int)l);
+uint umax = uint.MaxValue;
+Console.WriteLine(unchecked((int)umax));

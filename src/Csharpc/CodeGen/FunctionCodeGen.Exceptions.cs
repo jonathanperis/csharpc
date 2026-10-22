@@ -367,15 +367,6 @@ public sealed partial class FunctionCodeGen
     private bool TryEmitLibraryExceptionProperty(IPropertyReferenceOperation p, out LLVMValueRef result)
     {
         result = default;
-        // x.GetType().Name / .FullName: read the name from x's method table (no System.Type objects yet).
-        if (p.Property is { Name: "Name" or "FullName", ContainingType.Name: "Type" or "MemberInfo" }
-            && p.Instance is IInvocationOperation { TargetMethod.Name: "GetType", TargetMethod.Parameters.IsEmpty: true, Instance: { } obj }
-            && obj.Type is { IsReferenceType: true })
-        {
-            result = CallRuntime("csrt_object_type_name", L.Ptr, [L.Ptr, L.I1], EmitValue(obj),
-                L.ConstInt(L.I1, p.Property.Name == "FullName" ? 1 : 0));
-            return true;
-        }
         var property = p.Property;
         if (!_m.IsLibraryException(property.ContainingType) || property.IsStatic) return false;
         uint? field = property.Name switch

@@ -151,7 +151,7 @@ public sealed partial class FunctionCodeGen
     }
 
     private LLVMValueRef EmitSizeOf(ISizeOfOperation op) =>
-        L.ConstInt(L.I32, (long)T.Target.SizeOf(T.Storage(op.TypeOperand)));
+        L.ConstInt(L.I32, (long)T.Target.SizeOf(T.Storage(S(op.TypeOperand))));
 
     // ======================================================================================
     // Pointer arithmetic: p ± n scales by sizeof(*p); p - q is an element count (long)

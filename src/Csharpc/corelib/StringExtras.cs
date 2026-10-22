@@ -109,6 +109,28 @@ namespace CsharpcCoreLib
         public static bool IsNegativeInfinity(float f) => f == float.NegativeInfinity;
         public static bool IsFinite(float f) => f == f && !IsInfinity(f);
     }
+
+    [ShadowMembers("System.Math")]
+    internal static class MathExtras
+    {
+        /// <summary>x - y * round-half-even(x / y), with .NET's algorithm (its sign and NaN rules).</summary>
+        public static double IEEERemainder(double x, double y)
+        {
+            if (double.IsNaN(x)) return x;
+            if (double.IsNaN(y)) return y;
+            double regularMod = x % y;
+            if (double.IsNaN(regularMod)) return double.NaN;
+            if (regularMod == 0 && double.IsNegative(x)) return -0.0;
+            double alternativeResult = regularMod - (Math.Abs(y) * Math.Sign(x));
+            if (Math.Abs(alternativeResult) == Math.Abs(regularMod))
+            {
+                double divisionResult = x / y;
+                double roundedResult = Math.Round(divisionResult);
+                return Math.Abs(roundedResult) > Math.Abs(divisionResult) ? alternativeResult : regularMod;
+            }
+            return Math.Abs(alternativeResult) < Math.Abs(regularMod) ? alternativeResult : regularMod;
+        }
+    }
 }
 
 namespace CsharpcCoreLib
@@ -128,7 +150,8 @@ namespace CsharpcCoreLib
 
         private static T MinMax<T>(ReadOnlySpan<T> span, IComparer<T> comparer, int sign)
         {
-            if (span.Length == 0) throw new InvalidOperationException("Sequence contains no elements");
+            // MemoryExtensions' wording ends with a period (Enumerable's doesn't).
+            if (span.Length == 0) throw new InvalidOperationException("Sequence contains no elements.");
             T best = span[0];
             for (int i = 1; i < span.Length; i++)
             {

@@ -251,9 +251,17 @@ public sealed partial class FunctionCodeGen
             // Evaluate the receiver once, then call get + set on it.
             var property = S(p.Property);
             var self = property.IsStatic ? default : Receiver(p.Instance!, property.GetMethod!);
+            // Indexer arguments are evaluated once, then shared by the get and set calls (c[i++] += v).
+            var savedArgs = _argumentCache;
+            if (!p.Arguments.IsEmpty)
+            {
+                _argumentCache = new Dictionary<IArgumentOperation, LLVMValueRef>(ReferenceEqualityComparer.Instance);
+                foreach (var argument in p.Arguments) _argumentCache[argument] = EmitArgument(argument, property.GetMethod!);
+            }
             var old = CallAccessor(p, property.GetMethod!, self, []);
             var (newValue, result) = modify(old);
             CallAccessor(p, property.SetMethod ?? throw CompileError.Unsupported("compound assignment to a get-only property", p), self, [newValue]);
+            _argumentCache = savedArgs;
             return result;
         }
         var address = AddressOf(target);
@@ -347,6 +355,12 @@ public sealed partial class FunctionCodeGen
             return ReadModifyWrite(op.Target, old =>
             {
                 var updated = libraryIncrement(this, S(incrementMethod), default, [old], op);
+                return (updated, op.IsPostfix ? old : updated);
+            });
+        if (op.OperatorMethod is { } userIncrement && _m.IsUserMethod(S(userIncrement)))
+            return ReadModifyWrite(op.Target, old =>
+            {
+                var updated = DirectCall(S(userIncrement), [old]); // static T operator ++(T)
                 return (updated, op.IsPostfix ? old : updated);
             });
         if (op.OperatorMethod is not null) throw CompileError.Unsupported("user-defined ++/--", op);

@@ -1,0 +1,2 @@
+Mut { X = 10, Y = 2 }
+Ro { X = 3, Y = 4 } Ro { X = 3, Y = 9 } True

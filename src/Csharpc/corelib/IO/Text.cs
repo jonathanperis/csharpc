@@ -550,5 +550,9 @@ namespace CsharpcCoreLib
         public static TextReader In => s_in ??= (TextReader)(object)new ConsoleInReader();
         public static Stream OpenStandardOutput() => new FileStream("/dev/stdout", FileMode.Append, FileAccess.Write);
         public static Stream OpenStandardInput() => new FileStream("/dev/stdin", FileMode.Open, FileAccess.Read);
+
+        // A null buffer writes nothing (new string((char[])null) is "").
+        public static void Write(char[] buffer) => Console.Write(new string(buffer));
+        public static void WriteLine(char[] buffer) => Console.WriteLine(new string(buffer));
     }
 }

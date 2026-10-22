@@ -1,0 +1,7 @@
+a: apple,avocado
+b: bob,banana
+c: cat,cherry
+5=1:APPLE
+3=2:BOB|CAT
+7=1:AVOCADO
+6=2:BANANA|CHERRY

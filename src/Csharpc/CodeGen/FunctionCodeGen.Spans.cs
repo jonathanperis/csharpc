@@ -189,7 +189,7 @@ public sealed partial class FunctionCodeGen
         result = default;
         var type = TypeOf(creation) as INamedTypeSymbol;
         var args = creation.Arguments.OrderBy(a => a.Parameter!.Ordinal).ToArray();
-        LLVMValueRef Arg(int i) => Coerce(EmitValue(args[i].Value), args[i].Value.Type, args[i].Parameter!.Type);
+        LLVMValueRef Arg(int i) => Coerce(EmitValue(args[i].Value), TypeOf(args[i].Value), S(args[i].Parameter!.Type));
         if (type?.SpecialType == SpecialType.System_String && args.Length == 1 && TypeMapper.IsSpan(S(args[0].Parameter!.Type)))
         {
             var span = Arg(0);

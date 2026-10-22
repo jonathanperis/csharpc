@@ -207,7 +207,65 @@ void csrt_stderr_write_string(csrt_String* s) { if (s) write_utf16(stderr, s->ch
 static void noop_dispose(void* self) { (void)self; }
 static void* const s_noop_dispose_slots[] = { (void*)noop_dispose };
 
+static void* const* builtin_interface_slots_untyped(const csrt_MethodTable* objmt, const csrt_MethodTable* itf);
+
+// Builtin types (string, boxed primitives, element-typed arrays) implementing the program's
+// interfaces: registered by the compiler at startup (presence; slots come from the tables below).
+static struct { const csrt_MethodTable* type; const csrt_MethodTable* itf; void* const* slots; }* s_builtin_impls;
+static int s_builtin_count, s_builtin_cap;
+
+void csrt_register_builtin_interface(const csrt_MethodTable* type, const csrt_MethodTable* itf, void* const* slots) {
+    if (s_builtin_count == s_builtin_cap) {
+        s_builtin_cap = s_builtin_cap ? s_builtin_cap * 2 : 64;
+        s_builtin_impls = realloc(s_builtin_impls, sizeof *s_builtin_impls * (size_t)s_builtin_cap);
+    }
+    s_builtin_impls[s_builtin_count].type = type;
+    s_builtin_impls[s_builtin_count].itf = itf;
+    s_builtin_impls[s_builtin_count].slots = slots;
+    s_builtin_count++;
+}
+
+static bool builtin_registered(const csrt_MethodTable* type, const csrt_MethodTable* itf, void* const** slots) {
+    for (int i = 0; i < s_builtin_count; i++)
+        if (s_builtin_impls[i].type == type && s_builtin_impls[i].itf == itf) { *slots = s_builtin_impls[i].slots; return true; }
+    return false;
+}
+
+static bool is_untyped_array_mt(const csrt_MethodTable* mt) {
+    return mt == &csrt_Array_MT.header || mt == &csrt_PrimitiveArray_MT.header;
+}
+
+// Used when a registered builtin type has no slot table for an interface (e.g. IComparable on a boxed int).
+static const csrt_MethodTable s_not_supported_mt = { NULL, "System.NotSupportedException", 0, 0 };
+_Noreturn static void builtin_dispatch_unsupported(void) {
+    csrt_throw(&s_not_supported_mt, string_from_ascii("csharpc: interface dispatch on this builtin type is not supported yet."));
+}
+static void* const s_unsupported_slots[64] = {
+#define U8 (void*)builtin_dispatch_unsupported, (void*)builtin_dispatch_unsupported, (void*)builtin_dispatch_unsupported, (void*)builtin_dispatch_unsupported, \
+           (void*)builtin_dispatch_unsupported, (void*)builtin_dispatch_unsupported, (void*)builtin_dispatch_unsupported, (void*)builtin_dispatch_unsupported
+    U8, U8, U8, U8, U8, U8, U8, U8
+#undef U8
+};
+
 static void* const* builtin_interface_slots(const csrt_MethodTable* objmt, const csrt_MethodTable* itf) {
+    // Element-typed arrays ("System.Int32[]") and other builtin types: only interfaces they really implement.
+    void* const* registered_slots = NULL;
+    if (!is_untyped_array_mt(objmt) && builtin_registered(objmt, itf, &registered_slots)) {
+        void* const* slots = registered_slots;
+        if (!slots)
+            for (const csrt_MethodTable* mt = objmt; mt; mt = mt->base)
+                if (is_untyped_array_mt(mt)) { slots = (void* const*)itf->interfaces; break; }
+        if (!slots && objmt == &csrt_String_MT.header) slots = (void* const*)itf->base;
+        return slots ? slots : s_unsupported_slots;
+    }
+    if (!is_untyped_array_mt(objmt) && objmt != &csrt_String_MT.header)
+        // Runtime-implemented disposables (CountdownEvent...): IDisposable.Dispose is a no-op.
+        return (objmt->flags & CSRT_MT_DISPOSABLE) && strcmp(itf->name, "System.IDisposable") == 0 ? s_noop_dispose_slots : NULL;
+    // Untyped arrays (allocated by runtime C code) and strings: the per-interface tables, unchecked.
+    return builtin_interface_slots_untyped(objmt, itf);
+}
+
+static void* const* builtin_interface_slots_untyped(const csrt_MethodTable* objmt, const csrt_MethodTable* itf) {
     // Arrays may have a per-element-type MT ("System.Int32[]") whose base is one of the shared array MTs.
     for (const csrt_MethodTable* mt = objmt; mt; mt = mt->base)
         if (mt == &csrt_Array_MT.header || mt == &csrt_PrimitiveArray_MT.header) return (void* const*)itf->interfaces;
