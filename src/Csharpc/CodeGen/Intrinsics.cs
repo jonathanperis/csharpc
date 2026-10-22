@@ -63,6 +63,8 @@ internal static class Intrinsics
             g.NullCheck(self);
             return g.VirtualCall(inv.TargetMethod, self, [self]);
         };
+        t["object.ReferenceEquals(object, object)"] = (g, inv) =>
+            g.Builder.ICmp(LLVMIntPredicate.EQ, Arg(g, inv, 0), Arg(g, inv, 1));
         t["object.Equals(object)"] = (g, inv) =>
         {
             var self = g.EmitValue(inv.Instance!);
@@ -133,7 +135,7 @@ internal static class Intrinsics
                 var b = g.Builder;
                 var v = Arg(g, inv, 0);
                 var width = v.Type.IntWidth;
-                g.FailIf(b.ICmp(LLVMIntPredicate.EQ, v, g.Module.Llvm.ConstUInt(v.Type, 1UL << (int)(width - 1))), "csrt_throw_overflow");
+                g.FailIf(b.ICmp(LLVMIntPredicate.EQ, v, g.Module.Llvm.ConstUInt(v.Type, 1UL << (int)(width - 1))), "csrt_throw_negate_overflow");
                 return b.Select(b.ICmp(LLVMIntPredicate.SLT, v, g.Module.Llvm.ConstInt(v.Type, 0)), b.Neg(v), v);
             };
         }

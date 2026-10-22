@@ -1,0 +1,11 @@
+index: Index was outside the bounds of the array.
+divide: Attempted to divide by zero.
+modulo: Attempted to divide by zero.
+overflow: Arithmetic operation resulted in an overflow.
+abs: Negating the minimum value of a twos complement number is invalid.
+null: Object reference not set to an instance of an object.
+unbox: Unable to cast object of type 'System.Int32' to type 'System.Int64'.
+cast: Unable to cast object of type 'Circle' to type 'Square'.
+negative array: Arithmetic operation resulted in an overflow.
+string index: Index was outside the bounds of the array.
+all handled

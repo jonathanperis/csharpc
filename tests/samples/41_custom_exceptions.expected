@@ -1,0 +1,15 @@
+insufficient funds
+short by 150
+True
+BankException: generic bank failure
+name: must not be empty
+ValidationException: age: must be positive
+inner cause
+System.InvalidOperationException: outer
+ ---> System.FormatException: inner cause
+   --- End of inner exception stack trace ---
+Exception of type 'SilentException' was thrown.
+Exception of type 'System.Exception' was thrown.
+Operation is not valid due to the current state of the object.
+Specified argument was out of the range of valid values. (Parameter 'index')
+bad (Parameter 'arg')

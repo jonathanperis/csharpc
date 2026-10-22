@@ -135,7 +135,7 @@ public sealed class ModuleCodeGen
         // Closed-world, whole-program compilation (like NativeAOT): everything but main is internal,
         // which lets LLVM's IPO passes inline, specialize and delete freely.
         Native.LLVMSetLinkage(fn, LLVMLinkage.Internal);
-        Llvm.AddFunctionAttribute(fn, "nounwind"); // no unwinding until exceptions land (ADR 0005)
+        Llvm.AddFunctionAttribute(fn, "uwtable", 2); // C# code may throw: keep async unwind tables (ADR 0005)
         return _functions[method] = new LoweredFunction(fn, type);
     }
 
@@ -156,14 +156,29 @@ public sealed class ModuleCodeGen
         if (_runtime.TryGetValue(name, out var existing)) return existing;
         var type = Llvm.FunctionType(ret, parameters);
         var fn = Module.GetOrDeclare(name, type);
-        if (name.StartsWith("csrt_throw", StringComparison.Ordinal))
+        if (name.StartsWith("csrt_throw", StringComparison.Ordinal) || name == "csrt_rethrow")
         {
             Llvm.AddFunctionAttribute(fn, "noreturn");
             Llvm.AddFunctionAttribute(fn, "cold");
         }
-        Llvm.AddFunctionAttribute(fn, "nounwind");
+        if (!RuntimeMayThrow(name))
+        {
+            Llvm.AddFunctionAttribute(fn, "nounwind");
+            _noThrow.Add(fn.Handle);
+        }
         return _runtime[name] = new LoweredFunction(fn, type);
     }
+
+    private readonly HashSet<nint> _noThrow = [];
+
+    /// <summary>Runtime helpers that can raise a managed exception (directly or via virtual calls).</summary>
+    private static bool RuntimeMayThrow(string name) =>
+        name.StartsWith("csrt_throw", StringComparison.Ordinal)
+        || name is "csrt_rethrow" or "csrt_new_array" or "csrt_castclass" or "csrt_unbox" or "csrt_string_char_at"
+            or "csrt_object_to_string";
+
+    /// <summary>False for callees known not to unwind (LLVM intrinsics, libm, most of csrt): no invoke needed.</summary>
+    public bool MayThrow(LLVMValueRef callee) => !_noThrow.Contains(callee.Handle);
 
     /// <summary>Declares an LLVM intrinsic or libm function, e.g. "llvm.sqrt.f64" or "pow".</summary>
     public LoweredFunction Intrinsic(string name, LLVMTypeRef ret, params LLVMTypeRef[] parameters) =>
@@ -280,12 +295,16 @@ public sealed class ModuleCodeGen
     {
         type = type.OriginalDefinition;
         if (_layouts.TryGetValue(type, out var existing)) return existing;
-        if (!IsUserType(type)) throw CompileError.Unsupported($"instances of library class '{type}'", type);
+        if (!IsUserType(type))
+            return IsLibraryException(type)
+                ? GetLibraryExceptionLayout(type)
+                : throw CompileError.Unsupported($"instances of library class '{type}'", type);
 
         ClassLayout? baseLayout = null;
         if (type.BaseType is { SpecialType: not SpecialType.System_Object } baseType)
         {
-            if (!IsUserType(baseType)) throw CompileError.Unsupported($"deriving from library class '{baseType}'", type);
+            if (!IsUserType(baseType) && !IsLibraryException(baseType))
+                throw CompileError.Unsupported($"deriving from library class '{baseType}'", type);
             baseLayout = GetLayout(baseType);
         }
         if (!type.Interfaces.IsEmpty) throw CompileError.Unsupported($"interface implementation on '{type.Name}'", type);
@@ -295,14 +314,14 @@ public sealed class ModuleCodeGen
         _layouts[type] = layout;
 
         // Fields: header, then inherited fields (same indices as in the base), then our own.
-        List<LLVMTypeRef> elements = [Llvm.Ptr];
-        if (baseLayout is not null)
-            foreach (var f in baseLayout.Fields)
-            {
-                layout.FieldIndex[f] = (uint)elements.Count;
-                layout.Fields.Add(f);
-                elements.Add(Types.Storage(f.Type));
-            }
+        var elements = layout.Elements;
+        if (baseLayout is null) elements.Add(Llvm.Ptr);
+        else
+        {
+            elements.AddRange(baseLayout.Elements);
+            layout.Fields.AddRange(baseLayout.Fields);
+            foreach (var (f, index) in baseLayout.FieldIndex) layout.FieldIndex[f] = index;
+        }
         foreach (var f in type.GetMembers().OfType<IFieldSymbol>().Where(f => !f.IsStatic && !f.IsConst))
         {
             layout.FieldIndex[f] = (uint)elements.Count;
@@ -317,21 +336,9 @@ public sealed class ModuleCodeGen
         {
             layout.VTable.AddRange(baseLayout.VTable);
             foreach (var (root, slot) in baseLayout.SlotOf) layout.SlotOf[root] = slot;
+            foreach (var (slot, fn) in baseLayout.RuntimeSlots) layout.RuntimeSlots[slot] = fn;
         }
-        else
-        {
-            layout.VTable.AddRange([null, null, null]);
-            var obj = Compilation.GetSpecialType(SpecialType.System_Object);
-            foreach (var m in obj.GetMembers().OfType<IMethodSymbol>())
-            {
-                switch (m.Name)
-                {
-                    case "ToString" when m.Parameters.IsEmpty: layout.SlotOf[m] = ClassLayout.ToStringSlot; break;
-                    case "Equals" when m.Parameters.Length == 1 && m.IsVirtual: layout.SlotOf[m] = ClassLayout.EqualsSlot; break;
-                    case "GetHashCode" when m.Parameters.IsEmpty: layout.SlotOf[m] = ClassLayout.GetHashCodeSlot; break;
-                }
-            }
-        }
+        else AddObjectSlots(layout);
         foreach (var m in type.GetMembers().OfType<IMethodSymbol>())
         {
             if (!(m.IsVirtual || m.IsAbstract || m.IsOverride)) continue;
@@ -351,8 +358,93 @@ public sealed class ModuleCodeGen
         return layout;
     }
 
+    private void AddObjectSlots(ClassLayout layout)
+    {
+        layout.VTable.AddRange([null, null, null]);
+        var obj = Compilation.GetSpecialType(SpecialType.System_Object);
+        foreach (var m in obj.GetMembers().OfType<IMethodSymbol>())
+        {
+            switch (m.Name)
+            {
+                case "ToString" when m.Parameters.IsEmpty: layout.SlotOf[m] = ClassLayout.ToStringSlot; break;
+                case "Equals" when m.Parameters.Length == 1 && m.IsVirtual: layout.SlotOf[m] = ClassLayout.EqualsSlot; break;
+                case "GetHashCode" when m.Parameters.IsEmpty: layout.SlotOf[m] = ClassLayout.GetHashCodeSlot; break;
+            }
+        }
+    }
+
+    // ======================================================================================
+    // Library exception classes (System.Exception & friends) — layouts shared with runtime/eh.c
+    // ======================================================================================
+
+    /// <summary>Exception types whose method tables csrt defines (runtime/eh.c, "csrt_MT_" + name).</summary>
+    private static readonly HashSet<string> s_runtimeExceptionTypes =
+    [
+        "System.Exception", "System.SystemException", "System.ArgumentException", "System.ArgumentNullException",
+        "System.ArgumentOutOfRangeException", "System.InvalidOperationException", "System.ObjectDisposedException",
+        "System.NotSupportedException", "System.NotImplementedException", "System.NullReferenceException",
+        "System.IndexOutOfRangeException", "System.ArithmeticException", "System.DivideByZeroException",
+        "System.OverflowException", "System.InvalidCastException", "System.FormatException",
+        "System.Collections.Generic.KeyNotFoundException",
+    ];
+
+    public const int ExceptionMessageSlot = 3;
+    public const uint ExceptionMessageField = 1, ExceptionInnerField = 2, ExceptionParamNameField = 3;
+
+    public bool IsLibraryException(ITypeSymbol? type)
+    {
+        if (type is not INamedTypeSymbol named || IsUserType(named)) return false;
+        for (var t = named; t is not null; t = t.BaseType)
+            if (t.SpecialType == SpecialType.System_Object) return false;
+            else if (t.ContainingNamespace?.ToDisplayString() == "System" && t.MetadataName == "Exception") return true;
+        return false;
+    }
+
+    /// <summary>
+    /// System.Exception and its library subclasses: { mt, message, inner, paramName }, vtable
+    /// [ToString, Equals, GetHashCode, get_Message] implemented in csrt. Types csrt doesn't define
+    /// (e.g. SwitchExpressionException) get a compiler-emitted method table chained to their base.
+    /// </summary>
+    private ClassLayout GetLibraryExceptionLayout(INamedTypeSymbol type)
+    {
+        type = type.OriginalDefinition;
+        if (_layouts.TryGetValue(type, out var existing)) return existing;
+        var name = Mangler.MetadataName(type);
+        var baseLayout = type.BaseType is { SpecialType: not SpecialType.System_Object } b ? GetLibraryExceptionLayout(b) : null;
+
+        var structType = Llvm.NamedStruct("class." + name);
+        LlvmContext.SetBody(structType, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr);
+        var layout = new ClassLayout { Type = type, InstanceType = structType, Base = baseLayout, IsLibrary = true };
+        layout.Elements.AddRange([Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr]);
+        layout.InstanceSize = Types.Target.SizeOf(structType);
+        AddObjectSlots(layout);
+        layout.VTable.Add(null);
+        layout.RuntimeSlots[ClassLayout.ToStringSlot] = "csrt_exception_to_string";
+        layout.RuntimeSlots[ClassLayout.EqualsSlot] = "csrt_object_equals_default";
+        layout.RuntimeSlots[ClassLayout.GetHashCodeSlot] = "csrt_object_get_hash_code_default";
+        layout.RuntimeSlots[ExceptionMessageSlot] = "csrt_exception_get_message";
+        var exception = Compilation.GetTypeByMetadataName("System.Exception")!;
+        var getMessage = exception.GetMembers("Message").OfType<IPropertySymbol>().First().GetMethod!;
+        layout.SlotOf[getMessage.OriginalDefinition] = ExceptionMessageSlot;
+        _layouts[type] = layout;
+
+        if (s_runtimeExceptionTypes.Contains(name))
+            layout.MethodTable = ExternalGlobal("csrt_MT_" + name.Replace('.', '_'));
+        else
+            EmitMethodTable(layout);
+        return layout;
+    }
+
+    private LLVMValueRef RuntimeSlotFunction(string name) => name switch
+    {
+        "csrt_object_equals_default" => Runtime(name, Llvm.I1, Llvm.Ptr, Llvm.Ptr).Fn,
+        "csrt_object_get_hash_code_default" => Runtime(name, Llvm.I32, Llvm.Ptr).Fn,
+        _ => Runtime(name, Llvm.Ptr, Llvm.Ptr).Fn,
+    };
+
     private void EmitMethodTable(ClassLayout layout)
     {
+        if (layout.IsLibrary && !layout.MethodTable.IsNull) return; // defined by csrt
         var vtableType = LlvmContext.Array(Llvm.Ptr, (ulong)layout.VTable.Count);
         layout.MethodTableType = Llvm.Struct(Llvm.Ptr, Llvm.Ptr, Llvm.I32, Llvm.I32, vtableType);
         var global = Module.AddGlobal(Mangler.TypeSymbol(layout.Type, "MT"), layout.MethodTableType,
@@ -362,6 +454,8 @@ public sealed class ModuleCodeGen
         string[] defaults = ["csrt_object_to_string_default", "csrt_object_equals_default", "csrt_object_get_hash_code_default"];
         var slots = layout.VTable.Select((m, i) => m is not null
             ? GetFunction(m).Fn
+            : layout.RuntimeSlots.TryGetValue(i, out var runtimeSlot)
+                ? RuntimeSlotFunction(runtimeSlot)
             : i < ClassLayout.ObjectSlotCount
                 ? Runtime(defaults[i], Llvm.Ptr, Llvm.Ptr).Fn
                 : LlvmContext.Null(Llvm.Ptr)).ToArray();
@@ -421,17 +515,6 @@ public sealed class ModuleCodeGen
         Native.LLVMSetUnnamedAddress(g, 2);
         Native.LLVMSetAlignment(g, 8);
         return _strings[value] = g;
-    }
-
-    /// <summary>Minimal method table for library exception types we can throw (name only).</summary>
-    public LLVMValueRef LibraryTypeMethodTable(INamedTypeSymbol type)
-    {
-        var name = Mangler.MetadataName(type);
-        var key = "mt:" + name;
-        if (_globals.TryGetValue(key, out var g)) return g;
-        var init = Llvm.ConstStruct(ExternalGlobal("csrt_Object_MT"), CString(name), Llvm.ConstInt(Llvm.I32, 0), Llvm.ConstInt(Llvm.I32, 0));
-        g = Module.AddGlobal("csrt.mt." + name, Native.LLVMTypeOf(init), init, constant: true, linkage: LLVMLinkage.Private);
-        return _globals[key] = g;
     }
 
     // ======================================================================================

@@ -48,13 +48,33 @@ csrt_Array* csrt_new_array(int64_t element_size, int64_t length);
 void csrt_gc_collect(void);           // System.GC.Collect()
 int64_t csrt_gc_total_memory(void);  // System.GC.GetTotalMemory(bool)
 
-// Exceptions (spike: unhandled-only, they terminate the process like .NET does) -------------
+// Exceptions (eh.c) -----------------------------------------------------------------------------
+// Exception objects: { mt, String* message, Exception* inner, String* paramName }. Throwing raises
+// an Itanium-ABI unwind (_Unwind_RaiseException) handled by csrt_personality; see eh.c.
+typedef struct csrt_Exception {
+    const csrt_MethodTable* mt;
+    csrt_String* message;
+    struct csrt_Exception* inner;
+    csrt_String* param_name;
+} csrt_Exception;
+typedef struct { csrt_MethodTable header; void* vtable[4]; } csrt_ExceptionMethodTable;
+enum { CSRT_SLOT_GET_MESSAGE = 3 };
+
+_Noreturn void csrt_throw_object(void* exception);
+_Noreturn void csrt_rethrow(void* exception);
+void* csrt_begin_catch(void* unwind_exception);
+void csrt_exception_init(void* exception, csrt_String* message, void* inner, csrt_String* param_name);
+csrt_String* csrt_exception_get_message(void* exception);
+csrt_String* csrt_exception_to_string(void* exception);
+_Noreturn void csrt_throw_invalid_cast_from(const csrt_MethodTable* from, const csrt_MethodTable* to);
+csrt_String* csrt_string_from_utf8(const char* text);
+void csrt_stderr_write_string(csrt_String* s);
 _Noreturn void csrt_throw_null_reference(void);
 _Noreturn void csrt_throw_index_out_of_range(void);
 _Noreturn void csrt_throw_divide_by_zero(void);
 _Noreturn void csrt_throw_overflow(void);
+_Noreturn void csrt_throw_negate_overflow(void);
 _Noreturn void csrt_throw_invalid_cast(void);
-_Noreturn void csrt_throw(const csrt_MethodTable* exception_type, csrt_String* message);
 
 // Type system -------------------------------------------------------------------------------
 void* csrt_isinst_class(void* obj, const csrt_MethodTable* type);   // obj if it is a `type`, else null

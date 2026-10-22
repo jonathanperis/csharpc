@@ -31,7 +31,7 @@ public sealed class Toolchain(CompilerOptions options)
             objects.Add(obj);
             if (File.Exists(obj)) continue;
             var tmp = obj + "." + Environment.ProcessId + ".tmp";
-            Run(options.CC, ["-c", "-O2", "-std=c11", "-fPIC", $"--target={triple}", source, "-o", tmp]);
+            Run(options.CC, ["-c", "-O2", "-std=c11", "-fPIC", "-funwind-tables", $"--target={triple}", source, "-o", tmp]);
             File.Move(tmp, obj, overwrite: true);
         }
         return [.. objects];

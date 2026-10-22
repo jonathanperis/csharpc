@@ -83,10 +83,10 @@ public sealed class LlvmContext : IDisposable
         fixed (byte* p = bytes) return LLVMConstStringInContext(Ref, p, (uint)bytes.Length, 0);
     }
 
-    public void AddFunctionAttribute(LLVMValueRef fn, string name)
+    public void AddFunctionAttribute(LLVMValueRef fn, string name, ulong value = 0)
     {
         var kind = LLVMGetEnumAttributeKindForName(name, (nuint)name.Length);
-        LLVMAddAttributeAtIndex(fn, uint.MaxValue /* LLVMAttributeFunctionIndex */, LLVMCreateEnumAttribute(Ref, kind, 0));
+        LLVMAddAttributeAtIndex(fn, uint.MaxValue /* LLVMAttributeFunctionIndex */, LLVMCreateEnumAttribute(Ref, kind, value));
     }
 
     public void Dispose() => LLVMContextDispose(Ref);
