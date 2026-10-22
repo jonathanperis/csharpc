@@ -160,6 +160,14 @@ internal static class Intrinsics
         // Only array enumerators exist so far, and they need no disposal. Revisit with interfaces.
         t["System.IDisposable.Dispose()"] = (_, _) => default;
 
+        // ---- System.GC (runtime/gc.c) -----------------------------------------------------------
+        t["System.GC.Collect()"] = (g, _) => { g.CallRuntime("csrt_gc_collect", g.Module.Llvm.Void, []); return default; };
+        t["System.GC.GetTotalMemory(bool)"] = (g, inv) =>
+        {
+            g.EmitValue(inv.Arguments[0].Value);
+            return g.CallRuntime("csrt_gc_total_memory", g.Module.Llvm.I64, []);
+        };
+
         // ---- System.Environment ----------------------------------------------------------------
         t["System.Environment.Exit(int)"] = (g, inv) =>
         {
