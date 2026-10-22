@@ -195,6 +195,28 @@ void csrt_throw_invalid_cast_from(const csrt_MethodTable* from, const csrt_Metho
     csrt_throw_object(new_exception(&csrt_MT_System_InvalidCastException, buffer));
 }
 
+// Throw by type *name* + message: for runtime code that only has a name-only method table
+// (strings.c, format.c). Resolves to the real exception class so `catch (FormatException)` works.
+static const csrt_ExceptionMethodTable* const s_by_name[] = {
+    &csrt_MT_System_Exception, &csrt_MT_System_SystemException, &csrt_MT_System_ArgumentException,
+    &csrt_MT_System_ArgumentNullException, &csrt_MT_System_ArgumentOutOfRangeException,
+    &csrt_MT_System_InvalidOperationException, &csrt_MT_System_ObjectDisposedException,
+    &csrt_MT_System_NotSupportedException, &csrt_MT_System_NotImplementedException,
+    &csrt_MT_System_NullReferenceException, &csrt_MT_System_IndexOutOfRangeException,
+    &csrt_MT_System_ArithmeticException, &csrt_MT_System_DivideByZeroException, &csrt_MT_System_OverflowException,
+    &csrt_MT_System_InvalidCastException, &csrt_MT_System_FormatException,
+    &csrt_MT_System_Collections_Generic_KeyNotFoundException,
+};
+
+void csrt_throw(const csrt_MethodTable* type, csrt_String* message) {
+    const csrt_ExceptionMethodTable* mt = &csrt_MT_System_Exception;
+    for (size_t i = 0; type && i < sizeof s_by_name / sizeof *s_by_name; i++)
+        if (strcmp(s_by_name[i]->header.name, type->name) == 0) mt = s_by_name[i];
+    void* e = csrt_alloc(&mt->header, sizeof(csrt_Exception));
+    csrt_exception_init(e, message, NULL, NULL);
+    csrt_throw_object(e);
+}
+
 // ---------------------------------------------------------------------------------------------
 // Personality routine (Itanium C++ ABI §7, LSDA format as emitted by LLVM)
 // ---------------------------------------------------------------------------------------------

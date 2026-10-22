@@ -38,16 +38,20 @@ public sealed partial class FunctionCodeGen
         region.Kind == ControlFlowRegionKind.Try
         && region.EnclosingRegion?.Kind is ControlFlowRegionKind.TryAndCatch or ControlFlowRegionKind.TryAndFinally;
 
-    /// <summary>Innermost try region (of this function) protecting code in <paramref name="region"/>.</summary>
-    private static ControlFlowRegion? ProtectingTry(ControlFlowRegion? region)
+    /// <summary>
+    /// Innermost try region of the graph being lowered that protects code in <paramref name="region"/>.
+    /// Never looks past the graph's root: a lambda's graph must not see the enclosing method's trys.
+    /// </summary>
+    private ControlFlowRegion? ProtectingTry(ControlFlowRegion? region)
     {
-        for (var r = region; r is not null; r = r.EnclosingRegion)
+        var root = _cfg?.Graph.Root;
+        for (var r = region; r is not null && !ReferenceEquals(r, root); r = r.EnclosingRegion)
             if (IsProtectedTry(r)) return r;
         return null;
     }
 
     /// <summary>The try enclosing the whole try/catch or try/finally statement that <paramref name="tryRegion"/> belongs to.</summary>
-    private static ControlFlowRegion? OuterTry(ControlFlowRegion tryRegion) => ProtectingTry(tryRegion.EnclosingRegion!.EnclosingRegion);
+    private ControlFlowRegion? OuterTry(ControlFlowRegion tryRegion) => ProtectingTry(tryRegion.EnclosingRegion!.EnclosingRegion);
 
     /// <summary>Catch handlers (Catch or FilterAndHandler regions) of a TryAndCatch, in source order.</summary>
     private static IEnumerable<ControlFlowRegion> Handlers(ControlFlowRegion tryAndCatch) =>

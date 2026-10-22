@@ -89,6 +89,12 @@ public sealed class LlvmContext : IDisposable
         LLVMAddAttributeAtIndex(fn, uint.MaxValue /* LLVMAttributeFunctionIndex */, LLVMCreateEnumAttribute(Ref, kind, value));
     }
 
+    public void AddReturnAttribute(LLVMValueRef fn, string name)
+    {
+        var kind = LLVMGetEnumAttributeKindForName(name, (nuint)name.Length);
+        LLVMAddAttributeAtIndex(fn, 0 /* LLVMAttributeReturnIndex */, LLVMCreateEnumAttribute(Ref, kind, 0));
+    }
+
     public void Dispose() => LLVMContextDispose(Ref);
 }
 
