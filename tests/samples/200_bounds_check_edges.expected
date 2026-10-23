@@ -1,0 +1,44 @@
+a[Length - 1]: 50
+a[Length]: IndexOutOfRangeException: Index was outside the bounds of the array. (partial 0)
+a[-1]: IndexOutOfRangeException: Index was outside the bounds of the array. (partial 0)
+a[int.MinValue]: IndexOutOfRangeException: Index was outside the bounds of the array. (partial 0)
+a[int.MaxValue]: IndexOutOfRangeException: Index was outside the bounds of the array. (partial 0)
+a[uint 4]: 50
+a[uint 0x80000000]: IndexOutOfRangeException: Index was outside the bounds of the array. (partial 0)
+a[uint.MaxValue]: IndexOutOfRangeException: Index was outside the bounds of the array. (partial 0)
+a[long 2]: 30
+a[long -1]: IndexOutOfRangeException: Index was outside the bounds of the array. (partial 0)
+a[long 2^32 + 1]: IndexOutOfRangeException: Index was outside the bounds of the array. (partial 0)
+a[ulong.MaxValue]: OverflowException: Arithmetic operation resulted in an overflow. (partial 0)
+a[ulong 2^63]: OverflowException: Arithmetic operation resulted in an overflow. (partial 0)
+a[ulong 5]: IndexOutOfRangeException: Index was outside the bounds of the array. (partial 0)
+null[ulong.MaxValue]: OverflowException: Arithmetic operation resulted in an overflow. (partial 0)
+null[0]: NullReferenceException: Object reference not set to an instance of an object. (partial 0)
+new int[ulong.MaxValue]: OverflowException: Arithmetic operation resulted in an overflow. (partial 0)
+a[^1]: 50
+a[^5]: 10
+a[^0]: IndexOutOfRangeException: Index was outside the bounds of the array. (partial 0)
+a[^6]: IndexOutOfRangeException: Index was outside the bounds of the array. (partial 0)
+empty[0]: IndexOutOfRangeException: Index was outside the bounds of the array. (partial 0)
+sum to <= Length: IndexOutOfRangeException: Index was outside the bounds of the array. (partial 150)
+sum down to -1: IndexOutOfRangeException: Index was outside the bounds of the array. (partial 150)
+wrapping index: 100
+i += big step: IndexOutOfRangeException: Index was outside the bounds of the array. (partial 0)
+array shrinks in loop: IndexOutOfRangeException: Index was outside the bounds of the array. (partial 1622)
+foreach sum 6 new length 1
+holder 3 [0,0,3]
+point 1 10
+point 2 20
+point 3 30
+s[Length]: IndexOutOfRangeException: Index was outside the bounds of the array. (partial 0)
+s[-1]: IndexOutOfRangeException: Index was outside the bounds of the array. (partial 0)
+s[^1]: 111
+span[Length]: IndexOutOfRangeException: Index was outside the bounds of the array. (partial 0)
+span[-1]: IndexOutOfRangeException: Index was outside the bounds of the array. (partial 0)
+span[2]: 41
+md length 6 last 12
+m[0, 3]: IndexOutOfRangeException: Index was outside the bounds of the array. (partial 0)
+m[2, 0]: IndexOutOfRangeException: Index was outside the bounds of the array. (partial 0)
+m[-1, 0]: IndexOutOfRangeException: Index was outside the bounds of the array. (partial 0)
+m[ulong.MaxValue, 0]: OverflowException: Arithmetic operation resulted in an overflow. (partial 0)
+jagged: IndexOutOfRangeException: Index was outside the bounds of the array. (partial 1)

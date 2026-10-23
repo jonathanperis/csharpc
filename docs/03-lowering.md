@@ -244,10 +244,22 @@ ok1:
 same offset (`FunctionCodeGen.MultiDim.cs`). `a[^1]` and `a[1..^1]` are covered in
 [Ranges](#ranges).
 
-Observation from `-O2` output: after inlining, LLVM folds the stored and reloaded element to a
-constant, but it **can't remove the bounds check**, because it can't see that `csrt_new_array`
-returns an object whose length is the requested one. Annotating the allocator (or allocating inline)
-is a future optimization.
+`int`/`uint` indices are actually compared in 32 bits against the truncated length (lossless, the
+length is below 2^31) and zero-extended afterwards, so the check has the same width as the usual
+`i < a.Length` loop condition and LLVM can fold one into the other.
+
+**Memory facts** (`MemoryFacts.cs`, `FunctionCodeGen.ArrayAccess.cs`). Length loads carry
+`!range [0, Array.MaxLength]` (strings: `[0, 0x3FFFFFDF]`) and `!noundef`, so arithmetic checked
+against a length provably doesn't overflow. Array-length, string-length and "managed data" (fields,
+array elements, span elements) accesses get distinct TBAA tags under a csharpc root: stores to
+elements or fields never clobber a length, so LLVM keeps the length in a register across them and
+removes the bounds checks that become loop-invariant or dominated. Lengths are immutable after
+allocation (RyuJIT assumes the same); the C runtime's accesses use clang's TBAA root and untagged
+accesses (pointers, refs) alias everything, so neither is affected. Within managed data, each class
+field has its own tag, and array elements and string chars have one each: these never share memory
+(instance layouts are sequential). Struct fields and span elements keep the generic tag, since a
+struct can live in an array or a field and a span can view either. `string[int]` is lowered inline
+for the same reason: the C helper's clang-tagged length load aliased every store.
 
 ## Classes
 

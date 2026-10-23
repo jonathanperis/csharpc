@@ -42,23 +42,55 @@ namespace CsharpcCoreLib
             else dst[--at] = (char)('0' + (int)value);
         }
 
-        internal static string UInt64ToDecStr(ulong value)
+        /// <summary>
+        /// WriteDigits without range checks, for callers that just sized the destination with
+        /// CountDigits/CountChars of the same value: writes the digits backwards, ending right before
+        /// `end`. (With span indexing LLVM can't relate the digit count to the span length and keeps
+        /// a check per char.)
+        /// </summary>
+        private static unsafe void WriteDigitsBefore(char* end, ulong value)
+        {
+            fixed (byte* pairs = DigitPairs)
+            {
+                while (value >= 100)
+                {
+                    ulong q = value / 100;
+                    nint r = (nint)(value - q * 100) * 2;
+                    end -= 2;
+                    end[0] = (char)pairs[r];
+                    end[1] = (char)pairs[r + 1];
+                    value = q;
+                }
+                if (value >= 10)
+                {
+                    nint r = (nint)value * 2;
+                    end[-2] = (char)pairs[r];
+                    end[-1] = (char)pairs[r + 1];
+                }
+                else end[-1] = (char)('0' + (int)value);
+            }
+        }
+
+        internal static unsafe string UInt64ToDecStr(ulong value)
         {
             if (value < 10) return SingleDigit((int)value);
-            string result = CoreIntrinsics.FastAllocateString(CountDigits(value));
-            WriteDigits(CoreIntrinsics.StringChars(result), value);
+            int digits = CountDigits(value);
+            string result = CoreIntrinsics.FastAllocateString(digits);
+            fixed (char* chars = CoreIntrinsics.StringChars(result)) WriteDigitsBefore(chars + digits, value);
             return result;
         }
 
-        internal static string Int64ToDecStr(long value)
+        internal static unsafe string Int64ToDecStr(long value)
         {
             if (value >= 0) return UInt64ToDecStr((ulong)value);
             ulong magnitude = (ulong)(-(value + 1)) + 1; // also correct for long.MinValue
             int digits = CountDigits(magnitude);
             string result = CoreIntrinsics.FastAllocateString(digits + 1);
-            Span<char> chars = CoreIntrinsics.StringChars(result);
-            chars[0] = '-';
-            WriteDigits(chars.Slice(1), magnitude);
+            fixed (char* chars = CoreIntrinsics.StringChars(result))
+            {
+                chars[0] = '-';
+                WriteDigitsBefore(chars + 1 + digits, magnitude);
+            }
             return result;
         }
 
@@ -74,12 +106,18 @@ namespace CsharpcCoreLib
         internal static int CountChars(long value) =>
             value >= 0 ? CountDigits((ulong)value) : CountDigits((ulong)(-(value + 1)) + 1) + 1;
 
-        /// <summary>Formats a signed value into dst (exactly CountChars(value) chars).</summary>
-        internal static void WriteSigned(Span<char> dst, long value)
+        /// <summary>
+        /// Formats a signed value into the `chars` = CountChars(value) chars at `dst`; unchecked like
+        /// WriteDigitsBefore (StringBuilder reserves exactly that many first).
+        /// </summary>
+        internal static unsafe void WriteSigned(char* dst, int chars, long value)
         {
-            if (value >= 0) { WriteDigits(dst, (ulong)value); return; }
+            if (value >= 0) { WriteDigitsBefore(dst + chars, (ulong)value); return; }
             dst[0] = '-';
-            WriteDigits(dst.Slice(1), (ulong)(-(value + 1)) + 1);
+            WriteDigitsBefore(dst + chars, (ulong)(-(value + 1)) + 1);
         }
+
+        /// <summary>Formats an unsigned value into the `chars` = CountDigits(value) chars at `dst`; unchecked.</summary>
+        internal static unsafe void WriteUnsigned(char* dst, int chars, ulong value) => WriteDigitsBefore(dst + chars, value);
     }
 }

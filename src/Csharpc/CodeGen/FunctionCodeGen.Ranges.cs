@@ -76,7 +76,7 @@ public sealed partial class FunctionCodeGen
     private LLVMValueRef StringLength(LLVMValueRef str)
     {
         NullCheck(str);
-        return _b.Load(L.I32, _b.StructGep(T.StringHeader, str, 1), "strlen");
+        return LoadStringLength(str);
     }
 
     /// <summary>`s[^1]`, `s[1..^1]` on spans and strings (Roslyn's "implicit Index/Range indexer").</summary>
@@ -97,7 +97,7 @@ public sealed partial class FunctionCodeGen
             var str = EmitValue(op.Instance);
             var length = StringLength(str);
             if (IsIndexType(op.Argument.Type))
-                return CallRuntime("csrt_string_char_at", L.I16, [L.Ptr, L.I32], str, ResolveIndex(EmitValue(op.Argument), length));
+                return StringCharAt(str, ResolveIndex(EmitValue(op.Argument), length));
             // Roslyn lowers s[a..b] to s.Substring(a, b - a): Substring's own checks and messages apply.
             var (start, count) = UncheckedRange(EmitValue(op.Argument), length);
             return CallRuntime("csrt_string_substring", L.Ptr, [L.Ptr, L.I32, L.I32], str, start, count);
@@ -135,7 +135,7 @@ public sealed partial class FunctionCodeGen
     private LLVMValueRef ArrayIndexFromIndex(LLVMValueRef array, LLVMValueRef index)
     {
         NullCheck(array);
-        var length = _b.Cast(LLVMOpcode.Trunc, _b.Load(L.I64, _b.StructGep(T.ArrayHeader(L.I8), array, 1), "len"), L.I32);
+        var length = _b.Cast(LLVMOpcode.Trunc, LoadArrayLength(array), L.I32);
         return ResolveIndex(index, length);
     }
 
@@ -146,7 +146,7 @@ public sealed partial class FunctionCodeGen
         var array = EmitValue(op.ArrayReference);
         NullCheck(array);
         var header = T.ArrayHeader(T.Storage(element));
-        var length = _b.Cast(LLVMOpcode.Trunc, _b.Load(L.I64, _b.StructGep(header, array, 1), "len"), L.I32);
+        var length = _b.Cast(LLVMOpcode.Trunc, LoadArrayLength(array), L.I32);
         var (start, count) = ResolveRange(EmitValue(op.Indices[0]), length, parameterName: "length");
         var data = _b.InBoundsGep(header, array, [L.ConstInt(L.I32, 0), L.ConstInt(L.I32, 2), _b.Cast(LLVMOpcode.ZExt, start, L.I64)]);
         return CallRuntime("csrt_span_to_array", L.Ptr, [L.Ptr, L.I32, L.I64], data, count, ElementSize(element));

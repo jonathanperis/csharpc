@@ -155,14 +155,14 @@ public sealed partial class FunctionCodeGen
         {
             case IArrayTypeSymbol { Rank: 1 } array:
                 elementType = array.ElementType;
-                length = () => _b.Cast(LLVMOpcode.Trunc, _b.Load(L.I64, _b.StructGep(T.ArrayHeader(L.I8), value, 1), "len"), L.I32);
+                length = () => _b.Cast(LLVMOpcode.Trunc, LoadArrayLength(value), L.I32);
                 element = i => LoadValue(_b.InBoundsGep(T.ArrayHeader(T.Storage(elementType)), value,
                     [L.ConstInt(L.I32, 0), L.ConstInt(L.I32, 2), _b.Cast(LLVMOpcode.SExt, i, L.I64)]), elementType);
                 break;
             case { SpecialType: SpecialType.System_String }:
                 elementType = _m.Compilation.GetSpecialType(SpecialType.System_Char);
-                length = () => _b.Load(L.I32, _b.StructGep(T.StringHeader, value, 1), "strlen");
-                element = i => _b.Load(L.I16, _b.InBoundsGep(T.StringHeader, value, [L.ConstInt(L.I32, 0), L.ConstInt(L.I32, 2), i]));
+                length = () => LoadStringLength(value);
+                element = i => LoadStringChar(value, i);
                 break;
             case var span when TypeMapper.IsSpan(span):
                 elementType = SpanElement(span);

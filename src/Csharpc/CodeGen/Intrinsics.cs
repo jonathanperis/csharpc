@@ -816,14 +816,12 @@ internal static class Intrinsics
             var s = g.EmitValue(p.Instance!);
             g.NullCheck(s);
             var l = g.Module.Llvm;
-            return g.Builder.Load(l.I32, g.Builder.StructGep(g.Module.Types.StringHeader, s, 1), "strlen");
+            return g.LoadStringLength(s);
         };
         t["string.this[int]"] = (g, p) =>
         {
-            var l = g.Module.Llvm;
             var s = g.EmitValue(p.Instance!);
-            var index = g.EmitValue(p.Arguments[0].Value);
-            return g.CallRuntime("csrt_string_char_at", l.I16, [l.Ptr, l.I32], s, index);
+            return g.StringCharAt(s, g.EmitValue(p.Arguments[0].Value));
         };
         t["System.Array.Length"] = (g, p) =>
             g.Builder.Cast(LLVMOpcode.Trunc, g.ArrayLength(g.EmitValue(p.Instance!)), g.Module.Llvm.I32);

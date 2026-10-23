@@ -413,7 +413,7 @@ public sealed partial class FunctionCodeGen
             NullCheck(array);
             var body = TArg(inv, 1);
             NullCheck(body);
-            var length = _b.Load(L.I64, _b.StructGep(T.ArrayHeader(L.I8), array, 1), "len");
+            var length = LoadArrayLength(array);
             RunParallel(L.ConstInt(L.I64, 0), length, body, array, ParallelBody(S(arrayType.ElementType), false));
             return true;
         }
