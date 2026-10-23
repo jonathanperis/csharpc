@@ -1,0 +1,7 @@
+after delay: pt-BR 1,5
+Task.Run: pt-BR 1,5
+after yield: pt-BR 1,5
+inner: de-DE 1,5 | outer: pt-BR 1,5
+WhenAll: pt-BR,pt-BR,pt-BR
+ConfigureAwait(false): pt-BR 1,5
+thread: pt-BR 1,5

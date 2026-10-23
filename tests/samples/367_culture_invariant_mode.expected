@@ -1,0 +1,10 @@
+[] []
+1,234.50 -3.5 Infinity ¤0.50 01/02/2026 03:04:05
+-x,A,B,_x,a,b,e,é,z,ä,é,é
+31 132 -1 32
+STRAßE ǆ İ ı True
+CultureNotFoundException: Only the invariant culture is supported in globalization-invariant mode. See https://aka.ms/GlobalizationInvariantMode for more information. (Parameter 'name') / pt-BR is an invalid culture identifier. [pt-BR] name
+CultureNotFoundException: Only the invariant culture is supported in globalization-invariant mode. See https://aka.ms/GlobalizationInvariantMode for more information. (Parameter 'name') / en-US is an invalid culture identifier. [en-US] name
+created [] 1.5
+CultureNotFoundException: Only the invariant culture is supported in globalization-invariant mode. See https://aka.ms/GlobalizationInvariantMode for more information. (Parameter 'name') / xx-YY is an invalid culture identifier. [xx-YY] name
+0 Invariant Language (Invariant Country)

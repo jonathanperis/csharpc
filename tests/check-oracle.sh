@@ -67,7 +67,11 @@ check_test() {
   [[ -n "$reason" ]] && { echo "LISTED $name ($reason)"; return; }
   local in=/dev/null; [[ -f "$stdin" ]] && in="$stdin"
   local want_code=0; [[ -f "$exitcode" ]] && want_code="$(platform_exit_code "$(cat "$exitcode")")"
-  (cd "$dir" && DOTNET_STARTUP_HOOKS="$ORACLE_HOOK" "$DOTNET" run "$file" -p:WarningLevel=0 -p:AllowUnsafeBlocks=true -p:StartupHookSupport=true 2>/dev/null < "$in") > "$OUT/$safe.raw"
+  # A NAME.env test runs under its environment instead of the culture hook (tests/platform.sh).
+  local test_env hook="$ORACLE_HOOK"
+  read -ra test_env <<< "$(platform_env "$dir" "${file%.cs}")"
+  [[ ${#test_env[@]} -gt 0 ]] && hook=""
+  (cd "$dir" && env "${test_env[@]}" DOTNET_STARTUP_HOOKS="$hook" "$DOTNET" run "$file" -p:WarningLevel=0 -p:AllowUnsafeBlocks=true -p:StartupHookSupport=true 2>/dev/null < "$in") > "$OUT/$safe.raw"
   local code=$?
   grep -U -a -v -E '^[^ ]+\([0-9]+,[0-9]+\): warning ' < "$OUT/$safe.raw" > "$OUT/$safe.out"
   platform_expected < "$expected" > "$OUT/$safe.want"
@@ -79,7 +83,7 @@ check_test() {
   fi
 }
 platform_oracle_hook || exit 1
-export -f check_one check_test platform_expected platform_exit_code platform_skip
+export -f check_one check_test platform_expected platform_exit_code platform_skip platform_env
 export OUT DOTNET HOST_OS ROOT
 cut -f1 "$list" | wc -l | xargs echo "tests:"
 tr '\n' '\0' < "$list" | xargs -0 -P "$JOBS" -I{} bash -c 'check_one "$1"' _ {}

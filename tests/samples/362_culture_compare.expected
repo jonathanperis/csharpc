@@ -1,0 +1,28 @@
+[] _ 1 a ä Ä ae Æ ångström apple Banana ch co-op coop cz é é éclair i I İ ı ll lz o ö ­soft ss ß z zebra Zebra
+   -1 -1 0 1 0 0 -1 2 False True 4 
+[en-US] _ 1 a ä Ä ae Æ ångström apple Banana ch co-op coop cz é é éclair i I İ ı ll lz o ö ­soft ss ß z zebra Zebra
+   -1 -1 0 1 0 0 -1 2 False True 4 en-US
+[sv-SE] _ 1 a ae apple Banana ch co-op coop cz é é éclair i I İ ı ll lz o ­soft ss ß z zebra Zebra ångström ä Ä Æ ö
+   1 1 0 1 0 0 -1 2 False True 4 sv-SE
+[de-DE] _ 1 a ä Ä ae Æ ångström apple Banana ch co-op coop cz é é éclair i I İ ı ll lz o ö ­soft ss ß z zebra Zebra
+   -1 -1 0 1 0 0 -1 2 False True 4 de-DE
+[tr-TR] _ 1 a ä Ä ae Æ ångström apple Banana ch co-op coop cz é é éclair ı I i İ ll lz o ö ­soft ss ß z zebra Zebra
+   -1 -1 1 0 0 0 -1 2 True True 4 tr-TR
+[es-ES] _ 1 a ä Ä ae Æ ångström apple Banana ch co-op coop cz é é éclair i I İ ı ll lz o ö ­soft ss ß z zebra Zebra
+   -1 -1 0 1 0 0 -1 2 False True 4 es-ES
+[da-DK] _ 1 a ae apple Banana ch co-op coop cz é é éclair I i İ ı ll lz o ­soft ss ß z Zebra zebra Æ Ä ä ö ångström
+   1 1 0 1 0 0 -1 2 False True 4 da-DK
+[cs-CZ] _ 1 a ä Ä ae Æ ångström apple Banana co-op coop cz é é éclair ch i I İ ı ll lz o ö ­soft ss ß z zebra Zebra
+   -1 -1 0 1 0 0 -1 2 False True 4 cs-CZ
+[fr-FR] _ 1 a ä Ä ae Æ ångström apple Banana ch co-op coop cz é é éclair i I İ ı ll lz o ö ­soft ss ß z zebra Zebra
+   -1 -1 0 1 0 0 -1 2 False True 4 fr-FR
+[ja-JP] _ 1 a ä Ä ae Æ ångström apple Banana ch co-op coop cz é é éclair i I İ ı ll lz o ö ­soft ss ß z zebra Zebra
+   -1 -1 0 1 0 0 -1 2 False True 4 ja-JP
+_ 1 a ä Ä ae Æ ångström apple Banana ch co-op coop cz é é éclair i I İ ı ll lz o ö ­soft ss ß z zebra Zebra
+_ 1 a Ä ä ae Æ ångström apple Banana ch co-op coop cz é é éclair i I İ ı ll lz o ö ­soft ss ß z Zebra zebra
+1 a ae apple Banana ch co-op coop cz é i I ll lz o ss z Zebra zebra _ ­soft Ä ä ångström Æ é éclair ö ß İ ı
+0 -1 31 -1
+2 -1 True False True True
+1 0 0
+False True False True
+_ 1 a ae apple Banana ch co-op coop cz é é éclair i I İ ı ll lz o ­soft ss ß z zebra Zebra ångström ä Ä Æ ö 1 True

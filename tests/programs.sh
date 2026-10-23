@@ -26,6 +26,7 @@ for dir in "$PROGRAMS"/*/; do
   [[ -n "$FILTER" && "$name" != *"$FILTER"* ]] && continue
   [[ -f "$dir/Program.cs" ]] && names+=("$name")
 done
+source "$ROOT/tests/platform.sh"  # the culture setup (C locale on Linux) applies to recording too
 
 if [[ $REGEN == 1 ]]; then
   for name in "${names[@]}"; do
@@ -43,7 +44,6 @@ fi
 "$DOTNET" build "$ROOT/src/Csharpc" -c Release -v quiet -nologo > /dev/null || { echo "build failed"; exit 1; }
 CSHARPC=("$DOTNET" "$ROOT/src/Csharpc/bin/Release/net11.0/csharpc.dll")
 OUT="$(mktemp -d)"
-source "$ROOT/tests/platform.sh"
 # The corelib's own diagnostics are skipped in normal compiles (speed); check them once here so a
 # broken corelib fails loudly instead of producing wrong code.
 if ! CSHARPC_CHECK_CORELIB=1 "${CSHARPC[@]}" --emit obj "$ROOT/tests/samples/01_hello.cs" -o "$OUT/corelib-check.o" 2> "$OUT/corelib.err"; then
@@ -67,7 +67,7 @@ for name in "${names[@]}"; do
   for opt in -O0 -O2; do
     exe="$OUT/$name$opt$EXE_SUFFIX"
     start=$(date +%s%N)
-    if ! "${CSHARPC[@]}" "$opt" "$dir/Program.cs" -o "$exe" 2> "$OUT/$name.compile"; then
+    if ! "${CSHARPC[@]}" "$opt" "$dir/Program.cs" "${CULTURE_PIN[@]}" -o "$exe" 2> "$OUT/$name.compile"; then
       printf '%-24s %-5s %-6s\n' "$name" "$opt" FAIL; sed 's/^/     /' "$OUT/$name.compile" | head -6
       fail=$((fail + 1)); failed+=("$name[$opt]"); continue
     fi

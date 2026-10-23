@@ -46,3 +46,25 @@ windows eventsourcing                   live: writes bare "\n"s itself, next to 
 windows json                            live: writes bare "\n"s itself, next to WriteLine's "\r\n"
 windows linalg                          live: writes bare "\n"s itself, next to WriteLine's "\r\n"
 windows puzzles                         live: writes bare "\n"s itself, next to WriteLine's "\r\n"
+macos 360_culture_numbers            live: culture data comes from the OS's ICU (libicucore / icu.dll), not Linux's ICU 74
+macos 361_culture_dates              live: culture data comes from the OS's ICU (libicucore / icu.dll), not Linux's ICU 74
+macos 362_culture_compare            live: culture data comes from the OS's ICU (libicucore / icu.dll), not Linux's ICU 74
+macos 363_culture_casing             live: culture data comes from the OS's ICU (libicucore / icu.dll), not Linux's ICU 74
+macos 364_culture_parse              live: culture data comes from the OS's ICU (libicucore / icu.dll), not Linux's ICU 74
+macos 365_culture_current            live: culture data comes from the OS's ICU (libicucore / icu.dll), not Linux's ICU 74
+macos 369_culture_threads            live: culture data comes from the OS's ICU (libicucore / icu.dll), not Linux's ICU 74
+macos 370_formattable_string         live: culture data comes from the OS's ICU (libicucore / icu.dll), not Linux's ICU 74
+macos 371_culture_async              live: culture data comes from the OS's ICU (libicucore / icu.dll), not Linux's ICU 74
+macos 372_culture_async_scope        live: culture data comes from the OS's ICU (libicucore / icu.dll), not Linux's ICU 74
+macos 366_culture_from_environment   live: the user culture comes from the system settings there, not from LC_ALL
+windows 360_culture_numbers            live: culture data comes from the OS's ICU (libicucore / icu.dll), not Linux's ICU 74
+windows 361_culture_dates              live: culture data comes from the OS's ICU (libicucore / icu.dll), not Linux's ICU 74
+windows 362_culture_compare            live: culture data comes from the OS's ICU (libicucore / icu.dll), not Linux's ICU 74
+windows 363_culture_casing             live: culture data comes from the OS's ICU (libicucore / icu.dll), not Linux's ICU 74
+windows 364_culture_parse              live: culture data comes from the OS's ICU (libicucore / icu.dll), not Linux's ICU 74
+windows 365_culture_current            live: culture data comes from the OS's ICU (libicucore / icu.dll), not Linux's ICU 74
+windows 369_culture_threads            live: culture data comes from the OS's ICU (libicucore / icu.dll), not Linux's ICU 74
+windows 370_formattable_string         live: culture data comes from the OS's ICU (libicucore / icu.dll), not Linux's ICU 74
+windows 371_culture_async              live: culture data comes from the OS's ICU (libicucore / icu.dll), not Linux's ICU 74
+windows 372_culture_async_scope        live: culture data comes from the OS's ICU (libicucore / icu.dll), not Linux's ICU 74
+windows 366_culture_from_environment   live: the user culture comes from the system settings there, not from LC_ALL

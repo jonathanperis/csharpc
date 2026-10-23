@@ -41,6 +41,13 @@ if args.filters:
 env = dict(os.environ, DOTNET_CLI_TELEMETRY_OPTOUT="1", DOTNET_NOLOGO="1")
 WINDOWS = os.name == "nt"
 HOST_OS = "windows" if WINDOWS else "macos" if sys.platform == "darwin" else "linux"
+# Culture (tests/platform.sh): the recordings come from Linux with the C locale, so the current culture is
+# the invariant one. Linux runs both sides in the C locale; elsewhere the user's culture comes from the
+# system, so csharpc programs get tests/culture-pin and real .NET gets tests/oracle-hook.
+if HOST_OS == "linux":
+    env["LC_ALL"] = "C.UTF-8"
+    for var in ("LC_MESSAGES", "LANGUAGE"): env.pop(var, None)
+CULTURE_PIN = [] if HOST_OS == "linux" else [os.path.join(ROOT, "tests", "culture-pin", "CulturePin.cs")]
 EXE = ".exe" if WINDOWS else ""
 
 def platform_skips():
@@ -57,8 +64,8 @@ SKIPS = platform_skips()
 _hook = []
 def oracle_hook():
     # tests/platform.sh, platform_oracle_hook: a startup hook that makes .NET's current culture the
-    # invariant one on Windows, where the user's culture would otherwise apply.
-    if not WINDOWS: return ""
+    # invariant one on macOS and Windows, where the user's culture would otherwise apply.
+    if HOST_OS == "linux": return ""
     if not _hook:
         out = os.path.join(tempfile.gettempdir(), "csharpc-oracle-hook")
         if not os.path.exists(os.path.join(out, "OracleHook.dll")):
@@ -141,7 +148,7 @@ def check(p, workdir):
     want_code = int(open(os.path.join(CONF, p + ".exitcode")).read()) if os.path.exists(os.path.join(CONF, p + ".exitcode")) else 0
     exe = os.path.join(workdir, p.replace("/", "_")) + EXE
     t0 = time.time()
-    code, out, err = run(CSHARPC + [args.opt, src, "-o", exe], timeout=180)
+    code, out, err = run(CSHARPC + [args.opt, src] + CULTURE_PIN + ["-o", exe], timeout=180)
     compile_ms = int((time.time() - t0) * 1000)
     if code != 0:
         text = out + err
