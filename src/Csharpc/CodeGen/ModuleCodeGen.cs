@@ -152,8 +152,11 @@ public sealed partial class ModuleCodeGen
         Guard(entryPoint, EmitStaticInitializer);
         Guard(entryPoint, () => EmitNativeMain(entryPoint));
         Guard(entryPoint, EmitCallCatchingHelpers);
+        // Type metadata describes every method table, and describing one can create more (and queue
+        // their methods): iterate to a fixed point.
         do DrainWorklists();
-        while (EmitRuntimeExports());
+        while (EmitRuntimeExports() | EmitTypeMetadata());
+        Guard(entryPoint, FinishTypeMetadata);
         ReportIlFailures();
     }
 
@@ -626,6 +629,7 @@ public sealed partial class ModuleCodeGen
             LlvmContext.Null(Llvm.Ptr), Llvm.ConstInt(Llvm.I32, 0), Llvm.ConstInt(Llvm.I32, 0),
             LlvmContext.ConstArray(Llvm.Ptr, [.. defaults.Select(d => Runtime(d, Llvm.Ptr, Llvm.Ptr).Fn)]));
         g = Module.AddGlobal("csrt.dmt." + name, Native.LLVMTypeOf(init), init, constant: true, linkage: LLVMLinkage.Private);
+        RegisterTypeMethodTable(g, type);
         return _globals[key] = g;
     }
 

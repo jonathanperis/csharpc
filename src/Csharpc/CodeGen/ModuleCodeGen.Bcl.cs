@@ -150,6 +150,7 @@ public sealed partial class ModuleCodeGen
     {
         IArrayTypeSymbol { Rank: 1 } a => ClrName(a.ElementType) + "[]",
         IArrayTypeSymbol a => ClrName(a.ElementType) + "[" + new string(',', a.Rank - 1) + "]",
+        IPointerTypeSymbol p => ClrName(p.PointedAtType) + "*",
         INamedTypeSymbol named => Mangler.MetadataName(TypeSubstitution.IsOpen(named) ? named.OriginalDefinition : named),
         _ => type.Name,
     };
@@ -170,6 +171,7 @@ public sealed partial class ModuleCodeGen
         var init = ArrayMethodTableInit(name, elementType, LlvmContext.Null(Llvm.Ptr), 0);
         var global = Module.AddGlobal("csrt.arraymt." + name, Native.LLVMTypeOf(init), init, constant: true, linkage: LLVMLinkage.Private);
         _taggedArrays.Add(new TaggedArray(name, elementType, global));
+        RegisterTypeMethodTable(global, Compilation.CreateArrayTypeSymbol(elementType));
         return _arrayMethodTables[key] = global;
     }
 
@@ -191,43 +193,70 @@ public sealed partial class ModuleCodeGen
     private LLVMValueRef TypeOnlyMethodTable(INamedTypeSymbol type)
     {
         // The CLR name with type arguments ("System.Collections.Generic.List`1[System.String]"), as
-        // Type.ToString prints it. One table per constructed type: List<int> and List<string> are
-        // different types for typeof and for the type arguments generic variance compares at run time.
+        // Type.ToString prints it; definitions list their parameters ("System.Collections.Generic.List`1[T]").
+        // One table per constructed type: List<int> and List<string> are different types for typeof and
+        // for the type arguments generic variance compares at run time.
         var name = Mangler.MetadataName(type);
+        if (IsDef(type) && ChainArguments(type) is { Count: > 0 } parameters)
+            name += "[" + string.Join(",", parameters.Select(p => p.Name)) + "]";
         var key = "type:" + CoreLib.Map(TypeSubstitution.EraseTupleNames(type, Compilation)).ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+        return NameOnlyMethodTable(key, name, type.TypeKind == TypeKind.Interface ? 2 /* CSRT_MT_INTERFACE */ : 0, type);
+    }
+
+    private LLVMValueRef NameOnlyMethodTable(string key, string name, int flags, ITypeSymbol type)
+    {
         if (_arrayMethodTables.TryGetValue(key, out var existing)) return existing;
-        var init = Llvm.ConstStruct(ExternalGlobal("csrt_Object_MT"), CString(name), Llvm.ConstInt(Llvm.I32, 0), Llvm.ConstInt(Llvm.I32, 0),
+        var init = Llvm.ConstStruct(ExternalGlobal("csrt_Object_MT"), CString(name), Llvm.ConstInt(Llvm.I32, 0), Llvm.ConstInt(Llvm.I32, flags),
             LlvmContext.Null(Llvm.Ptr), Llvm.ConstInt(Llvm.I32, 0), Llvm.ConstInt(Llvm.I32, 0));
         var global = Module.AddGlobal("csrt.typemt." + name, Native.LLVMTypeOf(init), init, constant: true, linkage: LLVMLinkage.Private);
+        RegisterTypeMethodTable(global, type);
         return _arrayMethodTables[key] = global;
     }
 
     /// <summary>The method table that identifies a type at runtime (for typeof / Type objects).</summary>
     public LLVMValueRef TypeMethodTable(ITypeSymbol type, IOperation at)
     {
-        if (BclValueTypes.IsDecimal(type)) return ExternalGlobal("csrt_Boxed_Decimal_MT");
-        if (BclValueTypes.IsTimeSpan(type)) return ExternalGlobal("csrt_Boxed_TimeSpan_MT");
-        if (BclValueTypes.IsDateTime(type)) return ExternalGlobal("csrt_Boxed_DateTime_MT");
-        if (BclValueTypes.IsBigInteger(type)) return ExternalGlobal("csrt_Boxed_BigInteger_MT");
+        LLVMValueRef Builtin(string name)
+        {
+            var mt = ExternalGlobal(name);
+            RegisterTypeMethodTable(mt, type);
+            return mt;
+        }
+        // typeof(List<>): Roslyn's unbound type has error-typed arguments, which substitution and the
+        // corelib redirect keep; the generic type definition is what reflection describes.
+        if (type is INamedTypeSymbol unbound && (unbound.IsUnboundGenericType || ChainArguments(unbound).Any(a => a.TypeKind == TypeKind.Error)))
+            type = unbound.OriginalDefinition;
+        if (BclValueTypes.IsDecimal(type)) return Builtin("csrt_Boxed_Decimal_MT");
+        if (BclValueTypes.IsTimeSpan(type)) return Builtin("csrt_Boxed_TimeSpan_MT");
+        if (BclValueTypes.IsDateTime(type)) return Builtin("csrt_Boxed_DateTime_MT");
+        if (BclValueTypes.IsBigInteger(type)) return Builtin("csrt_Boxed_BigInteger_MT");
         switch (type.SpecialType)
         {
-            case SpecialType.System_String: return ExternalGlobal("csrt_String_MT");
-            case SpecialType.System_Object: return ExternalGlobal("csrt_Object_MT");
+            case SpecialType.System_String: return Builtin("csrt_String_MT");
+            case SpecialType.System_Object: return Builtin("csrt_Object_MT");
             case SpecialType.System_Int32 or SpecialType.System_Int64 or SpecialType.System_UInt32 or SpecialType.System_UInt64
                 or SpecialType.System_Int16 or SpecialType.System_UInt16 or SpecialType.System_Byte or SpecialType.System_SByte
                 or SpecialType.System_Double or SpecialType.System_Single or SpecialType.System_Boolean or SpecialType.System_Char:
-                return ExternalGlobal($"csrt_Boxed_{type.MetadataName}_MT");
+                return Builtin($"csrt_Boxed_{type.MetadataName}_MT");
         }
         return type switch
         {
-            IArrayTypeSymbol array => ArrayMethodTable(array.ElementType),
+            IArrayTypeSymbol { IsSZArray: true } array => ArrayMethodTable(array.ElementType),
+            // Rectangular arrays share csrt_Array_MT at run time; typeof gets its own identity ("System.Int32[,]").
+            IArrayTypeSymbol array => NameOnlyMethodTable("mdarray:" + array.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat), ClrName(array), 0, array),
+            IPointerTypeSymbol pointer when !TypeSubstitution.IsOpen(pointer.PointedAtType) =>
+                NameOnlyMethodTable("ptr:" + pointer.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat), ClrName(pointer), 0, pointer),
             INamedTypeSymbol { TypeKind: TypeKind.Enum } e => EnumMethodTable(e),
+            // Interfaces: the identity table interface maps refer to, so IsAssignableFrom and `is` agree.
+            INamedTypeSymbol { TypeKind: TypeKind.Interface } i when !i.IsUnboundGenericType && !TypeSubstitution.IsOpen(i) => InterfaceMethodTable(i),
+            // Delegates: the table delegate instances carry (obj.GetType() == typeof(Func<int>)).
+            INamedTypeSymbol { TypeKind: TypeKind.Delegate } d when !d.IsUnboundGenericType && !TypeSubstitution.IsOpen(d) => DelegateMethodTable(d),
             // Closed generic instantiations (and corelib shadows such as List<int>) use the same method
             // table their instances carry, so typeof(G<int>) == obj.GetType() holds.
             INamedTypeSymbol { TypeKind: TypeKind.Class } c when !c.IsStatic && IsUserType(CoreLib.TryMap(c) ?? c) && !c.IsUnboundGenericType && !TypeSubstitution.IsOpen(c) => GetLayout(c).MethodTable,
             INamedTypeSymbol { TypeKind: TypeKind.Struct } s when IsUserType(CoreLib.TryMap(s) ?? s) && !s.IsUnboundGenericType && !TypeSubstitution.IsOpen(s) => StructMethodTable(s),
             INamedTypeSymbol ex when IsLibraryException(ex) => GetLayout(ex).MethodTable,
-            INamedTypeSymbol named => TypeOnlyMethodTable(TypeSubstitution.IsOpen(named) ? named.OriginalDefinition : named),
+            INamedTypeSymbol named => TypeOnlyMethodTable(named.IsUnboundGenericType || TypeSubstitution.IsOpen(named) ? named.OriginalDefinition : named),
             _ => throw CompileError.Unsupported($"typeof({type})", at),
         };
     }

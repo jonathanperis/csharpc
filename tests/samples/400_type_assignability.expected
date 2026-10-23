@@ -1,0 +1,104 @@
+-- classes and interfaces
+Shape <- Circle                              True
+Circle <- Shape                              False
+Shape <- Ball                                True
+IShape <- Ball                               True
+IShape <- ISolid                             True
+ISolid <- IShape                             False
+INamed <- Ball                               True
+ISolid <- Circle                             False
+object <- IShape                             True
+IShape <- object                             False
+Circle <- Circle                             True
+Box<string> <- StringBox                     True
+Box<object> <- StringBox                     False
+IDisposable <- Ball                          False
+-- value types
+object <- int                                True
+ValueType <- Point                           True
+IEquatable<Point> <- Point                   True
+IComparable <- Point                         True
+IComparable<int> <- int                      True
+IFormattable <- double                       True
+long <- int                                  False
+Enum <- Color                                True
+int <- Color                                 False
+IConvertible <- Color                        True
+int? <- int                                  True
+int <- int?                                  False
+int? <- long                                 False
+IComparable <- int?                          False
+object <- string                             True
+IEnumerable<char> <- string                  True
+-- generic collections and variance
+IEnumerable<int> <- List<int>                True
+IEnumerable <- List<int>                     True
+IList<int> <- List<long>                     False
+IEnumerable<object> <- List<string>          True
+IEnumerable<object> <- List<int>             False
+IList<object> <- List<string>                False
+IReadOnlyDictionary<string,int> <- Dictionary True
+IProducer<Shape> <- Producer<Circle>         True
+IProducer<Circle> <- Producer<Shape>         False
+IProducer<IShape> <- IProducer<Ball>         True
+IConsumer<Ball> <- Consumer<Shape>           True
+IConsumer<Shape> <- Consumer<Ball>           False
+IProducer<object> <- Producer<int>           False
+Func<object> <- Func<string>                 True
+Func<string> <- Func<object>                 False
+Action<string> <- Action<object>             True
+Delegate <- Action                           True
+MulticastDelegate <- Func<int>               True
+-- arrays
+object[] <- string[]                         True
+Shape[] <- Ball[]                            True
+Ball[] <- Shape[]                            False
+IShape[] <- Circle[]                         True
+object[] <- int[]                            False
+int[] <- uint[]                              True
+int[] <- Color[]                             True
+byte[] <- Small[]                            True
+long[] <- int[]                              False
+char[] <- ushort[]                           False
+Array <- int[]                               True
+Array <- int[,]                              True
+int[] <- int[,]                              False
+object[,] <- string[,]                       True
+IList<int> <- int[]                          True
+IReadOnlyList<object> <- string[]            True
+IList<IShape> <- Ball[]                      True
+IEnumerable<object> <- int[]                 False
+IList<int> <- int[,]                         False
+ICloneable <- string[]                       True
+IStructuralEquatable <- int[]                True
+IEnumerable <- int[][]                       True
+object[] <- int[][]                          True
+-- IsAssignableTo / IsInstanceOfType / IsSubclassOf
+Ball to IShape                               True
+Shape to Circle                              False
+int to null                                  False
+null from                                    False
+Ball       IShape=True ISolid=True ValueType=False int?=False IEnumerable=False IComparable=False
+Circle     IShape=True ISolid=False ValueType=False int?=False IEnumerable=False IComparable=False
+Int32      IShape=False ISolid=False ValueType=True int?=True IEnumerable=False IComparable=True
+String     IShape=False ISolid=False ValueType=False int?=False IEnumerable=True IComparable=True
+Point      IShape=False ISolid=False ValueType=True int?=False IEnumerable=False IComparable=True
+Color      IShape=False ISolid=False ValueType=True int?=False IEnumerable=False IComparable=True
+Int32[]    IShape=False ISolid=False ValueType=False int?=False IEnumerable=True IComparable=False
+List`1     IShape=False ISolid=False ValueType=False int?=False IEnumerable=True IComparable=False
+null       IShape=False ISolid=False ValueType=False int?=False IEnumerable=False IComparable=False
+Ball subclass of Shape                       True
+Ball subclass of Ball                        False
+Ball subclass of IShape                      False
+int subclass of ValueType                    True
+Color subclass of Enum                       True
+string[] subclass of Array                   True
+object subclass of object                    False
+StringBox subclass of Box<string>            True
+ArgumentNullException: Value cannot be null. (Parameter 'type')
+NullReferenceException
+List`1: collection=True disposable=False
+Dictionary`2: collection=True disposable=False
+String: collection=True disposable=False
+Int32[]: collection=True disposable=False
+Ball: collection=False disposable=False

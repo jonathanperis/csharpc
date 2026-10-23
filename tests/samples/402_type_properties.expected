@@ -1,0 +1,187 @@
+Shop.Model.Entity | Name=Entity Namespace=Shop.Model Declaring=(null)
+  class abstract definition | public visible
+  bases: Object
+Shop.Model.Order | Name=Order Namespace=Shop.Model Declaring=(null)
+  class sealed definition | public visible
+  bases: Entity > Object
+Shop.Model.Order+Line | Name=Line Namespace=Shop.Model Declaring=Order
+  valuetype sealed definition | nested nestedpublic visible
+  bases: ValueType > Object
+Shop.Model.Draft | Name=Draft Namespace=Shop.Model Declaring=(null)
+  class definition | notpublic invisible
+  bases: Entity > Object
+Shop.Model.Catalog | Name=Catalog Namespace=Shop.Model Declaring=(null)
+  class abstract sealed definition | public visible
+  bases: Object
+Shop.Model.Status | Name=Status Namespace=Shop.Model Declaring=(null)
+  valuetype enum sealed definition | public visible
+  bases: Enum > ValueType > Object
+Shop.Model.IPriced | Name=IPriced Namespace=Shop.Model Declaring=(null)
+  interface abstract definition | public visible
+  bases: (none)
+Shop.Model.Item | Name=Item Namespace=Shop.Model Declaring=(null)
+  class definition | public visible
+  bases: Object
+Shop.Model.Price | Name=Price Namespace=Shop.Model Declaring=(null)
+  valuetype sealed definition | public visible
+  bases: ValueType > Object
+Shop.Model.Changed | Name=Changed Namespace=Shop.Model Declaring=(null)
+  class sealed definition | public visible
+  bases: MulticastDelegate > Delegate > Object
+Shop.Model.Cursor | Name=Cursor Namespace=Shop.Model Declaring=(null)
+  valuetype sealed byreflike definition | public visible
+  bases: ValueType > Object
+Shop.Model.Outer+Visible | Name=Visible Namespace=Shop.Model Declaring=Outer
+  class definition | nested nestedpublic visible
+  bases: Object
+Shop.Model.Program | Name=Program Namespace=Shop.Model Declaring=(null)
+  class abstract sealed definition | notpublic invisible
+  bases: Object
+System.Object | Name=Object Namespace=System Declaring=(null)
+  class definition | public visible
+  bases: (none)
+System.String | Name=String Namespace=System Declaring=(null)
+  class sealed definition | public visible
+  bases: Object
+System.Int32 | Name=Int32 Namespace=System Declaring=(null)
+  valuetype primitive sealed definition | public visible
+  bases: ValueType > Object
+System.Double | Name=Double Namespace=System Declaring=(null)
+  valuetype primitive sealed definition | public visible
+  bases: ValueType > Object
+System.Decimal | Name=Decimal Namespace=System Declaring=(null)
+  valuetype sealed definition | public visible
+  bases: ValueType > Object
+System.IntPtr | Name=IntPtr Namespace=System Declaring=(null)
+  valuetype primitive sealed definition | public visible
+  bases: ValueType > Object
+System.Boolean | Name=Boolean Namespace=System Declaring=(null)
+  valuetype primitive sealed definition | public visible
+  bases: ValueType > Object
+System.Char | Name=Char Namespace=System Declaring=(null)
+  valuetype primitive sealed definition | public visible
+  bases: ValueType > Object
+System.DateTime | Name=DateTime Namespace=System Declaring=(null)
+  valuetype sealed definition | public visible
+  bases: ValueType > Object
+System.TimeSpan | Name=TimeSpan Namespace=System Declaring=(null)
+  valuetype sealed definition | public visible
+  bases: ValueType > Object
+System.ValueType | Name=ValueType Namespace=System Declaring=(null)
+  class abstract definition | public visible
+  bases: Object
+System.Enum | Name=Enum Namespace=System Declaring=(null)
+  class abstract definition | public visible
+  bases: ValueType > Object
+System.Array | Name=Array Namespace=System Declaring=(null)
+  class abstract definition | public visible
+  bases: Object
+System.Delegate | Name=Delegate Namespace=System Declaring=(null)
+  class abstract definition | public visible
+  bases: Object
+System.Exception | Name=Exception Namespace=System Declaring=(null)
+  class definition | public visible
+  bases: Object
+System.InvalidOperationException | Name=InvalidOperationException Namespace=System Declaring=(null)
+  class definition | public visible
+  bases: SystemException > Exception > Object
+System.IDisposable | Name=IDisposable Namespace=System Declaring=(null)
+  interface abstract definition | public visible
+  bases: (none)
+System.IComparable`1[System.Int32] | Name=IComparable`1 Namespace=System Declaring=(null)
+  interface abstract | public visible
+  bases: (none)
+System.Console | Name=Console Namespace=System Declaring=(null)
+  class abstract sealed definition | public visible
+  bases: Object
+System.Math | Name=Math Namespace=System Declaring=(null)
+  class abstract sealed definition | public visible
+  bases: Object
+System.DayOfWeek | Name=DayOfWeek Namespace=System Declaring=(null)
+  valuetype enum sealed definition | public visible
+  bases: Enum > ValueType > Object
+System.Action | Name=Action Namespace=System Declaring=(null)
+  class sealed definition | public visible
+  bases: MulticastDelegate > Delegate > Object
+System.EventHandler`1[System.EventArgs] | Name=EventHandler`1 Namespace=System Declaring=(null)
+  class sealed | public visible
+  bases: MulticastDelegate > Delegate > Object
+System.Span`1[System.Byte] | Name=Span`1 Namespace=System Declaring=(null)
+  valuetype sealed byreflike | public visible
+  bases: ValueType > Object
+System.Nullable`1[System.Int32] | Name=Nullable`1 Namespace=System Declaring=(null)
+  valuetype sealed | public visible
+  bases: ValueType > Object
+System.Collections.Generic.List`1[System.String] | Name=List`1 Namespace=System.Collections.Generic Declaring=(null)
+  class | public visible
+  bases: Object
+System.Collections.Generic.List`1+Enumerator[System.String] | Name=Enumerator Namespace=System.Collections.Generic Declaring=List`1
+  valuetype sealed | nested nestedpublic visible
+  bases: ValueType > Object
+System.Collections.Generic.Dictionary`2[System.Int32,Shop.Model.Order] | Name=Dictionary`2 Namespace=System.Collections.Generic Declaring=(null)
+  class | public visible
+  bases: Object
+System.Collections.Generic.KeyValuePair`2[System.Int32,System.Int32] | Name=KeyValuePair`2 Namespace=System.Collections.Generic Declaring=(null)
+  valuetype sealed | public visible
+  bases: ValueType > Object
+System.Int32[] | Name=Int32[] Namespace=System Declaring=(null)
+  class array sealed haselement | public visible
+  bases: Array > Object
+System.String[][] | Name=String[][] Namespace=System Declaring=(null)
+  class array sealed haselement | public visible
+  bases: Array > Object
+Shop.Model.Order[] | Name=Order[] Namespace=Shop.Model Declaring=(null)
+  class array sealed haselement | public visible
+  bases: Array > Object
+Shop.Model.Draft[] | Name=Draft[] Namespace=Shop.Model Declaring=(null)
+  class array sealed haselement | public invisible
+  bases: Array > Object
+System.Int32[,] | Name=Int32[,] Namespace=System Declaring=(null)
+  class array sealed haselement | public visible
+  bases: Array > Object
+Shop.Model.Status[,,] | Name=Status[,,] Namespace=Shop.Model Declaring=(null)
+  class array sealed haselement | public visible
+  bases: Array > Object
+System.Int32* | Name=Int32* Namespace=System Declaring=(null)
+  class pointer haselement | public visible
+  bases: (none)
+System.Byte** | Name=Byte** Namespace=System Declaring=(null)
+  class pointer haselement | public visible
+  bases: (none)
+System.Uri | Name=Uri Namespace=System Declaring=(null)
+  class definition | public visible
+  bases: Object
+System.Version | Name=Version Namespace=System Declaring=(null)
+  class sealed definition | public visible
+  bases: Object
+-- elements
+System.Int32[]: element=System.Int32 rank=1 sz=True variable=False
+System.String[][]: element=System.String[] rank=1 sz=True variable=False
+Shop.Model.Order[,]: element=Shop.Model.Order rank=2 sz=False variable=True
+System.Int32*: element=System.Int32 rank=- sz=False variable=False
+System.Int32: element=(null) rank=- sz=False variable=False
+System.Collections.Generic.List`1[System.Int32]: element=(null) rank=- sz=False variable=False
+ArgumentException: Must be an array type.
+-- nested visibility
+Both: nested famorassem invisible declaring=Shop.Model.Outer
+Narrow: nested famandassem invisible declaring=Shop.Model.Outer
+Visible: nested nestedpublic visible declaring=Shop.Model.Outer
+Audit: nested nestedfamily invisible declaring=Shop.Model.Outer
+Secret: nested nestedprivate invisible declaring=Shop.Model.Outer
+Note: nested nestedassembly invisible declaring=Shop.Model.Outer
+-- runtime objects
+Order: class=True value=False sealed=True base=Entity underlying=True
+Item: class=True value=False sealed=False base=Object underlying=True
+Price: class=False value=True sealed=True base=ValueType underlying=True
+Status: class=False value=True sealed=True base=Enum underlying=True
+Double: class=False value=True sealed=True base=ValueType underlying=True
+String: class=True value=False sealed=True base=Object underlying=True
+Int32[]: class=True value=False sealed=True base=Array underlying=True
+Exception: class=True value=False sealed=False base=Object underlying=True
+Changed: class=True value=False sealed=True base=MulticastDelegate underlying=True
+Decimal: class=False value=True sealed=True base=ValueType underlying=True
+TimeSpan: class=False value=True sealed=True base=ValueType underlying=True
+DateTime: class=False value=True sealed=True base=ValueType underlying=True
+Byte: class=False value=True sealed=True base=ValueType underlying=True
+Char: class=False value=True sealed=True base=ValueType underlying=True
+Int64: class=False value=True sealed=True base=ValueType underlying=True
