@@ -391,7 +391,8 @@ internal static class Intrinsics
                 return b.Select(b.ICmp(LLVMIntPredicate.SLT, v, g.Module.Llvm.ConstInt(v.Type, 0)), b.Neg(v), v);
             };
         }
-        foreach (var (type, signed) in new[] { ("int", true), ("long", true), ("uint", false), ("ulong", false) })
+        foreach (var (type, signed) in new[] { ("int", true), ("long", true), ("uint", false), ("ulong", false),
+                     ("short", true), ("sbyte", true), ("ushort", false), ("byte", false), ("nint", true), ("nuint", false) })
         {
             t[$"System.Math.Max({type}, {type})"] = (g, inv) => SelectCompare(g, Arg(g, inv, 0), Arg(g, inv, 1), signed ? LLVMIntPredicate.SGT : LLVMIntPredicate.UGT);
             t[$"System.Math.Min({type}, {type})"] = (g, inv) => SelectCompare(g, Arg(g, inv, 0), Arg(g, inv, 1), signed ? LLVMIntPredicate.SLT : LLVMIntPredicate.ULT);
