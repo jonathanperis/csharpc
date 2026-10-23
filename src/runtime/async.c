@@ -279,6 +279,17 @@ void csrt_task_fault(csrt_Task* t, void* exception) { finish(t, T_FAULTED, excep
 
 void csrt_task_cancel(csrt_Task* t) { finish(t, T_CANCELED, NULL); }
 
+/// An exception escaping an async method (source coroutine or IL builder): an OperationCanceledException
+/// cancels the task and is kept, so `await` rethrows that same exception (.NET's TrySetCanceled(token, oce));
+/// anything else faults it.
+bool csrt_task_try_fault_async(csrt_Task* t, void* exception) {
+    return try_finish(t, csrt_is_operation_canceled(exception) ? T_CANCELED : T_FAULTED, exception);
+}
+
+void csrt_task_fault_async(csrt_Task* t, void* exception) {
+    if (!csrt_task_try_fault_async(t, exception)) csrt_throw(&mt_invalid_operation, csrt_string_from_utf8(k_already_completed));
+}
+
 bool csrt_task_try_complete(csrt_Task* t) { return try_finish(t, T_DONE, NULL); }
 bool csrt_task_try_fault(csrt_Task* t, void* e) { return try_finish(t, T_FAULTED, e); }
 bool csrt_task_try_cancel(csrt_Task* t) { return try_finish(t, T_CANCELED, NULL); }
@@ -322,7 +333,7 @@ static void when_all_step(WhenAllState* s) {
 static void chain(csrt_Task* from, csrt_Task* to) {
     int32_t st = from ? task_state(from) : T_DONE;
     if (st == T_FAULTED) { finish(to, T_FAULTED, from->exception); return; }
-    if (st == T_CANCELED) { finish(to, T_CANCELED, NULL); return; }
+    if (st == T_CANCELED) { finish(to, T_CANCELED, from->exception); return; }
     int32_t n = to->payload_size < (from ? from->payload_size : 0) ? to->payload_size : (from ? from->payload_size : 0);
     if (n > 0) memcpy(to->payload, from->payload, (size_t)n);
     csrt_task_complete(to);
@@ -381,7 +392,10 @@ void csrt_task_throw_if_faulted(csrt_Task* t) {
     if (!t) return;
     int32_t st = task_state(t);
     if (st == T_FAULTED) csrt_rethrow(t->exception);
-    if (st == T_CANCELED) csrt_throw_object(csrt_task_canceled_exception_new());
+    if (st == T_CANCELED) {
+        if (t->exception) csrt_rethrow(t->exception); // canceled by an OperationCanceledException
+        csrt_throw_object(csrt_task_canceled_exception_new());
+    }
 }
 
 /// Task.Exception: an AggregateException for faulted tasks, else null.

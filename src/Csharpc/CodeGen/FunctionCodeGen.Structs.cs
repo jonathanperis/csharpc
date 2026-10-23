@@ -109,6 +109,7 @@ public sealed partial class FunctionCodeGen
         {
             if (creation.Constructor is null or { Parameters.IsEmpty: true }) return LlvmContext.Null(llvmType); // new TimeSpan() etc.
             if (BclValueTypes.TryGet(creation.Constructor, out var bcl)) return CallBcl(bcl, creation.Constructor, null, creation.Arguments, creation);
+            if (Intrinsics.TryGetConstructor(creation.Constructor, out var intrinsic)) return intrinsic(this, creation); // new ValueTask<T>(...)
             throw CompileError.Unsupported($"creating instances of library struct '{type}'", creation);
         }
 

@@ -11,7 +11,8 @@
 //    *after* the builder's task exists, so the ramp's stack copy and the boxed copy share the task;
 //    later awaits reuse the box (one MoveNext delegate per invocation, as AsyncStateMachineBox).
 //  * Methods that complete synchronously never allocate a pending task (Task.FromResult-style result).
-//  * Exceptions escaping MoveNext fault the task (the awaiter rethrows the original exception);
+//  * Exceptions escaping MoveNext fault the task (the awaiter rethrows the original exception), an
+//    OperationCanceledException cancels it (and `await` rethrows that same exception);
 //    async void exceptions crash the process like an unhandled exception on the thread pool.
 //  * Awaiter continuations run where csrt runs them: inline on the completing thread, queued to the
 //    pool if the awaited task had already completed (TaskAwaiter.UnsafeOnCompleted semantics).
@@ -119,8 +120,7 @@ namespace CsharpcCoreLib
         public void SetException(Exception exception)
         {
             if (exception == null) throw new ArgumentNullException("exception");
-            _ = Task;
-            if (_source == null || !_source.TrySetException(exception)) throw new InvalidOperationException(AsyncBuilderCore.AlreadyCompleted);
+            if (!CoreIntrinsics.TryFaultAsyncTask(Task, exception)) throw new InvalidOperationException(AsyncBuilderCore.AlreadyCompleted);
         }
     }
 
@@ -170,8 +170,7 @@ namespace CsharpcCoreLib
         public void SetException(Exception exception)
         {
             if (exception == null) throw new ArgumentNullException("exception");
-            _ = Task;
-            if (_source == null || !_source.TrySetException(exception)) throw new InvalidOperationException(AsyncBuilderCore.AlreadyCompleted);
+            if (!CoreIntrinsics.TryFaultAsyncTask(Task, exception)) throw new InvalidOperationException(AsyncBuilderCore.AlreadyCompleted);
         }
     }
 

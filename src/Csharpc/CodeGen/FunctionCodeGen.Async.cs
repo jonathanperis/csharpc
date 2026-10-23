@@ -115,7 +115,7 @@ public sealed partial class FunctionCodeGen
         {
             var faultFn = kind switch
             {
-                CoroutineKind.Async => "csrt_task_fault",
+                CoroutineKind.Async => "csrt_task_fault_async", // OperationCanceledException cancels
                 CoroutineKind.Iterator => "csrt_iterator_fault",
                 _ => "csrt_async_iterator_fault",
             };

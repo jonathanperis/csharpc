@@ -108,6 +108,7 @@ csrt_String* csrt_exception_to_string(void* exception);
 _Noreturn void csrt_unhandled_exception(void* exception);
 void* csrt_aggregate_exception_new(void** inners, int64_t count);
 void* csrt_task_canceled_exception_new(void);
+bool csrt_is_operation_canceled(void* exception);
 void* csrt_operation_canceled_exception_new(void);
 _Noreturn void csrt_throw_invalid_cast_from(const csrt_MethodTable* from, const csrt_MethodTable* to);
 csrt_String* csrt_string_from_utf8(const char* text);
