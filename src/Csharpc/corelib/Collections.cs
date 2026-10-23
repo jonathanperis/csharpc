@@ -1006,8 +1006,10 @@ namespace CsharpcCoreLib
 
         public SortedDictionaryImpl() { }
         public SortedDictionaryImpl(IComparer<TKey> comparer) { if (comparer != null && (object)comparer != (object)Comparer<TKey>.Default) _store.comparer = comparer; }
-        public SortedDictionaryImpl(IDictionary<TKey, TValue> dictionary)
+        public SortedDictionaryImpl(IDictionary<TKey, TValue> dictionary) : this(dictionary, null) { }
+        public SortedDictionaryImpl(IDictionary<TKey, TValue> dictionary, IComparer<TKey> comparer) : this(comparer)
         {
+            if (dictionary == null) throw new ArgumentNullException("dictionary");
             foreach (var pair in dictionary) Add(pair.Key, pair.Value);
         }
 

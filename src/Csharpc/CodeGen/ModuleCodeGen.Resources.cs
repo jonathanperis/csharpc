@@ -1,0 +1,39 @@
+using System.Text;
+using Csharpc.Llvm;
+
+namespace Csharpc.CodeGen;
+
+/// <summary>
+/// Data the program reads at startup that .NET takes from files next to the app: string resources
+/// embedded in the IL assemblies (ResourceManager, SR.GetResourceString) and runtimeconfig.json's
+/// configProperties (AppContext). Both are compiled in as one string constant each and decoded by
+/// the corelib on first use (corelib/Resources.cs).
+/// </summary>
+public sealed partial class ModuleCodeGen
+{
+    /// <summary>runtimeconfig.json configProperties (FrontendSettings.RuntimeConfig).</summary>
+    public IReadOnlyList<KeyValuePair<string, string>> RuntimeConfig { get; init; } = [];
+
+    private string? _resourceBlob;
+
+    /// <summary>(base name, key, value) triples of every IL assembly's string resources.</summary>
+    internal LLVMValueRef ResourceStringsBlob()
+    {
+        _resourceBlob ??= Encode(Il.Assemblies.SelectMany(a => a.ReadStringResources()).SelectMany(e => new[] { e.BaseName, e.Key, e.Value }));
+        return StringLiteral(_resourceBlob);
+    }
+
+    /// <summary>(name, value) pairs of the runtime configuration.</summary>
+    internal LLVMValueRef AppContextBlob() => StringLiteral(Encode(RuntimeConfig.SelectMany(kv => new[] { kv.Key, kv.Value })));
+
+    /// <summary>Fields as [length high 16 bits][length low 16 bits][chars] (CsharpcCoreLib.Blob decodes it).</summary>
+    private static string Encode(IEnumerable<string> fields)
+    {
+        var sb = new StringBuilder();
+        foreach (var f in fields)
+        {
+            sb.Append((char)(f.Length >> 16)).Append((char)(f.Length & 0xFFFF)).Append(f);
+        }
+        return sb.ToString();
+    }
+}

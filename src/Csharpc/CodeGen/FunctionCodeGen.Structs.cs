@@ -26,6 +26,7 @@ public sealed partial class FunctionCodeGen
     /// <summary>Address of a value-type operand: its storage if it is an lvalue, else a spilled copy.</summary>
     internal LLVMValueRef AddressOrSpill(IOperation op)
     {
+        if (op is IlValueOperation il) return il.HasAddress ? il.Address : Spill(il.Emit());
         if (TryAddressOfNone(op, out var pointee)) return pointee; // `p->f`, `(*p).f`, `p[i].f`
         if (op is IPropertyReferenceOperation { Property.RefKind: not RefKind.None } refProperty) return RefPropertyAddress(refProperty);
         if (op is IInvocationOperation { TargetMethod.RefKind: not RefKind.None } refCall) return EmitInvocation(refCall);
@@ -82,7 +83,7 @@ public sealed partial class FunctionCodeGen
     }
 
     internal static bool ReceiverIsNonNull(IOperation? instance, IMethodSymbol member) =>
-        instance is IInstanceReferenceOperation || member.ContainingType.IsValueType;
+        instance is IInstanceReferenceOperation or IlValueOperation { NonNull: true } || member.ContainingType.IsValueType;
 
     internal LLVMValueRef FromStorage(LLVMValueRef value, ITypeSymbol type) =>
         type.SpecialType == SpecialType.System_Boolean ? _b.Cast(LLVMOpcode.Trunc, value, L.I1) : value;
@@ -108,6 +109,7 @@ public sealed partial class FunctionCodeGen
         {
             if (creation.Constructor is null or { Parameters.IsEmpty: true }) return LlvmContext.Null(llvmType); // new TimeSpan() etc.
             if (BclValueTypes.TryGet(creation.Constructor, out var bcl)) return CallBcl(bcl, creation.Constructor, null, creation.Arguments, creation);
+            if (Intrinsics.TryGetConstructor(creation.Constructor, out var intrinsic)) return intrinsic(this, creation); // new ValueTask<T>(...)
             throw CompileError.Unsupported($"creating instances of library struct '{type}'", creation);
         }
 

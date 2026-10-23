@@ -59,6 +59,7 @@ public sealed partial class ModuleCodeGen
     private StructLayout BuildStructLayout(INamedTypeSymbol type)
     {
         RejectCustomLayout(type);
+        RejectIlCustomLayout(type);
 
         // Both repeat their element in memory; laid out as a single field they would silently shrink.
         if (type.GetAttributes().Any(a => a.AttributeClass?.ToDisplayString() == "System.Runtime.CompilerServices.InlineArrayAttribute"))

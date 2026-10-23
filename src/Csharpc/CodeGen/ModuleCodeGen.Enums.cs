@@ -80,4 +80,48 @@ public sealed partial class ModuleCodeGen
         var high = b.Cast(LLVMOpcode.Trunc, b.BinOp(LLVMOpcode.LShr, value, Llvm.ConstInt(Llvm.I64, 32)), Llvm.I32);
         return b.BinOp(LLVMOpcode.Xor, b.Cast(LLVMOpcode.Trunc, value, Llvm.I32), high);
     }
+
+    private List<INamedTypeSymbol>? _jsonEnumTypes;
+
+    /// <summary>
+    /// The enums a run-time Type can name in System.Text.Json: every enum declared in the program, and
+    /// library enums the generated JSON metadata converts (GetEnumConverter&lt;E&gt;, JsonStringEnumConverter&lt;E&gt;).
+    /// </summary>
+    public List<INamedTypeSymbol> JsonEnumTypes()
+    {
+        if (_jsonEnumTypes is { } cached) return cached;
+        var result = new List<INamedTypeSymbol>();
+        var seen = new HashSet<INamedTypeSymbol>(SymbolEqualityComparer.Default);
+        void Visit(INamespaceOrTypeSymbol container)
+        {
+            foreach (var member in container.GetMembers())
+            {
+                if (member is INamespaceSymbol ns)
+                {
+                    if (ns.Name == CoreLib.Namespace && ns.ContainingNamespace.IsGlobalNamespace) continue;
+                    Visit(ns);
+                }
+                else if (member is INamedTypeSymbol type)
+                {
+                    if (type.TypeKind == TypeKind.Enum && seen.Add(type)) result.Add(type);
+                    if (!type.IsGenericType) Visit(type);
+                }
+            }
+        }
+        Visit(Compilation.Assembly.GlobalNamespace);
+        foreach (var tree in Compilation.SyntaxTrees)
+        {
+            if (!tree.FilePath.EndsWith(".g.cs", StringComparison.Ordinal)) continue;
+            var text = tree.GetText().ToString();
+            if (!text.Contains("GetEnumConverter<", StringComparison.Ordinal) && !text.Contains("EnumConverter<", StringComparison.Ordinal)) continue;
+            var model = Compilation.GetSemanticModel(tree);
+            foreach (var generic in tree.GetRoot().DescendantNodes().OfType<Microsoft.CodeAnalysis.CSharp.Syntax.GenericNameSyntax>())
+            {
+                if (generic.Identifier.ValueText is not ("GetEnumConverter" or "JsonStringEnumConverter" or "JsonNumberEnumConverter")) continue;
+                foreach (var arg in generic.TypeArgumentList.Arguments)
+                    if (model.GetTypeInfo(arg).Type is INamedTypeSymbol { TypeKind: TypeKind.Enum } e && seen.Add(e)) result.Add(e);
+            }
+        }
+        return _jsonEnumTypes = result;
+    }
 }

@@ -94,6 +94,41 @@ Func<Task> | Func<Task<T>>)` on the pool, where `Func<T>` uses a compiler-genera
 `AsTask()`; async lambdas and local functions; async instance methods; async `void`; faulted and
 canceled tasks, `AggregateException`, `TaskCompletionSource`, `CancellationTokenSource`.
 
+## Async state machines compiled from IL
+
+Libraries consumed as assemblies (docs/adr/0010-il-frontend.md) contain what the C# compiler made of
+their `async` methods: an `IAsyncStateMachine` (a struct in Release builds, a class in Debug) whose
+`MoveNext` drives a method builder and awaiters. Those are library types, implemented in the corelib
+(`corelib/AsyncBuilders.cs`, `corelib/AsyncIterators.cs`) on the same csrt task objects:
+
+- **Builders.** `AsyncTaskMethodBuilder(<T>)`, `AsyncValueTaskMethodBuilder(<T>)`, the `Pooling` variants
+  and `AsyncVoidMethodBuilder`. `Start` runs `MoveNext` on the caller's thread. The first `await` that
+  does not complete synchronously creates the builder's task, then copies the state machine into a heap
+  box (.NET's `AsyncStateMachineBox`) whose `MoveNext` delegate is the continuation; the ramp's stack
+  copy and the box share the task, later awaits reuse the box. A method that completes synchronously
+  never allocates a pending task. `ValueTask`s are task pointers here too, so the `ValueTask` builders
+  wrap the `Task` ones.
+- **Awaiters.** `TaskAwaiter`, `ValueTaskAwaiter`, the `Configured*` awaiters (`IsCompleted`,
+  `GetResult`, `OnCompleted`, `UnsafeOnCompleted`) and `YieldAwaitable.YieldAwaiter` are intrinsics over
+  the task pointer: `OnCompleted(action)` registers an `Action` continuation (`csrt_task_on_completed_action`),
+  run inline by the thread that completes the task, or queued to the pool if the task had already
+  completed — `TaskAwaiter` without a `SynchronizationContext`. Custom awaiters work through the
+  builders' generic `AwaitOnCompleted`/`AwaitUnsafeOnCompleted` (constrained calls after monomorphization).
+- **Exceptions.** `await` inside `catch`/`finally` rethrows through `ExceptionDispatchInfo` (corelib;
+  no stack traces, so `Throw()` rethrows the same object). Async `void` exceptions end the process
+  through `csrt_unhandled_exception`, as in the source path.
+- **Async iterators.** `AsyncIteratorMethodBuilder` and `ManualResetValueTaskSourceCore<T>` (a port of
+  .NET's, without execution contexts). `MoveNextAsync()` returns `new ValueTask<bool>(this, version)`;
+  a `ValueTask` over an `IValueTaskSource` is bridged to a csrt task, completed at once if the source
+  is, otherwise from the source's `OnCompleted` continuation (`GetResult` is called once, after
+  completion, as an awaiter would). `[EnumeratorCancellation]` tokens combine through
+  `CancellationTokenSource.CreateLinkedTokenSource`.
+
+**Cancellation (both paths).** An `OperationCanceledException` escaping an async method *cancels* its
+task (`IsCanceled`, not `IsFaulted`) and `await` rethrows that same exception object, as .NET does;
+`.Result`/`.Wait()` throw an `AggregateException` holding a `TaskCanceledException`
+(`csrt_task_fault_async`).
+
 ## Iterators
 
 An iterator object is `{ mt, i32 state, i32 taken, frame, args, clone, reserved, current @ +48 }`.
@@ -128,6 +163,10 @@ an `IEnumerable<T>` reach iterators through ordinary interface dispatch.
   directly when the enumerator's concrete iterator is statically known.
 - **Non-generic `IEnumerator.Current`** on a value-type iterator boxes a primitive or a user
   struct. Enums are not supported yet.
-- **Not yet supported:** custom awaitables (user `GetAwaiter` patterns), `IAsyncEnumerable`
-  `WithCancellation`/`ConfigureAwait`, `SynchronizationContext`/`TaskScheduler`, `Task.Wait`
-  timeouts, `TaskCreationOptions` (`LongRunning`, `RunContinuationsAsynchronously`).
+- **Not yet supported:** custom awaitables awaited from *source* (user `GetAwaiter` patterns; IL state
+  machines handle them), `SynchronizationContext`/`TaskScheduler`, `Task.Wait` timeouts,
+  `TaskCreationOptions` (`LongRunning`, `RunContinuationsAsynchronously`). `WithCancellation`/
+  `ConfigureAwait` on `IAsyncEnumerable<T>` pass the token to `GetAsyncEnumerator` (IL and hand-written
+  enumerables); on csharpc's own (source) async iterators a cancelable token throws
+  `NotSupportedException` instead of being ignored: their `[EnumeratorCancellation]` parameter is
+  already captured in the coroutine frame.

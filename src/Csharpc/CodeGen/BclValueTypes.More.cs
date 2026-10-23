@@ -19,6 +19,10 @@ internal static partial class BclValueTypes
             t[$"{type}.GetHashCode()"] = (g, m, self, _, at) => g.HashOf(m.ContainingType, self, at);
         }
 
+        // Delegate.Combine / Remove called as methods (compiled event accessors, the IL front-end).
+        t["System.Delegate.Combine(System.Delegate, System.Delegate)"] = (g, _, _, a, _) => g.CombineDelegates(a[0], a[1]);
+        t["System.Delegate.Remove(System.Delegate, System.Delegate)"] = (g, _, _, a, _) => g.RemoveDelegate(a[0], a[1]);
+
         t["System.Delegate.GetInvocationList()"] = (g, _, self, _, _) =>
         {
             var array = Rt(g, "csrt_delegate_get_invocation_list", g.Llvm.Ptr, (self, g.Llvm.Ptr));

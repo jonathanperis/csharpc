@@ -19,9 +19,18 @@ public sealed record ProjectInfo
     public bool ImplicitUsings { get; init; }
     /// <summary>&lt;StartupObject&gt;: the type whose Main is the entry point (csc -main).</summary>
     public string? StartupObject { get; init; }
+    /// <summary>JsonSerializerIsReflectionEnabledByDefault (false in trimmed and AOT-published projects).</summary>
+    public bool JsonReflectionEnabled { get; init; } = true;
     public List<string> GlobalUsings { get; } = [];
     public List<string> ProjectReferences { get; } = [];
-    public List<string> UnsupportedPackages { get; } = [];
+    /// <summary>Explicit &lt;PackageReference&gt; items ("Id Version").</summary>
+    public List<string> PackageReferences { get; } = [];
+    /// <summary>&lt;Reference&gt; items with an assembly file: compiled from IL (docs/adr/0010-il-frontend.md).</summary>
+    public List<string> AssemblyReferences { get; } = [];
+    /// <summary>RuntimeHostConfigurationOption items (runtimeconfig.json configProperties), in item order.</summary>
+    public List<KeyValuePair<string, string>> RuntimeConfig { get; } = [];
+    /// <summary>&lt;Reference&gt; items csharpc could not map to a file (e.g. GAC-style names).</summary>
+    public List<string> UnresolvedReferences { get; } = [];
     public string ProjectDirectory => Path.GetDirectoryName(ProjectPath)!;
 }
 
@@ -37,7 +46,7 @@ public static class ProjectLoader
     [
         "AssemblyName", "OutputType", "DefineConstants", "LangVersion", "Nullable", "AllowUnsafeBlocks",
         "ImplicitUsings", "TargetFramework", "TargetFrameworks", "MSBuildProjectFullPath",
-        "StartupObject",
+        "StartupObject", "JsonSerializerIsReflectionEnabledByDefault",
     ];
 
     /// <summary>
@@ -63,7 +72,36 @@ public static class ProjectLoader
         foreach (var v in new[] { "1_0", "1_1", "2_0", "2_1", "2_2", "3_0", "3_1" }) yield return $"NETCOREAPP{v}_OR_GREATER";
     }
 
-    private static readonly string[] Items = ["Compile", "Using", "ProjectReference", "PackageReference"];
+    private static readonly string[] Items = ["Compile", "Using", "ProjectReference", "PackageReference", "Reference", "RuntimeHostConfigurationOption"];
+
+    /// <summary>
+    /// configProperties of a file-based app (`dotnet run app.cs`, which defaults to PublishAot=true and
+    /// so gets the AOT feature switches), as the .NET 11 SDK writes them; EntryPointFilePath and
+    /// EntryPointFileDirectoryPath are added per file. Single-file compilations behave like that.
+    /// </summary>
+    public static IEnumerable<KeyValuePair<string, string>> FileBasedRuntimeConfig(string entryFile)
+    {
+        var path = Path.GetFullPath(entryFile);
+        yield return new("EntryPointFilePath", path);
+        yield return new("EntryPointFileDirectoryPath", Path.GetDirectoryName(path)!);
+        string[] enabled = ["Microsoft.Extensions.DependencyInjection.VerifyOpenGenericServiceTrimmability", "System.Linq.Enumerable.IsSizeOptimized"];
+        string[] disabled =
+        [
+            "System.ComponentModel.DefaultValueAttribute.IsSupported", "System.ComponentModel.Design.IDesignerHost.IsSupported",
+            "System.ComponentModel.TypeConverter.EnableUnsafeBinaryFormatterInDesigntimeLicenseContextSerialization",
+            "System.ComponentModel.TypeDescriptor.IsComObjectDescriptorSupported", "System.Data.DataSet.XmlSerializationIsSupported",
+            "System.Diagnostics.Tracing.EventSource.IsSupported", "System.Net.SocketsHttpHandler.Http3Support",
+            "System.Resources.ResourceManager.AllowCustomResourceTypes", "System.Resources.UseSystemResourceKeys",
+            "System.Runtime.CompilerServices.RuntimeFeature.IsDynamicCodeSupported", "System.Runtime.InteropServices.BuiltInComInterop.IsSupported",
+            "System.Runtime.InteropServices.EnableConsumingManagedCodeFromNativeHosting", "System.Runtime.InteropServices.EnableCppCLIHostActivation",
+            "System.Runtime.InteropServices.Marshalling.EnableGeneratedComInterfaceComImportInterop",
+            "System.Runtime.Serialization.EnableUnsafeBinaryFormatterSerialization", "System.StartupHookProvider.IsSupported",
+            "System.Text.Encoding.EnableUnsafeUTF7Encoding", "System.Text.Json.JsonSerializer.IsReflectionEnabledByDefault",
+            "System.Threading.Thread.EnableAutoreleasePool", "System.Linq.Expressions.CanEmitObjectArrayDelegate",
+        ];
+        foreach (var name in enabled) yield return new(name, "true");
+        foreach (var name in disabled) yield return new(name, "false");
+    }
 
     /// <summary>Finds the single project file in a directory (like `dotnet build` with no arguments).</summary>
     public static string? FindProject(string directory)
@@ -110,6 +148,7 @@ public static class ProjectLoader
             AllowUnsafe = string.Equals(Prop("AllowUnsafeBlocks"), "true", StringComparison.OrdinalIgnoreCase),
             ImplicitUsings = Prop("ImplicitUsings") is "enable" or "true",
             StartupObject = Prop("StartupObject"),
+            JsonReflectionEnabled = !string.Equals(Prop("JsonSerializerIsReflectionEnabledByDefault"), "false", StringComparison.OrdinalIgnoreCase),
         };
 
         info.Defines.AddRange((Prop("DefineConstants") ?? "").Split([';', ','], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
@@ -131,11 +170,58 @@ public static class ProjectLoader
         foreach (var r in Item("ProjectReference"))
             if (Meta(r, "FullPath") is { } path) info.ProjectReferences.Add(path);
 
+        // <Reference Include="Name"><HintPath>path/Name.dll</HintPath></Reference> or Include="path/Name.dll".
+        foreach (var r in Item("Reference"))
+        {
+            if (string.Equals(Meta(r, "IsImplicitlyDefined"), "true", StringComparison.OrdinalIgnoreCase)) continue;
+            var identity = Meta(r, "Identity") ?? "";
+            var candidate = Meta(r, "HintPath") is { } hint ? Path.GetFullPath(hint, info.ProjectDirectory)
+                : identity.EndsWith(".dll", StringComparison.OrdinalIgnoreCase) ? Meta(r, "FullPath") ?? Path.GetFullPath(identity, info.ProjectDirectory)
+                : null;
+            if (candidate is not null && File.Exists(candidate)) info.AssemblyReferences.Add(candidate);
+            else info.UnresolvedReferences.Add(candidate ?? identity);
+        }
+
+        // runtimeconfig.json writes the last value of each option; boolean JSON values reach the runtime as "true"/"false".
+        foreach (var o in Item("RuntimeHostConfigurationOption"))
+            if (Meta(o, "Identity") is { } name)
+            {
+                var value = Meta(o, "Value") ?? "";
+                info.RuntimeConfig.RemoveAll(kv => kv.Key == name);
+                info.RuntimeConfig.Add(new(name, bool.TryParse(value, out var flag) ? (flag ? "true" : "false") : value));
+            }
+
         foreach (var p in Item("PackageReference"))
             if (!string.Equals(Meta(p, "IsImplicitlyDefined"), "true", StringComparison.OrdinalIgnoreCase))
-                info.UnsupportedPackages.Add(Meta(p, "Identity") + (Meta(p, "Version") is { } v ? " " + v : ""));
+                info.PackageReferences.Add(Meta(p, "Identity") + (Meta(p, "Version") is { } v ? " " + v : ""));
+
+        // NuGet packages ship assemblies: restore, then take the runtime assets NuGet selected for this
+        // target framework (the implementation assemblies, transitive closure included) and compile
+        // them from IL like any other <Reference> (docs/adr/0010-il-frontend.md).
+        if (info.PackageReferences.Count > 0)
+            info.AssemblyReferences.AddRange(ResolvePackageAssemblies(projectPath, configuration, globalProperties));
 
         return info;
+    }
+
+    /// <summary>`dotnet msbuild -restore -t:ResolvePackageAssets`: the package DLLs `dotnet build` would copy to the output.</summary>
+    private static IEnumerable<string> ResolvePackageAssemblies(string projectPath, string configuration, IReadOnlyDictionary<string, string>? globalProperties)
+    {
+        var args = new List<string> { "msbuild", projectPath, "-nologo", "-restore", $"-p:Configuration={configuration}",
+            "-t:ResolvePackageAssets", "-getItem:RuntimeCopyLocalItems" };
+        foreach (var (k, v) in globalProperties ?? new Dictionary<string, string>()) args.Add($"-p:{k}={v}");
+        string json;
+        try { json = RunDotnet(args, Path.GetDirectoryName(projectPath)!); }
+        catch (InvalidOperationException e)
+        {
+            throw new InvalidOperationException($"could not restore the NuGet packages of '{Path.GetFileName(projectPath)}': {e.Message}", e);
+        }
+        using var doc = JsonDocument.Parse(json);
+        if (!doc.RootElement.TryGetProperty("Items", out var items) || !items.TryGetProperty("RuntimeCopyLocalItems", out var assets)) return [];
+        return [.. assets.EnumerateArray()
+            .Select(a => a.TryGetProperty("FullPath", out var p) ? p.GetString() : null)
+            .Where(p => p is not null && p.EndsWith(".dll", StringComparison.OrdinalIgnoreCase))
+            .Select(p => p!)];
     }
 
     /// <summary>
@@ -174,6 +260,9 @@ public static class ProjectLoader
             GlobalUsings = usings.Count > 0 ? string.Join('\n', usings) : null,
             AssemblyName = root.AssemblyName,
             MainTypeName = root.StartupObject,
+            IlReferencePaths = [.. all.SelectMany(p => p.AssemblyReferences).Distinct(StringComparer.Ordinal)],
+            RuntimeConfig = root.RuntimeConfig,
+            JsonReflectionEnabled = root.JsonReflectionEnabled,
             Projects = all.Count > 1 ? [.. all.Select(p => new ProjectUnit
             {
                 ProjectPath = p.ProjectPath,

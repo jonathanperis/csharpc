@@ -38,11 +38,13 @@ public sealed partial class ModuleCodeGen
 
     /// <summary>Non-generic interfaces of T[] (System.Array) that csharpc implements.</summary>
     private static bool IsNonGenericArrayInterface(INamedTypeSymbol itf) =>
-        itf.ToDisplayString() is "System.Collections.ICollection" or "System.Collections.IEnumerable" or "System.Collections.IList";
+        itf.ToDisplayString() is "System.Collections.ICollection" or "System.Collections.IEnumerable" or "System.Collections.IList"
+            or "System.Collections.IStructuralComparable" or "System.Collections.IStructuralEquatable";
 
     /// <summary>Non-generic interfaces whose members depend on the element type (boxing).</summary>
     private static bool NeedsElementTable(INamedTypeSymbol itf) =>
-        !itf.IsGenericType && itf.ToDisplayString() is "System.Collections.IEnumerable" or "System.Collections.IList";
+        !itf.IsGenericType && itf.ToDisplayString() is "System.Collections.IEnumerable" or "System.Collections.IList"
+            or "System.Collections.IStructuralComparable" or "System.Collections.IStructuralEquatable";
 
     public void RequestArrayInterface(INamedTypeSymbol itf)
     {
@@ -133,6 +135,10 @@ public sealed partial class ModuleCodeGen
     /// <summary>Corelib helper implementing <paramref name="member"/> of <paramref name="itf"/> for arrays, if any.</summary>
     public IMethodSymbol? ArrayInterfaceHelper(INamedTypeSymbol itf, IMethodSymbol member) =>
         BuiltinHelper("SZArrayHelper", itf, member, itf.TypeArguments.FirstOrDefault());
+
+    /// <summary>The helper for a call on an array whose element type is known statically.</summary>
+    public IMethodSymbol? ArrayInterfaceHelper(INamedTypeSymbol itf, IMethodSymbol member, ITypeSymbol element) =>
+        NeedsElementTable(itf) ? BuiltinHelper("SZArrayHelper", itf, member, element) : ArrayInterfaceHelper(itf, member);
 
     public IMethodSymbol? StringInterfaceHelper(INamedTypeSymbol itf, IMethodSymbol member) =>
         BuiltinHelper("StringInterfaces", itf, member, null);

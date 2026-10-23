@@ -18,10 +18,8 @@ namespace CsharpcCoreLib
             _list = list;
         }
 
-        // Generic types have no per-instantiation static initializers in csharpc yet: created on first use.
-        private static System.Collections.ObjectModel.ReadOnlyCollection<T> s_empty;
-        public static System.Collections.ObjectModel.ReadOnlyCollection<T> Empty =>
-            s_empty ??= (System.Collections.ObjectModel.ReadOnlyCollection<T>)(object)new ReadOnlyCollectionImpl<T>(new T[0]);
+        public static System.Collections.ObjectModel.ReadOnlyCollection<T> Empty { get; } =
+            (System.Collections.ObjectModel.ReadOnlyCollection<T>)(object)new ReadOnlyCollectionImpl<T>(new T[0]);
 
         protected IList<T> Items => _list;
         public int Count => _list.Count;

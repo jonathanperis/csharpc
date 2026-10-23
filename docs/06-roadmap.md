@@ -18,7 +18,7 @@ every failure is a clean "not supported by csharpc yet" diagnostic.
 | Multi-file programs, `.csproj` input, `ProjectReference` | ✅ | whole-program, see [08-drop-in.md](08-drop-in.md) |
 | `dotnet build -p:UseCsharpc=true`, `dotnet publish -p:PublishCsharpc=true` | ✅ | `Csharpc.Sdk` package |
 | File-based apps (`#:property` directives) | ✅ | |
-| NuGet binary packages | ❌ | need IL → see M5 |
+| Assemblies without sources: `-r X.dll`, `<Reference>`, NuGet `PackageReference` | 🟡 | IL front-end (M5): the IL side is complete except `calli`/TypedReference; packages still hit BCL gaps (M2) |
 
 ### Types
 
@@ -80,7 +80,8 @@ every failure is a clean "not supported by csharpc yet" diagnostic.
 | `System.Collections.Generic` (`List`, `Dictionary`, `HashSet`, ...) | ✅ | shadow corelib in C# |
 | `System.Linq` | ✅ | shadow corelib in C# |
 | `System.Text.RegularExpressions` | ✅ | port of .NET's engine (interpreter; no `NonBacktracking`), [12-corelib.md](12-corelib.md#regular-expressions) |
-| File I/O, networking, JSON | 🟡 | System.IO, sockets (TCP/UDP, `TcpListener`/`TcpClient`, `Dns`) done; JSON, TLS/HTTP next |
+| `System.Text.Json` | ✅ | writer, reader, DOM, nodes; serializer over source-generated metadata, reflection-style calls included ([12-corelib.md](12-corelib.md#systemtextjson)) |
+| File I/O, networking | 🟡 | System.IO and sockets (TCP/UDP, `TcpListener`/`TcpClient`, `Dns`) done; TLS/HTTP next |
 
 ## Milestones
 
@@ -95,9 +96,13 @@ on every program and of NativeAOT on nearly all ([benchmarks/RESULTS.md](../benc
 ### M2 — Library in C# (🚧)
 The BCL surface written in C# and compiled by csharpc together with the program; library symbols that
 Roslyn binds against the real reference assemblies are redirected to it
-([12-corelib.md](12-corelib.md)). Done: collections, LINQ, tasks, `System.Text.RegularExpressions`. In progress: moving formatting,
-parsing, `decimal`, `BigInteger` and `DateTime` from the C runtime into C#; P/Invoke and `System.IO`.
-Next: `System.Text.Json`; networking beyond sockets (TLS, `HttpClient`).
+([12-corelib.md](12-corelib.md)). Done: collections, LINQ, tasks, `System.Text.RegularExpressions`,
+`System.Text.Json` (ported from dotnet/runtime; `JsonSerializer` runs on compile-time metadata from the
+JSON source generator, which csharpc also synthesizes for reflection-style calls); formatting, parsing,
+`decimal`, `BigInteger` and `DateTime` (moved from the C runtime into C#); P/Invoke and `System.IO`;
+sockets (`Socket`, `TcpListener`/`TcpClient`, `UdpClient`, `Dns`). In progress: globalization (cultures
+via ICU, as .NET). Next: TLS and `HttpClient`; the library surface ranked by the compatibility runs and
+the NuGet survey (`System.Type` reflection basics, `Guid`, `DateTimeOffset`).
 
 ### M3 — Platforms and per-platform evidence
 Each platform gets a CI job (GitHub Actions) running the full differential suite, conformance corpus
@@ -117,13 +122,38 @@ Compile unmodified open-source C# console applications and tools, publish a comp
 First report (2026-10-22, 323 programs from dotnet/samples and dotnet/docs, 40.6 % identical to
 .NET): [18-compatibility.md](18-compatibility.md); harness in `tools/compat/`.
 
-### M5 — Drop-in: binary packages
+### M5 — Drop-in: binary packages (🚧)
 An IL front-end (IL → the same lowering) so NuGet packages that ship only assemblies can be linked
 into the closed-world program; the source front-end remains the primary path. With M2 and M4 this is
 what makes csharpc a drop-in replacement for existing projects.
 
+Design: [ADR 0010](adr/0010-il-frontend.md) — IL is a second method-body source for Roslyn's metadata
+symbols, lowered through the same `FunctionCodeGen` (synthetic `IOperation`s for library-facing
+instructions). Done: `-r`, `<Reference>` and `PackageReference` input; all opcodes but `calli`, `jmp`,
+TypedReference ones and `ckfinite`; generics, virtual/interface dispatch across the source/IL
+boundary, EH incl. filters, static constructors (`beforefieldinit`), RVA data, P/Invoke, events,
+compiled C# idioms (interpolation handlers, closures, iterators, records, generic math); unreachable
+failures compile to stubs (`CSLLVM0007`); compiled `async` (method builders, awaiters, async
+iterators, `IValueTaskSource`); embedded resource strings (`ResourceManager`, framework `SR`
+messages); `AppContext` with runtimeconfig defaults; `System.Collections.Immutable` compiled from the
+shared framework's IL. `tests/il.sh` checks library projects consumed as DLLs, a nuget.org package
+(Ardalis.GuardClauses) and a framework assembly against `dotnet run`; `tools/il-survey` ranks what the
+top pure-IL packages still need ([18-compatibility.md](18-compatibility.md#il-front-end-survey)).
+Next: the BCL surface packages use (ranked by the survey), `typeof(X).Assembly`, `calli`,
+RID-specific/native package assets.
+
 ### M6 — Bootstrapping
 csharpc compiles csharpc (and Roslyn) — the strongest possible proof of maturity.
+
+Status: the IL front-end can compile framework assemblies from the shared framework's IL
+(System.Collections.Immutable: 1644 IL methods reachable from a small program, ~30 s at `-O0` on a
+loaded 4-core machine, ~290 MB). Plan, in order: (1) the library surface Roslyn and csharpc use, driven
+by the IL survey and by compiling `System.Reflection.Metadata`/`Microsoft.Extensions.*` from IL;
+(2) a `--framework-il` policy (which framework assemblies come from IL instead of shadows);
+(3) compile-time scale for a ~40 MB-of-IL closed world: csharpc published ReadyToRun, parallel LLVM
+code generation (module partitions), then parallel lowering; (4) reflection Roslyn needs at startup
+(`typeof(X).Assembly`, resource lookup, analyzer activation) as compile-time metadata with diagnostics
+for the rest; (5) csharpc compiled by csharpc, LLVM C API P/Invokes included.
 
 ### Credibility deliverables (cross-cutting)
 - A technical report: what csharpc demonstrates (Roslyn's CFG as a mid-level IR, a C# corelib with

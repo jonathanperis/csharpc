@@ -1,0 +1,15 @@
+start
+init Holder<Int32>
+init Holder<String>
+holder of Int32 | holder of String | 10
+11 10
+before cctor type
+cctor WithCctor<Double>
+value of Double
+value of Double (cctor ran once)
+Char/Boolean
+0 0
+1 0
+The type initializer for 'Broken`1' threw an exception. <- boom
+The type initializer for 'Broken`1' threw an exception. <- boom
+other instantiation still fine

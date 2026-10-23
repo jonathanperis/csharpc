@@ -35,6 +35,8 @@ public sealed class CoreLib
     private readonly Dictionary<string, List<string>> _memberShadowNames = []; // real -> [ShadowMembers] classes
     private readonly Dictionary<string, INamedTypeSymbol?> _resolved = [];
     private readonly Dictionary<ISymbol, ISymbol> _cache = new(SymbolEqualityComparer.Default);
+    /// <summary>Library types without a shadow (most of them, and every type of an IL assembly): asked on every S()/TypeOf().</summary>
+    private readonly HashSet<INamedTypeSymbol> _unmapped = new(SymbolEqualityComparer.Default);
     private readonly Dictionary<(ISymbol Real, ISymbol Shadow), ISymbol?> _definitionMatch = [];
     private INamedTypeSymbol? _intrinsics;
     private bool _intrinsicsResolved;
@@ -165,9 +167,13 @@ public sealed class CoreLib
     {
         if (!HasShadows || !IsLibrary(type)) return null;
         if (_cache.TryGetValue(type, out var cached)) return (INamedTypeSymbol)cached;
+        if (_unmapped.Contains(type)) return null;
         var definition = type.OriginalDefinition;
         if (!_shadowNameByReal.TryGetValue(Mangler.MetadataName(definition), out var shadowName) || Resolve(shadowName) is not { } shadow)
+        {
+            _unmapped.Add(type);
             return null;
+        }
 
         INamedTypeSymbol result;
         if (type.ContainingType is { } outer && TryMap(outer) is { } mappedOuter)
@@ -306,7 +312,9 @@ public sealed class CoreLib
 
     private string Signature(ISymbol member) => member switch
     {
-        IMethodSymbol m => $"{(m.IsStatic ? "static " : "")}{m.MetadataName}`{m.Arity}({string.Join(",", m.Parameters.Select(Param))})",
+        // Conversion operators differ only by return type (op_Explicit(JsonNode) -> int / -> bool ...).
+        IMethodSymbol m => $"{(m.IsStatic ? "static " : "")}{m.MetadataName}`{m.Arity}({string.Join(",", m.Parameters.Select(Param))})"
+            + (m.MethodKind == MethodKind.Conversion ? "->" + Canon(m.ReturnType) : ""),
         IPropertySymbol p => $"{(p.IsStatic ? "static " : "")}{p.MetadataName}[{string.Join(",", p.Parameters.Select(Param))}]",
         _ => member.MetadataName,
     };

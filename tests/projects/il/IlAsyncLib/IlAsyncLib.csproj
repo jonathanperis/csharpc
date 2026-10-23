@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Compiled async methods drive AsyncTaskMethodBuilder, which csharpc doesn't implement yet:
+       IlAsyncApp must be rejected with a diagnostic naming the method, not miscompiled. -->
+  <PropertyGroup>
+    <TargetFramework>net11.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+</Project>

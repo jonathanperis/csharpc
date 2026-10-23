@@ -39,7 +39,6 @@ internal static unsafe partial class Native
     [LibraryImport(Lib)] public static partial void LLVMInstructionRemoveFromParent(LLVMValueRef inst);
     [LibraryImport(Lib, StringMarshalling = StringMarshalling.Utf8)]
     public static partial void LLVMInsertIntoBuilderWithName(LLVMBuilderRef b, LLVMValueRef inst, string name);
-    [LibraryImport(Lib)] public static partial void LLVMReplaceAllUsesWith(LLVMValueRef oldValue, LLVMValueRef newValue);
     [LibraryImport(Lib, StringMarshalling = StringMarshalling.Utf8)]
     public static partial LLVMBasicBlockRef LLVMInsertBasicBlockInContext(LLVMContextRef c, LLVMBasicBlockRef before, string name);
     [LibraryImport(Lib)] public static partial void LLVMMoveBasicBlockBefore(LLVMBasicBlockRef bb, LLVMBasicBlockRef movePos);

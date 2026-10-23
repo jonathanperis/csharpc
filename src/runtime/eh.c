@@ -279,6 +279,11 @@ void* csrt_aggregate_exception_new(void** inners, int64_t count) {
     return e;
 }
 
+/// An OperationCanceledException (or a subclass) escaping an async method cancels its task.
+bool csrt_is_operation_canceled(void* exception) {
+    return csrt_isinst_class(exception, &csrt_MT_System_OperationCanceledException.header) != NULL;
+}
+
 void* csrt_task_canceled_exception_new(void) {
     return new_exception(&csrt_MT_System_Threading_Tasks_TaskCanceledException, "A task was canceled.");
 }

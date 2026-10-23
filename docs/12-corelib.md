@@ -72,6 +72,10 @@ instantiation, giving the default comparers .NET semantics without boxing primit
 | `HashOf<T>(v)` | `EqualityComparer<T>.Default.GetHashCode` (inline for primitives; 0 for null) |
 | `Compare<T>(a, b)` | `Comparer<T>.Default.Compare`: primitives inline (NaN first), strings with culture collation, `IComparable<T>` / `IComparable`, null first; otherwise `InvalidOperationException("Failed to compare two elements in the array.")` |
 | `IsValueType<T>()`, `Box<T>(v)`, `Unbox<T>(o)` | helpers for generic code (boxing of types without a boxed form throws `NotSupportedException` at run time only) |
+| `EnumToUInt64<T>`, `EnumFromUInt64<T>`, `IsSignedEnum<T>`, `IsFlagsEnum<T>`, `EnumMemberJsonNames<T>` | enum values and names for `JsonStringEnumConverter` (names and `[JsonStringEnumMemberName]` read at compile time) |
+| `IsEnumType(Type)`, `CreateEnumConverter(Type, ...)` | a compile-time switch over the program's enums (`JsonStringEnumConverter` as a factory) |
+| `IsAbstractType<T>`, `IsInstanceOfType`, `IsTypeAssignableTo`, `IsInterfaceTypeObject` | the slice of reflection the serializer needs (base-chain and interface-map walks in `src/runtime/type.c`) |
+| `BuiltInJsonConverter<T>()` | `JsonMetadataServices`' converter for a built-in `T`, chosen at compile time so unused primitive converters aren't linked |
 
 ## Arrays and strings as interfaces
 
@@ -106,6 +110,13 @@ Limitation: `object is IEnumerable<X>` on an array can't check the element type 
   `IsNaN`/`IsInfinity`/`IsFinite`..., generic `System.Array` helpers (`Sort` incl. keys+items, `Reverse`,
   `IndexOf`, `Resize`, `Fill`, `Find*`, `Exists`, `TrueForAll`, `ConvertAll`, `BinarySearch`, `Empty`).
 * **`System.Text.RegularExpressions`** (`corelib/Regex/`, see [Regular expressions](#regular-expressions)).
+* **Compiled-code support for the IL front-end** (docs/adr/0010-il-frontend.md): async method builders,
+  `AsyncIteratorMethodBuilder`, `ManualResetValueTaskSourceCore<T>`, `ConfiguredCancelableAsyncEnumerable<T>`,
+  `ExceptionDispatchInfo` (`AsyncBuilders.cs`, `AsyncIterators.cs`, `ExceptionDispatchInfo.cs`, see
+  [10-async.md](10-async.md#async-state-machines-compiled-from-il)); `ResourceManager` over the IL
+  assemblies' embedded string resources and `AppContext` over runtimeconfig data (`Resources.cs`; both
+  read constants codegen builds through the `ResourceStrings()`/`RuntimeConfig()` core intrinsics).
+* **`System.Text.Json`** (`corelib/Json/`, see [System.Text.Json](#systemtextjson)).
 
 ### Regular expressions
 
@@ -141,6 +152,51 @@ all option combinations) checks.
 * **Cost:** nothing when unused (hello world is byte-identical). A program using `Regex` links the whole
   engine (~450 KB) and takes longer to compile (roughly 15–25 s at `-O2`: the parser, optimizer and
   interpreter are large methods).
+
+### System.Text.Json
+
+`src/Csharpc/corelib/Json/` ports System.Text.Json and System.Text.Encodings.Web from dotnet/runtime
+`release/11.0` (license headers kept; [THIRD-PARTY-NOTICES.md](../THIRD-PARTY-NOTICES.md)):
+
+* **Writer, reader, DOM.** `Utf8JsonWriter` (validation state machine, indentation options, every
+  `Write*` overload but `DateTimeOffset`/`Guid` values), `JsonEncodedText`, `JavaScriptEncoder`
+  (`Default`, `UnsafeRelaxedJsonEscaping`, `Create(ranges)`, `TextEncoderSettings`) with .NET's escaping
+  tables, `Utf8JsonReader` (ported nearly verbatim; `ReadOnlySequence` input is not supported),
+  `JsonDocument`/`JsonElement`/`JsonProperty` (same metadata database, so property order, duplicate-key
+  lookups and `WriteTo` output match), `JsonNode`/`JsonObject`/`JsonArray`/`JsonValue`, and every
+  `JsonException`/`JsonReaderException` message with its `Path`/`LineNumber`/`BytePositionInLine`.
+* **Serializer over source-generated metadata.** csharpc already runs the JSON source generator;
+  `JsonSerializerContext`, `JsonTypeInfo<T>`, `JsonPropertyInfo`, `JsonMetadataServices` and the
+  converters are reimplemented over its output. Supported: objects (properties, fields with
+  `IncludeFields`/`[JsonInclude]`, `[JsonPropertyName]`, `[JsonPropertyOrder]`, `[JsonIgnore]` and the
+  ignore conditions, `[JsonExtensionData]`), parameterized constructors and records, `required`/
+  `[JsonRequired]`/init-only members, callbacks, collections and dictionaries (non-string keys), nullable
+  values, enums (`JsonStringEnumConverter`, `JsonNumberEnumConverter`, `[JsonStringEnumMemberName]`,
+  flags), custom `JsonConverter<T>`s and factories, polymorphism (`[JsonPolymorphic]`/`[JsonDerivedType]`,
+  string/int discriminators, unknown-derived-type handling, `AllowOutOfOrderMetadataProperties`),
+  `ReferenceHandler.Preserve`/`IgnoreCycles`, naming policies, `NumberHandling`, `WriteIndented` and
+  friends, trailing commas, comments, `MaxDepth`, `JsonObjectCreationHandling.Populate`, contract
+  modifiers on `DefaultJsonTypeInfoResolver`, resolver chains, streams and the async APIs (buffered),
+  serialization-only contexts (the generated fast path).
+* **Reflection-based calls without reflection.** For `JsonSerializer` calls that take no
+  `JsonTypeInfo`/context, the front end (`Frontend/JsonReflectionContexts.cs`) collects the root types —
+  generic arguments, `typeof` arguments, the static types of values, instantiated through generic
+  methods and types — and synthesizes `[JsonSerializable]` contexts for them (nested in the declaring
+  class for private types); a corelib partial method wires them in as the stand-in for
+  `DefaultJsonTypeInfoResolver`. Types read from the stand-in follow reflection semantics where the
+  generator's differ (required/init-only members are set after construction). The
+  `JsonSerializerIsReflectionEnabledByDefault` switch is honored: projects evaluate it, file-based apps
+  default to `PublishAot` and therefore to disabled reflection, like `dotnet run app.cs`.
+* **Code size.** The object converter's work is in a non-generic core, the built-in metadata
+  (every primitive converter) is linked only when reflection-based metadata can be requested, and
+  `BuiltInJsonConverter<T>` resolves dictionary-key converters at compile time. Hello world is
+  unchanged; a program serializing a few types through a source-generated context is about 1 MB, one
+  using the reflection-style API about 1.5 MB, and these compile in 20–60 s (most of it in LLVM).
+* **Explicit diagnostics (CSLLVM0001/0002)** instead of run-time surprises: anonymous types with the
+  reflection-style API, generic virtual methods overridden in generic classes (a codegen limit the
+  node and converter classes are written around), `DateTimeOffset`/`Guid` members and BCL types csharpc
+  doesn't implement yet (`ConcurrentDictionary`, `ReadOnlyCollection`, immutable collections), and
+  `System.Text.Json.Schema`.
 
 Codegen improvements made along the way (general, not corelib-specific): generic structs, structs
 implementing interfaces (constrained calls on struct receivers), property/indexer lvalue captures

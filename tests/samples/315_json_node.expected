@@ -1,0 +1,67 @@
+25 25 25
+Hot Hot Hot
+2019-08-01T00:00:00.0000000
+2019-08-02T00:00:00 2
+$.TemperatureRanges.Hot.High 60
+$.DatesAvailable[0] $ 
+Number True Object Array
+TemperatureRanges 1
+True
+{"Date":"2019-08-01T00:00:00","Temperature":25,"Summary":"Hot","DatesAvailable":["2019-08-01T00:00:00","2019-08-02T00:00:00"],"TemperatureRanges":{"Cold":{"High":20,"Low":-10},"Hot":{"High":60,"Low":20}},"Notes":null,"Ratio":0.5,"Flag":true}
+{
+  "Cold": {
+    "High": 20,
+    "Low": -10
+  },
+  "Hot": {
+    "High": 60,
+    "Low": 20
+  }
+}
+{"Date":"2019-08-01T00:00:00","Temperature":12.5,"Summary":"Cool","DatesAvailable":["2019-08-02T00:00:00","2019-08-03T00:00:00"],"TemperatureRanges":{"Cold":{"High":20,"Low":-10},"Hot":{"High":60,"Low":21}},"Ratio":0.5,"Flag":true,"Added":[1,"two",null,{"x":false}]}
+8 True True 0.5
+Date,Temperature,Summary,DatesAvailable,TemperatureRanges,Ratio,Flag,Added
+5 Temperature
+{"int":1,"long":9007199254740993,"double":0.30000000000000004,"float":1.1,"decimal":79228162514264337593543950335,"bool":false,"string":"a\u003Cb\u003E\u0022c\u0022\u00E9","char":"z","date":"2020-01-02T03:04:05Z","null":null,"array":[1,2,3]}
+{
+  "int": 1,
+  "long": 9007199254740993,
+  "double": 0.30000000000000004,
+  "float": 1.1,
+  "decimal": 79228162514264337593543950335,
+  "bool": false,
+  "string": "a\u003Cb\u003E\u0022c\u0022\u00E9",
+  "char": "z",
+  "date": "2020-01-02T03:04:05Z",
+  "null": null,
+  "array": [
+    1,
+    2,
+    3
+  ]
+}
+a<b>"c"é [\n  1,\n  2,\n  3\n]
+5 False String
+1,2,3
+True 241
+False
+True
+True
+True
+x x
+value as object: InvalidOperationException: The node must be of type 'JsonObject'.
+object as array: InvalidOperationException: The node must be of type 'JsonArray'.
+object as value: InvalidOperationException: The node must be of type 'JsonValue'.
+wrong value type: InvalidOperationException: An element of type 'String' cannot be converted to a 'System.Int32'.
+value on object: InvalidOperationException: The node must be of type 'JsonValue'.
+array index on object: ok
+property on array: InvalidOperationException: The node must be of type 'JsonObject'.
+reparent: InvalidOperationException: The node already has a parent.
+duplicate add: ArgumentException: An item with the same key has already been added. Key: a (Parameter 'key')
+cycle: InvalidOperationException: A node cycle was detected.
+element index without parent: InvalidOperationException: The node must have a parent node of type 'JsonArray'.
+property name of array element: InvalidOperationException: The node must have a parent node of type 'JsonObject'.
+node as value: ArgumentException: A JsonNode cannot be used as a value. (Parameter 'value')
+parse error: JsonReaderException: '}' is an invalid start of a value. LineNumber: 0 | BytePositionInLine: 5.
+cast int from string: InvalidOperationException: An element of type 'String' cannot be converted to a 'System.Int32'.
+created value wrong type: InvalidOperationException: A value of type 'System.Int32' cannot be converted to a 'System.String'.

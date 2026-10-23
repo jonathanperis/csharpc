@@ -1,0 +1,78 @@
+{"Id":42,"Customer":{"Name":"Ann","Email":null,"Tier":2,"ReadOnly":7},"Lines":[{"Sku":"A-1","Quantity":2,"Price":9.99},{"Sku":"B\u003C2\u003E","Quantity":1,"Price":0.3}],"Tags":["rush","gift"],"Attributes":{"color":"red","size":"L"},"Counts":{"1":0.5,"10":1E+21},"PlacedAt":"2024-01-02T03:04:05.678Z","ShippedAt":null,"Discount":0.15,"Weight":1.25,"Origin":{"X":3,"Y":-4,"Length":5},"Express":true,"Note":"line1\nline2\t\u0022quoted\u0022 \u00E9","Grid":[[1,2],[]],"Seen":[5,3],"Duration":"01:30:30","Initial":"Z","Data":"AP+A"}
+{
+  "Id": 42,
+  "Customer": {
+    "Name": "Ann",
+    "Email": null,
+    "Tier": 2,
+    "ReadOnly": 7
+  },
+  "Lines": [
+    {
+      "Sku": "A-1",
+      "Quantity": 2,
+      "Price": 9.99
+    },
+    {
+      "Sku": "B\u003C2\u003E",
+      "Quantity": 1,
+      "Price": 0.3
+    }
+  ],
+  "Tags": [
+    "rush",
+    "gift"
+  ],
+  "Attributes": {
+    "color": "red",
+    "size": "L"
+  },
+  "Counts": {
+    "1": 0.5,
+    "10": 1E+21
+  },
+  "PlacedAt": "2024-01-02T03:04:05.678Z",
+  "ShippedAt": null,
+  "Discount": 0.15,
+  "Weight": 1.25,
+  "Origin": {
+    "X": 3,
+    "Y": -4,
+    "Length": 5
+  },
+  "Express": true,
+  "Note": "line1\nline2\t\u0022quoted\u0022 \u00E9",
+  "Grid": [
+    [
+      1,
+      2
+    ],
+    []
+  ],
+  "Seen": [
+    5,
+    3
+  ],
+  "Duration": "01:30:30",
+  "Initial": "Z",
+  "Data": "AP+A"
+}
+{"DerivedValue":2,"Shadowed":"derived","BaseValue":1}
+{"X":1,"Y":2,"Length":2.23606797749979}
+{"Name":"r","Count":7}
+[{"Name":"a","Count":1},null]
+{"Name":"as object","Count":2}
+[1,"two",3.5,true,null,1,{"X":0,"Y":0,"Length":0}]
+{"n":1,"s":"x","list":[1,"y"],"nested":{"k":2}}
+2 42 5
+123 -0 1.7976931348623157E+308 1E-45
+79228162514264337593543950335 1.10 -9223372036854775808 18446744073709551615
+null null 5 "x"
+"2000-01-01T00:00:00" "2000-01-01T00:00:00.001Z" "00:00:00"
+[] {} {"Name":null,"Email":null,"Tier":0,"ReadOnly":7}
+[1,2,3] [3,2,1]
+[4,5] ["x"]
+40 {"X":5,"Y":6,"Length":7.810249675906654}
+{"Name":"Ann","Email":null,"Tier":2,"ReadOnly":7}
+ArgumentException: .NET number values such as positive and negative infinity cannot be written as valid JSON. To make it work when using 'JsonSerializer', consider specifying 'JsonNumberHandling.AllowNamedFloatingPointLiterals' (see https://learn.microsoft.com/dotnet/api/system.text.json.serialization.jsonnumberhandling).
+ArgumentException: The specified type Point must derive from the specific value's type Customer.

@@ -117,7 +117,7 @@ public sealed partial class FunctionCodeGen
         {
             var faultFn = kind switch
             {
-                CoroutineKind.Async => "csrt_task_fault",
+                CoroutineKind.Async => "csrt_task_fault_async", // OperationCanceledException cancels
                 CoroutineKind.Iterator => "csrt_iterator_fault",
                 _ => "csrt_async_iterator_fault",
             };
@@ -160,6 +160,12 @@ public sealed partial class FunctionCodeGen
         List<(LLVMTypeRef Type, LLVMValueRef Value)> saved = [];
         if (_incomingEnv.Handle != 0) saved.Add((L.Ptr, _incomingEnv));
         else if (_this.Handle != 0) saved.Add((L.Ptr, _this));
+        // A C# 14 extension member's receiver comes right after: the clone re-invokes the method with
+        // the same signature (ModuleCodeGen.FunctionTypeOf).
+        else if (ModuleCodeGen.HasExtensionReceiver(method) && method.ContainingType.ExtensionParameter is { } receiver)
+            saved.Add(receiver.RefKind == RefKind.None
+                ? (T.Value(S(receiver.Type)), LoadValue(_slots[receiver], S(receiver.Type)))
+                : (L.Ptr, _slots[receiver]));
         foreach (var p in method.Parameters)
             saved.Add((T.Value(S(p.Type)), LoadValue(ParameterSpill(p), S(p.Type))));
 
