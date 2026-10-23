@@ -81,5 +81,5 @@ platform_live_expected() {
 # Prints the reason if test $1 (sample name, program name or conformance path) is listed in
 # tests/platform-skips.txt for this OS.
 platform_skip() {
-  awk -v os="$TARGET_OS" -v t="$1" '$1 == os && $2 == t { $1 = $2 = ""; sub(/^ +/, ""); print; exit }' "$ROOT/tests/platform-skips.txt"
+  awk -v os="${TARGET_OS:-$HOST_OS}" -v t="$1" '$1 == os && $2 == t { $1 = $2 = ""; sub(/^ +/, ""); print; exit }' "$ROOT/tests/platform-skips.txt"
 }
