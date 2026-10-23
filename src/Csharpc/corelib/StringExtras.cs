@@ -100,6 +100,39 @@ namespace CsharpcCoreLib
         public static bool IsInteger(double d) => IsFinite(d) && d == Math.Floor(d);
     }
 
+    [ShadowMembers("System.Boolean")]
+    internal static class BooleanExtras
+    {
+        // .NET: "True"/"False" in any case, ignoring leading/trailing white space and NUL characters.
+        public static bool TryParse(string value, out bool result)
+        {
+            if (value == null) { result = false; return false; }
+            return TryParse(value.AsSpan(), out result);
+        }
+
+        public static bool TryParse(ReadOnlySpan<char> value, out bool result)
+        {
+            var start = 0;
+            var end = value.Length;
+            while (start < end && (char.IsWhiteSpace(value[start]) || value[start] == '\0')) start++;
+            while (end > start && (char.IsWhiteSpace(value[end - 1]) || value[end - 1] == '\0')) end--;
+            var trimmed = value.Slice(start, end - start);
+            if (IsWord(trimmed, "true")) { result = true; return true; }
+            if (IsWord(trimmed, "false")) { result = false; return true; }
+            result = false;
+            return false;
+        }
+
+        // OrdinalIgnoreCase against an ASCII word without 'i' (no non-ASCII char upper-cases into one).
+        private static bool IsWord(ReadOnlySpan<char> text, string lower)
+        {
+            if (text.Length != lower.Length) return false;
+            for (var i = 0; i < text.Length; i++)
+                if ((text[i] | 0x20) != lower[i]) return false;
+            return true;
+        }
+    }
+
     [ShadowMembers("System.Single")]
     internal static class SingleExtras
     {

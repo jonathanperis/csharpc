@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Messages from an embedded .resx (IlResources.Strings.resources) through ResourceManager, as
+       libraries' SR classes and Properties.Resources do; a runtimeconfig switch read with AppContext. -->
+  <PropertyGroup>
+    <TargetFramework>net11.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+</Project>

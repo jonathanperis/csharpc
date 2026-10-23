@@ -275,6 +275,11 @@ public sealed record FrontendSettings
     public IReadOnlyList<MetadataReference> IlReferences { get; init; } = [];
     /// <summary>Paths of the assemblies to compile from IL (-r, project &lt;Reference&gt; items).</summary>
     public IReadOnlyList<string> IlReferencePaths { get; init; } = [];
+    /// <summary>
+    /// The runtimeconfig.json `configProperties` the SDK would write (RuntimeHostConfigurationOption
+    /// items): what AppContext.GetData/TryGetSwitch see at startup.
+    /// </summary>
+    public IReadOnlyList<KeyValuePair<string, string>> RuntimeConfig { get; init; } = [];
 }
 
 /// <summary>One project's own compilation settings (projects keep them when folded into one program).</summary>

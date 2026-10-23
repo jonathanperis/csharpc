@@ -157,6 +157,46 @@ public sealed class IlAssembly : IDisposable, ISignatureTypeProvider<IlType, IlG
         _members.Clear();
     }
 
+    /// <summary>
+    /// The string entries of the assembly's embedded `.resources` (System.Resources.ResourceReader
+    /// format): (base name, key, value), the base name being the manifest resource name without
+    /// ".resources" — what `new ResourceManager(typeof(X))` / `("Ns.Resources", assembly)` look up.
+    /// Other value types (streams, byte arrays, serialized objects) are not included.
+    /// </summary>
+    public IEnumerable<(string BaseName, string Key, string Value)> ReadStringResources()
+    {
+        if (Pe.PEHeaders.CorHeader is not { } cor || cor.ResourcesDirectory.Size == 0) yield break;
+        var directory = Pe.GetSectionData(cor.ResourcesDirectory.RelativeVirtualAddress);
+        foreach (var handle in Reader.ManifestResources)
+        {
+            var resource = Reader.GetManifestResource(handle);
+            if (!resource.Implementation.IsNil) continue; // linked or in another assembly
+            var name = Reader.GetString(resource.Name);
+            if (!name.EndsWith(".resources", StringComparison.Ordinal)) continue;
+            var block = directory.GetReader((int)resource.Offset, directory.Length - (int)resource.Offset);
+            var bytes = block.ReadBytes(block.ReadInt32());
+            List<(string, string, string)> entries = [];
+            try
+            {
+                using var reader = new System.Resources.ResourceReader(new MemoryStream(bytes));
+                var e = reader.GetEnumerator();
+                while (e.MoveNext())
+                {
+                    var key = (string)e.Key;
+                    reader.GetResourceData(key, out var type, out var data);
+                    if (type != "ResourceTypeCode.String") continue;
+                    using var value = new BinaryReader(new MemoryStream(data));
+                    entries.Add((name[..^".resources".Length], key, value.ReadString()));
+                }
+            }
+            catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or IOException or ArgumentException or FormatException)
+            {
+                throw new IlException($"embedded resource '{name}' of {Name}.dll is not in the .resources format: {ex.Message}");
+            }
+            foreach (var entry in entries) yield return entry;
+        }
+    }
+
     public void Dispose() => Pe.Dispose();
 
     // ======================================================================================

@@ -25,6 +25,8 @@ public sealed record ProjectInfo
     public List<string> PackageReferences { get; } = [];
     /// <summary>&lt;Reference&gt; items with an assembly file: compiled from IL (docs/adr/0010-il-frontend.md).</summary>
     public List<string> AssemblyReferences { get; } = [];
+    /// <summary>RuntimeHostConfigurationOption items (runtimeconfig.json configProperties), in item order.</summary>
+    public List<KeyValuePair<string, string>> RuntimeConfig { get; } = [];
     /// <summary>&lt;Reference&gt; items csharpc could not map to a file (e.g. GAC-style names).</summary>
     public List<string> UnresolvedReferences { get; } = [];
     public string ProjectDirectory => Path.GetDirectoryName(ProjectPath)!;
@@ -68,7 +70,36 @@ public static class ProjectLoader
         foreach (var v in new[] { "1_0", "1_1", "2_0", "2_1", "2_2", "3_0", "3_1" }) yield return $"NETCOREAPP{v}_OR_GREATER";
     }
 
-    private static readonly string[] Items = ["Compile", "Using", "ProjectReference", "PackageReference", "Reference"];
+    private static readonly string[] Items = ["Compile", "Using", "ProjectReference", "PackageReference", "Reference", "RuntimeHostConfigurationOption"];
+
+    /// <summary>
+    /// configProperties of a file-based app (`dotnet run app.cs`, which defaults to PublishAot=true and
+    /// so gets the AOT feature switches), as the .NET 11 SDK writes them; EntryPointFilePath and
+    /// EntryPointFileDirectoryPath are added per file. Single-file compilations behave like that.
+    /// </summary>
+    public static IEnumerable<KeyValuePair<string, string>> FileBasedRuntimeConfig(string entryFile)
+    {
+        var path = Path.GetFullPath(entryFile);
+        yield return new("EntryPointFilePath", path);
+        yield return new("EntryPointFileDirectoryPath", Path.GetDirectoryName(path)!);
+        string[] enabled = ["Microsoft.Extensions.DependencyInjection.VerifyOpenGenericServiceTrimmability", "System.Linq.Enumerable.IsSizeOptimized"];
+        string[] disabled =
+        [
+            "System.ComponentModel.DefaultValueAttribute.IsSupported", "System.ComponentModel.Design.IDesignerHost.IsSupported",
+            "System.ComponentModel.TypeConverter.EnableUnsafeBinaryFormatterInDesigntimeLicenseContextSerialization",
+            "System.ComponentModel.TypeDescriptor.IsComObjectDescriptorSupported", "System.Data.DataSet.XmlSerializationIsSupported",
+            "System.Diagnostics.Tracing.EventSource.IsSupported", "System.Net.SocketsHttpHandler.Http3Support",
+            "System.Resources.ResourceManager.AllowCustomResourceTypes", "System.Resources.UseSystemResourceKeys",
+            "System.Runtime.CompilerServices.RuntimeFeature.IsDynamicCodeSupported", "System.Runtime.InteropServices.BuiltInComInterop.IsSupported",
+            "System.Runtime.InteropServices.EnableConsumingManagedCodeFromNativeHosting", "System.Runtime.InteropServices.EnableCppCLIHostActivation",
+            "System.Runtime.InteropServices.Marshalling.EnableGeneratedComInterfaceComImportInterop",
+            "System.Runtime.Serialization.EnableUnsafeBinaryFormatterSerialization", "System.StartupHookProvider.IsSupported",
+            "System.Text.Encoding.EnableUnsafeUTF7Encoding", "System.Text.Json.JsonSerializer.IsReflectionEnabledByDefault",
+            "System.Threading.Thread.EnableAutoreleasePool", "System.Linq.Expressions.CanEmitObjectArrayDelegate",
+        ];
+        foreach (var name in enabled) yield return new(name, "true");
+        foreach (var name in disabled) yield return new(name, "false");
+    }
 
     /// <summary>Finds the single project file in a directory (like `dotnet build` with no arguments).</summary>
     public static string? FindProject(string directory)
@@ -148,6 +179,15 @@ public static class ProjectLoader
             else info.UnresolvedReferences.Add(candidate ?? identity);
         }
 
+        // runtimeconfig.json writes the last value of each option; boolean JSON values reach the runtime as "true"/"false".
+        foreach (var o in Item("RuntimeHostConfigurationOption"))
+            if (Meta(o, "Identity") is { } name)
+            {
+                var value = Meta(o, "Value") ?? "";
+                info.RuntimeConfig.RemoveAll(kv => kv.Key == name);
+                info.RuntimeConfig.Add(new(name, bool.TryParse(value, out var flag) ? (flag ? "true" : "false") : value));
+            }
+
         foreach (var p in Item("PackageReference"))
             if (!string.Equals(Meta(p, "IsImplicitlyDefined"), "true", StringComparison.OrdinalIgnoreCase))
                 info.PackageReferences.Add(Meta(p, "Identity") + (Meta(p, "Version") is { } v ? " " + v : ""));
@@ -218,6 +258,7 @@ public static class ProjectLoader
             AssemblyName = root.AssemblyName,
             MainTypeName = root.StartupObject,
             IlReferencePaths = [.. all.SelectMany(p => p.AssemblyReferences).Distinct(StringComparer.Ordinal)],
+            RuntimeConfig = root.RuntimeConfig,
             Projects = all.Count > 1 ? [.. all.Select(p => new ProjectUnit
             {
                 ProjectPath = p.ProjectPath,

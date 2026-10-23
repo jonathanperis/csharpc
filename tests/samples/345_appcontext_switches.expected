@@ -1,0 +1,16 @@
+System.Resources.UseSystemResourceKeys: found=True enabled=False data=false
+System.Runtime.Serialization.EnableUnsafeBinaryFormatterSerialization: found=True enabled=False data=false
+System.Linq.Enumerable.IsSizeOptimized: found=True enabled=True data=true
+System.Globalization.Invariant: found=False enabled=False data=null
+My.Undefined.Switch: found=False enabled=False data=null
+My.Switch: found=True enabled=True data=null
+My.Switch: found=True enabled=False data=null
+My.Data: found=True enabled=True data=True
+42
+True
+My.Text: found=False enabled=False data=not a bool
+Value cannot be null. (Parameter 'switchName')
+The value cannot be an empty string. (Parameter 'switchName')
+The value cannot be an empty string. (Parameter 'switchName')
+Value cannot be null. (Parameter 'name')
+Value cannot be null. (Parameter 'name')
