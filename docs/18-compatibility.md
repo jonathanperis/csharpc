@@ -100,7 +100,7 @@ program's compile log, and normalizes it to its kind, its owning type or constru
 
 ## Top blockers
 
-Measured on the first run (rows 3, 4, 6, 9, 12, 13, 15 and 16 are largely done since, see
+Measured on the first run (rows 1, 3, 4, 6, 9, 12, 13, 15 and 16 are largely done since, see
 [Progress](#progress-since-the-first-run)). Counted in programs; numbers in parentheses are programs too. A program counts once per row, and
 many programs hit several rows. "Only"
 means the programs for which this row is the sole blocker, so implementing the row alone would
@@ -158,6 +158,16 @@ regression sample (`tests/samples/250`–`258`). 32 programs that failed in the 
 | deconstruction into properties (16) | properties, indexers and get-only auto-properties as deconstruction targets, in C#'s evaluation order | 256 |
 | `DateTime.Parse`, `DateOnly`, `TimeOnly` (13) | `ParseExact`/`TryParseExact` (custom and standard formats, styles, offsets, Kind); `Parse`/`TryParse` for the common shapes, `NotSupportedException` for the rest of .NET's lenient grammar; `DateOnly`/`TimeOnly` structs | 257 |
 | (found on the way) | `val as int?` threw `InvalidCastException` on a box of another type; `Nullable<T>.Value` in generic code with `T = bool` crashed the compiler | 258 |
+
+**`System.Text.Json` (row 1)** — ported to the corelib on the `json` branch ([12-corelib.md](12-corelib.md#systemtextjson),
+samples `tests/samples/310`–`326`). Re-run of the 25 programs matching `json` or `whats-new-dotnet-10`
+(`tools/compat/run.sh json whats-new-dotnet-10`): **10 pass** (none did in the first run), none
+differs from .NET. The datetime `JsonSerializer`/`Utf8JsonReader` snippets, `nullable-annotations`,
+`required-properties`, `populate-properties`, `converters/how-to` and `source-generation` pass.
+The 14 others stop at explicit diagnostics: `DateTimeOffset` (4 programs), `Debug.Assert(bool, string)`
+(3), `System.Text.Json.Schema` (2), `DateTime.ToString(string, IFormatProvider)`,
+`MemberInfo.IsDefined`, `StringComparer.Create(CultureInfo, …)`, `Regex` and, for the JSON API itself,
+anonymous types and a `file`-local type with the reflection-style serializer.
 
 Still open from step 3: `new Random(seed)` (2 programs) and `Debug.Assert(bool, string)` (3).
 `Array.GetEnumerator()` (non-generic `foreach` over an `Array` returned by `Enum.GetValues`)
@@ -247,7 +257,7 @@ In order of programs gained per unit of work:
 4. **`System.Text.Json`** is the largest single area (20 programs, 15 with no other blocker). It
    is also by far the largest piece of work. It fits the closed-world model if the serializer's
    type metadata is generated at compile time, the way the System.Text.Json source generator
-   does it.
+   does it. Done on the `json` branch, see [Progress](#progress-since-the-first-run).
 5. Then Regex, Globalization's `CultureInfo` object model (invariant only), the remaining
    threading surface, and the IO extras. All of these are already on the M2 corelib list.
 
