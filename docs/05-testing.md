@@ -82,7 +82,7 @@ build is meant to behave like a native one. An unhandled exception traps, and wa
 in P/Invoke signatures, or print errno numbers. CI runs the three suites this way in the
 `test (wasm32-wasi)` job. It also runs `310_gc_roots_in_locals` with `CSRT_GC_STRESS=1` (a
 collection at every allocation), which checks that the compiler's GC root spilling is complete
-([ADR 0010](adr/0010-wasm32.md)).
+([ADR 0011](adr/0011-wasm32.md)).
 
 Failure output shows the compile errors (including `CSLLVM0001` "not supported yet" diagnostics) or
 the first lines of a unified diff between the expected and actual stdout.

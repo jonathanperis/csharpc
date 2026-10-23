@@ -118,7 +118,7 @@ csharpc --target wasm32-wasip1 hello.cs -o hello.wasm && wasmtime run --dir=. he
 The same programs run as WebAssembly modules, and the CI checks them against .NET under wasmtime.
 WebAssembly has no threads (`Thread.Start` throws `PlatformNotSupportedException`, as in .NET's
 single-threaded WebAssembly builds), no sockets and no dynamic libraries
-([ADR 0010](docs/adr/0010-wasm32.md), [docs/04-runtime.md](docs/04-runtime.md#webassembly-wasm32-wasip1)).
+([ADR 0011](docs/adr/0011-wasm32.md), [docs/04-runtime.md](docs/04-runtime.md#webassembly-wasm32-wasip1)).
 
 ### Building real projects
 

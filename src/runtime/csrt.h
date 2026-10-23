@@ -26,7 +26,7 @@
 
 // Functions that throw a managed exception. Where exceptions unwind they never return; on wasm32
 // there is no unwinder: throwing records the pending exception and returns, and csharpc's
-// ExceptionLowering (src/Csharpc/Wasm) makes every caller test for it (docs/adr/0010-wasm32.md).
+// ExceptionLowering (src/Csharpc/Wasm) makes every caller test for it (docs/adr/0011-wasm32.md).
 #ifdef __wasm__
 #define CSRT_THROWS
 #else

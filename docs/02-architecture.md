@@ -130,7 +130,7 @@ The details are in [03-lowering.md](03-lowering.md).
 - `TargetMachine` (`src/Csharpc/Llvm/Llvm.cs`) is created for the host triple, CPU and features, or
   for `--target`, with PIC relocation (PIE executables; static on wasm). It emits an object file or
   assembly, or the module is printed (`--emit llvm-ir`) or written as bitcode (`--emit llvm-bc`).
-- **wasm32 only** (`src/Csharpc/Wasm`, [ADR 0010](adr/0010-wasm32.md)). `ExceptionLowering` runs
+- **wasm32 only** (`src/Csharpc/Wasm`, [ADR 0011](adr/0011-wasm32.md)). `ExceptionLowering` runs
   before the optimization pipeline: there is no unwinder, so after every call that may throw, a test
   of `csrt_pending_exception` branches to the landing-pad code or returns to the caller.
   `RootSpilling` runs after it: values that may hold references and are live across a call that
@@ -175,7 +175,7 @@ Per platform:
   another WASI runtime. The runtime is always linked into the program as bitcode, at every
   optimization level, because two whole-program IR passes run on wasm (below). `main` is exported as
   `__main_argc_argv`, the name wasi-libc's start code calls. The design is in
-  [ADR 0010](adr/0010-wasm32.md).
+  [ADR 0011](adr/0011-wasm32.md).
 - The corelib is parsed with `CSHARPC_TARGET_LINUX`, `CSHARPC_TARGET_MACOS`, `CSHARPC_TARGET_WINDOWS`
   or `CSHARPC_TARGET_WASI` (from the target triple) so its libc constants, struct layouts and OS
   calls match the target ([16-interop-io.md](16-interop-io.md)).

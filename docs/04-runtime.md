@@ -182,7 +182,7 @@ compile time from the target triple, not in C ([16-interop-io.md](16-interop-io.
 
 ### WebAssembly (wasm32-wasip1)
 
-The design is in [ADR 0010](adr/0010-wasm32.md). What a program sees:
+The design is in [ADR 0011](adr/0011-wasm32.md). What a program sees:
 
 - **Exceptions** behave as on the native targets, filters and `finally` included. The compiler
   lowers them to explicit propagation, since WebAssembly has no unwinder.

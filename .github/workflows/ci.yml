@@ -136,7 +136,7 @@ jobs:
 
   # WebAssembly (wasm32-wasip1): every test is compiled for WASI and run under wasmtime, against the
   # expectations recorded with .NET on Linux; tests/platform-skips.txt ("wasi") lists what WebAssembly
-  # can't do (docs/adr/0010-wasm32.md). The WASI SDK must be LLVM 18 like csharpc (wasi-sdk 24).
+  # can't do (docs/adr/0011-wasm32.md). The WASI SDK must be LLVM 18 like csharpc (wasi-sdk 24).
   wasm:
     name: test (wasm32-wasi)
     runs-on: ubuntu-24.04

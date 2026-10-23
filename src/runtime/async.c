@@ -16,7 +16,7 @@
 //   * A timer thread hands expired Task.Delay / CancelAfter timers to the pool.
 // Each task's state and continuation list are guarded by a per-task spinlock (the `lock` word).
 //
-// WebAssembly (WASI preview 1) has a single thread (docs/adr/0010-wasm32.md): work items and timers
+// WebAssembly (WASI preview 1) has a single thread (docs/adr/0011-wasm32.md): work items and timers
 // queue up the same way, and whoever blocks — .Wait()/.Result, async Main, Thread.Sleep — runs them
 // on the main thread meanwhile (csrt_task_wait, csrt_scheduler_run_until; the __wasi__ blocks).
 #define _GNU_SOURCE

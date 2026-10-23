@@ -5,7 +5,7 @@ using static Csharpc.Llvm.Native;
 namespace Csharpc.Wasm;
 
 /// <summary>
-/// GC roots on wasm32 (docs/adr/0010-wasm32.md). csrt's collector is conservative: it finds references
+/// GC roots on wasm32 (docs/adr/0011-wasm32.md). csrt's collector is conservative: it finds references
 /// by scanning memory. On native targets every live value is in memory or in a register spilled by
 /// setjmp; in WebAssembly, values held in locals and on the operand stack live inside the engine,
 /// where a scan of linear memory can't see them. So after optimization this pass gives every value

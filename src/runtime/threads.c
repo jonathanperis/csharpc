@@ -209,7 +209,7 @@ static void spawn(csrt_Thread* t) {
 static void thread_start(csrt_Thread* t, void* parameter, bool has_parameter) {
     if (!t) csrt_throw_null_reference();
 #ifdef __wasi__
-    // Like .NET's single-threaded WebAssembly builds (docs/adr/0010-wasm32.md).
+    // Like .NET's single-threaded WebAssembly builds (docs/adr/0011-wasm32.md).
     throw_msg(&mt_platform_not_supported, "Operation is not supported on this platform.");
     return;
 #endif

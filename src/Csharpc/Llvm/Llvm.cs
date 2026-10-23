@@ -207,7 +207,7 @@ public sealed class TargetMachine : IDisposable
     /// Itanium-style exceptions on SEH unwind tables, linked by lld against the UCRT.</summary>
     public bool IsWindows => IsWindowsTriple(Triple);
     /// <summary>WebAssembly with WASI preview 1 (wasm32-wasip1 / wasm32-wasi): wasi-libc, wasm-ld, a
-    /// WASI runtime such as wasmtime. No unwinding, no threads (docs/adr/0010-wasm32.md).</summary>
+    /// WASI runtime such as wasmtime. No unwinding, no threads (docs/adr/0011-wasm32.md).</summary>
     public bool IsWasm => IsWasmTriple(Triple);
     public static bool IsWasmTriple(string triple) => triple.StartsWith("wasm", StringComparison.Ordinal);
     public static bool IsWindowsTriple(string triple) =>

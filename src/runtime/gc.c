@@ -39,7 +39,7 @@
 // SuspendThread and reads its registers with GetThreadContext instead (see the _WIN32 blocks).
 // WASI (wasm32) has one thread and no registers in memory: values the program keeps in wasm locals
 // are invisible to a scan of linear memory, so csharpc spills every reference that is live across
-// a call that may collect into a stack slot (src/Csharpc/Wasm/RootSpilling.cs; docs/adr/0010-wasm32.md),
+// a call that may collect into a stack slot (src/Csharpc/Wasm/RootSpilling.cs; docs/adr/0011-wasm32.md),
 // and the collector scans the linear-memory stack and the data segment (see the __wasi__ blocks).
 #define _GNU_SOURCE
 #define _WIN32_WINNT 0x0A00  // Windows 10 (GetCurrentThreadStackLimits)

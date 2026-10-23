@@ -4,7 +4,7 @@ using static Csharpc.Llvm.Native;
 namespace Csharpc.Wasm;
 
 /// <summary>
-/// Exceptions without an unwinder (docs/adr/0010-wasm32.md). Codegen emits the same Itanium-style IR
+/// Exceptions without an unwinder (docs/adr/0011-wasm32.md). Codegen emits the same Itanium-style IR
 /// on every target: `invoke` + `landingpad` inside try regions, `call csrt_throw_object` +
 /// `unreachable` for a throw. WASI has no unwinder, so on wasm32 this pass turns that IR into
 /// explicit error propagation over the whole program (user code, corelib and the C runtime, which is

@@ -14,7 +14,7 @@
 //  * If the search phase finds no handler, the exception is unhandled. Like .NET we still run
 //    the finally blocks on the way out (a forced unwind), then print
 //    "Unhandled exception. <ToString()>" and abort() (exit status 134).
-//  * wasm32 has no unwinder (docs/adr/0010-wasm32.md): throwing stores the exception in
+//  * wasm32 has no unwinder (docs/adr/0011-wasm32.md): throwing stores the exception in
 //    csrt_pending_exception and returns; csharpc's ExceptionLowering makes every caller test it and
 //    branch to its landing-pad code or return. The same handler code runs; see the __wasm__ blocks.
 #define _GNU_SOURCE

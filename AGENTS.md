@@ -78,7 +78,7 @@ before every commit that touches `src/`.
 ## Where to make a change
 
 - WebAssembly-only lowering: `src/Csharpc/Wasm` (exception propagation and GC root spilling, whole-module
-  IR passes; ADR 0010). C runtime differences are behind `__wasi__`/`__wasm__`, corelib ones behind
+  IR passes; ADR 0011). C runtime differences are behind `__wasi__`/`__wasm__`, corelib ones behind
   `CSHARPC_TARGET_WASI`. Throwing helpers are `CSRT_THROWS` (they return on wasm), and offsets into runtime
   objects must follow the pointer size (wasm32 has 4-byte pointers).
 

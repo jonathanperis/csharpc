@@ -9,7 +9,7 @@
 //  * creating a thread fails. Thread.Start throws PlatformNotSupportedException before getting here
 //    (threads.c), as .NET does in single-threaded WebAssembly builds; the task scheduler runs work
 //    items on the main thread (async.c).
-// See docs/adr/0010-wasm32.md.
+// See docs/adr/0011-wasm32.md.
 #ifdef __wasi__
 #define _GNU_SOURCE
 #include "csrt.h"
