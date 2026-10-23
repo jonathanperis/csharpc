@@ -80,7 +80,8 @@ every failure is a clean "not supported by csharpc yet" diagnostic.
 | `System.Collections.Generic` (`List`, `Dictionary`, `HashSet`, ...) | ✅ | shadow corelib in C# |
 | `System.Linq` | ✅ | shadow corelib in C# |
 | `System.Text.RegularExpressions` | ✅ | port of .NET's engine (interpreter; no `NonBacktracking`), [12-corelib.md](12-corelib.md#regular-expressions) |
-| File I/O, networking, JSON | ⬜ | corelib growth |
+| `System.Text.Json` | ✅ | writer, reader, DOM, nodes; serializer over source-generated metadata, reflection-style calls included ([12-corelib.md](12-corelib.md#systemtextjson)) |
+| File I/O, networking | ⬜ | corelib growth |
 
 ## Milestones
 
@@ -95,9 +96,11 @@ on every program and of NativeAOT on nearly all ([benchmarks/RESULTS.md](../benc
 ### M2 — Library in C# (🚧)
 The BCL surface written in C# and compiled by csharpc together with the program; library symbols that
 Roslyn binds against the real reference assemblies are redirected to it
-([12-corelib.md](12-corelib.md)). Done: collections, LINQ, tasks, `System.Text.RegularExpressions`. In progress: moving formatting,
-parsing, `decimal`, `BigInteger` and `DateTime` from the C runtime into C#; P/Invoke and `System.IO`.
-Next: `System.Text.Json`, networking basics.
+([12-corelib.md](12-corelib.md)). Done: collections, LINQ, tasks, `System.Text.RegularExpressions`,
+`System.Text.Json` (ported from dotnet/runtime; `JsonSerializer` runs on compile-time metadata from the
+JSON source generator, which csharpc also synthesizes for reflection-style calls). In progress: moving
+formatting, parsing, `decimal`, `BigInteger` and `DateTime` from the C runtime into C#; P/Invoke and
+`System.IO`. Next: networking basics.
 
 ### M3 — Platforms and per-platform evidence
 Each platform gets a CI job (GitHub Actions) running the full differential suite, conformance corpus

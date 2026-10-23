@@ -1,6 +1,7 @@
 // Differential fuzzer for the C# corelib's input handling: number parsing and formatting, composite
-// formatting, decimal, BigInteger, TimeSpan/DateTime formatting, string operations and regular
-// expressions (random patterns from a small grammar, with every RegexOptions combination). Prints one
+// formatting, decimal, BigInteger, TimeSpan/DateTime formatting, string operations, regular
+// expressions (random patterns from a small grammar, with every RegexOptions combination) and
+// System.Text.Json (reader, document, nodes, writer escaping, source-generated deserialization). Prints one
 // line per case (the result, or the exception type and message); tools/fuzz/corelib.sh runs it under
 // real .NET and as a csharpc-compiled native binary (with sanitizers) and diffs the output.
 //   CorelibFuzz <seed> <cases>
@@ -10,6 +11,10 @@
 using System.Globalization;
 using System.Numerics;
 using System.Text;
+using System.Text.Encodings.Web;
+using System.Text.Json;
+using System.Text.Json.Nodes;
+using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 
 ulong seed = args.Length > 0 ? (ulong)long.Parse(args[0]) : 1;
@@ -20,7 +25,7 @@ for (int i = 0; i < cases; i++)
 {
     state = (seed * 0x9E3779B97F4A7C15UL) ^ ((ulong)i * 0xD1B54A32D192ED03UL) ^ 0x2545F4914F6CDD1DUL;
     for (int k = 0; k < 4; k++) NextU64();
-    int target = Next(12);
+    int target = Next(16);
     string line;
     try { line = Run(target); }
     catch (Exception e) { line = e.GetType().Name + ": " + e.Message; }
@@ -94,6 +99,87 @@ string Run(int target)
         case 10:
         case 11:
             return RegexCase();
+        case 12:
+        {
+            // JsonDocument: parse (with random reader options) and write back, optionally indented.
+            string json = Json();
+            var options = new JsonDocumentOptions { AllowTrailingCommas = Next(2) == 0, CommentHandling = Next(2) == 0 ? JsonCommentHandling.Skip : JsonCommentHandling.Disallow, MaxDepth = Next(3) == 0 ? Next(6) : 0 };
+            using var doc = JsonDocument.Parse(json, options);
+            var buffer = new MemoryStream();
+            using (var writer = new Utf8JsonWriter(buffer, new JsonWriterOptions { Indented = Next(2) == 0 }))
+                doc.RootElement.WriteTo(writer);
+            return Escape(json) + " -> " + doc.RootElement.ValueKind + " " + Escape(Encoding.UTF8.GetString(buffer.ToArray()));
+        }
+        case 13:
+        {
+            // Utf8JsonReader: the token stream with values.
+            string json = Json();
+            var reader = new Utf8JsonReader(Encoding.UTF8.GetBytes(json), new JsonReaderOptions { AllowTrailingCommas = Next(2) == 0, CommentHandling = (JsonCommentHandling)Next(3), AllowMultipleValues = Next(4) == 0 });
+            var sb = new StringBuilder(Escape(json)).Append(" ->");
+            try
+            {
+                while (reader.Read())
+                {
+                    sb.Append(' ').Append(reader.TokenType).Append('@').Append(reader.TokenStartIndex).Append('/').Append(reader.CurrentDepth);
+                    switch (reader.TokenType)
+                    {
+                        case JsonTokenType.String or JsonTokenType.PropertyName or JsonTokenType.Comment:
+                            sb.Append('=').Append(Escape(reader.TokenType == JsonTokenType.Comment ? reader.GetComment() : reader.GetString()!));
+                            break;
+                        case JsonTokenType.Number:
+                            sb.Append('=').Append(reader.TryGetInt64(out long l) ? l.ToString() : "-").Append(',').Append(reader.GetDouble().ToString("R")).Append(',')
+                              .Append(reader.TryGetDecimal(out decimal m) ? m.ToString() : "-").Append(',').Append(reader.TryGetByte(out byte b) ? b.ToString() : "-");
+                            break;
+                    }
+                }
+                sb.Append(" end ").Append(reader.BytesConsumed);
+            }
+            catch (Exception e) { sb.Append(" ! ").Append(e.GetType().Name).Append(": ").Append(Escape(e.Message)); }
+            return sb.ToString();
+        }
+        case 14:
+        {
+            // Writer escaping: strings with control characters, non-ASCII and (lone) surrogates.
+            string text = Text(JsonStringAlphabet, 10);
+            var sb = new StringBuilder(Escape(text)).Append(" -> ");
+            sb.Append(Escape(JsonEncodedText.Encode(text).ToString())).Append(' ');
+            sb.Append(Escape(JsonEncodedText.Encode(text, JavaScriptEncoder.UnsafeRelaxedJsonEscaping).ToString())).Append(' ');
+            var buffer = new MemoryStream();
+            using (var writer = new Utf8JsonWriter(buffer, new JsonWriterOptions { Encoder = Next(2) == 0 ? JavaScriptEncoder.UnsafeRelaxedJsonEscaping : null }))
+            {
+                writer.WriteStartObject();
+                writer.WriteString(text, text);
+                writer.WriteNumber("n", Value() / Math.Pow(10, Next(10)));
+                writer.WriteEndObject();
+            }
+            return sb.Append(Escape(Encoding.UTF8.GetString(buffer.ToArray()))).ToString();
+        }
+        case 15:
+        {
+            // JsonNode round trips and source-generated deserialization of numbers, strings and collections.
+            string json = Json();
+            var sb = new StringBuilder(Escape(json)).Append(" -> ");
+            try
+            {
+                JsonNode? node = JsonNode.Parse(json);
+                sb.Append(node == null ? "null" : Escape(node.ToJsonString())).Append(' ').Append(node?.GetValueKind().ToString() ?? "-");
+            }
+            catch (Exception e) { sb.Append(e.GetType().Name).Append(": ").Append(Escape(e.Message)); }
+            sb.Append(" | ");
+            try
+            {
+                sb.Append(Next(5) switch
+                {
+                    0 => JsonSerializer.Deserialize(json, FuzzJsonContext.Default.Double).ToString("R"),
+                    1 => JsonSerializer.Deserialize(json, FuzzJsonContext.Default.Int64).ToString(),
+                    2 => JsonSerializer.Deserialize(json, FuzzJsonContext.Default.Decimal).ToString(),
+                    3 => Escape(JsonSerializer.Deserialize(json, FuzzJsonContext.Default.String) ?? "null"),
+                    _ => JsonSerializer.Serialize(JsonSerializer.Deserialize(json, FuzzJsonContext.Default.DictionaryStringListInt32), FuzzJsonContext.Default.DictionaryStringListInt32),
+                });
+            }
+            catch (Exception e) { sb.Append(e.GetType().Name).Append(": ").Append(Escape(e.Message)); }
+            return sb.ToString();
+        }
         default:
         {
             string s = Text(NumberAlphabet, 10);
@@ -205,6 +291,99 @@ ulong NextU64()
 
 int Next(int bound) => (int)(NextU64() % (ulong)bound);
 
+// Mostly well-formed JSON (objects, arrays, escaped strings, numbers, literals, whitespace and
+// comments), then sometimes a character inserted, deleted or replaced.
+string Json()
+{
+    var sb = new StringBuilder();
+    JsonValue(sb, 0);
+    for (int edits = Next(4) == 0 ? 1 + Next(2) : 0; edits > 0 && sb.Length > 0; edits--)
+    {
+        int at = Next(sb.Length);
+        switch (Next(3))
+        {
+            case 0: sb.Insert(at, JsonNoise[Next(JsonNoise.Length)]); break;
+            case 1: sb.Remove(at, 1); break;
+            default: sb[at] = JsonNoise[Next(JsonNoise.Length)]; break;
+        }
+    }
+    return sb.ToString();
+}
+
+void JsonValue(StringBuilder sb, int depth)
+{
+    Space(sb);
+    switch (depth > 4 ? 2 + Next(4) : Next(7))
+    {
+        case 0:
+        {
+            sb.Append('{');
+            for (int i = 0, n = Next(4); i < n; i++)
+            {
+                if (i > 0) sb.Append(',');
+                Space(sb);
+                JsonString(sb);
+                Space(sb);
+                sb.Append(':');
+                JsonValue(sb, depth + 1);
+            }
+            if (Next(8) == 0) sb.Append(',');
+            Space(sb);
+            sb.Append('}');
+            break;
+        }
+        case 1:
+        {
+            sb.Append('[');
+            for (int i = 0, n = Next(4); i < n; i++)
+            {
+                if (i > 0) sb.Append(',');
+                JsonValue(sb, depth + 1);
+            }
+            if (Next(8) == 0) sb.Append(',');
+            Space(sb);
+            sb.Append(']');
+            break;
+        }
+        case 2: JsonString(sb); break;
+        case 3: sb.Append(Next(6) == 0 ? Text(NumberAlphabet, 8) : JsonNumber()); break;
+        case 4: sb.Append(Next(3) switch { 0 => "true", 1 => "false", _ => "null" }); break;
+        default: sb.Append(JsonNumber()); break;
+    }
+    Space(sb);
+}
+
+string JsonNumber()
+{
+    var sb = new StringBuilder();
+    if (Next(3) == 0) sb.Append('-');
+    sb.Append(Next(4) == 0 ? "0" : (Next(3) == 0 ? Value() : Next(1000)).ToString().TrimStart('-'));
+    if (Next(3) == 0) sb.Append('.').Append(Text("0123456789", 6 ) is { Length: > 0 } f ? f : "5");
+    if (Next(4) == 0) sb.Append(Next(2) == 0 ? 'e' : 'E').Append(Next(3) switch { 0 => "+", 1 => "-", _ => "" }).Append(Next(400));
+    return sb.ToString();
+}
+
+void JsonString(StringBuilder sb)
+{
+    sb.Append('"');
+    for (int i = 0, n = Next(8); i < n; i++)
+    {
+        if (Next(5) == 0) sb.Append(Next(9) switch { 0 => "\\n", 1 => "\\\"", 2 => "\\u00e9", 3 => "\\ud83d\\ude00", 4 => "\\ud800", 5 => "\\/", 6 => "\\t", 7 => "\\x", _ => "\\u12G4" });
+        else sb.Append(JsonStringAlphabet[Next(JsonStringAlphabet.Length)]);
+    }
+    sb.Append('"');
+}
+
+void Space(StringBuilder sb)
+{
+    switch (Next(10))
+    {
+        case 0: sb.Append(' '); break;
+        case 1: sb.Append("\n  "); break;
+        case 2: sb.Append(Next(2) == 0 ? "/* c */" : "// c\n"); break;
+    }
+}
+
 // Mostly small and boundary-adjacent values, sometimes any 64-bit pattern.
 long Value() => Next(4) switch
 {
@@ -240,4 +419,13 @@ partial class Program
     const string DateAlphabet = "dddHHhhmmssfffFFFtzyyyMMMgK:/.-' \\%";
     const string StringAlphabet = "ab, \t.aéb ";
     const string RegexInputAlphabet = "aabbcAB01 -.\nxéÉiIkKKİı()";
+    const string JsonStringAlphabet = "aZ09 é€<>&'+\u0001\u001f\u007f\u2028\ud83d\ude00\udc00";
+    const string JsonNoise = "{}[]:,\"\\0-.eE tfn/*\u0000";
 }
+
+[JsonSerializable(typeof(double))]
+[JsonSerializable(typeof(long))]
+[JsonSerializable(typeof(decimal))]
+[JsonSerializable(typeof(string))]
+[JsonSerializable(typeof(Dictionary<string, List<int>>))]
+internal partial class FuzzJsonContext : JsonSerializerContext { }

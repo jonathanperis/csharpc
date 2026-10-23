@@ -1,0 +1,19 @@
+{"Title":"HELLO","Color":"dark_red","Flags":"read, write","Money":"1234 EUR","Temperature":[21.5],"Labels":["A","B"],"Mode":"turbo-mode"}
+hello DarkRed Read, Write 1234 EUR 21.5 a|b Fast
+{"Title":"hello","Color":2,"Flags":3,"Money":"1234 EUR","Temperature":[21.5],"Labels":["a","b"],"Mode":"turbo-mode"}
+["red","dark_red",7]
+"none" "all" 16
+Read, Execute DarkRed DarkRed Fast
+{"red":1,"dark_red":2}
+{"Red":1}
+JsonException: The JSON value could not be converted to Color. Path: $ | LineNumber: 0 | BytePositionInLine: 1.
+JsonException: The JSON value could not be converted to Color. Path: $ | LineNumber: 0 | BytePositionInLine: 8.
+JsonException: Money must be a string.
+ok: Money { Cents = 12, Currency = USD }
+JsonException: The object or value could not be serialized. Path: $.
+"DarkRed"
+1
+{"Value":30}
+deserializing 0,deserialized 3,serializing 30,serialized
+{"I":[5],"S":["x"]}
+9 y

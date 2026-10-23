@@ -77,3 +77,29 @@ csrt_String* csrt_type_namespace(TypeObject* t) {
 }
 
 static csrt_String* type_to_string(void* o) { return csrt_type_full_name(o); }
+
+static bool mt_is_assignable(const csrt_MethodTable* mt, const csrt_MethodTable* target) {
+    for (const csrt_MethodTable* m = mt; m; m = m->base)
+        if (m == target) return true;
+    for (uint32_t i = 0; i < mt->interface_count; i++)
+        if (mt->interfaces[i].interface_type == target) return true;
+    return target == &csrt_Object_MT.header;
+}
+
+/// Type.IsInstanceOfType(obj): obj's class or one of its bases, or an interface it implements.
+bool csrt_type_is_instance(TypeObject* t, void* obj) {
+    if (!t) csrt_throw_null_reference();
+    return obj && mt_is_assignable(((csrt_Object*)obj)->mt, t->target);
+}
+
+/// to.IsAssignableFrom(from) for classes and interfaces (no variance, no value-type conversions).
+bool csrt_type_is_assignable(TypeObject* from, TypeObject* to) {
+    if (!from || !to) csrt_throw_null_reference();
+    return mt_is_assignable(from->target, to->target);
+}
+
+/// Type.IsInterface.
+bool csrt_type_is_interface(TypeObject* t) {
+    if (!t) csrt_throw_null_reference();
+    return (t->target->flags & CSRT_MT_INTERFACE) != 0;
+}
