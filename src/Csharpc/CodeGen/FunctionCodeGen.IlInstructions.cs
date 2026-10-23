@@ -237,12 +237,16 @@ public sealed partial class FunctionCodeGen
             case ILOpCode.Call or ILOpCode.Callvirt or ILOpCode.Newobj:
                 IlCall(instruction, stack, constrained);
                 return false;
+            case ILOpCode.Ldfld or ILOpCode.Ldflda or ILOpCode.Stfld or ILOpCode.Ldsfld or ILOpCode.Ldsflda or ILOpCode.Stsfld
+                when IlAssembly.ResolveMember(instruction.Token, IlBody.Context) is IEventSymbol backing:
+                IlEventBackingField(op, backing, stack);
+                return false;
             case ILOpCode.Ldfld or ILOpCode.Ldflda:
             {
                 var field = IlField(instruction.Token);
                 var instance = Pop();
                 if (op == ILOpCode.Ldflda) { Push(new IlEntry(IlKind.ByRef, IlInstanceFieldAddress(field, instance), field.Type)); return false; }
-                if (IlLibraryInstanceField(field)) { Push(IlPush(EmitValue(new IlFieldReferenceOperation(il.Syntax, field, IlOperand(instance, field.ContainingType))), field.Type)); return false; }
+                if (IlLibraryInstanceField(field)) { Push(IlPush(EmitValue(new IlFieldReferenceOperation(il.Syntax, field, IlOperand(instance, field.ContainingType, lvalue: field.ContainingType.IsValueType))), field.Type)); return false; }
                 var address = IlInstanceFieldAddress(field, instance);
                 Push(IlPush(isVolatile || field.IsVolatile ? VolatileLoad(address, S(field.Type)) : LoadValue(address, S(field.Type)), field.Type));
                 return false;
@@ -339,6 +343,12 @@ public sealed partial class FunctionCodeGen
             {
                 var type = ResolveIlType(instruction.Token);
                 var value = Pop();
+                // `(D)Delegate.Combine(a, b)` in compiled event accessors: both operands are D, and so is the result.
+                if (S(type).TypeKind == TypeKind.Delegate && value.Symbol is IMethodSymbol { Name: "Combine" or "Remove", ContainingType.Name: "Delegate" })
+                {
+                    Push(value with { Type = type, Symbol = null });
+                    return false;
+                }
                 Push(new IlEntry(IlKind.Ref, IlCastClass(IlRef(value), type, value.Type), type));
                 return false;
             }
@@ -630,16 +640,20 @@ public sealed partial class FunctionCodeGen
         _ => throw new IlException($"branch on a {e.Kind} value"),
     };
 
-    /// <summary>A stack entry as an operand of a synthetic operation, typed as <paramref name="type"/>.</summary>
-    private IlValueOperation IlOperand(IlEntry e, ITypeSymbol type, bool asReceiver = false)
+    /// <summary>
+    /// A stack entry as an operand of a synthetic operation, typed as <paramref name="type"/>. An
+    /// <paramref name="lvalue"/> operand (a receiver, a by-ref argument) is the location a managed pointer
+    /// designates; any other operand is the entry's value (a pointer passed as `void*` stays a pointer).
+    /// </summary>
+    private IlValueOperation IlOperand(IlEntry e, ITypeSymbol type, bool lvalue = false)
     {
         var il = _il!;
-        if (e.Kind == IlKind.ByRef || (e.Kind == IlKind.Pointer && asReceiver))
+        if (lvalue && e.Kind is IlKind.ByRef or IlKind.Pointer or IlKind.NativeInt)
         {
-            var address = e.Value;
+            var address = IlAddress(e);
             return new IlValueOperation(il.Syntax, type, () => LoadValue(address, S(type)), address, nonNull: true);
         }
-        if (e.Kind == IlKind.Value && asReceiver)
+        if (e.Kind == IlKind.Value && lvalue)
         {
             // A value-type receiver held by value: give the callee a temporary to work on.
             var spilled = Spill(e.Value);
@@ -898,6 +912,36 @@ public sealed partial class FunctionCodeGen
     {
         var owner = _m.CoreLib.Map(S(field)).ContainingType;
         return !owner.IsValueType && !_m.IsUserType(owner);
+    }
+
+    /// <summary>A field-like event's backing field (Roslyn exposes only the event): its slot in csharpc's layout.</summary>
+    private void IlEventBackingField(ILOpCode op, IEventSymbol e, Stack<IlEntry> stack)
+    {
+        IlEntry Pop() => stack.Count > 0 ? stack.Pop() : throw new IlException("evaluation stack underflow");
+        var value = op is ILOpCode.Stfld or ILOpCode.Stsfld ? Pop() : null;
+        LLVMValueRef address;
+        if (op is ILOpCode.Ldsfld or ILOpCode.Ldsflda or ILOpCode.Stsfld)
+        {
+            if (TypeSubstitution.IsGenericContext(e.ContainingType)) throw new IlException($"static event '{e}' of a generic type");
+            address = _m.StaticEventField(e);
+        }
+        else
+        {
+            var instance = Pop();
+            if (instance.Kind != IlKind.Ref) throw new IlException($"event field '{e.Name}' of a {instance.Kind} value");
+            if (!instance.NonNull) NullCheck(instance.Value);
+            var layout = _m.GetLayout((INamedTypeSymbol)S(e.ContainingType));
+            var index = layout.EventFieldIndex.FirstOrDefault(kv => kv.Key.Name == e.Name
+                && SymbolEqualityComparer.Default.Equals(kv.Key.OriginalDefinition, e.OriginalDefinition)).Value;
+            if (index == 0) throw new IlException($"event '{e.Name}' has no storage in the layout of '{layout.Type}'");
+            address = _b.StructGep(layout.InstanceType, instance.Value, index, e.Name);
+        }
+        switch (op)
+        {
+            case ILOpCode.Ldflda or ILOpCode.Ldsflda: stack.Push(new IlEntry(IlKind.ByRef, address, e.Type)); break;
+            case ILOpCode.Stfld or ILOpCode.Stsfld: _b.Store(IlRef(value!), address); break;
+            default: stack.Push(new IlEntry(IlKind.Ref, _b.Load(L.Ptr, address), e.Type)); break;
+        }
     }
 
     private LLVMValueRef IlInstanceFieldAddress(IFieldSymbol field, IlEntry instance)

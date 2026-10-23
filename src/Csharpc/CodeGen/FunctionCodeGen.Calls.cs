@@ -466,9 +466,21 @@ public sealed partial class FunctionCodeGen
         INamedTypeSymbol { TypeKind: TypeKind.Struct } named when _m.IsUserType(named) => _m.StructMethodTable(named),
         INamedTypeSymbol { TypeKind: TypeKind.Interface } itf => _m.InterfaceMethodTable(itf),
         INamedTypeSymbol { IsTupleType: true } tuple => _m.TupleMethodTable(tuple, this),
+        // Every delegate of a type shares that type's method table (DelegateMethodTable), so a type test is an
+        // identity test — except where generic variance would also accept other instantiations.
+        INamedTypeSymbol { TypeKind: TypeKind.Delegate } d when !MayBeVariant(d) => _m.DelegateMethodTable(d),
         IArrayTypeSymbol { Rank: 1 } array => _m.ArrayMethodTable(array.ElementType),
         _ => throw CompileError.Unsupported($"type test against '{type}'", at),
     };
+
+    /// <summary>A generic delegate/interface instantiation that variance could make compatible with other ones.</summary>
+    internal static bool MayBeVariant(INamedTypeSymbol type)
+    {
+        var definition = type.OriginalDefinition;
+        for (var i = 0; i < definition.TypeParameters.Length; i++)
+            if (definition.TypeParameters[i].Variance != VarianceKind.None && type.TypeArguments[i].IsReferenceType) return true;
+        return false;
+    }
 
     private LLVMValueRef EmitIsType(IIsTypeOperation op)
     {

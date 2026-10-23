@@ -284,9 +284,22 @@ internal static class Intrinsics
             return default;
         };
         Action<FunctionCodeGen, LLVMValueRef> write = (g, s) => g.CallRuntime("csrt_console_write_string", g.Module.Llvm.Void, [g.Module.Llvm.Ptr], s);
+        // string.Format(provider, format, ...): csrt formats with the invariant culture (see ToString(IFormatProvider) above).
+        IntrinsicHandler providerComposite = (g, inv) =>
+        {
+            var l = g.Module.Llvm;
+            var ordered = inv.Arguments.OrderBy(a => a.Parameter!.Ordinal).ToList();
+            g.EmitValue(ordered[0].Value);
+            var format = g.EmitValue(ordered[1].Value);
+            var args = ordered.Count == 3 && ordered[2].Value.Type is IArrayTypeSymbol && ordered[2].ArgumentKind != ArgumentKind.ParamArray
+                ? g.EmitValue(ordered[2].Value)
+                : g.ObjectArray([.. ordered.Skip(2).Select(a => a.Value)]);
+            return g.CallRuntime("csrt_string_format", l.Ptr, [l.Ptr, l.Ptr], format, args);
+        };
         foreach (var arity in new[] { "object", "object, object", "object, object, object", "object[]" })
         {
             t[$"string.Format(string, {arity})"] = composite(null, false);
+            t[$"string.Format(System.IFormatProvider, string, {arity})"] = providerComposite;
             t[$"System.Console.WriteLine(string, {arity})"] = composite(write, true);
             t[$"System.Console.Write(string, {arity})"] = composite(write, false);
         }

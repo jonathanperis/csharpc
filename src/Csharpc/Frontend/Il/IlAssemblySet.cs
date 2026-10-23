@@ -216,6 +216,28 @@ public sealed class IlAssembly : IDisposable, ISignatureTypeProvider<IlType, IlG
         return block.GetContent(0, size).ToArray();
     }
 
+    /// <summary>
+    /// Roslyn hides a field-like event's backing field (same name as the event) from its PE symbols;
+    /// IL accessors still read and write it. The event symbol stands for the field (its storage slot).
+    /// </summary>
+    private IEventSymbol? EventOfBackingField(FieldDefinitionHandle handle)
+    {
+        var field = Reader.GetFieldDefinition(handle);
+        var name = Reader.GetString(field.Name);
+        return Definition(field.GetDeclaringType()) is INamedTypeSymbol owner
+            ? owner.GetMembers(name).OfType<IEventSymbol>().FirstOrDefault()
+            : null;
+    }
+
+    /// <summary>Does the event have a backing field (a field-like event compiled from C#)?</summary>
+    public bool HasBackingField(IEventSymbol e)
+    {
+        var type = TypeDefinitionOf(e.ContainingType);
+        foreach (var handle in type.GetFields())
+            if (Reader.StringComparer.Equals(Reader.GetFieldDefinition(handle).Name, e.Name)) return true;
+        return false;
+    }
+
     /// <summary>Explicit class size (.size) of a type, 0 if none.</summary>
     public int ClassSize(INamedTypeSymbol type) => TypeDefinitionOf(type).GetLayout().Size;
 
@@ -280,7 +302,8 @@ public sealed class IlAssembly : IDisposable, ISignatureTypeProvider<IlType, IlG
         ISymbol result = handle.Kind switch
         {
             HandleKind.MethodDefinition or HandleKind.FieldDefinition =>
-                Definition(handle) ?? throw new IlException($"member 0x{token:X8} has no symbol (unsupported signature?)"),
+                Definition(handle) ?? (handle.Kind == HandleKind.FieldDefinition ? EventOfBackingField((FieldDefinitionHandle)handle) : null)
+                ?? throw new IlException($"member 0x{token:X8} has no symbol (unsupported signature?)"),
             HandleKind.MemberReference => ResolveMemberReference((MemberReferenceHandle)handle, context),
             HandleKind.MethodSpecification => ResolveMethodSpecification((MethodSpecificationHandle)handle, context),
             _ => throw new IlException($"token 0x{token:X8} is not a member"),

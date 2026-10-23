@@ -1,0 +1,86 @@
+#!/usr/bin/env bash
+# IL front-end tests (docs/adr/0010-il-frontend.md): programs whose libraries reach csharpc only as
+# compiled assemblies. Real .NET is the oracle, as everywhere else.
+#
+#   tests/projects/il/<App>/<App>.csproj    console app (OutputType Exe) referencing libraries by <Reference>
+#   tests/projects/il/<Lib>/<Lib>.csproj    libraries: built with `dotnet build -c Release` first; csharpc
+#                                           never sees their sources, only bin/Release/net11.0/<Lib>.dll
+#   tests/projects/il/<App>/expect-error    optional: the app must fail to compile with this diagnostic text
+#
+# Each app is compiled with `csharpc <App>.csproj` at -O0 and -O2 and must print exactly what
+# `dotnet run` prints (and exit with the same code). One app is also compiled from loose files with -r.
+#
+# Usage: tests/il.sh [name-filter]
+set -uo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+DOTNET="${DOTNET:-dotnet}"
+export DOTNET_CLI_TELEMETRY_OPTOUT=1 DOTNET_NOLOGO=1
+WORK="$(cd "$(mktemp -d)" && pwd -P)"
+trap 'rm -rf "$WORK"' EXIT
+FILTER="${1:-}"
+pass=0; fail=0
+
+check() { # name expected actual
+  if diff -u "$2" "$3" > "$WORK/diff"; then echo "PASS $1"; pass=$((pass + 1));
+  else echo "FAIL $1"; sed 's/^/     /' "$WORK/diff" | head -20; fail=$((fail + 1)); fi
+}
+
+"$DOTNET" build "$ROOT/src/Csharpc" -c Release -v quiet -nologo > /dev/null || { echo "compiler build failed"; exit 1; }
+CSHARPC_DLL="$ROOT/src/Csharpc/bin/Release/net11.0/csharpc.dll"
+
+# A private copy of the tree, so builds never pollute the repository.
+cp -r "$ROOT/tests/projects/il" "$WORK/il"
+find "$WORK/il" -name bin -o -name obj | xargs rm -rf
+
+# 1. Libraries: everything that is not an executable.
+for proj in "$WORK"/il/*/*.csproj; do
+  grep -q '<OutputType>Exe' "$proj" && continue
+  if ! "$DOTNET" build "$proj" -c Release -v quiet -nologo > "$WORK/log" 2>&1; then
+    echo "FAIL $(basename "$proj" .csproj): dotnet build of the library failed"; sed 's/^/     /' "$WORK/log" | grep -E "error" | head; fail=$((fail+1))
+  fi
+done
+
+# 2. Apps.
+for proj in "$WORK"/il/*/*.csproj; do
+  grep -q '<OutputType>Exe' "$proj" || continue
+  app="$(basename "$proj" .csproj)"
+  dir="$(dirname "$proj")"
+  [[ -n "$FILTER" && "$app" != *"$FILTER"* ]] && continue
+
+  if [[ -f "$dir/expect-error" ]]; then
+    if "$DOTNET" "$CSHARPC_DLL" "$proj" -o "$WORK/out/" > "$WORK/log" 2>&1; then
+      echo "FAIL $app: compiled, but a diagnostic was expected"; fail=$((fail+1))
+    elif grep -qF -f "$dir/expect-error" "$WORK/log"; then
+      echo "PASS $app: expected diagnostic"; pass=$((pass+1))
+    else
+      echo "FAIL $app: wrong diagnostic"; sed 's/^/     /' "$WORK/log" | head; echo "     expected: $(cat "$dir/expect-error")"; fail=$((fail+1))
+    fi
+    continue
+  fi
+
+  (cd "$dir" && "$DOTNET" run -v quiet 2>/dev/null) > "$WORK/expected"; expected_code=$?
+  rm -rf "$dir/bin" "$dir/obj" # csharpc must not see the managed build
+  for opt in -O0 -O2; do
+    if "$DOTNET" "$CSHARPC_DLL" "$proj" "$opt" -o "$WORK/out$opt/" > "$WORK/log" 2>&1; then
+      "$WORK/out$opt/$app" > "$WORK/actual" 2>&1; code=$?
+      check "$app $opt" "$WORK/expected" "$WORK/actual"
+      [[ $code == "$expected_code" ]] || { echo "FAIL $app $opt: exit code $code, .NET exits $expected_code"; fail=$((fail+1)); }
+    else
+      echo "FAIL $app $opt: csharpc <project>"; sed 's/^/     /' "$WORK/log" | head -20; fail=$((fail+1))
+    fi
+  done
+done
+
+# 3. Loose files + -r (the command-line form of an assembly reference).
+if [[ -z "$FILTER" || "IlApp" == *"$FILTER"* ]]; then
+  lib="$WORK/il/IlShapes/bin/Release/net11.0/IlShapes.dll"
+  (cd "$WORK/il/IlApp" && "$DOTNET" run -v quiet 2>/dev/null) > "$WORK/expected"
+  if "$DOTNET" "$CSHARPC_DLL" "$WORK/il/IlApp/Program.cs" -r "$lib" -o "$WORK/loose" > "$WORK/log" 2>&1; then
+    "$WORK/loose" > "$WORK/actual" 2>&1; check "IlApp: csharpc Program.cs -r IlShapes.dll" "$WORK/expected" "$WORK/actual"
+  else echo "FAIL IlApp: csharpc -r"; sed 's/^/     /' "$WORK/log" | head; fail=$((fail+1)); fi
+fi
+
+echo
+echo "$pass passed, $fail failed"
+[[ $fail == 0 ]]

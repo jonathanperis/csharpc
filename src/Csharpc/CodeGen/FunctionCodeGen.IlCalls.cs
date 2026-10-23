@@ -53,7 +53,7 @@ public sealed partial class FunctionCodeGen
             if (parameter.RefKind != RefKind.None && arg.Kind is not (IlKind.ByRef or IlKind.Pointer or IlKind.NativeInt))
                 throw new IlException($"by-ref argument '{parameter.Name}' passed a {arg.Kind} value");
             var value = parameter.RefKind != RefKind.None
-                ? IlOperand(arg with { Kind = IlKind.ByRef, Value = IlAddress(arg) }, parameter.Type)
+                ? IlOperand(arg, parameter.Type, lvalue: true)
                 : IlOperand(arg, parameter.Type);
             builder.Add(new IlArgumentOperation(_il!.Syntax, parameter, value));
         }
@@ -69,9 +69,9 @@ public sealed partial class FunctionCodeGen
             // `constrained. T callvirt M`: the receiver is a managed pointer to a T. After substitution a
             // reference-type T loads the object; a value type is called in place (or boxed) by the source path.
             if (receiver.Kind is not (IlKind.ByRef or IlKind.Pointer)) throw new IlException("constrained call without a managed pointer receiver");
-            return IlOperand(receiver, constrained, asReceiver: true);
+            return IlOperand(receiver, constrained, lvalue: true);
         }
-        if (method.ContainingType.IsValueType) return IlOperand(receiver, method.ContainingType, asReceiver: true);
+        if (method.ContainingType.IsValueType) return IlOperand(receiver, method.ContainingType, lvalue: true);
         var type = receiver.Type is { } t && S(t) is { IsReferenceType: true } && receiver.Kind == IlKind.Ref ? t : method.ContainingType;
         if (baseCall)
         {
@@ -97,6 +97,12 @@ public sealed partial class FunctionCodeGen
             return IlPush(LibraryOperator(mapped, operands, IlAt()), method.ReturnType);
         }
 
+        // Operators of built-in types called as methods (decimal.op_Addition, and generic math through a
+        // constrained call: INumber<T>.op_Multiply with T = int): the source path's operator lowering.
+        if (method.IsStatic && method.MethodKind is MethodKind.UserDefinedOperator or MethodKind.Conversion
+            && IlBuiltinOperator(method, mapped, args, constrained) is { } builtin)
+            return builtin;
+
         // Library property accessors (string.Length, Console.Out, List<T>.Count on an interface...): the
         // source path implements them as properties, not as accessor methods.
         if (method.AssociatedSymbol is IPropertySymbol property && !_m.IsUserMethod(mapped) && method.ContainingType.TypeKind != TypeKind.Interface)
@@ -119,7 +125,57 @@ public sealed partial class FunctionCodeGen
         var invocation = new IlInvocationOperation(il.Syntax, method, instance, isVirtual && !baseCall, IlArguments(method.Parameters, args), constrained);
         if (method.RefKind != RefKind.None) return new IlEntry(IlKind.ByRef, EmitInvocation(invocation), method.ReturnType);
         var result = EmitValue(invocation);
-        return method.ReturnsVoid ? null : IlPush(result, method.ReturnType);
+        if (method.ReturnsVoid) return null;
+        var pushed = IlPush(result, method.ReturnType);
+        // Remember Delegate.Combine/Remove results: the cast that follows them cannot fail (see castclass).
+        return method is { Name: "Combine" or "Remove", ContainingType.Name: "Delegate", IsStatic: true } ? pushed with { Symbol = method } : pushed;
+    }
+
+    private static readonly Dictionary<string, (BinaryOperatorKind Kind, bool Checked)> s_ilBinaryOperators = new()
+    {
+        ["op_Addition"] = (BinaryOperatorKind.Add, false), ["op_CheckedAddition"] = (BinaryOperatorKind.Add, true),
+        ["op_Subtraction"] = (BinaryOperatorKind.Subtract, false), ["op_CheckedSubtraction"] = (BinaryOperatorKind.Subtract, true),
+        ["op_Multiply"] = (BinaryOperatorKind.Multiply, false), ["op_CheckedMultiply"] = (BinaryOperatorKind.Multiply, true),
+        ["op_Division"] = (BinaryOperatorKind.Divide, false), ["op_CheckedDivision"] = (BinaryOperatorKind.Divide, true),
+        ["op_Modulus"] = (BinaryOperatorKind.Remainder, false),
+        ["op_BitwiseAnd"] = (BinaryOperatorKind.And, false), ["op_BitwiseOr"] = (BinaryOperatorKind.Or, false),
+        ["op_ExclusiveOr"] = (BinaryOperatorKind.ExclusiveOr, false), ["op_LeftShift"] = (BinaryOperatorKind.LeftShift, false),
+        ["op_RightShift"] = (BinaryOperatorKind.RightShift, false), ["op_UnsignedRightShift"] = (BinaryOperatorKind.UnsignedRightShift, false),
+        ["op_Equality"] = (BinaryOperatorKind.Equals, false), ["op_Inequality"] = (BinaryOperatorKind.NotEquals, false),
+        ["op_LessThan"] = (BinaryOperatorKind.LessThan, false), ["op_LessThanOrEqual"] = (BinaryOperatorKind.LessThanOrEqual, false),
+        ["op_GreaterThan"] = (BinaryOperatorKind.GreaterThan, false), ["op_GreaterThanOrEqual"] = (BinaryOperatorKind.GreaterThanOrEqual, false),
+    };
+
+    private static bool IsBuiltinOperand(ITypeSymbol type) =>
+        type.SpecialType is >= SpecialType.System_Boolean and <= SpecialType.System_Double or SpecialType.System_IntPtr or SpecialType.System_UIntPtr;
+
+    /// <summary>An operator method on built-in operand types (decimal, or a primitive T after substitution); null otherwise.</summary>
+    private IlEntry? IlBuiltinOperator(IMethodSymbol method, IMethodSymbol mapped, IlEntry[] args, ITypeSymbol? constrained)
+    {
+        if (_m.IsUserMethod(mapped) || (constrained is not null && _m.IsUserType(S(constrained)))) return null;
+        var types = mapped.Parameters.Select(p => S(p.Type)).ToArray();
+        if (!types.All(IsBuiltinOperand)) return null;
+        var values = method.Parameters.Select((p, i) => IlTyped(args[i], p.Type)).ToArray();
+        var name = method.Name;
+        if (s_ilBinaryOperators.TryGetValue(name, out var binary) && values.Length == 2)
+            return IlPush(Arithmetic(binary.Kind, values[0], values[1], types[0], types[1], IlAt(), binary.Checked), method.ReturnType);
+        if (values.Length != 1) return null;
+        var (v, t) = (values[0], types[0]);
+        LLVMValueRef One() => t.SpecialType == SpecialType.System_Decimal ? Constant(1m, t) : Constant(1, t);
+        LLVMValueRef? result = name switch
+        {
+            "op_UnaryPlus" => v,
+            "op_UnaryNegation" when t.SpecialType == SpecialType.System_Decimal => DecimalNegate(v),
+            "op_UnaryNegation" => v.Type.IsFloatingPoint ? _b.FNeg(v) : _b.Neg(v),
+            "op_CheckedUnaryNegation" when v.Type.IsInteger => CheckedArithmetic("sub", L.ConstInt(v.Type, 0), v, TypeMapper.IsSigned(t)),
+            "op_OnesComplement" or "op_LogicalNot" when v.Type.IsInteger => _b.Not(v),
+            "op_Increment" or "op_CheckedIncrement" => Arithmetic(BinaryOperatorKind.Add, v, One(), t, t, IlAt(), name.Contains("Checked")),
+            "op_Decrement" or "op_CheckedDecrement" => Arithmetic(BinaryOperatorKind.Subtract, v, One(), t, t, IlAt(), name.Contains("Checked")),
+            "op_Implicit" or "op_Explicit" or "op_CheckedExplicit" when IsBuiltinOperand(S(mapped.ReturnType)) =>
+                ConvertNumeric(v, t, S(mapped.ReturnType), IlAt(), isChecked: name == "op_CheckedExplicit"),
+            _ => null,
+        };
+        return result is { } r ? IlPush(r, method.ReturnType) : null;
     }
 
     private IlEntry IlNewObject(IMethodSymbol constructor, IlEntry[] args)

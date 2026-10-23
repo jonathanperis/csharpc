@@ -711,7 +711,9 @@ public sealed partial class ModuleCodeGen
             layout.SlotOrder.Add(f);
             elements.Add(FieldStorage(f));
         }
-        foreach (var e in type.GetMembers().OfType<IEventSymbol>().Where(e => !e.IsStatic && e.AddMethod is null or { IsImplicitlyDeclared: true }))
+        var ilOwner = Il.OwnerOf(type);
+        foreach (var e in type.GetMembers().OfType<IEventSymbol>().Where(e => !e.IsStatic
+                     && (e.AddMethod is null or { IsImplicitlyDeclared: true } || ilOwner?.HasBackingField(e) == true)))
         {
             layout.EventFieldIndex[e] = (uint)elements.Count;
             layout.SlotOrder.Add(e);
