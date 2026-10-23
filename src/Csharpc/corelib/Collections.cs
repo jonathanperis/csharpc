@@ -21,7 +21,7 @@ namespace CsharpcCoreLib
 
         public QueueImpl(int capacity)
         {
-            if (capacity < 0) ThrowHelper.ArgumentOutOfRange("capacity", "Non-negative number required.");
+            ThrowHelper.IfNegative(capacity, "capacity");
             _array = new T[capacity];
         }
 
@@ -105,6 +105,7 @@ namespace CsharpcCoreLib
 
         public int EnsureCapacity(int capacity)
         {
+            ThrowHelper.IfNegative(capacity, "capacity");
             if (_array.Length < capacity) Grow(capacity);
             return _array.Length;
         }
@@ -169,7 +170,7 @@ namespace CsharpcCoreLib
 
         public StackImpl(int capacity)
         {
-            if (capacity < 0) ThrowHelper.ArgumentOutOfRange("capacity", "Non-negative number required.");
+            ThrowHelper.IfNegative(capacity, "capacity");
             _array = new T[capacity];
         }
 
@@ -253,6 +254,7 @@ namespace CsharpcCoreLib
 
         public int EnsureCapacity(int capacity)
         {
+            ThrowHelper.IfNegative(capacity, "capacity");
             if (_array.Length < capacity)
             {
                 int newCapacity = Math.Max(capacity, _array.Length == 0 ? 4 : 2 * _array.Length);
@@ -631,7 +633,7 @@ namespace CsharpcCoreLib
 
         public PriorityQueueImpl(int initialCapacity, IComparer<TPriority> comparer)
         {
-            if (initialCapacity < 0) ThrowHelper.ArgumentOutOfRange("initialCapacity", "Non-negative number required.");
+            ThrowHelper.IfNegative(initialCapacity, "initialCapacity");
             _elements = new TElement[initialCapacity];
             _priorities = new TPriority[initialCapacity];
             if (comparer != null && (object)comparer != (object)Comparer<TPriority>.Default) _comparer = comparer;
@@ -721,6 +723,7 @@ namespace CsharpcCoreLib
 
         public int EnsureCapacity(int capacity)
         {
+            ThrowHelper.IfNegative(capacity, "capacity");
             if (_elements.Length < capacity) Grow(capacity);
             return _elements.Length;
         }

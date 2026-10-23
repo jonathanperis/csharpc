@@ -63,9 +63,10 @@ public sealed partial class FunctionCodeGen
     internal IrBuilder Builder => _b;
 
     public FunctionCodeGen(ModuleCodeGen module, IMethodSymbol? method, LoweredFunction fn, ClosureFunction? nested = null,
-        TypeSubstitution? substitution = null)
+        TypeSubstitution? substitution = null, INamedTypeSymbol? initializingType = null)
     {
         _m = module;
+        _initializingType = initializingType;
         _nested = nested;
         _method = method;
         _subst = substitution ?? TypeSubstitution.For(method, module.Compilation);
@@ -139,6 +140,42 @@ public sealed partial class FunctionCodeGen
                 if (_slots.TryGetValue(method.Parameters[i], out var shared)) _slots[implSetter.Parameters[i]] = shared;
         _start = _b.AppendBlock(fn.Fn, "start");
         _b.PositionAtEnd(_start);
+        // Types with a static constructor run it on entry to their static methods and constructors.
+        if (method is not null && _m.TriggersClassInitOnEntry(method)) EnsureClassInitialized(method.ContainingType, onEntry: true);
+    }
+
+    /// <summary>The type whose static initializer this function is (its own static fields need no checks).</summary>
+    private readonly INamedTypeSymbol? _initializingType;
+
+    /// <summary>
+    /// Runs <paramref name="type"/>'s static initialization if it hasn't run yet (ModuleCodeGen.StaticInit.cs):
+    /// before a static field access, or on entry to a member that triggers it.
+    /// </summary>
+    internal void EnsureClassInitialized(INamedTypeSymbol type, bool onEntry = false)
+    {
+        if (_m.ClassInitFor(type) is not { } init) return;
+        if (SymbolEqualityComparer.Default.Equals(_initializingType, init.Type)) return;
+        // Code of a type whose members check on entry has already initialized it (or is doing so).
+        if (!onEntry && _method is { } m && SymbolEqualityComparer.Default.Equals(m.ContainingType.OriginalDefinition, init.Type)
+            && _m.TriggersClassInitOnEntry(m)) return;
+        var stateType = L.Struct(L.I32, L.I32, L.Ptr, L.Ptr);
+        var state = _b.Load(L.I32, _b.StructGep(stateType, init.State, 0), "cctor.state");
+        Native.LLVMSetOrdering(state, LLVMAtomicOrdering.Acquire);
+        Native.LLVMSetAlignment(state, 4);
+        var slow = NewBlock("cctor.run");
+        var cont = NewBlock("cctor.done");
+        _b.CondBr(_b.ICmp(LLVMIntPredicate.EQ, state, L.ConstInt(L.I32, 2)), cont, slow);
+        _b.PositionAtEnd(slow);
+        _b.Call(init.Check.Type, init.Check.Fn, []);
+        _b.Br(cont);
+        _b.PositionAtEnd(cont);
+    }
+
+    /// <summary>Address of a static field, after its type's lazy static initialization.</summary>
+    internal LLVMValueRef StaticFieldAddress(IFieldSymbol field)
+    {
+        EnsureClassInitialized(field.ContainingType);
+        return _m.StaticField(field);
     }
 
     private ITypeSymbol? ReturnType =>
@@ -199,7 +236,7 @@ public sealed partial class FunctionCodeGen
     {
         var property = (IPropertySymbol)_method!.AssociatedSymbol!;
         var field = BackingField(property);
-        var address = field.IsStatic ? _m.StaticField(field) : FieldAddressOn(_this, field);
+        var address = field.IsStatic ? StaticFieldAddress(field) : FieldAddressOn(_this, field);
         if (_method.MethodKind == MethodKind.PropertyGet)
             _b.Ret(LoadValue(address, field.Type));
         else

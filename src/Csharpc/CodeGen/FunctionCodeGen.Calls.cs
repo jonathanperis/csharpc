@@ -537,7 +537,7 @@ public sealed partial class FunctionCodeGen
         {
             // Get-only auto-property assigned in a constructor: write the backing field directly.
             var field = BackingField(property);
-            var address = field.IsStatic ? _m.StaticField(field) : FieldAddressOn(self, field);
+            var address = field.IsStatic ? StaticFieldAddress(field) : FieldAddressOn(self, field);
             StoreValue(ToStorage(v, property.Type), address);
             return v;
         }
@@ -915,10 +915,13 @@ public sealed partial class FunctionCodeGen
         {
             case IConstantPatternOperation { Value.ConstantValue: { HasValue: true, Value: null } } when inputType is { IsValueType: true } && !TypeMapper.IsNullable(inputType):
                 return L.False; // `x is null` with a non-nullable value type T (generic code)
+            case IConstantPatternOperation constant when IsBoxedConstantTest(value, inputType, constant, out var boxedType):
+                return BoxedConstantPatternTest(value, inputType, boxedType, constant);
             case IConstantPatternOperation constant:
             {
-                var c = EmitValue(constant.Value);
                 var constantType = TypeOf(constant.Value);
+                if (IsNaNConstant(constant)) return IsNaN(value); // patterns compare with Equals semantics: NaN matches NaN
+                var c = EmitValue(constant.Value);
                 if (inputType is not null && !value.Type.IsPointer) c = Coerce(c, constantType, inputType);
                 return Arithmetic(BinaryOperatorKind.Equals, value, c, inputType ?? constantType!, constantType ?? inputType!, pattern);
             }

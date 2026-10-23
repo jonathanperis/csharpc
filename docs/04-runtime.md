@@ -77,6 +77,17 @@ Linux also ends with SIGABRT, so both exit with status **134**. The differential
 The .NET stack trace isn't reproduced. Real exceptions are designed in
 [ADR 0005](adr/0005-exceptions.md).
 
+`Exception.ToString()` therefore has no `   at Namespace.Type.Method(Args) in path:line N` lines.
+Matching them byte for byte is out of reach. The frames would need .NET's method-signature
+formatting of IL names that csharpc never sees: Roslyn's lambda, async and iterator method names,
+and "--- End of stack trace from previous location ---" markers. They would also need line tables
+in every binary, and they would have to undo LLVM's inlining, since `dotnet run` builds Debug
+without it. csharpc doesn't invent frames that would differ anyway. ToString prints exactly what
+.NET prints for an exception that was never thrown: the type, the message, and the inner
+exceptions. Because a thrown exception's text then differs, the compiler warns (`CSLLVM0006`) at
+each place where a program turns an exception into text. Reading
+`Exception.StackTrace` is a compile error (`CSLLVM0001`).
+
 ## The C / C# boundary
 
 The target architecture is the one Rust and NativeAOT use: library code written in the language

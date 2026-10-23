@@ -198,6 +198,21 @@ internal static partial class BclValueTypes
         ?? ArrayElementOf(at, ordinal)
         ?? throw CompileError.Unsupported($"'{method}' on a non-array argument", at);
 
+    private static LLVMValueRef ArrayCopy(FunctionCodeGen g, IMethodSymbol m, IOperation at, LLVMValueRef src, LLVMValueRef srcIndex,
+        LLVMValueRef dst, LLVMValueRef dstIndex, LLVMValueRef length, bool longLength)
+    {
+        var dstOrdinal = m.Parameters.Length == 3 ? 1 : 2;
+        var e = ElementOrThrow(m, at, 0);
+        var de = ArrayElementOf(at, dstOrdinal) ?? throw CompileError.Unsupported($"'{m}' on a non-array argument", at);
+        if (!SymbolEqualityComparer.Default.Equals(e, de)
+            && !(e.IsReferenceType && de.IsReferenceType && g.Module.Compilation.ClassifyCommonConversion(e, de) is { IsImplicit: true, IsReference: true } or { IsIdentity: true }))
+            throw CompileError.Unsupported($"Array.Copy from {e}[] to {de}[] (element conversion)", at);
+        g.CallCoreLib("ArrayChecks", "Copy", src, srcIndex, dst, dstIndex, length, longLength ? g.Llvm.True : g.Llvm.False);
+        Rt(g, "csrt_array_copy", g.Llvm.Void, (src, g.Llvm.Ptr), (srcIndex, g.Llvm.I64), (dst, g.Llvm.Ptr), (dstIndex, g.Llvm.I64),
+            (length, g.Llvm.I64), (I64(g, (long)g.Types.Target.SizeOf(g.Types.Storage(e))), g.Llvm.I64));
+        return default;
+    }
+
     // ---- TimeSpan ----------------------------------------------------------------------------
 
     private static LLVMValueRef TimeSpanFromUnits(FunctionCodeGen g, IMethodSymbol method, LLVMValueRef self, LLVMValueRef[] args, IOperation at)
@@ -552,12 +567,11 @@ internal static partial class BclValueTypes
             Rt(g, "csrt_string_compare_culture", g.Llvm.I32, (a[0], g.Llvm.Ptr), (a[1], g.Llvm.Ptr), (g.Llvm.False, g.Llvm.I1));
         t["string.Compare(string, string, bool)"] = (g, _, _, a, _) =>
             Rt(g, "csrt_string_compare_culture", g.Llvm.I32, (a[0], g.Llvm.Ptr), (a[1], g.Llvm.Ptr), (a[2], g.Llvm.I1));
-        t["string.Compare(string, string, System.StringComparison)"] = (g, _, _, a, _) =>
-            Rt(g, "csrt_string_compare_with", g.Llvm.I32, (a[0], g.Llvm.Ptr), (a[1], g.Llvm.Ptr), (a[2], g.Llvm.I32));
-        t["string.Equals(string, string, System.StringComparison)"] = (g, _, _, a, _) =>
-            g.Builder.ICmp(LLVMIntPredicate.EQ, Rt(g, "csrt_string_compare_with", g.Llvm.I32, (a[0], g.Llvm.Ptr), (a[1], g.Llvm.Ptr), (a[2], g.Llvm.I32)), I32(g, 0));
-        t["string.Equals(string, System.StringComparison)"] = (g, _, self, a, _) =>
-            g.Builder.ICmp(LLVMIntPredicate.EQ, Rt(g, "csrt_string_compare_with", g.Llvm.I32, (self, g.Llvm.Ptr), (a[0], g.Llvm.Ptr), (a[1], g.Llvm.I32)), I32(g, 0));
+        // OrdinalIgnoreCase (full simple case mapping, surrogate pairs) and argument validation in C#
+        // (corelib OrdinalCasing); culture and ordinal comparisons stay in csrt.
+        t["string.Compare(string, string, System.StringComparison)"] = (g, _, _, a, _) => g.CallCoreLib("OrdinalCasing", "CompareWith", a[0], a[1], a[2]);
+        t["string.Equals(string, string, System.StringComparison)"] = (g, _, _, a, _) => g.CallCoreLib("OrdinalCasing", "EqualsWith", a[0], a[1], a[2]);
+        t["string.Equals(string, System.StringComparison)"] = (g, _, self, a, _) => g.CallCoreLib("OrdinalCasing", "EqualsWith", self, a[0], a[1]);
         t["System.Math.Round(double, System.MidpointRounding)"] = (g, _, _, a, _) =>
             Rt(g, "csrt_math_round_mode", g.Llvm.F64, (a[0], g.Llvm.F64), (I32(g, 0), g.Llvm.I32), (a[1], g.Llvm.I32));
         t["System.Math.Round(double, int, System.MidpointRounding)"] = (g, _, _, a, _) =>
@@ -899,7 +913,7 @@ internal static partial class BclValueTypes
         BclHandler reverse = (g, m, _, a, at) =>
         {
             var e = ElementOrThrow(m, at, 0);
-            Rt(g, "csrt_array_reverse", g.Llvm.Void, (a[0], g.Llvm.Ptr), (I64(g, 0), g.Llvm.I64), (I64(g, -1), g.Llvm.I64), (size(g, e), g.Llvm.I64));
+            Rt(g, "csrt_array_reverse", g.Llvm.Void, (a[0], g.Llvm.Ptr), (I64(g, 0), g.Llvm.I64), (I64(g, long.MinValue), g.Llvm.I64), (size(g, e), g.Llvm.I64));
             return default;
         };
         t[$"{A}.Reverse(T[])"] = t[$"{A}.Reverse({A})"] = reverse;
@@ -921,21 +935,15 @@ internal static partial class BclValueTypes
             Rt(g, "csrt_array_clear", g.Llvm.Void, (a[0], g.Llvm.Ptr), (ToI64(g, a[1]), g.Llvm.I64), (ToI64(g, a[2]), g.Llvm.I64), (size(g, e), g.Llvm.I64));
             return default;
         };
+        // Arguments are validated in C# (corelib ArrayChecks, .NET's order and messages); the copy is
+        // a memmove of the source's element size, so element types must agree (or be a reference
+        // conversion that needs no per-element check).
         t[$"{A}.Copy({A}, {A}, int)"] = (g, m, _, a, at) =>
-        {
-            var e = ElementOrThrow(m, at, 0);
-            Rt(g, "csrt_array_copy", g.Llvm.Void, (a[0], g.Llvm.Ptr), (I64(g, 0), g.Llvm.I64), (a[1], g.Llvm.Ptr), (I64(g, 0), g.Llvm.I64),
-                (ToI64(g, a[2]), g.Llvm.I64), (size(g, e), g.Llvm.I64));
-            return default;
-        };
-        t[$"{A}.Copy({A}, {A}, long)"] = t[$"{A}.Copy({A}, {A}, int)"];
+            ArrayCopy(g, m, at, a[0], I64(g, 0), a[1], I64(g, 0), ToI64(g, a[2]), longLength: false);
+        t[$"{A}.Copy({A}, {A}, long)"] = (g, m, _, a, at) =>
+            ArrayCopy(g, m, at, a[0], I64(g, 0), a[1], I64(g, 0), ToI64(g, a[2]), longLength: true);
         t[$"{A}.Copy({A}, int, {A}, int, int)"] = (g, m, _, a, at) =>
-        {
-            var e = ElementOrThrow(m, at, 0);
-            Rt(g, "csrt_array_copy", g.Llvm.Void, (a[0], g.Llvm.Ptr), (ToI64(g, a[1]), g.Llvm.I64), (a[2], g.Llvm.Ptr), (ToI64(g, a[3]), g.Llvm.I64),
-                (ToI64(g, a[4]), g.Llvm.I64), (size(g, e), g.Llvm.I64));
-            return default;
-        };
+            ArrayCopy(g, m, at, a[0], ToI64(g, a[1]), a[2], ToI64(g, a[3]), ToI64(g, a[4]), longLength: false);
         t[$"{A}.Fill(T[], T)"] = (g, m, _, a, at) =>
         {
             var e = ElementOrThrow(m, at, 0);

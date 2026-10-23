@@ -76,7 +76,7 @@ public sealed partial class FunctionCodeGen
         {
             // Get-only auto-property assigned in a constructor: write its backing field.
             var field = BackingField(pc.Property);
-            var address = field.IsStatic ? _m.StaticField(field) : FieldAddressOn(_b.Load(L.Ptr, pc.Self), field);
+            var address = field.IsStatic ? StaticFieldAddress(field) : FieldAddressOn(_b.Load(L.Ptr, pc.Self), field);
             StoreValue(ToStorage(value, S(field.Type)), address);
             return value;
         }
@@ -99,6 +99,7 @@ public sealed partial class FunctionCodeGen
             "IsValueType" => t!.IsValueType ? L.True : L.False,
             "Box" => BoxOrThrow(t!, args[0], inv),
             "Unbox" => UnboxOrThrow(t!, args[0], inv),
+            "CastOrThrow" => CastOrThrow(t!, args[0], inv),
             "FastAllocateString" => FastAllocateString(args[0]),
             "StringChars" => MakeSpan(_b.StructGep(T.StringHeader, args[0], 2), _b.Load(L.I32, _b.StructGep(T.StringHeader, args[0], 1), "strlen")),
             "DoubleToBits" => _b.Cast(LLVMOpcode.BitCast, args[0], L.I64),
@@ -113,6 +114,7 @@ public sealed partial class FunctionCodeGen
             // DateTime is its i64 _dateData (BclValueTypes.cs)
             "DateTimeData" or "MakeDateTime" => args[0],
             "CompareStrings" => CallRuntime("csrt_string_compare_culture", L.I32, [L.Ptr, L.Ptr, L.I1], args[0], args[1], L.False),
+            "CompareStringsWith" => CallRuntime("csrt_string_compare_with", L.I32, [L.Ptr, L.Ptr, L.I32], args[0], args[1], args[2]),
             _ => throw CompileError.Unsupported($"corelib intrinsic '{target.Name}'", inv),
         };
     }
@@ -152,6 +154,18 @@ public sealed partial class FunctionCodeGen
         catch (CompileError)
         {
             ThrowAndContinue("System.NotSupportedException", $"csharpc: boxing '{t}' is not supported yet.");
+            return LlvmContext.Null(L.Ptr);
+        }
+    }
+
+    /// <summary>(T)obj with a checked cast; types csharpc can't type-test yet throw at run time only.</summary>
+    private LLVMValueRef CastOrThrow(ITypeSymbol t, LLVMValueRef obj, IOperation at)
+    {
+        if (t.IsValueType) return UnboxOrThrow(t, obj, at);
+        try { return CastClass(obj, t, at); }
+        catch (CompileError)
+        {
+            ThrowAndContinue("System.NotSupportedException", $"csharpc: casting to '{t}' is not supported yet.");
             return LlvmContext.Null(L.Ptr);
         }
     }

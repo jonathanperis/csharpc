@@ -456,14 +456,31 @@ and rethrow are rejected. The design for real unwinding is [ADR 0005](adr/0005-e
 
 ## Static initialization
 
-Static fields are internal, zero-initialized globals (`ModuleCodeGen.StaticField`).
-`__csharpc_static_init` runs **every** static field initializer and **every** explicit static
-constructor, in declaration order, **eagerly before `Main`**.
+Static fields are internal, zero-initialized globals (`ModuleCodeGen.StaticField`). A type's
+static initialization (its static field initializers in declaration order, then its static
+constructor) runs with the timing CoreCLR has (`ModuleCodeGen.StaticInit.cs`):
 
-This deviates from .NET, which runs a type's initializer lazily, on first access (precisely, or
-`beforefieldinit`-relaxed when there's no static constructor). Programs whose output depends on
-static-constructor *ordering or side effects* can behave differently. Precise lazy initialization
-(guard flag plus an init check at access sites, which LLVM can hoist) is on the roadmap.
+| type | initialized |
+|---|---|
+| explicit static constructor | exactly once, on entry to the first of its static methods, accessors or instance constructors (for a struct also its instance methods) that runs |
+| static field initializers only (`beforefieldinit`) | on the first static field access (read, write or `ref`); method calls and `new` don't trigger it |
+| only side-effect-free constant initializers (literals, `default`, `typeof`, arrays of those) | at startup, in `__csharpc_static_init` (unobservable, so no checks) |
+| never used | never |
+
+A lazily initialized type has a `csrt_ClassInit` global `{ state, owner, exception }`. Access
+sites and entry points emit an acquire load of `state` and call the type's cold
+`__csharpc_cctor_check.<Type>` while it isn't "done". That function calls
+`csrt_class_init_begin` (src/runtime/threads.c), runs the initializer through
+`csrt_call_catching_void`, then calls `csrt_class_init_end`. Other threads block until the
+initializer finishes. The initializing thread may re-enter, so an initialization cycle sees
+default values, as in .NET. An escaping exception is wrapped in a `TypeInitializationException`
+("The type initializer for 'T' threw an exception.", with the original as `InnerException`).
+The wrapper is cached and rethrown on every later access. Not supported yet: static initializers
+and static constructors of generic types (`CSLLVM0001`), and the CLR's deadlock resolution when
+two threads initialize types that depend on each other.
+
+Referenced corelib types still initialize eagerly at startup. Their initializers have no
+observable side effects.
 
 `const` fields never exist at run time: Roslyn folds them into `ConstantValue`, and csharpc emits
 the constant directly.

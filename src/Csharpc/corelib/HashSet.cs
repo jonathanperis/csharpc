@@ -34,7 +34,7 @@ namespace CsharpcCoreLib
 
         public HashSetImpl(int capacity, IEqualityComparer<T> comparer)
         {
-            if (capacity < 0) ThrowHelper.ArgumentOutOfRange("capacity", "Non-negative number required.");
+            if (capacity < 0) throw new ArgumentOutOfRangeException("capacity");
             SetComparer(comparer);
             if (capacity > 0) Initialize(capacity);
         }
@@ -230,7 +230,7 @@ namespace CsharpcCoreLib
 
         public int EnsureCapacity(int capacity)
         {
-            if (capacity < 0) ThrowHelper.ArgumentOutOfRange("capacity", "Non-negative number required.");
+            if (capacity < 0) throw new ArgumentOutOfRangeException("capacity");
             int current = Capacity;
             if (current >= capacity) return current;
             if (_buckets == null) return Initialize(capacity);

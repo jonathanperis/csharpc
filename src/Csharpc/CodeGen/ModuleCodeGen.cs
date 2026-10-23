@@ -19,6 +19,31 @@ public sealed partial class ModuleCodeGen
     public LlvmModule Module { get; }
     public TypeMapper Types { get; }
     public List<CompileError> Errors { get; } = [];
+
+    /// <summary>Compile-time warnings about known run-time differences from .NET (printed, not fatal).</summary>
+    public List<CompileError> Warnings { get; } = [];
+
+    /// <summary>
+    /// Exception.ToString() in .NET appends the stack trace ("   at Type.Method(...) in file:line N")
+    /// of a thrown exception. csharpc can't reproduce those frames, so its text stops after the
+    /// message (and inner exceptions): say so where a program turns an exception into text.
+    /// </summary>
+    public void WarnExceptionToString(ITypeSymbol? type, IOperation? at)
+    {
+        if (type is not INamedTypeSymbol named || at is null || !DerivesFromException(named)) return;
+        // A user override decides the text itself.
+        for (var t = named; t is not null && !IsLibraryException(t); t = t.BaseType)
+            if (t.GetMembers("ToString").OfType<IMethodSymbol>().Any(m => m.IsOverride && m.Parameters.IsEmpty)) return;
+        Warnings.Add(new CompileError("CSLLVM0006",
+            "Exception.ToString() includes no stack trace in csharpc: the \"   at ...\" lines .NET prints for a thrown exception are missing", at.Syntax.GetLocation()));
+    }
+
+    private static bool DerivesFromException(INamedTypeSymbol type)
+    {
+        for (var t = type; t is not null; t = t.BaseType)
+            if (t.ContainingNamespace?.ToDisplayString() == "System" && t.MetadataName == "Exception") return true;
+        return false;
+    }
     public TextWriter? CfgDump { get; init; }
     public CoreLib CoreLib { get; }
 
@@ -81,6 +106,7 @@ public sealed partial class ModuleCodeGen
     {
         var entryPoint = Compilation.GetEntryPoint(CancellationToken.None)
             ?? throw new CompileError("CSLLVM0003", "program has no entry point (Main method or top-level statements)", null);
+        RejectUnionTypes();
 
         CollectTypes(Compilation.Assembly.GlobalNamespace);
 
@@ -119,7 +145,7 @@ public sealed partial class ModuleCodeGen
     private void DrainWorklists()
     {
         do DrainFunctionWorklists();
-        while (EmitPendingBuiltinInterfaceTables());
+        while (EmitPendingClassInits() | EmitPendingBuiltinInterfaceTables());
     }
 
     private void DrainFunctionWorklists()
@@ -182,6 +208,7 @@ public sealed partial class ModuleCodeGen
         if (IsPInvoke(method)) return PInvokeStub(method);
         if (IsNestedFunction(method)) return GetNestedFunction(method, TypeSubstitution.Identity);
         method = CoreLib.Map(method);
+        if (IsExtensionImplementation(method)) method = ExtensionMemberFor(method);
         // Generic code is keyed by the *constructed* symbol: one function per instantiation.
         var generic = TypeSubstitution.IsGenericContext(method);
         if (!generic) method = method.OriginalDefinition;
@@ -235,20 +262,60 @@ public sealed partial class ModuleCodeGen
     /// <summary>C# 14 `extension(T x) { ... }` members: lowered as static functions of their receiver.</summary>
     public static bool IsExtensionMember(IMethodSymbol method) => method.ContainingType?.TypeKind == TypeKind.Extension;
 
-    private HashSet<IMethodSymbol>? _extensionImplementations;
+    private Dictionary<IMethodSymbol, IMethodSymbol>? _extensionImplementations;
 
-    private bool IsExtensionImplementation(IMethodSymbol method)
+    /// <summary>Implementation method -> extension block member, for every user extension member.</summary>
+    private Dictionary<IMethodSymbol, IMethodSymbol> ExtensionImplementations
     {
-        if (!method.IsStatic || !method.IsImplicitlyDeclared) return false;
-        _extensionImplementations ??= new HashSet<IMethodSymbol>(
-            _userTypes.Where(t => t.TypeKind == TypeKind.Extension)
-                .SelectMany(t => t.GetMembers().OfType<IMethodSymbol>())
-                .Select(m => m.AssociatedExtensionImplementation)
-                .OfType<IMethodSymbol>(), SymbolEqualityComparer.Default);
-        return _extensionImplementations.Contains(method.OriginalDefinition);
+        get
+        {
+            if (_extensionImplementations is { } existing) return existing;
+            var map = new Dictionary<IMethodSymbol, IMethodSymbol>(SymbolEqualityComparer.Default);
+            foreach (var member in _userTypes.Where(t => t.TypeKind == TypeKind.Extension).SelectMany(t => t.GetMembers().OfType<IMethodSymbol>()))
+                if (member.AssociatedExtensionImplementation is { } implementation) map[implementation.OriginalDefinition] = member;
+            return _extensionImplementations = map;
+        }
     }
 
-    public static bool HasExtensionReceiver(IMethodSymbol method) => IsExtensionMember(method) && !method.IsStatic;
+    private bool IsExtensionImplementation(IMethodSymbol method) =>
+        method.IsStatic && method.IsImplicitlyDeclared && ExtensionImplementations.ContainsKey(method.OriginalDefinition);
+
+    /// <summary>
+    /// A call to an extension member in its static form (`E.WordCount(s)`) binds to Roslyn's synthesized
+    /// implementation method, which has no body of its own: call the member's lowering instead. Its
+    /// signature is the same (receiver first). Generic extension blocks take the implementation's
+    /// leading type arguments, the member's own type parameters the rest.
+    /// </summary>
+    private IMethodSymbol ExtensionMemberFor(IMethodSymbol implementation)
+    {
+        var member = ExtensionImplementations[implementation.OriginalDefinition];
+        if (implementation.TypeArguments.IsEmpty || SymbolEqualityComparer.Default.Equals(implementation, implementation.OriginalDefinition))
+            return member;
+        var block = member.ContainingType;
+        var blockArity = block.TypeParameters.Length;
+        if (blockArity > 0)
+        {
+            var constructed = block.Construct([.. implementation.TypeArguments.Take(blockArity)]);
+            member = constructed.GetMembers(member.Name).OfType<IMethodSymbol>()
+                .First(m => SymbolEqualityComparer.Default.Equals(m.OriginalDefinition, member));
+        }
+        return member.IsGenericMethod ? member.Construct([.. implementation.TypeArguments.Skip(blockArity)]) : member;
+    }
+
+    /// <summary>C# 15 union types: Roslyn lowers them to constructs csharpc doesn't model yet.</summary>
+    private void RejectUnionTypes()
+    {
+#pragma warning disable RSEXPERIMENTAL006 // the union syntax is a preview API
+        const Microsoft.CodeAnalysis.CSharp.SyntaxKind unionDeclaration = Microsoft.CodeAnalysis.CSharp.SyntaxKind.UnionDeclaration;
+#pragma warning restore RSEXPERIMENTAL006
+        foreach (var tree in Compilation.SyntaxTrees.Where(t => !Frontend.RoslynFrontend.IsCoreLibTree(t)))
+            if (tree.GetRoot().DescendantNodes().FirstOrDefault(n => n.IsKind(unionDeclaration)) is { } union)
+                throw new CompileError("CSLLVM0001", "not supported by csharpc yet: union types (C# 15 `union` declarations)", union.GetLocation());
+    }
+
+    // Lambdas and local functions declared in an extension member have the extension type as their
+    // containing type too, but reach the receiver through their closure environment.
+    public static bool HasExtensionReceiver(IMethodSymbol method) => IsExtensionMember(method) && !method.IsStatic && !IsNestedFunction(method);
 
     /// <summary>
     /// env (nested functions) or this (instance) + parameters (by-ref as ptr) -> return; constructors
@@ -878,8 +945,9 @@ public sealed partial class ModuleCodeGen
     private LoweredFunction _staticInit;
 
     /// <summary>
-    /// Runs every static field initializer and static constructor, in declaration order, before Main.
-    /// (Deviation: .NET runs these lazily per type — docs/03-lowering.md#static-initialization.)
+    /// Runs, before Main, the static initializers whose timing is unobservable: referenced corelib
+    /// types and user types whose initializers are all constants. Everything else is initialized
+    /// lazily, with .NET's triggers (ModuleCodeGen.StaticInit.cs).
     /// </summary>
     private void EmitStaticInitializer()
     {
@@ -908,8 +976,7 @@ public sealed partial class ModuleCodeGen
                     throw CompileError.Unsupported($"static field initializers in generic type '{t.Name}'", t);
                 continue;
             }
-            graphs.AddRange(InitializerGraphs(t, isStatic: true));
-            cctors.AddRange(t.StaticConstructors.Where(c => !c.IsImplicitlyDeclared));
+            if (IsEagerlyInitialized(t)) graphs.AddRange(InitializerGraphs(t, isStatic: true));
         }
         new FunctionCodeGen(this, null, _staticInit).EmitStaticInit(graphs, cctors);
     }
@@ -1000,14 +1067,14 @@ public sealed partial class ModuleCodeGen
 
         var init = Runtime("csrt_init", Llvm.Void, Llvm.I32, Llvm.Ptr);
         b.Call(init.Type, init.Fn, [main.Param(0), main.Param(1)]);
-        // Builtin types implementing the program's interfaces (string, boxed primitives, typed arrays):
+        // Builtin types implementing the program's interfaces (string, boxed primitives; arrays carry
+        // exact interface maps in their per-element-type method tables instead):
         // Roslyn's conversion classification decides, so variance (string[] as IEnumerable<object>) is covered.
         SpecialType[] primitives = [SpecialType.System_Int32, SpecialType.System_Int64, SpecialType.System_Double, SpecialType.System_Boolean,
             SpecialType.System_Char, SpecialType.System_Single, SpecialType.System_Int16, SpecialType.System_UInt16, SpecialType.System_UInt32,
             SpecialType.System_UInt64, SpecialType.System_Byte, SpecialType.System_SByte];
         var builtins = new List<(ITypeSymbol Type, LLVMValueRef MT)> { (Compilation.GetSpecialType(SpecialType.System_String), ExternalGlobal("csrt_String_MT")) };
         foreach (var sp in primitives) builtins.Add((Compilation.GetSpecialType(sp), ExternalGlobal($"csrt_Boxed_{Compilation.GetSpecialType(sp).MetadataName}_MT")));
-        foreach (var (element, mt) in _typedArrays.ToList()) builtins.Add((Compilation.CreateArrayTypeSymbol(element), mt));
         foreach (var itf in _interfaceTables.Keys.ToList())
             foreach (var (builtinType, mt) in builtins)
             {
@@ -1052,6 +1119,7 @@ public sealed partial class ModuleCodeGen
             {
                 var getArgs = Runtime("csrt_get_args", Llvm.Ptr);
                 args = [b.Call(getArgs.Type, getArgs.Fn, [])];
+                b.Store(ArrayMethodTable(Compilation.GetSpecialType(SpecialType.System_String)), args[0]); // "System.String[]"
             }
             else args = [LlvmContext.Null(Llvm.Ptr)];
         }

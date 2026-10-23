@@ -66,7 +66,7 @@ every failure is a clean "not supported by csharpc yet" diagnostic.
 | Garbage collection | ✅ | conservative, non-moving mark-sweep; thread-safe (stop-the-world) |
 | Multithreading (`Thread`, `Monitor`, `Interlocked`, `Parallel`) | ✅ | `Task.Run` still on the single-threaded scheduler |
 | Unhandled exceptions (message + exit 134) | ✅ | |
-| Static initialization | 🟡 | eager before `Main` (.NET: lazy per type) |
+| Static initialization | ✅ | lazy per type with CoreCLR's triggers, `TypeInitializationException`; generic types ❌ |
 | Reflection | 🟡 | `GetType()`, `typeof`, names; no member reflection ❌ |
 | Finalizers | ⬜ | |
 | Debug info (DWARF, gdb/lldb) | ✅ | `-g` |

@@ -38,7 +38,7 @@ public sealed class Compiler(CompilerOptions options)
             settings = new FrontendSettings
             {
                 Files = options.Inputs,
-                Defines = options.Defines,
+                Defines = [.. ProjectLoader.ImplicitDefines(options.Configuration), .. options.Defines],
                 GlobalUsings = options.ImplicitUsings ? RoslynFrontend.DefaultImplicitUsings : null,
             };
         }
@@ -49,6 +49,19 @@ public sealed class Compiler(CompilerOptions options)
         var compilation = (Microsoft.CodeAnalysis.CSharp.CSharpCompilation)analyzed.WithOptions(
             analyzed.Options.WithNullableContextOptions(Microsoft.CodeAnalysis.NullableContextOptions.Disable));
         var diagnostics = RoslynFrontend.UserDiagnostics(options.ShowWarnings ? analyzed : compilation);
+        if (settings.Projects.Count > 1)
+        {
+            // Referenced projects are folded into one compilation for codegen (ADR 0006), but C#
+            // checks each project on its own, as `dotnet build` does.
+            var perProject = RoslynFrontend.ProjectDiagnostics(settings);
+            var mergedOnly = diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error && !RoslynFrontend.DefiniteAssignmentErrors.Contains(d.Id)).ToList();
+            diagnostics = options.ShowWarnings ? perProject : [.. perProject.Where(d => d.Severity == DiagnosticSeverity.Error)];
+            if (!perProject.Any(d => d.Severity == DiagnosticSeverity.Error) && mergedOnly.Count > 0)
+            {
+                foreach (var d in mergedOnly) WriteDiagnostic(d.ToString(), isError: true);
+                return Fail("these errors only appear when the referenced projects are compiled together; csharpc folds ProjectReferences into one program and can't compile this combination yet");
+            }
+        }
         Phase("parse + bind (Roslyn)");
 
         var errors = 0;
@@ -57,6 +70,15 @@ public sealed class Compiler(CompilerOptions options)
             WriteDiagnostic(d.ToString(), d.Severity == DiagnosticSeverity.Error);
             if (d.Severity == DiagnosticSeverity.Error) errors++;
         }
+        // Entry-point errors (several Mains, a bad <StartupObject>) are compilation-level diagnostics
+        // that the per-tree diagnostics above don't include; only look for them when there's no entry
+        // point, since collecting them binds the whole corelib.
+        if (errors == 0 && options.Emit == EmitKind.Exe && compilation.GetEntryPoint(CancellationToken.None) is null)
+            foreach (var d in compilation.GetDiagnostics().Where(d => d.Severity == DiagnosticSeverity.Error && d.Id is "CS0017" or "CS1555" or "CS1556" or "CS1558" or "CS5001" or "CS7022"))
+            {
+                WriteDiagnostic(d.ToString(), isError: true);
+                errors++;
+            }
         if (errors > 0) return Fail($"{errors} error(s) from the C# front-end");
 
         using var llvm = new LlvmContext();
@@ -85,6 +107,8 @@ public sealed class Compiler(CompilerOptions options)
         debugInfo?.Finish();
         Phase("lower CFG -> LLVM IR");
 
+        foreach (var w in codegen.Warnings.DistinctBy(w => w.Format()))
+            WriteDiagnostic(w.Format().Replace(": error ", ": warning "), isError: false);
         if (codegen.Errors.Count > 0)
         {
             foreach (var e in codegen.Errors.DistinctBy(e => e.Format())) WriteDiagnostic(e.Format(), isError: true);

@@ -149,33 +149,46 @@ public sealed partial class ModuleCodeGen
     /// Arrays get it right after allocation so GetType() and ToString() report the element type.
     /// </summary>
     /// <summary>Element type of every element-typed array MT, for interface registration at startup.</summary>
-    private readonly List<(ITypeSymbol Element, LLVMValueRef MethodTable)> _typedArrays = [];
 
     public LLVMValueRef ArrayMethodTable(ITypeSymbol elementType)
     {
         var name = ClrName(elementType) + "[]";
-        if (_arrayMethodTables.TryGetValue(name, out var existing)) return existing;
+        // Keyed by the exact element type: List<int>[] and List<Edge>[] share a display name, but
+        // not their interfaces (and a corelib shadow is the same type as what it shadows).
+        var key = "array:" + CoreLib.Map(TypeSubstitution.EraseTupleNames(elementType, Compilation)).ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+        if (_arrayMethodTables.TryGetValue(key, out var existing)) return existing;
+        var init = ArrayMethodTableInit(name, elementType, LlvmContext.Null(Llvm.Ptr), 0);
+        var global = Module.AddGlobal("csrt.arraymt." + name, Native.LLVMTypeOf(init), init, constant: true, linkage: LLVMLinkage.Private);
+        _taggedArrays.Add(new TaggedArray(name, elementType, global));
+        return _arrayMethodTables[key] = global;
+    }
+
+    /// <summary>
+    /// Header layout = TypeMapper.MethodTableHeader. The interface map is filled in once the program's
+    /// array interfaces are known (ModuleCodeGen.CoreLib.cs, RefreshArrayInterfaceMaps).
+    /// </summary>
+    private LLVMValueRef ArrayMethodTableInit(string name, ITypeSymbol elementType, LLVMValueRef interfaceMap, int interfaceCount)
+    {
         string[] defaults = ["csrt_object_to_string_default", "csrt_object_equals_default", "csrt_object_get_hash_code_default"];
         var slots = defaults.Select(d => Runtime(d, Llvm.Ptr, Llvm.Ptr).Fn).ToArray();
-        // Header layout = TypeMapper.MethodTableHeader (interface map: none; csrt handles array interfaces).
         var flags = Optimizations.HoldsNoReferences(elementType) ? 8 /* CSRT_MT_NO_REFERENCES */ : 0;
-        var init = Llvm.ConstStruct(ExternalGlobal("csrt_Array_MT"), CString(name), Llvm.ConstInt(Llvm.I32, 0), Llvm.ConstInt(Llvm.I32, flags),
-            LlvmContext.Null(Llvm.Ptr), Llvm.ConstInt(Llvm.I32, 0), Llvm.ConstInt(Llvm.I32, 0),
+        return Llvm.ConstStruct(ExternalGlobal("csrt_Array_MT"), CString(name), Llvm.ConstInt(Llvm.I32, 0), Llvm.ConstInt(Llvm.I32, flags),
+            interfaceMap, Llvm.ConstInt(Llvm.I32, interfaceCount), Llvm.ConstInt(Llvm.I32, 0),
             LlvmContext.ConstArray(Llvm.Ptr, slots));
-        var global = Module.AddGlobal("csrt.arraymt." + name, Native.LLVMTypeOf(init), init, constant: true, linkage: LLVMLinkage.Private);
-        _typedArrays.Add((elementType, global));
-        return _arrayMethodTables[name] = global;
     }
 
     /// <summary>A name-only method table identifying a library type for Type objects (never instantiated).</summary>
     private LLVMValueRef TypeOnlyMethodTable(INamedTypeSymbol type)
     {
-        var name = Mangler.MetadataName(type);
-        if (_arrayMethodTables.TryGetValue("type:" + name, out var existing)) return existing;
+        var name = Mangler.MetadataName(type.OriginalDefinition);
+        // One per constructed type: List<int> and List<string> are different types (typeof, and
+        // the type arguments generic variance compares at run time), though they share a name.
+        var key = "type:" + CoreLib.Map(TypeSubstitution.EraseTupleNames(type, Compilation)).ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+        if (_arrayMethodTables.TryGetValue(key, out var existing)) return existing;
         var init = Llvm.ConstStruct(ExternalGlobal("csrt_Object_MT"), CString(name), Llvm.ConstInt(Llvm.I32, 0), Llvm.ConstInt(Llvm.I32, 0),
             LlvmContext.Null(Llvm.Ptr), Llvm.ConstInt(Llvm.I32, 0), Llvm.ConstInt(Llvm.I32, 0));
         var global = Module.AddGlobal("csrt.typemt." + name, Native.LLVMTypeOf(init), init, constant: true, linkage: LLVMLinkage.Private);
-        return _arrayMethodTables["type:" + name] = global;
+        return _arrayMethodTables[key] = global;
     }
 
     /// <summary>The method table that identifies a type at runtime (for typeof / Type objects).</summary>

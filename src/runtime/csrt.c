@@ -207,10 +207,8 @@ void csrt_stderr_write_string(csrt_String* s) { if (s) write_utf16(stderr, s->ch
 static void noop_dispose(void* self) { (void)self; }
 static void* const s_noop_dispose_slots[] = { (void*)noop_dispose };
 
-static void* const* builtin_interface_slots_untyped(const csrt_MethodTable* objmt, const csrt_MethodTable* itf);
-
-// Builtin types (string, boxed primitives, element-typed arrays) implementing the program's
-// interfaces: registered by the compiler at startup (presence; slots come from the tables below).
+// Builtin types (string, boxed primitives) implementing the program's interfaces: registered by
+// the compiler at startup (presence; slots come from the tables below).
 static struct { const csrt_MethodTable* type; const csrt_MethodTable* itf; void* const* slots; }* s_builtin_impls;
 static int s_builtin_count, s_builtin_cap;
 
@@ -248,27 +246,18 @@ static void* const s_unsupported_slots[64] = {
 };
 
 static void* const* builtin_interface_slots(const csrt_MethodTable* objmt, const csrt_MethodTable* itf) {
-    // Element-typed arrays ("System.Int32[]") and other builtin types: only interfaces they really implement.
+    // Arrays allocated by generated code have a per-element-type MT ("System.Int32[]") whose
+    // interface map lists exactly the interfaces of that element type; the shared tables only serve
+    // untagged arrays (made by the runtime), whose element type is unknown.
+    if (is_untyped_array_mt(objmt)) return (void* const*)itf->interfaces;
+    // Strings and boxed primitives implementing the program's interfaces, registered at startup.
     void* const* registered_slots = NULL;
-    if (!is_untyped_array_mt(objmt) && builtin_registered(objmt, itf, &registered_slots)) {
-        void* const* slots = registered_slots;
-        if (!slots)
-            for (const csrt_MethodTable* mt = objmt; mt; mt = mt->base)
-                if (is_untyped_array_mt(mt)) { slots = (void* const*)itf->interfaces; break; }
-        if (!slots && objmt == &csrt_String_MT.header) slots = (void* const*)itf->base;
-        return slots ? slots : s_unsupported_slots;
+    if (builtin_registered(objmt, itf, &registered_slots)) {
+        if (registered_slots) return registered_slots;
+        if (objmt == &csrt_String_MT.header && itf->base) return (void* const*)itf->base;
+        // Implemented (so `is` holds) but no slot table yet: calls throw NotSupportedException.
+        return s_unsupported_slots;
     }
-    if (!is_untyped_array_mt(objmt) && objmt != &csrt_String_MT.header)
-        // Runtime-implemented disposables (CountdownEvent...): IDisposable.Dispose is a no-op.
-        return (objmt->flags & CSRT_MT_DISPOSABLE) && strcmp(itf->name, "System.IDisposable") == 0 ? s_noop_dispose_slots : NULL;
-    // Untyped arrays (allocated by runtime C code) and strings: the per-interface tables, unchecked.
-    return builtin_interface_slots_untyped(objmt, itf);
-}
-
-static void* const* builtin_interface_slots_untyped(const csrt_MethodTable* objmt, const csrt_MethodTable* itf) {
-    // Arrays may have a per-element-type MT ("System.Int32[]") whose base is one of the shared array MTs.
-    for (const csrt_MethodTable* mt = objmt; mt; mt = mt->base)
-        if (mt == &csrt_Array_MT.header || mt == &csrt_PrimitiveArray_MT.header) return (void* const*)itf->interfaces;
     if (objmt == &csrt_String_MT.header) return (void* const*)itf->base;
     // Runtime-implemented disposables (`using var e = new CountdownEvent(n)`): IDisposable.Dispose
     // (its only slot) is a no-op — their native resources live as long as the object.

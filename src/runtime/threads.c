@@ -733,3 +733,55 @@ void csrt_parallel_invoke(csrt_Array* actions) {
 // ---------------------------------------------------------------------------------------------
 void csrt_console_lock(void) { if (csrt_gc_is_multithreaded()) flockfile(stdout); }
 void csrt_console_unlock(void) { if (csrt_gc_is_multithreaded()) funlockfile(stdout); }
+
+// ---------------------------------------------------------------------------------------------
+// Static constructors (CodeGen/ModuleCodeGen.StaticInit.cs). Generated code checks `state` with an
+// acquire load and only calls in here while it isn't CLASS_DONE. One initializer runs at a time per
+// type; other threads wait for it, and the initializing thread itself may re-enter (a cycle between
+// static initializers sees default values, as in .NET).
+// ---------------------------------------------------------------------------------------------
+typedef struct {
+    _Atomic int32_t state;
+    int32_t pad;
+    void* owner;      // pthread_t of the initializing thread
+    void* exception;  // the cached TypeInitializationException (a GC root: writable data)
+} csrt_ClassInit;
+
+enum { CLASS_UNINITIALIZED, CLASS_RUNNING, CLASS_DONE, CLASS_FAILED };
+
+static pthread_mutex_t s_class_init_lock = PTHREAD_MUTEX_INITIALIZER;
+static pthread_cond_t s_class_init_done = PTHREAD_COND_INITIALIZER;
+
+/// 0: the caller runs the initializer now; 1: nothing to do (done, or this thread is running it);
+/// 2: it failed (rethrow ci->exception).
+int32_t csrt_class_init_begin(csrt_ClassInit* ci) {
+    void* self = (void*)pthread_self();
+    pthread_mutex_lock(&s_class_init_lock);
+    for (;;) {
+        int32_t state = atomic_load_explicit(&ci->state, memory_order_acquire);
+        if (state == CLASS_DONE || (state == CLASS_RUNNING && ci->owner == self)) {
+            pthread_mutex_unlock(&s_class_init_lock);
+            return 1;
+        }
+        if (state == CLASS_FAILED) {
+            pthread_mutex_unlock(&s_class_init_lock);
+            return 2;
+        }
+        if (state == CLASS_UNINITIALIZED) {
+            ci->owner = self;
+            atomic_store_explicit(&ci->state, CLASS_RUNNING, memory_order_relaxed);
+            pthread_mutex_unlock(&s_class_init_lock);
+            return 0;
+        }
+        pthread_cond_wait(&s_class_init_done, &s_class_init_lock);  // another thread is initializing
+    }
+}
+
+void csrt_class_init_end(csrt_ClassInit* ci, void* exception) {
+    pthread_mutex_lock(&s_class_init_lock);
+    ci->exception = exception;
+    ci->owner = NULL;
+    atomic_store_explicit(&ci->state, exception ? CLASS_FAILED : CLASS_DONE, memory_order_release);
+    pthread_cond_broadcast(&s_class_init_done);
+    pthread_mutex_unlock(&s_class_init_lock);
+}

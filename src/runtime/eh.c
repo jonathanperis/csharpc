@@ -310,35 +310,36 @@ static const csrt_ExceptionMethodTable* const s_by_name[] = {
     &csrt_MT_System_TypeLoadException, &csrt_MT_System_DllNotFoundException, &csrt_MT_System_EntryPointNotFoundException,
 };
 
+static csrt_String* chars_slice(csrt_String* s, int32_t start, int32_t length) {
+    csrt_String* r = csrt_string_alloc_zeroed((int64_t)length);
+    memcpy(r->chars, s->chars + start, 2 * (size_t)length);
+    return r;
+}
+
 void csrt_throw(const csrt_MethodTable* type, csrt_String* message) {
     const csrt_ExceptionMethodTable* mt = &csrt_MT_System_Exception;
     for (size_t i = 0; type && i < sizeof s_by_name / sizeof *s_by_name; i++)
         if (strcmp(s_by_name[i]->header.name, type->name) == 0) mt = s_by_name[i];
     void* e = csrt_alloc(&mt->header, sizeof(csrt_Exception));
-    // Runtime messages carry ArgumentException's " (Parameter 'x')" suffix: split it into ParamName
-    // (Message re-appends it, so the text is unchanged).
-    csrt_String* param = NULL;
-    if (message && message->length > 15) {
-        static const char suffix_start[] = " (Parameter '";
-        int32_t n = message->length;
-        if (message->chars[n - 1] == ')' && message->chars[n - 2] == '\'') {
-            for (int32_t i = n - 3; i >= 0; i--) {
-                bool match = i + 13 <= n;
-                for (int k = 0; match && k < 13; k++) if (message->chars[i + k] != (uint16_t)suffix_start[k]) match = false;
-                if (!match) continue;
-                int32_t plen = n - 2 - (i + 13);
-                param = csrt_alloc(&csrt_String_MT.header, (int64_t)(sizeof(csrt_String) + 2 * (size_t)plen));
-                param->length = plen;
-                memcpy(param->chars, message->chars + i + 13, 2 * (size_t)plen);
-                csrt_String* head = csrt_alloc(&csrt_String_MT.header, (int64_t)(sizeof(csrt_String) + 2 * (size_t)i));
-                head->length = i;
-                memcpy(head->chars, message->chars, 2 * (size_t)i);
-                message = head;
+    // Runtime helpers spell ArgumentException messages out in full ("... (Parameter 'x')"); split
+    // the suffix off into ParamName, which .NET sets and Message re-appends.
+    csrt_String* param_name = NULL;
+    if (message && (mt == &csrt_MT_System_ArgumentException || mt == &csrt_MT_System_ArgumentNullException
+                    || mt == &csrt_MT_System_ArgumentOutOfRangeException)) {
+        static const char marker[] = " (Parameter '";
+        const int32_t m = (int32_t)sizeof marker - 1, n = message->length;
+        const uint16_t* c = message->chars;
+        if (n >= m + 2 && c[n - 1] == ')' && c[n - 2] == '\'')
+            for (int32_t at = n - 2 - m; at >= 0; at--) {
+                int32_t k = 0;
+                while (k < m && c[at + k] == (uint16_t)marker[k]) k++;
+                if (k < m) continue;
+                param_name = chars_slice(message, at + m, n - 2 - (at + m));
+                message = chars_slice(message, 0, at);
                 break;
             }
-        }
     }
-    csrt_exception_init(e, message, NULL, param);
+    csrt_exception_init(e, message, NULL, param_name);
     csrt_throw_object(e);
 }
 

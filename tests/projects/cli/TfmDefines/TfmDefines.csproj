@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- DefineConstants: the project's own symbols plus the SDK's configuration and target-framework
+       symbols, which the SDK adds in a build target after evaluation. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net11.0</TargetFramework>
+    <DefineConstants>$(DefineConstants);MY_FEATURE</DefineConstants>
+  </PropertyGroup>
+</Project>

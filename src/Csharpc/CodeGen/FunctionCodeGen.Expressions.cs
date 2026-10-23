@@ -174,7 +174,7 @@ public sealed partial class FunctionCodeGen
     private LLVMValueRef FieldAddress(IFieldReferenceOperation f)
     {
         var field = S(f.Field);
-        if (field.IsStatic) return _m.StaticField(field);
+        if (field.IsStatic) return StaticFieldAddress(field);
         if (field.ContainingType.IsValueType) return FieldAddressOn(AddressOrSpill(f.Instance!), field);
         var instance = EmitValue(f.Instance!);
         if (f.Instance is not IInstanceReferenceOperation) NullCheck(instance);
@@ -285,6 +285,12 @@ public sealed partial class FunctionCodeGen
             om = S(om);
             if (!om.IsStatic || om.Parameters.Length != 2)
                 throw CompileError.Unsupported($"compound assignment with operator '{om}'", c);
+            if (c.IsLifted && _m.IsUserMethod(om))
+                return ReadModifyWrite(c.Target, old =>
+                {
+                    var lifted = LiftedUserCall(c.OperatorKind, om, old, TypeOf(c.Target)!, EmitValue(c.Value), TypeOf(c.Value)!, TypeOf(c.Target)!);
+                    return (lifted, lifted);
+                });
             if (!_m.IsUserMethod(om))
                 return ReadModifyWrite(c.Target, old =>
                 {
@@ -429,6 +435,7 @@ public sealed partial class FunctionCodeGen
         {
             var om = S(om0);
             if (!_m.IsUserMethod(om)) return LibraryOperator(om, [op.LeftOperand, op.RightOperand], op);
+            if (op.IsLifted) return LiftedUserBinary(op, om);
             return EmitDirectCall(om, [op.LeftOperand, op.RightOperand]);
         }
         if (FoldValueTypeNullComparison(op) is { } folded) return folded;
@@ -453,6 +460,44 @@ public sealed partial class FunctionCodeGen
         var left = EmitValue(op.LeftOperand);
         var right = EmitValue(op.RightOperand);
         return Arithmetic(op.OperatorKind, left, right, lt ?? rt!, rt ?? lt!, op, op.IsChecked);
+    }
+
+    /// <summary>
+    /// A user-defined operator lifted to nullable operands (C# §12.4.8): it's called only when both
+    /// operands have a value. Otherwise `==` is true iff both are null, `!=` the opposite, the
+    /// relational operators are false, and other operators produce null.
+    /// </summary>
+    private LLVMValueRef LiftedUserBinary(IBinaryOperation op, IMethodSymbol method)
+    {
+        var left = EmitValue(op.LeftOperand);
+        var right = EmitValue(op.RightOperand);
+        return LiftedUserCall(op.OperatorKind, method, left, TypeOf(op.LeftOperand)!, right, TypeOf(op.RightOperand)!, TypeOf(op)!);
+    }
+
+    private LLVMValueRef LiftedUserCall(BinaryOperatorKind kind, IMethodSymbol method, LLVMValueRef left, ITypeSymbol leftType,
+        LLVMValueRef right, ITypeSymbol rightType, ITypeSymbol resultType)
+    {
+        var (lhas, lvalue, _) = NullableParts(left, leftType);
+        var (rhas, rvalue, _) = NullableParts(right, rightType);
+        var nullableResult = TypeMapper.IsNullable(resultType);
+        var result = NewTemp(T.Value(resultType), "lifted");
+        var fallback = kind switch
+        {
+            BinaryOperatorKind.Equals => _b.ICmp(LLVMIntPredicate.EQ, lhas, rhas),
+            BinaryOperatorKind.NotEquals => _b.ICmp(LLVMIntPredicate.NE, lhas, rhas),
+            _ when nullableResult => LlvmContext.Null(T.Value(resultType)),
+            _ => L.False,
+        };
+        _b.Store(fallback, result);
+        var call = NewBlock("lifted.call");
+        var done = NewBlock("lifted.done");
+        _b.CondBr(_b.BinOp(LLVMOpcode.And, lhas, rhas), call, done);
+        _b.PositionAtEnd(call);
+        var value = DirectCall(method, [lvalue, rvalue]);
+        _b.Store(nullableResult ? MakeNullable(resultType, L.True, value) : value, result);
+        _b.Br(done);
+        _b.PositionAtEnd(done);
+        return _b.Load(T.Value(resultType), result);
     }
 
     private static IOperation? NullableComparedWithNull(IBinaryOperation op)
@@ -635,6 +680,10 @@ public sealed partial class FunctionCodeGen
     {
         var from = TypeOf(c.Operand);
         var to = TypeOf(c)!;
+        // A lambda converted to Expression<TDelegate> is data (an expression tree), not a delegate.
+        if (c.Operand is IAnonymousFunctionOperation or IFlowAnonymousFunctionOperation or IDelegateCreationOperation
+            && to.ContainingNamespace?.ToDisplayString() == "System.Linq.Expressions")
+            throw CompileError.Unsupported("expression trees (a lambda converted to System.Linq.Expressions.Expression<T>)", c);
         // `(T)(object)x` in generic code where, after substitution, x is already a T: a no-op (no box/unbox).
         if (c.OperatorMethod is null && c.Operand is IConversionOperation { OperatorMethod: null } inner
             && TypeOf(inner)?.SpecialType == SpecialType.System_Object && TypeOf(inner.Operand) is { } original

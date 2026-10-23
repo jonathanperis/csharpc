@@ -17,6 +17,8 @@ public sealed record ProjectInfo
     public string? Nullable { get; init; }
     public bool AllowUnsafe { get; init; }
     public bool ImplicitUsings { get; init; }
+    /// <summary>&lt;StartupObject&gt;: the type whose Main is the entry point (csc -main).</summary>
+    public string? StartupObject { get; init; }
     public List<string> GlobalUsings { get; } = [];
     public List<string> ProjectReferences { get; } = [];
     public List<string> UnsupportedPackages { get; } = [];
@@ -35,7 +37,31 @@ public static class ProjectLoader
     [
         "AssemblyName", "OutputType", "DefineConstants", "LangVersion", "Nullable", "AllowUnsafeBlocks",
         "ImplicitUsings", "TargetFramework", "TargetFrameworks", "MSBuildProjectFullPath",
+        "StartupObject",
     ];
+
+    /// <summary>
+    /// The SDK adds the target-framework symbols (NET, NET11_0, NETCOREAPP, NET5_0_OR_GREATER ...
+    /// NETCOREAPP3_1_OR_GREATER) to DefineConstants in this target, not during evaluation, so the
+    /// project evaluation runs it: the values reported then are exactly what csc receives.
+    /// </summary>
+    private const string DefineConstantsTarget = "AddImplicitDefineConstants";
+
+    /// <summary>
+    /// What `DefineConstants` holds for a net11.0 C# build when there is no project file (single
+    /// files): the C# SDK's configuration symbols plus the target's framework symbols.
+    /// </summary>
+    public static IEnumerable<string> ImplicitDefines(string configuration)
+    {
+        yield return "TRACE";
+        if (configuration.Equals("Debug", StringComparison.OrdinalIgnoreCase)) yield return "DEBUG";
+        else if (configuration.Equals("Release", StringComparison.OrdinalIgnoreCase)) yield return "RELEASE";
+        yield return "NET";
+        yield return "NET11_0";
+        yield return "NETCOREAPP";
+        for (var v = 5; v <= 11; v++) yield return $"NET{v}_0_OR_GREATER";
+        foreach (var v in new[] { "1_0", "1_1", "2_0", "2_1", "2_2", "3_0", "3_1" }) yield return $"NETCOREAPP{v}_OR_GREATER";
+    }
 
     private static readonly string[] Items = ["Compile", "Using", "ProjectReference", "PackageReference"];
 
@@ -56,7 +82,7 @@ public static class ProjectLoader
         projectPath = Path.GetFullPath(projectPath);
         if (!File.Exists(projectPath)) throw new FileNotFoundException($"project file '{projectPath}' not found");
 
-        var args = new List<string> { "msbuild", projectPath, "-nologo", $"-p:Configuration={configuration}" };
+        var args = new List<string> { "msbuild", projectPath, "-nologo", $"-p:Configuration={configuration}", $"-t:{DefineConstantsTarget}" };
         foreach (var (k, v) in globalProperties ?? new Dictionary<string, string>()) args.Add($"-p:{k}={v}");
         args.AddRange(Properties.Select(p => $"-getProperty:{p}"));
         args.AddRange(Items.Select(i => $"-getItem:{i}"));
@@ -83,6 +109,7 @@ public static class ProjectLoader
             Nullable = Prop("Nullable"),
             AllowUnsafe = string.Equals(Prop("AllowUnsafeBlocks"), "true", StringComparison.OrdinalIgnoreCase),
             ImplicitUsings = Prop("ImplicitUsings") is "enable" or "true",
+            StartupObject = Prop("StartupObject"),
         };
 
         info.Defines.AddRange((Prop("DefineConstants") ?? "").Split([';', ','], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
@@ -113,8 +140,10 @@ public static class ProjectLoader
 
     /// <summary>
     /// Evaluates the root project and every transitively referenced project, and merges them into
-    /// one whole-program compilation input. Settings (defines, language version, nullable) come from
-    /// the root; global usings are the union (they're compilation-wide in a single compilation).
+    /// one whole-program compilation input. Each project's files are parsed with its own symbols;
+    /// compilation settings (language version, nullable) come from the root; global usings are the
+    /// union (they're compilation-wide in a single compilation). Diagnostics come from per-project
+    /// compilations (RoslynFrontend.ProjectDiagnostics), like `dotnet build`.
     /// </summary>
     public static (FrontendSettings Settings, ProjectInfo Root, IReadOnlyList<ProjectInfo> All) Load(
         string projectPath, string configuration, TextWriter? log = null, IReadOnlyDictionary<string, string>? globalProperties = null)
@@ -144,6 +173,20 @@ public static class ProjectLoader
             AllowUnsafe = all.Any(p => p.AllowUnsafe),
             GlobalUsings = usings.Count > 0 ? string.Join('\n', usings) : null,
             AssemblyName = root.AssemblyName,
+            MainTypeName = root.StartupObject,
+            Projects = all.Count > 1 ? [.. all.Select(p => new ProjectUnit
+            {
+                ProjectPath = p.ProjectPath,
+                AssemblyName = p.AssemblyName,
+                IsRoot = ReferenceEquals(p, root),
+                Files = p.Files,
+                Defines = p.Defines,
+                LanguageVersion = p.LanguageVersion,
+                Nullable = p.Nullable,
+                AllowUnsafe = p.AllowUnsafe,
+                GlobalUsings = p.GlobalUsings.Count > 0 ? string.Join('\n', p.GlobalUsings) : null,
+                References = [.. p.ProjectReferences.Select(Path.GetFullPath)],
+            })] : [],
         };
         return (settings, root, all);
     }

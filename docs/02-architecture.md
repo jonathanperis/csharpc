@@ -30,7 +30,11 @@ the time spent in each phase.
 ### 1. Front-end: Roslyn (`src/Csharpc/Frontend/RoslynFrontend.cs`)
 
 - Parses each input with `LanguageVersion.Preview` and defines `CSHARPC` (plus any `-D` symbols), so
-  sources can `#if CSHARPC`.
+  sources can `#if CSHARPC`. It also defines the symbols the SDK defines for a net11.0 build:
+  `TRACE`, `DEBUG`/`RELEASE` per configuration, `NET`, `NET11_0`, `NETCOREAPP`,
+  `NET5_0_OR_GREATER` … `NET11_0_OR_GREATER` and `NETCOREAPP1_0_OR_GREATER` …
+  `NETCOREAPP3_1_OR_GREATER`. For a project, the evaluation runs the SDK's
+  `AddImplicitDefineConstants` target, so `DefineConstants` is exactly what `csc` would receive.
 - Adds a synthetic `<implicit-usings>.g.cs` with the same `global using` set the .NET SDK injects
   for console apps, unless `--no-implicit-usings` is given.
 - Creates a `CSharpCompilation` (`OutputKind.ConsoleApplication`, nullable enabled, unsafe allowed).
@@ -55,7 +59,9 @@ the time spent in each phase.
 3. Lowers every method body of every class (ordinary methods, constructors, static constructors,
    accessors, operators, conversions), then drains a queue of **local functions** discovered while
    lowering.
-4. Emits `__csharpc_static_init`, which runs all static field initializers and static constructors.
+4. Emits `__csharpc_static_init`, which runs the static initializers whose timing is unobservable
+   (constant-only initializers, corelib types). Other types get a lazy initialization check with
+   .NET's triggers ([03-lowering.md](03-lowering.md#static-initialization)).
 5. Emits the native `main` shim.
 
 Errors are collected per symbol (`Guard`), so one unsupported construct doesn't hide the rest. All
@@ -230,4 +236,5 @@ builder, for example) shows up as a segfault inside libLLVM. Debug it with
 | `CSLLVM0001` | Valid C#, but the construct isn't supported by csharpc yet |
 | `CSLLVM0002` | A library member with no csharpc implementation (`'System.Foo.Bar(int)' has no implementation in the csharpc runtime yet`) |
 | `CSLLVM0003` | No entry point |
+| `CSLLVM0006` (warning) | A known run-time difference from .NET that can't be avoided yet. Today: turning an exception into text (`ToString()`, `$"{e}"`, `Console.WriteLine(e)`). .NET appends the stack trace of a thrown exception; csharpc prints only the type, the message and inner exceptions |
 | exit code 70 | Internal compiler error: invalid LLVM IR was produced |
