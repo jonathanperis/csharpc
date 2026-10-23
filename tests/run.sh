@@ -59,6 +59,12 @@ CSHARPC=("$DOTNET" "$ROOT/src/Csharpc/bin/Release/net11.0/csharpc.dll")
 
 OUT="$(mktemp -d)"
 trap 'rm -rf "$OUT"' EXIT
+case "$(uname -s)" in Darwin) HOST_OS=macos ;; *) HOST_OS=linux ;; esac
+# A temp dir without symlinks in its path: macOS's $TMPDIR (/var/folders/...) is reached through the
+# /var -> /private/var link, so getcwd() inside it would not match Path.GetTempPath() (under .NET too).
+TMPDIR="$(cd "${TMPDIR:-/tmp}" && pwd -P)/"; export TMPDIR
+# Platform-dependent tests (tests/platform-skips.txt): prints the reason if $1 is skipped on this OS.
+platform_skip() { awk -v os="$HOST_OS" -v t="$1" '$1 == os && $2 == t { $1 = $2 = ""; sub(/^ +/, ""); print; exit }' "$ROOT/tests/platform-skips.txt"; }
 pass=0; fail=0; failed=()
 for opt in "${OPTS[@]}"; do
   for src in "$SAMPLES"/*.cs; do
@@ -80,6 +86,8 @@ for opt in "${OPTS[@]}"; do
     fi
     expected="$SAMPLES/$name.expected"
     [[ -f "$expected" ]] || { echo "SKIP $label (no .expected — run with --regen)"; continue; }
+    reason="$(platform_skip "$name")"
+    [[ -n "$reason" ]] && { echo "SKIP $label (platform-dependent on $HOST_OS: $reason)"; continue; }
     want_code=0
     [[ -f "$SAMPLES/$name.exitcode" ]] && want_code="$(cat "$SAMPLES/$name.exitcode")"
 
