@@ -826,6 +826,15 @@ static void run_item(intptr_t kind, void* a, void* b) {
 }
 
 #ifdef __wasi__
+// A work item runs with the execution-context flow captured when it was queued; the only thread may be
+// inside other code (Thread.Sleep, a wait), whose flow comes back afterwards.
+static void run_flowed_item(intptr_t kind, void* a, void* b, void* flow) {
+    void* saved = csrt_tl_flow;
+    csrt_tl_flow = flow;
+    run_item(kind, a, b);
+    csrt_tl_flow = saved;
+}
+
 static void sleep_ms_until(int64_t deadline) {
     int64_t wait = deadline - now_ms();
     if (wait <= 0) return;
@@ -836,9 +845,9 @@ static void sleep_ms_until(int64_t deadline) {
 /// One step of the single-threaded scheduler: run a queued work item, or else wait for the earliest
 /// timer (but not past `limit`, -1 = no limit) and fire the timers due. False: nothing to wait for.
 static bool scheduler_step(int64_t limit) {
-    intptr_t kind; void* a; void* b;
-    if (dequeue_locked(&kind, &a, &b)) {
-        run_item(kind, a, b);
+    intptr_t kind; void* a; void* b; void* flow;
+    if (dequeue_locked(&kind, &a, &b, &flow)) {
+        run_flowed_item(kind, a, b, flow);
         return true;
     }
     if (s_ntimers == 0) return false;
@@ -873,9 +882,9 @@ bool csrt_scheduler_yield(void) {
     pthread_mutex_lock(&s_tlock);
     fire_due_timers_locked(now_ms());
     pthread_mutex_unlock(&s_tlock);
-    intptr_t kind; void* a; void* b;
-    if (!dequeue_locked(&kind, &a, &b)) return false;
-    run_item(kind, a, b);
+    intptr_t kind; void* a; void* b; void* flow;
+    if (!dequeue_locked(&kind, &a, &b, &flow)) return false;
+    run_flowed_item(kind, a, b, flow);
     return true;
 }
 #else
