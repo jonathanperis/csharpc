@@ -97,6 +97,12 @@ public sealed partial class FunctionCodeGen
             return IlPush(LibraryOperator(mapped, operands, IlAt()), method.ReturnType);
         }
 
+        // Span conversions (string -> ReadOnlySpan<char>, T[] -> Span<T>, Span<T> -> ReadOnlySpan<T>) and
+        // int -> Index: the source path implements them as conversions, not as methods.
+        if (method.MethodKind == MethodKind.Conversion && method.IsStatic && method.Parameters.Length == 1
+            && IlSpecialConversion(method, mapped, args[0]) is { } converted)
+            return converted;
+
         // Operators of built-in types called as methods (decimal.op_Addition, and generic math through a
         // constrained call: INumber<T>.op_Multiply with T = int): the source path's operator lowering.
         if (method.IsStatic && method.MethodKind is MethodKind.UserDefinedOperator or MethodKind.Conversion
@@ -129,6 +135,25 @@ public sealed partial class FunctionCodeGen
         var pushed = IlPush(result, method.ReturnType);
         // Remember Delegate.Combine/Remove results: the cast that follows them cannot fail (see castclass).
         return method is { Name: "Combine" or "Remove", ContainingType.Name: "Delegate", IsStatic: true } ? pushed with { Symbol = method } : pushed;
+    }
+
+    private IlEntry? IlSpecialConversion(IMethodSymbol method, IMethodSymbol mapped, IlEntry arg)
+    {
+        var to = S(mapped.ReturnType);
+        var from = S(mapped.Parameters[0].Type);
+        if (TypeMapper.IsSpan(to))
+        {
+            if (TypeMapper.IsSpan(from)) return IlPush(IlTyped(arg, method.Parameters[0].Type), method.ReturnType);
+            if (from is IArrayTypeSymbol { Rank: 1 } array) return IlPush(ArraySpan(IlTyped(arg, method.Parameters[0].Type), array.ElementType), method.ReturnType);
+            if (from.SpecialType == SpecialType.System_String) return IlPush(StringSpan(IlTyped(arg, method.Parameters[0].Type)), method.ReturnType);
+        }
+        if (IsIndexType(to) && from.SpecialType == SpecialType.System_Int32)
+        {
+            var value = IlTyped(arg, method.Parameters[0].Type);
+            CheckNonNegative(value);
+            return IlPush(value, method.ReturnType);
+        }
+        return null;
     }
 
     private static readonly Dictionary<string, (BinaryOperatorKind Kind, bool Checked)> s_ilBinaryOperators = new()

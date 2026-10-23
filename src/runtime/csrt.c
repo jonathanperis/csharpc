@@ -369,6 +369,12 @@ void* const* csrt_interface_slots(void* obj, const csrt_MethodTable* interface_t
     abort();
 }
 
+_Noreturn void csrt_unsupported_method(const char* message) {
+    fflush(stdout);
+    fprintf(stderr, "csharpc: fatal: %s\n", message);
+    abort();
+}
+
 _Noreturn static void invalid_cast(const csrt_MethodTable* from, const csrt_MethodTable* to) {
     csrt_throw_invalid_cast_from(from, to);
 }

@@ -138,7 +138,10 @@ public sealed class Compiler(CompilerOptions options)
         Phase("lower CFG -> LLVM IR");
 
         foreach (var w in codegen.Warnings.DistinctBy(w => w.Format()))
-            WriteDiagnostic(w.Format().Replace(": error ", ": warning "), isError: false);
+        {
+            var text = w.Format();
+            WriteDiagnostic(text.StartsWith("error ", StringComparison.Ordinal) ? "warning " + text["error ".Length..] : text.Replace(": error ", ": warning "), isError: false);
+        }
         if (codegen.Errors.Count > 0)
         {
             var distinct = codegen.Errors.DistinctBy(e => e.Format()).ToList();

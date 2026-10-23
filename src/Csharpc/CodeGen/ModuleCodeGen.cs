@@ -143,6 +143,7 @@ public sealed partial class ModuleCodeGen
         Guard(entryPoint, EmitCallCatchingHelpers);
         do DrainWorklists();
         while (EmitRuntimeExports());
+        ReportIlFailures();
     }
 
     private void DrainWorklists()
@@ -168,6 +169,9 @@ public sealed partial class ModuleCodeGen
     private void Guard(ISymbol symbol, Action action)
     {
         if (s_trace) Console.Error.WriteLine($"[csharpc] lowering {symbol.ToDisplayString()}");
+        var outerCaller = _currentCaller;
+        // The function being lowered, for the IL front-end's reachability (a type: its class initializer).
+        _currentCaller = symbol switch { IMethodSymbol m => m, INamedTypeSymbol t => t.StaticConstructors.FirstOrDefault(), _ => null };
         try { action(); }
         catch (CompileError error)
         {
@@ -185,6 +189,7 @@ public sealed partial class ModuleCodeGen
                 $"internal compiler error while lowering '{symbol.ToDisplayString()}': {e.GetType().Name}: {e.Message} (set CSHARPC_TRACE=1 for details)",
                 symbol.Locations.FirstOrDefault()));
         }
+        finally { _currentCaller = outerCaller; }
     }
 
     private void CollectTypes(INamespaceOrTypeSymbol container)
@@ -216,6 +221,7 @@ public sealed partial class ModuleCodeGen
         var generic = TypeSubstitution.IsGenericContext(method);
         if (!generic) method = method.OriginalDefinition;
         if (method.PartialDefinitionPart is { } partialDefinition) method = partialDefinition; // one function per partial member
+        if (!Il.IsEmpty && !_slotReference) NoteReference(method, virtualCall: false);
         if (_functions.TryGetValue(method, out var existing)) return existing;
         if (generic && TypeSubstitution.IsOpen(method))
             throw CompileError.Unsupported($"open generic instantiation '{method}'", method);
@@ -851,7 +857,7 @@ public sealed partial class ModuleCodeGen
 
         string[] defaults = ["csrt_object_to_string_default", "csrt_object_equals_default", "csrt_object_get_hash_code_default"];
         var slots = layout.VTable.Select((m, i) => m is not null
-            ? GetFunction(m).Fn
+            ? SlotFunction(m)
             : layout.RuntimeSlots.TryGetValue(i, out var runtimeSlot)
                 ? RuntimeSlotFunction(runtimeSlot)
             : i < ClassLayout.ObjectSlotCount

@@ -37,7 +37,9 @@ public sealed class IlAssemblySet : IDisposable
             var bytes = File.ReadAllBytes(path);
             var pe = new PEReader(ImmutableArray.Create(bytes));
             if (!pe.HasMetadata) throw new InvalidOperationException($"'{path}' is not a .NET assembly");
-            if (pe.PEHeaders.CorHeader is { } cor && (cor.Flags & CorFlags.ILOnly) == 0)
+            // ReadyToRun images (the shared framework) carry native code next to complete IL (ILLibrary);
+            // C++/CLI mixed-mode assemblies have native method bodies instead.
+            if (pe.PEHeaders.CorHeader is { } cor && (cor.Flags & (CorFlags.ILOnly | CorFlags.ILLibrary)) == 0)
                 throw new InvalidOperationException($"'{path}' contains native code (mixed-mode / C++/CLI assembly); not supported by csharpc");
             var reader = pe.GetMetadataReader();
             if (!reader.IsAssembly) throw new InvalidOperationException($"'{path}' is a module, not an assembly");

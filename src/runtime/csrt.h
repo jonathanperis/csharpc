@@ -106,6 +106,9 @@ _Noreturn void csrt_throw_null_reference(void);
 _Noreturn void csrt_throw_index_out_of_range(void);
 _Noreturn void csrt_throw_divide_by_zero(void);
 _Noreturn void csrt_throw_overflow(void);
+// A method csharpc could not compile was called (IL front-end, docs/adr/0010-il-frontend.md): the
+// compiler reported it as a warning; reaching it at run time ends the program with that message.
+_Noreturn void csrt_unsupported_method(const char* message);
 _Noreturn void csrt_throw_negate_overflow(void);
 _Noreturn void csrt_throw_out_of_memory(const char* message);  // NULL: "Insufficient memory to continue..."
 

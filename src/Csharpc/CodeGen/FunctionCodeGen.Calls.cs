@@ -335,6 +335,7 @@ public sealed partial class FunctionCodeGen
                 _ => L.FunctionType(L.Ptr, L.Ptr),
             };
         }
+        _m.NoteVirtualCall(target);
         var mt = _b.Load(L.Ptr, self, "mt");
         var offset = T.Target.SizeOf(T.MethodTableHeader) + (ulong)slot * T.PointerSize;
         var slotAddress = _b.InBoundsGep(L.I8, mt, [L.ConstUInt(L.I64, offset)], "slot");
