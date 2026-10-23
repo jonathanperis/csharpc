@@ -4,9 +4,9 @@
 #define _GNU_SOURCE
 #include "csrt.h"
 
-#ifdef _WIN32
+#if defined(_WIN32)
 #include <windows.h>
-#else
+#elif !defined(__wasi__)
 #include <dlfcn.h>
 #endif
 #include <errno.h>
@@ -117,8 +117,16 @@ void* csrt_pinvoke_load_library(const char* name, bool throw_on_error) {
 static void* find_symbol(void* handle, const char* entry) { return (void*)GetProcAddress((HMODULE)handle, entry); }
 #define LIBRARY_KIND "DLL"
 #else
+#ifdef __wasi__
+// WASI has no dynamic libraries: csharpc rejects DllImports of other libraries at compile time, and
+// NativeLibrary.Load fails here (DllNotFoundException).
+static void* try_open(const char* name) { (void)name; return NULL; }
+static void* find_symbol(void* handle, const char* entry) { (void)handle; (void)entry; return NULL; }
+#define dlerror() "WebAssembly (WASI) has no dynamic libraries"
+#else
 static void* try_open(const char* name) { return dlopen(name, RTLD_LAZY | RTLD_GLOBAL); }
 static void* find_symbol(void* handle, const char* entry) { return dlsym(handle, entry); }
+#endif
 #define LIBRARY_KIND "shared library"
 
 void* csrt_pinvoke_load_library(const char* name, bool throw_on_error) {

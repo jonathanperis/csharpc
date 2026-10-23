@@ -100,10 +100,17 @@ namespace CsharpcCoreLib
         }
 
         public static string UserName => GetEnvironmentVariable("USER") ?? "";
+#if CSHARPC_TARGET_WASI
+        // WASI has no process ids or host names: the id is the one wasi-libc's getpid emulation reports.
+        public static int ProcessId => 42;
+        public static string MachineName => "localhost";
+#else
         public static int ProcessId => Posix.getpid();
+#endif
         public static string CommandLine => string.Join(" ", Environment.GetCommandLineArgs());
         public static string SystemDirectory => "";
 
+#if !CSHARPC_TARGET_WASI
         public static string MachineName
         {
             get
@@ -116,6 +123,7 @@ namespace CsharpcCoreLib
                 return dot > 0 ? name.Substring(0, dot) : name;
             }
         }
+#endif
 #endif
 
         public static string CurrentDirectory
