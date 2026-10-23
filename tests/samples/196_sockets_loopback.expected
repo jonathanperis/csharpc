@@ -1,0 +1,11 @@
+True ::ffff:127.0.0.1
+echo: hello socket
+1,2,3 from 127.0.0.1
+ConnectionRefused 10061 True
+Connection refused [::ffff:127.0.0.1]:PORT
+True
+InterNetworkV6 True
+Cannot access a disposed object.
+Object name: 'System.Net.Sockets.Socket'.
+Connection refused
+127.0.0.1

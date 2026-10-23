@@ -35,6 +35,8 @@ public sealed partial class ModuleCodeGen
     public void WarnExceptionToString(ITypeSymbol? type, IOperation? at)
     {
         if (type is not INamedTypeSymbol named || at is null || !DerivesFromException(named)) return;
+        // The corelib's own ToString overrides (Win32Exception, ...) are not the program's doing.
+        if (at.Syntax.SyntaxTree.FilePath.StartsWith("<corelib>", StringComparison.Ordinal)) return;
         // A user override decides the text itself.
         for (var t = named; t is not null && !IsLibraryException(t); t = t.BaseType)
             if (t.GetMembers("ToString").OfType<IMethodSymbol>().Any(m => m.IsOverride && m.Parameters.IsEmpty)) return;

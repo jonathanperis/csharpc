@@ -80,7 +80,7 @@ every failure is a clean "not supported by csharpc yet" diagnostic.
 | `System.Collections.Generic` (`List`, `Dictionary`, `HashSet`, ...) | ✅ | shadow corelib in C# |
 | `System.Linq` | ✅ | shadow corelib in C# |
 | `System.Text.RegularExpressions` | ✅ | port of .NET's engine (interpreter; no `NonBacktracking`), [12-corelib.md](12-corelib.md#regular-expressions) |
-| File I/O, networking, JSON | ⬜ | corelib growth |
+| File I/O, networking, JSON | 🟡 | System.IO, sockets (TCP/UDP, `TcpListener`/`TcpClient`, `Dns`) done; JSON, TLS/HTTP next |
 
 ## Milestones
 
@@ -97,7 +97,7 @@ The BCL surface written in C# and compiled by csharpc together with the program;
 Roslyn binds against the real reference assemblies are redirected to it
 ([12-corelib.md](12-corelib.md)). Done: collections, LINQ, tasks, `System.Text.RegularExpressions`. In progress: moving formatting,
 parsing, `decimal`, `BigInteger` and `DateTime` from the C runtime into C#; P/Invoke and `System.IO`.
-Next: `System.Text.Json`, networking basics.
+Next: `System.Text.Json`; networking beyond sockets (TLS, `HttpClient`).
 
 ### M3 — Platforms and per-platform evidence
 Each platform gets a CI job (GitHub Actions) running the full differential suite, conformance corpus

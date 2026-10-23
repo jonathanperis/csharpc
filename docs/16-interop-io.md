@@ -118,6 +118,23 @@ literally keep compiling straight to the console runtime (`Intrinsics.TryGetCons
 so they cost the same as `Console.WriteLine(x)`. A `TextWriter` stored in a variable (or passed
 to a method expecting one) is the corelib object and dispatches virtually.
 
+## System.Net (sockets)
+
+`src/Csharpc/corelib/Net/` implements the basic networking types in C# over the OS's BSD socket API
+(libc on Linux and macOS, Winsock/`ws2_32` on Windows): `IPAddress`/`IPEndPoint` (parsing and
+formatting follow .NET: inet_aton-style IPv4 input such as `127.1` or `0x7f.1`, RFC 5952 IPv6
+output with embedded IPv4 for mapped addresses), `Socket` (TCP and UDP, blocking; `new
+Socket(SocketType, ProtocolType)` and `new TcpClient()` are dual-mode IPv6 sockets, so IPv4 peers
+appear as `::ffff:a.b.c.d`, as in .NET), `NetworkStream`, `TcpListener`, `TcpClient`, `UdpClient`
+and `Dns.GetHostAddresses`/`GetHostName` (getaddrinfo). Constants, `sockaddr` layouts (macOS has a
+length byte first) and errno values are per target OS. Errors are `SocketException`s with .NET's
+`SocketErrorCode` (Winsock numbering, mapped from errno), the native error as `ErrorCode`/
+`NativeErrorCode`, the OS's message text, and — for failed connects — the endpoint appended, as .NET
+does; `SocketException` derives from `Win32Exception` and `ExternalException` like in .NET. The
+`*Async` methods run the blocking call on the thread pool. Not yet: TLS/`SslStream`, `HttpClient`,
+`Socket.Select`/`Poll`, socket flags, most socket options (other members are compile-time
+"not supported" diagnostics). Samples `195_ip_addresses` and `196_sockets_loopback`.
+
 ## Tests and benchmark
 
 * `tests/samples/160_pinvoke_dllimport.cs` — libc/libm, struct return, `qsort` with an

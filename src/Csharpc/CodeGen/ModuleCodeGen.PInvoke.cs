@@ -29,14 +29,20 @@ public sealed partial class ModuleCodeGen
     /// imports are linked directly: its "libc" functions are the UCRT's, and kernel32's import library
     /// is always linked.</summary>
     private static readonly HashSet<string> s_coreLibDirectLibrariesWindows =
-        new(["", "libc", "libm", "kernel32", "kernel32.dll"], StringComparer.OrdinalIgnoreCase);
+        new(["", "libc", "libm", "kernel32", "kernel32.dll", "ole32", "ole32.dll", "ws2_32", "ws2_32.dll"], StringComparer.OrdinalIgnoreCase);
 
     public static bool IsPInvoke(IMethodSymbol method) => method.OriginalDefinition.GetDllImportData() is not null;
 
     private enum ParamKind { Direct, Bool, Char, String, Array, ByRef, Struct, StructByVal }
 
+    /// <summary>
+    /// Native string encodings (csrt_pinvoke_string_to/from_native): Ansi is the system ANSI code page
+    /// on Windows and UTF-8 elsewhere, as in .NET; LPUTF8Str is UTF-8 everywhere.
+    /// </summary>
+    internal const int StringAnsi = 0, StringUtf16 = 1, StringUtf8 = 2;
+
     private sealed record NativeParam(ParamKind Kind, ITypeSymbol Type, LLVMTypeRef[] NativeTypes, bool Unicode = false,
-        LLVMTypeRef StructType = default, int BoolSize = 4);
+        LLVMTypeRef StructType = default, int BoolSize = 4, int StringEncoding = 0);
 
     /// <summary>The managed-ABI stub for a P/Invoke method (params as csharpc passes them; no this/env).</summary>
     public LoweredFunction PInvokeStub(IMethodSymbol method)
@@ -46,7 +52,9 @@ public sealed partial class ModuleCodeGen
         var data = method.GetDllImportData()!;
         if (method.IsGenericMethod) throw CompileError.Unsupported("generic P/Invoke methods", method);
 
-        var unicodeDefault = data.CharacterSet == System.Runtime.InteropServices.CharSet.Unicode;
+        // CharSet.Auto is Unicode on Windows and Ansi elsewhere (.NET Core).
+        var unicodeDefault = data.CharacterSet == System.Runtime.InteropServices.CharSet.Unicode
+            || (data.CharacterSet == System.Runtime.InteropServices.CharSet.Auto && Types.Target.IsWindows);
         var managedParams = method.Parameters.Select(p => p.RefKind != RefKind.None ? Llvm.Ptr : Types.Value(p.Type)).ToArray();
         var managedRet = method.ReturnsVoid ? Llvm.Void : method.RefKind != RefKind.None ? Llvm.Ptr : Types.Value(method.ReturnType);
         var managedType = Llvm.FunctionType(managedRet, managedParams);
@@ -116,8 +124,8 @@ public sealed partial class ModuleCodeGen
                     break;
                 case ParamKind.String:
                 {
-                    var toNative = Runtime("csrt_pinvoke_string_to_native", Llvm.Ptr, Llvm.Ptr, Llvm.I1);
-                    var nativeString = b.Call(toNative.Type, toNative.Fn, [value, p.Unicode ? Llvm.True : Llvm.False]);
+                    var toNative = Runtime("csrt_pinvoke_string_to_native", Llvm.Ptr, Llvm.Ptr, Llvm.I32);
+                    var nativeString = b.Call(toNative.Type, toNative.Fn, [value, Llvm.ConstInt(Llvm.I32, p.StringEncoding)]);
                     temps.Add(nativeString);
                     args.Add(nativeString);
                     break;
@@ -216,9 +224,9 @@ public sealed partial class ModuleCodeGen
                 break;
             case ParamKind.String:
             {
-                var fromNative = Runtime("csrt_pinvoke_string_from_native", Llvm.Ptr, Llvm.Ptr, Llvm.I1, Llvm.I1);
-                var unicode = ReturnIsUnicode(method, unicodeDefault);
-                b.Ret(b.Call(fromNative.Type, fromNative.Fn, [result, unicode ? Llvm.True : Llvm.False, Llvm.True]));
+                var fromNative = Runtime("csrt_pinvoke_string_from_native", Llvm.Ptr, Llvm.Ptr, Llvm.I32, Llvm.I1);
+                var encoding = ReturnStringEncoding(method, unicodeDefault);
+                b.Ret(b.Call(fromNative.Type, fromNative.Fn, [result, Llvm.ConstInt(Llvm.I32, encoding), Llvm.True]));
                 break;
             }
             case ParamKind.Struct:
@@ -298,8 +306,8 @@ public sealed partial class ModuleCodeGen
             }
             case { SpecialType: SpecialType.System_String }:
             {
-                var unicode = marshalAs switch { 0x15 => true, 0x14 => false, 0x30 => false, _ => unicodeDefault }; // LPWStr, LPStr, LPUTF8Str
-                return new NativeParam(ParamKind.String, type, [Llvm.Ptr], unicode);
+                var encoding = marshalAs switch { 0x15 => StringUtf16, 0x14 => StringAnsi, 0x30 => StringUtf8, _ => unicodeDefault ? StringUtf16 : StringAnsi }; // LPWStr, LPStr, LPUTF8Str
+                return new NativeParam(ParamKind.String, type, [Llvm.Ptr], encoding == StringUtf16, StringEncoding: encoding);
             }
             case IArrayTypeSymbol { Rank: 1, ElementType: var element } when IsBlittable(element):
                 return new NativeParam(ParamKind.Array, type, [Llvm.Ptr]);
@@ -350,8 +358,11 @@ public sealed partial class ModuleCodeGen
         }
     }
 
-    private bool ReturnIsUnicode(IMethodSymbol method, bool unicodeDefault) =>
-        MarshalAsOf(method.GetReturnTypeAttributes()) switch { 0x15 => true, 0x14 or 0x30 => false, _ => unicodeDefault };
+    private int ReturnStringEncoding(IMethodSymbol method, bool unicodeDefault) =>
+        MarshalAsOf(method.GetReturnTypeAttributes()) switch
+        {
+            0x15 => StringUtf16, 0x14 => StringAnsi, 0x30 => StringUtf8, _ => unicodeDefault ? StringUtf16 : StringAnsi,
+        };
 
     /// <summary>The UnmanagedType value of a [MarshalAs] attribute, or null.</summary>
     private static int? MarshalAsOf(System.Collections.Immutable.ImmutableArray<AttributeData> attributes)
