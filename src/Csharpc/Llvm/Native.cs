@@ -60,7 +60,10 @@ internal static unsafe partial class Native
             Environment.GetEnvironmentVariable("CSHARPC_LIBLLVM"),
             "libLLVM-18.so", "libLLVM.so.18.1", "/usr/lib/llvm-18/lib/libLLVM.so",
             "libLLVM-19.so", "libLLVM.so.19.1", "libLLVM-20.so", "libLLVM.so.20.1",
-            "libLLVM.so", "libLLVM.dylib", "LLVM-C.dll",
+            "libLLVM.so",
+            // macOS: Homebrew's llvm@18 (Apple silicon prefix, then Intel), then the loader's search path.
+            "/opt/homebrew/opt/llvm@18/lib/libLLVM.dylib", "/usr/local/opt/llvm@18/lib/libLLVM.dylib", "libLLVM.dylib",
+            "LLVM-C.dll",
         ];
         foreach (var candidate in candidates)
             if (candidate is not null && NativeLibrary.TryLoad(candidate, out var handle))

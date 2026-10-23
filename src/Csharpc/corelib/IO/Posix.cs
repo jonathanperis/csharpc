@@ -8,12 +8,23 @@ namespace CsharpcCoreLib
 {
     internal static unsafe class Posix
     {
-        public const int O_RDONLY = 0, O_WRONLY = 1, O_RDWR = 2, O_CREAT = 0x40, O_EXCL = 0x80, O_TRUNC = 0x200, O_APPEND = 0x400, O_CLOEXEC = 0x80000;
+        // Flag values, errno values and struct layouts are per OS. The compiler parses the corelib with
+        // CSHARPC_TARGET_LINUX or CSHARPC_TARGET_MACOS (from the target triple), never the host's.
+        public const int O_RDONLY = 0, O_WRONLY = 1, O_RDWR = 2;
+#if CSHARPC_TARGET_MACOS
+        public const int O_CREAT = 0x200, O_EXCL = 0x800, O_TRUNC = 0x400, O_APPEND = 0x8, O_CLOEXEC = 0x1000000;
+        public const int ENOTEMPTY = 66;
+#else
+        public const int O_CREAT = 0x40, O_EXCL = 0x80, O_TRUNC = 0x200, O_APPEND = 0x400, O_CLOEXEC = 0x80000;
+        public const int ENOTEMPTY = 39;
+#endif
         public const int SEEK_SET = 0, SEEK_CUR = 1, SEEK_END = 2;
         public const int S_IFMT = 0xF000, S_IFDIR = 0x4000, S_IFREG = 0x8000, S_IFLNK = 0xA000;
-        public const int ENOENT = 2, EPERM = 1, EACCES = 13, EEXIST = 17, ENOTDIR = 20, EISDIR = 21, ENOTEMPTY = 39, EINTR = 4;
+        public const int ENOENT = 2, EPERM = 1, EACCES = 13, EEXIST = 17, ENOTDIR = 20, EISDIR = 21, EINTR = 4, ERANGE = 34;
 
-        [DllImport("libc", SetLastError = true)] public static extern int open(byte* path, int flags, int mode);
+        // open(2) is variadic: Apple's arm64 ABI passes variadic arguments on the stack, so calling it as
+        // a fixed three-argument function would lose `mode`. A C shim in the runtime makes the call.
+        [DllImport("__Internal", EntryPoint = "csrt_open", SetLastError = true)] public static extern int open(byte* path, int flags, int mode);
         [DllImport("libc", SetLastError = true)] public static extern nint read(int fd, byte* buffer, nuint count);
         [DllImport("libc", SetLastError = true)] public static extern nint write(int fd, byte* buffer, nuint count);
         [DllImport("libc", SetLastError = true)] public static extern int close(int fd);
@@ -39,6 +50,20 @@ namespace CsharpcCoreLib
         [DllImport("libc")] public static extern long time(long* result);
         [DllImport("libc")] public static extern byte* localtime_r(long* time, byte* result);
 
+#if CSHARPC_TARGET_MACOS
+        // struct stat (Darwin arm64, 64-bit ino_t): st_mode @4 (u16), st_mtimespec @48, st_size @96; 144 bytes.
+        [DllImport("libc", SetLastError = true)] public static extern int stat(byte* path, byte* buffer);
+        [DllImport("libc", SetLastError = true)] public static extern int lstat(byte* path, byte* buffer);
+        [DllImport("libc", SetLastError = true)] public static extern int fstat(int fd, byte* buffer);
+        public const int StatSize = 144;
+        public static int Mode(byte* st) => *(ushort*)(st + 4);
+        public static long Size(byte* st) => *(long*)(st + 96);
+        public static long MTimeSeconds(byte* st) => *(long*)(st + 48);
+        public static long MTimeNanoseconds(byte* st) => *(long*)(st + 56);
+
+        // struct dirent (Darwin, 64-bit ino_t): d_namlen @18 (u16), d_type @20, d_name @21.
+        public const int DirentTypeOffset = 20, DirentNameOffset = 21;
+#else
         // stat/lstat/fstat go through statx (glibc 2.28+): struct statx has one layout on every Linux
         // architecture, while struct stat does not (st_mode is at offset 24 on x86-64 but 16 on AArch64).
         // struct statx: stx_mode @28 (u16), stx_size @40 (u64), stx_mtime.tv_sec @112 (i64), tv_nsec @120 (u32); 256 bytes.
@@ -60,6 +85,7 @@ namespace CsharpcCoreLib
 
         // struct dirent (glibc, LP64 Linux: x86-64 and AArch64 alike): d_type @18, d_name @19.
         public const int DirentTypeOffset = 18, DirentNameOffset = 19;
+#endif
         public const byte DT_UNKNOWN = 0, DT_DIR = 4, DT_REG = 8, DT_LNK = 10;
 
         /// <summary>stat() a path: 0 = missing, S_IFDIR / S_IFREG / other mode bits otherwise.</summary>

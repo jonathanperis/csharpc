@@ -117,9 +117,15 @@ namespace CsharpcCoreLib
             return key;
         }
 
+#if CSHARPC_TARGET_MACOS
+        // struct termios (Darwin): tcflag_t is unsigned long, c_lflag @24 (low half), c_cc[20] @32, 72 bytes.
+        private const int TermiosSize = 72, LflagOffset = 24, CcOffset = 32, VTIME = 17, VMIN = 16, TCSANOW = 0;
+        private const uint ICANON = 0x100, ECHO = 8;
+#else
         // struct termios (Linux, glibc; same on x86-64 and AArch64): c_lflag @12, c_cc[32] @17, 60 bytes.
         private const int TermiosSize = 64, LflagOffset = 12, CcOffset = 17, VTIME = 5, VMIN = 6, TCSANOW = 0;
         private const uint ICANON = 2, ECHO = 8;
+#endif
 
         private static bool WaitForInput(int timeoutMs)
         {

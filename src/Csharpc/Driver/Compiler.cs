@@ -20,6 +20,14 @@ public sealed class Compiler(CompilerOptions options)
     public int Run()
     {
         _clock.Start();
+        // The target decides the corelib's per-OS code (CSHARPC_TARGET_*) before anything is parsed.
+        var triple = options.Target ?? TargetMachine.HostTriple;
+        var darwin = TargetMachine.IsDarwinTriple(triple);
+        if (darwin && !(triple.StartsWith("arm64", StringComparison.Ordinal) || triple.StartsWith("aarch64", StringComparison.Ordinal)))
+            return Fail($"target '{triple}': macOS on x86-64 is not supported by csharpc yet (Apple silicon / arm64 only)");
+        if (darwin && options.Static)
+            return Fail("--static is not supported on macOS: Apple does not support statically linked executables (libSystem is always linked dynamically)");
+        string[] coreLibDefines = [darwin ? "CSHARPC_TARGET_MACOS" : "CSHARPC_TARGET_LINUX"];
         FrontendSettings settings;
         if (options.Project is { } project)
         {
@@ -31,7 +39,7 @@ public sealed class Compiler(CompilerOptions options)
             foreach (var p in all.Where(p => p.UnsupportedPackages.Count > 0))
                 Warn($"{Path.GetFileName(p.ProjectPath)}: PackageReference not supported yet (csharpc compiles from source only): {string.Join(", ", p.UnsupportedPackages)}");
             options.DefaultOutputName = root.AssemblyName;
-            settings = projectSettings with { Defines = [.. projectSettings.Defines, .. options.Defines] };
+            settings = projectSettings with { Defines = [.. projectSettings.Defines, .. options.Defines], CoreLibDefines = coreLibDefines };
         }
         else
         {
@@ -40,6 +48,7 @@ public sealed class Compiler(CompilerOptions options)
                 Files = options.Inputs,
                 Defines = [.. ProjectLoader.ImplicitDefines(options.Configuration), .. options.Defines],
                 GlobalUsings = options.ImplicitUsings ? RoslynFrontend.DefaultImplicitUsings : null,
+                CoreLibDefines = coreLibDefines,
             };
         }
         // Nullable analysis only produces warnings, never different code. Lowering uses a compilation
@@ -169,7 +178,7 @@ public sealed class Compiler(CompilerOptions options)
                 {
                     target.Emit(module, obj, LLVMCodeGenFileType.Object);
                     Phase("codegen (LLVM backend)");
-                    toolchain.Link(target.Triple, obj, output, runtimeLinkedIn: runtimeLto);
+                    toolchain.Link(target.Triple, obj, output, runtimeLinkedIn: runtimeLto, WeakImports(module));
                     Phase("link");
                 }
                 finally { if (Environment.GetEnvironmentVariable("CSHARPC_KEEP_OBJ") is not { Length: > 0 } keep) File.Delete(obj); else File.Move(obj, keep, overwrite: true); }
@@ -178,6 +187,16 @@ public sealed class Compiler(CompilerOptions options)
         if (options.Emit != EmitKind.Exe) Phase("emit");
         if (options.Verbose) Console.Error.WriteLine($"csharpc: wrote {output}");
         return 0;
+    }
+
+    /// <summary>Undefined extern_weak functions (statically bound P/Invoke targets that may be missing).</summary>
+    private static List<string> WeakImports(LlvmModule module)
+    {
+        List<string> names = [];
+        for (var fn = Native.LLVMGetFirstFunction(module.Ref); !fn.IsNull; fn = Native.LLVMGetNextFunction(fn))
+            if (Native.LLVMIsDeclaration(fn) != 0 && (int)Native.LLVMGetLinkage(fn) == 12 /* ExternalWeak */)
+                names.Add(Native.TakeName(fn));
+        return names;
     }
 
     private TimeSpan _last;

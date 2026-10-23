@@ -559,7 +559,7 @@ namespace CsharpcCoreLib
 
         private static unsafe long LibcOffsetAt(long unixSeconds, out bool dst)
         {
-            // struct tm (LP64 glibc): tm_isdst @32 (int), tm_gmtoff @40 (long); 56 bytes.
+            // struct tm (LP64 glibc and Darwin alike): tm_isdst @32 (int), tm_gmtoff @40 (long); 56 bytes.
             byte* tm = stackalloc byte[64];
             long t = unixSeconds;
             if (Posix.localtime_r(&t, tm) == null) { dst = false; return 0; }
