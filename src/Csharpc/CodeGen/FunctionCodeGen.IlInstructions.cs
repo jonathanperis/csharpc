@@ -178,8 +178,9 @@ public sealed partial class FunctionCodeGen
                 var clause = IlHandlerOf(block);
                 if (clause.Kind != ExceptionRegionKind.Filter) throw new IlException("endfilter outside a filter");
                 var accept = IlIsNonZero(Pop());
+                if (clause.Reject.IsNull) throw new IlException("filter without a dispatch"); // dispatches are created up front
                 var enter = NewBlock("il.filter.accept");
-                _b.CondBr(accept, enter, clause.Reject.IsNull ? throw new IlException("filter reached without an exception") : clause.Reject);
+                _b.CondBr(accept, enter, clause.Reject);
                 _b.PositionAtEnd(enter);
                 var handler = il.BlockAt[clause.HandlerStart];
                 _b.Store(_b.Load(L.Ptr, clause.Slot), handler.Entry![0].Slot);

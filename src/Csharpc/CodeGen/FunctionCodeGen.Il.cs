@@ -125,6 +125,9 @@ public sealed partial class FunctionCodeGen
         }
 
         foreach (var block in il.Blocks) block.Llvm = NewBlock($"IL_{block.Start:X4}");
+        // Landing pads and dispatch chains up front: a filter's "rejected" edge and the handlers' entry
+        // values must exist whatever the order of the regions in the body.
+        foreach (var t in il.Trys) IlLandingPad(t);
         il.Blocks[0].Entry = [];
         _b.Br(il.Blocks[0].Llvm);
         foreach (var block in il.Blocks) EmitIlBlock(block);
@@ -210,8 +213,9 @@ public sealed partial class FunctionCodeGen
         foreach (var block in il.Blocks)
         {
             block.Try = il.Trys.Where(t => t.Contains(block.Start)).MinBy(t => t.End - t.Start);
+            // The innermost handler (or filter) whose code contains the block: nested ranges are shorter.
             block.Handler = il.Clauses.Where(c => c.InHandler(block.Start))
-                .MinBy(c => c.InHandler(block.Start) && block.Start >= c.HandlerStart ? c.HandlerEnd - c.HandlerStart : c.HandlerStart - c.Region.FilterOffset);
+                .MinBy(c => block.Start >= c.HandlerStart ? c.HandlerEnd - c.HandlerStart : c.HandlerStart - c.Region.FilterOffset);
         }
         // Handler entries receive the exception object on the stack.
         foreach (var clause in il.Clauses)
