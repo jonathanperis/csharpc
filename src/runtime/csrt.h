@@ -16,6 +16,18 @@
 #include <stddef.h>
 #include <stdint.h>
 
+// Environment.NewLine of the target: .NET puts it in Console.WriteLine, StringBuilder.AppendLine and
+// multi-line exception messages.
+#ifdef _WIN32
+#define CSRT_NEWLINE "\r\n"
+#else
+#define CSRT_NEWLINE "\n"
+#endif
+
+/// An unhandled exception was reported: end the process like .NET (SIGABRT on Unix, exit code
+/// 0xE0434352 on Windows).
+_Noreturn void csrt_fail_unhandled(void);
+
 typedef struct csrt_MethodTable csrt_MethodTable;
 
 // Interface map entry: for each interface a class implements (including inherited ones), the

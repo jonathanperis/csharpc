@@ -33,13 +33,19 @@
 // Platforms: root discovery is per object format. Linux (ELF) finds the data segments and the
 // static TLS block with dl_iterate_phdr; macOS (Mach-O) walks the main image's load commands and
 // finds each thread's thread-local block through a TLV descriptor (see the __APPLE__ blocks).
+// Windows (PE/COFF) has no signals to stop threads with: the collector suspends each one with
+// SuspendThread and reads its registers with GetThreadContext instead (see the _WIN32 blocks).
 #define _GNU_SOURCE
+#define _WIN32_WINNT 0x0A00  // Windows 10 (GetCurrentThreadStackLimits)
 #include "gc.h"
 #include "csrt.h"
 
 #include <errno.h>
 #include <pthread.h>
-#ifdef __APPLE__
+#if defined(_WIN32)
+#include <windows.h>
+#include <io.h>
+#elif defined(__APPLE__)
 #include <mach/mach.h>
 #include <mach-o/dyld.h>
 #include <mach-o/loader.h>
@@ -54,9 +60,11 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#ifndef _WIN32
 #include <sys/mman.h>
-#include <time.h>
 #include <unistd.h>
+#endif
+#include <time.h>
 
 #define CHUNK_SIZE   ((size_t)256 * 1024)
 #define CHUNK_HEADER ((size_t)4096)
@@ -101,12 +109,13 @@ enum { THREAD_STARTING, THREAD_RUNNING };
 
 static CSRT_TLS csrt_GcThread* tl_self;
 
-#ifdef __APPLE__
+#if defined(__APPLE__)
 #define SIG_SUSPEND SIGUSR1  // Darwin has no SIGPWR; .NET programs can't handle SIGUSR1 themselves
-#else
-#define SIG_SUSPEND SIGPWR
-#endif
 #define SIG_RESUME  SIGXCPU
+#elif !defined(_WIN32)
+#define SIG_SUSPEND SIGPWR
+#define SIG_RESUME  SIGXCPU
+#endif
 #define MAX_SEGMENTS 16
 
 typedef struct {
@@ -122,9 +131,9 @@ static struct {
     csrt_GcThread main_thread;
     csrt_GcThread* threads;           // registry (includes main_thread)
     atomic_int stop_epoch, world_stopped;
-#ifdef __APPLE__
+#if defined(__APPLE__)
     semaphore_t ack;  // macOS has no unnamed POSIX semaphores (sem_init fails with ENOSYS)
-#else
+#elif !defined(_WIN32)
     sem_t ack;
 #endif
 
@@ -231,6 +240,18 @@ static void note_range(uintptr_t lo, uintptr_t hi) {
 // Chunks
 // ---------------------------------------------------------------------------------------------
 static Chunk* chunk_map(void) {
+#ifdef _WIN32
+    // VirtualFree can't trim part of a reservation: reserve twice the size to find an aligned
+    // address, release it, and map exactly there (retrying if another thread took the range).
+    uintptr_t aligned;
+    for (;;) {
+        uint8_t* raw = VirtualAlloc(NULL, CHUNK_SIZE * 2, MEM_RESERVE, PAGE_NOACCESS);
+        if (!raw) return NULL;
+        aligned = ((uintptr_t)raw + CHUNK_SIZE - 1) & ~(CHUNK_SIZE - 1);
+        VirtualFree(raw, 0, MEM_RELEASE);
+        if (VirtualAlloc((void*)aligned, CHUNK_SIZE, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE)) break;
+    }
+#else
     // Over-allocate and trim so the chunk is CHUNK_SIZE-aligned.
     size_t span = CHUNK_SIZE * 2;
     uint8_t* raw = mmap(NULL, span, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
@@ -240,6 +261,7 @@ static Chunk* chunk_map(void) {
     if (head) munmap(raw, head);
     size_t tail = span - head - CHUNK_SIZE;
     if (tail) munmap((uint8_t*)aligned + CHUNK_SIZE, tail);
+#endif
     Chunk* c = (Chunk*)aligned;
     c->next = g.chunks;
     g.chunks = c;
@@ -349,7 +371,61 @@ static void collect(void);
 static inline void gc_lock(void) { if (g.multithreaded) pthread_mutex_lock(&g.lock); }
 static inline void gc_unlock(void) { if (g.multithreaded) pthread_mutex_unlock(&g.lock); }
 
-#ifdef __APPLE__
+#if defined(_WIN32)
+/// The executable's PE image (GetModuleHandle(NULL)).
+static const IMAGE_NT_HEADERS* image_headers(const uint8_t** base) {
+    *base = (const uint8_t*)GetModuleHandleW(NULL);
+    return (const IMAGE_NT_HEADERS*)(*base + ((const IMAGE_DOS_HEADER*)*base)->e_lfanew);
+}
+
+/// The executable's writable sections (.data, .bss: static fields) and the size of its TLS block.
+static void cache_segments(void) {
+    const uint8_t* base;
+    const IMAGE_NT_HEADERS* nt = image_headers(&base);
+    const IMAGE_SECTION_HEADER* section = IMAGE_FIRST_SECTION(nt);
+    for (WORD i = 0; i < nt->FileHeader.NumberOfSections && g.segment_count < MAX_SEGMENTS; i++, section++) {
+        if (!(section->Characteristics & IMAGE_SCN_MEM_WRITE)) continue;
+        g.segments[g.segment_count].lo = (uintptr_t)(base + section->VirtualAddress);
+        g.segments[g.segment_count].hi = (uintptr_t)(base + section->VirtualAddress + section->Misc.VirtualSize);
+        g.segment_count++;
+    }
+    const IMAGE_DATA_DIRECTORY* dir = &nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_TLS];
+    if (dir->VirtualAddress && dir->Size) {
+        const IMAGE_TLS_DIRECTORY* tls = (const IMAGE_TLS_DIRECTORY*)(base + dir->VirtualAddress);
+        g.tls_size = (size_t)(tls->EndAddressOfRawData - tls->StartAddressOfRawData) + tls->SizeOfZeroFill;
+    }
+}
+
+/// The calling thread's copy of the executable's TLS block: TEB.ThreadLocalStoragePointer[_tls_index].
+static void tls_bounds(csrt_GcThread* t) {
+    extern ULONG _tls_index;  // the executable's TLS slot (mingw-w64 tlssup.c)
+    if (!g.tls_size) return;
+    void** blocks = (void**)__readgsqword(0x58);
+    if (!blocks || !blocks[_tls_index]) return;
+    t->tls_lo = (uintptr_t)blocks[_tls_index];
+    t->tls_hi = t->tls_lo + g.tls_size;
+}
+
+/// Highest address of the calling thread's stack.
+static void* own_stack_bottom(void) {
+    ULONG_PTR low = 0, high = 0;
+    GetCurrentThreadStackLimits(&low, &high);
+    return (void*)high;
+}
+
+/// A handle that can suspend the calling thread and read its registers, plus a buffer for them.
+static void thread_handles(csrt_GcThread* t) {
+    HANDLE self;
+    if (!DuplicateHandle(GetCurrentProcess(), GetCurrentThread(), GetCurrentProcess(), &self,
+                         THREAD_SUSPEND_RESUME | THREAD_GET_CONTEXT | THREAD_QUERY_INFORMATION, FALSE, 0)) {
+        fputs("csrt: cannot register a thread with the garbage collector\n", stderr);
+        abort();
+    }
+    t->handle = self;
+    if (!t->context) t->context = _aligned_malloc(sizeof(CONTEXT), 16);
+    if (!t->context) { fputs("csrt: out of memory (gc metadata)\n", stderr); abort(); }
+}
+#elif defined(__APPLE__)
 // Mach-O thread-locals: each one has a TLV descriptor { thunk, key, offset } in a
 // S_THREAD_LOCAL_VARIABLES section. dyld gives every thread one block holding all of the image's
 // thread-locals, laid out like the template sections (__thread_data, __thread_bss); a descriptor's
@@ -477,16 +553,20 @@ void csrt_gc_init(void) {
 #if defined(__GLIBC__)
     extern void* __libc_stack_end;
     g.stack_bottom = __libc_stack_end;
-#elif defined(__APPLE__)
+#elif defined(__APPLE__) || defined(_WIN32)
     g.stack_bottom = own_stack_bottom();
 #else
     g.stack_bottom = __builtin_frame_address(0);
 #endif
     pthread_mutex_init(&g.lock, NULL);
+#if defined(_WIN32)
+    cache_segments();
+    thread_handles(&g.main_thread);
+#elif defined(__APPLE__)
     ack_init();
-#ifdef __APPLE__
     cache_segments();
 #else
+    ack_init();
     dl_iterate_phdr(cache_segments, NULL);
 #endif
     g.main_thread.thread = pthread_self();
@@ -510,7 +590,12 @@ static void* alloc_large(size_t size, bool clear) {
         p = calloc(1, size);
         if (!p) return NULL;
     } else {
+#ifdef _WIN32
+        p = malloc(size);  // 16-byte aligned on Win64 (MEMORY_ALLOCATION_ALIGNMENT)
+        if (!p) return NULL;
+#else
         if (posix_memalign(&p, 16, size) != 0) return NULL;
+#endif
         if (clear) memset(p, 0, size);
     }
     if (g.large_count == g.large_capacity) {
@@ -603,9 +688,15 @@ int64_t csrt_gc_total_memory(void) {
 // Marking
 // ---------------------------------------------------------------------------------------------
 static void* mmap_grow(void* old, size_t old_bytes, size_t new_bytes) {
+#ifdef _WIN32
+    void* grown = VirtualAlloc(NULL, new_bytes, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
+    if (!grown) { static const char m[] = "csrt: out of memory (gc metadata)\n"; (void)!_write(2, m, sizeof m - 1); abort(); }
+    if (old) { memcpy(grown, old, old_bytes); VirtualFree(old, 0, MEM_RELEASE); }
+#else
     void* grown = mmap(NULL, new_bytes, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
     if (grown == MAP_FAILED) { static const char m[] = "csrt: out of memory (gc metadata)\n"; (void)!write(2, m, sizeof m - 1); abort(); }
     if (old) { memcpy(grown, old, old_bytes); munmap(old, old_bytes); }
+#endif
     return grown;
 }
 
@@ -723,13 +814,49 @@ static void scan_roots(void) {
         if (t->state != THREAD_RUNNING) continue;
         if (t->tls_hi) scan_range((const void*)t->tls_lo, (const void*)t->tls_hi);
         if (t == tl_self) scan_own_stack(t->stack_bottom);
-        else scan_range((const void*)t->stack_top, t->stack_bottom);
+        else {
+#ifdef _WIN32
+            scan_range(t->context, (const CONTEXT*)t->context + 1);  // registers (GetThreadContext)
+#endif
+            scan_range((const void*)t->stack_top, t->stack_bottom);
+        }
     }
 }
 
 // ---------------------------------------------------------------------------------------------
-// Stop the world (signal handshake)
+// Stop the world
 // ---------------------------------------------------------------------------------------------
+#ifdef _WIN32
+// SuspendThread is asynchronous; GetThreadContext only returns once the thread is really stopped,
+// and yields the registers to scan (all of CONTEXT: pointers can sit in vector registers too).
+// Windows x64 has no red zone, so nothing live lies below the stopped thread's Rsp.
+static void install_signal_handlers(void) {}
+
+static int stop_world(void) {
+    if (!g.multithreaded) return 0;
+    int stopped = 0;
+    for (csrt_GcThread* t = g.threads; t; t = t->next) {
+        if (t->state != THREAD_RUNNING || t == tl_self) continue;
+        if (SuspendThread(t->handle) == (DWORD)-1) goto fail;
+        CONTEXT* context = t->context;
+        memset(context, 0, sizeof *context);
+        context->ContextFlags = CONTEXT_FULL | CONTEXT_FLOATING_POINT;
+        if (!GetThreadContext(t->handle, context)) goto fail;
+        t->stack_top = (void*)context->Rsp;
+        stopped++;
+    }
+    return stopped;
+fail:
+    fputs("csrt: cannot suspend a thread for garbage collection\n", stderr);
+    abort();
+}
+
+static void resume_world(void) {
+    if (!g.multithreaded) return;
+    for (csrt_GcThread* t = g.threads; t; t = t->next)
+        if (t->state == THREAD_RUNNING && t != tl_self) ResumeThread(t->handle);
+}
+#else
 static void suspend_handler(int sig) {
     (void)sig;
     int saved_errno = errno;
@@ -780,6 +907,7 @@ static void resume_world(void) {
     for (csrt_GcThread* t = g.threads; t; t = t->next)
         if (t->state == THREAD_RUNNING && t != tl_self) pthread_kill(t->thread, SIG_RESUME);
 }
+#endif
 
 // ---------------------------------------------------------------------------------------------
 // Thread registry
@@ -810,6 +938,9 @@ void csrt_gc_thread_attach(csrt_GcThread* t) {
     t->stack_bottom = bottom ? bottom : __builtin_frame_address(0);
     t->cache = tl_cache;
     tls_bounds(t);
+#ifdef _WIN32
+    thread_handles(t);
+#endif
     tl_self = t;
     t->state = THREAD_RUNNING;
     pthread_mutex_unlock(&g.lock);
@@ -823,6 +954,10 @@ void csrt_gc_thread_detach(void) {
     unlink_thread(t);
     tl_self = NULL;
     pthread_mutex_unlock(&g.lock);
+#ifdef _WIN32
+    CloseHandle(t->handle);
+    _aligned_free(t->context);
+#endif
     free(t);
 }
 

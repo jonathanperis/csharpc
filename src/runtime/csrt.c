@@ -30,6 +30,14 @@ const csrt_BuiltinMethodTable csrt_PrimitiveArray_MT = {
 
 static int s_argc;
 static char** s_argv;
+#ifdef _WIN32
+#include <fcntl.h>
+#include <io.h>
+// The UCRT's wmain-style parsing of the UTF-16 command line (what .NET's host sees as argv).
+int __cdecl _configure_wide_argv(int mode);
+static wchar_t** s_wargv;
+csrt_String* csrt_string_new_from_utf16(const uint16_t* chars, int32_t length);
+#endif
 
 // ---------------------------------------------------------------------------------------------
 // Output buffering. .NET's Console.Out autoflushes, but process exit flushes too; for a native
@@ -40,6 +48,17 @@ static char s_stdout_buffer[1 << 16];
 void csrt_init(int argc, char** argv) {
     s_argc = argc;
     s_argv = argv;
+#ifdef _WIN32
+    // Raw bytes on the standard streams: .NET writes "\r\n" itself where it means a line break
+    // (Environment.NewLine) and a bare "\n" where the program wrote one, and reads input unchanged.
+    _setmode(0, _O_BINARY);
+    _setmode(1, _O_BINARY);
+    _setmode(2, _O_BINARY);
+    if (_configure_wide_argv(1 /* _crt_argv_unexpanded_arguments */) == 0) {
+        s_argc = *__p___argc();
+        s_wargv = *__p___wargv();
+    }
+#endif
     csrt_gc_init();
     setvbuf(stdout, s_stdout_buffer, _IOFBF, sizeof s_stdout_buffer);
 }
@@ -181,11 +200,31 @@ csrt_String* csrt_string_from_utf8_n(const char* text, size_t n) {
 
 static csrt_String* string_from_utf8(const char* text) { return csrt_string_from_utf8_n(text, strlen(text)); }
 
+#ifdef _WIN32
+static csrt_String* string_from_wide(const wchar_t* text) {
+    return csrt_string_new_from_utf16((const uint16_t*)text, (int32_t)wcslen(text));
+}
+
+/// Environment.GetCommandLineArgs(): the program path, then the arguments.
+csrt_Array* csrt_environment_command_line_args(void) {
+    int64_t n = s_argc > 0 ? s_argc : 0;
+    csrt_Array* arr = csrt_new_array(sizeof(void*), n);
+    for (int64_t i = 0; i < n; i++) ((csrt_String**)arr->data)[i] = s_wargv ? string_from_wide(s_wargv[i]) : string_from_utf8(s_argv[i]);
+    return arr;
+}
+#endif
+
 csrt_Array* csrt_get_args(void) {
     // Like .NET, args excludes the program name.
     int64_t n = s_argc > 0 ? s_argc - 1 : 0;
     csrt_Array* arr = csrt_new_array(sizeof(void*), n);
     csrt_String** items = (csrt_String**)arr->data;
+#ifdef _WIN32
+    if (s_wargv) {
+        for (int64_t i = 0; i < n; i++) items[i] = string_from_wide(s_wargv[i + 1]);
+        return arr;
+    }
+#endif
     for (int64_t i = 0; i < n; i++) items[i] = string_from_utf8(s_argv[i + 1]);
     return arr;
 }
@@ -363,9 +402,9 @@ void* const* csrt_interface_slots(void* obj, const csrt_MethodTable* interface_t
     void* const* variant = variant_interface_slots(mt, interface_type);
     if (variant) return variant;
     fflush(stdout);
-    fprintf(stderr, "Unhandled exception. System.InvalidCastException: Unable to cast object of type '%s' to type '%s'.\n",
+    fprintf(stderr, "Unhandled exception. System.InvalidCastException: Unable to cast object of type '%s' to type '%s'." CSRT_NEWLINE,
             mt->name, interface_type->name);
-    abort();
+    csrt_fail_unhandled();
 }
 
 _Noreturn static void invalid_cast(const csrt_MethodTable* from, const csrt_MethodTable* to) {
@@ -487,7 +526,7 @@ void csrt_console_write_u32(uint32_t v) { char b[24]; write_digits(csrt_itoa_u64
 void csrt_console_write_u64(uint64_t v) { char b[24]; write_digits(csrt_itoa_u64(v, b + 24), b + 24); }
 void csrt_console_write_bool(bool v) { fputs(v ? "True" : "False", stdout); }
 void csrt_console_write_char(uint16_t v) { write_utf16(stdout, &v, 1); }
-void csrt_console_newline(void) { fputc('\n', stdout); }
+void csrt_console_newline(void) { fputs(CSRT_NEWLINE, stdout); }
 
 // ---------------------------------------------------------------------------------------------
 // Environment

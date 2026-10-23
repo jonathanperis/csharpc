@@ -444,8 +444,10 @@ static csrt_Array* s_timers;    // triples (deadline_ms, task, token); unsorted,
 static int64_t s_ntimers;
 
 static void init_tcond(void) {
-#ifdef __APPLE__
-    pthread_cond_init(&s_tcond, NULL);  // no pthread_condattr_setclock: timer_loop waits with a relative timeout
+#if defined(__APPLE__) || defined(_WIN32)
+    // macOS has no pthread_condattr_setclock, and winpthreads' absolute timeouts are wall-clock:
+    // timer_loop waits with a relative timeout there.
+    pthread_cond_init(&s_tcond, NULL);
 #else
     pthread_condattr_t attr;
     pthread_condattr_init(&attr);
@@ -519,7 +521,7 @@ static void timer_loop(void) {
         struct timespec ts;
         clock_gettime(CLOCK_MONOTONIC, &ts);
         int64_t wait = next - now_ms();
-#ifdef __APPLE__
+#if defined(__APPLE__) || defined(_WIN32)
         if (wait > 0) {
             struct timespec relative = { (time_t)(wait / 1000), (long)(wait % 1000) * 1000000 };
             pthread_cond_timedwait_relative_np(&s_tcond, &s_tlock, &relative);

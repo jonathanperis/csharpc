@@ -4,7 +4,11 @@
 #define _GNU_SOURCE
 #include "csrt.h"
 
+#ifdef _WIN32
+#include <windows.h>
+#else
 #include <dlfcn.h>
+#endif
 #include <errno.h>
 #include <fcntl.h>
 #include <pthread.h>
@@ -21,18 +25,29 @@ static _Thread_local int s_last_pinvoke_error;
 /// (Apple arm64 passes variadic arguments on the stack, not in registers).
 int32_t csrt_open(const char* path, int32_t flags, int32_t mode) { return open(path, flags, (mode_t)mode); }
 
+#ifdef _WIN32
+// SetLastError=true on Windows captures the Win32 last error (GetLastError), not errno.
+void csrt_pinvoke_clear_errno(void) { SetLastError(0); }
+void csrt_pinvoke_save_errno(void) { s_last_pinvoke_error = (int)GetLastError(); }
+int32_t csrt_get_last_system_error(void) { return (int32_t)GetLastError(); }
+void csrt_set_last_system_error(int32_t error) { SetLastError((DWORD)error); }
+#else
 void csrt_pinvoke_clear_errno(void) { errno = 0; }
 void csrt_pinvoke_save_errno(void) { s_last_pinvoke_error = errno; }
-int32_t csrt_get_last_pinvoke_error(void) { return s_last_pinvoke_error; }
-void csrt_set_last_pinvoke_error(int32_t error) { s_last_pinvoke_error = error; }
 int32_t csrt_get_last_system_error(void) { return errno; }
 void csrt_set_last_system_error(int32_t error) { errno = error; }
+#endif
+int32_t csrt_get_last_pinvoke_error(void) { return s_last_pinvoke_error; }
+void csrt_set_last_pinvoke_error(int32_t error) { s_last_pinvoke_error = error; }
 
 // ---------------------------------------------------------------------------------------------
 // Library loading. .NET on Linux probes, for DllImport("foo"): foo.so, libfoo.so, foo, libfoo
 // (names containing a path or a suffix are tried as given first); macOS the same with .dylib.
+// Windows: foo.dll, then foo (a name already ending in .dll or .exe is tried as given first).
 // ---------------------------------------------------------------------------------------------
-#ifdef __APPLE__
+#if defined(_WIN32)
+#define LIBRARY_SUFFIX ".dll"
+#elif defined(__APPLE__)
 #define LIBRARY_SUFFIX ".dylib"
 #define DLL_NOT_FOUND_HINT "consider setting the DYLD_PRINT_LIBRARIES environment variable: \n%s"
 #else
@@ -50,7 +65,61 @@ static csrt_String* message(const char* format, const char* a, const char* b) {
     return csrt_string_from_utf8(buffer);
 }
 
+#ifdef _WIN32
+static DWORD s_load_error;  // under s_library_lock
+
+static void* try_open(const char* name) {
+    wchar_t wide[1024];
+    if (!MultiByteToWideChar(CP_UTF8, 0, name, -1, wide, 1024)) return NULL;
+    HMODULE module = LoadLibraryExW(wide, NULL, 0);
+    if (!module && !s_load_error) s_load_error = GetLastError();
+    return module;
+}
+
+static bool ends_with(const char* s, const char* suffix) {
+    size_t n = strlen(s), m = strlen(suffix);
+    return n >= m && _stricmp(s + n - m, suffix) == 0;
+}
+
+void* csrt_pinvoke_load_library(const char* name, bool throw_on_error) {
+    pthread_mutex_lock(&s_library_lock);
+    for (int i = 0; i < s_library_count; i++)
+        if (strcmp(s_libraries[i].name, name) == 0) { void* h = s_libraries[i].handle; pthread_mutex_unlock(&s_library_lock); return h; }
+    s_load_error = 0;
+    void* handle = NULL;
+    char candidate[1024];
+    if (ends_with(name, ".dll") || ends_with(name, ".exe")) handle = try_open(name);
+    if (!handle) { snprintf(candidate, sizeof candidate, "%s.dll", name); handle = try_open(candidate); }
+    if (!handle) handle = try_open(name);
+    if (handle) {
+        if (s_library_count == s_library_cap) {
+            s_library_cap = s_library_cap ? s_library_cap * 2 : 8;
+            s_libraries = realloc(s_libraries, sizeof *s_libraries * (size_t)s_library_cap);
+        }
+        s_libraries[s_library_count++] = (Library){ _strdup(name), handle };
+    }
+    DWORD error = s_load_error;
+    pthread_mutex_unlock(&s_library_lock);
+    if (!handle && throw_on_error) {
+        // .NET: "Unable to load DLL 'x' or one of its dependencies: <system message> (0x8007007E)"
+        char text[512] = "";
+        DWORD n = FormatMessageA(FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS, NULL, error,
+                                 MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT), text, sizeof text, NULL);
+        while (n > 0 && (text[n - 1] == '\n' || text[n - 1] == '\r' || text[n - 1] == ' ')) text[--n] = 0;
+        char buffer[1024];
+        snprintf(buffer, sizeof buffer, "Unable to load DLL '%s' or one of its dependencies: %s (0x%08lX)",
+                 name, text, (unsigned long)HRESULT_FROM_WIN32(error));
+        csrt_throw(&csrt_MT_System_DllNotFoundException.header, csrt_string_from_utf8(buffer));
+    }
+    return handle;
+}
+
+static void* find_symbol(void* handle, const char* entry) { return (void*)GetProcAddress((HMODULE)handle, entry); }
+#define LIBRARY_KIND "DLL"
+#else
 static void* try_open(const char* name) { return dlopen(name, RTLD_LAZY | RTLD_GLOBAL); }
+static void* find_symbol(void* handle, const char* entry) { return dlsym(handle, entry); }
+#define LIBRARY_KIND "shared library"
 
 void* csrt_pinvoke_load_library(const char* name, bool throw_on_error) {
     pthread_mutex_lock(&s_library_lock);
@@ -79,28 +148,29 @@ void* csrt_pinvoke_load_library(const char* name, bool throw_on_error) {
                            "problems, " DLL_NOT_FOUND_HINT, name, error ? error : ""));
     return handle;
 }
+#endif
 
 /// Resolves `entry` in `library` (DllImport lazy binding); throws like .NET on failure.
 void* csrt_pinvoke_resolve(const char* library, const char* entry) {
     void* handle = csrt_pinvoke_load_library(library, true);
-    void* symbol = dlsym(handle, entry);
+    void* symbol = find_symbol(handle, entry);
     if (!symbol)
         csrt_throw(&csrt_MT_System_EntryPointNotFoundException.header,
-                   message("Unable to find an entry point named '%s' in shared library '%s'.", entry, library));
+                   message("Unable to find an entry point named '%s' in " LIBRARY_KIND " '%s'.", entry, library));
     return symbol;
 }
 
 /// A statically linked (weak) P/Invoke target that the linker didn't find.
 _Noreturn void csrt_pinvoke_missing_entry(const char* library, const char* entry) {
     csrt_throw(&csrt_MT_System_EntryPointNotFoundException.header,
-               message("Unable to find an entry point named '%s' in shared library '%s'.", entry, library));
+               message("Unable to find an entry point named '%s' in " LIBRARY_KIND " '%s'.", entry, library));
 }
 
 void* csrt_native_library_get_export(void* handle, const char* entry, bool throw_on_error) {
-    void* symbol = handle ? dlsym(handle, entry) : NULL;
+    void* symbol = handle ? find_symbol(handle, entry) : NULL;
     if (!symbol && throw_on_error)
         csrt_throw(&csrt_MT_System_EntryPointNotFoundException.header,
-                   message("Unable to find an entry point named '%s' in shared library.%s", entry, ""));
+                   message("Unable to find an entry point named '%s' in " LIBRARY_KIND ".%s", entry, ""));
     return symbol;
 }
 

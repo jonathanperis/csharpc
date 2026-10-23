@@ -22,6 +22,9 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unwind.h>
+#ifdef _WIN32
+#include <windows.h>
+#endif
 
 // ---------------------------------------------------------------------------------------------
 // The BCL exception hierarchy csharpc knows about. User exception classes derive from these;
@@ -90,7 +93,7 @@ csrt_String* csrt_exception_get_message(void* exception) {
         message = concat_utf8(message, "')");
     }
     if (e->actual_value) {  // ArgumentOutOfRangeException.Message: "...\nActual value was X."
-        message = concat_utf8(message, "\nActual value was ");
+        message = concat_utf8(message, CSRT_NEWLINE "Actual value was ");
         message = csrt_string_concat(message, e->actual_value);
         message = concat_utf8(message, ".");
     }
@@ -106,7 +109,7 @@ void csrt_exception_set_actual_value(void* exception, csrt_String* actual_value)
 csrt_String* csrt_object_disposed_message(csrt_String* message, csrt_String* object_name) {
     if (!message) message = csrt_string_from_utf8("Cannot access a disposed object.");
     if (!object_name || object_name->length == 0) return message;
-    message = concat_utf8(message, "\nObject name: '");
+    message = concat_utf8(message, CSRT_NEWLINE "Object name: '");
     message = csrt_string_concat(message, object_name);
     return concat_utf8(message, "'.");
 }
@@ -125,8 +128,8 @@ csrt_String* csrt_exception_to_string(void* exception) {
     csrt_String* message = virtual_message(exception);
     if (message && message->length > 0) s = csrt_string_concat(concat_utf8(s, ": "), message);
     if (e->inner) {
-        s = csrt_string_concat(concat_utf8(s, "\n ---> "), csrt_object_to_string(e->inner));
-        s = concat_utf8(s, "\n   --- End of inner exception stack trace ---");
+        s = csrt_string_concat(concat_utf8(s, CSRT_NEWLINE " ---> "), csrt_object_to_string(e->inner));
+        s = concat_utf8(s, CSRT_NEWLINE "   --- End of inner exception stack trace ---");
     }
     return s;
 }
@@ -160,13 +163,32 @@ static void throw_cleanup(_Unwind_Reason_Code reason, struct _Unwind_Exception* 
     free((char*)unwind - offsetof(csrt_Throw, unwind));
 }
 
+#ifdef _WIN32
+// The NullReferenceException last raised for a null dereference (csrt_throw_null_reference). .NET
+// gets those from an access violation, and when one goes unhandled on Windows the process ends with
+// the original exception code (0xC0000005) rather than the CLR's 0xE0434352.
+static void* volatile s_implicit_null_reference;
+static volatile DWORD s_exit_status = 0xE0434352;  // "CCR" | 0xE0000000: the CLR's SEH code
+#endif
+
+_Noreturn void csrt_fail_unhandled(void) {
+    fflush(stdout);
+    fflush(stderr);
+#ifdef _WIN32
+    TerminateProcess(GetCurrentProcess(), s_exit_status);
+#endif
+    abort();
+}
+
 _Noreturn static void unhandled(void* exception) {
     fflush(stdout);
     fputs("Unhandled exception. ", stderr);
     csrt_stderr_write_string(csrt_object_to_string(exception));
-    fputc('\n', stderr);
-    fflush(stderr);
-    abort();
+    fputs(CSRT_NEWLINE, stderr);
+#ifdef _WIN32
+    if (exception && exception == s_implicit_null_reference) s_exit_status = 0xC0000005;  // STATUS_ACCESS_VIOLATION
+#endif
+    csrt_fail_unhandled();
 }
 
 static _Unwind_Reason_Code unhandled_stop(int version, _Unwind_Action actions, uint64_t exception_class,
@@ -186,7 +208,17 @@ static void* new_exception(const csrt_ExceptionMethodTable* mt, const char* mess
 // Exception traps (thread-pool workers): an exception no C# handler catches on this thread runs
 // its finally blocks (forced unwind) and then returns to the innermost csrt_trap_call instead of
 // terminating the process, so Parallel.For can rethrow it on the calling thread.
+#ifdef _WIN32
+// mingw-w64's longjmp unwinds the stack with RtlUnwindEx; the trap jumps from inside a forced unwind,
+// so it uses the plain register-restoring builtins instead.
+typedef struct { void* env[5]; uintptr_t frame; void* exception; } csrt_Trap;
+#define TRAP_SETJMP(env) __builtin_setjmp(env)
+#define TRAP_LONGJMP(env) __builtin_longjmp(env, 1)
+#else
 typedef struct { jmp_buf env; uintptr_t frame; void* exception; } csrt_Trap;
+#define TRAP_SETJMP(env) setjmp(env)
+#define TRAP_LONGJMP(env) longjmp(env, 1)
+#endif
 static _Thread_local __attribute__((tls_model("local-exec"))) csrt_Trap* tl_trap;
 
 static _Unwind_Reason_Code trap_stop(int version, _Unwind_Action actions, uint64_t exception_class,
@@ -198,7 +230,7 @@ static _Unwind_Reason_Code trap_stop(int version, _Unwind_Action actions, uint64
         trap->exception = t->exception;
         free(t);
         s_in_flight = NULL;
-        longjmp(trap->env, 1);
+        TRAP_LONGJMP(trap->env);
     }
     return _URC_NO_REASON;
 }
@@ -209,7 +241,7 @@ __attribute__((noinline)) void* csrt_trap_call(void (*fn)(void*), void* arg) {
     trap.exception = NULL;
     trap.frame = (uintptr_t)__builtin_frame_address(0);
     csrt_Trap* volatile outer = tl_trap;
-    if (setjmp(trap.env) == 0) {
+    if (TRAP_SETJMP(trap.env) == 0) {
         tl_trap = &trap;
         fn(arg);
         tl_trap = outer;
@@ -274,7 +306,11 @@ void* csrt_begin_catch(void* unwind_exception) {
 
 // Runtime-raised exceptions, with .NET's exact messages.
 void csrt_throw_null_reference(void) {
-    csrt_throw_object(new_exception(&csrt_MT_System_NullReferenceException, "Object reference not set to an instance of an object."));
+    void* e = new_exception(&csrt_MT_System_NullReferenceException, "Object reference not set to an instance of an object.");
+#ifdef _WIN32
+    s_implicit_null_reference = e;
+#endif
+    csrt_throw_object(e);
 }
 void csrt_throw_index_out_of_range(void) {
     csrt_throw_object(new_exception(&csrt_MT_System_IndexOutOfRangeException, "Index was outside the bounds of the array."));
@@ -427,8 +463,24 @@ static int is_instance_of(void* exception, const csrt_MethodTable* type) {
     return 0;
 }
 
+#ifdef _WIN32
+// On Windows (MinGW, SEH unwind tables) LLVM registers the personality as each function's SEH
+// language handler. libunwind's _GCC_specific_handler adapts the SEH callback to the Itanium
+// personality protocol, as libgcc's __gxx_personality_seh0 does for C++.
+EXCEPTION_DISPOSITION _GCC_specific_handler(PEXCEPTION_RECORD, void*, PCONTEXT, PDISPATCHER_CONTEXT, _Unwind_Personality_Fn);
+static _Unwind_Reason_Code personality(int version, _Unwind_Action actions, uint64_t exception_class,
+                                       struct _Unwind_Exception* unwind, struct _Unwind_Context* context);
+
+EXCEPTION_DISPOSITION csrt_personality(PEXCEPTION_RECORD record, void* frame, PCONTEXT context, PDISPATCHER_CONTEXT dispatch) {
+    return _GCC_specific_handler(record, frame, context, dispatch, personality);
+}
+
+static _Unwind_Reason_Code personality(int version, _Unwind_Action actions, uint64_t exception_class,
+                                       struct _Unwind_Exception* unwind, struct _Unwind_Context* context) {
+#else
 _Unwind_Reason_Code csrt_personality(int version, _Unwind_Action actions, uint64_t exception_class,
                                      struct _Unwind_Exception* unwind, struct _Unwind_Context* context) {
+#endif
     if (version != 1) return _URC_FATAL_PHASE1_ERROR;
     if (exception_class != CSRT_EXCEPTION_CLASS) return _URC_CONTINUE_UNWIND;  // foreign (e.g. C++)
 
