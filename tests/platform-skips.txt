@@ -28,6 +28,7 @@ windows 162_pinvoke_libraryimport       live: imports from "libc", which doesn't
 windows 286_pinvoke_portable_abi        live: imports from "libc", which doesn't exist on Windows
 windows 295_regex_charclass             live: prints matched text that contains a bare "\n" (from the input string)
 windows 303_regex_options               live: prints matched text that contains a bare "\n" (from the input string)
+windows 194_marshal_strings              live: GetPInvokeErrorMessage is the Win32 FormatMessage text, not strerror
 windows 161_file_io                     live: Windows paths; File.WriteAllLines / StreamWriter.WriteLine write "\r\n"
 windows 163_path_semantics              live: Windows path rules (drive roots, '\' separators)
 windows 165_environment                 live: Windows current directory and paths
