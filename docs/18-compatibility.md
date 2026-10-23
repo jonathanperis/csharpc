@@ -6,33 +6,40 @@ validation, [06-roadmap.md](06-roadmap.md)). The differential samples and the co
 ([09-conformance.md](09-conformance.md)) are written *for* csharpc. This corpus is not: it is
 unmodified console programs from Microsoft's documentation and sample repositories.
 
-Run of 2026-10-22: csharpc `integ` at `8183dfb`, .NET SDK `11.0.100-rc.2.26504.105`, Linux x86-64.
+Latest run of 2026-10-22: csharpc `libgaps` at `36fd745`, .NET SDK `11.0.100-rc.2.26504.105`, Linux
+x86-64. The first run (csharpc `integ` at `8183dfb`, same day) is the baseline the blocker tables
+below were measured on; [Progress](#progress-since-the-first-run) lists what changed since.
 
 ## Summary
 
-| | programs |
-|---|---:|
-| corpus (candidate console programs) | 323 |
-| skipped (non-deterministic or broken under .NET itself) | 40 |
-| **compared** | **283** |
-| **PASS** (byte-identical stdout, same exit code) | **115 (40.6 %)** |
-| COMPILE-UNSUPPORTED (explicit `CSLLVM0001/0002` diagnostic) | 135 (47.7 %) |
-| COMPILE-ERROR (compile fails some other way) | 22 (7.8 %) |
-| COMPILE-CRASH (internal compiler error, crash) | 3 (1.1 %) |
-| RUNTIME-DIFF (wrong output or exit code) | 7 (2.5 %) |
-| RUNTIME-CRASH (native binary crashed, .NET didn't) | 1 (0.4 %) |
+| | first run (`8183dfb`) | latest run (`36fd745`) |
+|---|---:|---:|
+| corpus (candidate console programs) | 323 | 323 |
+| skipped (non-deterministic or broken under .NET itself) | 40 | 43 |
+| **compared** | **283** | **280** |
+| **PASS** (byte-identical stdout, same exit code) | **115 (40.6 %)** | **147 (52.5 %)** |
+| COMPILE-UNSUPPORTED (explicit `CSLLVM0001/0002` diagnostic) | 135 (47.7 %) | 95 (33.9 %) |
+| COMPILE-ERROR (compile fails some other way) | 22 (7.8 %) | 22 (7.9 %) |
+| COMPILE-CRASH (internal compiler error, crash) | 3 (1.1 %) | 4 (1.4 %) |
+| RUNTIME-DIFF (wrong output or exit code) | 7 (2.5 %) | 11 (3.9 %) |
+| RUNTIME-CRASH (native binary crashed, .NET didn't) | 1 (0.4 %) | 1 (0.4 %) |
 
-- **40.6 %** of the compared programs pass. By corpus: dotnet/samples 30 of 45 (66.7 %), dotnet/docs
-  85 of 238 (35.7 %). The docs snippets exercise far more of the BCL per program.
-- csharpc compiled 123 programs, and **115 (93.5 %)** of them behave exactly like .NET. The other
-  8 are bugs, and all are listed below with reproducers.
-- 135 of the 160 compile failures are the intended outcome for unsupported code: an explicit
-  diagnostic naming the construct or API. The blocking surface is a long tail. In **83 of the 135**
-  programs, a single type or construct is the only blocker. In 97 of them, a single area (one
-  namespace, or "language") is the only blocker.
-- Compile time per passing program, including MSBuild evaluation, `-O2` and linking: median 19 s,
-  max 48 s. The machine was shared and heavily loaded (load average around 10 on 4 cores), so treat
-  these as upper bounds.
+- **52.5 %** of the compared programs pass (first run: 40.6 %). By corpus: dotnet/samples 38 of 45
+  (84.4 %), dotnet/docs 109 of 235 (46.4 %). The docs snippets exercise far more of the BCL per
+  program.
+- csharpc compiled 159 programs, and **147 (92.5 %)** of them behave exactly like .NET. The other
+  12 are the bugs listed below. No new kind of bug appeared: the four additional RUNTIME-DIFFs are
+  programs that compile now and print `Exception.ToString()` (the known missing stack-trace lines),
+  and the additional COMPILE-CRASH is the known extension-block call crash, reached now that
+  `Enum.GetValues(Type)` compiles.
+- The skipped count moves between runs by a few programs: they are non-deterministic under .NET
+  (thread scheduling) and sometimes produce the same output twice.
+- In the first run, 135 of the 160 compile failures were the intended outcome for unsupported code:
+  an explicit diagnostic naming the construct or API. The blocking surface is a long tail. In 83 of
+  the 135 programs, a single type or construct was the only blocker; in 97, a single area (one
+  namespace, or "language").
+- Compile time per passing program, including MSBuild evaluation, `-O2` and linking: median 7.9 s,
+  max 20.8 s in the latest run (first run, on a much more loaded machine: median 19 s, max 48 s).
 
 ## Method
 
@@ -93,7 +100,8 @@ program's compile log, and normalizes it to its kind, its owning type or constru
 
 ## Top blockers
 
-Counted in programs; numbers in parentheses are programs too. A program counts once per row, and
+Measured on the first run (rows 3, 4, 6, 9, 12, 13, 15 and 16 are largely done since, see
+[Progress](#progress-since-the-first-run)). Counted in programs; numbers in parentheses are programs too. A program counts once per row, and
 many programs hit several rows. "Only"
 means the programs for which this row is the sole blocker, so implementing the row alone would
 let them compile.
@@ -134,6 +142,27 @@ Other COMPILE-ERROR causes:
 | C# 15 union types | 1 | Roslyn binding error `CS0117` (the union feature is bound differently from the SDK's compiler), see also COMPILE-CRASH |
 | `ProjectReference` folding changes C# semantics | 1 | see the bug list |
 
+## Progress since the first run
+
+Step 3 of the recommendations (small corelib gaps), one commit each on `libgaps`, each with a
+regression sample (`tests/samples/250`–`258`). 32 programs that failed in the first run pass now.
+
+| gap (blocker row) | done | sample |
+|---|---|---|
+| `StringBuilder.Append($"...")` (12) | already supported by the conformance2 merge; pinned by a sample | 250 |
+| `Console.ReadKey` (9) | `ReadKey`/`KeyAvailable` throw .NET's `InvalidOperationException` when stdin is redirected (raw-mode key reading on a terminal), `ConsoleKeyInfo`, `IsInputRedirected`/…, `Clear`, UTF-8 `OutputEncoding`/`InputEncoding` (other encodings throw `NotSupportedException`) | 251 |
+| argument throw helpers (15) | `ArgumentNullException.ThrowIfNull`, `ArgumentException.ThrowIfNullOrEmpty/WhiteSpace`, all `ArgumentOutOfRangeException.ThrowIf*`, `ObjectDisposedException.ThrowIf`, with .NET's messages; fixed the dropped `Object name: 'X'.` line of `ObjectDisposedException` | 252 |
+| `System.String` members (4) | `Split(params ReadOnlySpan<char>)` and the `string[]`/count overloads, windowed `IndexOf`/`LastIndexOf`, `IndexOf(char, StringComparison)`, `Replace(…, StringComparison)`, `Compare`/`CompareOrdinal` on substrings, `CopyTo(Span<char>)`, `string.Create` | 253 |
+| reflection-lite (6) | `Enum.GetValues/GetNames/IsDefined/Parse/GetUnderlyingType(typeof(E))`, enum `D`/`X`/`F` formats (they printed the name: a silent bug), boxed enums as `IFormattable` with .NET's hash codes, `ValueType.ToString/Equals/GetHashCode` | 254 |
+| deriving from a BCL class (3) | `EventArgs` (+`Empty`), `Attribute`, `PropertyChangedEventArgs`, `CancelEventArgs`; field-like event accessors lowered for interface maps; events of library interfaces | 255 |
+| deconstruction into properties (16) | properties, indexers and get-only auto-properties as deconstruction targets, in C#'s evaluation order | 256 |
+| `DateTime.Parse`, `DateOnly`, `TimeOnly` (13) | `ParseExact`/`TryParseExact` (custom and standard formats, styles, offsets, Kind); `Parse`/`TryParse` for the common shapes, `NotSupportedException` for the rest of .NET's lenient grammar; `DateOnly`/`TimeOnly` structs | 257 |
+| (found on the way) | `val as int?` threw `InvalidCastException` on a box of another type; `Nullable<T>.Value` in generic code with `T = bool` crashed the compiler | 258 |
+
+Still open from step 3: `new Random(seed)` (2 programs) and `Debug.Assert(bool, string)` (3).
+`Array.GetEnumerator()` (non-generic `foreach` over an `Array` returned by `Enum.GetValues`)
+needs the element type at run time and stays a diagnostic.
+
 ## Bugs: wrong output and crashes
 
 Each bug has a minimal reproducer in `tools/compat/repros/`. Run `tools/compat/repro.sh FILE.cs`,
@@ -150,7 +179,7 @@ are fixed here.
 | [`static_ctor_eager.cs`](../tools/compat/repros/static_ctor_eager.cs) | docs `programming-guide/classes-and-structs/constructors` | Static constructors run eagerly at startup. .NET runs them on first use of the type, and never for an unused type, so output appears early or spuriously |
 | [`ordinal_ignore_case_non_ascii.cs`](../tools/compat/repros/ordinal_ignore_case_non_ascii.cs) | docs `standard/base-types/best-practices-strings/comparison2` | `StringComparison.OrdinalIgnoreCase` folds only ASCII. Cyrillic, Greek and Latin-1 case variants compare unequal (`Compare` returns 32 instead of 0) |
 | [`array_copy_negative_length_message.cs`](../tools/compat/repros/array_copy_negative_length_message.cs) | docs `standard/exceptions/how-to-use-finally-blocks` | `Array.Copy` with a negative length gives an old-style message ("Non-negative number required.") instead of .NET 11's `ThrowNegative` text, and `ParamName` is empty |
-| [`exception_tostring_stack_trace.cs`](../tools/compat/repros/exception_tostring_stack_trace.cs) | docs `standard/exceptions/how-to-use-the-try-catch-block-to-catch-exceptions` | `Exception.ToString()` has no stack-trace lines. Byte-identical stack traces are not achievable, but the difference is silent. The program prints `$"... {e}"` |
+| [`exception_tostring_stack_trace.cs`](../tools/compat/repros/exception_tostring_stack_trace.cs) | docs `standard/exceptions/how-to-use-the-try-catch-block-to-catch-exceptions`, and since the latest run the `BankAccount` tutorials (docs `fundamentals/tutorials/{introduction-to-classes,object-oriented-programming,xml-documentation}`, samples `classes-quickstart`) | `Exception.ToString()` has no stack-trace lines. Byte-identical stack traces are not achievable, but the difference is silent. The program prints `$"... {e}"` |
 
 ### COMPILE-CRASH and compile bugs
 
@@ -174,7 +203,8 @@ In order of programs gained per unit of work:
    `CSLLVM0001` diagnostics.
 2. **`<StartupObject>`.** One property affects 18 programs, 6.4 % of the corpus. For now they stop
    at `CSLLVM0003`, so other blockers may still surface behind it.
-3. **Small corelib gaps with a high "only" count:** `StringBuilder.Append($"...")` (6 programs
+3. **Small corelib gaps with a high "only" count** (mostly done, see
+   [Progress](#progress-since-the-first-run)): `StringBuilder.Append($"...")` (6 programs
    with no other blocker), `Console.ReadKey` with redirected input (7), the argument throw
    helpers, the missing `String` overloads, `DateTime.Parse`, `Enum.GetValues(Type)`,
    `ValueType.ToString()`, `EventArgs`/`Attribute` as base classes, `new Random(seed)`,
@@ -189,7 +219,8 @@ In order of programs gained per unit of work:
 5. Then Regex, Globalization's `CultureInfo` object model (invariant only), the remaining
    threading surface, and the IO extras. All of these are already on the M2 corelib list.
 
-Re-measure after each batch. The categories and counts above are the baseline.
+Re-measure after each batch. The blocker tables above are the first-run baseline; the summary has
+the latest numbers.
 
 ## Re-running
 
