@@ -15,12 +15,25 @@
     <_CsharpcCommand>&quot;$(CsharpcDotnetHost)&quot; &quot;$(CsharpcCompilerPath)&quot; &quot;$(MSBuildProjectFullPath)&quot; -c $(CsharpcConfiguration) $(_CsharpcConfigurationFlags) -p:TargetFramework=$(TargetFramework)</_CsharpcCommand>
   </PropertyGroup>
 
+  <!-- A RuntimeIdentifier (-r) other than the SDK's own selects csharpc's target triple; the host RID
+       builds natively (host CPU tuning). RIDs csharpc can't target fail the build instead of producing
+       an executable for the wrong platform. -->
+  <PropertyGroup Condition="'$(RuntimeIdentifier)' != '' and '$(RuntimeIdentifier)' != '$(NETCoreSdkRuntimeIdentifier)'">
+    <_CsharpcTargetTriple Condition="'$(RuntimeIdentifier)' == 'linux-x64'">x86_64-unknown-linux-gnu</_CsharpcTargetTriple>
+    <_CsharpcTargetTriple Condition="'$(RuntimeIdentifier)' == 'linux-arm64'">aarch64-unknown-linux-gnu</_CsharpcTargetTriple>
+    <_CsharpcTargetTriple Condition="'$(RuntimeIdentifier)' == 'osx-arm64'">arm64-apple-macosx14.0</_CsharpcTargetTriple>
+    <_CsharpcUnsupportedRid Condition="'$(_CsharpcTargetTriple)' == ''">true</_CsharpcUnsupportedRid>
+    <_CsharpcCommand Condition="'$(_CsharpcTargetTriple)' != ''">$(_CsharpcCommand) --target $(_CsharpcTargetTriple)</_CsharpcCommand>
+  </PropertyGroup>
+
   <PropertyGroup>
     <_CsharpcIsExe Condition="'$(OutputType)' == 'Exe' or '$(OutputType)' == 'WinExe'">true</_CsharpcIsExe>
   </PropertyGroup>
 
   <Target Name="_CsharpcValidate">
     <Error Condition="!Exists('$(CsharpcCompilerPath)')" Text="csharpc compiler not found at '$(CsharpcCompilerPath)'. Set CsharpcCompilerPath." />
+    <Error Condition="'$(_CsharpcUnsupportedRid)' == 'true'"
+           Text="RuntimeIdentifier '$(RuntimeIdentifier)' is not supported by csharpc yet (supported: linux-x64, linux-arm64, osx-arm64)." />
   </Target>
 
   <!-- dotnet build -p:UseCsharpc=true (libraries are skipped: their sources are folded into the

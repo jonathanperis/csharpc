@@ -273,7 +273,18 @@ int32_t csrt_environment_processor_count(void) {
     return n > 0 ? (int32_t)n : 1;
 }
 
-/// Environment.GetCommandLineArgs(): [executable path, args...] (read from /proc/self/cmdline).
+/// Environment.GetCommandLineArgs(): [executable path, args...] (read from /proc/self/cmdline;
+/// on macOS from the process's argv).
+#ifdef __APPLE__
+#include <crt_externs.h>
+csrt_Array* csrt_environment_command_line_args(void) {
+    int argc = *_NSGetArgc();
+    char** argv = *_NSGetArgv();
+    csrt_Array* arr = csrt_new_array(sizeof(void*), argc);
+    for (int i = 0; i < argc; i++) ((csrt_String**)arr->data)[i] = ascii(argv[i]);
+    return arr;
+}
+#else
 csrt_Array* csrt_environment_command_line_args(void) {
     FILE* f = fopen("/proc/self/cmdline", "rb");
     char buf[65536];
@@ -293,6 +304,7 @@ csrt_Array* csrt_environment_command_line_args(void) {
     }
     return arr;
 }
+#endif
 
 // ---------------------------------------------------------------------------------------------
 // string.Split overloads

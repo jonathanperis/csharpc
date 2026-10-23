@@ -10,7 +10,9 @@ set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DOTNET="${DOTNET:-dotnet}"
 export DOTNET_CLI_TELEMETRY_OPTOUT=1 DOTNET_NOLOGO=1
-WORK="$(mktemp -d)"
+# Resolved path: on macOS mktemp's /var/folders/... is a symlinked path, and MSBuild's incremental clean
+# deletes outputs it recorded under the other spelling (/private/var/...) of the same directory.
+WORK="$(cd "$(mktemp -d)" && pwd -P)"
 trap 'rm -rf "$WORK"' EXIT
 pass=0; fail=0
 
@@ -40,7 +42,7 @@ for app in HelloProject; do
   common=(-p:UseCsharpc=true "-p:CustomAfterMicrosoftCommonTargets=$TARGETS" "-p:CsharpcCompilerPath=$CSHARPC_DLL")
   if "$DOTNET" build "$proj" -c Release "${common[@]}" > "$WORK/log" 2>&1; then
     exe="$WORK/samples/$app/bin/Release/net11.0/$app"
-    if file "$exe" | grep -q ELF && ! strings "$exe" | grep -q "You must install or update .NET"; then
+    if file "$exe" | grep -qE "ELF|Mach-O" && ! strings "$exe" | grep -q "You must install or update .NET"; then
       "$exe" > "$WORK/actual" 2>&1; check "$app: dotnet build -p:UseCsharpc=true" "$WORK/expected" "$WORK/actual"
     else echo "FAIL $app: build output is not the native image"; fail=$((fail+1)); fi
   else echo "FAIL $app: dotnet build"; grep -E "error" "$WORK/log" | head | sed 's/^/     /'; fail=$((fail+1)); fi

@@ -29,14 +29,24 @@
 // finalizers; empty chunks are kept (resident) for reuse by any size class.
 //
 // Environment: CSRT_GC=0 disables collection; CSRT_GC_STATS=1 prints statistics at exit.
+//
+// Platforms: root discovery is per object format. Linux (ELF) finds the data segments and the
+// static TLS block with dl_iterate_phdr; macOS (Mach-O) walks the main image's load commands and
+// finds each thread's thread-local block through a TLV descriptor (see the __APPLE__ blocks).
 #define _GNU_SOURCE
 #include "gc.h"
 #include "csrt.h"
 
 #include <errno.h>
-#include <link.h>
 #include <pthread.h>
+#ifdef __APPLE__
+#include <mach/mach.h>
+#include <mach-o/dyld.h>
+#include <mach-o/loader.h>
+#else
+#include <link.h>
 #include <semaphore.h>
+#endif
 #include <setjmp.h>
 #include <signal.h>
 #include <stdatomic.h>
@@ -91,7 +101,11 @@ enum { THREAD_STARTING, THREAD_RUNNING };
 
 static CSRT_TLS csrt_GcThread* tl_self;
 
+#ifdef __APPLE__
+#define SIG_SUSPEND SIGUSR1  // Darwin has no SIGPWR; .NET programs can't handle SIGUSR1 themselves
+#else
 #define SIG_SUSPEND SIGPWR
+#endif
 #define SIG_RESUME  SIGXCPU
 #define MAX_SEGMENTS 16
 
@@ -108,12 +122,20 @@ static struct {
     csrt_GcThread main_thread;
     csrt_GcThread* threads;           // registry (includes main_thread)
     atomic_int stop_epoch, world_stopped;
+#ifdef __APPLE__
+    semaphore_t ack;  // macOS has no unnamed POSIX semaphores (sem_init fails with ENOSYS)
+#else
     sem_t ack;
+#endif
 
     // Roots cached at init: dl_iterate_phdr takes the loader lock, which a stopped thread may hold.
     struct { uintptr_t lo, hi; } segments[MAX_SEGMENTS];
     size_t segment_count;
     size_t tls_size, tls_align;
+#ifdef __APPLE__
+    struct TlvDescriptor* tlv;  // any thread-local variable of the executable (NULL: none)
+    uintptr_t tlv_template;     // start of the TLV template (__thread_data / __thread_bss)
+#endif
 
     // Large blocks freed by a sweep, released after the world restarts (malloc locks!).
     void** deferred_free;
@@ -327,6 +349,76 @@ static void collect(void);
 static inline void gc_lock(void) { if (g.multithreaded) pthread_mutex_lock(&g.lock); }
 static inline void gc_unlock(void) { if (g.multithreaded) pthread_mutex_unlock(&g.lock); }
 
+#ifdef __APPLE__
+// Mach-O thread-locals: each one has a TLV descriptor { thunk, key, offset } in a
+// S_THREAD_LOCAL_VARIABLES section. dyld gives every thread one block holding all of the image's
+// thread-locals, laid out like the template sections (__thread_data, __thread_bss); a descriptor's
+// thunk returns the variable's address in the calling thread's block (allocating it on first use).
+struct TlvDescriptor {
+    void* (*thunk)(struct TlvDescriptor*);
+    unsigned long key;
+    unsigned long offset;  // (dyld4 rewrites key/offset at load time; see tls_bounds)
+};
+
+/// The executable's writable segments (static fields) and its TLV template, from its load commands.
+static void cache_segments(void) {
+    const struct mach_header_64* header = (const struct mach_header_64*)_dyld_get_image_header(0);  // image 0 = executable
+    intptr_t slide = _dyld_get_image_vmaddr_slide(0);
+    uintptr_t tls_lo = UINTPTR_MAX, tls_hi = 0;
+    const uint8_t* cmd = (const uint8_t*)(header + 1);
+    for (uint32_t i = 0; i < header->ncmds; i++, cmd += ((const struct load_command*)cmd)->cmdsize) {
+        const struct segment_command_64* seg = (const struct segment_command_64*)cmd;
+        if (seg->cmd != LC_SEGMENT_64) continue;
+        if ((seg->initprot & VM_PROT_WRITE) && g.segment_count < MAX_SEGMENTS) {  // __DATA, __DATA_CONST
+            g.segments[g.segment_count].lo = (uintptr_t)(seg->vmaddr + slide);
+            g.segments[g.segment_count].hi = (uintptr_t)(seg->vmaddr + slide + seg->vmsize);
+            g.segment_count++;
+        }
+        const struct section_64* sect = (const struct section_64*)(seg + 1);
+        for (uint32_t s = 0; s < seg->nsects; s++, sect++) {
+            uint32_t type = sect->flags & SECTION_TYPE;
+            uintptr_t addr = (uintptr_t)(sect->addr + slide);
+            if (type == S_THREAD_LOCAL_VARIABLES && sect->size >= sizeof(struct TlvDescriptor)) {
+                g.tlv = (struct TlvDescriptor*)addr;
+            } else if (type == S_THREAD_LOCAL_REGULAR || type == S_THREAD_LOCAL_ZEROFILL) {
+                if (addr < tls_lo) tls_lo = addr;
+                if (addr + sect->size > tls_hi) tls_hi = addr + sect->size;
+            }
+        }
+    }
+    if (g.tlv && tls_hi > tls_lo) { g.tlv_template = tls_lo; g.tls_size = tls_hi - tls_lo; }
+    else g.tlv = NULL;
+}
+
+/// The calling thread's thread-local block ([ThreadStatic] fields, csrt TLS). Called at
+/// registration, never while the world is stopped (the thunk may allocate the block).
+static void tls_bounds(csrt_GcThread* t) {
+    if (!g.tlv) return;
+    // The thunk allocates the block on first use. dyld keeps the block's start under a pthread key
+    // held in the low 32 bits of the descriptor's second word (dyld4 rewrites the rest of the
+    // descriptor into its own format, so `offset` can't be used to get back to the start).
+    uintptr_t variable = (uintptr_t)g.tlv->thunk(g.tlv);
+    uintptr_t block = (uintptr_t)pthread_getspecific((pthread_key_t)(g.tlv->key & 0xFFFFFFFFu));
+    if (!block || variable < block || variable >= block + g.tls_size) {
+        static const char m[] = "csrt: unsupported thread-local storage layout (cannot find this thread's TLV block)\n";
+        (void)!write(2, m, sizeof m - 1);
+        abort();
+    }
+    t->tls_lo = block;
+    t->tls_hi = block + g.tls_size;
+}
+
+/// Highest address of the calling thread's stack.
+static void* own_stack_bottom(void) { return pthread_get_stackaddr_np(pthread_self()); }
+
+static void ack_init(void) { semaphore_create(mach_task_self(), &g.ack, SYNC_POLICY_FIFO, 0); }
+static void ack_post(void) { semaphore_signal(g.ack); }  // a Mach trap: async-signal-safe
+static void ack_wait(void) { while (semaphore_wait(g.ack) == KERN_ABORTED) {} }
+#else
+static void ack_init(void) { sem_init(&g.ack, 0, 0); }
+static void ack_post(void) { sem_post(&g.ack); }
+static void ack_wait(void) { while (sem_wait(&g.ack) != 0 && errno == EINTR) {} }
+
 static int cache_segments(struct dl_phdr_info* info, size_t size, void* data) {
     (void)size; (void)data;
     // The first entry is the main executable; static fields live in its writable PT_LOAD segments.
@@ -359,6 +451,19 @@ static void tls_bounds(csrt_GcThread* t) {
     t->tls_hi = (uintptr_t)block + g.tls_size;
 }
 
+/// Highest address of the calling thread's stack (NULL if unknown).
+static void* own_stack_bottom(void) {
+    pthread_attr_t attr;
+    void* stack_addr = NULL;
+    size_t stack_size = 0;
+    if (pthread_getattr_np(pthread_self(), &attr) == 0) {
+        pthread_attr_getstack(&attr, &stack_addr, &stack_size);
+        pthread_attr_destroy(&attr);
+    }
+    return stack_addr ? (uint8_t*)stack_addr + stack_size : NULL;
+}
+#endif
+
 void csrt_gc_init(void) {
     if (g.initialized) return;
     g.initialized = true;
@@ -369,15 +474,21 @@ void csrt_gc_init(void) {
     env = getenv("CSRT_GC_TRIGGER_MB");
     g.min_trigger = env && atol(env) > 0 ? (size_t)atol(env) * 1024 * 1024 : MIN_TRIGGER;
     g.trigger = g.min_trigger;
-#ifdef __GLIBC__
+#if defined(__GLIBC__)
     extern void* __libc_stack_end;
     g.stack_bottom = __libc_stack_end;
+#elif defined(__APPLE__)
+    g.stack_bottom = own_stack_bottom();
 #else
     g.stack_bottom = __builtin_frame_address(0);
 #endif
     pthread_mutex_init(&g.lock, NULL);
-    sem_init(&g.ack, 0, 0);
+    ack_init();
+#ifdef __APPLE__
+    cache_segments();
+#else
     dl_iterate_phdr(cache_segments, NULL);
+#endif
     g.main_thread.thread = pthread_self();
     g.main_thread.stack_bottom = g.stack_bottom;
     g.main_thread.cache = tl_cache;
@@ -631,7 +742,7 @@ static void suspend_handler(int sig) {
     const void* top = (const void*)&marker;
     if ((const void*)registers < top) top = (const void*)registers;
     if (me) me->stack_top = (void*)top;
-    sem_post(&g.ack);
+    ack_post();
     sigset_t mask;
     sigfillset(&mask);
     sigdelset(&mask, SIG_RESUME);
@@ -659,8 +770,7 @@ static int stop_world(void) {
     int signalled = 0;
     for (csrt_GcThread* t = g.threads; t; t = t->next)
         if (t->state == THREAD_RUNNING && t != tl_self && pthread_kill(t->thread, SIG_SUSPEND) == 0) signalled++;
-    for (int i = 0; i < signalled; i++)
-        while (sem_wait(&g.ack) != 0 && errno == EINTR) {}
+    for (int i = 0; i < signalled; i++) ack_wait();
     return signalled;
 }
 
@@ -694,16 +804,10 @@ static void unlink_thread(csrt_GcThread* t) {
 }
 
 void csrt_gc_thread_attach(csrt_GcThread* t) {
-    pthread_attr_t attr;
-    void* stack_addr = NULL;
-    size_t stack_size = 0;
-    if (pthread_getattr_np(pthread_self(), &attr) == 0) {
-        pthread_attr_getstack(&attr, &stack_addr, &stack_size);
-        pthread_attr_destroy(&attr);
-    }
+    void* bottom = own_stack_bottom();
     pthread_mutex_lock(&g.lock);  // never attach in the middle of a collection
     t->thread = pthread_self();
-    t->stack_bottom = stack_addr ? (uint8_t*)stack_addr + stack_size : __builtin_frame_address(0);
+    t->stack_bottom = bottom ? bottom : __builtin_frame_address(0);
     t->cache = tl_cache;
     tls_bounds(t);
     tl_self = t;

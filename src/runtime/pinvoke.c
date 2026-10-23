@@ -6,6 +6,7 @@
 
 #include <dlfcn.h>
 #include <errno.h>
+#include <fcntl.h>
 #include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -16,6 +17,10 @@ extern const csrt_ExceptionMethodTable csrt_MT_System_EntryPointNotFoundExceptio
 
 static _Thread_local int s_last_pinvoke_error;
 
+/// open(2) for the corelib: variadic, so it can't be bound as a plain three-argument P/Invoke
+/// (Apple arm64 passes variadic arguments on the stack, not in registers).
+int32_t csrt_open(const char* path, int32_t flags, int32_t mode) { return open(path, flags, (mode_t)mode); }
+
 void csrt_pinvoke_clear_errno(void) { errno = 0; }
 void csrt_pinvoke_save_errno(void) { s_last_pinvoke_error = errno; }
 int32_t csrt_get_last_pinvoke_error(void) { return s_last_pinvoke_error; }
@@ -25,8 +30,15 @@ void csrt_set_last_system_error(int32_t error) { errno = error; }
 
 // ---------------------------------------------------------------------------------------------
 // Library loading. .NET on Linux probes, for DllImport("foo"): foo.so, libfoo.so, foo, libfoo
-// (names containing a path or a suffix are tried as given first).
+// (names containing a path or a suffix are tried as given first); macOS the same with .dylib.
 // ---------------------------------------------------------------------------------------------
+#ifdef __APPLE__
+#define LIBRARY_SUFFIX ".dylib"
+#define DLL_NOT_FOUND_HINT "consider setting the DYLD_PRINT_LIBRARIES environment variable: \n%s"
+#else
+#define LIBRARY_SUFFIX ".so"
+#define DLL_NOT_FOUND_HINT "consider using a tool like strace. If you're using glibc, consider setting the LD_DEBUG environment variable: \n%s"
+#endif
 typedef struct { char* name; void* handle; } Library;
 static Library* s_libraries;
 static int s_library_count, s_library_cap;
@@ -46,10 +58,10 @@ void* csrt_pinvoke_load_library(const char* name, bool throw_on_error) {
         if (strcmp(s_libraries[i].name, name) == 0) { void* h = s_libraries[i].handle; pthread_mutex_unlock(&s_library_lock); return h; }
     void* handle = NULL;
     char candidate[1024];
-    bool has_suffix = strstr(name, ".so") != NULL;
+    bool has_suffix = strstr(name, LIBRARY_SUFFIX) != NULL;
     if (strchr(name, '/') || has_suffix) handle = try_open(name);
-    if (!handle) { snprintf(candidate, sizeof candidate, "%s.so", name); handle = try_open(candidate); }
-    if (!handle && strncmp(name, "lib", 3) != 0) { snprintf(candidate, sizeof candidate, "lib%s.so", name); handle = try_open(candidate); }
+    if (!handle) { snprintf(candidate, sizeof candidate, "%s" LIBRARY_SUFFIX, name); handle = try_open(candidate); }
+    if (!handle && strncmp(name, "lib", 3) != 0) { snprintf(candidate, sizeof candidate, "lib%s" LIBRARY_SUFFIX, name); handle = try_open(candidate); }
     if (!handle) handle = try_open(name);
     if (!handle && strncmp(name, "lib", 3) != 0) { snprintf(candidate, sizeof candidate, "lib%s", name); handle = try_open(candidate); }
     if (handle) {
@@ -64,8 +76,7 @@ void* csrt_pinvoke_load_library(const char* name, bool throw_on_error) {
     if (!handle && throw_on_error)
         csrt_throw(&csrt_MT_System_DllNotFoundException.header,
                    message("Unable to load shared library '%s' or one of its dependencies. In order to help diagnose loading "
-                           "problems, consider using a tool like strace. If you're using glibc, consider setting the "
-                           "LD_DEBUG environment variable: \n%s", name, error ? error : ""));
+                           "problems, " DLL_NOT_FOUND_HINT, name, error ? error : ""));
     return handle;
 }
 

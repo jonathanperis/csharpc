@@ -147,6 +147,24 @@ How the two sides call each other:
   (`Console.Write`, `new string`, ...) and through a few `CoreIntrinsics` (`FastAllocateString`,
   `StringChars`, bit casts) that need no `unsafe` code.
 
+## Platforms
+
+csrt is C11 + POSIX. What differs per OS is behind `#ifdef __APPLE__`:
+
+| Concern | Linux (glibc) | macOS (arm64) |
+|---|---|---|
+| GC static roots | writable `PT_LOAD` segments via `dl_iterate_phdr` | writable `LC_SEGMENT_64`s of image 0 (`_dyld_get_image_header`) |
+| GC thread-local roots | the executable's `PT_TLS` block (`dlpi_tls_data`) | the thread's TLV block: a `__thread_vars` descriptor's thunk gives one variable's address, minus its offset = block start; size = `__thread_data` + `__thread_bss` |
+| thread stack bounds | `__libc_stack_end`, `pthread_getattr_np` | `pthread_get_stackaddr_np` |
+| stop-the-world | `SIGPWR`/`SIGXCPU`, POSIX semaphore acks | `SIGUSR1`/`SIGXCPU`, Mach semaphore acks (no unnamed POSIX semaphores) |
+| timed waits | `CLOCK_MONOTONIC` condvar, `pthread_mutex_timedlock` | `pthread_cond_timedwait_relative_np`, trylock polling |
+| unwinding | libgcc_s / `.eh_frame` | libSystem's libunwind, compact unwind + `__eh_frame`; same personality (`csrt_personality`) |
+| command line | `/proc/self/cmdline` | `_NSGetArgv` |
+| P/Invoke probing | `foo.so`, `libfoo.so`, `foo`, `libfoo` | the same with `.dylib` |
+
+errno values, `open` flags and struct layouts that C# code needs are selected in the corelib at
+compile time from the target triple, not in C ([16-interop-io.md](16-interop-io.md#systemio)).
+
 ## GC plan
 
 The full design is in [ADR 0004](adr/0004-memory-management.md). In short:

@@ -16,7 +16,17 @@ public sealed class Toolchain(CompilerOptions options, Csharpc.Llvm.TargetMachin
     /// (always on AArch64), which rounds differently from .NET's separate multiply and add.</summary>
     private static readonly string[] BaseRuntimeCFlags = ["-O2", "-std=c11", "-fPIC", "-funwind-tables", "-fexceptions", "-ffp-contract=off"];
 
-    private string[] RuntimeCFlags => [.. BaseRuntimeCFlags, .. Hardening.RuntimeCFlags(options.Hardening, target), .. SanitizerFlags];
+    private string[] RuntimeCFlags => [.. BaseRuntimeCFlags, .. SysrootFlags, .. Hardening.RuntimeCFlags(options.Hardening, target), .. SanitizerFlags];
+
+    /// <summary>macOS: headers and libSystem stubs come from the SDK (clang also honours $SDKROOT).</summary>
+    private string[] SysrootFlags => target.IsDarwin && MacSdk is { } sdk ? ["-isysroot", sdk] : [];
+
+    private static string? s_macSdk;
+
+    /// <summary>$SDKROOT, else `xcrun --sdk macosx --show-sdk-path` (macOS hosts with the Command Line Tools).</summary>
+    private string? MacSdk => s_macSdk ??= Environment.GetEnvironmentVariable("SDKROOT") is { Length: > 0 } root ? root
+        : OperatingSystem.IsMacOS() ? Capture("xcrun", ["--sdk", "macosx", "--show-sdk-path"]).Trim()
+        : throw new InvalidOperationException($"targeting '{target.Triple}' needs the macOS SDK: set SDKROOT to its path");
 
     /// <summary>--sanitize: instrument the runtime (generated code is bounds/null-checked by construction).</summary>
     private string[] SanitizerFlags => options.Sanitize is { } list
@@ -74,11 +84,36 @@ public sealed class Toolchain(CompilerOptions options, Csharpc.Llvm.TargetMachin
     }
 
     /// <param name="runtimeLinkedIn">The runtime was already linked into the program as bitcode (LTO).</param>
-    public void Link(string triple, string programObject, string output, bool runtimeLinkedIn = false)
+    /// <param name="weakImports">Undefined extern_weak symbols (P/Invoke targets that may be missing).</param>
+    public void Link(string triple, string programObject, string output, bool runtimeLinkedIn = false, IReadOnlyList<string>? weakImports = null)
     {
         string[] runtime = runtimeLinkedIn ? [] : RuntimeObjects(triple);
         string[] sanitize = options.Sanitize is { } list ? [$"-fsanitize={list}"] : [];
+        if (target.IsDarwin)
+        {
+            // Apple's linker rejects undefined symbols even when weak; -U lets each bind to null at
+            // run time (EntryPointNotFoundException at the call, as on Linux).
+            var weak = (weakImports ?? []).SelectMany(name => new[] { "-Wl,-U,_" + name });
+            Run(options.CC, [$"--target={triple}", .. SysrootFlags, programObject, .. runtime, .. DarwinLinkFlags(), .. weak, .. sanitize, "-o", output]);
+            // DWARF stays in the object files on macOS (the executable only records where): collect it
+            // into output.dSYM before the temporary program object is deleted.
+            if (options.Debug) Run(Environment.GetEnvironmentVariable("CSHARPC_DSYMUTIL") ?? "dsymutil", [output]);
+            return;
+        }
         Run(options.CC, [$"--target={triple}", programObject, .. runtime, "-lm", "-pthread", .. LinkFlags(), .. Hardening.LinkFlags(options.Hardening), .. sanitize, "-o", output]);
+    }
+
+    /// <summary>
+    /// Mach-O counterparts of <see cref="LinkFlags"/>: dead-stripping instead of section GC and local-
+    /// and debug-symbol stripping (ld64 has no full -s). Apple's ld by default; CSHARPC_LD=lld selects
+    /// ld64.lld (e.g. to cross-link from Linux). Hardening needs no linker flags: Mach-O executables are
+    /// always PIE with a non-executable stack, and __DATA_CONST is read-only after binding.
+    /// </summary>
+    private IEnumerable<string> DarwinLinkFlags()
+    {
+        if (Environment.GetEnvironmentVariable("CSHARPC_LD") == "lld") yield return "-fuse-ld=lld";
+        yield return "-Wl,-dead_strip";
+        if (options.Strip ?? !options.Debug) yield return "-Wl,-S,-x";
     }
 
     /// <summary>
@@ -123,6 +158,21 @@ public sealed class Toolchain(CompilerOptions options, Csharpc.Llvm.TargetMachin
             return Version.TryParse(text, out var v) && (v.Major > major || (v.Major == major && v.Minor >= minor));
         }
         catch (Exception e) when (e is DllNotFoundException or EntryPointNotFoundException) { return false; } // musl etc.
+    }
+
+    private string Capture(string tool, string[] args)
+    {
+        var psi = new ProcessStartInfo(tool) { RedirectStandardError = true, RedirectStandardOutput = true };
+        foreach (var a in args) psi.ArgumentList.Add(a);
+        try
+        {
+            using var process = Process.Start(psi)!;
+            var stdout = process.StandardOutput.ReadToEnd();
+            process.WaitForExit();
+            if (process.ExitCode == 0) return stdout;
+        }
+        catch (System.ComponentModel.Win32Exception) { }
+        throw new InvalidOperationException($"could not find the macOS SDK ('{tool} {string.Join(' ', args)}' failed); install the Xcode Command Line Tools or set SDKROOT");
     }
 
     private void Run(string tool, string[] args)

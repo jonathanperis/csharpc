@@ -61,6 +61,21 @@ static void deadline_after(struct timespec* ts, int64_t ms) {
     if (ts->tv_nsec >= 1000000000) { ts->tv_sec++; ts->tv_nsec -= 1000000000; }
 }
 
+#ifdef __APPLE__
+/// macOS has no pthread_mutex_timedlock: poll trylock until the (CLOCK_REALTIME) deadline.
+static int pthread_mutex_timedlock(pthread_mutex_t* mutex, const struct timespec* deadline) {
+    for (;;) {
+        int rc = pthread_mutex_trylock(mutex);
+        if (rc != EBUSY) return rc;
+        struct timespec now;
+        clock_gettime(CLOCK_REALTIME, &now);
+        if (now.tv_sec > deadline->tv_sec || (now.tv_sec == deadline->tv_sec && now.tv_nsec >= deadline->tv_nsec)) return ETIMEDOUT;
+        struct timespec pause_for = { 0, 500000 };
+        nanosleep(&pause_for, NULL);
+    }
+}
+#endif
+
 /// Thread.Sleep: resumes with the remaining time when a GC signal interrupts it.
 void csrt_thread_sleep(int32_t ms) {
     if (ms < -1) throw_msg(&mt_argument_out_of_range, "Number must be either non-negative and less than or equal to Int32.MaxValue or -1. (Parameter 'millisecondsTimeout')");

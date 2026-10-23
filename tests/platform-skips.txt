@@ -1,0 +1,7 @@
+# Tests whose recorded behaviour (from real .NET on Linux) is itself platform-dependent: real .NET
+# on the listed OS behaves differently too, so csharpc can't be compared against these expectations
+# there. Never list a test here because csharpc differs from .NET; fix csharpc instead.
+#
+# <os: linux | macos>  <test name (sample, program or conformance path)>  <reason>
+macos 160_pinvoke_dllimport   loads the Linux soname "libm.so.6": .NET on macOS throws DllNotFoundException
+macos 176_pinvoke_struct_abi  loads the Linux soname "libm.so.6": .NET on macOS throws DllNotFoundException

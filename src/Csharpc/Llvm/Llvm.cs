@@ -197,6 +197,9 @@ public sealed class TargetMachine : IDisposable
     public string Triple { get; }
     public bool IsX86_64 => Triple.StartsWith("x86_64", StringComparison.Ordinal);
     public bool IsAArch64 => Triple.StartsWith("aarch64", StringComparison.Ordinal) || Triple.StartsWith("arm64", StringComparison.Ordinal);
+    /// <summary>macOS (Mach-O, libSystem, Apple's linker).</summary>
+    public bool IsDarwin => IsDarwinTriple(Triple);
+    public static bool IsDarwinTriple(string triple) => triple.Contains("-apple-", StringComparison.Ordinal);
 
     private TargetMachine(LLVMTargetMachineRef machine, string triple)
     {
@@ -221,8 +224,22 @@ public sealed class TargetMachine : IDisposable
 
     public static string HostTriple
     {
-        get { InitializeTargets(); return TakeMessage(LLVMGetDefaultTargetTriple())!; }
+        get
+        {
+            InitializeTargets();
+            var triple = TakeMessage(LLVMGetDefaultTargetTriple())!;
+            // LLVM's default on macOS names the host kernel (arm64-apple-darwin24.6.0), which would make
+            // the host's macOS release the minimum the executable runs on. Use a deployment target
+            // instead: $MACOSX_DEPLOYMENT_TARGET (as clang does) or csharpc's default.
+            if (IsDarwinTriple(triple) && triple.Contains("-darwin", StringComparison.Ordinal))
+                triple = $"{triple[..triple.IndexOf('-')]}-apple-macosx{DeploymentTarget}";
+            return triple;
+        }
     }
+
+    /// <summary>Minimum macOS version of host builds (the oldest release .NET 11 supports).</summary>
+    public static string DeploymentTarget =>
+        Environment.GetEnvironmentVariable("MACOSX_DEPLOYMENT_TARGET") is { Length: > 0 } v ? v : "14.0";
 
     /// <param name="cpu">LLVM CPU name; null = host CPU (native builds) or "generic".</param>
     /// <param name="features">LLVM feature string ("+avx2,-avx512f"); null = host features for native builds.</param>

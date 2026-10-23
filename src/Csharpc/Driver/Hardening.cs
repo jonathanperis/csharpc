@@ -34,7 +34,11 @@ public static class Hardening
     };
 
     /// <summary>Extra clang flags for src/runtime/*.c (objects and LTO bitcode alike).</summary>
-    public static string[] RuntimeCFlags(HardeningLevel level, TargetMachine target) => level switch
+    public static string[] RuntimeCFlags(HardeningLevel level, TargetMachine target) =>
+        // clang implements stack-clash probing for Linux only (macOS relies on its guard pages).
+        target.IsDarwin ? [.. RuntimeCFlagsFor(level, target).Where(f => f != "-fstack-clash-protection")] : RuntimeCFlagsFor(level, target);
+
+    private static string[] RuntimeCFlagsFor(HardeningLevel level, TargetMachine target) => level switch
     {
         HardeningLevel.None => [],
         // Control-flow protection is Max-only: CET measured +8-16% on call-heavy benchmarks, and Linux

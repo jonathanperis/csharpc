@@ -54,7 +54,8 @@ public static class RoslynFrontend
             : CSharpSyntaxTree.ParseText(File.ReadAllText(f), parseOptions, path: Path.GetFullPath(f)))];
         if (settings.GlobalUsings is { Length: > 0 } usings)
             trees.Add(CSharpSyntaxTree.ParseText(usings, parseOptions, path: "<global-usings>.g.cs"));
-        trees.AddRange(CoreLibTrees(parseOptions));
+        // The corelib also sees the target OS (CSHARPC_TARGET_*), for per-OS libc constants and layouts.
+        trees.AddRange(CoreLibTrees(parseOptions.WithPreprocessorSymbols(parseOptions.PreprocessorSymbolNames.Concat(settings.CoreLibDefines).ToArray())));
 
         var nullable = NullableOf(settings.Nullable);
         var options = new CSharpCompilationOptions(OutputKind.ConsoleApplication,
@@ -245,6 +246,8 @@ public sealed record FrontendSettings
 {
     public required IReadOnlyList<string> Files { get; init; }
     public IReadOnlyList<string> Defines { get; init; } = [];
+    /// <summary>Extra symbols for the corelib only (the target OS); user code sees what .NET defines.</summary>
+    public IReadOnlyList<string> CoreLibDefines { get; init; } = [];
     public string? LanguageVersion { get; init; }
     public string? Nullable { get; init; }
     public bool AllowUnsafe { get; init; } = true;
