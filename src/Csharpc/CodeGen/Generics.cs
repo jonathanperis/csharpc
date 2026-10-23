@@ -8,7 +8,7 @@ namespace Csharpc.CodeGen;
 /// instantiation (Box&lt;int&gt;, Box&lt;string&gt;, Max&lt;double&gt;) becomes its own LLVM function / layout /
 /// method table. Roslyn only gives us the CFG of the generic *definition*, whose types mention
 /// type parameters, so lowering an instantiation applies a <see cref="TypeSubstitution"/> to every
-/// type and symbol it reads (docs/03-lowering.md#generics).
+/// type and symbol it reads (docs/03-lowering.md#generics-monomorphization).
 /// </summary>
 public sealed class TypeSubstitution
 {
