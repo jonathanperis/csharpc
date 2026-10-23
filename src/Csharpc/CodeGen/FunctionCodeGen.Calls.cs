@@ -909,6 +909,9 @@ public sealed partial class FunctionCodeGen
         SpecialType.System_Int64 => CallRuntime("csrt_string_from_i64", L.Ptr, [L.I64], value),
         SpecialType.System_IntPtr when value.Type.IntWidth == 64 => CallRuntime("csrt_string_from_i64", L.Ptr, [L.I64], value),
         SpecialType.System_UIntPtr when value.Type.IntWidth == 64 => CallRuntime("csrt_string_from_u64", L.Ptr, [L.I64], value),
+        // wasm32: nint and nuint are 32-bit.
+        SpecialType.System_IntPtr when value.Type.IntWidth == 32 => CallRuntime("csrt_string_from_i32", L.Ptr, [L.I32], value),
+        SpecialType.System_UIntPtr when value.Type.IntWidth == 32 => CallRuntime("csrt_string_from_u32", L.Ptr, [L.I32], value),
         SpecialType.System_UInt32 => CallRuntime("csrt_string_from_u32", L.Ptr, [L.I32], value),
         SpecialType.System_UInt64 => CallRuntime("csrt_string_from_u64", L.Ptr, [L.I64], value),
         SpecialType.System_SByte or SpecialType.System_Int16 =>

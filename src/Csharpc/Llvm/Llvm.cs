@@ -206,6 +206,10 @@ public sealed class TargetMachine : IDisposable
     /// <summary>Windows (PE/COFF). csharpc targets the MinGW-w64 environment (x86_64-w64-windows-gnu):
     /// Itanium-style exceptions on SEH unwind tables, linked by lld against the UCRT.</summary>
     public bool IsWindows => IsWindowsTriple(Triple);
+    /// <summary>WebAssembly with WASI preview 1 (wasm32-wasip1 / wasm32-wasi): wasi-libc, wasm-ld, a
+    /// WASI runtime such as wasmtime. No unwinding, no threads (docs/adr/0011-wasm32.md).</summary>
+    public bool IsWasm => IsWasmTriple(Triple);
+    public static bool IsWasmTriple(string triple) => triple.StartsWith("wasm", StringComparison.Ordinal);
     public static bool IsWindowsTriple(string triple) =>
         triple.Contains("-windows", StringComparison.Ordinal) || triple.Contains("-mingw", StringComparison.Ordinal) || triple.Contains("-win32", StringComparison.Ordinal);
 
@@ -232,6 +236,12 @@ public sealed class TargetMachine : IDisposable
             LLVMInitializeAArch64AsmParser();
         }
         catch (EntryPointNotFoundException) { /* LLVM built without AArch64 */ }
+        try
+        {
+            LLVMInitializeWebAssemblyTargetInfo(); LLVMInitializeWebAssemblyTarget(); LLVMInitializeWebAssemblyTargetMC();
+            LLVMInitializeWebAssemblyAsmPrinter();
+        }
+        catch (EntryPointNotFoundException) { /* LLVM built without WebAssembly */ }
     }
 
     public static string HostTriple
@@ -269,7 +279,9 @@ public sealed class TargetMachine : IDisposable
         if (cpu is "native") cpu = hostCpu;
         cpu ??= host ? DefaultHostCpu(triple, hostCpu) : "generic";
         features ??= host && cpu == hostCpu ? TakeMessage(LLVMGetHostCPUFeatures())! : "";
-        var machine = LLVMCreateTargetMachine(target, triple, cpu, features, level, LLVMRelocMode.PIC, LLVMCodeModel.Default);
+        // WebAssembly executables are statically linked (PIC there means dynamic linking: GOT imports).
+        var reloc = IsWasmTriple(triple) ? LLVMRelocMode.Static : LLVMRelocMode.PIC;
+        var machine = LLVMCreateTargetMachine(target, triple, cpu, features, level, reloc, LLVMCodeModel.Default);
         return new TargetMachine(machine, triple);
     }
 

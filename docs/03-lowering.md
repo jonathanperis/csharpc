@@ -624,6 +624,22 @@ Zero-cost, table-driven exception handling on the Itanium ABI ([ADR 0005](adr/00
 - An exception that no frame handles still runs the `finally` blocks on the way out (a forced
   unwind). Then csrt prints `Unhandled exception. <ToString()>` to stderr and calls `abort()`:
   exit status 134, the same as a .NET process on Linux.
+- **WebAssembly** has no unwinder ([ADR 0011](adr/0011-wasm32.md)). Codegen emits the same IR,
+  and `src/Csharpc/Wasm/ExceptionLowering.cs` rewrites it for the whole program, runtime included.
+  Throwing stores the exception in `csrt_pending_exception` and returns. Each `invoke` becomes a
+  `call` followed by a test of that global, which branches to the landing-pad block (now an ordinary
+  block: `csrt_begin_catch` takes the exception out of the global) or to the normal destination.
+  Every other call that may throw is followed by a test that returns from the function, and in
+  `main` reports the unhandled exception. The landing-pad code (type tests, filters, `finally`
+  routing, rethrow) is unchanged, so the semantics are the native ones.
+
+  ```llvm
+  ; invoke void @Fail(i32 1) to label %cont unwind label %lpad     becomes:
+  call void @Fail(i32 1)
+  %pending = load ptr, ptr @csrt_pending_exception
+  %threw = icmp ne ptr %pending, null
+  br i1 %threw, label %lpad, label %cont
+  ```
 
 ## Static initialization
 

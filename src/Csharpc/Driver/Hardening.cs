@@ -35,9 +35,13 @@ public static class Hardening
 
     /// <summary>Extra clang flags for src/runtime/*.c (objects and LTO bitcode alike).</summary>
     public static string[] RuntimeCFlags(HardeningLevel level, TargetMachine target) =>
+        // WebAssembly: return addresses and locals are outside linear memory and control flow is
+        // structured, so only zero-initialized locals apply (wasi-libc has no stack protector or
+        // _FORTIFY_SOURCE support; stack overflow traps, with the stack placed first in memory).
+        target.IsWasm ? (level == HardeningLevel.None ? [] : ["-ftrivial-auto-var-init=zero"])
         // clang implements stack-clash probing for Linux only (macOS relies on its guard pages, Windows
         // on __chkstk, which every frame larger than a page calls).
-        target.IsDarwin || target.IsWindows ? [.. RuntimeCFlagsFor(level, target).Where(f => f != "-fstack-clash-protection")] : RuntimeCFlagsFor(level, target);
+        : target.IsDarwin || target.IsWindows ? [.. RuntimeCFlagsFor(level, target).Where(f => f != "-fstack-clash-protection")] : RuntimeCFlagsFor(level, target);
 
     private static string[] RuntimeCFlagsFor(HardeningLevel level, TargetMachine target) => level switch
     {
@@ -106,7 +110,7 @@ public static class Hardening
             if (LLVMIsDeclaration(fn) != 0) continue;
             // Stack-clash protection: probe large frames page by page (cheap; only big frames pay).
             // Windows always probes big frames (__chkstk); there the attribute would name a function.
-            if (!target.IsWindows) llvm.AddStringFunctionAttribute(fn, "probe-stack", "inline-asm");
+            if (!target.IsWindows && !target.IsWasm) llvm.AddStringFunctionAttribute(fn, "probe-stack", "inline-asm");
             if (level == HardeningLevel.Max)
             {
                 // Generated code is memory-safe C# except `unsafe`/stackalloc; Max adds a canary anyway.

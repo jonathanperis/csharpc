@@ -21,7 +21,8 @@ try
 }
 catch (OperationCanceledException) { Console.WriteLine($"cancelled after seeing sum {seen}"); }
 
-var timeouts = await Task.WhenAll(WithTimeout(Work(10, 5), 50), WithTimeout(Work(200, 6), 50), WithTimeout(Work(1, 7), 50));
+// Wide margins: a 50 ms timeout against a 10 ms task was missed on a loaded CI runner.
+var timeouts = await Task.WhenAll(WithTimeout(Work(10, 5), 1000), WithTimeout(Work(3000, 6), 1000), WithTimeout(Work(1, 7), 1000));
 Console.WriteLine("timeouts: " + string.Join(", ", timeouts.Select(t => t?.ToString() ?? "timeout")));
 
 var queue = new AsyncQueue<int>(capacity: 2);

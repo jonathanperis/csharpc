@@ -49,6 +49,14 @@ if HOST_OS == "linux":
     for var in ("LC_MESSAGES", "LANGUAGE"): env.pop(var, None)
 CULTURE_PIN = [] if HOST_OS == "linux" else [os.path.join(ROOT, "tests", "culture-pin", "CulturePin.cs")]
 EXE = ".exe" if WINDOWS else ""
+# CSHARPC_TEST_TARGET=wasm32-wasip1: compile for WebAssembly and run with tests/wasm-run.sh (wasmtime);
+# platform skips are looked up for "wasi" (tests/platform.sh).
+TARGET = os.environ.get("CSHARPC_TEST_TARGET", "")
+WASM = TARGET.startswith("wasm32")
+TARGET_OS = "wasi" if WASM else HOST_OS
+TARGET_FLAGS = ["--target", TARGET] if WASM else []
+RUN_PREFIX = [os.path.join(ROOT, "tests", "wasm-run.sh")] if WASM else []
+if WASM: EXE = ".wasm"
 
 def platform_skips():
     # tests/platform-skips.txt: "<os> <test> <reason>" (tests whose recorded output is itself
@@ -57,7 +65,7 @@ def platform_skips():
     with open(os.path.join(ROOT, "tests", "platform-skips.txt"), encoding="utf-8") as f:
         for line in f:
             parts = line.split(None, 2)
-            if len(parts) == 3 and not line.startswith("#") and parts[0] == HOST_OS: skips[parts[1]] = parts[2].strip()
+            if len(parts) == 3 and not line.startswith("#") and parts[0] == TARGET_OS: skips[parts[1]] = parts[2].strip()
     return skips
 SKIPS = platform_skips()
 
@@ -144,11 +152,11 @@ def check(p, workdir):
     exp_path = os.path.join(CONF, p + ".expected")
     if not os.path.exists(exp_path): return dict(program=p, status="skip", reasons=["no expectation (run --regen)"])
     live = SKIPS.get(p, "").startswith("live:")
-    if p in SKIPS and not live: return dict(program=p, status="skip", reasons=[f"platform-dependent on {HOST_OS}: {SKIPS[p]}"])
+    if p in SKIPS and not live: return dict(program=p, status="skip", reasons=[f"platform-dependent on {TARGET_OS}: {SKIPS[p]}"])
     want_code = int(open(os.path.join(CONF, p + ".exitcode")).read()) if os.path.exists(os.path.join(CONF, p + ".exitcode")) else 0
     exe = os.path.join(workdir, p.replace("/", "_")) + EXE
     t0 = time.time()
-    code, out, err = run(CSHARPC + [args.opt, src] + CULTURE_PIN + ["-o", exe], timeout=180)
+    code, out, err = run(CSHARPC + TARGET_FLAGS + [args.opt, src] + CULTURE_PIN + ["-o", exe], timeout=180)
     compile_ms = int((time.time() - t0) * 1000)
     if code != 0:
         text = out + err
@@ -178,7 +186,7 @@ def check(p, workdir):
         code, out, err = run([exe], timeout=args.timeout, raw=True)
         expected = open(exp_path, newline="", encoding="utf-8").read().replace("\n", "\r\n")
     else:
-        code, out, err = run(["bash", "-c", 'ulimit -c 0; exec "$0"', exe], timeout=args.timeout)
+        code, out, err = run(["bash", "-c", 'ulimit -c 0; exec "$0" "$@"', *RUN_PREFIX, exe], timeout=args.timeout)
         expected = open(exp_path).read()
     if code == "timeout":
         return dict(program=p, status="timeout", reasons=["runtime timeout / hang"], compile_ms=compile_ms)

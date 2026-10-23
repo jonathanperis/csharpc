@@ -439,6 +439,17 @@ namespace CsharpcCoreLib.Globalization
                     return CompareStringCore(string1, string2, options);
                 }
 
+#if CSHARPC_TARGET_WASI
+                // csharpc on WASI: no ICU, hence invariant mode, but linguistic comparisons approximate ICU's root
+                // collation (src/runtime/bclmisc.c) rather than turning ordinal: they then agree with .NET with ICU
+                // for Latin text.
+                if ((options & ~CompareOptions.IgnoreCase) == 0)
+                {
+                    return RootCollationCompare(CoreIntrinsics.ObjectToPointer(string1.ToString()), CoreIntrinsics.ObjectToPointer(string2.ToString()),
+                        (options & CompareOptions.IgnoreCase) != 0 ? 1 : 0);
+                }
+#endif
+
                 if ((options & CompareOptions.IgnoreCase) == 0)
                 {
                     return string1.SequenceCompareTo(string2);
@@ -494,6 +505,11 @@ namespace CsharpcCoreLib.Globalization
                 message: ((options & CompareOptions.Ordinal) != 0) ? SR.Argument_CompareOptionOrdinal : SR.Argument_InvalidFlag);
         }
 
+#if CSHARPC_TARGET_WASI
+        [DllImport("__Internal", EntryPoint = "csrt_root_collation_compare")]
+        private static extern int RootCollationCompare(IntPtr string1, IntPtr string2, int ignoreCase);
+
+#endif
         private int CompareStringCore(ReadOnlySpan<char> string1, ReadOnlySpan<char> string2, CompareOptions options) =>
                 IcuCompareString(string1, string2, options);
 

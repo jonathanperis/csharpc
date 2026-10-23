@@ -60,6 +60,12 @@ with a per-thread flow object (`csrt_tl_flow`, `src/runtime/threads.c`), capture
 started, a work item is queued or a continuation is registered (`src/runtime/async.c`), and restored
 around async method bodies (`FunctionCodeGen.Async.cs`).
 
+On **WASI** (`--target wasm32-wasip1`) nothing can be loaded dynamically, so there is no ICU: programs
+run in invariant globalization mode, as .NET's WebAssembly builds do by default. The shim isn't built
+there (the `Interop.Globalization` imports are stubs). One deliberate difference: linguistic comparisons
+approximate ICU's root collation for Latin text (`csrt_root_collation_compare`, `src/runtime/bclmisc.c`)
+instead of becoming ordinal, so sorting agrees with .NET on Linux, which the tests are recorded with.
+
 ## Invariant mode
 
 `DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=1` (or `true`) at run time, or the project property

@@ -84,7 +84,7 @@ check_test() {
 }
 platform_oracle_hook || exit 1
 export -f check_one check_test platform_expected platform_exit_code platform_skip platform_env
-export OUT DOTNET HOST_OS ROOT
+export OUT DOTNET HOST_OS TARGET_OS ROOT
 cut -f1 "$list" | wc -l | xargs echo "tests:"
 tr '\n' '\0' < "$list" | xargs -0 -P "$JOBS" -I{} bash -c 'check_one "$1"' _ {}
 while IFS=$'\t' read -r name _; do cat "$OUT/${name//\//_}.report"; done < "$list" > "$OUT/report"

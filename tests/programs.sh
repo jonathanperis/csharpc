@@ -58,7 +58,7 @@ for name in "${names[@]}"; do
   stdin_file=/dev/null; [[ -f "$dir/input.txt" ]] && stdin_file="$dir/input.txt"
   want_code=0; [[ -f "$dir/exitcode" ]] && want_code="$(platform_exit_code "$(cat "$dir/exitcode")")"
   reason="$(platform_skip "$name")"
-  [[ -n "$reason" ]] && ! platform_is_live "$reason" && { printf '%-24s %-5s %-6s (platform-dependent on %s: %s)\n' "$name" "" SKIP "$HOST_OS" "$reason"; continue; }
+  [[ -n "$reason" ]] && ! platform_is_live "$reason" && { printf '%-24s %-5s %-6s (platform-dependent on %s: %s)\n' "$name" "" SKIP "$TARGET_OS" "$reason"; continue; }
   if [[ -n "$reason" ]]; then  # recorded live from real .NET on this machine
     want_code="$(platform_live_expected "$dir" Program.cs "$stdin_file" "$OUT/$name.want")"
   else
@@ -67,13 +67,14 @@ for name in "${names[@]}"; do
   for opt in -O0 -O2; do
     exe="$OUT/$name$opt$EXE_SUFFIX"
     start=$(date +%s%N)
-    if ! "${CSHARPC[@]}" "$opt" "$dir/Program.cs" "${CULTURE_PIN[@]}" -o "$exe" 2> "$OUT/$name.compile"; then
+    if ! "${CSHARPC[@]}" "${TARGET_FLAGS[@]}" "$opt" "$dir/Program.cs" "${CULTURE_PIN[@]}" -o "$exe" 2> "$OUT/$name.compile"; then
       printf '%-24s %-5s %-6s\n' "$name" "$opt" FAIL; sed 's/^/     /' "$OUT/$name.compile" | head -6
       fail=$((fail + 1)); failed+=("$name[$opt]"); continue
     fi
     ms=$(( ($(date +%s%N) - start) / 1000000 ))
     size=$(( $(stat -c %s "$exe") / 1024 ))
-    bash -c 'ulimit -c 0 2>/dev/null; timeout 120 "$1" > "$2" 2> "$3" < "$4"' _ "$exe" "$OUT/$name.out" "$OUT/$name.err" "$stdin_file" 2>/dev/null
+    bash -c 'ulimit -c 0 2>/dev/null; out="$1" err="$2" in="$3"; shift 3; timeout 120 "$@" > "$out" 2> "$err" < "$in"' _ \
+      "$OUT/$name.out" "$OUT/$name.err" "$stdin_file" "${RUN_PREFIX[@]}" "$exe" 2>/dev/null
     code=$?
     if diff -u "$OUT/$name.want" "$OUT/$name.out" > "$OUT/$name.diff" && [[ $code == "$want_code" ]]; then
       printf '%-24s %-5s %-6s %9s %9s\n' "$name" "$opt" PASS "$ms" "$size"; pass=$((pass + 1))

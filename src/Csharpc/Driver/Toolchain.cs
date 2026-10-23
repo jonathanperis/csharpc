@@ -17,7 +17,24 @@ public sealed class Toolchain(CompilerOptions options, Csharpc.Llvm.TargetMachin
     private static readonly string[] BaseRuntimeCFlags = ["-O2", "-std=c11", "-fPIC", "-funwind-tables", "-fexceptions", "-ffp-contract=off"];
 
     private static readonly string[] PortedCFlags = ["-DNDEBUG"];
-    private string[] RuntimeCFlags => [.. BaseRuntimeCFlags, .. SysrootFlags, .. Hardening.RuntimeCFlags(options.Hardening, target), .. SanitizerFlags];
+    private string[] RuntimeCFlags => target.IsWasm
+        ? [.. WasmRuntimeCFlags, .. Hardening.RuntimeCFlags(options.Hardening, target)]
+        : [.. BaseRuntimeCFlags, .. SysrootFlags, .. Hardening.RuntimeCFlags(options.Hardening, target), .. SanitizerFlags];
+
+    /// <summary>wasm32: nothing unwinds (ExceptionLowering), executables are static (no -fPIC).</summary>
+    private static readonly string[] WasmRuntimeCFlags = ["-O2", "-std=c11", "-ffp-contract=off"];
+
+    /// <summary>
+    /// The WASI SDK (clang, wasm-ld, wasi-libc, compiler-rt): $WASI_SDK_PATH, else /opt/wasi-sdk. Its
+    /// clang must be LLVM 18, like csharpc's (wasi-sdk 22-24), because the runtime's bitcode is linked
+    /// into the program.
+    /// </summary>
+    private static string WasiSdk => Environment.GetEnvironmentVariable("WASI_SDK_PATH") is { Length: > 0 } sdk ? sdk : "/opt/wasi-sdk";
+
+    /// <summary>The C compiler and linker driver: --cc / $CSHARPC_CC, else clang (the WASI SDK's for wasm32).</summary>
+    private string CC => target.IsWasm && options.CC == "clang" && Environment.GetEnvironmentVariable("CSHARPC_CC") is null
+        ? Path.Combine(WasiSdk, "bin", OperatingSystem.IsWindows() ? "clang.exe" : "clang")
+        : options.CC;
 
     /// <summary>macOS: headers and libSystem stubs come from the SDK (clang also honours $SDKROOT).</summary>
     private string[] SysrootFlags => target.IsDarwin && MacSdk is { } sdk ? ["-isysroot", sdk] : [];
@@ -64,7 +81,7 @@ public sealed class Toolchain(CompilerOptions options, Csharpc.Llvm.TargetMachin
         // Subdirectories hold ported native code (globalization/: .NET's System.Globalization.Native).
         var files = Directory.GetFiles(RuntimeDir, "*", SearchOption.AllDirectories).Where(f => f.EndsWith(".c") || f.EndsWith(".h")).Order(StringComparer.Ordinal).ToArray();
         // Key the cache on everything that affects the output, including the flags below.
-        var hashInput = string.Concat(files.Select(File.ReadAllText)) + triple + options.CC + string.Join(' ', RuntimeCFlags) + string.Join(' ', PortedCFlags) + (bitcode ? "bc" : "o");
+        var hashInput = string.Concat(files.Select(File.ReadAllText)) + triple + CC + string.Join(' ', RuntimeCFlags) + string.Join(' ', PortedCFlags) + (bitcode ? "bc" : "o");
         var hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(hashInput)))[..16].ToLowerInvariant();
         var cacheDir = Path.Combine(
             Environment.GetEnvironmentVariable("XDG_CACHE_HOME") ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".cache"),
@@ -72,7 +89,10 @@ public sealed class Toolchain(CompilerOptions options, Csharpc.Llvm.TargetMachin
         Directory.CreateDirectory(cacheDir);
 
         List<string> outputs = [];
-        foreach (var source in files.Where(f => f.EndsWith(".c")))
+        // WASI has no dynamic loading, so no ICU: programs run in invariant globalization mode there and the
+        // ICU shim isn't built (the corelib's Interop.Globalization has stubs for it).
+        foreach (var source in files.Where(f => f.EndsWith(".c")
+                     && !(target.IsWasm && Path.GetFileName(Path.GetDirectoryName(f)) == "globalization")))
         {
             var output = Path.Combine(cacheDir, $"{Path.GetFileNameWithoutExtension(source)}-{hash}{(bitcode ? ".bc" : ".o")}");
             outputs.Add(output);
@@ -82,7 +102,7 @@ public sealed class Toolchain(CompilerOptions options, Csharpc.Llvm.TargetMachin
             // Ported .NET native code is built as .NET ships it: release, asserts off (they flag conditions
             // the code then handles, such as ICU failing to open a string search).
             string[] ported = Path.GetDirectoryName(source) != RuntimeDir.TrimEnd(Path.DirectorySeparatorChar) ? PortedCFlags : [];
-            Run(options.CC, [.. mode, .. RuntimeCFlags, .. ported, $"--target={triple}", source, "-o", tmp]);
+            Run(CC, [.. mode, .. RuntimeCFlags, .. ported, $"--target={triple}", source, "-o", tmp]);
             File.Move(tmp, output, overwrite: true);
         }
         return [.. outputs];
@@ -107,12 +127,31 @@ public sealed class Toolchain(CompilerOptions options, Csharpc.Llvm.TargetMachin
             if (options.Debug) Run(Environment.GetEnvironmentVariable("CSHARPC_DSYMUTIL") ?? "dsymutil", [output]);
             return;
         }
+        if (target.IsWasm)
+        {
+            if (Path.GetExtension(output).Length == 0) output += ".wasm";
+            Run(CC, [$"--target={triple}", programObject, .. runtime, .. WasmLinkFlags(), "-o", output]);
+            return;
+        }
         if (target.IsWindows)
         {
             Run(options.CC, [$"--target={triple}", programObject, .. runtime, .. WindowsLinkFlags(), .. Hardening.WindowsLinkFlags(options.Hardening), .. sanitize, "-o", output]);
             return;
         }
         Run(options.CC, [$"--target={triple}", programObject, .. runtime, "-lm", "-pthread", .. LinkFlags(), .. Hardening.LinkFlags(options.Hardening), .. sanitize, "-o", output]);
+    }
+
+    /// <summary>
+    /// wasm-ld through the WASI SDK's clang (crt1-command.o, wasi-libc, compiler-rt builtins). The stack
+    /// (8 MiB, the default main-thread stack of .NET on Linux) comes first in linear memory, so an
+    /// overflow traps at address 0 instead of overwriting static data; the GC scans it (gc.c).
+    /// </summary>
+    private IEnumerable<string> WasmLinkFlags()
+    {
+        yield return "-Wl,--gc-sections";
+        yield return "-Wl,--stack-first";
+        yield return "-Wl,-z,stack-size=8388608";
+        if (options.Strip ?? !options.Debug) yield return "-Wl,--strip-all";
     }
 
     /// <summary>

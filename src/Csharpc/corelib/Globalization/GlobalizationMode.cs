@@ -27,7 +27,9 @@ namespace CsharpcCoreLib.Globalization
         // 0: not read yet, 1: false, 2: true.
         private static volatile int s_predefinedCulturesOnly;
 
-#if CSHARPC_INVARIANT_GLOBALIZATION
+#if CSHARPC_INVARIANT_GLOBALIZATION || CSHARPC_TARGET_WASI
+        // WASI: there is no ICU to load (no dynamic loading), so invariant mode is the default, as for .NET's
+        // WebAssembly builds.
         private const bool ConfiguredInvariant = true;
 #else
         private const bool ConfiguredInvariant = false;

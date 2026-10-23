@@ -114,7 +114,8 @@ public sealed partial class FunctionCodeGen
             // DateTime is its i64 _dateData (BclValueTypes.cs)
             "DateTimeData" or "MakeDateTime" => args[0],
             // An object reference as a native-sized integer and back (the GC never moves objects).
-            "ObjectToPointer" => args[0].Type.Kind == LLVMTypeKind.Pointer ? _b.Cast(LLVMOpcode.PtrToInt, args[0], L.I64) : args[0],
+            "ObjectToPointer" => args[0].Type.Kind == LLVMTypeKind.Pointer
+                ? _b.Cast(LLVMOpcode.PtrToInt, args[0], T.Value(_m.Compilation.GetSpecialType(SpecialType.System_IntPtr))) : args[0],
             "PointerToObject" => args[0].Type.Kind == LLVMTypeKind.Pointer ? args[0] : _b.Cast(LLVMOpcode.IntToPtr, args[0], L.Ptr),
             "EnumToUInt64" => EnumToUInt64(t!, args[0]),
             "EnumFromUInt64" => EnumFromUInt64(t!, args[0]),

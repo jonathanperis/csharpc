@@ -39,6 +39,9 @@ int __cdecl _configure_wide_argv(int mode);
 static wchar_t** s_wargv;
 csrt_String* csrt_string_new_from_utf16(const uint16_t* chars, int32_t length);
 #endif
+#ifdef __wasi__
+#include <unistd.h>
+#endif
 
 // ---------------------------------------------------------------------------------------------
 // Output buffering. .NET's Console.Out autoflushes, but process exit flushes too; for a native
@@ -60,6 +63,12 @@ void csrt_init(int argc, char** argv) {
         s_wargv = *__p___wargv();
     }
 #endif
+#ifdef __wasi__
+    // WASI has no current directory of its own (wasi-libc starts at "/"). Follow the caller's when the
+    // runtime passes $PWD and preopens it (tests/wasm-run.sh), so relative paths mean what they do natively.
+    const char* pwd = getenv("PWD");
+    if (pwd && pwd[0] == '/') (void)chdir(pwd);
+#endif
     csrt_gc_init();
     setvbuf(stdout, s_stdout_buffer, _IOFBF, sizeof s_stdout_buffer);
 }
@@ -76,7 +85,7 @@ void csrt_shutdown(void) {
 // Allocation
 // ---------------------------------------------------------------------------------------------
 // Allocation failure is a catchable OutOfMemoryException, as in .NET (eh.c).
-_Noreturn static void out_of_memory(void) { csrt_throw_out_of_memory(NULL); }
+CSRT_THROWS static void out_of_memory(void) { csrt_throw_out_of_memory(NULL); }
 
 void* csrt_alloc(const csrt_MethodTable* mt, int64_t size) {
     csrt_Object* obj = csrt_gc_alloc((size_t)size);
@@ -247,6 +256,15 @@ csrt_Array* csrt_environment_command_line_args(void) {
     return arr;
 }
 #endif
+#ifdef __wasi__
+/// Environment.GetCommandLineArgs(): argv as the WASI runtime passes it (the module, then the arguments).
+csrt_Array* csrt_environment_command_line_args(void) {
+    int64_t n = s_argc > 0 ? s_argc : 0;
+    csrt_Array* arr = csrt_new_array(sizeof(void*), n);
+    for (int64_t i = 0; i < n; i++) ((csrt_String**)arr->data)[i] = string_from_utf8(s_argv[i]);
+    return arr;
+}
+#endif
 
 csrt_Array* csrt_get_args(void) {
     // Like .NET, args excludes the program name.
@@ -308,7 +326,7 @@ static bool is_untyped_array_mt(const csrt_MethodTable* mt) {
 
 // Used when a registered builtin type has no slot table for an interface (e.g. IComparable on a boxed int).
 static const csrt_MethodTable s_not_supported_mt = { NULL, "System.NotSupportedException", 0, 0 };
-_Noreturn static void builtin_dispatch_unsupported(void) {
+CSRT_THROWS static void builtin_dispatch_unsupported(void) {
     csrt_throw(&s_not_supported_mt, string_from_ascii("csharpc: interface dispatch on this builtin type is not supported yet."));
 }
 static void* const s_unsupported_slots[64] = {
@@ -450,7 +468,7 @@ _Noreturn void csrt_unsupported_method(const char* message) {
     abort();
 }
 
-_Noreturn static void invalid_cast(const csrt_MethodTable* from, const csrt_MethodTable* to) {
+CSRT_THROWS static void invalid_cast(const csrt_MethodTable* from, const csrt_MethodTable* to) {
     csrt_throw_invalid_cast_from(from, to);
 }
 

@@ -1,6 +1,7 @@
 // Sockets over the OS's BSD socket API: libc on Linux and macOS, Winsock (ws2_32) on Windows.
 // Constants, struct sockaddr layouts and error numbers are per OS; the compiler parses the corelib
-// with CSHARPC_TARGET_LINUX/MACOS/WINDOWS from the target triple, never the host's.
+// with CSHARPC_TARGET_LINUX/MACOS/WINDOWS from the target triple, never the host's. WASI (wasm32) has no
+// sockets in preview 1: the operations throw PlatformNotSupportedException there.
 #nullable disable
 using System;
 using System.Net;
@@ -70,6 +71,31 @@ namespace CsharpcCoreLib
             }
         }
         private static int LastError() => WSAGetLastError();
+#elif CSHARPC_TARGET_WASI
+        // WASI preview 1 can't create, bind, connect or resolve sockets: every socket operation throws
+        // PlatformNotSupportedException, as unsupported platform features do in .NET.
+        public const long InvalidSocket = -1;
+        private static Exception NotSupported() => new PlatformNotSupportedException();
+        private static int socket(int family, int type, int protocol) => throw NotSupported();
+        private static int closesocket(int s) => throw NotSupported();
+        private static int bind(int s, byte* address, int length) => throw NotSupported();
+        private static int listen(int s, int backlog) => throw NotSupported();
+        private static int accept(int s, byte* address, int* length) => throw NotSupported();
+        private static int connect(int s, byte* address, int length) => throw NotSupported();
+        private static nint send(int s, byte* buffer, nuint length, int flags) => throw NotSupported();
+        private static nint recv(int s, byte* buffer, nuint length, int flags) => throw NotSupported();
+        private static nint sendto(int s, byte* buffer, nuint length, int flags, byte* address, int addressLength) => throw NotSupported();
+        private static nint recvfrom(int s, byte* buffer, nuint length, int flags, byte* address, int* addressLength) => throw NotSupported();
+        private static int shutdown(int s, int how) => throw NotSupported();
+        private static int setsockopt(int s, int level, int name, byte* value, int length) => throw NotSupported();
+        private static int getsockopt(int s, int level, int name, byte* value, int* length) => throw NotSupported();
+        private static int getsockname(int s, byte* address, int* length) => throw NotSupported();
+        private static int getpeername(int s, byte* address, int* length) => throw NotSupported();
+        private static int getaddrinfo(byte* node, byte* service, byte* hints, byte** result) => throw NotSupported();
+        private static void freeaddrinfo(byte* info) => throw NotSupported();
+        private static int gethostname(byte* name, nuint length) => throw NotSupported();
+        private static void Startup() => throw NotSupported();
+        private static int LastError() => 0;
 #else
         public const long InvalidSocket = -1;
         [DllImport("libc", SetLastError = true)] private static extern int socket(int family, int type, int protocol);
@@ -285,8 +311,12 @@ namespace CsharpcCoreLib
 #if CSHARPC_TARGET_WINDOWS
         private static string GaiMessage(int error) => WindowsMarshal.ErrorMessage(error);
 #else
+#if CSHARPC_TARGET_WASI
+        private static string GaiMessage(int error) => throw NotSupported();
+#else
         [DllImport("libc")] private static extern byte* gai_strerror(int error);
         private static string GaiMessage(int error) => Utf8.FromNative(gai_strerror(error));
+#endif
 #endif
 
         private static bool Contains(System.Collections.Generic.List<IPAddress> list, IPAddress address)

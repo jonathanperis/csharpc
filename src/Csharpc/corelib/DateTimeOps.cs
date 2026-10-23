@@ -475,11 +475,16 @@ namespace CsharpcCoreLib
         private static unsafe long LibcOffsetAt(long unixSeconds, out bool dst)
         {
             // struct tm (LP64 glibc and Darwin alike): tm_isdst @32 (int), tm_gmtoff @40 (long); 56 bytes.
+            // wasi-libc (wasm32, 32-bit long): tm_gmtoff @36.
             byte* tm = stackalloc byte[64];
             long t = unixSeconds;
             if (Posix.localtime_r(&t, tm) == null) { dst = false; return 0; }
             dst = *(int*)(tm + 32) > 0;
+#if CSHARPC_TARGET_WASI
+            return *(int*)(tm + 36);
+#else
             return *(long*)(tm + 40);
+#endif
         }
 
         private static unsafe long UnixNow() => Posix.time(null);
