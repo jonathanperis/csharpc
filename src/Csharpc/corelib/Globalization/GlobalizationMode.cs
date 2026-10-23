@@ -61,7 +61,7 @@ namespace CsharpcCoreLib.Globalization
 #else
                     bool configured = Invariant;
 #endif
-                    value = GetBooleanConfig("DOTNET_SYSTEM_GLOBALIZATION_PREDEFINED_CULTURES_ONLY", configured) ? 2 : 1;
+                    value = GetBooleanConfig("System.Globalization.PredefinedCulturesOnly", "DOTNET_SYSTEM_GLOBALIZATION_PREDEFINED_CULTURES_ONLY", configured) ? 2 : 1;
                     s_predefinedCulturesOnly = value;
                 }
                 return value == 2;
@@ -73,7 +73,7 @@ namespace CsharpcCoreLib.Globalization
         /// <summary>GlobalizationMode.Settings: reads the switch and loads ICU unless in invariant mode.</summary>
         private static int Initialize()
         {
-            bool invariant = GetBooleanConfig("DOTNET_SYSTEM_GLOBALIZATION_INVARIANT", ConfiguredInvariant);
+            bool invariant = GetBooleanConfig("System.Globalization.Invariant", "DOTNET_SYSTEM_GLOBALIZATION_INVARIANT", ConfiguredInvariant);
             if (!invariant)
             {
                 if (TryGetAppLocalIcuSwitchValue(out string? icuSuffixAndVersion))
@@ -85,7 +85,7 @@ namespace CsharpcCoreLib.Globalization
 #if CSHARPC_TARGET_WINDOWS
                     // .NET falls back to NLS when icu.dll is missing (before Windows 10 1903) or when
                     // DOTNET_SYSTEM_GLOBALIZATION_USENLS is set; csharpc has only the ICU implementation.
-                    if (GetBooleanConfig("DOTNET_SYSTEM_GLOBALIZATION_USENLS", false) || Interop.Globalization.LoadICU() == 0)
+                    if (GetBooleanConfig("System.Globalization.UseNls", "DOTNET_SYSTEM_GLOBALIZATION_USENLS", false) || Interop.Globalization.LoadICU() == 0)
                     {
                         FailFast("NLS globalization (Windows without icu.dll, or DOTNET_SYSTEM_GLOBALIZATION_USENLS) is not supported by csharpc yet.");
                     }
@@ -103,8 +103,12 @@ namespace CsharpcCoreLib.Globalization
             return mode;
         }
 
-        /// <summary>AppContextConfigHelper.GetBooleanConfig: "1"/"true" and "0"/"false" (any case) override the default.</summary>
-        private static bool GetBooleanConfig(string envVariable, bool defaultValue)
+        /// <summary>
+        /// AppContextConfigHelper.GetBooleanConfig: the environment variable ("1"/"true", "0"/"false", any case)
+        /// first, then the runtimeconfig switch (AppContext, from the project's RuntimeHostConfigurationOption
+        /// items or AppContext.SetSwitch), then the default (the project setting compiled into the corelib).
+        /// </summary>
+        private static bool GetBooleanConfig(string switchName, string envVariable, bool defaultValue)
         {
             string? str = global::System.Environment.GetEnvironmentVariable(envVariable);
             if (str != null)
@@ -118,7 +122,7 @@ namespace CsharpcCoreLib.Globalization
                     return false;
                 }
             }
-            return defaultValue;
+            return global::System.AppContext.TryGetSwitch(switchName, out bool value) ? value : defaultValue;
         }
 
         private static string GetIcuLoadFailureMessage()
