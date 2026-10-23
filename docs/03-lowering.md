@@ -71,7 +71,7 @@ pointers, so every managed reference is plain `ptr`.
 Value types are first-class LLVM aggregates (see [Structs](#structs)). Generic type parameters never
 reach `TypeMapper`: generic code is compiled per instantiation, after substitution
 ([Generics](#generics-monomorphization)). Library structs csharpc doesn't model (`DateTimeOffset`,
-`Guid`, ...) are `CSLLVM0001`, reported at the field, local or expression that uses them.
+...) are `CSLLVM0001`, reported at the field, local or expression that uses them.
 
 ## Locals, parameters and mem2reg
 

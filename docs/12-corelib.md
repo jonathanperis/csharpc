@@ -106,6 +106,11 @@ Limitation: `object is IEnumerable<X>` on an array can't check the element type 
   ElementAt(+OrDefault), Sum/Average/Min/Max (int/long/double/float, selectors, generic), MinBy/MaxBy,
   Aggregate (3), Cast/OfType, Index; query syntax (via `ITranslatedQueryOperation`). Lazy operators are
   hand-written iterator classes with .NET's deferred-execution semantics.
+* **Value types:** `Guid` (port of .NET's `Guid.cs`: same field layout, so `ToByteArray`/`TryWriteBytes`,
+  hashing and ordering match; every parse format and its compat forms with .NET's exception types and
+  messages; `NewGuid` from OS entropy as on Unix; `CreateVersion7()`), `ArraySegment<T>` (+`Enumerator`, the
+  `IList<T>`/`IReadOnlyList<T>` views, conversions to `Span`/`Memory`, `MemoryExtensions.AsSpan`/`AsMemory`),
+  `DateOnly`/`TimeOnly`, `HashCode`.
 * **Members-only shadows:** `string.Join<T>/Join(IEnumerable)/Concat<T>/Compare`, `double`/`float`
   `IsNaN`/`IsInfinity`/`IsFinite`..., generic `System.Array` helpers (`Sort` incl. keys+items, `Reverse`,
   `IndexOf`, `Resize`, `Fill`, `Find*`, `Exists`, `TrueForAll`, `ConvertAll`, `BinarySearch`, `Empty`).
