@@ -247,6 +247,7 @@ public sealed class IlAssembly : IDisposable, ISignatureTypeProvider<IlType, IlG
     /// <summary>The IL body of a method defined in this assembly (null: abstract, extern, runtime-implemented).</summary>
     public MethodBodyBlock? Body(IMethodSymbol method)
     {
+        if (method.OriginalDefinition.MetadataToken == 0) throw new IlException($"'{method}' has no metadata definition (synthesized by Roslyn)");
         var definition = MethodDefinitionOf(method);
         return definition.RelativeVirtualAddress == 0 ? null : Pe.GetMethodBody(definition.RelativeVirtualAddress);
     }

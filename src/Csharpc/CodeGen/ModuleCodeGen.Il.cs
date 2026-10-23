@@ -32,7 +32,9 @@ public sealed partial class ModuleCodeGen
         {
             if (TypeSubstitution.IsGenericContext(type) || type.TypeKind is not (TypeKind.Class or TypeKind.Struct)) continue;
             foreach (var method in type.GetMembers().OfType<IMethodSymbol>())
-                if (!method.IsGenericMethod && !method.IsAbstract && !method.IsExtern && method.MethodKind is not MethodKind.StaticConstructor)
+                // MetadataToken 0: members Roslyn synthesizes with no metadata row (a struct's default constructor).
+                if (!method.IsGenericMethod && !method.IsAbstract && !method.IsExtern && method.MethodKind is not MethodKind.StaticConstructor
+                    && method.MetadataToken != 0)
                     Guard(method, () => GetFunction(method));
         }
     }
@@ -87,6 +89,8 @@ public sealed partial class ModuleCodeGen
         var location = IlSyntax(assembly).Plain.GetLocation();
         try
         {
+            if (method.OriginalDefinition.MetadataToken == 0)
+                throw new CompileError("CSLLVM0001", $"not supported by csharpc yet: '{method}' has no metadata definition (synthesized by Roslyn) [in {assembly.Name}.dll]", location);
             var block = assembly.Body(method)
                 ?? throw new CompileError("CSLLVM0001", $"not supported by csharpc yet: '{method}' has no IL body (runtime-implemented method in {assembly.Name}.dll)", location);
             IlMethodBody body;
