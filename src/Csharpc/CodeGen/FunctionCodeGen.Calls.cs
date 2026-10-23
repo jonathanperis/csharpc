@@ -716,6 +716,24 @@ public sealed partial class FunctionCodeGen
     private void StoreElements(LLVMValueRef array, ITypeSymbol elementType, ImmutableArray<IOperation> values)
     {
         var storage = T.Storage(elementType);
+        // A table of numeric constants (`new byte[] { ... }`, the corelib's culture data): one constant global
+        // and a memcpy. Element-by-element stores would make a function of tens of thousands of instructions,
+        // which costs seconds to lower and optimize.
+        if (values.Length >= 16 && elementType.SpecialType is SpecialType.System_Byte or SpecialType.System_SByte
+                or SpecialType.System_Int16 or SpecialType.System_UInt16 or SpecialType.System_Char or SpecialType.System_Int32
+                or SpecialType.System_UInt32 or SpecialType.System_Int64 or SpecialType.System_UInt64
+                or SpecialType.System_Single or SpecialType.System_Double
+            && values.All(v => v.ConstantValue.HasValue && v.ConstantValue.Value is not null))
+        {
+            var constants = values.Select(v => Constant(v.ConstantValue.Value, elementType, v)).ToArray();
+            var init = LlvmContext.ConstArray(storage, constants);
+            var table = _m.Module.AddGlobal(".array.init", Native.LLVMTypeOf(init), init, constant: true, linkage: LLVMLinkage.Private);
+            Native.LLVMSetUnnamedAddress(table, 2);
+            var first = _b.InBoundsGep(T.ArrayHeader(storage), array, [L.ConstInt(L.I32, 0), L.ConstInt(L.I32, 2), L.ConstInt(L.I64, 0)]);
+            var memcpy = _m.Intrinsic("llvm.memcpy.p0.p0.i64", L.Void, L.Ptr, L.Ptr, L.I64, L.I1);
+            _b.Call(memcpy.Type, memcpy.Fn, [first, table, L.ConstInt(L.I64, (long)T.Target.SizeOf(storage) * values.Length), L.False]);
+            return;
+        }
         for (var i = 0; i < values.Length; i++)
         {
             var address = _b.InBoundsGep(T.ArrayHeader(storage), array, [L.ConstInt(L.I32, 0), L.ConstInt(L.I32, 2), L.ConstInt(L.I64, i)]);
