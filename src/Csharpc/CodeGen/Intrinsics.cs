@@ -284,9 +284,22 @@ internal static class Intrinsics
             return default;
         };
         Action<FunctionCodeGen, LLVMValueRef> write = (g, s) => g.CallRuntime("csrt_console_write_string", g.Module.Llvm.Void, [g.Module.Llvm.Ptr], s);
+        // string.Format(provider, format, ...): csrt formats with the invariant culture (see ToString(IFormatProvider) above).
+        IntrinsicHandler providerComposite = (g, inv) =>
+        {
+            var l = g.Module.Llvm;
+            var ordered = inv.Arguments.OrderBy(a => a.Parameter!.Ordinal).ToList();
+            g.EmitValue(ordered[0].Value);
+            var format = g.EmitValue(ordered[1].Value);
+            var args = ordered.Count == 3 && ordered[2].Value.Type is IArrayTypeSymbol && ordered[2].ArgumentKind != ArgumentKind.ParamArray
+                ? g.EmitValue(ordered[2].Value)
+                : g.ObjectArray([.. ordered.Skip(2).Select(a => a.Value)]);
+            return g.CallRuntime("csrt_string_format", l.Ptr, [l.Ptr, l.Ptr], format, args);
+        };
         foreach (var arity in new[] { "object", "object, object", "object, object, object", "object[]" })
         {
             t[$"string.Format(string, {arity})"] = composite(null, false);
+            t[$"string.Format(System.IFormatProvider, string, {arity})"] = providerComposite;
             t[$"System.Console.WriteLine(string, {arity})"] = composite(write, true);
             t[$"System.Console.Write(string, {arity})"] = composite(write, false);
         }
@@ -309,6 +322,11 @@ internal static class Intrinsics
         t["string.Concat(object, object, object)"] = concat;
         t["string.IsNullOrEmpty(string)"] = (g, inv) =>
             g.CallRuntime("csrt_string_is_null_or_empty", g.Module.Llvm.I1, [g.Module.Llvm.Ptr], Arg(g, inv, 0));
+        // string == / != called as methods (compiled code, the IL front-end).
+        t["string.op_Equality(string, string)"] = (g, inv) =>
+            g.CallRuntime("csrt_string_equals", g.Module.Llvm.I1, [g.Module.Llvm.Ptr, g.Module.Llvm.Ptr], Arg(g, inv, 0), Arg(g, inv, 1));
+        t["string.op_Inequality(string, string)"] = (g, inv) => g.Builder.Not(
+            g.CallRuntime("csrt_string_equals", g.Module.Llvm.I1, [g.Module.Llvm.Ptr, g.Module.Llvm.Ptr], Arg(g, inv, 0), Arg(g, inv, 1)));
         t["string.Equals(string, string)"] = (g, inv) =>
             g.CallRuntime("csrt_string_equals", g.Module.Llvm.I1, [g.Module.Llvm.Ptr, g.Module.Llvm.Ptr], Arg(g, inv, 0), Arg(g, inv, 1));
         t["string.Equals(string)"] = (g, inv) =>
@@ -373,7 +391,8 @@ internal static class Intrinsics
                 return b.Select(b.ICmp(LLVMIntPredicate.SLT, v, g.Module.Llvm.ConstInt(v.Type, 0)), b.Neg(v), v);
             };
         }
-        foreach (var (type, signed) in new[] { ("int", true), ("long", true), ("uint", false), ("ulong", false) })
+        foreach (var (type, signed) in new[] { ("int", true), ("long", true), ("uint", false), ("ulong", false),
+                     ("short", true), ("sbyte", true), ("ushort", false), ("byte", false), ("nint", true), ("nuint", false) })
         {
             t[$"System.Math.Max({type}, {type})"] = (g, inv) => SelectCompare(g, Arg(g, inv, 0), Arg(g, inv, 1), signed ? LLVMIntPredicate.SGT : LLVMIntPredicate.UGT);
             t[$"System.Math.Min({type}, {type})"] = (g, inv) => SelectCompare(g, Arg(g, inv, 0), Arg(g, inv, 1), signed ? LLVMIntPredicate.SLT : LLVMIntPredicate.ULT);

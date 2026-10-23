@@ -94,8 +94,10 @@ That's a JSON evaluation dump, available since .NET 8. As a result, globs,
   separate binary artifact; it's more code in the one LLVM module, which LLVM can inline across.
   Global usings are unioned across projects, because they're compilation-wide in a single
   compilation. Language settings come from the root project.
-- Explicit `PackageReference`s produce a warning: binary NuGet packages contain IL, and csharpc
-  compiles only from source (see "Gaps").
+- `<Reference>` items (with a `HintPath`, or a `.dll` path) and `PackageReference`s are assemblies
+  without sources. For packages csharpc runs `dotnet msbuild -restore -t:ResolvePackageAssets` and
+  takes `RuntimeCopyLocalItems`, the implementation DLLs `dotnet build` would copy next to the app.
+  All of them are bound by Roslyn and compiled from IL on demand ([ADR 0010](adr/0010-il-frontend.md)).
 
 ### MSBuild targets (`src/Csharpc.Sdk/build/Csharpc.Sdk.targets`)
 
@@ -157,9 +159,10 @@ is not, yet. In rough order of impact:
    closures, generics and interfaces are each in progress on their own branch. Async/await and
    iterators need csharpc's own state-machine transform (or LLVM coroutines), because Roslyn's
    public API doesn't expose that lowering. See `06-roadmap.md`.
-3. **NuGet packages.** Binary packages are IL. Options: compile packages that ship sources (source
-   generators/content), add an IL front-end for libraries (the NativeAOT-LLVM route, a second
-   front-end), or rely on source-available packages. Today they're reported and ignored.
+3. **NuGet packages.** Binary packages are IL; the IL front-end compiles the parts a program reaches
+   ([ADR 0010](adr/0010-il-frontend.md)). What still fails is mostly BCL surface the packages call
+   (the same members a source program would need), compiled `async` methods, and native package
+   assets.
 4. **Runtime services a native closed world can't offer directly:** reflection
    (`Type.GetMethods`, `Activator.CreateInstance` on arbitrary types), `dynamic`,
    `Assembly.Load`, `System.Reflection.Emit`, and runtime code generation. NativeAOT has the same

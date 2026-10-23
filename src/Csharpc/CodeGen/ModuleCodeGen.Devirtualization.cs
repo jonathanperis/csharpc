@@ -29,7 +29,7 @@ public sealed partial class ModuleCodeGen
         var root = ClassLayout.RootOf(target);
 
         IMethodSymbol? unique = null;
-        foreach (var type in _userTypes)
+        foreach (var type in HierarchyTypes)
         {
             if (type.TypeKind != TypeKind.Class || type.IsAbstract || type.IsStatic || !DerivesFromOrEquals(type, receiver)) continue;
             if (type.IsGenericType) return null;

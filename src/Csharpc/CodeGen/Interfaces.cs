@@ -84,7 +84,7 @@ public sealed partial class ModuleCodeGen
             impl = layout.VTable[slot];
         if (impl is null || impl.IsAbstract) return LlvmContext.Null(Llvm.Ptr);
         if (!IsUserMethod(impl)) return LlvmContext.Null(Llvm.Ptr); // e.g. object.ToString satisfying an interface
-        return GetFunction(impl).Fn;
+        return SlotFunction(impl);
     }
 }
 
@@ -139,8 +139,13 @@ public sealed partial class FunctionCodeGen
                 return EmitUserCall(impl, AddressOrSpill(concrete), selfIsNonNull: true, arguments, isVirtual: false, extra.Length > 0 ? extra : null);
             if (invocation is not null && Intrinsics.TryGet(impl, out var handler)) return handler(this, invocation);
             if (invocation is not null && BclValueTypes.TryGet(impl, out var bcl)) return CallBcl(bcl, impl, concrete, invocation.Arguments, invocation);
-            if (staticType.IsValueType) throw CompileError.Unsupported($"interface call '{target}' on value type '{staticType}'", receiver);
+            if (staticType.IsValueType && !ModuleCodeGen.PrimitiveSlotSupported(staticType, target.ContainingType, target))
+                throw CompileError.Unsupported($"interface call '{target}' on value type '{staticType}'", receiver);
         }
+        // A primitive used through an interface csharpc gives boxed primitives (IComparable, IFormattable...):
+        // what `constrained.` does for a value type without a direct implementation path here.
+        LLVMValueRef? boxed = staticType is { IsValueType: true } primitive && ModuleCodeGen.PrimitiveSlotSupported(primitive, target.ContainingType, target)
+            ? Box(EmitValue(concrete), primitive, receiver) : null;
 
         // Arrays / strings statically known: call the corelib helper directly (no runtime lookup).
         if (staticType is IArrayTypeSymbol { Rank: 1 } && target.ContainingType is { } arrayItf
@@ -149,8 +154,8 @@ public sealed partial class FunctionCodeGen
         if (staticType?.SpecialType == SpecialType.System_String && _m.StringInterfaceHelper(target.ContainingType, target) is { } stringHelper)
             return CallBuiltinHelper(stringHelper, concrete, arguments, extra, target);
 
-        var receiverValue = EmitValue(receiver);
-        NullCheck(receiverValue);
+        var receiverValue = boxed ?? EmitValue(receiver);
+        if (boxed is null) NullCheck(receiverValue);
         var args = new LLVMValueRef[1 + target.Parameters.Length];
         args[0] = receiverValue;
         foreach (var argument in arguments) args[1 + argument.Parameter!.Ordinal] = EmitArgument(argument, target);
@@ -175,6 +180,7 @@ public sealed partial class FunctionCodeGen
     {
         var itf = target.ContainingType;
         var index = ModuleCodeGen.InterfaceSlotIndex(itf, target);
+        _m.NoteVirtualCall(target);
         var slots = CallRuntime("csrt_interface_slots", L.Ptr, [L.Ptr, L.Ptr], self, _m.InterfaceMethodTable(itf));
         var slotAddress = _b.InBoundsGep(L.I8, slots, [L.ConstUInt(L.I64, (ulong)index * T.PointerSize)], "islot");
         var fn = _b.Load(L.Ptr, slotAddress, "ifn");

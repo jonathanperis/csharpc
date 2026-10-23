@@ -335,6 +335,7 @@ public sealed partial class FunctionCodeGen
                 _ => L.FunctionType(L.Ptr, L.Ptr),
             };
         }
+        _m.NoteVirtualCall(target);
         var mt = _b.Load(L.Ptr, self, "mt");
         var offset = T.Target.SizeOf(T.MethodTableHeader) + (ulong)slot * T.PointerSize;
         var slotAddress = _b.InBoundsGep(L.I8, mt, [L.ConstUInt(L.I64, offset)], "slot");
@@ -353,6 +354,11 @@ public sealed partial class FunctionCodeGen
         if (TrySpanConstruction(creation, out var span) || TryStatelessLibraryCreation(creation, out span) || TryThreadingCreation(creation, out span)) return span;
         if (IsStringBuilderHandler(type))  // new AppendInterpolatedStringHandler(literalLength, formattedCount, sb[, provider])
             return EmitValue(creation.Arguments.First(a => a.Parameter!.Ordinal == 2).Value);
+        if (IsDefaultInterpolatedStringHandler(type)) // new DefaultInterpolatedStringHandler(literalLength, formattedCount[, provider[, buffer]])
+        {
+            foreach (var argument in creation.Arguments) EmitValue(argument.Value); // invariant culture: the provider changes nothing
+            return CallRuntime("csrt_sb_new", L.Ptr, [L.I32], L.ConstInt(L.I32, 16));
+        }
         if (type.IsValueType) return EmitValueTypeCreation(creation, type);
         if (type.SpecialType == SpecialType.System_Object)
             return Allocate(_m.ExternalGlobal("csrt_Object_MT"), L.ConstInt(L.I64, (long)T.PointerSize));
@@ -461,9 +467,21 @@ public sealed partial class FunctionCodeGen
         INamedTypeSymbol { TypeKind: TypeKind.Struct } named when _m.IsUserType(named) => _m.StructMethodTable(named),
         INamedTypeSymbol { TypeKind: TypeKind.Interface } itf => _m.InterfaceMethodTable(itf),
         INamedTypeSymbol { IsTupleType: true } tuple => _m.TupleMethodTable(tuple, this),
+        // Every delegate of a type shares that type's method table (DelegateMethodTable), so a type test is an
+        // identity test — except where generic variance would also accept other instantiations.
+        INamedTypeSymbol { TypeKind: TypeKind.Delegate } d when !MayBeVariant(d) => _m.DelegateMethodTable(d),
         IArrayTypeSymbol { Rank: 1 } array => _m.ArrayMethodTable(array.ElementType),
         _ => throw CompileError.Unsupported($"type test against '{type}'", at),
     };
+
+    /// <summary>A generic delegate/interface instantiation that variance could make compatible with other ones.</summary>
+    internal static bool MayBeVariant(INamedTypeSymbol type)
+    {
+        var definition = type.OriginalDefinition;
+        for (var i = 0; i < definition.TypeParameters.Length; i++)
+            if (definition.TypeParameters[i].Variance != VarianceKind.None && type.TypeArguments[i].IsReferenceType) return true;
+        return false;
+    }
 
     private LLVMValueRef EmitIsType(IIsTypeOperation op)
     {

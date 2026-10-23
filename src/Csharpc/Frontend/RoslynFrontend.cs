@@ -66,7 +66,7 @@ public static class RoslynFrontend
             specificDiagnosticOptions: new Dictionary<string, ReportDiagnostic> { ["CS8019"] = ReportDiagnostic.Suppress });
 
         var name = settings.AssemblyName ?? (settings.Files.Count > 0 ? Path.GetFileNameWithoutExtension(settings.Files[0]) : "program");
-        var compilation = CSharpCompilation.Create(name, trees, ReferenceAssemblies(), options);
+        var compilation = CSharpCompilation.Create(name, trees, [.. FrameworkReferences(settings), .. settings.IlReferences], options);
         // Source generators the SDK runs implicitly ([LibraryImport], [GeneratedRegex], [JsonSerializable]).
         compilation = SourceGenerators.Run(compilation, trees.Where(t => !IsCoreLibTree(t)), out var generatorDiagnostics);
         GeneratorDiagnostics = generatorDiagnostics;
@@ -121,7 +121,7 @@ public static class RoslynFrontend
         CSharpCompilation Build(ProjectUnit project)
         {
             if (built.TryGetValue(project.ProjectPath, out var existing)) return existing;
-            List<MetadataReference> references = [.. ReferenceAssemblies()];
+            List<MetadataReference> references = [.. FrameworkReferences(settings), .. settings.IlReferences];
             foreach (var reference in project.References)
                 if (byPath.TryGetValue(reference, out var referenced)) references.Add(Build(referenced).ToMetadataReference());
             var parseOptions = ParseOptions(LanguageVersionOf(project.LanguageVersion), project.Defines);
@@ -141,6 +141,19 @@ public static class RoslynFrontend
                 builder.AddRange(compilation.GetSemanticModel(tree).GetDiagnostics());
             return built[project.ProjectPath] = compilation;
         }
+    }
+
+    /// <summary>
+    /// The reference assemblies, minus those an IL reference replaces: an implementation assembly of the
+    /// framework given with -r (e.g. the shared framework's Microsoft.Extensions.Primitives.dll) is bound
+    /// and compiled from IL instead of its reference-pack facade.
+    /// </summary>
+    private static IEnumerable<MetadataReference> FrameworkReferences(FrontendSettings settings)
+    {
+        if (settings.IlReferences.Count == 0) return ReferenceAssemblies();
+        var replaced = settings.IlReferences.OfType<PortableExecutableReference>()
+            .Select(r => Path.GetFileNameWithoutExtension(r.FilePath)).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        return ReferenceAssemblies().Where(r => r is not PortableExecutableReference pe || !replaced.Contains(Path.GetFileNameWithoutExtension(pe.FilePath)));
     }
 
     /// <summary>Diagnostics reported by source generators during the last Analyze call.</summary>
@@ -258,6 +271,10 @@ public sealed record FrontendSettings
     public string? MainTypeName { get; init; }
     /// <summary>The root project and the projects it references, when there are several.</summary>
     public IReadOnlyList<ProjectUnit> Projects { get; init; } = [];
+    /// <summary>Assemblies without sources, compiled from IL (Frontend/Il, docs/adr/0010-il-frontend.md).</summary>
+    public IReadOnlyList<MetadataReference> IlReferences { get; init; } = [];
+    /// <summary>Paths of the assemblies to compile from IL (-r, project &lt;Reference&gt; items).</summary>
+    public IReadOnlyList<string> IlReferencePaths { get; init; } = [];
 }
 
 /// <summary>One project's own compilation settings (projects keep them when folded into one program).</summary>

@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using Csharpc.CodeGen;
 using Csharpc.Frontend;
+using Csharpc.Frontend.Il;
 using Csharpc.Llvm;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
@@ -41,8 +42,8 @@ public sealed class Compiler(CompilerOptions options)
             if (!root.OutputType.Equals("Exe", StringComparison.OrdinalIgnoreCase) && !root.OutputType.Equals("WinExe", StringComparison.OrdinalIgnoreCase)
                 && options.Emit == EmitKind.Exe)
                 return Fail($"'{Path.GetFileName(project)}' has OutputType={root.OutputType}; csharpc builds executables (use --emit obj for a library object)");
-            foreach (var p in all.Where(p => p.UnsupportedPackages.Count > 0))
-                Warn($"{Path.GetFileName(p.ProjectPath)}: PackageReference not supported yet (csharpc compiles from source only): {string.Join(", ", p.UnsupportedPackages)}");
+            foreach (var p in all.Where(p => p.UnresolvedReferences.Count > 0))
+                return Fail($"{Path.GetFileName(p.ProjectPath)}: <Reference> not found: {string.Join(", ", p.UnresolvedReferences)} (build the referenced assembly first, or give it a HintPath)");
             options.DefaultOutputName = root.AssemblyName;
             settings = projectSettings with { Defines = [.. projectSettings.Defines, .. options.Defines], CoreLibDefines = coreLibDefines };
         }
@@ -55,6 +56,16 @@ public sealed class Compiler(CompilerOptions options)
                 GlobalUsings = options.ImplicitUsings ? RoslynFrontend.DefaultImplicitUsings : null,
                 CoreLibDefines = coreLibDefines,
             };
+        }
+        // Assemblies without sources: bound against like any reference, compiled from IL (ADR 0010).
+        IlAssemblySet il;
+        try { il = IlAssemblySet.Load([.. settings.IlReferencePaths, .. options.References]); }
+        catch (Exception e) when (e is InvalidOperationException or IOException or BadImageFormatException) { return Fail(e.Message); }
+        using var ilScope = il;
+        if (!il.IsEmpty)
+        {
+            settings = settings with { IlReferences = il.References };
+            Phase($"load {il.Assemblies.Count} IL assembl{(il.Assemblies.Count == 1 ? "y" : "ies")}");
         }
         // Nullable analysis only produces warnings, never different code. Lowering uses a compilation
         // with the nullable context disabled: with it enabled, Roslyn's CFG for `lock (System.Threading.Lock)`
@@ -110,9 +121,17 @@ public sealed class Compiler(CompilerOptions options)
         // Codegen binds against a nullable-oblivious copy of the compilation: nullability never affects
         // generated code, and Roslyn's nullable re-inference can surface error types in IOperation
         // (e.g. `Select` over an array of tuples with mixed element names yields `Select<T, ?>`).
-        var codegenCompilation = MethodGroupRewriter.Rewrite(
-            compilation.WithOptions(compilation.Options.WithNullableContextOptions(NullableContextOptions.Disable)));
-        var codegen = new ModuleCodeGen(codegenCompilation, llvm, module, target) { CfgDump = options.DumpCfg ? Console.Out : null };
+        // IL assemblies are imported with their private and internal members: layouts need every field.
+        var codegenOptions = compilation.Options.WithNullableContextOptions(NullableContextOptions.Disable);
+        if (!il.IsEmpty) codegenOptions = codegenOptions.WithMetadataImportOptions(MetadataImportOptions.All);
+        var codegenCompilation = MethodGroupRewriter.Rewrite(compilation.WithOptions(codegenOptions));
+        if (!il.IsEmpty) il.Bind(codegenCompilation);
+        var codegen = new ModuleCodeGen(codegenCompilation, llvm, module, target)
+        {
+            CfgDump = options.DumpCfg ? Console.Out : null,
+            IlDump = options.DumpIl ? Console.Out : null,
+            Il = il,
+        };
         using var debugInfo = options.Debug
             ? codegen.Debug = new DebugInfo(codegen, settings.Files.Count > 0 ? settings.Files[0] : "program.cs", options.OptLevel > 0)
             : null;
@@ -122,7 +141,10 @@ public sealed class Compiler(CompilerOptions options)
         Phase("lower CFG -> LLVM IR");
 
         foreach (var w in codegen.Warnings.DistinctBy(w => w.Format()))
-            WriteDiagnostic(w.Format().Replace(": error ", ": warning "), isError: false);
+        {
+            var text = w.Format();
+            WriteDiagnostic(text.StartsWith("error ", StringComparison.Ordinal) ? "warning " + text["error ".Length..] : text.Replace(": error ", ": warning "), isError: false);
+        }
         if (codegen.Errors.Count > 0)
         {
             var distinct = codegen.Errors.DistinctBy(e => e.Format()).ToList();
@@ -228,8 +250,6 @@ public sealed class Compiler(CompilerOptions options)
             ? $"{color}{text}\e[0m"
             : $"\e[1m{text[..at]}\e[0m: {color}{marker[2..^1]}\e[0m {text[(at + marker.Length)..]}");
     }
-
-    private static void Warn(string message) => WriteDiagnostic($"csharpc: warning : {message}", isError: false);
 
     private static int Fail(string message)
     {

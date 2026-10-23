@@ -154,10 +154,11 @@ public sealed partial class FunctionCodeGen
     internal void EnsureClassInitialized(INamedTypeSymbol type, bool onEntry = false)
     {
         if (_m.ClassInitFor(type) is not { } init) return;
+        _m.NoteClassInit(init.Type);
         if (SymbolEqualityComparer.Default.Equals(_initializingType, init.Type)) return;
         // Code of a type whose members check on entry has already initialized it (or is doing so).
-        if (!onEntry && _method is { } m && SymbolEqualityComparer.Default.Equals(m.ContainingType.OriginalDefinition, init.Type)
-            && _m.TriggersClassInitOnEntry(m)) return;
+        if (!onEntry && _method is { } m && (SymbolEqualityComparer.Default.Equals(m.ContainingType.OriginalDefinition, init.Type)
+            || SymbolEqualityComparer.Default.Equals(m.ContainingType, init.Type)) && _m.TriggersClassInitOnEntry(m)) return;
         var stateType = L.Struct(L.I32, L.I32, L.Ptr, L.Ptr);
         var state = _b.Load(L.I32, _b.StructGep(stateType, init.State, 0), "cctor.state");
         Native.LLVMSetOrdering(state, LLVMAtomicOrdering.Acquire);

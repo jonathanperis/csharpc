@@ -33,10 +33,21 @@ public sealed partial class ModuleCodeGen
     /// <summary>The lazy-initialization state of a user type, or null if it needs no checks.</summary>
     public ClassInit? ClassInitFor(INamedTypeSymbol type)
     {
-        type = type.OriginalDefinition;
+        // IL types initialize every generic instantiation separately (each has its own statics), as the CLR does.
+        if (IsIlType(type) && TypeSubstitution.IsGenericContext(type))
+        {
+            if (TypeSubstitution.IsOpen(type)) return null;
+        }
+        else type = type.OriginalDefinition;
         if (_classInits.TryGetValue(type, out var existing)) return existing;
         ClassInit? init = null;
-        if (IsUserType(type) && !CoreLib.IsCoreLib(type) && type.TypeKind is TypeKind.Class or TypeKind.Struct
+        if (IsIlType(type))
+        {
+            // IL: the .cctor holds the field initializers too; beforefieldinit decides the trigger.
+            if (type.TypeKind is TypeKind.Class or TypeKind.Struct or TypeKind.Interface && HasExplicitStaticConstructor(type))
+                init = CreateClassInit(type, precise: !IlBeforeFieldInit(type));
+        }
+        else if (IsUserType(type) && !CoreLib.IsCoreLib(type) && type.TypeKind is TypeKind.Class or TypeKind.Struct
             && !TypeSubstitution.IsGenericContext(type))
         {
             var precise = HasExplicitStaticConstructor(type);
