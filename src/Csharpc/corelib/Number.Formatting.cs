@@ -12,6 +12,7 @@
 //   * integers and decimals round half up, and never print a negative zero.
 #nullable disable
 using System;
+using NumberFormatInfo = CsharpcCoreLib.Globalization.NumberFormatInfo;
 
 namespace CsharpcCoreLib
 {
@@ -63,6 +64,11 @@ namespace CsharpcCoreLib
             if (_pos + count > _chars.Length) Grow(count);
             for (int i = 0; i < count; i++) _chars[_pos + i] = c;
             _pos += count;
+        }
+
+        public void Insert(int index, string s)
+        {
+            for (int i = s.Length - 1; i >= 0; i--) Insert(index, s[i]);
         }
 
         public void Insert(int index, char c)
@@ -286,64 +292,70 @@ namespace CsharpcCoreLib
         // ==========================================================================================
 
         [RuntimeExport("csrt_string_from_f64", "csrt_Boxed_Double_MT")]
-        internal static string DoubleToString(double value)
+        internal static string DoubleToString(double value) => DoubleToString(value, NumberFormatInfo.CurrentInfo);
+
+        internal static string DoubleToString(double value, NumberFormatInfo nfi)
         {
-            if (value != value) return "NaN";
+            if (value != value) return nfi.NaNSymbol;
             double magnitude = value < 0 ? -value : value;
             if (magnitude < 9007199254740992.0)
             {
                 long integer = (long)magnitude;
-                if (integer == magnitude && magnitude != 0) return Int64ToDecStr(value < 0 ? -integer : integer);
+                if (integer == magnitude && magnitude != 0)
+                    return value < 0 ? NegativeInt64ToDecStr(-integer, nfi.NegativeSign) : UInt64ToDecStr((ulong)integer);
             }
             Span<byte> storage = stackalloc byte[32];
             var g = new DigitBuffer(storage);
             Span<char> chars = stackalloc char[32];
             var sb = new CharBuilder(chars);
-            if (!ShortestDouble(value, ref g, ref sb)) FormatGeneral(ref sb, ref g, 17, 'E');
+            if (!ShortestDouble(value, ref g, ref sb, nfi)) FormatGeneral(ref sb, ref g, 17, 'E', false, nfi);
             return sb.Build();
         }
 
         [RuntimeExport("csrt_string_from_f32", "csrt_Boxed_Single_MT")]
-        internal static string SingleToString(float value)
+        internal static string SingleToString(float value) => SingleToString(value, NumberFormatInfo.CurrentInfo);
+
+        internal static string SingleToString(float value, NumberFormatInfo nfi)
         {
-            if (value != value) return "NaN";
+            if (value != value) return nfi.NaNSymbol;
             float magnitude = value < 0 ? -value : value;
             if (magnitude < 16777216f)
             {
                 int integer = (int)magnitude;
-                if (integer == magnitude && magnitude != 0) return Int32ToDecStr(value < 0 ? -integer : integer);
+                if (integer == magnitude && magnitude != 0)
+                    return value < 0 ? NegativeInt64ToDecStr(-integer, nfi.NegativeSign) : UInt64ToDecStr((ulong)integer);
             }
             Span<byte> storage = stackalloc byte[16];
             var g = new DigitBuffer(storage);
             Span<char> chars = stackalloc char[32];
             var sb = new CharBuilder(chars);
-            if (!ShortestSingle(value, ref g, ref sb)) FormatGeneral(ref sb, ref g, 9, 'E');
+            if (!ShortestSingle(value, ref g, ref sb, nfi)) FormatGeneral(ref sb, ref g, 9, 'E', false, nfi);
             return sb.Build();
         }
 
         /// <summary>Shortest digits of a double; writes the special values (and the sign) and returns true if done.</summary>
-        private static bool ShortestDouble(double value, ref DigitBuffer g, ref CharBuilder sb)
+        private static bool ShortestDouble(double value, ref DigitBuffer g, ref CharBuilder sb, NumberFormatInfo nfi)
         {
             g.IsFloat = true;
             g.Neg = CoreIntrinsics.DoubleToBits(value) < 0;
-            if (value != value) { sb.Append("NaN"); return true; }
-            if (value == double.PositiveInfinity) { sb.Append("Infinity"); return true; }
-            if (value == double.NegativeInfinity) { sb.Append("-Infinity"); return true; }
-            if (g.Neg) sb.Append('-');
+            if (value != value) { sb.Append(nfi.NaNSymbol); return true; }
+            if (value == double.PositiveInfinity) { sb.Append(nfi.PositiveInfinitySymbol); return true; }
+            if (value == double.NegativeInfinity) { sb.Append(nfi.NegativeInfinitySymbol); return true; }
+            if (g.Neg) sb.Append(nfi.NegativeSign);
             if (value == 0) { g.N = 0; g.Exp10 = 0; return false; }
             Decompose(value, out ulong f, out int e, out bool closer);
             ShortestDigits(f, e, closer, ref g);
             return false;
         }
 
-        private static bool ShortestSingle(float value, ref DigitBuffer g, ref CharBuilder sb)
+        private static bool ShortestSingle(float value, ref DigitBuffer g, ref CharBuilder sb, NumberFormatInfo nfi)
         {
             g.IsFloat = true;
             g.Neg = CoreIntrinsics.SingleToBits(value) < 0;
-            if (value != value) { sb.Append("NaN"); return true; }
-            if (value == float.PositiveInfinity) { sb.Append("Infinity"); return true; }
-            if (value == float.NegativeInfinity) { sb.Append("-Infinity"); return true; }
-            if (g.Neg) sb.Append('-');
+            if (value != value) { sb.Append(nfi.NaNSymbol); return true; }
+            if (value == float.PositiveInfinity) { sb.Append(nfi.PositiveInfinitySymbol); return true; }
+            if (value == float.NegativeInfinity) { sb.Append(nfi.NegativeInfinitySymbol); return true; }
+            if (g.Neg) sb.Append(nfi.NegativeSign);
             if (value == 0) { g.N = 0; g.Exp10 = 0; return false; }
             Decompose(value, out ulong f, out int e, out bool closer);
             ShortestDigits(f, e, closer, ref g);
@@ -351,11 +363,89 @@ namespace CsharpcCoreLib
         }
 
         // ==========================================================================================
-        // Layout (sign already written by the caller unless noted)
+        // Layout: .NET's NumberToString and its helpers (src/libraries/Common/src/System/
+        // Number.Formatting.Common.cs, release/11.0, commit bc123d0bd173; MIT, see THIRD-PARTY-NOTICES.md),
+        // over csharpc's DigitBuffer and with the culture's NumberFormatInfo. The sign is written by the
+        // caller unless noted.
         // ==========================================================================================
 
+        private static string CurrencyFormat(bool isNegative, int index)
+        {
+            if (isNegative)
+            {
+                switch (index)
+                {
+                    case 0: return "($#)";
+                    case 1: return "-$#";
+                    case 2: return "$-#";
+                    case 3: return "$#-";
+                    case 4: return "(#$)";
+                    case 5: return "-#$";
+                    case 6: return "#-$";
+                    case 7: return "#$-";
+                    case 8: return "-# $";
+                    case 9: return "-$ #";
+                    case 10: return "# $-";
+                    case 11: return "$ #-";
+                    case 12: return "$ -#";
+                    case 13: return "#- $";
+                    case 14: return "($ #)";
+                    case 15: return "(# $)";
+                    default: return "$- #";
+                }
+            }
+            switch (index)
+            {
+                case 0: return "$#";
+                case 1: return "#$";
+                case 2: return "$ #";
+                default: return "# $";
+            }
+        }
+
+        private static string PercentFormat(bool isNegative, int index)
+        {
+            if (isNegative)
+            {
+                switch (index)
+                {
+                    case 0: return "-# %";
+                    case 1: return "-#%";
+                    case 2: return "-%#";
+                    case 3: return "%-#";
+                    case 4: return "%#-";
+                    case 5: return "#-%";
+                    case 6: return "#%-";
+                    case 7: return "-% #";
+                    case 8: return "# %-";
+                    case 9: return "% #-";
+                    case 10: return "% -#";
+                    default: return "#- %";
+                }
+            }
+            switch (index)
+            {
+                case 0: return "# %";
+                case 1: return "#%";
+                case 2: return "%#";
+                default: return "% #";
+            }
+        }
+
+        private static string NumberNegativeFormat(int index)
+        {
+            switch (index)
+            {
+                case 0: return "(#)";
+                case 1: return "-#";
+                case 2: return "- #";
+                case 3: return "#-";
+                default: return "# -";
+            }
+        }
+
         /// <summary>"G": fixed unless the exponent is >= maxDigits or below -4 (then d.dddE+xx).</summary>
-        private static void FormatGeneral(ref CharBuilder sb, ref DigitBuffer g, int maxDigits, char expChar, bool suppressScientific = false)
+        private static void FormatGeneral(ref CharBuilder sb, ref DigitBuffer g, int maxDigits, char expChar, bool suppressScientific, NumberFormatInfo nfi)
         {
             int digPos = g.Exp10;
             bool scientific = false;
@@ -368,18 +458,18 @@ namespace CsharpcCoreLib
             else sb.Append('0');
             if (di < g.N || digPos < 0)
             {
-                sb.Append('.');
+                sb.Append(nfi.NumberDecimalSeparator);
                 while (digPos < 0) { sb.Append('0'); digPos++; }
                 while (di < g.N) sb.Append((char)g.D[di++]);
             }
-            if (scientific) FormatExponent(ref sb, g.Exp10 - 1, expChar, 2, true);
+            if (scientific) FormatExponent(ref sb, g.Exp10 - 1, expChar, 2, true, nfi);
         }
 
-        private static void FormatExponent(ref CharBuilder sb, int value, char expChar, int minDigits, bool positiveSign)
+        private static void FormatExponent(ref CharBuilder sb, int value, char expChar, int minDigits, bool positiveSign, NumberFormatInfo nfi)
         {
             sb.Append(expChar);
-            if (value < 0) { sb.Append('-'); value = -value; }
-            else if (positiveSign) sb.Append('+');
+            if (value < 0) { sb.Append(nfi.NegativeSign); value = -value; }
+            else if (positiveSign) sb.Append(nfi.PositiveSign);
             int digits = CountDigits((ulong)value);
             sb.Append('0', minDigits - digits);
             Span<char> tmp = stackalloc char[10];
@@ -387,34 +477,64 @@ namespace CsharpcCoreLib
             for (int i = 0; i < digits; i++) sb.Append(tmp[i]);
         }
 
-        private static void FormatScientific(ref CharBuilder sb, ref DigitBuffer g, int digits, char expChar)
+        private static void FormatScientific(ref CharBuilder sb, ref DigitBuffer g, int digits, char expChar, NumberFormatInfo nfi)
         {
             int di = 0;
             sb.Append(g.N > 0 ? (char)g.D[di++] : '0');
-            if (digits != 1) sb.Append('.');
+            if (digits != 1) sb.Append(nfi.NumberDecimalSeparator);
             while (--digits > 0) sb.Append(di < g.N ? (char)g.D[di++] : '0');
-            FormatExponent(ref sb, g.N == 0 ? 0 : g.Exp10 - 1, expChar, 3, true);
+            FormatExponent(ref sb, g.N == 0 ? 0 : g.Exp10 - 1, expChar, 3, true, nfi);
         }
 
-        private static void FormatFixed(ref CharBuilder sb, ref DigitBuffer g, int decimals, bool group)
+        /// <summary>.NET's FormatFixed: integer digits (grouped by groupDigits with sGroup, if given), then decimals.</summary>
+        private static void FormatFixed(ref CharBuilder sb, ref DigitBuffer g, int decimals, int[] groupDigits, string sDecimal, string sGroup)
         {
             int digPos = g.Exp10;
             int di = 0;
             if (digPos > 0)
             {
-                int total = digPos;
-                for (int i = 0; i < total; i++)
+                if (groupDigits != null)
                 {
-                    sb.Append(di < g.N ? (char)g.D[di++] : '0');
-                    int left = total - 1 - i;
-                    if (group && left > 0 && left % 3 == 0) sb.Append(',');
+                    // Written right to left into a scratch buffer; group sizes repeat the last entry and a
+                    // 0 entry ends grouping (a single 0 entry: no grouping).
+                    int digStart = digPos < g.N ? digPos : g.N;
+                    int capacity = digPos * (1 + sGroup.Length);
+                    Span<char> buffer = capacity <= 256 ? stackalloc char[256] : new char[capacity];
+                    int p = buffer.Length;
+                    int groupSizeIndex = 0;
+                    int groupSize = groupDigits.Length != 0 ? groupDigits[0] : 0;
+                    int digitCount = 0;
+                    for (int i = digPos - 1; i >= 0; i--)
+                    {
+                        buffer[--p] = i < digStart ? (char)g.D[i] : '0';
+                        if (groupSize > 0)
+                        {
+                            digitCount++;
+                            if (digitCount == groupSize && i != 0)
+                            {
+                                for (int j = sGroup.Length - 1; j >= 0; j--) buffer[--p] = sGroup[j];
+                                if (groupSizeIndex < groupDigits.Length - 1)
+                                {
+                                    groupSizeIndex++;
+                                    groupSize = groupDigits[groupSizeIndex];
+                                }
+                                digitCount = 0;
+                            }
+                        }
+                    }
+                    for (int k = p; k < buffer.Length; k++) sb.Append(buffer[k]);
+                    di = digStart;
+                }
+                else
+                {
+                    do { sb.Append(di < g.N ? (char)g.D[di++] : '0'); } while (--digPos > 0);
                 }
                 digPos = 0;
             }
             else sb.Append('0');
             if (decimals > 0)
             {
-                sb.Append('.');
+                sb.Append(sDecimal);
                 if (digPos < 0)
                 {
                     int zeros = -digPos < decimals ? -digPos : decimals;
@@ -425,47 +545,90 @@ namespace CsharpcCoreLib
             }
         }
 
+        private static void FormatCurrency(ref CharBuilder sb, ref DigitBuffer g, int decimals, NumberFormatInfo nfi)
+        {
+            string fmt = CurrencyFormat(g.Neg, g.Neg ? nfi.CurrencyNegativePattern : nfi.CurrencyPositivePattern);
+            for (int i = 0; i < fmt.Length; i++)
+            {
+                switch (fmt[i])
+                {
+                    case '#': FormatFixed(ref sb, ref g, decimals, nfi._currencyGroupSizes, nfi.CurrencyDecimalSeparator, nfi.CurrencyGroupSeparator); break;
+                    case '-': sb.Append(nfi.NegativeSign); break;
+                    case '$': sb.Append(nfi.CurrencySymbol); break;
+                    default: sb.Append(fmt[i]); break;
+                }
+            }
+        }
+
+        private static void FormatNumber(ref CharBuilder sb, ref DigitBuffer g, int decimals, NumberFormatInfo nfi)
+        {
+            string fmt = g.Neg ? NumberNegativeFormat(nfi.NumberNegativePattern) : "#";
+            for (int i = 0; i < fmt.Length; i++)
+            {
+                switch (fmt[i])
+                {
+                    case '#': FormatFixed(ref sb, ref g, decimals, nfi._numberGroupSizes, nfi.NumberDecimalSeparator, nfi.NumberGroupSeparator); break;
+                    case '-': sb.Append(nfi.NegativeSign); break;
+                    default: sb.Append(fmt[i]); break;
+                }
+            }
+        }
+
+        private static void FormatPercent(ref CharBuilder sb, ref DigitBuffer g, int decimals, NumberFormatInfo nfi)
+        {
+            string fmt = PercentFormat(g.Neg, g.Neg ? nfi.PercentNegativePattern : nfi.PercentPositivePattern);
+            for (int i = 0; i < fmt.Length; i++)
+            {
+                switch (fmt[i])
+                {
+                    case '#': FormatFixed(ref sb, ref g, decimals, nfi._percentGroupSizes, nfi.PercentDecimalSeparator, nfi.PercentGroupSeparator); break;
+                    case '-': sb.Append(nfi.NegativeSign); break;
+                    case '%': sb.Append(nfi.PercentSymbol); break;
+                    default: sb.Append(fmt[i]); break;
+                }
+            }
+        }
+
         /// <summary>Standard numeric format over prepared digits (.NET's NumberToString).</summary>
-        private static void FormatStandard(ref CharBuilder sb, ref DigitBuffer g, char fmt, int precision, bool exact)
+        private static void FormatStandard(ref CharBuilder sb, ref DigitBuffer g, char fmt, int precision, bool exact, NumberFormatInfo nfi)
         {
             // exact: digits are a double's exact expansion (round ties to even); else round half up.
             switch (fmt)
             {
                 case 'C': case 'c':
-                    if (precision < 0) precision = 2;
+                    if (precision < 0) precision = nfi.CurrencyDecimalDigits;
                     Round(ref g, g.Exp10 + precision, exact);
-                    if (g.Neg) sb.Append('(');
-                    sb.Append('¤');
-                    FormatFixed(ref sb, ref g, precision, true);
-                    if (g.Neg) sb.Append(')');
+                    FormatCurrency(ref sb, ref g, precision, nfi);
                     return;
                 case 'F': case 'f':
-                case 'N': case 'n':
-                    if (precision < 0) precision = 2;
+                    if (precision < 0) precision = nfi.NumberDecimalDigits;
                     Round(ref g, g.Exp10 + precision, exact);
-                    if (g.Neg) sb.Append('-');
-                    FormatFixed(ref sb, ref g, precision, fmt == 'N' || fmt == 'n');
+                    if (g.Neg) sb.Append(nfi.NegativeSign);
+                    FormatFixed(ref sb, ref g, precision, null, nfi.NumberDecimalSeparator, null);
+                    return;
+                case 'N': case 'n':
+                    if (precision < 0) precision = nfi.NumberDecimalDigits;
+                    Round(ref g, g.Exp10 + precision, exact);
+                    FormatNumber(ref sb, ref g, precision, nfi);
                     return;
                 case 'E': case 'e':
                     if (precision < 0) precision = 6;
                     precision++;
                     Round(ref g, precision, exact);
-                    if (g.Neg) sb.Append('-');
-                    FormatScientific(ref sb, ref g, precision, fmt);
+                    if (g.Neg) sb.Append(nfi.NegativeSign);
+                    FormatScientific(ref sb, ref g, precision, fmt, nfi);
                     return;
                 case 'G': case 'g':
                     if (precision < 1) precision = g.N;
                     Round(ref g, precision, exact);
-                    if (g.Neg) sb.Append('-');
-                    FormatGeneral(ref sb, ref g, precision, fmt == 'G' ? 'E' : 'e');
+                    if (g.Neg) sb.Append(nfi.NegativeSign);
+                    FormatGeneral(ref sb, ref g, precision, fmt == 'G' ? 'E' : 'e', false, nfi);
                     return;
                 case 'P': case 'p':
-                    if (precision < 0) precision = 2;
+                    if (precision < 0) precision = nfi.PercentDecimalDigits;
                     if (g.N > 0) g.Exp10 += 2;
                     Round(ref g, g.Exp10 + precision, exact);
-                    if (g.Neg) sb.Append('-');
-                    FormatFixed(ref sb, ref g, precision, true);
-                    sb.Append(" %");
+                    FormatPercent(ref sb, ref g, precision, nfi);
                     return;
                 default:
                     ThrowBadFormat();
@@ -497,11 +660,15 @@ namespace CsharpcCoreLib
         }
 
         // ==========================================================================================
-        // Entry points (CoreLibRuntime redirects the former csrt_format_* calls here)
+        // Entry points (CoreLibRuntime redirects the former csrt_format_* calls here). The provider-less
+        // forms use the current culture; *With forms take the IFormatProvider of ToString(format, provider).
         // ==========================================================================================
 
-        internal static string FormatDouble(double value, string format, bool single)
+        internal static string FormatDouble(double value, string format, bool single) => FormatDoubleWith(value, format, single, null);
+
+        internal static string FormatDoubleWith(double value, string format, bool single, IFormatProvider provider)
         {
+            NumberFormatInfo nfi = NumberFormatInfo.GetInstance(provider);
             char fmt = ParseFormatSpecifier(format, out int precision);
             Span<byte> storage = stackalloc byte[DigitStorage];
             var g = new DigitBuffer(storage);
@@ -509,13 +676,13 @@ namespace CsharpcCoreLib
             var sb = new CharBuilder(chars);
             if ((fmt == 'R' || fmt == 'r' || ((fmt == 'G' || fmt == 'g') && precision <= 0)))
             {
-                bool done = single ? ShortestSingle((float)value, ref g, ref sb) : ShortestDouble(value, ref g, ref sb);
-                if (!done) FormatGeneral(ref sb, ref g, single ? 9 : 17, fmt == 'g' || fmt == 'r' ? 'e' : 'E');
+                bool done = single ? ShortestSingle((float)value, ref g, ref sb, nfi) : ShortestDouble(value, ref g, ref sb, nfi);
+                if (!done) FormatGeneral(ref sb, ref g, single ? 9 : 17, fmt == 'g' || fmt == 'r' ? 'e' : 'E', false, nfi);
                 return sb.Build();
             }
-            if (value != value) return "NaN";
-            if (value == double.PositiveInfinity) return "Infinity";
-            if (value == double.NegativeInfinity) return "-Infinity";
+            if (value != value) return nfi.NaNSymbol;
+            if (value == double.PositiveInfinity) return nfi.PositiveInfinitySymbol;
+            if (value == double.NegativeInfinity) return nfi.NegativeInfinitySymbol;
             g.IsFloat = true;
             g.Neg = CoreIntrinsics.DoubleToBits(value) < 0;
             if (value != 0)
@@ -526,7 +693,7 @@ namespace CsharpcCoreLib
             if (fmt == '\0')
             {
                 Round(ref g, single ? SinglePrecisionCustomFormat : DoublePrecisionCustomFormat, true);
-                FormatCustom(ref sb, ref g, format);
+                FormatCustom(ref sb, ref g, format, nfi);
                 return sb.Build();
             }
             if (fmt == 'X' || fmt == 'x')
@@ -535,7 +702,7 @@ namespace CsharpcCoreLib
                 return sb.Build();
             }
             if (fmt == 'D' || fmt == 'd' || fmt == 'B' || fmt == 'b') ThrowBadFormat();
-            FormatStandard(ref sb, ref g, fmt, precision, true);
+            FormatStandard(ref sb, ref g, fmt, precision, true, nfi);
             return sb.Build();
         }
 
@@ -591,19 +758,23 @@ namespace CsharpcCoreLib
             AppendDigits(ref sb, (ulong)magnitude, CountDigits((ulong)magnitude));
         }
 
-        internal static string FormatInt64(long value, string format, int bits)
+        internal static string FormatInt64(long value, string format, int bits) => FormatInt64With(value, format, bits, null);
+
+        internal static string FormatInt64With(long value, string format, int bits, IFormatProvider provider)
         {
             ulong magnitude = value < 0 ? (ulong)(-(value + 1)) + 1 : (ulong)value;
-            return FormatInteger(magnitude, value < 0, (ulong)value, format, bits);
+            return FormatInteger(magnitude, value < 0, (ulong)value, format, bits, provider);
         }
 
-        internal static string FormatUInt64(ulong value, string format, int bits) => FormatInteger(value, false, value, format, bits);
+        internal static string FormatUInt64(ulong value, string format, int bits) => FormatInteger(value, false, value, format, bits, null);
 
-        private static string FormatInteger(ulong magnitude, bool negative, ulong raw, string format, int bits)
+        internal static string FormatUInt64With(ulong value, string format, int bits, IFormatProvider provider) => FormatInteger(value, false, value, format, bits, provider);
+
+        private static string FormatInteger(ulong magnitude, bool negative, ulong raw, string format, int bits, IFormatProvider provider)
         {
             char fmt = ParseFormatSpecifier(format, out int precision);
             if ((fmt == 'G' || fmt == 'g' || fmt == 'R' || fmt == 'r') && precision < 1)
-                return negative ? Int64ToDecStr(-(long)(magnitude - 1) - 1) : UInt64ToDecStr(magnitude);
+                return negative ? NegativeInt64ToDecStr(-(long)(magnitude - 1) - 1, NumberFormatInfo.GetInstance(provider).NegativeSign) : UInt64ToDecStr(magnitude);
             if (bits < 64) raw &= (1UL << bits) - 1;
             Span<char> chars = stackalloc char[72];
             var sb = new CharBuilder(chars);
@@ -612,7 +783,7 @@ namespace CsharpcCoreLib
                 case 'D': case 'd':
                 {
                     int digits = CountDigits(magnitude);
-                    if (negative) sb.Append('-');
+                    if (negative) sb.Append(NumberFormatInfo.GetInstance(provider).NegativeSign);
                     sb.Append('0', precision - digits);
                     AppendDigits(ref sb, magnitude, digits);
                     return sb.Build();
@@ -639,14 +810,32 @@ namespace CsharpcCoreLib
                     return sb.Build();
                 }
             }
+            NumberFormatInfo nfi = NumberFormatInfo.GetInstance(provider);
             Span<byte> storage = stackalloc byte[24];
             var g = new DigitBuffer(storage);
             g.Neg = negative;
             IntegerDigits(magnitude, ref g);
-            if (fmt == '\0') FormatCustom(ref sb, ref g, format);
+            if (fmt == '\0') FormatCustom(ref sb, ref g, format, nfi);
             // Integers format "R<n>" as "G<n>" (case preserved: "r5" gives a lowercase exponent).
-            else if (fmt == 'R' || fmt == 'r') FormatStandard(ref sb, ref g, (char)(fmt - ('R' - 'G')), precision, false);
-            else FormatStandard(ref sb, ref g, fmt, precision, false);
+            else if (fmt == 'R' || fmt == 'r') FormatStandard(ref sb, ref g, (char)(fmt - ('R' - 'G')), precision, false, nfi);
+            else FormatStandard(ref sb, ref g, fmt, precision, false, nfi);
+            return sb.Build();
+        }
+
+        /// <summary>A standard format over an integer given as its decimal digits (BigInteger).</summary>
+        internal static string FormatIntegerDigits(string digits, bool negative, char fmt, int precision, NumberFormatInfo nfi)
+        {
+            byte[] storage = new byte[digits.Length + 2];
+            var g = new DigitBuffer(storage);
+            g.Neg = negative;
+            int n = digits.Length;
+            for (int i = 0; i < n; i++) storage[i] = (byte)digits[i];
+            g.Exp10 = n;
+            while (n > 0 && storage[n - 1] == (byte)'0') n--;
+            g.N = n;
+            if (n == 0) { g.Exp10 = 0; g.Neg = false; }
+            var sb = new CharBuilder(new char[digits.Length * 2 + 32]);
+            FormatStandard(ref sb, ref g, fmt, precision, false, nfi);
             return sb.Build();
         }
 
@@ -657,9 +846,12 @@ namespace CsharpcCoreLib
             for (int i = 0; i < digits; i++) sb.Append(tmp[i]);
         }
 
-        /// <summary>decimal.ToString(format): exact digits (trailing zeros kept for "G"), half-up rounding.</summary>
-        internal static string FormatDecimal(decimal value, string format)
+        internal static string FormatDecimal(decimal value, string format) => FormatDecimalWith(value, format, null);
+
+        /// <summary>decimal.ToString(format, provider): exact digits (trailing zeros kept for "G"), half-up rounding.</summary>
+        internal static string FormatDecimalWith(decimal value, string format, IFormatProvider provider)
         {
+            NumberFormatInfo nfi = NumberFormatInfo.GetInstance(provider);
             int flags = CoreIntrinsics.DecimalFlags(value);
             uint hi = CoreIntrinsics.DecimalHi(value);
             ulong lo = CoreIntrinsics.DecimalLo(value);
@@ -690,7 +882,7 @@ namespace CsharpcCoreLib
             if (fmt == '\0')
             {
                 TrimTrailingZeros(ref g);
-                FormatCustom(ref sb, ref g, format);
+                FormatCustom(ref sb, ref g, format, nfi);
                 return sb.Build();
             }
             // "R<n>" is "G<n>" for decimal (case preserved for the exponent character).
@@ -698,8 +890,8 @@ namespace CsharpcCoreLib
             if ((fmt == 'G' || fmt == 'g') && precision < 0)
             {
                 // ECMA: all digits, trailing zeros included, never scientific; no "-0".
-                if (g.N > 0 && g.Neg) sb.Append('-');
-                FormatGeneral(ref sb, ref g, 0, 'E', suppressScientific: true);
+                if (g.N > 0 && g.Neg) sb.Append(nfi.NegativeSign);
+                FormatGeneral(ref sb, ref g, 0, 'E', true, nfi);
                 return sb.Build();
             }
             if (fmt == 'D' || fmt == 'd' || fmt == 'X' || fmt == 'x' || fmt == 'B' || fmt == 'b') ThrowBadFormat();
@@ -707,7 +899,7 @@ namespace CsharpcCoreLib
             // stays fixed-point because its 21 digits exceed the exponent) but not printed.
             if ((fmt == 'G' || fmt == 'g') && precision == 0) precision = g.N > 0 ? g.N : 1;
             TrimTrailingZeros(ref g);
-            FormatStandard(ref sb, ref g, fmt, precision, false);
+            FormatStandard(ref sb, ref g, fmt, precision, false, nfi);
             return sb.Build();
         }
 
@@ -717,14 +909,14 @@ namespace CsharpcCoreLib
             if (g.N == 0) { g.Exp10 = 0; g.Neg = false; }
         }
 
-        internal static string DecimalToString(decimal value) => FormatDecimal(value, null);
+        internal static string DecimalToString(decimal value) => FormatDecimalWith(value, null, null);
 
         /// <summary>Boxed decimal's ToString (the runtime passes the payload's address).</summary>
         [RuntimeExport("csrt_decimal_to_string", "csrt_Boxed_Decimal_MT")]
-        internal static string DecimalToStringAt(ref decimal value) => FormatDecimal(value, null);
+        internal static string DecimalToStringAt(ref decimal value) => FormatDecimalWith(value, null, null);
 
         // ==========================================================================================
-        // Custom format strings (.NET's NumberToStringFormat)
+        // Custom format strings: .NET's NumberToStringFormat (Number.Formatting.Common.cs, see above)
         // ==========================================================================================
 
         private static int FindSection(string format, int section)
@@ -752,11 +944,13 @@ namespace CsharpcCoreLib
             }
         }
 
-        private static void FormatCustom(ref CharBuilder sb, ref DigitBuffer g, string format)
+        private static bool HasNegativeSection(string format) => FindSection(format, 1) != 0;
+
+        private static void FormatCustom(ref CharBuilder sb, ref DigitBuffer g, string format, NumberFormatInfo nfi)
         {
             int digitCount, decimalPos, firstDigit, lastDigit;
             bool scientific;
-            int thousandPos, thousandCount;
+            int thousandPos, thousandCount = 0;
             bool thousandSeps;
             int scaleAdjust;
             int src;
@@ -764,7 +958,7 @@ namespace CsharpcCoreLib
             while (true)
             {
                 digitCount = 0; decimalPos = -1; firstDigit = 0x7FFFFFFF; lastDigit = 0; scientific = false;
-                thousandPos = -1; thousandCount = 0; thousandSeps = false; scaleAdjust = 0;
+                thousandPos = -1; thousandSeps = false; scaleAdjust = 0;
                 src = section;
                 while (src < format.Length)
                 {
@@ -794,7 +988,7 @@ namespace CsharpcCoreLib
                             }
                             break;
                         case '%': scaleAdjust += 2; break;
-                        case '‰': scaleAdjust += 3; break;
+                        case '\x2030': scaleAdjust += 3; break;
                         case '\'':
                         case '"':
                             while (src < format.Length && format[src++] != ch) { }
@@ -849,17 +1043,43 @@ namespace CsharpcCoreLib
             }
             src = section;
 
-            // Positions (digits left of the point) after which a group separator goes; groups of 3.
-            int groupLimit = 0;
-            if (thousandSeps)
+            // Where the group separators go (digit positions), from the culture's NumberGroupSizes.
+            Span<int> thousandsSepPos = stackalloc int[4];
+            int thousandsSepCtr = -1;
+            if (thousandSeps && nfi.NumberGroupSeparator.Length > 0)
             {
+                int[] groupDigits = nfi._numberGroupSizes;
+                int groupSizeIndex = 0;
+                int groupTotalSizeCount = 0;
+                int groupSizeLen = groupDigits.Length;
+                if (groupSizeLen != 0) groupTotalSizeCount = groupDigits[groupSizeIndex];
+                int groupSize = groupTotalSizeCount;
                 int totalDigits = digPos + (adjust < 0 ? adjust : 0);
                 int numDigits = firstDigit > totalDigits ? firstDigit : totalDigits;
-                groupLimit = numDigits;
+                while (numDigits > groupTotalSizeCount)
+                {
+                    if (groupSize == 0) break;
+                    ++thousandsSepCtr;
+                    if (thousandsSepCtr >= thousandsSepPos.Length)
+                    {
+                        int[] grown = new int[thousandsSepPos.Length * 2];
+                        thousandsSepPos.CopyTo(grown);
+                        thousandsSepPos = grown;
+                    }
+                    thousandsSepPos[thousandsSepCtr] = groupTotalSizeCount;
+                    if (groupSizeIndex < groupSizeLen - 1)
+                    {
+                        groupSizeIndex++;
+                        groupSize = groupDigits[groupSizeIndex];
+                    }
+                    groupTotalSizeCount += groupSize;
+                }
             }
 
             int start = sb.Length;
-            bool negative = g.Neg && section == 0;
+            // A dedicated negative section emits the sign itself; a negative value that rounded to zero
+            // and fell back to the first section gets no extra sign then (.NET 11).
+            if (g.Neg && section == 0 && g.Exp10 != 0 && !HasNegativeSection(format)) sb.Append(nfi.NegativeSign);
             bool decimalWritten = false;
             int di = 0;
             while (src < format.Length)
@@ -871,7 +1091,11 @@ namespace CsharpcCoreLib
                     while (adjust > 0)
                     {
                         sb.Append(di < g.N ? (char)g.D[di++] : '0');
-                        if (thousandSeps && digPos > 1 && (digPos - 1) % 3 == 0 && digPos - 1 < groupLimit) sb.Append(',');
+                        if (thousandSeps && digPos > 1 && thousandsSepCtr >= 0 && digPos == thousandsSepPos[thousandsSepCtr] + 1)
+                        {
+                            sb.Append(nfi.NumberGroupSeparator);
+                            thousandsSepCtr--;
+                        }
                         digPos--;
                         adjust--;
                     }
@@ -894,7 +1118,11 @@ namespace CsharpcCoreLib
                         if (c != '\0')
                         {
                             sb.Append(c);
-                            if (thousandSeps && digPos > 1 && (digPos - 1) % 3 == 0 && digPos - 1 < groupLimit) sb.Append(',');
+                            if (thousandSeps && digPos > 1 && thousandsSepCtr >= 0 && digPos == thousandsSepPos[thousandsSepCtr] + 1)
+                            {
+                                sb.Append(nfi.NumberGroupSeparator);
+                                thousandsSepCtr--;
+                            }
                         }
                         digPos--;
                         break;
@@ -903,12 +1131,12 @@ namespace CsharpcCoreLib
                         if (digPos != 0 || decimalWritten) break;
                         if (lastDigit < 0 || (decimalPos < digitCount && di < g.N))
                         {
-                            sb.Append('.');
+                            sb.Append(nfi.NumberDecimalSeparator);
                             decimalWritten = true;
                         }
                         break;
-                    case '‰': sb.Append('‰'); break;
-                    case '%': sb.Append('%'); break;
+                    case '\x2030': sb.Append(nfi.PerMilleSymbol); break;
+                    case '%': sb.Append(nfi.PercentSymbol); break;
                     case ',': break;
                     case '\'':
                     case '"':
@@ -932,7 +1160,7 @@ namespace CsharpcCoreLib
                             while (++src < format.Length && format[src] == '0') i++;
                             if (i > 10) i = 10;
                             int exp = g.N == 0 ? 0 : g.Exp10 - decimalPos;
-                            FormatExponent(ref sb, exp, ch, i, positiveSign);
+                            FormatExponent(ref sb, exp, ch, i, positiveSign, nfi);
                             scientific = false;
                         }
                         else
@@ -951,9 +1179,7 @@ namespace CsharpcCoreLib
                         break;
                 }
             }
-            // A value that rounded to zero keeps its '-' only when the format has no negative section
-            // of its own: (-0.4).ToString("0") is "-0", but (-0.4).ToString("0;(0)") is "0".
-            if (negative && (g.Exp10 != 0 || (sb.Length > start && FindSection(format, 1) == 0))) sb.Insert(start, '-');
+            if (g.Neg && section == 0 && g.Exp10 == 0 && sb.Length > start && !HasNegativeSection(format)) sb.Insert(start, nfi.NegativeSign);
         }
 
         // ==========================================================================================
@@ -976,26 +1202,32 @@ namespace CsharpcCoreLib
         }
 
         /// <summary>Formats any object with an optional format string (boxed numbers honour it).</summary>
-        internal static string FormatObject(object value, string format)
+        internal static string FormatObject(object value, string format) => FormatObjectWith(value, format, null);
+
+        /// <summary>
+        /// A composite-format argument: IFormattable values format with (format, provider) — numbers and
+        /// dates through the corelib directly — anything else with ToString().
+        /// </summary>
+        internal static string FormatObjectWith(object value, string format, IFormatProvider provider)
         {
             if (value == null) return "";
-            if (format != null && format.Length != 0)
-            {
-                if (value is int i32) return FormatInt64(i32, format, 32);
-                if (value is long i64) return FormatInt64(i64, format, 64);
-                if (value is double f64) return FormatDouble(f64, format, false);
-                if (value is float f32) return FormatDouble(f32, format, true);
-                if (value is decimal dec) return FormatDecimal(dec, format);
-                if (value is uint u32) return FormatUInt64(u32, format, 32);
-                if (value is ulong u64) return FormatUInt64(u64, format, 64);
-                if (value is short i16) return FormatInt64(i16, format, 16);
-                if (value is ushort u16) return FormatUInt64(u16, format, 16);
-                if (value is byte u8) return FormatUInt64(u8, format, 8);
-                if (value is sbyte i8) return FormatInt64(i8, format, 8);
-                if (value is DateTime dt) return DateTimeOps.Format(CoreIntrinsics.DateTimeData(dt), format);
-                if (value is TimeSpan ts) return DateTimeOps.TimeSpanFormat(ts.Ticks, format);
-                if (value is IFormattable formattable) return formattable.ToString(format, null) ?? "";
-            }
+            if (format != null && format.Length == 0) format = null;
+            if (value is int i32) return FormatInt64With(i32, format, 32, provider);
+            if (value is long i64) return FormatInt64With(i64, format, 64, provider);
+            if (value is double f64) return FormatDoubleWith(f64, format, false, provider);
+            if (value is float f32) return FormatDoubleWith(f32, format, true, provider);
+            if (value is decimal dec) return FormatDecimalWith(dec, format, provider);
+            if (value is uint u32) return FormatUInt64With(u32, format, 32, provider);
+            if (value is ulong u64) return FormatUInt64With(u64, format, 64, provider);
+            if (value is short i16) return FormatInt64With(i16, format, 16, provider);
+            if (value is ushort u16) return FormatUInt64With(u16, format, 16, provider);
+            if (value is byte u8) return FormatUInt64With(u8, format, 8, provider);
+            if (value is sbyte i8) return FormatInt64With(i8, format, 8, provider);
+            if (value is DateTime dt) return DateTimeOps.FormatWith(CoreIntrinsics.DateTimeData(dt), format, provider);
+            if (value is TimeSpan ts) return DateTimeOps.TimeSpanFormatWith(ts.Ticks, format, provider);
+            // char is IFormattable too (ignoring format and provider); its interface thunk lands here.
+            if (value is char ch) return ch.ToString();
+            if (value is IFormattable formattable) return formattable.ToString(format, provider) ?? "";
             return value.ToString() ?? "";
         }
 
@@ -1020,8 +1252,12 @@ namespace CsharpcCoreLib
         /// .NET's ValueStringBuilder.AppendFormatHelper step by step, so a malformed format reports the
         /// same offset and reason, and argument formatting errors surface in the same order.
         /// </summary>
-        internal static string FormatComposite(string format, object[] args)
+        internal static string FormatComposite(string format, object[] args) => FormatCompositeWith(null, format, args);
+
+        /// <summary>string.Format(provider, format, args); an ICustomFormatter from the provider formats each argument first.</summary>
+        internal static string FormatCompositeWith(IFormatProvider provider, string format, object[] args)
         {
+            ICustomFormatter customFormatter = provider == null ? null : provider.GetFormat(typeof(ICustomFormatter)) as ICustomFormatter;
             if (format == null) throw new ArgumentNullException("format");
             const int IndexLimit = 1000000, WidthLimit = 1000000;  // exclusive limits, as in .NET
             int count = args == null ? 0 : args.Length;
@@ -1092,7 +1328,9 @@ namespace CsharpcCoreLib
                 pos++;
                 if (index >= count)
                     throw new FormatException("Index (zero based) must be greater than or equal to zero and less than the size of the argument list.");
-                string piece = FormatObject(args[index], spec);
+                string piece = null;
+                if (customFormatter != null) piece = customFormatter.Format(spec, args[index], provider);
+                if (piece == null) piece = FormatObjectWith(args[index], spec, provider);
                 int len = piece.Length;
                 if (!leftJustify && width > len) sb.Append(' ', width - len);
                 sb.Append(piece);

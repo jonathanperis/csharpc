@@ -80,19 +80,29 @@ namespace CsharpcCoreLib
             return result;
         }
 
-        internal static unsafe string Int64ToDecStr(long value)
+        /// <summary>value.ToString() of a signed integer: negative values take the current culture's NegativeSign.</summary>
+        internal static string Int64ToDecStr(long value)
         {
             if (value >= 0) return UInt64ToDecStr((ulong)value);
+            return NegativeInt64ToDecStr(value, CsharpcCoreLib.Globalization.NumberFormatInfo.CurrentInfo.NegativeSign);
+        }
+
+        /// <summary>.NET's NegativeNumberToDecStr: `sNegative` followed by the digits of |value|.</summary>
+        internal static unsafe string NegativeInt64ToDecStr(long value, string sNegative)
+        {
             ulong magnitude = (ulong)(-(value + 1)) + 1; // also correct for long.MinValue
             int digits = CountDigits(magnitude);
-            string result = CoreIntrinsics.FastAllocateString(digits + 1);
+            string result = CoreIntrinsics.FastAllocateString(digits + sNegative.Length);
             fixed (char* chars = CoreIntrinsics.StringChars(result))
             {
-                chars[0] = '-';
-                WriteDigitsBefore(chars + 1 + digits, magnitude);
+                for (int i = 0; i < sNegative.Length; i++) chars[i] = sNegative[i];
+                WriteDigitsBefore(chars + sNegative.Length + digits, magnitude);
             }
             return result;
         }
+
+        /// <summary>The invariant digits of a signed value (internal messages, never culture-dependent).</summary>
+        internal static string Int64ToDecStrInvariant(long value) => value >= 0 ? UInt64ToDecStr((ulong)value) : NegativeInt64ToDecStr(value, "-");
 
         internal static string Int32ToDecStr(int value) => Int64ToDecStr(value);
         internal static string UInt32ToDecStr(uint value) => UInt64ToDecStr(value);

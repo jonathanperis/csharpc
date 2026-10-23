@@ -231,6 +231,24 @@ namespace CsharpcCoreLib
     /// </summary>
     internal static class ArrayChecks
     {
+        /// <summary>`span is "text"`: the chars equal the constant's.</summary>
+        public static bool SpanEqualsString(ReadOnlySpan<char> span, string value)
+        {
+            if (span.Length != value.Length) return false;
+            for (int i = 0; i < span.Length; i++)
+                if (span[i] != value[i]) return false;
+            return true;
+        }
+
+        /// <summary>T[].Clone(): a shallow copy.</summary>
+        public static T[] CloneArray<T>(T[] array)
+        {
+            if (array == null) throw new NullReferenceException();
+            T[] copy = new T[array.Length];
+            Array.Copy(array, copy, array.Length);
+            return copy;
+        }
+
         public const string InvalidOffLen =
             "Offset and length were out of bounds for the array or count is greater than the number of elements from index to the end of the source collection.";
 

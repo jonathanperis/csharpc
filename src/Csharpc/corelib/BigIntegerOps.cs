@@ -370,7 +370,8 @@ namespace CsharpcCoreLib
         }
 
         [RuntimeExport("csrt_bigint_to_string", "csrt_Boxed_BigInteger_MT")]
-        internal static string ToDecimalString(uint[] a) => SignOf(a) < 0 ? "-" + MagnitudeDigits(a) : MagnitudeDigits(a);
+        internal static string ToDecimalString(uint[] a) =>
+            SignOf(a) < 0 ? CsharpcCoreLib.Globalization.NumberFormatInfo.CurrentInfo.NegativeSign + MagnitudeDigits(a) : MagnitudeDigits(a);
 
         /// <summary>ToString(format): "D[n]", "N[n]" (n decimals of zeros), "G", "R", "X" (two's complement, minimal).</summary>
         internal static string Format(uint[] a, string format)
@@ -393,22 +394,14 @@ namespace CsharpcCoreLib
             if (f == 'D' || f == 'd')
             {
                 string digits = MagnitudeDigits(a);
-                if (negative) sb.Append('-');
+                if (negative) sb.Append(CsharpcCoreLib.Globalization.NumberFormatInfo.CurrentInfo.NegativeSign);
                 sb.Append('0', precision - digits.Length);
                 sb.Append(digits);
             }
-            else if (f == 'N' || f == 'n')
+            else if (f == 'N' || f == 'n' || f == 'C' || f == 'c' || f == 'P' || f == 'p' || f == 'F' || f == 'f' || f == 'E' || f == 'e')
             {
-                string digits = MagnitudeDigits(a);
-                if (negative) sb.Append('-');
-                for (int i = 0; i < digits.Length; i++)
-                {
-                    sb.Append(digits[i]);
-                    int left = digits.Length - 1 - i;
-                    if (left > 0 && left % 3 == 0) sb.Append(',');
-                }
-                int decimals = precision < 0 ? 2 : precision;
-                if (decimals > 0) { sb.Append('.'); sb.Append('0', decimals); }
+                // The culture's number/currency/percent layouts over the exact digits (Number.Formatting.cs).
+                return Number.FormatIntegerDigits(MagnitudeDigits(a), negative, f, precision, CsharpcCoreLib.Globalization.NumberFormatInfo.CurrentInfo);
             }
             else if (f == 'X' || f == 'x')
             {
