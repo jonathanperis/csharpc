@@ -190,9 +190,10 @@ public sealed partial class ModuleCodeGen
     /// <summary>A name-only method table identifying a library type for Type objects (never instantiated).</summary>
     private LLVMValueRef TypeOnlyMethodTable(INamedTypeSymbol type)
     {
-        var name = Mangler.MetadataName(type.OriginalDefinition);
-        // One per constructed type: List<int> and List<string> are different types (typeof, and
-        // the type arguments generic variance compares at run time), though they share a name.
+        // The CLR name with type arguments ("System.Collections.Generic.List`1[System.String]"), as
+        // Type.ToString prints it. One table per constructed type: List<int> and List<string> are
+        // different types for typeof and for the type arguments generic variance compares at run time.
+        var name = Mangler.MetadataName(type);
         var key = "type:" + CoreLib.Map(TypeSubstitution.EraseTupleNames(type, Compilation)).ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
         if (_arrayMethodTables.TryGetValue(key, out var existing)) return existing;
         var init = Llvm.ConstStruct(ExternalGlobal("csrt_Object_MT"), CString(name), Llvm.ConstInt(Llvm.I32, 0), Llvm.ConstInt(Llvm.I32, 0),
