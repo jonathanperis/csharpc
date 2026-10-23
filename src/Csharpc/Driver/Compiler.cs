@@ -23,11 +23,16 @@ public sealed class Compiler(CompilerOptions options)
         // The target decides the corelib's per-OS code (CSHARPC_TARGET_*) before anything is parsed.
         var triple = options.Target ?? TargetMachine.HostTriple;
         var darwin = TargetMachine.IsDarwinTriple(triple);
+        var windows = TargetMachine.IsWindowsTriple(triple);
+        if (windows && !triple.StartsWith("x86_64", StringComparison.Ordinal))
+            return Fail($"target '{triple}': Windows on this architecture is not supported by csharpc yet (x86-64 only)");
+        if (windows && (triple.EndsWith("-msvc", StringComparison.Ordinal) || triple.EndsWith("-windows", StringComparison.Ordinal)))
+            return Fail($"target '{triple}': csharpc targets Windows through MinGW-w64 (x86_64-w64-windows-gnu); the MSVC environment is not supported yet");
         if (darwin && !(triple.StartsWith("arm64", StringComparison.Ordinal) || triple.StartsWith("aarch64", StringComparison.Ordinal)))
             return Fail($"target '{triple}': macOS on x86-64 is not supported by csharpc yet (Apple silicon / arm64 only)");
         if (darwin && options.Static)
             return Fail("--static is not supported on macOS: Apple does not support statically linked executables (libSystem is always linked dynamically)");
-        string[] coreLibDefines = [darwin ? "CSHARPC_TARGET_MACOS" : "CSHARPC_TARGET_LINUX"];
+        string[] coreLibDefines = [windows ? "CSHARPC_TARGET_WINDOWS" : darwin ? "CSHARPC_TARGET_MACOS" : "CSHARPC_TARGET_LINUX"];
         FrontendSettings settings;
         if (options.Project is { } project)
         {

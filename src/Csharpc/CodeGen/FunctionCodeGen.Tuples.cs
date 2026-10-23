@@ -173,7 +173,7 @@ public sealed partial class FunctionCodeGen
             foreach (var a in inv.Arguments) EmitValue(a.Value);   // the handler already appended everything
             var self = EmitValue(inv.Instance!);
             return target.Name == "AppendLine"
-                ? CallRuntime("csrt_sb_append_string", L.Ptr, [L.Ptr, L.Ptr], self, _m.StringLiteral("\n"))
+                ? CallRuntime("csrt_sb_append_string", L.Ptr, [L.Ptr, L.Ptr], self, _m.StringLiteral(_m.NewLine))
                 : self;
         }
         return null;

@@ -178,7 +178,7 @@ public sealed record CompilerOptions
 
     private string? Extension => Emit switch
     {
-        EmitKind.Exe => OperatingSystem.IsWindows() ? ".exe" : null,
+        EmitKind.Exe => (Target is { } t ? Csharpc.Llvm.TargetMachine.IsWindowsTriple(t) : OperatingSystem.IsWindows()) ? ".exe" : null,
         EmitKind.Obj => ".o",
         EmitKind.Asm => ".s",
         EmitKind.LlvmIr => ".ll",

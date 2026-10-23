@@ -1,4 +1,6 @@
 // POSIX layer for System.IO: libc calls (P/Invoke, statically linked) + errno -> .NET exceptions.
+// Windows has its own implementation of this class (Win32.cs).
+#if !CSHARPC_TARGET_WINDOWS
 #nullable disable
 using System;
 using System.IO;
@@ -19,12 +21,16 @@ namespace CsharpcCoreLib
         public const int ENOTEMPTY = 39;
 #endif
         public const int SEEK_SET = 0, SEEK_CUR = 1, SEEK_END = 2;
+        /// <summary>Directory.Delete of a non-empty directory (.NET: strerror + " : 'path'").</summary>
+        public static Exception DirectoryNotEmpty(string full) => new IOException("Directory not empty : '" + full + "'");
         public const int S_IFMT = 0xF000, S_IFDIR = 0x4000, S_IFREG = 0x8000, S_IFLNK = 0xA000;
         public const int ENOENT = 2, EPERM = 1, EACCES = 13, EEXIST = 17, ENOTDIR = 20, EISDIR = 21, EINTR = 4, ERANGE = 34;
 
         // open(2) is variadic: Apple's arm64 ABI passes variadic arguments on the stack, so calling it as
         // a fixed three-argument function would lose `mode`. A C shim in the runtime makes the call.
         [DllImport("__Internal", EntryPoint = "csrt_open", SetLastError = true)] public static extern int open(byte* path, int flags, int mode);
+        /// <summary>FileShare is advisory on Unix (Windows enforces it; see Win32.cs).</summary>
+        public static int open(byte* path, int flags, int mode, int share) => open(path, flags, mode);
         [DllImport("libc", SetLastError = true)] public static extern nint read(int fd, byte* buffer, nuint count);
         [DllImport("libc", SetLastError = true)] public static extern nint write(int fd, byte* buffer, nuint count);
         [DllImport("libc", SetLastError = true)] public static extern int close(int fd);
@@ -138,3 +144,4 @@ namespace CsharpcCoreLib
         }
     }
 }
+#endif

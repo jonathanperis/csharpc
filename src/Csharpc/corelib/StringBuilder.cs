@@ -232,8 +232,8 @@ namespace CsharpcCoreLib
             AppendFormat(format, arg0, arg1, arg2);
         public StringBuilderImpl AppendFormat(IFormatProvider provider, string format, params object[] args) => AppendFormat(format, args);
 
-        public StringBuilderImpl AppendLine() => Append('\n');
-        public StringBuilderImpl AppendLine(string value) => Append(value).Append('\n');
+        public StringBuilderImpl AppendLine() => Append(Environment.NewLine);
+        public StringBuilderImpl AppendLine(string value) => Append(value).Append(Environment.NewLine);
 
         // ---- AppendJoin ----------------------------------------------------------------------------
         public StringBuilderImpl AppendJoin(string separator, params string[] values)
