@@ -45,6 +45,45 @@ the time spent in each phase.
   implementation (see [intrinsics](03-lowering.md#library-calls-intrinsics)).
 - Roslyn errors stop compilation and are printed in Roslyn's normal format. Warnings are shown with
   `-W`.
+- **Assemblies without sources** (`-r X.dll`, project `<Reference>` items, `PackageReference`s) are
+  added as metadata references too; their code comes from the IL front-end (next section).
+
+### 1b. IL front-end (`src/Csharpc/Frontend/Il/`, `CodeGen/FunctionCodeGen.Il*.cs`)
+
+The second source of method bodies ([ADR 0010](adr/0010-il-frontend.md)). Roslyn already provides
+symbols for a referenced DLL's types and members; codegen imports them with
+`MetadataImportOptions.All` (private fields included) and treats them like source types: one layout,
+one method table, one ABI for source and IL code, so a C# class can derive from a class compiled
+from IL and call it directly.
+
+```
+  IL assembly ──Roslyn (metadata reference)──▶ PE symbols ──▶ ModuleCodeGen: layouts, vtables, statics (as for source)
+       │                                                         │ GetFunction(IL method) queues it on demand
+       └──System.Reflection.Metadata──▶ IlMethodBody ──▶ FunctionCodeGen.EmitIl: blocks + simulated stack
+                                         (tokens → Roslyn symbols)   │  arithmetic, branches, locals, EH: LLVM directly
+                                                                     └─ calls, newobj, library members: synthetic IOperations
+                                                                        → the same EmitValue as source code
+```
+
+- `IlAssemblySet` / `IlAssembly` load the PE images (ReadyToRun framework images too), map
+  `ISymbol.MetadataToken` back to method bodies, and resolve the tokens in a body to Roslyn symbols
+  (`TypeRef`/`MemberRef` by name and decoded signature, `TypeSpec`/`MethodSpec` through an
+  `ISignatureTypeProvider`) in the generic *definition's* context, so `TypeSubstitution`
+  monomorphizes IL like source.
+- `FunctionCodeGen.EmitIl` splits the body into basic blocks at branch targets and region
+  boundaries, keeps a compile-time evaluation stack of `IlEntry` values (int32/int64/native int/F/
+  object/managed pointer/value), and spills it into per-block allocas at block boundaries.
+  Instructions with IL-specific semantics are lowered directly; calls, object creation, library
+  fields and properties, delegates and array elements become synthetic operations
+  (`CodeGen/IlOperations.cs`) for the source path's `EmitValue`, which is how IL call sites reach
+  the same intrinsics, corelib shadows and dispatch as C# call sites.
+- Exception regions use the source path's model: one landing pad per protected range, a dispatch
+  chain over its handlers (catch type tests, filters), `leave` through per-finally continuation
+  selectors.
+- Only reachable methods are lowered. A method that cannot be compiled becomes a stub that ends the
+  program with the diagnostic if called; a class-hierarchy analysis from the program's code turns
+  the failures it can reach into errors and the rest into `CSLLVM0007` warnings.
+- `--dump-il` prints the decoded IL of every method lowered from IL.
 
 ### 2. Lowering: ModuleCodeGen (`src/Csharpc/CodeGen/ModuleCodeGen.cs`)
 
@@ -89,8 +128,14 @@ The details are in [03-lowering.md](03-lowering.md).
 - `LlvmModule.RunPasses("default<O{n}>")` runs the new pass manager's standard pipeline, the same
   as `opt -O2` or `clang -O2`. `-O0` skips it entirely.
 - `TargetMachine` (`src/Csharpc/Llvm/Llvm.cs`) is created for the host triple, CPU and features, or
-  for `--target`, with PIC relocation (PIE executables). It emits an object file or assembly, or the
-  module is printed (`--emit llvm-ir`) or written as bitcode (`--emit llvm-bc`).
+  for `--target`, with PIC relocation (PIE executables; static on wasm). It emits an object file or
+  assembly, or the module is printed (`--emit llvm-ir`) or written as bitcode (`--emit llvm-bc`).
+- **wasm32 only** (`src/Csharpc/Wasm`, [ADR 0011](adr/0011-wasm32.md)). `ExceptionLowering` runs
+  before the optimization pipeline: there is no unwinder, so after every call that may throw, a test
+  of `csrt_pending_exception` branches to the landing-pad code or returns to the caller.
+  `RootSpilling` runs after it: values that may hold references and are live across a call that
+  may collect get a linear-memory stack slot, so the conservative collector sees them. Each pass is
+  followed by the IR verifier.
 
 ### 5. Link (`src/Csharpc/Driver/Toolchain.cs`)
 
@@ -123,9 +168,17 @@ Per platform:
   the UCRT, part of Windows 10+). An output path without an extension gets `.exe`. The compiler itself
   loads LLVM-MinGW's `libLLVM-18.dll` (or an `LLVM-C.dll`; `CSHARPC_LIBLLVM` overrides), and the asm
   parser is initialized because the runtime's bitcode carries inline asm from the MinGW headers.
-- The corelib is parsed with `CSHARPC_TARGET_LINUX`, `CSHARPC_TARGET_MACOS` or `CSHARPC_TARGET_WINDOWS`
-  (from the target triple) so its libc constants, struct layouts and OS calls match the target
-  ([16-interop-io.md](16-interop-io.md)).
+- **WebAssembly** (`--target wasm32-wasip1`, WASI preview 1): the WASI SDK's clang
+  (`$WASI_SDK_PATH`, LLVM 18) compiles the runtime and drives wasm-ld against wasi-libc and
+  compiler-rt: `--gc-sections`, `--stack-first` with an 8 MiB stack (an overflow traps at address 0
+  instead of corrupting static data), `--strip-all`. The output is a `.wasm` module for wasmtime or
+  another WASI runtime. The runtime is always linked into the program as bitcode, at every
+  optimization level, because two whole-program IR passes run on wasm (below). `main` is exported as
+  `__main_argc_argv`, the name wasi-libc's start code calls. The design is in
+  [ADR 0011](adr/0011-wasm32.md).
+- The corelib is parsed with `CSHARPC_TARGET_LINUX`, `CSHARPC_TARGET_MACOS`, `CSHARPC_TARGET_WINDOWS`
+  or `CSHARPC_TARGET_WASI` (from the target triple) so its libc constants, struct layouts and OS
+  calls match the target ([16-interop-io.md](16-interop-io.md)).
 
 The runtime (`src/runtime/*.c`, `*.h`) ships as **source** next to the compiler (copied into
 `bin/.../runtime/` by the `.csproj`). It is compiled on first use with
@@ -265,5 +318,6 @@ builder, for example) shows up as a segfault inside libLLVM. Debug it with
 | `CSLLVM0001` | Valid C#, but the construct isn't supported by csharpc yet |
 | `CSLLVM0002` | A library member with no csharpc implementation (`'System.Foo.Bar(int)' has no implementation in the csharpc runtime yet`) |
 | `CSLLVM0003` | No entry point |
-| `CSLLVM0006` (warning) | A known run-time difference from .NET that can't be avoided yet. Today: turning an exception into text (`ToString()`, `$"{e}"`, `Console.WriteLine(e)`). .NET appends the stack trace of a thrown exception; csharpc prints only the type, the message and inner exceptions |
+| `CSLLVM0006` (warning) | A known run-time difference from .NET that can't be avoided yet. Today: turning an exception into text (`ToString()`, `$"{e}"`, `Console.WriteLine(e)`). .NET appends the stack trace of a thrown exception; csharpc prints only the type, the message and inner exceptions. IL: `tail.` calls compiled as ordinary calls |
+| `CSLLVM0007` (warning) | A method of an assembly compiled from IL could not be compiled, but the program cannot reach it (class-hierarchy analysis): it was compiled as a stub that prints the diagnostic and aborts if it is ever called ([ADR 0010](adr/0010-il-frontend.md)) |
 | exit code 70 | Internal compiler error: invalid LLVM IR was produced |

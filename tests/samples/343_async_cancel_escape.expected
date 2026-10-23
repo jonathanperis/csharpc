@@ -1,0 +1,6 @@
+OperationCanceledException: The operation was canceled. canceled=True faulted=False exception=True
+MyCanceled same=True canceled=True
+Result: TaskCanceledException: A task was canceled.
+sync: completed=True canceled=True
+OperationCanceledException: sync
+boom faulted=True

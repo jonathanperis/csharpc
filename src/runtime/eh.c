@@ -14,14 +14,19 @@
 //  * If the search phase finds no handler, the exception is unhandled. Like .NET we still run
 //    the finally blocks on the way out (a forced unwind), then print
 //    "Unhandled exception. <ToString()>" and abort() (exit status 134).
+//  * wasm32 has no unwinder (docs/adr/0011-wasm32.md): throwing stores the exception in
+//    csrt_pending_exception and returns; csharpc's ExceptionLowering makes every caller test it and
+//    branch to its landing-pad code or return. The same handler code runs; see the __wasm__ blocks.
 #define _GNU_SOURCE
 #include "csrt.h"
 
-#include <setjmp.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#ifndef __wasm__
+#include <setjmp.h>
 #include <unwind.h>
+#endif
 #ifdef _WIN32
 #include <windows.h>
 #endif
@@ -44,6 +49,7 @@ DEF_EXC(System_ArgumentOutOfRangeException, "System.ArgumentOutOfRangeException"
 DEF_EXC(System_InvalidOperationException, "System.InvalidOperationException", &csrt_MT_System_SystemException.header)
 DEF_EXC(System_ObjectDisposedException, "System.ObjectDisposedException", &csrt_MT_System_InvalidOperationException.header)
 DEF_EXC(System_NotSupportedException, "System.NotSupportedException", &csrt_MT_System_SystemException.header)
+DEF_EXC(System_PlatformNotSupportedException, "System.PlatformNotSupportedException", &csrt_MT_System_NotSupportedException.header)
 DEF_EXC(System_NotImplementedException, "System.NotImplementedException", &csrt_MT_System_SystemException.header)
 DEF_EXC(System_NullReferenceException, "System.NullReferenceException", &csrt_MT_System_SystemException.header)
 DEF_EXC(System_IndexOutOfRangeException, "System.IndexOutOfRangeException", &csrt_MT_System_SystemException.header)
@@ -147,6 +153,7 @@ csrt_String* csrt_object_type_name(void* obj, bool full) {
 // ---------------------------------------------------------------------------------------------
 // Throwing
 // ---------------------------------------------------------------------------------------------
+#ifndef __wasm__
 static const uint64_t CSRT_EXCEPTION_CLASS = 0x43534841524E4554ULL;  // "CSHARNET"
 
 typedef struct {
@@ -162,6 +169,7 @@ static void throw_cleanup(_Unwind_Reason_Code reason, struct _Unwind_Exception* 
     (void)reason;
     free((char*)unwind - offsetof(csrt_Throw, unwind));
 }
+#endif
 
 #ifdef _WIN32
 // The NullReferenceException last raised for a null dereference (csrt_throw_null_reference). .NET
@@ -191,6 +199,7 @@ _Noreturn static void unhandled(void* exception) {
     csrt_fail_unhandled();
 }
 
+#ifndef __wasm__
 static _Unwind_Reason_Code unhandled_stop(int version, _Unwind_Action actions, uint64_t exception_class,
                                           struct _Unwind_Exception* unwind, struct _Unwind_Context* context, void* parameter) {
     (void)version; (void)exception_class; (void)context; (void)parameter;
@@ -198,6 +207,7 @@ static _Unwind_Reason_Code unhandled_stop(int version, _Unwind_Action actions, u
         unhandled(((csrt_Throw*)((char*)unwind - offsetof(csrt_Throw, unwind)))->exception);
     return _URC_NO_REASON;
 }
+#endif
 
 static void* new_exception(const csrt_ExceptionMethodTable* mt, const char* message) {
     void* e = csrt_alloc(&mt->header, sizeof(csrt_Exception));
@@ -205,6 +215,7 @@ static void* new_exception(const csrt_ExceptionMethodTable* mt, const char* mess
     return e;
 }
 
+#ifndef __wasm__
 // Exception traps (thread-pool workers): an exception no C# handler catches on this thread runs
 // its finally blocks (forced unwind) and then returns to the innermost csrt_trap_call instead of
 // terminating the process, so Parallel.For can rethrow it on the calling thread.
@@ -250,6 +261,7 @@ __attribute__((noinline)) void* csrt_trap_call(void (*fn)(void*), void* arg) {
     tl_trap = outer;
     return trap.exception;
 }
+#endif
 
 /// An exception that escaped an `async void` method: crash like .NET (the finally blocks already ran).
 void csrt_unhandled_exception(void* exception) { unhandled(exception); }
@@ -267,6 +279,11 @@ void* csrt_aggregate_exception_new(void** inners, int64_t count) {
     return e;
 }
 
+/// An OperationCanceledException (or a subclass) escaping an async method cancels its task.
+bool csrt_is_operation_canceled(void* exception) {
+    return csrt_isinst_class(exception, &csrt_MT_System_OperationCanceledException.header) != NULL;
+}
+
 void* csrt_task_canceled_exception_new(void) {
     return new_exception(&csrt_MT_System_Threading_Tasks_TaskCanceledException, "A task was canceled.");
 }
@@ -275,6 +292,41 @@ void* csrt_operation_canceled_exception_new(void) {
     return new_exception(&csrt_MT_System_OperationCanceledException, "The operation was canceled.");
 }
 
+#ifdef __wasm__
+/// The exception being propagated (null: none). Every call that may throw is followed by a test of
+/// this variable (ExceptionLowering), so it is read far more often than written. A static root.
+void* csrt_pending_exception;
+
+void csrt_throw_object(void* exception) {
+    if (!exception)  // `throw null;` throws a NullReferenceException
+        exception = new_exception(&csrt_MT_System_NullReferenceException, "Object reference not set to an instance of an object.");
+    csrt_pending_exception = exception;
+    // Debugging aid: wasm has no unwinder to show where an exception came from, but a trap prints
+    // the engine's backtrace (wasmtime: with function names unless the module was stripped).
+    if (getenv("CSRT_TRAP_ON_THROW")) __builtin_trap();
+}
+
+void csrt_rethrow(void* exception) { csrt_throw_object(exception); }
+
+/// The landing-pad code (wasm: reached by a branch after the call that threw): take the exception.
+void* csrt_begin_catch(void* unused) {
+    (void)unused;
+    void* exception = csrt_pending_exception;
+    csrt_pending_exception = NULL;
+    return exception;
+}
+
+/// ExceptionLowering leaves the calls in these functions alone: they look at the pending
+/// exception themselves (they are the only C code that catches).
+void* csrt_trap_call(void (*fn)(void*), void* arg) {
+    fn(arg);
+    return csrt_begin_catch(NULL);
+}
+
+/// main's propagate block (ExceptionLowering): the exception reached the top of the stack. `used`:
+/// nothing references it until that pass runs, after the runtime's dead code is dropped.
+__attribute__((used)) _Noreturn void csrt_unhandled_pending(void) { unhandled(csrt_begin_catch(NULL)); }
+#else
 void csrt_throw_object(void* exception) {
     if (!exception)  // `throw null;` throws a NullReferenceException
         exception = new_exception(&csrt_MT_System_NullReferenceException, "Object reference not set to an instance of an object.");
@@ -303,6 +355,7 @@ void* csrt_begin_catch(void* unwind_exception) {
     s_in_flight = NULL;
     return exception;
 }
+#endif
 
 // Runtime-raised exceptions, with .NET's exact messages.
 void csrt_throw_null_reference(void) {
@@ -344,7 +397,7 @@ static const csrt_ExceptionMethodTable* const s_by_name[] = {
     &csrt_MT_System_Exception, &csrt_MT_System_SystemException, &csrt_MT_System_ArgumentException,
     &csrt_MT_System_ArgumentNullException, &csrt_MT_System_ArgumentOutOfRangeException,
     &csrt_MT_System_InvalidOperationException, &csrt_MT_System_ObjectDisposedException,
-    &csrt_MT_System_NotSupportedException, &csrt_MT_System_NotImplementedException,
+    &csrt_MT_System_NotSupportedException, &csrt_MT_System_PlatformNotSupportedException, &csrt_MT_System_NotImplementedException,
     &csrt_MT_System_NullReferenceException, &csrt_MT_System_IndexOutOfRangeException,
     &csrt_MT_System_ArithmeticException, &csrt_MT_System_DivideByZeroException, &csrt_MT_System_OverflowException,
     &csrt_MT_System_InvalidCastException, &csrt_MT_System_FormatException,
@@ -389,6 +442,7 @@ void csrt_throw(const csrt_MethodTable* type, csrt_String* message) {
     csrt_throw_object(e);
 }
 
+#ifndef __wasm__
 // ---------------------------------------------------------------------------------------------
 // Personality routine (Itanium C++ ABI §7, LSDA format as emitted by LLVM)
 // ---------------------------------------------------------------------------------------------
@@ -552,3 +606,4 @@ _Unwind_Reason_Code csrt_personality(int version, _Unwind_Action actions, uint64
     _Unwind_SetIP(context, lp_start + landing_pad);
     return _URC_INSTALL_CONTEXT;
 }
+#endif

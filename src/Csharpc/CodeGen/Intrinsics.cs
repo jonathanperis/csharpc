@@ -284,9 +284,22 @@ internal static class Intrinsics
             return default;
         };
         Action<FunctionCodeGen, LLVMValueRef> write = (g, s) => g.CallRuntime("csrt_console_write_string", g.Module.Llvm.Void, [g.Module.Llvm.Ptr], s);
+        // string.Format(provider, format, ...): csrt formats with the invariant culture (see ToString(IFormatProvider) above).
+        IntrinsicHandler providerComposite = (g, inv) =>
+        {
+            var l = g.Module.Llvm;
+            var ordered = inv.Arguments.OrderBy(a => a.Parameter!.Ordinal).ToList();
+            g.EmitValue(ordered[0].Value);
+            var format = g.EmitValue(ordered[1].Value);
+            var args = ordered.Count == 3 && ordered[2].Value.Type is IArrayTypeSymbol && ordered[2].ArgumentKind != ArgumentKind.ParamArray
+                ? g.EmitValue(ordered[2].Value)
+                : g.ObjectArray([.. ordered.Skip(2).Select(a => a.Value)]);
+            return g.CallRuntime("csrt_string_format", l.Ptr, [l.Ptr, l.Ptr], format, args);
+        };
         foreach (var arity in new[] { "object", "object, object", "object, object, object", "object[]" })
         {
             t[$"string.Format(string, {arity})"] = composite(null, false);
+            t[$"string.Format(System.IFormatProvider, string, {arity})"] = providerComposite;
             t[$"System.Console.WriteLine(string, {arity})"] = composite(write, true);
             t[$"System.Console.Write(string, {arity})"] = composite(write, false);
         }
@@ -309,6 +322,11 @@ internal static class Intrinsics
         t["string.Concat(object, object, object)"] = concat;
         t["string.IsNullOrEmpty(string)"] = (g, inv) =>
             g.CallRuntime("csrt_string_is_null_or_empty", g.Module.Llvm.I1, [g.Module.Llvm.Ptr], Arg(g, inv, 0));
+        // string == / != called as methods (compiled code, the IL front-end).
+        t["string.op_Equality(string, string)"] = (g, inv) =>
+            g.CallRuntime("csrt_string_equals", g.Module.Llvm.I1, [g.Module.Llvm.Ptr, g.Module.Llvm.Ptr], Arg(g, inv, 0), Arg(g, inv, 1));
+        t["string.op_Inequality(string, string)"] = (g, inv) => g.Builder.Not(
+            g.CallRuntime("csrt_string_equals", g.Module.Llvm.I1, [g.Module.Llvm.Ptr, g.Module.Llvm.Ptr], Arg(g, inv, 0), Arg(g, inv, 1)));
         t["string.Equals(string, string)"] = (g, inv) =>
             g.CallRuntime("csrt_string_equals", g.Module.Llvm.I1, [g.Module.Llvm.Ptr, g.Module.Llvm.Ptr], Arg(g, inv, 0), Arg(g, inv, 1));
         t["string.Equals(string)"] = (g, inv) =>
@@ -373,7 +391,8 @@ internal static class Intrinsics
                 return b.Select(b.ICmp(LLVMIntPredicate.SLT, v, g.Module.Llvm.ConstInt(v.Type, 0)), b.Neg(v), v);
             };
         }
-        foreach (var (type, signed) in new[] { ("int", true), ("long", true), ("uint", false), ("ulong", false) })
+        foreach (var (type, signed) in new[] { ("int", true), ("long", true), ("uint", false), ("ulong", false),
+                     ("short", true), ("sbyte", true), ("ushort", false), ("byte", false), ("nint", true), ("nuint", false) })
         {
             t[$"System.Math.Max({type}, {type})"] = (g, inv) => SelectCompare(g, Arg(g, inv, 0), Arg(g, inv, 1), signed ? LLVMIntPredicate.SGT : LLVMIntPredicate.UGT);
             t[$"System.Math.Min({type}, {type})"] = (g, inv) => SelectCompare(g, Arg(g, inv, 0), Arg(g, inv, 1), signed ? LLVMIntPredicate.SLT : LLVMIntPredicate.ULT);
@@ -560,6 +579,14 @@ internal static class Intrinsics
     private const string Tasks = "System.Threading.Tasks";
     private const string Rcs = "System.Runtime.CompilerServices";
 
+    /// <summary>The awaiters that are a csrt task pointer (a property: the tables above are built first).</summary>
+    private static string[] TaskAwaiterTypes =>
+    [
+        $"{Rcs}.TaskAwaiter", $"{Rcs}.TaskAwaiter<TResult>", $"{Rcs}.ValueTaskAwaiter", $"{Rcs}.ValueTaskAwaiter<TResult>",
+        $"{Rcs}.ConfiguredTaskAwaitable.ConfiguredTaskAwaiter", $"{Rcs}.ConfiguredTaskAwaitable<TResult>.ConfiguredTaskAwaiter",
+        $"{Rcs}.ConfiguredValueTaskAwaitable.ConfiguredValueTaskAwaiter", $"{Rcs}.ConfiguredValueTaskAwaitable<TResult>.ConfiguredValueTaskAwaiter",
+    ];
+
     private static void AddTaskMethods(Dictionary<string, IntrinsicHandler> t)
     {
         static LLVMValueRef Wait(FunctionCodeGen g, LLVMValueRef task)
@@ -627,6 +654,19 @@ internal static class Intrinsics
             g.CallRuntime("csrt_cts_cancel_after", g.Module.Llvm.Void, [g.Module.Llvm.Ptr, g.Module.Llvm.I32], g.EmitValue(inv.Instance!), Arg(g, inv, 0));
             return default;
         };
+        t[$"{Th}.CancellationTokenSource.CreateLinkedTokenSource({Th}.CancellationToken, {Th}.CancellationToken)"] = (g, inv) =>
+            g.CallRuntime("csrt_cts_new_linked", g.Module.Llvm.Ptr, [g.Module.Llvm.Ptr, g.Module.Llvm.Ptr], Arg(g, inv, 0), Arg(g, inv, 1));
+        // Tokens are equal when they come from the same source (None and default are both null).
+        IntrinsicHandler sameSource = (g, inv) =>
+        {
+            var a = inv.Instance is { } instance ? g.EmitValue(instance) : Arg(g, inv, 0);
+            var b = Arg(g, inv, inv.Instance is null ? 1 : 0);
+            return g.Builder.ICmp(LLVMIntPredicate.EQ, a, b);
+        };
+        t[$"{Th}.CancellationToken.Equals({Th}.CancellationToken)"] = sameSource;
+        t[$"{Th}.CancellationToken.op_Equality({Th}.CancellationToken, {Th}.CancellationToken)"] = sameSource;
+        t[$"{Th}.CancellationToken.op_Inequality({Th}.CancellationToken, {Th}.CancellationToken)"] = (g, inv) =>
+            g.Builder.Not(sameSource(g, inv));
         t[$"{Th}.CancellationTokenSource.Dispose()"] = (g, inv) => { g.EmitValue(inv.Instance!); return default; };
         t[$"{Th}.CancellationToken.ThrowIfCancellationRequested()"] = (g, inv) =>
         {
@@ -705,9 +745,7 @@ internal static class Intrinsics
             var size = (long)g.Module.Types.Target.SizeOf(g.Module.Types.Storage(result));
             return g.CallRuntime("csrt_valuetask_as_task", g.Module.Llvm.Ptr, [g.Module.Llvm.Ptr, g.Module.Llvm.I32], g.EmitValue(inv.Instance!), g.Module.Llvm.ConstInt(g.Module.Llvm.I32, size));
         };
-        foreach (var awaiter in new[] { $"{Rcs}.TaskAwaiter", $"{Rcs}.TaskAwaiter<TResult>", $"{Rcs}.ValueTaskAwaiter", $"{Rcs}.ValueTaskAwaiter<TResult>",
-                     $"{Rcs}.ConfiguredTaskAwaitable.ConfiguredTaskAwaiter", $"{Rcs}.ConfiguredTaskAwaitable<TResult>.ConfiguredTaskAwaiter",
-                     $"{Rcs}.ConfiguredValueTaskAwaitable.ConfiguredValueTaskAwaiter", $"{Rcs}.ConfiguredValueTaskAwaitable<TResult>.ConfiguredValueTaskAwaiter" })
+        foreach (var awaiter in TaskAwaiterTypes)
             t[$"{awaiter}.GetResult()"] = (g, inv) =>
             {
                 var task = Wait(g, g.EmitValue(inv.Instance!));
@@ -717,6 +755,33 @@ internal static class Intrinsics
         foreach (var awaitable in new[] { $"{Rcs}.ConfiguredTaskAwaitable", $"{Rcs}.ConfiguredTaskAwaitable<TResult>",
                      $"{Rcs}.ConfiguredValueTaskAwaitable", $"{Rcs}.ConfiguredValueTaskAwaitable<TResult>" })
             t[$"{awaitable}.GetAwaiter()"] = self;
+
+        // The awaiter pattern as compiled async state machines (IL) and custom awaitables call it:
+        // OnCompleted/UnsafeOnCompleted register an Action continuation on the task (docs/10-async.md).
+        IntrinsicHandler onCompleted = (g, inv) =>
+        {
+            var task = g.EmitValue(inv.Instance!);
+            g.CallRuntime("csrt_task_on_completed_action", g.Module.Llvm.Void, [g.Module.Llvm.Ptr, g.Module.Llvm.Ptr], task, Arg(g, inv, 0));
+            return default;
+        };
+        foreach (var awaiter in TaskAwaiterTypes)
+        {
+            t[$"{awaiter}.OnCompleted(System.Action)"] = onCompleted;
+            t[$"{awaiter}.UnsafeOnCompleted(System.Action)"] = onCompleted;
+        }
+        // Task.Yield(): YieldAwaitable/YieldAwaiter are a null task pointer; the continuation always
+        // goes to the pool (no SynchronizationContext or TaskScheduler to post to).
+        const string yieldAwaiter = $"{Rcs}.YieldAwaitable.YieldAwaiter";
+        t[$"{Rcs}.YieldAwaitable.GetAwaiter()"] = self;
+        t[$"{yieldAwaiter}.GetResult()"] = (g, inv) => { g.EmitValue(inv.Instance!); return default; };
+        IntrinsicHandler queue = (g, inv) =>
+        {
+            g.EmitValue(inv.Instance!);
+            g.CallRuntime("csrt_queue_action", g.Module.Llvm.Void, [g.Module.Llvm.Ptr], Arg(g, inv, 0));
+            return default;
+        };
+        t[$"{yieldAwaiter}.OnCompleted(System.Action)"] = queue;
+        t[$"{yieldAwaiter}.UnsafeOnCompleted(System.Action)"] = queue;
     }
 
     private static void ThrowAggregate(FunctionCodeGen g, LLVMValueRef task) =>
@@ -741,9 +806,9 @@ internal static class Intrinsics
             g.Builder.ICmp(LLVMIntPredicate.NE, g.EmitValue(p.Instance!), LlvmContext.Null(g.Module.Llvm.Ptr));
         t[$"{Th}.CancellationToken.None"] = (g, _) => LlvmContext.Null(g.Module.Llvm.Ptr);
         PropertyHandler isCompleted = (g, p) => g.CallRuntime("csrt_task_is_completed", g.Module.Llvm.I1, [g.Module.Llvm.Ptr], g.EmitValue(p.Instance!));
-        foreach (var type in new[] { $"{Tasks}.Task", $"{Tasks}.ValueTask", $"{Tasks}.ValueTask<TResult>", $"{Rcs}.TaskAwaiter", $"{Rcs}.TaskAwaiter<TResult>",
-                     $"{Rcs}.ValueTaskAwaiter", $"{Rcs}.ValueTaskAwaiter<TResult>" })
+        foreach (var type in TaskAwaiterTypes.Concat([$"{Tasks}.Task", $"{Tasks}.ValueTask", $"{Tasks}.ValueTask<TResult>"]))
             t[$"{type}.IsCompleted"] = isCompleted;
+        t[$"{Rcs}.YieldAwaitable.YieldAwaiter.IsCompleted"] = (g, p) => { g.EmitValue(p.Instance!); return g.Module.Llvm.False; };
         t[$"{Tasks}.Task.IsCompletedSuccessfully"] = (g, p) =>
             g.CallRuntime("csrt_task_is_completed_successfully", g.Module.Llvm.I1, [g.Module.Llvm.Ptr], g.EmitValue(p.Instance!));
         t[$"{Tasks}.ValueTask.IsCompletedSuccessfully"] = t[$"{Tasks}.Task.IsCompletedSuccessfully"];
@@ -783,6 +848,11 @@ internal static class Intrinsics
         t["System.Threading.CancellationTokenSource..ctor(int)"] = (g, c) =>
             g.CallRuntime("csrt_cts_new_after", g.Module.Llvm.Ptr, [g.Module.Llvm.I32], CtorArg(g, c, 0));
         t[$"{Tasks}.ValueTask<TResult>..ctor({Tasks}.Task<TResult>)"] = (g, c) => CtorArg(g, c, 0);
+        // ValueTasks over an IValueTaskSource (async iterators' MoveNextAsync): bridged to a csrt task (corelib/AsyncIterators.cs).
+        t[$"{Tasks}.ValueTask<TResult>..ctor({Tasks}.Sources.IValueTaskSource<TResult>, short)"] = (g, c) =>
+            g.CallCoreLibGeneric("ValueTaskSourceBridge`1", "Create", [((INamedTypeSymbol)g.TypeOf(c)!).TypeArguments[0]], CtorArg(g, c, 0), CtorArg(g, c, 1));
+        t[$"{Tasks}.ValueTask..ctor({Tasks}.Sources.IValueTaskSource, short)"] = (g, c) =>
+            g.CallCoreLibGeneric("ValueTaskSourceBridge", "Create", [], CtorArg(g, c, 0), CtorArg(g, c, 1));
         t["string..ctor(char, int)"] = (g, c) =>
             g.CallRuntime("csrt_string_new_repeat", g.Module.Llvm.Ptr, [g.Module.Llvm.I16, g.Module.Llvm.I32], CtorArg(g, c, 0), CtorArg(g, c, 1));
         // Strings from native memory: new string(char*, int, int) / (char*) / (sbyte*).

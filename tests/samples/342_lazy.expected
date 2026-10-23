@@ -1,0 +1,9 @@
+False Value is not created.
+built built calls=1 True built
+boom 1 attempts=1 False
+boom 1 attempts=1 False
+ValueFactory attempted to access the Value property of this instance.
+6
+5
+126
+Value cannot be null. (Parameter 'valueFactory')

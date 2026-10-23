@@ -18,7 +18,7 @@ every failure is a clean "not supported by csharpc yet" diagnostic.
 | Multi-file programs, `.csproj` input, `ProjectReference` | ✅ | whole-program, see [08-drop-in.md](08-drop-in.md) |
 | `dotnet build -p:UseCsharpc=true`, `dotnet publish -p:PublishCsharpc=true` | ✅ | `Csharpc.Sdk` package |
 | File-based apps (`#:property` directives) | ✅ | |
-| NuGet binary packages | ❌ | need IL → see M5 |
+| Assemblies without sources: `-r X.dll`, `<Reference>`, NuGet `PackageReference` | 🟡 | IL front-end (M5): the IL side is complete except `calli`/TypedReference; packages still hit BCL gaps (M2) |
 
 ### Types
 
@@ -115,7 +115,7 @@ and real-world programs against real .NET on that machine, plus the benchmark co
 | Linux ARM64 | `ubuntu-24.04-arm` | ✅ AAPCS64 P/Invoke, `statx`, BTI/PAC hardening |
 | macOS ARM64 | `macos-15` | ✅ Mach-O via Apple's ld, compact unwind + libunwind, per-OS corelib constants, Apple arm64 P/Invoke ABI, Mach-O GC roots/TLV, `.dylib` probing (no `--static`, no gdb debug-info suite) |
 | Windows x64 | `windows-2025` | ✅ PE/COFF via LLVM-MinGW (lld, libunwind, UCRT; `x86_64-w64-windows-gnu`), Itanium EH on SEH unwind tables, Microsoft x64 P/Invoke ABI, `SuspendThread` stop-the-world, kernel32-based System.IO, `"\r\n"` line ends, .NET's Windows exit codes (no gdb debug-info suite; MSVC environment not supported) |
-| wasm32 | (any) | WASI target, exception and threading model |
+| wasm32 (WASI preview 1) | `ubuntu-24.04` + wasmtime 36 | ✅ `--target wasm32-wasip1` via the WASI SDK (wasm-ld, wasi-libc): exceptions as explicit propagation (no unwinder), GC roots spilled to linear-memory stack slots by the compiler, one thread (`Thread.Start` throws `PlatformNotSupportedException`; tasks and timers run while the main thread blocks), WASI System.IO; samples, both conformance corpora, real-world programs and a GC stress run under wasmtime ([ADR 0011](adr/0011-wasm32.md); no sockets, dynamic P/Invoke, time zones or exit codes above 125) |
 
 ### M4 — Real-world validation
 Compile unmodified open-source C# console applications and tools, publish a compatibility report
@@ -123,13 +123,38 @@ Compile unmodified open-source C# console applications and tools, publish a comp
 First report (2026-10-22, 323 programs from dotnet/samples and dotnet/docs, 40.6 % identical to
 .NET): [18-compatibility.md](18-compatibility.md); harness in `tools/compat/`.
 
-### M5 — Drop-in: binary packages
+### M5 — Drop-in: binary packages (🚧)
 An IL front-end (IL → the same lowering) so NuGet packages that ship only assemblies can be linked
 into the closed-world program; the source front-end remains the primary path. With M2 and M4 this is
 what makes csharpc a drop-in replacement for existing projects.
 
+Design: [ADR 0010](adr/0010-il-frontend.md) — IL is a second method-body source for Roslyn's metadata
+symbols, lowered through the same `FunctionCodeGen` (synthetic `IOperation`s for library-facing
+instructions). Done: `-r`, `<Reference>` and `PackageReference` input; all opcodes but `calli`, `jmp`,
+TypedReference ones and `ckfinite`; generics, virtual/interface dispatch across the source/IL
+boundary, EH incl. filters, static constructors (`beforefieldinit`), RVA data, P/Invoke, events,
+compiled C# idioms (interpolation handlers, closures, iterators, records, generic math); unreachable
+failures compile to stubs (`CSLLVM0007`); compiled `async` (method builders, awaiters, async
+iterators, `IValueTaskSource`); embedded resource strings (`ResourceManager`, framework `SR`
+messages); `AppContext` with runtimeconfig defaults; `System.Collections.Immutable` compiled from the
+shared framework's IL. `tests/il.sh` checks library projects consumed as DLLs, a nuget.org package
+(Ardalis.GuardClauses) and a framework assembly against `dotnet run`; `tools/il-survey` ranks what the
+top pure-IL packages still need ([18-compatibility.md](18-compatibility.md#il-front-end-survey)).
+Next: the BCL surface packages use (ranked by the survey), `typeof(X).Assembly`, `calli`,
+RID-specific/native package assets.
+
 ### M6 — Bootstrapping
 csharpc compiles csharpc (and Roslyn) — the strongest possible proof of maturity.
+
+Status: the IL front-end can compile framework assemblies from the shared framework's IL
+(System.Collections.Immutable: 1644 IL methods reachable from a small program, ~30 s at `-O0` on a
+loaded 4-core machine, ~290 MB). Plan, in order: (1) the library surface Roslyn and csharpc use, driven
+by the IL survey and by compiling `System.Reflection.Metadata`/`Microsoft.Extensions.*` from IL;
+(2) a `--framework-il` policy (which framework assemblies come from IL instead of shadows);
+(3) compile-time scale for a ~40 MB-of-IL closed world: csharpc published ReadyToRun, parallel LLVM
+code generation (module partitions), then parallel lowering; (4) reflection Roslyn needs at startup
+(`typeof(X).Assembly`, resource lookup, analyzer activation) as compile-time metadata with diagnostics
+for the rest; (5) csharpc compiled by csharpc, LLVM C API P/Invokes included.
 
 ### Credibility deliverables (cross-cutting)
 - A technical report: what csharpc demonstrates (Roslyn's CFG as a mid-level IR, a C# corelib with

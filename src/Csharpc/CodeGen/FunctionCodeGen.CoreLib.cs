@@ -126,9 +126,20 @@ public sealed partial class FunctionCodeGen
             "IsInterfaceTypeObject" => CallRuntime("csrt_type_is_interface", L.I1, [L.Ptr], args[0]),
             "CreateEnumConverter" => JsonEnumSwitch(args[0], args),
             "CompareStrings" => CallRuntime("csrt_string_compare_culture", L.I32, [L.Ptr, L.Ptr, L.I1], args[0], args[1], L.False),
+            "UnhandledException" => UnhandledException(args[0]),
+            "ResourceStrings" => _m.ResourceStringsBlob(),
+            "IsCoroutineIterator" => CallRuntime("csrt_is_iterator", L.I1, [L.Ptr], args[0]),
+            "RuntimeConfig" => _m.AppContextBlob(),
+            "TryFaultAsyncTask" => CallRuntime("csrt_task_try_fault_async", L.I1, [L.Ptr, L.Ptr], args[0], args[1]),
             "CompareStringsWith" => CallRuntime("csrt_string_compare_with", L.I32, [L.Ptr, L.Ptr, L.I32], args[0], args[1], args[2]),
             _ => throw CompileError.Unsupported($"corelib intrinsic '{target.Name}'", inv),
         };
+    }
+
+    private LLVMValueRef UnhandledException(LLVMValueRef exception)
+    {
+        CallRuntime("csrt_unhandled_exception", L.Void, [L.Ptr], exception);
+        return default;
     }
 
     private LLVMValueRef EnumToUInt64(ITypeSymbol t, LLVMValueRef value)
@@ -250,6 +261,26 @@ public sealed partial class FunctionCodeGen
     {
         var owner = _m.Compilation.GetTypeByMetadataName(CoreLib.Namespace + "." + type)
             ?? throw CompileError.Unsupported($"corelib type '{type}' not found (is src/Csharpc/corelib shipped?)", (ISymbol?)null!);
+        var target = owner.GetMembers(method).OfType<IMethodSymbol>().Single(m => m.IsStatic && m.Parameters.Length == args.Length);
+        return DirectCall(target, args);
+    }
+
+    /// <summary>A generic static method of a corelib type, e.g. ("ArrayChecks", "CopyToUntyped", [T]).</summary>
+    internal LLVMValueRef CallCoreLibGenericMethod(string type, string method, ITypeSymbol[] typeArguments, params LLVMValueRef[] args)
+    {
+        var owner = _m.Compilation.GetTypeByMetadataName(CoreLib.Namespace + "." + type)
+            ?? throw CompileError.Unsupported($"corelib type '{type}' not found (is src/Csharpc/corelib shipped?)", (ISymbol?)null!);
+        var target = owner.GetMembers(method).OfType<IMethodSymbol>()
+            .Single(m => m.IsStatic && m.Parameters.Length == args.Length && m.TypeParameters.Length == typeArguments.Length);
+        return DirectCall(target.Construct(typeArguments), args);
+    }
+
+    /// <summary>A static method of a (possibly generic) corelib type, e.g. ("ValueTaskSourceBridge`1", "Create", [T]).</summary>
+    internal LLVMValueRef CallCoreLibGeneric(string metadataName, string method, ITypeSymbol[] typeArguments, params LLVMValueRef[] args)
+    {
+        var owner = _m.Compilation.GetTypeByMetadataName(CoreLib.Namespace + "." + metadataName)
+            ?? throw CompileError.Unsupported($"corelib type '{metadataName}' not found (is src/Csharpc/corelib shipped?)", (ISymbol?)null!);
+        if (typeArguments.Length > 0) owner = owner.Construct(typeArguments);
         var target = owner.GetMembers(method).OfType<IMethodSymbol>().Single(m => m.IsStatic && m.Parameters.Length == args.Length);
         return DirectCall(target, args);
     }

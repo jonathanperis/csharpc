@@ -2,7 +2,7 @@
 # on the listed OS behaves differently too, so csharpc can't be compared against these expectations
 # there. Never list a test here because csharpc differs from .NET; fix csharpc instead.
 #
-# <os: linux | macos | windows>  <test name (sample, program or conformance path)>  <reason>
+# <os: linux | macos | windows | wasi>  <test name (sample, program or conformance path)>  <reason>
 #
 # A reason starting with "live:" doesn't skip the test: on that OS its expected stdout and exit
 # status are recorded by running it with real .NET (`dotnet run`, invariant culture like the
@@ -52,3 +52,25 @@ windows eventsourcing                   live: writes bare "\n"s itself, next to 
 windows json                            live: writes bare "\n"s itself, next to WriteLine's "\r\n"
 windows linalg                          live: writes bare "\n"s itself, next to WriteLine's "\r\n"
 windows puzzles                         live: writes bare "\n"s itself, next to WriteLine's "\r\n"
+# WebAssembly (CSHARPC_TEST_TARGET=wasm32-wasip1, tests/platform.sh): one thread, wasm32 C types, WASI
+# errno numbers, no time zone database. Never "live": there is no .NET for plain WASI to record with.
+wasi 120_threads                  needs threads: Thread.Start throws PlatformNotSupportedException on WebAssembly
+wasi 121_locks_interlocked        needs threads: Thread.Start throws PlatformNotSupportedException on WebAssembly
+wasi 123_monitor_wait_pulse       needs threads: Thread.Start throws PlatformNotSupportedException on WebAssembly
+wasi 124_threadstatic             needs threads: Thread.Start throws PlatformNotSupportedException on WebAssembly
+wasi 125_gc_under_threads         needs threads: Thread.Start throws PlatformNotSupportedException on WebAssembly
+wasi 227_static_ctor_timing       needs threads (static constructors raced by threads): PlatformNotSupportedException on WebAssembly
+wasi 151_async_threadpool         needs concurrent pool threads (tasks meet at a barrier); WebAssembly runs work items one after another
+wasi 84_misc_bcl                  prints IntPtr.Size: 4 on wasm32
+wasi 160_pinvoke_dllimport        Linux LP64 signatures (C long as C# long; 32-bit on wasm32) and a libc symbol that doesn't exist (a link error with wasi-libc)
+wasi 176_pinvoke_struct_abi       Linux LP64 signatures: ldiv takes C long, 32-bit on wasm32
+wasi 286_pinvoke_portable_abi     Linux LP64 signatures: ldiv takes C long, 32-bit on wasm32
+wasi 162_pinvoke_libraryimport    prints an errno value (ENOENT is 2 on Linux, 44 in WASI)
+wasi 188_datetime_zone_new_york   sets TZ: wasi-libc has no time zone database, local time is UTC
+wasi 189_datetime_zone_lord_howe  sets TZ: wasi-libc has no time zone database, local time is UTC
+wasi 190_datetime_zone_apia       sets TZ: wasi-libc has no time zone database, local time is UTC
+wasi 257_datetime_parse           sets TZ: wasi-libc has no time zone database, local time is UTC
+wasi bcl/006_environment          Environment.TickCount64 > 0: WASI's monotonic clock starts at 0 with the module under wasmtime
+wasi 380_readonly_collection_threadlocal  needs threads: Thread.Start throws PlatformNotSupportedException on WebAssembly
+wasi 194_marshal_strings          prints strerror(2): errno 2 is ENOENT on Linux, EACCES in WASI
+wasi 196_sockets_loopback         opens loopback sockets: WASI preview 1 has none (PlatformNotSupportedException)

@@ -11,7 +11,15 @@ namespace CsharpcCoreLib
     internal static unsafe class Posix
     {
         // Flag values, errno values and struct layouts are per OS. The compiler parses the corelib with
-        // CSHARPC_TARGET_LINUX or CSHARPC_TARGET_MACOS (from the target triple), never the host's.
+        // CSHARPC_TARGET_LINUX, CSHARPC_TARGET_MACOS or CSHARPC_TARGET_WASI (from the target triple),
+        // never the host's.
+#if CSHARPC_TARGET_WASI
+        // wasi-libc: access modes and open flags map onto WASI rights and oflags; errno is WASI's numbering.
+        public const int O_RDONLY = 0x4000000, O_WRONLY = 0x10000000, O_RDWR = 0x14000000;
+        public const int O_CREAT = 0x1000, O_EXCL = 0x4000, O_TRUNC = 0x8000, O_APPEND = 0x1, O_CLOEXEC = 0;
+        public const int ENOTEMPTY = 55;
+        public const int ENOENT = 44, EPERM = 63, EACCES = 2, EEXIST = 20, ENOTDIR = 54, EISDIR = 31, EINTR = 27, ERANGE = 68;
+#else
         public const int O_RDONLY = 0, O_WRONLY = 1, O_RDWR = 2;
 #if CSHARPC_TARGET_MACOS
         public const int O_CREAT = 0x200, O_EXCL = 0x800, O_TRUNC = 0x400, O_APPEND = 0x8, O_CLOEXEC = 0x1000000;
@@ -20,11 +28,12 @@ namespace CsharpcCoreLib
         public const int O_CREAT = 0x40, O_EXCL = 0x80, O_TRUNC = 0x200, O_APPEND = 0x400, O_CLOEXEC = 0x80000;
         public const int ENOTEMPTY = 39;
 #endif
+        public const int ENOENT = 2, EPERM = 1, EACCES = 13, EEXIST = 17, ENOTDIR = 20, EISDIR = 21, EINTR = 4, ERANGE = 34;
+#endif
         public const int SEEK_SET = 0, SEEK_CUR = 1, SEEK_END = 2;
         /// <summary>Directory.Delete of a non-empty directory (.NET: strerror + " : 'path'").</summary>
         public static Exception DirectoryNotEmpty(string full) => new IOException("Directory not empty : '" + full + "'");
         public const int S_IFMT = 0xF000, S_IFDIR = 0x4000, S_IFREG = 0x8000, S_IFLNK = 0xA000;
-        public const int ENOENT = 2, EPERM = 1, EACCES = 13, EEXIST = 17, ENOTDIR = 20, EISDIR = 21, EINTR = 4, ERANGE = 34;
 
         // open(2) is variadic: Apple's arm64 ABI passes variadic arguments on the stack, so calling it as
         // a fixed three-argument function would lose `mode`. A C shim in the runtime makes the call.
@@ -49,14 +58,30 @@ namespace CsharpcCoreLib
         [DllImport("libc")] public static extern byte* getenv(byte* name);
         [DllImport("libc")] public static extern int setenv(byte* name, byte* value, int overwrite);
         [DllImport("libc")] public static extern int unsetenv(byte* name);
+#if !CSHARPC_TARGET_WASI
         [DllImport("libc")] public static extern int getpid();
         [DllImport("libc")] public static extern int gethostname(byte* name, nuint length);
+#endif
         [DllImport("libc")] public static extern byte* strerror(int error);
         [DllImport("libc")] public static extern int getentropy(byte* buffer, nuint length);
         [DllImport("libc")] public static extern long time(long* result);
         [DllImport("libc")] public static extern byte* localtime_r(long* time, byte* result);
 
-#if CSHARPC_TARGET_MACOS
+#if CSHARPC_TARGET_WASI
+        // struct stat (wasi-libc, wasm32): st_mode @24 (u32), st_size @48, st_mtim @88; 144 bytes.
+        [DllImport("libc", SetLastError = true)] public static extern int stat(byte* path, byte* buffer);
+        [DllImport("libc", SetLastError = true)] public static extern int lstat(byte* path, byte* buffer);
+        [DllImport("libc", SetLastError = true)] public static extern int fstat(int fd, byte* buffer);
+        public const int StatSize = 144;
+        public static int Mode(byte* st) => *(int*)(st + 24);
+        public static long Size(byte* st) => *(long*)(st + 48);
+        public static long MTimeSeconds(byte* st) => *(long*)(st + 88);
+        public static long MTimeNanoseconds(byte* st) => *(int*)(st + 96);
+
+        // struct dirent (wasi-libc): d_ino @0 (u64), d_type @8, d_name @9. File types are WASI's.
+        public const int DirentTypeOffset = 8, DirentNameOffset = 9;
+        public const byte DT_UNKNOWN = 0, DT_DIR = 3, DT_REG = 4, DT_LNK = 7;
+#elif CSHARPC_TARGET_MACOS
         // struct stat (Darwin arm64, 64-bit ino_t): st_mode @4 (u16), st_mtimespec @48, st_size @96; 144 bytes.
         [DllImport("libc", SetLastError = true)] public static extern int stat(byte* path, byte* buffer);
         [DllImport("libc", SetLastError = true)] public static extern int lstat(byte* path, byte* buffer);
@@ -92,7 +117,9 @@ namespace CsharpcCoreLib
         // struct dirent (glibc, LP64 Linux: x86-64 and AArch64 alike): d_type @18, d_name @19.
         public const int DirentTypeOffset = 18, DirentNameOffset = 19;
 #endif
+#if !CSHARPC_TARGET_WASI
         public const byte DT_UNKNOWN = 0, DT_DIR = 4, DT_REG = 8, DT_LNK = 10;
+#endif
 
         /// <summary>stat() a path: 0 = missing, S_IFDIR / S_IFREG / other mode bits otherwise.</summary>
         public static int FileType(string path)

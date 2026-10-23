@@ -76,8 +76,14 @@ namespace CsharpcCoreLib
 
 #if !CSHARPC_TARGET_WINDOWS
         [DllImport("libc")] private static extern int isatty(int fd);
+#if CSHARPC_TARGET_WASI
+        // WASI has no terminal control (termios): a terminal stays in line mode, as tcgetattr failing does elsewhere.
+        private static int tcgetattr(int fd, byte* termios) => -1;
+        private static int tcsetattr(int fd, int action, byte* termios) => -1;
+#else
         [DllImport("libc")] private static extern int tcgetattr(int fd, byte* termios);
         [DllImport("libc")] private static extern int tcsetattr(int fd, int action, byte* termios);
+#endif
         [DllImport("libc")] private static extern int poll(void* fds, nuint count, int timeout);
 
         public static bool IsInputRedirected => isatty(0) == 0;

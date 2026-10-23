@@ -34,20 +34,23 @@ public sealed class LlvmContext : IDisposable
 {
     public LLVMContextRef Ref { get; } = LLVMContextCreate();
 
-    public LLVMTypeRef I1 => LLVMInt1TypeInContext(Ref);
-    public LLVMTypeRef I8 => LLVMInt8TypeInContext(Ref);
-    public LLVMTypeRef I16 => LLVMInt16TypeInContext(Ref);
-    public LLVMTypeRef I32 => LLVMInt32TypeInContext(Ref);
+    // Types are uniqued per context: fetch the common ones once (each getter is a P/Invoke).
+    public LLVMTypeRef I1 => _i1.IsNull ? _i1 = LLVMInt1TypeInContext(Ref) : _i1;
+    public LLVMTypeRef I8 => _i8.IsNull ? _i8 = LLVMInt8TypeInContext(Ref) : _i8;
+    public LLVMTypeRef I16 => _i16.IsNull ? _i16 = LLVMInt16TypeInContext(Ref) : _i16;
+    public LLVMTypeRef I32 => _i32.IsNull ? _i32 = LLVMInt32TypeInContext(Ref) : _i32;
     public LLVMTypeRef IntType(int bits) => LLVMIntTypeInContext(Ref, (uint)bits);
-    public LLVMTypeRef I64 => LLVMInt64TypeInContext(Ref);
+    public LLVMTypeRef I64 => _i64.IsNull ? _i64 = LLVMInt64TypeInContext(Ref) : _i64;
     public LLVMTypeRef IntTypeOf(int bits) => bits switch { 1 => I1, 8 => I8, 16 => I16, 32 => I32, 64 => I64, _ => LLVMIntTypeInContext(Ref, (uint)bits) };
-    public LLVMTypeRef F32 => LLVMFloatTypeInContext(Ref);
-    public LLVMTypeRef F64 => LLVMDoubleTypeInContext(Ref);
-    public LLVMTypeRef Void => LLVMVoidTypeInContext(Ref);
+    public LLVMTypeRef F32 => _f32.IsNull ? _f32 = LLVMFloatTypeInContext(Ref) : _f32;
+    public LLVMTypeRef F64 => _f64.IsNull ? _f64 = LLVMDoubleTypeInContext(Ref) : _f64;
+    public LLVMTypeRef Void => _void.IsNull ? _void = LLVMVoidTypeInContext(Ref) : _void;
     /// <summary>The `token` type (coroutine ids, `token none`).</summary>
     public LLVMTypeRef Token => LLVMTokenTypeInContext(Ref);
     /// <summary>LLVM 15+ uses opaque pointers: every managed reference is just <c>ptr</c>.</summary>
-    public LLVMTypeRef Ptr => LLVMPointerTypeInContext(Ref, 0);
+    public LLVMTypeRef Ptr => _ptr.IsNull ? _ptr = LLVMPointerTypeInContext(Ref, 0) : _ptr;
+
+    private LLVMTypeRef _i1, _i8, _i16, _i32, _i64, _f32, _f64, _void, _ptr;
 
     public LLVMTypeRef FunctionType(LLVMTypeRef ret, params LLVMTypeRef[] parameters) =>
         LLVMFunctionType(ret, parameters, (uint)parameters.Length, 0);
@@ -203,6 +206,10 @@ public sealed class TargetMachine : IDisposable
     /// <summary>Windows (PE/COFF). csharpc targets the MinGW-w64 environment (x86_64-w64-windows-gnu):
     /// Itanium-style exceptions on SEH unwind tables, linked by lld against the UCRT.</summary>
     public bool IsWindows => IsWindowsTriple(Triple);
+    /// <summary>WebAssembly with WASI preview 1 (wasm32-wasip1 / wasm32-wasi): wasi-libc, wasm-ld, a
+    /// WASI runtime such as wasmtime. No unwinding, no threads (docs/adr/0011-wasm32.md).</summary>
+    public bool IsWasm => IsWasmTriple(Triple);
+    public static bool IsWasmTriple(string triple) => triple.StartsWith("wasm", StringComparison.Ordinal);
     public static bool IsWindowsTriple(string triple) =>
         triple.Contains("-windows", StringComparison.Ordinal) || triple.Contains("-mingw", StringComparison.Ordinal) || triple.Contains("-win32", StringComparison.Ordinal);
 
@@ -229,6 +236,12 @@ public sealed class TargetMachine : IDisposable
             LLVMInitializeAArch64AsmParser();
         }
         catch (EntryPointNotFoundException) { /* LLVM built without AArch64 */ }
+        try
+        {
+            LLVMInitializeWebAssemblyTargetInfo(); LLVMInitializeWebAssemblyTarget(); LLVMInitializeWebAssemblyTargetMC();
+            LLVMInitializeWebAssemblyAsmPrinter();
+        }
+        catch (EntryPointNotFoundException) { /* LLVM built without WebAssembly */ }
     }
 
     public static string HostTriple
@@ -276,7 +289,9 @@ public sealed class TargetMachine : IDisposable
         if (level == LLVMCodeGenOptLevel.None && IsDarwinTriple(triple)
             && (triple.StartsWith("arm64", StringComparison.Ordinal) || triple.StartsWith("aarch64", StringComparison.Ordinal)))
             level = LLVMCodeGenOptLevel.Less;
-        var machine = LLVMCreateTargetMachine(target, triple, cpu, features, level, LLVMRelocMode.PIC, LLVMCodeModel.Default);
+        // WebAssembly executables are statically linked (PIC there means dynamic linking: GOT imports).
+        var reloc = IsWasmTriple(triple) ? LLVMRelocMode.Static : LLVMRelocMode.PIC;
+        var machine = LLVMCreateTargetMachine(target, triple, cpu, features, level, reloc, LLVMCodeModel.Default);
         return new TargetMachine(machine, triple);
     }
 

@@ -416,7 +416,8 @@ generic dictionary. See `src/Csharpc/CodeGen/Generics.cs`.
 * **Recursive expansion.** `C<T>` calling into `C<C<T>>` is legal C#. .NET instantiates lazily, as
   deep as execution goes, but ahead-of-time expansion would never end. Instantiations nested more
   than 16 levels deep are `CSLLVM0001` (`CheckGenericDepth`).
-* Not yet: static field initializers and static constructors in generic types.
+* Static field initializers and static constructors of generic types run per instantiation (see
+  [Static initialization](#static-initialization)).
 
 ## Interfaces
 
@@ -623,6 +624,22 @@ Zero-cost, table-driven exception handling on the Itanium ABI ([ADR 0005](adr/00
 - An exception that no frame handles still runs the `finally` blocks on the way out (a forced
   unwind). Then csrt prints `Unhandled exception. <ToString()>` to stderr and calls `abort()`:
   exit status 134, the same as a .NET process on Linux.
+- **WebAssembly** has no unwinder ([ADR 0011](adr/0011-wasm32.md)). Codegen emits the same IR,
+  and `src/Csharpc/Wasm/ExceptionLowering.cs` rewrites it for the whole program, runtime included.
+  Throwing stores the exception in `csrt_pending_exception` and returns. Each `invoke` becomes a
+  `call` followed by a test of that global, which branches to the landing-pad block (now an ordinary
+  block: `csrt_begin_catch` takes the exception out of the global) or to the normal destination.
+  Every other call that may throw is followed by a test that returns from the function, and in
+  `main` reports the unhandled exception. The landing-pad code (type tests, filters, `finally`
+  routing, rethrow) is unchanged, so the semantics are the native ones.
+
+  ```llvm
+  ; invoke void @Fail(i32 1) to label %cont unwind label %lpad     becomes:
+  call void @Fail(i32 1)
+  %pending = load ptr, ptr @csrt_pending_exception
+  %threw = icmp ne ptr %pending, null
+  br i1 %threw, label %lpad, label %cont
+  ```
 
 ## Static initialization
 
@@ -645,9 +662,12 @@ sites and entry points emit an acquire load of `state` and call the type's cold
 initializer finishes. The initializing thread may re-enter, so an initialization cycle sees
 default values, as in .NET. An escaping exception is wrapped in a `TypeInitializationException`
 ("The type initializer for 'T' threw an exception.", with the original as `InnerException`).
-The wrapper is cached and rethrown on every later access. Not supported yet: static initializers
-and static constructors of generic types (`CSLLVM0001`), and the CLR's deadlock resolution when
-two threads initialize types that depend on each other.
+The wrapper is cached and rethrown on every later access; its message names the generic
+definition ("Broken`1"), as .NET's does. Generic types are initialized per instantiation, each with
+its own statics and state, lowered under the instantiation's type substitution; since instantiations
+aren't known at startup, even constant initializers run lazily there (first static field access, or
+first use when there is an explicit static constructor). Not supported yet: the CLR's deadlock
+resolution when two threads initialize types that depend on each other.
 
 Referenced corelib types still initialize eagerly at startup. Their initializers have no
 observable side effects.

@@ -198,6 +198,7 @@ public sealed partial class FunctionCodeGen
     /// <summary>Resolves a user virtual method on <paramref name="self"/> via its vtable (delegate binding).</summary>
     private LLVMValueRef LoadVirtualFunction(IMethodSymbol method, LLVMValueRef self)
     {
+        _m.NoteVirtualCall(method);
         var layout = _m.GetLayout(method.ContainingType);
         if (!layout.SlotOf.TryGetValue(_m.RootOf(method), out var slot))
             throw CompileError.Unsupported($"delegate to virtual method '{method}'", method);

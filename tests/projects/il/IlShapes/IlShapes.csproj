@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- A library that tests/il.sh builds with `dotnet build` and hands to csharpc only as a DLL:
+       csharpc compiles it from IL (docs/adr/0010-il-frontend.md), never from these sources. -->
+  <PropertyGroup>
+    <TargetFramework>net11.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+</Project>

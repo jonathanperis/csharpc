@@ -228,7 +228,7 @@ namespace CsharpcCoreLib
                 }
                 int errno = Posix.Errno;
                 Libc.free(buffer);
-                if (errno != 34 /* ERANGE */) throw Posix.IOError(errno, ".", true);
+                if (errno != Posix.ERANGE) throw Posix.IOError(errno, ".", true);
                 size *= 2;
             }
         }

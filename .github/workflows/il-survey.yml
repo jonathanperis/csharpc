@@ -1,0 +1,50 @@
+name: IL survey
+
+# tools/il-survey: compiles the top pure-IL nuget.org packages with `csharpc --il-survey` and ranks
+# what they need (docs/18-compatibility.md#il-front-end-survey). Informational: it never gates.
+on:
+  push:
+    branches: [main]  # integration branches carry the harness too; one survey per change on main is enough
+    paths: ['tools/il-survey/**', '.github/workflows/il-survey.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  survey:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 240
+    env:
+      DOTNET_CLI_TELEMETRY_OPTOUT: 1
+      DOTNET_NOLOGO: 1
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install LLVM 18 and clang
+        run: sudo apt-get update && sudo apt-get install -y llvm-18 clang-18 libllvm18 && sudo ln -sf /usr/bin/clang-18 /usr/local/bin/clang
+
+      - name: Install .NET 11 SDK
+        run: |
+          curl -sSL https://dot.net/v1/dotnet-install.sh -o dotnet-install.sh
+          bash dotnet-install.sh --jsonfile global.json --install-dir "$HOME/.dotnet11"
+          echo "$HOME/.dotnet11" >> "$GITHUB_PATH"
+          echo "DOTNET_ROOT=$HOME/.dotnet11" >> "$GITHUB_ENV"
+
+      - name: Build
+        run: dotnet build src/Csharpc -c Release
+
+      - name: Survey
+        run: python3 -I tools/il-survey/survey.py --jobs 1 --timeout 1800 --memory-gb 4 --work "$RUNNER_TEMP/il-survey" --out il-survey.md
+
+      - name: Report
+        if: always()
+        run: cat il-survey.md >> "$GITHUB_STEP_SUMMARY" || true
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: il-survey
+          path: |
+            il-survey.md
+            ${{ runner.temp }}/il-survey/results.json

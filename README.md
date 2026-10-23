@@ -65,12 +65,14 @@ $ ls -lh hello
 | **Library** | `Console`, `Math`, strings & `StringBuilder`, number formatting/parsing (all standard and custom format strings), `DateTime`/`TimeSpan`/`Stopwatch`, `Type` objects, `System.Collections.Generic` and `System.Linq` (a corelib written in C# and compiled with your program), tasks, cancellation |
 
 Not supported, by design or for now (the same limits NativeAOT has in the first group):
-`dynamic`, runtime code loading and member reflection; NuGet packages that ship only IL; file and
-network I/O beyond the console. The full matrix is in [docs/06-roadmap.md](docs/06-roadmap.md).
+`dynamic`, runtime code loading and member reflection; network I/O. Libraries that ship only IL
+(`-r X.dll`, `<Reference>`, NuGet packages) are compiled from their IL by the IL front-end
+([ADR 0010](docs/adr/0010-il-frontend.md)), as far as the BCL surface they use is implemented. The full matrix is in [docs/06-roadmap.md](docs/06-roadmap.md).
 
 ## Quick start
 
-Requirements: Linux (x86-64 or ARM64), macOS on Apple silicon or Windows x64, the .NET 11 SDK,
+Requirements: Linux (x86-64 or ARM64), macOS on Apple silicon or Windows x64 (WebAssembly is a
+cross target, see below), the .NET 11 SDK,
 LLVM 18 (`libLLVM-18.so`, Homebrew's `llvm@18` on macOS, or [LLVM-MinGW](https://github.com/mstorsjo/llvm-mingw)
 on Windows; 19/20 are also probed) and `clang` (linker driver and runtime compiler).
 
@@ -104,6 +106,19 @@ For fast compiles, build csharpc itself as a native executable (about 5× less C
 
 If libLLVM isn't on the default library path set `CSHARPC_LIBLLVM=/path/to/libLLVM.so`; to use another
 C compiler or linker driver pass `--cc` or set `CSHARPC_CC`.
+
+### WebAssembly (WASI)
+
+```bash
+# the WASI SDK 24 (LLVM 18, like csharpc) and wasmtime
+export WASI_SDK_PATH=/opt/wasi-sdk
+csharpc --target wasm32-wasip1 hello.cs -o hello.wasm && wasmtime run --dir=. hello.wasm
+```
+
+The same programs run as WebAssembly modules, and the CI checks them against .NET under wasmtime.
+WebAssembly has no threads (`Thread.Start` throws `PlatformNotSupportedException`, as in .NET's
+single-threaded WebAssembly builds), no sockets and no dynamic libraries
+([ADR 0011](docs/adr/0011-wasm32.md), [docs/04-runtime.md](docs/04-runtime.md#webassembly-wasm32-wasip1)).
 
 ### Building real projects
 
@@ -265,10 +280,10 @@ csharpc is **pre-1.0** and under active development. What that means in practice
 
 | | |
 |---|---|
-| **Guarantee** | A compiled program behaves exactly like it does on .NET — same output, same exceptions and messages, same exit code. Anything csharpc can't compile faithfully is rejected at compile time with a `CSLLVM0001: not supported by csharpc yet` diagnostic; a silent behavioral difference is treated as the highest-priority bug. |
+| **Guarantee** | A compiled program behaves exactly like it does on .NET — same output, same exceptions and messages, same exit code. Anything csharpc can't compile faithfully is rejected at compile time with a `CSLLVM0001: not supported by csharpc yet` diagnostic (in libraries compiled from IL, a method the program cannot reach compiles to a stub that stops the program with that diagnostic, warning `CSLLVM0007`); a silent behavioral difference is treated as the highest-priority bug. |
 | **Verified surface** | The language and library features in the table above, checked on every commit by CI: the differential samples at `-O0` and `-O2`, the conformance corpus, and a set of larger real-world programs. |
 | **Platforms** | Linux x86-64, Linux ARM64, macOS ARM64 (Apple silicon) and Windows x64 (MinGW-w64 toolchain, `x86_64-w64-windows-gnu`), each tested in CI against real .NET on that machine. WebAssembly is on the [roadmap](docs/06-roadmap.md). |
-| **Not supported** | `dynamic`, member reflection and runtime code loading (the same limits NativeAOT has); NuGet packages that ship only IL (an IL front-end is planned); parts of the BCL such as networking, regular expressions and JSON, which grow with the corelib. |
+| **Not supported** | `dynamic`, member reflection and runtime code loading (the same limits NativeAOT has); compiled `async` methods in IL-only libraries (source `async` works); parts of the BCL such as networking and JSON, which grow with the corelib. |
 | **Stability** | Whole-program compilation with no stable ABI between csharpc versions: rebuild everything when you upgrade. Command-line options may still change. |
 
 Found a gap? Open an issue with a **minimal program** and what `dotnet run` prints — the differential

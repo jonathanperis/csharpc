@@ -115,6 +115,12 @@ Limitation: `object is IEnumerable<X>` on an array can't check the element type 
   `IsNaN`/`IsInfinity`/`IsFinite`..., generic `System.Array` helpers (`Sort` incl. keys+items, `Reverse`,
   `IndexOf`, `Resize`, `Fill`, `Find*`, `Exists`, `TrueForAll`, `ConvertAll`, `BinarySearch`, `Empty`).
 * **`System.Text.RegularExpressions`** (`corelib/Regex/`, see [Regular expressions](#regular-expressions)).
+* **Compiled-code support for the IL front-end** (docs/adr/0010-il-frontend.md): async method builders,
+  `AsyncIteratorMethodBuilder`, `ManualResetValueTaskSourceCore<T>`, `ConfiguredCancelableAsyncEnumerable<T>`,
+  `ExceptionDispatchInfo` (`AsyncBuilders.cs`, `AsyncIterators.cs`, `ExceptionDispatchInfo.cs`, see
+  [10-async.md](10-async.md#async-state-machines-compiled-from-il)); `ResourceManager` over the IL
+  assemblies' embedded string resources and `AppContext` over runtimeconfig data (`Resources.cs`; both
+  read constants codegen builds through the `ResourceStrings()`/`RuntimeConfig()` core intrinsics).
 * **`System.Text.Json`** (`corelib/Json/`, see [System.Text.Json](#systemtextjson)).
 
 ### Regular expressions

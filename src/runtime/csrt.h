@@ -24,6 +24,15 @@
 #define CSRT_NEWLINE "\n"
 #endif
 
+// Functions that throw a managed exception. Where exceptions unwind they never return; on wasm32
+// there is no unwinder: throwing records the pending exception and returns, and csharpc's
+// ExceptionLowering (src/Csharpc/Wasm) makes every caller test for it (docs/adr/0011-wasm32.md).
+#ifdef __wasm__
+#define CSRT_THROWS
+#else
+#define CSRT_THROWS _Noreturn
+#endif
+
 /// An unhandled exception was reported: end the process like .NET (SIGABRT on Unix, exit code
 /// 0xE0434352 on Windows).
 _Noreturn void csrt_fail_unhandled(void);
@@ -96,9 +105,9 @@ typedef struct csrt_Exception {
 typedef struct { csrt_MethodTable header; void* vtable[4]; } csrt_ExceptionMethodTable;
 enum { CSRT_SLOT_GET_MESSAGE = 3 };
 
-_Noreturn void csrt_throw_object(void* exception);
-_Noreturn void csrt_rethrow(void* exception);
-_Noreturn void csrt_throw(const csrt_MethodTable* exception_type, csrt_String* message);  // by type name
+CSRT_THROWS void csrt_throw_object(void* exception);
+CSRT_THROWS void csrt_rethrow(void* exception);
+CSRT_THROWS void csrt_throw(const csrt_MethodTable* exception_type, csrt_String* message);  // by type name
 void* csrt_begin_catch(void* unwind_exception);
 void csrt_exception_init(void* exception, csrt_String* message, void* inner, csrt_String* param_name);
 void csrt_exception_set_actual_value(void* exception, csrt_String* actual_value);
@@ -108,18 +117,22 @@ csrt_String* csrt_exception_to_string(void* exception);
 _Noreturn void csrt_unhandled_exception(void* exception);
 void* csrt_aggregate_exception_new(void** inners, int64_t count);
 void* csrt_task_canceled_exception_new(void);
+bool csrt_is_operation_canceled(void* exception);
 void* csrt_operation_canceled_exception_new(void);
-_Noreturn void csrt_throw_invalid_cast_from(const csrt_MethodTable* from, const csrt_MethodTable* to);
+CSRT_THROWS void csrt_throw_invalid_cast_from(const csrt_MethodTable* from, const csrt_MethodTable* to);
 csrt_String* csrt_string_from_utf8(const char* text);
 csrt_String* csrt_string_from_utf8_n(const char* text, size_t n);  // validating; ill-formed -> U+FFFD
 void csrt_stderr_write_string(csrt_String* s);
 csrt_String* csrt_object_type_name(void* obj, bool full);  // obj.GetType().Name / FullName
-_Noreturn void csrt_throw_null_reference(void);
-_Noreturn void csrt_throw_index_out_of_range(void);
-_Noreturn void csrt_throw_divide_by_zero(void);
-_Noreturn void csrt_throw_overflow(void);
-_Noreturn void csrt_throw_negate_overflow(void);
-_Noreturn void csrt_throw_out_of_memory(const char* message);  // NULL: "Insufficient memory to continue..."
+CSRT_THROWS void csrt_throw_null_reference(void);
+CSRT_THROWS void csrt_throw_index_out_of_range(void);
+CSRT_THROWS void csrt_throw_divide_by_zero(void);
+CSRT_THROWS void csrt_throw_overflow(void);
+// A method csharpc could not compile was called (IL front-end, docs/adr/0010-il-frontend.md): the
+// compiler reported it as a warning; reaching it at run time ends the program with that message.
+_Noreturn void csrt_unsupported_method(const char* message);
+CSRT_THROWS void csrt_throw_negate_overflow(void);
+CSRT_THROWS void csrt_throw_out_of_memory(const char* message);  // NULL: "Insufficient memory to continue..."
 
 // CLR size limits (Array.MaxLength, string length): checked *before* any size arithmetic so a
 // huge request can never wrap into an undersized allocation.
@@ -127,7 +140,7 @@ _Noreturn void csrt_throw_out_of_memory(const char* message);  // NULL: "Insuffi
 #define CSRT_MAX_STRING_LENGTH 0x3FFFFFDFLL
 csrt_String* csrt_string_alloc_checked(int64_t length);  // uninitialized chars; OOM above the limit
 csrt_String* csrt_string_alloc_zeroed(int64_t length);   // zero-filled; OOM above the limit
-_Noreturn void csrt_throw_invalid_cast(void);
+CSRT_THROWS void csrt_throw_invalid_cast(void);
 
 // Type system -------------------------------------------------------------------------------
 void* csrt_isinst_class(void* obj, const csrt_MethodTable* type);   // obj if it is a `type`, else null

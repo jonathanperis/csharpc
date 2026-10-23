@@ -28,13 +28,19 @@
 // Limitations: conservative scanning can retain garbage that happens to look like a pointer; no
 // finalizers; empty chunks are kept (resident) for reuse by any size class.
 //
-// Environment: CSRT_GC=0 disables collection; CSRT_GC_STATS=1 prints statistics at exit.
+// Environment: CSRT_GC=0 disables collection; CSRT_GC_STATS=1 prints statistics at exit;
+// CSRT_GC_STRESS=N collects on every N-th allocation (every allocation takes the slow path), a test
+// mode for root discovery.
 //
 // Platforms: root discovery is per object format. Linux (ELF) finds the data segments and the
 // static TLS block with dl_iterate_phdr; macOS (Mach-O) walks the main image's load commands and
 // finds each thread's thread-local block through a TLV descriptor (see the __APPLE__ blocks).
 // Windows (PE/COFF) has no signals to stop threads with: the collector suspends each one with
 // SuspendThread and reads its registers with GetThreadContext instead (see the _WIN32 blocks).
+// WASI (wasm32) has one thread and no registers in memory: values the program keeps in wasm locals
+// are invisible to a scan of linear memory, so csharpc spills every reference that is live across
+// a call that may collect into a stack slot (src/Csharpc/Wasm/RootSpilling.cs; docs/adr/0011-wasm32.md),
+// and the collector scans the linear-memory stack and the data segment (see the __wasi__ blocks).
 #define _GNU_SOURCE
 #define _WIN32_WINNT 0x0A00  // Windows 10 (GetCurrentThreadStackLimits)
 #include "gc.h"
@@ -49,18 +55,22 @@
 #include <mach/mach.h>
 #include <mach-o/dyld.h>
 #include <mach-o/loader.h>
+#elif defined(__wasi__)
+#include <unistd.h>
 #else
 #include <link.h>
 #include <semaphore.h>
 #endif
+#ifndef __wasi__
 #include <setjmp.h>
 #include <signal.h>
+#endif
 #include <stdatomic.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#ifndef _WIN32
+#if !defined(_WIN32) && !defined(__wasi__)
 #include <sys/mman.h>
 #include <unistd.h>
 #endif
@@ -112,7 +122,7 @@ static CSRT_TLS csrt_GcThread* tl_self;
 #if defined(__APPLE__)
 #define SIG_SUSPEND SIGUSR1  // Darwin has no SIGPWR; .NET programs can't handle SIGUSR1 themselves
 #define SIG_RESUME  SIGXCPU
-#elif !defined(_WIN32)
+#elif !defined(_WIN32) && !defined(__wasi__)
 #define SIG_SUSPEND SIGPWR
 #define SIG_RESUME  SIGXCPU
 #endif
@@ -133,7 +143,7 @@ static struct {
     atomic_int stop_epoch, world_stopped;
 #if defined(__APPLE__)
     semaphore_t ack;  // macOS has no unnamed POSIX semaphores (sem_init fails with ENOSYS)
-#elif !defined(_WIN32)
+#elif !defined(_WIN32) && !defined(__wasi__)
     sem_t ack;
 #endif
 
@@ -170,6 +180,7 @@ static struct {
     size_t mark_count, mark_capacity;
 
     size_t allocated_since_gc, live_bytes, trigger, min_trigger;
+    size_t stress, stress_count;  // CSRT_GC_STRESS
     size_t collections, peak_heap, total_allocated;
     double total_gc_seconds;
 } g;
@@ -251,6 +262,10 @@ static Chunk* chunk_map(void) {
         VirtualFree(raw, 0, MEM_RELEASE);
         if (VirtualAlloc((void*)aligned, CHUNK_SIZE, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE)) break;
     }
+#elif defined(__wasi__)
+    // Linear memory only grows: take aligned blocks from wasi-libc's allocator (memory.grow).
+    uintptr_t aligned = (uintptr_t)aligned_alloc(CHUNK_SIZE, CHUNK_SIZE);
+    if (!aligned) return NULL;
 #else
     // Over-allocate and trim so the chunk is CHUNK_SIZE-aligned.
     size_t span = CHUNK_SIZE * 2;
@@ -364,7 +379,10 @@ static void protect_caches(void) {
 // ---------------------------------------------------------------------------------------------
 // Allocation
 // ---------------------------------------------------------------------------------------------
-static void collect(void);
+/// Named and never inlined: csharpc's wasm root spiller (RootSpilling.cs) finds the calls that may
+/// collect by looking for the callers of this function.
+__attribute__((noinline)) void csrt_gc_collect_now(void);
+#define collect csrt_gc_collect_now
 
 // The lock only matters once a second thread exists. g.multithreaded flips once, set by the only
 // running thread (in csrt_gc_thread_prepare, before the new thread starts), and never resets.
@@ -490,6 +508,21 @@ static void* own_stack_bottom(void) { return pthread_get_stackaddr_np(pthread_se
 static void ack_init(void) { semaphore_create(mach_task_self(), &g.ack, SYNC_POLICY_FIFO, 0); }
 static void ack_post(void) { semaphore_signal(g.ack); }  // a Mach trap: async-signal-safe
 static void ack_wait(void) { while (semaphore_wait(g.ack) == KERN_ABORTED) {} }
+#elif defined(__wasi__)
+// wasm-ld's layout with --stack-first: [stack | data (.data, .bss) | heap], the stack growing down
+// from __stack_high. Static fields live in the data segment; there is no thread-local storage
+// without the threads proposal (the compiler turns _Thread_local into ordinary globals).
+extern char __stack_high, __global_base, __data_end;
+
+static void cache_segments(void) {
+    g.segments[0].lo = (uintptr_t)&__global_base;
+    g.segments[0].hi = (uintptr_t)&__data_end;
+    g.segment_count = 1;
+}
+
+static void tls_bounds(csrt_GcThread* t) { (void)t; }
+
+static void* own_stack_bottom(void) { return &__stack_high; }
 #else
 static void ack_init(void) { sem_init(&g.ack, 0, 0); }
 static void ack_post(void) { sem_post(&g.ack); }
@@ -550,10 +583,12 @@ void csrt_gc_init(void) {
     env = getenv("CSRT_GC_TRIGGER_MB");
     g.min_trigger = env && atol(env) > 0 ? (size_t)atol(env) * 1024 * 1024 : MIN_TRIGGER;
     g.trigger = g.min_trigger;
+    env = getenv("CSRT_GC_STRESS");
+    g.stress = env && atol(env) > 0 ? (size_t)atol(env) : 0;
 #if defined(__GLIBC__)
     extern void* __libc_stack_end;
     g.stack_bottom = __libc_stack_end;
-#elif defined(__APPLE__) || defined(_WIN32)
+#elif defined(__APPLE__) || defined(_WIN32) || defined(__wasi__)
     g.stack_bottom = own_stack_bottom();
 #else
     g.stack_bottom = __builtin_frame_address(0);
@@ -564,6 +599,8 @@ void csrt_gc_init(void) {
     thread_handles(&g.main_thread);
 #elif defined(__APPLE__)
     ack_init();
+    cache_segments();
+#elif defined(__wasi__)
     cache_segments();
 #else
     ack_init();
@@ -617,6 +654,7 @@ __attribute__((noinline, cold)) static void* alloc_small_slow(uint32_t cls) {
     AllocCache* cache = &tl_cache[cls];
     bool collected = false;
     void* result = NULL;
+    if (g.stress && g.enabled && ++g.stress_count % g.stress == 0 && !g.collecting) { collect(); collected = true; }
     for (;;) {
         if (g.enabled && g.allocated_since_gc >= g.trigger && !g.collecting) { collect(); collected = true; }
         if (cache->free_bits || claim_word(sc, cache, cls)) break;
@@ -627,6 +665,13 @@ __attribute__((noinline, cold)) static void* alloc_small_slow(uint32_t cls) {
     size_t heap = g.live_bytes + g.allocated_since_gc;
     if (heap > g.peak_heap) g.peak_heap = heap;
     uint64_t bits = cache->free_bits;
+    if (g.stress) {
+        // Hand back all but one slot, so that the next allocation of this class is slow too.
+        size_t w;
+        Chunk* c = cache_word(cache, &w);
+        c->allocated[w] &= ~(bits & (bits - 1));
+        bits &= -bits;
+    }
     cache->free_bits = bits & (bits - 1);
     result = cache->word_base + (size_t)__builtin_ctzll(bits) * k_size_classes[cls];
 out:
@@ -643,7 +688,7 @@ __attribute__((noinline)) static void* alloc_large_slow(size_t size, bool clear)
 }
 
 static void* alloc_large_locked(size_t size, bool clear) {
-    if (g.enabled && g.allocated_since_gc >= g.trigger) collect();
+    if (g.enabled && (g.allocated_since_gc >= g.trigger || (g.stress && ++g.stress_count % g.stress == 0))) collect();
     void* result = alloc_large(size, clear);
     if (!result && g.enabled) { collect(); result = alloc_large(size, clear); }
     if (result) {
@@ -688,7 +733,12 @@ int64_t csrt_gc_total_memory(void) {
 // Marking
 // ---------------------------------------------------------------------------------------------
 static void* mmap_grow(void* old, size_t old_bytes, size_t new_bytes) {
-#ifdef _WIN32
+#if defined(__wasi__)
+    // One thread: nothing can hold the allocator's lock while the collector runs.
+    (void)old_bytes;
+    void* grown = realloc(old, new_bytes);
+    if (!grown) { static const char m[] = "csrt: out of memory (gc metadata)\n"; (void)!write(2, m, sizeof m - 1); abort(); }
+#elif defined(_WIN32)
     void* grown = VirtualAlloc(NULL, new_bytes, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
     if (!grown) { static const char m[] = "csrt: out of memory (gc metadata)\n"; (void)!_write(2, m, sizeof m - 1); abort(); }
     if (old) { memcpy(grown, old, old_bytes); VirtualFree(old, 0, MEM_RELEASE); }
@@ -798,12 +848,19 @@ static void drain(void) {
 
 /// noinline so the caller's frame (and every frame above it) lies inside the scanned range.
 CSRT_GC_NO_SANITIZE __attribute__((noinline)) static void scan_own_stack(const void* bottom) {
+#ifdef __wasi__
+    // The wasm stack's locals live outside linear memory; references live across the call that
+    // got here were spilled into their frames' slots by csharpc (RootSpilling), which lie above us.
+    volatile uintptr_t marker = 0;
+    const void* top = (const void*)&marker;
+#else
     jmp_buf registers;  // spills callee-saved registers onto this frame
     setjmp(registers);
     __builtin_unwind_init();
     volatile uintptr_t marker = 0;
     const void* top = (const void*)&marker;
     if ((const void*)registers < top) top = (const void*)registers;
+#endif
     scan_range(top, bottom);
 }
 
@@ -826,7 +883,12 @@ static void scan_roots(void) {
 // ---------------------------------------------------------------------------------------------
 // Stop the world
 // ---------------------------------------------------------------------------------------------
-#ifdef _WIN32
+#if defined(__wasi__)
+// WASI preview 1 has no threads: the world is always stopped.
+static void install_signal_handlers(void) {}
+static int stop_world(void) { return 0; }
+static void resume_world(void) {}
+#elif defined(_WIN32)
 // SuspendThread is asynchronous; GetThreadContext only returns once the thread is really stopped,
 // and yields the registers to scan (all of CONTEXT: pointers can sit in vector registers too).
 // Windows x64 has no red zone, so nothing live lies below the stopped thread's Rsp.
@@ -1025,7 +1087,7 @@ static size_t sweep(void) {
     return live;
 }
 
-static void collect(void) {
+__attribute__((noinline)) void csrt_gc_collect_now(void) {
     if (g.collecting) return;
     g.collecting = true;
     struct timespec t0, t1;
