@@ -38,3 +38,4 @@ matrix in [06-roadmap.md](06-roadmap.md) and add a dated entry to [07-spike-log.
 - [15 — Conformance corpus 2](15-conformance2.md): 258 adversarial edge-case programs, wrong-output bugs found and fixed, remaining gaps
 - [17 — Security](17-security.md): memory safety, exploit mitigations (`--hardening`), sanitizers and fuzzing, reproducible builds
 - [18 — Compatibility](18-compatibility.md): real-world compatibility report — unmodified Microsoft sample/docs console programs vs .NET, pass rate, ranked blockers, bugs found
+- [19 — Globalization](19-globalization.md): cultures via ICU (ported System.Globalization and its native shim), culture selection, invariant mode, size

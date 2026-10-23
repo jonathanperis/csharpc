@@ -26,7 +26,8 @@ every failure is a clean "not supported by csharpc yet" diagnostic.
 |---|---|---|
 | Primitives, enums (incl. names in `ToString`) | ✅ | |
 | `decimal`, `DateTime`, `TimeSpan`, `BigInteger` | ✅ | |
-| Strings, `StringBuilder`, string library, `char` | ✅ | ordinal/invariant semantics |
+| Strings, `StringBuilder`, string library, `char` | ✅ | culture-aware comparison and casing via ICU |
+| Cultures (`CultureInfo`, `RegionInfo`, calendars), invariant mode | ✅ | .NET's ICU implementation ([19](19-globalization.md)); no NLS on Windows |
 | Arrays (1-D, jagged, multi-dimensional), `Index`/`Range` | ✅ | |
 | Classes, inheritance, virtual/abstract/sealed, `base` | ✅ | |
 | Primary constructors, `required`, `init`, `field` keyword | ✅ | |
@@ -54,7 +55,7 @@ every failure is a clean "not supported by csharpc yet" diagnostic.
 | Iterators (`yield`), `async`/`await`, `await foreach` | ✅ | LLVM coroutines |
 | Exceptions inside async methods, `TaskCompletionSource`, cancellation | ✅ | |
 | Object/collection initializers, collection expressions (incl. spreads) | ✅ | |
-| Interpolation with alignment/format, composite formatting | ✅ | invariant culture |
+| Interpolation with alignment/format, composite formatting | ✅ | current culture or provider; `FormattableString` |
 | C# 14 extension members | ✅ | |
 | Query expressions / LINQ | ✅ | shadow corelib |
 | Expression trees | ⬜ | |

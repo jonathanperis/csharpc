@@ -150,13 +150,13 @@ operators including the `(BigInteger, long)` overloads, implicit/explicit conver
 
 ## Culture-sensitive comparison
 
-.NET uses ICU. With the invariant culture that is the CLDR root collation, so for example
-`Array.Sort` gives `"apple" < "Banana"`, and punctuation sorts before digits, which sort before
-letters. `csrt_string_compare_culture` approximates root collation for Latin text with three
-levels: base letter (case- and accent-insensitive) < accent < case (lowercase first). Control
-characters are ignorable. It backs `string.Compare`, `CompareTo`, `Array.Sort` and
-`StringComparison.*Culture*`. `StringComparison.Ordinal(IgnoreCase)` and `==` stay ordinal.
-Full UCA tables (non-Latin scripts, contractions) are future work.
+.NET uses ICU, and so does csharpc: `string.Compare`, `CompareTo`, `Array.Sort`, `Comparer<string>`,
+`StringComparer.CurrentCulture`/`InvariantCulture` and `StringComparison.*Culture*` go through the
+ported `CompareInfo` and ICU's collator for the culture (`corelib/Globalization/CultureStrings.cs`;
+the runtime's sorting reaches it through the `csrt_string_compare_culture` export). With the invariant
+culture that is the CLDR root collation, so for example `Array.Sort` gives `"apple" < "Banana"`.
+`StringComparison.Ordinal(IgnoreCase)` and `==` stay ordinal; invariant mode makes culture
+comparisons ordinal, as in .NET. See [19 — Globalization](19-globalization.md).
 
 ## Other members
 
@@ -169,16 +169,16 @@ with bases 2/8/10/16 and `Convert.ToInt32(double)` (banker's rounding), `bool.Pa
 `StringBuilder.Insert/Remove/Replace/indexer/AppendJoin`, `string.Split(string|char[])`,
 `string.Concat(string[])`, `string.IsNullOrWhiteSpace`, `object.ReferenceEquals`, `x as T`
 returning null, and custom numeric formats with `positive;negative;zero` sections.
-`CultureInfo.InvariantCulture`/`CurrentCulture` are accepted as placeholders: formatting and
-parsing are always invariant.
+Formatting and parsing use the provider's or the current culture's `NumberFormatInfo` /
+`DateTimeFormatInfo` ([19 — Globalization](19-globalization.md)).
 
 ## Known gaps
 
-* `TimeZoneInfo`, `DateTimeOffset`, `DateOnly`/`TimeOnly`, `DateTime.Parse` (diagnosed as unsupported).
+* `TimeZoneInfo`, `DateTimeOffset` (diagnosed as unsupported).
   Historical daylight-saving gaps take the zone's *current* base offset, which can differ from .NET
   where the standard offset has changed since.
 * Decimal `G` with precision follows double-style rules only approximately; `decimal.Parse`
   does not accept exponents (NumberStyles.Number, as .NET's default).
 * `Type` members other than names/identity; generic type names print as `List`1` without arguments.
-* Full ICU collation (see above). `BigInteger` uses O(n²) multiplication and decimal conversion.
+* `BigInteger` uses O(n²) multiplication and decimal conversion.
 * `Array.Sort` of arrays of non-comparable reference types, or with `IComparer<T>` objects.

@@ -49,7 +49,9 @@ the same header. Their `base` points at the base class's table or at `csrt_Objec
 
 Number formatting and parsing aren't in csrt anymore. They're corelib C#
 (`src/Csharpc/corelib/Number*.cs`, [ADR 0008](adr/0008-runtime-in-csharp.md)) and follow .NET's
-own algorithms for the **invariant culture**:
+own algorithms; the culture-dependent parts (symbols, group sizes, patterns) come from the
+`NumberFormatInfo` of the provider or the current culture ([19 — Globalization](19-globalization.md)).
+With the invariant culture:
 
 - `double.ToString()` / `"R"` / `"G"`: the shortest digits that round-trip, from the Steele & White
   / Burger & Dybvig free-format algorithm on exact big integers (`BigNum.cs`). Fixed notation is
@@ -117,8 +119,8 @@ itself, on top of a thin native layer.
 - startup (`csrt_init`);
 - casts, interface dispatch and boxing method tables (`csrt.c`, `type.c`, `delegates.c`).
 
-Also still in C, and next in line to move: culture-aware comparison and sorting (`bclmisc.c`) and
-`Enum.Parse` (`parse.c`). The `decimal.c`, `bigint.c` and `datetime.c` files that remain only hold
+Also in C: .NET's ICU shim (`globalization/`, System.Globalization.Native, see
+[19 — Globalization](19-globalization.md)), and, next in line to move, `Enum.Parse` (`parse.c`). The `decimal.c`, `bigint.c` and `datetime.c` files that remain only hold
 boxed method tables and the clocks.
 
 **Lives in C#:** library logic that is ordinary code:
@@ -167,6 +169,8 @@ shared):
 | command line | `/proc/self/cmdline` | `_NSGetArgv` | the UCRT's wide `argv` (`_configure_wide_argv`: MSVC `wmain` parsing of `GetCommandLineW`, like .NET's host) |
 | clocks | `clock_gettime` | the same | `GetSystemTimePreciseAsFileTime`; `Stopwatch` on `QueryPerformanceCounter` (its `Frequency` is `QueryPerformanceFrequency`, as in .NET) |
 | P/Invoke probing | `foo.so`, `libfoo.so`, `foo`, `libfoo` | the same with `.dylib` | `foo.dll`, `foo` (`LoadLibraryExW`); `SetLastError` captures `GetLastError()` |
+| ICU (globalization) | `libicuuc.so.NN` / `libicui18n.so.NN`, newest version first (`dlopen`) | `/usr/lib/libicucore.dylib` | `icu.dll` (Windows 10 1903+); no NLS fallback |
+| user culture | ICU default locale: `LC_ALL`, `LC_MESSAGES`, `LANG`; `C`/`POSIX` = invariant | system settings (`CFLocale`) | `GetLocaleInfoEx` / `GetUserPreferredUILanguages` |
 
 An uncaught exception on Windows: `_Unwind_RaiseException` raises an SEH exception that no frame
 handles, and MinGW's top-level filter (`_gnu_exception_handler`) resumes it, so it returns

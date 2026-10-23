@@ -89,7 +89,8 @@ calling thread after the loop drains.
   and are separate from the `Parallel.*` workers here, so `Parallel.For` inside `Task.Run` still
   fans out.
 - `Thread.Sleep(TimeSpan)`, `Join(TimeSpan)`, `Thread.Interrupt`/`Abort` (obsolete), thread
-  priorities and culture-per-thread are not supported. `ThreadLocal<T>`, `SpinLock`, `Barrier`,
+  priorities are not supported (the current culture is per thread and flows like in .NET, see
+  [19 — Globalization](19-globalization.md)). `ThreadLocal<T>`, `SpinLock`, `Barrier`,
   `ReaderWriterLockSlim`, `Mutex`/`Semaphore` (named, OS-level) and concurrent collections are not
   implemented yet (concurrent collections belong in the C# corelib).
 - Monitor `Wait` may wake spuriously (pthread condition variables); idiomatic `while` loops are
