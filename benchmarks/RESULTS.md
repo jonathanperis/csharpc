@@ -4,6 +4,12 @@ csharpc against the two official .NET 11 code generators (RyuJIT and NativeAOT),
 sources (`benchmarks/programs/*.cs`). Every binary's output must be **byte-identical** to `dotnet run`;
 `benchmarks/run.sh` marks a row `MISMATCH` otherwise.
 
+**CI runs.** The `Benchmarks` workflow (`.github/workflows/bench.yml`; manual, weekly and on
+compiler changes to `main`) runs the same harness on clean GitHub-hosted runners, x86-64 and arm64,
+and publishes the table in the job summary and as an artifact, together with csharpc's executed
+instruction counts (`benchmarks/instructions.sh`, valgrind), which are deterministic. Hosted runners
+are shared VMs, so wall times still vary a few percent between runs: compare engines within a run.
+
 **Machine:** AMD EPYC 9354P (Zen 4, 4 vCPUs), x86_64 Linux 6.8, 15 GiB RAM.
 **Toolchain:** .NET SDK 11.0.100-rc.2.26504.105, LLVM 18.1.3 (system `libLLVM-18.so`, clang 18),
 csharpc `main` with every feature branch merged (Release build of the compiler). **Date:** 2026-10-22.

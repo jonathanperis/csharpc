@@ -1,0 +1,74 @@
+name: Benchmarks
+
+# csharpc vs the .NET JIT vs NativeAOT on a clean hosted runner (benchmarks/run.sh), plus csharpc's
+# executed-instruction counts (benchmarks/instructions.sh), which don't depend on runner noise.
+# Wall-clock numbers vary a few percent between runs; compare engines within one run.
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 6 * * 1" # Mondays 06:00 UTC
+  push:
+    branches: [main]
+    paths: ["src/**", "benchmarks/**", ".github/workflows/bench.yml"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bench-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  bench:
+    name: bench (${{ matrix.arch }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86-64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 120
+    env:
+      DOTNET_CLI_TELEMETRY_OPTOUT: 1
+      DOTNET_NOLOGO: 1
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install LLVM 18, clang, valgrind and NativeAOT prerequisites
+        run: sudo apt-get update && sudo apt-get install -y llvm-18 clang-18 libllvm18 lld-18 valgrind zlib1g-dev && sudo ln -sf /usr/bin/clang-18 /usr/local/bin/clang && sudo ln -sf /usr/bin/ld.lld-18 /usr/local/bin/ld.lld
+
+      - name: Install .NET 11 SDK
+        run: |
+          curl -sSL https://dot.net/v1/dotnet-install.sh -o dotnet-install.sh
+          bash dotnet-install.sh --jsonfile global.json --install-dir "$HOME/.dotnet11"
+          echo "$HOME/.dotnet11" >> "$GITHUB_PATH"
+
+      - name: Runner
+        run: |
+          {
+            echo "## ${{ matrix.arch }} runner"
+            echo '```'
+            lscpu | grep -E 'Model name|^CPU\(s\)|Thread|MHz' || true
+            free -h | head -2
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Throughput, size and compile time (best of 5)
+        run: |
+          RUNS=5 benchmarks/run.sh | tee bench.md
+          { echo "## Throughput, size, compile time (${{ matrix.arch }})"; cat bench.md; } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Executed instructions (deterministic)
+        run: |
+          benchmarks/instructions.sh | tee instructions.md
+          { echo "## Executed instructions, csharpc -O2 (${{ matrix.arch }})"; cat instructions.md; } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: bench-${{ matrix.arch }}
+          path: |
+            bench.md
+            instructions.md
