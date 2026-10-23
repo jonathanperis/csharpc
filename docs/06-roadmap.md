@@ -100,9 +100,10 @@ Roslyn binds against the real reference assemblies are redirected to it
 `System.Text.Json` (ported from dotnet/runtime; `JsonSerializer` runs on compile-time metadata from the
 JSON source generator, which csharpc also synthesizes for reflection-style calls); formatting, parsing,
 `decimal`, `BigInteger` and `DateTime` (moved from the C runtime into C#); P/Invoke and `System.IO`;
-sockets (`Socket`, `TcpListener`/`TcpClient`, `UdpClient`, `Dns`). In progress: globalization (cultures
+sockets (`Socket`, `TcpListener`/`TcpClient`, `UdpClient`, `Dns`); library value types (`Guid`,
+`ArraySegment<T>`). In progress: globalization (cultures
 via ICU, as .NET). Next: TLS and `HttpClient`; the library surface ranked by the compatibility runs and
-the NuGet survey (`System.Type` reflection basics, `Guid`, `DateTimeOffset`).
+the NuGet survey (`System.Type` reflection basics, `DateTimeOffset`).
 
 ### M3 — Platforms and per-platform evidence
 Each platform gets a CI job (GitHub Actions) running the full differential suite, conformance corpus
