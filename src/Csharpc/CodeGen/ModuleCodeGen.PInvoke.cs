@@ -56,7 +56,9 @@ public sealed partial class ModuleCodeGen
 
         var library = data.ModuleName ?? "";
         var entry = data.EntryPointName ?? method.Name;
-        var direct = s_directLinkLibraries.Contains(library);
+        // Linux sonames (libm.so.6, ...) don't exist on macOS: .NET fails to load them there, so they
+        // go through dlopen and throw DllNotFoundException like .NET instead of binding to libSystem.
+        var direct = s_directLinkLibraries.Contains(library) && !(Types.Target.IsDarwin && library.Contains(".so", StringComparison.Ordinal));
         var nativeAttributes = NativeAttributes(parameters, retKind, method, sret, retStruct);
         LLVMValueRef native = default;
         if (direct)
@@ -242,7 +244,9 @@ public sealed partial class ModuleCodeGen
             if (p.Kind == ParamKind.StructByVal && Types.Target.IsX86_64)
                 attributes.Add((index, Typed("byval", p.StructType)));
             // AAPCS64 composites that spill to the stack take 8-byte-aligned slots (clang: alignstack(8)).
-            else if (p.Kind == ParamKind.Struct && Types.Target.IsAArch64)
+            // Apple's arm64 ABI packs stack arguments at their natural alignment instead (clang adds
+            // nothing there), and requires the caller to extend sub-int arguments (signext/zeroext below).
+            else if (p.Kind == ParamKind.Struct && Types.Target.IsAArch64 && !Types.Target.IsDarwin)
                 attributes.Add((index, Enum("alignstack", 8)));
             else if (p.NativeTypes.Length == 1 && p.NativeTypes[0].IsInteger && p.NativeTypes[0].IntWidth < 32)
                 attributes.Add((index, Enum(p.Kind == ParamKind.Direct && TypeMapper.IsSigned(p.Type) ? "signext" : "zeroext")));
@@ -368,7 +372,7 @@ public sealed partial class ModuleCodeGen
         : Types.Target.IsAArch64 ? ClassifyAapcs64(type)
         : throw CompileError.Unsupported($"P/Invoke struct passing on target '{Types.Target.Triple}'", at);
 
-    // ---- AAPCS64 (Linux) classification, mirroring clang's AArch64ABIInfo ------------------------
+    // ---- AAPCS64 classification (Linux and Apple arm64 alike), mirroring clang's AArch64ABIInfo ---
 
     private LLVMTypeRef[]? ClassifyAapcs64(LLVMTypeRef type)
     {
