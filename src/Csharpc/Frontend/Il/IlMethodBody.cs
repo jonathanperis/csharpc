@@ -37,6 +37,27 @@ public sealed class IlMethodBody
     public required IlGenericContext Context { get; init; }
     public required bool InitLocals { get; init; }
 
+    /// <summary>
+    /// The body of <paramref name="method"/>, decoded once per generic definition: instructions, regions
+    /// and local types are in the definition's generic context, so every instantiation shares them.
+    /// </summary>
+    public static IlMethodBody For(IlAssembly assembly, IMethodSymbol method, MethodBodyBlock block)
+    {
+        var shared = assembly.DecodedBodies.TryGetValue(method.OriginalDefinition, out var cached)
+            ? cached
+            : assembly.DecodedBodies[method.OriginalDefinition] = Decode(assembly, method.OriginalDefinition, block);
+        return SymbolEqualityComparer.Default.Equals(shared.Method, method) ? shared : new IlMethodBody
+        {
+            Method = method,
+            Assembly = shared.Assembly,
+            Instructions = shared.Instructions,
+            Regions = shared.Regions,
+            Locals = shared.Locals,
+            Context = shared.Context,
+            InitLocals = shared.InitLocals,
+        };
+    }
+
     public static IlMethodBody Decode(IlAssembly assembly, IMethodSymbol method, MethodBodyBlock block)
     {
         var context = IlGenericContext.For(method);

@@ -137,6 +137,7 @@ public sealed partial class ModuleCodeGen
                      && !TypeSubstitution.IsGenericContext(t)))
             foreach (var method in type.GetMembers().OfType<IMethodSymbol>().Where(m => !m.IsGenericMethod))
                 Guard(method, () => EmitMethod(method));
+        if (IlSurvey) QueueIlSurveyMethods();
 
         DrainWorklists();
 
@@ -436,7 +437,34 @@ public sealed partial class ModuleCodeGen
     public LoweredFunction Intrinsic(string name, LLVMTypeRef ret, params LLVMTypeRef[] parameters) =>
         Runtime(name, ret, parameters);
 
+    /// <summary>Where lowering time goes (printed by `csharpc -v`).</summary>
+    public sealed class LoweringStats
+    {
+        public int IlMethods, SourceMethods, CoreLibMethods;
+        public long IlTicks, IlDecodeTicks, SourceTicks, CoreLibTicks;
+        public override string ToString() =>
+            $"IL {IlMethods} methods {Ms(IlTicks)} ms (decode {Ms(IlDecodeTicks)} ms), source {SourceMethods} methods {Ms(SourceTicks)} ms, corelib {CoreLibMethods} methods {Ms(CoreLibTicks)} ms";
+        private static string Ms(long ticks) => (ticks * 1000.0 / System.Diagnostics.Stopwatch.Frequency).ToString("F0", System.Globalization.CultureInfo.InvariantCulture);
+    }
+
+    public LoweringStats Stats { get; } = new();
+
     private void EmitMethod(IMethodSymbol method)
+    {
+        var start = System.Diagnostics.Stopwatch.GetTimestamp();
+        var il = Il.OwnerOf(method) is not null;
+        var corelib = !il && CoreLib.IsCoreLib(method);
+        try { EmitMethodCore(method); }
+        finally
+        {
+            var elapsed = System.Diagnostics.Stopwatch.GetTimestamp() - start;
+            if (il) { Stats.IlMethods++; Stats.IlTicks += elapsed; }
+            else if (corelib) { Stats.CoreLibMethods++; Stats.CoreLibTicks += elapsed; }
+            else { Stats.SourceMethods++; Stats.SourceTicks += elapsed; }
+        }
+    }
+
+    private void EmitMethodCore(IMethodSymbol method)
     {
         if (method.IsAbstract || method.IsExtern) return;
         if (Il.OwnerOf(method) is { } ilAssembly)

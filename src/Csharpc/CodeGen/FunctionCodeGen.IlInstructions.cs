@@ -669,6 +669,9 @@ public sealed partial class FunctionCodeGen
             var spilled = Spill(e.Value);
             return new IlValueOperation(il.Syntax, type, () => LoadValue(spilled, S(type)), spilled, nonNull: true);
         }
+        // Library members taking System.Array (Array.Copy, Array.Clear, ...) are lowered per element type:
+        // hand them the array type the IL value is known to have.
+        if (type.SpecialType == SpecialType.System_Array && e.Kind == IlKind.Ref && e.Type is IArrayTypeSymbol) type = e.Type;
         return new IlValueOperation(il.Syntax, type, () => IlTyped(e, type), nonNull: e.NonNull || e.IsThis);
     }
 

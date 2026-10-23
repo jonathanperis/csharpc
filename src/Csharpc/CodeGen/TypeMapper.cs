@@ -66,11 +66,23 @@ public sealed class TypeMapper(LlvmContext llvm, TargetMachine target)
         INamedTypeSymbol { Name: "Scope", ContainingType: { Name: "Lock", ContainingNamespace.Name: "Threading" } } => Llvm.Ptr,
         INamedTypeSymbol n when IsSpan(n) => Llvm.Struct(Llvm.Ptr, Llvm.I32),                  // { ref T, length }
         INamedTypeSymbol n when IsSpanEnumerator(n) => Llvm.Struct(Llvm.Ptr, Llvm.I32, Llvm.I32), // { ref T, length, index }
+        // System.Runtime.CompilerServices.InlineArrayN<T> (compiled `params` spans): N consecutive Ts.
+        INamedTypeSymbol n when LibraryInlineArrayLength(n) is { } length => LlvmContext.Array(Storage(n.TypeArguments[0]), (uint)length),
         INamedTypeSymbol { TypeKind: TypeKind.Struct } s when StructType?.Invoke(s) is { } user => user,
         { TypeKind: TypeKind.Struct } => throw CompileError.Unsupported($"struct '{type}'", type),
         { TypeKind: TypeKind.TypeParameter } => throw CompileError.Unsupported($"generic type parameter '{type}'", type),
         _ => throw CompileError.Unsupported($"type '{type}'", type),
     };
+
+    /// <summary>
+    /// N for the BCL's InlineArray2&lt;T&gt;..InlineArray16&lt;T&gt; ([InlineArray(N)] over one T field), which the
+    /// C# compiler uses for `params ReadOnlySpan&lt;T&gt;` arguments in IL; null for other types.
+    /// </summary>
+    public static int? LibraryInlineArrayLength(INamedTypeSymbol type) =>
+        type is { TypeKind: TypeKind.Struct, TypeArguments.Length: 1, ContainingType: null } && type.Name.StartsWith("InlineArray", StringComparison.Ordinal)
+        && type.ContainingNamespace?.ToDisplayString() == "System.Runtime.CompilerServices"
+        && type.OriginalDefinition.GetAttributes().FirstOrDefault(a => a.AttributeClass?.Name == "InlineArrayAttribute") is { ConstructorArguments: [{ Value: int length }] }
+            ? length : null;
 
     /// <summary>Resolves user-defined structs to their named LLVM type (set by ModuleCodeGen); null if not user-defined.</summary>
     public Func<INamedTypeSymbol, LLVMTypeRef?>? StructType { get; set; }

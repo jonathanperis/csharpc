@@ -242,6 +242,16 @@ public sealed partial class FunctionCodeGen
     // Block lowering and the stack across blocks
     // ======================================================================================
 
+    /// <summary>The opcode after the instruction being lowered (null at the end of the body).</summary>
+    private ILOpCode? IlNextOpCode()
+    {
+        var instructions = IlBody.Instructions;
+        var index = _ilIndex + 1;
+        return index < instructions.Length ? instructions[index].OpCode : null;
+    }
+
+    private int _ilIndex;
+
     private void EmitIlBlock(IlBlock block)
     {
         var il = _il!;
@@ -264,6 +274,7 @@ public sealed partial class FunctionCodeGen
         {
             var instruction = IlBody.Instructions[i];
             il.Current = instruction;
+            _ilIndex = i;
             try { terminated = EmitIlInstruction(instruction, stack, block); }
             catch (IlException e) { throw IlError(e.Message); }
             catch (CompileError e) when (!e.Message.Contains(" [in '", StringComparison.Ordinal)) { throw IlError(e.Message, e.Id, e.Location); }

@@ -1,0 +1,10 @@
+5 4 3 2 1 disposed
+
+4 3 2 1 disposed
+
+disposed
+canceled after 4: The operation was canceled.
+linked: True
+before: False
+after: True False
+equal: True False True

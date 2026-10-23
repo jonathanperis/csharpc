@@ -40,7 +40,8 @@ public sealed partial class FunctionCodeGen
         {
             var receiverType = TypeOf(receiver);
             // Interface members (user or library, e.g. IComparable<T>.CompareTo): devirtualize or dispatch.
-            if (target.ContainingType.TypeKind == TypeKind.Interface && !IsArrayEnumeration(receiver))
+            if (target.ContainingType.TypeKind == TypeKind.Interface
+                && (!IsArrayEnumeration(receiver) || target.ContainingType.Name is "IStructuralComparable" or "IStructuralEquatable"))
                 return EmitInterfaceCall(target, receiver, inv.Arguments, [], inv);
             // object.ToString/Equals/GetHashCode on a value-type receiver (a substituted T): box, then dispatch.
             if (receiverType is { IsValueType: true } && target.ContainingType.SpecialType is SpecialType.System_Object or SpecialType.System_ValueType)
@@ -371,9 +372,13 @@ public sealed partial class FunctionCodeGen
             throw CompileError.Unsupported($"creating instances of '{type}'", creation);
         if (type.IsAbstract) throw CompileError.Unsupported("instantiating an abstract class", creation);
 
+        var constructor = S(creation.Constructor!);
+        // A shadowed library class whose shadow lacks this constructor overload: report it, never call
+        // the library's (bodiless) constructor.
+        if (!_m.IsUserMethod(constructor)) throw CompileError.MissingIntrinsic(creation.Constructor!, creation);
         var layout = _m.GetLayout(type);
         var obj = Allocate(layout.MethodTable, L.ConstInt(L.I64, (long)layout.InstanceSize));
-        EmitUserCall(S(creation.Constructor!), obj, selfIsNonNull: true, creation.Arguments, isVirtual: false);
+        EmitUserCall(constructor, obj, selfIsNonNull: true, creation.Arguments, isVirtual: false);
         return obj;
     }
 
@@ -459,6 +464,7 @@ public sealed partial class FunctionCodeGen
     {
         { SpecialType: SpecialType.System_String } => _m.ExternalGlobal("csrt_String_MT"),
         { SpecialType: SpecialType.System_Object } => _m.ExternalGlobal("csrt_Object_MT"),
+        { SpecialType: SpecialType.System_Array } => _m.ExternalGlobal("csrt_Array_MT"), // any array (csrt_isinst_class)
         _ when IsBoxablePrimitive(type) => _m.ExternalGlobal($"csrt_Boxed_{type.MetadataName}_MT"),
         _ when BclValueTypes.IsDecimal(type) || BclValueTypes.IsTicks(type) || BclValueTypes.IsBigInteger(type) => _m.TypeMethodTable(type, at),
         INamedTypeSymbol { TypeKind: TypeKind.Enum } e => _m.EnumMethodTable(e),

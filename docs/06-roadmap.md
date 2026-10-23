@@ -128,14 +128,27 @@ instructions). Done: `-r`, `<Reference>` and `PackageReference` input; all opcod
 TypedReference ones and `ckfinite`; generics, virtual/interface dispatch across the source/IL
 boundary, EH incl. filters, static constructors (`beforefieldinit`), RVA data, P/Invoke, events,
 compiled C# idioms (interpolation handlers, closures, iterators, records, generic math); unreachable
-failures compile to stubs (`CSLLVM0007`). `tests/il.sh` checks library projects consumed as DLLs and a
-nuget.org package (Ardalis.GuardClauses) against `dotnet run`. Next: compiled `async` (an
-`AsyncTaskMethodBuilder` over csrt tasks), resource strings (`SR.GetResourceString` from embedded
-`.resources`), `calli`, the BCL surface packages use (`ReadOnlyCollection<T>`, culture
-info objects), RID-specific/native package assets.
+failures compile to stubs (`CSLLVM0007`); compiled `async` (method builders, awaiters, async
+iterators, `IValueTaskSource`); embedded resource strings (`ResourceManager`, framework `SR`
+messages); `AppContext` with runtimeconfig defaults; `System.Collections.Immutable` compiled from the
+shared framework's IL. `tests/il.sh` checks library projects consumed as DLLs, a nuget.org package
+(Ardalis.GuardClauses) and a framework assembly against `dotnet run`; `tools/il-survey` ranks what the
+top pure-IL packages still need ([18-compatibility.md](18-compatibility.md#il-front-end-survey)).
+Next: the BCL surface packages use (ranked by the survey), `typeof(X).Assembly`, `calli`,
+RID-specific/native package assets.
 
 ### M6 — Bootstrapping
 csharpc compiles csharpc (and Roslyn) — the strongest possible proof of maturity.
+
+Status: the IL front-end can compile framework assemblies from the shared framework's IL
+(System.Collections.Immutable: 1644 IL methods reachable from a small program, ~30 s at `-O0` on a
+loaded 4-core machine, ~290 MB). Plan, in order: (1) the library surface Roslyn and csharpc use, driven
+by the IL survey and by compiling `System.Reflection.Metadata`/`Microsoft.Extensions.*` from IL;
+(2) a `--framework-il` policy (which framework assemblies come from IL instead of shadows);
+(3) compile-time scale for a ~40 MB-of-IL closed world: csharpc published ReadyToRun, parallel LLVM
+code generation (module partitions), then parallel lowering; (4) reflection Roslyn needs at startup
+(`typeof(X).Assembly`, resource lookup, analyzer activation) as compile-time metadata with diagnostics
+for the rest; (5) csharpc compiled by csharpc, LLVM C API P/Invokes included.
 
 ### Credibility deliverables (cross-cutting)
 - A technical report: what csharpc demonstrates (Roslyn's CFG as a mid-level IR, a C# corelib with

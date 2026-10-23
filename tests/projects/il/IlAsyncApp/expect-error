@@ -1,1 +1,0 @@
-IlAsyncLib.dll(1,1): error CSLLVM0001: not supported by csharpc yet: struct 'System.Runtime.CompilerServices.AsyncTaskMethodBuilder<int>' [in 'IlAsyncLib.Work.DoubleAsync(int)' (IlAsyncLib.dll)]

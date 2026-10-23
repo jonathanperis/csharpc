@@ -427,7 +427,14 @@ public sealed partial class FunctionCodeGen
             return array;
         }
         var span = Coerce(EmitValue(argument.Value), TypeOf(argument.Value), S(argument.Parameter!.Type));
-        if (asStrings) throw CompileError.Unsupported("joining a non-literal span of objects", argument);
+        if (asStrings)
+        {
+            // A span built elsewhere (IL: an InlineArrayN of objects): copy it out, then format each element.
+            var spanElement = ((INamedTypeSymbol)S(argument.Parameter!.Type)).TypeArguments[0];
+            if (spanElement.SpecialType != SpecialType.System_Object) throw CompileError.Unsupported("joining a non-literal span of objects", argument);
+            var objects = CallRuntime("csrt_span_to_array", L.Ptr, [L.Ptr, L.I32, L.I64], SpanPointer(span), SpanLength(span), ElementSize(spanElement));
+            return CallCoreLib("ParamsSpans", "ToStrings", objects);
+        }
         return CallRuntime("csrt_span_to_array", L.Ptr, [L.Ptr, L.I32, L.I64], SpanPointer(span), SpanLength(span), ElementSize(element));
     }
 

@@ -272,3 +272,39 @@ commits in `fetch.sh`, re-run, then commit the new `programs.tsv`, `excluded.tsv
 
 The corpus is untrusted input. The harness never executes scripts from it. It only builds and runs
 the C# programs themselves, with `dotnet` and with csharpc, which is the point of the exercise.
+
+## IL front-end survey
+
+What nuget.org packages need from csharpc when they reach it as compiled assemblies
+([ADR 0010](adr/0010-il-frontend.md)). `tools/il-survey/survey.py` takes the 52 packages in
+`tools/il-survey/packages.txt` (the most downloaded pure-IL library packages, pinned), downloads each
+with its dependency closure from nuget.org's flat container (only `lib/*.dll` and the `.nuspec` are
+extracted; no MSBuild, so package scripts and targets never run), and compiles a trivial consumer with
+`csharpc --il-survey -O0 --emit llvm-bc`, which lowers every method of the package that needs no type
+arguments, reachable or not. The `IL survey` workflow runs it whenever the harness changes and
+publishes the full report as an artifact.
+
+First run (2026-10-23, CI, branch `il-phase2`): 26 030 diagnostics over 52 packages — 9 980 sites of
+2 150 distinct missing library members, 12 335 unsupported constructs. 2 packages lower completely
+(System.Linq.Async, System.Interactive.Async); DocumentFormat.OpenXml exceeded the survey's per-compile
+memory cap. No package produced IR the verifier rejected. The 3 699 internal errors in that run were
+one survey-only artifact (Roslyn's synthesized default struct constructors, which have no metadata
+row, were handed to the IL decoder); they are diagnosed now.
+
+**What blocks packages** (number of packages affected):
+
+| Area | Packages | Top items |
+|---|---|---|
+| Reflection over `System.Type` | 40 | `Type.Assembly` (25), `IsAssignableFrom` (23), `IsGenericType` (22), `MethodBase.GetParameters` (20), `MemberInfo.DeclaringType` (18), `MakeGenericType` (16), `GetTypeInfo` (15), `Activator.CreateInstance` (13) |
+| BCL value types without a layout | 29 | `DateTimeOffset` (29), `Guid` (25), `StreamingContext` (17, serialization constructors), `ArraySegment<byte>` (13), `ReadOnlySequence<byte>` (7), `CancellationTokenRegistration` (7) |
+| Small BCL members | 10–23 | `GC.SuppressFinalize` (23), `Array.SetValue` (17), `DateTime.ToString(string, IFormatProvider)` (15), `ArrayPool<byte>.Shared` (12), `Convert.From/ToBase64String` (12/11), `RuntimeHelpers.GetHashCode` (12), `Array.Clone`/`CopyTo` (10), `Buffer.BlockCopy` (9) |
+| Library classes created or derived from | 8–17 | `new Uri` (17), `Version` (9), `Hashtable` (8), `Random` (8); overriding `Stream.ReadAsync` (6), `Exception.GetObjectData` (5); `EventSource` (8) |
+| Code generation at run time | 9–10 | `System.Linq.Expressions` (10), `Reflection.Emit` (9) — out of scope (closed world), as in NativeAOT |
+
+The IL side itself is not what blocks: the unsupported constructs are library types and members, and
+the rest of the list is the BCL surface (roadmap M2). Reflection is the largest area by far; the
+closed-world answer is compile-time metadata for what is statically known (`typeof(X).Assembly`,
+`IsGenericType`, `GetGenericArguments` on known types) and diagnostics for the rest, as M6 item 3 plans.
+
+Re-run: `python3 -I tools/il-survey/survey.py --jobs 1 --out il-survey.md` (a fresh `/tmp` work dir by
+default; `--only Id1,Id2` for a subset).

@@ -19,6 +19,26 @@ public sealed partial class ModuleCodeGen
     /// <summary>--dump-il: where to print the decoded IL of lowered methods.</summary>
     public TextWriter? IlDump { get; init; }
 
+    /// <summary>
+    /// --il-survey (tools/il-survey): also lower every method of the IL assemblies that needs no type
+    /// arguments, so one compile reports everything a package would need, not only what a program reaches.
+    /// The failures stay CSLLVM0007 warnings unless the program itself reaches them.
+    /// </summary>
+    public bool IlSurvey { get; init; }
+
+    private void QueueIlSurveyMethods()
+    {
+        foreach (var type in IlTypes)
+        {
+            if (TypeSubstitution.IsGenericContext(type) || type.TypeKind is not (TypeKind.Class or TypeKind.Struct)) continue;
+            foreach (var method in type.GetMembers().OfType<IMethodSymbol>())
+                // MetadataToken 0: members Roslyn synthesizes with no metadata row (a struct's default constructor).
+                if (!method.IsGenericMethod && !method.IsAbstract && !method.IsExtern && method.MethodKind is not MethodKind.StaticConstructor
+                    && method.MetadataToken != 0)
+                    Guard(method, () => GetFunction(method));
+        }
+    }
+
     public bool IsIlType(ITypeSymbol? type) => type is INamedTypeSymbol && Il.Contains(type.ContainingAssembly);
 
     public bool IsIlMethod(IMethodSymbol method) => Il.Contains(method.ContainingAssembly);
@@ -69,14 +89,18 @@ public sealed partial class ModuleCodeGen
         var location = IlSyntax(assembly).Plain.GetLocation();
         try
         {
+            if (method.OriginalDefinition.MetadataToken == 0)
+                throw new CompileError("CSLLVM0001", $"not supported by csharpc yet: '{method}' has no metadata definition (synthesized by Roslyn) [in {assembly.Name}.dll]", location);
             var block = assembly.Body(method)
                 ?? throw new CompileError("CSLLVM0001", $"not supported by csharpc yet: '{method}' has no IL body (runtime-implemented method in {assembly.Name}.dll)", location);
             IlMethodBody body;
-            try { body = IlMethodBody.Decode(assembly, method, block); }
+            var decodeStart = System.Diagnostics.Stopwatch.GetTimestamp();
+            try { body = IlMethodBody.For(assembly, method, block); }
             catch (Exception e) when (e is IlException or BadImageFormatException)
             {
                 throw new CompileError("CSLLVM0001", $"not supported by csharpc yet: {e.Message} [in '{method}' ({assembly.Name}.dll)]", location);
             }
+            finally { Stats.IlDecodeTicks += System.Diagnostics.Stopwatch.GetTimestamp() - decodeStart; }
             if (IlDump is { } dump)
             {
                 dump.WriteLine($"=== IL {method.ToDisplayString()}  [{Mangler.Method(method)}]");

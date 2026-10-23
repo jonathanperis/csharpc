@@ -1,6 +1,7 @@
 # ADR 0010 — IL front-end: IL as a method-body source for Roslyn's metadata symbols
 
-- **Status:** Accepted (2026-10-23). Vertical slice implemented; see [Status of the implementation](#status-of-the-implementation).
+- **Status:** Accepted (2026-10-23). Vertical slice implemented; see [Status of the implementation](#status-of-the-implementation)
+  and [Follow-up: phase 2](#follow-up-phase-2-2026-10-23) (compiled async, resources, AppContext, framework IL).
 
 ## Context
 
@@ -217,16 +218,60 @@ in the frame that catches (as in the source path), after inner `finally` blocks 
 them in the first pass; `tail.` is not a guaranteed tail call. (An exception thrown inside a filter
 counts as `false`, as in .NET: filter code has its own catch-all landing pad.)
 
+## Follow-up: phase 2 (2026-10-23)
+
+Done on top of the vertical slice (tests: `tests/il.sh` IlAsyncApp, IlResourcesApp, IlFrameworkApp;
+samples 343–346):
+
+- **Compiled `async`.** The builders (`AsyncTaskMethodBuilder(<T>)`, `AsyncValueTaskMethodBuilder(<T>)`,
+  pooling variants, `AsyncVoidMethodBuilder`, `AsyncIteratorMethodBuilder`), awaiter
+  `OnCompleted`/`UnsafeOnCompleted`, `YieldAwaitable`, `ExceptionDispatchInfo`,
+  `ManualResetValueTaskSourceCore<T>` and `ValueTask`s over `IValueTaskSource` are corelib/intrinsics
+  over csrt tasks ([10-async.md](../10-async.md#async-state-machines-compiled-from-il)). Covered against
+  `dotnet run`: synchronous completion, exceptions before/after the first await, await in
+  catch/finally, `ConfigureAwait`, `ValueTask(<T>)`, generic/recursive/instance async methods,
+  `WhenAll`/`Task.Run`, async lambdas, custom awaiters, async `void`, cancellation, async iterators
+  (yield without await, `finally` on early break, exceptions, manual enumeration, `WithCancellation`).
+  An `OperationCanceledException` escaping an async method now cancels the task in both paths.
+- **Resource strings.** Every IL assembly's embedded `.resources` (string entries) is read at compile
+  time into one constant; the corelib `ResourceManager` serves `GetString` by base name, so framework
+  `SR` messages and package `Properties.Resources` messages are .NET's (neutral culture).
+- **AppContext.** `GetData`/`SetData`/`TryGetSwitch`/`SetSwitch` with .NET's semantics, starting from
+  runtimeconfig.json's `configProperties`: the project's `RuntimeHostConfigurationOption` items, or a
+  file-based app's defaults (`dotnet run app.cs`) for single files. Host properties
+  (`APP_CONTEXT_BASE_DIRECTORY`, `TRUSTED_PLATFORM_ASSEMBLIES`, ...) read as null.
+- **System.Collections.Immutable from the shared framework's IL** now compiles and matches .NET
+  (`tests/projects/il/IlFrameworkApp`); its 19 remaining sites were library surface (`System.Array`
+  parameters and type tests, `Array.LastIndexOf`, `typeof(T).IsValueType`, `InlineArrayN<T>` for
+  `params` spans, structural array interfaces, a missing `SortedDictionary` constructor overload).
+- **Compile time.** IL bodies are decoded once per generic definition (decoding was ~1% of lowering);
+  token resolution was already cached per assembly. The profile's hot spots were elsewhere: shadow
+  lookups for unmapped library types rebuilt metadata names on every `S()`/`TypeOf()` (~7% of the
+  compile, now cached) and every LLVM type getter was a P/Invoke. `csharpc -v` prints CPU time,
+  allocations and GCs per phase and splits lowering between IL, source and corelib methods.
+
+  Immutable program above, `-O0`, before → after (CPU seconds; the shared 4-core machine made wall
+  time unreliable): Roslyn parse+bind ~7 s (unchanged; ~3 s with csharpc published ReadyToRun),
+  lowering ~14–17 s → ~13–14 s for 1644 IL + 1390 corelib methods (184 MB allocated, 30 gen0 GCs),
+  LLVM backend ~3–6 s; peak RSS ~290 MB. At `-O2` the LLVM pipeline dominates: optimization ~18 s and
+  code generation ~14 s, both single-threaded.
+- **Survey harness** (`tools/il-survey/`): the top pure-IL nuget.org packages compiled with
+  `--il-survey` (every non-generic method lowered), diagnostics ranked by packages affected
+  ([18-compatibility.md](../18-compatibility.md#il-front-end-survey)).
+
+**Known differences** (explicit, not silent): `WithCancellation` with a cancelable token on an async
+iterator compiled from C# source throws `NotSupportedException`; resource lookups for a base name with
+no embedded resources throw `NotSupportedException`; `IStructuralComparable/Equatable` between arrays
+of different element types throws `NotSupportedException`.
+
 ## Next steps
 
 Toward **arbitrary pure-IL NuGet packages** (ordered; size in focused days):
 
-1. Compiled `async`: an `AsyncTaskMethodBuilder`/`<T>`/`ValueTask` builder family in the corelib over
-   csrt's task scheduler, plus `IAsyncStateMachine` driving (`AwaitUnsafeOnCompleted` on csrt
-   awaiters). Unblocks every library with `async` methods. (3–5)
-2. Resource strings: `SR.GetResourceString(key)` in framework and package assemblies read the
-   assembly's embedded `.resources` at compile time into a constant table (exception messages must
-   match .NET's). Also `AppContext` switches with their defaults. (1–2)
+1. ~~Compiled `async`~~ and ~~resource strings / `AppContext`~~: done (phase 2, above).
+2. `typeof(X).Assembly` as a compile-time identity (`ResourceManager(baseName, assembly)` in
+   `Properties.Resources` designers, `Assembly.GetName()`), satellite resource assemblies for
+   non-neutral cultures. (1–2)
 3. BCL surface packages use first — measured by compiling the top-N pure-IL packages from nuget.org:
    `ReadOnlyCollection<T>`/`AsReadOnly`, `System.Array` as a static type (`Array.Copy`,
    `is Array`), `CultureInfo`/`NumberFormatInfo` objects (invariant), `BitConverter`, more `Math`
@@ -236,8 +281,11 @@ Toward **arbitrary pure-IL NuGet packages** (ordered; size in focused days):
 5. Package assets beyond `lib/`: RID-specific runtime assets (`runtimes/<rid>/lib`), native assets
    linked or copied for P/Invoke, satellite resource assemblies; `ref/` vs `lib/` binding (bind
    against `ref/` symbols, map to `lib/` bodies by name) for packages whose surfaces differ. (2)
-6. Compile-time scale: decode each method once per definition (not per instantiation), cache token
-   resolution per assembly, and lower IL methods in parallel codegen units. (2–3)
+6. Compile-time scale: decoding once per definition and cached token resolution are done. Next, in
+   order of measured payoff: ship csharpc ReadyToRun (halves Roslyn binding; NativeAOT once M6
+   compiles csharpc), parallel LLVM code generation (full-LTO-style module partitioning, e.g.
+   lld's `--lto-partitions`, or splitting the module before `-O2`), then parallel lowering (needs
+   one LLVM context per thread and symbol-keyed cross-unit references). (2–3)
 
 Toward **M6 (csharpc and Roslyn compiled by csharpc)**:
 

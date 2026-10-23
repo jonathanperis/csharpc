@@ -20,6 +20,8 @@ public sealed record CompilerOptions
     public bool DumpCfg { get; set; }
     /// <summary>Print the decoded IL blocks of methods compiled from IL (--dump-il).</summary>
     public bool DumpIl { get; set; }
+    /// <summary>--il-survey: lower every non-generic method of the IL assemblies, reachable or not (tools/il-survey).</summary>
+    public bool IlSurvey { get; set; }
     /// <summary>Assemblies without sources (-r): bound against and compiled from IL (docs/adr/0010-il-frontend.md).</summary>
     public List<string> References { get; } = [];
     /// <summary>Emit DWARF debug info (-g; implied by -c Debug).</summary>
@@ -76,6 +78,7 @@ public sealed record CompilerOptions
           --cc <path>            C compiler used as linker driver (default: $CSHARPC_CC or clang)
           --dump-cfg             Print Roslyn's control-flow graphs (csharpc's "MIR")
           --dump-il              Print the IL blocks of methods compiled from IL
+          --il-survey            Also lower every non-generic method of the referenced IL assemblies (tools/il-survey)
           --intrinsics           List the library members csharpc implements
           -W                     Show Roslyn warnings
           -v, --verbose          Print pipeline phases and timings
@@ -143,6 +146,7 @@ public sealed record CompilerOptions
                 case "--cc": o.CC = Next(); break;
                 case "--dump-cfg": o.DumpCfg = true; break;
                 case "--dump-il": o.DumpIl = true; break;
+                case "--il-survey": o.IlSurvey = true; break;
                 case "-g" or "--debug": o.Debug = true; o.DebugExplicit = true; break;
                 case "-g0": o.Debug = false; o.DebugExplicit = true; break;
                 case "-W": o.ShowWarnings = true; break;

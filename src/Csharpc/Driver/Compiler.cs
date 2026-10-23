@@ -55,6 +55,7 @@ public sealed class Compiler(CompilerOptions options)
                 Defines = [.. ProjectLoader.ImplicitDefines(options.Configuration), .. options.Defines],
                 GlobalUsings = options.ImplicitUsings ? RoslynFrontend.DefaultImplicitUsings : null,
                 CoreLibDefines = coreLibDefines,
+                RuntimeConfig = options.Inputs.Count > 0 ? [.. ProjectLoader.FileBasedRuntimeConfig(options.Inputs[0])] : [],
             };
         }
         // Assemblies without sources: bound against like any reference, compiled from IL (ADR 0010).
@@ -131,6 +132,8 @@ public sealed class Compiler(CompilerOptions options)
             CfgDump = options.DumpCfg ? Console.Out : null,
             IlDump = options.DumpIl ? Console.Out : null,
             Il = il,
+            IlSurvey = options.IlSurvey,
+            RuntimeConfig = settings.RuntimeConfig,
         };
         using var debugInfo = options.Debug
             ? codegen.Debug = new DebugInfo(codegen, settings.Files.Count > 0 ? settings.Files[0] : "program.cs", options.OptLevel > 0)
@@ -139,6 +142,7 @@ public sealed class Compiler(CompilerOptions options)
         catch (CompileError e) { codegen.Errors.Add(e); }
         debugInfo?.Finish();
         Phase("lower CFG -> LLVM IR");
+        if (options.Verbose) Console.Error.WriteLine($"             {codegen.Stats}");
 
         foreach (var w in codegen.Warnings.DistinctBy(w => w.Format()))
         {
@@ -226,14 +230,20 @@ public sealed class Compiler(CompilerOptions options)
         return names;
     }
 
-    private TimeSpan _last;
+    private TimeSpan _last, _lastCpu;
+    private long _lastAllocated;
 
     private void Phase(string name)
     {
         if (!options.Verbose) return;
         var now = _clock.Elapsed;
-        Console.Error.WriteLine($"  {(now - _last).TotalMilliseconds,8:F1} ms  {name}");
+        // Wall time is noisy on a loaded machine; allocations and GCs per phase are not.
+        var allocated = GC.GetTotalAllocatedBytes();
+        var cpu = System.Diagnostics.Process.GetCurrentProcess().TotalProcessorTime;
+        Console.Error.WriteLine($"  {(now - _last).TotalMilliseconds,8:F1} ms  {(cpu - _lastCpu).TotalMilliseconds,8:F1} ms cpu  {(allocated - _lastAllocated) / 1048576.0,7:F1} MB alloc  gc {GC.CollectionCount(0)}/{GC.CollectionCount(1)}/{GC.CollectionCount(2)}  {name}");
         _last = now;
+        _lastAllocated = allocated;
+        _lastCpu = cpu;
     }
 
     private static readonly bool s_color =
