@@ -40,7 +40,7 @@ public sealed partial class FunctionCodeGen
         var headerSize = 16 + 8L * rank;
         var size = _b.BinOp(LLVMOpcode.Add, L.ConstInt(L.I64, headerSize),
             _b.BinOp(LLVMOpcode.Mul, total, L.ConstInt(L.I64, (long)T.Target.SizeOf(storage))));
-        var array = Allocate(_m.ExternalGlobal("csrt_Array_MT"), size);
+        var array = Allocate(_m.MdArrayMethodTable(arrayType), size);
         var header = MdArrayHeader(storage, rank);
         _b.Store(total, _b.StructGep(header, array, 1));
         for (var d = 0; d < rank; d++)
@@ -86,10 +86,19 @@ public sealed partial class FunctionCodeGen
     internal LLVMValueRef ArrayDimensionLength(LLVMValueRef array, ITypeSymbol arrayType, LLVMValueRef dimension)
     {
         NullCheck(array);
-        if (arrayType is not IArrayTypeSymbol { Rank: > 1 } md) return ArrayLength(array); // dimension must be 0
+        // An `Array` of unknown rank: the runtime reads the rank from the method table.
+        if (arrayType is not IArrayTypeSymbol)
+            return CallRuntime("csrt_array_dimension_length", L.I64, [L.Ptr, L.I32], array, _b.Cast(LLVMOpcode.Trunc, ToIndex(dimension, _m.Compilation.GetSpecialType(SpecialType.System_Int32)), L.I32));
+        if (arrayType is not IArrayTypeSymbol { Rank: > 1 } md)
+        {
+            // T[]: dimension 0 only, like .NET (IndexOutOfRangeException otherwise).
+            var d0 = ToIndex(dimension, _m.Compilation.GetSpecialType(SpecialType.System_Int32));
+            FailIf(_b.ICmp(LLVMIntPredicate.NE, d0, L.ConstInt(L.I64, 0)), "csrt_throw_rank_out_of_range");
+            return ArrayLength(array);
+        }
         var header = MdArrayHeader(L.I8, md.Rank);
         var d = ToIndex(dimension, _m.Compilation.GetSpecialType(SpecialType.System_Int32));
-        FailIf(_b.ICmp(LLVMIntPredicate.UGE, d, L.ConstInt(L.I64, md.Rank)), "csrt_throw_index_out_of_range");
+        FailIf(_b.ICmp(LLVMIntPredicate.UGE, d, L.ConstInt(L.I64, md.Rank)), "csrt_throw_rank_out_of_range");
         return _b.Load(L.I64, _b.InBoundsGep(header, array, [L.ConstInt(L.I32, 0), L.ConstInt(L.I32, 2), d]), "dim");
     }
 

@@ -1,0 +1,25 @@
+System.Int32[,]
+True
+False
+True
+False
+True
+Int32[,]
+System.Int32[,]
+System.String[,,]
+True
+2 6
+10
+True
+System.Double[,]
+3 3 4 5 4
+1 7
+Array does not have that many dimensions.
+Array does not have that many dimensions.
+Array does not have that many dimensions.
+lower: Array does not have that many dimensions.
+0 0
+NRE rank
+NRE length
+System.Int32[,][] System.Int32[,]
+False

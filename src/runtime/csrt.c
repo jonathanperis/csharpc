@@ -288,7 +288,18 @@ static bool builtin_registered(const csrt_MethodTable* type, const csrt_MethodTa
 }
 
 static bool is_untyped_array_mt(const csrt_MethodTable* mt) {
-    return mt == &csrt_Array_MT.header || mt == &csrt_PrimitiveArray_MT.header;
+    return mt == &csrt_Array_MT.header || mt == &csrt_PrimitiveArray_MT.header || (mt->flags & CSRT_MT_MDARRAY);
+}
+
+int32_t csrt_array_rank(void* array) {
+    const csrt_MethodTable* mt = ((csrt_Object*)array)->mt;
+    return mt->flags & CSRT_MT_MDARRAY ? (int32_t)mt->reserved : 1;
+}
+
+int64_t csrt_array_dimension_length(void* array, int32_t dimension) {
+    if (dimension < 0 || dimension >= csrt_array_rank(array)) { csrt_throw_rank_out_of_range(); return 0; }
+    const csrt_MethodTable* mt = ((csrt_Object*)array)->mt;
+    return mt->flags & CSRT_MT_MDARRAY ? ((csrt_MdArray*)array)->lengths[dimension] : ((csrt_Array*)array)->length;
 }
 
 // Used when a registered builtin type has no slot table for an interface (e.g. IComparable on a boxed int).

@@ -119,7 +119,12 @@ internal static class Intrinsics
         t["System.Array.GetUpperBound(int)"] = (g, inv) => g.Builder.BinOp(LLVMOpcode.Sub,
             g.Builder.Cast(LLVMOpcode.Trunc, g.ArrayDimensionLength(g.EmitValue(inv.Instance!), inv.Instance!.Type!, Arg(g, inv, 0)), g.Module.Llvm.I32),
             g.Module.Llvm.ConstInt(g.Module.Llvm.I32, 1));
-        t["System.Array.GetLowerBound(int)"] = (g, inv) => { Arg(g, inv, 0); return g.Module.Llvm.ConstInt(g.Module.Llvm.I32, 0); };
+        // Always 0 (csharpc arrays are zero-based), after the same null and dimension checks as GetLength.
+        t["System.Array.GetLowerBound(int)"] = (g, inv) =>
+        {
+            g.ArrayDimensionLength(g.EmitValue(inv.Instance!), inv.Instance!.Type!, Arg(g, inv, 0));
+            return g.Module.Llvm.ConstInt(g.Module.Llvm.I32, 0);
+        };
         t["object.ReferenceEquals(object, object)"] = (g, inv) =>
             g.Builder.ICmp(LLVMIntPredicate.EQ, Arg(g, inv, 0), Arg(g, inv, 1));
         // Enum.HasFlag(flag): (value & flag) == flag on the underlying integers (both arrive boxed to Enum).
@@ -208,7 +213,12 @@ internal static class Intrinsics
         t["System.Array.GetUpperBound(int)"] = (g, inv) => g.Builder.BinOp(LLVMOpcode.Sub,
             g.Builder.Cast(LLVMOpcode.Trunc, g.ArrayDimensionLength(g.EmitValue(inv.Instance!), inv.Instance!.Type!, Arg(g, inv, 0)), g.Module.Llvm.I32),
             g.Module.Llvm.ConstInt(g.Module.Llvm.I32, 1));
-        t["System.Array.GetLowerBound(int)"] = (g, inv) => { Arg(g, inv, 0); return g.Module.Llvm.ConstInt(g.Module.Llvm.I32, 0); };
+        // Always 0 (csharpc arrays are zero-based), after the same null and dimension checks as GetLength.
+        t["System.Array.GetLowerBound(int)"] = (g, inv) =>
+        {
+            g.ArrayDimensionLength(g.EmitValue(inv.Instance!), inv.Instance!.Type!, Arg(g, inv, 0));
+            return g.Module.Llvm.ConstInt(g.Module.Llvm.I32, 0);
+        };
         t["object.ReferenceEquals(object, object)"] = (g, inv) =>
             g.Builder.ICmp(LLVMIntPredicate.EQ, Arg(g, inv, 0), Arg(g, inv, 1));
         t["object.Equals(object, object)"] = (g, inv) =>
@@ -896,7 +906,14 @@ internal static class Intrinsics
         };
         t["System.Array.Length"] = (g, p) =>
             g.Builder.Cast(LLVMOpcode.Trunc, g.ArrayLength(g.EmitValue(p.Instance!)), g.Module.Llvm.I32);
-        t["System.Array.Rank"] = (g, p) => g.Module.Llvm.ConstInt(g.Module.Llvm.I32, p.Instance!.Type is IArrayTypeSymbol a ? a.Rank : 1);
+        t["System.Array.Rank"] = (g, p) =>
+        {
+            var array = g.EmitValue(p.Instance!);
+            if (g.TypeOf(p.Instance!) is IArrayTypeSymbol a) { g.NullCheck(array); return g.Module.Llvm.ConstInt(g.Module.Llvm.I32, a.Rank); }
+            // An `Array`: only the object's method table knows (rectangular tables carry their rank).
+            g.NullCheck(array);
+            return g.CallRuntime("csrt_array_rank", g.Module.Llvm.I32, [g.Module.Llvm.Ptr], array);
+        };
         t["System.Array.LongLength"] = (g, p) => g.ArrayLength(g.EmitValue(p.Instance!));
         t["System.Environment.TickCount64"] = (g, _) =>
             g.CallRuntime("csrt_environment_tick_count64", g.Module.Llvm.I64, []);
