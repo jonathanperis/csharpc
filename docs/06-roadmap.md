@@ -18,7 +18,7 @@ every failure is a clean "not supported by csharpc yet" diagnostic.
 | Multi-file programs, `.csproj` input, `ProjectReference` | ✅ | whole-program, see [08-drop-in.md](08-drop-in.md) |
 | `dotnet build -p:UseCsharpc=true`, `dotnet publish -p:PublishCsharpc=true` | ✅ | `Csharpc.Sdk` package |
 | File-based apps (`#:property` directives) | ✅ | |
-| NuGet binary packages | ❌ | need IL → see M5 |
+| Assemblies without sources: `-r X.dll`, `<Reference>`, NuGet `PackageReference` | 🟡 | IL front-end (M5): the IL side is complete except `calli`/TypedReference; packages still hit BCL gaps (M2) |
 
 ### Types
 
@@ -117,10 +117,22 @@ Compile unmodified open-source C# console applications and tools, publish a comp
 First report (2026-10-22, 323 programs from dotnet/samples and dotnet/docs, 40.6 % identical to
 .NET): [18-compatibility.md](18-compatibility.md); harness in `tools/compat/`.
 
-### M5 — Drop-in: binary packages
+### M5 — Drop-in: binary packages (🚧)
 An IL front-end (IL → the same lowering) so NuGet packages that ship only assemblies can be linked
 into the closed-world program; the source front-end remains the primary path. With M2 and M4 this is
 what makes csharpc a drop-in replacement for existing projects.
+
+Design: [ADR 0010](adr/0010-il-frontend.md) — IL is a second method-body source for Roslyn's metadata
+symbols, lowered through the same `FunctionCodeGen` (synthetic `IOperation`s for library-facing
+instructions). Done: `-r`, `<Reference>` and `PackageReference` input; all opcodes but `calli`, `jmp`,
+TypedReference ones and `ckfinite`; generics, virtual/interface dispatch across the source/IL
+boundary, EH incl. filters, static constructors (`beforefieldinit`), RVA data, P/Invoke, events,
+compiled C# idioms (interpolation handlers, closures, iterators, records, generic math); unreachable
+failures compile to stubs (`CSLLVM0007`). `tests/il.sh` checks library projects consumed as DLLs and a
+nuget.org package (Ardalis.GuardClauses) against `dotnet run`. Next: compiled `async` (an
+`AsyncTaskMethodBuilder` over csrt tasks), resource strings (`SR.GetResourceString` from embedded
+`.resources`), `calli`, the BCL surface packages use (`Lazy<T>`, `ReadOnlyCollection<T>`, culture
+info objects), RID-specific/native package assets.
 
 ### M6 — Bootstrapping
 csharpc compiles csharpc (and Roslyn) — the strongest possible proof of maturity.

@@ -32,6 +32,7 @@ tests/run.sh --all-opts        # differential samples at -O0 and -O2 (must stay 
 tests/conformance.sh -j 4      # C# conformance corpus (must stay 100 %)
 tests/programs.sh              # larger real-world programs
 tests/projects.sh              # .csproj input and dotnet build/run/publish integration
+tests/il.sh                    # libraries consumed only as DLLs / NuGet packages (IL front-end)
 tests/debuginfo.sh             # gdb-driven debug-info checks
 benchmarks/run.sh              # csharpc vs .NET JIT vs NativeAOT (Markdown table)
 ```
