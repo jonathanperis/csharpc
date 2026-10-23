@@ -105,7 +105,7 @@ sockets (`Socket`, `TcpListener`/`TcpClient`, `UdpClient`, `Dns`); library value
 via ICU, as .NET). Next: TLS and `HttpClient`; the library surface ranked by the compatibility runs and
 the NuGet survey (`System.Type` reflection basics, `DateTimeOffset`).
 
-### M3 — Platforms and per-platform evidence
+### M3 — Platforms and per-platform evidence ✅
 Each platform gets a CI job (GitHub Actions) running the full differential suite, conformance corpus
 and real-world programs against real .NET on that machine, plus the benchmark comparison:
 
