@@ -784,6 +784,17 @@ void csrt_scheduler_run_until(int64_t deadline) {
 }
 
 int64_t csrt_scheduler_now_ms(void) { return now_ms(); }
+
+/// Thread.Yield / Sleep(0): run one queued work item or due timer, if any.
+bool csrt_scheduler_yield(void) {
+    pthread_mutex_lock(&s_tlock);
+    fire_due_timers_locked(now_ms());
+    pthread_mutex_unlock(&s_tlock);
+    intptr_t kind; void* a; void* b;
+    if (!dequeue_locked(&kind, &a, &b)) return false;
+    run_item(kind, a, b);
+    return true;
+}
 #else
 /// Blocks the calling thread until `t` completes (async Main, .Result, .Wait(), GetResult()).
 void csrt_task_wait(csrt_Task* t) {

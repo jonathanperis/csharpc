@@ -223,6 +223,15 @@ csrt_Array* csrt_environment_command_line_args(void) {
     return arr;
 }
 #endif
+#ifdef __wasi__
+/// Environment.GetCommandLineArgs(): argv as the WASI runtime passes it (the module, then the arguments).
+csrt_Array* csrt_environment_command_line_args(void) {
+    int64_t n = s_argc > 0 ? s_argc : 0;
+    csrt_Array* arr = csrt_new_array(sizeof(void*), n);
+    for (int64_t i = 0; i < n; i++) ((csrt_String**)arr->data)[i] = string_from_utf8(s_argv[i]);
+    return arr;
+}
+#endif
 
 csrt_Array* csrt_get_args(void) {
     // Like .NET, args excludes the program name.

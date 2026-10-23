@@ -80,6 +80,10 @@ static int pthread_mutex_timedlock(pthread_mutex_t* mutex, const struct timespec
 /// Thread.Sleep: resumes with the remaining time when a GC signal interrupts it.
 void csrt_thread_sleep(int32_t ms) {
     if (ms < -1) throw_msg(&mt_argument_out_of_range, "Number must be either non-negative and less than or equal to Int32.MaxValue or -1. (Parameter 'millisecondsTimeout')");
+#ifdef __wasi__
+    extern bool csrt_scheduler_yield(void);
+    if (ms == 0) { csrt_scheduler_yield(); return; }
+#endif
     if (ms == 0) { sched_yield(); return; }
 #ifdef __wasi__
     // The only thread: run what pool threads would run meanwhile (queued tasks, timers).
@@ -101,7 +105,15 @@ void csrt_thread_sleep(int32_t ms) {
     while (nanosleep(&req, &rem) != 0 && errno == EINTR) req = rem;
 }
 
+#ifdef __wasi__
+/// Thread.Yield on the only thread: let one queued work item run, as another thread would.
+bool csrt_thread_yield(void) {
+    extern bool csrt_scheduler_yield(void);
+    return csrt_scheduler_yield();
+}
+#else
 bool csrt_thread_yield(void) { sched_yield(); return true; }
+#endif
 
 // ---------------------------------------------------------------------------------------------
 // System.Threading.Thread

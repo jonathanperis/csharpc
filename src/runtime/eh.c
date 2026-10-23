@@ -296,6 +296,9 @@ void csrt_throw_object(void* exception) {
     if (!exception)  // `throw null;` throws a NullReferenceException
         exception = new_exception(&csrt_MT_System_NullReferenceException, "Object reference not set to an instance of an object.");
     csrt_pending_exception = exception;
+    // Debugging aid: wasm has no unwinder to show where an exception came from, but a trap prints
+    // the engine's backtrace (wasmtime: with function names unless the module was stripped).
+    if (getenv("CSRT_TRAP_ON_THROW")) __builtin_trap();
 }
 
 void csrt_rethrow(void* exception) { csrt_throw_object(exception); }

@@ -283,8 +283,8 @@ int32_t csrt_environment_processor_count(void) {
 
 /// Environment.GetCommandLineArgs(): [executable path, args...] (read from /proc/self/cmdline;
 /// on macOS from the process's argv).
-#if defined(_WIN32)
-// csrt.c (from the UTF-16 command line)
+#if defined(_WIN32) || defined(__wasi__)
+// csrt.c (Windows: from the UTF-16 command line; WASI: argv)
 #elif defined(__APPLE__)
 #include <crt_externs.h>
 csrt_Array* csrt_environment_command_line_args(void) {
