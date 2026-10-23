@@ -1,0 +1,86 @@
+Object 12
+name String ["Widget"] <Widget> False
+id Number [12345678901] <12345678901> False
+price Number [19.990] <19.990> False
+tags Array [["a", "b\u00e9", "c\"q"]] <["a", "b\u00e9", "c\"q"]> False
+dims Object [{ "w": 1.5, "h": -2e3, "unit": null }] <{ "w": 1.5, "h": -2e3, "unit": null }> False
+active True [true] <True> False
+when String ["2024-02-29T12:34:56.789Z"] <2024-02-29T12:34:56.789Z> False
+dup Number [1] <1> True
+dup Number [2] <2> True
+escaped String ["x\ny"] <x
+y> False
+empty Object [{}] <{}> False
+nested Array [[[1, [2, [3]]], {"k": [true, false]}]] <[[1, [2, [3]]], {"k": [true, false]}]> False
+12345678901 False 0
+19.990 19.99
+2
+x\ny True
+2024-02-29T12:34:56.7890000Z
+3 bé c"q
+a|bé|c"q
+-2000 Null
+3 False
+True False
+{"name":"Widget","id":12345678901,"price":19.990,"tags":["a","b\u00E9","c\u0022q"],"dims":{"w":1.5,"h":-2e3,"unit":null},"active":true,"when":"2024-02-29T12:34:56.789Z","dup":1,"dup":2,"escaped":"x\ny","empty":{},"nested":[[1,[2,[3]]],{"k":[true,false]}]}
+{
+  "name": "Widget",
+  "id": 12345678901,
+  "price": 19.990,
+  "tags": [
+    "a",
+    "b\u00E9",
+    "c\u0022q"
+  ],
+  "dims": {
+    "w": 1.5,
+    "h": -2e3,
+    "unit": null
+  },
+  "active": true,
+  "when": "2024-02-29T12:34:56.789Z",
+  "dup": 1,
+  "dup": 2,
+  "escaped": "x\ny",
+  "empty": {},
+  "nested": [
+    [
+      1,
+      [
+        2,
+        [
+          3
+        ]
+      ]
+    ],
+    {
+      "k": [
+        true,
+        false
+      ]
+    }
+  ]
+}
+{ "w": 1.5, "h": -2e3, "unit": null } 1.5
+ObjectDisposedException: Cannot access a disposed object.
+Object name: 'JsonDocument'.
+True
+False
+True
+missing: KeyNotFoundException: The given key 'missing' was not present in the dictionary.
+byte: FormatException: One of the identified items was in an invalid format.
+string as int: InvalidOperationException: The requested operation requires an element of type 'Number', but the target element has type 'String'.
+int as string: InvalidOperationException: The requested operation requires an element of type 'String', but the target element has type 'Number'.
+bool: InvalidOperationException: The requested operation requires an element of type 'Boolean', but the target element has type 'Number'.
+array on object: InvalidOperationException: The requested operation requires an element of type 'Array', but the target element has type 'Object'.
+object on array: InvalidOperationException: The requested operation requires an element of type 'Object', but the target element has type 'Array'.
+index: IndexOutOfRangeException: Index was outside the bounds of the array.
+length of object: InvalidOperationException: The requested operation requires an element of type 'Array', but the target element has type 'Object'.
+default element: InvalidOperationException: Operation is not valid due to the current state of the object.
+date: FormatException: One of the identified items was in an invalid format.
+base64: ok
+2
+[1, /* c */ 2,]
+1
+{"a": 1} EndObject
+JsonException: Duplicate property 'a' encountered during deserialization.
