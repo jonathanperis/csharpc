@@ -39,6 +39,9 @@ int __cdecl _configure_wide_argv(int mode);
 static wchar_t** s_wargv;
 csrt_String* csrt_string_new_from_utf16(const uint16_t* chars, int32_t length);
 #endif
+#ifdef __wasi__
+#include <unistd.h>
+#endif
 
 // ---------------------------------------------------------------------------------------------
 // Output buffering. .NET's Console.Out autoflushes, but process exit flushes too; for a native
@@ -59,6 +62,12 @@ void csrt_init(int argc, char** argv) {
         s_argc = *__p___argc();
         s_wargv = *__p___wargv();
     }
+#endif
+#ifdef __wasi__
+    // WASI has no current directory of its own (wasi-libc starts at "/"). Follow the caller's when the
+    // runtime passes $PWD and preopens it (tests/wasm-run.sh), so relative paths mean what they do natively.
+    const char* pwd = getenv("PWD");
+    if (pwd && pwd[0] == '/') (void)chdir(pwd);
 #endif
     csrt_gc_init();
     setvbuf(stdout, s_stdout_buffer, _IOFBF, sizeof s_stdout_buffer);

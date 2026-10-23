@@ -65,6 +65,7 @@ internal static unsafe partial class Native
     [LibraryImport(Lib)] public static partial uint LLVMCountParams(LLVMValueRef fn);
     [LibraryImport(Lib)] public static partial LLVMTypeRef LLVMGlobalGetValueType(LLVMValueRef global);
     [LibraryImport(Lib)] public static partial LLVMValueRef LLVMGetPoison(LLVMTypeRef type);
+    [LibraryImport(Lib)] public static partial int LLVMIsNull(LLVMValueRef value);
     [LibraryImport(Lib)] public static partial uint LLVMGetFunctionCallConv(LLVMValueRef fn);
     [LibraryImport(Lib, StringMarshalling = StringMarshalling.Utf8)]
     public static partial LLVMValueRef LLVMGetNamedGlobal(LLVMModuleRef m, string name);

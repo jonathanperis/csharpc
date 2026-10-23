@@ -24,7 +24,6 @@ namespace Csharpc.Wasm;
 public static class ExceptionLowering
 {
     public const string PendingGlobal = "csrt_pending_exception";
-    private const string ThrowPrimitive = "csrt_throw_object";
 
     /// <summary>C runtime functions that catch: they call something and then take the pending
     /// exception themselves (src/runtime/eh.c, async.c). Their calls are not tested.</summary>
@@ -33,17 +32,16 @@ public static class ExceptionLowering
     public static void Run(LlvmModule module, LlvmContext llvm)
     {
         var m = module.Ref;
+        // Throwing = storing an exception into the pending global. After clang's inlining that store
+        // can be anywhere in the runtime (csrt_rethrow, the csrt_throw_* helpers), so look for it. A
+        // program whose code never stores one (the global is gone) can't throw at all.
         var pending = LLVMGetNamedGlobal(m, PendingGlobal);
-        var raise = LLVMGetNamedFunction(m, ThrowPrimitive);
-        if (pending.IsNull || raise.IsNull || LLVMIsDeclaration(raise) != 0)
-            throw new InvalidOperationException($"wasm32: the runtime must be linked in as bitcode ({PendingGlobal}/{ThrowPrimitive} missing)");
-
-        var graph = new Ir.CallGraph(m);
         var catching = Ir.DefinedFunctions(m).Where(fn => s_catching.Contains(Ir.Name(fn))).Select(fn => fn.Handle).ToHashSet();
-        var mayThrow = graph.Reaching([raise.Handle], except: catching);
+        var throwers = pending.IsNull ? [] : Ir.DefinedFunctions(m).Where(fn => StoresException(fn, pending)).Select(fn => fn.Handle).ToList();
+        var mayThrow = throwers.Count == 0 ? [] : new Ir.CallGraph(m).Reaching(throwers, except: catching);
         bool CallMayThrow(LLVMValueRef call)
         {
-            if (Ir.IsInlineAsmCall(call)) return false;
+            if (throwers.Count == 0 || Ir.IsInlineAsmCall(call)) return false;
             var callee = Ir.DirectCallee(call);
             if (callee.IsNull) return true;                       // virtual / delegate / function pointer
             return mayThrow.Contains(callee.Handle);              // declarations (libc, WASI) never throw
@@ -72,6 +70,15 @@ public static class ExceptionLowering
     }
 
     private static bool HasLandingPads(LLVMValueRef fn) => LLVMHasPersonalityFn(fn) != 0;
+
+    private static bool StoresException(LLVMValueRef fn, LLVMValueRef pending)
+    {
+        foreach (var bb in Ir.Blocks(fn))
+            for (var inst = LLVMGetFirstInstruction(bb); !inst.IsNull; inst = LLVMGetNextInstruction(inst))
+                if (Ir.Opcode(inst) == LLVMOpcode.Store && LLVMGetOperand(inst, 1) == pending && LLVMIsNull(LLVMGetOperand(inst, 0)) == 0)
+                    return true;
+        return false;
+    }
 
     private sealed class FunctionLowering(LLVMValueRef fn, LlvmContext llvm, IrBuilder b, LLVMValueRef pending, Func<LLVMValueRef, bool> mayThrow, bool catching)
     {

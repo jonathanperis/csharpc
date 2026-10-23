@@ -117,3 +117,60 @@ jobs:
 
       # tests/debuginfo.sh drives gdb, which isn't available on macOS (lldb would need its own harness)
       # or on Windows (DWARF in PE/COFF; the gdb pretty-printers are untested there).
+
+  # WebAssembly (wasm32-wasip1): every test is compiled for WASI and run under wasmtime, against the
+  # expectations recorded with .NET on Linux; tests/platform-skips.txt ("wasi") lists what WebAssembly
+  # can't do (docs/adr/0010-wasm32.md). The WASI SDK must be LLVM 18 like csharpc (wasi-sdk 24).
+  wasm:
+    name: test (wasm32-wasi)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 150
+    env:
+      DOTNET_CLI_TELEMETRY_OPTOUT: 1
+      DOTNET_NOLOGO: 1
+      CSHARPC_TEST_TARGET: wasm32-wasip1
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install LLVM 18
+        run: sudo apt-get update && sudo apt-get install -y llvm-18 libllvm18
+
+      # Pinned releases and checksums: the WASI SDK (clang 18, wasm-ld, wasi-libc, compiler-rt) and the
+      # wasmtime LTS line.
+      - name: Install the WASI SDK and wasmtime
+        run: |
+          curl -sSLf -o "$RUNNER_TEMP/wasi-sdk.tar.gz" https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-24/wasi-sdk-24.0-x86_64-linux.tar.gz
+          echo "c6c38aab56e5de88adf6c1ebc9c3ae8da72f88ec2b656fb024eda8d4167a0bc5  $RUNNER_TEMP/wasi-sdk.tar.gz" | sha256sum -c -
+          tar xf "$RUNNER_TEMP/wasi-sdk.tar.gz" -C "$RUNNER_TEMP"
+          echo "WASI_SDK_PATH=$RUNNER_TEMP/wasi-sdk-24.0-x86_64-linux" >> "$GITHUB_ENV"
+          curl -sSLf -o "$RUNNER_TEMP/wasmtime.tar.xz" https://github.com/bytecodealliance/wasmtime/releases/download/v36.0.19/wasmtime-v36.0.19-x86_64-linux.tar.xz
+          echo "c6070b3043023f3b8e8dc3473a4c360c0d6784aa4294f5a6fc803580fcb2c875  $RUNNER_TEMP/wasmtime.tar.xz" | sha256sum -c -
+          tar xf "$RUNNER_TEMP/wasmtime.tar.xz" -C "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/wasmtime-v36.0.19-x86_64-linux" >> "$GITHUB_PATH"
+
+      - name: Install .NET 11 SDK
+        run: |
+          curl -sSL https://dot.net/v1/dotnet-install.sh -o dotnet-install.sh
+          bash dotnet-install.sh --jsonfile global.json --install-dir "$HOME/.dotnet11"
+          echo "$HOME/.dotnet11" >> "$GITHUB_PATH"
+          echo "DOTNET_ROOT=$HOME/.dotnet11" >> "$GITHUB_ENV"
+
+      - name: Build
+        run: dotnet build src/Csharpc -c Release
+
+      - name: Differential tests (-O0 and -O2)
+        run: tests/run.sh --all-opts
+
+      - name: Conformance corpus
+        if: success() || failure()
+        run: tests/conformance.sh -j 4
+
+      - name: Real-world programs
+        if: success() || failure()
+        run: tests/programs.sh
+
+      # Root discovery under pressure: a collection at every allocation (CSRT_GC_STRESS=1). Without the
+      # compiler's stack spill slots this sample prints wrong totals.
+      - name: GC stress
+        if: success() || failure()
+        run: CSRT_GC_STRESS=1 tests/run.sh --all-opts 310_gc_roots

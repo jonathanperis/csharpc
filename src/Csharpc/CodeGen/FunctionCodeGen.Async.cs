@@ -339,8 +339,8 @@ public sealed partial class FunctionCodeGen
     internal void EmitTaskRunThunk(ITypeSymbol resultType)
     {
         var pack = _fn.Fn.Param(0);
-        var del = _b.Load(L.Ptr, _b.InBoundsGep(L.I8, pack, [L.ConstInt(L.I64, 8)]), "del");
-        var task = _b.Load(L.Ptr, _b.InBoundsGep(L.I8, pack, [L.ConstInt(L.I64, 16)]), "task");
+        var del = _b.Load(L.Ptr, _b.InBoundsGep(L.I8, pack, [L.ConstInt(L.I64, (long)T.PointerSize)]), "del");
+        var task = _b.Load(L.Ptr, _b.InBoundsGep(L.I8, pack, [L.ConstInt(L.I64, 2 * (long)T.PointerSize)]), "task");
         var value = InvokeDelegate0(del, T.Value(resultType));
         StoreValue(ToStorage(value, resultType), _b.InBoundsGep(L.I8, task, [L.ConstInt(L.I64, PromisePayloadOffset)]));
         _b.RetVoid();
