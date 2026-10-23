@@ -56,3 +56,4 @@ Console.WriteLine(Features.Query([1, 2, 3, 4, 5, 6, 7]));
 Console.WriteLine(Features.Locked(new object(), () => "locked"));
 Console.WriteLine(Features.Dates());
 Console.WriteLine(Features.Bits(0xF0F0u));
+Console.WriteLine(Features.Native("hello, world"));

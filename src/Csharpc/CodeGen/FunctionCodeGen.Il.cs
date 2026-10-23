@@ -97,6 +97,7 @@ public sealed partial class FunctionCodeGen
         public ITypeSymbol? Constrained { get; set; }
         public bool Volatile { get; set; }
         public bool Tail { get; set; }
+        public bool WarnedTail { get; set; }
     }
 
     private IlMethodBody IlBody => _il!.Body;

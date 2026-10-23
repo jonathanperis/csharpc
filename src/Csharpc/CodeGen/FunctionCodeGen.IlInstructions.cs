@@ -34,7 +34,17 @@ public sealed partial class FunctionCodeGen
         {
             case ILOpCode.Nop or ILOpCode.Break or ILOpCode.Readonly or ILOpCode.Unaligned: return false;
             case ILOpCode.Volatile: il.Volatile = true; return false;
-            case ILOpCode.Tail: il.Tail = true; return false;
+            case ILOpCode.Tail:
+                // F#-style code relies on `tail.` for loops: a normal call grows the stack where CoreCLR doesn't.
+                if (!il.WarnedTail)
+                {
+                    il.WarnedTail = true;
+                    _m.Warnings.Add(new CompileError("CSLLVM0006",
+                        $"`tail.` calls are compiled as ordinary calls: deep tail recursion can overflow the stack where .NET would not [in '{IlBody.Method.OriginalDefinition}' ({IlAssembly.Name}.dll)]",
+                        il.Syntax.GetLocation()));
+                }
+                il.Tail = true;
+                return false;
             case ILOpCode.Constrained: il.Constrained = ResolveIlType(instruction.Token); return false;
 
             // ---- constants ----
