@@ -101,6 +101,31 @@ namespace CsharpcCoreLib
             return -1;
         }
 
+        public static int LastIndexOf<T>(T[] array, T value, int startIndex)
+        {
+            if (array == null) ThrowHelper.ArgumentNull("array");
+            return LastIndexOf(array, value, startIndex, array.Length == 0 ? 0 : startIndex + 1);
+        }
+
+        // .NET's argument checks: the range is [startIndex - count + 1, startIndex], searched backwards.
+        public static int LastIndexOf<T>(T[] array, T value, int startIndex, int count)
+        {
+            if (array == null) ThrowHelper.ArgumentNull("array");
+            const string IndexMustBeLess = "Index was out of range. Must be non-negative and less than the size of the collection.";
+            const string BadCount = "Count must be positive and count must refer to a location within the string/array/collection.";
+            if (array.Length == 0)
+            {
+                if (startIndex != -1 && startIndex != 0) ThrowHelper.ArgumentOutOfRange("startIndex", IndexMustBeLess);
+                if (count != 0) ThrowHelper.ArgumentOutOfRange("count", BadCount);
+                return -1;
+            }
+            if ((uint)startIndex >= (uint)array.Length) ThrowHelper.ArgumentOutOfRange("startIndex", IndexMustBeLess);
+            if (count < 0 || startIndex - count + 1 < 0) ThrowHelper.ArgumentOutOfRange("count", BadCount);
+            for (int i = startIndex; i > startIndex - count; i--)
+                if (CoreIntrinsics.AreEqual(array[i], value)) return i;
+            return -1;
+        }
+
         public static void Resize<T>(ref T[] array, int newSize)
         {
             if (newSize < 0) ThrowHelper.ArgumentOutOfRange("newSize", "Non-negative number required.");
@@ -242,6 +267,23 @@ namespace CsharpcCoreLib
                 ThrowHelper.ArgumentOutOfRange("startIndex", "Index was out of range. Must be non-negative and less than or equal to the size of the collection.");
             if ((uint)count > (uint)(arrayLength - startIndex))
                 ThrowHelper.ArgumentOutOfRange("count", "Count must be positive and count must refer to a location within the string/array/collection.");
+        }
+
+        /// <summary>
+        /// Array.Copy(T[], ..., Array, ...) where the destination's element type is only known at run time
+        /// (ICollection.CopyTo implementations): same element type, or object[] (elements boxed).
+        /// </summary>
+        public static void CopyToUntyped<T>(T[] source, long sourceIndex, Array destination, long destinationIndex, long length, bool longLength)
+        {
+            Copy(source, sourceIndex, destination, destinationIndex, length, longLength);
+            int from = (int)sourceIndex, to = (int)destinationIndex, count = (int)length;
+            if (destination is T[] typed) { Array.Copy(source, from, typed, to, count); return; }
+            if (destination is object[] objects)
+            {
+                for (int i = 0; i < count; i++) objects[to + i] = CoreIntrinsics.Box(source[from + i]);
+                return;
+            }
+            throw new NotSupportedException("csharpc: Array.Copy into an array of another element type is not supported yet.");
         }
 
         public static void Copy(Array sourceArray, long sourceIndex, Array destinationArray, long destinationIndex, long length, bool longLength)

@@ -148,8 +148,8 @@ public sealed partial class FunctionCodeGen
             ? Box(EmitValue(concrete), primitive, receiver) : null;
 
         // Arrays / strings statically known: call the corelib helper directly (no runtime lookup).
-        if (staticType is IArrayTypeSymbol { Rank: 1 } && target.ContainingType is { } arrayItf
-            && _m.ArrayInterfaceHelper(arrayItf, target) is { } arrayHelper)
+        if (staticType is IArrayTypeSymbol { Rank: 1 } staticArray && target.ContainingType is { } arrayItf
+            && _m.ArrayInterfaceHelper(arrayItf, target, staticArray.ElementType) is { } arrayHelper)
             return CallBuiltinHelper(arrayHelper, concrete, arguments, extra, target);
         if (staticType?.SpecialType == SpecialType.System_String && _m.StringInterfaceHelper(target.ContainingType, target) is { } stringHelper)
             return CallBuiltinHelper(stringHelper, concrete, arguments, extra, target);

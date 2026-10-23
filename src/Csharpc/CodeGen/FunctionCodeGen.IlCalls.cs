@@ -260,7 +260,10 @@ public sealed partial class FunctionCodeGen
         switch (ownerName, method.Name)
         {
             case ("System.Type", "GetTypeFromHandle") when args is [{ Kind: IlKind.Token, Symbol: ITypeSymbol type }]:
-                return new IlEntry(IlKind.Ref, TypeObject(S(type), IlAt()), method.ReturnType) { NonNull = true };
+                return new IlEntry(IlKind.Ref, TypeObject(S(type), IlAt()), method.ReturnType) { NonNull = true, Symbol = S(type) };
+            // typeof(T).IsValueType after monomorphization (ImmutableExtensions.IsValueType<T>(), generic fast paths).
+            case ("System.Type", "get_IsValueType") when receiver is { Symbol: ITypeSymbol known } && known is not ITypeParameterSymbol:
+                return I4(known.IsValueType ? 1 : 0);
             case ("System.Runtime.CompilerServices.RuntimeHelpers", "InitializeArray") when args is [var array, { Kind: IlKind.Token, Symbol: IFieldSymbol field }]:
             {
                 var data = IlRvaData(field) ?? throw new IlException($"InitializeArray from field '{field}' without RVA data");
@@ -281,6 +284,28 @@ public sealed partial class FunctionCodeGen
                 span = _b.InsertValue(span, data.Global, 0);
                 span = _b.InsertValue(span, L.ConstInt(L.I32, length), 1);
                 return IlPush(span, spanType);
+            }
+            // The compiler's inline-array helpers (Unsafe.As/Add over the buffer) for `params` spans.
+            case ("<PrivateImplementationDetails>", var name) when name.StartsWith("InlineArray", StringComparison.Ordinal)
+                                                                     && method.TypeArguments.Length == 2 && args.Length is 1 or 2:
+            {
+                var element = S(method.TypeArguments[1]);
+                var buffer = IlAddress(args[0]);
+                switch (name)
+                {
+                    case "InlineArrayElementRef" or "InlineArrayElementRefReadOnly" when args.Length == 2:
+                        return new IlEntry(IlKind.ByRef, _b.InBoundsGep(T.Storage(element), buffer, [IlToI64(args[1], signed: true)]), method.TypeArguments[1]);
+                    case "InlineArrayFirstElementRef" or "InlineArrayFirstElementRefReadOnly" when args.Length == 1:
+                        return new IlEntry(IlKind.ByRef, buffer, method.TypeArguments[1]);
+                    case "InlineArrayAsSpan" or "InlineArrayAsReadOnlySpan" when args.Length == 2:
+                    {
+                        var span = LlvmContext.Null(T.Value(S(method.ReturnType)));
+                        span = _b.InsertValue(span, buffer, 0);
+                        span = _b.InsertValue(span, _b.Cast(LLVMOpcode.Trunc, IlToI64(args[1], signed: true), L.I32), 1);
+                        return IlPush(span, method.ReturnType);
+                    }
+                }
+                break;
             }
             case ("System.Runtime.CompilerServices.RuntimeHelpers", "EnsureSufficientExecutionStack") when args.Length == 0:
                 return handled;

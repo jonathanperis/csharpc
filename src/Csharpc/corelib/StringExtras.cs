@@ -12,6 +12,17 @@ namespace CsharpcCoreLib
         public ShadowMembersAttribute(string name) { }
     }
 
+    /// <summary>Formatting of `params ReadOnlySpan&lt;object&gt;` arguments that aren't literal lists (FunctionCodeGen.Spans.cs).</summary>
+    internal static class ParamsSpans
+    {
+        public static string[] ToStrings(object[] values)
+        {
+            var strings = new string[values.Length];
+            for (int i = 0; i < values.Length; i++) strings[i] = values[i]?.ToString() ?? "";
+            return strings;
+        }
+    }
+
     [ShadowMembers("System.String")]
     internal static class StringExtras
     {

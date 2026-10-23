@@ -141,6 +141,16 @@ public sealed partial class FunctionCodeGen
         return DirectCall(target, args);
     }
 
+    /// <summary>A generic static method of a corelib type, e.g. ("ArrayChecks", "CopyToUntyped", [T]).</summary>
+    internal LLVMValueRef CallCoreLibGenericMethod(string type, string method, ITypeSymbol[] typeArguments, params LLVMValueRef[] args)
+    {
+        var owner = _m.Compilation.GetTypeByMetadataName(CoreLib.Namespace + "." + type)
+            ?? throw CompileError.Unsupported($"corelib type '{type}' not found (is src/Csharpc/corelib shipped?)", (ISymbol?)null!);
+        var target = owner.GetMembers(method).OfType<IMethodSymbol>()
+            .Single(m => m.IsStatic && m.Parameters.Length == args.Length && m.TypeParameters.Length == typeArguments.Length);
+        return DirectCall(target.Construct(typeArguments), args);
+    }
+
     /// <summary>A static method of a (possibly generic) corelib type, e.g. ("ValueTaskSourceBridge`1", "Create", [T]).</summary>
     internal LLVMValueRef CallCoreLibGeneric(string metadataName, string method, ITypeSymbol[] typeArguments, params LLVMValueRef[] args)
     {

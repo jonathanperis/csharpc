@@ -391,6 +391,9 @@ void* csrt_isinst_class(void* obj, const csrt_MethodTable* type) {
     }
     for (const csrt_MethodTable* mt = objmt; mt; mt = mt->base)
         if (mt == type) return obj;
+    // `is System.Array`: element-typed array tables derive from csrt_Array_MT; arrays the runtime
+    // allocated untagged may still carry the GC's primitive-array table.
+    if (type == &csrt_Array_MT.header && objmt == &csrt_PrimitiveArray_MT.header) return obj;
     return NULL;
 }
 
