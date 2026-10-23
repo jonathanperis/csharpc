@@ -9,6 +9,9 @@
 #   tests/run.sh --all-opts   run the suite at -O0 and -O2
 #   tests/run.sh 06           only samples whose name contains "06"
 #
+# A sample with a NAME.diagnostics file is one csharpc must reject cleanly (explicit diagnostics, no
+# crash): the compiler's stderr, with the samples directory stripped from paths, must equal that file.
+#
 # Environment: CSHARPC_FLAGS="-g" (extra compiler flags, e.g. run the suite with debug info), CSHARPC_OPT=-O0 (same as --opt), CSHARPC_TEST_TIMEOUT=20 (seconds per binary),
 #              DOTNET=path/to/dotnet.
 set -uo pipefail
@@ -62,6 +65,19 @@ for opt in "${OPTS[@]}"; do
     name="$(basename "$src" .cs)"
     [[ -n "$FILTER" && "$name" != *"$FILTER"* ]] && continue
     label="$name [$opt]"
+    if [[ -f "$SAMPLES/$name.diagnostics" ]]; then
+      "${CSHARPC[@]}" "$opt" ${CSHARPC_FLAGS:-} "$src" -o "$OUT/$name$opt" > /dev/null 2> "$OUT/$name.compile"
+      got_code=$?
+      sed "s|^$SAMPLES/||" "$OUT/$name.compile" > "$OUT/$name.diag"
+      if [[ $got_code == 1 ]] && diff -u "$SAMPLES/$name.diagnostics" "$OUT/$name.diag" > "$OUT/$name.diff"; then
+        echo "PASS $label (rejected with the expected diagnostics)"; pass=$((pass + 1))
+      else
+        echo "FAIL $label (compiler exit $got_code, expected 1 with the recorded diagnostics)"
+        sed 's/^/     /' "$OUT/$name.diff" | head -20
+        fail=$((fail + 1)); failed+=("$label")
+      fi
+      continue
+    fi
     expected="$SAMPLES/$name.expected"
     [[ -f "$expected" ]] || { echo "SKIP $label (no .expected — run with --regen)"; continue; }
     want_code=0

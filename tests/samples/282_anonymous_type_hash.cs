@@ -1,6 +1,7 @@
 // Anonymous types: GetHashCode is Roslyn's synthesized one (seed from the field names, then
 // hash * -1521134295 + EqualityComparer<T>.Default.GetHashCode(field)), deterministic for these
 // member types; Equals and ToString as synthesized by Roslyn too.
+#nullable disable
 using System;
 
 enum Color { Red, Green = 5, Blue }

@@ -111,8 +111,9 @@ public sealed class Compiler(CompilerOptions options)
             WriteDiagnostic(w.Format().Replace(": error ", ": warning "), isError: false);
         if (codegen.Errors.Count > 0)
         {
-            foreach (var e in codegen.Errors.DistinctBy(e => e.Format())) WriteDiagnostic(e.Format(), isError: true);
-            return Fail($"{codegen.Errors.Count} construct(s) not supported by csharpc yet");
+            var distinct = codegen.Errors.DistinctBy(e => e.Format()).ToList();
+            foreach (var e in distinct) WriteDiagnostic(e.Format(), isError: true);
+            return Fail($"{distinct.Count} construct(s) not supported by csharpc yet");
         }
 
         if (!module.Verify(out var verifyError))

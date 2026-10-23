@@ -1,3 +1,4 @@
+#pragma warning disable CS0649 // fields only read through default values
 using System;
 using System.Collections.Generic;
 
