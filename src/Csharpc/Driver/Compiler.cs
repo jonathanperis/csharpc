@@ -37,6 +37,8 @@ public sealed class Compiler(CompilerOptions options)
             if (!root.OutputType.Equals("Exe", StringComparison.OrdinalIgnoreCase) && !root.OutputType.Equals("WinExe", StringComparison.OrdinalIgnoreCase)
                 && options.Emit == EmitKind.Exe)
                 return Fail($"'{Path.GetFileName(project)}' has OutputType={root.OutputType}; csharpc builds executables (use --emit obj for a library object)");
+            foreach (var p in all.Where(p => p.UnresolvedReferences.Count > 0))
+                return Fail($"{Path.GetFileName(p.ProjectPath)}: <Reference> not found: {string.Join(", ", p.UnresolvedReferences)} (build the referenced assembly first, or give it a HintPath)");
             foreach (var p in all.Where(p => p.UnsupportedPackages.Count > 0))
                 Warn($"{Path.GetFileName(p.ProjectPath)}: PackageReference not supported yet (csharpc compiles from source only): {string.Join(", ", p.UnsupportedPackages)}");
             options.DefaultOutputName = root.AssemblyName;

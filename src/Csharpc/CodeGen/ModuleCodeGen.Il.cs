@@ -66,8 +66,6 @@ public sealed partial class ModuleCodeGen
     private void EmitIlMethod(IlAssembly assembly, IMethodSymbol method)
     {
         if (method.IsAbstract || method.IsExtern) return;
-        if (method.MethodKind == MethodKind.StaticConstructor && TypeSubstitution.IsGenericContext(method))
-            throw new CompileError("CSLLVM0001", $"not supported by csharpc yet: static constructors in generic types ('{method.ContainingType}', {assembly.Name}.dll)", null);
         var block = assembly.Body(method)
             ?? throw new CompileError("CSLLVM0001", $"not supported by csharpc yet: '{method}' has no IL body (runtime-implemented method in {assembly.Name}.dll)", null);
         IlMethodBody body;

@@ -353,6 +353,11 @@ public sealed partial class FunctionCodeGen
         if (TrySpanConstruction(creation, out var span) || TryStatelessLibraryCreation(creation, out span) || TryThreadingCreation(creation, out span)) return span;
         if (IsStringBuilderHandler(type))  // new AppendInterpolatedStringHandler(literalLength, formattedCount, sb[, provider])
             return EmitValue(creation.Arguments.First(a => a.Parameter!.Ordinal == 2).Value);
+        if (IsDefaultInterpolatedStringHandler(type)) // new DefaultInterpolatedStringHandler(literalLength, formattedCount[, provider[, buffer]])
+        {
+            foreach (var argument in creation.Arguments) EmitValue(argument.Value); // invariant culture: the provider changes nothing
+            return CallRuntime("csrt_sb_new", L.Ptr, [L.I32], L.ConstInt(L.I32, 16));
+        }
         if (type.IsValueType) return EmitValueTypeCreation(creation, type);
         if (type.SpecialType == SpecialType.System_Object)
             return Allocate(_m.ExternalGlobal("csrt_Object_MT"), L.ConstInt(L.I64, (long)T.PointerSize));

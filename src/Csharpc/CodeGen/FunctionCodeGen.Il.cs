@@ -270,8 +270,23 @@ public sealed partial class FunctionCodeGen
     {
         var il = _il!;
         var prefix = id == "CSLLVM0001" && !message.StartsWith("not supported by csharpc yet", StringComparison.Ordinal) ? "not supported by csharpc yet: " : "";
-        return new CompileError(id, $"{prefix}{message} [in '{IlBody.Method.OriginalDefinition}' ({IlAssembly.Name}.dll) {il.Current}]",
+        return new CompileError(id, $"{prefix}{message} [in '{IlBody.Method.OriginalDefinition}' ({IlAssembly.Name}.dll) {IlDescribe(il.Current)}]",
             location ?? il.Syntax.GetLocation());
+    }
+
+    /// <summary>The instruction with its token operand resolved to a name, for diagnostics.</summary>
+    private string IlDescribe(IlInstruction instruction)
+    {
+        if (instruction.Token == 0 || instruction.OpCode == ILOpCode.Ldstr) return instruction.ToString();
+        try
+        {
+            var kind = System.Reflection.Metadata.Ecma335.MetadataTokens.EntityHandle(instruction.Token).Kind;
+            ISymbol symbol = kind is HandleKind.TypeDefinition or HandleKind.TypeReference or HandleKind.TypeSpecification
+                ? IlAssembly.ResolveType(instruction.Token, IlBody.Context)
+                : IlAssembly.ResolveMember(instruction.Token, IlBody.Context);
+            return $"IL_{instruction.Offset:X4}: {IlInstruction.Name(instruction.OpCode)} {symbol.ToDisplayString()}";
+        }
+        catch (Exception e) when (e is IlException or BadImageFormatException or InvalidOperationException) { return instruction.ToString(); }
     }
 
     /// <summary>Hands the current stack to a successor block: its entry slots receive the values.</summary>

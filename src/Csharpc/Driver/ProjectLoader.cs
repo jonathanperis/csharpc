@@ -22,6 +22,10 @@ public sealed record ProjectInfo
     public List<string> GlobalUsings { get; } = [];
     public List<string> ProjectReferences { get; } = [];
     public List<string> UnsupportedPackages { get; } = [];
+    /// <summary>&lt;Reference&gt; items with an assembly file: compiled from IL (docs/adr/0010-il-frontend.md).</summary>
+    public List<string> AssemblyReferences { get; } = [];
+    /// <summary>&lt;Reference&gt; items csharpc could not map to a file (e.g. GAC-style names).</summary>
+    public List<string> UnresolvedReferences { get; } = [];
     public string ProjectDirectory => Path.GetDirectoryName(ProjectPath)!;
 }
 
@@ -63,7 +67,7 @@ public static class ProjectLoader
         foreach (var v in new[] { "1_0", "1_1", "2_0", "2_1", "2_2", "3_0", "3_1" }) yield return $"NETCOREAPP{v}_OR_GREATER";
     }
 
-    private static readonly string[] Items = ["Compile", "Using", "ProjectReference", "PackageReference"];
+    private static readonly string[] Items = ["Compile", "Using", "ProjectReference", "PackageReference", "Reference"];
 
     /// <summary>Finds the single project file in a directory (like `dotnet build` with no arguments).</summary>
     public static string? FindProject(string directory)
@@ -131,6 +135,18 @@ public static class ProjectLoader
         foreach (var r in Item("ProjectReference"))
             if (Meta(r, "FullPath") is { } path) info.ProjectReferences.Add(path);
 
+        // <Reference Include="Name"><HintPath>path/Name.dll</HintPath></Reference> or Include="path/Name.dll".
+        foreach (var r in Item("Reference"))
+        {
+            if (string.Equals(Meta(r, "IsImplicitlyDefined"), "true", StringComparison.OrdinalIgnoreCase)) continue;
+            var identity = Meta(r, "Identity") ?? "";
+            var candidate = Meta(r, "HintPath") is { } hint ? Path.GetFullPath(hint, info.ProjectDirectory)
+                : identity.EndsWith(".dll", StringComparison.OrdinalIgnoreCase) ? Meta(r, "FullPath") ?? Path.GetFullPath(identity, info.ProjectDirectory)
+                : null;
+            if (candidate is not null && File.Exists(candidate)) info.AssemblyReferences.Add(candidate);
+            else info.UnresolvedReferences.Add(candidate ?? identity);
+        }
+
         foreach (var p in Item("PackageReference"))
             if (!string.Equals(Meta(p, "IsImplicitlyDefined"), "true", StringComparison.OrdinalIgnoreCase))
                 info.UnsupportedPackages.Add(Meta(p, "Identity") + (Meta(p, "Version") is { } v ? " " + v : ""));
@@ -174,6 +190,7 @@ public static class ProjectLoader
             GlobalUsings = usings.Count > 0 ? string.Join('\n', usings) : null,
             AssemblyName = root.AssemblyName,
             MainTypeName = root.StartupObject,
+            IlReferencePaths = [.. all.SelectMany(p => p.AssemblyReferences).Distinct(StringComparer.Ordinal)],
             Projects = all.Count > 1 ? [.. all.Select(p => new ProjectUnit
             {
                 ProjectPath = p.ProjectPath,

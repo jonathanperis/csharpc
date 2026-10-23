@@ -309,6 +309,11 @@ internal static class Intrinsics
         t["string.Concat(object, object, object)"] = concat;
         t["string.IsNullOrEmpty(string)"] = (g, inv) =>
             g.CallRuntime("csrt_string_is_null_or_empty", g.Module.Llvm.I1, [g.Module.Llvm.Ptr], Arg(g, inv, 0));
+        // string == / != called as methods (compiled code, the IL front-end).
+        t["string.op_Equality(string, string)"] = (g, inv) =>
+            g.CallRuntime("csrt_string_equals", g.Module.Llvm.I1, [g.Module.Llvm.Ptr, g.Module.Llvm.Ptr], Arg(g, inv, 0), Arg(g, inv, 1));
+        t["string.op_Inequality(string, string)"] = (g, inv) => g.Builder.Not(
+            g.CallRuntime("csrt_string_equals", g.Module.Llvm.I1, [g.Module.Llvm.Ptr, g.Module.Llvm.Ptr], Arg(g, inv, 0), Arg(g, inv, 1)));
         t["string.Equals(string, string)"] = (g, inv) =>
             g.CallRuntime("csrt_string_equals", g.Module.Llvm.I1, [g.Module.Llvm.Ptr, g.Module.Llvm.Ptr], Arg(g, inv, 0), Arg(g, inv, 1));
         t["string.Equals(string)"] = (g, inv) =>

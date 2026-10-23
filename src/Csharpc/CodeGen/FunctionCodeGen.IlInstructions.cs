@@ -40,7 +40,7 @@ public sealed partial class FunctionCodeGen
             // ---- constants ----
             case ILOpCode.Ldc_i4_m1 or ILOpCode.Ldc_i4_0 or ILOpCode.Ldc_i4_1 or ILOpCode.Ldc_i4_2 or ILOpCode.Ldc_i4_3
                 or ILOpCode.Ldc_i4_4 or ILOpCode.Ldc_i4_5 or ILOpCode.Ldc_i4_6 or ILOpCode.Ldc_i4_7 or ILOpCode.Ldc_i4_8:
-                Push(I4(op - ILOpCode.Ldc_i4_0));
+                Push(I4((int)op - (int)ILOpCode.Ldc_i4_0)); // ILOpCode is ushort-based: subtract as int (ldc.i4.m1)
                 return false;
             case ILOpCode.Ldc_i4_s or ILOpCode.Ldc_i4: Push(I4((int)instruction.Int)); return false;
             case ILOpCode.Ldc_i8: Push(new IlEntry(IlKind.Int64, L.ConstInt(L.I64, instruction.Int), Special(SpecialType.System_Int64))); return false;
