@@ -432,7 +432,7 @@ _Unwind_Reason_Code csrt_personality(int version, _Unwind_Action actions, uint64
     if (version != 1) return _URC_FATAL_PHASE1_ERROR;
     if (exception_class != CSRT_EXCEPTION_CLASS) return _URC_CONTINUE_UNWIND;  // foreign (e.g. C++)
 
-    const uint8_t* lsda = _Unwind_GetLanguageSpecificData(context);
+    const uint8_t* lsda = (const uint8_t*)_Unwind_GetLanguageSpecificData(context);  // uintptr_t in libunwind
     if (!lsda) return _URC_CONTINUE_UNWIND;
 
     uintptr_t function_start = _Unwind_GetRegionStart(context);

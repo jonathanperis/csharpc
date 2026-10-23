@@ -444,11 +444,15 @@ static csrt_Array* s_timers;    // triples (deadline_ms, task, token); unsorted,
 static int64_t s_ntimers;
 
 static void init_tcond(void) {
+#ifdef __APPLE__
+    pthread_cond_init(&s_tcond, NULL);  // no pthread_condattr_setclock: timer_loop waits with a relative timeout
+#else
     pthread_condattr_t attr;
     pthread_condattr_init(&attr);
     pthread_condattr_setclock(&attr, CLOCK_MONOTONIC);
     pthread_cond_init(&s_tcond, &attr);
     pthread_condattr_destroy(&attr);
+#endif
 }
 
 static void add_timer(int64_t deadline, csrt_Task* task, CancellationSource* token) {
@@ -515,12 +519,19 @@ static void timer_loop(void) {
         struct timespec ts;
         clock_gettime(CLOCK_MONOTONIC, &ts);
         int64_t wait = next - now_ms();
+#ifdef __APPLE__
+        if (wait > 0) {
+            struct timespec relative = { (time_t)(wait / 1000), (long)(wait % 1000) * 1000000 };
+            pthread_cond_timedwait_relative_np(&s_tcond, &s_tlock, &relative);
+        }
+#else
         if (wait > 0) {
             ts.tv_sec += wait / 1000;
             ts.tv_nsec += (wait % 1000) * 1000000;
             if (ts.tv_nsec >= 1000000000) { ts.tv_sec++; ts.tv_nsec -= 1000000000; }
             pthread_cond_timedwait(&s_tcond, &s_tlock, &ts);
         }
+#endif
     }
 }
 
