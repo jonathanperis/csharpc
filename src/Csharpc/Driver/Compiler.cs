@@ -39,8 +39,6 @@ public sealed class Compiler(CompilerOptions options)
                 return Fail($"'{Path.GetFileName(project)}' has OutputType={root.OutputType}; csharpc builds executables (use --emit obj for a library object)");
             foreach (var p in all.Where(p => p.UnresolvedReferences.Count > 0))
                 return Fail($"{Path.GetFileName(p.ProjectPath)}: <Reference> not found: {string.Join(", ", p.UnresolvedReferences)} (build the referenced assembly first, or give it a HintPath)");
-            foreach (var p in all.Where(p => p.UnsupportedPackages.Count > 0))
-                Warn($"{Path.GetFileName(p.ProjectPath)}: PackageReference not supported yet (csharpc compiles from source only): {string.Join(", ", p.UnsupportedPackages)}");
             options.DefaultOutputName = root.AssemblyName;
             settings = projectSettings with { Defines = [.. projectSettings.Defines, .. options.Defines], CoreLibDefines = coreLibDefines };
         }
@@ -247,8 +245,6 @@ public sealed class Compiler(CompilerOptions options)
             ? $"{color}{text}\e[0m"
             : $"\e[1m{text[..at]}\e[0m: {color}{marker[2..^1]}\e[0m {text[(at + marker.Length)..]}");
     }
-
-    private static void Warn(string message) => WriteDiagnostic($"csharpc: warning : {message}", isError: false);
 
     private static int Fail(string message)
     {

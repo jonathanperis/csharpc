@@ -149,7 +149,7 @@ public sealed partial class ModuleCodeGen
     {
         if (!error.Message.Contains(" [in '", StringComparison.Ordinal))
             error = new CompileError(error.Id, $"{error.Message} [in '{method.OriginalDefinition}' ({Il.OwnerOf(method)?.Name}.dll)]",
-                error.Location ?? (Il.OwnerOf(method) is { } owner ? IlSyntax(owner).Plain.GetLocation() : null));
+                error.Location is { IsInSource: true } ? error.Location : Il.OwnerOf(method) is { } owner ? IlSyntax(owner).Plain.GetLocation() : null);
         _ilFailures.Add((method, error));
         var old = _functions[method];
         var name = Native.TakeName(old.Fn);

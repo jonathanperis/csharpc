@@ -21,7 +21,8 @@ public sealed record ProjectInfo
     public string? StartupObject { get; init; }
     public List<string> GlobalUsings { get; } = [];
     public List<string> ProjectReferences { get; } = [];
-    public List<string> UnsupportedPackages { get; } = [];
+    /// <summary>Explicit &lt;PackageReference&gt; items ("Id Version").</summary>
+    public List<string> PackageReferences { get; } = [];
     /// <summary>&lt;Reference&gt; items with an assembly file: compiled from IL (docs/adr/0010-il-frontend.md).</summary>
     public List<string> AssemblyReferences { get; } = [];
     /// <summary>&lt;Reference&gt; items csharpc could not map to a file (e.g. GAC-style names).</summary>
@@ -149,9 +150,35 @@ public static class ProjectLoader
 
         foreach (var p in Item("PackageReference"))
             if (!string.Equals(Meta(p, "IsImplicitlyDefined"), "true", StringComparison.OrdinalIgnoreCase))
-                info.UnsupportedPackages.Add(Meta(p, "Identity") + (Meta(p, "Version") is { } v ? " " + v : ""));
+                info.PackageReferences.Add(Meta(p, "Identity") + (Meta(p, "Version") is { } v ? " " + v : ""));
+
+        // NuGet packages ship assemblies: restore, then take the runtime assets NuGet selected for this
+        // target framework (the implementation assemblies, transitive closure included) and compile
+        // them from IL like any other <Reference> (docs/adr/0010-il-frontend.md).
+        if (info.PackageReferences.Count > 0)
+            info.AssemblyReferences.AddRange(ResolvePackageAssemblies(projectPath, configuration, globalProperties));
 
         return info;
+    }
+
+    /// <summary>`dotnet msbuild -restore -t:ResolvePackageAssets`: the package DLLs `dotnet build` would copy to the output.</summary>
+    private static IEnumerable<string> ResolvePackageAssemblies(string projectPath, string configuration, IReadOnlyDictionary<string, string>? globalProperties)
+    {
+        var args = new List<string> { "msbuild", projectPath, "-nologo", "-restore", $"-p:Configuration={configuration}",
+            "-t:ResolvePackageAssets", "-getItem:RuntimeCopyLocalItems" };
+        foreach (var (k, v) in globalProperties ?? new Dictionary<string, string>()) args.Add($"-p:{k}={v}");
+        string json;
+        try { json = RunDotnet(args, Path.GetDirectoryName(projectPath)!); }
+        catch (InvalidOperationException e)
+        {
+            throw new InvalidOperationException($"could not restore the NuGet packages of '{Path.GetFileName(projectPath)}': {e.Message}", e);
+        }
+        using var doc = JsonDocument.Parse(json);
+        if (!doc.RootElement.TryGetProperty("Items", out var items) || !items.TryGetProperty("RuntimeCopyLocalItems", out var assets)) return [];
+        return [.. assets.EnumerateArray()
+            .Select(a => a.TryGetProperty("FullPath", out var p) ? p.GetString() : null)
+            .Where(p => p is not null && p.EndsWith(".dll", StringComparison.OrdinalIgnoreCase))
+            .Select(p => p!)];
     }
 
     /// <summary>
