@@ -19,6 +19,24 @@ public sealed partial class ModuleCodeGen
     /// <summary>--dump-il: where to print the decoded IL of lowered methods.</summary>
     public TextWriter? IlDump { get; init; }
 
+    /// <summary>
+    /// --il-survey (tools/il-survey): also lower every method of the IL assemblies that needs no type
+    /// arguments, so one compile reports everything a package would need, not only what a program reaches.
+    /// The failures stay CSLLVM0007 warnings unless the program itself reaches them.
+    /// </summary>
+    public bool IlSurvey { get; init; }
+
+    private void QueueIlSurveyMethods()
+    {
+        foreach (var type in IlTypes)
+        {
+            if (TypeSubstitution.IsGenericContext(type) || type.TypeKind is not (TypeKind.Class or TypeKind.Struct)) continue;
+            foreach (var method in type.GetMembers().OfType<IMethodSymbol>())
+                if (!method.IsGenericMethod && !method.IsAbstract && !method.IsExtern && method.MethodKind is not MethodKind.StaticConstructor)
+                    Guard(method, () => GetFunction(method));
+        }
+    }
+
     public bool IsIlType(ITypeSymbol? type) => type is INamedTypeSymbol && Il.Contains(type.ContainingAssembly);
 
     public bool IsIlMethod(IMethodSymbol method) => Il.Contains(method.ContainingAssembly);

@@ -137,6 +137,7 @@ public sealed partial class ModuleCodeGen
                      && !TypeSubstitution.IsGenericContext(t)))
             foreach (var method in type.GetMembers().OfType<IMethodSymbol>().Where(m => !m.IsGenericMethod))
                 Guard(method, () => EmitMethod(method));
+        if (IlSurvey) QueueIlSurveyMethods();
 
         DrainWorklists();
 

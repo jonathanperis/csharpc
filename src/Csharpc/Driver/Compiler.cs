@@ -132,6 +132,7 @@ public sealed class Compiler(CompilerOptions options)
             CfgDump = options.DumpCfg ? Console.Out : null,
             IlDump = options.DumpIl ? Console.Out : null,
             Il = il,
+            IlSurvey = options.IlSurvey,
             RuntimeConfig = settings.RuntimeConfig,
         };
         using var debugInfo = options.Debug
