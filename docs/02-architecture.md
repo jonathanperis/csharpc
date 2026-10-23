@@ -128,8 +128,14 @@ The details are in [03-lowering.md](03-lowering.md).
 - `LlvmModule.RunPasses("default<O{n}>")` runs the new pass manager's standard pipeline, the same
   as `opt -O2` or `clang -O2`. `-O0` skips it entirely.
 - `TargetMachine` (`src/Csharpc/Llvm/Llvm.cs`) is created for the host triple, CPU and features, or
-  for `--target`, with PIC relocation (PIE executables). It emits an object file or assembly, or the
-  module is printed (`--emit llvm-ir`) or written as bitcode (`--emit llvm-bc`).
+  for `--target`, with PIC relocation (PIE executables; static on wasm). It emits an object file or
+  assembly, or the module is printed (`--emit llvm-ir`) or written as bitcode (`--emit llvm-bc`).
+- **wasm32 only** (`src/Csharpc/Wasm`, [ADR 0010](adr/0010-wasm32.md)). `ExceptionLowering` runs
+  before the optimization pipeline: there is no unwinder, so after every call that may throw, a test
+  of `csrt_pending_exception` branches to the landing-pad code or returns to the caller.
+  `RootSpilling` runs after it: values that may hold references and are live across a call that
+  may collect get a linear-memory stack slot, so the conservative collector sees them. Each pass is
+  followed by the IR verifier.
 
 ### 5. Link (`src/Csharpc/Driver/Toolchain.cs`)
 
@@ -162,9 +168,17 @@ Per platform:
   the UCRT, part of Windows 10+). An output path without an extension gets `.exe`. The compiler itself
   loads LLVM-MinGW's `libLLVM-18.dll` (or an `LLVM-C.dll`; `CSHARPC_LIBLLVM` overrides), and the asm
   parser is initialized because the runtime's bitcode carries inline asm from the MinGW headers.
-- The corelib is parsed with `CSHARPC_TARGET_LINUX`, `CSHARPC_TARGET_MACOS` or `CSHARPC_TARGET_WINDOWS`
-  (from the target triple) so its libc constants, struct layouts and OS calls match the target
-  ([16-interop-io.md](16-interop-io.md)).
+- **WebAssembly** (`--target wasm32-wasip1`, WASI preview 1): the WASI SDK's clang
+  (`$WASI_SDK_PATH`, LLVM 18) compiles the runtime and drives wasm-ld against wasi-libc and
+  compiler-rt: `--gc-sections`, `--stack-first` with an 8 MiB stack (an overflow traps at address 0
+  instead of corrupting static data), `--strip-all`. The output is a `.wasm` module for wasmtime or
+  another WASI runtime. The runtime is always linked into the program as bitcode, at every
+  optimization level, because two whole-program IR passes run on wasm (below). `main` is exported as
+  `__main_argc_argv`, the name wasi-libc's start code calls. The design is in
+  [ADR 0010](adr/0010-wasm32.md).
+- The corelib is parsed with `CSHARPC_TARGET_LINUX`, `CSHARPC_TARGET_MACOS`, `CSHARPC_TARGET_WINDOWS`
+  or `CSHARPC_TARGET_WASI` (from the target triple) so its libc constants, struct layouts and OS
+  calls match the target ([16-interop-io.md](16-interop-io.md)).
 
 The runtime (`src/runtime/*.c`, `*.h`) ships as **source** next to the compiler (copied into
 `bin/.../runtime/` by the `.csproj`). It is compiled on first use with

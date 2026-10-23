@@ -269,7 +269,7 @@ public sealed partial class FunctionCodeGen
             var it = type.Kind == LLVMTypeKind.Double ? L.I64 : L.I32;
             return (_b.Cast(LLVMOpcode.BitCast, v, it), r => _b.Cast(LLVMOpcode.BitCast, r, type));
         }
-        if (type.IsPointer) return (_b.Cast(LLVMOpcode.PtrToInt, v, L.I64), r => _b.Cast(LLVMOpcode.IntToPtr, r, L.Ptr));
+        if (type.IsPointer) return (_b.Cast(LLVMOpcode.PtrToInt, v, T.NativeInt), r => _b.Cast(LLVMOpcode.IntToPtr, r, L.Ptr));
         return (v, r => r);
     }
 

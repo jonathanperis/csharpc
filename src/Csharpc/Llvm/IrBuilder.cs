@@ -15,6 +15,7 @@ public sealed class IrBuilder(LlvmContext context) : IDisposable
         LLVMAppendBasicBlockInContext(Context.Ref, fn, name);
 
     public void PositionAtEnd(LLVMBasicBlockRef block) => LLVMPositionBuilderAtEnd(Ref, block);
+    public void PositionBefore(LLVMValueRef instruction) => LLVMPositionBuilderBefore(Ref, instruction);
 
     /// <summary>Positions at the start of a block (before its first instruction, if any).</summary>
     public void PositionAtStart(LLVMBasicBlockRef block)

@@ -39,7 +39,7 @@ tests/run.sh --regen 07         # re-record a single sample
 ```
 
 Environment: `DOTNET` (path to the `dotnet` executable; the .NET 11 SDK must be first on `PATH`),
-`CSHARPC_OPT`, `CSHARPC_TEST_TIMEOUT`.
+`CSHARPC_OPT`, `CSHARPC_TEST_TIMEOUT`, `CSHARPC_TEST_TARGET` (cross-target runs, see below).
 
 ### Platforms
 
@@ -69,6 +69,20 @@ Linux recording machine (C locale) and in csharpc: Windows machines, the CI runn
 .NET with a user culture such as en-US, which csharpc doesn't model on any OS (`∞` instead of
 `Infinity`, `12.5%` instead of `12.5 %`, `2/29/2024` dates). `DOTNET_SYSTEM_GLOBALIZATION_INVARIANT`
 is not equivalent: it also makes culture-aware comparisons ordinal.
+
+**WebAssembly.** `CSHARPC_TEST_TARGET=wasm32-wasip1` makes `tests/run.sh`, `tests/conformance.sh`
+and `tests/programs.sh` compile every test with `--target wasm32-wasip1` and run it with
+`tests/wasm-run.sh`: wasmtime with the environment inherited, the host file system preopened at `/`
+(csrt follows `$PWD` as the current directory) and an 8 MiB wasm stack. It needs the WASI SDK
+(`WASI_SDK_PATH`, LLVM 18: wasi-sdk 24) and wasmtime on `PATH` (`WASMTIME` overrides). The expected
+output is the Linux recording, unchanged: there is no .NET for plain WASI to record with, and a WASI
+build is meant to behave like a native one. An unhandled exception traps, and wasmtime exits with
+134, the recorded status. Tests whose recorded behaviour WebAssembly can't have are listed under
+`wasi` in `tests/platform-skips.txt`, each with its reason: they need threads, assume LP64 C types
+in P/Invoke signatures, or print errno numbers. CI runs the three suites this way in the
+`test (wasm32-wasi)` job. It also runs `310_gc_roots_in_locals` with `CSRT_GC_STRESS=1` (a
+collection at every allocation), which checks that the compiler's GC root spilling is complete
+([ADR 0010](adr/0010-wasm32.md)).
 
 Failure output shows the compile errors (including `CSLLVM0001` "not supported yet" diagnostics) or
 the first lines of a unified diff between the expected and actual stdout.

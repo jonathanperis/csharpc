@@ -25,6 +25,13 @@ public sealed class Compiler(CompilerOptions options)
         var triple = options.Target ?? TargetMachine.HostTriple;
         var darwin = TargetMachine.IsDarwinTriple(triple);
         var windows = TargetMachine.IsWindowsTriple(triple);
+        var wasm = TargetMachine.IsWasmTriple(triple);
+        if (wasm && WasmTargetError(triple) is { } wasmError) return Fail(wasmError);
+        if (wasm) options.Target = triple = "wasm32-unknown-wasip1"; // clang's spelling (the runtime's bitcode)
+        if (wasm && options.Sanitize is not null)
+            return Fail("--sanitize is not supported on WebAssembly (there is no sanitizer runtime for wasm32-wasip1)");
+        if (wasm && options.Hardening == HardeningLevel.Max)
+            return Fail("--hardening max is not supported on WebAssembly: the engine already enforces control-flow integrity (structured control flow, typed indirect calls, return addresses outside linear memory); use the default level");
         if (windows && !triple.StartsWith("x86_64", StringComparison.Ordinal))
             return Fail($"target '{triple}': Windows on this architecture is not supported by csharpc yet (x86-64 only)");
         if (windows && (triple.EndsWith("-msvc", StringComparison.Ordinal) || triple.EndsWith("-windows", StringComparison.Ordinal)))
@@ -33,7 +40,7 @@ public sealed class Compiler(CompilerOptions options)
             return Fail($"target '{triple}': macOS on x86-64 is not supported by csharpc yet (Apple silicon / arm64 only)");
         if (darwin && options.Static)
             return Fail("--static is not supported on macOS: Apple does not support statically linked executables (libSystem is always linked dynamically)");
-        string[] coreLibDefines = [windows ? "CSHARPC_TARGET_WINDOWS" : darwin ? "CSHARPC_TARGET_MACOS" : "CSHARPC_TARGET_LINUX"];
+        string[] coreLibDefines = [wasm ? "CSHARPC_TARGET_WASI" : windows ? "CSHARPC_TARGET_WINDOWS" : darwin ? "CSHARPC_TARGET_MACOS" : "CSHARPC_TARGET_LINUX"];
         FrontendSettings settings;
         if (options.Project is { } project)
         {
@@ -170,8 +177,10 @@ public sealed class Compiler(CompilerOptions options)
         var toolchain = new Toolchain(options, target);
         Hardening.ApplyFunctionAttributes(module, llvm, options.Hardening, target); // generated functions only
         Hardening.ApplyModuleFlags(module, llvm, options.Hardening, target);
-        // Sanitizer builds link the instrumented runtime as objects (no runtime LTO).
-        var runtimeLto = options.Emit == EmitKind.Exe && options.OptLevel > 0 && options.RuntimeLto && options.Sanitize is null;
+        // Sanitizer builds link the instrumented runtime as objects (no runtime LTO). WebAssembly always
+        // links it in, at every optimization level and for every output kind: exceptions and GC roots
+        // are lowered over the whole program (ExceptionLowering, RootSpilling).
+        var runtimeLto = wasm || (options.Emit == EmitKind.Exe && options.OptLevel > 0 && options.RuntimeLto && options.Sanitize is null);
         if (runtimeLto)
         {
             RuntimeLto.LinkInto(module, llvm, toolchain.RuntimeBitcode(target.Triple));
@@ -179,6 +188,12 @@ public sealed class Compiler(CompilerOptions options)
             // before the (much more expensive) optimization pipeline sees it.
             module.RunPasses("globaldce", target);
             Phase("link runtime bitcode (LTO)");
+        }
+        if (wasm)
+        {
+            Csharpc.Wasm.ExceptionLowering.Run(module, llvm);
+            if (VerifyOrDump(module, "after exception lowering") is { } code) return code;
+            Phase("lower exceptions to explicit propagation (wasm)");
         }
 
         if (options.OptLevel == 0 && codegen.HasCoroutines)
@@ -193,6 +208,15 @@ public sealed class Compiler(CompilerOptions options)
             if (options.SizeLevel > 0) Optimizations.MarkOptimizeForSize(module, llvm, minimize: options.SizeLevel == 2);
             module.RunPasses(pipeline, target);
             Phase($"optimize ({pipeline})");
+        }
+
+        if (wasm)
+        {
+            Csharpc.Wasm.RootSpilling.Run(module, llvm);
+            if (VerifyOrDump(module, "after GC root spilling") is { } code) return code;
+            // wasi-libc's start code calls main(argc, argv) under this name (clang renames it the same way).
+            module.GetFunction("main").SetName("__main_argc_argv");
+            Phase("spill GC roots to the stack (wasm)");
         }
 
         var output = options.OutputPath;
@@ -218,6 +242,29 @@ public sealed class Compiler(CompilerOptions options)
         if (options.Emit != EmitKind.Exe) Phase("emit");
         if (options.Verbose) Console.Error.WriteLine($"csharpc: wrote {output}");
         return 0;
+    }
+
+    /// <summary>
+    /// csharpc's WebAssembly target is WASI preview 1 (wasi-libc; run with wasmtime or another WASI
+    /// runtime): wasm32-wasip1, or its older spelling wasm32-wasi.
+    /// </summary>
+    private static string? WasmTargetError(string triple) => triple switch
+    {
+        "wasm32-wasip1" or "wasm32-wasi" or "wasm32-unknown-wasi" or "wasm32-unknown-wasip1" => null,
+        _ when triple.StartsWith("wasm64", StringComparison.Ordinal) =>
+            $"target '{triple}': wasm64 (memory64) is not supported by csharpc yet; use wasm32-wasip1",
+        _ when triple.Contains("threads", StringComparison.Ordinal) =>
+            $"target '{triple}': wasi-threads is not supported by csharpc yet; use wasm32-wasip1 (single-threaded)",
+        _ => $"target '{triple}': csharpc supports WebAssembly through WASI preview 1 only (wasm32-wasip1)",
+    };
+
+    private int? VerifyOrDump(LlvmModule module, string stage)
+    {
+        if (module.Verify(out var error)) return null;
+        var dump = Path.ChangeExtension(options.OutputPath, ".invalid.ll");
+        File.WriteAllText(dump, module.PrintToString());
+        Console.Error.WriteLine($"internal compiler error: csharpc produced invalid LLVM IR {stage} (written to {dump}):\n{error}");
+        return 70;
     }
 
     /// <summary>Undefined extern_weak functions (statically bound P/Invoke targets that may be missing).</summary>

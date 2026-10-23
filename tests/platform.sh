@@ -7,6 +7,20 @@ case "$(uname -s)" in
 esac
 EXE_SUFFIX=""; [[ $HOST_OS == windows ]] && EXE_SUFFIX=".exe"
 
+# Cross-target runs: CSHARPC_TEST_TARGET=wasm32-wasip1 compiles every test for WebAssembly (WASI) and
+# runs it with tests/wasm-run.sh (wasmtime). The expectations are still the ones recorded with .NET on
+# Linux (there is no .NET for plain WASI to record with); tests/platform-skips.txt lists, under "wasi",
+# what WebAssembly can't do (threads, processes, ...). TARGET_OS names the platform the tests run on.
+TARGET_OS=$HOST_OS
+TARGET_FLAGS=()
+RUN_PREFIX=()
+if [[ "${CSHARPC_TEST_TARGET:-}" == wasm32* ]]; then
+  TARGET_OS=wasi
+  EXE_SUFFIX=".wasm"
+  TARGET_FLAGS=(--target "$CSHARPC_TEST_TARGET")
+  RUN_PREFIX=("$ROOT/tests/wasm-run.sh")
+fi
+
 # Expected stdout (stdin -> stdout). On Windows, Console.WriteLine ends lines with "\r\n"
 # (Environment.NewLine). Tests whose output differs there for another reason are listed in
 # tests/platform-skips.txt; tests/check-oracle.sh checks this derivation against real .NET.
@@ -67,5 +81,5 @@ platform_live_expected() {
 # Prints the reason if test $1 (sample name, program name or conformance path) is listed in
 # tests/platform-skips.txt for this OS.
 platform_skip() {
-  awk -v os="$HOST_OS" -v t="$1" '$1 == os && $2 == t { $1 = $2 = ""; sub(/^ +/, ""); print; exit }' "$ROOT/tests/platform-skips.txt"
+  awk -v os="${TARGET_OS:-$HOST_OS}" -v t="$1" '$1 == os && $2 == t { $1 = $2 = ""; sub(/^ +/, ""); print; exit }' "$ROOT/tests/platform-skips.txt"
 }

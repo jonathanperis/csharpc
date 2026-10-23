@@ -13,7 +13,8 @@
 # crash): the compiler's stderr, with the samples directory stripped from paths, must equal that file.
 #
 # Environment: CSHARPC_FLAGS="-g" (extra compiler flags, e.g. run the suite with debug info), CSHARPC_OPT=-O0 (same as --opt), CSHARPC_TEST_TIMEOUT=20 (seconds per binary),
-#              DOTNET=path/to/dotnet.
+#              DOTNET=path/to/dotnet, CSHARPC_TEST_TARGET=wasm32-wasip1 (compile for WebAssembly and run with
+#              wasmtime; see tests/platform.sh).
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -70,7 +71,7 @@ for opt in "${OPTS[@]}"; do
     [[ -n "$FILTER" && "$name" != *"$FILTER"* ]] && continue
     label="$name [$opt]"
     if [[ -f "$SAMPLES/$name.diagnostics" ]]; then
-      "${CSHARPC[@]}" "$opt" ${CSHARPC_FLAGS:-} "$src" -o "$OUT/$name$opt$EXE_SUFFIX" > /dev/null 2> "$OUT/$name.compile"
+      "${CSHARPC[@]}" "${TARGET_FLAGS[@]}" "$opt" ${CSHARPC_FLAGS:-} "$src" -o "$OUT/$name$opt$EXE_SUFFIX" > /dev/null 2> "$OUT/$name.compile"
       got_code=$?
       platform_compiler_output < "$OUT/$name.compile" | sed "s|^$SAMPLES/||" > "$OUT/$name.diag"
       if [[ $got_code == 1 ]] && diff -u "$SAMPLES/$name.diagnostics" "$OUT/$name.diag" > "$OUT/$name.diff"; then
@@ -85,7 +86,7 @@ for opt in "${OPTS[@]}"; do
     expected="$SAMPLES/$name.expected"
     [[ -f "$expected" ]] || { echo "SKIP $label (no .expected — run with --regen)"; continue; }
     reason="$(platform_skip "$name")"
-    [[ -n "$reason" ]] && ! platform_is_live "$reason" && { echo "SKIP $label (platform-dependent on $HOST_OS: $reason)"; continue; }
+    [[ -n "$reason" ]] && ! platform_is_live "$reason" && { echo "SKIP $label (platform-dependent on $TARGET_OS: $reason)"; continue; }
     stdin_file=/dev/null; [[ -f "$SAMPLES/$name.stdin" ]] && stdin_file="$SAMPLES/$name.stdin"
     if [[ -n "$reason" ]]; then
       # Recorded live from real .NET on this machine (once per run).
@@ -99,14 +100,14 @@ for opt in "${OPTS[@]}"; do
     fi
 
     exe="$OUT/$name$opt$EXE_SUFFIX"
-    if ! "${CSHARPC[@]}" "$opt" ${CSHARPC_FLAGS:-} "$src" -o "$exe" 2> "$OUT/$name.compile"; then
+    if ! "${CSHARPC[@]}" "${TARGET_FLAGS[@]}" "$opt" ${CSHARPC_FLAGS:-} "$src" -o "$exe" 2> "$OUT/$name.compile"; then
       echo "FAIL $label (compile error)"; sed 's/^/     /' "$OUT/$name.compile" | head -8
       fail=$((fail + 1)); failed+=("$label"); continue
     fi
     # Run in a child bash so the parent shell doesn't print "Aborted (core dumped)" job noise
     # for samples that intentionally die with an unhandled exception (SIGABRT, exit 134).
-    bash -c 'ulimit -c 0 2>/dev/null; timeout "$1" "$2" > "$3" 2> "$4" < "$5"' _ \
-      "${CSHARPC_TEST_TIMEOUT:-90}" "$exe" "$OUT/$name.stdout" "$OUT/$name.stderr" "$stdin_file" 2>/dev/null
+    bash -c 'ulimit -c 0 2>/dev/null; t="$1" out="$2" err="$3" in="$4"; shift 4; timeout "$t" "$@" > "$out" 2> "$err" < "$in"' _ \
+      "${CSHARPC_TEST_TIMEOUT:-90}" "$OUT/$name.stdout" "$OUT/$name.stderr" "$stdin_file" "${RUN_PREFIX[@]}" "$exe" 2>/dev/null
     got_code=$?
     if diff -u "$OUT/$name.want" "$OUT/$name.stdout" > "$OUT/$name.diff" && [[ "$got_code" == "$want_code" ]]; then
       echo "PASS $label"

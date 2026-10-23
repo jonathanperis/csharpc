@@ -149,24 +149,25 @@ How the two sides call each other:
 
 ## Platforms
 
-csrt is C11 + POSIX threads. What differs per OS is behind `#ifdef __APPLE__` and `#ifdef _WIN32`
-(Windows: MinGW-w64 with the UCRT; winpthreads provides the pthread API, so the threading code is
-shared):
+csrt is C11 + POSIX threads. What differs per OS is behind `#ifdef __APPLE__`, `#ifdef _WIN32` and
+`#ifdef __wasi__` (Windows: MinGW-w64 with the UCRT; winpthreads provides the pthread API, so the
+threading code is shared. WASI: wasi-libc, one thread; `wasi.c` implements the pthread subset csrt
+uses):
 
-| Concern | Linux (glibc) | macOS (arm64) | Windows (x64, MinGW-w64) |
-|---|---|---|---|
-| GC static roots | writable `PT_LOAD` segments via `dl_iterate_phdr` | writable `LC_SEGMENT_64`s of image 0 (`_dyld_get_image_header`) | writable sections of the executable's PE image (`GetModuleHandle(NULL)`) |
-| GC thread-local roots | the executable's `PT_TLS` block (`dlpi_tls_data`) | the thread's TLV block: a `__thread_vars` descriptor's thunk gives one variable's address, minus its offset = block start; size = `__thread_data` + `__thread_bss` | `TEB.ThreadLocalStoragePointer[_tls_index]`; size from the image's TLS directory |
-| GC heap chunks | `mmap` + trim to alignment | the same | `VirtualAlloc`: reserve twice the size, release, map at the aligned address |
-| thread stack bounds | `__libc_stack_end`, `pthread_getattr_np` | `pthread_get_stackaddr_np` | `GetCurrentThreadStackLimits` |
-| stop-the-world | `SIGPWR`/`SIGXCPU`, POSIX semaphore acks | `SIGUSR1`/`SIGXCPU`, Mach semaphore acks (no unnamed POSIX semaphores) | `SuspendThread` + `GetThreadContext` (waits until the thread is stopped; the whole `CONTEXT`, vector registers included, is scanned as roots), `ResumeThread` |
-| timed waits | `CLOCK_MONOTONIC` condvar, `pthread_mutex_timedlock` | `pthread_cond_timedwait_relative_np`, trylock polling | `pthread_cond_timedwait_relative_np` (winpthreads' absolute timeouts are wall-clock) |
-| unwinding | libgcc_s / `.eh_frame` | libSystem's libunwind, compact unwind + `__eh_frame`; same personality (`csrt_personality`) | LLVM-MinGW's libunwind on SEH tables (`.pdata`/`.xdata`): LLVM registers `csrt_personality` as each function's SEH handler, and on Windows it forwards to `_GCC_specific_handler` with the Itanium personality, as libstdc++'s `__gxx_personality_seh0` does |
-| unhandled exception | `abort()`: SIGABRT, exit status 134 | the same | `TerminateProcess` with .NET's exit code `0xE0434352`, or `0xC0000005` for a `NullReferenceException` from a null dereference (.NET re-raises the access violation) |
-| standard streams | as is | as is | binary mode: "\r\n" is written where .NET writes `Environment.NewLine`, a program's own "\n" stays bare |
-| command line | `/proc/self/cmdline` | `_NSGetArgv` | the UCRT's wide `argv` (`_configure_wide_argv`: MSVC `wmain` parsing of `GetCommandLineW`, like .NET's host) |
-| clocks | `clock_gettime` | the same | `GetSystemTimePreciseAsFileTime`; `Stopwatch` on `QueryPerformanceCounter` (its `Frequency` is `QueryPerformanceFrequency`, as in .NET) |
-| P/Invoke probing | `foo.so`, `libfoo.so`, `foo`, `libfoo` | the same with `.dylib` | `foo.dll`, `foo` (`LoadLibraryExW`); `SetLastError` captures `GetLastError()` |
+| Concern | Linux (glibc) | macOS (arm64) | Windows (x64, MinGW-w64) | WASI (wasm32, wasi-libc) |
+|---|---|---|---|---|
+| GC static roots | writable `PT_LOAD` segments via `dl_iterate_phdr` | writable `LC_SEGMENT_64`s of image 0 (`_dyld_get_image_header`) | writable sections of the executable's PE image (`GetModuleHandle(NULL)`) | the data segment, `__global_base` to `__data_end` |
+| GC thread-local roots | the executable's `PT_TLS` block (`dlpi_tls_data`) | the thread's TLV block: a `__thread_vars` descriptor's thunk gives one variable's address, minus its offset = block start; size = `__thread_data` + `__thread_bss` | `TEB.ThreadLocalStoragePointer[_tls_index]`; size from the image's TLS directory | none (`_Thread_local` becomes ordinary globals without the threads proposal) |
+| GC heap chunks | `mmap` + trim to alignment | the same | `VirtualAlloc`: reserve twice the size, release, map at the aligned address | `aligned_alloc` (linear memory only grows) |
+| thread stack bounds | `__libc_stack_end`, `pthread_getattr_np` | `pthread_get_stackaddr_np` | `GetCurrentThreadStackLimits` | the linear-memory stack, up to `__stack_high`; values in wasm locals are spilled there by the compiler (RootSpilling) |
+| stop-the-world | `SIGPWR`/`SIGXCPU`, POSIX semaphore acks | `SIGUSR1`/`SIGXCPU`, Mach semaphore acks (no unnamed POSIX semaphores) | `SuspendThread` + `GetThreadContext` (waits until the thread is stopped; the whole `CONTEXT`, vector registers included, is scanned as roots), `ResumeThread` | not needed (one thread) |
+| timed waits | `CLOCK_MONOTONIC` condvar, `pthread_mutex_timedlock` | `pthread_cond_timedwait_relative_np`, trylock polling | `pthread_cond_timedwait_relative_np` (winpthreads' absolute timeouts are wall-clock) | sleep until the deadline; a wait nothing can end is reported as a deadlock |
+| unwinding | libgcc_s / `.eh_frame` | libSystem's libunwind, compact unwind + `__eh_frame`; same personality (`csrt_personality`) | LLVM-MinGW's libunwind on SEH tables (`.pdata`/`.xdata`): LLVM registers `csrt_personality` as each function's SEH handler, and on Windows it forwards to `_GCC_specific_handler` with the Itanium personality, as libstdc++'s `__gxx_personality_seh0` does | none: explicit propagation through `csrt_pending_exception` (ExceptionLowering) |
+| unhandled exception | `abort()`: SIGABRT, exit status 134 | the same | `TerminateProcess` with .NET's exit code `0xE0434352`, or `0xC0000005` for a `NullReferenceException` from a null dereference (.NET re-raises the access violation) | `abort()` traps; wasmtime exits with status 134 |
+| standard streams | as is | as is | binary mode: "\r\n" is written where .NET writes `Environment.NewLine`, a program's own "\n" stays bare | as is |
+| command line | `/proc/self/cmdline` | `_NSGetArgv` | the UCRT's wide `argv` (`_configure_wide_argv`: MSVC `wmain` parsing of `GetCommandLineW`, like .NET's host) | `argv` from wasi-libc |
+| clocks | `clock_gettime` | the same | `GetSystemTimePreciseAsFileTime`; `Stopwatch` on `QueryPerformanceCounter` (its `Frequency` is `QueryPerformanceFrequency`, as in .NET) | `clock_gettime` (WASI clocks) |
+| P/Invoke probing | `foo.so`, `libfoo.so`, `foo`, `libfoo` | the same with `.dylib` | `foo.dll`, `foo` (`LoadLibraryExW`); `SetLastError` captures `GetLastError()` | libc/libm only (wasi-libc, linked statically); others throw `DllNotFoundException` |
 
 An uncaught exception on Windows: `_Unwind_RaiseException` raises an SEH exception that no frame
 handles, and MinGW's top-level filter (`_gnu_exception_handler`) resumes it, so it returns
@@ -178,6 +179,42 @@ MinGW's `longjmp` unwinds the stack through SEH (`RtlUnwindEx`) and it jumps out
 
 errno values, `open` flags and struct layouts that C# code needs are selected in the corelib at
 compile time from the target triple, not in C ([16-interop-io.md](16-interop-io.md#systemio)).
+
+### WebAssembly (wasm32-wasip1)
+
+The design is in [ADR 0010](adr/0010-wasm32.md). What a program sees:
+
+- **Exceptions** behave as on the native targets, filters and `finally` included. The compiler
+  lowers them to explicit propagation, since WebAssembly has no unwinder.
+- **Garbage collection** is the same collector. References that the optimized code keeps in wasm
+  locals are spilled into stack slots in linear memory, so the scan finds them. `CSRT_GC_STRESS=N`
+  collects on every N-th allocation (any platform) to test this.
+- **Threads**: there is one. `Thread.Start` throws `PlatformNotSupportedException` ("Operation is not
+  supported on this platform."), as in .NET's single-threaded WebAssembly builds.
+  `Environment.ProcessorCount` is 1 and parallel loops run inline. `Task.Run` work, continuations and
+  timers run on the main thread whenever it blocks (`Wait`, `Result`, `async Main`, `Thread.Sleep`,
+  `Thread.Yield`). A wait that can never end (`Monitor.Wait()`, `Thread.Sleep(Infinite)`, a task
+  nothing will complete) prints a deadlock message and exits with status 134 instead of hanging.
+  A busy-wait on a flag that only another thread would set still spins forever.
+- **System**: files in the directories the WASI runtime preopens (relative paths resolve against
+  `$PWD`), environment variables, clocks, `Random` (WASI `random_get`), standard streams.
+  `Environment.ProcessId` is 42 and `MachineName` is "localhost". P/Invoke reaches only wasi-libc.
+  Exit codes above 125 are rejected by wasmtime.
+- **Running**: `wasmtime run --dir=. program.wasm` for a program that only touches files under the
+  current directory, or `tests/wasm-run.sh program.wasm` (the whole file system, the environment,
+  and an 8 MiB wasm stack like .NET's main thread).
+
+Measurements (local x86-64 machine, wasmtime 36 including its JIT compilation; best of 3, wall ms):
+
+| benchmark | native -O2 | wasm -O2 | native size (KiB, stripped, dynamic glibc) | wasm size (KiB, static wasi-libc) |
+|---|---:|---:|---:|---:|
+| fib | 92 | 132 | 11 | 35 |
+| binarytrees | 336 | 437 | 28 | 49 |
+| fannkuchredux | 394 | 487 | 28 | 51 |
+| nbody | 904 | 1102 | 36 | 63 |
+
+The module embeds what native executables load from libc at run time (wasi-libc: malloc, stdio,
+math). Hello world is about 65 KiB at -O2.
 
 ## GC plan
 

@@ -216,6 +216,7 @@ bool csrt_bool_parse(csrt_String* s) {
     msg[o] = 0;
     strcat(msg, "' was not recognized as a valid Boolean.");
     csrt_throw(&mt_format, ascii(msg));
+    return false;  // wasm32: throwing returns (CSRT_THROWS)
 }
 
 /// Convert.ToInt32/64(string, fromBase) for bases 2, 8, 10, 16 (two's complement for 2/8/16).
@@ -282,8 +283,8 @@ int32_t csrt_environment_processor_count(void) {
 
 /// Environment.GetCommandLineArgs(): [executable path, args...] (read from /proc/self/cmdline;
 /// on macOS from the process's argv).
-#if defined(_WIN32)
-// csrt.c (from the UTF-16 command line)
+#if defined(_WIN32) || defined(__wasi__)
+// csrt.c (Windows: from the UTF-16 command line; WASI: argv)
 #elif defined(__APPLE__)
 #include <crt_externs.h>
 csrt_Array* csrt_environment_command_line_args(void) {

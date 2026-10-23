@@ -78,6 +78,8 @@ public sealed partial class ModuleCodeGen
         var coreLibSystemImport = Types.Target.IsWindows && CoreLib.IsCoreLib(method) && s_coreLibDirectLibrariesWindows.Contains(library);
         var direct = Types.Target.IsWindows ? runtimeSymbol || coreLibSystemImport
             : s_directLinkLibraries.Contains(library) && !(Types.Target.IsDarwin && library.Contains(".so", StringComparison.Ordinal));
+        // WASI has no dynamic loading: libc/libm (wasi-libc, linked statically) and the runtime bind
+        // directly; any other library fails to load at the call, with .NET's DllNotFoundException.
         var nativeAttributes = NativeAttributes(parameters, retKind, method, sret, retStruct);
         LLVMValueRef native = default;
         if (direct)
@@ -90,7 +92,9 @@ public sealed partial class ModuleCodeGen
                 // like .NET) instead of a link error. Not for the corelib's Windows imports: a COFF weak
                 // external of, say, malloc would also capture the C runtime's own references to it (lld
                 // then binds them all to the null default instead of the UCRT import).
-                if (!coreLibSystemImport) Native.LLVMSetLinkage(native, (LLVMLinkage)12 /* LLVMExternalWeakLinkage */);
+                // Not on wasm either: wasm-ld doesn't extract archive members (wasi-libc) for weak references,
+                // so a weak getenv would stay undefined; a symbol wasi-libc lacks is a link error instead.
+                if (!coreLibSystemImport && !Types.Target.IsWasm) Native.LLVMSetLinkage(native, (LLVMLinkage)12 /* LLVMExternalWeakLinkage */);
                 foreach (var (index, attribute) in nativeAttributes) Native.LLVMAddAttributeAtIndex(native, index, attribute);
             }
         }
@@ -395,7 +399,19 @@ public sealed partial class ModuleCodeGen
         Types.Target.IsWindows && Types.Target.IsX86_64 ? ClassifyWin64(type)
         : Types.Target.IsX86_64 ? ClassifySysV(type)
         : Types.Target.IsAArch64 ? ClassifyAapcs64(type)
+        : Types.Target.IsWasm ? ClassifyWasm(type)
         : throw CompileError.Unsupported($"P/Invoke struct passing on target '{Types.Target.Triple}'", at);
+
+    // ---- WebAssembly C ABI (clang's WebAssemblyABIInfo) -----------------------------------------
+
+    /// <summary>A struct with a single scalar (after flattening) travels as that scalar; any other
+    /// struct by reference to a caller-made copy, and is returned through a hidden pointer.</summary>
+    private LLVMTypeRef[]? ClassifyWasm(LLVMTypeRef type)
+    {
+        List<(ulong Offset, LLVMTypeRef Type)> scalars = [];
+        Flatten(type, 0, scalars);
+        return scalars.Count == 1 && Types.Target.SizeOf(scalars[0].Type) == Types.Target.SizeOf(type) ? [scalars[0].Type] : null;
+    }
 
     // ---- Microsoft x64 (Windows), mirroring clang's WinX86_64ABIInfo ----------------------------
 

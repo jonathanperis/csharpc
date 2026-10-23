@@ -97,4 +97,5 @@ csrt_String* csrt_enum_format(uint64_t value, int64_t signed_value, csrt_String*
     }
     csrt_throw(&mt_format_exception,
                csrt_string_from_utf8("Format string can be only \"G\", \"g\", \"X\", \"x\", \"F\", \"f\", \"D\" or \"d\"."));
+    return NULL;  // wasm32: throwing returns (CSRT_THROWS)
 }

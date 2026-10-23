@@ -20,6 +20,8 @@ possible bug; an explicit "not supported by csharpc yet" diagnostic is always pr
   `libLLVM-18.dll` on Windows, or set `CSHARPC_LIBLLVM`) and `clang` (linker driver, runtime
   compiler; on macOS Homebrew's clang 18, plus the Xcode Command Line Tools for the SDK and linker;
   on Windows LLVM-MinGW's clang, with the test scripts run from Git Bash).
+- WebAssembly (`--target wasm32-wasip1`) also needs the WASI SDK 24 (`WASI_SDK_PATH`; its clang must be
+  LLVM 18) and wasmtime on `PATH`.
 - If the SDK is installed side by side: `export PATH=$HOME/.dotnet11:$PATH`.
 - Recommended env: `DOTNET_CLI_TELEMETRY_OPTOUT=1 DOTNET_NOLOGO=1`.
 
@@ -36,6 +38,7 @@ tests/projects.sh              # .csproj input and dotnet build/run/publish inte
 tests/il.sh                    # libraries consumed only as DLLs / NuGet packages (IL front-end)
 tests/debuginfo.sh             # gdb-driven debug-info checks
 benchmarks/run.sh              # csharpc vs .NET JIT vs NativeAOT (Markdown table)
+CSHARPC_TEST_TARGET=wasm32-wasip1 tests/run.sh 40_try   # any suite, compiled for WebAssembly, run under wasmtime
 ```
 
 Run the differential suite (at least the samples related to your change, ideally `--all-opts`)
@@ -73,6 +76,11 @@ before every commit that touches `src/`.
 | `tools/` | debugger pretty-printers, checksec, fuzzing harnesses, helper scripts |
 
 ## Where to make a change
+
+- WebAssembly-only lowering: `src/Csharpc/Wasm` (exception propagation and GC root spilling, whole-module
+  IR passes; ADR 0010). C runtime differences are behind `__wasi__`/`__wasm__`, corelib ones behind
+  `CSHARPC_TARGET_WASI`. Throwing helpers are `CSRT_THROWS` (they return on wasm), and offsets into runtime
+  objects must follow the pointer size (wasm32 has 4-byte pointers).
 
 - New library surface: prefer C# in `src/Csharpc/corelib`; use `Intrinsics.cs` only for things that
   must map to an LLVM intrinsic or the C runtime. Keep C in `src/runtime` for GC, unwinding,
