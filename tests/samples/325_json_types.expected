@@ -1,0 +1,12 @@
+{"List":[1],"IList":[2],"ICollection":[3],"IEnumerable":[4],"IReadOnlyCollection":[5],"ISet":["s"],"Sorted":{"a":1,"b":2},"SortedSet":[1,2,3],"Linked":["x","y"],"IDictionary":{"k":[7]},"IReadOnlyDictionary":{"-1":true},"Nested":[{"z":[8,9]}],"Pair":{"Key":"key","Value":10},"MaybePoint":{"X":1,"Y":0},"NoPoint":null,"Element":{"raw":[true]},"Node":{"n":1},"Array":[1,"two"],"Any":[1,"s",null]}
+True
+List`1 List`1 List`1 List`1 HashSet`1 Dictionary`2 Dictionary`2
+2 x key=10 1 False True 1 two JsonElement
+3 a m 5 1
+p 5 1,2
+1,2 a,b kept 9 5,4 7,3
+Property 'Numbers' on type 'BadPopulate' is marked with JsonObjectCreationHandling.Populate but it doesn't support populating. This can be either because the property type is immutable or it could use a custom converter.
+{"Data":{"X":4,"Y":5},"Count":1}
+{"Data":"text","Count":2} True
+[{"Data":7,"Count":0}] True
+{"Secret":"nested private type"} True

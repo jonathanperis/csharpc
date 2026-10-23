@@ -306,7 +306,9 @@ public sealed class CoreLib
 
     private string Signature(ISymbol member) => member switch
     {
-        IMethodSymbol m => $"{(m.IsStatic ? "static " : "")}{m.MetadataName}`{m.Arity}({string.Join(",", m.Parameters.Select(Param))})",
+        // Conversion operators differ only by return type (op_Explicit(JsonNode) -> int / -> bool ...).
+        IMethodSymbol m => $"{(m.IsStatic ? "static " : "")}{m.MetadataName}`{m.Arity}({string.Join(",", m.Parameters.Select(Param))})"
+            + (m.MethodKind == MethodKind.Conversion ? "->" + Canon(m.ReturnType) : ""),
         IPropertySymbol p => $"{(p.IsStatic ? "static " : "")}{p.MetadataName}[{string.Join(",", p.Parameters.Select(Param))}]",
         _ => member.MetadataName,
     };

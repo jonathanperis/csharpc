@@ -1,0 +1,35 @@
+{"name":"Ada","age":36,"emails":["ada@example.com"],"address":{"city":"London"}}
+{"name":"Ada","age":36,"emails":["ada@example.com"],"address":{"city":"London"}}
+[1,2]
+Bob 5 0 Paris
+1.5
+X
+True
+False WhenWritingNull
+{
+  "City": "Rome",
+  "Zip": "00100"
+}
+{"Name":"Ada","Age":36,"Emails":["ada@example.com"],"Address":{"City":"London","Zip":null}}
+Address False
+{"City":"Oslo","Zip":null}
+Object 4 name True
+80 {"name":"Ada",
+Ada
+async 2 4
+1;2;3;
+[{"city":"A"},5]
+B 7 Number
+London 36
+London 5
+ok: {
+  "City": null,
+  "Zip": null
+} (pretty)
+InvalidOperationException: JsonTypeInfo metadata for type 'System.TimeSpan' was not provided by TypeInfoResolver of type 'AppContext'. If using source generation, ensure that all root types passed to the serializer have been annotated with 'JsonSerializableAttribute', along with any types that might be serialized polymorphically.
+InvalidCastException: Unable to cast object of type 'Person' to type 'Address'.
+InvalidOperationException: Reflection-based serialization has been disabled for this application. Either use the source generator APIs or explicitly configure the 'JsonSerializerOptions.TypeInfoResolver' property.
+InvalidOperationException: Reflection-based serialization has been disabled for this application. Either use the source generator APIs or explicitly configure the 'JsonSerializerOptions.TypeInfoResolver' property.
+InvalidOperationException: Reflection-based serialization has been disabled for this application. Either use the source generator APIs or explicitly configure the 'JsonSerializerOptions.TypeInfoResolver' property.
+JsonException: The JSON value could not be converted to System.Int32. Path: $.age | LineNumber: 0 | BytePositionInLine: 10.
+InvalidOperationException: JsonSerializerOptions instances cannot be modified once encapsulated by a JsonSerializerContext. Such encapsulation can happen either when calling 'JsonSerializerOptions.AddContext' or when passing the options instance to a JsonSerializerContext constructor.

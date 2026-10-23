@@ -11,6 +11,11 @@
 # that Console.WriteLine writes); tests/check-oracle.sh verifies that derivation against real .NET.
 macos 160_pinvoke_dllimport   loads the Linux soname "libm.so.6": .NET on macOS throws DllNotFoundException
 macos 176_pinvoke_struct_abi  loads the Linux soname "libm.so.6": .NET on macOS throws DllNotFoundException
+windows 310_json_writer                 live: indented JSON uses the writer's NewLine handling, not the "\n" -> "\r\n" derivation
+windows 312_json_reader                 live: indented JSON uses the writer's NewLine handling, not the "\n" -> "\r\n" derivation
+windows 314_json_document               live: indented JSON uses the writer's NewLine handling, not the "\n" -> "\r\n" derivation
+windows 315_json_node                   live: indented JSON uses the writer's NewLine handling, not the "\n" -> "\r\n" derivation
+windows 318_json_options                live: indented JSON uses the writer's NewLine handling, not the "\n" -> "\r\n" derivation
 windows 07_arrays                       live: writes a bare "\n" itself, next to WriteLine's "\r\n"
 windows 163_number_parse                live: writes a bare "\n" itself, next to WriteLine's "\r\n"
 windows 166_biginteger_ops              live: writes a bare "\n" itself, next to WriteLine's "\r\n"

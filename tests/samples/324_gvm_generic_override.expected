@@ -1,0 +1,3 @@
+base 42
+plain 42
+wrapper<Int32> 42

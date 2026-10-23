@@ -1,0 +1,114 @@
+[] JsonReaderException: The input does not contain any JSON tokens. Expected the input to start with a valid JSON token, when isFinalBlock is true. LineNumber: 0 | BytePositionInLine: 0. (0, 0, path '')
+   document: The input does not contain any JSON tokens. Expected the input to start with a valid JSON token, when isFinalBlock is true. LineNumber: 0 | BytePositionInLine: 0.
+[   ] JsonReaderException: The input does not contain any JSON tokens. Expected the input to start with a valid JSON token, when isFinalBlock is true. LineNumber: 0 | BytePositionInLine: 3. (0, 3, path '')
+   document: The input does not contain any JSON tokens. Expected the input to start with a valid JSON token, when isFinalBlock is true. LineNumber: 0 | BytePositionInLine: 3.
+[{] JsonReaderException: Expected depth to be zero at the end of the JSON payload. There is an open JSON object or array that should be closed. LineNumber: 0 | BytePositionInLine: 1. (0, 1, path '')
+   document: Expected depth to be zero at the end of the JSON payload. There is an open JSON object or array that should be closed. LineNumber: 0 | BytePositionInLine: 1.
+[[] JsonReaderException: Expected depth to be zero at the end of the JSON payload. There is an open JSON object or array that should be closed. LineNumber: 0 | BytePositionInLine: 1. (0, 1, path '')
+   document: Expected depth to be zero at the end of the JSON payload. There is an open JSON object or array that should be closed. LineNumber: 0 | BytePositionInLine: 1.
+[]] JsonReaderException: ']' is an invalid start of a value. LineNumber: 0 | BytePositionInLine: 0. (0, 0, path '')
+   document: ']' is an invalid start of a value. LineNumber: 0 | BytePositionInLine: 0.
+[}] JsonReaderException: '}' is an invalid start of a value. LineNumber: 0 | BytePositionInLine: 0. (0, 0, path '')
+   document: '}' is an invalid start of a value. LineNumber: 0 | BytePositionInLine: 0.
+[{]] JsonReaderException: ']' is an invalid start of a property name. Expected a '"'. LineNumber: 0 | BytePositionInLine: 1. (0, 1, path '')
+   document: ']' is an invalid start of a property name. Expected a '"'. LineNumber: 0 | BytePositionInLine: 1.
+[[}] JsonReaderException: '}' is an invalid start of a value. LineNumber: 0 | BytePositionInLine: 1. (0, 1, path '')
+   document: '}' is an invalid start of a value. LineNumber: 0 | BytePositionInLine: 1.
+[[1,]] JsonReaderException: The JSON array contains a trailing comma at the end which is not supported in this mode. Change the reader options. LineNumber: 0 | BytePositionInLine: 3. (0, 3, path '')
+   document: The JSON array contains a trailing comma at the end which is not supported in this mode. Change the reader options. LineNumber: 0 | BytePositionInLine: 3.
+[{"a":1,}] JsonReaderException: The JSON object contains a trailing comma at the end which is not supported in this mode. Change the reader options. LineNumber: 0 | BytePositionInLine: 7. (0, 7, path '')
+   document: The JSON object contains a trailing comma at the end which is not supported in this mode. Change the reader options. LineNumber: 0 | BytePositionInLine: 7.
+[[1 2]] JsonReaderException: '2' is invalid after a value. Expected either ',', '}', or ']'. LineNumber: 0 | BytePositionInLine: 3. (0, 3, path '')
+   document: '2' is invalid after a value. Expected either ',', '}', or ']'. LineNumber: 0 | BytePositionInLine: 3.
+[{"a" 1}] JsonReaderException: '1' is invalid after a property name. Expected a ':'. LineNumber: 0 | BytePositionInLine: 5. (0, 5, path '')
+   document: '1' is invalid after a property name. Expected a ':'. LineNumber: 0 | BytePositionInLine: 5.
+[{"a":}] JsonReaderException: '}' is an invalid start of a value. LineNumber: 0 | BytePositionInLine: 5. (0, 5, path '')
+   document: '}' is an invalid start of a value. LineNumber: 0 | BytePositionInLine: 5.
+[{a:1}] JsonReaderException: 'a' is an invalid start of a property name. Expected a '"'. LineNumber: 0 | BytePositionInLine: 1. (0, 1, path '')
+   document: 'a' is an invalid start of a property name. Expected a '"'. LineNumber: 0 | BytePositionInLine: 1.
+[{'a':1}] JsonReaderException: ''' is an invalid start of a property name. Expected a '"'. LineNumber: 0 | BytePositionInLine: 1. (0, 1, path '')
+   document: ''' is an invalid start of a property name. Expected a '"'. LineNumber: 0 | BytePositionInLine: 1.
+[[01]] JsonReaderException: Invalid leading zero before '1'. LineNumber: 0 | BytePositionInLine: 2. (0, 2, path '')
+   document: Invalid leading zero before '1'. LineNumber: 0 | BytePositionInLine: 2.
+[[-]] JsonReaderException: ']' is invalid within a number, immediately after a sign character ('+' or '-'). Expected a digit ('0'-'9'). LineNumber: 0 | BytePositionInLine: 2. (0, 2, path '')
+   document: ']' is invalid within a number, immediately after a sign character ('+' or '-'). Expected a digit ('0'-'9'). LineNumber: 0 | BytePositionInLine: 2.
+[[-a]] JsonReaderException: 'a' is invalid within a number, immediately after a sign character ('+' or '-'). Expected a digit ('0'-'9'). LineNumber: 0 | BytePositionInLine: 2. (0, 2, path '')
+   document: 'a' is invalid within a number, immediately after a sign character ('+' or '-'). Expected a digit ('0'-'9'). LineNumber: 0 | BytePositionInLine: 2.
+[[1.]] JsonReaderException: ']' is invalid within a number, immediately after a decimal point ('.'). Expected a digit ('0'-'9'). LineNumber: 0 | BytePositionInLine: 3. (0, 3, path '')
+   document: ']' is invalid within a number, immediately after a decimal point ('.'). Expected a digit ('0'-'9'). LineNumber: 0 | BytePositionInLine: 3.
+[[1.e5]] JsonReaderException: 'e' is invalid within a number, immediately after a decimal point ('.'). Expected a digit ('0'-'9'). LineNumber: 0 | BytePositionInLine: 3. (0, 3, path '')
+   document: 'e' is invalid within a number, immediately after a decimal point ('.'). Expected a digit ('0'-'9'). LineNumber: 0 | BytePositionInLine: 3.
+[[1e]] JsonReaderException: ']' is invalid within a number, immediately after a sign character ('+' or '-'). Expected a digit ('0'-'9'). LineNumber: 0 | BytePositionInLine: 3. (0, 3, path '')
+   document: ']' is invalid within a number, immediately after a sign character ('+' or '-'). Expected a digit ('0'-'9'). LineNumber: 0 | BytePositionInLine: 3.
+[[1e+]] JsonReaderException: ']' is invalid within a number, immediately after a sign character ('+' or '-'). Expected a digit ('0'-'9'). LineNumber: 0 | BytePositionInLine: 4. (0, 4, path '')
+   document: ']' is invalid within a number, immediately after a sign character ('+' or '-'). Expected a digit ('0'-'9'). LineNumber: 0 | BytePositionInLine: 4.
+[[1x]] JsonReaderException: 'x' is an invalid end of a number. Expected a delimiter. LineNumber: 0 | BytePositionInLine: 2. (0, 2, path '')
+   document: 'x' is an invalid end of a number. Expected a delimiter. LineNumber: 0 | BytePositionInLine: 2.
+[[1.5x]] JsonReaderException: 'x' is an invalid end of a number. Expected 'E' or 'e'. LineNumber: 0 | BytePositionInLine: 4. (0, 4, path '')
+   document: 'x' is an invalid end of a number. Expected 'E' or 'e'. LineNumber: 0 | BytePositionInLine: 4.
+[[1e5x]] JsonReaderException: 'x' is an invalid end of a number. Expected a delimiter. LineNumber: 0 | BytePositionInLine: 4. (0, 4, path '')
+   document: 'x' is an invalid end of a number. Expected a delimiter. LineNumber: 0 | BytePositionInLine: 4.
+[[tru]] JsonReaderException: 'tru]' is an invalid JSON literal. Expected the literal 'true'. LineNumber: 0 | BytePositionInLine: 4. (0, 4, path '')
+   document: 'tru]' is an invalid JSON literal. Expected the literal 'true'. LineNumber: 0 | BytePositionInLine: 4.
+[[trux]] JsonReaderException: 'trux]' is an invalid JSON literal. Expected the literal 'true'. LineNumber: 0 | BytePositionInLine: 4. (0, 4, path '')
+   document: 'trux]' is an invalid JSON literal. Expected the literal 'true'. LineNumber: 0 | BytePositionInLine: 4.
+[[fals]] JsonReaderException: 'fals]' is an invalid JSON literal. Expected the literal 'false'. LineNumber: 0 | BytePositionInLine: 5. (0, 5, path '')
+   document: 'fals]' is an invalid JSON literal. Expected the literal 'false'. LineNumber: 0 | BytePositionInLine: 5.
+[[nul]] JsonReaderException: 'nul]' is an invalid JSON literal. Expected the literal 'null'. LineNumber: 0 | BytePositionInLine: 4. (0, 4, path '')
+   document: 'nul]' is an invalid JSON literal. Expected the literal 'null'. LineNumber: 0 | BytePositionInLine: 4.
+[[nulll]] JsonReaderException: 'l' is invalid after a value. Expected either ',', '}', or ']'. LineNumber: 0 | BytePositionInLine: 5. (0, 5, path '')
+   document: 'l' is invalid after a value. Expected either ',', '}', or ']'. LineNumber: 0 | BytePositionInLine: 5.
+[[True]] JsonReaderException: 'T' is an invalid start of a value. LineNumber: 0 | BytePositionInLine: 1. (0, 1, path '')
+   document: 'T' is an invalid start of a value. LineNumber: 0 | BytePositionInLine: 1.
+[[NaN]] JsonReaderException: 'N' is an invalid start of a value. LineNumber: 0 | BytePositionInLine: 1. (0, 1, path '')
+   document: 'N' is an invalid start of a value. LineNumber: 0 | BytePositionInLine: 1.
+[["abc]] JsonReaderException: Expected end of string, but instead reached end of data. LineNumber: 0 | BytePositionInLine: 6. (0, 6, path '')
+   document: Expected end of string, but instead reached end of data. LineNumber: 0 | BytePositionInLine: 6.
+[["a\qb"]] JsonReaderException: 'q' is an invalid escapable character within a JSON string. The string should be correctly escaped. LineNumber: 0 | BytePositionInLine: 4. (0, 4, path '')
+   document: 'q' is an invalid escapable character within a JSON string. The string should be correctly escaped. LineNumber: 0 | BytePositionInLine: 4.
+[["a\u12g4"]] JsonReaderException: 'g' is not a hex digit following '\u' within a JSON string. The string should be correctly escaped. LineNumber: 0 | BytePositionInLine: 7. (0, 7, path '')
+   document: 'g' is not a hex digit following '\u' within a JSON string. The string should be correctly escaped. LineNumber: 0 | BytePositionInLine: 7.
+[["a\u12"]] JsonReaderException: '"' is not a hex digit following '\u' within a JSON string. The string should be correctly escaped. LineNumber: 0 | BytePositionInLine: 7. (0, 7, path '')
+   document: '"' is not a hex digit following '\u' within a JSON string. The string should be correctly escaped. LineNumber: 0 | BytePositionInLine: 7.
+[["tab\there"]] JsonReaderException: '0x09' is invalid within a JSON string. The string should be correctly escaped. LineNumber: 0 | BytePositionInLine: 5. (0, 5, path '')
+   document: '0x09' is invalid within a JSON string. The string should be correctly escaped. LineNumber: 0 | BytePositionInLine: 5.
+[["new\nline"]] JsonReaderException: '0x0A' is invalid within a JSON string. The string should be correctly escaped. LineNumber: 0 | BytePositionInLine: 5. (0, 5, path '')
+   document: '0x0A' is invalid within a JSON string. The string should be correctly escaped. LineNumber: 0 | BytePositionInLine: 5.
+[1 2] JsonReaderException: '2' is invalid after a single JSON value. Expected end of data. LineNumber: 0 | BytePositionInLine: 2. (0, 2, path '')
+   document: '2' is invalid after a single JSON value. Expected end of data. LineNumber: 0 | BytePositionInLine: 2.
+[{} {}] JsonReaderException: '{' is invalid after a single JSON value. Expected end of data. LineNumber: 0 | BytePositionInLine: 3. (0, 3, path '')
+   document: '{' is invalid after a single JSON value. Expected end of data. LineNumber: 0 | BytePositionInLine: 3.
+[[1] x] JsonReaderException: 'x' is invalid after a single JSON value. Expected end of data. LineNumber: 0 | BytePositionInLine: 4. (0, 4, path '')
+   document: 'x' is invalid after a single JSON value. Expected end of data. LineNumber: 0 | BytePositionInLine: 4.
+[{"a":1} // trailing comment] JsonReaderException: '/' is invalid after a single JSON value. Expected end of data. LineNumber: 0 | BytePositionInLine: 8. (0, 8, path '')
+   document: '/' is invalid after a single JSON value. Expected end of data. LineNumber: 0 | BytePositionInLine: 8.
+[/* comment */ 1] JsonReaderException: '/' is an invalid start of a value. LineNumber: 0 | BytePositionInLine: 0. (0, 0, path '')
+   document: '/' is an invalid start of a value. LineNumber: 0 | BytePositionInLine: 0.
+[[1, /* unterminated] JsonReaderException: '/' is an invalid start of a value. LineNumber: 0 | BytePositionInLine: 4. (0, 4, path '')
+   document: '/' is an invalid start of a value. LineNumber: 0 | BytePositionInLine: 4.
+[[1 /x]] JsonReaderException: '/' is invalid after a value. Expected either ',', '}', or ']'. LineNumber: 0 | BytePositionInLine: 3. (0, 3, path '')
+   document: '/' is invalid after a value. Expected either ',', '}', or ']'. LineNumber: 0 | BytePositionInLine: 3.
+[{"a":[1,2,{"b":[}]}] JsonReaderException: '}' is an invalid start of a value. LineNumber: 0 | BytePositionInLine: 16. (0, 16, path '')
+   document: '}' is an invalid start of a value. LineNumber: 0 | BytePositionInLine: 16.
+[\n\n  [1,\n   2,\n   ?]] JsonReaderException: '?' is an invalid start of a value. LineNumber: 4 | BytePositionInLine: 3. (4, 3, path '')
+   document: '?' is an invalid start of a value. LineNumber: 4 | BytePositionInLine: 3.
+[[\r\n1,\r\nx]] JsonReaderException: 'x' is an invalid start of a value. LineNumber: 2 | BytePositionInLine: 0. (2, 0, path '')
+   document: 'x' is an invalid start of a value. LineNumber: 2 | BytePositionInLine: 0.
+[{"key": "value"\n\n, "k2": tru }] JsonReaderException: 'tru }' is an invalid JSON literal. Expected the literal 'true'. LineNumber: 2 | BytePositionInLine: 11. (2, 11, path '')
+   document: 'tru }' is an invalid JSON literal. Expected the literal 'true'. LineNumber: 2 | BytePositionInLine: 11.
+[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[...] JsonReaderException: The maximum configured depth of 64 has been exceeded. Cannot read next JSON array. LineNumber: 0 | BytePositionInLine: 64. (0, 64, path '')
+   document: The maximum configured depth of 64 has been exceeded. Cannot read next JSON array. LineNumber: 0 | BytePositionInLine: 64.
+[{"a":{"a":{"a":{"a":{"a":{"a":{"a":{"...] JsonReaderException: The maximum configured depth of 64 has been exceeded. Cannot read next JSON object. LineNumber: 0 | BytePositionInLine: 320. (0, 320, path '')
+   document: The maximum configured depth of 64 has been exceeded. Cannot read next JSON object. LineNumber: 0 | BytePositionInLine: 320.
+[é] JsonReaderException: '0xC3' is an invalid start of a value. LineNumber: 0 | BytePositionInLine: 0. (0, 0, path '')
+   document: '0xC3' is an invalid start of a value. LineNumber: 0 | BytePositionInLine: 0.
+[["é" ,, 1]] JsonReaderException: ',' is an invalid start of a value. LineNumber: 0 | BytePositionInLine: 7. (0, 7, path '')
+   document: ',' is an invalid start of a value. LineNumber: 0 | BytePositionInLine: 7.
+[1, /* c */ 2,] -> StartArray Number Number EndArray 
+{"a":1, // c\n} -> StartObject PropertyName Number EndObject 
+/* only */ -> The input does not contain any JSON tokens. Expected the input to start with a valid JSON token, when isFinalBlock is true. LineNumber: 0 | BytePositionInLine: 10.
+[1 /* c */ 2] -> '2' is invalid after a value. Expected either ',', '}', or ']'. LineNumber: 0 | BytePositionInLine: 11.
+{,} -> ',' is an invalid start of a property name. Expected a '"'. LineNumber: 0 | BytePositionInLine: 1.
+The maximum configured depth of 2 has been exceeded. Cannot read next JSON array. LineNumber: 0 | BytePositionInLine: 2.
+The maximum configured depth of 1 has been exceeded. Cannot read next JSON object. LineNumber: 0 | BytePositionInLine: 5.
+ArgumentOutOfRangeException: Comments cannot be stored in a JsonDocument, only the Skip and Disallow comment handling modes are supported. (Parameter 'value')
