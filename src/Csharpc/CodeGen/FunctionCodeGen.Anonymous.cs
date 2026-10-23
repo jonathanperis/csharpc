@@ -73,14 +73,29 @@ public sealed partial class FunctionCodeGen
         Finish();
     }
 
+    // Roslyn's synthesized body (AnonymousTypeGetHashCodeMethodSymbol), so hash codes of anonymous
+    // types with deterministic member hashes match .NET exactly:
+    //   hash = seed; foreach field: hash = hash * -1521134295 + EqualityComparer<T>.Default.GetHashCode(field)
+    // where the seed folds the FNV-1a hashes of the backing field names ("<A>i__Field") the same way.
     internal void EmitAnonymousGetHashCode(AnonymousLayout layout)
     {
         var self = _fn.Fn.Param(0);
-        LLVMValueRef hash = L.ConstInt(L.I32, unchecked((int)0x9E3779B9));
+        var seed = 0;
+        foreach (var p in layout.Properties)
+            seed = unchecked(seed * -1521134295 + FnvHash("<" + p.Name + ">i__Field"));
+        LLVMValueRef hash = L.ConstInt(L.I32, seed);
         foreach (var p in layout.Properties)
             hash = _b.BinOp(LLVMOpcode.Add, _b.BinOp(LLVMOpcode.Mul, hash, L.ConstInt(L.I32, -1521134295)),
                 FieldHash(LoadValue(AnonymousFieldAddress(layout, self, p), p.Type), p.Type));
         _b.Ret(hash);
         Finish();
+
+        // Roslyn's Hash.GetFNVHashCode: FNV-1a over UTF-16 code units.
+        static int FnvHash(string text)
+        {
+            var h = unchecked((int)2166136261);
+            foreach (var c in text) h = unchecked((h ^ c) * 16777619);
+            return h;
+        }
     }
 }
