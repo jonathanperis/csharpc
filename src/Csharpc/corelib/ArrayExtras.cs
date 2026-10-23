@@ -9,6 +9,12 @@ namespace CsharpcCoreLib
     [ShadowMembers("System.Array")]
     internal static class ArrayExtras
     {
+        public static System.Collections.ObjectModel.ReadOnlyCollection<T> AsReadOnly<T>(T[] array)
+        {
+            if (array == null) ThrowHelper.ArgumentNull("array");
+            return new System.Collections.ObjectModel.ReadOnlyCollection<T>(array);
+        }
+
         public static void Sort<T>(T[] array)
         {
             if (array == null) ThrowHelper.ArgumentNull("array");

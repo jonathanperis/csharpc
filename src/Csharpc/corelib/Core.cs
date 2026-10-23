@@ -59,6 +59,28 @@ namespace CsharpcCoreLib
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern string RuntimeConfig();
         /// <summary>csrt_task_try_fault_async: faults a pending task, or cancels it for an OperationCanceledException.</summary>
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern bool TryFaultAsyncTask(System.Threading.Tasks.Task task, Exception exception);
+        /// <summary>An enum's underlying value as .NET's EnumConverter keys it: sign-extended, then reinterpreted as ulong.</summary>
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern ulong EnumToUInt64<T>(T value);
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern T EnumFromUInt64<T>(ulong value);
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern bool IsSignedEnum<T>();
+        /// <summary>T is an interface or an abstract class (compile-time constant).</summary>
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern bool IsAbstractType<T>();
+        /// <summary>Whether a run-time Type is one of the program's enum types (Type.IsEnum for JsonStringEnumConverter).</summary>
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern bool IsEnumType(Type type);
+        /// <summary>Type.IsInstanceOfType: obj's class, a base class or an implemented interface is `type`.</summary>
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern bool IsInstanceOfType(Type type, object obj);
+        /// <summary>JsonMetadataServicesImpl's converter for a built-in T (selected at compile time), or null.</summary>
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern object BuiltInJsonConverter<T>();
+        /// <summary>to.IsAssignableFrom(from) for class and interface types (base chain and interface map).</summary>
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern bool IsTypeAssignableTo(Type from, Type to);
+        /// <summary>Type.IsInterface.</summary>
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern bool IsInterfaceTypeObject(Type type);
+        /// <summary>CsharpcCoreLib.JsonEnumFactory.Create&lt;E&gt;(...) for the enum E that `type` is, or null.</summary>
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern object CreateEnumConverter(Type type, int converterOptions, object namingPolicy, object options);
+        /// <summary>typeof(T).IsDefined(typeof(FlagsAttribute)), resolved at compile time.</summary>
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern bool IsFlagsEnum<T>();
+        /// <summary>[JsonStringEnumMemberName] of each member, in Enum.GetNames&lt;T&gt;() order (null where absent).</summary>
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern string[] EnumMemberJsonNames<T>();
     }
 
     /// <summary>

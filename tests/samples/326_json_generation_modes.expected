@@ -1,0 +1,29 @@
+{"Date":"2019-08-01T00:00:00","TemperatureCelsius":25,"Summary":"Hot","Tags":["a"],"Location":{"City":"Oslo"}}
+{"Date":"2019-08-01T00:00:00","TemperatureCelsius":25,"Summary":"Hot","Tags":["a"],"Location":{"City":"Oslo"}}
+{
+  "date": "2019-08-01T00:00:00",
+  "temperatureCelsius": 25,
+  "summary": "Hot",
+  "tags": [
+    "a"
+  ],
+  "location": {
+    "city": "Oslo"
+  }
+}
+{"Date":"2019-08-01T00:00:00","TemperatureCelsius":25,"Summary":"Hot","Tags":["a"],"Location":{"City":"Oslo"}}
+{"Date":"2019-08-01T00:00:00","TemperatureCelsius":25,"Summary":"Hot","Tags":["a"],"Location":{"City":"Oslo"}}
+Cold
+ok: Forecast
+InvalidOperationException: TypeInfoResolver 'SerializeOnlyContext' did not provide property metadata for type 'Forecast'.
+ok: {
+  "Date": "2019-08-01T00:00:00",
+  "TemperatureCelsius": 25,
+  "Summary": "Hot",
+  "Tags": [
+    "a"
+  ],
+  "Location": {
+    "City": "Oslo"
+  }
+}

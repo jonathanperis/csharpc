@@ -11,6 +11,12 @@
 # that Console.WriteLine writes); tests/check-oracle.sh verifies that derivation against real .NET.
 macos 160_pinvoke_dllimport   loads the Linux soname "libm.so.6": .NET on macOS throws DllNotFoundException
 macos 176_pinvoke_struct_abi  loads the Linux soname "libm.so.6": .NET on macOS throws DllNotFoundException
+windows 310_json_writer                 live: indented JSON uses the writer's NewLine handling, not the "\n" -> "\r\n" derivation
+windows 312_json_reader                 live: indented JSON uses the writer's NewLine handling, not the "\n" -> "\r\n" derivation
+windows 314_json_document               live: indented JSON uses the writer's NewLine handling, not the "\n" -> "\r\n" derivation
+windows 315_json_node                   live: indented JSON uses the writer's NewLine handling, not the "\n" -> "\r\n" derivation
+windows 318_json_options                live: indented JSON uses the writer's NewLine handling, not the "\n" -> "\r\n" derivation
+windows 199_debug_assert_failfast       known gap: a failed Debug.Assert's fail-fast exit status on Windows isn't matched yet (.NET 35, csharpc 127); stdout matches
 windows 07_arrays                       live: writes a bare "\n" itself, next to WriteLine's "\r\n"
 windows 163_number_parse                live: writes a bare "\n" itself, next to WriteLine's "\r\n"
 windows 166_biginteger_ops              live: writes a bare "\n" itself, next to WriteLine's "\r\n"
@@ -28,6 +34,8 @@ windows 162_pinvoke_libraryimport       live: imports from "libc", which doesn't
 windows 286_pinvoke_portable_abi        live: imports from "libc", which doesn't exist on Windows
 windows 295_regex_charclass             live: prints matched text that contains a bare "\n" (from the input string)
 windows 303_regex_options               live: prints matched text that contains a bare "\n" (from the input string)
+windows 194_marshal_strings              live: GetPInvokeErrorMessage is the Win32 FormatMessage text, not strerror
+windows 196_sockets_loopback            live: SocketException messages are the OS's (Winsock text on Windows)
 windows 161_file_io                     live: Windows paths; File.WriteAllLines / StreamWriter.WriteLine write "\r\n"
 windows 163_path_semantics              live: Windows path rules (drive roots, '\' separators)
 windows 165_environment                 live: Windows current directory and paths

@@ -1,0 +1,22 @@
+[{"$type":"circle","Radius":1.5,"Name":"c"},{"$type":"square","Side":2,"Name":"s"},{"$type":"base","Name":"plain"},null]
+Circle c r=1.5
+Square s side=2
+Shape plain shape
+null
+{"$type":"circle","Radius":3,"Name":"root"}
+{"Radius":3,"Name":"static type"}
+{"Main":{"$type":"square","Side":9,"Name":null},"Items":[{"$type":"circle","Radius":0,"Name":null}]}
+{"kind":1,"Name":"Rex","Barks":true}
+[{"kind":2,"Name":"Tom","Lives":9},{"kind":1,"Name":"Fido","Barks":false}]
+Cat Kit
+Dog D
+{"Brand":"generic","Wheels":4}
+NotSupportedException: Runtime type 'Triangle' is not supported by polymorphic type 'Shape'. Path: $.
+JsonException: Read unrecognized type discriminator id 'hexagon'. Path: $ | LineNumber: 0 | BytePositionInLine: 26.
+JsonException: The metadata property is either not supported by the type or is not the first property in the deserialized JSON object. Path: $['$type'] | LineNumber: 0 | BytePositionInLine: 24.
+Shape
+NotSupportedException: The JSON payload for polymorphic interface or abstract type 'IAnimal' must specify a type discriminator. Path: $ | LineNumber: 0 | BytePositionInLine: 8.
+JsonException: Read unrecognized type discriminator id '1'. Path: $ | LineNumber: 0 | BytePositionInLine: 12.
+Circle r=2
+{"_t":"truck","Load":20.5,"Wheels":18}
+Truck 1

@@ -15,9 +15,13 @@ public sealed partial class FunctionCodeGen
 
     private LLVMValueRef EmitInvocation(IInvocationOperation inv)
     {
+        // [Conditional] methods are void, so an omitted call has no value (FunctionCodeGen.Conditional.cs).
+        if (IsConditionallyOmitted(inv)) return default;
         if (Intrinsics.TryGetConsoleFastPath(inv, out var consoleFastPath)) return consoleFastPath(this, inv);
         var target = S(inv.TargetMethod);
         if (IsCoreIntrinsic(target)) return EmitCoreIntrinsic(target, inv);
+        if (UnsafeAccessorOf(target) is { } unsafeAccessor) return EmitUnsafeAccessor(target, unsafeAccessor, inv);
+        if (target.IsStatic && TryUnsafeMethod(target, inv) is { } unsafeResult) return unsafeResult;
         // `T.Create()` on a static abstract/virtual interface member: after substitution T is concrete.
         if (ResolveStaticInterfaceMember(target, inv.ConstrainedToType) is { } staticImpl)
             return EmitUserCall(staticImpl, default, true, inv.Arguments, isVirtual: false);
@@ -251,6 +255,12 @@ public sealed partial class FunctionCodeGen
                         return m.Construct(typeArgs);
             return null;
         }
+        // Overrides declared in generic classes would need the (lazily discovered) set of their
+        // instantiations here; calling the base implementation instead would be silently wrong.
+        foreach (var generic in _m.GenericClassesDerivedFrom(target.ContainingType))
+            if (generic.GetMembers(target.Name).OfType<IMethodSymbol>().Any(m => m.IsOverride && m.IsGenericMethod
+                    && SymbolEqualityComparer.Default.Equals(ClassLayout.RootOf(m.OriginalDefinition), root)))
+                throw CompileError.Unsupported($"generic virtual method '{root.ContainingType.Name}.{root.Name}' overridden in generic class '{generic.Name}'", target);
         foreach (var cls in _m.ClassesDerivedFrom(target.ContainingType))
         {
             if (ImplementationIn(cls) is not { } impl) continue;

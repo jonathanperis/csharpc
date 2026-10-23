@@ -19,6 +19,8 @@ public sealed record ProjectInfo
     public bool ImplicitUsings { get; init; }
     /// <summary>&lt;StartupObject&gt;: the type whose Main is the entry point (csc -main).</summary>
     public string? StartupObject { get; init; }
+    /// <summary>JsonSerializerIsReflectionEnabledByDefault (false in trimmed and AOT-published projects).</summary>
+    public bool JsonReflectionEnabled { get; init; } = true;
     public List<string> GlobalUsings { get; } = [];
     public List<string> ProjectReferences { get; } = [];
     /// <summary>Explicit &lt;PackageReference&gt; items ("Id Version").</summary>
@@ -44,7 +46,7 @@ public static class ProjectLoader
     [
         "AssemblyName", "OutputType", "DefineConstants", "LangVersion", "Nullable", "AllowUnsafeBlocks",
         "ImplicitUsings", "TargetFramework", "TargetFrameworks", "MSBuildProjectFullPath",
-        "StartupObject",
+        "StartupObject", "JsonSerializerIsReflectionEnabledByDefault",
     ];
 
     /// <summary>
@@ -146,6 +148,7 @@ public static class ProjectLoader
             AllowUnsafe = string.Equals(Prop("AllowUnsafeBlocks"), "true", StringComparison.OrdinalIgnoreCase),
             ImplicitUsings = Prop("ImplicitUsings") is "enable" or "true",
             StartupObject = Prop("StartupObject"),
+            JsonReflectionEnabled = !string.Equals(Prop("JsonSerializerIsReflectionEnabledByDefault"), "false", StringComparison.OrdinalIgnoreCase),
         };
 
         info.Defines.AddRange((Prop("DefineConstants") ?? "").Split([';', ','], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
@@ -259,6 +262,7 @@ public static class ProjectLoader
             MainTypeName = root.StartupObject,
             IlReferencePaths = [.. all.SelectMany(p => p.AssemblyReferences).Distinct(StringComparer.Ordinal)],
             RuntimeConfig = root.RuntimeConfig,
+            JsonReflectionEnabled = root.JsonReflectionEnabled,
             Projects = all.Count > 1 ? [.. all.Select(p => new ProjectUnit
             {
                 ProjectPath = p.ProjectPath,

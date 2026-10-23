@@ -113,6 +113,18 @@ public sealed partial class FunctionCodeGen
             "MakeDecimal" => _b.InsertValue(_b.InsertValue(_b.InsertValue(LlvmContext.Null(DecimalType), args[0], 0), args[1], 1), args[2], 2),
             // DateTime is its i64 _dateData (BclValueTypes.cs)
             "DateTimeData" or "MakeDateTime" => args[0],
+            "EnumToUInt64" => EnumToUInt64(t!, args[0]),
+            "EnumFromUInt64" => EnumFromUInt64(t!, args[0]),
+            "IsSignedEnum" => t is INamedTypeSymbol { EnumUnderlyingType: { } u } && TypeMapper.IsSigned(u) ? L.True : L.False,
+            "IsFlagsEnum" => t!.GetAttributes().Any(a => a.AttributeClass is { Name: "FlagsAttribute", ContainingNamespace.Name: "System" }) ? L.True : L.False,
+            "EnumMemberJsonNames" => EnumMemberJsonNames(t!),
+            "IsAbstractType" => t!.IsAbstract ? L.True : L.False,
+            "IsEnumType" => JsonEnumSwitch(args[0], null),
+            "BuiltInJsonConverter" => BuiltInJsonConverter(S(t!)),
+            "IsInstanceOfType" => CallRuntime("csrt_type_is_instance", L.I1, [L.Ptr, L.Ptr], args[0], args[1]),
+            "IsTypeAssignableTo" => CallRuntime("csrt_type_is_assignable", L.I1, [L.Ptr, L.Ptr], args[0], args[1]),
+            "IsInterfaceTypeObject" => CallRuntime("csrt_type_is_interface", L.I1, [L.Ptr], args[0]),
+            "CreateEnumConverter" => JsonEnumSwitch(args[0], args),
             "CompareStrings" => CallRuntime("csrt_string_compare_culture", L.I32, [L.Ptr, L.Ptr, L.I1], args[0], args[1], L.False),
             "UnhandledException" => UnhandledException(args[0]),
             "ResourceStrings" => _m.ResourceStringsBlob(),
@@ -128,6 +140,117 @@ public sealed partial class FunctionCodeGen
     {
         CallRuntime("csrt_unhandled_exception", L.Void, [L.Ptr], exception);
         return default;
+    }
+
+    private LLVMValueRef EnumToUInt64(ITypeSymbol t, LLVMValueRef value)
+    {
+        if (t is not INamedTypeSymbol { EnumUnderlyingType: { } underlying }) throw CompileError.Unsupported($"EnumToUInt64 of non-enum '{t}'", (ISymbol)t);
+        if (value.Type.IntWidth == 64) return value;
+        return _b.Cast(TypeMapper.IsSigned(underlying) ? LLVMOpcode.SExt : LLVMOpcode.ZExt, value, L.I64);
+    }
+
+    private LLVMValueRef EnumFromUInt64(ITypeSymbol t, LLVMValueRef value)
+    {
+        var target = T.Value(t);
+        return target.IntWidth == 64 ? value : _b.Cast(LLVMOpcode.Trunc, value, target);
+    }
+
+    /// <summary>
+    /// Type → enum dispatch for the non-generic JsonStringEnumConverter (which .NET drives with
+    /// reflection): compares the Type with every enum the program declares or serializes, and either
+    /// answers "is an enum" or calls JsonEnumFactory.Create&lt;E&gt;(options, policy, serializerOptions).
+    /// </summary>
+    /// <summary>
+    /// JsonMetadataServices' converter for a built-in T, chosen at compile time: a run-time lookup by Type
+    /// would link every primitive converter into each program that uses JSON.
+    /// </summary>
+    private LLVMValueRef BuiltInJsonConverter(ITypeSymbol t)
+    {
+        string? name = t.SpecialType switch
+        {
+            SpecialType.System_Int32 => "Int32Converter",
+            SpecialType.System_String => "StringConverter",
+            SpecialType.System_Int64 => "Int64Converter",
+            SpecialType.System_Boolean => "BooleanConverter",
+            SpecialType.System_Double => "DoubleConverter",
+            SpecialType.System_Decimal => "DecimalConverter",
+            SpecialType.System_Single => "SingleConverter",
+            SpecialType.System_Int16 => "Int16Converter",
+            SpecialType.System_Byte => "ByteConverter",
+            SpecialType.System_SByte => "SByteConverter",
+            SpecialType.System_UInt16 => "UInt16Converter",
+            SpecialType.System_UInt32 => "UInt32Converter",
+            SpecialType.System_UInt64 => "UInt64Converter",
+            SpecialType.System_Char => "CharConverter",
+            SpecialType.System_DateTime => "DateTimeConverter",
+            SpecialType.System_Object => "ObjectConverter",
+            _ => null,
+        };
+        name ??= t switch
+        {
+            IArrayTypeSymbol { Rank: 1, ElementType.SpecialType: SpecialType.System_Byte } => "ByteArrayConverter",
+            INamedTypeSymbol n => n.ToDisplayString() switch
+            {
+                "System.TimeSpan" => "TimeSpanConverter",
+                "System.Text.Json.JsonElement" or CoreLib.Namespace + ".JsonElementImpl" => "JsonElementConverter",
+                "System.Text.Json.JsonDocument" or CoreLib.Namespace + ".JsonDocumentImpl" => "JsonDocumentConverter",
+                "System.Text.Json.Nodes.JsonNode" or CoreLib.Namespace + ".JsonNodeImpl" => "JsonNodeConverter",
+                "System.Text.Json.Nodes.JsonObject" or CoreLib.Namespace + ".JsonObjectImpl" => "JsonObjectConverter",
+                "System.Text.Json.Nodes.JsonArray" or CoreLib.Namespace + ".JsonArrayImpl" => "JsonArrayConverter",
+                "System.Text.Json.Nodes.JsonValue" or CoreLib.Namespace + ".JsonValueImpl" => "JsonValueConverter",
+                _ => null,
+            },
+            _ => null,
+        };
+        if (name is null) return LlvmContext.Null(L.Ptr);
+        var services = _m.Compilation.GetTypeByMetadataName(CoreLib.Namespace + ".JsonMetadataServicesImpl")
+            ?? throw CompileError.Unsupported("corelib JsonMetadataServicesImpl not found", (ISymbol?)null!);
+        var getter = services.GetMembers(name).OfType<IPropertySymbol>().Single().GetMethod!;
+        return DirectCall(getter, []);
+    }
+
+    private LLVMValueRef JsonEnumSwitch(LLVMValueRef type, LLVMValueRef[]? createArgs)
+    {
+        var enums = _m.JsonEnumTypes();
+        var resultType = createArgs is null ? L.I1 : L.Ptr;
+        var result = NewTemp(resultType, "enum.switch");
+        _b.Store(createArgs is null ? L.False : LlvmContext.Null(L.Ptr), result);
+        var done = NewBlock("enum.done");
+        IMethodSymbol? create = null;
+        if (createArgs is not null)
+            create = _m.Compilation.GetTypeByMetadataName(CoreLib.Namespace + ".JsonEnumFactory")?.GetMembers("Create").OfType<IMethodSymbol>().Single()
+                ?? throw CompileError.Unsupported("corelib JsonEnumFactory not found", (ISymbol?)null!);
+        foreach (var e in enums)
+        {
+            var hit = NewBlock("enum.hit");
+            var next = NewBlock("enum.next");
+            _b.CondBr(_b.ICmp(LLVMIntPredicate.EQ, type, TypeObject(e, null!)), hit, next);
+            _b.PositionAtEnd(hit);
+            _b.Store(createArgs is null ? L.True : DirectCall(create!.Construct(e), createArgs[1..]), result);
+            _b.Br(done);
+            _b.PositionAtEnd(next);
+        }
+        _b.Br(done);
+        _b.PositionAtEnd(done);
+        return _b.Load(resultType, result);
+    }
+
+    /// <summary>[JsonStringEnumMemberName("...")] on each enum member (Enum.GetNames order), read at compile time.</summary>
+    private LLVMValueRef EnumMemberJsonNames(ITypeSymbol t)
+    {
+        if (t is not INamedTypeSymbol { TypeKind: TypeKind.Enum } enumType) throw CompileError.Unsupported($"EnumMemberJsonNames of non-enum '{t}'", (ISymbol)t);
+        var members = _m.EnumMembers(enumType);
+        var fields = enumType.OriginalDefinition.GetMembers().OfType<IFieldSymbol>().Where(f => f.HasConstantValue).ToDictionary(f => f.Name);
+        var stringType = _m.Compilation.GetSpecialType(SpecialType.System_String);
+        var array = NewArray(stringType, L.ConstInt(L.I64, members.Count));
+        for (var i = 0; i < members.Count; i++)
+        {
+            var name = fields[members[i].Name].GetAttributes()
+                .FirstOrDefault(a => a.AttributeClass is { Name: "JsonStringEnumMemberNameAttribute" })?.ConstructorArguments.FirstOrDefault().Value as string;
+            _b.Store(name is null ? LlvmContext.Null(L.Ptr) : _m.StringLiteral(name),
+                _b.InBoundsGep(T.ArrayHeader(L.Ptr), array, [L.ConstInt(L.I32, 0), L.ConstInt(L.I32, 2), L.ConstInt(L.I64, i)]));
+        }
+        return array;
     }
 
     /// <summary>

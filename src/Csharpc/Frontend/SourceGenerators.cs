@@ -52,6 +52,7 @@ public static class SourceGenerators
         var driver = CSharpGeneratorDriver.Create(generators, parseOptions: (CSharpParseOptions)compilation.SyntaxTrees.First().Options);
         driver.RunGeneratorsAndUpdateCompilation(compilation, out var updated, out var generatorDiagnostics);
         diagnostics = generatorDiagnostics;
+        updated = DropReflectionOnlyMetadata(compilation, (CSharpCompilation)updated);
         if (Environment.GetEnvironmentVariable("CSHARPC_DUMP_GENERATED") is { Length: > 0 } dumpDir)
         {
             Directory.CreateDirectory(dumpDir);
@@ -59,6 +60,29 @@ public static class SourceGenerators
                 File.WriteAllText(Path.Combine(dumpDir, Path.GetFileName(tree.FilePath)), tree.GetText().ToString());
         }
         return (CSharpCompilation)updated;
+    }
+
+    /// <summary>
+    /// The JSON source generator emits reflection lambdas (`AttributeProviderFactory = static () =>
+    /// typeof(T).GetProperty(...)`) that System.Text.Json only invokes when a program inspects
+    /// JsonPropertyInfo.AttributeProvider. csharpc has no run-time reflection, so they become null.
+    /// </summary>
+    private static CSharpCompilation DropReflectionOnlyMetadata(CSharpCompilation before, CSharpCompilation after)
+    {
+        foreach (var tree in after.SyntaxTrees.Except(before.SyntaxTrees).ToList())
+        {
+            if (!tree.FilePath.Contains("System.Text.Json.SourceGeneration", StringComparison.Ordinal) && !tree.GetText().ToString().Contains("AttributeProviderFactory", StringComparison.Ordinal))
+                continue;
+            var root = tree.GetRoot();
+            var assignments = root.DescendantNodes().OfType<Microsoft.CodeAnalysis.CSharp.Syntax.AssignmentExpressionSyntax>()
+                .Where(a => a.Left is Microsoft.CodeAnalysis.CSharp.Syntax.IdentifierNameSyntax { Identifier.ValueText: "AttributeProviderFactory" or "ConstructorAttributeProviderFactory" })
+                .ToList();
+            if (assignments.Count == 0) continue;
+            var newRoot = root.ReplaceNodes(assignments.Select(a => a.Right),
+                (_, _) => SyntaxFactory.LiteralExpression(SyntaxKind.NullLiteralExpression));
+            after = after.ReplaceSyntaxTree(tree, tree.WithRootAndOptions(newRoot, tree.Options));
+        }
+        return after;
     }
 
     /// <summary>packs/Microsoft.NETCore.App.Ref/&lt;version&gt;/analyzers/dotnet/cs of the SDK csharpc runs on.</summary>

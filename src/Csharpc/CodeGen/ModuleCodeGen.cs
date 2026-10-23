@@ -35,6 +35,8 @@ public sealed partial class ModuleCodeGen
     public void WarnExceptionToString(ITypeSymbol? type, IOperation? at)
     {
         if (type is not INamedTypeSymbol named || at is null || !DerivesFromException(named)) return;
+        // The corelib's own ToString overrides (Win32Exception, ...) are not the program's doing.
+        if (at.Syntax.SyntaxTree.FilePath.StartsWith("<corelib>", StringComparison.Ordinal)) return;
         // A user override decides the text itself.
         for (var t = named; t is not null && !IsLibraryException(t); t = t.BaseType)
             if (t.GetMembers("ToString").OfType<IMethodSymbol>().Any(m => m.IsOverride && m.Parameters.IsEmpty)) return;
@@ -81,6 +83,11 @@ public sealed partial class ModuleCodeGen
         }
         return HierarchyTypes.Where(t => t.TypeKind == TypeKind.Class && !t.IsGenericType && !t.IsStatic && Derives(t)).OrderByDescending(Depth);
     }
+
+    /// <summary>Generic class definitions deriving from <paramref name="root"/> (their instantiations are only known lazily).</summary>
+    internal IEnumerable<INamedTypeSymbol> GenericClassesDerivedFrom(INamedTypeSymbol root) =>
+        _userTypes.Where(t => t.TypeKind == TypeKind.Class && t.IsGenericType && !t.IsStatic
+            && Enumerable.Range(0, 64).Aggregate((INamedTypeSymbol?)t, (b, _) => b is null || SymbolEqualityComparer.Default.Equals(b.OriginalDefinition, root.OriginalDefinition) ? b : b.BaseType) is not null);
 
     public ModuleCodeGen(Compilation compilation, LlvmContext llvm, LlvmModule module, TargetMachine target)
     {

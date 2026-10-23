@@ -1,0 +1,120 @@
+== null
+"\u0000\u0001\u0002\u0003\u0004\u0005\u0006\u0007\b\t\n\u000B\f\r\u000E\u000F\u0010\u0011\u0012\u0013\u0014\u0015\u0016\u0017\u0018\u0019\u001A\u001B\u001C\u001D\u001E\u001F !\u0022#$%\u0026\u0027()*\u002B,-./0123456789:;\u003C=\u003E?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_\u0060abcdefghijklmnopqrstuvwxyz{|}~\u007F"
+{"\u0000\u0001\u0002\u0003\u0004\u0005\u0006\u0007\b\t\n\u000B\f\r\u000E\u000F\u0010\u0011\u0012\u0013\u0014\u0015\u0016\u0017\u0018\u0019\u001A\u001B\u001C\u001D\u001E\u001F !\u0022#$%\u0026\u0027()*\u002B,-./0123456789:;\u003C=\u003E?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_\u0060abcdefghijklmnopqrstuvwxyz{|}~\u007F":"1"}
+"caf\u00E9 \u00F1 \u00FC \u00DF \u0416 \u044F \u20AC \u2030 \u2211 \u2264 \u4E2D\u6587 \u65E5\u672C\u8A9E \uD55C\uAD6D\uC5B4"
+{"caf\u00E9 \u00F1 \u00FC \u00DF \u0416 \u044F \u20AC \u2030 \u2211 \u2264 \u4E2D\u6587 \u65E5\u672C\u8A9E \uD55C\uAD6D\uC5B4":"1"}
+"emoji \uD83D\uDE00 \uD83C\uDF89 and \uD83D\uDE00 pair"
+{"emoji \uD83D\uDE00 \uD83C\uDF89 and \uD83D\uDE00 pair":"1"}
+"lone high \uFFFD end"
+{"lone high \uFFFD end":"1"}
+"lone low \uFFFD end"
+{"lone low \uFFFD end":"1"}
+"reversed \uFFFD\uFFFD pair"
+{"reversed \uFFFD\uFFFD pair":"1"}
+"line\u2028para\u2029 soft\u00ADhyphen nbsp\u00A0 bom\uFEFF"
+{"line\u2028para\u2029 soft\u00ADhyphen nbsp\u00A0 bom\uFEFF":"1"}
+"\u003Cscript\u003Ealert(\u0027x\u0027 \u002B \u0022y\u0022) \u0026 \u0060z\u0060\u003C/script\u003E"
+{"\u003Cscript\u003Ealert(\u0027x\u0027 \u002B \u0022y\u0022) \u0026 \u0060z\u0060\u003C/script\u003E":"1"}
+""
+{"":"1"}
+== Default
+"\u0000\u0001\u0002\u0003\u0004\u0005\u0006\u0007\b\t\n\u000B\f\r\u000E\u000F\u0010\u0011\u0012\u0013\u0014\u0015\u0016\u0017\u0018\u0019\u001A\u001B\u001C\u001D\u001E\u001F !\u0022#$%\u0026\u0027()*\u002B,-./0123456789:;\u003C=\u003E?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_\u0060abcdefghijklmnopqrstuvwxyz{|}~\u007F"
+{"\u0000\u0001\u0002\u0003\u0004\u0005\u0006\u0007\b\t\n\u000B\f\r\u000E\u000F\u0010\u0011\u0012\u0013\u0014\u0015\u0016\u0017\u0018\u0019\u001A\u001B\u001C\u001D\u001E\u001F !\u0022#$%\u0026\u0027()*\u002B,-./0123456789:;\u003C=\u003E?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_\u0060abcdefghijklmnopqrstuvwxyz{|}~\u007F":"1"}
+"caf\u00E9 \u00F1 \u00FC \u00DF \u0416 \u044F \u20AC \u2030 \u2211 \u2264 \u4E2D\u6587 \u65E5\u672C\u8A9E \uD55C\uAD6D\uC5B4"
+{"caf\u00E9 \u00F1 \u00FC \u00DF \u0416 \u044F \u20AC \u2030 \u2211 \u2264 \u4E2D\u6587 \u65E5\u672C\u8A9E \uD55C\uAD6D\uC5B4":"1"}
+"emoji \uD83D\uDE00 \uD83C\uDF89 and \uD83D\uDE00 pair"
+{"emoji \uD83D\uDE00 \uD83C\uDF89 and \uD83D\uDE00 pair":"1"}
+"lone high \uFFFD end"
+{"lone high \uFFFD end":"1"}
+"lone low \uFFFD end"
+{"lone low \uFFFD end":"1"}
+"reversed \uFFFD\uFFFD pair"
+{"reversed \uFFFD\uFFFD pair":"1"}
+"line\u2028para\u2029 soft\u00ADhyphen nbsp\u00A0 bom\uFEFF"
+{"line\u2028para\u2029 soft\u00ADhyphen nbsp\u00A0 bom\uFEFF":"1"}
+"\u003Cscript\u003Ealert(\u0027x\u0027 \u002B \u0022y\u0022) \u0026 \u0060z\u0060\u003C/script\u003E"
+{"\u003Cscript\u003Ealert(\u0027x\u0027 \u002B \u0022y\u0022) \u0026 \u0060z\u0060\u003C/script\u003E":"1"}
+""
+{"":"1"}
+== Relaxed
+"\u0000\u0001\u0002\u0003\u0004\u0005\u0006\u0007\b\t\n\u000B\f\r\u000E\u000F\u0010\u0011\u0012\u0013\u0014\u0015\u0016\u0017\u0018\u0019\u001A\u001B\u001C\u001D\u001E\u001F !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~\u007F"
+{"\u0000\u0001\u0002\u0003\u0004\u0005\u0006\u0007\b\t\n\u000B\f\r\u000E\u000F\u0010\u0011\u0012\u0013\u0014\u0015\u0016\u0017\u0018\u0019\u001A\u001B\u001C\u001D\u001E\u001F !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~\u007F":"1"}
+"café ñ ü ß Ж я € ‰ ∑ ≤ 中文 日本語 한국어"
+{"café ñ ü ß Ж я € ‰ ∑ ≤ 中文 日本語 한국어":"1"}
+"emoji \uD83D\uDE00 \uD83C\uDF89 and \uD83D\uDE00 pair"
+{"emoji \uD83D\uDE00 \uD83C\uDF89 and \uD83D\uDE00 pair":"1"}
+"lone high \uFFFD end"
+{"lone high \uFFFD end":"1"}
+"lone low \uFFFD end"
+{"lone low \uFFFD end":"1"}
+"reversed \uFFFD\uFFFD pair"
+{"reversed \uFFFD\uFFFD pair":"1"}
+"line\u2028para\u2029 soft­hyphen nbsp\u00A0 bom\uFEFF"
+{"line\u2028para\u2029 soft­hyphen nbsp\u00A0 bom\uFEFF":"1"}
+"<script>alert('x' + \"y\") & `z`</script>"
+{"<script>alert('x' + \"y\") & `z`</script>":"1"}
+""
+{"":"1"}
+== Latin+Cyrillic
+"\u0000\u0001\u0002\u0003\u0004\u0005\u0006\u0007\b\t\n\u000B\f\r\u000E\u000F\u0010\u0011\u0012\u0013\u0014\u0015\u0016\u0017\u0018\u0019\u001A\u001B\u001C\u001D\u001E\u001F !\u0022#$%\u0026\u0027()*\u002B,-./0123456789:;\u003C=\u003E?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_\u0060abcdefghijklmnopqrstuvwxyz{|}~\u007F"
+{"\u0000\u0001\u0002\u0003\u0004\u0005\u0006\u0007\b\t\n\u000B\f\r\u000E\u000F\u0010\u0011\u0012\u0013\u0014\u0015\u0016\u0017\u0018\u0019\u001A\u001B\u001C\u001D\u001E\u001F !\u0022#$%\u0026\u0027()*\u002B,-./0123456789:;\u003C=\u003E?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_\u0060abcdefghijklmnopqrstuvwxyz{|}~\u007F":"1"}
+"café ñ ü ß Ж я \u20AC \u2030 \u2211 \u2264 \u4E2D\u6587 \u65E5\u672C\u8A9E \uD55C\uAD6D\uC5B4"
+{"café ñ ü ß Ж я \u20AC \u2030 \u2211 \u2264 \u4E2D\u6587 \u65E5\u672C\u8A9E \uD55C\uAD6D\uC5B4":"1"}
+"emoji \uD83D\uDE00 \uD83C\uDF89 and \uD83D\uDE00 pair"
+{"emoji \uD83D\uDE00 \uD83C\uDF89 and \uD83D\uDE00 pair":"1"}
+"lone high \uFFFD end"
+{"lone high \uFFFD end":"1"}
+"lone low \uFFFD end"
+{"lone low \uFFFD end":"1"}
+"reversed \uFFFD\uFFFD pair"
+{"reversed \uFFFD\uFFFD pair":"1"}
+"line\u2028para\u2029 soft­hyphen nbsp\u00A0 bom\uFEFF"
+{"line\u2028para\u2029 soft­hyphen nbsp\u00A0 bom\uFEFF":"1"}
+"\u003Cscript\u003Ealert(\u0027x\u0027 \u002B \u0022y\u0022) \u0026 \u0060z\u0060\u003C/script\u003E"
+{"\u003Cscript\u003Ealert(\u0027x\u0027 \u002B \u0022y\u0022) \u0026 \u0060z\u0060\u003C/script\u003E":"1"}
+""
+{"":"1"}
+== All
+"\u0000\u0001\u0002\u0003\u0004\u0005\u0006\u0007\b\t\n\u000B\f\r\u000E\u000F\u0010\u0011\u0012\u0013\u0014\u0015\u0016\u0017\u0018\u0019\u001A\u001B\u001C\u001D\u001E\u001F !\u0022#$%\u0026\u0027()*\u002B,-./0123456789:;\u003C=\u003E?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_\u0060abcdefghijklmnopqrstuvwxyz{|}~\u007F"
+{"\u0000\u0001\u0002\u0003\u0004\u0005\u0006\u0007\b\t\n\u000B\f\r\u000E\u000F\u0010\u0011\u0012\u0013\u0014\u0015\u0016\u0017\u0018\u0019\u001A\u001B\u001C\u001D\u001E\u001F !\u0022#$%\u0026\u0027()*\u002B,-./0123456789:;\u003C=\u003E?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_\u0060abcdefghijklmnopqrstuvwxyz{|}~\u007F":"1"}
+"café ñ ü ß Ж я € ‰ ∑ ≤ 中文 日本語 한국어"
+{"café ñ ü ß Ж я € ‰ ∑ ≤ 中文 日本語 한국어":"1"}
+"emoji \uD83D\uDE00 \uD83C\uDF89 and \uD83D\uDE00 pair"
+{"emoji \uD83D\uDE00 \uD83C\uDF89 and \uD83D\uDE00 pair":"1"}
+"lone high \uFFFD end"
+{"lone high \uFFFD end":"1"}
+"lone low \uFFFD end"
+{"lone low \uFFFD end":"1"}
+"reversed \uFFFD\uFFFD pair"
+{"reversed \uFFFD\uFFFD pair":"1"}
+"line\u2028para\u2029 soft­hyphen nbsp\u00A0 bom\uFEFF"
+{"line\u2028para\u2029 soft­hyphen nbsp\u00A0 bom\uFEFF":"1"}
+"\u003Cscript\u003Ealert(\u0027x\u0027 \u002B \u0022y\u0022) \u0026 \u0060z\u0060\u003C/script\u003E"
+{"\u003Cscript\u003Ealert(\u0027x\u0027 \u002B \u0022y\u0022) \u0026 \u0060z\u0060\u003C/script\u003E":"1"}
+""
+{"":"1"}
+"c\u0061fé üb\u0065r \u0061llé"
+"plain ascii"
+"plain ascii"
+"\u00E9 \u4E2D \uD83D\uDE00"
+"é 中 \uD83D\uDE00"
+"a\uFFFDb"
+"a\uFFFDb"
+"a\uFFFD(b"
+"a\uFFFD(b"
+"a\uFFFD"
+"a\uFFFD"
+"\uFFFD"
+"\uFFFD"
+"\uFFFD\uFFFD\uFFFD"
+"\uFFFD\uFFFD\uFFFD"
+"\uFFFD\uFFFD"
+"\uFFFD\uFFFD"
+\u003Ctag\u003E \u00E9 | \u003Ctag\u003E \u00E9 | 22
+<tag> é
+True False
+{"\u003Ctag\u003E \u00E9":"\u003Ctag\u003E \u00E9","x\ny":"bytes \u00E9"}
+a\u003Cb\u003Ec \u0022q\u0022 \u00E9 \uFFFD
+a<b>c \"q\" é \uFFFD
+False True False
+1024 256 26
