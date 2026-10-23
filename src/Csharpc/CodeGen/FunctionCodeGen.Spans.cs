@@ -95,7 +95,36 @@ public sealed partial class FunctionCodeGen
         if (from is IArrayTypeSymbol { Rank: 1 } array) return ArraySpan(EmitValue(c.Operand), array.ElementType);
         if (from?.SpecialType == SpecialType.System_String) return StringSpan(EmitValue(c.Operand));
         if (from is null) return LlvmContext.Null(SpanType);
+        if (TypeMapper.IsSystemStruct(_m.CoreLib.Unmap(from), "ArraySegment`1")) return ArraySegmentSpan(c.Operand);
         return null;
+    }
+
+    /// <summary>
+    /// Span/Memory's implicit conversion from ArraySegment&lt;T&gt; (the corelib's ArraySegmentImpl):
+    /// new Span&lt;T&gt;(segment.Array, segment.Offset, segment.Count); a default segment gives an empty span.
+    /// The segment's constructors already validated the window.
+    /// </summary>
+    private LLVMValueRef ArraySegmentSpan(IOperation segment)
+    {
+        var type = (INamedTypeSymbol)TypeOf(segment)!;
+        var element = type.TypeArguments[0];
+        var address = AddressOrSpill(segment);
+        IFieldSymbol Field(string name) => type.GetMembers(name).OfType<IFieldSymbol>().Single();
+        var array = LoadValue(FieldAddressOn(address, Field("_array")), Field("_array").Type);
+        var offset = LoadValue(FieldAddressOn(address, Field("_offset")), Field("_offset").Type);
+        var count = LoadValue(FieldAddressOn(address, Field("_count")), Field("_count").Type);
+        var header = T.ArrayHeader(T.Storage(element));
+        var result = NewTemp(SpanType, "segment.span");
+        _b.Store(LlvmContext.Null(SpanType), result);
+        var nonNull = NewBlock("segment.array");
+        var done = NewBlock("segment.done");
+        _b.CondBr(_b.ICmp(LLVMIntPredicate.EQ, array, LlvmContext.Null(L.Ptr)), done, nonNull);
+        _b.PositionAtEnd(nonNull);
+        var data = _b.InBoundsGep(T.Storage(element), _b.StructGep(header, array, 2), [_b.Cast(LLVMOpcode.ZExt, offset, L.I64)]);
+        _b.Store(MakeSpan(data, count), result);
+        _b.Br(done);
+        _b.PositionAtEnd(done);
+        return _b.Load(SpanType, result);
     }
 
     /// <summary>Collection expressions targeting spans: backed by a fresh GC array (safe for any span lifetime).</summary>
