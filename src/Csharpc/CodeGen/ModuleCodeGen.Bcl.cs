@@ -180,7 +180,7 @@ public sealed partial class ModuleCodeGen
     /// <summary>A name-only method table identifying a library type for Type objects (never instantiated).</summary>
     private LLVMValueRef TypeOnlyMethodTable(INamedTypeSymbol type)
     {
-        var name = Mangler.MetadataName(type.OriginalDefinition);
+        var name = Mangler.MetadataName(type);
         // One per constructed type: List<int> and List<string> are different types (typeof, and
         // the type arguments generic variance compares at run time), though they share a name.
         var key = "type:" + CoreLib.Map(TypeSubstitution.EraseTupleNames(type, Compilation)).ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
@@ -211,8 +211,10 @@ public sealed partial class ModuleCodeGen
         {
             IArrayTypeSymbol array => ArrayMethodTable(array.ElementType),
             INamedTypeSymbol { TypeKind: TypeKind.Enum } e => EnumMethodTable(e),
-            INamedTypeSymbol { TypeKind: TypeKind.Class } c when IsUserType(c) && !c.IsStatic && !c.IsGenericType => GetLayout(c).MethodTable,
-            INamedTypeSymbol { TypeKind: TypeKind.Struct } s when IsUserType(s) && !s.IsGenericType => StructMethodTable(s),
+            // Closed generic instantiations (and corelib shadows such as List<int>) use the same method
+            // table their instances carry, so typeof(G<int>) == obj.GetType() holds.
+            INamedTypeSymbol { TypeKind: TypeKind.Class } c when !c.IsStatic && IsUserType(CoreLib.TryMap(c) ?? c) && !c.IsUnboundGenericType && !TypeSubstitution.IsOpen(c) => GetLayout(c).MethodTable,
+            INamedTypeSymbol { TypeKind: TypeKind.Struct } s when IsUserType(CoreLib.TryMap(s) ?? s) && !s.IsUnboundGenericType && !TypeSubstitution.IsOpen(s) => StructMethodTable(s),
             INamedTypeSymbol ex when IsLibraryException(ex) => GetLayout(ex).MethodTable,
             INamedTypeSymbol named => TypeOnlyMethodTable(TypeSubstitution.IsOpen(named) ? named.OriginalDefinition : named),
             _ => throw CompileError.Unsupported($"typeof({type})", at),

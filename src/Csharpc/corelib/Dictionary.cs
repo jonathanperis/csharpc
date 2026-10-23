@@ -99,6 +99,39 @@ namespace CsharpcCoreLib
         }
     }
 
+    [Shadows("System.Collections.DictionaryEntry")]
+    public struct DictionaryEntryImpl
+    {
+        private object _key;
+        private object _value;
+
+        public DictionaryEntryImpl(object key, object value)
+        {
+            _key = key;
+            _value = value;
+        }
+
+        public object Key { get => _key; set => _key = value; }
+        public object Value { get => _value; set => _value = value; }
+
+        public void Deconstruct(out object key, out object value)
+        {
+            key = _key;
+            value = _value;
+        }
+
+        public override string ToString()
+        {
+            var s = new StringBuilder();
+            s.Append('[');
+            if (_key != null) s.Append(_key.ToString());
+            s.Append(", ");
+            if (_value != null) s.Append(_value.ToString());
+            s.Append(']');
+            return s.ToString();
+        }
+    }
+
     [Shadows("System.Collections.Generic.KeyValuePair")]
     public static class KeyValuePairStatics
     {
@@ -393,7 +426,7 @@ namespace CsharpcCoreLib
         }
 
         [Shadows("System.Collections.Generic.Dictionary`2+Enumerator")]
-        public struct Enumerator
+        public struct Enumerator : IEnumerator<KeyValuePair<TKey, TValue>>, IDictionaryEnumerator
         {
             private readonly DictionaryImpl<TKey, TValue> _dictionary;
             private readonly int _version;
@@ -427,6 +460,49 @@ namespace CsharpcCoreLib
 
             public KeyValuePair<TKey, TValue> Current => _current;
             public void Dispose() { }
+
+            object IEnumerator.Current
+            {
+                get
+                {
+                    if (_index == 0 || _index == _dictionary._count + 1) ThrowHelper.EnumOpCantHappen();
+                    return CoreIntrinsics.Box(_current);
+                }
+            }
+
+            void IEnumerator.Reset()
+            {
+                if (_version != _dictionary._version) ThrowHelper.VersionChanged();
+                _index = 0;
+                _current = default(KeyValuePair<TKey, TValue>);
+            }
+
+            DictionaryEntry IDictionaryEnumerator.Entry
+            {
+                get
+                {
+                    if (_index == 0 || _index == _dictionary._count + 1) ThrowHelper.EnumOpCantHappen();
+                    return new DictionaryEntry(CoreIntrinsics.Box(_current.Key), CoreIntrinsics.Box(_current.Value));
+                }
+            }
+
+            object IDictionaryEnumerator.Key
+            {
+                get
+                {
+                    if (_index == 0 || _index == _dictionary._count + 1) ThrowHelper.EnumOpCantHappen();
+                    return CoreIntrinsics.Box(_current.Key);
+                }
+            }
+
+            object IDictionaryEnumerator.Value
+            {
+                get
+                {
+                    if (_index == 0 || _index == _dictionary._count + 1) ThrowHelper.EnumOpCantHappen();
+                    return CoreIntrinsics.Box(_current.Value);
+                }
+            }
         }
 
         internal sealed class EnumeratorObject : IEnumerator<KeyValuePair<TKey, TValue>>
@@ -484,7 +560,7 @@ namespace CsharpcCoreLib
             }
 
             [Shadows("System.Collections.Generic.Dictionary`2+KeyCollection+Enumerator")]
-            public struct Enumerator
+            public struct Enumerator : IEnumerator<TKey>
             {
                 private readonly DictionaryImpl<TKey, TValue> _dictionary;
                 private readonly int _version;
@@ -518,6 +594,22 @@ namespace CsharpcCoreLib
 
                 public TKey Current => _current;
                 public void Dispose() { }
+
+                object IEnumerator.Current
+                {
+                    get
+                    {
+                        if (_index == 0 || _index == _dictionary._count + 1) ThrowHelper.EnumOpCantHappen();
+                        return CoreIntrinsics.Box(_current);
+                    }
+                }
+
+                void IEnumerator.Reset()
+                {
+                    if (_version != _dictionary._version) ThrowHelper.VersionChanged();
+                    _index = 0;
+                    _current = default(TKey);
+                }
             }
         }
 
@@ -572,7 +664,7 @@ namespace CsharpcCoreLib
             }
 
             [Shadows("System.Collections.Generic.Dictionary`2+ValueCollection+Enumerator")]
-            public struct Enumerator
+            public struct Enumerator : IEnumerator<TValue>
             {
                 private readonly DictionaryImpl<TKey, TValue> _dictionary;
                 private readonly int _version;
@@ -606,6 +698,22 @@ namespace CsharpcCoreLib
 
                 public TValue Current => _current;
                 public void Dispose() { }
+
+                object IEnumerator.Current
+                {
+                    get
+                    {
+                        if (_index == 0 || _index == _dictionary._count + 1) ThrowHelper.EnumOpCantHappen();
+                        return CoreIntrinsics.Box(_current);
+                    }
+                }
+
+                void IEnumerator.Reset()
+                {
+                    if (_version != _dictionary._version) ThrowHelper.VersionChanged();
+                    _index = 0;
+                    _current = default(TValue);
+                }
             }
         }
 

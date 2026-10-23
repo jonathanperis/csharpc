@@ -86,6 +86,7 @@ namespace CsharpcCoreLib
         public static void DuplicateKey(string key) => throw new ArgumentException("An item with the same key has already been added. Key: " + key);
         public static void EmptyQueue() => throw new InvalidOperationException("Queue empty.");
         public static void EmptyStack() => throw new InvalidOperationException("Stack empty.");
+        public static void EnumOpCantHappen() => throw new InvalidOperationException("Enumeration has either not started or has already finished.");
 
         // ArgumentOutOfRangeException.ThrowIf* (.NET 8+): exact messages, with the actual value.
         public static void IfNegative(int value, string paramName)
