@@ -1,0 +1,22 @@
+plain -> plain -> True
+a.b*c+d? -> a\.b\*c\+d\? -> True
+[x](y){z} -> \[x]\(y\)\{z} -> True
+back\slash -> back\\slash -> True
+^start$ -> \^start\$ -> True
+a|b -> a\|b -> True
+# hash -> \#\ hash -> True
+tab\there -> tab\there -> True
+new\nline -> new\nline -> True
+spaces  here -> spaces\ \ here -> True
+ ->  -> True
+\t\n\r\f\.*
+4
+ABC
+no escapes
+
+RegexParseException: Invalid pattern '\x4' at offset 2. Insufficient or invalid hexadecimal digits.
+RegexParseException: Invalid pattern '\u12' at offset 2. Insufficient or invalid hexadecimal digits.
+RegexParseException: Invalid pattern '\c' at offset 2. Missing control character.
+RegexParseException: Invalid pattern '\p{L}' at offset 2. Unrecognized escape sequence \p.
+RegexParseException: Invalid pattern '\q' at offset 2. Unrecognized escape sequence \q.
+ArgumentNullException: Value cannot be null. (Parameter 'str')

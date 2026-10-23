@@ -1,0 +1,23 @@
+^\w+         None                   => [0:first]
+^\w+         Multiline              => [0:first] [11:second] [23:third]
+\w+$         None                   => [23:third]
+\w+$         Multiline              => [6:line] [18:line] [23:third]
+\w+\z        None                   =>
+\w+\Z        None                   => [23:third]
+\A\w+        Multiline              => [0:first]
+$            Multiline              => [10:] [22:] [28:] [29:]
+^            Multiline              => [0:] [11:] [23:] [29:]
+line.second  None                   =>
+line.second  Singleline             => [6:line\nsecond]
+(?m)^t       None                   => [23:t]
+(?s)d.s      None                   => [2:d\ns]
+\G\d         None                   => [0:1] [1:2] [2:3]
+\G,?\d       None                   => [0:1] [1:,2] [3:,3]
+\bcat\b      None                   => [0:cat] [11:cat]
+\Bcat\B      None                   => [3:cat]
+\b           None                   => [0:] [1:] [2:] [3:]
+\B           None                   => [1:]
+^$           Multiline              => [0:]
+^$           Multiline              => [2:]
+\r?$         Multiline              => [1:] [2:] [4:] [5:] [6:]
+^\s*$        Multiline              => [2: \n] [4:]

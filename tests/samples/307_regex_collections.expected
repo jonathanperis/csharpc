@@ -1,0 +1,20 @@
+4 bat True False
+c,b,r,h
+bat,rat,hat
+cat 12 1
+2 True 4
+hat
+True hat
+hat
+0 4 8 12 
+ArgumentOutOfRangeException: Specified argument was out of the range of valid values. (Parameter 'i')
+NotSupportedException: Collection is read-only.
+4 0,1,name,val True
+0:x=1,y=22,1:,y=22,name:y,val:22
+0,1,name,val
+2 1 22 1+22
+6 True
+ArgumentOutOfRangeException: Specified argument was out of the range of valid values. (Parameter 'i')
+4 1
+1 x=1,y=22
+x=1,y=22 y
