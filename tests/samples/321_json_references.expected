@@ -1,0 +1,19 @@
+{"$id":"1","Name":"root","Parent":null,"Self":{"$ref":"1"},"Children":{"$id":"2","$values":[{"$id":"3","Name":"child","Parent":{"$ref":"1"},"Self":null,"Children":{"$id":"4","$values":[]}},{"$ref":"3"}]}}
+root True 2 True True
+{"Name":"root","Parent":null,"Self":null,"Children":[{"Name":"child","Parent":null,"Self":null,"Children":[]},{"Name":"child","Parent":null,"Self":null,"Children":[]}]}
+[{"Name":"child","Parent":{"Name":"root","Parent":null,"Self":null,"Children":[null,null]},"Self":null,"Children":[]},{"Name":"child","Parent":{"Name":"root","Parent":null,"Self":null,"Children":[null,null]},"Self":null,"Children":[]}]
+{"$id":"1","A":{"$id":"2","$values":[1,2]},"B":{"$ref":"2"}}
+same list 3
+{"$id":"1","a":{"$id":"2","Name":"child","Parent":{"$id":"3","Name":"root","Parent":null,"Self":{"$ref":"3"},"Children":{"$id":"4","$values":[{"$ref":"2"},{"$ref":"2"}]}},"Self":null,"Children":{"$id":"5","$values":[]}},"b":{"$ref":"2"}}
+JsonException: A possible object cycle was detected. This can either be due to a cycle or if the object depth is larger than the maximum allowed depth of 64. Consider using ReferenceHandler.Preserve on JsonSerializerOptions to support cycles. Path: $.Self.Self.Self.Self.Self.Self.Self.Self.Self.Self.Self.Self.Self.Self.Self.Self.Self.Self.Self.Self.Self.Self.Self.Self.Self.Self.Self.Self.Self.Self.Self.Self.Self.Self.Self.Self.Self.Self.Self.Self.Self.Self.Self.Self.Self.Self.Self.Self.Self.Self.Self.Self.Self.Self.Self.Self.Self.Self.Self.Self.Self.Self.Self.Name.
+JsonException: Reference '2' was not found. Path: $.Self | LineNumber: 0 | BytePositionInLine: 41.
+JsonException: The metadata property '$id' cannot be used together with '$ref' metadata properties. Path: $['$id'] | LineNumber: 0 | BytePositionInLine: 17.
+JsonException: A JSON object that contains a '$ref' metadata property must not contain any other properties. Path: $.Self.Name | LineNumber: 0 | BytePositionInLine: 27.
+JsonException: The '$id', '$ref' or '$type' metadata properties must be JSON strings. Current token type is 'Number'. Path: $['$id'] | LineNumber: 0 | BytePositionInLine: 8.
+JsonException: Properties that start with '$' are not allowed in types that support metadata. Either replace the character or disable reference preservation and polymorphic deserialization. Path: $['$unknown'] | LineNumber: 0 | BytePositionInLine: 12.
+ok: 
+JsonException: A possible object cycle was detected. This can either be due to a cycle or if the object depth is larger than the maximum allowed depth of 3. Consider using ReferenceHandler.Preserve on JsonSerializerOptions to support cycles. Path: $.Self.Self.Name.
+ok: 244
+JsonException: The maximum configured depth of 2 has been exceeded. Cannot read next JSON object. Path: $.Self.Self | LineNumber: 0 | BytePositionInLine: 16.
+JsonException: The maximum configured depth of 2 has been exceeded. Cannot read next JSON array. Path: $[0][0] | LineNumber: 0 | BytePositionInLine: 2.
+ok: 1

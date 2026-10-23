@@ -22,8 +22,16 @@ those parts of csharpc.
   `System.Private.CoreLib/src/Resources/Strings.resx`. `src/runtime/globalization/` is the native shim
   `src/native/libs/System.Globalization.Native` (with `pal_compiler.h` from `src/native/libs/Common`).
   Each ported file keeps the upstream license header.
+- **What:** `System.Random` in `src/Csharpc/corelib/Random/` is a port of
+  `src/libraries/System.Private.CoreLib/src/System/Random*.cs` (the public API, the legacy seeded
+  generator .NET keeps for `new Random(seed)`, and xoshiro256**), adapted to the csharpc corelib.
 - **Source:** <https://github.com/dotnet/runtime>, release/11.0, commit
   `bc123d0bd173a538addc07e0f8fa38a90f0925c1`.
+- **What:** `System.Text.Json` and `System.Text.Encodings.Web` in `src/Csharpc/corelib/Json/`, ported
+  from `src/libraries/System.Text.Json/src` and `src/libraries/System.Text.Encodings.Web/src` (see the
+  table below), adapted to the csharpc corelib. Each ported file keeps the upstream license header
+  and names its upstream sources.
+- **Source:** <https://github.com/dotnet/runtime>, release/11.0.
 - **License:** MIT
 
 ```
@@ -51,6 +59,18 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
+
+System.Text.Json files (all under `src/Csharpc/corelib/Json/`):
+
+| File | Upstream sources |
+|---|---|
+| `JsonCore.cs` | `System.Text.Json`: `JsonException`, `JsonConstants`, `BitStack`, resource strings |
+| `UnicodeRanges.g.cs`, `Encoders.cs` | `System.Text.Encodings.Web`: `UnicodeRanges`, `TextEncoderSettings`, `OptimizedInboxTextEncoder`, `DefaultJavaScriptEncoder`; Unicode defined-characters data |
+| `JsonWriter.cs`, `ArrayBufferWriter.cs` | `System.Text.Json`: `Utf8JsonWriter*`, `JsonWriterHelper*`, `JsonEncodedText`, `JsonWriterOptions`; `System.Memory`: `ArrayBufferWriter<T>` |
+| `JsonReader.cs`, `JsonReaderSupport.cs` | `System.Text.Json`: `Utf8JsonReader*`, `JsonReaderHelper*`, `JsonHelpers.Date`, `ThrowHelper`; `System.Private.CoreLib`: `Number.NumberToDecimal` (via `Utf8Parser`) |
+| `JsonDocument.cs` | `System.Text.Json`: `JsonDocument*`, `JsonElement*`, `JsonProperty`, `MetadataDb` |
+| `JsonNodes.cs` | `System.Text.Json`: `JsonNode`, `JsonObject`, `JsonArray`, `JsonValue*` |
+| `SerializerOptions.cs`, `SerializerMetadata.cs`, `SerializerConverters.cs`, `SerializerObjects.cs`, `Serializer.cs` | `System.Text.Json`: `JsonSerializer*`, `JsonSerializerOptions`, `JsonSerializerContext`, `JsonTypeInfo*`, `JsonPropertyInfo*`, `JsonMetadataServices*`, `PolymorphicTypeResolver`, `JsonNamingPolicy` (`JsonSeparatorNamingPolicy`), the value, enum, object and collection converters, `ThrowHelper.Serialization` |
 
 ## ICU (International Components for Unicode)
 

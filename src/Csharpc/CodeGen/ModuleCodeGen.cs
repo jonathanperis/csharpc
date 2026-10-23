@@ -84,6 +84,11 @@ public sealed partial class ModuleCodeGen
         return _userTypes.Where(t => t.TypeKind == TypeKind.Class && !t.IsGenericType && !t.IsStatic && Derives(t)).OrderByDescending(Depth);
     }
 
+    /// <summary>Generic class definitions deriving from <paramref name="root"/> (their instantiations are only known lazily).</summary>
+    internal IEnumerable<INamedTypeSymbol> GenericClassesDerivedFrom(INamedTypeSymbol root) =>
+        _userTypes.Where(t => t.TypeKind == TypeKind.Class && t.IsGenericType && !t.IsStatic
+            && Enumerable.Range(0, 64).Aggregate((INamedTypeSymbol?)t, (b, _) => b is null || SymbolEqualityComparer.Default.Equals(b.OriginalDefinition, root.OriginalDefinition) ? b : b.BaseType) is not null);
+
     public ModuleCodeGen(Compilation compilation, LlvmContext llvm, LlvmModule module, TargetMachine target)
     {
         Compilation = compilation;

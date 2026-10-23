@@ -23,6 +23,8 @@ public sealed record ProjectInfo
     /// System.Globalization.Invariant / PredefinedCulturesOnly, compiled into the program (null: not set).</summary>
     public bool? InvariantGlobalization { get; init; }
     public bool? PredefinedCulturesOnly { get; init; }
+    /// <summary>JsonSerializerIsReflectionEnabledByDefault (false in trimmed and AOT-published projects).</summary>
+    public bool JsonReflectionEnabled { get; init; } = true;
     public List<string> GlobalUsings { get; } = [];
     public List<string> ProjectReferences { get; } = [];
     public List<string> UnsupportedPackages { get; } = [];
@@ -41,7 +43,7 @@ public static class ProjectLoader
     [
         "AssemblyName", "OutputType", "DefineConstants", "LangVersion", "Nullable", "AllowUnsafeBlocks",
         "ImplicitUsings", "TargetFramework", "TargetFrameworks", "MSBuildProjectFullPath",
-        "StartupObject", "InvariantGlobalization", "PredefinedCulturesOnly",
+        "StartupObject", "InvariantGlobalization", "PredefinedCulturesOnly", "JsonSerializerIsReflectionEnabledByDefault",
     ];
 
     /// <summary>
@@ -161,6 +163,7 @@ public static class ProjectLoader
             StartupObject = Prop("StartupObject"),
             InvariantGlobalization = Switch(Prop("InvariantGlobalization")),
             PredefinedCulturesOnly = Switch(Prop("PredefinedCulturesOnly")),
+            JsonReflectionEnabled = !string.Equals(Prop("JsonSerializerIsReflectionEnabledByDefault"), "false", StringComparison.OrdinalIgnoreCase),
         };
 
         info.Defines.AddRange((Prop("DefineConstants") ?? "").Split([';', ','], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
@@ -225,6 +228,7 @@ public static class ProjectLoader
             GlobalUsings = usings.Count > 0 ? string.Join('\n', usings) : null,
             AssemblyName = root.AssemblyName,
             MainTypeName = root.StartupObject,
+            JsonReflectionEnabled = root.JsonReflectionEnabled,
             Projects = all.Count > 1 ? [.. all.Select(p => new ProjectUnit
             {
                 ProjectPath = p.ProjectPath,

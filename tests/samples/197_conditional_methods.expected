@@ -1,0 +1,4 @@
+LOG debug build 1
+FEATURE feature x 2
+EITHER either 3
+counter = 3

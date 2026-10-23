@@ -67,9 +67,13 @@ public static class RoslynFrontend
 
         var name = settings.AssemblyName ?? (settings.Files.Count > 0 ? Path.GetFileNameWithoutExtension(settings.Files[0]) : "program");
         var compilation = CSharpCompilation.Create(name, trees, ReferenceAssemblies(), options);
+        // Reflection-based System.Text.Json calls get compile-time metadata from synthesized contexts.
+        List<Diagnostic> jsonDiagnostics = [];
+        compilation = JsonReflectionContexts.Add(compilation, [.. trees.Where(t => !IsCoreLibTree(t) && t.FilePath != "<global-usings>.g.cs")],
+            settings.JsonReflectionEnabled, jsonDiagnostics, out _);
         // Source generators the SDK runs implicitly ([LibraryImport], [GeneratedRegex], [JsonSerializable]).
-        compilation = SourceGenerators.Run(compilation, trees.Where(t => !IsCoreLibTree(t)), out var generatorDiagnostics);
-        GeneratorDiagnostics = generatorDiagnostics;
+        compilation = SourceGenerators.Run(compilation, compilation.SyntaxTrees.Where(t => !IsCoreLibTree(t)), out var generatorDiagnostics);
+        GeneratorDiagnostics = [.. generatorDiagnostics.Where(d => !FromSynthesizedJsonContext(d)), .. jsonDiagnostics];
         return compilation;
     }
 
@@ -142,6 +146,13 @@ public static class RoslynFrontend
             return built[project.ProjectPath] = compilation;
         }
     }
+
+    /// <summary>
+    /// The JSON generator's findings about the contexts csharpc synthesizes: .NET's reflection-based
+    /// serializer reports nothing at compile time for the same types, so neither does csharpc.
+    /// </summary>
+    private static bool FromSynthesizedJsonContext(Diagnostic d) =>
+        d.Location.SourceTree is { } tree && (JsonReflectionContexts.IsSynthesizedTree(tree) || JsonReflectionContexts.IsSynthesizedContextFile(tree.FilePath));
 
     /// <summary>Diagnostics reported by source generators during the last Analyze call.</summary>
     public static IReadOnlyList<Diagnostic> GeneratorDiagnostics { get; private set; } = [];
@@ -256,6 +267,11 @@ public sealed record FrontendSettings
     public string? AssemblyName { get; init; }
     /// <summary>Type whose Main is the entry point (&lt;StartupObject&gt;); null = the only one.</summary>
     public string? MainTypeName { get; init; }
+    /// <summary>
+    /// JsonSerializerIsReflectionEnabledByDefault as the SDK computes it for a project; null for
+    /// single files (file-based apps, decided from their `#:property` directives).
+    /// </summary>
+    public bool? JsonReflectionEnabled { get; init; }
     /// <summary>The root project and the projects it references, when there are several.</summary>
     public IReadOnlyList<ProjectUnit> Projects { get; init; } = [];
 }
