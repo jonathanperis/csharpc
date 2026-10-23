@@ -34,7 +34,7 @@ jobs:
         run: dotnet build src/Csharpc -c Release
 
       - name: Survey
-        run: python3 -I tools/il-survey/survey.py --jobs 2 --timeout 1800 --memory-gb 5 --work "$RUNNER_TEMP/il-survey" --out il-survey.md
+        run: python3 -I tools/il-survey/survey.py --jobs 1 --timeout 1800 --memory-gb 4 --work "$RUNNER_TEMP/il-survey" --out il-survey.md
 
       - name: Report
         if: always()

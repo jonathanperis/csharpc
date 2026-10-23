@@ -22,6 +22,7 @@ import io
 import json
 import os
 import re
+import resource
 import shutil
 import subprocess
 import sys
@@ -233,8 +234,15 @@ def survey_one(pkg_id, version, args, framework, cache):
     try:
         # A managed heap limit turns a runaway compile into an OutOfMemoryException instead of
         # exhausting the machine (CI runners kill the whole job then).
+        # The address-space limit catches native (LLVM) growth too; .NET only reserves address space
+        # in proportion to the heap limit, so 3x leaves room for code, mappings and LLVM.
         env = dict(os.environ, DOTNET_GCHeapHardLimit=hex(args.memory_gb << 30))
-        p = subprocess.run(cmd, capture_output=True, text=True, timeout=args.timeout, cwd=proj, env=env)
+        limit = 3 * (args.memory_gb << 30)
+
+        def cap():
+            resource.setrlimit(resource.RLIMIT_AS, (limit, limit))
+
+        p = subprocess.run(cmd, capture_output=True, text=True, timeout=args.timeout, cwd=proj, env=env, preexec_fn=cap)
         log = p.stdout + p.stderr
         errors = sum(1 for line in log.splitlines() if re.search(r"error (CSLLVM|CS)\d", line))
         result["status"] = "ok" if p.returncode == 0 else ("errors" if errors else f"failed (exit {p.returncode})")
@@ -292,7 +300,7 @@ def main():
     ap.add_argument("--work", default=None, help="download/compile directory (default: a fresh one under /tmp)")
     ap.add_argument("--out", default="il-survey.md")
     ap.add_argument("--only", default=None)
-    ap.add_argument("--memory-gb", type=int, default=4, help="managed heap limit per compile (DOTNET_GCHeapHardLimit)")
+    ap.add_argument("--memory-gb", type=int, default=4, help="managed heap limit per compile (DOTNET_GCHeapHardLimit); address space: 3x")
     args = ap.parse_args()
     args.work = args.work or tempfile.mkdtemp(prefix="il-survey-")
     if not os.path.exists(args.csharpc):
