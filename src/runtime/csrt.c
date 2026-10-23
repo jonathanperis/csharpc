@@ -17,7 +17,8 @@ const csrt_BuiltinMethodTable csrt_Object_MT = {
 };
 const csrt_BuiltinMethodTable csrt_String_MT = {
     { &csrt_Object_MT.header, "System.String", 0, CSRT_MT_NO_REFERENCES },
-    { (void*)string_to_string, (void*)csrt_string_equals, (void*)csrt_object_get_hash_code_default },
+    // GetHashCode through object (Dictionary<object, ...>, HashSet<object>) must hash the contents, like Equals.
+    { (void*)string_to_string, (void*)csrt_string_equals, (void*)csrt_string_get_hash_code },
 };
 const csrt_BuiltinMethodTable csrt_Array_MT = {
     { &csrt_Object_MT.header, "System.Array", 0, 0 },
