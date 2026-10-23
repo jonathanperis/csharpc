@@ -10,6 +10,9 @@ those parts of csharpc.
   case-equivalence tables, writer, interpreter and the public `Regex` / `Match` / `Group` /
   `Capture` API), adapted to the csharpc corelib. Each ported file keeps the upstream license
   header.
+- **What:** `System.Random` in `src/Csharpc/corelib/Random/` is a port of
+  `src/libraries/System.Private.CoreLib/src/System/Random*.cs` (the public API, the legacy seeded
+  generator .NET keeps for `new Random(seed)`, and xoshiro256**), adapted to the csharpc corelib.
 - **Source:** <https://github.com/dotnet/runtime>, release/11.0, commit
   `bc123d0bd173a538addc07e0f8fa38a90f0925c1`.
 - **License:** MIT
