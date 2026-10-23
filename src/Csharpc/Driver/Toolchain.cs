@@ -128,6 +128,7 @@ public sealed class Toolchain(CompilerOptions options, Csharpc.Llvm.TargetMachin
         yield return "-Wl,--icf=safe";
         // CoTaskMemAlloc/CoTaskMemFree: P/Invoke string returns and Marshal.*CoTaskMem*, as in .NET.
         yield return "-lole32";
+        yield return "-lws2_32";  // System.Net.Sockets over Winsock
         if (options.Strip ?? !options.Debug) yield return "-s";
     }
 

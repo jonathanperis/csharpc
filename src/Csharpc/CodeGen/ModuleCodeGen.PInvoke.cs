@@ -29,7 +29,7 @@ public sealed partial class ModuleCodeGen
     /// imports are linked directly: its "libc" functions are the UCRT's, and kernel32's import library
     /// is always linked.</summary>
     private static readonly HashSet<string> s_coreLibDirectLibrariesWindows =
-        new(["", "libc", "libm", "kernel32", "kernel32.dll", "ole32", "ole32.dll"], StringComparer.OrdinalIgnoreCase);
+        new(["", "libc", "libm", "kernel32", "kernel32.dll", "ole32", "ole32.dll", "ws2_32", "ws2_32.dll"], StringComparer.OrdinalIgnoreCase);
 
     public static bool IsPInvoke(IMethodSymbol method) => method.OriginalDefinition.GetDllImportData() is not null;
 
