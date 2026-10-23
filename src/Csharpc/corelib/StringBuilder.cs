@@ -177,21 +177,25 @@ namespace CsharpcCoreLib
             return This;
         }
 
-        /// <summary>Integers are formatted straight into the buffer — no temporary string.</summary>
-        private StringBuilderImpl AppendSigned(long value)
+        /// <summary>
+        /// Integers are formatted straight into the buffer — no temporary string, and no range checks:
+        /// Reserve(chars) just made room for exactly the chars written (chars ≤ 20, so `_length + chars`
+        /// can't overflow: _length ≤ Array.MaxLength).
+        /// </summary>
+        private unsafe StringBuilderImpl AppendSigned(long value)
         {
             int chars = Number.CountChars(value);
             Reserve(chars);
-            Number.WriteSigned(_chars.AsSpan(_length, chars), value);
+            fixed (char* buffer = _chars) Number.WriteSigned(buffer + _length, chars, value);
             _length += chars;
             return This;
         }
 
-        private StringBuilderImpl AppendUnsigned(ulong value)
+        private unsafe StringBuilderImpl AppendUnsigned(ulong value)
         {
             int chars = Number.CountDigits(value);
             Reserve(chars);
-            Number.WriteDigits(_chars.AsSpan(_length, chars), value);
+            fixed (char* buffer = _chars) Number.WriteUnsigned(buffer + _length, chars, value);
             _length += chars;
             return This;
         }

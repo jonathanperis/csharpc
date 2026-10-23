@@ -34,9 +34,14 @@ public sealed partial class FunctionCodeGen
     // Region queries
     // ======================================================================================
 
-    private static bool IsProtectedTry(ControlFlowRegion region) =>
+    private bool IsProtectedTry(ControlFlowRegion region) =>
         region.Kind == ControlFlowRegionKind.Try
-        && region.EnclosingRegion?.Kind is ControlFlowRegionKind.TryAndCatch or ControlFlowRegionKind.TryAndFinally;
+        && region.EnclosingRegion?.Kind switch
+        {
+            ControlFlowRegionKind.TryAndCatch => true,
+            ControlFlowRegionKind.TryAndFinally => !IsNoOpFinally(region.EnclosingRegion),
+            _ => false,
+        };
 
     /// <summary>
     /// Innermost try region of the graph being lowered that protects code in <paramref name="region"/>.
@@ -48,6 +53,89 @@ public sealed partial class FunctionCodeGen
         for (var r = region; r is not null && !ReferenceEquals(r, root); r = r.EnclosingRegion)
             if (IsProtectedTry(r)) return r;
         return null;
+    }
+
+    private readonly Dictionary<ControlFlowRegion, bool> _noOpFinally = new(ReferenceEqualityComparer.Instance);
+
+    /// <summary>
+    /// A try/finally whose finally provably does nothing: the one Roslyn wraps around foreach over
+    /// an array, a string or a span, whose enumerator's Dispose is a no-op here (array enumerators
+    /// are never IDisposable). Its try needs no landing pad, so calls in the loop body stay plain
+    /// calls and LLVM doesn't have to carry finally state around the loop; exceptions go straight
+    /// to the enclosing handler, which is what running the empty finally would amount to.
+    /// </summary>
+    private bool IsNoOpFinally(ControlFlowRegion tryAndFinally)
+    {
+        if (_noOpFinally.TryGetValue(tryAndFinally, out var known)) return known;
+        var finallyRegion = tryAndFinally.NestedRegions.First(r => r.Kind == ControlFlowRegionKind.Finally);
+        var graph = _cfg!.Graph;
+        HashSet<CaptureId> nullCaptures = [];
+
+        // Side-effect-free values: capture references, reference/identity conversions, null tests.
+        bool Pure(IOperation op) => op switch
+        {
+            IFlowCaptureReferenceOperation or ILocalReferenceOperation => true,
+            IConversionOperation c when c.Conversion.IsIdentity || c.Conversion.IsReference => Pure(c.Operand),
+            IIsNullOperation n => Pure(n.Operand),
+            _ => false,
+        };
+        // Mirrors EmitInvocation / EmitInterfaceCall: these Dispose calls emit nothing (not even the
+        // receiver): span enumerators, and CharEnumerator (an intrinsic) also through IDisposable.
+        bool NoOpDispose(IInvocationOperation inv)
+        {
+            if (inv is not { TargetMethod.Name: "Dispose", Arguments.IsEmpty: true, Instance: { } instance }) return false;
+            if (TypeMapper.IsSpanEnumerator(TypeOf(instance))) return true;
+            var method = S(inv.TargetMethod);
+            if (method.ContainingType.TypeKind == TypeKind.Interface)
+                method = TypeOf(ConcreteReceiver(instance)) is { TypeKind: TypeKind.Class } type
+                    ? type.FindImplementationForInterfaceMember(method) as IMethodSymbol : null;
+            return method is not null && !_m.IsUserMethod(method) && method.ContainingType.ToDisplayString() == "System.CharEnumerator";
+        }
+        bool NoOp(IOperation op)
+        {
+            switch (op)
+            {
+                // `enumerator as IDisposable` of an array enumerator is null (EmitConversion).
+                case IFlowCaptureOperation { Value: IConversionOperation c } capture when TryArrayEnumerator(c.Operand, out _):
+                    nullCaptures.Add(capture.Id);
+                    return true;
+                case IFlowCaptureOperation capture: return Pure(capture.Value);
+                case IExpressionStatementOperation e: return NoOp(e.Operation);
+                case IInvocationOperation inv: return NoOpDispose(inv);
+                default: return false;
+            }
+        }
+        static bool KnownNull(IOperation op, HashSet<CaptureId> nulls) =>
+            op is IIsNullOperation { Operand: IFlowCaptureReferenceOperation r } && nulls.Contains(r.Id);
+
+        // Walk what can actually run, from the finally's entry to its exit.
+        var result = true;
+        var seen = new HashSet<int>();
+        var work = new Stack<BasicBlock>([graph.Blocks[finallyRegion.FirstBlockOrdinal]]);
+        while (result && work.TryPop(out var block))
+        {
+            if (!seen.Add(block.Ordinal)) continue;
+            if (block.Ordinal < finallyRegion.FirstBlockOrdinal || block.Ordinal > finallyRegion.LastBlockOrdinal) { result = false; break; }
+            if (!block.Operations.All(NoOp)) { result = false; break; }
+            var successors = new List<ControlFlowBranch?>();
+            if (block.BranchValue is { } value && block.ConditionKind != ControlFlowConditionKind.None)
+            {
+                if (KnownNull(value, nullCaptures)) // the IsNull test is always true
+                    successors.Add(block.ConditionKind == ControlFlowConditionKind.WhenTrue ? block.ConditionalSuccessor : block.FallThroughSuccessor);
+                else if (Pure(value)) successors.AddRange([block.ConditionalSuccessor, block.FallThroughSuccessor]);
+                else { result = false; break; }
+            }
+            else if (block.BranchValue is not null) { result = false; break; }
+            else successors.Add(block.FallThroughSuccessor);
+            foreach (var branch in successors)
+            {
+                if (branch is null) continue;
+                if (branch.Semantics == ControlFlowBranchSemantics.StructuredExceptionHandling) continue; // end of the finally
+                if (branch.Semantics != ControlFlowBranchSemantics.Regular || branch.Destination is null) { result = false; break; }
+                work.Push(branch.Destination);
+            }
+        }
+        return _noOpFinally[tryAndFinally] = result;
     }
 
     /// <summary>The try enclosing the whole try/catch or try/finally statement that <paramref name="tryRegion"/> belongs to.</summary>

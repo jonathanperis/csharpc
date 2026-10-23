@@ -18,6 +18,7 @@ public sealed partial class ModuleCodeGen
     public LlvmContext Llvm { get; }
     public LlvmModule Module { get; }
     public TypeMapper Types { get; }
+    public MemoryFacts Facts { get; }
     public List<CompileError> Errors { get; } = [];
 
     /// <summary>Compile-time warnings about known run-time differences from .NET (printed, not fatal).</summary>
@@ -84,6 +85,7 @@ public sealed partial class ModuleCodeGen
         Llvm = llvm;
         Module = module;
         Types = new TypeMapper(llvm, target);
+        Facts = new MemoryFacts(llvm);
         Types.StructType = ResolveStructType;
         CoreLib = new CoreLib(compilation);
         Mangler.RealNameOf = CoreLib.RealNameOf; // shadow types report their BCL names (List`1[...])
@@ -629,6 +631,7 @@ public sealed partial class ModuleCodeGen
                 ? GetLibraryExceptionLayout(type)
                 : throw CompileError.Unsupported($"instances of library class '{type}'", type);
         if (TypeSubstitution.IsOpen(type)) throw CompileError.Unsupported($"open generic type '{type}'", type);
+        RejectCustomLayout(type);
         return BuildOrForget(_layouts, type, BuildLayout);
     }
 
