@@ -1,0 +1,47 @@
+{"FirstName":"Ann","HTTPStatusCode":200,"IOStream":null,"Amount":12.5,"Count":0,"renamed_by_attr":"r","Nested":{"KeyOne":1,"keyTwo":2},"Values":[1,"NaN","Infinity"],"Computed":1,"lastName":"Lee"}
+{"firstName":"Ann","httpStatusCode":200,"ioStream":null,"amount":12.5,"count":0,"renamed_by_attr":"r","nested":{"keyOne":1,"keyTwo":2},"values":[1,"NaN","Infinity"],"computed":1,"lastName":"Lee"}
+{"first_name":"Ann","http_status_code":200,"io_stream":null,"amount":12.5,"count":0,"renamed_by_attr":"r","nested":{"key_one":1,"key_two":2},"values":[1,"NaN","Infinity"],"computed":1,"last_name":"Lee"}
+{"FIRST_NAME":"Ann","HTTP_STATUS_CODE":200,"IO_STREAM":null,"AMOUNT":12.5,"COUNT":0,"renamed_by_attr":"r","NESTED":{"KEY_ONE":1,"KEY_TWO":2},"VALUES":[1,"NaN","Infinity"],"COMPUTED":1,"LAST_NAME":"Lee"}
+{"first-name":"Ann","http-status-code":200,"io-stream":null,"amount":12.5,"count":0,"renamed_by_attr":"r","nested":{"key-one":1,"key-two":2},"values":[1,"NaN","Infinity"],"computed":1,"last-name":"Lee"}
+{"FIRST-NAME":"Ann","HTTP-STATUS-CODE":200,"IO-STREAM":null,"AMOUNT":12.5,"COUNT":0,"renamed_by_attr":"r","NESTED":{"KEY-ONE":1,"KEY-TWO":2},"VALUES":[1,"NaN","Infinity"],"COMPUTED":1,"LAST-NAME":"Lee"}
+{
+	"FirstName": "Ann",
+	"HTTPStatusCode": "200",
+	"Amount": "12.5",
+	"renamed_by_attr": "r",
+	"Note": "<b>&'é'</b>",
+	"Nested": {
+		"KeyOne": "1",
+		"keyTwo": "2"
+	},
+	"Values": [
+		"0.5"
+	],
+	"lastName": "Lee",
+	"PublicField": "4"
+}
+{"HTTPStatusCode":0,"Amount":0,"Count":0,"Computed":1}
+{"firstName":null,"httpStatusCode":0,"ioStream":null,"amount":0,"count":0,"renamed_by_attr":null,"nested":null,"values":null,"computed":1,"lastName":null}
+Z 3.25 7 x NaN,-Infinity,1 2 {"a":[1]}
+{"FirstName":"Z","HTTPStatusCode":0,"IOStream":null,"Amount":3.25,"Count":7,"renamed_by_attr":"x","Nested":null,"Values":["NaN","-Infinity",1],"Computed":8,"lastName":null,"Extra1":true,"Extra2":{"a":[1]}}
+case 5
+{"Z":26,"M":13,"secret":42,"Field":6,"A":1}
+5 9 3
+4 L! {"Id":4,"Label":"L!"}
+{"a b":"\u003C\u003E"}
+{"A":"1","D":"2.5","L":3,"F":"1.5","Bytes":null}
+JsonException: The JSON property 'Unknown' could not be mapped to any .NET member contained in type 'Numbers'.
+JsonException: Duplicate property 'A' encountered during deserialization of type 'Numbers'.
+JsonException: The JSON value could not be converted to System.Int32. Path: $.A | LineNumber: 0 | BytePositionInLine: 8.
+JsonException: The JSON value could not be converted to System.Double. Path: $.D | LineNumber: 0 | BytePositionInLine: 10.
+ok: Numbers
+ArgumentException: .NET number values such as positive and negative infinity cannot be written as valid JSON. To make it work when using 'JsonSerializer', consider specifying 'JsonNumberHandling.AllowNamedFloatingPointLiterals' (see https://learn.microsoft.com/dotnet/api/system.text.json.serialization.jsonnumberhandling).
+JsonException: The JSON value could not be converted to System.Int32. Path: $.A | LineNumber: 0 | BytePositionInLine: 9.
+ok: 1
+JsonException: The JSON property 'B' could not be mapped to any .NET member contained in type 'Numbers'.
+InvalidOperationException: This JsonSerializerOptions instance is read-only or has already been used in serialization or deserialization.
+True False
+ArgumentOutOfRangeException: Max depth must be positive. (Parameter 'value')
+ArgumentOutOfRangeException: Indentation size must be between 0 and 127. (Parameter 'value')
+ArgumentOutOfRangeException: Supported indentation characters are space and horizontal tab. (Parameter 'value')
+ArgumentOutOfRangeException: New line can be only "\n" or "\r\n". (Parameter 'value')

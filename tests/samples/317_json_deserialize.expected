@@ -1,0 +1,48 @@
+7 Bo bo@example.com Gold
+  X x3 @ 1.50
+  Y x0 @ -0.002
+a,b,c | k1,k2 | True
+  1 => 0.25
+  -3 => 10000000000
+2024-02-29T23:59:59.1234567Z Utc True
+-1,2 grid=3:3 seen=2 1.02:03:04.5000000 Q 3:255
+Rec { Name = r, Count = 3 }
+3 Rec { Name = a, Count = 1 } True Rec { Name = b, Count = 0 }
+10 20
+1 two 2 default
+42 1500 sé True
+True
+79228162514264337593543950335 -9223372036854775808 18446744073709551615
+Silver 2
+JsonElement {"x":[1,"two",null]}
+  n: 1.5 (JsonElement)
+  s: t (JsonElement)
+  b: False (JsonElement)
+Array 2
+2 q
+1 3
+v
+lenient Silver
+second
+JsonException: The JSON value could not be converted to System.Int32. Path: $.Id | LineNumber: 0 | BytePositionInLine: 10. | Path=$.Id Line=0 Pos=10 Inner=InvalidOperationException
+JsonException: The JSON value could not be converted to System.Int32. Path: $.Lines[0].Quantity | LineNumber: 0 | BytePositionInLine: 27. | Path=$.Lines[0].Quantity Line=0 Pos=27 Inner=FormatException
+JsonException: The JSON value could not be converted to System.String. Path: $.Customer.Name | LineNumber: 0 | BytePositionInLine: 23. | Path=$.Customer.Name Line=0 Pos=23 Inner=InvalidOperationException
+JsonException: The JSON value could not be converted to System.String[]. Path: $.Tags | LineNumber: 0 | BytePositionInLine: 10. | Path=$.Tags Line=0 Pos=10 Inner=
+JsonException: The JSON object contains a trailing comma at the end which is not supported in this mode. Change the reader options. Path: $ | LineNumber: 0 | BytePositionInLine: 9. | Path=$ Line=0 Pos=9 Inner=JsonReaderException
+JsonException: '1' is an invalid end of a number. Expected a delimiter. Path: $.Id | LineNumber: 0 | BytePositionInLine: 8. | Path=$.Id Line=0 Pos=8 Inner=JsonReaderException
+JsonException: The input does not contain any JSON tokens. Expected the input to start with a valid JSON token, when isFinalBlock is true. Path: $ | LineNumber: 0 | BytePositionInLine: 0. | Path=$ Line=0 Pos=0 Inner=JsonReaderException
+JsonException: The JSON value could not be converted to Order. Path: $ | LineNumber: 0 | BytePositionInLine: 1. | Path=$ Line=0 Pos=1 Inner=
+JsonException: The JSON value could not be converted to System.Int32. Path: $ | LineNumber: 0 | BytePositionInLine: 4. | Path=$ Line=0 Pos=4 Inner=InvalidOperationException
+JsonException: The JSON value could not be converted to System.Int32. Path: $ | LineNumber: 0 | BytePositionInLine: 10. | Path=$ Line=0 Pos=10 Inner=FormatException
+JsonException: The JSON value could not be converted to System.Byte. Path: $ | LineNumber: 0 | BytePositionInLine: 2. | Path=$ Line=0 Pos=2 Inner=FormatException
+JsonException: The JSON value could not be converted to System.Int32. Path: $.X | LineNumber: 0 | BytePositionInLine: 10. | Path=$.X Line=0 Pos=10 Inner=InvalidOperationException
+JsonException: The JSON value could not be converted to System.DateTime. Path: $.PlacedAt | LineNumber: 0 | BytePositionInLine: 25. | Path=$.PlacedAt Line=0 Pos=25 Inner=FormatException
+JsonException: The JSON value could not be converted to System.Char. Path: $.Initial | LineNumber: 0 | BytePositionInLine: 16. | Path=$.Initial Line=0 Pos=16 Inner=InvalidOperationException
+JsonException: The JSON value could not be converted to System.Byte[]. Path: $.Data | LineNumber: 0 | BytePositionInLine: 13. | Path=$.Data Line=0 Pos=13 Inner=FormatException
+JsonException: The JSON value could not be converted to System.Int32. Path: $.Counts.x | LineNumber: 0 | BytePositionInLine: 16. | Path=$.Counts.x Line=0 Pos=16 Inner=FormatException
+JsonException: 'x' is invalid after a single JSON value. Expected end of data. Path: $ | LineNumber: 0 | BytePositionInLine: 14. | Path=$ Line=0 Pos=14 Inner=JsonReaderException
+JsonException: JSON deserialization for type 'Required' was missing required properties including: 'Name', 'Age'. | Path=$ Line=0 Pos=15 Inner=
+JsonException: JSON deserialization for type 'Required' was missing required properties including: 'Name', 'Age'. | Path=$ Line=0 Pos=2 Inner=
+n
+ArgumentNullException: Value cannot be null. (Parameter 'json')
+JsonException: The JSON value could not be converted to Tier. Path: $ | LineNumber: 0 | BytePositionInLine: 6. | Path=$ Line=0 Pos=6 Inner=
