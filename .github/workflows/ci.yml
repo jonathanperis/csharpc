@@ -11,31 +11,51 @@ permissions:
 
 jobs:
   test:
-    name: test (${{ matrix.arch }})
+    name: test (${{ matrix.name }})
     strategy:
       fail-fast: false
       matrix:
         include:
-          - arch: x86-64
+          - name: x86-64
+            os: linux
             runner: ubuntu-24.04
-          - arch: arm64
+          - name: arm64
+            os: linux
             runner: ubuntu-24.04-arm
+          - name: macos-arm64
+            os: macos
+            runner: macos-15
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 90
+    timeout-minutes: 120
     env:
       DOTNET_CLI_TELEMETRY_OPTOUT: 1
       DOTNET_NOLOGO: 1
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Install LLVM 18 and clang
+      - name: Install LLVM 18 and clang (Linux)
+        if: matrix.os == 'linux'
         run: sudo apt-get update && sudo apt-get install -y llvm-18 clang-18 libllvm18 && sudo ln -sf /usr/bin/clang-18 /usr/local/bin/clang
+
+      # Homebrew's clang 18 (not Apple clang) compiles the runtime, so its LTO bitcode matches the
+      # LLVM 18 that csharpc links it into; Apple's ld still links. The test scripts use bash 4+ and
+      # GNU coreutils (timeout, stat -c, date +%N).
+      - name: Install LLVM 18, bash and GNU coreutils (macOS)
+        if: matrix.os == 'macos'
+        run: |
+          brew install llvm@18 bash coreutils
+          llvm="$(brew --prefix llvm@18)"
+          echo "$llvm/bin" >> "$GITHUB_PATH"
+          echo "$(brew --prefix coreutils)/libexec/gnubin" >> "$GITHUB_PATH"
+          echo "CSHARPC_LIBLLVM=$llvm/lib/libLLVM.dylib" >> "$GITHUB_ENV"
+          echo "SDKROOT=$(xcrun --sdk macosx --show-sdk-path)" >> "$GITHUB_ENV"
 
       - name: Install .NET 11 SDK
         run: |
           curl -sSL https://dot.net/v1/dotnet-install.sh -o dotnet-install.sh
           bash dotnet-install.sh --jsonfile global.json --install-dir "$HOME/.dotnet11"
           echo "$HOME/.dotnet11" >> "$GITHUB_PATH"
+          echo "DOTNET_ROOT=$HOME/.dotnet11" >> "$GITHUB_ENV"
 
       - name: Build
         run: dotnet build src/Csharpc -c Release
@@ -44,4 +64,15 @@ jobs:
         run: tests/run.sh --all-opts
 
       - name: Conformance corpus
+        if: success() || failure()
         run: tests/conformance.sh -j 4
+
+      - name: Real-world programs
+        if: success() || failure()
+        run: tests/programs.sh
+
+      - name: Projects and dotnet build/run/publish integration
+        if: success() || failure()
+        run: tests/projects.sh
+
+      # tests/debuginfo.sh drives gdb, which isn't available on macOS (lldb would need its own harness).
