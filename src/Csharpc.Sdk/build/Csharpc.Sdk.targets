@@ -4,12 +4,15 @@
     <CsharpcCompilerPath Condition="'$(CsharpcCompilerPath)' == ''">$(MSBuildThisFileDirectory)../tools/csharpc/csharpc.dll</CsharpcCompilerPath>
     <CsharpcDotnetHost Condition="'$(CsharpcDotnetHost)' == '' and '$(DOTNET_HOST_PATH)' != ''">$(DOTNET_HOST_PATH)</CsharpcDotnetHost>
     <CsharpcDotnetHost Condition="'$(CsharpcDotnetHost)' == ''">dotnet</CsharpcDotnetHost>
-    <!-- Debug -> -O0 -g (DWARF), everything else -> -O2 (csharpc maps -c itself); extra flags via CsharpcArgs, e.g. -O3. -->
+    <!-- -c passes the configuration's #if symbols; Debug builds are also unoptimized with DWARF (-O0 -g),
+         everything else -O2. Extra flags via CsharpcArgs, e.g. -O3. -->
     <CsharpcConfiguration Condition="'$(CsharpcConfiguration)' == ''">$(Configuration)</CsharpcConfiguration>
+    <_CsharpcConfigurationFlags Condition="'$(CsharpcConfiguration)' == 'Debug'">-O0 -g</_CsharpcConfigurationFlags>
+    <_CsharpcConfigurationFlags Condition="'$(CsharpcConfiguration)' != 'Debug'">-O2</_CsharpcConfigurationFlags>
     <_CsharpcExeSuffix Condition="'$(OS)' == 'Windows_NT'">.exe</_CsharpcExeSuffix>
     <!-- By default the native binary takes the apphost's place, so `dotnet run` / bin/.../App run native code. -->
     <CsharpcOutputPath Condition="'$(CsharpcOutputPath)' == ''">$(OutDir)$(AssemblyName)$(_CsharpcExeSuffix)</CsharpcOutputPath>
-    <_CsharpcCommand>&quot;$(CsharpcDotnetHost)&quot; &quot;$(CsharpcCompilerPath)&quot; &quot;$(MSBuildProjectFullPath)&quot; -c $(CsharpcConfiguration) -p:TargetFramework=$(TargetFramework)</_CsharpcCommand>
+    <_CsharpcCommand>&quot;$(CsharpcDotnetHost)&quot; &quot;$(CsharpcCompilerPath)&quot; &quot;$(MSBuildProjectFullPath)&quot; -c $(CsharpcConfiguration) $(_CsharpcConfigurationFlags) -p:TargetFramework=$(TargetFramework)</_CsharpcCommand>
   </PropertyGroup>
 
   <PropertyGroup>

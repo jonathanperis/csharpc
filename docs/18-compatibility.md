@@ -76,7 +76,7 @@ restore. So the corpus is copied to a work tree, and every `<TargetFramework(s)>
    - It doesn't build under .NET 11 (4 programs, all broken upstream: removed
      `AppDomain.DefineDynamicAssembly`, missing `AllowUnsafeBlocks`, an accessibility error).
    - .NET throws `PlatformNotSupportedException` (1 program).
-3. csharpc: `csharpc App.csproj -o app` (the default Release configuration, i.e. `-O2`), with a
+3. csharpc: `csharpc App.csproj -c Release -o app` (the same configuration as the .NET build; `-O2`), with a
    600 s timeout. The result is classified as follows:
    - **COMPILE-CRASH**: a timeout, a signal, exit 70, `CSLLVM9999`, or a managed stack trace.
    - **COMPILE-UNSUPPORTED**: a `CSLLVM0001`, `CSLLVM0002` or `CSLLVM0005` diagnostic.

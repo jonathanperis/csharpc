@@ -7,9 +7,8 @@ backtraces, and locals/parameters/fields in the debugger.
 ```sh
 csharpc -g -O0 app.cs -o app          # best debugging experience
 csharpc -g app.cs -o app              # -O2 with debug info (line tables survive inlining)
-csharpc -c Debug MyApp.csproj         # project builds: Debug configuration implies -O0 -g
-dotnet build -p:UseCsharpc=true       # (Debug is the default configuration)
-csharpc -c Debug -g0 ...              # Debug without debug info
+csharpc -O0 -g MyApp.csproj          # project builds work the same way
+dotnet build -p:UseCsharpc=true       # the SDK integration builds Debug as -O0 -g
 ```
 
 ```text

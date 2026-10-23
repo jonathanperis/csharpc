@@ -83,7 +83,7 @@ one() {
   local exe="$L/native/app" start end
   mkdir -p "$L/native"
   start=$(date +%s%N)
-  timeout -k 10 "$T_CSHARPC" "$DOTNET" "$CSHARPC_DLL" "$csproj" -o "$exe" \
+  timeout -k 10 "$T_CSHARPC" "$DOTNET" "$CSHARPC_DLL" "$csproj" -c Release -o "$exe" \
     > "$L/csharpc.log" 2>&1
   local cc=$?
   end=$(date +%s%N); echo $(( (end - start) / 1000000 )) > "$L/csharpc.ms"

@@ -32,7 +32,12 @@ public sealed record CompilerOptions
     public string CC { get; set; } = Environment.GetEnvironmentVariable("CSHARPC_CC") ?? "clang";
     /// <summary>A .csproj to evaluate instead of loose files (drop-in mode).</summary>
     public string? Project { get; set; }
-    public string Configuration { get; set; } = "Release";
+    /// <summary>
+    /// Debug (default) or Release, as in `dotnet build`/`dotnet run`: selects the #if symbols
+    /// (DEBUG/RELEASE) and project properties only. Optimization and debug info have their own
+    /// options, so the default build is a Debug-configured program at -O2.
+    /// </summary>
+    public string Configuration { get; set; } = "Debug";
     public bool OptLevelExplicit { get; set; }
     public Dictionary<string, string> Properties { get; } = [];
     /// <summary>Default output name when the input is a project (its AssemblyName).</summary>
@@ -46,7 +51,7 @@ public sealed record CompilerOptions
 
         Options:
           -o, --output <path>    Output file, or directory (trailing '/' or existing dir) for <AssemblyName>
-          -c, --configuration <c> Debug (-O0) | Release (-O2, default); explicit -O wins
+          -c, --configuration <c> Debug (default) | Release, like dotnet: #if symbols and project properties only
           -p:<Name>=<Value>      MSBuild global property used when evaluating a project
           --emit <kind>          exe (default) | obj | asm | llvm-ir | llvm-bc
           -O0 | -O1 | -O2 | -O3  Optimization level (default: -O2)
@@ -54,7 +59,7 @@ public sealed record CompilerOptions
           --strip | --no-strip   Strip symbols from the executable (default: strip unless -g)
           --static               Link a fully static executable (no shared libc at run time)
           -g, --debug            Emit DWARF debug info (C# source-level debugging with gdb/lldb)
-          -g0                    No debug info (default; overrides -c Debug)
+          -g0                    No debug info (default)
           --target <triple>      Target triple (default: host)
           --cpu <name>           Target CPU: native, x86-64-v3, znver4, ... (default: best x86-64-vN the host supports; host CPU on AArch64)
           --features <list>      Extra LLVM target features, e.g. +avx512f
@@ -135,9 +140,6 @@ public sealed record CompilerOptions
                 default: o.Inputs.Add(a); break;
             }
         }
-        if (!o.OptLevelExplicit)
-            o.OptLevel = o.Configuration.Equals("Debug", StringComparison.OrdinalIgnoreCase) ? 0 : 2;
-        if (!o.DebugExplicit && o.Configuration.Equals("Debug", StringComparison.OrdinalIgnoreCase)) o.Debug = true;
 
         // Drop-in mode: a .csproj, a directory, or nothing (the project in the current directory).
         var projects = o.Inputs.Where(i => i.EndsWith(".csproj", StringComparison.OrdinalIgnoreCase) || Directory.Exists(i)).ToList();

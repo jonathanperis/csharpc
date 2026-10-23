@@ -113,7 +113,7 @@ csharpc [options] <file.cs>...
 csharpc [options] [<project.csproj> | <directory>]
 
   -o, --output <path>     Output file, or directory for <AssemblyName>
-  -c, --configuration <c> Debug (-O0 -g) | Release (-O2, default)
+  -c, --configuration <c> Debug (default) | Release, like dotnet: #if symbols and project properties
   -p:<Name>=<Value>       MSBuild property used when evaluating a project
   --emit <kind>           exe (default) | obj | asm | llvm-ir | llvm-bc
   -O0 | -O1 | -O2 | -O3   Optimization level (default -O2)

@@ -35,7 +35,7 @@ if [[ $REGEN == 1 ]]; then
 fi
 
 "$DOTNET" build "$ROOT/src/Csharpc" -c Release -v quiet -nologo > /dev/null || { echo "compiler build failed" >&2; exit 1; }
-CSHARPC=("$DOTNET" "$ROOT/src/Csharpc/bin/Release/net11.0/csharpc.dll")
+CSHARPC=("$DOTNET" "$ROOT/src/Csharpc/bin/Release/net11.0/csharpc.dll" -c Release)  # same configuration as the .NET builds
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 
