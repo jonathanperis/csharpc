@@ -2,7 +2,8 @@
 // program is built without DEBUG (Release); in Debug builds they behave like .NET's DebugProvider:
 // Write/WriteLine/Print go to an attached debugger only (nothing on stdout or stderr), and a failed
 // assertion prints "Process terminated. Assertion failed." with the messages to stderr and fails fast
-// (SIGABRT, exit status 134, on Unix; 0xC0000409 on Windows).
+// (SIGABRT, exit status 134, on Unix). Windows: the fail-fast exit status doesn't match .NET's yet
+// (tests/platform-skips.txt).
 #nullable disable
 using System;
 using System.Runtime.InteropServices;
