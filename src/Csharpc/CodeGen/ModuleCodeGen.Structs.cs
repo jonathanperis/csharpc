@@ -36,8 +36,29 @@ public sealed partial class ModuleCodeGen
         return BuildOrForget(_structs, type, BuildStructLayout);
     }
 
+    /// <summary>
+    /// Explicit layouts (overlapping [FieldOffset] fields, unions), Pack and Size change where fields
+    /// live in memory, which unsafe code, sizeof and P/Invoke observe; csharpc lays fields out
+    /// sequentially, so such a type would silently get a different layout. (Field-access aliasing
+    /// facts for LLVM, MemoryFacts.cs, also assume fields never overlap.)
+    /// </summary>
+    internal static void RejectCustomLayout(INamedTypeSymbol type)
+    {
+        foreach (var a in type.GetAttributes())
+        {
+            if (a.AttributeClass?.ToDisplayString() != "System.Runtime.InteropServices.StructLayoutAttribute") continue;
+            var kind = a.ConstructorArguments.FirstOrDefault().Value;
+            if (kind is 2 /* LayoutKind.Explicit */ || a.NamedArguments.Any(n => n.Key is "Pack" or "Size"))
+                throw CompileError.Unsupported($"[StructLayout] with explicit layout, Pack or Size on '{type.Name}'", type);
+        }
+        if (type.GetMembers().OfType<IFieldSymbol>().FirstOrDefault(f => f.GetAttributes().Any(a =>
+                a.AttributeClass?.ToDisplayString() == "System.Runtime.InteropServices.FieldOffsetAttribute")) is { } offsetField)
+            throw CompileError.Unsupported($"[FieldOffset] on '{type.Name}.{offsetField.Name}'", offsetField);
+    }
+
     private StructLayout BuildStructLayout(INamedTypeSymbol type)
     {
+        RejectCustomLayout(type);
 
         // Both repeat their element in memory; laid out as a single field they would silently shrink.
         if (type.GetAttributes().Any(a => a.AttributeClass?.ToDisplayString() == "System.Runtime.CompilerServices.InlineArrayAttribute"))

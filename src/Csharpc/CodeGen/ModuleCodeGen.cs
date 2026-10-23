@@ -631,6 +631,7 @@ public sealed partial class ModuleCodeGen
                 ? GetLibraryExceptionLayout(type)
                 : throw CompileError.Unsupported($"instances of library class '{type}'", type);
         if (TypeSubstitution.IsOpen(type)) throw CompileError.Unsupported($"open generic type '{type}'", type);
+        RejectCustomLayout(type);
         return BuildOrForget(_layouts, type, BuildLayout);
     }
 
