@@ -184,26 +184,26 @@ internal static partial class BclValueTypes
     }
 
     /// <summary>The element type of an array argument (looking through conversions to IEnumerable/Array).</summary>
-    private static ITypeSymbol? ArrayElementOf(IOperation at, int ordinal)
+    private static ITypeSymbol? ArrayElementOf(FunctionCodeGen g, IOperation at, int ordinal)
     {
         if (at is not IInvocationOperation inv) return null;
         var arg = inv.Arguments.FirstOrDefault(a => a.Parameter!.Ordinal == ordinal)?.Value;
         while (arg is IConversionOperation c) arg = c.Operand;
-        return arg?.Type is IArrayTypeSymbol { Rank: 1 } array ? array.ElementType : null;
+        return g.TypeOf(arg) is IArrayTypeSymbol { Rank: 1 } array ? array.ElementType : null; // substituted: generic code copies T[]
     }
 
     // Generic helpers (Array.Reverse<T>): the method is already substituted, so prefer its T.
-    private static ITypeSymbol ElementOrThrow(IMethodSymbol method, IOperation at, int ordinal) =>
+    private static ITypeSymbol ElementOrThrow(FunctionCodeGen g, IMethodSymbol method, IOperation at, int ordinal) =>
         (method.TypeArguments.Length == 1 ? method.TypeArguments[0] : null)
-        ?? ArrayElementOf(at, ordinal)
+        ?? ArrayElementOf(g, at, ordinal)
         ?? throw CompileError.Unsupported($"'{method}' on a non-array argument", at);
 
     private static LLVMValueRef ArrayCopy(FunctionCodeGen g, IMethodSymbol m, IOperation at, LLVMValueRef src, LLVMValueRef srcIndex,
         LLVMValueRef dst, LLVMValueRef dstIndex, LLVMValueRef length, bool longLength)
     {
         var dstOrdinal = m.Parameters.Length == 3 ? 1 : 2;
-        var e = ElementOrThrow(m, at, 0);
-        var de = ArrayElementOf(at, dstOrdinal) ?? throw CompileError.Unsupported($"'{m}' on a non-array argument", at);
+        var e = ElementOrThrow(g, m, at, 0);
+        var de = ArrayElementOf(g, at, dstOrdinal) ?? throw CompileError.Unsupported($"'{m}' on a non-array argument", at);
         if (!SymbolEqualityComparer.Default.Equals(e, de)
             && !(e.IsReferenceType && de.IsReferenceType && g.Module.Compilation.ClassifyCommonConversion(e, de) is { IsImplicit: true, IsReference: true } or { IsIdentity: true }))
             throw CompileError.Unsupported($"Array.Copy from {e}[] to {de}[] (element conversion)", at);
@@ -912,26 +912,26 @@ internal static partial class BclValueTypes
 
         BclHandler reverse = (g, m, _, a, at) =>
         {
-            var e = ElementOrThrow(m, at, 0);
+            var e = ElementOrThrow(g, m, at, 0);
             Rt(g, "csrt_array_reverse", g.Llvm.Void, (a[0], g.Llvm.Ptr), (I64(g, 0), g.Llvm.I64), (I64(g, long.MinValue), g.Llvm.I64), (size(g, e), g.Llvm.I64));
             return default;
         };
         t[$"{A}.Reverse(T[])"] = t[$"{A}.Reverse({A})"] = reverse;
         t[$"{A}.Reverse({A}, int, int)"] = t[$"{A}.Reverse(T[], int, int)"] = (g, m, _, a, at) =>
         {
-            var e = ElementOrThrow(m, at, 0);
+            var e = ElementOrThrow(g, m, at, 0);
             Rt(g, "csrt_array_reverse", g.Llvm.Void, (a[0], g.Llvm.Ptr), (ToI64(g, a[1]), g.Llvm.I64), (ToI64(g, a[2]), g.Llvm.I64), (size(g, e), g.Llvm.I64));
             return default;
         };
         t[$"{A}.Clear({A})"] = (g, m, _, a, at) =>
         {
-            var e = ElementOrThrow(m, at, 0);
+            var e = ElementOrThrow(g, m, at, 0);
             Rt(g, "csrt_array_clear", g.Llvm.Void, (a[0], g.Llvm.Ptr), (I64(g, 0), g.Llvm.I64), (I64(g, -1), g.Llvm.I64), (size(g, e), g.Llvm.I64));
             return default;
         };
         t[$"{A}.Clear({A}, int, int)"] = (g, m, _, a, at) =>
         {
-            var e = ElementOrThrow(m, at, 0);
+            var e = ElementOrThrow(g, m, at, 0);
             Rt(g, "csrt_array_clear", g.Llvm.Void, (a[0], g.Llvm.Ptr), (ToI64(g, a[1]), g.Llvm.I64), (ToI64(g, a[2]), g.Llvm.I64), (size(g, e), g.Llvm.I64));
             return default;
         };
@@ -946,14 +946,14 @@ internal static partial class BclValueTypes
             ArrayCopy(g, m, at, a[0], ToI64(g, a[1]), a[2], ToI64(g, a[3]), ToI64(g, a[4]), longLength: false);
         t[$"{A}.Fill(T[], T)"] = (g, m, _, a, at) =>
         {
-            var e = ElementOrThrow(m, at, 0);
+            var e = ElementOrThrow(g, m, at, 0);
             var value = g.Spill(g.ToStorage(a[1], e), "fill");
             Rt(g, "csrt_array_fill", g.Llvm.Void, (a[0], g.Llvm.Ptr), (value, g.Llvm.Ptr), (size(g, e), g.Llvm.I64));
             return default;
         };
         t[$"{A}.IndexOf(T[], T)"] = t[$"{A}.IndexOf({A}, object)"] = (g, m, _, a, at) =>
         {
-            var e = ElementOrThrow(m, at, 0);
+            var e = ElementOrThrow(g, m, at, 0);
             var value = g.Spill(g.ToStorage(a[1], e.IsReferenceType || m.Parameters[1].Type.IsReferenceType == false ? e : e), "needle");
             if (m.Parameters[1].Type.SpecialType == SpecialType.System_Object && e.IsValueType)
                 throw CompileError.Unsupported("Array.IndexOf(Array, object) on value-type arrays", at);
@@ -974,8 +974,8 @@ internal static partial class BclValueTypes
             return Rt(g, "csrt_array_introsort", l.Void, (array, l.Ptr), (index.Handle == 0 ? I64(g, 0) : ToI64(g, index), l.I64),
                 (length.Handle == 0 ? I64(g, -1) : ToI64(g, length), l.I64), (size(g, e), l.I64), (cmp, l.Ptr), (LlvmContext.Null(l.Ptr), l.Ptr));
         }
-        t[$"{A}.Sort(T[])"] = t[$"{A}.Sort({A})"] = (g, m, _, a, at) => { sortRange(g, ElementOrThrow(m, at, 0), a[0], default, default, at); return default; };
-        t[$"{A}.Sort(T[], int, int)"] = (g, m, _, a, at) => { sortRange(g, ElementOrThrow(m, at, 0), a[0], a[1], a[2], at); return default; };
+        t[$"{A}.Sort(T[])"] = t[$"{A}.Sort({A})"] = (g, m, _, a, at) => { sortRange(g, ElementOrThrow(g, m, at, 0), a[0], default, default, at); return default; };
+        t[$"{A}.Sort(T[], int, int)"] = (g, m, _, a, at) => { sortRange(g, ElementOrThrow(g, m, at, 0), a[0], a[1], a[2], at); return default; };
         t[$"{A}.Sort(T[], System.Comparison<T>)"] = (g, m, _, a, at) =>
         {
             var e = m.TypeArguments[0];
@@ -987,7 +987,7 @@ internal static partial class BclValueTypes
         };
         t[$"{A}.BinarySearch(T[], T)"] = (g, m, _, a, at) =>
         {
-            var e = ElementOrThrow(m, at, 0);
+            var e = ElementOrThrow(g, m, at, 0);
             var kind = ElementKind(e);
             if (kind is 0 or 12) throw CompileError.Unsupported($"Array.BinarySearch on '{e}'", at);
             var value = g.Spill(g.ToStorage(a[1], e), "needle");
@@ -1095,7 +1095,7 @@ internal static partial class BclValueTypes
     private static LLVMValueRef JoinArray(FunctionCodeGen g, IMethodSymbol m, LLVMValueRef[] a, IOperation at, bool charSeparator)
     {
         var l = g.Llvm;
-        var element = (ArrayElementOf(at, 1) is { } syntactic ? (m.TypeArguments.Length == 1 ? m.TypeArguments[0] : syntactic) : null)
+        var element = (ArrayElementOf(g, at, 1) is { } syntactic ? (m.TypeArguments.Length == 1 ? m.TypeArguments[0] : syntactic) : null)
             ?? throw CompileError.Unsupported($"'{Intrinsics.Key(m.OriginalDefinition)}' over a non-array sequence", at);
         var separator = charSeparator ? Rt(g, "csrt_string_from_char", l.Ptr, (a[0], l.I16)) : a[0];
         var array = a[1];
