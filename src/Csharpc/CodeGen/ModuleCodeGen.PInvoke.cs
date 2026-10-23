@@ -6,12 +6,13 @@ namespace Csharpc.CodeGen;
 /// <summary>
 /// [DllImport] (and the extern stubs the [LibraryImport] source generator emits): every P/Invoke
 /// method becomes an internal function with the method's managed signature that marshals its
-/// arguments, calls the native symbol with the platform C ABI (System V x86-64 or AAPCS64), captures errno for
-/// SetLastError, and converts the result back.
+/// arguments, calls the native symbol with the platform C ABI (System V x86-64, Microsoft x64 or AAPCS64),
+/// captures errno (Windows: the Win32 last error) for SetLastError, and converts the result back.
 ///
-/// Libraries: libc/libm (and "__Internal"/"csrt") are resolved by the static linker — a direct call,
-/// as fast as C. Any other library is bound lazily with dlopen/dlsym on first call (cached), with
-/// .NET's probing rules and DllNotFoundException / EntryPointNotFoundException on failure.
+/// Libraries: libc/libm (Windows: kernel32) and "__Internal"/"csrt" are resolved by the static linker — a
+/// direct call, as fast as C. Any other library is bound lazily with dlopen/dlsym (LoadLibrary/
+/// GetProcAddress) on first call (cached), with .NET's probing rules and DllNotFoundException /
+/// EntryPointNotFoundException on failure.
 /// Marshalling here covers what DllImport does implicitly; [LibraryImport] marshalling is C#.
 /// </summary>
 public sealed partial class ModuleCodeGen
@@ -22,6 +23,13 @@ public sealed partial class ModuleCodeGen
     private static readonly HashSet<string> s_directLinkLibraries =
         ["", "libc", "c", "libc.so", "libc.so.6", "libm", "m", "libm.so", "libm.so.6", "libdl", "libdl.so.2",
          "libpthread", "libpthread.so.0", "__Internal", "csrt"];
+
+    /// <summary>Windows has no libc to load ("libc" is a DllNotFoundException under .NET there too):
+    /// user code binds everything but the runtime through LoadLibrary/GetProcAddress. The corelib's own
+    /// imports are linked directly: its "libc" functions are the UCRT's, and kernel32's import library
+    /// is always linked.</summary>
+    private static readonly HashSet<string> s_coreLibDirectLibrariesWindows =
+        new(["", "libc", "libm", "kernel32", "kernel32.dll"], StringComparer.OrdinalIgnoreCase);
 
     public static bool IsPInvoke(IMethodSymbol method) => method.OriginalDefinition.GetDllImportData() is not null;
 
@@ -58,7 +66,10 @@ public sealed partial class ModuleCodeGen
         var entry = data.EntryPointName ?? method.Name;
         // Linux sonames (libm.so.6, ...) don't exist on macOS: .NET fails to load them there, so they
         // go through dlopen and throw DllNotFoundException like .NET instead of binding to libSystem.
-        var direct = s_directLinkLibraries.Contains(library) && !(Types.Target.IsDarwin && library.Contains(".so", StringComparison.Ordinal));
+        var runtimeSymbol = library is "__Internal" or "csrt";
+        var coreLibSystemImport = Types.Target.IsWindows && CoreLib.IsCoreLib(method) && s_coreLibDirectLibrariesWindows.Contains(library);
+        var direct = Types.Target.IsWindows ? runtimeSymbol || coreLibSystemImport
+            : s_directLinkLibraries.Contains(library) && !(Types.Target.IsDarwin && library.Contains(".so", StringComparison.Ordinal));
         var nativeAttributes = NativeAttributes(parameters, retKind, method, sret, retStruct);
         LLVMValueRef native = default;
         if (direct)
@@ -68,8 +79,10 @@ public sealed partial class ModuleCodeGen
             {
                 native = Module.AddFunction(entry, nativeType);
                 // Weak: a symbol missing from libc becomes null (EntryPointNotFoundException at the call,
-                // like .NET) instead of a link error.
-                Native.LLVMSetLinkage(native, (LLVMLinkage)12 /* LLVMExternalWeakLinkage */);
+                // like .NET) instead of a link error. Not for the corelib's Windows imports: a COFF weak
+                // external of, say, malloc would also capture the C runtime's own references to it (lld
+                // then binds them all to the null default instead of the UCRT import).
+                if (!coreLibSystemImport) Native.LLVMSetLinkage(native, (LLVMLinkage)12 /* LLVMExternalWeakLinkage */);
                 foreach (var (index, attribute) in nativeAttributes) Native.LLVMAddAttributeAtIndex(native, index, attribute);
             }
         }
@@ -239,9 +252,9 @@ public sealed partial class ModuleCodeGen
         if (sret) attributes.Add((index++, Typed("sret", retStruct)));
         foreach (var p in parameters)
         {
-            // AAPCS64 passes large structs as a plain pointer to a caller-owned copy (the slot the stub
-            // made); byval would copy them onto the stack instead, which is the System V convention.
-            if (p.Kind == ParamKind.StructByVal && Types.Target.IsX86_64)
+            // AAPCS64 and Microsoft x64 pass large structs as a plain pointer to a caller-owned copy (the
+            // slot the stub made); byval would copy them onto the stack instead, the System V convention.
+            if (p.Kind == ParamKind.StructByVal && Types.Target.IsX86_64 && !Types.Target.IsWindows)
                 attributes.Add((index, Typed("byval", p.StructType)));
             // AAPCS64 composites that spill to the stack take 8-byte-aligned slots (clang: alignstack(8)).
             // Apple's arm64 ABI packs stack arguments at their natural alignment instead (clang adds
@@ -368,9 +381,18 @@ public sealed partial class ModuleCodeGen
     /// <summary>Register types of a by-value struct under the target's C ABI, or null if it goes through
     /// memory (System V: byval / sret; AAPCS64: pointer to a copy / sret in x8).</summary>
     private LLVMTypeRef[]? ClassifyStruct(LLVMTypeRef type, ISymbol at) =>
-        Types.Target.IsX86_64 ? ClassifySysV(type)
+        Types.Target.IsWindows && Types.Target.IsX86_64 ? ClassifyWin64(type)
+        : Types.Target.IsX86_64 ? ClassifySysV(type)
         : Types.Target.IsAArch64 ? ClassifyAapcs64(type)
         : throw CompileError.Unsupported($"P/Invoke struct passing on target '{Types.Target.Triple}'", at);
+
+    // ---- Microsoft x64 (Windows), mirroring clang's WinX86_64ABIInfo ----------------------------
+
+    /// <summary>Structs of exactly 1, 2, 4 or 8 bytes travel as an integer of that size in one register
+    /// (floating-point members included); any other size by reference to a caller-made copy, and is
+    /// returned through a hidden pointer.</summary>
+    private LLVMTypeRef[]? ClassifyWin64(LLVMTypeRef type) =>
+        Types.Target.SizeOf(type) is var size && size is 1 or 2 or 4 or 8 ? [Llvm.IntType((int)size * 8)] : null;
 
     // ---- AAPCS64 classification (Linux and Apple arm64 alike), mirroring clang's AArch64ABIInfo ---
 
