@@ -768,7 +768,7 @@ public sealed partial class ModuleCodeGen
     [
         "System.Exception", "System.SystemException", "System.ArgumentException", "System.ArgumentNullException",
         "System.ArgumentOutOfRangeException", "System.InvalidOperationException", "System.ObjectDisposedException",
-        "System.NotSupportedException", "System.NotImplementedException", "System.NullReferenceException",
+        "System.NotSupportedException", "System.PlatformNotSupportedException", "System.NotImplementedException", "System.NullReferenceException",
         "System.IndexOutOfRangeException", "System.ArithmeticException", "System.DivideByZeroException",
         "System.OverflowException", "System.InvalidCastException", "System.FormatException",
         "System.Collections.Generic.KeyNotFoundException", "System.OperationCanceledException",

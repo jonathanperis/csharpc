@@ -23,8 +23,10 @@ namespace Csharpc.CodeGen;
 /// </summary>
 public sealed partial class FunctionCodeGen
 {
-    private const int PromisePayloadOffset = 48;
-    private const int IteratorStateOffset = 8;
+    // csrt_Task / csrt_Iterator (src/runtime/async.c): the payload follows seven header words,
+    // 8-byte aligned; the iterator state follows the method-table pointer.
+    private long PromisePayloadOffset => T.PointerSize == 8 ? 48 : 32;
+    private long IteratorStateOffset => (long)T.PointerSize;
 
     private sealed class CoroutineState
     {

@@ -178,6 +178,7 @@ public sealed record CompilerOptions
 
     private string? Extension => Emit switch
     {
+        EmitKind.Exe when Target is { } t && Csharpc.Llvm.TargetMachine.IsWasmTriple(t) => ".wasm",
         EmitKind.Exe => (Target is { } t ? Csharpc.Llvm.TargetMachine.IsWindowsTriple(t) : OperatingSystem.IsWindows()) ? ".exe" : null,
         EmitKind.Obj => ".o",
         EmitKind.Asm => ".s",
