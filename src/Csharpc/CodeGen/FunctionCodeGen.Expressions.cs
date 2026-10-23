@@ -213,16 +213,15 @@ public sealed partial class FunctionCodeGen
         if (target is ITupleOperation tupleTargets && value is not ITupleOperation)
             return EmitTupleValueDeconstruction(tupleTargets, d.Value);
         if (target is not ITupleOperation targets || value is not ITupleOperation values || targets.Elements.Length != values.Elements.Length
-            || targets.Elements.Any(e => e is ITupleOperation or IPropertyReferenceOperation))
+            || targets.Elements.Any(e => e is ITupleOperation))
             throw CompileError.Unsupported("deconstruction other than (a, b, ...) = (x, y, ...)", d);
 
-        var addresses = targets.Elements.Select(e => e is IDiscardOperation ? default : AddressOf(e)).ToArray();
+        var plan = targets.Elements.Select(PlanTarget).ToArray();
         var results = values.Elements.Select((v, i) => targets.Elements[i] is IDiscardOperation
             ? EmitValue(v)
             : Coerce(EmitValue(v), TypeOf(v), TypeOf(targets.Elements[i])!)).ToArray();
-        for (var i = 0; i < addresses.Length; i++)
-            if (addresses[i].Handle != 0)
-                StoreValue(ToStorage(results[i], TypeOf(targets.Elements[i])!), addresses[i]);
+        for (var i = 0; i < plan.Length; i++)
+            if (targets.Elements[i] is not IDiscardOperation) StoreTarget(plan[i], results[i], TypeOf(targets.Elements[i])!);
         return default;
     }
 

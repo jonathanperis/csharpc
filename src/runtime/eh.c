@@ -101,6 +101,16 @@ void csrt_exception_set_actual_value(void* exception, csrt_String* actual_value)
     ((csrt_Exception*)exception)->actual_value = actual_value;
 }
 
+// ObjectDisposedException(objectName[, message]): Message is the message (null = the default text)
+// plus "\nObject name: 'X'." when the name is not empty. Exceptions are immutable, so it is built once.
+csrt_String* csrt_object_disposed_message(csrt_String* message, csrt_String* object_name) {
+    if (!message) message = csrt_string_from_utf8("Cannot access a disposed object.");
+    if (!object_name || object_name->length == 0) return message;
+    message = concat_utf8(message, "\nObject name: '");
+    message = csrt_string_concat(message, object_name);
+    return concat_utf8(message, "'.");
+}
+
 typedef csrt_String* (*csrt_MessageFn)(void*);
 
 static csrt_String* virtual_message(void* exception) {

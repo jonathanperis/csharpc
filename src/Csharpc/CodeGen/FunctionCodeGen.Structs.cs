@@ -184,6 +184,14 @@ public sealed partial class FunctionCodeGen
             var done = NewBlock("unbox.done");
             _b.CondBr(_b.ICmp(LLVMIntPredicate.EQ, obj, LlvmContext.Null(L.Ptr)), done, unbox);
             _b.PositionAtEnd(unbox);
+            if (c.IsTryCast)
+            {
+                // `o as int?`: a box of another type gives null instead of throwing (csrt_unbox's exact check).
+                var matches = NewBlock("unbox.match");
+                var mt = _b.Load(L.Ptr, obj, "mt");
+                _b.CondBr(_b.ICmp(LLVMIntPredicate.EQ, mt, MethodTableFor(underlying, c)), matches, done);
+                _b.PositionAtEnd(matches);
+            }
             var payload = CallRuntime("csrt_unbox", L.Ptr, [L.Ptr, L.Ptr], obj, MethodTableFor(underlying, c));
             _b.Store(MakeNullable(to, L.True, LoadValue(payload, underlying)), result);
             _b.Br(done);
@@ -213,14 +221,14 @@ public sealed partial class FunctionCodeGen
         return p.Property.Name switch
         {
             "HasValue" => NullableHas(value),
-            "Value" => NullableValueOrThrow(value, p.Property.ContainingType),
+            "Value" => NullableValueOrThrow(value, S(p.Property.ContainingType)),
             _ => throw CompileError.Unsupported($"Nullable<T>.{p.Property.Name}", p),
         };
     }
 
     private LLVMValueRef EmitNullableMethod(IInvocationOperation inv)
     {
-        var type = inv.TargetMethod.ContainingType;
+        var type = S(inv.TargetMethod.ContainingType);
         var value = EmitValue(inv.Instance!);
         var underlying = TypeMapper.NullableUnderlying(type);
         return (inv.TargetMethod.Name, inv.Arguments.Length) switch
@@ -413,8 +421,7 @@ public sealed partial class FunctionCodeGen
     private LLVMValueRef EmitTupleValueDeconstruction(ITupleOperation targets, IOperation value)
     {
         if (TypeOf(value) is not INamedTypeSymbol { IsTupleType: true } && UserDeconstruct(targets, value) is { } viaMethod) return viaMethod;
-        if (TypeOf(value) is not INamedTypeSymbol { IsTupleType: true } tupleType || tupleType.TupleElements.Length != targets.Elements.Length
-            || targets.Elements.Any(e => e is IPropertyReferenceOperation))
+        if (TypeOf(value) is not INamedTypeSymbol { IsTupleType: true } tupleType || tupleType.TupleElements.Length != targets.Elements.Length)
             throw CompileError.Unsupported("deconstruction of this value", value);
         // Target locations are evaluated first (left to right, nested included), then the value.
         var plan = PlanTupleTargets(targets);
@@ -423,15 +430,66 @@ public sealed partial class FunctionCodeGen
         return default;
     }
 
-    private sealed record TupleTargetPlan(IOperation Target, LLVMValueRef Address, List<TupleTargetPlan>? Nested);
+    private sealed record TupleTargetPlan(IOperation Target, LLVMValueRef Address, List<TupleTargetPlan>? Nested, PropertyTarget? Property = null);
+
+    /// <summary>A property (or indexer) deconstruction target: receiver and indexer arguments, already evaluated.</summary>
+    private sealed record PropertyTarget(IPropertyReferenceOperation Reference, IPropertySymbol Property, LLVMValueRef Self,
+        Dictionary<IArgumentOperation, LLVMValueRef>? Arguments);
 
     private List<TupleTargetPlan> PlanTupleTargets(ITupleOperation targets) =>
         [.. targets.Elements.Select(e =>
         {
             var inner = e is IDeclarationExpressionOperation { Expression: ITupleOperation dt } ? dt : e as ITupleOperation;
             if (inner is not null) return new TupleTargetPlan(e, default, PlanTupleTargets(inner));
-            return new TupleTargetPlan(e, e is IDiscardOperation ? default : AddressOf(e), null);
+            return PlanTarget(e);
         })];
+
+    /// <summary>
+    /// Evaluates the location part of one deconstruction target, left to right before any value
+    /// (C#: `(X, this[i]) = (a, b)` evaluates the receivers and `i` first, then a and b, then assigns).
+    /// </summary>
+    private TupleTargetPlan PlanTarget(IOperation e)
+    {
+        if (e is IDiscardOperation) return new TupleTargetPlan(e, default, null);
+        if (e is IPropertyReferenceOperation { Property.RefKind: RefKind.None } p)
+        {
+            var property = S(p.Property);
+            if (!_m.IsUserType(property.ContainingType) || property.ContainingType.TypeKind == TypeKind.Interface)
+                throw CompileError.Unsupported($"deconstruction into '{property.ContainingType}.{property.Name}'", p);
+            var self = property.IsStatic ? default
+                : property.ContainingType.IsValueType ? AddressOrSpill(p.Instance!) : EmitValue(p.Instance!);
+            if (property.SetMethod is not { } setter)
+            {
+                // Get-only auto-property assigned in a constructor: the backing field.
+                var field = BackingField(property);
+                return new TupleTargetPlan(e, field.IsStatic ? _m.StaticField(field) : FieldAddressOn(self, field), null);
+            }
+            Dictionary<IArgumentOperation, LLVMValueRef>? arguments = null;
+            if (!p.Arguments.IsEmpty)
+            {
+                arguments = new Dictionary<IArgumentOperation, LLVMValueRef>(ReferenceEqualityComparer.Instance);
+                foreach (var argument in p.Arguments) arguments[argument] = EmitArgument(argument, setter);
+            }
+            return new TupleTargetPlan(e, default, null, new PropertyTarget(p, property, self, arguments));
+        }
+        return new TupleTargetPlan(e, AddressOf(e), null);
+    }
+
+    /// <summary>Assigns <paramref name="value"/> (of <paramref name="valueType"/>) to a planned target.</summary>
+    private void StoreTarget(TupleTargetPlan target, LLVMValueRef value, ITypeSymbol valueType)
+    {
+        if (target.Property is { } pt)
+        {
+            var saved = _argumentCache;
+            if (pt.Arguments is not null) _argumentCache = pt.Arguments;
+            CallAccessor(pt.Reference, pt.Property.SetMethod!, pt.Self, [Coerce(value, valueType, pt.Property.Type)]);
+            _argumentCache = saved;
+            return;
+        }
+        if (target.Address.Handle == 0) return;
+        var targetType = TypeOf(target.Target)!;
+        StoreValue(ToStorage(Coerce(value, valueType, targetType), targetType), target.Address);
+    }
 
     private void StoreTupleTargets(List<TupleTargetPlan> plan, LLVMValueRef tuple, INamedTypeSymbol tupleType)
     {
@@ -446,9 +504,7 @@ public sealed partial class FunctionCodeGen
                 StoreTupleTargets(nested, element, nestedType);
                 continue;
             }
-            if (plan[i].Address.Handle == 0) continue;
-            var targetType = TypeOf(plan[i].Target)!;
-            StoreValue(ToStorage(Coerce(element, elementType, targetType), targetType), plan[i].Address);
+            StoreTarget(plan[i], element, elementType);
         }
     }
 

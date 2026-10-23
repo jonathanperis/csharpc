@@ -148,6 +148,60 @@ internal static class Intrinsics
         };
         t["System.Enum.ToString()"] = (g, inv) =>
             g.ToStringValue(inv.Instance is IConversionOperation { Operand.Type.TypeKind: TypeKind.Enum } boxed ? boxed.Operand : inv.Instance!);
+        t["System.Enum.ToString(string)"] = (g, inv) =>
+        {
+            var instance = UnboxEnum(inv.Instance!);
+            if (g.TypeOf(instance) is { TypeKind: TypeKind.Enum }) return g.FormatWith(instance, Arg(g, inv, 0));
+            // A boxed enum of unknown type: its method table implements IFormattable (EnumMethodTable).
+            var boxed = g.EmitValue(inv.Instance!);
+            g.NullCheck(boxed);
+            return g.CallCoreLib("Number", "FormatObject", boxed, Arg(g, inv, 0));
+        };
+        // Enum.CompareTo(object): both sides statically the same enum compare by underlying value.
+        t["System.Enum.CompareTo(object)"] = (g, inv) =>
+        {
+            var self = UnboxEnum(inv.Instance!);
+            var other = UnboxEnum(inv.Arguments[0].Value);
+            if (g.TypeOf(self) is not INamedTypeSymbol { TypeKind: TypeKind.Enum } enumType
+                || !SymbolEqualityComparer.Default.Equals(g.TypeOf(other), enumType))
+                throw CompileError.Unsupported("Enum.CompareTo with operands of different or unknown enum types", inv);
+            var signed = TypeMapper.IsSigned(enumType.EnumUnderlyingType!);
+            var a = g.EmitValue(self);
+            var b = g.EmitValue(other);
+            var l = g.Module.Llvm;
+            var less = g.Builder.ICmp(signed ? LLVMIntPredicate.SLT : LLVMIntPredicate.ULT, a, b);
+            var greater = g.Builder.ICmp(signed ? LLVMIntPredicate.SGT : LLVMIntPredicate.UGT, a, b);
+            return g.Builder.Select(less, l.ConstInt(l.I32, -1), g.Builder.Select(greater, l.ConstInt(l.I32, 1), l.ConstInt(l.I32, 0)));
+        };
+        t["System.Enum.GetHashCode()"] = (g, inv) =>
+        {
+            var instance = UnboxEnum(inv.Instance!);
+            if (g.TypeOf(instance) is INamedTypeSymbol { TypeKind: TypeKind.Enum } enumType)
+                return g.Module.EnumHash(g.Builder, g.EmitValue(instance), enumType);
+            var self = ObjectReceiver(g, inv.Instance!);
+            return g.VirtualCall(inv.TargetMethod, self, [self]);
+        };
+        t["System.Enum.Equals(object)"] = (g, inv) =>
+        {
+            var self = ObjectReceiver(g, inv.Instance!);
+            return g.VirtualCall(inv.TargetMethod, self, [self, Arg(g, inv, 0)]);
+        };
+        // ValueType overrides of object's virtuals: dispatch on the (boxed) receiver like object's.
+        t["System.ValueType.ToString()"] = (g, inv) =>
+        {
+            var self = ObjectReceiver(g, inv.Instance!);
+            return g.VirtualCall(inv.TargetMethod, self, [self]);
+        };
+        t["System.ValueType.Equals(object)"] = (g, inv) =>
+        {
+            var self = ObjectReceiver(g, inv.Instance!);
+            return g.VirtualCall(inv.TargetMethod, self, [self, Arg(g, inv, 0)]);
+        };
+        t["System.ValueType.GetHashCode()"] = (g, inv) =>
+        {
+            var self = ObjectReceiver(g, inv.Instance!);
+            return g.VirtualCall(inv.TargetMethod, self, [self]);
+        };
         t["System.Array.GetLength(int)"] = (g, inv) =>
             g.Builder.Cast(LLVMOpcode.Trunc, g.ArrayDimensionLength(g.EmitValue(inv.Instance!), inv.Instance!.Type!, Arg(g, inv, 0)), g.Module.Llvm.I32);
         t["System.Array.GetLongLength(int)"] = (g, inv) => g.ArrayDimensionLength(g.EmitValue(inv.Instance!), inv.Instance!.Type!, Arg(g, inv, 0));

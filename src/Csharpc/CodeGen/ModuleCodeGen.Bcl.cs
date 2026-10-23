@@ -84,8 +84,8 @@ public sealed partial class ModuleCodeGen
     private readonly Dictionary<INamedTypeSymbol, LLVMValueRef> _enumMethodTables = new(SymbolEqualityComparer.Default);
 
     /// <summary>
-    /// Method table for boxed enums: { csrt_Object_MT, "Ns.Color", 8 + size, 0, [ToString, Equals, GetHashCode] }.
-    /// ToString formats the payload by name (EnumFormatter); equality/hash are bytewise on the payload.
+    /// Method table for boxed enums: { csrt_Object_MT, "Ns.Color", 8 + size, 0, IFormattable map, [ToString, Equals, GetHashCode] }.
+    /// ToString formats the payload by name (EnumFormatter); equality is bytewise, the hash is the underlying integer's.
     /// </summary>
     public LLVMValueRef EnumMethodTable(INamedTypeSymbol enumType)
     {
@@ -109,29 +109,39 @@ public sealed partial class ModuleCodeGen
             var formatter = EnumFormatter(enumType);
             b.Ret(b.Call(formatter.Type, formatter.Fn, [payload]));
         }
-        // Enum.GetHashCode is the underlying value's GetHashCode: sign- or zero-extended, longs folded.
-        var hash = Module.AddFunction(Mangler.TypeSymbol(enumType, "BoxHash"), Llvm.FunctionType(Llvm.I32, Llvm.Ptr));
-        Native.LLVMSetLinkage(hash, LLVMLinkage.Internal);
+        // IFormattable.ToString(format, provider), so composite formatting ("{0:D}") and FormatObject
+        // honour enum format strings on boxed enums.
+        var formatThunk = Module.AddFunction(Mangler.TypeSymbol(enumType, "BoxToStringFormat"), Llvm.FunctionType(Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr));
+        Native.LLVMSetLinkage(formatThunk, LLVMLinkage.Internal);
         using (var b = new IrBuilder(Llvm))
         {
-            b.PositionAtEnd(b.AppendBlock(hash, "entry"));
-            var v = b.Load(valueType, b.InBoundsGep(Llvm.I8, hash.Param(0), [Llvm.ConstInt(Llvm.I64, 8)]));
-            var width = valueType.IntWidth;
-            b.Ret(width switch
-            {
-                64 => b.BinOp(LLVMOpcode.Xor, b.Cast(LLVMOpcode.Trunc, v, Llvm.I32),
-                    b.Cast(LLVMOpcode.Trunc, b.BinOp(LLVMOpcode.AShr, v, Llvm.ConstInt(Llvm.I64, 32)), Llvm.I32)),
-                32 => v,
-                _ => b.Cast(TypeMapper.IsSigned(underlying) ? LLVMOpcode.SExt : LLVMOpcode.ZExt, v, Llvm.I32),
-            });
+            b.PositionAtEnd(b.AppendBlock(formatThunk, "entry"));
+            var payload = b.Load(valueType, b.InBoundsGep(Llvm.I8, formatThunk.Param(0), [Llvm.ConstInt(Llvm.I64, 8)]));
+            var formatter = EnumFormatWith(enumType);
+            b.Ret(b.Call(formatter.Type, formatter.Fn, [payload, formatThunk.Param(1)]));
         }
+        var hashThunk = Module.AddFunction(Mangler.TypeSymbol(enumType, "BoxGetHashCode"), Llvm.FunctionType(Llvm.I32, Llvm.Ptr));
+        Native.LLVMSetLinkage(hashThunk, LLVMLinkage.Internal);
+        using (var b = new IrBuilder(Llvm))
+        {
+            b.PositionAtEnd(b.AppendBlock(hashThunk, "entry"));
+            var payload = b.Load(valueType, b.InBoundsGep(Llvm.I8, hashThunk.Param(0), [Llvm.ConstInt(Llvm.I64, 8)]));
+            b.Ret(EnumHash(b, payload, enumType));
+        }
+        var formattable = Compilation.GetTypeByMetadataName("System.IFormattable")!;
+        var slotsInit = LlvmContext.ConstArray(Llvm.Ptr, formatThunk);
+        var slotTable = Module.AddGlobal(Mangler.TypeSymbol(enumType, "BoxITBL"), Native.LLVMTypeOf(slotsInit), slotsInit, constant: true, linkage: LLVMLinkage.Internal);
+        var entryType = Llvm.Struct(Llvm.Ptr, Llvm.Ptr);
+        var mapInit = LlvmContext.ConstArray(entryType, LlvmContext.ConstNamedStruct(entryType, InterfaceMethodTable(formattable), slotTable));
+        var map = Module.AddGlobal(Mangler.TypeSymbol(enumType, "BoxIMAP"), Native.LLVMTypeOf(mapInit), mapInit, constant: true, linkage: LLVMLinkage.Internal);
         Native.LLVMSetInitializer(global, Llvm.ConstStruct(
             ExternalGlobal("csrt_Object_MT"),
             CString(Mangler.MetadataName(enumType)),
             Llvm.ConstInt(Llvm.I32, 8 + (long)Types.Target.SizeOf(valueType)),
             Llvm.ConstInt(Llvm.I32, 0),
-            LlvmContext.Null(Llvm.Ptr), Llvm.ConstInt(Llvm.I32, 0), Llvm.ConstInt(Llvm.I32, 0), // no interface map
-            LlvmContext.ConstArray(Llvm.Ptr, thunk, Runtime("csrt_valuetype_equals", Llvm.I1, Llvm.Ptr, Llvm.Ptr).Fn, hash)));
+            map, Llvm.ConstInt(Llvm.I32, 1), Llvm.ConstInt(Llvm.I32, 0),
+            LlvmContext.ConstArray(Llvm.Ptr, thunk, Runtime("csrt_valuetype_equals", Llvm.I1, Llvm.Ptr, Llvm.Ptr).Fn,
+                hashThunk)));
         return global;
     }
 

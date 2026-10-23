@@ -1,0 +1,74 @@
+The|quick|brown|fox||jumps|over||the|lazy|dog
+The quick brown fox|jumps over|the lazy dog
+The|quick|brown fox, jumps over; the lazy dog
+The|quick|brown fox, jumps over; the lazy dog
+The quick brown fox|jumps over; the lazy dog
+The quick brown fox|jumps over; the lazy dog
+The|quick|brown|fox|jumps|over;|the|lazy|dog
+The|quick brown fox, jumps over; the lazy dog
+a|b
+True True True True
+False False
+33 43 4 16
+33 17 17 18
+True True a quick brown fox, jumps over; a lazy dog
+-1 -1 True True
+0 -1 1
+hello
+xyz
+abcde
+
+16 he quick brown fox, jumps over; the lazy do
+4 39
+abcd1, x, 2.5
+He He--llo ***Hello a+b
+a,b,c
+a,b,c
+True b 1
+4
+1
+4
+ArgumentOutOfRangeException: Index was out of range. Must be non-negative and less than the size of the collection. (Parameter 'startIndex')
+4
+6
+6
+0
+-1
+4
+ArgumentOutOfRangeException: Count must be positive and count must refer to a location within the string/array/collection. (Parameter 'count')
+4
+2
+ArgumentOutOfRangeException: Index was out of range. Must be non-negative and less than the size of the collection. (Parameter 'startIndex')
+-1
+ArgumentOutOfRangeException: Count must be positive and count must refer to a location within the string/array/collection. (Parameter 'count')
+2
+ArgumentOutOfRangeException: Count must be positive and count must refer to a location within the string/array/collection. (Parameter 'count')
+2
+-1
+2
+1
+-1
+ArgumentException: The string comparison type passed in is currently not supported. (Parameter 'comparisonType')
+axax
+aa
+abcabc
+ArgumentException: The value cannot be an empty string. (Parameter 'oldValue')
+0
+-1
+0
+32
+-1
+ArgumentOutOfRangeException: Offset and length must refer to a position in the string. (Parameter 'string1')
+ArgumentOutOfRangeException: length1 ('-2') must be a non-negative value. (Parameter 'length1')
+Actual value was -2.
+ArgumentOutOfRangeException: length1 ('-1') must be a non-negative value. (Parameter 'length1')
+Actual value was -1.
+-1
+ArgumentException: Destination is too short. (Parameter 'destination')
+Trueabc
+bcd
+ArgumentOutOfRangeException: sourceIndex ('3') must be less than or equal to '2'. (Parameter 'sourceIndex')
+Actual value was 3.
+789
+0
+ArgumentOutOfRangeException: Specified argument was out of the range of valid values. (Parameter 'length')

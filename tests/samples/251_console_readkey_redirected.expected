@@ -1,0 +1,16 @@
+True
+utf-8
+0
+héllo ✓
+utf-8
+Cannot see if a key has been pressed when either application does not have a console or when console input has been redirected from a file. Try Console.In.Peek.
+Cannot read keys when either application does not have a console or when console input has been redirected. Try Console.Read.
+a A Shift, Control 6
+True
+True
+True
+None
+0
+Enter 27 UpArrow
+key
+Press any key to exit.

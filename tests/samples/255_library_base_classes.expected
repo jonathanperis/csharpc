@@ -1,0 +1,17 @@
+dir root
+found a.txt from FileSearcher
+found b.txt from FileSearcher
+done True System.EventArgs System.EventArgs
+dir root
+found d.txt from FileSearcher
+changed Name
+changed Name
+changed Name
+via interface Name
+changed Name
+lambda Name
+Short by 12.5 12.5 InsufficientFundsException
+outer / inner / System.ArgumentException
+Validation failed: Exception of type 'ValidationException' was thrown.
+Z 3 True AuthorAttribute
+True System.EventArgs False

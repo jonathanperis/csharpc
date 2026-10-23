@@ -413,8 +413,14 @@ public sealed partial class ModuleCodeGen
             or MethodKind.PropertyGet or MethodKind.PropertySet or MethodKind.UserDefinedOperator or MethodKind.Conversion
             or MethodKind.EventAdd or MethodKind.EventRemove or MethodKind.ExplicitInterfaceImplementation))
             return;
-        // Field-like events have synthesized accessors; `+=`/`-=` update the backing field inline instead.
-        if (method.MethodKind is MethodKind.EventAdd or MethodKind.EventRemove && method.IsImplicitlyDeclared) return;
+        // Field-like events have synthesized accessors; `+=`/`-=` update the backing field inline, so a
+        // function is only lowered when something references it (interface slots, virtual calls).
+        if (method.MethodKind is MethodKind.EventAdd or MethodKind.EventRemove && method.IsImplicitlyDeclared)
+        {
+            if (!method.ContainingType.IsGenericType || !TypeSubstitution.IsOpen(method.ContainingType))
+                new FunctionCodeGen(this, method, GetFunction(method)).EmitFieldLikeEventAccessor();
+            return;
+        }
         if (method.MethodKind == MethodKind.Constructor && method.ContainingType.IsStatic) return;
         if (method.MethodKind == MethodKind.StaticConstructor && TypeSubstitution.IsGenericContext(method))
             throw CompileError.Unsupported("static constructors in generic types", method);

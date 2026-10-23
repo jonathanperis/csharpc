@@ -324,6 +324,204 @@ namespace CsharpcCoreLib
             return value.Length <= s.Length && Matches(s.AsSpan(), s.Length - value.Length, value.AsSpan(), ignoreCase);
         }
 
+        [ShadowInstance]
+        public static int IndexOf(string s, char value, StringComparison comparisonType)
+        {
+            bool ignoreCase = IgnoreCase(comparisonType);
+            char upper = CharOps.ToUpperInvariant(value);
+            for (int i = 0; i < s.Length; i++)
+                if (s[i] == value || (ignoreCase && CharOps.ToUpperInvariant(s[i]) == upper)) return i;
+            return -1;
+        }
+
+        private const string CountMessage = "Count must be positive and count must refer to a location within the string/array/collection.";
+        private const string IndexLessMessage = "Index was out of range. Must be non-negative and less than the size of the collection.";
+
+        [ShadowInstance]
+        public static int IndexOf(string s, char value, int startIndex, int count)
+        {
+            if ((uint)startIndex > (uint)s.Length) ThrowHelper.IndexMustBeLessOrEqual("startIndex");
+            if ((uint)count > (uint)(s.Length - startIndex)) throw new ArgumentOutOfRangeException("count", CountMessage);
+            for (int i = startIndex; i < startIndex + count; i++)
+                if (s[i] == value) return i;
+            return -1;
+        }
+
+        [ShadowInstance]
+        public static int IndexOf(string s, string value, int startIndex, int count) => IndexOf(s, value, startIndex, count, StringComparison.CurrentCulture);
+
+        [ShadowInstance]
+        public static int IndexOf(string s, string value, int startIndex, int count, StringComparison comparisonType)
+        {
+            if (value == null) throw new ArgumentNullException("value");
+            if ((uint)startIndex > (uint)s.Length) ThrowHelper.IndexMustBeLessOrEqual("startIndex");
+            if (count < 0 || startIndex > s.Length - count) throw new ArgumentOutOfRangeException("count", CountMessage);
+            bool ignoreCase = IgnoreCase(comparisonType);
+            ReadOnlySpan<char> chars = s.AsSpan();
+            for (int i = startIndex; i <= startIndex + count - value.Length; i++)
+                if (Matches(chars, i, value.AsSpan(), ignoreCase)) return i;
+            return -1;
+        }
+
+        [ShadowInstance]
+        public static int LastIndexOf(string s, char value, int startIndex) => LastIndexOf(s, value, startIndex, startIndex + 1);
+
+        [ShadowInstance]
+        public static int LastIndexOf(string s, char value, int startIndex, int count)
+        {
+            if (s.Length == 0) return -1;
+            if ((uint)startIndex >= (uint)s.Length) throw new ArgumentOutOfRangeException("startIndex", IndexLessMessage);
+            if ((uint)count > (uint)startIndex + 1) throw new ArgumentOutOfRangeException("count", CountMessage);
+            for (int i = startIndex; i > startIndex - count; i--)
+                if (s[i] == value) return i;
+            return -1;
+        }
+
+        [ShadowInstance]
+        public static int LastIndexOf(string s, string value, int startIndex) => LastIndexOf(s, value, startIndex, startIndex + 1, StringComparison.CurrentCulture);
+        [ShadowInstance]
+        public static int LastIndexOf(string s, string value, int startIndex, StringComparison comparisonType) => LastIndexOf(s, value, startIndex, startIndex + 1, comparisonType);
+        [ShadowInstance]
+        public static int LastIndexOf(string s, string value, int startIndex, int count) => LastIndexOf(s, value, startIndex, count, StringComparison.CurrentCulture);
+
+        /// <summary>Searches backwards in s[startIndex - count + 1 .. startIndex]; .NET's argument rules.</summary>
+        [ShadowInstance]
+        public static int LastIndexOf(string s, string value, int startIndex, int count, StringComparison comparisonType)
+        {
+            if (value == null) throw new ArgumentNullException("value");
+            bool ignoreCase = IgnoreCase(comparisonType);
+            if (s.Length == 0 && (startIndex == -1 || startIndex == 0)) return value.Length == 0 ? 0 : -1;
+            if (startIndex < 0 || startIndex > s.Length) throw new ArgumentOutOfRangeException("startIndex", IndexLessMessage);
+            if (startIndex == s.Length) { startIndex--; if (count > 0) count--; }
+            if (count < 0 || startIndex - count + 1 < 0) throw new ArgumentOutOfRangeException("count", CountMessage);
+            if (value.Length == 0) return startIndex + 1;
+            ReadOnlySpan<char> chars = s.AsSpan();
+            int first = startIndex - count + 1;
+            for (int i = startIndex - value.Length + 1; i >= first; i--)
+                if (Matches(chars, i, value.AsSpan(), ignoreCase)) return i;
+            return -1;
+        }
+
+        [ShadowInstance]
+        public static string Replace(string s, string oldValue, string newValue, StringComparison comparisonType)
+        {
+            bool ignoreCase = IgnoreCase(comparisonType);
+            if (oldValue == null) throw new ArgumentNullException("oldValue");
+            if (oldValue.Length == 0) throw new ArgumentException("The value cannot be an empty string.", "oldValue");
+            if (!ignoreCase) return Replace(s, oldValue, newValue);
+            ReadOnlySpan<char> chars = s.AsSpan();
+            System.Text.StringBuilder sb = null;
+            int read = 0;
+            for (int i = 0; i <= chars.Length - oldValue.Length; )
+            {
+                if (!Matches(chars, i, oldValue.AsSpan(), true)) { i++; continue; }
+                if (sb == null) sb = new System.Text.StringBuilder(s.Length);
+                sb.Append(s, read, i - read).Append(newValue);
+                i += oldValue.Length;
+                read = i;
+            }
+            if (sb == null) return s;
+            return sb.Append(s, read, s.Length - read).ToString();
+        }
+
+        [ShadowInstance]
+        public static void CopyTo(string s, Span<char> destination)
+        {
+            if (s.Length > destination.Length) throw new ArgumentException("Destination is too short.", "destination");
+            s.AsSpan().CopyTo(destination);
+        }
+
+        [ShadowInstance]
+        public static bool TryCopyTo(string s, Span<char> destination)
+        {
+            if (s.Length > destination.Length) return false;
+            s.AsSpan().CopyTo(destination);
+            return true;
+        }
+
+        [ShadowInstance]
+        public static void CopyTo(string s, int sourceIndex, char[] destination, int destinationIndex, int count)
+        {
+            if (destination == null) throw new ArgumentNullException("destination");
+            ArgumentOutOfRangeExceptionExtras.ThrowIfNegative(count, "count");
+            ArgumentOutOfRangeExceptionExtras.ThrowIfNegative(sourceIndex, "sourceIndex");
+            ArgumentOutOfRangeExceptionExtras.ThrowIfGreaterThan(count, s.Length - sourceIndex, "sourceIndex");
+            ArgumentOutOfRangeExceptionExtras.ThrowIfGreaterThan(destinationIndex, destination.Length - count, "destinationIndex");
+            ArgumentOutOfRangeExceptionExtras.ThrowIfNegative(destinationIndex, "destinationIndex");
+            s.AsSpan(sourceIndex, count).CopyTo(destination.AsSpan(destinationIndex));
+        }
+
+        public static string Create<TState>(int length, TState state, System.Buffers.SpanAction<char, TState> action)
+        {
+            if (action == null) throw new ArgumentNullException("action");
+            if (length <= 0)
+            {
+                if (length == 0) return "";
+                throw new ArgumentOutOfRangeException("length");
+            }
+            string result = CoreIntrinsics.FastAllocateString(length);
+            action(CoreIntrinsics.StringChars(result), state);
+            return result;
+        }
+
+        public static int Compare(string strA, int indexA, string strB, int indexB, int length) => Compare(strA, indexA, strB, indexB, length, false);
+
+        /// <summary>The culture overloads validate like CompareInfo.Compare (different parameter names than the StringComparison one).</summary>
+        public static int Compare(string strA, int indexA, string strB, int indexB, int length, bool ignoreCase)
+        {
+            int lengthA = length, lengthB = length;
+            if (strA != null) lengthA = Math.Min(lengthA, strA.Length - indexA);
+            if (strB != null) lengthB = Math.Min(lengthB, strB.Length - indexB);
+            bool okA = strA == null ? indexA == 0 && lengthA == 0 : (uint)indexA <= (uint)strA.Length && (uint)lengthA <= (uint)(strA.Length - indexA);
+            bool okB = strB == null ? indexB == 0 && lengthB == 0 : (uint)indexB <= (uint)strB.Length && (uint)lengthB <= (uint)(strB.Length - indexB);
+            if (!okA || !okB)
+            {
+                ThrowHelper.IfNegative(lengthA, "length1");
+                ThrowHelper.IfNegative(lengthB, "length2");
+                ThrowHelper.IfNegative(indexA, "offset1");
+                ThrowHelper.IfNegative(indexB, "offset2");
+                const string offsetLength = "Offset and length must refer to a position in the string.";
+                if (indexA > (strA == null ? 0 : strA.Length) - lengthA) throw new ArgumentOutOfRangeException("string1", offsetLength);
+                throw new ArgumentOutOfRangeException("string2", offsetLength);
+            }
+            if (strA == null) return strB == null ? 0 : -1;
+            if (strB == null) return 1;
+            return string.Compare(strA.Substring(indexA, lengthA), strB.Substring(indexB, lengthB), ignoreCase);
+        }
+
+        public static int Compare(string strA, int indexA, string strB, int indexB, int length, StringComparison comparisonType)
+        {
+            IgnoreCase(comparisonType);
+            if (strA == null || strB == null)
+            {
+                if ((object)strA == (object)strB) return 0;
+                return strA == null ? -1 : 1;
+            }
+            ThrowHelper.IfNegative(length, "length");
+            ThrowHelper.IfNegative(indexA, "indexA");
+            ThrowHelper.IfNegative(indexB, "indexB");
+            if (strA.Length - indexA < 0 || strB.Length - indexB < 0)
+                ThrowHelper.IndexMustBeLessOrEqual(strA.Length - indexA < 0 ? "indexA" : "indexB");
+            if (length == 0 || ((object)strA == (object)strB && indexA == indexB)) return 0;
+            int lengthA = Math.Min(length, strA.Length - indexA), lengthB = Math.Min(length, strB.Length - indexB);
+            return string.Compare(strA.Substring(indexA, lengthA), strB.Substring(indexB, lengthB), comparisonType);
+        }
+
+        public static int CompareOrdinal(string strA, int indexA, string strB, int indexB, int length)
+        {
+            if (strA == null || strB == null)
+            {
+                if ((object)strA == (object)strB) return 0;
+                return strA == null ? -1 : 1;
+            }
+            if (length < 0) throw new ArgumentOutOfRangeException("length", "Count cannot be less than zero.");
+            if (indexA < 0 || indexB < 0) throw new ArgumentOutOfRangeException(indexA < 0 ? "indexA" : "indexB", IndexLessMessage);
+            int lengthA = Math.Min(length, strA.Length - indexA), lengthB = Math.Min(length, strB.Length - indexB);
+            if (lengthA < 0 || lengthB < 0) throw new ArgumentOutOfRangeException(lengthA < 0 ? "indexA" : "indexB", IndexLessMessage);
+            if (length == 0 || ((object)strA == (object)strB && indexA == indexB)) return 0;
+            return CompareOrdinal(strA.Substring(indexA, lengthA), strB.Substring(indexB, lengthB));
+        }
+
         internal static bool EqualsOrdinal(ReadOnlySpan<char> a, ReadOnlySpan<char> b)
         {
             if (a.Length != b.Length) return false;
@@ -510,6 +708,120 @@ namespace CsharpcCoreLib
         // ---- splitting / conversion -------------------------------------------------------------
         [ShadowInstance]
         public static string[] Split(string s, char separator, StringSplitOptions options) => Split(s, separator, int.MaxValue, options);
+
+        // Split(params ReadOnlySpan<char>) (.NET 9): `s.Split(',', ' ')` binds here. Same as Split(char[]);
+        // an empty separator set splits on white space.
+        [ShadowInstance]
+        public static string[] Split(string s, ReadOnlySpan<char> separator) => SplitAny(s, separator, null, null, int.MaxValue, StringSplitOptions.None);
+        [ShadowInstance]
+        public static string[] Split(string s, char[] separator, int count) => SplitAny(s, separator, null, null, count, StringSplitOptions.None);
+        [ShadowInstance]
+        public static string[] Split(string s, char[] separator, int count, StringSplitOptions options) => SplitAny(s, separator, null, null, count, options);
+        [ShadowInstance]
+        public static string[] Split(string s, string separator, int count, StringSplitOptions options) => SplitAny(s, default, separator ?? "", null, count, options);
+        [ShadowInstance]
+        public static string[] Split(string s, string[] separator, StringSplitOptions options) => SplitAny(s, default, null, separator, int.MaxValue, options);
+        [ShadowInstance]
+        public static string[] Split(string s, string[] separator, int count, StringSplitOptions options) => SplitAny(s, default, null, separator, count, options);
+
+        /// <summary>
+        /// .NET's String.SplitInternal for char sets (<paramref name="chars"/>; empty = white space), one
+        /// string separator, or a string array (null/empty entries ignored; none at all = white space).
+        /// </summary>
+        private static string[] SplitAny(string s, ReadOnlySpan<char> chars, string single, string[] many, int count, StringSplitOptions options)
+        {
+            ThrowHelper.IfNegative(count, "count");
+            if ((options & ~(StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)) != 0)
+                throw new ArgumentException("Value of flags is invalid.", "options");
+            bool whiteSpace = single == null && (many == null ? chars.Length == 0 : many.Length == 0);
+            if (count <= 1 || s.Length == 0 || (single != null && single.Length == 0)) return SoleValue(s, options, count);
+
+            // Separator positions and lengths, scanning left to right; the first matching separator wins.
+            System.Collections.Generic.List<int> at = new System.Collections.Generic.List<int>(), len = new System.Collections.Generic.List<int>();
+            for (int i = 0; i < s.Length; i++)
+            {
+                char c = s[i];
+                if (whiteSpace) { if (CharOps.IsWhiteSpace(c)) { at.Add(i); len.Add(1); } continue; }
+                if (single == null && many == null)
+                {
+                    if (chars.IndexOf(c) >= 0) { at.Add(i); len.Add(1); }
+                    continue;
+                }
+                if (single != null)
+                {
+                    if (MatchesAt(s, i, single))
+                    { at.Add(i); len.Add(single.Length); i += single.Length - 1; }
+                    continue;
+                }
+                for (int k = 0; k < many.Length; k++)
+                {
+                    string sep = many[k];
+                    if (!string.IsNullOrEmpty(sep) && MatchesAt(s, i, sep)) { at.Add(i); len.Add(sep.Length); i += sep.Length - 1; break; }
+                }
+            }
+            if (at.Count == 0) return SoleValue(s, options, count);
+
+            bool removeEmpty = (options & StringSplitOptions.RemoveEmptyEntries) != 0;
+            bool trim = (options & StringSplitOptions.TrimEntries) != 0;
+            int replaces = at.Count;
+            string[] parts = new string[replaces < count ? replaces + 1 : count];
+            int current = 0, n = 0;
+            if (options == StringSplitOptions.None)
+            {
+                // SplitWithoutPostProcessing
+                int actual = replaces < count - 1 ? replaces : count - 1;
+                for (int i = 0; i < actual; i++)
+                {
+                    parts[n++] = s.Substring(current, at[i] - current);
+                    current = at[i] + len[i];
+                }
+                parts[n] = s.Substring(current);
+                return parts;
+            }
+            // SplitWithPostProcessing
+            for (int i = 0; i < replaces; i++)
+            {
+                string piece = SplitPiece(s, current, at[i], trim, removeEmpty);
+                if (piece != null) parts[n++] = piece;
+                current = at[i] + len[i];
+                if (n == count - 1)
+                {
+                    // The next entry is the last one: skip empty entries before it.
+                    if (removeEmpty)
+                    {
+                        while (++i < replaces)
+                        {
+                            if (SplitPiece(s, current, at[i], trim, removeEmpty) != null) break;
+                            current = at[i] + len[i];
+                        }
+                    }
+                    break;
+                }
+            }
+            string last = SplitPiece(s, current, s.Length, trim, removeEmpty);
+            if (last != null) parts[n++] = last;
+            if (n == parts.Length) return parts;
+            string[] result = new string[n];
+            Array.Copy(parts, result, n);
+            return result;
+        }
+
+        private static bool MatchesAt(string s, int i, string value)
+        {
+            if (i + value.Length > s.Length) return false;
+            for (int k = 0; k < value.Length; k++) if (s[i + k] != value[k]) return false;
+            return true;
+        }
+
+        private static string[] SoleValue(string s, StringSplitOptions options, int count)
+        {
+            if (count != 0)
+            {
+                string candidate = (options & StringSplitOptions.TrimEntries) != 0 ? s.Trim() : s;
+                if ((options & StringSplitOptions.RemoveEmptyEntries) == 0 || candidate.Length != 0) return new string[] { candidate };
+            }
+            return new string[0];
+        }
 
         /// <summary>
         /// .NET's SplitWithPostProcessing: at most <paramref name="count"/> pieces, the last one keeps the rest;

@@ -98,6 +98,25 @@ public sealed partial class FunctionCodeGen
         return _b.StructGep(layout.InstanceType, instance, index, e.Name);
     }
 
+    /// <summary>
+    /// The synthesized add/remove accessor of a field-like event, as a function: `+=`/`-=` inside
+    /// the program update the field inline, but interface slots and virtual calls (an event that
+    /// implements INotifyPropertyChanged.PropertyChanged) need the accessor itself.
+    /// </summary>
+    public void EmitFieldLikeEventAccessor()
+    {
+        var e = (IEventSymbol)_method!.AssociatedSymbol!;
+        LLVMValueRef address;
+        if (e.IsStatic) address = EventBackingField(e) is { } staticField ? _m.StaticField(staticField) : _m.StaticEventField(e);
+        else if (EventBackingField(e) is { } field) address = FieldAddressOn(_this, field);
+        else address = _b.StructGep(_m.GetLayout(e.ContainingType).InstanceType, _this, _m.GetLayout(e.ContainingType).EventFieldIndex[e.OriginalDefinition], e.Name);
+        var handler = _fn.Fn.Param(e.IsStatic ? 0u : 1u);
+        var old = _b.Load(L.Ptr, address);
+        _b.Store(_method.MethodKind == MethodKind.EventAdd ? CombineDelegates(old, handler) : RemoveDelegate(old, handler), address);
+        _b.RetVoid();
+        Finish();
+    }
+
     /// <summary>Reading a field-like event inside its class (`Changed?.Invoke()`) reads the backing field.</summary>
     private LLVMValueRef EmitEventReference(IEventReferenceOperation reference) =>
         LoadValue(EventFieldAddress(reference), reference.Event.Type);
@@ -106,6 +125,18 @@ public sealed partial class FunctionCodeGen
     {
         var reference = (IEventReferenceOperation)assignment.EventReference;
         var e = reference.Event;
+        if (e.ContainingType.TypeKind == TypeKind.Interface && !e.IsStatic)
+        {
+            // `itf.Changed += handler`: an interface call to the add/remove accessor. The receiver is
+            // evaluated inside EmitInterfaceCall, after the handler, which is only unobservable when
+            // creating the handler has no side effects.
+            if (assignment.HandlerValue is not (IDelegateCreationOperation or ILocalReferenceOperation or IParameterReferenceOperation
+                or IFieldReferenceOperation { Instance: null or IInstanceReferenceOperation }))
+                throw CompileError.Unsupported($"interface event '{e}' with a handler expression that may have side effects", assignment);
+            var interfaceAccessor = (assignment.Adds ? e.AddMethod : e.RemoveMethod)!;
+            EmitInterfaceCall(interfaceAccessor, reference.Instance!, [], [EmitValue(assignment.HandlerValue)], null);
+            return default;
+        }
         if (IsFieldLikeEvent(e))
         {
             var address = EventFieldAddress(reference);

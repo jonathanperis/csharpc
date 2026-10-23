@@ -1,0 +1,55 @@
+ArgumentNullException|o|Value cannot be null. (Parameter 'o')
+ArgumentNullException|custom|Value cannot be null. (Parameter 'custom')
+no throw
+ArgumentNullException|s|Value cannot be null. (Parameter 's')
+ArgumentException|empty|The value cannot be an empty string. (Parameter 'empty')
+ArgumentException|ws|The value cannot be an empty string or composed entirely of whitespace. (Parameter 'ws')
+ArgumentNullException|s|Value cannot be null. (Parameter 's')
+no throw
+ArgumentOutOfRangeException|n|n ('-3') must be a non-negative value. (Parameter 'n')
+Actual value was -3.
+ArgumentOutOfRangeException|-0.5|-0.5 ('-0.5') must be a non-negative value. (Parameter '-0.5')
+Actual value was -0.5.
+ArgumentOutOfRangeException|d|d ('0') must be a non-negative and non-zero value. (Parameter 'd')
+Actual value was 0.
+ArgumentOutOfRangeException|-1.5m|-1.5m ('-1.5') must be a non-negative and non-zero value. (Parameter '-1.5m')
+Actual value was -1.5.
+ArgumentOutOfRangeException|0L|0L ('0') must be a non-zero value. (Parameter '0L')
+Actual value was 0.
+ArgumentOutOfRangeException|x - 2.5|x - 2.5 ('0') must be a non-zero value. (Parameter 'x - 2.5')
+Actual value was 0.
+ArgumentOutOfRangeException|big|big ('10') must be less than or equal to '5'. (Parameter 'big')
+Actual value was 10.
+ArgumentOutOfRangeException|x|x ('2.5') must be less than '2.5'. (Parameter 'x')
+Actual value was 2.5.
+ArgumentOutOfRangeException|n|n ('-3') must be greater than or equal to '0'. (Parameter 'n')
+Actual value was -3.
+ArgumentOutOfRangeException|n|n ('-3') must be greater than '-3'. (Parameter 'n')
+Actual value was -3.
+ArgumentOutOfRangeException|n|n ('-3') must not be equal to '-3'. (Parameter 'n')
+Actual value was -3.
+ArgumentOutOfRangeException|n|n ('-3') must be equal to '4'. (Parameter 'n')
+Actual value was -3.
+ArgumentOutOfRangeException|"a"|"a" ('a') must not be equal to 'a'. (Parameter '"a"')
+Actual value was a.
+ArgumentOutOfRangeException|null|null ('null') must be equal to 'a'. (Parameter 'null')
+ArgumentOutOfRangeException|"b"|"b" ('b') must be less than or equal to 'a'. (Parameter '"b"')
+Actual value was b.
+ArgumentOutOfRangeException|double.NaN|double.NaN ('NaN') must be a non-negative value. (Parameter 'double.NaN')
+Actual value was NaN.
+ArgumentOutOfRangeException|-0.0|-0.0 ('-0') must be a non-negative value. (Parameter '-0.0')
+Actual value was -0.
+ArgumentOutOfRangeException|-0.0|-0.0 ('-0') must be a non-zero value. (Parameter '-0.0')
+Actual value was -0.
+ArgumentOutOfRangeException|(short)-1|(short)-1 ('-1') must be a non-negative value. (Parameter '(short)-1')
+Actual value was -1.
+ObjectDisposedException|Cannot access a disposed object.
+Object name: 'System.Text.StringBuilder'.
+ObjectDisposedException|Cannot access a disposed object.
+Object name: 'System.IO.MemoryStream'.
+no throw
+ObjectDisposedException|Cannot access a disposed object.
+Object name: 'Foo'.
+ObjectDisposedException|msg
+Object name: 'x'.
+ObjectDisposedException|Cannot access a disposed object.

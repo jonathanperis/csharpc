@@ -1,0 +1,25 @@
+Ann 2020-05-01
+Bob 3 7
+key a
+key b
+value 1
+value 2
+set [a] = 1
+set [b] = 2
+1 2
+3 4
+4 3
+receiver 1
+receiver 2
+value a
+value b
+V <- 10
+V <- 20
+10 20
+5 five
+V <- 8
+8
+5 4
+value x
+value y
+NRE 20
