@@ -83,6 +83,24 @@ every failure is a clean "not supported by csharpc yet" diagnostic.
 | `System.Text.Json` | ✅ | writer, reader, DOM, nodes; serializer over source-generated metadata, reflection-style calls included ([12-corelib.md](12-corelib.md#systemtextjson)) |
 | File I/O, networking | 🟡 | System.IO and sockets (TCP/UDP, `TcpListener`/`TcpClient`, `Dns`) done; TLS/HTTP next |
 
+## Standing goal: better than .NET in every area, always
+
+Not a milestone that ends: every milestone is held to it, and a regression in any of these areas is a
+bug like a wrong output.
+
+- **Drop-in:** the same behaviour as .NET (byte-identical output, exit codes, exception messages), the
+  same inputs (`.cs`, `.csproj`, NuGet packages) and the same workflow (`dotnet build`/`run`/`publish`).
+- **Faster:** throughput ahead of NativeAOT and the JIT on every benchmark, on every platform; start-up
+  and compile time measured too.
+- **Smaller:** executables a fraction of NativeAOT's size, with nothing linked that the program doesn't
+  use (pay-for-play library code).
+- **Safer:** hardening on by default ([17-security.md](17-security.md)).
+
+Evidence comes from CI ([benchmarks/RESULTS.md](../benchmarks/RESULTS.md), the compatibility runs), not
+claims. Known gaps today: NativeAOT is ahead on `asyncfanout` (x86-64 and arm64) and on `fileio`,
+`quicksort`, `shapes` and `spectralnorm` on arm64; arm64 binaries carry 64 KiB page-alignment padding;
+compile time of async- and generic-heavy programs; benchmarks run on Linux only so far.
+
 ## Milestones
 
 ### M0 — Spike ✅
