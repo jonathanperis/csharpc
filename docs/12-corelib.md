@@ -118,9 +118,9 @@ discovery is syntax-only, and only the members a program uses get bound and lowe
 
 ## Gaps
 
-* Variance (`IEnumerable<string>` as `IEnumerable<object>` on a `List<string>`) — interface maps are exact.
-* Boxed structs have no interface maps; non-generic `IEnumerator.Current` / `IComparer` on tuple element
-  types throw `NotSupportedException` when executed.
+* Non-generic `IEnumerator.Current` / `IComparer` on tuple element types throw
+  `NotSupportedException` when executed. (Boxed structs do have interface maps: the corelib's struct
+  enumerators are `IEnumerator<T>`/`IEnumerator`/`IDisposable` when boxed, as in .NET.)
 * Anonymous types (multi-`from` queries with `let`/`where`), `ImmutableArray`/`Immutable*`,
   `ConcurrentDictionary`, `BitArray`, `ObservableCollection`, `Tuple<...>` classes not yet shadowed.
 * `string` culture comparison is exact for ASCII/Latin-1 only (ICU root approximation).

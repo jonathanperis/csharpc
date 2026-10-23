@@ -180,11 +180,15 @@ programs. The other 14 now stop at the following causes:
 - **Stack traces** (2 programs): only the `   at ...` lines differ. In the `CatchException`
   program, the `File name: '...'` line that `FileNotFoundException.ToString()` adds is also
   missing.
-- **New bugs**, previously hidden behind `<StartupObject>`:
-  - `object-collection-initializers` crashes with `InvalidCastException`. A corelib struct
-    enumerator (`List<T>.Enumerator`), returned as the non-generic `IEnumerator`, isn't castable
-    to it.
-  - The JSON `how-to` project crashes the compiler (SIGSEGV while computing class layouts).
+- **New bugs**, previously hidden behind `<StartupObject>` (both fixed on branch `followups`):
+  - `object-collection-initializers` crashed with `InvalidCastException`. A corelib struct
+    enumerator (`List<T>.Enumerator`), returned as the non-generic `IEnumerator`, wasn't castable
+    to it. The corelib's struct enumerators now implement `IEnumerator<T>`, `IEnumerator` and
+    `IDisposable` like .NET's, and the program passes (sample 280).
+  - The JSON `how-to` project crashed the compiler (SIGSEGV while computing class layouts). A
+    `DateTimeOffset` property left a half-built base-class layout cached, and the derived class
+    built invalid IR from it. The project now stops with explicit diagnostics for
+    `DateTimeOffset` and the `System.Text.Json` APIs (samples 283–285).
 - **Fixed during the re-run**: the `lambda-expressions` program silently printed an empty line
   for an `Expression<Func<...>>`. Expression trees are now `CSLLVM0001`. The `WarningWaves`
   program needed `CS0269` in the set of merged-compilation definite-assignment errors. It then
