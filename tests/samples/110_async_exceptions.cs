@@ -19,8 +19,10 @@ try { await Divide(1, 0); } catch (DivideByZeroException e) { Console.WriteLine(
 // try/catch/finally inside async methods, across awaits.
 Console.WriteLine(await Guarded());
 
-// Task.WhenAll: await rethrows the first exception.
-try { await Task.WhenAll(Boom("a"), Divide(4, 2), Boom("b")); }
+// Task.WhenAll: await rethrows the first exception. "b" faults only after "a" has, otherwise which one
+// comes first races between thread-pool threads under real .NET.
+var first = Boom("a");
+try { await Task.WhenAll(first, Divide(4, 2), BoomAfter(Settled(first), "b")); }
 catch (InvalidOperationException e) { Console.WriteLine("WhenAll -> " + e.Message); }
 
 // GetAwaiter().GetResult() rethrows the original exception.
@@ -36,6 +38,11 @@ async Task BoomAfter(Task gate, string message)
 {
     await gate;
     throw new InvalidOperationException(message);
+}
+
+async Task Settled(Task task)
+{
+    try { await task; } catch { }
 }
 
 async Task Boom(string message)
