@@ -107,7 +107,7 @@ and real-world programs against real .NET on that machine, plus the benchmark co
 | Linux x86-64 | `ubuntu-24.04` | ✅ today |
 | Linux ARM64 | `ubuntu-24.04-arm` | ✅ AAPCS64 P/Invoke, `statx`, BTI/PAC hardening |
 | macOS ARM64 | `macos-15` | ✅ Mach-O via Apple's ld, compact unwind + libunwind, per-OS corelib constants, Apple arm64 P/Invoke ABI, Mach-O GC roots/TLV, `.dylib` probing (no `--static`, no gdb debug-info suite) |
-| Windows x64 | `windows-latest` | COFF, SEH-based exceptions, MSVC ABI, Windows runtime boundary |
+| Windows x64 | `windows-2025` | ✅ PE/COFF via LLVM-MinGW (lld, libunwind, UCRT; `x86_64-w64-windows-gnu`), Itanium EH on SEH unwind tables, Microsoft x64 P/Invoke ABI, `SuspendThread` stop-the-world, kernel32-based System.IO, `"\r\n"` line ends, .NET's Windows exit codes (no gdb debug-info suite; MSVC environment not supported) |
 | wasm32 | (any) | WASI target, exception and threading model |
 
 ### M4 — Real-world validation

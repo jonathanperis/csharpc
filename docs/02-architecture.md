@@ -110,8 +110,22 @@ Per platform:
   imports; Apple's ld wants those listed (`-U _name`) so a missing one still binds to null. With `-g`
   the DWARF stays in the object files on macOS, so the driver runs `dsymutil` to produce
   `<output>.dSYM`. `--static` and x86-64 macOS are rejected with an explicit error.
-- The corelib is parsed with `CSHARPC_TARGET_LINUX` or `CSHARPC_TARGET_MACOS` (from the target triple)
-  so its libc constants and struct layouts match the target ([16-interop-io.md](16-interop-io.md)).
+- **Windows** (PE/COFF, x86-64 only): csharpc targets the MinGW-w64 environment,
+  `x86_64-w64-windows-gnu` (an LLVM built for MSVC reports `*-pc-windows-msvc` as its default triple;
+  the host triple is rewritten to the MinGW one, and an explicit `-msvc` target is rejected). The
+  reason is exceptions: csharpc lowers `try` to Itanium-style `invoke`/`landingpad` with its own
+  personality, and LLVM supports landing pads on Windows only in the MinGW environment, where they
+  ride on SEH unwind tables (`.pdata`/`.xdata`); the MSVC environment would need funclet-based EH
+  (`catchswitch`/`cleanuppad`) throughout codegen. The toolchain is LLVM-MinGW (clang, lld,
+  compiler-rt, libunwind, winpthreads, UCRT); clang links with `-fuse-ld=lld -rtlib=compiler-rt
+  -unwindlib=libunwind -static -pthread --gc-sections --icf=safe -s`. `-static` only concerns the
+  MinGW libraries (libunwind, winpthreads): the executable depends on system DLLs only (kernel32 and
+  the UCRT, part of Windows 10+). An output path without an extension gets `.exe`. The compiler itself
+  loads LLVM-MinGW's `libLLVM-18.dll` (or an `LLVM-C.dll`; `CSHARPC_LIBLLVM` overrides), and the asm
+  parser is initialized because the runtime's bitcode carries inline asm from the MinGW headers.
+- The corelib is parsed with `CSHARPC_TARGET_LINUX`, `CSHARPC_TARGET_MACOS` or `CSHARPC_TARGET_WINDOWS`
+  (from the target triple) so its libc constants, struct layouts and OS calls match the target
+  ([16-interop-io.md](16-interop-io.md)).
 
 The runtime (`src/runtime/*.c`, `*.h`) ships as **source** next to the compiler (copied into
 `bin/.../runtime/` by the `.csproj`). It is compiled on first use with
