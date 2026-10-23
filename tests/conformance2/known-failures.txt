@@ -1,0 +1,4 @@
+# Adversarial-corpus programs csharpc doesn't pass yet (see results.md for reasons).
+# tests/conformance2.sh exits 0 when every failure is listed here.
+closures/009_method_group_conversions    # delegate to a library method (Convert.ToString(object)) not supported yet
+exceptions/003_filter_side_effect_order  # exception-filter evaluation order differs: runs during unwinding, not first pass

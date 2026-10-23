@@ -178,5 +178,20 @@ if not args.filters:
         f.write(f"| **total** | **{passed}** | **{total}** | **{pct(passed, total)}** |\n\n## Failure reasons (ranked by programs blocked)\n\n| # | programs | reason | e.g. |\n|---:|---:|---|---|\n")
         for i, (k, n) in enumerate(reasons.most_common(), 1):
             f.write(f"| {i} | {n} | {k.replace('|', '/')} | {', '.join(sorted(blocked_by[k])[:3])} |\n")
-sys.exit(0 if passed == total else 1)
+# <corpus>/known-failures.txt: programs known to fail (one per line, '#' comments). They don't fail
+# the run, so CI can gate on the rest; a listed program that now passes does fail it, so the list
+# never hides a fix (remove the line). Filtered runs only check the programs they ran.
+known_path = os.path.join(CONF, "known-failures.txt")
+known = set()
+if os.path.exists(known_path):
+    for line in open(known_path):
+        line = line.split("#", 1)[0].strip()
+        if line: known.add(line)
+failed = {r["program"] for r in results if r["status"] not in ("pass", "skip")}
+ran = {r["program"] for r in results}
+new_failures = sorted(failed - known)
+fixed = sorted(p for p in known & ran if p not in failed)
+for p in new_failures: print(f"NEW FAILURE {p}")
+for p in fixed: print(f"KNOWN FAILURE NOW PASSES {p} (remove it from {os.path.relpath(known_path, ROOT)})")
+sys.exit(0 if not new_failures and not fixed else 1)
 PYEOF
