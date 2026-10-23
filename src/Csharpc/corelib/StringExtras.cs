@@ -183,6 +183,166 @@ namespace CsharpcCoreLib
                 if (comparer != null ? comparer.Equals(span[i], value) : CoreIntrinsics.AreEqual(span[i], value)) n++;
             return n;
         }
+
+        // Searching. Element equality is EqualityComparer<T>.Default's (IEquatable<T>), ranges compare with
+        // Comparer<T>.Default (IComparable<T>), as in .NET.
+        public static int IndexOfAny<T>(ReadOnlySpan<T> span, T value0, T value1)
+        {
+            for (int i = 0; i < span.Length; i++)
+                if (CoreIntrinsics.AreEqual(span[i], value0) || CoreIntrinsics.AreEqual(span[i], value1)) return i;
+            return -1;
+        }
+
+        public static int IndexOfAny<T>(ReadOnlySpan<T> span, T value0, T value1, T value2)
+        {
+            for (int i = 0; i < span.Length; i++)
+                if (CoreIntrinsics.AreEqual(span[i], value0) || CoreIntrinsics.AreEqual(span[i], value1) || CoreIntrinsics.AreEqual(span[i], value2)) return i;
+            return -1;
+        }
+
+        public static int IndexOfAny<T>(ReadOnlySpan<T> span, ReadOnlySpan<T> values)
+        {
+            for (int i = 0; i < span.Length; i++)
+                if (Contains(values, span[i])) return i;
+            return -1;
+        }
+
+        public static int LastIndexOfAny<T>(ReadOnlySpan<T> span, ReadOnlySpan<T> values)
+        {
+            for (int i = span.Length - 1; i >= 0; i--)
+                if (Contains(values, span[i])) return i;
+            return -1;
+        }
+
+        public static int IndexOfAnyExcept<T>(ReadOnlySpan<T> span, T value)
+        {
+            for (int i = 0; i < span.Length; i++)
+                if (!CoreIntrinsics.AreEqual(span[i], value)) return i;
+            return -1;
+        }
+
+        public static int IndexOfAnyExcept<T>(ReadOnlySpan<T> span, T value0, T value1)
+        {
+            for (int i = 0; i < span.Length; i++)
+                if (!CoreIntrinsics.AreEqual(span[i], value0) && !CoreIntrinsics.AreEqual(span[i], value1)) return i;
+            return -1;
+        }
+
+        public static int IndexOfAnyExcept<T>(ReadOnlySpan<T> span, T value0, T value1, T value2)
+        {
+            for (int i = 0; i < span.Length; i++)
+                if (!CoreIntrinsics.AreEqual(span[i], value0) && !CoreIntrinsics.AreEqual(span[i], value1) && !CoreIntrinsics.AreEqual(span[i], value2)) return i;
+            return -1;
+        }
+
+        public static int IndexOfAnyExcept<T>(ReadOnlySpan<T> span, ReadOnlySpan<T> values)
+        {
+            for (int i = 0; i < span.Length; i++)
+                if (!Contains(values, span[i])) return i;
+            return -1;
+        }
+
+        public static int IndexOfAnyInRange<T>(ReadOnlySpan<T> span, T lowInclusive, T highInclusive)
+        {
+            for (int i = 0; i < span.Length; i++)
+                if (CoreIntrinsics.Compare(span[i], lowInclusive) >= 0 && CoreIntrinsics.Compare(span[i], highInclusive) <= 0) return i;
+            return -1;
+        }
+
+        public static int IndexOfAnyExceptInRange<T>(ReadOnlySpan<T> span, T lowInclusive, T highInclusive)
+        {
+            for (int i = 0; i < span.Length; i++)
+                if (CoreIntrinsics.Compare(span[i], lowInclusive) < 0 || CoreIntrinsics.Compare(span[i], highInclusive) > 0) return i;
+            return -1;
+        }
+
+        public static int LastIndexOf<T>(ReadOnlySpan<T> span, ReadOnlySpan<T> value)
+        {
+            if (value.Length == 0) return span.Length;
+            for (int i = span.Length - value.Length; i >= 0; i--)
+                if (SequenceEqualAt(span, i, value)) return i;
+            return -1;
+        }
+
+        public static int CommonPrefixLength<T>(ReadOnlySpan<T> span, ReadOnlySpan<T> other)
+        {
+            int length = Math.Min(span.Length, other.Length);
+            for (int i = 0; i < length; i++)
+                if (!CoreIntrinsics.AreEqual(span[i], other[i])) return i;
+            return length;
+        }
+
+        public static int IndexOf(ReadOnlySpan<char> span, ReadOnlySpan<char> value, StringComparison comparisonType)
+        {
+            if (comparisonType == StringComparison.Ordinal) return StringOps.IndexOfOrdinal(span, value, 0);
+            if (comparisonType == StringComparison.OrdinalIgnoreCase)
+            {
+                if (value.Length == 0) return 0;
+                for (int i = 0; i <= span.Length - value.Length; i++)
+                    if (EqualsOrdinalIgnoreCase(span.Slice(i, value.Length), value)) return i;
+                return -1;
+            }
+            return span.ToString().IndexOf(value.ToString(), comparisonType);
+        }
+
+        public static bool StartsWith(ReadOnlySpan<char> span, ReadOnlySpan<char> value, StringComparison comparisonType)
+        {
+            if (comparisonType == StringComparison.Ordinal)
+                return value.Length <= span.Length && SequenceEqualAt(span, 0, value);
+            if (comparisonType == StringComparison.OrdinalIgnoreCase)
+                return value.Length <= span.Length && EqualsOrdinalIgnoreCase(span.Slice(0, value.Length), value);
+            return span.ToString().StartsWith(value.ToString(), comparisonType);
+        }
+
+        private static bool Contains<T>(ReadOnlySpan<T> values, T value)
+        {
+            for (int j = 0; j < values.Length; j++)
+                if (CoreIntrinsics.AreEqual(values[j], value)) return true;
+            return false;
+        }
+
+        private static bool SequenceEqualAt<T>(ReadOnlySpan<T> span, int start, ReadOnlySpan<T> value)
+        {
+            for (int j = 0; j < value.Length; j++)
+                if (!CoreIntrinsics.AreEqual(span[start + j], value[j])) return false;
+            return true;
+        }
+
+        // OrdinalIgnoreCase: simple invariant uppercase mapping per UTF-16 unit, like .NET.
+        private static bool EqualsOrdinalIgnoreCase(ReadOnlySpan<char> a, ReadOnlySpan<char> b)
+        {
+            for (int j = 0; j < a.Length; j++)
+                if (a[j] != b[j] && char.ToUpperInvariant(a[j]) != char.ToUpperInvariant(b[j])) return false;
+            return true;
+        }
+    }
+
+    [ShadowMembers("System.Text.Ascii")]
+    internal static class AsciiExtras
+    {
+        public static bool IsValid(ReadOnlySpan<char> value)
+        {
+            for (int i = 0; i < value.Length; i++)
+                if (value[i] > 0x7F) return false;
+            return true;
+        }
+
+        public static bool IsValid(ReadOnlySpan<byte> value)
+        {
+            for (int i = 0; i < value.Length; i++)
+                if (value[i] > 0x7F) return false;
+            return true;
+        }
+
+        public static bool IsValid(char value) => value <= 0x7F;
+
+        public static bool IsValid(byte value) => value <= 0x7F;
+    }
+
+    [ShadowMembers("System.Globalization.CharUnicodeInfo")]
+    internal static class CharUnicodeInfoExtras
+    {
+        public static System.Globalization.UnicodeCategory GetUnicodeCategory(char ch) => CharOps.GetUnicodeCategory(ch);
     }
 }
 
