@@ -160,7 +160,7 @@ regression sample (`tests/samples/250`–`258`). 32 programs that failed in the 
 | (found on the way) | `val as int?` threw `InvalidCastException` on a box of another type; `Nullable<T>.Value` in generic code with `T = bool` crashed the compiler | 258 |
 
 **`System.Text.Json` (row 1)** — ported to the corelib on the `json` branch ([12-corelib.md](12-corelib.md#systemtextjson),
-samples `tests/samples/310`–`326`). Re-run of the 25 programs matching `json` or `whats-new-dotnet-10`
+samples `tests/samples/310`–`326`). Re-run (before the `regex` merge) of the 25 programs matching `json` or `whats-new-dotnet-10`
 (`tools/compat/run.sh json whats-new-dotnet-10`): **10 pass** (none did in the first run), none
 differs from .NET. The datetime `JsonSerializer`/`Utf8JsonReader` snippets, `nullable-annotations`,
 `required-properties`, `populate-properties`, `converters/how-to` and `source-generation` pass.
