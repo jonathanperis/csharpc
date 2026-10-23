@@ -15,6 +15,8 @@ public sealed partial class FunctionCodeGen
 
     private LLVMValueRef EmitInvocation(IInvocationOperation inv)
     {
+        // [Conditional] methods are void, so an omitted call has no value (FunctionCodeGen.Conditional.cs).
+        if (IsConditionallyOmitted(inv)) return default;
         if (Intrinsics.TryGetConsoleFastPath(inv, out var consoleFastPath)) return consoleFastPath(this, inv);
         var target = S(inv.TargetMethod);
         if (IsCoreIntrinsic(target)) return EmitCoreIntrinsic(target, inv);
