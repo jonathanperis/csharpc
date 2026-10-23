@@ -202,13 +202,59 @@ interpolation (`DefaultInterpolatedStringHandler`), string `switch` (hash + `op_
 | SimpleBase 4.0.2 | ❌ library surface: `Lazy<T>`, `Range.EndAt`, `string.GetHashCode(StringComparison)`; unreachable async helpers become CSLLVM0007 stubs as designed |
 
 Every failure is a diagnostic naming the method and instruction; none of the four produced wrong
-output. The remaining blockers are BCL surface (roadmap M2), not IL constructs: once the IL is
+output.
+
+**Framework IL at scale.** `System.Collections.Immutable.dll` from the shared framework (ReadyToRun,
+~1 MB of IL), used by a program exercising `ImmutableList`/`ImmutableArray`/`ImmutableDictionary`/
+`ImmutableStack`: every reachable method decodes and lowers except 19 sites, all library surface —
+`Array.Copy`/type tests on values typed `System.Array`, `Math.Max(byte, byte)`, `Array.LastIndexOf`,
+`ResourceManager` (resource strings), `AppContext.TryGetSwitch`, `InlineArray2<T>` (params spans).
+No IL construct was missing. The remaining blockers are BCL surface (roadmap M2), not IL constructs: once the IL is
 decoded, a package needs exactly the library members a source program calling the same APIs needs.
 
 **Known semantic differences** (documented, explicit where observable): filters run during dispatch
 in the frame that catches (as in the source path), after inner `finally` blocks have run — .NET runs
 them in the first pass; `tail.` is not a guaranteed tail call. (An exception thrown inside a filter
 counts as `false`, as in .NET: filter code has its own catch-all landing pad.)
+
+## Next steps
+
+Toward **arbitrary pure-IL NuGet packages** (ordered; size in focused days):
+
+1. Compiled `async`: an `AsyncTaskMethodBuilder`/`<T>`/`ValueTask` builder family in the corelib over
+   csrt's task scheduler, plus `IAsyncStateMachine` driving (`AwaitUnsafeOnCompleted` on csrt
+   awaiters). Unblocks every library with `async` methods. (3–5)
+2. Resource strings: `SR.GetResourceString(key)` in framework and package assemblies read the
+   assembly's embedded `.resources` at compile time into a constant table (exception messages must
+   match .NET's). Also `AppContext` switches with their defaults. (1–2)
+3. BCL surface packages use first — measured by compiling the top-N pure-IL packages from nuget.org:
+   `Lazy<T>`, `ReadOnlyCollection<T>`/`AsReadOnly`, `System.Array` as a static type (`Array.Copy`,
+   `is Array`), `CultureInfo`/`NumberFormatInfo` objects (invariant), `BitConverter`, more `Math`
+   overloads, `string.GetHashCode` overloads, `InlineArray`. A survey harness (`tools/compat`-style)
+   turns this into a ranked list. (ongoing, M2)
+4. `calli` and function pointers from IL; `ckfinite`; TypedReference only if a package needs it. (1)
+5. Package assets beyond `lib/`: RID-specific runtime assets (`runtimes/<rid>/lib`), native assets
+   linked or copied for P/Invoke, satellite resource assemblies; `ref/` vs `lib/` binding (bind
+   against `ref/` symbols, map to `lib/` bodies by name) for packages whose surfaces differ. (2)
+6. Compile-time scale: decode each method once per definition (not per instantiation), cache token
+   resolution per assembly, and lower IL methods in parallel codegen units. (2–3)
+
+Toward **M6 (csharpc and Roslyn compiled by csharpc)**:
+
+1. Everything above (Roslyn and csharpc use async, resources, `Lazy<T>`, immutable collections).
+2. Framework IL as a library strategy: compile leaf framework assemblies from the shared framework's
+   IL (`System.Collections.Immutable`, `System.Reflection.Metadata`, `Microsoft.Extensions.*`) instead
+   of shadowing them in the corelib; only `System.Private.CoreLib`-level types (runtime intrinsics,
+   FCalls) stay shadows/intrinsics. Needs a policy for which framework assemblies to take as IL
+   (a `--framework-il` list, defaulting to pure leaf assemblies). (2–3)
+3. Reflection used by Roslyn at startup (`typeof(X).Assembly`, resource lookup, `Activator` for
+   analyzers): generated metadata for what's statically known, diagnostics for the rest (NativeAOT's
+   rd.xml-style model). (5+)
+4. Roslyn source vs IL: compile Roslyn from source (the primary path) with its dependencies from IL,
+   then csharpc itself; measure compile time and memory of a ~40 MB-of-IL closed world, and add
+   codegen units/ThinLTO (ADR 0006) where needed. (5+)
+5. The LLVM C API through `[LibraryImport]` in csharpc itself already works for P/Invoke from C#
+   source; validate the same stubs when csharpc's own `Native.cs` is compiled. (1)
 
 ## Alternatives considered
 
