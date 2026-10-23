@@ -23,6 +23,17 @@ public sealed partial class ModuleCodeGen
         return _primitiveSlots[key] = global;
     }
 
+    /// <summary>Does <see cref="PrimitiveSlot"/> implement this member for boxed values of the primitive?</summary>
+    internal static bool PrimitiveSlotSupported(ITypeSymbol primitive, INamedTypeSymbol itf, IMethodSymbol member) =>
+        primitive.SpecialType is >= SpecialType.System_Boolean and <= SpecialType.System_Double && primitive.SpecialType != SpecialType.System_Decimal
+        && (itf.Name, member.Name) switch
+        {
+            ("IComparable", "CompareTo") when !itf.IsGenericType => true,
+            ("IFormattable", "ToString") => true,
+            ("IComparable", "CompareTo") or ("IEquatable", "Equals") => itf.IsGenericType && SymbolEqualityComparer.Default.Equals(itf.TypeArguments[0], primitive),
+            _ => false,
+        };
+
     private LLVMValueRef PrimitiveSlot(ITypeSymbol primitive, INamedTypeSymbol itf, IMethodSymbol member)
     {
         switch (itf.Name, member.Name)

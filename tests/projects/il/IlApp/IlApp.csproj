@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- References IlShapes only as a prebuilt DLL (no ProjectReference): csharpc compiles the library
+       from its IL. tests/il.sh builds IlShapes first and passes its path in IlShapesDll. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net11.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IlShapesDll Condition="'$(IlShapesDll)' == ''">../IlShapes/bin/Release/net11.0/IlShapes.dll</IlShapesDll>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="IlShapes">
+      <HintPath>$(IlShapesDll)</HintPath>
+    </Reference>
+  </ItemGroup>
+</Project>

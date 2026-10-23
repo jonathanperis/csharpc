@@ -424,6 +424,9 @@ void* csrt_isinst_class(void* obj, const csrt_MethodTable* type) {
     }
     for (const csrt_MethodTable* mt = objmt; mt; mt = mt->base)
         if (mt == type) return obj;
+    // `is System.Array`: element-typed array tables derive from csrt_Array_MT; arrays the runtime
+    // allocated untagged may still carry the GC's primitive-array table.
+    if (type == &csrt_Array_MT.header && objmt == &csrt_PrimitiveArray_MT.header) return obj;
     return NULL;
 }
 
@@ -439,6 +442,12 @@ void* const* csrt_interface_slots(void* obj, const csrt_MethodTable* interface_t
     fprintf(stderr, "Unhandled exception. System.InvalidCastException: Unable to cast object of type '%s' to type '%s'." CSRT_NEWLINE,
             mt->name, interface_type->name);
     csrt_fail_unhandled();
+}
+
+_Noreturn void csrt_unsupported_method(const char* message) {
+    fflush(stdout);
+    fprintf(stderr, "csharpc: fatal: %s\n", message);
+    abort();
 }
 
 _Noreturn static void invalid_cast(const csrt_MethodTable* from, const csrt_MethodTable* to) {

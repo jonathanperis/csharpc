@@ -14,6 +14,7 @@ public sealed partial class FunctionCodeGen
 
         return op switch
         {
+            IlValueOperation il => il.Emit(), // an IL evaluation-stack value (FunctionCodeGen.Il.cs)
             IFlowCaptureReferenceOperation r => LoadCapture(r),
             ILocalReferenceOperation l => LoadValue(LocalSlot(l.Local), S(l.Local.Type)),
             IParameterReferenceOperation p => LoadValue(ParameterSlot(p.Parameter, p), S(p.Parameter.Type)),
@@ -151,6 +152,8 @@ public sealed partial class FunctionCodeGen
 
     internal LLVMValueRef AddressOf(IOperation target) => target switch
     {
+        IlValueOperation { HasAddress: true } il => il.Address,
+        IlValueOperation il => Spill(il.Emit()),
         ILocalReferenceOperation l => LocalSlot(l.Local),
         IParameterReferenceOperation p => ParameterSlot(p.Parameter, p),
         IFieldReferenceOperation { Field: { IsStatic: true, Name: "Zero", ContainingType.SpecialType: SpecialType.System_IntPtr or SpecialType.System_UIntPtr } } z =>

@@ -19,8 +19,9 @@ try { await Divide(1, 0); } catch (DivideByZeroException e) { Console.WriteLine(
 // try/catch/finally inside async methods, across awaits.
 Console.WriteLine(await Guarded());
 
-// Task.WhenAll: await rethrows the first exception.
-try { await Task.WhenAll(Boom("a"), Divide(4, 2), Boom("b")); }
+// Task.WhenAll: await rethrows the faulted task's exception. (With several faulted tasks, which one
+// comes first varies under real .NET, between thread-pool interleavings and between platforms.)
+try { await Task.WhenAll(Boom("a"), Divide(4, 2)); }
 catch (InvalidOperationException e) { Console.WriteLine("WhenAll -> " + e.Message); }
 
 // GetAwaiter().GetResult() rethrows the original exception.

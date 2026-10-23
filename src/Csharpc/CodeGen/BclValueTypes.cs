@@ -192,6 +192,14 @@ internal static partial class BclValueTypes
         return g.TypeOf(arg) is IArrayTypeSymbol { Rank: 1 } array ? array.ElementType : null; // substituted: generic code copies T[]
     }
 
+    private static bool IsSystemArray(FunctionCodeGen g, IOperation at, int ordinal)
+    {
+        if (at is not IInvocationOperation inv) return false;
+        var arg = inv.Arguments.FirstOrDefault(a => a.Parameter!.Ordinal == ordinal)?.Value;
+        while (arg is IConversionOperation c) arg = c.Operand;
+        return g.TypeOf(arg) is { SpecialType: SpecialType.System_Array };
+    }
+
     // Generic helpers (Array.Reverse<T>): the method is already substituted, so prefer its T.
     private static ITypeSymbol ElementOrThrow(FunctionCodeGen g, IMethodSymbol method, IOperation at, int ordinal) =>
         (method.TypeArguments.Length == 1 ? method.TypeArguments[0] : null)
@@ -203,7 +211,14 @@ internal static partial class BclValueTypes
     {
         var dstOrdinal = m.Parameters.Length == 3 ? 1 : 2;
         var e = ElementOrThrow(g, m, at, 0);
-        var de = ArrayElementOf(g, at, dstOrdinal) ?? throw CompileError.Unsupported($"'{m}' on a non-array argument", at);
+        var de = ArrayElementOf(g, at, dstOrdinal);
+        if (de is null && IsSystemArray(g, at, dstOrdinal))
+        {
+            // The destination's element type is only known at run time (ICollection.CopyTo(Array, int)).
+            g.CallCoreLibGenericMethod("ArrayChecks", "CopyToUntyped", [e], src, srcIndex, dst, dstIndex, length, longLength ? g.Llvm.True : g.Llvm.False);
+            return default;
+        }
+        if (de is null) throw CompileError.Unsupported($"'{m}' on a non-array argument", at);
         if (!SymbolEqualityComparer.Default.Equals(e, de)
             && !(e.IsReferenceType && de.IsReferenceType && g.Module.Compilation.ClassifyCommonConversion(e, de) is { IsImplicit: true, IsReference: true } or { IsIdentity: true }))
             throw CompileError.Unsupported($"Array.Copy from {e}[] to {de}[] (element conversion)", at);

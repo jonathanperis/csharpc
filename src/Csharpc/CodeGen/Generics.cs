@@ -34,6 +34,16 @@ public sealed class TypeSubstitution
         return s._map.Count == 0 ? Identity : s;
     }
 
+    /// <summary>Type parameter -> argument map for a constructed type (its own and its containing types' arguments).</summary>
+    public static TypeSubstitution ForType(INamedTypeSymbol? type, Compilation compilation)
+    {
+        var s = new TypeSubstitution(compilation);
+        for (var t = type; t is not null; t = t.ContainingType)
+            if (t.IsGenericType)
+                Add(s, t.OriginalDefinition.TypeParameters, t.TypeArguments);
+        return s._map.Count == 0 ? Identity : s;
+    }
+
     private static void Add(TypeSubstitution s, IReadOnlyList<ITypeParameterSymbol> parameters, IReadOnlyList<ITypeSymbol> arguments)
     {
         for (var i = 0; i < parameters.Count; i++)

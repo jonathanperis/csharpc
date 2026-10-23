@@ -51,6 +51,57 @@ namespace CsharpcCoreLib
 
         public static IEnumerator<T> IEnumerable1_GetEnumerator(T[] a) => new ArrayEnumerator<T>(a);
 
+        // IStructuralComparable / IStructuralEquatable (System.Array's explicit implementations): element-wise
+        // over boxed elements with the given comparer. Arrays of another element type would need untyped
+        // element access, which csharpc doesn't have: reported instead of guessed.
+        private static T[] OtherOfSameType(object other)
+        {
+            if (other is T[] same) return same;
+            if (other is Array)
+                throw new NotSupportedException("csharpc: structural comparison of arrays with different element types is not supported yet.");
+            return null;
+        }
+
+        public static int IStructuralComparable_CompareTo(T[] a, object other, IComparer comparer)
+        {
+            if (other == null) return 1;
+            var o = OtherOfSameType(other);
+            if (o == null || a.Length != o.Length)
+                throw new ArgumentException("Object is not a array with the same number of elements as the array to compare it to.", "other");
+            int i = 0, c = 0;
+            while (i < o.Length && c == 0)
+            {
+                c = comparer.Compare(CoreIntrinsics.Box(a[i]), CoreIntrinsics.Box(o[i]));
+                i++;
+            }
+            return c;
+        }
+
+        public static bool IStructuralEquatable_Equals(T[] a, object other, IEqualityComparer comparer)
+        {
+            if (other == null) return false;
+            if (ReferenceEquals(a, other)) return true;
+            var o = OtherOfSameType(other);
+            if (o == null || o.Length != a.Length) return false;
+            for (int i = 0; i < o.Length; i++)
+                if (!comparer.Equals(CoreIntrinsics.Box(a[i]), CoreIntrinsics.Box(o[i]))) return false;
+            return true;
+        }
+
+        public static int IStructuralEquatable_GetHashCode(T[] a, IEqualityComparer comparer)
+        {
+            if (comparer == null) throw new ArgumentNullException("comparer");
+            // .NET combines the last 8 elements with a per-process random seed (HashCode); any stable
+            // combination of the same elements keeps the contract.
+            int hash = 0;
+            for (int i = a.Length >= 8 ? a.Length - 8 : 0; i < a.Length; i++)
+            {
+                uint rol5 = ((uint)hash << 5) | ((uint)hash >> 27);
+                hash = ((int)rol5 + hash) ^ comparer.GetHashCode(CoreIntrinsics.Box(a[i]));
+            }
+            return hash;
+        }
+
         public static int ICollection1_get_Count(T[] a) => a.Length;
         public static bool ICollection1_get_IsReadOnly(T[] a) => true;
         public static void ICollection1_Add(T[] a, T item) => throw new NotSupportedException("Collection was of a fixed size.");

@@ -18,6 +18,12 @@ public sealed record CompilerOptions
     public string? Cpu { get; set; }
     public string? Features { get; set; }
     public bool DumpCfg { get; set; }
+    /// <summary>Print the decoded IL blocks of methods compiled from IL (--dump-il).</summary>
+    public bool DumpIl { get; set; }
+    /// <summary>--il-survey: lower every non-generic method of the IL assemblies, reachable or not (tools/il-survey).</summary>
+    public bool IlSurvey { get; set; }
+    /// <summary>Assemblies without sources (-r): bound against and compiled from IL (docs/adr/0010-il-frontend.md).</summary>
+    public List<string> References { get; } = [];
     /// <summary>Emit DWARF debug info (-g; implied by -c Debug).</summary>
     public bool Debug { get; set; }
     public bool DebugExplicit { get; set; }
@@ -64,12 +70,15 @@ public sealed record CompilerOptions
           --cpu <name>           Target CPU: native, x86-64-v3, znver4, ... (default: best x86-64-vN the host supports; host CPU on AArch64)
           --features <list>      Extra LLVM target features, e.g. +avx512f
           -D <symbol>            Define a preprocessor symbol
+          -r, --reference <dll>  Reference an assembly that ships only IL; reachable code is compiled from its IL
           --no-implicit-usings   Don't add the SDK's implicit global usings
           --no-runtime-lto       Link the runtime as objects instead of LTO-ing its bitcode
           --hardening <level>    none | default (full RELRO, NX, stack probes, hardened runtime) | max (+ CET IBT/SHSTK or BTI/PAC, SLH)
           --sanitize <list>      Build the runtime with sanitizers, e.g. address,undefined (testing; $CSHARPC_SANITIZE)
           --cc <path>            C compiler used as linker driver (default: $CSHARPC_CC or clang)
           --dump-cfg             Print Roslyn's control-flow graphs (csharpc's "MIR")
+          --dump-il              Print the IL blocks of methods compiled from IL
+          --il-survey            Also lower every non-generic method of the referenced IL assemblies (tools/il-survey)
           --intrinsics           List the library members csharpc implements
           -W                     Show Roslyn warnings
           -v, --verbose          Print pipeline phases and timings
@@ -124,6 +133,10 @@ public sealed record CompilerOptions
                 case "--cpu": o.Cpu = Next(); break;
                 case "--features": o.Features = Next(); break;
                 case "-D": o.Defines.Add(Next()); break;
+                case "-r" or "--reference": o.References.Add(Path.GetFullPath(Next())); break;
+                case var _ when a.StartsWith("-r:", StringComparison.Ordinal) || a.StartsWith("/r:", StringComparison.Ordinal):
+                    o.References.Add(Path.GetFullPath(a[3..]));
+                    break;
                 case "--no-implicit-usings": o.ImplicitUsings = false; break;
                 case "--no-runtime-lto": o.RuntimeLto = false; break;
                 case "--hardening": o.Hardening = Driver.Hardening.Parse(Next()); break;
@@ -132,6 +145,8 @@ public sealed record CompilerOptions
                 case var _ when a.StartsWith("--hardening="): o.Hardening = Driver.Hardening.Parse(a["--hardening=".Length..]); break;
                 case "--cc": o.CC = Next(); break;
                 case "--dump-cfg": o.DumpCfg = true; break;
+                case "--dump-il": o.DumpIl = true; break;
+                case "--il-survey": o.IlSurvey = true; break;
                 case "-g" or "--debug": o.Debug = true; o.DebugExplicit = true; break;
                 case "-g0": o.Debug = false; o.DebugExplicit = true; break;
                 case "-W": o.ShowWarnings = true; break;

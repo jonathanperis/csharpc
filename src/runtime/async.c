@@ -72,7 +72,8 @@ _Static_assert(offsetof(csrt_Iterator, payload) == 48, "iterator payload offset 
 _Static_assert(offsetof(csrt_Iterator, state) == 8, "iterator state offset is part of the compiler ABI");
 
 enum { K_RESUME = 1, K_WHEN_ALL = 2, K_CHAIN = 3, K_WHEN_ANY = 4, K_RUN_ACTION = 5, K_RUN_FUNC_TASK = 6,
-       K_TIMER_TASK = 7, K_TIMER_CANCEL = 8, K_RUN_THUNK = 9, K_RESUME_FLOW = 10 };
+       K_TIMER_TASK = 7, K_TIMER_CANCEL = 8, K_RUN_THUNK = 9,
+       K_INVOKE = 10 /* an Action continuation (awaiter.OnCompleted) */, K_RESUME_FLOW = 11 };
 
 // An await continuation registered while a non-default execution-context flow was current (csrt.h):
 // the coroutine resumes with that flow, as .NET restores the captured ExecutionContext.
@@ -290,6 +291,17 @@ void csrt_task_fault(csrt_Task* t, void* exception) { finish(t, T_FAULTED, excep
 
 void csrt_task_cancel(csrt_Task* t) { finish(t, T_CANCELED, NULL); }
 
+/// An exception escaping an async method (source coroutine or IL builder): an OperationCanceledException
+/// cancels the task and is kept, so `await` rethrows that same exception (.NET's TrySetCanceled(token, oce));
+/// anything else faults it.
+bool csrt_task_try_fault_async(csrt_Task* t, void* exception) {
+    return try_finish(t, csrt_is_operation_canceled(exception) ? T_CANCELED : T_FAULTED, exception);
+}
+
+void csrt_task_fault_async(csrt_Task* t, void* exception) {
+    if (!csrt_task_try_fault_async(t, exception)) csrt_throw(&mt_invalid_operation, csrt_string_from_utf8(k_already_completed));
+}
+
 bool csrt_task_try_complete(csrt_Task* t) { return try_finish(t, T_DONE, NULL); }
 bool csrt_task_try_fault(csrt_Task* t, void* e) { return try_finish(t, T_FAULTED, e); }
 bool csrt_task_try_cancel(csrt_Task* t) { return try_finish(t, T_CANCELED, NULL); }
@@ -333,7 +345,7 @@ static void when_all_step(WhenAllState* s) {
 static void chain(csrt_Task* from, csrt_Task* to) {
     int32_t st = from ? task_state(from) : T_DONE;
     if (st == T_FAULTED) { finish(to, T_FAULTED, from->exception); return; }
-    if (st == T_CANCELED) { finish(to, T_CANCELED, NULL); return; }
+    if (st == T_CANCELED) { finish(to, T_CANCELED, from->exception); return; }
     int32_t n = to->payload_size < (from ? from->payload_size : 0) ? to->payload_size : (from ? from->payload_size : 0);
     if (n > 0) memcpy(to->payload, from->payload, (size_t)n);
     csrt_task_complete(to);
@@ -353,6 +365,13 @@ static void when_any_hit(csrt_Task* any, csrt_Task* winner) {
 // which case they go to the pool.
 static _Thread_local int tl_inline_depth;
 enum { MAX_INLINE_DEPTH = 32 };
+
+/// Runs an Action continuation. An exception escaping it is unhandled, as on .NET's thread pool.
+static void invoke_action(void* del) {
+    Delegate* d = del;
+    void* exception = csrt_call_catching_void((void (*)(void*))d->fn, d->target);
+    if (exception) csrt_unhandled_exception(exception);
+}
 
 static void run_continuations(csrt_Task* t, csrt_Array* conts, int32_t n) {
     for (int32_t i = 0; i < n; i++) {
@@ -374,6 +393,13 @@ static void run_continuations(csrt_Task* t, csrt_Array* conts, int32_t n) {
                 } else enqueue_flow(K_RESUME, frame, NULL, flow);
                 break;
             }
+            case K_INVOKE:
+                if (tl_inline_depth < MAX_INLINE_DEPTH) {
+                    tl_inline_depth++;
+                    invoke_action(p);
+                    tl_inline_depth--;
+                } else enqueue(K_INVOKE, p, NULL);
+                break;
             case K_WHEN_ALL: when_all_step(p); break;
             case K_CHAIN: chain(t, p); break;
             case K_WHEN_ANY: when_any_hit(p, t); break;
@@ -386,7 +412,10 @@ void csrt_task_throw_if_faulted(csrt_Task* t) {
     if (!t) return;
     int32_t st = task_state(t);
     if (st == T_FAULTED) csrt_rethrow(t->exception);
-    if (st == T_CANCELED) csrt_throw_object(csrt_task_canceled_exception_new());
+    if (st == T_CANCELED) {
+        if (t->exception) csrt_rethrow(t->exception); // canceled by an OperationCanceledException
+        csrt_throw_object(csrt_task_canceled_exception_new());
+    }
 }
 
 /// Task.Exception: an AggregateException for faulted tasks, else null.
@@ -433,6 +462,20 @@ void csrt_task_on_completed(csrt_Task* t, void* frame) {
         added = add_continuation(t, K_RESUME_FLOW, r);
     } else added = add_continuation(t, K_RESUME, frame);
     if (!added) enqueue(K_RESUME, frame, NULL);
+}
+
+/// awaiter.OnCompleted(action) / UnsafeOnCompleted(action) (IL async state machines, custom awaiter
+/// patterns): run the action when `t` completes — inline on the completing thread, or on the pool if
+/// `t` already completed, as TaskAwaiter does without a SynchronizationContext.
+void csrt_task_on_completed_action(csrt_Task* t, void* action) {
+    if (!action) csrt_throw_null_reference();
+    if (!t || !add_continuation(t, K_INVOKE, action)) enqueue(K_INVOKE, action, NULL);
+}
+
+/// YieldAwaiter.OnCompleted(action): run the action on the pool.
+void csrt_queue_action(void* action) {
+    if (!action) csrt_throw_null_reference();
+    enqueue(K_INVOKE, action, NULL);
 }
 
 /// `await Task.Yield()`: resume on the pool, after work already queued.
@@ -608,6 +651,7 @@ void csrt_cts_cancel(CancellationSource* cts) {
     for (int32_t i = ncallbacks - 1; i >= 0; i--) {
         void* entry = words(callbacks)[i];
         if (((csrt_Object*)entry)->mt == &csrt_Task_MT.header) { csrt_task_try_cancel(entry); continue; }
+        if (((csrt_Object*)entry)->mt == &csrt_CancellationTokenSource_MT.header) { csrt_cts_cancel(entry); continue; } // linked source
         Delegate* d = entry;
         ((void (*)(void*))d->fn)(d->target);
     }
@@ -640,6 +684,7 @@ void csrt_token_register(CancellationSource* token, void* action) {
     if (token->canceled) {
         pthread_mutex_unlock(&s_tlock);
         if (((csrt_Object*)action)->mt == &csrt_Task_MT.header) { csrt_task_try_cancel(action); return; }
+        if (((csrt_Object*)action)->mt == &csrt_CancellationTokenSource_MT.header) { csrt_cts_cancel(action); return; }
         Delegate* d = action;
         ((void (*)(void*))d->fn)(d->target);
         return;
@@ -652,6 +697,15 @@ void csrt_token_register(CancellationSource* token, void* action) {
     }
     words(token->callbacks)[token->ncallbacks++] = action;
     pthread_mutex_unlock(&s_tlock);
+}
+
+/// CancellationTokenSource.CreateLinkedTokenSource(a, b): canceled when either token is (registered
+/// on both as a callback entry; canceled at once if one already is).
+CancellationSource* csrt_cts_new_linked(CancellationSource* a, CancellationSource* b) {
+    CancellationSource* cts = csrt_cts_new();
+    csrt_token_register(a, cts);
+    csrt_token_register(b, cts);
+    return cts;
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -722,6 +776,7 @@ csrt_Task* csrt_task_run_thunk(void (*thunk)(void*), void* del, int32_t payload_
 static void run_item(intptr_t kind, void* a, void* b) {
     switch (kind) {
         case K_RESUME: csrt_coro_resume(a); break;
+        case K_INVOKE: invoke_action(a); break;
         case K_RUN_ACTION: {
             Delegate* d = a;
             void* exception = csrt_call_catching_void((void (*)(void*))d->fn, d->target);

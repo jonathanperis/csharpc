@@ -117,6 +117,7 @@ csrt_String* csrt_exception_to_string(void* exception);
 _Noreturn void csrt_unhandled_exception(void* exception);
 void* csrt_aggregate_exception_new(void** inners, int64_t count);
 void* csrt_task_canceled_exception_new(void);
+bool csrt_is_operation_canceled(void* exception);
 void* csrt_operation_canceled_exception_new(void);
 _Noreturn void csrt_throw_invalid_cast_from(const csrt_MethodTable* from, const csrt_MethodTable* to);
 csrt_String* csrt_string_from_utf8(const char* text);
@@ -127,6 +128,9 @@ _Noreturn void csrt_throw_null_reference(void);
 _Noreturn void csrt_throw_index_out_of_range(void);
 _Noreturn void csrt_throw_divide_by_zero(void);
 _Noreturn void csrt_throw_overflow(void);
+// A method csharpc could not compile was called (IL front-end, docs/adr/0010-il-frontend.md): the
+// compiler reported it as a warning; reaching it at run time ends the program with that message.
+_Noreturn void csrt_unsupported_method(const char* message);
 _Noreturn void csrt_throw_negate_overflow(void);
 _Noreturn void csrt_throw_out_of_memory(const char* message);  // NULL: "Insufficient memory to continue..."
 

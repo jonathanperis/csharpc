@@ -81,7 +81,7 @@ public sealed partial class ModuleCodeGen
                 if (SymbolEqualityComparer.Default.Equals(b.OriginalDefinition, root.OriginalDefinition)) return true;
             return false;
         }
-        return _userTypes.Where(t => t.TypeKind == TypeKind.Class && !t.IsGenericType && !t.IsStatic && Derives(t)).OrderByDescending(Depth);
+        return HierarchyTypes.Where(t => t.TypeKind == TypeKind.Class && !t.IsGenericType && !t.IsStatic && Derives(t)).OrderByDescending(Depth);
     }
 
     /// <summary>Generic class definitions deriving from <paramref name="root"/> (their instantiations are only known lazily).</summary>
@@ -104,11 +104,12 @@ public sealed partial class ModuleCodeGen
     public SemanticModel ModelFor(SyntaxTree tree) =>
         _models.TryGetValue(tree, out var model) ? model : _models[tree] = Compilation.GetSemanticModel(tree);
 
+    /// <summary>Compiled by csharpc: defined in the program's sources (incl. the corelib) or in an IL assembly (ADR 0010).</summary>
     public bool IsUserType(ITypeSymbol? type) =>
-        type is INamedTypeSymbol && SymbolEqualityComparer.Default.Equals(type.ContainingAssembly, Compilation.Assembly);
+        type is INamedTypeSymbol && (SymbolEqualityComparer.Default.Equals(type.ContainingAssembly, Compilation.Assembly) || Il.Contains(type.ContainingAssembly));
 
     public bool IsUserMethod(IMethodSymbol method) =>
-        SymbolEqualityComparer.Default.Equals(method.ContainingAssembly, Compilation.Assembly);
+        SymbolEqualityComparer.Default.Equals(method.ContainingAssembly, Compilation.Assembly) || Il.Contains(method.ContainingAssembly);
 
     // ======================================================================================
     // Driver
@@ -143,6 +144,7 @@ public sealed partial class ModuleCodeGen
                      && !TypeSubstitution.IsGenericContext(t)))
             foreach (var method in type.GetMembers().OfType<IMethodSymbol>().Where(m => !m.IsGenericMethod))
                 Guard(method, () => EmitMethod(method));
+        if (IlSurvey) QueueIlSurveyMethods();
 
         DrainWorklists();
 
@@ -153,6 +155,7 @@ public sealed partial class ModuleCodeGen
         do DrainWorklists();
         while (EmitRuntimeExports());
         FinishMethodTables();
+        ReportIlFailures();
     }
 
     private void DrainWorklists()
@@ -178,6 +181,9 @@ public sealed partial class ModuleCodeGen
     private void Guard(ISymbol symbol, Action action)
     {
         if (s_trace) Console.Error.WriteLine($"[csharpc] lowering {symbol.ToDisplayString()}");
+        var outerCaller = _currentCaller;
+        // The function being lowered, for the IL front-end's reachability (a type: its class initializer).
+        _currentCaller = symbol switch { IMethodSymbol m => m, INamedTypeSymbol t => t.StaticConstructors.FirstOrDefault(), _ => null };
         try { action(); }
         catch (CompileError error)
         {
@@ -195,6 +201,7 @@ public sealed partial class ModuleCodeGen
                 $"internal compiler error while lowering '{symbol.ToDisplayString()}': {e.GetType().Name}: {e.Message} (set CSHARPC_TRACE=1 for details)",
                 symbol.Locations.FirstOrDefault()));
         }
+        finally { _currentCaller = outerCaller; }
     }
 
     private void CollectTypes(INamespaceOrTypeSymbol container)
@@ -226,6 +233,7 @@ public sealed partial class ModuleCodeGen
         var generic = TypeSubstitution.IsGenericContext(method);
         if (!generic) method = method.OriginalDefinition;
         if (method.PartialDefinitionPart is { } partialDefinition) method = partialDefinition; // one function per partial member
+        if (!Il.IsEmpty && !_slotReference) NoteReference(method, virtualCall: false);
         if (_functions.TryGetValue(method, out var existing)) return existing;
         if (generic && TypeSubstitution.IsOpen(method))
             throw CompileError.Unsupported($"open generic instantiation '{method}'", method);
@@ -242,7 +250,8 @@ public sealed partial class ModuleCodeGen
         if ((method.MethodImplementationFlags & System.Reflection.MethodImplAttributes.NoInlining) != 0)
             Llvm.AddFunctionAttribute(fn, "noinline");
         MarkIfCoroutine(method, fn);
-        if ((generic || CoreLib.IsCoreLib(method)) && IsUserMethod(method) && !method.IsAbstract && !method.IsExtern)
+        // Generic instantiations, corelib and IL methods are lowered on demand, when first referenced.
+        if ((generic || CoreLib.IsCoreLib(method) || IsIlMethod(method)) && IsUserMethod(method) && !method.IsAbstract && !method.IsExtern)
             _pendingInstantiations.Enqueue(method);
         return _functions[method] = new LoweredFunction(fn, type);
     }
@@ -436,9 +445,41 @@ public sealed partial class ModuleCodeGen
     public LoweredFunction Intrinsic(string name, LLVMTypeRef ret, params LLVMTypeRef[] parameters) =>
         Runtime(name, ret, parameters);
 
+    /// <summary>Where lowering time goes (printed by `csharpc -v`).</summary>
+    public sealed class LoweringStats
+    {
+        public int IlMethods, SourceMethods, CoreLibMethods;
+        public long IlTicks, IlDecodeTicks, SourceTicks, CoreLibTicks;
+        public override string ToString() =>
+            $"IL {IlMethods} methods {Ms(IlTicks)} ms (decode {Ms(IlDecodeTicks)} ms), source {SourceMethods} methods {Ms(SourceTicks)} ms, corelib {CoreLibMethods} methods {Ms(CoreLibTicks)} ms";
+        private static string Ms(long ticks) => (ticks * 1000.0 / System.Diagnostics.Stopwatch.Frequency).ToString("F0", System.Globalization.CultureInfo.InvariantCulture);
+    }
+
+    public LoweringStats Stats { get; } = new();
+
     private void EmitMethod(IMethodSymbol method)
     {
+        var start = System.Diagnostics.Stopwatch.GetTimestamp();
+        var il = Il.OwnerOf(method) is not null;
+        var corelib = !il && CoreLib.IsCoreLib(method);
+        try { EmitMethodCore(method); }
+        finally
+        {
+            var elapsed = System.Diagnostics.Stopwatch.GetTimestamp() - start;
+            if (il) { Stats.IlMethods++; Stats.IlTicks += elapsed; }
+            else if (corelib) { Stats.CoreLibMethods++; Stats.CoreLibTicks += elapsed; }
+            else { Stats.SourceMethods++; Stats.SourceTicks += elapsed; }
+        }
+    }
+
+    private void EmitMethodCore(IMethodSymbol method)
+    {
         if (method.IsAbstract || method.IsExtern) return;
+        if (Il.OwnerOf(method) is { } ilAssembly)
+        {
+            EmitIlMethod(ilAssembly, method);
+            return;
+        }
         if (method.IsPartialDefinition && method.PartialImplementationPart is null)
         {
             // Unimplemented partial void method: Roslyn drops the calls; give it an empty body anyway.
@@ -462,8 +503,9 @@ public sealed partial class ModuleCodeGen
             return;
         }
         if (method.MethodKind == MethodKind.Constructor && method.ContainingType.IsStatic) return;
-        if (method.MethodKind == MethodKind.StaticConstructor && TypeSubstitution.IsGenericContext(method))
-            throw CompileError.Unsupported("static constructors in generic types", method);
+        // A generic type's static constructor runs from each instantiation's class initializer
+        // (ModuleCodeGen.StaticInit.cs), lowered there under that instantiation's substitution.
+        if (method.MethodKind == MethodKind.StaticConstructor && TypeSubstitution.IsOpen(method.ContainingType)) return;
         // Static field initializers run from __csharpc_static_init; only explicit cctors get a function.
         if (method.MethodKind == MethodKind.StaticConstructor && method.IsImplicitlyDeclared) return;
 
@@ -643,6 +685,7 @@ public sealed partial class ModuleCodeGen
                 : throw CompileError.Unsupported($"instances of library class '{type}'", type);
         if (TypeSubstitution.IsOpen(type)) throw CompileError.Unsupported($"open generic type '{type}'", type);
         RejectCustomLayout(type);
+        RejectIlCustomLayout(type);
         return BuildOrForget(_layouts, type, BuildLayout);
     }
 
@@ -714,7 +757,9 @@ public sealed partial class ModuleCodeGen
             layout.SlotOrder.Add(f);
             elements.Add(FieldStorage(f));
         }
-        foreach (var e in type.GetMembers().OfType<IEventSymbol>().Where(e => !e.IsStatic && e.AddMethod is null or { IsImplicitlyDeclared: true }))
+        var ilOwner = Il.OwnerOf(type);
+        foreach (var e in type.GetMembers().OfType<IEventSymbol>().Where(e => !e.IsStatic
+                     && (e.AddMethod is null or { IsImplicitlyDeclared: true } || ilOwner?.HasBackingField(e) == true)))
         {
             layout.EventFieldIndex[e] = (uint)elements.Count;
             layout.SlotOrder.Add(e);
@@ -1037,21 +1082,10 @@ public sealed partial class ModuleCodeGen
             graphs.AddRange(InitializerGraphs(t, isStatic: true));
             cctors.AddRange(t.StaticConstructors.Where(c => !c.IsImplicitlyDeclared));
         }
-        // Generic corelib types don't get per-instantiation static initialization yet: an initializer
-        // there would silently leave its field null/zero, so a referenced one is an error, as for user types.
-        foreach (var t in _staticFields.Keys.Select(f => f.ContainingType.OriginalDefinition)
-                     .Where(t => CoreLib.IsCoreLib(t) && TypeSubstitution.IsGenericContext(t))
-                     .Distinct<INamedTypeSymbol>(SymbolEqualityComparer.Default))
-            if (InitializerGraphs(t, isStatic: true).Any() || t.StaticConstructors.Any(c => !c.IsImplicitlyDeclared))
-                throw CompileError.Unsupported($"static field initializers in generic corelib type '{t.Name}'", t);
         foreach (var t in _userTypes.Where(t => t.TypeKind is TypeKind.Class or TypeKind.Struct or TypeKind.Interface))
         {
-            if (TypeSubstitution.IsGenericContext(t))
-            {
-                if (InitializerGraphs(t, isStatic: true).Any())
-                    throw CompileError.Unsupported($"static field initializers in generic type '{t.Name}'", t);
-                continue;
-            }
+            // Generic types are initialized lazily per instantiation (ModuleCodeGen.StaticInit.cs).
+            if (TypeSubstitution.IsGenericContext(t)) continue;
             if (IsEagerlyInitialized(t)) graphs.AddRange(InitializerGraphs(t, isStatic: true));
         }
         new FunctionCodeGen(this, null, _staticInit).EmitStaticInit(graphs, cctors);

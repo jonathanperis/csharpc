@@ -52,6 +52,16 @@ namespace CsharpcCoreLib
         /// <summary>An object reference as an IntPtr and back, for runtime slots that hold managed objects (GC-visible ones only).</summary>
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern IntPtr ObjectToPointer(object value);
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern object PointerToObject(IntPtr pointer);
+        /// <summary>csrt_unhandled_exception: prints "Unhandled exception. ..." and ends the process (never returns).</summary>
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern void UnhandledException(Exception exception);
+        /// <summary>csrt_is_iterator: an iterator/async iterator compiled from source (an LLVM coroutine object).</summary>
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern bool IsCoroutineIterator(object o);
+        /// <summary>The string resources of the IL assemblies, encoded (ModuleCodeGen.Resources.cs).</summary>
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern string ResourceStrings();
+        /// <summary>runtimeconfig.json configProperties, encoded (ModuleCodeGen.Resources.cs).</summary>
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern string RuntimeConfig();
+        /// <summary>csrt_task_try_fault_async: faults a pending task, or cancels it for an OperationCanceledException.</summary>
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern bool TryFaultAsyncTask(System.Threading.Tasks.Task task, Exception exception);
         /// <summary>An enum's underlying value as .NET's EnumConverter keys it: sign-extended, then reinterpreted as ulong.</summary>
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern ulong EnumToUInt64<T>(T value);
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern T EnumFromUInt64<T>(ulong value);

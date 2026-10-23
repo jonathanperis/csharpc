@@ -112,7 +112,7 @@ public sealed partial class ModuleCodeGen
             var (table, slot, entry) = request;
             if (entry < 0)
             {
-                if (table.RequestedSlots.Add(slot)) { GetFunction(table.Layout.VTable[slot]!); requested = true; }
+                if (table.RequestedSlots.Add(slot)) { SlotFunction(table.Layout.VTable[slot]!); requested = true; }
             }
             else if (slot < table.Interfaces[entry].Members.Count && table.RequestedInterfaceSlots.Add((entry, slot)))
             {
@@ -134,7 +134,7 @@ public sealed partial class ModuleCodeGen
         {
             var layout = table.Layout;
             var slots = layout.VTable.Select((m, i) => m is not null
-                ? table.RequestedSlots.Contains(i) ? GetFunction(m).Fn : pruned
+                ? table.RequestedSlots.Contains(i) ? SlotFunction(m) : pruned
                 : layout.RuntimeSlots.TryGetValue(i, out var runtimeSlot)
                     ? RuntimeSlotFunction(runtimeSlot)
                 : i < ClassLayout.ObjectSlotCount

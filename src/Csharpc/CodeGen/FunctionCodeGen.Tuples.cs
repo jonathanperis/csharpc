@@ -148,6 +148,8 @@ public sealed partial class FunctionCodeGen
     /// </summary>
     private LLVMValueRef? TryEmitStringBuilderInterpolation(IInvocationOperation inv, IMethodSymbol target)
     {
+        // DefaultInterpolatedStringHandler (string.Create(provider, ...), FormattableString, interpolation in
+        // IL) is the corelib shadow InterpolatedStringHandler.cs, which carries the format provider.
         if (IsStringBuilderHandler(target.ContainingType) && !target.IsStatic)
         {
             var sb = EmitValue(inv.Instance!);
