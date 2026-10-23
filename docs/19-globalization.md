@@ -108,10 +108,12 @@ main cost of this port, and a target for caching the corelib's lowered code.
   `[ModuleInitializer]` that makes the invariant culture current).
 * A sample with a `NAME.env` file (e.g. `LC_ALL=pt_BR.UTF-8`) runs both sides under that environment
   instead: `366_culture_from_environment`, `367_culture_invariant_mode`.
-* Samples 360–372 cover number/date formatting and parsing in several cultures, collation, casing
-  (Turkish `i`), current-culture rules, threads and async flow, `[ModuleInitializer]` and
-  `FormattableString`. They were recorded with ICU 74; on macOS and Windows (another ICU) they are
-  `live:` entries of `tests/platform-skips.txt`, compared against real .NET on the same machine.
+* Samples 360–376 cover number/date formatting and parsing in several cultures, collation, casing
+  (Turkish `i`), current-culture rules, threads and async flow, `[ModuleInitializer]`,
+  `FormattableString`, exact `float` parsing and boxed dates in composite formats (plus two
+  codegen regressions the culture fuzzer found: 374, 375). They were recorded with ICU 74; the ones
+  whose output depends on culture data are `live:` entries of `tests/platform-skips.txt` on macOS and
+  Windows (another ICU), compared against real .NET on the same machine.
 * `tools/fuzz/corelib.sh` has a `culture` mode: random numbers, dates, format strings, parse inputs,
   comparisons and casing in random cultures, against real .NET.
 
