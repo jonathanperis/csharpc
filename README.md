@@ -70,7 +70,8 @@ network I/O beyond the console. The full matrix is in [docs/06-roadmap.md](docs/
 
 ## Quick start
 
-Requirements: Linux (x86-64 or ARM64), macOS on Apple silicon or Windows x64, the .NET 11 SDK,
+Requirements: Linux (x86-64 or ARM64), macOS on Apple silicon or Windows x64 (WebAssembly is a
+cross target, see below), the .NET 11 SDK,
 LLVM 18 (`libLLVM-18.so`, Homebrew's `llvm@18` on macOS, or [LLVM-MinGW](https://github.com/mstorsjo/llvm-mingw)
 on Windows; 19/20 are also probed) and `clang` (linker driver and runtime compiler).
 
@@ -104,6 +105,19 @@ For fast compiles, build csharpc itself as a native executable (about 5× less C
 
 If libLLVM isn't on the default library path set `CSHARPC_LIBLLVM=/path/to/libLLVM.so`; to use another
 C compiler or linker driver pass `--cc` or set `CSHARPC_CC`.
+
+### WebAssembly (WASI)
+
+```bash
+# the WASI SDK 24 (LLVM 18, like csharpc) and wasmtime
+export WASI_SDK_PATH=/opt/wasi-sdk
+csharpc --target wasm32-wasip1 hello.cs -o hello.wasm && wasmtime run --dir=. hello.wasm
+```
+
+The same programs run as WebAssembly modules, and the CI checks them against .NET under wasmtime.
+WebAssembly has no threads (`Thread.Start` throws `PlatformNotSupportedException`, as in .NET's
+single-threaded WebAssembly builds), no sockets and no dynamic libraries
+([ADR 0010](docs/adr/0010-wasm32.md), [docs/04-runtime.md](docs/04-runtime.md#webassembly-wasm32-wasip1)).
 
 ### Building real projects
 
