@@ -11,7 +11,7 @@ using System;
 namespace CsharpcCoreLib
 {
     [Shadows("System.Guid")]
-    public readonly unsafe struct GuidImpl : ISpanFormattable, IComparable, IComparable<Guid>, IEquatable<Guid>
+    public readonly unsafe struct GuidImpl : ISpanFormattable, IComparable, IComparable<Guid>, IEquatable<Guid>, ISpanParsable<Guid>
     {
         private const byte Variant10xxMask = 0xC0;
         private const byte Variant10xxValue = 0x80;

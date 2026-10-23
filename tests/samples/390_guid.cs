@@ -11,6 +11,16 @@ class Program
         catch (Exception e) { Console.WriteLine($"{label}: {e.GetType().Name}: {e.Message}"); }
     }
 
+    static T ParseVia<T>(string s) where T : IParsable<T> => T.Parse(s, null);
+
+    static bool TryParseVia<T>(string s, out T value) where T : ISpanParsable<T> => T.TryParse(s.AsSpan(), null, out value);
+
+    static string FormatVia<T>(T value, string format) where T : ISpanFormattable
+    {
+        Span<char> buffer = stackalloc char[80];
+        return value.TryFormat(buffer, out int n, format, null) ? buffer.Slice(0, n).ToString() : "too short";
+    }
+
     static void Main()
     {
         var g = new Guid("CA761232-ED42-11CE-BACD-00AA0057B223");
@@ -127,6 +137,13 @@ class Program
         Console.WriteLine(boxed is Guid unboxed && unboxed == g);
         Console.WriteLine(((IFormattable)g).ToString("N", null));
         Console.WriteLine(((IEquatable<Guid>)g).Equals(g));
+
+        // Generic math-style parsing/formatting and alignment.
+        Console.WriteLine(ParseVia<Guid>("{ca761232-ed42-11ce-bacd-00aa0057b223}") == g);
+        Console.WriteLine(TryParseVia("nope", out Guid bad) + " " + bad);
+        Console.WriteLine(TryParseVia(" ca761232ed4211cebacd00aa0057b223 ", out Guid good) + " " + good);
+        Console.WriteLine(FormatVia(g, "N") + " " + FormatVia(g, "x"));
+        Console.WriteLine($"[{g,40}] [{g,-40:P}]");
 
         // TryFormat.
         Span<char> chars = stackalloc char[68];
