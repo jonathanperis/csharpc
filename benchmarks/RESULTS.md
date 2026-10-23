@@ -10,6 +10,77 @@ and publishes the table in the job summary and as an artifact, together with csh
 instruction counts (`benchmarks/instructions.sh`, valgrind), which are deterministic. Hosted runners
 are shared VMs, so wall times still vary a few percent between runs: compare engines within a run.
 
+## CI results (clean hosted runners, 2026-10-23)
+
+From the `Benchmarks` workflow run [39908613283](https://github.com/jonathanperis/csharpc/actions/runs/39908613283)
+on `main` at `5bb2c53` (GitHub-hosted `ubuntu-24.04` and `ubuntu-24.04-arm` runners, 4 vCPUs each;
+best of 5; `wall/CPU` in ms). These replace the local numbers below as the reference: the local machine
+was shared with compiler builds.
+
+**Summary (CPU time, -O2), 20 programs.** x86-64: csharpc beats the .NET JIT on all 20 and NativeAOT on
+13, ties it (±2 %) on 3 and loses `asyncfanout` (598 vs 504 ms), `fileio` (505 vs 448), `matmul`
+(48 vs 46) and `spectralnorm_parallel` (961 vs 935). arm64: beats the JIT on all 20 and NativeAOT on 14;
+loses `asyncfanout`, `fileio`, `quicksort`, `shapes`, `spectralnorm` and `spectralnorm_parallel`.
+Binaries are 11–161 KiB on x86-64 against 1.3–1.6 MiB for NativeAOT. On arm64 they are 131–213 KiB:
+AArch64 linkers align segments to 64 KiB pages (kernels with 64 KiB pages exist), and `-z separate-code`
+hardening pads each code segment to that boundary in the file.
+
+### x86-64
+
+Times are wall/CPU (user+sys) in ms, best of 5.
+
+| benchmark | csharpc -O2 | csharpc -O3 | .NET JIT | NativeAOT | csharpc compile (ms) | csharpc size (KiB, stripped) | NativeAOT size (KiB) |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| asyncfanout | 180/598 | 216/584 | 235/628 | 154/504 | 20206 | 54 | 1492 |
+| binarytrees | 181/178 | 189/186 | 361/360 | 254/251 | 2311 | 28 | 1301 |
+| churn | 142/138 | 143/140 | 199/195 | 171/166 | 2278 | 27 | 1309 |
+| fannkuchredux | 246/243 | 260/257 | 278/276 | 243/241 | 2381 | 28 | 1309 |
+| fasta | 156/153 | 157/153 | 213/210 | 188/185 | 2202 | 28 | 1301 |
+| fib | 55/52 | 55/53 | 119/117 | 85/83 | 2143 | 11 | 1305 |
+| fileio | 508/505 | 506/504 | 728/603 | 594/448 | 5357 | 161 | 1648 |
+| listsort | 225/222 | 221/219 | 242/242 | 276/274 | 3619 | 85 | 1313 |
+| mandelbrot | 106/103 | 105/102 | 134/132 | 110/107 | 2308 | 27 | 1301 |
+| mandelbrot_parallel | 355/1369 | 354/1366 | 413/1486 | 371/1392 | 2502 | 36 | 1512 |
+| matmul | 51/48 | 47/44 | 74/72 | 49/46 | 2546 | 36 | 1309 |
+| nbody | 262/259 | 261/259 | 321/318 | 297/294 | 2525 | 36 | 1309 |
+| output | 23/18 | 32/19 | 1440/1486 | 1333/1329 | 2535 | 32 | 1309 |
+| quicksort | 568/565 | 567/564 | 671/670 | 593/590 | 2361 | 28 | 1301 |
+| shapes | 175/172 | 177/174 | 212/209 | 189/186 | 2541 | 36 | 1309 |
+| sieve | 84/82 | 77/74 | 140/137 | 112/109 | 2336 | 28 | 1301 |
+| spectralnorm | 125/122 | 125/122 | 153/151 | 130/127 | 2581 | 36 | 1309 |
+| spectralnorm_parallel | 250/961 | 250/971 | 415/1448 | 263/935 | 2839 | 40 | 1512 |
+| strbuild | 54/51 | 50/48 | 108/105 | 85/81 | 2569 | 53 | 1309 |
+| wordfreq | 80/77 | 64/61 | 134/131 | 81/78 | 3304 | 72 | 1330 |
+
+### arm64
+
+Times are wall/CPU (user+sys) in ms, best of 5.
+
+| benchmark | csharpc -O2 | csharpc -O3 | .NET JIT | NativeAOT | csharpc compile (ms) | csharpc size (KiB, stripped) | NativeAOT size (KiB) |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| asyncfanout | 128/377 | 127/372 | 145/382 | 84/260 | 4188 | 134 | 1548 |
+| binarytrees | 125/122 | 123/121 | 272/270 | 155/153 | 2226 | 132 | 1353 |
+| churn | 102/98 | 100/98 | 205/203 | 131/130 | 2256 | 131 | 1353 |
+| fannkuchredux | 147/145 | 143/141 | 187/185 | 152/151 | 2297 | 132 | 1353 |
+| fasta | 101/100 | 102/100 | 154/152 | 128/126 | 2123 | 132 | 1353 |
+| fib | 36/33 | 36/34 | 88/86 | 56/54 | 2183 | 131 | 1353 |
+| fileio | 422/419 | 421/419 | 464/453 | 405/383 | 4558 | 213 | 1740 |
+| listsort | 163/160 | 162/160 | 177/175 | 189/187 | 3268 | 141 | 1353 |
+| mandelbrot | 92/89 | 91/89 | 143/141 | 121/119 | 2222 | 132 | 1353 |
+| mandelbrot_parallel | 258/993 | 269/1039 | 303/1087 | 271/1026 | 2361 | 132 | 1612 |
+| matmul | 45/43 | 44/42 | 66/64 | 45/44 | 2461 | 132 | 1353 |
+| nbody | 347/345 | 347/344 | 460/458 | 435/434 | 2364 | 132 | 1353 |
+| output | 20/18 | 30/18 | 1477/1513 | 1286/1284 | 2378 | 132 | 1353 |
+| quicksort | 337/335 | 337/335 | 426/426 | 305/303 | 2257 | 132 | 1353 |
+| shapes | 164/161 | 165/161 | 178/176 | 153/151 | 2323 | 133 | 1353 |
+| sieve | 50/47 | 49/47 | 89/87 | 87/85 | 2266 | 132 | 1353 |
+| spectralnorm | 143/141 | 144/142 | 160/158 | 139/138 | 2506 | 132 | 1353 |
+| spectralnorm_parallel | 149/566 | 148/565 | 310/1047 | 150/546 | 2833 | 132 | 1612 |
+| strbuild | 51/48 | 50/47 | 87/84 | 61/59 | 2470 | 133 | 1353 |
+| wordfreq | 67/65 | 66/64 | 124/121 | 74/72 | 3032 | 140 | 1417 |
+
+## Earlier local results
+
 **Machine:** AMD EPYC 9354P (Zen 4, 4 vCPUs), x86_64 Linux 6.8, 15 GiB RAM.
 **Toolchain:** .NET SDK 11.0.100-rc.2.26504.105, LLVM 18.1.3 (system `libLLVM-18.so`, clang 18),
 csharpc `main` with every feature branch merged (Release build of the compiler). **Date:** 2026-10-22.

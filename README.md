@@ -44,8 +44,11 @@ $ ls -lh hello
 - **Real C#, verified against real .NET.** Every test program runs under `dotnet run` (the oracle)
   and under csharpc, and the outputs must be byte-identical. **100 %** of the
   [195-program conformance corpus](docs/09-conformance.md) passes, with zero silent miscompilations.
-- **Fast.** On [18 benchmark programs](benchmarks/RESULTS.md) csharpc beats the .NET JIT on every
-  one and beats or ties NativeAOT on 17 (CPU time), with binaries **20–160× smaller** (8–68 KiB vs ~1.3 MiB; hello world is 17 KiB), 3–4× faster start-up and a fraction of the memory ([size, start-up and memory](benchmarks/RESULTS.md#size-start-up-memory-and-compile-time)).
+- **Fast.** On [20 benchmark programs](benchmarks/RESULTS.md), measured by CI on clean x86-64 and arm64
+  runners, csharpc beats the .NET JIT on every one and beats or ties NativeAOT on 16 of 20 on x86-64
+  (CPU time), with binaries **8–120× smaller** (11–161 KiB vs 1.3–1.6 MiB on x86-64; hello world is
+  27 KiB with default hardening), faster start-up and a fraction of the memory
+  ([size, start-up and memory](benchmarks/RESULTS.md#size-start-up-memory-and-compile-time)).
 - **Drop-in.** Compile a `.csproj` directly, or keep using `dotnet build` / `dotnet publish` with
   `-p:UseCsharpc=true` / `-p:PublishCsharpc=true` ([docs/08-drop-in.md](docs/08-drop-in.md)).
 - **Debuggable.** `-g` emits DWARF: breakpoints on C# lines, C# names in backtraces, locals in gdb/lldb.
