@@ -709,10 +709,11 @@ public sealed partial class FunctionCodeGen
         if (to is INamedTypeSymbol { IsTupleType: true } toTuple && c.Operand is ITupleOperation tupleLiteral)
             return BuildTuple(tupleLiteral, toTuple);
         if (from is null) return Constant(null, to, c); // null literal / default
-        // T[] / string used as a BCL interface: make sure the corelib helper tables exist.
+        // T[] / string used as a BCL interface (also `(IList<int>)someArrayAsObject`, `Enum.GetValues(t) as
+        // IEnumerable<E>`): make sure the corelib helper tables and the arrays' interface maps include it.
         if (to is INamedTypeSymbol { TypeKind: TypeKind.Interface } targetInterface)
         {
-            if (from is IArrayTypeSymbol { Rank: 1 }) _m.RequestArrayInterface(targetInterface);
+            if (MayHoldArray(from)) _m.RequestArrayInterface(targetInterface);
             else if (from.SpecialType == SpecialType.System_String) _m.RequestStringInterface(targetInterface);
         }
         if (TryNullableConversion(c, from, to) is { } nullable) return nullable;

@@ -391,11 +391,18 @@ public sealed partial class FunctionCodeGen
         CallRuntime("csrt_object_to_string", L.Ptr, [L.Ptr], obj);
 
     /// <summary>`obj is T` for classes: walk the method-table base chain in the runtime.</summary>
+    /// <summary>
+    /// Can a value of this static type be a T[] at run time (object, System.Array, an interface)? Then a
+    /// test or cast to a collection interface must make the arrays' interface maps include it.
+    /// </summary>
+    private static bool MayHoldArray(ITypeSymbol? from) =>
+        from is null or IArrayTypeSymbol { Rank: 1 } || from.SpecialType is SpecialType.System_Object or SpecialType.System_Array
+        || from.TypeKind == TypeKind.Interface;
+
     private LLVMValueRef IsInstance(LLVMValueRef value, ITypeSymbol? from, ITypeSymbol target, IOperation at)
     {
         // `x is ICollection` / `x is IList<int>` where x may be an array: make sure the array tables exist.
-        if (target is INamedTypeSymbol { TypeKind: TypeKind.Interface } itf
-            && (from is null or IArrayTypeSymbol { Rank: 1 } || from.SpecialType == SpecialType.System_Object || from.TypeKind == TypeKind.Interface))
+        if (target is INamedTypeSymbol { TypeKind: TypeKind.Interface } itf && MayHoldArray(from))
             _m.RequestArrayInterface(itf);
         if (from is not null)
         {
