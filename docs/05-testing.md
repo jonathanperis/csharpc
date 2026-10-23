@@ -44,7 +44,7 @@ Environment: `DOTNET` (path to the `dotnet` executable; the .NET 11 SDK must be 
 ### Platforms
 
 Expectations are recorded from .NET on Linux and checked on every CI platform (Linux x86-64, Linux
-ARM64, macOS ARM64). A test whose behaviour differs under real .NET on another OS too (for example a
+ARM64, macOS ARM64, Windows x64). A test whose behaviour differs under real .NET on another OS too (for example a
 `DllImport("libm.so.6")`, a Linux soname that .NET can't load on macOS) is listed with its reason
 in `tests/platform-skips.txt` and reported as `SKIP ... (platform-dependent ...)` there; never list
 a test because csharpc differs from .NET. `run.sh` resolves `$TMPDIR` to a path without symlinks
@@ -52,6 +52,23 @@ a test because csharpc differs from .NET. `run.sh` resolves `$TMPDIR` to a path 
 On macOS the scripts need bash 4+ and GNU coreutils (`brew install bash coreutils`, with
 `$(brew --prefix coreutils)/libexec/gnubin` on `PATH`); `tests/debuginfo.sh` drives gdb and is
 Linux-only.
+
+**Windows.** The scripts run in Git Bash (`tests/platform.sh` holds the per-OS helpers; checkouts
+must keep LF line endings, `core.autocrlf=false`). .NET on Windows ends `Console.WriteLine` with
+`Environment.NewLine`, `"\r\n"`, so the expected stdout is the recording with every `"\n"` turned
+into `"\r\n"`, compared byte for byte (csharpc writes the standard streams in binary mode). An
+unhandled exception ends .NET with exit code `0xE0434352`, which Git Bash reports as 127 (the
+conformance runner, in Python, maps it back to the recorded 134). `tests/check-oracle.sh` runs every
+test under real `dotnet run` on the machine and checks that derivation; CI runs it on Windows. Tests
+for which it doesn't hold are listed in `tests/platform-skips.txt` with the reason; most are marked
+`live:`, which records their expected output and exit status from real .NET on the test machine at
+test time instead of skipping them (programs that write their own bare `"\n"`, `AppendLine` lengths,
+Windows paths, `TZ`, which .NET ignores on Windows, `DllImport("libc")`). Live and oracle runs load
+`tests/oracle-hook`, a .NET startup hook that makes the invariant culture current, as it is on the
+Linux recording machine (C locale) and in csharpc: Windows machines, the CI runner included, run
+.NET with a user culture such as en-US, which csharpc doesn't model on any OS (`∞` instead of
+`Infinity`, `12.5%` instead of `12.5 %`, `2/29/2024` dates). `DOTNET_SYSTEM_GLOBALIZATION_INVARIANT`
+is not equivalent: it also makes culture-aware comparisons ordinal.
 
 Failure output shows the compile errors (including `CSLLVM0001` "not supported yet" diagnostics) or
 the first lines of a unified diff between the expected and actual stdout.

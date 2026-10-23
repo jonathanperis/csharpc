@@ -38,30 +38,30 @@ namespace CsharpcCoreLib
     }
 
     [ShadowMembers("System.Console")]
-    internal static unsafe class ConsoleKeys
+    internal static unsafe partial class ConsoleKeys
     {
-        [DllImport("libc")] private static extern int isatty(int fd);
-        [DllImport("libc")] private static extern int tcgetattr(int fd, byte* termios);
-        [DllImport("libc")] private static extern int tcsetattr(int fd, int action, byte* termios);
-        [DllImport("libc")] private static extern int poll(void* fds, nuint count, int timeout);
         [DllImport("__Internal")] private static extern void csrt_console_flush();
 
         private static Encoding s_outputEncoding, s_inputEncoding;
 
-        public static bool IsInputRedirected => isatty(0) == 0;
-        public static bool IsOutputRedirected => isatty(1) == 0;
-        public static bool IsErrorRedirected => isatty(2) == 0;
-
         // .NET on Unix defaults to UTF-8 without a preamble (the charset of LANG; csharpc always writes UTF-8).
+        // On Windows it is the console code page's encoding, UTF-8 (65001) on current systems, and .NET
+        // reports it with its preamble (UTF8Encoding(true)), which the console writer never emits.
+#if CSHARPC_TARGET_WINDOWS
+        private static Encoding DefaultEncoding() => new UTF8Encoding(true);
+#else
+        private static Encoding DefaultEncoding() => new UTF8Encoding(false);
+#endif
+
         public static Encoding OutputEncoding
         {
-            get => s_outputEncoding ??= new UTF8Encoding(false);
+            get => s_outputEncoding ??= DefaultEncoding();
             set => s_outputEncoding = CheckEncoding(value);
         }
 
         public static Encoding InputEncoding
         {
-            get => s_inputEncoding ??= new UTF8Encoding(false);
+            get => s_inputEncoding ??= DefaultEncoding();
             set => s_inputEncoding = CheckEncoding(value);
         }
 
@@ -73,6 +73,16 @@ namespace CsharpcCoreLib
                 throw new NotSupportedException("Console encodings other than UTF-8 are not supported by csharpc yet.");
             return value;
         }
+
+#if !CSHARPC_TARGET_WINDOWS
+        [DllImport("libc")] private static extern int isatty(int fd);
+        [DllImport("libc")] private static extern int tcgetattr(int fd, byte* termios);
+        [DllImport("libc")] private static extern int tcsetattr(int fd, int action, byte* termios);
+        [DllImport("libc")] private static extern int poll(void* fds, nuint count, int timeout);
+
+        public static bool IsInputRedirected => isatty(0) == 0;
+        public static bool IsOutputRedirected => isatty(1) == 0;
+        public static bool IsErrorRedirected => isatty(2) == 0;
 
         public static void Clear()
         {
@@ -214,5 +224,6 @@ namespace CsharpcCoreLib
             if (c >= 1 && c <= 26) return new ConsoleKeyInfo(ch, (ConsoleKey)(c - 1 + (int)ConsoleKey.A), false, false, true);
             return new ConsoleKeyInfo(ch, 0, false, false, false);
         }
+#endif
     }
 }

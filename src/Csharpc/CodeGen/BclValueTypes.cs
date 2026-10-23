@@ -514,10 +514,13 @@ internal static partial class BclValueTypes
         t[$"{SW}.get_ElapsedMilliseconds()"] = (g, _, self, _, _) => Rt(g, "csrt_stopwatch_elapsed_ms", g.Llvm.I64, (self, g.Llvm.Ptr));
         t[$"{SW}.get_ElapsedTicks()"] = (g, _, self, _, _) => Rt(g, "csrt_stopwatch_elapsed_raw", g.Llvm.I64, (self, g.Llvm.Ptr));
         t[$"{SW}.GetTimestamp()"] = (g, _, _, _, _) => Rt(g, "csrt_stopwatch_timestamp", g.Llvm.I64);
+        // Stopwatch ticks are nanoseconds on Unix; QueryPerformanceCounter units on Windows (as in .NET).
+        LLVMValueRef ToTimeSpan(FunctionCodeGen g, LLVMValueRef ticks) => g.Module.Types.Target.IsWindows
+            ? Rt(g, "csrt_stopwatch_to_timespan", g.Llvm.I64, (ticks, g.Llvm.I64))
+            : g.Builder.BinOp(LLVMOpcode.SDiv, ticks, I64(g, 100));
         t[$"{SW}.GetElapsedTime(long)"] = (g, _, _, a, _) =>
-            g.Builder.BinOp(LLVMOpcode.SDiv, g.Builder.BinOp(LLVMOpcode.Sub, Rt(g, "csrt_stopwatch_timestamp", g.Llvm.I64), a[0]), I64(g, 100));
-        t[$"{SW}.GetElapsedTime(long, long)"] = (g, _, _, a, _) =>
-            g.Builder.BinOp(LLVMOpcode.SDiv, g.Builder.BinOp(LLVMOpcode.Sub, a[1], a[0]), I64(g, 100));
+            ToTimeSpan(g, g.Builder.BinOp(LLVMOpcode.Sub, Rt(g, "csrt_stopwatch_timestamp", g.Llvm.I64), a[0]));
+        t[$"{SW}.GetElapsedTime(long, long)"] = (g, _, _, a, _) => ToTimeSpan(g, g.Builder.BinOp(LLVMOpcode.Sub, a[1], a[0]));
         t[$"{SW}.ToString()"] = (g, _, self, _, _) =>
             Rt(g, "csrt_timespan_to_string", g.Llvm.Ptr, (Rt(g, "csrt_stopwatch_elapsed_timespan", g.Llvm.I64, (self, g.Llvm.Ptr)), g.Llvm.I64));
 
@@ -1130,7 +1133,8 @@ internal static partial class BclValueTypes
         t["System.DateTime.MinValue"] = (g, _) => I64(g, 0);
         t["System.DateTime.MaxValue"] = (g, _) => I64(g, 3155378975999999999);
         t["System.DateTime.UnixEpoch"] = (g, _) => I64(g, 621355968000000000 | DateTimeKindUtc);  // a Utc DateTime
-        t["System.Diagnostics.Stopwatch.Frequency"] = (g, _) => I64(g, 1_000_000_000);
+        t["System.Diagnostics.Stopwatch.Frequency"] = (g, _) => g.Module.Types.Target.IsWindows
+            ? g.CallRuntime("csrt_stopwatch_frequency", g.Llvm.I64, []) : I64(g, 1_000_000_000);
         t["System.Diagnostics.Stopwatch.IsHighResolution"] = (g, _) => g.Llvm.True;
         t["System.BitConverter.IsLittleEndian"] = (g, _) => g.Llvm.True;
         return t.ToFrozenDictionary();

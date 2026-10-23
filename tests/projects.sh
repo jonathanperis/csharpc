@@ -14,6 +14,7 @@ export DOTNET_CLI_TELEMETRY_OPTOUT=1 DOTNET_NOLOGO=1
 # deletes outputs it recorded under the other spelling (/private/var/...) of the same directory.
 WORK="$(cd "$(mktemp -d)" && pwd -P)"
 trap 'rm -rf "$WORK"' EXIT
+source "$ROOT/tests/platform.sh"
 pass=0; fail=0
 
 check() { # name expected actual
@@ -35,14 +36,14 @@ for app in HelloProject; do
 
   # 1. CLI
   if "$DOTNET" "$CSHARPC_DLL" "$proj" -o "$WORK/cli/" > "$WORK/log" 2>&1; then
-    "$WORK/cli/$app" > "$WORK/actual" 2>&1; check "$app: csharpc <project>" "$WORK/expected" "$WORK/actual"
+    "$WORK/cli/$app$EXE_SUFFIX" > "$WORK/actual" 2>&1; check "$app: csharpc <project>" "$WORK/expected" "$WORK/actual"
   else echo "FAIL $app: csharpc <project>"; sed 's/^/     /' "$WORK/log" | head; fail=$((fail+1)); fi
 
   # 2. dotnet build -p:UseCsharpc=true
   common=(-p:UseCsharpc=true "-p:CustomAfterMicrosoftCommonTargets=$TARGETS" "-p:CsharpcCompilerPath=$CSHARPC_DLL")
   if "$DOTNET" build "$proj" -c Release "${common[@]}" > "$WORK/log" 2>&1; then
-    exe="$WORK/samples/$app/bin/Release/net11.0/$app"
-    if file "$exe" | grep -qE "ELF|Mach-O" && ! strings "$exe" | grep -q "You must install or update .NET"; then
+    exe="$WORK/samples/$app/bin/Release/net11.0/$app$EXE_SUFFIX"
+    if file "$exe" | grep -qE "ELF|Mach-O|PE32\+" && ! grep -aq "You must install or update .NET" "$exe"; then
       "$exe" > "$WORK/actual" 2>&1; check "$app: dotnet build -p:UseCsharpc=true" "$WORK/expected" "$WORK/actual"
     else echo "FAIL $app: build output is not the native image"; fail=$((fail+1)); fi
   else echo "FAIL $app: dotnet build"; grep -E "error" "$WORK/log" | head | sed 's/^/     /'; fail=$((fail+1)); fi
@@ -53,21 +54,22 @@ for app in HelloProject; do
 
   # 4. NuGet package from a local feed + dotnet publish -p:PublishCsharpc=true
   "$DOTNET" pack "$ROOT/src/Csharpc.Sdk" -o "$WORK/feed" -v quiet > "$WORK/log" 2>&1 || { echo "FAIL pack"; tail "$WORK/log"; fail=$((fail+1)); continue; }
+  feed="$WORK/feed"; [[ $HOST_OS == windows ]] && feed="$(cygpath -w "$feed")"  # NuGet reads it, not bash
   cat > "$WORK/samples/nuget.config" <<EOF
 <?xml version="1.0" encoding="utf-8"?>
 <configuration>
   <packageSources>
-    <add key="csharpc-local" value="$WORK/feed" />
+    <add key="csharpc-local" value="$feed" />
   </packageSources>
 </configuration>
 EOF
   version="$(ls "$WORK/feed" | sed -n 's/^Csharpc\.Sdk\.\(.*\)\.nupkg$/\1/p')"
   (cd "$WORK/samples/$app" && "$DOTNET" add package Csharpc.Sdk --version "$version" > /dev/null 2>&1)
   if (cd "$WORK/samples/$app" && "$DOTNET" publish -c Release -p:PublishCsharpc=true -o "$WORK/publish" > "$WORK/log" 2>&1); then
-    "$WORK/publish/$app" > "$WORK/actual" 2>&1; check "$app: dotnet publish -p:PublishCsharpc=true (NuGet)" "$WORK/expected" "$WORK/actual"
+    "$WORK/publish/$app$EXE_SUFFIX" > "$WORK/actual" 2>&1; check "$app: dotnet publish -p:PublishCsharpc=true (NuGet)" "$WORK/expected" "$WORK/actual"
     leftovers="$(ls "$WORK/publish" | grep -E '\.dll$' || true)"
     [[ -z "$leftovers" ]] && { echo "PASS $app: publish output is a single native executable"; pass=$((pass+1)); } \
-                          || { echo "FAIL $app: managed files left in publish dir: $leftovers"; fail=$((fail+1)); }
+                          || { echo "FAIL $app: managed files left in publish dir: $leftovers"; grep -i -E "csharpc|delet" "$WORK/log" | head -20 | sed "s/^/     /"; fail=$((fail+1)); }
   else echo "FAIL $app: dotnet publish"; grep -E "error" "$WORK/log" | head | sed 's/^/     /'; fail=$((fail+1)); fi
 done
 
@@ -81,7 +83,7 @@ for proj_src in "$ROOT"/tests/projects/cli/*/*.csproj; do
   (cd "$WORK/cli-samples/$app" && "$DOTNET" run -v quiet 2>/dev/null) > "$WORK/expected" || { echo "FAIL $app: dotnet run failed"; fail=$((fail+1)); continue; }
   find "$WORK/cli-samples" -name bin -o -name obj | xargs rm -rf
   if "$DOTNET" "$CSHARPC_DLL" "$proj" -o "$WORK/cli/" > "$WORK/log" 2>&1; then
-    "$WORK/cli/$app" > "$WORK/actual" 2>&1; check "$app: csharpc <project>" "$WORK/expected" "$WORK/actual"
+    "$WORK/cli/$app$EXE_SUFFIX" > "$WORK/actual" 2>&1; check "$app: csharpc <project>" "$WORK/expected" "$WORK/actual"
   else echo "FAIL $app: csharpc <project>"; sed 's/^/     /' "$WORK/log" | head; fail=$((fail+1)); fi
 done
 

@@ -1,4 +1,5 @@
-// System.IO.Path with .NET's Unix semantics ('/' separators, rooted == starts with '/').
+// System.IO.Path with .NET's Unix semantics ('/' separators, rooted == starts with '/'); the Windows
+// members (drive letters, '\\' and '/' separators, UNC roots) are in PathWindows.cs.
 #nullable disable
 using System;
 using System.Collections.Generic;
@@ -7,12 +8,14 @@ using System.Text;
 namespace CsharpcCoreLib
 {
     [Shadows("System.IO.Path")]
-    internal static unsafe class PathImpl
+    internal static unsafe partial class PathImpl
     {
+#if !CSHARPC_TARGET_WINDOWS
         public static readonly char DirectorySeparatorChar = '/';
         public static readonly char AltDirectorySeparatorChar = '/';
         public static readonly char VolumeSeparatorChar = '/';
         public static readonly char PathSeparator = ':';
+        private const char Sep = '/';
 
         private static bool IsSep(char c) => c == '/';
 
@@ -26,13 +29,14 @@ namespace CsharpcCoreLib
 
         public static string GetPathRoot(string path) => path == null ? null : IsPathRooted(path) ? "/" : "";
 
-        public static bool EndsInDirectorySeparator(string path) => path != null && path.Length > 0 && IsSep(path[path.Length - 1]);
-
         public static string TrimEndingDirectorySeparator(string path) =>
             EndsInDirectorySeparator(path) && path.Length > 1 ? path.Substring(0, path.Length - 1) : path;
 
         public static char[] GetInvalidPathChars() { char[] c = new char[1]; c[0] = '\0'; return c; }
         public static char[] GetInvalidFileNameChars() { char[] c = new char[2]; c[0] = '\0'; c[1] = '/'; return c; }
+#endif
+
+        public static bool EndsInDirectorySeparator(string path) => path != null && path.Length > 0 && IsSep(path[path.Length - 1]);
 
         // ---- Combine / Join ------------------------------------------------------------------
 
@@ -76,7 +80,7 @@ namespace CsharpcCoreLib
         {
             if (second.Length == 0) return first;
             if (first.Length == 0 || IsPathRooted(second)) return second;
-            return IsSep(first[first.Length - 1]) ? first + second : first + "/" + second;
+            return IsSep(first[first.Length - 1]) ? first + second : first + Sep + second;
         }
 
         public static string Join(string path1, string path2) => JoinTwo(path1 ?? "", path2 ?? "");
@@ -96,17 +100,19 @@ namespace CsharpcCoreLib
         {
             if (first.Length == 0) return second;
             if (second.Length == 0) return first;
-            return IsSep(first[first.Length - 1]) || IsSep(second[0]) ? first + second : first + "/" + second;
+            return IsSep(first[first.Length - 1]) || IsSep(second[0]) ? first + second : first + Sep + second;
         }
 
         // ---- Components -------------------------------------------------------------------------
 
+#if !CSHARPC_TARGET_WINDOWS
         public static string GetFileName(string path)
         {
             if (path == null) return null;
             int i = path.LastIndexOf('/');
             return i < 0 ? path : path.Substring(i + 1);
         }
+#endif
 
         public static string GetFileNameWithoutExtension(string path)
         {
@@ -151,6 +157,7 @@ namespace CsharpcCoreLib
             return stem + extension;
         }
 
+#if !CSHARPC_TARGET_WINDOWS
         public static string GetDirectoryName(string path)
         {
             if (path == null || path.Length == 0) return null;
@@ -205,32 +212,42 @@ namespace CsharpcCoreLib
             return sb.ToString();
         }
 
+        private const StringComparison PathComparison = StringComparison.Ordinal;
+#endif
+
         public static string GetRelativePath(string relativeTo, string path)
         {
             if (relativeTo == null) throw new ArgumentNullException("relativeTo");
             if (path == null) throw new ArgumentNullException("path");
             string from = GetFullPath(relativeTo);
             string to = GetFullPath(path);
-            string[] a = from.Split('/', StringSplitOptions.RemoveEmptyEntries);
-            string[] b = to.Split('/', StringSplitOptions.RemoveEmptyEntries);
+#if CSHARPC_TARGET_WINDOWS
+            // Different volumes: no relative path exists.
+            if (!string.Equals(GetPathRoot(from), GetPathRoot(to), PathComparison)) return path;
+#endif
+            string[] a = from.Split(Sep, StringSplitOptions.RemoveEmptyEntries);
+            string[] b = to.Split(Sep, StringSplitOptions.RemoveEmptyEntries);
             int common = 0;
-            while (common < a.Length && common < b.Length && a[common] == b[common]) common++;
+            while (common < a.Length && common < b.Length && string.Equals(a[common], b[common], PathComparison)) common++;
             if (common == a.Length && common == b.Length) return ".";
             var sb = new StringBuilder();
-            for (int i = common; i < a.Length; i++) { if (sb.Length > 0) sb.Append('/'); sb.Append(".."); }
-            for (int i = common; i < b.Length; i++) { if (sb.Length > 0) sb.Append('/'); sb.Append(b[i]); }
-            if (EndsInDirectorySeparator(to) && sb.Length > 0) sb.Append('/');
+            for (int i = common; i < a.Length; i++) { if (sb.Length > 0) sb.Append(Sep); sb.Append(".."); }
+            for (int i = common; i < b.Length; i++) { if (sb.Length > 0) sb.Append(Sep); sb.Append(b[i]); }
+            if (EndsInDirectorySeparator(to) && sb.Length > 0) sb.Append(Sep);
             return sb.ToString();
         }
 
         // ---- Temp / random ----------------------------------------------------------------------
 
+#if !CSHARPC_TARGET_WINDOWS
         public static string GetTempPath()
         {
             string tmp = EnvironmentExtras.GetEnvironmentVariable("TMPDIR");
             if (string.IsNullOrEmpty(tmp)) tmp = "/tmp/";
             return EndsInDirectorySeparator(tmp) ? tmp : tmp + "/";
         }
+
+#endif
 
         public static string GetRandomFileName()
         {
@@ -243,6 +260,7 @@ namespace CsharpcCoreLib
             return new string(name);
         }
 
+#if !CSHARPC_TARGET_WINDOWS
         public static string GetTempFileName()
         {
             string dir = GetTempPath();
@@ -258,6 +276,7 @@ namespace CsharpcCoreLib
             }
             throw new System.IO.IOException("Unable to create a temporary file.");
         }
+#endif
 
         public static bool Exists(string path) => !string.IsNullOrEmpty(path) && Posix.FileType(path) != 0;
     }

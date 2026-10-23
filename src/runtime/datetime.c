@@ -6,6 +6,9 @@
 #include "csrt.h"
 
 #include <time.h>
+#ifdef _WIN32
+#include <windows.h>
+#endif
 
 #define TICKS_PER_SECOND 10000000LL
 #define UNIX_EPOCH_TICKS 621355968000000000LL
@@ -15,9 +18,16 @@ csrt_String* csrt_timespan_to_string(int64_t ticks);
 csrt_String* csrt_datetime_to_string(int64_t date_data);
 
 int64_t csrt_datetime_utc_now(void) {
+#ifdef _WIN32
+    // .NET on Windows: GetSystemTimePreciseAsFileTime (100 ns units since 1601).
+    FILETIME ft;
+    GetSystemTimePreciseAsFileTime(&ft);
+    return ((int64_t)ft.dwHighDateTime << 32 | ft.dwLowDateTime) + 504911232000000000LL;
+#else
     struct timespec ts;
     clock_gettime(CLOCK_REALTIME, &ts);
     return UNIX_EPOCH_TICKS + (int64_t)ts.tv_sec * TICKS_PER_SECOND + ts.tv_nsec / 100;
+#endif
 }
 
 // Boxed TimeSpan / DateTime (payload @ 8): ToString / Equals / GetHashCode.
@@ -46,8 +56,9 @@ const csrt_BuiltinMethodTable csrt_Boxed_DateTime_MT = {
 };
 
 // ---------------------------------------------------------------------------------------------
-// Stopwatch: { mt, i64 started (ns timestamp), i64 elapsed (ns), i8 running }
-// Stopwatch.Frequency is 1_000_000_000 on Linux, so its ticks are nanoseconds.
+// Stopwatch: { mt, i64 started (timestamp), i64 elapsed (Stopwatch ticks), i8 running }
+// Stopwatch.Frequency is 1_000_000_000 on Linux and macOS, so its ticks are nanoseconds; on Windows
+// they are QueryPerformanceCounter units, as in .NET (Frequency = QueryPerformanceFrequency).
 // ---------------------------------------------------------------------------------------------
 typedef struct { const csrt_MethodTable* mt; int64_t started; int64_t elapsed; bool running; } Stopwatch;
 
@@ -57,11 +68,35 @@ const csrt_BuiltinMethodTable csrt_Stopwatch_MT = {
     { (void*)sw_to_string, (void*)csrt_object_equals_default, (void*)csrt_object_get_hash_code_default },
 };
 
+#ifdef _WIN32
+int64_t csrt_stopwatch_frequency(void) {
+    LARGE_INTEGER f;
+    QueryPerformanceFrequency(&f);
+    return f.QuadPart;
+}
+
+int64_t csrt_stopwatch_timestamp(void) {
+    LARGE_INTEGER c;
+    QueryPerformanceCounter(&c);
+    return c.QuadPart;
+}
+
+/// Stopwatch ticks -> TimeSpan ticks (Stopwatch.GetElapsedTime, Elapsed).
+int64_t csrt_stopwatch_to_timespan(int64_t ticks) {
+    int64_t f = csrt_stopwatch_frequency();
+    return f == TICKS_PER_SECOND ? ticks : (int64_t)((double)ticks * ((double)TICKS_PER_SECOND / (double)f));
+}
+#define TO_TIMESPAN(raw) csrt_stopwatch_to_timespan(raw)
+#define TO_MS(raw) ((raw) * 1000 / csrt_stopwatch_frequency())
+#else
 int64_t csrt_stopwatch_timestamp(void) {
     struct timespec ts;
     clock_gettime(CLOCK_MONOTONIC, &ts);
     return (int64_t)ts.tv_sec * 1000000000LL + ts.tv_nsec;
 }
+#define TO_TIMESPAN(raw) ((raw) / 100)
+#define TO_MS(raw) ((raw) / 1000000)
+#endif
 
 Stopwatch* csrt_stopwatch_new(bool start) {
     Stopwatch* sw = csrt_alloc(&csrt_Stopwatch_MT.header, sizeof(Stopwatch));
@@ -81,13 +116,13 @@ void csrt_stopwatch_reset(Stopwatch* sw) { need(sw)->elapsed = 0; sw->running = 
 void csrt_stopwatch_restart(Stopwatch* sw) { need(sw)->elapsed = 0; sw->started = csrt_stopwatch_timestamp(); sw->running = true; }
 bool csrt_stopwatch_is_running(Stopwatch* sw) { return need(sw)->running; }
 
-/// Elapsed time in Stopwatch ticks (ns).
+/// Elapsed time in Stopwatch ticks.
 int64_t csrt_stopwatch_elapsed_raw(Stopwatch* sw) {
     need(sw);
     return sw->elapsed + (sw->running ? csrt_stopwatch_timestamp() - sw->started : 0);
 }
-int64_t csrt_stopwatch_elapsed_timespan(Stopwatch* sw) { return csrt_stopwatch_elapsed_raw(sw) / 100; }
-int64_t csrt_stopwatch_elapsed_ms(Stopwatch* sw) { return csrt_stopwatch_elapsed_raw(sw) / 1000000; }
+int64_t csrt_stopwatch_elapsed_timespan(Stopwatch* sw) { return TO_TIMESPAN(csrt_stopwatch_elapsed_raw(sw)); }
+int64_t csrt_stopwatch_elapsed_ms(Stopwatch* sw) { return TO_MS(csrt_stopwatch_elapsed_raw(sw)); }
 
 // .NET 9+: Stopwatch.ToString() == Elapsed.ToString()
 static csrt_String* sw_to_string(void* o) { return csrt_timespan_to_string(csrt_stopwatch_elapsed_timespan(o)); }

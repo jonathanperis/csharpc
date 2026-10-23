@@ -20,13 +20,14 @@ managed signature that marshals arguments, calls the native function and convert
 | `string` | NUL-terminated UTF-8 copy (`LPStr`/`LPUTF8Str`, default on Unix) or UTF-16 (`LPWStr`, `CharSet.Unicode`); freed after the call |
 | blittable arrays (`int[]`, `byte[]`...) | pointer to the first element (the GC never moves objects) |
 | `ref`/`out`/`in` | pointer to the variable |
-| blittable structs | per target, as clang does: SysV x86-64 (≤16 bytes split into INTEGER/SSE eightbytes, larger structs `byval` / `sret`); AAPCS64 on Linux and macOS (homogeneous float aggregates in SIMD registers, other composites ≤16 bytes in GPRs, larger ones by reference, `sret` in x8). Apple's arm64 variant packs stack arguments at natural alignment and has the caller extend `sbyte`/`short`/`bool` arguments |
+| blittable structs | per target, as clang does: SysV x86-64 (≤16 bytes split into INTEGER/SSE eightbytes, larger structs `byval` / `sret`); AAPCS64 on Linux and macOS (homogeneous float aggregates in SIMD registers, other composites ≤16 bytes in GPRs, larger ones by reference, `sret` in x8). Apple's arm64 variant packs stack arguments at natural alignment and has the caller extend `sbyte`/`short`/`bool` arguments. Microsoft x64 (Windows): structs of exactly 1, 2, 4 or 8 bytes travel as one integer, any other size by reference to a caller-made copy (no `byval`), returned through a hidden pointer |
 
 Return values: primitives, `bool` (non-zero), structs (register pairs or `sret`), and `string`
 (converted from UTF-8/UTF-16 and freed with `free`, as .NET does).
 
 `SetLastError = true` clears `errno` before the call and saves it afterwards
-(`Marshal.GetLastPInvokeError`, `Marshal.GetLastSystemError`, `Marshal.GetLastWin32Error`).
+(`Marshal.GetLastPInvokeError`, `Marshal.GetLastSystemError`, `Marshal.GetLastWin32Error`); on
+Windows it is the Win32 last error (`SetLastError(0)` / `GetLastError()`), as in .NET.
 
 Delegate parameters are not marshalled; pass callbacks as `delegate* unmanaged<...>` pointing to
 an `[UnmanagedCallersOnly]` method (`&Compare`) — that is the supported, allocation-free path in
@@ -40,6 +41,13 @@ an `[UnmanagedCallersOnly]` method (`&Compare`) — that is the supported, alloc
 * **Everything else** is loaded lazily with `dlopen` on first call and cached per call site.
   Probing follows .NET: the name as given, `name.so`, `libname.so`, `name`, `libname`. Failures
   throw `DllNotFoundException` / `EntryPointNotFoundException` with .NET's messages.
+* **Windows**: there is no `libc` to load (`DllImport("libc")` throws `DllNotFoundException` under
+  .NET on Windows too), so user code binds everything except `__Internal`/`csrt` through
+  `LoadLibraryExW`/`GetProcAddress`, probing `name.dll` then `name`, with .NET's Windows messages
+  ("Unable to load DLL 'x' or one of its dependencies: The specified module could not be found.
+  (0x8007007E)", "... entry point named 'f' in DLL 'x'."). The corelib's own `libc`/`kernel32`
+  imports link directly against the UCRT and kernel32 (as strong symbols: a COFF weak external of,
+  say, `malloc` would also capture the C runtime's own references to it).
 
 `NativeLibrary.Load/TryLoad/GetExport/TryGetExport/Free`, `Marshal.AllocHGlobal/FreeHGlobal`,
 `Marshal.StringToHGlobalAnsi/Uni`, `PtrToStringUTF8/Ansi/Uni`, `Read*/Write*`, `Copy`,
@@ -64,12 +72,27 @@ SDK's emits code built on `RegexRunner` internals. The generated marshalling cod
 ## System.IO
 
 All of it is C# over libc (`corelib/IO/Posix.cs` holds the imports, errno constants and the
-`struct stat` / `struct dirent` offsets). Those differ per OS (`O_CREAT` is 0x40 on Linux and 0x200 on
+`struct stat` / `struct dirent` offsets); on Windows over kernel32 and the UCRT (below). Those differ per OS (`O_CREAT` is 0x40 on Linux and 0x200 on
 macOS, `ENOTEMPTY` 39 and 66, `d_name` sits at offset 19 and 21), so the compiler parses the corelib
 with `CSHARPC_TARGET_LINUX` or `CSHARPC_TARGET_MACOS`, chosen from the **target** triple (never the
 host's), and `Posix.cs` / `ConsoleKeys.cs` (termios) select the values with `#if`. Linux stats through
 `statx`, whose layout is the same on every architecture; macOS arm64 calls `stat`/`lstat`/`fstat`
 directly (64-bit `ino_t` layout, no `$INODE64` symbol variants on arm64).
+
+On Windows (`CSHARPC_TARGET_WINDOWS`) `corelib/IO/Win32.cs` implements the same `Posix` surface over
+kernel32 and the UCRT, so `File`/`Directory`/`FileStream` share their logic across OSes: files are
+opened with `CreateFileW` (.NET's `FileMode`/`FileAccess` mapping, `FileShare` as the share mode, so
+sharing violations happen as under .NET) and read and written through UCRT descriptors
+(`_open_osfhandle`); directories use `CreateDirectoryW`/`RemoveDirectoryW`/`FindFirstFileW`, stat uses
+`GetFileAttributesExW` (100 ns write times), `MoveFileExW` renames. Win32 errors map to .NET's Windows
+exceptions and messages (`ERROR_PATH_NOT_FOUND` → `DirectoryNotFoundException`, sharing violations,
+"The directory is not empty."). `PathWindows.cs` gives `Path` its Windows rules (`\` and `/`
+separators, drive, root-relative and UNC roots, case-insensitive `GetRelativePath`, `GetFullPathNameW`,
+`GetTempPathW`), `Environment` uses `GetEnvironmentVariableW`, `GetComputerNameW`, `GetUserNameW` and
+`GetCommandLineW`, and `ConsoleKeysWindows.cs` reads keys with `ReadConsoleInputW` (a standard handle
+counts as redirected unless it is a console, as in .NET; `Console.Clear` on redirected output throws
+`IOException` like .NET). The local time zone is the Windows one (`GetDynamicTimeZoneInformation` +
+`SystemTimeToTzSpecificLocalTimeEx`); `TZ` is ignored, as .NET does on Windows.
 
 | Area | Types |
 |---|---|
@@ -110,8 +133,11 @@ to a method expecting one) is the corelib object and dispatches virtually.
 
 ## Limits
 
-* Linux (glibc; x86-64 and AArch64) and macOS on Apple silicon. Library probing follows .NET's rules
-  per OS (`.so` / `.dylib` suffixes, `lib` prefix), and `DllNotFoundException` uses .NET's per-OS hint.
+* Linux (glibc; x86-64 and AArch64), macOS on Apple silicon and Windows x64. Library probing follows
+  .NET's rules per OS (`.so` / `.dylib` / `.dll` suffixes, `lib` prefix), and `DllNotFoundException`
+  uses .NET's per-OS message.
+* Windows: `CharSet.Ansi` strings are marshalled as UTF-8 (.NET uses the ANSI code page; the same for
+  ASCII text), and returned native strings are released with `free` (.NET: `CoTaskMemFree`).
 * No delegate marshalling, `SafeHandle` parameters, `[In, Out]` array copy-back of non-blittable
   elements, `StringBuilder` parameters, or variadic functions (same as .NET for the last one).
 * `FileStream` is synchronous; the `*Async` file APIs complete synchronously.

@@ -45,11 +45,12 @@ public static class RuntimeLto
         }
     }
 
-    /// <summary>Closed world: only the process entry point needs external linkage.</summary>
+    /// <summary>Closed world: only the process entry point needs external linkage — and the runtime's
+    /// libm gap fillers (win32.c), which the backend may still call as libcalls after optimization.</summary>
     private static void Internalize(LlvmModule module)
     {
         for (var fn = LLVMGetFirstFunction(module.Ref); !fn.IsNull; fn = LLVMGetNextFunction(fn))
-            if (ShouldInternalize(fn) && NameOf(fn) != "main")
+            if (ShouldInternalize(fn) && NameOf(fn) is not ("main" or "roundeven" or "roundevenf"))
                 LLVMSetLinkage(fn, LLVMLinkage.Internal);
         for (var global = LLVMGetFirstGlobal(module.Ref); !global.IsNull; global = LLVMGetNextGlobal(global))
             if (ShouldInternalize(global) && !NameOf(global).StartsWith("llvm.", StringComparison.Ordinal))

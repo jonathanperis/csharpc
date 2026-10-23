@@ -18,6 +18,9 @@ public sealed partial class ModuleCodeGen
     public LlvmContext Llvm { get; }
     public LlvmModule Module { get; }
     public TypeMapper Types { get; }
+
+    /// <summary>Environment.NewLine of the target ("\r\n" on Windows): Console.WriteLine, AppendLine, ...</summary>
+    public string NewLine => Types.Target.IsWindows ? "\r\n" : "\n";
     public MemoryFacts Facts { get; }
     public List<CompileError> Errors { get; } = [];
 

@@ -118,7 +118,7 @@ namespace CsharpcCoreLib
                 case FileMode.Append: flags |= Posix.O_CREAT; _append = true; break;
             }
             byte* p = Utf8.ToNative(_path);
-            _fd = Posix.open(p, flags, 0x1B6 /* 0666, minus umask */);
+            _fd = Posix.open(p, flags, 0x1B6 /* 0666, minus umask */, (int)share);
             int errno = Posix.Errno;
             Libc.free(p);
             if (_fd < 0) throw Posix.IOError(errno, _path, false);

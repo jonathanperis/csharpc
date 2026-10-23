@@ -200,6 +200,11 @@ public sealed class TargetMachine : IDisposable
     /// <summary>macOS (Mach-O, libSystem, Apple's linker).</summary>
     public bool IsDarwin => IsDarwinTriple(Triple);
     public static bool IsDarwinTriple(string triple) => triple.Contains("-apple-", StringComparison.Ordinal);
+    /// <summary>Windows (PE/COFF). csharpc targets the MinGW-w64 environment (x86_64-w64-windows-gnu):
+    /// Itanium-style exceptions on SEH unwind tables, linked by lld against the UCRT.</summary>
+    public bool IsWindows => IsWindowsTriple(Triple);
+    public static bool IsWindowsTriple(string triple) =>
+        triple.Contains("-windows", StringComparison.Ordinal) || triple.Contains("-mingw", StringComparison.Ordinal) || triple.Contains("-win32", StringComparison.Ordinal);
 
     private TargetMachine(LLVMTargetMachineRef machine, string triple)
     {
@@ -214,10 +219,14 @@ public sealed class TargetMachine : IDisposable
     {
         if (s_initialized) return;
         s_initialized = true;
+        // The asm parsers assemble inline asm when emitting objects (the runtime's LTO bitcode has some
+        // on Windows, from the MinGW headers' intrinsics).
         LLVMInitializeX86TargetInfo(); LLVMInitializeX86Target(); LLVMInitializeX86TargetMC(); LLVMInitializeX86AsmPrinter();
+        LLVMInitializeX86AsmParser();
         try
         {
             LLVMInitializeAArch64TargetInfo(); LLVMInitializeAArch64Target(); LLVMInitializeAArch64TargetMC(); LLVMInitializeAArch64AsmPrinter();
+            LLVMInitializeAArch64AsmParser();
         }
         catch (EntryPointNotFoundException) { /* LLVM built without AArch64 */ }
     }
@@ -233,6 +242,9 @@ public sealed class TargetMachine : IDisposable
             // instead: $MACOSX_DEPLOYMENT_TARGET (as clang does) or csharpc's default.
             if (IsDarwinTriple(triple) && triple.Contains("-darwin", StringComparison.Ordinal))
                 triple = $"{triple[..triple.IndexOf('-')]}-apple-macosx{DeploymentTarget}";
+            // An LLVM built for MSVC defaults to *-pc-windows-msvc; csharpc's Windows target is MinGW.
+            if (IsWindowsTriple(triple))
+                triple = $"{triple[..triple.IndexOf('-')]}-w64-windows-gnu";
             return triple;
         }
     }

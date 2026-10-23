@@ -15,10 +15,11 @@ possible bug; an explicit "not supported by csharpc yet" diagnostic is always pr
 
 ## Setup
 
-- Linux x86-64/ARM64 or macOS ARM64, .NET 11 SDK (version pinned in `global.json`; preview allowed),
-  LLVM 18 (`libLLVM-18.so`, Homebrew `llvm@18` on macOS, or set `CSHARPC_LIBLLVM`) and `clang`
-  (linker driver, runtime compiler; on macOS Homebrew's clang 18, plus the Xcode Command Line Tools
-  for the SDK and linker).
+- Linux x86-64/ARM64, macOS ARM64 or Windows x64, .NET 11 SDK (version pinned in `global.json`;
+  preview allowed), LLVM 18 (`libLLVM-18.so`, Homebrew `llvm@18` on macOS, LLVM-MinGW's
+  `libLLVM-18.dll` on Windows, or set `CSHARPC_LIBLLVM`) and `clang` (linker driver, runtime
+  compiler; on macOS Homebrew's clang 18, plus the Xcode Command Line Tools for the SDK and linker;
+  on Windows LLVM-MinGW's clang, with the test scripts run from Git Bash).
 - If the SDK is installed side by side: `export PATH=$HOME/.dotnet11:$PATH`.
 - Recommended env: `DOTNET_CLI_TELEMETRY_OPTOUT=1 DOTNET_NOLOGO=1`.
 
@@ -82,9 +83,12 @@ before every commit that touches `src/`.
   Intrinsics outrank shadows in `CoreLib.Map`, so remove an intrinsic when a shadow replaces it.
 - Generic code: always read types through `S(...)` / `TypeOf(op)` so substitution and corelib
   redirection apply.
-- Per-OS behaviour: C runtime differences go behind `#ifdef __APPLE__` (docs/04-runtime.md,
-  "Platforms"); libc constants and struct layouts used by C# go behind `CSHARPC_TARGET_LINUX` /
-  `CSHARPC_TARGET_MACOS` in the corelib, chosen from the target triple, never the host.
+- Per-OS behaviour: C runtime differences go behind `#ifdef __APPLE__` / `#ifdef _WIN32`
+  (docs/04-runtime.md, "Platforms"); libc constants, struct layouts and OS calls used by C# go behind
+  `CSHARPC_TARGET_LINUX` / `CSHARPC_TARGET_MACOS` / `CSHARPC_TARGET_WINDOWS` in the corelib, chosen
+  from the target triple, never the host. Windows reimplements the `Posix` class (`corelib/IO/Win32.cs`).
+- Newlines: anything .NET writes as `Environment.NewLine` (WriteLine, AppendLine, multi-line exception
+  messages) must use it (`ModuleCodeGen.NewLine`, `CSRT_NEWLINE` in C); it is `"\r\n"` on Windows.
 - Shared runtime ABI (method-table header, object/string/array layout) is defined once in
   `src/runtime/csrt.h` and mirrored in `TypeMapper`/`ModuleCodeGen`; change all sides together.
 

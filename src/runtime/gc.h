@@ -18,6 +18,10 @@ struct csrt_GcThread {
     uintptr_t tls_lo, tls_hi;   // static TLS block of the executable
     void* cache;                // the thread's allocation caches
     void* managed;              // GC root: the System.Threading.Thread object
+#ifdef _WIN32
+    void* handle;               // HANDLE for SuspendThread / GetThreadContext
+    void* context;              // CONTEXT: the registers of the stopped thread (scanned as roots)
+#endif
 };
 
 // Thread registration: the creator prepares an entry (rooting `managed`), the new thread attaches

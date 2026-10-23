@@ -63,7 +63,8 @@ internal static unsafe partial class Native
             "libLLVM.so",
             // macOS: Homebrew's llvm@18 (Apple silicon prefix, then Intel), then the loader's search path.
             "/opt/homebrew/opt/llvm@18/lib/libLLVM.dylib", "/usr/local/opt/llvm@18/lib/libLLVM.dylib", "libLLVM.dylib",
-            "LLVM-C.dll",
+            // Windows: LLVM-MinGW's libLLVM (on PATH next to its clang), or an official LLVM's C API DLL.
+            "libLLVM-18.dll", "LLVM-C.dll",
         ];
         foreach (var candidate in candidates)
             if (candidate is not null && NativeLibrary.TryLoad(candidate, out var handle))
@@ -277,10 +278,12 @@ internal static unsafe partial class Native
     [LibraryImport(Lib)] public static partial void LLVMInitializeX86Target();
     [LibraryImport(Lib)] public static partial void LLVMInitializeX86TargetMC();
     [LibraryImport(Lib)] public static partial void LLVMInitializeX86AsmPrinter();
+    [LibraryImport(Lib)] public static partial void LLVMInitializeX86AsmParser();
     [LibraryImport(Lib)] public static partial void LLVMInitializeAArch64TargetInfo();
     [LibraryImport(Lib)] public static partial void LLVMInitializeAArch64Target();
     [LibraryImport(Lib)] public static partial void LLVMInitializeAArch64TargetMC();
     [LibraryImport(Lib)] public static partial void LLVMInitializeAArch64AsmPrinter();
+    [LibraryImport(Lib)] public static partial void LLVMInitializeAArch64AsmParser();
 
     [LibraryImport(Lib)] public static partial nint LLVMGetDefaultTargetTriple();
     [LibraryImport(Lib)] public static partial nint LLVMGetHostCPUName();

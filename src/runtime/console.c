@@ -10,12 +10,36 @@
 // One validating UTF-8 decoder for the whole runtime (csrt.c): stdin is untrusted input.
 static csrt_String* utf8_to_string(const char* p, size_t n) { return csrt_string_from_utf8_n(p, n); }
 
+#ifdef _WIN32
+/// getline(3) for the UCRT, which has none.
+static long getline(char** line, size_t* cap, FILE* f) {
+    size_t n = 0;
+    int c;
+    _lock_file(f);
+    while ((c = _getc_nolock(f)) != EOF) {
+        if (n + 2 > *cap) {
+            size_t grown = *cap ? *cap * 2 : 128;
+            char* p = realloc(*line, grown);
+            if (!p) break;
+            *line = p;
+            *cap = grown;
+        }
+        (*line)[n++] = (char)c;
+        if (c == '\n') break;
+    }
+    _unlock_file(f);
+    if (n == 0) return -1;
+    (*line)[n] = 0;
+    return (long)n;
+}
+#endif
+
 /// Console.ReadLine(): null at end of input; strips "\n" / "\r\n".
 csrt_String* csrt_console_read_line(void) {
     fflush(stdout);  // interactive prompts written with Console.Write must appear first
     char* line = NULL;
     size_t cap = 0;
-    ssize_t n = getline(&line, &cap, stdin);
+    long n = getline(&line, &cap, stdin);
     if (n < 0) { free(line); return NULL; }
     if (n > 0 && line[n - 1] == '\n') n--;
     if (n > 0 && line[n - 1] == '\r') n--;

@@ -149,18 +149,32 @@ How the two sides call each other:
 
 ## Platforms
 
-csrt is C11 + POSIX. What differs per OS is behind `#ifdef __APPLE__`:
+csrt is C11 + POSIX threads. What differs per OS is behind `#ifdef __APPLE__` and `#ifdef _WIN32`
+(Windows: MinGW-w64 with the UCRT; winpthreads provides the pthread API, so the threading code is
+shared):
 
-| Concern | Linux (glibc) | macOS (arm64) |
-|---|---|---|
-| GC static roots | writable `PT_LOAD` segments via `dl_iterate_phdr` | writable `LC_SEGMENT_64`s of image 0 (`_dyld_get_image_header`) |
-| GC thread-local roots | the executable's `PT_TLS` block (`dlpi_tls_data`) | the thread's TLV block: a `__thread_vars` descriptor's thunk gives one variable's address, minus its offset = block start; size = `__thread_data` + `__thread_bss` |
-| thread stack bounds | `__libc_stack_end`, `pthread_getattr_np` | `pthread_get_stackaddr_np` |
-| stop-the-world | `SIGPWR`/`SIGXCPU`, POSIX semaphore acks | `SIGUSR1`/`SIGXCPU`, Mach semaphore acks (no unnamed POSIX semaphores) |
-| timed waits | `CLOCK_MONOTONIC` condvar, `pthread_mutex_timedlock` | `pthread_cond_timedwait_relative_np`, trylock polling |
-| unwinding | libgcc_s / `.eh_frame` | libSystem's libunwind, compact unwind + `__eh_frame`; same personality (`csrt_personality`) |
-| command line | `/proc/self/cmdline` | `_NSGetArgv` |
-| P/Invoke probing | `foo.so`, `libfoo.so`, `foo`, `libfoo` | the same with `.dylib` |
+| Concern | Linux (glibc) | macOS (arm64) | Windows (x64, MinGW-w64) |
+|---|---|---|---|
+| GC static roots | writable `PT_LOAD` segments via `dl_iterate_phdr` | writable `LC_SEGMENT_64`s of image 0 (`_dyld_get_image_header`) | writable sections of the executable's PE image (`GetModuleHandle(NULL)`) |
+| GC thread-local roots | the executable's `PT_TLS` block (`dlpi_tls_data`) | the thread's TLV block: a `__thread_vars` descriptor's thunk gives one variable's address, minus its offset = block start; size = `__thread_data` + `__thread_bss` | `TEB.ThreadLocalStoragePointer[_tls_index]`; size from the image's TLS directory |
+| GC heap chunks | `mmap` + trim to alignment | the same | `VirtualAlloc`: reserve twice the size, release, map at the aligned address |
+| thread stack bounds | `__libc_stack_end`, `pthread_getattr_np` | `pthread_get_stackaddr_np` | `GetCurrentThreadStackLimits` |
+| stop-the-world | `SIGPWR`/`SIGXCPU`, POSIX semaphore acks | `SIGUSR1`/`SIGXCPU`, Mach semaphore acks (no unnamed POSIX semaphores) | `SuspendThread` + `GetThreadContext` (waits until the thread is stopped; the whole `CONTEXT`, vector registers included, is scanned as roots), `ResumeThread` |
+| timed waits | `CLOCK_MONOTONIC` condvar, `pthread_mutex_timedlock` | `pthread_cond_timedwait_relative_np`, trylock polling | `pthread_cond_timedwait_relative_np` (winpthreads' absolute timeouts are wall-clock) |
+| unwinding | libgcc_s / `.eh_frame` | libSystem's libunwind, compact unwind + `__eh_frame`; same personality (`csrt_personality`) | LLVM-MinGW's libunwind on SEH tables (`.pdata`/`.xdata`): LLVM registers `csrt_personality` as each function's SEH handler, and on Windows it forwards to `_GCC_specific_handler` with the Itanium personality, as libstdc++'s `__gxx_personality_seh0` does |
+| unhandled exception | `abort()`: SIGABRT, exit status 134 | the same | `TerminateProcess` with .NET's exit code `0xE0434352`, or `0xC0000005` for a `NullReferenceException` from a null dereference (.NET re-raises the access violation) |
+| standard streams | as is | as is | binary mode: "\r\n" is written where .NET writes `Environment.NewLine`, a program's own "\n" stays bare |
+| command line | `/proc/self/cmdline` | `_NSGetArgv` | the UCRT's wide `argv` (`_configure_wide_argv`: MSVC `wmain` parsing of `GetCommandLineW`, like .NET's host) |
+| clocks | `clock_gettime` | the same | `GetSystemTimePreciseAsFileTime`; `Stopwatch` on `QueryPerformanceCounter` (its `Frequency` is `QueryPerformanceFrequency`, as in .NET) |
+| P/Invoke probing | `foo.so`, `libfoo.so`, `foo`, `libfoo` | the same with `.dylib` | `foo.dll`, `foo` (`LoadLibraryExW`); `SetLastError` captures `GetLastError()` |
+
+An uncaught exception on Windows: `_Unwind_RaiseException` raises an SEH exception that no frame
+handles, and MinGW's top-level filter (`_gnu_exception_handler`) resumes it, so it returns
+`_URC_END_OF_STACK` as on Unix; csrt then runs the `finally` blocks (forced unwind) and reports it.
+The thread-pool trap (`csrt_trap_call`) uses `__builtin_setjmp`/`__builtin_longjmp` there, because
+MinGW's `longjmp` unwinds the stack through SEH (`RtlUnwindEx`) and it jumps out of a forced unwind.
+`win32.c` supplies C library functions the UCRT lacks (`roundeven`, which LLVM calls for
+`Math.Round` without SSE4.1).
 
 errno values, `open` flags and struct layouts that C# code needs are selected in the corelib at
 compile time from the target triple, not in C ([16-interop-io.md](16-interop-io.md#systemio)).

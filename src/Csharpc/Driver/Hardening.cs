@@ -35,8 +35,9 @@ public static class Hardening
 
     /// <summary>Extra clang flags for src/runtime/*.c (objects and LTO bitcode alike).</summary>
     public static string[] RuntimeCFlags(HardeningLevel level, TargetMachine target) =>
-        // clang implements stack-clash probing for Linux only (macOS relies on its guard pages).
-        target.IsDarwin ? [.. RuntimeCFlagsFor(level, target).Where(f => f != "-fstack-clash-protection")] : RuntimeCFlagsFor(level, target);
+        // clang implements stack-clash probing for Linux only (macOS relies on its guard pages, Windows
+        // on __chkstk, which every frame larger than a page calls).
+        target.IsDarwin || target.IsWindows ? [.. RuntimeCFlagsFor(level, target).Where(f => f != "-fstack-clash-protection")] : RuntimeCFlagsFor(level, target);
 
     private static string[] RuntimeCFlagsFor(HardeningLevel level, TargetMachine target) => level switch
     {
@@ -66,6 +67,13 @@ public static class Hardening
     public static string[] LinkFlags(HardeningLevel level) => level == HardeningLevel.None
         ? []
         : ["-Wl,-z,relro", "-Wl,-z,now", "-Wl,-z,noexecstack", "-Wl,-z,separate-code"];
+
+    /// <summary>PE/COFF: ASLR with a 64-bit randomized base, DEP. lld enables these by default for
+    /// MinGW; they are spelled out so the baseline does not depend on that. libssp backs the runtime's
+    /// stack protector and _FORTIFY_SOURCE checks.</summary>
+    public static string[] WindowsLinkFlags(HardeningLevel level) => level == HardeningLevel.None
+        ? []
+        : ["-Wl,--dynamicbase", "-Wl,--high-entropy-va", "-Wl,--nxcompat", "-lssp"];
 
     /// <summary>
     /// Module flags for the program module. Must run before the runtime bitcode is linked in: clang
@@ -97,7 +105,8 @@ public static class Hardening
         {
             if (LLVMIsDeclaration(fn) != 0) continue;
             // Stack-clash protection: probe large frames page by page (cheap; only big frames pay).
-            llvm.AddStringFunctionAttribute(fn, "probe-stack", "inline-asm");
+            // Windows always probes big frames (__chkstk); there the attribute would name a function.
+            if (!target.IsWindows) llvm.AddStringFunctionAttribute(fn, "probe-stack", "inline-asm");
             if (level == HardeningLevel.Max)
             {
                 // Generated code is memory-safe C# except `unsafe`/stackalloc; Max adds a canary anyway.

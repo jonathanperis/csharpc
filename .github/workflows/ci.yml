@@ -25,12 +25,23 @@ jobs:
           - name: macos-arm64
             os: macos
             runner: macos-15
+          - name: windows-x64
+            os: windows
+            runner: windows-2025
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 120
     env:
       DOTNET_CLI_TELEMETRY_OPTOUT: 1
       DOTNET_NOLOGO: 1
+    defaults:
+      run:
+        shell: bash  # Git Bash on Windows: the test scripts are bash
     steps:
+      # Test sources and recorded outputs must keep their LF line endings on Windows too.
+      - name: Keep LF line endings (Windows)
+        if: matrix.os == 'windows'
+        run: git config --global core.autocrlf false
+
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Install LLVM 18 and clang (Linux)
@@ -50,12 +61,35 @@ jobs:
           echo "CSHARPC_LIBLLVM=$llvm/lib/libLLVM.dylib" >> "$GITHUB_ENV"
           echo "SDKROOT=$(xcrun --sdk macosx --show-sdk-path)" >> "$GITHUB_ENV"
 
+      # LLVM-MinGW: clang (the runtime compiler and linker driver), lld, compiler-rt, libunwind,
+      # winpthreads and the UCRT import libraries, plus libLLVM-18.dll for the compiler itself (the
+      # same LLVM 18, so the runtime's LTO bitcode matches). Pinned release and checksum.
+      - name: Install LLVM-MinGW (Windows)
+        if: matrix.os == 'windows'
+        run: |
+          curl -sSLf -o "$RUNNER_TEMP/llvm-mingw.zip" https://github.com/mstorsjo/llvm-mingw/releases/download/20240619/llvm-mingw-20240619-ucrt-x86_64.zip
+          echo "810703594a7e3eea03385b5329c7ea3bd65f5e496b44cf1b68c17ff436d265e7  $RUNNER_TEMP/llvm-mingw.zip" | sha256sum -c -
+          unzip -q "$RUNNER_TEMP/llvm-mingw.zip" -d "$RUNNER_TEMP"
+          bin="$(cygpath -w "$RUNNER_TEMP/llvm-mingw-20240619-ucrt-x86_64/bin")"
+          echo "$bin" >> "$GITHUB_PATH"
+          echo "CSHARPC_LIBLLVM=$bin\\libLLVM-18.dll" >> "$GITHUB_ENV"
+
       - name: Install .NET 11 SDK
+        if: matrix.os != 'windows'
         run: |
           curl -sSL https://dot.net/v1/dotnet-install.sh -o dotnet-install.sh
           bash dotnet-install.sh --jsonfile global.json --install-dir "$HOME/.dotnet11"
           echo "$HOME/.dotnet11" >> "$GITHUB_PATH"
           echo "DOTNET_ROOT=$HOME/.dotnet11" >> "$GITHUB_ENV"
+
+      - name: Install .NET 11 SDK (Windows)
+        if: matrix.os == 'windows'
+        shell: pwsh
+        run: |
+          Invoke-WebRequest https://dot.net/v1/dotnet-install.ps1 -OutFile dotnet-install.ps1
+          ./dotnet-install.ps1 -JsonFile global.json -InstallDir "$env:USERPROFILE\.dotnet11"
+          "$env:USERPROFILE\.dotnet11" | Out-File -Append -Encoding utf8 $env:GITHUB_PATH
+          "DOTNET_ROOT=$env:USERPROFILE\.dotnet11" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
 
       - name: Build
         run: dotnet build src/Csharpc -c Release
@@ -75,4 +109,11 @@ jobs:
         if: success() || failure()
         run: tests/projects.sh
 
-      # tests/debuginfo.sh drives gdb, which isn't available on macOS (lldb would need its own harness).
+      # The Windows expectations are derived from the Linux recordings ("\r\n" line ends); check that
+      # derivation against real .NET on this machine for every test not listed in platform-skips.txt.
+      - name: Real .NET vs derived expectations (Windows)
+        if: matrix.os == 'windows' && (success() || failure())
+        run: tests/check-oracle.sh -j 4
+
+      # tests/debuginfo.sh drives gdb, which isn't available on macOS (lldb would need its own harness)
+      # or on Windows (DWARF in PE/COFF; the gdb pretty-printers are untested there).

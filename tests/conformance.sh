@@ -33,18 +33,51 @@ ap.add_argument("-v", "--verbose", action="store_true", help="print the diff/dia
 args = ap.parse_args()
 
 programs = sorted(
-    os.path.relpath(os.path.join(d, f), CONF)[:-3]
+    os.path.relpath(os.path.join(d, f), CONF)[:-3].replace(os.sep, "/")
     for d, _, files in os.walk(CONF) for f in files if f.endswith(".cs"))
 if args.filters:
     programs = [p for p in programs if any(f in p for f in args.filters)]
 
 env = dict(os.environ, DOTNET_CLI_TELEMETRY_OPTOUT="1", DOTNET_NOLOGO="1")
+WINDOWS = os.name == "nt"
+HOST_OS = "windows" if WINDOWS else "macos" if sys.platform == "darwin" else "linux"
+EXE = ".exe" if WINDOWS else ""
 
-def run(cmd, cwd=None, timeout=None):
+def platform_skips():
+    # tests/platform-skips.txt: "<os> <test> <reason>" (tests whose recorded output is itself
+    # platform-dependent under real .NET).
+    skips = {}
+    with open(os.path.join(ROOT, "tests", "platform-skips.txt"), encoding="utf-8") as f:
+        for line in f:
+            parts = line.split(None, 2)
+            if len(parts) == 3 and not line.startswith("#") and parts[0] == HOST_OS: skips[parts[1]] = parts[2].strip()
+    return skips
+SKIPS = platform_skips()
+
+_hook = []
+def oracle_hook():
+    # tests/platform.sh, platform_oracle_hook: a startup hook that makes .NET's current culture the
+    # invariant one on Windows, where the user's culture would otherwise apply.
+    if not WINDOWS: return ""
+    if not _hook:
+        out = os.path.join(tempfile.gettempdir(), "csharpc-oracle-hook")
+        if not os.path.exists(os.path.join(out, "OracleHook.dll")):
+            subprocess.run([DOTNET, "build", os.path.join(ROOT, "tests", "oracle-hook", "OracleHook.csproj"), "-c", "Release",
+                            "-o", out, "-v", "quiet", "-nologo"], check=True, env=env, capture_output=True)
+        _hook.append(os.path.join(out, "OracleHook.dll"))
+    return _hook[0]
+
+def run(cmd, cwd=None, timeout=None, raw=False):
+    # raw: stdout exactly as written (no newline translation), for comparing program output on Windows.
     try:
-        r = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, timeout=timeout, env=env, errors="replace")
-        # killed by signal N -> report 128+N like a shell (SIGABRT = 134, as .NET's unhandled exceptions)
-        return (128 - r.returncode if r.returncode < 0 else r.returncode), r.stdout, r.stderr
+        r = subprocess.run(cmd, cwd=cwd, capture_output=True, text=not raw, timeout=timeout, env=env, errors=None if raw else "replace")
+        out, err = (r.stdout.decode(errors="replace"), r.stderr.decode(errors="replace")) if raw else (r.stdout, r.stderr)
+        code = r.returncode
+        # killed by signal N -> report 128+N like a shell (SIGABRT = 134, as .NET's unhandled exceptions);
+        # on Windows .NET ends with 0xE0434352 instead, and other exit codes are compared modulo 256 like
+        # the recorded (Unix) status.
+        if WINDOWS: code = 134 if code == 0xE0434352 else code & 0xFF
+        return (128 - code if code < 0 else code), out, err
     except subprocess.TimeoutExpired as e:
         return "timeout", (e.stdout or b"").decode(errors="replace") if isinstance(e.stdout, bytes) else (e.stdout or ""), ""
 
@@ -103,8 +136,10 @@ def check(p, workdir):
     src = os.path.join(CONF, p + ".cs")
     exp_path = os.path.join(CONF, p + ".expected")
     if not os.path.exists(exp_path): return dict(program=p, status="skip", reasons=["no expectation (run --regen)"])
+    live = SKIPS.get(p, "").startswith("live:")
+    if p in SKIPS and not live: return dict(program=p, status="skip", reasons=[f"platform-dependent on {HOST_OS}: {SKIPS[p]}"])
     want_code = int(open(os.path.join(CONF, p + ".exitcode")).read()) if os.path.exists(os.path.join(CONF, p + ".exitcode")) else 0
-    exe = os.path.join(workdir, p.replace("/", "_"))
+    exe = os.path.join(workdir, p.replace("/", "_")) + EXE
     t0 = time.time()
     code, out, err = run(CSHARPC + [args.opt, src, "-o", exe], timeout=180)
     compile_ms = int((time.time() - t0) * 1000)
@@ -121,8 +156,23 @@ def check(p, workdir):
             elif "failed with exit code" in text: reasons = ["link/runtime build error"]
             else: reasons = ["compiler failed: " + text.strip().splitlines()[-1][:120] if text.strip() else "compiler failed (no output)"]
         return dict(program=p, status="compile-error", reasons=reasons, compile_ms=compile_ms, detail=text[-1500:])
-    code, out, err = run(["bash", "-c", 'ulimit -c 0; exec "$0"', exe], timeout=args.timeout)
-    expected = open(exp_path).read()
+    if live:
+        # Expected output recorded live from real .NET on this machine (tests/platform-skips.txt),
+        # with the invariant culture as its current culture like the recordings (tests/oracle-hook).
+        live_env = dict(env, DOTNET_STARTUP_HOOKS=oracle_hook())
+        r = subprocess.run([DOTNET, "run", os.path.basename(src), "-p:WarningLevel=0", "-p:AllowUnsafeBlocks=true", "-p:StartupHookSupport=true"],
+                           cwd=os.path.dirname(src), capture_output=True, env=live_env, timeout=300)
+        want_code = 134 if WINDOWS and r.returncode == 0xE0434352 else r.returncode & 0xFF if WINDOWS else r.returncode
+        lines = r.stdout.decode(errors="replace").splitlines(keepends=True)
+        expected = "".join(l for l in lines if not WARNING.match(l))
+        code, out, err = run([exe] if WINDOWS else ["bash", "-c", 'ulimit -c 0; exec "$0"', exe], timeout=args.timeout, raw=True)
+    elif WINDOWS:
+        # Byte-exact: Console.WriteLine ends lines with "\r\n" (Environment.NewLine) on Windows.
+        code, out, err = run([exe], timeout=args.timeout, raw=True)
+        expected = open(exp_path, newline="", encoding="utf-8").read().replace("\n", "\r\n")
+    else:
+        code, out, err = run(["bash", "-c", 'ulimit -c 0; exec "$0"', exe], timeout=args.timeout)
+        expected = open(exp_path).read()
     if code == "timeout":
         return dict(program=p, status="timeout", reasons=["runtime timeout / hang"], compile_ms=compile_ms)
     if out == expected and code == want_code:
