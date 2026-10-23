@@ -33,6 +33,11 @@ public sealed partial class ModuleCodeGen
         if (!TypeSubstitution.IsGenericContext(type)) type = type.OriginalDefinition;
         if (_structs.TryGetValue(type, out var existing)) return existing;
         if (TypeSubstitution.IsOpen(type)) throw CompileError.Unsupported($"open generic struct '{type}'", type);
+        return BuildOrForget(_structs, type, BuildStructLayout);
+    }
+
+    private StructLayout BuildStructLayout(INamedTypeSymbol type)
+    {
 
         // Both repeat their element in memory; laid out as a single field they would silently shrink.
         if (type.GetAttributes().Any(a => a.AttributeClass?.ToDisplayString() == "System.Runtime.CompilerServices.InlineArrayAttribute"))
@@ -48,7 +53,7 @@ public sealed partial class ModuleCodeGen
         {
             layout.FieldIndex[f] = (uint)elements.Count;
             layout.FieldIndex[f.OriginalDefinition] = (uint)elements.Count; // same index in every instantiation
-            elements.Add(Types.Storage(f.Type));
+            elements.Add(FieldStorage(f));
         }
         if (elements.Count == 0) elements.Add(Llvm.I8); // an empty struct still occupies a byte, as in the CLR
         LlvmContext.SetBody(layout.LlvmType, [.. elements]);

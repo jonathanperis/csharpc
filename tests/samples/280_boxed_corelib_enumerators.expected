@@ -1,0 +1,34 @@
+1 2 3 
+List: [Enumeration has either not started or has already finished.] 10 20 30 [Enumeration has either not started or has already finished.] reset: 10 20 30
+HashSet: [Enumeration has either not started or has already finished.] a b [Enumeration has either not started or has already finished.] reset: a b
+Dictionary: [Enumeration has either not started or has already finished.] [x, 1] [y, 2] [Enumeration has either not started or has already finished.] reset: [x, 1] [y, 2]
+Keys: [Enumeration has either not started or has already finished.] x y [Enumeration has either not started or has already finished.] reset: x y
+Values: [Enumeration has either not started or has already finished.] 1 2 [Enumeration has either not started or has already finished.] reset: 1 2
+Queue: current-before 4 5 current-after reset: 4 5
+Stack: current-before 7 6 current-after reset: 7 6
+LinkedList: [Enumeration has either not started or has already finished.] p q [Enumeration has either not started or has already finished.] reset: p q
+SortedDictionary: [Enumeration has either not started or has already finished.] [1, one] [2, two] [Enumeration has either not started or has already finished.] reset: [1, one] [2, two]
+SortedKeys: [Enumeration has either not started or has already finished.] 1 2 [Enumeration has either not started or has already finished.] reset: 1 2
+SortedValues: [Enumeration has either not started or has already finished.] one two [Enumeration has either not started or has already finished.] reset: one two
+SortedSet: [Enumeration has either not started or has already finished.] 8 9 [Enumeration has either not started or has already finished.] reset: 8 9
+60
+3
+17
+True
+True
+False
+True
+Collection was modified; enumeration operation may not execute.
+Collection was modified; enumeration operation may not execute.
+0
+0
+0
+Enumeration has either not started or has already finished.
+x=1 x [x, 1]
+y=2 y [y, 2]
+1=one
+2=two
+[k, ] k|True
+System.Collections.Generic.List`1+Enumerator[System.Int32]
+True
+System.Collections.Generic.Dictionary`2+KeyCollection+Enumerator[System.String,System.Int32]

@@ -55,22 +55,32 @@ public static class Mangler
         return sb.Append('E').ToString();
     }
 
-    /// <summary>
-    /// CLR-style metadata name ("Ns.Outer+Inner", "Box`1[System.Int32]"), used for Type.FullName /
-    /// default ToString().
-    /// </summary>
     /// <summary>Set by codegen: the BCL name a corelib shadow type stands for (CoreLib.RealNameOf).</summary>
     public static Func<INamedTypeSymbol, string?>? RealNameOf { get; set; }
 
+    /// <summary>
+    /// CLR-style metadata name ("Ns.Outer+Inner", "Box`1[System.Int32]"), used for Type.FullName /
+    /// default ToString(). Like the CLR, a type nested in a generic type lists the type arguments of
+    /// the whole chain on the innermost name: "List`1+Enumerator[System.Int32]".
+    /// </summary>
     public static string MetadataName(INamedTypeSymbol type)
     {
-        var name = type.MetadataName;
-        if (RealNameOf?.Invoke(type) is { } real) name = real;
-        else if (type.ContainingType is { } outer) name = MetadataName(outer) + "+" + name;
-        else if (type.ContainingNamespace is { IsGlobalNamespace: false } ns) name = ns.ToDisplayString() + "." + name;
-        if (type.TypeArguments.Length > 0 && !type.IsDefinition)
-            name += "[" + string.Join(",", type.TypeArguments.Select(TypeName)) + "]";
+        var name = DefinitionName(type);
+        if (!type.IsDefinition)
+        {
+            var arguments = new List<ITypeSymbol>();
+            for (var t = type; t is not null; t = t.ContainingType) arguments.InsertRange(0, t.TypeArguments);
+            if (arguments.Count > 0) name += "[" + string.Join(",", arguments.Select(TypeName)) + "]";
+        }
         return name;
+
+        static string DefinitionName(INamedTypeSymbol type)
+        {
+            if (RealNameOf?.Invoke(type) is { } real) return real;
+            if (type.ContainingType is { } outer) return DefinitionName(outer.OriginalDefinition) + "+" + type.MetadataName;
+            if (type.ContainingNamespace is { IsGlobalNamespace: false } ns) return ns.ToDisplayString() + "." + type.MetadataName;
+            return type.MetadataName;
+        }
 
         static string TypeName(ITypeSymbol t) => t switch
         {

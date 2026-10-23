@@ -222,8 +222,10 @@ public sealed partial class ModuleCodeGen
         {
             IArrayTypeSymbol array => ArrayMethodTable(array.ElementType),
             INamedTypeSymbol { TypeKind: TypeKind.Enum } e => EnumMethodTable(e),
-            INamedTypeSymbol { TypeKind: TypeKind.Class } c when IsUserType(c) && !c.IsStatic && !c.IsGenericType => GetLayout(c).MethodTable,
-            INamedTypeSymbol { TypeKind: TypeKind.Struct } s when IsUserType(s) && !s.IsGenericType => StructMethodTable(s),
+            // Closed generic instantiations (and corelib shadows such as List<int>) use the same method
+            // table their instances carry, so typeof(G<int>) == obj.GetType() holds.
+            INamedTypeSymbol { TypeKind: TypeKind.Class } c when !c.IsStatic && IsUserType(CoreLib.TryMap(c) ?? c) && !c.IsUnboundGenericType && !TypeSubstitution.IsOpen(c) => GetLayout(c).MethodTable,
+            INamedTypeSymbol { TypeKind: TypeKind.Struct } s when IsUserType(CoreLib.TryMap(s) ?? s) && !s.IsUnboundGenericType && !TypeSubstitution.IsOpen(s) => StructMethodTable(s),
             INamedTypeSymbol ex when IsLibraryException(ex) => GetLayout(ex).MethodTable,
             INamedTypeSymbol named => TypeOnlyMethodTable(TypeSubstitution.IsOpen(named) ? named.OriginalDefinition : named),
             _ => throw CompileError.Unsupported($"typeof({type})", at),

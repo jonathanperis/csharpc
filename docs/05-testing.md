@@ -18,6 +18,13 @@ tests/samples/  ──┤
   with a timeout (`$CSHARPC_TEST_TIMEOUT`, default 20 s), and requires byte-identical stdout and the
   same exit code. stderr isn't compared, because the .NET stack trace is out of scope.
 
+- **Rejection samples** pin down programs csharpc must refuse *cleanly*: valid C# that used to
+  crash the compiler and now gets an explicit diagnostic (`283_unsupported_field_in_base`,
+  `284_recursive_generic_expansion`). A `sample.diagnostics` file holds csharpc's expected stderr
+  (paths relative to `tests/samples/`); the compiler must exit with 1 and print exactly that. It is
+  csharpc's own specification, written from the compiler's output, not a .NET recording. `--regen`
+  still records `sample.expected` from .NET, which shows that the program is valid C#.
+
 There are no hand-written expected outputs. That rules out a whole class of mistakes: the expected
 `0.30000000000000004`, `-2147483648` or `1E-05` is whatever .NET actually prints.
 

@@ -135,7 +135,7 @@ namespace CsharpcCoreLib
         IEnumerator IEnumerable.GetEnumerator() => new SimpleEnumerator<T>(ToArray());
 
         [Shadows("System.Collections.Generic.Queue`1+Enumerator")]
-        public struct Enumerator
+        public struct Enumerator : IEnumerator<T>
         {
             private readonly QueueImpl<T> _q;
             private readonly int _version;
@@ -154,8 +154,18 @@ namespace CsharpcCoreLib
                 return true;
             }
 
+            // .NET 11's Queue/Stack enumerators don't validate the state in Current (either form).
             public T Current => _current;
-            public void Dispose() { _index = -2; }
+            object IEnumerator.Current => CoreIntrinsics.Box(_current);
+
+            public void Dispose() { _index = -2; _current = default(T); }
+
+            void IEnumerator.Reset()
+            {
+                if (_version != _q._version) ThrowHelper.VersionChanged();
+                _index = -1;
+                _current = default(T);
+            }
         }
     }
 
@@ -273,7 +283,7 @@ namespace CsharpcCoreLib
         IEnumerator IEnumerable.GetEnumerator() => new SimpleEnumerator<T>(ToArray());
 
         [Shadows("System.Collections.Generic.Stack`1+Enumerator")]
-        public struct Enumerator
+        public struct Enumerator : IEnumerator<T>
         {
             private readonly StackImpl<T> _stack;
             private readonly int _version;
@@ -299,8 +309,18 @@ namespace CsharpcCoreLib
                 return false;
             }
 
+            // .NET 11's Queue/Stack enumerators don't validate the state in Current (either form).
             public T Current => _current;
+            object IEnumerator.Current => CoreIntrinsics.Box(_current);
+
             public void Dispose() { _index = -1; }
+
+            void IEnumerator.Reset()
+            {
+                if (_version != _stack._version) ThrowHelper.VersionChanged();
+                _index = -2;
+                _current = default(T);
+            }
         }
     }
 
@@ -573,7 +593,7 @@ namespace CsharpcCoreLib
         IEnumerator IEnumerable.GetEnumerator() => ((IEnumerable<T>)this).GetEnumerator();
 
         [Shadows("System.Collections.Generic.LinkedList`1+Enumerator")]
-        public struct Enumerator
+        public struct Enumerator : IEnumerator<T>
         {
             private readonly LinkedListImpl<T> _list;
             private LinkedListNode<T> _node;
@@ -603,6 +623,23 @@ namespace CsharpcCoreLib
 
             public T Current => _current;
             public void Dispose() { }
+
+            object IEnumerator.Current
+            {
+                get
+                {
+                    if (_index == 0 || _index == _list.count + 1) ThrowHelper.EnumOpCantHappen();
+                    return CoreIntrinsics.Box(_current);
+                }
+            }
+
+            void IEnumerator.Reset()
+            {
+                if (_version != _list.version) ThrowHelper.VersionChanged();
+                _current = default(T);
+                _node = _list.head;
+                _index = 0;
+            }
         }
     }
 
@@ -1051,7 +1088,7 @@ namespace CsharpcCoreLib
         IEnumerator IEnumerable.GetEnumerator() => new SortedEnumerator<TKey, TValue>(_store);
 
         [Shadows("System.Collections.Generic.SortedDictionary`2+Enumerator")]
-        public struct Enumerator
+        public struct Enumerator : IEnumerator<KeyValuePair<TKey, TValue>>, IDictionaryEnumerator
         {
             private readonly SortedStore<TKey, TValue> _store;
             private readonly int _version;
@@ -1065,8 +1102,52 @@ namespace CsharpcCoreLib
                 return ++_index < _store.size;
             }
 
-            public KeyValuePair<TKey, TValue> Current => new KeyValuePair<TKey, TValue>(_store.keys[_index], _store.values[_index]);
+            // .NET's tree enumerator yields default before the first and after the last element.
+            public KeyValuePair<TKey, TValue> Current =>
+                (uint)_index < (uint)_store.size ? new KeyValuePair<TKey, TValue>(_store.keys[_index], _store.values[_index]) : default(KeyValuePair<TKey, TValue>);
             public void Dispose() { }
+
+            object IEnumerator.Current
+            {
+                get
+                {
+                    if ((uint)_index >= (uint)_store.size) ThrowHelper.EnumOpCantHappen();
+                    return CoreIntrinsics.Box(Current);
+                }
+            }
+
+            void IEnumerator.Reset()
+            {
+                if (_version != _store.version) ThrowHelper.VersionChanged();
+                _index = -1;
+            }
+
+            DictionaryEntry IDictionaryEnumerator.Entry
+            {
+                get
+                {
+                    if ((uint)_index >= (uint)_store.size) ThrowHelper.EnumOpCantHappen();
+                    return new DictionaryEntry(CoreIntrinsics.Box(_store.keys[_index]), CoreIntrinsics.Box(_store.values[_index]));
+                }
+            }
+
+            object IDictionaryEnumerator.Key
+            {
+                get
+                {
+                    if ((uint)_index >= (uint)_store.size) ThrowHelper.EnumOpCantHappen();
+                    return CoreIntrinsics.Box(_store.keys[_index]);
+                }
+            }
+
+            object IDictionaryEnumerator.Value
+            {
+                get
+                {
+                    if ((uint)_index >= (uint)_store.size) ThrowHelper.EnumOpCantHappen();
+                    return CoreIntrinsics.Box(_store.values[_index]);
+                }
+            }
         }
 
         [Shadows("System.Collections.Generic.SortedDictionary`2+KeyCollection")]
@@ -1088,14 +1169,36 @@ namespace CsharpcCoreLib
             IEnumerator IEnumerable.GetEnumerator() => new SimpleEnumerator<TKey>(Snapshot());
 
             [Shadows("System.Collections.Generic.SortedDictionary`2+KeyCollection+Enumerator")]
-            public struct Enumerator
+            public struct Enumerator : IEnumerator<TKey>
             {
                 private readonly SortedStore<TKey, TValue> _store;
+                private readonly int _version;
                 private int _index;
-                internal Enumerator(SortedStore<TKey, TValue> store) { _store = store; _index = -1; }
-                public bool MoveNext() => ++_index < _store.size;
-                public TKey Current => _store.keys[_index];
+                internal Enumerator(SortedStore<TKey, TValue> store) { _store = store; _version = store.version; _index = -1; }
+
+                public bool MoveNext()
+                {
+                    if (_version != _store.version) ThrowHelper.VersionChanged();
+                    return ++_index < _store.size;
+                }
+
+                public TKey Current => (uint)_index < (uint)_store.size ? _store.keys[_index] : default(TKey);
                 public void Dispose() { }
+
+                object IEnumerator.Current
+                {
+                    get
+                    {
+                        if ((uint)_index >= (uint)_store.size) ThrowHelper.EnumOpCantHappen();
+                        return CoreIntrinsics.Box(Current);
+                    }
+                }
+
+                void IEnumerator.Reset()
+                {
+                    if (_version != _store.version) ThrowHelper.VersionChanged();
+                    _index = -1;
+                }
             }
         }
 
@@ -1118,14 +1221,36 @@ namespace CsharpcCoreLib
             IEnumerator IEnumerable.GetEnumerator() => new SimpleEnumerator<TValue>(Snapshot());
 
             [Shadows("System.Collections.Generic.SortedDictionary`2+ValueCollection+Enumerator")]
-            public struct Enumerator
+            public struct Enumerator : IEnumerator<TValue>
             {
                 private readonly SortedStore<TKey, TValue> _store;
+                private readonly int _version;
                 private int _index;
-                internal Enumerator(SortedStore<TKey, TValue> store) { _store = store; _index = -1; }
-                public bool MoveNext() => ++_index < _store.size;
-                public TValue Current => _store.values[_index];
+                internal Enumerator(SortedStore<TKey, TValue> store) { _store = store; _version = store.version; _index = -1; }
+
+                public bool MoveNext()
+                {
+                    if (_version != _store.version) ThrowHelper.VersionChanged();
+                    return ++_index < _store.size;
+                }
+
+                public TValue Current => (uint)_index < (uint)_store.size ? _store.values[_index] : default(TValue);
                 public void Dispose() { }
+
+                object IEnumerator.Current
+                {
+                    get
+                    {
+                        if ((uint)_index >= (uint)_store.size) ThrowHelper.EnumOpCantHappen();
+                        return CoreIntrinsics.Box(Current);
+                    }
+                }
+
+                void IEnumerator.Reset()
+                {
+                    if (_version != _store.version) ThrowHelper.VersionChanged();
+                    _index = -1;
+                }
             }
         }
     }
@@ -1250,7 +1375,7 @@ namespace CsharpcCoreLib
         IEnumerator IEnumerable.GetEnumerator() => new SimpleEnumerator<T>(Snapshot());
 
         [Shadows("System.Collections.Generic.SortedSet`1+Enumerator")]
-        public struct Enumerator
+        public struct Enumerator : IEnumerator<T>
         {
             private readonly SortedStore<T, bool> _store;
             private readonly int _version;
@@ -1264,8 +1389,23 @@ namespace CsharpcCoreLib
                 return ++_index < _store.size;
             }
 
-            public T Current => _store.keys[_index];
+            public T Current => (uint)_index < (uint)_store.size ? _store.keys[_index] : default(T);
             public void Dispose() { }
+
+            object IEnumerator.Current
+            {
+                get
+                {
+                    if ((uint)_index >= (uint)_store.size) ThrowHelper.EnumOpCantHappen();
+                    return CoreIntrinsics.Box(Current);
+                }
+            }
+
+            void IEnumerator.Reset()
+            {
+                if (_version != _store.version) ThrowHelper.VersionChanged();
+                _index = -1;
+            }
         }
     }
 }

@@ -1,0 +1,3 @@
+284_recursive_generic_expansion.cs(8,7): error CSLLVM0001: not supported by csharpc yet: generic instantiations nested more than 16 levels deep (recursive generic expansion in 'C<T>.C()')
+284_recursive_generic_expansion.cs(15,16): error CSLLVM0001: not supported by csharpc yet: generic instantiations nested more than 16 levels deep (recursive generic expansion in 'Program.F<T>(int)')
+csharpc: error : 2 construct(s) not supported by csharpc yet

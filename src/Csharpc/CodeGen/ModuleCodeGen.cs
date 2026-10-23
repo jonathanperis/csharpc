@@ -216,6 +216,7 @@ public sealed partial class ModuleCodeGen
         if (_functions.TryGetValue(method, out var existing)) return existing;
         if (generic && TypeSubstitution.IsOpen(method))
             throw CompileError.Unsupported($"open generic instantiation '{method}'", method);
+        if (generic) CheckGenericDepth(method);
 
         var type = FunctionTypeOf(method);
         var fn = Module.AddFunction(Mangler.Method(method), type);
@@ -232,6 +233,32 @@ public sealed partial class ModuleCodeGen
             _pendingInstantiations.Enqueue(method);
         return _functions[method] = new LoweredFunction(fn, type);
     }
+
+    /// <summary>
+    /// Code like `void M() => new C<C<T>>().M()` or `F<T>() => F<List<T>>()` is legal C#, and .NET
+    /// instantiates lazily, as deep as execution goes. Ahead-of-time compilation would instantiate
+    /// forever (and exhaust memory), so a nesting cutoff turns it into an explicit diagnostic.
+    /// </summary>
+    private const int MaxGenericDepth = 16;
+
+    private static void CheckGenericDepth(IMethodSymbol method)
+    {
+        var depth = method.TypeArguments.Select(GenericDepth).DefaultIfEmpty(0).Max();
+        if (method.ContainingType is { } owner) depth = Math.Max(depth, GenericDepth(owner) - 1);
+        if (depth > MaxGenericDepth)
+            throw CompileError.Unsupported(
+                $"generic instantiations nested more than {MaxGenericDepth} levels deep (recursive generic expansion in '{method.OriginalDefinition}')",
+                method.OriginalDefinition);
+    }
+
+    private static int GenericDepth(ITypeSymbol type) => type switch
+    {
+        IArrayTypeSymbol a => 1 + GenericDepth(a.ElementType),
+        IPointerTypeSymbol p => 1 + GenericDepth(p.PointedAtType),
+        INamedTypeSymbol n => 1 + Math.Max(n.TypeArguments.Select(GenericDepth).DefaultIfEmpty(0).Max(),
+            n.ContainingType is { } outer ? GenericDepth(outer) - 1 : 0),
+        _ => 1,
+    };
 
     /// <summary>
     /// Lambdas and local functions get one copy per substitution of their enclosing generic code
@@ -602,7 +629,43 @@ public sealed partial class ModuleCodeGen
                 ? GetLibraryExceptionLayout(type)
                 : throw CompileError.Unsupported($"instances of library class '{type}'", type);
         if (TypeSubstitution.IsOpen(type)) throw CompileError.Unsupported($"open generic type '{type}'", type);
+        return BuildOrForget(_layouts, type, BuildLayout);
+    }
 
+    private readonly Dictionary<ITypeSymbol, CompileError> _failedLayouts = new(SymbolEqualityComparer.Default);
+
+    /// <summary>
+    /// Layouts register themselves before they are complete (members may refer back to the type). If
+    /// building one fails (e.g. a field of an unsupported library struct), the half-built layout (an
+    /// opaque LLVM struct without a method table) must not stay cached: a derived class, a boxing site
+    /// or the method table emitter would build invalid IR from it and crash LLVM. The failure is
+    /// cached instead, so every later use reports the same diagnostic.
+    /// </summary>
+    private TLayout BuildOrForget<TLayout>(Dictionary<INamedTypeSymbol, TLayout> cache, INamedTypeSymbol type, Func<INamedTypeSymbol, TLayout> build)
+    {
+        if (_failedLayouts.TryGetValue(type, out var failed)) throw failed;
+        try { return build(type); }
+        catch (Exception e)
+        {
+            cache.Remove(type);
+            if (e is CompileError error) _failedLayouts[type] = error;
+            throw;
+        }
+    }
+
+    /// <summary>Storage type of an instance field; unsupported field types are reported at the field (or its property).</summary>
+    private LLVMTypeRef FieldStorage(IFieldSymbol field)
+    {
+        try { return Types.Storage(field.Type); }
+        catch (CompileError e) when (e.Location is not { IsInSource: true }
+                                     && (field.AssociatedSymbol ?? field).Locations.FirstOrDefault() is { IsInSource: true } at)
+        {
+            throw new CompileError(e.Id, e.Message, at);
+        }
+    }
+
+    private ClassLayout BuildLayout(INamedTypeSymbol type)
+    {
         ClassLayout? baseLayout = null;
         if (type.BaseType is { SpecialType: not SpecialType.System_Object } declaredBase)
         {
@@ -635,7 +698,7 @@ public sealed partial class ModuleCodeGen
             layout.FieldIndex.TryAdd(f.OriginalDefinition, (uint)elements.Count); // tuple-name-insensitive lookups
             layout.Fields.Add(f);
             layout.SlotOrder.Add(f);
-            elements.Add(Types.Storage(f.Type));
+            elements.Add(FieldStorage(f));
         }
         foreach (var e in type.GetMembers().OfType<IEventSymbol>().Where(e => !e.IsStatic && e.AddMethod is null or { IsImplicitlyDeclared: true }))
         {

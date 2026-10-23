@@ -379,7 +379,7 @@ namespace CsharpcCoreLib
         IEnumerator IEnumerable.GetEnumerator() => new EnumeratorObject(this);
 
         [Shadows("System.Collections.Generic.HashSet`1+Enumerator")]
-        public struct Enumerator
+        public struct Enumerator : IEnumerator<T>
         {
             private readonly HashSetImpl<T> _set;
             private readonly int _version;
@@ -413,6 +413,22 @@ namespace CsharpcCoreLib
 
             public T Current => _current;
             public void Dispose() { }
+
+            object IEnumerator.Current
+            {
+                get
+                {
+                    if (_index == 0 || _index == _set._count + 1) ThrowHelper.EnumOpCantHappen();
+                    return CoreIntrinsics.Box(_current);
+                }
+            }
+
+            void IEnumerator.Reset()
+            {
+                if (_version != _set._version) ThrowHelper.VersionChanged();
+                _index = 0;
+                _current = default(T);
+            }
         }
 
         internal sealed class EnumeratorObject : IEnumerator<T>

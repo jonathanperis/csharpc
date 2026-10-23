@@ -402,7 +402,7 @@ namespace CsharpcCoreLib
         }
 
         [Shadows("System.Collections.Generic.List`1+Enumerator")]
-        public struct Enumerator
+        public struct Enumerator : IEnumerator<T>
         {
             private readonly ListImpl<T> _list;
             private int _index;
@@ -435,6 +435,22 @@ namespace CsharpcCoreLib
             }
 
             public T Current => _current;
+
+            object IEnumerator.Current
+            {
+                get
+                {
+                    if (_index == 0 || _index == _list._size + 1) ThrowHelper.EnumOpCantHappen();
+                    return CoreIntrinsics.Box(_current);
+                }
+            }
+
+            void IEnumerator.Reset()
+            {
+                if (_version != _list._version) ThrowHelper.VersionChanged();
+                _index = 0;
+                _current = default(T);
+            }
         }
     }
 
