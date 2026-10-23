@@ -1,0 +1,248 @@
+ca761232-ed42-11ce-bacd-00aa0057b223
+[N] ca761232ed4211cebacd00aa0057b223
+[D] ca761232-ed42-11ce-bacd-00aa0057b223
+[B] {ca761232-ed42-11ce-bacd-00aa0057b223}
+[P] (ca761232-ed42-11ce-bacd-00aa0057b223)
+[X] {0xca761232,0xed42,0x11ce,{0xba,0xcd,0x00,0xaa,0x00,0x57,0xb2,0x23}}
+[n] ca761232ed4211cebacd00aa0057b223
+[d] ca761232-ed42-11ce-bacd-00aa0057b223
+[b] {ca761232-ed42-11ce-bacd-00aa0057b223}
+[p] (ca761232-ed42-11ce-bacd-00aa0057b223)
+[x] {0xca761232,0xed42,0x11ce,{0xba,0xcd,0x00,0xaa,0x00,0x57,0xb2,0x23}}
+[] ca761232-ed42-11ce-bacd-00aa0057b223
+[] ca761232-ed42-11ce-bacd-00aa0057b223
+{ca761232-ed42-11ce-bacd-00aa0057b223} ca761232ed4211cebacd00aa0057b223
+(ca761232-ed42-11ce-bacd-00aa0057b223)
+00000000-0000-0000-0000-000000000000
+True
+ffffffff-ffff-ffff-ffff-ffffffffffff
+1 11
+bad format: FormatException: Format string can be only "D", "d", "N", "n", "P", "p", "B", "b", "X" or "x".
+long format: FormatException: Format string can be only "D", "d", "N", "n", "P", "p", "B", "b", "X" or "x".
+12345678-1234-5678-9abc-def001234567
+ffffffff-fffe-fffd-0102-030405060708
+fffffffe-fde8-0001-0000-000000000000
+78-56-34-12-34-12-78-56-9A-BC-DE-F0-01-23-45-67
+12-34-56-78-12-34-56-78-9A-BC-DE-F0-01-23-45-67
+True
+True
+True
+True 120 103
+False
+True 16 18
+ctor 15 bytes: ArgumentException: Byte array for Guid must be exactly 16 bytes long. (Parameter 'b')
+ctor null bytes: ArgumentNullException: Value cannot be null. (Parameter 'b')
+ctor 7 bytes: ArgumentException: Byte array for Guid must be exactly 8 bytes long. (Parameter 'd')
+Parse ca761232ed4211cebacd00aa0057b223: ca761232-ed42-11ce-bacd-00aa0057b223
+ctor  ca761232ed4211cebacd00aa0057b223: ca761232-ed42-11ce-bacd-00aa0057b223
+TryParse True ca761232-ed42-11ce-bacd-00aa0057b223
+Parse CA761232-ED42-11CE-BACD-00AA0057B223: ca761232-ed42-11ce-bacd-00aa0057b223
+ctor  CA761232-ED42-11CE-BACD-00AA0057B223: ca761232-ed42-11ce-bacd-00aa0057b223
+TryParse True ca761232-ed42-11ce-bacd-00aa0057b223
+Parse {ca761232-ed42-11ce-bacd-00aa0057b223}: ca761232-ed42-11ce-bacd-00aa0057b223
+ctor  {ca761232-ed42-11ce-bacd-00aa0057b223}: ca761232-ed42-11ce-bacd-00aa0057b223
+TryParse True ca761232-ed42-11ce-bacd-00aa0057b223
+Parse (ca761232-ed42-11ce-bacd-00aa0057b223): ca761232-ed42-11ce-bacd-00aa0057b223
+ctor  (ca761232-ed42-11ce-bacd-00aa0057b223): ca761232-ed42-11ce-bacd-00aa0057b223
+TryParse True ca761232-ed42-11ce-bacd-00aa0057b223
+Parse {0xca761232,0xed42,0x11ce,{0xba,0xcd,0x00,0xaa,0x00,0x57,0xb2,0x23}}: ca761232-ed42-11ce-bacd-00aa0057b223
+ctor  {0xca761232,0xed42,0x11ce,{0xba,0xcd,0x00,0xaa,0x00,0x57,0xb2,0x23}}: ca761232-ed42-11ce-bacd-00aa0057b223
+TryParse True ca761232-ed42-11ce-bacd-00aa0057b223
+Parse {0xca761232, 0xed42, 0x11ce, {0xba, 0xcd, 0x0, 0xaa, 0x0, 0x57, 0xb2, 0x23}}: ca761232-ed42-11ce-bacd-00aa0057b223
+ctor  {0xca761232, 0xed42, 0x11ce, {0xba, 0xcd, 0x0, 0xaa, 0x0, 0x57, 0xb2, 0x23}}: ca761232-ed42-11ce-bacd-00aa0057b223
+TryParse True ca761232-ed42-11ce-bacd-00aa0057b223
+Parse {0x1,0x2,0x3,{0x4,0x5,0x6,0x7,0x8,0x9,0xA,0xB}}: 00000001-0002-0003-0405-060708090a0b
+ctor  {0x1,0x2,0x3,{0x4,0x5,0x6,0x7,0x8,0x9,0xA,0xB}}: 00000001-0002-0003-0405-060708090a0b
+TryParse True 00000001-0002-0003-0405-060708090a0b
+Parse ca761232-ed42-11ce-bacd-00aa0057b223: ca761232-ed42-11ce-bacd-00aa0057b223
+ctor  ca761232-ed42-11ce-bacd-00aa0057b223: ca761232-ed42-11ce-bacd-00aa0057b223
+TryParse True ca761232-ed42-11ce-bacd-00aa0057b223
+Parse +a761232-0x42-+0x1-bacd-00aa0057b223: 0a761232-0042-0001-bacd-00aa0057b223
+ctor  +a761232-0x42-+0x1-bacd-00aa0057b223: 0a761232-0042-0001-bacd-00aa0057b223
+TryParse True 0a761232-0042-0001-bacd-00aa0057b223
+Parse 0Xa76123-ed42-11ce-0x0d-00aa0057b223: 00a76123-ed42-11ce-000d-00aa0057b223
+ctor  0Xa76123-ed42-11ce-0x0d-00aa0057b223: 00a76123-ed42-11ce-000d-00aa0057b223
+TryParse True 00a76123-ed42-11ce-000d-00aa0057b223
+Parse ca761232-ed42-11ce-bacd-00aa0057b22: FormatException: Guid should contain 32 digits with 4 dashes (xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx).
+ctor  ca761232-ed42-11ce-bacd-00aa0057b22: FormatException: Guid should contain 32 digits with 4 dashes (xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx).
+TryParse False 00000000-0000-0000-0000-000000000000
+Parse ca761232-ed42-11ce-bacd-00aa0057b22g: FormatException: Guid string should only contain hexadecimal characters.
+ctor  ca761232-ed42-11ce-bacd-00aa0057b22g: FormatException: Guid string should only contain hexadecimal characters.
+TryParse False 00000000-0000-0000-0000-000000000000
+Parse ca761232ed42-11ce-bacd-00aa0057b2234: FormatException: Guid should contain 32 digits with 4 dashes (xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx).
+ctor  ca761232ed42-11ce-bacd-00aa0057b2234: FormatException: Guid should contain 32 digits with 4 dashes (xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx).
+TryParse False 00000000-0000-0000-0000-000000000000
+Parse ca761232ed4211cebacd00aa0057b22z: FormatException: Guid string should only contain hexadecimal characters.
+ctor  ca761232ed4211cebacd00aa0057b22z: FormatException: Guid string should only contain hexadecimal characters.
+TryParse False 00000000-0000-0000-0000-000000000000
+Parse {ca761232-ed42-11ce-bacd-00aa0057b223): FormatException: Guid should contain 32 digits with 4 dashes (xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx).
+ctor  {ca761232-ed42-11ce-bacd-00aa0057b223): FormatException: Guid should contain 32 digits with 4 dashes (xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx).
+TryParse False 00000000-0000-0000-0000-000000000000
+Parse (ca761232-ed42-11ce-bacd-00aa0057b223: FormatException: Guid should contain 32 digits with 4 dashes (xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx).
+ctor  (ca761232-ed42-11ce-bacd-00aa0057b223: FormatException: Guid should contain 32 digits with 4 dashes (xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx).
+TryParse False 00000000-0000-0000-0000-000000000000
+Parse {0xca761232,0xed42,0x11ce,{0xba,0xcd,0x00,0xaa,0x00,0x57,0xb2,0x123}}: FormatException: Unrecognized Guid format.
+ctor  {0xca761232,0xed42,0x11ce,{0xba,0xcd,0x00,0xaa,0x00,0x57,0xb2,0x123}}: FormatException: Unrecognized Guid format.
+TryParse False 00000000-0000-0000-0000-000000000000
+Parse {0xca761232,0xed42,0x11ce,{0xba,0xcd,0x00,0xaa,0x00,0x57,0xb2,0x123456789}}: FormatException: Unrecognized Guid format.
+ctor  {0xca761232,0xed42,0x11ce,{0xba,0xcd,0x00,0xaa,0x00,0x57,0xb2,0x123456789}}: OverflowException: Value was either too large or too small for a UInt32.
+TryParse False 00000000-0000-0000-0000-000000000000
+Parse {0xca761232,0xed42,0x11ce,{0xba,0xcd,0x00,0xaa,0x00,0x57,0xb2,0x23}}x: FormatException: Additional non-parsable characters are at the end of the string.
+ctor  {0xca761232,0xed42,0x11ce,{0xba,0xcd,0x00,0xaa,0x00,0x57,0xb2,0x23}}x: FormatException: Additional non-parsable characters are at the end of the string.
+TryParse False 00000000-0000-0000-0000-000000000000
+Parse {0xca761232,0xed42,0x11ce,{0xba,0xcd,0x00,0xaa,0x00,0x57,0xb2,0x23}: FormatException: Could not find the ending brace.
+ctor  {0xca761232,0xed42,0x11ce,{0xba,0xcd,0x00,0xaa,0x00,0x57,0xb2,0x23}: FormatException: Could not find the ending brace.
+TryParse False 00000000-0000-0000-0000-000000000000
+Parse {0xca761232,0xed42,0x11ce,0xba,0xcd,0x00,0xaa,0x00,0x57,0xb2,0x23}}: FormatException: Expected {0xdddddddd, etc}.
+ctor  {0xca761232,0xed42,0x11ce,0xba,0xcd,0x00,0xaa,0x00,0x57,0xb2,0x23}}: FormatException: Expected {0xdddddddd, etc}.
+TryParse False 00000000-0000-0000-0000-000000000000
+Parse {ca761232,0xed42,0x11ce,{0xba,0xcd,0x00,0xaa,0x00,0x57,0xb2,0x23}}: FormatException: Expected 0x prefix.
+ctor  {ca761232,0xed42,0x11ce,{0xba,0xcd,0x00,0xaa,0x00,0x57,0xb2,0x23}}: FormatException: Expected 0x prefix.
+TryParse False 00000000-0000-0000-0000-000000000000
+Parse {0xca761232,0xed42,0x11ce,{0xba,0xcd,0x00,0xaa,0x00,0x57,0xb2}}0000: FormatException: Could not find a comma, or the length between the previous token and the comma was zero (i.e., '0x,'etc.).
+ctor  {0xca761232,0xed42,0x11ce,{0xba,0xcd,0x00,0xaa,0x00,0x57,0xb2}}0000: FormatException: Could not find a comma, or the length between the previous token and the comma was zero (i.e., '0x,'etc.).
+TryParse False 00000000-0000-0000-0000-000000000000
+Parse {0x,0xed42,0x11ce,{0xba,0xcd,0x00,0xaa,0x00,0x57,0xb2,0x23}}xxxx: FormatException: Could not find a comma, or the length between the previous token and the comma was zero (i.e., '0x,'etc.).
+ctor  {0x,0xed42,0x11ce,{0xba,0xcd,0x00,0xaa,0x00,0x57,0xb2,0x23}}xxxx: FormatException: Could not find a comma, or the length between the previous token and the comma was zero (i.e., '0x,'etc.).
+TryParse False 00000000-0000-0000-0000-000000000000
+Parse {0xca7612321,0xed42,0x11ce,{0xba,0xcd,0x00,0xaa,0x00,0x57,0xb2,0x23}}: FormatException: Unrecognized Guid format.
+ctor  {0xca7612321,0xed42,0x11ce,{0xba,0xcd,0x00,0xaa,0x00,0x57,0xb2,0x23}}: OverflowException: Value was either too large or too small for a UInt32.
+TryParse False 00000000-0000-0000-0000-000000000000
+Parse {0xca76123g,0xed42,0x11ce,{0xba,0xcd,0x00,0xaa,0x00,0x57,0xb2,0x23}}: FormatException: Guid string should only contain hexadecimal characters.
+ctor  {0xca76123g,0xed42,0x11ce,{0xba,0xcd,0x00,0xaa,0x00,0x57,0xb2,0x23}}: FormatException: Guid string should only contain hexadecimal characters.
+TryParse False 00000000-0000-0000-0000-000000000000
+Parse short: FormatException: Unrecognized Guid format.
+ctor  short: FormatException: Unrecognized Guid format.
+TryParse False 00000000-0000-0000-0000-000000000000
+Parse : FormatException: Unrecognized Guid format.
+ctor  : FormatException: Unrecognized Guid format.
+TryParse False 00000000-0000-0000-0000-000000000000
+Parse null: ArgumentNullException: Value cannot be null. (Parameter 'input')
+ctor null: ArgumentNullException: Value cannot be null. (Parameter 'g')
+False
+ca761232-ed42-11ce-bacd-00aa0057b223
+ca761232-ed42-11ce-bacd-00aa0057b223
+ParseExact N as N: ca761232-ed42-11ce-bacd-00aa0057b223
+TryParseExact N as N: True ca761232ed4211cebacd00aa0057b223
+ParseExact D as N: FormatException: Guid should contain 32 digits with 4 dashes (xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx).
+TryParseExact D as N: False 00000000000000000000000000000000
+ParseExact B as N: FormatException: Guid should contain 32 digits with 4 dashes (xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx).
+TryParseExact B as N: False 00000000000000000000000000000000
+ParseExact P as N: FormatException: Guid should contain 32 digits with 4 dashes (xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx).
+TryParseExact P as N: False 00000000000000000000000000000000
+ParseExact X as N: FormatException: Guid should contain 32 digits with 4 dashes (xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx).
+TryParseExact X as N: False 00000000000000000000000000000000
+ParseExact N as D: FormatException: Guid should contain 32 digits with 4 dashes (xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx).
+TryParseExact N as D: False 00000000000000000000000000000000
+ParseExact D as D: ca761232-ed42-11ce-bacd-00aa0057b223
+TryParseExact D as D: True ca761232ed4211cebacd00aa0057b223
+ParseExact B as D: FormatException: Guid should contain 32 digits with 4 dashes (xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx).
+TryParseExact B as D: False 00000000000000000000000000000000
+ParseExact P as D: FormatException: Guid should contain 32 digits with 4 dashes (xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx).
+TryParseExact P as D: False 00000000000000000000000000000000
+ParseExact X as D: FormatException: Guid should contain 32 digits with 4 dashes (xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx).
+TryParseExact X as D: False 00000000000000000000000000000000
+ParseExact N as B: FormatException: Guid should contain 32 digits with 4 dashes (xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx).
+TryParseExact N as B: False 00000000000000000000000000000000
+ParseExact D as B: FormatException: Guid should contain 32 digits with 4 dashes (xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx).
+TryParseExact D as B: False 00000000000000000000000000000000
+ParseExact B as B: ca761232-ed42-11ce-bacd-00aa0057b223
+TryParseExact B as B: True ca761232ed4211cebacd00aa0057b223
+ParseExact P as B: FormatException: Guid should contain 32 digits with 4 dashes (xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx).
+TryParseExact P as B: False 00000000000000000000000000000000
+ParseExact X as B: FormatException: Guid should contain 32 digits with 4 dashes (xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx).
+TryParseExact X as B: False 00000000000000000000000000000000
+ParseExact N as P: FormatException: Guid should contain 32 digits with 4 dashes (xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx).
+TryParseExact N as P: False 00000000000000000000000000000000
+ParseExact D as P: FormatException: Guid should contain 32 digits with 4 dashes (xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx).
+TryParseExact D as P: False 00000000000000000000000000000000
+ParseExact B as P: FormatException: Guid should contain 32 digits with 4 dashes (xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx).
+TryParseExact B as P: False 00000000000000000000000000000000
+ParseExact P as P: ca761232-ed42-11ce-bacd-00aa0057b223
+TryParseExact P as P: True ca761232ed4211cebacd00aa0057b223
+ParseExact X as P: FormatException: Guid should contain 32 digits with 4 dashes (xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx).
+TryParseExact X as P: False 00000000000000000000000000000000
+ParseExact N as X: FormatException: Expected {0xdddddddd, etc}.
+TryParseExact N as X: False 00000000000000000000000000000000
+ParseExact D as X: FormatException: Expected {0xdddddddd, etc}.
+TryParseExact D as X: False 00000000000000000000000000000000
+ParseExact B as X: FormatException: Expected 0x prefix.
+TryParseExact B as X: False 00000000000000000000000000000000
+ParseExact P as X: FormatException: Expected {0xdddddddd, etc}.
+TryParseExact P as X: False 00000000000000000000000000000000
+ParseExact X as X: ca761232-ed42-11ce-bacd-00aa0057b223
+TryParseExact X as X: True ca761232ed4211cebacd00aa0057b223
+ParseExact N as d: FormatException: Guid should contain 32 digits with 4 dashes (xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx).
+TryParseExact N as d: False 00000000000000000000000000000000
+ParseExact D as d: ca761232-ed42-11ce-bacd-00aa0057b223
+TryParseExact D as d: True ca761232ed4211cebacd00aa0057b223
+ParseExact B as d: FormatException: Guid should contain 32 digits with 4 dashes (xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx).
+TryParseExact B as d: False 00000000000000000000000000000000
+ParseExact P as d: FormatException: Guid should contain 32 digits with 4 dashes (xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx).
+TryParseExact P as d: False 00000000000000000000000000000000
+ParseExact X as d: FormatException: Guid should contain 32 digits with 4 dashes (xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx).
+TryParseExact X as d: False 00000000000000000000000000000000
+ParseExact N as Z: FormatException: Format string can be only "D", "d", "N", "n", "P", "p", "B", "b", "X" or "x".
+TryParseExact N as Z: False 00000000000000000000000000000000
+ParseExact D as Z: FormatException: Format string can be only "D", "d", "N", "n", "P", "p", "B", "b", "X" or "x".
+TryParseExact D as Z: False 00000000000000000000000000000000
+ParseExact B as Z: FormatException: Format string can be only "D", "d", "N", "n", "P", "p", "B", "b", "X" or "x".
+TryParseExact B as Z: False 00000000000000000000000000000000
+ParseExact P as Z: FormatException: Format string can be only "D", "d", "N", "n", "P", "p", "B", "b", "X" or "x".
+TryParseExact P as Z: False 00000000000000000000000000000000
+ParseExact X as Z: FormatException: Format string can be only "D", "d", "N", "n", "P", "p", "B", "b", "X" or "x".
+TryParseExact X as Z: False 00000000000000000000000000000000
+ParseExact N as DD: FormatException: Format string can be only "D", "d", "N", "n", "P", "p", "B", "b", "X" or "x".
+TryParseExact N as DD: False 00000000000000000000000000000000
+ParseExact D as DD: FormatException: Format string can be only "D", "d", "N", "n", "P", "p", "B", "b", "X" or "x".
+TryParseExact D as DD: False 00000000000000000000000000000000
+ParseExact B as DD: FormatException: Format string can be only "D", "d", "N", "n", "P", "p", "B", "b", "X" or "x".
+TryParseExact B as DD: False 00000000000000000000000000000000
+ParseExact P as DD: FormatException: Format string can be only "D", "d", "N", "n", "P", "p", "B", "b", "X" or "x".
+TryParseExact P as DD: False 00000000000000000000000000000000
+ParseExact X as DD: FormatException: Format string can be only "D", "d", "N", "n", "P", "p", "B", "b", "X" or "x".
+TryParseExact X as DD: False 00000000000000000000000000000000
+ParseExact N as : FormatException: Format string can be only "D", "d", "N", "n", "P", "p", "B", "b", "X" or "x".
+TryParseExact N as : False 00000000000000000000000000000000
+ParseExact D as : FormatException: Format string can be only "D", "d", "N", "n", "P", "p", "B", "b", "X" or "x".
+TryParseExact D as : False 00000000000000000000000000000000
+ParseExact B as : FormatException: Format string can be only "D", "d", "N", "n", "P", "p", "B", "b", "X" or "x".
+TryParseExact B as : False 00000000000000000000000000000000
+ParseExact P as : FormatException: Format string can be only "D", "d", "N", "n", "P", "p", "B", "b", "X" or "x".
+TryParseExact P as : False 00000000000000000000000000000000
+ParseExact X as : FormatException: Format string can be only "D", "d", "N", "n", "P", "p", "B", "b", "X" or "x".
+TryParseExact X as : False 00000000000000000000000000000000
+ParseExact null input: ArgumentNullException: Value cannot be null. (Parameter 'input')
+ParseExact null format: ArgumentNullException: Value cannot be null. (Parameter 'format')
+False
+False
+00000000-0000-0000-0000-000000000000 0
+00000000-0000-0000-0000-0000000000ff -16777216
+00000000-8000-0000-0000-000000000000 32768
+00000001-0000-0000-0000-000000000000 1
+12345678-1234-5678-9abc-def001234567 -740828201
+80000000-0000-0000-0000-000000000000 -2147483648
+ca761232-ed42-11ce-bacd-00aa0057b223 1376413130
+ffffffff-ffff-ffff-ffff-ffffffffffff 0
+-1 1 0 1
+-1
+CompareTo string: ArgumentException: Object must be of type GUID. (Parameter 'value')
+True True False False True True False True True
+True True
+True False False
+True
+gh
+True
+ca761232ed4211cebacd00aa0057b223
+True
+True 68 {0xca761232,0xed42,0x11ce,{0xba,0xcd,0x00,0xaa,0x00,0x57,0xb2,0x23}}
+False 0
+True ca761232-ed42-11ce-bacd-00aa0057b223
+True 38 {c}
+True
+True
+36 4 4 2
+True
+True
+7 2 True
+True
