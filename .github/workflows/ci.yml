@@ -9,6 +9,12 @@ on:
 permissions:
   contents: read
 
+# A newer push to the same branch supersedes the running check (each commit contains the previous
+# ones), so runners aren't spent on outdated commits.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   test:
     name: test (${{ matrix.name }})
