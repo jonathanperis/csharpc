@@ -1,0 +1,16 @@
+3 1 True 2 3,1,2
+4 3,1,2,9
+NotSupportedException: Collection is read-only.
+Collection is read-only.
+Collection is read-only.
+Value cannot be null. (Parameter 'list')
+True 0
+2 b ReadOnlyCollection`1
+0,3,1,2,9,0
+False 7 True
+thread sees 7
+main sees 10 values 10,20 10
+The ThreadLocal object is not tracking values. To use the Values property, use a ThreadLocal constructor that accepts the trackAllValues parameter and set the parameter to true.
+0 True
+ObjectDisposedException: Cannot access a disposed object.
+Object name: 'System.Threading.ThreadLocal`1[[System.Int32, System.Private.CoreLib, Version=11.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e]]'.

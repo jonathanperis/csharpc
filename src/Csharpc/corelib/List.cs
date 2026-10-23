@@ -228,6 +228,9 @@ namespace CsharpcCoreLib
 
         public Enumerator GetEnumerator() => new Enumerator(this);
 
+        public System.Collections.ObjectModel.ReadOnlyCollection<T> AsReadOnly() =>
+            new System.Collections.ObjectModel.ReadOnlyCollection<T>((IList<T>)(object)this);
+
         IEnumerator<T> IEnumerable<T>.GetEnumerator() => new ListEnumeratorObject<T>(this);
 
         IEnumerator IEnumerable.GetEnumerator() => new ListEnumeratorObject<T>(this);
