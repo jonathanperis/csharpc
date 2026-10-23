@@ -101,6 +101,12 @@ jobs:
         if: success() || failure()
         run: tests/conformance.sh -j 4
 
+      # The adversarial corpus: gated on tests/conformance2/known-failures.txt (new failures and
+      # fixed known failures both fail the step). Linux only until its outputs are checked elsewhere.
+      - name: Adversarial conformance corpus
+        if: (success() || failure()) && matrix.os == 'linux'
+        run: tests/conformance2.sh -j 4
+
       - name: Real-world programs
         if: success() || failure()
         run: tests/programs.sh
