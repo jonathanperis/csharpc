@@ -203,6 +203,61 @@ implementing interfaces (constrained calls on struct receivers), property/indexe
 (`dict[k] = c ? a : b`), `t == null` folds for value-type `T`, generic interface methods excluded from slot
 tables, value-type `ToString` through `FormatValue`.
 
+## Type metadata (System.Type reflection)
+
+`System.Type` objects are runtime objects (`src/runtime/type.c`): one per method table, so
+`typeof(X) == obj.GetType()` is a pointer comparison, and `Name` / `Namespace` / `ToString()` come from
+the method table's CLR name. Everything else reflection answers about a type is **generated at compile
+time** (closed world, [ADR 0006](adr/0006-closed-world-compilation.md)) by `ModuleCodeGen.TypeInfo.cs`,
+and only for programs that ask:
+
+* **`csrt_TypeInfo` table** (layout in `src/runtime/csrt.h`): one entry per method table the program has
+  — classes, boxed structs and enums, interface identity tables, arrays, delegates, boxed primitives,
+  name-only tables for types that are never instantiated (`typeof(List<>)`, `typeof(int*)`,
+  `typeof(int[,])`, generic parameters) — plus, transitively, every type an entry points to (base type,
+  element type, generic definition and arguments, declaring type). Each entry has the boolean
+  properties as flag bits (`IsClass`, `IsValueType`, `IsGenericType`, `IsNestedPublic`, ... computed from the
+  Roslyn symbol of the *real* BCL type, not its corelib shadow), the related method tables, the
+  implemented interfaces, generic variance, and the assembly's full name.
+  Codegen emits the table when lowering the first member that needs it (`BclValueTypes.Reflection.cs`
+  passes it to the runtime function as an argument) and fills it in after the last function is lowered,
+  alternating with the worklists until no new method table appears (`Generate()`; describing a type can
+  create the method table of a base class or generic argument). Programs that use none of these members
+  carry no table and no extra code (hello world and `typeof(X).Name` programs are byte-for-byte the same
+  size as before).
+* **Interface lists** keep only interfaces a `Type` object can exist for (the program's interface identity
+  tables), plus variant instantiations whose definition the program uses elsewhere (`IEnumerable<string>`
+  for `typeof(IEnumerable<object>).IsAssignableFrom(typeof(List<string>))`). `int`'s thirty generic-math
+  interfaces don't reach the binary unless the program names one. Arrays list `System.Array`'s
+  interfaces; `IList<T>` and its relatives are answered from the element type, covariance included.
+* **`csrt_TypeNameTable`** for `Type.FullName` / `AssemblyQualifiedName`: only the types whose `FullName`
+  differs from `ToString()` (generic instantiations print assembly-qualified arguments,
+  `List`1[[System.Int32, System.Private.CoreLib, Version=11.0.0.0, ...]]`; generic parameters have none),
+  so `FullName` of non-generic types costs a few hundred bytes of table at most.
+* **Assemblies**: the program's own types report the project's assembly name and the version the SDK
+  stamps (`Version` / `AssemblyVersion`, default `1.0.0.0`; projects folded into one program keep their
+  own names); IL assemblies report their metadata identity; BCL types report the shared framework
+  *implementation* assembly .NET loads them from, found by following the type forwards of
+  `shared/Microsoft.NETCore.App/11.*` with System.Reflection.Metadata (`Frontend/SharedFramework.cs`):
+  `List<T>` binds against the `System.Collections` reference assembly but lives in
+  `System.Private.CoreLib`. `Assembly`, `AssemblyName` and `Version` are corelib C#
+  (`corelib/Reflection/Assembly.cs`), one `Assembly` object per name so `==` holds.
+* **Assignability** (`type.c`, `assignable`) follows the CLR: base chains, interfaces, generic variance
+  (reference-type arguments only), array covariance for reference elements and for primitives sharing
+  storage (`int[]`/`uint[]`/enum arrays), `T[]` as `IList<U>`, `Nullable<T>` from `T`, delegates.
+
+Implemented: `IsAssignableFrom`/`IsAssignableTo`/`IsInstanceOfType`/`IsSubclassOf`, every `Is*` predicate
+of the kind/visibility/generic families, `BaseType`, `GetElementType`, `GetArrayRank`, `DeclaringType`,
+`GetGenericTypeDefinition`, `GetGenericArguments`, `GenericTypeArguments`, `GenericParameterPosition`,
+`UnderlyingSystemType`, `Nullable.GetUnderlyingType`, `FullName`, `AssemblyQualifiedName`, `Assembly`,
+`Assembly.GetExecutingAssembly`/`GetEntryAssembly`, with .NET's exception types and messages.
+Members that would need code or metadata the closed world doesn't have — `MakeGenericType`,
+`GetMethods`/`GetProperties`/`GetFields`, `GetInterfaces`, `Activator.CreateInstance`, `IsSerializable`,
+`Version.Parse` — are compile-time "not supported by csharpc yet" errors. Where an entry can't be
+described faithfully (open generic types' base types and interfaces, corelib-internal types with no
+.NET counterpart, signed assemblies), the query throws `NotSupportedException` at run time rather than
+answering wrong. Samples: `tests/samples/400_type_assignability` … `403_type_assembly`.
+
 ## Cost
 
 Hello world: identical binary size; compile-time overhead is parsing the corelib (~0.1–0.2 s warm; shadow

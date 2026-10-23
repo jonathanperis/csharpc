@@ -67,7 +67,7 @@ every failure is a clean "not supported by csharpc yet" diagnostic.
 | Multithreading (`Thread`, `Monitor`, `Interlocked`, `Parallel`) | ✅ | `Task.Run` still on the single-threaded scheduler |
 | Unhandled exceptions (message + exit 134) | ✅ | |
 | Static initialization | ✅ | lazy per type with CoreCLR's triggers, `TypeInitializationException`; generic types ❌ |
-| Reflection | 🟡 | `GetType()`, `typeof`, names; no member reflection ❌ |
+| Reflection | 🟡 | `GetType()`, `typeof`, names; `System.Type` predicates, generics, assignability and `Type.Assembly` over compile-time metadata ([12-corelib.md](12-corelib.md#type-metadata-systemtype-reflection)); no member reflection ❌ |
 | Finalizers | ⬜ | |
 | Debug info (DWARF, gdb/lldb) | ✅ | `-g` |
 
@@ -102,7 +102,7 @@ JSON source generator, which csharpc also synthesizes for reflection-style calls
 `decimal`, `BigInteger` and `DateTime` (moved from the C runtime into C#); P/Invoke and `System.IO`;
 sockets (`Socket`, `TcpListener`/`TcpClient`, `UdpClient`, `Dns`). In progress: globalization (cultures
 via ICU, as .NET). Next: TLS and `HttpClient`; the library surface ranked by the compatibility runs and
-the NuGet survey (`System.Type` reflection basics, `Guid`, `DateTimeOffset`).
+the NuGet survey (`Guid`, `DateTimeOffset`; the `System.Type` basics are in).
 
 ### M3 — Platforms and per-platform evidence
 Each platform gets a CI job (GitHub Actions) running the full differential suite, conformance corpus
