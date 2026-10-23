@@ -257,13 +257,22 @@ public static class Features
         return $"{start.AddDays(2):yyyy-MM-dd} {(start + span).DayOfWeek} {span.TotalMinutes}";
     }
 
+    // The C library is "libc" on Linux and macOS and the UCRT on Windows.
     [System.Runtime.InteropServices.DllImport("libc", EntryPoint = "strlen")]
     private static extern nuint CStrLen(string s);
 
     [System.Runtime.InteropServices.DllImport("libc", EntryPoint = "abs")]
     private static extern int CAbs(int x);
 
-    public static string Native(string text) => $"{(int)CStrLen(text)} {CAbs(-42)}";
+    [System.Runtime.InteropServices.DllImport("ucrtbase", EntryPoint = "strlen")]
+    private static extern nuint WinStrLen(string s);
+
+    [System.Runtime.InteropServices.DllImport("ucrtbase", EntryPoint = "abs")]
+    private static extern int WinAbs(int x);
+
+    public static string Native(string text) => OperatingSystem.IsWindows()
+        ? $"{(int)WinStrLen(text)} {WinAbs(-42)}"
+        : $"{(int)CStrLen(text)} {CAbs(-42)}";
 
     public static string Bits(uint x) => $"{BitOperations.PopCount(x)} {x >> 3} {x << 4} {unchecked((int)x * -3)} {(byte)x} {(long)x * x}";
 }
