@@ -1045,6 +1045,13 @@ public sealed partial class ModuleCodeGen
             graphs.AddRange(InitializerGraphs(t, isStatic: true));
             cctors.AddRange(t.StaticConstructors.Where(c => !c.IsImplicitlyDeclared));
         }
+        // Generic corelib types don't get per-instantiation static initialization yet: an initializer
+        // there would silently leave its field null/zero, so a referenced one is an error, as for user types.
+        foreach (var t in _staticFields.Keys.Select(f => f.ContainingType.OriginalDefinition)
+                     .Where(t => CoreLib.IsCoreLib(t) && TypeSubstitution.IsGenericContext(t))
+                     .Distinct<INamedTypeSymbol>(SymbolEqualityComparer.Default))
+            if (InitializerGraphs(t, isStatic: true).Any() || t.StaticConstructors.Any(c => !c.IsImplicitlyDeclared))
+                throw CompileError.Unsupported($"static field initializers in generic corelib type '{t.Name}'", t);
         foreach (var t in _userTypes.Where(t => t.TypeKind is TypeKind.Class or TypeKind.Struct or TypeKind.Interface))
         {
             if (TypeSubstitution.IsGenericContext(t))
