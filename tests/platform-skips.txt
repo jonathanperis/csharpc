@@ -65,3 +65,6 @@ wasi 189_datetime_zone_lord_howe  sets TZ: wasi-libc has no time zone database, 
 wasi 190_datetime_zone_apia       sets TZ: wasi-libc has no time zone database, local time is UTC
 wasi 257_datetime_parse           sets TZ: wasi-libc has no time zone database, local time is UTC
 wasi bcl/006_environment          Environment.TickCount64 > 0: WASI's monotonic clock starts at 0 with the module under wasmtime
+wasi 380_readonly_collection_threadlocal  needs threads: Thread.Start throws PlatformNotSupportedException on WebAssembly
+wasi 194_marshal_strings          prints strerror(2): errno 2 is ENOENT on Linux, EACCES in WASI
+wasi 196_sockets_loopback         opens loopback sockets: WASI preview 1 has none (PlatformNotSupportedException)

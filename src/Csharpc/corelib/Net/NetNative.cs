@@ -311,8 +311,12 @@ namespace CsharpcCoreLib
 #if CSHARPC_TARGET_WINDOWS
         private static string GaiMessage(int error) => WindowsMarshal.ErrorMessage(error);
 #else
+#if CSHARPC_TARGET_WASI
+        private static string GaiMessage(int error) => throw NotSupported();
+#else
         [DllImport("libc")] private static extern byte* gai_strerror(int error);
         private static string GaiMessage(int error) => Utf8.FromNative(gai_strerror(error));
+#endif
 #endif
 
         private static bool Contains(System.Collections.Generic.List<IPAddress> list, IPAddress address)
