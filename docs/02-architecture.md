@@ -98,6 +98,21 @@ Like rustc and gollvm, csharpc doesn't drive `ld` directly. It runs
 `clang --target=<triple> prog.o <runtime objects> -lm -o out`, and clang supplies the crt objects,
 libc and platform flags.
 
+Per platform:
+
+- **Linux** (ELF, glibc): lld when available, `--gc-sections`, `--icf=safe`, packed RELR relocations,
+  `-s`, and RELRO/BIND_NOW/noexecstack/separate-code for hardening; `--static` links `-static-pie`.
+- **macOS** (Mach-O, arm64 only): the default host triple is `arm64-apple-macosx<deployment target>`
+  (`$MACOSX_DEPLOYMENT_TARGET`, else 14.0) rather than LLVM's `arm64-apple-darwin<kernel>`. The SDK
+  comes from `$SDKROOT` or `xcrun --show-sdk-path` and is passed as `-isysroot` to every clang call.
+  Apple's ld links (`CSHARPC_LD=lld` selects ld64.lld, e.g. to cross-link from Linux with an SDK) with
+  `-dead_strip` and `-S -x` instead of `-s`. P/Invoke targets that the program binds directly are weak
+  imports; Apple's ld wants those listed (`-U _name`) so a missing one still binds to null. With `-g`
+  the DWARF stays in the object files on macOS, so the driver runs `dsymutil` to produce
+  `<output>.dSYM`. `--static` and x86-64 macOS are rejected with an explicit error.
+- The corelib is parsed with `CSHARPC_TARGET_LINUX` or `CSHARPC_TARGET_MACOS` (from the target triple)
+  so its libc constants and struct layouts match the target ([16-interop-io.md](16-interop-io.md)).
+
 The runtime (`src/runtime/*.c`, `*.h`) ships as **source** next to the compiler (copied into
 `bin/.../runtime/` by the `.csproj`). It is compiled on first use with
 `clang -c -O2 -std=c11 -fPIC --target=<triple>` and cached under

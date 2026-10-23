@@ -15,8 +15,10 @@ possible bug; an explicit "not supported by csharpc yet" diagnostic is always pr
 
 ## Setup
 
-- Linux x86-64, .NET 11 SDK (version pinned in `global.json`; preview allowed), LLVM 18
-  (`libLLVM-18.so`, or set `CSHARPC_LIBLLVM`) and `clang` (linker driver, runtime compiler).
+- Linux x86-64/ARM64 or macOS ARM64, .NET 11 SDK (version pinned in `global.json`; preview allowed),
+  LLVM 18 (`libLLVM-18.so`, Homebrew `llvm@18` on macOS, or set `CSHARPC_LIBLLVM`) and `clang`
+  (linker driver, runtime compiler; on macOS Homebrew's clang 18, plus the Xcode Command Line Tools
+  for the SDK and linker).
 - If the SDK is installed side by side: `export PATH=$HOME/.dotnet11:$PATH`.
 - Recommended env: `DOTNET_CLI_TELEMETRY_OPTOUT=1 DOTNET_NOLOGO=1`.
 
@@ -80,6 +82,9 @@ before every commit that touches `src/`.
   Intrinsics outrank shadows in `CoreLib.Map`, so remove an intrinsic when a shadow replaces it.
 - Generic code: always read types through `S(...)` / `TypeOf(op)` so substitution and corelib
   redirection apply.
+- Per-OS behaviour: C runtime differences go behind `#ifdef __APPLE__` (docs/04-runtime.md,
+  "Platforms"); libc constants and struct layouts used by C# go behind `CSHARPC_TARGET_LINUX` /
+  `CSHARPC_TARGET_MACOS` in the corelib, chosen from the target triple, never the host.
 - Shared runtime ABI (method-table header, object/string/array layout) is defined once in
   `src/runtime/csrt.h` and mirrored in `TypeMapper`/`ModuleCodeGen`; change all sides together.
 

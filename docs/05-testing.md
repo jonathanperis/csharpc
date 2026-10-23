@@ -41,6 +41,18 @@ tests/run.sh --regen 07         # re-record a single sample
 Environment: `DOTNET` (path to the `dotnet` executable; the .NET 11 SDK must be first on `PATH`),
 `CSHARPC_OPT`, `CSHARPC_TEST_TIMEOUT`.
 
+### Platforms
+
+Expectations are recorded from .NET on Linux and checked on every CI platform (Linux x86-64, Linux
+ARM64, macOS ARM64). A test whose behaviour differs under real .NET on another OS too (for example a
+`DllImport("libm.so.6")`, a Linux soname that .NET can't load on macOS) is listed with its reason
+in `tests/platform-skips.txt` and reported as `SKIP ... (platform-dependent ...)` there; never list
+a test because csharpc differs from .NET. `run.sh` resolves `$TMPDIR` to a path without symlinks
+(macOS's `/var/folders` is reached through `/var -> /private/var`, which `getcwd` would expose).
+On macOS the scripts need bash 4+ and GNU coreutils (`brew install bash coreutils`, with
+`$(brew --prefix coreutils)/libexec/gnubin` on `PATH`); `tests/debuginfo.sh` drives gdb and is
+Linux-only.
+
 Failure output shows the compile errors (including `CSLLVM0001` "not supported yet" diagnostics) or
 the first lines of a unified diff between the expected and actual stdout.
 

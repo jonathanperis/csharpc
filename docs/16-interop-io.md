@@ -20,7 +20,7 @@ managed signature that marshals arguments, calls the native function and convert
 | `string` | NUL-terminated UTF-8 copy (`LPStr`/`LPUTF8Str`, default on Unix) or UTF-16 (`LPWStr`, `CharSet.Unicode`); freed after the call |
 | blittable arrays (`int[]`, `byte[]`...) | pointer to the first element (the GC never moves objects) |
 | `ref`/`out`/`in` | pointer to the variable |
-| blittable structs | SysV x86-64 classification: ≤16 bytes split into INTEGER/SSE eightbytes, larger structs `byval` / `sret` |
+| blittable structs | per target, as clang does: SysV x86-64 (≤16 bytes split into INTEGER/SSE eightbytes, larger structs `byval` / `sret`); AAPCS64 on Linux and macOS (homogeneous float aggregates in SIMD registers, other composites ≤16 bytes in GPRs, larger ones by reference, `sret` in x8). Apple's arm64 variant packs stack arguments at natural alignment and has the caller extend `sbyte`/`short`/`bool` arguments |
 
 Return values: primitives, `bool` (non-zero), structs (register pairs or `sret`), and `string`
 (converted from UTF-8/UTF-16 and freed with `free`, as .NET does).
@@ -63,7 +63,12 @@ the Regex generator (`[GeneratedRegex]`) and the System.Text.Json generator
 ## System.IO
 
 All of it is C# over libc (`corelib/IO/Posix.cs` holds the imports, errno constants and the
-x86-64 glibc `struct stat` / `struct dirent` offsets):
+`struct stat` / `struct dirent` offsets). Those differ per OS (`O_CREAT` is 0x40 on Linux and 0x200 on
+macOS, `ENOTEMPTY` 39 and 66, `d_name` sits at offset 19 and 21), so the compiler parses the corelib
+with `CSHARPC_TARGET_LINUX` or `CSHARPC_TARGET_MACOS`, chosen from the **target** triple (never the
+host's), and `Posix.cs` / `ConsoleKeys.cs` (termios) select the values with `#if`. Linux stats through
+`statx`, whose layout is the same on every architecture; macOS arm64 calls `stat`/`lstat`/`fstat`
+directly (64-bit `ino_t` layout, no `$INODE64` symbol variants on arm64).
 
 | Area | Types |
 |---|---|
@@ -104,7 +109,8 @@ to a method expecting one) is the corelib object and dispatches virtually.
 
 ## Limits
 
-* x86-64 Linux (glibc) only: struct layouts and the calling convention are SysV x86-64.
+* Linux (glibc; x86-64 and AArch64) and macOS on Apple silicon. Library probing follows .NET's rules
+  per OS (`.so` / `.dylib` suffixes, `lib` prefix), and `DllNotFoundException` uses .NET's per-OS hint.
 * No delegate marshalling, `SafeHandle` parameters, `[In, Out]` array copy-back of non-blittable
   elements, `StringBuilder` parameters, or variadic functions (same as .NET for the last one).
 * `FileStream` is synchronous; the `*Async` file APIs complete synchronously.

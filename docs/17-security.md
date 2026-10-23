@@ -42,6 +42,14 @@ are recorded from real .NET like every other test.
 | NativeAOT (.NET 11) | yes | full | yes | yes | no | no |
 | .NET JIT apphost (.NET 11) | yes | full | yes | yes | no | no |
 
+**macOS.** Mach-O has no RELRO/BIND_NOW/separate-code switches to turn on: executables are always PIE
+with a non-executable stack, and `__DATA_CONST` (the GOT and other relocated constants) is made read-only by
+dyld after binding. So `default` on macOS means the hardened C runtime (stack protector,
+`_FORTIFY_SOURCE`, zero-initialized locals) plus stack probes on generated code; clang has no
+`-fstack-clash-protection` for Darwin (the runtime relies on the guard pages there). `max` adds BTI +
+PAC as on Linux AArch64 (PAC-signed return addresses work in arm64 processes; BTI is not enforced
+outside arm64e).
+
 **Cost.** `default` is within measurement noise on the benchmark suite (`tools/hardening-bench.py`;
 e.g. shapes −4 %, sieve −4 %, binarytrees +2 % CPU time, best-of-13 interleaved runs). CET is not in
 `default` because it measured **+8 % to +16 %** on call-heavy benchmarks (shapes, sieve) while

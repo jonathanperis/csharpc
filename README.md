@@ -67,8 +67,9 @@ network I/O beyond the console. The full matrix is in [docs/06-roadmap.md](docs/
 
 ## Quick start
 
-Requirements: Linux x86-64, the .NET 11 SDK, LLVM 18 (`libLLVM-18.so`; 19/20 are also probed) and
-`clang` (linker driver and runtime compiler).
+Requirements: Linux (x86-64 or ARM64) or macOS on Apple silicon, the .NET 11 SDK, LLVM 18
+(`libLLVM-18.so`, or Homebrew's `llvm@18` on macOS; 19/20 are also probed) and `clang` (linker driver
+and runtime compiler).
 
 ```bash
 # .NET 11 (side by side in ~/.dotnet11)
@@ -77,6 +78,8 @@ export PATH=$HOME/.dotnet11:$PATH
 
 # LLVM 18 + clang (Ubuntu 24.04)
 sudo apt install llvm-18 clang-18
+# ...or on macOS (Apple silicon; Xcode Command Line Tools provide the SDK and the linker)
+brew install llvm@18 && export PATH="$(brew --prefix llvm@18)/bin:$PATH"
 
 # Build csharpc
 git clone https://github.com/jonathanperis/csharpc && cd csharpc
@@ -259,7 +262,7 @@ csharpc is **pre-1.0** and under active development. What that means in practice
 |---|---|
 | **Guarantee** | A compiled program behaves exactly like it does on .NET — same output, same exceptions and messages, same exit code. Anything csharpc can't compile faithfully is rejected at compile time with a `CSLLVM0001: not supported by csharpc yet` diagnostic; a silent behavioral difference is treated as the highest-priority bug. |
 | **Verified surface** | The language and library features in the table above, checked on every commit by CI: the differential samples at `-O0` and `-O2`, the conformance corpus, and a set of larger real-world programs. |
-| **Platforms** | Linux x86-64 today. AArch64, WebAssembly, Windows and macOS are on the [roadmap](docs/06-roadmap.md). |
+| **Platforms** | Linux x86-64, Linux ARM64 and macOS ARM64 (Apple silicon), each tested in CI against real .NET on that machine. Windows and WebAssembly are on the [roadmap](docs/06-roadmap.md). |
 | **Not supported** | `dynamic`, member reflection and runtime code loading (the same limits NativeAOT has); NuGet packages that ship only IL (an IL front-end is planned); parts of the BCL such as networking, regular expressions and JSON, which grow with the corelib. |
 | **Stability** | Whole-program compilation with no stable ABI between csharpc versions: rebuild everything when you upgrade. Command-line options may still change. |
 
