@@ -690,8 +690,8 @@ namespace CsharpcCoreLib
                 return string.Empty;
             }
 
-            string destination = string.FastAllocateString(length);
-            GetItems(choices, new Span<char>(ref destination.GetRawStringData(), destination.Length));
+            string destination = CoreIntrinsics.FastAllocateString(length);
+            GetItems(choices, CoreIntrinsics.StringChars(destination));
             return destination;
         }
 
