@@ -199,7 +199,7 @@ interpolation (`DefaultInterpolatedStringHandler`), string `switch` (hash + `op_
 | Ardalis.GuardClauses 5.0.0 | ✅ compiles; output byte-identical (`tests/projects/il/IlNuGetApp`) |
 | ByteSize 2.1.2 | ❌ library surface: `NumberFormatInfo.CurrentInfo` |
 | Semver 3.0.0 | ❌ library surface: `List<T>.AsReadOnly`, `BigInteger.Parse/ToString(IFormatProvider)`; its dependency `Microsoft.Extensions.Primitives` compiles from the shared framework's IL except `ResourceManager` (resource strings) |
-| SimpleBase 4.0.2 | ❌ library surface: `Lazy<T>`, `Range.EndAt`, `string.GetHashCode(StringComparison)`; unreachable async helpers become CSLLVM0007 stubs as designed |
+| SimpleBase 4.0.2 | ❌ library surface: `Range.EndAt`, `string.GetHashCode(StringComparison)`; unreachable async helpers become CSLLVM0007 stubs as designed |
 
 Every failure is a diagnostic naming the method and instruction; none of the four produced wrong
 output.
@@ -228,7 +228,7 @@ Toward **arbitrary pure-IL NuGet packages** (ordered; size in focused days):
    assembly's embedded `.resources` at compile time into a constant table (exception messages must
    match .NET's). Also `AppContext` switches with their defaults. (1–2)
 3. BCL surface packages use first — measured by compiling the top-N pure-IL packages from nuget.org:
-   `Lazy<T>`, `ReadOnlyCollection<T>`/`AsReadOnly`, `System.Array` as a static type (`Array.Copy`,
+   `ReadOnlyCollection<T>`/`AsReadOnly`, `System.Array` as a static type (`Array.Copy`,
    `is Array`), `CultureInfo`/`NumberFormatInfo` objects (invariant), `BitConverter`, more `Math`
    overloads, `string.GetHashCode` overloads, `InlineArray`. A survey harness (`tools/compat`-style)
    turns this into a ranked list. (ongoing, M2)

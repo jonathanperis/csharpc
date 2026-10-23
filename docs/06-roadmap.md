@@ -131,7 +131,7 @@ compiled C# idioms (interpolation handlers, closures, iterators, records, generi
 failures compile to stubs (`CSLLVM0007`). `tests/il.sh` checks library projects consumed as DLLs and a
 nuget.org package (Ardalis.GuardClauses) against `dotnet run`. Next: compiled `async` (an
 `AsyncTaskMethodBuilder` over csrt tasks), resource strings (`SR.GetResourceString` from embedded
-`.resources`), `calli`, the BCL surface packages use (`Lazy<T>`, `ReadOnlyCollection<T>`, culture
+`.resources`), `calli`, the BCL surface packages use (`ReadOnlyCollection<T>`, culture
 info objects), RID-specific/native package assets.
 
 ### M6 — Bootstrapping
