@@ -48,7 +48,7 @@ public sealed partial class ModuleCodeGen
                 init = CreateClassInit(type, precise: !IlBeforeFieldInit(type));
         }
         else if (TypeSubstitution.IsGenericContext(type) && (IsUserType(type) || CoreLib.IsCoreLib(type))
-            && type.TypeKind is TypeKind.Class or TypeKind.Struct)
+            && type.TypeKind is TypeKind.Class or TypeKind.Struct or TypeKind.Interface)
         {
             // A generic instantiation can't be initialized at startup (the instantiations aren't known
             // up front), so even constant initializers run lazily: on first static field access, or on
@@ -57,7 +57,8 @@ public sealed partial class ModuleCodeGen
             if (precise || StaticInitializers(type.OriginalDefinition).Any())
                 init = CreateClassInit(type, precise);
         }
-        else if (IsUserType(type) && !CoreLib.IsCoreLib(type) && type.TypeKind is TypeKind.Class or TypeKind.Struct)
+        // Interfaces too: their static fields (C# 8+) have initializers and static constructors like classes'.
+        else if (IsUserType(type) && !CoreLib.IsCoreLib(type) && type.TypeKind is TypeKind.Class or TypeKind.Struct or TypeKind.Interface)
         {
             var precise = HasExplicitStaticConstructor(type);
             if (precise || (StaticInitializers(type).Any() && !HasConstantStaticInitializers(type)))
