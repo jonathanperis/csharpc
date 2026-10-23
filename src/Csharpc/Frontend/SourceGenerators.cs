@@ -15,11 +15,15 @@ namespace Csharpc.Frontend;
 /// </summary>
 public static class SourceGenerators
 {
-    /// <summary>Generators worth loading, keyed by the attribute that triggers them.</summary>
-    private static readonly (string Trigger, string Assembly)[] s_generators =
+    /// <summary>
+    /// Generators worth loading, keyed by the attribute that triggers them. A null assembly is a generator
+    /// built into csharpc: [GeneratedRegex] (GeneratedRegex.cs) replaces the SDK's, whose output is built on
+    /// RegexRunner internals.
+    /// </summary>
+    private static readonly (string Trigger, string? Assembly)[] s_generators =
     [
         ("LibraryImport", "Microsoft.Interop.LibraryImportGenerator.dll"),
-        ("GeneratedRegex", "System.Text.RegularExpressions.Generator.dll"),
+        ("GeneratedRegex", null),
         ("JsonSerializable", "System.Text.Json.SourceGeneration.dll"),
     ];
 
@@ -32,11 +36,12 @@ public static class SourceGenerators
         if (wanted.Count == 0) return compilation;
 
         var dir = AnalyzerDirectory();
-        if (dir is null) return compilation;
-        var loader = new Loader(dir);
+        var loader = dir is null ? null : new Loader(dir);
         List<ISourceGenerator> generators = [];
         foreach (var (_, assembly) in wanted)
         {
+            if (assembly is null) { generators.Add(new GeneratedRegexGenerator().AsSourceGenerator()); continue; }
+            if (dir is null || loader is null) continue;
             var path = Path.Combine(dir, assembly);
             if (!File.Exists(path)) continue;
             var reference = new AnalyzerFileReference(path, loader);

@@ -1,0 +1,27 @@
+[IgnorePatternWhitespace] True '42  apples' groups=1
+[IgnorePatternWhitespace] False '' groups=1
+[IgnorePatternWhitespace] True 'a b c' groups=1
+[ExplicitCapture] True 'abc' groups=2 n='b'
+[None] True 'abc' groups=4 1='a' 2='c' n='b'
+[None] True 'ab' groups=2 1='b'
+[Singleline] True 'a
+c' groups=1
+[None] False '' groups=1
+[ECMAScript] True 'na' groups=1
+[ECMAScript] True 'aa' groups=2 1='a'
+[ECMAScript] False '' groups=1
+[Compiled] True 'hey hey' groups=2 1='hey'
+[IgnoreCase, Compiled, CultureInvariant] True 'hello' groups=1
+[None] True 'a' groups=1
+[None] True 'ab' groups=1
+[IgnoreCase, Multiline, Singleline] True 'b' groups=1
+IgnoreCase, Multiline 3 -00:00:00.0010000 True
+00:00:02 -10000
+ArgumentOutOfRangeException: Specified argument was out of the range of valid values. (Parameter 'options')
+ArgumentOutOfRangeException: Specified argument was out of the range of valid values. (Parameter 'options')
+ArgumentOutOfRangeException: Specified argument was out of the range of valid values. (Parameter 'options')
+ArgumentOutOfRangeException: Specified argument was out of the range of valid values. (Parameter 'options')
+ArgumentOutOfRangeException: Specified argument was out of the range of valid values. (Parameter 'matchTimeout')
+ArgumentOutOfRangeException: Specified argument was out of the range of valid values. (Parameter 'matchTimeout')
+ArgumentOutOfRangeException: Specified argument was out of the range of valid values. (Parameter 'matchTimeout')
+accepted 00:00:00.0010000

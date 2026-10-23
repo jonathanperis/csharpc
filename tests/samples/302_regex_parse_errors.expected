@@ -1,0 +1,43 @@
+InsufficientClosingParentheses @1: Invalid pattern '(' at offset 1. Not enough )'s.
+InsufficientOpeningParentheses @1: Invalid pattern ')' at offset 1. Too many )'s.
+InsufficientOpeningParentheses @2: Invalid pattern 'a)' at offset 2. Too many )'s.
+UnterminatedBracket @2: Invalid pattern '[a' at offset 2. Unterminated [] set.
+ReversedCharacterRange @4: Invalid pattern '[z-a]' at offset 4. [x-y] range in reverse order.
+ReversedQuantifierRange @6: Invalid pattern 'a{3,1}' at offset 6. Illegal {x,y} with x > y.
+QuantifierAfterNothing @1: Invalid pattern '*' at offset 1. Quantifier '*' following nothing.
+NestedQuantifiersNotParenthesized @3: Invalid pattern 'a**' at offset 3. Nested quantifier '*'.
+QuantifierAfterNothing @1: Invalid pattern '+a' at offset 1. Quantifier '+' following nothing.
+NestedQuantifiersNotParenthesized @5: Invalid pattern 'a{1}{2}x**' at offset 5. Nested quantifier '{'.
+UnescapedEndingBackslash @1: Invalid pattern '\' at offset 1. Illegal \ at end of pattern.
+UnrecognizedEscape @2: Invalid pattern '\q' at offset 2. Unrecognized escape sequence \q.
+InvalidUnicodePropertyEscape @2: Invalid pattern '\p' at offset 2. Incomplete \p{X} character escape.
+InvalidUnicodePropertyEscape @2: Invalid pattern '\p{' at offset 2. Incomplete \p{X} character escape.
+UnrecognizedUnicodeProperty @7: Invalid pattern '\p{Foo}' at offset 7. Unknown property 'Foo'.
+InvalidUnicodePropertyEscape @5: Invalid pattern '\P{Lu' at offset 5. Incomplete \p{X} character escape.
+MalformedNamedReference @1: Invalid pattern '\k' at offset 1. Malformed \k<...> named back reference.
+UndefinedNamedReference @5: Invalid pattern '\k<x>' at offset 5. Reference to undefined group name 'x'.
+UnrecognizedEscape @2: Invalid pattern '\k<1' at offset 2. Unrecognized escape sequence \k.
+UndefinedNumberedReference @2: Invalid pattern '\2' at offset 2. Reference to undefined group number 2.
+CaptureGroupNameInvalid @4: Invalid pattern '(?<1a>x)' at offset 4. Invalid group name: Group names must begin with a word character.
+UndefinedNamedReference @6: Invalid pattern '(?<a-b>x)' at offset 6. Reference to undefined group name 'b'.
+CaptureGroupOfZero @4: Invalid pattern '(?<0>x)' at offset 4. Capture number cannot be zero.
+CaptureGroupNameInvalid @4: Invalid pattern '(?'x)' at offset 4. Invalid group name: Group names must begin with a word character.
+InvalidGroupingConstruct @2: Invalid pattern '(?' at offset 2. Unrecognized grouping construct.
+InvalidGroupingConstruct @3: Invalid pattern '(?z)' at offset 3. Unrecognized grouping construct.
+UnterminatedComment @10: Invalid pattern '(?#comment' at offset 10. Unterminated (?#...) comment.
+AlternationHasUndefinedReference @5: Invalid pattern '(?(1)a)' at offset 5. Conditional alternation refers to an undefined group number 1.
+AlternationHasTooManyConditions @11: Invalid pattern '(?(x)a|b|c)' at offset 11. Too many | in (?()|).
+AlternationHasComment @2: Invalid pattern '(?(?#c)a)' at offset 2. Alternation conditions cannot be comments.
+ok: [\d-z] -> False
+ShorthandClassInCharacterRange @5: Invalid pattern '[a-\d]' at offset 5. Cannot include class \d in character range.
+InsufficientOrInvalidHexDigits @2: Invalid pattern '\x1' at offset 2. Insufficient or invalid hexadecimal digits.
+InsufficientOrInvalidHexDigits @2: Invalid pattern '\u12' at offset 2. Insufficient or invalid hexadecimal digits.
+MissingControlCharacter @5: Invalid pattern '\cZ\c' at offset 5. Missing control character.
+UnrecognizedControlCharacter @3: Invalid pattern '\c!' at offset 3. Unrecognized control character.
+InsufficientClosingParentheses @11: Invalid pattern '(?<x>a)(?(x' at offset 11. Not enough )'s.
+ExclusionGroupNotLast @6: Invalid pattern '[a-[b]c]' at offset 6. A subtraction must be the last element in a character class.
+QuantifierOrCaptureGroupOutOfRange @12: Invalid pattern 'a{2147483648}' at offset 12. Quantifier and capture group numbers must be less than or equal to Int32.MaxValue.
+UndefinedNamedReference @12: Invalid pattern '(?<n>a)\k<m>' at offset 12. Reference to undefined group name 'm'.
+AlternationHasNamedCapture @2: Invalid pattern '(?(?<n>a)b)' at offset 2. Alternation conditions do not capture and cannot be named.
+True
+System.Text.RegularExpressions.RegexParseException |  | Invalid pattern '(a' at offset 2. Not enough )'s.

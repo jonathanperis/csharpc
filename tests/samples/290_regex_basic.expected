@@ -1,0 +1,25 @@
+True
+False
+True
+match '66' at 6 (length 2)
+no match
+match '22' at 3 (length 2)
+match '22' at 3 (length 2)
+match 'key=value' at 0 (length 9)
+10;20;30;40;
+4
+tqbf
+b 10
+3
+4
+4
+[0][1][2]
+False '' 0 0 1
+True False
+\d+ None False
+17
+a aaa
+ArgumentOutOfRangeException: Start index cannot be less than 0 or greater than input length. (Parameter 'startat')
+ArgumentOutOfRangeException: Length cannot be less than 0 or exceed input length. (Parameter 'length')
+ArgumentNullException: Value cannot be null. (Parameter 'input')
+ArgumentNullException: Value cannot be null. (Parameter 'pattern')

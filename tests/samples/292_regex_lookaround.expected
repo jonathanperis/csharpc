@@ -1,0 +1,17 @@
+\w+(?=:)                     key: value, other: x   => 'key'@0 'other'@12
+\d+(?!px)\b                  10px 20em 30           => '30'@10
+(?<=\$)\d+(\.\d\d)?          $5 and $12.50, 7       => '5'@1(g1='') '12.50'@8(g1='.50')
+(?<!-)\b\d+                  3 -4 5 -6              => '3'@0 '5'@5
+(?<=a.+)b                    ab axxb cb             => 'b'@6 'b'@9
+(?<=^|,)[^,]*                a,,b,c                 => 'a'@0 ''@2 'b'@3 'c'@5
+(?=(\w\w))                   abcd                   => ''@0(g1='ab') ''@1(g1='bc') ''@2(g1='cd')
+(?<=(\d))x                   1x2x x                 => 'x'@1(g1='1') 'x'@3(g1='2')
+q(?!u)                       qatar quit qi          => 'q'@0 'q'@11
+(?=.*\d)(?=.*[a-z])\w{6,}    abc123 abcdef 123456 a1b2c3 => 'abc123'@0 'abcdef'@7 '123456'@14 'a1b2c3'@21
+\b(?!(?:the|a)\b)\w+         the cat and a dog      => 'cat'@4 'and'@8 'dog'@14
+(?<=(?<!x)y)z                yz xyz                 => 'z'@1
+(?<=\b\w{3})\s               one two three          => ' '@3 ' '@7
+(?=a)                        banana                 => ''@1 ''@3 ''@5
+(?<=[aeiou])[^aeiou\s]       hello world            => 'l'@2 'r'@8
+^(?=.{4}$).*                 abcd                   => 'abcd'@0
+(?<=(?<v>[aeiou]))n          banana inn             => 'n'@2(g1='a') 'n'@4(g1='a') 'n'@8(g1='i')

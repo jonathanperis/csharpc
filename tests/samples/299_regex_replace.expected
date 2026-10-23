@@ -1,0 +1,31 @@
+Smith, John
+Smith, John
+a[b]c
+a[a]c
+a[c]c
+[b]c
+a[abc]c
+a$c
+a$9|${9}|$x|${x}|$|${1c
+a$10c
+kja
+
+-a-b-c-
+-a-b-c-
+no match
+Hell0 W0rld
+#a#b3c4
+#a#b#c#
+1a2b3c4
+1a2b#c#
+10a20b30c40
+1a2b4c4
+ONE TWO
+3 3
+a1b2c 2
+x_y!z
+01/06/2024 [2024-06-01] $
+NotSupportedException: Result cannot be called on a failed Match.
+ArgumentNullException: Value cannot be null. (Parameter 'replacement')
+ArgumentNullException: Value cannot be null. (Parameter 'evaluator')
+ArgumentOutOfRangeException: Count cannot be less than -1. (Parameter 'count')

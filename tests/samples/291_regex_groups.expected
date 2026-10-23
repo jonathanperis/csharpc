@@ -1,0 +1,30 @@
+(\w+)\s(\w+) on 'hello world': 0='hello world'@0 1='hello'@0 2='world'@6
+(?<first>\w+)\s(?<last>\w+) on 'Ada Lovelace': 0='Ada Lovelace'@0 first='Ada'@0 last='Lovelace'@4
+(?'y'\d{4})-(?'m'\d\d) on 'on 2023-11': 0='2023-11'@3 y='2023'@3 m='11'@8
+(a)(?<n>b)(c) on 'abc': 0='abc'@0 1='a'@0 2='c'@2 n='b'@1
+(?<5>a)(b)(?<2>c) on 'abc': 0='abc'@0 1='b'@1 2='c'@2 =-
+(?<x>a)(?<x>b) on 'ab': 0='ab'@0 x='b'@1{a@0,b@1,}
+(\w)\1 on 'abccd': 0='cc'@2 1='c'@2
+(?<ch>\w)\k<ch> on 'xyzzy': 0='zz'@2 ch='z'@2
+(?<q>['"]).*?\k'q' on 'say "hi" or 'yo'': 0='"hi"'@4 q='"'@4
+(\d)+ on '12345': 0='12345'@0 1='5'@4{1@0,2@1,3@2,4@3,5@4,}
+((a)|(b))+ on 'abba': 0='abba'@0 1='a'@3{a@0,b@1,b@2,a@3,} 2='a'@3{a@0,a@3,} 3='b'@2{b@1,b@2,}
+(a)?b on 'b': 0='b'@0 1=-
+(?:non)(capturing) on 'noncapturing': 0='noncapturing'@0 1='capturing'@3
+^(?:(?<open>\()|(?<close-open>\))|[^()])*(?(open)(?!))$ on 'f(a(b)c)': 0='f(a(b)c)'@0 open=- close='a(b)c'@2{b@4,a(b)c@2,}
+^(?:(?<open>\()|(?<-open>\))|[^()])*(?(open)(?!))$ on 'f(a(b c)': no match
+(?<1>x)(y) on 'xy': 0='xy'@0 1='y'@1{x@0,y@1,}
+0,1,year,month,day
+0,1,2,3,4
+3 -1 1
+1|month||
+2024 02 8
+False '' False
+True False
+True 02
+0,1,year,month,day
+2024-02-29|-29|2024|02|29|
+0=2024-02-29 1=-29 year=2024 month=02 day=29 
+5 1 2024-02-29
+True
+0,1,2 2

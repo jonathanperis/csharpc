@@ -1,5 +1,6 @@
 // Differential fuzzer for the C# corelib's input handling: number parsing and formatting, composite
-// formatting, decimal, BigInteger, TimeSpan/DateTime formatting and string operations. Prints one
+// formatting, decimal, BigInteger, TimeSpan/DateTime formatting, string operations and regular
+// expressions (random patterns from a small grammar, with every RegexOptions combination). Prints one
 // line per case (the result, or the exception type and message); tools/fuzz/corelib.sh runs it under
 // real .NET and as a csharpc-compiled native binary (with sanitizers) and diffs the output.
 //   CorelibFuzz <seed> <cases>
@@ -9,6 +10,7 @@
 using System.Globalization;
 using System.Numerics;
 using System.Text;
+using System.Text.RegularExpressions;
 
 ulong seed = args.Length > 0 ? (ulong)long.Parse(args[0]) : 1;
 ulong state = 1;
@@ -18,7 +20,7 @@ for (int i = 0; i < cases; i++)
 {
     state = (seed * 0x9E3779B97F4A7C15UL) ^ ((ulong)i * 0xD1B54A32D192ED03UL) ^ 0x2545F4914F6CDD1DUL;
     for (int k = 0; k < 4; k++) NextU64();
-    int target = Next(9);
+    int target = Next(12);
     string line;
     try { line = Run(target); }
     catch (Exception e) { line = e.GetType().Name + ": " + e.Message; }
@@ -88,6 +90,10 @@ string Run(int target)
             sb.Append(Escape(s.Substring(start, length)));
             return sb.ToString();
         }
+        case 9:
+        case 10:
+        case 11:
+            return RegexCase();
         default:
         {
             string s = Text(NumberAlphabet, 10);
@@ -99,6 +105,97 @@ string Run(int target)
         }
     }
 }
+
+// A random pattern (sometimes malformed), options and input; prints every match with its groups and
+// captures, then Replace and Split results. Inputs are short, so backtracking stays cheap.
+string RegexCase()
+{
+    string pattern = Pattern(3);
+    var options = (RegexOptions)(Next(4) == 0 ? 0 : (int)NextU64() & 0x37F); // no Compiled/NonBacktracking
+    if (Next(6) != 0) options &= ~RegexOptions.ECMAScript;
+    if ((options & RegexOptions.ECMAScript) != 0 && Next(2) == 0)
+        options &= RegexOptions.ECMAScript | RegexOptions.IgnoreCase | RegexOptions.Multiline | RegexOptions.CultureInvariant;
+    string input = Text(RegexInputAlphabet, 12);
+    var sb = new StringBuilder(Escape(pattern)).Append(" /").Append((int)options).Append(" on ").Append(Escape(input)).Append(" ->");
+    var regex = new Regex(pattern, options);
+    for (Match m = regex.Match(input); m.Success; m = m.NextMatch())
+    {
+        sb.Append(" [").Append(m.Index).Append(',').Append(m.Length);
+        foreach (Group g in m.Groups)
+        {
+            sb.Append(' ').Append(g.Name).Append('=');
+            if (!g.Success) { sb.Append('-'); continue; }
+            sb.Append(g.Index).Append(':').Append(Escape(g.Value));
+            if (g.Captures.Count > 1)
+                foreach (Capture c in g.Captures) sb.Append('(').Append(c.Index).Append(':').Append(Escape(c.Value)).Append(')');
+        }
+        sb.Append(']');
+    }
+    sb.Append(" | ").Append(Escape(regex.Replace(input, Next(2) == 0 ? "<$&>" : "${1}$$$`_$'$+")));
+    sb.Append(" | ").Append(Escape(string.Join("/", regex.Split(input))));
+    sb.Append(" | ").Append(string.Join(",", regex.GetGroupNames())).Append(' ').Append(regex.IsMatch(input));
+    return sb.ToString();
+}
+
+string Pattern(int depth)
+{
+    var sb = new StringBuilder();
+    int n = 1 + Next(4);
+    for (int i = 0; i < n; i++)
+    {
+        if (i > 0 && Next(6) == 0) sb.Append('|');
+        string atom = Atom(depth);
+        sb.Append(atom);
+        // Inline options and comments aren't quantifiable ("Quantifier following nothing").
+        bool inline = atom.Length <= 5 && atom.StartsWith("(?") && !atom.StartsWith("(?:");
+        if (Next(3) == 0 && !inline) sb.Append(Quantifier());
+    }
+    return sb.ToString();
+}
+
+string Atom(int depth)
+{
+    // Mostly well-formed: one atom in ~40 is malformed (an unbalanced token, a bad escape or range).
+    int k = Next(40) == 0 ? 8 : depth <= 0 ? Next(4) : Next(10) is var j && j == 8 ? 0 : j;
+    if (k == 2 && Next(10) != 0) return Pick(@"\d", @"\w", @"\s", @"\D", @"\W", @"\S", @"\b", @"\B", "^", "$", @"\A", @"\z", @"\Z", @"\G", @"\p{L}", @"\P{Lu}", @"\p{Ll}", @"\x41", @"\t", @"\n", @"\e", @"\cA", "#");
+    if (k == 6 && Next(2) == 0) return "(?(" + Pick("(?=a)", "a|b", "x") + ")" + "(?:" + Pattern(depth - 1) + ")|(?:" + Pattern(depth - 1) + "))";
+    switch (k)
+    {
+        case 0: case 1: return Pick("a", "b", "c", "A", "B", "x", "0", "1", " ", "-", ".", "\\.", "é", "É", "i", "I", "k", "K", "İ", "ı");
+        case 2: return Pick(@"\d", @"\w", @"\s", @"\D", @"\W", @"\S", @"\b", @"\B", "^", "$", @"\A", @"\z", @"\Z", @"\G", @"\p{L}", @"\P{Lu}", @"\p{Ll}", @"\x41", @"b", @"\t", @"\n", @"\e", @"\cA", @"\1", @"\k<n>", @"\q", @"\p{Nope}", "#");
+        case 3: return CharClass();
+        case 4: return "(" + Pattern(depth - 1) + ")";
+        case 5: return Pick("(?:", "(?<n>", "(?'n'", "(?=", "(?!", "(?<=", "(?<!", "(?>", "(?i:", "(?-i:", "(?m:", "(?s:", "(?x:", "(?n:", "(?<n-n>", "(?<1>") + Pattern(depth - 1) + ")";
+        case 6: return "(?(" + Pick("1", "n", "a", "x") + ")" + "(?:" + Pattern(depth - 1) + ")|(?:" + Pattern(depth - 1) + "))";
+        case 7: return Pick("(?i)", "(?m)", "(?-i)", "(?x)", "(?s)", "(?n)", "(?#c)");
+        case 8: return Pick("(", ")", "[", "]", "{", "}", "*", "+", "?", "\\", "(?", "(?<", "a{2,1}", "[b-a]", "x**", "(?z)");
+        default: return "(" + Pattern(depth - 1) + ")";
+    }
+}
+
+string CharClass()
+{
+    var sb = new StringBuilder("[");
+    if (Next(3) == 0) sb.Append('^');
+    int n = 1 + Next(3);
+    for (int i = 0; i < n; i++)
+    {
+        sb.Append(Next(5) switch
+        {
+            0 => Pick("a-c", "A-Z", "0-9", "x-z", "à-ÿ", "a-a"),
+            1 => Pick(@"\d", @"\w", @"\s", @"\W", @"\p{Lu}", @"\P{L}"),
+            2 => Pick("-", "]", "\\]", "^", ".", "b"),
+            _ => Pick("a", "B", "1", " ", "é", "k", "I"),
+        });
+    }
+    if (Next(5) == 0) sb.Append("-[").Append(Pick("a", "aeiou", @"\d", "b-c")).Append(']');
+    return sb.Append(']').ToString();
+}
+
+string Quantifier() =>
+    Pick("*", "+", "?", "{2}", "{1,}", "{0,2}", "{1,3}", "*", "+", "?") + (Next(3) == 0 ? "?" : "");
+
+string Pick(params string[] items) => items[Next(items.Length)];
 
 ulong NextU64()
 {
@@ -142,4 +239,5 @@ partial class Program
     const string CompositeAlphabet = "{}{}{}012,:-5XN2D3Ee0#.ab ";
     const string DateAlphabet = "dddHHhhmmssfffFFFtzyyyMMMgK:/.-' \\%";
     const string StringAlphabet = "ab, \t.aéb ";
+    const string RegexInputAlphabet = "aabbcAB01 -.\nxéÉiIkKKİı()";
 }

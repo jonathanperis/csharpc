@@ -49,9 +49,10 @@ an `[UnmanagedCallersOnly]` method (`&Compare`) — that is the supported, alloc
 ### `[LibraryImport]` and other source generators
 
 csharpc runs the SDK's Roslyn source generators (`Frontend/SourceGenerators.cs`) when their
-trigger attribute appears in user code: `LibraryImportGenerator` (`[LibraryImport]`),
-the Regex generator (`[GeneratedRegex]`) and the System.Text.Json generator
-(`[JsonSerializable]`). The generated marshalling code is ordinary C#; the marshallers it uses
+trigger attribute appears in user code: `LibraryImportGenerator` (`[LibraryImport]`) and the
+System.Text.Json generator (`[JsonSerializable]`). `[GeneratedRegex]` is handled by csharpc's own
+generator (`Frontend/GeneratedRegex.cs`, [12-corelib.md](12-corelib.md#regular-expressions)), since the
+SDK's emits code built on `RegexRunner` internals. The generated marshalling code is ordinary C#; the marshallers it uses
 (`Utf8StringMarshaller`, `Utf16StringMarshaller`, `AnsiStringMarshaller`, `SpanMarshaller`,
 `ReadOnlySpanMarshaller`, `ArrayMarshaller`) are corelib shadows.
 

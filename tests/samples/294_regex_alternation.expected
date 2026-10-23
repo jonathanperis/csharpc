@@ -1,0 +1,17 @@
+a|ab                               ab             => 'a'@0
+ab|a                               ab             => 'ab'@0
+(a|ab)(c|bcd)                      abcd           => 'abcd'@0
+cat|category|dog                   category dog   => 'cat'@0 'dog'@9
+\b(?:one|two|three)\b              one twothree three => 'one'@0 'three'@13
+x(?:a|b|c)y|z                      xay xdy z xcy  => 'xay'@0 'z'@8 'xcy'@10
+|a                                 aa             => ''@0 ''@1 ''@2
+a|                                 ba             => ''@0 'a'@1 ''@2
+(a)?(?(1)b|c)                      ab c b         => 'ab'@0 'c'@3
+(?<q>")?\w+(?(q)")                 "hi" there "no => '"hi"'@0 'there'@5 'no'@12
+(?(?=\d)\d{3}|[a-z]+)              123 abc 45     => '123'@0 'abc'@4
+(?(\d)\d\d|x)                      12 x 3         => '12'@0 'x'@3
+^(?:(?<a>a)|b)(?(a)1|2)$           a1             => 'a1'@0
+^(?:(?<a>a)|b)(?(a)1|2)$           b2             => 'b2'@0
+(foo|foobar)baz                    foobarbaz      => 'foobarbaz'@0
+(?>foo|foobar)baz                  foobarbaz      =>
+[abc]|[cde]                        edcba          => 'a'@4 'b'@3 'c'@2 'd'@1 'e'@0

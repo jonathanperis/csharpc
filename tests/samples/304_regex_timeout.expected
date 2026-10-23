@@ -1,0 +1,9 @@
+System.Text.RegularExpressions.RegexMatchTimeoutException
+The Regex engine has timed out while trying to match a pattern to an input string. This can occur for many reasons, including very large inputs or excessive backtracking caused by nested quantifiers, back-references and other factors.
+^(a+)+$ 41 00:00:00.0500000
+True
+True
+timeout 20
+in pat 00:00:01
+The Regex engine has timed out while trying to match a pattern to an input string. This can occur for many reasons, including very large inputs or excessive backtracking caused by nested quantifiers, back-references and other factors. [] [] -1
+custom message

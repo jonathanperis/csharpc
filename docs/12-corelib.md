@@ -105,6 +105,42 @@ Limitation: `object is IEnumerable<X>` on an array can't check the element type 
 * **Members-only shadows:** `string.Join<T>/Join(IEnumerable)/Concat<T>/Compare`, `double`/`float`
   `IsNaN`/`IsInfinity`/`IsFinite`..., generic `System.Array` helpers (`Sort` incl. keys+items, `Reverse`,
   `IndexOf`, `Resize`, `Fill`, `Find*`, `Exists`, `TrueForAll`, `ConvertAll`, `BinarySearch`, `Empty`).
+* **`System.Text.RegularExpressions`** (`corelib/Regex/`, see [Regular expressions](#regular-expressions)).
+
+### Regular expressions
+
+`corelib/Regex/` is a port of .NET's own engine (dotnet/runtime release/11.0, commit `bc123d0`,
+MIT, [THIRD-PARTY-NOTICES.md](../THIRD-PARTY-NOTICES.md)): `RegexParser`, the `RegexNode` tree and its
+optimizer, `RegexFindOptimizations` / `RegexPrefixAnalyzer`, `RegexCharClass` (+ its Unicode tables),
+`RegexCaseEquivalences`, `RegexWriter`, `RegexInterpreter` / `RegexRunner`, and the public API
+(`Regex` static and instance methods, `Match`/`Group`/`Capture` and their collections, `Replace` with
+substitutions and `MatchEvaluator`, `Split`, `Escape`/`Unescape`, `Count`, `EnumerateMatches`/`ValueMatch`,
+`EnumerateSplits`, `RegexMatchTimeoutException`, `RegexParseException`, the static cache). The files keep
+upstream's names and structure; the mechanical adaptations are listed below, and changes of substance are
+marked `csharpc:` in the code. Results, captures, exception types
+and messages are .NET's, which the differential fuzzer (`tools/fuzz/corelib.sh`, random patterns with
+all option combinations) checks.
+
+* **Engine choice:** every regex runs on the interpreter. `RegexOptions.Compiled` has the same results
+  (it only selects .NET's Reflection.Emit code generator). `RegexOptions.NonBacktracking` throws
+  `NotSupportedException("RegexOptions.NonBacktracking is not supported by csharpc yet.")` when the
+  `Regex` is constructed: its engine (symbolic automata) is not ported and its capture semantics differ.
+* **`[GeneratedRegex]`:** csharpc's own source generator (`Frontend/GeneratedRegex.cs`) replaces the
+  SDK's, whose output is built on `RegexRunner` internals. Each member returns a cached interpreter
+  instance for the attribute's pattern, options, timeout and culture; the SDK generator's diagnostics
+  (SYSLIB1040–1043) are reproduced. Only `GetType()` differs (`Regex` instead of the generated class).
+* **Culture:** csharpc is invariant-culture, so `IgnoreCase` uses .NET's invariant case equivalences
+  (`CultureInfo.CurrentCulture` is invariant, as with `DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=1`);
+  `[GeneratedRegex(..., cultureName)]` honours the culture's casing behaviour (Turkish/Azeri vs. others).
+* **Adaptations** (`RegexSupport.cs`): resource strings, `ValueStringBuilder`/`ValueListBuilder` without
+  `ArrayPool`, small stand-ins for `Hashtable`, `SearchValues`, `ReadOnlyMemory<char>` segments and the
+  `CultureInfo` name, lazily created static tables (corelib types get no static constructor), large
+  tables as UTF-16 string constants, no C# 12+ syntax. `AppContext`'s `REGEX_DEFAULT_MATCH_TIMEOUT` is not
+  read (the default timeout is infinite). Deriving from `RegexRunner`/`RegexRunnerFactory` and
+  `Regex.CompileToAssembly` report `CSLLVM0002`.
+* **Cost:** nothing when unused (hello world is byte-identical). A program using `Regex` links the whole
+  engine (~450 KB) and takes longer to compile (roughly 15–25 s at `-O2`: the parser, optimizer and
+  interpreter are large methods).
 
 Codegen improvements made along the way (general, not corelib-specific): generic structs, structs
 implementing interfaces (constrained calls on struct receivers), property/indexer lvalue captures

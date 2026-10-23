@@ -129,6 +129,7 @@ int32_t csrt_object_get_hash_code_default(void* self);
 // Strings -----------------------------------------------------------------------------------
 csrt_String* csrt_string_concat(csrt_String* a, csrt_String* b);
 bool csrt_string_equals(csrt_String* a, csrt_String* b);
+int32_t csrt_string_get_hash_code(csrt_String* s);
 bool csrt_string_is_null_or_empty(csrt_String* s);
 uint16_t csrt_string_char_at(csrt_String* s, int32_t index);
 csrt_String* csrt_string_from_i32(int32_t v);
