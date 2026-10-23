@@ -231,7 +231,10 @@ def survey_one(pkg_id, version, args, framework, cache):
     for d in dlls:
         cmd += ["-r", d]
     try:
-        p = subprocess.run(cmd, capture_output=True, text=True, timeout=args.timeout, cwd=proj)
+        # A managed heap limit turns a runaway compile into an OutOfMemoryException instead of
+        # exhausting the machine (CI runners kill the whole job then).
+        env = dict(os.environ, DOTNET_GCHeapHardLimit=hex(args.memory_gb << 30))
+        p = subprocess.run(cmd, capture_output=True, text=True, timeout=args.timeout, cwd=proj, env=env)
         log = p.stdout + p.stderr
         errors = sum(1 for line in log.splitlines() if re.search(r"error (CSLLVM|CS)\d", line))
         result["status"] = "ok" if p.returncode == 0 else ("errors" if errors else f"failed (exit {p.returncode})")
@@ -289,6 +292,7 @@ def main():
     ap.add_argument("--work", default=None, help="download/compile directory (default: a fresh one under /tmp)")
     ap.add_argument("--out", default="il-survey.md")
     ap.add_argument("--only", default=None)
+    ap.add_argument("--memory-gb", type=int, default=4, help="managed heap limit per compile (DOTNET_GCHeapHardLimit)")
     args = ap.parse_args()
     args.work = args.work or tempfile.mkdtemp(prefix="il-survey-")
     if not os.path.exists(args.csharpc):
@@ -312,9 +316,10 @@ def main():
             r = fut.result()
             results.append(r)
             print(f"  {r['id']:45} {r['status']:24} {len(r['diagnostics']):5} diagnostics  {r['seconds']:7}s", flush=True)
-    with open(os.path.join(args.work, "results.json"), "w") as f:
-        json.dump(results, f, indent=1)
-    report(results, args.out)
+            # Written after every package: a partial survey still leaves a report.
+            with open(os.path.join(args.work, "results.json"), "w") as f:
+                json.dump(results, f, indent=1)
+            report(results, args.out)
     print(f"survey: report {args.out}, raw results {os.path.join(args.work, 'results.json')}")
 
 
