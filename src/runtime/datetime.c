@@ -13,9 +13,11 @@
 #define TICKS_PER_SECOND 10000000LL
 #define UNIX_EPOCH_TICKS 621355968000000000LL
 
-// DateTimeOps.TimeSpanToString / DateTimeToString (C# exports).
+// DateTimeOps.TimeSpanToString / DateTimeToString / FormatWith (C# exports).
 csrt_String* csrt_timespan_to_string(int64_t ticks);
 csrt_String* csrt_datetime_to_string(int64_t date_data);
+csrt_String* csrt_timespan_format_with(int64_t ticks, csrt_String* format, void* provider);
+csrt_String* csrt_datetime_format_with(int64_t date_data, csrt_String* format, void* provider);
 
 int64_t csrt_datetime_utc_now(void) {
 #ifdef _WIN32
@@ -126,3 +128,15 @@ int64_t csrt_stopwatch_elapsed_ms(Stopwatch* sw) { return TO_MS(csrt_stopwatch_e
 
 // .NET 9+: Stopwatch.ToString() == Elapsed.ToString()
 static csrt_String* sw_to_string(void* o) { return csrt_timespan_to_string(csrt_stopwatch_elapsed_timespan(o)); }
+
+// Composite formatting of a boxed DateTime / TimeSpan (Number.FormatObjectWith): NULL for any other
+// object. Testing the method table here rather than with `is DateTime` in C# keeps the culture date
+// formatter out of programs that never box a DateTime: the C# formatters are exported (and compiled)
+// only when the program references these method tables, which boxing one does.
+csrt_String* csrt_format_boxed_ticks(void* obj, csrt_String* format, void* provider) {
+    const void* mt = ((csrt_Object*)obj)->mt;
+    int64_t payload = *(int64_t*)((char*)obj + 8);
+    if (mt == &csrt_Boxed_DateTime_MT) return csrt_datetime_format_with(payload, format, provider);
+    if (mt == &csrt_Boxed_TimeSpan_MT) return csrt_timespan_format_with(payload, format, provider);
+    return NULL;
+}

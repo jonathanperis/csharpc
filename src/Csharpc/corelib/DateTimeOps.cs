@@ -664,6 +664,13 @@ namespace CsharpcCoreLib
 
         internal static long FromFileTime(long fileTime) => ToLocalTime(FromFileTimeUtc(fileTime));
 
+        // Composite formatting of boxed values (runtime csrt_format_boxed_ticks, from Number.FormatObjectWith).
+        [RuntimeExport("csrt_datetime_format_with", "csrt_Boxed_DateTime_MT")]
+        internal static string BoxedDateTimeFormatWith(long data, string format, IFormatProvider provider) => FormatWith(data, format, provider);
+
+        [RuntimeExport("csrt_timespan_format_with", "csrt_Boxed_TimeSpan_MT")]
+        internal static string BoxedTimeSpanFormatWith(long ticks, string format, IFormatProvider provider) => TimeSpanFormatWith(ticks, format, provider);
+
         [RuntimeExport("csrt_datetime_to_string", "csrt_Boxed_DateTime_MT")]
         internal static string DateTimeToString(long data) => FormatWith(data, null, null);
 

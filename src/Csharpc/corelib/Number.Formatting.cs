@@ -1208,6 +1208,9 @@ namespace CsharpcCoreLib
         /// A composite-format argument: IFormattable values format with (format, provider) — numbers and
         /// dates through the corelib directly — anything else with ToString().
         /// </summary>
+        [System.Runtime.InteropServices.DllImport("__Internal", EntryPoint = "csrt_format_boxed_ticks")]
+        private static extern IntPtr FormatBoxedTicks(IntPtr value, IntPtr format, IntPtr provider);
+
         internal static string FormatObjectWith(object value, string format, IFormatProvider provider)
         {
             if (value == null) return "";
@@ -1223,8 +1226,10 @@ namespace CsharpcCoreLib
             if (value is ushort u16) return FormatUInt64With(u16, format, 16, provider);
             if (value is byte u8) return FormatUInt64With(u8, format, 8, provider);
             if (value is sbyte i8) return FormatInt64With(i8, format, 8, provider);
-            if (value is DateTime dt) return DateTimeOps.FormatWith(CoreIntrinsics.DateTimeData(dt), format, provider);
-            if (value is TimeSpan ts) return DateTimeOps.TimeSpanFormatWith(ts.Ticks, format, provider);
+            // DateTime / TimeSpan through the runtime (csrt_format_boxed_ticks), so the date formatter is only
+            // compiled into programs that box one.
+            IntPtr ticksText = FormatBoxedTicks(CoreIntrinsics.ObjectToPointer(value), CoreIntrinsics.ObjectToPointer(format), CoreIntrinsics.ObjectToPointer(provider));
+            if (ticksText != IntPtr.Zero) return (string)CoreIntrinsics.PointerToObject(ticksText);
             // char is IFormattable too (ignoring format and provider); its interface thunk lands here.
             if (value is char ch) return ch.ToString();
             if (value is IFormattable formattable) return formattable.ToString(format, provider) ?? "";

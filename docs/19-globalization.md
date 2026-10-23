@@ -81,22 +81,24 @@ Measured on Linux x86-64, `-O2`, stripped, ICU 74:
 | Program | Before (invariant-only corelib) | With globalization |
 |---|---:|---:|
 | `Console.WriteLine("Hello, World!")` | 28,440 B | 28,440 B |
-| prints a `double`, an `int` and `{d:N2}` | 36,792 B | 373,400 B |
-| formats a `DateTime` and compares strings | 43,984 B | 373,432 B |
+| prints a `double`, an `int` and `{d:N2}` | 36,792 B | 283,384 B |
+| formats a `DateTime` and compares strings | 43,984 B | 365,096 B |
 
-A program that formats anything culture-sensitively links the culture model once (about 340 KB:
-`CultureInfo`/`CultureData`, `NumberFormatInfo`, `DateTimeFormatInfo` and the calendars, which
-`CultureInfo.GetFormat` can reach, the ICU shim). Vtable pruning (`ModuleCodeGen.VTables.cs`) keeps
-only virtual methods that some call site dispatches to, so for example `CompareInfo` and `TextInfo`
-methods a program never uses are not linked.
+A program that formats anything culture-sensitively links the culture model once (`CultureInfo` /
+`CultureData`, `NumberFormatInfo`, the ICU shim); dates add `DateTimeFormatInfo`, the calendars and
+the date formatter. Two mechanisms keep the rest out: vtable pruning (`ModuleCodeGen.VTables.cs`)
+links only virtual methods that some call site dispatches to (so `CompareInfo`, `TextInfo` and calendar
+methods a program never uses are not compiled), and composite formatting reaches the date formatter
+through the runtime (`csrt_format_boxed_ticks`), whose C# implementation is exported only when the
+program boxes a `DateTime` or `TimeSpan`.
 
 Startup (average of 50 runs, same machine): hello world 2.2 ms before and after; the two culture
 programs 2.3 → 7.2 ms and 2.5 → 7.9 ms. The difference is loading ICU (`dlopen` of libicuuc/libicui18n,
 binding ~150 functions) and building the current culture's data on first use, as .NET does at startup.
 
-Compile time: hello world is unchanged (about 3.7 s at `-O2`); a program that pulls in the culture
-model takes about 23 s instead of 6 s at `-O2` (lowering and optimizing the ported code), which is
-the main cost of this port and a target for caching the corelib's lowered code.
+Compile time (`-O2`): hello world is unchanged (about 3 s); the number program takes about 12 s
+instead of 6 s, the date program about 15 s: lowering and optimizing the ported culture code is the
+main cost of this port, and a target for caching the corelib's lowered code.
 
 ## Tests
 
