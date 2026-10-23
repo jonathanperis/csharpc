@@ -16,6 +16,7 @@ public sealed class Toolchain(CompilerOptions options, Csharpc.Llvm.TargetMachin
     /// (always on AArch64), which rounds differently from .NET's separate multiply and add.</summary>
     private static readonly string[] BaseRuntimeCFlags = ["-O2", "-std=c11", "-fPIC", "-funwind-tables", "-fexceptions", "-ffp-contract=off"];
 
+    private static readonly string[] PortedCFlags = ["-DNDEBUG"];
     private string[] RuntimeCFlags => [.. BaseRuntimeCFlags, .. SysrootFlags, .. Hardening.RuntimeCFlags(options.Hardening, target), .. SanitizerFlags];
 
     /// <summary>macOS: headers and libSystem stubs come from the SDK (clang also honours $SDKROOT).</summary>
@@ -60,9 +61,10 @@ public sealed class Toolchain(CompilerOptions options, Csharpc.Llvm.TargetMachin
     private string[] CompileRuntime(string triple, bool bitcode)
     {
         if (!Directory.Exists(RuntimeDir)) throw new FileNotFoundException($"csharpc runtime not found at '{RuntimeDir}'");
-        var files = Directory.GetFiles(RuntimeDir).Where(f => f.EndsWith(".c") || f.EndsWith(".h")).Order().ToArray();
+        // Subdirectories hold ported native code (globalization/: .NET's System.Globalization.Native).
+        var files = Directory.GetFiles(RuntimeDir, "*", SearchOption.AllDirectories).Where(f => f.EndsWith(".c") || f.EndsWith(".h")).Order(StringComparer.Ordinal).ToArray();
         // Key the cache on everything that affects the output, including the flags below.
-        var hashInput = string.Concat(files.Select(File.ReadAllText)) + triple + options.CC + string.Join(' ', RuntimeCFlags) + (bitcode ? "bc" : "o");
+        var hashInput = string.Concat(files.Select(File.ReadAllText)) + triple + options.CC + string.Join(' ', RuntimeCFlags) + string.Join(' ', PortedCFlags) + (bitcode ? "bc" : "o");
         var hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(hashInput)))[..16].ToLowerInvariant();
         var cacheDir = Path.Combine(
             Environment.GetEnvironmentVariable("XDG_CACHE_HOME") ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".cache"),
@@ -77,7 +79,10 @@ public sealed class Toolchain(CompilerOptions options, Csharpc.Llvm.TargetMachin
             if (File.Exists(output)) continue;
             var tmp = output + "." + Environment.ProcessId + ".tmp";
             string[] mode = bitcode ? ["-emit-llvm", "-c"] : ["-c"];
-            Run(options.CC, [.. mode, .. RuntimeCFlags, $"--target={triple}", source, "-o", tmp]);
+            // Ported .NET native code is built as .NET ships it: release, asserts off (they flag conditions
+            // the code then handles, such as ICU failing to open a string search).
+            string[] ported = Path.GetDirectoryName(source) != RuntimeDir.TrimEnd(Path.DirectorySeparatorChar) ? PortedCFlags : [];
+            Run(options.CC, [.. mode, .. RuntimeCFlags, .. ported, $"--target={triple}", source, "-o", tmp]);
             File.Move(tmp, output, overwrite: true);
         }
         return [.. outputs];
