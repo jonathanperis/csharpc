@@ -15,6 +15,10 @@
 //   * .Result / .Wait() / GetResult() / async Main block the calling thread on a condition variable.
 //   * A timer thread hands expired Task.Delay / CancelAfter timers to the pool.
 // Each task's state and continuation list are guarded by a per-task spinlock (the `lock` word).
+//
+// WebAssembly (WASI preview 1) has a single thread (docs/adr/0010-wasm32.md): work items and timers
+// queue up the same way, and whoever blocks — .Wait()/.Result, async Main, Thread.Sleep — runs them
+// on the main thread meanwhile (csrt_task_wait, csrt_scheduler_run_until; the __wasi__ blocks).
 #define _GNU_SOURCE
 #include "csrt.h"
 
@@ -52,10 +56,11 @@ typedef struct csrt_Task {
     int32_t lock;             // spinlock guarding state transitions + conts
     void* exception;          // faulted: the exception `await` rethrows (the first one)
     void* aggregate;          // faulted: Task.Exception (AggregateException), created lazily
-    uint8_t payload[];        // Task<T> result
+    _Alignas(8) uint8_t payload[];  // Task<T> result
 } csrt_Task;
 
-_Static_assert(offsetof(csrt_Task, payload) == 48, "task payload offset is part of the compiler ABI");
+// 64-bit targets: payload at 48; wasm32: 32 (FunctionCodeGen.Async.cs, PromisePayloadOffset).
+_Static_assert(offsetof(csrt_Task, payload) == (sizeof(void*) == 8 ? 48 : 32), "task payload offset is part of the compiler ABI");
 
 typedef struct csrt_Iterator {
     const csrt_MethodTable* mt;
@@ -65,11 +70,11 @@ typedef struct csrt_Iterator {
     void* args;               // saved arguments, for GetEnumerator() on an already-used enumerable
     void* (*clone)(void* args);
     void* reserved;
-    uint8_t payload[];        // Current
+    _Alignas(8) uint8_t payload[];  // Current
 } csrt_Iterator;
 
-_Static_assert(offsetof(csrt_Iterator, payload) == 48, "iterator payload offset is part of the compiler ABI");
-_Static_assert(offsetof(csrt_Iterator, state) == 8, "iterator state offset is part of the compiler ABI");
+_Static_assert(offsetof(csrt_Iterator, payload) == (sizeof(void*) == 8 ? 48 : 32), "iterator payload offset is part of the compiler ABI");
+_Static_assert(offsetof(csrt_Iterator, state) == sizeof(void*), "iterator state offset is part of the compiler ABI");
 
 enum { K_RESUME = 1, K_WHEN_ALL = 2, K_CHAIN = 3, K_WHEN_ANY = 4, K_RUN_ACTION = 5, K_RUN_FUNC_TASK = 6,
        K_TIMER_TASK = 7, K_TIMER_CANCEL = 8, K_RUN_THUNK = 9 };
@@ -79,9 +84,18 @@ typedef struct { const csrt_MethodTable* mt; void* target; void* fn; } Delegate;
 enum { T_PENDING = 0, T_DONE = 1, T_FAULTED = 2, T_CANCELED = 3 };
 
 // Calls fn(arg) and returns the managed exception it threw (or null). Defined by csharpc in LLVM IR
-// (invoke + catch-all landing pad — C can't catch); these weak fallbacks don't catch.
+// (invoke + catch-all landing pad — C can't catch); these weak fallbacks don't catch, except on
+// wasm32, where a thrown exception is just pending when fn returns (eh.c).
+#ifdef __wasm__
+__attribute__((weak)) void* csrt_call_catching_void(void (*fn)(void*), void* arg) { fn(arg); return csrt_begin_catch(NULL); }
+__attribute__((weak)) void* csrt_call_catching_ptr(void* (*fn)(void*), void* arg, void** result) {
+    *result = fn(arg);
+    return csrt_begin_catch(NULL);
+}
+#else
 __attribute__((weak)) void* csrt_call_catching_void(void (*fn)(void*), void* arg) { fn(arg); return NULL; }
 __attribute__((weak)) void* csrt_call_catching_ptr(void* (*fn)(void*), void* arg, void** result) { *result = fn(arg); return NULL; }
+#endif
 
 static const csrt_MethodTable mt_invalid_operation = { NULL, "System.InvalidOperationException", 0, 0 };
 static const char k_already_completed[] = "An attempt was made to transition a task to a final state when it had already completed.";
@@ -190,6 +204,9 @@ static void timer_loop(void);
 
 static void pool_start_locked(void) {
     s_pool_started = true;
+#ifdef __wasi__
+    return;  // no threads: blocked callers run the queue (csrt_task_wait, csrt_scheduler_run_until)
+#endif
     int n = csrt_processor_count();
     if (n < 2) n = 2;
     for (int i = 0; i < n; i++) spawn_worker_locked();
@@ -484,6 +501,23 @@ static void remove_timer_locked(int64_t index) {
     words(s_timers)[s_ntimers * 3 + 1] = words(s_timers)[s_ntimers * 3 + 2] = NULL;
 }
 
+/// Hands every timer due at `now` to the pool, earliest first (ties in creation order). Caller holds s_tlock.
+static void fire_due_timers_locked(int64_t now) {
+    for (;;) {
+        int64_t best = -1;
+        for (int64_t i = 0; i < s_ntimers; i++)
+            if ((intptr_t)words(s_timers)[i * 3] <= now &&
+                (best < 0 || (intptr_t)words(s_timers)[i * 3] < (intptr_t)words(s_timers)[best * 3])) best = i;
+        if (best < 0) break;
+        csrt_Task* t = words(s_timers)[best * 3 + 1];
+        CancellationSource* token = words(s_timers)[best * 3 + 2];
+        remove_timer_locked(best);
+        pthread_mutex_unlock(&s_tlock);
+        if (t) enqueue(K_TIMER_TASK, t, NULL); else enqueue(K_TIMER_CANCEL, token, NULL);
+        pthread_mutex_lock(&s_tlock);
+    }
+}
+
 /// The timer thread: hands expired timers to the pool (earliest first, ties in creation order) and
 /// injects a worker when queued work makes no progress for a while (all workers blocked).
 static void timer_loop(void) {
@@ -492,20 +526,7 @@ static void timer_loop(void) {
     pthread_mutex_lock(&s_tlock);
     for (;;) {
         int64_t now = now_ms();
-        // Fire everything due.
-        for (;;) {
-            int64_t best = -1;
-            for (int64_t i = 0; i < s_ntimers; i++)
-                if ((intptr_t)words(s_timers)[i * 3] <= now &&
-                    (best < 0 || (intptr_t)words(s_timers)[i * 3] < (intptr_t)words(s_timers)[best * 3])) best = i;
-            if (best < 0) break;
-            csrt_Task* t = words(s_timers)[best * 3 + 1];
-            CancellationSource* token = words(s_timers)[best * 3 + 2];
-            remove_timer_locked(best);
-            pthread_mutex_unlock(&s_tlock);
-            if (t) enqueue(K_TIMER_TASK, t, NULL); else enqueue(K_TIMER_CANCEL, token, NULL);
-            pthread_mutex_lock(&s_tlock);
-        }
+        fire_due_timers_locked(now);
         // Starvation: queued work but no dequeue since the last check -> add a worker.
         if (now - last_check >= 100) {
             last_check = now;
@@ -721,6 +742,49 @@ static void run_item(intptr_t kind, void* a, void* b) {
     }
 }
 
+#ifdef __wasi__
+static void sleep_ms_until(int64_t deadline) {
+    int64_t wait = deadline - now_ms();
+    if (wait <= 0) return;
+    struct timespec ts = { (time_t)(wait / 1000), (long)(wait % 1000) * 1000000 };
+    nanosleep(&ts, NULL);
+}
+
+/// One step of the single-threaded scheduler: run a queued work item, or else wait for the earliest
+/// timer (but not past `limit`, -1 = no limit) and fire the timers due. False: nothing to wait for.
+static bool scheduler_step(int64_t limit) {
+    intptr_t kind; void* a; void* b;
+    if (dequeue_locked(&kind, &a, &b)) {
+        run_item(kind, a, b);
+        return true;
+    }
+    if (s_ntimers == 0) return false;
+    int64_t next = (intptr_t)words(s_timers)[0];
+    for (int64_t i = 1; i < s_ntimers; i++)
+        if ((intptr_t)words(s_timers)[i * 3] < next) next = (intptr_t)words(s_timers)[i * 3];
+    if (limit >= 0 && next > limit) next = limit;
+    sleep_ms_until(next);
+    fire_due_timers_locked(now_ms());
+    return true;
+}
+
+/// Blocks until `t` completes (async Main, .Result, .Wait(), GetResult()), running the queued work
+/// and timers that would run on pool threads meanwhile.
+void csrt_task_wait(csrt_Task* t) {
+    while (!csrt_task_is_completed(t))
+        if (!scheduler_step(-1))
+            async_fail("csharpc: deadlock: waiting for a task that no queued work or timer can complete "
+                       "(WebAssembly runs a single thread).");
+}
+
+/// Thread.Sleep on the only thread: what pool threads would do meanwhile happens here.
+void csrt_scheduler_run_until(int64_t deadline) {
+    while (now_ms() < deadline && scheduler_step(deadline)) {}
+    sleep_ms_until(deadline);
+}
+
+int64_t csrt_scheduler_now_ms(void) { return now_ms(); }
+#else
 /// Blocks the calling thread until `t` completes (async Main, .Result, .Wait(), GetResult()).
 void csrt_task_wait(csrt_Task* t) {
     if (csrt_task_is_completed(t)) return;
@@ -743,6 +807,7 @@ void csrt_task_wait(csrt_Task* t) {
         pthread_mutex_unlock(&s_qlock);
     }
 }
+#endif
 
 // ---------------------------------------------------------------------------------------------
 // Iterators

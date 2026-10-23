@@ -26,8 +26,9 @@ static const csrt_MethodTable mt_sync_lock = { NULL, "System.Threading.Synchroni
 static const csrt_MethodTable mt_argument_null = { NULL, "System.ArgumentNullException", 0, 0, NULL, 0, 0 };
 static const csrt_MethodTable mt_argument_out_of_range = { NULL, "System.ArgumentOutOfRangeException", 0, 0, NULL, 0, 0 };
 static const csrt_MethodTable mt_invalid_operation = { NULL, "System.InvalidOperationException", 0, 0, NULL, 0, 0 };
+static const csrt_MethodTable mt_platform_not_supported = { NULL, "System.PlatformNotSupportedException", 0, 0, NULL, 0, 0 };
 
-_Noreturn static void throw_msg(const csrt_MethodTable* mt, const char* message) {
+CSRT_THROWS static void throw_msg(const csrt_MethodTable* mt, const char* message) {
     csrt_throw(mt, csrt_string_from_utf8(message));
 }
 
@@ -80,7 +81,18 @@ static int pthread_mutex_timedlock(pthread_mutex_t* mutex, const struct timespec
 void csrt_thread_sleep(int32_t ms) {
     if (ms < -1) throw_msg(&mt_argument_out_of_range, "Number must be either non-negative and less than or equal to Int32.MaxValue or -1. (Parameter 'millisecondsTimeout')");
     if (ms == 0) { sched_yield(); return; }
-#ifdef _WIN32
+#ifdef __wasi__
+    // The only thread: run what pool threads would run meanwhile (queued tasks, timers).
+    if (ms == -1) {
+        fflush(stdout);
+        fputs("csharpc: deadlock: Thread.Sleep(Timeout.Infinite) on WebAssembly's only thread never returns\n", stderr);
+        csrt_fail_unhandled();
+    }
+    extern int64_t csrt_scheduler_now_ms(void);
+    extern void csrt_scheduler_run_until(int64_t deadline);
+    csrt_scheduler_run_until(csrt_scheduler_now_ms() + ms);
+    return;
+#elif defined(_WIN32)
     if (ms == -1) { for (;;) { struct timespec day = { 86400, 0 }; nanosleep(&day, NULL); } }
 #else
     if (ms == -1) { for (;;) pause(); }
@@ -184,6 +196,11 @@ static void spawn(csrt_Thread* t) {
 
 static void thread_start(csrt_Thread* t, void* parameter, bool has_parameter) {
     if (!t) csrt_throw_null_reference();
+#ifdef __wasi__
+    // Like .NET's single-threaded WebAssembly builds (docs/adr/0010-wasm32.md).
+    throw_msg(&mt_platform_not_supported, "Operation is not supported on this platform.");
+    return;
+#endif
     if (has_parameter && !t->parameterized)
         throw_msg(&mt_invalid_operation, "The thread was created with a ThreadStart delegate that does not accept a parameter.");
     pthread_mutex_lock(&s_join_lock);
@@ -569,7 +586,9 @@ static uint64_t s_pool_generation;
 static int s_pool_size;           // started workers
 
 int32_t csrt_processor_count(void) {
-#ifdef _WIN32
+#if defined(__wasi__)
+    long n = 1;  // one thread: Parallel loops run inline (Environment.ProcessorCount is 1, as in .NET on wasm)
+#elif defined(_WIN32)
     long n = pthread_num_processors_np();
 #else
     long n = sysconf(_SC_NPROCESSORS_ONLN);
@@ -664,6 +683,10 @@ static void* loop_thread_main(void* arg) {
 }
 
 bool csrt_start_background_thread(void (*loop)(void)) {
+#ifdef __wasi__
+    (void)loop;
+    return false;
+#endif
     csrt_Thread* t = thread_alloc();
     t->background = true;
     atomic_store(&t->state, THREAD_RUNNING);
@@ -754,7 +777,10 @@ void csrt_parallel_invoke(csrt_Array* actions) {
 // Console output under threads: .NET's Console.Out is synchronized, so a WriteLine never
 // interleaves with another thread's. The compiler brackets each Console call with these.
 // ---------------------------------------------------------------------------------------------
-#ifdef _WIN32
+#if defined(__wasi__)
+void csrt_console_lock(void) {}
+void csrt_console_unlock(void) {}
+#elif defined(_WIN32)
 void csrt_console_lock(void) { if (csrt_gc_is_multithreaded()) _lock_file(stdout); }
 void csrt_console_unlock(void) { if (csrt_gc_is_multithreaded()) _unlock_file(stdout); }
 #else

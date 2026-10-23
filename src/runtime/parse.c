@@ -80,4 +80,5 @@ int64_t csrt_enum_parse_or_throw(csrt_String* s, bool ignore_case, const uint64_
     for (int32_t i = 0; i < s->length; i++) msg->chars[k++] = s->chars[i];
     for (const char* p = tail; *p; p++) msg->chars[k++] = (uint8_t)*p;
     csrt_throw(&mt_argument, msg);
+    return 0;  // wasm32: throwing returns (CSRT_THROWS)
 }

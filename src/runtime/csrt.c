@@ -76,7 +76,7 @@ void csrt_shutdown(void) {
 // Allocation
 // ---------------------------------------------------------------------------------------------
 // Allocation failure is a catchable OutOfMemoryException, as in .NET (eh.c).
-_Noreturn static void out_of_memory(void) { csrt_throw_out_of_memory(NULL); }
+CSRT_THROWS static void out_of_memory(void) { csrt_throw_out_of_memory(NULL); }
 
 void* csrt_alloc(const csrt_MethodTable* mt, int64_t size) {
     csrt_Object* obj = csrt_gc_alloc((size_t)size);
@@ -275,7 +275,7 @@ static bool is_untyped_array_mt(const csrt_MethodTable* mt) {
 
 // Used when a registered builtin type has no slot table for an interface (e.g. IComparable on a boxed int).
 static const csrt_MethodTable s_not_supported_mt = { NULL, "System.NotSupportedException", 0, 0 };
-_Noreturn static void builtin_dispatch_unsupported(void) {
+CSRT_THROWS static void builtin_dispatch_unsupported(void) {
     csrt_throw(&s_not_supported_mt, string_from_ascii("csharpc: interface dispatch on this builtin type is not supported yet."));
 }
 static void* const s_unsupported_slots[64] = {
@@ -408,7 +408,7 @@ void* const* csrt_interface_slots(void* obj, const csrt_MethodTable* interface_t
     csrt_fail_unhandled();
 }
 
-_Noreturn static void invalid_cast(const csrt_MethodTable* from, const csrt_MethodTable* to) {
+CSRT_THROWS static void invalid_cast(const csrt_MethodTable* from, const csrt_MethodTable* to) {
     csrt_throw_invalid_cast_from(from, to);
 }
 

@@ -216,6 +216,7 @@ bool csrt_bool_parse(csrt_String* s) {
     msg[o] = 0;
     strcat(msg, "' was not recognized as a valid Boolean.");
     csrt_throw(&mt_format, ascii(msg));
+    return false;  // wasm32: throwing returns (CSRT_THROWS)
 }
 
 /// Convert.ToInt32/64(string, fromBase) for bases 2, 8, 10, 16 (two's complement for 2/8/16).

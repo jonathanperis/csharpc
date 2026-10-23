@@ -161,7 +161,7 @@ void* csrt_pinvoke_resolve(const char* library, const char* entry) {
 }
 
 /// A statically linked (weak) P/Invoke target that the linker didn't find.
-_Noreturn void csrt_pinvoke_missing_entry(const char* library, const char* entry) {
+CSRT_THROWS void csrt_pinvoke_missing_entry(const char* library, const char* entry) {
     csrt_throw(&csrt_MT_System_EntryPointNotFoundException.header,
                message("Unable to find an entry point named '%s' in " LIBRARY_KIND " '%s'.", entry, library));
 }
