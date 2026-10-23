@@ -59,12 +59,10 @@ CSHARPC=("$DOTNET" "$ROOT/src/Csharpc/bin/Release/net11.0/csharpc.dll")
 
 OUT="$(mktemp -d)"
 trap 'rm -rf "$OUT"' EXIT
-case "$(uname -s)" in Darwin) HOST_OS=macos ;; *) HOST_OS=linux ;; esac
+source "$ROOT/tests/platform.sh"
 # A temp dir without symlinks in its path: macOS's $TMPDIR (/var/folders/...) is reached through the
 # /var -> /private/var link, so getcwd() inside it would not match Path.GetTempPath() (under .NET too).
 TMPDIR="$(cd "${TMPDIR:-/tmp}" && pwd -P)/"; export TMPDIR
-# Platform-dependent tests (tests/platform-skips.txt): prints the reason if $1 is skipped on this OS.
-platform_skip() { awk -v os="$HOST_OS" -v t="$1" '$1 == os && $2 == t { $1 = $2 = ""; sub(/^ +/, ""); print; exit }' "$ROOT/tests/platform-skips.txt"; }
 pass=0; fail=0; failed=()
 for opt in "${OPTS[@]}"; do
   for src in "$SAMPLES"/*.cs; do
@@ -72,9 +70,9 @@ for opt in "${OPTS[@]}"; do
     [[ -n "$FILTER" && "$name" != *"$FILTER"* ]] && continue
     label="$name [$opt]"
     if [[ -f "$SAMPLES/$name.diagnostics" ]]; then
-      "${CSHARPC[@]}" "$opt" ${CSHARPC_FLAGS:-} "$src" -o "$OUT/$name$opt" > /dev/null 2> "$OUT/$name.compile"
+      "${CSHARPC[@]}" "$opt" ${CSHARPC_FLAGS:-} "$src" -o "$OUT/$name$opt$EXE_SUFFIX" > /dev/null 2> "$OUT/$name.compile"
       got_code=$?
-      sed "s|^$SAMPLES/||" "$OUT/$name.compile" > "$OUT/$name.diag"
+      platform_compiler_output < "$OUT/$name.compile" | sed "s|^$SAMPLES/||" > "$OUT/$name.diag"
       if [[ $got_code == 1 ]] && diff -u "$SAMPLES/$name.diagnostics" "$OUT/$name.diag" > "$OUT/$name.diff"; then
         echo "PASS $label (rejected with the expected diagnostics)"; pass=$((pass + 1))
       else
@@ -87,22 +85,30 @@ for opt in "${OPTS[@]}"; do
     expected="$SAMPLES/$name.expected"
     [[ -f "$expected" ]] || { echo "SKIP $label (no .expected — run with --regen)"; continue; }
     reason="$(platform_skip "$name")"
-    [[ -n "$reason" ]] && { echo "SKIP $label (platform-dependent on $HOST_OS: $reason)"; continue; }
-    want_code=0
-    [[ -f "$SAMPLES/$name.exitcode" ]] && want_code="$(cat "$SAMPLES/$name.exitcode")"
+    [[ -n "$reason" ]] && ! platform_is_live "$reason" && { echo "SKIP $label (platform-dependent on $HOST_OS: $reason)"; continue; }
+    stdin_file=/dev/null; [[ -f "$SAMPLES/$name.stdin" ]] && stdin_file="$SAMPLES/$name.stdin"
+    if [[ -n "$reason" ]]; then
+      # Recorded live from real .NET on this machine (once per run).
+      [[ -f "$OUT/$name.live" ]] || platform_live_expected "$SAMPLES" "$name.cs" "$stdin_file" "$OUT/$name.live" > "$OUT/$name.livecode"
+      cp "$OUT/$name.live" "$OUT/$name.want"
+      want_code="$(cat "$OUT/$name.livecode")"
+    else
+      platform_expected < "$expected" > "$OUT/$name.want"
+      want_code=0
+      [[ -f "$SAMPLES/$name.exitcode" ]] && want_code="$(platform_exit_code "$(cat "$SAMPLES/$name.exitcode")")"
+    fi
 
-    exe="$OUT/$name$opt"
+    exe="$OUT/$name$opt$EXE_SUFFIX"
     if ! "${CSHARPC[@]}" "$opt" ${CSHARPC_FLAGS:-} "$src" -o "$exe" 2> "$OUT/$name.compile"; then
       echo "FAIL $label (compile error)"; sed 's/^/     /' "$OUT/$name.compile" | head -8
       fail=$((fail + 1)); failed+=("$label"); continue
     fi
     # Run in a child bash so the parent shell doesn't print "Aborted (core dumped)" job noise
     # for samples that intentionally die with an unhandled exception (SIGABRT, exit 134).
-    stdin_file=/dev/null; [[ -f "$SAMPLES/$name.stdin" ]] && stdin_file="$SAMPLES/$name.stdin"
-    bash -c 'ulimit -c 0; timeout "$1" "$2" > "$3" 2> "$4" < "$5"' _ \
+    bash -c 'ulimit -c 0 2>/dev/null; timeout "$1" "$2" > "$3" 2> "$4" < "$5"' _ \
       "${CSHARPC_TEST_TIMEOUT:-90}" "$exe" "$OUT/$name.stdout" "$OUT/$name.stderr" "$stdin_file" 2>/dev/null
     got_code=$?
-    if diff -u "$expected" "$OUT/$name.stdout" > "$OUT/$name.diff" && [[ "$got_code" == "$want_code" ]]; then
+    if diff -u "$OUT/$name.want" "$OUT/$name.stdout" > "$OUT/$name.diff" && [[ "$got_code" == "$want_code" ]]; then
       echo "PASS $label"
       pass=$((pass + 1))
     else

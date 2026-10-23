@@ -2,6 +2,43 @@
 # on the listed OS behaves differently too, so csharpc can't be compared against these expectations
 # there. Never list a test here because csharpc differs from .NET; fix csharpc instead.
 #
-# <os: linux | macos>  <test name (sample, program or conformance path)>  <reason>
+# <os: linux | macos | windows>  <test name (sample, program or conformance path)>  <reason>
+#
+# A reason starting with "live:" doesn't skip the test: on that OS its expected stdout and exit
+# status are recorded by running it with real .NET (`dotnet run`, invariant culture like the
+# recordings) on the test machine (tests/platform.sh, platform_live_expected). On Windows the other
+# tests' expectations are derived from the Linux recording ("\n" -> "\r\n", the Environment.NewLine
+# that Console.WriteLine writes); tests/check-oracle.sh verifies that derivation against real .NET.
 macos 160_pinvoke_dllimport   loads the Linux soname "libm.so.6": .NET on macOS throws DllNotFoundException
 macos 176_pinvoke_struct_abi  loads the Linux soname "libm.so.6": .NET on macOS throws DllNotFoundException
+windows 07_arrays                       live: writes a bare "\n" itself, next to WriteLine's "\r\n"
+windows 163_number_parse                live: writes a bare "\n" itself, next to WriteLine's "\r\n"
+windows 166_biginteger_ops              live: writes a bare "\n" itself, next to WriteLine's "\r\n"
+windows 19_formatting                   live: writes a bare "\n" itself, next to WriteLine's "\r\n"
+windows 201_integer_append_edges        live: builds its output with bare "\n"s
+windows 161_stringbuilder               live: AppendLine appends Environment.NewLine ("\r\n"), so lengths differ
+windows 17_string_library               live: AppendLine appends Environment.NewLine ("\r\n"), so lengths differ
+windows 250_stringbuilder_interpolation live: AppendLine appends Environment.NewLine ("\r\n"), so lengths differ
+windows 84_misc_bcl                     live: prints Environment.NewLine.Length (2)
+windows bcl/006_environment             live: prints Environment.NewLine.Length (2)
+windows lexical/005_raw_strings         live: the raw string literal's line breaks are the source file's "\n"
+windows 160_pinvoke_dllimport           live: loads the Linux soname "libm.so.6" (DllNotFoundException on Windows)
+windows 176_pinvoke_struct_abi          live: loads the Linux soname "libm.so.6" (DllNotFoundException on Windows)
+windows 162_pinvoke_libraryimport       live: imports from "libc", which doesn't exist on Windows
+windows 286_pinvoke_portable_abi        live: imports from "libc", which doesn't exist on Windows
+windows 161_file_io                     live: Windows paths; File.WriteAllLines / StreamWriter.WriteLine write "\r\n"
+windows 163_path_semantics              live: Windows path rules (drive roots, '\' separators)
+windows 165_environment                 live: Windows current directory and paths
+windows 188_datetime_zone_new_york      live: sets TZ, which .NET ignores on Windows (it uses the Windows time zone)
+windows 189_datetime_zone_lord_howe     live: sets TZ, which .NET ignores on Windows (it uses the Windows time zone)
+windows 190_datetime_zone_apia          live: sets TZ, which .NET ignores on Windows (it uses the Windows time zone)
+windows 257_datetime_parse              live: sets TZ, which .NET ignores on Windows (it uses the Windows time zone)
+windows 251_console_readkey_redirected  live: Console.Clear with redirected output throws IOException on Windows
+windows 12_null_reference               live: an unhandled NullReferenceException from a null dereference exits with 0xC0000005 on Windows
+windows 120_threads                     the main thread's ManagedThreadId is not 1 under .NET on Windows
+windows bank                            live: writes bare "\n"s itself, next to WriteLine's "\r\n"
+windows csvreport                       live: writes bare "\n"s itself, next to WriteLine's "\r\n"
+windows eventsourcing                   live: writes bare "\n"s itself, next to WriteLine's "\r\n"
+windows json                            live: writes bare "\n"s itself, next to WriteLine's "\r\n"
+windows linalg                          live: writes bare "\n"s itself, next to WriteLine's "\r\n"
+windows puzzles                         live: writes bare "\n"s itself, next to WriteLine's "\r\n"

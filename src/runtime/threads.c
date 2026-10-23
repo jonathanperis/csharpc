@@ -80,7 +80,11 @@ static int pthread_mutex_timedlock(pthread_mutex_t* mutex, const struct timespec
 void csrt_thread_sleep(int32_t ms) {
     if (ms < -1) throw_msg(&mt_argument_out_of_range, "Number must be either non-negative and less than or equal to Int32.MaxValue or -1. (Parameter 'millisecondsTimeout')");
     if (ms == 0) { sched_yield(); return; }
+#ifdef _WIN32
+    if (ms == -1) { for (;;) { struct timespec day = { 86400, 0 }; nanosleep(&day, NULL); } }
+#else
     if (ms == -1) { for (;;) pause(); }
+#endif
     struct timespec req = { ms / 1000, (long)(ms % 1000) * 1000000 }, rem;
     while (nanosleep(&req, &rem) != 0 && errno == EINTR) req = rem;
 }
@@ -565,7 +569,11 @@ static uint64_t s_pool_generation;
 static int s_pool_size;           // started workers
 
 int32_t csrt_processor_count(void) {
+#ifdef _WIN32
+    long n = pthread_num_processors_np();
+#else
     long n = sysconf(_SC_NPROCESSORS_ONLN);
+#endif
     return n > 0 ? (int32_t)n : 1;
 }
 
@@ -746,8 +754,13 @@ void csrt_parallel_invoke(csrt_Array* actions) {
 // Console output under threads: .NET's Console.Out is synchronized, so a WriteLine never
 // interleaves with another thread's. The compiler brackets each Console call with these.
 // ---------------------------------------------------------------------------------------------
+#ifdef _WIN32
+void csrt_console_lock(void) { if (csrt_gc_is_multithreaded()) _lock_file(stdout); }
+void csrt_console_unlock(void) { if (csrt_gc_is_multithreaded()) _unlock_file(stdout); }
+#else
 void csrt_console_lock(void) { if (csrt_gc_is_multithreaded()) flockfile(stdout); }
 void csrt_console_unlock(void) { if (csrt_gc_is_multithreaded()) funlockfile(stdout); }
+#endif
 
 // ---------------------------------------------------------------------------------------------
 // Static constructors (CodeGen/ModuleCodeGen.StaticInit.cs). Generated code checks `state` with an

@@ -854,7 +854,7 @@ internal static class Intrinsics
             t[$"{type}.MinValue"] = (g, _) => signed ? TopBit(g) : g.Module.Llvm.ConstInt(g.Module.Llvm.IntTypeOf(128), 0);
             t[$"{type}.MaxValue"] = (g, _) => signed ? g.Builder.BinOp(LLVMOpcode.LShr, AllOnes(g), g.Module.Llvm.ConstInt(g.Module.Llvm.IntTypeOf(128), 1)) : AllOnes(g);
         }
-        t["System.Environment.NewLine"] = (g, _) => g.Module.StringLiteral("\n");
+        t["System.Environment.NewLine"] = (g, _) => g.Module.StringLiteral(g.Module.NewLine);
         return t.ToFrozenDictionary();
     }
 
@@ -885,7 +885,7 @@ internal static class Intrinsics
             return;
         }
         var text = value is null ? g.Module.StringLiteral("") : g.ToStringValue(value);
-        if (newline) text = g.ConcatStrings(text, g.Module.StringLiteral("\n"));
+        if (newline) text = g.ConcatStrings(text, g.Module.StringLiteral(g.Module.NewLine));
         g.CallRuntime("csrt_console_error_write_string", l.Void, [l.Ptr], text);
     }
 

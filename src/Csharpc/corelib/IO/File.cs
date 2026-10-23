@@ -307,7 +307,7 @@ namespace CsharpcCoreLib
             int errno = Posix.Errno;
             Libc.free(p);
             if (r == 0) return;
-            if (errno == Posix.ENOTEMPTY || errno == Posix.EEXIST) throw new IOException("Directory not empty : '" + full + "'");
+            if (errno == Posix.ENOTEMPTY || errno == Posix.EEXIST) throw Posix.DirectoryNotEmpty(full);
             throw Posix.IOError(errno, full, true);
         }
 

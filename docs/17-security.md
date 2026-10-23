@@ -50,6 +50,13 @@ dyld after binding. So `default` on macOS means the hardened C runtime (stack pr
 PAC as on Linux AArch64 (PAC-signed return addresses work in arm64 processes; BTI is not enforced
 outside arm64e).
 
+**Windows.** `default` links with ASLR (`--dynamicbase`, `--high-entropy-va`) and DEP
+(`--nxcompat`), which lld enables for MinGW anyway, and the C runtime keeps its stack protector and
+`_FORTIFY_SOURCE` (MinGW's libssp) and zero-initialized locals. There is no stack-clash flag: every
+frame larger than a page calls `__chkstk`, which probes it, so the `probe-stack` attribute is not
+added to generated code either. `max` adds CET landing pads as on Linux x86-64. Control Flow Guard
+(`-mguard=cf`, `--guard-cf`) is not enabled yet.
+
 **Cost.** `default` is within measurement noise on the benchmark suite (`tools/hardening-bench.py`;
 e.g. shapes −4 %, sieve −4 %, binarytrees +2 % CPU time, best-of-13 interleaved runs). CET is not in
 `default` because it measured **+8 % to +16 %** on call-heavy benchmarks (shapes, sieve) while

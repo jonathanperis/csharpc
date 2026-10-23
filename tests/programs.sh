@@ -43,6 +43,7 @@ fi
 "$DOTNET" build "$ROOT/src/Csharpc" -c Release -v quiet -nologo > /dev/null || { echo "build failed"; exit 1; }
 CSHARPC=("$DOTNET" "$ROOT/src/Csharpc/bin/Release/net11.0/csharpc.dll")
 OUT="$(mktemp -d)"
+source "$ROOT/tests/platform.sh"
 # The corelib's own diagnostics are skipped in normal compiles (speed); check them once here so a
 # broken corelib fails loudly instead of producing wrong code.
 if ! CSHARPC_CHECK_CORELIB=1 "${CSHARPC[@]}" --emit obj "$ROOT/tests/samples/01_hello.cs" -o "$OUT/corelib-check.o" 2> "$OUT/corelib.err"; then
@@ -54,10 +55,17 @@ pass=0; fail=0; failed=()
 printf '%-24s %-5s %-6s %9s %9s\n' program opt result compile_ms size_kb
 for name in "${names[@]}"; do
   dir="$PROGRAMS/$name"
-  want_code=0; [[ -f "$dir/exitcode" ]] && want_code="$(cat "$dir/exitcode")"
   stdin_file=/dev/null; [[ -f "$dir/input.txt" ]] && stdin_file="$dir/input.txt"
+  want_code=0; [[ -f "$dir/exitcode" ]] && want_code="$(platform_exit_code "$(cat "$dir/exitcode")")"
+  reason="$(platform_skip "$name")"
+  [[ -n "$reason" ]] && ! platform_is_live "$reason" && { printf '%-24s %-5s %-6s (platform-dependent on %s: %s)\n' "$name" "" SKIP "$HOST_OS" "$reason"; continue; }
+  if [[ -n "$reason" ]]; then  # recorded live from real .NET on this machine
+    want_code="$(platform_live_expected "$dir" Program.cs "$stdin_file" "$OUT/$name.want")"
+  else
+    platform_expected < "$dir/expected.txt" > "$OUT/$name.want"
+  fi
   for opt in -O0 -O2; do
-    exe="$OUT/$name$opt"
+    exe="$OUT/$name$opt$EXE_SUFFIX"
     start=$(date +%s%N)
     if ! "${CSHARPC[@]}" "$opt" "$dir/Program.cs" -o "$exe" 2> "$OUT/$name.compile"; then
       printf '%-24s %-5s %-6s\n' "$name" "$opt" FAIL; sed 's/^/     /' "$OUT/$name.compile" | head -6
@@ -65,9 +73,9 @@ for name in "${names[@]}"; do
     fi
     ms=$(( ($(date +%s%N) - start) / 1000000 ))
     size=$(( $(stat -c %s "$exe") / 1024 ))
-    bash -c 'ulimit -c 0; timeout 120 "$1" > "$2" 2> "$3" < "$4"' _ "$exe" "$OUT/$name.out" "$OUT/$name.err" "$stdin_file" 2>/dev/null
+    bash -c 'ulimit -c 0 2>/dev/null; timeout 120 "$1" > "$2" 2> "$3" < "$4"' _ "$exe" "$OUT/$name.out" "$OUT/$name.err" "$stdin_file" 2>/dev/null
     code=$?
-    if diff -u "$dir/expected.txt" "$OUT/$name.out" > "$OUT/$name.diff" && [[ $code == "$want_code" ]]; then
+    if diff -u "$OUT/$name.want" "$OUT/$name.out" > "$OUT/$name.diff" && [[ $code == "$want_code" ]]; then
       printf '%-24s %-5s %-6s %9s %9s\n' "$name" "$opt" PASS "$ms" "$size"; pass=$((pass + 1))
     else
       printf '%-24s %-5s %-6s (exit %s, expected %s)\n' "$name" "$opt" FAIL "$code" "$want_code"
@@ -75,9 +83,9 @@ for name in "${names[@]}"; do
       fail=$((fail + 1)); failed+=("$name[$opt]")
     fi
   done
-  if [[ $BENCH == 1 && -x "$OUT/$name-O2" ]]; then
+  if [[ $BENCH == 1 && -x "$OUT/$name-O2$EXE_SUFFIX" ]]; then
     TIMEFORMAT=%R
-    t_native=$( { time "$OUT/$name-O2" > /dev/null 2>&1 < "$stdin_file"; } 2>&1 | tail -1 )
+    t_native=$( { time "$OUT/$name-O2$EXE_SUFFIX" > /dev/null 2>&1 < "$stdin_file"; } 2>&1 | tail -1 )
     (cd "$dir" && "$DOTNET" build Program.cs -c Release -p:WarningLevel=0 -o "$OUT/jit-$name" > /dev/null 2>&1)
     dll="$OUT/jit-$name/Program.dll"
     if [[ -f "$dll" ]]; then

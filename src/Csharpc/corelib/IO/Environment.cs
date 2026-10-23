@@ -11,6 +11,70 @@ namespace CsharpcCoreLib
         [DllImport("__Internal")] private static extern int csrt_get_exit_code();
         [DllImport("__Internal")] private static extern void csrt_set_exit_code(int code);
 
+#if CSHARPC_TARGET_WINDOWS
+        [DllImport("kernel32", CharSet = CharSet.Unicode)] private static extern uint GetEnvironmentVariableW(string name, char* buffer, uint size);
+        [DllImport("kernel32", CharSet = CharSet.Unicode)] private static extern int SetEnvironmentVariableW(string name, string value);
+        [DllImport("kernel32")] private static extern int GetComputerNameW(char* buffer, uint* size);
+        [DllImport("kernel32")] private static extern uint GetSystemDirectoryW(char* buffer, uint size);
+        [DllImport("kernel32")] private static extern uint GetCurrentProcessId();
+        [DllImport("kernel32")] private static extern char* GetCommandLineW();
+        [DllImport("advapi32")] private static extern int GetUserNameW(char* buffer, uint* size);
+
+        public static string GetEnvironmentVariable(string variable)
+        {
+            if (variable == null) throw new ArgumentNullException("variable");
+            uint size = 256;
+            while (true)
+            {
+                char[] buffer = new char[size];
+                uint n;
+                fixed (char* p = buffer) n = GetEnvironmentVariableW(variable, p, size);
+                if (n == 0) return null;  // not set (an empty value reads as unset too, as in .NET)
+                if (n < size) return new string(buffer, 0, (int)n);
+                size = n;
+            }
+        }
+
+        public static void SetEnvironmentVariable(string variable, string value)
+        {
+            if (variable == null) throw new ArgumentNullException("variable");
+            if (variable.Length == 0) throw new ArgumentException("String cannot be of zero length. (Parameter 'variable')");
+            SetEnvironmentVariableW(variable, string.IsNullOrEmpty(value) ? null : value);
+        }
+
+        public static string MachineName
+        {
+            get
+            {
+                char* buffer = stackalloc char[64];
+                uint size = 64;
+                return GetComputerNameW(buffer, &size) != 0 ? new string(buffer, 0, (int)size) : "localhost";
+            }
+        }
+
+        public static string UserName
+        {
+            get
+            {
+                char* buffer = stackalloc char[257];
+                uint size = 257;
+                return GetUserNameW(buffer, &size) != 0 && size > 0 ? new string(buffer, 0, (int)size - 1) : "Windows User";
+            }
+        }
+
+        public static int ProcessId => (int)GetCurrentProcessId();
+        public static string CommandLine => Utf16.FromNative(GetCommandLineW());
+
+        public static string SystemDirectory
+        {
+            get
+            {
+                char* buffer = stackalloc char[260];
+                uint n = GetSystemDirectoryW(buffer, 260);
+                return n > 0 && n < 260 ? new string(buffer, 0, (int)n) : "";
+            }
+        }
+#else
         public static string GetEnvironmentVariable(string variable)
         {
             if (variable == null) throw new ArgumentNullException("variable");
@@ -35,11 +99,10 @@ namespace CsharpcCoreLib
             Libc.free(name);
         }
 
-        public static string CurrentDirectory
-        {
-            get => DirectoryImpl.GetCurrentDirectory();
-            set => DirectoryImpl.SetCurrentDirectory(value);
-        }
+        public static string UserName => GetEnvironmentVariable("USER") ?? "";
+        public static int ProcessId => Posix.getpid();
+        public static string CommandLine => string.Join(" ", Environment.GetCommandLineArgs());
+        public static string SystemDirectory => "";
 
         public static string MachineName
         {
@@ -53,13 +116,16 @@ namespace CsharpcCoreLib
                 return dot > 0 ? name.Substring(0, dot) : name;
             }
         }
+#endif
 
-        public static string UserName => GetEnvironmentVariable("USER") ?? "";
-        public static int ProcessId => Posix.getpid();
+        public static string CurrentDirectory
+        {
+            get => DirectoryImpl.GetCurrentDirectory();
+            set => DirectoryImpl.SetCurrentDirectory(value);
+        }
+
         public static bool Is64BitProcess => true;
         public static bool Is64BitOperatingSystem => true;
-        public static string CommandLine => string.Join(" ", Environment.GetCommandLineArgs());
-        public static string SystemDirectory => "";
         public static int SystemPageSize => 4096;
 
         public static int ExitCode

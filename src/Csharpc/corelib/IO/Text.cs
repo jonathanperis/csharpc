@@ -61,14 +61,14 @@ namespace CsharpcCoreLib
     [Shadows("System.IO.TextWriter")]
     public abstract class TextWriterImpl : IDisposable
     {
-        private string _newLine = "\n";
+        private string _newLine = Environment.NewLine;
 
         public abstract Encoding Encoding { get; }
 
         public virtual string NewLine
         {
             get => _newLine;
-            set => _newLine = value ?? "\n";
+            set => _newLine = value ?? Environment.NewLine;
         }
 
         public virtual IFormatProvider FormatProvider => null;
@@ -508,7 +508,7 @@ namespace CsharpcCoreLib
         public override Encoding Encoding => new UTF8Encoding(false);
         public override void Write(char value) => csrt_console_error_write_utf8(new string(value, 1));
         public override void Write(string value) { if (value != null) csrt_console_error_write_utf8(value); }
-        public override void WriteLine(string value) => csrt_console_error_write_utf8((value ?? "") + "\n");
+        public override void WriteLine(string value) => csrt_console_error_write_utf8((value ?? "") + Environment.NewLine);
     }
 
     internal sealed class ConsoleInReader : TextReaderImpl

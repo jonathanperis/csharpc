@@ -11,6 +11,9 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#ifdef _WIN32
+#include <pthread.h>
+#endif
 
 static const csrt_MethodTable mt_argument = { NULL, "System.ArgumentException", 0, 0 };
 static const csrt_MethodTable mt_argument_null = { NULL, "System.ArgumentNullException", 0, 0 };
@@ -269,13 +272,19 @@ int32_t csrt_convert_double_to_i32(double v) {
 // System.Environment
 // ---------------------------------------------------------------------------------------------
 int32_t csrt_environment_processor_count(void) {
+#ifdef _WIN32
+    long n = pthread_num_processors_np();
+#else
     long n = sysconf(_SC_NPROCESSORS_ONLN);
+#endif
     return n > 0 ? (int32_t)n : 1;
 }
 
 /// Environment.GetCommandLineArgs(): [executable path, args...] (read from /proc/self/cmdline;
 /// on macOS from the process's argv).
-#ifdef __APPLE__
+#if defined(_WIN32)
+// csrt.c (from the UTF-16 command line)
+#elif defined(__APPLE__)
 #include <crt_externs.h>
 csrt_Array* csrt_environment_command_line_args(void) {
     int argc = *_NSGetArgc();

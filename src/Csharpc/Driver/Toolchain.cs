@@ -89,6 +89,8 @@ public sealed class Toolchain(CompilerOptions options, Csharpc.Llvm.TargetMachin
     {
         string[] runtime = runtimeLinkedIn ? [] : RuntimeObjects(triple);
         string[] sanitize = options.Sanitize is { } list ? [$"-fsanitize={list}"] : [];
+        // MinGW's linker writes exactly the name it is given; gcc and .NET name executables *.exe.
+        if (target.IsWindows && Path.GetExtension(output).Length == 0) output += ".exe";
         if (target.IsDarwin)
         {
             // Apple's linker rejects undefined symbols even when weak; -U lets each bind to null at
@@ -100,7 +102,31 @@ public sealed class Toolchain(CompilerOptions options, Csharpc.Llvm.TargetMachin
             if (options.Debug) Run(Environment.GetEnvironmentVariable("CSHARPC_DSYMUTIL") ?? "dsymutil", [output]);
             return;
         }
+        if (target.IsWindows)
+        {
+            Run(options.CC, [$"--target={triple}", programObject, .. runtime, .. WindowsLinkFlags(), .. Hardening.WindowsLinkFlags(options.Hardening), .. sanitize, "-o", output]);
+            return;
+        }
         Run(options.CC, [$"--target={triple}", programObject, .. runtime, "-lm", "-pthread", .. LinkFlags(), .. Hardening.LinkFlags(options.Hardening), .. sanitize, "-o", output]);
+    }
+
+    /// <summary>
+    /// PE/COFF counterparts of <see cref="LinkFlags"/>, for the MinGW-w64 toolchain (LLVM-MinGW: clang,
+    /// lld, compiler-rt, libunwind, winpthreads, the UCRT). Everything but system DLLs is linked
+    /// statically (-static: libunwind and winpthreads), so the executable runs without LLVM-MinGW's DLLs;
+    /// the UCRT ships with Windows 10 and later. The runtime and libraries are named explicitly so a
+    /// plain clang (not LLVM-MinGW's target wrapper) links the same way.
+    /// </summary>
+    private IEnumerable<string> WindowsLinkFlags()
+    {
+        yield return "-fuse-ld=lld";
+        yield return "-rtlib=compiler-rt";
+        yield return "-unwindlib=libunwind";
+        yield return "-static";
+        yield return "-pthread";
+        yield return "-Wl,--gc-sections";
+        yield return "-Wl,--icf=safe";
+        if (options.Strip ?? !options.Debug) yield return "-s";
     }
 
     /// <summary>

@@ -9,7 +9,9 @@
     <CsharpcConfiguration Condition="'$(CsharpcConfiguration)' == ''">$(Configuration)</CsharpcConfiguration>
     <_CsharpcConfigurationFlags Condition="'$(CsharpcConfiguration)' == 'Debug'">-O0 -g</_CsharpcConfigurationFlags>
     <_CsharpcConfigurationFlags Condition="'$(CsharpcConfiguration)' != 'Debug'">-O2</_CsharpcConfigurationFlags>
-    <_CsharpcExeSuffix Condition="'$(OS)' == 'Windows_NT'">.exe</_CsharpcExeSuffix>
+    <!-- Windows executables end in .exe: the target's (a win-* RuntimeIdentifier), else the host's. -->
+    <_CsharpcExeSuffix Condition="'$(RuntimeIdentifier)' != '' and $(RuntimeIdentifier.StartsWith('win-'))">.exe</_CsharpcExeSuffix>
+    <_CsharpcExeSuffix Condition="'$(RuntimeIdentifier)' == '' and '$(OS)' == 'Windows_NT'">.exe</_CsharpcExeSuffix>
     <!-- By default the native binary takes the apphost's place, so `dotnet run` / bin/.../App run native code. -->
     <CsharpcOutputPath Condition="'$(CsharpcOutputPath)' == ''">$(OutDir)$(AssemblyName)$(_CsharpcExeSuffix)</CsharpcOutputPath>
     <_CsharpcCommand>&quot;$(CsharpcDotnetHost)&quot; &quot;$(CsharpcCompilerPath)&quot; &quot;$(MSBuildProjectFullPath)&quot; -c $(CsharpcConfiguration) $(_CsharpcConfigurationFlags) -p:TargetFramework=$(TargetFramework)</_CsharpcCommand>
@@ -22,6 +24,7 @@
     <_CsharpcTargetTriple Condition="'$(RuntimeIdentifier)' == 'linux-x64'">x86_64-unknown-linux-gnu</_CsharpcTargetTriple>
     <_CsharpcTargetTriple Condition="'$(RuntimeIdentifier)' == 'linux-arm64'">aarch64-unknown-linux-gnu</_CsharpcTargetTriple>
     <_CsharpcTargetTriple Condition="'$(RuntimeIdentifier)' == 'osx-arm64'">arm64-apple-macosx14.0</_CsharpcTargetTriple>
+    <_CsharpcTargetTriple Condition="'$(RuntimeIdentifier)' == 'win-x64'">x86_64-w64-windows-gnu</_CsharpcTargetTriple>
     <_CsharpcUnsupportedRid Condition="'$(_CsharpcTargetTriple)' == ''">true</_CsharpcUnsupportedRid>
     <_CsharpcCommand Condition="'$(_CsharpcTargetTriple)' != ''">$(_CsharpcCommand) --target $(_CsharpcTargetTriple)</_CsharpcCommand>
   </PropertyGroup>
@@ -33,7 +36,7 @@
   <Target Name="_CsharpcValidate">
     <Error Condition="!Exists('$(CsharpcCompilerPath)')" Text="csharpc compiler not found at '$(CsharpcCompilerPath)'. Set CsharpcCompilerPath." />
     <Error Condition="'$(_CsharpcUnsupportedRid)' == 'true'"
-           Text="RuntimeIdentifier '$(RuntimeIdentifier)' is not supported by csharpc yet (supported: linux-x64, linux-arm64, osx-arm64)." />
+           Text="RuntimeIdentifier '$(RuntimeIdentifier)' is not supported by csharpc yet (supported: linux-x64, linux-arm64, osx-arm64, win-x64)." />
   </Target>
 
   <!-- dotnet build -p:UseCsharpc=true (libraries are skipped: their sources are folded into the
