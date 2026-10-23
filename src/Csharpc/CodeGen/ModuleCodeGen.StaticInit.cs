@@ -33,8 +33,8 @@ public sealed partial class ModuleCodeGen
     /// <summary>The lazy-initialization state of a user type, or null if it needs no checks.</summary>
     public ClassInit? ClassInitFor(INamedTypeSymbol type)
     {
-        // IL types initialize every generic instantiation separately (each has its own statics), as the CLR does.
-        if (IsIlType(type) && TypeSubstitution.IsGenericContext(type))
+        // Generic types initialize every instantiation separately (each has its own statics), as the CLR does.
+        if (TypeSubstitution.IsGenericContext(type))
         {
             if (TypeSubstitution.IsOpen(type)) return null;
         }
@@ -47,8 +47,17 @@ public sealed partial class ModuleCodeGen
             if (type.TypeKind is TypeKind.Class or TypeKind.Struct or TypeKind.Interface && HasExplicitStaticConstructor(type))
                 init = CreateClassInit(type, precise: !IlBeforeFieldInit(type));
         }
-        else if (IsUserType(type) && !CoreLib.IsCoreLib(type) && type.TypeKind is TypeKind.Class or TypeKind.Struct
-            && !TypeSubstitution.IsGenericContext(type))
+        else if (TypeSubstitution.IsGenericContext(type) && (IsUserType(type) || CoreLib.IsCoreLib(type))
+            && type.TypeKind is TypeKind.Class or TypeKind.Struct)
+        {
+            // A generic instantiation can't be initialized at startup (the instantiations aren't known
+            // up front), so even constant initializers run lazily: on first static field access, or on
+            // entry to a member when there is an explicit static constructor.
+            var precise = HasExplicitStaticConstructor(type);
+            if (precise || StaticInitializers(type.OriginalDefinition).Any())
+                init = CreateClassInit(type, precise);
+        }
+        else if (IsUserType(type) && !CoreLib.IsCoreLib(type) && type.TypeKind is TypeKind.Class or TypeKind.Struct)
         {
             var precise = HasExplicitStaticConstructor(type);
             if (precise || (StaticInitializers(type).Any() && !HasConstantStaticInitializers(type)))
@@ -145,7 +154,9 @@ public sealed partial class ModuleCodeGen
         // The initializer: static field initializers in declaration order, then the static constructor.
         var graphs = InitializerGraphs(init.Type, isStatic: true).ToList();
         var cctors = init.Type.StaticConstructors.Where(c => !c.IsImplicitlyDeclared).ToList();
-        new FunctionCodeGen(this, null, init.Body, initializingType: init.Type).EmitStaticInit(graphs, cctors);
+        // Generic instantiations lower their (definition's) initializers under the type's substitution.
+        new FunctionCodeGen(this, null, init.Body, substitution: IsIlType(init.Type) ? null : TypeSubstitution.ForType(init.Type, Compilation),
+            initializingType: init.Type).EmitStaticInit(graphs, cctors);
 
         // The slow path.
         var fn = init.Check.Fn;
@@ -180,7 +191,7 @@ public sealed partial class ModuleCodeGen
         var tie = b.Call(alloc.Type, alloc.Fn, [layout.MethodTable, Llvm.ConstInt(Llvm.I64, (long)layout.InstanceSize)]);
         var exceptionInit = Runtime("csrt_exception_init", Llvm.Void, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr);
         b.Call(exceptionInit.Type, exceptionInit.Fn,
-            [tie, StringLiteral($"The type initializer for '{Mangler.MetadataName(init.Type)}' threw an exception."), exception, LlvmContext.Null(Llvm.Ptr)]);
+            [tie, StringLiteral($"The type initializer for '{Mangler.MetadataName(init.Type.OriginalDefinition)}' threw an exception."), exception, LlvmContext.Null(Llvm.Ptr)]);  // .NET names the definition (Broken`1)
         b.Call(end.Type, end.Fn, [init.State, tie]);
         var throwObject = Runtime("csrt_throw_object", Llvm.Void, Llvm.Ptr);
         b.Call(throwObject.Type, throwObject.Fn, [tie]);

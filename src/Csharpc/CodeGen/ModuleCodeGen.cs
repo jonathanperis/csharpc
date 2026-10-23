@@ -495,8 +495,9 @@ public sealed partial class ModuleCodeGen
             return;
         }
         if (method.MethodKind == MethodKind.Constructor && method.ContainingType.IsStatic) return;
-        if (method.MethodKind == MethodKind.StaticConstructor && TypeSubstitution.IsGenericContext(method))
-            throw CompileError.Unsupported("static constructors in generic types", method);
+        // A generic type's static constructor runs from each instantiation's class initializer
+        // (ModuleCodeGen.StaticInit.cs), lowered there under that instantiation's substitution.
+        if (method.MethodKind == MethodKind.StaticConstructor && TypeSubstitution.IsOpen(method.ContainingType)) return;
         // Static field initializers run from __csharpc_static_init; only explicit cctors get a function.
         if (method.MethodKind == MethodKind.StaticConstructor && method.IsImplicitlyDeclared) return;
 
@@ -1089,12 +1090,8 @@ public sealed partial class ModuleCodeGen
         }
         foreach (var t in _userTypes.Where(t => t.TypeKind is TypeKind.Class or TypeKind.Struct or TypeKind.Interface))
         {
-            if (TypeSubstitution.IsGenericContext(t))
-            {
-                if (InitializerGraphs(t, isStatic: true).Any())
-                    throw CompileError.Unsupported($"static field initializers in generic type '{t.Name}'", t);
-                continue;
-            }
+            // Generic types are initialized lazily per instantiation (ModuleCodeGen.StaticInit.cs).
+            if (TypeSubstitution.IsGenericContext(t)) continue;
             if (IsEagerlyInitialized(t)) graphs.AddRange(InitializerGraphs(t, isStatic: true));
         }
         new FunctionCodeGen(this, null, _staticInit).EmitStaticInit(graphs, cctors);
