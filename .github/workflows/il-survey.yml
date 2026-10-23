@@ -4,6 +4,7 @@ name: IL survey
 # what they need (docs/18-compatibility.md#il-front-end-survey). Informational: it never gates.
 on:
   push:
+    branches: [main]  # integration branches carry the harness too; one survey per change on main is enough
     paths: ['tools/il-survey/**', '.github/workflows/il-survey.yml']
   workflow_dispatch:
 
