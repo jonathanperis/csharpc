@@ -76,7 +76,7 @@ public sealed partial class ModuleCodeGen
                 if (SymbolEqualityComparer.Default.Equals(b.OriginalDefinition, root.OriginalDefinition)) return true;
             return false;
         }
-        return _userTypes.Where(t => t.TypeKind == TypeKind.Class && !t.IsGenericType && !t.IsStatic && Derives(t)).OrderByDescending(Depth);
+        return HierarchyTypes.Where(t => t.TypeKind == TypeKind.Class && !t.IsGenericType && !t.IsStatic && Derives(t)).OrderByDescending(Depth);
     }
 
     public ModuleCodeGen(Compilation compilation, LlvmContext llvm, LlvmModule module, TargetMachine target)
@@ -94,11 +94,12 @@ public sealed partial class ModuleCodeGen
     public SemanticModel ModelFor(SyntaxTree tree) =>
         _models.TryGetValue(tree, out var model) ? model : _models[tree] = Compilation.GetSemanticModel(tree);
 
+    /// <summary>Compiled by csharpc: defined in the program's sources (incl. the corelib) or in an IL assembly (ADR 0010).</summary>
     public bool IsUserType(ITypeSymbol? type) =>
-        type is INamedTypeSymbol && SymbolEqualityComparer.Default.Equals(type.ContainingAssembly, Compilation.Assembly);
+        type is INamedTypeSymbol && (SymbolEqualityComparer.Default.Equals(type.ContainingAssembly, Compilation.Assembly) || Il.Contains(type.ContainingAssembly));
 
     public bool IsUserMethod(IMethodSymbol method) =>
-        SymbolEqualityComparer.Default.Equals(method.ContainingAssembly, Compilation.Assembly);
+        SymbolEqualityComparer.Default.Equals(method.ContainingAssembly, Compilation.Assembly) || Il.Contains(method.ContainingAssembly);
 
     // ======================================================================================
     // Driver
@@ -231,7 +232,8 @@ public sealed partial class ModuleCodeGen
         if ((method.MethodImplementationFlags & System.Reflection.MethodImplAttributes.NoInlining) != 0)
             Llvm.AddFunctionAttribute(fn, "noinline");
         MarkIfCoroutine(method, fn);
-        if ((generic || CoreLib.IsCoreLib(method)) && IsUserMethod(method) && !method.IsAbstract && !method.IsExtern)
+        // Generic instantiations, corelib and IL methods are lowered on demand, when first referenced.
+        if ((generic || CoreLib.IsCoreLib(method) || IsIlMethod(method)) && IsUserMethod(method) && !method.IsAbstract && !method.IsExtern)
             _pendingInstantiations.Enqueue(method);
         return _functions[method] = new LoweredFunction(fn, type);
     }
@@ -428,6 +430,11 @@ public sealed partial class ModuleCodeGen
     private void EmitMethod(IMethodSymbol method)
     {
         if (method.IsAbstract || method.IsExtern) return;
+        if (Il.OwnerOf(method) is { } ilAssembly)
+        {
+            EmitIlMethod(ilAssembly, method);
+            return;
+        }
         if (method.IsPartialDefinition && method.PartialImplementationPart is null)
         {
             // Unimplemented partial void method: Roslyn drops the calls; give it an empty body anyway.
@@ -632,6 +639,7 @@ public sealed partial class ModuleCodeGen
                 : throw CompileError.Unsupported($"instances of library class '{type}'", type);
         if (TypeSubstitution.IsOpen(type)) throw CompileError.Unsupported($"open generic type '{type}'", type);
         RejectCustomLayout(type);
+        RejectIlCustomLayout(type);
         return BuildOrForget(_layouts, type, BuildLayout);
     }
 

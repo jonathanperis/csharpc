@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using Csharpc.CodeGen;
 using Csharpc.Frontend;
+using Csharpc.Frontend.Il;
 using Csharpc.Llvm;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
@@ -50,6 +51,16 @@ public sealed class Compiler(CompilerOptions options)
                 GlobalUsings = options.ImplicitUsings ? RoslynFrontend.DefaultImplicitUsings : null,
                 CoreLibDefines = coreLibDefines,
             };
+        }
+        // Assemblies without sources: bound against like any reference, compiled from IL (ADR 0010).
+        IlAssemblySet il;
+        try { il = IlAssemblySet.Load([.. settings.IlReferencePaths, .. options.References]); }
+        catch (Exception e) when (e is InvalidOperationException or IOException or BadImageFormatException) { return Fail(e.Message); }
+        using var ilScope = il;
+        if (!il.IsEmpty)
+        {
+            settings = settings with { IlReferences = il.References };
+            Phase($"load {il.Assemblies.Count} IL assembl{(il.Assemblies.Count == 1 ? "y" : "ies")}");
         }
         // Nullable analysis only produces warnings, never different code. Lowering uses a compilation
         // with the nullable context disabled: with it enabled, Roslyn's CFG for `lock (System.Threading.Lock)`
@@ -105,9 +116,17 @@ public sealed class Compiler(CompilerOptions options)
         // Codegen binds against a nullable-oblivious copy of the compilation: nullability never affects
         // generated code, and Roslyn's nullable re-inference can surface error types in IOperation
         // (e.g. `Select` over an array of tuples with mixed element names yields `Select<T, ?>`).
-        var codegenCompilation = MethodGroupRewriter.Rewrite(
-            compilation.WithOptions(compilation.Options.WithNullableContextOptions(NullableContextOptions.Disable)));
-        var codegen = new ModuleCodeGen(codegenCompilation, llvm, module, target) { CfgDump = options.DumpCfg ? Console.Out : null };
+        // IL assemblies are imported with their private and internal members: layouts need every field.
+        var codegenOptions = compilation.Options.WithNullableContextOptions(NullableContextOptions.Disable);
+        if (!il.IsEmpty) codegenOptions = codegenOptions.WithMetadataImportOptions(MetadataImportOptions.All);
+        var codegenCompilation = MethodGroupRewriter.Rewrite(compilation.WithOptions(codegenOptions));
+        if (!il.IsEmpty) il.Bind(codegenCompilation);
+        var codegen = new ModuleCodeGen(codegenCompilation, llvm, module, target)
+        {
+            CfgDump = options.DumpCfg ? Console.Out : null,
+            IlDump = options.DumpIl ? Console.Out : null,
+            Il = il,
+        };
         using var debugInfo = options.Debug
             ? codegen.Debug = new DebugInfo(codegen, settings.Files.Count > 0 ? settings.Files[0] : "program.cs", options.OptLevel > 0)
             : null;

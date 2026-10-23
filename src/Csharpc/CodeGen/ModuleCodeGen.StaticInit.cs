@@ -39,9 +39,17 @@ public sealed partial class ModuleCodeGen
         if (IsUserType(type) && !CoreLib.IsCoreLib(type) && type.TypeKind is TypeKind.Class or TypeKind.Struct
             && !TypeSubstitution.IsGenericContext(type))
         {
-            var precise = HasExplicitStaticConstructor(type);
-            if (precise || (StaticInitializers(type).Any() && !HasConstantStaticInitializers(type)))
-                init = CreateClassInit(type, precise);
+            if (IsIlType(type))
+            {
+                // IL: the .cctor holds the field initializers too; beforefieldinit decides the trigger.
+                if (HasExplicitStaticConstructor(type)) init = CreateClassInit(type, precise: !IlBeforeFieldInit(type));
+            }
+            else
+            {
+                var precise = HasExplicitStaticConstructor(type);
+                if (precise || (StaticInitializers(type).Any() && !HasConstantStaticInitializers(type)))
+                    init = CreateClassInit(type, precise);
+            }
         }
         return _classInits[type] = init;
     }
