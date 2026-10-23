@@ -623,6 +623,7 @@ void csrt_cts_cancel(CancellationSource* cts) {
     for (int32_t i = ncallbacks - 1; i >= 0; i--) {
         void* entry = words(callbacks)[i];
         if (((csrt_Object*)entry)->mt == &csrt_Task_MT.header) { csrt_task_try_cancel(entry); continue; }
+        if (((csrt_Object*)entry)->mt == &csrt_CancellationTokenSource_MT.header) { csrt_cts_cancel(entry); continue; } // linked source
         Delegate* d = entry;
         ((void (*)(void*))d->fn)(d->target);
     }
@@ -655,6 +656,7 @@ void csrt_token_register(CancellationSource* token, void* action) {
     if (token->canceled) {
         pthread_mutex_unlock(&s_tlock);
         if (((csrt_Object*)action)->mt == &csrt_Task_MT.header) { csrt_task_try_cancel(action); return; }
+        if (((csrt_Object*)action)->mt == &csrt_CancellationTokenSource_MT.header) { csrt_cts_cancel(action); return; }
         Delegate* d = action;
         ((void (*)(void*))d->fn)(d->target);
         return;
@@ -667,6 +669,15 @@ void csrt_token_register(CancellationSource* token, void* action) {
     }
     words(token->callbacks)[token->ncallbacks++] = action;
     pthread_mutex_unlock(&s_tlock);
+}
+
+/// CancellationTokenSource.CreateLinkedTokenSource(a, b): canceled when either token is (registered
+/// on both as a callback entry; canceled at once if one already is).
+CancellationSource* csrt_cts_new_linked(CancellationSource* a, CancellationSource* b) {
+    CancellationSource* cts = csrt_cts_new();
+    csrt_token_register(a, cts);
+    csrt_token_register(b, cts);
+    return cts;
 }
 
 // ---------------------------------------------------------------------------------------------

@@ -139,6 +139,16 @@ public sealed partial class FunctionCodeGen
         return DirectCall(target, args);
     }
 
+    /// <summary>A static method of a (possibly generic) corelib type, e.g. ("ValueTaskSourceBridge`1", "Create", [T]).</summary>
+    internal LLVMValueRef CallCoreLibGeneric(string metadataName, string method, ITypeSymbol[] typeArguments, params LLVMValueRef[] args)
+    {
+        var owner = _m.Compilation.GetTypeByMetadataName(CoreLib.Namespace + "." + metadataName)
+            ?? throw CompileError.Unsupported($"corelib type '{metadataName}' not found (is src/Csharpc/corelib shipped?)", (ISymbol?)null!);
+        if (typeArguments.Length > 0) owner = owner.Construct(typeArguments);
+        var target = owner.GetMembers(method).OfType<IMethodSymbol>().Single(m => m.IsStatic && m.Parameters.Length == args.Length);
+        return DirectCall(target, args);
+    }
+
     /// <summary>
     /// string with `length` uninitialized chars (the GC never scans strings). The runtime helper throws
     /// OutOfMemoryException for negative lengths and above .NET's maximum string length, so no size

@@ -166,6 +166,62 @@ public static class Work
     }
 }
 
+public static class Streams
+{
+    public static async IAsyncEnumerable<int> RangeAsync(int n, [EnumeratorCancellation] CancellationToken token = default)
+    {
+        for (var i = 0; i < n; i++)
+        {
+            await Task.Yield();
+            token.ThrowIfCancellationRequested();
+            yield return i;
+        }
+    }
+
+    // Yields without awaiting: MoveNextAsync completes synchronously.
+    public static async IAsyncEnumerable<string> WordsAsync(List<string> log)
+    {
+        try
+        {
+            log.Add("start");
+            yield return "alpha";
+            yield return "beta";
+            await Task.Delay(1);
+            yield return "gamma";
+            log.Add("end");
+        }
+        finally
+        {
+            log.Add("finally");
+        }
+    }
+
+    public static async IAsyncEnumerable<int> FailingAsync()
+    {
+        yield return 1;
+        await Task.Yield();
+        throw new InvalidOperationException("stream failed");
+    }
+
+    public static async Task<int> SumAsync(IAsyncEnumerable<int> source)
+    {
+        var sum = 0;
+        await foreach (var x in source) sum += x;
+        return sum;
+    }
+
+    public static async Task<string> FirstTwoAsync(IAsyncEnumerable<string> source)
+    {
+        var taken = new List<string>();
+        await foreach (var s in source)
+        {
+            taken.Add(s);
+            if (taken.Count == 2) break; // DisposeAsync runs the iterator's finally
+        }
+        return string.Join("+", taken);
+    }
+}
+
 public sealed class Counter
 {
     private int _value;

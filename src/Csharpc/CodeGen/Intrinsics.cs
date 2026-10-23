@@ -654,6 +654,19 @@ internal static class Intrinsics
             g.CallRuntime("csrt_cts_cancel_after", g.Module.Llvm.Void, [g.Module.Llvm.Ptr, g.Module.Llvm.I32], g.EmitValue(inv.Instance!), Arg(g, inv, 0));
             return default;
         };
+        t[$"{Th}.CancellationTokenSource.CreateLinkedTokenSource({Th}.CancellationToken, {Th}.CancellationToken)"] = (g, inv) =>
+            g.CallRuntime("csrt_cts_new_linked", g.Module.Llvm.Ptr, [g.Module.Llvm.Ptr, g.Module.Llvm.Ptr], Arg(g, inv, 0), Arg(g, inv, 1));
+        // Tokens are equal when they come from the same source (None and default are both null).
+        IntrinsicHandler sameSource = (g, inv) =>
+        {
+            var a = inv.Instance is { } instance ? g.EmitValue(instance) : Arg(g, inv, 0);
+            var b = Arg(g, inv, inv.Instance is null ? 1 : 0);
+            return g.Builder.ICmp(LLVMIntPredicate.EQ, a, b);
+        };
+        t[$"{Th}.CancellationToken.Equals({Th}.CancellationToken)"] = sameSource;
+        t[$"{Th}.CancellationToken.op_Equality({Th}.CancellationToken, {Th}.CancellationToken)"] = sameSource;
+        t[$"{Th}.CancellationToken.op_Inequality({Th}.CancellationToken, {Th}.CancellationToken)"] = (g, inv) =>
+            g.Builder.Not(sameSource(g, inv));
         t[$"{Th}.CancellationTokenSource.Dispose()"] = (g, inv) => { g.EmitValue(inv.Instance!); return default; };
         t[$"{Th}.CancellationToken.ThrowIfCancellationRequested()"] = (g, inv) =>
         {
@@ -835,6 +848,11 @@ internal static class Intrinsics
         t["System.Threading.CancellationTokenSource..ctor(int)"] = (g, c) =>
             g.CallRuntime("csrt_cts_new_after", g.Module.Llvm.Ptr, [g.Module.Llvm.I32], CtorArg(g, c, 0));
         t[$"{Tasks}.ValueTask<TResult>..ctor({Tasks}.Task<TResult>)"] = (g, c) => CtorArg(g, c, 0);
+        // ValueTasks over an IValueTaskSource (async iterators' MoveNextAsync): bridged to a csrt task (corelib/AsyncIterators.cs).
+        t[$"{Tasks}.ValueTask<TResult>..ctor({Tasks}.Sources.IValueTaskSource<TResult>, short)"] = (g, c) =>
+            g.CallCoreLibGeneric("ValueTaskSourceBridge`1", "Create", [((INamedTypeSymbol)g.TypeOf(c)!).TypeArguments[0]], CtorArg(g, c, 0), CtorArg(g, c, 1));
+        t[$"{Tasks}.ValueTask..ctor({Tasks}.Sources.IValueTaskSource, short)"] = (g, c) =>
+            g.CallCoreLibGeneric("ValueTaskSourceBridge", "Create", [], CtorArg(g, c, 0), CtorArg(g, c, 1));
         t["string..ctor(char, int)"] = (g, c) =>
             g.CallRuntime("csrt_string_new_repeat", g.Module.Llvm.Ptr, [g.Module.Llvm.I16, g.Module.Llvm.I32], CtorArg(g, c, 0), CtorArg(g, c, 1));
         // Strings from native memory: new string(char*, int, int) / (char*) / (sbyte*).

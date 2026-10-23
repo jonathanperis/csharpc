@@ -50,6 +50,35 @@ var done = new TaskCompletionSource<string>();
 Work.FireAndForget(done, "async void");
 Console.WriteLine(await done.Task);
 
+Console.WriteLine(await Streams.SumAsync(Streams.RangeAsync(10)));
+var slog = new List<string>();
+Console.WriteLine(await Streams.FirstTwoAsync(Streams.WordsAsync(slog)));
+Console.WriteLine(string.Join(",", slog));
+slog.Clear();
+await foreach (var w in Streams.WordsAsync(slog)) Console.Write(w + " ");
+Console.WriteLine(string.Join(",", slog));
+var seen = 0;
+try { await foreach (var x in Streams.FailingAsync()) seen += x; }
+catch (InvalidOperationException e) { Console.WriteLine($"stream: {e.Message} after {seen}"); }
+await using (var e = Streams.RangeAsync(3).GetAsyncEnumerator())
+{
+    while (await e.MoveNextAsync()) Console.Write(e.Current);
+    Console.WriteLine();
+}
+using (var ctsRange = new CancellationTokenSource())
+{
+    var got = 0;
+    try
+    {
+        await foreach (var x in Streams.RangeAsync(100).WithCancellation(ctsRange.Token))
+        {
+            got++;
+            if (x == 2) ctsRange.Cancel();
+        }
+    }
+    catch (OperationCanceledException) { Console.WriteLine($"range canceled after {got}"); }
+}
+
 using var cts = new CancellationTokenSource();
 cts.Cancel();
 var canceled = Work.CanceledAsync(cts.Token);
