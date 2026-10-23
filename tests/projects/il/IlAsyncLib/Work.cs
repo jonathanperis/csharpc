@@ -8,7 +8,7 @@ public static class Work
         return x * 2;
     }
 
-    // Never called by IlAsyncApp: only reachable through nothing, so it compiles as a stub (warning).
+    // Not called by IlAsyncApp: csharpc never lowers it (only reachable methods are compiled from IL).
     public static async Task<string> UnusedAsync()
     {
         await Task.Delay(1);
