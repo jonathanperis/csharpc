@@ -167,6 +167,33 @@ namespace CsharpcCoreLib
         public static int GetLastSystemError() => Libc.csrt_get_last_system_error();
         public static void SetLastSystemError(int error) => Libc.csrt_set_last_system_error(error);
         public static string GetLastPInvokeErrorMessage() => GetPInvokeErrorMessage(GetLastPInvokeError());
+#if CSHARPC_TARGET_WINDOWS
+        // Windows, as in .NET: HGlobal is LocalAlloc/LocalFree, CoTaskMem is CoTaskMemAlloc/Free (memory
+        // native code frees with the matching allocator), "Ansi" is the system ANSI code page (CP_ACP,
+        // no best-fit for these APIs) and "Auto" is UTF-16. On Unix they are all malloc/free and UTF-8.
+        public static string GetPInvokeErrorMessage(int error) => WindowsMarshal.ErrorMessage(error);
+
+        public static IntPtr AllocHGlobal(int cb) => AllocHGlobal((IntPtr)cb);
+        public static IntPtr AllocHGlobal(IntPtr cb) => WindowsMarshal.Check(WindowsMarshal.LocalAlloc(0 /* LMEM_FIXED */, (nuint)(nint)cb));
+        public static IntPtr ReAllocHGlobal(IntPtr pv, IntPtr cb) =>
+            WindowsMarshal.Check(WindowsMarshal.LocalReAlloc((void*)pv, (nuint)(nint)cb, 2 /* LMEM_MOVEABLE */));
+        public static void FreeHGlobal(IntPtr hglobal) { if (hglobal != IntPtr.Zero) WindowsMarshal.LocalFree((void*)hglobal); }
+        public static IntPtr AllocCoTaskMem(int cb) => WindowsMarshal.Check(WindowsMarshal.CoTaskMemAlloc((nuint)cb));
+        public static void FreeCoTaskMem(IntPtr ptr) => WindowsMarshal.CoTaskMemFree((void*)ptr);
+
+        public static IntPtr StringToHGlobalAnsi(string s) => WindowsMarshal.ToAnsi(s, coTaskMem: false);
+        public static IntPtr StringToCoTaskMemAnsi(string s) => WindowsMarshal.ToAnsi(s, coTaskMem: true);
+        public static IntPtr StringToHGlobalAuto(string s) => StringToHGlobalUni(s);
+        public static IntPtr StringToHGlobalUni(string s) => WindowsMarshal.ToUtf16(s, coTaskMem: false);
+        public static IntPtr StringToCoTaskMemUni(string s) => WindowsMarshal.ToUtf16(s, coTaskMem: true);
+        public static IntPtr StringToCoTaskMemUTF8(string s) => WindowsMarshal.ToUtf8(s);
+
+        public static string PtrToStringUTF8(IntPtr ptr) => Utf8.FromNative((byte*)ptr);
+        public static string PtrToStringUTF8(IntPtr ptr, int byteLen) => ptr == IntPtr.Zero ? null : Utf8.Decode((byte*)ptr, byteLen);
+        public static string PtrToStringAnsi(IntPtr ptr) => ptr == IntPtr.Zero ? null : WindowsMarshal.FromAnsi((byte*)ptr, -1);
+        public static string PtrToStringAnsi(IntPtr ptr, int len) => ptr == IntPtr.Zero ? null : WindowsMarshal.FromAnsi((byte*)ptr, len);
+        public static string PtrToStringAuto(IntPtr ptr) => PtrToStringUni(ptr);
+#else
         public static string GetPInvokeErrorMessage(int error) => Utf8.FromNative(strerror(error));
         [DllImport("libc")] private static extern byte* strerror(int error);
 
@@ -189,6 +216,7 @@ namespace CsharpcCoreLib
         public static string PtrToStringAnsi(IntPtr ptr) => Utf8.FromNative((byte*)ptr);
         public static string PtrToStringAnsi(IntPtr ptr, int len) => ptr == IntPtr.Zero ? null : Utf8.Decode((byte*)ptr, len);
         public static string PtrToStringAuto(IntPtr ptr) => Utf8.FromNative((byte*)ptr);
+#endif
         public static string PtrToStringUni(IntPtr ptr) => Utf16.FromNative((char*)ptr);
         public static string PtrToStringUni(IntPtr ptr, int len) => ptr == IntPtr.Zero ? null : new string((char*)ptr, 0, len);
 
@@ -430,4 +458,86 @@ namespace CsharpcCoreLib
         }
     }
 #pragma warning restore CS8500
+
+#if CSHARPC_TARGET_WINDOWS
+    /// <summary>Win32 allocators, code-page conversion and error text behind Marshal on Windows.</summary>
+    internal static unsafe class WindowsMarshal
+    {
+        [DllImport("kernel32")] public static extern void* LocalAlloc(uint flags, nuint bytes);
+        [DllImport("kernel32")] public static extern void* LocalReAlloc(void* mem, nuint bytes, uint flags);
+        [DllImport("kernel32")] public static extern void* LocalFree(void* mem);
+        [DllImport("ole32")] public static extern void* CoTaskMemAlloc(nuint bytes);
+        [DllImport("ole32")] public static extern void CoTaskMemFree(void* mem);
+        [DllImport("kernel32")] private static extern int WideCharToMultiByte(uint codePage, uint flags, char* wide, int wideCount,
+            byte* multi, int multiCount, byte* defaultChar, int* usedDefault);
+        [DllImport("kernel32")] private static extern int MultiByteToWideChar(uint codePage, uint flags, byte* multi, int multiCount,
+            char* wide, int wideCount);
+        [DllImport("kernel32")] private static extern int FormatMessageW(uint flags, void* source, uint messageId, uint languageId,
+            char* buffer, uint size, void* arguments);
+
+        private const uint CP_ACP = 0, WC_NO_BEST_FIT_CHARS = 0x400;
+
+        public static IntPtr Check(void* p) => p != null ? (IntPtr)p : throw new OutOfMemoryException();
+
+        private static byte* Alloc(nuint bytes, bool coTaskMem) => (byte*)Check(coTaskMem ? CoTaskMemAlloc(bytes) : LocalAlloc(0, bytes));
+
+        /// <summary>Marshal.StringToHGlobalAnsi/StringToCoTaskMemAnsi: CP_ACP without best-fit mapping, as .NET.</summary>
+        public static IntPtr ToAnsi(string s, bool coTaskMem)
+        {
+            if (s == null) return IntPtr.Zero;
+            fixed (char* chars = s)
+            {
+                int n = s.Length == 0 ? 0 : WideCharToMultiByte(CP_ACP, WC_NO_BEST_FIT_CHARS, chars, s.Length, null, 0, null, null);
+                byte* p = Alloc((nuint)n + 1, coTaskMem);
+                if (n != 0) WideCharToMultiByte(CP_ACP, WC_NO_BEST_FIT_CHARS, chars, s.Length, p, n, null, null);
+                p[n] = 0;
+                return (IntPtr)p;
+            }
+        }
+
+        public static IntPtr ToUtf16(string s, bool coTaskMem)
+        {
+            if (s == null) return IntPtr.Zero;
+            char* p = (char*)Alloc(((nuint)s.Length + 1) * 2, coTaskMem);
+            for (int i = 0; i < s.Length; i++) p[i] = s[i];
+            p[s.Length] = '\0';
+            return (IntPtr)p;
+        }
+
+        public static IntPtr ToUtf8(string s)
+        {
+            if (s == null) return IntPtr.Zero;
+            byte* temp = Utf8.ToNative(s);
+            nuint n = 0;
+            while (temp[n] != 0) n++;
+            byte* p = Alloc(n + 1, coTaskMem: true);
+            for (nuint i = 0; i <= n; i++) p[i] = temp[i];
+            Libc.free(temp);
+            return (IntPtr)p;
+        }
+
+        /// <summary>PtrToStringAnsi: CP_ACP; <paramref name="length"/> &lt; 0 means NUL-terminated.</summary>
+        public static string FromAnsi(byte* p, int length)
+        {
+            if (length < 0) { length = 0; while (p[length] != 0) length++; }
+            if (length == 0) return "";
+            int n = MultiByteToWideChar(CP_ACP, 0, p, length, null, 0);
+            char[] chars = new char[n];
+            fixed (char* c = chars) MultiByteToWideChar(CP_ACP, 0, p, length, c, n);
+            return new string(chars);
+        }
+
+        /// <summary>.NET's Interop.Kernel32.GetMessage: FormatMessage text with trailing whitespace and
+        /// control characters trimmed, or "Unknown error (0x...)".</summary>
+        public static string ErrorMessage(int error)
+        {
+            const uint FROM_SYSTEM = 0x1000, IGNORE_INSERTS = 0x200, ARGUMENT_ARRAY = 0x2000;
+            char* buffer = stackalloc char[256];
+            int length = FormatMessageW(FROM_SYSTEM | IGNORE_INSERTS | ARGUMENT_ARRAY, null, (uint)error, 0, buffer, 256, null);
+            if (length <= 0) return "Unknown error (0x" + ((uint)error).ToString("x") + ")";
+            while (length > 0 && buffer[length - 1] <= ' ') length--;
+            return new string(buffer, 0, length);
+        }
+    }
+#endif
 }

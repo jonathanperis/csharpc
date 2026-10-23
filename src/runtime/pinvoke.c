@@ -6,6 +6,7 @@
 
 #if defined(_WIN32)
 #include <windows.h>
+#include <objbase.h>  // CoTaskMemFree (ole32)
 #elif !defined(__wasi__)
 #include <dlfcn.h>
 #endif
@@ -185,13 +186,38 @@ void* csrt_native_library_get_export(void* handle, const char* entry, bool throw
 void csrt_native_library_free(void* handle) { (void)handle; /* libraries stay loaded, like .NET's default */ }
 
 // ---------------------------------------------------------------------------------------------
-// Legacy [DllImport] string marshalling: NUL-terminated native copies (UTF-8 for Ansi/UTF8,
-// UTF-16 for Unicode), freed by the stub after the call. Returned native strings are copied and
-// freed with free(), which is what .NET does on Unix (CoTaskMemFree == free).
+// Legacy [DllImport] string marshalling: NUL-terminated native copies, freed by the stub after the
+// call. Encodings (ModuleCodeGen.StringAnsi/Utf16/Utf8): Ansi is the system ANSI code page on
+// Windows (CP_ACP, with DllImport's default best-fit mapping) and UTF-8 elsewhere, as in .NET;
+// LPUTF8Str is UTF-8 everywhere. Returned native strings are copied and released with
+// CoTaskMemFree, which is free() on Unix.
 // ---------------------------------------------------------------------------------------------
-void* csrt_pinvoke_string_to_native(csrt_String* s, bool unicode) {
+enum { STRING_ANSI = 0, STRING_UTF16 = 1, STRING_UTF8 = 2 };
+
+#ifdef _WIN32
+static void* ansi_to_native(const csrt_String* s) {
+    int n = s->length ? WideCharToMultiByte(CP_ACP, 0, (LPCWCH)s->chars, s->length, NULL, 0, NULL, NULL) : 0;
+    char* out = malloc((size_t)n + 1);
+    if (n) WideCharToMultiByte(CP_ACP, 0, (LPCWCH)s->chars, s->length, out, n, NULL, NULL);
+    out[n] = 0;
+    return out;
+}
+
+static csrt_String* ansi_from_native(const char* p) {
+    int bytes = (int)strlen(p);
+    int n = bytes ? MultiByteToWideChar(CP_ACP, 0, p, bytes, NULL, 0) : 0;
+    csrt_String* s = csrt_string_alloc_checked(n);
+    if (n) MultiByteToWideChar(CP_ACP, 0, p, bytes, (LPWSTR)s->chars, n);
+    return s;
+}
+#endif
+
+void* csrt_pinvoke_string_to_native(csrt_String* s, int32_t encoding) {
     if (!s) return NULL;
-    if (unicode) {
+#ifdef _WIN32
+    if (encoding == STRING_ANSI) return ansi_to_native(s);
+#endif
+    if (encoding == STRING_UTF16) {
         uint16_t* p = malloc(sizeof(uint16_t) * ((size_t)s->length + 1));
         memcpy(p, s->chars, sizeof(uint16_t) * (size_t)s->length);
         p[s->length] = 0;
@@ -221,10 +247,17 @@ void* csrt_pinvoke_string_to_native(csrt_String* s, bool unicode) {
 
 void csrt_pinvoke_free(void* p) { free(p); }
 
-csrt_String* csrt_pinvoke_string_from_native(void* p, bool unicode, bool release) {
+csrt_String* csrt_pinvoke_string_from_native(void* p, int32_t encoding, bool release) {
     if (!p) return NULL;
     csrt_String* s;
-    if (unicode) {
+#ifdef _WIN32
+    if (encoding == STRING_ANSI) {
+        s = ansi_from_native(p);
+        if (release) CoTaskMemFree(p);
+        return s;
+    }
+#endif
+    if (encoding == STRING_UTF16) {
         const uint16_t* u = p;
         int64_t n = 0;  // 64-bit: a native string longer than .NET's limit is OutOfMemoryException, not a wrap
         while (u[n]) n++;
@@ -233,7 +266,11 @@ csrt_String* csrt_pinvoke_string_from_native(void* p, bool unicode, bool release
     } else {
         s = csrt_string_from_utf8(p);
     }
+#ifdef _WIN32
+    if (release) CoTaskMemFree(p);
+#else
     if (release) free(p);
+#endif
     return s;
 }
 

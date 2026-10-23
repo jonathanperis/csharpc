@@ -9,6 +9,12 @@ on:
 permissions:
   contents: read
 
+# A newer push to the same branch supersedes the running check (each commit contains the previous
+# ones), so runners aren't spent on outdated commits.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   test:
     name: test (${{ matrix.name }})
@@ -101,6 +107,12 @@ jobs:
         if: success() || failure()
         run: tests/conformance.sh -j 4
 
+      # The adversarial corpus: gated on tests/conformance2/known-failures.txt (new failures and
+      # fixed known failures both fail the step). Linux only until its outputs are checked elsewhere.
+      - name: Adversarial conformance corpus
+        if: (success() || failure()) && matrix.os == 'linux'
+        run: tests/conformance2.sh -j 4
+
       - name: Real-world programs
         if: success() || failure()
         run: tests/programs.sh
@@ -164,6 +176,10 @@ jobs:
       - name: Conformance corpus
         if: success() || failure()
         run: tests/conformance.sh -j 4
+
+      - name: Adversarial conformance corpus
+        if: success() || failure()
+        run: tests/conformance2.sh -j 4
 
       - name: Real-world programs
         if: success() || failure()

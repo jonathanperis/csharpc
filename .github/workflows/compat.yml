@@ -1,0 +1,57 @@
+name: Compatibility
+
+# The real-world compatibility corpus (docs/18-compatibility.md, tools/compat/): ~320 pinned console
+# programs from dotnet/samples and dotnet/docs, each built and run under real .NET and under csharpc.
+# Too heavy for every push (hours); run on demand and weekly. The summary lands in the job summary,
+# the per-program results as an artifact (copy results into tools/compat/results.tsv to publish them).
+on:
+  workflow_dispatch:
+    inputs:
+      filter:
+        description: "Only program ids containing this substring (empty: all)"
+        required: false
+        default: ""
+  schedule:
+    - cron: "0 3 * * 0" # Sundays 03:00 UTC
+
+permissions:
+  contents: read
+
+concurrency:
+  group: compat-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  compat:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 340
+    env:
+      DOTNET_CLI_TELEMETRY_OPTOUT: 1
+      DOTNET_NOLOGO: 1
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install LLVM 18, clang and lld
+        run: sudo apt-get update && sudo apt-get install -y llvm-18 clang-18 libllvm18 lld-18 && sudo ln -sf /usr/bin/clang-18 /usr/local/bin/clang && sudo ln -sf /usr/bin/ld.lld-18 /usr/local/bin/ld.lld
+
+      - name: Install .NET 11 SDK
+        run: |
+          curl -sSL https://dot.net/v1/dotnet-install.sh -o dotnet-install.sh
+          bash dotnet-install.sh --jsonfile global.json --install-dir "$HOME/.dotnet11"
+          echo "$HOME/.dotnet11" >> "$GITHUB_PATH"
+
+      - name: Run the corpus
+        run: |
+          tools/compat/run.sh -j 4 --corpus "$RUNNER_TEMP/compat-corpus" --work "$RUNNER_TEMP/compat-work" ${{ github.event.inputs.filter }} | tail -60
+          cat "$RUNNER_TEMP/compat-work/summary.md" >> "$GITHUB_STEP_SUMMARY"
+          # One results.tsv in the committed format (id, category, detail), sorted.
+          cat "$RUNNER_TEMP"/compat-work/results/*.tsv | sort > results.tsv
+          cp "$RUNNER_TEMP/compat-work/summary.md" summary.md
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: compat-results
+          path: |
+            results.tsv
+            summary.md

@@ -35,6 +35,8 @@ public sealed partial class ModuleCodeGen
     public void WarnExceptionToString(ITypeSymbol? type, IOperation? at)
     {
         if (type is not INamedTypeSymbol named || at is null || !DerivesFromException(named)) return;
+        // The corelib's own ToString overrides (Win32Exception, ...) are not the program's doing.
+        if (at.Syntax.SyntaxTree.FilePath.StartsWith("<corelib>", StringComparison.Ordinal)) return;
         // A user override decides the text itself.
         for (var t = named; t is not null && !IsLibraryException(t); t = t.BaseType)
             if (t.GetMembers("ToString").OfType<IMethodSymbol>().Any(m => m.IsOverride && m.Parameters.IsEmpty)) return;
@@ -1043,6 +1045,13 @@ public sealed partial class ModuleCodeGen
             graphs.AddRange(InitializerGraphs(t, isStatic: true));
             cctors.AddRange(t.StaticConstructors.Where(c => !c.IsImplicitlyDeclared));
         }
+        // Generic corelib types don't get per-instantiation static initialization yet: an initializer
+        // there would silently leave its field null/zero, so a referenced one is an error, as for user types.
+        foreach (var t in _staticFields.Keys.Select(f => f.ContainingType.OriginalDefinition)
+                     .Where(t => CoreLib.IsCoreLib(t) && TypeSubstitution.IsGenericContext(t))
+                     .Distinct<INamedTypeSymbol>(SymbolEqualityComparer.Default))
+            if (InitializerGraphs(t, isStatic: true).Any() || t.StaticConstructors.Any(c => !c.IsImplicitlyDeclared))
+                throw CompileError.Unsupported($"static field initializers in generic corelib type '{t.Name}'", t);
         foreach (var t in _userTypes.Where(t => t.TypeKind is TypeKind.Class or TypeKind.Struct or TypeKind.Interface))
         {
             if (TypeSubstitution.IsGenericContext(t))

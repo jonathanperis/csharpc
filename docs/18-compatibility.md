@@ -256,6 +256,11 @@ the latest numbers.
 
 ## Re-running
 
+On CI: the `Compatibility` workflow (`.github/workflows/compat.yml`, manual and weekly) runs the whole
+corpus on a hosted runner and publishes the summary in the job summary and `results.tsv` /
+`summary.md` as an artifact; copy the artifact's `results.tsv` into `tools/compat/` to publish a run.
+Locally:
+
 ```sh
 export PATH=$HOME/.dotnet11:$PATH
 tools/compat/run.sh -j 2                    # fetch the pinned corpus, run all programs (~2.5 h on 4 shared cores)

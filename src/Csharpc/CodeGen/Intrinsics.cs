@@ -794,11 +794,12 @@ internal static class Intrinsics
             return g.CallRuntime("csrt_string_new_from_utf16", l.Ptr, [l.Ptr, l.I32], first, CtorArg(g, c, 2));
         };
         t["string..ctor(char*)"] = (g, c) =>
-            g.CallRuntime("csrt_pinvoke_string_from_native", g.Module.Llvm.Ptr, [g.Module.Llvm.Ptr, g.Module.Llvm.I1, g.Module.Llvm.I1],
-                CtorArg(g, c, 0), g.Module.Llvm.True, g.Module.Llvm.False);
+            g.CallRuntime("csrt_pinvoke_string_from_native", g.Module.Llvm.Ptr, [g.Module.Llvm.Ptr, g.Module.Llvm.I32, g.Module.Llvm.I1],
+                CtorArg(g, c, 0), g.Module.Llvm.ConstInt(g.Module.Llvm.I32, ModuleCodeGen.StringUtf16), g.Module.Llvm.False);
+        // .NET Core decodes new string(sbyte*) as UTF-8 on every platform (not the ANSI code page).
         t["string..ctor(sbyte*)"] = (g, c) =>
-            g.CallRuntime("csrt_pinvoke_string_from_native", g.Module.Llvm.Ptr, [g.Module.Llvm.Ptr, g.Module.Llvm.I1, g.Module.Llvm.I1],
-                CtorArg(g, c, 0), g.Module.Llvm.False, g.Module.Llvm.False);
+            g.CallRuntime("csrt_pinvoke_string_from_native", g.Module.Llvm.Ptr, [g.Module.Llvm.Ptr, g.Module.Llvm.I32, g.Module.Llvm.I1],
+                CtorArg(g, c, 0), g.Module.Llvm.ConstInt(g.Module.Llvm.I32, ModuleCodeGen.StringUtf8), g.Module.Llvm.False);
         t["string..ctor(char[], int, int)"] = (g, c) =>
             g.CallRuntime("csrt_string_new_from_char_range", g.Module.Llvm.Ptr, [g.Module.Llvm.Ptr, g.Module.Llvm.I32, g.Module.Llvm.I32],
                 CtorArg(g, c, 0), CtorArg(g, c, 1), CtorArg(g, c, 2));
