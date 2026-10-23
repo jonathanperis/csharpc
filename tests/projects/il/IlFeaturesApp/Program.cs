@@ -48,6 +48,7 @@ Console.WriteLine(Features.Join("-", 1, 2, 3) + " " + Features.Join("+") + " " +
 Console.WriteLine($"primes {Features.Primes(100)} magic {Features.MagicSum()} ptr {Features.PointerSum([1, 2, 3, 4])}");
 foreach (var n in new[] { 5, 0, -1 }) Console.WriteLine(Features.Flow(n));
 Console.WriteLine(Features.Rethrow("12") + " " + Features.Rethrow("x"));
+Console.WriteLine(Features.FilterThrows("abcd") + " " + Features.FilterThrows("abc"));
 Console.WriteLine(string.Join(" ", new[] { 95, 85, 72, 10 }.Select(Features.Grade)));
 Console.WriteLine(Features.Interest(1000m, 0.05m, 3));
 Console.WriteLine(Features.Chars("Hello World 2024"));

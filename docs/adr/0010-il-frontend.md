@@ -1,6 +1,6 @@
 # ADR 0010 — IL front-end: IL as a method-body source for Roslyn's metadata symbols
 
-- **Status:** Accepted (2026-10-23). Vertical slice implemented; see "Status of the implementation".
+- **Status:** Accepted (2026-10-23). Vertical slice implemented; see [Status of the implementation](#status-of-the-implementation).
 
 ## Context
 
@@ -59,7 +59,8 @@ Roslyn `ControlFlowGraph` (its classes are sealed) but sharing `FunctionCodeGen`
    Signatures are decoded in the **generic definition's** context (`!0`, `!!0` → the definition's
    `ITypeParameterSymbol`s), so `FunctionCodeGen`'s `TypeSubstitution` monomorphizes IL exactly as it
    monomorphizes source (one function per instantiation; no shared generics).
-4. **Lowering** (`CodeGen/FunctionCodeGen.Il.cs`): the importer splits the body into basic blocks
+4. **Lowering** (`CodeGen/FunctionCodeGen.Il.cs` — blocks, stack, EH; `.IlInstructions.cs` — opcodes;
+   `.IlCalls.cs` — call/callvirt/newobj): the importer splits the body into basic blocks
    (branch targets, EH region boundaries), simulates the evaluation stack, and spills the stack at
    block boundaries into per-block allocas (mem2reg builds the phis — the same trick the source path
    uses for flow captures). Each instruction is lowered either
@@ -67,8 +68,8 @@ Roslyn `ControlFlowGraph` (its classes are sealed) but sharing `FunctionCodeGen`
      .NET's division/overflow checks (shared helpers), comparisons and branches, `switch`, field and
      array element access of csharpc-compiled types, `ldstr`, `ldnull`, `initobj`, `ldtoken` +
      `InitializeArray`, `localloc`, or
-   - as a **synthetic `IOperation`** (`CodeGen/Il/IlOperations.cs`: invocation, object creation,
-     argument, field reference, delegate creation, array element/creation, …) whose leaves are
+   - as a **synthetic `IOperation`** (`CodeGen/IlOperations.cs`: invocation, object creation,
+     argument, field and property reference, delegate creation, array element, …) whose leaves are
      already-computed stack values, handed to the existing `EmitValue`. That is how an IL `call
      System.Console::WriteLine(int32)` reaches the same intrinsic, `newobj List<int>` the same corelib
      shadow, and `constrained. !!T callvirt IComparable<!!T>::CompareTo` the same per-instantiation
@@ -76,9 +77,19 @@ Roslyn `ControlFlowGraph` (its classes are sealed) but sharing `FunctionCodeGen`
 5. **Corelib redirection** applies unchanged: synthetic operations carry the real BCL symbols and
    `S()`/`CoreLib.Map` redirect them as for source.
 6. **Diagnostics.** Anything unsupported is a `CSLLVM0001` naming the method, the IL offset and the
-   opcode or feature (`'Lib.Parser.Next()' IL_0012: calli is not supported by csharpc yet`); missing
-   library members stay `CSLLVM0002`. Unverifiable or malformed IL (stack underflow, inconsistent
-   stack at a join, branch into a region) is rejected with a diagnostic, never guessed at.
+   instruction with its operand resolved (`… [in 'Lib.Parser.Next()' (Lib.dll) IL_0012: calli …]`);
+   missing library members stay `CSLLVM0002`. Unverifiable or malformed IL (stack underflow,
+   inconsistent stack at a join, a backward branch with a non-empty stack) is rejected, never guessed at.
+7. **Failures in code the program cannot reach.** A package's method tables and interface maps
+   reference every virtual method of the types the program uses, so lowering a library pulls in code
+   the program never runs (async stream helpers, serialization hooks). An IL method that fails to
+   compile therefore becomes a *stub* that prints the diagnostic and aborts if it is ever called; at
+   the end, a class-hierarchy analysis from the program's own code (direct references, plus every
+   override/implementation a virtual or interface call site can reach) decides: failures in reachable
+   methods are errors, exactly as in the source path; the others are `CSLLVM0007` warnings. Slots of
+   methods whose *signature* csharpc cannot represent get the stub too — no call site can reach them
+   without failing to compile first. This is NativeAOT's model (warnings plus throwing stubs), with one
+   difference that keeps the rule: the stub cannot be caught; it ends the program with the message.
 
 ### How the listed concerns map
 
@@ -114,22 +125,34 @@ Roslyn `ControlFlowGraph` (its classes are sealed) but sharing `FunctionCodeGen`
 - **Unverifiable IL** (pointer arithmetic, `cpblk`, `initblk`, unaligned/volatile prefixes) is
   lowered literally where it is well defined; constructs that depend on the GC's knowledge of
   interior pointers are fine because csharpc's GC is conservative and non-moving (ADR 0004).
+- **What Roslyn's symbols hide.** Field-like events' backing fields are not exposed by Roslyn's PE
+  symbols; the event symbol stands for its field and gets the slot in the layout. Struct layout flags
+  (`.pack`, `.size`, explicit layout) and `beforefieldinit` are read from the metadata directly.
+- **Compiler idioms of C#.** `DefaultInterpolatedStringHandler` (every compiled `$"..."`) is lowered
+  like source interpolation (a StringBuilder, same per-hole formatting); operator methods of built-in
+  types (`decimal.op_Addition`, generic math through `constrained.` on primitives), span/`Index`
+  conversion operators and `string.op_Equality` reach the same lowering as the C# operators.
+- **Framework assemblies as IL.** ReadyToRun images (the shared framework) keep their full IL and are
+  accepted; an IL reference replaces the reference-pack assembly of the same name, so a framework
+  assembly can be bound and compiled from its implementation IL (tried with
+  `Microsoft.Extensions.Primitives.dll` — see the status section).
 
 ### Out of scope
 
 `Reflection.Emit`, `System.Linq.Expressions` compilation, mixed-mode/C++/CLI assemblies (native
-code inside the PE), `calli` to managed function pointers with unknown signatures until function
-pointers are needed, `arglist`/`mkrefany`/`refanyval` (TypedReference), `jmp`, `tail.` (lowered as
-a normal call where that is unobservable; deep tail recursion may overflow where CoreCLR would not —
-reported as a warning), multi-module assemblies.
+code inside the PE), `calli` (until function pointers from IL are needed), `arglist`/`mkrefany`/
+`refanyval`/`refanytype` (TypedReference), `jmp`, multi-module assemblies. `tail.` is compiled as an
+ordinary call (warning `CSLLVM0006`: deep tail recursion can overflow where CoreCLR would not).
 
 ### Project input
 
-`<Reference Include="X.dll">` and resolved `PackageReference` runtime assets are both "assemblies
-without sources". The driver collects them from MSBuild (`ReferencePath` / `ReferenceCopyLocalPaths`
-after `ResolveAssemblyReferences`), binds user code against them (as `dotnet build` does) and lowers
-reachable IL from the *implementation* assembly. The first slice handles explicit DLL references
-(`-r` on the command line, `<Reference>` items in projects); NuGet resolution reuses the same path.
+`-r X.dll`, `<Reference Include="X"><HintPath>X.dll</HintPath></Reference>` and `PackageReference`s
+are all "assemblies without sources". For packages the driver runs
+`dotnet msbuild -restore -t:ResolvePackageAssets -getItem:RuntimeCopyLocalItems` — the runtime
+(implementation) assemblies NuGet selected for the target framework, transitive closure included,
+i.e. what `dotnet build` copies next to the app — and binds and compiles against those. (Binding
+against `ref/` assemblies while compiling `lib/` ones would need a second symbol world; the runtime
+assets bind fine because they are a superset of the reference surface.)
 
 ## Consequences
 
@@ -146,6 +169,46 @@ reachable IL from the *implementation* assembly. The first slice handles explici
   reported as missing library members (CSLLVM0002), not miscompiled.
 - `typeof(T).Assembly`, `Assembly.GetName()` and other identity queries see one closed-world program;
   they are rejected where reached.
+
+## Status of the implementation
+
+Measured 2026-10-23 on the branch that introduced the IL front-end.
+
+**Opcodes.** All of ECMA-335 partition III except `calli`, `jmp`, `arglist`, `mkrefany`, `refanyval`,
+`refanytype` and `ckfinite`, which are diagnosed. Prefixes: `constrained.`, `volatile.` (acquire/release
+accesses), `readonly.`, `unaligned.` (ignored: x86-64/AArch64 handle unaligned access), `tail.` (warning).
+
+**Features exercised against `dotnet run`** (`tests/il.sh`, `tests/projects/il/`, -O0 and -O2):
+classes with fields, auto-properties, virtual/abstract/override/`base` calls, sealed classes, a C#
+class deriving from an IL class; interfaces incl. default interface methods and static abstract
+members; generic classes/methods with constraints, generic virtual methods, nested generic types,
+generic static constructors; structs (in-place construction, `readonly` members, operators,
+`IEquatable`), records (class and struct, synthesized `ToString`/`Equals`/`GetHashCode`/`with`),
+enums; try/catch/finally, filters (`when`), rethrow, nested finally on early `return`, exceptions
+crossing the source/IL boundary both ways; lambdas and closures, `<>c` caches, delegates,
+field-like events, iterators (`yield`), LINQ (method and query syntax, anonymous types); string
+interpolation (`DefaultInterpolatedStringHandler`), string `switch` (hash + `op_Equality`),
+`StringBuilder`, `List`/`Dictionary`; `decimal`, checked arithmetic, generic math (`INumber<T>`);
+`stackalloc`, `fixed`, pointers, `ReadOnlySpan<byte>` RVA literals, array initializers; `lock`,
+`using`; `[DllImport]` P/Invoke; `static readonly` fields with `beforefieldinit` and precise cctors.
+
+**Real NuGet packages** (restored into a fresh directory, compiled with `-r` / `PackageReference`):
+
+| Package | Result |
+|---|---|
+| Ardalis.GuardClauses 5.0.0 | ✅ compiles; output byte-identical (`tests/projects/il/IlNuGetApp`) |
+| ByteSize 2.1.2 | ❌ library surface: `NumberFormatInfo.CurrentInfo` |
+| Semver 3.0.0 | ❌ library surface: `List<T>.AsReadOnly`, `BigInteger.Parse/ToString(IFormatProvider)`; its dependency `Microsoft.Extensions.Primitives` compiles from the shared framework's IL except `ResourceManager` (resource strings) |
+| SimpleBase 4.0.2 | ❌ library surface: `Lazy<T>`, `Range.EndAt`, `string.GetHashCode(StringComparison)`; unreachable async helpers become CSLLVM0007 stubs as designed |
+
+Every failure is a diagnostic naming the method and instruction; none of the four produced wrong
+output. The remaining blockers are BCL surface (roadmap M2), not IL constructs: once the IL is
+decoded, a package needs exactly the library members a source program calling the same APIs needs.
+
+**Known semantic differences** (documented, explicit where observable): filters run during dispatch
+in the frame that catches (as in the source path), after inner `finally` blocks have run — .NET runs
+them in the first pass; `tail.` is not a guaranteed tail call. (An exception thrown inside a filter
+counts as `false`, as in .NET: filter code has its own catch-all landing pad.)
 
 ## Alternatives considered
 

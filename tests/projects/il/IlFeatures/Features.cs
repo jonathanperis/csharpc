@@ -203,6 +203,14 @@ public static class Features
         catch (FormatException e) { return "rethrown: " + e.GetType().Name; }
     }
 
+    public static string FilterThrows(string s)
+    {
+        try { throw new InvalidOperationException(s); }
+        // For "abc" the filter itself throws (division by zero): that counts as false, not as an escape.
+        catch (InvalidOperationException e) when (e.Message.Length / (s.Length - 3) > 0) { return "filtered"; }
+        catch (InvalidOperationException) { return "fallback"; }
+    }
+
     public static string Grade(int score) => score switch
     {
         >= 90 => "A",

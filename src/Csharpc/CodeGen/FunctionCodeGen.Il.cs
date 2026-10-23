@@ -77,6 +77,8 @@ public sealed partial class FunctionCodeGen
         public LLVMValueRef Selector { get; set; }
         public List<LLVMBasicBlockRef> Continuations { get; } = [];
         public LLVMBasicBlockRef Reject { get; set; }
+        public LLVMBasicBlockRef FilterPad { get; set; }
+        public bool InFilter(int offset) => Kind == ExceptionRegionKind.Filter && offset >= Region.FilterOffset && offset < HandlerStart;
         public bool InHandler(int offset) => offset >= HandlerStart && offset < HandlerEnd
             || (Kind == ExceptionRegionKind.Filter && offset >= Region.FilterOffset && offset < HandlerStart);
     }
@@ -245,7 +247,11 @@ public sealed partial class FunctionCodeGen
         var il = _il!;
         block.Emitted = true;
         _b.PositionAtEnd(block.Llvm);
-        _b.UnwindDest = block.Try is { } protectedBy ? IlLandingPad(protectedBy) : default;
+        // Inside a filter, an exception means "this handler doesn't match" (ECMA-335 II.19), unless a try
+        // nested in the filter itself catches it.
+        _b.UnwindDest = block.Try is { } protectedBy && (block.Handler is not { } filter || !filter.InFilter(block.Start) || protectedBy.Start >= filter.Region.FilterOffset)
+            ? IlLandingPad(protectedBy)
+            : block.Handler is { } f && f.InFilter(block.Start) ? IlFilterPad(f) : default;
         _b.MayThrow = _m.MayThrow;
         // ECMA-335 III.1.7.5: a block reached by neither fall-through nor an earlier branch starts empty.
         block.Entry ??= [];
@@ -428,6 +434,23 @@ public sealed partial class FunctionCodeGen
         _b.PositionAtEnd(savedBlock);
         _b.UnwindDest = savedUnwind;
         return t.Dispatch;
+    }
+
+    /// <summary>The landing pad of a filter's code: any exception rejects the handler.</summary>
+    private LLVMBasicBlockRef IlFilterPad(IlClause filter)
+    {
+        if (!filter.FilterPad.IsNull) return filter.FilterPad;
+        EnsurePersonality();
+        var (savedBlock, savedUnwind) = (_b.InsertBlock, _b.UnwindDest);
+        _b.UnwindDest = default;
+        filter.FilterPad = NewBlock("il.filter.lpad");
+        _b.PositionAtEnd(filter.FilterPad);
+        var lp = _b.LandingPad(LandingPadType, _m.Runtime("csrt_personality", L.I32).Fn, [LlvmContext.Null(L.Ptr)], cleanup: false);
+        CallRuntime("csrt_begin_catch", L.Ptr, [L.Ptr], _b.ExtractValue(lp, 0));
+        _b.Br(filter.Reject);
+        _b.PositionAtEnd(savedBlock);
+        _b.UnwindDest = savedUnwind;
+        return filter.FilterPad;
     }
 
     private void IlEnterFinally(IlClause clause, LLVMBasicBlockRef continuation)
