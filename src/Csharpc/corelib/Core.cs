@@ -51,6 +51,8 @@ namespace CsharpcCoreLib
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern DateTime MakeDateTime(long data);
         /// <summary>csrt_unhandled_exception: prints "Unhandled exception. ..." and ends the process (never returns).</summary>
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern void UnhandledException(Exception exception);
+        /// <summary>csrt_is_iterator: an iterator/async iterator compiled from source (an LLVM coroutine object).</summary>
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern bool IsCoroutineIterator(object o);
         /// <summary>The string resources of the IL assemblies, encoded (ModuleCodeGen.Resources.cs).</summary>
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern string ResourceStrings();
         /// <summary>runtimeconfig.json configProperties, encoded (ModuleCodeGen.Resources.cs).</summary>

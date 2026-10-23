@@ -237,8 +237,14 @@ namespace CsharpcCoreLib
         public ConfiguredCancelableAsyncEnumerableImpl<T> WithCancellation(CancellationToken cancellationToken) =>
             new ConfiguredCancelableAsyncEnumerableImpl<T>(_enumerable, _continueOnCapturedContext, cancellationToken);
 
-        public Enumerator GetAsyncEnumerator() =>
-            new Enumerator(_enumerable.GetAsyncEnumerator(_cancellationToken), _continueOnCapturedContext);
+        public Enumerator GetAsyncEnumerator()
+        {
+            // csharpc's own async iterators (LLVM coroutines) can't pass a token to their
+            // [EnumeratorCancellation] parameter after the call: say so rather than ignore it.
+            if (_cancellationToken.CanBeCanceled && CoreIntrinsics.IsCoroutineIterator(_enumerable))
+                throw new NotSupportedException("csharpc: WithCancellation on an async iterator compiled from C# source is not supported yet (the token would not reach its [EnumeratorCancellation] parameter).");
+            return new Enumerator(_enumerable.GetAsyncEnumerator(_cancellationToken), _continueOnCapturedContext);
+        }
 
         [Shadows("System.Runtime.CompilerServices.ConfiguredCancelableAsyncEnumerable`1+Enumerator")]
         public struct Enumerator
