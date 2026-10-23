@@ -267,6 +267,14 @@ public sealed class TargetMachine : IDisposable
         cpu ??= host ? DefaultHostCpu(triple, hostCpu) : "generic";
         features ??= host && cpu == hostCpu ? TakeMessage(LLVMGetHostCPUFeatures())! : "";
         var machine = LLVMCreateTargetMachine(target, triple, cpu, features, level, LLVMRelocMode.PIC, LLVMCodeModel.Default);
+        // AArch64 enables GlobalISel at -O0, falling back to SelectionDAG per function for what it can't
+        // select. On Darwin the two disagree on where a split aggregate's small fields go on the stack
+        // (GlobalISel packs them as Apple's ABI does, SelectionDAG gives each a 4-byte slot), so a
+        // fallback caller passing a struct like Guid by value to a GlobalISel callee corrupts its
+        // arguments. SelectionDAG for every function keeps both sides consistent
+        // (-O1 and up use SelectionDAG anyway).
+        if (IsDarwinTriple(triple) && (triple.StartsWith("arm64", StringComparison.Ordinal) || triple.StartsWith("aarch64", StringComparison.Ordinal)))
+            LLVMSetTargetMachineGlobalISel(machine, 0);
         return new TargetMachine(machine, triple);
     }
 

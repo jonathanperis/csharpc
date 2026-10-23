@@ -294,6 +294,7 @@ internal static unsafe partial class Native
     public static partial LLVMTargetMachineRef LLVMCreateTargetMachine(LLVMTargetRef target, string triple, string cpu, string features,
         LLVMCodeGenOptLevel level, LLVMRelocMode reloc, LLVMCodeModel codeModel);
     [LibraryImport(Lib)] public static partial void LLVMDisposeTargetMachine(LLVMTargetMachineRef tm);
+    [LibraryImport(Lib)] public static partial void LLVMSetTargetMachineGlobalISel(LLVMTargetMachineRef tm, int enable);
     [LibraryImport(Lib)] public static partial LLVMTargetDataRef LLVMCreateTargetDataLayout(LLVMTargetMachineRef tm);
     [LibraryImport(Lib)] public static partial void LLVMDisposeTargetData(LLVMTargetDataRef td);
     [LibraryImport(Lib)] public static partial ulong LLVMABISizeOfType(LLVMTargetDataRef td, LLVMTypeRef type);
