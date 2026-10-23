@@ -72,11 +72,13 @@ public sealed partial class ModuleCodeGen
             var block = assembly.Body(method)
                 ?? throw new CompileError("CSLLVM0001", $"not supported by csharpc yet: '{method}' has no IL body (runtime-implemented method in {assembly.Name}.dll)", location);
             IlMethodBody body;
-            try { body = IlMethodBody.Decode(assembly, method, block); }
+            var decodeStart = System.Diagnostics.Stopwatch.GetTimestamp();
+            try { body = IlMethodBody.For(assembly, method, block); }
             catch (Exception e) when (e is IlException or BadImageFormatException)
             {
                 throw new CompileError("CSLLVM0001", $"not supported by csharpc yet: {e.Message} [in '{method}' ({assembly.Name}.dll)]", location);
             }
+            finally { Stats.IlDecodeTicks += System.Diagnostics.Stopwatch.GetTimestamp() - decodeStart; }
             if (IlDump is { } dump)
             {
                 dump.WriteLine($"=== IL {method.ToDisplayString()}  [{Mangler.Method(method)}]");

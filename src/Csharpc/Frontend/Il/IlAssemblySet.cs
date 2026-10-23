@@ -134,6 +134,9 @@ public sealed class IlAssembly : IDisposable, ISignatureTypeProvider<IlType, IlG
     public Compilation Compilation { get; private set; } = null!;
     public string Name => Reader.GetString(Reader.GetAssemblyDefinition().Name);
 
+    /// <summary>Decoded bodies by generic definition (IlMethodBody.For).</summary>
+    internal Dictionary<IMethodSymbol, IlMethodBody> DecodedBodies { get; } = new(SymbolEqualityComparer.Default);
+
     private Dictionary<string, IAssemblySymbol> _referenced = [];
     private Dictionary<int, ISymbol>? _byToken;
     private readonly Dictionary<EntityHandle, INamedTypeSymbol> _typeRefs = [];
@@ -155,6 +158,7 @@ public sealed class IlAssembly : IDisposable, ISignatureTypeProvider<IlType, IlG
         _byToken = null;
         _typeRefs.Clear();
         _members.Clear();
+        DecodedBodies.Clear();
     }
 
     /// <summary>

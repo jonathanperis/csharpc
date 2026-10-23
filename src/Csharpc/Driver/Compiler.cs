@@ -141,6 +141,7 @@ public sealed class Compiler(CompilerOptions options)
         catch (CompileError e) { codegen.Errors.Add(e); }
         debugInfo?.Finish();
         Phase("lower CFG -> LLVM IR");
+        if (options.Verbose) Console.Error.WriteLine($"             {codegen.Stats}");
 
         foreach (var w in codegen.Warnings.DistinctBy(w => w.Format()))
         {
@@ -228,14 +229,20 @@ public sealed class Compiler(CompilerOptions options)
         return names;
     }
 
-    private TimeSpan _last;
+    private TimeSpan _last, _lastCpu;
+    private long _lastAllocated;
 
     private void Phase(string name)
     {
         if (!options.Verbose) return;
         var now = _clock.Elapsed;
-        Console.Error.WriteLine($"  {(now - _last).TotalMilliseconds,8:F1} ms  {name}");
+        // Wall time is noisy on a loaded machine; allocations and GCs per phase are not.
+        var allocated = GC.GetTotalAllocatedBytes();
+        var cpu = System.Diagnostics.Process.GetCurrentProcess().TotalProcessorTime;
+        Console.Error.WriteLine($"  {(now - _last).TotalMilliseconds,8:F1} ms  {(cpu - _lastCpu).TotalMilliseconds,8:F1} ms cpu  {(allocated - _lastAllocated) / 1048576.0,7:F1} MB alloc  gc {GC.CollectionCount(0)}/{GC.CollectionCount(1)}/{GC.CollectionCount(2)}  {name}");
         _last = now;
+        _lastAllocated = allocated;
+        _lastCpu = cpu;
     }
 
     private static readonly bool s_color =
