@@ -49,6 +49,8 @@ namespace CsharpcCoreLib
         /// <summary>DateTime's raw `_dateData`: ticks in bits 0-61, the kind in bits 62-63 (DateTimeOps.cs).</summary>
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern long DateTimeData(DateTime value);
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern DateTime MakeDateTime(long data);
+        /// <summary>csrt_unhandled_exception: prints "Unhandled exception. ..." and ends the process (never returns).</summary>
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern void UnhandledException(Exception exception);
     }
 
     /// <summary>

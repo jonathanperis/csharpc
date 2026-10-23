@@ -579,6 +579,14 @@ internal static class Intrinsics
     private const string Tasks = "System.Threading.Tasks";
     private const string Rcs = "System.Runtime.CompilerServices";
 
+    /// <summary>The awaiters that are a csrt task pointer (a property: the tables above are built first).</summary>
+    private static string[] TaskAwaiterTypes =>
+    [
+        $"{Rcs}.TaskAwaiter", $"{Rcs}.TaskAwaiter<TResult>", $"{Rcs}.ValueTaskAwaiter", $"{Rcs}.ValueTaskAwaiter<TResult>",
+        $"{Rcs}.ConfiguredTaskAwaitable.ConfiguredTaskAwaiter", $"{Rcs}.ConfiguredTaskAwaitable<TResult>.ConfiguredTaskAwaiter",
+        $"{Rcs}.ConfiguredValueTaskAwaitable.ConfiguredValueTaskAwaiter", $"{Rcs}.ConfiguredValueTaskAwaitable<TResult>.ConfiguredValueTaskAwaiter",
+    ];
+
     private static void AddTaskMethods(Dictionary<string, IntrinsicHandler> t)
     {
         static LLVMValueRef Wait(FunctionCodeGen g, LLVMValueRef task)
@@ -724,9 +732,7 @@ internal static class Intrinsics
             var size = (long)g.Module.Types.Target.SizeOf(g.Module.Types.Storage(result));
             return g.CallRuntime("csrt_valuetask_as_task", g.Module.Llvm.Ptr, [g.Module.Llvm.Ptr, g.Module.Llvm.I32], g.EmitValue(inv.Instance!), g.Module.Llvm.ConstInt(g.Module.Llvm.I32, size));
         };
-        foreach (var awaiter in new[] { $"{Rcs}.TaskAwaiter", $"{Rcs}.TaskAwaiter<TResult>", $"{Rcs}.ValueTaskAwaiter", $"{Rcs}.ValueTaskAwaiter<TResult>",
-                     $"{Rcs}.ConfiguredTaskAwaitable.ConfiguredTaskAwaiter", $"{Rcs}.ConfiguredTaskAwaitable<TResult>.ConfiguredTaskAwaiter",
-                     $"{Rcs}.ConfiguredValueTaskAwaitable.ConfiguredValueTaskAwaiter", $"{Rcs}.ConfiguredValueTaskAwaitable<TResult>.ConfiguredValueTaskAwaiter" })
+        foreach (var awaiter in TaskAwaiterTypes)
             t[$"{awaiter}.GetResult()"] = (g, inv) =>
             {
                 var task = Wait(g, g.EmitValue(inv.Instance!));
@@ -736,6 +742,33 @@ internal static class Intrinsics
         foreach (var awaitable in new[] { $"{Rcs}.ConfiguredTaskAwaitable", $"{Rcs}.ConfiguredTaskAwaitable<TResult>",
                      $"{Rcs}.ConfiguredValueTaskAwaitable", $"{Rcs}.ConfiguredValueTaskAwaitable<TResult>" })
             t[$"{awaitable}.GetAwaiter()"] = self;
+
+        // The awaiter pattern as compiled async state machines (IL) and custom awaitables call it:
+        // OnCompleted/UnsafeOnCompleted register an Action continuation on the task (docs/10-async.md).
+        IntrinsicHandler onCompleted = (g, inv) =>
+        {
+            var task = g.EmitValue(inv.Instance!);
+            g.CallRuntime("csrt_task_on_completed_action", g.Module.Llvm.Void, [g.Module.Llvm.Ptr, g.Module.Llvm.Ptr], task, Arg(g, inv, 0));
+            return default;
+        };
+        foreach (var awaiter in TaskAwaiterTypes)
+        {
+            t[$"{awaiter}.OnCompleted(System.Action)"] = onCompleted;
+            t[$"{awaiter}.UnsafeOnCompleted(System.Action)"] = onCompleted;
+        }
+        // Task.Yield(): YieldAwaitable/YieldAwaiter are a null task pointer; the continuation always
+        // goes to the pool (no SynchronizationContext or TaskScheduler to post to).
+        const string yieldAwaiter = $"{Rcs}.YieldAwaitable.YieldAwaiter";
+        t[$"{Rcs}.YieldAwaitable.GetAwaiter()"] = self;
+        t[$"{yieldAwaiter}.GetResult()"] = (g, inv) => { g.EmitValue(inv.Instance!); return default; };
+        IntrinsicHandler queue = (g, inv) =>
+        {
+            g.EmitValue(inv.Instance!);
+            g.CallRuntime("csrt_queue_action", g.Module.Llvm.Void, [g.Module.Llvm.Ptr], Arg(g, inv, 0));
+            return default;
+        };
+        t[$"{yieldAwaiter}.OnCompleted(System.Action)"] = queue;
+        t[$"{yieldAwaiter}.UnsafeOnCompleted(System.Action)"] = queue;
     }
 
     private static void ThrowAggregate(FunctionCodeGen g, LLVMValueRef task) =>
@@ -760,9 +793,9 @@ internal static class Intrinsics
             g.Builder.ICmp(LLVMIntPredicate.NE, g.EmitValue(p.Instance!), LlvmContext.Null(g.Module.Llvm.Ptr));
         t[$"{Th}.CancellationToken.None"] = (g, _) => LlvmContext.Null(g.Module.Llvm.Ptr);
         PropertyHandler isCompleted = (g, p) => g.CallRuntime("csrt_task_is_completed", g.Module.Llvm.I1, [g.Module.Llvm.Ptr], g.EmitValue(p.Instance!));
-        foreach (var type in new[] { $"{Tasks}.Task", $"{Tasks}.ValueTask", $"{Tasks}.ValueTask<TResult>", $"{Rcs}.TaskAwaiter", $"{Rcs}.TaskAwaiter<TResult>",
-                     $"{Rcs}.ValueTaskAwaiter", $"{Rcs}.ValueTaskAwaiter<TResult>" })
+        foreach (var type in TaskAwaiterTypes.Concat([$"{Tasks}.Task", $"{Tasks}.ValueTask", $"{Tasks}.ValueTask<TResult>"]))
             t[$"{type}.IsCompleted"] = isCompleted;
+        t[$"{Rcs}.YieldAwaitable.YieldAwaiter.IsCompleted"] = (g, p) => { g.EmitValue(p.Instance!); return g.Module.Llvm.False; };
         t[$"{Tasks}.Task.IsCompletedSuccessfully"] = (g, p) =>
             g.CallRuntime("csrt_task_is_completed_successfully", g.Module.Llvm.I1, [g.Module.Llvm.Ptr], g.EmitValue(p.Instance!));
         t[$"{Tasks}.ValueTask.IsCompletedSuccessfully"] = t[$"{Tasks}.Task.IsCompletedSuccessfully"];

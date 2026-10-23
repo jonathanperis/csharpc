@@ -114,9 +114,16 @@ public sealed partial class FunctionCodeGen
             // DateTime is its i64 _dateData (BclValueTypes.cs)
             "DateTimeData" or "MakeDateTime" => args[0],
             "CompareStrings" => CallRuntime("csrt_string_compare_culture", L.I32, [L.Ptr, L.Ptr, L.I1], args[0], args[1], L.False),
+            "UnhandledException" => UnhandledException(args[0]),
             "CompareStringsWith" => CallRuntime("csrt_string_compare_with", L.I32, [L.Ptr, L.Ptr, L.I32], args[0], args[1], args[2]),
             _ => throw CompileError.Unsupported($"corelib intrinsic '{target.Name}'", inv),
         };
+    }
+
+    private LLVMValueRef UnhandledException(LLVMValueRef exception)
+    {
+        CallRuntime("csrt_unhandled_exception", L.Void, [L.Ptr], exception);
+        return default;
     }
 
     /// <summary>

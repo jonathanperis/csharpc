@@ -72,7 +72,8 @@ _Static_assert(offsetof(csrt_Iterator, payload) == 48, "iterator payload offset 
 _Static_assert(offsetof(csrt_Iterator, state) == 8, "iterator state offset is part of the compiler ABI");
 
 enum { K_RESUME = 1, K_WHEN_ALL = 2, K_CHAIN = 3, K_WHEN_ANY = 4, K_RUN_ACTION = 5, K_RUN_FUNC_TASK = 6,
-       K_TIMER_TASK = 7, K_TIMER_CANCEL = 8, K_RUN_THUNK = 9 };
+       K_TIMER_TASK = 7, K_TIMER_CANCEL = 8, K_RUN_THUNK = 9,
+       K_INVOKE = 10 /* an Action continuation (awaiter.OnCompleted) */ };
 
 typedef struct { const csrt_MethodTable* mt; void* target; void* fn; } Delegate;
 
@@ -342,6 +343,13 @@ static void when_any_hit(csrt_Task* any, csrt_Task* winner) {
 static _Thread_local int tl_inline_depth;
 enum { MAX_INLINE_DEPTH = 32 };
 
+/// Runs an Action continuation. An exception escaping it is unhandled, as on .NET's thread pool.
+static void invoke_action(void* del) {
+    Delegate* d = del;
+    void* exception = csrt_call_catching_void((void (*)(void*))d->fn, d->target);
+    if (exception) csrt_unhandled_exception(exception);
+}
+
 static void run_continuations(csrt_Task* t, csrt_Array* conts, int32_t n) {
     for (int32_t i = 0; i < n; i++) {
         intptr_t kind = (intptr_t)words(conts)[i * 2];
@@ -353,6 +361,13 @@ static void run_continuations(csrt_Task* t, csrt_Array* conts, int32_t n) {
                     csrt_coro_resume(p);
                     tl_inline_depth--;
                 } else enqueue(K_RESUME, p, NULL);
+                break;
+            case K_INVOKE:
+                if (tl_inline_depth < MAX_INLINE_DEPTH) {
+                    tl_inline_depth++;
+                    invoke_action(p);
+                    tl_inline_depth--;
+                } else enqueue(K_INVOKE, p, NULL);
                 break;
             case K_WHEN_ALL: when_all_step(p); break;
             case K_CHAIN: chain(t, p); break;
@@ -405,6 +420,20 @@ csrt_Task* csrt_task_from_exception(void* exception, int32_t payload_size) {
 /// is fine.
 void csrt_task_on_completed(csrt_Task* t, void* frame) {
     if (!add_continuation(t, K_RESUME, frame)) enqueue(K_RESUME, frame, NULL);
+}
+
+/// awaiter.OnCompleted(action) / UnsafeOnCompleted(action) (IL async state machines, custom awaiter
+/// patterns): run the action when `t` completes — inline on the completing thread, or on the pool if
+/// `t` already completed, as TaskAwaiter does without a SynchronizationContext.
+void csrt_task_on_completed_action(csrt_Task* t, void* action) {
+    if (!action) csrt_throw_null_reference();
+    if (!t || !add_continuation(t, K_INVOKE, action)) enqueue(K_INVOKE, action, NULL);
+}
+
+/// YieldAwaiter.OnCompleted(action): run the action on the pool.
+void csrt_queue_action(void* action) {
+    if (!action) csrt_throw_null_reference();
+    enqueue(K_INVOKE, action, NULL);
 }
 
 /// `await Task.Yield()`: resume on the pool, after work already queued.
@@ -694,6 +723,7 @@ csrt_Task* csrt_task_run_thunk(void (*thunk)(void*), void* del, int32_t payload_
 static void run_item(intptr_t kind, void* a, void* b) {
     switch (kind) {
         case K_RESUME: csrt_coro_resume(a); break;
+        case K_INVOKE: invoke_action(a); break;
         case K_RUN_ACTION: {
             Delegate* d = a;
             void* exception = csrt_call_catching_void((void (*)(void*))d->fn, d->target);
