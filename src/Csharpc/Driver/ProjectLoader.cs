@@ -19,6 +19,10 @@ public sealed record ProjectInfo
     public bool ImplicitUsings { get; init; }
     /// <summary>&lt;StartupObject&gt;: the type whose Main is the entry point (csc -main).</summary>
     public string? StartupObject { get; init; }
+    /// <summary>&lt;InvariantGlobalization&gt; / &lt;PredefinedCulturesOnly&gt;: the runtimeconfig switches
+    /// System.Globalization.Invariant / PredefinedCulturesOnly, compiled into the program (null: not set).</summary>
+    public bool? InvariantGlobalization { get; init; }
+    public bool? PredefinedCulturesOnly { get; init; }
     public List<string> GlobalUsings { get; } = [];
     public List<string> ProjectReferences { get; } = [];
     public List<string> UnsupportedPackages { get; } = [];
@@ -37,7 +41,7 @@ public static class ProjectLoader
     [
         "AssemblyName", "OutputType", "DefineConstants", "LangVersion", "Nullable", "AllowUnsafeBlocks",
         "ImplicitUsings", "TargetFramework", "TargetFrameworks", "MSBuildProjectFullPath",
-        "StartupObject",
+        "StartupObject", "InvariantGlobalization", "PredefinedCulturesOnly",
     ];
 
     /// <summary>
@@ -77,6 +81,51 @@ public static class ProjectLoader
         };
     }
 
+    /// <summary>An MSBuild boolean property as the runtimeconfig would get it ("true"/"false", any case).</summary>
+    private static bool? Switch(string? value) =>
+        value is null ? null : string.Equals(value.Trim(), "true", StringComparison.OrdinalIgnoreCase) ? true
+        : string.Equals(value.Trim(), "false", StringComparison.OrdinalIgnoreCase) ? false : null;
+
+    /// <summary>
+    /// The corelib symbols for the globalization switches (Globalization/GlobalizationMode.cs): csharpc has no
+    /// runtimeconfig.json, so the project's values are compiled in; the DOTNET_SYSTEM_GLOBALIZATION_*
+    /// environment variables still override them at run time, as in .NET.
+    /// </summary>
+    public static IEnumerable<string> GlobalizationDefines(bool? invariant, bool? predefinedCulturesOnly)
+    {
+        if (invariant == true) yield return "CSHARPC_INVARIANT_GLOBALIZATION";
+        if (predefinedCulturesOnly == true) yield return "CSHARPC_PREDEFINED_CULTURES_ONLY";
+        if (predefinedCulturesOnly == false) yield return "CSHARPC_PREDEFINED_CULTURES_ONLY_FALSE";
+    }
+
+    /// <summary>
+    /// File-based apps (`dotnet run app.cs`): `#:property InvariantGlobalization=true` and
+    /// `#:property PredefinedCulturesOnly=...` directives at the top of an input file.
+    /// </summary>
+    public static (bool? Invariant, bool? PredefinedCulturesOnly) FileGlobalizationProperties(IEnumerable<string> files)
+    {
+        bool? invariant = null, predefined = null;
+        foreach (var file in files)
+        {
+            if (!File.Exists(file)) continue;
+            foreach (var raw in File.ReadLines(file))
+            {
+                var line = raw.Trim();
+                if (line.Length == 0 || line.StartsWith("#!", StringComparison.Ordinal)) continue;
+                if (!line.StartsWith("#:", StringComparison.Ordinal)) break;
+                if (!line.StartsWith("#:property ", StringComparison.Ordinal)) continue;
+                var assignment = line["#:property ".Length..].Trim();
+                var eq = assignment.IndexOf('=');
+                if (eq < 0) continue;
+                var name = assignment[..eq].Trim();
+                var value = Switch(assignment[(eq + 1)..]);
+                if (name.Equals("InvariantGlobalization", StringComparison.OrdinalIgnoreCase)) invariant = value;
+                else if (name.Equals("PredefinedCulturesOnly", StringComparison.OrdinalIgnoreCase)) predefined = value;
+            }
+        }
+        return (invariant, predefined);
+    }
+
     public static ProjectInfo Evaluate(string projectPath, string configuration, IReadOnlyDictionary<string, string>? globalProperties = null)
     {
         projectPath = Path.GetFullPath(projectPath);
@@ -110,6 +159,8 @@ public static class ProjectLoader
             AllowUnsafe = string.Equals(Prop("AllowUnsafeBlocks"), "true", StringComparison.OrdinalIgnoreCase),
             ImplicitUsings = Prop("ImplicitUsings") is "enable" or "true",
             StartupObject = Prop("StartupObject"),
+            InvariantGlobalization = Switch(Prop("InvariantGlobalization")),
+            PredefinedCulturesOnly = Switch(Prop("PredefinedCulturesOnly")),
         };
 
         info.Defines.AddRange((Prop("DefineConstants") ?? "").Split([';', ','], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));

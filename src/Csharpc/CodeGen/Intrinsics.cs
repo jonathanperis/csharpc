@@ -108,6 +108,13 @@ internal static class Intrinsics
 
         // ---- System.Object / ToString ----------------------------------------------------------
         t["object..ctor()"] = (_, _) => default;
+        // T[].Clone() (the static type gives the element type: all arrays share one method table).
+        t["System.Array.Clone()"] = (g, inv) => inv.Instance!.Type is IArrayTypeSymbol { Rank: 1 } array
+            ? g.CallCoreLibGeneric("ArrayChecks", "CloneArray", array.ElementType, g.EmitValue(inv.Instance!))
+            : throw CompileError.Unsupported("Array.Clone() on a receiver that is not statically a one-dimensional array", inv);
+        // A shallow copy of a class instance: same method table, fields copied (the GC needs no barriers).
+        t["object.MemberwiseClone()"] = (g, inv) =>
+            g.CallRuntime("csrt_object_memberwise_clone", g.Module.Llvm.Ptr, [g.Module.Llvm.Ptr], g.EmitValue(inv.Instance!));
         t["object.ToString()"] = (g, inv) =>
         {
             var self = ObjectReceiver(g, inv.Instance!);
@@ -260,10 +267,9 @@ internal static class Intrinsics
         foreach (var type in new[] { "int", "long", "uint", "ulong", "short", "ushort", "byte", "sbyte", "double", "float" })
         {
             t[$"{type}.ToString(string)"] = (g, inv) => g.FormatWith(inv.Instance!, Arg(g, inv, 0));
-            // csrt formats with the invariant culture: an IFormatProvider can only be invariant
-            // (CultureInfo.InvariantCulture maps to null; constructing other cultures is a compile error).
-            t[$"{type}.ToString(string, System.IFormatProvider)"] = (g, inv) => { Arg(g, inv, 1); return g.FormatWith(inv.Instance!, Arg(g, inv, 0)); };
-            t[$"{type}.ToString(System.IFormatProvider)"] = (g, inv) => { Arg(g, inv, 0); return g.ToStringValue(inv.Instance!); };
+            // The provider (CultureInfo, NumberFormatInfo, or null for the current culture) goes to the corelib.
+            t[$"{type}.ToString(string, System.IFormatProvider)"] = (g, inv) => g.FormatWithProvider(inv.Instance!, Arg(g, inv, 0), Arg(g, inv, 1));
+            t[$"{type}.ToString(System.IFormatProvider)"] = (g, inv) => g.FormatWithProvider(inv.Instance!, LlvmContext.Null(g.Module.Llvm.Ptr), Arg(g, inv, 0));
         }
 
         // Composite formatting: fixed-arity overloads (the params ReadOnlySpan<object> ones need spans).
@@ -324,20 +330,7 @@ internal static class Intrinsics
 
         // ---- parsing (src/runtime/strings.c) ---------------------------------------------------------
         // System.Char classification/casing: src/Csharpc/corelib/StringOps.cs (CharOps).
-        t["int.Parse(string, System.IFormatProvider)"] = (g, inv) => { Arg(g, inv, 1); return g.CallRuntime("csrt_int32_parse", g.Module.Llvm.I32, [g.Module.Llvm.Ptr], Arg(g, inv, 0)); };
-        t["long.Parse(string, System.IFormatProvider)"] = (g, inv) => { Arg(g, inv, 1); return g.CallRuntime("csrt_int64_parse", g.Module.Llvm.I64, [g.Module.Llvm.Ptr], Arg(g, inv, 0)); };
-        t["double.Parse(string, System.IFormatProvider)"] = (g, inv) => { Arg(g, inv, 1); return g.CallRuntime("csrt_double_parse", g.Module.Llvm.F64, [g.Module.Llvm.Ptr], Arg(g, inv, 0)); };
-        t["int.Parse(string)"] = (g, inv) => g.CallRuntime("csrt_int32_parse", g.Module.Llvm.I32, [g.Module.Llvm.Ptr], Arg(g, inv, 0));
-        t["long.Parse(string)"] = (g, inv) => g.CallRuntime("csrt_int64_parse", g.Module.Llvm.I64, [g.Module.Llvm.Ptr], Arg(g, inv, 0));
-        t["double.Parse(string)"] = (g, inv) => g.CallRuntime("csrt_double_parse", g.Module.Llvm.F64, [g.Module.Llvm.Ptr], Arg(g, inv, 0));
-        foreach (var (type, fn) in new[] { ("int", "csrt_int32_try_parse"), ("long", "csrt_int64_try_parse"), ("double", "csrt_double_try_parse") })
-            t[$"{type}.TryParse(string, {type})"] = (g, inv) =>
-            {
-                var l = g.Module.Llvm;
-                var s = Arg(g, inv, 0);
-                var result = g.AddressOf(inv.Arguments.First(a => a.Parameter!.Ordinal == 1).Value);
-                return g.CallRuntime(fn, l.I1, [l.Ptr, l.Ptr], s, result);
-            };
+        // Numeric Parse/TryParse: corelib NumberParsingMembers.cs (culture-aware, Number.Parsing.Culture.cs).
 
         // System.Text.StringBuilder: src/Csharpc/corelib/StringBuilder.cs (StringBuilderImpl).
 
@@ -421,59 +414,6 @@ internal static class Intrinsics
         // IEEE 754-2019 maximum/minimum: NaN-propagating and -0 < +0, exactly .NET Core 3.0+ Math.Max/Min.
         t["System.Math.Max(double, double)"] = (g, inv) => CallBinaryF64(g, "llvm.maximum.f64", Arg(g, inv, 0), Arg(g, inv, 1));
         t["System.Math.Min(double, double)"] = (g, inv) => CallBinaryF64(g, "llvm.minimum.f64", Arg(g, inv, 0), Arg(g, inv, 1));
-        // NumberStyles-aware parsing (corelib/Number.Parsing.cs); the IFormatProvider is invariant by construction.
-        foreach (var (type, bits, signed, _) in new[] { ("int", 32, true, "Int32"), ("long", 64, true, "Int64"), ("short", 16, true, "Int16"),
-                     ("byte", 8, false, "Byte"), ("uint", 32, false, "UInt32"), ("ulong", 64, false, "UInt64"), ("sbyte", 8, true, "SByte"), ("ushort", 16, false, "UInt16") })
-        {
-            IntrinsicHandler parse = (g, inv) =>
-            {
-                var l = g.Module.Llvm;
-                if (inv.Arguments.Length > 2) Arg(g, inv, 2);
-                var v = g.CallCoreLib("Number", "ParseInt64StyledOrThrow",
-                    Arg(g, inv, 0), Arg(g, inv, 1), l.ConstInt(l.I32, bits), signed ? l.True : l.False);
-                return bits == 64 ? v : g.Builder.Cast(LLVMOpcode.Trunc, v, l.IntTypeOf(bits));
-            };
-            t[$"{type}.Parse(string, System.Globalization.NumberStyles)"] = parse;
-            t[$"{type}.Parse(string, System.Globalization.NumberStyles, System.IFormatProvider)"] = parse;
-            t[$"{type}.TryParse(string, System.Globalization.NumberStyles, System.IFormatProvider, {type})"] = (g, inv) =>
-            {
-                var l = g.Module.Llvm;
-                Arg(g, inv, 2);
-                var temp = g.NewTemp(l.I64, "parsed");
-                var status = g.CallRuntime("csrt_parse_i64_styled", l.I32, [l.Ptr, l.I32, l.I32, l.I1, l.Ptr],
-                    Arg(g, inv, 0), Arg(g, inv, 1), l.ConstInt(l.I32, bits), signed ? l.True : l.False, temp);
-                var ok = g.Builder.ICmp(LLVMIntPredicate.EQ, status, l.ConstInt(l.I32, 1));
-                var parsed = g.Builder.Load(l.I64, temp);
-                var value = g.Builder.Select(ok, parsed, l.ConstInt(l.I64, 0));
-                var target = g.AddressOf(inv.Arguments.First(a => a.Parameter!.Ordinal == 3).Value);
-                g.Builder.Store(bits == 64 ? value : g.Builder.Cast(LLVMOpcode.Trunc, value, l.IntTypeOf(bits)), target);
-                return ok;
-            };
-        }
-        IntrinsicHandler parseDouble = (g, inv) =>
-        {
-            var l = g.Module.Llvm;
-            if (inv.Arguments.Length > 2) Arg(g, inv, 2);
-            return g.CallRuntime("csrt_parse_f64_styled_or_throw", l.F64, [l.Ptr, l.I32], Arg(g, inv, 0), Arg(g, inv, 1));
-        };
-        t["double.Parse(string, System.Globalization.NumberStyles)"] = parseDouble;
-        t["double.Parse(string, System.Globalization.NumberStyles, System.IFormatProvider)"] = parseDouble;
-        t["double.TryParse(string, System.Globalization.NumberStyles, System.IFormatProvider, double)"] = (g, inv) =>
-        {
-            var l = g.Module.Llvm;
-            Arg(g, inv, 2);
-            var target = g.AddressOf(inv.Arguments.First(a => a.Parameter!.Ordinal == 3).Value);
-            var status = g.CallRuntime("csrt_parse_f64_styled", l.I32, [l.Ptr, l.I32, l.Ptr], Arg(g, inv, 0), Arg(g, inv, 1), target);
-            return g.Builder.ICmp(LLVMIntPredicate.EQ, status, l.ConstInt(l.I32, 1));
-        };
-        t["double.TryParse(string, System.IFormatProvider, double)"] = (g, inv) =>
-        {
-            var l = g.Module.Llvm;
-            Arg(g, inv, 1);
-            var target = g.AddressOf(inv.Arguments.First(a => a.Parameter!.Ordinal == 2).Value);
-            var status = g.CallRuntime("csrt_parse_f64_styled", l.I32, [l.Ptr, l.I32, l.Ptr], Arg(g, inv, 0), l.ConstInt(l.I32, 231 /* Float | AllowThousands */), target);
-            return g.Builder.ICmp(LLVMIntPredicate.EQ, status, l.ConstInt(l.I32, 1));
-        };
 
         // Math.Clamp for the other numeric types: value < min ? min : value > max ? max : value.
         foreach (var (type, signed) in new[] { ("long", true), ("short", true), ("sbyte", true), ("uint", false), ("ulong", false), ("byte", false), ("ushort", false) })
@@ -840,9 +780,6 @@ internal static class Intrinsics
             return element.IsValueType ? g.Box(value, element, p) : value;
         };
         t["System.CharEnumerator.Current"] = (g, p) => g.StringEnumeratorCurrent(g.EmitValue(p.Instance!));
-        foreach (var culture in new[] { "System.Globalization.CultureInfo.InvariantCulture", "System.Globalization.CultureInfo.CurrentCulture",
-                     "System.Globalization.NumberFormatInfo.InvariantInfo", "System.Globalization.CultureInfo.CurrentUICulture" })
-            t[culture] = (g, _) => LlvmContext.Null(g.Module.Llvm.Ptr);
         // Int128 / UInt128 constants (i128; built with shifts since LLVMConstInt takes 64 bits).
         foreach (var type in new[] { "System.Int128", "System.UInt128" })
         {

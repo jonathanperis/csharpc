@@ -147,12 +147,13 @@ public sealed partial class ModuleCodeGen
         Guard(entryPoint, EmitCallCatchingHelpers);
         do DrainWorklists();
         while (EmitRuntimeExports());
+        FinishMethodTables();
     }
 
     private void DrainWorklists()
     {
         do DrainFunctionWorklists();
-        while (EmitPendingClassInits() | EmitPendingBuiltinInterfaceTables());
+        while (EmitPendingClassInits() | EmitPendingBuiltinInterfaceTables() | RequestDispatchedSlots());
     }
 
     private void DrainFunctionWorklists()
@@ -843,28 +844,10 @@ public sealed partial class ModuleCodeGen
         var global = Module.AddGlobal(Mangler.TypeSymbol(layout.Type, "MT"), layout.MethodTableType,
             constant: true, linkage: LLVMLinkage.Internal);
         layout.MethodTable = global; // set before initializing: methods may reference it
-
-        string[] defaults = ["csrt_object_to_string_default", "csrt_object_equals_default", "csrt_object_get_hash_code_default"];
-        var slots = layout.VTable.Select((m, i) => m is not null
-            ? GetFunction(m).Fn
-            : layout.RuntimeSlots.TryGetValue(i, out var runtimeSlot)
-                ? RuntimeSlotFunction(runtimeSlot)
-            : i < ClassLayout.ObjectSlotCount
-                ? Runtime(defaults[i], Llvm.Ptr, Llvm.Ptr).Fn
-                : LlvmContext.Null(Llvm.Ptr)).ToArray();
-
-        var baseMt = layout.Base?.MethodTable ?? ExternalGlobal("csrt_Object_MT");
-        var flags = layout.Type.IsAbstract ? 1 : 0;
-        var (interfaceMap, interfaceCount) = EmitInterfaceMap(layout);
-        Native.LLVMSetInitializer(global, Llvm.ConstStruct(
-            baseMt,
-            CString(Mangler.MetadataName(layout.Type)),
-            Llvm.ConstInt(Llvm.I32, (long)layout.InstanceSize),
-            Llvm.ConstInt(Llvm.I32, flags),
-            interfaceMap,
-            Llvm.ConstInt(Llvm.I32, interfaceCount),
-            Llvm.ConstInt(Llvm.I32, 0),
-            LlvmContext.ConstArray(Llvm.Ptr, slots)));
+        // The initializer (vtable and interface slots) is set by FinishMethodTables (ModuleCodeGen.VTables.cs).
+        var table = new PendingMethodTable { Layout = layout, Global = global };
+        EmitInterfaceMap(table);
+        AddPendingMethodTable(table);
     }
 
     // ======================================================================================
@@ -903,8 +886,12 @@ public sealed partial class ModuleCodeGen
         return _globals[name] = Module.AddGlobal(name, Llvm.Ptr, LlvmContext.Null(Llvm.Ptr), linkage: LLVMLinkage.Internal);
     }
 
+    /// <summary>Runtime globals referenced only by main's builtin-interface registrations so far.</summary>
+    private readonly HashSet<string> _registrationOnlyGlobals = [];
+
     public LLVMValueRef ExternalGlobal(string name)
     {
+        _registrationOnlyGlobals.Remove(name);
         if (_globals.TryGetValue(name, out var g)) return g;
         return _globals[name] = Module.AddGlobal(name, Llvm.I8, constant: true);
     }
@@ -1157,13 +1144,18 @@ public sealed partial class ModuleCodeGen
         SpecialType[] primitives = [SpecialType.System_Int32, SpecialType.System_Int64, SpecialType.System_Double, SpecialType.System_Boolean,
             SpecialType.System_Char, SpecialType.System_Single, SpecialType.System_Int16, SpecialType.System_UInt16, SpecialType.System_UInt32,
             SpecialType.System_UInt64, SpecialType.System_Byte, SpecialType.System_SByte];
-        var builtins = new List<(ITypeSymbol Type, LLVMValueRef MT)> { (Compilation.GetSpecialType(SpecialType.System_String), ExternalGlobal("csrt_String_MT")) };
-        foreach (var sp in primitives) builtins.Add((Compilation.GetSpecialType(sp), ExternalGlobal($"csrt_Boxed_{Compilation.GetSpecialType(sp).MetadataName}_MT")));
+        // Method-table globals are only referenced for registrations that happen: referencing one is what
+        // triggers the corelib's runtime exports for that type (ModuleCodeGen.RuntimeExports.cs).
+        var builtins = new List<(ITypeSymbol Type, string MT)> { (Compilation.GetSpecialType(SpecialType.System_String), "csrt_String_MT") };
+        foreach (var sp in primitives) builtins.Add((Compilation.GetSpecialType(sp), $"csrt_Boxed_{Compilation.GetSpecialType(sp).MetadataName}_MT"));
         foreach (var itf in _interfaceTables.Keys.ToList())
-            foreach (var (builtinType, mt) in builtins)
+            foreach (var (builtinType, mtName) in builtins)
             {
                 var conversion = Compilation.ClassifyCommonConversion(builtinType, itf);
                 if (!conversion.Exists || !conversion.IsImplicit || conversion.IsUserDefined) continue;
+                // Registering doesn't box anything: it mustn't count as a reference for the runtime exports.
+                if (!_globals.ContainsKey(mtName)) _registrationOnlyGlobals.Add(mtName);
+                var mt = _globals.TryGetValue(mtName, out var existing) ? existing : _globals[mtName] = Module.AddGlobal(mtName, Llvm.I8, constant: true);
                 if (builtinType is IArrayTypeSymbol { Rank: 1 }) RequestArrayInterface(itf);
                 else if (builtinType.SpecialType == SpecialType.System_String) RequestStringInterface(itf);
                 var registerBuiltin = Runtime("csrt_register_builtin_interface", Llvm.Void, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr);
@@ -1192,6 +1184,25 @@ public sealed partial class ModuleCodeGen
                 Llvm.ConstInt(Llvm.I32, argTables.Length), argsTable, Llvm.ConstUInt(Llvm.I32, mask)]);
         }
         b.Call(_staticInit.Type, _staticInit.Fn, []);
+
+        // [ModuleInitializer] methods run when the module loads, before Main (Roslyn calls them from the
+        // module's static constructor in source order: syntax tree order, then position).
+        var treeOrder = Compilation.SyntaxTrees.Select((tree, index) => (tree, index)).ToDictionary(p => p.tree, p => p.index);
+        var moduleInitializers = _userTypes
+            .SelectMany(t => t.GetMembers().OfType<IMethodSymbol>())
+            .Where(m => m.MethodKind == MethodKind.Ordinary && m.IsStatic && m.GetAttributes().Any(a =>
+                a.AttributeClass is { Name: "ModuleInitializerAttribute" } c && c.ContainingNamespace?.ToDisplayString() == "System.Runtime.CompilerServices"))
+            .Select(m => (method: m, location: m.Locations.FirstOrDefault()))
+            .OrderBy(p => p.location?.SourceTree is { } tree && treeOrder.TryGetValue(tree, out var index) ? index : int.MaxValue)
+            .ThenBy(p => p.location?.SourceSpan.Start ?? 0)
+            .Select(p => p.method)
+            .Distinct<IMethodSymbol>(SymbolEqualityComparer.Default)
+            .ToList();
+        foreach (var initializer in moduleInitializers)
+        {
+            var initializerFunction = GetFunction(initializer);
+            b.Call(initializerFunction.Type, initializerFunction.Fn, []);
+        }
 
         var target = GetFunction(entryPoint);
         LLVMValueRef[] args = [];

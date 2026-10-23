@@ -17,6 +17,12 @@ public sealed class Compiler(CompilerOptions options)
 {
     private readonly Stopwatch _clock = new();
 
+    private static IEnumerable<string> FileGlobalization(IEnumerable<string> inputs)
+    {
+        var (invariant, predefined) = ProjectLoader.FileGlobalizationProperties(inputs);
+        return ProjectLoader.GlobalizationDefines(invariant, predefined);
+    }
+
     public int Run()
     {
         _clock.Start();
@@ -44,7 +50,11 @@ public sealed class Compiler(CompilerOptions options)
             foreach (var p in all.Where(p => p.UnsupportedPackages.Count > 0))
                 Warn($"{Path.GetFileName(p.ProjectPath)}: PackageReference not supported yet (csharpc compiles from source only): {string.Join(", ", p.UnsupportedPackages)}");
             options.DefaultOutputName = root.AssemblyName;
-            settings = projectSettings with { Defines = [.. projectSettings.Defines, .. options.Defines], CoreLibDefines = coreLibDefines };
+            settings = projectSettings with
+            {
+                Defines = [.. projectSettings.Defines, .. options.Defines],
+                CoreLibDefines = [.. coreLibDefines, .. ProjectLoader.GlobalizationDefines(root.InvariantGlobalization, root.PredefinedCulturesOnly)],
+            };
         }
         else
         {
@@ -53,7 +63,7 @@ public sealed class Compiler(CompilerOptions options)
                 Files = options.Inputs,
                 Defines = [.. ProjectLoader.ImplicitDefines(options.Configuration), .. options.Defines],
                 GlobalUsings = options.ImplicitUsings ? RoslynFrontend.DefaultImplicitUsings : null,
-                CoreLibDefines = coreLibDefines,
+                CoreLibDefines = [.. coreLibDefines, .. FileGlobalization(options.Inputs)],
             };
         }
         // Nullable analysis only produces warnings, never different code. Lowering uses a compilation

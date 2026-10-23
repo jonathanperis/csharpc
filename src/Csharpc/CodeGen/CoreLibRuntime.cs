@@ -15,6 +15,9 @@ internal static class CoreLibRuntime
         ["csrt_string_new_repeat"] = ("StringOps", "CreateRepeated"),
         ["csrt_string_new_from_chars"] = ("StringOps", "CreateFromChars"),
         ["csrt_string_compare_ordinal"] = ("StringOps", "CompareOrdinal"),
+        // culture-sensitive comparison (Globalization/CultureStrings.cs)
+        ["csrt_string_compare_culture"] = ("CultureStrings", "CompareCulture"),
+        ["csrt_string_compare_with"] = ("CultureStrings", "CompareWith"),
         // System.Text.StringBuilder (records' and anonymous types' synthesized ToString use these)
         ["csrt_sb_new"] = ("StringBuilderImpl", "RtNew"),
         ["csrt_sb_append_string"] = ("StringBuilderImpl", "RtAppend"),

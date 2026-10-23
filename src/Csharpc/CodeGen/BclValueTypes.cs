@@ -261,9 +261,6 @@ internal static partial class BclValueTypes
     private static BclHandler AddUnits(long ticksPerUnit) => (g, _, self, a, _) =>
         Rt(g, "csrt_datetime_add_units", g.Llvm.I64, (self, g.Llvm.I64), (ToF64(g, a[0]), g.Llvm.F64), (I64(g, ticksPerUnit), g.Llvm.I64));
 
-    private static BclHandler DateTimeFormatted(string format) => (g, _, self, _, _) =>
-        Rt(g, "csrt_datetime_format", g.Llvm.Ptr, (self, g.Llvm.I64), (g.Module.StringLiteral(format), g.Llvm.Ptr));
-
     /// <summary>new DateTime(y, M, d[, h, m, s[, ms]][, kind]).</summary>
     private static LLVMValueRef NewDateTime(FunctionCodeGen g, LLVMValueRef[] a, int count, bool kind = false)
     {
@@ -298,9 +295,8 @@ internal static partial class BclValueTypes
         t[$"{D}.ToString()"] = (g, _, self, _, _) => g.CallCoreLib("Number", "DecimalToString", self);
         t[$"{D}.ToString(string)"] = (g, _, self, a, _) =>
             g.CallCoreLib("Number", "FormatDecimal", self, a[0]);
-        t[$"{D}.Parse(string)"] = (g, _, _, a, _) => g.DecimalCall("csrt_decimal_parse", [g.Llvm.Ptr], a[0]);
-        t[$"{D}.TryParse(string, {D})"] = (g, _, _, a, _) =>
-            Rt(g, "csrt_decimal_try_parse", g.Llvm.I1, (a[0], g.Llvm.Ptr), (a[1], g.Llvm.Ptr));
+        t[$"{D}.ToString(System.IFormatProvider)"] = (g, _, self, a, _) => g.CallCoreLib("Number", "FormatDecimalWith", self, LlvmContext.Null(g.Llvm.Ptr), a[0]);
+        t[$"{D}.ToString(string, System.IFormatProvider)"] = (g, _, self, a, _) => g.CallCoreLib("Number", "FormatDecimalWith", self, a[0], a[1]);
         BclHandler round(int? digits, int? mode) => (g, m, _, a, _) =>
         {
             var l = g.Llvm;
@@ -453,6 +449,7 @@ internal static partial class BclValueTypes
         }
         t[$"{TS}.ToString()"] = (g, _, self, _, _) => Rt(g, "csrt_timespan_to_string", g.Llvm.Ptr, (self, g.Llvm.I64));
         t[$"{TS}.ToString(string)"] = (g, _, self, a, _) => Rt(g, "csrt_timespan_format", g.Llvm.Ptr, (self, g.Llvm.I64), (a[0], g.Llvm.Ptr));
+        t[$"{TS}.ToString(string, System.IFormatProvider)"] = (g, _, self, a, _) => g.CallCoreLib("DateTimeOps", "TimeSpanFormatWith", self, a[0], a[1]);
 
         // ===== System.DateTime (i64 _dateData: ticks | Kind << 62; more members in corelib DateTimeMembers) =====
         const string DT = "System.DateTime";
@@ -495,10 +492,9 @@ internal static partial class BclValueTypes
         t[$"{DT}.IsLeapYear(int)"] = (g, _, _, a, _) => Rt(g, "csrt_datetime_is_leap_year", g.Llvm.I1, (a[0], g.Llvm.I32));
         t[$"{DT}.ToString()"] = (g, _, self, _, _) => Rt(g, "csrt_datetime_to_string", g.Llvm.Ptr, (self, g.Llvm.I64));
         t[$"{DT}.ToString(string)"] = (g, _, self, a, _) => Rt(g, "csrt_datetime_format", g.Llvm.Ptr, (self, g.Llvm.I64), (a[0], g.Llvm.Ptr));
-        t[$"{DT}.ToShortDateString()"] = DateTimeFormatted("MM/dd/yyyy");
-        t[$"{DT}.ToLongDateString()"] = DateTimeFormatted("dddd, dd MMMM yyyy");
-        t[$"{DT}.ToShortTimeString()"] = DateTimeFormatted("HH:mm");
-        t[$"{DT}.ToLongTimeString()"] = DateTimeFormatted("HH:mm:ss");
+        t[$"{DT}.ToString(System.IFormatProvider)"] = (g, _, self, a, _) => g.CallCoreLib("DateTimeOps", "FormatWith", self, LlvmContext.Null(g.Llvm.Ptr), a[0]);
+        t[$"{DT}.ToString(string, System.IFormatProvider)"] = (g, _, self, a, _) => g.CallCoreLib("DateTimeOps", "FormatWith", self, a[0], a[1]);
+        // ToShortDateString & co. format with the current culture: corelib DateTimeMembers (DateTimeOps.cs).
 
         AddBigInteger(t);
 
@@ -562,10 +558,6 @@ internal static partial class BclValueTypes
                 return g.Builder.FCmp(LLVMRealPredicate.OLT, g.Builder.Call(f.Type, f.Fn, [a[0]]), LlvmContext.ConstReal(a[0].Type, double.PositiveInfinity));
             };
         }
-        // IFormatProvider/CultureInfo: csharpc formats and parses with the invariant culture, so
-        // provider objects are placeholders (null) that the providers' consumers ignore.
-        foreach (var culture in new[] { "InvariantCulture", "CurrentCulture", "CurrentUICulture" })
-            t[$"System.Globalization.CultureInfo.get_{culture}()"] = (g, _, _, _, _) => LlvmContext.Null(g.Llvm.Ptr);
         t["string.Compare(string, string)"] = (g, _, _, a, _) =>
             Rt(g, "csrt_string_compare_culture", g.Llvm.I32, (a[0], g.Llvm.Ptr), (a[1], g.Llvm.Ptr), (g.Llvm.False, g.Llvm.I1));
         t["string.Compare(string, string, bool)"] = (g, _, _, a, _) =>
@@ -646,12 +638,8 @@ internal static partial class BclValueTypes
         t["nint.get_Size()"] = t["System.IntPtr.get_Size()"] = t["nuint.get_Size()"] = (g, _, _, _, _) => I32(g, (int)g.Types.PointerSize);
         t["bool.CompareTo(bool)"] = (g, _, self, a, _) => ICompare(g, self, a[0], false);
         t["bool.Parse(string)"] = (g, _, _, a, _) => Rt(g, "csrt_bool_parse", g.Llvm.I1, (a[0], g.Llvm.Ptr));
-        t["double.Parse(string, System.IFormatProvider)"] = (g, _, _, a, _) => Rt(g, "csrt_double_parse", g.Llvm.F64, (a[0], g.Llvm.Ptr));
-        t["int.Parse(string, System.IFormatProvider)"] = (g, _, _, a, _) => Rt(g, "csrt_int32_parse", g.Llvm.I32, (a[0], g.Llvm.Ptr));
-        t["decimal.Parse(string, System.IFormatProvider)"] = (g, _, _, a, _) => g.DecimalCall("csrt_decimal_parse", [g.Llvm.Ptr], a[0]);
-        t["double.ToString(System.IFormatProvider)"] = (g, _, self, _, _) => Rt(g, "csrt_string_from_f64", g.Llvm.Ptr, (self, g.Llvm.F64));
-        t["double.ToString(string, System.IFormatProvider)"] = (g, _, self, a, _) =>
-            Rt(g, "csrt_format_f64", g.Llvm.Ptr, (self, g.Llvm.F64), (a[0], g.Llvm.Ptr), (g.Llvm.False, g.Llvm.I1));
+        t["double.ToString(System.IFormatProvider)"] = (g, _, self, a, _) => g.CallCoreLib("Number", "FormatDoubleWith", self, LlvmContext.Null(g.Llvm.Ptr), g.Llvm.False, a[0]);
+        t["double.ToString(string, System.IFormatProvider)"] = (g, _, self, a, _) => g.CallCoreLib("Number", "FormatDoubleWith", self, a[0], g.Llvm.False, a[1]);
         t["char.GetNumericValue(char)"] = (g, _, _, a, _) =>
         {
             var b = g.Builder;

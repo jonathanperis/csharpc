@@ -58,6 +58,11 @@ public sealed partial class FunctionCodeGen
             : Coroutines.AsyncResultType(S(method.ReturnType));
         var coro = _coro = new CoroutineState { Kind = kind, ValueType = valueType };
         var payloadSize = valueType is null ? 0 : (long)T.Target.SizeOf(T.Storage(valueType));
+        // .NET's AsyncMethodBuilder.Start restores the caller's ExecutionContext when the method first
+        // returns to it: execution-context changes inside (e.g. setting CultureInfo.CurrentCulture) don't
+        // leak out. csrt_tl_flow is csharpc's execution-context flow (src/runtime/threads.c); restoring
+        // it whenever the coroutine returns is the same, since resumers restore their own flow afterwards.
+        var callerFlow = kind == CoroutineKind.Async ? CallRuntime("csrt_flow_get", L.Ptr, []) : default;
 
         coro.Promise = kind == CoroutineKind.Async
             ? CallRuntime("csrt_task_new", L.Ptr, [L.I32], L.ConstInt(L.I32, payloadSize))
@@ -81,6 +86,7 @@ public sealed partial class FunctionCodeGen
         coro.Complete = NewBlock(isIterator ? "coro.finished" : "coro.complete");
 
         _b.PositionAtEnd(coro.SuspendReturn);
+        if (kind == CoroutineKind.Async) CallRuntime("csrt_flow_set", L.Void, [L.Ptr], callerFlow);
         var end = CoroIntrinsic("llvm.coro.end", L.I1, L.Ptr, L.I1, L.Token);
         _b.Call(end.Type, end.Fn, [coro.Handle, L.False, TokenNone]);
         if (_fn.Type.ReturnType().IsVoid) _b.RetVoid(); // async void

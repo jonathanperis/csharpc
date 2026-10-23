@@ -317,6 +317,7 @@ public sealed partial class FunctionCodeGen
         {
             var layout = _m.GetLayout(target.ContainingType);
             slot = layout.SlotOf.TryGetValue(root, out var s) ? s : throw CompileError.Unsupported($"virtual call to '{target}'", target);
+            _m.NoteVirtualDispatch(root);
             fnType = _m.FunctionTypeOf(target);
         }
         else
@@ -352,7 +353,12 @@ public sealed partial class FunctionCodeGen
         var type = (INamedTypeSymbol)TypeOf(creation)!;
         if (TrySpanConstruction(creation, out var span) || TryStatelessLibraryCreation(creation, out span) || TryThreadingCreation(creation, out span)) return span;
         if (IsStringBuilderHandler(type))  // new AppendInterpolatedStringHandler(literalLength, formattedCount, sb[, provider])
+        {
+            // The holes are formatted with the current culture; a provider would need the handler to carry it.
+            if (creation.Arguments.FirstOrDefault(a => a.Parameter!.Ordinal == 3) is { Value.ConstantValue: not { HasValue: true, Value: null } })
+                throw CompileError.Unsupported("StringBuilder.Append(IFormatProvider, $\"...\") (an interpolated string with a format provider)", creation);
             return EmitValue(creation.Arguments.First(a => a.Parameter!.Ordinal == 2).Value);
+        }
         if (type.IsValueType) return EmitValueTypeCreation(creation, type);
         if (type.SpecialType == SpecialType.System_Object)
             return Allocate(_m.ExternalGlobal("csrt_Object_MT"), L.ConstInt(L.I64, (long)T.PointerSize));
@@ -818,7 +824,10 @@ public sealed partial class FunctionCodeGen
     internal LLVMValueRef ToStringValue(IOperation op)
     {
         op = Unbox(op);
-        if (op.ConstantValue is { HasValue: true, Value: var constant } && TypeOf(op)?.TypeKind != TypeKind.Enum)
+        // Numbers format with the current culture at run time (decimal separator, negative sign, NaN
+        // and infinity symbols); only plain digit strings are the same in every culture.
+        if (op.ConstantValue is { HasValue: true, Value: var constant } && TypeOf(op)?.TypeKind != TypeKind.Enum
+            && (constant is not IFormattable number || IsCultureInvariantText(number.ToString(null, System.Globalization.CultureInfo.InvariantCulture))))
         {
             // Fold constants at compile time, using .NET's own formatting.
             return _m.StringLiteral(constant switch
@@ -841,6 +850,8 @@ public sealed partial class FunctionCodeGen
         return FormatValue(value, type, op);
     }
 
+    private static bool IsCultureInvariantText(string? text) => text is { Length: > 0 } && text.All(char.IsAsciiDigit);
+
     internal LLVMValueRef? FormatPrimitive(LLVMValueRef value, ITypeSymbol type) => type.SpecialType switch
     {
         SpecialType.System_Decimal => CallCoreLib("Number", "DecimalToString", value),
@@ -849,6 +860,8 @@ public sealed partial class FunctionCodeGen
         _ when BclValueTypes.IsBigInteger(type) => CallRuntime("csrt_bigint_to_string", L.Ptr, [L.Ptr], value),
         SpecialType.System_Int32 => CallRuntime("csrt_string_from_i32", L.Ptr, [L.I32], value),
         SpecialType.System_Int64 => CallRuntime("csrt_string_from_i64", L.Ptr, [L.I64], value),
+        SpecialType.System_IntPtr when value.Type.IntWidth == 64 => CallRuntime("csrt_string_from_i64", L.Ptr, [L.I64], value),
+        SpecialType.System_UIntPtr when value.Type.IntWidth == 64 => CallRuntime("csrt_string_from_u64", L.Ptr, [L.I64], value),
         SpecialType.System_UInt32 => CallRuntime("csrt_string_from_u32", L.Ptr, [L.I32], value),
         SpecialType.System_UInt64 => CallRuntime("csrt_string_from_u64", L.Ptr, [L.I64], value),
         SpecialType.System_SByte or SpecialType.System_Int16 =>
@@ -903,6 +916,37 @@ public sealed partial class FunctionCodeGen
         return CallRuntime("csrt_format_object", L.Ptr, [L.Ptr, L.Ptr], obj, format);
     }
 
+    /// <summary>
+    /// value.ToString(format, provider) for numbers, decimal, DateTime and TimeSpan: the corelib's
+    /// *With formatters take the IFormatProvider (a CultureInfo or NumberFormatInfo / DateTimeFormatInfo
+    /// shadow, or null for the current culture). `format` may be a null pointer.
+    /// </summary>
+    internal LLVMValueRef FormatWithProvider(IOperation valueOp, LLVMValueRef format, LLVMValueRef provider)
+    {
+        valueOp = Unbox(valueOp);
+        var type = TypeOf(valueOp)!;
+        var value = EmitValue(valueOp);
+        if (type is INamedTypeSymbol { TypeKind: TypeKind.Enum }) return FormatWith(valueOp, format);
+        if (BclValueTypes.IsDecimal(type)) return CallCoreLib("Number", "FormatDecimalWith", value, format, provider);
+        if (BclValueTypes.IsDateTime(type)) return CallCoreLib("DateTimeOps", "FormatWith", value, format, provider);
+        if (BclValueTypes.IsTimeSpan(type)) return CallCoreLib("DateTimeOps", "TimeSpanFormatWith", value, format, provider);
+        switch (type.SpecialType)
+        {
+            case SpecialType.System_SByte or SpecialType.System_Int16 or SpecialType.System_Int32 or SpecialType.System_Int64:
+                return CallCoreLib("Number", "FormatInt64With", value.Type.IntWidth == 64 ? value : _b.Cast(LLVMOpcode.SExt, value, L.I64),
+                    format, L.ConstInt(L.I32, value.Type.IntWidth), provider);
+            case SpecialType.System_Byte or SpecialType.System_UInt16 or SpecialType.System_UInt32 or SpecialType.System_UInt64:
+                return CallCoreLib("Number", "FormatUInt64With", value.Type.IntWidth == 64 ? value : _b.Cast(LLVMOpcode.ZExt, value, L.I64),
+                    format, L.ConstInt(L.I32, value.Type.IntWidth), provider);
+            case SpecialType.System_Double:
+                return CallCoreLib("Number", "FormatDoubleWith", value, format, L.False, provider);
+            case SpecialType.System_Single:
+                return CallCoreLib("Number", "FormatDoubleWith", _b.Cast(LLVMOpcode.FPExt, value, L.F64), format, L.True, provider);
+        }
+        var obj = type.IsValueType ? Box(value, type, valueOp) : value;
+        return CallCoreLib("Number", "FormatObjectWith", obj, format, provider);
+    }
+
     /// <summary>Builds an object[] from argument expressions (each already converted/boxed to object).</summary>
     internal LLVMValueRef ObjectArray(IReadOnlyList<IOperation> values)
     {
@@ -910,6 +954,46 @@ public sealed partial class FunctionCodeGen
         var array = NewArray(objectType, L.ConstInt(L.I64, values.Count));
         StoreElements(array, objectType, [.. values]);
         return array;
+    }
+
+    /// <summary>
+    /// An interpolated string converted to FormattableString: the composite format ("{0,5:N2}", literal
+    /// braces doubled) and the boxed hole values, through FormattableStringFactory.Create (corelib).
+    /// </summary>
+    private LLVMValueRef EmitFormattableString(IInterpolatedStringOperation s)
+    {
+        var format = new System.Text.StringBuilder();
+        var holes = new List<IOperation>();
+        foreach (var part in s.Parts)
+        {
+            switch (part)
+            {
+                case IInterpolatedStringTextOperation { Text.ConstantValue.Value: string text }:
+                    format.Append(text.Replace("{", "{{").Replace("}", "}}"));
+                    break;
+                case IInterpolationOperation hole:
+                    format.Append('{').Append(holes.Count);
+                    if (hole.Alignment is { ConstantValue: { HasValue: true, Value: var alignment } }) format.Append(',').Append(Convert.ToInt32(alignment));
+                    else if (hole.Alignment is not null) throw CompileError.Unsupported("a non-constant alignment in an interpolated FormattableString", hole);
+                    if (hole.FormatString is { ConstantValue.Value: string spec }) format.Append(':').Append(spec);
+                    format.Append('}');
+                    holes.Add(hole.Expression);
+                    break;
+                default:
+                    throw CompileError.Unsupported($"interpolated string part {part.Kind}", part);
+            }
+        }
+        var objectType = _m.Compilation.GetSpecialType(SpecialType.System_Object);
+        var array = NewArray(objectType, L.ConstInt(L.I64, holes.Count));
+        for (var i = 0; i < holes.Count; i++)
+        {
+            var hole = holes[i];
+            var value = EmitValue(hole);
+            var type = TypeOf(hole);
+            var boxed = type is { IsValueType: true } ? Box(value, type, hole) : value;
+            _b.Store(boxed, ArrayElementAddress(array, objectType, L.ConstInt(L.I64, i)));
+        }
+        return CallCoreLib("FormattableStringFactoryImpl", "Create", _m.StringLiteral(format.ToString()), array);
     }
 
     private LLVMValueRef EmitInterpolatedString(IInterpolatedStringOperation s)
@@ -941,6 +1025,9 @@ public sealed partial class FunctionCodeGen
                 return L.False; // `x is null` with a non-nullable value type T (generic code)
             case IConstantPatternOperation constant when IsBoxedConstantTest(value, inputType, constant, out var boxedType):
                 return BoxedConstantPatternTest(value, inputType, boxedType, constant);
+            // span is "text" (C# 11): an ordinal comparison of the chars.
+            case IConstantPatternOperation { Value.ConstantValue.Value: string } spanConstant when TypeMapper.IsSpan(inputType):
+                return CallCoreLib("ArrayChecks", "SpanEqualsString", value, EmitValue(spanConstant.Value));
             case IConstantPatternOperation constant:
             {
                 var constantType = TypeOf(constant.Value);

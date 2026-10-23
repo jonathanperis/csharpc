@@ -381,68 +381,13 @@ csrt_Array* csrt_string_split_chars(csrt_String* s, csrt_Array* separators, int3
 }
 
 // ---------------------------------------------------------------------------------------------
-// Culture-sensitive string comparison (string.Compare/CompareTo, Array.Sort of strings).
-// .NET uses ICU; with the invariant culture that is the CLDR root collation. This approximates
-// it for Latin text with three levels: base letter (case/accent-insensitive) < accent < case
-// (lowercase first). ASCII order: whitespace < punctuation < symbols < digits < letters;
-// control characters are ignorable. Other characters compare after Latin letters by code point.
+// Culture-sensitive string comparison is C# (corelib Globalization/CultureStrings.cs, over the port of
+// .NET's CompareInfo and ICU). Array.Sort of strings calls it through the corelib's RuntimeExport;
+// this weak definition only satisfies the linker in programs that never sort strings.
 // ---------------------------------------------------------------------------------------------
-static const char k_ascii_order[] = "\t\n\v\f\r _-,;:!?.'\"()[]{}@*/\\&#%`^+<=>|~$0123456789abcdefghijklmnopqrstuvwxyz";
-
-typedef struct { uint32_t primary; uint8_t secondary, tertiary; } Collation;
-
-static Collation collate(uint16_t c) {
-    Collation k = { 0, 0, 0 };
-    if (c < 0x20 && c != '\t' && c != '\n' && c != '\v' && c != '\f' && c != '\r') return k;  // ignorable
-    if (c == 0x7F) return k;
-    uint16_t base = c;
-    uint8_t accent = 0;
-    // Latin-1 letters: fold to base letter + accent level
-    static const char latin1_base[] = "AAAAAAACEEEEIIIIDNOOOOO*OUUUUYTsaaaaaaaceeeeiiiidnooooo/ouuuuyty";
-    if (c >= 0xC0 && c <= 0xFF && latin1_base[c - 0xC0] != '*' && latin1_base[c - 0xC0] != '/') {
-        base = (uint8_t)latin1_base[c - 0xC0];
-        accent = (uint8_t)(1 + (c & 0x1F));
-        if (c == 0xDF) { base = 's'; accent = 30; }   // ß ~ ss
-    }
-    bool upper = base >= 'A' && base <= 'Z';
-    uint16_t lower = upper ? (uint16_t)(base + 32) : base;
-    if (lower < 128) {
-        const char* p = strchr(k_ascii_order, (char)lower);
-        if (p && lower != 0) {
-            k.primary = (uint32_t)(p - k_ascii_order) + 1;
-            k.secondary = accent;
-            k.tertiary = upper ? 1 : 0;
-            return k;
-        }
-    }
-    k.primary = 0x1000u + c;
-    return k;
-}
-
-static int compare_level(csrt_String* a, csrt_String* b, int level, bool ignore_case) {
-    int32_t i = 0, j = 0;
-    for (;;) {
-        Collation x = { 0, 0, 0 }, y = { 0, 0, 0 };
-        while (i < a->length && (x = collate(a->chars[i])).primary == 0) i++;
-        while (j < b->length && (y = collate(b->chars[j])).primary == 0) j++;
-        bool ea = i >= a->length, eb = j >= b->length;
-        if (ea || eb) return ea && eb ? 0 : ea ? -1 : 1;
-        uint32_t vx = level == 1 ? x.primary : level == 2 ? x.secondary : (ignore_case ? 0 : x.tertiary);
-        uint32_t vy = level == 1 ? y.primary : level == 2 ? y.secondary : (ignore_case ? 0 : y.tertiary);
-        if (vx != vy) return vx < vy ? -1 : 1;
-        i++; j++;
-    }
-}
-
-int32_t csrt_string_compare_culture(csrt_String* a, csrt_String* b, bool ignore_case) {
-    if (a == b) return 0;
-    if (!a) return -1;
-    if (!b) return 1;
-    for (int level = 1; level <= 3; level++) {
-        int c = compare_level(a, b, level, ignore_case);
-        if (c) return c;
-    }
-    return 0;
+__attribute__((weak)) int32_t csrt_string_compare_culture(csrt_String* a, csrt_String* b, bool ignore_case) {
+    (void)ignore_case;
+    return csrt_string_compare_ordinal(a, b);
 }
 
 int32_t csrt_string_compare_ordinal_ignore_case(csrt_String* a, csrt_String* b) {
@@ -457,15 +402,6 @@ int32_t csrt_string_compare_ordinal_ignore_case(csrt_String* a, csrt_String* b) 
         if (x != y) return (int32_t)x - (int32_t)y;
     }
     return a->length - b->length;
-}
-
-/// string.Compare(a, b, StringComparison): 0/1 current culture, 2/3 invariant, 4 ordinal, 5 ordinal-ignore-case.
-int32_t csrt_string_compare_with(csrt_String* a, csrt_String* b, int32_t comparison) {
-    switch (comparison) {
-        case 4: return csrt_string_compare_ordinal(a, b);
-        case 5: return csrt_string_compare_ordinal_ignore_case(a, b);
-        default: return csrt_string_compare_culture(a, b, comparison & 1);
-    }
 }
 
 bool csrt_string_is_null_or_white_space(csrt_String* s) {

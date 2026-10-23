@@ -113,6 +113,9 @@ public sealed partial class FunctionCodeGen
             "MakeDecimal" => _b.InsertValue(_b.InsertValue(_b.InsertValue(LlvmContext.Null(DecimalType), args[0], 0), args[1], 1), args[2], 2),
             // DateTime is its i64 _dateData (BclValueTypes.cs)
             "DateTimeData" or "MakeDateTime" => args[0],
+            // An object reference as a native-sized integer and back (the GC never moves objects).
+            "ObjectToPointer" => args[0].Type.Kind == LLVMTypeKind.Pointer ? _b.Cast(LLVMOpcode.PtrToInt, args[0], L.I64) : args[0],
+            "PointerToObject" => args[0].Type.Kind == LLVMTypeKind.Pointer ? args[0] : _b.Cast(LLVMOpcode.IntToPtr, args[0], L.Ptr),
             "CompareStrings" => CallRuntime("csrt_string_compare_culture", L.I32, [L.Ptr, L.Ptr, L.I1], args[0], args[1], L.False),
             "CompareStringsWith" => CallRuntime("csrt_string_compare_with", L.I32, [L.Ptr, L.Ptr, L.I32], args[0], args[1], args[2]),
             _ => throw CompileError.Unsupported($"corelib intrinsic '{target.Name}'", inv),
@@ -123,6 +126,15 @@ public sealed partial class FunctionCodeGen
     /// Calls a static CsharpcCoreLib.&lt;type&gt;.&lt;method&gt; (an implementation moved from the C runtime to C#),
     /// picked by name and parameter count. Its body is lowered on demand.
     /// </summary>
+    /// <summary>A generic corelib helper instantiated for <paramref name="typeArgument"/>.</summary>
+    internal LLVMValueRef CallCoreLibGeneric(string type, string method, ITypeSymbol typeArgument, params LLVMValueRef[] args)
+    {
+        var owner = _m.Compilation.GetTypeByMetadataName(CoreLib.Namespace + "." + type)
+            ?? throw CompileError.Unsupported($"corelib type '{type}' not found", (ISymbol?)null!);
+        var target = owner.GetMembers(method).OfType<IMethodSymbol>().Single(m => m.IsStatic && m.Parameters.Length == args.Length && m.IsGenericMethod);
+        return DirectCall(target.Construct(S(typeArgument)), args);
+    }
+
     internal LLVMValueRef CallCoreLib(string type, string method, params LLVMValueRef[] args)
     {
         var owner = _m.Compilation.GetTypeByMetadataName(CoreLib.Namespace + "." + type)
