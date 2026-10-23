@@ -70,13 +70,13 @@ EOF
 done
 
 # Project-level semantics (tests/projects/cli/<Name>/<Name>.csproj; other projects there are only
-# referenced): `csharpc <project>` against `dotnet run -c Release` (csharpc's default configuration).
+# referenced): `csharpc <project>` against `dotnet run`, both in their default (Debug) configuration.
 for proj_src in "$ROOT"/tests/projects/cli/*/*.csproj; do
   app="$(basename "$proj_src" .csproj)"
   [[ "$(basename "$(dirname "$proj_src")")" == "$app" ]] && grep -q '<OutputType>Exe' "$proj_src" || continue
   rm -rf "$WORK/cli-samples"; cp -r "$ROOT/tests/projects/cli" "$WORK/cli-samples"; find "$WORK/cli-samples" -name bin -o -name obj | xargs rm -rf
   proj="$WORK/cli-samples/$app/$app.csproj"
-  (cd "$WORK/cli-samples/$app" && "$DOTNET" run -c Release -v quiet 2>/dev/null) > "$WORK/expected" || { echo "FAIL $app: dotnet run failed"; fail=$((fail+1)); continue; }
+  (cd "$WORK/cli-samples/$app" && "$DOTNET" run -v quiet 2>/dev/null) > "$WORK/expected" || { echo "FAIL $app: dotnet run failed"; fail=$((fail+1)); continue; }
   find "$WORK/cli-samples" -name bin -o -name obj | xargs rm -rf
   if "$DOTNET" "$CSHARPC_DLL" "$proj" -o "$WORK/cli/" > "$WORK/log" 2>&1; then
     "$WORK/cli/$app" > "$WORK/actual" 2>&1; check "$app: csharpc <project>" "$WORK/expected" "$WORK/actual"
