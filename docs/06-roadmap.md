@@ -79,7 +79,8 @@ every failure is a clean "not supported by csharpc yet" diagnostic.
 | Parsing/formatting numbers | ✅ | standard + custom format strings |
 | `System.Collections.Generic` (`List`, `Dictionary`, `HashSet`, ...) | ✅ | shadow corelib in C# |
 | `System.Linq` | ✅ | shadow corelib in C# |
-| File I/O, networking, JSON, regex | ⬜ | corelib growth |
+| `System.Text.RegularExpressions` | ✅ | port of .NET's engine (interpreter; no `NonBacktracking`), [12-corelib.md](12-corelib.md#regular-expressions) |
+| File I/O, networking, JSON | ⬜ | corelib growth |
 
 ## Milestones
 
@@ -94,9 +95,9 @@ on every program and of NativeAOT on nearly all ([benchmarks/RESULTS.md](../benc
 ### M2 — Library in C# (🚧)
 The BCL surface written in C# and compiled by csharpc together with the program; library symbols that
 Roslyn binds against the real reference assemblies are redirected to it
-([12-corelib.md](12-corelib.md)). Done: collections, LINQ, tasks. In progress: moving formatting,
+([12-corelib.md](12-corelib.md)). Done: collections, LINQ, tasks, `System.Text.RegularExpressions`. In progress: moving formatting,
 parsing, `decimal`, `BigInteger` and `DateTime` from the C runtime into C#; P/Invoke and `System.IO`.
-Next: `System.Text.RegularExpressions`, `System.Text.Json`, networking basics.
+Next: `System.Text.Json`, networking basics.
 
 ### M3 — Platforms and per-platform evidence
 Each platform gets a CI job (GitHub Actions) running the full differential suite, conformance corpus
