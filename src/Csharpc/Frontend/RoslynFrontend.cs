@@ -278,6 +278,11 @@ public sealed record FrontendSettings
     /// <summary>Source of a synthesized global-usings file (null = none).</summary>
     public string? GlobalUsings { get; init; }
     public string? AssemblyName { get; init; }
+    /// <summary>
+    /// Version in the assembly's identity (Type.Assembly.FullName), as the SDK's generated AssemblyInfo
+    /// sets it; "source" = from the program's own [AssemblyVersion]; null = unknown at compile time.
+    /// </summary>
+    public string? AssemblyVersion { get; init; } = "1.0.0.0";
     /// <summary>Type whose Main is the entry point (&lt;StartupObject&gt;); null = the only one.</summary>
     public string? MainTypeName { get; init; }
     /// <summary>
@@ -304,6 +309,8 @@ public sealed record ProjectUnit
     public required string ProjectPath { get; init; }
     public required string AssemblyName { get; init; }
     public required bool IsRoot { get; init; }
+    /// <summary>See FrontendSettings.AssemblyVersion.</summary>
+    public string? AssemblyVersion { get; init; } = "1.0.0.0";
     public required IReadOnlyList<string> Files { get; init; }
     public IReadOnlyList<string> Defines { get; init; } = [];
     public string? LanguageVersion { get; init; }

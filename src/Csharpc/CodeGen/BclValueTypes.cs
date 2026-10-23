@@ -542,7 +542,6 @@ internal static partial class BclValueTypes
         // ===== System.Type (reflection-lite) =====
         BclHandler typeString(string fn) => (g, _, self, _, _) => Rt(g, fn, g.Llvm.Ptr, (self, g.Llvm.Ptr));
         t["System.Reflection.MemberInfo.get_Name()"] = t["System.Type.get_Name()"] = typeString("csrt_type_name");
-        t["System.Type.get_FullName()"] = typeString("csrt_type_full_name");
         t["System.Type.get_Namespace()"] = typeString("csrt_type_namespace");
         t["System.Type.ToString()"] = typeString("csrt_type_full_name");
         t["System.Type.op_Equality(System.Type, System.Type)"] = (g, _, _, a, _) => g.Builder.ICmp(LLVMIntPredicate.EQ, a[0], a[1]);
@@ -747,6 +746,7 @@ internal static partial class BclValueTypes
         // ===== System.Array (single-dimensional) =====
         AddArrayMethods(t);
         AddMoreMethods(t);
+        AddReflectionMethods(t);
 
         // ===== string.Join over arrays / IEnumerable<T> backed by arrays =====
         t["string.Join(string, System.Collections.Generic.IEnumerable<string>)"] = (g, m, _, a, at) => JoinArray(g, m, a, at, charSeparator: false);

@@ -1,0 +1,579 @@
+using Csharpc.Frontend;
+using Csharpc.Llvm;
+using Microsoft.CodeAnalysis;
+
+namespace Csharpc.CodeGen;
+
+/// <summary>An assembly whose sources are part of the program (the root project and its project references).</summary>
+public sealed record ProgramAssembly(string Name, string? Version, IReadOnlySet<string> Files, bool IsRoot)
+{
+    public static IReadOnlyList<ProgramAssembly> From(FrontendSettings settings, string assemblyName) =>
+        settings.Projects.Count > 0
+            ? [.. settings.Projects.Select(p => new ProgramAssembly(p.AssemblyName, p.AssemblyVersion,
+                p.Files.Select(Path.GetFullPath).ToHashSet(StringComparer.Ordinal), p.IsRoot))]
+            : [new ProgramAssembly(assemblyName, settings.AssemblyVersion, new HashSet<string>(), IsRoot: true)];
+}
+
+/// <summary>
+/// System.Type metadata generated at compile time (closed world, ADR 0006): a csrt_TypeInfo per
+/// method table the program has (csrt.h), emitted only when the program uses a Type member that
+/// needs it (IsGenericType, BaseType, IsAssignableFrom, Assembly, ...), plus the much smaller
+/// FullName table for Type.FullName. Runtime functions take the table as an argument, so programs
+/// that don't ask carry neither. See docs/12-corelib.md, "Type metadata".
+/// </summary>
+public sealed partial class ModuleCodeGen
+{
+    /// <summary>The program's own assemblies, for Type.Assembly (Driver: ProgramAssembly.From).</summary>
+    public IReadOnlyList<ProgramAssembly> ProgramAssemblies { get; init; } = [];
+
+    /// <summary>A generic parameter of a type definition, as reflection sees it (owned by the innermost type).</summary>
+    private sealed record GenericParameter(INamedTypeSymbol Owner, ITypeParameterSymbol Parameter, int Position);
+
+    // Every method table and what it describes (an ITypeSymbol or a GenericParameter), in creation order.
+    private readonly List<(LLVMValueRef Mt, object Type)> _typeMts = [];
+    private readonly HashSet<nint> _typeMtSeen = [];
+    private LLVMValueRef _typeInfoTable, _typeNameTable;
+    private readonly List<TypeInfoRecord> _typeInfoRecords = [];
+    private int _typeInfoDone;
+
+    /// <summary>A csrt_TypeInfo under construction: everything but the interface list, chosen at the end.</summary>
+    private sealed class TypeInfoRecord
+    {
+        public required LLVMValueRef[] Fields;                  // mt .. declaring, arguments (csrt_TypeInfo order)
+        public required LLVMValueRef Namespace, Assembly;
+        public required ulong Flags;
+        public required int ArgumentCount, Rank, Variance;
+        public List<INamedTypeSymbol> Interfaces = [];           // candidates: every interface the type implements
+    }
+
+    internal void RegisterTypeMethodTable(LLVMValueRef mt, object type)
+    {
+        if (_typeMtSeen.Add(mt.Handle)) _typeMts.Add((mt, type));
+    }
+
+    private LLVMTypeRef TypeTableHeader => Llvm.Struct(Llvm.I64, Llvm.Ptr);
+
+    /// <summary>The program's csrt_TypeInfoTable (filled in once codegen is done).</summary>
+    internal LLVMValueRef TypeInfoTable()
+    {
+        if (_typeInfoTable.IsNull)
+            _typeInfoTable = Module.AddGlobal("csharpc.typeinfo", TypeTableHeader, constant: true, linkage: LLVMLinkage.Private);
+        return _typeInfoTable;
+    }
+
+    /// <summary>The program's csrt_TypeNameTable (Type.FullName, AssemblyQualifiedName).</summary>
+    internal LLVMValueRef TypeNameTable()
+    {
+        if (_typeNameTable.IsNull)
+            _typeNameTable = Module.AddGlobal("csharpc.typenames", TypeTableHeader, constant: true, linkage: LLVMLinkage.Private);
+        return _typeNameTable;
+    }
+
+    /// <summary>
+    /// Describes the method tables created since the last call. Describing a type can create method
+    /// tables (a base class never instantiated, a generic argument) and queue their vtable methods,
+    /// so Generate() alternates this with draining the worklists until neither has work left.
+    /// </summary>
+    private bool EmitTypeMetadata()
+    {
+        if (_typeInfoTable.IsNull) return false;
+        var any = false;
+        while (true)
+        {
+            if (_typeInfoDone == _typeMts.Count)
+            {
+                RegisterKnownMethodTables();
+                if (_typeInfoDone == _typeMts.Count) SelectInterfaces();
+                if (_typeInfoDone == _typeMts.Count) break;
+            }
+            var (mt, type) = _typeMts[_typeInfoDone++];
+            any = true;
+            // Open types other than definitions (scratch tables of generic code) have no Type objects.
+            if (type is ITypeSymbol symbol && IsOpenInstance(symbol)) continue;
+            _typeInfoRecords.Add(TypeInfoRecordFor(mt, type));
+        }
+        return any;
+    }
+
+    /// <summary>
+    /// Interface lists only need the interfaces a Type object can exist for (the program's interface
+    /// method tables: typeof, interface maps, generic arguments) — int alone implements ~30 generic-math
+    /// interfaces nobody asks about. Variant interfaces are kept when the program has another
+    /// instantiation of the same definition (IEnumerable&lt;string&gt; for IsAssignableFrom(IEnumerable&lt;object&gt;)),
+    /// which gives them method tables, and so entries, of their own.
+    /// </summary>
+    private void SelectInterfaces()
+    {
+        var definitions = _interfaceTables.Keys.Where(i => i.IsGenericType).Select(i => i.OriginalDefinition)
+            .ToHashSet<INamedTypeSymbol>(SymbolEqualityComparer.Default);
+        foreach (var record in _typeInfoRecords.ToList())
+            foreach (var itf in record.Interfaces)
+                if (itf.IsGenericType && definitions.Contains(itf.OriginalDefinition)
+                    && itf.OriginalDefinition.TypeParameters.Any(p => p.Variance != VarianceKind.None))
+                    InterfaceMethodTable(itf);
+        RegisterKnownMethodTables();
+    }
+
+    private void FinishTypeMetadata()
+    {
+        LLVMValueRef Table(string name, LLVMTypeRef entryType, IReadOnlyList<LLVMValueRef> entries)
+        {
+            var init = LlvmContext.ConstArray(entryType, [.. entries]);
+            var array = Module.AddGlobal(name, Native.LLVMTypeOf(init), init, constant: true, linkage: LLVMLinkage.Private);
+            return Llvm.ConstStruct(Llvm.ConstInt(Llvm.I64, entries.Count), array);
+        }
+        if (!_typeInfoTable.IsNull)
+        {
+            var entries = new List<LLVMValueRef>();
+            foreach (var record in _typeInfoRecords)
+            {
+                var interfaces = new List<LLVMValueRef>();
+                foreach (var itf in record.Interfaces)
+                    if (_interfaceTables.TryGetValue(InterfaceKey(itf), out var mt)) interfaces.Add(mt);
+                entries.Add(Llvm.ConstStruct([.. record.Fields, interfaces.Count == 0 ? LlvmContext.Null(Llvm.Ptr) : MtArray("ifaces", interfaces),
+                    record.Namespace, record.Assembly, Llvm.ConstUInt(Llvm.I64, record.Flags), Llvm.ConstInt(Llvm.I32, record.ArgumentCount),
+                    Llvm.ConstInt(Llvm.I32, interfaces.Count), Llvm.ConstInt(Llvm.I32, record.Rank), Llvm.ConstInt(Llvm.I32, record.Variance)]));
+            }
+            Native.LLVMSetInitializer(_typeInfoTable, Table("csharpc.typeinfo.entries", TypeInfoEntryType, entries));
+        }
+        if (!_typeNameTable.IsNull)
+        {
+            RegisterKnownMethodTables();
+            var entryType = Llvm.Struct(Llvm.Ptr, Llvm.Ptr, Llvm.I64);
+            var entries = new List<LLVMValueRef>();
+            foreach (var (mt, type) in _typeMts)
+            {
+                // Only types whose FullName differs from the method table's name (ToString's form).
+                if (type is ITypeSymbol symbol && IsOpenInstance(symbol)) continue;
+                var real = type is GenericParameter ? null : RealType((ITypeSymbol)type);
+                if (real is not null && !HasGenericArguments(real) && !IsCoreLibInternal(real)) continue;
+                var unknown = false;
+                var fullName = real is null ? null : FullNameOf(real, ref unknown);
+                entries.Add(Llvm.ConstStruct(mt, fullName is null ? LlvmContext.Null(Llvm.Ptr) : CString(fullName), Llvm.ConstInt(Llvm.I64, unknown ? 1 : 0)));
+            }
+            Native.LLVMSetInitializer(_typeNameTable, Table("csharpc.typenames.entries", entryType, entries));
+        }
+    }
+
+    private LLVMTypeRef TypeInfoEntryType => Llvm.Struct(
+        Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr,
+        Llvm.I64, Llvm.I32, Llvm.I32, Llvm.I32, Llvm.I32);
+
+    private LLVMValueRef MtArray(string suffix, IReadOnlyList<LLVMValueRef> tables)
+    {
+        var init = LlvmContext.ConstArray(Llvm.Ptr, [.. tables]);
+        return Module.AddGlobal("csharpc.typeinfo." + suffix, Native.LLVMTypeOf(init), init, constant: true, linkage: LLVMLinkage.Private);
+    }
+
+    private INamedTypeSymbol InterfaceKey(INamedTypeSymbol itf) => (INamedTypeSymbol)CoreLib.Unmap(TypeSubstitution.EraseTupleNames(itf, Compilation));
+
+    /// <summary>Method tables kept in per-kind caches (classes, structs, enums, interfaces) and the runtime's own.</summary>
+    private void RegisterKnownMethodTables()
+    {
+        foreach (var layout in _layouts.Values)
+            if (!layout.MethodTable.IsNull) RegisterTypeMethodTable(layout.MethodTable, layout.Type);
+        foreach (var layout in _structs.Values)
+            if (!layout.MethodTable.IsNull) RegisterTypeMethodTable(layout.MethodTable, layout.Type);
+        foreach (var (type, mt) in _enumMethodTables) RegisterTypeMethodTable(mt, type);
+        foreach (var (type, mt) in _interfaceTables) RegisterTypeMethodTable(mt, type);
+        RegisterTypeMethodTable(ExternalGlobal("csrt_Object_MT"), Compilation.GetSpecialType(SpecialType.System_Object));
+        RegisterTypeMethodTable(ExternalGlobal("csrt_String_MT"), Compilation.GetSpecialType(SpecialType.System_String));
+        // Boxed primitives the program uses (boxing references these without going through typeof).
+        foreach (var special in s_boxedPrimitives)
+        {
+            var type = Compilation.GetSpecialType(special);
+            if (_globals.TryGetValue($"csrt_Boxed_{type.MetadataName}_MT", out var mt)) RegisterTypeMethodTable(mt, type);
+        }
+        foreach (var (table, name) in s_boxedRuntimeTypes)
+            if (_globals.TryGetValue(table, out var mt) && Compilation.GetTypeByMetadataName(name) is { } type) RegisterTypeMethodTable(mt, type);
+    }
+
+    private static readonly SpecialType[] s_boxedPrimitives =
+    [
+        SpecialType.System_Int32, SpecialType.System_Int64, SpecialType.System_UInt32, SpecialType.System_UInt64,
+        SpecialType.System_Int16, SpecialType.System_UInt16, SpecialType.System_Byte, SpecialType.System_SByte,
+        SpecialType.System_Double, SpecialType.System_Single, SpecialType.System_Boolean, SpecialType.System_Char,
+    ];
+
+    private static readonly (string Table, string Type)[] s_boxedRuntimeTypes =
+    [
+        ("csrt_Boxed_Decimal_MT", "System.Decimal"), ("csrt_Boxed_TimeSpan_MT", "System.TimeSpan"),
+        ("csrt_Boxed_DateTime_MT", "System.DateTime"), ("csrt_Boxed_BigInteger_MT", "System.Numerics.BigInteger"),
+    ];
+
+    /// <summary>The method table reflection hands out for a type (typeof's).</summary>
+    private LLVMValueRef MetadataMethodTable(ITypeSymbol type) => TypeMethodTable(type, null!);
+
+    /// <summary>The Type object of a generic parameter: name only ("T"), described by the metadata table.</summary>
+    private LLVMValueRef GenericParameterMethodTable(INamedTypeSymbol owner, int position)
+    {
+        var parameters = ChainArguments(owner);
+        var parameter = (ITypeParameterSymbol)parameters[position];
+        var key = "typeparam:" + owner.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat) + ":" + position;
+        if (_arrayMethodTables.TryGetValue(key, out var existing)) return existing;
+        var init = Llvm.ConstStruct(ExternalGlobal("csrt_Object_MT"), CString(parameter.Name), Llvm.ConstInt(Llvm.I32, 0), Llvm.ConstInt(Llvm.I32, 0),
+            LlvmContext.Null(Llvm.Ptr), Llvm.ConstInt(Llvm.I32, 0), Llvm.ConstInt(Llvm.I32, 0));
+        var global = Module.AddGlobal("csrt.typeparam." + parameter.Name, Native.LLVMTypeOf(init), init, constant: true, linkage: LLVMLinkage.Private);
+        RegisterTypeMethodTable(global, new GenericParameter(owner, parameter, position));
+        return _arrayMethodTables[key] = global;
+    }
+
+    private TypeInfoRecord TypeInfoRecordFor(LLVMValueRef mt, object described)
+    {
+        var none = LlvmContext.Null(Llvm.Ptr);
+        LLVMValueRef baseMt = none, element = none, definition = none, declaring = none, arguments = none;
+        LLVMValueRef namespaceName = none, assembly = none;
+        int argumentCount = 0, rank = 0, variance = 0;
+        ulong flags;
+        List<INamedTypeSymbol> interfaces = [];
+        LLVMValueRef Str(string? s) => s is null ? none : CString(s);
+
+        if (described is GenericParameter gp)
+        {
+            var p = gp.Parameter;
+            var valueType = p.HasValueTypeConstraint || p.HasUnmanagedTypeConstraint;
+            flags = TI.GenericParameter | TI.ContainsGenericParameters | TI.Public | TI.Nested | TI.Visible
+                | (valueType ? TI.ValueType : TI.Class) | (p.IsReferenceType ? TI.ReferenceType : 0);
+            var constraint = valueType ? Compilation.GetSpecialType(SpecialType.System_ValueType)
+                : p.ConstraintTypes.FirstOrDefault(c => c.TypeKind == TypeKind.Class) ?? Compilation.GetSpecialType(SpecialType.System_Object);
+            if (TypeSubstitution.IsOpen(constraint)) flags |= TI.NoHierarchy;
+            else baseMt = MetadataMethodTable(constraint);
+            declaring = MetadataMethodTable(gp.Owner);
+            rank = gp.Position;
+            namespaceName = Str(NamespaceOf(gp.Owner));
+            assembly = Str(AssemblyOf(gp.Owner));
+        }
+        else
+        {
+            var type = RealType((ITypeSymbol)described);
+            flags = TypeFlags(type);
+            assembly = Str(AssemblyOf(type));
+            switch (type)
+            {
+                case IArrayTypeSymbol array:
+                    baseMt = MetadataMethodTable(Compilation.GetSpecialType(SpecialType.System_Array));
+                    element = MetadataMethodTable(array.ElementType);
+                    rank = array.Rank;
+                    // System.Array's interfaces; IList<T> & co. are answered from the element type
+                    // (CSRT_TI_ARRAY_INTERFACE in type.c), covariance included.
+                    interfaces = [.. Compilation.GetSpecialType(SpecialType.System_Array).AllInterfaces];
+                    // .NET quirk: an array reports its innermost element type's generic arguments
+                    // (typeof(List<int>[]).GetGenericArguments() is [Int32]); GenericTypeArguments stays empty.
+                    var inner = array.ElementType;
+                    while (inner is IArrayTypeSymbol nestedArray) inner = nestedArray.ElementType;
+                    if (inner is INamedTypeSymbol innerNamed && !IsDef(innerNamed) && ChainArguments(innerNamed) is { Count: > 0 } innerArguments)
+                    {
+                        arguments = MtArray("args", [.. innerArguments.Select(MetadataMethodTable)]);
+                        argumentCount = innerArguments.Count;
+                    }
+                    break;
+                case IPointerTypeSymbol pointer:
+                    element = MetadataMethodTable(pointer.PointedAtType);
+                    break;
+                case INamedTypeSymbol named:
+                {
+                    if (named.TypeKind != TypeKind.Interface && named.BaseType is { } baseType)
+                    {
+                        if (TypeSubstitution.IsOpen(baseType)) flags |= TI.NoHierarchy;
+                        else baseMt = MetadataMethodTable(baseType);
+                    }
+                    if (named.AllInterfaces.Any(TypeSubstitution.IsOpen)) flags |= TI.NoInterfaces;
+                    else interfaces = [.. named.AllInterfaces];
+                    var chain = ChainArguments(named);
+                    if (chain.Count > 0)
+                    {
+                        definition = MetadataMethodTable(named.OriginalDefinition);
+                        var owner = named.OriginalDefinition;
+                        arguments = MtArray("args", IsDef(named)
+                            ? [.. chain.Select((_, i) => GenericParameterMethodTable(owner, i))]
+                            : [.. chain.Select(MetadataMethodTable)]);
+                        argumentCount = chain.Count;
+                        if (!IsDef(named) && named.ContainingType is null)
+                            for (var k = 0; k < named.TypeParameters.Length; k++)
+                                variance |= named.OriginalDefinition.TypeParameters[k].Variance switch
+                                {
+                                    VarianceKind.Out => 1, VarianceKind.In => 2, _ => 0,
+                                } << (2 * k);
+                    }
+                    if (named.ContainingType is { } outer) declaring = MetadataMethodTable(outer.OriginalDefinition);
+                    break;
+                }
+            }
+        }
+        return new TypeInfoRecord
+        {
+            Fields = [mt, baseMt, element, definition, declaring, arguments],
+            Namespace = namespaceName, Assembly = assembly, Flags = flags,
+            ArgumentCount = argumentCount, Rank = rank, Variance = variance, Interfaces = interfaces,
+        };
+    }
+
+    private static readonly string[] s_arrayInterfaces =
+    [
+        "System.Collections.Generic.IList`1", "System.Collections.Generic.ICollection`1", "System.Collections.Generic.IEnumerable`1",
+        "System.Collections.Generic.IReadOnlyList`1", "System.Collections.Generic.IReadOnlyCollection`1",
+    ];
+
+    /// <summary>csrt_TypeInfo flags (csrt.h, CSRT_TI_*).</summary>
+    private static class TI
+    {
+        public const ulong Class = 1 << 0, ValueType = 1 << 1, Enum = 1 << 2, Array = 1 << 3, Primitive = 1 << 4, Abstract = 1 << 5,
+            Sealed = 1 << 6, Interface = 1 << 7, Public = 1 << 8, NotPublic = 1 << 9, Nested = 1 << 10, NestedPublic = 1 << 11,
+            NestedPrivate = 1 << 12, NestedAssembly = 1 << 13, NestedFamily = 1 << 14, NestedFamOrAssem = 1 << 15,
+            NestedFamAndAssem = 1 << 16, Visible = 1 << 17, GenericType = 1 << 18, GenericDefinition = 1 << 19,
+            ConstructedGeneric = 1 << 20, GenericParameter = 1 << 21, ContainsGenericParameters = 1 << 22, Pointer = 1 << 23,
+            SZArray = 1 << 24, VariableBoundArray = 1 << 25, TypeDefinition = 1 << 26, ByRefLike = 1 << 27, Nullable = 1 << 28,
+            HasElementType = 1 << 29;
+        public const ulong ReferenceType = 1UL << 32, NoHierarchy = 1UL << 33,
+            ArrayInterface = 1UL << 35, NoInterfaces = 1UL << 36;
+        public const int ElementClassShift = 40;
+    }
+
+    /// <summary>The Type property a flag answers, by getter name (BclValueTypes.Reflection.cs).</summary>
+    internal static readonly IReadOnlyDictionary<string, ulong> TypeFlagProperties = new Dictionary<string, ulong>
+    {
+        ["IsClass"] = TI.Class, ["IsValueType"] = TI.ValueType, ["IsEnum"] = TI.Enum, ["IsArray"] = TI.Array,
+        ["IsPrimitive"] = TI.Primitive, ["IsAbstract"] = TI.Abstract, ["IsSealed"] = TI.Sealed, ["IsInterface"] = TI.Interface,
+        ["IsPublic"] = TI.Public, ["IsNotPublic"] = TI.NotPublic, ["IsNested"] = TI.Nested, ["IsNestedPublic"] = TI.NestedPublic,
+        ["IsNestedPrivate"] = TI.NestedPrivate, ["IsNestedAssembly"] = TI.NestedAssembly, ["IsNestedFamily"] = TI.NestedFamily,
+        ["IsNestedFamORAssem"] = TI.NestedFamOrAssem, ["IsNestedFamANDAssem"] = TI.NestedFamAndAssem, ["IsVisible"] = TI.Visible,
+        ["IsGenericType"] = TI.GenericType, ["IsGenericTypeDefinition"] = TI.GenericDefinition,
+        ["IsConstructedGenericType"] = TI.ConstructedGeneric, ["IsGenericParameter"] = TI.GenericParameter,
+        ["IsGenericTypeParameter"] = TI.GenericParameter, ["ContainsGenericParameters"] = TI.ContainsGenericParameters,
+        ["IsPointer"] = TI.Pointer, ["IsSZArray"] = TI.SZArray, ["IsVariableBoundArray"] = TI.VariableBoundArray,
+        ["IsTypeDefinition"] = TI.TypeDefinition, ["IsByRefLike"] = TI.ByRefLike, ["HasElementType"] = TI.HasElementType,
+    };
+
+    private ulong TypeFlags(ITypeSymbol type)
+    {
+        switch (type)
+        {
+            case IArrayTypeSymbol array:
+                return TI.Class | TI.Public | TI.Sealed | TI.Array | TI.HasElementType | TI.ReferenceType
+                    | (array.IsSZArray ? TI.SZArray : TI.VariableBoundArray) | (IsVisible(array.ElementType) ? TI.Visible : 0);
+            case IPointerTypeSymbol pointer:
+                return TI.Class | TI.Public | TI.Pointer | TI.HasElementType | (IsVisible(pointer.PointedAtType) ? TI.Visible : 0);
+            case INamedTypeSymbol named:
+            {
+                ulong f = 0;
+                if (named.TypeKind == TypeKind.Interface) f |= TI.Interface | TI.Abstract;
+                else if (named.IsValueType) f |= TI.ValueType;
+                else f |= TI.Class;
+                if (named.TypeKind == TypeKind.Enum) f |= TI.Enum;
+                if (named.SpecialType is SpecialType.System_Boolean or SpecialType.System_Char or SpecialType.System_SByte or SpecialType.System_Byte
+                    or SpecialType.System_Int16 or SpecialType.System_UInt16 or SpecialType.System_Int32 or SpecialType.System_UInt32
+                    or SpecialType.System_Int64 or SpecialType.System_UInt64 or SpecialType.System_Single or SpecialType.System_Double
+                    or SpecialType.System_IntPtr or SpecialType.System_UIntPtr)
+                    f |= TI.Primitive;
+                if (named.IsAbstract || named.IsStatic) f |= TI.Abstract;
+                if (named.TypeKind != TypeKind.Interface && (named.IsSealed || named.IsStatic || named.IsValueType || named.TypeKind == TypeKind.Delegate))
+                    f |= TI.Sealed;
+                if (named.ContainingType is null)
+                    f |= named.DeclaredAccessibility == Accessibility.Public ? TI.Public : TI.NotPublic;
+                else
+                    f |= TI.Nested | named.DeclaredAccessibility switch
+                    {
+                        Accessibility.Public => TI.NestedPublic,
+                        Accessibility.Private => TI.NestedPrivate,
+                        Accessibility.Internal => TI.NestedAssembly,
+                        Accessibility.Protected => TI.NestedFamily,
+                        Accessibility.ProtectedOrInternal => TI.NestedFamOrAssem,
+                        Accessibility.ProtectedAndInternal => TI.NestedFamAndAssem,
+                        _ => 0,
+                    };
+                if (IsVisible(named)) f |= TI.Visible;
+                if (ChainArguments(named).Count > 0)
+                    f |= TI.GenericType | (IsDef(named) ? TI.GenericDefinition : TI.ConstructedGeneric);
+                if (IsDef(named)) f |= TI.TypeDefinition;
+                if (TypeSubstitution.IsOpen(named)) f |= TI.ContainsGenericParameters;
+                if (named.IsRefLikeType) f |= TI.ByRefLike;
+                if (named.OriginalDefinition.SpecialType == SpecialType.System_Nullable_T) f |= TI.Nullable;
+                if (named.IsReferenceType) f |= TI.ReferenceType;
+                if (!IsDef(named) && s_arrayInterfaces.Contains(Mangler.MetadataName(named.OriginalDefinition))) f |= TI.ArrayInterface;
+                f |= (ulong)ElementClass(named) << TI.ElementClassShift;
+                return f;
+            }
+            default:
+                return 0;
+        }
+    }
+
+    /// <summary>Primitives that share array storage: int[] and uint[] (and enums over int) are castable to each other.</summary>
+    private static int ElementClass(ITypeSymbol type) =>
+        type is INamedTypeSymbol { TypeKind: TypeKind.Enum, EnumUnderlyingType: { } underlying } ? ElementClass(underlying) : type.SpecialType switch
+        {
+            SpecialType.System_SByte or SpecialType.System_Byte => 1,
+            SpecialType.System_Int16 or SpecialType.System_UInt16 => 2,
+            SpecialType.System_Int32 or SpecialType.System_UInt32 => 3,
+            SpecialType.System_Int64 or SpecialType.System_UInt64 => 4,
+            SpecialType.System_IntPtr or SpecialType.System_UIntPtr => 5,
+            _ => 0,
+        };
+
+    /// <summary>Type.IsVisible: public all the way out, and so are the type arguments.</summary>
+    private static bool IsVisible(ITypeSymbol type) => type switch
+    {
+        IArrayTypeSymbol array => IsVisible(array.ElementType),
+        IPointerTypeSymbol pointer => IsVisible(pointer.PointedAtType),
+        ITypeParameterSymbol => true,
+        INamedTypeSymbol named => named.DeclaredAccessibility == Accessibility.Public
+            && (named.ContainingType is null || IsVisible(named.ContainingType.OriginalDefinition))
+            && named.TypeArguments.All(a => a is ITypeParameterSymbol || IsVisible(a)),
+        _ => false,
+    };
+
+    /// <summary>Type arguments of a type and the types it is nested in, outermost first (the CLR's view).</summary>
+    private static List<ITypeSymbol> ChainArguments(INamedTypeSymbol type)
+    {
+        var arguments = new List<ITypeSymbol>();
+        for (var t = type; t is not null; t = t.ContainingType) arguments.InsertRange(0, t.TypeArguments);
+        return arguments;
+    }
+
+    /// <summary>
+    /// A type definition (not constructed). Roslyn's IsDefinition is reference-based, and symbols that
+    /// went through nullable annotations (special types from typeof) are wrappers: compare instead.
+    /// </summary>
+    internal static bool IsDef(INamedTypeSymbol type) => SymbolEqualityComparer.Default.Equals(type, type.OriginalDefinition);
+
+    private static bool IsOpenInstance(ITypeSymbol type) =>
+        TypeSubstitution.IsOpen(type) && !(type is INamedTypeSymbol definition && IsDef(definition))
+        || type is INamedTypeSymbol named && ChainArguments(named).Any(a => a.TypeKind == TypeKind.Error);
+
+    private static bool HasGenericArguments(ITypeSymbol type) => type switch
+    {
+        IArrayTypeSymbol array => HasGenericArguments(array.ElementType),
+        IPointerTypeSymbol pointer => HasGenericArguments(pointer.PointedAtType),
+        INamedTypeSymbol named => ChainArguments(named).Count > 0,
+        _ => true,
+    };
+
+    private static bool IsCoreLibInternal(ITypeSymbol type) => type switch
+    {
+        IArrayTypeSymbol array => IsCoreLibInternal(array.ElementType),
+        IPointerTypeSymbol pointer => IsCoreLibInternal(pointer.PointedAtType),
+        INamedTypeSymbol named => CoreLib.IsCoreLib(named.OriginalDefinition) || named.TypeArguments.Any(IsCoreLibInternal),
+        _ => false,
+    };
+
+    /// <summary>The BCL type a corelib shadow stands for (List&lt;int&gt;.Enumerator for ListImpl&lt;int&gt;.Enumerator).</summary>
+    private ITypeSymbol RealType(ITypeSymbol type)
+    {
+        switch (type)
+        {
+            case IArrayTypeSymbol array:
+                var element = RealType(array.ElementType);
+                return ReferenceEquals(element, array.ElementType) ? array : Compilation.CreateArrayTypeSymbol(element, array.Rank);
+            case IPointerTypeSymbol pointer:
+                var pointed = RealType(pointer.PointedAtType);
+                return ReferenceEquals(pointed, pointer.PointedAtType) ? pointer : Compilation.CreatePointerTypeSymbol(pointed);
+            case INamedTypeSymbol named:
+                // Rebuilding a definition from its own parameters would make it a constructed type.
+                var unmapped = IsDef(named)
+                    ? ((INamedTypeSymbol)CoreLib.Unmap(named)).OriginalDefinition
+                    : (INamedTypeSymbol)CoreLib.Unmap(TypeSubstitution.EraseTupleNames(named, Compilation));
+                if (unmapped.ContainingType is { } outer && CoreLib.IsCoreLib(unmapped.OriginalDefinition)
+                    && RealType(outer) is INamedTypeSymbol realOuter && !ReferenceEquals(realOuter, outer)
+                    && realOuter.GetTypeMembers(unmapped.Name, unmapped.Arity).FirstOrDefault() is { } nested)
+                    return unmapped.Arity > 0 && !IsDef(unmapped) ? nested.Construct([.. unmapped.TypeArguments.Select(RealType)]) : nested;
+                return unmapped;
+            default:
+                return type;
+        }
+    }
+
+    /// <summary>
+    /// Type.FullName: like the method table's name, but generic arguments are assembly-qualified
+    /// ("List`1[[System.Int32, System.Private.CoreLib, ...]]"); null for generic parameters and types
+    /// containing them (except definitions). <paramref name="unknown"/> is set when csharpc can't tell.
+    /// </summary>
+    private string? FullNameOf(ITypeSymbol type, ref bool unknown)
+    {
+        switch (type)
+        {
+            case IArrayTypeSymbol array:
+                return FullNameOf(array.ElementType, ref unknown) is { } e ? e + ArraySuffix(array) : null;
+            case IPointerTypeSymbol pointer:
+                return FullNameOf(pointer.PointedAtType, ref unknown) is { } p ? p + "*" : null;
+            case INamedTypeSymbol named:
+            {
+                if (CoreLib.IsCoreLib(named.OriginalDefinition)) unknown = true;  // corelib-internal: no .NET counterpart
+                var definition = Mangler.MetadataName(named.OriginalDefinition);
+                var arguments = ChainArguments(named);
+                if (arguments.Count == 0 || IsDef(named)) return definition;
+                if (arguments.Any(TypeSubstitution.IsOpen)) return null;
+                var parts = new List<string>();
+                foreach (var argument in arguments)
+                {
+                    var name = FullNameOf(argument, ref unknown);
+                    var assembly = AssemblyOf(argument);
+                    if (assembly is null) unknown = true;
+                    parts.Add("[" + name + ", " + assembly + "]");
+                }
+                return definition + "[" + string.Join(",", parts) + "]";
+            }
+            default:
+                return null;
+        }
+    }
+
+    private static string ArraySuffix(IArrayTypeSymbol array) =>
+        array.IsSZArray ? "[]" : array.Rank == 1 ? "[*]" : "[" + new string(',', array.Rank - 1) + "]";
+
+    private static string? NamespaceOf(INamedTypeSymbol type)
+    {
+        while (type.ContainingType is { } outer) type = outer;
+        return type.ContainingNamespace is { IsGlobalNamespace: false } ns ? ns.ToDisplayString() : null;
+    }
+
+    /// <summary>
+    /// Type.Assembly.FullName, as .NET reports it at run time; null when csharpc can't tell (then the
+    /// program gets a NotSupportedException instead of a wrong answer).
+    /// </summary>
+    internal string? AssemblyOf(ITypeSymbol type)
+    {
+        switch (type)
+        {
+            case IArrayTypeSymbol array: return AssemblyOf(array.ElementType);
+            case IPointerTypeSymbol pointer: return AssemblyOf(pointer.PointedAtType);
+            case ITypeParameterSymbol parameter:
+                return parameter.ContainingType is { } owner ? AssemblyOf(owner) : null;
+            case INamedTypeSymbol named:
+            {
+                var definition = RealType(named.OriginalDefinition) is INamedTypeSymbol real ? real.OriginalDefinition : named.OriginalDefinition;
+                if (CoreLib.IsCoreLib(definition)) return null;
+                var assembly = definition.ContainingAssembly;
+                if (assembly is null) return null;
+                if (SymbolEqualityComparer.Default.Equals(assembly, Compilation.Assembly)) return ProgramAssemblyName(definition);
+                if (Il.Contains(assembly)) return assembly.Identity.GetDisplayName();
+                // A reference assembly: follow the shared framework's type forwards (List<T> is in
+                // System.Collections.dll's reference assembly but System.Private.CoreLib at run time).
+                var top = definition;
+                while (top.ContainingType is { } outer) top = outer;
+                var ns = top.ContainingNamespace is { IsGlobalNamespace: false } n ? n.ToDisplayString() : "";
+                return SharedFramework.DefiningAssembly(assembly.Identity.Name, ns, top.MetadataName);
+            }
+            default:
+                return null;
+        }
+    }
+
+    /// <summary>"name, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null" for the program's own types.</summary>
+    internal string? ProgramAssemblyName(ISymbol? symbol)
+    {
+        var unit = ProgramAssemblies.Count > 1 && symbol?.Locations.FirstOrDefault(l => l.IsInSource)?.SourceTree?.FilePath is { } path
+            ? ProgramAssemblies.FirstOrDefault(a => a.Files.Contains(Path.GetFullPath(path)))
+            : null;
+        unit ??= ProgramAssemblies.FirstOrDefault(a => a.IsRoot);
+        var name = unit?.IsRoot != false ? Compilation.AssemblyName ?? unit?.Name : unit.Name;
+        var version = unit is null ? "1.0.0.0" : unit.Version;
+        if (version == "source")
+        {
+            // No SDK-generated [AssemblyVersion]: the program's own, or 0.0.0.0 (unless it is in another
+            // project of the build, whose attributes this compilation doesn't see).
+            if (unit is { IsRoot: false }) return null;
+            version = Compilation.Assembly.Identity.Version.ToString();
+        }
+        return name is null || version is null ? null : $"{name}, Version={version}, Culture=neutral, PublicKeyToken=null";
+    }
+}

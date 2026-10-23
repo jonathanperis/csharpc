@@ -142,6 +142,52 @@ csrt_String* csrt_string_alloc_checked(int64_t length);  // uninitialized chars;
 csrt_String* csrt_string_alloc_zeroed(int64_t length);   // zero-filled; OOM above the limit
 CSRT_THROWS void csrt_throw_invalid_cast(void);
 
+// Type metadata (System.Type reflection, src/runtime/type.c; emitted by ModuleCodeGen.TypeInfo.cs) ---
+// Generated at compile time, only for programs that use a Type member needing it: one entry per
+// method table the program has (plus the types those entries refer to). Runtime functions receive
+// the table as an argument, so programs that never ask pay nothing.
+enum {
+    CSRT_TI_CLASS = 1 << 0, CSRT_TI_VALUE_TYPE = 1 << 1, CSRT_TI_ENUM = 1 << 2, CSRT_TI_ARRAY = 1 << 3,
+    CSRT_TI_PRIMITIVE = 1 << 4, CSRT_TI_ABSTRACT = 1 << 5, CSRT_TI_SEALED = 1 << 6, CSRT_TI_INTERFACE = 1 << 7,
+    CSRT_TI_PUBLIC = 1 << 8, CSRT_TI_NOT_PUBLIC = 1 << 9, CSRT_TI_NESTED = 1 << 10, CSRT_TI_NESTED_PUBLIC = 1 << 11,
+    CSRT_TI_NESTED_PRIVATE = 1 << 12, CSRT_TI_NESTED_ASSEMBLY = 1 << 13, CSRT_TI_NESTED_FAMILY = 1 << 14,
+    CSRT_TI_NESTED_FAM_OR_ASSEM = 1 << 15, CSRT_TI_NESTED_FAM_AND_ASSEM = 1 << 16, CSRT_TI_VISIBLE = 1 << 17,
+    CSRT_TI_GENERIC_TYPE = 1 << 18, CSRT_TI_GENERIC_DEFINITION = 1 << 19, CSRT_TI_CONSTRUCTED_GENERIC = 1 << 20,
+    CSRT_TI_GENERIC_PARAMETER = 1 << 21, CSRT_TI_CONTAINS_GENERIC_PARAMETERS = 1 << 22, CSRT_TI_POINTER = 1 << 23,
+    CSRT_TI_SZARRAY = 1 << 24, CSRT_TI_VARIABLE_BOUND_ARRAY = 1 << 25, CSRT_TI_TYPE_DEFINITION = 1 << 26,
+    CSRT_TI_BYREF_LIKE = 1 << 27, CSRT_TI_NULLABLE = 1 << 28, CSRT_TI_HAS_ELEMENT_TYPE = 1 << 29,
+};
+// Bits above 31 (uint64_t flags).
+#define CSRT_TI_REFERENCE_TYPE (1ull << 32)      /* for variance and array covariance */
+#define CSRT_TI_NO_HIERARCHY (1ull << 33)        /* base type not described (open generic types) */
+#define CSRT_TI_ARRAY_INTERFACE (1ull << 35)     /* IList<T>, ICollection<T>, IEnumerable<T>, IReadOnlyList<T>, IReadOnlyCollection<T> */
+#define CSRT_TI_NO_INTERFACES (1ull << 36)       /* implemented interfaces not described (open generic types) */
+#define CSRT_TI_ELEMENT_CLASS_SHIFT 40           /* 4 bits: primitives that share array storage (int[] and uint[], E[]) */
+
+typedef struct csrt_TypeInfo {
+    const csrt_MethodTable* mt;
+    const csrt_MethodTable* base;                 // Type.BaseType
+    const csrt_MethodTable* element;              // Type.GetElementType()
+    const csrt_MethodTable* definition;           // Type.GetGenericTypeDefinition()
+    const csrt_MethodTable* declaring;            // Type.DeclaringType
+    const csrt_MethodTable* const* generic_args;  // arguments (constructed types) or parameters (definitions)
+    const csrt_MethodTable* const* interfaces;    // all implemented interfaces
+    const char* namespace_name;                   // Type.Namespace (NULL: null)
+    const char* assembly;                         // Assembly.FullName (NULL: unknown to csharpc)
+    uint64_t flags;                               // CSRT_TI_*
+    uint32_t generic_count;
+    uint32_t interface_count;
+    uint32_t rank;                                // arrays: rank; generic parameters: position
+    uint32_t variance;                            // 2 bits per generic argument: 1 = out, 2 = in
+} csrt_TypeInfo;
+
+typedef struct { int64_t count; const csrt_TypeInfo* entries; } csrt_TypeInfoTable;
+
+// Type.FullName where it differs from the method table's name (generic instantiations print
+// assembly-qualified arguments, generic parameters have none); `unknown`: csharpc can't tell.
+typedef struct { const csrt_MethodTable* mt; const char* full_name; uint64_t unknown; } csrt_TypeNameEntry;
+typedef struct { int64_t count; const csrt_TypeNameEntry* entries; } csrt_TypeNameTable;
+
 // Type system -------------------------------------------------------------------------------
 void* csrt_isinst_class(void* obj, const csrt_MethodTable* type);   // obj if it is a `type`, else null
 void* csrt_castclass(void* obj, const csrt_MethodTable* type);      // obj, or InvalidCastException

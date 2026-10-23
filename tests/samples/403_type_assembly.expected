@@ -1,0 +1,70 @@
+403_type_assembly, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null
+403_type_assembly, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null
+403_type_assembly | 1.0.0.0 | culture='' | token=0
+403_type_assembly, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null
+403_type_assembly, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null
+1.0.0.0
+-- framework types
+Int32                        System.Private.CoreLib
+String                       System.Private.CoreLib
+List`1                       System.Private.CoreLib
+Dictionary`2                 System.Private.CoreLib
+LinkedList`1                 System.Collections
+SortedSet`1                  System.Collections
+Queue`1                      System.Private.CoreLib
+Enumerable                   System.Linq
+Regex                        System.Text.RegularExpressions
+StringBuilder                System.Private.CoreLib
+Console                      System.Console
+Uri                          System.Private.Uri
+Math                         System.Private.CoreLib
+Action`1                     System.Private.CoreLib
+Func`2                       System.Private.CoreLib
+Int32[]                      System.Private.CoreLib
+Widget[]                     403_type_assembly
+List`1                       System.Private.CoreLib
+DayOfWeek                    System.Private.CoreLib
+Version                      System.Private.CoreLib
+Assembly                     System.Private.CoreLib
+Exception                    System.Private.CoreLib
+InvalidOperationException    System.Private.CoreLib
+KeyValuePair`2               System.Private.CoreLib
+-- full names
+System.Private.CoreLib, Version=11.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e
+7cec85d7bea7798e
+System.Collections, Version=11.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a
+System.Text.RegularExpressions, Version=11.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a
+-- identity
+True
+False
+True
+True
+True
+True
+True
+403_type_assembly
+False
+True
+True
+System.Private.CoreLib: Int32, HashSet`1, String
+403_type_assembly: Widget, Program
+System.Collections: Stack`1
+-- System.Version
+2.5.1 2 5 1 -1 2.5 2.5.1
+1.2
+1.2.3.4
+3 1
+True
+True
+True
+False
+1
+1
+0.0
+1074798595
+True
+ArgumentException: Argument must be between 0 and 2. (Parameter 'fieldCount')
+ArgumentException: Argument must be between 0 and 4. (Parameter 'fieldCount')
+ArgumentOutOfRangeException: minor ('-2') must be a non-negative value. (Parameter 'minor')
+Actual value was -2.
+ArgumentException: Object must be of type Version. (Parameter 'version')

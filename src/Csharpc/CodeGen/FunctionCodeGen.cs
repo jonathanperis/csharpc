@@ -60,6 +60,8 @@ public sealed partial class FunctionCodeGen
     private LlvmContext L => _m.Llvm;
     private TypeMapper T => _m.Types;
     internal ModuleCodeGen Module => _m;
+    /// <summary>The method being lowered (null for synthesized helpers).</summary>
+    internal IMethodSymbol? CurrentMethod => _method;
     internal IrBuilder Builder => _b;
 
     public FunctionCodeGen(ModuleCodeGen module, IMethodSymbol? method, LoweredFunction fn, ClosureFunction? nested = null,
