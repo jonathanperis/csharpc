@@ -4,6 +4,7 @@
 // see THIRD-PARTY-NOTICES.md. Adapted to the csharpc corelib (docs/12-corelib.md); changes of substance
 // are marked `csharpc:`.
 #nullable enable annotations
+#if !CSHARPC_TARGET_WINDOWS
 
 using System.Globalization;
 using System;
@@ -63,5 +64,14 @@ namespace CsharpcCoreLib.Globalization
         internal static unsafe CultureData GetCurrentRegionData() => CultureInfo.CurrentCulture._cultureData;
 
         private static bool ShouldUseUserOverrideNlsData => false;
+
+        // csharpc: the NLS readers of the user-override paths (CultureData.Nls.cs) exist on Windows only;
+        // ShouldUseUserOverrideNlsData is false here, so these are never called.
+        private string NlsGetLocaleInfo(LocaleStringData type) => throw new PlatformNotSupportedException();
+        private int NlsGetLocaleInfo(LocaleNumberData type) => throw new PlatformNotSupportedException();
+        private int[] NlsGetLocaleInfo(LocaleGroupingData type) => throw new PlatformNotSupportedException();
+        private string? NlsGetTimeFormatString() => throw new PlatformNotSupportedException();
+        private int NlsGetFirstDayOfWeek() => throw new PlatformNotSupportedException();
     }
 }
+#endif

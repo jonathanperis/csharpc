@@ -4,6 +4,7 @@
 // see THIRD-PARTY-NOTICES.md. Adapted to the csharpc corelib (docs/12-corelib.md); changes of substance
 // are marked `csharpc:`.
 #nullable enable annotations
+#if !CSHARPC_TARGET_WINDOWS
 
 using System.Globalization;
 using System;
@@ -37,3 +38,4 @@ namespace CsharpcCoreLib.Globalization
 #pragma warning restore IDE0060
     }
 }
+#endif

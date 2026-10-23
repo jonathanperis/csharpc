@@ -61,6 +61,23 @@ namespace CsharpcCoreLib.Globalization
             return InitializeUserDefaultCulture();
         }
 
+        // .NET: CultureInfo.Windows.cs's UserDefaultLocaleName (a static initializer there, lazy here).
+        private static string? s_userDefaultLocaleName;
+        private static bool s_userDefaultLocaleNameRead;
+
+        internal static string? UserDefaultLocaleName
+        {
+            get
+            {
+                if (!s_userDefaultLocaleNameRead)
+                {
+                    s_userDefaultLocaleName = GetUserDefaultLocaleName();
+                    s_userDefaultLocaleNameRead = true;
+                }
+                return s_userDefaultLocaleName;
+            }
+        }
+
         private static string? GetUserDefaultLocaleName() =>
             GetLocaleInfoEx(null, LOCALE_SNAME) ?? GetLocaleInfoEx("!x-sys-default-locale", LOCALE_SNAME);
 

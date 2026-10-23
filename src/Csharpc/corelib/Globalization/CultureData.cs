@@ -1341,7 +1341,7 @@ namespace CsharpcCoreLib.Globalization
         /// list Separator
         /// (user can override)
         /// </summary>
-        internal string ListSeparator => _sListSeparator ??= IcuGetListSeparator(_sWindowsName);
+        internal string ListSeparator => _sListSeparator ??= ShouldUseUserOverrideNlsData ? NlsGetLocaleInfo(LocaleStringData.ListSeparator) : IcuGetListSeparator(_sWindowsName);
 
         /// <summary>
         /// AM designator
@@ -1531,7 +1531,7 @@ namespace CsharpcCoreLib.Globalization
                 if (_iFirstDayOfWeek == undef && !GlobalizationMode.Invariant)
                 {
                     {
-                        _iFirstDayOfWeek = IcuGetLocaleInfo(LocaleNumberData.FirstDayOfWeek);
+                        _iFirstDayOfWeek = ShouldUseUserOverrideNlsData ? NlsGetFirstDayOfWeek() : IcuGetLocaleInfo(LocaleNumberData.FirstDayOfWeek);
                     }
                 }
                 return _iFirstDayOfWeek;
@@ -1956,7 +1956,7 @@ namespace CsharpcCoreLib.Globalization
                     }
                     else
                     {
-                        string? longTimeFormat = IcuGetTimeFormatString();
+                        string? longTimeFormat = ShouldUseUserOverrideNlsData ? NlsGetTimeFormatString() : IcuGetTimeFormatString();
                         if (string.IsNullOrEmpty(longTimeFormat))
                         {
                             longTimeFormat = LongTimes[0];
@@ -2242,7 +2242,7 @@ namespace CsharpcCoreLib.Globalization
                 nfi._nativeDigits = GetNativeDigits();
 
                 Debug.Assert(_sRealName != null);
-                nfi._digitSubstitution = IcuGetDigitSubstitution(_sRealName);
+                nfi._digitSubstitution = ShouldUseUserOverrideNlsData ? NlsGetLocaleInfo(LocaleNumberData.DigitSubstitution) : IcuGetDigitSubstitution(_sRealName);
             }
 
             // Gather additional data
@@ -2300,7 +2300,7 @@ namespace CsharpcCoreLib.Globalization
             // This is never reached but helps illinker statically remove dependencies
             if (GlobalizationMode.Invariant)
                 return 0;
-            return IcuGetLocaleInfo(type);
+            return ShouldUseUserOverrideNlsData ? NlsGetLocaleInfo(type) : IcuGetLocaleInfo(type);
         }
 
         private string GetLocaleInfoCoreUserOverride(LocaleStringData type)
@@ -2309,7 +2309,7 @@ namespace CsharpcCoreLib.Globalization
             if (GlobalizationMode.Invariant)
                 return null!;
 
-            return IcuGetLocaleInfo(type);
+            return ShouldUseUserOverrideNlsData ? NlsGetLocaleInfo(type) : IcuGetLocaleInfo(type);
         }
 
         private string GetLocaleInfoCore(LocaleStringData type, string? uiCultureName = null)
@@ -2336,7 +2336,7 @@ namespace CsharpcCoreLib.Globalization
             if (GlobalizationMode.Invariant)
                 return null!;
 
-            return IcuGetLocaleInfo(type);
+            return ShouldUseUserOverrideNlsData ? NlsGetLocaleInfo(type) : IcuGetLocaleInfo(type);
         }
 
         /// <remarks>

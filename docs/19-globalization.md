@@ -44,6 +44,11 @@ As in .NET:
 * **macOS:** the user's locale from the system settings (`CFLocale`, `language-country`), as .NET's
   `NSLocale` lookup; the environment variables do not matter.
 * **Windows:** the user's locale (`GetLocaleInfoEx` / `GetUserPreferredUILanguages` for the UI culture).
+  As in .NET with ICU, the user default culture takes its number, currency, list-separator, time,
+  date-pattern, first-day-of-week and calendar settings from NLS (`GetLocaleInfoEx`,
+  `GetCalendarInfoEx`), where Windows keeps the user's regional settings, and everything else from ICU
+  (`CultureData.Windows.cs`, `CalendarData.Windows.cs`). en-US therefore formats `-0.75m` as `($0.75)`
+  on Windows and `-$0.75` elsewhere, exactly like .NET.
 * `CultureInfo.CurrentCulture` / `CurrentUICulture` can be set per thread, and
   `DefaultThreadCurrentCulture` / `DefaultThreadCurrentUICulture` apply to threads that never set one.
 
@@ -112,8 +117,7 @@ the main cost of this port and a target for caching the corelib's lowered code.
 
 * NLS globalization on Windows (no `icu.dll`, or `DOTNET_SYSTEM_GLOBALIZATION_USENLS`): the program
   stops with a "not supported by csharpc yet" message.
-* Windows user overrides (custom number/date formats from the Control Panel, `UseUserOverride`) are
-  not applied; csharpc uses the culture's ICU data.
+* Windows: the Hijri date adjustment from the registry (`AddHijriDate`) is not read.
 * `char.GetUnicodeCategory` / `CharUnicodeInfo` for supplementary-plane code points (throws
   `NotSupportedException`).
 * `StringBuilder.Append(IFormatProvider, $"...")` (compile-time diagnostic).
