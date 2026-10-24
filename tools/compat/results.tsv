@@ -6,7 +6,7 @@ docs-core-docker-App-DotNet-Docker	SKIPPED	times out under .NET (waits for input
 docs-core-extensions-channels-channels	SKIPPED	non-deterministic under .NET
 docs-core-extensions-configuration-binding-scenarios-ConfigurationIgnore-ConfigurationIgnore	COMPILE-ERROR	exit 1: /home/runner/work/_temp/compat-work/tree/docs/docs/core/extensions/snippets/configuration/binding-scenarios/ConfigurationIgnore/Program.cs(17,33): error CS0246: The type or namespace name 'ConfigurationManager' could not be found (are you missing a using directive or an assembly reference?)
 docs-core-get-started-get-started	PASS	
-docs-core-tools-global-tools-how-to-create-dotnet-env	COMPILE-UNSUPPORTED	error CSLLVM0002: 'System.Reflection.Assembly.GetEntryAssembly()' has no implementation in the csharpc runtime yet
+docs-core-tools-global-tools-how-to-create-dotnet-env	COMPILE-UNSUPPORTED	error CSLLVM0002: 'System.Reflection.CustomAttributeExtensions.GetCustomAttribute(System.Reflection.Assembly)' has no implementation in the csharpc runtime yet
 docs-core-tutorials-create-class-library-ShowCase-ShowCase	PASS	
 docs-core-tutorials-create-console-app-HelloWorld	PASS	
 docs-core-whats-new-dotnet-10-Project	COMPILE-UNSUPPORTED	error CSLLVM0002: 'System.StringComparer.Create(System.Globalization.CultureInfo, System.Globalization.CompareOptions)' has no implementation in the csharpc runtime yet
@@ -32,7 +32,7 @@ docs-csharp-fundamentals-building-software-iterators-iterators	PASS
 docs-csharp-fundamentals-building-software-lambdas-lambdas	PASS	
 docs-csharp-fundamentals-building-software-local-functions-local-functions	PASS	
 docs-csharp-fundamentals-building-software-overview-overview	PASS	
-docs-csharp-fundamentals-exceptions-exceptions-exceptions	RUNTIME-DIFF	exit 0 vs dotnet 0; -   at Exceptions.Program.TestThrow() in /home/runner/work/_temp/compat-work/tree/docs/docs/csharp/fundamentals/exceptions/snippets/exceptions/Program.cs:line 42
+docs-csharp-fundamentals-exceptions-exceptions-exceptions	PASS	
 docs-csharp-fundamentals-expressions-equality-equality	PASS	
 docs-csharp-fundamentals-expressions-expressions-expressions	PASS	
 docs-csharp-fundamentals-expressions-operators-operators	PASS	
@@ -74,8 +74,8 @@ docs-csharp-fundamentals-strings-strings-overview-strings-overview	PASS
 docs-csharp-fundamentals-tutorials-NullableIntroduction-NullableIntroduction	SKIPPED	non-deterministic under .NET
 docs-csharp-fundamentals-tutorials-command-line-arguments-command-line-arguments	PASS	
 docs-csharp-fundamentals-tutorials-inheritance-inheritance	COMPILE-UNSUPPORTED	error CSLLVM0002: 'ulong.TryParse(string, ulong)' has no implementation in the csharpc runtime yet
-docs-csharp-fundamentals-tutorials-introduction-to-classes-classes	RUNTIME-DIFF	exit 0 vs dotnet 0; -   at Classes.BankAccount.MakeDeposit(Decimal amount, DateTime date, String note) in /home/runner/work/_temp/compat-work/tree/docs/docs/csharp/fundamentals/tutorials/snippets/introduction-to-classes/BankAccount.cs:line 47
-docs-csharp-fundamentals-tutorials-object-oriented-programming-object-oriented-programming	RUNTIME-DIFF	exit 0 vs dotnet 0; -   at OOProgramming.BankAccount.CheckWithdrawalLimit(Boolean isOverdrawn) in /home/runner/work/_temp/compat-work/tree/docs/docs/csharp/fundamentals/tutorials/snippets/object-oriented-programming/BankAccount.cs:line 64
+docs-csharp-fundamentals-tutorials-introduction-to-classes-classes	PASS	
+docs-csharp-fundamentals-tutorials-object-oriented-programming-object-oriented-programming	PASS	
 docs-csharp-fundamentals-tutorials-pattern-matching-objects-pattern-matching-objects	PASS	
 docs-csharp-fundamentals-tutorials-patterns-finished-toll-calculator-toll-calculator	PASS	
 docs-csharp-fundamentals-tutorials-patterns-start-toll-calculator-toll-calculator	PASS	
@@ -83,7 +83,7 @@ docs-csharp-fundamentals-tutorials-records-record-types	PASS
 docs-csharp-fundamentals-tutorials-safelycast-asandis-asandis	PASS	
 docs-csharp-fundamentals-tutorials-safelycast-nullablepatternmatching-nullablepatternmatching	PASS	
 docs-csharp-fundamentals-tutorials-safelycast-patternmatching-patternmatching	PASS	
-docs-csharp-fundamentals-tutorials-xml-documentation-object-oriented-programming	RUNTIME-DIFF	exit 0 vs dotnet 0; -   at OOProgramming.BankAccount.CheckWithdrawalLimit(Boolean isOverdrawn) in /home/runner/work/_temp/compat-work/tree/docs/docs/csharp/fundamentals/tutorials/snippets/xml-documentation/BankAccount.cs:line 132
+docs-csharp-fundamentals-tutorials-xml-documentation-object-oriented-programming	PASS	
 docs-csharp-fundamentals-types-built-in-types-built-in-types	COMPILE-UNSUPPORTED	error CSLLVM0001: not supported by csharpc yet: operation DynamicInvocation
 docs-csharp-fundamentals-types-classes-classes	PASS	
 docs-csharp-fundamentals-types-conversions-conversions	PASS	
@@ -228,9 +228,9 @@ docs-standard-events-index-eventsCS	PASS
 docs-standard-events-observables-Observables	PASS	
 docs-standard-events-shared-how-to-provider-observer-temperaturemonitorcs	SKIPPED	non-deterministic under .NET
 docs-standard-exceptions-best-practices-Project	PASS	
-docs-standard-exceptions-how-to-use-finally-blocks-Project	RUNTIME-DIFF	exit 134 vs dotnet 134; -   at System.ArgumentOutOfRangeException.ThrowNegative[T](T value, String paramName)
+docs-standard-exceptions-how-to-use-finally-blocks-Project	PASS	
 docs-standard-exceptions-how-to-use-specific-exceptions-in-a-catch-block-CatchException	PASS	
-docs-standard-exceptions-how-to-use-the-try-catch-block-to-catch-exceptions-CatchException	RUNTIME-DIFF	exit 0 vs dotnet 0; -The file was not found: 'System.IO.FileNotFoundException: Could not find file '/home/runner/work/_temp/compat-work/logs/docs-standard-exceptions-how-to-use-the-try-catch-block-to-catch-exceptions-CatchException/cwd/data.txt'.
+docs-standard-exceptions-how-to-use-the-try-catch-block-to-catch-exceptions-CatchException	PASS	
 docs-standard-garbage-collection-dispose-async-dispose-async	COMPILE-UNSUPPORTED	error CSLLVM0002: 'System.GC.SuppressFinalize(object)' has no implementation in the csharpc runtime yet
 docs-standard-io-composing-streams-Article	COMPILE-UNSUPPORTED	error CSLLVM0002: 'System.Convert.ToByte(int)' has no implementation in the csharpc runtime yet
 docs-standard-io-how-to-copy-directories-AppCS	PASS	
@@ -268,7 +268,7 @@ samples-PatternMatching-PatternMatching	PASS
 samples-api-datetime-parse-datetime-parse	SKIPPED	times out under .NET (waits for input or runs > 30s)
 samples-api-string-format-string-format-examples	SKIPPED	times out under .NET (waits for input or runs > 30s)
 samples-branches-quickstart-BranchesAndLoops	PASS	
-samples-classes-quickstart-classes	RUNTIME-DIFF	exit 0 vs dotnet 0; -   at classes.BankAccount.MakeDeposit(Decimal amount, DateTime date, String note) in /home/runner/work/_temp/compat-work/tree/samples/csharp/classes-quickstart/BankAccount.cs:line 47
+samples-classes-quickstart-classes	PASS	
 samples-core-console-apps-FibonacciBetterMsBuild-Fibonacci	PASS	
 samples-core-console-apps-HelloMsBuild-Hello	PASS	
 samples-core-console-apps-NewTypesMsBuild-src-NewTypes-NewTypes	PASS	

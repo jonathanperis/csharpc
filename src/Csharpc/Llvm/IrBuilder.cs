@@ -80,12 +80,21 @@ public sealed class IrBuilder(LlvmContext context) : IDisposable
     /// <summary>Decides whether a callee may throw (null: assume it may).</summary>
     public Func<LLVMValueRef, bool>? MayThrow { get; set; }
 
+    /// <summary>
+    /// Maps <see cref="UnwindDest"/> (possibly null) to the landing pad a may-throw call actually
+    /// unwinds to: stack-trace recording gives every call site its own pad (FunctionCodeGen.StackTraces.cs).
+    /// </summary>
+    public Func<LLVMBasicBlockRef, LLVMBasicBlockRef>? UnwindHook { get; set; }
+
     public LLVMValueRef Call(LLVMTypeRef fnType, LLVMValueRef fn, LLVMValueRef[] args, string name = "")
     {
-        if (UnwindDest.IsNull || MayThrow?.Invoke(fn) == false)
+        if (MayThrow?.Invoke(fn) == false)
+            return LLVMBuildCall2(Ref, fnType, fn, args, (uint)args.Length, name);
+        var unwind = UnwindHook is { } hook ? hook(UnwindDest) : UnwindDest;
+        if (unwind.IsNull)
             return LLVMBuildCall2(Ref, fnType, fn, args, (uint)args.Length, name);
         var normal = LLVMAppendBasicBlockInContext(Context.Ref, LLVMGetBasicBlockParent(InsertBlock), "invoke.cont");
-        var result = LLVMBuildInvoke2(Ref, fnType, fn, args, (uint)args.Length, normal, UnwindDest, name);
+        var result = LLVMBuildInvoke2(Ref, fnType, fn, args, (uint)args.Length, normal, unwind, name);
         LLVMPositionBuilderAtEnd(Ref, normal);
         return result;
     }
@@ -97,6 +106,13 @@ public sealed class IrBuilder(LlvmContext context) : IDisposable
         LLVMSetCleanup(pad, cleanup ? 1 : 0);
         return pad;
     }
+
+    public LLVMValueRef Resume(LLVMValueRef exception) => LLVMBuildResume(Ref, exception);
+
+    public LLVMValueRef Phi(LLVMTypeRef type, string name = "") => LLVMBuildPhi(Ref, type, name);
+
+    public static void AddIncoming(LLVMValueRef phi, LLVMValueRef value, LLVMBasicBlockRef block) =>
+        LLVMAddIncoming(phi, [value], [block], 1);
 
     public void Dispose() => LLVMDisposeBuilder(Ref);
 }

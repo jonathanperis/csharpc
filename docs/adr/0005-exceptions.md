@@ -1,6 +1,6 @@
 # ADR 0005 — Exceptions
 
-- **Status:** Accepted. Phase 1 (abort) is implemented; phase 2 is planned.
+- **Status:** Accepted, implemented (phase 3: Itanium EH). Stack traces: [ADR 0012](0012-stack-traces.md).
 
 ## Context
 

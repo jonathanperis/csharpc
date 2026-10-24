@@ -538,10 +538,19 @@ namespace CsharpcCoreLib
         }
 
         public static TSource First<TSource>(IEnumerable<TSource> source)
-        { if (!TryFirst(source, null, out TSource r)) ThrowHelper.NoElements(); return r; }
+        {
+            if (!TryFirst(source, null, out TSource r))
+                throw CoreIntrinsics.LibraryFrames(ThrowHelper.NoElementsException(), "System.Linq.ThrowHelper.ThrowNoElementsException()\nSystem.Linq.Enumerable.First[TSource](IEnumerable`1 source)");
+            return r;
+        }
 
         public static TSource First<TSource>(IEnumerable<TSource> source, Func<TSource, bool> predicate)
-        { Check(predicate, "predicate"); if (!TryFirst(source, predicate, out TSource r)) ThrowHelper.NoMatch(); return r; }
+        {
+            Check(predicate, "predicate");
+            if (!TryFirst(source, predicate, out TSource r))
+                throw CoreIntrinsics.LibraryFrames(ThrowHelper.NoMatchException(), "System.Linq.ThrowHelper.ThrowNoMatchException()\nSystem.Linq.Enumerable.First[TSource](IEnumerable`1 source, Func`2 predicate)");
+            return r;
+        }
 
         public static TSource FirstOrDefault<TSource>(IEnumerable<TSource> source) { TryFirst(source, null, out TSource r); return r; }
         public static TSource FirstOrDefault<TSource>(IEnumerable<TSource> source, TSource defaultValue) => TryFirst(source, null, out TSource r) ? r : defaultValue;
@@ -550,7 +559,11 @@ namespace CsharpcCoreLib
             TryFirst(source, predicate, out TSource r) ? r : defaultValue;
 
         public static TSource Last<TSource>(IEnumerable<TSource> source)
-        { if (!TryLast(source, null, out TSource r)) ThrowHelper.NoElements(); return r; }
+        {
+            if (!TryLast(source, null, out TSource r))
+                throw CoreIntrinsics.LibraryFrames(ThrowHelper.NoElementsException(), "System.Linq.ThrowHelper.ThrowNoElementsException()\nSystem.Linq.Enumerable.Last[TSource](IEnumerable`1 source)");
+            return r;
+        }
 
         public static TSource Last<TSource>(IEnumerable<TSource> source, Func<TSource, bool> predicate)
         { Check(predicate, "predicate"); if (!TryLast(source, predicate, out TSource r)) ThrowHelper.NoMatch(); return r; }

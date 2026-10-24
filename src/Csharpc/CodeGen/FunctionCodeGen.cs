@@ -73,6 +73,7 @@ public sealed partial class FunctionCodeGen
         _method = method;
         _subst = substitution ?? TypeSubstitution.For(method, module.Compilation);
         _fn = fn;
+        _traceFrame = TraceFrameOf(module, method);
         _b = new IrBuilder(module.Llvm);
         _allocas = new IrBuilder(module.Llvm);
         _entry = _b.AppendBlock(fn.Fn, "entry");
@@ -332,11 +333,14 @@ public sealed partial class FunctionCodeGen
     private void WithLocation(IOperation? at, Action action)
     {
         SetDebugLocation(at);
+        var (savedTraceAt, savedTraceAtEnd) = (_traceAt, _traceAtEnd);
+        if (at is not null && Traced) (_traceAt, _traceAtEnd) = TraceLocation(at);
         try { action(); }
         catch (CompileError e) when (e.Location is not { IsInSource: true } && at is not null)
         {
             throw new CompileError(e.Id, e.Message, at.Syntax.GetLocation());
         }
+        finally { (_traceAt, _traceAtEnd) = (savedTraceAt, savedTraceAtEnd); }
     }
 
     private void ScanRegions(ControlFlowGraph graph, ControlFlowRegion region)
@@ -424,6 +428,7 @@ public sealed partial class FunctionCodeGen
             var trampoline = _b.AppendBlock(_fn.Fn, "to.finally");
             _b.PositionAtEnd(trampoline);
             _b.Store(L.ConstInt(L.I32, index), info.Selector);
+            NoteFinallyEntry(region, normal: true);
             _b.Br(_cfg.Blocks[_cfg.Graph.Blocks[region.FirstBlockOrdinal]]);
             _b.PositionAtEnd(current);
             target = trampoline;
@@ -666,7 +671,8 @@ public sealed partial class FunctionCodeGen
     private LLVMBasicBlockRef ThrowBlock(string helper)
     {
         // One shared block per helper *and* landing pad: inside a try the throw must be an invoke.
-        var key = $"{helper}@{_b.UnwindDest.Handle}";
+        // Traced: one per call site too, which has its own landing pad (FunctionCodeGen.StackTraces.cs).
+        var key = $"{helper}@{_b.UnwindDest.Handle}" + (Traced ? $"#{CurrentTraceSite()}" : "");
         if (_throwBlocks.TryGetValue(key, out var block)) return block;
         var current = _b.InsertBlock;
         block = _b.AppendBlock(_fn.Fn, helper["csrt_".Length..]);

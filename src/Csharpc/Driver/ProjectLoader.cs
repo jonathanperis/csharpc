@@ -37,6 +37,8 @@ public sealed record ProjectInfo
     public List<KeyValuePair<string, string>> RuntimeConfig { get; } = [];
     /// <summary>&lt;Reference&gt; items csharpc could not map to a file (e.g. GAC-style names).</summary>
     public List<string> UnresolvedReferences { get; } = [];
+    /// <summary>What stack traces show of this project (Optimize, DebugType/DebugSymbols, PathMap).</summary>
+    public DebugSymbolSettings Symbols { get; init; } = new();
     public string ProjectDirectory => Path.GetDirectoryName(ProjectPath)!;
 }
 
@@ -54,6 +56,7 @@ public static class ProjectLoader
         "ImplicitUsings", "TargetFramework", "TargetFrameworks", "MSBuildProjectFullPath",
         "StartupObject", "InvariantGlobalization", "PredefinedCulturesOnly", "JsonSerializerIsReflectionEnabledByDefault",
         "AssemblyVersion", "Version", "GenerateAssemblyInfo", "GenerateAssemblyVersionAttribute", "SignAssembly",
+        "Optimize", "DebugType", "DebugSymbols", "PathMap",
     ];
 
     /// <summary>
@@ -243,6 +246,17 @@ public static class ProjectLoader
             PredefinedCulturesOnly = Switch(Prop("PredefinedCulturesOnly")),
             JsonReflectionEnabled = !string.Equals(Prop("JsonSerializerIsReflectionEnabledByDefault"), "false", StringComparison.OrdinalIgnoreCase),
             AssemblyVersion = AssemblyVersionOf(Prop),
+            // csc gets /optimize from Optimize, and writes a PDB (which gives stack traces their
+            // " in file:line N") for any DebugType but none; DebugSymbols (false in Release) only
+            // matters without a DebugType.
+            Symbols = new DebugSymbolSettings
+            {
+                Optimize = string.Equals(Prop("Optimize"), "true", StringComparison.OrdinalIgnoreCase),
+                HasPdb = Prop("DebugType") is { } debugType
+                    ? !debugType.Equals("none", StringComparison.OrdinalIgnoreCase)
+                    : !string.Equals(Prop("DebugSymbols"), "false", StringComparison.OrdinalIgnoreCase),
+                PathMap = Prop("PathMap"),
+            },
         };
 
         info.Defines.AddRange((Prop("DefineConstants") ?? "").Split([';', ','], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
@@ -358,6 +372,7 @@ public static class ProjectLoader
             IlReferencePaths = [.. all.SelectMany(p => p.AssemblyReferences).Distinct(StringComparer.Ordinal)],
             RuntimeConfig = root.RuntimeConfig,
             JsonReflectionEnabled = root.JsonReflectionEnabled,
+            Symbols = root.Symbols,
             Projects = all.Count > 1 ? [.. all.Select(p => new ProjectUnit
             {
                 ProjectPath = p.ProjectPath,

@@ -2,10 +2,11 @@
 # Binary-size budgets: "smaller than .NET" is part of the standing goal (docs/06-roadmap.md), so a
 # size regression fails like a wrong output. Each tests/size/<name>.cs is compiled with csharpc's
 # defaults (-O2, stripped) and its size compared with the budget in tests/size/budgets.txt for the
-# platform ("<platform> <name> <max bytes>"). Platforms without budgets only print the sizes.
+# platform ("<platform> <name> <max bytes>"; headroom: one page or 3 %). Platforms without budgets
+# only print the sizes.
 #
 #   tests/size.sh            check the budgets
-#   tests/size.sh --print    print "<platform> <name> <bytes>" lines (to set budgets: size + ~3 %)
+#   tests/size.sh --print    print "<platform> <name> <bytes>" lines (to set budgets: size + max(4 KiB, 3 %))
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

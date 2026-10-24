@@ -210,8 +210,7 @@ namespace CsharpcCoreLib
             {
                 int i = FindEntry(key);
                 if (i >= 0) return _entries[i].value;
-                ThrowHelper.KeyNotFound(key.ToString());
-                return default(TValue);
+                throw CoreIntrinsics.LibraryFrames(ThrowHelper.KeyNotFoundException(key.ToString()), "System.Collections.Generic.Dictionary`2.get_Item(TKey key)");
             }
             set { TryInsert(key, value, false); }
         }

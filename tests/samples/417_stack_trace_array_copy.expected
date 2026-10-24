@@ -1,0 +1,26 @@
+== negative length
+System.ArgumentOutOfRangeException: length ('-1') must be a non-negative value. (Parameter 'length')
+Actual value was -1.
+   at System.ArgumentOutOfRangeException.ThrowNegative[T](T value, String paramName)
+   at System.Array.CopyImpl(Array sourceArray, Int32 sourceIndex, Array destinationArray, Int32 destinationIndex, Int32 length, Boolean reliable)
+   at Program.<>c.<Main>b__0_0() in 417_stack_trace_array_copy.cs:line 10
+   at Program.Show(String name, Action action) in 417_stack_trace_array_copy.cs:line 21
+== negative index
+System.ArgumentOutOfRangeException: sourceIndex ('-1') must be greater than or equal to '0'. (Parameter 'sourceIndex')
+Actual value was -1.
+   at System.ArgumentOutOfRangeException.ThrowLess[T](T value, T other, String paramName)
+   at System.Array.CopyImpl(Array sourceArray, Int32 sourceIndex, Array destinationArray, Int32 destinationIndex, Int32 length, Boolean reliable)
+   at Program.<>c.<Main>b__0_1() in 417_stack_trace_array_copy.cs:line 11
+   at Program.Show(String name, Action action) in 417_stack_trace_array_copy.cs:line 21
+== too long
+System.ArgumentException: Destination array was not long enough. Check the destination index, length, and the array's lower bounds. (Parameter 'destinationArray')
+   at System.Array.CopyImpl(Array sourceArray, Int32 sourceIndex, Array destinationArray, Int32 destinationIndex, Int32 length, Boolean reliable)
+   at Program.<>c.<Main>b__0_2() in 417_stack_trace_array_copy.cs:line 12
+   at Program.Show(String name, Action action) in 417_stack_trace_array_copy.cs:line 21
+== long length
+System.ArgumentOutOfRangeException: length ('-1') must be a non-negative value. (Parameter 'length')
+Actual value was -1.
+   at System.ArgumentOutOfRangeException.ThrowNegative[T](T value, String paramName)
+   at System.Array.CopyImpl(Array sourceArray, Int32 sourceIndex, Array destinationArray, Int32 destinationIndex, Int32 length, Boolean reliable)
+   at Program.<>c.<Main>b__0_3() in 417_stack_trace_array_copy.cs:line 13
+   at Program.Show(String name, Action action) in 417_stack_trace_array_copy.cs:line 21

@@ -428,9 +428,10 @@ static void run_continuations(csrt_Task* t, csrt_Array* conts, int32_t n) {
 void csrt_task_throw_if_faulted(csrt_Task* t) {
     if (!t) return;
     int32_t st = task_state(t);
-    if (st == T_FAULTED) csrt_rethrow(t->exception);
+    // The awaiting frame is elsewhere on the stack than the frames recorded so far (eh.c).
+    if (st == T_FAULTED) { csrt_trace_new_stack(t->exception); csrt_rethrow(t->exception); }
     if (st == T_CANCELED) {
-        if (t->exception) csrt_rethrow(t->exception); // canceled by an OperationCanceledException
+        if (t->exception) { csrt_trace_new_stack(t->exception); csrt_rethrow(t->exception); } // canceled by an OperationCanceledException
         csrt_throw_object(csrt_task_canceled_exception_new());
     }
 }
@@ -962,6 +963,7 @@ static void rethrow_iterator_exception(void) {
     void* e = s_iterator_exception;
     if (!e) return;
     s_iterator_exception = NULL;
+    csrt_trace_new_stack(e);
     csrt_rethrow(e);
 }
 

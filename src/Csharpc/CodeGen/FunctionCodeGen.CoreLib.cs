@@ -131,6 +131,10 @@ public sealed partial class FunctionCodeGen
             "CreateEnumConverter" => JsonEnumSwitch(args[0], args),
             "CompareStrings" => CallRuntime("csrt_string_compare_culture", L.I32, [L.Ptr, L.Ptr, L.I1], args[0], args[1], L.False),
             "UnhandledException" => UnhandledException(args[0]),
+            "CaptureStackTrace" => CallRuntime("csrt_exception_capture_trace", L.Ptr, [L.Ptr], args[0]),
+            "LibraryFrames" => LibraryFrames(args[0], inv, preset: true),
+            "AppendLibraryFrames" => LibraryFrames(args[0], inv, preset: false),
+            "ThrowWithStackTrace" => ThrowWithStackTrace(args[0], args[1]),
             "ResourceStrings" => _m.ResourceStringsBlob(),
             "IsCoroutineIterator" => CallRuntime("csrt_is_iterator", L.I1, [L.Ptr], args[0]),
             "RuntimeConfig" => _m.AppContextBlob(),
@@ -138,6 +142,25 @@ public sealed partial class FunctionCodeGen
             "CompareStringsWith" => CallRuntime("csrt_string_compare_with", L.I32, [L.Ptr, L.Ptr, L.I32], args[0], args[1], args[2]),
             _ => throw CompileError.Unsupported($"corelib intrinsic '{target.Name}'", inv),
         };
+    }
+
+    /// <summary>CoreIntrinsics.LibraryFrames: preset the exception's trace with these library frames (no-op without stack traces).</summary>
+    private LLVMValueRef LibraryFrames(LLVMValueRef exception, IInvocationOperation inv, bool preset)
+    {
+        if (_m.StackTraces is not { } traces) return preset ? exception : L.False;
+        var text = inv.Arguments.First(a => a.Parameter!.Ordinal == 1).Value.ConstantValue.Value as string
+            ?? throw CompileError.Unsupported("LibraryFrames with a non-constant frame list", inv);
+        var sites = text.Split('\n').Select(frame => traces.SiteDescriptor(_m, traces.LibrarySite(frame))).ToArray();
+        var table = LlvmContext.ConstArray(L.Ptr, sites);
+        var global = _m.Module.AddGlobal("csharpc.trace.library", Native.LLVMTypeOf(table), table, constant: true, linkage: LLVMLinkage.Internal);
+        CallRuntime(preset ? "csrt_trace_preset" : "csrt_trace_append_library", L.Void, [L.Ptr, L.Ptr, L.I32], exception, global, L.ConstInt(L.I32, sites.Length));
+        return preset ? exception : L.False;
+    }
+
+    private LLVMValueRef ThrowWithStackTrace(LLVMValueRef exception, LLVMValueRef captured)
+    {
+        CallRuntime("csrt_exception_throw_captured", L.Void, [L.Ptr, L.Ptr], exception, captured);
+        return default;
     }
 
     private LLVMValueRef UnhandledException(LLVMValueRef exception)

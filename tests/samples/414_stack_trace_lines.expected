@@ -1,0 +1,58 @@
+== null
+NullReferenceException: Object reference not set to an instance of an object.
+   at Program.<>c.<Main>b__3_0() in 414_stack_trace_lines.cs:line 17
+   at Program.Show(String name, Action action) in 414_stack_trace_lines.cs:line 91
+== bounds
+IndexOutOfRangeException: Index was outside the bounds of the array.
+   at Program.Index(Int32[] values, Int32 i) in 414_stack_trace_lines.cs:line 30
+   at Program.<>c.<Main>b__3_1() in 414_stack_trace_lines.cs:line 18
+   at Program.Show(String name, Action action) in 414_stack_trace_lines.cs:line 91
+== divide
+DivideByZeroException: Attempted to divide by zero.
+   at Program.Divide(Int32 x) in 414_stack_trace_lines.cs:line 31
+   at Program.<>c.<Main>b__3_2() in 414_stack_trace_lines.cs:line 19
+   at Program.Show(String name, Action action) in 414_stack_trace_lines.cs:line 91
+== cast
+InvalidCastException: Unable to cast object of type 'System.String' to type 'System.Int32'.
+   at Program.<>c.<Main>b__3_3() in 414_stack_trace_lines.cs:line 20
+   at Program.Show(String name, Action action) in 414_stack_trace_lines.cs:line 91
+== overflow
+OverflowException: Arithmetic operation resulted in an overflow.
+   at Program.Add(Int32 x) in 414_stack_trace_lines.cs:line 32
+   at Program.<>c.<Main>b__3_4() in 414_stack_trace_lines.cs:line 21
+   at Program.Show(String name, Action action) in 414_stack_trace_lines.cs:line 91
+== multi-line statement
+ArgumentException: too big: 2
+   at Program.Check(Int32 x) in 414_stack_trace_lines.cs:line 33
+   at Program.MultiLine() in 414_stack_trace_lines.cs:line 37
+   at Program.Show(String name, Action action) in 414_stack_trace_lines.cs:line 91
+== for header
+ArgumentException: too big: 2
+   at Program.Check(Int32 x) in 414_stack_trace_lines.cs:line 33
+   at Program.ForHeader() in 414_stack_trace_lines.cs:line 46
+   at Program.Show(String name, Action action) in 414_stack_trace_lines.cs:line 91
+== switch arm
+ArgumentException: too big: 2
+   at Program.Check(Int32 x) in 414_stack_trace_lines.cs:line 33
+   at Program.Pick(Int32 v) in 414_stack_trace_lines.cs:line 58
+   at Program.<>c.<Main>b__3_5() in 414_stack_trace_lines.cs:line 24
+   at Program.Show(String name, Action action) in 414_stack_trace_lines.cs:line 91
+== conditional
+ArgumentException: too big: 5
+   at Program.Check(Int32 x) in 414_stack_trace_lines.cs:line 33
+   at Program.Choose(Boolean which) in 414_stack_trace_lines.cs:line 65
+   at Program.<>c.<Main>b__3_6() in 414_stack_trace_lines.cs:line 25
+   at Program.Show(String name, Action action) in 414_stack_trace_lines.cs:line 91
+== inlined helpers
+ArgumentException: too big: 3
+   at Program.Check(Int32 x) in 414_stack_trace_lines.cs:line 33
+   at Program.Leaf(Int32 x) in 414_stack_trace_lines.cs:line 73
+   at Program.Middle(Int32 x) in 414_stack_trace_lines.cs:line 72
+   at Program.Outer(Int32 x) in 414_stack_trace_lines.cs:line 71
+   at Program.<>c.<Main>b__3_7() in 414_stack_trace_lines.cs:line 26
+   at Program.Show(String name, Action action) in 414_stack_trace_lines.cs:line 91
+== property chain
+NullReferenceException: Object reference not set to an instance of an object.
+   at Program.Holder.get_Value() in 414_stack_trace_lines.cs:line 77
+   at Program.<>c.<Main>b__3_8() in 414_stack_trace_lines.cs:line 27
+   at Program.Show(String name, Action action) in 414_stack_trace_lines.cs:line 91
