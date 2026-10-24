@@ -135,11 +135,19 @@ unhandled-exception reports on stderr).
 
 ### What doesn't match, and says so
 
-- **Frames inside .NET's library** (`System.ThrowHelper...`, `System.Linq.Enumerable...`) are not
-  listed: csharpc's corelib implements the same APIs differently, so its internal frames would be
-  wrong anyway. An exception thrown by or passing through BCL code therefore shows the user frames
-  only. Warning `CSLLVM0006` is reported wherever a program turns an exception into text or reads
-  `StackTrace`, so the difference is never silent.
+- **Frames inside .NET's library** (`System.ThrowHelper...`, `System.Linq.Enumerable...`) depend on
+  how .NET implements each member, and csharpc's corelib implements them differently. For common
+  throwing members the corelib reproduces .NET 11's frames: the throw site names them,
+  `throw CoreIntrinsics.LibraryFrames(new KeyNotFoundException(...), "System.Collections.Generic.Dictionary`2.get_Item(TKey key)")`,
+  which presets them as the start of the trace (`csrt_trace_preset`; nothing at all in programs that
+  don't record traces), and a `when` filter adds them to an exception already in flight
+  (`AppendLibraryFrames`, for File's text readers, whose frames are per public member and per OS).
+  Covered today: `Dictionary`/`SortedDictionary` indexers, `List<T>` indexer and `RemoveAt`, `First`
+  and `Last`, `Stack.Pop`, `Queue.Dequeue`, `Array.Copy`, and on Unix `File.OpenText`/`ReadAllText`/
+  `ReadAllLines` (with `FileNotFoundException`'s `File name: '...'` line). Elsewhere an exception thrown
+  by or passing through BCL code shows the program's frames only. Warning `CSLLVM0006` is reported
+  wherever a program turns an exception into text or reads `StackTrace`, so the difference is never
+  silent.
 - Static field initializers and static constructors run from csharpc's own class-init function:
   their `..cctor` frame is missing (.NET also shows a BCL frame there).
 - Frames of methods compiled from IL (ADR 0010) and of record members the compiler synthesizes are

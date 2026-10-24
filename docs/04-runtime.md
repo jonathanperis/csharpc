@@ -83,7 +83,7 @@ included (on wasm32 the pad code records them). `eh.c` formats them on demand li
 (`   at Ns.Type.Method(Int32 x) in /path/file.cs:line 12`), handles `throw;` / `throw e;` /
 `ExceptionDispatchInfo` semantics, and `ToString()` appends the trace. Names of lambdas and local
 functions and the lines come from a PDB of the user's sources emitted by Roslyn at compile time.
-Frames inside the BCL are not listed (`CSLLVM0006` warns where a program prints a trace).
+Frames inside the BCL are reproduced for common members only (`CoreIntrinsics.LibraryFrames`; `CSLLVM0006` warns where a program prints a trace).
 
 ## The C / C# boundary
 
