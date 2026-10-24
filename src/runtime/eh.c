@@ -82,7 +82,8 @@ void csrt_exception_init(void* exception, csrt_String* message, void* inner, csr
     e->param_name = param_name;
 }
 
-static csrt_String* concat_utf8(csrt_String* a, const char* b) { return csrt_string_concat(a, csrt_string_from_utf8(b)); }
+// Not inlined: exception formatting is cold, and each inlined copy is two allocations' worth of code.
+__attribute__((noinline)) static csrt_String* concat_utf8(csrt_String* a, const char* b) { return csrt_string_concat(a, csrt_string_from_utf8(b)); }
 
 static bool is_exception_of(const csrt_Exception* e, const csrt_MethodTable* type) {
     for (const csrt_MethodTable* mt = e->mt; mt; mt = mt->base)
@@ -142,6 +143,10 @@ static csrt_String* virtual_message(void* exception) {
 
 // Exception.ToString(): "Type: Message\n ---> Inner\n   --- End of ... ---\n   at ..." (the stack
 // trace only when the exception was thrown and the program records traces).
+// The trace formatter, set by csrt_trace_init: only programs that record traces call that, so in the
+// others (whose exception vtables still reach ToString) LTO drops the formatter and its tables.
+static csrt_String* (*s_trace_text)(void* exception);
+
 csrt_String* csrt_exception_to_string(void* exception) {
     csrt_Exception* e = exception;
     csrt_String* s = csrt_string_from_utf8(e->mt->name);
@@ -156,7 +161,7 @@ csrt_String* csrt_exception_to_string(void* exception) {
         s = csrt_string_concat(concat_utf8(s, CSRT_NEWLINE " ---> "), csrt_object_to_string(e->inner));
         s = concat_utf8(s, CSRT_NEWLINE "   --- End of inner exception stack trace ---");
     }
-    csrt_String* trace = csrt_exception_get_stack_trace(exception);
+    csrt_String* trace = s_trace_text ? s_trace_text(exception) : NULL;
     if (trace) s = csrt_string_concat(concat_utf8(s, CSRT_NEWLINE), trace);
     return s;
 }
@@ -198,7 +203,7 @@ enum { TRACE_HEADER = (int32_t)(sizeof(TraceData) / sizeof(void*)) };
 static const csrt_TraceTables* s_trace;
 #define TRACE_PREVIOUS_LOCATION ((const csrt_TraceSite*)0)
 
-void csrt_trace_init(const void* tables) { s_trace = tables; }
+void csrt_trace_init(const void* tables) { s_trace = tables; s_trace_text = csrt_exception_get_stack_trace; }
 
 static TraceData* trace_data(const csrt_Array* trace) { return trace ? (TraceData*)trace->data : NULL; }
 static int32_t trace_count(const csrt_Array* trace) { return trace ? trace_data(trace)->count : 0; }
