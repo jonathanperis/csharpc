@@ -19,18 +19,21 @@ namespace CsharpcCoreLib
         private static int Decode(ReadOnlySpan<byte> table, int index) =>
             ((table[index] - '0') << 12) | ((table[index + 1] - '0') << 6) | (table[index + 2] - '0');
 
+        private static int CategoryEntry(ReadOnlySpan<byte> table, int entry) =>
+            (table[entry * 3] << 14) | (table[entry * 3 + 1] << 7) | table[entry * 3 + 2];
+
         public static System.Globalization.UnicodeCategory GetUnicodeCategory(char c)
         {
             if (c < 256) return (System.Globalization.UnicodeCategory)(UnicodeData.Latin1Categories[c] - '0');
-            // Binary search: last breakpoint whose start <= c. Each entry is 6 symbols: start, category.
+            // Binary search: last breakpoint whose start <= c. Each entry is 3 bytes of 7 bits: start << 5 | category.
             ReadOnlySpan<byte> table = UnicodeData.Categories;
             int lo = 0, hi = UnicodeData.CategoryCount - 1;
             while (lo < hi)
             {
                 int mid = (lo + hi + 1) >> 1;
-                if (Decode(table, mid * 6) <= c) lo = mid; else hi = mid - 1;
+                if (CategoryEntry(table, mid) >> 5 <= c) lo = mid; else hi = mid - 1;
             }
-            return (System.Globalization.UnicodeCategory)Decode(table, lo * 6 + 3);
+            return (System.Globalization.UnicodeCategory)(CategoryEntry(table, lo) & 31);
         }
 
         private static int Cat(char c) => (int)GetUnicodeCategory(c);
