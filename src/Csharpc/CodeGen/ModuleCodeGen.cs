@@ -124,6 +124,25 @@ public sealed partial class ModuleCodeGen
     public SemanticModel ModelFor(SyntaxTree tree) =>
         _models.TryGetValue(tree, out var model) ? model : _models[tree] = Compilation.GetSemanticModel(tree);
 
+    private readonly Dictionary<SyntaxNode, ControlFlowGraph?> _cfgs = [];
+
+    /// <summary>
+    /// Roslyn's CFG of a body, built once per syntax node: a CFG is immutable and independent of the
+    /// substitution it is lowered under, so every instantiation of a generic method (and every
+    /// constructor sharing a type's field initializers) reuses it instead of re-binding the body.
+    /// </summary>
+    internal ControlFlowGraph? CfgFor(SyntaxNode syntax)
+    {
+        if (_cfgs.TryGetValue(syntax, out var cached)) { Stats.CfgReused++; return cached; }
+        var start = System.Diagnostics.Stopwatch.GetTimestamp();
+        var model = ModelFor(syntax.SyntaxTree);
+        // A primary constructor's type declaration only has a body operation when it calls a base constructor.
+        var cfg = syntax is TypeDeclarationSyntax && model.GetOperation(syntax) is null ? null : ControlFlowGraph.Create(syntax, model);
+        Stats.CfgBuilt++;
+        Stats.CfgTicks += System.Diagnostics.Stopwatch.GetTimestamp() - start;
+        return _cfgs[syntax] = cfg;
+    }
+
     /// <summary>Compiled by csharpc: defined in the program's sources (incl. the corelib) or in an IL assembly (ADR 0010).</summary>
     public bool IsUserType(ITypeSymbol? type) =>
         type is INamedTypeSymbol && (SymbolEqualityComparer.Default.Equals(type.ContainingAssembly, Compilation.Assembly) || Il.Contains(type.ContainingAssembly));
@@ -483,9 +502,10 @@ public sealed partial class ModuleCodeGen
     public sealed class LoweringStats
     {
         public int IlMethods, SourceMethods, CoreLibMethods;
-        public long IlTicks, IlDecodeTicks, SourceTicks, CoreLibTicks;
+        public int CfgBuilt, CfgReused;
+        public long IlTicks, IlDecodeTicks, SourceTicks, CoreLibTicks, CfgTicks;
         public override string ToString() =>
-            $"IL {IlMethods} methods {Ms(IlTicks)} ms (decode {Ms(IlDecodeTicks)} ms), source {SourceMethods} methods {Ms(SourceTicks)} ms, corelib {CoreLibMethods} methods {Ms(CoreLibTicks)} ms";
+            $"IL {IlMethods} methods {Ms(IlTicks)} ms (decode {Ms(IlDecodeTicks)} ms), source {SourceMethods} methods {Ms(SourceTicks)} ms, corelib {CoreLibMethods} methods {Ms(CoreLibTicks)} ms; Roslyn CFGs {CfgBuilt} built in {Ms(CfgTicks)} ms, {CfgReused} reused";
         private static string Ms(long ticks) => (ticks * 1000.0 / System.Diagnostics.Stopwatch.Frequency).ToString("F0", System.Globalization.CultureInfo.InvariantCulture);
     }
 
@@ -568,8 +588,7 @@ public sealed partial class ModuleCodeGen
             {
                 // Primary constructor: captured-parameter fields, field initializers, then base(...).
                 // Roslyn exposes the base call as a ConstructorBodyOperation on the type declaration.
-                var model = ModelFor(typeDecl.SyntaxTree);
-                var body = model.GetOperation(typeDecl) is not null ? ControlFlowGraph.Create(typeDecl, model) : null;
+                var body = CfgFor(typeDecl);
                 if (body is not null) Dump(method, body);
                 gen.EmitPrimaryConstructor([.. InitializerGraphs(method.ContainingType, isStatic: false)], body);
                 return;
@@ -589,7 +608,7 @@ public sealed partial class ModuleCodeGen
             case MethodDeclarationSyntax or ConstructorDeclarationSyntax or AccessorDeclarationSyntax
                 or ArrowExpressionClauseSyntax or CompilationUnitSyntax or OperatorDeclarationSyntax
                 or ConversionOperatorDeclarationSyntax:
-                var cfg = ControlFlowGraph.Create(syntax, ModelFor(syntax.SyntaxTree))
+                var cfg = CfgFor(syntax)
                     ?? throw CompileError.Unsupported("method without a body", method);
                 Dump(method, cfg);
                 gen.Emit(prologue, cfg);
@@ -679,8 +698,7 @@ public sealed partial class ModuleCodeGen
                 _ => null,
             };
             if (init is null) continue;
-            var cfg = ControlFlowGraph.Create(init, ModelFor(init.SyntaxTree));
-            if (cfg is not null) yield return cfg;
+            if (CfgFor(init) is { } cfg) yield return cfg;
         }
     }
 
