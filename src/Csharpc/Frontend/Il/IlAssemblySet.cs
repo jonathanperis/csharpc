@@ -538,8 +538,8 @@ public sealed class IlAssembly : IDisposable, ISignatureTypeProvider<IlType, IlG
 
     public IlType GetFunctionPointerType(MethodSignature<IlType> signature) =>
         new(Compilation.CreateFunctionPointerTypeSymbol(
-            NoByRef(signature.ReturnType), signature.ReturnType.IsByRef ? RefKind.Ref : RefKind.None,
-            [.. signature.ParameterTypes.Select(NoByRef)], [.. signature.ParameterTypes.Select(p => p.IsByRef ? RefKind.Ref : RefKind.None)],
+            signature.ReturnType.Type, signature.ReturnType.IsByRef ? RefKind.Ref : RefKind.None,
+            [.. signature.ParameterTypes.Select(p => p.Type)], [.. signature.ParameterTypes.Select(p => p.IsByRef ? RefKind.Ref : RefKind.None)],
             signature.Header.CallingConvention, []));
 
     private static ITypeSymbol NoByRef(IlType type) =>
@@ -570,6 +570,10 @@ public sealed class IlAssembly : IDisposable, ISignatureTypeProvider<IlType, IlG
     /// <summary>Local variable types of a body (by-ref / pinned shapes kept).</summary>
     public ImmutableArray<IlType> DecodeLocals(MethodBodyBlock body, IlGenericContext context) =>
         body.LocalSignature.IsNil ? [] : Reader.GetStandaloneSignature(body.LocalSignature).DecodeLocalSignature(this, context);
+
+    /// <summary>The signature of a `calli` (a StandAloneSig token).</summary>
+    public MethodSignature<IlType> DecodeCallSiteSignature(int token, IlGenericContext context) =>
+        Reader.GetStandaloneSignature((StandaloneSignatureHandle)MetadataTokens.EntityHandle(token)).DecodeMethodSignature(this, context);
 
     /// <summary>The definition's own type attributes (layout kind, beforefieldinit, ...).</summary>
     public TypeAttributes AttributesOf(INamedTypeSymbol type) => TypeDefinitionOf(type).Attributes;

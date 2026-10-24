@@ -862,6 +862,9 @@ public sealed partial class FunctionCodeGen
     // a stack { string, i32 index } that SROA turns into an index loop.
     private LLVMTypeRef StringEnumeratorType => L.Struct(L.Ptr, L.I32);
 
+    /// <summary>The address of a string's first char (its terminating NUL for an empty string, as in .NET).</summary>
+    internal LLVMValueRef StringFirstChar(LLVMValueRef str) => _b.StructGep(T.StringHeader, str, 2);
+
     internal LLVMValueRef StringGetEnumerator(LLVMValueRef str)
     {
         NullCheck(str);

@@ -49,16 +49,19 @@ public sealed partial class FunctionCodeGen
             // ---- constants ----
             case ILOpCode.Ldc_i4_m1 or ILOpCode.Ldc_i4_0 or ILOpCode.Ldc_i4_1 or ILOpCode.Ldc_i4_2 or ILOpCode.Ldc_i4_3
                 or ILOpCode.Ldc_i4_4 or ILOpCode.Ldc_i4_5 or ILOpCode.Ldc_i4_6 or ILOpCode.Ldc_i4_7 or ILOpCode.Ldc_i4_8:
-                Push(I4((int)op - (int)ILOpCode.Ldc_i4_0)); // ILOpCode is ushort-based: subtract as int (ldc.i4.m1)
+                Push(I4((int)op - (int)ILOpCode.Ldc_i4_0) with { Constant = (int)op - (int)ILOpCode.Ldc_i4_0 }); // ILOpCode is ushort-based: subtract as int (ldc.i4.m1)
                 return false;
-            case ILOpCode.Ldc_i4_s or ILOpCode.Ldc_i4: Push(I4((int)instruction.Int)); return false;
-            case ILOpCode.Ldc_i8: Push(new IlEntry(IlKind.Int64, L.ConstInt(L.I64, instruction.Int), Special(SpecialType.System_Int64))); return false;
-            case ILOpCode.Ldc_r4: Push(new IlEntry(IlKind.Float, LlvmContext.ConstReal(L.F32, instruction.Real), Special(SpecialType.System_Single))); return false;
-            case ILOpCode.Ldc_r8: Push(new IlEntry(IlKind.Float, LlvmContext.ConstReal(L.F64, instruction.Real), Special(SpecialType.System_Double))); return false;
+            case ILOpCode.Ldc_i4_s or ILOpCode.Ldc_i4: Push(I4((int)instruction.Int) with { Constant = (int)instruction.Int }); return false;
+            case ILOpCode.Ldc_i8: Push(new IlEntry(IlKind.Int64, L.ConstInt(L.I64, instruction.Int), Special(SpecialType.System_Int64)) { Constant = instruction.Int }); return false;
+            case ILOpCode.Ldc_r4: Push(new IlEntry(IlKind.Float, LlvmContext.ConstReal(L.F32, instruction.Real), Special(SpecialType.System_Single)) { Constant = (float)instruction.Real }); return false;
+            case ILOpCode.Ldc_r8: Push(new IlEntry(IlKind.Float, LlvmContext.ConstReal(L.F64, instruction.Real), Special(SpecialType.System_Double)) { Constant = instruction.Real }); return false;
             case ILOpCode.Ldnull: Push(new IlEntry(IlKind.Ref, LlvmContext.Null(L.Ptr), null)); return false;
             case ILOpCode.Ldstr:
-                Push(new IlEntry(IlKind.Ref, _m.StringLiteral(IlAssembly.UserString(instruction.Token)), Special(SpecialType.System_String)) { NonNull = true });
+            {
+                var text = IlAssembly.UserString(instruction.Token);
+                Push(new IlEntry(IlKind.Ref, _m.StringLiteral(text), Special(SpecialType.System_String)) { NonNull = true, Constant = text });
                 return false;
+            }
 
             // ---- arguments and locals ----
             case ILOpCode.Ldarg_0 or ILOpCode.Ldarg_1 or ILOpCode.Ldarg_2 or ILOpCode.Ldarg_3: Push(IlLoadArg(op - ILOpCode.Ldarg_0)); return false;
@@ -289,7 +292,15 @@ public sealed partial class FunctionCodeGen
             {
                 var field = IlField(instruction.Token);
                 if (IlRvaData(field) is { } data) { Push(new IlEntry(IlKind.ByRef, data.Global, field.Type) { NonNull = true }); return false; }
-                if (!_m.IsUserType(_m.CoreLib.Map(S(field)).ContainingType)) throw new IlException($"address of static field '{field}' of a library type");
+                if (!_m.IsUserType(_m.CoreLib.Map(S(field)).ContainingType))
+                {
+                    // A library's readonly static (DateTime.MaxValue) can't change after its initializer: its
+                    // address is only taken to call members on it, so a copy behaves the same.
+                    if (!field.IsReadOnly) throw new IlException($"address of static field '{field}' of a library type");
+                    var copy = Spill(EmitValue(new IlFieldReferenceOperation(il.Syntax, field, null)));
+                    Push(new IlEntry(IlKind.ByRef, copy, field.Type) { NonNull = true });
+                    return false;
+                }
                 Push(new IlEntry(IlKind.ByRef, StaticFieldAddress(S(field)), field.Type));
                 return false;
             }
@@ -328,6 +339,13 @@ public sealed partial class FunctionCodeGen
                 var value = Pop();
                 var st = S(type);
                 if (st.IsReferenceType) { Push(value); return false; }
+                // `value != null` on a T that is a value type: C# compilers box only to test the result for
+                // null, which a non-nullable value never is. Skip the allocation, as the source path folds it.
+                if (st.IsValueType && !TypeMapper.IsNullable(st) && IlBoxOnlyNullTested(block))
+                {
+                    Push(new IlEntry(IlKind.Ref, _m.ExternalGlobal("csrt_Object_MT"), Special(SpecialType.System_Object)) { NonNull = true });
+                    return false;
+                }
                 Push(new IlEntry(IlKind.Ref, Box(IlTyped(value, type), st, IlAt()), Special(SpecialType.System_Object)));
                 return false;
             }
@@ -515,9 +533,56 @@ public sealed partial class FunctionCodeGen
                 return false;
             }
 
+            case ILOpCode.Calli:
+                IlCallIndirect(instruction, stack);
+                return false;
+
             default:
                 throw new IlException($"opcode '{IlInstruction.Name(op)}'");
         }
+    }
+
+    /// <summary>
+    /// The box being lowered (instruction <c>_ilIndex</c>) is only compared with null: the next instructions,
+    /// in the same block, are `brtrue`/`brfalse`, or `ldnull` and `ceq`/`cgt.un`.
+    /// </summary>
+    private bool IlBoxOnlyNullTested(IlBlock block)
+    {
+        var instructions = IlBody.Instructions;
+        if (_ilIndex + 1 > block.Last) return false;
+        var next = instructions[_ilIndex + 1].OpCode;
+        if (next is ILOpCode.Brtrue or ILOpCode.Brtrue_s or ILOpCode.Brfalse or ILOpCode.Brfalse_s) return true;
+        return next == ILOpCode.Ldnull && _ilIndex + 2 <= block.Last
+            && instructions[_ilIndex + 2].OpCode is ILOpCode.Ceq or ILOpCode.Cgt_un;
+    }
+
+    /// <summary>
+    /// `calli`: a call through a function pointer (C# `delegate*`), with the call site's signature. Like
+    /// the source path's function pointer invocation, every calling convention is csharpc's own.
+    /// </summary>
+    private void IlCallIndirect(IlInstruction instruction, Stack<IlEntry> stack)
+    {
+        IlEntry Pop() => stack.Count > 0 ? stack.Pop() : throw new IlException("evaluation stack underflow");
+        var signature = IlAssembly.DecodeCallSiteSignature(instruction.Token, IlBody.Context);
+        if (signature.Header.IsInstance) throw new IlException("calli with an instance signature");
+        if (signature.Header.CallingConvention == SignatureCallingConvention.VarArgs) throw new IlException("vararg calli");
+        var pointer = Pop();
+        var fn = pointer.Kind == IlKind.MethodPtr ? IlTyped(pointer, Special(SpecialType.System_IntPtr)) : pointer.Value;
+        if (Native.LLVMTypeOf(fn).Kind != LLVMTypeKind.Pointer) fn = _b.Cast(LLVMOpcode.IntToPtr, fn, L.Ptr);
+        var parameters = signature.ParameterTypes;
+        var args = new LLVMValueRef[parameters.Length];
+        for (var i = parameters.Length - 1; i >= 0; i--)
+        {
+            var e = Pop();
+            args[i] = parameters[i].IsByRef ? IlAddress(e) : IlTyped(e, parameters[i].Type);
+        }
+        var ret = signature.ReturnType;
+        var returnsVoid = !ret.IsByRef && ret.Type.SpecialType == SpecialType.System_Void;
+        var type = L.FunctionType(ret.IsByRef ? L.Ptr : returnsVoid ? L.Void : T.Value(S(ret.Type)),
+            [.. parameters.Select(p => p.IsByRef ? L.Ptr : T.Value(S(p.Type)))]);
+        var result = _b.Call(type, fn, args);
+        if (returnsVoid) return;
+        stack.Push(ret.IsByRef ? new IlEntry(IlKind.ByRef, result, ret.Type) : IlPush(result, ret.Type));
     }
 
     private static ILOpCode LongForm(ILOpCode op) => op switch
@@ -579,6 +644,13 @@ public sealed partial class FunctionCodeGen
         var st = S(type);
         var target = T.Value(st);
         var v = e.Value;
+        // `&M` in C# (`ldftn` not consumed by a delegate constructor): the code pointer, as in the source path.
+        if (e is { Kind: IlKind.MethodPtr, Target: null, Symbol: IMethodSymbol pointed } && (st is IFunctionPointerTypeSymbol or IPointerTypeSymbol
+                || st.SpecialType is SpecialType.System_IntPtr or SpecialType.System_UIntPtr))
+        {
+            var code = FunctionPointerTo(S(pointed), IlAt());
+            return target.IsPointer ? code : _b.Cast(LLVMOpcode.PtrToInt, code, target);
+        }
         var source = e.Kind is IlKind.MethodPtr or IlKind.Token ? throw new IlException($"{e.Kind} value used as '{st}'") : Native.LLVMTypeOf(v);
         switch (e.Kind)
         {
@@ -671,7 +743,33 @@ public sealed partial class FunctionCodeGen
         // Library members taking System.Array (Array.Copy, Array.Clear, ...) are lowered per element type:
         // hand them the array type the IL value is known to have.
         if (type.SpecialType == SpecialType.System_Array && e.Kind == IlKind.Ref && e.Type is IArrayTypeSymbol) type = e.Type;
-        return new IlValueOperation(il.Syntax, type, () => IlTyped(e, type), nonNull: e.NonNull || e.IsThis);
+        return new IlValueOperation(il.Syntax, type, () => IlTyped(e, type), nonNull: e.NonNull || e.IsThis)
+        {
+            Constant = e.Constant is null ? default : TypedConstant(e.Constant, type),
+        };
+    }
+
+    /// <summary>An IL constant as the C# constant of an operand of <paramref name="type"/> (enums: their underlying value), if exact.</summary>
+    private static Optional<object?> TypedConstant(object constant, ITypeSymbol type)
+    {
+        var special = type is INamedTypeSymbol { EnumUnderlyingType: { } underlying } ? underlying.SpecialType : type.SpecialType;
+        return (constant, special) switch
+        {
+            (string s, SpecialType.System_String) => s,
+            (int i, SpecialType.System_Int32) => i,
+            (int i, SpecialType.System_Boolean) when i is 0 or 1 => i == 1,
+            (int i, SpecialType.System_Char) when i is >= char.MinValue and <= char.MaxValue => (char)i,
+            (int i, SpecialType.System_SByte) when i is >= sbyte.MinValue and <= sbyte.MaxValue => (sbyte)i,
+            (int i, SpecialType.System_Byte) when i is >= byte.MinValue and <= byte.MaxValue => (byte)i,
+            (int i, SpecialType.System_Int16) when i is >= short.MinValue and <= short.MaxValue => (short)i,
+            (int i, SpecialType.System_UInt16) when i is >= ushort.MinValue and <= ushort.MaxValue => (ushort)i,
+            (int i, SpecialType.System_UInt32) => unchecked((uint)i),
+            (long l, SpecialType.System_Int64) => l,
+            (long l, SpecialType.System_UInt64) => unchecked((ulong)l),
+            (double d, SpecialType.System_Double) => d,
+            (float f, SpecialType.System_Single) => f,
+            _ => default(Optional<object?>),
+        };
     }
 
     // ======================================================================================

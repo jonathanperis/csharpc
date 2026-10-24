@@ -27,6 +27,12 @@ internal sealed record IlEntry(IlKind Kind, LLVMValueRef Value, ITypeSymbol? Typ
     public IlEntry? Target { get; init; }         // ldvirtftn: the receiver
     public bool IsThis { get; init; }
     public bool NonNull { get; init; }
+    /// <summary>
+    /// The value of an `ldc.*`/`ldstr` entry (int, long, float, double or string): operands built from it
+    /// carry it as their ConstantValue, as Roslyn's operations do for C# constants, so lowering that
+    /// needs a constant argument (CoreIntrinsics.LibraryFrames, ordinal comparisons) sees one.
+    /// </summary>
+    public object? Constant { get; init; }
 }
 
 /// <summary>
