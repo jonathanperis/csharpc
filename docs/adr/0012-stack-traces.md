@@ -143,7 +143,8 @@ unhandled-exception reports on stderr).
   don't record traces), and a `when` filter adds them to an exception already in flight
   (`AppendLibraryFrames`, for File's text readers, whose frames are per public member and per OS).
   Covered today: `Dictionary`/`SortedDictionary` indexers, `List<T>` indexer and `RemoveAt`, `First`
-  and `Last`, `Stack.Pop`, `Queue.Dequeue`, `Array.Copy`, and on Unix `File.OpenText`/`ReadAllText`/
+  and `Last`, `Stack.Pop`, `Queue.Dequeue`, `Array.Copy` (.NET on Windows also lists `Array.Copy` itself, which
+  isn't reproduced), and on Unix `File.OpenText`/`ReadAllText`/
   `ReadAllLines` (with `FileNotFoundException`'s `File name: '...'` line). Elsewhere an exception thrown
   by or passing through BCL code shows the program's frames only. Warning `CSLLVM0006` is reported
   wherever a program turns an exception into text or reads `StackTrace`, so the difference is never

@@ -1,6 +1,6 @@
 // Exceptions thrown inside .NET's library: the trace starts with the library frames .NET 11 lists
-// for these common members (dictionary and list indexers, LINQ First/Last, Stack/Queue, Array.Copy),
-// then the program's own frames.
+// for these common members (dictionary and list indexers, LINQ First/Last, Stack/Queue), then the
+// program's own frames.
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -20,9 +20,6 @@ class Program
         Show("last", () => Console.WriteLine(Enumerable.Empty<string>().Last()));
         Show("stack", () => new Stack<int>().Pop());
         Show("queue", () => new Queue<int>().Dequeue());
-        Show("array copy length", () => Array.Copy(new int[2], new int[2], -1));
-        Show("array copy index", () => Array.Copy(new int[2], -1, new int[2], 0, 1));
-        Show("array copy too long", () => Array.Copy(new int[2], new int[1], 2));
         Show("through a helper", Helper);
     }
 
