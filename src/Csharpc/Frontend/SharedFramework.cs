@@ -34,6 +34,25 @@ public static class SharedFramework
     }
 
     /// <summary>
+    /// Another shared framework of the same installation (Microsoft.AspNetCore.App): the directory next to
+    /// <see cref="Directory"/> with the same version, else that framework's newest 11.x; null if absent.
+    /// </summary>
+    public static string? DirectoryOf(string framework)
+    {
+        if (Directory is not { } netcore) return null;
+        var root = Path.GetDirectoryName(Path.GetDirectoryName(Path.TrimEndingDirectorySeparator(netcore)));
+        if (root is null) return null;
+        var frameworkRoot = Path.Combine(root, framework);
+        var same = Path.Combine(frameworkRoot, Path.GetFileName(Path.TrimEndingDirectorySeparator(netcore)));
+        if (System.IO.Directory.Exists(same)) return same;
+        if (!System.IO.Directory.Exists(frameworkRoot)) return null;
+        return System.IO.Directory.EnumerateDirectories(frameworkRoot)
+            .Where(d => Path.GetFileName(d).StartsWith("11.", StringComparison.Ordinal))
+            .OrderByDescending(d => Path.GetFileName(d), StringComparer.Ordinal)
+            .FirstOrDefault();
+    }
+
+    /// <summary>
     /// Assembly.FullName of the assembly that defines the top-level type <paramref name="ns"/>.<paramref name="name"/>
     /// (metadata name, e.g. "List`1"), starting from the reference assembly Roslyn bound it in and
     /// following type forwards; null when it can't be found.

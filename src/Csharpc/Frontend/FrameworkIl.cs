@@ -28,6 +28,8 @@ public static partial class FrameworkIl
     private sealed class Assembly
     {
         public required string Name { get; init; }
+        /// <summary>The shared-framework directory it is in (not part of the cached index).</summary>
+        public string Directory { get; set; } = "";
         /// <summary>Why it can't be compiled from IL; null if it can.</summary>
         public string? Ineligible { get; set; }
         public string[] References { get; set; } = [];
@@ -37,6 +39,9 @@ public static partial class FrameworkIl
         public Dictionary<string, string[]> Extensions { get; } = new(StringComparer.Ordinal);
     }
 
+    /// <summary>Shared frameworks a project can reference besides Microsoft.NETCore.App.</summary>
+    public static readonly string[] SupportedFrameworks = ["Microsoft.AspNetCore.App"];
+
     /// <summary>
     /// Framework assemblies to compile from IL for these sources. <paramref name="forced"/> are names from
     /// --framework-il; <paramref name="automatic"/> = false is `--framework-il none`. Assemblies already
@@ -45,20 +50,31 @@ public static partial class FrameworkIl
     public static List<Choice> Select(FrontendSettings settings, IReadOnlyList<string> ilPaths, IReadOnlyList<string> forced, bool automatic)
     {
         var result = new List<Choice>();
+        foreach (var framework in settings.SharedFrameworks)
+            if (!SupportedFrameworks.Contains(framework, StringComparer.OrdinalIgnoreCase))
+                throw new InvalidOperationException($"the framework reference '{framework}' is not supported by csharpc yet (supported: Microsoft.NETCore.App, {string.Join(", ", SupportedFrameworks)})");
         if (!automatic && forced.Count == 0) return result;
         if (SharedFramework.Directory is not { } dir)
         {
-            if (forced.Count > 0) throw new InvalidOperationException("--framework-il: the .NET 11 shared framework (Microsoft.NETCore.App) was not found");
+            if (forced.Count > 0 || settings.SharedFrameworks.Count > 0) throw new InvalidOperationException("--framework-il: the .NET 11 shared framework (Microsoft.NETCore.App) was not found");
             return result;
         }
-        var index = Index(dir);
+        var index = Index(dir, netCore: true);
+        // Other shared frameworks (ASP.NET Core) have no corelib counterpart: everything of theirs the
+        // program uses comes from their IL, with Microsoft.NETCore.App underneath.
+        foreach (var framework in settings.SharedFrameworks)
+        {
+            var frameworkDir = SharedFramework.DirectoryOf(framework)
+                ?? throw new InvalidOperationException($"the shared framework {framework} (version 11) was not found next to {dir}; install the matching runtime");
+            foreach (var (name, a) in Index(frameworkDir, netCore: false)) index.TryAdd(name, a);
+        }
         var given = new HashSet<string>(ilPaths.Select(p => Path.GetFileNameWithoutExtension(p)), StringComparer.OrdinalIgnoreCase);
         var chosen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         void Add(Assembly a, string reason)
         {
             if (given.Contains(a.Name) || !chosen.Add(a.Name)) return;
-            result.Add(new Choice(a.Name, Path.Combine(dir, a.Name + ".dll"), reason));
+            result.Add(new Choice(a.Name, Path.Combine(a.Directory, a.Name + ".dll"), reason));
         }
 
         foreach (var name in forced)
@@ -140,13 +156,22 @@ public static partial class FrameworkIl
     /// cache directory, keyed on the framework directory (whose contents never change) and on this build
     /// of csharpc (eligibility depends on what the corelib implements).
     /// </summary>
-    private static Dictionary<string, Assembly> Index(string dir)
+    private static Dictionary<string, Assembly> Index(string dir, bool netCore)
+    {
+        var index = LoadIndex(dir, netCore);
+        foreach (var a in index.Values) a.Directory = dir;
+        return index;
+    }
+
+    private static Dictionary<string, Assembly> LoadIndex(string dir, bool netCore)
     {
         var cacheRoot = Environment.GetEnvironmentVariable("XDG_CACHE_HOME")
             ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".cache");
         var build = typeof(FrameworkIl).Assembly.ManifestModule.ModuleVersionId;
-        var key = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes($"{dir}|{build}|1")))[..16];
-        var cache = Path.Combine(cacheRoot, "csharpc", $"framework-il-{key}.txt");
+        var key = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes($"{dir}|{build}|{netCore}|2")))[..16];
+        // Named by build, then by framework directory: an index per framework (Microsoft.NETCore.App's and ASP.NET Core's).
+        var buildTag = build.ToString("N")[..8];
+        var cache = Path.Combine(cacheRoot, "csharpc", $"framework-il-{buildTag}-{key}.txt");
         if (File.Exists(cache) && ReadIndex(cache) is { Count: > 0 } cached) return cached;
 
         var index = new Dictionary<string, Assembly>(StringComparer.OrdinalIgnoreCase);
@@ -158,7 +183,7 @@ public static partial class FrameworkIl
                 if (!pe.HasMetadata) continue;
                 var md = pe.GetMetadataReader();
                 if (!md.IsAssembly) continue;
-                var a = Read(md);
+                var a = Read(md, netCore);
                 index[a.Name] = a;
             }
             catch (BadImageFormatException) { }
@@ -171,13 +196,13 @@ public static partial class FrameworkIl
             File.Move(temp, cache, overwrite: true);
             // Indexes of earlier csharpc builds are dead weight.
             foreach (var stale in Directory.EnumerateFiles(Path.GetDirectoryName(cache)!, "framework-il-*.txt"))
-                if (!stale.Equals(cache, StringComparison.Ordinal)) File.Delete(stale);
+                if (!Path.GetFileName(stale).StartsWith($"framework-il-{buildTag}-", StringComparison.Ordinal)) File.Delete(stale);
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
         return index;
     }
 
-    private static Assembly Read(MetadataReader md)
+    private static Assembly Read(MetadataReader md, bool netCore)
     {
         var a = new Assembly { Name = md.GetString(md.GetAssemblyDefinition().Name) };
         a.References = [.. md.AssemblyReferences.Select(h => md.GetString(md.GetAssemblyReference(h).Name))];
@@ -217,11 +242,30 @@ public static partial class FrameworkIl
             return null;
         }
         a.Ineligible = a.Name.StartsWith("System.Private.", StringComparison.OrdinalIgnoreCase) ? "it is part of the runtime itself"
-            : md.ExportedTypes.Count > 0 ? "it forwards types to other assemblies (a facade)"
+            : Forwards(md, netCore) ? "it forwards types to other assemblies (a facade)"
             : ModuleOfRuntime() is { } native ? $"it calls native code of the .NET runtime ({native})"
             : fullNames.FirstOrDefault(known.Contains) is { } shadowed ? $"csharpc implements its type '{shadowed}' itself"
             : null;
         return a;
+    }
+
+    /// <summary>
+    /// Whether the assembly forwards types where the compilation can't follow. In Microsoft.NETCore.App
+    /// forwards lead into System.Private.CoreLib (served by the corelib); ASP.NET Core's assemblies forward
+    /// types they once defined to other assemblies of the shared frameworks (FeatureCollection to
+    /// Microsoft.Extensions.Features), which are compiled from IL or bound like any reference.
+    /// </summary>
+    private static bool Forwards(MetadataReader md, bool netCore)
+    {
+        if (netCore) return md.ExportedTypes.Count > 0;
+        foreach (var h in md.ExportedTypes)
+        {
+            var exported = md.GetExportedType(h);
+            if (exported.Implementation.Kind == HandleKind.AssemblyReference
+                && md.GetString(md.GetAssemblyReference((AssemblyReferenceHandle)exported.Implementation).Name).StartsWith("System.Private.", StringComparison.Ordinal))
+                return true;
+        }
+        return false;
     }
 
     // Lines: "A\tname\treason-or-empty\treferences", then "T\tnamespace\ttypes" / "E\tnamespace\tmethods" for it.

@@ -167,10 +167,29 @@ public static class RoslynFrontend
     /// </summary>
     private static IEnumerable<MetadataReference> FrameworkReferences(FrontendSettings settings)
     {
-        if (settings.IlReferences.Count == 0) return ReferenceAssemblies();
+        IEnumerable<MetadataReference> all = ReferenceAssemblies();
+        // Other shared frameworks (<FrameworkReference Include="Microsoft.AspNetCore.App" />) bind against their
+        // reference packs too, as csc does: the SDK's implicit global usings name namespaces of assemblies the
+        // program may not use (FrameworkIl only takes the used ones from IL).
+        foreach (var framework in settings.SharedFrameworks) all = all.Concat(SharedFrameworkReferences(framework));
+        if (settings.IlReferences.Count == 0) return all;
         var replaced = settings.IlReferences.OfType<PortableExecutableReference>()
             .Select(r => Path.GetFileNameWithoutExtension(r.FilePath)).ToHashSet(StringComparer.OrdinalIgnoreCase);
-        return ReferenceAssemblies().Where(r => r is not PortableExecutableReference pe || !replaced.Contains(Path.GetFileNameWithoutExtension(pe.FilePath)));
+        return all.Where(r => r is not PortableExecutableReference pe || !replaced.Contains(Path.GetFileNameWithoutExtension(pe.FilePath)));
+    }
+
+    private static readonly Dictionary<string, ImmutableArray<MetadataReference>> s_frameworkReferences = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>The reference assemblies of packs/&lt;framework&gt;.Ref (empty when the SDK has no such pack).</summary>
+    private static ImmutableArray<MetadataReference> SharedFrameworkReferences(string framework)
+    {
+        lock (s_frameworkReferences)
+        {
+            if (s_frameworkReferences.TryGetValue(framework, out var cached)) return cached;
+            var dir = FindReferencePack(framework + ".Ref");
+            return s_frameworkReferences[framework] = dir is null ? [] :
+                [.. Directory.EnumerateFiles(dir, "*.dll").Order().Select(p => (MetadataReference)MetadataReference.CreateFromFile(p))];
+        }
     }
 
     /// <summary>
@@ -245,7 +264,7 @@ public static class RoslynFrontend
     }
 
     /// <summary>Newest net11.0 reference pack among the usual dotnet installation roots.</summary>
-    private static string? FindReferencePack()
+    private static string? FindReferencePack(string pack = "Microsoft.NETCore.App.Ref")
     {
         IEnumerable<string?> roots =
         [
@@ -254,8 +273,8 @@ public static class RoslynFrontend
             Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".dotnet"),
             "/usr/share/dotnet", "/usr/lib/dotnet", "/usr/local/share/dotnet",
         ];
-        return roots.Where(r => r is not null && Directory.Exists(Path.Combine(r, "packs", "Microsoft.NETCore.App.Ref")))
-            .SelectMany(r => Directory.EnumerateDirectories(Path.Combine(r!, "packs", "Microsoft.NETCore.App.Ref")))
+        return roots.Where(r => r is not null && Directory.Exists(Path.Combine(r, "packs", pack)))
+            .SelectMany(r => Directory.EnumerateDirectories(Path.Combine(r!, "packs", pack)))
             .Select(versionDir => (Version: ParseVersion(Path.GetFileName(versionDir)), Dir: Path.Combine(versionDir, "ref", "net11.0")))
             .Where(c => c.Version.Major == 11 && Directory.Exists(c.Dir))
             .OrderByDescending(c => c.Version)
@@ -313,6 +332,11 @@ public sealed record FrontendSettings
     public IReadOnlyList<MetadataReference> IlReferences { get; init; } = [];
     /// <summary>Paths of the assemblies to compile from IL (-r, project &lt;Reference&gt; items).</summary>
     public IReadOnlyList<string> IlReferencePaths { get; init; } = [];
+    /// <summary>
+    /// Shared frameworks besides Microsoft.NETCore.App (&lt;FrameworkReference&gt;, --framework): their
+    /// assemblies are compiled from IL when the program uses them (FrameworkIl).
+    /// </summary>
+    public IReadOnlyList<string> SharedFrameworks { get; init; } = [];
     /// <summary>
     /// The runtimeconfig.json `configProperties` the SDK would write (RuntimeHostConfigurationOption
     /// items): what AppContext.GetData/TryGetSwitch see at startup.

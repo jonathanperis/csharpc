@@ -76,6 +76,8 @@ public sealed class Compiler(CompilerOptions options)
                 AssemblyVersion = options.Inputs.Count > 0 ? ProjectLoader.FileBasedAssemblyVersion(options.Inputs[0]) : "1.0.0.0",
             };
         }
+        if (options.SharedFrameworks.Count > 0)
+            settings = settings with { SharedFrameworks = [.. settings.SharedFrameworks.Concat(options.SharedFrameworks).Distinct(StringComparer.OrdinalIgnoreCase)] };
         // Assemblies without sources: bound against like any reference, compiled from IL (ADR 0010).
         List<string> ilPaths = [.. settings.IlReferencePaths, .. options.References];
         try
