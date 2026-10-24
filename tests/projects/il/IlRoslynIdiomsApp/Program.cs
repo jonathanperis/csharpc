@@ -18,7 +18,7 @@ try { wrapped.Clear(); } catch (NotSupportedException e) { Console.WriteLine(e.M
 untyped.Clear();
 Console.WriteLine(string.Join(",", wrapped.Select(s => s ?? "null")));
 Console.WriteLine($"{Matrices.Closure(4)} {Matrices.Cells()} {Matrices.OutOfRange()}");
-Console.WriteLine($"{Pointers.SumChars("abc")} {Pointers.SumChars("")} {Pointers.SumBytes([1, 2, 250])} {Pointers.SumBytes([])} {Pointers.FirstOf([42, 1])}");
+Console.WriteLine($"{Pointers.SumChars("abc")} {Pointers.SumChars("")} {Pointers.SumBytes([1, 2, 250])} {Pointers.SumBytes([])} {Pointers.FirstOf([42, 1])} {Pointers.Pinned([3, 4, 5])} {Pointers.Pinned([])} {Pointers.MinTicks()}");
 
 // IntPtr/UIntPtr conversion operators as C# 9 IL calls them: the narrowing ones are checked.
 Console.WriteLine($"{NativeInts.FromInt(-5)} {NativeInts.FromLong(1L << 40)} {NativeInts.ToLong(new IntPtr(-7))}");

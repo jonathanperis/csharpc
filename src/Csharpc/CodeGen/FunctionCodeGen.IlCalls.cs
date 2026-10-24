@@ -332,6 +332,15 @@ public sealed partial class FunctionCodeGen
         if (ownerName == "System.Runtime.CompilerServices.Unsafe" && IlUnsafeCall(method, args) is { } unsafeResult) return unsafeResult;
         // `fixed (char* p = s)`: a reference to the first char (the terminator of an empty string), as in .NET;
         // the compiler tests for null before the call.
+        // Span<T>/ReadOnlySpan<T>.GetPinnableReference (`fixed (T* p = span)`): the data pointer, or a null
+        // reference for an empty span, as in .NET.
+        if (method.Name == "GetPinnableReference" && args.Length == 0 && receiver is { } spanReceiver
+            && S(owner) is INamedTypeSymbol pinnedSpan && TypeMapper.IsSpan(pinnedSpan) && !TypeMapper.IsMemory(pinnedSpan))
+        {
+            var span = spanReceiver.Kind is IlKind.ByRef or IlKind.Pointer ? LoadValue(IlAddress(spanReceiver), pinnedSpan) : IlTyped(spanReceiver, owner);
+            var empty = _b.ICmp(LLVMIntPredicate.EQ, SpanLength(span), L.ConstInt(L.I32, 0));
+            return new IlEntry(IlKind.ByRef, _b.Select(empty, LlvmContext.Null(L.Ptr), SpanPointer(span)), pinnedSpan.TypeArguments[0]);
+        }
         if (owner.SpecialType == SpecialType.System_String && method.Name == "GetPinnableReference" && receiver is { } text && args.Length == 0)
         {
             var s = IlRef(text);

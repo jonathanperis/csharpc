@@ -289,7 +289,20 @@ public sealed partial class FunctionCodeGen
             {
                 var field = IlField(instruction.Token);
                 if (IlRvaData(field) is { } data) { Push(new IlEntry(IlKind.ByRef, data.Global, field.Type) { NonNull = true }); return false; }
-                if (!_m.IsUserType(_m.CoreLib.Map(S(field)).ContainingType)) throw new IlException($"address of static field '{field}' of a library type");
+                if (!_m.IsUserType(_m.CoreLib.Map(S(field)).ContainingType))
+                {
+                    // A read-only library value (DateTime.MinValue passed by `in`, a decimal constant): its value
+                    // in a temporary. initonly fields can't be written through the address, so a copy is faithful.
+                    if (field.IsReadOnly || field.HasConstantValue)
+                    {
+                        var value = EmitValue(new IlFieldReferenceOperation(il.Syntax, field, null));
+                        var temp = NewTemp(T.Value(S(field.Type)), "static.copy");
+                        _b.Store(value, temp);
+                        Push(new IlEntry(IlKind.ByRef, temp, field.Type) { NonNull = true });
+                        return false;
+                    }
+                    throw new IlException($"address of static field '{field}' of a library type");
+                }
                 Push(new IlEntry(IlKind.ByRef, StaticFieldAddress(S(field)), field.Type));
                 return false;
             }

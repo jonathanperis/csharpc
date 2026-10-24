@@ -167,4 +167,15 @@ public static unsafe class Pointers
     }
 
     public static int FirstOf(int[] values) => MemoryMarshal.GetArrayDataReference(values);
+
+    // `fixed` over a span: ReadOnlySpan<T>.GetPinnableReference (a null pointer for an empty span).
+    public static string Pinned(ReadOnlySpan<byte> span)
+    {
+        fixed (byte* p = span)
+            return p == null ? "null" : (p[0] + p[span.Length - 1]).ToString();
+    }
+
+    // A library static readonly field passed by reference: `ldsflda DateTime::MinValue`.
+    private static long TicksOf(in DateTime value) => value.Ticks;
+    public static long MinTicks() => TicksOf(in DateTime.MinValue) + TicksOf(in DateTime.MaxValue) % 1000;
 }
