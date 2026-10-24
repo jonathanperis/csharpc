@@ -130,7 +130,7 @@ public sealed partial class ModuleCodeGen
             ExternalGlobal("csrt_Object_MT"),
             CString(Mangler.MetadataName(layout.Type)),
             Llvm.ConstInt(Llvm.I32, (long)size),
-            Llvm.ConstInt(Llvm.I32, 0),
+            Llvm.ConstInt(Llvm.I32, 64 /* CSRT_MT_VALUE_TYPE */),
             interfaceMap, Llvm.ConstInt(Llvm.I32, interfaceCount), Llvm.ConstInt(Llvm.I32, 0),
             LlvmContext.ConstArray(Llvm.Ptr, entries)));
         return global;
@@ -202,7 +202,7 @@ public sealed partial class ModuleCodeGen
         var size = 8 + Types.Target.SizeOf(Types.Value(tuple));
         var name = "System.ValueTuple`" + tuple.TupleElements.Length + "[" + string.Join(",", tuple.TupleElements.Select(e => ClrName(e.Type))) + "]";
         Native.LLVMSetInitializer(global, Llvm.ConstStruct(ExternalGlobal("csrt_Object_MT"), CString(name),
-            Llvm.ConstInt(Llvm.I32, (long)size), Llvm.ConstInt(Llvm.I32, 0), LlvmContext.Null(Llvm.Ptr), Llvm.ConstInt(Llvm.I32, 0), Llvm.ConstInt(Llvm.I32, 0),
+            Llvm.ConstInt(Llvm.I32, (long)size), Llvm.ConstInt(Llvm.I32, 64 /* CSRT_MT_VALUE_TYPE */), LlvmContext.Null(Llvm.Ptr), Llvm.ConstInt(Llvm.I32, 0), Llvm.ConstInt(Llvm.I32, 0),
             LlvmContext.ConstArray(Llvm.Ptr, toString.Fn, equals.Fn, hash.Fn)));
         new FunctionCodeGen(this, null, toString).EmitTupleBoxToString(tuple);
         new FunctionCodeGen(this, null, equals).EmitTupleBoxEquals(tuple, global);

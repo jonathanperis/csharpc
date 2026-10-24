@@ -203,7 +203,9 @@ public sealed partial class FunctionCodeGen
         // A struct's implicit parameterless constructor (reached via `: this()`) zero-initializes.
         if (zeroThis) _b.Store(LlvmContext.Null(T.Value(_method!.ContainingType)), _this);
         LowerPrologue(prologue);
-        if (_method!.ContainingType.BaseType is { } baseType && _m.IsUserType(baseType))
+        // The base may be a corelib shadow (class Log : EventSource): its constructor runs too.
+        if (_method!.ContainingType.BaseType is { } declaredBase && S(declaredBase) is INamedTypeSymbol baseType
+            && _m.IsUserType(baseType))
         {
             var baseCtor = baseType.InstanceConstructors.FirstOrDefault(c => c.Parameters.IsEmpty)
                 ?? throw CompileError.Unsupported("base class without a parameterless constructor", _method);

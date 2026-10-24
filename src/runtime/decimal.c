@@ -19,6 +19,6 @@ static bool box_equals(void* self, void* other) {
 static int32_t box_hash(void* self) { return csrt_decimal_get_hash_code((const csrt_Decimal*)((char*)self + 8)); }
 
 const csrt_BuiltinMethodTable csrt_Boxed_Decimal_MT = {
-    { &csrt_Object_MT.header, "System.Decimal", 8 + sizeof(csrt_Decimal), 0 },
+    { &csrt_Object_MT.header, "System.Decimal", 8 + sizeof(csrt_Decimal), CSRT_MT_VALUE_TYPE },
     { (void*)box_to_string, (void*)box_equals, (void*)box_hash },
 };

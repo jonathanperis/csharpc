@@ -28,6 +28,14 @@ const csrt_BuiltinMethodTable csrt_PrimitiveArray_MT = {
     { &csrt_Object_MT.header, "System.Array", 0, CSRT_MT_NO_REFERENCES },
     { (void*)csrt_object_to_string_default, (void*)csrt_object_equals_default, (void*)csrt_object_get_hash_code_default },
 };
+const csrt_BuiltinMethodTable csrt_ValueType_MT = {
+    { &csrt_Object_MT.header, "System.ValueType", 0, CSRT_MT_ABSTRACT },
+    { (void*)csrt_object_to_string_default, (void*)csrt_object_equals_default, (void*)csrt_object_get_hash_code_default },
+};
+const csrt_BuiltinMethodTable csrt_Enum_MT = {
+    { &csrt_ValueType_MT.header, "System.Enum", 0, CSRT_MT_ABSTRACT },
+    { (void*)csrt_object_to_string_default, (void*)csrt_object_equals_default, (void*)csrt_object_get_hash_code_default },
+};
 
 #ifdef CSRT_PAGE_ALIGNED_SEGMENTS
 // Separate code without 64 KiB of file padding (Linux AArch64, --hardening default; see
@@ -374,7 +382,8 @@ static void* const* builtin_interface_slots(const csrt_MethodTable* objmt, const
     if (objmt == &csrt_String_MT.header) return (void* const*)itf->base;
     // Runtime-implemented disposables (`using var e = new CountdownEvent(n)`): IDisposable.Dispose
     // (its only slot) is a no-op — their native resources live as long as the object.
-    if ((objmt->flags & CSRT_MT_DISPOSABLE) && strcmp(itf->name, "System.IDisposable") == 0) return s_noop_dispose_slots;
+    if ((objmt->flags & CSRT_MT_DISPOSABLE) && strcmp(itf->name, "System.IDisposable") == 0)
+        return (objmt->flags & CSRT_MT_DISPOSE_SLOT) ? (void* const*)(objmt + 1) + 3 : s_noop_dispose_slots;
     return NULL;
 }
 
@@ -464,6 +473,8 @@ void* csrt_isinst_class(void* obj, const csrt_MethodTable* type) {
     }
     for (const csrt_MethodTable* mt = objmt; mt; mt = mt->base)
         if (mt == type) return obj;
+    if (type == &csrt_ValueType_MT.header) return (objmt->flags & CSRT_MT_VALUE_TYPE) ? obj : NULL;
+    if (type == &csrt_Enum_MT.header) return (objmt->flags & CSRT_MT_ENUM) ? obj : NULL;
     // `is System.Array`: element-typed array tables derive from csrt_Array_MT; arrays the runtime
     // allocated untagged may still carry the GC's primitive-array table.
     if (type == &csrt_Array_MT.header && objmt == &csrt_PrimitiveArray_MT.header) return obj;
@@ -687,7 +698,7 @@ static int32_t box_h_Char(uint16_t v) { return (int32_t)v | ((int32_t)v << 16); 
     } \
     static int32_t box_hash_##Name(void* self) { return box_h_##Name(*(CType*)BOX_PAYLOAD(self)); } \
     const csrt_BuiltinMethodTable csrt_Boxed_##Name##_MT = { \
-        { &csrt_Object_MT.header, "System." #Name, 8 + sizeof(CType), 0 }, \
+        { &csrt_Object_MT.header, "System." #Name, 8 + sizeof(CType), CSRT_MT_VALUE_TYPE }, \
         { (void*)box_to_string_##Name, (void*)box_equals_##Name, (void*)box_hash_##Name }, \
     };
 CSRT_BOXED_TYPES(DEFINE_BOXED)

@@ -1,0 +1,60 @@
+-- order and Dispose
+True False True True
+unsafe2 v True, unsafe u, token s True True, state 42, first
+False True
+5
+-- already canceled, None, default registration
+runs at once
+True False False
+True 0 True
+True True True True
+canceled token callback
+The operation was canceled.
+-- registration equality
+True True False True False
+False
+-- exceptions
+One or more errors occurred. (second failure) (first failure)
+FormatException: second failure
+middle, oldest
+first: propagates
+newest True
+late registration runs at once
+Value cannot be null. (Parameter 'callback')
+-- unregistering from a callback
+newer: unregister older True, self False
+-- linked sources
+a callback; linked False
+many callback
+single callback
+linked callback
+True True True False False
+One or more errors occurred. (parent callback) (One or more errors occurred. (child callback))
+No tokens were supplied.
+Value cannot be null. (Parameter 'tokens')
+True
+-- Dispose and TryReset
+False True
+The CancellationTokenSource has been disposed.
+ObjectDisposedException
+ObjectDisposedException
+ObjectDisposedException
+True
+True
+after reset
+False
+disposed through IDisposable
+-- delays and CancelAsync
+after delay: False, before delay; delay canceled True
+CancelAsync: One or more errors occurred. (async failure)
+await using
+-- AggregateException constructors
+One or more errors occurred. (a) (b (Parameter 'p'))
+custom (a) (b (Parameter 'p'))
+One or more errors occurred. (x) (y)
+with one (z)
+no inner | One or more errors occurred.
+a
+An element of innerExceptions was null.
+Value cannot be null. (Parameter 'innerExceptions')
+Value cannot be null. (Parameter 'innerException')

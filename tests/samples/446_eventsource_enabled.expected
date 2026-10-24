@@ -1,0 +1,17 @@
+False False False
+[Demo-Log] [12345678-1234-1234-1234-123456789012] [EventSource(Demo-Log, 12345678-1234-1234-1234-123456789012)] [EtwManifestEventFormat] [] []
+[PlainSource] [63ba2355-e563-5718-8457-0e5657ac8659] [EventSource(PlainSource, 63ba2355-e563-5718-8457-0e5657ac8659)] [EtwManifestEventFormat]
+[PlainSource] [12345678-1234-1234-1234-123456789012] [Demo-Log] [78fd5ec1-86c6-590f-6af1-6d5dc4356d0c]
+[Custom-Name-Here] [5fa95e8a-83d5-5275-b29e-0ad48c81c050] False EtwSelfDescribingEventFormat
+[MyCompany-MyProduct-MyComponent] [c11bcb44-9099-58e7-bdc5-340f82aa98ad] False EtwSelfDescribingEventFormat
+[a] [015335b4-41d6-5d99-07c3-a140d76d05e3] False EtwSelfDescribingEventFormat
+[Ünïcødé-Ñame] [545bb16a-a5c4-51da-7d72-d5c53ea2209f] False EtwSelfDescribingEventFormat
+[lowercase-and-UPPER] [10b35391-4d49-5108-5915-bd721196e1e0] False EtwSelfDescribingEventFormat
+value {4f50731a-89cf-4782-b3e0-dce8c90476ba} null EtwManifestEventFormat
+[] ArgumentException: There must be an even number of trait strings (they are key-value pairs). (Parameter 'traits')
+EventSource(Explicit, 01234567-89ab-cdef-0123-456789abcdef) EtwManifestEventFormat
+[] The Guid of an EventSource must be non zero.
+Value cannot be null. (Parameter 'eventSourceName')
+Can't specify both etw event format flags. (Parameter 'settings')
+Value cannot be null. (Parameter 'eventSourceType')
+False 00000000-0000-0000-0000-000000000000

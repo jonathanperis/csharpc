@@ -1,0 +1,31 @@
+String       False False False False False False
+Int32        True False True False True False
+Double       True False True False True False
+null         False False False False False False
+Object       False False False False False False
+DayOfWeek    True True True True True True
+ValueTuple`2 True False True False True False
+Int32[]      False False False False False False
+Char         True False True False True False
+Decimal      True False True False True False
+DateTime     True False True False True False
+TimeSpan     True False True False True False
+Int32        True False True False True False
+null         False False False False False False
+Point        True False True False True False
+Shape        False False False False False False
+Boolean      True False True False True False
+Byte         True False True False True False
+ConsoleColor True True True True True True
+Guid         True False True False True False
+42 True True 42
+Friday True True 5
+Unable to cast object of type 'System.String' to type 'System.ValueType'.
+Unable to cast object of type 'System.String' to type 'System.Enum'.
+Unable to cast object of type 'Shape' to type 'System.ValueType'.
+Unable to cast object of type 'Shape' to type 'System.Enum'.
+ValueType cast ok: 7
+Unable to cast object of type 'System.Int32' to type 'System.Enum'.
+ValueType cast ok: Sunday
+Enum cast ok: Sunday
+value:5 ref:s enum:Tuesday ref:shape

@@ -299,6 +299,11 @@ internal static partial class BclValueTypes
     {
         Dictionary<string, BclHandler> t = [];
 
+        // ===== System.Threading.CancellationToken (its source pointer, Intrinsics.cs): `==` / `!=` =====
+        const string CT = "System.Threading.CancellationToken";
+        t[$"{CT}.op_Equality({CT}, {CT})"] = (g, _, _, a, _) => g.Builder.ICmp(LLVMIntPredicate.EQ, a[0], a[1]);
+        t[$"{CT}.op_Inequality({CT}, {CT})"] = (g, _, _, a, _) => g.Builder.ICmp(LLVMIntPredicate.NE, a[0], a[1]);
+
         // ===== System.Decimal =====
         const string D = "decimal";
         foreach (var (op, fn) in new[] { ("Add", "csrt_decimal_add"), ("Subtract", "csrt_decimal_sub"), ("Multiply", "csrt_decimal_mul"),

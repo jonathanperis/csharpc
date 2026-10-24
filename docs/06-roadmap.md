@@ -179,8 +179,16 @@ signatures, custom attributes and IL bodies, from memory, streams and memory-map
 Microsoft.Extensions Primitives/Options/DependencyInjection/Logging abstractions work, all matching
 `dotnet run` (`tests/il.sh`); the SRM program lowers 1318 IL methods in ~9 s at `-O0` (~20 s at `-O2`,
 peak 314 MB). Done of the plan: (1) the library surface those libraries need (Unsafe from IL, GC
-handles, ArrayPool, BinaryPrimitives, BitConverter, memory-mapped views, ConcurrentDictionary without
-enumeration, generic interface methods, variant delegate type tests) and (2) the framework-IL policy.
+handles, ArrayPool, BinaryPrimitives, BitConverter, memory-mapped views, generic interface methods,
+variant delegate type tests) and (2) the framework-IL policy. Blockers found compiling framework code
+from IL, closed since: `CancellationTokenRegistration` and every `Register`/`UnsafeRegister` overload
+(.NET's callback order and exception aggregation; Microsoft.Extensions.Primitives change tokens from IL,
+`tests/il.sh` IlChangeTokenApp), the concurrent collections System.Collections.Concurrent's partial
+facade can't supply from IL (`ConcurrentDictionary` ported so it enumerates in .NET's order,
+`ConcurrentQueue`/`Stack`/`Bag`), `EventSource` (no backend: never enabled, .NET's names and GUIDs),
+`TaskScheduler`/`Task.Factory.StartNew`/`ContinueWith` with custom schedulers, and type tests against
+`ValueType`/`Enum`. Still open there: `BlockingCollection`, `Partitioner`, `AggregateException.InnerExceptions`,
+`Task.Status`/`AsyncState`, `EventListener`.
 (3) Compile-time scale, first part ([ADR 0014](adr/0014-compile-time.md)): csharpc and Roslyn are
 ReadyToRun-compiled in Release builds, a compilation uses several threads (`-j`, `CSHARPC_THREADS`) to
 parse, bind, build Roslyn's CFGs ahead of lowering (each built once per body) and generate machine code

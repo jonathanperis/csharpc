@@ -109,9 +109,34 @@ public static class ProjectLoader
             "System.Text.Encoding.EnableUnsafeUTF7Encoding", "System.Text.Json.JsonSerializer.IsReflectionEnabledByDefault",
             "System.Threading.Thread.EnableAutoreleasePool", "System.Linq.Expressions.CanEmitObjectArrayDelegate",
         ];
-        foreach (var name in enabled) yield return new(name, "true");
-        foreach (var name in disabled) yield return new(name, "false");
+        // `#:property EventSourceSupport=true` and friends: the MSBuild property behind a feature switch wins.
+        var overrides = new Dictionary<string, string>(StringComparer.Ordinal);
+        if (File.Exists(path))
+            foreach (var line in File.ReadLines(path))
+            {
+                var text = line.Trim();
+                if (!text.StartsWith("#:property", StringComparison.Ordinal)) continue;
+                var body = text["#:property".Length..].Trim();
+                var eq = body.IndexOfAny(['=', ' ']);
+                if (eq <= 0) continue;
+                var property = body[..eq].Trim();
+                var value = body[(eq + 1)..].Trim().Trim('"');
+                foreach (var (msbuild, feature) in s_featureSwitchProperties)
+                    if (property.Equals(msbuild, StringComparison.OrdinalIgnoreCase) && bool.TryParse(value, out var on))
+                        overrides[feature] = on ? "true" : "false";
+            }
+        foreach (var name in enabled) yield return new(name, overrides.Remove(name, out var v) ? v : "true");
+        foreach (var name in disabled) yield return new(name, overrides.Remove(name, out var v) ? v : "false");
+        foreach (var (name, value) in overrides) yield return new(name, value);
     }
+
+    /// <summary>MSBuild properties the SDK turns into runtimeconfig feature switches (RuntimeHostConfigurationOption).</summary>
+    private static readonly (string Property, string Switch)[] s_featureSwitchProperties =
+    [
+        ("EventSourceSupport", "System.Diagnostics.Tracing.EventSource.IsSupported"),
+        ("UseSystemResourceKeys", "System.Resources.UseSystemResourceKeys"),
+        ("JsonSerializerIsReflectionEnabledByDefault", "System.Text.Json.JsonSerializer.IsReflectionEnabledByDefault"),
+    ];
 
     /// <summary>
     /// The version the SDK's generated AssemblyInfo gives the assembly: AssemblyVersion, else Version

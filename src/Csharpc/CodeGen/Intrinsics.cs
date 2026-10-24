@@ -609,10 +609,59 @@ internal static class Intrinsics
             }
         }
 
+        // Task<TResult>.ContinueWith: forwarded to corelib/Tasks/TaskScheduling.cs (TaskResultContinuations)
+        // with every argument; Task's own overloads are [ShadowInstance] members there.
+        const string Tr = $"{Tasks}.Task<TResult>";
+        const string Opts = $"{Tasks}.TaskContinuationOptions", Sched = $"{Tasks}.TaskScheduler", Tok = "System.Threading.CancellationToken";
+        foreach (var (callback, target, hasState, generic) in new[]
+                 {
+                     ($"System.Action<{Tr}>", "ContinueWithAction", false, false),
+                     ($"System.Action<{Tr}, object>", "ContinueWithStateAction", true, false),
+                     ($"System.Func<{Tr}, TNewResult>", "ContinueWithFunction", false, true),
+                     ($"System.Func<{Tr}, object, TNewResult>", "ContinueWithStateFunction", true, true),
+                 })
+        {
+            var lead = hasState ? $"{callback}, object" : callback;
+            // (parameters after the callback [and state]): which of token / options / scheduler are passed.
+            foreach (var (suffix, token, options, scheduler) in new (string, int, int, int)[]
+                     {
+                         ("", -1, -1, -1), ($", {Tok}", 0, -1, -1), ($", {Sched}", -1, -1, 0), ($", {Opts}", -1, 0, -1),
+                         ($", {Tok}, {Opts}, {Sched}", 0, 1, 2),
+                     })
+            {
+                t[$"{Tr}.ContinueWith({lead}{suffix})"] = (g, inv) =>
+                {
+                    var l = g.Module.Llvm;
+                    var receiver = g.EmitValue(inv.Instance!);
+                    g.NullCheck(receiver);
+                    var first = hasState ? 2 : 1;
+                    List<LLVMValueRef> args = [receiver, Arg(g, inv, 0)];
+                    if (hasState) args.Add(Arg(g, inv, 1));
+                    args.Add(token >= 0 ? Arg(g, inv, first + token) : LlvmContext.Null(l.Ptr));
+                    args.Add(options >= 0 ? Arg(g, inv, first + options) : l.ConstInt(l.I32, 0));
+                    args.Add(scheduler >= 0 ? Arg(g, inv, first + scheduler) : g.CallCoreLib("TaskSchedulerImpl", "get_Current"));
+                    var result = ((INamedTypeSymbol)g.TypeOf(inv.Instance!)!).TypeArguments[0];
+                    ITypeSymbol[] typeArguments = generic ? [result, g.S(inv.TargetMethod.TypeArguments[0])] : [result];
+                    return g.CallCoreLibGenericMethod("TaskResultContinuations", target, typeArguments, [.. args]);
+                };
+            }
+        }
+
         // Cancellation: a CancellationToken is its source pointer (CancellationToken.None == null).
         const string Th = "System.Threading";
+        // Callbacks registered with CancellationToken.Register are corelib C# (corelib/Cancellation.cs).
         t[$"{Th}.CancellationTokenSource.Cancel()"] = (g, inv) =>
-        { g.CallRuntime("csrt_cts_cancel", g.Module.Llvm.Void, [g.Module.Llvm.Ptr], g.EmitValue(inv.Instance!)); return default; };
+        {
+            g.CallRuntime("csrt_cts_cancel_checked", g.Module.Llvm.Void, [g.Module.Llvm.Ptr, g.Module.Llvm.I1], g.EmitValue(inv.Instance!), g.Module.Llvm.False);
+            return default;
+        };
+        t[$"{Th}.CancellationTokenSource.Cancel(bool)"] = (g, inv) =>
+        {
+            g.CallRuntime("csrt_cts_cancel_checked", g.Module.Llvm.Void, [g.Module.Llvm.Ptr, g.Module.Llvm.I1], g.EmitValue(inv.Instance!), Arg(g, inv, 0));
+            return default;
+        };
+        t[$"{Th}.CancellationTokenSource.TryReset()"] = (g, inv) =>
+            g.CallRuntime("csrt_cts_try_reset", g.Module.Llvm.I1, [g.Module.Llvm.Ptr], g.EmitValue(inv.Instance!));
         t[$"{Th}.CancellationTokenSource.CancelAfter(int)"] = (g, inv) =>
         {
             g.CallRuntime("csrt_cts_cancel_after", g.Module.Llvm.Void, [g.Module.Llvm.Ptr, g.Module.Llvm.I32], g.EmitValue(inv.Instance!), Arg(g, inv, 0));
@@ -631,16 +680,12 @@ internal static class Intrinsics
         t[$"{Th}.CancellationToken.op_Equality({Th}.CancellationToken, {Th}.CancellationToken)"] = sameSource;
         t[$"{Th}.CancellationToken.op_Inequality({Th}.CancellationToken, {Th}.CancellationToken)"] = (g, inv) =>
             g.Builder.Not(sameSource(g, inv));
-        t[$"{Th}.CancellationTokenSource.Dispose()"] = (g, inv) => { g.EmitValue(inv.Instance!); return default; };
+        t[$"{Th}.CancellationTokenSource.Dispose()"] = (g, inv) =>
+        { g.CallRuntime("csrt_cts_dispose", g.Module.Llvm.Void, [g.Module.Llvm.Ptr], g.EmitValue(inv.Instance!)); return default; };
         t[$"{Th}.CancellationToken.ThrowIfCancellationRequested()"] = (g, inv) =>
         {
             g.CallRuntime("csrt_token_throw_if_cancellation_requested", g.Module.Llvm.Void, [g.Module.Llvm.Ptr], g.EmitValue(inv.Instance!));
             return default;
-        };
-        t[$"{Th}.CancellationToken.Register(System.Action)"] = (g, inv) =>
-        {
-            g.CallRuntime("csrt_token_register", g.Module.Llvm.Void, [g.Module.Llvm.Ptr, g.Module.Llvm.Ptr], g.EmitValue(inv.Instance!), Arg(g, inv, 0));
-            return default; // the CancellationTokenRegistration isn't modeled (Dispose/Unregister unsupported)
         };
         t[$"{Tasks}.Task.Delay(int, {Th}.CancellationToken)"] = (g, inv) =>
             g.CallRuntime("csrt_task_delay_token", g.Module.Llvm.Ptr, [g.Module.Llvm.I32, g.Module.Llvm.Ptr], Arg(g, inv, 0), Arg(g, inv, 1));
@@ -753,6 +798,9 @@ internal static class Intrinsics
 
     private static void AddTaskProperties(Dictionary<string, PropertyHandler> t)
     {
+        // Task<TResult>.Factory: a default TaskFactory<TResult> (corelib/Tasks/TaskScheduling.cs).
+        t[$"{Tasks}.Task<TResult>.Factory"] = (g, p) =>
+            g.CallCoreLibGeneric("TaskFactoryImpl`1", "CreateDefault", [((INamedTypeSymbol)g.S(p.Property.ContainingType)).TypeArguments[0]]);
         foreach (var type in new[] { $"{Tasks}.Task", $"{Tasks}.ValueTask", $"{Tasks}.ValueTask<TResult>" })
         {
             t[$"{type}.IsFaulted"] = (g, p) => g.CallRuntime("csrt_task_is_faulted", g.Module.Llvm.I1, [g.Module.Llvm.Ptr], g.EmitValue(p.Instance!));
@@ -762,7 +810,8 @@ internal static class Intrinsics
         foreach (var tcs in new[] { $"{Tasks}.TaskCompletionSource", $"{Tasks}.TaskCompletionSource<TResult>" })
             t[$"{tcs}.Task"] = (g, p) => g.EmitValue(p.Instance!);
         const string Th = "System.Threading";
-        t[$"{Th}.CancellationTokenSource.Token"] = (g, p) => g.EmitValue(p.Instance!);
+        t[$"{Th}.CancellationTokenSource.Token"] = (g, p) =>
+            g.CallRuntime("csrt_cts_token", g.Module.Llvm.Ptr, [g.Module.Llvm.Ptr], g.EmitValue(p.Instance!)); // ObjectDisposedException once disposed
         t[$"{Th}.CancellationTokenSource.IsCancellationRequested"] = (g, p) =>
             g.CallRuntime("csrt_token_is_cancellation_requested", g.Module.Llvm.I1, [g.Module.Llvm.Ptr], g.EmitValue(p.Instance!));
         t[$"{Th}.CancellationToken.IsCancellationRequested"] = t[$"{Th}.CancellationTokenSource.IsCancellationRequested"];
@@ -809,6 +858,8 @@ internal static class Intrinsics
             t[$"{tcs}..ctor({Tasks}.TaskCreationOptions)"] = newTcs;
         }
         t["System.Threading.CancellationTokenSource..ctor()"] = (g, _) => g.CallRuntime("csrt_cts_new", g.Module.Llvm.Ptr, []);
+        t["System.Threading.CancellationToken..ctor(bool)"] = (g, c) =>
+            g.CallRuntime("csrt_token_new", g.Module.Llvm.Ptr, [g.Module.Llvm.I1], CtorArg(g, c, 0));
         t["System.Threading.CancellationTokenSource..ctor(int)"] = (g, c) =>
             g.CallRuntime("csrt_cts_new_after", g.Module.Llvm.Ptr, [g.Module.Llvm.I32], CtorArg(g, c, 0));
         t[$"{Tasks}.ValueTask<TResult>..ctor({Tasks}.Task<TResult>)"] = (g, c) => CtorArg(g, c, 0);
