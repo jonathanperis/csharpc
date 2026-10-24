@@ -97,7 +97,8 @@ bug like a wrong output.
   (`dotnet build`/`run`/`publish`). What NativeAOT doesn't support (run-time code generation:
   `Reflection.Emit`, `MakeGenericType` over unseen instantiations, compiled expression trees, the DLR,
   loading assemblies at run time) is out of scope (❌) and must stay an explicit diagnostic. The JIT is
-  the behavioural oracle for the tests and a benchmark baseline, not a support target.
+  the behavioural oracle for the tests and a benchmark baseline, not a support target
+  ([ADR 0016](adr/0016-nativeaot-parity-and-end-state.md)).
 - **Faster:** throughput ahead of NativeAOT and the JIT on every benchmark, on every platform; start-up
   and compile time measured too (compile time against `dotnet publish -p:PublishAot=true`).
 - **Smaller:** executables a fraction of NativeAOT's size, with nothing linked that the program doesn't
@@ -210,6 +211,16 @@ instead of 1.5 s, the SRM program in 3.7 s instead of 4.6 s, with 30–40 MB les
 order: (3, continued) lowering on several threads, bounded code-generation memory; (4) reflection Roslyn needs at startup
 (`typeof(X).Assembly`, resource lookup, analyzer activation) as compile-time metadata with diagnostics
 for the rest; (5) csharpc compiled by csharpc, LLVM C API P/Invokes included.
+
+### M7 — End state: csharpc as dotnet's AOT backend
+A fork of dotnet in which `dotnet publish -p:PublishAot=true` runs csharpc where NativeAOT's ILCompiler
+runs today: the same IL inputs from `csc`, the same MSBuild properties (`OptimizationPreference`,
+`IlcInstructionSet`, `InvariantGlobalization`, `StackTraceSupport`, `StripSymbols`, `NativeLib`,
+`DirectPInvoke`, trimming descriptors and feature switches, ...) and the same outputs, so existing
+projects get csharpc by switching the AOT backend ([ADR 0016](adr/0016-nativeaot-parity-and-end-state.md)).
+Prerequisites: M6 (IL as the primary input path, csharpc compiling Roslyn and itself) and NativeAOT
+parity on the compatibility corpus. Until then `Csharpc.Sdk` is the integration point and adopts
+NativeAOT's property names as it honours them.
 
 ### Credibility deliverables (cross-cutting)
 - A technical report: what csharpc demonstrates (Roslyn's CFG as a mid-level IR, a C# corelib with

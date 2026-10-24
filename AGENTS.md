@@ -13,7 +13,9 @@ The standing goal is to be better than .NET in every area — drop-in compatible
 and to prove it in CI (docs/06-roadmap.md, "Standing goal"); a size or speed regression is a bug.
 The drop-in target is 100 % parity with .NET NativeAOT: what works under `PublishAot` must work with
 csharpc; what NativeAOT can't do (run-time code generation) stays an explicit diagnostic. The JIT is the
-test oracle and a benchmark baseline.
+test oracle and a benchmark baseline. End state: csharpc as the AOT backend of a dotnet fork, behind
+NativeAOT's MSBuild properties (ADR 0016) — new driver/SDK options should use NativeAOT's names, and
+every feature must also work through the IL front-end.
 
 **The rule:** a program compiled by csharpc must behave exactly like the same program under real
 .NET — byte-identical stdout and the same exit code. A silent difference (wrong output) is the worst
