@@ -137,6 +137,16 @@ internal static class Intrinsics
         t["System.Activator.CreateInstance()"] = (g, inv) => inv.TargetMethod.TypeArguments.Length == 1
             ? g.ActivatorCreateInstance(g.S(inv.TargetMethod.TypeArguments[0]), inv)
             : throw CompileError.Unsupported("Activator.CreateInstance()", inv);
+        // Type objects are csharpc's TypeInfo too: GetTypeInfo is the identity (members TypeInfo inherits
+        // from Type bind to Type's); TypeInfo's own members (DeclaredMethods ...) still report as missing.
+        t["System.Reflection.IntrospectionExtensions.GetTypeInfo(System.Type)"] = (g, inv) =>
+        {
+            var type = Arg(g, inv, 0);
+            g.ThrowLibraryExceptionIf(g.Builder.ICmp(LLVMIntPredicate.EQ, type, LlvmContext.Null(g.Module.Llvm.Ptr)),
+                "System.ArgumentNullException", "Value cannot be null. (Parameter 'type')");
+            return type;
+        };
+        t["System.Reflection.TypeInfo.AsType()"] = (g, inv) => g.EmitValue(inv.Instance!);
         // The identity hash object.GetHashCode falls back to: csrt_object_get_hash_code_default's formula
         // (csrt.c), inline (0 for null, like .NET).
         t["System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(object)"] = (g, inv) =>
