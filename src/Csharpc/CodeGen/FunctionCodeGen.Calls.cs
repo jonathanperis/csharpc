@@ -280,8 +280,20 @@ public sealed partial class FunctionCodeGen
             _b.Br(done);
             _b.PositionAtEnd(next);
         }
-        CallRuntime("csrt_throw_null_reference", L.Void, []); // unreachable for valid receivers
-        _b.Unreachable();
+        // The switch lists non-generic classes only. A receiver of a generic class (the method's own
+        // OptionsBuilder<T>, or a generic class deriving from it without overriding: overrides were
+        // rejected above) runs the implementation inherited from the declaring instantiation.
+        if (target.ContainingType is { IsGenericType: true } owner && ImplementationIn(owner) is { } inherited)
+        {
+            var r = DirectCall(inherited, args);
+            if (resultSlot is { } slot) _b.Store(r, slot);
+            _b.Br(done);
+        }
+        else
+        {
+            CallRuntime("csrt_throw_null_reference", L.Void, []); // unreachable for valid receivers
+            _b.Unreachable();
+        }
         _b.PositionAtEnd(done);
         return resultSlot is { } s ? _b.Load(T.Value(target.ReturnType), s) : default;
     }
