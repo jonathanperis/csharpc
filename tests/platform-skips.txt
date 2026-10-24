@@ -128,3 +128,4 @@ wasi 422_globalization_messages        no ICU on WASI (invariant globalization m
 macos 423_console_int_culture        live: the user culture comes from the system settings there, not from LC_ALL
 windows 423_console_int_culture        live: the user culture comes from the system settings there, not from LC_ALL
 wasi 423_console_int_culture           no ICU on WASI (invariant globalization mode): the sample uses specific cultures
+wasi 420_boxed_iformattable_provider    no ICU on WASI (invariant globalization mode): the sample uses specific cultures
