@@ -224,7 +224,9 @@ static void trace_append(csrt_Exception* e, const csrt_TraceSite* site) {
 
 /// `throw e`: a new list of frames (unless library frames were just preset for this throw).
 static void trace_reset(csrt_Exception* e) {
-    if (!e->trace) return;
+    // s_trace is only written by csrt_trace_init: in programs without traces LTO folds it to null and
+    // drops this from every throw site (which wasm32 inlines).
+    if (!s_trace || !e->trace) return;
     TraceData* data = trace_data(e->trace);
     if (!data->preset) data->count = 0;
     data->preset = 0;
