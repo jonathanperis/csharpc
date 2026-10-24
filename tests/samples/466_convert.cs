@@ -26,6 +26,8 @@ foreach (Func<object> f in new Func<object>[] {
 // Convert.ToString(object): IFormattable with the provider, else ToString(); null is the empty string.
 Func<object, string> toStr = Convert.ToString;
 Console.WriteLine(toStr(42) + "|" + toStr(null) + "|" + toStr("s") + "|" + toStr(true) + "|" + toStr('c') + "|" + toStr(1.5) + "|" + toStr(new DateTime(2020, 1, 2)) + "|" + toStr(DayOfWeek.Monday) + "|" + toStr(new P()));
-Console.WriteLine(Convert.ToString((object)12.5m, CultureInfo.GetCultureInfo("de-DE")) + "|" + Convert.ToString((object)1.5, CultureInfo.GetCultureInfo("de-DE")) + "|" + Convert.ToString((object)new[] { 1 }));
+// (a provider without culture data, so the sample also runs without ICU)
+var comma = new NumberFormatInfo { NumberDecimalSeparator = "," };
+Console.WriteLine(Convert.ToString((object)12.5m, comma) + "|" + Convert.ToString((object)1.5, comma) + "|" + Convert.ToString((object)new[] { 1 }));
 
 class P { public override string ToString() => "P!"; }
