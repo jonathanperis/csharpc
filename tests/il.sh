@@ -63,7 +63,8 @@ for proj in "$WORK"/il/*/*.csproj; do
   rm -rf "$dir/bin" "$dir/obj" # csharpc must not see the managed build
   for opt in -O0 -O2; do
     if "$DOTNET" "$CSHARPC_DLL" "$proj" "$opt" -o "$WORK/out$opt/" > "$WORK/log" 2>&1; then
-      "$WORK/out$opt/$app" > "$WORK/actual" 2>&1; code=$?
+      # Run where `dotnet run` runs (apps may read their sibling libraries by relative path).
+      (cd "$dir" && "$WORK/out$opt/$app") > "$WORK/actual" 2>&1; code=$?
       check "$app $opt" "$WORK/expected" "$WORK/actual"
       [[ $code == "$expected_code" ]] || { echo "FAIL $app $opt: exit code $code, .NET exits $expected_code"; fail=$((fail+1)); }
     else
@@ -79,6 +80,24 @@ if [[ -z "$FILTER" || "IlApp" == *"$FILTER"* ]]; then
   if "$DOTNET" "$CSHARPC_DLL" "$WORK/il/IlApp/Program.cs" -r "$lib" -o "$WORK/loose" > "$WORK/log" 2>&1; then
     "$WORK/loose" > "$WORK/actual" 2>&1; check "IlApp: csharpc Program.cs -r IlShapes.dll" "$WORK/expected" "$WORK/actual"
   else echo "FAIL IlApp: csharpc -r"; sed 's/^/     /' "$WORK/log" | head; fail=$((fail+1)); fi
+fi
+
+# 4. --framework-il (docs/adr/0013-framework-il.md): framework assemblies the program uses are compiled
+#    from the shared framework's IL by default (IlMetadataApp, IlExtensionsApp above); the option turns
+#    that off or forces assemblies in, and refuses what csharpc can't take as IL, all with diagnostics.
+if [[ -z "$FILTER" || "framework-il" == *"$FILTER"* ]]; then
+  expect_failure() { # name expected-text csharpc-args...
+    local name="$1" text="$2"; shift 2
+    if "$DOTNET" "$CSHARPC_DLL" "$@" -O0 -o "$WORK/fwil" > "$WORK/log" 2>&1; then
+      echo "FAIL $name: compiled, but a diagnostic was expected"; fail=$((fail+1))
+    elif grep -qF -- "$text" "$WORK/log"; then echo "PASS $name"; pass=$((pass+1))
+    else echo "FAIL $name: wrong diagnostic"; sed 's/^/     /' "$WORK/log" | head; echo "     expected: $text"; fail=$((fail+1)); fi
+  }
+  metadata="$WORK/il/IlMetadataApp/Program.cs"
+  expect_failure "--framework-il none" "'System.Reflection.PortableExecutable.PEReader" "$metadata" --framework-il none
+  expect_failure "--framework-il System.Linq" "--framework-il: 'System.Linq' can't be compiled from IL: csharpc implements its type" "$metadata" --framework-il System.Linq
+  expect_failure "--framework-il System.Console" "it calls native code of the .NET runtime" "$metadata" --framework-il System.Console
+  expect_failure "--framework-il NoSuchAssembly" "--framework-il: 'NoSuchAssembly' is not an assembly of the shared framework" "$metadata" --framework-il NoSuchAssembly
 fi
 
 echo

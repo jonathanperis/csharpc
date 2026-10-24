@@ -24,6 +24,10 @@ public sealed record CompilerOptions
     public bool IlSurvey { get; set; }
     /// <summary>Assemblies without sources (-r): bound against and compiled from IL (docs/adr/0010-il-frontend.md).</summary>
     public List<string> References { get; } = [];
+    /// <summary>--framework-il: shared-framework assemblies forced to compile from IL (docs/adr/0013-framework-il.md).</summary>
+    public List<string> FrameworkIl { get; } = [];
+    /// <summary>--framework-il none: no automatic choice of framework assemblies to compile from IL.</summary>
+    public bool FrameworkIlAutomatic { get; set; } = true;
     /// <summary>Emit DWARF debug info (-g; implied by -c Debug).</summary>
     public bool Debug { get; set; }
     public bool DebugExplicit { get; set; }
@@ -76,6 +80,9 @@ public sealed record CompilerOptions
           --features <list>      Extra LLVM target features, e.g. +avx512f
           -D <symbol>            Define a preprocessor symbol
           -r, --reference <dll>  Reference an assembly that ships only IL; reachable code is compiled from its IL
+          --framework-il <names> Compile these shared-framework assemblies from their IL (comma-separated);
+                                 'none' turns off the automatic choice (assemblies the program uses that
+                                 csharpc's corelib does not implement)
           --no-implicit-usings   Don't add the SDK's implicit global usings
           --no-runtime-lto       Link the runtime as objects instead of LTO-ing its bitcode
           --stack-traces         Record stack traces in every program (default: only programs that print
@@ -141,6 +148,11 @@ public sealed record CompilerOptions
                 case "--features": o.Features = Next(); break;
                 case "-D": o.Defines.Add(Next()); break;
                 case "-r" or "--reference": o.References.Add(Path.GetFullPath(Next())); break;
+                case "--framework-il":
+                    foreach (var name in Next().Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+                        if (name.Equals("none", StringComparison.OrdinalIgnoreCase)) o.FrameworkIlAutomatic = false;
+                        else o.FrameworkIl.Add(name.EndsWith(".dll", StringComparison.OrdinalIgnoreCase) ? name[..^4] : name);
+                    break;
                 case var _ when a.StartsWith("-r:", StringComparison.Ordinal) || a.StartsWith("/r:", StringComparison.Ordinal):
                     o.References.Add(Path.GetFullPath(a[3..]));
                     break;

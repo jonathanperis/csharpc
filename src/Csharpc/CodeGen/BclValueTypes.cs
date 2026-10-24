@@ -123,6 +123,9 @@ internal static partial class BclValueTypes
     public static bool TryGetField(IFieldSymbol field, out BclFieldHandler handler) =>
         s_fields.TryGetValue($"{Intrinsics.TypeName(field.ContainingType)}.{field.Name}", out handler!);
 
+    /// <summary>Keys of every member handled here (FrameworkIl: library types csharpc implements itself).</summary>
+    public static IEnumerable<string> All => s_raw.Keys.Concat(s_methods.Keys).Concat(s_fields.Keys);
+
     private static readonly FrozenDictionary<string, BclHandler> s_methods = BuildMethods();
     private static readonly FrozenDictionary<string, BclFieldHandler> s_fields = BuildFields();
 

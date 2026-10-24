@@ -67,8 +67,20 @@ public sealed class Compiler(CompilerOptions options)
             };
         }
         // Assemblies without sources: bound against like any reference, compiled from IL (ADR 0010).
+        List<string> ilPaths = [.. settings.IlReferencePaths, .. options.References];
+        try
+        {
+            var framework = FrameworkIl.Select(settings, ilPaths, options.FrameworkIl, options.FrameworkIlAutomatic);
+            foreach (var choice in framework)
+            {
+                ilPaths.Add(choice.Path);
+                if (options.Verbose) Console.Error.WriteLine($"  framework IL: {choice.Name} ({choice.Reason})");
+            }
+            Phase($"choose framework IL ({framework.Count} assembl{(framework.Count == 1 ? "y" : "ies")})");
+        }
+        catch (InvalidOperationException e) { return Fail(e.Message); }
         IlAssemblySet il;
-        try { il = IlAssemblySet.Load([.. settings.IlReferencePaths, .. options.References]); }
+        try { il = IlAssemblySet.Load(ilPaths); }
         catch (Exception e) when (e is InvalidOperationException or IOException or BadImageFormatException) { return Fail(e.Message); }
         using var ilScope = il;
         if (!il.IsEmpty)
