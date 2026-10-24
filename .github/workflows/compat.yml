@@ -48,6 +48,12 @@ jobs:
           # One results.tsv in the committed format (run.sh header: id, category, detail, NativeAOT columns), sorted.
           cat "$RUNNER_TEMP"/compat-work/results/*.tsv | sort > results.tsv
           cp "$RUNNER_TEMP/compat-work/summary.md" summary.md
+          # The csharpc logs and diffs of every program that doesn't pass, to rank and reproduce blockers.
+          mkdir -p logs
+          awk -F'\t' '$2 != "PASS" && $2 != "SKIPPED" { print $1 }' results.tsv | while read -r id; do
+            mkdir -p "logs/$id"
+            cp "$RUNNER_TEMP/compat-work/logs/$id/"{csharpc.log,diff,aot.diff} "logs/$id/" 2>/dev/null || true
+          done
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
@@ -56,3 +62,4 @@ jobs:
           path: |
             results.tsv
             summary.md
+            logs/

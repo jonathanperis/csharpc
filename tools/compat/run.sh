@@ -105,11 +105,24 @@ one() {
     skipped "non-deterministic under .NET"; return
   fi
   if grep -q "PlatformNotSupportedException" "$L/dotnet.err"; then skipped "Windows-only under .NET"; return; fi
+  # Two runs can agree by chance (a clock printed to the minute): when csharpc or NativeAOT differs, the
+  # JIT runs a third time, minutes later; if that run differs too, the program has no oracle.
+  local unstable=""
+  jit_unstable() {
+    if [[ -z "$unstable" ]]; then
+      run_prog "$L/dotnet3.out" "$L/dotnet3.err" "$DOTNET" "$dll"; local c3=$?
+      unstable=no; { ! cmp -s "$L/dotnet.out" "$L/dotnet3.out" || [[ $c3 != "$want" ]]; } && unstable=yes
+    fi
+    [[ $unstable == yes ]]
+  }
 
   # 2. csharpc.
   csharpc_step
   # 3. NativeAOT, after csharpc, so its RID-specific restore can't change what csharpc evaluates.
   [[ $AOT == 1 ]] && aot_step
+  if [[ $unstable == yes ]]; then
+    AOT_CAT="-"; AOT_DETAIL=""; skipped "non-deterministic under .NET (a third run differed)"; return
+  fi
   write_result
 }
 
@@ -136,6 +149,7 @@ csharpc_step() {
   # Native run.
   run_prog "$L/native.out" "$L/native.err" "$exe"; local got=$?; echo "$got" > "$L/native.code"
   if cmp -s "$L/dotnet.out" "$L/native.out" && [[ $got == "$want" ]]; then result PASS ""; return; fi
+  jit_unstable && return
   diff -u --label dotnet --label csharpc "$L/dotnet.out" "$L/native.out" > "$L/diff"
   if [[ $got == 124 || $got == 137 ]]; then result RUNTIME-CRASH "timeout (dotnet exit $want)"; return; fi
   if [[ $got -ge 128 && $got != "$want" ]]; then
@@ -176,17 +190,15 @@ aot_step() {
   run_prog "$L/aot.out" "$L/aot.err" "$bin"; local got=$?; echo "$got" > "$L/aot.code"
   run_prog "$L/aot2.out" "$L/aot2.err" "$bin"; local got2=$?
   if [[ $got == 124 || $got == 137 ]]; then aot "crashes: timeout (JIT exit $want)$w"; return; fi
+  if cmp -s "$L/dotnet.out" "$L/aot.out" && [[ $got == "$want" ]]; then AOT_CAT=NATIVEAOT-OK; AOT_DETAIL="${warn:+warnings $warn}"; return; fi
+  jit_unstable && return
   if ! cmp -s "$L/aot.out" "$L/aot2.out" || [[ $got != "$got2" ]]; then aot "non-deterministic$w"; return; fi
-  if ! cmp -s "$L/dotnet.out" "$L/aot.out"; then
-    diff -u --label jit --label nativeaot "$L/dotnet.out" "$L/aot.out" > "$L/aot.diff"
-    local first; first="$(grep -m1 -E '^[-+][^-+]' "$L/aot.diff" | cut -c1-160)"
-    if [[ $got != "$want" && $got -ge 128 ]]; then aot "crashes: signal $((got - 128)) (JIT exit $want)$w; $first"
-    elif [[ $got != "$want" ]]; then aot "output and exit code differ: exit $got vs JIT $want$w; $first"
-    else aot "output differs$w; $first"; fi
-    return
-  fi
-  if [[ $got != "$want" ]]; then aot "exit code differs: $got vs JIT $want$w"; return; fi
-  AOT_CAT=NATIVEAOT-OK; AOT_DETAIL="${warn:+warnings $warn}"
+  diff -u --label jit --label nativeaot "$L/dotnet.out" "$L/aot.out" > "$L/aot.diff"
+  local first; first="$(grep -m1 -E '^[-+][^-+]' "$L/aot.diff" | cut -c1-160)"
+  if [[ $got != "$want" && $got -ge 128 ]]; then aot "crashes: signal $((got - 128)) (JIT exit $want)$w${first:+; $first}"
+  elif [[ $got != "$want" ]] && cmp -s "$L/dotnet.out" "$L/aot.out"; then aot "exit code differs: $got vs JIT $want$w"
+  elif [[ $got != "$want" ]]; then aot "output and exit code differ: exit $got vs JIT $want$w; $first"
+  else aot "output differs$w; $first"; fi
 }
 export -f one csharpc_step aot_step
 
