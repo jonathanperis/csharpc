@@ -219,56 +219,6 @@ bool csrt_bool_parse(csrt_String* s) {
     return false;  // wasm32: throwing returns (CSRT_THROWS)
 }
 
-/// Convert.ToInt32/64(string, fromBase) for bases 2, 8, 10, 16 (two's complement for 2/8/16).
-int64_t csrt_convert_parse_base(csrt_String* s, int32_t base, int32_t bits) {
-    if (base != 2 && base != 8 && base != 10 && base != 16)
-        csrt_throw(&mt_argument, ascii("Invalid Base."));
-    if (!s) return 0;
-    int32_t i = 0, n = s->length;
-    bool negative = false;
-    if (base == 10 && i < n && s->chars[i] == '-') { negative = true; i++; }
-    if (base == 16 && i + 1 < n && s->chars[i] == '0' && (s->chars[i + 1] == 'x' || s->chars[i + 1] == 'X')) i += 2;
-    if (i >= n) csrt_throw(&mt_format, ascii("Could not find any recognizable digits."));
-    unsigned __int128 v = 0;
-    for (; i < n; i++) {
-        uint16_t c = s->chars[i];
-        int d = c >= '0' && c <= '9' ? c - '0' : c >= 'a' && c <= 'f' ? c - 'a' + 10 : c >= 'A' && c <= 'F' ? c - 'A' + 10 : 99;
-        if (d >= base) csrt_throw(&mt_format, ascii("Additional non-parsable characters are at the end of the string."));
-        v = v * (unsigned)base + (unsigned)d;
-        if (v > ((unsigned __int128)1 << 64)) csrt_throw(&mt_overflow, ascii(bits == 32 ? "Value was either too large or too small for an Int32." : "Value was either too large or too small for an Int64."));
-    }
-    if (base == 10) {
-        __int128 sv = negative ? -(__int128)v : (__int128)v;
-        __int128 lo = bits == 32 ? INT32_MIN : INT64_MIN, hi = bits == 32 ? INT32_MAX : INT64_MAX;
-        if (sv < lo || sv > hi) csrt_throw(&mt_overflow, ascii(bits == 32 ? "Value was either too large or too small for an Int32." : "Value was either too large or too small for an Int64."));
-        return (int64_t)sv;
-    }
-    unsigned __int128 limit = bits == 32 ? ((unsigned __int128)1 << 32) - 1 : (((unsigned __int128)1 << 64) - 1);
-    if (v > limit) csrt_throw(&mt_overflow, ascii(bits == 32 ? "Value was either too large or too small for an Int32." : "Value was either too large or too small for an Int64."));
-    return bits == 32 ? (int64_t)(int32_t)(uint32_t)v : (int64_t)(uint64_t)v;
-}
-
-/// Convert.ToString(value, toBase): bases 2/8/16 print the two's complement bit pattern.
-csrt_String* csrt_convert_to_base(int64_t value, int32_t base, int32_t bits) {
-    if (base != 2 && base != 8 && base != 10 && base != 16) csrt_throw(&mt_argument, ascii("Invalid Base."));
-    char buf[72];
-    if (base == 10) { snprintf(buf, sizeof buf, "%lld", (long long)value); return ascii(buf); }
-    uint64_t v = bits == 32 ? (uint64_t)(uint32_t)value : (uint64_t)value;
-    char tmp[72];
-    int n = 0;
-    do { tmp[n++] = "0123456789abcdef"[v % (unsigned)base]; v /= (unsigned)base; } while (v);
-    for (int i = 0; i < n; i++) buf[i] = tmp[n - 1 - i];
-    buf[n] = 0;
-    return ascii(buf);
-}
-
-/// Convert.ToInt32(double): round half to even, OverflowException outside int range.
-int32_t csrt_convert_double_to_i32(double v) {
-    double r = nearbyint(v);
-    if (!(r >= -2147483648.0 && r <= 2147483647.0)) csrt_throw(&mt_overflow, ascii("Value was either too large or too small for an Int32."));
-    return (int32_t)r;
-}
-
 // ---------------------------------------------------------------------------------------------
 // System.Environment
 // ---------------------------------------------------------------------------------------------

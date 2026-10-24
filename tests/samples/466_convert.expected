@@ -1,0 +1,31 @@
+200 -5 65 12 14
+2 4 -2 4294967295
+1.1000000000000000888178419700 1.1 16777216 False True
+A Z ff 101 177777
+255 511 -1 -128 31
+42 12 1.25 1.5 0
+2024-01-02T03:04:05.0000000 0
+1.5 True c 12.5 05/06/2020 00:00:00
+0 -77 1000 True 1 55 3 a
+10 -2147483648 -123 11111111111111111111111111111111 ffffffffffffffff -8
+OverflowException: Value was either too large or too small for an unsigned byte.
+OverflowException: Value was either too large or too small for a signed byte.
+OverflowException: Value was either too large or too small for an Int32.
+OverflowException: Value was either too large or too small for a UInt32.
+OverflowException: Value was either too large or too small for a character.
+FormatException: String must be exactly one character long.
+InvalidCastException: Invalid cast from 'Char' to 'Boolean'.
+InvalidCastException: Invalid cast from 'Int32' to 'DateTime'.
+ArgumentException: Invalid Base.
+OverflowException: Value was either too large or too small for an unsigned byte.
+FormatException: Could not find any recognizable digits.
+ArgumentOutOfRangeException: Specified argument was out of the range of valid values. (Parameter 'Index was out of range. Must be non-negative and less than the size of the collection.')
+OverflowException: The string was being parsed as an unsigned number and could not have a negative sign.
+FormatException: The input string 'x' was not in a correct format.
+OverflowException: Value was either too large or too small for an Int32.
+OverflowException: Value was either too large or too small for a character.
+FormatException: String 'yes' was not recognized as a valid Boolean.
+FormatException: The input string '12a' was not in a correct format.
+ArgumentException: Invalid Base.
+OverflowException: Value was either too large or too small for a UInt32.
+OverflowException: Value was either too large or too small for an Int32.
