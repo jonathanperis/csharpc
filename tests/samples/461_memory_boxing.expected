@@ -1,0 +1,12 @@
+alpha True False False False
+5
+True False False False
+True
+[] 0
+System.Memory<Int32>[3] True True True
+True
+True False True
+alpha
+beta
+0
+alpha;System.ReadOnlyMemory<Int32>[3];s

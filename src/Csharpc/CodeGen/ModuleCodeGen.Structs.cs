@@ -256,6 +256,44 @@ public sealed partial class ModuleCodeGen
 
 public sealed partial class ModuleCodeGen
 {
+    private readonly Dictionary<INamedTypeSymbol, LLVMValueRef> _memoryMethodTables = new(SymbolEqualityComparer.Default);
+
+    /// <summary>
+    /// Method table for boxed Memory&lt;T&gt; / ReadOnlyMemory&lt;T&gt; ({ data pointer, length } after the header):
+    /// generic code boxes them (non-generic IEqualityComparer / IEnumerator.Current paths of Roslyn's
+    /// segmented collections keyed by ReadOnlyMemory&lt;char&gt;). Equals accepts the other memory type of the
+    /// same T, as .NET's Equals(object) does. Like boxed tuples, no interface map.
+    /// </summary>
+    public LLVMValueRef MemoryMethodTable(INamedTypeSymbol memory)
+    {
+        if (_memoryMethodTables.TryGetValue(memory, out var existing)) return existing;
+        var index = _memoryMethodTables.Count;
+        var mtType = Llvm.Struct(Llvm.Ptr, Llvm.Ptr, Llvm.I32, Llvm.I32, Llvm.Ptr, Llvm.I32, Llvm.I32, LlvmContext.Array(Llvm.Ptr, ClassLayout.ObjectSlotCount));
+        var global = Module.AddGlobal($"__memory{index}_MT", mtType, constant: true, linkage: LLVMLinkage.Internal);
+        _memoryMethodTables[memory] = global;
+        LoweredFunction Make(string name, LLVMTypeRef ret, params LLVMTypeRef[] ps)
+        {
+            var type = Llvm.FunctionType(ret, ps);
+            var fn = Module.AddFunction($"__memory{index}_{name}", type);
+            Native.LLVMSetLinkage(fn, LLVMLinkage.Internal);
+            return new LoweredFunction(fn, type);
+        }
+        var toString = Make("ToString", Llvm.Ptr, Llvm.Ptr);
+        var equals = Make("Equals", Llvm.I1, Llvm.Ptr, Llvm.Ptr);
+        var hash = Make("GetHashCode", Llvm.I32, Llvm.Ptr);
+        var size = 8 + Types.Target.SizeOf(Types.Value(memory));
+        Native.LLVMSetInitializer(global, Llvm.ConstStruct(ExternalGlobal("csrt_Object_MT"), CString(ClrName(memory)),
+            Llvm.ConstInt(Llvm.I32, (long)size), Llvm.ConstInt(Llvm.I32, 64 /* CSRT_MT_VALUE_TYPE */), LlvmContext.Null(Llvm.Ptr), Llvm.ConstInt(Llvm.I32, 0), Llvm.ConstInt(Llvm.I32, 0),
+            LlvmContext.ConstArray(Llvm.Ptr, toString.Fn, equals.Fn, hash.Fn)));
+        var counterpart = Compilation.GetTypeByMetadataName(memory.MetadataName == "Memory`1" ? "System.ReadOnlyMemory`1" : "System.Memory`1")!
+            .Construct(memory.TypeArguments[0]);
+        var counterpartMt = MemoryMethodTable(counterpart);
+        new FunctionCodeGen(this, null, toString).EmitMemoryBoxToString(memory);
+        new FunctionCodeGen(this, null, equals).EmitMemoryBoxEquals(memory, global, counterpartMt);
+        new FunctionCodeGen(this, null, hash).EmitMemoryBoxHash(memory);
+        return global;
+    }
+
     private readonly Dictionary<INamedTypeSymbol, LLVMValueRef> _tupleMethodTables = new(SymbolEqualityComparer.Default);
 
     /// <summary>Method table for boxed tuples: { header, [ToString, Equals, GetHashCode] } with element-wise thunks.</summary>
