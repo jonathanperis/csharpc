@@ -25,7 +25,7 @@ Binaries are 11–161 KiB on x86-64 against 1.3–1.6 MiB for NativeAOT. On arm6
 this run: AArch64 linkers align segments to 64 KiB pages (kernels with 64 KiB pages exist), and
 `-z separate-code` hardening padded the code segment to that boundary on both sides in the file. Code is
 now separated at 4 KiB with 64 KiB-congruent segments instead ([17-security.md](../docs/17-security.md)),
-which takes ~100 KiB off every arm64 executable (hello world 132 → 32 KiB); the arm64 size column
+which takes ~80–105 KiB off every arm64 executable (hello world 132 → 28 KiB, CI run 40064173548); the arm64 size column
 below predates that.
 
 ### x86-64
