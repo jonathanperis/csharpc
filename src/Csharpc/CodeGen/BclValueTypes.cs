@@ -1175,6 +1175,7 @@ internal static partial class BclValueTypes
         t["decimal.One"] = (g, _) => g.DecimalConstant(1m);
         t["decimal.MinusOne"] = (g, _) => g.DecimalConstant(-1m);
         t["System.TimeSpan.Zero"] = (g, _) => I64(g, 0);
+        t["System.Threading.Timeout.InfiniteTimeSpan"] = (g, _) => I64(g, -TicksPerMs);
         t["System.TimeSpan.MaxValue"] = (g, _) => I64(g, long.MaxValue);
         t["System.TimeSpan.MinValue"] = (g, _) => I64(g, long.MinValue);
         t["System.DateTime.MinValue"] = (g, _) => I64(g, 0);

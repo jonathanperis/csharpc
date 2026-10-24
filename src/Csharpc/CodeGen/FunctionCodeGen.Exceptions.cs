@@ -407,6 +407,10 @@ public sealed partial class FunctionCodeGen
         ["System.OperationCanceledException"] = "The operation was canceled.",
         ["System.Threading.Tasks.TaskCanceledException"] = "A task was canceled.",
         ["System.AggregateException"] = "One or more errors occurred.",
+        ["System.TimeoutException"] = "The operation has timed out.",
+        ["System.IO.IOException"] = "I/O error occurred.",
+        ["System.UnauthorizedAccessException"] = "Attempted to perform an unauthorized operation.",
+        ["System.BadImageFormatException"] = "Format of the executable (.exe) or library (.dll) is invalid.",
         ["System.Runtime.CompilerServices.SwitchExpressionException"] = "Non-exhaustive switch expression failed to match its input.",
     };
 

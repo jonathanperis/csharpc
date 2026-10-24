@@ -647,6 +647,21 @@ internal static class Intrinsics
             }
         }
 
+        // Task<TResult>.WaitAsync: corelib TaskResultContinuations.WaitAsync (timeout -1 ms = infinite, no token = None).
+        foreach (var (suffix, timeout, token) in new (string, int, int)[] { ($"{Tok}", -1, 0), ("System.TimeSpan", 0, -1), ($"System.TimeSpan, {Tok}", 0, 1) })
+        {
+            t[$"{Tr}.WaitAsync({suffix})"] = (g, inv) =>
+            {
+                var l = g.Module.Llvm;
+                var receiver = g.EmitValue(inv.Instance!);
+                g.NullCheck(receiver);
+                var span = timeout >= 0 ? Arg(g, inv, timeout) : l.ConstInt(l.I64, -TimeSpan.TicksPerMillisecond);
+                var cancel = token >= 0 ? Arg(g, inv, token) : LlvmContext.Null(l.Ptr);
+                var result = ((INamedTypeSymbol)g.TypeOf(inv.Instance!)!).TypeArguments[0];
+                return g.CallCoreLibGenericMethod("TaskResultContinuations", "WaitAsync", [result], receiver, span, cancel);
+            };
+        }
+
         // Cancellation: a CancellationToken is its source pointer (CancellationToken.None == null).
         const string Th = "System.Threading";
         // Callbacks registered with CancellationToken.Register are corelib C# (corelib/Cancellation.cs).

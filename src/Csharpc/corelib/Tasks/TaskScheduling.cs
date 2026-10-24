@@ -406,6 +406,96 @@ namespace CsharpcCoreLib
         private static TaskFactoryImpl s_factory;
         public static TaskFactoryImpl Factory => s_factory ??= new TaskFactoryImpl();
 
+        // Task.Run with a token is StartNew on the default scheduler (Task.cs): a token canceled before
+        // the work starts gives a canceled task and the work never runs.
+        public static Task Run(Action action, CancellationToken cancellationToken) =>
+            Factory.StartNew(action, cancellationToken, TaskCreationOptions.DenyChildAttach, TaskScheduler.Default);
+
+        public static Task<TResult> Run<TResult>(Func<TResult> function, CancellationToken cancellationToken) =>
+            Factory.StartNew(function, cancellationToken, TaskCreationOptions.DenyChildAttach, TaskScheduler.Default);
+
+        // WaitAsync (Task.cs): the task itself when it is done or nothing could interrupt the wait, otherwise a
+        // task completed by whichever comes first of the task, the timeout (TimeoutException) and the token.
+        [ShadowInstance] public static Task WaitAsync(Task task, CancellationToken cancellationToken) => WaitAsync(task, new TimeSpan(-TimeSpan.TicksPerMillisecond), cancellationToken);
+        [ShadowInstance] public static Task WaitAsync(Task task, TimeSpan timeout) => WaitAsync(task, timeout, default);
+
+        [ShadowInstance]
+        public static Task WaitAsync(Task task, TimeSpan timeout, CancellationToken cancellationToken)
+        {
+            uint ms = ValidateTimeout(timeout);
+            if (task.IsCompleted || (!cancellationToken.CanBeCanceled && ms == uint.MaxValue)) return task;
+            TaskCompletionSource tcs = new TaskCompletionSource();
+            if (cancellationToken.IsCancellationRequested) { tcs.SetCanceled(); return tcs.Task; }
+            if (ms == 0) { tcs.SetException(new TimeoutException()); return tcs.Task; }
+            Action complete = () =>
+            {
+                if (task.IsCompleted)
+                {
+                    if (task.IsFaulted) tcs.TrySetException(task.Exception.InnerException);
+                    else if (task.IsCanceled) tcs.TrySetCanceled();
+                    else tcs.TrySetResult();
+                }
+                else if (cancellationToken.IsCancellationRequested) tcs.TrySetCanceled();
+                else tcs.TrySetException(new TimeoutException());
+            };
+            OnFirst(task, ms, cancellationToken, complete);
+            return tcs.Task;
+        }
+
+        /// <summary>Runs `complete` once, when `task` finishes or the wait times out or is canceled.</summary>
+        internal static void OnFirst(Task task, uint ms, CancellationToken cancellationToken, Action complete)
+        {
+            Task delay = Task.Delay(ms == uint.MaxValue ? -1 : (int)Math.Min(ms, (uint)int.MaxValue), cancellationToken);
+            ((Task)Task.WhenAny(task, delay)).ContinueWith(_ => complete(), CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+        }
+
+        internal static uint ValidateTimeout(TimeSpan timeout)
+        {
+            long totalMilliseconds = (long)timeout.TotalMilliseconds;
+            if (totalMilliseconds < -1 || totalMilliseconds > 0xFFFFFFFE)
+                throw new ArgumentOutOfRangeException("timeout", "The value needs to translate in milliseconds to -1 (signifying an infinite timeout), 0, or a positive integer less than or equal to the maximum allowed timer duration.");
+            return (uint)totalMilliseconds;
+        }
+
+        // Wait with a timeout or a token (Task.cs): a bounded wait is a wait for whichever of the task and a
+        // delay finishes first; once the task is done it reports like Wait() (AggregateException).
+        [ShadowInstance] public static bool Wait(Task task, int millisecondsTimeout) => Wait(task, millisecondsTimeout, default);
+        [ShadowInstance] public static void Wait(Task task, CancellationToken cancellationToken) => Wait(task, -1, cancellationToken);
+        [ShadowInstance] public static bool Wait(Task task, TimeSpan timeout) => Wait(task, timeout, default);
+
+        [ShadowInstance]
+        public static bool Wait(Task task, TimeSpan timeout, CancellationToken cancellationToken)
+        {
+            long totalMilliseconds = (long)timeout.TotalMilliseconds;
+            if (totalMilliseconds < -1 || totalMilliseconds > int.MaxValue) throw new ArgumentOutOfRangeException("timeout");
+            cancellationToken.ThrowIfCancellationRequested();
+            return Wait(task, (int)totalMilliseconds, cancellationToken);
+        }
+
+        [ShadowInstance]
+        public static bool Wait(Task task, int millisecondsTimeout, CancellationToken cancellationToken)
+        {
+            if (millisecondsTimeout < -1) throw new ArgumentOutOfRangeException("millisecondsTimeout");
+            if (task.IsCompletedSuccessfully) return true;
+            if (!task.IsCompleted)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                if (millisecondsTimeout == 0) return false;
+                if (millisecondsTimeout != -1 || cancellationToken.CanBeCanceled)
+                {
+                    Task.WhenAny(task, Task.Delay(millisecondsTimeout, cancellationToken)).Wait();
+                    if (!task.IsCompleted)
+                    {
+                        cancellationToken.ThrowIfCancellationRequested();
+                        return false;
+                    }
+                }
+            }
+            if (task.IsCanceled) cancellationToken.ThrowIfCancellationRequested();
+            task.Wait();
+            return true;
+        }
+
         [ShadowInstance] public static Task ContinueWith(Task task, Action<Task> continuationAction) =>
             ContinueWith(task, continuationAction, CancellationToken.None, TaskContinuationOptions.None, TaskScheduler.Current);
         [ShadowInstance] public static Task ContinueWith(Task task, Action<Task> continuationAction, CancellationToken cancellationToken) =>
@@ -454,6 +544,29 @@ namespace CsharpcCoreLib
     /// <summary>Task&lt;TResult&gt;.ContinueWith: Intrinsics.cs forwards each overload here with all five arguments.</summary>
     internal static class TaskResultContinuations
     {
+        /// <summary>Task&lt;TResult&gt;.WaitAsync (Intrinsics.cs forwards every overload; an infinite timeout is -1 ms).</summary>
+        public static Task<TResult> WaitAsync<TResult>(Task<TResult> task, TimeSpan timeout, CancellationToken cancellationToken)
+        {
+            uint ms = TaskMembers.ValidateTimeout(timeout);
+            if (task.IsCompleted || (!cancellationToken.CanBeCanceled && ms == uint.MaxValue)) return task;
+            TaskCompletionSource<TResult> tcs = new TaskCompletionSource<TResult>();
+            if (cancellationToken.IsCancellationRequested) { tcs.SetCanceled(); return tcs.Task; }
+            if (ms == 0) { tcs.SetException(new TimeoutException()); return tcs.Task; }
+            Action complete = () =>
+            {
+                if (task.IsCompleted)
+                {
+                    if (task.IsFaulted) tcs.TrySetException(task.Exception.InnerException);
+                    else if (task.IsCanceled) tcs.TrySetCanceled();
+                    else tcs.TrySetResult(task.Result);
+                }
+                else if (cancellationToken.IsCancellationRequested) tcs.TrySetCanceled();
+                else tcs.TrySetException(new TimeoutException());
+            };
+            TaskMembers.OnFirst(task, ms, cancellationToken, complete);
+            return tcs.Task;
+        }
+
         public static Task ContinueWithAction<TResult>(Task<TResult> task, Action<Task<TResult>> continuationAction, CancellationToken cancellationToken, TaskContinuationOptions continuationOptions, TaskScheduler scheduler) =>
             TaskSupport.ContinueWith(task, () => continuationAction(task), continuationAction, cancellationToken, continuationOptions, (TaskSchedulerImpl)(object)scheduler, "continuationAction");
 
