@@ -85,6 +85,19 @@ namespace CsharpcCoreLib
             return a.Length - b.Length;
         }
 
+        /// <summary>string.Equals(s, ascii, OrdinalIgnoreCase) with a non-null ASCII constant (BclValueTypes).</summary>
+        public static bool EqualsAsciiIgnoreCase(string s, string ascii)
+        {
+            if (s == null || s.Length != ascii.Length) return false;
+            for (int i = 0; i < s.Length; i++)
+            {
+                int x = s[i], y = ascii[i];
+                if (x == y) continue;
+                if ((uint)((x | 0x20) - 'a') > 'z' - 'a' || (x | 0x20) != (y | 0x20)) return false;
+            }
+            return true;
+        }
+
         public static bool Equals(string a, string b)
         {
             if ((object)a == b) return true;

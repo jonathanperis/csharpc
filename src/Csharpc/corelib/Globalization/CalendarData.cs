@@ -22,6 +22,7 @@ namespace CsharpcCoreLib.Globalization
     //  NOTE: Calendars depend on the locale name that creates it.  Only a few
     //        properties are available without locales using CalendarData.GetCalendar(CalendarData)
     //
+    [OptimizeForSize] // csharpc: builds culture data, once per culture (corelib/Core.cs)
     internal sealed partial class CalendarData
     {
         // Max calendars

@@ -101,7 +101,11 @@ bug like a wrong output.
 Evidence comes from CI ([benchmarks/RESULTS.md](../benchmarks/RESULTS.md), the compatibility runs), not
 claims. Known gaps today: NativeAOT is ahead on `asyncfanout` (x86-64 and arm64) and on `fileio`,
 `quicksort`, `shapes` and `spectralnorm` on arm64; macOS executables have a ~50 KiB floor (three
-16 KiB-page segments: code, read-only-after-binding data, data); compile time of async- and generic-heavy programs; benchmarks run on Linux only so far.
+16 KiB-page segments: code, read-only-after-binding data, data); compile time of async- and generic-heavy programs; benchmarks run on Linux only so far;
+culture-sensitive formatting (any number, even a negative `int` written with `Console.WriteLine`) links the culture
+model and the ICU shim (~85 KiB; formatting dates ~210 KiB, all calendars included) and adds 3–4 s of compile time
+(mostly Roslyn binding the corelib's culture code), and loading ICU costs ~3.5–5 ms at first use, ~1.7 ms of it
+.NET's search for the newest `libicuuc.so.N` ([19-globalization.md](19-globalization.md)).
 
 ## Milestones
 

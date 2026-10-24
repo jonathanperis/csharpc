@@ -1,0 +1,57 @@
+StartsWith O: True
+StartsWith O miss: False
+StartsWith OIC: True
+StartsWith var: True
+StartsWith empty: True
+StartsWith self: True
+StartsWith longer: False
+StartsWith null: ArgumentNullException: Value cannot be null. (Parameter 'value')
+StartsWith null OIC: ArgumentNullException: Value cannot be null. (Parameter 'value')
+EndsWith O: True
+EndsWith OIC: False
+EndsWith OIC 2: False
+EndsWith var: False
+EndsWith null: ArgumentNullException: Value cannot be null. (Parameter 'value')
+IndexOf O: 14
+IndexOf OIC: 7
+IndexOf O start: 8
+IndexOf OIC start: 21
+IndexOf var start: 21
+IndexOf O start end: 30
+IndexOf O start bad: ArgumentOutOfRangeException: Index was out of range. Must be non-negative and less than or equal to the size of the collection. (Parameter 'startIndex')
+IndexOf var start bad: ArgumentOutOfRangeException: Index was out of range. Must be non-negative and less than or equal to the size of the collection. (Parameter 'startIndex')
+IndexOf O start neg: ArgumentOutOfRangeException: Index was out of range. Must be non-negative and less than or equal to the size of the collection. (Parameter 'startIndex')
+IndexOf O count: 8
+IndexOf OIC count: 21
+IndexOf O count bad: ArgumentOutOfRangeException: Count must be positive and count must refer to a location within the string/array/collection. (Parameter 'count')
+IndexOf var count bad: ArgumentOutOfRangeException: Count must be positive and count must refer to a location within the string/array/collection. (Parameter 'count')
+IndexOf O count neg: ArgumentOutOfRangeException: Count must be positive and count must refer to a location within the string/array/collection. (Parameter 'count')
+IndexOf null: ArgumentNullException: Value cannot be null. (Parameter 'value')
+IndexOf null start: ArgumentNullException: Value cannot be null. (Parameter 'value')
+IndexOf null count: ArgumentNullException: Value cannot be null. (Parameter 'value')
+IndexOf char O: 21
+IndexOf char OIC: 7
+IndexOf char OIC 2: -1
+Contains O: True
+Contains OIC: True
+Contains var: False
+Contains null: ArgumentNullException: Value cannot be null. (Parameter 'value')
+Equals O: False
+Equals OIC: False
+Equals OIC null: True
+Equals inst OIC: True
+Equals inst O: False
+Compare O: 1
+Compare OIC: -1
+Compare OIC eq: 300
+Compare null: -1
+Equals OIC ascii: True
+Equals OIC ascii sym: False
+Equals OIC ascii vs unicode: False
+Equals OIC ascii null: False
+Equals OIC ascii len: False
+Equals receiver null: NullReferenceException: Object reference not set to an instance of an object.
+Equals receiver null O: NullReferenceException: Object reference not set to an instance of an object.
+Equals receiver null var: NullReferenceException: Object reference not set to an instance of an object.
+receiver null: NullReferenceException: Object reference not set to an instance of an object.
+receiver null IndexOf: NullReferenceException: Object reference not set to an instance of an object.

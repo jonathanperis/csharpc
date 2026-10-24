@@ -19,18 +19,21 @@ namespace CsharpcCoreLib
         private static int Decode(ReadOnlySpan<byte> table, int index) =>
             ((table[index] - '0') << 12) | ((table[index + 1] - '0') << 6) | (table[index + 2] - '0');
 
+        private static int CategoryEntry(ReadOnlySpan<byte> table, int entry) =>
+            (table[entry * 3] << 14) | (table[entry * 3 + 1] << 7) | table[entry * 3 + 2];
+
         public static System.Globalization.UnicodeCategory GetUnicodeCategory(char c)
         {
             if (c < 256) return (System.Globalization.UnicodeCategory)(UnicodeData.Latin1Categories[c] - '0');
-            // Binary search: last breakpoint whose start <= c. Each entry is 6 symbols: start, category.
+            // Binary search: last breakpoint whose start <= c. Each entry is 3 bytes of 7 bits: start << 5 | category.
             ReadOnlySpan<byte> table = UnicodeData.Categories;
             int lo = 0, hi = UnicodeData.CategoryCount - 1;
             while (lo < hi)
             {
                 int mid = (lo + hi + 1) >> 1;
-                if (Decode(table, mid * 6) <= c) lo = mid; else hi = mid - 1;
+                if (CategoryEntry(table, mid) >> 5 <= c) lo = mid; else hi = mid - 1;
             }
-            return (System.Globalization.UnicodeCategory)Decode(table, lo * 6 + 3);
+            return (System.Globalization.UnicodeCategory)(CategoryEntry(table, lo) & 31);
         }
 
         private static int Cat(char c) => (int)GetUnicodeCategory(c);
@@ -51,6 +54,7 @@ namespace CsharpcCoreLib
         public static bool IsSurrogate(char c) => (uint)(c - 0xD800) <= 0x7FF;
         public static bool IsHighSurrogate(char c) => (uint)(c - 0xD800) <= 0x3FF;
         public static bool IsLowSurrogate(char c) => (uint)(c - 0xDC00) <= 0x3FF;
+        public static bool IsSurrogatePair(char highSurrogate, char lowSurrogate) => IsHighSurrogate(highSurrogate) && IsLowSurrogate(lowSurrogate);
         public static bool IsAscii(char c) => c < 128;
         public static bool IsAsciiDigit(char c) => (uint)(c - '0') <= 9;
         public static bool IsAsciiLetter(char c) => (uint)((c | 0x20) - 'a') <= 'z' - 'a';
@@ -302,6 +306,131 @@ namespace CsharpcCoreLib
 
         [ShadowInstance]
         public static int IndexOf(string s, char value, StringComparison comparisonType) => CultureStrings.IndexOf(s, value, comparisonType);
+
+        // ---- constant Ordinal / OrdinalIgnoreCase comparisons ------------------------------------------
+        // A call whose trailing StringComparison argument is the constant Ordinal or OrdinalIgnoreCase binds
+        // to the method named <Name>Ordinal / <Name>OrdinalIgnoreCase with the other parameters
+        // (FunctionCodeGen.OrdinalComparisons.cs): the general overloads also reach the culture-sensitive
+        // comparisons, which link CompareInfo and the culture model into the program. The variants behave
+        // exactly like the general overloads with that comparison (CultureStrings uses them too).
+
+        [ShadowInstance]
+        public static bool StartsWithOrdinal(string s, string value)
+        {
+            if (value == null) throw new ArgumentNullException("value");
+            if ((object)s == (object)value || value.Length == 0) return true;
+            return value.Length <= s.Length && EqualsOrdinal(s.AsSpan(0, value.Length), value.AsSpan());
+        }
+
+        [ShadowInstance]
+        public static bool StartsWithOrdinalIgnoreCase(string s, string value)
+        {
+            if (value == null) throw new ArgumentNullException("value");
+            if ((object)s == (object)value || value.Length == 0) return true;
+            return value.Length <= s.Length && OrdinalCasing.Compare(s.Substring(0, value.Length), value) == 0;
+        }
+
+        /// <summary>StartsWithOrdinalIgnoreCase with an ASCII constant value (FunctionCodeGen.OrdinalComparisons.cs).</summary>
+        [ShadowInstance]
+        public static bool StartsWithAsciiIgnoreCase(string s, string value)
+        {
+            if (value == null) throw new ArgumentNullException("value");
+            if ((object)s == (object)value || value.Length == 0) return true;
+            return value.Length <= s.Length && EqualsAsciiIgnoreCase(s.AsSpan(0, value.Length), value);
+        }
+
+        /// <summary>EndsWithOrdinalIgnoreCase with an ASCII constant value.</summary>
+        [ShadowInstance]
+        public static bool EndsWithAsciiIgnoreCase(string s, string value)
+        {
+            if (value == null) throw new ArgumentNullException("value");
+            if ((object)s == (object)value || value.Length == 0) return true;
+            return value.Length <= s.Length && EqualsAsciiIgnoreCase(s.AsSpan(s.Length - value.Length), value);
+        }
+
+        private static bool EqualsAsciiIgnoreCase(ReadOnlySpan<char> s, string ascii)
+        {
+            for (int i = 0; i < s.Length; i++)
+            {
+                int x = s[i], y = ascii[i];
+                if (x != y && ((uint)((x | 0x20) - 'a') > 'z' - 'a' || (x | 0x20) != (y | 0x20))) return false;
+            }
+            return true;
+        }
+
+        [ShadowInstance]
+        public static bool EndsWithOrdinal(string s, string value)
+        {
+            if (value == null) throw new ArgumentNullException("value");
+            if ((object)s == (object)value || value.Length == 0) return true;
+            return value.Length <= s.Length && EqualsOrdinal(s.AsSpan(s.Length - value.Length), value.AsSpan());
+        }
+
+        [ShadowInstance]
+        public static bool EndsWithOrdinalIgnoreCase(string s, string value)
+        {
+            if (value == null) throw new ArgumentNullException("value");
+            if ((object)s == (object)value || value.Length == 0) return true;
+            return value.Length <= s.Length && OrdinalCasing.Compare(s.Substring(s.Length - value.Length), value) == 0;
+        }
+
+        [ShadowInstance] public static int IndexOfOrdinal(string s, string value) => IndexOfOrdinal(s, value, 0);
+        [ShadowInstance] public static int IndexOfOrdinalIgnoreCase(string s, string value) => IndexOfOrdinalIgnoreCase(s, value, 0);
+
+        [ShadowInstance]
+        public static int IndexOfOrdinal(string s, string value, int startIndex)
+        {
+            if (value == null) throw new ArgumentNullException("value");
+            if ((uint)startIndex > (uint)s.Length) ThrowHelper.IndexMustBeLessOrEqual("startIndex");
+            return IndexOfOrdinal(s, value, startIndex, s.Length - startIndex, false);
+        }
+
+        [ShadowInstance]
+        public static int IndexOfOrdinalIgnoreCase(string s, string value, int startIndex)
+        {
+            if (value == null) throw new ArgumentNullException("value");
+            if ((uint)startIndex > (uint)s.Length) ThrowHelper.IndexMustBeLessOrEqual("startIndex");
+            return IndexOfOrdinal(s, value, startIndex, s.Length - startIndex, true);
+        }
+
+        [ShadowInstance]
+        public static int IndexOfOrdinal(string s, string value, int startIndex, int count)
+        {
+            if (value == null) throw new ArgumentNullException("value");
+            if ((uint)startIndex > (uint)s.Length) ThrowHelper.IndexMustBeLessOrEqual("startIndex");
+            if (count < 0 || startIndex > s.Length - count) throw new ArgumentOutOfRangeException("count", CountMessage);
+            return IndexOfOrdinal(s, value, startIndex, count, false);
+        }
+
+        [ShadowInstance]
+        public static int IndexOfOrdinalIgnoreCase(string s, string value, int startIndex, int count)
+        {
+            if (value == null) throw new ArgumentNullException("value");
+            if ((uint)startIndex > (uint)s.Length) ThrowHelper.IndexMustBeLessOrEqual("startIndex");
+            if (count < 0 || startIndex > s.Length - count) throw new ArgumentOutOfRangeException("count", CountMessage);
+            return IndexOfOrdinal(s, value, startIndex, count, true);
+        }
+
+        /// <summary>.NET's Ordinal.IndexOf (String.IndexOf(value, startIndex, count, Ordinal[IgnoreCase])).</summary>
+        internal static int IndexOfOrdinal(string s, string value, int startIndex, int count, bool ignoreCase)
+        {
+            if (value == null) throw new ArgumentNullException("value");
+            if ((uint)startIndex > (uint)s.Length)
+                throw new ArgumentOutOfRangeException("startIndex", "Index was out of range. Must be non-negative and less than or equal to the size of the collection.");
+            if ((uint)count > (uint)(s.Length - startIndex))
+                throw new ArgumentOutOfRangeException("count", "Count must be positive and count must refer to a location within the string/array/collection.");
+            ReadOnlySpan<char> span = s.AsSpan(startIndex, count);
+            int result = ignoreCase
+                ? Globalization.Ordinal.IndexOfOrdinalIgnoreCase(span, value.AsSpan())
+                : IndexOfOrdinal(span, value.AsSpan(), 0);
+            return result >= 0 ? startIndex + result : result;
+        }
+
+        [ShadowInstance] public static bool ContainsOrdinal(string s, string value) => IndexOfOrdinal(s, value, 0) >= 0;
+        [ShadowInstance] public static bool ContainsOrdinalIgnoreCase(string s, string value) => IndexOfOrdinalIgnoreCase(s, value, 0) >= 0;
+
+        [ShadowInstance] public static int IndexOfOrdinal(string s, char value) => IndexOf(s, value, 0);
+        [ShadowInstance] public static int IndexOfOrdinalIgnoreCase(string s, char value) => Globalization.Ordinal.IndexOfOrdinalIgnoreCase(s.AsSpan(), value.ToString().AsSpan());
 
         private const string CountMessage = "Count must be positive and count must refer to a location within the string/array/collection.";
         private const string IndexLessMessage = "Index was out of range. Must be non-negative and less than the size of the collection.";

@@ -985,8 +985,26 @@ internal static class Intrinsics
             SpecialType.System_Char => ("csrt_console_write_char", l.I16),
             _ => null,
         };
-        if (direct is { } d)
-            Emit(d.Name, d.Type, g.EmitValue(op));
+        if (direct is { } d && type.SpecialType is SpecialType.System_Int32 or SpecialType.System_Int64)
+        {
+            // A negative number starts with the current culture's NegativeSign (U+2212 in sv-SE, for
+            // instance), as int.ToString() does: only non-negative values take the culture-free digit writer.
+            var value = g.EmitValue(op);
+            var negative = g.NewBlock("write.negative");
+            var digits = g.NewBlock("write.digits");
+            var done = g.NewBlock("write.done");
+            g.Builder.CondBr(g.Builder.ICmp(LLVMIntPredicate.SLT, value, l.ConstInt(value.Type, 0)), negative, digits);
+            g.Builder.PositionAtEnd(negative);
+            var wide = value.Type.IntWidth == 64 ? value : g.Builder.Cast(LLVMOpcode.SExt, value, l.I64);
+            Emit("csrt_console_write_string", l.Ptr, g.CallCoreLib("Number", "Int64ToDecStr", wide));
+            g.Builder.Br(done);
+            g.Builder.PositionAtEnd(digits);
+            Emit(d.Name, d.Type, value);
+            g.Builder.Br(done);
+            g.Builder.PositionAtEnd(done);
+        }
+        else if (direct is { } d2)
+            Emit(d2.Name, d2.Type, g.EmitValue(op));
         else
             Emit("csrt_console_write_string", l.Ptr, g.ToStringValue(op));
     }

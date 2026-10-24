@@ -101,6 +101,12 @@ namespace CsharpcCoreLib.Globalization
             if (GlobalizationMode.Invariant)
                 return CultureInfo.InvariantCulture;
 
+#if CSHARPC_TARGET_LINUX
+            // csharpc: what ICU's default locale gives below, without loading ICU (see DefaultLocaleIsPosix)
+            if (DefaultLocaleIsPosix())
+                return GetCultureByName("");
+#endif
+
             CultureInfo cultureInfo;
             if (CultureData.GetDefaultLocaleName(out string? localeName))
             {
@@ -119,6 +125,40 @@ namespace CsharpcCoreLib.Globalization
         {
             return InitializeUserDefaultCulture();
         }
+
+#if CSHARPC_TARGET_LINUX
+        /// <summary>
+        /// csharpc: whether ICU's default locale is certainly en_US_POSIX, which .NET maps to the invariant
+        /// culture (GlobalizationNative_GetDefaultLocaleName returns ""), so that the current culture can be
+        /// created without loading ICU: in the C locale (the default of containers, CI and services) a
+        /// program that only formats numbers never pays for ICU. ICU (putil.cpp, uprv_getPOSIXIDForCategory /
+        /// uprv_getDefaultLocaleID) takes the first of LC_ALL, LC_MESSAGES and LANG that is set (csharpc never
+        /// calls setlocale, so setlocale(LC_MESSAGES, NULL) is "C") and maps no value, "C", "POSIX" and
+        /// "C.&lt;codeset&gt;" / "POSIX.&lt;codeset&gt;" to en_US_POSIX. Anything less clear-cut (empty values,
+        /// '@' modifiers, an app-local ICU) asks ICU, as before.
+        /// </summary>
+        private static bool DefaultLocaleIsPosix()
+        {
+            if (!string.IsNullOrEmpty(global::System.Environment.GetEnvironmentVariable("DOTNET_SYSTEM_GLOBALIZATION_APPLOCALICU")))
+                return false;
+            string? id = global::System.Environment.GetEnvironmentVariable("LC_ALL")
+                ?? global::System.Environment.GetEnvironmentVariable("LC_MESSAGES")
+                ?? global::System.Environment.GetEnvironmentVariable("LANG");
+            if (id == null)
+                return true;
+            int end = 0;
+            while (end < id.Length && id[end] != '.')
+            {
+                if (id[end] == '@') return false;
+                end++;
+            }
+            for (int i = end; i < id.Length; i++)
+            {
+                if (id[i] == '@') return false;
+            }
+            return (end == 1 && id[0] == 'C') || (end == 5 && id[0] == 'P' && id[1] == 'O' && id[2] == 'S' && id[3] == 'I' && id[4] == 'X');
+        }
+#endif
 #endif
     }
 }

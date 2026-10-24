@@ -65,6 +65,7 @@ namespace CsharpcCoreLib.Globalization
     }
 
     [Shadows("System.Globalization.DateTimeFormatInfo")]
+    [OptimizeForSize] // csharpc: builds culture data, once per culture (corelib/Core.cs)
     public sealed class DateTimeFormatInfo : IFormatProvider, ICloneable
     {
         // an index which points to a record in Culture Data Table.

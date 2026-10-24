@@ -25,6 +25,7 @@ namespace CsharpcCoreLib.Globalization
     ///      Taiwan      01/01/01    8088/12/31
     /// </remarks>
     [Shadows("System.Globalization.TaiwanCalendar")]
+    [OptimizeForSize] // csharpc: only cultures whose calendar this is use it (corelib/Core.cs)
     public class TaiwanCalendar : Calendar
     {
         // Since

@@ -9,18 +9,38 @@ namespace Csharpc.CodeGen;
 /// </summary>
 public sealed partial class ModuleCodeGen
 {
-    private readonly Dictionary<(ITypeSymbol, INamedTypeSymbol), LLVMValueRef> _primitiveSlots = [];
+    private readonly List<(ITypeSymbol Primitive, INamedTypeSymbol Itf, string MT, LLVMValueRef Global)> _deferredPrimitiveSlots = [];
 
-    internal LLVMValueRef PrimitiveInterfaceSlots(ITypeSymbol primitive, INamedTypeSymbol itf)
+    /// <summary>
+    /// The slot table main registers for a boxed primitive: filled in only once the program boxes that
+    /// primitive (<see cref="EmitDeferredPrimitiveSlots"/>), so the thunks of never-boxed primitives (an
+    /// IFormattable.ToString thunk links that type's formatter) aren't compiled. Boxing can still show up
+    /// after main is emitted (runtime exports, type metadata), hence the placeholder.
+    /// </summary>
+    internal LLVMValueRef DeferredPrimitiveInterfaceSlots(ITypeSymbol primitive, INamedTypeSymbol itf, string mtName)
     {
-        var key = (primitive, itf);
-        if (_primitiveSlots.TryGetValue(key, out var existing)) return existing;
-        var members = InterfaceSlots(itf).ToList();
-        var slots = members.Select(m => PrimitiveSlot(primitive, itf, m)).ToArray();
-        if (slots.All(s => s.IsNull)) return _primitiveSlots[key] = LlvmContext.Null(Llvm.Ptr);
-        var init = LlvmContext.ConstArray(Llvm.Ptr, [.. slots.Select(s => s.IsNull ? LlvmContext.Null(Llvm.Ptr) : s)]);
-        var global = Module.AddGlobal(".primslots", Native.LLVMTypeOf(init), init, constant: true, linkage: LLVMLinkage.Private);
-        return _primitiveSlots[key] = global;
+        var members = InterfaceSlots(itf);
+        if (!members.Any(m => PrimitiveSlotSupported(primitive, itf, m))) return LlvmContext.Null(Llvm.Ptr);
+        var type = LlvmContext.Array(Llvm.Ptr, (ulong)members.Count);
+        var global = Module.AddGlobal(".primslots", type, LlvmContext.Null(type), constant: true, linkage: LLVMLinkage.Private);
+        _deferredPrimitiveSlots.Add((primitive, itf, mtName, global));
+        return global;
+    }
+
+    /// <summary>Fills the slot tables of primitives the program boxes; true if it compiled anything.</summary>
+    private bool EmitDeferredPrimitiveSlots()
+    {
+        var any = false;
+        for (var i = _deferredPrimitiveSlots.Count - 1; i >= 0; i--)
+        {
+            var (primitive, itf, mt, global) = _deferredPrimitiveSlots[i];
+            if (!_globals.ContainsKey(mt) || _registrationOnlyGlobals.Contains(mt)) continue;
+            _deferredPrimitiveSlots.RemoveAt(i);
+            var slots = InterfaceSlots(itf).Select(m => PrimitiveSlot(primitive, itf, m)).ToArray();
+            Native.LLVMSetInitializer(global, LlvmContext.ConstArray(Llvm.Ptr, [.. slots.Select(s => s.IsNull ? LlvmContext.Null(Llvm.Ptr) : s)]));
+            any = true;
+        }
+        return any;
     }
 
     /// <summary>Does <see cref="PrimitiveSlot"/> implement this member for boxed values of the primitive?</summary>
@@ -51,7 +71,7 @@ public sealed partial class ModuleCodeGen
                 var fnType = Llvm.FunctionType(Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr);
                 var fn = Module.AddFunction($".prim.{primitive.MetadataName}.IFormattable", fnType);
                 Native.LLVMSetLinkage(fn, LLVMLinkage.Internal);
-                new FunctionCodeGen(this, null, new LoweredFunction(fn, fnType)).EmitPrimitiveFormatThunk();
+                new FunctionCodeGen(this, null, new LoweredFunction(fn, fnType)).EmitPrimitiveFormatThunk(primitive);
                 return fn;
             }
             case ("IComparable", "CompareTo") or ("IEquatable", "Equals") when itf.IsGenericType
@@ -108,10 +128,26 @@ public sealed partial class FunctionCodeGen
         Finish();
     }
 
-    /// <summary>IFormattable.ToString(format, provider) on a boxed primitive (invariant culture: provider ignored).</summary>
-    internal void EmitPrimitiveFormatThunk()
+    /// <summary>
+    /// IFormattable.ToString(format, provider) on a boxed primitive: the primitive's own formatter, with the
+    /// provider (char ignores both, as in .NET). Not the general boxed-value formatter, which would link the
+    /// double and decimal formatters into every program that formats a boxed int through IFormattable.
+    /// </summary>
+    internal void EmitPrimitiveFormatThunk(ITypeSymbol primitive)
     {
-        _b.Ret(CallRuntime("csrt_format_object", L.Ptr, [L.Ptr, L.Ptr], _fn.Fn.Param(0), _fn.Fn.Param(1)));
+        var value = LoadValue(_b.InBoundsGep(L.I8, _fn.Fn.Param(0), [L.ConstInt(L.I64, 8)]), primitive);
+        var (format, provider) = (_fn.Fn.Param(1), _fn.Fn.Param(2));
+        var bits = L.ConstInt(L.I32, value.Type.IsInteger ? value.Type.IntWidth : 0);
+        _b.Ret(primitive.SpecialType switch
+        {
+            SpecialType.System_SByte or SpecialType.System_Int16 or SpecialType.System_Int32 or SpecialType.System_Int64 =>
+                CallCoreLib("Number", "FormatBoxedSigned", value.Type.IntWidth == 64 ? value : _b.Cast(LLVMOpcode.SExt, value, L.I64), format, bits, provider),
+            SpecialType.System_Byte or SpecialType.System_UInt16 or SpecialType.System_UInt32 or SpecialType.System_UInt64 =>
+                CallCoreLib("Number", "FormatBoxedUnsigned", value.Type.IntWidth == 64 ? value : _b.Cast(LLVMOpcode.ZExt, value, L.I64), format, bits, provider),
+            SpecialType.System_Double => CallCoreLib("Number", "FormatBoxedFloat", value, format, L.False, provider),
+            SpecialType.System_Single => CallCoreLib("Number", "FormatBoxedFloat", _b.Cast(LLVMOpcode.FPExt, value, L.F64), format, L.True, provider),
+            _ => FormatPrimitive(value, primitive) ?? CallRuntime("csrt_format_object", L.Ptr, [L.Ptr, L.Ptr], _fn.Fn.Param(0), format),
+        });
         Finish();
     }
 }

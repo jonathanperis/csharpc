@@ -1,0 +1,44 @@
+current '' readOnly=True same=False equal=True
+current calendar GregorianCalendar lcid=127
+1,234,567.89 -5 03/06/2024 12:00:00
+0,1,2,3,4,5,6,7,8,9 None
+en-US: lcid=1033 digits=0123456789 subst=None neutral=False
+  clone 0123456789 None, readOnly 0123456789 None
+  1,234.5 -42
+pt-BR: lcid=1046 digits=0123456789 subst=None neutral=False
+  clone 0123456789 None, readOnly 0123456789 None
+  1.234,5 -42
+ar-SA: lcid=1025 digits=٠١٢٣٤٥٦٧٨٩ subst=Context neutral=False
+  clone ٠١٢٣٤٥٦٧٨٩ Context, readOnly ٠١٢٣٤٥٦٧٨٩ Context
+  1٬234٫5 ؜-42
+fa-IR: lcid=1065 digits=۰۱۲۳۴۵۶۷۸۹ subst=Context neutral=False
+  clone ۰۱۲۳۴۵۶۷۸۹ Context, readOnly ۰۱۲۳۴۵۶۷۸۹ Context
+  1٬234٫5 ‎−42
+hi-IN: lcid=1081 digits=0123456789 subst=None neutral=False
+  clone 0123456789 None, readOnly 0123456789 None
+  1,234.5 -42
+th-TH: lcid=1054 digits=0123456789 subst=None neutral=False
+  clone 0123456789 None, readOnly 0123456789 None
+  1,234.5 -42
+de: lcid=7 digits=0123456789 subst=None neutral=True
+  clone 0123456789 None, readOnly 0123456789 None
+  specific de-DE
+  1.234,5 -42
+pt: lcid=22 digits=0123456789 subst=None neutral=True
+  clone 0123456789 None, readOnly 0123456789 None
+  specific pt-BR
+  1.234,5 -42
+zh-Hans: lcid=4 digits=0123456789 subst=None neutral=True
+  clone 0123456789 None, readOnly 0123456789 None
+  specific zh-CN
+  1,234.5 -42
+sr-Cyrl: lcid=27674 digits=0123456789 subst=None neutral=True
+  clone 0123456789 None, readOnly 0123456789 None
+  specific sr-Cyrl-RS
+  1.234,5 -42
+custom None ٠١٢٣٤٥٦٧٨٩
+xx-YY
+pt-XX-INVALID
+
+True
+True

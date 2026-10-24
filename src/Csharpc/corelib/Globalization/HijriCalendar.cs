@@ -46,6 +46,7 @@ namespace CsharpcCoreLib.Globalization
     /// </remarks>
 
     [Shadows("System.Globalization.HijriCalendar")]
+    [OptimizeForSize] // csharpc: only cultures whose calendar this is use it (corelib/Core.cs)
     public partial class HijriCalendar : Calendar
     {
         // csharpc: caches for the span properties below (no collection expressions, no static initializers).
