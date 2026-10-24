@@ -1,0 +1,19 @@
+False False False
+True True
+faulted.Wait(100): AggregateException -> InvalidOperationException: boom
+Wait(-2): ArgumentOutOfRangeException: Specified argument was out of the range of valid values. (Parameter 'millisecondsTimeout')
+Wait(token): OperationCanceledException: The operation was canceled.
+Wait(10, token): OperationCanceledException: The operation was canceled.
+WaitAsync timeout: TimeoutException: The operation has timed out.
+WaitAsync zero: TimeoutException: The operation has timed out.
+WaitAsync canceled: TaskCanceledException: A task was canceled.
+WaitAsync bad timeout: ArgumentOutOfRangeException: The value needs to translate in milliseconds to -1 (signifying an infinite timeout), 0, or a positive integer less than or equal to the maximum allowed timer duration. (Parameter 'timeout')
+WaitAsync faulted: InvalidOperationException: boom
+done
+WaitAsync late fault: FormatException: late
+WaitAsync late cancel: TaskCanceledException: A task was canceled.
+True
+Run(canceled token): AggregateException -> TaskCanceledException: A task was canceled.
+False True
+42
+ran with token

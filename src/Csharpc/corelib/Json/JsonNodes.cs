@@ -266,6 +266,8 @@ namespace CsharpcCoreLib
         public static implicit operator JsonNodeImpl(char? value) => JsonValueImpl.Create(value, null);
         public static implicit operator JsonNodeImpl(DateTime value) => JsonValueImpl.Create(value, null);
         public static implicit operator JsonNodeImpl(DateTime? value) => JsonValueImpl.Create(value, null);
+        public static implicit operator JsonNodeImpl(DateTimeOffset value) => JsonValueImpl.Create(value, null);
+        public static implicit operator JsonNodeImpl(DateTimeOffset? value) => JsonValueImpl.Create(value, null);
         public static implicit operator JsonNodeImpl(decimal value) => JsonValueImpl.Create(value, null);
         public static implicit operator JsonNodeImpl(decimal? value) => JsonValueImpl.Create(value, null);
         public static implicit operator JsonNodeImpl(double value) => JsonValueImpl.Create(value, null);
@@ -296,6 +298,8 @@ namespace CsharpcCoreLib
         public static explicit operator char?(JsonNodeImpl value) => value?.GetValue<char>();
         public static explicit operator DateTime(JsonNodeImpl value) => value.GetValue<DateTime>();
         public static explicit operator DateTime?(JsonNodeImpl value) => value?.GetValue<DateTime>();
+        public static explicit operator DateTimeOffset(JsonNodeImpl value) => value.GetValue<DateTimeOffset>();
+        public static explicit operator DateTimeOffset?(JsonNodeImpl value) => value?.GetValue<DateTimeOffset>();
         public static explicit operator decimal(JsonNodeImpl value) => value.GetValue<decimal>();
         public static explicit operator decimal?(JsonNodeImpl value) => value?.GetValue<decimal>();
         public static explicit operator double(JsonNodeImpl value) => value.GetValue<double>();
@@ -1007,6 +1011,8 @@ namespace CsharpcCoreLib
         public static JsonValueImpl Create(char? value, JsonNodeOptions? options = null) => value.HasValue ? Create(value.Value, options) : null;
         public static JsonValueImpl Create(DateTime value, JsonNodeOptions? options = null) => new JsonValuePrimitive<DateTime>(value, JsonMetadataServicesImpl.DateTimeConverter, options);
         public static JsonValueImpl Create(DateTime? value, JsonNodeOptions? options = null) => value.HasValue ? Create(value.Value, options) : null;
+        public static JsonValueImpl Create(DateTimeOffset value, JsonNodeOptions? options = null) => new JsonValuePrimitive<DateTimeOffset>(value, JsonMetadataServicesImpl.DateTimeOffsetConverter, options);
+        public static JsonValueImpl Create(DateTimeOffset? value, JsonNodeOptions? options = null) => value.HasValue ? Create(value.Value, options) : null;
         public static JsonValueImpl Create(decimal value, JsonNodeOptions? options = null) => new JsonValuePrimitive<decimal>(value, JsonMetadataServicesImpl.DecimalConverter, options);
         public static JsonValueImpl Create(decimal? value, JsonNodeOptions? options = null) => value.HasValue ? Create(value.Value, options) : null;
         public static JsonValueImpl Create(double value, JsonNodeOptions? options = null) => new JsonValuePrimitive<double>(value, JsonMetadataServicesImpl.DoubleConverter, options);
@@ -1060,7 +1066,7 @@ namespace CsharpcCoreLib
         {
             object boxed = Value;
             if (boxed is bool b) return b ? JsonValueKind.True : JsonValueKind.False;
-            if (boxed is string || boxed is char || boxed is DateTime || boxed is TimeSpan) return JsonValueKind.String;
+            if (boxed is string || boxed is char || boxed is DateTime || boxed is DateTimeOffset || boxed is TimeSpan) return JsonValueKind.String;
             return JsonValueKind.Number;
         }
 
@@ -1174,6 +1180,7 @@ namespace CsharpcCoreLib
                         return true;
                     }
                     if (typeof(T) == typeof(DateTime) || typeof(T) == typeof(DateTime?)) { success = Value.TryGetDateTime(out DateTime r); value = (T)(object)r; return success; }
+                    if (typeof(T) == typeof(DateTimeOffset) || typeof(T) == typeof(DateTimeOffset?)) { success = Value.TryGetDateTimeOffset(out DateTimeOffset r); value = (T)(object)r; return success; }
                     if (typeof(T) == typeof(char) || typeof(T) == typeof(char?))
                     {
                         string s = Value.GetString();

@@ -135,9 +135,21 @@ Limitation: `object is IEnumerable<X>` on an array can't check the element type 
   hand-written iterator classes with .NET's deferred-execution semantics.
 * **Value types:** `Guid` (port of .NET's `Guid.cs`: same field layout, so `ToByteArray`/`TryWriteBytes`,
   hashing and ordering match; every parse format and its compat forms with .NET's exception types and
-  messages; `NewGuid` from OS entropy as on Unix; `CreateVersion7()`), `ArraySegment<T>` (+`Enumerator`, the
-  `IList<T>`/`IReadOnlyList<T>` views, conversions to `Span`/`Memory`, `MemoryExtensions.AsSpan`/`AsMemory`),
-  `DateOnly`/`TimeOnly`, `HashCode`.
+  messages; `NewGuid` from OS entropy as on Unix; `CreateVersion7()`, also from a `DateTimeOffset`),
+  `ArraySegment<T>` (+`Enumerator`, the `IList<T>`/`IReadOnlyList<T>` views, conversions to `Span`/`Memory`,
+  `MemoryExtensions.AsSpan`/`AsMemory`), `DateOnly`/`TimeOnly`, `HashCode`, `DateTimeOffset` (port of .NET's
+  `DateTimeOffset.cs`: same layout, equality and ordering on the UTC instant, formatting and parsing through the
+  ported `DateTimeFormat`/`DateTimeParse` with the offset, the local zone from libc like `DateTime`; binary
+  serialization is not implemented).
+* **`System.Buffers`:** `ArrayPool<T>`, `MemoryPool<T>` (port of System.Memory's `ArrayMemoryPool`, buffers from
+  `ArrayPool<T>.Shared`, so sizes are .NET's), `IMemoryOwner<T>`.
+* **`MemoryExtensions`:** searches and comparisons compare integers, chars, bools and enums byte-wise in the
+  runtime and every other element type with `EqualityComparer<T>.Default` semantics (`SpanEquality.cs`), plus the
+  `IEqualityComparer<T>` overloads.
+* **`System.Convert`:** port of .NET's `Convert.cs` and `ParseNumbers.cs` for the primitive, string (providers and
+  bases 2/8/10/16) and `DateTime` overloads; the always-failing `IConvertible` conversions throw .NET's
+  `InvalidCastException`. Hex and Base64 are in `ConvertExtras.cs`; the `object` overloads but `ToString(object)` and `ChangeType` are
+  not implemented (CSLLVM0002).
 * **Members-only shadows:** `string.Join<T>/Join(IEnumerable)/Concat<T>/Compare`, `double`/`float`
   `IsNaN`/`IsInfinity`/`IsFinite`..., generic `System.Array` helpers (`Sort` incl. keys+items, `Reverse`,
   `IndexOf`, `Resize`, `Fill`, `Find*`, `Exists`, `TrueForAll`, `ConvertAll`, `BinarySearch`, `Empty`).
@@ -200,7 +212,7 @@ all option combinations) checks.
 `release/11.0` (license headers kept; [THIRD-PARTY-NOTICES.md](../THIRD-PARTY-NOTICES.md)):
 
 * **Writer, reader, DOM.** `Utf8JsonWriter` (validation state machine, indentation options, every
-  `Write*` overload but `DateTimeOffset`/`Guid` values), `JsonEncodedText`, `JavaScriptEncoder`
+  `Write*` overload), `JsonEncodedText`, `JavaScriptEncoder`
   (`Default`, `UnsafeRelaxedJsonEscaping`, `Create(ranges)`, `TextEncoderSettings`) with .NET's escaping
   tables, `Utf8JsonReader` (ported nearly verbatim; `ReadOnlySequence` input is not supported),
   `JsonDocument`/`JsonElement`/`JsonProperty` (same metadata database, so property order, duplicate-key
@@ -235,7 +247,7 @@ all option combinations) checks.
   using the reflection-style API about 1.5 MB, and these compile in 20–60 s (most of it in LLVM).
 * **Explicit diagnostics (CSLLVM0001/0002)** instead of run-time surprises: anonymous types with the
   reflection-style API, generic virtual methods overridden in generic classes (a codegen limit the
-  node and converter classes are written around), `DateTimeOffset`/`Guid` members and BCL types csharpc
+  node and converter classes are written around), `Guid` members and BCL types csharpc
   doesn't implement yet (`ConcurrentDictionary`, `ReadOnlyCollection`, immutable collections), and
   `System.Text.Json.Schema`.
 

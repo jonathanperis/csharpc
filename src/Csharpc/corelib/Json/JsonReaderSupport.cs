@@ -152,7 +152,7 @@ namespace CsharpcCoreLib
 
     internal enum DataType
     {
-        DateTime, Base64String,
+        DateTime, DateTimeOffset, Base64String,
     }
 
     internal static class JsonThrowHelper
@@ -295,7 +295,7 @@ namespace CsharpcCoreLib
         public static void ThrowFormatException(DataType dataType)
         {
             if (dataType == DataType.Base64String) throw new FormatException(JsonSR.CannotDecodeInvalidBase64);
-            throw new FormatException(JsonSR.Format(JsonSR.UnsupportedFormat, "DateTime"));
+            throw new FormatException(JsonSR.Format(JsonSR.UnsupportedFormat, dataType == DataType.DateTimeOffset ? "DateTimeOffset" : "DateTime"));
         }
 
         public static void ThrowFormatException(string dataTypeName) =>
@@ -379,6 +379,49 @@ namespace CsharpcCoreLib
                 return true;
             }
             return TryCreateDateTime(parseData, DateTimeKind.Unspecified, out value);
+        }
+
+        /// <summary>The ISO 8601 profile for DateTimeOffset: no offset means the local zone's offset.</summary>
+        public static bool TryParseAsISO(ReadOnlySpan<byte> source, out DateTimeOffset value)
+        {
+            if (!TryParseDateTimeOffset(source, out DateTimeParseData parseData))
+            {
+                value = default;
+                return false;
+            }
+            if (parseData.OffsetToken == JsonConstants.UtcOffsetToken || // same as "+00:00"
+                parseData.OffsetToken == JsonConstants.Plus || parseData.OffsetToken == JsonConstants.Hyphen)
+            {
+                if (!TryCreateDateTime(parseData, DateTimeKind.Unspecified, out DateTime dateTime) || !TryGetOffsetTicks(ref parseData, out long offsetTicks))
+                {
+                    value = default;
+                    return false;
+                }
+                // new DateTimeOffset(ticks, offset) throws ArgumentOutOfRangeException when the UTC time leaves the range.
+                long utcTicks = dateTime.Ticks - offsetTicks;
+                if (utcTicks < DateTime.MinValue.Ticks || utcTicks > DateTime.MaxValue.Ticks)
+                {
+                    value = default;
+                    return false;
+                }
+                value = new DateTimeOffset(dateTime.Ticks, new TimeSpan(offsetTicks));
+                return true;
+            }
+            if (!TryCreateDateTime(parseData, DateTimeKind.Local, out DateTime local))
+            {
+                value = default;
+                return false;
+            }
+            try
+            {
+                value = new DateTimeOffset(local);
+            }
+            catch (ArgumentOutOfRangeException)
+            {
+                value = default;
+                return false;
+            }
+            return true;
         }
 
         public static bool TryParseAsIsoDateOnly(ReadOnlySpan<byte> source, out DateTime value)
@@ -643,6 +686,27 @@ namespace CsharpcCoreLib
             {
                 byte[] unescaped = GetUnescaped(segment);
                 if (JsonHelpers.IsValidUnescapedDateTimeOffsetParseLength(unescaped.Length) && JsonHelpers.TryParseAsISO(unescaped, out DateTime tmp))
+                {
+                    value = tmp;
+                    return true;
+                }
+                value = default;
+                return false;
+            }
+            return JsonHelpers.TryParseAsISO(segment, out value);
+        }
+
+        public static bool TryGetValue(ReadOnlySpan<byte> segment, bool isEscaped, out DateTimeOffset value)
+        {
+            if (!JsonHelpers.IsValidDateTimeOffsetParseLength(segment.Length))
+            {
+                value = default;
+                return false;
+            }
+            if (isEscaped)
+            {
+                byte[] unescaped = GetUnescaped(segment);
+                if (JsonHelpers.IsValidUnescapedDateTimeOffsetParseLength(unescaped.Length) && JsonHelpers.TryParseAsISO(unescaped, out DateTimeOffset tmp))
                 {
                     value = tmp;
                     return true;

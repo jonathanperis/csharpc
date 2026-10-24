@@ -736,7 +736,20 @@ namespace CsharpcCoreLib
         }
 
         public override void WriteAsPropertyName(Utf8JsonWriterImpl writer, DateTime value, JsonSerializerOptionsImpl options) =>
-            writer.WritePropertyName(JsonWriterHelper.FormatDateTime(value));
+            writer.WritePropertyName(value);
+    }
+
+    internal sealed class DateTimeOffsetConverter : JsonPrimitiveConverter<DateTimeOffset>
+    {
+        public override DateTimeOffset Read(ref Utf8JsonReaderImpl reader, Type typeToConvert, JsonSerializerOptionsImpl options) => reader.GetDateTimeOffset();
+
+        public override void Write(Utf8JsonWriterImpl writer, DateTimeOffset value, JsonSerializerOptionsImpl options) => writer.WriteStringValue(value);
+
+        public override DateTimeOffset ReadAsPropertyName(ref Utf8JsonReaderImpl reader, Type typeToConvert, JsonSerializerOptionsImpl options) =>
+            reader.GetDateTimeOffsetNoValidation();
+
+        public override void WriteAsPropertyName(Utf8JsonWriterImpl writer, DateTimeOffset value, JsonSerializerOptionsImpl options) =>
+            writer.WritePropertyName(value);
     }
 
     internal sealed class TimeSpanConverter : JsonPrimitiveConverter<TimeSpan>
@@ -885,9 +898,12 @@ namespace CsharpcCoreLib
                         key = options.DictionaryKeyPolicy != null ? options.DictionaryKeyPolicy.ConvertName(text) : text;
                     }
                     else if (entry.Key is DateTime date) key = JsonWriterHelper.FormatDateTime(date);
+                    else if (entry.Key is DateTimeOffset dateOffset) key = JsonWriterHelper.FormatDateTimeOffset(dateOffset);
                     else if (entry.Key is bool flag) key = flag ? "true" : "false";
                     else key = entry.Key.ToString();
-                    writer.WritePropertyName(key);
+                    // Date keys are written unescaped, like their converters' WriteAsPropertyName.
+                    if (entry.Key is DateTime || entry.Key is DateTimeOffset) writer.WritePropertyNameUtf8Escaped(Encoding.UTF8.GetBytes(key));
+                    else writer.WritePropertyName(key);
                     state.Push(key);
                     WriteWithState(writer, entry.Value, options, state);
                     state.Pop();

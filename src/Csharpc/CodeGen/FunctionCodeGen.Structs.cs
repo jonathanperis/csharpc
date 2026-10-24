@@ -41,6 +41,10 @@ public sealed partial class FunctionCodeGen
                 return AddressOf(op);
             case IFieldReferenceOperation { Field: { IsStatic: true, Name: "Zero", ContainingType.SpecialType: SpecialType.System_IntPtr or SpecialType.System_UIntPtr } }:
                 return Spill(EmitValue(op));
+            // A library static readonly field csharpc computes (BclValueTypes' field table, e.g.
+            // DateTimeOffset.MaxValue) has no storage: a method call on it gets a copy.
+            case IFieldReferenceOperation { Field.IsStatic: true } bf when !_m.IsUserType(_m.CoreLib.Map(bf.Field).ContainingType):
+                return Spill(EmitValue(op));
             case IFieldReferenceOperation f when f.Field.IsStatic || f.Instance is not null:
                 return AddressOf(op);
             case IFlowCaptureReferenceOperation c when _cfg!.LvalueCaptures.Contains(c.Id):

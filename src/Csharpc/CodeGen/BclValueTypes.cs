@@ -701,28 +701,7 @@ internal static partial class BclValueTypes
             return b.Select(isDigit, value, LlvmContext.ConstReal(l.F64, -1));
         };
 
-        // ===== System.Convert =====
-        t["System.Convert.ToInt32(string)"] = (g, _, _, a, _) => Rt(g, "csrt_int32_parse", g.Llvm.I32, (a[0], g.Llvm.Ptr));
-        t["System.Convert.ToInt64(string)"] = (g, _, _, a, _) => Rt(g, "csrt_int64_parse", g.Llvm.I64, (a[0], g.Llvm.Ptr));
-        t["System.Convert.ToDouble(string)"] = (g, _, _, a, _) => Rt(g, "csrt_double_parse", g.Llvm.F64, (a[0], g.Llvm.Ptr));
-        t["System.Convert.ToInt32(string, int)"] = (g, _, _, a, _) =>
-            g.Builder.Cast(LLVMOpcode.Trunc, Rt(g, "csrt_convert_parse_base", g.Llvm.I64, (a[0], g.Llvm.Ptr), (a[1], g.Llvm.I32), (I32(g, 32), g.Llvm.I32)), g.Llvm.I32);
-        t["System.Convert.ToInt64(string, int)"] = (g, _, _, a, _) =>
-            Rt(g, "csrt_convert_parse_base", g.Llvm.I64, (a[0], g.Llvm.Ptr), (a[1], g.Llvm.I32), (I32(g, 64), g.Llvm.I32));
-        t["System.Convert.ToString(int, int)"] = (g, _, _, a, _) =>
-            Rt(g, "csrt_convert_to_base", g.Llvm.Ptr, (ToI64(g, a[0]), g.Llvm.I64), (a[1], g.Llvm.I32), (I32(g, 32), g.Llvm.I32));
-        t["System.Convert.ToString(long, int)"] = (g, _, _, a, _) =>
-            Rt(g, "csrt_convert_to_base", g.Llvm.Ptr, (a[0], g.Llvm.I64), (a[1], g.Llvm.I32), (I32(g, 64), g.Llvm.I32));
-        t["System.Convert.ToInt32(double)"] = (g, _, _, a, _) =>
-            Rt(g, "csrt_convert_double_to_i32", g.Llvm.I32, (a[0], g.Llvm.F64));
-        t["System.Convert.ToInt32(bool)"] = (g, _, _, a, _) => g.Builder.Cast(LLVMOpcode.ZExt, a[0], g.Llvm.I32);
-        t["System.Convert.ToInt32(char)"] = (g, _, _, a, _) => g.Builder.Cast(LLVMOpcode.ZExt, a[0], g.Llvm.I32);
-        t["System.Convert.ToInt32(long)"] = (g, _, _, a, at) => g.ConvertNumeric(a[0], g.Module.Compilation.GetSpecialType(SpecialType.System_Int64),
-            g.Module.Compilation.GetSpecialType(SpecialType.System_Int32), at, isChecked: true);
-        t["System.Convert.ToDouble(int)"] = (g, _, _, a, _) => g.Builder.Cast(LLVMOpcode.SIToFP, a[0], g.Llvm.F64);
-        t["System.Convert.ToChar(int)"] = (g, _, _, a, at) => g.ConvertNumeric(a[0], g.Module.Compilation.GetSpecialType(SpecialType.System_Int32),
-            g.Module.Compilation.GetSpecialType(SpecialType.System_Char), at, isChecked: true);
-        t["System.Convert.ToBoolean(string)"] = (g, _, _, a, _) => Rt(g, "csrt_bool_parse", g.Llvm.I1, (a[0], g.Llvm.Ptr));
+        // System.Convert: corelib Convert.cs (a port of .NET's).
 
         // ===== System.Environment =====
         t["System.Environment.get_ProcessorCount()"] = (g, _, _, _, _) => Rt(g, "csrt_environment_processor_count", g.Llvm.I32);
@@ -1194,11 +1173,15 @@ internal static partial class BclValueTypes
         t["string.Empty"] = (g, _) => g.Module.StringLiteral("");
         t["System.EventArgs.Empty"] = (g, _) => g.CallCoreLib("EventArgsImpl", "GetEmpty");
         t["System.TimeSpan.Zero"] = (g, _) => I64(g, 0);
+        t["System.Threading.Timeout.InfiniteTimeSpan"] = (g, _) => I64(g, -TicksPerMs);
         t["System.TimeSpan.MaxValue"] = (g, _) => I64(g, long.MaxValue);
         t["System.TimeSpan.MinValue"] = (g, _) => I64(g, long.MinValue);
         t["System.DateTime.MinValue"] = (g, _) => I64(g, 0);
         t["System.DateTime.MaxValue"] = (g, _) => I64(g, 3155378975999999999);
         t["System.DateTime.UnixEpoch"] = (g, _) => I64(g, 621355968000000000 | DateTimeKindUtc);  // a Utc DateTime
+        // DateTimeOffset is a corelib struct; its non-default static readonly fields come from getters.
+        t["System.DateTimeOffset.MaxValue"] = (g, _) => g.CallCoreLib("DateTimeOffsetImpl", "GetMaxValue");
+        t["System.DateTimeOffset.UnixEpoch"] = (g, _) => g.CallCoreLib("DateTimeOffsetImpl", "GetUnixEpoch");
         t["System.Diagnostics.Stopwatch.Frequency"] = (g, _) => g.Module.Types.Target.IsWindows
             ? g.CallRuntime("csrt_stopwatch_frequency", g.Llvm.I64, []) : I64(g, 1_000_000_000);
         t["System.Diagnostics.Stopwatch.IsHighResolution"] = (g, _) => g.Llvm.True;

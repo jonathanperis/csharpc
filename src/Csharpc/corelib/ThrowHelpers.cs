@@ -101,6 +101,21 @@ namespace CsharpcCoreLib
         }
     }
 
+    /// <summary>
+    /// The body of a user `extern` method that is neither a P/Invoke nor an [UnsafeAccessor]: .NET compiles
+    /// such a program (warning CS0626) and throws when the method is called.
+    /// </summary>
+    internal static class BodylessExtern
+    {
+        // The HRESULT text as .NET prints it: on its own line on Unix, after the message on Windows.
+        public static void Throw() =>
+#if CSHARPC_TARGET_WINDOWS
+            throw new BadImageFormatException("An attempt was made to load a program with an incorrect format. (0x8007000B)");
+#else
+            throw new BadImageFormatException("An attempt was made to load a program with an incorrect format.\n (0x8007000B)");
+#endif
+    }
+
     [ShadowMembers("System.ObjectDisposedException")]
     internal static class ObjectDisposedExceptionExtras
     {

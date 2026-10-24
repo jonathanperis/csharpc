@@ -181,6 +181,20 @@ The 14 others stop at explicit diagnostics: `DateTimeOffset` (4 programs), `Debu
 `MemberInfo.IsDefined`, `StringComparer.Create(CultureInfo, …)`, `Regex` and, for the JSON API itself,
 anonymous types and a `file`-local type with the reflection-style serializer.
 
+**M2 blockers (`datetimeoffset` branch, samples `tests/samples/480`–`487`).** Re-run of the programs they blocked
+(`tools/compat/run.sh`, filters `system-text-json-support`, `how-to-display-milliseconds`, `how-to-6-0`,
+`memory-and-spans`, `linq-equality`): the 5 `DateTimeOffset` programs (`DateTimeCode`, the three
+`system-text-json-support` `JsonDocument`/`Utf8JsonReader` snippets, `how-to-6-0`), the 5 `MemoryPool<T>`
+programs (`memory-and-spans/usage-guidelines` `owner`, `owner-using`, `task-returning`, `task-returning-async`,
+`void-returning`), `ownerless` (formatting `Memory<char>`) and `linq/equality` (`SequenceEqual` with a comparer)
+pass. Along the way: `DateTimeOffset` in `System.Text.Json` (reader, `JsonElement`, writer, the serializer's
+converter, nodes); `MemoryExtensions` compared the bytes of strings, floating-point numbers and structs (a silent
+difference: equal strings at different addresses didn't match); `Convert` (port; some inline conversions threw
+other exceptions than .NET's); `Task.Wait` with timeouts and tokens, `WaitAsync`; a user
+`extern` method without `[DllImport]` (`void-returning` declares one it never calls) crashed the compiler with
+invalid IR and now throws .NET's `BadImageFormatException` when called. Still open from these rows: `Task.Id`,
+`Task.Status`, `Uri`, `System.Xml.Linq`.
+
 Still open from step 3: `new Random(seed)` (2 programs) and `Debug.Assert(bool, string)` (3).
 `Array.GetEnumerator()` (non-generic `foreach` over an `Array` returned by `Enum.GetValues`)
 needs the element type at run time and stays a diagnostic.

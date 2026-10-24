@@ -171,7 +171,7 @@ public sealed partial class FunctionCodeGen
                 capturesNothing = callee.Incoming is null; // compiled to a static method by C#, so cached too
                 break;
             }
-            case IMethodReferenceOperation { Method.IsStatic: true } group when _m.IsUserMethod(group.Method):
+            case IMethodReferenceOperation { Method.IsStatic: true } group when _m.IsUserMethod(S(group.Method)):
                 target = LlvmContext.Null(L.Ptr);
                 fn = _m.StaticThunk(S(group.Method));
                 break;

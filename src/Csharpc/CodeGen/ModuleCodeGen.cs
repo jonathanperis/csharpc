@@ -312,6 +312,12 @@ public sealed partial class ModuleCodeGen
         return _functions[method] = new LoweredFunction(fn, type);
     }
 
+    /// <summary>A user source `extern` method with no implementation anywhere (no [DllImport], [UnsafeAccessor] or InternalCall).</summary>
+    private bool IsBodylessExtern(IMethodSymbol method) =>
+        !CoreLib.IsCoreLib(method) && !IsIlMethod(method) && !IsPInvoke(method)
+        && (method.MethodImplementationFlags & System.Reflection.MethodImplAttributes.InternalCall) == 0
+        && !method.GetAttributes().Any(a => a.AttributeClass?.Name is "UnsafeAccessorAttribute" or "WasmImportLinkageAttribute");
+
     /// <summary>
     /// No body to lower: `extern` (P/Invoke) or runtime-implemented. Roslyn's metadata symbols report
     /// [MethodImpl(InternalCall)] methods (the corelib's CoreIntrinsics, ADR 0015) as not extern.
@@ -552,6 +558,11 @@ public sealed partial class ModuleCodeGen
 
     private void EmitMethodCore(IMethodSymbol method)
     {
+        if (method.IsExtern && IsBodylessExtern(method))
+        {
+            new FunctionCodeGen(this, null, GetFunction(method)).EmitBodylessExternStub();
+            return;
+        }
         if (method.IsAbstract || method.IsExtern) return;
         if (Il.OwnerOf(method) is { } ilAssembly)
         {

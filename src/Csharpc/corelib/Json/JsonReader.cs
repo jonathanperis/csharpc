@@ -2514,6 +2514,26 @@ namespace CsharpcCoreLib
             return value;
         }
 
+        public DateTimeOffset GetDateTimeOffset()
+        {
+            if (!TryGetDateTimeOffset(out DateTimeOffset value))
+            {
+                JsonThrowHelper.ThrowFormatException(DataType.DateTimeOffset);
+            }
+
+            return value;
+        }
+
+        internal DateTimeOffset GetDateTimeOffsetNoValidation()
+        {
+            if (!TryGetDateTimeOffsetCore(out DateTimeOffset value))
+            {
+                JsonThrowHelper.ThrowFormatException(DataType.DateTimeOffset);
+            }
+
+            return value;
+        }
+
         internal DateTime GetDateTimeNoValidation()
         {
             if (!TryGetDateTimeCore(out DateTime value))
@@ -2786,6 +2806,19 @@ namespace CsharpcCoreLib
 
             return TryGetDateTimeCore(out value);
         }
+
+        public bool TryGetDateTimeOffset(out DateTimeOffset value)
+        {
+            if (TokenType != JsonTokenType.String)
+            {
+                JsonThrowHelper.ThrowInvalidOperationException_ExpectedString(TokenType);
+            }
+
+            return TryGetDateTimeOffsetCore(out value);
+        }
+
+        internal bool TryGetDateTimeOffsetCore(out DateTimeOffset value) =>
+            JsonReaderHelper.TryGetValue(ValueSpan, ValueIsEscaped, out value);
 
         internal unsafe bool TryGetDateTimeCore(out DateTime value)
         {

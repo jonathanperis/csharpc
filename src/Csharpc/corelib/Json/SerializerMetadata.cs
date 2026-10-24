@@ -984,6 +984,7 @@ namespace CsharpcCoreLib
         private static JsonConverterImpl<byte> s_byte;
         private static JsonConverterImpl<char> s_char;
         private static JsonConverterImpl<DateTime> s_dateTime;
+        private static JsonConverterImpl<DateTimeOffset> s_dateTimeOffset;
         private static JsonConverterImpl<decimal> s_decimal;
         private static JsonConverterImpl<double> s_double;
         private static JsonConverterImpl<short> s_int16;
@@ -1009,6 +1010,7 @@ namespace CsharpcCoreLib
         public static JsonConverterImpl<byte> ByteConverter => s_byte ??= new ByteConverter();
         public static JsonConverterImpl<char> CharConverter => s_char ??= new CharConverter();
         public static JsonConverterImpl<DateTime> DateTimeConverter => s_dateTime ??= new DateTimeConverter();
+        public static JsonConverterImpl<DateTimeOffset> DateTimeOffsetConverter => s_dateTimeOffset ??= new DateTimeOffsetConverter();
         public static JsonConverterImpl<decimal> DecimalConverter => s_decimal ??= new DecimalConverter();
         public static JsonConverterImpl<double> DoubleConverter => s_double ??= new DoubleConverter();
         public static JsonConverterImpl<short> Int16Converter => s_int16 ??= new Int16Converter();

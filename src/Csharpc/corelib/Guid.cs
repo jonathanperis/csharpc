@@ -156,6 +156,16 @@ namespace CsharpcCoreLib
                 .WithVersion(Version7Value));
         }
 
+        public static Guid CreateVersion7(DateTimeOffset timestamp)
+        {
+            // UUIDv7 stores an unsigned 48-bit millisecond count: no timestamps before the Unix epoch.
+            long unix_ts_ms = timestamp.ToUnixTimeMilliseconds();
+            ArgumentOutOfRangeException.ThrowIfNegative(unix_ts_ms, "timestamp");
+            GuidImpl r = Of(NewGuid());
+            return To(new GuidImpl((int)(unix_ts_ms >> 16), (short)unix_ts_ms, r._c, r._d, r._e, r._f, r._g, r._h, r._i, r._j, r._k)
+                .WithVersion(Version7Value));
+        }
+
         // ---- parsing -------------------------------------------------------------------------------
 
         private enum GuidParseThrowStyle : byte
