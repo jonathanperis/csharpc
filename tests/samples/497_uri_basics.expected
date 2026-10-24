@@ -1,0 +1,32 @@
+https://learn.microsoft.com:443
+True
+http://example.com/ | http://example.com/ | http://Example.COM | http | example.com | 80 | True | example.com
+  path=/ query= fragment= pq=/ local=/ type=Dns abs=True file=False
+  segments=[/] left=http://example.com http://example.com/
+http://example.com:8080/a/b.html?x=1&y=two#frag | http://example.com:8080/a/b.html?x=1&y=two#frag | HTTP://example.com:8080/a/b.html?x=1&y=two#frag | http | example.com | 8080 | False | example.com:8080
+  path=/a/b.html query=?x=1&y=two fragment=#frag pq=/a/b.html?x=1&y=two local=/a/b.html type=Dns abs=True file=False
+  segments=[/,a/,b.html] left=http://example.com:8080 http://example.com:8080/a/b.html
+https://192.168.1.10/api/v1/items;matrix=1?q=a:b@c/d?e | https://192.168.1.10/api/v1/items;matrix=1?q=a:b@c/d?e | https://192.168.1.10:0443/api/v1/items;matrix=1?q=a:b@c/d?e | https | 192.168.1.10 | 443 | True | 192.168.1.10
+  path=/api/v1/items;matrix=1 query=?q=a:b@c/d?e fragment= pq=/api/v1/items;matrix=1?q=a:b@c/d?e local=/api/v1/items;matrix=1 type=IPv4 abs=True file=False
+  segments=[/,api/,v1/,items;matrix=1] left=https://192.168.1.10 https://192.168.1.10/api/v1/items;matrix=1
+ftp://files.example.org/pub/ | ftp://files.example.org/pub/ | ftp://files.example.org/pub/ | ftp | files.example.org | 21 | True | files.example.org
+  path=/pub/ query= fragment= pq=/pub/ local=/pub/ type=Dns abs=True file=False
+  segments=[/,pub/] left=ftp://files.example.org ftp://files.example.org/pub/
+wss://chat.example.net/socket | wss://chat.example.net/socket | wss://chat.example.net/socket | wss | chat.example.net | 443 | True | chat.example.net
+  path=/socket query= fragment= pq=/socket local=/socket type=Dns abs=True file=False
+  segments=[/,socket] left=wss://chat.example.net wss://chat.example.net/socket
+http://localhost:65535/ | http://localhost:65535/ | http://localhost:65535/ | http | localhost | 65535 | False | localhost:65535
+  path=/ query= fragment= pq=/ local=/ type=Dns abs=True file=False
+  segments=[/] left=http://localhost:65535 http://localhost:65535/
+: UriFormatException: Invalid URI: The URI is empty.
+not a uri: UriFormatException: Invalid URI: The format of the URI could not be determined.
+example.com/path: UriFormatException: Invalid URI: The format of the URI could not be determined.
+True True True True False
+True https://ok.example/
+False True
+https :// True False True
+a%20b%26c%3Dd%2F%C3%A9%3F~_.-%21%2A%27%28%29
+%F0%9F%98%80%20%EF%BF%BDx
+a b&c=d/é?~%zz%4
+round trip ✓ 😀
+uriString
