@@ -139,15 +139,25 @@ public sealed partial class FunctionCodeGen
         var coro = _coro!;
         if (!coro.Pad.IsNull) return coro.Pad;
         EnsurePersonality();
-        var (savedBlock, savedUnwind) = (_b.InsertBlock, _b.UnwindDest);
-        _b.UnwindDest = default;
-        coro.Pad = NewBlock("coro.lpad");
-        _b.PositionAtEnd(coro.Pad);
-        var lp = _b.LandingPad(LandingPadType, _m.Runtime("csrt_personality", L.I32).Fn, [LlvmContext.Null(L.Ptr)], cleanup: false);
+        var (savedBlock, savedUnwind, savedHook) = (_b.InsertBlock, _b.UnwindDest, _b.UnwindHook);
+        (_b.UnwindDest, _b.UnwindHook) = (default, null);
+        LLVMValueRef lp;
+        if (Traced)
+        {
+            var target = NewSitePadTarget([LlvmContext.Null(L.Ptr)], cleanup: false, "coro.lpad.record");
+            coro.Pad = target.Body;
+            lp = target.Pad;
+        }
+        else
+        {
+            coro.Pad = NewBlock("coro.lpad");
+            _b.PositionAtEnd(coro.Pad);
+            lp = _b.LandingPad(LandingPadType, _m.Runtime("csrt_personality", L.I32).Fn, [LlvmContext.Null(L.Ptr)], cleanup: false);
+        }
         _b.Store(CallRuntime("csrt_begin_catch", L.Ptr, [L.Ptr], _b.ExtractValue(lp, 0)), coro.ExceptionSlot);
         _b.Br(coro.Fault);
         _b.PositionAtEnd(savedBlock);
-        _b.UnwindDest = savedUnwind;
+        (_b.UnwindDest, _b.UnwindHook) = (savedUnwind, savedHook);
         return coro.Pad;
     }
 

@@ -1,0 +1,79 @@
+== generic nested
+InvalidOperationException: slot is full
+   at Shapes.Geometry.Container`1.Slot.Fill[U](T item, U extra, Int32[] grid, Int32& count, String& label, Nullable`1 limit, ValueTuple`2 pair, List`1 list, Dictionary`2 map, Decimal price, DateTime when) in 410_stack_trace_basics.cs:line 20
+   at Shapes.Geometry.Container`1..ctor(Boolean fill) in 410_stack_trace_basics.cs:line 28
+   at Program.<>c.<Main>b__0_0() in 410_stack_trace_basics.cs:line 61
+   at Program.Show(String name, Action action) in 410_stack_trace_basics.cs:line 117
+
+== property
+ArgumentOutOfRangeException: empty (Parameter 'Count')
+   at Shapes.Geometry.Container`1.get_Count() in 410_stack_trace_basics.cs:line 31
+   at Program.<>c.<Main>b__0_1() in 410_stack_trace_basics.cs:line 62
+   at Program.Show(String name, Action action) in 410_stack_trace_basics.cs:line 117
+
+== indexer
+IndexOutOfRangeException: no item 3
+   at Shapes.Geometry.Container`1.get_Item(Int32 index) in 410_stack_trace_basics.cs:line 32
+   at Program.<>c.<Main>b__0_2() in 410_stack_trace_basics.cs:line 63
+   at Program.Show(String name, Action action) in 410_stack_trace_basics.cs:line 117
+
+== operator
+NotSupportedException: cannot add
+   at Shapes.Geometry.Container`1.op_Addition(Container`1 a, Container`1 b) in 410_stack_trace_basics.cs:line 33
+   at Program.<>c.<Main>b__0_3() in 410_stack_trace_basics.cs:line 64
+   at Program.Show(String name, Action action) in 410_stack_trace_basics.cs:line 117
+
+== struct
+ArgumentException: bad move (Parameter 'dx')
+   at Shapes.Geometry.Point.Move(Double dx, Single dy, Char tag, Boolean flag, Byte b, Object o, String s) in 410_stack_trace_basics.cs:line 39
+   at Program.<>c.<Main>b__0_4() in 410_stack_trace_basics.cs:line 65
+   at Program.Show(String name, Action action) in 410_stack_trace_basics.cs:line 117
+
+== explicit interface
+ObjectDisposedException: Cannot access a disposed object.
+Object name: 'Point'.
+   at Shapes.Geometry.Point.System.IDisposable.Dispose() in 410_stack_trace_basics.cs:line 40
+   at Program.<>c.<Main>b__0_5() in 410_stack_trace_basics.cs:line 66
+   at Program.<>c.<Main>b__0_5() in 410_stack_trace_basics.cs:line 66
+   at Program.Show(String name, Action action) in 410_stack_trace_basics.cs:line 117
+
+== extension
+ArgumentException: bad factor
+   at Shapes.Geometry.PointExtensions.Scale(Point p, Double factor) in 410_stack_trace_basics.cs:line 45
+   at Program.<>c.<Main>b__0_6() in 410_stack_trace_basics.cs:line 67
+   at Program.Show(String name, Action action) in 410_stack_trace_basics.cs:line 117
+
+== static method
+FormatException: deep 1
+   at Program.Level3(String what, Int32 depth) in 410_stack_trace_basics.cs:line 85
+   at Program.Level2(Int32 depth) in 410_stack_trace_basics.cs:line 83
+   at Program.Level1() in 410_stack_trace_basics.cs:line 79
+   at Program.Show(String name, Action action) in 410_stack_trace_basics.cs:line 117
+
+== custom exception
+Shapes.Geometry.Program+ShapeException: bad shape
+   at Program.<>c.<Main>b__0_7() in 410_stack_trace_basics.cs:line 69
+   at Program.ShowText(String name, Action action) in 410_stack_trace_basics.cs:line 129
+
+== inner exception
+Shapes.Geometry.Program+ShapeException: wrapped
+ ---> System.FormatException: deep 1
+   at Program.Level3(String what, Int32 depth) in 410_stack_trace_basics.cs:line 85
+   at Program.Level2(Int32 depth) in 410_stack_trace_basics.cs:line 83
+   at Program.Level1() in 410_stack_trace_basics.cs:line 79
+   at Program.Wrapper() in 410_stack_trace_basics.cs:line 91
+   --- End of inner exception stack trace ---
+   at Program.Wrapper() in 410_stack_trace_basics.cs:line 95
+   at Program.ShowText(String name, Action action) in 410_stack_trace_basics.cs:line 129
+
+== line directive
+System.FormatException: deep 1
+   at Program.Level3(String what, Int32 depth) in 410_stack_trace_basics.cs:line 85
+   at Program.Level2(Int32 depth) in 410_stack_trace_basics.cs:line 83
+   at Program.Level1() in 410_stack_trace_basics.cs:line 79
+   at Program.Mapped() in mapped.cs:line 500
+   at Program.ShowText(String name, Action action) in 410_stack_trace_basics.cs:line 129
+
+True
+System.InvalidOperationException: never thrown
+interpolated: FormatException

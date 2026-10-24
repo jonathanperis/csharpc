@@ -29,8 +29,9 @@ public sealed partial class ModuleCodeGen
 
     /// <summary>
     /// Exception.ToString() in .NET appends the stack trace ("   at Type.Method(...) in file:line N")
-    /// of a thrown exception. csharpc can't reproduce those frames, so its text stops after the
-    /// message (and inner exceptions): say so where a program turns an exception into text.
+    /// of a thrown exception. csharpc records the frames of the program's own code exactly
+    /// (docs/adr/0012-stack-traces.md), but not those inside .NET's library, whose internals differ:
+    /// say so where a program turns an exception into text.
     /// </summary>
     public void WarnExceptionToString(ITypeSymbol? type, IOperation? at)
     {
@@ -40,8 +41,16 @@ public sealed partial class ModuleCodeGen
         // A user override decides the text itself.
         for (var t = named; t is not null && !IsLibraryException(t); t = t.BaseType)
             if (t.GetMembers("ToString").OfType<IMethodSymbol>().Any(m => m.IsOverride && m.Parameters.IsEmpty)) return;
+        WarnStackTraceFrames(at);
+    }
+
+    /// <summary>See <see cref="WarnExceptionToString"/>; also for reads of Exception.StackTrace.</summary>
+    public void WarnStackTraceFrames(IOperation at)
+    {
+        if (at.Syntax.SyntaxTree.FilePath.StartsWith("<corelib>", StringComparison.Ordinal)) return;
         Warnings.Add(new CompileError("CSLLVM0006",
-            "Exception.ToString() includes no stack trace in csharpc: the \"   at ...\" lines .NET prints for a thrown exception are missing", at.Syntax.GetLocation()));
+            "stack traces list the frames of the program's own code as .NET does, but .NET's library frames only for common members (an exception thrown by, or passing through, other BCL code shows fewer \"   at ...\" lines)",
+            at.Syntax.GetLocation()));
     }
 
     private static bool DerivesFromException(INamedTypeSymbol type)
@@ -55,6 +64,17 @@ public sealed partial class ModuleCodeGen
 
     /// <summary>DWARF emission (csharpc -g); null when debug info is off.</summary>
     public DebugInfo? Debug { get; set; }
+
+    /// <summary>Stack-trace recording (docs/adr/0012-stack-traces.md); null when the program never looks at one.</summary>
+    public StackTraceInfo? StackTraces { get; init; }
+
+    private LLVMValueRef _traceTables;
+    private LLVMValueRef _tracePadAnchor;
+
+    /// <summary>A byte record-only landing pads store to, so that LLVM keeps them (FunctionCodeGen.StackTraces.cs).</summary>
+    internal LLVMValueRef TracePadAnchor() => _tracePadAnchor.IsNull
+        ? _tracePadAnchor = Module.AddGlobal("csharpc.trace.anchor", Llvm.I8, Llvm.ConstInt(Llvm.I8, 0), linkage: LLVMLinkage.Internal)
+        : _tracePadAnchor;
 
     private readonly Dictionary<IMethodSymbol, LoweredFunction> _functions = new(SymbolEqualityComparer.Default);
     private readonly Dictionary<INamedTypeSymbol, ClassLayout> _layouts = new(SymbolEqualityComparer.Default);
@@ -158,6 +178,9 @@ public sealed partial class ModuleCodeGen
         while (EmitRuntimeExports() | EmitTypeMetadata());
         Guard(entryPoint, FinishTypeMetadata);
         ReportIlFailures();
+        // Every call site is known now: the stack-trace tables main registers.
+        if (StackTraces is { } traces && !_traceTables.IsNull)
+            Native.LLVMSetInitializer(_traceTables, traces.EmitTables(this));
     }
 
     private void DrainWorklists()
@@ -437,7 +460,8 @@ public sealed partial class ModuleCodeGen
         "csrt_isinst_class", "csrt_string_concat", "csrt_string_equals", "csrt_string_is_null_or_empty",
         "csrt_console_newline", "csrt_object_to_string_default", "csrt_object_equals_default",
         "csrt_object_get_hash_code_default", "csrt_exception_init", "csrt_environment_tick_count64",
-        "csrt_environment_exit",
+        "csrt_environment_exit", "csrt_trace_frame", "csrt_trace_init", "csrt_exception_get_stack_trace",
+        "csrt_exception_capture_trace", "csrt_trace_finally", "csrt_trace_new_stack", "csrt_trace_preset", "csrt_trace_append_library",
     ];
 
     /// <summary>False for callees known not to unwind (LLVM intrinsics, libm, most of csrt): no invoke needed.</summary>
@@ -858,10 +882,10 @@ public sealed partial class ModuleCodeGen
         var baseLayout = type.BaseType is { SpecialType: not SpecialType.System_Object } b ? GetLibraryExceptionLayout(b) : null;
 
         var structType = Llvm.NamedStruct("class." + name);
-        // { mt, message, inner, paramName, actualValue } — csrt_Exception in src/runtime/csrt.h.
-        LlvmContext.SetBody(structType, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr);
+        // { mt, message, inner, paramName, actualValue, trace } — csrt_Exception in src/runtime/csrt.h.
+        LlvmContext.SetBody(structType, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr);
         var layout = new ClassLayout { Type = type, InstanceType = structType, Base = baseLayout, IsLibrary = true };
-        layout.Elements.AddRange([Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr]);
+        layout.Elements.AddRange([Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr]);
         layout.InstanceSize = Types.Target.SizeOf(structType);
         AddObjectSlots(layout);
         layout.VTable.Add(null);
@@ -1194,6 +1218,14 @@ public sealed partial class ModuleCodeGen
 
         var init = Runtime("csrt_init", Llvm.Void, Llvm.I32, Llvm.Ptr);
         b.Call(init.Type, init.Fn, [main.Param(0), main.Param(1)]);
+        if (StackTraces is not null)
+        {
+            // csrt_TraceTables (src/runtime/eh.c); filled in once codegen has seen every call site.
+            var tablesType = Llvm.Struct(Llvm.Ptr, Llvm.Ptr);
+            _traceTables = Module.AddGlobal("csharpc.trace.tables", tablesType, LlvmContext.Null(tablesType), constant: true, linkage: LLVMLinkage.Internal);
+            var register = Runtime("csrt_trace_init", Llvm.Void, Llvm.Ptr);
+            b.Call(register.Type, register.Fn, [_traceTables]);
+        }
         // Builtin types implementing the program's interfaces (string, boxed primitives; arrays carry
         // exact interface maps in their per-element-type method tables instead):
         // Roslyn's conversion classification decides, so variance (string[] as IEnumerable<object>) is covered.

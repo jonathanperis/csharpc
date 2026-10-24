@@ -48,7 +48,8 @@ every failure is a clean "not supported by csharpc yet" diagnostic.
 |---|---|---|
 | All loops, `switch` statements/expressions, `goto` | ✅ | |
 | Patterns: type, constant, relational, logical, property, positional, list, `var` | ✅ | slice sub-patterns ⬜ |
-| `try`/`catch`/`finally`, filters, rethrow, custom exceptions | ✅ | Itanium EH; no stack traces |
+| `try`/`catch`/`finally`, filters, rethrow, custom exceptions | ✅ | Itanium EH |
+| `Exception.StackTrace`, traces in `ToString()` | 🟡 | user frames exact incl. lambdas, async, inlining ([ADR 0012](adr/0012-stack-traces.md)); BCL-internal frames only for common members (`CSLLVM0006`) |
 | `checked`/`unchecked` | ✅ | |
 | `using` statements/declarations, `lock` | ✅ | real monitors |
 | Iterators (`yield`), `async`/`await`, `await foreach` | ✅ | LLVM coroutines |

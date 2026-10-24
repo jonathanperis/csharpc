@@ -135,8 +135,17 @@ public sealed class Compiler(CompilerOptions options)
         if (!il.IsEmpty) codegenOptions = codegenOptions.WithMetadataImportOptions(MetadataImportOptions.All);
         var codegenCompilation = MethodGroupRewriter.Rewrite(compilation.WithOptions(codegenOptions));
         if (!il.IsEmpty) il.Bind(codegenCompilation);
+        // Stack traces cost a landing pad per call site: only for programs that can look at one.
+        StackTraceInfo? stackTraces = null;
+        if (options.StackTraces || StackTraceInfo.FindObservation(compilation) is not null)
+        {
+            var symbols = settings.Symbols ?? new DebugSymbolSettings { Optimize = options.Configuration.Equals("Release", StringComparison.OrdinalIgnoreCase) };
+            stackTraces = new StackTraceInfo(compilation, symbols);
+            Phase($"stack-trace metadata (emit + PDB, {(stackTraces.HasPdb ? "ok" : "failed")})");
+        }
         var codegen = new ModuleCodeGen(codegenCompilation, llvm, module, target)
         {
+            StackTraces = stackTraces,
             CfgDump = options.DumpCfg ? Console.Out : null,
             IlDump = options.DumpIl ? Console.Out : null,
             Il = il,
@@ -153,6 +162,7 @@ public sealed class Compiler(CompilerOptions options)
         Phase("lower CFG -> LLVM IR");
         if (options.Verbose) Console.Error.WriteLine($"             {codegen.Stats}");
 
+        if (stackTraces is not null) codegen.Warnings.AddRange(stackTraces.Warnings);
         foreach (var w in codegen.Warnings.DistinctBy(w => w.Format()))
         {
             var text = w.Format();

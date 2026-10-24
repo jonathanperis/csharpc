@@ -14,6 +14,39 @@ namespace Csharpc.Frontend;
 /// </summary>
 public static class MethodGroupRewriter
 {
+    /// <summary>Marks the lambdas this rewrite synthesizes: they are not part of the program (no stack frame in .NET).</summary>
+    public static readonly SyntaxAnnotation Synthesized = new("csharpc.method-group");
+
+    /// <summary>Rewritten tree -> the tree it was made from, and what changed (original full span, new length), in order.</summary>
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<SyntaxTree, Origin> s_origins = new();
+
+    private sealed record Origin(SyntaxTree Tree, List<(Microsoft.CodeAnalysis.Text.TextSpan Span, int NewLength)> Replacements);
+
+    /// <summary>
+    /// Maps a span of a (possibly) rewritten tree back to the tree the user wrote: stack traces look
+    /// positions up in the PDB of the original program (CodeGen/StackTraces.cs).
+    /// </summary>
+    public static (SyntaxTree Tree, Microsoft.CodeAnalysis.Text.TextSpan Span) Original(SyntaxTree tree, Microsoft.CodeAnalysis.Text.TextSpan span)
+    {
+        if (!s_origins.TryGetValue(tree, out var origin)) return (tree, span);
+        var start = OriginalPosition(origin, span.Start);
+        var end = Math.Max(start, OriginalPosition(origin, span.End));
+        return (origin.Tree, Microsoft.CodeAnalysis.Text.TextSpan.FromBounds(start, end));
+    }
+
+    private static int OriginalPosition(Origin origin, int position)
+    {
+        var delta = 0;
+        foreach (var (span, newLength) in origin.Replacements)
+        {
+            var newStart = span.Start + delta;
+            if (position < newStart) break;
+            if (position < newStart + newLength) return span.Start; // inside a synthesized lambda
+            delta += newLength - span.Length;
+        }
+        return position - delta;
+    }
+
     public static CSharpCompilation Rewrite(CSharpCompilation compilation)
     {
         var result = compilation;
@@ -37,12 +70,15 @@ public static class MethodGroupRewriter
                 if (node.Ancestors().Any(a => replacements.ContainsKey(a))) continue;
                 var parameters = string.Join(", ", method.Parameters.Select((_, i) => $"__mg{i}"));
                 var lambda = SyntaxFactory.ParseExpression($"({parameters}) => {node.WithoutTrivia()}({parameters})")
-                    .WithTriviaFrom(node);
+                    .WithTriviaFrom(node).WithAdditionalAnnotations(Synthesized);
                 replacements[node] = lambda;
             }
             if (replacements.Count == 0) continue;
             var newRoot = root.ReplaceNodes(replacements.Keys, (original, _) => replacements[original]);
-            result = result.ReplaceSyntaxTree(tree, tree.WithRootAndOptions(newRoot, tree.Options));
+            var newTree = tree.WithRootAndOptions(newRoot, tree.Options);
+            s_origins.AddOrUpdate(newTree, new Origin(tree,
+                [.. replacements.OrderBy(r => r.Key.FullSpan.Start).Select(r => (r.Key.FullSpan, r.Value.FullSpan.Length))]));
+            result = result.ReplaceSyntaxTree(tree, newTree);
         }
         return result;
     }

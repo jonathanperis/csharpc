@@ -1,0 +1,103 @@
+== rethrow
+rethrowing
+InvalidOperationException: thrown
+   at Program.Thrower() in 411_stack_trace_rethrow.cs:line 34
+   at Program.Rethrow() in 411_stack_trace_rethrow.cs:line 40
+   at Program.Show(String name, Action action) in 411_stack_trace_rethrow.cs:line 269
+== rethrow in caller
+rethrowing
+InvalidOperationException: thrown
+   at Program.Thrower() in 411_stack_trace_rethrow.cs:line 34
+   at Program.Rethrow() in 411_stack_trace_rethrow.cs:line 40
+   at Program.RethrowInCaller() in 411_stack_trace_rethrow.cs:line 53
+   at Program.Show(String name, Action action) in 411_stack_trace_rethrow.cs:line 269
+== nested rethrow
+InvalidOperationException: thrown
+   at Program.Thrower() in 411_stack_trace_rethrow.cs:line 34
+   at Program.NestedRethrow() in 411_stack_trace_rethrow.cs:line 67
+   at Program.Show(String name, Action action) in 411_stack_trace_rethrow.cs:line 269
+== rethrow through finally
+finally
+InvalidOperationException: thrown
+   at Program.Thrower() in 411_stack_trace_rethrow.cs:line 34
+   at Program.RethrowThroughFinally() in 411_stack_trace_rethrow.cs:line 84
+   at Program.Show(String name, Action action) in 411_stack_trace_rethrow.cs:line 269
+== throw e
+InvalidOperationException: thrown
+   at Program.ThrowAgain() in 411_stack_trace_rethrow.cs:line 107
+   at Program.Show(String name, Action action) in 411_stack_trace_rethrow.cs:line 269
+== throw saved
+   at Program.Thrower() in 411_stack_trace_rethrow.cs:line 34
+   at Program.ThrowSaved() in 411_stack_trace_rethrow.cs:line 114
+
+InvalidOperationException: thrown
+   at Program.ThrowSaved() in 411_stack_trace_rethrow.cs:line 116
+   at Program.Show(String name, Action action) in 411_stack_trace_rethrow.cs:line 269
+== dispatch info
+captured
+InvalidOperationException: thrown
+   at Program.Thrower() in 411_stack_trace_rethrow.cs:line 34
+   at Program.Dispatch() in 411_stack_trace_rethrow.cs:line 124
+--- End of stack trace from previous location ---
+   at Program.Dispatch() in 411_stack_trace_rethrow.cs:line 131
+   at Program.Show(String name, Action action) in 411_stack_trace_rethrow.cs:line 269
+== filter
+filter sees:    at Program.Thrower() in 411_stack_trace_rethrow.cs:line 34
+   at Program.Filter() in 411_stack_trace_rethrow.cs:line 138
+InvalidOperationException: thrown
+   at Program.Thrower() in 411_stack_trace_rethrow.cs:line 34
+   at Program.Filter() in 411_stack_trace_rethrow.cs:line 138
+   at Program.Show(String name, Action action) in 411_stack_trace_rethrow.cs:line 269
+== catch throws
+handling
+InvalidOperationException: thrown
+   at Program.Thrower() in 411_stack_trace_rethrow.cs:line 34
+   at Program.CatchThrows() in 411_stack_trace_rethrow.cs:line 160
+   at Program.Show(String name, Action action) in 411_stack_trace_rethrow.cs:line 269
+== finally throws
+try
+finally
+InvalidOperationException: thrown
+   at Program.Thrower() in 411_stack_trace_rethrow.cs:line 34
+   at Program.FinallyThrows() in 411_stack_trace_rethrow.cs:line 173
+   at Program.FinallyThrows() in 411_stack_trace_rethrow.cs:line 165
+   at Program.Show(String name, Action action) in 411_stack_trace_rethrow.cs:line 269
+== finally throws while unwinding
+finally
+ArgumentException: from finally
+   at Program.FinallyThrowsWhileUnwinding() in 411_stack_trace_rethrow.cs:line 186
+   at Program.Show(String name, Action action) in 411_stack_trace_rethrow.cs:line 269
+== finally caught in method
+inner try
+caught here:    at Program.Thrower() in 411_stack_trace_rethrow.cs:line 34
+   at Program.FinallyCaughtInMethod() in 411_stack_trace_rethrow.cs:line 200
+   at Program.FinallyCaughtInMethod() in 411_stack_trace_rethrow.cs:line 191
+== using dispose
+using
+ObjectDisposedException: Cannot access a disposed object.
+Object name: 'resource'.
+   at Program.Resource.Dispose() in 411_stack_trace_rethrow.cs:line 211
+   at Program.UsingDispose() in 411_stack_trace_rethrow.cs:line 219
+   at Program.UsingDispose() in 411_stack_trace_rethrow.cs:line 215
+   at Program.Show(String name, Action action) in 411_stack_trace_rethrow.cs:line 269
+== using var dispose
+using var
+ObjectDisposedException: Cannot access a disposed object.
+Object name: 'resource'.
+   at Program.Resource.Dispose() in 411_stack_trace_rethrow.cs:line 211
+   at Program.UsingVarDispose() in 411_stack_trace_rethrow.cs:line 226
+   at Program.UsingVarDispose() in 411_stack_trace_rethrow.cs:line 223
+   at Program.Show(String name, Action action) in 411_stack_trace_rethrow.cs:line 269
+== foreach dispose
+1
+2
+InvalidOperationException: dispose
+   at Program.Items.Enumerator.Dispose() in 411_stack_trace_rethrow.cs:line 239
+   at Program.ForeachDispose() in 411_stack_trace_rethrow.cs:line 245
+   at Program.ForeachDispose() in 411_stack_trace_rethrow.cs:line 244
+   at Program.Show(String name, Action action) in 411_stack_trace_rethrow.cs:line 269
+== thrown twice
+after second throw:    at Program.ThrownTwice() in 411_stack_trace_rethrow.cs:line 257
+InvalidOperationException: twice
+   at Program.ThrownTwice() in 411_stack_trace_rethrow.cs:line 261
+   at Program.Show(String name, Action action) in 411_stack_trace_rethrow.cs:line 269

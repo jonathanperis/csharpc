@@ -99,20 +99,32 @@ void csrt_gc_collect(void);           // System.GC.Collect()
 int64_t csrt_gc_total_memory(void);  // System.GC.GetTotalMemory(bool)
 
 // Exceptions (eh.c) -----------------------------------------------------------------------------
-// Exception objects: { mt, String* message, Exception* inner, String* paramName }. Throwing raises
-// an Itanium-ABI unwind (_Unwind_RaiseException) handled by csrt_personality; see eh.c.
+// Exception objects: { mt, String* message, Exception* inner, String* paramName, String* actualValue,
+// int32[] trace }. Throwing raises an Itanium-ABI unwind (_Unwind_RaiseException) handled by
+// csrt_personality; see eh.c. Mirrored by ModuleCodeGen.GetLibraryExceptionLayout.
 typedef struct csrt_Exception {
     const csrt_MethodTable* mt;
     csrt_String* message;
     struct csrt_Exception* inner;
     csrt_String* param_name;
     csrt_String* actual_value;  // ArgumentOutOfRangeException(paramName, actualValue, message), formatted
+    csrt_Array* trace;          // stack-trace frames recorded while thrown (eh.c, "Stack traces"); null: none
 } csrt_Exception;
 typedef struct { csrt_MethodTable header; void* vtable[4]; } csrt_ExceptionMethodTable;
 enum { CSRT_SLOT_GET_MESSAGE = 3 };
 
 CSRT_THROWS void csrt_throw_object(void* exception);
 CSRT_THROWS void csrt_rethrow(void* exception);
+// Stack traces (docs/adr/0012-stack-traces.md): compiler-emitted site tables, registered by main.
+void csrt_trace_init(const void* tables);
+void csrt_trace_frame(void* unwind_exception, const void* site);   // wasm32 only
+void csrt_trace_finally(void* unwind_exception, const void* site, const void* parent);
+void csrt_trace_new_stack(void* exception);
+void csrt_trace_preset(void* exception, const void* const* sites, int32_t count);
+void csrt_trace_append_library(void* exception, const void* const* sites, int32_t count);
+csrt_String* csrt_exception_get_stack_trace(void* exception);
+void* csrt_exception_capture_trace(void* exception);
+CSRT_THROWS void csrt_exception_throw_captured(void* exception, void* captured);
 CSRT_THROWS void csrt_throw(const csrt_MethodTable* exception_type, csrt_String* message);  // by type name
 void* csrt_begin_catch(void* unwind_exception);
 void csrt_exception_init(void* exception, csrt_String* message, void* inner, csrt_String* param_name);

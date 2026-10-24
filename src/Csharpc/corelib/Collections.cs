@@ -55,7 +55,7 @@ namespace CsharpcCoreLib
 
         public T Dequeue()
         {
-            if (_size == 0) ThrowHelper.EmptyQueue();
+            if (_size == 0) throw CoreIntrinsics.LibraryFrames(new InvalidOperationException("Queue empty."), "System.Collections.Generic.Queue`1.ThrowForEmptyQueue()\nSystem.Collections.Generic.Queue`1.Dequeue()");
             T removed = _array[_head];
             _array[_head] = default(T);
             _head = _head + 1 == _array.Length ? 0 : _head + 1;
@@ -223,7 +223,7 @@ namespace CsharpcCoreLib
 
         public T Pop()
         {
-            if (_size == 0) ThrowHelper.EmptyStack();
+            if (_size == 0) throw CoreIntrinsics.LibraryFrames(new InvalidOperationException("Stack empty."), "System.Collections.Generic.Stack`1.ThrowForEmptyStack()\nSystem.Collections.Generic.Stack`1.Pop()");
             _version++;
             T item = _array[--_size];
             _array[_size] = default(T);
@@ -1031,8 +1031,7 @@ namespace CsharpcCoreLib
                 if (key == null) ThrowHelper.ArgumentNull("key");
                 int i = _store.IndexOfKey(key);
                 if (i >= 0) return _store.values[i];
-                ThrowHelper.KeyNotFound(key.ToString());
-                return default(TValue);
+                throw CoreIntrinsics.LibraryFrames(ThrowHelper.KeyNotFoundException(key.ToString()), "System.Collections.Generic.SortedDictionary`2.get_Item(TKey key)");
             }
             set
             {

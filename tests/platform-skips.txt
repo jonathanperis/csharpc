@@ -45,6 +45,8 @@ windows 190_datetime_zone_apia          live: sets TZ, which .NET ignores on Win
 windows 257_datetime_parse              live: sets TZ, which .NET ignores on Windows (it uses the Windows time zone)
 windows 251_console_readkey_redirected  live: Console.Clear with redirected output throws IOException on Windows
 windows 12_null_reference               live: an unhandled NullReferenceException from a null dereference exits with 0xC0000005 on Windows
+windows 416_stack_trace_file_not_found  .NET on Windows opens files through other internal frames (SafeFileHandle.CreateFile, ...), which csharpc does not reproduce there yet
+windows 417_stack_trace_array_copy      .NET on Windows also lists Array.Copy's own frame (no tail call into Array.CopyImpl there), which csharpc does not reproduce yet
 windows 120_threads                     the main thread's ManagedThreadId is not 1 under .NET on Windows
 windows bank                            live: writes bare "\n"s itself, next to WriteLine's "\r\n"
 windows csvreport                       live: writes bare "\n"s itself, next to WriteLine's "\r\n"

@@ -301,6 +301,22 @@ public sealed record FrontendSettings
     /// items): what AppContext.GetData/TryGetSwitch see at startup.
     /// </summary>
     public IReadOnlyList<KeyValuePair<string, string>> RuntimeConfig { get; init; } = [];
+    /// <summary>
+    /// How `dotnet build` would compile and describe the program (stack-trace names and lines);
+    /// null for single files, decided by the configuration (`dotnet run app.cs`).
+    /// </summary>
+    public DebugSymbolSettings? Symbols { get; init; }
+}
+
+/// <summary>The project properties that decide what .NET's stack traces show (CodeGen/StackTraces.cs).</summary>
+public sealed record DebugSymbolSettings
+{
+    /// <summary>&lt;Optimize&gt; (true in Release): Roslyn emits optimized IL, with fewer sequence points.</summary>
+    public bool Optimize { get; init; }
+    /// <summary>A PDB is written (DebugType not none): frames end in " in file:line N".</summary>
+    public bool HasPdb { get; init; } = true;
+    /// <summary>&lt;PathMap&gt; ("from=to,..."): the document paths the PDB records.</summary>
+    public string? PathMap { get; init; }
 }
 
 /// <summary>One project's own compilation settings (projects keep them when folded into one program).</summary>

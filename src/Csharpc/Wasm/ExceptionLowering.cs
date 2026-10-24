@@ -26,8 +26,11 @@ public static class ExceptionLowering
     public const string PendingGlobal = "csrt_pending_exception";
 
     /// <summary>C runtime functions that catch: they call something and then take the pending
-    /// exception themselves (src/runtime/eh.c, async.c). Their calls are not tested.</summary>
-    private static readonly HashSet<string> s_catching = ["csrt_trap_call", "csrt_call_catching_void", "csrt_call_catching_ptr"];
+    /// exception themselves (src/runtime/eh.c, async.c). Their calls are not tested. Also the
+    /// stack-trace recorders, which landing-pad code calls while the exception is still pending
+    /// (before csrt_begin_catch takes it): a test after them would propagate it past its handler.</summary>
+    private static readonly HashSet<string> s_catching =
+        ["csrt_trap_call", "csrt_call_catching_void", "csrt_call_catching_ptr", "csrt_trace_frame", "csrt_trace_finally"];
 
     public static void Run(LlvmModule module, LlvmContext llvm)
     {

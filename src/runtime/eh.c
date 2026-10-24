@@ -84,6 +84,19 @@ void csrt_exception_init(void* exception, csrt_String* message, void* inner, csr
 
 static csrt_String* concat_utf8(csrt_String* a, const char* b) { return csrt_string_concat(a, csrt_string_from_utf8(b)); }
 
+static bool is_exception_of(const csrt_Exception* e, const csrt_MethodTable* type) {
+    for (const csrt_MethodTable* mt = e->mt; mt; mt = mt->base)
+        if (mt == type) return true;
+    return false;
+}
+
+/// FileNotFoundException keeps its FileName in the param_name slot (ArgumentException's ParamName).
+static bool is_file_not_found(const csrt_Exception* e) {
+    for (const csrt_MethodTable* mt = e->mt; mt; mt = mt->base)
+        if (strcmp(mt->name, "System.IO.FileNotFoundException") == 0) return true;
+    return false;
+}
+
 // Exception.Message (+ ArgumentException's " (Parameter 'x')" suffix).
 csrt_String* csrt_exception_get_message(void* exception) {
     csrt_Exception* e = exception;
@@ -93,7 +106,7 @@ csrt_String* csrt_exception_get_message(void* exception) {
         snprintf(buffer, sizeof buffer, "Exception of type '%s' was thrown.", e->mt->name);
         message = csrt_string_from_utf8(buffer);
     }
-    if (e->param_name && e->param_name->length > 0) {
+    if (e->param_name && e->param_name->length > 0 && is_exception_of(e, &csrt_MT_System_ArgumentException.header)) {
         message = concat_utf8(message, " (Parameter '");
         message = csrt_string_concat(message, e->param_name);
         message = concat_utf8(message, "')");
@@ -127,17 +140,165 @@ static csrt_String* virtual_message(void* exception) {
     return ((csrt_MessageFn)vtable[CSRT_SLOT_GET_MESSAGE])(exception);
 }
 
-// Exception.ToString() without a stack trace: "Type: Message\n ---> Inner\n   --- End of ... ---".
+// Exception.ToString(): "Type: Message\n ---> Inner\n   --- End of ... ---\n   at ..." (the stack
+// trace only when the exception was thrown and the program records traces).
 csrt_String* csrt_exception_to_string(void* exception) {
     csrt_Exception* e = exception;
     csrt_String* s = csrt_string_from_utf8(e->mt->name);
     csrt_String* message = virtual_message(exception);
     if (message && message->length > 0) s = csrt_string_concat(concat_utf8(s, ": "), message);
-    if (e->inner) {
+    if (is_file_not_found(e)) {
+        // FileNotFoundException.ToString(): "File name: '...'", and the inner exception without the end line.
+        if (e->param_name && e->param_name->length > 0)
+            s = concat_utf8(csrt_string_concat(concat_utf8(s, CSRT_NEWLINE "File name: '"), e->param_name), "'");
+        if (e->inner) s = csrt_string_concat(concat_utf8(s, CSRT_NEWLINE " ---> "), csrt_object_to_string(e->inner));
+    } else if (e->inner) {
         s = csrt_string_concat(concat_utf8(s, CSRT_NEWLINE " ---> "), csrt_object_to_string(e->inner));
         s = concat_utf8(s, CSRT_NEWLINE "   --- End of inner exception stack trace ---");
     }
+    csrt_String* trace = csrt_exception_get_stack_trace(exception);
+    if (trace) s = csrt_string_concat(concat_utf8(s, CSRT_NEWLINE), trace);
     return s;
+}
+
+// ---------------------------------------------------------------------------------------------
+// Stack traces (docs/adr/0012-stack-traces.md)
+//
+// csharpc gives every call site of the program's own code that may throw a landing pad of its own
+// whose first catch clause is the site's descriptor (method, file, line; csrt_TraceSite), a
+// compiler-emitted constant the personality tells from a method table by its magic number. During
+// the search phase the personality walks the frames from the throw point up to the catching frame --
+// exactly the frame list .NET records -- and appends each descriptor it meets to the exception;
+// inlined code carries its callers' clauses too, so inlined frames are listed. Descriptors never
+// select a handler and the pads have no cleanup of their own, so phase 2 doesn't stop in frames that
+// only record. Programs that never look at a stack trace have neither the clauses nor the tables.
+//
+// An exception re-raised from a frame already recorded (finally blocks and non-matching handlers
+// rethrow, `throw;`) must not list it again: the trace keeps the highest frame (CFA) recorded, and
+// the search records only frames above it. An await, an iterator's MoveNext and
+// ExceptionDispatchInfo continue on another part of the stack: csrt_trace_new_stack forgets it.
+//
+// wasm32 has no unwinder: the landing-pad code itself records (csrt_trace_frame), as
+// ExceptionLowering branches to every pad on its way out.
+//
+// Frames: trace = an array of { count, frame, site*... }; a null site is the "--- End of stack trace
+// from previous location ---" line ExceptionDispatchInfo.Throw() adds.
+// ---------------------------------------------------------------------------------------------
+#define CSRT_TRACE_SITE_MAGIC 0xC5A7AC5E7A1E5175ULL  // not a canonical address: no method table starts with it
+typedef struct { uint64_t magic; int32_t method, file, line, unused; } csrt_TraceSite;  // file < 0: no location
+typedef struct {
+    const char* const* methods;  // "Namespace.Type.Method(Int32 x)", formatted like .NET's StackTrace
+    const char* const* files;    // document paths, as the PDB records them
+} csrt_TraceTables;
+
+// preset: the frames are library frames set before the throw (csrt_trace_preset), kept by it.
+typedef struct { int32_t count; int32_t preset; uint64_t frame; const csrt_TraceSite* sites[]; } TraceData;
+enum { TRACE_HEADER = (int32_t)(sizeof(TraceData) / sizeof(void*)) };
+
+static const csrt_TraceTables* s_trace;
+#define TRACE_PREVIOUS_LOCATION ((const csrt_TraceSite*)0)
+
+void csrt_trace_init(const void* tables) { s_trace = tables; }
+
+static TraceData* trace_data(const csrt_Array* trace) { return trace ? (TraceData*)trace->data : NULL; }
+static int32_t trace_count(const csrt_Array* trace) { return trace ? trace_data(trace)->count : 0; }
+
+static csrt_Array* trace_copy(const csrt_Array* trace, int32_t capacity) {
+    csrt_Array* copy = csrt_new_array_primitive(sizeof(void*), TRACE_HEADER + capacity);
+    if (trace) memcpy(copy->data, trace->data, sizeof(TraceData) + sizeof(void*) * (size_t)trace_count(trace));
+    return copy;
+}
+
+static void trace_append(csrt_Exception* e, const csrt_TraceSite* site) {
+    int32_t count = trace_count(e->trace);
+    if (!e->trace || TRACE_HEADER + count >= e->trace->length) e->trace = trace_copy(e->trace, 2 * count + 8);
+    TraceData* data = trace_data(e->trace);
+    data->sites[count] = site;
+    data->count = count + 1;
+}
+
+/// `throw e`: a new list of frames (unless library frames were just preset for this throw).
+static void trace_reset(csrt_Exception* e) {
+    if (!e->trace) return;
+    TraceData* data = trace_data(e->trace);
+    if (!data->preset) data->count = 0;
+    data->preset = 0;
+    data->frame = 0;
+}
+
+void csrt_trace_new_stack(void* exception) {
+    csrt_Exception* e = exception;
+    if (e && e->trace) trace_data(e->trace)->frame = 0;
+}
+
+/// The corelib's stand-in for the frames .NET's own library code lists below the program's (e.g.
+/// "System.Collections.Generic.Dictionary`2.get_Item(TKey key)"): the next throw of the exception
+/// starts its trace with them (CoreIntrinsics.LibraryFrames).
+/// The same for an exception in flight (a corelib `when` filter): append them.
+void csrt_trace_append_library(void* exception, const void* const* sites, int32_t count) {
+    if (!s_trace || !exception) return;
+    for (int32_t i = 0; i < count; i++) trace_append(exception, sites[i]);
+}
+
+void csrt_trace_preset(void* exception, const void* const* sites, int32_t count) {
+    csrt_Exception* e = exception;
+    if (!s_trace || !e) return;
+    e->trace = trace_copy(NULL, count + 8);
+    TraceData* data = trace_data(e->trace);
+    memcpy(data->sites, sites, sizeof(void*) * (size_t)count);
+    data->count = count;
+    data->preset = 1;
+}
+
+typedef struct { char* data; size_t length, capacity; } TraceText;
+
+static void text_append(TraceText* t, const char* s, size_t n) {
+    if (t->length + n > t->capacity) {
+        size_t capacity = t->capacity ? t->capacity : 256;
+        while (capacity < t->length + n) capacity *= 2;
+        char* grown = realloc(t->data, capacity);
+        if (!grown) abort();
+        t->data = grown;
+        t->capacity = capacity;
+    }
+    memcpy(t->data + t->length, s, n);
+    t->length += n;
+}
+
+static void text_append_str(TraceText* t, const char* s) { text_append(t, s, strlen(s)); }
+
+/// Exception.StackTrace: null until the exception is thrown (or when no frame was recorded).
+csrt_String* csrt_exception_get_stack_trace(void* exception) {
+    csrt_Exception* e = exception;
+    int32_t count = trace_count(e->trace);
+    if (count == 0 || !s_trace) return NULL;
+    const csrt_TraceSite* const* entries = trace_data(e->trace)->sites;
+    TraceText text = { 0 };
+    for (int32_t i = 0; i < count; i++) {
+        if (i > 0) text_append_str(&text, CSRT_NEWLINE);
+        const csrt_TraceSite* site = entries[i];
+        if (site == TRACE_PREVIOUS_LOCATION) { text_append_str(&text, "--- End of stack trace from previous location ---"); continue; }
+        text_append_str(&text, "   at ");
+        text_append_str(&text, s_trace->methods[site->method]);
+        if (site->file >= 0) {
+            char number[24];
+            char* digits = csrt_itoa_i64(site->line, number + sizeof number);
+            text_append_str(&text, " in ");
+            text_append_str(&text, s_trace->files[site->file]);
+            text_append_str(&text, ":line ");
+            text_append(&text, digits, (size_t)(number + sizeof number - digits));
+        }
+    }
+    csrt_String* result = csrt_string_from_utf8_n(text.data, text.length);
+    free(text.data);
+    return result;
+}
+
+/// ExceptionDispatchInfo.Capture: a copy of the frames recorded so far (null: none).
+void* csrt_exception_capture_trace(void* exception) {
+    csrt_Array* trace = ((csrt_Exception*)exception)->trace;
+    if (trace_count(trace) == 0) return NULL;
+    return trace_copy(trace, trace_count(trace));
 }
 
 // obj.GetType().Name / .FullName, folded by the compiler (no System.Type objects yet).
@@ -297,16 +458,12 @@ void* csrt_operation_canceled_exception_new(void) {
 /// this variable (ExceptionLowering), so it is read far more often than written. A static root.
 void* csrt_pending_exception;
 
-void csrt_throw_object(void* exception) {
-    if (!exception)  // `throw null;` throws a NullReferenceException
-        exception = new_exception(&csrt_MT_System_NullReferenceException, "Object reference not set to an instance of an object.");
+static CSRT_THROWS void raise_exception(void* exception) {
     csrt_pending_exception = exception;
     // Debugging aid: wasm has no unwinder to show where an exception came from, but a trap prints
     // the engine's backtrace (wasmtime: with function names unless the module was stripped).
     if (getenv("CSRT_TRAP_ON_THROW")) __builtin_trap();
 }
-
-void csrt_rethrow(void* exception) { csrt_throw_object(exception); }
 
 /// The landing-pad code (wasm: reached by a branch after the call that threw): take the exception.
 void* csrt_begin_catch(void* unused) {
@@ -327,9 +484,7 @@ void* csrt_trap_call(void (*fn)(void*), void* arg) {
 /// nothing references it until that pass runs, after the runtime's dead code is dropped.
 __attribute__((used)) _Noreturn void csrt_unhandled_pending(void) { unhandled(csrt_begin_catch(NULL)); }
 #else
-void csrt_throw_object(void* exception) {
-    if (!exception)  // `throw null;` throws a NullReferenceException
-        exception = new_exception(&csrt_MT_System_NullReferenceException, "Object reference not set to an instance of an object.");
+static CSRT_THROWS void raise_exception(void* exception) {
     csrt_Throw* t = calloc(1, sizeof *t);
     if (!t) abort();
     t->exception = exception;
@@ -344,8 +499,6 @@ void csrt_throw_object(void* exception) {
     unhandled(exception);
 }
 
-void csrt_rethrow(void* exception) { csrt_throw_object(exception); }
-
 // Called first thing in a landing pad: unwrap the managed exception object.
 void* csrt_begin_catch(void* unwind_exception) {
     struct _Unwind_Exception* unwind = unwind_exception;
@@ -356,6 +509,62 @@ void* csrt_begin_catch(void* unwind_exception) {
     return exception;
 }
 #endif
+
+// `throw e`: a new stack trace starts here, even for an exception thrown before (as in .NET).
+void csrt_throw_object(void* exception) {
+    if (!exception)  // `throw null;` throws a NullReferenceException
+        exception = new_exception(&csrt_MT_System_NullReferenceException, "Object reference not set to an instance of an object.");
+    trace_reset(exception);
+    raise_exception(exception);
+}
+
+// `throw;`, an exception leaving a handler region, `await` of a faulted task: the frames recorded so
+// far stay, and the frames it passes through next are appended.
+void csrt_rethrow(void* exception) { raise_exception(exception); }
+
+/// ExceptionDispatchInfo.Throw(): the frames captured by Capture(), then .NET's marker line, then the
+/// frames from here on.
+void csrt_exception_throw_captured(void* exception, void* captured) {
+    csrt_Exception* e = exception;
+    csrt_Array* frames = captured;
+    if (frames) {
+        e->trace = trace_copy(frames, trace_count(frames) + 8);
+        trace_append(e, TRACE_PREVIOUS_LOCATION);
+        trace_data(e->trace)->frame = 0;  // Throw() runs elsewhere on the stack than the capture
+    } else trace_reset(e);
+    raise_exception(exception);
+}
+
+#ifdef __wasm__
+// wasm32: a site's landing-pad code ran, the exception is passing through (or caught in) this frame.
+void csrt_trace_frame(void* unwind_exception, const void* site) {
+    (void)unwind_exception;
+    if (site && s_trace && csrt_pending_exception) trace_append(csrt_pending_exception, site);
+}
+#endif
+
+// An exception leaves a finally block (or a using's Dispose) at `site`. Run on the normal path
+// (parent not null), CoreCLR lists the method a second time, for its own frame below the funclet's.
+void csrt_trace_finally(void* unwind_exception, const void* site, const void* parent) {
+    if (!s_trace) return;
+#ifdef __wasm__
+    (void)unwind_exception;
+    csrt_Exception* e = csrt_pending_exception;
+    if (!e) return;
+    trace_append(e, site);
+    if (parent) trace_append(e, parent);
+#else
+    csrt_Exception* e = ((csrt_Throw*)((char*)unwind_exception - offsetof(csrt_Throw, unwind)))->exception;
+    if (!parent) return;
+    // The search phase has listed the whole stack by now: the parent goes right after this site.
+    trace_append(e, parent);
+    TraceData* data = trace_data(e->trace);
+    int32_t at = data->count - 2;
+    while (at >= 0 && data->sites[at] != site) at--;
+    memmove(&data->sites[at + 2], &data->sites[at + 1], sizeof(void*) * (size_t)(data->count - 2 - at));
+    data->sites[at + 1] = parent;
+#endif
+}
 
 // Runtime-raised exceptions, with .NET's exact messages.
 void csrt_throw_null_reference(void) {
@@ -588,23 +797,50 @@ _Unwind_Reason_Code csrt_personality(int version, _Unwind_Action actions, uint64
 
     if (actions & _UA_SEARCH_PHASE) {
         if (action == 0) return _URC_CONTINUE_UNWIND;  // cleanup only
+        // Stack traces: site clauses come first; record them unless this frame is listed already.
+        csrt_Exception* e = exception;
+        uint64_t frame = (uint64_t)_Unwind_GetCFA(context);
+        bool record_sites = s_trace && frame > (e->trace ? trace_data(e->trace)->frame : 0);
         const uint8_t* record = action_table + action - 1;
+        _Unwind_Reason_Code result = _URC_CONTINUE_UNWIND;
         for (;;) {
             intptr_t type_index = read_sleb128(&record);
             const uint8_t* displacement_at = record;
             intptr_t displacement = read_sleb128(&record);
             if (type_index > 0 && class_info) {
                 const uint8_t* entry = class_info - (uintptr_t)type_index * encoded_size(ttype_encoding);
-                const csrt_MethodTable* type = (const csrt_MethodTable*)read_encoded(&entry, ttype_encoding);
-                if (!type || is_instance_of(exception, type)) return _URC_HANDLER_FOUND;
+                const void* type = (const void*)read_encoded(&entry, ttype_encoding);
+                if (type && *(const uint64_t*)type == CSRT_TRACE_SITE_MAGIC) {
+                    if (record_sites) trace_append(e, type);
+                } else if (!type || is_instance_of(exception, type)) { result = _URC_HANDLER_FOUND; break; }
             }
             if (displacement == 0) break;
             record = displacement_at + displacement;
         }
-        return _URC_CONTINUE_UNWIND;
+        if (record_sites && e->trace) trace_data(e->trace)->frame = frame;
+        return result;
     }
 
     // Cleanup phase: enter the landing pad; the compiled code dispatches on the exception type.
+    // Pads whose clauses only record stack-trace sites (no cleanup, no handler here) are skipped.
+    if (action != 0 && !(actions & _UA_HANDLER_FRAME)) {
+        bool cleanup = false;
+        const uint8_t* record = action_table + action - 1;
+        for (;;) {
+            intptr_t type_index = read_sleb128(&record);
+            const uint8_t* displacement_at = record;
+            intptr_t displacement = read_sleb128(&record);
+            if (type_index == 0) { cleanup = true; break; }
+            if (type_index > 0 && class_info) {
+                const uint8_t* entry = class_info - (uintptr_t)type_index * encoded_size(ttype_encoding);
+                const void* type = (const void*)read_encoded(&entry, ttype_encoding);
+                if (!type || *(const uint64_t*)type != CSRT_TRACE_SITE_MAGIC) { cleanup = true; break; }  // a catch: the code re-checks it
+            }
+            if (displacement == 0) break;
+            record = displacement_at + displacement;
+        }
+        if (!cleanup) return _URC_CONTINUE_UNWIND;
+    }
     _Unwind_SetGR(context, __builtin_eh_return_data_regno(0), (uintptr_t)unwind);
     _Unwind_SetGR(context, __builtin_eh_return_data_regno(1), 0);
     _Unwind_SetIP(context, lp_start + landing_pad);
