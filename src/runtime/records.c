@@ -77,8 +77,9 @@ csrt_String* csrt_enum_format(uint64_t value, int64_t signed_value, csrt_String*
             return s;
         }
         case 'F': case 'f': {
+            // 0 is the first member when it is defined (GetSingleFlagsEnumNameForValue), not the last alias.
+            if (value == 0) return count > 0 && values[0] == 0 ? names[0] : csrt_string_from_u64(0);
             for (int32_t i = count - 1; i >= 0; i--) if (values[i] == value) return names[i];
-            if (value == 0) return csrt_string_from_u64(0);
             uint64_t remaining = value;
             bool used[256] = {false};
             for (int32_t i = count - 1; i >= 0; i--) {

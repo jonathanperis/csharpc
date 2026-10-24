@@ -7,14 +7,155 @@ public sealed partial class ModuleCodeGen
 {
     private readonly Dictionary<INamedTypeSymbol, (LLVMValueRef Values, LLVMValueRef Names, int Count)> _enumTables = new(SymbolEqualityComparer.Default);
 
-    /// <summary>Members as (raw unsigned value within the underlying width, name), stably sorted by value.</summary>
+    /// <summary>
+    /// Members as (raw unsigned value within the underlying width, name), in the order of .NET's
+    /// Enum.GetValues/GetNames: declaration order sorted by Array.Sort(values, names), an introsort that is
+    /// stable up to 16 members but not beyond (TypeAttributes lists AnsiClass before Class), so aliases
+    /// of larger enums land where .NET puts them.
+    /// </summary>
     public List<(ulong Raw, string Name)> EnumMembers(INamedTypeSymbol enumType)
     {
         var width = (int)Types.Value(enumType.EnumUnderlyingType!).IntWidth;
-        return [.. enumType.OriginalDefinition.GetMembers().OfType<IFieldSymbol>().Where(f => f.HasConstantValue)
+        var members = DeclarationOrder(enumType.OriginalDefinition)
             .Select(f => (Raw: f.ConstantValue switch { ulong u => u, uint u => u, ushort u => u, byte u => u, var v => unchecked((ulong)Convert.ToInt64(v)) }, f.Name))
             .Select(m => (Raw: width == 64 ? m.Raw : m.Raw & ((1UL << width) - 1), m.Name))
-            .OrderBy(m => m.Raw)];
+            .ToArray();
+        DotNetIntroSort.Sort(members);
+        return [.. members];
+    }
+
+    /// <summary>
+    /// The name .NET gives <paramref name="raw"/> when several members share it. Enum.GetName and
+    /// non-[Flags] ToString search the sorted values linearly up to 32 members (the first one wins) and
+    /// binary-search larger enums; [Flags] ToString takes the first member for 0 and otherwise scans from
+    /// the end (the last one wins).
+    /// </summary>
+    public static string EnumNameOf(List<(ulong Raw, string Name)> sorted, ulong raw, bool flags)
+    {
+        if (flags) return raw == 0 ? sorted.First(m => m.Raw == raw).Name : sorted.Last(m => m.Raw == raw).Name;
+        if (sorted.Count <= 32) return sorted.First(m => m.Raw == raw).Name;
+        int lo = 0, hi = sorted.Count - 1;
+        while (lo <= hi)
+        {
+            var i = (int)(((uint)hi + (uint)lo) >> 1);
+            var c = raw.CompareTo(sorted[i].Raw);
+            if (c == 0) return sorted[i].Name;
+            if (c > 0) lo = i + 1; else hi = i - 1;
+        }
+        throw new InvalidOperationException($"enum value {raw} not found");
+    }
+
+    /// <summary>ArraySortHelper&lt;TKey, TValue&gt;.IntrospectiveSort of .NET (keys: the raw values).</summary>
+    private static class DotNetIntroSort
+    {
+        public static void Sort((ulong Raw, string Name)[] items)
+        {
+            if (items.Length > 1) IntroSort(items.AsSpan(), 2 * (System.Numerics.BitOperations.Log2((uint)items.Length) + 1));
+        }
+
+        private static void Swap(Span<(ulong Raw, string Name)> a, int i, int j) => (a[i], a[j]) = (a[j], a[i]);
+
+        private static void SwapIfGreater(Span<(ulong Raw, string Name)> a, int i, int j)
+        {
+            if (a[i].Raw > a[j].Raw) Swap(a, i, j);
+        }
+
+        private static void IntroSort(Span<(ulong Raw, string Name)> a, int depthLimit)
+        {
+            var size = a.Length;
+            while (size > 1)
+            {
+                if (size <= 16)
+                {
+                    if (size == 2) { SwapIfGreater(a, 0, 1); return; }
+                    if (size == 3) { SwapIfGreater(a, 0, 1); SwapIfGreater(a, 0, 2); SwapIfGreater(a, 1, 2); return; }
+                    InsertionSort(a[..size]);
+                    return;
+                }
+                if (depthLimit == 0) { HeapSort(a[..size]); return; }
+                depthLimit--;
+                var p = PickPivotAndPartition(a[..size]);
+                IntroSort(a[(p + 1)..size], depthLimit);
+                size = p;
+            }
+        }
+
+        private static int PickPivotAndPartition(Span<(ulong Raw, string Name)> a)
+        {
+            var hi = a.Length - 1;
+            var middle = hi >> 1;
+            SwapIfGreater(a, 0, middle);
+            SwapIfGreater(a, 0, hi);
+            SwapIfGreater(a, middle, hi);
+            var pivot = a[middle].Raw;
+            Swap(a, middle, hi - 1);
+            int left = 0, right = hi - 1;
+            while (left < right)
+            {
+                while (pivot > a[++left].Raw) { }
+                while (pivot < a[--right].Raw) { }
+                if (left >= right) break;
+                Swap(a, left, right);
+            }
+            if (left != hi - 1) Swap(a, left, hi - 1);
+            return left;
+        }
+
+        private static void HeapSort(Span<(ulong Raw, string Name)> a)
+        {
+            var n = a.Length;
+            for (var i = n >> 1; i >= 1; i--) DownHeap(a, i, n);
+            for (var i = n; i > 1; i--)
+            {
+                Swap(a, 0, i - 1);
+                DownHeap(a, 1, i - 1);
+            }
+        }
+
+        private static void DownHeap(Span<(ulong Raw, string Name)> a, int i, int n)
+        {
+            var d = a[i - 1];
+            while (i <= n >> 1)
+            {
+                var child = 2 * i;
+                if (child < n && a[child - 1].Raw < a[child].Raw) child++;
+                if (!(d.Raw < a[child - 1].Raw)) break;
+                a[i - 1] = a[child - 1];
+                i = child;
+            }
+            a[i - 1] = d;
+        }
+
+        private static void InsertionSort(Span<(ulong Raw, string Name)> a)
+        {
+            for (var i = 0; i < a.Length - 1; i++)
+            {
+                var t = a[i + 1];
+                var j = i;
+                while (j >= 0 && t.Raw < a[j].Raw)
+                {
+                    a[j + 1] = a[j];
+                    j--;
+                }
+                a[j + 1] = t;
+            }
+        }
+    }
+
+    /// <summary>
+    /// An enum's constants in declaration order, which decides which alias a value formats as. Enums bound
+    /// from a reference assembly take the order of the shared framework's implementation assembly.
+    /// </summary>
+    private static IEnumerable<IFieldSymbol> DeclarationOrder(INamedTypeSymbol enumType)
+    {
+        var fields = enumType.GetMembers().OfType<IFieldSymbol>().Where(f => f.HasConstantValue).ToList();
+        if (enumType.ContainingType is null && enumType.ContainingAssembly is { } assembly && enumType.Locations.All(l => l.IsInMetadata)
+            && Frontend.SharedFramework.FieldOrder(assembly.Name, enumType.ContainingNamespace.ToDisplayString(), enumType.MetadataName) is { } order)
+        {
+            var rank = order.Select((n, i) => (n, i)).ToDictionary(p => p.n, p => p.i, StringComparer.Ordinal);
+            if (fields.All(f => rank.ContainsKey(f.Name))) return fields.OrderBy(f => rank[f.Name]);
+        }
+        return fields;
     }
 
     /// <summary>
