@@ -173,12 +173,14 @@ public sealed class LlvmModule(LlvmContext context, string name) : IDisposable
     }
 
     /// <summary>Runs an LLVM new-pass-manager pipeline, e.g. <c>default&lt;O2&gt;</c>.</summary>
-    public void RunPasses(string pipeline, TargetMachine target)
+    public void RunPasses(string pipeline, TargetMachine target) => RunPasses(Ref, pipeline, target);
+
+    public static void RunPasses(LLVMModuleRef module, string pipeline, TargetMachine target)
     {
         var options = LLVMCreatePassBuilderOptions();
         try
         {
-            var error = LLVMRunPasses(Ref, pipeline, target.Ref, options);
+            var error = LLVMRunPasses(module, pipeline, target.Ref, options);
             if (error.Handle != 0)
             {
                 var message = LLVMGetErrorMessage(error);
@@ -190,7 +192,15 @@ public sealed class LlvmModule(LlvmContext context, string name) : IDisposable
         finally { LLVMDisposePassBuilderOptions(options); }
     }
 
-    public void Dispose() => LLVMDisposeModule(Ref);
+    private bool _disposed;
+
+    /// <summary>Idempotent: parallel code generation frees the module as soon as it is serialized.</summary>
+    public void Dispose()
+    {
+        if (_disposed) return;
+        _disposed = true;
+        LLVMDisposeModule(Ref);
+    }
 }
 
 public sealed class TargetMachine : IDisposable
@@ -213,11 +223,24 @@ public sealed class TargetMachine : IDisposable
     public static bool IsWindowsTriple(string triple) =>
         triple.Contains("-windows", StringComparison.Ordinal) || triple.Contains("-mingw", StringComparison.Ordinal) || triple.Contains("-win32", StringComparison.Ordinal);
 
-    private TargetMachine(LLVMTargetMachineRef machine, string triple)
+    private readonly (LLVMTargetRef Target, string Cpu, string Features, LLVMCodeGenOptLevel Level, LLVMRelocMode Reloc) _settings;
+
+    private TargetMachine(LLVMTargetMachineRef machine, string triple, (LLVMTargetRef, string, string, LLVMCodeGenOptLevel, LLVMRelocMode) settings)
     {
         Ref = machine;
         Triple = triple;
         DataLayout = LLVMCreateTargetDataLayout(machine);
+        _settings = settings;
+    }
+
+    /// <summary>
+    /// An identical machine (same CPU, features, level, relocation model) for another thread: an LLVM
+    /// target machine must not emit two modules at once (Driver/ParallelCodegen.cs).
+    /// </summary>
+    public TargetMachine CreateSibling()
+    {
+        var (target, cpu, features, level, reloc) = _settings;
+        return new TargetMachine(LLVMCreateTargetMachine(target, Triple, cpu, features, level, reloc, LLVMCodeModel.Default), Triple, _settings);
     }
 
     private static bool s_initialized;
@@ -292,7 +315,7 @@ public sealed class TargetMachine : IDisposable
         // WebAssembly executables are statically linked (PIC there means dynamic linking: GOT imports).
         var reloc = IsWasmTriple(triple) ? LLVMRelocMode.Static : LLVMRelocMode.PIC;
         var machine = LLVMCreateTargetMachine(target, triple, cpu, features, level, reloc, LLVMCodeModel.Default);
-        return new TargetMachine(machine, triple);
+        return new TargetMachine(machine, triple, (target, cpu, features, level, reloc));
     }
 
     /// <summary>
