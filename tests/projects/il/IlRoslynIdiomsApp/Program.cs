@@ -8,6 +8,7 @@ Console.WriteLine(byKind[b]);
 
 Console.WriteLine($"{Decimals.Zero} {Decimals.One} {Decimals.MinusOne} {Decimals.Max} {Decimals.Min}");
 Console.WriteLine($"{Decimals.Sum([1.5m, 2.25m])} {Decimals.Sum([])} {Decimals.FromBits(-12.345m)}");
+Console.WriteLine($"{Matrices.Closure(4)} {Matrices.Cells()} {Matrices.OutOfRange()}");
 Console.WriteLine($"{Pointers.SumChars("abc")} {Pointers.SumChars("")} {Pointers.SumBytes([1, 2, 250])} {Pointers.SumBytes([])} {Pointers.FirstOf([42, 1])}");
 
 // IntPtr/UIntPtr conversion operators as C# 9 IL calls them: the narrowing ones are checked.

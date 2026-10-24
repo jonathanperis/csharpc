@@ -35,6 +35,56 @@ public static class Decimals
     public static decimal FromBits(decimal d) => new decimal(decimal.GetBits(d));
 }
 
+/// <summary>Rectangular arrays (Roslyn's MethodTypeInferrer keeps a Dependency[,] matrix): IL calls T[,]::.ctor/Get/Set/Address.</summary>
+public static class Matrices
+{
+    public enum Dependency : byte { Unknown, NotDependent, Direct, Indirect }
+
+    public struct Cell { public int Row; public long Weight; }
+
+    public static string Closure(int size)
+    {
+        var deps = new Dependency[size, size];
+        for (var i = 0; i < size; i++)
+            for (var j = 0; j < size; j++)
+                deps[i, j] = i == j ? Dependency.NotDependent : j == i + 1 ? Dependency.Direct : Dependency.Unknown;
+        for (var k = 0; k < size; k++)
+            for (var i = 0; i < size; i++)
+                for (var j = 0; j < size; j++)
+                    if (deps[i, j] == Dependency.Unknown && deps[i, k] != Dependency.Unknown && deps[i, k] != Dependency.NotDependent
+                        && deps[k, j] != Dependency.Unknown && deps[k, j] != Dependency.NotDependent)
+                        deps[i, j] = Dependency.Indirect;
+        var text = new System.Text.StringBuilder();
+        for (var i = 0; i < size; i++)
+        {
+            for (var j = 0; j < size; j++) text.Append((int)deps[i, j]);
+            text.Append('|');
+        }
+        return text.ToString() + deps.GetLength(0) + "x" + deps.GetLength(1) + " " + deps.Length;
+    }
+
+    public static long Cells()
+    {
+        var cells = new Cell[2, 3];
+        ref var cell = ref cells[1, 2];
+        cell.Row = 1;
+        cell.Weight = 40;
+        cells[0, 1].Weight += 2;
+        var bytes = new byte[2, 2];
+        bytes[1, 1] = 200;
+        var cube = new int[2, 2, 2];
+        cube[1, 0, 1] = 7;
+        return cells[1, 2].Weight + cells[0, 1].Weight + bytes[1, 1] + cube[1, 0, 1] + cells[1, 2].Row;
+    }
+
+    public static string OutOfRange()
+    {
+        var grid = new int[2, 3];
+        try { return grid[2, 0].ToString(); }
+        catch (IndexOutOfRangeException e) { return e.Message; }
+    }
+}
+
 /// <summary>Pointer idioms of Roslyn's hashing and event-source code.</summary>
 public static unsafe class Pointers
 {

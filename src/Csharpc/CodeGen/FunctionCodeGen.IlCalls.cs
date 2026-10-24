@@ -17,6 +17,11 @@ public sealed partial class FunctionCodeGen
     private void IlCall(IlInstruction instruction, Stack<IlEntry> stack, ITypeSymbol? constrained)
     {
         var op = instruction.OpCode;
+        if (IlAssembly.TryArrayAccessor(instruction.Token, IlBody.Context, out var mdArray, out var accessor, out var parameterCount))
+        {
+            IlMdArrayAccessor(op, mdArray, accessor, parameterCount, stack);
+            return;
+        }
         var method = IlMethod(instruction.Token);
         if (method.IsVararg) throw new IlException($"vararg call to '{method}'");
         var args = new IlEntry[method.Parameters.Length];
@@ -41,6 +46,54 @@ public sealed partial class FunctionCodeGen
             return;
         }
         if (IlInvoke(method, receiver, args, isVirtual: op == ILOpCode.Callvirt, constrained) is { } result) stack.Push(result);
+    }
+
+    /// <summary>
+    /// The runtime-provided methods of a rectangular array type (ECMA-335 II.14.2): `newobj T[,]::.ctor(int32, int32)`,
+    /// `call T[,]::Get/Set/Address`. Lower bounds (the 2 x rank constructor) are not supported.
+    /// </summary>
+    private void IlMdArrayAccessor(ILOpCode op, IArrayTypeSymbol array, string name, int parameterCount, Stack<IlEntry> stack)
+    {
+        var arrayType = (IArrayTypeSymbol)S(array);
+        if (arrayType.IsSZArray) throw new IlException($"array accessor '{array}::{name}' on a vector");
+        var rank = arrayType.Rank;
+        var element = arrayType.ElementType;
+        IlEntry Pop() => stack.Count > 0 ? stack.Pop() : throw new IlException("evaluation stack underflow");
+        LLVMValueRef[] PopIndices(int count)
+        {
+            var values = new LLVMValueRef[count];
+            for (var i = count - 1; i >= 0; i--) values[i] = IlToI64(Pop(), signed: true);
+            return values;
+        }
+        switch (name)
+        {
+            case ".ctor" when op == ILOpCode.Newobj && parameterCount == rank:
+                stack.Push(new IlEntry(IlKind.Ref, NewMdArray(arrayType, PopIndices(rank)), array) { NonNull = true });
+                return;
+            case "Get" when parameterCount == rank:
+            {
+                var indices = PopIndices(rank);
+                var target = IlRef(Pop());
+                stack.Push(IlPush(LoadValue(MdElementAddress(target, arrayType, indices), element), array.ElementType));
+                return;
+            }
+            case "Set" when parameterCount == rank + 1:
+            {
+                var value = Pop();
+                var indices = PopIndices(rank);
+                var target = IlRef(Pop());
+                StoreValue(ToStorage(IlTyped(value, array.ElementType), element), MdElementAddress(target, arrayType, indices));
+                return;
+            }
+            case "Address" when parameterCount == rank:
+            {
+                var indices = PopIndices(rank);
+                var target = IlRef(Pop());
+                stack.Push(new IlEntry(IlKind.ByRef, MdElementAddress(target, arrayType, indices), array.ElementType));
+                return;
+            }
+        }
+        throw new IlException($"multi-dimensional array accessor '{array}::{name}' with {parameterCount} arguments");
     }
 
     private ImmutableArray<IArgumentOperation> IlArguments(ImmutableArray<IParameterSymbol> parameters, IlEntry[] args, int offset = 0)

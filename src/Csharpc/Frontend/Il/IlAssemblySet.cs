@@ -368,6 +368,26 @@ public sealed class IlAssembly : IDisposable, ISignatureTypeProvider<IlType, IlG
         return method.Construct([.. arguments.Select(a => a.Type)]);
     }
 
+    /// <summary>
+    /// A method of an array type itself (a MemberRef whose parent is an array TypeSpec): the runtime-provided
+    /// constructor, Get, Set and Address of rectangular arrays, which have no symbol in Roslyn.
+    /// </summary>
+    public bool TryArrayAccessor(int token, IlGenericContext context, out IArrayTypeSymbol array, out string name, out int parameterCount)
+    {
+        array = null!;
+        name = "";
+        parameterCount = 0;
+        var handle = MetadataTokens.EntityHandle(token);
+        if (handle.Kind != HandleKind.MemberReference) return false;
+        var reference = Reader.GetMemberReference((MemberReferenceHandle)handle);
+        if (reference.Parent.Kind != HandleKind.TypeSpecification || reference.GetKind() != MemberReferenceKind.Method) return false;
+        if (ResolveType(reference.Parent, context).Type is not IArrayTypeSymbol arrayType) return false;
+        array = arrayType;
+        name = Reader.GetString(reference.Name);
+        parameterCount = reference.DecodeMethodSignature(this, context).ParameterTypes.Length;
+        return true;
+    }
+
     private ISymbol ResolveMemberReference(MemberReferenceHandle handle, IlGenericContext context)
     {
         var reference = Reader.GetMemberReference(handle);
