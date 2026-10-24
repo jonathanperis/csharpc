@@ -254,6 +254,18 @@ bool csrt_task_is_faulted(csrt_Task* t) { return t && task_state(t) == T_FAULTED
 bool csrt_task_is_canceled(csrt_Task* t) { return t && task_state(t) == T_CANCELED; }
 bool csrt_task_is_completed_successfully(csrt_Task* t) { return !t || task_state(t) == T_DONE; }
 
+/// Task.Status as System.Threading.Tasks.TaskStatus. csrt doesn't track whether queued work has
+/// started, so every pending task reports WaitingForActivation (what .NET reports for async methods,
+/// TaskCompletionSource and Task.Delay; a pending Task.Run task's status is racy there anyway).
+int32_t csrt_task_status(csrt_Task* t) {
+    switch (task_state(t)) {
+    case T_DONE: return 5;      // RanToCompletion
+    case T_CANCELED: return 6;  // Canceled
+    case T_FAULTED: return 7;   // Faulted
+    default: return 1;          // WaitingForActivation
+    }
+}
+
 /// Registers a continuation; false if the task already completed (the caller runs it itself).
 static bool add_continuation(csrt_Task* t, intptr_t kind, void* p) {
     task_lock(t);
