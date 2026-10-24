@@ -1,0 +1,22 @@
+multi (a) (b)
+System.AggregateException: multi (a) (b)
+ ---> System.InvalidOperationException: a
+   --- End of inner exception stack trace ---
+ ---> (Inner Exception #1) System.ArgumentException: b<---
+
+System.AggregateException: One or more errors occurred. (only)
+ ---> System.InvalidOperationException: only
+   --- End of inner exception stack trace ---
+System.AggregateException: none
+2 a,b 0
+System.AggregateException: One or more errors occurred. (twice) (twice) (f)
+ ---> System.InvalidOperationException: twice
+   --- End of inner exception stack trace ---
+ ---> (Inner Exception #2) System.FormatException: f<---
+
+1 ArgumentException | multi (a) (b) (b)
+all handled
+2 t1,t2
+await: t1
+2 One or more errors occurred. (t1) (t2)
+1 t1

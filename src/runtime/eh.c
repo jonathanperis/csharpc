@@ -147,6 +147,8 @@ static csrt_String* virtual_message(void* exception) {
 // others (whose exception vtables still reach ToString) LTO drops the formatter and its tables.
 static csrt_String* (*s_trace_text)(void* exception);
 
+static csrt_String* (*s_aggregate_text)(csrt_Exception* e, csrt_String* s);
+
 csrt_String* csrt_exception_to_string(void* exception) {
     csrt_Exception* e = exception;
     csrt_String* s = csrt_string_from_utf8(e->mt->name);
@@ -163,6 +165,7 @@ csrt_String* csrt_exception_to_string(void* exception) {
     }
     csrt_String* trace = s_trace_text ? s_trace_text(exception) : NULL;
     if (trace) s = csrt_string_concat(concat_utf8(s, CSRT_NEWLINE), trace);
+    if (e->inners && s_aggregate_text) s = s_aggregate_text(e, s);
     return s;
 }
 
@@ -434,6 +437,26 @@ __attribute__((noinline)) void* csrt_trap_call(void (*fn)(void*), void* arg) {
 /// An exception that escaped an `async void` method: crash like .NET (the finally blocks already ran).
 void csrt_unhandled_exception(void* exception) { unhandled(exception); }
 
+// AggregateException.ToString(): every inner exception other than InnerException (shown above) follows,
+// " ---> (Inner Exception #i) <its ToString()><---" and a new line. Installed by whatever creates an
+// aggregate with a list (csrt_aggregate_exception_new, csrt_exception_set_inners), so programs without
+// one don't link it.
+static csrt_String* aggregate_text(csrt_Exception* e, csrt_String* s) {
+    if (!is_exception_of(e, &csrt_MT_System_AggregateException.header)) return s;
+    void** list = (void**)e->inners->data;
+    for (int64_t i = 0; i < e->inners->length; i++) {
+        if (list[i] == e->inner) continue;
+        char digits[24], *d = digits + sizeof digits; // no printf: it would link stdio's formatter
+        *--d = 0;
+        int64_t n = i;
+        do *--d = (char)('0' + n % 10); while ((n /= 10) != 0);
+        s = concat_utf8(concat_utf8(concat_utf8(s, CSRT_NEWLINE " ---> (Inner Exception #"), d), ") ");
+        s = csrt_string_concat(s, csrt_object_to_string(list[i]));
+        s = concat_utf8(s, "<---" CSRT_NEWLINE);
+    }
+    return s;
+}
+
 /// new AggregateException(inners): "One or more errors occurred. (m1) (m2)", InnerException = first.
 void* csrt_aggregate_exception_new(void** inners, int64_t count) {
     csrt_String* message = csrt_string_from_utf8("One or more errors occurred.");
@@ -444,7 +467,29 @@ void* csrt_aggregate_exception_new(void** inners, int64_t count) {
     }
     void* e = csrt_alloc(&csrt_MT_System_AggregateException.header, sizeof(csrt_Exception));
     csrt_exception_init(e, message, count > 0 ? inners[0] : NULL, NULL);
+    csrt_Array* list = csrt_new_array(sizeof(void*), count);
+    memcpy(list->data, inners, sizeof(void*) * (size_t)count);
+    ((csrt_Exception*)e)->inners = list;
+    s_aggregate_text = aggregate_text;
     return e;
+}
+
+/// new AggregateException(..., innerExceptions) from compiled code: the Exception[] it was given.
+void csrt_exception_set_inners(void* exception, csrt_Array* inners) {
+    ((csrt_Exception*)exception)->inners = inners;
+    s_aggregate_text = aggregate_text;
+}
+
+/// AggregateException.InnerExceptions (corelib AggregateExceptionSupport): count and elements; an
+/// aggregate without a list (none of csharpc's make one) reports its InnerException alone.
+int32_t csrt_exception_inner_count(void* exception) {
+    csrt_Exception* e = exception;
+    return e->inners ? (int32_t)e->inners->length : e->inner ? 1 : 0;
+}
+
+void* csrt_exception_inner_at(void* exception, int32_t index) {
+    csrt_Exception* e = exception;
+    return e->inners ? ((void**)e->inners->data)[index] : e->inner;
 }
 
 /// An OperationCanceledException (or a subclass) escaping an async method cancels its task.

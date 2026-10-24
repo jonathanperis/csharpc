@@ -275,6 +275,11 @@ int32_t csrt_task_status(csrt_Task* t) {
     return flags & TF_RUNNING ? Running : WaitingToRun;
 }
 
+/// Delegate tasks the corelib starts on top of a TaskCompletionSource (TaskFactory.StartNew, Task.Run with
+/// a token, scheduled continuations, custom schedulers): queued, then running, as Task.Status reports.
+void csrt_task_mark_queued(csrt_Task* t) { if (t) __atomic_or_fetch(&t->flags, TF_DELEGATE, __ATOMIC_RELEASE); }
+void csrt_task_mark_running(csrt_Task* t) { if (t) __atomic_or_fetch(&t->flags, TF_DELEGATE | TF_RUNNING, __ATOMIC_RELEASE); }
+
 static int32_t s_task_id_counter;
 
 /// Task.Id: .NET assigns ids lazily, on first request, from one counter that skips 0.

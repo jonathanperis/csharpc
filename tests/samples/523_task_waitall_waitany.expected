@@ -1,0 +1,16 @@
+waitall empty: ok
+waitall timeout: False
+waitall done: True
+waitany done: 1
+waitany timeout: -1
+waitany empty timeout: -1
+waitany slow: 1
+waitall null: ArgumentNullException: Value cannot be null. (Parameter 'tasks')
+waitall null element: ArgumentException: The tasks array included at least one null element. (Parameter 'tasks')
+waitany null element: ArgumentException: The tasks array included at least one null element. (Parameter 'tasks')
+waitall token: OperationCanceledException: The operation was canceled.
+waitany token: OperationCanceledException: The operation was canceled.
+waitall canceled: AggregateException: One or more errors occurred. (A task was canceled.)
+  FormatException: bad
+  TaskCanceledException: A task was canceled.
+waitall timeout negative: ArgumentOutOfRangeException: Specified argument was out of the range of valid values. (Parameter 'millisecondsTimeout')
