@@ -4,7 +4,8 @@ var spinner = new SpinWait();
 var yields = new List<bool>();
 for (var i = 0; i < 12; i++)
 {
-    yields.Add(spinner.NextSpinWillYield || Environment.ProcessorCount == 1);
+    // NextSpinWillYield: from the 10th spin on, or always on a single processor.
+    yields.Add(spinner.NextSpinWillYield == (i >= 10 || Environment.ProcessorCount == 1));
     spinner.SpinOnce();
 }
 Console.WriteLine($"{spinner.Count} {string.Join("", yields.Select(y => y ? 'Y' : '.'))}");
