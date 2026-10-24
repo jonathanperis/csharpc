@@ -249,6 +249,23 @@ early by a local harness that builds the same app with NativeAOT and csharpc and
 TechEmpower test types (plaintext, JSON, then the database ones) on CI, so the gap is measured long
 before the fork exists.
 
+Status (2026-10-24, branch `m8-harness`): the harness exists — `benchmarks/techempower/app` (plaintext
+and JSON on Kestrel, System.Text.Json source generation) and the `TechEmpower` workflow, which builds it
+with NativeAOT, csharpc and the JIT, checks each build with TechEmpower's requests and loads it with wrk
+(NativeAOT on a 4-vCPU runner: ~550 000–750 000 plaintext req/s pipelined, ~119 000 JSON req/s, 8.9 MiB,
+65 MiB peak RSS under load, 23 ms to the first response). csharpc compiles Microsoft.NET.Sdk.Web
+projects, taking the ASP.NET Core assemblies a program uses from the shared framework's IL, and lowers
+.NET 11's runtime-async methods; the TechEmpower app doesn't build yet: 44 methods it reaches fail
+to compile, most of them dependency injection's reflection (`GetConstructors`, `ConstructorInfo.Invoke`,
+`MakeGenericType`). The IL survey's `aspnetcore` target ranks the rest: of the methods of the 48 ASP.NET
+Core / Extensions / Pipelines / System.Net assemblies the app reaches, 1 726 fail to lower (2 888 at the
+start of the branch) — reflection (524), TLS (170), `DateTimeOffset` (156), `MemoryPool<T>`/`MemoryManager<T>`
+(120), `Uri` (78) lead ([18-compatibility.md](18-compatibility.md#aspnet-core-and-the-techempower-app)).
+Next, in order: reflection metadata for DI (constructors and parameters of the types DI's
+`[DynamicallyAccessedMembers]` annotations name, closed generic instantiations of registered open
+generics), `DateTimeOffset` and `MemoryPool<T>` (in progress elsewhere), async sockets on epoll for
+Kestrel's transport (`SocketAsyncEventArgs`), then the first csharpc build of the app and its numbers.
+
 ### Credibility deliverables (cross-cutting)
 - A technical report: what csharpc demonstrates (Roslyn's CFG as a mid-level IR, a C# corelib with
   whole-program LLVM optimization, the size/start-up/throughput/security results) and where it falls

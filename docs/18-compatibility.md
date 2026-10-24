@@ -150,7 +150,7 @@ Other COMPILE-ERROR causes:
 | cause | programs | note |
 |---|---:|---|
 | `<StartupObject>` ignored | 18 | row 2 above |
-| `<FrameworkReference Include="Microsoft.AspNetCore.App">` ignored | 2 | console programs using `Microsoft.Extensions.Configuration`. csharpc should say it doesn't support the framework reference, instead of failing with Roslyn `CS0246` |
+| `<FrameworkReference Include="Microsoft.AspNetCore.App">` ignored | 2 | console programs using `Microsoft.Extensions.Configuration`. Supported since the `m8-harness` branch: the ASP.NET Core assemblies a program uses are compiled from the shared framework's IL ([ASP.NET Core and the TechEmpower app](#aspnet-core-and-the-techempower-app)) |
 | C# 15 union types | 1 | Roslyn binding error `CS0117` (the union feature is bound differently from the SDK's compiler), see also COMPILE-CRASH |
 | `ProjectReference` folding changes C# semantics | 1 | see the bug list |
 
@@ -398,3 +398,100 @@ reach that csharpc can't compile went from 121 to 33 on the branch; the rest are
 (its chunk layout is observable and csharpc's builder has one buffer), `MemoryMarshal.TryGetArray` over
 `ReadOnlyMemory<T>` (memories don't keep their owner array), `DeflateStream`, `SHA384`,
 `Vector256`, `BigInteger` byte conversions, encoding providers and a few single members.
+
+### ASP.NET Core and the TechEmpower app
+
+M8's measure ([06-roadmap.md](06-roadmap.md#m8--the-win-techempower-with-the-csharpc-built-dotnet)):
+`benchmarks/techempower/app` is the plaintext and JSON test types of the TechEmpower Framework Benchmarks
+in the style of the aspnetcore entries that publish with NativeAOT (Kestrel, `WebApplication.CreateSlimBuilder`,
+middleware rather than minimal-API endpoints, System.Text.Json source generation). The `TechEmpower`
+workflow (`.github/workflows/techempower.yml`, `benchmarks/techempower/run.sh`) builds it with
+NativeAOT, csharpc and the JIT, checks every build with TechEmpower's test requests (`verify.py`:
+status, `Content-Type`, `Content-Length`, `Server`, `Date`, bodies, 16 pipelined requests;
+csharpc's normalized responses must equal NativeAOT's), loads it with wrk the way TechEmpower does and
+writes requests/s, latency, peak RSS, binary size and start-up time; when csharpc can't build the app it
+lists what stops it (`blockers.py`).
+
+csharpc reads `<FrameworkReference Include="Microsoft.AspNetCore.App">` (implicit in `Microsoft.NET.Sdk.Web`)
+and `--framework Microsoft.AspNetCore.App`: Roslyn binds against the ASP.NET Core reference pack, and the
+framework-IL choice ([ADR 0013](adr/0013-framework-il.md)) indexes the ASP.NET Core shared framework too,
+so for the app it takes 95 assemblies from IL — Hosting, Kestrel, DI, configuration, logging, routing,
+System.IO.Pipelines, System.Diagnostics.DiagnosticSource. A type forward makes an assembly ineligible
+only when it leads into `System.Private.*`; ASP.NET Core's assemblies forward types to their neighbours
+and DiagnosticSource forwards only `IsExternalInit`.
+
+The survey's `aspnetcore` target (`tools/il-survey/aspnetcore.sh`, the `IL survey` workflow with
+`target: aspnetcore`, 16 shards) lowers every method of those of the app's assemblies that are
+`Microsoft.AspNetCore.*`, `Microsoft.Extensions.*`, `Microsoft.Net.Http.Headers`, `System.IO.Pipelines`
+and `System.Net.*` (not the Windows-only IIS and HTTP.sys servers, nor the obsolete WebRequest stack) —
+58 assemblies — ranked by the methods each item stops.
+
+| Survey run (2026-10-24, CI) | methods that fail to lower | of them in the 48 assemblies of both runs |
+|---|---:|---:|
+| start of the `m8-harness` branch | 2 974 | 2 888 |
+| after the fixes below (`m8-harness`) | 1 842 | 1 726 |
+
+Fixed on the branch, by methods stopped in the first survey: the whole virtual surface of `Stream`
+(`ReadAsync`/`WriteAsync`/`BeginRead`/`CanTimeout`/`FlushAsync`/`DisposeAsync` overrides: ~490),
+**runtime-async methods** (190: .NET 11 compiles Kestrel, Hosting and System.Net.Http with
+`MethodImplOptions.Async`, whose IL awaits through `AsyncHelpers.Await`; csharpc lowers them as LLVM
+coroutines like C# async methods, [10-async.md](10-async.md#runtime-async-methods-from-il)),
+`ReadOnlySequence<T>`/`SequenceReader<T>`/`SequencePosition` (155), `SearchValues<byte/char>` (64),
+`Collection<T>`, TextWriter/TextReader span and async members, MarshalByRefObject, `System.Text.Ascii`,
+`TaskToAsyncResult`, `Rune`, `Uri.EscapeDataString`, `Timer`/`TimeProvider`, `Task.Status`,
+`ConfigureAwait(ConfigureAwaitOptions)`, `Buffer.BlockCopy`, span comparisons with a `StringComparison`,
+the start-up members of hosting and DI (`AppContext.BaseDirectory`, `Environment.ProcessPath`,
+`RuntimeFeature.IsDynamicCode*` = false as under NativeAOT, `TryEnsureSufficientExecutionStack`), and
+NativeAOT's folding of the dynamic-code feature switches in IL (DI's Reflection.Emit resolver is no
+longer lowered). Found on the way: `x is { } v` on a nullable library struct (`SequencePosition?`,
+`Guid?`, `KeyValuePair<,>?`) was always false — fixed, sample 506.
+
+Ranked list now (methods stopped, items of one API grouped; *other branch*: work in progress elsewhere):
+
+| # | Methods | Item | Where |
+|---:|---:|---|---|
+| 1 | 524 | reflection: `MethodInfo`/`ParameterInfo`/`PropertyInfo` members, `Type.GetProperty`/`GetMethod`/`GetConstructors`/`MakeGenericType`/`GetInterfaces`, deriving from `ParameterInfo`, `Reflection.Emit` labels | DI, System.Linq.Expressions, Http.Extensions (request delegates), Hosting |
+| 2 | 170 | TLS: `SslStream`, `SslClientHelloInfo`, X509 certificates and stores | Kestrel.Core (HTTPS), DataProtection, System.Net.Http |
+| 3 | 156 | `DateTimeOffset` (*other branch*) | System.Net.Http, DiagnosticSource, Logging |
+| 4 | 120 | deriving from `MemoryPool<T>` / `MemoryManager<T>` (*other branch*) | Kestrel's pinned block pool, its transports |
+| 5 | 78 | `Uri` (`op_Equality`, `TryCreate`, `IdnHost`, `IsAbsoluteUri`, `SchemeDelimiter`, ...) | System.Net.Http, Http.Extensions, Cors |
+| 6 | 58 | `SafeHandle`: deriving from `SafeHandleZeroOrMinusOneIsInvalid`, `SafeHandleMarshaller<T>`, `handle` | Cryptography.Internal (Windows CNG) |
+| 7 | 30 | `RegexRunner`/`RegexRunnerFactory` (the SDK's `[GeneratedRegex]` output) | Routing |
+| 8 | 20 | `ExceptionDispatchInfo.SetCurrentStackTrace` | System.Net.Http |
+| 9 | 16 | deriving from `SocketAsyncEventArgs` (async socket I/O) | Kestrel.Transport.Sockets |
+| 10 | 15 | deriving from `TaskCompletionSource(<T>)` | Kestrel.Core, System.Net.Http |
+| 11 | 15 | `XName` (XML key ring) | DataProtection |
+| 12 | 14 | `AsyncLocal<T>` | Hosting, logging scopes |
+| 13 | 13 | overriding `Exception.GetObjectData` | Routing, Kestrel.Core, System.Net.Http |
+| 14 | 13 | `Hashtable`, `ArrayList` | System.Collections.NonGeneric users |
+| 15 | 13 | `IPNetwork` | HttpOverrides |
+| 16 | 10 | `UrlEncoder.Default` | Routing, Http.Abstractions, WebUtilities |
+| 17 | 8 | internal compiler error (NullReferenceException) lowering IL | System.Net.Http |
+| 18 | 8 | `OSPlatform.Windows`, `HttpVersion.Version11`, `OperationCanceledException.CancellationToken` (8 each) | Kestrel.Core, Hosting, System.Net.Http |
+| 19 | 6 | `RuntimeHelpers.GetUninitializedObject` | Http.Extensions, Configuration.Binder |
+| 20 | 5 | explicit layout of `Internal.PaddingFor32` | System.IO.Pipelines |
+
+The survey counts methods that fail to *lower*. Compiling the app itself is the other measure: the
+methods it reaches that csharpc can't compile yet are 44 (`blockers.py` on `csharpc -v` output; a
+method stops at its first failure, so fixing one can reveal more behind it). The largest group is
+dependency injection's reflection (`Type.GetConstructors`, `ConstructorInfo.Invoke`, `MakeGenericType`,
+`Array.CreateInstance`, `Delegate.Method`), which NativeAOT serves from compile-time metadata kept for
+the types DI's `[DynamicallyAccessedMembers]` annotations name; then `DateTimeOffset` (the console
+logger), file-system watching for configuration reload (`FileSystemWatcher`, `FileSystemInfo.Attributes`/
+`LinkTarget`), `PosixSignalRegistration` (SIGTERM handling), `UrlEncoder.Default`, `SemaphoreSlim`,
+`ObservableCollection<T>` (System.ObjectModel is ineligible because the corelib implements
+`PropertyChangedEventArgs`) and type tests against the task-handle structs (`CancellationToken`, the
+configured awaiters). Beyond compiling: Kestrel's socket transport needs `Socket.ReceiveAsync`/
+`SendAsync` with `SocketAsyncEventArgs` on an epoll engine (csharpc's sockets are synchronous today).
+
+NativeAOT baseline (`TechEmpower` workflow, GitHub `ubuntu-24.04` runner, 4 vCPUs shared by server and
+wrk, 2026-10-24; runs vary by ±20 % between runners):
+
+| | NativeAOT | JIT |
+|---|---:|---:|
+| plaintext, 256 connections, pipeline 16 | 555 000–754 000 req/s | 704 000–972 000 req/s |
+| plaintext, 1024 connections, pipeline 16 | 537 000–655 000 req/s | 646 000–841 000 req/s |
+| JSON, 16 / 64 / 256 connections | 101 000 / 116 000 / 119 000 req/s (p99 0.3 / 1.3 / 4.1 ms) | 105 000 / 124 000 / 127 000 req/s |
+| peak RSS, idle → after load | 17 → 65 MiB | 54 → 140 MiB |
+| executable | 8.9 MiB | (framework-dependent) |
+| start-up to the first response | 23–27 ms | 125–152 ms |

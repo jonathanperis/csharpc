@@ -33,7 +33,8 @@ Not every framework assembly can be taken as IL:
 can take it as IL; `--framework-il` overrides the choice.**
 
 1. *Eligible:* an implementation assembly of `Microsoft.NETCore.App` (the version csharpc binds
-   against) that is not `System.Private.*`, has no type forwarders, calls no runtime native shim and
+   against) that is not `System.Private.*`, forwards no type into `System.Private.*` (a facade of
+   CoreLib; forwards to other assemblies are followed by Roslyn), calls no runtime native shim and
    has no top-level type csharpc implements itself (shadow names read from the shipped corelib
    sources, intrinsic keys from `Intrinsics`/`BclValueTypes`). With the .NET 11 RC2 framework 50 of
    181 assemblies are eligible, among them System.Collections.Immutable, System.Reflection.Metadata,
@@ -48,13 +49,18 @@ can take it as IL; `--framework-il` overrides the choice.**
    System.Collections.Immutable along.
 3. Chosen assemblies join the IL references exactly like `-r`: Roslyn binds against the implementation
    instead of the reference-pack assembly of the same name, and only reachable methods are lowered.
-4. `--framework-il A,B` forces eligible assemblies in (an ineligible one is an error that says why);
+4. Other shared frameworks a project references (`<FrameworkReference Include="Microsoft.AspNetCore.App">`,
+   implicit in `Microsoft.NET.Sdk.Web`, or `--framework Microsoft.AspNetCore.App`) are indexed the same
+   way, next to Microsoft.NETCore.App; Roslyn also binds against their reference packs (the SDK's implicit
+   global usings name namespaces of assemblies a program may not use). Unknown framework references are
+   an error. ([18-compatibility.md](../18-compatibility.md#aspnet-core-and-the-techempower-app).)
+5. `--framework-il A,B` forces eligible assemblies in (an ineligible one is an error that says why);
    `--framework-il none` turns the automatic choice off; explicit `<Reference>`s keep working.
    `csharpc -v` prints each choice with its reason.
 
 The scan is a token pass over the sources plus a cached index of the framework (namespaces, public
 type and extension-method names, references and eligibility per assembly, ~160 KB in the csharpc
-cache directory, keyed on the framework directory and the csharpc build): ~30 ms per compile, ~180 ms
+cache directory, one per framework directory, keyed on it and the csharpc build): ~30 ms per compile, ~180 ms
 the first time a csharpc build sees a framework. Programs that use no eligible assembly — hello world,
 everything the corelib covers — compile and link exactly as before.
 
