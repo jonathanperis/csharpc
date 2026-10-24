@@ -13,6 +13,7 @@ public sealed partial class FunctionCodeGen
     /// general method also reaches the culture-sensitive comparisons, and everything a function references is
     /// lowered (and its virtual call sites keep their targets): an ordinal comparison would otherwise link
     /// CompareInfo and the whole culture model. The dropped argument is a constant, so nothing is skipped.
+    /// The *AsciiIgnoreCase variants take a constant ASCII string argument (the value searched for).
     /// </summary>
     private (IMethodSymbol Method, ImmutableArray<IArgumentOperation> Arguments)? OrdinalComparisonVariant(IMethodSymbol target, IInvocationOperation inv)
     {
@@ -24,12 +25,17 @@ public sealed partial class FunctionCodeGen
         if (comparison is not { Value.ConstantValue: { HasValue: true, Value: int value } } || !IsStringComparison(comparison.Parameter!.Type)) return null;
         var suffix = value switch { (int)StringComparison.Ordinal => "Ordinal", (int)StringComparison.OrdinalIgnoreCase => "OrdinalIgnoreCase", _ => null };
         if (suffix is null) return null;
-        var variant = target.ContainingType.GetMembers(target.Name + suffix).OfType<IMethodSymbol>().FirstOrDefault(m =>
+        IMethodSymbol? Variant(string name) => target.ContainingType.GetMembers(name).OfType<IMethodSymbol>().FirstOrDefault(m =>
             m.IsStatic == target.IsStatic && !m.IsGenericMethod && m.Parameters.Length == target.Parameters.Length - 1
             && CoreLib.IsInstanceShadow(m) == CoreLib.IsInstanceShadow(target)
             && SymbolEqualityComparer.Default.Equals(m.ReturnType, target.ReturnType)
             && m.Parameters.Zip(target.Parameters).All(p => p.First.RefKind == p.Second.RefKind
                 && SymbolEqualityComparer.Default.Equals(p.First.Type, p.Second.Type)));
+        // Ignoring case against an ASCII constant is ASCII case folding (.NET's ordinal casing never maps a
+        // non-ASCII char to an ASCII one): <Name>AsciiIgnoreCase, when there is one, needs no Unicode tables.
+        var asciiConstant = suffix == "OrdinalIgnoreCase" && inv.Arguments.Any(a => a != comparison
+            && a.Value.ConstantValue is { HasValue: true, Value: string text } && text.All(char.IsAscii));
+        var variant = (asciiConstant ? Variant(target.Name + "AsciiIgnoreCase") : null) ?? Variant(target.Name + suffix);
         return variant is null ? null : (variant, inv.Arguments.Remove(comparison));
     }
 

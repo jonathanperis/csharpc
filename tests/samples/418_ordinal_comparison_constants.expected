@@ -45,5 +45,13 @@ Compare O: 1
 Compare OIC: -1
 Compare OIC eq: 300
 Compare null: -1
+Equals OIC ascii: True
+Equals OIC ascii sym: False
+Equals OIC ascii vs unicode: False
+Equals OIC ascii null: False
+Equals OIC ascii len: False
+Equals receiver null: NullReferenceException: Object reference not set to an instance of an object.
+Equals receiver null O: NullReferenceException: Object reference not set to an instance of an object.
+Equals receiver null var: NullReferenceException: Object reference not set to an instance of an object.
 receiver null: NullReferenceException: Object reference not set to an instance of an object.
 receiver null IndexOf: NullReferenceException: Object reference not set to an instance of an object.

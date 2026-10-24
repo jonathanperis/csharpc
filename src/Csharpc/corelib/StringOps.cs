@@ -330,6 +330,34 @@ namespace CsharpcCoreLib
             return value.Length <= s.Length && OrdinalCasing.Compare(s.Substring(0, value.Length), value) == 0;
         }
 
+        /// <summary>StartsWithOrdinalIgnoreCase with an ASCII constant value (FunctionCodeGen.OrdinalComparisons.cs).</summary>
+        [ShadowInstance]
+        public static bool StartsWithAsciiIgnoreCase(string s, string value)
+        {
+            if (value == null) throw new ArgumentNullException("value");
+            if ((object)s == (object)value || value.Length == 0) return true;
+            return value.Length <= s.Length && EqualsAsciiIgnoreCase(s.AsSpan(0, value.Length), value);
+        }
+
+        /// <summary>EndsWithOrdinalIgnoreCase with an ASCII constant value.</summary>
+        [ShadowInstance]
+        public static bool EndsWithAsciiIgnoreCase(string s, string value)
+        {
+            if (value == null) throw new ArgumentNullException("value");
+            if ((object)s == (object)value || value.Length == 0) return true;
+            return value.Length <= s.Length && EqualsAsciiIgnoreCase(s.AsSpan(s.Length - value.Length), value);
+        }
+
+        private static bool EqualsAsciiIgnoreCase(ReadOnlySpan<char> s, string ascii)
+        {
+            for (int i = 0; i < s.Length; i++)
+            {
+                int x = s[i], y = ascii[i];
+                if (x != y && ((uint)((x | 0x20) - 'a') > 'z' - 'a' || (x | 0x20) != (y | 0x20))) return false;
+            }
+            return true;
+        }
+
         [ShadowInstance]
         public static bool EndsWithOrdinal(string s, string value)
         {
