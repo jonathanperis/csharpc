@@ -19,6 +19,9 @@
     <Version>0.1.0-spike</Version>
     <Description>csharpc: a C# compiler front-end for LLVM (Roslyn -> LLVM IR -> native).</Description>
     <Authors>csharpc contributors</Authors>
+
+    <!-- csharpc is a short-lived process: dynamic PGO's instrumented tier costs more than it gains (ADR 0014). -->
+    <TieredPGO>false</TieredPGO>
   </PropertyGroup>
 
   <ItemGroup>
@@ -31,5 +34,78 @@
     <None Include="corelib/**/*.cs" LinkBase="corelib" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <None Include="../runtime/**/*.c;../runtime/**/*.h" LinkBase="runtime" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
+
+  <!--
+    ReadyToRun at build time (docs/adr/0014-compile-time.md). Every csharpc run used to JIT Roslyn's
+    binder and parser and csharpc's code generator before compiling anything (~1-2 s of CPU per
+    compile). Release builds (`dotnet build -c Release`, what the tests, the README and the Csharpc.Sdk
+    package use) precompile csharpc.dll and the Roslyn assemblies with crossgen2 for the host, one
+    assembly at a time and incrementally (Roslyn once, csharpc.dll in ~2 s after a change). The images
+    replace the IL ones in the output and publish directories; they still run on any later runtime
+    (ReadyToRun code is rejected and re-JIT-ed if it doesn't match). Opt out: -p:CsharpcReadyToRun=false.
+  -->
+  <PropertyGroup>
+    <CsharpcReadyToRun Condition="'$(CsharpcReadyToRun)' == '' and '$(Configuration)' == 'Release' and '$(PublishAot)' != 'true' and '$(PublishReadyToRun)' != 'true'">true</CsharpcReadyToRun>
+    <_CsharpcCrossgenRid>$(NETCoreSdkPortableRuntimeIdentifier)</_CsharpcCrossgenRid>
+    <_CsharpcCrossgenRid Condition="'$(_CsharpcCrossgenRid)' == ''">$(NETCoreSdkRuntimeIdentifier)</_CsharpcCrossgenRid>
+    <_CsharpcCrossgenOs>$(_CsharpcCrossgenRid.Split('-')[0])</_CsharpcCrossgenOs>
+    <_CsharpcCrossgenOs Condition="'$(_CsharpcCrossgenOs)' == 'win'">windows</_CsharpcCrossgenOs>
+    <_CsharpcCrossgenArch>$(_CsharpcCrossgenRid.Split('-')[1])</_CsharpcCrossgenArch>
+    <_CsharpcCrossgenPackage>Microsoft.NETCore.App.Crossgen2.$(_CsharpcCrossgenRid)</_CsharpcCrossgenPackage>
+    <_CsharpcFrameworkDir>$(NetCoreRoot)shared/Microsoft.NETCore.App/$(BundledNETCoreAppPackageVersion)/</_CsharpcFrameworkDir>
+  </PropertyGroup>
+
+  <ItemGroup Condition="'$(CsharpcReadyToRun)' == 'true'">
+    <PackageDownload Include="$(_CsharpcCrossgenPackage)" Version="[$(BundledNETCoreAppPackageVersion)]" />
+  </ItemGroup>
+
+  <Target Name="_CsharpcReadyToRunInputs">
+    <PropertyGroup>
+      <_CsharpcCrossgen>$(NuGetPackageRoot)$(_CsharpcCrossgenPackage.ToLowerInvariant())/$(BundledNETCoreAppPackageVersion)/tools/crossgen2</_CsharpcCrossgen>
+      <_CsharpcCrossgen Condition="'$(OS)' == 'Windows_NT'">$(NuGetPackageRoot)$(_CsharpcCrossgenPackage.ToLowerInvariant())/$(BundledNETCoreAppPackageVersion)/tools/crossgen2.exe</_CsharpcCrossgen>
+      <_CsharpcReadyToRunDir>$(ProjectDir)$(IntermediateOutputPath)r2r/</_CsharpcReadyToRunDir>
+    </PropertyGroup>
+    <ItemGroup>
+      <_CsharpcReadyToRunInput Include="@(IntermediateAssembly->'%(FullPath)')" />
+      <_CsharpcReadyToRunInput Include="@(ReferenceCopyLocalPaths->'%(FullPath)')"
+                               Condition="'%(ReferenceCopyLocalPaths.Extension)' == '.dll' and '%(ReferenceCopyLocalPaths.DestinationSubDirectory)' == ''" />
+      <_CsharpcReadyToRunInput Update="@(_CsharpcReadyToRunInput)" OutputImage="$(_CsharpcReadyToRunDir)%(Filename)%(Extension)" RelativePath="%(Filename)%(Extension)" />
+      <_CsharpcReadyToRunReference Include="@(ReferenceCopyLocalPaths->'%(FullPath)')"
+                                   Condition="'%(ReferenceCopyLocalPaths.Extension)' == '.dll' and '%(ReferenceCopyLocalPaths.DestinationSubDirectory)' == ''" />
+    </ItemGroup>
+  </Target>
+
+  <Target Name="_CsharpcReadyToRunCompile" DependsOnTargets="_CsharpcReadyToRunInputs"
+          Condition="'$(CsharpcReadyToRun)' == 'true'"
+          Inputs="@(_CsharpcReadyToRunInput)" Outputs="@(_CsharpcReadyToRunInput->'%(OutputImage)')">
+    <Warning Condition="!Exists('$(_CsharpcCrossgen)') or !Exists('$(_CsharpcFrameworkDir)')"
+             Text="csharpc: crossgen2 or the shared framework not found ($(_CsharpcCrossgen), $(_CsharpcFrameworkDir)); csharpc stays JIT-compiled (slower compiles)" />
+    <MakeDir Directories="$(_CsharpcReadyToRunDir)" />
+    <!-- One process per assembly; crossgen2 already compiles methods in parallel. -->
+    <Exec Condition="Exists('$(_CsharpcCrossgen)') and Exists('$(_CsharpcFrameworkDir)')"
+          Command="&quot;$(_CsharpcCrossgen)&quot; &quot;%(_CsharpcReadyToRunInput.Identity)&quot; -o:&quot;%(_CsharpcReadyToRunInput.OutputImage)&quot; --targetos:$(_CsharpcCrossgenOs) --targetarch:$(_CsharpcCrossgenArch) -O -r:&quot;$(_CsharpcFrameworkDir)*.dll&quot; @(_CsharpcReadyToRunReference->'-r:&quot;%(Identity)&quot;', ' ')"
+          StandardOutputImportance="low" />
+  </Target>
+
+  <Target Name="_CsharpcReadyToRunImages" DependsOnTargets="_CsharpcReadyToRunCompile">
+    <ItemGroup>
+      <_CsharpcReadyToRunImage Include="@(_CsharpcReadyToRunInput->'%(OutputImage)')" Condition="Exists('%(_CsharpcReadyToRunInput.OutputImage)')" />
+      <FileWrites Include="@(_CsharpcReadyToRunImage)" />
+    </ItemGroup>
+  </Target>
+
+  <Target Name="_CsharpcReadyToRunBuild" AfterTargets="CopyFilesToOutputDirectory" DependsOnTargets="_CsharpcReadyToRunImages"
+          Condition="'$(CsharpcReadyToRun)' == 'true'">
+    <Copy SourceFiles="@(_CsharpcReadyToRunImage)" DestinationFolder="$(OutDir)" SkipUnchangedFiles="true" />
+  </Target>
+
+  <!-- dotnet publish (and the Csharpc.Sdk package, which publishes csharpc): the same images. -->
+  <Target Name="_CsharpcReadyToRunPublish" AfterTargets="ComputeResolvedFilesToPublishList" DependsOnTargets="_CsharpcReadyToRunImages"
+          Condition="'$(CsharpcReadyToRun)' == 'true'">
+    <ItemGroup>
+      <ResolvedFileToPublish Remove="@(_CsharpcReadyToRunImage)" MatchOnMetadata="RelativePath" />
+      <ResolvedFileToPublish Include="@(_CsharpcReadyToRunImage)" CopyToPublishDirectory="PreserveNewest" />
+    </ItemGroup>
+  </Target>
 
 </Project>
