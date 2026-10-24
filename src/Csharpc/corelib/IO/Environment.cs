@@ -42,6 +42,33 @@ namespace CsharpcCoreLib
             SetEnvironmentVariableW(variable, string.IsNullOrEmpty(value) ? null : value);
         }
 
+        [DllImport("kernel32")] private static extern char* GetEnvironmentStringsW();
+        [DllImport("kernel32")] private static extern int FreeEnvironmentStringsW(char* block);
+
+        /// <summary>Every variable of the environment block ("NAME=value" strings, then an empty one).</summary>
+        public static System.Collections.IDictionary GetEnvironmentVariables()
+        {
+            var result = new System.Collections.Hashtable();
+            char* block = GetEnvironmentStringsW();
+            if (block == null) return result;
+            for (char* p = block; *p != 0;)
+            {
+                int length = 0;
+                while (p[length] != 0) length++;
+                // Hidden entries ("=C:=C:\dir", the per-drive directories) start with '=' and are skipped, as in .NET.
+                int equals = -1;
+                for (int i = 0; i < length; i++) if (p[i] == '=') { equals = i; break; }
+                if (equals > 0)
+                {
+                    string name = new string(p, 0, equals);
+                    if (!result.ContainsKey(name)) result[name] = new string(p, equals + 1, length - equals - 1);
+                }
+                p += length + 1;
+            }
+            FreeEnvironmentStringsW(block);
+            return result;
+        }
+
         public static string MachineName
         {
             get
@@ -97,6 +124,29 @@ namespace CsharpcCoreLib
                 Libc.free(v);
             }
             Libc.free(name);
+        }
+
+        [DllImport("__Internal")] private static extern byte** csrt_environ();
+
+        /// <summary>
+        /// Every variable of the environment. .NET reads the block once into its own copy at start-up; csharpc
+        /// reads libc's, which SetEnvironmentVariable also changes, so the two agree. The first of duplicate
+        /// names wins and entries without '=' are skipped, as in .NET.
+        /// </summary>
+        public static System.Collections.IDictionary GetEnvironmentVariables()
+        {
+            var result = new System.Collections.Hashtable();
+            nint* block = (nint*)csrt_environ();
+            if (block == null) return result;
+            for (int i = 0; block[i] != 0; i++)
+            {
+                string entry = Utf8.FromNative((byte*)block[i]);
+                int equals = entry.IndexOf('=');
+                if (equals <= 0) continue;
+                string name = entry.Substring(0, equals);
+                if (!result.ContainsKey(name)) result[name] = entry.Substring(equals + 1);
+            }
+            return result;
         }
 
         public static string UserName => GetEnvironmentVariable("USER") ?? "";
