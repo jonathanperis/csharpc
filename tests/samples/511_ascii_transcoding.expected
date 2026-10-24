@@ -1,0 +1,17 @@
+Done 7 [Content]
+DestinationTooSmall 8 [Content-]
+InvalidData 2 [ab]
+Done 6 [Server]
+InvalidData 1 [A]
+DestinationTooSmall 8 [01234567]
+True False True False False
+True True False False True
+DestinationTooSmall 8 [keep-ali]
+Done 4 [GZIP]
+InvalidData 1 [X]
+Done 4 [text]
+Done 5 [UTF-8]
+Done 12 [mixed-[case]]
+InvalidData 3 [ABCéd]
+This operation is invalid on overlapping buffers.
+True False True False
