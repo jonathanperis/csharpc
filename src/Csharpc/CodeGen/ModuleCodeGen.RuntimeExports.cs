@@ -40,14 +40,26 @@ public sealed partial class ModuleCodeGen
     private List<(IMethodSymbol, string, string)> CollectRuntimeExports()
     {
         var list = new List<(IMethodSymbol, string, string)>();
+        void Add(IMethodSymbol method)
+        {
+            foreach (var attribute in method.GetAttributes())
+                if (attribute.AttributeClass?.Name == "RuntimeExportAttribute"
+                    && attribute.ConstructorArguments is [{ Value: string symbol }, { Value: string trigger }])
+                    list.Add((method, symbol, trigger));
+        }
+        // A precompiled corelib (ADR 0015) indexed its exports when it was built.
+        if (CoreLib.PrecompiledExports is { } exports)
+        {
+            foreach (var (typeName, methodName) in exports)
+                foreach (var method in CoreLib.TypeNamed(typeName)?.GetMembers(methodName).OfType<IMethodSymbol>() ?? [])
+                    Add(method);
+            return list;
+        }
         var ns = Compilation.GlobalNamespace.GetNamespaceMembers().FirstOrDefault(n => n.Name == CoreLib.Namespace);
         if (ns == null) return list;
         foreach (var type in ns.GetTypeMembers())
             foreach (var method in type.GetMembers().OfType<IMethodSymbol>())
-                foreach (var attribute in method.GetAttributes())
-                    if (attribute.AttributeClass?.Name == "RuntimeExportAttribute"
-                        && attribute.ConstructorArguments is [{ Value: string symbol }, { Value: string trigger }])
-                        list.Add((method, symbol, trigger));
+                Add(method);
         return list;
     }
 }

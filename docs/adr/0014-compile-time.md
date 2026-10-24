@@ -137,10 +137,8 @@ threads alone (against the branch point).
 
 ## Next hot spots for a Roslyn-sized closed world
 
-1. **The corelib through Roslyn on every compile.** Parsing it and binding the bodies the program
-   reaches are still the largest fixed and per-method costs at `-O0`. Compiling the corelib to IL once
-   (cached by corelib sources and target defines) and lowering it through the IL front-end like any
-   framework assembly would remove both, with IL decoding at about half the per-method cost.
+1. ~~**The corelib through Roslyn on every compile.**~~ Done: the corelib is compiled to IL once and
+   lowered through the IL front-end ([ADR 0015](0015-corelib-il.md)).
 2. **Lowering is single-threaded** after the CFGs: emitting LLVM IR for independent functions needs a
    context per thread and a merge (or lowering straight into partitions), since an LLVM context is
    not thread-safe.

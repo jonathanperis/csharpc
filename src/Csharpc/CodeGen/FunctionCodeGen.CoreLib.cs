@@ -141,6 +141,8 @@ public sealed partial class FunctionCodeGen
             "RuntimeConfig" => _m.AppContextBlob(),
             "TryFaultAsyncTask" => CallRuntime("csrt_task_try_fault_async", L.I1, [L.Ptr, L.Ptr], args[0], args[1]),
             "CompareStringsWith" => CallRuntime("csrt_string_compare_with", L.I32, [L.Ptr, L.Ptr, L.I32], args[0], args[1], args[2]),
+            "JsonConfigureHook" => ProgramHook("JsonConfigure", target, args),
+            "JsonBuiltInHook" => ProgramHook("JsonBuiltIn", target, args),
             "EventSourceAttribute" => _b.Call(_m.EventSourceAttributeFunction().Type, _m.EventSourceAttributeFunction().Fn, [args[0], args[1]]),
             // A CancellationToken is its source object (null: None), so these are reinterpretations.
             "TokenSource" or "SourceToken" => args[0],
@@ -149,6 +151,19 @@ public sealed partial class FunctionCodeGen
                 target.ReturnsVoid ? L.Void : T.Value(target.ReturnType), [.. target.Parameters.Select(p => T.Value(p.Type))], args),
             _ => throw CompileError.Unsupported($"corelib intrinsic '{target.Name}'", inv),
         };
+    }
+
+    /// <summary>
+    /// CoreIntrinsics.*Hook: calls the CsharpcCoreLib.ProgramHooks member the front end generated into the
+    /// program (Frontend/JsonReflectionContexts.cs); without one, nothing happens (null for a value). A
+    /// precompiled corelib (ADR 0015) can't name code of the program it is linked into.
+    /// </summary>
+    private LLVMValueRef ProgramHook(string name, IMethodSymbol intrinsic, LLVMValueRef[] args)
+    {
+        var hooks = _m.Compilation.Assembly.GetTypeByMetadataName(CoreLib.Namespace + ".ProgramHooks");
+        if (hooks?.GetMembers(name).OfType<IMethodSymbol>().FirstOrDefault() is not { } hook)
+            return intrinsic.ReturnsVoid ? default : LlvmContext.Null(L.Ptr);
+        return DirectCall(hook, args);
     }
 
     /// <summary>CoreIntrinsics.LibraryFrames: preset the exception's trace with these library frames (no-op without stack traces).</summary>

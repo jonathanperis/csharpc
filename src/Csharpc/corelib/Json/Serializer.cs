@@ -595,6 +595,12 @@ namespace CsharpcCoreLib
             new EnumConverter<T>((EnumConverterOptions)converterOptions, (JsonNamingPolicyImpl)namingPolicy, (JsonSerializerOptionsImpl)options);
     }
 
+    /// <summary>The corelib entry points of the code generated into programs (Frontend/JsonReflectionContexts.cs).</summary>
+    public static class JsonProgramSupport
+    {
+        public static object CreateBuiltIn(Type type, object options) => JsonBuiltInTypeInfos.TryCreate(type, (JsonSerializerOptionsImpl)options);
+    }
+
     /// <summary>Metadata for types every program can serialize without generated code (primitives, JSON DOM types).</summary>
     internal static class JsonBuiltInTypeInfos
     {

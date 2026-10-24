@@ -27,6 +27,19 @@ internal sealed record IlEntry(IlKind Kind, LLVMValueRef Value, ITypeSymbol? Typ
     public IlEntry? Target { get; init; }         // ldvirtftn: the receiver
     public bool IsThis { get; init; }
     public bool NonNull { get; init; }
+    /// <summary>
+    /// The value of an `ldc.*`/`ldstr` entry (int, long, float, double or string): operands built from it
+    /// carry it as their ConstantValue, as Roslyn's operations do for C# constants, so lowering that
+    /// needs a constant argument (CoreIntrinsics.LibraryFrames, ordinal comparisons) sees one.
+    /// </summary>
+    public object? Constant { get; init; }
+    /// <summary>The length of an array this entry holds since `newarr` with a constant length (and `dup`s of it).</summary>
+    public int? FreshLength { get; init; }
+    /// <summary>
+    /// A 64-bit `mul` by a constant (Index × Factor), kept through width-preserving conversions: C#
+    /// compilers scale pointer offsets this way, and `p + i * sizeof(T)` becomes a typed GEP.
+    /// </summary>
+    public (IlEntry Index, long Factor)? Scaled { get; init; }
 }
 
 /// <summary>
