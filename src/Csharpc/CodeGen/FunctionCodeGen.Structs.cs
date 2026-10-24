@@ -570,6 +570,9 @@ public sealed partial class FunctionCodeGen
             }
             return ObjectToString(Box(value, type, at)); // ValueType.ToString(): the type name
         }
+        if (IsIndexType(type)) return FormatIndex(value, at);
+        if (IsRangeType(type)) // Range.ToString(): "start..end"
+            return ConcatStrings(ConcatStrings(FormatIndex(_b.ExtractValue(value, 0), at), _m.StringLiteral("..")), FormatIndex(_b.ExtractValue(value, 1), at));
         // Span<char>.ToString() (and ReadOnlySpan/Memory/ReadOnlyMemory) is the characters; other element
         // types give "System.Span<Int32>[5]".
         if (TypeMapper.IsSpan(type) && type is INamedTypeSymbol { TypeArguments: [var element] } span)

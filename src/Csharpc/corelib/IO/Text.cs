@@ -5,6 +5,8 @@ using System;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Text;
+using System.Threading;
+using System.Threading.Tasks;
 
 namespace CsharpcCoreLib
 {
@@ -52,6 +54,17 @@ namespace CsharpcCoreLib
             while ((c = Read()) >= 0) sb.Append((char)c);
             return sb.ToString();
         }
+
+        // The async members complete synchronously (csharpc's readers are synchronous underneath); an
+        // exception faults the returned task, as .NET's (which runs the synchronous member on the pool).
+        public virtual Task<string> ReadLineAsync() => AsyncText.Run(ReadLine);
+        public virtual ValueTask<string> ReadLineAsync(CancellationToken cancellationToken) =>
+            new ValueTask<string>(cancellationToken.IsCancellationRequested ? Task.FromCanceled<string>(cancellationToken) : ReadLineAsync());
+        public virtual Task<string> ReadToEndAsync() => AsyncText.Run(ReadToEnd);
+        public virtual Task<string> ReadToEndAsync(CancellationToken cancellationToken) =>
+            cancellationToken.IsCancellationRequested ? Task.FromCanceled<string>(cancellationToken) : ReadToEndAsync();
+        public virtual Task<int> ReadAsync(char[] buffer, int index, int count) => AsyncText.Run(() => Read(buffer, index, count));
+        public virtual Task<int> ReadBlockAsync(char[] buffer, int index, int count) => AsyncText.Run(() => ReadBlock(buffer, index, count));
 
         public void Dispose() => Dispose(true);
         public virtual void Close() => Dispose(true);
@@ -135,9 +148,39 @@ namespace CsharpcCoreLib
         public virtual void WriteLine(string format, params object[] arg) => WriteLine(string.Format(_internalFormatProvider, format, arg));
 
         public virtual void Flush() { }
+
+        // Synchronous underneath, like the readers' async members.
+        public virtual Task WriteAsync(char value) => AsyncText.Run(() => Write(value));
+        public virtual Task WriteAsync(string value) => AsyncText.Run(() => Write(value));
+        public Task WriteAsync(char[] buffer) => buffer == null ? Task.CompletedTask : WriteAsync(buffer, 0, buffer.Length);
+        public virtual Task WriteAsync(char[] buffer, int index, int count) => AsyncText.Run(() => Write(buffer, index, count));
+        public virtual Task WriteLineAsync() => WriteAsync(_newLine);
+        public virtual Task WriteLineAsync(char value) => AsyncText.Run(() => WriteLine(value));
+        public virtual Task WriteLineAsync(string value) => AsyncText.Run(() => WriteLine(value));
+        public Task WriteLineAsync(char[] buffer) => buffer == null ? WriteLineAsync() : WriteLineAsync(buffer, 0, buffer.Length);
+        public virtual Task WriteLineAsync(char[] buffer, int index, int count) => AsyncText.Run(() => WriteLine(buffer, index, count));
+        public virtual Task FlushAsync() => AsyncText.Run(Flush);
+        public virtual Task FlushAsync(CancellationToken cancellationToken) =>
+            cancellationToken.IsCancellationRequested ? Task.FromCanceled(cancellationToken) : FlushAsync();
+
         public void Dispose() => Dispose(true);
         public virtual void Close() => Dispose(true);
         protected virtual void Dispose(bool disposing) { }
+    }
+
+    internal static class AsyncText
+    {
+        public static Task<T> Run<T>(Func<T> work)
+        {
+            try { return Task.FromResult(work()); }
+            catch (Exception e) { return Task.FromException<T>(e); }
+        }
+
+        public static Task Run(Action work)
+        {
+            try { work(); return Task.CompletedTask; }
+            catch (Exception e) { return Task.FromException(e); }
+        }
     }
 
     // ---------------------------------------------------------------------------------------------

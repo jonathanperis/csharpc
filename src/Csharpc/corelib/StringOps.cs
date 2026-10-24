@@ -376,6 +376,25 @@ namespace CsharpcCoreLib
         [ShadowInstance]
         public static bool EndsWith(string s, string value, StringComparison comparisonType) => CultureStrings.EndsWith(s, value, comparisonType);
 
+        // String.StartsWith/EndsWith(value, ignoreCase, culture): the culture's (null: the current one) CompareInfo.
+        [ShadowInstance]
+        public static bool StartsWith(string s, string value, bool ignoreCase, System.Globalization.CultureInfo culture)
+        {
+            if (value == null) throw new ArgumentNullException("value");
+            if ((object)s == (object)value) return true;
+            return (culture ?? System.Globalization.CultureInfo.CurrentCulture).CompareInfo.IsPrefix(s, value,
+                ignoreCase ? System.Globalization.CompareOptions.IgnoreCase : System.Globalization.CompareOptions.None);
+        }
+
+        [ShadowInstance]
+        public static bool EndsWith(string s, string value, bool ignoreCase, System.Globalization.CultureInfo culture)
+        {
+            if (value == null) throw new ArgumentNullException("value");
+            if ((object)s == (object)value) return true;
+            return (culture ?? System.Globalization.CultureInfo.CurrentCulture).CompareInfo.IsSuffix(s, value,
+                ignoreCase ? System.Globalization.CompareOptions.IgnoreCase : System.Globalization.CompareOptions.None);
+        }
+
         [ShadowInstance]
         public static int IndexOf(string s, char value, StringComparison comparisonType) => CultureStrings.IndexOf(s, value, comparisonType);
 

@@ -4,6 +4,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace CsharpcCoreLib
@@ -170,6 +171,61 @@ namespace CsharpcCoreLib
         public static Task WriteAllBytesAsync(string path, byte[] bytes) { WriteAllBytes(path, bytes); return Task.CompletedTask; }
         public static Task WriteAllLinesAsync(string path, IEnumerable<string> contents) { WriteAllLines(path, contents); return Task.CompletedTask; }
         public static Task AppendAllTextAsync(string path, string contents) { AppendAllText(path, contents); return Task.CompletedTask; }
+
+        // The token and encoding overloads: a token canceled up front gives a canceled task, as .NET's; the
+        // work itself runs synchronously like the overloads above.
+        public static Task<string> ReadAllTextAsync(string path, CancellationToken cancellationToken) => ReadAllTextAsync(path, Encoding.UTF8, cancellationToken);
+        public static Task<string> ReadAllTextAsync(string path, Encoding encoding, CancellationToken cancellationToken = default)
+        {
+            Validate(path, encoding);
+            return cancellationToken.IsCancellationRequested ? Task.FromCanceled<string>(cancellationToken) : AsyncText.Run(() => ReadAllText(path, encoding));
+        }
+        public static Task<string[]> ReadAllLinesAsync(string path, CancellationToken cancellationToken) => ReadAllLinesAsync(path, Encoding.UTF8, cancellationToken);
+        public static Task<string[]> ReadAllLinesAsync(string path, Encoding encoding, CancellationToken cancellationToken = default)
+        {
+            Validate(path, encoding);
+            return cancellationToken.IsCancellationRequested ? Task.FromCanceled<string[]>(cancellationToken) : AsyncText.Run(() => ReadAllLines(path, encoding));
+        }
+        public static Task<byte[]> ReadAllBytesAsync(string path, CancellationToken cancellationToken)
+        {
+            Validate(path, Encoding.UTF8);
+            return cancellationToken.IsCancellationRequested ? Task.FromCanceled<byte[]>(cancellationToken) : AsyncText.Run(() => ReadAllBytes(path));
+        }
+        public static Task WriteAllTextAsync(string path, string contents, CancellationToken cancellationToken) =>
+            WriteAllTextAsync(path, contents, new UTF8Encoding(false), cancellationToken);
+        public static Task WriteAllTextAsync(string path, string contents, Encoding encoding, CancellationToken cancellationToken = default)
+        {
+            Validate(path, encoding);
+            return cancellationToken.IsCancellationRequested ? Task.FromCanceled(cancellationToken) : AsyncText.Run(() => WriteAllText(path, contents, encoding));
+        }
+        public static Task WriteAllLinesAsync(string path, IEnumerable<string> contents, CancellationToken cancellationToken) =>
+            WriteAllLinesAsync(path, contents, new UTF8Encoding(false), cancellationToken);
+        public static Task WriteAllLinesAsync(string path, IEnumerable<string> contents, Encoding encoding, CancellationToken cancellationToken = default)
+        {
+            Validate(path, encoding);
+            if (contents == null) throw new ArgumentNullException("contents");
+            return cancellationToken.IsCancellationRequested ? Task.FromCanceled(cancellationToken) : AsyncText.Run(() => WriteAllLines(path, contents, encoding));
+        }
+        public static Task WriteAllBytesAsync(string path, byte[] bytes, CancellationToken cancellationToken)
+        {
+            Validate(path, Encoding.UTF8);
+            if (bytes == null) throw new ArgumentNullException("bytes");
+            return cancellationToken.IsCancellationRequested ? Task.FromCanceled(cancellationToken) : AsyncText.Run(() => WriteAllBytes(path, bytes));
+        }
+        public static Task AppendAllTextAsync(string path, string contents, CancellationToken cancellationToken) =>
+            AppendAllTextAsync(path, contents, new UTF8Encoding(false), cancellationToken);
+        public static Task AppendAllTextAsync(string path, string contents, Encoding encoding, CancellationToken cancellationToken = default)
+        {
+            Validate(path, encoding);
+            return cancellationToken.IsCancellationRequested ? Task.FromCanceled(cancellationToken) : AsyncText.Run(() => AppendAllText(path, contents, encoding));
+        }
+
+        // .NET's ArgumentException.ThrowIfNullOrEmpty(path) and ArgumentNullException.ThrowIfNull(encoding), thrown synchronously.
+        private static void Validate(string path, Encoding encoding)
+        {
+            ArgumentException.ThrowIfNullOrEmpty(path);
+            if (encoding == null) throw new ArgumentNullException("encoding");
+        }
 
         public static void Delete(string path)
         {
