@@ -30,8 +30,8 @@ public sealed partial class ModuleCodeGen
         var fn = lowered.Fn;
         using var b = new IrBuilder(Llvm);
         b.PositionAtEnd(b.AppendBlock(fn, "entry"));
-        // A Type object is { Type_MT, described method table } (runtime/type.c).
-        var target = b.Load(Llvm.Ptr, b.InBoundsGep(Llvm.I8, fn.Param(0), [Llvm.ConstInt(Llvm.I64, 8)]));
+        // A Type object is { Type_MT, described method table } (runtime/type.c): the second pointer.
+        var target = b.Load(Llvm.Ptr, b.InBoundsGep(Llvm.Ptr, fn.Param(0), [Llvm.ConstInt(Llvm.I64, 1)]));
         var which = fn.Param(1);
         foreach (var (type, layout) in _layouts.ToList())
         {
