@@ -939,6 +939,7 @@ internal static class Intrinsics
             g.CallCoreLibGeneric("ValueTaskSourceBridge", "Create", [], CtorArg(g, c, 0), CtorArg(g, c, 1));
         // `a..b` compiled to IL: two Index conversions and this constructor.
         t["System.Range..ctor(System.Index, System.Index)"] = (g, c) => g.MakeRange(CtorArg(g, c, 0), CtorArg(g, c, 1));
+        t["System.Index..ctor(int, bool)"] = (g, c) => g.MakeIndex(CtorArg(g, c, 0), CtorArg(g, c, 1));
         t["string..ctor(char, int)"] = (g, c) =>
             g.CallRuntime("csrt_string_new_repeat", g.Module.Llvm.Ptr, [g.Module.Llvm.I16, g.Module.Llvm.I32], CtorArg(g, c, 0), CtorArg(g, c, 1));
         // Strings from native memory: new string(char*, int, int) / (char*) / (sbyte*).

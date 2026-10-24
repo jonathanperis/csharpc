@@ -3,11 +3,13 @@
 using System;
 using System.IO;
 using System.Text;
+using System.Threading;
+using System.Threading.Tasks;
 
 namespace CsharpcCoreLib
 {
     [Shadows("System.IO.Stream")]
-    public abstract unsafe class StreamImpl : IDisposable
+    public abstract unsafe class StreamImpl : IDisposable, IAsyncDisposable
     {
         public abstract bool CanRead { get; }
         public abstract bool CanSeek { get; }
@@ -75,6 +77,36 @@ namespace CsharpcCoreLib
             while ((n = Read(buffer, 0, buffer.Length)) > 0) destination.Write(buffer, 0, n);
         }
 
+        // The async members run the synchronous ones (csharpc's streams are synchronous underneath); an
+        // exception faults the returned task, and a token canceled up front gives a canceled one, as .NET's.
+        public Task<int> ReadAsync(byte[] buffer, int offset, int count) => ReadAsync(buffer, offset, count, CancellationToken.None);
+        public virtual Task<int> ReadAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken) =>
+            cancellationToken.IsCancellationRequested ? Task.FromCanceled<int>(cancellationToken) : AsyncText.Run(() => Read(buffer, offset, count));
+        public virtual ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default) =>
+            new ValueTask<int>(cancellationToken.IsCancellationRequested ? Task.FromCanceled<int>(cancellationToken) : AsyncText.Run(() => Read(buffer.Span)));
+        public Task WriteAsync(byte[] buffer, int offset, int count) => WriteAsync(buffer, offset, count, CancellationToken.None);
+        public virtual Task WriteAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken) =>
+            cancellationToken.IsCancellationRequested ? Task.FromCanceled(cancellationToken) : AsyncText.Run(() => Write(buffer, offset, count));
+        public virtual ValueTask WriteAsync(ReadOnlyMemory<byte> buffer, CancellationToken cancellationToken = default) =>
+            new ValueTask(cancellationToken.IsCancellationRequested ? Task.FromCanceled(cancellationToken) : AsyncText.Run(() => Write(buffer.Span)));
+        public Task FlushAsync() => FlushAsync(CancellationToken.None);
+        public virtual Task FlushAsync(CancellationToken cancellationToken) =>
+            cancellationToken.IsCancellationRequested ? Task.FromCanceled(cancellationToken) : AsyncText.Run(Flush);
+        public Task CopyToAsync(Stream destination) => CopyToAsync(destination, 81920, CancellationToken.None);
+        public Task CopyToAsync(Stream destination, int bufferSize) => CopyToAsync(destination, bufferSize, CancellationToken.None);
+        public Task CopyToAsync(Stream destination, CancellationToken cancellationToken) => CopyToAsync(destination, 81920, cancellationToken);
+        public virtual Task CopyToAsync(Stream destination, int bufferSize, CancellationToken cancellationToken)
+        {
+            if (destination == null) throw new ArgumentNullException("destination");
+            return cancellationToken.IsCancellationRequested ? Task.FromCanceled(cancellationToken) : AsyncText.Run(() => CopyTo(destination, bufferSize));
+        }
+
+        public virtual ValueTask DisposeAsync()
+        {
+            try { Dispose(); return default; }
+            catch (Exception e) { return new ValueTask(Task.FromException(e)); }
+        }
+
         public void Dispose()
         {
             Dispose(true);
@@ -102,6 +134,10 @@ namespace CsharpcCoreLib
         public FileStreamImpl(string path, FileMode mode) : this(path, mode, mode == FileMode.Append ? FileAccess.Write : FileAccess.ReadWrite, FileShare.Read, DefaultBufferSize) { }
         public FileStreamImpl(string path, FileMode mode, FileAccess access) : this(path, mode, access, FileShare.Read, DefaultBufferSize) { }
         public FileStreamImpl(string path, FileMode mode, FileAccess access, FileShare share) : this(path, mode, access, share, DefaultBufferSize) { }
+        // useAsync only changes how .NET issues the I/O (csharpc's is synchronous underneath).
+        public FileStreamImpl(string path, FileMode mode, FileAccess access, FileShare share, int bufferSize, bool useAsync)
+            : this(path, mode, access, share, bufferSize) { }
+
         public FileStreamImpl(string path, FileMode mode, FileAccess access, FileShare share, int bufferSize)
         {
             if (path == null) throw new ArgumentNullException("path");

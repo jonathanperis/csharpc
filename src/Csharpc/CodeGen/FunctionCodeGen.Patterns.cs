@@ -169,6 +169,13 @@ public sealed partial class FunctionCodeGen
                 length = () => _b.ExtractValue(value, 1);
                 element = i => LoadValue(_b.InBoundsGep(T.Storage(elementType), _b.ExtractValue(value, 0), [_b.Cast(LLVMOpcode.SExt, i, L.I64)]), elementType);
                 break;
+            case INamedTypeSymbol { TypeKind: TypeKind.Class } named
+                when ListPatternMembers(named, pattern) is ({ } countGetter, { } itemGetter, var itemType):
+                // A countable, indexable class (List<T>, a user collection): its Count/Length and this[int].
+                elementType = itemType;
+                length = () => CallMethod(countGetter, [value]);
+                element = i => CallMethod(itemGetter, [value, i]);
+                break;
             default:
                 throw CompileError.Unsupported($"list pattern on '{type}'", pattern);
         }
@@ -221,7 +228,8 @@ public sealed partial class FunctionCodeGen
         }
         for (var i = 0; i < patterns.Length; i++)
         {
-            if (i == slice) continue;
+            // `_` reads nothing, as in the C# compiler's lowering (a user indexer isn't called for it).
+            if (i == slice || patterns[i] is IDiscardPatternOperation) continue;
             var position = i;
             var fromEnd = slice >= 0 && i > slice ? patterns.Length - i : 0;
             steps.Add(() =>
@@ -231,6 +239,28 @@ public sealed partial class FunctionCodeGen
             });
         }
         return ShortCircuit(isAnd: true, steps);
+    }
+
+    /// <summary>
+    /// The Count/Length getter and int indexer getter a list pattern binds to, looked up by name on the
+    /// (corelib-mapped) type; null unless both are compiled here and the pattern captures no slice (a type
+    /// without Slice/range indexer only allows a discarded `..`, and only arrays/strings/spans are sliced).
+    /// </summary>
+    private (IMethodSymbol? Count, IMethodSymbol? Item, ITypeSymbol ItemType) ListPatternMembers(INamedTypeSymbol type, IListPatternOperation pattern)
+    {
+        if (pattern.LengthSymbol is not IPropertySymbol lengthSymbol
+            || pattern.Patterns.Any(p => p is ISlicePatternOperation { Pattern: not (null or IDiscardPatternOperation) }))
+            return (null, null, type);
+        IMethodSymbol? Find(Func<IPropertySymbol, bool> match)
+        {
+            for (var t = type; t is not null; t = t.BaseType)
+                if (t.GetMembers().OfType<IPropertySymbol>().FirstOrDefault(match) is { GetMethod: { } getter } && _m.IsUserMethod(getter))
+                    return getter;
+            return null;
+        }
+        var count = Find(p => p.Name == lengthSymbol.Name && p.Parameters.IsEmpty && p.Type.SpecialType == SpecialType.System_Int32);
+        var item = Find(p => p.IsIndexer && p.Parameters is [{ Type.SpecialType: SpecialType.System_Int32 }]);
+        return (count, item, item is null ? type : S(item.ReturnType));
     }
 
     private (LLVMValueRef[] Values, ITypeSymbol[] Types) Deconstruct(LLVMValueRef value, ITypeSymbol type, IRecursivePatternOperation pattern) =>

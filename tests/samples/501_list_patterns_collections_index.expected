@@ -1,0 +1,13 @@
+empty
+one: x
+starts with a
+ends with z
+three: p..r
+many (4)
+null does not match
+1..>4 (5)
+[Count][1] yes
+[Count][0] big first
+^2 3 True f
+Non-negative number required. (Parameter 'value')
+True False True False
