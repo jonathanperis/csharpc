@@ -1,19 +1,46 @@
 // System.IO streams: Stream, FileStream (buffered, over POSIX fds), MemoryStream, BinaryReader/Writer.
 #nullable disable
 using System;
+using System.Buffers;
 using System.IO;
 using System.Text;
+using System.Threading;
+using System.Threading.Tasks;
 
 namespace CsharpcCoreLib
 {
+    // System.IO.Stream, after dotnet/runtime's Stream.cs (release/11.0): the same virtual surface (so streams
+    // compiled from IL can override any of it: ASP.NET Core's request/response streams, System.IO.Pipelines'
+    // adapters), exception types and messages. The default asynchronous operations run the synchronous ones on
+    // the thread pool one at a time, as .NET's do (it serializes them with a semaphore; here each one starts
+    // when the previous one has finished), and go through BeginRead/BeginWrite so overrides of those are used.
     [Shadows("System.IO.Stream")]
-    public abstract unsafe class StreamImpl : IDisposable
+    public abstract class StreamImpl : IDisposable, IAsyncDisposable
     {
+        public static readonly Stream Null = (Stream)(object)new NullStream();
+
+        private object _asyncLock;
+        private Task _asyncTail;
+
         public abstract bool CanRead { get; }
         public abstract bool CanSeek { get; }
         public abstract bool CanWrite { get; }
+        public virtual bool CanTimeout => false;
         public abstract long Length { get; }
         public abstract long Position { get; set; }
+
+        public virtual int ReadTimeout
+        {
+            get => throw new InvalidOperationException("Timeouts are not supported on this stream.");
+            set => throw new InvalidOperationException("Timeouts are not supported on this stream.");
+        }
+
+        public virtual int WriteTimeout
+        {
+            get => throw new InvalidOperationException("Timeouts are not supported on this stream.");
+            set => throw new InvalidOperationException("Timeouts are not supported on this stream.");
+        }
+
         public abstract void Flush();
         public abstract int Read(byte[] buffer, int offset, int count);
         public abstract long Seek(long offset, SeekOrigin origin);
@@ -22,16 +49,26 @@ namespace CsharpcCoreLib
 
         public virtual int Read(Span<byte> buffer)
         {
-            byte[] temp = new byte[buffer.Length];
-            int n = Read(temp, 0, temp.Length);
-            for (int i = 0; i < n; i++) buffer[i] = temp[i];
-            return n;
+            byte[] shared = ArrayPool<byte>.Shared.Rent(buffer.Length);
+            try
+            {
+                int n = Read(shared, 0, buffer.Length);
+                if ((uint)n > (uint)buffer.Length) throw new IOException("Stream was too long.");
+                new ReadOnlySpan<byte>(shared, 0, n).CopyTo(buffer);
+                return n;
+            }
+            finally { ArrayPool<byte>.Shared.Return(shared); }
         }
 
         public virtual void Write(ReadOnlySpan<byte> buffer)
         {
-            byte[] temp = buffer.ToArray();
-            Write(temp, 0, temp.Length);
+            byte[] shared = ArrayPool<byte>.Shared.Rent(buffer.Length);
+            try
+            {
+                buffer.CopyTo(shared);
+                Write(shared, 0, buffer.Length);
+            }
+            finally { ArrayPool<byte>.Shared.Return(shared); }
         }
 
         public virtual int ReadByte()
@@ -47,42 +84,344 @@ namespace CsharpcCoreLib
             Write(one, 0, 1);
         }
 
+        public void ReadExactly(Span<byte> buffer) => ReadAtLeastCore(buffer, buffer.Length, true);
+
         public void ReadExactly(byte[] buffer, int offset, int count)
         {
-            while (count > 0)
-            {
-                int n = Read(buffer, offset, count);
-                if (n == 0) throw new EndOfStreamException("Unable to read beyond the end of the stream.");
-                offset += n;
-                count -= n;
-            }
+            ValidateBufferArguments(buffer, offset, count);
+            ReadAtLeastCore(buffer.AsSpan(offset, count), count, true);
         }
 
-        public void ReadExactly(Span<byte> buffer)
+        public int ReadAtLeast(Span<byte> buffer, int minimumBytes, bool throwOnEndOfStream = true)
         {
-            byte[] temp = new byte[buffer.Length];
-            ReadExactly(temp, 0, temp.Length);
-            for (int i = 0; i < temp.Length; i++) buffer[i] = temp[i];
+            ValidateReadAtLeastArguments(buffer.Length, minimumBytes);
+            return ReadAtLeastCore(buffer, minimumBytes, throwOnEndOfStream);
         }
 
-        public void CopyTo(Stream destination) => CopyTo(destination, 81920);
+        private int ReadAtLeastCore(Span<byte> buffer, int minimumBytes, bool throwOnEndOfStream)
+        {
+            int total = 0;
+            while (total < minimumBytes)
+            {
+                int n = Read(buffer.Slice(total));
+                if (n == 0)
+                {
+                    if (throwOnEndOfStream) throw new EndOfStreamException("Unable to read beyond the end of the stream.");
+                    return total;
+                }
+                total += n;
+            }
+            return total;
+        }
+
+        public void CopyTo(Stream destination) => CopyTo(destination, GetCopyBufferSize());
 
         public virtual void CopyTo(Stream destination, int bufferSize)
         {
-            if (destination == null) throw new ArgumentNullException("destination");
-            byte[] buffer = new byte[bufferSize];
-            int n;
-            while ((n = Read(buffer, 0, buffer.Length)) > 0) destination.Write(buffer, 0, n);
+            ValidateCopyToArguments(destination, bufferSize);
+            if (!CanRead)
+            {
+                if (CanWrite) throw new NotSupportedException("Stream does not support reading.");
+                throw new ObjectDisposedException(GetType().Name, "Cannot access a closed Stream.");
+            }
+            byte[] buffer = ArrayPool<byte>.Shared.Rent(bufferSize);
+            try
+            {
+                int n;
+                while ((n = Read(buffer, 0, buffer.Length)) != 0) destination.Write(buffer, 0, n);
+            }
+            finally { ArrayPool<byte>.Shared.Return(buffer); }
         }
 
-        public void Dispose()
+        public Task CopyToAsync(Stream destination) => CopyToAsync(destination, GetCopyBufferSize());
+        public Task CopyToAsync(Stream destination, int bufferSize) => CopyToAsync(destination, bufferSize, CancellationToken.None);
+        public Task CopyToAsync(Stream destination, CancellationToken cancellationToken) => CopyToAsync(destination, GetCopyBufferSize(), cancellationToken);
+
+        public virtual Task CopyToAsync(Stream destination, int bufferSize, CancellationToken cancellationToken)
         {
-            Dispose(true);
+            ValidateCopyToArguments(destination, bufferSize);
+            if (!CanRead)
+            {
+                if (CanWrite) throw new NotSupportedException("Stream does not support reading.");
+                throw new ObjectDisposedException(GetType().Name, "Cannot access a closed Stream.");
+            }
+            return CopyToAsyncCore((Stream)(object)this, destination, bufferSize, cancellationToken);
         }
+
+        private static async Task CopyToAsyncCore(Stream source, Stream destination, int bufferSize, CancellationToken cancellationToken)
+        {
+            byte[] buffer = ArrayPool<byte>.Shared.Rent(bufferSize);
+            try
+            {
+                int n;
+                while ((n = await source.ReadAsync(new Memory<byte>(buffer), cancellationToken).ConfigureAwait(false)) != 0)
+                    await destination.WriteAsync(new ReadOnlyMemory<byte>(buffer, 0, n), cancellationToken).ConfigureAwait(false);
+            }
+            finally { ArrayPool<byte>.Shared.Return(buffer); }
+        }
+
+        private int GetCopyBufferSize()
+        {
+            int bufferSize = 81920;
+            if (CanSeek)
+            {
+                long length = Length, position = Position;
+                if (length <= position) bufferSize = 1;
+                else
+                {
+                    long remaining = length - position;
+                    if (remaining > 0) bufferSize = (int)Math.Min(bufferSize, remaining);
+                }
+            }
+            return bufferSize;
+        }
+
+        public void Dispose() => Close();
 
         public virtual void Close() => Dispose(true);
 
         protected virtual void Dispose(bool disposing) { }
+
+        public virtual ValueTask DisposeAsync()
+        {
+            try
+            {
+                Dispose();
+                return default;
+            }
+            catch (Exception e)
+            {
+                return ValueTask.FromException(e);
+            }
+        }
+
+        public Task FlushAsync() => FlushAsync(CancellationToken.None);
+
+        public virtual Task FlushAsync(CancellationToken cancellationToken) =>
+            Task.Factory.StartNew(state => ((Stream)state).Flush(), this, cancellationToken, TaskCreationOptions.DenyChildAttach, TaskScheduler.Default);
+
+        // ---- asynchronous reads and writes ---------------------------------------------------------
+        public virtual IAsyncResult BeginRead(byte[] buffer, int offset, int count, AsyncCallback callback, object state)
+        {
+            ValidateBufferArguments(buffer, offset, count);
+            if (!CanRead) throw new NotSupportedException("Stream does not support reading.");
+            return new StreamAsyncResult(RunSerialized(() => Read(buffer, offset, count)), true, callback, state);
+        }
+
+        public virtual int EndRead(IAsyncResult asyncResult) => End(asyncResult, true);
+
+        public virtual IAsyncResult BeginWrite(byte[] buffer, int offset, int count, AsyncCallback callback, object state)
+        {
+            ValidateBufferArguments(buffer, offset, count);
+            if (!CanWrite) throw new NotSupportedException("Stream does not support writing.");
+            return new StreamAsyncResult(RunSerialized(() => { Write(buffer, offset, count); return 0; }), false, callback, state);
+        }
+
+        public virtual void EndWrite(IAsyncResult asyncResult) => End(asyncResult, false);
+
+        private static int End(IAsyncResult asyncResult, bool read)
+        {
+            if (asyncResult == null) throw new ArgumentNullException("asyncResult");
+            if (!(asyncResult is StreamAsyncResult result) || result.IsRead != read)
+                throw new ArgumentException("Either the IAsyncResult object did not come from the corresponding async method on this type, or the End method was called multiple times with the same IAsyncResult.");
+            if (result.EndCalled)
+                throw new InvalidOperationException("Either the IAsyncResult object did not come from the corresponding async method on this type, or the End method was called multiple times with the same IAsyncResult.");
+            result.EndCalled = true;
+            return result.Task.GetAwaiter().GetResult();
+        }
+
+        /// <summary>Runs a default asynchronous operation on the thread pool once the previous one has finished.</summary>
+        private Task<int> RunSerialized(Func<int> operation)
+        {
+            object gate = _asyncLock ?? Interlocked.CompareExchange(ref _asyncLock, new object(), null) ?? _asyncLock;
+            lock (gate)
+            {
+                Task previous = _asyncTail;
+                Task<int> task = previous == null || previous.IsCompleted
+                    ? Task.Factory.StartNew(operation, CancellationToken.None, TaskCreationOptions.DenyChildAttach, TaskScheduler.Default)
+                    : previous.ContinueWith(_ => operation(), CancellationToken.None, TaskContinuationOptions.DenyChildAttach, TaskScheduler.Default);
+                _asyncTail = task;
+                return task;
+            }
+        }
+
+        private sealed class StreamAsyncResult : IAsyncResult
+        {
+            internal readonly Task<int> Task;
+            internal readonly bool IsRead;
+            internal bool EndCalled;
+            private readonly object _state;
+
+            internal StreamAsyncResult(Task<int> task, bool isRead, AsyncCallback callback, object state)
+            {
+                Task = task;
+                IsRead = isRead;
+                _state = state;
+                if (callback != null)
+                    task.ContinueWith(_ => callback(this), CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+            }
+
+            public object AsyncState => _state;
+            public bool CompletedSynchronously => false;
+            public bool IsCompleted => Task.IsCompleted;
+            public WaitHandle AsyncWaitHandle => throw new NotSupportedException("IAsyncResult.AsyncWaitHandle of a stream operation is not supported by csharpc yet.");
+        }
+
+        public Task<int> ReadAsync(byte[] buffer, int offset, int count) => ReadAsync(buffer, offset, count, CancellationToken.None);
+
+        public virtual Task<int> ReadAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken)
+        {
+            if (cancellationToken.IsCancellationRequested) return Task.FromCanceled<int>(cancellationToken);
+            var completion = new TaskCompletionSource<int>();
+            BeginRead(buffer, offset, count, result =>
+            {
+                try { completion.SetResult(EndRead(result)); }
+                catch (OperationCanceledException) { completion.SetCanceled(); }
+                catch (Exception e) { completion.SetException(e); }
+            }, null);
+            return completion.Task;
+        }
+
+        public virtual ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
+        {
+            byte[] shared = ArrayPool<byte>.Shared.Rent(buffer.Length);
+            return FinishReadAsync(ReadAsync(shared, 0, buffer.Length, cancellationToken), shared, buffer);
+        }
+
+        private static async ValueTask<int> FinishReadAsync(Task<int> readTask, byte[] localBuffer, Memory<byte> localDestination)
+        {
+            try
+            {
+                int n = await readTask.ConfigureAwait(false);
+                new ReadOnlySpan<byte>(localBuffer, 0, n).CopyTo(localDestination.Span);
+                return n;
+            }
+            finally { ArrayPool<byte>.Shared.Return(localBuffer); }
+        }
+
+        public ValueTask ReadExactlyAsync(Memory<byte> buffer, CancellationToken cancellationToken = default) =>
+            new ValueTask(ReadAtLeastAsyncCore(buffer, buffer.Length, true, cancellationToken).AsTask());
+
+        public ValueTask ReadExactlyAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken = default)
+        {
+            ValidateBufferArguments(buffer, offset, count);
+            return new ValueTask(ReadAtLeastAsyncCore(buffer.AsMemory(offset, count), count, true, cancellationToken).AsTask());
+        }
+
+        public ValueTask<int> ReadAtLeastAsync(Memory<byte> buffer, int minimumBytes, bool throwOnEndOfStream = true, CancellationToken cancellationToken = default)
+        {
+            ValidateReadAtLeastArguments(buffer.Length, minimumBytes);
+            return ReadAtLeastAsyncCore(buffer, minimumBytes, throwOnEndOfStream, cancellationToken);
+        }
+
+        private async ValueTask<int> ReadAtLeastAsyncCore(Memory<byte> buffer, int minimumBytes, bool throwOnEndOfStream, CancellationToken cancellationToken)
+        {
+            int total = 0;
+            while (total < minimumBytes)
+            {
+                int n = await ReadAsync(buffer.Slice(total), cancellationToken).ConfigureAwait(false);
+                if (n == 0)
+                {
+                    if (throwOnEndOfStream) throw new EndOfStreamException("Unable to read beyond the end of the stream.");
+                    return total;
+                }
+                total += n;
+            }
+            return total;
+        }
+
+        public Task WriteAsync(byte[] buffer, int offset, int count) => WriteAsync(buffer, offset, count, CancellationToken.None);
+
+        public virtual Task WriteAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken)
+        {
+            if (cancellationToken.IsCancellationRequested) return Task.FromCanceled(cancellationToken);
+            var completion = new TaskCompletionSource();
+            BeginWrite(buffer, offset, count, result =>
+            {
+                try { EndWrite(result); completion.SetResult(); }
+                catch (OperationCanceledException) { completion.SetCanceled(); }
+                catch (Exception e) { completion.SetException(e); }
+            }, null);
+            return completion.Task;
+        }
+
+        public virtual ValueTask WriteAsync(ReadOnlyMemory<byte> buffer, CancellationToken cancellationToken = default)
+        {
+            byte[] shared = ArrayPool<byte>.Shared.Rent(buffer.Length);
+            buffer.Span.CopyTo(shared);
+            return new ValueTask(FinishWriteAsync(WriteAsync(shared, 0, buffer.Length, cancellationToken), shared));
+        }
+
+        private static async Task FinishWriteAsync(Task writeTask, byte[] localBuffer)
+        {
+            try { await writeTask.ConfigureAwait(false); }
+            finally { ArrayPool<byte>.Shared.Return(localBuffer); }
+        }
+
+        // ---- argument checks -----------------------------------------------------------------------
+        protected static void ValidateBufferArguments(byte[] buffer, int offset, int count)
+        {
+            if (buffer == null) throw new ArgumentNullException("buffer");
+            if (offset < 0) throw new ArgumentOutOfRangeException("offset", "Non-negative number required.");
+            if ((uint)count > buffer.Length - offset)
+                throw new ArgumentOutOfRangeException("count", "Offset and length were out of bounds for the array or count is greater than the number of elements from index to the end of the source collection.");
+        }
+
+        private static void ValidateReadAtLeastArguments(int bufferLength, int minimumBytes)
+        {
+            if (minimumBytes < 0) throw new ArgumentOutOfRangeException("minimumBytes", "Non-negative number required.");
+            if (bufferLength < minimumBytes) throw new ArgumentOutOfRangeException("minimumBytes", "Must not be greater than the length of the buffer.");
+        }
+
+        protected static void ValidateCopyToArguments(Stream destination, int bufferSize)
+        {
+            if (destination == null) throw new ArgumentNullException("destination");
+            if (bufferSize <= 0)
+                throw new ArgumentOutOfRangeException("bufferSize", bufferSize, "bufferSize ('" + bufferSize.ToString() + "') must be a non-negative and non-zero value.");
+            if (!destination.CanWrite)
+            {
+                if (destination.CanRead) throw new NotSupportedException("Stream does not support writing.");
+                throw new ObjectDisposedException(destination.GetType().Name, "Cannot access a closed Stream.");
+            }
+        }
+
+        public static Stream Synchronized(Stream stream)
+        {
+            if (stream == null) throw new ArgumentNullException("stream");
+            return stream;
+        }
+
+        private sealed class NullStream : StreamImpl
+        {
+            public override bool CanRead => true;
+            public override bool CanWrite => true;
+            public override bool CanSeek => true;
+            public override long Length => 0;
+            public override long Position { get => 0; set { } }
+            public override void CopyTo(Stream destination, int bufferSize) { }
+            public override Task CopyToAsync(Stream destination, int bufferSize, CancellationToken cancellationToken) =>
+                cancellationToken.IsCancellationRequested ? Task.FromCanceled(cancellationToken) : Task.CompletedTask;
+            protected override void Dispose(bool disposing) { }
+            public override void Flush() { }
+            public override Task FlushAsync(CancellationToken cancellationToken) =>
+                cancellationToken.IsCancellationRequested ? Task.FromCanceled(cancellationToken) : Task.CompletedTask;
+            public override int Read(byte[] buffer, int offset, int count) => 0;
+            public override int Read(Span<byte> buffer) => 0;
+            public override Task<int> ReadAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken) =>
+                cancellationToken.IsCancellationRequested ? Task.FromCanceled<int>(cancellationToken) : Task.FromResult(0);
+            public override ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken) =>
+                cancellationToken.IsCancellationRequested ? new ValueTask<int>(Task.FromCanceled<int>(cancellationToken)) : new ValueTask<int>(0);
+            public override int ReadByte() => -1;
+            public override void Write(byte[] buffer, int offset, int count) { }
+            public override void Write(ReadOnlySpan<byte> buffer) { }
+            public override Task WriteAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken) =>
+                cancellationToken.IsCancellationRequested ? Task.FromCanceled(cancellationToken) : Task.CompletedTask;
+            public override ValueTask WriteAsync(ReadOnlyMemory<byte> buffer, CancellationToken cancellationToken = default) =>
+                cancellationToken.IsCancellationRequested ? new ValueTask(Task.FromCanceled(cancellationToken)) : default;
+            public override void WriteByte(byte value) { }
+            public override long Seek(long offset, SeekOrigin origin) => 0;
+            public override void SetLength(long length) { }
+        }
     }
 
     [Shadows("System.IO.FileStream")]
@@ -607,6 +946,75 @@ namespace CsharpcCoreLib
         {
             if (stream == null) throw new ArgumentNullException("stream");
             stream.Write(_buffer, _origin, _length - _origin);
+        }
+
+        // MemoryStream completes its asynchronous operations synchronously, as .NET's does.
+        public override Task<int> ReadAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken)
+        {
+            ValidateBufferArguments(buffer, offset, count);
+            if (cancellationToken.IsCancellationRequested) return Task.FromCanceled<int>(cancellationToken);
+            try { return Task.FromResult(Read(buffer, offset, count)); }
+            catch (OperationCanceledException) { return Task.FromCanceled<int>(cancellationToken); }
+            catch (Exception e) { return Task.FromException<int>(e); }
+        }
+
+        public override ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
+        {
+            if (cancellationToken.IsCancellationRequested) return new ValueTask<int>(Task.FromCanceled<int>(cancellationToken));
+            try { return new ValueTask<int>(Read(buffer.Span)); }
+            catch (OperationCanceledException) { return new ValueTask<int>(Task.FromCanceled<int>(cancellationToken)); }
+            catch (Exception e) { return ValueTask.FromException<int>(e); }
+        }
+
+        public override Task WriteAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken)
+        {
+            ValidateBufferArguments(buffer, offset, count);
+            if (cancellationToken.IsCancellationRequested) return Task.FromCanceled(cancellationToken);
+            try
+            {
+                Write(buffer, offset, count);
+                return Task.CompletedTask;
+            }
+            catch (OperationCanceledException) { return Task.FromCanceled(cancellationToken); }
+            catch (Exception e) { return Task.FromException(e); }
+        }
+
+        public override ValueTask WriteAsync(ReadOnlyMemory<byte> buffer, CancellationToken cancellationToken = default)
+        {
+            if (cancellationToken.IsCancellationRequested) return new ValueTask(Task.FromCanceled(cancellationToken));
+            try
+            {
+                Write(buffer.Span);
+                return default;
+            }
+            catch (OperationCanceledException) { return new ValueTask(Task.FromCanceled(cancellationToken)); }
+            catch (Exception e) { return ValueTask.FromException(e); }
+        }
+
+        public override Task FlushAsync(CancellationToken cancellationToken)
+        {
+            if (cancellationToken.IsCancellationRequested) return Task.FromCanceled(cancellationToken);
+            try
+            {
+                Flush();
+                return Task.CompletedTask;
+            }
+            catch (Exception e) { return Task.FromException(e); }
+        }
+
+        public override Task CopyToAsync(Stream destination, int bufferSize, CancellationToken cancellationToken)
+        {
+            // A derived class may have overridden Read: the base implementation then reads through it.
+            if (GetType() != typeof(MemoryStream)) return base.CopyToAsync(destination, bufferSize, cancellationToken);
+            ValidateCopyToArguments(destination, bufferSize);
+            EnsureOpen();
+            if (cancellationToken.IsCancellationRequested) return Task.FromCanceled(cancellationToken);
+            int start = _position;
+            int n = _length > _position ? _length - _position : 0;
+            _position += n;
+            if (n == 0) return Task.CompletedTask;
+            try { return destination.WriteAsync(new ReadOnlyMemory<byte>(_buffer, start, n), cancellationToken).AsTask(); }
+            catch (Exception e) { return Task.FromException(e); }
         }
 
         protected override void Dispose(bool disposing) { _disposed = true; }
