@@ -19,13 +19,15 @@ namespace Csharpc.CodeGen;
 ///
 /// CoroSplit turns this into ramp/resume/destroy functions and moves everything live across a
 /// suspend point into the frame, which is a GC object (so references there stay alive).
-/// Object layouts (payload at +48, iterator state at +8) are shared with src/runtime/async.c.
+/// Object layouts (task payload at +56, iterator payload at +48, iterator state at +8) are shared with src/runtime/async.c.
 /// </summary>
 public sealed partial class FunctionCodeGen
 {
-    // csrt_Task / csrt_Iterator (src/runtime/async.c): the payload follows seven header words,
-    // 8-byte aligned; the iterator state follows the method-table pointer.
-    private long PromisePayloadOffset => T.PointerSize == 8 ? 48 : 32;
+    // csrt_Task / csrt_Iterator (src/runtime/async.c): a task's payload follows its eight header
+    // words (the last two are the id and the status flags), an iterator's its seven, 8-byte aligned;
+    // the iterator state follows the method-table pointer.
+    private long TaskPayloadOffset => T.PointerSize == 8 ? 56 : 40;
+    private long IteratorPayloadOffset => T.PointerSize == 8 ? 48 : 32;
     private long IteratorStateOffset => (long)T.PointerSize;
 
     private sealed class CoroutineState
@@ -224,7 +226,8 @@ public sealed partial class FunctionCodeGen
         return _b.Call(save.Type, save.Fn, [_coro!.Handle], "coro.save");
     }
 
-    private LLVMValueRef PromisePayload => _b.InBoundsGep(L.I8, _coro!.Promise, [L.ConstInt(L.I64, PromisePayloadOffset)], "payload");
+    private LLVMValueRef PromisePayload => _b.InBoundsGep(L.I8, _coro!.Promise,
+        [L.ConstInt(L.I64, _coro.Kind == CoroutineKind.Async ? TaskPayloadOffset : IteratorPayloadOffset)], "payload");
 
     /// <summary>`return v;` in an async method: store the result, run finally blocks, complete the task.</summary>
     private void CoroutineReturn(IOperation? value, ControlFlowBranch branch)
@@ -327,7 +330,7 @@ public sealed partial class FunctionCodeGen
     {
         if (resultType is null) return CallRuntime("csrt_task_completed_task", L.Ptr, []);
         var task = CallRuntime("csrt_task_new", L.Ptr, [L.I32], L.ConstInt(L.I32, (long)T.Target.SizeOf(T.Storage(resultType))));
-        StoreValue(ToStorage(value, resultType), _b.InBoundsGep(L.I8, task, [L.ConstInt(L.I64, PromisePayloadOffset)]));
+        StoreValue(ToStorage(value, resultType), _b.InBoundsGep(L.I8, task, [L.ConstInt(L.I64, TaskPayloadOffset)]));
         CallRuntime("csrt_task_complete", L.Void, [L.Ptr], task);
         return task;
     }
@@ -351,7 +354,7 @@ public sealed partial class FunctionCodeGen
             _b.Store(L.ConstInt(L.I8, 0), result);
             _b.CondBr(already, done, pending);
             _b.PositionAtEnd(pending);
-            StoreValue(ToStorage(value.Value, type), _b.InBoundsGep(L.I8, task, [L.ConstInt(L.I64, PromisePayloadOffset)]));
+            StoreValue(ToStorage(value.Value, type), _b.InBoundsGep(L.I8, task, [L.ConstInt(L.I64, TaskPayloadOffset)]));
             CallRuntime("csrt_task_complete", L.Void, [L.Ptr], task);
             _b.Store(L.ConstInt(L.I8, 1), result);
             _b.Br(done);
@@ -360,7 +363,7 @@ public sealed partial class FunctionCodeGen
         }
         _b.CondBr(already, done, pending); // completed: csrt_task_complete below throws InvalidOperationException
         _b.PositionAtEnd(pending);
-        StoreValue(ToStorage(value.Value, type), _b.InBoundsGep(L.I8, task, [L.ConstInt(L.I64, PromisePayloadOffset)]));
+        StoreValue(ToStorage(value.Value, type), _b.InBoundsGep(L.I8, task, [L.ConstInt(L.I64, TaskPayloadOffset)]));
         _b.Br(done);
         _b.PositionAtEnd(done);
         CallRuntime("csrt_task_complete", L.Void, [L.Ptr], task);
@@ -377,7 +380,7 @@ public sealed partial class FunctionCodeGen
         var del = _b.Load(L.Ptr, _b.InBoundsGep(L.I8, pack, [L.ConstInt(L.I64, (long)T.PointerSize)]), "del");
         var task = _b.Load(L.Ptr, _b.InBoundsGep(L.I8, pack, [L.ConstInt(L.I64, 2 * (long)T.PointerSize)]), "task");
         var value = InvokeDelegate0(del, T.Value(resultType));
-        StoreValue(ToStorage(value, resultType), _b.InBoundsGep(L.I8, task, [L.ConstInt(L.I64, PromisePayloadOffset)]));
+        StoreValue(ToStorage(value, resultType), _b.InBoundsGep(L.I8, task, [L.ConstInt(L.I64, TaskPayloadOffset)]));
         _b.RetVoid();
         Finish();
     }
