@@ -1,3 +1,4 @@
+using System.Reflection;
 using Csharpc.Llvm;
 using Microsoft.CodeAnalysis;
 
@@ -58,8 +59,10 @@ public sealed partial class ModuleCodeGen
 
     private StructLayout BuildStructLayout(INamedTypeSymbol type)
     {
-        RejectCustomLayout(type);
-        RejectIlCustomLayout(type);
+        // A struct may declare an explicit layout, Pack or Size that places every field exactly where the
+        // sequential layout does (Roslyn's ExtendedSpecialType: Explicit, Size = 1, one byte at offset 0):
+        // checked against the built layout below. Anything else is still refused.
+        var custom = CustomLayoutOf(type);
 
         // Both repeat their element in memory; laid out as a single field they would silently shrink.
         if (type.GetAttributes().Any(a => a.AttributeClass?.ToDisplayString() == "System.Runtime.CompilerServices.InlineArrayAttribute"))
@@ -79,7 +82,65 @@ public sealed partial class ModuleCodeGen
         }
         if (elements.Count == 0) elements.Add(Llvm.I8); // an empty struct still occupies a byte, as in the CLR
         LlvmContext.SetBody(layout.LlvmType, [.. elements]);
+        if (custom is not null && !MatchesSequentialLayout(layout, custom)) throw custom.Rejection;
         return layout;
+    }
+
+    /// <summary>A struct's declared layout: [StructLayout]/[FieldOffset] in source, the ClassLayout and FieldLayout tables in IL.</summary>
+    private sealed record CustomLayout(bool Explicit, int Pack, int Size, Dictionary<IFieldSymbol, int> Offsets, CompileError Rejection);
+
+    private CustomLayout? CustomLayoutOf(INamedTypeSymbol type)
+    {
+        if (Il.OwnerOf(type) is { } owner)
+        {
+            var definition = owner.TypeDefinitionOf(type);
+            var layout = definition.GetLayout();
+            var isExplicit = (definition.Attributes & TypeAttributes.LayoutMask) == TypeAttributes.ExplicitLayout;
+            var hasFields = InstanceFields(type).Any();
+            if (!isExplicit && layout.PackingSize == 0 && (layout.Size == 0 || (layout.Size == 1 && !hasFields))) return null;
+            var offsets = new Dictionary<IFieldSymbol, int>(SymbolEqualityComparer.Default);
+            if (isExplicit)
+                foreach (var f in InstanceFields(type)) offsets[f] = owner.FieldDefinitionOf(f).GetOffset();
+            return new CustomLayout(isExplicit, layout.PackingSize, layout.Size, offsets,
+                CompileError.Unsupported($"explicit layout, .pack or .size on '{type}' ({owner.Name}.dll)", type));
+        }
+        var attribute = type.GetAttributes().FirstOrDefault(a => a.AttributeClass?.ToDisplayString() == "System.Runtime.InteropServices.StructLayoutAttribute");
+        var sourceExplicit = attribute?.ConstructorArguments.FirstOrDefault().Value is 2 /* LayoutKind.Explicit */;
+        int Named(string name) => attribute?.NamedArguments.FirstOrDefault(n => n.Key == name).Value.Value is int v ? v : 0;
+        var fieldOffsets = new Dictionary<IFieldSymbol, int>(SymbolEqualityComparer.Default);
+        foreach (var f in InstanceFields(type))
+            if (f.GetAttributes().FirstOrDefault(a => a.AttributeClass?.ToDisplayString() == "System.Runtime.InteropServices.FieldOffsetAttribute")
+                    ?.ConstructorArguments.FirstOrDefault().Value is int offset)
+                fieldOffsets[f] = offset;
+        var (pack, size) = (Named("Pack"), Named("Size"));
+        if (!sourceExplicit && pack == 0 && size == 0 && fieldOffsets.Count == 0) return null;
+        var message = fieldOffsets.Count > 0 && !sourceExplicit
+            ? $"[FieldOffset] on '{type.Name}.{fieldOffsets.Keys.First().Name}'"
+            : $"[StructLayout] with explicit layout, Pack or Size on '{type.Name}'";
+        return new CustomLayout(sourceExplicit, pack, size, fieldOffsets, CompileError.Unsupported(message, type));
+    }
+
+    private static IEnumerable<IFieldSymbol> InstanceFields(INamedTypeSymbol type) =>
+        type.GetMembers().OfType<IFieldSymbol>().Where(f => !f.IsStatic && !f.IsConst);
+
+    /// <summary>
+    /// True when the declared layout is the sequential one csharpc built: every explicit offset is the
+    /// field's offset, Pack doesn't lower any field's alignment, and Size is absent or the struct's size.
+    /// </summary>
+    private bool MatchesSequentialLayout(StructLayout layout, CustomLayout custom)
+    {
+        var target = Types.Target;
+        if (custom.Explicit && custom.Offsets.Count != layout.FieldIndex.Keys.Count(f => SymbolEqualityComparer.Default.Equals(f, f.OriginalDefinition)))
+            return false;
+        uint maxAlign = 1;
+        for (uint i = 0; i < Native.LLVMCountStructElementTypes(layout.LlvmType); i++)
+            maxAlign = Math.Max(maxAlign, target.AlignOf(Native.LLVMStructGetTypeAtIndex(layout.LlvmType, i)));
+        if (custom.Pack != 0 && custom.Pack < maxAlign) return false;
+        if (custom.Size != 0 && (ulong)custom.Size != target.SizeOf(layout.LlvmType)) return false;
+        foreach (var (field, offset) in custom.Offsets)
+            if (!layout.FieldIndex.TryGetValue(field.OriginalDefinition, out var index) || target.OffsetOf(layout.LlvmType, index) != (ulong)offset)
+                return false;
+        return true;
     }
 
     /// <summary>LLVM struct type + element index of an instance field of a struct or tuple.</summary>

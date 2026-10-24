@@ -337,6 +337,8 @@ public sealed class TargetMachine : IDisposable
     }
 
     public ulong SizeOf(LLVMTypeRef type) => LLVMABISizeOfType(DataLayout, type);
+    public uint AlignOf(LLVMTypeRef type) => LLVMABIAlignmentOfType(DataLayout, type);
+    public ulong OffsetOf(LLVMTypeRef structType, uint element) => LLVMOffsetOfElement(DataLayout, structType, element);
 
     public void Emit(LlvmModule module, string path, LLVMCodeGenFileType kind)
     {
