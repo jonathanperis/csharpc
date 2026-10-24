@@ -224,4 +224,21 @@ namespace CsharpcCoreLib
 
         public int GetHashCode(object obj) => System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(obj);
     }
+
+    /// <summary>StrongBox&lt;T&gt;: a heap cell holding one value (Roslyn shares mutable state through it).</summary>
+    [Shadows("System.Runtime.CompilerServices.StrongBox`1")]
+    public class StrongBoxImpl<T> : System.Runtime.CompilerServices.IStrongBox
+    {
+        public T Value;
+
+        public StrongBoxImpl() { }
+
+        public StrongBoxImpl(T value) { Value = value; }
+
+        object System.Runtime.CompilerServices.IStrongBox.Value
+        {
+            get => Value;
+            set => Value = (T)value;
+        }
+    }
 }
