@@ -98,6 +98,78 @@ namespace CsharpcCoreLib
             return MapCase(c, UnicodeData.LowerDense, UnicodeData.LowerRuns, UnicodeData.LowerRunCount);
         }
 
+        // ---- (string, index) overloads and UTF-32 ---------------------------------------------------
+
+        private static char At(string s, int index)
+        {
+            if (s == null) throw new ArgumentNullException("s");
+            if ((uint)index >= (uint)s.Length) throw new ArgumentOutOfRangeException("index");
+            return s[index];
+        }
+
+        /// <summary>
+        /// The category of the code point at s[index]. csharpc's tables cover the BMP only, so a surrogate pair
+        /// (an astral code point, which .NET classifies as a whole) is reported rather than misclassified.
+        /// </summary>
+        internal static System.Globalization.UnicodeCategory CategoryAt(string s, int index)
+        {
+            char c = At(s, index);
+            if (IsHighSurrogate(c) && index + 1 < s.Length && IsLowSurrogate(s[index + 1]))
+                throw new NotSupportedException("Unicode categories of characters outside the Basic Multilingual Plane are not supported by csharpc yet.");
+            return GetUnicodeCategory(c);
+        }
+
+        public static bool IsDigit(string s, int index) { int k = (int)CategoryAt(s, index); return k == 8; }
+        public static bool IsLetter(string s, int index) { int k = (int)CategoryAt(s, index); return k <= 4; }
+        public static bool IsLetterOrDigit(string s, int index) { int k = (int)CategoryAt(s, index); return k <= 4 || k == 8; }
+        public static bool IsUpper(string s, int index) => CategoryAt(s, index) == System.Globalization.UnicodeCategory.UppercaseLetter;
+        public static bool IsLower(string s, int index) => CategoryAt(s, index) == System.Globalization.UnicodeCategory.LowercaseLetter;
+        public static bool IsNumber(string s, int index) { int k = (int)CategoryAt(s, index); return k >= 8 && k <= 10; }
+        public static bool IsPunctuation(string s, int index) { int k = (int)CategoryAt(s, index); return k >= 18 && k <= 24; }
+        public static bool IsSymbol(string s, int index) { int k = (int)CategoryAt(s, index); return k >= 25 && k <= 28; }
+        public static bool IsSeparator(string s, int index) { int k = (int)CategoryAt(s, index); return k >= 11 && k <= 13; }
+        public static bool IsWhiteSpace(string s, int index) => IsWhiteSpace(At(s, index));
+        public static bool IsControl(string s, int index) => IsControl(At(s, index));
+        public static bool IsSurrogate(string s, int index) => IsSurrogate(At(s, index));
+        public static bool IsHighSurrogate(string s, int index) => IsHighSurrogate(At(s, index));
+        public static bool IsLowSurrogate(string s, int index) => IsLowSurrogate(At(s, index));
+        public static bool IsSurrogatePair(string s, int index) =>
+            At(s, index) is var c && index + 1 < s.Length && IsSurrogatePair(c, s[index + 1]);
+
+        [ShadowInstance] public static string ToString(char c, IFormatProvider provider) => c.ToString();
+
+        public static string ConvertFromUtf32(int utf32)
+        {
+            if ((uint)utf32 > 0x10FFFF || (uint)(utf32 - 0xD800) <= 0x7FF)
+                throw new ArgumentOutOfRangeException("utf32", "A valid UTF32 value is between 0x000000 and 0x10ffff, inclusive, and should not include surrogate codepoint values (0x00d800 ~ 0x00dfff).");
+            if (utf32 < 0x10000) return ((char)utf32).ToString();
+            utf32 -= 0x10000;
+            return new string(new[] { (char)(0xD800 + (utf32 >> 10)), (char)(0xDC00 + (utf32 & 0x3FF)) });
+        }
+
+        public static int ConvertToUtf32(char highSurrogate, char lowSurrogate)
+        {
+            if (!IsHighSurrogate(highSurrogate))
+                throw new ArgumentOutOfRangeException("highSurrogate", "A valid high surrogate character is between 0xd800 and 0xdbff, inclusive.");
+            if (!IsLowSurrogate(lowSurrogate))
+                throw new ArgumentOutOfRangeException("lowSurrogate", "A valid low surrogate character is between 0xdc00 and 0xdfff, inclusive.");
+            return ((highSurrogate - 0xD800) << 10) + (lowSurrogate - 0xDC00) + 0x10000;
+        }
+
+        public static int ConvertToUtf32(string s, int index)
+        {
+            if (s == null) throw new ArgumentNullException("s");
+            if ((uint)index >= (uint)s.Length) throw new ArgumentOutOfRangeException("index", "Index was out of range. Must be non-negative and less than the size of the collection.");
+            char c = s[index];
+            if (!IsSurrogate(c)) return c;
+            if (IsHighSurrogate(c))
+            {
+                if (index + 1 < s.Length && IsLowSurrogate(s[index + 1])) return ConvertToUtf32(c, s[index + 1]);
+                throw new ArgumentException("Found a high surrogate char without a following low surrogate at index: " + index + ". The input may not be in this encoding, or may not contain valid Unicode (UTF-16) characters.", "s");
+            }
+            throw new ArgumentException("Found a low surrogate char without a preceding high surrogate at index: " + index + ". The input may not be in this encoding, or may not contain valid Unicode (UTF-16) characters.", "s");
+        }
+
         // Culture casing (TextInfo; ICU, or the invariant table in globalization-invariant mode).
         public static char ToUpperInvariant(char c) => CultureStrings.ToUpperInvariant(c);
         public static char ToLowerInvariant(char c) => CultureStrings.ToLowerInvariant(c);

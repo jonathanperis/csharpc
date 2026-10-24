@@ -1,0 +1,24 @@
+0: False True True False True False False False False False False LowercaseLetter
+1: True False True False False True False False False False False DecimalDigitNumber
+2: False False False False False False False False True True False SpaceSeparator
+3: False True True True False False False False False False False UppercaseLetter
+4: False False False False False False True False False False False ConnectorPunctuation
+5: False True True False True False False False False False False LowercaseLetter
+6: True False True False False True False False False False False DecimalDigitNumber
+7: False False False False False False True False False False False OtherPunctuation
+8: False False False False False False False False False True True Control
+True True True True
+41: 1 41 -
+E9: 1 E9 -
+20AC: 1 20AC -
+1F600: 2 1F600 1F600
+10FFFF: 2 10FFFF 10FFFF
+A valid UTF32 value is between 0x000000 and 0x10ffff, inclusive, and should not include surrogate codepoint values (0x00d800 ~ 0x00dfff). (Parameter 'utf32')
+A valid UTF32 value is between 0x000000 and 0x10ffff, inclusive, and should not include surrogate codepoint values (0x00d800 ~ 0x00dfff). (Parameter 'utf32')
+A valid UTF32 value is between 0x000000 and 0x10ffff, inclusive, and should not include surrogate codepoint values (0x00d800 ~ 0x00dfff). (Parameter 'utf32')
+Found a high surrogate char without a following low surrogate at index: 0. The input may not be in this encoding, or may not contain valid Unicode (UTF-16) characters. (Parameter 's')
+A valid high surrogate character is between 0xd800 and 0xdbff, inclusive. (Parameter 'highSurrogate')
+Specified argument was out of the range of valid values. (Parameter 'index')
+Value cannot be null. (Parameter 's')
+Specified argument was out of the range of valid values. (Parameter 'index')
+q

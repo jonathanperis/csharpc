@@ -526,6 +526,7 @@ namespace CsharpcCoreLib
     internal static class CharUnicodeInfoExtras
     {
         public static System.Globalization.UnicodeCategory GetUnicodeCategory(char ch) => CharOps.GetUnicodeCategory(ch);
+        public static System.Globalization.UnicodeCategory GetUnicodeCategory(string s, int index) => CharOps.CategoryAt(s, index);
     }
 }
 
