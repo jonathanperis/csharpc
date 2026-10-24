@@ -1,0 +1,30 @@
+array: 5
+list: 5
+hashset: 5
+range: 7
+repeat: 3
+select over array: unknown
+select over list: unknown
+select over range: unknown
+select over hashset: unknown
+indexed select: unknown
+where: unknown
+select over where: unknown
+selectmany: unknown
+distinct: unknown
+append: 6
+prepend over range: 3
+append over where: unknown
+concat: 10
+concat with where: unknown
+take: 3
+take more: 5
+skip: 3
+skip all: 0
+takewhile: unknown
+zip: unknown
+oftype: unknown
+lazy: unknown
+queue: 5
+dictionary: 1
+Value cannot be null. (Parameter 'source')

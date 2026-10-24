@@ -837,7 +837,16 @@ public sealed partial class FunctionCodeGen
 
     private IlEntry IlArgAddress(int index)
     {
-        if (IlHasThis && index == 0) throw new IlException("address of 'this'");
+        if (IlHasThis && index == 0)
+        {
+            // A struct's `this` is already a reference to the value. A class's `this` can't be reassigned
+            // (C# compiles `ldarga.s 0` to pass the reference by `in`), so a copy of it is faithful.
+            var owner = _method!.OriginalDefinition.ContainingType;
+            if (owner.IsValueType) return new IlEntry(IlKind.ByRef, _this, owner) { IsThis = true, NonNull = true };
+            var copy = NewTemp(L.Ptr, "this.copy");
+            _b.Store(_this, copy);
+            return new IlEntry(IlKind.ByRef, copy, owner) { NonNull = true };
+        }
         var parameter = IlParameter(index);
         if (parameter.RefKind != RefKind.None) throw new IlException("address of a by-ref argument");
         return new IlEntry(IlKind.ByRef, _slots[parameter], parameter.Type);

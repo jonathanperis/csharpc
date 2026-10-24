@@ -17,6 +17,11 @@ public sealed partial class FunctionCodeGen
     private void IlCall(IlInstruction instruction, Stack<IlEntry> stack, ITypeSymbol? constrained)
     {
         var op = instruction.OpCode;
+        if (IlAssembly.TryArrayAccessor(instruction.Token, IlBody.Context, out var mdArray, out var accessor, out var parameterCount))
+        {
+            IlMdArrayAccessor(op, mdArray, accessor, parameterCount, stack);
+            return;
+        }
         var method = IlMethod(instruction.Token);
         if (method.IsVararg) throw new IlException($"vararg call to '{method}'");
         var args = new IlEntry[method.Parameters.Length];
@@ -41,6 +46,54 @@ public sealed partial class FunctionCodeGen
             return;
         }
         if (IlInvoke(method, receiver, args, isVirtual: op == ILOpCode.Callvirt, constrained) is { } result) stack.Push(result);
+    }
+
+    /// <summary>
+    /// The runtime-provided methods of a rectangular array type (ECMA-335 II.14.2): `newobj T[,]::.ctor(int32, int32)`,
+    /// `call T[,]::Get/Set/Address`. Lower bounds (the 2 x rank constructor) are not supported.
+    /// </summary>
+    private void IlMdArrayAccessor(ILOpCode op, IArrayTypeSymbol array, string name, int parameterCount, Stack<IlEntry> stack)
+    {
+        var arrayType = (IArrayTypeSymbol)S(array);
+        if (arrayType.IsSZArray) throw new IlException($"array accessor '{array}::{name}' on a vector");
+        var rank = arrayType.Rank;
+        var element = arrayType.ElementType;
+        IlEntry Pop() => stack.Count > 0 ? stack.Pop() : throw new IlException("evaluation stack underflow");
+        LLVMValueRef[] PopIndices(int count)
+        {
+            var values = new LLVMValueRef[count];
+            for (var i = count - 1; i >= 0; i--) values[i] = IlToI64(Pop(), signed: true);
+            return values;
+        }
+        switch (name)
+        {
+            case ".ctor" when op == ILOpCode.Newobj && parameterCount == rank:
+                stack.Push(new IlEntry(IlKind.Ref, NewMdArray(arrayType, PopIndices(rank)), array) { NonNull = true });
+                return;
+            case "Get" when parameterCount == rank:
+            {
+                var indices = PopIndices(rank);
+                var target = IlRef(Pop());
+                stack.Push(IlPush(LoadValue(MdElementAddress(target, arrayType, indices), element), array.ElementType));
+                return;
+            }
+            case "Set" when parameterCount == rank + 1:
+            {
+                var value = Pop();
+                var indices = PopIndices(rank);
+                var target = IlRef(Pop());
+                StoreValue(ToStorage(IlTyped(value, array.ElementType), element), MdElementAddress(target, arrayType, indices));
+                return;
+            }
+            case "Address" when parameterCount == rank:
+            {
+                var indices = PopIndices(rank);
+                var target = IlRef(Pop());
+                stack.Push(new IlEntry(IlKind.ByRef, MdElementAddress(target, arrayType, indices), array.ElementType));
+                return;
+            }
+        }
+        throw new IlException($"multi-dimensional array accessor '{array}::{name}' with {parameterCount} arguments");
     }
 
     private ImmutableArray<IArgumentOperation> IlArguments(ImmutableArray<IParameterSymbol> parameters, IlEntry[] args, int offset = 0)
@@ -186,6 +239,18 @@ public sealed partial class FunctionCodeGen
     {
         if (_m.IsUserMethod(mapped) || (constrained is not null && _m.IsUserType(S(constrained)))) return null;
         var types = mapped.Parameters.Select(p => S(p.Type)).ToArray();
+        // IntPtr/UIntPtr's conversion operators (IL compiled before nint, or against netstandard): their
+        // pointer overloads, and their integer ones are checked — (int)IntPtr throws OverflowException on
+        // 64-bit, (IntPtr)long on 32-bit; the widening ones can't fail.
+        var nativeIntOperator = mapped.ContainingType.SpecialType is SpecialType.System_IntPtr or SpecialType.System_UIntPtr
+            && mapped.Name is "op_Explicit" or "op_Implicit" && types.Length == 1;
+        if (nativeIntOperator && (IsBuiltinOperand(types[0]) || types[0] is IPointerTypeSymbol)
+            && S(mapped.ReturnType) is var target && (IsBuiltinOperand(target) || target is IPointerTypeSymbol))
+        {
+            var operand = IlTyped(args[0], method.Parameters[0].Type);
+            var bothIntegers = operand.Type.IsInteger && T.Value(target).IsInteger;
+            return IlPush(ConvertNumeric(operand, types[0], target, IlAt(), isChecked: bothIntegers), method.ReturnType);
+        }
         if (!types.All(IsBuiltinOperand)) return null;
         var values = method.Parameters.Select((p, i) => IlTyped(args[i], p.Type)).ToArray();
         var name = method.Name;
@@ -265,6 +330,23 @@ public sealed partial class FunctionCodeGen
         var ownerName = owner.ToDisplayString();
         var handled = new IlEntry(IlKind.Token, default, null);
         if (ownerName == "System.Runtime.CompilerServices.Unsafe" && IlUnsafeCall(method, args) is { } unsafeResult) return unsafeResult;
+        // `fixed (char* p = s)`: a reference to the first char (the terminator of an empty string), as in .NET;
+        // the compiler tests for null before the call.
+        // Span<T>/ReadOnlySpan<T>.GetPinnableReference (`fixed (T* p = span)`): the data pointer, or a null
+        // reference for an empty span, as in .NET.
+        if (method.Name == "GetPinnableReference" && args.Length == 0 && receiver is { } spanReceiver
+            && S(owner) is INamedTypeSymbol pinnedSpan && TypeMapper.IsSpan(pinnedSpan) && !TypeMapper.IsMemory(pinnedSpan))
+        {
+            var span = spanReceiver.Kind is IlKind.ByRef or IlKind.Pointer ? LoadValue(IlAddress(spanReceiver), pinnedSpan) : IlTyped(spanReceiver, owner);
+            var empty = _b.ICmp(LLVMIntPredicate.EQ, SpanLength(span), L.ConstInt(L.I32, 0));
+            return new IlEntry(IlKind.ByRef, _b.Select(empty, LlvmContext.Null(L.Ptr), SpanPointer(span)), pinnedSpan.TypeArguments[0]);
+        }
+        if (owner.SpecialType == SpecialType.System_String && method.Name == "GetPinnableReference" && receiver is { } text && args.Length == 0)
+        {
+            var s = IlRef(text);
+            NullCheck(s);
+            return new IlEntry(IlKind.ByRef, _b.InBoundsGep(L.I8, s, [L.ConstInt(L.I64, (long)T.PointerSize + 4)]), _m.Compilation.GetSpecialType(SpecialType.System_Char));
+        }
         switch (ownerName, method.Name)
         {
             case ("System.Type", "GetTypeFromHandle") when args is [{ Kind: IlKind.Token, Symbol: ITypeSymbol type }]:
@@ -317,8 +399,22 @@ public sealed partial class FunctionCodeGen
             }
             case ("System.Runtime.CompilerServices.RuntimeHelpers", "EnsureSufficientExecutionStack") when args.Length == 0:
                 return handled;
+            // `fixed (char* p = s)` as older compilers emit it: the string's address plus this offset
+            // (csrt_String: { mt, int32 length, chars }, the same layout as .NET's string).
+            case ("System.Runtime.CompilerServices.RuntimeHelpers", "get_OffsetToStringData") when args.Length == 0:
+                return I4((int)T.PointerSize + 4);
+            // A reference to a span's first element (or where it would be: the span's pointer, as in .NET).
+            case ("System.Runtime.InteropServices.MemoryMarshal", "GetReference") when args.Length == 1 && method.TypeArguments.Length == 1:
+                return new IlEntry(IlKind.ByRef, SpanPointer(IlTyped(args[0], method.Parameters[0].Type)), method.TypeArguments[0]);
+            case ("System.Runtime.InteropServices.MemoryMarshal", "GetArrayDataReference")
+                when args.Length == 1 && method.TypeArguments.Length == 1 && method.Parameters[0].Type is IArrayTypeSymbol:
+            {
+                var array = IlRef(args[0]);
+                NullCheck(array);
+                return new IlEntry(IlKind.ByRef, _b.InBoundsGep(L.I8, array, [L.ConstInt(L.I64, 16)]), method.TypeArguments[0]); // { mt, i64 length, data }
+            }
             case ("System.Runtime.CompilerServices.RuntimeHelpers", "IsReferenceOrContainsReferences") when method.TypeArguments.Length == 1:
-                return I4(Optimizations.HoldsNoReferences(S(method.TypeArguments[0])) ? 0 : 1);
+                return I4(Optimizations.IsReferenceOrContainsReferences(S(method.TypeArguments[0])) ? 1 : 0);
         }
         foreach (var arg in args)
             if (arg.Kind == IlKind.Token) throw new IlException($"ldtoken result passed to '{method}'");

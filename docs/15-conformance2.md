@@ -21,9 +21,9 @@ BCL edge cases where a compiler can silently get the semantics wrong.
 |---|---:|---:|
 | first run (241 compiled under .NET; 17 needed fixing) | 241 | 190 (78.8 %) — **14 wrong-output** |
 | after fixes | 258 | **256 (99.2 %)** |
+| delegate thunks for library method groups (M6) | 258 | **257 (99.6 %)** |
 
-Coverage per area after the fixes: 100 % in every area except `closures` (one library method-group
-conversion) and `exceptions` (filter ordering), see below.
+Coverage per area: 100 % in every area except `exceptions` (filter ordering), see below.
 
 ### Merge onto the C# corelib
 
@@ -77,7 +77,6 @@ is now substitution-aware (spans of `T` inside generic methods).
 
 | Program | Root cause | Plan |
 |---|---|---|
-| `closures/009_method_group_conversions` | A method group converted to a delegate that targets a *library* method implemented as an intrinsic (`Func<string,int> f = int.Parse`). Intrinsics are expansions over call sites, so there is no function to point the delegate at. | Synthesize per-method thunks that build a call through the intrinsic table. |
 | `exceptions/003_filter_side_effect_order` | Exception filters run during the second (unwinding) pass, after inner `finally` blocks; .NET runs all filters in the first pass, before any `finally`. Documented deviation (ADR 0005). | True two-phase EH: run filters from the personality routine's search phase. |
 
 ## Intentional deviations (documented, not counted as failures)

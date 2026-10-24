@@ -10,6 +10,14 @@ namespace CsharpcCoreLib
 {
     internal abstract class Iterator<T> : IEnumerable<T>, IEnumerator<T>
     {
+        /// <summary>
+        /// .NET's Iterator&lt;T&gt;.GetCount(onlyIfCheap: true) for TryGetNonEnumeratedCount: the count when it is
+        /// known without enumerating, else -1. Operators whose .NET iterator csharpc doesn't mirror closely
+        /// enough to answer exactly say so instead of guessing.
+        /// </summary>
+        internal virtual int CheapCount() =>
+            throw new NotSupportedException("Enumerable.TryGetNonEnumeratedCount over this LINQ operator is not supported by csharpc yet.");
+
         protected int _state;      // 0 = not enumerated yet, 1 = start, 2+ = running, -1 = done
         protected T _current;
 
@@ -32,6 +40,8 @@ namespace CsharpcCoreLib
 
     internal sealed class WhereIterator<T> : Iterator<T>
     {
+        internal override int CheapCount() => -1;
+
         private readonly IEnumerable<T> _source;
         private readonly Func<T, bool> _predicate;
         private readonly Func<T, int, bool> _indexed;
@@ -64,6 +74,9 @@ namespace CsharpcCoreLib
 
     internal sealed class SelectIterator<TSource, TResult> : Iterator<TResult>
     {
+        // .NET never counts a Select without running its selector (which may have side effects).
+        internal override int CheapCount() => -1;
+
         private readonly IEnumerable<TSource> _source;
         private readonly Func<TSource, TResult> _selector;
         private readonly Func<TSource, int, TResult> _indexed;
@@ -96,6 +109,8 @@ namespace CsharpcCoreLib
 
     internal sealed class SelectManyIterator<TSource, TCollection, TResult> : Iterator<TResult>
     {
+        internal override int CheapCount() => -1;
+
         private readonly IEnumerable<TSource> _source;
         private readonly Func<TSource, IEnumerable<TCollection>> _collection;
         private readonly Func<TSource, int, IEnumerable<TCollection>> _indexed;
@@ -149,6 +164,15 @@ namespace CsharpcCoreLib
     /// <summary>Take / Skip / TakeWhile / SkipWhile in one iterator.</summary>
     internal sealed class PartitionIterator<T> : Iterator<T>
     {
+        // Take/Skip over a list are .NET's ListPartition (count known); TakeWhile/SkipWhile are plain iterators.
+        internal override int CheapCount()
+        {
+            if (_kind >= 2) return -1;
+            if (_source is IList<T> list)
+                return _kind == 0 ? Math.Min(list.Count, Math.Max(0, _count)) : Math.Max(0, list.Count - Math.Max(0, _count));
+            return base.CheapCount();
+        }
+
         private readonly IEnumerable<T> _source;
         private readonly int _kind;        // 0 Take(n), 1 Skip(n), 2 TakeWhile, 3 SkipWhile
         private readonly int _count;
@@ -212,6 +236,10 @@ namespace CsharpcCoreLib
 
     internal sealed class ConcatIterator<T> : Iterator<T>
     {
+        internal override int CheapCount() =>
+            EnumerableImpl.TryGetNonEnumeratedCount(_first, out int first) && EnumerableImpl.TryGetNonEnumeratedCount(_second, out int second)
+                ? checked(first + second) : -1;
+
         private readonly IEnumerable<T> _first;
         private readonly IEnumerable<T> _second;
         private IEnumerator<T> _e;
@@ -244,6 +272,8 @@ namespace CsharpcCoreLib
     /// <summary>Distinct / DistinctBy / Union / Intersect / Except, streaming with a HashSet.</summary>
     internal sealed class SetIterator<T, TKey> : Iterator<T>
     {
+        internal override int CheapCount() => -1;
+
         private readonly IEnumerable<T> _first;
         private readonly IEnumerable<T> _second;
         private readonly int _kind;   // 0 distinct(first), 1 union, 2 intersect, 3 except
@@ -295,6 +325,8 @@ namespace CsharpcCoreLib
 
     internal sealed class ZipIterator<TFirst, TSecond, TResult> : Iterator<TResult>
     {
+        internal override int CheapCount() => -1;
+
         private readonly IEnumerable<TFirst> _first;
         private readonly IEnumerable<TSecond> _second;
         private readonly Func<TFirst, TSecond, TResult> _selector;
@@ -351,6 +383,8 @@ namespace CsharpcCoreLib
 
     internal sealed class RangeIterator : Iterator<int>
     {
+        internal override int CheapCount() => _count;
+
         private readonly int _start;
         private readonly int _count;
         private int _i;
@@ -372,6 +406,8 @@ namespace CsharpcCoreLib
 
     internal sealed class RepeatIterator<T> : Iterator<T>
     {
+        internal override int CheapCount() => _count;
+
         private readonly T _element;
         private readonly int _count;
         private int _i;
@@ -393,6 +429,16 @@ namespace CsharpcCoreLib
 
     internal sealed class AppendIterator<T> : Iterator<T>
     {
+        internal override int CheapCount()
+        {
+            if (_source is Iterator<T> iterator)
+            {
+                int count = iterator.CheapCount();
+                return count == -1 ? -1 : count + 1;
+            }
+            return _source is ICollection<T> collection ? collection.Count + 1 : -1;
+        }
+
         private readonly IEnumerable<T> _source;
         private readonly T _item;
         private readonly bool _append;
@@ -424,6 +470,8 @@ namespace CsharpcCoreLib
 
     internal sealed class CastIterator<TResult> : Iterator<TResult>
     {
+        internal override int CheapCount() => -1;
+
         private readonly IEnumerable _source;
         private readonly bool _ofType;
         private IEnumerator _e;

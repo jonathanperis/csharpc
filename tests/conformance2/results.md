@@ -6,7 +6,7 @@
 |---|---:|---:|---:|
 | async | 6 | 6 | 100.0% |
 | boxing | 5 | 5 | 100.0% |
-| closures | 8 | 9 | 88.9% |
+| closures | 9 | 9 | 100.0% |
 | collections | 10 | 10 | 100.0% |
 | conversions | 12 | 12 | 100.0% |
 | dispatch | 8 | 8 | 100.0% |
@@ -36,11 +36,10 @@
 | structs | 9 | 9 | 100.0% |
 | switches | 8 | 8 | 100.0% |
 | tuples | 5 | 5 | 100.0% |
-| **total** | **256** | **258** | **99.2%** |
+| **total** | **257** | **258** | **99.6%** |
 
 ## Failure reasons (ranked by programs blocked)
 
 | # | programs | reason | e.g. |
 |---:|---:|---|---|
-| 1 | 1 | delegate to library method 'System.Convert.ToString(object?)' | closures/009_method_group_conversions |
-| 2 | 1 | wrong output | exceptions/003_filter_side_effect_order |
+| 1 | 1 | wrong output | exceptions/003_filter_side_effect_order |

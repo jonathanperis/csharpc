@@ -189,6 +189,8 @@ public sealed class Compiler(CompilerOptions options)
             IlDump = options.DumpIl ? Console.Out : null,
             Il = il,
             IlSurvey = options.IlSurvey,
+            IlSurveyAssemblies = options.IlSurveyAssemblies,
+            IlSurveyShard = options.IlSurveyShard,
             RuntimeConfig = settings.RuntimeConfig,
             ProgramAssemblies = ProgramAssembly.From(settings, codegenCompilation.AssemblyName ?? "program"),
         };
@@ -196,7 +198,11 @@ public sealed class Compiler(CompilerOptions options)
             ? codegen.Debug = new DebugInfo(codegen, settings.Files.Count > 0 ? settings.Files[0] : "program.cs", options.OptLevel > 0)
             : null;
         try { codegen.Generate(); }
-        catch (CompileError e) { codegen.Errors.Add(e); }
+        catch (CompileError e)
+        {
+            if (Environment.GetEnvironmentVariable("CSHARPC_TRACE") == "1") Console.Error.WriteLine(e.StackTrace);
+            codegen.Errors.Add(e);
+        }
         debugInfo?.Finish();
         Phase("lower CFG -> LLVM IR");
         if (options.Verbose) Console.Error.WriteLine($"             {codegen.Stats}");

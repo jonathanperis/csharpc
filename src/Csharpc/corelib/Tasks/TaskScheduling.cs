@@ -406,6 +406,70 @@ namespace CsharpcCoreLib
         private static TaskFactoryImpl s_factory;
         public static TaskFactoryImpl Factory => s_factory ??= new TaskFactoryImpl();
 
+        // Task.Run with a token: .NET's Task.InternalStartNew(DenyChildAttach, TaskScheduler.Default); a
+        // token that is already canceled gives a canceled task without queueing anything.
+        public static Task Run(Action action, CancellationToken cancellationToken)
+        {
+            if (action == null) throw new ArgumentNullException("action");
+            if (cancellationToken.IsCancellationRequested) return FromCanceled(cancellationToken);
+            return TaskSupport.StartNew(action, action, cancellationToken, TaskCreationOptions.DenyChildAttach, TaskSchedulerImpl.Default);
+        }
+
+        public static Task<TResult> Run<TResult>(Func<TResult> function, CancellationToken cancellationToken)
+        {
+            if (function == null) throw new ArgumentNullException("function");
+            if (cancellationToken.IsCancellationRequested) return FromCanceled<TResult>(cancellationToken);
+            return TaskSupport.StartNew(function, function, cancellationToken, TaskCreationOptions.DenyChildAttach, TaskSchedulerImpl.Default);
+        }
+
+        public static Task Run(Func<Task> function, CancellationToken cancellationToken)
+        {
+            if (function == null) throw new ArgumentNullException("function");
+            if (cancellationToken.IsCancellationRequested) return FromCanceled(cancellationToken);
+            return Unwrap(TaskSupport.StartNew(function, function, cancellationToken, TaskCreationOptions.DenyChildAttach, TaskSchedulerImpl.Default));
+        }
+
+        public static Task<TResult> Run<TResult>(Func<Task<TResult>> function, CancellationToken cancellationToken)
+        {
+            if (function == null) throw new ArgumentNullException("function");
+            if (cancellationToken.IsCancellationRequested) return FromCanceled<TResult>(cancellationToken);
+            return Unwrap(TaskSupport.StartNew(function, function, cancellationToken, TaskCreationOptions.DenyChildAttach, TaskSchedulerImpl.Default));
+        }
+
+        /// <summary>
+        /// The proxy of Task.Run(Func&lt;Task&gt;): canceled or faulted like the outer task, then like the inner
+        /// one (a null inner task is a cancellation, as in .NET's UnwrapPromise).
+        /// </summary>
+        private static async Task Unwrap(Task<Task> outer)
+        {
+            Task inner = await outer.ConfigureAwait(false);
+            if (inner == null) throw new TaskCanceledException();
+            await inner.ConfigureAwait(false);
+        }
+
+        private static async Task<TResult> Unwrap<TResult>(Task<Task<TResult>> outer)
+        {
+            Task<TResult> inner = await outer.ConfigureAwait(false);
+            if (inner == null) throw new TaskCanceledException();
+            return await inner.ConfigureAwait(false);
+        }
+
+        public static Task FromCanceled(CancellationToken cancellationToken)
+        {
+            if (!cancellationToken.IsCancellationRequested) throw new ArgumentOutOfRangeException("cancellationToken");
+            TaskCompletionSource tcs = new TaskCompletionSource();
+            tcs.SetCanceled();
+            return tcs.Task;
+        }
+
+        public static Task<TResult> FromCanceled<TResult>(CancellationToken cancellationToken)
+        {
+            if (!cancellationToken.IsCancellationRequested) throw new ArgumentOutOfRangeException("cancellationToken");
+            TaskCompletionSource<TResult> tcs = new TaskCompletionSource<TResult>();
+            tcs.SetCanceled();
+            return tcs.Task;
+        }
+
         [ShadowInstance] public static Task ContinueWith(Task task, Action<Task> continuationAction) =>
             ContinueWith(task, continuationAction, CancellationToken.None, TaskContinuationOptions.None, TaskScheduler.Current);
         [ShadowInstance] public static Task ContinueWith(Task task, Action<Task> continuationAction, CancellationToken cancellationToken) =>

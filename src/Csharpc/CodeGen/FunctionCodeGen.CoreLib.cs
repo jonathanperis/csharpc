@@ -478,6 +478,7 @@ public sealed partial class FunctionCodeGen
                 _b.BinOp(LLVMOpcode.And, _b.FCmp(LLVMRealPredicate.UNO, a, a), _b.FCmp(LLVMRealPredicate.UNO, b, b)));
         if (t.SpecialType == SpecialType.System_String)
             return CallRuntime("csrt_string_equals", L.I1, [L.Ptr, L.Ptr], a, b);
+        if (TypeMapper.IsMemory(t)) return MemoryEquals(a, b);
         if (t is INamedTypeSymbol { IsTupleType: true } tuple)
         {
             // ValueTuple.Equals: Item1 && Item2 && ... — short-circuit once an element's Equals may run user code.
@@ -577,6 +578,7 @@ public sealed partial class FunctionCodeGen
                 return BranchOnNull(a, i32, () => L.ConstInt(i32, 0),
                     () => CallRuntime("csrt_string_get_hash_code", i32, [L.Ptr], a));
         }
+        if (TypeMapper.IsMemory(t)) return MemoryHash(a);
         if (t is INamedTypeSymbol { IsTupleType: true } tuple)
         {
             LLVMValueRef h = L.ConstInt(i32, 17);

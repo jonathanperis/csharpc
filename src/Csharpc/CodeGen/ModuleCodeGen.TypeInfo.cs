@@ -90,7 +90,10 @@ public sealed partial class ModuleCodeGen
             any = true;
             // Open types other than definitions (scratch tables of generic code) have no Type objects.
             if (type is ITypeSymbol symbol && IsOpenInstance(symbol)) continue;
-            _typeInfoRecords.Add(TypeInfoRecordFor(mt, type));
+            // A type that can't be described is an error of its own; keep describing the rest (and
+            // lowering what they reference) so one compile reports everything.
+            try { _typeInfoRecords.Add(TypeInfoRecordFor(mt, type)); }
+            catch (CompileError error) { Errors.Add(error); }
         }
         return any;
     }

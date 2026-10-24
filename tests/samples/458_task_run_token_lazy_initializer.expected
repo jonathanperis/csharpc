@@ -1,0 +1,23 @@
+action ran
+42
+async action ran
+async result
+TaskCanceledException: A task was canceled.
+canceled async: True
+inner failed True
+inner canceled: True
+null inner: True
+True True
+Specified argument was out of the range of valid values. (Parameter 'cancellationToken')
+Value cannot be null. (Parameter 'action')
+Value cannot be null. (Parameter 'function')
+1 True
+made
+ValueFactory returned null.
+17
+17
+True True
+2 True
+locked 1
+locked 1
+True

@@ -44,9 +44,12 @@ public sealed partial class FunctionCodeGen
         {
             var receiverType = TypeOf(receiver);
             // Interface members (user or library, e.g. IComparable<T>.CompareTo): devirtualize or dispatch.
+            // Enumerating an array (GetEnumerator on it, members of its enumerator) has a lowering of its own;
+            // every other interface member on an array receiver (IL: `((ICollection<T>)_items).Contains(x)`)
+            // binds to the corelib's array helpers like any interface call.
             if (target.ContainingType.TypeKind == TypeKind.Interface
                 && (!IsArrayEnumeration(receiver) || target.ContainingType.Name is "IStructuralComparable" or "IStructuralEquatable"
-                    || IsEscapingArrayGetEnumerator(inv)))
+                    || IsEscapingArrayGetEnumerator(inv) || (target.Name != "GetEnumerator" && !TryArrayEnumerator(receiver, out _))))
                 return EmitInterfaceCall(target, receiver, inv.Arguments, [], inv);
             // object.ToString/Equals/GetHashCode on a value-type receiver (a substituted T): box, then dispatch.
             if (receiverType is { IsValueType: true } && target.ContainingType.SpecialType is SpecialType.System_Object or SpecialType.System_ValueType)
@@ -409,6 +412,28 @@ public sealed partial class FunctionCodeGen
         return obj;
     }
 
+    /// <summary>
+    /// Activator.CreateInstance&lt;T&gt;() (also ConditionalWeakTable.GetOrCreateValue): T is known after
+    /// monomorphization. A class with a public parameterless constructor is constructed, a struct without
+    /// one is its zero value; .NET's MissingMethodException cases (abstract classes, no public
+    /// parameterless constructor) are compile-time errors rather than guessed run-time behaviour.
+    /// </summary>
+    internal LLVMValueRef ActivatorCreateInstance(ITypeSymbol type, IOperation at)
+    {
+        if (type is INamedTypeSymbol { TypeKind: TypeKind.Class, IsAbstract: false } named && _m.IsUserType(named)
+            && named.InstanceConstructors.FirstOrDefault(c => c.Parameters.IsEmpty && c.DeclaredAccessibility == Accessibility.Public) is { } ctor)
+        {
+            var layout = _m.GetLayout(named);
+            var obj = Allocate(layout.MethodTable, L.ConstInt(L.I64, (long)layout.InstanceSize));
+            DirectCall(ctor, [obj]);
+            return obj;
+        }
+        if (type.IsValueType && type.TypeKind != TypeKind.TypeParameter
+            && (type is not INamedTypeSymbol s || s.InstanceConstructors.All(c => !c.Parameters.IsEmpty || c.IsImplicitlyDeclared)))
+            return LlvmContext.Null(T.Value(type));
+        throw CompileError.Unsupported($"Activator.CreateInstance<T>() with T = '{type}'", at);
+    }
+
     private LLVMValueRef Allocate(LLVMValueRef methodTable, LLVMValueRef size) =>
         CallRuntime("csrt_alloc", L.Ptr, [L.Ptr, L.I64], methodTable, size);
 
@@ -533,6 +558,7 @@ public sealed partial class FunctionCodeGen
         INamedTypeSymbol { TypeKind: TypeKind.Struct } named when _m.IsUserType(named) => _m.StructMethodTable(named),
         INamedTypeSymbol { TypeKind: TypeKind.Interface } itf => _m.InterfaceMethodTable(itf),
         INamedTypeSymbol { IsTupleType: true } tuple => _m.TupleMethodTable(tuple, this),
+        INamedTypeSymbol memory when TypeMapper.IsMemory(memory) => _m.MemoryMethodTable(memory),
         // Every delegate of a type shares that type's method table (DelegateMethodTable), so a type test is an
         // identity test — except where generic variance would also accept other instantiations.
         INamedTypeSymbol { TypeKind: TypeKind.Delegate } d when !MayBeVariant(d) => _m.DelegateMethodTable(d),

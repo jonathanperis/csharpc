@@ -13,8 +13,16 @@ For each package in packages.txt (id, version), the harness
   4. ranks the diagnostics: library members csharpc has no implementation for (CSLLVM0002) and IL or
      language constructs it does not support yet (CSLLVM0001), by number of packages affected.
 
+Large assemblies (Roslyn, csharpc itself: docs/18-compatibility.md#roslyn-and-csharpc) are surveyed
+with --survey-assemblies (lower only these assemblies' methods, not their dependencies') and --shards N
+(N compiles per target, each lowering the types of one shard, so memory stays bounded); --local NAME=DLLS
+surveys a local assembly closure instead of a package. --rank-by methods ranks by the number of methods
+an item blocks (each failed method reports its first failure) instead of the number of packages.
+
 usage: tools/il-survey/survey.py [--packages FILE] [--csharpc DLL] [--jobs N] [--timeout SEC]
                                  [--work DIR] [--out REPORT.md] [--only ID[,ID...]]
+                                 [--local NAME=DLL[,DLL...]]... [--no-packages] [--shards N]
+                                 [--survey-assemblies A[,B...]] [--rank-by packages|methods]
 """
 import argparse
 import concurrent.futures
@@ -182,6 +190,45 @@ def resolve(pid, version, work, framework, cache):
 DIAG = re.compile(r"(error|warning) (CSLLVM\d{4}): (.*)$")
 
 
+def split_site(message):
+    """('Namespace.Type.Method(args)', 'Assembly') of a diagnostic's " [in 'method' (Assembly.dll) ...]" suffix."""
+    site = re.search(r" \[in '(.*?)' \((.*?)\.dll\)", message)
+    return (site.group(1), site.group(2)) if site else (None, None)
+
+
+def type_of(method):
+    """'N.T<A.B>.M(int)' -> 'N.T<A.B>' (the last dot outside generic brackets, before the parameter list)."""
+    if not method:
+        return None
+    name = method.split("(")[0]
+    depth, cut = 0, -1
+    for i, c in enumerate(name):
+        if c in "<[":
+            depth += 1
+        elif c in ">]":
+            depth -= 1
+        elif c == "." and depth == 0:
+            cut = i
+    return name[:cut] if cut > 0 else name
+
+
+def collapse_generics(key):
+    """One key per generic definition: 'StrongBox<A.B>' / 'StrongBox<int?>' -> 'StrongBox<…>'; the parameter
+    list of a generic type's member, which repeats the type arguments, -> '(…)'; Roslyn's '<>y__InlineArray7'
+    -> '<>y__InlineArrayN'."""
+    key = re.sub(r"<>y__InlineArray\d+", "<>y__InlineArrayN", key)
+    while True:
+        collapsed = re.sub(r"<[^<>]+>", "\x00", key)
+        if collapsed == key:
+            break
+        key = collapsed
+    key = key.replace("\x00", "<…>")
+    paren = key.find("(")
+    if paren > 0 and "<…>" in key[:paren] and key.endswith(")"):
+        key = key[:paren] + "(…)"
+    return key
+
+
 def classify(message):
     """(kind, key) for a diagnostic message (CSLLVM0007's 'unreachable stub' suffix removed)."""
     message = message.split(" — the program does not reach")[0]
@@ -189,16 +236,16 @@ def classify(message):
     text = message[: site.start()] if site else message
     m = re.match(r"'(.+)' has no implementation in the csharpc runtime yet", text)
     if m:
-        return "member", m.group(1)
+        return "member", collapse_generics(m.group(1))
     m = re.match(r"not supported by csharpc yet: (.*)", text)
     if m:
         detail = m.group(1)
         m2 = re.match(r"'(.+)' has no implementation in the csharpc runtime yet", detail)
         if m2:
-            return "member", m2.group(1)
+            return "member", collapse_generics(m2.group(1))
         # Instructions: keep the opcode, drop operands.
         detail = re.sub(r"(IL_[0-9A-F]{4}: \S+).*", r"\1", detail)
-        return "construct", detail
+        return "construct", collapse_generics(detail)
     if text.startswith("internal compiler error"):
         return "ice", re.sub(r"'[^']*'", "'…'", text)[:160]
     return "other", text[:160]
@@ -207,28 +254,67 @@ def classify(message):
 RESOLVE_LOCK = threading.Lock()  # downloads share the package cache
 
 
-def survey_one(pkg_id, version, args, framework, cache):
+def survey_one(pkg_id, version, args, framework, cache, local=None):
     started = time.time()
     result = {"id": pkg_id, "version": version, "status": "", "seconds": 0, "assemblies": [], "diagnostics": [], "log": ""}
-    try:
-        with RESOLVE_LOCK:
-            closure = resolve(pkg_id, version, args.work, framework, cache)
-    except Exception as e:  # download or nuspec problems
-        result["status"] = f"download failed: {e}"
-        return result
-    root = closure.get(pkg_id.lower())
-    if root is None or not root.dlls:
-        result["status"] = "no lib/ assembly for net11.0"
-        return result
-    dlls = [d for p in closure.values() for d in p.dlls]
-    result["assemblies"] = [os.path.basename(d) for d in root.dlls]
-    result["dependencies"] = sorted(f"{p.id} {p.version}" for k, p in closure.items() if k != pkg_id.lower())
+    if local is not None:
+        dlls = local
+        result["assemblies"] = [os.path.basename(d) for d in dlls]
+    else:
+        try:
+            with RESOLVE_LOCK:
+                closure = resolve(pkg_id, version, args.work, framework, cache)
+        except Exception as e:  # download or nuspec problems
+            result["status"] = f"download failed: {e}"
+            return result
+        root = closure.get(pkg_id.lower())
+        if root is None or not root.dlls:
+            result["status"] = "no lib/ assembly for net11.0"
+            return result
+        dlls = [d for p in closure.values() for d in p.dlls]
+        result["assemblies"] = [os.path.basename(d) for d in root.dlls]
+        result["dependencies"] = sorted(f"{p.id} {p.version}" for k, p in closure.items() if k != pkg_id.lower())
     proj = os.path.join(args.work, "consumers", pkg_id)
     os.makedirs(proj, exist_ok=True)
     with open(os.path.join(proj, "Program.cs"), "w") as f:
         f.write('System.Console.WriteLine("survey");\n')
-    cmd = ["dotnet", args.csharpc, os.path.join(proj, "Program.cs"), "--il-survey", "-O0", "--emit", "llvm-bc",
+    statuses, logs = [], []
+    for shard in ([args.shard_index] if args.shard_index is not None else range(args.shards)):
+        status, log = compile_one(proj, dlls, shard, args)
+        statuses.append(status)
+        logs.append(log)
+        for line in log.splitlines():
+            m = DIAG.search(line)
+            if m:
+                kind, key = classify(m.group(3))
+                method, assembly = split_site(m.group(3))
+                result["diagnostics"].append({"severity": m.group(1), "id": m.group(2), "kind": kind, "key": key,
+                                              "method": method, "assembly": assembly})
+        if args.shards > 1:
+            print(f"    {pkg_id} shard {shard}/{args.shards}: {status}, {len(result['diagnostics'])} diagnostics so far", flush=True)
+    failed = [x for x in statuses if x != "ok"]
+    result["status"] = "; ".join(sorted(set(failed))) if failed else "ok"
+    if args.shards > 1 and failed:
+        result["status"] += f" ({len(failed)}/{len(statuses)} compiles)"
+    result["log"] = "\n".join(entry[-max(500, 4000 // len(logs)):] for entry in logs)
+    # One failure per method and item: several shards can lower the same callee.
+    seen, unique = set(), []
+    for d in result["diagnostics"]:
+        k = (d["kind"], d["key"], d["assembly"], d["method"])
+        if d["method"] is None or k not in seen:
+            seen.add(k)
+            unique.append(d)
+    result["diagnostics"] = unique
+    result["seconds"] = round(time.time() - started, 1)
+    return result
+
+
+def compile_one(proj, dlls, shard, args):
+    survey = "--il-survey=" + args.survey_assemblies if args.survey_assemblies else "--il-survey"
+    cmd = ["dotnet", args.csharpc, os.path.join(proj, "Program.cs"), survey, "-O0", "--emit", "llvm-bc",
            "-o", os.path.join(proj, "out.bc")]
+    if args.shards > 1:
+        cmd += ["--il-survey-shard", f"{shard}/{args.shards}"]
     for d in dlls:
         cmd += ["-r", d]
     try:
@@ -245,50 +331,88 @@ def survey_one(pkg_id, version, args, framework, cache):
         p = subprocess.run(cmd, capture_output=True, text=True, timeout=args.timeout, cwd=proj, env=env, preexec_fn=cap)
         log = p.stdout + p.stderr
         errors = sum(1 for line in log.splitlines() if re.search(r"error (CSLLVM|CS)\d", line))
-        result["status"] = "ok" if p.returncode == 0 else ("errors" if errors else f"failed (exit {p.returncode})")
+        status = "ok" if p.returncode == 0 else ("errors" if errors else f"failed (exit {p.returncode})")
     except subprocess.TimeoutExpired as e:
         log = (e.stdout or b"").decode(errors="replace") + (e.stderr or b"").decode(errors="replace") if isinstance(e.stdout, bytes) else (e.stdout or "") + (e.stderr or "")
-        result["status"] = f"timeout ({args.timeout}s)"
-    result["log"] = log[-4000:]
-    for line in log.splitlines():
-        m = DIAG.search(line)
-        if m:
-            kind, key = classify(m.group(3))
-            result["diagnostics"].append({"severity": m.group(1), "id": m.group(2), "kind": kind, "key": key})
-    result["seconds"] = round(time.time() - started, 1)
-    return result
+        status = f"timeout ({args.timeout}s)"
+    return status, log
 
 
-def report(results, out):
+def report(results, out, rank_by="packages"):
     members, constructs, ices = defaultdict(set), defaultdict(set), defaultdict(set)
     sites = Counter()
+    # Per item: the methods it stops (each failed method reports its first failure), their types, and
+    # how they split over assemblies.
+    methods, types, per_assembly = defaultdict(set), defaultdict(set), defaultdict(Counter)
+    blocked = defaultdict(set)
     for r in results:
         for d in r["diagnostics"]:
-            table = {"member": members, "construct": constructs, "ice": ices}.get(d["kind"], constructs)
+            kind = d["kind"] if d["kind"] in ("member", "ice") else "construct"
+            table = {"member": members, "construct": constructs, "ice": ices}[kind]
             table[d["key"]].add(r["id"])
-            sites[(d["kind"], d["key"])] += 1
+            sites[(kind, d["key"])] += 1
+            if d.get("method"):
+                methods[(kind, d["key"])].add((d.get("assembly"), d["method"]))
+                types[(kind, d["key"])].add((d.get("assembly"), type_of(d["method"])))
+                per_assembly[(kind, d["key"])][d.get("assembly")] += 1
+                blocked[d.get("assembly")].add(d["method"])
     lines = ["| Package | Version | Result | Diagnostics | Missing members | Time (s) |", "|---|---|---|---|---|---|"]
     for r in sorted(results, key=lambda r: r["id"].lower()):
         missing = len({d["key"] for d in r["diagnostics"] if d["kind"] == "member"})
         lines.append(f"| {r['id']} | {r['version']} | {r['status']} | {len(r['diagnostics'])} | {missing} | {r['seconds']} |")
 
     def ranking(title, table, kind, limit):
-        rows = sorted(table.items(), key=lambda kv: (-len(kv[1]), -sites[(kind, kv[0])], kv[0]))[:limit]
+        if rank_by == "methods":
+            order = lambda kv: (-len(methods[(kind, kv[0])]), -len(types[(kind, kv[0])]), kv[0])
+        else:
+            order = lambda kv: (-len(kv[1]), -sites[(kind, kv[0])], kv[0])
+        rows = sorted(table.items(), key=order)[:limit]
         if not rows:
             return []
-        out = [f"### {title}", "", "| # | Packages | Sites | Item |", "|---|---|---|---|"]
+        out = [f"### {title}", "", "| # | Packages | Sites | Methods | Types | By assembly | Item |", "|---|---|---|---|---|---|---|"]
         for n, (key, pkgs) in enumerate(rows, 1):
-            out.append(f"| {n} | {len(pkgs)} | {sites[(kind, key)]} | `{key.replace('|', '¦')}` |")
+            by = ", ".join(f"{a} {c}" for a, c in per_assembly[(kind, key)].most_common(4))
+            out.append(f"| {n} | {len(pkgs)} | {sites[(kind, key)]} | {len(methods[(kind, key)])} | {len(types[(kind, key)])} | {by} "
+                       f"| `{key.replace('|', '¦')}` |")
         return out + [""]
 
+    summary = ["| Assembly | Methods that fail to lower |", "|---|---|"] + [
+        f"| {a} | {len(m)} |" for a, m in sorted(blocked.items(), key=lambda kv: (-len(kv[1]), kv[0] or ""))]
+
     text = "\n".join(
-        ["## Packages", ""] + lines + [""]
+        ["## Packages", ""] + lines + [""] + summary + [""]
         + ranking("Missing library members", members, "member", 60)
         + ranking("Unsupported constructs", constructs, "construct", 40)
         + ranking("Internal compiler errors", ices, "ice", 20))
     with open(out, "w") as f:
         f.write(text + "\n")
     return text
+
+
+def merge(args):
+    """One result per target from the shard runs' results.json files (diagnostics deduplicated per method)."""
+    merged = {}
+    for path in args.merge:
+        with open(path) as f:
+            for r in json.load(f):
+                m = merged.setdefault(r["id"], dict(r, diagnostics=[], statuses=[], seconds=0))
+                m["statuses"].append(r["status"])
+                m["seconds"] = round(m["seconds"] + r["seconds"], 1)
+                m["diagnostics"].extend(r["diagnostics"])
+    results = []
+    for m in merged.values():
+        failed = [x for x in m.pop("statuses") if x != "ok"]
+        m["status"] = "; ".join(sorted(set(s.split(" (")[0] for s in failed))) + f" ({len(failed)}/{len(args.merge)} shard runs)" if failed else "ok"
+        seen, unique = set(), []
+        for d in m["diagnostics"]:
+            k = (d["kind"], d["key"], d.get("assembly"), d.get("method"))
+            if d.get("method") is None or k not in seen:
+                seen.add(k)
+                unique.append(d)
+        m["diagnostics"] = unique
+        results.append(m)
+    report(results, args.out, args.rank_by)
+    print(f"survey: merged {len(args.merge)} result files into {args.out}")
 
 
 def main():
@@ -301,12 +425,24 @@ def main():
     ap.add_argument("--out", default="il-survey.md")
     ap.add_argument("--only", default=None)
     ap.add_argument("--memory-gb", type=int, default=4, help="managed heap limit per compile (DOTNET_GCHeapHardLimit); address space: 3x")
+    ap.add_argument("--local", action="append", default=[], metavar="NAME=DLL[,DLL...]",
+                    help="survey a local assembly closure (repeatable)")
+    ap.add_argument("--no-packages", action="store_true", help="skip the packages file (only --local targets)")
+    ap.add_argument("--survey-assemblies", default=None, help="lower only these assemblies' methods (csharpc --il-survey=A,B)")
+    ap.add_argument("--shards", type=int, default=1, help="compiles per target, each surveying one shard of the types")
+    ap.add_argument("--shard-index", type=int, default=None, help="with --shards: run only this shard (CI runs shards as parallel jobs)")
+    ap.add_argument("--rank-by", choices=["packages", "methods"], default="packages")
+    ap.add_argument("--merge", nargs="+", default=None, metavar="RESULTS.json",
+                    help="no compiles: merge the results.json of shard runs into one report")
     args = ap.parse_args()
+    if args.merge:
+        merge(args)
+        return
     args.work = args.work or tempfile.mkdtemp(prefix="il-survey-")
     if not os.path.exists(args.csharpc):
         sys.exit(f"survey: {args.csharpc} not found (dotnet build src/Csharpc -c Release)")
     packages = []
-    with open(args.packages) as f:
+    with (io.StringIO() if args.no_packages else open(args.packages)) as f:
         for line in f:
             line = line.split("#")[0].strip()
             if line:
@@ -320,6 +456,10 @@ def main():
     cache, results = {}, []
     with concurrent.futures.ThreadPoolExecutor(max_workers=args.jobs) as pool:
         futures = {pool.submit(survey_one, pid, v, args, framework, cache): pid for pid, v in packages}
+        for spec in args.local:
+            name, _, paths = spec.partition("=")
+            dlls = [os.path.abspath(p) for p in paths.split(",") if p]
+            futures[pool.submit(survey_one, name, "local", args, framework, cache, dlls)] = name
         for fut in concurrent.futures.as_completed(futures):
             r = fut.result()
             results.append(r)
@@ -327,7 +467,7 @@ def main():
             # Written after every package: a partial survey still leaves a report.
             with open(os.path.join(args.work, "results.json"), "w") as f:
                 json.dump(results, f, indent=1)
-            report(results, args.out)
+            report(results, args.out, args.rank_by)
     print(f"survey: report {args.out}, raw results {os.path.join(args.work, 'results.json')}")
 
 

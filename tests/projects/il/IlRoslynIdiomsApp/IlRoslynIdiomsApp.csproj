@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net11.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="IlRoslynIdioms">
+      <HintPath>../IlRoslynIdioms/bin/Release/net11.0/IlRoslynIdioms.dll</HintPath>
+    </Reference>
+    <Reference Include="IlLegacyIdioms">
+      <HintPath>../IlLegacyIdioms/bin/Release/net11.0/IlLegacyIdioms.dll</HintPath>
+    </Reference>
+  </ItemGroup>
+</Project>

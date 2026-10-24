@@ -34,6 +34,9 @@ namespace CsharpcCoreLib
             }
         }
 
+        /// <summary>The identity compiled-in attribute lookups dispatch on (FunctionCodeGen.AssemblyAttributes.cs).</summary>
+        internal static string NameOf(Assembly assembly) => ((AssemblyImpl)(object)assembly)._fullName;
+
         public virtual string FullName => _fullName;
         public virtual bool IsDynamic => false;
         public virtual AssemblyName GetName() => AssemblyNameImpl.FromFullName(_fullName);

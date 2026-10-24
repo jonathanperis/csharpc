@@ -15,10 +15,33 @@ public sealed partial class FunctionCodeGen
 
     private LLVMValueRef EmitMdArrayCreation(IArrayCreationOperation creation, IArrayTypeSymbol arrayType)
     {
-        var rank = arrayType.Rank;
         var element = arrayType.ElementType;
-        var storage = T.Storage(element);
-        var lengths = creation.DimensionSizes.Select(d => ToIndex(EmitValue(d), TypeOf(d)!)).ToArray();
+        var array = NewMdArray(arrayType, [.. creation.DimensionSizes.Select(d => ToIndex(EmitValue(d), TypeOf(d)!))]);
+        if (creation.Initializer is { } init)
+        {
+            var header = MdArrayHeader(T.Storage(element), arrayType.Rank);
+            // Nested initializers ({ {1, 2}, {3, 4} }) flatten row-major.
+            var flat = new List<IOperation>();
+            void Flatten(IArrayInitializerOperation i)
+            {
+                foreach (var v in i.ElementValues)
+                    if (v is IArrayInitializerOperation nested) Flatten(nested); else flat.Add(v);
+            }
+            Flatten(init);
+            for (var i = 0; i < flat.Count; i++)
+            {
+                var address = _b.InBoundsGep(header, array, [L.ConstInt(L.I32, 0), L.ConstInt(L.I32, 3), L.ConstInt(L.I64, i)]);
+                StoreValue(ToStorage(Coerce(EmitValue(flat[i]), TypeOf(flat[i]), element), element), address);
+            }
+        }
+        return array;
+    }
+
+    /// <summary>A zeroed rectangular array with these lengths (i64, sign-extended: a negative one overflows as in .NET).</summary>
+    internal LLVMValueRef NewMdArray(IArrayTypeSymbol arrayType, LLVMValueRef[] lengths)
+    {
+        var rank = arrayType.Rank;
+        var storage = T.Storage(arrayType.ElementType);
         LLVMValueRef total = L.ConstInt(L.I64, 1);
         foreach (var length in lengths)
         {
@@ -45,31 +68,19 @@ public sealed partial class FunctionCodeGen
         _b.Store(total, _b.StructGep(header, array, 1));
         for (var d = 0; d < rank; d++)
             _b.Store(lengths[d], _b.InBoundsGep(header, array, [L.ConstInt(L.I32, 0), L.ConstInt(L.I32, 2), L.ConstInt(L.I32, d)]));
-
-        if (creation.Initializer is { } init)
-        {
-            // Nested initializers ({ {1, 2}, {3, 4} }) flatten row-major.
-            var flat = new List<IOperation>();
-            void Flatten(IArrayInitializerOperation i)
-            {
-                foreach (var v in i.ElementValues)
-                    if (v is IArrayInitializerOperation nested) Flatten(nested); else flat.Add(v);
-            }
-            Flatten(init);
-            for (var i = 0; i < flat.Count; i++)
-            {
-                var address = _b.InBoundsGep(header, array, [L.ConstInt(L.I32, 0), L.ConstInt(L.I32, 3), L.ConstInt(L.I64, i)]);
-                StoreValue(ToStorage(Coerce(EmitValue(flat[i]), TypeOf(flat[i]), element), element), address);
-            }
-        }
         return array;
     }
 
     private LLVMValueRef MdElementAddress(IArrayElementReferenceOperation element, IArrayTypeSymbol arrayType)
     {
-        var rank = arrayType.Rank;
         var array = EmitValue(element.ArrayReference);
-        var indices = element.Indices.Select(i => ToIndex(EmitValue(i), TypeOf(i)!)).ToArray();
+        return MdElementAddress(array, arrayType, [.. element.Indices.Select(i => ToIndex(EmitValue(i), TypeOf(i)!))]);
+    }
+
+    /// <summary>The element at these (i64) indices, bounds-checked per dimension (IndexOutOfRangeException).</summary>
+    internal LLVMValueRef MdElementAddress(LLVMValueRef array, IArrayTypeSymbol arrayType, LLVMValueRef[] indices)
+    {
+        var rank = arrayType.Rank;
         NullCheck(array);
         var header = MdArrayHeader(T.Storage(arrayType.ElementType), rank);
         LLVMValueRef linear = L.ConstInt(L.I64, 0);

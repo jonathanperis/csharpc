@@ -132,6 +132,45 @@ internal static class Intrinsics
             g.ArrayDimensionLength(g.EmitValue(inv.Instance!), inv.Instance!.Type!, Arg(g, inv, 0));
             return g.Module.Llvm.ConstInt(g.Module.Llvm.I32, 0);
         };
+        t["System.Runtime.CompilerServices.RuntimeHelpers.IsReferenceOrContainsReferences()"] = (g, inv) =>
+            g.Module.Llvm.ConstInt(g.Module.Llvm.I1, Optimizations.IsReferenceOrContainsReferences(g.S(inv.TargetMethod.TypeArguments[0])) ? 1 : 0);
+        t["System.Activator.CreateInstance()"] = (g, inv) => inv.TargetMethod.TypeArguments.Length == 1
+            ? g.ActivatorCreateInstance(g.S(inv.TargetMethod.TypeArguments[0]), inv)
+            : throw CompileError.Unsupported("Activator.CreateInstance()", inv);
+        // Type objects are csharpc's TypeInfo too: GetTypeInfo is the identity (members TypeInfo inherits
+        // from Type bind to Type's); TypeInfo's own members (DeclaredMethods ...) still report as missing.
+        t["System.Reflection.IntrospectionExtensions.GetTypeInfo(System.Type)"] = (g, inv) =>
+        {
+            var type = Arg(g, inv, 0);
+            g.ThrowLibraryExceptionIf(g.Builder.ICmp(LLVMIntPredicate.EQ, type, LlvmContext.Null(g.Module.Llvm.Ptr)),
+                "System.ArgumentNullException", "Value cannot be null. (Parameter 'type')");
+            return type;
+        };
+        foreach (var owner in new[] { "System.Delegate", "System.MulticastDelegate" })
+        {
+            t[$"{owner}.op_Equality({owner}, {owner})"] = (g, inv) => g.DelegateEquals(Arg(g, inv, 0), Arg(g, inv, 1));
+            t[$"{owner}.op_Inequality({owner}, {owner})"] = (g, inv) => g.Builder.Not(g.DelegateEquals(Arg(g, inv, 0), Arg(g, inv, 1)));
+            t[$"{owner}.Equals(object)"] = (g, inv) =>
+            {
+                var self = g.EmitValue(inv.Instance!);
+                g.NullCheck(self);
+                return g.DelegateEquals(self, Arg(g, inv, 0));
+            };
+        }
+        t["System.Reflection.TypeInfo.AsType()"] = (g, inv) => g.EmitValue(inv.Instance!);
+        t["System.Reflection.CustomAttributeExtensions.GetCustomAttribute(System.Reflection.Assembly)"] = (g, inv) =>
+            inv.TargetMethod.TypeArguments.Length == 1
+                ? g.AssemblyCustomAttribute(g.Substitution.Apply(inv.TargetMethod.TypeArguments[0]), Arg(g, inv, 0), inv)
+                : throw CompileError.Unsupported("CustomAttributeExtensions.GetCustomAttribute(Assembly, Type)", inv);
+        // The identity hash object.GetHashCode falls back to: csrt_object_get_hash_code_default's formula
+        // (csrt.c), inline (0 for null, like .NET).
+        t["System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(object)"] = (g, inv) =>
+        {
+            var l = g.Module.Llvm;
+            var address = g.Builder.Cast(LLVMOpcode.PtrToInt, Arg(g, inv, 0), l.I64);
+            var hash = g.Builder.BinOp(LLVMOpcode.Mul, g.Builder.BinOp(LLVMOpcode.LShr, address, l.ConstInt(l.I64, 3)), l.ConstInt(l.I64, 2654435761));
+            return g.Builder.Cast(LLVMOpcode.Trunc, hash, l.I32);
+        };
         t["object.ReferenceEquals(object, object)"] = (g, inv) =>
             g.Builder.ICmp(LLVMIntPredicate.EQ, Arg(g, inv, 0), Arg(g, inv, 1));
         // Enum.HasFlag(flag): (value & flag) == flag on the underlying integers (both arrive boxed to Enum).
@@ -842,6 +881,18 @@ internal static class Intrinsics
     private static FrozenDictionary<string, ConstructorHandler> BuildConstructors()
     {
         Dictionary<string, ConstructorHandler> t = [];
+        // new IntPtr(int|long|void*) / new UIntPtr(uint|ulong|void*): the 64-bit value overloads are checked
+        // on 32-bit targets (OverflowException), as in .NET.
+        foreach (var (native, parameters) in new[] { ("nint", new[] { "int", "long", "void*" }), ("nuint", new[] { "uint", "ulong", "void*" }) })
+            foreach (var parameter in parameters)
+                t[$"{native}..ctor({parameter})"] = (g, c) =>
+                {
+                    var argument = c.Arguments[0];
+                    var from = g.S(argument.Parameter!.Type);
+                    var to = g.TypeOf(c)!;
+                    var value = g.EmitValue(argument.Value);
+                    return g.ConvertNumeric(value, from, to, c, isChecked: from is not IPointerTypeSymbol);
+                };
         t[$"{Tasks}.ValueTask<TResult>..ctor(TResult)"] = (g, c) =>
             g.CompletedTask(CtorArg(g, c, 0), ((INamedTypeSymbol)g.TypeOf(c)!).TypeArguments[0]);
         t[$"{Tasks}.ValueTask..ctor({Tasks}.Task)"] = (g, c) => CtorArg(g, c, 0);

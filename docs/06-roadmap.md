@@ -199,7 +199,18 @@ facade can't supply from IL (`ConcurrentDictionary` ported so it enumerates in .
 `ConcurrentQueue`/`Stack`/`Bag`), `EventSource` (no backend: never enabled, .NET's names and GUIDs),
 `TaskScheduler`/`Task.Factory.StartNew`/`ContinueWith` with custom schedulers, and type tests against
 `ValueType`/`Enum`. Still open there: `BlockingCollection`, `Partitioner`, `AggregateException.InnerExceptions`,
-`Task.Status`/`AsyncState`, `EventListener`.
+`Task.Status`/`AsyncState`, `new Task(...)`, `EventListener` — none of them ranks high for Roslyn itself.
+Roslyn from IL, measured: the `IL survey` workflow's `roslyn` target lowers every method of Roslyn and
+`csharpc.dll` in 16 parallel shards and ranks what stops them
+([18-compatibility.md](18-compatibility.md#roslyn-and-csharpc)). On branch `m6-roslyn` the Roslyn methods
+that fail to lower went from 994 to 170 (csharpc's own: 102 → 77): struct layouts that are the sequential
+one, unions of primitives, fixed-size buffers and `[InlineArray]` structs from IL, rectangular arrays from
+IL, devirtualization to a generic base class's instantiation, boxed and hashed `Memory<T>`, weak
+references and `ConditionalWeakTable` (collector-cleared weak slots and ephemerons), `StrongBox<T>`,
+`ReferenceEqualityComparer`, `HashAlgorithmName`, SHA-1/SHA-256/`IncrementalHash`, `LazyInitializer`,
+`Task.Run` with a token, delegates bound to library methods (with .NET's delegate equality and cached
+static method groups), and `Assembly.GetCustomAttribute<T>()` from IL metadata (part of step 4). A
+program that parses C# with Roslyn from IL can reach 33 methods csharpc can't compile yet (121 before).
 (3) Compile-time scale, first part ([ADR 0014](adr/0014-compile-time.md)): csharpc and Roslyn are
 ReadyToRun-compiled in Release builds, a compilation uses several threads (`-j`, `CSHARPC_THREADS`) to
 parse, bind, build Roslyn's CFGs ahead of lowering (each built once per body) and generate machine code

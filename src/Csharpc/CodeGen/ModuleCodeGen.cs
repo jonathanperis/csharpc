@@ -191,10 +191,15 @@ public sealed partial class ModuleCodeGen
             while (EmitRuntimeExports() | EmitTypeMetadata() | EmitDeferredPrimitiveSlots());
         CheckGenericInterfaceDispatchers();
         // Last: every dispatched slot is known once nothing is left to lower.
-        FinishMethodTables();
-        Guard(entryPoint, FinishTypeMetadata);
-        FinishEventSourceAttributes();
-        ReportIlFailures();
+        // The IL methods that failed are reported even when finishing the tables fails too (that error
+        // ends the compile anyway): a survey compile still lists every method it could not lower.
+        try
+        {
+            FinishMethodTables();
+            Guard(entryPoint, FinishTypeMetadata);
+            FinishEventSourceAttributes();
+        }
+        finally { ReportIlFailures(); }
         // Every call site is known now: the stack-trace tables main registers.
         if (StackTraces is { } traces && !_traceTables.IsNull)
             Native.LLVMSetInitializer(_traceTables, traces.EmitTables(this));
@@ -669,6 +674,29 @@ public sealed partial class ModuleCodeGen
     /// <summary>
     /// Adapts a static method to the delegate convention fn(target, args...): the thunk ignores target.
     /// </summary>
+    /// <summary>A delegate entry point (ptr target, args...) for a library method (FunctionCodeGen.EmitLibraryDelegateThunk).</summary>
+    public LLVMValueRef LibraryDelegateThunk(IMethodSymbol method, bool isVirtual, SyntaxNode syntax)
+    {
+        var key = "libthunk:" + (isVirtual ? "v:" : "") + Mangler.Method(method);
+        if (_globals.TryGetValue(key, out var existing)) return existing;
+        List<LLVMTypeRef> parameters = [Llvm.Ptr];
+        foreach (var p in method.Parameters) parameters.Add(Types.Value(p.Type));
+        var type = Llvm.FunctionType(Types.Value(method.ReturnType), [.. parameters]);
+        var thunk = Module.AddFunction(Mangler.Method(method) + (isVirtual ? "$vdelegate" : "$delegate"), type);
+        Native.LLVMSetLinkage(thunk, LLVMLinkage.Internal);
+        _globals[key] = thunk;
+        new FunctionCodeGen(this, null, new LoweredFunction(thunk, type)).EmitLibraryDelegateThunk(method, isVirtual, syntax);
+        return thunk;
+    }
+
+    /// <summary>A static method group's cached delegate (null until first converted): a GC root in the data segment.</summary>
+    public LLVMValueRef DelegateCache(string key)
+    {
+        if (_globals.TryGetValue("dcache:" + key, out var existing)) return existing;
+        var global = Module.AddGlobal("csrt.dcache." + key, Llvm.Ptr, LlvmContext.Null(Llvm.Ptr), linkage: LLVMLinkage.Internal);
+        return _globals["dcache:" + key] = global;
+    }
+
     public LLVMValueRef StaticThunk(IMethodSymbol method)
     {
         var key = "thunk:" + Mangler.Method(method);
@@ -694,10 +722,11 @@ public sealed partial class ModuleCodeGen
         var name = Mangler.MetadataName(type); // includes generic arguments, e.g. System.Func`2[System.Int32,System.Int32]
         var key = "dmt:" + name;
         if (_globals.TryGetValue(key, out var g)) return g;
-        string[] defaults = ["csrt_object_to_string_default", "csrt_object_equals_default", "csrt_object_get_hash_code_default"];
+        // Delegates compare and hash by invocation list (runtime/delegates.c), as Delegate.Equals does.
         var init = Llvm.ConstStruct(ExternalGlobal("csrt_Object_MT"), CString(name), Llvm.ConstInt(Llvm.I32, 32), Llvm.ConstInt(Llvm.I32, 0),
             LlvmContext.Null(Llvm.Ptr), Llvm.ConstInt(Llvm.I32, 0), Llvm.ConstInt(Llvm.I32, 0),
-            LlvmContext.ConstArray(Llvm.Ptr, [.. defaults.Select(d => Runtime(d, Llvm.Ptr, Llvm.Ptr).Fn)]));
+            LlvmContext.ConstArray(Llvm.Ptr, Runtime("csrt_object_to_string_default", Llvm.Ptr, Llvm.Ptr).Fn,
+                Runtime("csrt_delegate_equals", Llvm.I1, Llvm.Ptr, Llvm.Ptr).Fn, Runtime("csrt_delegate_get_hash_code", Llvm.I32, Llvm.Ptr).Fn));
         g = Module.AddGlobal("csrt.dmt." + name, Native.LLVMTypeOf(init), init, constant: true, linkage: LLVMLinkage.Private);
         RegisterTypeMethodTable(g, type);
         _delegateTypes.Add(type);

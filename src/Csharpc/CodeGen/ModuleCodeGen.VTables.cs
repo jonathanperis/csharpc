@@ -110,15 +110,21 @@ public sealed partial class ModuleCodeGen
         while (_slotRequests.TryDequeue(out var request))
         {
             var (table, slot, entry) = request;
-            if (entry < 0)
+            // One slot that can't be declared (a library method whose signature mentions an unsupported
+            // type) is that slot's error, not the end of code generation for every other method.
+            try
             {
-                if (table.RequestedSlots.Add(slot)) { SlotFunction(table.Layout.VTable[slot]!); requested = true; }
+                if (entry < 0)
+                {
+                    if (table.RequestedSlots.Add(slot)) { SlotFunction(table.Layout.VTable[slot]!); requested = true; }
+                }
+                else if (slot < table.Interfaces[entry].Members.Count && table.RequestedInterfaceSlots.Add((entry, slot)))
+                {
+                    ImplementationFor(table.Layout, table.Interfaces[entry].Members[slot]);
+                    requested = true;
+                }
             }
-            else if (slot < table.Interfaces[entry].Members.Count && table.RequestedInterfaceSlots.Add((entry, slot)))
-            {
-                ImplementationFor(table.Layout, table.Interfaces[entry].Members[slot]);
-                requested = true;
-            }
+            catch (CompileError error) { Errors.Add(error); }
         }
         return requested;
     }
