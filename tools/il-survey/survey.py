@@ -295,7 +295,7 @@ def survey_one(pkg_id, version, args, framework, cache, local=None):
     failed = [x for x in statuses if x != "ok"]
     result["status"] = "; ".join(sorted(set(failed))) if failed else "ok"
     if args.shards > 1 and failed:
-        result["status"] += f" ({len(failed)}/{args.shards} shards)"
+        result["status"] += f" ({len(failed)}/{len(statuses)} compiles)"
     result["log"] = "\n".join(entry[-max(500, 4000 // len(logs)):] for entry in logs)
     # One failure per method and item: several shards can lower the same callee.
     seen, unique = set(), []
@@ -402,7 +402,7 @@ def merge(args):
     results = []
     for m in merged.values():
         failed = [x for x in m.pop("statuses") if x != "ok"]
-        m["status"] = "; ".join(sorted(set(failed))) + f" ({len(failed)}/{len(args.merge)} runs)" if failed else "ok"
+        m["status"] = "; ".join(sorted(set(s.split(" (")[0] for s in failed))) + f" ({len(failed)}/{len(args.merge)} shard runs)" if failed else "ok"
         seen, unique = set(), []
         for d in m["diagnostics"]:
             k = (d["kind"], d["key"], d.get("assembly"), d.get("method"))
