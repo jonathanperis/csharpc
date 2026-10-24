@@ -135,3 +135,6 @@ Guidelines:
   one exceeds its budget in `tests/size/budgets.txt` (per platform; size + max(4 KiB, 3 %): file sizes move in whole pages). Being smaller than
   .NET is part of the standing goal ([06-roadmap.md](06-roadmap.md)), so a size regression is a test
   failure. Platforms without budgets print the sizes (`tests/size.sh --print` gives budget lines).
+  On Linux it also runs `tools/checksec.sh --check` on the same executables, so a size win can't come
+  from dropping hardening: full RELRO, NX stack, separate code (no 4 KiB file page shared between code
+  and anything else) and, on AArch64, a segment layout that loads with 64 KiB pages.

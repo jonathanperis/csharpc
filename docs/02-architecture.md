@@ -146,7 +146,8 @@ libc and platform flags.
 Per platform:
 
 - **Linux** (ELF, glibc): lld when available, `--gc-sections`, `--icf=safe`, packed RELR relocations,
-  `-s`, and RELRO/BIND_NOW/noexecstack/separate-code for hardening; `--static` links `-static-pie`.
+  `-s`, and RELRO/BIND_NOW/noexecstack/separate-code for hardening (on AArch64 separate code at 4 KiB
+  rather than lld's 64 KiB padding, see [17-security.md](17-security.md)); `--static` links `-static-pie`.
 - **macOS** (Mach-O, arm64 only): the default host triple is `arm64-apple-macosx<deployment target>`
   (`$MACOSX_DEPLOYMENT_TARGET`, else 14.0) rather than LLVM's `arm64-apple-darwin<kernel>`. The SDK
   comes from `$SDKROOT` or `xcrun --show-sdk-path` and is passed as `-isysroot` to every clang call.
@@ -162,10 +163,13 @@ Per platform:
   personality, and LLVM supports landing pads on Windows only in the MinGW environment, where they
   ride on SEH unwind tables (`.pdata`/`.xdata`); the MSVC environment would need funclet-based EH
   (`catchswitch`/`cleanuppad`) throughout codegen. The toolchain is LLVM-MinGW (clang, lld,
-  compiler-rt, libunwind, winpthreads, UCRT); clang links with `-fuse-ld=lld -rtlib=compiler-rt
-  -unwindlib=libunwind -static -pthread --gc-sections --icf=safe -s`. `-static` only concerns the
-  MinGW libraries (libunwind, winpthreads): the executable depends on system DLLs only (kernel32 and
-  the UCRT, part of Windows 10+). An output path without an extension gets `.exe`. The compiler itself
+  compiler-rt, libunwind, UCRT); clang links with `-fuse-ld=lld -rtlib=compiler-rt
+  -unwindlib=libunwind -static --gc-sections --icf=safe -s`. `-static` only concerns the MinGW
+  libraries (libunwind): the executable depends on system DLLs only (kernel32 and the UCRT, part of
+  Windows 10+). winpthreads is not linked: the runtime implements the pthread subset it uses over SRW
+  locks and condition variables (`src/runtime/csrt_pthread.h`, `win32.c`), and it is compiled with
+  `__USE_MINGW_ANSI_STDIO=0` so `printf` is the UCRT's rather than MinGW's C99 copy; together these
+  were ~65 KB of a 104 KB "Hello, World!". An output path without an extension gets `.exe`. The compiler itself
   loads LLVM-MinGW's `libLLVM-18.dll` (or an `LLVM-C.dll`; `CSHARPC_LIBLLVM` overrides), and the asm
   parser is initialized because the runtime's bitcode carries inline asm from the MinGW headers.
 - **WebAssembly** (`--target wasm32-wasip1`, WASI preview 1): the WASI SDK's clang

@@ -29,6 +29,17 @@ const csrt_BuiltinMethodTable csrt_PrimitiveArray_MT = {
     { (void*)csrt_object_to_string_default, (void*)csrt_object_equals_default, (void*)csrt_object_get_hash_code_default },
 };
 
+#ifdef CSRT_PAGE_ALIGNED_SEGMENTS
+// Separate code without 64 KiB of file padding (Linux AArch64, --hardening default; see
+// Hardening.LinkFlags). Two empty, page-aligned sections that the linker places first in .text
+// and first in the writable segment (the TLS initialization image leads it): code then starts and
+// ends on 4 KiB file pages of its own, while the segments stay congruent modulo 64 KiB.
+__attribute__((section(".text.csrt_code_start"), aligned(4096), used, retain, visibility("hidden")))
+const char csrt_code_start[0];
+__attribute__((section(".tdata.csrt_data_start"), aligned(4096), used, retain, visibility("hidden")))
+_Thread_local char csrt_data_start[0];
+#endif
+
 static int s_argc;
 static char** s_argv;
 #ifdef _WIN32

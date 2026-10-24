@@ -99,8 +99,8 @@ bug like a wrong output.
 
 Evidence comes from CI ([benchmarks/RESULTS.md](../benchmarks/RESULTS.md), the compatibility runs), not
 claims. Known gaps today: NativeAOT is ahead on `asyncfanout` (x86-64 and arm64) and on `fileio`,
-`quicksort`, `shapes` and `spectralnorm` on arm64; arm64 binaries carry 64 KiB page-alignment padding;
-compile time of async- and generic-heavy programs; benchmarks run on Linux only so far.
+`quicksort`, `shapes` and `spectralnorm` on arm64; macOS executables have a ~50 KiB floor (three
+16 KiB-page segments: code, read-only-after-binding data, data); compile time of async- and generic-heavy programs; benchmarks run on Linux only so far.
 
 ## Milestones
 

@@ -12,7 +12,7 @@
 #include <string.h>
 #include <unistd.h>
 #ifdef _WIN32
-#include <pthread.h>
+#include "csrt_pthread.h"
 #endif
 
 static const csrt_MethodTable mt_argument = { NULL, "System.ArgumentException", 0, 0 };

@@ -42,6 +42,21 @@ are recorded from real .NET like every other test.
 | NativeAOT (.NET 11) | yes | full | yes | yes | no | no |
 | .NET JIT apphost (.NET 11) | yes | full | yes | yes | no | no |
 
+**Linux AArch64: separate code without 64 KiB of padding.** AArch64 kernels run with 4, 16 or 64 KiB
+pages, so its linkers align segments to 64 KiB, and `-z separate-code` (no page holds both code and
+anything else, so ELF headers, constants and data are never executable) works at that granularity: lld
+pads the file to a 64 KiB boundary on both sides of the code, ~100 KiB in every executable (a hello world
+was 132 KiB). At `default`, csharpc separates code at 4 KiB instead: the runtime puts two empty,
+page-aligned sections first in `.text` and first in the writable segment (lld's
+`--symbol-ordering-file` orders them), so code starts and ends on file pages of its own with at most
+8 KiB of padding, and without `-z separate-code` lld leaves 64 KiB gaps between the segments in memory
+instead of in the file. The executable keeps 64 KiB `p_align` and offsets congruent with addresses, so it
+loads on 64 KiB-page kernels too; there the kernel's 64 KiB mapping of the code also covers its
+neighbours, which is still more than Debian and Ubuntu's own arm64 binaries do (they map headers,
+constants and code as one executable segment). `max` keeps the full 64 KiB separation. `tests/size.sh`
+checks both properties on every Linux CI run (`tools/checksec.sh --check`: full RELRO, NX, separate code
+at 4 KiB, and a `PT_LOAD` layout valid for 64 KiB pages on AArch64).
+
 **macOS.** Mach-O has no RELRO/BIND_NOW/separate-code switches to turn on: executables are always PIE
 with a non-executable stack, and `__DATA_CONST` (the GOT and other relocated constants) is made read-only by
 dyld after binding. So `default` on macOS means the hardened C runtime (stack protector,

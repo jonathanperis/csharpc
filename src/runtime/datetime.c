@@ -6,6 +6,8 @@
 #include "csrt.h"
 
 #include <time.h>
+
+#include "csrt_pthread.h"  // clock_gettime on Windows
 #ifdef _WIN32
 #include <windows.h>
 #endif

@@ -17,8 +17,15 @@ public sealed class Toolchain(CompilerOptions options, Csharpc.Llvm.TargetMachin
     private static readonly string[] BaseRuntimeCFlags = ["-O2", "-std=c11", "-fPIC", "-funwind-tables", "-fexceptions", "-ffp-contract=off"];
 
     private string[] RuntimeCFlags => target.IsWasm
-        ? [.. WasmRuntimeCFlags, .. Hardening.RuntimeCFlags(options.Hardening, target)]
-        : [.. BaseRuntimeCFlags, .. SysrootFlags, .. Hardening.RuntimeCFlags(options.Hardening, target), .. SanitizerFlags];
+        ? [.. WasmRuntimeCFlags, .. Hardening.RuntimeCFlags(options.Hardening, target, lld: false)]
+        : [.. BaseRuntimeCFlags, .. SysrootFlags, .. (target.IsWindows ? WindowsRuntimeCFlags : []), .. Hardening.RuntimeCFlags(options.Hardening, target, HasLld), .. SanitizerFlags];
+
+    /// <summary>
+    /// Windows: the UCRT's own printf family. _GNU_SOURCE/_POSIX_C_SOURCE would otherwise select
+    /// MinGW's C99 replacement (__mingw_vfprintf: ~20 KB of pformat and gdtoa in every executable);
+    /// the runtime only formats strings and integers, which the UCRT does the same way.
+    /// </summary>
+    private static readonly string[] WindowsRuntimeCFlags = ["-D__USE_MINGW_ANSI_STDIO=0"];
 
     /// <summary>wasm32: nothing unwinds (ExceptionLowering), executables are static (no -fPIC).</summary>
     private static readonly string[] WasmRuntimeCFlags = ["-O2", "-std=c11", "-ffp-contract=off"];
@@ -81,10 +88,7 @@ public sealed class Toolchain(CompilerOptions options, Csharpc.Llvm.TargetMachin
         // Key the cache on everything that affects the output, including the flags below.
         var hashInput = string.Concat(files.Select(File.ReadAllText)) + triple + CC + string.Join(' ', RuntimeCFlags) + (bitcode ? "bc" : "o");
         var hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(hashInput)))[..16].ToLowerInvariant();
-        var cacheDir = Path.Combine(
-            Environment.GetEnvironmentVariable("XDG_CACHE_HOME") ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".cache"),
-            "csharpc");
-        Directory.CreateDirectory(cacheDir);
+        var cacheDir = CacheDir;
 
         List<string> outputs = [];
         foreach (var source in files.Where(f => f.EndsWith(".c")))
@@ -98,6 +102,32 @@ public sealed class Toolchain(CompilerOptions options, Csharpc.Llvm.TargetMachin
             File.Move(tmp, output, overwrite: true);
         }
         return [.. outputs];
+    }
+
+    private static string CacheDir
+    {
+        get
+        {
+            var dir = Path.Combine(
+                Environment.GetEnvironmentVariable("XDG_CACHE_HOME") ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".cache"),
+                "csharpc");
+            Directory.CreateDirectory(dir);
+            return dir;
+        }
+    }
+
+    /// <summary>lld's --symbol-ordering-file for 4 KiB-granular separate code (Hardening.AlignsSegments), else null.</summary>
+    private string? SegmentOrderFile()
+    {
+        if (!Hardening.AlignsSegments(options.Hardening, target, HasLld)) return null;
+        var path = Path.Combine(CacheDir, "segment-order.txt");
+        if (!File.Exists(path) || File.ReadAllText(path) != Hardening.SegmentOrder)
+        {
+            var tmp = path + "." + Environment.ProcessId + ".tmp";
+            File.WriteAllText(tmp, Hardening.SegmentOrder);
+            File.Move(tmp, path, overwrite: true);
+        }
+        return path;
     }
 
     /// <param name="runtimeLinkedIn">The runtime was already linked into the program as bitcode (LTO).</param>
@@ -130,7 +160,7 @@ public sealed class Toolchain(CompilerOptions options, Csharpc.Llvm.TargetMachin
             Run(options.CC, [$"--target={triple}", programObject, .. runtime, .. WindowsLinkFlags(), .. Hardening.WindowsLinkFlags(options.Hardening), .. sanitize, "-o", output]);
             return;
         }
-        Run(options.CC, [$"--target={triple}", programObject, .. runtime, "-lm", "-pthread", .. LinkFlags(), .. Hardening.LinkFlags(options.Hardening), .. sanitize, "-o", output]);
+        Run(options.CC, [$"--target={triple}", programObject, .. runtime, "-lm", "-pthread", .. LinkFlags(), .. Hardening.LinkFlags(options.Hardening, SegmentOrderFile()), .. sanitize, "-o", output]);
     }
 
     /// <summary>
@@ -148,10 +178,12 @@ public sealed class Toolchain(CompilerOptions options, Csharpc.Llvm.TargetMachin
 
     /// <summary>
     /// PE/COFF counterparts of <see cref="LinkFlags"/>, for the MinGW-w64 toolchain (LLVM-MinGW: clang,
-    /// lld, compiler-rt, libunwind, winpthreads, the UCRT). Everything but system DLLs is linked
-    /// statically (-static: libunwind and winpthreads), so the executable runs without LLVM-MinGW's DLLs;
-    /// the UCRT ships with Windows 10 and later. The runtime and libraries are named explicitly so a
-    /// plain clang (not LLVM-MinGW's target wrapper) links the same way.
+    /// lld, compiler-rt, libunwind, the UCRT). Everything but system DLLs is linked statically
+    /// (-static: libunwind), so the executable runs without LLVM-MinGW's DLLs; the UCRT ships with
+    /// Windows 10 and later. The runtime and libraries are named explicitly so a plain clang (not
+    /// LLVM-MinGW's target wrapper) links the same way. No -pthread: the runtime implements the
+    /// pthread subset it uses over Win32 (src/runtime/csrt_pthread.h), so winpthreads (~40 KB) is
+    /// not linked, and a new use of a pthread function fails to link instead of pulling it back in.
     /// </summary>
     private IEnumerable<string> WindowsLinkFlags()
     {
@@ -159,7 +191,6 @@ public sealed class Toolchain(CompilerOptions options, Csharpc.Llvm.TargetMachin
         yield return "-rtlib=compiler-rt";
         yield return "-unwindlib=libunwind";
         yield return "-static";
-        yield return "-pthread";
         yield return "-Wl,--gc-sections";
         yield return "-Wl,--icf=safe";
         // CoTaskMemAlloc/CoTaskMemFree: P/Invoke string returns and Marshal.*CoTaskMem*, as in .NET.

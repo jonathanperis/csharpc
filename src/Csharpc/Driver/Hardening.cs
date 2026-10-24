@@ -34,14 +34,16 @@ public static class Hardening
     };
 
     /// <summary>Extra clang flags for src/runtime/*.c (objects and LTO bitcode alike).</summary>
-    public static string[] RuntimeCFlags(HardeningLevel level, TargetMachine target) =>
+    public static string[] RuntimeCFlags(HardeningLevel level, TargetMachine target, bool lld) =>
         // WebAssembly: return addresses and locals are outside linear memory and control flow is
         // structured, so only zero-initialized locals apply (wasi-libc has no stack protector or
         // _FORTIFY_SOURCE support; stack overflow traps, with the stack placed first in memory).
         target.IsWasm ? (level == HardeningLevel.None ? [] : ["-ftrivial-auto-var-init=zero"])
         // clang implements stack-clash probing for Linux only (macOS relies on its guard pages, Windows
         // on __chkstk, which every frame larger than a page calls).
-        : target.IsDarwin || target.IsWindows ? [.. RuntimeCFlagsFor(level, target).Where(f => f != "-fstack-clash-protection")] : RuntimeCFlagsFor(level, target);
+        : target.IsDarwin || target.IsWindows ? [.. RuntimeCFlagsFor(level, target).Where(f => f != "-fstack-clash-protection")]
+        : AlignsSegments(level, target, lld) ? [.. RuntimeCFlagsFor(level, target), "-DCSRT_PAGE_ALIGNED_SEGMENTS"]
+        : RuntimeCFlagsFor(level, target);
 
     private static string[] RuntimeCFlagsFor(HardeningLevel level, TargetMachine target) => level switch
     {
@@ -67,10 +69,36 @@ public static class Hardening
         : target.IsAArch64 ? "-mbranch-protection=standard"
         : throw new ArgumentException($"--hardening max is not supported on target '{target.Triple}' yet");
 
-    /// <summary>Linker flags (passed through clang to the system linker).</summary>
-    public static string[] LinkFlags(HardeningLevel level) => level == HardeningLevel.None
+    /// <summary>
+    /// Linker flags (passed through clang to the system linker). -z separate-code keeps code on pages
+    /// of its own, so ELF headers, constants and data are never mapped executable. Its granularity is
+    /// the maximum page size, which on AArch64 is 64 KiB (kernels may use 4, 16 or 64 KiB pages):
+    /// lld pads the file to 64 KiB on both sides of the code, ~100 KB in every executable. With
+    /// <paramref name="segmentOrderFile"/> (see <see cref="AlignsSegments"/>) the separation is done
+    /// at 4 KiB instead: the runtime's two page-aligned marker sections (CSRT_PAGE_ALIGNED_SEGMENTS
+    /// in csrt.c), ordered first in .text and first in the writable segment, make code start and end
+    /// on 4 KiB file pages of its own, at most 8 KiB of padding. The segments keep lld's 64 KiB
+    /// p_align, congruent offsets and 64 KiB address gaps (without -z separate-code lld advances
+    /// addresses rather than file offsets), so the executable still loads on 64 KiB-page kernels;
+    /// there the kernel's 64 KiB mapping of the code also covers its neighbours, as in
+    /// Debian/Ubuntu's own arm64 binaries (which have no separate code at all).
+    /// </summary>
+    public static string[] LinkFlags(HardeningLevel level, string? segmentOrderFile) => level == HardeningLevel.None
         ? []
-        : ["-Wl,-z,relro", "-Wl,-z,now", "-Wl,-z,noexecstack", "-Wl,-z,separate-code"];
+        : segmentOrderFile is null
+        ? ["-Wl,-z,relro", "-Wl,-z,now", "-Wl,-z,noexecstack", "-Wl,-z,separate-code"]
+        // -Xlinker: a comma in the cache path would split a -Wl, argument.
+        : ["-Wl,-z,relro", "-Wl,-z,now", "-Wl,-z,noexecstack", "-Xlinker", "--symbol-ordering-file=" + segmentOrderFile, "-Wl,--no-warn-symbol-ordering"];
+
+    /// <summary>
+    /// 4 KiB-granular separate code (see <see cref="LinkFlags"/>): Linux AArch64 with lld at the
+    /// default level. `max` keeps the 64 KiB padding, which also separates code on 64 KiB-page kernels.
+    /// </summary>
+    public static bool AlignsSegments(HardeningLevel level, TargetMachine target, bool lld) =>
+        level == HardeningLevel.Default && lld && target.IsAArch64 && !target.IsDarwin && !target.IsWindows && !target.IsWasm;
+
+    /// <summary>The symbols of the runtime's marker sections, for lld's --symbol-ordering-file.</summary>
+    public const string SegmentOrder = "csrt_code_start\ncsrt_data_start\n";
 
     /// <summary>PE/COFF: ASLR with a 64-bit randomized base, DEP. lld enables these by default for
     /// MinGW; they are spelled out so the baseline does not depend on that. libssp backs the runtime's
