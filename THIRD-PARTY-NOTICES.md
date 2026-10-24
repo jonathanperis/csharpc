@@ -31,6 +31,11 @@ those parts of csharpc.
   from `src/libraries/System.Text.Json/src` and `src/libraries/System.Text.Encodings.Web/src` (see the
   table below), adapted to the csharpc corelib. Each ported file keeps the upstream license header
   and names its upstream sources.
+- **What:** `ConcurrentDictionary` and `ConcurrentStack` in `src/Csharpc/corelib/Concurrent/`, ported
+  from `src/libraries/System.Private.CoreLib/src/System/Collections/Concurrent/ConcurrentDictionary.cs`
+  and `src/libraries/System.Collections.Concurrent/src/System/Collections/Concurrent/ConcurrentStack.cs`,
+  with the non-randomized string hashing of `System.Private.CoreLib/src/System/String.Comparison.cs`;
+  `ConcurrentBag` follows `ConcurrentBag.cs`. Each ported file keeps the upstream license header.
 - **Source:** <https://github.com/dotnet/runtime>, release/11.0.
 - **License:** MIT
 

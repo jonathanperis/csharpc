@@ -520,12 +520,20 @@ typedef struct CancellationSource {
     const csrt_MethodTable* mt;
     int32_t canceled;
     int32_t ncallbacks;
-    csrt_Array* callbacks;   // registered Action delegates
+    csrt_Array* callbacks;   // registrations, oldest first: delay tasks, linked sources, corelib callback nodes
+    int32_t disposed;
+    int32_t nparents;
+    csrt_Array* parents;     // a linked source: the sources it is registered on (left by Dispose)
+    void* executing;         // the registration whose callback Cancel is running (null: none)
+    pthread_t executing_thread;
 } CancellationSource;
 
-const csrt_BuiltinMethodTable csrt_CancellationTokenSource_MT = {
-    { &csrt_Object_MT.header, "System.Threading.CancellationTokenSource", sizeof(CancellationSource), CSRT_MT_DISPOSABLE },
-    { (void*)csrt_object_to_string_default, (void*)csrt_object_equals_default, (void*)csrt_object_get_hash_code_default },
+void csrt_cts_dispose(CancellationSource* cts);
+// IDisposable.Dispose (`using var cts = ...` through the interface) is a real Dispose: slot 3.
+const struct { csrt_MethodTable header; void* vtable[4]; } csrt_CancellationTokenSource_MT = {
+    { &csrt_Object_MT.header, "System.Threading.CancellationTokenSource", sizeof(CancellationSource), CSRT_MT_DISPOSABLE | CSRT_MT_DISPOSE_SLOT },
+    { (void*)csrt_object_to_string_default, (void*)csrt_object_equals_default, (void*)csrt_object_get_hash_code_default,
+      (void*)csrt_cts_dispose },
 };
 
 static pthread_mutex_t s_tlock = PTHREAD_MUTEX_INITIALIZER;
@@ -633,7 +641,7 @@ static void timer_loop(void) {
 }
 
 csrt_Task* csrt_task_delay_token(int32_t ms, CancellationSource* token);
-void csrt_token_register(CancellationSource* token, void* action);
+void csrt_token_register(CancellationSource* token, void* entry);
 
 csrt_Task* csrt_task_delay(int32_t ms) { return csrt_task_delay_token(ms, NULL); }
 
@@ -657,28 +665,146 @@ csrt_Task* csrt_task_delay_token(int32_t ms, CancellationSource* token) {
 // ---------------------------------------------------------------------------------------------
 CancellationSource* csrt_cts_new(void) { return csrt_alloc(&csrt_CancellationTokenSource_MT.header, sizeof(CancellationSource)); }
 
-void csrt_cts_cancel(CancellationSource* cts) {
+static void push_word_locked(csrt_Array** array, int32_t* count, void* value) {
+    int64_t cap = *array ? (*array)->length : 0;
+    if (*count == cap) {
+        csrt_Array* grown = csrt_new_array(sizeof(void*), cap ? cap * 2 : 4);
+        if (*array) memcpy(grown->data, (*array)->data, (size_t)*count * sizeof(void*));
+        *array = grown;
+    }
+    words(*array)[(*count)++] = value;
+}
+
+static bool remove_word_locked(csrt_Array* array, int32_t* count, void* value) {
+    for (int32_t i = *count - 1; i >= 0; i--)
+        if (words(array)[i] == value) {
+            memmove(words(array) + i, words(array) + i + 1, (size_t)(*count - i - 1) * sizeof(void*));
+            words(array)[--*count] = NULL;
+            return true;
+        }
+    return false;
+}
+
+/// The state change of Cancel (callbacks not run yet): false when the source was already canceled.
+bool csrt_cts_transition(CancellationSource* cts) {
     if (!cts) csrt_throw_null_reference();
     pthread_mutex_lock(&s_tlock);
-    if (cts->canceled) { pthread_mutex_unlock(&s_tlock); return; }
-    __atomic_store_n(&cts->canceled, 1, __ATOMIC_RELEASE);
-    // Timers of delays bound to this token are dropped; the delays themselves are canceled below,
-    // as token callbacks (they registered one when created, as in .NET).
+    bool first = !cts->canceled;
+    if (first) __atomic_store_n(&cts->canceled, 1, __ATOMIC_RELEASE);
+    pthread_mutex_unlock(&s_tlock);
+    return first;
+}
+
+/// Removes the most recently registered callback that hasn't run (registrations run newest first,
+/// as in .NET) and marks it as executing on this thread; null (and nothing executing) when none is left.
+void* csrt_cts_next_callback(CancellationSource* cts) {
+    pthread_mutex_lock(&s_tlock);
+    void* entry = NULL;
+    if (cts->ncallbacks > 0) {
+        entry = words(cts->callbacks)[--cts->ncallbacks];
+        words(cts->callbacks)[cts->ncallbacks] = NULL;
+        cts->executing_thread = pthread_self();
+    }
+    cts->executing = entry;
+    pthread_mutex_unlock(&s_tlock);
+    return entry;
+}
+
+/// Cancel's callbacks stopped (the last one threw with throwOnFirstException): nothing executes now.
+void csrt_cts_callbacks_done(CancellationSource* cts) {
+    pthread_mutex_lock(&s_tlock);
+    cts->executing = NULL;
+    pthread_mutex_unlock(&s_tlock);
+}
+
+/// What a registration is: 1 a Task.Delay task, 2 a linked source, 0 a callback (corelib node).
+int32_t csrt_cts_entry_kind(void* entry) {
+    const csrt_MethodTable* mt = ((csrt_Object*)entry)->mt;
+    return mt == &csrt_Task_MT.header ? 1 : mt == &csrt_CancellationTokenSource_MT.header ? 2 : 0;
+}
+
+/// A delay bound to the token is canceled (and its timer dropped).
+void csrt_cts_cancel_delay(csrt_Task* task) {
+    pthread_mutex_lock(&s_tlock);
+    for (int64_t i = 0; i < s_ntimers; i++)
+        if (words(s_timers)[i * 3 + 1] == task) { remove_timer_locked(i); break; }
+    pthread_mutex_unlock(&s_tlock);
+    csrt_task_try_cancel(task);
+}
+
+bool csrt_cts_is_disposed(CancellationSource* cts) {
+    if (!cts) csrt_throw_null_reference();
+    return __atomic_load_n(&cts->disposed, __ATOMIC_ACQUIRE) != 0;
+}
+
+/// Runs the registrations of a source that was just canceled. This fallback handles the runtime's own
+/// registrations (delays, linked sources); programs that register callbacks link the corelib's
+/// version instead (CsharpcCoreLib.CancellationRuntime.Notify: exceptions aggregated like .NET's).
+__attribute__((weak)) void csrt_cts_notify(CancellationSource* cts, int32_t throw_on_first_exception) {
+    (void)throw_on_first_exception;
+    void* entry;
+    while ((entry = csrt_cts_next_callback(cts))) {
+        if (csrt_cts_entry_kind(entry) == 1) csrt_cts_cancel_delay(entry);
+        else if (csrt_cts_entry_kind(entry) == 2 && csrt_cts_transition(entry)) csrt_cts_notify(entry, 0);
+    }
+}
+
+/// Cancel from a timer (CancelAfter) or the runtime: no disposed check (a disposed source has no timers).
+void csrt_cts_cancel(CancellationSource* cts) {
+    if (csrt_cts_transition(cts)) csrt_cts_notify(cts, 0);
+}
+
+static CSRT_THROWS void throw_cts_disposed(void) {
+    csrt_throw_object(csrt_object_disposed_exception_new("The CancellationTokenSource has been disposed."));
+}
+
+/// CancellationTokenSource.Cancel() / Cancel(bool).
+void csrt_cts_cancel_checked(CancellationSource* cts, bool throw_on_first_exception) {
+    if (csrt_cts_is_disposed(cts)) { throw_cts_disposed(); return; }
+    if (csrt_cts_transition(cts)) csrt_cts_notify(cts, throw_on_first_exception ? 1 : 0);
+}
+
+/// CancellationTokenSource.Token: the source itself; ObjectDisposedException once disposed.
+CancellationSource* csrt_cts_token(CancellationSource* cts) {
+    if (csrt_cts_is_disposed(cts)) throw_cts_disposed();
+    return cts;
+}
+
+static void drop_timers_locked(CancellationSource* cts) {
     for (int64_t i = 0; i < s_ntimers;) {
-        if (words(s_timers)[i * 3 + 2] == cts && words(s_timers)[i * 3 + 1]) remove_timer_locked(i);
+        if (words(s_timers)[i * 3 + 2] == cts && !words(s_timers)[i * 3 + 1]) remove_timer_locked(i);
         else i++;
     }
-    csrt_Array* callbacks = cts->callbacks;
-    int32_t ncallbacks = cts->ncallbacks;
-    pthread_mutex_unlock(&s_tlock);
-    // Registered callbacks run synchronously, most recently registered first (like .NET).
-    for (int32_t i = ncallbacks - 1; i >= 0; i--) {
-        void* entry = words(callbacks)[i];
-        if (((csrt_Object*)entry)->mt == &csrt_Task_MT.header) { csrt_task_try_cancel(entry); continue; }
-        if (((csrt_Object*)entry)->mt == &csrt_CancellationTokenSource_MT.header) { csrt_cts_cancel(entry); continue; } // linked source
-        Delegate* d = entry;
-        ((void (*)(void*))d->fn)(d->target);
+}
+
+/// CancellationTokenSource.Dispose(): pending CancelAfter timers stop, a linked source leaves the
+/// sources it is registered on. Registrations stay (Unregister still finds them, as in .NET).
+void csrt_cts_dispose(CancellationSource* cts) {
+    if (!cts) csrt_throw_null_reference();
+    pthread_mutex_lock(&s_tlock);
+    if (!cts->disposed) {
+        cts->disposed = 1;
+        drop_timers_locked(cts);
+        for (int32_t i = 0; i < cts->nparents; i++) {
+            CancellationSource* parent = words(cts->parents)[i];
+            if (parent->callbacks) remove_word_locked(parent->callbacks, &parent->ncallbacks, cts);
+        }
     }
+    pthread_mutex_unlock(&s_tlock);
+}
+
+/// CancellationTokenSource.TryReset(): an uncanceled source forgets its registrations and timers.
+bool csrt_cts_try_reset(CancellationSource* cts) {
+    if (csrt_cts_is_disposed(cts)) throw_cts_disposed();
+    pthread_mutex_lock(&s_tlock);
+    bool reset = !cts->canceled;
+    if (reset) {
+        drop_timers_locked(cts);
+        for (int32_t i = 0; i < cts->ncallbacks; i++) words(cts->callbacks)[i] = NULL;
+        cts->ncallbacks = 0;
+    }
+    pthread_mutex_unlock(&s_tlock);
+    return reset;
 }
 
 CancellationSource* csrt_cts_new_after(int32_t ms) {
@@ -689,7 +815,10 @@ CancellationSource* csrt_cts_new_after(int32_t ms) {
 }
 
 void csrt_cts_cancel_after(CancellationSource* cts, int32_t ms) {
-    if (!cts) csrt_throw_null_reference();
+    if (csrt_cts_is_disposed(cts)) throw_cts_disposed();
+    pthread_mutex_lock(&s_tlock);
+    drop_timers_locked(cts); // .NET changes its one timer: the last CancelAfter wins
+    pthread_mutex_unlock(&s_tlock);
     if (ms == 0) csrt_cts_cancel(cts);
     else if (ms > 0) add_timer(now_ms() + ms, NULL, cts);
 }
@@ -700,35 +829,78 @@ void csrt_token_throw_if_cancellation_requested(CancellationSource* token) {
     if (csrt_token_is_cancellation_requested(token)) csrt_throw_object(csrt_operation_canceled_exception_new());
 }
 
-/// Token.Register(Action); the runtime also registers Task.Delay tasks here (canceled, not invoked).
-void csrt_token_register(CancellationSource* token, void* action) {
-    if (!action) csrt_throw_null_reference();
+/// new CancellationToken(true): one canceled source shared by every such token (.NET's s_canceledSource).
+static CancellationSource* s_canceled_source;
+CancellationSource* csrt_token_new(bool canceled) {
+    if (!canceled) return NULL;
+    CancellationSource* source = __atomic_load_n(&s_canceled_source, __ATOMIC_ACQUIRE);
+    if (source) return source;
+    CancellationSource* created = csrt_cts_new();
+    created->canceled = 1;
+    if (!__atomic_compare_exchange_n(&s_canceled_source, &source, created, false, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) return source;
+    return created;
+}
+
+/// A registration of the runtime's own (a Task.Delay task or a linked source): canceled at once when
+/// the token already is.
+void csrt_token_register(CancellationSource* token, void* entry) {
     if (!token) return;  // CancellationToken.None never cancels
     pthread_mutex_lock(&s_tlock);
     if (token->canceled) {
         pthread_mutex_unlock(&s_tlock);
-        if (((csrt_Object*)action)->mt == &csrt_Task_MT.header) { csrt_task_try_cancel(action); return; }
-        if (((csrt_Object*)action)->mt == &csrt_CancellationTokenSource_MT.header) { csrt_cts_cancel(action); return; }
-        Delegate* d = action;
-        ((void (*)(void*))d->fn)(d->target);
+        if (csrt_cts_entry_kind(entry) == 1) csrt_task_try_cancel(entry);
+        else csrt_cts_cancel(entry);
         return;
     }
-    int64_t cap = token->callbacks ? token->callbacks->length : 0;
-    if (token->ncallbacks == cap) {
-        csrt_Array* grown = csrt_new_array(sizeof(void*), cap ? cap * 2 : 4);
-        if (token->callbacks) memcpy(grown->data, token->callbacks->data, (size_t)token->ncallbacks * sizeof(void*));
-        token->callbacks = grown;
-    }
-    words(token->callbacks)[token->ncallbacks++] = action;
+    push_word_locked(&token->callbacks, &token->ncallbacks, entry);
     pthread_mutex_unlock(&s_tlock);
+}
+
+/// CancellationToken.Register's node (corelib): 0 registered, 1 the token is canceled already (the
+/// caller runs the callback now), 2 not registered (the source was disposed: .NET drops the callback).
+int32_t csrt_cts_register_node(CancellationSource* token, void* node) {
+    pthread_mutex_lock(&s_tlock);
+    int32_t result = token->canceled ? 1 : token->disposed ? 2 : 0;
+    if (result == 0) push_word_locked(&token->callbacks, &token->ncallbacks, node);
+    pthread_mutex_unlock(&s_tlock);
+    return result;
+}
+
+/// CancellationTokenRegistration.Unregister(): true when the callback was removed before it ran.
+bool csrt_cts_unregister(CancellationSource* token, void* node) {
+    pthread_mutex_lock(&s_tlock);
+    bool removed = token->callbacks && remove_word_locked(token->callbacks, &token->ncallbacks, node);
+    pthread_mutex_unlock(&s_tlock);
+    return removed;
+}
+
+/// CancellationTokenRegistration.Dispose() of a callback that is running: waits for it to finish,
+/// unless it is running on this thread (Dispose from inside the callback).
+void csrt_cts_wait_for_callback(CancellationSource* token, void* node) {
+    for (;;) {
+        pthread_mutex_lock(&s_tlock);
+        bool running = token->executing == node && !pthread_equal(token->executing_thread, pthread_self());
+        pthread_mutex_unlock(&s_tlock);
+        if (!running) return;
+        sched_yield();
+    }
+}
+
+/// Registers `linked` on `token`, remembering the token for Dispose.
+void csrt_cts_link(CancellationSource* linked, CancellationSource* token) {
+    if (!token) return;
+    pthread_mutex_lock(&s_tlock);
+    push_word_locked(&linked->parents, &linked->nparents, token);
+    pthread_mutex_unlock(&s_tlock);
+    csrt_token_register(token, linked);
 }
 
 /// CancellationTokenSource.CreateLinkedTokenSource(a, b): canceled when either token is (registered
 /// on both as a callback entry; canceled at once if one already is).
 CancellationSource* csrt_cts_new_linked(CancellationSource* a, CancellationSource* b) {
     CancellationSource* cts = csrt_cts_new();
-    csrt_token_register(a, cts);
-    csrt_token_register(b, cts);
+    csrt_cts_link(cts, a);
+    csrt_cts_link(cts, b);
     return cts;
 }
 

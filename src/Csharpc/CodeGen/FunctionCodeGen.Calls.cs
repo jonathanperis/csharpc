@@ -45,7 +45,8 @@ public sealed partial class FunctionCodeGen
             var receiverType = TypeOf(receiver);
             // Interface members (user or library, e.g. IComparable<T>.CompareTo): devirtualize or dispatch.
             if (target.ContainingType.TypeKind == TypeKind.Interface
-                && (!IsArrayEnumeration(receiver) || target.ContainingType.Name is "IStructuralComparable" or "IStructuralEquatable"))
+                && (!IsArrayEnumeration(receiver) || target.ContainingType.Name is "IStructuralComparable" or "IStructuralEquatable"
+                    || IsEscapingArrayGetEnumerator(inv)))
                 return EmitInterfaceCall(target, receiver, inv.Arguments, [], inv);
             // object.ToString/Equals/GetHashCode on a value-type receiver (a substituted T): box, then dispatch.
             if (receiverType is { IsValueType: true } && target.ContainingType.SpecialType is SpecialType.System_Object or SpecialType.System_ValueType)
@@ -519,6 +520,11 @@ public sealed partial class FunctionCodeGen
         { SpecialType: SpecialType.System_String } => _m.ExternalGlobal("csrt_String_MT"),
         { SpecialType: SpecialType.System_Object } => _m.ExternalGlobal("csrt_Object_MT"),
         { SpecialType: SpecialType.System_Array } => _m.ExternalGlobal("csrt_Array_MT"), // any array (csrt_isinst_class)
+        // Boxed value types and enums are flagged in their method tables (csrt_isinst_class).
+        { SpecialType: SpecialType.System_ValueType } => _m.ExternalGlobal("csrt_ValueType_MT"),
+        { SpecialType: SpecialType.System_Enum } => _m.ExternalGlobal("csrt_Enum_MT"),
+        INamedTypeSymbol { Name: "CancellationTokenSource", ContainingNamespace: { Name: "Threading", ContainingNamespace.Name: "System" } } =>
+            _m.ExternalGlobal("csrt_CancellationTokenSource_MT"), // a runtime object (runtime/async.c)
         _ when IsBoxablePrimitive(type) => _m.ExternalGlobal($"csrt_Boxed_{type.MetadataName}_MT"),
         _ when BclValueTypes.IsDecimal(type) || BclValueTypes.IsTicks(type) || BclValueTypes.IsBigInteger(type) => _m.TypeMethodTable(type, at),
         INamedTypeSymbol { TypeKind: TypeKind.Enum } e => _m.EnumMethodTable(e),
@@ -821,6 +827,14 @@ public sealed partial class FunctionCodeGen
         else FailIf(_b.ICmp(LLVMIntPredicate.UGE, i, length), "csrt_throw_index_out_of_range");
         return DataAddress(_b.InBoundsGep(header, array, [L.ConstInt(L.I32, 0), L.ConstInt(L.I32, 2), i]), DataKind.ArrayElement);
     }
+
+    /// <summary>
+    /// `((IEnumerable&lt;T&gt;)array).GetEnumerator()` whose result is not a foreach's enumerator: a real
+    /// enumerator object (the array's interface table), not the stack-allocated foreach one below.
+    /// </summary>
+    private bool IsEscapingArrayGetEnumerator(IInvocationOperation inv) =>
+        inv.TargetMethod.Name == "GetEnumerator"
+        && !(inv.Parent is IFlowCaptureOperation capture && _cfg!.ArrayEnumerators.ContainsKey(capture.Id));
 
     // foreach over T[]: Roslyn's CFG lowers it to the IEnumerable<T> pattern. We substitute a
     // stack-allocated { T[] array, i64 index } "enumerator"; after SROA this is a plain index loop.

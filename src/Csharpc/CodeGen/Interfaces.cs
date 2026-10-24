@@ -75,10 +75,22 @@ public sealed partial class ModuleCodeGen
             constant: true, linkage: LLVMLinkage.Internal);
     }
 
+    private INamedTypeSymbol? ShadowedBaseOf(INamedTypeSymbol type)
+    {
+        for (var b = type.BaseType; b is not null; b = b.BaseType)
+            if (CoreLib.TryMap(b) is { } shadow) return shadow;
+        return null;
+    }
+
     private LLVMValueRef ImplementationFor(ClassLayout layout, IMethodSymbol member)
     {
         var impl = layout.Type.FindImplementationForInterfaceMember(member) as IMethodSymbol;
         if (impl is not null) impl = CoreLib.Map(impl); // implemented by a shadowed library base class
+        // A class deriving from a shadowed library class (class Names : List<string>): reference assemblies
+        // don't list the base's explicit implementations, so ask the corelib shadow that implements it.
+        if ((impl is null || !IsUserMethod(impl)) && ShadowedBaseOf(layout.Type) is { } shadowBase
+            && shadowBase.FindImplementationForInterfaceMember(member) is IMethodSymbol shadowImpl)
+            impl = shadowImpl;
         if (impl is null)
             return member.IsAbstract ? LlvmContext.Null(Llvm.Ptr) : GetFunction(member).Fn; // default interface method
         // A virtual implementation may be overridden further down: take this class's vtable entry.

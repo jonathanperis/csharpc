@@ -460,6 +460,10 @@ void* csrt_operation_canceled_exception_new(void) {
     return new_exception(&csrt_MT_System_OperationCanceledException, "The operation was canceled.");
 }
 
+void* csrt_object_disposed_exception_new(const char* message) {
+    return new_exception(&csrt_MT_System_ObjectDisposedException, message);
+}
+
 #ifdef __wasm__
 /// The exception being propagated (null: none). Every call that may throw is followed by a test of
 /// this variable (ExceptionLowering), so it is read far more often than written. A static root.

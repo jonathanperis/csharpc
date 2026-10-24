@@ -15,6 +15,6 @@ static bool box_equals(void* a, void* b) {
 static int32_t box_hash(void* a) { return csrt_bigint_get_hash_code(*(void**)((char*)a + 8)); }
 
 const csrt_BuiltinMethodTable csrt_Boxed_BigInteger_MT = {
-    { &csrt_Object_MT.header, "System.Numerics.BigInteger", 16, 0, NULL, 0, 0 },
+    { &csrt_Object_MT.header, "System.Numerics.BigInteger", 16, CSRT_MT_VALUE_TYPE, NULL, 0, 0 },
     { (void*)box_to_string, (void*)box_equals, (void*)box_hash },
 };

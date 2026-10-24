@@ -421,7 +421,8 @@ public sealed partial class FunctionCodeGen
     /// <summary>Runs a BCL exception constructor: binds message / innerException / paramName by name.</summary>
     private void EmitExceptionConstructor(IMethodSymbol constructor, LLVMValueRef exception, ImmutableArray<IArgumentOperation> arguments)
     {
-        LLVMValueRef? message = null, inner = null, paramName = null, actualValue = null, objectName = null;
+        LLVMValueRef? message = null, inner = null, paramName = null, actualValue = null, objectName = null, inners = null;
+        var aggregate = Mangler.MetadataName(constructor.ContainingType) == "System.AggregateException";
         foreach (var argument in arguments)
         {
             if (argument.Parameter?.Name == "actualValue")
@@ -441,8 +442,20 @@ public sealed partial class FunctionCodeGen
                 case "paramName": paramName = value; break;
                 case "fileName": paramName = value; break; // FileNotFoundException.FileName (csrt keeps it in param_name)
                 case "objectName": objectName = value; break;
+                case "innerExceptions" when aggregate: // Exception[] or IEnumerable<Exception>
+                    inners = CallCoreLib("AggregateExceptionSupport", argument.Parameter!.Type is IArrayTypeSymbol ? "FromArray" : "FromEnumerable", value);
+                    break;
                 // other parameters (unmatchedValue, ...) are evaluated for side effects only
             }
+        }
+        if (aggregate && (inners is not null || inner is not null))
+        {
+            // AggregateException(message, innerException) has one inner exception; its Message appends
+            // " (inner message)" per inner exception, after the default text when no message is passed.
+            inners ??= CallCoreLib("AggregateExceptionSupport", "FromSingle", inner!.Value);
+            var baseMessage = message ?? _m.StringLiteral(s_defaultMessages["System.AggregateException"]);
+            message = CallCoreLib("AggregateExceptionSupport", "Message", baseMessage, inners.Value);
+            inner = CallCoreLib("AggregateExceptionSupport", "First", inners.Value);
         }
         if (objectName is { } name)  // ObjectDisposedException: "\nObject name: 'X'." is part of Message
             message = CallRuntime("csrt_object_disposed_message", L.Ptr, [L.Ptr, L.Ptr], message ?? LlvmContext.Null(L.Ptr), name);
