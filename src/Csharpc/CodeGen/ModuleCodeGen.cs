@@ -689,6 +689,14 @@ public sealed partial class ModuleCodeGen
         return thunk;
     }
 
+    /// <summary>A static method group's cached delegate (null until first converted): a GC root in the data segment.</summary>
+    public LLVMValueRef DelegateCache(string key)
+    {
+        if (_globals.TryGetValue("dcache:" + key, out var existing)) return existing;
+        var global = Module.AddGlobal("csrt.dcache." + key, Llvm.Ptr, LlvmContext.Null(Llvm.Ptr), linkage: LLVMLinkage.Internal);
+        return _globals["dcache:" + key] = global;
+    }
+
     public LLVMValueRef StaticThunk(IMethodSymbol method)
     {
         var key = "thunk:" + Mangler.Method(method);
@@ -714,10 +722,11 @@ public sealed partial class ModuleCodeGen
         var name = Mangler.MetadataName(type); // includes generic arguments, e.g. System.Func`2[System.Int32,System.Int32]
         var key = "dmt:" + name;
         if (_globals.TryGetValue(key, out var g)) return g;
-        string[] defaults = ["csrt_object_to_string_default", "csrt_object_equals_default", "csrt_object_get_hash_code_default"];
+        // Delegates compare and hash by invocation list (runtime/delegates.c), as Delegate.Equals does.
         var init = Llvm.ConstStruct(ExternalGlobal("csrt_Object_MT"), CString(name), Llvm.ConstInt(Llvm.I32, 32), Llvm.ConstInt(Llvm.I32, 0),
             LlvmContext.Null(Llvm.Ptr), Llvm.ConstInt(Llvm.I32, 0), Llvm.ConstInt(Llvm.I32, 0),
-            LlvmContext.ConstArray(Llvm.Ptr, [.. defaults.Select(d => Runtime(d, Llvm.Ptr, Llvm.Ptr).Fn)]));
+            LlvmContext.ConstArray(Llvm.Ptr, Runtime("csrt_object_to_string_default", Llvm.Ptr, Llvm.Ptr).Fn,
+                Runtime("csrt_delegate_equals", Llvm.I1, Llvm.Ptr, Llvm.Ptr).Fn, Runtime("csrt_delegate_get_hash_code", Llvm.I32, Llvm.Ptr).Fn));
         g = Module.AddGlobal("csrt.dmt." + name, Native.LLVMTypeOf(init), init, constant: true, linkage: LLVMLinkage.Private);
         RegisterTypeMethodTable(g, type);
         _delegateTypes.Add(type);

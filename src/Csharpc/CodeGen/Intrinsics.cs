@@ -146,6 +146,17 @@ internal static class Intrinsics
                 "System.ArgumentNullException", "Value cannot be null. (Parameter 'type')");
             return type;
         };
+        foreach (var owner in new[] { "System.Delegate", "System.MulticastDelegate" })
+        {
+            t[$"{owner}.op_Equality({owner}, {owner})"] = (g, inv) => g.DelegateEquals(Arg(g, inv, 0), Arg(g, inv, 1));
+            t[$"{owner}.op_Inequality({owner}, {owner})"] = (g, inv) => g.Builder.Not(g.DelegateEquals(Arg(g, inv, 0), Arg(g, inv, 1)));
+            t[$"{owner}.Equals(object)"] = (g, inv) =>
+            {
+                var self = g.EmitValue(inv.Instance!);
+                g.NullCheck(self);
+                return g.DelegateEquals(self, Arg(g, inv, 0));
+            };
+        }
         t["System.Reflection.TypeInfo.AsType()"] = (g, inv) => g.EmitValue(inv.Instance!);
         t["System.Reflection.CustomAttributeExtensions.GetCustomAttribute(System.Reflection.Assembly)"] = (g, inv) =>
             inv.TargetMethod.TypeArguments.Length == 1

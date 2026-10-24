@@ -49,6 +49,9 @@ public sealed partial class FunctionCodeGen
         return false;
     }
 
+    internal LLVMValueRef DelegateEquals(LLVMValueRef a, LLVMValueRef b) =>
+        CallRuntime("csrt_delegate_equals", L.I1, [L.Ptr, L.Ptr], a, b);
+
     internal LLVMValueRef CombineDelegates(LLVMValueRef a, LLVMValueRef b) =>
         CallRuntime("csrt_delegate_combine", L.Ptr, [L.Ptr, L.Ptr], a, b);
 
@@ -60,6 +63,16 @@ public sealed partial class FunctionCodeGen
     /// <summary>`a + b` / `a - b` on delegates.</summary>
     private LLVMValueRef? TryDelegateBinary(IBinaryOperation op)
     {
+        // d1 == d2 / d1 != d2: Delegate's operators compare invocation lists, not references.
+        static bool DelegateTyped(ITypeSymbol? t) =>
+            t is { TypeKind: TypeKind.Delegate } || t?.SpecialType is SpecialType.System_Delegate or SpecialType.System_MulticastDelegate;
+        if (op.OperatorKind is BinaryOperatorKind.Equals or BinaryOperatorKind.NotEquals
+            && DelegateTyped(op.LeftOperand.Type) && DelegateTyped(op.RightOperand.Type)
+            && (op.OperatorMethod is null || op.OperatorMethod.ContainingType.SpecialType is SpecialType.System_Delegate or SpecialType.System_MulticastDelegate))
+        {
+            var equal = DelegateEquals(EmitValue(op.LeftOperand), EmitValue(op.RightOperand));
+            return op.OperatorKind == BinaryOperatorKind.Equals ? equal : _b.Not(equal);
+        }
         if (!IsDelegate(op.Type) || op.OperatorKind is not (BinaryOperatorKind.Add or BinaryOperatorKind.Subtract)) return null;
         var left = EmitValue(op.LeftOperand);
         var right = EmitValue(op.RightOperand);

@@ -205,6 +205,8 @@ namespace CsharpcCoreLib
     [ShadowMembers("System.Boolean")]
     internal static class BooleanExtras
     {
+        [ShadowInstance] public static string ToString(bool value, IFormatProvider provider) => value ? "True" : "False";
+
         // .NET: "True"/"False" in any case, ignoring leading/trailing white space and NUL characters.
         public static bool TryParse(string value, out bool result)
         {

@@ -156,6 +156,7 @@ public sealed partial class FunctionCodeGen
         if (creation.Type?.ContainingNamespace?.ToDisplayString() == "System.Linq.Expressions")
             throw CompileError.Unsupported("expression trees (a lambda converted to System.Linq.Expressions.Expression<T>)", creation);
         LLVMValueRef target, fn;
+        var capturesNothing = false;
         switch (creation.Target)
         {
             case IFlowAnonymousFunctionOperation lambda:
@@ -167,6 +168,7 @@ public sealed partial class FunctionCodeGen
                 var callee = NestedFunction(local.Method.OriginalDefinition, creation);
                 target = EnvValue(callee.Incoming);
                 fn = NestedFunctionInstance(callee, S(local.Method), creation).Fn;
+                capturesNothing = callee.Incoming is null; // compiled to a static method by C#, so cached too
                 break;
             }
             case IMethodReferenceOperation { Method.IsStatic: true } group when _m.IsUserMethod(group.Method):
@@ -203,7 +205,35 @@ public sealed partial class FunctionCodeGen
             default:
                 throw CompileError.Unsupported($"delegate creation from {creation.Target.Kind}", creation);
         }
-        var mt = _m.DelegateMethodTable((INamedTypeSymbol)TypeOf(creation)!);
+        var delegateType = (INamedTypeSymbol)TypeOf(creation)!;
+        var mt = _m.DelegateMethodTable(delegateType);
+        // C# 11+ caches a static method group's delegate in a static field of the converting type (Roslyn's
+        // <>O container), so two conversions of M there are the same object: ReferenceEquals sees it.
+        if (creation.Target is IMethodReferenceOperation { Method: var staticMethod }
+            && (staticMethod.MethodKind == MethodKind.LocalFunction ? capturesNothing : staticMethod.IsStatic)
+            && creation.Syntax is not Microsoft.CodeAnalysis.CSharp.Syntax.BaseObjectCreationExpressionSyntax && _method is not null)
+        {
+            var key = $"{Mangler.TypeSymbol((INamedTypeSymbol)S(_method.ContainingType), "dcache")}.{Mangler.MetadataName(delegateType)}.{Mangler.Method(S(staticMethod))}";
+            var cache = _m.DelegateCache(key);
+            var existing = _b.Load(L.Ptr, cache);
+            var done = NewBlock("dcache.done");
+            var create = NewBlock("dcache.create");
+            var result = NewTemp(L.Ptr, "dcache.value");
+            _b.Store(existing, result);
+            _b.CondBr(_b.ICmp(LLVMIntPredicate.NE, existing, LlvmContext.Null(L.Ptr)), done, create);
+            _b.PositionAtEnd(create);
+            var fresh = NewDelegate(mt, target, fn);
+            _b.Store(fresh, cache);
+            _b.Store(fresh, result);
+            _b.Br(done);
+            _b.PositionAtEnd(done);
+            return _b.Load(L.Ptr, result);
+        }
+        return NewDelegate(mt, target, fn);
+    }
+
+    private LLVMValueRef NewDelegate(LLVMValueRef mt, LLVMValueRef target, LLVMValueRef fn)
+    {
         var obj = CallRuntime("csrt_alloc", L.Ptr, [L.Ptr, L.I64], mt, L.ConstInt(L.I64, (long)T.Target.SizeOf(DelegateType)));
         _b.Store(target, _b.StructGep(DelegateType, obj, 1));
         _b.Store(fn, _b.StructGep(DelegateType, obj, 2));
