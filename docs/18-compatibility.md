@@ -474,7 +474,7 @@ Ranked list now (methods stopped, items of one API grouped; *other branch*: work
 | 20 | 5 | explicit layout of `Internal.PaddingFor32`; deriving from `CancellationTokenSource`; `StackTrace`; `AsyncFlowControl` (5 each) | System.IO.Pipelines, Kestrel.Core, Hosting |
 
 The survey counts methods that fail to *lower*. Compiling the app itself is the other measure: the
-methods it reaches that csharpc can't compile yet are 44 (`blockers.py` on `csharpc -v` output; a
+methods it reaches that csharpc can't compile yet are 43 (`blockers.py` on `csharpc -v` output; a
 method stops at its first failure, so fixing one can reveal more behind it). The largest group is
 dependency injection's reflection (`Type.GetConstructors`, `ConstructorInfo.Invoke`, `MakeGenericType`,
 `Array.CreateInstance`, `Delegate.Method`), which NativeAOT serves from compile-time metadata kept for

@@ -77,8 +77,9 @@ if wants csharpc; then
   if "$DOTNET" "$ROOT/src/Csharpc/bin/Release/net11.0/csharpc.dll" "$APP" -c Release $CSHARPC_FLAGS -v -o "$WORK/csharpc/TechEmpower" > "$OUT/csharpc.build.log" 2>&1; then
     BIN[csharpc]="$WORK/csharpc/TechEmpower"; STATUS[csharpc]="built in $(( ($(date +%s%N) - t0) / 1000000000 )) s"
   else
-    STATUS[csharpc]="does not compile yet"
     python3 -I "$HERE/blockers.py" "$OUT/csharpc.build.log" > "$OUT/csharpc-blockers.md"
+    blocked=$(sed -n 's/^\([0-9]*\) reachable methods fail.*/\1/p' "$OUT/csharpc-blockers.md")
+    STATUS[csharpc]="does not compile yet (${blocked:-?} methods, $(( ($(date +%s%N) - t0) / 1000000000 )) s)"
     head -60 "$OUT/csharpc-blockers.md"
   fi
 fi

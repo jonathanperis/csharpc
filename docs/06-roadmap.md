@@ -255,7 +255,7 @@ with NativeAOT, csharpc and the JIT, checks each build with TechEmpower's reques
 (NativeAOT on a 4-vCPU runner: 530 000–750 000 plaintext req/s pipelined, 86 000–119 000 JSON req/s,
 8.9 MiB, 65 MiB peak RSS under load, 23–27 ms to the first response; the JIT is 5–30 % ahead on throughput). csharpc compiles Microsoft.NET.Sdk.Web
 projects, taking the ASP.NET Core assemblies a program uses from the shared framework's IL, and lowers
-.NET 11's runtime-async methods; the TechEmpower app doesn't build yet: 44 methods it reaches fail
+.NET 11's runtime-async methods; the TechEmpower app doesn't build yet: 43 methods it reaches fail
 to compile, most of them dependency injection's reflection (`GetConstructors`, `ConstructorInfo.Invoke`,
 `MakeGenericType`). The IL survey's `aspnetcore` target ranks the rest: of the methods of the 48 ASP.NET
 Core / Extensions / Pipelines / System.Net assemblies the app reaches, 1 691 fail to lower (2 888 at the
