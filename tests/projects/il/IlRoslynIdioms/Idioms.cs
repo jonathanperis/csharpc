@@ -113,6 +113,38 @@ public static class InlineArrays
     public static string Describe(object first, object second) => string.Join("|", (ReadOnlySpan<object>)[first, second, first]);
 }
 
+/// <summary>Roslyn's SegmentedArray&lt;T&gt; / the compiler's &lt;&gt;z__ReadOnlyArray&lt;T&gt;: interface members forwarded to a T[] field.</summary>
+public sealed class ArrayWrapper<T> : IList<T>, System.Collections.IList
+{
+    private readonly T[] _items;
+    public ArrayWrapper(T[] items) => _items = items;
+    public T this[int index] { get => _items[index]; set => _items[index] = value; }
+    public int Count => _items.Length;
+    public bool IsReadOnly => true;
+    public void Add(T item) => throw new NotSupportedException();
+    public void Clear() => ((ICollection<T>)_items).Clear();
+    public bool Contains(T item) => ((ICollection<T>)_items).Contains(item);
+    public void CopyTo(T[] array, int arrayIndex) => ((ICollection<T>)_items).CopyTo(array, arrayIndex);
+    public IEnumerator<T> GetEnumerator() => ((IEnumerable<T>)_items).GetEnumerator();
+    public int IndexOf(T item) => ((IList<T>)_items).IndexOf(item);
+    public void Insert(int index, T item) => throw new NotSupportedException();
+    public bool Remove(T item) => throw new NotSupportedException();
+    public void RemoveAt(int index) => throw new NotSupportedException();
+    System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() => GetEnumerator();
+    int System.Collections.IList.Add(object? value) => throw new NotSupportedException();
+    void System.Collections.IList.Clear() => ((System.Collections.IList)_items).Clear();
+    bool System.Collections.IList.Contains(object? value) => ((System.Collections.IList)_items).Contains(value);
+    int System.Collections.IList.IndexOf(object? value) => ((System.Collections.IList)_items).IndexOf(value);
+    void System.Collections.IList.Insert(int index, object? value) => throw new NotSupportedException();
+    void System.Collections.IList.Remove(object? value) => throw new NotSupportedException();
+    void System.Collections.IList.RemoveAt(int index) => throw new NotSupportedException();
+    bool System.Collections.IList.IsFixedSize => true;
+    object? System.Collections.IList.this[int index] { get => _items[index]; set => _items[index] = (T)value!; }
+    void System.Collections.ICollection.CopyTo(Array array, int index) => ((System.Collections.ICollection)_items).CopyTo(array, index);
+    bool System.Collections.ICollection.IsSynchronized => false;
+    object System.Collections.ICollection.SyncRoot => this;
+}
+
 /// <summary>Pointer idioms of Roslyn's hashing and event-source code.</summary>
 public static unsafe class Pointers
 {

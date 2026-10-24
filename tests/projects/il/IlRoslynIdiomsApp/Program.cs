@@ -9,6 +9,14 @@ Console.WriteLine(byKind[b]);
 Console.WriteLine($"{Decimals.Zero} {Decimals.One} {Decimals.MinusOne} {Decimals.Max} {Decimals.Min}");
 Console.WriteLine($"{Decimals.Sum([1.5m, 2.25m])} {Decimals.Sum([])} {Decimals.FromBits(-12.345m)}");
 Console.WriteLine($"{InlineArrays.Join("a", "b", "c", "d", "e")} {InlineArrays.SumOf(1, 2, 3)} {InlineArrays.Many(100)} {InlineArrays.Describe("x", 4)}");
+var wrapped = new ArrayWrapper<string>(["x", "y", "z"]);
+var copy = new string[4];
+wrapped.CopyTo(copy, 1);
+System.Collections.IList untyped = wrapped;
+Console.WriteLine($"{wrapped.Contains("y")} {wrapped.Contains("w")} {wrapped.IndexOf("z")} {string.Join(",", copy)} {untyped.Contains("x")} {untyped.IndexOf("y")} {untyped.IndexOf(3)}");
+try { wrapped.Clear(); } catch (NotSupportedException e) { Console.WriteLine(e.Message); }
+untyped.Clear();
+Console.WriteLine(string.Join(",", wrapped.Select(s => s ?? "null")));
 Console.WriteLine($"{Matrices.Closure(4)} {Matrices.Cells()} {Matrices.OutOfRange()}");
 Console.WriteLine($"{Pointers.SumChars("abc")} {Pointers.SumChars("")} {Pointers.SumBytes([1, 2, 250])} {Pointers.SumBytes([])} {Pointers.FirstOf([42, 1])}");
 

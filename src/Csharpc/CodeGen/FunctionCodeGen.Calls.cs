@@ -44,9 +44,12 @@ public sealed partial class FunctionCodeGen
         {
             var receiverType = TypeOf(receiver);
             // Interface members (user or library, e.g. IComparable<T>.CompareTo): devirtualize or dispatch.
+            // Enumerating an array (GetEnumerator on it, members of its enumerator) has a lowering of its own;
+            // every other interface member on an array receiver (IL: `((ICollection<T>)_items).Contains(x)`)
+            // binds to the corelib's array helpers like any interface call.
             if (target.ContainingType.TypeKind == TypeKind.Interface
                 && (!IsArrayEnumeration(receiver) || target.ContainingType.Name is "IStructuralComparable" or "IStructuralEquatable"
-                    || IsEscapingArrayGetEnumerator(inv)))
+                    || IsEscapingArrayGetEnumerator(inv) || (target.Name != "GetEnumerator" && !TryArrayEnumerator(receiver, out _))))
                 return EmitInterfaceCall(target, receiver, inv.Arguments, [], inv);
             // object.ToString/Equals/GetHashCode on a value-type receiver (a substituted T): box, then dispatch.
             if (receiverType is { IsValueType: true } && target.ContainingType.SpecialType is SpecialType.System_Object or SpecialType.System_ValueType)

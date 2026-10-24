@@ -9,8 +9,20 @@ using System.Collections.Generic;
 namespace CsharpcCoreLib
 {
     [Shadows("System.Collections.Generic.Queue`1")]
-    public class QueueImpl<T> : IEnumerable<T>, IReadOnlyCollection<T>
+    public class QueueImpl<T> : IEnumerable<T>, IReadOnlyCollection<T>, ICollection
     {
+        // ICollection (.NET's Queue<T>/Stack<T> implement it; TryGetNonEnumeratedCount and `is ICollection` see it).
+        bool ICollection.IsSynchronized => false;
+        object ICollection.SyncRoot => this;
+        void ICollection.CopyTo(Array array, int index)
+        {
+            if (array == null) ThrowHelper.ArgumentNull("array");
+            if (array.Rank != 1) throw new ArgumentException("Only single dimensional arrays are supported for the requested action.", "array");
+            ThrowHelper.IfNegative(index, "index");
+            if (array.Length - index < _size) throw new ArgumentException("Offset and length were out of bounds for the array or count is greater than the number of elements from index to the end of the source collection.");
+            Array.Copy(ToArray(), 0, array, index, _size);
+        }
+
         internal T[] _array;
         internal int _head;
         private int _tail;
@@ -170,8 +182,20 @@ namespace CsharpcCoreLib
     }
 
     [Shadows("System.Collections.Generic.Stack`1")]
-    public class StackImpl<T> : IEnumerable<T>, IReadOnlyCollection<T>
+    public class StackImpl<T> : IEnumerable<T>, IReadOnlyCollection<T>, ICollection
     {
+        // ICollection (.NET's Queue<T>/Stack<T> implement it; TryGetNonEnumeratedCount and `is ICollection` see it).
+        bool ICollection.IsSynchronized => false;
+        object ICollection.SyncRoot => this;
+        void ICollection.CopyTo(Array array, int index)
+        {
+            if (array == null) ThrowHelper.ArgumentNull("array");
+            if (array.Rank != 1) throw new ArgumentException("Only single dimensional arrays are supported for the requested action.", "array");
+            ThrowHelper.IfNegative(index, "index");
+            if (array.Length - index < _size) throw new ArgumentException("Offset and length were out of bounds for the array or count is greater than the number of elements from index to the end of the source collection.");
+            Array.Copy(ToArray(), 0, array, index, _size);
+        }
+
         internal T[] _array;
         internal int _size;
         internal int _version;

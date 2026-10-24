@@ -412,6 +412,22 @@ namespace CsharpcCoreLib
 
         // ---- quantifiers / counting --------------------------------------------------------------
 
+        public static bool TryGetNonEnumeratedCount<TSource>(IEnumerable<TSource> source, out int count)
+        {
+            Check(source, "source");
+            if (source is ICollection<TSource> collectionOfT) { count = collectionOfT.Count; return true; }
+            if (source is Iterator<TSource> iterator)
+            {
+                int c = iterator.CheapCount();
+                if (c >= 0) { count = c; return true; }
+            }
+            else if (source is OrderedEnumerable<TSource> || source is DeferredEnumerable<TSource>)
+                throw new NotSupportedException("Enumerable.TryGetNonEnumeratedCount over this LINQ operator is not supported by csharpc yet.");
+            if (source is ICollection collection) { count = collection.Count; return true; }
+            count = 0;
+            return false;
+        }
+
         public static int Count<TSource>(IEnumerable<TSource> source)
         {
             Check(source, "source");
