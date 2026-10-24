@@ -62,12 +62,12 @@ namespace CsharpcCoreLib
         {
             get
             {
-                if ((uint)index >= (uint)_size) ThrowHelper.IndexOutOfRange();
+                if ((uint)index >= (uint)_size) throw CoreIntrinsics.LibraryFrames(ThrowHelper.IndexOutOfRangeException(), "System.Collections.Generic.List`1.get_Item(Int32 index)");
                 return _items[index];
             }
             set
             {
-                if ((uint)index >= (uint)_size) ThrowHelper.IndexOutOfRange();
+                if ((uint)index >= (uint)_size) throw CoreIntrinsics.LibraryFrames(ThrowHelper.IndexOutOfRangeException(), "System.Collections.Generic.List`1.set_Item(Int32 index, T value)");
                 _items[index] = value;
                 _version++;
             }
@@ -326,7 +326,7 @@ namespace CsharpcCoreLib
 
         public void RemoveAt(int index)
         {
-            if ((uint)index >= (uint)_size) ThrowHelper.IndexOutOfRange();
+            if ((uint)index >= (uint)_size) throw CoreIntrinsics.LibraryFrames(ThrowHelper.IndexOutOfRangeException(), "System.Collections.Generic.List`1.RemoveAt(Int32 index)");
             _size--;
             for (int i = index; i < _size; i++) _items[i] = _items[i + 1];
             _items[_size] = default(T);

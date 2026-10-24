@@ -222,6 +222,15 @@ public sealed class StackTraceInfo
         return _siteIndex[key] = _sites.Count - 1;
     }
 
+    /// <summary>A frame of .NET's library code (no source location), for CoreIntrinsics.LibraryFrames.</summary>
+    public int LibrarySite(string frame)
+    {
+        var key = (Intern(_methods, _methodIndex, frame), -1, 0);
+        if (_siteIndex.TryGetValue(key, out var site)) return site;
+        _sites.Add(key);
+        return _siteIndex[key] = _sites.Count - 1;
+    }
+
     private static int Intern(List<string> list, Dictionary<string, int> index, string value)
     {
         if (index.TryGetValue(value, out var i)) return i;

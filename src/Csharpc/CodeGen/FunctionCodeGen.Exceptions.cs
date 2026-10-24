@@ -439,6 +439,7 @@ public sealed partial class FunctionCodeGen
                 case "message": message = value; break;
                 case "innerException": inner = value; break;
                 case "paramName": paramName = value; break;
+                case "fileName": paramName = value; break; // FileNotFoundException.FileName (csrt keeps it in param_name)
                 case "objectName": objectName = value; break;
                 // other parameters (unmatchedValue, ...) are evaluated for side effects only
             }
@@ -476,6 +477,9 @@ public sealed partial class FunctionCodeGen
         return false;
     }
 
+    private static bool IsFileException(INamedTypeSymbol type) =>
+        type.ToDisplayString() is "System.IO.FileNotFoundException" or "System.IO.FileLoadException";
+
     private bool TryEmitLibraryExceptionProperty(IPropertyReferenceOperation p, out LLVMValueRef result)
     {
         result = default;
@@ -485,6 +489,7 @@ public sealed partial class FunctionCodeGen
         {
             "InnerException" => ModuleCodeGen.ExceptionInnerField,
             "ParamName" => ModuleCodeGen.ExceptionParamNameField,
+            "FileName" when IsFileException(property.ContainingType) => ModuleCodeGen.ExceptionParamNameField,
             _ => null,
         };
         if (field is null && property.Name is not ("Message" or "StackTrace")) return false;

@@ -49,7 +49,7 @@ public sealed partial class ModuleCodeGen
     {
         if (at.Syntax.SyntaxTree.FilePath.StartsWith("<corelib>", StringComparison.Ordinal)) return;
         Warnings.Add(new CompileError("CSLLVM0006",
-            "stack traces list the frames of the program's own code as .NET does, but not the frames inside .NET library methods (an exception thrown by, or passing through, the BCL shows fewer \"   at ...\" lines)",
+            "stack traces list the frames of the program's own code as .NET does, but .NET's library frames only for common members (an exception thrown by, or passing through, other BCL code shows fewer \"   at ...\" lines)",
             at.Syntax.GetLocation()));
     }
 
@@ -461,7 +461,7 @@ public sealed partial class ModuleCodeGen
         "csrt_console_newline", "csrt_object_to_string_default", "csrt_object_equals_default",
         "csrt_object_get_hash_code_default", "csrt_exception_init", "csrt_environment_tick_count64",
         "csrt_environment_exit", "csrt_trace_frame", "csrt_trace_init", "csrt_exception_get_stack_trace",
-        "csrt_exception_capture_trace", "csrt_trace_finally", "csrt_trace_new_stack",
+        "csrt_exception_capture_trace", "csrt_trace_finally", "csrt_trace_new_stack", "csrt_trace_preset", "csrt_trace_append_library",
     ];
 
     /// <summary>False for callees known not to unwind (LLVM intrinsics, libm, most of csrt): no invoke needed.</summary>

@@ -296,17 +296,24 @@ namespace CsharpcCoreLib
         {
             if (longLength && (length > int.MaxValue || length < int.MinValue))
                 throw new ArgumentOutOfRangeException("length", "Arrays larger than 2GB are not supported.");
-            if (sourceArray == null) ThrowHelper.ArgumentNull("sourceArray");
-            if (destinationArray == null) ThrowHelper.ArgumentNull("destinationArray");
-            if (length < 0) throw new ArgumentOutOfRangeException("length", length, "length ('" + length + "') must be a non-negative value.");
+            // The frames are .NET 11's (Array.Copy's overloads all check in CopyImpl).
+            if (sourceArray == null)
+                throw CoreIntrinsics.LibraryFrames(new ArgumentNullException("sourceArray"), "System.ArgumentNullException.Throw(String paramName)\nSystem.Array.CopyImpl(Array sourceArray, Int32 sourceIndex, Array destinationArray, Int32 destinationIndex, Int32 length, Boolean reliable)");
+            if (destinationArray == null)
+                throw CoreIntrinsics.LibraryFrames(new ArgumentNullException("destinationArray"), "System.ArgumentNullException.Throw(String paramName)\nSystem.Array.CopyImpl(Array sourceArray, Int32 sourceIndex, Array destinationArray, Int32 destinationIndex, Int32 length, Boolean reliable)");
+            if (length < 0)
+                throw CoreIntrinsics.LibraryFrames(new ArgumentOutOfRangeException("length", length, "length ('" + length + "') must be a non-negative value."),
+                    "System.ArgumentOutOfRangeException.ThrowNegative[T](T value, String paramName)\nSystem.Array.CopyImpl(Array sourceArray, Int32 sourceIndex, Array destinationArray, Int32 destinationIndex, Int32 length, Boolean reliable)");
             if (sourceIndex < 0)
-                throw new ArgumentOutOfRangeException("sourceIndex", sourceIndex, "sourceIndex ('" + sourceIndex + "') must be greater than or equal to '0'.");
+                throw CoreIntrinsics.LibraryFrames(new ArgumentOutOfRangeException("sourceIndex", sourceIndex, "sourceIndex ('" + sourceIndex + "') must be greater than or equal to '0'."),
+                    "System.ArgumentOutOfRangeException.ThrowLess[T](T value, T other, String paramName)\nSystem.Array.CopyImpl(Array sourceArray, Int32 sourceIndex, Array destinationArray, Int32 destinationIndex, Int32 length, Boolean reliable)");
             if (destinationIndex < 0)
-                throw new ArgumentOutOfRangeException("destinationIndex", destinationIndex, "destinationIndex ('" + destinationIndex + "') must be greater than or equal to '0'.");
+                throw CoreIntrinsics.LibraryFrames(new ArgumentOutOfRangeException("destinationIndex", destinationIndex, "destinationIndex ('" + destinationIndex + "') must be greater than or equal to '0'."),
+                    "System.ArgumentOutOfRangeException.ThrowLess[T](T value, T other, String paramName)\nSystem.Array.CopyImpl(Array sourceArray, Int32 sourceIndex, Array destinationArray, Int32 destinationIndex, Int32 length, Boolean reliable)");
             if (sourceIndex > sourceArray.Length - length)
-                throw new ArgumentException("Source array was not long enough. Check the source index, length, and the array's lower bounds.", "sourceArray");
+                throw CoreIntrinsics.LibraryFrames(new ArgumentException("Source array was not long enough. Check the source index, length, and the array's lower bounds.", "sourceArray"), "System.Array.CopyImpl(Array sourceArray, Int32 sourceIndex, Array destinationArray, Int32 destinationIndex, Int32 length, Boolean reliable)");
             if (destinationIndex > destinationArray.Length - length)
-                throw new ArgumentException("Destination array was not long enough. Check the destination index, length, and the array's lower bounds.", "destinationArray");
+                throw CoreIntrinsics.LibraryFrames(new ArgumentException("Destination array was not long enough. Check the destination index, length, and the array's lower bounds.", "destinationArray"), "System.Array.CopyImpl(Array sourceArray, Int32 sourceIndex, Array destinationArray, Int32 destinationIndex, Int32 length, Boolean reliable)");
         }
     }
 }

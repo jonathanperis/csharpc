@@ -84,6 +84,19 @@ void csrt_exception_init(void* exception, csrt_String* message, void* inner, csr
 
 static csrt_String* concat_utf8(csrt_String* a, const char* b) { return csrt_string_concat(a, csrt_string_from_utf8(b)); }
 
+static bool is_exception_of(const csrt_Exception* e, const csrt_MethodTable* type) {
+    for (const csrt_MethodTable* mt = e->mt; mt; mt = mt->base)
+        if (mt == type) return true;
+    return false;
+}
+
+/// FileNotFoundException keeps its FileName in the param_name slot (ArgumentException's ParamName).
+static bool is_file_not_found(const csrt_Exception* e) {
+    for (const csrt_MethodTable* mt = e->mt; mt; mt = mt->base)
+        if (strcmp(mt->name, "System.IO.FileNotFoundException") == 0) return true;
+    return false;
+}
+
 // Exception.Message (+ ArgumentException's " (Parameter 'x')" suffix).
 csrt_String* csrt_exception_get_message(void* exception) {
     csrt_Exception* e = exception;
@@ -93,7 +106,7 @@ csrt_String* csrt_exception_get_message(void* exception) {
         snprintf(buffer, sizeof buffer, "Exception of type '%s' was thrown.", e->mt->name);
         message = csrt_string_from_utf8(buffer);
     }
-    if (e->param_name && e->param_name->length > 0) {
+    if (e->param_name && e->param_name->length > 0 && is_exception_of(e, &csrt_MT_System_ArgumentException.header)) {
         message = concat_utf8(message, " (Parameter '");
         message = csrt_string_concat(message, e->param_name);
         message = concat_utf8(message, "')");
@@ -134,7 +147,12 @@ csrt_String* csrt_exception_to_string(void* exception) {
     csrt_String* s = csrt_string_from_utf8(e->mt->name);
     csrt_String* message = virtual_message(exception);
     if (message && message->length > 0) s = csrt_string_concat(concat_utf8(s, ": "), message);
-    if (e->inner) {
+    if (is_file_not_found(e)) {
+        // FileNotFoundException.ToString(): "File name: '...'", and the inner exception without the end line.
+        if (e->param_name && e->param_name->length > 0)
+            s = concat_utf8(csrt_string_concat(concat_utf8(s, CSRT_NEWLINE "File name: '"), e->param_name), "'");
+        if (e->inner) s = csrt_string_concat(concat_utf8(s, CSRT_NEWLINE " ---> "), csrt_object_to_string(e->inner));
+    } else if (e->inner) {
         s = csrt_string_concat(concat_utf8(s, CSRT_NEWLINE " ---> "), csrt_object_to_string(e->inner));
         s = concat_utf8(s, CSRT_NEWLINE "   --- End of inner exception stack trace ---");
     }
@@ -173,7 +191,8 @@ typedef struct {
     const char* const* files;    // document paths, as the PDB records them
 } csrt_TraceTables;
 
-typedef struct { int32_t count; int32_t unused; uint64_t frame; const csrt_TraceSite* sites[]; } TraceData;
+// preset: the frames are library frames set before the throw (csrt_trace_preset), kept by it.
+typedef struct { int32_t count; int32_t preset; uint64_t frame; const csrt_TraceSite* sites[]; } TraceData;
 enum { TRACE_HEADER = (int32_t)(sizeof(TraceData) / sizeof(void*)) };
 
 static const csrt_TraceTables* s_trace;
@@ -198,14 +217,37 @@ static void trace_append(csrt_Exception* e, const csrt_TraceSite* site) {
     data->count = count + 1;
 }
 
-/// `throw e`: a new list of frames.
+/// `throw e`: a new list of frames (unless library frames were just preset for this throw).
 static void trace_reset(csrt_Exception* e) {
-    if (e->trace) { trace_data(e->trace)->count = 0; trace_data(e->trace)->frame = 0; }
+    if (!e->trace) return;
+    TraceData* data = trace_data(e->trace);
+    if (!data->preset) data->count = 0;
+    data->preset = 0;
+    data->frame = 0;
 }
 
 void csrt_trace_new_stack(void* exception) {
     csrt_Exception* e = exception;
     if (e && e->trace) trace_data(e->trace)->frame = 0;
+}
+
+/// The corelib's stand-in for the frames .NET's own library code lists below the program's (e.g.
+/// "System.Collections.Generic.Dictionary`2.get_Item(TKey key)"): the next throw of the exception
+/// starts its trace with them (CoreIntrinsics.LibraryFrames).
+/// The same for an exception in flight (a corelib `when` filter): append them.
+void csrt_trace_append_library(void* exception, const void* const* sites, int32_t count) {
+    if (!s_trace || !exception) return;
+    for (int32_t i = 0; i < count; i++) trace_append(exception, sites[i]);
+}
+
+void csrt_trace_preset(void* exception, const void* const* sites, int32_t count) {
+    csrt_Exception* e = exception;
+    if (!s_trace || !e) return;
+    e->trace = trace_copy(NULL, count + 8);
+    TraceData* data = trace_data(e->trace);
+    memcpy(data->sites, sites, sizeof(void*) * (size_t)count);
+    data->count = count;
+    data->preset = 1;
 }
 
 typedef struct { char* data; size_t length, capacity; } TraceText;

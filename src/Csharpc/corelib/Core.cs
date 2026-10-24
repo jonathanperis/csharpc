@@ -49,6 +49,17 @@ namespace CsharpcCoreLib
         /// <summary>DateTime's raw `_dateData`: ticks in bits 0-61, the kind in bits 62-63 (DateTimeOps.cs).</summary>
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern long DateTimeData(DateTime value);
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern DateTime MakeDateTime(long data);
+        /// <summary>
+        /// The frames .NET's own library lists for this exception below the program's frames, innermost
+        /// first, one per line (a constant): `throw LibraryFrames(new X(...), "System.Ns.Type.Method(Int32 a)")`.
+        /// Copy them from .NET 11's output; they only appear when the program records stack traces.
+        /// </summary>
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern Exception LibraryFrames(Exception exception, string frames);
+        /// <summary>
+        /// LibraryFrames for an exception already in flight, from a `when` filter (which runs before the
+        /// program's frames are recorded): appends the frames (a constant) and returns false.
+        /// </summary>
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern bool AppendLibraryFrames(Exception exception, string frames);
         /// <summary>csrt_exception_capture_trace: the stack-trace frames recorded so far (null: none).</summary>
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern object CaptureStackTrace(Exception exception);
         /// <summary>csrt_exception_throw_captured: throws with the captured frames, .NET's marker line, then new frames.</summary>
@@ -122,6 +133,13 @@ namespace CsharpcCoreLib
         public static void DuplicateKey(string key) => throw new ArgumentException("An item with the same key has already been added. Key: " + key);
         public static void EmptyQueue() => throw new InvalidOperationException("Queue empty.");
         public static void EmptyStack() => throw new InvalidOperationException("Stack empty.");
+        // Exceptions for `throw CoreIntrinsics.LibraryFrames(..., "frames")`: the throw site names the
+        // frames .NET's library lists, which depend on the public member that was called.
+        public static Exception IndexOutOfRangeException() =>
+            new ArgumentOutOfRangeException("index", "Index was out of range. Must be non-negative and less than the size of the collection.");
+        public static Exception KeyNotFoundException(string key) => new KeyNotFoundException("The given key '" + key + "' was not present in the dictionary.");
+        public static Exception NoElementsException() => new InvalidOperationException("Sequence contains no elements");
+        public static Exception NoMatchException() => new InvalidOperationException("Sequence contains no matching element");
         public static void EnumOpCantHappen() => throw new InvalidOperationException("Enumeration has either not started or has already finished.");
 
         // ArgumentOutOfRangeException.ThrowIf* (.NET 8+): exact messages, with the actual value.

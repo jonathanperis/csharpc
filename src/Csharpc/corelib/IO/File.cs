@@ -19,7 +19,22 @@ namespace CsharpcCoreLib
         public static FileStream OpenRead(string path) => new FileStream(path, FileMode.Open, FileAccess.Read);
         public static FileStream OpenWrite(string path) => new FileStream(path, FileMode.OpenOrCreate, FileAccess.Write);
         public static FileStream Create(string path) => new FileStream(path, FileMode.Create, FileAccess.ReadWrite);
-        public static StreamReader OpenText(string path) => new StreamReader(path);
+        // Stack traces: the frames .NET 11 lists below File's text readers when opening fails, on Unix
+        // (CoreIntrinsics.AppendLibraryFrames, docs/adr/0012-stack-traces.md).
+        private const string OpenReaderFrames = "Interop.ThrowExceptionForIoErrno(ErrorInfo errorInfo, String path, Boolean isDirError)\nMicrosoft.Win32.SafeHandles.SafeFileHandle.Open(String path, OpenFlags flags, Int32 mode, Boolean failForSymlink, Boolean& wasSymlink, Func`4 createOpenException)\nMicrosoft.Win32.SafeHandles.SafeFileHandle.Open(String fullPath, FileMode mode, FileAccess access, FileShare share, FileOptions options, Int64 preallocationSize, UnixFileMode openPermissions, Int64& fileLength, UnixFileMode& filePermissions, Boolean failForSymlink, Boolean& wasSymlink, Func`4 createOpenException)\nSystem.IO.Strategies.OSFileStreamStrategy..ctor(String path, FileMode mode, FileAccess access, FileShare share, FileOptions options, Int64 preallocationSize, Nullable`1 unixCreateMode)\nSystem.IO.StreamReader.ValidateArgsAndOpenPath(String path, Int32 bufferSize)";
+
+        public static StreamReader OpenText(string path)
+        {
+            StreamReader reader;
+#if CSHARPC_TARGET_WINDOWS
+            reader = new StreamReader(path);
+#else
+            try { reader = new StreamReader(path); }
+            catch (IOException e) when (CoreIntrinsics.AppendLibraryFrames(e, OpenReaderFrames + "\nSystem.IO.File.OpenText(String path)")) { throw; }
+            catch (UnauthorizedAccessException e) when (CoreIntrinsics.AppendLibraryFrames(e, OpenReaderFrames + "\nSystem.IO.File.OpenText(String path)")) { throw; }
+#endif
+            return reader;
+        }
         public static StreamWriter CreateText(string path) => new StreamWriter(path, false);
         public static StreamWriter AppendText(string path) => new StreamWriter(path, true);
 
@@ -64,7 +79,15 @@ namespace CsharpcCoreLib
 
         public static string ReadAllText(string path, Encoding encoding)
         {
-            using (var reader = new StreamReader(path, encoding, true)) return reader.ReadToEnd();
+            StreamReader reader;
+#if CSHARPC_TARGET_WINDOWS
+            reader = new StreamReader(path, encoding, true);
+#else
+            try { reader = new StreamReader(path, encoding, true); }
+            catch (IOException e) when (CoreIntrinsics.AppendLibraryFrames(e, OpenReaderFrames + "\nSystem.IO.File.ReadAllText(String path, Encoding encoding)")) { throw; }
+            catch (UnauthorizedAccessException e) when (CoreIntrinsics.AppendLibraryFrames(e, OpenReaderFrames + "\nSystem.IO.File.ReadAllText(String path, Encoding encoding)")) { throw; }
+#endif
+            using (reader) return reader.ReadToEnd();
         }
 
         public static string[] ReadAllLines(string path) => ReadAllLines(path, new UTF8Encoding(false));
@@ -72,7 +95,15 @@ namespace CsharpcCoreLib
         public static string[] ReadAllLines(string path, Encoding encoding)
         {
             var lines = new List<string>();
-            using (var reader = new StreamReader(path, encoding, true))
+            StreamReader opened;
+#if CSHARPC_TARGET_WINDOWS
+            opened = new StreamReader(path, encoding, true);
+#else
+            try { opened = new StreamReader(path, encoding, true); }
+            catch (IOException e) when (CoreIntrinsics.AppendLibraryFrames(e, OpenReaderFrames + "\nSystem.IO.File.ReadAllLines(String path, Encoding encoding)")) { throw; }
+            catch (UnauthorizedAccessException e) when (CoreIntrinsics.AppendLibraryFrames(e, OpenReaderFrames + "\nSystem.IO.File.ReadAllLines(String path, Encoding encoding)")) { throw; }
+#endif
+            using (var reader = opened)
             {
                 string line;
                 while ((line = reader.ReadLine()) != null) lines.Add(line);
