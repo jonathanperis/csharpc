@@ -38,12 +38,29 @@ namespace CsharpcCoreLib.Globalization
                 int index = format[i + 1] - '0';
                 object? arg = index == 0 ? arg0 : index == 1 ? arg1 : arg2;
                 if (format[i + 2] == ':' && arg is int number)
-                    sb.Append(number.ToString(format.Substring(i + 3, close - i - 3)));
+                {
+                    int minDigits = 0;
+                    for (int k = i + 4; k < close; k++) minDigits = minDigits * 10 + (format[k] - '0');
+                    AppendHex(sb, (uint)number, format[i + 3] == 'x', minDigits);
+                }
                 else
                     sb.Append(arg?.ToString());
                 i = close + 1;
             }
             return sb.ToString();
+        }
+
+        // int.ToString("X<n>") / ("x<n>") (the only format the messages use: "{0:X4}"), without the number formatter.
+        private static void AppendHex(System.Text.StringBuilder sb, uint value, bool lower, int minDigits)
+        {
+            int digits = 1;
+            for (uint v = value >> 4; v != 0; v >>= 4) digits++;
+            for (int k = digits; k < minDigits; k++) sb.Append('0');
+            for (int k = digits - 1; k >= 0; k--)
+            {
+                int d = (int)(value >> (k * 4)) & 0xF;
+                sb.Append(d < 10 ? (char)('0' + d) : (char)((lower ? 'a' : 'A') + d - 10));
+            }
         }
         // (with a provider: the calendars' range messages, whose arguments are dates)
         public static string Format(IFormatProvider? provider, string format, DateTime arg0, DateTime arg1) =>

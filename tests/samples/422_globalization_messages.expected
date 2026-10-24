@@ -1,0 +1,19 @@
+ArgumentException: Culture ID 9 (0x0009) is a neutral culture; a region cannot be created from it. (Parameter 'culture')
+ArgumentException: There is no region associated with the Invariant Culture (Culture ID: 0x7F).
+CultureNotFoundException: Culture is not supported. (Parameter 'culture')
+74565 (0x12345) is an invalid culture identifier.
+ArgumentOutOfRangeException: culture ('-5') must be a non-negative value. (Parameter 'culture')
+Actual value was -5.
+ArgumentOutOfRangeException: Year, Month, and Day parameters describe an un-representable DateTime.
+ArgumentOutOfRangeException: Month must be between one and twelve. (Parameter 'month')
+Actual value was 13.
+ArgumentOutOfRangeException: Year, Month, and Day parameters describe an un-representable DateTime.
+ArgumentOutOfRangeException: Specified time is not supported in this calendar. It should be between 07/18/0622 00:00:00 (Gregorian date) and 12/31/9999 23:59:59 (Gregorian date), inclusive. (Parameter 'time')
+Actual value was 0.
+ArgumentOutOfRangeException: Specified time is not supported in this calendar. It should be between 01/01/1583 00:00:00 (Gregorian date) and 09/29/2239 23:59:59 (Gregorian date), inclusive. (Parameter 'time')
+Actual value was 0.
+ArgumentOutOfRangeException: Specified time is not supported in this calendar. It should be between 04/30/1900 00:00:00 (Gregorian date) and 11/16/2077 23:59:59 (Gregorian date), inclusive. (Parameter 'time')
+Actual value was 3155378975999999999.
+no exception
+CultureNotFoundException: Culture is not supported. (Parameter 'name')
+not a culture! is an invalid culture identifier.

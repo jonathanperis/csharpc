@@ -304,7 +304,7 @@ namespace CsharpcCoreLib
 
         internal static int DaysInMonth(int year, int month)
         {
-            if (month < 1 || month > 12) throw new ArgumentOutOfRangeException("month", "Month must be between one and twelve.");
+            if (month < 1 || month > 12) throw new ArgumentOutOfRangeException("month", month, "Month must be between one and twelve.");
             bool leap = IsLeapYear(year);
             return DaysToMonth(leap, month) - DaysToMonth(leap, month - 1);
         }
