@@ -11,6 +11,9 @@ security, with as much of the implementation as possible written in C#.
 
 The standing goal is to be better than .NET in every area — drop-in compatible, faster and smaller —
 and to prove it in CI (docs/06-roadmap.md, "Standing goal"); a size or speed regression is a bug.
+The drop-in target is 100 % parity with .NET NativeAOT: what works under `PublishAot` must work with
+csharpc; what NativeAOT can't do (run-time code generation) stays an explicit diagnostic. The JIT is the
+test oracle and a benchmark baseline.
 
 **The rule:** a program compiled by csharpc must behave exactly like the same program under real
 .NET — byte-identical stdout and the same exit code. A silent difference (wrong output) is the worst

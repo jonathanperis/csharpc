@@ -90,10 +90,16 @@ every failure is a clean "not supported by csharpc yet" diagnostic.
 Not a milestone that ends: every milestone is held to it, and a regression in any of these areas is a
 bug like a wrong output.
 
-- **Drop-in:** the same behaviour as .NET (byte-identical output, exit codes, exception messages), the
-  same inputs (`.cs`, `.csproj`, NuGet packages) and the same workflow (`dotnet build`/`run`/`publish`).
+- **Drop-in, measured against NativeAOT:** csharpc is an ahead-of-time compiler, so the support target is
+  **100 % parity with what .NET NativeAOT supports**: every program and library that works when published
+  with `PublishAot` must work with csharpc, with the same behaviour (byte-identical output, exit codes,
+  exception messages), the same inputs (`.cs`, `.csproj`, NuGet packages) and the same workflow
+  (`dotnet build`/`run`/`publish`). What NativeAOT doesn't support (run-time code generation:
+  `Reflection.Emit`, `MakeGenericType` over unseen instantiations, compiled expression trees, the DLR,
+  loading assemblies at run time) is out of scope (❌) and must stay an explicit diagnostic. The JIT is
+  the behavioural oracle for the tests and a benchmark baseline, not a support target.
 - **Faster:** throughput ahead of NativeAOT and the JIT on every benchmark, on every platform; start-up
-  and compile time measured too.
+  and compile time measured too (compile time against `dotnet publish -p:PublishAot=true`).
 - **Smaller:** executables a fraction of NativeAOT's size, with nothing linked that the program doesn't
   use (pay-for-play library code).
 - **Safer:** hardening on by default ([17-security.md](17-security.md)).
@@ -148,6 +154,9 @@ First report (2026-10-22, 323 programs from dotnet/samples and dotnet/docs, 40.6
 .NET): [18-compatibility.md](18-compatibility.md); harness in `tools/compat/`, re-run on CI by the
 `Compatibility` workflow. Latest (2026-10-24): 67.5 % identical, and every program csharpc compiles
 (189 of 189) matches .NET; the rest stop at explicit "not supported yet" diagnostics, ranked there.
+Next metric: **parity with NativeAOT** — the harness also publishes each program with `PublishAot` and
+runs it; programs NativeAOT can't build or run identically are out of scope, and the headline number
+becomes the share of NativeAOT-working programs that csharpc matches (target: 100 %).
 
 ### M5 — Drop-in: binary packages (🚧)
 An IL front-end (IL → the same lowering) so NuGet packages that ship only assemblies can be linked
