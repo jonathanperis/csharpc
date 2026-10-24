@@ -104,6 +104,22 @@ restore. So the corpus is copied to a work tree, and every `<TargetFramework(s)>
    - **PASS**: stdout is identical and the exit code matches.
    - **RUNTIME-CRASH**: a signal or timeout that .NET didn't have.
    - **RUNTIME-DIFF**: anything else that differs.
+5. NativeAOT ([ADR 0016](adr/0016-nativeaot-parity-and-end-state.md)): after the csharpc step (so its
+   RID-specific restore can't change what csharpc evaluates), `dotnet publish -c Release -r <host rid>
+   -p:PublishAot=true` with the program's own project properties (only `PublishAot`, the RID and the same
+   warning overrides as the .NET build are forced), then the native binary runs twice in the same
+   environment. The program is **NATIVEAOT-UNSUPPORTED**, with the reason recorded, when the publish fails,
+   the binary crashes or times out, its two runs differ, or its stdout or exit code differs from the
+   JIT's; otherwise it is **NATIVEAOT-OK**. Trim/AOT analysis warnings (`IL2xxx`/`IL3xxx`) are recorded
+   but don't exclude a program whose binary behaves exactly like the JIT: the run is the evidence.
+   The NativeAOT publish time and executable size (without the separate `.dbg` file) are recorded next to
+   csharpc's.
+6. When csharpc's or NativeAOT's output differs, the JIT runs a third time; if that run differs from the
+   first, the program is SKIPPED as non-deterministic (two runs can agree by chance, e.g. a clock printed
+   to the minute).
+
+**Parity** is csharpc PASS among the NativeAOT-OK programs; it is the headline number. The JIT-based
+pass rate (PASS among all compared programs) is kept for continuity.
 
 `tools/compat/analyze.py` aggregates the results. It parses every unsupported diagnostic in each
 program's compile log, and normalizes it to its kind, its owning type or construct, its area
