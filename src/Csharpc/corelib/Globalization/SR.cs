@@ -50,6 +50,13 @@ namespace CsharpcCoreLib.Globalization
             return sb.ToString();
         }
 
+        internal static string Hex(int value, bool lower, int minDigits)
+        {
+            var sb = new System.Text.StringBuilder(8);
+            AppendHex(sb, (uint)value, lower, minDigits);
+            return sb.ToString();
+        }
+
         // int.ToString("X<n>") / ("x<n>") (the only format the messages use: "{0:X4}"), without the number formatter.
         private static void AppendHex(System.Text.StringBuilder sb, uint value, bool lower, int minDigits)
         {
