@@ -25,6 +25,8 @@ public sealed record ProjectInfo
     public bool? PredefinedCulturesOnly { get; init; }
     /// <summary>JsonSerializerIsReflectionEnabledByDefault (false in trimmed and AOT-published projects).</summary>
     public bool JsonReflectionEnabled { get; init; } = true;
+    /// <summary>The assembly's version as the SDK stamps it (FrontendSettings.AssemblyVersion).</summary>
+    public string? AssemblyVersion { get; init; } = "1.0.0.0";
     public List<string> GlobalUsings { get; } = [];
     public List<string> ProjectReferences { get; } = [];
     /// <summary>Explicit &lt;PackageReference&gt; items ("Id Version").</summary>
@@ -51,6 +53,7 @@ public static class ProjectLoader
         "AssemblyName", "OutputType", "DefineConstants", "LangVersion", "Nullable", "AllowUnsafeBlocks",
         "ImplicitUsings", "TargetFramework", "TargetFrameworks", "MSBuildProjectFullPath",
         "StartupObject", "InvariantGlobalization", "PredefinedCulturesOnly", "JsonSerializerIsReflectionEnabledByDefault",
+        "AssemblyVersion", "Version", "GenerateAssemblyInfo", "GenerateAssemblyVersionAttribute", "SignAssembly",
     ];
 
     /// <summary>
@@ -105,6 +108,45 @@ public static class ProjectLoader
         ];
         foreach (var name in enabled) yield return new(name, "true");
         foreach (var name in disabled) yield return new(name, "false");
+    }
+
+    /// <summary>
+    /// The version the SDK's generated AssemblyInfo gives the assembly: AssemblyVersion, else Version
+    /// without its prerelease/build suffix, else 1.0.0.0. "source" when the SDK generates no
+    /// [AssemblyVersion] (the program's own attribute, or 0.0.0.0, applies); null when it can't be
+    /// told at compile time (signed assemblies, wildcard versions).
+    /// </summary>
+    public static string? AssemblyVersionOf(Func<string, string?> property)
+    {
+        static bool IsFalse(string? v) => string.Equals(v, "false", StringComparison.OrdinalIgnoreCase);
+        if (string.Equals(property("SignAssembly"), "true", StringComparison.OrdinalIgnoreCase)) return null;
+        if (IsFalse(property("GenerateAssemblyInfo")) || IsFalse(property("GenerateAssemblyVersionAttribute"))) return "source";
+        var text = property("AssemblyVersion") ?? property("Version")?.Split('-', '+')[0];
+        if (text is null) return "1.0.0.0";
+        if (!Version.TryParse(text, out var v)) return null;
+        return $"{v.Major}.{v.Minor}.{Math.Max(v.Build, 0)}.{Math.Max(v.Revision, 0)}";
+    }
+
+    /// <summary>
+    /// AssemblyVersionOf for a file-based app: `#:property Name=Value` directives at the top of the
+    /// entry file set MSBuild properties.
+    /// </summary>
+    public static string? FileBasedAssemblyVersion(string entryFile)
+    {
+        var properties = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        try
+        {
+            foreach (var line in File.ReadLines(entryFile))
+            {
+                var trimmed = line.Trim();
+                if (!trimmed.StartsWith("#:property ", StringComparison.Ordinal)) continue;
+                var assignment = trimmed["#:property ".Length..].Trim();
+                var eq = assignment.IndexOfAny(['=', ' ']);
+                if (eq > 0) properties[assignment[..eq].Trim()] = assignment[(eq + 1)..].Trim().Trim('"');
+            }
+        }
+        catch (IOException) { }
+        return AssemblyVersionOf(name => properties.TryGetValue(name, out var v) && v.Length > 0 ? v : null);
     }
 
     /// <summary>Finds the single project file in a directory (like `dotnet build` with no arguments).</summary>
@@ -200,6 +242,7 @@ public static class ProjectLoader
             InvariantGlobalization = Switch(Prop("InvariantGlobalization")),
             PredefinedCulturesOnly = Switch(Prop("PredefinedCulturesOnly")),
             JsonReflectionEnabled = !string.Equals(Prop("JsonSerializerIsReflectionEnabledByDefault"), "false", StringComparison.OrdinalIgnoreCase),
+            AssemblyVersion = AssemblyVersionOf(Prop),
         };
 
         info.Defines.AddRange((Prop("DefineConstants") ?? "").Split([';', ','], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
@@ -310,6 +353,7 @@ public static class ProjectLoader
             AllowUnsafe = all.Any(p => p.AllowUnsafe),
             GlobalUsings = usings.Count > 0 ? string.Join('\n', usings) : null,
             AssemblyName = root.AssemblyName,
+            AssemblyVersion = root.AssemblyVersion,
             MainTypeName = root.StartupObject,
             IlReferencePaths = [.. all.SelectMany(p => p.AssemblyReferences).Distinct(StringComparer.Ordinal)],
             RuntimeConfig = root.RuntimeConfig,
@@ -318,6 +362,7 @@ public static class ProjectLoader
             {
                 ProjectPath = p.ProjectPath,
                 AssemblyName = p.AssemblyName,
+                AssemblyVersion = p.AssemblyVersion,
                 IsRoot = ReferenceEquals(p, root),
                 Files = p.Files,
                 Defines = p.Defines,

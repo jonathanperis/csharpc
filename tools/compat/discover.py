@@ -50,6 +50,15 @@ def sources_of(proj_dir):
     return out
 
 
+# Programs whose output order depends on thread scheduling: two .NET runs can agree by chance (the
+# run-twice check in run.sh), so they're left out here rather than reported as differences.
+SCHEDULING_DEPENDENT = (
+    "docs/csharp/asynchronous-programming/snippets/index/AsyncBreakfast-V2/",
+    "docs/csharp/asynchronous-programming/snippets/index/AsyncBreakfast-V3/",
+    "docs/csharp/asynchronous-programming/snippets/index/AsyncBreakfast-final/",
+)
+
+
 def classify(csproj, text, src):
     sdk = re.search(r'<Project\s+Sdk="([^"]+)"', text)
     if not sdk:
@@ -116,6 +125,8 @@ def main():
                     csproj = os.path.join(dirpath, f)
                     rel = os.path.relpath(csproj, base)
                     reason = classify(csproj, read(csproj), sources_of(dirpath))
+                    if not reason and any(p in rel for p in SCHEDULING_DEPENDENT):
+                        reason = "output depends on thread scheduling"
                     url = f"https://github.com/{repo}/tree/{sha}/{os.path.dirname(rel)}"
                     if reason:
                         excluded.append((repo, rel, reason))

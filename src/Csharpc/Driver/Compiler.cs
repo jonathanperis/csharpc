@@ -73,6 +73,7 @@ public sealed class Compiler(CompilerOptions options)
                 GlobalUsings = options.ImplicitUsings ? RoslynFrontend.DefaultImplicitUsings : null,
                 CoreLibDefines = [.. coreLibDefines, .. FileGlobalization(options.Inputs)],
                 RuntimeConfig = options.Inputs.Count > 0 ? [.. ProjectLoader.FileBasedRuntimeConfig(options.Inputs[0])] : [],
+                AssemblyVersion = options.Inputs.Count > 0 ? ProjectLoader.FileBasedAssemblyVersion(options.Inputs[0]) : "1.0.0.0",
             };
         }
         // Assemblies without sources: bound against like any reference, compiled from IL (ADR 0010).
@@ -151,6 +152,7 @@ public sealed class Compiler(CompilerOptions options)
             Il = il,
             IlSurvey = options.IlSurvey,
             RuntimeConfig = settings.RuntimeConfig,
+            ProgramAssemblies = ProgramAssembly.From(settings, codegenCompilation.AssemblyName ?? "program"),
         };
         using var debugInfo = options.Debug
             ? codegen.Debug = new DebugInfo(codegen, settings.Files.Count > 0 ? settings.Files[0] : "program.cs", options.OptLevel > 0)

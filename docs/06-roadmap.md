@@ -68,7 +68,7 @@ every failure is a clean "not supported by csharpc yet" diagnostic.
 | Multithreading (`Thread`, `Monitor`, `Interlocked`, `Parallel`) | ✅ | `Task.Run` still on the single-threaded scheduler |
 | Unhandled exceptions (message + exit 134) | ✅ | |
 | Static initialization | ✅ | lazy per type with CoreCLR's triggers, `TypeInitializationException`; generic types ❌ |
-| Reflection | 🟡 | `GetType()`, `typeof`, names; no member reflection ❌ |
+| Reflection | 🟡 | `GetType()`, `typeof`, names; `System.Type` predicates, generics, assignability and `Type.Assembly` over compile-time metadata ([12-corelib.md](12-corelib.md#type-metadata-systemtype-reflection)); no member reflection ❌ |
 | Finalizers | ⬜ | |
 | Debug info (DWARF, gdb/lldb) | ✅ | `-g` |
 
@@ -83,6 +83,24 @@ every failure is a clean "not supported by csharpc yet" diagnostic.
 | `System.Text.RegularExpressions` | ✅ | port of .NET's engine (interpreter; no `NonBacktracking`), [12-corelib.md](12-corelib.md#regular-expressions) |
 | `System.Text.Json` | ✅ | writer, reader, DOM, nodes; serializer over source-generated metadata, reflection-style calls included ([12-corelib.md](12-corelib.md#systemtextjson)) |
 | File I/O, networking | 🟡 | System.IO and sockets (TCP/UDP, `TcpListener`/`TcpClient`, `Dns`) done; TLS/HTTP next |
+
+## Standing goal: better than .NET in every area, always
+
+Not a milestone that ends: every milestone is held to it, and a regression in any of these areas is a
+bug like a wrong output.
+
+- **Drop-in:** the same behaviour as .NET (byte-identical output, exit codes, exception messages), the
+  same inputs (`.cs`, `.csproj`, NuGet packages) and the same workflow (`dotnet build`/`run`/`publish`).
+- **Faster:** throughput ahead of NativeAOT and the JIT on every benchmark, on every platform; start-up
+  and compile time measured too.
+- **Smaller:** executables a fraction of NativeAOT's size, with nothing linked that the program doesn't
+  use (pay-for-play library code).
+- **Safer:** hardening on by default ([17-security.md](17-security.md)).
+
+Evidence comes from CI ([benchmarks/RESULTS.md](../benchmarks/RESULTS.md), the compatibility runs), not
+claims. Known gaps today: NativeAOT is ahead on `asyncfanout` (x86-64 and arm64) and on `fileio`,
+`quicksort`, `shapes` and `spectralnorm` on arm64; arm64 binaries carry 64 KiB page-alignment padding;
+compile time of async- and generic-heavy programs; benchmarks run on Linux only so far.
 
 ## Milestones
 
@@ -101,11 +119,12 @@ Roslyn binds against the real reference assemblies are redirected to it
 `System.Text.Json` (ported from dotnet/runtime; `JsonSerializer` runs on compile-time metadata from the
 JSON source generator, which csharpc also synthesizes for reflection-style calls); formatting, parsing,
 `decimal`, `BigInteger` and `DateTime` (moved from the C runtime into C#); P/Invoke and `System.IO`;
-sockets (`Socket`, `TcpListener`/`TcpClient`, `UdpClient`, `Dns`). In progress: globalization (cultures
+sockets (`Socket`, `TcpListener`/`TcpClient`, `UdpClient`, `Dns`); library value types (`Guid`,
+`ArraySegment<T>`). In progress: globalization (cultures
 via ICU, as .NET). Next: TLS and `HttpClient`; the library surface ranked by the compatibility runs and
-the NuGet survey (`System.Type` reflection basics, `Guid`, `DateTimeOffset`).
+the NuGet survey (`DateTimeOffset`, `MemoryPool<T>`; the `System.Type` basics are in).
 
-### M3 — Platforms and per-platform evidence
+### M3 — Platforms and per-platform evidence ✅
 Each platform gets a CI job (GitHub Actions) running the full differential suite, conformance corpus
 and real-world programs against real .NET on that machine, plus the benchmark comparison:
 

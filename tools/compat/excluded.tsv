@@ -52,6 +52,9 @@ dotnet/docs	docs/csharp/asynchronous-programming/snippets/cancel-task-after-peri
 dotnet/docs	docs/csharp/asynchronous-programming/snippets/cancel-tasks/cancel-tasks.csproj	network
 dotnet/docs	docs/csharp/asynchronous-programming/snippets/generate-consume-asynchronous-streams/finished/IssuePRreport.csproj	NuGet package reference
 dotnet/docs	docs/csharp/asynchronous-programming/snippets/generate-consume-asynchronous-streams/start/IssuePRreport.csproj	NuGet package reference
+dotnet/docs	docs/csharp/asynchronous-programming/snippets/index/AsyncBreakfast-V2/AsyncBreakfast.csproj	output depends on thread scheduling
+dotnet/docs	docs/csharp/asynchronous-programming/snippets/index/AsyncBreakfast-V3/AsyncBreakfast.csproj	output depends on thread scheduling
+dotnet/docs	docs/csharp/asynchronous-programming/snippets/index/AsyncBreakfast-final/AsyncBreakfast.csproj	output depends on thread scheduling
 dotnet/docs	docs/csharp/asynchronous-programming/snippets/multiple-tasks-6-0/MultipleTasks.csproj	network
 dotnet/docs	docs/csharp/fundamentals/coding-style/snippets/coding-conventions/coding-conventions.csproj	GUI
 dotnet/docs	docs/csharp/fundamentals/coding-style/snippets/identifier-names/identifier-names.csproj	NuGet package reference

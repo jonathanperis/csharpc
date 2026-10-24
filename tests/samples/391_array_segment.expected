@@ -1,0 +1,90 @@
+2 5 True 2 6
+2 3 4 5 6 
+30
+index 5: ArgumentOutOfRangeException: Index was out of range. Must be non-negative and less than the size of the collection. (Parameter 'index')
+index -1: ArgumentOutOfRangeException: Index was out of range. Must be non-negative and less than the size of the collection. (Parameter 'index')
+0 10
+True
+True False True
+True False
+True
+ctor null: ArgumentNullException: Value cannot be null. (Parameter 'array')
+ctor null 3: ArgumentNullException: Value cannot be null. (Parameter 'array')
+ctor offset: ArgumentOutOfRangeException: Non-negative number required. (Parameter 'offset')
+ctor count: ArgumentOutOfRangeException: Non-negative number required. (Parameter 'count')
+ctor window: ArgumentException: Offset and length were out of bounds for the array or count is greater than the number of elements from index to the end of the source collection.
+ctor end: 0
+[4, 5, 6]
+[30, 4, 5]
+0
+slice 6: ArgumentOutOfRangeException: Index was out of range. Must be non-negative and less than or equal to the size of the collection. (Parameter 'index')
+slice 2,4: ArgumentOutOfRangeException: Index was out of range. Must be non-negative and less than or equal to the size of the collection. (Parameter 'index')
+[2, 30, 4, 5, 6]
+[2, 30, 4, 5, 6, 0, 0]
+[2, 30, 2, 30, 4, 5, 6]
+[0, 2, 30, 4, 5, 6]
+copy short: ArgumentException: Destination is too short. (Parameter 'destination')
+copy to default: InvalidOperationException: The underlying array is null.
+copy array short: ArgumentException: Destination array was not long enough. Check the destination index, length, and the array's lower bounds. (Parameter 'destinationArray')
+0 True 0 0
+True
+True 0 0
+default enumerate: InvalidOperationException: The underlying array is null.
+default ToArray: InvalidOperationException: The underlying array is null.
+default Slice: InvalidOperationException: The underlying array is null.
+default index: ArgumentOutOfRangeException: Index was out of range. Must be non-negative and less than the size of the collection. (Parameter 'index')
+0
+True
+True
+0 True
+default IList: 0
+default IList index: InvalidOperationException: The underlying array is null.
+5 30 2 -1 True False True
+20
+IList.Add: NotSupportedException: Specified method is not supported.
+IList.Insert: NotSupportedException: Specified method is not supported.
+IList.RemoveAt: NotSupportedException: Specified method is not supported.
+IList.Clear: NotSupportedException: Specified method is not supported.
+IList.Remove: NotSupportedException: Specified method is not supported.
+IList index: ArgumentOutOfRangeException: Index was out of range. Must be non-negative and less than the size of the collection. (Parameter 'index')
+5 4
+IReadOnlyList index: ArgumentOutOfRangeException: Index was out of range. Must be non-negative and less than the size of the collection. (Parameter 'index')
+[0, 20, 30, 4, 5, 6, 0, 0]
+[20, 30, 4, 6]
+65 30 5 20 6
+[20, 30, 4, 5, 6]
+20;30;4;5;6;
+Current before: InvalidOperationException: Enumeration has not started. Call MoveNext.
+20,30,4,5,6,
+Current after: InvalidOperationException: Enumeration already finished.
+False
+30
+20
+False
+5 200 245
+2 4
+[200, 30, 4, 5, 6]
+[5, 6]
+[30, 4]
+[5, 6]
+[30, 4, 5]
+AsSpan 6: ArgumentOutOfRangeException: Specified argument was out of the range of valid values. (Parameter 'start')
+AsSpan 2,4: ArgumentOutOfRangeException: Specified argument was out of the range of valid values. (Parameter 'length')
+4 30
+5 30
+AsMemory -1: ArgumentOutOfRangeException: Specified argument was out of the range of valid values. (Parameter 'start')
+5 6
+[b, c] 1 False
+7F-AB-FF
+00-7F-AB-FF-10|FF-10|7F-AB||
+ToString null: ArgumentNullException: Value cannot be null. (Parameter 'value')
+ToString start: ArgumentOutOfRangeException: Index was out of range. Must be non-negative and less than the size of the collection. (Parameter 'startIndex')
+ToString len: ArgumentOutOfRangeException: length ('-1') must be a non-negative value. (Parameter 'length')
+Actual value was -1.
+ToString window: ArgumentException: The array starting from the specified index is not long enough to read a value of the specified type. (Parameter 'value')
+ToString end: ArgumentOutOfRangeException: Index was out of range. Must be non-negative and less than the size of the collection. (Parameter 'startIndex')
+|
+1 2 False
+True
+True
+5

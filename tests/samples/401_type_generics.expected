@@ -1,0 +1,100 @@
+System.Collections.Generic.List`1[System.Int32]
+  Name=List`1 FullName=System.Collections.Generic.List`1[[System.Int32, System.Private.CoreLib, Version=11.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e]]
+  generic=True definition=False constructed=True containsParameters=False parameter=False
+  arguments=[System.Int32] typeArguments=1
+  definition=System.Collections.Generic.List`1[T] same=False
+System.Collections.Generic.List`1[T]
+  Name=List`1 FullName=System.Collections.Generic.List`1
+  generic=True definition=True constructed=False containsParameters=True parameter=False
+  arguments=[T] typeArguments=0
+  definition=System.Collections.Generic.List`1[T] same=True
+System.Collections.Generic.Dictionary`2[System.String,System.Collections.Generic.List`1[Customer]]
+  Name=Dictionary`2 FullName=System.Collections.Generic.Dictionary`2[[System.String, System.Private.CoreLib, Version=11.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e],[System.Collections.Generic.List`1[[Customer, 401_type_generics, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null]], System.Private.CoreLib, Version=11.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e]]
+  generic=True definition=False constructed=True containsParameters=False parameter=False
+  arguments=[System.String, System.Collections.Generic.List`1[Customer]] typeArguments=2
+  definition=System.Collections.Generic.Dictionary`2[TKey,TValue] same=False
+System.Collections.Generic.Dictionary`2[TKey,TValue]
+  Name=Dictionary`2 FullName=System.Collections.Generic.Dictionary`2
+  generic=True definition=True constructed=False containsParameters=True parameter=False
+  arguments=[TKey, TValue] typeArguments=0
+  definition=System.Collections.Generic.Dictionary`2[TKey,TValue] same=True
+Pair`2+Inner[System.Int32,System.String]
+  Name=Inner FullName=Pair`2+Inner[[System.Int32, System.Private.CoreLib, Version=11.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e],[System.String, System.Private.CoreLib, Version=11.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e]]
+  generic=True definition=False constructed=True containsParameters=False parameter=False
+  arguments=[System.Int32, System.String] typeArguments=2
+  definition=Pair`2+Inner[TFirst,TSecond] same=False
+Pair`2+Inner[TFirst,TSecond]
+  Name=Inner FullName=Pair`2+Inner
+  generic=True definition=True constructed=False containsParameters=True parameter=False
+  arguments=[TFirst, TSecond] typeArguments=0
+  definition=Pair`2+Inner[TFirst,TSecond] same=True
+System.Nullable`1[System.Int32]
+  Name=Nullable`1 FullName=System.Nullable`1[[System.Int32, System.Private.CoreLib, Version=11.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e]]
+  generic=True definition=False constructed=True containsParameters=False parameter=False
+  arguments=[System.Int32] typeArguments=1
+  definition=System.Nullable`1[T] same=False
+Customer
+  Name=Customer FullName=Customer
+  generic=False definition=False constructed=False containsParameters=False parameter=False
+  arguments=[] typeArguments=0
+System.Int32[]
+  Name=Int32[] FullName=System.Int32[]
+  generic=False definition=False constructed=False containsParameters=False parameter=False
+  arguments=[] typeArguments=0
+System.Collections.Generic.List`1[System.Int32][]
+  Name=List`1[] FullName=System.Collections.Generic.List`1[[System.Int32, System.Private.CoreLib, Version=11.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e]][]
+  generic=False definition=False constructed=False containsParameters=False parameter=False
+  arguments=[System.Int32] typeArguments=0
+System.Collections.Generic.KeyValuePair`2[System.String,System.Int32]
+  Name=KeyValuePair`2 FullName=System.Collections.Generic.KeyValuePair`2[[System.String, System.Private.CoreLib, Version=11.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e],[System.Int32, System.Private.CoreLib, Version=11.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e]]
+  generic=True definition=False constructed=True containsParameters=False parameter=False
+  arguments=[System.String, System.Int32] typeArguments=2
+  definition=System.Collections.Generic.KeyValuePair`2[TKey,TValue] same=False
+System.Func`2[System.Int32,System.String]
+  Name=Func`2 FullName=System.Func`2[[System.Int32, System.Private.CoreLib, Version=11.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e],[System.String, System.Private.CoreLib, Version=11.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e]]
+  generic=True definition=False constructed=True containsParameters=False parameter=False
+  arguments=[System.Int32, System.String] typeArguments=2
+  definition=System.Func`2[T,TResult] same=False
+-- generic parameters
+TKey position=0 declaring=System.Collections.Generic.Dictionary`2[TKey,TValue] namespace=System.Collections.Generic class=True valueType=False base=System.Object fullName=(null) aqn=(null)
+TValue position=1 declaring=System.Collections.Generic.Dictionary`2[TKey,TValue] namespace=System.Collections.Generic class=True valueType=False base=System.Object fullName=(null) aqn=(null)
+T position=0 declaring=Node`1[T] namespace=(null) class=True valueType=False base=System.Object fullName=(null) aqn=(null)
+T position=0 declaring=Cell`1[T] namespace=(null) class=False valueType=True base=System.ValueType fullName=(null) aqn=(null)
+TFirst position=0 declaring=Pair`2+Inner[TFirst,TSecond] namespace=(null) class=True valueType=False base=System.Object fullName=(null) aqn=(null)
+TSecond position=1 declaring=Pair`2+Inner[TFirst,TSecond] namespace=(null) class=True valueType=False base=System.Object fullName=(null) aqn=(null)
+TEntity position=0 declaring=IRepository`2[TEntity,TKey] namespace=(null) class=True valueType=False base=System.Object fullName=(null) aqn=(null)
+TKey position=1 declaring=IRepository`2[TEntity,TKey] namespace=(null) class=True valueType=False base=System.Object fullName=(null) aqn=(null)
+InvalidOperationException: Method may only be called on a Type for which Type.IsGenericParameter is true.
+-- GetGenericTypeDefinition on non-generic types
+InvalidOperationException: This operation is only valid on generic types.
+InvalidOperationException: This operation is only valid on generic types.
+-- runtime types
+list of String: generic=True args=1 isList=True
+map Int32 -> Double: generic=True args=2 isList=False
+Pair<Int64, Customer>: generic=True args=2 isList=False
+HashSet<Int32>: generic=True args=1 isList=False
+Int32: generic=False args=0 isList=False
+KeyValuePair<Int32, Int32>: generic=True args=2 isList=False
+Int32?
+list of Int32?
+map String -> list of Customer
+Cell<Double>[]
+Pair<Int32, String>
+Char?
+True
+True
+ArgumentNullException: Value cannot be null. (Parameter 'nullableType')
+-- implemented generic interfaces
+IRepository`2 True
+IRepository`2 False
+IRepository`2 False
+-- names
+System.Collections.Generic.List`1[[System.Int32, System.Private.CoreLib, Version=11.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e]], System.Private.CoreLib, Version=11.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e
+System.Collections.Generic.Dictionary`2[[System.String, System.Private.CoreLib, Version=11.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e],[Customer, 401_type_generics, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null]]
+Pair`2+Inner[[System.Int32, System.Private.CoreLib, Version=11.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e],[System.String, System.Private.CoreLib, Version=11.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e]]
+System.Collections.Generic.List`1[[System.Int32, System.Private.CoreLib, Version=11.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e]][]
+List`1[]
+System.Collections.Generic.List`1
+System.Collections.Generic.List`1, System.Private.CoreLib, Version=11.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e
+System.Collections.Generic.List`1[[Customer, 401_type_generics, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null]]
+Customer, 401_type_generics, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null

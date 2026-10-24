@@ -279,6 +279,16 @@ public sealed class TargetMachine : IDisposable
         if (cpu is "native") cpu = hostCpu;
         cpu ??= host ? DefaultHostCpu(triple, hostCpu) : "generic";
         features ??= host && cpu == hostCpu ? TakeMessage(LLVMGetHostCPUFeatures())! : "";
+        // AArch64 selects -O0 code with GlobalISel, falling back to SelectionDAG per function for what it
+        // can't select (e.g. a saturating double -> long conversion). With LLVM 18 on Darwin the two lay
+        // out the stack part of a split aggregate argument differently (GlobalISel packs small fields as
+        // Apple's ABI does, SelectionDAG gives each a 4-byte slot), so a fallback caller passing a struct
+        // like Guid by value to a GlobalISel callee hands it garbage. The backend's -O1 uses
+        // SelectionDAG everywhere, as -O2 does (merely turning GlobalISel off left FastISel code in which
+        // thrown exceptions aborted on macOS); the IR itself stays unoptimized.
+        if (level == LLVMCodeGenOptLevel.None && IsDarwinTriple(triple)
+            && (triple.StartsWith("arm64", StringComparison.Ordinal) || triple.StartsWith("aarch64", StringComparison.Ordinal)))
+            level = LLVMCodeGenOptLevel.Less;
         // WebAssembly executables are statically linked (PIC there means dynamic linking: GOT imports).
         var reloc = IsWasmTriple(triple) ? LLVMRelocMode.Static : LLVMRelocMode.PIC;
         var machine = LLVMCreateTargetMachine(target, triple, cpu, features, level, reloc, LLVMCodeModel.Default);
