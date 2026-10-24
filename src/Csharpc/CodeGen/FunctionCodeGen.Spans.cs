@@ -320,6 +320,9 @@ public sealed partial class FunctionCodeGen
                 CheckWindow(start, length, SpanLength(span));
                 return MakeSpan(_b.InBoundsGep(T.Storage(element), SpanPointer(span), [_b.Cast(LLVMOpcode.ZExt, start, L.I64)]), length);
             }
+            case ("GetPinnableReference", 0):
+                // `fixed (T* p = span)` in IL: element 0, or a null reference for an empty span (as in .NET).
+                return _b.Select(_b.ICmp(LLVMIntPredicate.EQ, SpanLength(span), L.ConstInt(L.I32, 0)), LlvmContext.Null(L.Ptr), SpanPointer(span));
             case ("ToArray", 0):
                 return CallRuntime("csrt_span_to_array", L.Ptr, [L.Ptr, L.I32, L.I64], SpanPointer(span), SpanLength(span), ElementSize(element));
             case ("Clear", 0):

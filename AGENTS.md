@@ -114,7 +114,10 @@ before every commit that touches `src/`.
 - `-g` produces DWARF; `tools/gdb/csharpc.py` pretty-prints strings and arrays.
 - `--sanitize=address,undefined` builds the runtime with sanitizers; `tools/fuzz/run.sh` fuzzes the
   C runtime's input handling (libFuzzer), `tools/fuzz/corelib.sh` diff-fuzzes the C# corelib against .NET.
-- The runtime is cached in `~/.cache/csharpc`, keyed on sources and flags.
+- The runtime is cached in `~/.cache/csharpc`, keyed on sources and flags; so is the corelib, compiled
+  to `CsharpcCoreLib.dll` and lowered from IL (ADR 0015). `--corelib source` binds its C# sources in the
+  program instead; `CSHARPC_CORELIB_SURVEY=1 --il-survey` lowers every corelib method once (what the IL
+  front-end can't lower yet).
 
 ## Code style
 

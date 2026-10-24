@@ -32,6 +32,13 @@ public sealed record CompilerOptions
     public List<string> FrameworkIl { get; } = [];
     /// <summary>--framework-il none: no automatic choice of framework assemblies to compile from IL.</summary>
     public bool FrameworkIlAutomatic { get; set; } = true;
+    /// <summary>
+    /// --corelib il|source: the corelib as a precompiled IL assembly lowered through the IL front-end
+    /// (docs/adr/0015-corelib-il.md), or parsed and bound from its C# sources in every compilation.
+    /// </summary>
+    public bool CoreLibIl { get; set; } = Environment.GetEnvironmentVariable("CSHARPC_CORELIB") != "source"
+        // CSHARPC_CHECK_CORELIB=1 validates the corelib's sources inside a program's compilation.
+        && Environment.GetEnvironmentVariable("CSHARPC_CHECK_CORELIB") != "1";
     /// <summary>Emit DWARF debug info (-g; implied by -c Debug).</summary>
     public bool Debug { get; set; }
     public bool DebugExplicit { get; set; }
@@ -87,6 +94,8 @@ public sealed record CompilerOptions
           --framework-il <names> Compile these shared-framework assemblies from their IL (comma-separated);
                                  'none' turns off the automatic choice (assemblies the program uses that
                                  csharpc's corelib does not implement)
+          --corelib <il|source>  Lower the corelib from its precompiled IL (cached) or bind its C# sources
+                                 (default: il, or $CSHARPC_CORELIB)
           --no-implicit-usings   Don't add the SDK's implicit global usings
           --no-runtime-lto       Link the runtime as objects instead of LTO-ing its bitcode
           --stack-traces         Record stack traces in every program (default: only programs that print
@@ -162,6 +171,14 @@ public sealed record CompilerOptions
                     break;
                 case var _ when a.StartsWith("-r:", StringComparison.Ordinal) || a.StartsWith("/r:", StringComparison.Ordinal):
                     o.References.Add(Path.GetFullPath(a[3..]));
+                    break;
+                case "--corelib":
+                    o.CoreLibIl = Next() switch
+                    {
+                        "il" => true,
+                        "source" => false,
+                        var other => throw new ArgumentException($"--corelib: expected 'il' or 'source', got '{other}'"),
+                    };
                     break;
                 case "--no-implicit-usings": o.ImplicitUsings = false; break;
                 case "--no-runtime-lto": o.RuntimeLto = false; break;

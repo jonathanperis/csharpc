@@ -22,7 +22,7 @@ internal abstract class IlOperation(SyntaxNode syntax, ITypeSymbol? type) : IOpe
     public abstract OperationKind Kind { get; }
     public SyntaxNode Syntax { get; } = syntax;
     public ITypeSymbol? Type { get; } = type;
-    public Optional<object?> ConstantValue => default;
+    public virtual Optional<object?> ConstantValue => default;
     [Obsolete("Use ChildOperations")] public IEnumerable<IOperation> Children => [];
     public IOperation.OperationList ChildOperations => default;
     public string Language => "IL";
@@ -44,6 +44,9 @@ internal sealed class IlValueOperation(SyntaxNode syntax, ITypeSymbol type, Func
     public LLVMValueRef Address { get; } = address;
     public bool HasAddress => Address.Handle != 0;
     public bool NonNull { get; } = nonNull;
+    /// <summary>The C# constant of an operand loaded by `ldc.*`/`ldstr` (FunctionCodeGen.TypedConstant).</summary>
+    public Optional<object?> Constant { get; init; }
+    public override Optional<object?> ConstantValue => Constant;
     public LLVMValueRef Emit() => value();
 }
 

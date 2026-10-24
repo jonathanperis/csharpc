@@ -194,9 +194,11 @@ ReadyToRun-compiled in Release builds, a compilation uses several threads (`-j`,
 parse, bind, build Roslyn's CFGs ahead of lowering (each built once per body) and generate machine code
 per module partition after whole-program optimization; the output is the same at every `-j`. The SRM
 program compiles in 5.5 s at `-O0` and 15.3 s at `-O2` instead of 7.5 s and 18.1 s (shared VPS,
-`-j 2`), hello world in 1.4 s instead of 3.1 s. Next, in order: (3, continued)
-the corelib compiled to IL once and lowered through the IL front-end instead of re-bound by Roslyn,
-lowering on several threads, bounded code-generation memory; (4) reflection Roslyn needs at startup
+`-j 2`), hello world in 1.4 s instead of 3.1 s. The corelib is compiled to IL once (cached per
+corelib version and symbol set) and lowered through the IL front-end instead of parsed and bound
+into every program ([ADR 0015](adr/0015-corelib-il.md)): at `-O0` hello world compiles in 0.9 s
+instead of 1.5 s, the SRM program in 3.7 s instead of 4.6 s, with 30–40 MB less memory. Next, in
+order: (3, continued) lowering on several threads, bounded code-generation memory; (4) reflection Roslyn needs at startup
 (`typeof(X).Assembly`, resource lookup, analyzer activation) as compile-time metadata with diagnostics
 for the rest; (5) csharpc compiled by csharpc, LLVM C API P/Invokes included.
 

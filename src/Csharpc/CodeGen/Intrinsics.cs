@@ -509,6 +509,8 @@ internal static class Intrinsics
         };
 
         t["string.GetEnumerator()"] = (g, inv) => g.StringGetEnumerator(g.EmitValue(inv.Instance!));
+        // `fixed (char* p = s)` in IL (C# 13+ binds it to the pattern): a reference to the first char; Roslyn tests null first.
+        t["string.GetPinnableReference()"] = (g, inv) => g.StringFirstChar(g.EmitValue(inv.Instance!));
         t["System.CharEnumerator.MoveNext()"] = (g, inv) => g.StringEnumeratorMoveNext(g.EmitValue(inv.Instance!));
         t["System.CharEnumerator.Dispose()"] = (_, _) => default;
 
@@ -892,6 +894,8 @@ internal static class Intrinsics
             g.CallCoreLibGeneric("ValueTaskSourceBridge`1", "Create", [((INamedTypeSymbol)g.TypeOf(c)!).TypeArguments[0]], CtorArg(g, c, 0), CtorArg(g, c, 1));
         t[$"{Tasks}.ValueTask..ctor({Tasks}.Sources.IValueTaskSource, short)"] = (g, c) =>
             g.CallCoreLibGeneric("ValueTaskSourceBridge", "Create", [], CtorArg(g, c, 0), CtorArg(g, c, 1));
+        // `a..b` compiled to IL: two Index conversions and this constructor.
+        t["System.Range..ctor(System.Index, System.Index)"] = (g, c) => g.MakeRange(CtorArg(g, c, 0), CtorArg(g, c, 1));
         t["string..ctor(char, int)"] = (g, c) =>
             g.CallRuntime("csrt_string_new_repeat", g.Module.Llvm.Ptr, [g.Module.Llvm.I16, g.Module.Llvm.I32], CtorArg(g, c, 0), CtorArg(g, c, 1));
         // Strings from native memory: new string(char*, int, int) / (char*) / (sbyte*).

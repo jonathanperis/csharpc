@@ -53,12 +53,10 @@ public static class JsonReflectionContexts
             var builtIns = """
                 namespace CsharpcCoreLib
                 {
-                    internal static partial class JsonReflection
+                    internal static partial class ProgramHooks
                     {
-                        static partial void CreateBuiltIn(global::System.Type type, global::CsharpcCoreLib.JsonSerializerOptionsImpl options, ref global::CsharpcCoreLib.JsonTypeInfoImpl info)
-                        {
-                            info = global::CsharpcCoreLib.JsonBuiltInTypeInfos.TryCreate(type, options);
-                        }
+                        internal static object JsonBuiltIn(global::System.Type type, object options) =>
+                            global::CsharpcCoreLib.JsonProgramSupport.CreateBuiltIn(type, options);
                     }
                 }
                 """;
@@ -71,9 +69,9 @@ public static class JsonReflectionContexts
             var disabled = """
                 namespace CsharpcCoreLib
                 {
-                    internal static partial class JsonReflection
+                    internal static partial class ProgramHooks
                     {
-                        static partial void Configure(ref bool reflectionEnabled, ref global::System.Text.Json.Serialization.Metadata.IJsonTypeInfoResolver resolver)
+                        internal static void JsonConfigure(ref bool reflectionEnabled, ref global::System.Text.Json.Serialization.Metadata.IJsonTypeInfoResolver resolver)
                         {
                             reflectionEnabled = false;
                         }
@@ -187,9 +185,9 @@ public static class JsonReflectionContexts
         }
         source.AppendLine("namespace CsharpcCoreLib");
         source.AppendLine("{");
-        source.AppendLine("    internal static partial class JsonReflection");
+        source.AppendLine("    internal static partial class ProgramHooks");
         source.AppendLine("    {");
-        source.AppendLine("        static partial void Configure(ref bool reflectionEnabled, ref global::System.Text.Json.Serialization.Metadata.IJsonTypeInfoResolver resolver)");
+        source.AppendLine("        internal static void JsonConfigure(ref bool reflectionEnabled, ref global::System.Text.Json.Serialization.Metadata.IJsonTypeInfoResolver resolver)");
         source.AppendLine("        {");
         source.AppendLine($"            resolver = global::System.Text.Json.Serialization.Metadata.JsonTypeInfoResolver.Combine({string.Join(", ", contexts)});");
         source.AppendLine("        }");

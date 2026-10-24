@@ -41,8 +41,11 @@ public sealed partial class FunctionCodeGen
     {
         var start = op.LeftOperand is { } l ? EmitValue(l) : L.ConstInt(L.I32, 0);
         var end = op.RightOperand is { } r ? EmitValue(r) : L.ConstInt(L.I32, -1); // ^0
-        return _b.InsertValue(_b.InsertValue(LlvmContext.Null(RangeType), start, 0), end, 1);
+        return MakeRange(start, end);
     }
+
+    internal LLVMValueRef MakeRange(LLVMValueRef start, LLVMValueRef end) =>
+        _b.InsertValue(_b.InsertValue(LlvmContext.Null(RangeType), start, 0), end, 1);
 
     /// <summary>Index → offset for a sequence of <paramref name="length"/> (i32): from-end n is length - n.</summary>
     private LLVMValueRef ResolveIndex(LLVMValueRef index, LLVMValueRef length)

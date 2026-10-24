@@ -27,6 +27,15 @@ public sealed class IlAssemblySet : IDisposable
 
     public bool IsEmpty => _assemblies.Count == 0;
 
+    /// <summary>
+    /// Assemblies other than the precompiled corelib (ADR 0015): libraries the program references, whose
+    /// failures become stubs and whose types join class-hierarchy analysis (ADR 0010).
+    /// </summary>
+    public bool HasLibraries => _assemblies.Any(a => !a.IsCoreLib);
+
+    /// <summary>True for symbols of the precompiled corelib assembly.</summary>
+    public bool IsCoreLib(ISymbol? symbol) => OwnerOf(symbol) is { IsCoreLib: true };
+
     /// <summary>Opens and validates the assemblies; throws <see cref="InvalidOperationException"/> with a user-facing message.</summary>
     public static IlAssemblySet Load(IEnumerable<string> paths)
     {
@@ -134,6 +143,9 @@ public sealed class IlAssembly : IDisposable, ISignatureTypeProvider<IlType, IlG
     public Compilation Compilation { get; private set; } = null!;
     public string Name => Reader.GetString(Reader.GetAssemblyDefinition().Name);
 
+    /// <summary>The precompiled corelib (ADR 0015): lowered from IL, but with the source corelib's policies.</summary>
+    public bool IsCoreLib { get; }
+
     /// <summary>Decoded bodies by generic definition (IlMethodBody.For).</summary>
     internal Dictionary<IMethodSymbol, IlMethodBody> DecodedBodies { get; } = new(SymbolEqualityComparer.Default);
 
@@ -148,6 +160,7 @@ public sealed class IlAssembly : IDisposable, ISignatureTypeProvider<IlType, IlG
         Pe = pe;
         Reader = reader;
         Reference = reference;
+        IsCoreLib = Name == CoreLibAssembly.Name;
     }
 
     internal void Bind(Compilation compilation, IAssemblySymbol symbol, Dictionary<string, IAssemblySymbol> referenced)
@@ -558,8 +571,8 @@ public sealed class IlAssembly : IDisposable, ISignatureTypeProvider<IlType, IlG
 
     public IlType GetFunctionPointerType(MethodSignature<IlType> signature) =>
         new(Compilation.CreateFunctionPointerTypeSymbol(
-            NoByRef(signature.ReturnType), signature.ReturnType.IsByRef ? RefKind.Ref : RefKind.None,
-            [.. signature.ParameterTypes.Select(NoByRef)], [.. signature.ParameterTypes.Select(p => p.IsByRef ? RefKind.Ref : RefKind.None)],
+            signature.ReturnType.Type, signature.ReturnType.IsByRef ? RefKind.Ref : RefKind.None,
+            [.. signature.ParameterTypes.Select(p => p.Type)], [.. signature.ParameterTypes.Select(p => p.IsByRef ? RefKind.Ref : RefKind.None)],
             signature.Header.CallingConvention, []));
 
     private static ITypeSymbol NoByRef(IlType type) =>
@@ -590,6 +603,10 @@ public sealed class IlAssembly : IDisposable, ISignatureTypeProvider<IlType, IlG
     /// <summary>Local variable types of a body (by-ref / pinned shapes kept).</summary>
     public ImmutableArray<IlType> DecodeLocals(MethodBodyBlock body, IlGenericContext context) =>
         body.LocalSignature.IsNil ? [] : Reader.GetStandaloneSignature(body.LocalSignature).DecodeLocalSignature(this, context);
+
+    /// <summary>The signature of a `calli` (a StandAloneSig token).</summary>
+    public MethodSignature<IlType> DecodeCallSiteSignature(int token, IlGenericContext context) =>
+        Reader.GetStandaloneSignature((StandaloneSignatureHandle)MetadataTokens.EntityHandle(token)).DecodeMethodSignature(this, context);
 
     /// <summary>The definition's own type attributes (layout kind, beforefieldinit, ...).</summary>
     public TypeAttributes AttributesOf(INamedTypeSymbol type) => TypeDefinitionOf(type).Attributes;

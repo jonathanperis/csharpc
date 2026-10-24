@@ -89,6 +89,23 @@ public sealed class Compiler(CompilerOptions options)
             Phase($"choose framework IL ({framework.Count} assembl{(framework.Count == 1 ? "y" : "ies")})");
         }
         catch (InvalidOperationException e) { return Fail(e.Message); }
+        // The corelib as a precompiled assembly (ADR 0015): after the framework choice, which must not
+        // follow the corelib's own references.
+        if (options.CoreLibIl && RoslynFrontend.CoreLibFiles() is { Count: > 0 } coreLibFiles)
+        {
+            try
+            {
+                var built = CoreLibAssembly.Ensure(coreLibFiles, ["CSHARPC", .. settings.Defines, .. settings.CoreLibDefines],
+                    RoslynFrontend.ReferenceAssemblies(), options.Verbose ? Console.Error : null);
+                ilPaths.Add(built.Path);
+                settings = settings with { CoreLibAsIl = true };
+            }
+            catch (Exception e) when (e is InvalidOperationException or IOException or UnauthorizedAccessException)
+            {
+                return Fail(e.Message);
+            }
+            Phase("corelib assembly");
+        }
         IlAssemblySet il;
         try { il = IlAssemblySet.Load(ilPaths); }
         catch (Exception e) when (e is InvalidOperationException or IOException or BadImageFormatException) { return Fail(e.Message); }

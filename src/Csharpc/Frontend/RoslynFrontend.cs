@@ -53,7 +53,7 @@ public static class RoslynFrontend
         // The corelib also sees the target OS (CSHARPC_TARGET_*), for per-OS libc constants and layouts.
         var coreLibOptions = parseOptions.WithPreprocessorSymbols(parseOptions.PreprocessorSymbolNames.Concat(settings.CoreLibDefines).ToArray());
         var looseFiles = settings.Files.Select(Path.GetFullPath).Where(f => !s_parsed.ContainsKey(f)).ToList();
-        var coreLibFiles = CoreLibFiles();
+        var coreLibFiles = settings.CoreLibAsIl ? [] : CoreLibFiles();
         // Parse everything in parallel (the corelib alone is ~4.5 MB of C#); trees keep their order.
         List<(string Text, string Path, CSharpParseOptions Options)> inputs =
         [
@@ -189,7 +189,7 @@ public static class RoslynFrontend
     /// user's options so the compilation stays consistent; written in conservative C# for that reason.
     /// Only the members a program actually uses get bound and lowered.
     /// </summary>
-    private static List<(string File, string TreePath)> CoreLibFiles()
+    internal static List<(string File, string TreePath)> CoreLibFiles()
     {
         if (Environment.GetEnvironmentVariable("CSHARPC_NO_CORELIB") == "1") return [];
         var dir = Path.Combine(AppContext.BaseDirectory, "corelib");
@@ -225,7 +225,7 @@ public static class RoslynFrontend
     /// is no TRUSTED_PLATFORM_ASSEMBLIES list. Fallback: the framework csharpc runs on.
     /// Override with CSHARPC_REFERENCES=&lt;directory of reference assemblies&gt;.
     /// </summary>
-    private static ImmutableArray<MetadataReference> ReferenceAssemblies() => s_references ??= LoadReferences();
+    internal static ImmutableArray<MetadataReference> ReferenceAssemblies() => s_references ??= LoadReferences();
 
     private static ImmutableArray<MetadataReference>? s_references;
 
@@ -287,6 +287,8 @@ public sealed record FrontendSettings
     public IReadOnlyList<string> Defines { get; init; } = [];
     /// <summary>Extra symbols for the corelib only (the target OS); user code sees what .NET defines.</summary>
     public IReadOnlyList<string> CoreLibDefines { get; init; } = [];
+    /// <summary>The corelib is a precompiled assembly among <see cref="IlReferences"/> (ADR 0015), not parsed from source.</summary>
+    public bool CoreLibAsIl { get; init; }
     public string? LanguageVersion { get; init; }
     public string? Nullable { get; init; }
     public bool AllowUnsafe { get; init; } = true;
