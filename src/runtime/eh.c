@@ -368,6 +368,10 @@ void csrt_throw_null_reference(void) {
 void csrt_throw_index_out_of_range(void) {
     csrt_throw_object(new_exception(&csrt_MT_System_IndexOutOfRangeException, "Index was outside the bounds of the array."));
 }
+/// Array.GetLength/GetUpperBound/GetLowerBound with a dimension the array doesn't have.
+void csrt_throw_rank_out_of_range(void) {
+    csrt_throw_object(new_exception(&csrt_MT_System_IndexOutOfRangeException, "Array does not have that many dimensions."));
+}
 void csrt_throw_divide_by_zero(void) {
     csrt_throw_object(new_exception(&csrt_MT_System_DivideByZeroException, "Attempted to divide by zero."));
 }

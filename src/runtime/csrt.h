@@ -49,7 +49,8 @@ typedef struct {
 
 enum { CSRT_MT_ABSTRACT = 1, CSRT_MT_INTERFACE = 2, CSRT_MT_ITERATOR = 4 /* src/runtime/async.c */,
        CSRT_MT_NO_REFERENCES = 8 /* instances hold no heap references: the GC never scans them */,
-       CSRT_MT_DISPOSABLE = 16 /* runtime-implemented IDisposable whose Dispose() is a no-op (wait handles, CTS) */ };
+       CSRT_MT_DISPOSABLE = 16 /* runtime-implemented IDisposable whose Dispose() is a no-op (wait handles, CTS) */,
+       CSRT_MT_MDARRAY = 32 /* rectangular array ("System.Int32[,]"): interfaces dispatch like the untyped array tables */ };
 
 struct csrt_MethodTable {
     const csrt_MethodTable* base;   // null for System.Object and interfaces
@@ -58,13 +59,18 @@ struct csrt_MethodTable {
     uint32_t flags;                 // CSRT_MT_*
     const csrt_InterfaceMapEntry* interfaces;  // all implemented interfaces (flattened)
     uint32_t interface_count;
-    uint32_t reserved;
+    uint32_t reserved;              // CSRT_MT_MDARRAY: the rank
     // void* vtable[] follows — the compiler emits it as part of the same global.
 };
 
 typedef struct { const csrt_MethodTable* mt; } csrt_Object;
 typedef struct { const csrt_MethodTable* mt; int32_t length; uint16_t chars[]; } csrt_String;
 typedef struct { const csrt_MethodTable* mt; int64_t length; uint8_t data[]; } csrt_Array;
+// Rectangular arrays (T[,]...): the total element count where csrt_Array has its length, then one
+// length per dimension, then the row-major data (FunctionCodeGen.MultiDim.cs).
+typedef struct { const csrt_MethodTable* mt; int64_t length; int64_t lengths[]; } csrt_MdArray;
+int32_t csrt_array_rank(void* array);                               // Array.Rank of an `Array`
+int64_t csrt_array_dimension_length(void* array, int32_t dimension); // Array.GetLength(d) of an `Array`
 
 // Every method table is followed by its vtable. Slots 0..2 are System.Object's virtuals.
 enum { CSRT_SLOT_TO_STRING = 0, CSRT_SLOT_EQUALS = 1, CSRT_SLOT_GET_HASH_CODE = 2 };
@@ -135,6 +141,7 @@ void csrt_stderr_write_string(csrt_String* s);
 csrt_String* csrt_object_type_name(void* obj, bool full);  // obj.GetType().Name / FullName
 CSRT_THROWS void csrt_throw_null_reference(void);
 CSRT_THROWS void csrt_throw_index_out_of_range(void);
+CSRT_THROWS void csrt_throw_rank_out_of_range(void);
 CSRT_THROWS void csrt_throw_divide_by_zero(void);
 CSRT_THROWS void csrt_throw_overflow(void);
 // A method csharpc could not compile was called (IL front-end, docs/adr/0010-il-frontend.md): the

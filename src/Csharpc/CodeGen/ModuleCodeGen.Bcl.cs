@@ -189,6 +189,27 @@ public sealed partial class ModuleCodeGen
             LlvmContext.ConstArray(Llvm.Ptr, slots));
     }
 
+    /// <summary>
+    /// Rectangular arrays: one table per element type and rank ("System.Int32[,]"), the one instances are
+    /// allocated with, so GetType()/ToString() and typeof agree. Derives from csrt_Array_MT (`is Array`);
+    /// CSRT_MT_MDARRAY makes interface calls take the untyped-array path, as when they shared that table.
+    /// </summary>
+    public LLVMValueRef MdArrayMethodTable(IArrayTypeSymbol array)
+    {
+        var key = "mdarray:" + CoreLib.Map(TypeSubstitution.EraseTupleNames(array, Compilation)).ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+        if (_arrayMethodTables.TryGetValue(key, out var existing)) return existing;
+        string[] defaults = ["csrt_object_to_string_default", "csrt_object_equals_default", "csrt_object_get_hash_code_default"];
+        var slots = defaults.Select(d => Runtime(d, Llvm.Ptr, Llvm.Ptr).Fn).ToArray();
+        var flags = 32 /* CSRT_MT_MDARRAY */ | (Optimizations.HoldsNoReferences(array.ElementType) ? 8 /* CSRT_MT_NO_REFERENCES */ : 0);
+        var name = ClrName(array);
+        var init = Llvm.ConstStruct(ExternalGlobal("csrt_Array_MT"), CString(name), Llvm.ConstInt(Llvm.I32, 0), Llvm.ConstInt(Llvm.I32, flags),
+            LlvmContext.Null(Llvm.Ptr), Llvm.ConstInt(Llvm.I32, 0), Llvm.ConstInt(Llvm.I32, array.Rank) /* reserved = rank */,
+            LlvmContext.ConstArray(Llvm.Ptr, slots));
+        var global = Module.AddGlobal("csrt.mdarraymt." + name, Native.LLVMTypeOf(init), init, constant: true, linkage: LLVMLinkage.Private);
+        RegisterTypeMethodTable(global, array);
+        return _arrayMethodTables[key] = global;
+    }
+
     /// <summary>A name-only method table identifying a library type for Type objects (never instantiated).</summary>
     private LLVMValueRef TypeOnlyMethodTable(INamedTypeSymbol type)
     {
@@ -242,8 +263,7 @@ public sealed partial class ModuleCodeGen
         return type switch
         {
             IArrayTypeSymbol { IsSZArray: true } array => ArrayMethodTable(array.ElementType),
-            // Rectangular arrays share csrt_Array_MT at run time; typeof gets its own identity ("System.Int32[,]").
-            IArrayTypeSymbol array => NameOnlyMethodTable("mdarray:" + array.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat), ClrName(array), 0, array),
+            IArrayTypeSymbol array => MdArrayMethodTable(array),
             IPointerTypeSymbol pointer when !TypeSubstitution.IsOpen(pointer.PointedAtType) =>
                 NameOnlyMethodTable("ptr:" + pointer.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat), ClrName(pointer), 0, pointer),
             INamedTypeSymbol { TypeKind: TypeKind.Enum } e => EnumMethodTable(e),
