@@ -100,6 +100,9 @@ jobs:
       - name: Build
         run: dotnet build src/Csharpc -c Release
 
+      - name: Binary-size budgets
+        run: tests/size.sh
+
       - name: Differential tests (-O0 and -O2)
         run: tests/run.sh --all-opts
 
@@ -173,6 +176,9 @@ jobs:
 
       - name: Build
         run: dotnet build src/Csharpc -c Release
+
+      - name: Binary-size budgets
+        run: tests/size.sh
 
       - name: Differential tests (-O0 and -O2)
         run: tests/run.sh --all-opts

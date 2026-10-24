@@ -1,0 +1,9 @@
+# <platform> <program> <max bytes, stripped -O2>: measured size + ~3 %, rounded up to 1 KiB.
+# Lower a budget when a change makes a program smaller; raising one needs a reason in the commit.
+linux-x86_64 async 59392
+linux-x86_64 collections 71680
+linux-x86_64 exceptions 29696
+linux-x86_64 hello 29696
+linux-x86_64 linq 67584
+linux-x86_64 numbers 38912
+linux-x86_64 typeinfo 48128
