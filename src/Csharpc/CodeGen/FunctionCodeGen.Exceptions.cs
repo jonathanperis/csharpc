@@ -407,6 +407,10 @@ public sealed partial class FunctionCodeGen
         ["System.OperationCanceledException"] = "The operation was canceled.",
         ["System.Threading.Tasks.TaskCanceledException"] = "A task was canceled.",
         ["System.AggregateException"] = "One or more errors occurred.",
+        ["System.TimeoutException"] = "The operation has timed out.",
+        ["System.IO.IOException"] = "I/O error occurred.",
+        ["System.UnauthorizedAccessException"] = "Attempted to perform an unauthorized operation.",
+        ["System.BadImageFormatException"] = "Format of the executable (.exe) or library (.dll) is invalid.",
         ["System.Runtime.CompilerServices.SwitchExpressionException"] = "Non-exhaustive switch expression failed to match its input.",
     };
 
@@ -525,5 +529,13 @@ public sealed partial class FunctionCodeGen
             result = CallRuntime("csrt_exception_get_message", L.Ptr, [L.Ptr], self); // base.Message: non-virtual
         else result = VirtualCall(property.GetMethod!, self, [self]); // Message is virtual
         return true;
+    }
+
+    /// <summary>The body of a bodyless user `extern` method: throws BadImageFormatException like .NET does when it is called.</summary>
+    internal void EmitBodylessExternStub()
+    {
+        CallCoreLib("BodylessExtern", "Throw");
+        _b.Unreachable();
+        Finish();
     }
 }

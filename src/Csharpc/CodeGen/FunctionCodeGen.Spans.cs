@@ -459,6 +459,17 @@ public sealed partial class FunctionCodeGen
         throw CompileError.Unsupported($"span argument of type '{type}'", argument);
     }
 
+    /// <summary>
+    /// Element types whose equality is their bytes (.NET's RuntimeHelpers.IsBitwiseEquatable, roughly): the
+    /// runtime's byte-wise span searches are exact for them. Anything else (strings and other references,
+    /// floating point, structs) compares with EqualityComparer&lt;T&gt;.Default in the corelib (SpanEqualityOps).
+    /// </summary>
+    private static bool IsBitwiseEquatable(ITypeSymbol element) =>
+        element.SpecialType is SpecialType.System_Boolean or SpecialType.System_Char or SpecialType.System_SByte or SpecialType.System_Byte
+            or SpecialType.System_Int16 or SpecialType.System_UInt16 or SpecialType.System_Int32 or SpecialType.System_UInt32
+            or SpecialType.System_Int64 or SpecialType.System_UInt64 or SpecialType.System_IntPtr or SpecialType.System_UIntPtr
+        || element.TypeKind is TypeKind.Enum or TypeKind.Pointer;
+
     private LLVMValueRef MemoryExtensionsMethod(IInvocationOperation inv)
     {
         var method = inv.TargetMethod;
@@ -482,9 +493,14 @@ public sealed partial class FunctionCodeGen
                 CheckWindow(start.Value, len, SpanLength(span));
                 return MakeSpan(_b.InBoundsGep(L.I16, SpanPointer(span), [_b.Cast(LLVMOpcode.ZExt, start.Value, L.I64)]), len);
             }
-            case "IndexOf" or "LastIndexOf" or "Contains" when args.Length == 2 && !TypeMapper.IsSpan(S(args[1].Parameter!.Type)):
+            case "IndexOf" or "LastIndexOf" or "Contains" or "StartsWith" or "EndsWith" when args.Length == 2 && !TypeMapper.IsSpan(S(args[1].Parameter!.Type)):
             {
                 var span = SpanArgument(args[0], out var element);
+                if (method.Name is "StartsWith" or "EndsWith" || !IsBitwiseEquatable(element))
+                {
+                    var name = method.Name is "StartsWith" or "EndsWith" ? method.Name + "Value" : method.Name;
+                    return CallCoreLibGenericMethod("SpanEqualityOps", name, [element], span, Coerce(EmitValue(args[1].Value), TypeOf(args[1].Value), element));
+                }
                 var value = Spill(ToStorage(Coerce(EmitValue(args[1].Value), TypeOf(args[1].Value), element), element));
                 var index = CallRuntime(method.Name == "LastIndexOf" ? "csrt_span_last_index_of" : "csrt_span_index_of", L.I32,
                     [L.Ptr, L.I32, L.I64, L.Ptr], SpanPointer(span), SpanLength(span), ElementSize(element), value);
@@ -494,6 +510,7 @@ public sealed partial class FunctionCodeGen
             {
                 var span = SpanArgument(args[0], out var element);
                 var needle = SpanArgument(args[1], out _);
+                if (!IsBitwiseEquatable(element)) return CallCoreLibGenericMethod("SpanEqualityOps", "IndexOfSpan", [element], span, needle);
                 return CallRuntime("csrt_span_index_of_span", L.I32, [L.Ptr, L.I32, L.Ptr, L.I32, L.I64],
                     SpanPointer(span), SpanLength(span), SpanPointer(needle), SpanLength(needle), ElementSize(element));
             }
@@ -501,6 +518,7 @@ public sealed partial class FunctionCodeGen
             {
                 var a = SpanArgument(args[0], out var element);
                 var b = SpanArgument(args[1], out _);
+                if (!IsBitwiseEquatable(element)) return CallCoreLibGenericMethod("SpanEqualityOps", method.Name, [element], a, b);
                 var mode = method.Name switch { "SequenceEqual" => 0, "StartsWith" => 1, _ => 2 };
                 return CallRuntime("csrt_span_compare_mode", L.I1, [L.Ptr, L.I32, L.Ptr, L.I32, L.I64, L.I32],
                     SpanPointer(a), SpanLength(a), SpanPointer(b), SpanLength(b), ElementSize(element), L.ConstInt(L.I32, mode));

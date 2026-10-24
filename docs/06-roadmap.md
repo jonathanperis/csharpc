@@ -133,9 +133,9 @@ Roslyn binds against the real reference assemblies are redirected to it
 JSON source generator, which csharpc also synthesizes for reflection-style calls); formatting, parsing,
 `decimal`, `BigInteger` and `DateTime` (moved from the C runtime into C#); P/Invoke and `System.IO`;
 sockets (`Socket`, `TcpListener`/`TcpClient`, `UdpClient`, `Dns`); library value types (`Guid`,
-`ArraySegment<T>`); `System.Type` reflection basics; globalization (cultures via ICU, as .NET:
+`ArraySegment<T>`, `DateTimeOffset`); `MemoryPool<T>`, `Convert`; `System.Type` reflection basics; globalization (cultures via ICU, as .NET:
 [19-globalization.md](19-globalization.md)). Next: TLS and `HttpClient`; the library surface ranked by the compatibility runs and
-the NuGet survey (`DateTimeOffset`, `MemoryPool<T>`).
+the NuGet survey (`Uri`, `System.Xml.Linq`, `IConvertible`).
 
 ### M3 — Platforms and per-platform evidence ✅
 Each platform gets a CI job (GitHub Actions) running the full differential suite, conformance corpus
@@ -224,6 +224,18 @@ order: (3, continued) lowering on several threads, bounded code-generation memor
 (`typeof(X).Assembly`, resource lookup, analyzer activation) as compile-time metadata with diagnostics
 for the rest; (5) csharpc compiled by csharpc, LLVM C API P/Invokes included.
 
+### Runtime tiers — C# all the way down to a minimal native floor
+[ADR 0017](adr/0017-runtime-tiers.md). **Tier 1 (now, alongside M2/M4):** move the C runtime's ordinary
+code to the C# corelib — task scheduler, thread pool and timers, type/interface/delegate helpers and the
+remaining library helpers — with identical behaviour, sizes within budgets and benchmarks not slower.
+**Tier 2 (after M6, before M7):** the GC, exception dispatch and thread management in a restricted
+"systems C#" checked by the compiler (`[RuntimeCritical]`: no allocation, no safepoint, no throw),
+behind a flag next to the C version, made the default once it matches it on the benchmarks, the GC
+stress run and dotnet's own AOT tests. C# where possible, not as a rule: a C# port that is measurably slower or bigger is optimized first
+(the code and csharpc's codegen), and C stays wherever it is better for performance or safety. **Tier 3 (permanent):** a few hundred lines of native glue
+(entry, signal/SEH stubs, unwinder ABI, register spilling), plus dotnet's own C shims for the OS
+(`System.Native`, `System.Globalization.Native`), as NativeAOT does.
+
 ### M7 — End state: csharpc as dotnet's AOT backend
 A fork of dotnet in which `dotnet publish -p:PublishAot=true` runs csharpc where NativeAOT's ILCompiler
 runs today: the same IL inputs from `csc`, the same MSBuild properties (`OptimizationPreference`,
@@ -231,7 +243,11 @@ runs today: the same IL inputs from `csc`, the same MSBuild properties (`Optimiz
 `DirectPInvoke`, trimming descriptors and feature switches, ...) and the same outputs, so existing
 projects get csharpc by switching the AOT backend ([ADR 0016](adr/0016-nativeaot-parity-and-end-state.md)).
 Prerequisites: M6 (IL as the primary input path, csharpc compiling Roslyn and itself) and NativeAOT
-parity on the compatibility corpus. Until then `Csharpc.Sdk` is the integration point and adopts
+parity on the compatibility corpus.
+Acceptance gate: dotnet's own tests for the AOT path all pass with csharpc in NativeAOT's place —
+dotnet/runtime's NativeAOT runtime tests, the libraries' tests in their NativeAOT configuration, and the
+SDK's `PublishAot` tests (exclusions only for tests of ILCompiler internals, each listed). Tracked before
+the fork by building those suites with csharpc on CI and reporting the pass rate. Until then `Csharpc.Sdk` is the integration point and adopts
 NativeAOT's property names as it honours them.
 
 ### M8 — The win: TechEmpower with the csharpc-built dotnet

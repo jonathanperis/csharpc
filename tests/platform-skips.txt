@@ -44,6 +44,8 @@ windows 188_datetime_zone_new_york      live: sets TZ, which .NET ignores on Win
 windows 189_datetime_zone_lord_howe     live: sets TZ, which .NET ignores on Windows (it uses the Windows time zone)
 windows 190_datetime_zone_apia          live: sets TZ, which .NET ignores on Windows (it uses the Windows time zone)
 windows 257_datetime_parse              live: sets TZ, which .NET ignores on Windows (it uses the Windows time zone)
+windows 481_datetimeoffset_local       live: sets TZ, which .NET ignores on Windows (it uses the Windows time zone)
+windows 485_extern_without_body       live: BadImageFormatException's message puts the HRESULT on the same line on Windows
 windows 251_console_readkey_redirected  live: Console.Clear with redirected output throws IOException on Windows
 windows 12_null_reference               live: an unhandled NullReferenceException from a null dereference exits with 0xC0000005 on Windows
 windows 416_stack_trace_file_not_found  .NET on Windows opens files through other internal frames (SafeFileHandle.CreateFile, ...), which csharpc does not reproduce there yet
@@ -97,6 +99,7 @@ wasi 188_datetime_zone_new_york   sets TZ: wasi-libc has no time zone database, 
 wasi 189_datetime_zone_lord_howe  sets TZ: wasi-libc has no time zone database, local time is UTC
 wasi 190_datetime_zone_apia       sets TZ: wasi-libc has no time zone database, local time is UTC
 wasi 257_datetime_parse           sets TZ: wasi-libc has no time zone database, local time is UTC
+wasi 481_datetimeoffset_local    sets TZ: wasi-libc has no time zone database, local time is UTC
 wasi bcl/006_environment          Environment.TickCount64 > 0: WASI's monotonic clock starts at 0 with the module under wasmtime
 wasi 380_readonly_collection_threadlocal  needs threads: Thread.Start throws PlatformNotSupportedException on WebAssembly
 wasi 443_concurrent_collections   needs threads (ConcurrentBag's per-thread queues): Thread.Start throws PlatformNotSupportedException on WebAssembly

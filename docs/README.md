@@ -34,6 +34,7 @@ Start with the [top-level README](../README.md) for the quick start.
 | [0014](adr/0014-compile-time.md) | Compile-time scale: a ReadyToRun compiler, parallel parsing/binding/CFGs (`-j`), machine code per module partition |
 | [0015](adr/0015-corelib-il.md) | The corelib compiled to IL once (cached) and lowered through the IL front-end (`--corelib il`, default) |
 | [0016](adr/0016-nativeaot-parity-and-end-state.md) | NativeAOT parity as the support target; csharpc as the AOT backend of a dotnet fork as the end state |
+| [0017](adr/0017-runtime-tiers.md) | The runtime in three tiers: ordinary C#, compiler-checked "systems C#" (GC, EH, threads), a minimal native floor |
 
 The docs describe the code as of the commit they were written at. When a feature lands, update the
 matrix in [06-roadmap.md](06-roadmap.md) and add a dated entry to [07-spike-log.md](07-spike-log.md).

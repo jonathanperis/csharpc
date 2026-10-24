@@ -57,6 +57,12 @@ against is .NET's own AOT path, `dotnet publish -p:PublishAot=true` (NativeAOT, 
   becomes part of the drop-in contract.
 - **Out-of-scope list is NativeAOT's.** The roadmap's ❌ status means exactly "NativeAOT doesn't
   support it either"; anything NativeAOT supports is ⬜/🟡/🚧 until it's ✅.
+- **Acceptance gate for the fork: dotnet's own tests pass.** With NativeAOT removed and csharpc in its
+  place, the test suites dotnet uses to validate its AOT path must all pass: dotnet/runtime's NativeAOT
+  runtime tests and the libraries' tests in their NativeAOT configuration, and the SDK's `PublishAot`
+  tests. A test is only excluded where it tests ILCompiler internals rather than behaviour (each such
+  exclusion listed with its reason). Tracked early: before the fork exists, the same suites are built
+  with csharpc on CI and their pass rate is reported next to the compatibility numbers.
 - **Definition of done (roadmap M8):** the fork, with NativeAOT's code removed and csharpc in its
   place, is built and used to compile the ASP.NET Core TechEmpower Framework Benchmarks entries that
   .NET runs with NativeAOT; they run in the TechEmpower environment and beat the NativeAOT-compiled
