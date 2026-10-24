@@ -429,7 +429,7 @@ and `System.Net.*` (not the Windows-only IIS and HTTP.sys servers, nor the obsol
 | Survey run (2026-10-24, CI) | methods that fail to lower | of them in the 48 assemblies of both runs |
 |---|---:|---:|
 | start of the `m8-harness` branch | 2 974 | 2 888 |
-| after the fixes below (`m8-harness`) | 1 842 | 1 726 |
+| after the fixes below (`m8-harness`) | 1 806 | 1 691 |
 
 Fixed on the branch, by methods stopped in the first survey: the whole virtual surface of `Stream`
 (`ReadAsync`/`WriteAsync`/`BeginRead`/`CanTimeout`/`FlushAsync`/`DisposeAsync` overrides: ~490),
@@ -438,13 +438,15 @@ Fixed on the branch, by methods stopped in the first survey: the whole virtual s
 coroutines like C# async methods, [10-async.md](10-async.md#runtime-async-methods-from-il)),
 `ReadOnlySequence<T>`/`SequenceReader<T>`/`SequencePosition` (155), `SearchValues<byte/char>` (64),
 `Collection<T>`, TextWriter/TextReader span and async members, MarshalByRefObject, `System.Text.Ascii`,
-`TaskToAsyncResult`, `Rune`, `Uri.EscapeDataString`, `Timer`/`TimeProvider`, `Task.Status`,
+`TaskToAsyncResult`, `Rune`, `UrlEncoder`, `Uri.EscapeDataString`, `Timer`/`TimeProvider`, `Task.Status`,
 `ConfigureAwait(ConfigureAwaitOptions)`, `Buffer.BlockCopy`, span comparisons with a `StringComparison`,
 the start-up members of hosting and DI (`AppContext.BaseDirectory`, `Environment.ProcessPath`,
 `RuntimeFeature.IsDynamicCode*` = false as under NativeAOT, `TryEnsureSufficientExecutionStack`), and
 NativeAOT's folding of the dynamic-code feature switches in IL (DI's Reflection.Emit resolver is no
 longer lowered). Found on the way: `x is { } v` on a nullable library struct (`SequencePosition?`,
-`Guid?`, `KeyValuePair<,>?`) was always false — fixed, sample 506.
+`Guid?`, `KeyValuePair<,>?`) was always false — fixed, sample 506 — and the IL front-end crashed on
+`Span<T>.op_Implicit(ArraySegment<T>)` called as a method (8 DataProtection methods; fixed after the last
+survey run).
 
 Ranked list now (methods stopped, items of one API grouped; *other branch*: work in progress elsewhere):
 
@@ -465,11 +467,11 @@ Ranked list now (methods stopped, items of one API grouped; *other branch*: work
 | 13 | 13 | overriding `Exception.GetObjectData` | Routing, Kestrel.Core, System.Net.Http |
 | 14 | 13 | `Hashtable`, `ArrayList` | System.Collections.NonGeneric users |
 | 15 | 13 | `IPNetwork` | HttpOverrides |
-| 16 | 10 | `UrlEncoder.Default` | Routing, Http.Abstractions, WebUtilities |
-| 17 | 8 | internal compiler error (NullReferenceException) lowering IL | System.Net.Http |
-| 18 | 8 | `OSPlatform.Windows`, `HttpVersion.Version11`, `OperationCanceledException.CancellationToken` (8 each) | Kestrel.Core, Hosting, System.Net.Http |
-| 19 | 6 | `RuntimeHelpers.GetUninitializedObject` | Http.Extensions, Configuration.Binder |
-| 20 | 5 | explicit layout of `Internal.PaddingFor32` | System.IO.Pipelines |
+| 16 | 8 | `OSPlatform.Windows`, `HttpVersion.Version11`, `OperationCanceledException.CancellationToken` (8 each) | Kestrel.Core, Hosting, System.Net.Http |
+| 17 | 6 | `RuntimeHelpers.GetUninitializedObject` | Http.Extensions, Configuration.Binder |
+| 18 | 6 | `StringBuilder.Append(IFormatProvider, $"...")` | Kestrel.Core, Routing |
+| 19 | 6 | `MemoryExtensions.CopyTo(T[], Span<T>)` | Kestrel.Core, WebUtilities |
+| 20 | 5 | explicit layout of `Internal.PaddingFor32`; deriving from `CancellationTokenSource`; `StackTrace`; `AsyncFlowControl` (5 each) | System.IO.Pipelines, Kestrel.Core, Hosting |
 
 The survey counts methods that fail to *lower*. Compiling the app itself is the other measure: the
 methods it reaches that csharpc can't compile yet are 44 (`blockers.py` on `csharpc -v` output; a
@@ -478,7 +480,7 @@ dependency injection's reflection (`Type.GetConstructors`, `ConstructorInfo.Invo
 `Array.CreateInstance`, `Delegate.Method`), which NativeAOT serves from compile-time metadata kept for
 the types DI's `[DynamicallyAccessedMembers]` annotations name; then `DateTimeOffset` (the console
 logger), file-system watching for configuration reload (`FileSystemWatcher`, `FileSystemInfo.Attributes`/
-`LinkTarget`), `PosixSignalRegistration` (SIGTERM handling), `UrlEncoder.Default`, `SemaphoreSlim`,
+`LinkTarget`), `PosixSignalRegistration` (SIGTERM handling), `SemaphoreSlim`,
 `ObservableCollection<T>` (System.ObjectModel is ineligible because the corelib implements
 `PropertyChangedEventArgs`) and type tests against the task-handle structs (`CancellationToken`, the
 configured awaiters). Beyond compiling: Kestrel's socket transport needs `Socket.ReceiveAsync`/

@@ -258,7 +258,7 @@ projects, taking the ASP.NET Core assemblies a program uses from the shared fram
 .NET 11's runtime-async methods; the TechEmpower app doesn't build yet: 44 methods it reaches fail
 to compile, most of them dependency injection's reflection (`GetConstructors`, `ConstructorInfo.Invoke`,
 `MakeGenericType`). The IL survey's `aspnetcore` target ranks the rest: of the methods of the 48 ASP.NET
-Core / Extensions / Pipelines / System.Net assemblies the app reaches, 1 726 fail to lower (2 888 at the
+Core / Extensions / Pipelines / System.Net assemblies the app reaches, 1 691 fail to lower (2 888 at the
 start of the branch) — reflection (524), TLS (170), `DateTimeOffset` (156), `MemoryPool<T>`/`MemoryManager<T>`
 (120), `Uri` (78) lead ([18-compatibility.md](18-compatibility.md#aspnet-core-and-the-techempower-app)).
 Next, in order: reflection metadata for DI (constructors and parameters of the types DI's
