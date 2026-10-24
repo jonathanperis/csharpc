@@ -50,8 +50,11 @@ of lowering and LLVM code generation; the output never depends on the thread cou
   implementation (see [intrinsics](03-lowering.md#library-calls-intrinsics)).
 - Roslyn errors stop compilation and are printed in Roslyn's normal format. Warnings are shown with
   `-W`.
-- Files are parsed in parallel and the program's trees are bound for diagnostics in parallel; the
-  corelib's method bodies are only bound when lowering reaches them.
+- Files are parsed in parallel and the program's trees are bound for diagnostics in parallel.
+- **The corelib** is not parsed into the program's compilation: it is compiled once into
+  `CsharpcCoreLib.dll` (cached in `~/.cache/csharpc`, keyed on its sources and the preprocessor
+  symbols it tests), referenced like an IL assembly, and its methods are lowered from IL as the program
+  reaches them ([ADR 0015](adr/0015-corelib-il.md); `--corelib source` parses it as before).
 - **Assemblies without sources** (`-r X.dll`, project `<Reference>` items, `PackageReference`s) are
   added as metadata references too; their code comes from the IL front-end (next section).
 
@@ -114,7 +117,7 @@ Errors are collected per symbol (`Guard`), so one unsupported construct doesn't 
 are reported together with source locations.
 
 Roslyn's CFG of a body is built once per syntax node (`ModuleCodeGen.Cfgs.cs`), and the CFGs of
-methods queued for lowering (corelib, generic instantiations) are built ahead on background threads
+methods queued for lowering (generic instantiations of the program's code) are built ahead on background threads
 while the lowering thread works through the queue ([ADR 0014](adr/0014-compile-time.md)).
 
 `CSHARPC_TRACE=1` logs each symbol as it is lowered, which helps when libLLVM crashes.
@@ -197,9 +200,10 @@ Per platform:
   optimization level, because two whole-program IR passes run on wasm (below). `main` is exported as
   `__main_argc_argv`, the name wasi-libc's start code calls. The design is in
   [ADR 0011](adr/0011-wasm32.md).
-- The corelib is parsed with `CSHARPC_TARGET_LINUX`, `CSHARPC_TARGET_MACOS`, `CSHARPC_TARGET_WINDOWS`
+- The corelib is compiled with `CSHARPC_TARGET_LINUX`, `CSHARPC_TARGET_MACOS`, `CSHARPC_TARGET_WINDOWS`
   or `CSHARPC_TARGET_WASI` (from the target triple) so its libc constants, struct layouts and OS
-  calls match the target ([16-interop-io.md](16-interop-io.md)).
+  calls match the target ([16-interop-io.md](16-interop-io.md)); each target has its own cached
+  corelib assembly.
 
 The runtime (`src/runtime/*.c`, `*.h`) ships as **source** next to the compiler (copied into
 `bin/.../runtime/` by the `.csproj`). It is compiled on first use with

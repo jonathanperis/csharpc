@@ -15,7 +15,8 @@ csharpc:     CsharpcCoreLib.DictionaryImpl<string,int>.set_Item(string, int)    
 
 | Path | What |
 |---|---|
-| `src/Csharpc/corelib/*.cs` | the corelib sources (copied next to the compiler; parsed into every compilation) |
+| `src/Csharpc/corelib/*.cs` | the corelib sources (copied next to the compiler; compiled once into `CsharpcCoreLib.dll`, [ADR 0015](adr/0015-corelib-il.md)) |
+| `src/Csharpc/Frontend/CoreLibAssembly.cs` | builds and caches that assembly (`~/.cache/csharpc/corelib-<key>.dll`) and its shadow index |
 | `src/Csharpc/CodeGen/CoreLib.cs` | discovery of shadows + symbol mapping (types, methods, properties, fields) |
 | `src/Csharpc/CodeGen/FunctionCodeGen.CoreLib.cs` | `CoreIntrinsics` codegen, property lvalue captures, value-type null folds |
 | `src/Csharpc/CodeGen/ModuleCodeGen.CoreLib.cs` | arrays / strings as BCL interfaces |
@@ -55,11 +56,20 @@ internal static class StringExtras { public static string Join<T>(string separat
 
 * Refer to BCL types by their **real** names (`List<T>`, `KeyValuePair<K,V>`, `IEnumerable<T>`); use the
   shadow name only inside its own class (or via a cast through `object`).
-* The corelib is parsed with the **user's** parse options, so stay conservative: no primary constructors,
-  no collection expressions, and **no static field initializers** (corelib types are not part of the static
-  initializer; use lazy init: `static T[] s_x; static T[] X => s_x ??= ...`).
-* `#nullable disable` at the top; corelib diagnostics are never shown to users
-  (`CSHARPC_CHECK_CORELIB=1` reports them — use it when editing the corelib).
+* The corelib is compiled on its own, as `CsharpcCoreLib.dll`, once per symbol set and cached
+  ([ADR 0015](adr/0015-corelib-il.md)); programs reference it and its methods are lowered from IL as
+  they are reached. `#if` may test `CSHARPC_TARGET_*`, the globalization modes and any program symbol:
+  each distinct set of tested symbols is its own assembly. `--corelib source` (or
+  `CSHARPC_CORELIB=source`) still parses the sources into the program's compilation instead; keep the
+  code valid both ways and stay conservative (no primary constructors, no collection expressions).
+* Prefer lazy static data (`static T[] s_x; static T[] X => s_x ??= ...`) to static field
+  initializers: an initializer becomes a `.cctor` checked on every static field access of the type.
+* Code generated into the program (`[GeneratedRegex]`, the reflection-style JSON contexts) can only use
+  **public** corelib members; the corelib reaches generated program code through `CoreIntrinsics`
+  hooks (`JsonConfigureHook`/`JsonBuiltInHook` call `CsharpcCoreLib.ProgramHooks` when the program has it).
+* `#nullable disable` at the top; corelib diagnostics are never shown to users. A corelib that doesn't
+  compile fails every compile with Roslyn's errors; `CSHARPC_CHECK_CORELIB=1` binds the sources inside
+  a program's compilation (the source corelib) and reports them all, warnings included.
 * Lowering is flow-insensitive: everything a reached method references is lowered and linked, and its
   virtual call sites keep their targets. Keep rarely needed work (big tables, culture-sensitive
   fallbacks, composite formatting in exception messages) out of common paths, or behind something only
@@ -274,8 +284,10 @@ answering wrong. Samples: `tests/samples/400_type_assignability` … `403_type_a
 
 ## Cost
 
-Hello world: identical binary size; compile-time overhead is parsing the corelib (~0.1–0.2 s warm; shadow
-discovery is syntax-only, and only the members a program uses get bound and lowered).
+Hello world: identical binary size. Compile time: the corelib assembly is built once per machine,
+corelib version and symbol set (~6 s); afterwards a compile stats the sources (~45 ms) and lowers the
+corelib methods the program reaches from IL, with no parsing or binding of the corelib
+([ADR 0015](adr/0015-corelib-il.md)).
 
 ## Gaps
 
