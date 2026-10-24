@@ -409,6 +409,28 @@ public sealed partial class FunctionCodeGen
         return obj;
     }
 
+    /// <summary>
+    /// Activator.CreateInstance&lt;T&gt;() (also ConditionalWeakTable.GetOrCreateValue): T is known after
+    /// monomorphization. A class with a public parameterless constructor is constructed, a struct without
+    /// one is its zero value; .NET's MissingMethodException cases (abstract classes, no public
+    /// parameterless constructor) are compile-time errors rather than guessed run-time behaviour.
+    /// </summary>
+    internal LLVMValueRef ActivatorCreateInstance(ITypeSymbol type, IOperation at)
+    {
+        if (type is INamedTypeSymbol { TypeKind: TypeKind.Class, IsAbstract: false } named && _m.IsUserType(named)
+            && named.InstanceConstructors.FirstOrDefault(c => c.Parameters.IsEmpty && c.DeclaredAccessibility == Accessibility.Public) is { } ctor)
+        {
+            var layout = _m.GetLayout(named);
+            var obj = Allocate(layout.MethodTable, L.ConstInt(L.I64, (long)layout.InstanceSize));
+            DirectCall(ctor, [obj]);
+            return obj;
+        }
+        if (type.IsValueType && type.TypeKind != TypeKind.TypeParameter
+            && (type is not INamedTypeSymbol s || s.InstanceConstructors.All(c => !c.Parameters.IsEmpty || c.IsImplicitlyDeclared)))
+            return LlvmContext.Null(T.Value(type));
+        throw CompileError.Unsupported($"Activator.CreateInstance<T>() with T = '{type}'", at);
+    }
+
     private LLVMValueRef Allocate(LLVMValueRef methodTable, LLVMValueRef size) =>
         CallRuntime("csrt_alloc", L.Ptr, [L.Ptr, L.I64], methodTable, size);
 

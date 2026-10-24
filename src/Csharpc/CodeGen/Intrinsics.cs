@@ -134,9 +134,18 @@ internal static class Intrinsics
         };
         t["System.Runtime.CompilerServices.RuntimeHelpers.IsReferenceOrContainsReferences()"] = (g, inv) =>
             g.Module.Llvm.ConstInt(g.Module.Llvm.I1, Optimizations.IsReferenceOrContainsReferences(g.S(inv.TargetMethod.TypeArguments[0])) ? 1 : 0);
-        // The identity hash object.GetHashCode falls back to (0 for null, like .NET).
+        t["System.Activator.CreateInstance()"] = (g, inv) => inv.TargetMethod.TypeArguments.Length == 1
+            ? g.ActivatorCreateInstance(g.S(inv.TargetMethod.TypeArguments[0]), inv)
+            : throw CompileError.Unsupported("Activator.CreateInstance()", inv);
+        // The identity hash object.GetHashCode falls back to: csrt_object_get_hash_code_default's formula
+        // (csrt.c), inline (0 for null, like .NET).
         t["System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(object)"] = (g, inv) =>
-            g.CallRuntime("csrt_object_get_hash_code_default", g.Module.Llvm.I32, [g.Module.Llvm.Ptr], Arg(g, inv, 0));
+        {
+            var l = g.Module.Llvm;
+            var address = g.Builder.Cast(LLVMOpcode.PtrToInt, Arg(g, inv, 0), l.I64);
+            var hash = g.Builder.BinOp(LLVMOpcode.Mul, g.Builder.BinOp(LLVMOpcode.LShr, address, l.ConstInt(l.I64, 3)), l.ConstInt(l.I64, 2654435761));
+            return g.Builder.Cast(LLVMOpcode.Trunc, hash, l.I32);
+        };
         t["object.ReferenceEquals(object, object)"] = (g, inv) =>
             g.Builder.ICmp(LLVMIntPredicate.EQ, Arg(g, inv, 0), Arg(g, inv, 1));
         // Enum.HasFlag(flag): (value & flag) == flag on the underlying integers (both arrive boxed to Enum).

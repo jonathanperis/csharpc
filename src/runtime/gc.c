@@ -1087,6 +1087,130 @@ static size_t sweep(void) {
     return live;
 }
 
+// ---------------------------------------------------------------------------------------------
+// Weak references and ephemerons (WeakReference, ConditionalWeakTable: corelib/WeakReferences.cs)
+// ---------------------------------------------------------------------------------------------
+// A table outside the managed heap, so the conservative scan never sees the targets it holds. After
+// marking, a slot whose target wasn't reached is cleared. An ephemeron slot (a ConditionalWeakTable
+// entry) also keeps its value alive, but only while its key is reachable some other way. A slot
+// with an owner (the WeakReference object, the table's storage) is freed when the owner dies: csharpc
+// runs no finalizers, which is how .NET releases these handles.
+
+typedef struct {
+    uintptr_t target, value, owner;
+    int32_t kind;       // 0 free, 1 weak, 2 ephemeron
+    int32_t next_free;  // free list (index), -1 at the end
+} WeakSlot;
+
+static struct {
+    WeakSlot* slots;
+    size_t count, capacity;
+    int32_t free_head;
+    bool any;
+} weak = { .free_head = -1 };
+
+/// Whether a candidate pointer's object was marked by this collection (pointers outside the heap —
+/// string literals, static data — are always alive). Valid between marking and sweeping.
+static bool weak_is_marked(uintptr_t word) {
+    if (word < g.heap_min || word >= g.heap_max) return true;
+    uintptr_t base = word & ~(CHUNK_SIZE - 1);
+    if (chunk_set_contains(base)) {
+        Chunk* c = (Chunk*)base;
+        size_t offset = word - base;
+        if (c->object_size == 0 || offset < CHUNK_HEADER) return false;
+        size_t index = (offset - CHUNK_HEADER) / c->object_size;
+        return index < c->slots && bit_get(c->allocated, index) && bit_get(c->marked, index);
+    }
+    size_t lo = 0, hi = g.large_count;
+    while (lo < hi) {
+        size_t mid = (lo + hi) / 2;
+        LargeObject* obj = &g.large[mid];
+        if (word < (uintptr_t)obj->start) hi = mid;
+        else if (word >= (uintptr_t)obj->start + obj->size) lo = mid + 1;
+        else return obj->marked;
+    }
+    return false;
+}
+
+static void weak_release(size_t i) {
+    weak.slots[i] = (WeakSlot){ .kind = 0, .next_free = weak.free_head };
+    weak.free_head = (int32_t)i;
+}
+
+/// Runs with the world stopped, after the roots are drained and before the sweep.
+static void weak_process(void) {
+    if (!weak.any) return;
+    // Ephemerons: mark the values of entries whose key (and owning table) are reachable, to a fixed
+    // point — a value may make another entry's key or table reachable.
+    for (bool again = true; again;) {
+        again = false;
+        for (size_t i = 0; i < weak.count; i++) {
+            WeakSlot* s = &weak.slots[i];
+            if (s->kind != 2 || !s->target || !s->value) continue;
+            if (s->owner && !weak_is_marked(s->owner)) continue;
+            if (weak_is_marked(s->target) && !weak_is_marked(s->value)) {
+                mark_candidate(s->value);
+                drain();
+                again = true;
+            }
+        }
+    }
+    for (size_t i = 0; i < weak.count; i++) {
+        WeakSlot* s = &weak.slots[i];
+        if (s->kind == 0) continue;
+        if (s->owner && !weak_is_marked(s->owner)) { weak_release(i); continue; }
+        if (s->target && !weak_is_marked(s->target)) { s->target = 0; s->value = 0; }
+    }
+}
+
+intptr_t csrt_weak_alloc(void* target, void* value, void* owner, int32_t ephemeron) {
+    if (!g.initialized) csrt_gc_init();
+    gc_lock();
+    if (weak.free_head < 0) {
+        if (weak.count == weak.capacity) {
+            size_t capacity = weak.capacity ? weak.capacity * 2 : 256;
+            weak.slots = mmap_grow(weak.slots, weak.capacity * sizeof(WeakSlot), capacity * sizeof(WeakSlot));
+            weak.capacity = capacity;
+        }
+        weak.slots[weak.count] = (WeakSlot){ .next_free = -1 };
+        weak.free_head = (int32_t)weak.count++;
+    }
+    size_t i = (size_t)weak.free_head;
+    weak.free_head = weak.slots[i].next_free;
+    weak.slots[i] = (WeakSlot){ (uintptr_t)target, (uintptr_t)value, (uintptr_t)owner, ephemeron ? 2 : 1, -1 };
+    weak.any = true;
+    gc_unlock();
+    return (intptr_t)i + 1;
+}
+
+void* csrt_weak_target(intptr_t handle) {
+    gc_lock();
+    void* target = (void*)weak.slots[handle - 1].target;
+    gc_unlock();
+    return target;
+}
+
+/// An ephemeron's value (NULL once its key is gone).
+void* csrt_weak_value(intptr_t handle) {
+    gc_lock();
+    void* value = (void*)weak.slots[handle - 1].value;
+    gc_unlock();
+    return value;
+}
+
+void csrt_weak_set(intptr_t handle, void* target, void* value) {
+    gc_lock();
+    weak.slots[handle - 1].target = (uintptr_t)target;
+    weak.slots[handle - 1].value = (uintptr_t)value;
+    gc_unlock();
+}
+
+void csrt_weak_free(intptr_t handle) {
+    gc_lock();
+    weak_release((size_t)handle - 1);
+    gc_unlock();
+}
+
 __attribute__((noinline)) void csrt_gc_collect_now(void) {
     if (g.collecting) return;
     g.collecting = true;
@@ -1097,6 +1221,7 @@ __attribute__((noinline)) void csrt_gc_collect_now(void) {
     sort_large(g.large, g.large_count);
     scan_roots();
     drain();
+    weak_process();
     protect_caches();
     g.live_bytes = sweep();
     resume_world();
