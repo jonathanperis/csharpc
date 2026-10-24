@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using Csharpc.Llvm;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.FlowAnalysis;
@@ -176,11 +177,25 @@ public sealed partial class FunctionCodeGen
             {
                 // obj.Method: the receiver is the target; virtual methods are resolved now, as in .NET.
                 target = EmitValue(group.Instance!);
-                if (group.Instance is not IInstanceReferenceOperation) NullCheck(target);
+                if (group.Instance is not IInstanceReferenceOperation) DelegateTargetCheck(target);
                 var method = S(group.Method);
                 var isVirtual = group.IsVirtual && (method.IsVirtual || method.IsAbstract || method.IsOverride)
                     && !method.IsSealed && !method.ContainingType.IsSealed;
                 fn = isVirtual ? LoadVirtualFunction(method, target) : _m.GetFunction(method).Fn;
+                break;
+            }
+            // A library method (Path.GetFullPath, set.Contains, char.IsAscii...): a thunk with the delegate's
+            // calling convention calls it through the ordinary call lowering (intrinsics, corelib, dispatch).
+            case IMethodReferenceOperation group when LibraryDelegateTarget(Substitution.Apply(group.Method)):
+            {
+                var method = Substitution.Apply(group.Method); // the library member itself: an instance shadow is a static corelib method
+                if (method.IsStatic) target = LlvmContext.Null(L.Ptr);
+                else
+                {
+                    target = EmitValue(group.Instance!);
+                    if (group.Instance is not IInstanceReferenceOperation) DelegateTargetCheck(target);
+                }
+                fn = _m.LibraryDelegateThunk(method, group.IsVirtual, creation.Syntax);
                 break;
             }
             case IMethodReferenceOperation group:
@@ -194,6 +209,33 @@ public sealed partial class FunctionCodeGen
         _b.Store(fn, _b.StructGep(DelegateType, obj, 2));
         return obj;
     }
+
+    /// <summary>Binding an instance method to null is an ArgumentException when the delegate is created, as in .NET.</summary>
+    private void DelegateTargetCheck(LLVMValueRef target) =>
+        ThrowLibraryExceptionIf(_b.ICmp(LLVMIntPredicate.EQ, target, LlvmContext.Null(L.Ptr)),
+            "System.ArgumentException", "Delegate to an instance method cannot have null 'this'.");
+
+    /// <summary>Library methods a delegate thunk can call: by-value parameters, and a reference-type receiver if any.</summary>
+    private static bool LibraryDelegateTarget(IMethodSymbol method) =>
+        method.Parameters.All(p => p.RefKind == RefKind.None) && method.RefKind == RefKind.None
+        && (method.IsStatic || method.ContainingType.IsReferenceType) && !TypeSubstitution.IsOpen(method);
+
+    /// <summary>The body of ModuleCodeGen.LibraryDelegateThunk: (target, args...) => method(args...).</summary>
+    internal void EmitLibraryDelegateThunk(IMethodSymbol method, bool isVirtual, SyntaxNode syntax)
+    {
+        var instance = method.IsStatic ? null
+            : new IlValueOperation(syntax, method.ContainingType, () => _fn.Fn.Param(0), nonNull: true);
+        var arguments = method.Parameters.Select((p, i) => (IArgumentOperation)new IlArgumentOperation(syntax, p,
+            new IlValueOperation(syntax, p.Type, () => _fn.Fn.Param((uint)(i + 1))))).ToImmutableArray();
+        var invocation = new IlInvocationOperation(syntax, method, instance, isVirtual && !method.IsStatic, arguments, null);
+        var result = EmitValue(invocation);
+        if (method.ReturnsVoid) _b.RetVoid();
+        else _b.Ret(ToStorageIfNeeded(result, method.ReturnType));
+        Finish();
+    }
+
+    private LLVMValueRef ToStorageIfNeeded(LLVMValueRef value, ITypeSymbol type) =>
+        value.Type.Handle == T.Value(type).Handle ? value : Coerce(value, type, type);
 
     /// <summary>Resolves a user virtual method on <paramref name="self"/> via its vtable (delegate binding).</summary>
     private LLVMValueRef LoadVirtualFunction(IMethodSymbol method, LLVMValueRef self)

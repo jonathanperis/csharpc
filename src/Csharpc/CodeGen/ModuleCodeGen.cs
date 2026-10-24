@@ -674,6 +674,21 @@ public sealed partial class ModuleCodeGen
     /// <summary>
     /// Adapts a static method to the delegate convention fn(target, args...): the thunk ignores target.
     /// </summary>
+    /// <summary>A delegate entry point (ptr target, args...) for a library method (FunctionCodeGen.EmitLibraryDelegateThunk).</summary>
+    public LLVMValueRef LibraryDelegateThunk(IMethodSymbol method, bool isVirtual, SyntaxNode syntax)
+    {
+        var key = "libthunk:" + (isVirtual ? "v:" : "") + Mangler.Method(method);
+        if (_globals.TryGetValue(key, out var existing)) return existing;
+        List<LLVMTypeRef> parameters = [Llvm.Ptr];
+        foreach (var p in method.Parameters) parameters.Add(Types.Value(p.Type));
+        var type = Llvm.FunctionType(Types.Value(method.ReturnType), [.. parameters]);
+        var thunk = Module.AddFunction(Mangler.Method(method) + (isVirtual ? "$vdelegate" : "$delegate"), type);
+        Native.LLVMSetLinkage(thunk, LLVMLinkage.Internal);
+        _globals[key] = thunk;
+        new FunctionCodeGen(this, null, new LoweredFunction(thunk, type)).EmitLibraryDelegateThunk(method, isVirtual, syntax);
+        return thunk;
+    }
+
     public LLVMValueRef StaticThunk(IMethodSymbol method)
     {
         var key = "thunk:" + Mangler.Method(method);

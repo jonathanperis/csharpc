@@ -1,0 +1,13 @@
+b.txt,c.so,d
+.txt,.so,
+123
+,null
+True False x,z
+3,4
+hello world
+9 43 4
+12.5
+C,a,b
+255
+1.5 [] s True System.Collections.Generic.List`1[System.Int32]
+ArgumentException: Delegate to an instance method cannot have null 'this'.

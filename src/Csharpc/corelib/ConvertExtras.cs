@@ -8,6 +8,24 @@ namespace CsharpcCoreLib
     [ShadowMembers("System.Convert")]
     internal static class ConvertExtras
     {
+        // Convert.ToString of values: .NET formats with the current culture (or the provider), as ToString does.
+        public static string ToString(int value) => value.ToString();
+        public static string ToString(long value) => value.ToString();
+        public static string ToString(int value, IFormatProvider provider) => value.ToString(provider);
+        public static string ToString(long value, IFormatProvider provider) => value.ToString(provider);
+        public static string ToString(bool value) => value.ToString();
+        public static string ToString(char value) => value.ToString();
+        public static string ToString(string value) => value;
+
+        public static string ToString(object value) => ToString(value, null);
+
+        public static string ToString(object value, IFormatProvider provider)
+        {
+            if (value is string s) return s;
+            if (value is IFormattable formattable) return formattable.ToString(null, provider);
+            return value != null ? value.ToString() : string.Empty;
+        }
+
         private const string Base64Alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
         public static string ToHexString(byte[] inArray)
