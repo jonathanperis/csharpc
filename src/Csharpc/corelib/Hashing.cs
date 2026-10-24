@@ -26,7 +26,12 @@ namespace CsharpcCoreLib
             if (name.Name == "SHA256") return new Sha256Engine();
             if (name.Name == "MD5" || name.Name == "SHA384" || name.Name == "SHA512" || name.Name.StartsWith("SHA3-", StringComparison.Ordinal))
                 throw new NotSupportedException("The hash algorithm " + name.Name + " is not supported by csharpc yet.");
+#if CSHARPC_TARGET_WINDOWS
+            // .NET on Windows asks CNG, whose NTE_BAD_ALGID surfaces as this message.
+            throw new CryptographicException("Unknown error (0xc1000225)");
+#else
             throw new CryptographicException("'" + name.Name + "' is not a known hash algorithm.");
+#endif
         }
     }
 
