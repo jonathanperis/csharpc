@@ -54,52 +54,44 @@ public sealed class CoreLib
     public CoreLib(Compilation compilation)
     {
         _compilation = compilation;
+        List<Frontend.CoreLibAssembly.ShadowDeclaration> shadows = [];
         foreach (var tree in compilation.SyntaxTrees)
             if (tree.FilePath.StartsWith(TreePrefix, StringComparison.Ordinal))
-                Scan(tree.GetRoot(), "");
-    }
-
-    private void Scan(SyntaxNode node, string prefix)
-    {
-        foreach (var child in node.ChildNodes())
+                Frontend.CoreLibAssembly.ScanShadows(tree.GetRoot(), "", shadows);
+        // A precompiled corelib (ADR 0015): the same declarations, indexed when it was built.
+        if (shadows.Count == 0 && Frontend.CoreLibAssembly.Current is { } built
+            && compilation.ReferencedAssemblyNames.Any(a => a.Name == Frontend.CoreLibAssembly.Name))
         {
-            switch (child)
+            shadows.AddRange(built.Shadows);
+            _assembly = compilation.References.Select(compilation.GetAssemblyOrModuleSymbol).OfType<IAssemblySymbol>()
+                .FirstOrDefault(a => a.Name == Frontend.CoreLibAssembly.Name);
+        }
+        foreach (var (membersOnly, real, metadataName) in shadows)
+        {
+            if (!membersOnly)
             {
-                case BaseNamespaceDeclarationSyntax ns:
-                    Scan(ns, prefix + ns.Name + ".");
-                    break;
-                case BaseTypeDeclarationSyntax type:
-                {
-                    var arity = type is TypeDeclarationSyntax { TypeParameterList: { } tps } ? tps.Parameters.Count : 0;
-                    var metadataName = prefix + type.Identifier.ValueText + (arity > 0 ? "`" + arity : "");
-                    foreach (var attribute in type.AttributeLists.SelectMany(l => l.Attributes))
-                    {
-                        var name = attribute.Name.ToString();
-                        if (attribute.ArgumentList?.Arguments.FirstOrDefault()?.Expression is not LiteralExpressionSyntax { Token.Value: string real })
-                            continue;
-                        if (name is "Shadows" or "ShadowsAttribute")
-                        {
-                            _shadowNameByReal[real] = metadataName;
-                            _realByShadowName[metadataName] = real;
-                        }
-                        else if (name is "ShadowMembers" or "ShadowMembersAttribute")
-                        {
-                            if (!_memberShadowNames.TryGetValue(real, out var list)) _memberShadowNames[real] = list = [];
-                            list.Add(metadataName);
-                        }
-                    }
-                    if (type is TypeDeclarationSyntax nested) Scan(nested, metadataName + "+");
-                    break;
-                }
+                _shadowNameByReal[real] = metadataName;
+                _realByShadowName[metadataName] = real;
+            }
+            else
+            {
+                if (!_memberShadowNames.TryGetValue(real, out var list)) _memberShadowNames[real] = list = [];
+                list.Add(metadataName);
             }
         }
     }
 
+    /// <summary>The precompiled corelib assembly, when the corelib isn't part of the compilation's sources.</summary>
+    private readonly IAssemblySymbol? _assembly;
+
     private INamedTypeSymbol? Resolve(string metadataName)
     {
         if (_resolved.TryGetValue(metadataName, out var symbol)) return symbol;
-        return _resolved[metadataName] = _compilation.GetTypeByMetadataName(metadataName);
+        return _resolved[metadataName] = _assembly?.GetTypeByMetadataName(metadataName) ?? _compilation.GetTypeByMetadataName(metadataName);
     }
+
+    /// <summary>A corelib type by metadata name within the CsharpcCoreLib namespace ("SZArrayHelper`1"), source or precompiled.</summary>
+    public INamedTypeSymbol? TypeNamed(string metadataName) => Resolve(Namespace + "." + metadataName);
 
     public bool HasShadows => _shadowNameByReal.Count > 0 || _memberShadowNames.Count > 0;
 
@@ -121,7 +113,8 @@ public sealed class CoreLib
             : type.ContainingNamespace is { IsGlobalNamespace: false } ns ? ns.ToDisplayString() + "." + type.MetadataName : type.MetadataName;
 
     private bool IsLibrary(ISymbol symbol) =>
-        !SymbolEqualityComparer.Default.Equals(symbol.ContainingAssembly, _compilation.Assembly);
+        !SymbolEqualityComparer.Default.Equals(symbol.ContainingAssembly, _compilation.Assembly)
+        && (_assembly is null || !SymbolEqualityComparer.Default.Equals(symbol.ContainingAssembly, _assembly));
 
     // ======================================================================================
     // Types

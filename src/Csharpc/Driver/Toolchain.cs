@@ -120,6 +120,9 @@ public sealed class Toolchain(CompilerOptions options, Csharpc.Llvm.TargetMachin
         File.Move(tmp, output, overwrite: true);
     }
 
+    /// <summary>~/.cache/csharpc (or $XDG_CACHE_HOME/csharpc): the runtime objects and the corelib assembly.</summary>
+    internal static string CacheDirectory => CacheDir;
+
     private static string CacheDir
     {
         get

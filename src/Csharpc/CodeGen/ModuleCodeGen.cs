@@ -275,7 +275,7 @@ public sealed partial class ModuleCodeGen
         var generic = TypeSubstitution.IsGenericContext(method);
         if (!generic) method = method.OriginalDefinition;
         if (method.PartialDefinitionPart is { } partialDefinition) method = partialDefinition; // one function per partial member
-        if (!Il.IsEmpty && !_slotReference) NoteReference(method, virtualCall: false);
+        if (Il.HasLibraries && !_slotReference) NoteReference(method, virtualCall: false);
         if (_functions.TryGetValue(method, out var existing)) return existing;
         if (generic && TypeSubstitution.IsOpen(method))
             throw CompileError.Unsupported($"open generic instantiation '{method}'", method);
@@ -298,13 +298,20 @@ public sealed partial class ModuleCodeGen
         }
         MarkIfCoroutine(method, fn);
         // Generic instantiations, corelib and IL methods are lowered on demand, when first referenced.
-        if ((generic || CoreLib.IsCoreLib(method) || IsIlMethod(method)) && IsUserMethod(method) && !method.IsAbstract && !method.IsExtern)
+        if ((generic || CoreLib.IsCoreLib(method) || IsIlMethod(method)) && IsUserMethod(method) && !method.IsAbstract && !IsExternal(method))
         {
             _pendingInstantiations.Enqueue(method);
             if (!IsIlMethod(method)) PrefetchCfg(method);
         }
         return _functions[method] = new LoweredFunction(fn, type);
     }
+
+    /// <summary>
+    /// No body to lower: `extern` (P/Invoke) or runtime-implemented. Roslyn's metadata symbols report
+    /// [MethodImpl(InternalCall)] methods (the corelib's CoreIntrinsics, ADR 0015) as not extern.
+    /// </summary>
+    internal static bool IsExternal(IMethodSymbol method) =>
+        method.IsExtern || ((method.MethodImplementationFlags & System.Reflection.MethodImplAttributes.InternalCall) != 0 && CoreLib.IsCoreLib(method));
 
     private readonly Dictionary<INamedTypeSymbol, bool> _optimizeForSize = new(SymbolEqualityComparer.Default);
 
@@ -525,8 +532,8 @@ public sealed partial class ModuleCodeGen
     private void EmitMethod(IMethodSymbol method)
     {
         var start = System.Diagnostics.Stopwatch.GetTimestamp();
-        var il = Il.OwnerOf(method) is not null;
-        var corelib = !il && CoreLib.IsCoreLib(method);
+        var corelib = CoreLib.IsCoreLib(method);
+        var il = !corelib && Il.OwnerOf(method) is not null;
         try { EmitMethodCore(method); }
         finally
         {
@@ -1134,7 +1141,7 @@ public sealed partial class ModuleCodeGen
         // Corelib types are lowered on demand: initialize the (non-generic) ones whose static fields the
         // program actually references — first, since user initializers may depend on them.
         var referencedCoreLibTypes = _staticFields.Keys.Select(f => f.ContainingType.OriginalDefinition)
-            .Where(t => CoreLib.IsCoreLib(t) && !TypeSubstitution.IsGenericContext(t))
+            .Where(t => CoreLib.IsCoreLib(t) && !TypeSubstitution.IsGenericContext(t) && !IsIlType(t)) // IL: lazily, by its .cctor
             .Distinct<INamedTypeSymbol>(SymbolEqualityComparer.Default).ToList();
         foreach (var t in referencedCoreLibTypes)
         {

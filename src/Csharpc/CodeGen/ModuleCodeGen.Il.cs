@@ -28,12 +28,26 @@ public sealed partial class ModuleCodeGen
 
     private void QueueIlSurveyMethods()
     {
-        foreach (var type in IlTypes)
+        // CSHARPC_CORELIB_SURVEY=1: the precompiled corelib's methods too (what the IL front-end must cover, ADR 0015).
+        IEnumerable<INamedTypeSymbol> types = IlTypes;
+        if (Environment.GetEnvironmentVariable("CSHARPC_CORELIB_SURVEY") == "1")
+        {
+            var all = new List<INamedTypeSymbol>();
+            void Collect(INamespaceOrTypeSymbol container)
+            {
+                foreach (var member in container.GetMembers())
+                    if (member is INamespaceSymbol ns) Collect(ns);
+                    else if (member is INamedTypeSymbol type) { all.Add(type); Collect(type); }
+            }
+            foreach (var assembly in Il.Assemblies.Where(a => a.IsCoreLib)) Collect(assembly.Symbol.GlobalNamespace);
+            types = types.Concat(all);
+        }
+        foreach (var type in types)
         {
             if (TypeSubstitution.IsGenericContext(type) || type.TypeKind is not (TypeKind.Class or TypeKind.Struct)) continue;
             foreach (var method in type.GetMembers().OfType<IMethodSymbol>())
                 // MetadataToken 0: members Roslyn synthesizes with no metadata row (a struct's default constructor).
-                if (!method.IsGenericMethod && !method.IsAbstract && !method.IsExtern && method.MethodKind is not MethodKind.StaticConstructor
+                if (!method.IsGenericMethod && !method.IsAbstract && !IsExternal(method) && method.MethodKind is not MethodKind.StaticConstructor
                     && method.MetadataToken != 0)
                     Guard(method, () => GetFunction(method));
         }
@@ -61,13 +75,14 @@ public sealed partial class ModuleCodeGen
                     if (member is INamespaceSymbol ns) Collect(ns);
                     else if (member is INamedTypeSymbol type) { types.Add(type); Collect(type); }
             }
-            foreach (var assembly in Il.Assemblies) Collect(assembly.Symbol.GlobalNamespace);
+            // The precompiled corelib's types stay out, as the source corelib's do (ADR 0015).
+            foreach (var assembly in Il.Assemblies.Where(a => !a.IsCoreLib)) Collect(assembly.Symbol.GlobalNamespace);
             return _ilTypes = types;
         }
     }
 
     /// <summary>Source and IL types: the universe for class-hierarchy analysis (devirtualization, generic virtuals).</summary>
-    private IEnumerable<INamedTypeSymbol> HierarchyTypes => Il.IsEmpty ? _userTypes : _userTypes.Concat(IlTypes);
+    private IEnumerable<INamedTypeSymbol> HierarchyTypes => Il.HasLibraries ? _userTypes.Concat(IlTypes) : _userTypes;
 
     private readonly Dictionary<IlAssembly, (SyntaxNode Plain, SyntaxNode Base)> _ilSyntax = [];
 
@@ -78,14 +93,16 @@ public sealed partial class ModuleCodeGen
     internal (SyntaxNode Plain, SyntaxNode Base) IlSyntax(IlAssembly assembly)
     {
         if (_ilSyntax.TryGetValue(assembly, out var nodes)) return nodes;
-        var plain = CSharpSyntaxTree.Create(SyntaxFactory.IdentifierName("IL"), path: assembly.Path).GetRoot();
-        var @base = CSharpSyntaxTree.Create(SyntaxFactory.BaseExpression(), path: assembly.Path).GetRoot();
+        // The precompiled corelib lives in the cache directory: name it like the source corelib's trees instead.
+        var path = assembly.IsCoreLib ? CoreLib.TreePrefix + assembly.Name + ".dll" : assembly.Path;
+        var plain = CSharpSyntaxTree.Create(SyntaxFactory.IdentifierName("IL"), path: path).GetRoot();
+        var @base = CSharpSyntaxTree.Create(SyntaxFactory.BaseExpression(), path: path).GetRoot();
         return _ilSyntax[assembly] = (plain, @base);
     }
 
     private void EmitIlMethod(IlAssembly assembly, IMethodSymbol method)
     {
-        if (method.IsAbstract || method.IsExtern) return;
+        if (method.IsAbstract || IsExternal(method)) return;
         var location = IlSyntax(assembly).Plain.GetLocation();
         try
         {
@@ -108,10 +125,13 @@ public sealed partial class ModuleCodeGen
             }
             new FunctionCodeGen(this, method, _functions[method]).EmitIl(body);
         }
+        // The corelib has no unreachable-stub policy: like the source corelib, what it reaches must compile.
+        catch (CompileError) when (assembly.IsCoreLib) { throw; }
         catch (CompileError e) { IlMethodFailed(method, e); }
         catch (Exception e) when (e is not OutOfMemoryException)
         {
             if (s_trace) Console.Error.WriteLine(e);
+            if (assembly.IsCoreLib) throw;
             IlMethodFailed(method, new CompileError("CSLLVM9999",
                 $"internal compiler error while lowering '{method}' from IL: {e.GetType().Name}: {e.Message} (set CSHARPC_TRACE=1 for details)", location));
         }
@@ -137,7 +157,7 @@ public sealed partial class ModuleCodeGen
     /// <summary>The function lowered now references <paramref name="method"/> (a call, a delegate, a thunk...).</summary>
     internal void NoteReference(IMethodSymbol method, bool virtualCall)
     {
-        if (Il.IsEmpty) return;
+        if (!Il.HasLibraries) return;
         _references.Add((_currentCaller, method, virtualCall));
     }
 
@@ -147,7 +167,7 @@ public sealed partial class ModuleCodeGen
     /// <summary>A check that runs <paramref name="type"/>'s static constructor.</summary>
     internal void NoteClassInit(INamedTypeSymbol type)
     {
-        if (!Il.IsEmpty && type.StaticConstructors.FirstOrDefault() is { } cctor) NoteReference(cctor, virtualCall: false);
+        if (Il.HasLibraries && type.StaticConstructors.FirstOrDefault() is { } cctor) NoteReference(cctor, virtualCall: false);
     }
 
     /// <summary>
@@ -160,7 +180,7 @@ public sealed partial class ModuleCodeGen
         var outer = _slotReference;
         _slotReference = true;
         try { return GetFunction(method).Fn; }
-        catch (CompileError e) when (IsIlMethod(method))
+        catch (CompileError e) when (IsIlMethod(method) && !Il.IsCoreLib(method))
         {
             return UnsupportedStub($"{Mangler.Method(method)}$unsupported", Llvm.FunctionType(Llvm.Void),
                 $"'{method}' could not be compiled: {e.Message}");
@@ -217,7 +237,7 @@ public sealed partial class ModuleCodeGen
         }
         // Roots: references made by the program's own code (sources and the corelib).
         foreach (var (from, to, isVirtual) in _references)
-            if (from is null || !IsIlMethod(from)) Follow(to, isVirtual);
+            if (from is null || !IsIlMethod(from) || Il.IsCoreLib(from)) Follow(to, isVirtual);
         while (work.TryDequeue(out var method))
             if (edges.TryGetValue(method.OriginalDefinition, out var outgoing))
                 foreach (var (_, to, isVirtual) in outgoing) Follow(to, isVirtual);

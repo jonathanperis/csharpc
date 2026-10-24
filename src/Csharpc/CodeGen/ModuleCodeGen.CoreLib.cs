@@ -145,8 +145,7 @@ public sealed partial class ModuleCodeGen
 
     private IMethodSymbol? BuiltinHelper(string helperName, INamedTypeSymbol itf, IMethodSymbol member, ITypeSymbol? elementType)
     {
-        var ns = Compilation.Assembly.GlobalNamespace.GetNamespaceMembers().FirstOrDefault(n => n.Name == CoreLib.Namespace);
-        var helper = ns?.GetTypeMembers(helperName).FirstOrDefault(t => t.Arity == (elementType is null ? 0 : 1));
+        var helper = CoreLib.TypeNamed(helperName + (elementType is null ? "" : "`1"));
         if (helper is null) return null;
         if (elementType is not null) helper = helper.Construct(elementType);
         var name = itf.MetadataName.Replace("`", "") + "_" + member.Name;
