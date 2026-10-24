@@ -20,6 +20,7 @@ namespace CsharpcCoreLib.Globalization
     using System.Runtime.CompilerServices;
     using System.Runtime.Serialization;
     [Shadows("System.Globalization.CultureNotFoundException")]
+    [OptimizeForSize] // csharpc: builds culture data, once per culture (corelib/Core.cs)
     public class CultureNotFoundException : ArgumentException
     {
         private readonly string? _invalidCultureName; // unrecognized culture name
@@ -81,7 +82,9 @@ namespace CsharpcCoreLib.Globalization
 
         private string? FormattedInvalidCultureId =>
             InvalidCultureId != null ?
-                string.Format(CultureInfo.InvariantCulture, "{0} (0x{0:x4})", (int)InvalidCultureId) :
+                // csharpc: string.Format(CultureInfo.InvariantCulture, "{0} (0x{0:x4})", id) without composite
+                // formatting (which would link every boxed type's formatter into programs that create cultures)
+                string.Concat(CsharpcCoreLib.Number.Int64ToDecStrInvariant((int)InvalidCultureId), " (0x", SR.Hex((int)InvalidCultureId, lower: true, 4), ")") :
                 InvalidCultureName;
 
         public override string Message

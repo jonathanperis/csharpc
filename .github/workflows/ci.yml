@@ -35,7 +35,7 @@ jobs:
             os: windows
             runner: windows-2025
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 180
+    timeout-minutes: 150
     env:
       DOTNET_CLI_TELEMETRY_OPTOUT: 1
       DOTNET_NOLOGO: 1

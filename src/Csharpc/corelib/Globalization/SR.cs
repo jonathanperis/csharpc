@@ -11,14 +11,68 @@ namespace CsharpcCoreLib.Globalization
 {
     // (repeated inside the namespace: they must win over global-namespace types of the program)
     using System;
+    [OptimizeForSize] // csharpc: builds culture data, once per culture (corelib/Core.cs)
     internal static class SR
     {
-        public static string Format(string format, object? arg0) => string.Format(format, arg0);
-        public static string Format(string format, object? arg0, object? arg1) => string.Format(format, arg0, arg1);
-        public static string Format(string format, object? arg0, object? arg1, object? arg2) => string.Format(format, arg0, arg1, arg2);
-        public static string Format(IFormatProvider? provider, string format, object? arg0) => string.Format(provider, format, arg0);
-        public static string Format(IFormatProvider? provider, string format, object? arg0, object? arg1) => string.Format(provider, format, arg0, arg1);
-        public static string Format(IFormatProvider? provider, string format, object? arg0, object? arg1, object? arg2) => string.Format(provider, format, arg0, arg1, arg2);
+        // csharpc: the messages here only use "{n}" (and "{0:X4}" with an int), so they are filled in without
+        // string.Format: composite formatting reaches every boxed type's formatter (double, decimal, ...),
+        // which would be linked into every program that can throw one of these exceptions. "{n}" formats the
+        // argument like composite formatting does (ToString() of the value, with the current culture; null: "").
+        public static string Format(string format, object? arg0) => FormatMessage(format, arg0, null, null);
+        public static string Format(string format, object? arg0, object? arg1) => FormatMessage(format, arg0, arg1, null);
+        public static string Format(string format, object? arg0, object? arg1, object? arg2) => FormatMessage(format, arg0, arg1, arg2);
+
+        private static string FormatMessage(string format, object? arg0, object? arg1, object? arg2)
+        {
+            var sb = new System.Text.StringBuilder(format.Length + 16);
+            int i = 0;
+            while (i < format.Length)
+            {
+                char c = format[i];
+                int close;
+                if (c != '{' || (close = format.IndexOf('}', i)) < 0)
+                {
+                    sb.Append(c);
+                    i++;
+                    continue;
+                }
+                int index = format[i + 1] - '0';
+                object? arg = index == 0 ? arg0 : index == 1 ? arg1 : arg2;
+                if (format[i + 2] == ':' && arg is int number)
+                {
+                    int minDigits = 0;
+                    for (int k = i + 4; k < close; k++) minDigits = minDigits * 10 + (format[k] - '0');
+                    AppendHex(sb, (uint)number, format[i + 3] == 'x', minDigits);
+                }
+                else
+                    sb.Append(arg?.ToString());
+                i = close + 1;
+            }
+            return sb.ToString();
+        }
+
+        internal static string Hex(int value, bool lower, int minDigits)
+        {
+            var sb = new System.Text.StringBuilder(8);
+            AppendHex(sb, (uint)value, lower, minDigits);
+            return sb.ToString();
+        }
+
+        // int.ToString("X<n>") / ("x<n>") (the only format the messages use: "{0:X4}"), without the number formatter.
+        private static void AppendHex(System.Text.StringBuilder sb, uint value, bool lower, int minDigits)
+        {
+            int digits = 1;
+            for (uint v = value >> 4; v != 0; v >>= 4) digits++;
+            for (int k = digits; k < minDigits; k++) sb.Append('0');
+            for (int k = digits - 1; k >= 0; k--)
+            {
+                int d = (int)(value >> (k * 4)) & 0xF;
+                sb.Append(d < 10 ? (char)('0' + d) : (char)((lower ? 'a' : 'A') + d - 10));
+            }
+        }
+        // (with a provider: the calendars' range messages, whose arguments are dates)
+        public static string Format(IFormatProvider? provider, string format, DateTime arg0, DateTime arg1) =>
+            FormatMessage(format, arg0.ToString(null, provider), arg1.ToString(null, provider), null);
 
         public const string Arg_ArrayZeroError = "Array must not be of length zero.";
         public const string Arg_BinaryStyleNotSupported = "The number style AllowBinarySpecifier is not supported on floating point data types.";

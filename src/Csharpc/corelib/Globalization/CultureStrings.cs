@@ -87,9 +87,9 @@ namespace CsharpcCoreLib
             switch (comparisonType)
             {
                 case StringComparison.Ordinal:
-                    return value.Length <= s.Length && StringOps.EqualsOrdinal(s.AsSpan(0, value.Length), value.AsSpan());
+                    return StringOps.StartsWithOrdinal(s, value);
                 case StringComparison.OrdinalIgnoreCase:
-                    return value.Length <= s.Length && OrdinalCasing.Compare(s.Substring(0, value.Length), value) == 0;
+                    return StringOps.StartsWithOrdinalIgnoreCase(s, value);
                 default:
                     return CompareInfoFor(comparisonType).IsPrefix(s, value, OptionsFor(comparisonType));
             }
@@ -106,9 +106,9 @@ namespace CsharpcCoreLib
             switch (comparisonType)
             {
                 case StringComparison.Ordinal:
-                    return value.Length <= s.Length && StringOps.EqualsOrdinal(s.AsSpan(s.Length - value.Length), value.AsSpan());
+                    return StringOps.EndsWithOrdinal(s, value);
                 case StringComparison.OrdinalIgnoreCase:
-                    return value.Length <= s.Length && OrdinalCasing.Compare(s.Substring(s.Length - value.Length), value) == 0;
+                    return StringOps.EndsWithOrdinalIgnoreCase(s, value);
                 default:
                     return CompareInfoFor(comparisonType).IsSuffix(s, value, OptionsFor(comparisonType));
             }
@@ -121,19 +121,7 @@ namespace CsharpcCoreLib
             {
                 case StringComparison.Ordinal:
                 case StringComparison.OrdinalIgnoreCase:
-                {
-                    // Ordinal.IndexOf
-                    if (value == null) throw new ArgumentNullException("value");
-                    if ((uint)startIndex > (uint)s.Length)
-                        throw new ArgumentOutOfRangeException("startIndex", "Index was out of range. Must be non-negative and less than or equal to the size of the collection.");
-                    if ((uint)count > (uint)(s.Length - startIndex))
-                        throw new ArgumentOutOfRangeException("count", "Count must be positive and count must refer to a location within the string/array/collection.");
-                    ReadOnlySpan<char> span = s.AsSpan(startIndex, count);
-                    int result = comparisonType == StringComparison.OrdinalIgnoreCase
-                        ? Globalization.Ordinal.IndexOfOrdinalIgnoreCase(span, value.AsSpan())
-                        : StringOps.IndexOfOrdinal(span, value.AsSpan(), 0);
-                    return result >= 0 ? startIndex + result : result;
-                }
+                    return StringOps.IndexOfOrdinal(s, value, startIndex, count, comparisonType == StringComparison.OrdinalIgnoreCase);
                 case StringComparison.CurrentCulture:
                 case StringComparison.CurrentCultureIgnoreCase:
                 case StringComparison.InvariantCulture:
@@ -168,9 +156,9 @@ namespace CsharpcCoreLib
             switch (comparisonType)
             {
                 case StringComparison.Ordinal:
-                    return StringOps.IndexOf(s, value, 0);
+                    return StringOps.IndexOfOrdinal(s, value);
                 case StringComparison.OrdinalIgnoreCase:
-                    return Globalization.Ordinal.IndexOfOrdinalIgnoreCase(s.AsSpan(), value.ToString().AsSpan());
+                    return StringOps.IndexOfOrdinalIgnoreCase(s, value);
                 default:
                     return CompareInfoFor(comparisonType).IndexOf(s, value, OptionsFor(comparisonType));
             }

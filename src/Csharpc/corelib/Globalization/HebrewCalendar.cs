@@ -65,6 +65,7 @@ namespace CsharpcCoreLib.Globalization
     /// Gregorian to Hebrew Lunar from 1583 to 2239.
     /// </remarks>
     [Shadows("System.Globalization.HebrewCalendar")]
+    [OptimizeForSize] // csharpc: only cultures whose calendar this is use it (corelib/Core.cs)
     public class HebrewCalendar : Calendar
     {
         // csharpc: caches for the span properties below (no collection expressions, no static initializers).

@@ -26,6 +26,7 @@ namespace CsharpcCoreLib.Globalization
     ///     Julia       0001/01/03   9999/10/19
     /// </remarks>
     [Shadows("System.Globalization.JulianCalendar")]
+    [OptimizeForSize] // csharpc: only cultures whose calendar this is use it (corelib/Core.cs)
     public class JulianCalendar : Calendar
     {
         public static readonly int JulianEra = 1;

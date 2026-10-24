@@ -578,9 +578,37 @@ internal static partial class BclValueTypes
             Rt(g, "csrt_string_compare_culture", g.Llvm.I32, (a[0], g.Llvm.Ptr), (a[1], g.Llvm.Ptr), (a[2], g.Llvm.I1));
         // OrdinalIgnoreCase (full simple case mapping, surrogate pairs) and argument validation in C#
         // (corelib OrdinalCasing); culture and ordinal comparisons stay in csrt.
-        t["string.Compare(string, string, System.StringComparison)"] = (g, _, _, a, _) => g.CallCoreLib("OrdinalCasing", "CompareWith", a[0], a[1], a[2]);
-        t["string.Equals(string, string, System.StringComparison)"] = (g, _, _, a, _) => g.CallCoreLib("OrdinalCasing", "EqualsWith", a[0], a[1], a[2]);
-        t["string.Equals(string, System.StringComparison)"] = (g, _, self, a, _) => g.CallCoreLib("OrdinalCasing", "EqualsWith", self, a[0], a[1]);
+        // A constant Ordinal / OrdinalIgnoreCase comparison calls the ordinal code directly: the general
+        // entry points also reach the culture-sensitive comparisons, which would link CompareInfo (and the
+        // culture model) into every program that compares strings ordinally.
+        t["string.Compare(string, string, System.StringComparison)"] = (g, _, _, a, at) => ConstantComparison(at, 2) switch
+        {
+            StringComparison.Ordinal => g.CallCoreLib("StringOps", "CompareOrdinal", a[0], a[1]),
+            StringComparison.OrdinalIgnoreCase => g.CallCoreLib("OrdinalCasing", "Compare", a[0], a[1]),
+            _ => g.CallCoreLib("OrdinalCasing", "CompareWith", a[0], a[1], a[2]),
+        };
+        BclHandler equalsWith(int comparisonParameter) => (g, _, self, a, at) =>
+        {
+            var instance = comparisonParameter == 1;
+            if (instance) g.NullCheck(self); // s.Equals(value, comparisonType) on a null s throws, like any instance call
+            var (x, y) = instance ? (self, a[0]) : (a[0], a[1]);
+            switch (ConstantComparison(at, comparisonParameter))
+            {
+                case StringComparison.Ordinal:
+                    return g.CallRuntime("csrt_string_equals", g.Llvm.I1, [g.Llvm.Ptr, g.Llvm.Ptr], x, y);
+                case StringComparison.OrdinalIgnoreCase:
+                    // Against an ASCII constant, OrdinalIgnoreCase is ASCII case folding: .NET's ordinal casing
+                    // never maps a non-ASCII char to an ASCII one (not even U+0131 or U+017F), so the Unicode case
+                    // tables aren't needed.
+                    if (ConstantAsciiOperand(at, instance) is { } which)
+                        return g.CallCoreLib("OrdinalCasing", "EqualsAsciiIgnoreCase", which == 0 ? y : x, which == 0 ? x : y);
+                    return g.CallCoreLib("OrdinalCasing", "Equals", x, y);
+                default:
+                    return g.CallCoreLib("OrdinalCasing", "EqualsWith", x, y, a[comparisonParameter]);
+            }
+        };
+        t["string.Equals(string, string, System.StringComparison)"] = equalsWith(2);
+        t["string.Equals(string, System.StringComparison)"] = equalsWith(1);
         t["System.Math.Round(double, System.MidpointRounding)"] = (g, _, _, a, _) =>
             Rt(g, "csrt_math_round_mode", g.Llvm.F64, (a[0], g.Llvm.F64), (I32(g, 0), g.Llvm.I32), (a[1], g.Llvm.I32));
         t["System.Math.Round(double, int, System.MidpointRounding)"] = (g, _, _, a, _) =>
@@ -1142,4 +1170,22 @@ internal static partial class BclValueTypes
         t["System.BitConverter.IsLittleEndian"] = (g, _) => g.Llvm.True;
         return t.ToFrozenDictionary();
     }
+
+    /// <summary>Which of the two compared strings (0: first, 1: second) is a non-null ASCII constant, if any.</summary>
+    private static int? ConstantAsciiOperand(IOperation at, bool instance)
+    {
+        if (at is not IInvocationOperation inv) return null;
+        IOperation? Operand(int i) => instance && i == 0 ? inv.Instance
+            : inv.Arguments.FirstOrDefault(arg => arg.Parameter?.Ordinal == (instance ? i - 1 : i))?.Value;
+        for (var i = 0; i < 2; i++)
+            if (Operand(i) is { ConstantValue: { HasValue: true, Value: string text } } && text.All(char.IsAscii)) return i;
+        return null;
+    }
+
+    /// <summary>The StringComparison argument (parameter <paramref name="ordinal"/>) of a call, if it is a constant.</summary>
+    private static StringComparison? ConstantComparison(IOperation at, int ordinal) =>
+        at is IInvocationOperation inv
+        && inv.Arguments.FirstOrDefault(arg => arg.Parameter?.Ordinal == ordinal) is { Value.ConstantValue: { HasValue: true, Value: int value } }
+            ? (StringComparison)value
+            : null;
 }

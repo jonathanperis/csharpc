@@ -160,10 +160,12 @@ public sealed partial class ModuleCodeGen
             });
 
         // 2. Method bodies of non-generic code; generic instantiations are queued as they're referenced.
-        foreach (var type in _userTypes.Where(t => t.TypeKind is TypeKind.Class or TypeKind.Interface or TypeKind.Struct or TypeKind.Extension
-                     && !TypeSubstitution.IsGenericContext(t)))
-            foreach (var method in type.GetMembers().OfType<IMethodSymbol>().Where(m => !m.IsGenericMethod))
-                Guard(method, () => EmitMethod(method));
+        var userMethods = _userTypes.Where(t => t.TypeKind is TypeKind.Class or TypeKind.Interface or TypeKind.Struct or TypeKind.Extension
+                && !TypeSubstitution.IsGenericContext(t))
+            .SelectMany(t => t.GetMembers().OfType<IMethodSymbol>().Where(m => !m.IsGenericMethod)).ToList();
+        foreach (var method in userMethods) PrefetchCfg(method);
+        foreach (var method in userMethods)
+            Guard(method, () => EmitMethod(method));
         if (IlSurvey) QueueIlSurveyMethods();
 
         DrainWorklists();
@@ -175,7 +177,7 @@ public sealed partial class ModuleCodeGen
         // Type metadata describes every method table, and describing one can create more (and queue
         // their methods): iterate to a fixed point.
         do DrainWorklists();
-        while (EmitRuntimeExports() | EmitTypeMetadata());
+        while (EmitRuntimeExports() | EmitTypeMetadata() | EmitDeferredPrimitiveSlots());
         FinishMethodTables();
         Guard(entryPoint, FinishTypeMetadata);
         ReportIlFailures();
@@ -275,11 +277,29 @@ public sealed partial class ModuleCodeGen
         // otherwise inlines every internal function with a single call site, however big.
         if ((method.MethodImplementationFlags & System.Reflection.MethodImplAttributes.NoInlining) != 0)
             Llvm.AddFunctionAttribute(fn, "noinline");
+        if (CoreLib.IsCoreLib(method) && OptimizeForSize(method.ContainingType))
+        {
+            Llvm.AddFunctionAttribute(fn, "optsize");
+            Llvm.AddFunctionAttribute(fn, "minsize");
+        }
         MarkIfCoroutine(method, fn);
         // Generic instantiations, corelib and IL methods are lowered on demand, when first referenced.
         if ((generic || CoreLib.IsCoreLib(method) || IsIlMethod(method)) && IsUserMethod(method) && !method.IsAbstract && !method.IsExtern)
             _pendingInstantiations.Enqueue(method);
+            PrefetchCfg(method);
         return _functions[method] = new LoweredFunction(fn, type);
+    }
+
+    private readonly Dictionary<INamedTypeSymbol, bool> _optimizeForSize = new(SymbolEqualityComparer.Default);
+
+    /// <summary>A corelib type (or one nested in it) marked [OptimizeForSize] (corelib/Core.cs).</summary>
+    private bool OptimizeForSize(INamedTypeSymbol? type)
+    {
+        if (type is null) return false;
+        type = type.OriginalDefinition;
+        if (_optimizeForSize.TryGetValue(type, out var known)) return known;
+        return _optimizeForSize[type] = type.GetAttributes().Any(a => a.AttributeClass?.Name == "OptimizeForSizeAttribute")
+            || OptimizeForSize(type.ContainingType);
     }
 
     /// <summary>
@@ -582,7 +602,7 @@ public sealed partial class ModuleCodeGen
             case MethodDeclarationSyntax or ConstructorDeclarationSyntax or AccessorDeclarationSyntax
                 or ArrowExpressionClauseSyntax or CompilationUnitSyntax or OperatorDeclarationSyntax
                 or ConversionOperatorDeclarationSyntax:
-                var cfg = ControlFlowGraph.Create(syntax, ModelFor(syntax.SyntaxTree))
+                var cfg = TakePrefetchedCfg(syntax) ?? ControlFlowGraph.Create(syntax, ModelFor(syntax.SyntaxTree))
                     ?? throw CompileError.Unsupported("method without a body", method);
                 Dump(method, cfg);
                 gen.Emit(prologue, cfg);
@@ -1238,7 +1258,7 @@ public sealed partial class ModuleCodeGen
                 else if (builtinType.SpecialType == SpecialType.System_String) RequestStringInterface(itf);
                 var registerBuiltin = Runtime("csrt_register_builtin_interface", Llvm.Void, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr);
                 var slots = builtinType.SpecialType != SpecialType.System_String && builtinType is not IArrayTypeSymbol
-                    ? PrimitiveInterfaceSlots(builtinType, itf) : LlvmContext.Null(Llvm.Ptr);
+                    ? DeferredPrimitiveInterfaceSlots(builtinType, itf, mtName) : LlvmContext.Null(Llvm.Ptr);
                 b.Call(registerBuiltin.Type, registerBuiltin.Fn, [mt, InterfaceMethodTable(itf), slots]);
             }
 
