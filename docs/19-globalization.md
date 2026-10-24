@@ -112,8 +112,10 @@ binding ~150 functions) and building the current culture's data on first use, as
 
 Compile time (`-O2`): hello world is unchanged (about 3 s); the number program takes about 10 s instead
 of 6 s (it lowers some 420 corelib methods of the culture model), the date program about 13 s. This is
-the main cost of the port (CI runs about 1.5-2 times longer) and a target for caching the corelib's
-lowered code.
+the main cost of the port (CI runs about 1.5-2 times longer). Since [ADR 0014](adr/0014-compile-time.md)
+(a ReadyToRun compiler, Roslyn's CFGs built ahead on other threads, parallel code generation) a program
+formatting doubles and dates compiles in 10.2 s instead of 14.3 s at `-O2` (5.2 s instead of 8.3 s at
+`-O0`) on the same loaded machine.
 
 ## Tests
 

@@ -23,7 +23,12 @@
 ```
 
 The whole pipeline lives in `src/Csharpc/Driver/Compiler.cs` (`Compiler.Run`). With `-v` it prints
-the time spent in each phase.
+the time spent in each phase (wall, CPU, allocations, peak RSS).
+
+csharpc itself is ReadyToRun-compiled in Release builds, and a compilation uses several threads
+(`-j N`, `CSHARPC_THREADS`, default: the processor count) for parsing, binding, Roslyn's CFGs ahead
+of lowering and LLVM code generation; the output never depends on the thread count
+([ADR 0014](adr/0014-compile-time.md)).
 
 ## Phases
 
@@ -45,6 +50,8 @@ the time spent in each phase.
   implementation (see [intrinsics](03-lowering.md#library-calls-intrinsics)).
 - Roslyn errors stop compilation and are printed in Roslyn's normal format. Warnings are shown with
   `-W`.
+- Files are parsed in parallel and the program's trees are bound for diagnostics in parallel; the
+  corelib's method bodies are only bound when lowering reaches them.
 - **Assemblies without sources** (`-r X.dll`, project `<Reference>` items, `PackageReference`s) are
   added as metadata references too; their code comes from the IL front-end (next section).
 
@@ -106,6 +113,10 @@ from IL and call it directly.
 Errors are collected per symbol (`Guard`), so one unsupported construct doesn't hide the rest. All
 are reported together with source locations.
 
+Roslyn's CFG of a body is built once per syntax node (`ModuleCodeGen.Cfgs.cs`), and the CFGs of
+methods queued for lowering (corelib, generic instantiations) are built ahead on background threads
+while the lowering thread works through the queue ([ADR 0014](adr/0014-compile-time.md)).
+
 `CSHARPC_TRACE=1` logs each symbol as it is lowered, which helps when libLLVM crashes.
 
 ### 3. Lowering: FunctionCodeGen (`src/Csharpc/CodeGen/FunctionCodeGen*.cs`)
@@ -130,6 +141,12 @@ The details are in [03-lowering.md](03-lowering.md).
 - `TargetMachine` (`src/Csharpc/Llvm/Llvm.cs`) is created for the host triple, CPU and features, or
   for `--target`, with PIC relocation (PIE executables; static on wasm). It emits an object file or
   assembly, or the module is printed (`--emit llvm-ir`) or written as bitcode (`--emit llvm-bc`).
+- **Parallel code generation** (`Driver/ParallelCodegen.cs`, [ADR 0014](adr/0014-compile-time.md)):
+  an executable whose optimized module has more than ~20,000 instructions is emitted as up to 8
+  objects, one partition of contiguous functions each, on several threads, every partition in its own
+  LLVM context with its own target machine. The other partitions' functions are declarations there;
+  partition 0 keeps the global variables. Optimization still sees the whole program; not with `-g` or
+  on wasm32.
 - **wasm32 only** (`src/Csharpc/Wasm`, [ADR 0011](adr/0011-wasm32.md)). `ExceptionLowering` runs
   before the optimization pipeline: there is no unwinder, so after every call that may throw, a test
   of `csrt_pending_exception` branches to the landing-pad code or returns to the caller.
