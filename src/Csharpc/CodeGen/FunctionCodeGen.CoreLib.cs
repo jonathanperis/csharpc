@@ -611,6 +611,13 @@ public sealed partial class FunctionCodeGen
             var hash = _m.StructDefaultHash(s);
             return _b.Call(hash.Type, hash.Fn, [Spill(a)]);
         }
+        if (t.IsValueType && Coroutines.IsTaskHandleType(t))
+        {
+            // A task-handle struct is the task / cancellation source pointer (docs/10-async.md): hash its
+            // identity, like .NET's (reference-field) hash of these structs, and consistent with TaskHandleEquals.
+            var address = _b.Cast(LLVMOpcode.PtrToInt, a, L.I64);
+            return _b.Cast(LLVMOpcode.Trunc, _b.BinOp(LLVMOpcode.Mul, _b.BinOp(LLVMOpcode.LShr, address, L.ConstInt(L.I64, 3)), L.ConstInt(L.I64, 2654435761)), i32);
+        }
         if (t.IsValueType)
         {
             var box = Box(a, t, at);

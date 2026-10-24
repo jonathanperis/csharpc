@@ -177,8 +177,13 @@ internal static class Intrinsics
         t["System.Enum.HasFlag(System.Enum)"] = (g, inv) =>
         {
             var b = g.Builder;
-            var value = g.EmitValue(UnboxEnum(inv.Instance!));
-            var flag = g.EmitValue(UnboxEnum(inv.Arguments[0].Value));
+            var (self, other) = (UnboxEnum(inv.Instance!), UnboxEnum(inv.Arguments[0].Value));
+            // IL boxes both operands; FunctionCodeGen.IlCalls folds the boxes it can see. A boxed Enum of
+            // unknown type would need its payload width at run time.
+            if (g.TypeOf(self) is not { TypeKind: TypeKind.Enum } || g.TypeOf(other) is not { TypeKind: TypeKind.Enum })
+                throw CompileError.Unsupported("Enum.HasFlag on a boxed value of unknown enum type", inv);
+            var value = g.EmitValue(self);
+            var flag = g.EmitValue(other);
             return b.ICmp(LLVMIntPredicate.EQ, b.BinOp(LLVMOpcode.And, value, flag), flag);
         };
         t["System.Enum.GetName(System.Type, object)"] = (g, inv) =>

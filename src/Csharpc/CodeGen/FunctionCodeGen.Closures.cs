@@ -179,10 +179,13 @@ public sealed partial class FunctionCodeGen
             {
                 // obj.Method: the receiver is the target; virtual methods are resolved now, as in .NET.
                 target = EmitValue(group.Instance!);
-                if (group.Instance is not IInstanceReferenceOperation) DelegateTargetCheck(target);
                 var method = S(group.Method);
-                var isVirtual = group.IsVirtual && (method.IsVirtual || method.IsAbstract || method.IsOverride)
-                    && !method.IsSealed && !method.ContainingType.IsSealed;
+                var dispatched = group.IsVirtual && (method.IsVirtual || method.IsAbstract || method.IsOverride);
+                // A virtual method group compiles to `ldvirtftn`, which throws NullReferenceException on a
+                // null receiver; `ldftn` + the delegate constructor reject it with an ArgumentException.
+                if (dispatched) NullCheck(target);
+                else if (group.Instance is not IInstanceReferenceOperation) DelegateTargetCheck(target);
+                var isVirtual = dispatched && !method.IsSealed && !method.ContainingType.IsSealed;
                 fn = isVirtual ? LoadVirtualFunction(method, target) : _m.GetFunction(method).Fn;
                 break;
             }
@@ -271,6 +274,17 @@ public sealed partial class FunctionCodeGen
     private LLVMValueRef LoadVirtualFunction(IMethodSymbol method, LLVMValueRef self)
     {
         _m.NoteVirtualCall(method);
+        if (method.ContainingType.TypeKind == TypeKind.Interface)
+        {
+            // `ldvirtftn IFoo::M` / `obj.M` with obj typed as an interface: the implementation comes from
+            // the object's interface map, like an interface call (InterfaceDispatch).
+            if (method.IsGenericMethod) throw CompileError.Unsupported($"delegate to generic interface method '{method}'", method);
+            var itf = method.ContainingType;
+            var index = ModuleCodeGen.InterfaceSlotIndex(itf, method);
+            _m.NoteInterfaceDispatch(itf, index);
+            var slots = CallRuntime("csrt_interface_slots", L.Ptr, [L.Ptr, L.Ptr], self, _m.InterfaceMethodTable(itf));
+            return _b.Load(L.Ptr, _b.InBoundsGep(L.I8, slots, [L.ConstUInt(L.I64, (ulong)index * T.PointerSize)], "islot"), "ifn");
+        }
         var layout = _m.GetLayout(method.ContainingType);
         if (!layout.SlotOf.TryGetValue(_m.RootOf(method), out var slot))
             throw CompileError.Unsupported($"delegate to virtual method '{method}'", method);

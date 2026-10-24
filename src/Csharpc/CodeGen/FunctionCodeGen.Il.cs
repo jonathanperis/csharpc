@@ -40,6 +40,8 @@ internal sealed record IlEntry(IlKind Kind, LLVMValueRef Value, ITypeSymbol? Typ
     /// compilers scale pointer offsets this way, and `p + i * sizeof(T)` becomes a typed GEP.
     /// </summary>
     public (IlEntry Index, long Factor)? Scaled { get; init; }
+    /// <summary>A `box` of a value type: the value before boxing (Enum.HasFlag on two boxed enums).</summary>
+    public IlEntry? Unboxed { get; init; }
 }
 
 /// <summary>

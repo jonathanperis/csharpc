@@ -359,6 +359,13 @@ public sealed partial class FunctionCodeGen
         }
         switch (ownerName, method.Name)
         {
+            // `x.HasFlag(y)` compiles to two boxes: test the enum values (the JIT doesn't allocate either).
+            case ("System.Enum", "HasFlag") when receiver is { Unboxed: { Type: INamedTypeSymbol { TypeKind: TypeKind.Enum } e } value }
+                && args is [{ Unboxed: { Type: { } flagType } flag }] && SymbolEqualityComparer.Default.Equals(e, flagType):
+            {
+                var (v, f) = (IlTyped(value, e), IlTyped(flag, e));
+                return IlPush(_b.ICmp(LLVMIntPredicate.EQ, _b.BinOp(LLVMOpcode.And, v, f), f), Special(SpecialType.System_Boolean));
+            }
             case ("System.Type", "GetTypeFromHandle") when args is [{ Kind: IlKind.Token, Symbol: ITypeSymbol type }]:
                 return new IlEntry(IlKind.Ref, TypeObject(S(type), IlAt()), method.ReturnType) { NonNull = true, Symbol = S(type) };
             // typeof(T).IsValueType after monomorphization (ImmutableExtensions.IsValueType<T>(), generic fast paths).

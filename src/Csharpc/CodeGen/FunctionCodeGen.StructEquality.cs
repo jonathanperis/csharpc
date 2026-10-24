@@ -47,6 +47,8 @@ public sealed partial class FunctionCodeGen
         if (IsPrimitiveLike(t) || t.SpecialType is SpecialType.System_String or SpecialType.System_Decimal
             || BclValueTypes.IsTicks(t) || BclValueTypes.IsBigInteger(t)) return true;
         if (t is INamedTypeSymbol { IsTupleType: true } tuple) return tuple.TupleElements.All(e => RunsNoUserCode(e.Type, hash, depth + 1));
+        if (t.IsValueType && Coroutines.IsTaskHandleType(t))
+            return hash || t.Name is "CancellationToken" or "TaskAwaiter" or "YieldAwaitable" or "YieldAwaiter"; // TaskHandleEquals
         if (TypeMapper.IsNullable(t)) return RunsNoUserCode(((INamedTypeSymbol)t).TypeArguments[0], hash, depth + 1);
         if (UserStruct(t) is { } s)
             return ModuleCodeGen.StructOverride(s, "Equals") is null && ModuleCodeGen.StructOverride(s, "GetHashCode") is null
@@ -158,6 +160,7 @@ public sealed partial class FunctionCodeGen
                 () => ShortCircuit(isAnd: true, [() => _b.BinOp(LLVMOpcode.And, ha, hb), () => ObjectEquals(u, NullablePayload(a, u), NullablePayload(b, u))]),
             ]);
         }
+        if (t.IsValueType && Coroutines.IsTaskHandleType(t)) return TaskHandleEquals(t, a, b);
         if (UserStruct(t) is { } s)
         {
             if (ModuleCodeGen.StructOverride(s, "Equals") is { } overrider) return CallMethod(overrider, [Spill(a), Box(b, s, null!)]);
@@ -168,6 +171,25 @@ public sealed partial class FunctionCodeGen
             return BranchOnNull(a, L.I1, () => _b.ICmp(LLVMIntPredicate.EQ, b, LlvmContext.Null(L.Ptr)),
                 () => VirtualCall(ObjectMethod("Equals", 1), a, [a, b]));
         return EqualsOf(t, a, b, null!);
+    }
+
+    /// <summary>
+    /// ValueType.Equals applied to a field of a task-handle struct (docs/10-async.md: a pointer to the csrt
+    /// task or cancellation source). .NET compares CancellationToken by source and TaskAwaiter by task, which
+    /// is the pointer; the yield awaitables have no fields. The others keep state the pointer doesn't
+    /// (ValueTask's source and token, ConfigureAwait's flag), so comparing them throws instead of guessing.
+    /// Reached by the default Equals of structs holding them, such as compiled async state machines.
+    /// </summary>
+    private LLVMValueRef TaskHandleEquals(ITypeSymbol t, LLVMValueRef a, LLVMValueRef b)
+    {
+        switch (t.Name)
+        {
+            case "CancellationToken" or "TaskAwaiter": return _b.ICmp(LLVMIntPredicate.EQ, a, b);
+            case "YieldAwaitable" or "YieldAwaiter": return L.True;
+            default:
+                ThrowAndContinue("System.NotSupportedException", $"csharpc: comparing '{t}' values is not supported yet.");
+                return L.False;
+        }
     }
 
     // ======================================================================================
