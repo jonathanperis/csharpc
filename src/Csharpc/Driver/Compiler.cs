@@ -298,8 +298,10 @@ public sealed class Compiler(CompilerOptions options)
         var now = _clock.Elapsed;
         // Wall time is noisy on a loaded machine; allocations and GCs per phase are not.
         var allocated = GC.GetTotalAllocatedBytes();
-        var cpu = System.Diagnostics.Process.GetCurrentProcess().TotalProcessorTime;
-        Console.Error.WriteLine($"  {(now - _last).TotalMilliseconds,8:F1} ms  {(cpu - _lastCpu).TotalMilliseconds,8:F1} ms cpu  {(allocated - _lastAllocated) / 1048576.0,7:F1} MB alloc  gc {GC.CollectionCount(0)}/{GC.CollectionCount(1)}/{GC.CollectionCount(2)}  {name}");
+        using var process = System.Diagnostics.Process.GetCurrentProcess();
+        var cpu = process.TotalProcessorTime;
+        // Peak RSS so far (managed heap + LLVM's native allocations): compile-time scale is memory too.
+        Console.Error.WriteLine($"  {(now - _last).TotalMilliseconds,8:F1} ms  {(cpu - _lastCpu).TotalMilliseconds,8:F1} ms cpu  {(allocated - _lastAllocated) / 1048576.0,7:F1} MB alloc  gc {GC.CollectionCount(0)}/{GC.CollectionCount(1)}/{GC.CollectionCount(2)}  peak {process.PeakWorkingSet64 / 1048576,5} MB  {name}");
         _last = now;
         _lastAllocated = allocated;
         _lastCpu = cpu;
