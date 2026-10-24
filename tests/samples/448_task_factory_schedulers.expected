@@ -1,0 +1,43 @@
+True True True
+action, current is default: True
+42
+state S1
+42
+long
+5x
+DenyChildAttach None True True 1
+canceled: TaskCanceledException: A task was canceled.
+faulted: InvalidOperationException: boom
+canceled: TaskCanceledException: A task was canceled.
+faulted: OperationCanceledException: The operation was canceled.
+Value cannot be null. (Parameter 'action')
+Value cannot be null. (Parameter 'scheduler')
+Specified argument was out of the range of valid values. (Parameter 'creationOptions')
+The current SynchronizationContext may not be used as a TaskScheduler.
+inline: current is custom True
+nested on custom: True, queued 2, id True
+HideScheduler: True
+False False 2
+b,a True 2 False
+20
+15
+action continuation 10
+state continuation st
+ok
+state!
+True bad format
+canceled: TaskCanceledException: A task was canceled.
+canceled: TaskCanceledException: A task was canceled.
+on faulted
+canceled: TaskCanceledException: A task was canceled.
+after cancel True
+canceled: TaskCanceledException: A task was canceled.
+faulted: InvalidOperationException: in continuation
+canceled before its antecedent: True False
+lazy waits: False
+lazy after: canceled: TaskCanceledException: A task was canceled.
+continuation on custom: True
+The specified TaskContinuationOptions excluded all continuation kinds. (Parameter 'continuationOptions')
+The specified TaskContinuationOptions combined LongRunning and ExecuteSynchronously.  Synchronous continuations should not be long running. (Parameter 'continuationOptions')
+Value cannot be null. (Parameter 'continuationAction')
+Value cannot be null. (Parameter 'scheduler')

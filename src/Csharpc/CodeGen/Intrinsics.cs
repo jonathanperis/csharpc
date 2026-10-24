@@ -607,6 +607,44 @@ internal static class Intrinsics
             }
         }
 
+        // Task<TResult>.ContinueWith: forwarded to corelib/Tasks/TaskScheduling.cs (TaskResultContinuations)
+        // with every argument; Task's own overloads are [ShadowInstance] members there.
+        const string Tr = $"{Tasks}.Task<TResult>";
+        const string Opts = $"{Tasks}.TaskContinuationOptions", Sched = $"{Tasks}.TaskScheduler", Tok = "System.Threading.CancellationToken";
+        foreach (var (callback, target, hasState, generic) in new[]
+                 {
+                     ($"System.Action<{Tr}>", "ContinueWithAction", false, false),
+                     ($"System.Action<{Tr}, object>", "ContinueWithStateAction", true, false),
+                     ($"System.Func<{Tr}, TNewResult>", "ContinueWithFunction", false, true),
+                     ($"System.Func<{Tr}, object, TNewResult>", "ContinueWithStateFunction", true, true),
+                 })
+        {
+            var lead = hasState ? $"{callback}, object" : callback;
+            // (parameters after the callback [and state]): which of token / options / scheduler are passed.
+            foreach (var (suffix, token, options, scheduler) in new (string, int, int, int)[]
+                     {
+                         ("", -1, -1, -1), ($", {Tok}", 0, -1, -1), ($", {Sched}", -1, -1, 0), ($", {Opts}", -1, 0, -1),
+                         ($", {Tok}, {Opts}, {Sched}", 0, 1, 2),
+                     })
+            {
+                t[$"{Tr}.ContinueWith({lead}{suffix})"] = (g, inv) =>
+                {
+                    var l = g.Module.Llvm;
+                    var receiver = g.EmitValue(inv.Instance!);
+                    g.NullCheck(receiver);
+                    var first = hasState ? 2 : 1;
+                    List<LLVMValueRef> args = [receiver, Arg(g, inv, 0)];
+                    if (hasState) args.Add(Arg(g, inv, 1));
+                    args.Add(token >= 0 ? Arg(g, inv, first + token) : LlvmContext.Null(l.Ptr));
+                    args.Add(options >= 0 ? Arg(g, inv, first + options) : l.ConstInt(l.I32, 0));
+                    args.Add(scheduler >= 0 ? Arg(g, inv, first + scheduler) : g.CallCoreLib("TaskSchedulerImpl", "get_Current"));
+                    var result = ((INamedTypeSymbol)g.TypeOf(inv.Instance!)!).TypeArguments[0];
+                    ITypeSymbol[] typeArguments = generic ? [result, g.S(inv.TargetMethod.TypeArguments[0])] : [result];
+                    return g.CallCoreLibGenericMethod("TaskResultContinuations", target, typeArguments, [.. args]);
+                };
+            }
+        }
+
         // Cancellation: a CancellationToken is its source pointer (CancellationToken.None == null).
         const string Th = "System.Threading";
         // Callbacks registered with CancellationToken.Register are corelib C# (corelib/Cancellation.cs).
@@ -758,6 +796,9 @@ internal static class Intrinsics
 
     private static void AddTaskProperties(Dictionary<string, PropertyHandler> t)
     {
+        // Task<TResult>.Factory: a default TaskFactory<TResult> (corelib/Tasks/TaskScheduling.cs).
+        t[$"{Tasks}.Task<TResult>.Factory"] = (g, p) =>
+            g.CallCoreLibGeneric("TaskFactoryImpl`1", "CreateDefault", [((INamedTypeSymbol)g.S(p.Property.ContainingType)).TypeArguments[0]]);
         foreach (var type in new[] { $"{Tasks}.Task", $"{Tasks}.ValueTask", $"{Tasks}.ValueTask<TResult>" })
         {
             t[$"{type}.IsFaulted"] = (g, p) => g.CallRuntime("csrt_task_is_faulted", g.Module.Llvm.I1, [g.Module.Llvm.Ptr], g.EmitValue(p.Instance!));
