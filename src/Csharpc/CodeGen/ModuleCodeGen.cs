@@ -1196,7 +1196,8 @@ public sealed partial class ModuleCodeGen
     /// </summary>
     private void MarkIfCoroutine(IMethodSymbol method, LLVMValueRef fn)
     {
-        if (Coroutines.KindOf(method) == CoroutineKind.None) return;
+        if (Coroutines.KindOf(method) == CoroutineKind.None
+            && !(Il.OwnerOf(method) is { } owner && FunctionCodeGen.IsRuntimeAsync(owner, method))) return;
         Llvm.AddFunctionAttribute(fn, "presplitcoroutine"); // async/iterator: split by CoroSplit
         EnsureCoroutineSupport();
     }

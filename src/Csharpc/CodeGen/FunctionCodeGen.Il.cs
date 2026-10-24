@@ -140,6 +140,7 @@ public sealed partial class FunctionCodeGen
             _allocas.Store(LlvmContext.Null(storage), il.Locals[i]);
         }
 
+        if (IsRuntimeAsync(body.Assembly, body.Method)) BeginCoroutine(CoroutineKind.Async);
         foreach (var block in il.Blocks) block.Llvm = NewBlock($"IL_{block.Start:X4}");
         // Landing pads and dispatch chains up front: a filter's "rejected" edge and the handlers' entry
         // values must exist whatever the order of the regions in the body.
@@ -274,7 +275,8 @@ public sealed partial class FunctionCodeGen
         // nested in the filter itself catches it.
         _b.UnwindDest = block.Try is { } protectedBy && (block.Handler is not { } filter || !filter.InFilter(block.Start) || protectedBy.Start >= filter.Region.FilterOffset)
             ? IlLandingPad(protectedBy)
-            : block.Handler is { } f && f.InFilter(block.Start) ? IlFilterPad(f) : default;
+            : block.Handler is { } f && f.InFilter(block.Start) ? IlFilterPad(f)
+            : _coro is not null ? CoroutinePad() : default; // runtime-async: an escaping exception faults the task
         _b.MayThrow = _m.MayThrow;
         // ECMA-335 III.1.7.5: a block reached by neither fall-through nor an earlier branch starts empty.
         block.Entry ??= [];
@@ -450,6 +452,7 @@ public sealed partial class FunctionCodeGen
             _b.Store(escaping, outer.Slot);
             _b.Br(IlDispatch(outer));
         }
+        else if (_coro is not null) IlCoroutineEscape(escaping);
         else
         {
             CallRuntime("csrt_rethrow", L.Void, [L.Ptr], escaping); // unwinds into our caller

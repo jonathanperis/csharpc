@@ -166,6 +166,11 @@ public sealed partial class FunctionCodeGen
             }
             case ILOpCode.Ret:
             {
+                if (_coro is not null)
+                {
+                    IlCoroutineReturn(stack);
+                    return true;
+                }
                 if (_method!.ReturnsVoid || _method.MethodKind == MethodKind.Constructor)
                 {
                     if (stack.Count > 0 && _method.MethodKind != MethodKind.Constructor) throw new IlException("stack not empty at ret");

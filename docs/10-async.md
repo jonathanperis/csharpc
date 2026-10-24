@@ -43,6 +43,21 @@ suspend: switch (llvm.coro.suspend(none, false)) { 0: resume, 1: cleanup, defaul
 - **Generics.** Coroutines are monomorphized like any other generic code: element and result types
   go through the instantiation's type substitution.
 
+## Runtime-async methods from IL
+
+.NET 11 libraries (ASP.NET Core, System.Net.Http, parts of CoreLib) are compiled with runtime async:
+a method marked `MethodImplOptions.Async` (0x2000) has no state machine; its IL returns the
+unwrapped result (`ret` with a `T` for `Task<T>`, nothing for `Task`) and awaits by calling
+`System.Runtime.CompilerServices.AsyncHelpers.Await(task)` (`Await<T>`, the `ValueTask` and
+`Configured*Awaitable` overloads), or — for other awaiters — tests `IsCompleted` and calls
+`AsyncHelpers.UnsafeAwaitAwaiter(awaiter)` / `AwaitAwaiter(awaiter)` before `GetResult()`.
+csharpc lowers such a method like a C# async method from source (`FunctionCodeGen.RuntimeAsync.cs`):
+the same coroutine ramp, `AsyncHelpers.Await(x)` is `await x`, `ret` stores the result and
+completes the task, an exception leaving every handler faults it, and a custom awaiter gets an
+`Action` bound to the coroutine frame (`csrt_coro_resume`) through `UnsafeOnCompleted`/`OnCompleted`.
+`tests/il.sh` runs IlAsyncApp's whole async suite against IlRuntimeAsyncLib, the same library compiled
+with `<Features>runtime-async=on</Features>`.
+
 ## Tasks and the scheduler
 
 `Task`, `Task<T>`, `ValueTask`, `ValueTask<T>`, the awaiters (`TaskAwaiter`, `ValueTaskAwaiter`,

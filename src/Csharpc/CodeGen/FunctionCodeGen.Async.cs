@@ -282,12 +282,27 @@ public sealed partial class FunctionCodeGen
         var task = EmitValue(operand);
         if (Coroutines.IsYieldAwaitable(operandType))
         {
-            var yieldSave = CoroSave();
-            CallRuntime("csrt_async_yield", L.Void, [L.Ptr], coro.Handle);
-            Suspend(coro.Cleanup, yieldSave);
+            AwaitYield();
             return default;
         }
+        AwaitCompletion(task);
+        CallRuntime("csrt_task_throw_if_faulted", L.Void, [L.Ptr], task); // rethrows the original exception
+        return TaskResult(task, TypeOf(await));
+    }
 
+    /// <summary>Task.Yield(): resume on the pool.</summary>
+    private void AwaitYield()
+    {
+        var coro = _coro!;
+        var yieldSave = CoroSave();
+        CallRuntime("csrt_async_yield", L.Void, [L.Ptr], coro.Handle);
+        Suspend(coro.Cleanup, yieldSave);
+    }
+
+    /// <summary>Suspends until <paramref name="task"/> has completed (a completed task continues synchronously).</summary>
+    private void AwaitCompletion(LLVMValueRef task)
+    {
+        var coro = _coro!;
         var wait = NewBlock("await.wait");
         var ready = NewBlock("await.ready");
         _b.CondBr(CallRuntime("csrt_task_is_completed", L.I1, [L.Ptr], task), ready, wait);
@@ -297,8 +312,6 @@ public sealed partial class FunctionCodeGen
         Suspend(coro.Cleanup, awaitSave);
         _b.Br(ready);
         _b.PositionAtEnd(ready);
-        CallRuntime("csrt_task_throw_if_faulted", L.Void, [L.Ptr], task); // rethrows the original exception
-        return TaskResult(task, TypeOf(await));
     }
 
     /// <summary>Reads a completed task's result (nothing for void / non-generic tasks).</summary>

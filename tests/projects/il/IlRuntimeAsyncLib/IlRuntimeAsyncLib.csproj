@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- IlAsyncLib's methods compiled as runtime-async (.NET 11's MethodImplOptions.Async, as ASP.NET Core
+       and System.Net.Http ship): no state machines, the IL awaits through AsyncHelpers.Await. -->
+  <PropertyGroup>
+    <TargetFramework>net11.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <Features>$(Features);runtime-async=on</Features>
+    <NoWarn>$(NoWarn);SYSLIB5007</NoWarn>
+  </PropertyGroup>
+</Project>
