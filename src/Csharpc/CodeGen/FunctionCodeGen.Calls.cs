@@ -533,6 +533,7 @@ public sealed partial class FunctionCodeGen
         INamedTypeSymbol { TypeKind: TypeKind.Struct } named when _m.IsUserType(named) => _m.StructMethodTable(named),
         INamedTypeSymbol { TypeKind: TypeKind.Interface } itf => _m.InterfaceMethodTable(itf),
         INamedTypeSymbol { IsTupleType: true } tuple => _m.TupleMethodTable(tuple, this),
+        INamedTypeSymbol { MetadataName: "Memory`1" or "ReadOnlyMemory`1" } memory when TypeMapper.IsSpan(memory) => _m.TupleMethodTable(memory, this),
         // Every delegate of a type shares that type's method table (DelegateMethodTable), so a type test is an
         // identity test — except where generic variance would also accept other instantiations.
         INamedTypeSymbol { TypeKind: TypeKind.Delegate } d when !MayBeVariant(d) => _m.DelegateMethodTable(d),

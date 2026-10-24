@@ -1,0 +1,14 @@
+'12345...' '12345'
+[world] 5 False
+world
+world
+System.ReadOnlyMemory`1[System.Char] True False True
+False
+System.Memory<Int32>[2] System.Memory`1[System.Int32]
+System.Memory<Int32>[3]
+2048
+128 2147483591
+1024
+Cannot access a disposed object.
+Object name: 'System.Buffers.ArrayMemoryPool`1+ArrayMemoryPoolBuffer[[System.Char, System.Private.CoreLib, Version=11.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e]]'.
+Specified argument was out of the range of valid values. (Parameter 'minimumBufferSize')

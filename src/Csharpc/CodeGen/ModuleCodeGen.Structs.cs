@@ -181,7 +181,10 @@ public sealed partial class ModuleCodeGen
 {
     private readonly Dictionary<INamedTypeSymbol, LLVMValueRef> _tupleMethodTables = new(SymbolEqualityComparer.Default);
 
-    /// <summary>Method table for boxed tuples: { header, [ToString, Equals, GetHashCode] } with element-wise thunks.</summary>
+    /// <summary>
+    /// Method table for boxed tuples: { header, [ToString, Equals, GetHashCode] } with element-wise thunks.
+    /// Boxed Memory&lt;T&gt; / ReadOnlyMemory&lt;T&gt; use the same shape (their ToString is the characters).
+    /// </summary>
     public LLVMValueRef TupleMethodTable(INamedTypeSymbol tuple, FunctionCodeGen _)
     {
         if (_tupleMethodTables.TryGetValue(tuple, out var existing)) return existing;
@@ -200,7 +203,9 @@ public sealed partial class ModuleCodeGen
         var equals = Make("Equals", Llvm.I1, Llvm.Ptr, Llvm.Ptr);
         var hash = Make("GetHashCode", Llvm.I32, Llvm.Ptr);
         var size = 8 + Types.Target.SizeOf(Types.Value(tuple));
-        var name = "System.ValueTuple`" + tuple.TupleElements.Length + "[" + string.Join(",", tuple.TupleElements.Select(e => ClrName(e.Type))) + "]";
+        var name = tuple.IsTupleType
+            ? "System.ValueTuple`" + tuple.TupleElements.Length + "[" + string.Join(",", tuple.TupleElements.Select(e => ClrName(e.Type))) + "]"
+            : "System." + tuple.MetadataName + "[" + ClrName(tuple.TypeArguments[0]) + "]"; // a boxed Memory<T> / ReadOnlyMemory<T>
         Native.LLVMSetInitializer(global, Llvm.ConstStruct(ExternalGlobal("csrt_Object_MT"), CString(name),
             Llvm.ConstInt(Llvm.I32, (long)size), Llvm.ConstInt(Llvm.I32, 64 /* CSRT_MT_VALUE_TYPE */), LlvmContext.Null(Llvm.Ptr), Llvm.ConstInt(Llvm.I32, 0), Llvm.ConstInt(Llvm.I32, 0),
             LlvmContext.ConstArray(Llvm.Ptr, toString.Fn, equals.Fn, hash.Fn)));

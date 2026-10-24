@@ -39,6 +39,11 @@ public sealed partial class FunctionCodeGen
 
     internal LLVMValueRef TupleEquals(LLVMValueRef a, LLVMValueRef b, INamedTypeSymbol tuple)
     {
+        // A boxed Memory<T> / ReadOnlyMemory<T> ({ ptr, length }): .NET compares the owner, start index and
+        // length, which for csharpc's interior pointers is the pointer and the length.
+        if (TypeMapper.IsSpan(tuple))
+            return _b.BinOp(LLVMOpcode.And, _b.ICmp(LLVMIntPredicate.EQ, _b.ExtractValue(a, 0), _b.ExtractValue(b, 0)),
+                _b.ICmp(LLVMIntPredicate.EQ, _b.ExtractValue(a, 1), _b.ExtractValue(b, 1)));
         List<Func<LLVMValueRef>> conditions = [];
         var elements = tuple.TupleElements;
         for (var i = 0; i < elements.Length; i++)
@@ -53,6 +58,13 @@ public sealed partial class FunctionCodeGen
     internal LLVMValueRef TupleHash(LLVMValueRef value, INamedTypeSymbol tuple)
     {
         LLVMValueRef hash = L.ConstInt(L.I32, 17);
+        if (TypeMapper.IsSpan(tuple))
+        {
+            // .NET hashes the owner's identity (an address-based value): not reproducible either way.
+            var address = _b.Cast(LLVMOpcode.PtrToInt, _b.ExtractValue(value, 0), L.I64);
+            var folded = _b.Cast(LLVMOpcode.Trunc, _b.BinOp(LLVMOpcode.Xor, address, _b.BinOp(LLVMOpcode.LShr, address, L.ConstInt(L.I64, 32))), L.I32);
+            return _b.BinOp(LLVMOpcode.Add, _b.BinOp(LLVMOpcode.Mul, folded, L.ConstInt(L.I32, 31)), _b.ExtractValue(value, 1));
+        }
         var elements = tuple.TupleElements;
         for (var i = 0; i < elements.Length; i++)
             hash = _b.BinOp(LLVMOpcode.Add, _b.BinOp(LLVMOpcode.Mul, hash, L.ConstInt(L.I32, 31)), FieldHash(TupleElement(value, tuple, i), S(elements[i].Type)));
