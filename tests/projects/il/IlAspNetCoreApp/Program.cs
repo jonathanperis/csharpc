@@ -2,12 +2,13 @@ using Microsoft.Extensions.Primitives;
 using Microsoft.Net.Http.Headers;
 
 // ASP.NET Core's HTTP abstractions without a server, compiled from the shared framework's IL: paths
-// (escaping and unescaping), headers, media types and string values.
+// and query strings (escaping and unescaping), headers, media types and string values.
 var path = new PathString("/api").Add("/items");
 Console.WriteLine(path);
 Console.WriteLine(path.StartsWithSegments("/api", out var rest) + " " + rest);
 Console.WriteLine(new PathString("/a b/ä€/%").ToUriComponent());
 Console.WriteLine(PathString.FromUriComponent("/x%20y/%C3%A4%2F").Value);
+Console.WriteLine(QueryString.Create("q", "a b&c").Add("page", "2") + " " + QueryString.FromUriComponent("?x=1").HasValue);
 Console.WriteLine(new PathString("/A/b").Equals(new PathString("/a/B")) + " " + (new PathString("/a") + new PathString("/b")));
 
 var headers = new HeaderDictionary { ["Content-Type"] = "text/plain" };
