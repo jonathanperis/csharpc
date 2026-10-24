@@ -206,6 +206,13 @@ public sealed partial class FunctionCodeGen
             if (TypeMapper.IsSpan(from)) return IlPush(IlTyped(arg, method.Parameters[0].Type), method.ReturnType);
             if (from is IArrayTypeSymbol { Rank: 1 } array) return IlPush(ArraySpan(IlTyped(arg, method.Parameters[0].Type), array.ElementType), method.ReturnType);
             if (from.SpecialType == SpecialType.System_String) return IlPush(StringSpan(IlTyped(arg, method.Parameters[0].Type)), method.ReturnType);
+            // Span<T>/ReadOnlySpan<T>.op_Implicit(ArraySegment<T>): MemoryExtensions.AsSpan(segment) (the corelib's).
+            if (method.Parameters[0].Type is INamedTypeSymbol { Name: "ArraySegment", Arity: 1 } segment
+                && _m.Compilation.GetTypeByMetadataName("System.MemoryExtensions") is { } extensions
+                && extensions.GetMembers("AsSpan").OfType<IMethodSymbol>().FirstOrDefault(m => m.IsGenericMethod && m.Parameters.Length == 1
+                    && m.Parameters[0].Type.OriginalDefinition is INamedTypeSymbol { Name: "ArraySegment" }) is { } asSpan
+                && IlInvoke(asSpan.Construct(segment.TypeArguments[0]), null, [arg], isVirtual: false, constrained: null) is { } span)
+                return IlPush(span.Value, method.ReturnType); // ReadOnlySpan<T> has Span<T>'s layout
         }
         if (IsIndexType(to) && from.SpecialType == SpecialType.System_Int32)
         {

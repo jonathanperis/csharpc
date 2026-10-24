@@ -37,3 +37,17 @@ public static class Probe
         return total;
     }
 }
+
+// Span<T>.op_Implicit(ArraySegment<T>) as a call in IL (csharpc's IL front-end crashed on it).
+public static class Segments
+{
+    public static string Describe(ArraySegment<byte> segment)
+    {
+        ReadOnlySpan<byte> read = segment;
+        Span<byte> write = segment;
+        if (write.Length > 0) write[0] = 99;
+        var sum = 0;
+        foreach (var b in read) sum += b;
+        return $"{read.Length} {sum}";
+    }
+}

@@ -280,6 +280,8 @@ public sealed partial class FunctionCodeGen
         }
         if (TypeMapper.IsSpan(owner))
         {
+            // Static members reach here from IL (an operator called as a method) when nothing lowered them.
+            if (inv.Instance is null) throw CompileError.Unsupported($"'{inv.TargetMethod}' (a static member of a span type)", inv);
             result = SpanInstanceMethod(inv, owner);
             return true;
         }
