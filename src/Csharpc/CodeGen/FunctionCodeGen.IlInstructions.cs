@@ -369,8 +369,7 @@ public sealed partial class FunctionCodeGen
                 var st = S(type);
                 if (st is INamedTypeSymbol { TypeKind: TypeKind.Interface } itf && MayHoldArray(value.Type is null ? null : S(value.Type)))
                     _m.RequestArrayInterface(itf);
-                var mt = MethodTableFor(TypeMapper.IsNullable(st) ? TypeMapper.NullableUnderlying(st) : st, IlAt());
-                Push(new IlEntry(IlKind.Ref, CallRuntime("csrt_isinst_class", L.Ptr, [L.Ptr, L.Ptr], IlRef(value), mt), Special(SpecialType.System_Object)));
+                Push(new IlEntry(IlKind.Ref, IsInst(IlRef(value), TypeMapper.IsNullable(st) ? TypeMapper.NullableUnderlying(st) : st, IlAt()), Special(SpecialType.System_Object)));
                 return false;
             }
             case ILOpCode.Initobj:

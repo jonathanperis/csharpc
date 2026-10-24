@@ -88,7 +88,8 @@ public sealed partial class FunctionCodeGen
             case ("IsDefined", 1) or ("GetName", 1):
             {
                 var v = Arg(0);
-                var members = _m.EnumMembers(enumType).GroupBy(m => m.Raw).Select(g => g.First()).ToList();
+                var sorted = _m.EnumMembers(enumType);
+                var members = sorted.GroupBy(m => m.Raw).Select(g => (Raw: g.Key, Name: ModuleCodeGen.EnumNameOf(sorted, g.Key, flags: false))).ToList();
                 if (target.Name == "IsDefined")
                 {
                     LLVMValueRef any = L.False;

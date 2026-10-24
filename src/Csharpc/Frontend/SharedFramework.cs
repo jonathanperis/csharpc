@@ -67,6 +67,44 @@ public static class SharedFramework
         return null;
     }
 
+    private static readonly Dictionary<(string, string, string), string[]?> s_fieldOrder = [];
+
+    /// <summary>
+    /// Field names of the top-level type <paramref name="ns"/>.<paramref name="name"/> in declaration order,
+    /// read from the implementation assembly that defines it (following type forwards from
+    /// <paramref name="assemblyName"/>); null when it can't be found. Reference assemblies list members
+    /// alphabetically, but .NET resolves enum aliases (TypeAttributes.NotPublic = AnsiClass = 0) by the
+    /// implementation's order.
+    /// </summary>
+    public static string[]? FieldOrder(string assemblyName, string ns, string name)
+    {
+        lock (s_lock)
+        {
+            if (s_fieldOrder.TryGetValue((assemblyName, ns, name), out var known)) return known;
+            return s_fieldOrder[(assemblyName, ns, name)] = FindFields(assemblyName, ns, name, depth: 0);
+        }
+    }
+
+    private static string[]? FindFields(string assemblyName, string ns, string name, int depth)
+    {
+        if (depth > 8 || Reader(assemblyName) is not { } reader) return null;
+        foreach (var handle in reader.TypeDefinitions)
+        {
+            var type = reader.GetTypeDefinition(handle);
+            if (type.GetDeclaringType().IsNil && reader.StringComparer.Equals(type.Name, name) && reader.StringComparer.Equals(type.Namespace, ns))
+                return [.. type.GetFields().Select(f => reader.GetString(reader.GetFieldDefinition(f).Name))];
+        }
+        foreach (var handle in reader.ExportedTypes)
+        {
+            var exported = reader.GetExportedType(handle);
+            if (!reader.StringComparer.Equals(exported.Name, name) || !reader.StringComparer.Equals(exported.Namespace, ns)) continue;
+            if (exported.Implementation.Kind != HandleKind.AssemblyReference) return null;
+            var target = reader.GetAssemblyReference((AssemblyReferenceHandle)exported.Implementation);
+            return FindFields(reader.GetString(target.Name), ns, name, depth + 1);
+        }
+        return null;
+    }
+
     private static MetadataReader? Reader(string assemblyName)
     {
         if (s_readers.TryGetValue(assemblyName, out var cached)) return cached;

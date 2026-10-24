@@ -179,8 +179,17 @@ public sealed partial class FunctionCodeGen
         return _b.Call(f.Type, f.Fn, args);
     }
 
+    /// <summary>A generic interface method: a closed-world type switch (ModuleCodeGen.GenericInterfaces.cs).</summary>
+    private LLVMValueRef GenericInterfaceCall(IMethodSymbol target, LLVMValueRef self, LLVMValueRef[] args)
+    {
+        _m.NoteVirtualCall(target);
+        var dispatcher = _m.GenericInterfaceDispatcherFor(target);
+        return _b.Call(dispatcher.Type, dispatcher.Fn, args);
+    }
+
     private LLVMValueRef InterfaceDispatch(IMethodSymbol target, LLVMValueRef self, LLVMValueRef[] args)
     {
+        if (target.IsGenericMethod) return GenericInterfaceCall(target, self, args);
         var itf = target.ContainingType;
         var index = ModuleCodeGen.InterfaceSlotIndex(itf, target);
         _m.NoteInterfaceDispatch(itf, index);

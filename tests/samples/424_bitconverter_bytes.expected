@@ -1,0 +1,17 @@
+513 65416 84148994 4287104774
+-8644934341102468607 18412974798939620098 ȁ True
+-2012805627 2.5 -1.25
+78-56-34-12
+FE-FF-FF-FF-FF-FF-FF-FF
+EF-BE 01
+ArgumentNullException: Value cannot be null. (Parameter 'value')
+ArgumentOutOfRangeException: Index was out of range. Must be non-negative and less than the size of the collection. (Parameter 'startIndex')
+ArgumentOutOfRangeException: Index was out of range. Must be non-negative and less than the size of the collection. (Parameter 'startIndex')
+ArgumentException: The array starting from the specified index is not long enough to read a value of the specified type. (Parameter 'value')
+ArgumentOutOfRangeException: Specified argument was out of the range of valid values. (Parameter 'value')
+01-02-03-04-B0-A0-00-00
+01020304 A0B0 176677841994241
+44332211 3412 0807060504030201
+False 0 False
+40-09-21-FB-54-44-2D-18 3.141592653589793
+ArgumentOutOfRangeException: Specified argument was out of the range of valid values. (Parameter 'length')

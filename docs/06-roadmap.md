@@ -168,12 +168,16 @@ RID-specific/native package assets.
 ### M6 — Bootstrapping
 csharpc compiles csharpc (and Roslyn) — the strongest possible proof of maturity.
 
-Status: the IL front-end can compile framework assemblies from the shared framework's IL
-(System.Collections.Immutable: 1644 IL methods reachable from a small program, ~30 s at `-O0` on a
-loaded 4-core machine, ~290 MB). Plan, in order: (1) the library surface Roslyn and csharpc use, driven
-by the IL survey and by compiling `System.Reflection.Metadata`/`Microsoft.Extensions.*` from IL;
-(2) a `--framework-il` policy (which framework assemblies come from IL instead of shadows);
-(3) compile-time scale for a ~40 MB-of-IL closed world: csharpc published ReadyToRun, parallel LLVM
+Status: framework assemblies the program uses are compiled from the shared framework's IL whenever
+csharpc implements none of their types ([ADR 0013](adr/0013-framework-il.md), `--framework-il`).
+System.Reflection.Metadata (with System.Collections.Immutable) reads PE headers, metadata tables,
+signatures, custom attributes and IL bodies, from memory, streams and memory-mapped files, and the
+Microsoft.Extensions Primitives/Options/DependencyInjection/Logging abstractions work, all matching
+`dotnet run` (`tests/il.sh`); the SRM program lowers 1318 IL methods in ~9 s at `-O0` (~20 s at `-O2`,
+peak 314 MB). Done of the plan: (1) the library surface those libraries need (Unsafe from IL, GC
+handles, ArrayPool, BinaryPrimitives, BitConverter, memory-mapped views, ConcurrentDictionary without
+enumeration, generic interface methods, variant delegate type tests) and (2) the framework-IL policy.
+Next, in order: (3) compile-time scale for a ~40 MB-of-IL closed world: csharpc published ReadyToRun, parallel LLVM
 code generation (module partitions), then parallel lowering; (4) reflection Roslyn needs at startup
 (`typeof(X).Assembly`, resource lookup, analyzer activation) as compile-time metadata with diagnostics
 for the rest; (5) csharpc compiled by csharpc, LLVM C API P/Invokes included.

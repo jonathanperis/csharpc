@@ -1,0 +1,22 @@
+NotPublic
+ClassSemanticsMask
+Public, Sealed, BeforeFieldInit
+ClassSemanticsMask
+NestedFamORAssem
+ExtendedLayout
+PrivateScope
+Public, Virtual, HideBySig
+PrivateScope
+Static
+IL
+NoInlining
+Class
+Interface
+PrivateScope
+NotPublic,AutoLayout,AnsiClass,Class,Public,NestedPublic,NestedPrivate,NestedFamily,NestedAssembly,NestedFamANDAssem,VisibilityMask,NestedFamORAssem,SequentialLayout,ExplicitLayout,LayoutMask,ExtendedLayout,Interface,ClassSemanticsMask,Abstract,Sealed,SpecialName,RTSpecialName,Import,Serializable,WindowsRuntime,UnicodeClass,AutoClass,StringFormatMask,CustomFormatClass,HasSecurity,ReservedMask,BeforeFieldInit,CustomFormatMask
+PrivateScope,ReuseSlot,Private,FamANDAssem,Assembly,Family,FamORAssem,Public,MemberAccessMask,UnmanagedExport,Static,Final,Virtual,HideBySig,NewSlot,VtableLayoutMask,CheckAccessOnOverride,Abstract,SpecialName,RTSpecialName,PinvokeImpl,HasSecurity,RequireSecObject,ReservedMask
+None,Read,Write,ReadWrite,Delete,Inheritable
+NotPublic ClassSemanticsMask, Abstract Static
+A
+C
+Z0

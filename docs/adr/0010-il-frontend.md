@@ -290,11 +290,11 @@ Toward **arbitrary pure-IL NuGet packages** (ordered; size in focused days):
 Toward **M6 (csharpc and Roslyn compiled by csharpc)**:
 
 1. Everything above (Roslyn and csharpc use async, resources, `Lazy<T>`, immutable collections).
-2. Framework IL as a library strategy: compile leaf framework assemblies from the shared framework's
-   IL (`System.Collections.Immutable`, `System.Reflection.Metadata`, `Microsoft.Extensions.*`) instead
-   of shadowing them in the corelib; only `System.Private.CoreLib`-level types (runtime intrinsics,
-   FCalls) stay shadows/intrinsics. Needs a policy for which framework assemblies to take as IL
-   (a `--framework-il` list, defaulting to pure leaf assemblies). (2–3)
+2. ~~Framework IL as a library strategy~~: done, [ADR 0013](0013-framework-il.md). Framework
+   assemblies the program uses are compiled from the shared framework's IL when csharpc implements
+   none of their types (System.Reflection.Metadata, System.Collections.Immutable and the
+   Microsoft.Extensions abstractions compile and match `dotnet run`); `--framework-il` forces or
+   disables the choice.
 3. Reflection used by Roslyn at startup (`typeof(X).Assembly`, resource lookup, `Activator` for
    analyzers): generated metadata for what's statically known, diagnostics for the rest (NativeAOT's
    rd.xml-style model). (5+)

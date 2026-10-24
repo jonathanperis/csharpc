@@ -26,6 +26,34 @@ namespace CsharpcCoreLib
     [ShadowMembers("System.String")]
     internal static class StringExtras
     {
+        /// <summary>The hash string.GetHashCode() gives the same characters.</summary>
+        public static int GetHashCode(ReadOnlySpan<char> value) => new string(value).GetHashCode();
+
+        /// <summary>Formats with a CompositeFormat: its format string, parsed once.</summary>
+        public static string Format(IFormatProvider provider, System.Text.CompositeFormat format, params object[] args)
+        {
+            if (format == null) throw new ArgumentNullException("format");
+            return string.Format(provider, format.Format, args);
+        }
+
+        public static string Format<TArg0>(IFormatProvider provider, System.Text.CompositeFormat format, TArg0 arg0)
+        {
+            if (format == null) throw new ArgumentNullException("format");
+            return string.Format(provider, format.Format, new object[] { arg0 });
+        }
+
+        public static string Format<TArg0, TArg1>(IFormatProvider provider, System.Text.CompositeFormat format, TArg0 arg0, TArg1 arg1)
+        {
+            if (format == null) throw new ArgumentNullException("format");
+            return string.Format(provider, format.Format, new object[] { arg0, arg1 });
+        }
+
+        public static string Format<TArg0, TArg1, TArg2>(IFormatProvider provider, System.Text.CompositeFormat format, TArg0 arg0, TArg1 arg1, TArg2 arg2)
+        {
+            if (format == null) throw new ArgumentNullException("format");
+            return string.Format(provider, format.Format, new object[] { arg0, arg1, arg2 });
+        }
+
         public static string Join<T>(string separator, IEnumerable<T> values)
         {
             if (values == null) ThrowHelper.ArgumentNull("values");
@@ -296,6 +324,9 @@ namespace CsharpcCoreLib
                 if (CoreIntrinsics.AreEqual(span[i], value0) || CoreIntrinsics.AreEqual(span[i], value1)) return true;
             return false;
         }
+
+        public static bool Equals(ReadOnlySpan<char> span, ReadOnlySpan<char> other, StringComparison comparisonType) =>
+            string.Equals(new string(span), new string(other), comparisonType);
 
         public static T Min<T>(ReadOnlySpan<T> span) => MinMax(span, null, 1);
         public static T Max<T>(ReadOnlySpan<T> span) => MinMax(span, null, -1);

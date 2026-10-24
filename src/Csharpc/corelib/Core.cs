@@ -37,6 +37,8 @@ namespace CsharpcCoreLib
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern string FastAllocateString(int length);
         /// <summary>The chars of a string as a writable span — only for strings that haven't escaped yet.</summary>
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern Span<char> StringChars(string s);
+        /// <summary>The object's address (its method-table header): GCHandle.AddrOfPinnedObject; objects never move.</summary>
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern unsafe byte* ObjectAddress(object o);
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern long DoubleToBits(double value);
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern double BitsToDouble(long bits);
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern int SingleToBits(float value);

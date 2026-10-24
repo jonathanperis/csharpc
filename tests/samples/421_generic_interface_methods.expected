@@ -1,0 +1,29 @@
+a: 42
+a: text
+a: (1, 2.5)
+a describes List`1
+default Char x
+LOUD 42
+LOUD TEXT
+LOUD (1, 2.5)
+b describes List`1
+default Char x
+wrapper[7] 42
+wrapper[7] text
+wrapper[7] (1, 2.5)
+wrapper of Int32 describes List`1
+wrapper default x
+struct 3 42
+struct 3 text
+struct 3 (1, 2.5)
+struct 3 List`1
+default Char x
+silent
+default Char x
+wrapper[s] 42
+wrapper[s] text
+wrapper[s] (1, 2.5)
+wrapper of String describes List`1
+wrapper default x
+(1 + (2 + 3))
+6

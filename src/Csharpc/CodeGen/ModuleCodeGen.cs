@@ -176,6 +176,12 @@ public sealed partial class ModuleCodeGen
         // their methods): iterate to a fixed point.
         do DrainWorklists();
         while (EmitRuntimeExports() | EmitTypeMetadata());
+        // Close the generic interface dispatchers, then lower what their last cases call.
+        if (EmitGenericInterfaceDispatchers(final: true) | EmitVariantDelegateTests(final: true))
+            do DrainWorklists();
+            while (EmitRuntimeExports() | EmitTypeMetadata());
+        CheckGenericInterfaceDispatchers();
+        // Last: every dispatched slot is known once nothing is left to lower.
         FinishMethodTables();
         Guard(entryPoint, FinishTypeMetadata);
         ReportIlFailures();
@@ -187,7 +193,8 @@ public sealed partial class ModuleCodeGen
     private void DrainWorklists()
     {
         do DrainFunctionWorklists();
-        while (EmitPendingClassInits() | EmitPendingBuiltinInterfaceTables() | RequestDispatchedSlots());
+        while (EmitPendingClassInits() | EmitPendingBuiltinInterfaceTables() | EmitGenericInterfaceDispatchers(final: false)
+               | EmitVariantDelegateTests(final: false) | RequestDispatchedSlots());
     }
 
     private void DrainFunctionWorklists()
@@ -655,6 +662,7 @@ public sealed partial class ModuleCodeGen
             LlvmContext.ConstArray(Llvm.Ptr, [.. defaults.Select(d => Runtime(d, Llvm.Ptr, Llvm.Ptr).Fn)]));
         g = Module.AddGlobal("csrt.dmt." + name, Native.LLVMTypeOf(init), init, constant: true, linkage: LLVMLinkage.Private);
         RegisterTypeMethodTable(g, type);
+        _delegateTypes.Add(type);
         return _globals[key] = g;
     }
 
@@ -1032,17 +1040,14 @@ public sealed partial class ModuleCodeGen
         var fallback = b.AppendBlock(fn, "number");
         List<(LLVMValueRef, LLVMBasicBlockRef)> cases = [];
         HashSet<ulong> seen = [];
-        foreach (var field in enumType.GetMembers().OfType<IFieldSymbol>().Where(f => f.HasConstantValue))
+        var sorted = EnumMembers(enumType);
+        foreach (var (raw, _) in sorted)
         {
-            var raw = field.ConstantValue switch
-            {
-                ulong u => u, uint u => u, ushort u => u, byte u => u,
-                var v => unchecked((ulong)Convert.ToInt64(v)),
-            };
-            if (!seen.Add(raw)) continue; // first declared name wins for duplicate values
-            var block = b.AppendBlock(fn, field.Name);
+            if (!seen.Add(raw)) continue;
+            var memberName = EnumNameOf(sorted, raw, isFlags);
+            var block = b.AppendBlock(fn, memberName);
             b.PositionAtEnd(block);
-            b.Ret(StringLiteral(field.Name));
+            b.Ret(StringLiteral(memberName));
             cases.Add((Llvm.ConstUInt(valueType, raw), block));
         }
         b.PositionAtEnd(entry);
@@ -1056,10 +1061,7 @@ public sealed partial class ModuleCodeGen
         if (isFlags)
         {
             // Not an exact name: let the runtime decompose into flag names (or fall back to the number).
-            var members = enumType.GetMembers().OfType<IFieldSymbol>().Where(f => f.HasConstantValue)
-                .Select(f => (Raw: f.ConstantValue switch { ulong u => u, uint u => u, ushort u => u, byte u => u, var v => unchecked((ulong)Convert.ToInt64(v)) }, f.Name))
-                .Select(m => (Raw: valueType.IntWidth == 64 ? m.Raw : m.Raw & ((1UL << (int)valueType.IntWidth) - 1), m.Name))
-                .GroupBy(m => m.Raw).Select(g => g.First()).OrderBy(m => m.Raw).ToList();
+            var members = sorted;
             var valuesInit = LlvmContext.ConstArray(Llvm.I64, [.. members.Select(m => Llvm.ConstUInt(Llvm.I64, m.Raw))]);
             var namesInit = LlvmContext.ConstArray(Llvm.Ptr, [.. members.Select(m => StringLiteral(m.Name))]);
             var valuesTable = Module.AddGlobal(Mangler.TypeSymbol(enumType, "FlagValues"), Native.LLVMTypeOf(valuesInit), valuesInit, constant: true, linkage: LLVMLinkage.Internal);

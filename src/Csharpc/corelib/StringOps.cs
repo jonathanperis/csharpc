@@ -503,6 +503,19 @@ namespace CsharpcCoreLib
         }
 
         [ShadowInstance]
+        public static int IndexOfAny(string s, char[] anyOf, int startIndex, int count)
+        {
+            if (anyOf == null) throw new ArgumentNullException("anyOf");
+            if ((uint)startIndex > (uint)s.Length) ThrowHelper.IndexMustBeLessOrEqual("startIndex");
+            if ((uint)count > (uint)(s.Length - startIndex))
+                throw new ArgumentOutOfRangeException("count", "Count must be positive and count must refer to a location within the string/array/collection.");
+            ReadOnlySpan<char> chars = s.AsSpan();
+            for (int i = startIndex; i < startIndex + count; i++)
+                if (AnyOf(chars[i], anyOf)) return i;
+            return -1;
+        }
+
+        [ShadowInstance]
         public static int LastIndexOfAny(string s, char[] anyOf)
         {
             if (anyOf == null) throw new ArgumentNullException("anyOf");

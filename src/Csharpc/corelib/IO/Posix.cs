@@ -121,6 +121,26 @@ namespace CsharpcCoreLib
         public const byte DT_UNKNOWN = 0, DT_DIR = 4, DT_REG = 8, DT_LNK = 10;
 #endif
 
+        // ---- read-only file views (System.IO.MemoryMappedFiles) --------------------------------
+#if CSHARPC_TARGET_WASI
+        public const bool CanMapFiles = false;
+        public static byte* MapView(int fd, long offset, long length) => null;
+        public static void UnmapView(byte* view, long length) { }
+#else
+        public const bool CanMapFiles = true;
+        [DllImport("libc", SetLastError = true)] private static extern void* mmap(void* address, nuint length, int prot, int flags, int fd, long offset);
+        [DllImport("libc", SetLastError = true)] private static extern int munmap(void* address, nuint length);
+
+        /// <summary>A read-only shared view of [offset, offset + length) of a file (offset aligned to 64 KiB by the caller); null with errno set on failure.</summary>
+        public static byte* MapView(int fd, long offset, long length)
+        {
+            void* p = mmap(null, (nuint)length, 1 /* PROT_READ */, 1 /* MAP_SHARED */, fd, offset);
+            return p == (void*)-1 ? null : (byte*)p;
+        }
+
+        public static void UnmapView(byte* view, long length) => munmap(view, (nuint)length);
+#endif
+
         /// <summary>stat() a path: 0 = missing, S_IFDIR / S_IFREG / other mode bits otherwise.</summary>
         public static int FileType(string path)
         {
