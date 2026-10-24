@@ -95,6 +95,16 @@ public sealed partial class ModuleCodeGen
 
     private volatile bool _prefetchStopped;
 
+    /// <summary>
+    /// Lowering is over: drop the semantic models and graphs (Roslyn's bound bodies, operation trees
+    /// and CFGs, most of the managed heap) so the memory is free before LLVM's own peak.
+    /// </summary>
+    private void ReleaseRoslynCaches()
+    {
+        _cfgs.Clear();
+        _models.Clear();
+    }
+
     /// <summary>Lowering is done: drop the graphs nobody started and wait for the ones in progress.</summary>
     private void StopPrefetch()
     {

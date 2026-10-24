@@ -135,7 +135,11 @@ public sealed partial class ModuleCodeGen
     public void Generate()
     {
         try { GenerateCore(); }
-        finally { StopPrefetch(); }
+        finally
+        {
+            StopPrefetch();
+            ReleaseRoslynCaches();
+        }
     }
 
     private void GenerateCore()
