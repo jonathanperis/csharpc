@@ -1,40 +1,40 @@
 == await chain: inner
-   at Program.Thrower(String what)
-   at Program.Inner()
-   at Program.Middle()
-   at Program.Outer()
-   at Program.Main()
+   at Program.Thrower(String what) in 413_stack_trace_async.cs:line 29
+   at Program.Inner() in 413_stack_trace_async.cs:line 46
+   at Program.Middle() in 413_stack_trace_async.cs:line 40
+   at Program.Outer() in 413_stack_trace_async.cs:line 34
+   at Program.Main() in 413_stack_trace_async.cs:line 13
 == before first await: early
-   at Program.Thrower(String what)
-   at Program.ThrowsBeforeAwait()
-   at Program.Main()
+   at Program.Thrower(String what) in 413_stack_trace_async.cs:line 29
+   at Program.ThrowsBeforeAwait() in 413_stack_trace_async.cs:line 51
+   at Program.Main() in 413_stack_trace_async.cs:line 14
 == Task<T>: Specified argument was out of the range of valid values. (Parameter 'x')
-   at Program.Compute(Int32 x)
-   at Program.WithResult()
-   at Program.Main()
+   at Program.Compute(Int32 x) in 413_stack_trace_async.cs:line 61
+   at Program.WithResult() in 413_stack_trace_async.cs:line 58
+   at Program.Main() in 413_stack_trace_async.cs:line 15
 == rethrow in async: async rethrow
-   at Program.Thrower(String what)
-   at Program.RethrowsInAsync()
-   at Program.Main()
+   at Program.Thrower(String what) in 413_stack_trace_async.cs:line 29
+   at Program.RethrowsInAsync() in 413_stack_trace_async.cs:line 68
+   at Program.Main() in 413_stack_trace_async.cs:line 16
 == async local function: local
-   at Program.Thrower(String what)
-   at Program.<Main>g__Local|0_0()
-   at Program.Main()
+   at Program.Thrower(String what) in 413_stack_trace_async.cs:line 29
+   at Program.<Main>g__Local|0_0() in 413_stack_trace_async.cs:line 25
+   at Program.Main() in 413_stack_trace_async.cs:line 17
 == GetAwaiter().GetResult(): inner
-   at Program.Thrower(String what)
-   at Program.Inner()
-   at Program.Middle()
-   at Program.Outer()
-   at Program.Sync()
-   at Program.Main()
+   at Program.Thrower(String what) in 413_stack_trace_async.cs:line 29
+   at Program.Inner() in 413_stack_trace_async.cs:line 46
+   at Program.Middle() in 413_stack_trace_async.cs:line 40
+   at Program.Outer() in 413_stack_trace_async.cs:line 34
+   at Program.Sync() in 413_stack_trace_async.cs:line 76
+   at Program.Main() in 413_stack_trace_async.cs:line 18
 0
 1
 == iterator: iterator 3
-   at Program.Thrower(String what)
-   at Program.Numbers(Int32 count)+MoveNext()
-   at Program.Main()
+   at Program.Thrower(String what) in 413_stack_trace_async.cs:line 29
+   at Program.Numbers(Int32 count)+MoveNext() in 413_stack_trace_async.cs:line 82
+   at Program.Main() in 413_stack_trace_async.cs:line 19
 == iterator in callee: iterator 5
-   at Program.Thrower(String what)
-   at Program.Numbers(Int32 count)+MoveNext()
-   at Program.Sum(IEnumerable`1 values)
-   at Program.Main()
+   at Program.Thrower(String what) in 413_stack_trace_async.cs:line 29
+   at Program.Numbers(Int32 count)+MoveNext() in 413_stack_trace_async.cs:line 82
+   at Program.Sum(IEnumerable`1 values) in 413_stack_trace_async.cs:line 90
+   at Program.Main() in 413_stack_trace_async.cs:line 20
