@@ -226,6 +226,7 @@ public sealed partial class FunctionCodeGen
             INamedTypeSymbol n => n.ToDisplayString() switch
             {
                 "System.TimeSpan" => "TimeSpanConverter",
+                "System.DateTimeOffset" or CoreLib.Namespace + ".DateTimeOffsetImpl" => "DateTimeOffsetConverter",
                 "System.Text.Json.JsonElement" or CoreLib.Namespace + ".JsonElementImpl" => "JsonElementConverter",
                 "System.Text.Json.JsonDocument" or CoreLib.Namespace + ".JsonDocumentImpl" => "JsonDocumentConverter",
                 "System.Text.Json.Nodes.JsonNode" or CoreLib.Namespace + ".JsonNodeImpl" => "JsonNodeConverter",

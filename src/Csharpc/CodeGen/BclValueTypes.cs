@@ -1197,6 +1197,9 @@ internal static partial class BclValueTypes
         t["System.DateTime.MinValue"] = (g, _) => I64(g, 0);
         t["System.DateTime.MaxValue"] = (g, _) => I64(g, 3155378975999999999);
         t["System.DateTime.UnixEpoch"] = (g, _) => I64(g, 621355968000000000 | DateTimeKindUtc);  // a Utc DateTime
+        // DateTimeOffset is a corelib struct; its non-default static readonly fields come from getters.
+        t["System.DateTimeOffset.MaxValue"] = (g, _) => g.CallCoreLib("DateTimeOffsetImpl", "GetMaxValue");
+        t["System.DateTimeOffset.UnixEpoch"] = (g, _) => g.CallCoreLib("DateTimeOffsetImpl", "GetUnixEpoch");
         t["System.Diagnostics.Stopwatch.Frequency"] = (g, _) => g.Module.Types.Target.IsWindows
             ? g.CallRuntime("csrt_stopwatch_frequency", g.Llvm.I64, []) : I64(g, 1_000_000_000);
         t["System.Diagnostics.Stopwatch.IsHighResolution"] = (g, _) => g.Llvm.True;

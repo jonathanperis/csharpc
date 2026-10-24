@@ -622,6 +622,7 @@ namespace CsharpcCoreLib
             if (type == typeof(ulong)) return Value<ulong>(converter, options);
             if (type == typeof(char)) return Value<char>(converter, options);
             if (type == typeof(DateTime)) return Value<DateTime>(converter, options);
+            if (type == typeof(DateTimeOffset)) return Value<DateTimeOffset>(converter, options);
             if (type == typeof(TimeSpan)) return Value<TimeSpan>(converter, options);
             if (type == typeof(byte[])) return Value<byte[]>(converter, options);
             if (type == typeof(object)) return Value<object>(converter, options);
@@ -669,6 +670,7 @@ namespace CsharpcCoreLib
             if (type == typeof(ulong)) return JsonMetadataServicesImpl.UInt64Converter;
             if (type == typeof(char)) return JsonMetadataServicesImpl.CharConverter;
             if (type == typeof(DateTime)) return JsonMetadataServicesImpl.DateTimeConverter;
+            if (type == typeof(DateTimeOffset)) return JsonMetadataServicesImpl.DateTimeOffsetConverter;
             if (type == typeof(TimeSpan)) return JsonMetadataServicesImpl.TimeSpanConverter;
             if (type == typeof(byte[])) return JsonMetadataServicesImpl.ByteArrayConverter;
             if (type == typeof(object)) return JsonMetadataServicesImpl.ObjectConverter;

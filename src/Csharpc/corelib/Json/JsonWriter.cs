@@ -247,6 +247,8 @@ namespace CsharpcCoreLib
         /// <summary>DateTime "O" with the fraction trimmed (JsonWriterHelper.Date.TrimDateTimeOffset).</summary>
         public static string FormatDateTime(DateTime value) => TrimRoundTrip(value.ToString("O"));
 
+        public static string FormatDateTimeOffset(DateTimeOffset value) => TrimRoundTrip(value.ToString("O"));
+
         public static string TrimRoundTrip(string o)
         {
             // o = yyyy-MM-ddTHH:mm:ss.fffffff[Z|+hh:mm|-hh:mm]
@@ -969,6 +971,8 @@ namespace CsharpcCoreLib
 
         public void WriteStringValue(DateTime value) => WriteEscapedStringValue(Ascii(JsonWriterHelper.FormatDateTime(value)));
 
+        public void WriteStringValue(DateTimeOffset value) => WriteEscapedStringValue(Ascii(JsonWriterHelper.FormatDateTimeOffset(value)));
+
         public void WriteStringValue(Guid value) => WriteEscapedStringValue(Ascii(value.ToString()));
 
         private static byte[] Ascii(string s)
@@ -1231,6 +1235,11 @@ namespace CsharpcCoreLib
         public void WriteString(ReadOnlySpan<char> propertyName, DateTime value) => WriteString(new string(propertyName), value);
         public void WriteString(ReadOnlySpan<byte> utf8PropertyName, DateTime value) => WritePropertyAndString(EscapedName(utf8PropertyName), Ascii(JsonWriterHelper.FormatDateTime(value)));
 
+        public void WriteString(JsonEncodedTextImpl propertyName, DateTimeOffset value) => WritePropertyAndString(propertyName.Utf8, Ascii(JsonWriterHelper.FormatDateTimeOffset(value)));
+        public void WriteString(string propertyName, DateTimeOffset value) => WritePropertyAndString(EscapedName(propertyName), Ascii(JsonWriterHelper.FormatDateTimeOffset(value)));
+        public void WriteString(ReadOnlySpan<char> propertyName, DateTimeOffset value) => WriteString(new string(propertyName), value);
+        public void WriteString(ReadOnlySpan<byte> utf8PropertyName, DateTimeOffset value) => WritePropertyAndString(EscapedName(utf8PropertyName), Ascii(JsonWriterHelper.FormatDateTimeOffset(value)));
+
         public void WriteString(JsonEncodedTextImpl propertyName, Guid value) => WritePropertyAndString(propertyName.Utf8, Ascii(value.ToString()));
         public void WriteString(string propertyName, Guid value) => WritePropertyAndString(EscapedName(propertyName), Ascii(value.ToString()));
         public void WriteString(ReadOnlySpan<char> propertyName, Guid value) => WriteString(new string(propertyName), value);
@@ -1259,5 +1268,9 @@ namespace CsharpcCoreLib
 
         /// <summary>Serializer helper: "name": with a name that is already escaped UTF-8.</summary>
         internal void WritePropertyNameUtf8Escaped(byte[] escapedName) => WritePropertyNameEscaped(escapedName);
+
+        // Dates as property names (dictionary keys) are written unescaped, as in .NET: their '+' stays as is.
+        internal void WritePropertyName(DateTime value) => WritePropertyNameEscaped(Ascii(JsonWriterHelper.FormatDateTime(value)));
+        internal void WritePropertyName(DateTimeOffset value) => WritePropertyNameEscaped(Ascii(JsonWriterHelper.FormatDateTimeOffset(value)));
     }
 }
