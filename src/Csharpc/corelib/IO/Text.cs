@@ -62,6 +62,11 @@ namespace CsharpcCoreLib
     public abstract class TextWriterImpl : IDisposable
     {
         private string _newLine = Environment.NewLine;
+        // .NET's TextWriter formats numbers and composite formats with this provider (null: the current culture).
+        private readonly IFormatProvider _internalFormatProvider;
+
+        protected TextWriterImpl() { }
+        protected TextWriterImpl(IFormatProvider formatProvider) { _internalFormatProvider = formatProvider; }
 
         public abstract Encoding Encoding { get; }
 
@@ -71,7 +76,7 @@ namespace CsharpcCoreLib
             set => _newLine = value ?? Environment.NewLine;
         }
 
-        public virtual IFormatProvider FormatProvider => null;
+        public virtual IFormatProvider FormatProvider => _internalFormatProvider ?? System.Globalization.CultureInfo.CurrentCulture;
 
         public virtual void Write(char value) { }
 
@@ -92,21 +97,23 @@ namespace CsharpcCoreLib
         }
 
         public virtual void Write(bool value) => Write(value ? "True" : "False");
-        public virtual void Write(int value) => Write(value.ToString());
-        public virtual void Write(uint value) => Write(value.ToString());
-        public virtual void Write(long value) => Write(value.ToString());
-        public virtual void Write(ulong value) => Write(value.ToString());
-        public virtual void Write(float value) => Write(value.ToString());
-        public virtual void Write(double value) => Write(value.ToString());
-        public virtual void Write(decimal value) => Write(value.ToString());
+        public virtual void Write(int value) => Write(value.ToString(_internalFormatProvider));
+        public virtual void Write(uint value) => Write(value.ToString(_internalFormatProvider));
+        public virtual void Write(long value) => Write(value.ToString(_internalFormatProvider));
+        public virtual void Write(ulong value) => Write(value.ToString(_internalFormatProvider));
+        public virtual void Write(float value) => Write(value.ToString(_internalFormatProvider));
+        public virtual void Write(double value) => Write(value.ToString(_internalFormatProvider));
+        public virtual void Write(decimal value) => Write(value.ToString(_internalFormatProvider));
         public virtual void Write(object value)
         {
-            if (value != null) Write(value.ToString());
+            if (value == null) return;
+            if (value is IFormattable f) Write(f.ToString(null, _internalFormatProvider));
+            else Write(value.ToString());
         }
-        public virtual void Write(string format, object arg0) => Write(string.Format(format, arg0));
-        public virtual void Write(string format, object arg0, object arg1) => Write(string.Format(format, arg0, arg1));
-        public virtual void Write(string format, object arg0, object arg1, object arg2) => Write(string.Format(format, arg0, arg1, arg2));
-        public virtual void Write(string format, params object[] arg) => Write(string.Format(format, arg));
+        public virtual void Write(string format, object arg0) => Write(string.Format(_internalFormatProvider, format, arg0));
+        public virtual void Write(string format, object arg0, object arg1) => Write(string.Format(_internalFormatProvider, format, arg0, arg1));
+        public virtual void Write(string format, object arg0, object arg1, object arg2) => Write(string.Format(_internalFormatProvider, format, arg0, arg1, arg2));
+        public virtual void Write(string format, params object[] arg) => Write(string.Format(_internalFormatProvider, format, arg));
 
         public virtual void WriteLine() => Write(_newLine);
         public virtual void WriteLine(char value) { Write(value); WriteLine(); }
@@ -122,10 +129,10 @@ namespace CsharpcCoreLib
         public virtual void WriteLine(double value) { Write(value); WriteLine(); }
         public virtual void WriteLine(decimal value) { Write(value); WriteLine(); }
         public virtual void WriteLine(object value) { Write(value); WriteLine(); }
-        public virtual void WriteLine(string format, object arg0) => WriteLine(string.Format(format, arg0));
-        public virtual void WriteLine(string format, object arg0, object arg1) => WriteLine(string.Format(format, arg0, arg1));
-        public virtual void WriteLine(string format, object arg0, object arg1, object arg2) => WriteLine(string.Format(format, arg0, arg1, arg2));
-        public virtual void WriteLine(string format, params object[] arg) => WriteLine(string.Format(format, arg));
+        public virtual void WriteLine(string format, object arg0) => WriteLine(string.Format(_internalFormatProvider, format, arg0));
+        public virtual void WriteLine(string format, object arg0, object arg1) => WriteLine(string.Format(_internalFormatProvider, format, arg0, arg1));
+        public virtual void WriteLine(string format, object arg0, object arg1, object arg2) => WriteLine(string.Format(_internalFormatProvider, format, arg0, arg1, arg2));
+        public virtual void WriteLine(string format, params object[] arg) => WriteLine(string.Format(_internalFormatProvider, format, arg));
 
         public virtual void Flush() { }
         public void Dispose() => Dispose(true);
@@ -477,6 +484,8 @@ namespace CsharpcCoreLib
 
         public StringWriterImpl() { _sb = new StringBuilder(); }
         public StringWriterImpl(StringBuilder sb) { _sb = sb ?? throw new ArgumentNullException("sb"); }
+        public StringWriterImpl(IFormatProvider formatProvider) : base(formatProvider) { _sb = new StringBuilder(); }
+        public StringWriterImpl(StringBuilder sb, IFormatProvider formatProvider) : base(formatProvider) { _sb = sb ?? throw new ArgumentNullException("sb"); }
 
         public override Encoding Encoding => new UnicodeEncoding(false, false);
         public virtual StringBuilder GetStringBuilder() => _sb;
