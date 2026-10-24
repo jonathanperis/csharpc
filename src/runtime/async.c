@@ -48,7 +48,7 @@ static const csrt_BuiltinMethodTable csrt_CoroFrame_MT = {
     { (void*)csrt_object_to_string_default, (void*)csrt_object_equals_default, (void*)csrt_object_get_hash_code_default },
 };
 
-// Layout shared with the compiler (FunctionCodeGen.Async.cs): payload at offset 48.
+// Layout shared with the compiler (FunctionCodeGen.Async.cs): payload at offset 56.
 typedef struct csrt_Task {
     const csrt_MethodTable* mt;
     int32_t state;            // 0 pending, 1 ran to completion, 2 faulted, 3 canceled (atomic)
@@ -58,11 +58,18 @@ typedef struct csrt_Task {
     int32_t lock;             // spinlock guarding state transitions + conts
     void* exception;          // faulted: the exception `await` rethrows (the first one)
     void* aggregate;          // faulted: Task.Exception (AggregateException), created lazily
+    int32_t id;               // Task.Id: assigned on first use from a global counter, as .NET (atomic)
+    int32_t flags;            // TF_* below: what Task.Status reports while the task is pending
     _Alignas(8) uint8_t payload[];  // Task<T> result
 } csrt_Task;
 
-// 64-bit targets: payload at 48; wasm32: 32 (FunctionCodeGen.Async.cs, PromisePayloadOffset).
-_Static_assert(offsetof(csrt_Task, payload) == (sizeof(void*) == 8 ? 48 : 32), "task payload offset is part of the compiler ABI");
+// 64-bit targets: payload at 56; wasm32: 40 (FunctionCodeGen.Async.cs, TaskPayloadOffset).
+_Static_assert(offsetof(csrt_Task, payload) == (sizeof(void*) == 8 ? 56 : 40), "task payload offset is part of the compiler ABI");
+
+// A task that runs a delegate on the pool (Task.Run, not the unwrapping Func<Task> forms) is
+// WaitingToRun, then Running; every other pending task (async methods, TaskCompletionSource,
+// Delay, WhenAll, unwrap promises) is WaitingForActivation, as in .NET.
+enum { TF_DELEGATE = 1, TF_RUNNING = 2 };
 
 typedef struct csrt_Iterator {
     const csrt_MethodTable* mt;
@@ -253,6 +260,33 @@ bool csrt_task_is_completed(csrt_Task* t) { return !t || task_state(t) != T_PEND
 bool csrt_task_is_faulted(csrt_Task* t) { return t && task_state(t) == T_FAULTED; }
 bool csrt_task_is_canceled(csrt_Task* t) { return t && task_state(t) == T_CANCELED; }
 bool csrt_task_is_completed_successfully(csrt_Task* t) { return !t || task_state(t) == T_DONE; }
+
+/// Task.Status as System.Threading.Tasks.TaskStatus (a null task is a default, completed ValueTask).
+int32_t csrt_task_status(csrt_Task* t) {
+    enum { WaitingForActivation = 1, WaitingToRun = 2, Running = 3, RanToCompletion = 5, Canceled = 6, Faulted = 7 };
+    if (!t) return RanToCompletion;
+    switch (task_state(t)) {
+        case T_DONE: return RanToCompletion;
+        case T_FAULTED: return Faulted;
+        case T_CANCELED: return Canceled;
+    }
+    int32_t flags = __atomic_load_n(&t->flags, __ATOMIC_ACQUIRE);
+    if (!(flags & TF_DELEGATE)) return WaitingForActivation;
+    return flags & TF_RUNNING ? Running : WaitingToRun;
+}
+
+static int32_t s_task_id_counter;
+
+/// Task.Id: .NET assigns ids lazily, on first request, from one counter that skips 0.
+int32_t csrt_task_id(csrt_Task* t) {
+    if (!t) { csrt_throw_null_reference(); return 0; }  // returns on wasm32 (CSRT_THROWS)
+    int32_t id = __atomic_load_n(&t->id, __ATOMIC_ACQUIRE);
+    if (id) return id;
+    int32_t fresh;
+    do fresh = __atomic_add_fetch(&s_task_id_counter, 1, __ATOMIC_SEQ_CST); while (fresh == 0);
+    __atomic_compare_exchange_n(&t->id, &id, fresh, false, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE);
+    return __atomic_load_n(&t->id, __ATOMIC_ACQUIRE);
+}
 
 /// Registers a continuation; false if the task already completed (the caller runs it itself).
 static bool add_continuation(csrt_Task* t, intptr_t kind, void* p) {
@@ -942,6 +976,7 @@ csrt_Task* csrt_task_when_any(csrt_Array* tasks) {
 csrt_Task* csrt_task_run_action(void* del) {
     if (!del) csrt_throw_null_reference();
     csrt_Task* t = csrt_task_new(0);
+    t->flags = TF_DELEGATE;
     enqueue(K_RUN_ACTION, del, t);
     return t;
 }
@@ -961,6 +996,7 @@ typedef struct { const csrt_MethodTable* mt; void* del; csrt_Task* task; void (*
 csrt_Task* csrt_task_run_thunk(void (*thunk)(void*), void* del, int32_t payload_size) {
     if (!del) csrt_throw_null_reference();
     csrt_Task* t = csrt_task_new(payload_size);
+    t->flags = TF_DELEGATE;
     RunThunk* pack = csrt_alloc(&csrt_Object_MT.header, sizeof(RunThunk));
     pack->del = del;
     pack->task = t;
@@ -975,6 +1011,7 @@ static void run_item(intptr_t kind, void* a, void* b) {
         case K_INVOKE: invoke_action(a); break;
         case K_RUN_ACTION: {
             Delegate* d = a;
+            __atomic_or_fetch(&((csrt_Task*)b)->flags, TF_RUNNING, __ATOMIC_RELEASE);
             void* exception = csrt_call_catching_void((void (*)(void*))d->fn, d->target);
             if (exception) csrt_task_fault(b, exception);
             else csrt_task_complete(b);
@@ -990,6 +1027,7 @@ static void run_item(intptr_t kind, void* a, void* b) {
         }
         case K_RUN_THUNK: {
             RunThunk* pack = a;
+            __atomic_or_fetch(&((csrt_Task*)b)->flags, TF_RUNNING, __ATOMIC_RELEASE);
             void* exception = csrt_call_catching_void(pack->thunk, pack);
             if (exception) csrt_task_fault(b, exception);
             else csrt_task_complete(b);

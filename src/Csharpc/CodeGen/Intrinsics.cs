@@ -861,6 +861,9 @@ internal static class Intrinsics
             t[$"{type}.IsCanceled"] = (g, p) => g.CallRuntime("csrt_task_is_canceled", g.Module.Llvm.I1, [g.Module.Llvm.Ptr], g.EmitValue(p.Instance!));
         }
         t[$"{Tasks}.Task.Exception"] = (g, p) => g.CallRuntime("csrt_task_exception", g.Module.Llvm.Ptr, [g.Module.Llvm.Ptr], g.EmitValue(p.Instance!));
+        // TaskStatus from the runtime task's state and flags; Id assigned lazily from a global counter (async.c).
+        t[$"{Tasks}.Task.Status"] = (g, p) => g.CallRuntime("csrt_task_status", g.Module.Llvm.I32, [g.Module.Llvm.Ptr], g.EmitValue(p.Instance!));
+        t[$"{Tasks}.Task.Id"] = (g, p) => g.CallRuntime("csrt_task_id", g.Module.Llvm.I32, [g.Module.Llvm.Ptr], g.EmitValue(p.Instance!));
         foreach (var tcs in new[] { $"{Tasks}.TaskCompletionSource", $"{Tasks}.TaskCompletionSource<TResult>" })
             t[$"{tcs}.Task"] = (g, p) => g.EmitValue(p.Instance!);
         const string Th = "System.Threading";
