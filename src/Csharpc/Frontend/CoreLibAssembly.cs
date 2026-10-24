@@ -21,10 +21,13 @@ public static partial class CoreLibAssembly
     public const string Name = "CsharpcCoreLib";
 
     /// <summary>Bump when the way the assembly is compiled changes (options, emit settings, index format).</summary>
-    private const int Format = 1;
+    private const int Format = 2;
 
     /// <summary>The cached assembly and its shadow index.</summary>
-    public sealed record Built(string Path, IReadOnlyList<ShadowDeclaration> Shadows);
+    public sealed record Built(string Path, IReadOnlyList<ShadowDeclaration> Shadows, IReadOnlyList<RuntimeExport> Exports);
+
+    /// <summary>A method with [RuntimeExport] (ModuleCodeGen.RuntimeExports.cs): its type's metadata name in CsharpcCoreLib, and its name.</summary>
+    public readonly record struct RuntimeExport(string Type, string Method);
 
     /// <summary>A [Shadows] or [ShadowMembers] declaration: the real BCL type and the shadow's metadata name.</summary>
     public readonly record struct ShadowDeclaration(bool MembersOnly, string Real, string Shadow);
@@ -81,7 +84,7 @@ public static partial class CoreLibAssembly
         {
             var dll = Path.Combine(cache, $"corelib-{key}.dll");
             var index = Path.ChangeExtension(dll, ".shadows");
-            return File.Exists(dll) && File.Exists(index) && ReadIndex(index) is { } shadows ? new Built(dll, shadows) : null;
+            return File.Exists(dll) && File.Exists(index) && ReadIndex(index) is { } read ? new Built(dll, read.Shadows, read.Exports) : null;
         }
 
         Built Build(string key) => Compile(Path.Combine(cache, $"corelib-{key}.dll"), files, texts, defines, references, log);
@@ -129,31 +132,57 @@ public static partial class CoreLibAssembly
                 + string.Join(Environment.NewLine, result.Diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error).Take(20)));
 
         var shadows = new List<ShadowDeclaration>();
-        foreach (var tree in trees) ScanShadows(tree.GetRoot(), "", shadows);
+        var exports = new List<RuntimeExport>();
+        foreach (var tree in trees)
+        {
+            ScanShadows(tree.GetRoot(), "", shadows);
+            ScanRuntimeExports(tree.GetRoot(), exports);
+        }
         // Written next to each other under temporary names; the assembly last, so its presence means both are complete.
         var suffix = $".{Environment.ProcessId}.tmp";
-        File.WriteAllLines(index + suffix, shadows.Select(s => $"{(s.MembersOnly ? "M" : "S")}\t{s.Real}\t{s.Shadow}"));
+        File.WriteAllLines(index + suffix, [.. shadows.Select(s => $"{(s.MembersOnly ? "M" : "S")}\t{s.Real}\t{s.Shadow}"),
+            .. exports.Select(e => $"E\t{e.Type}\t{e.Method}")]);
         File.Move(index + suffix, index, overwrite: true);
         File.WriteAllBytes(dll + suffix, pe.ToArray());
         File.Move(dll + suffix, dll, overwrite: true);
         log?.WriteLine($"  corelib: compiled to {dll} ({pe.Length / 1024} KiB, {System.Diagnostics.Stopwatch.GetElapsedTime(start).TotalSeconds:F1} s)");
-        return new Built(dll, shadows);
+        return new Built(dll, shadows, exports);
     }
 
-    private static List<ShadowDeclaration>? ReadIndex(string path)
+    private static (List<ShadowDeclaration> Shadows, List<RuntimeExport> Exports)? ReadIndex(string path)
     {
         try
         {
             List<ShadowDeclaration> shadows = [];
+            List<RuntimeExport> exports = [];
             foreach (var line in File.ReadAllLines(path))
             {
                 var parts = line.Split('\t');
                 if (parts.Length != 3) return null;
-                shadows.Add(new ShadowDeclaration(parts[0] == "M", parts[1], parts[2]));
+                if (parts[0] == "E") exports.Add(new RuntimeExport(parts[1], parts[2]));
+                else shadows.Add(new ShadowDeclaration(parts[0] == "M", parts[1], parts[2]));
             }
-            return shadows;
+            return (shadows, exports);
         }
         catch (IOException) { return null; }
+    }
+
+    /// <summary>
+    /// Methods with [RuntimeExport] in the top-level types of the CsharpcCoreLib namespace, the ones
+    /// ModuleCodeGen.CollectRuntimeExports looks at: indexed so a compile doesn't read every member's
+    /// attributes from metadata (~80 ms).
+    /// </summary>
+    private static void ScanRuntimeExports(SyntaxNode root, List<RuntimeExport> into)
+    {
+        foreach (var ns in root.ChildNodes().OfType<BaseNamespaceDeclarationSyntax>().Where(n => n.Name.ToString() == Name))
+            foreach (var type in ns.Members.OfType<TypeDeclarationSyntax>())
+            {
+                var metadataName = type.Identifier.ValueText + (type.TypeParameterList is { } tps ? "`" + tps.Parameters.Count : "");
+                foreach (var method in type.Members.OfType<MethodDeclarationSyntax>())
+                    if (method.AttributeLists.SelectMany(l => l.Attributes).Any(a => a.Name.ToString() is "RuntimeExport" or "RuntimeExportAttribute")
+                        && !into.Contains(new RuntimeExport(metadataName, method.Identifier.ValueText)))
+                        into.Add(new RuntimeExport(metadataName, method.Identifier.ValueText));
+            }
     }
 
     /// <summary>[Shadows]/[ShadowMembers] declarations, from syntax (CodeGen/CoreLib.cs reads the same for source corelibs).</summary>

@@ -63,6 +63,7 @@ public sealed class CoreLib
             && compilation.ReferencedAssemblyNames.Any(a => a.Name == Frontend.CoreLibAssembly.Name))
         {
             shadows.AddRange(built.Shadows);
+            PrecompiledExports = built.Exports;
             _assembly = compilation.References.Select(compilation.GetAssemblyOrModuleSymbol).OfType<IAssemblySymbol>()
                 .FirstOrDefault(a => a.Name == Frontend.CoreLibAssembly.Name);
         }
@@ -80,6 +81,9 @@ public sealed class CoreLib
             }
         }
     }
+
+    /// <summary>[RuntimeExport] methods indexed with a precompiled corelib (null: scan the source corelib's symbols).</summary>
+    public IReadOnlyList<Frontend.CoreLibAssembly.RuntimeExport>? PrecompiledExports { get; }
 
     /// <summary>The precompiled corelib assembly, when the corelib isn't part of the compilation's sources.</summary>
     private readonly IAssemblySymbol? _assembly;
