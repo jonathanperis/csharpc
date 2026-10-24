@@ -461,18 +461,35 @@ public sealed class StackTraceInfo
     // Tables for the runtime (csrt_TraceTables in src/runtime/eh.c)
     // ======================================================================================
 
-    /// <summary>{ sites, methods, files, siteCount }: sites are { i32 method, i32 file, i32 line }.</summary>
+    private readonly Dictionary<int, LLVMValueRef> _descriptors = [];
+
+    /// <summary>The csrt_TraceSite magic (src/runtime/eh.c): not a canonical address, so no method table starts with it.</summary>
+    private const ulong SiteMagic = 0xC5A7AC5E7A1E5175UL;
+
+    /// <summary>
+    /// A site's descriptor { magic, method, file, line }, used as the type info of the site's catch
+    /// clause: the personality records it during the search phase (src/runtime/eh.c). One global per
+    /// site, because LLVM's LSDA only takes globals as type infos.
+    /// </summary>
+    public LLVMValueRef SiteDescriptor(ModuleCodeGen m, int site)
+    {
+        if (_descriptors.TryGetValue(site, out var known)) return known;
+        var l = m.Llvm;
+        var (method, file, line) = _sites[site];
+        var init = l.ConstStruct(l.ConstUInt(l.I64, SiteMagic), l.ConstInt(l.I32, method), l.ConstInt(l.I32, file),
+            l.ConstInt(l.I32, line), l.ConstInt(l.I32, 0));
+        var global = m.Module.AddGlobal($"csharpc.trace.site.{site}", Native.LLVMTypeOf(init), init, constant: true, linkage: LLVMLinkage.Internal);
+        return _descriptors[site] = global;
+    }
+
+    /// <summary>{ methods, files } (csrt_TraceTables): the strings the descriptors index.</summary>
     public LLVMValueRef EmitTables(ModuleCodeGen m)
     {
         var l = m.Llvm;
-        var siteType = l.Struct(l.I32, l.I32, l.I32);
-        var sites = LlvmContext.ConstArray(siteType, [.. _sites.Select(s =>
-            l.ConstStruct(l.ConstInt(l.I32, s.Method), l.ConstInt(l.I32, s.File), l.ConstInt(l.I32, s.Line)))]);
         var methods = LlvmContext.ConstArray(l.Ptr, [.. _methods.Select(m.CString)]);
         var files = LlvmContext.ConstArray(l.Ptr, [.. _files.Select(m.CString)]);
         LLVMValueRef Global(string name, LLVMValueRef init) =>
             m.Module.AddGlobal(name, Native.LLVMTypeOf(init), init, constant: true, linkage: LLVMLinkage.Internal);
-        return l.ConstStruct(Global("csharpc.trace.sites", sites), Global("csharpc.trace.methods", methods),
-            Global("csharpc.trace.files", files), l.ConstInt(l.I32, _sites.Count));
+        return l.ConstStruct(Global("csharpc.trace.methods", methods), Global("csharpc.trace.files", files));
     }
 }

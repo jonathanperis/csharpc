@@ -111,7 +111,9 @@ CSRT_THROWS void csrt_throw_object(void* exception);
 CSRT_THROWS void csrt_rethrow(void* exception);
 // Stack traces (docs/adr/0012-stack-traces.md): compiler-emitted site tables, registered by main.
 void csrt_trace_init(const void* tables);
-void csrt_trace_frame(void* unwind_exception, int32_t site);
+void csrt_trace_frame(void* unwind_exception, const void* site);   // wasm32 only
+void csrt_trace_finally(void* unwind_exception, const void* site, const void* parent);
+void csrt_trace_new_stack(void* exception);
 csrt_String* csrt_exception_get_stack_trace(void* exception);
 void* csrt_exception_capture_trace(void* exception);
 CSRT_THROWS void csrt_exception_throw_captured(void* exception, void* captured);

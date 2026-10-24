@@ -196,12 +196,14 @@ public static class ProjectLoader
             JsonReflectionEnabled = !string.Equals(Prop("JsonSerializerIsReflectionEnabledByDefault"), "false", StringComparison.OrdinalIgnoreCase),
             AssemblyVersion = AssemblyVersionOf(Prop),
             // csc gets /optimize from Optimize, and writes a PDB (which gives stack traces their
-            // " in file:line N") unless DebugType is none or DebugSymbols false.
+            // " in file:line N") for any DebugType but none; DebugSymbols (false in Release) only
+            // matters without a DebugType.
             Symbols = new DebugSymbolSettings
             {
                 Optimize = string.Equals(Prop("Optimize"), "true", StringComparison.OrdinalIgnoreCase),
-                HasPdb = !string.Equals(Prop("DebugType"), "none", StringComparison.OrdinalIgnoreCase)
-                         && !string.Equals(Prop("DebugSymbols"), "false", StringComparison.OrdinalIgnoreCase),
+                HasPdb = Prop("DebugType") is { } debugType
+                    ? !debugType.Equals("none", StringComparison.OrdinalIgnoreCase)
+                    : !string.Equals(Prop("DebugSymbols"), "false", StringComparison.OrdinalIgnoreCase),
                 PathMap = Prop("PathMap"),
             },
         };

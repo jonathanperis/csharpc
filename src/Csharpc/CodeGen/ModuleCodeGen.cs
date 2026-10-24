@@ -69,6 +69,12 @@ public sealed partial class ModuleCodeGen
     public StackTraceInfo? StackTraces { get; init; }
 
     private LLVMValueRef _traceTables;
+    private LLVMValueRef _tracePadAnchor;
+
+    /// <summary>A byte record-only landing pads store to, so that LLVM keeps them (FunctionCodeGen.StackTraces.cs).</summary>
+    internal LLVMValueRef TracePadAnchor() => _tracePadAnchor.IsNull
+        ? _tracePadAnchor = Module.AddGlobal("csharpc.trace.anchor", Llvm.I8, Llvm.ConstInt(Llvm.I8, 0), linkage: LLVMLinkage.Internal)
+        : _tracePadAnchor;
 
     private readonly Dictionary<IMethodSymbol, LoweredFunction> _functions = new(SymbolEqualityComparer.Default);
     private readonly Dictionary<INamedTypeSymbol, ClassLayout> _layouts = new(SymbolEqualityComparer.Default);
@@ -455,7 +461,7 @@ public sealed partial class ModuleCodeGen
         "csrt_console_newline", "csrt_object_to_string_default", "csrt_object_equals_default",
         "csrt_object_get_hash_code_default", "csrt_exception_init", "csrt_environment_tick_count64",
         "csrt_environment_exit", "csrt_trace_frame", "csrt_trace_init", "csrt_exception_get_stack_trace",
-        "csrt_exception_capture_trace",
+        "csrt_exception_capture_trace", "csrt_trace_finally", "csrt_trace_new_stack",
     ];
 
     /// <summary>False for callees known not to unwind (LLVM intrinsics, libm, most of csrt): no invoke needed.</summary>
@@ -1215,7 +1221,7 @@ public sealed partial class ModuleCodeGen
         if (StackTraces is not null)
         {
             // csrt_TraceTables (src/runtime/eh.c); filled in once codegen has seen every call site.
-            var tablesType = Llvm.Struct(Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.I32);
+            var tablesType = Llvm.Struct(Llvm.Ptr, Llvm.Ptr);
             _traceTables = Module.AddGlobal("csharpc.trace.tables", tablesType, LlvmContext.Null(tablesType), constant: true, linkage: LLVMLinkage.Internal);
             var register = Runtime("csrt_trace_init", Llvm.Void, Llvm.Ptr);
             b.Call(register.Type, register.Fn, [_traceTables]);

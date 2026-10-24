@@ -137,7 +137,7 @@ public sealed class Compiler(CompilerOptions options)
         if (!il.IsEmpty) il.Bind(codegenCompilation);
         // Stack traces cost a landing pad per call site: only for programs that can look at one.
         StackTraceInfo? stackTraces = null;
-        if (options.Emit == EmitKind.Exe && (options.StackTraces || StackTraceInfo.FindObservation(compilation) is not null))
+        if (options.StackTraces || StackTraceInfo.FindObservation(compilation) is not null)
         {
             var symbols = settings.Symbols ?? new DebugSymbolSettings { Optimize = options.Configuration.Equals("Release", StringComparison.OrdinalIgnoreCase) };
             stackTraces = new StackTraceInfo(compilation, symbols);

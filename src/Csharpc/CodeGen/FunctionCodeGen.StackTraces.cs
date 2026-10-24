@@ -9,17 +9,17 @@ namespace Csharpc.CodeGen;
 /// <summary>
 /// Stack-trace recording (docs/adr/0012-stack-traces.md). In a program that observes stack traces,
 /// every call that may throw in a function of the program's own code becomes an `invoke` whose
-/// landing pad belongs to that call site alone:
+/// landing pad belongs to that call site alone, with the site's descriptor as its first clause:
 ///
-///   site.N:  %lp = landingpad { ptr, i32 } &lt;the clauses of the try it is in&gt; cleanup
-///            br %record                                   ; phis: %lp, i32 N
-///   record:  call csrt_trace_frame(%lp.0, %site)          ; append the site to the exception's frames
-///            resume %lp  |  csrt_begin_catch + the try's dispatch  |  the coroutine's fault path
+///   site.N:  %lp = landingpad { ptr, i32 } catch @csharpc.trace.site.N  &lt;the clauses of the try it is in&gt;
+///            br %continue                                 ; phis: %lp, the site
+///   continue: resume %lp  |  csrt_begin_catch + the try's dispatch  |  the coroutine's fault path
 ///
-/// Phase 2 of the unwind runs these pads from the throw point outward and stops at the catching
-/// frame, so the recorded list is .NET's frame list. A pad is just a constant and a jump; the shared
-/// block does the work. When LLVM inlines a function, its call sites keep their own pads (and their
-/// `resume` becomes a jump to the caller's pad), so inlined frames are recorded too.
+/// The personality records each descriptor it meets during the search phase, which walks from the
+/// throw point to the catching frame: .NET's frame list. Record-only pads have no cleanup, so the
+/// cleanup phase doesn't stop there; when LLVM inlines a function, the inlined pads get the caller's
+/// clauses appended, so inlined frames are recorded too, in order. On wasm32 (no unwinder) the pad
+/// code records the site instead (csrt_trace_frame), since every pad runs on the way out.
 /// </summary>
 public sealed partial class FunctionCodeGen
 {
@@ -56,7 +56,11 @@ public sealed partial class FunctionCodeGen
             {
                 var (savedBlock, savedUnwind, savedHook) = (_b.InsertBlock, _b.UnwindDest, _b.UnwindHook);
                 (_b.UnwindDest, _b.UnwindHook) = (default, null);
-                _traceResume = NewSitePadTarget([], cleanup: true, "trace.record");
+                // No cleanup: only wasm32's explicit propagation ever enters these pads.
+                _traceResume = NewSitePadTarget([], cleanup: false, "trace.record");
+                // LLVM deletes landing pads that only resume, catch clauses and all; this volatile
+                // store (never executed on native targets: phase 2 doesn't stop here) keeps the pad.
+                if (!T.Target.IsWasm) Native.LLVMSetVolatile(_b.Store(L.ConstInt(L.I8, 0), _m.TracePadAnchor()), 1);
                 _b.Resume(_traceResume.Pad);
                 _b.PositionAtEnd(savedBlock);
                 (_b.UnwindDest, _b.UnwindHook) = (savedUnwind, savedHook);
@@ -71,17 +75,22 @@ public sealed partial class FunctionCodeGen
         _b.UnwindHook = null;
         pad = NewBlock("site");
         _b.PositionAtEnd(pad);
-        var lp = _b.LandingPad(LandingPadType, _m.Runtime("csrt_personality", L.I32).Fn, target.Clauses, target.Cleanup);
-        var recorded = L.ConstInt(L.I32, site);
+        // The site's clause comes first: the personality records it during the search phase, before
+        // it looks for a handler among the clauses that follow (eh.c, "Stack traces").
+        var descriptor = site >= 0 ? _m.StackTraces!.SiteDescriptor(_m, site) : LlvmContext.Null(L.Ptr);
+        List<LLVMValueRef> clauses = site >= 0 ? [descriptor, .. target.Clauses] : target.Clauses;
+        var lp = _b.LandingPad(LandingPadType, _m.Runtime("csrt_personality", L.I32).Fn, clauses, target.Cleanup || leaving is not null);
+        var recorded = descriptor;
         if (leaving is not null)
         {
             // An exception leaving a finally block that runs on the normal path: CoreCLR lists the
             // method twice, for the finally funclet (this site) and for the method's own frame, at
             // the location of FinallyParentSite. During unwinding (the finally runs because of
             // another exception) the method appears once.
-            CallRuntime("csrt_trace_frame", L.Void, [L.Ptr, L.I32], _b.ExtractValue(lp, 0), recorded);
             var normal = _b.Load(L.I1, FinallyNormalFlag(leaving), "finally.normal");
-            recorded = _b.Select(normal, L.ConstInt(L.I32, FinallyParentSite(leaving)), L.ConstInt(L.I32, -1));
+            var parent = _b.Select(normal, _m.StackTraces!.SiteDescriptor(_m, FinallyParentSite(leaving)), LlvmContext.Null(L.Ptr));
+            CallRuntime("csrt_trace_finally", L.Void, [L.Ptr, L.Ptr, L.Ptr], _b.ExtractValue(lp, 0), recorded, parent);
+            recorded = LlvmContext.Null(L.Ptr);
         }
         _b.Br(target.Body);
         IrBuilder.AddIncoming(target.Pad, lp, _b.InsertBlock);
@@ -173,8 +182,9 @@ public sealed partial class FunctionCodeGen
         var body = NewBlock(name);
         _b.PositionAtEnd(body);
         var lp = _b.Phi(LandingPadType, "lp");
-        var site = _b.Phi(L.I32, "site");
-        CallRuntime("csrt_trace_frame", L.Void, [L.Ptr, L.I32], _b.ExtractValue(lp, 0), site);
+        var site = _b.Phi(L.Ptr, "site");
+        // Native targets record in the personality's search phase; wasm32 has none (eh.c).
+        if (T.Target.IsWasm) CallRuntime("csrt_trace_frame", L.Void, [L.Ptr, L.Ptr], _b.ExtractValue(lp, 0), site);
         var target = new SitePadTarget(clauses, cleanup, body, lp, site);
         _sitePadTargets[body.Handle] = target;
         return target;

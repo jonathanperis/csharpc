@@ -160,6 +160,7 @@ internal static unsafe partial class Native
     public static partial LLVMValueRef LLVMGetNamedFunction(LLVMModuleRef m, string name);
     [LibraryImport(Lib)] public static partial LLVMValueRef LLVMGetParam(LLVMValueRef fn, uint index);
     [LibraryImport(Lib)] public static partial void LLVMReplaceAllUsesWith(LLVMValueRef oldValue, LLVMValueRef newValue);
+    [LibraryImport(Lib)] public static partial void LLVMDeleteGlobal(LLVMValueRef global);
     [LibraryImport(Lib)] public static partial void LLVMDeleteFunction(LLVMValueRef fn);
     [LibraryImport(Lib, StringMarshalling = StringMarshalling.Utf8)]
     public static partial void LLVMSetValueName2(LLVMValueRef value, string name, nuint len);
@@ -225,6 +226,8 @@ internal static unsafe partial class Native
     public static partial LLVMValueRef LLVMBuildExtractValue(LLVMBuilderRef b, LLVMValueRef aggregate, uint index, string name);
     [LibraryImport(Lib)] public static partial LLVMValueRef LLVMGetBasicBlockParent(LLVMBasicBlockRef block);
     [LibraryImport(Lib)] public static partial LLVMValueRef LLVMBuildResume(LLVMBuilderRef b, LLVMValueRef exception);
+    [LibraryImport(Lib)]
+    public static partial LLVMValueRef LLVMConstInBoundsGEP2(LLVMTypeRef type, LLVMValueRef pointer, [In] LLVMValueRef[] indices, uint count);
     [LibraryImport(Lib, StringMarshalling = StringMarshalling.Utf8)]
     public static partial LLVMValueRef LLVMBuildPhi(LLVMBuilderRef b, LLVMTypeRef type, string name);
     [LibraryImport(Lib)]
