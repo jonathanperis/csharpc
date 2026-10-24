@@ -167,6 +167,36 @@ public unsafe struct HashState
     }
 }
 
+/// <summary>Roslyn's RealParser.FloatUnion / DoubleUnion: reinterpreting bits through overlapping fields.</summary>
+public static class Unions
+{
+    [StructLayout(LayoutKind.Explicit)]
+    private struct FloatUnion
+    {
+        [FieldOffset(0)] public uint IntData;
+        [FieldOffset(0)] public float FloatData;
+    }
+
+    [StructLayout(LayoutKind.Explicit)]
+    private struct DoubleUnion
+    {
+        [FieldOffset(0)] public double DoubleData;
+        [FieldOffset(0)] public ulong LongData;
+        [FieldOffset(0)] public byte FirstByte;
+    }
+
+    public static string Run()
+    {
+        var f = new FloatUnion { IntData = 0x3FC00000 };
+        var g = f;
+        g.FloatData = -2.5f;
+        var d = new DoubleUnion { DoubleData = 1.0 };
+        return $"{f.FloatData} {g.IntData:X8} {d.LongData:X16} {d.FirstByte} {unsafeSize()}";
+
+        static unsafe int unsafeSize() => sizeof(FloatUnion) * 100 + sizeof(DoubleUnion);
+    }
+}
+
 /// <summary>Pointer idioms of Roslyn's hashing and event-source code.</summary>
 public static unsafe class Pointers
 {

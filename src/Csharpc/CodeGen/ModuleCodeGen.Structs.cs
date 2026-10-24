@@ -105,6 +105,26 @@ public sealed partial class ModuleCodeGen
             return bufferLayout;
         }
 
+        // A union of primitives (Roslyn's RealParser.FloatUnion: an int and a float both at offset 0):
+        // every field is the first element, which has the largest field's type; fields are read and
+        // written through their address with their own type, and struct fields share one TBAA tag
+        // (MemoryFacts), so LLVM treats the overlapping accesses as aliasing.
+        if (custom is { Explicit: true, Pack: 0 } && Il.OwnerOf(type) is not null && InstanceFields(type).ToList() is { Count: >= 2 } unionFields
+            && unionFields.All(f => custom.Offsets.TryGetValue(f, out var o) && o == 0 && Optimizations.HoldsNoReferences(f.Type)))
+        {
+            var largest = unionFields.Select(FieldStorage).OrderByDescending(t => Types.Target.SizeOf(t)).ThenByDescending(t => Types.Target.AlignOf(t)).First();
+            if (custom.Size != 0 && (ulong)custom.Size != Types.Target.SizeOf(largest)) throw custom.Rejection;
+            var unionLayout = new StructLayout { Type = type, LlvmType = Llvm.NamedStruct("struct." + Mangler.MetadataName(type)) };
+            _structs[type] = unionLayout;
+            foreach (var f in unionFields)
+            {
+                unionLayout.FieldIndex[f] = 0;
+                unionLayout.FieldIndex[f.OriginalDefinition] = 0;
+            }
+            LlvmContext.SetBody(unionLayout.LlvmType, [largest]);
+            return unionLayout;
+        }
+
         var layout = new StructLayout { Type = type, LlvmType = Llvm.NamedStruct("struct." + Mangler.MetadataName(type)) };
         _structs[type] = layout; // register first: field types may mention other structs
 
