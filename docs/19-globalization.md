@@ -146,9 +146,10 @@ on first use, as .NET does at startup: about 3.5–5 ms, of which ~1.7 ms is .NE
 
 Compile time (`-O2`): hello world about 3 s; the number program about 7 s (6 s before the port, 10 s
 with the first port), the date program about 10 s (13 s). Most of the extra time is Roslyn binding the
-corelib's method bodies (`ControlFlowGraph.Create` is ~60 % of lowering; the graphs are now built
-ahead on the thread pool, `ModuleCodeGen.CfgPrefetch.cs`) and LLVM optimizing them (`[OptimizeForSize]`
-cut that by ~40 % for culture code). Caching the corelib's lowered code would remove most of the rest.
+corelib's method bodies (`ControlFlowGraph.Create` is ~60 % of lowering) and LLVM optimizing them
+(`[OptimizeForSize]` cut that by ~40 % for culture code). [ADR 0014](adr/0014-compile-time.md) builds
+the graphs ahead on other threads (`ModuleCodeGen.Cfgs.cs`), ships csharpc ReadyToRun-compiled and
+generates machine code on several threads.
 
 ## Tests
 

@@ -94,6 +94,7 @@ public sealed record CompilerOptions
           --dump-il              Print the IL blocks of methods compiled from IL
           --il-survey            Also lower every non-generic method of the referenced IL assemblies (tools/il-survey)
           --intrinsics           List the library members csharpc implements
+          -j, --jobs <n>         Threads one compilation may use (default: $CSHARPC_THREADS or the processor count)
           -W                     Show Roslyn warnings
           -v, --verbose          Print pipeline phases and timings
           --version              Print version information
@@ -170,6 +171,12 @@ public sealed record CompilerOptions
                 case "-g" or "--debug": o.Debug = true; o.DebugExplicit = true; break;
                 case "-g0": o.Debug = false; o.DebugExplicit = true; break;
                 case "-W": o.ShowWarnings = true; break;
+                case "-j" or "--jobs":
+                    Parallelism.Threads = int.TryParse(Next(), out var jobs) && jobs > 0 ? jobs : throw new ArgumentException($"'{a}' expects a positive number of threads");
+                    break;
+                case var _ when a.StartsWith("-j", StringComparison.Ordinal) && int.TryParse(a[2..], out var inlineJobs) && inlineJobs > 0:
+                    Parallelism.Threads = inlineJobs;
+                    break;
                 case "-v" or "--verbose": o.Verbose = true; break;
                 case var _ when a.StartsWith('-'): throw new ArgumentException($"unknown option '{a}'");
                 default: o.Inputs.Add(a); break;
