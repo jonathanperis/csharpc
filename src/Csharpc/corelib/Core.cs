@@ -49,6 +49,10 @@ namespace CsharpcCoreLib
         /// <summary>DateTime's raw `_dateData`: ticks in bits 0-61, the kind in bits 62-63 (DateTimeOps.cs).</summary>
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern long DateTimeData(DateTime value);
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern DateTime MakeDateTime(long data);
+        /// <summary>csrt_exception_capture_trace: the stack-trace frames recorded so far (null: none).</summary>
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern object CaptureStackTrace(Exception exception);
+        /// <summary>csrt_exception_throw_captured: throws with the captured frames, .NET's marker line, then new frames.</summary>
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern void ThrowWithStackTrace(Exception exception, object captured);
         /// <summary>csrt_unhandled_exception: prints "Unhandled exception. ..." and ends the process (never returns).</summary>
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern void UnhandledException(Exception exception);
         /// <summary>csrt_is_iterator: an iterator/async iterator compiled from source (an LLVM coroutine object).</summary>

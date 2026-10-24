@@ -180,11 +180,13 @@ public sealed partial class FunctionCodeGen
         var tryRegion = ProtectingTry(block.EnclosingRegion);
         _b.UnwindDest = tryRegion is not null ? LandingPad(tryRegion) : _coro is not null ? CoroutinePad() : default;
         _b.MayThrow = _m.MayThrow;
+        EnableTraceHook();
     }
 
     private void EndCfg()
     {
         _b.UnwindDest = default;
+        _b.UnwindHook = null;
         _currentBlock = null;
     }
 
@@ -206,16 +208,27 @@ public sealed partial class FunctionCodeGen
         // A coroutine body catches everything at its outermost level (the exception goes into the task).
         if (_coro is not null) clauses.Add(LlvmContext.Null(L.Ptr));
 
-        var (savedBlock, savedUnwind) = (_b.InsertBlock, _b.UnwindDest);
-        _b.UnwindDest = default;
-        pad = _landingPads[tryRegion] = NewBlock("lpad");
-        _b.PositionAtEnd(pad);
-        var lp = _b.LandingPad(LandingPadType, _m.Runtime("csrt_personality", L.I32).Fn, clauses, cleanup: true);
+        var (savedBlock, savedUnwind, savedHook) = (_b.InsertBlock, _b.UnwindDest, _b.UnwindHook);
+        (_b.UnwindDest, _b.UnwindHook) = (default, null);
+        LLVMValueRef lp;
+        if (Traced)
+        {
+            // Calls reach this through per-site pads (FunctionCodeGen.StackTraces.cs), which record the frame.
+            var target = NewSitePadTarget(clauses, cleanup: true, "lpad.record");
+            pad = _landingPads[tryRegion] = target.Body;
+            lp = target.Pad;
+        }
+        else
+        {
+            pad = _landingPads[tryRegion] = NewBlock("lpad");
+            _b.PositionAtEnd(pad);
+            lp = _b.LandingPad(LandingPadType, _m.Runtime("csrt_personality", L.I32).Fn, clauses, cleanup: true);
+        }
         var exception = CallRuntime("csrt_begin_catch", L.Ptr, [L.Ptr], _b.ExtractValue(lp, 0));
         _b.Store(exception, ExceptionSlot(tryRegion));
         _b.Br(Dispatch(tryRegion));
         _b.PositionAtEnd(savedBlock);
-        _b.UnwindDest = savedUnwind;
+        (_b.UnwindDest, _b.UnwindHook) = (savedUnwind, savedHook);
         return pad;
     }
 
@@ -237,8 +250,10 @@ public sealed partial class FunctionCodeGen
     private LLVMBasicBlockRef Dispatch(ControlFlowRegion tryRegion)
     {
         if (_dispatch.TryGetValue(tryRegion, out var dispatch)) return dispatch;
-        var (savedBlock, savedUnwind) = (_b.InsertBlock, _b.UnwindDest);
-        _b.UnwindDest = default; // dispatch code only calls non-throwing runtime helpers
+        var (savedBlock, savedUnwind, savedHook) = (_b.InsertBlock, _b.UnwindDest, _b.UnwindHook);
+        // Dispatch code only calls non-throwing runtime helpers, and csrt_rethrow, which leaves the
+        // frame (already recorded by the landing pad).
+        (_b.UnwindDest, _b.UnwindHook) = (default, null);
         dispatch = _dispatch[tryRegion] = NewBlock("dispatch");
         _b.PositionAtEnd(dispatch);
         var statement = tryRegion.EnclosingRegion!;
@@ -279,7 +294,7 @@ public sealed partial class FunctionCodeGen
         }
 
         _b.PositionAtEnd(savedBlock);
-        _b.UnwindDest = savedUnwind;
+        (_b.UnwindDest, _b.UnwindHook) = (savedUnwind, savedHook);
         return dispatch;
     }
 
@@ -311,6 +326,7 @@ public sealed partial class FunctionCodeGen
         var index = info.Continuations.Count;
         info.Continuations.Add(continuation);
         _b.Store(L.ConstInt(L.I32, index), info.Selector);
+        NoteFinallyEntry(finallyRegion, normal: false);
         _b.Br(_cfg.Blocks[_cfg.Graph.Blocks[finallyRegion.FirstBlockOrdinal]]);
     }
 
@@ -349,7 +365,10 @@ public sealed partial class FunctionCodeGen
     private void EmitRethrow(IOperation? at)
     {
         var handler = HandlerOf(_currentBlock) ?? throw CompileError.Unsupported("rethrow outside a catch block", at);
-        CallRuntime("csrt_rethrow", L.Void, [L.Ptr], _b.Load(L.Ptr, ExceptionSlot(handler)));
+        var exception = _b.Load(L.Ptr, ExceptionSlot(handler));
+        _traceSuppressed = true; // the frame is in the trace already (where the exception was caught)
+        try { CallRuntime("csrt_rethrow", L.Void, [L.Ptr], exception); }
+        finally { _traceSuppressed = false; }
         _b.Unreachable();
     }
 
@@ -468,9 +487,17 @@ public sealed partial class FunctionCodeGen
             "ParamName" => ModuleCodeGen.ExceptionParamNameField,
             _ => null,
         };
-        if (field is null && property.Name != "Message") return false;
+        if (field is null && property.Name is not ("Message" or "StackTrace")) return false;
         var self = EmitValue(p.Instance!);
         NullCheck(self);
+        if (property.Name == "StackTrace")
+        {
+            // Exceptions only carry frames when the program records them (ModuleCodeGen.StackTraces),
+            // which reading StackTrace anywhere turns on.
+            _m.WarnStackTraceFrames(p);
+            result = CallRuntime("csrt_exception_get_stack_trace", L.Ptr, [L.Ptr], self);
+            return true;
+        }
         if (field is { } index)
         {
             var layout = _m.GetLayout(property.ContainingType);

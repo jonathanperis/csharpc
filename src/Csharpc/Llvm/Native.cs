@@ -224,6 +224,11 @@ internal static unsafe partial class Native
     [LibraryImport(Lib, StringMarshalling = StringMarshalling.Utf8)]
     public static partial LLVMValueRef LLVMBuildExtractValue(LLVMBuilderRef b, LLVMValueRef aggregate, uint index, string name);
     [LibraryImport(Lib)] public static partial LLVMValueRef LLVMGetBasicBlockParent(LLVMBasicBlockRef block);
+    [LibraryImport(Lib)] public static partial LLVMValueRef LLVMBuildResume(LLVMBuilderRef b, LLVMValueRef exception);
+    [LibraryImport(Lib, StringMarshalling = StringMarshalling.Utf8)]
+    public static partial LLVMValueRef LLVMBuildPhi(LLVMBuilderRef b, LLVMTypeRef type, string name);
+    [LibraryImport(Lib)]
+    public static partial void LLVMAddIncoming(LLVMValueRef phi, [In] LLVMValueRef[] values, [In] LLVMBasicBlockRef[] blocks, uint count);
 
     [LibraryImport(Lib, StringMarshalling = StringMarshalling.Utf8)]
     public static partial LLVMValueRef LLVMBuildBinOp(LLVMBuilderRef b, LLVMOpcode op, LLVMValueRef lhs, LLVMValueRef rhs, string name);

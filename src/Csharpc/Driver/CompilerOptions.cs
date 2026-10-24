@@ -28,6 +28,11 @@ public sealed record CompilerOptions
     public bool Debug { get; set; }
     public bool DebugExplicit { get; set; }
     public bool Verbose { get; set; }
+    /// <summary>
+    /// --stack-traces: record stack traces even when the program never turns an exception into text
+    /// (they then appear in the unhandled-exception report on stderr). Otherwise automatic.
+    /// </summary>
+    public bool StackTraces { get; set; }
     public bool ShowWarnings { get; set; }
     public bool ImplicitUsings { get; set; } = true;
     public HardeningLevel Hardening { get; set; } = HardeningLevel.Default;
@@ -73,6 +78,8 @@ public sealed record CompilerOptions
           -r, --reference <dll>  Reference an assembly that ships only IL; reachable code is compiled from its IL
           --no-implicit-usings   Don't add the SDK's implicit global usings
           --no-runtime-lto       Link the runtime as objects instead of LTO-ing its bitcode
+          --stack-traces         Record stack traces in every program (default: only programs that print
+                                 an exception or read Exception.StackTrace)
           --hardening <level>    none | default (full RELRO, NX, stack probes, hardened runtime) | max (+ CET IBT/SHSTK or BTI/PAC, SLH)
           --sanitize <list>      Build the runtime with sanitizers, e.g. address,undefined (testing; $CSHARPC_SANITIZE)
           --cc <path>            C compiler used as linker driver (default: $CSHARPC_CC or clang)
@@ -139,6 +146,7 @@ public sealed record CompilerOptions
                     break;
                 case "--no-implicit-usings": o.ImplicitUsings = false; break;
                 case "--no-runtime-lto": o.RuntimeLto = false; break;
+                case "--stack-traces": o.StackTraces = true; break;
                 case "--hardening": o.Hardening = Driver.Hardening.Parse(Next()); break;
                 case "--sanitize": o.Sanitize = Next(); break;
                 case var _ when a.StartsWith("--sanitize="): o.Sanitize = a["--sanitize=".Length..]; break;

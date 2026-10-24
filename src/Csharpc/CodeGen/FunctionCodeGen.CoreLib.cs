@@ -127,6 +127,8 @@ public sealed partial class FunctionCodeGen
             "CreateEnumConverter" => JsonEnumSwitch(args[0], args),
             "CompareStrings" => CallRuntime("csrt_string_compare_culture", L.I32, [L.Ptr, L.Ptr, L.I1], args[0], args[1], L.False),
             "UnhandledException" => UnhandledException(args[0]),
+            "CaptureStackTrace" => CallRuntime("csrt_exception_capture_trace", L.Ptr, [L.Ptr], args[0]),
+            "ThrowWithStackTrace" => ThrowWithStackTrace(args[0], args[1]),
             "ResourceStrings" => _m.ResourceStringsBlob(),
             "IsCoroutineIterator" => CallRuntime("csrt_is_iterator", L.I1, [L.Ptr], args[0]),
             "RuntimeConfig" => _m.AppContextBlob(),
@@ -134,6 +136,12 @@ public sealed partial class FunctionCodeGen
             "CompareStringsWith" => CallRuntime("csrt_string_compare_with", L.I32, [L.Ptr, L.Ptr, L.I32], args[0], args[1], args[2]),
             _ => throw CompileError.Unsupported($"corelib intrinsic '{target.Name}'", inv),
         };
+    }
+
+    private LLVMValueRef ThrowWithStackTrace(LLVMValueRef exception, LLVMValueRef captured)
+    {
+        CallRuntime("csrt_exception_throw_captured", L.Void, [L.Ptr, L.Ptr], exception, captured);
+        return default;
     }
 
     private LLVMValueRef UnhandledException(LLVMValueRef exception)
