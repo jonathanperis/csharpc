@@ -224,6 +224,17 @@ order: (3, continued) lowering on several threads, bounded code-generation memor
 (`typeof(X).Assembly`, resource lookup, analyzer activation) as compile-time metadata with diagnostics
 for the rest; (5) csharpc compiled by csharpc, LLVM C API P/Invokes included.
 
+### Runtime tiers — C# all the way down to a minimal native floor
+[ADR 0017](adr/0017-runtime-tiers.md). **Tier 1 (now, alongside M2/M4):** move the C runtime's ordinary
+code to the C# corelib — task scheduler, thread pool and timers, type/interface/delegate helpers and the
+remaining library helpers — with identical behaviour, sizes within budgets and benchmarks not slower.
+**Tier 2 (after M6, before M7):** the GC, exception dispatch and thread management in a restricted
+"systems C#" checked by the compiler (`[RuntimeCritical]`: no allocation, no safepoint, no throw),
+behind a flag next to the C version, made the default once it matches it on the benchmarks, the GC
+stress run and dotnet's own AOT tests. **Tier 3 (permanent):** a few hundred lines of native glue
+(entry, signal/SEH stubs, unwinder ABI, register spilling), plus dotnet's own C shims for the OS
+(`System.Native`, `System.Globalization.Native`), as NativeAOT does.
+
 ### M7 — End state: csharpc as dotnet's AOT backend
 A fork of dotnet in which `dotnet publish -p:PublishAot=true` runs csharpc where NativeAOT's ILCompiler
 runs today: the same IL inputs from `csc`, the same MSBuild properties (`OptimizationPreference`,

@@ -98,6 +98,9 @@ before every commit that touches `src/`.
   threading and OS boundaries.
 - New language feature: a focused `FunctionCodeGen.<Feature>.cs` / `ModuleCodeGen.<Feature>.cs`
   partial with small hooks into the existing dispatch, rather than growing shared files.
+- Runtime code goes in the highest tier that can hold it (ADR 0017): ordinary C# corelib first; the GC,
+  exception dispatch and threads move to compiler-checked "systems C#" after M6; only a minimal native
+  floor stays in C. Adding C elsewhere needs a measured reason in the commit.
 - OS-facing library code (files, environment, native libraries): C# in `src/Csharpc/corelib/IO`
   calling libc through `[DllImport]` (see `corelib/IO/Posix.cs`, docs/16-interop-io.md), not new C.
   Intrinsics outrank shadows in `CoreLib.Map`, so remove an intrinsic when a shadow replaces it.
