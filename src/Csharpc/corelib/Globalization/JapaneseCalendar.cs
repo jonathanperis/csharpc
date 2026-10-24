@@ -40,6 +40,7 @@ namespace CsharpcCoreLib.Globalization
     ///     Japanese    Meiji 01/01 Reiwa 7981/12/31
     /// </remarks>
     [Shadows("System.Globalization.JapaneseCalendar")]
+    [OptimizeForSize] // csharpc: only cultures whose calendar this is use it (corelib/Core.cs)
     public partial class JapaneseCalendar : Calendar
     {
         private static readonly DateTime s_calendarMinValue = new DateTime(1868, 10, 23);

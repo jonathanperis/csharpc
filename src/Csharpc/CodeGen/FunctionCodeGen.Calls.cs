@@ -58,10 +58,12 @@ public sealed partial class FunctionCodeGen
         }
         if (_m.IsUserMethod(target))
         {
+            var arguments = inv.Arguments;
+            if (OrdinalComparisonVariant(target, inv) is { } ordinal) (target, arguments) = ordinal;
             var self = ModuleCodeGen.HasThis(target) || ModuleCodeGen.HasExtensionReceiver(target) || (CoreLib.IsInstanceShadow(target) && inv.Instance is not null)
                 ? Receiver(inv.Instance!, target) : default;
             var isBaseCall = inv.Instance?.Syntax is BaseExpressionSyntax;
-            return EmitUserCall(target, self, ReceiverIsNonNull(inv.Instance, target), inv.Arguments, inv.IsVirtual && !isBaseCall);
+            return EmitUserCall(target, self, ReceiverIsNonNull(inv.Instance, target), arguments, inv.IsVirtual && !isBaseCall);
         }
         if (TrySpanMethod(inv, out var spanResult)) return spanResult;
         if (Intrinsics.TryGet(target, out var handler)) return handler(this, inv);

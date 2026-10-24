@@ -60,6 +60,15 @@ internal static class StringExtras { public static string Join<T>(string separat
   initializer; use lazy init: `static T[] s_x; static T[] X => s_x ??= ...`).
 * `#nullable disable` at the top; corelib diagnostics are never shown to users
   (`CSHARPC_CHECK_CORELIB=1` reports them — use it when editing the corelib).
+* Lowering is flow-insensitive: everything a reached method references is lowered and linked, and its
+  virtual call sites keep their targets. Keep rarely needed work (big tables, culture-sensitive
+  fallbacks, composite formatting in exception messages) out of common paths, or behind something only
+  the programs that need it reference. A trailing `StringComparison` argument that is a constant
+  `Ordinal`/`OrdinalIgnoreCase` binds to a `<Name>Ordinal` / `<Name>OrdinalIgnoreCase` (or, against an
+  ASCII constant, `<Name>AsciiIgnoreCase`) method of the same class when there is one
+  (`FunctionCodeGen.OrdinalComparisons.cs`).
+* `[OptimizeForSize]` on a class compiles its methods with LLVM `minsize`: for code that runs once
+  (building culture data), not per operation.
 
 ### CoreIntrinsics
 

@@ -1,0 +1,8 @@
+12
+-1
+rethrown: FormatException
+handled
+mode 1: ArgumentException inner
+mode 2: InvalidOperationException outer
+6
+bad value -20

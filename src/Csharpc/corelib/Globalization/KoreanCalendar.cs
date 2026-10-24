@@ -27,6 +27,7 @@ namespace CsharpcCoreLib.Globalization
     ///     Korean      2334/01/01  12332/12/31
     /// </remarks>
     [Shadows("System.Globalization.KoreanCalendar")]
+    [OptimizeForSize] // csharpc: only cultures whose calendar this is use it (corelib/Core.cs)
     public class KoreanCalendar : Calendar
     {
         public const int KoreanEra = 1;

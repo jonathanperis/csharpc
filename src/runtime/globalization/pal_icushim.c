@@ -49,11 +49,6 @@ ucol_safeClone_func ucol_safeClone_ptr = NULL;
 
 #if defined (TARGET_UNIX)
 
-#define PER_FUNCTION_BLOCK(fn, lib, required) \
-    c_static_assert_msg((sizeof(#fn) + MaxICUVersionStringWithSuffixLength + 1) <= sizeof(symbolName), "The symbolName is too small for symbol " #fn); \
-    snprintf(symbolName, SYMBOL_NAME_SIZE, #fn "%s", symbolVersion); \
-    fn##_ptr = (TYPEOF(fn)*)dlsym(lib, symbolName); \
-    if (fn##_ptr == NULL && required) { fprintf(stderr, "Cannot get symbol %s from " #lib "\nError: %s\n", symbolName, dlerror()); abort(); }
 
 static int FindSymbolVersion(int majorVer, int minorVer, int subVer, char* symbolName, char* symbolVersion, size_t symbolVersionLen, char* suffix)
 {
@@ -108,10 +103,6 @@ static int FindSymbolVersion(int majorVer, int minorVer, int subVer, char* symbo
 
 #define sscanf sscanf_s
 
-#define PER_FUNCTION_BLOCK(fn, lib, required) \
-    sprintf_s(symbolName, SYMBOL_NAME_SIZE, #fn "%s", symbolVersion); \
-    fn##_ptr = (TYPEOF(fn)*)GetProcAddress((HMODULE)lib, symbolName); \
-    if (fn##_ptr == NULL && required) { fprintf(stderr, "Cannot get symbol %s from " #lib "\nError: %lu\n", symbolName, GetLastError()); abort(); }
 
 static int FindICULibs(void)
 {
@@ -470,6 +461,41 @@ static void InitializeUColClonePointers(char* symbolVersion)
     }
 }
 
+// csharpc: the ICU functions are bound from a table by one loop, instead of FOR_ALL_ICU_FUNCTIONS expanding
+// to a lookup per function in both LoadICU and InitICUFunctions (~17 KB of code in every program that
+// formats a number). Same lookups, same failure message.
+typedef struct
+{
+    const char* name;
+    void** pointer;
+    bool i18n; // in libicui18n, else libicuuc
+    bool required;
+} IcuFunction;
+
+#define PER_FUNCTION_BLOCK(fn, lib, required) { #fn, (void**)&fn##_ptr, &lib == &libicui18n, required },
+static const IcuFunction s_icuFunctions[] = { FOR_ALL_ICU_FUNCTIONS };
+#undef PER_FUNCTION_BLOCK
+
+static void BindICUFunctions(const char* symbolVersion)
+{
+    char symbolName[SYMBOL_NAME_SIZE];
+    for (size_t i = 0; i < sizeof(s_icuFunctions) / sizeof(s_icuFunctions[0]); i++)
+    {
+        const IcuFunction* fn = &s_icuFunctions[i];
+        void* lib = fn->i18n ? libicui18n : libicuuc;
+        const char* libName = fn->i18n ? "libicui18n" : "libicuuc";
+#if defined(TARGET_WINDOWS)
+        sprintf_s(symbolName, SYMBOL_NAME_SIZE, "%s%s", fn->name, symbolVersion);
+        *fn->pointer = (void*)GetProcAddress((HMODULE)lib, symbolName);
+        if (*fn->pointer == NULL && fn->required) { fprintf(stderr, "Cannot get symbol %s from %s\nError: %lu\n", symbolName, libName, GetLastError()); abort(); }
+#else
+        snprintf(symbolName, SYMBOL_NAME_SIZE, "%s%s", fn->name, symbolVersion);
+        *fn->pointer = dlsym(lib, symbolName);
+        if (*fn->pointer == NULL && fn->required) { fprintf(stderr, "Cannot get symbol %s from %s\nError: %s\n", symbolName, libName, dlerror()); abort(); }
+#endif
+    }
+}
+
 // GlobalizationNative_LoadICU
 // This method get called from the managed side during the globalization initialization.
 // This method shouldn't get called at all if we are running in globalization invariant mode
@@ -504,7 +530,7 @@ int32_t GlobalizationNative_LoadICU(void)
 #if defined(ANDROID_FORCE_ICU_DATA_DIR)
     setenv ("ICU_DATA", "/system/usr/icu/", 0);
 #endif
-    FOR_ALL_ICU_FUNCTIONS
+    BindICUFunctions(symbolVersion);
     ValidateICUDataCanLoad();
 
     InitializeUColClonePointers(symbolVersion);
@@ -560,13 +586,11 @@ void GlobalizationNative_InitICUFunctions(void* icuuc, void* icuin, const char* 
         abort();
     }
 
-    FOR_ALL_ICU_FUNCTIONS
+    BindICUFunctions(symbolVersion);
     ValidateICUDataCanLoad();
 
     InitializeUColClonePointers(symbolVersion);
 }
-
-#undef PER_FUNCTION_BLOCK
 
 // GlobalizationNative_GetICUVersion
 // return the current loaded ICU version

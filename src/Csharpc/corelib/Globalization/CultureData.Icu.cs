@@ -155,13 +155,11 @@ namespace CsharpcCoreLib.Globalization
 
             _sRealName = NormalizeCultureName(_sWindowsName, indexOfExtensions > 0 ? _sRealName.AsSpan(indexOfExtensions) : ReadOnlySpan<char>.Empty, _sRealName, out int collationStart);
 
-            _iLanguage = LCID;
-            if (_iLanguage == 0)
-            {
-                _iLanguage = CultureInfo.LOCALE_CUSTOM_UNSPECIFIED;
-            }
+            // csharpc: the LCID (CultureData.LCID) and a neutral culture's specific culture (SpecificCultureName)
+            // come from IcuLocaleData's tables, so they are looked up on first use instead of here: a program
+            // that only formats numbers doesn't link the tables, and creating a culture doesn't search them.
             _bNeutral = TwoLetterISOCountryName.Length == 0;
-            _sSpecificCulture = _bNeutral ? IcuLocaleData.GetSpecificCultureName(_sRealName) : _sRealName;
+            _sSpecificCulture = _bNeutral ? null : _sRealName;
 
             // Remove the sort from sName unless custom culture
             // To ensure compatibility, it is necessary to allow the creation of cultures like zh_CN (using ICU notation) in the case of _bNeutral.

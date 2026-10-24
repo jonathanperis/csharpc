@@ -49,7 +49,9 @@ Every parallel phase merges its results in a fixed order, so the thread count ne
   is queued for N−1 background threads, which build CFGs in queue order ahead of the lowering thread
   (one `Lazy` per syntax node: the lowering thread takes a finished graph, waits for one in progress, or
   builds it itself). Roslyn's semantic models are thread-safe; lowering itself (LLVM IR construction)
-  stays on one thread. Not used with `--dump-cfg` or `-j 1`.
+  stays on one thread. Not used with `--dump-cfg`, `-j 1` or `CSHARPC_SERIAL_CFG=1`. This replaces
+  the thread-pool prefetch main gained meanwhile (one graph per instantiation, not limited by `-j`);
+  the program's own methods are still queued up front.
 - **The C runtime**, on a cache miss: one clang per file and thread.
 
 ### 3. Machine code is generated per partition, in parallel (`Driver/ParallelCodegen.cs`)

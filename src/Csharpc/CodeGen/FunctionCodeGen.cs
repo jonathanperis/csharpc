@@ -449,6 +449,16 @@ public sealed partial class FunctionCodeGen
         if (branch is { Destination: null, Semantics: ControlFlowBranchSemantics.StructuredExceptionHandling }
             && branch.Source.EnclosingRegion?.Kind == ControlFlowRegionKind.Filter)
             return FilterRejected(branch.Source);
+        // `if (...) throw;` in a catch: the conditional edge itself rethrows.
+        if (branch is { Destination: null, Semantics: ControlFlowBranchSemantics.Rethrow })
+        {
+            var current = _b.InsertBlock;
+            var rethrow = _b.AppendBlock(_fn.Fn, "rethrow");
+            _b.PositionAtEnd(rethrow);
+            EmitRethrow(null);
+            _b.PositionAtEnd(current);
+            return rethrow;
+        }
         var dest = branch.Destination ?? throw CompileError.Unsupported($"branch with {branch.Semantics} semantics");
         if (dest.Kind != BasicBlockKind.Exit)
         {

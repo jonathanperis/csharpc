@@ -7,9 +7,9 @@
 // csharpc: there is no runtimeconfig.json. The project's InvariantGlobalization / PredefinedCulturesOnly
 // properties are compiled into the program (the corelib is parsed with CSHARPC_INVARIANT_GLOBALIZATION /
 // CSHARPC_PREDEFINED_CULTURES_ONLY[_FALSE], see Driver/ProjectLoader.cs), and the environment variables
-// still take precedence, as in .NET. ICU is loaded lazily, on the first globalization operation that
-// needs it (.NET loads it in GlobalizationMode.Settings' static constructor during startup): a program
-// that never formats, parses or compares culture-sensitively doesn't load ICU at all.
+// still take precedence, as in .NET. ICU is loaded lazily, by the first call into it (.NET loads it in
+// GlobalizationMode.Settings' static constructor during startup): a program that never needs ICU data
+// (culture-sensitive operations with the invariant culture included) doesn't load ICU at all.
 #nullable enable annotations
 
 using System;
@@ -20,9 +20,10 @@ namespace CsharpcCoreLib.Globalization
     // (repeated inside the namespace: they must win over global-namespace types of the program)
     using System;
     using System.Runtime.InteropServices;
+    [OptimizeForSize] // csharpc: builds culture data, once per culture (corelib/Core.cs)
     internal static partial class GlobalizationMode
     {
-        // 0: not initialized yet, 1: invariant mode, 2: ICU loaded.
+        // 0: ICU not loaded yet, 1: invariant mode, 2: ICU loaded.
         private static volatile int s_mode;
         // 0: not read yet, 1: false, 2: true.
         private static volatile int s_predefinedCulturesOnly;
@@ -35,19 +36,37 @@ namespace CsharpcCoreLib.Globalization
         private const bool ConfiguredInvariant = false;
 #endif
 
+        /// <summary>
+        /// Whether invariant mode is configured. csharpc: this doesn't load ICU (upstream loads it in
+        /// GlobalizationMode.Settings' static constructor, during startup): ICU is loaded by the first call
+        /// into it (<see cref="EnsureIcuLoaded"/>, from the Interop.Globalization wrappers), so code that
+        /// never needs ICU data never loads it, e.g. formatting with the invariant culture, which is the
+        /// current culture in the C locale (CultureInfo.Unix.cs). The paths taken are upstream's.
+        /// </summary>
         internal static bool Invariant
         {
             get
             {
-                int mode = s_mode;
-                if (mode == 0) mode = Initialize();
-                return mode == 1;
+                int configured = s_configuredInvariant;
+                if (configured == 0)
+                {
+                    configured = GetBooleanConfig("System.Globalization.Invariant", "DOTNET_SYSTEM_GLOBALIZATION_INVARIANT", ConfiguredInvariant) ? 1 : 2;
+                    s_configuredInvariant = configured;
+                }
+                return configured == 1;
             }
         }
 
-        // same as GlobalizationMode.Invariant but doesn't trigger ICU load in GlobalizationMode.Settings.cctor
-        // during runtime startup on Browser platform
+        // 0: not read yet, 1: invariant mode configured, 2: not.
+        private static volatile int s_configuredInvariant;
+
         internal static bool InvariantNoLoad => Invariant;
+
+        /// <summary>Loads ICU before the first call into it (fails like .NET's startup when it is missing).</summary>
+        internal static void EnsureIcuLoaded()
+        {
+            if (s_mode == 0) Initialize();
+        }
 
         internal static bool PredefinedCulturesOnly
         {
@@ -72,10 +91,10 @@ namespace CsharpcCoreLib.Globalization
 
         internal static bool UseNls => false;
 
-        /// <summary>GlobalizationMode.Settings: reads the switch and loads ICU unless in invariant mode.</summary>
+        /// <summary>GlobalizationMode.Settings: loads ICU unless in invariant mode.</summary>
         private static int Initialize()
         {
-            bool invariant = GetBooleanConfig("System.Globalization.Invariant", "DOTNET_SYSTEM_GLOBALIZATION_INVARIANT", ConfiguredInvariant);
+            bool invariant = Invariant;
             if (!invariant)
             {
                 if (TryGetAppLocalIcuSwitchValue(out string? icuSuffixAndVersion))
@@ -115,16 +134,28 @@ namespace CsharpcCoreLib.Globalization
             string? str = global::System.Environment.GetEnvironmentVariable(envVariable);
             if (str != null)
             {
-                if (str == "1" || string.Equals(str, "true", StringComparison.OrdinalIgnoreCase))
+                if (str == "1" || IsAsciiIgnoreCase(str, "true"))
                 {
                     return true;
                 }
-                if (str == "0" || string.Equals(str, "false", StringComparison.OrdinalIgnoreCase))
+                if (str == "0" || IsAsciiIgnoreCase(str, "false"))
                 {
                     return false;
                 }
             }
-            return global::System.AppContext.TryGetSwitch(switchName, out bool value) ? value : defaultValue;
+            return CsharpcCoreLib.AppContextImpl.TryGetConfigSwitch(switchName, out bool value) ? value : defaultValue;
+        }
+
+        // bool.IsTrueStringIgnoreCase / IsFalseStringIgnoreCase (upstream's test): ASCII letters only, which is
+        // also what OrdinalIgnoreCase gives against an ASCII word, without its Unicode case tables.
+        private static bool IsAsciiIgnoreCase(string str, string lowerWord)
+        {
+            if (str.Length != lowerWord.Length) return false;
+            for (int i = 0; i < str.Length; i++)
+            {
+                if ((str[i] | 0x20) != lowerWord[i]) return false;
+            }
+            return true;
         }
 
         private static string GetIcuLoadFailureMessage()

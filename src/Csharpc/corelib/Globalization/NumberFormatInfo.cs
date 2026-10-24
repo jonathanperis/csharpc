@@ -106,6 +106,10 @@ namespace CsharpcCoreLib.Globalization
 
         internal int _digitSubstitution = (int)DigitShapes.None;
 
+        // csharpc: a culture's NativeDigits (_nativeDigits == null) and DigitSubstitution (_digitSubstitution
+        // == -1) are read from its CultureData on first use (CultureData.GetNFIValues).
+        internal CultureData? _lazyCultureData;
+
         internal bool _isReadOnly;
 
         private bool _hasInvariantNumberSigns = true;
@@ -653,7 +657,7 @@ namespace CsharpcCoreLib.Globalization
 
         public string[] NativeDigits
         {
-            get => (string[])_nativeDigits.Clone();
+            get => (string[])(_nativeDigits ??= _lazyCultureData!.GetNFINativeDigits()).Clone();
             set
             {
                 VerifyWritable();
@@ -664,7 +668,11 @@ namespace CsharpcCoreLib.Globalization
 
         public DigitShapes DigitSubstitution
         {
-            get => (DigitShapes)_digitSubstitution;
+            get
+            {
+                if (_digitSubstitution == -1) _digitSubstitution = _lazyCultureData!.GetNFIDigitSubstitution();
+                return (DigitShapes)_digitSubstitution;
+            }
             set
             {
                 VerifyWritable();

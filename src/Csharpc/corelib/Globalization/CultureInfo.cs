@@ -63,6 +63,7 @@ namespace CsharpcCoreLib.Globalization
     /// object inside of the debugger.
     /// </remarks>
     [Shadows("System.Globalization.CultureInfo")]
+    [OptimizeForSize] // csharpc: builds culture data, once per culture (corelib/Core.cs)
     public partial class CultureInfo : IFormatProvider, ICloneable
     {
         // We use an RFC4646 type string to construct CultureInfo.

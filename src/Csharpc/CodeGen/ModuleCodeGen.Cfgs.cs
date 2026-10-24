@@ -23,6 +23,8 @@ public sealed partial class ModuleCodeGen
     private readonly ConcurrentDictionary<SyntaxNode, Lazy<ControlFlowGraph?>> _cfgs = new();
     private BlockingCollection<SyntaxNode>? _prefetchQueue;
     private Thread[] _prefetchThreads = [];
+    /// <summary>CSHARPC_SERIAL_CFG=1: every graph built by the lowering thread (same output; for diagnosis).</summary>
+    private static readonly bool s_serialCfgs = Environment.GetEnvironmentVariable("CSHARPC_SERIAL_CFG") == "1";
 
     public SemanticModel ModelFor(SyntaxTree tree) => _models.GetOrAdd(tree, t => Compilation.GetSemanticModel(t));
 
@@ -60,7 +62,7 @@ public sealed partial class ModuleCodeGen
     /// <summary>Starts building the CFG of a method just queued for lowering (the same body EmitMethodCore lowers).</summary>
     private void PrefetchCfg(IMethodSymbol method)
     {
-        if (Driver.Parallelism.Threads < 2 || CfgDump is not null) return;
+        if (Driver.Parallelism.Threads < 2 || CfgDump is not null || s_serialCfgs) return;
         var definition = method.OriginalDefinition;
         var syntax = (definition.PartialImplementationPart ?? definition).DeclaringSyntaxReferences.FirstOrDefault()?.GetSyntax();
         if (syntax is not (MethodDeclarationSyntax { Body: not null } or MethodDeclarationSyntax { ExpressionBody: not null }

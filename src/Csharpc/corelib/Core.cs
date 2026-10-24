@@ -111,6 +111,13 @@ namespace CsharpcCoreLib
     internal sealed class ShadowInstanceAttribute : Attribute { }
 
     /// <summary>
+    /// On a class: its methods are compiled for size (LLVM minsize). For code that runs once per culture
+    /// or per process (building culture data), not per operation: smaller, and faster to compile.
+    /// </summary>
+    [AttributeUsage(AttributeTargets.Class | AttributeTargets.Struct, Inherited = false)]
+    internal sealed class OptimizeForSizeAttribute : Attribute { }
+
+    /// <summary>
     /// On a static method: also emitted as the C symbol `symbol` for the C runtime to call, in programs
     /// that reference the runtime global `trigger` (ModuleCodeGen.RuntimeExports.cs).
     /// </summary>

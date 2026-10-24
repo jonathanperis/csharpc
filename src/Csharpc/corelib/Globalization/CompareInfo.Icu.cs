@@ -50,7 +50,22 @@ namespace CsharpcCoreLib.Globalization
             _isAsciiEqualityOrdinal = GetIsAsciiEqualityOrdinal(interopCultureName);
             if (!GlobalizationMode.Invariant)
             {
-                 _sortHandle = SortHandleCache.GetCachedSortHandle(interopCultureName);
+                // csharpc: the sort handle (an ICU collator) is opened on first use (SortHandle), not here, so
+                // creating a CompareInfo (CultureInfo.Equals / GetHashCode do) neither loads ICU nor links the
+                // collation code. Only the moment a collator that can't be opened throws differs.
+                _sortHandleName = interopCultureName;
+            }
+        }
+
+        private string? _sortHandleName;
+
+        private IntPtr SortHandle
+        {
+            get
+            {
+                IntPtr handle = _sortHandle;
+                if (handle == IntPtr.Zero) _sortHandle = handle = SortHandleCache.GetCachedSortHandle(_sortHandleName!);
+                return handle;
             }
         }
 
@@ -81,7 +96,7 @@ namespace CsharpcCoreLib.Globalization
             fixed (char* pString1 = string1)
             fixed (char* pString2 = string2)
             {
-                return Interop.Globalization.CompareString(_sortHandle, pString1, string1.Length, pString2, string2.Length, options);
+                return Interop.Globalization.CompareString(SortHandle, pString1, string1.Length, pString2, string2.Length, options);
             }
         }
 
@@ -106,9 +121,9 @@ namespace CsharpcCoreLib.Globalization
                 fixed (char* pTarget = target)
                 {
                     if (fromBeginning)
-                        return Interop.Globalization.IndexOf(_sortHandle, pTarget, target.Length, pSource, source.Length, options, matchLengthPtr);
+                        return Interop.Globalization.IndexOf(SortHandle, pTarget, target.Length, pSource, source.Length, options, matchLengthPtr);
                     else
-                        return Interop.Globalization.LastIndexOf(_sortHandle, pTarget, target.Length, pSource, source.Length, options, matchLengthPtr);
+                        return Interop.Globalization.LastIndexOf(SortHandle, pTarget, target.Length, pSource, source.Length, options, matchLengthPtr);
                 }
             }
         }
@@ -223,9 +238,9 @@ namespace CsharpcCoreLib.Globalization
 
             InteropCall:
                 if (fromBeginning)
-                    return Interop.Globalization.IndexOf(_sortHandle, b, target.Length, a, source.Length, options, matchLengthPtr);
+                    return Interop.Globalization.IndexOf(SortHandle, b, target.Length, a, source.Length, options, matchLengthPtr);
                 else
-                    return Interop.Globalization.LastIndexOf(_sortHandle, b, target.Length, a, source.Length, options, matchLengthPtr);
+                    return Interop.Globalization.LastIndexOf(SortHandle, b, target.Length, a, source.Length, options, matchLengthPtr);
             }
         }
 
@@ -313,9 +328,9 @@ namespace CsharpcCoreLib.Globalization
 
             InteropCall:
                 if (fromBeginning)
-                    return Interop.Globalization.IndexOf(_sortHandle, b, target.Length, a, source.Length, options, matchLengthPtr);
+                    return Interop.Globalization.IndexOf(SortHandle, b, target.Length, a, source.Length, options, matchLengthPtr);
                 else
-                    return Interop.Globalization.LastIndexOf(_sortHandle, b, target.Length, a, source.Length, options, matchLengthPtr);
+                    return Interop.Globalization.LastIndexOf(SortHandle, b, target.Length, a, source.Length, options, matchLengthPtr);
             }
         }
 
@@ -340,7 +355,7 @@ namespace CsharpcCoreLib.Globalization
                 fixed (char* pSource = source) // could be null (or otherwise unable to be dereferenced)
                 fixed (char* pPrefix = prefix)
                 {
-                    return Interop.Globalization.StartsWith(_sortHandle, pPrefix, prefix.Length, pSource, source.Length, options, matchLengthPtr);
+                    return Interop.Globalization.StartsWith(SortHandle, pPrefix, prefix.Length, pSource, source.Length, options, matchLengthPtr);
                 }
             }
         }
@@ -419,7 +434,7 @@ namespace CsharpcCoreLib.Globalization
                 return true;
 
             InteropCall:
-                return Interop.Globalization.StartsWith(_sortHandle, bp, prefix.Length, ap, source.Length, options, matchLengthPtr);
+                return Interop.Globalization.StartsWith(SortHandle, bp, prefix.Length, ap, source.Length, options, matchLengthPtr);
             }
         }
 
@@ -487,7 +502,7 @@ namespace CsharpcCoreLib.Globalization
                 return true;
 
             InteropCall:
-                return Interop.Globalization.StartsWith(_sortHandle, bp, prefix.Length, ap, source.Length, options, matchLengthPtr);
+                return Interop.Globalization.StartsWith(SortHandle, bp, prefix.Length, ap, source.Length, options, matchLengthPtr);
             }
         }
 
@@ -512,7 +527,7 @@ namespace CsharpcCoreLib.Globalization
                 fixed (char* pSource = source) // could be null (or otherwise unable to be dereferenced)
                 fixed (char* pSuffix = suffix)
                 {
-                    return Interop.Globalization.EndsWith(_sortHandle, pSuffix, suffix.Length, pSource, source.Length, options, matchLengthPtr);
+                    return Interop.Globalization.EndsWith(SortHandle, pSuffix, suffix.Length, pSource, source.Length, options, matchLengthPtr);
                 }
             }
         }
@@ -592,7 +607,7 @@ namespace CsharpcCoreLib.Globalization
                 return true;
 
             InteropCall:
-                return Interop.Globalization.EndsWith(_sortHandle, bp, suffix.Length, ap, source.Length, options, matchLengthPtr);
+                return Interop.Globalization.EndsWith(SortHandle, bp, suffix.Length, ap, source.Length, options, matchLengthPtr);
             }
         }
 
@@ -660,7 +675,7 @@ namespace CsharpcCoreLib.Globalization
                 return true;
 
             InteropCall:
-                return Interop.Globalization.EndsWith(_sortHandle, bp, suffix.Length, ap, source.Length, options, matchLengthPtr);
+                return Interop.Globalization.EndsWith(SortHandle, bp, suffix.Length, ap, source.Length, options, matchLengthPtr);
             }
         }
 
@@ -682,14 +697,14 @@ namespace CsharpcCoreLib.Globalization
             {
                 int sortKeyLength;
                 {
-                    sortKeyLength = Interop.Globalization.GetSortKey(_sortHandle, pSource, source.Length, null, 0, options);
+                    sortKeyLength = Interop.Globalization.GetSortKey(SortHandle, pSource, source.Length, null, 0, options);
                 }
                 keyData = new byte[sortKeyLength];
 
                 fixed (byte* pSortKey = keyData)
                 {
                     {
-                        if (Interop.Globalization.GetSortKey(_sortHandle, pSource, source.Length, pSortKey, sortKeyLength, options) != sortKeyLength)
+                        if (Interop.Globalization.GetSortKey(SortHandle, pSource, source.Length, pSortKey, sortKeyLength, options) != sortKeyLength)
                         {
                             throw new ArgumentException(SR.Arg_ExternalException);
                         }
@@ -715,7 +730,7 @@ namespace CsharpcCoreLib.Globalization
             fixed (byte* pDest = destination)
             {
                 {
-                    actualSortKeyLength = Interop.Globalization.GetSortKey(_sortHandle, pSource, source.Length, pDest, destination.Length, options);
+                    actualSortKeyLength = Interop.Globalization.GetSortKey(SortHandle, pSource, source.Length, pDest, destination.Length, options);
                 }
             }
 
@@ -748,7 +763,7 @@ namespace CsharpcCoreLib.Globalization
             fixed (char* pSource = source)
             {
                 {
-                    return Interop.Globalization.GetSortKey(_sortHandle, pSource, source.Length, null, 0, options);
+                    return Interop.Globalization.GetSortKey(SortHandle, pSource, source.Length, null, 0, options);
                 }
             }
         }
@@ -802,7 +817,7 @@ namespace CsharpcCoreLib.Globalization
                 fixed (byte* pSortKey = sortKey)
                 {
                     {
-                        sortKeyLength = Interop.Globalization.GetSortKey(_sortHandle, pSource, source.Length, pSortKey, sortKey.Length, options);
+                        sortKeyLength = Interop.Globalization.GetSortKey(SortHandle, pSource, source.Length, pSortKey, sortKey.Length, options);
                     }
                 }
 
@@ -818,7 +833,7 @@ namespace CsharpcCoreLib.Globalization
                     fixed (byte* pSortKey = sortKey)
                     {
                         {
-                            sortKeyLength = Interop.Globalization.GetSortKey(_sortHandle, pSource, source.Length, pSortKey, sortKey.Length, options);
+                            sortKeyLength = Interop.Globalization.GetSortKey(SortHandle, pSource, source.Length, pSortKey, sortKey.Length, options);
                         }
                     }
                 }
@@ -862,7 +877,7 @@ namespace CsharpcCoreLib.Globalization
             Debug.Assert(!GlobalizationMode.Invariant);
             Debug.Assert(!GlobalizationMode.UseNls);
 
-            int sortVersion = Interop.Globalization.GetSortVersion(_sortHandle);
+            int sortVersion = Interop.Globalization.GetSortVersion(SortHandle);
             return new SortVersion(sortVersion, LCID, new Guid(sortVersion, 0, 0, 0, 0, 0, 0,
                                                              (byte) (LCID >> 24),
                                                              (byte) ((LCID  & 0x00FF0000) >> 16),
