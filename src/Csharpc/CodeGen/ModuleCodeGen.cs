@@ -191,10 +191,15 @@ public sealed partial class ModuleCodeGen
             while (EmitRuntimeExports() | EmitTypeMetadata() | EmitDeferredPrimitiveSlots());
         CheckGenericInterfaceDispatchers();
         // Last: every dispatched slot is known once nothing is left to lower.
-        FinishMethodTables();
-        Guard(entryPoint, FinishTypeMetadata);
-        FinishEventSourceAttributes();
-        ReportIlFailures();
+        // The IL methods that failed are reported even when finishing the tables fails too (that error
+        // ends the compile anyway): a survey compile still lists every method it could not lower.
+        try
+        {
+            FinishMethodTables();
+            Guard(entryPoint, FinishTypeMetadata);
+            FinishEventSourceAttributes();
+        }
+        finally { ReportIlFailures(); }
         // Every call site is known now: the stack-trace tables main registers.
         if (StackTraces is { } traces && !_traceTables.IsNull)
             Native.LLVMSetInitializer(_traceTables, traces.EmitTables(this));

@@ -22,6 +22,10 @@ public sealed record CompilerOptions
     public bool DumpIl { get; set; }
     /// <summary>--il-survey: lower every non-generic method of the IL assemblies, reachable or not (tools/il-survey).</summary>
     public bool IlSurvey { get; set; }
+    /// <summary>--il-survey=A,B: survey only these IL assemblies (default: all of them).</summary>
+    public List<string> IlSurveyAssemblies { get; } = [];
+    /// <summary>--il-survey-shard i/n: survey only the types whose name hashes to shard i of n (bounded memory on large assemblies).</summary>
+    public (int Index, int Count) IlSurveyShard { get; set; } = (0, 1);
     /// <summary>Assemblies without sources (-r): bound against and compiled from IL (docs/adr/0010-il-frontend.md).</summary>
     public List<string> References { get; } = [];
     /// <summary>--framework-il: shared-framework assemblies forced to compile from IL (docs/adr/0013-framework-il.md).</summary>
@@ -93,6 +97,8 @@ public sealed record CompilerOptions
           --dump-cfg             Print Roslyn's control-flow graphs (csharpc's "MIR")
           --dump-il              Print the IL blocks of methods compiled from IL
           --il-survey            Also lower every non-generic method of the referenced IL assemblies (tools/il-survey)
+          --il-survey=<names>    The same, for these IL assemblies only (comma-separated)
+          --il-survey-shard <i>/<n>  Survey only the types in shard i of n (by a stable hash of the type name)
           --intrinsics           List the library members csharpc implements
           -j, --jobs <n>         Threads one compilation may use (default: $CSHARPC_THREADS or the processor count)
           -W                     Show Roslyn warnings
@@ -168,6 +174,19 @@ public sealed record CompilerOptions
                 case "--dump-cfg": o.DumpCfg = true; break;
                 case "--dump-il": o.DumpIl = true; break;
                 case "--il-survey": o.IlSurvey = true; break;
+                case var _ when a.StartsWith("--il-survey=", StringComparison.Ordinal):
+                    o.IlSurvey = true;
+                    foreach (var name in a["--il-survey=".Length..].Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+                        o.IlSurveyAssemblies.Add(name.EndsWith(".dll", StringComparison.OrdinalIgnoreCase) ? name[..^4] : name);
+                    break;
+                case "--il-survey-shard":
+                {
+                    var shard = Next().Split('/');
+                    if (shard.Length != 2 || !int.TryParse(shard[0], out var index) || !int.TryParse(shard[1], out var count) || count < 1 || index < 0 || index >= count)
+                        throw new ArgumentException($"'{a}' expects <index>/<count> with 0 <= index < count");
+                    o.IlSurveyShard = (index, count);
+                    break;
+                }
                 case "-g" or "--debug": o.Debug = true; o.DebugExplicit = true; break;
                 case "-g0": o.Debug = false; o.DebugExplicit = true; break;
                 case "-W": o.ShowWarnings = true; break;
