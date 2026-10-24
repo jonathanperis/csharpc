@@ -31,6 +31,17 @@ namespace CsharpcCoreLib
 
     internal static class CancellationRuntime
     {
+        /// <summary>
+        /// new CancellationTokenSource(TimeSpan) / CancelAfter(TimeSpan): .NET's range check ("delay", -1 to
+        /// Timer.MaxSupportedTimeout ms); delays beyond int.MaxValue ms (~24.8 days) wait int.MaxValue ms.
+        /// </summary>
+        internal static int DelayMilliseconds(TimeSpan delay)
+        {
+            long totalMilliseconds = (long)delay.TotalMilliseconds;
+            if (totalMilliseconds < -1 || totalMilliseconds > 0xFFFFFFFE) throw new ArgumentOutOfRangeException("delay");
+            return totalMilliseconds > int.MaxValue ? int.MaxValue : (int)totalMilliseconds;
+        }
+
         internal static CancellationTokenRegistrationImpl Register(CancellationToken token, CancellationCallbackNode node)
         {
             object source = CoreIntrinsics.TokenSource(token);
