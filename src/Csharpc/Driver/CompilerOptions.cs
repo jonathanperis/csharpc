@@ -32,7 +32,7 @@ public sealed record CompilerOptions
     /// --corelib il|source: the corelib as a precompiled IL assembly lowered through the IL front-end
     /// (docs/adr/0015-corelib-il.md), or parsed and bound from its C# sources in every compilation.
     /// </summary>
-    public bool CoreLibIl { get; set; } = Environment.GetEnvironmentVariable("CSHARPC_CORELIB") == "il"
+    public bool CoreLibIl { get; set; } = Environment.GetEnvironmentVariable("CSHARPC_CORELIB") != "source"
         // CSHARPC_CHECK_CORELIB=1 validates the corelib's sources inside a program's compilation.
         && Environment.GetEnvironmentVariable("CSHARPC_CHECK_CORELIB") != "1";
     /// <summary>Emit DWARF debug info (-g; implied by -c Debug).</summary>
@@ -91,7 +91,7 @@ public sealed record CompilerOptions
                                  'none' turns off the automatic choice (assemblies the program uses that
                                  csharpc's corelib does not implement)
           --corelib <il|source>  Lower the corelib from its precompiled IL (cached) or bind its C# sources
-                                 (default: source, or $CSHARPC_CORELIB)
+                                 (default: il, or $CSHARPC_CORELIB)
           --no-implicit-usings   Don't add the SDK's implicit global usings
           --no-runtime-lto       Link the runtime as objects instead of LTO-ing its bitcode
           --stack-traces         Record stack traces in every program (default: only programs that print
