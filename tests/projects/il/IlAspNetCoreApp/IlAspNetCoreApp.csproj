@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <!-- Microsoft.NET.Sdk.Web's implicit <FrameworkReference Include="Microsoft.AspNetCore.App" />: the ASP.NET
+       Core assemblies the program uses are compiled from the shared framework's IL (docs/adr/0013-framework-il.md). -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net11.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+</Project>
