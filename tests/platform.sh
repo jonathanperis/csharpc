@@ -7,6 +7,25 @@ case "$(uname -s)" in
 esac
 EXE_SUFFIX=""; [[ $HOST_OS == windows ]] && EXE_SUFFIX=".exe"
 
+# Culture. The recordings come from Linux with the C locale, where .NET's (and csharpc's) current culture
+# is the invariant culture, with ICU's root collation. Both sides follow the user's culture, so:
+#  * Linux: the C locale for every run (real .NET and csharpc read LC_ALL / LC_MESSAGES / LANG through
+#    ICU's default locale).
+#  * macOS and Windows: the user culture comes from the system settings (NSLocale, the Windows user
+#    locale), so real .NET runs with tests/oracle-hook (a startup hook making the invariant culture
+#    current, ORACLE_HOOK) and csharpc programs are compiled with tests/culture-pin/CulturePin.cs (a
+#    [ModuleInitializer] doing the same, CULTURE_PIN).
+# Tests with a NAME.env file (VAR=value lines, e.g. LANG=pt_BR.UTF-8) run both sides under that
+# environment instead, without the pin; platform_env prints its assignments.
+if [[ $HOST_OS == linux ]]; then
+  export LC_ALL=C.UTF-8
+  unset LC_MESSAGES LANGUAGE
+fi
+CULTURE_PIN=()
+[[ $HOST_OS != linux ]] && CULTURE_PIN=("$ROOT/tests/culture-pin/CulturePin.cs")
+# platform_env <dir> <name>: the VAR=value words of <dir>/<name>.env (empty if there is none).
+platform_env() { [[ -f "$1/$2.env" ]] && grep -Ev '^\s*(#|$)' "$1/$2.env" | tr '\n' ' '; return 0; }
+
 # Cross-target runs: CSHARPC_TEST_TARGET=wasm32-wasip1 compiles every test for WebAssembly (WASI) and
 # runs it with tests/wasm-run.sh (wasmtime). The expectations are still the ones recorded with .NET on
 # Linux (there is no .NET for plain WASI to record with); tests/platform-skips.txt lists, under "wasi",
@@ -53,24 +72,27 @@ platform_compiler_output() {
 platform_is_live() { [[ "$1" == live:* ]]; }
 
 # The recordings come from Linux with the C locale, where .NET's current culture is the invariant
-# culture (csharpc's). A Windows user has a real culture (en-US on CI), so real .NET runs there with
+# culture. A macOS or Windows user has a real culture (en-US on CI), so real .NET runs there with
 # tests/oracle-hook, a startup hook that makes the invariant culture current (ICU collation stays;
 # DOTNET_SYSTEM_GLOBALIZATION_INVARIANT would make comparisons ordinal). Sets ORACLE_HOOK.
 ORACLE_HOOK=""
 platform_oracle_hook() {
-  [[ $HOST_OS == windows && -z "$ORACLE_HOOK" ]] || return 0
+  [[ $HOST_OS != linux && -z "$ORACLE_HOOK" ]] || return 0
   local dir="${TMPDIR:-/tmp}/csharpc-oracle-hook"
   [[ -f "$dir/OracleHook.dll" ]] ||
     "${DOTNET:-dotnet}" build "$ROOT/tests/oracle-hook/OracleHook.csproj" -c Release -o "$dir" -v quiet -nologo > /dev/null ||
     { echo "building tests/oracle-hook failed" >&2; return 1; }
-  ORACLE_HOOK="$(cygpath -w "$dir/OracleHook.dll")"
+  ORACLE_HOOK="$dir/OracleHook.dll"
+  [[ $HOST_OS == windows ]] && ORACLE_HOOK="$(cygpath -w "$ORACLE_HOOK")"
   export ORACLE_HOOK
 }
 
-# platform_live_expected <dir> <file.cs> <stdin> <out>: records stdout to <out>, prints the exit status.
+# platform_live_expected <dir> <file.cs> <stdin> <out> [VAR=value ...]: records stdout to <out>, prints the
+# exit status. With environment assignments (a NAME.env test) .NET runs under them without the hook.
 platform_live_expected() {
-  platform_oracle_hook
-  (cd "$1" && DOTNET_STARTUP_HOOKS="$ORACLE_HOOK" "${DOTNET:-dotnet}" run "$2" -p:WarningLevel=0 -p:AllowUnsafeBlocks=true -p:StartupHookSupport=true \
+  local hook=""
+  if [[ $# -le 4 ]]; then platform_oracle_hook; hook="$ORACLE_HOOK"; fi
+  (cd "$1" && env "${@:5}" DOTNET_STARTUP_HOOKS="$hook" "${DOTNET:-dotnet}" run "$2" -p:WarningLevel=0 -p:AllowUnsafeBlocks=true -p:StartupHookSupport=true \
     2>/dev/null < "$3") > "$4.raw"
   local code=$?
   grep -U -a -v -E '^[^ ]+\([0-9]+,[0-9]+\): warning ' < "$4.raw" > "$4"

@@ -113,7 +113,11 @@ public sealed partial class FunctionCodeGen
             switch (op.IndexerSymbol)
             {
                 case IPropertySymbol indexer when IsIndexType(op.Argument.Type):
-                    return DirectCall(S(indexer).GetMethod!, [self, ResolveIndex(EmitValue(op.Argument), length)]);
+                {
+                    var element = DirectCall(S(indexer).GetMethod!, [self, ResolveIndex(EmitValue(op.Argument), length)]);
+                    // `ref T this[int]` (ValueListBuilder, user buffers) returns the element's address.
+                    return indexer.RefKind != RefKind.None ? LoadValue(element, TypeOf(op)!) : element;
+                }
                 case IMethodSymbol slice when IsRangeType(op.Argument.Type):
                     var (start, count) = ResolveRange(EmitValue(op.Argument), length);
                     return DirectCall(S(slice), [self, start, count]);
@@ -124,6 +128,16 @@ public sealed partial class FunctionCodeGen
 
     private LLVMValueRef ImplicitIndexerAddress(IImplicitIndexerReferenceOperation op)
     {
+        // `buffer[^1] = x` through a compiled type's `ref T this[int]`.
+        if (IsIndexType(op.Argument.Type) && op.IndexerSymbol is IPropertySymbol { RefKind: not RefKind.None } refIndexer
+            && TypeOf(op.Instance) is INamedTypeSymbol owner && _m.IsUserType(owner) && op.LengthSymbol is IPropertySymbol lengthProperty)
+        {
+            var lengthGetter = S(lengthProperty).GetMethod!;
+            var self = Receiver(op.Instance, lengthGetter);
+            if (owner.IsReferenceType) NullCheck(self);
+            var length = DirectCall(lengthGetter, [self]);
+            return DirectCall(S(refIndexer).GetMethod!, [self, ResolveIndex(EmitValue(op.Argument), length)]);
+        }
         if (!TypeMapper.IsSpan(op.Instance.Type) || !IsIndexType(op.Argument.Type))
             throw CompileError.Unsupported($"assignment through an Index/Range indexer on '{op.Instance.Type}'", op);
         var span = EmitValue(op.Instance);

@@ -137,10 +137,28 @@ public sealed partial class FunctionCodeGen
         return MakeSpan(_b.StructGep(header, array, 2), L.ConstInt(L.I32, collection.Elements.Length));
     }
 
-    private LLVMValueRef EmitUtf8String(IUtf8StringOperation op)
+    private LLVMValueRef EmitUtf8String(IUtf8StringOperation op) => EmitUtf8Text(op.Value);
+
+    private LLVMValueRef EmitUtf8Text(string text)
     {
-        var bytes = System.Text.Encoding.UTF8.GetByteCount(op.Value);
-        return MakeSpan(_m.CString(op.Value), L.ConstInt(L.I32, bytes));
+        var bytes = System.Text.Encoding.UTF8.GetByteCount(text);
+        return MakeSpan(_m.CString(text), L.ConstInt(L.I32, bytes));
+    }
+
+    /// <summary>`"a"u8 + "b"u8`: UTF-8 literal concatenation is a compile-time operation.</summary>
+    private static bool TryUtf8Concatenation(IBinaryOperation op, out string text)
+    {
+        text = "";
+        if (op.OperatorKind != BinaryOperatorKind.Add) return false;
+        static string? Part(IOperation o) => o switch
+        {
+            IUtf8StringOperation u => u.Value,
+            IBinaryOperation b when TryUtf8Concatenation(b, out var t) => t,
+            _ => null,
+        };
+        if (Part(op.LeftOperand) is not { } left || Part(op.RightOperand) is not { } right) return false;
+        text = left + right;
+        return true;
     }
 
     /// <summary>`ref T` to span[index], bounds-checked (IndexOutOfRangeException, as in .NET).</summary>
@@ -231,6 +249,8 @@ public sealed partial class FunctionCodeGen
         {
             case 0: result = LlvmContext.Null(SpanType); return true;
             case 1 when S(args[0].Parameter!.Type) is IArrayTypeSymbol: result = ArraySpan(Arg(0), element); return true;
+            // new Span<T>(ref x) / new ReadOnlySpan<T>(in x): a one-element span over the variable.
+            case 1 when args[0].Parameter!.RefKind != RefKind.None: result = MakeSpan(AddressOf(args[0].Value), L.ConstInt(L.I32, 1)); return true;
             case 3 when S(args[0].Parameter!.Type) is IArrayTypeSymbol: result = ArraySpan(Arg(0), element, Arg(1), Arg(2)); return true;
             case 2 when S(args[0].Parameter!.Type) is IPointerTypeSymbol:
             {

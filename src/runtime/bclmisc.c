@@ -382,11 +382,22 @@ csrt_Array* csrt_string_split_chars(csrt_String* s, csrt_Array* separators, int3
 }
 
 // ---------------------------------------------------------------------------------------------
-// Culture-sensitive string comparison (string.Compare/CompareTo, Array.Sort of strings).
-// .NET uses ICU; with the invariant culture that is the CLDR root collation. This approximates
-// it for Latin text with three levels: base letter (case/accent-insensitive) < accent < case
-// (lowercase first). ASCII order: whitespace < punctuation < symbols < digits < letters;
-// control characters are ignorable. Other characters compare after Latin letters by code point.
+// Culture-sensitive string comparison is C# (corelib Globalization/CultureStrings.cs, over the port of
+// .NET's CompareInfo and ICU). Array.Sort of strings calls it through the corelib's RuntimeExport;
+// this weak definition only satisfies the linker in programs that never sort strings.
+// ---------------------------------------------------------------------------------------------
+__attribute__((weak)) int32_t csrt_string_compare_culture(csrt_String* a, csrt_String* b, bool ignore_case) {
+    (void)ignore_case;
+    return csrt_string_compare_ordinal(a, b);
+}
+
+#ifdef __wasi__
+// ---------------------------------------------------------------------------------------------
+// WASI has no ICU (nothing loads dynamically), so programs run in invariant globalization mode. Instead
+// of the ordinal comparisons of .NET's invariant mode, culture comparisons there approximate ICU's root
+// collation for Latin text (CompareInfo.cs): three levels, base letter (case/accent-insensitive) <
+// accent < case (lowercase first); ASCII order whitespace < punctuation < symbols < digits < letters;
+// control characters are ignorable; other characters sort after Latin letters by code point.
 // ---------------------------------------------------------------------------------------------
 static const char k_ascii_order[] = "\t\n\v\f\r _-,;:!?.'\"()[]{}@*/\\&#%`^+<=>|~$0123456789abcdefghijklmnopqrstuvwxyz";
 
@@ -435,16 +446,17 @@ static int compare_level(csrt_String* a, csrt_String* b, int level, bool ignore_
     }
 }
 
-int32_t csrt_string_compare_culture(csrt_String* a, csrt_String* b, bool ignore_case) {
+int32_t csrt_root_collation_compare(csrt_String* a, csrt_String* b, int32_t ignore_case) {
     if (a == b) return 0;
     if (!a) return -1;
     if (!b) return 1;
     for (int level = 1; level <= 3; level++) {
-        int c = compare_level(a, b, level, ignore_case);
+        int c = compare_level(a, b, level, ignore_case != 0);
         if (c) return c;
     }
     return 0;
 }
+#endif
 
 int32_t csrt_string_compare_ordinal_ignore_case(csrt_String* a, csrt_String* b) {
     if (a == b) return 0;
@@ -458,15 +470,6 @@ int32_t csrt_string_compare_ordinal_ignore_case(csrt_String* a, csrt_String* b) 
         if (x != y) return (int32_t)x - (int32_t)y;
     }
     return a->length - b->length;
-}
-
-/// string.Compare(a, b, StringComparison): 0/1 current culture, 2/3 invariant, 4 ordinal, 5 ordinal-ignore-case.
-int32_t csrt_string_compare_with(csrt_String* a, csrt_String* b, int32_t comparison) {
-    switch (comparison) {
-        case 4: return csrt_string_compare_ordinal(a, b);
-        case 5: return csrt_string_compare_ordinal_ignore_case(a, b);
-        default: return csrt_string_compare_culture(a, b, comparison & 1);
-    }
 }
 
 bool csrt_string_is_null_or_white_space(csrt_String* s) {

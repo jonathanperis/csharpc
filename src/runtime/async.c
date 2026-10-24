@@ -80,7 +80,11 @@ _Static_assert(offsetof(csrt_Iterator, state) == sizeof(void*), "iterator state 
 
 enum { K_RESUME = 1, K_WHEN_ALL = 2, K_CHAIN = 3, K_WHEN_ANY = 4, K_RUN_ACTION = 5, K_RUN_FUNC_TASK = 6,
        K_TIMER_TASK = 7, K_TIMER_CANCEL = 8, K_RUN_THUNK = 9,
-       K_INVOKE = 10 /* an Action continuation (awaiter.OnCompleted) */ };
+       K_INVOKE = 10 /* an Action continuation (awaiter.OnCompleted) */, K_RESUME_FLOW = 11 };
+
+// An await continuation registered while a non-default execution-context flow was current (csrt.h):
+// the coroutine resumes with that flow, as .NET restores the captured ExecutionContext.
+typedef struct { const csrt_MethodTable* mt; void* frame; void* flow; } ResumeWithFlow;
 
 typedef struct { const csrt_MethodTable* mt; void* target; void* fn; } Delegate;
 
@@ -127,11 +131,12 @@ static int64_t now_ms(void) {
 }
 
 // ---------------------------------------------------------------------------------------------
-// Thread pool: a FIFO of work items (kind, a, b) in a GC array rooted by a global
+// Thread pool: a FIFO of work items (kind, a, b, flow) in a GC array rooted by a global; each item runs
+// with the execution-context flow captured when it was queued.
 // ---------------------------------------------------------------------------------------------
 static pthread_mutex_t s_qlock = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t s_qcond = PTHREAD_COND_INITIALIZER;
-static csrt_Array* s_queue;     // ring buffer of triples
+static csrt_Array* s_queue;     // ring buffer of (kind, a, b, flow)
 static int64_t s_qhead, s_qcount;
 static int s_workers, s_idle, s_blocked;   // pool workers; idle (waiting for work); blocked in Wait
 static int64_t s_dequeued;                 // progress counter (starvation detection)
@@ -142,39 +147,44 @@ enum { MAX_WORKERS = 512 };
 static void pool_start_locked(void);
 static void spawn_worker_locked(void);
 
-static void enqueue(intptr_t kind, void* a, void* b) {
+static void enqueue_flow(intptr_t kind, void* a, void* b, void* flow) {
     pthread_mutex_lock(&s_qlock);
     if (!s_pool_started) pool_start_locked();
-    int64_t cap = s_queue ? s_queue->length / 3 : 0;
+    int64_t cap = s_queue ? s_queue->length / 4 : 0;
     if (s_qcount == cap) {
         int64_t ncap = cap ? cap * 2 : 64;
-        csrt_Array* grown = csrt_new_array(sizeof(void*), ncap * 3);
+        csrt_Array* grown = csrt_new_array(sizeof(void*), ncap * 4);
         for (int64_t i = 0; i < s_qcount; i++) {
-            int64_t from = ((s_qhead + i) % cap) * 3;
-            memcpy(words(grown) + i * 3, words(s_queue) + from, 3 * sizeof(void*));
+            int64_t from = ((s_qhead + i) % cap) * 4;
+            memcpy(words(grown) + i * 4, words(s_queue) + from, 4 * sizeof(void*));
         }
         s_queue = grown;
         s_qhead = 0;
         cap = ncap;
     }
-    int64_t at = ((s_qhead + s_qcount) % cap) * 3;
+    int64_t at = ((s_qhead + s_qcount) % cap) * 4;
     words(s_queue)[at] = (void*)kind;
     words(s_queue)[at + 1] = a;
     words(s_queue)[at + 2] = b;
+    words(s_queue)[at + 3] = flow;
     s_qcount++;
     if (s_idle > 0) pthread_cond_signal(&s_qcond);
     else if (s_workers - s_blocked <= 0 && s_workers < MAX_WORKERS) spawn_worker_locked();
     pthread_mutex_unlock(&s_qlock);
 }
 
-static bool dequeue_locked(intptr_t* kind, void** a, void** b) {
+/// Queues work with the calling code's execution-context flow.
+static void enqueue(intptr_t kind, void* a, void* b) { enqueue_flow(kind, a, b, csrt_tl_flow); }
+
+static bool dequeue_locked(intptr_t* kind, void** a, void** b, void** flow) {
     if (s_qcount == 0) return false;
-    int64_t cap = s_queue->length / 3;
-    int64_t at = s_qhead * 3;
+    int64_t cap = s_queue->length / 4;
+    int64_t at = s_qhead * 4;
     *kind = (intptr_t)words(s_queue)[at];
     *a = words(s_queue)[at + 1];
     *b = words(s_queue)[at + 2];
-    words(s_queue)[at + 1] = words(s_queue)[at + 2] = NULL;
+    *flow = words(s_queue)[at + 3];
+    words(s_queue)[at + 1] = words(s_queue)[at + 2] = words(s_queue)[at + 3] = NULL;
     s_qhead = (s_qhead + 1) % cap;
     s_qcount--;
     s_dequeued++;
@@ -186,16 +196,18 @@ static void run_item(intptr_t kind, void* a, void* b);
 static void worker_loop(void) {
     tl_worker = true;
     for (;;) {
-        intptr_t kind; void* a; void* b;
+        intptr_t kind; void* a; void* b; void* flow;
         pthread_mutex_lock(&s_qlock);
-        while (!dequeue_locked(&kind, &a, &b)) {
+        while (!dequeue_locked(&kind, &a, &b, &flow)) {
             s_idle++;
             pthread_cond_wait(&s_qcond, &s_qlock);
             s_idle--;
         }
         pthread_mutex_unlock(&s_qlock);
+        csrt_tl_flow = flow;
         run_item(kind, a, b);
-        a = b = NULL;  // don't keep finished work reachable from this stack
+        csrt_tl_flow = NULL;
+        a = b = flow = NULL;  // don't keep finished work reachable from this stack
     }
 }
 
@@ -386,12 +398,20 @@ static void run_continuations(csrt_Task* t, csrt_Array* conts, int32_t n) {
         void* p = words(conts)[i * 2 + 1];
         switch (kind) {
             case K_RESUME:
+            case K_RESUME_FLOW: {
+                // The continuation runs with the flow captured by its await (the default one for K_RESUME).
+                void* frame = kind == K_RESUME ? p : ((ResumeWithFlow*)p)->frame;
+                void* flow = kind == K_RESUME ? NULL : ((ResumeWithFlow*)p)->flow;
                 if (tl_inline_depth < MAX_INLINE_DEPTH) {
+                    void* saved = csrt_tl_flow;
+                    csrt_tl_flow = flow;
                     tl_inline_depth++;
-                    csrt_coro_resume(p);
+                    csrt_coro_resume(frame);
                     tl_inline_depth--;
-                } else enqueue(K_RESUME, p, NULL);
+                    csrt_tl_flow = saved;
+                } else enqueue_flow(K_RESUME, frame, NULL, flow);
                 break;
+            }
             case K_INVOKE:
                 if (tl_inline_depth < MAX_INLINE_DEPTH) {
                     tl_inline_depth++;
@@ -453,7 +473,15 @@ csrt_Task* csrt_task_from_exception(void* exception, int32_t payload_size) {
 /// already executed llvm.coro.save, so a resume from another thread before it actually suspends
 /// is fine.
 void csrt_task_on_completed(csrt_Task* t, void* frame) {
-    if (!add_continuation(t, K_RESUME, frame)) enqueue(K_RESUME, frame, NULL);
+    void* flow = csrt_tl_flow;
+    bool added;
+    if (flow) {
+        ResumeWithFlow* r = csrt_alloc(&csrt_Object_MT.header, sizeof(ResumeWithFlow));
+        r->frame = frame;
+        r->flow = flow;
+        added = add_continuation(t, K_RESUME_FLOW, r);
+    } else added = add_continuation(t, K_RESUME, frame);
+    if (!added) enqueue(K_RESUME, frame, NULL);
 }
 
 /// awaiter.OnCompleted(action) / UnsafeOnCompleted(action) (IL async state machines, custom awaiter
@@ -801,6 +829,15 @@ static void run_item(intptr_t kind, void* a, void* b) {
 }
 
 #ifdef __wasi__
+// A work item runs with the execution-context flow captured when it was queued; the only thread may be
+// inside other code (Thread.Sleep, a wait), whose flow comes back afterwards.
+static void run_flowed_item(intptr_t kind, void* a, void* b, void* flow) {
+    void* saved = csrt_tl_flow;
+    csrt_tl_flow = flow;
+    run_item(kind, a, b);
+    csrt_tl_flow = saved;
+}
+
 static void sleep_ms_until(int64_t deadline) {
     int64_t wait = deadline - now_ms();
     if (wait <= 0) return;
@@ -811,9 +848,9 @@ static void sleep_ms_until(int64_t deadline) {
 /// One step of the single-threaded scheduler: run a queued work item, or else wait for the earliest
 /// timer (but not past `limit`, -1 = no limit) and fire the timers due. False: nothing to wait for.
 static bool scheduler_step(int64_t limit) {
-    intptr_t kind; void* a; void* b;
-    if (dequeue_locked(&kind, &a, &b)) {
-        run_item(kind, a, b);
+    intptr_t kind; void* a; void* b; void* flow;
+    if (dequeue_locked(&kind, &a, &b, &flow)) {
+        run_flowed_item(kind, a, b, flow);
         return true;
     }
     if (s_ntimers == 0) return false;
@@ -848,9 +885,9 @@ bool csrt_scheduler_yield(void) {
     pthread_mutex_lock(&s_tlock);
     fire_due_timers_locked(now_ms());
     pthread_mutex_unlock(&s_tlock);
-    intptr_t kind; void* a; void* b;
-    if (!dequeue_locked(&kind, &a, &b)) return false;
-    run_item(kind, a, b);
+    intptr_t kind; void* a; void* b; void* flow;
+    if (!dequeue_locked(&kind, &a, &b, &flow)) return false;
+    run_flowed_item(kind, a, b, flow);
     return true;
 }
 #else

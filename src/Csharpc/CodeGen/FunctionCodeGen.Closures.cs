@@ -202,6 +202,7 @@ public sealed partial class FunctionCodeGen
         var layout = _m.GetLayout(method.ContainingType);
         if (!layout.SlotOf.TryGetValue(_m.RootOf(method), out var slot))
             throw CompileError.Unsupported($"delegate to virtual method '{method}'", method);
+        _m.NoteVirtualDispatch(_m.RootOf(method));
         var mt = _b.Load(L.Ptr, self, "mt");
         var offset = T.Target.SizeOf(T.MethodTableHeader) + (ulong)slot * T.PointerSize;
         return _b.Load(L.Ptr, _b.InBoundsGep(L.I8, mt, [L.ConstUInt(L.I64, offset)], "slot"), "vfn");

@@ -94,6 +94,71 @@ namespace CsharpcCoreLib
         }
 
         public static int Compare(string strA, string strB) => CoreIntrinsics.Compare(strA, strB);
+
+        public static string Concat(ReadOnlySpan<char> str0, ReadOnlySpan<char> str1) => ConcatSpans(str0, str1, default, default);
+        public static string Concat(ReadOnlySpan<char> str0, ReadOnlySpan<char> str1, ReadOnlySpan<char> str2) => ConcatSpans(str0, str1, str2, default);
+        public static string Concat(ReadOnlySpan<char> str0, ReadOnlySpan<char> str1, ReadOnlySpan<char> str2, ReadOnlySpan<char> str3) =>
+            ConcatSpans(str0, str1, str2, str3);
+
+        private static string ConcatSpans(ReadOnlySpan<char> a, ReadOnlySpan<char> b, ReadOnlySpan<char> c, ReadOnlySpan<char> d)
+        {
+            long length = (long)a.Length + b.Length + c.Length + d.Length;
+            if (length == 0) return "";
+            if (length > int.MaxValue) throw new OutOfMemoryException();
+            string result = CoreIntrinsics.FastAllocateString((int)length);
+            Span<char> dst = CoreIntrinsics.StringChars(result);
+            a.CopyTo(dst);
+            b.CopyTo(dst.Slice(a.Length));
+            c.CopyTo(dst.Slice(a.Length + b.Length));
+            d.CopyTo(dst.Slice(a.Length + b.Length + c.Length));
+            return result;
+        }
+
+        public static int GetHashCode(ReadOnlySpan<char> value) => value.ToString().GetHashCode();
+
+        public static int Compare(string strA, string strB, System.Globalization.CultureInfo culture, System.Globalization.CompareOptions options)
+        {
+            if (culture == null) throw new ArgumentNullException(nameof(culture));
+            return ((CsharpcCoreLib.Globalization.CultureInfo)(object)culture).CompareInfo.Compare(strA, strB, options);
+        }
+
+        public static int Compare(string strA, string strB, bool ignoreCase, System.Globalization.CultureInfo culture)
+        {
+            if (culture == null) throw new ArgumentNullException(nameof(culture));
+            return ((CsharpcCoreLib.Globalization.CultureInfo)(object)culture).CompareInfo.Compare(strA, strB,
+                ignoreCase ? System.Globalization.CompareOptions.IgnoreCase : System.Globalization.CompareOptions.None);
+        }
+
+        public static int Compare(string strA, int indexA, string strB, int indexB, int length, System.Globalization.CultureInfo culture, System.Globalization.CompareOptions options)
+        {
+            if (culture == null) throw new ArgumentNullException(nameof(culture));
+            int lengthA = length, lengthB = length;
+            if (strA != null) lengthA = Math.Min(lengthA, strA.Length - indexA);
+            if (strB != null) lengthB = Math.Min(lengthB, strB.Length - indexB);
+            return ((CsharpcCoreLib.Globalization.CultureInfo)(object)culture).CompareInfo.Compare(strA, indexA, lengthA, strB, indexB, lengthB, options);
+        }
+
+        public static int Compare(string strA, int indexA, string strB, int indexB, int length, bool ignoreCase, System.Globalization.CultureInfo culture) =>
+            Compare(strA, indexA, strB, indexB, length, culture, ignoreCase ? System.Globalization.CompareOptions.IgnoreCase : System.Globalization.CompareOptions.None);
+
+        // string.Create(provider, $"..."): the handler (InterpolatedStringHandler.cs) formatted with the provider.
+        public static string Create(IFormatProvider provider, ref System.Runtime.CompilerServices.DefaultInterpolatedStringHandler handler) =>
+            handler.ToStringAndClear();
+
+        public static string Create(IFormatProvider provider, Span<char> initialBuffer, ref System.Runtime.CompilerServices.DefaultInterpolatedStringHandler handler) =>
+            handler.ToStringAndClear();
+
+        // string.Format with an IFormatProvider (the provider-less forms are codegen intrinsics).
+        public static string Format(IFormatProvider provider, string format, object arg0) => Number.FormatCompositeWith(provider, format, new[] { arg0 });
+        public static string Format(IFormatProvider provider, string format, object arg0, object arg1) => Number.FormatCompositeWith(provider, format, new[] { arg0, arg1 });
+        public static string Format(IFormatProvider provider, string format, object arg0, object arg1, object arg2) =>
+            Number.FormatCompositeWith(provider, format, new[] { arg0, arg1, arg2 });
+        public static string Format(IFormatProvider provider, string format, params object[] args)
+        {
+            if (args == null) throw new ArgumentNullException(format == null ? "format" : "args");
+            return Number.FormatCompositeWith(provider, format, args);
+        }
+        public static string Format(IFormatProvider provider, string format, params ReadOnlySpan<object> args) => Number.FormatCompositeWith(provider, format, args.ToArray());
     }
 }
 
@@ -157,6 +222,21 @@ namespace CsharpcCoreLib
     [ShadowMembers("System.Math")]
     internal static class MathExtras
     {
+        public static (int Quotient, int Remainder) DivRem(int left, int right)
+        {
+            int quotient = left / right;
+            return (quotient, left - (quotient * right));
+        }
+
+        public static (long Quotient, long Remainder) DivRem(long left, long right)
+        {
+            long quotient = left / right;
+            return (quotient, left - (quotient * right));
+        }
+
+        public static double CopySign(double x, double y) =>
+            CoreIntrinsics.BitsToDouble((CoreIntrinsics.DoubleToBits(x) & long.MaxValue) | (CoreIntrinsics.DoubleToBits(y) & long.MinValue));
+
         /// <summary>x - y * round-half-even(x / y), with .NET's algorithm (its sign and NaN rules).</summary>
         public static double IEEERemainder(double x, double y)
         {
@@ -187,6 +267,36 @@ namespace CsharpcCoreLib
     [ShadowMembers("System.MemoryExtensions")]
     internal static class MemoryExtensionsExtras
     {
+        public static int SequenceCompareTo<T>(ReadOnlySpan<T> span, ReadOnlySpan<T> other) where T : IComparable<T>
+        {
+            int n = span.Length < other.Length ? span.Length : other.Length;
+            // .NET's SpanHelpers.SequenceCompareTo: chars and bytes return the difference of the first
+            // differing elements, then of the lengths; other types their CompareTo.
+            bool difference = typeof(T) == typeof(char) || typeof(T) == typeof(byte);
+            for (int i = 0; i < n; i++)
+            {
+                int c = difference
+                    ? (typeof(T) == typeof(char) ? (char)(object)span[i] - (char)(object)other[i] : (byte)(object)span[i] - (byte)(object)other[i])
+                    : CoreIntrinsics.Compare(span[i], other[i]);
+                if (c != 0) return c;
+            }
+            return difference ? span.Length - other.Length : span.Length.CompareTo(other.Length);
+        }
+
+        public static bool ContainsAnyExcept<T>(ReadOnlySpan<T> span, T value) where T : IEquatable<T>
+        {
+            for (int i = 0; i < span.Length; i++)
+                if (!CoreIntrinsics.AreEqual(span[i], value)) return true;
+            return false;
+        }
+
+        public static bool ContainsAny<T>(ReadOnlySpan<T> span, T value0, T value1) where T : IEquatable<T>
+        {
+            for (int i = 0; i < span.Length; i++)
+                if (CoreIntrinsics.AreEqual(span[i], value0) || CoreIntrinsics.AreEqual(span[i], value1)) return true;
+            return false;
+        }
+
         public static T Min<T>(ReadOnlySpan<T> span) => MinMax(span, null, 1);
         public static T Max<T>(ReadOnlySpan<T> span) => MinMax(span, null, -1);
         public static T Min<T>(ReadOnlySpan<T> span, IComparer<T> comparer) => MinMax(span, comparer, 1);
@@ -417,14 +527,43 @@ namespace CsharpcCoreLib
     [Shadows("System.StringComparer")]
     public abstract class StringComparerImpl : IComparer<string>, IEqualityComparer<string>, IComparer, IEqualityComparer
     {
-        // Lazily created: corelib types get no static constructor run (only user types are statically initialized).
+        // Lazily created (no static initializers in the corelib).
         private static StringComparerImpl s_ordinal, s_ordinalIgnoreCase, s_invariant, s_invariantIgnoreCase;
         public static StringComparerImpl Ordinal => s_ordinal ??= new Standard(StringComparison.Ordinal);
         public static StringComparerImpl OrdinalIgnoreCase => s_ordinalIgnoreCase ??= new Standard(StringComparison.OrdinalIgnoreCase);
-        public static StringComparerImpl InvariantCulture => s_invariant ??= new Standard(StringComparison.InvariantCulture);
-        public static StringComparerImpl InvariantCultureIgnoreCase => s_invariantIgnoreCase ??= new Standard(StringComparison.InvariantCultureIgnoreCase);
-        public static StringComparerImpl CurrentCulture => InvariantCulture;
-        public static StringComparerImpl CurrentCultureIgnoreCase => InvariantCultureIgnoreCase;
+        public static StringComparerImpl InvariantCulture => s_invariant ??=
+            new CultureAware(CsharpcCoreLib.Globalization.CompareInfo.Invariant, System.Globalization.CompareOptions.None);
+        public static StringComparerImpl InvariantCultureIgnoreCase => s_invariantIgnoreCase ??=
+            new CultureAware(CsharpcCoreLib.Globalization.CompareInfo.Invariant, System.Globalization.CompareOptions.IgnoreCase);
+        // .NET creates these on each access, for the culture current at that moment.
+        public static StringComparerImpl CurrentCulture =>
+            new CultureAware(CsharpcCoreLib.Globalization.CultureInfo.CurrentCulture.CompareInfo, System.Globalization.CompareOptions.None);
+        public static StringComparerImpl CurrentCultureIgnoreCase =>
+            new CultureAware(CsharpcCoreLib.Globalization.CultureInfo.CurrentCulture.CompareInfo, System.Globalization.CompareOptions.IgnoreCase);
+
+        public static StringComparerImpl Create(System.Globalization.CultureInfo culture, bool ignoreCase)
+        {
+            if (culture == null) throw new ArgumentNullException(nameof(culture));
+            return new CultureAware(((CsharpcCoreLib.Globalization.CultureInfo)(object)culture).CompareInfo,
+                ignoreCase ? System.Globalization.CompareOptions.IgnoreCase : System.Globalization.CompareOptions.None);
+        }
+
+        public static StringComparerImpl Create(System.Globalization.CultureInfo culture, System.Globalization.CompareOptions options)
+        {
+            if (culture == null) throw new ArgumentNullException(nameof(culture));
+            return new CultureAware(((CsharpcCoreLib.Globalization.CultureInfo)(object)culture).CompareInfo, options);
+        }
+
+        public static StringComparerImpl FromComparison(StringComparison comparisonType) => comparisonType switch
+        {
+            StringComparison.CurrentCulture => CurrentCulture,
+            StringComparison.CurrentCultureIgnoreCase => CurrentCultureIgnoreCase,
+            StringComparison.InvariantCulture => InvariantCulture,
+            StringComparison.InvariantCultureIgnoreCase => InvariantCultureIgnoreCase,
+            StringComparison.Ordinal => Ordinal,
+            StringComparison.OrdinalIgnoreCase => OrdinalIgnoreCase,
+            _ => throw new ArgumentException("The string comparison type passed in is currently not supported.", nameof(comparisonType)),
+        };
 
         public abstract int Compare(string x, string y);
         public abstract bool Equals(string x, string y);
@@ -445,7 +584,41 @@ namespace CsharpcCoreLib
             {
                 if (obj == null) throw new ArgumentNullException(nameof(obj));
                 if (comparison == StringComparison.OrdinalIgnoreCase) return OrdinalCasing.ToUpperOrdinal(obj).GetHashCode();
-                return IgnoreCase ? obj.ToUpperInvariant().GetHashCode() : obj.GetHashCode();
+                return obj.GetHashCode();
+            }
+        }
+
+        /// <summary>System.CultureAwareComparer: a CompareInfo and CompareOptions.</summary>
+        private sealed class CultureAware : StringComparerImpl
+        {
+            private readonly CsharpcCoreLib.Globalization.CompareInfo _compareInfo;
+            private readonly System.Globalization.CompareOptions _options;
+
+            internal CultureAware(CsharpcCoreLib.Globalization.CompareInfo compareInfo, System.Globalization.CompareOptions options)
+            {
+                _compareInfo = compareInfo;
+                _options = options;
+            }
+
+            public override int Compare(string x, string y)
+            {
+                if (object.ReferenceEquals(x, y)) return 0;
+                if (x == null) return -1;
+                if (y == null) return 1;
+                return _compareInfo.Compare(x, y, _options);
+            }
+
+            public override bool Equals(string x, string y)
+            {
+                if (object.ReferenceEquals(x, y)) return true;
+                if (x == null || y == null) return false;
+                return _compareInfo.Compare(x, y, _options) == 0;
+            }
+
+            public override int GetHashCode(string obj)
+            {
+                if (obj == null) throw new ArgumentNullException(nameof(obj));
+                return _compareInfo.GetHashCode(obj, _options);
             }
         }
     }

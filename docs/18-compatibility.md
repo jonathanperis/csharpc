@@ -126,13 +126,13 @@ let them compile.
 | 4 | **`System.String` members** | 11 | 3 | `Split(ReadOnlySpan<char>)` (2), `StartsWith(char)`/`EndsWith(char)`, `StartsWith(string, StringComparison)`, `EndsWith(string, StringComparison)`, `Split(string[], options)`, `Split(char, int, options)`, `LastIndexOf(string)`, `IndexOf(char, StringComparison)`, `CopyTo(Span<char>)`, `string.Create`, `EnumerateRunes` | corelib C# (`String` shadow) |
 | 5 | **spans, memory and `System.Buffers`** | 11 | 7 | `MemoryPool<char>.Rent` (5), formatting `Memory<char>` (3)/`ReadOnlySpan<char>` in interpolation, `MemoryExtensions.SequenceEqual/Contains` with comparer, `SearchValues`, `Utf8Formatter` | corelib C# |
 | 6 | **reflection-lite** | 10 | 5 | `Enum.GetValues(Type)` (3), `ValueType.ToString()` on structs (2), `Type.GetMethod/GetProperty/GetProperties`, `Activator.CreateInstance(Type)`, `Assembly.Location` | codegen metadata (`Enum.GetValues`, `ValueType.ToString` are statically resolvable). The rest need trimming-style metadata (docs/08 gap 4) |
-| 7 | **`System.Globalization`** | 10 | 3 | `CultureInfo.Name` (3), `new CultureInfo(..)`, `GetCultureInfo`, setting `CurrentCulture`, `IdnMapping` | corelib C# (invariant-only `CultureInfo` object model, plus explicit diagnostics for real cultures) |
+| 7 | **`System.Globalization`** | 10 | 3 | `CultureInfo.Name` (3), `new CultureInfo(..)`, `GetCultureInfo`, setting `CurrentCulture`, `IdnMapping` | done on `globalization` (port of .NET's ICU-based globalization, [19](19-globalization.md)): cultures, `CultureInfo`/`RegionInfo`, culture formatting/parsing, collation and casing; `IdnMapping` remains |
 | 8 | **`System.Threading`** | 10 | 3 | `Task.Run(Action, CancellationToken)`, `Task.Wait(int)`, `WaitAsync`, `ContinueWith`, `Task.Id`, `new CancellationTokenSource`, `CreateLinkedTokenSource`, `SynchronizationContext`, `Timer`, `Thread.Interrupt` | corelib C# (tasks) + runtime (timers) |
 | 9 | **`Console` input and encoding** | 9 | 7 | `Console.ReadKey()` (6), `ConsoleKeyInfo`, setting `Console.OutputEncoding` (2) | runtime + corelib: `ReadKey` with redirected stdin must throw `InvalidOperationException` like .NET. `OutputEncoding` = UTF-8 can be a no-op |
 | 10 | **`System.Text.RegularExpressions`** | 9 | 3 | `MatchCollection` enumeration and `Count` (4), `Capture.Value`, `new Regex`, `Regex.IsMatch/Match/Replace` | done on `regex` (port of .NET's engine): 5 more programs pass; the others stop at `ThreadLocal<T>`, `IdnMapping`, `Convert.ToUInt16(char)`, formatting `ReadOnlySpan<char>`, `DateTimeOffset`, `JsonConverter<T>` |
 | 11 | **non-generic and concurrent collections** | 8 | 2 | `Hashtable`, `ArrayList`, `ReadOnlyCollection<T>`, `BlockingCollection<T>`, `ConcurrentDictionary` members, `OrderedDictionary<,>.TryAdd` | corelib C# |
 | 12 | **`StringBuilder.Append($"...")`** | 8 | 6 | `StringBuilder.AppendInterpolatedStringHandler` (7), `DefaultInterpolatedStringHandler` (1) | codegen (lower the handler pattern like plain interpolation) or a corelib shadow struct. High value: 6 programs need nothing else |
-| 13 | **`DateTime.Parse`, `DateOnly`, `TimeOnly`** | 7 | 4 | `DateTime.Parse(string)` (5), `DateOnly` (2), `TimeOnly` | corelib C# (`DateTime` is moving to C#, per M2) |
+| 13 | **`DateTime.Parse`, `DateOnly`, `TimeOnly`** | 7 | 4 | `DateTime.Parse(string)` (5), `DateOnly` (2), `TimeOnly` | done on `globalization`: .NET's `DateTimeParse` / `DateTimeFormat` with the culture's `DateTimeFormatInfo`, for `DateTime`, `DateOnly` and `TimeOnly` |
 | 14 | **`System.IO` extras** | 7 | 5 | `BufferedStream`, `FileSystemInfo.CreationTime`, `Stream.WriteAsync`, `File.WriteAllTextAsync`, `ZipArchive`, `BrotliStream`, tar | corelib/IO C# over libc ([16-interop-io.md](16-interop-io.md)) |
 | 15 | **argument throw helpers** | 7 | 3 | `ArgumentNullException.ThrowIfNull`, `ArgumentException.ThrowIfNullOrEmpty`, `ArgumentOutOfRangeException.ThrowIfNegativeOrZero`, `Exception.StackTrace`, `GetBaseException` | corelib C#, trivial |
 | 16 | **deconstruction into properties** | 6 | 4 | `(X, Y) = (x, y)` where the targets are properties (the common constructor idiom). `CSLLVM0001 deconstruction other than (a, b, ...) = (x, y, ...)` | codegen partial (`FunctionCodeGen.Deconstruction`) |
@@ -270,7 +270,7 @@ In order of programs gained per unit of work:
    is also by far the largest piece of work. It fits the closed-world model if the serializer's
    type metadata is generated at compile time, the way the System.Text.Json source generator
    does it. Done on the `json` branch, see [Progress](#progress-since-the-first-run).
-5. Then Regex, Globalization's `CultureInfo` object model (invariant only), the remaining
+5. Then Regex, Globalization (done: [19](19-globalization.md)), the remaining
    threading surface, and the IO extras. All of these are already on the M2 corelib list.
 
 Re-measure after each batch. The blocker tables above are the first-run baseline; the summary has

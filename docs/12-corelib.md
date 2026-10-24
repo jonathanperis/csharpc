@@ -19,7 +19,7 @@ csharpc:     CsharpcCoreLib.DictionaryImpl<string,int>.set_Item(string, int)    
 | `src/Csharpc/CodeGen/CoreLib.cs` | discovery of shadows + symbol mapping (types, methods, properties, fields) |
 | `src/Csharpc/CodeGen/FunctionCodeGen.CoreLib.cs` | `CoreIntrinsics` codegen, property lvalue captures, value-type null folds |
 | `src/Csharpc/CodeGen/ModuleCodeGen.CoreLib.cs` | arrays / strings as BCL interfaces |
-| `src/runtime/collation.c` | culture string comparison (ICU-root approximation) used by `Comparer<string>` |
+| `src/Csharpc/corelib/Globalization/` | .NET's globalization (cultures, formats, calendars, collation, casing) over ICU, see [19](19-globalization.md) |
 
 ## Declaring a shadow
 
@@ -145,9 +145,9 @@ all option combinations) checks.
   SDK's, whose output is built on `RegexRunner` internals. Each member returns a cached interpreter
   instance for the attribute's pattern, options, timeout and culture; the SDK generator's diagnostics
   (SYSLIB1040–1043) are reproduced. Only `GetType()` differs (`Regex` instead of the generated class).
-* **Culture:** csharpc is invariant-culture, so `IgnoreCase` uses .NET's invariant case equivalences
-  (`CultureInfo.CurrentCulture` is invariant, as with `DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=1`);
-  `[GeneratedRegex(..., cultureName)]` honours the culture's casing behaviour (Turkish/Azeri vs. others).
+* **Culture:** `IgnoreCase` uses .NET's case equivalence tables with the culture's casing behaviour
+  (Turkish/Azeri vs. others): the current culture's name at construction, or `CultureInvariant`, or
+  `[GeneratedRegex(..., cultureName)]`, as in .NET.
 * **Adaptations** (`RegexSupport.cs`): resource strings, `ValueStringBuilder`/`ValueListBuilder` without
   `ArrayPool`, small stand-ins for `Hashtable`, `SearchValues`, `ReadOnlyMemory<char>` segments and the
   `CultureInfo` name, lazily created static tables (corelib types get no static constructor), large
@@ -275,5 +275,4 @@ discovery is syntax-only, and only the members a program uses get bound and lowe
   enumerators are `IEnumerator<T>`/`IEnumerator`/`IDisposable` when boxed, as in .NET.)
 * Anonymous types (multi-`from` queries with `let`/`where`), `ImmutableArray`/`Immutable*`,
   `ConcurrentDictionary`, `BitArray`, `ObservableCollection`, `Tuple<...>` classes not yet shadowed.
-* `string` culture comparison is exact for ASCII/Latin-1 only (ICU root approximation).
 * `SortedDictionary`/`SortedSet` use sorted arrays (same order, O(n) insertion).

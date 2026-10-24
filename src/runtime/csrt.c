@@ -105,6 +105,39 @@ void* csrt_alloc(const csrt_MethodTable* mt, int64_t size) {
     return obj;
 }
 
+/// Fills the vtable / interface slots the compiler pruned because no emitted code dispatches through
+/// them (ModuleCodeGen.VTables.cs): reaching one is a compiler bug, so fail loudly.
+_Noreturn void csrt_pruned_virtual(void) {
+    fputs("csharpc internal error: call through a pruned virtual slot\n", stderr);
+    fflush(stderr);
+    abort();
+}
+
+/// Environment.FailFast: "Process terminated. <message>" on stderr (UTF-8), then abort (SIGABRT).
+/// `message` is NUL-terminated UTF-16 (the corelib passes a string with CharSet.Unicode).
+_Noreturn void csrt_fail_fast(const uint16_t* message) {
+    fputs("Process terminated. ", stderr);
+    for (const uint16_t* p = message; p && *p; p++) {
+        uint32_t c = *p;
+        if (c >= 0xD800 && c <= 0xDBFF && p[1] >= 0xDC00 && p[1] <= 0xDFFF) { c = 0x10000 + ((c - 0xD800) << 10) + (p[1] - 0xDC00); p++; }
+        if (c < 0x80) fputc((int)c, stderr);
+        else if (c < 0x800) { fputc((int)(0xC0 | (c >> 6)), stderr); fputc((int)(0x80 | (c & 0x3F)), stderr); }
+        else if (c < 0x10000) { fputc((int)(0xE0 | (c >> 12)), stderr); fputc((int)(0x80 | ((c >> 6) & 0x3F)), stderr); fputc((int)(0x80 | (c & 0x3F)), stderr); }
+        else { fputc((int)(0xF0 | (c >> 18)), stderr); fputc((int)(0x80 | ((c >> 12) & 0x3F)), stderr); fputc((int)(0x80 | ((c >> 6) & 0x3F)), stderr); fputc((int)(0x80 | (c & 0x3F)), stderr); }
+    }
+    fputc('\n', stderr);
+    fflush(stderr);
+    abort();
+}
+
+/// object.MemberwiseClone(): a new instance of the same type with the fields copied.
+void* csrt_object_memberwise_clone(void* obj) {
+    const csrt_MethodTable* mt = ((csrt_Object*)obj)->mt;
+    csrt_Object* copy = csrt_alloc(mt, mt->instance_size);
+    memcpy((char*)copy + sizeof(csrt_Object), (char*)obj + sizeof(csrt_Object), mt->instance_size - sizeof(csrt_Object));
+    return copy;
+}
+
 void* csrt_alloc_noclear(const csrt_MethodTable* mt, int64_t size) {
     csrt_Object* obj = csrt_gc_alloc_noclear((size_t)size);
     if (!obj) out_of_memory();
@@ -694,6 +727,13 @@ __attribute__((weak)) int32_t csrt_bigint_compare(void* a, void* b) { (void)a; (
 __attribute__((weak)) int32_t csrt_bigint_get_hash_code(void* a) { (void)a; missing_export("csrt_bigint_get_hash_code"); }
 __attribute__((weak)) csrt_String* csrt_timespan_to_string(int64_t ticks) { (void)ticks; missing_export("csrt_timespan_to_string"); }
 __attribute__((weak)) csrt_String* csrt_datetime_to_string(int64_t ticks) { (void)ticks; missing_export("csrt_datetime_to_string"); }
+// CultureInfo.GetFormat(typeof(DateTimeFormatInfo)): only programs that use DateTimeFormatInfo export the
+// real one (corelib CultureInfo.cs); elsewhere no Type object can be DateTimeFormatInfo's.
+__attribute__((weak)) void* csrt_culture_get_format_dtfi(void* culture, void* format_type) { (void)culture; (void)format_type; return NULL; }
+// The corelib calls this one (a P/Invoke can't share the export's symbol).
+void* csrt_culture_format_dtfi(void* culture, void* format_type) { return csrt_culture_get_format_dtfi(culture, format_type); }
+__attribute__((weak)) csrt_String* csrt_timespan_format_with(int64_t ticks, csrt_String* f, void* p) { (void)ticks; (void)f; (void)p; missing_export("csrt_timespan_format_with"); }
+__attribute__((weak)) csrt_String* csrt_datetime_format_with(int64_t d, csrt_String* f, void* p) { (void)d; (void)f; (void)p; missing_export("csrt_datetime_format_with"); }
 __attribute__((weak)) int32_t csrt_parse_i64_styled(csrt_String* s, int32_t styles, int32_t bits, bool is_signed, int64_t* result) {
     (void)s; (void)styles; (void)bits; (void)is_signed; (void)result;
     missing_export("csrt_parse_i64_styled");

@@ -90,6 +90,15 @@ csrt_Array* csrt_get_args(void);
 void* csrt_alloc(const csrt_MethodTable* mt, int64_t size);
 csrt_Array* csrt_new_array(int64_t element_size, int64_t length);
 csrt_Array* csrt_new_array_primitive(int64_t element_size, int64_t length);   // element type holds no references
+void* csrt_object_memberwise_clone(void* obj);
+_Noreturn void csrt_fail_fast(const uint16_t* message);
+_Noreturn void csrt_pruned_virtual(void);
+// The execution-context flow (threads.c): one GC object per logical flow, captured when a thread starts,
+// a work item is queued or an await registers its continuation, and current while that code runs.
+// The corelib keeps the current cultures in it (.NET flows them through an AsyncLocal).
+extern _Thread_local __attribute__((tls_model("local-exec"))) void* csrt_tl_flow;
+void* csrt_flow_get(void);
+void csrt_flow_set(void* flow);
 void* csrt_alloc_noclear(const csrt_MethodTable* mt, int64_t size);           // caller initializes every byte it reads
 csrt_Array* csrt_new_array_primitive_noclear(int64_t element_size, int64_t length);
 // Integer formatting into a caller buffer ending at `end`; returns the first character written.

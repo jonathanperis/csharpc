@@ -34,6 +34,8 @@ while [[ $# -gt 0 ]]; do
   shift
 done
 
+source "$ROOT/tests/platform.sh"
+
 # Compiler warnings would otherwise end up in the recorded stdout of `dotnet run`.
 strip_warnings() { grep -Ev '^[^ ]+\([0-9]+,[0-9]+\): warning ' || true; }
 
@@ -45,7 +47,8 @@ if [[ $REGEN == 1 ]]; then
     # File-based apps (dotnet run app.cs) — the real .NET compiler and runtime.
     # WarningLevel=0 keeps compiler warnings out of stdout; strip_warnings is a safety net.
     stdin_file=/dev/null; [[ -f "$SAMPLES/$name.stdin" ]] && stdin_file="$SAMPLES/$name.stdin"
-    (cd "$SAMPLES" && "$DOTNET" run "$name.cs" -p:WarningLevel=0 2>/dev/null < "$stdin_file") > "$SAMPLES/$name.raw"
+    read -ra test_env <<< "$(platform_env "$SAMPLES" "$name")"
+    (cd "$SAMPLES" && env "${test_env[@]}" "$DOTNET" run "$name.cs" -p:WarningLevel=0 2>/dev/null < "$stdin_file") > "$SAMPLES/$name.raw"
     code=$?
     strip_warnings < "$SAMPLES/$name.raw" > "$SAMPLES/$name.expected"
     rm -f "$SAMPLES/$name.raw"
@@ -60,7 +63,6 @@ CSHARPC=("$DOTNET" "$ROOT/src/Csharpc/bin/Release/net11.0/csharpc.dll")
 
 OUT="$(mktemp -d)"
 trap 'rm -rf "$OUT"' EXIT
-source "$ROOT/tests/platform.sh"
 # A temp dir without symlinks in its path: macOS's $TMPDIR (/var/folders/...) is reached through the
 # /var -> /private/var link, so getcwd() inside it would not match Path.GetTempPath() (under .NET too).
 TMPDIR="$(cd "${TMPDIR:-/tmp}" && pwd -P)/"; export TMPDIR
@@ -88,9 +90,11 @@ for opt in "${OPTS[@]}"; do
     reason="$(platform_skip "$name")"
     [[ -n "$reason" ]] && ! platform_is_live "$reason" && { echo "SKIP $label (platform-dependent on $TARGET_OS: $reason)"; continue; }
     stdin_file=/dev/null; [[ -f "$SAMPLES/$name.stdin" ]] && stdin_file="$SAMPLES/$name.stdin"
+    read -ra test_env <<< "$(platform_env "$SAMPLES" "$name")"
+    pin=("${CULTURE_PIN[@]}"); [[ ${#test_env[@]} -gt 0 ]] && pin=()
     if [[ -n "$reason" ]]; then
       # Recorded live from real .NET on this machine (once per run).
-      [[ -f "$OUT/$name.live" ]] || platform_live_expected "$SAMPLES" "$name.cs" "$stdin_file" "$OUT/$name.live" > "$OUT/$name.livecode"
+      [[ -f "$OUT/$name.live" ]] || platform_live_expected "$SAMPLES" "$name.cs" "$stdin_file" "$OUT/$name.live" "${test_env[@]}" > "$OUT/$name.livecode"
       cp "$OUT/$name.live" "$OUT/$name.want"
       want_code="$(cat "$OUT/$name.livecode")"
     else
@@ -100,13 +104,13 @@ for opt in "${OPTS[@]}"; do
     fi
 
     exe="$OUT/$name$opt$EXE_SUFFIX"
-    if ! "${CSHARPC[@]}" "${TARGET_FLAGS[@]}" "$opt" ${CSHARPC_FLAGS:-} "$src" -o "$exe" 2> "$OUT/$name.compile"; then
+    if ! "${CSHARPC[@]}" "${TARGET_FLAGS[@]}" "$opt" ${CSHARPC_FLAGS:-} "$src" "${pin[@]}" -o "$exe" 2> "$OUT/$name.compile"; then
       echo "FAIL $label (compile error)"; sed 's/^/     /' "$OUT/$name.compile" | head -8
       fail=$((fail + 1)); failed+=("$label"); continue
     fi
     # Run in a child bash so the parent shell doesn't print "Aborted (core dumped)" job noise
     # for samples that intentionally die with an unhandled exception (SIGABRT, exit 134).
-    bash -c 'ulimit -c 0 2>/dev/null; t="$1" out="$2" err="$3" in="$4"; shift 4; timeout "$t" "$@" > "$out" 2> "$err" < "$in"' _ \
+    env "${test_env[@]}" bash -c 'ulimit -c 0 2>/dev/null; t="$1" out="$2" err="$3" in="$4"; shift 4; timeout "$t" "$@" > "$out" 2> "$err" < "$in"' _ \
       "${CSHARPC_TEST_TIMEOUT:-90}" "$OUT/$name.stdout" "$OUT/$name.stderr" "$stdin_file" "${RUN_PREFIX[@]}" "$exe" 2>/dev/null
     got_code=$?
     if diff -u "$OUT/$name.want" "$OUT/$name.stdout" > "$OUT/$name.diff" && [[ "$got_code" == "$want_code" ]]; then

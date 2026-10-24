@@ -133,7 +133,7 @@ namespace CsharpcCoreLib
             for (int i = 0; i < n; i++) sb.Append(t[i]);
         }
 
-        private static void TimeSpanStandard(ref CharBuilder sb, long ticks, char f)
+        private static void TimeSpanStandard(ref CharBuilder sb, long ticks, char f, string decimalSeparator = ".")
         {
             bool negative = ticks < 0;
             ulong magnitude = negative ? 0UL - (ulong)ticks : (ulong)ticks;  // survives MinValue
@@ -145,12 +145,12 @@ namespace CsharpcCoreLib
             {
                 if (days != 0) { AppendNumber(ref sb, (long)days, 1); sb.Append(':'); }
                 AppendNumber(ref sb, hours, 1); sb.Append(':'); AppendNumber(ref sb, minutes, 2); sb.Append(':'); AppendNumber(ref sb, seconds, 2);
-                if (fraction != 0) { sb.Append('.'); AppendFraction(ref sb, fraction, 7, true); }
+                if (fraction != 0) { sb.Append(decimalSeparator); AppendFraction(ref sb, fraction, 7, true); }
             }
             else if (f == 'G')
             {
                 AppendNumber(ref sb, (long)days, 1); sb.Append(':'); AppendNumber(ref sb, hours, 2); sb.Append(':');
-                AppendNumber(ref sb, minutes, 2); sb.Append(':'); AppendNumber(ref sb, seconds, 2); sb.Append('.');
+                AppendNumber(ref sb, minutes, 2); sb.Append(':'); AppendNumber(ref sb, seconds, 2); sb.Append(decimalSeparator);
                 AppendFraction(ref sb, fraction, 7, false);
             }
             else  // 'c', the constant format
@@ -209,14 +209,19 @@ namespace CsharpcCoreLib
             return f[i + 1];
         }
 
-        internal static string TimeSpanFormat(long ticks, string format)
+        internal static string TimeSpanFormat(long ticks, string format) => TimeSpanFormatWith(ticks, format, null);
+
+        /// <summary>TimeSpan.ToString(format, provider): only "g"/"G" depend on the culture (its decimal separator).</summary>
+        internal static string TimeSpanFormatWith(long ticks, string format, IFormatProvider provider)
         {
             Span<char> chars = stackalloc char[64];
             var sb = new CharBuilder(chars);
             string f = format ?? "";
             if (f.Length == 0 || (f.Length == 1 && (f[0] == 'c' || f[0] == 't' || f[0] == 'T' || f[0] == 'g' || f[0] == 'G')))
             {
-                TimeSpanStandard(ref sb, ticks, f.Length == 0 ? 'c' : f[0] == 'g' ? 'g' : f[0] == 'G' ? 'G' : 'c');
+                char standard = f.Length == 0 ? 'c' : f[0] == 'g' ? 'g' : f[0] == 'G' ? 'G' : 'c';
+                TimeSpanStandard(ref sb, ticks, standard,
+                    standard == 'c' ? "." : CsharpcCoreLib.Globalization.DateTimeFormatInfo.GetInstance(provider).DecimalSeparator);
                 return sb.Build();
             }
             // Any other single character is an unknown standard format, not a custom one.
@@ -288,17 +293,6 @@ namespace CsharpcCoreLib
         internal static int DaysToMonth(bool leap, int month) => leap
             ? month switch { 0 => 0, 1 => 31, 2 => 60, 3 => 91, 4 => 121, 5 => 152, 6 => 182, 7 => 213, 8 => 244, 9 => 274, 10 => 305, 11 => 335, _ => 366 }
             : month switch { 0 => 0, 1 => 31, 2 => 59, 3 => 90, 4 => 120, 5 => 151, 6 => 181, 7 => 212, 8 => 243, 9 => 273, 10 => 304, 11 => 334, _ => 365 };
-
-        internal static string MonthName(int month) => month switch
-        {
-            1 => "January", 2 => "February", 3 => "March", 4 => "April", 5 => "May", 6 => "June", 7 => "July",
-            8 => "August", 9 => "September", 10 => "October", 11 => "November", _ => "December",
-        };
-
-        internal static string DayName(int dayOfWeek) => dayOfWeek switch
-        {
-            0 => "Sunday", 1 => "Monday", 2 => "Tuesday", 3 => "Wednesday", 4 => "Thursday", 5 => "Friday", _ => "Saturday",
-        };
 
         internal static bool IsLeap(int year) => (year & 3) == 0 && ((year % 100) != 0 || (year % 400) == 0);
 
@@ -450,85 +444,6 @@ namespace CsharpcCoreLib
             return AddMonths(data, years * 12);
         }
 
-        /// <summary>.NET's DateTimeFormat.FormatCustomized for the invariant culture and the Gregorian calendar.</summary>
-        private static void FormatCustom(ref CharBuilder sb, long data, string f)
-        {
-            long ticks = TicksOf(data);
-            DateParts(ticks, out int y, out int mo, out int d, out int _);
-            int h = (int)(ticks / TicksPerHour % 24), mi = (int)(ticks / TicksPerMinute % 60), s = (int)(ticks / TicksPerSecond % 60);
-            long fraction = ticks % TicksPerSecond;
-            int dow = (int)((ticks / TicksPerDay + 1) % 7);
-            bool timeOnly = true;  // no date specifier yet: a bare time of day gets today's offset for 'z'
-            for (int i = 0; i < f.Length;)
-            {
-                char c = f[i];
-                int n = RunLength(f, i);
-                switch (c)
-                {
-                    case 'g': sb.Append("A.D."); break;  // the invariant culture's only era
-                    case 'y':
-                        AppendNumber(ref sb, n <= 2 ? y % 100 : y, n);
-                        timeOnly = false;
-                        break;
-                    case 'M':
-                        if (n <= 2) AppendNumber(ref sb, mo, n);
-                        else if (n == 3) sb.Append(MonthName(mo).Substring(0, 3));
-                        else sb.Append(MonthName(mo));
-                        timeOnly = false;
-                        break;
-                    case 'd':
-                        if (n <= 2) AppendNumber(ref sb, d, n);
-                        else if (n == 3) sb.Append(DayName(dow).Substring(0, 3));
-                        else sb.Append(DayName(dow));
-                        timeOnly = false;
-                        break;
-                    case 'H': AppendNumber(ref sb, h, n > 1 ? 2 : 1); break;
-                    case 'h': AppendNumber(ref sb, h % 12 == 0 ? 12 : h % 12, n > 1 ? 2 : 1); break;
-                    case 'm': AppendNumber(ref sb, mi, n > 1 ? 2 : 1); break;
-                    case 's': AppendNumber(ref sb, s, n > 1 ? 2 : 1); break;
-                    case 'f':
-                    case 'F':
-                    {
-                        if (n > 7) ThrowInvalidFormat();
-                        int before = sb.Length;
-                        AppendFraction(ref sb, fraction, n, c == 'F');
-                        if (c == 'F' && sb.Length == before && before > 0 && sb.LastChar == '.') sb.Truncate(before - 1);  // drop a dangling '.'
-                        break;
-                    }
-                    case 't': if (n == 1) sb.Append(h < 12 ? 'A' : 'P'); else sb.Append(h < 12 ? "AM" : "PM"); break;
-                    case 'z':
-                        // .NET checks the bare time of day first: even a Utc one gets the local offset now.
-                        AppendUtcOffset(ref sb, timeOnly && ticks < TicksPerDay ? LocalOffsetNow()
-                            : IsUtc(data) ? 0 : LocalUtcOffset(ticks, IsAmbiguousDst(data)), n);
-                        break;
-                    case 'K':
-                        // Round-trip zone: Utc writes "Z", Local its offset, Unspecified nothing.
-                        n = 1;
-                        if (IsUtc(data)) sb.Append('Z');
-                        else if (IsLocal(data)) AppendUtcOffset(ref sb, LocalUtcOffset(ticks, IsAmbiguousDst(data)), 3);
-                        break;
-                    case '\'':
-                    case '"':
-                        n = ParseQuoteString(ref sb, f, i);
-                        break;
-                    case '%':
-                    {
-                        char next = NextFormatChar(f, i);
-                        if (next == '%') ThrowInvalidFormat();
-                        FormatCustom(ref sb, data, next.ToString());
-                        n = 2;
-                        break;
-                    }
-                    case '\\':
-                        sb.Append(NextFormatChar(f, i));
-                        n = 2;
-                        break;
-                    default: sb.Append(c); n = 1; break;
-                }
-                i += n;
-            }
-        }
-
         // ------------------------------------------------------------------------------------------
         // The local time zone (TZ / tzdata through libc localtime_r, which .NET also reads), resolved
         // like TimeZoneInfo.Local: GetUtcOffset for wall-clock (Unspecified / Local) times and
@@ -635,6 +550,14 @@ namespace CsharpcCoreLib
         }
 
         private static long LocalUtcOffset(long ticks, bool ambiguousDst) => LocalUtcOffset(ticks, ambiguousDst, out bool _, out bool _);
+
+        // For the System.Globalization port's TimeZoneInfo stand-in (Globalization/GlobalizationHelpers.cs).
+        internal static long LocalUtcOffsetTicks(long data) =>
+            (IsUtc(data) ? OffsetFromUtc(TicksOf(data), out bool _) : LocalUtcOffset(TicksOf(data), IsAmbiguousDst(data))) * TicksPerSecond;
+
+        internal static long OffsetFromUtcTicks(long utcTicks, out bool ambiguousDst) => OffsetFromUtc(utcTicks, out ambiguousDst) * TicksPerSecond;
+
+        internal static long MakeLocal(long ticks, bool ambiguousDst) => ticks | (ambiguousDst ? KindLocalAmbiguousDst : KindLocal);
 
         /// <summary>
         /// The offset at a UTC instant, like TimeZoneInfo.GetUtcOffsetFromUtc; <paramref name="ambiguousDst"/>
@@ -746,55 +669,22 @@ namespace CsharpcCoreLib
 
         internal static long FromFileTime(long fileTime) => ToLocalTime(FromFileTimeUtc(fileTime));
 
-        private static void AppendUtcOffset(ref CharBuilder sb, long offsetSeconds, int n)
-        {
-            if (offsetSeconds >= 0) sb.Append('+');
-            else { sb.Append('-'); offsetSeconds = -offsetSeconds; }
-            AppendNumber(ref sb, offsetSeconds / 3600, n <= 1 ? 1 : 2);
-            if (n >= 3)
-            {
-                sb.Append(':');
-                AppendNumber(ref sb, offsetSeconds / 60 % 60, 2);
-            }
-        }
+        // Composite formatting of boxed values (runtime csrt_format_boxed_ticks, from Number.FormatObjectWith).
+        [RuntimeExport("csrt_datetime_format_with", "csrt_Boxed_DateTime_MT")]
+        internal static string BoxedDateTimeFormatWith(long data, string format, IFormatProvider provider) => FormatWith(data, format, provider);
 
-        private static string StandardPattern(char f) => f switch
-        {
-            'd' => "MM/dd/yyyy",
-            'D' => "dddd, dd MMMM yyyy",
-            'f' => "dddd, dd MMMM yyyy HH:mm",
-            'F' or 'U' => "dddd, dd MMMM yyyy HH:mm:ss",
-            'g' => "MM/dd/yyyy HH:mm",
-            'G' => "MM/dd/yyyy HH:mm:ss",
-            'M' or 'm' => "MMMM dd",
-            'Y' or 'y' => "yyyy MMMM",
-            't' => "HH:mm",
-            'T' => "HH:mm:ss",
-            's' => "yyyy'-'MM'-'dd'T'HH':'mm':'ss",
-            'u' => "yyyy'-'MM'-'dd HH':'mm':'ss'Z'",
-            'o' or 'O' => "yyyy'-'MM'-'dd'T'HH':'mm':'ss.fffffffK",
-            'R' or 'r' => "ddd, dd MMM yyyy HH':'mm':'ss 'GMT'",
-            _ => null,
-        };
+        [RuntimeExport("csrt_timespan_format_with", "csrt_Boxed_TimeSpan_MT")]
+        internal static string BoxedTimeSpanFormatWith(long ticks, string format, IFormatProvider provider) => TimeSpanFormatWith(ticks, format, provider);
 
         [RuntimeExport("csrt_datetime_to_string", "csrt_Boxed_DateTime_MT")]
-        internal static string DateTimeToString(long data) => Format(data, null);
+        internal static string DateTimeToString(long data) => FormatWith(data, null, null);
 
-        internal static string Format(long data, string format)
-        {
-            Span<char> chars = stackalloc char[64];
-            var sb = new CharBuilder(chars);
-            if (format == null || format.Length == 0) FormatCustom(ref sb, data, "MM/dd/yyyy HH:mm:ss");
-            else if (format.Length == 1)
-            {
-                string pattern = StandardPattern(format[0]);
-                if (pattern == null) ThrowInvalidFormat();
-                // 'U' is the full pattern in universal time ('u' and 'r' do not convert a DateTime).
-                FormatCustom(ref sb, format[0] == 'U' ? ToUniversalTime(data) : data, pattern);
-            }
-            else FormatCustom(ref sb, data, format);
-            return sb.Build();
-        }
+        internal static string Format(long data, string format) => FormatWith(data, format, null);
+
+        /// <summary>DateTime.ToString(format, provider): .NET's DateTimeFormat (Globalization/DateTimeFormat.cs) with the culture's DateTimeFormatInfo.</summary>
+        internal static string FormatWith(long data, string format, IFormatProvider provider) =>
+            CsharpcCoreLib.Globalization.DateTimeFormat.Format(CoreIntrinsics.MakeDateTime(data), format, provider);
+
     }
 
     /// <summary>
@@ -818,37 +708,113 @@ namespace CsharpcCoreLib
         public static DateTime FromFileTime(long fileTime) => M(DateTimeOps.FromFileTime(fileTime));
         public static DateTime FromFileTimeUtc(long fileTime) => M(DateTimeOps.FromFileTimeUtc(fileTime));
 
-        // Parsing (DateTimeParse.cs); the provider can only be the invariant culture.
-        public static DateTime Parse(string s) => DateTimeParse.Parse(s, System.Globalization.DateTimeStyles.AllowWhiteSpaces);
-        public static DateTime Parse(string s, IFormatProvider provider) => DateTimeParse.Parse(s, System.Globalization.DateTimeStyles.AllowWhiteSpaces);
-        public static DateTime Parse(string s, IFormatProvider provider, System.Globalization.DateTimeStyles styles) => DateTimeParse.Parse(s, styles);
-        public static bool TryParse(string s, out DateTime result) => DateTimeParse.TryParse(s, System.Globalization.DateTimeStyles.AllowWhiteSpaces, out result);
+        // Parsing: .NET's DateTimeParse (Globalization/DateTimeParse.cs) with the provider's DateTimeFormatInfo,
+        // argument checks as in DateTime.cs.
+        private static Globalization.DateTimeFormatInfo Dtfi(IFormatProvider provider) => Globalization.DateTimeFormatInfo.GetInstance(provider);
+
+        public static DateTime Parse(string s)
+        {
+            if (s == null) throw new ArgumentNullException("s");
+            return Globalization.DateTimeParse.Parse(s, Globalization.DateTimeFormatInfo.CurrentInfo, System.Globalization.DateTimeStyles.None);
+        }
+
+        public static DateTime Parse(string s, IFormatProvider provider)
+        {
+            if (s == null) throw new ArgumentNullException("s");
+            return Globalization.DateTimeParse.Parse(s, Dtfi(provider), System.Globalization.DateTimeStyles.None);
+        }
+
+        public static DateTime Parse(string s, IFormatProvider provider, System.Globalization.DateTimeStyles styles)
+        {
+            Globalization.DateTimeFormatInfo.ValidateStyles(styles, styles: true);
+            if (s == null) throw new ArgumentNullException("s");
+            return Globalization.DateTimeParse.Parse(s, Dtfi(provider), styles);
+        }
+
+        public static DateTime Parse(ReadOnlySpan<char> s, IFormatProvider provider) =>
+            Globalization.DateTimeParse.Parse(s, Dtfi(provider), System.Globalization.DateTimeStyles.None);
+
+        public static DateTime Parse(ReadOnlySpan<char> s, IFormatProvider provider, System.Globalization.DateTimeStyles styles)
+        {
+            Globalization.DateTimeFormatInfo.ValidateStyles(styles, styles: true);
+            return Globalization.DateTimeParse.Parse(s, Dtfi(provider), styles);
+        }
+
+        public static bool TryParse(string s, out DateTime result)
+        {
+            if (s == null) { result = default; return false; }
+            return Globalization.DateTimeParse.TryParse(s, Globalization.DateTimeFormatInfo.CurrentInfo, System.Globalization.DateTimeStyles.None, out result);
+        }
+
         public static bool TryParse(string s, IFormatProvider provider, out DateTime result) =>
-            DateTimeParse.TryParse(s, System.Globalization.DateTimeStyles.AllowWhiteSpaces, out result);
-        public static bool TryParse(string s, IFormatProvider provider, System.Globalization.DateTimeStyles styles, out DateTime result) =>
-            DateTimeParse.TryParse(s, styles, out result);
+            TryParse(s, provider, System.Globalization.DateTimeStyles.None, out result);
 
-        public static DateTime ParseExact(string s, string format, IFormatProvider provider) =>
-            ParseExact(s, format, provider, System.Globalization.DateTimeStyles.None);
+        public static bool TryParse(string s, IFormatProvider provider, System.Globalization.DateTimeStyles styles, out DateTime result)
+        {
+            Globalization.DateTimeFormatInfo.ValidateStyles(styles, styles: true);
+            if (s == null) { result = default; return false; }
+            return Globalization.DateTimeParse.TryParse(s, Dtfi(provider), styles, out result);
+        }
 
-        public static DateTime ParseExact(string s, string format, IFormatProvider provider, System.Globalization.DateTimeStyles style)
+        public static bool TryParse(ReadOnlySpan<char> s, out DateTime result) =>
+            Globalization.DateTimeParse.TryParse(s, Globalization.DateTimeFormatInfo.CurrentInfo, System.Globalization.DateTimeStyles.None, out result);
+
+        public static bool TryParse(ReadOnlySpan<char> s, IFormatProvider provider, out DateTime result) =>
+            TryParse(s, provider, System.Globalization.DateTimeStyles.None, out result);
+
+        public static bool TryParse(ReadOnlySpan<char> s, IFormatProvider provider, System.Globalization.DateTimeStyles styles, out DateTime result)
+        {
+            Globalization.DateTimeFormatInfo.ValidateStyles(styles, styles: true);
+            return Globalization.DateTimeParse.TryParse(s, Dtfi(provider), styles, out result);
+        }
+
+        public static DateTime ParseExact(string s, string format, IFormatProvider provider)
         {
             if (s == null) throw new ArgumentNullException("s");
             if (format == null) throw new ArgumentNullException("format");
-            return DateTimeParse.ParseExact(s, new string[] { format }, style);
+            return Globalization.DateTimeParse.ParseExact(s, format, Dtfi(provider), System.Globalization.DateTimeStyles.None);
         }
 
-        public static DateTime ParseExact(string s, string[] formats, IFormatProvider provider, System.Globalization.DateTimeStyles style) =>
-            DateTimeParse.ParseExact(s, formats, style);
+        public static DateTime ParseExact(string s, string format, IFormatProvider provider, System.Globalization.DateTimeStyles style)
+        {
+            Globalization.DateTimeFormatInfo.ValidateStyles(style);
+            if (s == null) throw new ArgumentNullException("s");
+            if (format == null) throw new ArgumentNullException("format");
+            return Globalization.DateTimeParse.ParseExact(s, format, Dtfi(provider), style);
+        }
+
+        public static DateTime ParseExact(string s, string[] formats, IFormatProvider provider, System.Globalization.DateTimeStyles style)
+        {
+            Globalization.DateTimeFormatInfo.ValidateStyles(style);
+            if (s == null) throw new ArgumentNullException("s");
+            return Globalization.DateTimeParse.ParseExactMultiple(s, formats, Dtfi(provider), style);
+        }
 
         public static bool TryParseExact(string s, string format, IFormatProvider provider, System.Globalization.DateTimeStyles style, out DateTime result)
         {
-            if (format == null) { result = default; return false; }
-            return DateTimeParse.TryParseExact(s, new string[] { format }, style, out result);
+            Globalization.DateTimeFormatInfo.ValidateStyles(style);
+            if (s == null || format == null) { result = default; return false; }
+            return Globalization.DateTimeParse.TryParseExact(s, format, Dtfi(provider), style, out result);
         }
 
-        public static bool TryParseExact(string s, string[] formats, IFormatProvider provider, System.Globalization.DateTimeStyles style, out DateTime result) =>
-            DateTimeParse.TryParseExact(s, formats, style, out result);
+        public static bool TryParseExact(string s, string[] formats, IFormatProvider provider, System.Globalization.DateTimeStyles style, out DateTime result)
+        {
+            Globalization.DateTimeFormatInfo.ValidateStyles(style);
+            if (s == null) { result = default; return false; }
+            return Globalization.DateTimeParse.TryParseExactMultiple(s, formats, Dtfi(provider), style, out result);
+        }
+
+        // DateTime.ToString / TryFormat with a provider (the provider-less forms are codegen members).
+        [ShadowInstance] public static string ToShortDateString(DateTime @this) => Globalization.DateTimeFormat.Format(@this, "d", null);
+        [ShadowInstance] public static string ToLongDateString(DateTime @this) => Globalization.DateTimeFormat.Format(@this, "D", null);
+        [ShadowInstance] public static string ToShortTimeString(DateTime @this) => Globalization.DateTimeFormat.Format(@this, "t", null);
+        [ShadowInstance] public static string ToLongTimeString(DateTime @this) => Globalization.DateTimeFormat.Format(@this, "T", null);
+        [ShadowInstance] public static string[] GetDateTimeFormats(DateTime @this) => GetDateTimeFormats(@this, null);
+        [ShadowInstance] public static string[] GetDateTimeFormats(DateTime @this, IFormatProvider provider) =>
+            Globalization.DateTimeFormat.GetAllDateTimes(@this, Dtfi(provider));
+        [ShadowInstance] public static string[] GetDateTimeFormats(DateTime @this, char format) => GetDateTimeFormats(@this, format, null);
+        [ShadowInstance] public static string[] GetDateTimeFormats(DateTime @this, char format, IFormatProvider provider) =>
+            Globalization.DateTimeFormat.GetAllDateTimes(@this, format, Dtfi(provider));
 
         [ShadowInstance] public static bool Equals(DateTime @this, object value) => value is DateTime other && @this.Ticks == other.Ticks;
 

@@ -18,6 +18,12 @@ public sealed class Compiler(CompilerOptions options)
 {
     private readonly Stopwatch _clock = new();
 
+    private static IEnumerable<string> FileGlobalization(IEnumerable<string> inputs)
+    {
+        var (invariant, predefined) = ProjectLoader.FileGlobalizationProperties(inputs);
+        return ProjectLoader.GlobalizationDefines(invariant, predefined);
+    }
+
     public int Run()
     {
         _clock.Start();
@@ -52,7 +58,11 @@ public sealed class Compiler(CompilerOptions options)
             foreach (var p in all.Where(p => p.UnresolvedReferences.Count > 0))
                 return Fail($"{Path.GetFileName(p.ProjectPath)}: <Reference> not found: {string.Join(", ", p.UnresolvedReferences)} (build the referenced assembly first, or give it a HintPath)");
             options.DefaultOutputName = root.AssemblyName;
-            settings = projectSettings with { Defines = [.. projectSettings.Defines, .. options.Defines], CoreLibDefines = coreLibDefines };
+            settings = projectSettings with
+            {
+                Defines = [.. projectSettings.Defines, .. options.Defines],
+                CoreLibDefines = [.. coreLibDefines, .. ProjectLoader.GlobalizationDefines(root.InvariantGlobalization, root.PredefinedCulturesOnly)],
+            };
         }
         else
         {
@@ -61,7 +71,7 @@ public sealed class Compiler(CompilerOptions options)
                 Files = options.Inputs,
                 Defines = [.. ProjectLoader.ImplicitDefines(options.Configuration), .. options.Defines],
                 GlobalUsings = options.ImplicitUsings ? RoslynFrontend.DefaultImplicitUsings : null,
-                CoreLibDefines = coreLibDefines,
+                CoreLibDefines = [.. coreLibDefines, .. FileGlobalization(options.Inputs)],
                 RuntimeConfig = options.Inputs.Count > 0 ? [.. ProjectLoader.FileBasedRuntimeConfig(options.Inputs[0])] : [],
                 AssemblyVersion = options.Inputs.Count > 0 ? ProjectLoader.FileBasedAssemblyVersion(options.Inputs[0]) : "1.0.0.0",
             };

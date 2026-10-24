@@ -40,6 +40,7 @@ public sealed partial class FunctionCodeGen
             ISimpleAssignmentOperation a => EmitSimpleAssignment(a),
             ICompoundAssignmentOperation c => EmitCompoundAssignment(c),
             IIncrementOrDecrementOperation i => EmitIncrementOrDecrement(i),
+            IBinaryOperation b when TryUtf8Concatenation(b, out var utf8) => EmitUtf8Text(utf8),
             IBinaryOperation b => EmitBinary(b),
             IUnaryOperation { OperatorKind: UnaryOperatorKind.Hat } u => EmitHat(u),
             IUnaryOperation u => EmitUnary(u),
@@ -693,6 +694,10 @@ public sealed partial class FunctionCodeGen
             return EmitValue(inner.Operand);
         if (TrySpanConversion(c) is { } span) return span;
         if (TryIndexConversion(c) is { } index) return index;
+        // $"..." as FormattableString / IFormattable: FormattableStringFactory.Create(format, args), like Roslyn.
+        if (c.Operand is IInterpolatedStringOperation interpolated
+            && c.Type is { Name: "FormattableString" or "IFormattable", ContainingNamespace.Name: "System" })
+            return EmitFormattableString(interpolated);
         if (c.OperatorMethod is { } om0)
         {
             var om = S(om0);

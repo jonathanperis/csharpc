@@ -142,26 +142,18 @@ public sealed partial class FunctionCodeGen
         type is INamedTypeSymbol { Name: "AppendInterpolatedStringHandler", ContainingType.Name: "StringBuilder" };
 
     /// <summary>
-    /// System.Runtime.CompilerServices.DefaultInterpolatedStringHandler, which compiled C# uses for `$"..."`
-    /// (the IL front-end sees it; source interpolation is lowered directly). Represented by a StringBuilder
-    /// it appends to, with the same per-hole formatting as source interpolation.
-    /// </summary>
-    internal static bool IsDefaultInterpolatedStringHandler(ITypeSymbol? type) =>
-        type is INamedTypeSymbol { Name: "DefaultInterpolatedStringHandler", ContainingType: null, ContainingNamespace.Name: "CompilerServices" };
-
-    /// <summary>
     /// sb.Append($"..."): Roslyn's CFG expands the AppendInterpolatedStringHandler: create(…, sb),
     /// handler.AppendLiteral/AppendFormatted(…) per part, then sb.Append(ref handler). As in .NET the
     /// handler appends straight into the builder, so it is represented by the builder pointer itself.
     /// </summary>
     private LLVMValueRef? TryEmitStringBuilderInterpolation(IInvocationOperation inv, IMethodSymbol target)
     {
-        if ((IsStringBuilderHandler(target.ContainingType) || IsDefaultInterpolatedStringHandler(target.ContainingType)) && !target.IsStatic)
+        // DefaultInterpolatedStringHandler (string.Create(provider, ...), FormattableString, interpolation in
+        // IL) is the corelib shadow InterpolatedStringHandler.cs, which carries the format provider.
+        if (IsStringBuilderHandler(target.ContainingType) && !target.IsStatic)
         {
             var sb = EmitValue(inv.Instance!);
             var args = inv.Arguments.OrderBy(a => a.Parameter!.Ordinal).ToArray();
-            if (target.Name is "ToStringAndClear" or "ToString" && args.Length == 0 && IsDefaultInterpolatedStringHandler(target.ContainingType))
-                return CallRuntime("csrt_sb_to_string", L.Ptr, [L.Ptr], sb);
             LLVMValueRef piece;
             if (target.Name == "AppendLiteral") piece = EmitValue(args[0].Value);
             else if (target.Name == "AppendFormatted")

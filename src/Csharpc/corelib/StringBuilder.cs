@@ -31,6 +31,19 @@ namespace CsharpcCoreLib
             if (length > 0) { value.AsSpan().CopyTo(_chars); _length = length; }
         }
 
+        public StringBuilderImpl(string value, int startIndex, int length, int capacity)
+        {
+            ThrowHelper.IfNegative(capacity, "capacity");
+            ThrowHelper.IfNegative(length, "length");
+            ThrowHelper.IfNegative(startIndex, "startIndex");
+            value ??= "";
+            if (startIndex > value.Length - length)
+                throw new ArgumentOutOfRangeException("length", "Index and length must refer to a location within the string.");
+            _chars = new char[Math.Max(Math.Max(capacity, length), DefaultCapacity)];
+            value.AsSpan(startIndex, length).CopyTo(_chars);
+            _length = length;
+        }
+
         // ---- size --------------------------------------------------------------------------------
         public int Length
         {
@@ -184,6 +197,8 @@ namespace CsharpcCoreLib
         /// </summary>
         private unsafe StringBuilderImpl AppendSigned(long value)
         {
+            // Negative values take the current culture's NegativeSign (Append(int) formats like ToString()).
+            if (value < 0) return Append(Number.Int64ToDecStr(value));
             int chars = Number.CountChars(value);
             Reserve(chars);
             fixed (char* buffer = _chars) Number.WriteSigned(buffer + _length, chars, value);
@@ -214,8 +229,7 @@ namespace CsharpcCoreLib
         public StringBuilderImpl Append(decimal value) => Append(value.ToString());
         public StringBuilderImpl Append(object value) => value == null ? This : Append(value.ToString());
 
-        // Composite formatting shares string.Format's engine (Number.FormatComposite); the invariant
-        // culture ignores providers.
+        // Composite formatting shares string.Format's engine (Number.FormatComposite[With]).
         public StringBuilderImpl AppendFormat(string format, object arg0) => Append(Number.FormatComposite(format, new[] { arg0 }));
         public StringBuilderImpl AppendFormat(string format, object arg0, object arg1) => Append(Number.FormatComposite(format, new[] { arg0, arg1 }));
         public StringBuilderImpl AppendFormat(string format, object arg0, object arg1, object arg2) =>
@@ -226,14 +240,18 @@ namespace CsharpcCoreLib
             return Append(Number.FormatComposite(format, args));
         }
         public StringBuilderImpl AppendFormat(string format, params ReadOnlySpan<object> args) => Append(Number.FormatComposite(format, args.ToArray()));
-        public StringBuilderImpl AppendFormat(IFormatProvider provider, string format, object arg0) => AppendFormat(format, arg0);
-        public StringBuilderImpl AppendFormat(IFormatProvider provider, string format, object arg0, object arg1) => AppendFormat(format, arg0, arg1);
+        public StringBuilderImpl AppendFormat(IFormatProvider provider, string format, object arg0) => Append(Number.FormatCompositeWith(provider, format, new[] { arg0 }));
+        public StringBuilderImpl AppendFormat(IFormatProvider provider, string format, object arg0, object arg1) => Append(Number.FormatCompositeWith(provider, format, new[] { arg0, arg1 }));
         public StringBuilderImpl AppendFormat(IFormatProvider provider, string format, object arg0, object arg1, object arg2) =>
-            AppendFormat(format, arg0, arg1, arg2);
-        public StringBuilderImpl AppendFormat(IFormatProvider provider, string format, params object[] args) => AppendFormat(format, args);
+            Append(Number.FormatCompositeWith(provider, format, new[] { arg0, arg1, arg2 }));
+        public StringBuilderImpl AppendFormat(IFormatProvider provider, string format, params object[] args)
+        {
+            if (args == null) throw new ArgumentNullException(format == null ? "format" : "args");
+            return Append(Number.FormatCompositeWith(provider, format, args));
+        }
 
-        public StringBuilderImpl AppendLine() => Append(Environment.NewLine);
-        public StringBuilderImpl AppendLine(string value) => Append(value).Append(Environment.NewLine);
+        public StringBuilderImpl AppendLine() => Append(global::System.Environment.NewLine);
+        public StringBuilderImpl AppendLine(string value) => Append(value).Append(global::System.Environment.NewLine);
 
         // ---- AppendJoin ----------------------------------------------------------------------------
         public StringBuilderImpl AppendJoin(string separator, params string[] values)

@@ -63,12 +63,19 @@ test under real `dotnet run` on the machine and checks that derivation; CI runs 
 for which it doesn't hold are listed in `tests/platform-skips.txt` with the reason; most are marked
 `live:`, which records their expected output and exit status from real .NET on the test machine at
 test time instead of skipping them (programs that write their own bare `"\n"`, `AppendLine` lengths,
-Windows paths, `TZ`, which .NET ignores on Windows, `DllImport("libc")`). Live and oracle runs load
-`tests/oracle-hook`, a .NET startup hook that makes the invariant culture current, as it is on the
-Linux recording machine (C locale) and in csharpc: Windows machines, the CI runner included, run
-.NET with a user culture such as en-US, which csharpc doesn't model on any OS (`∞` instead of
-`Infinity`, `12.5%` instead of `12.5 %`, `2/29/2024` dates). `DOTNET_SYSTEM_GLOBALIZATION_INVARIANT`
-is not equivalent: it also makes culture-aware comparisons ordinal.
+Windows paths, `TZ`, which .NET ignores on Windows, `DllImport("libc")`, culture data from another
+ICU version).
+
+**Culture.** The recordings come from Linux in the C locale, where the current culture is the
+invariant one (with ICU's root collation). csharpc follows the user's culture like .NET
+([19 — Globalization](19-globalization.md)), so the scripts pin it on both sides: on Linux
+`tests/platform.sh` exports `LC_ALL=C.UTF-8` (and unsets `LC_MESSAGES`/`LANGUAGE`); on macOS and
+Windows, where the culture comes from the system settings, real .NET runs with `tests/oracle-hook`
+(a startup hook that makes the invariant culture current) and csharpc programs are compiled together
+with `tests/culture-pin/CulturePin.cs` (a `[ModuleInitializer]` doing the same).
+`DOTNET_SYSTEM_GLOBALIZATION_INVARIANT` is not equivalent: it also makes comparisons ordinal.
+A sample with a `NAME.env` file (`VAR=value` lines, e.g. `LC_ALL=pt_BR.UTF-8`) is recorded and run
+with that environment on both sides instead, without the pin.
 
 **WebAssembly.** `CSHARPC_TEST_TARGET=wasm32-wasip1` makes `tests/run.sh`, `tests/conformance.sh`
 and `tests/programs.sh` compile every test with `--target wasm32-wasip1` and run it with
@@ -100,9 +107,10 @@ Guidelines:
 
 - **Make it deterministic.** No time, randomness, environment, thread scheduling or hash-code-order
   output.
-- **Stay culture-neutral.** csharpc formats numbers like the invariant culture. Avoid output whose
-  .NET formatting depends on the current culture, or run the recording with
-  `DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=1`.
+- **Mind the culture.** Tests run with the invariant culture current (see above). To test a
+  culture, use it explicitly (`CultureInfo.GetCultureInfo("de-DE")`, or set `CurrentCulture`), or
+  give the sample a `NAME.env`; culture data can differ between ICU versions, so such samples are
+  `live:` on macOS and Windows.
 - **Avoid compile-time folding hiding runtime paths.** Roslyn folds constant expressions, and so
   does csharpc's `ToStringValue`. To test runtime behavior, route values through variables or
   `args.Length` (as `11_divide_by_zero.cs` does). Also note that C# rejects constant conversions that

@@ -1,0 +1,10 @@
+inside: de-DE
+after async (awaits): pt-BR
+after async (no await): pt-BR
+while pending: pt-BR
+delayed: ja-JP
+after pending: pt-BR
+after sync: es-ES
+inside: de-DE
+nested: es-ES -> es-ES
+end: es-ES 2,5

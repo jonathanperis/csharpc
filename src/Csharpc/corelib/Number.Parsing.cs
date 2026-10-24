@@ -120,25 +120,19 @@ namespace CsharpcCoreLib
             return 0;
         }
 
-        // int.Parse(string) / long.Parse(string) / TryParse: NumberStyles.Integer.
-        internal static int ParseInt32(string s) => (int)ParseInt64StyledOrThrow(s, 7, 32, true);
-        internal static long ParseInt64(string s) => ParseInt64StyledOrThrow(s, 7, 64, true);
+        // int.Parse(string) / long.Parse(string) / TryParse (Convert.ToInt32(string) & co.): NumberStyles.Integer,
+        // current culture (Number.Parsing.Culture.cs).
+        internal static int ParseInt32(string s) => (int)ParseIntegerWith(s, 7, null, 32, true);
+        internal static long ParseInt64(string s) => ParseIntegerWith(s, 7, null, 64, true);
 
         internal static bool TryParseInt32(string s, ref int result)
         {
-            long v = 0;
-            bool ok = ParseInt64Styled(s, 7, 32, true, ref v) == StatusOk;
-            result = ok ? (int)v : 0;
+            bool ok = TryParseIntegerWith(s, 7, null, 32, true, out long v);
+            result = (int)v;
             return ok;
         }
 
-        internal static bool TryParseInt64(string s, ref long result)
-        {
-            long v = 0;
-            bool ok = ParseInt64Styled(s, 7, 64, true, ref v) == StatusOk;
-            result = ok ? v : 0;
-            return ok;
-        }
+        internal static bool TryParseInt64(string s, ref long result) => TryParseIntegerWith(s, 7, null, 64, true, out result);
 
         // ==========================================================================================
         // Floating point
@@ -234,24 +228,12 @@ namespace CsharpcCoreLib
             return StatusOk;
         }
 
-        internal static double ParseDoubleStyledOrThrow(string s, int styles)
-        {
-            if (s == null) throw new ArgumentNullException("s");
-            double v = 0;
-            if (ParseDoubleStyled(s, styles, ref v) != StatusOk) ThrowParseFormat(s);
-            return v;
-        }
+        internal static double ParseDoubleStyledOrThrow(string s, int styles) => ParseDoubleWith(s, styles, null);
 
-        // double.Parse(string) / TryParse: NumberStyles.Float | AllowThousands.
-        internal static double ParseDouble(string s) => ParseDoubleStyledOrThrow(s, 231);
+        // double.Parse(string) / TryParse (Convert.ToDouble(string)): NumberStyles.Float | AllowThousands, current culture.
+        internal static double ParseDouble(string s) => ParseDoubleWith(s, 231, null);
 
-        internal static bool TryParseDouble(string s, ref double result)
-        {
-            double v = 0;
-            bool ok = ParseDoubleStyled(s, 231, ref v) == StatusOk;
-            result = ok ? v : 0;
-            return ok;
-        }
+        internal static bool TryParseDouble(string s, ref double result) => TryParseDoubleWith(s, 231, null, out result);
 
         internal static double DigitsToDoubleOf(Span<byte> digits, int n, int exp10, bool negative) =>
             DigitsToDouble(digits, n, exp10, false, negative);
@@ -260,7 +242,14 @@ namespace CsharpcCoreLib
         /// Correctly rounded (nearest, ties to even) double for ±0.d1d2...dn * 10^exp10. Exact: the
         /// value is a big-integer ratio from which 64 quotient bits plus a sticky bit are extracted.
         /// </summary>
-        private static double DigitsToDouble(Span<byte> digits, int n, int exp10, bool sticky, bool negative)
+        /// <summary>
+        /// The correctly rounded float for the same digits: the double is computed rounding to odd, which
+        /// makes the narrowing to float round correctly (53 bits >= 2 * 24 + 2), with no double rounding.
+        /// </summary>
+        internal static float DigitsToSingle(Span<byte> digits, int n, int exp10, bool sticky, bool negative) =>
+            (float)DigitsToDouble(digits, n, exp10, sticky, negative, roundToOdd: true);
+
+        private static double DigitsToDouble(Span<byte> digits, int n, int exp10, bool sticky, bool negative, bool roundToOdd = false)
         {
             long signBit = negative ? long.MinValue : 0;
             if (n == 0) return CoreIntrinsics.BitsToDouble(signBit);
@@ -269,7 +258,7 @@ namespace CsharpcCoreLib
             int e = exp10 - n;  // value = D * 10^e, D = the n digits as an integer
 
             // Fast path (Clinger): D and 10^|e| are exact doubles, so one IEEE operation rounds correctly.
-            if (n <= 15 && !sticky && e >= -22 && e <= 22)
+            if (n <= 15 && !sticky && !roundToOdd && e >= -22 && e <= 22)
             {
                 long d = 0;
                 for (int i = 0; i < n; i++) d = d * 10 + (digits[i] - '0');
@@ -306,11 +295,11 @@ namespace CsharpcCoreLib
                 den.ShiftRightOne();
             }
             bool restNonZero = !num.IsZero;
-            return AssembleDouble(q, shift, restNonZero, negative);
+            return AssembleDouble(q, shift, restNonZero, negative, roundToOdd);
         }
 
         /// <summary>Rounds q * 2^-shift (plus a sticky bit) to the nearest double, ties to even.</summary>
-        private static double AssembleDouble(ulong q, int shift, bool sticky, bool negative)
+        private static double AssembleDouble(ulong q, int shift, bool sticky, bool negative, bool roundToOdd = false)
         {
             long signBit = negative ? long.MinValue : 0;
             int bitLength = 0;
@@ -335,7 +324,8 @@ namespace CsharpcCoreLib
                 rest = (q & (ulong.MaxValue >> 1)) != 0 || sticky;
             }
             else return CoreIntrinsics.BitsToDouble(signBit);
-            if (roundBit && (rest || (m & 1) != 0)) m++;
+            if (roundToOdd) { if (roundBit || rest) m |= 1; }
+            else if (roundBit && (rest || (m & 1) != 0)) m++;
             if (m == 1UL << 53) { m >>= 1; lsbExp++; }
             long bits;
             if (m >= 1UL << 52)

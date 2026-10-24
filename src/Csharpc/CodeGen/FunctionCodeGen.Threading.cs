@@ -103,6 +103,8 @@ public sealed partial class FunctionCodeGen
                 "Name" => Rt("csrt_thread_get_name", L.Ptr, [L.Ptr], Self()),
                 "IsBackground" => Rt("csrt_thread_get_background", L.I1, [L.Ptr], Self()),
                 "IsThreadPoolThread" => L.False,
+                "CurrentCulture" or "CurrentUICulture" => CallCoreLib("CultureStrings", "GetThreadCulture",
+                    _b.ICmp(LLVMIntPredicate.EQ, Self(), Rt("csrt_thread_current", L.Ptr, [])), name == "CurrentUICulture" ? L.True : L.False),
                 _ => default,
             };
             return result.Handle != 0;
@@ -146,6 +148,10 @@ public sealed partial class FunctionCodeGen
         {
             case "Name": Rt("csrt_thread_set_name", L.Void, [L.Ptr, L.Ptr], self, v); break;
             case "IsBackground": Rt("csrt_thread_set_background", L.Void, [L.Ptr, L.I1], self, v); break;
+            case "CurrentCulture" or "CurrentUICulture":
+                CallCoreLib("CultureStrings", "SetThreadCulture", _b.ICmp(LLVMIntPredicate.EQ, self, Rt("csrt_thread_current", L.Ptr, [])), v,
+                    p.Property.Name == "CurrentUICulture" ? L.True : L.False);
+                break;
             default: return false;
         }
         result = v;

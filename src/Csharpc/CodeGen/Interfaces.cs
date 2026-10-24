@@ -51,25 +51,28 @@ public sealed partial class ModuleCodeGen
         return index >= 0 ? index : throw CompileError.Unsupported($"interface member '{member}'", member);
     }
 
-    /// <summary>{ ptr interfaceMap, i32 count } for a class's method table.</summary>
-    private (LLVMValueRef Map, int Count) EmitInterfaceMap(ClassLayout layout)
+    /// <summary>
+    /// A class method table's interface map, whose slot tables FinishMethodTables fills: the interface
+    /// method tables are created now, so the builtin-type and variance registrations in main see them.
+    /// </summary>
+    private void EmitInterfaceMap(PendingMethodTable table)
     {
+        var layout = table.Layout;
         var interfaces = layout.Type.AllInterfaces;
-        if (interfaces.IsEmpty) return (LlvmContext.Null(Llvm.Ptr), 0);
+        if (interfaces.IsEmpty) return;
         var entryType = Llvm.Struct(Llvm.Ptr, Llvm.Ptr);
         List<LLVMValueRef> entries = [];
         foreach (var itf in interfaces)
         {
-            var slots = InterfaceSlots(itf).Select(member => ImplementationFor(layout, member)).ToArray();
-            var slotsInit = LlvmContext.ConstArray(Llvm.Ptr, slots);
-            var slotTable = Module.AddGlobal(Mangler.TypeSymbol(layout.Type, "ITBL" + entries.Count), Native.LLVMTypeOf(slotsInit), slotsInit,
-                constant: true, linkage: LLVMLinkage.Internal);
+            var members = InterfaceSlots(itf);
+            var slotTable = Module.AddGlobal(Mangler.TypeSymbol(layout.Type, "ITBL" + entries.Count),
+                LlvmContext.Array(Llvm.Ptr, (ulong)members.Count), constant: true, linkage: LLVMLinkage.Internal);
+            table.Interfaces.Add((itf, members, slotTable));
             entries.Add(LlvmContext.ConstNamedStruct(entryType, InterfaceMethodTable(itf), slotTable));
         }
         var mapInit = LlvmContext.ConstArray(entryType, [.. entries]);
-        var map = Module.AddGlobal(Mangler.TypeSymbol(layout.Type, "IMAP"), Native.LLVMTypeOf(mapInit), mapInit,
+        table.InterfaceMap = Module.AddGlobal(Mangler.TypeSymbol(layout.Type, "IMAP"), Native.LLVMTypeOf(mapInit), mapInit,
             constant: true, linkage: LLVMLinkage.Internal);
-        return (map, entries.Count);
     }
 
     private LLVMValueRef ImplementationFor(ClassLayout layout, IMethodSymbol member)
@@ -180,6 +183,7 @@ public sealed partial class FunctionCodeGen
     {
         var itf = target.ContainingType;
         var index = ModuleCodeGen.InterfaceSlotIndex(itf, target);
+        _m.NoteInterfaceDispatch(itf, index);
         _m.NoteVirtualCall(target);
         var slots = CallRuntime("csrt_interface_slots", L.Ptr, [L.Ptr, L.Ptr], self, _m.InterfaceMethodTable(itf));
         var slotAddress = _b.InBoundsGep(L.I8, slots, [L.ConstUInt(L.I64, (ulong)index * T.PointerSize)], "islot");

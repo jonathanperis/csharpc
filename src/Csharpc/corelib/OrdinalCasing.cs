@@ -17,7 +17,7 @@ namespace CsharpcCoreLib
             {
                 // .NET's ordinal casing leaves U+017F (long s) alone, unlike some ToUpperInvariant data.
                 if (cp == 0x017F) return cp;
-                return CharOps.ToUpperInvariant((char)cp);
+                return CharOps.ToUpperTable((char)cp);
             }
             // Supplementary-plane case pairs (Deseret, Osage, Vithkuqi, Old Hungarian, Garay,
             // Warang Citi, Medefaidrin, Adlam), from .NET 11's Unicode data.
@@ -29,6 +29,21 @@ namespace CsharpcCoreLib
             if (cp >= 0x118C0 && cp <= 0x118DF) return cp - 32;
             if (cp >= 0x16E60 && cp <= 0x16E7F) return cp - 32;
             if (cp >= 0x1E922 && cp <= 0x1E943) return cp - 34;
+            return cp;
+        }
+
+        /// <summary>Simple lower-case mapping of a code point (the inverse of the supplementary pairs above).</summary>
+        public static int ToLower(int cp)
+        {
+            if (cp < 0x10000) return CharOps.ToLowerTable((char)cp);
+            if (cp >= 0x10400 && cp <= 0x10427) return cp + 40;
+            if (cp >= 0x104B0 && cp <= 0x104D3) return cp + 40;
+            if (cp >= 0x10570 && cp <= 0x10595 && cp != 0x1057B && cp != 0x1058B && cp != 0x10593) return cp + 39;
+            if (cp >= 0x10C80 && cp <= 0x10CB2) return cp + 64;
+            if (cp >= 0x10D50 && cp <= 0x10D65) return cp + 32;
+            if (cp >= 0x118A0 && cp <= 0x118BF) return cp + 32;
+            if (cp >= 0x16E40 && cp <= 0x16E5F) return cp + 32;
+            if (cp >= 0x1E900 && cp <= 0x1E921) return cp + 34;
             return cp;
         }
 

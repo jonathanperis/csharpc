@@ -595,11 +595,11 @@ recognized by syntax shape and child types.
 - Primitives call `csrt_string_from_{i32,i64,u32,u64,f64,f32,bool,char}`.
 - References call `csrt_object_to_string`, which returns `""` for null (as `string.Concat` does)
   and otherwise makes a virtual call to vtable slot 0.
-- **Constants are formatted at compile time using .NET's own formatting**: `"pi ~ " + 3.14159`
-  embeds the literal string `"3.14159"` produced by `double.ToString(null, InvariantCulture)`
-  inside the compiler. Runtime and compile-time formatting therefore agree by construction.
+- **Constants are formatted at compile time using .NET's own formatting** when the text can't depend
+  on the culture: `"n = " + 42` embeds `"42"`. A negative number (the culture's `NegativeSign`) or a
+  `double` such as `3.14159` (its `NumberDecimalSeparator`) is formatted at run time instead.
 
-Holes with a format string (`{x:F2}`) call the type's `ToString(format)` with .NET's invariant-culture
+Holes with a format string (`{x:F2}`) call the type's `ToString(format)` with the current culture's
 formatting (`FormatWith`), and alignment (`{x,5}`, `{x,-5}`) pads the result. Enums format by name
 (including `[Flags]` combinations), and structs through their `ToString` override or the CLR type
 name.

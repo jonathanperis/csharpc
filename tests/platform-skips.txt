@@ -54,6 +54,30 @@ windows eventsourcing                   live: writes bare "\n"s itself, next to 
 windows json                            live: writes bare "\n"s itself, next to WriteLine's "\r\n"
 windows linalg                          live: writes bare "\n"s itself, next to WriteLine's "\r\n"
 windows puzzles                         live: writes bare "\n"s itself, next to WriteLine's "\r\n"
+macos 360_culture_numbers            live: culture data comes from the OS's ICU (libicucore / icu.dll), not Linux's ICU 74
+macos 361_culture_dates              live: culture data comes from the OS's ICU (libicucore / icu.dll), not Linux's ICU 74
+macos 362_culture_compare            live: culture data comes from the OS's ICU (libicucore / icu.dll), not Linux's ICU 74
+macos 363_culture_casing             live: culture data comes from the OS's ICU (libicucore / icu.dll), not Linux's ICU 74
+macos 364_culture_parse              live: culture data comes from the OS's ICU (libicucore / icu.dll), not Linux's ICU 74
+macos 365_culture_current            live: culture data comes from the OS's ICU (libicucore / icu.dll), not Linux's ICU 74
+macos 369_culture_threads            live: culture data comes from the OS's ICU (libicucore / icu.dll), not Linux's ICU 74
+macos 370_formattable_string         live: culture data comes from the OS's ICU (libicucore / icu.dll), not Linux's ICU 74
+macos 371_culture_async              live: culture data comes from the OS's ICU (libicucore / icu.dll), not Linux's ICU 74
+macos 372_culture_async_scope        live: culture data comes from the OS's ICU (libicucore / icu.dll), not Linux's ICU 74
+macos 366_culture_from_environment   live: the user culture comes from the system settings there, not from LC_ALL
+windows 360_culture_numbers            live: culture data comes from the OS's ICU (libicucore / icu.dll), not Linux's ICU 74
+windows 361_culture_dates              live: culture data comes from the OS's ICU (libicucore / icu.dll), not Linux's ICU 74
+windows 362_culture_compare            live: culture data comes from the OS's ICU (libicucore / icu.dll), not Linux's ICU 74
+windows 363_culture_casing             live: culture data comes from the OS's ICU (libicucore / icu.dll), not Linux's ICU 74
+windows 364_culture_parse              live: culture data comes from the OS's ICU (libicucore / icu.dll), not Linux's ICU 74
+windows 365_culture_current            live: culture data comes from the OS's ICU (libicucore / icu.dll), not Linux's ICU 74
+windows 369_culture_threads            live: culture data comes from the OS's ICU (libicucore / icu.dll), not Linux's ICU 74
+windows 370_formattable_string         live: culture data comes from the OS's ICU (libicucore / icu.dll), not Linux's ICU 74
+windows 371_culture_async              live: culture data comes from the OS's ICU (libicucore / icu.dll), not Linux's ICU 74
+windows 372_culture_async_scope        live: culture data comes from the OS's ICU (libicucore / icu.dll), not Linux's ICU 74
+windows 366_culture_from_environment   live: the user culture comes from the system settings there, not from LC_ALL
+macos 376_boxed_datetime_composite   live: culture data comes from the OS's ICU (libicucore / icu.dll), not Linux's ICU 74
+windows 376_boxed_datetime_composite   live: culture data comes from the OS's ICU (libicucore / icu.dll), not Linux's ICU 74
 # WebAssembly (CSHARPC_TEST_TARGET=wasm32-wasip1, tests/platform.sh): one thread, wasm32 C types, WASI
 # errno numbers, no time zone database. Never "live": there is no .NET for plain WASI to record with.
 wasi 120_threads                  needs threads: Thread.Start throws PlatformNotSupportedException on WebAssembly
@@ -76,3 +100,22 @@ wasi bcl/006_environment          Environment.TickCount64 > 0: WASI's monotonic 
 wasi 380_readonly_collection_threadlocal  needs threads: Thread.Start throws PlatformNotSupportedException on WebAssembly
 wasi 194_marshal_strings          prints strerror(2): errno 2 is ENOENT on Linux, EACCES in WASI
 wasi 196_sockets_loopback         opens loopback sockets: WASI preview 1 has none (PlatformNotSupportedException)
+wasi 360_culture_numbers               no ICU on WASI (invariant globalization mode): the sample uses specific cultures
+wasi 361_culture_dates                 no ICU on WASI (invariant globalization mode): the sample uses specific cultures
+wasi 362_culture_compare               no ICU on WASI (invariant globalization mode): the sample uses specific cultures
+wasi 363_culture_casing                no ICU on WASI (invariant globalization mode): the sample uses specific cultures
+wasi 364_culture_parse                 no ICU on WASI (invariant globalization mode): the sample uses specific cultures
+wasi 365_culture_current               no ICU on WASI (invariant globalization mode): the sample uses specific cultures
+wasi 366_culture_from_environment      no ICU on WASI (invariant globalization mode): the sample uses specific cultures
+wasi 367_culture_invariant_mode        linguistic comparisons on WASI approximate ICU's root collation instead of .NET invariant mode's ordinal ones
+wasi 369_culture_threads               needs threads: Thread.Start throws PlatformNotSupportedException on WebAssembly
+wasi 370_formattable_string            no ICU on WASI (invariant globalization mode): the sample uses specific cultures
+wasi 371_culture_async                 no ICU on WASI (invariant globalization mode): the sample uses specific cultures
+wasi 372_culture_async_scope           no ICU on WASI (invariant globalization mode): the sample uses specific cultures
+wasi 373_float_parse_rounding          no ICU on WASI (invariant globalization mode): the sample uses specific cultures
+wasi 374_char_formattable              no ICU on WASI (invariant globalization mode): the sample uses specific cultures
+wasi 375_index_from_end_ref_indexer    no ICU on WASI (invariant globalization mode): the sample uses specific cultures
+wasi 376_boxed_datetime_composite      no ICU on WASI (invariant globalization mode): the sample uses specific cultures
+macos 378_culture_getformat          live: culture data comes from the OS's ICU (libicucore / icu.dll), not Linux's ICU 74
+windows 378_culture_getformat          live: culture data comes from the OS's ICU (libicucore / icu.dll), not Linux's ICU 74
+wasi 378_culture_getformat             no ICU on WASI (invariant globalization mode): the sample uses specific cultures

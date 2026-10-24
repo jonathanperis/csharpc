@@ -49,6 +49,9 @@ namespace CsharpcCoreLib
         /// <summary>DateTime's raw `_dateData`: ticks in bits 0-61, the kind in bits 62-63 (DateTimeOps.cs).</summary>
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern long DateTimeData(DateTime value);
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern DateTime MakeDateTime(long data);
+        /// <summary>An object reference as an IntPtr and back, for runtime slots that hold managed objects (GC-visible ones only).</summary>
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern IntPtr ObjectToPointer(object value);
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern object PointerToObject(IntPtr pointer);
         /// <summary>
         /// The frames .NET's own library lists for this exception below the program's frames, innermost
         /// first, one per line (a constant): `throw LibraryFrames(new X(...), "System.Ns.Type.Method(Int32 a)")`.

@@ -133,6 +133,7 @@ typedef struct csrt_Thread {
     bool background;
     bool parameterized;
     bool pool;               // a pool worker (always background)
+    void* flow;              // the starting thread's execution-context flow (csrt_tl_flow), captured by Start
 } csrt_Thread;
 
 const csrt_BuiltinMethodTable csrt_Thread_MT = {
@@ -141,6 +142,12 @@ const csrt_BuiltinMethodTable csrt_Thread_MT = {
 };
 
 static _Thread_local __attribute__((tls_model("local-exec"))) csrt_Thread* tl_current;  // rooted: the GC scans every thread's TLS
+
+// The execution-context flow (csrt.h). Rooted like every TLS slot; work items and continuations keep
+// their captured flow in GC objects.
+_Thread_local __attribute__((tls_model("local-exec"))) void* csrt_tl_flow;
+void* csrt_flow_get(void) { return csrt_tl_flow; }
+void csrt_flow_set(void* flow) { csrt_tl_flow = flow; }
 static atomic_int s_next_id = 2;               // the main thread is 1, like .NET
 static pthread_mutex_t s_join_lock = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t s_join_cond = PTHREAD_COND_INITIALIZER;
@@ -184,11 +191,13 @@ static void* thread_main(void* arg) {
     csrt_gc_thread_attach(gt);
     csrt_Thread* t = gt->managed;
     tl_current = t;
+    csrt_tl_flow = t->flow;
     // An exception escaping the delegate is unhandled: eh.c reports it and aborts the process,
     // exactly like an unhandled exception on a .NET thread.
     invoke_void(t->start, t->parameterized, t->parameter);
     thread_finished(t);
     tl_current = NULL;
+    csrt_tl_flow = NULL;
     csrt_gc_thread_detach();
     return NULL;
 }
@@ -227,6 +236,7 @@ static void thread_start(csrt_Thread* t, void* parameter, bool has_parameter) {
     if (!t->background) s_foreground++;
     pthread_mutex_unlock(&s_join_lock);
     t->parameter = parameter;
+    t->flow = csrt_tl_flow;  // like .NET's ExecutionContext capture in Thread.Start
     spawn(t);
 }
 

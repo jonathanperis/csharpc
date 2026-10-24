@@ -4,7 +4,10 @@
 // System.Text.Json (reader, document, nodes, writer escaping, source-generated deserialization). Prints one
 // line per case (the result, or the exception type and message); tools/fuzz/corelib.sh runs it under
 // real .NET and as a csharpc-compiled native binary (with sanitizers) and diffs the output.
-//   CorelibFuzz <seed> <cases>
+//   CorelibFuzz <seed> <cases> [culture]
+// With "culture" the cases are culture-sensitive ones instead (ICU data: formatting, parsing, comparison
+// and casing with cultures from a fixed list); corelib.sh runs that mode with ICU, the default mode in
+// globalization-invariant mode.
 // Inputs come from a private xorshift generator, so a (seed, cases) pair is reproducible everywhere.
 // Each case reseeds from (seed, index): a case that throws early on one side and draws fewer values
 // must not shift every later case.
@@ -20,14 +23,15 @@ using System.Text.RegularExpressions;
 ulong seed = args.Length > 0 ? (ulong)long.Parse(args[0]) : 1;
 ulong state = 1;
 int cases = args.Length > 1 ? int.Parse(args[1]) : 10000;
+bool cultureMode = args.Length > 2 && args[2] == "culture";
 
 for (int i = 0; i < cases; i++)
 {
     state = (seed * 0x9E3779B97F4A7C15UL) ^ ((ulong)i * 0xD1B54A32D192ED03UL) ^ 0x2545F4914F6CDD1DUL;
     for (int k = 0; k < 4; k++) NextU64();
-    int target = Next(16);
+    int target = cultureMode ? Next(6) : Next(16);
     string line;
-    try { line = Run(target); }
+    try { line = cultureMode ? RunCulture(target) : Run(target); }
     catch (Exception e) { line = e.GetType().Name + ": " + e.Message; }
     Console.WriteLine(i + " " + target + " " + Escape(line));
 }
@@ -192,6 +196,75 @@ string Run(int target)
     }
 }
 
+// ---- culture-sensitive cases (ICU) ----------------------------------------------------------------
+
+CultureInfo Culture() => CultureInfo.GetCultureInfo(Pick("", "en-US", "pt-BR", "de-DE", "fr-FR", "de-CH", "es-ES", "it-IT", "ja-JP", "hi-IN",
+    "sv-SE", "nl-NL", "ru-RU", "pl-PL", "en-GB", "tr-TR", "ar-EG", "fa-IR", "zh-CN", "ko-KR", "da-DK", "cs-CZ", "fi-FI", "nb-NO", "pt-PT", "en-IN"));
+
+string StandardOrCustom(string custom) => Next(3) == 0 ? Text(custom, 6) : Pick("G", "N", "C", "P", "F", "E", "R", "D", "X", "") + (Next(2) == 0 ? Next(12).ToString() : "");
+
+string RunCulture(int target)
+{
+    var c = Culture();
+    switch (target)
+    {
+        case 0:
+        {
+            string f = StandardOrCustom(FormatAlphabet);
+            double v = Next(5) == 0 ? BitConverter.Int64BitsToDouble((long)NextU64()) : Value() / Math.Pow(10, Next(12));
+            long n = Value();
+            decimal m = (decimal)(Value() % 1000000000) / (decimal)Math.Pow(10, Next(8));
+            return c.Name + " " + Escape(f) + " -> " + Escape(v.ToString(f, c)) + " | " + Escape(n.ToString(f, c)) + " | " + Escape(m.ToString(f, c))
+                + " | " + Escape(((float)v).ToString(c)) + " | " + Escape(string.Format(c, "{0} {1:N} {2}", v, n, m));
+        }
+        case 1:
+        {
+            var date = new DateTime((long)(NextU64() % (ulong)DateTime.MaxValue.Ticks), Next(2) == 0 ? DateTimeKind.Utc : DateTimeKind.Unspecified);
+            string f = Next(2) == 0 ? Pick("d", "D", "f", "F", "g", "G", "m", "M", "t", "T", "y", "Y", "o", "r", "s", "u", "U", "") : Text(DateAlphabet, 8);
+            return c.Name + " " + Escape(f) + " -> " + Escape(date.ToString(f, c)) + " | " + Escape(new TimeSpan(Value()).ToString(Pick("c", "g", "G"), c));
+        }
+        case 2:
+        {
+            var nf = c.NumberFormat;
+            string alphabet = "0123456789000 eE" + nf.NumberDecimalSeparator + nf.NumberGroupSeparator + nf.CurrencySymbol + nf.NegativeSign + nf.PositiveSign
+                + nf.CurrencyDecimalSeparator + nf.CurrencyGroupSeparator + "()-+.,  %";
+            string s = Next(8) == 0 ? Pick(nf.NaNSymbol, nf.PositiveInfinitySymbol, nf.NegativeInfinitySymbol, "-" + nf.NaNSymbol, " " + nf.PositiveInfinitySymbol + " ") : Text(alphabet, 14);
+            var style = Next(3) == 0 ? (NumberStyles)(Next(1024) & ~0x200) : PickStyle(NumberStyles.Any, NumberStyles.Float | NumberStyles.AllowThousands, NumberStyles.Number, NumberStyles.Currency, NumberStyles.Integer);
+            var sb = new StringBuilder(c.Name).Append(' ').Append(Escape(s)).Append(' ').Append((int)style).Append(" -> ");
+            sb.Append(double.TryParse(s, style, c, out double d) ? d.ToString("R", CultureInfo.InvariantCulture) : "no").Append(' ');
+            sb.Append(decimal.TryParse(s, style, c, out decimal m) ? m.ToString(CultureInfo.InvariantCulture) : "no").Append(' ');
+            sb.Append(int.TryParse(s, style, c, out int i) ? i.ToString(CultureInfo.InvariantCulture) : "no").Append(' ');
+            sb.Append(long.Parse(s, style, c));
+            return sb.ToString();
+        }
+        case 3:
+        {
+            var date = new DateTime(1900 + Next(250), 1 + Next(12), 1 + Next(28), Next(24), Next(60), Next(60));
+            string f = Pick("d", "D", "f", "F", "g", "G", "m", "t", "T", "y", "");
+            string text = date.ToString(f, c);
+            if (Next(3) == 0 && text.Length > 0) text = text.Remove(Next(text.Length), 1);
+            var sb = new StringBuilder(c.Name).Append(' ').Append(Escape(text)).Append(" -> ");
+            sb.Append(DateTime.TryParse(text, c, DateTimeStyles.None, out DateTime parsed) ? parsed.ToString("o") : "no").Append(' ');
+            sb.Append(DateTime.TryParseExact(text, f.Length == 0 ? "G" : f, c, DateTimeStyles.None, out parsed) ? parsed.ToString("o") : "no");
+            return sb.ToString();
+        }
+        case 4:
+        {
+            string a = Text(CompareAlphabet, 6), b = Text(CompareAlphabet, 6);
+            var options = (CompareOptions)(Next(4) == 0 ? 0 : Next(32));
+            var ci = c.CompareInfo;
+            return c.Name + " " + Escape(a) + " " + Escape(b) + " " + (int)options + " -> " + Math.Sign(ci.Compare(a, b, options)) + " " + ci.IndexOf(a, b, options)
+                + " " + ci.LastIndexOf(a, b, options) + " " + ci.IsPrefix(a, b, options) + " " + ci.IsSuffix(a, b, options) + " " + Math.Sign(string.Compare(a, b, c, CompareOptions.None));
+        }
+        default:
+        {
+            string s = Text(CompareAlphabet, 10);
+            var ti = c.TextInfo;
+            return c.Name + " " + Escape(s) + " -> " + Escape(ti.ToUpper(s)) + " " + Escape(ti.ToLower(s)) + " " + Escape(s.ToUpperInvariant()) + " " + Escape(ti.ToTitleCase(s));
+        }
+    }
+}
+
 // A random pattern (sometimes malformed), options and input; prints every match with its groups and
 // captures, then Replace and Split results. Inputs are short, so backtracking stays cheap.
 string RegexCase()
@@ -282,6 +355,7 @@ string Quantifier() =>
     Pick("*", "+", "?", "{2}", "{1,}", "{0,2}", "{1,3}", "*", "+", "?") + (Next(3) == 0 ? "?" : "");
 
 string Pick(params string[] items) => items[Next(items.Length)];
+NumberStyles PickStyle(params NumberStyles[] items) => items[Next(items.Length)];
 
 ulong NextU64()
 {
@@ -413,6 +487,7 @@ static string Escape(string s)
 
 partial class Program
 {
+    const string CompareAlphabet = "aAbBcCzZeéEÉe\u0301äÄåÅöiIİıßs-_ \u00AD\u0000chll1";
     const string NumberAlphabet = "0123456789000111999-+.,eE xX_()$abcdefABCDEF \t";
     const string FormatAlphabet = "0123456789#.,;%‰eE+-NnFfGgCcPpXxDdRrEe'\\ ";
     const string CompositeAlphabet = "{}{}{}012,:-5XN2D3Ee0#.ab ";
