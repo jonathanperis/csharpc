@@ -106,7 +106,8 @@ public sealed partial class FunctionCodeGen
         {
             var tuple = LlvmContext.Null(llvmType);
             for (var i = 0; i < args.Length; i++)
-                tuple = _b.InsertValue(tuple, ToStorage(EmitArgumentValue(args[i]), args[i].Parameter!.Type), (uint)i);
+                // The element type, not the constructor parameter's: in generic code (IL) that is an unsubstituted T1.
+                tuple = _b.InsertValue(tuple, ToStorage(EmitArgumentValue(args[i]), S(type.TypeArguments[args[i].Parameter!.Ordinal])), (uint)i);
             return tuple;
         }
         if (!_m.IsUserType(type))
