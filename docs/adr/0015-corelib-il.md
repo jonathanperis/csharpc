@@ -37,7 +37,9 @@ IL assembly whose method bodies the IL front-end lowers; the corelib keeps its o
   4.3 MB (~45 ms, mostly start-up of that code path). Any change to a file falls back to hashing the
   contents; nothing stale can be used.
 - Files are written under temporary names and renamed, the assembly last; concurrent compiles (test
-  suites run 4 at once) may build it twice but never see a partial one.
+  suites run 4 at once) may build it twice but never see a partial one, and a compile that finds the
+  destination already written (and, on Windows, open) keeps it. Assemblies untouched for 30 days are
+  deleted when a new one is built; those in use are touched at most daily.
 - The language version is fixed (preview, the newest csharpc knows). The source corelib was parsed
   with the program's `LangVersion`; binding the corelib differently per program was accidental, and
   C# versions can change overload resolution (first-class spans in C# 14).
@@ -92,7 +94,8 @@ Lowering the whole corelib from IL once (`CSHARPC_CORELIB_SURVEY=1 --il-survey`)
 front-end lacked, all now implemented: `calli` and `ldftn` as a function pointer (AppContext's switch
 lookup, ICU's calendar enumeration), `fixed` over spans and strings (`GetPinnableReference`, 48
 sites), `new Range(Index, Index)`, the address of a library's readonly static, `box` of `nint` before
-a null test, and `localloc` on wasm32. The 5 survey failures left are library surface csharpc doesn't
+a null test, and native ints on wasm32 (`localloc`, `newarr` and `ldlen` assumed 64 bits; the wasm32
+job doesn't run the IL package tests, so only the corelib exposed it). The 5 survey failures left are library surface csharpc doesn't
 implement yet (`Type.Module`, the `Rune` and `StreamingContext` structs, a `CharUnicodeInfo`
 overload); a program reaching them gets the same diagnostic with either corelib.
 
