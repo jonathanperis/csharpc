@@ -201,4 +201,27 @@ namespace CsharpcCoreLib
             }
         }
     }
+
+    /// <summary>ReferenceEqualityComparer: identity equality and RuntimeHelpers.GetHashCode (one shared instance).</summary>
+    [Shadows("System.Collections.Generic.ReferenceEqualityComparer")]
+    public sealed class ReferenceEqualityComparerImpl : System.Collections.Generic.IEqualityComparer<object>, System.Collections.IEqualityComparer
+    {
+        private static ReferenceEqualityComparerImpl s_instance;
+
+        private ReferenceEqualityComparerImpl() { }
+
+        public static ReferenceEqualityComparerImpl Instance
+        {
+            get
+            {
+                ReferenceEqualityComparerImpl instance = s_instance;
+                if (instance == null) { instance = new ReferenceEqualityComparerImpl(); instance = Interlocked.CompareExchange(ref s_instance, instance, null) ?? instance; }
+                return instance;
+            }
+        }
+
+        public new bool Equals(object x, object y) => ReferenceEquals(x, y);
+
+        public int GetHashCode(object obj) => System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(obj);
+    }
 }

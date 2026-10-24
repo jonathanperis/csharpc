@@ -132,6 +132,9 @@ internal static class Intrinsics
             g.ArrayDimensionLength(g.EmitValue(inv.Instance!), inv.Instance!.Type!, Arg(g, inv, 0));
             return g.Module.Llvm.ConstInt(g.Module.Llvm.I32, 0);
         };
+        // The identity hash object.GetHashCode falls back to (0 for null, like .NET).
+        t["System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(object)"] = (g, inv) =>
+            g.CallRuntime("csrt_object_get_hash_code_default", g.Module.Llvm.I32, [g.Module.Llvm.Ptr], Arg(g, inv, 0));
         t["object.ReferenceEquals(object, object)"] = (g, inv) =>
             g.Builder.ICmp(LLVMIntPredicate.EQ, Arg(g, inv, 0), Arg(g, inv, 1));
         // Enum.HasFlag(flag): (value & flag) == flag on the underlying integers (both arrive boxed to Enum).
