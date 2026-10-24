@@ -1,0 +1,8 @@
+start:True RUN:True Go:True stop:False :False begins:False 
+True False True False
+7 14 0 15
+False False -1
+2 True
+2 False -1
+-1 6
+ArgumentException: SearchValues<string> supports only StringComparison.Ordinal and StringComparison.OrdinalIgnoreCase. (Parameter 'comparisonType')
