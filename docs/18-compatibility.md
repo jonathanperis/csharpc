@@ -6,34 +6,36 @@ validation, [06-roadmap.md](06-roadmap.md)). The differential samples and the co
 ([09-conformance.md](09-conformance.md)) are written *for* csharpc. This corpus is not: it is
 unmodified console programs from Microsoft's documentation and sample repositories.
 
-Latest run of 2026-10-23: csharpc `main` at `51ef64e` on the CI `Compatibility` workflow (hosted
-`ubuntu-24.04` runner), .NET SDK `11.0.100-rc.2.26504.105`, Linux x86-64. The first run (csharpc `integ`
+Latest run of 2026-10-24: csharpc `stacktraces` at `b7a36a6` (since merged into `main`) on the CI
+`Compatibility` workflow (hosted `ubuntu-24.04` runner), .NET SDK `11.0.100-rc.2.26504.105`, Linux x86-64. The first run (csharpc `integ`
 at `8183dfb`, 2026-10-22) is the baseline the blocker tables below were measured on;
 [Progress](#progress-since-the-first-run) lists what changed since.
 
 ## Summary
 
-| | first run (`8183dfb`) | `36fd745` (2026-10-22) | latest run (`51ef64e`) |
-|---|---:|---:|---:|
-| corpus (candidate console programs) | 323 | 323 | 320 |
-| skipped (non-deterministic or broken under .NET itself) | 40 | 43 | 40 |
-| **compared** | **283** | **280** | **280** |
-| **PASS** (byte-identical stdout, same exit code) | **115 (40.6 %)** | **147 (52.5 %)** | **182 (65.0 %)** |
-| COMPILE-UNSUPPORTED (explicit `CSLLVM0001/0002` diagnostic) | 135 (47.7 %) | 95 (33.9 %) | 88 (31.4 %) |
-| COMPILE-ERROR (compile fails some other way) | 22 (7.8 %) | 22 (7.9 %) | 3 (1.1 %) |
-| COMPILE-CRASH (internal compiler error, crash) | 3 (1.1 %) | 4 (1.4 %) | 0 |
-| RUNTIME-DIFF (wrong output or exit code) | 7 (2.5 %) | 11 (3.9 %) | 7 (2.5 %) |
-| RUNTIME-CRASH (native binary crashed, .NET didn't) | 1 (0.4 %) | 1 (0.4 %) | 0 |
+| | first run (`8183dfb`) | `36fd745` (2026-10-22) | `51ef64e` (2026-10-23) | latest run (`b7a36a6`) |
+|---|---:|---:|---:|---:|
+| corpus (candidate console programs) | 323 | 323 | 320 | 320 |
+| skipped (non-deterministic or broken under .NET itself) | 40 | 43 | 40 | 40 |
+| **compared** | **283** | **280** | **280** | **280** |
+| **PASS** (byte-identical stdout, same exit code) | **115 (40.6 %)** | **147 (52.5 %)** | 182 (65.0 %) | **189 (67.5 %)** |
+| COMPILE-UNSUPPORTED (explicit `CSLLVM0001/0002` diagnostic) | 135 (47.7 %) | 95 (33.9 %) | 88 (31.4 %) | 88 (31.4 %) |
+| COMPILE-ERROR (compile fails some other way) | 22 (7.8 %) | 22 (7.9 %) | 3 (1.1 %) | 3 (1.1 %) |
+| COMPILE-CRASH (internal compiler error, crash) | 3 (1.1 %) | 4 (1.4 %) | 0 | 0 |
+| RUNTIME-DIFF (wrong output or exit code) | 7 (2.5 %) | 11 (3.9 %) | 7 (2.5 %) | **0** |
+| RUNTIME-CRASH (native binary crashed, .NET didn't) | 1 (0.4 %) | 1 (0.4 %) | 0 | 0 |
 
-- **Latest run: 65.0 %** pass. By corpus: dotnet/samples 39 of 45 (86.7 %), dotnet/docs 143 of 235
-  (60.9 %). csharpc compiled 189 programs and **182 (96.3 %)** behave exactly like .NET; all 7
-  differences are the missing stack-trace lines (`Exception.StackTrace`/`ToString()`, CSLLVM0006). No
-  compile crash and no runtime crash remain. Of the 3 remaining COMPILE-ERRORs, two use
-  `Microsoft.Extensions.Configuration` types csharpc's references don't resolve yet, and one uses C#'s new
-  union types, which csharpc's Roslyn binds differently from the SDK's compiler. Top remaining blockers: `CultureInfo`
-  (9 programs; globalization in progress), `MemoryPool<T>` (5), `DateTimeOffset` (5), `Task` members (4).
-  Compile time per passing program: median 6.5 s, max 35.3 s. The three scheduling-dependent
-  AsyncBreakfast variants left the corpus (`excluded.tsv`).
+- **Latest run: 67.5 %** pass, and **every program csharpc compiles (189 of 189) behaves exactly like
+  .NET**: no wrong output, no crash. By corpus: dotnet/samples 40 of 45 (88.9 %), dotnet/docs 149 of
+  235 (63.4 %). The seven differences of the previous run were all missing stack-trace lines; csharpc
+  now records .NET's stack traces ([ADR 0012](adr/0012-stack-traces.md)). Of the 3 remaining
+  COMPILE-ERRORs, two use `Microsoft.Extensions.Configuration` types csharpc's references don't
+  resolve yet, and one uses C#'s new union types, which csharpc's Roslyn binds differently from the
+  SDK's compiler. Top remaining blockers: `CultureInfo` (9 programs; globalization in progress),
+  `MemoryPool<T>` (5), `DateTimeOffset` (5), `Task` members (4). Compile time per passing program:
+  median 6.7 s, max 36.5 s.
+- At `51ef64e` (2026-10-23): 65.0 %; 182 of the 189 compiled programs matched, the other 7 printed
+  stack traces. The three scheduling-dependent AsyncBreakfast variants left the corpus (`excluded.tsv`).
 - At `36fd745`: **52.5 %** of the compared programs pass (first run: 40.6 %). By corpus: dotnet/samples 38 of 45
   (84.4 %), dotnet/docs 109 of 235 (46.4 %). The docs snippets exercise far more of the BCL per
   program.

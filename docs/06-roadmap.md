@@ -140,7 +140,9 @@ and real-world programs against real .NET on that machine, plus the benchmark co
 Compile unmodified open-source C# console applications and tools, publish a compatibility report
 (what builds, what matches .NET, what is missing and why), and turn every gap into a regression test.
 First report (2026-10-22, 323 programs from dotnet/samples and dotnet/docs, 40.6 % identical to
-.NET): [18-compatibility.md](18-compatibility.md); harness in `tools/compat/`.
+.NET): [18-compatibility.md](18-compatibility.md); harness in `tools/compat/`, re-run on CI by the
+`Compatibility` workflow. Latest (2026-10-24): 67.5 % identical, and every program csharpc compiles
+(189 of 189) matches .NET; the rest stop at explicit "not supported yet" diagnostics, ranked there.
 
 ### M5 — Drop-in: binary packages (🚧)
 An IL front-end (IL → the same lowering) so NuGet packages that ship only assemblies can be linked
