@@ -25,6 +25,10 @@ public sealed partial class FunctionCodeGen
             IFieldReferenceOperation { Field: { IsStatic: true, Name: "Zero", ContainingType.SpecialType: SpecialType.System_IntPtr or SpecialType.System_UIntPtr } } zf =>
                 LlvmContext.Null(T.Value(zf.Field.Type)),
             IFieldReferenceOperation f when TryLowLevelLibraryMember(f, out var libraryField) => libraryField,
+            // Library constants IL reads as fields: decimal's (decimal.Zero/One/MinusOne/MaxValue/MinValue are
+            // `const` in C#, static readonly fields with [DecimalConstant] in metadata).
+            IFieldReferenceOperation { Field: { IsStatic: true, HasConstantValue: true } cf } f when !_m.IsUserType(_m.CoreLib.Map(cf).ContainingType) =>
+                Constant(cf.ConstantValue, S(cf.Type), f),
             IFieldReferenceOperation { Field.IsStatic: true } f when !_m.IsUserType(_m.CoreLib.Map(f.Field).ContainingType) =>
                 BclValueTypes.TryGetField(f.Field, out var bclField) ? bclField(this, f)
                     : throw CompileError.Unsupported($"static field '{f.Field}' of a library type", f),
