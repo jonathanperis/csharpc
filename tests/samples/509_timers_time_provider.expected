@@ -1,0 +1,12 @@
+one-shot: state
+True True
+True
+changed fired
+dueTime
+callback
+True True True True
+00:00:01
+provider timer: 42
+canceled after delay
+False
+delay
