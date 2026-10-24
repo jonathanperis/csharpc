@@ -146,7 +146,11 @@ public sealed partial class FunctionCodeGen
             {
                 var r = Pop();
                 var l = Pop();
-                IlCondBranch(IlCompare(LongForm(op), l, r), instruction, stack);
+                // C# compilers branch *around* a `then` block on the negated condition. Branching on the
+                // condition itself into the fall-through keeps the comparison in the shape the source
+                // path (and clang) produce, which LLVM canonicalizes and selects identically.
+                var forward = instruction.Target > instruction.Offset;
+                IlCondBranch(IlCompare(LongForm(op), l, r, negate: forward), instruction, stack, swap: forward);
                 return true;
             }
             case ILOpCode.Switch:
@@ -598,13 +602,15 @@ public sealed partial class FunctionCodeGen
         ILOpCode.Blt_un_s => ILOpCode.Blt_un, _ => op,
     };
 
-    private void IlCondBranch(LLVMValueRef condition, IlInstruction instruction, Stack<IlEntry> stack)
+    /// <param name="swap">The condition is the branch's negation: it selects the fall-through.</param>
+    private void IlCondBranch(LLVMValueRef condition, IlInstruction instruction, Stack<IlEntry> stack, bool swap = false)
     {
         var taken = IlTarget(instruction.Target);
         var fallthrough = IlTarget(instruction.Next);
         IlTransfer(taken, stack);
         IlTransfer(fallthrough, stack);
-        _b.CondBr(condition, taken.Llvm, fallthrough.Llvm);
+        if (swap) _b.CondBr(condition, fallthrough.Llvm, taken.Llvm);
+        else _b.CondBr(condition, taken.Llvm, fallthrough.Llvm);
     }
 
     // ======================================================================================
@@ -955,19 +961,30 @@ public sealed partial class FunctionCodeGen
     }
 
     /// <summary>The i1 result of a comparison branch opcode (beq, bge.un, ...), also used for ceq/cgt/clt.</summary>
-    private LLVMValueRef IlCompare(ILOpCode op, IlEntry l, IlEntry r)
+    /// <param name="negate">Return the comparison's exact negation (for floats: ordered ↔ unordered).</param>
+    private LLVMValueRef IlCompare(ILOpCode op, IlEntry l, IlEntry r, bool negate = false)
     {
         if (l.Kind == IlKind.Float || r.Kind == IlKind.Float)
         {
             var (a, b) = IlFloats(l, r);
-            return _b.FCmp(op switch
+            var real = op switch
             {
                 ILOpCode.Beq => LLVMRealPredicate.OEQ, ILOpCode.Bne_un => LLVMRealPredicate.UNE,
                 ILOpCode.Bge => LLVMRealPredicate.OGE, ILOpCode.Bge_un => LLVMRealPredicate.UGE,
                 ILOpCode.Bgt => LLVMRealPredicate.OGT, ILOpCode.Bgt_un => LLVMRealPredicate.UGT,
                 ILOpCode.Ble => LLVMRealPredicate.OLE, ILOpCode.Ble_un => LLVMRealPredicate.ULE,
                 ILOpCode.Blt => LLVMRealPredicate.OLT, _ => LLVMRealPredicate.ULT,
-            }, a, b);
+            };
+            if (negate)
+                real = real switch
+                {
+                    LLVMRealPredicate.OEQ => LLVMRealPredicate.UNE, LLVMRealPredicate.UNE => LLVMRealPredicate.OEQ,
+                    LLVMRealPredicate.OGE => LLVMRealPredicate.ULT, LLVMRealPredicate.ULT => LLVMRealPredicate.OGE,
+                    LLVMRealPredicate.OGT => LLVMRealPredicate.ULE, LLVMRealPredicate.ULE => LLVMRealPredicate.OGT,
+                    LLVMRealPredicate.OLE => LLVMRealPredicate.UGT, LLVMRealPredicate.UGT => LLVMRealPredicate.OLE,
+                    LLVMRealPredicate.OLT => LLVMRealPredicate.UGE, _ => LLVMRealPredicate.OLT, // UGE
+                };
+            return _b.FCmp(real, a, b);
         }
         var predicate = op switch
         {
@@ -977,6 +994,15 @@ public sealed partial class FunctionCodeGen
             ILOpCode.Ble => LLVMIntPredicate.SLE, ILOpCode.Ble_un => LLVMIntPredicate.ULE,
             ILOpCode.Blt => LLVMIntPredicate.SLT, _ => LLVMIntPredicate.ULT,
         };
+        if (negate)
+            predicate = predicate switch
+            {
+                LLVMIntPredicate.EQ => LLVMIntPredicate.NE, LLVMIntPredicate.NE => LLVMIntPredicate.EQ,
+                LLVMIntPredicate.SGE => LLVMIntPredicate.SLT, LLVMIntPredicate.SLT => LLVMIntPredicate.SGE,
+                LLVMIntPredicate.SGT => LLVMIntPredicate.SLE, LLVMIntPredicate.SLE => LLVMIntPredicate.SGT,
+                LLVMIntPredicate.UGE => LLVMIntPredicate.ULT, LLVMIntPredicate.ULT => LLVMIntPredicate.UGE,
+                LLVMIntPredicate.UGT => LLVMIntPredicate.ULE, _ => LLVMIntPredicate.UGT, // ULE
+            };
         var lRef = l.Kind is IlKind.Ref or IlKind.ByRef or IlKind.Pointer;
         var rRef = r.Kind is IlKind.Ref or IlKind.ByRef or IlKind.Pointer;
         if (lRef && rRef) return _b.ICmp(predicate, l.Value, r.Value);
