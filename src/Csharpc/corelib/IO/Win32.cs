@@ -153,33 +153,45 @@ namespace CsharpcCoreLib
         }
 
         // ---- stat ------------------------------------------------------------------------------
-        // csharpc's own layout: mode @0 (int), size @8, mtime seconds @16, nanoseconds @24.
-        public const int StatSize = 32;
+        // csharpc's own layout: mode @0 (int), size @8, mtime seconds @16, nanoseconds @24, creation time
+        // seconds @32, nanoseconds @40.
+        public const int StatSize = 48;
         public static int Mode(byte* st) => *(int*)st;
         public static long Size(byte* st) => *(long*)(st + 8);
         public static long MTimeSeconds(byte* st) => *(long*)(st + 16);
         public static long MTimeNanoseconds(byte* st) => *(long*)(st + 24);
+        public static void CreationTime(byte* st, out long seconds, out long nanoseconds)
+        {
+            seconds = *(long*)(st + 32);
+            nanoseconds = *(long*)(st + 40);
+        }
 
         private const long FileTimeUnixEpoch = 116444736000000000L;
 
-        private static void Fill(byte* st, uint attributes, long size, long writeTime, bool followLinks)
+        private static void StoreFileTime(byte* at, long fileTime)
+        {
+            long unix = fileTime - FileTimeUnixEpoch;
+            long seconds = unix / 10000000, rest = unix % 10000000;
+            if (rest < 0) { seconds--; rest += 10000000; }
+            *(long*)at = seconds;
+            *(long*)(at + 8) = rest * 100;
+        }
+
+        private static void Fill(byte* st, uint attributes, long size, long writeTime, long creationTime, bool followLinks)
         {
             *(int*)st = (attributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0 && !followLinks ? S_IFLNK
                 : (attributes & FILE_ATTRIBUTE_DIRECTORY) != 0 ? S_IFDIR : S_IFREG;
             *(long*)(st + 8) = size;
-            long unix = writeTime - FileTimeUnixEpoch;
-            long seconds = unix / 10000000, rest = unix % 10000000;
-            if (rest < 0) { seconds--; rest += 10000000; }
-            *(long*)(st + 16) = seconds;
-            *(long*)(st + 24) = rest * 100;
+            StoreFileTime(st + 16, writeTime);
+            StoreFileTime(st + 32, creationTime);
         }
 
         private static int StatPath(byte* path, byte* st, bool followLinks)
         {
-            // WIN32_FILE_ATTRIBUTE_DATA: attributes @0, last write time @20, size high @28 / low @32.
+            // WIN32_FILE_ATTRIBUTE_DATA: attributes @0, creation time @4, last write time @20, size high @28 / low @32.
             byte* data = stackalloc byte[40];
             if (GetFileAttributesExW(Str(path), 0 /* GetFileExInfoStandard */, data) == 0) return Fail();
-            Fill(st, *(uint*)data, ((long)*(uint*)(data + 28) << 32) | *(uint*)(data + 32), *(long*)(data + 20), followLinks);
+            Fill(st, *(uint*)data, ((long)*(uint*)(data + 28) << 32) | *(uint*)(data + 32), *(long*)(data + 20), *(long*)(data + 4), followLinks);
             return 0;
         }
 
@@ -188,10 +200,10 @@ namespace CsharpcCoreLib
 
         public static int fstat(int fd, byte* buffer)
         {
-            // BY_HANDLE_FILE_INFORMATION: attributes @0, last write time @20, size high @32 / low @36.
+            // BY_HANDLE_FILE_INFORMATION: attributes @0, creation time @4, last write time @20, size high @32 / low @36.
             byte* info = stackalloc byte[56];
             if (GetFileInformationByHandle(_get_osfhandle(fd), info) == 0) return Fail();
-            Fill(buffer, *(uint*)info, ((long)*(uint*)(info + 32) << 32) | *(uint*)(info + 36), *(long*)(info + 20), true);
+            Fill(buffer, *(uint*)info, ((long)*(uint*)(info + 32) << 32) | *(uint*)(info + 36), *(long*)(info + 20), *(long*)(info + 4), true);
             return 0;
         }
 
