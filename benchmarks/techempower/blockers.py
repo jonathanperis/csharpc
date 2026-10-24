@@ -41,7 +41,7 @@ def main():
         print("|---:|---:|---|---|")
         ranked = sorted(methods.items(), key=lambda kv: (-len(kv[1]), kv[0][1]))
         for n, ((kind, key), ms) in enumerate(ranked, 1):
-            where = ", ".join(f"{a} {c}" for a, c in assemblies[(kind, key)].most_common(3))
+            where = ", ".join(f"{a or '(program or corelib)'} {c}" for a, c in assemblies[(kind, key)].most_common(3))
             label = key if kind == "member" else f"{kind}: {key}"
             print(f"| {n} | {len(ms)} | `{label.replace('|', '¦')}` | {where} |")
     if other:

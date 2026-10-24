@@ -167,7 +167,8 @@ fi
   echo "| TechEmpower checks | $(cell aot verify) | $(cell csharpc verify)${ROW[csharpc,same]:+ (${ROW[csharpc,same]})} | $(cell jit verify) |"
   for s in "${SCENARIOS[@]}"; do
     IFS='|' read -r name path c depth <<< "$s"
-    fmt() { local v="${ROW[$1,$name,$c]:-}"; [[ -z "$v" ]] && { echo "—"; return; }; IFS='|' read -r rps avg p99 <<< "$v"; echo "$rps req/s · $avg avg · $p99 p99"; }
+    # wrk measures no per-request latency for pipelined requests (it reports 0.00us): n/a there.
+    fmt() { local v="${ROW[$1,$name,$c]:-}"; [[ -z "$v" ]] && { echo "—"; return; }; IFS='|' read -r rps avg p99 <<< "$v"; [[ $depth -gt 1 ]] && avg="n/a" p99="n/a"; echo "$rps req/s · $avg avg · $p99 p99"; }
     echo "| $name, $c connections$([[ $depth -gt 1 ]] && echo ", pipeline $depth") | $(fmt aot) | $(fmt csharpc) | $(fmt jit) |"
   done
   kib() { local v="${ROW[$1,$2]:-}"; [[ -z "$v" || "$v" == "?" ]] && { echo "—"; return; }; awk -v k="$v" 'BEGIN {printf "%.1f MiB", k / 1024}'; }
