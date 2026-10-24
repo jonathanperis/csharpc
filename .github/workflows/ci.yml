@@ -68,7 +68,7 @@ jobs:
           echo "SDKROOT=$(xcrun --sdk macosx --show-sdk-path)" >> "$GITHUB_ENV"
 
       # LLVM-MinGW: clang (the runtime compiler and linker driver), lld, compiler-rt, libunwind,
-      # winpthreads and the UCRT import libraries, plus libLLVM-18.dll for the compiler itself (the
+      # and the UCRT import libraries, plus libLLVM-18.dll for the compiler itself (the
       # same LLVM 18, so the runtime's LTO bitcode matches). Pinned release and checksum.
       - name: Install LLVM-MinGW (Windows)
         if: matrix.os == 'windows'

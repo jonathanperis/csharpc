@@ -47,7 +47,7 @@
 #include "csrt.h"
 
 #include <errno.h>
-#include <pthread.h>
+#include "csrt_pthread.h"
 #if defined(_WIN32)
 #include <windows.h>
 #include <io.h>

@@ -22,8 +22,10 @@
 #define _GNU_SOURCE
 #include "csrt.h"
 
-#include <pthread.h>
+#include "csrt_pthread.h"
+#ifndef _WIN32
 #include <sched.h>
+#endif
 #include <stdatomic.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -506,8 +508,8 @@ static int64_t s_ntimers;
 
 static void init_tcond(void) {
 #if defined(__APPLE__) || defined(_WIN32)
-    // macOS has no pthread_condattr_setclock, and winpthreads' absolute timeouts are wall-clock:
-    // timer_loop waits with a relative timeout there.
+    // macOS and csrt_pthread.h (Windows) have no pthread_condattr_setclock (absolute timeouts are
+    // wall-clock): timer_loop waits with a relative timeout there.
     pthread_cond_init(&s_tcond, NULL);
 #else
     pthread_condattr_t attr;

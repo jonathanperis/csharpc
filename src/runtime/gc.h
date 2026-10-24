@@ -2,7 +2,7 @@
 #ifndef CSRT_GC_H
 #define CSRT_GC_H
 
-#include <pthread.h>
+#include "csrt_pthread.h"
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>

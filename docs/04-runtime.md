@@ -147,9 +147,10 @@ How the two sides call each other:
 ## Platforms
 
 csrt is C11 + POSIX threads. What differs per OS is behind `#ifdef __APPLE__`, `#ifdef _WIN32` and
-`#ifdef __wasi__` (Windows: MinGW-w64 with the UCRT; winpthreads provides the pthread API, so the
-threading code is shared. WASI: wasi-libc, one thread; `wasi.c` implements the pthread subset csrt
-uses):
+`#ifdef __wasi__` (Windows: MinGW-w64 with the UCRT; `csrt_pthread.h` + `win32.c` implement the
+pthread subset csrt uses over SRW locks, condition variables and `_beginthreadex`, instead of linking
+winpthreads, so the threading code is shared. WASI: wasi-libc, one thread; `wasi.c` implements the
+pthread subset csrt uses):
 
 | Concern | Linux (glibc) | macOS (arm64) | Windows (x64, MinGW-w64) | WASI (wasm32, wasi-libc) |
 |---|---|---|---|---|
@@ -158,7 +159,7 @@ uses):
 | GC heap chunks | `mmap` + trim to alignment | the same | `VirtualAlloc`: reserve twice the size, release, map at the aligned address | `aligned_alloc` (linear memory only grows) |
 | thread stack bounds | `__libc_stack_end`, `pthread_getattr_np` | `pthread_get_stackaddr_np` | `GetCurrentThreadStackLimits` | the linear-memory stack, up to `__stack_high`; values in wasm locals are spilled there by the compiler (RootSpilling) |
 | stop-the-world | `SIGPWR`/`SIGXCPU`, POSIX semaphore acks | `SIGUSR1`/`SIGXCPU`, Mach semaphore acks (no unnamed POSIX semaphores) | `SuspendThread` + `GetThreadContext` (waits until the thread is stopped; the whole `CONTEXT`, vector registers included, is scanned as roots), `ResumeThread` | not needed (one thread) |
-| timed waits | `CLOCK_MONOTONIC` condvar, `pthread_mutex_timedlock` | `pthread_cond_timedwait_relative_np`, trylock polling | `pthread_cond_timedwait_relative_np` (winpthreads' absolute timeouts are wall-clock) | sleep until the deadline; a wait nothing can end is reported as a deadlock |
+| timed waits | `CLOCK_MONOTONIC` condvar, `pthread_mutex_timedlock` | `pthread_cond_timedwait_relative_np`, trylock polling | `pthread_cond_timedwait_relative_np` (`SleepConditionVariableSRW` takes a relative timeout; absolute ones are wall-clock), trylock polling | sleep until the deadline; a wait nothing can end is reported as a deadlock |
 | unwinding | libgcc_s / `.eh_frame` | libSystem's libunwind, compact unwind + `__eh_frame`; same personality (`csrt_personality`) | LLVM-MinGW's libunwind on SEH tables (`.pdata`/`.xdata`): LLVM registers `csrt_personality` as each function's SEH handler, and on Windows it forwards to `_GCC_specific_handler` with the Itanium personality, as libstdc++'s `__gxx_personality_seh0` does | none: explicit propagation through `csrt_pending_exception` (ExceptionLowering) |
 | unhandled exception | `abort()`: SIGABRT, exit status 134 | the same | `TerminateProcess` with .NET's exit code `0xE0434352`, or `0xC0000005` for a `NullReferenceException` from a null dereference (.NET re-raises the access violation) | `abort()` traps; wasmtime exits with status 134 |
 | standard streams | as is | as is | binary mode: "\r\n" is written where .NET writes `Environment.NewLine`, a program's own "\n" stays bare | as is |

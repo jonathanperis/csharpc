@@ -18,7 +18,14 @@ public sealed class Toolchain(CompilerOptions options, Csharpc.Llvm.TargetMachin
 
     private string[] RuntimeCFlags => target.IsWasm
         ? [.. WasmRuntimeCFlags, .. Hardening.RuntimeCFlags(options.Hardening, target)]
-        : [.. BaseRuntimeCFlags, .. SysrootFlags, .. Hardening.RuntimeCFlags(options.Hardening, target), .. SanitizerFlags];
+        : [.. BaseRuntimeCFlags, .. SysrootFlags, .. (target.IsWindows ? WindowsRuntimeCFlags : []), .. Hardening.RuntimeCFlags(options.Hardening, target), .. SanitizerFlags];
+
+    /// <summary>
+    /// Windows: the UCRT's own printf family. _GNU_SOURCE/_POSIX_C_SOURCE would otherwise select
+    /// MinGW's C99 replacement (__mingw_vfprintf: ~20 KB of pformat and gdtoa in every executable);
+    /// the runtime only formats strings and integers, which the UCRT does the same way.
+    /// </summary>
+    private static readonly string[] WindowsRuntimeCFlags = ["-D__USE_MINGW_ANSI_STDIO=0"];
 
     /// <summary>wasm32: nothing unwinds (ExceptionLowering), executables are static (no -fPIC).</summary>
     private static readonly string[] WasmRuntimeCFlags = ["-O2", "-std=c11", "-ffp-contract=off"];
@@ -148,10 +155,12 @@ public sealed class Toolchain(CompilerOptions options, Csharpc.Llvm.TargetMachin
 
     /// <summary>
     /// PE/COFF counterparts of <see cref="LinkFlags"/>, for the MinGW-w64 toolchain (LLVM-MinGW: clang,
-    /// lld, compiler-rt, libunwind, winpthreads, the UCRT). Everything but system DLLs is linked
-    /// statically (-static: libunwind and winpthreads), so the executable runs without LLVM-MinGW's DLLs;
-    /// the UCRT ships with Windows 10 and later. The runtime and libraries are named explicitly so a
-    /// plain clang (not LLVM-MinGW's target wrapper) links the same way.
+    /// lld, compiler-rt, libunwind, the UCRT). Everything but system DLLs is linked statically
+    /// (-static: libunwind), so the executable runs without LLVM-MinGW's DLLs; the UCRT ships with
+    /// Windows 10 and later. The runtime and libraries are named explicitly so a plain clang (not
+    /// LLVM-MinGW's target wrapper) links the same way. No -pthread: the runtime implements the
+    /// pthread subset it uses over Win32 (src/runtime/csrt_pthread.h), so winpthreads (~40 KB) is
+    /// not linked, and a new use of a pthread function fails to link instead of pulling it back in.
     /// </summary>
     private IEnumerable<string> WindowsLinkFlags()
     {
@@ -159,7 +168,6 @@ public sealed class Toolchain(CompilerOptions options, Csharpc.Llvm.TargetMachin
         yield return "-rtlib=compiler-rt";
         yield return "-unwindlib=libunwind";
         yield return "-static";
-        yield return "-pthread";
         yield return "-Wl,--gc-sections";
         yield return "-Wl,--icf=safe";
         // CoTaskMemAlloc/CoTaskMemFree: P/Invoke string returns and Marshal.*CoTaskMem*, as in .NET.

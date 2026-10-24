@@ -10,8 +10,10 @@
 #include "gc.h"
 
 #include <errno.h>
-#include <pthread.h>
+#include "csrt_pthread.h"
+#ifndef _WIN32
 #include <sched.h>
+#endif
 #include <stdatomic.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -62,8 +64,9 @@ static void deadline_after(struct timespec* ts, int64_t ms) {
     if (ts->tv_nsec >= 1000000000) { ts->tv_sec++; ts->tv_nsec -= 1000000000; }
 }
 
-#ifdef __APPLE__
-/// macOS has no pthread_mutex_timedlock: poll trylock until the (CLOCK_REALTIME) deadline.
+#if defined(__APPLE__) || defined(_WIN32)
+/// macOS has no pthread_mutex_timedlock (and SRW locks on Windows no timed acquire): poll trylock
+/// until the (CLOCK_REALTIME) deadline.
 static int pthread_mutex_timedlock(pthread_mutex_t* mutex, const struct timespec* deadline) {
     for (;;) {
         int rc = pthread_mutex_trylock(mutex);
