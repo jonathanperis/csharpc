@@ -73,7 +73,8 @@ if wants csharpc; then
   "$DOTNET" build "$ROOT/src/Csharpc" -c Release -v quiet -nologo > "$OUT/csharpc-compiler.build.log" 2>&1 || { echo "compiler build failed" >&2; tail -30 "$OUT/csharpc-compiler.build.log"; exit 1; }
   t0=$(date +%s%N)
   # shellcheck disable=SC2086
-  if "$DOTNET" "$ROOT/src/Csharpc/bin/Release/net11.0/csharpc.dll" "$APP" -c Release $CSHARPC_FLAGS -o "$WORK/csharpc/TechEmpower" > "$OUT/csharpc.build.log" 2>&1; then
+  # -v: the framework assemblies taken from IL and the time and memory of each phase go to the log.
+  if "$DOTNET" "$ROOT/src/Csharpc/bin/Release/net11.0/csharpc.dll" "$APP" -c Release $CSHARPC_FLAGS -v -o "$WORK/csharpc/TechEmpower" > "$OUT/csharpc.build.log" 2>&1; then
     BIN[csharpc]="$WORK/csharpc/TechEmpower"; STATUS[csharpc]="built in $(( ($(date +%s%N) - t0) / 1000000000 )) s"
   else
     STATUS[csharpc]="does not compile yet"

@@ -7,7 +7,8 @@
 #   tools/il-survey/aspnetcore.sh [--shards N --shard-index I] [--out FILE] [other survey.py options]
 #
 # The assemblies are the ones csharpc compiles from the shared frameworks' IL for the app (`csharpc -v`
-# prints the choice), minus the Windows-only servers (IIS, HTTP.sys), which no Linux build reaches.
+# prints the choice), minus the Windows-only servers (IIS, HTTP.sys), which no Linux build reaches, and
+# System.Net.Requests (WebRequest).
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 CSHARPC="${CSHARPC:-$ROOT/src/Csharpc/bin/Release/net11.0/csharpc.dll}"
@@ -25,7 +26,8 @@ dlls=() surveyed=()
 for name in "${names[@]}"; do
   if [[ -f "$aspnet/$name.dll" ]]; then dlls+=("$aspnet/$name.dll"); else dlls+=("$netcore/$name.dll"); fi
   case "$name" in
-    Microsoft.AspNetCore.Server.IIS*|Microsoft.AspNetCore.Server.HttpSys) ;;
+    # Windows-only servers, and the obsolete WebRequest stack (SYSLIB0014) nothing in ASP.NET Core calls.
+    Microsoft.AspNetCore.Server.IIS*|Microsoft.AspNetCore.Server.HttpSys|System.Net.Requests) ;;
     Microsoft.AspNetCore.*|Microsoft.Extensions.*|Microsoft.Net.Http.Headers|System.IO.Pipelines|System.Net.*) surveyed+=("$name") ;;
   esac
 done
