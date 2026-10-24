@@ -573,6 +573,40 @@ static void* own_stack_bottom(void) {
 }
 #endif
 
+/// Lowest usable address of the calling thread's stack (0 if unknown).
+static uintptr_t own_stack_limit(void) {
+#if defined(_WIN32)
+    ULONG_PTR low = 0, high = 0;
+    GetCurrentThreadStackLimits(&low, &high);
+    return (uintptr_t)low;
+#elif defined(__APPLE__)
+    pthread_t self = pthread_self();
+    return (uintptr_t)pthread_get_stackaddr_np(self) - pthread_get_stacksize_np(self);
+#elif defined(__wasi__)
+    return 0;  // one fixed stack the engine bounds itself
+#else
+    pthread_attr_t attr;
+    void* stack_addr = NULL;
+    size_t stack_size = 0;
+    if (pthread_getattr_np(pthread_self(), &attr) == 0) {
+        pthread_attr_getstack(&attr, &stack_addr, &stack_size);
+        pthread_attr_destroy(&attr);
+    }
+    return (uintptr_t)stack_addr;
+#endif
+}
+
+/// Bytes of stack left below the caller (SIZE_MAX if the limit is unknown): RuntimeHelpers.
+/// TryEnsureSufficientExecutionStack compares it with .NET's minimum (128 KiB on 64-bit targets).
+size_t csrt_stack_remaining(void) {
+    static _Thread_local uintptr_t limit;
+    static _Thread_local bool known;
+    if (!known) { limit = own_stack_limit(); known = true; }
+    uintptr_t here = (uintptr_t)__builtin_frame_address(0);
+    if (!limit) return SIZE_MAX;
+    return here > limit ? here - limit : 0;
+}
+
 void csrt_gc_init(void) {
     if (g.initialized) return;
     g.initialized = true;

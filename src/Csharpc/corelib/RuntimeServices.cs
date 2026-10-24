@@ -321,4 +321,46 @@ namespace CsharpcCoreLib
             return true;
         }
     }
+
+    // What NativeAOT answers: no code is generated at run time, so Microsoft.Extensions.DependencyInjection,
+    // System.Linq.Expressions and ASP.NET Core take their reflection-free paths.
+    [ShadowMembers("System.Runtime.CompilerServices.RuntimeFeature")]
+    internal static class RuntimeFeatureMembers
+    {
+        public static bool IsDynamicCodeSupported => false;
+        public static bool IsDynamicCodeCompiled => false;
+    }
+
+    [ShadowMembers("System.Runtime.CompilerServices.RuntimeHelpers")]
+    internal static unsafe class RuntimeHelpersMembers
+    {
+        [DllImport("__Internal")] private static extern nuint csrt_stack_remaining();
+
+        // .NET's minimum for "sufficient": 128 KiB on 64-bit targets, 64 KiB on 32-bit ones.
+        private static nuint MinimumStack => (nuint)(IntPtr.Size == 8 ? 128 * 1024 : 64 * 1024);
+
+        public static bool TryEnsureSufficientExecutionStack() => csrt_stack_remaining() >= MinimumStack;
+
+        public static void EnsureSufficientExecutionStack()
+        {
+            if (csrt_stack_remaining() < MinimumStack)
+                throw new InsufficientExecutionStackException("Insufficient stack to continue executing the program safely. This can happen from having too many functions on the call stack or function on the stack using too much stack space.");
+        }
+    }
+
+    /// <summary>Without a managed debugger (gdb and lldb aren't one), as .NET reports it.</summary>
+    [ShadowMembers("System.Diagnostics.Debugger")]
+    internal static class DebuggerMembers
+    {
+        public static bool IsAttached => false;
+        public static bool IsLogging() => false;
+        public static void Log(int level, string category, string message) { }
+    }
+
+    [Shadows("System.Threading.Timeout")]
+    public static class TimeoutImpl
+    {
+        public const int Infinite = -1;
+        public static readonly TimeSpan InfiniteTimeSpan = new TimeSpan(0, 0, 0, 0, Infinite);
+    }
 }

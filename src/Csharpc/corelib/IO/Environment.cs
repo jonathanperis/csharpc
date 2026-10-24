@@ -126,6 +126,65 @@ namespace CsharpcCoreLib
 #endif
 #endif
 
+        private static string s_processPath;
+
+        /// <summary>The executable's full path, as .NET reads it: /proc/self/exe on Linux, _NSGetExecutablePath on
+        /// macOS (with symbolic links resolved), GetModuleFileNameW on Windows; null where there is none (WASI).</summary>
+        public static string ProcessPath => s_processPath ??= ReadProcessPath();
+
+#if CSHARPC_TARGET_WINDOWS
+        [DllImport("kernel32")] private static extern uint GetModuleFileNameW(IntPtr module, char* buffer, uint size);
+
+        private static string ReadProcessPath()
+        {
+            for (uint size = 260; ; size *= 2)
+            {
+                char[] buffer = new char[size];
+                uint n;
+                fixed (char* p = buffer) n = GetModuleFileNameW(IntPtr.Zero, p, size);
+                if (n == 0) return null;
+                if (n < size) return new string(buffer, 0, (int)n);
+            }
+        }
+#elif CSHARPC_TARGET_WASI
+        private static string ReadProcessPath() => null;
+#elif CSHARPC_TARGET_MACOS
+        [DllImport("libc")] private static extern int _NSGetExecutablePath(byte* buffer, uint* size);
+        [DllImport("libc")] private static extern byte* realpath(byte* path, byte* resolved);
+
+        private static string ReadProcessPath()
+        {
+            uint size = 1024;
+            byte* buffer = stackalloc byte[1024];
+            if (_NSGetExecutablePath(buffer, &size) != 0) return null;
+            byte* resolved = realpath(buffer, null);
+            if (resolved == null) return Utf8.FromNative(buffer);
+            string path = Utf8.FromNative(resolved);
+            Libc.free(resolved);
+            return path;
+        }
+#else
+        [DllImport("libc")] private static extern nint readlink(byte* path, byte* buffer, nuint size);
+
+        private static string ReadProcessPath()
+        {
+            byte* link = Utf8.ToNative("/proc/self/exe");
+            try
+            {
+                for (int size = 256; size <= 65536; size *= 2)
+                {
+                    byte[] buffer = new byte[size];
+                    nint n;
+                    fixed (byte* p = buffer) n = readlink(link, p, (nuint)size);
+                    if (n < 0) return null;
+                    if (n < size) return System.Text.Encoding.UTF8.GetString(buffer, 0, (int)n);
+                }
+                return null;
+            }
+            finally { Libc.free(link); }
+        }
+#endif
+
         public static string CurrentDirectory
         {
             get => DirectoryImpl.GetCurrentDirectory();
