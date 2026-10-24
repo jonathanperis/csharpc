@@ -71,9 +71,12 @@ instead of becoming ordinal, so sorting agrees with .NET on Linux, which the tes
 `DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=1` (or `true`) at run time, or the project property
 `<InvariantGlobalization>true</InvariantGlobalization>` (also `#:property InvariantGlobalization=true` in a
 file-based app) at compile time, select invariant mode exactly like .NET: no ICU, every culture behaves
-like the invariant culture, comparisons are ordinal. There is no `runtimeconfig.json`: the project
-setting is compiled into the program (corelib define `CSHARPC_INVARIANT_GLOBALIZATION`), and the
-environment variable still overrides it, as in .NET. `PredefinedCulturesOnly` works the same way
+like the invariant culture, comparisons are ordinal. The lookup order is .NET's
+(`AppContextConfigHelper.GetBooleanConfig`): the environment variable, then the
+`System.Globalization.Invariant` switch of the runtimeconfig (the project's RuntimeHostConfigurationOption
+items, compiled into the program, or `AppContext.SetSwitch` before the first culture use), then the
+project property, also compiled in (corelib define `CSHARPC_INVARIANT_GLOBALIZATION`, which covers
+file-based apps' `#:property`). `PredefinedCulturesOnly` works the same way
 (`DOTNET_SYSTEM_GLOBALIZATION_PREDEFINED_CULTURES_ONLY`).
 
 Without ICU and without invariant mode, the program stops with .NET's message ("Couldn't find a valid
@@ -87,24 +90,30 @@ Measured on Linux x86-64, `-O2`, stripped, ICU 74:
 | Program | Before (invariant-only corelib) | With globalization |
 |---|---:|---:|
 | `Console.WriteLine("Hello, World!")` | 28,440 B | 28,440 B |
-| prints a `double`, an `int` and `{d:N2}` | 36,792 B | 283,384 B |
-| formats a `DateTime` and compares strings | 43,984 B | 365,096 B |
+| prints a `double`, an `int` and `{d:N2}` | 36,792 B | 237,032 B |
+| formats a `DateTime` and compares strings | 43,984 B | 373,496 B |
 
 A program that formats anything culture-sensitively links the culture model once (`CultureInfo` /
 `CultureData`, `NumberFormatInfo`, the ICU shim); dates add `DateTimeFormatInfo`, the calendars and
-the date formatter. Two mechanisms keep the rest out: vtable pruning (`ModuleCodeGen.VTables.cs`)
-links only virtual methods that some call site dispatches to (so `CompareInfo`, `TextInfo` and calendar
-methods a program never uses are not compiled), and composite formatting reaches the date formatter
-through the runtime (`csrt_format_boxed_ticks`), whose C# implementation is exported only when the
-program boxes a `DateTime` or `TimeSpan`.
+the date formatter. Three mechanisms keep the rest out:
 
-Startup (average of 50 runs, same machine): hello world 2.2 ms before and after; the two culture
-programs 2.3 → 7.2 ms and 2.5 → 7.9 ms. The difference is loading ICU (`dlopen` of libicuuc/libicui18n,
+* vtable pruning (`ModuleCodeGen.VTables.cs`) links only virtual methods that some call site
+  dispatches to, so `CompareInfo`, `TextInfo` and calendar methods a program never uses are not compiled;
+* composite formatting reaches the date formatter through the runtime (`csrt_format_boxed_ticks`), and
+  `CultureInfo.GetFormat` reaches `DateTimeFormatInfo` the same way (`csrt_culture_format_dtfi`); their
+  C# implementations are runtime exports compiled only into programs that box a `DateTime`/`TimeSpan`
+  or use `DateTimeFormatInfo`;
+* arrays of numeric constants (the culture tables of `IcuLocaleData`) are initialized from a constant
+  table instead of one store per element.
+
+Startup (average of 50 runs, same machine): hello world 2 ms before and after; the two culture programs
+about 2.3 → 6.6 ms and 2.5 → 7.1 ms. The difference is loading ICU (`dlopen` of libicuuc/libicui18n,
 binding ~150 functions) and building the current culture's data on first use, as .NET does at startup.
 
-Compile time (`-O2`): hello world is unchanged (about 3 s); the number program takes about 12 s
-instead of 6 s, the date program about 15 s: lowering and optimizing the ported culture code is the
-main cost of this port, and a target for caching the corelib's lowered code.
+Compile time (`-O2`): hello world is unchanged (about 3 s); the number program takes about 10 s instead
+of 6 s (it lowers some 420 corelib methods of the culture model), the date program about 13 s. This is
+the main cost of the port (CI runs about 1.5-2 times longer) and a target for caching the corelib's
+lowered code.
 
 ## Tests
 

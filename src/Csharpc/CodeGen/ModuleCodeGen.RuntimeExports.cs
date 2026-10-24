@@ -21,7 +21,8 @@ public sealed partial class ModuleCodeGen
         var emitted = false;
         foreach (var (method, symbol, trigger) in _runtimeExports)
         {
-            var referenced = (_globals.ContainsKey(trigger) && !_registrationOnlyGlobals.Contains(trigger)) || !Module.GetFunction(trigger).IsNull;
+            var referenced = (_globals.ContainsKey(trigger) && !_registrationOnlyGlobals.Contains(trigger)) || !Module.GetFunction(trigger).IsNull
+                || (trigger.EndsWith("MTE", StringComparison.Ordinal) && !Native.LLVMGetNamedGlobal(Module.Ref, trigger).IsNull); // a class's method table
             if (!referenced || !_emittedExports.Add(symbol)) continue;
             var target = GetFunction(method);
             var wrapper = Module.AddFunction(symbol, target.Type);

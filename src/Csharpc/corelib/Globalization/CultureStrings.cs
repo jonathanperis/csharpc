@@ -26,6 +26,12 @@ namespace CsharpcCoreLib
             comparisonType == StringComparison.Ordinal || comparisonType == StringComparison.OrdinalIgnoreCase;
 
         /// <summary>The CompareInfo of a culture StringComparison (throws for unknown values, like .NET).</summary>
+        /// <summary>CultureInfo.GetFormat(typeof(DateTimeFormatInfo)), exported to the runtime only for programs that
+        /// use DateTimeFormatInfo (its method table is the trigger; see CultureInfo.GetFormat).</summary>
+        [RuntimeExport("csrt_culture_get_format_dtfi", "_CN14CsharpcCoreLib13Globalization18DateTimeFormatInfo2MTE")]
+        internal static object? GetFormatDateTimeFormat(CultureInfo culture, Type? formatType) =>
+            formatType == typeof(DateTimeFormatInfo) ? culture.DateTimeFormat : null;
+
         internal static CompareInfo CompareInfoFor(StringComparison comparisonType)
         {
             switch (comparisonType)

@@ -686,13 +686,16 @@ namespace CsharpcCoreLib.Globalization
             {
                 return NumberFormat;
             }
-            if (formatType == typeof(DateTimeFormatInfo))
-            {
-                return DateTimeFormat;
-            }
-
-            return null;
+            // csharpc: the DateTimeFormatInfo case goes through the runtime (csrt_culture_format_dtfi), whose
+            // C# implementation (CultureStrings.GetFormatDateTimeFormat) is exported only when the program uses DateTimeFormatInfo at all (its
+            // method table exists): number formatting dispatches IFormatProvider.GetFormat, and a direct
+            // DateTimeFormat reference here would compile the date and calendar model into every program.
+            IntPtr dtfi = GetFormatDateTimeFormat(CoreIntrinsics.ObjectToPointer(this), CoreIntrinsics.ObjectToPointer(formatType));
+            return dtfi != IntPtr.Zero ? CoreIntrinsics.PointerToObject(dtfi) : null;
         }
+
+        [System.Runtime.InteropServices.DllImport("__Internal", EntryPoint = "csrt_culture_format_dtfi")]
+        private static extern IntPtr GetFormatDateTimeFormat(IntPtr culture, IntPtr formatType);
 
         public virtual bool IsNeutralCulture => _cultureData.IsNeutralCulture;
 

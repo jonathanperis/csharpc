@@ -114,3 +114,6 @@ wasi 373_float_parse_rounding          no ICU on WASI (invariant globalization m
 wasi 374_char_formattable              no ICU on WASI (invariant globalization mode): the sample uses specific cultures
 wasi 375_index_from_end_ref_indexer    no ICU on WASI (invariant globalization mode): the sample uses specific cultures
 wasi 376_boxed_datetime_composite      no ICU on WASI (invariant globalization mode): the sample uses specific cultures
+macos 378_culture_getformat          live: culture data comes from the OS's ICU (libicucore / icu.dll), not Linux's ICU 74
+windows 378_culture_getformat          live: culture data comes from the OS's ICU (libicucore / icu.dll), not Linux's ICU 74
+wasi 378_culture_getformat             no ICU on WASI (invariant globalization mode): the sample uses specific cultures
