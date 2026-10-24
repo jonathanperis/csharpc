@@ -186,6 +186,18 @@ public sealed partial class FunctionCodeGen
     {
         if (_m.IsUserMethod(mapped) || (constrained is not null && _m.IsUserType(S(constrained)))) return null;
         var types = mapped.Parameters.Select(p => S(p.Type)).ToArray();
+        // IntPtr/UIntPtr's conversion operators (IL compiled before nint, or against netstandard): their
+        // pointer overloads, and their integer ones are checked — (int)IntPtr throws OverflowException on
+        // 64-bit, (IntPtr)long on 32-bit; the widening ones can't fail.
+        var nativeIntOperator = mapped.ContainingType.SpecialType is SpecialType.System_IntPtr or SpecialType.System_UIntPtr
+            && mapped.Name is "op_Explicit" or "op_Implicit" && types.Length == 1;
+        if (nativeIntOperator && (IsBuiltinOperand(types[0]) || types[0] is IPointerTypeSymbol)
+            && S(mapped.ReturnType) is var target && (IsBuiltinOperand(target) || target is IPointerTypeSymbol))
+        {
+            var operand = IlTyped(args[0], method.Parameters[0].Type);
+            var bothIntegers = operand.Type.IsInteger && T.Value(target).IsInteger;
+            return IlPush(ConvertNumeric(operand, types[0], target, IlAt(), isChecked: bothIntegers), method.ReturnType);
+        }
         if (!types.All(IsBuiltinOperand)) return null;
         var values = method.Parameters.Select((p, i) => IlTyped(args[i], p.Type)).ToArray();
         var name = method.Name;

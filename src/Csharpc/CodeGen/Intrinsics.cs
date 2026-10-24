@@ -854,6 +854,18 @@ internal static class Intrinsics
     private static FrozenDictionary<string, ConstructorHandler> BuildConstructors()
     {
         Dictionary<string, ConstructorHandler> t = [];
+        // new IntPtr(int|long|void*) / new UIntPtr(uint|ulong|void*): the 64-bit value overloads are checked
+        // on 32-bit targets (OverflowException), as in .NET.
+        foreach (var (native, parameters) in new[] { ("nint", new[] { "int", "long", "void*" }), ("nuint", new[] { "uint", "ulong", "void*" }) })
+            foreach (var parameter in parameters)
+                t[$"{native}..ctor({parameter})"] = (g, c) =>
+                {
+                    var argument = c.Arguments[0];
+                    var from = g.S(argument.Parameter!.Type);
+                    var to = g.TypeOf(c)!;
+                    var value = g.EmitValue(argument.Value);
+                    return g.ConvertNumeric(value, from, to, c, isChecked: from is not IPointerTypeSymbol);
+                };
         t[$"{Tasks}.ValueTask<TResult>..ctor(TResult)"] = (g, c) =>
             g.CompletedTask(CtorArg(g, c, 0), ((INamedTypeSymbol)g.TypeOf(c)!).TypeArguments[0]);
         t[$"{Tasks}.ValueTask..ctor({Tasks}.Task)"] = (g, c) => CtorArg(g, c, 0);

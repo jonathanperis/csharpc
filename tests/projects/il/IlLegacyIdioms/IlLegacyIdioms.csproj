@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- IL as older compilers emit it (C# 9: IntPtr is not nint, so its conversions are operator calls),
+       as in libraries built for netstandard2.0. Built by tests/il.sh, consumed as a DLL. -->
+  <PropertyGroup>
+    <TargetFramework>net11.0</TargetFramework>
+    <LangVersion>9</LangVersion>
+    <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+</Project>
