@@ -45,7 +45,7 @@ public sealed partial class ModuleCodeGen
 
     /// <summary>Does <see cref="PrimitiveSlot"/> implement this member for boxed values of the primitive?</summary>
     internal static bool PrimitiveSlotSupported(ITypeSymbol primitive, INamedTypeSymbol itf, IMethodSymbol member) =>
-        primitive.SpecialType is >= SpecialType.System_Boolean and <= SpecialType.System_Double && primitive.SpecialType != SpecialType.System_Decimal
+        IsBoxedBuiltinValue(primitive)
         && (itf.Name, member.Name) switch
         {
             ("IComparable", "CompareTo") when !itf.IsGenericType => true,
@@ -53,6 +53,14 @@ public sealed partial class ModuleCodeGen
             ("IComparable", "CompareTo") or ("IEquatable", "Equals") => itf.IsGenericType && SymbolEqualityComparer.Default.Equals(itf.TypeArguments[0], primitive),
             _ => false,
         };
+
+    /// <summary>
+    /// Value types whose boxes have a runtime method table (csrt_Boxed_X_MT) that main registers for the
+    /// program's interfaces: the primitives, and decimal, DateTime and TimeSpan, which .NET boxes as
+    /// IFormattable/IComparable too (without the registration `o is IFormattable` was silently false).
+    /// </summary>
+    internal static bool IsBoxedBuiltinValue(ITypeSymbol type) =>
+        type.SpecialType is >= SpecialType.System_Boolean and <= SpecialType.System_Double || BclValueTypes.IsTicks(type);
 
     private LLVMValueRef PrimitiveSlot(ITypeSymbol primitive, INamedTypeSymbol itf, IMethodSymbol member)
     {
@@ -146,6 +154,9 @@ public sealed partial class FunctionCodeGen
                 CallCoreLib("Number", "FormatBoxedUnsigned", value.Type.IntWidth == 64 ? value : _b.Cast(LLVMOpcode.ZExt, value, L.I64), format, bits, provider),
             SpecialType.System_Double => CallCoreLib("Number", "FormatBoxedFloat", value, format, L.False, provider),
             SpecialType.System_Single => CallCoreLib("Number", "FormatBoxedFloat", _b.Cast(LLVMOpcode.FPExt, value, L.F64), format, L.True, provider),
+            SpecialType.System_Decimal => CallCoreLib("Number", "FormatBoxedDecimal", value, format, provider),
+            SpecialType.System_DateTime => CallCoreLib("DateTimeOps", "BoxedDateTimeFormatWith", value, format, provider),
+            _ when BclValueTypes.IsTimeSpan(primitive) => CallCoreLib("DateTimeOps", "BoxedTimeSpanFormatWith", value, format, provider),
             _ => FormatPrimitive(value, primitive) ?? CallRuntime("csrt_format_object", L.Ptr, [L.Ptr, L.Ptr], _fn.Fn.Param(0), format),
         });
         Finish();

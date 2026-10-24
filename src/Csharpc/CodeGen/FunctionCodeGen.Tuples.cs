@@ -84,6 +84,9 @@ public sealed partial class FunctionCodeGen
     {
         if (type.SpecialType == SpecialType.System_String)
             return CallRuntime("csrt_string_compare_culture", L.I32, [L.Ptr, L.Ptr, L.I1], x, y, L.False);
+        if (BclValueTypes.IsDecimal(type)) return CallRuntime("csrt_decimal_compare", L.I32, [L.Ptr, L.Ptr], Spill(x), Spill(y));
+        // DateTime orders by ticks alone (its Kind bits never take part), TimeSpan by ticks.
+        if (BclValueTypes.IsTicks(type)) (x, y) = (BclValueTypes.TicksOf(this, type, x), BclValueTypes.TicksOf(this, type, y));
         if (x.Type.IsInteger || x.Type.IsFloatingPoint)
         {
             LLVMValueRef lt, gt;

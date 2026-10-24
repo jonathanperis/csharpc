@@ -1305,6 +1305,10 @@ public sealed partial class ModuleCodeGen
         // corelib's runtime exports for that type (ModuleCodeGen.RuntimeExports.cs).
         var builtins = new List<(ITypeSymbol Type, string MT)> { (Compilation.GetSpecialType(SpecialType.System_String), "csrt_String_MT") };
         foreach (var sp in primitives) builtins.Add((Compilation.GetSpecialType(sp), $"csrt_Boxed_{Compilation.GetSpecialType(sp).MetadataName}_MT"));
+        // decimal, DateTime and TimeSpan boxes are runtime method tables too (decimal.c, datetime.c).
+        foreach (var t in new ITypeSymbol?[] { Compilation.GetSpecialType(SpecialType.System_Decimal),
+                     Compilation.GetSpecialType(SpecialType.System_DateTime), Compilation.GetTypeByMetadataName("System.TimeSpan") })
+            if (t is not null) builtins.Add((t, $"csrt_Boxed_{t.MetadataName}_MT"));
         foreach (var itf in _interfaceTables.Keys.ToList())
             foreach (var (builtinType, mtName) in builtins)
             {

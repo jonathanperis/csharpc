@@ -1212,6 +1212,9 @@ namespace CsharpcCoreLib
         internal static string FormatBoxedFloat(double value, string format, bool single, IFormatProvider provider) =>
             FormatDoubleWith(value, format != null && format.Length == 0 ? null : format, single, provider);
 
+        internal static string FormatBoxedDecimal(decimal value, string format, IFormatProvider provider) =>
+            FormatDecimalWith(value, format != null && format.Length == 0 ? null : format, provider);
+
         /// <summary>Formats any object with an optional format string (boxed numbers honour it).</summary>
         internal static string FormatObject(object value, string format) => FormatObjectWith(value, format, null);
 
