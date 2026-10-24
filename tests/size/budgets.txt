@@ -1,12 +1,13 @@
-# <platform> <program> <max bytes, stripped -O2>: measured size + ~3 %, rounded up to 1 KiB.
+# <platform> <program> <max bytes, stripped -O2>: measured size + max(4 KiB, 3 %), rounded up to 1 KiB.
+# File sizes move in whole pages (segments are page-aligned), so the headroom is at least one page.
 # Lower a budget when a change makes a program smaller; raising one needs a reason in the commit.
-linux-x86_64 async 59392
-linux-x86_64 collections 71680
-linux-x86_64 exceptions 29696
-linux-x86_64 hello 29696
-linux-x86_64 linq 67584
-linux-x86_64 numbers 38912
-linux-x86_64 typeinfo 48128
+linux-x86_64 async 61440
+linux-x86_64 collections 73728
+linux-x86_64 exceptions 32768
+linux-x86_64 hello 32768
+linux-x86_64 linq 69632
+linux-x86_64 numbers 41984
+linux-x86_64 typeinfo 51200
 linux-aarch64 async 143360
 linux-aarch64 collections 147456
 linux-aarch64 exceptions 139264
@@ -14,24 +15,24 @@ linux-aarch64 hello 139264
 linux-aarch64 linq 147456
 linux-aarch64 numbers 140288
 linux-aarch64 typeinfo 149504
-macos-arm64 async 90112
-macos-arm64 collections 89088
-macos-arm64 exceptions 71680
-macos-arm64 hello 54272
-macos-arm64 linq 89088
-macos-arm64 numbers 71680
-macos-arm64 typeinfo 71680
-wasi-wasm32 async 78848
-wasi-wasm32 collections 97280
-wasi-wasm32 exceptions 50176
-wasi-wasm32 hello 50176
-wasi-wasm32 linq 92160
-wasi-wasm32 numbers 62464
-wasi-wasm32 typeinfo 69632
+macos-arm64 async 92160
+macos-arm64 collections 91136
+macos-arm64 exceptions 73728
+macos-arm64 hello 57344
+macos-arm64 linq 90112
+macos-arm64 numbers 73728
+macos-arm64 typeinfo 73728
 windows-x86_64 async 140288
 windows-x86_64 collections 152576
-windows-x86_64 exceptions 114688
+windows-x86_64 exceptions 115712
 windows-x86_64 hello 109568
 windows-x86_64 linq 151552
-windows-x86_64 numbers 122880
+windows-x86_64 numbers 123904
 windows-x86_64 typeinfo 131072
+wasi-wasm32 async 79872
+wasi-wasm32 collections 98304
+wasi-wasm32 exceptions 53248
+wasi-wasm32 hello 52224
+wasi-wasm32 linq 93184
+wasi-wasm32 numbers 64512
+wasi-wasm32 typeinfo 71680
