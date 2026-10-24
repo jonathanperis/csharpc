@@ -93,6 +93,7 @@ public sealed class Toolchain(CompilerOptions options, Csharpc.Llvm.TargetMachin
         var cacheDir = CacheDir;
 
         List<string> outputs = [];
+        List<(string Source, string Output)> missing = [];
         // WASI has no dynamic loading, so no ICU: programs run in invariant globalization mode there and the
         // ICU shim isn't built (the corelib's Interop.Globalization has stubs for it).
         foreach (var source in files.Where(f => f.EndsWith(".c")
@@ -100,16 +101,23 @@ public sealed class Toolchain(CompilerOptions options, Csharpc.Llvm.TargetMachin
         {
             var output = Path.Combine(cacheDir, $"{Path.GetFileNameWithoutExtension(source)}-{hash}{(bitcode ? ".bc" : ".o")}");
             outputs.Add(output);
-            if (File.Exists(output)) continue;
-            var tmp = output + "." + Environment.ProcessId + ".tmp";
-            string[] mode = bitcode ? ["-emit-llvm", "-c"] : ["-c"];
-            // Ported .NET native code is built as .NET ships it: release, asserts off (they flag conditions
-            // the code then handles, such as ICU failing to open a string search).
-            string[] ported = Path.GetDirectoryName(source) != RuntimeDir.TrimEnd(Path.DirectorySeparatorChar) ? PortedCFlags : [];
-            Run(CC, [.. mode, .. RuntimeCFlags, .. ported, $"--target={triple}", source, "-o", tmp]);
-            File.Move(tmp, output, overwrite: true);
+            if (!File.Exists(output)) missing.Add((source, output));
         }
+        // A cache miss (first compile, or the runtime changed) compiles every file: one clang per thread.
+        try { Parallel.ForEach(missing, Parallelism.Options, file => CompileRuntimeFile(file.Source, file.Output, bitcode, triple)); }
+        catch (AggregateException e) { throw e.InnerExceptions[0]; }
         return [.. outputs];
+    }
+
+    private void CompileRuntimeFile(string source, string output, bool bitcode, string triple)
+    {
+        var tmp = output + "." + Environment.ProcessId + "." + Environment.CurrentManagedThreadId + ".tmp";
+        string[] mode = bitcode ? ["-emit-llvm", "-c"] : ["-c"];
+        // Ported .NET native code is built as .NET ships it: release, asserts off (they flag conditions
+        // the code then handles, such as ICU failing to open a string search).
+        string[] ported = Path.GetDirectoryName(source) != RuntimeDir.TrimEnd(Path.DirectorySeparatorChar) ? PortedCFlags : [];
+        Run(CC, [.. mode, .. RuntimeCFlags, .. ported, $"--target={triple}", source, "-o", tmp]);
+        File.Move(tmp, output, overwrite: true);
     }
 
     private static string CacheDir
