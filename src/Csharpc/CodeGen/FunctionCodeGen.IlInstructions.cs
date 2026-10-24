@@ -471,7 +471,7 @@ public sealed partial class FunctionCodeGen
             {
                 var elementType = ResolveIlType(instruction.Token);
                 var length = IlInt(Pop());
-                var length64 = length.Kind == IlKind.Int32 ? _b.Cast(LLVMOpcode.SExt, length.Value, L.I64) : length.Value;
+                var length64 = IlToI64(length, signed: true); // native int is 32-bit on wasm32
                 Push(new IlEntry(IlKind.Ref, NewArray(S(elementType), length64), _m.Compilation.CreateArrayTypeSymbol(elementType))
                 {
                     NonNull = true,
@@ -480,8 +480,13 @@ public sealed partial class FunctionCodeGen
                 return false;
             }
             case ILOpCode.Ldlen:
-                Push(new IlEntry(IlKind.NativeInt, ArrayLength(IlRef(Pop())), Special(SpecialType.System_UIntPtr)));
+            {
+                // A native int: the 64-bit length field narrowed on wasm32 (lengths are below 2^31).
+                var length = ArrayLength(IlRef(Pop()));
+                if (T.NativeInt.IntWidth < 64) length = _b.Cast(LLVMOpcode.Trunc, length, T.NativeInt);
+                Push(new IlEntry(IlKind.NativeInt, length, Special(SpecialType.System_UIntPtr)));
                 return false;
+            }
             case ILOpCode.Ldelema:
             {
                 var index = Pop();

@@ -84,7 +84,16 @@ public static partial class CoreLibAssembly
         {
             var dll = Path.Combine(cache, $"corelib-{key}.dll");
             var index = Path.ChangeExtension(dll, ".shadows");
-            return File.Exists(dll) && File.Exists(index) && ReadIndex(index) is { } read ? new Built(dll, read.Shadows, read.Exports) : null;
+            if (!File.Exists(dll) || !File.Exists(index) || ReadIndex(index) is not { } read) return null;
+            try
+            {
+                // Keeps RemoveStale from deleting an assembly in use.
+                var now = DateTime.UtcNow;
+                if (File.GetLastWriteTimeUtc(dll) < now.AddDays(-1))
+                    foreach (var file in (string[])[dll, index, stampFile]) if (File.Exists(file)) File.SetLastWriteTimeUtc(file, now);
+            }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
+            return new Built(dll, read.Shadows, read.Exports);
         }
 
         Built Build(string key) => Compile(Path.Combine(cache, $"corelib-{key}.dll"), files, texts, defines, references, log);
@@ -142,11 +151,40 @@ public static partial class CoreLibAssembly
         var suffix = $".{Environment.ProcessId}.tmp";
         File.WriteAllLines(index + suffix, [.. shadows.Select(s => $"{(s.MembersOnly ? "M" : "S")}\t{s.Real}\t{s.Shadow}"),
             .. exports.Select(e => $"E\t{e.Type}\t{e.Method}")]);
-        File.Move(index + suffix, index, overwrite: true);
+        Publish(index + suffix, index);
         File.WriteAllBytes(dll + suffix, pe.ToArray());
-        File.Move(dll + suffix, dll, overwrite: true);
+        Publish(dll + suffix, dll);
         log?.WriteLine($"  corelib: compiled to {dll} ({pe.Length / 1024} KiB, {System.Diagnostics.Stopwatch.GetElapsedTime(start).TotalSeconds:F1} s)");
+        RemoveStale(Path.GetDirectoryName(dll)!);
         return new Built(dll, shadows, exports);
+    }
+
+    /// <summary>
+    /// Moves a finished file into place. Concurrent compiles that missed the cache build the same bytes;
+    /// on Windows the destination can't be replaced while another compile reads it, so an existing one is kept.
+    /// </summary>
+    private static void Publish(string temporary, string destination)
+    {
+        try { File.Move(temporary, destination, overwrite: true); }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException && File.Exists(destination))
+        {
+            try { File.Delete(temporary); }
+            catch (Exception d) when (d is IOException or UnauthorizedAccessException) { }
+        }
+    }
+
+    /// <summary>
+    /// Corelib assemblies of earlier corelib versions are dead weight (1.3 MB each); the ones in use are
+    /// touched at most daily (Cached), so anything untouched for a month goes.
+    /// </summary>
+    private static void RemoveStale(string cache)
+    {
+        try
+        {
+            foreach (var file in Directory.EnumerateFiles(cache, "corelib-*"))
+                if (File.GetLastWriteTimeUtc(file) < DateTime.UtcNow.AddDays(-30)) File.Delete(file);
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
     }
 
     private static (List<ShadowDeclaration> Shadows, List<RuntimeExport> Exports)? ReadIndex(string path)
