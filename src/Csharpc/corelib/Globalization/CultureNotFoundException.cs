@@ -81,7 +81,9 @@ namespace CsharpcCoreLib.Globalization
 
         private string? FormattedInvalidCultureId =>
             InvalidCultureId != null ?
-                string.Format(CultureInfo.InvariantCulture, "{0} (0x{0:x4})", (int)InvalidCultureId) :
+                // csharpc: string.Format(CultureInfo.InvariantCulture, "{0} (0x{0:x4})", id) without composite
+                // formatting (which would link every boxed type's formatter into programs that create cultures)
+                string.Concat(((int)InvalidCultureId).ToString(CultureInfo.InvariantCulture), " (0x", ((int)InvalidCultureId).ToString("x4", CultureInfo.InvariantCulture), ")") :
                 InvalidCultureName;
 
         public override string Message

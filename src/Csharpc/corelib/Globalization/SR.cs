@@ -13,12 +13,41 @@ namespace CsharpcCoreLib.Globalization
     using System;
     internal static class SR
     {
-        public static string Format(string format, object? arg0) => string.Format(format, arg0);
-        public static string Format(string format, object? arg0, object? arg1) => string.Format(format, arg0, arg1);
-        public static string Format(string format, object? arg0, object? arg1, object? arg2) => string.Format(format, arg0, arg1, arg2);
-        public static string Format(IFormatProvider? provider, string format, object? arg0) => string.Format(provider, format, arg0);
-        public static string Format(IFormatProvider? provider, string format, object? arg0, object? arg1) => string.Format(provider, format, arg0, arg1);
-        public static string Format(IFormatProvider? provider, string format, object? arg0, object? arg1, object? arg2) => string.Format(provider, format, arg0, arg1, arg2);
+        // csharpc: the messages here only use "{n}" (and "{0:X4}" with an int), so they are filled in without
+        // string.Format: composite formatting reaches every boxed type's formatter (double, decimal, ...),
+        // which would be linked into every program that can throw one of these exceptions. "{n}" formats the
+        // argument like composite formatting does (ToString() of the value, with the current culture; null: "").
+        public static string Format(string format, object? arg0) => FormatMessage(format, arg0, null, null);
+        public static string Format(string format, object? arg0, object? arg1) => FormatMessage(format, arg0, arg1, null);
+        public static string Format(string format, object? arg0, object? arg1, object? arg2) => FormatMessage(format, arg0, arg1, arg2);
+
+        private static string FormatMessage(string format, object? arg0, object? arg1, object? arg2)
+        {
+            var sb = new System.Text.StringBuilder(format.Length + 16);
+            int i = 0;
+            while (i < format.Length)
+            {
+                char c = format[i];
+                int close;
+                if (c != '{' || (close = format.IndexOf('}', i)) < 0)
+                {
+                    sb.Append(c);
+                    i++;
+                    continue;
+                }
+                int index = format[i + 1] - '0';
+                object? arg = index == 0 ? arg0 : index == 1 ? arg1 : arg2;
+                if (format[i + 2] == ':' && arg is int number)
+                    sb.Append(number.ToString(format.Substring(i + 3, close - i - 3)));
+                else
+                    sb.Append(arg?.ToString());
+                i = close + 1;
+            }
+            return sb.ToString();
+        }
+        // (with a provider: the calendars' range messages, whose arguments are dates)
+        public static string Format(IFormatProvider? provider, string format, DateTime arg0, DateTime arg1) =>
+            FormatMessage(format, arg0.ToString(null, provider), arg1.ToString(null, provider), null);
 
         public const string Arg_ArrayZeroError = "Array must not be of length zero.";
         public const string Arg_BinaryStyleNotSupported = "The number style AllowBinarySpecifier is not supported on floating point data types.";
