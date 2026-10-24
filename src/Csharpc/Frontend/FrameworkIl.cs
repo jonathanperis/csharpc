@@ -273,6 +273,7 @@ public static partial class FrameworkIl
                     var top = m.Groups[1].Value.Split('+')[0];
                     known.Add(top.IndexOf('`') is var tick and >= 0 ? top[..tick] : top);
                 }
+        known.UnionWith(CodeGen.FunctionCodeGen.TypesLoweredByName);
         // Intrinsic keys are display strings ("System.Console.WriteLine(int)", "System.Array.Length"): every
         // dotted prefix before the parameter list may be a type.
         foreach (var key in CodeGen.Intrinsics.All.Concat(CodeGen.BclValueTypes.All))

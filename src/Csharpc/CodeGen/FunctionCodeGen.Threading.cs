@@ -12,6 +12,18 @@ public sealed partial class FunctionCodeGen
 {
     private static bool IsThreading(ITypeSymbol? type, string name) => IsLibraryClass(type, "System.Threading", name);
 
+    /// <summary>
+    /// Library types lowered here by name rather than through an intrinsic key or a corelib shadow:
+    /// Frontend.FrameworkIl must not compile their assemblies from IL instead.
+    /// </summary>
+    internal static readonly string[] TypesLoweredByName =
+    [
+        "System.Threading.Tasks.Parallel", "System.Threading.Thread", "System.Threading.Monitor", "System.Threading.Lock",
+        "System.Threading.Interlocked", "System.Threading.Volatile", "System.Threading.ManualResetEventSlim",
+        "System.Threading.ManualResetEvent", "System.Threading.AutoResetEvent", "System.Threading.SemaphoreSlim",
+        "System.Threading.CountdownEvent", "System.Threading.EventWaitHandle", "System.Threading.WaitHandle",
+    ];
+
     private LLVMValueRef TArg(IInvocationOperation inv, int ordinal)
     {
         var a = inv.Arguments.First(x => x.Parameter!.Ordinal == ordinal);

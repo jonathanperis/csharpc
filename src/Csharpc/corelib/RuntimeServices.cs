@@ -129,10 +129,11 @@ namespace CsharpcCoreLib
             return To(new GCHandleImpl(value));
         }
 
-        public static explicit operator GCHandle(IntPtr value) => FromIntPtr(value);
-        public static explicit operator IntPtr(GCHandle value) => ToIntPtr(value);
-        public static bool operator ==(GCHandle a, GCHandle b) => Of(a)._handle == Of(b)._handle;
-        public static bool operator !=(GCHandle a, GCHandle b) => Of(a)._handle != Of(b)._handle;
+        // Operators must be declared on the shadow's own type; they map to GCHandle's like every member.
+        public static explicit operator GCHandleImpl(IntPtr value) => Of(FromIntPtr(value));
+        public static explicit operator IntPtr(GCHandleImpl value) => value._handle;
+        public static bool operator ==(GCHandleImpl a, GCHandleImpl b) => a._handle == b._handle;
+        public static bool operator !=(GCHandleImpl a, GCHandleImpl b) => a._handle != b._handle;
 
         public override bool Equals(object o) => o is GCHandle other && _handle == Of(other)._handle;
         public bool Equals(GCHandle other) => _handle == Of(other)._handle;
