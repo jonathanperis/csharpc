@@ -1,7 +1,8 @@
 name: Compatibility
 
 # The real-world compatibility corpus (docs/18-compatibility.md, tools/compat/): ~320 pinned console
-# programs from dotnet/samples and dotnet/docs, each built and run under real .NET and under csharpc.
+# programs from dotnet/samples and dotnet/docs, each built and run under real .NET (JIT), published and
+# run with NativeAOT (the parity denominator), and compiled and run with csharpc.
 # Too heavy for every push (hours); run on demand and weekly. The summary lands in the job summary,
 # the per-program results as an artifact (copy results into tools/compat/results.tsv to publish them).
 on:
@@ -31,8 +32,8 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Install LLVM 18, clang and lld
-        run: sudo apt-get update && sudo apt-get install -y llvm-18 clang-18 libllvm18 lld-18 && sudo ln -sf /usr/bin/clang-18 /usr/local/bin/clang && sudo ln -sf /usr/bin/ld.lld-18 /usr/local/bin/ld.lld
+      - name: Install LLVM 18, clang and lld (and zlib, which NativeAOT links)
+        run: sudo apt-get update && sudo apt-get install -y llvm-18 clang-18 libllvm18 lld-18 zlib1g-dev && sudo ln -sf /usr/bin/clang-18 /usr/local/bin/clang && sudo ln -sf /usr/bin/ld.lld-18 /usr/local/bin/ld.lld
 
       - name: Install .NET 11 SDK
         run: |
@@ -44,7 +45,7 @@ jobs:
         run: |
           tools/compat/run.sh -j 4 --corpus "$RUNNER_TEMP/compat-corpus" --work "$RUNNER_TEMP/compat-work" ${{ github.event.inputs.filter }} | tail -60
           cat "$RUNNER_TEMP/compat-work/summary.md" >> "$GITHUB_STEP_SUMMARY"
-          # One results.tsv in the committed format (id, category, detail), sorted.
+          # One results.tsv in the committed format (run.sh header: id, category, detail, NativeAOT columns), sorted.
           cat "$RUNNER_TEMP"/compat-work/results/*.tsv | sort > results.tsv
           cp "$RUNNER_TEMP/compat-work/summary.md" summary.md
 
