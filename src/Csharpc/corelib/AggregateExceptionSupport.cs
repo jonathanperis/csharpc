@@ -42,5 +42,36 @@ namespace CsharpcCoreLib
         }
 
         public static Exception First(Exception[] innerExceptions) => innerExceptions.Length > 0 ? innerExceptions[0] : null;
+
+        [System.Runtime.InteropServices.DllImport("__Internal", EntryPoint = "csrt_exception_inner_count")]
+        private static extern int InnerCount(IntPtr exception);
+
+        [System.Runtime.InteropServices.DllImport("__Internal", EntryPoint = "csrt_exception_inner_at")]
+        private static extern IntPtr InnerAt(IntPtr exception, int index);
+
+        private static Exception[] Inners(Exception exception)
+        {
+            IntPtr self = CoreIntrinsics.ObjectToPointer(exception);
+            var inners = new Exception[InnerCount(self)];
+            for (int i = 0; i < inners.Length; i++) inners[i] = (Exception)CoreIntrinsics.PointerToObject(InnerAt(self, i));
+            return inners;
+        }
+
+        /// <summary>AggregateException.InnerExceptions: the exceptions it was created with, read-only.</summary>
+        public static System.Collections.ObjectModel.ReadOnlyCollection<Exception> InnerExceptions(Exception aggregate) =>
+            new System.Collections.ObjectModel.ReadOnlyCollection<Exception>(Inners(aggregate));
+
+        /// <summary>
+        /// AggregateException.Handle: the predicate sees every inner exception in order; those it doesn't handle
+        /// are rethrown in a new AggregateException with this one's Message.
+        /// </summary>
+        public static void Handle(Exception aggregate, Func<Exception, bool> predicate)
+        {
+            if (predicate == null) throw new ArgumentNullException("predicate");
+            List<Exception> unhandled = null;
+            foreach (Exception inner in Inners(aggregate))
+                if (!predicate(inner)) (unhandled ??= new List<Exception>()).Add(inner);
+            if (unhandled != null) throw new AggregateException(aggregate.Message, unhandled);
+        }
     }
 }

@@ -8,3 +8,15 @@ Faulted
 Canceled RanToCompletion RanToCompletion
 True WaitingForActivation
 RanToCompletion 6 7
+running: Running
+done: RanToCompletion
+running: Running
+done: RanToCompletion
+running: Running
+done: RanToCompletion
+queued: WaitingToRun
+continuation: WaitingForActivation
+inside: Running after: RanToCompletion continuation: Running
+unwrap pending: WaitingForActivation
+2 Canceled Canceled
+Faulted

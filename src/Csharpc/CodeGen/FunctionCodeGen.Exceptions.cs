@@ -471,6 +471,8 @@ public sealed partial class FunctionCodeGen
             message = _m.StringLiteral(text);
         var none = LlvmContext.Null(L.Ptr);
         CallRuntime("csrt_exception_init", L.Void, [L.Ptr, L.Ptr, L.Ptr, L.Ptr], exception, message ?? none, inner ?? none, paramName ?? none);
+        // AggregateException keeps every inner exception (InnerExceptions, ToString's "(Inner Exception #i)").
+        if (aggregate && inners is { } list) CallRuntime("csrt_exception_set_inners", L.Void, [L.Ptr, L.Ptr], exception, list);
         if (actualValue is { } actual) CallRuntime("csrt_exception_set_actual_value", L.Void, [L.Ptr, L.Ptr], exception, actual);
     }
 
@@ -495,6 +497,15 @@ public sealed partial class FunctionCodeGen
                 : VirtualCall(target, self, [self]);
             return true;
         }
+        // AggregateException.Handle(predicate): corelib/AggregateExceptionSupport.cs over its inner exceptions.
+        if (!target.IsStatic && target.Name == "Handle" && target.Parameters.Length == 1
+            && Mangler.MetadataName(target.ContainingType) == "System.AggregateException")
+        {
+            var self = EmitValue(inv.Instance!);
+            NullCheck(self);
+            CallCoreLib("AggregateExceptionSupport", "Handle", self, EmitValue(inv.Arguments[0].Value));
+            return true;
+        }
         return false;
     }
 
@@ -513,9 +524,15 @@ public sealed partial class FunctionCodeGen
             "FileName" when IsFileException(property.ContainingType) => ModuleCodeGen.ExceptionParamNameField,
             _ => null,
         };
-        if (field is null && property.Name is not ("Message" or "StackTrace")) return false;
+        var innerExceptions = property.Name == "InnerExceptions" && Mangler.MetadataName(property.ContainingType) == "System.AggregateException";
+        if (field is null && property.Name is not ("Message" or "StackTrace") && !innerExceptions) return false;
         var self = EmitValue(p.Instance!);
         NullCheck(self);
+        if (innerExceptions)
+        {
+            result = CallCoreLib("AggregateExceptionSupport", "InnerExceptions", self);
+            return true;
+        }
         if (property.Name == "StackTrace")
         {
             // Exceptions only carry frames when the program records them (ModuleCodeGen.StackTraces),
