@@ -182,16 +182,16 @@ measured process. For reference, a JIT `dotnet publish` of the same programs too
 
 Since [ADR 0014](../docs/adr/0014-compile-time.md) the default build of csharpc is ReadyToRun-compiled
 and a compilation uses several threads (Roslyn's CFGs ahead of lowering, machine code per module
-partition). Same shared 4-vCPU machine under a load average of ~10 from other jobs, before and after
+partition). Same shared 4-vCPU machine at a load average of ~5 from other jobs, before and after
 interleaved, `-j 2`, best of 2 (wall / CPU / peak RSS):
 
 | program | `-O0` before | `-O0` after | `-O2` before | `-O2` after |
 |---|---:|---:|---:|---:|
-| hello world | 3.4 s / 3.3 s / 201 MB | **1.9 s / 1.8 s** / 207 MB | 4.0 s / 3.5 s / 213 MB | **1.8 s / 1.9 s** / 219 MB |
-| double + DateTime formatting | 8.3 s / 8.1 s / 288 MB | **5.2 s / 5.6 s** / 269 MB | 14.3 s / 15.1 s / 311 MB | **10.2 s / 13.6 s** / 296 MB |
-| tests/programs/numbers | 7.8 s / 8.0 s / 274 MB | **4.6 s / 4.8 s** / 251 MB | 13.5 s / 14.8 s / 299 MB | **10.1 s / 12.6 s** / 291 MB |
-| tests/programs/interpreter | 8.0 s / 8.4 s / 284 MB | **4.7 s / 5.1 s** / 261 MB | 13.9 s / 15.3 s / 307 MB | **10.3 s / 13.2 s** / 294 MB |
-| IlMetadataApp (System.Reflection.Metadata from IL) | 11.2 s / 11.3 s / 339 MB | **7.8 s / 9.2 s** / 315 MB | 22.2 s / 23.9 s / 367 MB | **18.5 s / 22.6 s** / 370 MB |
+| hello world | 3.1 s / 3.1 s / 205 MB | **1.4 s / 1.6 s** / 202 MB | 3.5 s / 3.5 s / 217 MB | **1.8 s / 2.0 s** / 219 MB |
+| double + DateTime formatting | 5.3 s / 6.7 s / 261 MB | **3.2 s / 4.2 s** / 235 MB | 8.6 s / 9.9 s / 273 MB | **6.4 s / 7.7 s** / 257 MB |
+| tests/programs/numbers | 5.0 s / 5.9 s / 245 MB | **2.8 s / 3.7 s** / 238 MB | 7.8 s / 8.8 s / 258 MB | **5.2 s / 6.4 s** / 265 MB |
+| tests/programs/interpreter | 5.1 s / 6.4 s / 251 MB | **3.3 s / 4.2 s** / 232 MB | 9.3 s / 9.9 s / 260 MB | **7.7 s / 7.6 s** / 257 MB |
+| IlMetadataApp (System.Reflection.Metadata from IL) | 7.5 s / 9.2 s / 310 MB | **5.5 s / 7.5 s** / 293 MB | 18.1 s / 19.5 s / 332 MB | **15.3 s / 17.3 s** / 338 MB |
 
 What made the difference:
 

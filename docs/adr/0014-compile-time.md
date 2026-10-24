@@ -107,22 +107,24 @@ collection (~0.15 s) before optimization.
 
 ## Consequences
 
-Measured 2026-10-24 on the shared 4-vCPU VPS, before and after interleaved, best of 2, `-j 2`, while
-other jobs kept the load average at ~10 (so the threads mostly competed for cores): wall / CPU / peak
-RSS.
+Measured 2026-10-24 on the shared 4-vCPU VPS (load average ~5 from other jobs), before (main with its
+thread-pool CFG prefetch, csharpc on the JIT) and after interleaved, best of 2, `-j 2`: wall / CPU /
+peak RSS.
 
 | program | `-O0` before | `-O0` after | `-O2` before | `-O2` after |
 |---|---:|---:|---:|---:|
-| hello world | 3.4 s / 3.3 s / 201 MB | **1.9 s / 1.8 s** / 207 MB | 4.0 s / 3.5 s / 213 MB | **1.8 s / 1.9 s** / 219 MB |
-| double + DateTime formatting | 8.3 s / 8.1 s / 288 MB | **5.2 s / 5.6 s** / 269 MB | 14.3 s / 15.1 s / 311 MB | **10.2 s / 13.6 s** / 296 MB |
-| tests/programs/numbers | 7.8 s / 8.0 s / 274 MB | **4.6 s / 4.8 s** / 251 MB | 13.5 s / 14.8 s / 299 MB | **10.1 s / 12.6 s** / 291 MB |
-| tests/programs/interpreter | 8.0 s / 8.4 s / 284 MB | **4.7 s / 5.1 s** / 261 MB | 13.9 s / 15.3 s / 307 MB | **10.3 s / 13.2 s** / 294 MB |
-| IlMetadataApp (System.Reflection.Metadata from IL) | 11.2 s / 11.3 s / 339 MB | **7.8 s / 9.2 s** / 315 MB | 22.2 s / 23.9 s / 367 MB | **18.5 s / 22.6 s** / 370 MB |
+| hello world | 3.1 s / 3.1 s / 205 MB | **1.4 s / 1.6 s** / 202 MB | 3.5 s / 3.5 s / 217 MB | **1.8 s / 2.0 s** / 219 MB |
+| double + DateTime formatting | 5.3 s / 6.7 s / 261 MB | **3.2 s / 4.2 s** / 235 MB | 8.6 s / 9.9 s / 273 MB | **6.4 s / 7.7 s** / 257 MB |
+| tests/programs/numbers | 5.0 s / 5.9 s / 245 MB | **2.8 s / 3.7 s** / 238 MB | 7.8 s / 8.8 s / 258 MB | **5.2 s / 6.4 s** / 265 MB |
+| tests/programs/interpreter | 5.1 s / 6.4 s / 251 MB | **3.3 s / 4.2 s** / 232 MB | 9.3 s / 9.9 s / 260 MB | **7.7 s / 7.6 s** / 257 MB |
+| IlMetadataApp (System.Reflection.Metadata from IL) | 7.5 s / 9.2 s / 310 MB | **5.5 s / 7.5 s** / 293 MB | 18.1 s / 19.5 s / 332 MB | **15.3 s / 17.3 s** / 338 MB |
 
-On a quieter moment (load ~3) the metadata program took 5.5 s at `-O0` and 13.3 s at `-O2` (`-j 2`);
-its backend alone went from 4.2–4.7 s to 2.4 s (`-j 2`) and 2.1 s (`-j 4`). On CI the differential
-suite (`tests/run.sh --all-opts`, ~280 samples twice) went from 4101 s to 2554 s on x86-64 and from
-2297 s to 1666 s on wasm32 with the ReadyToRun compiler and the CFG threads alone.
+Against the branch point (before main's globalization trimming and CFG prefetch) at load ~10 the
+gains were larger: hello 3.4 → 1.9 s (`-O0`), the metadata program 11.2 → 7.8 s (`-O0`) and 22.2 →
+18.5 s (`-O2`). The metadata program's backend alone went from 4.2–4.7 s to 2.4 s (`-j 2`) and
+2.1 s (`-j 4`). On CI the differential suite (`tests/run.sh --all-opts`, ~280 samples twice) went from
+4101 s to 2554 s on x86-64 and from 2297 s to 1666 s on wasm32 with the ReadyToRun compiler and the CFG
+threads alone (against the branch point).
 
 - Release builds of csharpc take ~25 s longer the first time (crossgen2 over Roslyn) and ~2 s longer
   after a change to csharpc.

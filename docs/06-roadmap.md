@@ -185,8 +185,8 @@ enumeration, generic interface methods, variant delegate type tests) and (2) the
 ReadyToRun-compiled in Release builds, a compilation uses several threads (`-j`, `CSHARPC_THREADS`) to
 parse, bind, build Roslyn's CFGs ahead of lowering (each built once per body) and generate machine code
 per module partition after whole-program optimization; the output is the same at every `-j`. The SRM
-program compiles in 7.8 s at `-O0` and 18.5 s at `-O2` instead of 11.2 s and 22.2 s on a loaded VPS
-(5.5 s and 13.3 s at load ~3), hello world in 1.9 s instead of 3.4 s. Next, in order: (3, continued)
+program compiles in 5.5 s at `-O0` and 15.3 s at `-O2` instead of 7.5 s and 18.1 s (shared VPS,
+`-j 2`), hello world in 1.4 s instead of 3.1 s. Next, in order: (3, continued)
 the corelib compiled to IL once and lowered through the IL front-end instead of re-bound by Roslyn,
 lowering on several threads, bounded code-generation memory; (4) reflection Roslyn needs at startup
 (`typeof(X).Assembly`, resource lookup, analyzer activation) as compile-time metadata with diagnostics
