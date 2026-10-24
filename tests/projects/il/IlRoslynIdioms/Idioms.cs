@@ -30,4 +30,31 @@ public static class Decimals
         foreach (var v in values) total += v;
         return total == 0m ? -1m : total;
     }
+
+    // Roslyn's ConstantValue round-trips decimals through their bits.
+    public static decimal FromBits(decimal d) => new decimal(decimal.GetBits(d));
+}
+
+/// <summary>Pointer idioms of Roslyn's hashing and event-source code.</summary>
+public static unsafe class Pointers
+{
+    // `fixed` over a string: the string's address plus RuntimeHelpers.OffsetToStringData.
+    public static int SumChars(string s)
+    {
+        var sum = 0;
+        fixed (char* p = s)
+            for (var i = 0; i < s.Length; i++) sum += p[i];
+        return sum;
+    }
+
+    // MemoryMarshal.GetReference / GetArrayDataReference + Unsafe.Add (System.Collections.Frozen's hashing).
+    public static int SumBytes(ReadOnlySpan<byte> span)
+    {
+        ref byte first = ref MemoryMarshal.GetReference(span);
+        var sum = 0;
+        for (var i = 0; i < span.Length; i++) sum += System.Runtime.CompilerServices.Unsafe.Add(ref first, i);
+        return sum;
+    }
+
+    public static int FirstOf(int[] values) => MemoryMarshal.GetArrayDataReference(values);
 }

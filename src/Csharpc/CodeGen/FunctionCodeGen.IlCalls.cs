@@ -277,6 +277,14 @@ public sealed partial class FunctionCodeGen
         var ownerName = owner.ToDisplayString();
         var handled = new IlEntry(IlKind.Token, default, null);
         if (ownerName == "System.Runtime.CompilerServices.Unsafe" && IlUnsafeCall(method, args) is { } unsafeResult) return unsafeResult;
+        // `fixed (char* p = s)`: a reference to the first char (the terminator of an empty string), as in .NET;
+        // the compiler tests for null before the call.
+        if (owner.SpecialType == SpecialType.System_String && method.Name == "GetPinnableReference" && receiver is { } text && args.Length == 0)
+        {
+            var s = IlRef(text);
+            NullCheck(s);
+            return new IlEntry(IlKind.ByRef, _b.InBoundsGep(L.I8, s, [L.ConstInt(L.I64, (long)T.PointerSize + 4)]), _m.Compilation.GetSpecialType(SpecialType.System_Char));
+        }
         switch (ownerName, method.Name)
         {
             case ("System.Type", "GetTypeFromHandle") when args is [{ Kind: IlKind.Token, Symbol: ITypeSymbol type }]:
@@ -329,6 +337,20 @@ public sealed partial class FunctionCodeGen
             }
             case ("System.Runtime.CompilerServices.RuntimeHelpers", "EnsureSufficientExecutionStack") when args.Length == 0:
                 return handled;
+            // `fixed (char* p = s)` as older compilers emit it: the string's address plus this offset
+            // (csrt_String: { mt, int32 length, chars }, the same layout as .NET's string).
+            case ("System.Runtime.CompilerServices.RuntimeHelpers", "get_OffsetToStringData") when args.Length == 0:
+                return I4((int)T.PointerSize + 4);
+            // A reference to a span's first element (or where it would be: the span's pointer, as in .NET).
+            case ("System.Runtime.InteropServices.MemoryMarshal", "GetReference") when args.Length == 1 && method.TypeArguments.Length == 1:
+                return new IlEntry(IlKind.ByRef, SpanPointer(IlTyped(args[0], method.Parameters[0].Type)), method.TypeArguments[0]);
+            case ("System.Runtime.InteropServices.MemoryMarshal", "GetArrayDataReference")
+                when args.Length == 1 && method.TypeArguments.Length == 1 && method.Parameters[0].Type is IArrayTypeSymbol:
+            {
+                var array = IlRef(args[0]);
+                NullCheck(array);
+                return new IlEntry(IlKind.ByRef, _b.InBoundsGep(L.I8, array, [L.ConstInt(L.I64, 16)]), method.TypeArguments[0]); // { mt, i64 length, data }
+            }
             case ("System.Runtime.CompilerServices.RuntimeHelpers", "IsReferenceOrContainsReferences") when method.TypeArguments.Length == 1:
                 return I4(Optimizations.IsReferenceOrContainsReferences(S(method.TypeArguments[0])) ? 1 : 0);
         }
