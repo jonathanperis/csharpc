@@ -146,7 +146,8 @@ libc and platform flags.
 Per platform:
 
 - **Linux** (ELF, glibc): lld when available, `--gc-sections`, `--icf=safe`, packed RELR relocations,
-  `-s`, and RELRO/BIND_NOW/noexecstack/separate-code for hardening; `--static` links `-static-pie`.
+  `-s`, and RELRO/BIND_NOW/noexecstack/separate-code for hardening (on AArch64 separate code at 4 KiB
+  rather than lld's 64 KiB padding, see [17-security.md](17-security.md)); `--static` links `-static-pie`.
 - **macOS** (Mach-O, arm64 only): the default host triple is `arm64-apple-macosx<deployment target>`
   (`$MACOSX_DEPLOYMENT_TARGET`, else 14.0) rather than LLVM's `arm64-apple-darwin<kernel>`. The SDK
   comes from `$SDKROOT` or `xcrun --show-sdk-path` and is passed as `-isysroot` to every clang call.

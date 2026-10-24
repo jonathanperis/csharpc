@@ -21,9 +21,12 @@ was shared with compiler builds.
 13, ties it (±2 %) on 3 and loses `asyncfanout` (598 vs 504 ms), `fileio` (505 vs 448), `matmul`
 (48 vs 46) and `spectralnorm_parallel` (961 vs 935). arm64: beats the JIT on all 20 and NativeAOT on 14;
 loses `asyncfanout`, `fileio`, `quicksort`, `shapes`, `spectralnorm` and `spectralnorm_parallel`.
-Binaries are 11–161 KiB on x86-64 against 1.3–1.6 MiB for NativeAOT. On arm64 they are 131–213 KiB:
-AArch64 linkers align segments to 64 KiB pages (kernels with 64 KiB pages exist), and `-z separate-code`
-hardening pads each code segment to that boundary in the file.
+Binaries are 11–161 KiB on x86-64 against 1.3–1.6 MiB for NativeAOT. On arm64 they were 131–213 KiB in
+this run: AArch64 linkers align segments to 64 KiB pages (kernels with 64 KiB pages exist), and
+`-z separate-code` hardening padded the code segment to that boundary on both sides in the file. Code is
+now separated at 4 KiB with 64 KiB-congruent segments instead ([17-security.md](../docs/17-security.md)),
+which takes ~100 KiB off every arm64 executable (hello world 132 → 32 KiB); the arm64 size column
+below predates that.
 
 ### x86-64
 

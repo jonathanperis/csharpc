@@ -17,8 +17,8 @@ public sealed class Toolchain(CompilerOptions options, Csharpc.Llvm.TargetMachin
     private static readonly string[] BaseRuntimeCFlags = ["-O2", "-std=c11", "-fPIC", "-funwind-tables", "-fexceptions", "-ffp-contract=off"];
 
     private string[] RuntimeCFlags => target.IsWasm
-        ? [.. WasmRuntimeCFlags, .. Hardening.RuntimeCFlags(options.Hardening, target)]
-        : [.. BaseRuntimeCFlags, .. SysrootFlags, .. (target.IsWindows ? WindowsRuntimeCFlags : []), .. Hardening.RuntimeCFlags(options.Hardening, target), .. SanitizerFlags];
+        ? [.. WasmRuntimeCFlags, .. Hardening.RuntimeCFlags(options.Hardening, target, lld: false)]
+        : [.. BaseRuntimeCFlags, .. SysrootFlags, .. (target.IsWindows ? WindowsRuntimeCFlags : []), .. Hardening.RuntimeCFlags(options.Hardening, target, HasLld), .. SanitizerFlags];
 
     /// <summary>
     /// Windows: the UCRT's own printf family. _GNU_SOURCE/_POSIX_C_SOURCE would otherwise select
@@ -88,10 +88,7 @@ public sealed class Toolchain(CompilerOptions options, Csharpc.Llvm.TargetMachin
         // Key the cache on everything that affects the output, including the flags below.
         var hashInput = string.Concat(files.Select(File.ReadAllText)) + triple + CC + string.Join(' ', RuntimeCFlags) + (bitcode ? "bc" : "o");
         var hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(hashInput)))[..16].ToLowerInvariant();
-        var cacheDir = Path.Combine(
-            Environment.GetEnvironmentVariable("XDG_CACHE_HOME") ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".cache"),
-            "csharpc");
-        Directory.CreateDirectory(cacheDir);
+        var cacheDir = CacheDir;
 
         List<string> outputs = [];
         foreach (var source in files.Where(f => f.EndsWith(".c")))
@@ -105,6 +102,32 @@ public sealed class Toolchain(CompilerOptions options, Csharpc.Llvm.TargetMachin
             File.Move(tmp, output, overwrite: true);
         }
         return [.. outputs];
+    }
+
+    private static string CacheDir
+    {
+        get
+        {
+            var dir = Path.Combine(
+                Environment.GetEnvironmentVariable("XDG_CACHE_HOME") ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".cache"),
+                "csharpc");
+            Directory.CreateDirectory(dir);
+            return dir;
+        }
+    }
+
+    /// <summary>lld's --symbol-ordering-file for 4 KiB-granular separate code (Hardening.AlignsSegments), else null.</summary>
+    private string? SegmentOrderFile()
+    {
+        if (!Hardening.AlignsSegments(options.Hardening, target, HasLld)) return null;
+        var path = Path.Combine(CacheDir, "segment-order.txt");
+        if (!File.Exists(path) || File.ReadAllText(path) != Hardening.SegmentOrder)
+        {
+            var tmp = path + "." + Environment.ProcessId + ".tmp";
+            File.WriteAllText(tmp, Hardening.SegmentOrder);
+            File.Move(tmp, path, overwrite: true);
+        }
+        return path;
     }
 
     /// <param name="runtimeLinkedIn">The runtime was already linked into the program as bitcode (LTO).</param>
@@ -137,7 +160,7 @@ public sealed class Toolchain(CompilerOptions options, Csharpc.Llvm.TargetMachin
             Run(options.CC, [$"--target={triple}", programObject, .. runtime, .. WindowsLinkFlags(), .. Hardening.WindowsLinkFlags(options.Hardening), .. sanitize, "-o", output]);
             return;
         }
-        Run(options.CC, [$"--target={triple}", programObject, .. runtime, "-lm", "-pthread", .. LinkFlags(), .. Hardening.LinkFlags(options.Hardening), .. sanitize, "-o", output]);
+        Run(options.CC, [$"--target={triple}", programObject, .. runtime, "-lm", "-pthread", .. LinkFlags(), .. Hardening.LinkFlags(options.Hardening, SegmentOrderFile()), .. sanitize, "-o", output]);
     }
 
     /// <summary>
