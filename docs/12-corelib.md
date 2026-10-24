@@ -139,6 +139,15 @@ Limitation: `object is IEnumerable<X>` on an array can't check the element type 
   assemblies' embedded string resources and `AppContext` over runtimeconfig data (`Resources.cs`; both
   read constants codegen builds through the `ResourceStrings()`/`RuntimeConfig()` core intrinsics).
 * **`System.Text.Json`** (`corelib/Json/`, see [System.Text.Json](#systemtextjson)).
+* **`EventSource`** (`corelib/Tracing/EventSource.cs`): a csharpc executable has no EventPipe/ETW session
+  and no `EventListener` (deriving from it is a CSLLVM0001 error), the state in which .NET's EventSource
+  writes nothing: `IsEnabled()` is false and `WriteEvent`/`WriteEventCore`/`Write` return at once.
+  What a program can observe without a listener is .NET's: the `EventSource.IsSupported` feature switch
+  (off for file-based apps unless `#:property EventSourceSupport=true`), `Name` and `Guid` from
+  `[EventSource]` (read at compile time: `ModuleCodeGen.EventSource.cs` compares the Type's method table
+  with the program's classes) or derived from the name with .NET's SHA-1 name hashing, settings
+  validation, traits, `ConstructionException`, `ToString`. `GetSources`, `SendCommand`,
+  `GenerateManifest` and the event counters are not implemented (CSLLVM0002).
 
 ### Regular expressions
 

@@ -102,6 +102,11 @@ namespace CsharpcCoreLib
         /// <summary>[JsonStringEnumMemberName] of each member, in Enum.GetNames&lt;T&gt;() order (null where absent).</summary>
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern string[] EnumMemberJsonNames<T>();
 
+        /// <summary>
+        /// [EventSource(Name = ...)] (which 0) or Guid (which 1) of the program's EventSource class that `type`
+        /// is, read at compile time (ModuleCodeGen.EventSource.cs); null when absent.
+        /// </summary>
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern string EventSourceAttribute(Type type, int which);
         // Cancellation (runtime/async.c, corelib/Cancellation.cs): a CancellationToken is its source.
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern object TokenSource(System.Threading.CancellationToken token);
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern System.Threading.CancellationToken SourceToken(object source);

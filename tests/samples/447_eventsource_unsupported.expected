@@ -1,0 +1,16 @@
+False False False
+[] [00000000-0000-0000-0000-000000000000] [DemoLog] [Default] [] []
+[] [00000000-0000-0000-0000-000000000000] [PlainSource] [Default]
+[PlainSource] [12345678-1234-1234-1234-123456789012] [Demo-Log] [78fd5ec1-86c6-590f-6af1-6d5dc4356d0c]
+[] [00000000-0000-0000-0000-000000000000] False Default
+[] [00000000-0000-0000-0000-000000000000] False Default
+[] [00000000-0000-0000-0000-000000000000] False Default
+[] [00000000-0000-0000-0000-000000000000] False Default
+[] [00000000-0000-0000-0000-000000000000] False Default
+  null Default
+[] : 
+System.Diagnostics.Tracing.EventSource Default
+[] 
+Value cannot be null. (Parameter 'eventSourceName')
+Value cannot be null. (Parameter 'eventSourceType')
+False 00000000-0000-0000-0000-000000000000

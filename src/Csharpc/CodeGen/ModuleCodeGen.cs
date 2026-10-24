@@ -186,6 +186,7 @@ public sealed partial class ModuleCodeGen
         // Last: every dispatched slot is known once nothing is left to lower.
         FinishMethodTables();
         Guard(entryPoint, FinishTypeMetadata);
+        FinishEventSourceAttributes();
         ReportIlFailures();
         // Every call site is known now: the stack-trace tables main registers.
         if (StackTraces is { } traces && !_traceTables.IsNull)
