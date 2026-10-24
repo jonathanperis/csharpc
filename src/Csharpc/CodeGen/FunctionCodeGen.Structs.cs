@@ -566,6 +566,20 @@ public sealed partial class FunctionCodeGen
             }
             return ObjectToString(Box(value, type, at)); // ValueType.ToString(): the type name
         }
+        // Span<char>.ToString() (and ReadOnlySpan/Memory/ReadOnlyMemory) is the characters; other element
+        // types give "System.Span<Int32>[5]".
+        if (TypeMapper.IsSpan(type) && type is INamedTypeSymbol { TypeArguments: [var element] } span)
+        {
+            var length = _b.ExtractValue(value, 1);
+            if (element.SpecialType == SpecialType.System_Char)
+                return CallRuntime("csrt_string_new_from_utf16", L.Ptr, [L.Ptr, L.I32], _b.ExtractValue(value, 0), length);
+            if (element is INamedTypeSymbol { IsGenericType: false } named)
+            {
+                var prefix = _m.StringLiteral($"System.{span.MetadataName[..^2]}<{named.MetadataName}>[");
+                var count = FormatValue(length, _m.Compilation.GetSpecialType(SpecialType.System_Int32), at);
+                return ConcatStrings(ConcatStrings(prefix, count), _m.StringLiteral("]"));
+            }
+        }
         throw CompileError.Unsupported($"formatting '{type}'", at);
     }
 }
