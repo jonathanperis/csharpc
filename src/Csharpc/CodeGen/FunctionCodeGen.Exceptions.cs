@@ -403,6 +403,7 @@ public sealed partial class FunctionCodeGen
         ["System.OverflowException"] = "Arithmetic operation resulted in an overflow.",
         ["System.InvalidCastException"] = "Specified cast is not valid.",
         ["System.FormatException"] = "One of the identified items was in an invalid format.",
+        ["System.UriFormatException"] = "One of the identified items was in an invalid format.",
         ["System.Collections.Generic.KeyNotFoundException"] = "The given key was not present in the dictionary.",
         ["System.OperationCanceledException"] = "The operation was canceled.",
         ["System.Threading.Tasks.TaskCanceledException"] = "A task was canceled.",
@@ -439,9 +440,12 @@ public sealed partial class FunctionCodeGen
                 continue;
             }
             var value = EmitValue(argument.Value);
+            var uriFormat = Mangler.MetadataName(constructor.ContainingType) == "System.UriFormatException";
             switch (argument.Parameter?.Name)
             {
                 case "message": message = value; break;
+                case "textString" when uriFormat: message = value; break; // UriFormatException(string textString, Exception e)
+                case "e" when uriFormat: inner = value; break;
                 case "innerException": inner = value; break;
                 case "paramName": paramName = value; break;
                 case "fileName": paramName = value; break; // FileNotFoundException.FileName (csrt keeps it in param_name)
