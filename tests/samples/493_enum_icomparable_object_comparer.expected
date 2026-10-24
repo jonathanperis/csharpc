@@ -1,0 +1,16 @@
+True True True True
+1 0 1
+200 -1
+Object must be the same type as the enum. The type passed in was 'System.Int32'; the enum type was 'Color'.
+Object must be the same type as the enum. The type passed in was 'Flags'; the enum type was 'Color'.
+Red,Green,Blue
+null,1,2,3
+apple,Apple,banana,pear
+-1
+1
+1
+3,7,10
+Object must be of type Int32.
+At least one object must implement IComparable.
+Square(1),Square(2),Square(3)
+other

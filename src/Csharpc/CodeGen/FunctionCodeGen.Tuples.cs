@@ -98,12 +98,7 @@ public sealed partial class FunctionCodeGen
                 lt = _b.BinOp(LLVMOpcode.Or, _b.FCmp(LLVMRealPredicate.OLT, x, y), _b.BinOp(LLVMOpcode.And, xNaN, _b.Not(yNaN)));
                 gt = _b.BinOp(LLVMOpcode.Or, _b.FCmp(LLVMRealPredicate.OGT, x, y), _b.BinOp(LLVMOpcode.And, yNaN, _b.Not(xNaN)));
             }
-            else
-            {
-                var signed = TypeMapper.IsSigned(type);
-                lt = _b.ICmp(signed ? LLVMIntPredicate.SLT : LLVMIntPredicate.ULT, x, y);
-                gt = _b.ICmp(signed ? LLVMIntPredicate.SGT : LLVMIntPredicate.UGT, x, y);
-            }
+            else return BclValueTypes.IntegerCompareTo(this, x, y, TypeMapper.IsSigned(BclValueTypes.IsTicks(type) ? _m.Compilation.GetSpecialType(SpecialType.System_Int64) : type));
             return _b.BinOp(LLVMOpcode.Sub, _b.Cast(LLVMOpcode.ZExt, gt, L.I32), _b.Cast(LLVMOpcode.ZExt, lt, L.I32));
         }
         throw CompileError.Unsupported($"tuple CompareTo over '{type}'", at);

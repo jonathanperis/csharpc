@@ -84,7 +84,7 @@ public sealed partial class ModuleCodeGen
     private readonly Dictionary<INamedTypeSymbol, LLVMValueRef> _enumMethodTables = new(SymbolEqualityComparer.Default);
 
     /// <summary>
-    /// Method table for boxed enums: { csrt_Object_MT, "Ns.Color", 8 + size, 0, IFormattable map, [ToString, Equals, GetHashCode] }.
+    /// Method table for boxed enums: { csrt_Object_MT, "Ns.Color", 8 + size, 0, IFormattable + IComparable map, [ToString, Equals, GetHashCode] }.
     /// ToString formats the payload by name (EnumFormatter); equality is bytewise, the hash is the underlying integer's.
     /// </summary>
     public LLVMValueRef EnumMethodTable(INamedTypeSymbol enumType)
@@ -128,18 +128,29 @@ public sealed partial class ModuleCodeGen
             var payload = b.Load(valueType, b.InBoundsGep(Llvm.I8, hashThunk.Param(0), [Llvm.ConstInt(Llvm.I64, 8)]));
             b.Ret(EnumHash(b, payload, enumType));
         }
+        // IComparable.CompareTo(object), as System.Enum's: null sorts first, another type throws.
+        var compareType = Llvm.FunctionType(Llvm.I32, Llvm.Ptr, Llvm.Ptr);
+        var compareThunk = Module.AddFunction(Mangler.TypeSymbol(enumType, "BoxCompareTo"), compareType);
+        Native.LLVMSetLinkage(compareThunk, LLVMLinkage.Internal);
+        new FunctionCodeGen(this, null, new LoweredFunction(compareThunk, compareType)).EmitEnumCompareObjectThunk(enumType, global);
+
         var formattable = Compilation.GetTypeByMetadataName("System.IFormattable")!;
-        var slotsInit = LlvmContext.ConstArray(Llvm.Ptr, formatThunk);
-        var slotTable = Module.AddGlobal(Mangler.TypeSymbol(enumType, "BoxITBL"), Native.LLVMTypeOf(slotsInit), slotsInit, constant: true, linkage: LLVMLinkage.Internal);
+        var comparable = Compilation.GetTypeByMetadataName("System.IComparable")!;
         var entryType = Llvm.Struct(Llvm.Ptr, Llvm.Ptr);
-        var mapInit = LlvmContext.ConstArray(entryType, LlvmContext.ConstNamedStruct(entryType, InterfaceMethodTable(formattable), slotTable));
+        LLVMValueRef Entry(INamedTypeSymbol itf, LLVMValueRef slot, string suffix)
+        {
+            var slotsInit = LlvmContext.ConstArray(Llvm.Ptr, slot);
+            var slotTable = Module.AddGlobal(Mangler.TypeSymbol(enumType, suffix), Native.LLVMTypeOf(slotsInit), slotsInit, constant: true, linkage: LLVMLinkage.Internal);
+            return LlvmContext.ConstNamedStruct(entryType, InterfaceMethodTable(itf), slotTable);
+        }
+        var mapInit = LlvmContext.ConstArray(entryType, Entry(formattable, formatThunk, "BoxITBL"), Entry(comparable, compareThunk, "BoxICMP"));
         var map = Module.AddGlobal(Mangler.TypeSymbol(enumType, "BoxIMAP"), Native.LLVMTypeOf(mapInit), mapInit, constant: true, linkage: LLVMLinkage.Internal);
         Native.LLVMSetInitializer(global, Llvm.ConstStruct(
             ExternalGlobal("csrt_Object_MT"),
             CString(Mangler.MetadataName(enumType)),
             Llvm.ConstInt(Llvm.I32, 8 + (long)Types.Target.SizeOf(valueType)),
             Llvm.ConstInt(Llvm.I32, 64 | 128 /* CSRT_MT_VALUE_TYPE | CSRT_MT_ENUM */),
-            map, Llvm.ConstInt(Llvm.I32, 1), Llvm.ConstInt(Llvm.I32, 0),
+            map, Llvm.ConstInt(Llvm.I32, 2), Llvm.ConstInt(Llvm.I32, 0),
             LlvmContext.ConstArray(Llvm.Ptr, thunk, Runtime("csrt_valuetype_equals", Llvm.I1, Llvm.Ptr, Llvm.Ptr).Fn,
                 hashThunk)));
         return global;

@@ -137,6 +137,32 @@ public sealed partial class FunctionCodeGen
     }
 
     /// <summary>
+    /// IComparable.CompareTo(object) on a boxed enum (System.Enum.CompareTo): null sorts first, a box of
+    /// another type throws .NET's ArgumentException naming both types, else the underlying values compare.
+    /// </summary>
+    internal void EmitEnumCompareObjectThunk(INamedTypeSymbol enumType, LLVMValueRef methodTable)
+    {
+        var underlying = enumType.EnumUnderlyingType!;
+        var (self, other) = (_fn.Fn.Param(0), _fn.Fn.Param(1));
+        var isNull = NewBlock("other.null");
+        var notNull = NewBlock("other.nonnull");
+        var mismatch = NewBlock("other.mismatch");
+        var compare = NewBlock("other.compare");
+        _b.CondBr(_b.ICmp(LLVMIntPredicate.EQ, other, LlvmContext.Null(L.Ptr)), isNull, notNull);
+        _b.PositionAtEnd(isNull);
+        _b.Ret(L.ConstInt(L.I32, 1));
+        _b.PositionAtEnd(notNull);
+        _b.CondBr(_b.ICmp(LLVMIntPredicate.EQ, _b.Load(L.Ptr, other), methodTable), compare, mismatch);
+        _b.PositionAtEnd(mismatch);
+        CallCoreLib("ThrowHelper", "EnumCompareMismatch", other, _m.StringLiteral(Mangler.MetadataName(enumType)));
+        _b.Ret(L.ConstInt(L.I32, 0)); // reached only on wasm32, where the exception is pending
+        _b.PositionAtEnd(compare);
+        LLVMValueRef Payload(LLVMValueRef box) => LoadValue(_b.InBoundsGep(L.I8, box, [L.ConstInt(L.I64, 8)]), underlying);
+        _b.Ret(CompareValues(Payload(self), Payload(other), underlying, null!));
+        Finish();
+    }
+
+    /// <summary>
     /// IFormattable.ToString(format, provider) on a boxed primitive: the primitive's own formatter, with the
     /// provider (char ignores both, as in .NET). Not the general boxed-value formatter, which would link the
     /// double and decimal formatters into every program that formats a boxed int through IFormattable.
