@@ -15,6 +15,18 @@ namespace CsharpcCoreLib
     [ShadowMembers("System.Convert")]
     internal static class ConvertExtras
     {
+        // Convert.ToString(object): .NET asks IConvertible, then IFormattable, then ToString() (null: the empty
+        // string). Every BCL IConvertible is IFormattable with the same result, or (bool, char, string) formats
+        // like ToString(); boxed primitives have no IConvertible dispatch in csharpc.
+        public static string ToString(object value) => ToString(value, null);
+
+        public static string ToString(object value, IFormatProvider provider)
+        {
+            if (value is decimal number) return number.ToString(provider); // a boxed decimal has no IFormattable slots
+            if (value is IFormattable formattable) return formattable.ToString(null, provider);
+            return value != null ? value.ToString() : string.Empty;
+        }
+
         internal static void ThrowOverflow(string type)
         {
             switch (type)

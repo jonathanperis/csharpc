@@ -168,7 +168,7 @@ public sealed partial class FunctionCodeGen
                 fn = NestedFunctionInstance(callee, S(local.Method), creation).Fn;
                 break;
             }
-            case IMethodReferenceOperation { Method.IsStatic: true } group when _m.IsUserMethod(group.Method):
+            case IMethodReferenceOperation { Method.IsStatic: true } group when _m.IsUserMethod(S(group.Method)):
                 target = LlvmContext.Null(L.Ptr);
                 fn = _m.StaticThunk(S(group.Method));
                 break;

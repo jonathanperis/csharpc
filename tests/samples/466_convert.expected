@@ -29,3 +29,5 @@ FormatException: The input string '12a' was not in a correct format.
 ArgumentException: Invalid Base.
 OverflowException: Value was either too large or too small for a UInt32.
 OverflowException: Value was either too large or too small for an Int32.
+42||s|True|c|1.5|01/02/2020 00:00:00|Monday|P!
+12,5|1,5|System.Int32[]
