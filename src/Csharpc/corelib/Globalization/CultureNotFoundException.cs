@@ -20,6 +20,7 @@ namespace CsharpcCoreLib.Globalization
     using System.Runtime.CompilerServices;
     using System.Runtime.Serialization;
     [Shadows("System.Globalization.CultureNotFoundException")]
+    [OptimizeForSize] // csharpc: builds culture data, once per culture (corelib/Core.cs)
     public class CultureNotFoundException : ArgumentException
     {
         private readonly string? _invalidCultureName; // unrecognized culture name

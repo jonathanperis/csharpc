@@ -51,6 +51,7 @@ namespace CsharpcCoreLib.Globalization
     ///                en if you pass in en
     ///                de-DE if you pass in de-DE_phoneb
     /// </remarks>
+    [OptimizeForSize] // csharpc: builds culture data, once per culture (corelib/Core.cs)
     internal sealed partial class CultureData
     {
         private const int LocaleNameMaxLength = 85;

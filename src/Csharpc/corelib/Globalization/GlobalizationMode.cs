@@ -20,6 +20,7 @@ namespace CsharpcCoreLib.Globalization
     // (repeated inside the namespace: they must win over global-namespace types of the program)
     using System;
     using System.Runtime.InteropServices;
+    [OptimizeForSize] // csharpc: builds culture data, once per culture (corelib/Core.cs)
     internal static partial class GlobalizationMode
     {
         // 0: ICU not loaded yet, 1: invariant mode, 2: ICU loaded.

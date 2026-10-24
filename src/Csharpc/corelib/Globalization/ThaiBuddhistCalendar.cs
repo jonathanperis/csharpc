@@ -24,6 +24,7 @@ namespace CsharpcCoreLib.Globalization
     ///     Thai        0544/01/01  10542/12/31
     /// </remarks>
     [Shadows("System.Globalization.ThaiBuddhistCalendar")]
+    [OptimizeForSize] // csharpc: only cultures whose calendar this is use it (corelib/Core.cs)
     public class ThaiBuddhistCalendar : Calendar
     {
         // csharpc: lazily initialized (was a static field initializer).

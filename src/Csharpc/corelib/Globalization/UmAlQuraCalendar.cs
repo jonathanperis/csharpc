@@ -23,6 +23,7 @@ namespace CsharpcCoreLib.Globalization
     ///     UmAlQura    1318/01/01   1500/12/30
     /// </remarks>
     [Shadows("System.Globalization.UmAlQuraCalendar")]
+    [OptimizeForSize] // csharpc: only cultures whose calendar this is use it (corelib/Core.cs)
     public partial class UmAlQuraCalendar : Calendar
     {
         private const int MinCalendarYear = 1318;

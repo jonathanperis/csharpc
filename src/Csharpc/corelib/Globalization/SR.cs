@@ -11,6 +11,7 @@ namespace CsharpcCoreLib.Globalization
 {
     // (repeated inside the namespace: they must win over global-namespace types of the program)
     using System;
+    [OptimizeForSize] // csharpc: builds culture data, once per culture (corelib/Core.cs)
     internal static class SR
     {
         // csharpc: the messages here only use "{n}" (and "{0:X4}" with an int), so they are filled in without

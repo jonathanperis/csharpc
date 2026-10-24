@@ -28,6 +28,7 @@ namespace CsharpcCoreLib.Globalization
     ///      Persian     0001/01/01   9378/10/13
     /// </remarks>
     [Shadows("System.Globalization.PersianCalendar")]
+    [OptimizeForSize] // csharpc: only cultures whose calendar this is use it (corelib/Core.cs)
     public class PersianCalendar : Calendar
     {
         // csharpc: caches for the span properties below (no collection expressions, no static initializers).

@@ -24,6 +24,7 @@ namespace CsharpcCoreLib.Globalization
     /// user and does not depend on the user's language or culture.
     /// </summary>
     [Shadows("System.Globalization.RegionInfo")]
+    [OptimizeForSize] // csharpc: builds culture data, once per culture (corelib/Core.cs)
     public class RegionInfo
     {
         // Name of this region (ie: es-US): serialized, the field used for deserialization

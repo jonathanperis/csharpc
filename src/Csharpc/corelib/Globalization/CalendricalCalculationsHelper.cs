@@ -15,6 +15,7 @@ namespace CsharpcCoreLib.Globalization
     using System.Globalization;
     using System;
     using System.Diagnostics;
+    [OptimizeForSize] // csharpc: only cultures whose calendar this is use it (corelib/Core.cs)
     internal static class CalendricalCalculationsHelper
     {
         // csharpc: caches for the span properties below (no collection expressions, no static initializers).

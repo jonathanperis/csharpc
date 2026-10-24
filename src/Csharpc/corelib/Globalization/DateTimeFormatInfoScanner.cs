@@ -68,6 +68,7 @@ namespace CsharpcCoreLib.Globalization
     /// DateWords: such as "de" used in es-ES (Spanish) LongDatePattern.
     /// Postfix: such as "ta" used in fi-FI after the month name.
     /// </summary>
+    [OptimizeForSize] // csharpc: builds culture data, once per culture (corelib/Core.cs)
     internal sealed class DateTimeFormatInfoScanner
     {
         // Special prefix-like flag char in DateWord array.

@@ -275,11 +275,28 @@ public sealed partial class ModuleCodeGen
         // otherwise inlines every internal function with a single call site, however big.
         if ((method.MethodImplementationFlags & System.Reflection.MethodImplAttributes.NoInlining) != 0)
             Llvm.AddFunctionAttribute(fn, "noinline");
+        if (CoreLib.IsCoreLib(method) && OptimizeForSize(method.ContainingType))
+        {
+            Llvm.AddFunctionAttribute(fn, "optsize");
+            Llvm.AddFunctionAttribute(fn, "minsize");
+        }
         MarkIfCoroutine(method, fn);
         // Generic instantiations, corelib and IL methods are lowered on demand, when first referenced.
         if ((generic || CoreLib.IsCoreLib(method) || IsIlMethod(method)) && IsUserMethod(method) && !method.IsAbstract && !method.IsExtern)
             _pendingInstantiations.Enqueue(method);
         return _functions[method] = new LoweredFunction(fn, type);
+    }
+
+    private readonly Dictionary<INamedTypeSymbol, bool> _optimizeForSize = new(SymbolEqualityComparer.Default);
+
+    /// <summary>A corelib type (or one nested in it) marked [OptimizeForSize] (corelib/Core.cs).</summary>
+    private bool OptimizeForSize(INamedTypeSymbol? type)
+    {
+        if (type is null) return false;
+        type = type.OriginalDefinition;
+        if (_optimizeForSize.TryGetValue(type, out var known)) return known;
+        return _optimizeForSize[type] = type.GetAttributes().Any(a => a.AttributeClass?.Name == "OptimizeForSizeAttribute")
+            || OptimizeForSize(type.ContainingType);
     }
 
     /// <summary>

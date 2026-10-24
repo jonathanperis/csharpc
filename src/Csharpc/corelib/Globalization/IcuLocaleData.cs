@@ -32,6 +32,7 @@ namespace CsharpcCoreLib.Globalization
         ConsoleLocaleIndex = 8
     }
 
+    [OptimizeForSize] // csharpc: builds culture data, once per culture (corelib/Core.cs)
     internal static partial class IcuLocaleData
     {
         // csharpc: caches for the span properties below (no collection expressions, no static initializers).
