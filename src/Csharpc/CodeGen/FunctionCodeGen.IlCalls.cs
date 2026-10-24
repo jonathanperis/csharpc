@@ -318,7 +318,7 @@ public sealed partial class FunctionCodeGen
             case ("System.Runtime.CompilerServices.RuntimeHelpers", "EnsureSufficientExecutionStack") when args.Length == 0:
                 return handled;
             case ("System.Runtime.CompilerServices.RuntimeHelpers", "IsReferenceOrContainsReferences") when method.TypeArguments.Length == 1:
-                return I4(Optimizations.HoldsNoReferences(S(method.TypeArguments[0])) ? 0 : 1);
+                return I4(Optimizations.IsReferenceOrContainsReferences(S(method.TypeArguments[0])) ? 1 : 0);
         }
         foreach (var arg in args)
             if (arg.Kind == IlKind.Token) throw new IlException($"ldtoken result passed to '{method}'");

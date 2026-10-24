@@ -59,4 +59,20 @@ internal static class Optimizations
         _ when BclValueTypes.IsDecimal(type) || BclValueTypes.IsTicks(type) => true, // plain bits (BclValueTypes)
         _ => false,
     };
+
+    /// <summary>
+    /// RuntimeHelpers.IsReferenceOrContainsReferences&lt;T&gt;(): reference types, and structs with a
+    /// reference-typed field at any depth. Reference assemblies keep a placeholder field of type object in
+    /// library structs that hold references, so library structs answer as in .NET too.
+    /// </summary>
+    public static bool IsReferenceOrContainsReferences(ITypeSymbol type) => IsReferenceOrContainsReferences(type, 0);
+
+    private static bool IsReferenceOrContainsReferences(ITypeSymbol type, int depth)
+    {
+        if (HoldsNoReferences(type) || type is IPointerTypeSymbol or IFunctionPointerTypeSymbol) return false;
+        if (!type.IsValueType || depth > 32) return true;
+        if (TypeMapper.IsSpan(type)) return true; // { reference or pointer, length }; Memory<T> holds its owner object
+        return type.GetMembers().OfType<IFieldSymbol>()
+            .Any(f => !f.IsStatic && !f.IsConst && (f.IsFixedSizeBuffer ? false : IsReferenceOrContainsReferences(f.Type, depth + 1)));
+    }
 }

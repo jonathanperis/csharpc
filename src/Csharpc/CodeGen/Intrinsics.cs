@@ -132,6 +132,8 @@ internal static class Intrinsics
             g.ArrayDimensionLength(g.EmitValue(inv.Instance!), inv.Instance!.Type!, Arg(g, inv, 0));
             return g.Module.Llvm.ConstInt(g.Module.Llvm.I32, 0);
         };
+        t["System.Runtime.CompilerServices.RuntimeHelpers.IsReferenceOrContainsReferences()"] = (g, inv) =>
+            g.Module.Llvm.ConstInt(g.Module.Llvm.I1, Optimizations.IsReferenceOrContainsReferences(g.S(inv.TargetMethod.TypeArguments[0])) ? 1 : 0);
         // The identity hash object.GetHashCode falls back to (0 for null, like .NET).
         t["System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(object)"] = (g, inv) =>
             g.CallRuntime("csrt_object_get_hash_code_default", g.Module.Llvm.I32, [g.Module.Llvm.Ptr], Arg(g, inv, 0));

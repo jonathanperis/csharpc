@@ -4,6 +4,7 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Runtime.CompilerServices;
 
 namespace CsharpcCoreLib
 {
@@ -73,6 +74,8 @@ namespace CsharpcCoreLib
             }
         }
 
+        internal void GrowForMarshal(int capacity) => Grow(capacity);
+
         private void Grow(int capacity)
         {
             int newCapacity = _items.Length == 0 ? 4 : 2 * _items.Length;
@@ -128,7 +131,9 @@ namespace CsharpcCoreLib
         public void Clear()
         {
             _version++;
-            for (int i = 0; i < _size; i++) _items[i] = default(T);
+            // .NET clears only slots that hold references; CollectionsMarshal.SetCount can expose the rest.
+            if (RuntimeHelpers.IsReferenceOrContainsReferences<T>())
+                for (int i = 0; i < _size; i++) _items[i] = default(T);
             _size = 0;
         }
 
@@ -317,7 +322,8 @@ namespace CsharpcCoreLib
                 while (current < _size && match(_items[current])) current++;
                 if (current < _size) _items[freeIndex++] = _items[current++];
             }
-            for (int i = freeIndex; i < _size; i++) _items[i] = default(T);
+            if (RuntimeHelpers.IsReferenceOrContainsReferences<T>())
+                for (int i = freeIndex; i < _size; i++) _items[i] = default(T);
             int result = _size - freeIndex;
             _size = freeIndex;
             _version++;
@@ -329,7 +335,7 @@ namespace CsharpcCoreLib
             if ((uint)index >= (uint)_size) throw CoreIntrinsics.LibraryFrames(ThrowHelper.IndexOutOfRangeException(), "System.Collections.Generic.List`1.RemoveAt(Int32 index)");
             _size--;
             for (int i = index; i < _size; i++) _items[i] = _items[i + 1];
-            _items[_size] = default(T);
+            if (RuntimeHelpers.IsReferenceOrContainsReferences<T>()) _items[_size] = default(T);
             _version++;
         }
 
@@ -340,7 +346,8 @@ namespace CsharpcCoreLib
             {
                 _size -= count;
                 for (int i = index; i < _size; i++) _items[i] = _items[i + count];
-                for (int i = _size; i < _size + count; i++) _items[i] = default(T);
+                if (RuntimeHelpers.IsReferenceOrContainsReferences<T>())
+                    for (int i = _size; i < _size + count; i++) _items[i] = default(T);
                 _version++;
             }
         }
@@ -485,5 +492,28 @@ namespace CsharpcCoreLib
         object IEnumerator.Current => CoreIntrinsics.Box(_current);
         public void Reset() { _index = 0; _current = default(T); }
         public void Dispose() { }
+    }
+
+    /// <summary>CollectionsMarshal over List&lt;T&gt;'s storage (the span aliases the list's array, as in .NET).</summary>
+    [Shadows("System.Runtime.InteropServices.CollectionsMarshal")]
+    public static class CollectionsMarshalImpl
+    {
+        public static Span<T> AsSpan<T>(List<T> list)
+        {
+            if (list == null) return default(Span<T>);
+            ListImpl<T> l = (ListImpl<T>)(object)list;
+            return new Span<T>(l._items, 0, l._size);
+        }
+
+        public static void SetCount<T>(List<T> list, int count)
+        {
+            if (count < 0) ThrowHelper.ArgumentOutOfRange("count", "Non-negative number required.");
+            ListImpl<T> l = (ListImpl<T>)(object)list;
+            l._version++;
+            if (count > l.Capacity) l.GrowForMarshal(count);
+            else if (count < l._size && RuntimeHelpers.IsReferenceOrContainsReferences<T>())
+                for (int i = count; i < l._size; i++) l._items[i] = default(T);
+            l._size = count;
+        }
     }
 }
