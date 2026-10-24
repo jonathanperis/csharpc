@@ -43,7 +43,7 @@ public sealed partial class ModuleCodeGen
 
     /// <summary>Non-generic interfaces whose members depend on the element type (boxing).</summary>
     private static bool NeedsElementTable(INamedTypeSymbol itf) =>
-        !itf.IsGenericType && itf.ToDisplayString() is "System.Collections.IEnumerable" or "System.Collections.IList"
+        !itf.IsGenericType && itf.ToDisplayString() is "System.Collections.IEnumerable" or "System.Collections.IList" or "System.Collections.ICollection"
             or "System.Collections.IStructuralComparable" or "System.Collections.IStructuralEquatable";
 
     public void RequestArrayInterface(INamedTypeSymbol itf)

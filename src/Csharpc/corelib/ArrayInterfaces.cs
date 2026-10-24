@@ -19,10 +19,22 @@ namespace CsharpcCoreLib
         // elements isn't possible; generated code tags every array it allocates.
         public static IEnumerator IEnumerable_GetEnumerator(Array a) =>
             throw new NotSupportedException("csharpc: non-generic enumeration of an array created by the runtime is not supported yet.");
+        public static void ICollection_CopyTo(Array a, Array array, int index) =>
+            throw new NotSupportedException("csharpc: ICollection.CopyTo of an array created by the runtime is not supported yet.");
     }
 
     internal static class SZArrayHelper<T>
     {
+        // Non-generic ICollection over T[] (Array's implementation: CopyTo is Array.Copy into any array).
+        public static int ICollection_get_Count(T[] a) => a.Length;
+        public static bool ICollection_get_IsSynchronized(T[] a) => false;
+        public static object ICollection_get_SyncRoot(T[] a) => a;
+        public static void ICollection_CopyTo(T[] a, Array array, int index)
+        {
+            if (array != null && array.Rank != 1) throw new ArgumentException("Only single dimensional arrays are supported for the requested action.", "array");
+            ArrayChecks.CopyToUntyped(a, 0, array, index, a.Length, false);
+        }
+
         // Non-generic IEnumerable / IList over T[] (per element type: elements are boxed).
         public static IEnumerator IEnumerable_GetEnumerator(T[] a) => new ArrayEnumerator<T>(a);
 
