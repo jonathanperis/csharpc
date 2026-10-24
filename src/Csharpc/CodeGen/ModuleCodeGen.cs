@@ -176,6 +176,11 @@ public sealed partial class ModuleCodeGen
         // their methods): iterate to a fixed point.
         do DrainWorklists();
         while (EmitRuntimeExports() | EmitTypeMetadata());
+        // Close the generic interface dispatchers, then lower what their last cases call.
+        if (EmitGenericInterfaceDispatchers(final: true) | EmitVariantDelegateTests(final: true))
+            do DrainWorklists();
+            while (EmitRuntimeExports() | EmitTypeMetadata());
+        CheckGenericInterfaceDispatchers();
         Guard(entryPoint, FinishTypeMetadata);
         ReportIlFailures();
         // Every call site is known now: the stack-trace tables main registers.
@@ -186,7 +191,7 @@ public sealed partial class ModuleCodeGen
     private void DrainWorklists()
     {
         do DrainFunctionWorklists();
-        while (EmitPendingClassInits() | EmitPendingBuiltinInterfaceTables());
+        while (EmitPendingClassInits() | EmitPendingBuiltinInterfaceTables() | EmitGenericInterfaceDispatchers(final: false) | EmitVariantDelegateTests(final: false));
     }
 
     private void DrainFunctionWorklists()
@@ -654,6 +659,7 @@ public sealed partial class ModuleCodeGen
             LlvmContext.ConstArray(Llvm.Ptr, [.. defaults.Select(d => Runtime(d, Llvm.Ptr, Llvm.Ptr).Fn)]));
         g = Module.AddGlobal("csrt.dmt." + name, Native.LLVMTypeOf(init), init, constant: true, linkage: LLVMLinkage.Private);
         RegisterTypeMethodTable(g, type);
+        _delegateTypes.Add(type);
         return _globals[key] = g;
     }
 

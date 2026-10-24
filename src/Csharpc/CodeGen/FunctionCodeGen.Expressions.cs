@@ -734,7 +734,7 @@ public sealed partial class FunctionCodeGen
             // After substitution the definition's classification may not apply (T -> U), so re-classify.
             var conversion = _subst.IsIdentity ? c.Conversion : _m.Compilation.ClassifyCommonConversion(from, to);
             if (conversion.IsImplicit && (conversion.IsReference || conversion.IsIdentity)) return value; // upcast: same pointer
-            if (c.IsTryCast) return CallRuntime("csrt_isinst_class", L.Ptr, [L.Ptr, L.Ptr], value, MethodTableFor(to, c));
+            if (c.IsTryCast) return IsInst(value, to, c);
             return CastClass(value, to, c);
         }
         return ConvertNumeric(value, from, to, c, c.IsChecked && !c.Conversion.IsImplicit);

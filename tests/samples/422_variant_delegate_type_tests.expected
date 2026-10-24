@@ -1,0 +1,13 @@
+True
+True
+False
+True
+False
+text
+True
+text
+action contravariant
+True
+True
+func:text other action
+Unable to cast object of type 'System.Func`1[System.Int32]' to type 'System.Func`1[System.Object]'.

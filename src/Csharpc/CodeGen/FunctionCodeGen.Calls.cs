@@ -429,16 +429,57 @@ public sealed partial class FunctionCodeGen
         {
             var conversion = _m.Compilation.ClassifyCommonConversion(from, target);
             if (conversion.IsIdentity && from.IsValueType) return L.True;
+            // A value of a (substituted) struct type: `state is IReadOnlyList<...>` with TState = a struct is
+            // decided by the type alone (boxing never fails; `is` ignores user-defined conversions).
+            if (from is { IsValueType: true, TypeKind: not TypeKind.TypeParameter })
+            {
+                bool Boxes(ITypeSymbol type) =>
+                    SymbolEqualityComparer.Default.Equals(type, target)
+                    || ((Microsoft.CodeAnalysis.CSharp.CSharpCompilation)_m.Compilation).ClassifyConversion(type, target) is { IsImplicit: true, IsBoxing: true };
+                if (!TypeMapper.IsNullable(from)) return Boxes(from) ? L.True : L.False;
+                var (has, _, underlying) = NullableParts(value, from); // a null T? boxes to null
+                return Boxes(underlying) ? has : L.False;
+            }
             if (from.IsReferenceType && conversion is { IsImplicit: true, IsReference: true } or { IsIdentity: true })
                 return _b.ICmp(LLVMIntPredicate.NE, value, LlvmContext.Null(L.Ptr));
         }
-        var mt = MethodTableFor(target, at);
-        var result = CallRuntime("csrt_isinst_class", L.Ptr, [L.Ptr, L.Ptr], value, mt);
+        var result = IsInst(value, target, at);
         return _b.ICmp(LLVMIntPredicate.NE, result, LlvmContext.Null(L.Ptr));
     }
 
-    private LLVMValueRef CastClass(LLVMValueRef value, ITypeSymbol target, IOperation at) =>
-        CallRuntime("csrt_castclass", L.Ptr, [L.Ptr, L.Ptr], value, MethodTableFor(target, at));
+    /// <summary>isinst: the object if it is a <paramref name="target"/>, else null.</summary>
+    internal LLVMValueRef IsInst(LLVMValueRef value, ITypeSymbol target, IOperation at)
+    {
+        if (IsVariantDelegate(target, out var d))
+        {
+            var test = _m.VariantDelegateTestFor(d);
+            return _b.Call(test.Type, test.Fn, [value]);
+        }
+        return CallRuntime("csrt_isinst_class", L.Ptr, [L.Ptr, L.Ptr], value, MethodTableFor(target, at));
+    }
+
+    private LLVMValueRef CastClass(LLVMValueRef value, ITypeSymbol target, IOperation at)
+    {
+        if (!IsVariantDelegate(target, out var d))
+            return CallRuntime("csrt_castclass", L.Ptr, [L.Ptr, L.Ptr], value, MethodTableFor(target, at));
+        // null or a convertible delegate passes; anything else fails like an exact cast (same exception and message).
+        var ok = _b.ICmp(LLVMIntPredicate.NE, IsInst(value, d, at), LlvmContext.Null(L.Ptr));
+        var pass = _b.BinOp(LLVMOpcode.Or, ok, _b.ICmp(LLVMIntPredicate.EQ, value, LlvmContext.Null(L.Ptr)));
+        var fail = NewBlock("cast.fail");
+        var done = NewBlock("cast.done");
+        _b.CondBr(pass, done, fail);
+        _b.PositionAtEnd(fail);
+        CallRuntime("csrt_castclass", L.Ptr, [L.Ptr, L.Ptr], value, _m.DelegateMethodTable(d));
+        _b.Br(done);
+        _b.PositionAtEnd(done);
+        return value;
+    }
+
+    private static bool IsVariantDelegate(ITypeSymbol target, out INamedTypeSymbol d)
+    {
+        d = target as INamedTypeSymbol ?? null!;
+        return target is INamedTypeSymbol { TypeKind: TypeKind.Delegate } named && MayBeVariant(named);
+    }
 
     /// <summary>Boxes a primitive: { mt = csrt_Boxed_&lt;T&gt;_MT, payload @ offset 8 }.</summary>
     internal LLVMValueRef Box(LLVMValueRef value, ITypeSymbol type, IOperation at)
@@ -1017,6 +1058,8 @@ public sealed partial class FunctionCodeGen
                         _b.Br(done);
                         _b.PositionAtEnd(done);
                     }
+                    else if (inputType is { IsValueType: true, TypeKind: not TypeKind.TypeParameter } && !localType.IsValueType)
+                        StoreValue(Box(value, inputType, pattern), LocalSlot(local)); // `state is IList<T> list` with a struct TState
                     else StoreValue(ToStorage(Coerce(value, inputType, localType), localType), LocalSlot(local));
                 }
                 return test;
