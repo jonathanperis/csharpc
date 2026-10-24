@@ -142,8 +142,6 @@ namespace CsharpcCoreLib
             return result;
         }
 
-        public static int GetHashCode(ReadOnlySpan<char> value) => value.ToString().GetHashCode();
-
         public static int Compare(string strA, string strB, System.Globalization.CultureInfo culture, System.Globalization.CompareOptions options)
         {
             if (culture == null) throw new ArgumentNullException(nameof(culture));
