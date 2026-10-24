@@ -1200,13 +1200,17 @@ public sealed partial class ModuleCodeGen
         SpecialType[] primitives = [SpecialType.System_Int32, SpecialType.System_Int64, SpecialType.System_Double, SpecialType.System_Boolean,
             SpecialType.System_Char, SpecialType.System_Single, SpecialType.System_Int16, SpecialType.System_UInt16, SpecialType.System_UInt32,
             SpecialType.System_UInt64, SpecialType.System_Byte, SpecialType.System_SByte];
-        var builtins = new List<(ITypeSymbol Type, LLVMValueRef MT)> { (Compilation.GetSpecialType(SpecialType.System_String), ExternalGlobal("csrt_String_MT")) };
-        foreach (var sp in primitives) builtins.Add((Compilation.GetSpecialType(sp), ExternalGlobal($"csrt_Boxed_{Compilation.GetSpecialType(sp).MetadataName}_MT")));
+        // Method tables are declared only for a builtin that implements one of the program's interfaces:
+        // a declared boxed table counts as used for the Type metadata (ModuleCodeGen.TypeInfo.cs), and its
+        // vtable would link that primitive's formatting code.
+        var builtins = new List<(ITypeSymbol Type, string MT)> { (Compilation.GetSpecialType(SpecialType.System_String), "csrt_String_MT") };
+        foreach (var sp in primitives) builtins.Add((Compilation.GetSpecialType(sp), $"csrt_Boxed_{Compilation.GetSpecialType(sp).MetadataName}_MT"));
         foreach (var itf in _interfaceTables.Keys.ToList())
-            foreach (var (builtinType, mt) in builtins)
+            foreach (var (builtinType, mtName) in builtins)
             {
                 var conversion = Compilation.ClassifyCommonConversion(builtinType, itf);
                 if (!conversion.Exists || !conversion.IsImplicit || conversion.IsUserDefined) continue;
+                var mt = ExternalGlobal(mtName);
                 if (builtinType is IArrayTypeSymbol { Rank: 1 }) RequestArrayInterface(itf);
                 else if (builtinType.SpecialType == SpecialType.System_String) RequestStringInterface(itf);
                 var registerBuiltin = Runtime("csrt_register_builtin_interface", Llvm.Void, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr);
