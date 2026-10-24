@@ -119,3 +119,6 @@ wasi 376_boxed_datetime_composite      no ICU on WASI (invariant globalization m
 macos 378_culture_getformat          live: culture data comes from the OS's ICU (libicucore / icu.dll), not Linux's ICU 74
 windows 378_culture_getformat          live: culture data comes from the OS's ICU (libicucore / icu.dll), not Linux's ICU 74
 wasi 378_culture_getformat             no ICU on WASI (invariant globalization mode): the sample uses specific cultures
+macos 379_culture_lazy_data          live: culture data comes from the OS's ICU (libicucore / icu.dll), not Linux's ICU 74
+windows 379_culture_lazy_data          live: culture data comes from the OS's ICU (libicucore / icu.dll), not Linux's ICU 74
+wasi 379_culture_lazy_data             no ICU on WASI (invariant globalization mode): the sample uses specific cultures

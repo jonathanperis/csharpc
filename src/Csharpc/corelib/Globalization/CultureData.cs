@@ -1083,7 +1083,13 @@ namespace CsharpcCoreLib.Globalization
         {
             get
             {
-                // This got populated during the culture initialization
+                // csharpc: populated during the culture initialization, except for neutral ICU cultures, whose
+                // specific culture comes from IcuLocaleData's tables on first use (InitIcuCultureDataCore).
+                if (_sSpecificCulture == null && _bNeutral && !GlobalizationMode.Invariant)
+                {
+                    Debug.Assert(_sRealName != null);
+                    _sSpecificCulture = IcuLocaleData.GetSpecificCultureName(_sRealName);
+                }
                 Debug.Assert(_sSpecificCulture != null, "[CultureData.SpecificCultureName] Expected this.sSpecificCulture to be populated by culture data initialization already");
                 return _sSpecificCulture;
             }
@@ -1882,6 +1888,8 @@ namespace CsharpcCoreLib.Globalization
                 {
                     Debug.Assert(_sRealName != null, "[CultureData.LCID] Expected this.sRealName to be populated already");
                     _iLanguage = IcuLocaleNameToLCID(_sRealName);
+                    // csharpc: InitIcuCultureDataCore leaves the LCID to first use (it needs IcuLocaleData's tables)
+                    if (_iLanguage == 0) _iLanguage = CultureInfo.LOCALE_CUSTOM_UNSPECIFIED;
                 }
                 return _iLanguage;
             }
@@ -2239,10 +2247,12 @@ namespace CsharpcCoreLib.Globalization
                 nfi._currencyNegativePattern = GetLocaleInfoCoreUserOverride(LocaleNumberData.NegativeMonetaryNumberFormat);
                 nfi._numberNegativePattern = GetLocaleInfoCoreUserOverride(LocaleNumberData.NegativeNumberFormat);
 
-                nfi._nativeDigits = GetNativeDigits();
-
-                Debug.Assert(_sRealName != null);
-                nfi._digitSubstitution = ShouldUseUserOverrideNlsData ? NlsGetLocaleInfo(LocaleNumberData.DigitSubstitution) : IcuGetDigitSubstitution(_sRealName);
+                // csharpc: NativeDigits and DigitSubstitution don't affect formatting or parsing, so they are read
+                // on first use of the properties (GetLazyNFIValue): DigitSubstitution needs IcuLocaleData's
+                // tables, which a program that only formats numbers then doesn't link.
+                nfi._nativeDigits = null!;
+                nfi._digitSubstitution = -1;
+                nfi._lazyCultureData = this;
             }
 
             // Gather additional data
@@ -2280,6 +2290,15 @@ namespace CsharpcCoreLib.Globalization
             {
                 nfi._currencyDecimalSeparator = nfi._numberDecimalSeparator;
             }
+        }
+
+        // csharpc: the NumberFormatInfo values GetNFIValues leaves to first use.
+        internal string[] GetNFINativeDigits() => GetNativeDigits();
+
+        internal int GetNFIDigitSubstitution()
+        {
+            Debug.Assert(_sRealName != null);
+            return ShouldUseUserOverrideNlsData ? NlsGetLocaleInfo(LocaleNumberData.DigitSubstitution) : IcuGetDigitSubstitution(_sRealName);
         }
 
         /// <remarks>
