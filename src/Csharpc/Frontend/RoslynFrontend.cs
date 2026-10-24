@@ -43,19 +43,32 @@ public static class RoslynFrontend
 
         // Each project's files are parsed with that project's own symbols (DefineConstants).
         s_parsed.Clear();
+        List<(string Path, CSharpParseOptions Options)> projectFiles = [];
         foreach (var project in settings.Projects)
         {
             var projectOptions = ParseOptions(LanguageVersionOf(project.LanguageVersion), project.Defines);
             foreach (var f in project.Files)
-                if (!s_parsed.ContainsKey(Path.GetFullPath(f)))
-                    s_parsed[Path.GetFullPath(f)] = CSharpSyntaxTree.ParseText(File.ReadAllText(f), projectOptions, path: Path.GetFullPath(f));
+                if (s_parsed.TryAdd(Path.GetFullPath(f), null!)) projectFiles.Add((Path.GetFullPath(f), projectOptions));
         }
-        List<SyntaxTree> trees = [.. settings.Files.Select(f => s_parsed.TryGetValue(Path.GetFullPath(f), out var parsed) ? parsed
-            : CSharpSyntaxTree.ParseText(File.ReadAllText(f), parseOptions, path: Path.GetFullPath(f)))];
+        // The corelib also sees the target OS (CSHARPC_TARGET_*), for per-OS libc constants and layouts.
+        var coreLibOptions = parseOptions.WithPreprocessorSymbols(parseOptions.PreprocessorSymbolNames.Concat(settings.CoreLibDefines).ToArray());
+        var looseFiles = settings.Files.Select(Path.GetFullPath).Where(f => !s_parsed.ContainsKey(f)).ToList();
+        var coreLibFiles = CoreLibFiles();
+        // Parse everything in parallel (the corelib alone is ~4.5 MB of C#); trees keep their order.
+        List<(string Text, string Path, CSharpParseOptions Options)> inputs =
+        [
+            .. projectFiles.Select(f => (File.ReadAllText(f.Path), f.Path, f.Options)),
+            .. looseFiles.Select(f => (File.ReadAllText(f), f, parseOptions)),
+            .. coreLibFiles.Select(f => (File.ReadAllText(f.File), f.TreePath, coreLibOptions)),
+        ];
+        var parsed = new SyntaxTree[inputs.Count];
+        Parallel.For(0, inputs.Count, Driver.Parallelism.Options, i => parsed[i] = CSharpSyntaxTree.ParseText(inputs[i].Text, inputs[i].Options, path: inputs[i].Path));
+        for (var i = 0; i < projectFiles.Count; i++) s_parsed[inputs[i].Path] = parsed[i];
+        var loose = projectFiles.Count;
+        List<SyntaxTree> trees = [.. settings.Files.Select(f => s_parsed.TryGetValue(Path.GetFullPath(f), out var tree) ? tree : parsed[loose++])];
         if (settings.GlobalUsings is { Length: > 0 } usings)
             trees.Add(CSharpSyntaxTree.ParseText(usings, parseOptions, path: "<global-usings>.g.cs"));
-        // The corelib also sees the target OS (CSHARPC_TARGET_*), for per-OS libc constants and layouts.
-        trees.AddRange(CoreLibTrees(parseOptions.WithPreprocessorSymbols(parseOptions.PreprocessorSymbolNames.Concat(settings.CoreLibDefines).ToArray())));
+        trees.AddRange(parsed[(projectFiles.Count + looseFiles.Count)..]);
 
         var nullable = NullableOf(settings.Nullable);
         var options = new CSharpCompilationOptions(OutputKind.ConsoleApplication,
@@ -176,14 +189,13 @@ public static class RoslynFrontend
     /// user's options so the compilation stays consistent; written in conservative C# for that reason.
     /// Only the members a program actually uses get bound and lowered.
     /// </summary>
-    private static IEnumerable<SyntaxTree> CoreLibTrees(CSharpParseOptions parseOptions)
+    private static List<(string File, string TreePath)> CoreLibFiles()
     {
-        if (Environment.GetEnvironmentVariable("CSHARPC_NO_CORELIB") == "1") yield break;
+        if (Environment.GetEnvironmentVariable("CSHARPC_NO_CORELIB") == "1") return [];
         var dir = Path.Combine(AppContext.BaseDirectory, "corelib");
-        if (!Directory.Exists(dir)) yield break;
-        foreach (var file in Directory.EnumerateFiles(dir, "*.cs", SearchOption.AllDirectories).Order())
-            yield return CSharpSyntaxTree.ParseText(File.ReadAllText(file), parseOptions,
-                path: CodeGen.CoreLib.TreePrefix + Path.GetRelativePath(dir, file));
+        if (!Directory.Exists(dir)) return [];
+        return [.. Directory.EnumerateFiles(dir, "*.cs", SearchOption.AllDirectories).Order()
+            .Select(file => (file, CodeGen.CoreLib.TreePrefix + Path.GetRelativePath(dir, file)))];
     }
 
     public static bool IsCoreLibTree(SyntaxTree tree) => tree.FilePath.StartsWith(CodeGen.CoreLib.TreePrefix, StringComparison.Ordinal);
@@ -197,8 +209,11 @@ public static class RoslynFrontend
         if (Environment.GetEnvironmentVariable("CSHARPC_CHECK_CORELIB") == "1") return compilation.GetDiagnostics();
         var builder = ImmutableArray.CreateBuilder<Diagnostic>();
         builder.AddRange(GeneratorDiagnostics);
-        foreach (var tree in compilation.SyntaxTrees.Where(t => !IsCoreLibTree(t)))
-            builder.AddRange(compilation.GetSemanticModel(tree).GetDiagnostics());
+        // Trees bind independently (Roslyn is thread-safe); diagnostics keep the tree order.
+        var trees = compilation.SyntaxTrees.Where(t => !IsCoreLibTree(t)).ToArray();
+        var perTree = new ImmutableArray<Diagnostic>[trees.Length];
+        Parallel.For(0, trees.Length, Driver.Parallelism.Options, i => perTree[i] = compilation.GetSemanticModel(trees[i]).GetDiagnostics());
+        foreach (var diagnostics in perTree) builder.AddRange(diagnostics);
         return builder.ToImmutable();
     }
 

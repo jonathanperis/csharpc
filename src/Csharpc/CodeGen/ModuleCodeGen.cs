@@ -82,7 +82,6 @@ public sealed partial class ModuleCodeGen
     private readonly Dictionary<string, LoweredFunction> _runtime = [];
     private readonly Dictionary<string, LLVMValueRef> _globals = [];
     private readonly Dictionary<string, LLVMValueRef> _strings = [];
-    private readonly Dictionary<SyntaxTree, SemanticModel> _models = [];
     /// <summary>Generic instantiations (constructed methods) whose bodies still need lowering.</summary>
     private readonly Queue<IMethodSymbol> _pendingInstantiations = new();
     private readonly Queue<(ClosureFunction Function, IMethodSymbol Symbol, TypeSubstitution Subst)> _pendingNested = new();
@@ -121,27 +120,6 @@ public sealed partial class ModuleCodeGen
         Mangler.RealNameOf = CoreLib.RealNameOf; // shadow types report their BCL names (List`1[...])
     }
 
-    public SemanticModel ModelFor(SyntaxTree tree) =>
-        _models.TryGetValue(tree, out var model) ? model : _models[tree] = Compilation.GetSemanticModel(tree);
-
-    private readonly Dictionary<SyntaxNode, ControlFlowGraph?> _cfgs = [];
-
-    /// <summary>
-    /// Roslyn's CFG of a body, built once per syntax node: a CFG is immutable and independent of the
-    /// substitution it is lowered under, so every instantiation of a generic method (and every
-    /// constructor sharing a type's field initializers) reuses it instead of re-binding the body.
-    /// </summary>
-    internal ControlFlowGraph? CfgFor(SyntaxNode syntax)
-    {
-        if (_cfgs.TryGetValue(syntax, out var cached)) { Stats.CfgReused++; return cached; }
-        var start = System.Diagnostics.Stopwatch.GetTimestamp();
-        var model = ModelFor(syntax.SyntaxTree);
-        // A primary constructor's type declaration only has a body operation when it calls a base constructor.
-        var cfg = syntax is TypeDeclarationSyntax && model.GetOperation(syntax) is null ? null : ControlFlowGraph.Create(syntax, model);
-        Stats.CfgBuilt++;
-        Stats.CfgTicks += System.Diagnostics.Stopwatch.GetTimestamp() - start;
-        return _cfgs[syntax] = cfg;
-    }
 
     /// <summary>Compiled by csharpc: defined in the program's sources (incl. the corelib) or in an IL assembly (ADR 0010).</summary>
     public bool IsUserType(ITypeSymbol? type) =>
@@ -155,6 +133,12 @@ public sealed partial class ModuleCodeGen
     // ======================================================================================
 
     public void Generate()
+    {
+        try { GenerateCore(); }
+        finally { StopPrefetch(); }
+    }
+
+    private void GenerateCore()
     {
         var entryPoint = Compilation.GetEntryPoint(CancellationToken.None)
             ?? throw new CompileError("CSLLVM0003", "program has no entry point (Main method or top-level statements)", null);
@@ -304,7 +288,10 @@ public sealed partial class ModuleCodeGen
         MarkIfCoroutine(method, fn);
         // Generic instantiations, corelib and IL methods are lowered on demand, when first referenced.
         if ((generic || CoreLib.IsCoreLib(method) || IsIlMethod(method)) && IsUserMethod(method) && !method.IsAbstract && !method.IsExtern)
+        {
             _pendingInstantiations.Enqueue(method);
+            if (!IsIlMethod(method)) PrefetchCfg(method);
+        }
         return _functions[method] = new LoweredFunction(fn, type);
     }
 
@@ -502,10 +489,11 @@ public sealed partial class ModuleCodeGen
     public sealed class LoweringStats
     {
         public int IlMethods, SourceMethods, CoreLibMethods;
-        public int CfgBuilt, CfgReused;
-        public long IlTicks, IlDecodeTicks, SourceTicks, CoreLibTicks, CfgTicks;
+        public int CfgBuilt, CfgRequests, CfgThreads = 1;
+        public long IlTicks, IlDecodeTicks, SourceTicks, CoreLibTicks, CfgTicks, CfgWaitTicks;
         public override string ToString() =>
-            $"IL {IlMethods} methods {Ms(IlTicks)} ms (decode {Ms(IlDecodeTicks)} ms), source {SourceMethods} methods {Ms(SourceTicks)} ms, corelib {CoreLibMethods} methods {Ms(CoreLibTicks)} ms; Roslyn CFGs {CfgBuilt} built in {Ms(CfgTicks)} ms, {CfgReused} reused";
+            $"IL {IlMethods} methods {Ms(IlTicks)} ms (decode {Ms(IlDecodeTicks)} ms), source {SourceMethods} methods {Ms(SourceTicks)} ms, corelib {CoreLibMethods} methods {Ms(CoreLibTicks)} ms\n"
+            + $"             Roslyn CFGs: {CfgRequests} requested, {CfgBuilt} built in {Ms(CfgTicks)} ms on {CfgThreads} thread(s), lowering waited {Ms(CfgWaitTicks)} ms";
         private static string Ms(long ticks) => (ticks * 1000.0 / System.Diagnostics.Stopwatch.Frequency).ToString("F0", System.Globalization.CultureInfo.InvariantCulture);
     }
 
