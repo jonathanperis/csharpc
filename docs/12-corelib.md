@@ -103,6 +103,14 @@ Limitation: `object is IEnumerable<X>` on an array can't check the element type 
   `Queue<T>`, `Stack<T>`, `LinkedList<T>`/`LinkedListNode<T>`, `PriorityQueue<TElement,TPriority>`,
   `SortedList<K,V>`, `SortedDictionary<K,V>`, `SortedSet<T>`, `EqualityComparer<T>`, `Comparer<T>`
   (`Default`, `Create`, subclassing), `CollectionExtensions` (`GetValueOrDefault`, `TryAdd`, `Remove`).
+* **Concurrent collections** (`corelib/Concurrent/`): `ConcurrentDictionary<TKey,TValue>` is a port of .NET's
+  (same striped-lock table, lock count from `Environment.ProcessorCount`, per-lock budget, growth to the next
+  prime of twice the size, nodes prepended to their bucket, non-randomized hashing of string keys under the
+  default/Ordinal/OrdinalIgnoreCase comparers), so it enumerates in .NET's order on the same machine (.NET's
+  own order depends on the processor count unless a concurrency level is given); `ConcurrentStack<T>` is a
+  port; `ConcurrentQueue<T>` and `ConcurrentBag<T>` are lock-based with .NET's observable order (FIFO; per
+  thread LIFO, stealing oldest-first from other threads, snapshots newest queue first) and snapshot
+  enumeration. `BlockingCollection<T>` and `Partitioner` are not implemented yet (CSLLVM0001/0002).
 * **Observable behavior follows .NET's implementations:** `List` growth (`Capacity`), `Dictionary`/`HashSet`
   bucket+entries+free-list design (iteration order after removals, prime sizes, FastMod), `PriorityQueue`'s
   4-ary heap (dequeue order of equal priorities), the introsort port (order of equal keys in `List.Sort` /
@@ -283,5 +291,5 @@ discovery is syntax-only, and only the members a program uses get bound and lowe
   `NotSupportedException` when executed. (Boxed structs do have interface maps: the corelib's struct
   enumerators are `IEnumerator<T>`/`IEnumerator`/`IDisposable` when boxed, as in .NET.)
 * Anonymous types (multi-`from` queries with `let`/`where`), `ImmutableArray`/`Immutable*`,
-  `ConcurrentDictionary`, `BitArray`, `ObservableCollection`, `Tuple<...>` classes not yet shadowed.
+  `BitArray`, `ObservableCollection`, `Tuple<...>` classes, `BlockingCollection`, `Partitioner` not yet shadowed.
 * `SortedDictionary`/`SortedSet` use sorted arrays (same order, O(n) insertion).
