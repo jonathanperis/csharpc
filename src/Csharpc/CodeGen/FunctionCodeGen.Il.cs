@@ -147,7 +147,18 @@ public sealed partial class FunctionCodeGen
         foreach (var t in il.Trys) IlLandingPad(t);
         il.Blocks[0].Entry = [];
         _b.Br(il.Blocks[0].Llvm);
-        foreach (var block in il.Blocks) EmitIlBlock(block);
+        var reachable = IlReachableBlocks(il);
+        foreach (var block in il.Blocks)
+        {
+            if (reachable.Contains(block.Start)) EmitIlBlock(block);
+            else
+            {
+                // Only behind a folded feature switch (or dead code): nothing it calls is compiled.
+                block.Emitted = true;
+                _b.PositionAtEnd(block.Llvm);
+                _b.Unreachable();
+            }
+        }
 
         // End of each finally: resume wherever the code that entered it continues.
         _b.UnwindDest = default;
