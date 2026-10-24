@@ -468,7 +468,11 @@ public sealed partial class FunctionCodeGen
                 var elementType = ResolveIlType(instruction.Token);
                 var length = IlInt(Pop());
                 var length64 = length.Kind == IlKind.Int32 ? _b.Cast(LLVMOpcode.SExt, length.Value, L.I64) : length.Value;
-                Push(new IlEntry(IlKind.Ref, NewArray(S(elementType), length64), _m.Compilation.CreateArrayTypeSymbol(elementType)) { NonNull = true });
+                Push(new IlEntry(IlKind.Ref, NewArray(S(elementType), length64), _m.Compilation.CreateArrayTypeSymbol(elementType))
+                {
+                    NonNull = true,
+                    FreshLength = length.Constant as int?,
+                });
                 return false;
             }
             case ILOpCode.Ldlen:
@@ -507,7 +511,8 @@ public sealed partial class FunctionCodeGen
             case ILOpCode.Localloc:
             {
                 var size = IlInt(Pop());
-                var bytes = size.Kind == IlKind.Int32 ? _b.Cast(LLVMOpcode.ZExt, size.Value, L.I64) : size.Value;
+                // i64 whatever the native int width (wasm32's is 32 bits): llvm.memset takes an i64 length.
+                var bytes = IlToI64(size, signed: false);
                 var memory = Native.LLVMBuildArrayAlloca(_b.Ref, L.I8, bytes, "localloc");
                 Native.LLVMSetAlignment(memory, 16);
                 if (IlBody.InitLocals) IlMemset(memory, bytes);
@@ -885,6 +890,12 @@ public sealed partial class FunctionCodeGen
         if ((op is ILOpCode.Add or ILOpCode.Add_ovf_un && (lPtr ^ rPtr)) || (op is ILOpCode.Sub or ILOpCode.Sub_ovf_un && lPtr && !rPtr))
         {
             var (pointer, offset) = lPtr ? (l, r) : (r, l);
+            // `p + i * sizeof(T)` on a T*: index T elements, as the source path does (LLVM's loop and
+            // addressing-mode optimizations see an element index instead of a byte offset).
+            if (op == ILOpCode.Add && offset.Scaled is { } scaled && pointer.Type is { SpecialType: not SpecialType.System_Void } pointee
+                && Native.LLVMTypeOf(offset.Value).IntWidth == 64 && T.Storage(S(pointee)) is var storage
+                && (long)T.Target.SizeOf(storage) == scaled.Factor)
+                return new IlEntry(pointer.Kind, _b.InBoundsGep(storage, pointer.Value, [IlToI64(scaled.Index, signed: true)]), pointer.Type);
             var delta = IlToI64(offset, signed: true);
             if (op is ILOpCode.Sub or ILOpCode.Sub_ovf_un) delta = _b.Neg(delta);
             var moved = _b.InBoundsGep(L.I8, pointer.Value, [delta]);
@@ -913,6 +924,11 @@ public sealed partial class FunctionCodeGen
         };
         // Bitwise operations on two values of the same small/enum/bool type keep that type (for later stores).
         var type = l.Type is { } lt && r.Type is { } rt && SymbolEqualityComparer.Default.Equals(lt, rt) && l.Kind == r.Kind ? lt : KindType(kind);
+        if (op == ILOpCode.Mul && Native.LLVMTypeOf(value).IntWidth == 64)
+        {
+            if (r.Constant is int or long) return new IlEntry(kind, value, type) { Scaled = (l, Convert.ToInt64(r.Constant)) };
+            if (l.Constant is int or long) return new IlEntry(kind, value, type) { Scaled = (r, Convert.ToInt64(l.Constant)) };
+        }
         return new IlEntry(kind, value, type);
     }
 
@@ -997,6 +1013,16 @@ public sealed partial class FunctionCodeGen
             result = source.IntWidth == target.IntWidth ? e.Value
                 : source.IntWidth > target.IntWidth ? _b.Cast(LLVMOpcode.Trunc, e.Value, target)
                 : _b.Cast(TypeMapper.IsSigned(toType) ? LLVMOpcode.SExt : LLVMOpcode.ZExt, e.Value, target);
+            // Keep what pointer arithmetic recognizes (IlBinary): widened constants and same-width scaled values.
+            var pushed = IlPush(result, toType);
+            if (source.IntWidth == target.IntWidth && e.Scaled is { } scaled) return pushed with { Scaled = scaled };
+            if (source.IntWidth <= target.IntWidth && e.Constant is int or long)
+            {
+                var v = Convert.ToInt64(e.Constant);
+                if (!TypeMapper.IsSigned(toType) && source.IntWidth == 32) v = (uint)(int)v;
+                return pushed with { Constant = target.IntWidth == 64 ? v : (int)v };
+            }
+            return pushed;
         }
         else result = ConvertNumeric(e.Value, from, toType, IlAt(), isChecked: check);
         return IlPush(result, toType);
@@ -1104,6 +1130,13 @@ public sealed partial class FunctionCodeGen
     private LLVMValueRef IlElementAddress(IlEntry array, IlEntry index, ITypeSymbol elementType)
     {
         var il = _il!;
+        // Array initializers (`newarr; dup; ldc i; ...; stelem`): a constant index into the array just
+        // created with a constant length needs neither the null nor the bounds check.
+        if (array.FreshLength is int length && index.Constant is int constant && constant >= 0 && constant < length)
+        {
+            var header = T.ArrayHeader(T.Storage(S(elementType)));
+            return DataAddress(_b.InBoundsGep(header, IlRef(array), [L.ConstInt(L.I32, 0), L.ConstInt(L.I32, 2), L.ConstInt(L.I64, constant)]), DataKind.ArrayElement);
+        }
         var arrayType = array.Type as IArrayTypeSymbol ?? _m.Compilation.CreateArrayTypeSymbol(elementType);
         var i = IlInt(index);
         var indexType = Special(i.Kind == IlKind.Int32 ? SpecialType.System_Int32 : SpecialType.System_Int64);

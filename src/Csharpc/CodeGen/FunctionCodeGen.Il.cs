@@ -33,6 +33,13 @@ internal sealed record IlEntry(IlKind Kind, LLVMValueRef Value, ITypeSymbol? Typ
     /// needs a constant argument (CoreIntrinsics.LibraryFrames, ordinal comparisons) sees one.
     /// </summary>
     public object? Constant { get; init; }
+    /// <summary>The length of an array this entry holds since `newarr` with a constant length (and `dup`s of it).</summary>
+    public int? FreshLength { get; init; }
+    /// <summary>
+    /// A 64-bit `mul` by a constant (Index × Factor), kept through width-preserving conversions: C#
+    /// compilers scale pointer offsets this way, and `p + i * sizeof(T)` becomes a typed GEP.
+    /// </summary>
+    public (IlEntry Index, long Factor)? Scaled { get; init; }
 }
 
 /// <summary>
