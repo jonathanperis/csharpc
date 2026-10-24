@@ -107,8 +107,13 @@ namespace CsharpcCoreLib
     /// </summary>
     internal static class BodylessExtern
     {
+        // The HRESULT text as .NET prints it: on its own line on Unix, after the message on Windows.
         public static void Throw() =>
-            throw new BadImageFormatException("An attempt was made to load a program with an incorrect format." + Environment.NewLine + " (0x8007000B)");
+#if CSHARPC_TARGET_WINDOWS
+            throw new BadImageFormatException("An attempt was made to load a program with an incorrect format. (0x8007000B)");
+#else
+            throw new BadImageFormatException("An attempt was made to load a program with an incorrect format.\n (0x8007000B)");
+#endif
     }
 
     [ShadowMembers("System.ObjectDisposedException")]
