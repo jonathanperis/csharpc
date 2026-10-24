@@ -99,10 +99,15 @@ namespace CsharpcCoreLib
     }
 
     [ShadowMembers("System.AppContext")]
-    internal static class AppContextImpl
+    internal static unsafe class AppContextImpl
     {
         private static Dictionary<string, object> s_data;
         private static Dictionary<string, bool> s_switches;
+
+        // Set once the program changes AppContext (SetSwitch/SetData): from then on, the library's own
+        // switch lookups (TryGetConfigSwitch) go through the dictionaries. Reaching them only through this
+        // pointer keeps them, and bool.TryParse, out of programs that never change AppContext.
+        private static delegate*<string, out bool, bool> s_modifiedLookup;
 
         private static Dictionary<string, object> Data
         {
@@ -140,6 +145,34 @@ namespace CsharpcCoreLib
             if (name == null) throw new ArgumentNullException("name");
             var store = Data;
             lock (store) store[name] = data;
+            s_modifiedLookup = &TryGetSwitch;
+        }
+
+        /// <summary>
+        /// AppContext.TryGetSwitch for switches the library reads itself (GlobalizationMode). Until the program
+        /// calls SetSwitch or SetData, the switches are the compiled runtimeconfig's configProperties, whose
+        /// boolean values are exactly "true" / "false" (ProjectLoader normalizes them with bool.TryParse).
+        /// </summary>
+        internal static bool TryGetConfigSwitch(string switchName, out bool isEnabled)
+        {
+            var modified = s_modifiedLookup;
+            if (modified != null) return modified(switchName, out isEnabled);
+            string blob = CoreIntrinsics.RuntimeConfig();
+            string value = null;
+            int i = 0;
+            while (i < blob.Length)
+            {
+                int keyLength = (blob[i] << 16) | blob[i + 1];
+                int keyStart = i + 2;
+                i = keyStart + keyLength;
+                int valueLength = (blob[i] << 16) | blob[i + 1];
+                // the last value of a key wins, as in the Data dictionary
+                if (keyLength == switchName.Length && StringOps.EqualsOrdinal(blob.AsSpan(keyStart, keyLength), switchName.AsSpan()))
+                    value = blob.Substring(i + 2, valueLength);
+                i += 2 + valueLength;
+            }
+            isEnabled = value == "true";
+            return value == "true" || value == "false";
         }
 
         public static bool TryGetSwitch(string switchName, out bool isEnabled)
@@ -158,6 +191,7 @@ namespace CsharpcCoreLib
             ThrowIfNullOrEmpty(switchName, "switchName");
             var switches = Switches;
             lock (switches) switches[switchName] = isEnabled;
+            s_modifiedLookup = &TryGetSwitch;
         }
 
         private static void ThrowIfNullOrEmpty(string value, string paramName)
