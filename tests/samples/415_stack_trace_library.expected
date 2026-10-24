@@ -1,0 +1,80 @@
+== dictionary
+System.Collections.Generic.KeyNotFoundException: The given key 'missing' was not present in the dictionary.
+   at System.Collections.Generic.Dictionary`2.get_Item(TKey key)
+   at Program.<>c.<Main>b__0_0() in 415_stack_trace_library.cs:line 13
+   at Program.Show(String name, Action action) in 415_stack_trace_library.cs:line 42
+== sorted dictionary
+System.Collections.Generic.KeyNotFoundException: The given key '7' was not present in the dictionary.
+   at System.Collections.Generic.SortedDictionary`2.get_Item(TKey key)
+   at Program.<>c.<Main>b__0_1() in 415_stack_trace_library.cs:line 14
+   at Program.Show(String name, Action action) in 415_stack_trace_library.cs:line 42
+== list get
+System.ArgumentOutOfRangeException: Index was out of range. Must be non-negative and less than the size of the collection. (Parameter 'index')
+   at System.Collections.Generic.List`1.get_Item(Int32 index)
+   at Program.<>c.<Main>b__0_2() in 415_stack_trace_library.cs:line 15
+   at Program.Show(String name, Action action) in 415_stack_trace_library.cs:line 42
+== list set
+System.ArgumentOutOfRangeException: Index was out of range. Must be non-negative and less than the size of the collection. (Parameter 'index')
+   at System.Collections.Generic.List`1.set_Item(Int32 index, T value)
+   at Program.<>c.<Main>b__0_3() in 415_stack_trace_library.cs:line 16
+   at Program.Show(String name, Action action) in 415_stack_trace_library.cs:line 42
+== list remove
+System.ArgumentOutOfRangeException: Index was out of range. Must be non-negative and less than the size of the collection. (Parameter 'index')
+   at System.Collections.Generic.List`1.RemoveAt(Int32 index)
+   at Program.<>c.<Main>b__0_4() in 415_stack_trace_library.cs:line 17
+   at Program.Show(String name, Action action) in 415_stack_trace_library.cs:line 42
+== first
+System.InvalidOperationException: Sequence contains no elements
+   at System.Linq.ThrowHelper.ThrowNoElementsException()
+   at System.Linq.Enumerable.First[TSource](IEnumerable`1 source)
+   at Program.<>c.<Main>b__0_5() in 415_stack_trace_library.cs:line 18
+   at Program.Show(String name, Action action) in 415_stack_trace_library.cs:line 42
+== first predicate
+System.InvalidOperationException: Sequence contains no matching element
+   at System.Linq.ThrowHelper.ThrowNoMatchException()
+   at System.Linq.Enumerable.First[TSource](IEnumerable`1 source, Func`2 predicate)
+   at Program.<>c.<Main>b__0_6() in 415_stack_trace_library.cs:line 19
+   at Program.Show(String name, Action action) in 415_stack_trace_library.cs:line 42
+== last
+System.InvalidOperationException: Sequence contains no elements
+   at System.Linq.ThrowHelper.ThrowNoElementsException()
+   at System.Linq.Enumerable.Last[TSource](IEnumerable`1 source)
+   at Program.<>c.<Main>b__0_7() in 415_stack_trace_library.cs:line 20
+   at Program.Show(String name, Action action) in 415_stack_trace_library.cs:line 42
+== stack
+System.InvalidOperationException: Stack empty.
+   at System.Collections.Generic.Stack`1.ThrowForEmptyStack()
+   at System.Collections.Generic.Stack`1.Pop()
+   at Program.<>c.<Main>b__0_8() in 415_stack_trace_library.cs:line 21
+   at Program.Show(String name, Action action) in 415_stack_trace_library.cs:line 42
+== queue
+System.InvalidOperationException: Queue empty.
+   at System.Collections.Generic.Queue`1.ThrowForEmptyQueue()
+   at System.Collections.Generic.Queue`1.Dequeue()
+   at Program.<>c.<Main>b__0_9() in 415_stack_trace_library.cs:line 22
+   at Program.Show(String name, Action action) in 415_stack_trace_library.cs:line 42
+== array copy length
+System.ArgumentOutOfRangeException: length ('-1') must be a non-negative value. (Parameter 'length')
+Actual value was -1.
+   at System.ArgumentOutOfRangeException.ThrowNegative[T](T value, String paramName)
+   at System.Array.CopyImpl(Array sourceArray, Int32 sourceIndex, Array destinationArray, Int32 destinationIndex, Int32 length, Boolean reliable)
+   at Program.<>c.<Main>b__0_10() in 415_stack_trace_library.cs:line 23
+   at Program.Show(String name, Action action) in 415_stack_trace_library.cs:line 42
+== array copy index
+System.ArgumentOutOfRangeException: sourceIndex ('-1') must be greater than or equal to '0'. (Parameter 'sourceIndex')
+Actual value was -1.
+   at System.ArgumentOutOfRangeException.ThrowLess[T](T value, T other, String paramName)
+   at System.Array.CopyImpl(Array sourceArray, Int32 sourceIndex, Array destinationArray, Int32 destinationIndex, Int32 length, Boolean reliable)
+   at Program.<>c.<Main>b__0_11() in 415_stack_trace_library.cs:line 24
+   at Program.Show(String name, Action action) in 415_stack_trace_library.cs:line 42
+== array copy too long
+System.ArgumentException: Destination array was not long enough. Check the destination index, length, and the array's lower bounds. (Parameter 'destinationArray')
+   at System.Array.CopyImpl(Array sourceArray, Int32 sourceIndex, Array destinationArray, Int32 destinationIndex, Int32 length, Boolean reliable)
+   at Program.<>c.<Main>b__0_12() in 415_stack_trace_library.cs:line 25
+   at Program.Show(String name, Action action) in 415_stack_trace_library.cs:line 42
+== through a helper
+System.Collections.Generic.KeyNotFoundException: The given key 'bob' was not present in the dictionary.
+   at System.Collections.Generic.Dictionary`2.get_Item(TKey key)
+   at Program.Lookup(Dictionary`2 map, String key) in 415_stack_trace_library.cs:line 35
+   at Program.Helper() in 415_stack_trace_library.cs:line 32
+   at Program.Show(String name, Action action) in 415_stack_trace_library.cs:line 42
