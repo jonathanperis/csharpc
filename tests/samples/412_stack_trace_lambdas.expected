@@ -1,0 +1,67 @@
+== lambda
+lambda
+   at Program.<<Main>$>g__Fail|0_13(String message)
+   at Program.<>c.<<Main>$>b__0_0()
+   at Program.<<Main>$>g__Show|0_14(String name, Action action)
+== capturing lambda
+captured 3
+   at Program.<<Main>$>g__Fail|0_13(String message)
+   at Program.<>c__DisplayClass0_0.<<Main>$>b__1()
+   at Program.<<Main>$>g__Show|0_14(String name, Action action)
+== static local function
+static local
+   at Program.<<Main>$>g__Fail|0_13(String message)
+   at Program.<<Main>$>g__StaticLocal|0_10()
+   at Program.<<Main>$>g__Show|0_14(String name, Action action)
+== local function in closure class
+local 4
+   at Program.<<Main>$>g__Fail|0_13(String message)
+   at Program.<>c__DisplayClass0_0.<<Main>$>g__LocalUsingCapture|11(Int32 extra)
+   at Program.<>c__DisplayClass0_0.<<Main>$>b__2()
+   at Program.<<Main>$>g__Show|0_14(String name, Action action)
+== struct closure
+bump 2
+   at Program.<<Main>$>g__Fail|0_13(String message)
+   at Program.<<Main>$>g__Bump|0_16(<>c__DisplayClass0_1&)
+   at Program.<>c.<<Main>$>b__0_3()
+   at Program.<<Main>$>g__Show|0_14(String name, Action action)
+== nested lambdas
+inner
+   at Program.<<Main>$>g__Fail|0_13(String message)
+   at Program.<>c.<<Main>$>b__0_18()
+   at Program.<>c.<<Main>$>b__0_17()
+   at Program.<>c.<<Main>$>b__0_4()
+   at Program.<<Main>$>g__Show|0_14(String name, Action action)
+== lambda in constructor
+widget
+   at Widget.Throw(String what)
+   at Widget.<>c__DisplayClass1_0.<.ctor>b__0()
+   at Widget..ctor(Boolean fail)
+   at Program.<>c.<<Main>$>b__0_5()
+   at Program.<<Main>$>g__Show|0_14(String name, Action action)
+== field initializer
+initializer
+   at Gadget.<>c.<.ctor>b__2_0()
+   at Gadget.Build(Func`1 make)
+   at Gadget..ctor()
+   at Program.<>c.<<Main>$>b__0_6()
+   at Program.<<Main>$>g__Show|0_14(String name, Action action)
+== generic closure
+five (Parameter 'count')
+   at Generic.<>c__DisplayClass0_0`1.<Run>b__0()
+   at Generic.Run[T](Int32 count, T value)
+   at Program.<>c.<<Main>$>b__0_7()
+   at Program.<<Main>$>g__Show|0_14(String name, Action action)
+== lambda in loop
+loop 1
+   at Program.<<Main>$>g__Fail|0_13(String message)
+   at Program.<>c__DisplayClass0_2.<<Main>$>b__19()
+   at Program.<>c.<<Main>$>b__0_8()
+   at Program.<<Main>$>g__Show|0_14(String name, Action action)
+== local function calling local function
+inner local 3
+   at Program.<<Main>$>g__Fail|0_13(String message)
+   at Program.<<Main>$>g__Inner|0_20(Int32 m)
+   at Program.<<Main>$>g__Outer|0_12(Int32 n)
+   at Program.<>c.<<Main>$>b__0_9()
+   at Program.<<Main>$>g__Show|0_14(String name, Action action)

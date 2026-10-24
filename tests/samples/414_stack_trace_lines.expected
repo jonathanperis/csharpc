@@ -1,0 +1,58 @@
+== null
+NullReferenceException: Object reference not set to an instance of an object.
+   at Program.<>c.<Main>b__3_0()
+   at Program.Show(String name, Action action)
+== bounds
+IndexOutOfRangeException: Index was outside the bounds of the array.
+   at Program.Index(Int32[] values, Int32 i)
+   at Program.<>c.<Main>b__3_1()
+   at Program.Show(String name, Action action)
+== divide
+DivideByZeroException: Attempted to divide by zero.
+   at Program.Divide(Int32 x)
+   at Program.<>c.<Main>b__3_2()
+   at Program.Show(String name, Action action)
+== cast
+InvalidCastException: Unable to cast object of type 'System.String' to type 'System.Int32'.
+   at Program.<>c.<Main>b__3_3()
+   at Program.Show(String name, Action action)
+== overflow
+OverflowException: Arithmetic operation resulted in an overflow.
+   at Program.Add(Int32 x)
+   at Program.<>c.<Main>b__3_4()
+   at Program.Show(String name, Action action)
+== multi-line statement
+ArgumentException: too big: 2
+   at Program.Check(Int32 x)
+   at Program.MultiLine()
+   at Program.Show(String name, Action action)
+== for header
+ArgumentException: too big: 2
+   at Program.Check(Int32 x)
+   at Program.ForHeader()
+   at Program.Show(String name, Action action)
+== switch arm
+ArgumentException: too big: 2
+   at Program.Check(Int32 x)
+   at Program.Pick(Int32 v)
+   at Program.<>c.<Main>b__3_5()
+   at Program.Show(String name, Action action)
+== conditional
+ArgumentException: too big: 5
+   at Program.Check(Int32 x)
+   at Program.Choose(Boolean which)
+   at Program.<>c.<Main>b__3_6()
+   at Program.Show(String name, Action action)
+== inlined helpers
+ArgumentException: too big: 3
+   at Program.Check(Int32 x)
+   at Program.Leaf(Int32 x)
+   at Program.Middle(Int32 x)
+   at Program.Outer(Int32 x)
+   at Program.<>c.<Main>b__3_7()
+   at Program.Show(String name, Action action)
+== property chain
+NullReferenceException: Object reference not set to an instance of an object.
+   at Program.Holder.get_Value()
+   at Program.<>c.<Main>b__3_8()
+   at Program.Show(String name, Action action)

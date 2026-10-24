@@ -1,0 +1,40 @@
+== await chain: inner
+   at Program.Thrower(String what)
+   at Program.Inner()
+   at Program.Middle()
+   at Program.Outer()
+   at Program.Main()
+== before first await: early
+   at Program.Thrower(String what)
+   at Program.ThrowsBeforeAwait()
+   at Program.Main()
+== Task<T>: Specified argument was out of the range of valid values. (Parameter 'x')
+   at Program.Compute(Int32 x)
+   at Program.WithResult()
+   at Program.Main()
+== rethrow in async: async rethrow
+   at Program.Thrower(String what)
+   at Program.RethrowsInAsync()
+   at Program.Main()
+== async local function: local
+   at Program.Thrower(String what)
+   at Program.<Main>g__Local|0_0()
+   at Program.Main()
+== GetAwaiter().GetResult(): inner
+   at Program.Thrower(String what)
+   at Program.Inner()
+   at Program.Middle()
+   at Program.Outer()
+   at Program.Sync()
+   at Program.Main()
+0
+1
+== iterator: iterator 3
+   at Program.Thrower(String what)
+   at Program.Numbers(Int32 count)+MoveNext()
+   at Program.Main()
+== iterator in callee: iterator 5
+   at Program.Thrower(String what)
+   at Program.Numbers(Int32 count)+MoveNext()
+   at Program.Sum(IEnumerable`1 values)
+   at Program.Main()

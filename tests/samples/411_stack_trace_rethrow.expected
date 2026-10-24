@@ -1,0 +1,103 @@
+== rethrow
+rethrowing
+InvalidOperationException: thrown
+   at Program.Thrower()
+   at Program.Rethrow()
+   at Program.Show(String name, Action action)
+== rethrow in caller
+rethrowing
+InvalidOperationException: thrown
+   at Program.Thrower()
+   at Program.Rethrow()
+   at Program.RethrowInCaller()
+   at Program.Show(String name, Action action)
+== nested rethrow
+InvalidOperationException: thrown
+   at Program.Thrower()
+   at Program.NestedRethrow()
+   at Program.Show(String name, Action action)
+== rethrow through finally
+finally
+InvalidOperationException: thrown
+   at Program.Thrower()
+   at Program.RethrowThroughFinally()
+   at Program.Show(String name, Action action)
+== throw e
+InvalidOperationException: thrown
+   at Program.ThrowAgain()
+   at Program.Show(String name, Action action)
+== throw saved
+   at Program.Thrower()
+   at Program.ThrowSaved()
+
+InvalidOperationException: thrown
+   at Program.ThrowSaved()
+   at Program.Show(String name, Action action)
+== dispatch info
+captured
+InvalidOperationException: thrown
+   at Program.Thrower()
+   at Program.Dispatch()
+--- End of stack trace from previous location ---
+   at Program.Dispatch()
+   at Program.Show(String name, Action action)
+== filter
+filter sees:    at Program.Thrower()
+   at Program.Filter()
+InvalidOperationException: thrown
+   at Program.Thrower()
+   at Program.Filter()
+   at Program.Show(String name, Action action)
+== catch throws
+handling
+InvalidOperationException: thrown
+   at Program.Thrower()
+   at Program.CatchThrows()
+   at Program.Show(String name, Action action)
+== finally throws
+try
+finally
+InvalidOperationException: thrown
+   at Program.Thrower()
+   at Program.FinallyThrows()
+   at Program.FinallyThrows()
+   at Program.Show(String name, Action action)
+== finally throws while unwinding
+finally
+ArgumentException: from finally
+   at Program.FinallyThrowsWhileUnwinding()
+   at Program.Show(String name, Action action)
+== finally caught in method
+inner try
+caught here:    at Program.Thrower()
+   at Program.FinallyCaughtInMethod()
+   at Program.FinallyCaughtInMethod()
+== using dispose
+using
+ObjectDisposedException: Cannot access a disposed object.
+Object name: 'resource'.
+   at Program.Resource.Dispose()
+   at Program.UsingDispose()
+   at Program.UsingDispose()
+   at Program.Show(String name, Action action)
+== using var dispose
+using var
+ObjectDisposedException: Cannot access a disposed object.
+Object name: 'resource'.
+   at Program.Resource.Dispose()
+   at Program.UsingVarDispose()
+   at Program.UsingVarDispose()
+   at Program.Show(String name, Action action)
+== foreach dispose
+1
+2
+InvalidOperationException: dispose
+   at Program.Items.Enumerator.Dispose()
+   at Program.ForeachDispose()
+   at Program.ForeachDispose()
+   at Program.Show(String name, Action action)
+== thrown twice
+after second throw:    at Program.ThrownTwice()
+InvalidOperationException: twice
+   at Program.ThrownTwice()
+   at Program.Show(String name, Action action)
