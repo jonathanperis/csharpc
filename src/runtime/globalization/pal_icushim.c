@@ -468,12 +468,11 @@ typedef struct
 {
     const char* name;
     void** pointer;
-    void** lib;
-    const char* libName;
+    bool i18n; // in libicui18n, else libicuuc
     bool required;
 } IcuFunction;
 
-#define PER_FUNCTION_BLOCK(fn, lib, required) { #fn, (void**)&fn##_ptr, &lib, #lib, required },
+#define PER_FUNCTION_BLOCK(fn, lib, required) { #fn, (void**)&fn##_ptr, &lib == &libicui18n, required },
 static const IcuFunction s_icuFunctions[] = { FOR_ALL_ICU_FUNCTIONS };
 #undef PER_FUNCTION_BLOCK
 
@@ -483,14 +482,16 @@ static void BindICUFunctions(const char* symbolVersion)
     for (size_t i = 0; i < sizeof(s_icuFunctions) / sizeof(s_icuFunctions[0]); i++)
     {
         const IcuFunction* fn = &s_icuFunctions[i];
+        void* lib = fn->i18n ? libicui18n : libicuuc;
+        const char* libName = fn->i18n ? "libicui18n" : "libicuuc";
 #if defined(TARGET_WINDOWS)
         sprintf_s(symbolName, SYMBOL_NAME_SIZE, "%s%s", fn->name, symbolVersion);
-        *fn->pointer = (void*)GetProcAddress((HMODULE)*fn->lib, symbolName);
-        if (*fn->pointer == NULL && fn->required) { fprintf(stderr, "Cannot get symbol %s from %s\nError: %lu\n", symbolName, fn->libName, GetLastError()); abort(); }
+        *fn->pointer = (void*)GetProcAddress((HMODULE)lib, symbolName);
+        if (*fn->pointer == NULL && fn->required) { fprintf(stderr, "Cannot get symbol %s from %s\nError: %lu\n", symbolName, libName, GetLastError()); abort(); }
 #else
         snprintf(symbolName, SYMBOL_NAME_SIZE, "%s%s", fn->name, symbolVersion);
-        *fn->pointer = dlsym(*fn->lib, symbolName);
-        if (*fn->pointer == NULL && fn->required) { fprintf(stderr, "Cannot get symbol %s from %s\nError: %s\n", symbolName, fn->libName, dlerror()); abort(); }
+        *fn->pointer = dlsym(lib, symbolName);
+        if (*fn->pointer == NULL && fn->required) { fprintf(stderr, "Cannot get symbol %s from %s\nError: %s\n", symbolName, libName, dlerror()); abort(); }
 #endif
     }
 }
