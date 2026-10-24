@@ -526,4 +526,12 @@ public sealed partial class FunctionCodeGen
         else result = VirtualCall(property.GetMethod!, self, [self]); // Message is virtual
         return true;
     }
+
+    /// <summary>The body of a bodyless user `extern` method: throws BadImageFormatException like .NET does when it is called.</summary>
+    internal void EmitBodylessExternStub()
+    {
+        CallCoreLib("BodylessExtern", "Throw");
+        _b.Unreachable();
+        Finish();
+    }
 }

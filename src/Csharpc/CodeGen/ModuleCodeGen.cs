@@ -307,6 +307,12 @@ public sealed partial class ModuleCodeGen
         return _functions[method] = new LoweredFunction(fn, type);
     }
 
+    /// <summary>A user source `extern` method with no implementation anywhere (no [DllImport], [UnsafeAccessor] or InternalCall).</summary>
+    private bool IsBodylessExtern(IMethodSymbol method) =>
+        !CoreLib.IsCoreLib(method) && !IsIlMethod(method) && !IsPInvoke(method)
+        && (method.MethodImplementationFlags & System.Reflection.MethodImplAttributes.InternalCall) == 0
+        && !method.GetAttributes().Any(a => a.AttributeClass?.Name is "UnsafeAccessorAttribute" or "WasmImportLinkageAttribute");
+
     private readonly Dictionary<INamedTypeSymbol, bool> _optimizeForSize = new(SymbolEqualityComparer.Default);
 
     /// <summary>A corelib type (or one nested in it) marked [OptimizeForSize] (corelib/Core.cs).</summary>
@@ -540,6 +546,11 @@ public sealed partial class ModuleCodeGen
 
     private void EmitMethodCore(IMethodSymbol method)
     {
+        if (method.IsExtern && IsBodylessExtern(method))
+        {
+            new FunctionCodeGen(this, null, GetFunction(method)).EmitBodylessExternStub();
+            return;
+        }
         if (method.IsAbstract || method.IsExtern) return;
         if (Il.OwnerOf(method) is { } ilAssembly)
         {
