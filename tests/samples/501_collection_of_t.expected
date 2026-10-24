@@ -1,0 +1,20 @@
+insert 0 a
+insert 1 b
+insert 0 z
+set 1 A
+remove 2 b
+z,A 2 True 1
+clear 2
+0
+rejected: item
+3,1,2 Collection`1 True True
+Index was out of range. Must be non-negative and less than the size of the collection. (Parameter 'index')
+Index was out of range. Must be non-negative and less than or equal to the size of the collection. (Parameter 'index')
+index
+Collection is read-only.
+True True
+3 True False 2 -1
+The value "x" is not of type "System.Int32" and cannot be used in this generic collection. (Parameter 'value')
+value
+|3|1|2|4
+list
