@@ -52,7 +52,8 @@ enum { CSRT_MT_ABSTRACT = 1, CSRT_MT_INTERFACE = 2, CSRT_MT_ITERATOR = 4 /* src/
        CSRT_MT_DISPOSABLE = 16 /* runtime-implemented IDisposable whose Dispose() is a no-op (wait handles, CTS) */,
        CSRT_MT_MDARRAY = 32 /* rectangular array ("System.Int32[,]"): interfaces dispatch like the untyped array tables */,
        CSRT_MT_VALUE_TYPE = 64 /* a boxed value type (`is System.ValueType`) */,
-       CSRT_MT_ENUM = 128 /* a boxed enum (`is System.Enum`) */ };
+       CSRT_MT_ENUM = 128 /* a boxed enum (`is System.Enum`) */,
+       CSRT_MT_DISPOSE_SLOT = 256 /* with CSRT_MT_DISPOSABLE: vtable slot 3 is its IDisposable.Dispose */ };
 
 struct csrt_MethodTable {
     const csrt_MethodTable* base;   // null for System.Object and interfaces
@@ -152,6 +153,7 @@ void* csrt_aggregate_exception_new(void** inners, int64_t count);
 void* csrt_task_canceled_exception_new(void);
 bool csrt_is_operation_canceled(void* exception);
 void* csrt_operation_canceled_exception_new(void);
+void* csrt_object_disposed_exception_new(const char* message); // ObjectDisposedException(null, message)
 CSRT_THROWS void csrt_throw_invalid_cast_from(const csrt_MethodTable* from, const csrt_MethodTable* to);
 csrt_String* csrt_string_from_utf8(const char* text);
 csrt_String* csrt_string_from_utf8_n(const char* text, size_t n);  // validating; ill-formed -> U+FFFD

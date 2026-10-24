@@ -134,8 +134,8 @@ public sealed partial class FunctionCodeGen
         if (method.ReturnsVoid) return null;
         if (result.IsNull)
         {
-            // A library member lowered for its effect only (e.g. CancellationToken.Register's
-            // CancellationTokenRegistration isn't modeled): fine when the IL discards the result.
+            // A library member lowered for its effect only (an intrinsic that produces no value):
+            // fine when the IL discards the result.
             if (IlNextOpCode() == ILOpCode.Pop) return new IlEntry(IlKind.Value, LlvmContext.Null(L.I8), method.ReturnType);
             throw new IlException($"using the result of '{method}' is not supported by csharpc yet");
         }

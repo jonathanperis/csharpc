@@ -101,6 +101,21 @@ namespace CsharpcCoreLib
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern bool IsFlagsEnum<T>();
         /// <summary>[JsonStringEnumMemberName] of each member, in Enum.GetNames&lt;T&gt;() order (null where absent).</summary>
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern string[] EnumMemberJsonNames<T>();
+
+        // Cancellation (runtime/async.c, corelib/Cancellation.cs): a CancellationToken is its source.
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern object TokenSource(System.Threading.CancellationToken token);
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern System.Threading.CancellationToken SourceToken(object source);
+        // Runtime functions called directly (an extern named csrt_*: FunctionCodeGen.CoreLib.cs).
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern int csrt_cts_register_node(object token, object node);
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern bool csrt_cts_unregister(object token, object node);
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern void csrt_cts_wait_for_callback(object token, object node);
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern object csrt_cts_next_callback(object source);
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern void csrt_cts_callbacks_done(object source);
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern int csrt_cts_entry_kind(object entry);
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern void csrt_cts_cancel_delay(object task);
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern bool csrt_cts_transition(object source);
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern void csrt_cts_link(System.Threading.CancellationTokenSource linked, System.Threading.CancellationToken token);
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern object csrt_cts_token(System.Threading.CancellationTokenSource source);
     }
 
     /// <summary>

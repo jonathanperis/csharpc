@@ -81,7 +81,18 @@ to one csrt task object (`TypeMapper` maps these library types to `ptr`):
   held in the former padding word, so the compiler ABI is unchanged. State reads are atomic;
   `WhenAll` counts down atomically; `WhenAny` picks the first completion under the result's lock.
 - **Cancellation.** Callbacks run synchronously inside `Cancel()`, most recently registered first.
-  A `Task.Delay(ms, token)` registers its own cancellation as one of those callbacks, as in .NET.
+  A `Task.Delay(ms, token)` and a linked source register their own cancellation as one of those
+  callbacks, as in .NET. `CancellationToken.Register`/`UnsafeRegister` (every overload) and
+  `CancellationTokenRegistration` are corelib C# (`corelib/Cancellation.cs`): a registration is a
+  callback node in the source's list, so `Dispose`/`Unregister` remove it (and `Dispose` waits for a
+  callback running on another thread), and the corelib's `csrt_cts_notify` runs the list with .NET's
+  exception handling: `Cancel()` runs every callback and throws an `AggregateException` of what
+  they threw, `Cancel(true)` lets the first exception through and leaves the rest unrun. A token
+  that is already canceled runs a new callback at once; a disposed source drops it. `Dispose`,
+  `TryReset`, `CancelAsync`, `new CancellationToken(bool)` and every `CreateLinkedTokenSource`
+  overload follow .NET (`ObjectDisposedException` from `Cancel`/`Token`/`CancelAfter` once disposed;
+  a disposed linked source leaves its parents). Programs that never register a callback keep the C
+  runtime's own loop.
 - **GC.** Work queues, timers and continuation lists are GC arrays rooted by globals. Iterator
   exceptions are parked in thread-local storage, which the collector also scans.
 

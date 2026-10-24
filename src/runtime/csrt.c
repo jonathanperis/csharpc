@@ -382,7 +382,8 @@ static void* const* builtin_interface_slots(const csrt_MethodTable* objmt, const
     if (objmt == &csrt_String_MT.header) return (void* const*)itf->base;
     // Runtime-implemented disposables (`using var e = new CountdownEvent(n)`): IDisposable.Dispose
     // (its only slot) is a no-op — their native resources live as long as the object.
-    if ((objmt->flags & CSRT_MT_DISPOSABLE) && strcmp(itf->name, "System.IDisposable") == 0) return s_noop_dispose_slots;
+    if ((objmt->flags & CSRT_MT_DISPOSABLE) && strcmp(itf->name, "System.IDisposable") == 0)
+        return (objmt->flags & CSRT_MT_DISPOSE_SLOT) ? (void* const*)(objmt + 1) + 3 : s_noop_dispose_slots;
     return NULL;
 }
 
