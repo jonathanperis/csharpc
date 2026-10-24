@@ -66,27 +66,24 @@ own algorithms for the **invariant culture**:
 Because the test oracle is real .NET ([05-testing.md](05-testing.md)), any divergence shows up as a
 test failure (`tests/samples/162_number_format`, `163_number_parse`).
 
-### Exceptions: unhandled-only
+### Exceptions and stack traces
 
-No unwinding exists yet. Every throw is treated as an **unhandled exception**: csrt flushes stdout,
-prints `Unhandled exception. <Type>: <Message>` to stderr with .NET's exact message texts
-(`Object reference not set to an instance of an object.`, `Index was outside the bounds of the
-array.`, `Attempted to divide by zero.`, `Arithmetic operation resulted in an overflow.`,
-`Specified cast is not valid.`), and calls `abort()`. A .NET process with an unhandled exception on
-Linux also ends with SIGABRT, so both exit with status **134**. The differential tests check this.
-The .NET stack trace isn't reproduced. Real exceptions are designed in
-[ADR 0005](adr/0005-exceptions.md).
+Exceptions are zero-cost Itanium-style unwinding with csrt's own personality ([ADR 0005](adr/0005-exceptions.md));
+on WebAssembly, explicit propagation ([ADR 0011](adr/0011-wasm32.md)). An unhandled exception runs the
+finally blocks, flushes stdout, prints `Unhandled exception. <ToString()>` to stderr and ends the process
+like .NET (SIGABRT, status 134, on Unix; 0xE0434352 on Windows). Runtime-raised exceptions use .NET's
+exact message texts (`Object reference not set to an instance of an object.`, ...).
 
-`Exception.ToString()` therefore has no `   at Namespace.Type.Method(Args) in path:line N` lines.
-Matching them byte for byte is out of reach. The frames would need .NET's method-signature
-formatting of IL names that csharpc never sees: Roslyn's lambda, async and iterator method names,
-and "--- End of stack trace from previous location ---" markers. They would also need line tables
-in every binary, and they would have to undo LLVM's inlining, since `dotnet run` builds Debug
-without it. csharpc doesn't invent frames that would differ anyway. ToString prints exactly what
-.NET prints for an exception that was never thrown: the type, the message, and the inner
-exceptions. Because a thrown exception's text then differs, the compiler warns (`CSLLVM0006`) at
-each place where a program turns an exception into text. Reading
-`Exception.StackTrace` is a compile error (`CSLLVM0001`).
+Stack traces ([ADR 0012](adr/0012-stack-traces.md)): in programs that read `Exception.StackTrace` or
+turn an exception into text (or with `--stack-traces`), every call site of the program's own code that
+may throw has a landing pad whose first catch clause is a `{ magic, method, file, line }` descriptor;
+`csrt_personality` appends the descriptors it meets during the search phase to the exception's `trace`
+field, so the frames are exactly those from the throw point to the catching frame, inlined ones
+included (on wasm32 the pad code records them). `eh.c` formats them on demand like .NET's `StackTrace.ToString()`
+(`   at Ns.Type.Method(Int32 x) in /path/file.cs:line 12`), handles `throw;` / `throw e;` /
+`ExceptionDispatchInfo` semantics, and `ToString()` appends the trace. Names of lambdas and local
+functions and the lines come from a PDB of the user's sources emitted by Roslyn at compile time.
+Frames inside the BCL are not listed (`CSLLVM0006` warns where a program prints a trace).
 
 ## The C / C# boundary
 

@@ -29,6 +29,7 @@ Start with the [top-level README](../README.md) for the quick start.
 | [0009](adr/0009-hardening-by-default.md) | Exploit mitigations on by default, CET opt-in |
 | [0010](adr/0010-il-frontend.md) | IL front-end: IL as the method-body source for Roslyn's metadata symbols |
 | [0011](adr/0011-wasm32.md) | WebAssembly: explicit exception propagation, compiler-spilled GC roots, one thread |
+| [0012](adr/0012-stack-traces.md) | Stack traces: a landing pad per call site, names and lines from Roslyn's own PDB |
 
 The docs describe the code as of the commit they were written at. When a feature lands, update the
 matrix in [06-roadmap.md](06-roadmap.md) and add a dated entry to [07-spike-log.md](07-spike-log.md).
