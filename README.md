@@ -101,8 +101,10 @@ EOF
 csharpc hello.cs -o hello && ./hello
 ```
 
-For fast compiles, build csharpc itself as a native executable (about 5× less CPU per compile):
-`tools/publish-native.sh`, then use `artifacts/csharpc-native/csharpc`.
+Release builds of csharpc are precompiled (ReadyToRun) and a compilation uses all cores (`-j N` or
+`CSHARPC_THREADS` to limit it; the output is the same either way), see
+[ADR 0014](docs/adr/0014-compile-time.md). For the fastest start-up, build csharpc itself as a native
+executable: `tools/publish-native.sh`, then use `artifacts/csharpc-native/csharpc`.
 
 If libLLVM isn't on the default library path set `CSHARPC_LIBLLVM=/path/to/libLLVM.so`; to use another
 C compiler or linker driver pass `--cc` or set `CSHARPC_CC`.

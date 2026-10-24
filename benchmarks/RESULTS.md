@@ -180,6 +180,19 @@ additionally needs the system glibc at run time.
 (`dotnet publish` CPU is not comparable: MSBuild's build-server processes aren't children of the
 measured process. For reference, a JIT `dotnet publish` of the same programs took 16–19 s wall.)
 
+Since [ADR 0014](../docs/adr/0014-compile-time.md) the default build of csharpc is ReadyToRun-compiled
+and a compilation uses several threads (Roslyn's CFGs ahead of lowering, machine code per module
+partition). Same shared 4-vCPU machine at a load average of ~5 from other jobs, before and after
+interleaved, `-j 2`, best of 2 (wall / CPU / peak RSS):
+
+| program | `-O0` before | `-O0` after | `-O2` before | `-O2` after |
+|---|---:|---:|---:|---:|
+| hello world | 3.1 s / 3.1 s / 205 MB | **1.4 s / 1.6 s** / 202 MB | 3.5 s / 3.5 s / 217 MB | **1.8 s / 2.0 s** / 219 MB |
+| double + DateTime formatting | 5.3 s / 6.7 s / 261 MB | **3.2 s / 4.2 s** / 235 MB | 8.6 s / 9.9 s / 273 MB | **6.4 s / 7.7 s** / 257 MB |
+| tests/programs/numbers | 5.0 s / 5.9 s / 245 MB | **2.8 s / 3.7 s** / 238 MB | 7.8 s / 8.8 s / 258 MB | **5.2 s / 6.4 s** / 265 MB |
+| tests/programs/interpreter | 5.1 s / 6.4 s / 251 MB | **3.3 s / 4.2 s** / 232 MB | 9.3 s / 9.9 s / 260 MB | **7.7 s / 7.6 s** / 257 MB |
+| IlMetadataApp (System.Reflection.Metadata from IL) | 7.5 s / 9.2 s / 310 MB | **5.5 s / 7.5 s** / 293 MB | 18.1 s / 19.5 s / 332 MB | **15.3 s / 17.3 s** / 338 MB |
+
 What made the difference:
 
 | change | effect |
@@ -213,9 +226,10 @@ What made the difference:
 - **Feature coverage limits what can be benchmarked.** Programs built on `List<T>`,
   `Dictionary<K,V>` or LINQ (k-nucleotide, regex-redux, ...) can't be ported until the self-hosted
   corelib exists.
-- **Compile time** (2–6 s here, about 1.6 s on an idle machine) is mostly Roslyn startup and
-  reference loading on the JIT, plus about 60 ms to link the runtime bitcode. Shipping the compiler
-  ReadyToRun or NativeAOT-compiled would cut most of it.
+- **Compile time** for small programs is mostly Roslyn's fixed cost: parsing the corelib and
+  binding the program, now on a ReadyToRun-compiled compiler. Larger programs spend it binding the
+  corelib methods they reach and, at `-O2`, in LLVM's single-threaded whole-program optimizer
+  ([ADR 0014](../docs/adr/0014-compile-time.md) lists the next steps).
 - **Binary sizes** (18–30 KiB vs 1.3 MiB) aren't a like-for-like comparison: csrt has no
   reflection, type loader or full exception-handling runtime.
 

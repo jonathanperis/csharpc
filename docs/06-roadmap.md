@@ -181,8 +181,14 @@ Microsoft.Extensions Primitives/Options/DependencyInjection/Logging abstractions
 peak 314 MB). Done of the plan: (1) the library surface those libraries need (Unsafe from IL, GC
 handles, ArrayPool, BinaryPrimitives, BitConverter, memory-mapped views, ConcurrentDictionary without
 enumeration, generic interface methods, variant delegate type tests) and (2) the framework-IL policy.
-Next, in order: (3) compile-time scale for a ~40 MB-of-IL closed world: csharpc published ReadyToRun, parallel LLVM
-code generation (module partitions), then parallel lowering; (4) reflection Roslyn needs at startup
+(3) Compile-time scale, first part ([ADR 0014](adr/0014-compile-time.md)): csharpc and Roslyn are
+ReadyToRun-compiled in Release builds, a compilation uses several threads (`-j`, `CSHARPC_THREADS`) to
+parse, bind, build Roslyn's CFGs ahead of lowering (each built once per body) and generate machine code
+per module partition after whole-program optimization; the output is the same at every `-j`. The SRM
+program compiles in 5.5 s at `-O0` and 15.3 s at `-O2` instead of 7.5 s and 18.1 s (shared VPS,
+`-j 2`), hello world in 1.4 s instead of 3.1 s. Next, in order: (3, continued)
+the corelib compiled to IL once and lowered through the IL front-end instead of re-bound by Roslyn,
+lowering on several threads, bounded code-generation memory; (4) reflection Roslyn needs at startup
 (`typeof(X).Assembly`, resource lookup, analyzer activation) as compile-time metadata with diagnostics
 for the rest; (5) csharpc compiled by csharpc, LLVM C API P/Invokes included.
 

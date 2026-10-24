@@ -183,6 +183,14 @@ public sealed class Compiler(CompilerOptions options)
         debugInfo?.Finish();
         Phase("lower CFG -> LLVM IR");
         if (options.Verbose) Console.Error.WriteLine($"             {codegen.Stats}");
+        // The managed heap peaks with lowering (Roslyn's bound bodies and CFGs, released by Generate):
+        // when there were many, hand the memory back before LLVM allocates its own peak (a full
+        // compacting collection costs ~0.1 s, so not for small programs).
+        if (codegen.Stats.CfgBuilt >= 500)
+        {
+            GC.Collect(2, GCCollectionMode.Aggressive, blocking: true, compacting: true);
+            Phase("release front-end memory");
+        }
 
         if (stackTraces is not null) codegen.Warnings.AddRange(stackTraces.Warnings);
         foreach (var w in codegen.Warnings.DistinctBy(w => w.Format()))
@@ -263,14 +271,32 @@ public sealed class Compiler(CompilerOptions options)
             case EmitKind.Obj: target.Emit(module, output, LLVMCodeGenFileType.Object); break;
             case EmitKind.Exe:
                 var obj = Path.Combine(Path.GetTempPath(), $"csharpc-{Environment.ProcessId}-{Path.GetFileNameWithoutExtension(output)}.o");
+                List<string> objects = [];
                 try
                 {
-                    target.Emit(module, obj, LLVMCodeGenFileType.Object);
-                    Phase("codegen (LLVM backend)");
-                    toolchain.Link(target.Triple, obj, output, runtimeLinkedIn: runtimeLto, WeakImports(module));
+                    var weakImports = WeakImports(module);
+                    // Large programs: the backend runs on several threads, one object per partition
+                    // (not with -g: one compile unit per program keeps the DWARF as gdb/lldb expect it).
+                    var parallel = !wasm && !options.Debug
+                        ? ParallelCodegen.TryEmit(module, target, Path.ChangeExtension(obj, null), options.Verbose ? m => Console.Error.WriteLine($"             {m}") : null)
+                        : null;
+                    if (parallel is not null) objects = parallel;
+                    else
+                    {
+                        objects = [obj];
+                        target.Emit(module, obj, LLVMCodeGenFileType.Object);
+                    }
+                    Phase(objects.Count > 1 ? $"codegen (LLVM backend, {objects.Count} partitions)" : "codegen (LLVM backend)");
+                    toolchain.Link(target.Triple, objects, output, runtimeLinkedIn: runtimeLto, weakImports);
                     Phase("link");
                 }
-                finally { if (Environment.GetEnvironmentVariable("CSHARPC_KEEP_OBJ") is not { Length: > 0 } keep) File.Delete(obj); else File.Move(obj, keep, overwrite: true); }
+                finally
+                {
+                    var keep = Environment.GetEnvironmentVariable("CSHARPC_KEEP_OBJ");
+                    for (var i = 0; i < objects.Count; i++)
+                        if (keep is not { Length: > 0 }) File.Delete(objects[i]);
+                        else File.Move(objects[i], objects.Count == 1 ? keep : $"{keep}.{i}", overwrite: true);
+                }
                 break;
         }
         if (options.Emit != EmitKind.Exe) Phase("emit");

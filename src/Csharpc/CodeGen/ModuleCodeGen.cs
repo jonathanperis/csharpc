@@ -82,7 +82,6 @@ public sealed partial class ModuleCodeGen
     private readonly Dictionary<string, LoweredFunction> _runtime = [];
     private readonly Dictionary<string, LLVMValueRef> _globals = [];
     private readonly Dictionary<string, LLVMValueRef> _strings = [];
-    private readonly Dictionary<SyntaxTree, SemanticModel> _models = [];
     /// <summary>Generic instantiations (constructed methods) whose bodies still need lowering.</summary>
     private readonly Queue<IMethodSymbol> _pendingInstantiations = new();
     private readonly Queue<(ClosureFunction Function, IMethodSymbol Symbol, TypeSubstitution Subst)> _pendingNested = new();
@@ -121,8 +120,6 @@ public sealed partial class ModuleCodeGen
         Mangler.RealNameOf = CoreLib.RealNameOf; // shadow types report their BCL names (List`1[...])
     }
 
-    public SemanticModel ModelFor(SyntaxTree tree) =>
-        _models.TryGetValue(tree, out var model) ? model : _models[tree] = Compilation.GetSemanticModel(tree);
 
     /// <summary>Compiled by csharpc: defined in the program's sources (incl. the corelib) or in an IL assembly (ADR 0010).</summary>
     public bool IsUserType(ITypeSymbol? type) =>
@@ -136,6 +133,16 @@ public sealed partial class ModuleCodeGen
     // ======================================================================================
 
     public void Generate()
+    {
+        try { GenerateCore(); }
+        finally
+        {
+            StopPrefetch();
+            ReleaseRoslynCaches();
+        }
+    }
+
+    private void GenerateCore()
     {
         var entryPoint = Compilation.GetEntryPoint(CancellationToken.None)
             ?? throw new CompileError("CSLLVM0003", "program has no entry point (Main method or top-level statements)", null);
@@ -292,8 +299,10 @@ public sealed partial class ModuleCodeGen
         MarkIfCoroutine(method, fn);
         // Generic instantiations, corelib and IL methods are lowered on demand, when first referenced.
         if ((generic || CoreLib.IsCoreLib(method) || IsIlMethod(method)) && IsUserMethod(method) && !method.IsAbstract && !method.IsExtern)
+        {
             _pendingInstantiations.Enqueue(method);
-            PrefetchCfg(method);
+            if (!IsIlMethod(method)) PrefetchCfg(method);
+        }
         return _functions[method] = new LoweredFunction(fn, type);
     }
 
@@ -503,9 +512,11 @@ public sealed partial class ModuleCodeGen
     public sealed class LoweringStats
     {
         public int IlMethods, SourceMethods, CoreLibMethods;
-        public long IlTicks, IlDecodeTicks, SourceTicks, CoreLibTicks;
+        public int CfgBuilt, CfgRequests, CfgThreads = 1;
+        public long IlTicks, IlDecodeTicks, SourceTicks, CoreLibTicks, CfgTicks, CfgWaitTicks;
         public override string ToString() =>
-            $"IL {IlMethods} methods {Ms(IlTicks)} ms (decode {Ms(IlDecodeTicks)} ms), source {SourceMethods} methods {Ms(SourceTicks)} ms, corelib {CoreLibMethods} methods {Ms(CoreLibTicks)} ms";
+            $"IL {IlMethods} methods {Ms(IlTicks)} ms (decode {Ms(IlDecodeTicks)} ms), source {SourceMethods} methods {Ms(SourceTicks)} ms, corelib {CoreLibMethods} methods {Ms(CoreLibTicks)} ms\n"
+            + $"             Roslyn CFGs: {CfgRequests} requested, {CfgBuilt} built in {Ms(CfgTicks)} ms on {CfgThreads} thread(s), lowering waited {Ms(CfgWaitTicks)} ms";
         private static string Ms(long ticks) => (ticks * 1000.0 / System.Diagnostics.Stopwatch.Frequency).ToString("F0", System.Globalization.CultureInfo.InvariantCulture);
     }
 
@@ -588,8 +599,7 @@ public sealed partial class ModuleCodeGen
             {
                 // Primary constructor: captured-parameter fields, field initializers, then base(...).
                 // Roslyn exposes the base call as a ConstructorBodyOperation on the type declaration.
-                var model = ModelFor(typeDecl.SyntaxTree);
-                var body = model.GetOperation(typeDecl) is not null ? ControlFlowGraph.Create(typeDecl, model) : null;
+                var body = CfgFor(typeDecl);
                 if (body is not null) Dump(method, body);
                 gen.EmitPrimaryConstructor([.. InitializerGraphs(method.ContainingType, isStatic: false)], body);
                 return;
@@ -609,7 +619,7 @@ public sealed partial class ModuleCodeGen
             case MethodDeclarationSyntax or ConstructorDeclarationSyntax or AccessorDeclarationSyntax
                 or ArrowExpressionClauseSyntax or CompilationUnitSyntax or OperatorDeclarationSyntax
                 or ConversionOperatorDeclarationSyntax:
-                var cfg = TakePrefetchedCfg(syntax) ?? ControlFlowGraph.Create(syntax, ModelFor(syntax.SyntaxTree))
+                var cfg = CfgFor(syntax)
                     ?? throw CompileError.Unsupported("method without a body", method);
                 Dump(method, cfg);
                 gen.Emit(prologue, cfg);
@@ -699,8 +709,7 @@ public sealed partial class ModuleCodeGen
                 _ => null,
             };
             if (init is null) continue;
-            var cfg = ControlFlowGraph.Create(init, ModelFor(init.SyntaxTree));
-            if (cfg is not null) yield return cfg;
+            if (CfgFor(init) is { } cfg) yield return cfg;
         }
     }
 

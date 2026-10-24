@@ -93,6 +93,7 @@ public sealed class Toolchain(CompilerOptions options, Csharpc.Llvm.TargetMachin
         var cacheDir = CacheDir;
 
         List<string> outputs = [];
+        List<(string Source, string Output)> missing = [];
         // WASI has no dynamic loading, so no ICU: programs run in invariant globalization mode there and the
         // ICU shim isn't built (the corelib's Interop.Globalization has stubs for it).
         foreach (var source in files.Where(f => f.EndsWith(".c")
@@ -100,16 +101,23 @@ public sealed class Toolchain(CompilerOptions options, Csharpc.Llvm.TargetMachin
         {
             var output = Path.Combine(cacheDir, $"{Path.GetFileNameWithoutExtension(source)}-{hash}{(bitcode ? ".bc" : ".o")}");
             outputs.Add(output);
-            if (File.Exists(output)) continue;
-            var tmp = output + "." + Environment.ProcessId + ".tmp";
-            string[] mode = bitcode ? ["-emit-llvm", "-c"] : ["-c"];
-            // Ported .NET native code is built as .NET ships it: release, asserts off (they flag conditions
-            // the code then handles, such as ICU failing to open a string search).
-            string[] ported = Path.GetDirectoryName(source) != RuntimeDir.TrimEnd(Path.DirectorySeparatorChar) ? PortedCFlags : [];
-            Run(CC, [.. mode, .. RuntimeCFlags, .. ported, $"--target={triple}", source, "-o", tmp]);
-            File.Move(tmp, output, overwrite: true);
+            if (!File.Exists(output)) missing.Add((source, output));
         }
+        // A cache miss (first compile, or the runtime changed) compiles every file: one clang per thread.
+        try { Parallel.ForEach(missing, Parallelism.Options, file => CompileRuntimeFile(file.Source, file.Output, bitcode, triple)); }
+        catch (AggregateException e) { throw e.InnerExceptions[0]; }
         return [.. outputs];
+    }
+
+    private void CompileRuntimeFile(string source, string output, bool bitcode, string triple)
+    {
+        var tmp = output + "." + Environment.ProcessId + "." + Environment.CurrentManagedThreadId + ".tmp";
+        string[] mode = bitcode ? ["-emit-llvm", "-c"] : ["-c"];
+        // Ported .NET native code is built as .NET ships it: release, asserts off (they flag conditions
+        // the code then handles, such as ICU failing to open a string search).
+        string[] ported = Path.GetDirectoryName(source) != RuntimeDir.TrimEnd(Path.DirectorySeparatorChar) ? PortedCFlags : [];
+        Run(CC, [.. mode, .. RuntimeCFlags, .. ported, $"--target={triple}", source, "-o", tmp]);
+        File.Move(tmp, output, overwrite: true);
     }
 
     private static string CacheDir
@@ -138,9 +146,10 @@ public sealed class Toolchain(CompilerOptions options, Csharpc.Llvm.TargetMachin
         return path;
     }
 
+    /// <param name="programObjects">The program's objects (several when code generation ran in parallel).</param>
     /// <param name="runtimeLinkedIn">The runtime was already linked into the program as bitcode (LTO).</param>
     /// <param name="weakImports">Undefined extern_weak symbols (P/Invoke targets that may be missing).</param>
-    public void Link(string triple, string programObject, string output, bool runtimeLinkedIn = false, IReadOnlyList<string>? weakImports = null)
+    public void Link(string triple, IReadOnlyList<string> programObjects, string output, bool runtimeLinkedIn = false, IReadOnlyList<string>? weakImports = null)
     {
         string[] runtime = runtimeLinkedIn ? [] : RuntimeObjects(triple);
         string[] sanitize = options.Sanitize is { } list ? [$"-fsanitize={list}"] : [];
@@ -151,7 +160,7 @@ public sealed class Toolchain(CompilerOptions options, Csharpc.Llvm.TargetMachin
             // Apple's linker rejects undefined symbols even when weak; -U lets each bind to null at
             // run time (EntryPointNotFoundException at the call, as on Linux).
             var weak = (weakImports ?? []).SelectMany(name => new[] { "-Wl,-U,_" + name });
-            Run(options.CC, [$"--target={triple}", .. SysrootFlags, programObject, .. runtime, .. DarwinLinkFlags(), .. weak, .. sanitize, "-o", output]);
+            Run(options.CC, [$"--target={triple}", .. SysrootFlags, .. programObjects, .. runtime, .. DarwinLinkFlags(), .. weak, .. sanitize, "-o", output]);
             // DWARF stays in the object files on macOS (the executable only records where): collect it
             // into output.dSYM before the temporary program object is deleted.
             if (options.Debug) Run(Environment.GetEnvironmentVariable("CSHARPC_DSYMUTIL") ?? "dsymutil", [output]);
@@ -160,15 +169,15 @@ public sealed class Toolchain(CompilerOptions options, Csharpc.Llvm.TargetMachin
         if (target.IsWasm)
         {
             if (Path.GetExtension(output).Length == 0) output += ".wasm";
-            Run(CC, [$"--target={triple}", programObject, .. runtime, .. WasmLinkFlags(), "-o", output]);
+            Run(CC, [$"--target={triple}", .. programObjects, .. runtime, .. WasmLinkFlags(), "-o", output]);
             return;
         }
         if (target.IsWindows)
         {
-            Run(options.CC, [$"--target={triple}", programObject, .. runtime, .. WindowsLinkFlags(), .. Hardening.WindowsLinkFlags(options.Hardening), .. sanitize, "-o", output]);
+            Run(options.CC, [$"--target={triple}", .. programObjects, .. runtime, .. WindowsLinkFlags(), .. Hardening.WindowsLinkFlags(options.Hardening), .. sanitize, "-o", output]);
             return;
         }
-        Run(options.CC, [$"--target={triple}", programObject, .. runtime, "-lm", "-pthread", .. LinkFlags(), .. Hardening.LinkFlags(options.Hardening, SegmentOrderFile()), .. sanitize, "-o", output]);
+        Run(options.CC, [$"--target={triple}", .. programObjects, .. runtime, "-lm", "-pthread", .. LinkFlags(), .. Hardening.LinkFlags(options.Hardening, SegmentOrderFile()), .. sanitize, "-o", output]);
     }
 
     /// <summary>
