@@ -90,6 +90,8 @@ namespace CsharpcCoreLib
     {
         private const int DefaultBufferSize = 4096;
         private int _fd;
+        /// <summary>The file descriptor, for MemoryMappedFile.CreateFromFile.</summary>
+        internal int Descriptor => _fd;
         private readonly string _path;
         private readonly bool _canRead, _canWrite, _append;
         private byte[] _readBuffer, _writeBuffer;
@@ -322,6 +324,109 @@ namespace CsharpcCoreLib
                 if (_fd >= 0) Posix.close(_fd);
                 _fd = -1;
             }
+        }
+    }
+
+    /// <summary>A read-only stream over unmanaged memory (System.Reflection.Metadata's GetStream()).</summary>
+    [Shadows("System.IO.UnmanagedMemoryStream")]
+    public unsafe class UnmanagedMemoryStreamImpl : StreamImpl
+    {
+        private byte* _memory;
+        private long _length, _position;
+        private bool _open;
+
+        public UnmanagedMemoryStreamImpl(byte* pointer, long length)
+        {
+            if (pointer == null) throw new ArgumentNullException("pointer");
+            if (length < 0) throw new ArgumentOutOfRangeException("length", "Non-negative number required.");
+            _memory = pointer;
+            _length = length;
+            _open = true;
+        }
+
+        public override bool CanRead => _open;
+        public override bool CanSeek => _open;
+        public override bool CanWrite => false;
+
+        private void EnsureOpen()
+        {
+            if (!_open) throw new ObjectDisposedException(null, "Cannot access a closed Stream.");
+        }
+
+        public override long Length { get { EnsureOpen(); return _length; } }
+        public long Capacity { get { EnsureOpen(); return _length; } }
+
+        public override long Position
+        {
+            get { EnsureOpen(); return _position; }
+            set
+            {
+                if (value < 0) throw new ArgumentOutOfRangeException("value", "Non-negative number required.");
+                EnsureOpen();
+                _position = value;
+            }
+        }
+
+        public byte* PositionPointer
+        {
+            get { EnsureOpen(); return _memory + _position; }
+        }
+
+        public override void Flush() => EnsureOpen();
+
+        public override int Read(byte[] buffer, int offset, int count)
+        {
+            if (buffer == null) throw new ArgumentNullException("buffer");
+            if (offset < 0) throw new ArgumentOutOfRangeException("offset", "Non-negative number required.");
+            if (count < 0) throw new ArgumentOutOfRangeException("count", "Non-negative number required.");
+            if ((uint)count > (uint)(buffer.Length - offset))
+                throw new ArgumentException("Offset and length were out of bounds for the array or count is greater than the number of elements from index to the end of the source collection.");
+            return Read(new Span<byte>(buffer, offset, count));
+        }
+
+        public override int Read(Span<byte> buffer)
+        {
+            EnsureOpen();
+            long n = _length - _position;
+            if (n > buffer.Length) n = buffer.Length;
+            if (n <= 0) return 0;
+            new ReadOnlySpan<byte>(_memory + _position, (int)n).CopyTo(buffer);
+            _position += n;
+            return (int)n;
+        }
+
+        public override int ReadByte()
+        {
+            EnsureOpen();
+            if (_position >= _length) return -1;
+            return _memory[_position++];
+        }
+
+        public override long Seek(long offset, SeekOrigin loc)
+        {
+            EnsureOpen();
+            long target = loc == SeekOrigin.Begin ? offset : loc == SeekOrigin.Current ? _position + offset : _length + offset;
+            if (target < 0) throw new IOException("An attempt was made to move the position before the beginning of the stream.");
+            _position = target;
+            return target;
+        }
+
+        public override void SetLength(long value)
+        {
+            EnsureOpen();
+            throw new NotSupportedException("Stream does not support writing.");
+        }
+
+        public override void Write(byte[] buffer, int offset, int count)
+        {
+            EnsureOpen();
+            throw new NotSupportedException("Stream does not support writing.");
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            _open = false;
+            _memory = null;
         }
     }
 

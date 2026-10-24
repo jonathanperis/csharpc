@@ -264,6 +264,7 @@ public sealed partial class FunctionCodeGen
         var owner = method.ContainingType;
         var ownerName = owner.ToDisplayString();
         var handled = new IlEntry(IlKind.Token, default, null);
+        if (ownerName == "System.Runtime.CompilerServices.Unsafe" && IlUnsafeCall(method, args) is { } unsafeResult) return unsafeResult;
         switch (ownerName, method.Name)
         {
             case ("System.Type", "GetTypeFromHandle") when args is [{ Kind: IlKind.Token, Symbol: ITypeSymbol type }]:

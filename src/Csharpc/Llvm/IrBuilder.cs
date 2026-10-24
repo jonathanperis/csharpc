@@ -69,6 +69,10 @@ public sealed class IrBuilder(LlvmContext context) : IDisposable
     public LLVMValueRef InBoundsGep(LLVMTypeRef type, LLVMValueRef ptr, LLVMValueRef[] indices, string name = "") =>
         LLVMBuildInBoundsGEP2(Ref, type, ptr, indices, (uint)indices.Length, name);
 
+    /// <summary>A GEP without `inbounds`: byref arithmetic that may leave the object (Unsafe.Add on a null ref, pointer bounds).</summary>
+    public LLVMValueRef Gep(LLVMTypeRef type, LLVMValueRef ptr, LLVMValueRef[] indices, string name = "") =>
+        LLVMBuildGEP2(Ref, type, ptr, indices, (uint)indices.Length, name);
+
     // Calls
 
     /// <summary>

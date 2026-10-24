@@ -302,6 +302,26 @@ namespace CsharpcCoreLib
         public static bool IsDirectory(string path) => FileType(path) == S_IFDIR;
         public static bool IsFile(string path) { int t = FileType(path); return t != 0 && t != S_IFDIR; }
 
+        // ---- read-only file views (System.IO.MemoryMappedFiles) --------------------------------
+        public const bool CanMapFiles = true;
+        [DllImport("kernel32", SetLastError = true)] private static extern nint CreateFileMappingW(nint file, void* security, uint protect, uint sizeHigh, uint sizeLow, char* name);
+        [DllImport("kernel32", SetLastError = true)] private static extern void* MapViewOfFile(nint mapping, uint access, uint offsetHigh, uint offsetLow, nuint length);
+        [DllImport("kernel32", SetLastError = true)] private static extern int UnmapViewOfFile(void* address);
+
+        /// <summary>A read-only view of [offset, offset + length) of a file (offset aligned to 64 KiB by the caller); null with errno set on failure.</summary>
+        public static byte* MapView(int fd, long offset, long length)
+        {
+            nint mapping = CreateFileMappingW(_get_osfhandle(fd), null, 0x02 /* PAGE_READONLY */, 0, 0, null);
+            if (mapping == 0) { _set_errno(Win32Base + Marshal.GetLastPInvokeError()); return null; }
+            void* view = MapViewOfFile(mapping, 0x0004 /* FILE_MAP_READ */, (uint)(offset >> 32), (uint)offset, (nuint)length);
+            int error = Marshal.GetLastPInvokeError();
+            CloseHandle(mapping); // the view keeps the mapping alive
+            if (view == null) { _set_errno(Win32Base + error); return null; }
+            return (byte*)view;
+        }
+
+        public static void UnmapView(byte* view, long length) => UnmapViewOfFile(view);
+
         public static int Errno { get { int e; _get_errno(&e); return e; } }
 
         public static string ErrorMessage(int errno)

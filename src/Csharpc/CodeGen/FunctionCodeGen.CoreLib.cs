@@ -101,6 +101,7 @@ public sealed partial class FunctionCodeGen
             "Unbox" => UnboxOrThrow(t!, args[0], inv),
             "CastOrThrow" => CastOrThrow(t!, args[0], inv),
             "FastAllocateString" => FastAllocateString(args[0]),
+            "ObjectAddress" => args[0],
             "StringChars" => MakeSpan(_b.StructGep(T.StringHeader, args[0], 2), LoadStringLength(args[0])),
             "DoubleToBits" => _b.Cast(LLVMOpcode.BitCast, args[0], L.I64),
             "BitsToDouble" => _b.Cast(LLVMOpcode.BitCast, args[0], L.F64),

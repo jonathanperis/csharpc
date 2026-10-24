@@ -536,6 +536,19 @@ internal static class Intrinsics
 
         // ---- System.GC (src/runtime/gc.c) -----------------------------------------------------------
         t["System.GC.Collect()"] = (g, _) => { g.CallRuntime("csrt_gc_collect", g.Module.Llvm.Void, []); return default; };
+        // KeepAlive: the conservative GC scans the stack, so a volatile store of the reference into a
+        // frame slot keeps the object reachable at least until this point, which is all .NET promises.
+        t["System.GC.KeepAlive(object)"] = (g, inv) =>
+        {
+            var value = Arg(g, inv, 0);
+            var slot = g.NewTemp(g.Module.Llvm.Ptr, "keepalive");
+            Native.LLVMSetVolatile(g.Builder.Store(value, slot), 1);
+            return default;
+        };
+        // csharpc runs no finalizers (.NET does not promise to run them either, and never at exit), so
+        // there is nothing to suppress or re-register.
+        t["System.GC.SuppressFinalize(object)"] = (g, inv) => { Arg(g, inv, 0); return default; };
+        t["System.GC.ReRegisterForFinalize(object)"] = (g, inv) => { Arg(g, inv, 0); return default; };
         t["System.GC.GetTotalMemory(bool)"] = (g, inv) =>
         {
             g.EmitValue(inv.Arguments[0].Value);

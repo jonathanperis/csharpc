@@ -702,7 +702,7 @@ public sealed partial class FunctionCodeGen
         return obj;
     }
 
-    private LLVMValueRef NewArray(ITypeSymbol elementType, LLVMValueRef length)
+    internal LLVMValueRef NewArray(ITypeSymbol elementType, LLVMValueRef length)
     {
         var elementSize = T.Target.SizeOf(T.Storage(elementType));
         // Arrays of primitives/enums hold no references: a distinct method table lets the GC skip them.

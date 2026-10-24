@@ -207,10 +207,10 @@ internal static partial class BclValueTypes
         ?? throw CompileError.Unsupported($"'{method}' on a non-array argument", at);
 
     private static LLVMValueRef ArrayCopy(FunctionCodeGen g, IMethodSymbol m, IOperation at, LLVMValueRef src, LLVMValueRef srcIndex,
-        LLVMValueRef dst, LLVMValueRef dstIndex, LLVMValueRef length, bool longLength)
+        LLVMValueRef dst, LLVMValueRef dstIndex, LLVMValueRef length, bool longLength, ITypeSymbol? sourceElement = null, int? destinationOrdinal = null)
     {
-        var dstOrdinal = m.Parameters.Length == 3 ? 1 : 2;
-        var e = ElementOrThrow(g, m, at, 0);
+        var dstOrdinal = destinationOrdinal ?? (m.Parameters.Length == 3 ? 1 : 2);
+        var e = sourceElement ?? ElementOrThrow(g, m, at, 0);
         var de = ArrayElementOf(g, at, dstOrdinal);
         if (de is null && IsSystemArray(g, at, dstOrdinal))
         {
@@ -1099,6 +1099,31 @@ internal static partial class BclValueTypes
             g.NullCheck(a[0]);
             g.EmitCountedLoop(g.ArrayLength(a[0]), i => g.InvokeDelegate(a[1], action, g.LoadValue(g.ArrayElementAddress(a[0], e, i), e)));
             return default;
+        };
+        // Clone of a one-dimensional array whose element type is known statically: a shallow copy
+        // (same element type, so GetType() and covariance checks see the original's type).
+        // array.CopyTo(destination, index) is Array.Copy(array, 0, destination, index, array.Length) in .NET.
+        BclHandler copyTo = (g, m, self, a, at) =>
+        {
+            if (at is not IInvocationOperation { Instance: { } instance } || g.TypeOf(instance) is not IArrayTypeSymbol { Rank: 1 } arrayType)
+                throw CompileError.Unsupported($"'{m}' on a value not statically known to be a one-dimensional array", at);
+            g.NullCheck(self);
+            return ArrayCopy(g, m, at, self, I64(g, 0), a[0], ToI64(g, a[1]), g.ArrayLength(self), longLength: false, arrayType.ElementType, destinationOrdinal: 0);
+        };
+        t[$"{A}.CopyTo({A}, int)"] = t[$"{A}.CopyTo({A}, long)"] = copyTo;
+        t[$"{A}.Clone()"] = (g, m, self, _, at) =>
+        {
+            if (at is not IInvocationOperation { Instance: { } instance } || g.TypeOf(instance) is not IArrayTypeSymbol { Rank: 1 } arrayType)
+                throw CompileError.Unsupported($"'{m}' on a value not statically known to be a one-dimensional array", at);
+            g.NullCheck(self);
+            var e = arrayType.ElementType;
+            var length = g.ArrayLength(self);
+            var copy = g.NewArray(e, length);
+            var header = g.Types.ArrayHeader(g.Types.Storage(e));
+            var memmove = g.Module.Intrinsic("llvm.memcpy.p0.p0.i64", g.Llvm.Void, g.Llvm.Ptr, g.Llvm.Ptr, g.Llvm.I64, g.Llvm.I1);
+            g.Builder.Call(memmove.Type, memmove.Fn, [g.Builder.StructGep(header, copy, 2), g.Builder.StructGep(header, self, 2),
+                g.Builder.BinOp(LLVMOpcode.Mul, length, size(g, e)), g.Llvm.False]);
+            return copy;
         };
         t[$"{A}.Empty()"] = (g, m, _, _, _) =>
         {

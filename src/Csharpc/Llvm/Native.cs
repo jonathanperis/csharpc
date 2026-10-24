@@ -277,6 +277,8 @@ internal static unsafe partial class Native
     [LibraryImport(Lib, StringMarshalling = StringMarshalling.Utf8)]
     public static partial LLVMValueRef LLVMBuildInBoundsGEP2(LLVMBuilderRef b, LLVMTypeRef type, LLVMValueRef ptr, [In] LLVMValueRef[] indices, uint count, string name);
     [LibraryImport(Lib, StringMarshalling = StringMarshalling.Utf8)]
+    public static partial LLVMValueRef LLVMBuildGEP2(LLVMBuilderRef b, LLVMTypeRef type, LLVMValueRef ptr, [In] LLVMValueRef[] indices, uint count, string name);
+    [LibraryImport(Lib, StringMarshalling = StringMarshalling.Utf8)]
     public static partial LLVMValueRef LLVMBuildStructGEP2(LLVMBuilderRef b, LLVMTypeRef type, LLVMValueRef ptr, uint index, string name);
     [LibraryImport(Lib, StringMarshalling = StringMarshalling.Utf8)]
     public static partial LLVMValueRef LLVMBuildCall2(LLVMBuilderRef b, LLVMTypeRef fnType, LLVMValueRef fn, [In] LLVMValueRef[] args, uint count, string name);
