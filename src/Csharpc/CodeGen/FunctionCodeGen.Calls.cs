@@ -45,7 +45,8 @@ public sealed partial class FunctionCodeGen
             var receiverType = TypeOf(receiver);
             // Interface members (user or library, e.g. IComparable<T>.CompareTo): devirtualize or dispatch.
             if (target.ContainingType.TypeKind == TypeKind.Interface
-                && (!IsArrayEnumeration(receiver) || target.ContainingType.Name is "IStructuralComparable" or "IStructuralEquatable"))
+                && (!IsArrayEnumeration(receiver) || target.ContainingType.Name is "IStructuralComparable" or "IStructuralEquatable"
+                    || IsEscapingArrayGetEnumerator(inv)))
                 return EmitInterfaceCall(target, receiver, inv.Arguments, [], inv);
             // object.ToString/Equals/GetHashCode on a value-type receiver (a substituted T): box, then dispatch.
             if (receiverType is { IsValueType: true } && target.ContainingType.SpecialType is SpecialType.System_Object or SpecialType.System_ValueType)
@@ -826,6 +827,14 @@ public sealed partial class FunctionCodeGen
         else FailIf(_b.ICmp(LLVMIntPredicate.UGE, i, length), "csrt_throw_index_out_of_range");
         return DataAddress(_b.InBoundsGep(header, array, [L.ConstInt(L.I32, 0), L.ConstInt(L.I32, 2), i]), DataKind.ArrayElement);
     }
+
+    /// <summary>
+    /// `((IEnumerable&lt;T&gt;)array).GetEnumerator()` whose result is not a foreach's enumerator: a real
+    /// enumerator object (the array's interface table), not the stack-allocated foreach one below.
+    /// </summary>
+    private bool IsEscapingArrayGetEnumerator(IInvocationOperation inv) =>
+        inv.TargetMethod.Name == "GetEnumerator"
+        && !(inv.Parent is IFlowCaptureOperation capture && _cfg!.ArrayEnumerators.ContainsKey(capture.Id));
 
     // foreach over T[]: Roslyn's CFG lowers it to the IEnumerable<T> pattern. We substitute a
     // stack-allocated { T[] array, i64 index } "enumerator"; after SROA this is a plain index loop.
