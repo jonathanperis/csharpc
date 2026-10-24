@@ -41,6 +41,9 @@ those parts of csharpc.
   (`ReadOnlySequence.cs`, `ReadOnlySequence.Helpers.cs`, `SequenceReader.cs`, `SequenceReader.Search.cs`,
   `BuffersExtensions.cs`) and `System.Private.CoreLib`'s `ReadOnlySequenceSegment.cs` and `SequencePosition.cs`;
   the file keeps the upstream license header.
+- **What:** `System.Text.Rune` in `src/Csharpc/corelib/Rune.cs`, ported from
+  `src/libraries/System.Private.CoreLib/src/System/Text/Rune.cs` (decoding, encoding, validation); the file keeps
+  the upstream license header.
 - **Source:** <https://github.com/dotnet/runtime>, release/11.0.
 - **License:** MIT
 
