@@ -59,14 +59,14 @@ public static partial class FrameworkIl
             if (forced.Count > 0 || settings.SharedFrameworks.Count > 0) throw new InvalidOperationException("--framework-il: the .NET 11 shared framework (Microsoft.NETCore.App) was not found");
             return result;
         }
-        var index = Index(dir, netCore: true);
+        var index = Index(dir);
         // Other shared frameworks (ASP.NET Core) have no corelib counterpart: everything of theirs the
         // program uses comes from their IL, with Microsoft.NETCore.App underneath.
         foreach (var framework in settings.SharedFrameworks)
         {
             var frameworkDir = SharedFramework.DirectoryOf(framework)
                 ?? throw new InvalidOperationException($"the shared framework {framework} (version 11) was not found next to {dir}; install the matching runtime");
-            foreach (var (name, a) in Index(frameworkDir, netCore: false)) index.TryAdd(name, a);
+            foreach (var (name, a) in Index(frameworkDir)) index.TryAdd(name, a);
         }
         var given = new HashSet<string>(ilPaths.Select(p => Path.GetFileNameWithoutExtension(p)), StringComparer.OrdinalIgnoreCase);
         var chosen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -156,19 +156,19 @@ public static partial class FrameworkIl
     /// cache directory, keyed on the framework directory (whose contents never change) and on this build
     /// of csharpc (eligibility depends on what the corelib implements).
     /// </summary>
-    private static Dictionary<string, Assembly> Index(string dir, bool netCore)
+    private static Dictionary<string, Assembly> Index(string dir)
     {
-        var index = LoadIndex(dir, netCore);
+        var index = LoadIndex(dir);
         foreach (var a in index.Values) a.Directory = dir;
         return index;
     }
 
-    private static Dictionary<string, Assembly> LoadIndex(string dir, bool netCore)
+    private static Dictionary<string, Assembly> LoadIndex(string dir)
     {
         var cacheRoot = Environment.GetEnvironmentVariable("XDG_CACHE_HOME")
             ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".cache");
         var build = typeof(FrameworkIl).Assembly.ManifestModule.ModuleVersionId;
-        var key = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes($"{dir}|{build}|{netCore}|2")))[..16];
+        var key = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes($"{dir}|{build}|2")))[..16];
         // Named by build, then by framework directory: an index per framework (Microsoft.NETCore.App's and ASP.NET Core's).
         var buildTag = build.ToString("N")[..8];
         var cache = Path.Combine(cacheRoot, "csharpc", $"framework-il-{buildTag}-{key}.txt");
@@ -183,7 +183,7 @@ public static partial class FrameworkIl
                 if (!pe.HasMetadata) continue;
                 var md = pe.GetMetadataReader();
                 if (!md.IsAssembly) continue;
-                var a = Read(md, netCore);
+                var a = Read(md);
                 index[a.Name] = a;
             }
             catch (BadImageFormatException) { }
@@ -202,7 +202,7 @@ public static partial class FrameworkIl
         return index;
     }
 
-    private static Assembly Read(MetadataReader md, bool netCore)
+    private static Assembly Read(MetadataReader md)
     {
         var a = new Assembly { Name = md.GetString(md.GetAssemblyDefinition().Name) };
         a.References = [.. md.AssemblyReferences.Select(h => md.GetString(md.GetAssemblyReference(h).Name))];
@@ -242,7 +242,7 @@ public static partial class FrameworkIl
             return null;
         }
         a.Ineligible = a.Name.StartsWith("System.Private.", StringComparison.OrdinalIgnoreCase) ? "it is part of the runtime itself"
-            : Forwards(md, netCore) ? "it forwards types to other assemblies (a facade)"
+            : ForwardsToCoreLib(md) ? "it forwards types to System.Private.CoreLib (a facade)"
             : ModuleOfRuntime() is { } native ? $"it calls native code of the .NET runtime ({native})"
             : fullNames.FirstOrDefault(known.Contains) is { } shadowed ? $"csharpc implements its type '{shadowed}' itself"
             : null;
@@ -250,14 +250,15 @@ public static partial class FrameworkIl
     }
 
     /// <summary>
-    /// Whether the assembly forwards types where the compilation can't follow. In Microsoft.NETCore.App
-    /// forwards lead into System.Private.CoreLib (served by the corelib); ASP.NET Core's assemblies forward
-    /// types they once defined to other assemblies of the shared frameworks (FeatureCollection to
-    /// Microsoft.Extensions.Features), which are compiled from IL or bound like any reference.
+    /// Whether the assembly forwards types where the compilation can't follow: into System.Private.*
+    /// (System.Runtime, System.Collections ... are facades of CoreLib, which the corelib serves). Forwards
+    /// to other assemblies are harmless — Roslyn follows them to a reference assembly or another
+    /// assembly compiled from IL: System.Diagnostics.DiagnosticSource forwards only IsExternalInit to
+    /// System.Runtime, ASP.NET Core's assemblies forward types they once defined to their neighbours
+    /// (FeatureCollection to Microsoft.Extensions.Features).
     /// </summary>
-    private static bool Forwards(MetadataReader md, bool netCore)
+    private static bool ForwardsToCoreLib(MetadataReader md)
     {
-        if (netCore) return md.ExportedTypes.Count > 0;
         foreach (var h in md.ExportedTypes)
         {
             var exported = md.GetExportedType(h);
