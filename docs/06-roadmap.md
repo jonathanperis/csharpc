@@ -231,7 +231,8 @@ remaining library helpers — with identical behaviour, sizes within budgets and
 **Tier 2 (after M6, before M7):** the GC, exception dispatch and thread management in a restricted
 "systems C#" checked by the compiler (`[RuntimeCritical]`: no allocation, no safepoint, no throw),
 behind a flag next to the C version, made the default once it matches it on the benchmarks, the GC
-stress run and dotnet's own AOT tests. **Tier 3 (permanent):** a few hundred lines of native glue
+stress run and dotnet's own AOT tests. C# where possible, not as a rule: a C# port that is measurably slower or bigger is optimized first
+(the code and csharpc's codegen), and C stays wherever it is better for performance or safety. **Tier 3 (permanent):** a few hundred lines of native glue
 (entry, signal/SEH stubs, unwinder ABI, register spilling), plus dotnet's own C shims for the OS
 (`System.Native`, `System.Globalization.Native`), as NativeAOT does.
 

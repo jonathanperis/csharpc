@@ -42,6 +42,15 @@ The runtime is organised in three tiers:
    — the latter already reused) rather than maintaining csharpc-specific ones, so OS behaviour is .NET's
    by construction.
 
+**C# where possible, C where it's the better tool.** The tiers are a preference, not an unbreakable
+rule. Code moves from C to C# when the C# version is at least as fast (benchmarks, start-up, allocation
+and GC behaviour), at least as small, and identical in behaviour. When a C# port measurably loses, it is
+worth optimizing first — the C# code and csharpc's code generation for it, since a codegen gap usually
+affects every program — but C stays (or comes back) whenever it is the better choice for performance or
+for safety (e.g. code that must run where managed invariants don't hold, or that is simpler and easier
+to verify in C), with the reason and measurements recorded in the commit. "More C#" serves self-hosting
+and memory safety; it never justifies a slower, bigger or less reliable runtime.
+
 ## Consequences
 
 - New runtime code goes in the highest tier that can hold it; adding C to tiers 1–2 needs a reason in
