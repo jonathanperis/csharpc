@@ -231,7 +231,11 @@ runs today: the same IL inputs from `csc`, the same MSBuild properties (`Optimiz
 `DirectPInvoke`, trimming descriptors and feature switches, ...) and the same outputs, so existing
 projects get csharpc by switching the AOT backend ([ADR 0016](adr/0016-nativeaot-parity-and-end-state.md)).
 Prerequisites: M6 (IL as the primary input path, csharpc compiling Roslyn and itself) and NativeAOT
-parity on the compatibility corpus. Until then `Csharpc.Sdk` is the integration point and adopts
+parity on the compatibility corpus.
+Acceptance gate: dotnet's own tests for the AOT path all pass with csharpc in NativeAOT's place —
+dotnet/runtime's NativeAOT runtime tests, the libraries' tests in their NativeAOT configuration, and the
+SDK's `PublishAot` tests (exclusions only for tests of ILCompiler internals, each listed). Tracked before
+the fork by building those suites with csharpc on CI and reporting the pass rate. Until then `Csharpc.Sdk` is the integration point and adopts
 NativeAOT's property names as it honours them.
 
 ### M8 — The win: TechEmpower with the csharpc-built dotnet

@@ -15,7 +15,8 @@ The drop-in target is 100 % parity with .NET NativeAOT: what works under `Publis
 csharpc; what NativeAOT can't do (run-time code generation) stays an explicit diagnostic. The JIT is the
 test oracle and a benchmark baseline. End state: csharpc as the AOT backend of a dotnet fork, behind
 NativeAOT's MSBuild properties (ADR 0016) — new driver/SDK options should use NativeAOT's names, and
-every feature must also work through the IL front-end. Definition of done (M8): that fork, with csharpc in
+every feature must also work through the IL front-end. Acceptance gate for the fork (M7): dotnet's own AOT test suites (dotnet/runtime NativeAOT and
+libraries tests, SDK PublishAot tests) all pass with csharpc. Definition of done (M8): that fork, with csharpc in
 NativeAOT's place, beats NativeAOT on the ASP.NET Core TechEmpower benchmarks.
 
 **The rule:** a program compiled by csharpc must behave exactly like the same program under real
