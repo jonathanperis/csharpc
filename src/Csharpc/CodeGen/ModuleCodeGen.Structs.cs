@@ -83,13 +83,10 @@ public sealed partial class ModuleCodeGen
             LlvmContext.SetBody(arrayLayout.LlvmType, [LlvmContext.Array(FieldStorage(fields[0]), (uint)length)]);
             return arrayLayout;
         }
-        // Fixed-size buffers (`fixed ulong Acc[8]`): in IL, a field of a compiler-generated
-        // `<Acc>e__FixedBuffer` struct (.size = 8 * 8, one element field), which Roslyn presents as a
-        // pointer-typed fixed buffer field. IL addresses its elements through that field's address (ldflda
-        // + FixedElementField + pointer arithmetic), so laying it out as the element array is exact. C# source
-        // indexes fixed buffers directly, which csharpc doesn't lower yet.
-        if (type.GetMembers().OfType<IFieldSymbol>().FirstOrDefault(f => f.IsFixedSizeBuffer) is { } buffer && Il.OwnerOf(type) is null)
-            throw CompileError.Unsupported($"fixed-size buffer '{type.Name}.{buffer.Name}'", buffer);
+        // Fixed-size buffers (`fixed ulong Acc[8]`) are laid out as the element array (below). In IL, the field
+        // is a compiler-generated `<Acc>e__FixedBuffer` struct (.size = 8 * 8, one element field), addressed
+        // through ldflda + FixedElementField + pointer arithmetic; in C# source, the field reference is the
+        // pointer to its first element (FunctionCodeGen.EmitValue) and indexing it is pointer arithmetic.
         if (custom is { Explicit: false, Pack: 0, Size: > 0 } && Il.OwnerOf(type) is { } bufferOwner
             && type.GetAttributes().Any(a => a.AttributeClass?.ToDisplayString() == "System.Runtime.CompilerServices.UnsafeValueTypeAttribute")
             && InstanceFields(type).ToList() is [var element])
