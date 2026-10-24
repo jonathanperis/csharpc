@@ -228,6 +228,21 @@ namespace CsharpcCoreLib
 
         public static DateTime GetLastWriteTime(string path) => GetLastWriteTimeUtc(path).ToLocalTime();
 
+        // CreationTime as .NET reports it per OS (Posix.CreationTime): the birth time on macOS and Windows,
+        // the older of mtime and ctime on Linux; a missing file gives 1601-01-01 like the other times.
+        public static DateTime GetCreationTimeUtc(string path)
+        {
+            byte* st = stackalloc byte[Posix.StatSize];
+            byte* p = Utf8.ToNative(path);
+            int r = Posix.stat(p, st);
+            Libc.free(p);
+            if (r != 0) return new DateTime(1601, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+            Posix.CreationTime(st, out long seconds, out long nanoseconds);
+            return new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc).AddTicks(seconds * 10000000 + nanoseconds / 100);
+        }
+
+        public static DateTime GetCreationTime(string path) => GetCreationTimeUtc(path).ToLocalTime();
+
         internal static long Length(string path)
         {
             byte* st = stackalloc byte[Posix.StatSize];
@@ -470,6 +485,8 @@ namespace CsharpcCoreLib
         public string Extension => PathImpl.GetExtension(FullPath);
         public DateTime LastWriteTimeUtc => FileImpl.GetLastWriteTimeUtc(FullPath);
         public DateTime LastWriteTime => FileImpl.GetLastWriteTime(FullPath);
+        public DateTime CreationTimeUtc => FileImpl.GetCreationTimeUtc(FullPath);
+        public DateTime CreationTime => FileImpl.GetCreationTime(FullPath);
         public abstract void Delete();
         public void Refresh() { }
         public override string ToString() => OriginalPath;
