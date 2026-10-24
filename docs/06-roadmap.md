@@ -98,7 +98,8 @@ bug like a wrong output.
   `Reflection.Emit`, `MakeGenericType` over unseen instantiations, compiled expression trees, the DLR,
   loading assemblies at run time) is out of scope (❌) and must stay an explicit diagnostic. The JIT is
   the behavioural oracle for the tests and a benchmark baseline, not a support target
-  ([ADR 0016](adr/0016-nativeaot-parity-and-end-state.md)).
+  ([ADR 0016](adr/0016-nativeaot-parity-and-end-state.md)). The finish line is M8: the dotnet fork with csharpc in
+  NativeAOT's place, beating NativeAOT on the TechEmpower benchmarks.
 - **Faster:** throughput ahead of NativeAOT and the JIT on every benchmark, on every platform; start-up
   and compile time measured too (compile time against `dotnet publish -p:PublishAot=true`).
 - **Smaller:** executables a fraction of NativeAOT's size, with nothing linked that the program doesn't
@@ -221,6 +222,21 @@ projects get csharpc by switching the AOT backend ([ADR 0016](adr/0016-nativeaot
 Prerequisites: M6 (IL as the primary input path, csharpc compiling Roslyn and itself) and NativeAOT
 parity on the compatibility corpus. Until then `Csharpc.Sdk` is the integration point and adopts
 NativeAOT's property names as it honours them.
+
+### M8 — The win: TechEmpower with the csharpc-built dotnet
+The final proof, and the project's definition of done: in the dotnet fork of M7, NativeAOT's code is
+removed and csharpc takes its place; the fork is built, and that build compiles the ASP.NET Core
+entries of the [TechEmpower Framework Benchmarks](https://github.com/TechEmpower/FrameworkBenchmarks)
+that .NET runs with NativeAOT, in their benchmark environment — and they beat the NativeAOT-compiled
+entries. Same sources, same test types, same harness; only the AOT backend differs.
+
+What it takes, beyond M6–M7: ASP.NET Core and Kestrel compiled from IL (hosting, dependency
+injection, configuration, logging, `System.IO.Pipelines`, the HTTP/1.1 parser, `System.Text.Json`
+source generation, the database driver the entries use), the thread pool, sockets and async I/O at
+production throughput on Linux (epoll), and allocation/GC behaviour under sustained load. Tracked
+early by a local harness that builds the same app with NativeAOT and csharpc and loads it with the
+TechEmpower test types (plaintext, JSON, then the database ones) on CI, so the gap is measured long
+before the fork exists.
 
 ### Credibility deliverables (cross-cutting)
 - A technical report: what csharpc demonstrates (Roslyn's CFG as a mid-level IR, a C# corelib with

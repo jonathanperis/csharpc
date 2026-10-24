@@ -57,6 +57,11 @@ against is .NET's own AOT path, `dotnet publish -p:PublishAot=true` (NativeAOT, 
   becomes part of the drop-in contract.
 - **Out-of-scope list is NativeAOT's.** The roadmap's ❌ status means exactly "NativeAOT doesn't
   support it either"; anything NativeAOT supports is ⬜/🟡/🚧 until it's ✅.
+- **Definition of done (roadmap M8):** the fork, with NativeAOT's code removed and csharpc in its
+  place, is built and used to compile the ASP.NET Core TechEmpower Framework Benchmarks entries that
+  .NET runs with NativeAOT; they run in the TechEmpower environment and beat the NativeAOT-compiled
+  entries. That makes ASP.NET Core/Kestrel from IL and server-grade throughput (thread pool, sockets,
+  epoll, GC under load) requirements, measured early by a local NativeAOT-vs-csharpc load harness.
 - **The fork is the last step, not the next one.** It needs M5/M6 done (IL as the primary input,
   csharpc compiling Roslyn and itself) and parity on the compatibility corpus; until then
   `Csharpc.Sdk` is the integration point and must track the same property names.
