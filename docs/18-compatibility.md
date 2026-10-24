@@ -335,3 +335,66 @@ closed-world answer is compile-time metadata for what is statically known (`type
 
 Re-run: `python3 -I tools/il-survey/survey.py --jobs 1 --out il-survey.md` (a fresh `/tmp` work dir by
 default; `--only Id1,Id2` for a subset).
+
+### Roslyn and csharpc
+
+The same survey over M6's bootstrap closure: Roslyn (`Microsoft.CodeAnalysis`,
+`Microsoft.CodeAnalysis.CSharp`, the 5.9.0 assemblies csharpc itself references) and `csharpc.dll`.
+`--il-survey=A,B` lowers every non-generic method of just those assemblies (framework assemblies
+they use are compiled from IL on demand, [ADR 0013](adr/0013-framework-il.md)), and
+`--il-survey-shard i/n` splits the types into shards, so the manual `IL survey` workflow run with
+`target: roslyn` compiles 16 shards in parallel jobs (~3–4 minutes each) and merges them into one
+report ranked by the number of methods each item stops (`--rank-by methods`; a method reports its
+first failure, so fixing an item can reveal the next one in the same method). Re-run locally for a
+slice: `python3 -I tools/il-survey/survey.py --no-packages --local "roslyn+csharpc=<dlls>"
+--survey-assemblies Microsoft.CodeAnalysis,Microsoft.CodeAnalysis.CSharp,csharpc --shards 16
+--shard-index 0 --rank-by methods`.
+
+| Survey run (2026-10-24, CI) | Roslyn | csharpc | framework IL | total methods that fail to lower |
+|---|---:|---:|---:|---:|
+| start of the `m6-roslyn` branch | 994 | 102 | 25 | 1 111 |
+| after the first fixes (layouts, memories, StrongBox ...) | 293 | 74 | 29 | 396 |
+| final (`m6-roslyn`, corelib compiled to IL as on `main`) | 170 | 77 | 41 (+1 corelib) | 289 |
+
+What blocked the most Roslyn methods at the start, and is fixed on the branch (methods in the
+first survey): `ExtendedSpecialType`'s explicit layout that is the sequential one (413), the
+`HashAlgorithmName` and `RSAParameters` value types (105), `StrongBox<T>` (38), conditional weak
+tables and weak references (37), `RuntimeHelpers.GetHashCode`/`ReferenceEqualityComparer` (34),
+devirtualization to an open generic base method (26 — a bug C# programs could hit too), boxing,
+hashing and comparing `ReadOnlyMemory<char>` keys (23 methods, 204 sites), `decimal` constants read as
+fields (19), `CollectionsMarshal` (13), `GetTypeInfo` (13), fixed-size buffers (10), `Task.Run` with a
+token and `LazyInitializer` (19), rectangular arrays, `[InlineArray]` structs, unions, interface calls
+on array fields, IntPtr operators, SHA-1/SHA-256 and `IncrementalHash`, Base64/hex, delegates bound to
+library methods, and `Assembly.GetCustomAttribute<T>()` as compile-time metadata.
+
+Ranked list now (final run; methods stopped, all in one target):
+
+| # | Methods | Item | Where |
+|---:|---:|---|---|
+| 1 | 12 + 4 + 4 + 2 | `RegexRunner`/`RegexRunnerFactory` subclasses (the SDK's `[GeneratedRegex]` output) | csharpc |
+| 2 | 6 | `new Task(...)` | System.Linq.Parallel (csharpc's PLINQ) |
+| 3 | 5 | `Environment.GetFolderPath` | Roslyn, csharpc |
+| 4 | 5 | `Assembly.Location` | Roslyn |
+| 5 | 5 | deriving from `DeflateStream` (embedded text, PDB) | Roslyn |
+| 6 | 4 | `OperationCanceledException.CancellationToken` | Roslyn, PLINQ |
+| 7 | 4 | `Convert.ToInt64(object)` | csharpc |
+| 8 | 4 | `Task.CurrentId` | PLINQ |
+| 9 | 4 | `XmlReaderSettings`/`XmlReader` (XML doc comments) | Roslyn |
+| 10 | 4 | boxing `CancellationToken` | Roslyn |
+| 11 | 3 | `AppContext.BaseDirectory` | csharpc |
+| 12 | 3 | `Environment.FailFast` | Roslyn |
+| 13 | 3 | `MemoryMarshal.AsBytes` | System.Reflection.Metadata |
+| 14 | 3 | `RuntimeEnvironment.GetRuntimeDirectory` | csharpc |
+| 15 | 3 | `Version.TryParse` | csharpc |
+| 16 | 3 | `SHA384.Create` | Roslyn |
+| 17 | 3 | `Parallel.For` with `ParallelOptions` | csharpc |
+| 18 | 3 | `AppDomain.CurrentDomain` / `AssemblyLoadContext.Default` (analyzer loading) | Roslyn, csharpc |
+| 19 | 3 | `ImmutableArray<T>.Enumerator` typing in iterators | Roslyn |
+| 20 | 3 | `ParallelLoopResult` | Roslyn |
+
+The survey only counts methods that fail to *lower*. A program that parses C# with Roslyn from IL
+(`CSharpSyntaxTree.ParseText(...)` and a walk over the tree) is the other measure: the methods it can
+reach that csharpc can't compile went from 121 to 33 on the branch; the rest are `StringBuilder.GetChunks`
+(its chunk layout is observable and csharpc's builder has one buffer), `MemoryMarshal.TryGetArray` over
+`ReadOnlyMemory<T>` (memories don't keep their owner array), `DeflateStream`, `SHA384`,
+`Vector256`, `BigInteger` byte conversions, encoding providers and a few single members.
