@@ -22,6 +22,18 @@ Console.WriteLine($"{Pointers.SumChars("abc")} {Pointers.SumChars("")} {Pointers
 Console.WriteLine(HashState.Run());
 Console.WriteLine(Unions.Run());
 
+// Assembly attributes of an IL assembly, as Roslyn reads its own version and commit hash.
+var idioms = typeof(Special).Assembly;
+Console.WriteLine(System.Reflection.CustomAttributeExtensions.GetCustomAttribute<System.Reflection.AssemblyInformationalVersionAttribute>(idioms)?.InformationalVersion);
+Console.WriteLine(System.Reflection.CustomAttributeExtensions.GetCustomAttribute<System.Reflection.AssemblyFileVersionAttribute>(idioms)?.Version);
+Console.WriteLine(System.Reflection.CustomAttributeExtensions.GetCustomAttribute<System.Reflection.AssemblyCompanyAttribute>(idioms)?.Company);
+Console.WriteLine(System.Reflection.CustomAttributeExtensions.GetCustomAttribute<System.Reflection.AssemblyProductAttribute>(idioms)?.Product);
+var metadata = System.Reflection.CustomAttributeExtensions.GetCustomAttribute<System.Reflection.AssemblyMetadataAttribute>(idioms);
+Console.WriteLine($"{metadata?.Key}={metadata?.Value}");
+Console.WriteLine(System.Reflection.CustomAttributeExtensions.GetCustomAttribute<System.Reflection.AssemblyCopyrightAttribute>(idioms) is null);
+var framework = System.Reflection.CustomAttributeExtensions.GetCustomAttribute<System.Runtime.Versioning.TargetFrameworkAttribute>(idioms);
+Console.WriteLine($"{framework?.FrameworkName} [{framework?.FrameworkDisplayName}]");
+
 // IntPtr/UIntPtr conversion operators as C# 9 IL calls them: the narrowing ones are checked.
 Console.WriteLine($"{NativeInts.FromInt(-5)} {NativeInts.FromLong(1L << 40)} {NativeInts.ToLong(new IntPtr(-7))}");
 Console.WriteLine($"{NativeInts.ToInt(new IntPtr(123456))} {NativeInts.ToULong(new UIntPtr(99))} {NativeInts.RoundTrip(5)}");

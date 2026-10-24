@@ -147,6 +147,10 @@ internal static class Intrinsics
             return type;
         };
         t["System.Reflection.TypeInfo.AsType()"] = (g, inv) => g.EmitValue(inv.Instance!);
+        t["System.Reflection.CustomAttributeExtensions.GetCustomAttribute(System.Reflection.Assembly)"] = (g, inv) =>
+            inv.TargetMethod.TypeArguments.Length == 1
+                ? g.AssemblyCustomAttribute(g.Substitution.Apply(inv.TargetMethod.TypeArguments[0]), Arg(g, inv, 0), inv)
+                : throw CompileError.Unsupported("CustomAttributeExtensions.GetCustomAttribute(Assembly, Type)", inv);
         // The identity hash object.GetHashCode falls back to: csrt_object_get_hash_code_default's formula
         // (csrt.c), inline (0 for null, like .NET).
         t["System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(object)"] = (g, inv) =>

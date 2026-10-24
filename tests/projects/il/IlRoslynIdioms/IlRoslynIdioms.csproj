@@ -6,5 +6,14 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <!-- Assembly attributes read back with Assembly.GetCustomAttribute<T>() (compile-time metadata). -->
+    <InformationalVersion>4.5.6-preview.7</InformationalVersion>
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
+    <FileVersion>4.5.6.789</FileVersion>
+    <Company>csharpc tests</Company>
+    <Product>IL idioms</Product>
   </PropertyGroup>
+  <ItemGroup>
+    <AssemblyMetadata Include="CommitHash" Value="0123abcd" />
+  </ItemGroup>
 </Project>
