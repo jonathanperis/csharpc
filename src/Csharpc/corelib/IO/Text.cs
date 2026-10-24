@@ -2,14 +2,17 @@
 // Console.Out/Error/In as real TextWriter/TextReader objects (backed by the console fast paths).
 #nullable disable
 using System;
+using System.Buffers;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Text;
+using System.Threading;
+using System.Threading.Tasks;
 
 namespace CsharpcCoreLib
 {
     [Shadows("System.IO.TextReader")]
-    public abstract class TextReaderImpl : IDisposable
+    public abstract class TextReaderImpl : MarshalByRefObjectImpl, IDisposable
     {
         public virtual int Peek() => -1;
         public virtual int Read() => -1;
@@ -26,7 +29,106 @@ namespace CsharpcCoreLib
             return n;
         }
 
-        public virtual int ReadBlock(char[] buffer, int index, int count) => Read(buffer, index, count);
+        // Blocks until count characters are read or the end is reached (Read may return fewer).
+        public virtual int ReadBlock(char[] buffer, int index, int count)
+        {
+            int i, n = 0;
+            do
+            {
+                n += (i = Read(buffer, index + n, count - n));
+            } while (i > 0 && n < count);
+            return n;
+        }
+
+        public virtual int Read(Span<char> buffer)
+        {
+            char[] array = ArrayPool<char>.Shared.Rent(buffer.Length);
+            try
+            {
+                int n = Read(array, 0, buffer.Length);
+                if ((uint)n > (uint)buffer.Length) throw new IOException("The read operation returned an invalid length.");
+                new Span<char>(array, 0, n).CopyTo(buffer);
+                return n;
+            }
+            finally { ArrayPool<char>.Shared.Return(array); }
+        }
+
+        public virtual int ReadBlock(Span<char> buffer)
+        {
+            char[] array = ArrayPool<char>.Shared.Rent(buffer.Length);
+            try
+            {
+                int n = ReadBlock(array, 0, buffer.Length);
+                if ((uint)n > (uint)buffer.Length) throw new IOException("The read operation returned an invalid length.");
+                new Span<char>(array, 0, n).CopyTo(buffer);
+                return n;
+            }
+            finally { ArrayPool<char>.Shared.Return(array); }
+        }
+
+        // The asynchronous reads run the synchronous ones on the thread pool, as .NET's defaults do.
+        public virtual Task<string> ReadLineAsync() =>
+            Task.Factory.StartNew(state => ((TextReader)state).ReadLine(), this, CancellationToken.None, TaskCreationOptions.DenyChildAttach, TaskScheduler.Default);
+
+        public virtual ValueTask<string> ReadLineAsync(CancellationToken cancellationToken) =>
+            new ValueTask<string>(Task.Factory.StartNew(state => ((TextReader)state).ReadLine(), this, cancellationToken, TaskCreationOptions.DenyChildAttach, TaskScheduler.Default));
+
+        public virtual Task<string> ReadToEndAsync() => ReadToEndAsync(default);
+
+        public virtual async Task<string> ReadToEndAsync(CancellationToken cancellationToken)
+        {
+            var sb = new StringBuilder(4096);
+            char[] chars = ArrayPool<char>.Shared.Rent(4096);
+            try
+            {
+                int len;
+                while ((len = await ReadOnPool(new Memory<char>(chars), cancellationToken).ConfigureAwait(false)) != 0)
+                    sb.Append(chars, 0, len);
+            }
+            finally { ArrayPool<char>.Shared.Return(chars); }
+            return sb.ToString();
+        }
+
+        private Task<int> ReadOnPool(Memory<char> buffer, CancellationToken cancellationToken) =>
+            Task.Factory.StartNew(() => Read(buffer.Span), cancellationToken, TaskCreationOptions.DenyChildAttach, TaskScheduler.Default);
+
+        private static void CheckBuffer(char[] buffer, int index, int count)
+        {
+            if (buffer == null) throw new ArgumentNullException("buffer");
+            if (index < 0) throw new ArgumentOutOfRangeException("index", index, "index ('" + index.ToString() + "') must be a non-negative value.");
+            if (count < 0) throw new ArgumentOutOfRangeException("count", count, "count ('" + count.ToString() + "') must be a non-negative value.");
+            if (buffer.Length - index < count)
+                throw new ArgumentException("Offset and length were out of bounds for the array or count is greater than the number of elements from index to the end of the source collection.");
+        }
+
+        public virtual Task<int> ReadAsync(char[] buffer, int index, int count)
+        {
+            CheckBuffer(buffer, index, count);
+            return ReadOnPool(new Memory<char>(buffer, index, count), default);
+        }
+
+        public virtual ValueTask<int> ReadAsync(Memory<char> buffer, CancellationToken cancellationToken = default) =>
+            new ValueTask<int>(ReadOnPool(buffer, cancellationToken));
+
+        public virtual Task<int> ReadBlockAsync(char[] buffer, int index, int count)
+        {
+            CheckBuffer(buffer, index, count);
+            return ReadBlockCore(new Memory<char>(buffer, index, count), default);
+        }
+
+        public virtual ValueTask<int> ReadBlockAsync(Memory<char> buffer, CancellationToken cancellationToken = default) =>
+            new ValueTask<int>(Task.Factory.StartNew(() => ReadBlock(buffer.Span), cancellationToken, TaskCreationOptions.DenyChildAttach, TaskScheduler.Default));
+
+        private async Task<int> ReadBlockCore(Memory<char> buffer, CancellationToken cancellationToken)
+        {
+            int n = 0, i;
+            do
+            {
+                i = await ReadOnPool(buffer.Slice(n), cancellationToken).ConfigureAwait(false);
+                n += i;
+            } while (i > 0 && n < buffer.Length);
+            return n;
+        }
 
         public virtual string ReadLine()
         {
@@ -59,9 +161,11 @@ namespace CsharpcCoreLib
     }
 
     [Shadows("System.IO.TextWriter")]
-    public abstract class TextWriterImpl : IDisposable
+    public abstract class TextWriterImpl : MarshalByRefObjectImpl, IDisposable, IAsyncDisposable
     {
         private string _newLine = Environment.NewLine;
+        /// <summary>The line terminator as characters (derived writers read it, as in .NET); follows <see cref="NewLine"/>.</summary>
+        protected char[] CoreNewLine = Environment.NewLine.ToCharArray();
         // .NET's TextWriter formats numbers and composite formats with this provider (null: the current culture).
         private readonly IFormatProvider _internalFormatProvider;
 
@@ -73,7 +177,11 @@ namespace CsharpcCoreLib
         public virtual string NewLine
         {
             get => _newLine;
-            set => _newLine = value ?? Environment.NewLine;
+            set
+            {
+                _newLine = value ?? Environment.NewLine;
+                CoreNewLine = _newLine.ToCharArray();
+            }
         }
 
         public virtual IFormatProvider FormatProvider => _internalFormatProvider ?? System.Globalization.CultureInfo.CurrentCulture;
@@ -133,6 +241,90 @@ namespace CsharpcCoreLib
         public virtual void WriteLine(string format, object arg0, object arg1) => WriteLine(string.Format(_internalFormatProvider, format, arg0, arg1));
         public virtual void WriteLine(string format, object arg0, object arg1, object arg2) => WriteLine(string.Format(_internalFormatProvider, format, arg0, arg1, arg2));
         public virtual void WriteLine(string format, params object[] arg) => WriteLine(string.Format(_internalFormatProvider, format, arg));
+
+        public virtual void Write(ReadOnlySpan<char> buffer)
+        {
+            char[] array = ArrayPool<char>.Shared.Rent(buffer.Length);
+            try
+            {
+                buffer.CopyTo(new Span<char>(array));
+                Write(array, 0, buffer.Length);
+            }
+            finally { ArrayPool<char>.Shared.Return(array); }
+        }
+
+        public virtual void WriteLine(ReadOnlySpan<char> buffer)
+        {
+            char[] array = ArrayPool<char>.Shared.Rent(buffer.Length);
+            try
+            {
+                buffer.CopyTo(new Span<char>(array));
+                WriteLine(array, 0, buffer.Length);
+            }
+            finally { ArrayPool<char>.Shared.Return(array); }
+        }
+
+        public virtual void Write(StringBuilder value)
+        {
+            if (value != null) Write(value.ToString());
+        }
+
+        public virtual void WriteLine(StringBuilder value)
+        {
+            Write(value);
+            WriteLine();
+        }
+
+        // The asynchronous writes run the synchronous ones on the thread pool, as .NET's defaults do.
+        private Task OnPool(Action write, CancellationToken cancellationToken) =>
+            Task.Factory.StartNew(write, cancellationToken, TaskCreationOptions.DenyChildAttach, TaskScheduler.Default);
+
+        public virtual Task WriteAsync(char value) => OnPool(() => Write(value), CancellationToken.None);
+        public virtual Task WriteAsync(string value) => OnPool(() => Write(value), CancellationToken.None);
+        public Task WriteAsync(string value, CancellationToken cancellationToken) => WriteAsync(value.AsMemory(), cancellationToken);
+        public Task WriteAsync(char[] buffer) => buffer == null ? Task.CompletedTask : WriteAsync(buffer, 0, buffer.Length);
+        public virtual Task WriteAsync(char[] buffer, int index, int count) => OnPool(() => Write(buffer, index, count), CancellationToken.None);
+
+        public virtual Task WriteAsync(ReadOnlyMemory<char> buffer, CancellationToken cancellationToken = default) =>
+            cancellationToken.IsCancellationRequested ? Task.FromCanceled(cancellationToken) : OnPool(() => Write(buffer.Span), cancellationToken);
+
+        public virtual Task WriteAsync(StringBuilder value, CancellationToken cancellationToken = default) =>
+            cancellationToken.IsCancellationRequested ? Task.FromCanceled(cancellationToken)
+            : value == null ? Task.CompletedTask : WriteAsync(value.ToString().AsMemory(), cancellationToken);
+
+        public virtual Task WriteLineAsync(char value) => OnPool(() => WriteLine(value), CancellationToken.None);
+        public virtual Task WriteLineAsync(string value) => OnPool(() => WriteLine(value), CancellationToken.None);
+        public Task WriteLineAsync(string value, CancellationToken cancellationToken) => WriteLineAsync(value.AsMemory(), cancellationToken);
+        public Task WriteLineAsync(char[] buffer) => buffer == null ? WriteLineAsync() : WriteLineAsync(buffer, 0, buffer.Length);
+        public virtual Task WriteLineAsync(char[] buffer, int index, int count) => OnPool(() => WriteLine(buffer, index, count), CancellationToken.None);
+
+        public virtual Task WriteLineAsync(ReadOnlyMemory<char> buffer, CancellationToken cancellationToken = default) =>
+            cancellationToken.IsCancellationRequested ? Task.FromCanceled(cancellationToken) : OnPool(() => WriteLine(buffer.Span), cancellationToken);
+
+        public virtual Task WriteLineAsync(StringBuilder value, CancellationToken cancellationToken = default) =>
+            cancellationToken.IsCancellationRequested ? Task.FromCanceled(cancellationToken)
+            : WriteAsync(((value == null ? "" : value.ToString()) + new string(CoreNewLine)).AsMemory(), cancellationToken);
+
+        public virtual Task WriteLineAsync() => WriteAsync(CoreNewLine);
+        public Task WriteLineAsync(CancellationToken cancellationToken) => WriteAsync(new ReadOnlyMemory<char>(CoreNewLine), cancellationToken);
+
+        public virtual Task FlushAsync() => OnPool(Flush, CancellationToken.None);
+
+        public virtual Task FlushAsync(CancellationToken cancellationToken) =>
+            cancellationToken.IsCancellationRequested ? Task.FromCanceled(cancellationToken) : FlushAsync();
+
+        public virtual ValueTask DisposeAsync()
+        {
+            try
+            {
+                Dispose();
+                return default;
+            }
+            catch (Exception e)
+            {
+                return ValueTask.FromException(e);
+            }
+        }
 
         public virtual void Flush() { }
         public void Dispose() => Dispose(true);

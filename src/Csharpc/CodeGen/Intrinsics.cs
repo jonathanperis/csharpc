@@ -783,6 +783,7 @@ internal static class Intrinsics
         {
             t[$"{Tasks}.{type}.GetAwaiter()"] = self;
             t[$"{Tasks}.{type}.ConfigureAwait(bool)"] = self;
+            if (type.StartsWith("ValueTask", StringComparison.Ordinal)) t[$"{Tasks}.{type}.Preserve()"] = self; // the task itself can be awaited again
             t[$"{Tasks}.{type}.Wait()"] = (g, inv) => { ThrowAggregate(g, Wait(g, g.EmitValue(inv.Instance!))); return default; };
         }
         t[$"{Tasks}.ValueTask.AsTask()"] = (g, inv) =>

@@ -15,7 +15,7 @@ namespace CsharpcCoreLib
     // the thread pool one at a time, as .NET's do (it serializes them with a semaphore; here each one starts
     // when the previous one has finished), and go through BeginRead/BeginWrite so overrides of those are used.
     [Shadows("System.IO.Stream")]
-    public abstract class StreamImpl : IDisposable, IAsyncDisposable
+    public abstract class StreamImpl : MarshalByRefObjectImpl, IDisposable, IAsyncDisposable
     {
         public static readonly Stream Null = (Stream)(object)new NullStream();
 
