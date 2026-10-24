@@ -4,6 +4,14 @@ The goal is for an ordinary .NET project to become a native executable through c
 without changing its code or project layout, the way `PublishAot=true` works for NativeAOT. This
 page covers what works today, how it's built, and what "drop-in" still lacks.
 
+**Target and end state** ([ADR 0016](adr/0016-nativeaot-parity-and-end-state.md)): drop-in means
+**100 % parity with NativeAOT** — everything that works under `PublishAot=true` works with csharpc,
+with the same behaviour; what NativeAOT can't do (run-time code generation) stays an explicit
+diagnostic. `Csharpc.Sdk` honours NativeAOT's MSBuild properties under their NativeAOT names as it
+gains them (a property it doesn't honour yet is a warning, not silently ignored). The end state is a
+fork of dotnet in which the `PublishAot` step runs csharpc instead of ILCompiler, with the same inputs,
+parameters and outputs (roadmap M7).
+
 ## Usage
 
 ### 1. CLI on a project

@@ -90,10 +90,17 @@ every failure is a clean "not supported by csharpc yet" diagnostic.
 Not a milestone that ends: every milestone is held to it, and a regression in any of these areas is a
 bug like a wrong output.
 
-- **Drop-in:** the same behaviour as .NET (byte-identical output, exit codes, exception messages), the
-  same inputs (`.cs`, `.csproj`, NuGet packages) and the same workflow (`dotnet build`/`run`/`publish`).
+- **Drop-in, measured against NativeAOT:** csharpc is an ahead-of-time compiler, so the support target is
+  **100 % parity with what .NET NativeAOT supports**: every program and library that works when published
+  with `PublishAot` must work with csharpc, with the same behaviour (byte-identical output, exit codes,
+  exception messages), the same inputs (`.cs`, `.csproj`, NuGet packages) and the same workflow
+  (`dotnet build`/`run`/`publish`). What NativeAOT doesn't support (run-time code generation:
+  `Reflection.Emit`, `MakeGenericType` over unseen instantiations, compiled expression trees, the DLR,
+  loading assemblies at run time) is out of scope (❌) and must stay an explicit diagnostic. The JIT is
+  the behavioural oracle for the tests and a benchmark baseline, not a support target
+  ([ADR 0016](adr/0016-nativeaot-parity-and-end-state.md)).
 - **Faster:** throughput ahead of NativeAOT and the JIT on every benchmark, on every platform; start-up
-  and compile time measured too.
+  and compile time measured too (compile time against `dotnet publish -p:PublishAot=true`).
 - **Smaller:** executables a fraction of NativeAOT's size, with nothing linked that the program doesn't
   use (pay-for-play library code).
 - **Safer:** hardening on by default ([17-security.md](17-security.md)).
@@ -148,6 +155,9 @@ First report (2026-10-22, 323 programs from dotnet/samples and dotnet/docs, 40.6
 .NET): [18-compatibility.md](18-compatibility.md); harness in `tools/compat/`, re-run on CI by the
 `Compatibility` workflow. Latest (2026-10-24): 67.5 % identical, and every program csharpc compiles
 (189 of 189) matches .NET; the rest stop at explicit "not supported yet" diagnostics, ranked there.
+Next metric: **parity with NativeAOT** — the harness also publishes each program with `PublishAot` and
+runs it; programs NativeAOT can't build or run identically are out of scope, and the headline number
+becomes the share of NativeAOT-working programs that csharpc matches (target: 100 %).
 
 ### M5 — Drop-in: binary packages (🚧)
 An IL front-end (IL → the same lowering) so NuGet packages that ship only assemblies can be linked
@@ -201,6 +211,16 @@ instead of 1.5 s, the SRM program in 3.7 s instead of 4.6 s, with 30–40 MB les
 order: (3, continued) lowering on several threads, bounded code-generation memory; (4) reflection Roslyn needs at startup
 (`typeof(X).Assembly`, resource lookup, analyzer activation) as compile-time metadata with diagnostics
 for the rest; (5) csharpc compiled by csharpc, LLVM C API P/Invokes included.
+
+### M7 — End state: csharpc as dotnet's AOT backend
+A fork of dotnet in which `dotnet publish -p:PublishAot=true` runs csharpc where NativeAOT's ILCompiler
+runs today: the same IL inputs from `csc`, the same MSBuild properties (`OptimizationPreference`,
+`IlcInstructionSet`, `InvariantGlobalization`, `StackTraceSupport`, `StripSymbols`, `NativeLib`,
+`DirectPInvoke`, trimming descriptors and feature switches, ...) and the same outputs, so existing
+projects get csharpc by switching the AOT backend ([ADR 0016](adr/0016-nativeaot-parity-and-end-state.md)).
+Prerequisites: M6 (IL as the primary input path, csharpc compiling Roslyn and itself) and NativeAOT
+parity on the compatibility corpus. Until then `Csharpc.Sdk` is the integration point and adopts
+NativeAOT's property names as it honours them.
 
 ### Credibility deliverables (cross-cutting)
 - A technical report: what csharpc demonstrates (Roslyn's CFG as a mid-level IR, a C# corelib with
