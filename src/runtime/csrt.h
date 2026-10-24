@@ -50,7 +50,9 @@ typedef struct {
 enum { CSRT_MT_ABSTRACT = 1, CSRT_MT_INTERFACE = 2, CSRT_MT_ITERATOR = 4 /* src/runtime/async.c */,
        CSRT_MT_NO_REFERENCES = 8 /* instances hold no heap references: the GC never scans them */,
        CSRT_MT_DISPOSABLE = 16 /* runtime-implemented IDisposable whose Dispose() is a no-op (wait handles, CTS) */,
-       CSRT_MT_MDARRAY = 32 /* rectangular array ("System.Int32[,]"): interfaces dispatch like the untyped array tables */ };
+       CSRT_MT_MDARRAY = 32 /* rectangular array ("System.Int32[,]"): interfaces dispatch like the untyped array tables */,
+       CSRT_MT_VALUE_TYPE = 64 /* a boxed value type (`is System.ValueType`) */,
+       CSRT_MT_ENUM = 128 /* a boxed enum (`is System.Enum`) */ };
 
 struct csrt_MethodTable {
     const csrt_MethodTable* base;   // null for System.Object and interfaces
@@ -80,6 +82,10 @@ extern const csrt_BuiltinMethodTable csrt_Object_MT;
 extern const csrt_BuiltinMethodTable csrt_String_MT;
 extern const csrt_BuiltinMethodTable csrt_Array_MT;
 extern const csrt_BuiltinMethodTable csrt_PrimitiveArray_MT;  // arrays of non-references: never scanned by the GC
+// Never instantiated: type-test targets. Boxed value types keep csrt_Object_MT as their base; `is ValueType`
+// / `is Enum` test CSRT_MT_VALUE_TYPE / CSRT_MT_ENUM instead (csrt_isinst_class).
+extern const csrt_BuiltinMethodTable csrt_ValueType_MT;
+extern const csrt_BuiltinMethodTable csrt_Enum_MT;
 
 // Lifecycle -------------------------------------------------------------------------------
 void csrt_init(int argc, char** argv);

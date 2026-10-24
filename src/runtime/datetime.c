@@ -51,11 +51,11 @@ static bool box_dt_equals(void* self, void* other) {
 static int32_t box_dt_hash(void* self) { int64_t t = *(int64_t*)((char*)self + 8) & DATETIME_TICKS_MASK; return (int32_t)t ^ (int32_t)(t >> 32); }
 
 const csrt_BuiltinMethodTable csrt_Boxed_TimeSpan_MT = {
-    { &csrt_Object_MT.header, "System.TimeSpan", 16, 0 },
+    { &csrt_Object_MT.header, "System.TimeSpan", 16, CSRT_MT_VALUE_TYPE },
     { (void*)box_ts_to_string, (void*)box_ticks_equals, (void*)box_ticks_hash },
 };
 const csrt_BuiltinMethodTable csrt_Boxed_DateTime_MT = {
-    { &csrt_Object_MT.header, "System.DateTime", 16, 0 },
+    { &csrt_Object_MT.header, "System.DateTime", 16, CSRT_MT_VALUE_TYPE },
     { (void*)box_dt_to_string, (void*)box_dt_equals, (void*)box_dt_hash },
 };
 

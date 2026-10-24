@@ -138,7 +138,7 @@ public sealed partial class ModuleCodeGen
             ExternalGlobal("csrt_Object_MT"),
             CString(Mangler.MetadataName(enumType)),
             Llvm.ConstInt(Llvm.I32, 8 + (long)Types.Target.SizeOf(valueType)),
-            Llvm.ConstInt(Llvm.I32, 0),
+            Llvm.ConstInt(Llvm.I32, 64 | 128 /* CSRT_MT_VALUE_TYPE | CSRT_MT_ENUM */),
             map, Llvm.ConstInt(Llvm.I32, 1), Llvm.ConstInt(Llvm.I32, 0),
             LlvmContext.ConstArray(Llvm.Ptr, thunk, Runtime("csrt_valuetype_equals", Llvm.I1, Llvm.Ptr, Llvm.Ptr).Fn,
                 hashThunk)));
@@ -255,6 +255,8 @@ public sealed partial class ModuleCodeGen
         {
             case SpecialType.System_String: return Builtin("csrt_String_MT");
             case SpecialType.System_Object: return Builtin("csrt_Object_MT");
+            case SpecialType.System_ValueType: return Builtin("csrt_ValueType_MT");
+            case SpecialType.System_Enum: return Builtin("csrt_Enum_MT");
             case SpecialType.System_Int32 or SpecialType.System_Int64 or SpecialType.System_UInt32 or SpecialType.System_UInt64
                 or SpecialType.System_Int16 or SpecialType.System_UInt16 or SpecialType.System_Byte or SpecialType.System_SByte
                 or SpecialType.System_Double or SpecialType.System_Single or SpecialType.System_Boolean or SpecialType.System_Char:
