@@ -7,6 +7,11 @@ name: IL survey
 # Microsoft.CodeAnalysis.CSharp — the version csharpc itself references) and csharpc's own assembly,
 # in 16 parallel shards whose results are merged into one report ranked by the number of methods each
 # item blocks (docs/18-compatibility.md#roslyn-and-csharpc).
+#
+# `target: aspnetcore` surveys M8's closure the same way: the ASP.NET Core assemblies the TechEmpower
+# app (benchmarks/techempower/app) reaches — Microsoft.AspNetCore.*, Microsoft.Extensions.*,
+# System.IO.Pipelines, System.Net.* — in 16 shards (tools/il-survey/aspnetcore.sh,
+# docs/18-compatibility.md#aspnet-core-and-the-techempower-app).
 on:
   push:
     branches: [main]  # integration branches carry the harness too; one survey per change on main is enough
@@ -16,7 +21,7 @@ on:
       target:
         description: 'What to survey'
         type: choice
-        options: [packages, roslyn, both]
+        options: [packages, roslyn, both, aspnetcore, all]
         default: packages
 
 permissions:
@@ -28,7 +33,7 @@ env:
 
 jobs:
   survey:
-    if: github.event_name == 'push' || inputs.target != 'roslyn'
+    if: github.event_name == 'push' || inputs.target == 'packages' || inputs.target == 'both' || inputs.target == 'all'
     runs-on: ubuntu-24.04
     timeout-minutes: 240
     steps:
@@ -63,7 +68,7 @@ jobs:
             ${{ runner.temp }}/il-survey/results.json
 
   roslyn-shard:
-    if: github.event_name == 'workflow_dispatch' && inputs.target != 'packages'
+    if: github.event_name == 'workflow_dispatch' && (inputs.target == 'roslyn' || inputs.target == 'both' || inputs.target == 'all')
     runs-on: ubuntu-24.04
     timeout-minutes: 300
     strategy:
@@ -131,4 +136,66 @@ jobs:
           name: roslyn-survey
           path: |
             roslyn-survey.md
+            shards/*/results-*.json
+
+  aspnetcore-shard:
+    if: github.event_name == 'workflow_dispatch' && (inputs.target == 'aspnetcore' || inputs.target == 'all')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 300
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install LLVM 18 and clang
+        run: sudo apt-get update && sudo apt-get install -y llvm-18 clang-18 libllvm18 lld-18 && sudo ln -sf /usr/bin/clang-18 /usr/local/bin/clang && sudo ln -sf /usr/bin/ld.lld-18 /usr/local/bin/ld.lld
+
+      - name: Install .NET 11 SDK
+        run: |
+          curl -sSL https://dot.net/v1/dotnet-install.sh -o dotnet-install.sh
+          bash dotnet-install.sh --jsonfile global.json --install-dir "$HOME/.dotnet11"
+          echo "$HOME/.dotnet11" >> "$GITHUB_PATH"
+          echo "DOTNET_ROOT=$HOME/.dotnet11" >> "$GITHUB_ENV"
+
+      - name: Build
+        run: dotnet build src/Csharpc -c Release
+
+      - name: Survey shard ${{ matrix.shard }}/16
+        run: |
+          SURVEY_WORK="$RUNNER_TEMP/il-survey" tools/il-survey/aspnetcore.sh --shards 16 --shard-index ${{ matrix.shard }} \
+            --jobs 1 --timeout 14400 --memory-gb 10 --out shard.md
+          cp "$RUNNER_TEMP/il-survey/results.json" "results-${{ matrix.shard }}.json"
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: aspnetcore-shard-${{ matrix.shard }}
+          path: |
+            shard.md
+            results-${{ matrix.shard }}.json
+
+  aspnetcore-report:
+    needs: aspnetcore-shard
+    if: always() && needs.aspnetcore-shard.result != 'skipped'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: aspnetcore-shard-*
+          path: shards
+
+      - name: Merge
+        run: |
+          python3 -I tools/il-survey/survey.py --merge shards/*/results-*.json --rank-by methods --out aspnetcore-survey.md
+          cat aspnetcore-survey.md >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: aspnetcore-survey
+          path: |
+            aspnetcore-survey.md
             shards/*/results-*.json
