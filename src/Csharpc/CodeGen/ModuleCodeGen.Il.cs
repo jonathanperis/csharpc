@@ -26,6 +26,12 @@ public sealed partial class ModuleCodeGen
     /// </summary>
     public bool IlSurvey { get; init; }
 
+    /// <summary>--il-survey=A,B: the IL assemblies to survey (empty: all).</summary>
+    public IReadOnlyList<string> IlSurveyAssemblies { get; init; } = [];
+
+    /// <summary>--il-survey-shard i/n: a large assembly (Roslyn) is surveyed in several compiles of bounded memory.</summary>
+    public (int Index, int Count) IlSurveyShard { get; init; } = (0, 1);
+
     private void QueueIlSurveyMethods()
     {
         // CSHARPC_CORELIB_SURVEY=1: the precompiled corelib's methods too (what the IL front-end must cover, ADR 0015).
@@ -45,12 +51,22 @@ public sealed partial class ModuleCodeGen
         foreach (var type in types)
         {
             if (TypeSubstitution.IsGenericContext(type) || type.TypeKind is not (TypeKind.Class or TypeKind.Struct)) continue;
+            if (IlSurveyAssemblies.Count > 0 && !IlSurveyAssemblies.Contains(type.ContainingAssembly.Name, StringComparer.OrdinalIgnoreCase)) continue;
+            if (IlSurveyShard.Count > 1 && StableHash(type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)) % (uint)IlSurveyShard.Count != IlSurveyShard.Index) continue;
             foreach (var method in type.GetMembers().OfType<IMethodSymbol>())
                 // MetadataToken 0: members Roslyn synthesizes with no metadata row (a struct's default constructor).
                 if (!method.IsGenericMethod && !method.IsAbstract && !IsExternal(method) && method.MethodKind is not MethodKind.StaticConstructor
                     && method.MetadataToken != 0)
                     Guard(method, () => GetFunction(method));
         }
+    }
+
+    /// <summary>FNV-1a: the same shard for a type on every run and platform (string.GetHashCode is randomized).</summary>
+    private static uint StableHash(string s)
+    {
+        var h = 2166136261u;
+        foreach (var c in s) h = (h ^ c) * 16777619u;
+        return h;
     }
 
     public bool IsIlType(ITypeSymbol? type) => type is INamedTypeSymbol && Il.Contains(type.ContainingAssembly);

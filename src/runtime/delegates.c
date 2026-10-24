@@ -43,6 +43,27 @@ Delegate* csrt_delegate_combine(Delegate* a, Delegate* b) {
 
 static bool same_entry(const Delegate* x, const Delegate* y) { return x->target == y->target && x->fn == y->fn; }
 
+/// The virtual GetHashCode of delegate method tables (ModuleCodeGen.DelegateMethodTable): equal
+/// delegates hash alike (the type and methods; .NET's values are unspecified).
+int32_t csrt_delegate_get_hash_code(Delegate* self) {
+    uint64_t h = (uintptr_t)self->mt;
+    int64_t n = count_of(self);
+    for (int64_t i = 0; i < n; i++) h = h * 31 + (uintptr_t)entry_at(self, i)->fn;
+    return (int32_t)(h ^ (h >> 32));
+}
+
+/// Delegate.Equals / operator ==: the same delegate type and the same invocation list (targets and
+/// methods), as in .NET; two nulls are equal. Also the virtual Equals of delegate method tables.
+bool csrt_delegate_equals(Delegate* a, Delegate* b) {
+    if (a == b) return true;
+    if (!a || !b || a->mt != b->mt) return false;
+    int64_t n = count_of(a);
+    if (n != count_of(b)) return false;
+    for (int64_t i = 0; i < n; i++)
+        if (!same_entry(entry_at(a, i), entry_at(b, i))) return false;
+    return true;
+}
+
 /// Removes the last occurrence of value's invocation list from source's (Delegate.Remove semantics).
 Delegate* csrt_delegate_remove(Delegate* source, Delegate* value) {
     if (!source) return NULL;

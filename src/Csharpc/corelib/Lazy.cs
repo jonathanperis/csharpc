@@ -88,4 +88,79 @@ namespace CsharpcCoreLib
 
         public override string ToString() => _created ? (_value == null ? "" : _value.ToString()) : "Value is not created.";
     }
+
+    /// <summary>
+    /// LazyInitializer, as dotnet/runtime (release/11.0) src/libraries/System.Private.CoreLib/src/System/
+    /// Threading/LazyInitializer.cs: a racing factory may run more than once, the first published value wins.
+    /// </summary>
+    [Shadows("System.Threading.LazyInitializer")]
+    public static class LazyInitializerImpl
+    {
+        private const string FactoryReturnedNull = "ValueFactory returned null.";
+
+        public static T EnsureInitialized<T>(ref T target) where T : class =>
+            target ?? EnsureInitializedCore(ref target);
+
+        private static T EnsureInitializedCore<T>(ref T target) where T : class
+        {
+            Interlocked.CompareExchange(ref target, Activator.CreateInstance<T>(), null);
+            return target;
+        }
+
+        public static T EnsureInitialized<T>(ref T target, Func<T> valueFactory) where T : class =>
+            target ?? EnsureInitializedCore(ref target, valueFactory);
+
+        private static T EnsureInitializedCore<T>(ref T target, Func<T> valueFactory) where T : class
+        {
+            T value = valueFactory();
+            if (value == null) throw new InvalidOperationException(FactoryReturnedNull);
+            Interlocked.CompareExchange(ref target, value, null);
+            return target;
+        }
+
+        public static T EnsureInitialized<T>(ref T target, ref bool initialized, ref object syncLock)
+        {
+            if (Volatile.Read(ref initialized)) return target;
+            lock (EnsureLockInitialized(ref syncLock))
+            {
+                if (!Volatile.Read(ref initialized))
+                {
+                    target = Activator.CreateInstance<T>();
+                    Volatile.Write(ref initialized, true);
+                }
+            }
+            return target;
+        }
+
+        public static T EnsureInitialized<T>(ref T target, ref bool initialized, ref object syncLock, Func<T> valueFactory)
+        {
+            if (Volatile.Read(ref initialized)) return target;
+            lock (EnsureLockInitialized(ref syncLock))
+            {
+                if (!Volatile.Read(ref initialized))
+                {
+                    target = valueFactory();
+                    Volatile.Write(ref initialized, true);
+                }
+            }
+            return target;
+        }
+
+        public static T EnsureInitialized<T>(ref T target, ref object syncLock, Func<T> valueFactory) where T : class
+        {
+            if (target != null) return target;
+            lock (EnsureLockInitialized(ref syncLock))
+            {
+                if (target == null)
+                {
+                    target = valueFactory();
+                    if (target == null) throw new InvalidOperationException(FactoryReturnedNull);
+                }
+            }
+            return target;
+        }
+
+        private static object EnsureLockInitialized(ref object syncLock) =>
+            syncLock ?? Interlocked.CompareExchange(ref syncLock, new object(), null) ?? syncLock;
+    }
 }

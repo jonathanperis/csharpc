@@ -230,3 +230,15 @@ The full design is in [ADR 0004](adr/0004-memory-management.md). In short:
    using per-type pointer maps emitted in method tables. It doesn't move objects.
 3. **Later:** a precise collector with LLVM statepoints / stack maps (as gollvm does), which also
    allows moving and compacting. On wasm32, a shadow stack (as NativeAOT-LLVM does).
+
+### Weak references and ephemerons
+
+`WeakReference`, `WeakReference<T>` and `ConditionalWeakTable<TKey, TValue>` (corelib
+`WeakReferences.cs`) sit on a table of weak slots in `gc.c`, kept outside the managed heap so the
+conservative scan never sees the targets. After marking, a slot whose target wasn't reached is
+cleared. A `ConditionalWeakTable` entry is an ephemeron: its value is marked only while its key is
+reachable some other way, to a fixed point, so a value referenced only by the table lives exactly as
+long as its key. csharpc runs no finalizers, so each slot names its owner (the `WeakReference`, the
+table) and the collector frees the slot when the owner dies — when .NET's finalizer would release the
+handle. Whether an unreferenced target is collected at a given `GC.Collect()` is up to the
+(conservative) collector, as it is up to .NET's.

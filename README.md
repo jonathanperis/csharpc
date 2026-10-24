@@ -53,7 +53,8 @@ $ ls -lh hello
   `-p:UseCsharpc=true` / `-p:PublishCsharpc=true` ([docs/08-drop-in.md](docs/08-drop-in.md)). The
   target is **100 % parity with .NET NativeAOT**, and the end state is csharpc as the AOT backend of
   `dotnet publish -p:PublishAot=true` itself, with NativeAOT's parameters
-  ([ADR 0016](docs/adr/0016-nativeaot-parity-and-end-state.md)).
+  ([ADR 0016](docs/adr/0016-nativeaot-parity-and-end-state.md)). The finish line: that dotnet build
+  beating NativeAOT on the ASP.NET Core TechEmpower benchmarks (roadmap M8).
 - **Debuggable.** `-g` emits DWARF: breakpoints on C# lines, C# names in backtraces, locals in gdb/lldb.
 - **Whole-program optimization.** Closed-world compilation: internal linkage everywhere, class-hierarchy
   devirtualization, generics monomorphized, and the runtime itself LTO-linked into your program.

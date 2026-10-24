@@ -314,6 +314,7 @@ internal static unsafe partial class Native
     [LibraryImport(Lib)] public static partial void LLVMDisposeTargetData(LLVMTargetDataRef td);
     [LibraryImport(Lib)] public static partial ulong LLVMABISizeOfType(LLVMTargetDataRef td, LLVMTypeRef type);
     [LibraryImport(Lib)] public static partial ulong LLVMOffsetOfElement(LLVMTargetDataRef td, LLVMTypeRef type, uint element);
+    [LibraryImport(Lib)] public static partial uint LLVMABIAlignmentOfType(LLVMTargetDataRef td, LLVMTypeRef type);
     [LibraryImport(Lib, StringMarshalling = StringMarshalling.Utf8)]
     public static partial int LLVMTargetMachineEmitToFile(LLVMTargetMachineRef tm, LLVMModuleRef m, string path, LLVMCodeGenFileType type, out nint error);
 

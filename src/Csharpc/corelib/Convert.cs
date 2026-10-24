@@ -2,8 +2,8 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 // System.Convert's conversions between primitives, strings (with providers and bases) and DateTime,
 // ported from dotnet/runtime (release/11.0) src/libraries/System.Private.CoreLib/src/System/Convert.cs and
-// ParseNumbers.cs; see THIRD-PARTY-NOTICES.md. The object/IConvertible overloads, ChangeType and the
-// Base64/hex encoders are not ported (CSLLVM0002). Conversions that .NET routes through IConvertible and
+// ParseNumbers.cs; see THIRD-PARTY-NOTICES.md. The object/IConvertible overloads (but ToString(object)) and
+// ChangeType are not ported (CSLLVM0002); hex and Base64 are in ConvertExtras.cs. Conversions that .NET routes through IConvertible and
 // that always fail (e.g. ToBoolean(char), ToDateTime(int)) throw its InvalidCastException directly.
 #nullable disable
 using System;
@@ -13,7 +13,7 @@ using System.Globalization;
 namespace CsharpcCoreLib
 {
     [ShadowMembers("System.Convert")]
-    internal static class ConvertExtras
+    internal static class ConvertPort
     {
         // Convert.ToString(object): .NET asks IConvertible, then IFormattable, then ToString() (null: the empty
         // string). Every BCL IConvertible is IFormattable with the same result, or (bool, char, string) formats
@@ -1746,7 +1746,7 @@ namespace CsharpcCoreLib
 
             // Return the value properly signed.
             if ((ulong)result == 0x8000000000000000 && sign == 1 && r == 10 && ((flags & TreatAsUnsigned) == 0))
-                ConvertExtras.ThrowOverflow("long");
+                ConvertPort.ThrowOverflow("long");
 
             if (r == 10)
             {
@@ -1837,16 +1837,16 @@ namespace CsharpcCoreLib
             if ((flags & TreatAsI1) != 0)
             {
                 if ((uint)result > 0xFF)
-                    ConvertExtras.ThrowOverflow("sbyte");
+                    ConvertPort.ThrowOverflow("sbyte");
             }
             else if ((flags & TreatAsI2) != 0)
             {
                 if ((uint)result > 0xFFFF)
-                    ConvertExtras.ThrowOverflow("short");
+                    ConvertPort.ThrowOverflow("short");
             }
             else if ((uint)result == 0x80000000 && sign == 1 && r == 10 && ((flags & TreatAsUnsigned) == 0))
             {
-                ConvertExtras.ThrowOverflow("int");
+                ConvertPort.ThrowOverflow("int");
             }
 
             if (r == 10)
@@ -1880,7 +1880,7 @@ namespace CsharpcCoreLib
                     // Check for overflows - this is sufficient & correct.
                     if (result > maxVal || ((long)result) < 0)
                     {
-                        ConvertExtras.ThrowOverflow("long");
+                        ConvertPort.ThrowOverflow("long");
                     }
 
                     result = result * (ulong)radix + (ulong)value;
@@ -1889,7 +1889,7 @@ namespace CsharpcCoreLib
 
                 if ((long)result < 0 && result != 0x8000000000000000)
                 {
-                    ConvertExtras.ThrowOverflow("long");
+                    ConvertPort.ThrowOverflow("long");
                 }
             }
             else
@@ -1907,14 +1907,14 @@ namespace CsharpcCoreLib
                     // Check for overflows - this is sufficient & correct.
                     if (result > maxVal)
                     {
-                        ConvertExtras.ThrowOverflow("ulong");
+                        ConvertPort.ThrowOverflow("ulong");
                     }
 
                     ulong temp = result * (ulong)radix + (ulong)value;
 
                     if (temp < result) // this means overflow as well
                     {
-                        ConvertExtras.ThrowOverflow("ulong");
+                        ConvertPort.ThrowOverflow("ulong");
                     }
 
                     result = temp;
@@ -1941,14 +1941,14 @@ namespace CsharpcCoreLib
                     // Check for overflows - this is sufficient & correct.
                     if (result > maxVal || (int)result < 0)
                     {
-                        ConvertExtras.ThrowOverflow("int");
+                        ConvertPort.ThrowOverflow("int");
                     }
                     result = result * (uint)radix + (uint)value;
                     i++;
                 }
                 if ((int)result < 0 && result != 0x80000000)
                 {
-                    ConvertExtras.ThrowOverflow("int");
+                    ConvertPort.ThrowOverflow("int");
                 }
             }
             else
@@ -1966,14 +1966,14 @@ namespace CsharpcCoreLib
                     // Check for overflows - this is sufficient & correct.
                     if (result > maxVal)
                     {
-                        ConvertExtras.ThrowOverflow("uint");
+                        ConvertPort.ThrowOverflow("uint");
                     }
 
                     uint temp = result * (uint)radix + (uint)value;
 
                     if (temp < result) // this means overflow as well
                     {
-                        ConvertExtras.ThrowOverflow("uint");
+                        ConvertPort.ThrowOverflow("uint");
                     }
 
                     result = temp;

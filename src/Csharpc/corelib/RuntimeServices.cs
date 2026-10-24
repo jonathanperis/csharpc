@@ -201,4 +201,124 @@ namespace CsharpcCoreLib
             }
         }
     }
+
+    /// <summary>ReferenceEqualityComparer: identity equality and RuntimeHelpers.GetHashCode (one shared instance).</summary>
+    [Shadows("System.Collections.Generic.ReferenceEqualityComparer")]
+    public sealed class ReferenceEqualityComparerImpl : System.Collections.Generic.IEqualityComparer<object>, System.Collections.IEqualityComparer
+    {
+        private static ReferenceEqualityComparerImpl s_instance;
+
+        private ReferenceEqualityComparerImpl() { }
+
+        public static ReferenceEqualityComparerImpl Instance
+        {
+            get
+            {
+                ReferenceEqualityComparerImpl instance = s_instance;
+                if (instance == null) { instance = new ReferenceEqualityComparerImpl(); instance = Interlocked.CompareExchange(ref s_instance, instance, null) ?? instance; }
+                return instance;
+            }
+        }
+
+        public new bool Equals(object x, object y) => ReferenceEquals(x, y);
+
+        public int GetHashCode(object obj) => System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(obj);
+    }
+
+    /// <summary>StrongBox&lt;T&gt;: a heap cell holding one value (Roslyn shares mutable state through it).</summary>
+    [Shadows("System.Runtime.CompilerServices.StrongBox`1")]
+    public class StrongBoxImpl<T> : System.Runtime.CompilerServices.IStrongBox
+    {
+        public T Value;
+
+        public StrongBoxImpl() { }
+
+        public StrongBoxImpl(T value) { Value = value; }
+
+        object System.Runtime.CompilerServices.IStrongBox.Value
+        {
+            get => Value;
+            set => Value = (T)value;
+        }
+    }
+
+    /// <summary>
+    /// SpinWait, as dotnet/runtime's: the count and the yield threshold are observable (Count,
+    /// NextSpinWillYield); how a spin waits (busy spin, yield, sleep) only affects timing.
+    /// </summary>
+    [Shadows("System.Threading.SpinWait")]
+    public struct SpinWaitImpl
+    {
+        internal const int YieldThreshold = 10;
+        private const int Sleep0EveryHowManyYields = 5;
+        internal const int DefaultSleep1Threshold = 20;
+
+        private int _count;
+
+        public int Count
+        {
+            get => _count;
+            internal set => _count = value;
+        }
+
+        public bool NextSpinWillYield => _count >= YieldThreshold || Environment.ProcessorCount == 1;
+
+        public void SpinOnce() => SpinOnceCore(DefaultSleep1Threshold);
+
+        public void SpinOnce(int sleep1Threshold)
+        {
+            if (sleep1Threshold < -1) throw new ArgumentOutOfRangeException("sleep1Threshold", sleep1Threshold, "Number must be either non-negative and less than or equal to Int32.MaxValue or -1.");
+            if (sleep1Threshold >= 0 && sleep1Threshold < YieldThreshold) sleep1Threshold = YieldThreshold;
+            SpinOnceCore(sleep1Threshold);
+        }
+
+        private void SpinOnceCore(int sleep1Threshold)
+        {
+            if ((_count >= YieldThreshold && ((_count >= sleep1Threshold && sleep1Threshold >= 0) || (_count - YieldThreshold) % 2 == 0))
+                || Environment.ProcessorCount == 1)
+            {
+                if (_count >= sleep1Threshold && sleep1Threshold >= 0) Thread.Sleep(1);
+                else
+                {
+                    int yieldsSoFar = _count >= YieldThreshold ? (_count - YieldThreshold) / 2 : _count;
+                    if ((yieldsSoFar % Sleep0EveryHowManyYields) == (Sleep0EveryHowManyYields - 1)) Thread.Sleep(0);
+                    else Thread.Yield();
+                }
+            }
+            else
+            {
+                Thread.SpinWait(8 << Math.Min(_count, 10));
+            }
+            _count = _count == int.MaxValue ? YieldThreshold : _count + 1;
+        }
+
+        public void Reset() => _count = 0;
+
+        public static void SpinUntil(Func<bool> condition) => SpinUntil(condition, Timeout.Infinite);
+
+        public static bool SpinUntil(Func<bool> condition, TimeSpan timeout)
+        {
+            long totalMilliseconds = (long)timeout.TotalMilliseconds;
+            if (totalMilliseconds < -1 || totalMilliseconds > int.MaxValue)
+                throw new ArgumentOutOfRangeException("timeout", timeout, "The timeout must represent a value between -1 and Int32.MaxValue, inclusive.");
+            return SpinUntil(condition, (int)totalMilliseconds);
+        }
+
+        public static bool SpinUntil(Func<bool> condition, int millisecondsTimeout)
+        {
+            if (millisecondsTimeout < Timeout.Infinite)
+                throw new ArgumentOutOfRangeException("millisecondsTimeout", millisecondsTimeout, "The timeout must represent a value between -1 and Int32.MaxValue, inclusive.");
+            if (condition == null) throw new ArgumentNullException("condition");
+            long start = millisecondsTimeout == 0 || millisecondsTimeout == Timeout.Infinite ? 0 : Environment.TickCount64;
+            SpinWaitImpl spinner = default;
+            while (!condition())
+            {
+                if (millisecondsTimeout == 0) return false;
+                spinner.SpinOnce();
+                if (millisecondsTimeout != Timeout.Infinite && spinner.NextSpinWillYield && millisecondsTimeout <= Environment.TickCount64 - start)
+                    return false;
+            }
+            return true;
+        }
+    }
 }

@@ -353,16 +353,78 @@ public sealed partial class FunctionCodeGen
                 MemMove(SpanPointer(destination), SpanPointer(span), SpanByteCount(span, element));
                 return default;
             }
-            case ("ToString", 0) when element.SpecialType == SpecialType.System_Char:
-                return CallRuntime("csrt_string_from_chars", L.Ptr, [L.Ptr, L.I32], SpanPointer(span), SpanLength(span));
+            // Memory<T>.Equals(Memory<T>) / ReadOnlyMemory<T>.Equals(ReadOnlyMemory<T>); Span's Equals throws in .NET.
+            case ("Equals", 1) when TypeMapper.IsMemory(owner) && SymbolEqualityComparer.Default.Equals(S(method.Parameters[0].Type), owner):
+                return MemoryEquals(span, ArgValue(inv, 0));
+            case ("GetHashCode", 0) when TypeMapper.IsMemory(owner):
+                return MemoryHash(span);
             case ("ToString", 0):
-            {
-                var prefix = _m.StringLiteral($"System.{owner.Name}<{element.MetadataName}>[");
-                var text = ConcatStrings(prefix, FormatPrimitive(SpanLength(span), _m.Compilation.GetSpecialType(SpecialType.System_Int32))!.Value);
-                return ConcatStrings(text, _m.StringLiteral("]"));
-            }
+                return SpanToString(span, owner);
         }
         throw CompileError.Unsupported($"'{method.ToDisplayString()}' on spans", inv);
+    }
+
+    /// <summary>Span/Memory ToString: the characters of a char span, else "System.Span&lt;Int32&gt;[3]".</summary>
+    private LLVMValueRef SpanToString(LLVMValueRef span, INamedTypeSymbol owner)
+    {
+        var element = SpanElement(owner);
+        if (element.SpecialType == SpecialType.System_Char)
+            return CallRuntime("csrt_string_from_chars", L.Ptr, [L.Ptr, L.I32], SpanPointer(span), SpanLength(span));
+        var prefix = _m.StringLiteral($"System.{owner.Name}<{element.MetadataName}>[");
+        var text = ConcatStrings(prefix, FormatPrimitive(SpanLength(span), _m.Compilation.GetSpecialType(SpecialType.System_Int32))!.Value);
+        return ConcatStrings(text, _m.StringLiteral("]"));
+    }
+
+    internal void EmitMemoryBoxToString(INamedTypeSymbol memory)
+    {
+        _b.Ret(SpanToString(LoadValue(_b.InBoundsGep(L.I8, _fn.Fn.Param(0), [L.ConstInt(L.I64, 8)]), memory), memory));
+        Finish();
+    }
+
+    internal void EmitMemoryBoxEquals(INamedTypeSymbol memory, LLVMValueRef mt, LLVMValueRef counterpartMt)
+    {
+        var (self, other) = (_fn.Fn.Param(0), _fn.Fn.Param(1));
+        var value = LoadValue(_b.InBoundsGep(L.I8, self, [L.ConstInt(L.I64, 8)]), memory);
+        _b.Ret(ShortCircuit(isAnd: true,
+        [
+            () => _b.ICmp(LLVMIntPredicate.NE, other, LlvmContext.Null(L.Ptr)),
+            () =>
+            {
+                var otherMt = _b.Load(L.Ptr, other);
+                return _b.BinOp(LLVMOpcode.Or, _b.ICmp(LLVMIntPredicate.EQ, otherMt, mt), _b.ICmp(LLVMIntPredicate.EQ, otherMt, counterpartMt));
+            },
+            () => MemoryEquals(value, LoadValue(_b.InBoundsGep(L.I8, other, [L.ConstInt(L.I64, 8)]), memory)),
+        ]));
+        Finish();
+    }
+
+    internal void EmitMemoryBoxHash(INamedTypeSymbol memory)
+    {
+        _b.Ret(MemoryHash(LoadValue(_b.InBoundsGep(L.I8, _fn.Fn.Param(0), [L.ConstInt(L.I64, 8)]), memory)));
+        Finish();
+    }
+
+    /// <summary>
+    /// (ReadOnly)Memory&lt;T&gt; equality: .NET compares the owner object, start index and length. A memory
+    /// is { data pointer, length } here and the GC never moves objects, so the same owner and index is
+    /// the same pointer (and default memory, with no owner, is the null pointer).
+    /// </summary>
+    internal LLVMValueRef MemoryEquals(LLVMValueRef a, LLVMValueRef b) =>
+        _b.BinOp(LLVMOpcode.And,
+            _b.ICmp(LLVMIntPredicate.EQ, _b.Cast(LLVMOpcode.PtrToInt, SpanPointer(a), L.I64), _b.Cast(LLVMOpcode.PtrToInt, SpanPointer(b), L.I64)),
+            _b.ICmp(LLVMIntPredicate.EQ, SpanLength(a), SpanLength(b)));
+
+    /// <summary>
+    /// (ReadOnly)Memory&lt;T&gt;.GetHashCode: 0 without an owner, as in .NET; otherwise .NET mixes the owner's
+    /// identity hash with HashCode.Combine (randomized per process), so any mix of address and length will do.
+    /// </summary>
+    internal LLVMValueRef MemoryHash(LLVMValueRef memory)
+    {
+        var address = _b.Cast(LLVMOpcode.PtrToInt, SpanPointer(memory), L.I64);
+        var folded = _b.BinOp(LLVMOpcode.Xor, address, _b.BinOp(LLVMOpcode.LShr, address, L.ConstInt(L.I64, 32)));
+        var hash = _b.BinOp(LLVMOpcode.Xor, _b.Cast(LLVMOpcode.Trunc, folded, L.I32),
+            _b.BinOp(LLVMOpcode.Mul, SpanLength(memory), L.ConstInt(L.I32, unchecked((int)0x9E3779B1))));
+        return _b.Select(_b.ICmp(LLVMIntPredicate.EQ, address, L.ConstInt(L.I64, 0)), L.ConstInt(L.I32, 0), hash);
     }
 
     /// <summary>Runs <paramref name="body"/> for i in [0, count) (i is an i64).</summary>

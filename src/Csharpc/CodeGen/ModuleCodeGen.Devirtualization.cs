@@ -32,7 +32,7 @@ public sealed partial class ModuleCodeGen
         foreach (var type in HierarchyTypes)
         {
             if (type.TypeKind != TypeKind.Class || type.IsAbstract || type.IsStatic || !DerivesFromOrEquals(type, receiver)) continue;
-            if (type.IsGenericType) return null;
+            if (type.IsGenericType || TypeSubstitution.IsGenericContext(type)) return null;
             var implementation = ResolveSlot(type, root);
             if (implementation is null) return null;
             if (unique is null) unique = implementation;
@@ -41,7 +41,12 @@ public sealed partial class ModuleCodeGen
         return unique;
     }
 
-    /// <summary>The most-derived non-abstract method on <paramref name="type"/>'s base chain filling <paramref name="root"/>'s slot.</summary>
+    /// <summary>
+    /// The most-derived non-abstract method on <paramref name="type"/>'s base chain filling <paramref name="root"/>'s slot.
+    /// <paramref name="type"/> is not generic, so its base chain is closed: an implementation inherited from a
+    /// generic base class is that base's instantiation (Roslyn's CSharp.Emit.PEModuleBuilder derives from
+    /// PEModuleBuilder&lt;CSharpCompilation, ...&gt;), not the open definition.
+    /// </summary>
     private static IMethodSymbol? ResolveSlot(INamedTypeSymbol type, IMethodSymbol root)
     {
         for (var t = type; t is not null; t = t.BaseType)
@@ -49,7 +54,8 @@ public sealed partial class ModuleCodeGen
             foreach (var m in t.GetMembers(root.Name).OfType<IMethodSymbol>())
             {
                 if (m.IsAbstract || !(m.IsVirtual || m.IsOverride)) continue;
-                if (SymbolEqualityComparer.Default.Equals(ClassLayout.RootOf(m), root)) return m.OriginalDefinition;
+                if (SymbolEqualityComparer.Default.Equals(ClassLayout.RootOf(m), root))
+                    return TypeSubstitution.IsOpen(m) ? null : m;
             }
         }
         return null;

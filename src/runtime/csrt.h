@@ -113,6 +113,12 @@ char* csrt_itoa_u64(uint64_t value, char* end);
 char* csrt_itoa_i64(int64_t value, char* end);
 void csrt_gc_collect(void);           // System.GC.Collect()
 int64_t csrt_gc_total_memory(void);  // System.GC.GetTotalMemory(bool)
+// Weak references and ephemerons (gc.c; corelib/WeakReferences.cs). Handles are slot index + 1.
+intptr_t csrt_weak_alloc(void* target, void* value, void* owner, int32_t ephemeron);
+void* csrt_weak_target(intptr_t handle);
+void* csrt_weak_value(intptr_t handle);
+void csrt_weak_set(intptr_t handle, void* target, void* value);
+void csrt_weak_free(intptr_t handle);
 
 // Exceptions (eh.c) -----------------------------------------------------------------------------
 // Exception objects: { mt, String* message, Exception* inner, String* paramName, String* actualValue,

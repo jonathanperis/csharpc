@@ -142,14 +142,14 @@ Limitation: `object is IEnumerable<X>` on an array can't check the element type 
   ported `DateTimeFormat`/`DateTimeParse` with the offset, the local zone from libc like `DateTime`; binary
   serialization is not implemented).
 * **`System.Buffers`:** `ArrayPool<T>`, `MemoryPool<T>` (port of System.Memory's `ArrayMemoryPool`, buffers from
-  `ArrayPool<T>.Shared`, so sizes are .NET's), `IMemoryOwner<T>`; boxed `Memory<T>`/`ReadOnlyMemory<T>` (a
-  tuple-shaped method table: `ToString` is the characters for `char`, `Equals` compares the view).
+  `ArrayPool<T>.Shared`, so sizes are .NET's), `IMemoryOwner<T>`.
 * **`MemoryExtensions`:** searches and comparisons compare integers, chars, bools and enums byte-wise in the
   runtime and every other element type with `EqualityComparer<T>.Default` semantics (`SpanEquality.cs`), plus the
   `IEqualityComparer<T>` overloads.
 * **`System.Convert`:** port of .NET's `Convert.cs` and `ParseNumbers.cs` for the primitive, string (providers and
   bases 2/8/10/16) and `DateTime` overloads; the always-failing `IConvertible` conversions throw .NET's
-  `InvalidCastException`. The `object` overloads, `ChangeType` and Base64/hex are not implemented (CSLLVM0002).
+  `InvalidCastException`. Hex and Base64 are in `ConvertExtras.cs`; the `object` overloads but `ToString(object)` and `ChangeType` are
+  not implemented (CSLLVM0002).
 * **Members-only shadows:** `string.Join<T>/Join(IEnumerable)/Concat<T>/Compare`, `double`/`float`
   `IsNaN`/`IsInfinity`/`IsFinite`..., generic `System.Array` helpers (`Sort` incl. keys+items, `Reverse`,
   `IndexOf`, `Resize`, `Fill`, `Find*`, `Exists`, `TrueForAll`, `ConvertAll`, `BinarySearch`, `Empty`).

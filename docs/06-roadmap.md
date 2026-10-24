@@ -98,7 +98,8 @@ bug like a wrong output.
   `Reflection.Emit`, `MakeGenericType` over unseen instantiations, compiled expression trees, the DLR,
   loading assemblies at run time) is out of scope (❌) and must stay an explicit diagnostic. The JIT is
   the behavioural oracle for the tests and a benchmark baseline, not a support target
-  ([ADR 0016](adr/0016-nativeaot-parity-and-end-state.md)).
+  ([ADR 0016](adr/0016-nativeaot-parity-and-end-state.md)). The finish line is M8: the dotnet fork with csharpc in
+  NativeAOT's place, beating NativeAOT on the TechEmpower benchmarks.
 - **Faster:** throughput ahead of NativeAOT and the JIT on every benchmark, on every platform; start-up
   and compile time measured too (compile time against `dotnet publish -p:PublishAot=true`).
 - **Smaller:** executables a fraction of NativeAOT's size, with nothing linked that the program doesn't
@@ -134,7 +135,7 @@ JSON source generator, which csharpc also synthesizes for reflection-style calls
 sockets (`Socket`, `TcpListener`/`TcpClient`, `UdpClient`, `Dns`); library value types (`Guid`,
 `ArraySegment<T>`, `DateTimeOffset`); `MemoryPool<T>`, `Convert`; `System.Type` reflection basics; globalization (cultures via ICU, as .NET:
 [19-globalization.md](19-globalization.md)). Next: TLS and `HttpClient`; the library surface ranked by the compatibility runs and
-the NuGet survey (`Uri`, `System.Xml.Linq`, `Convert` Base64/`IConvertible`).
+the NuGet survey (`Uri`, `System.Xml.Linq`, `IConvertible`).
 
 ### M3 — Platforms and per-platform evidence ✅
 Each platform gets a CI job (GitHub Actions) running the full differential suite, conformance corpus
@@ -198,7 +199,18 @@ facade can't supply from IL (`ConcurrentDictionary` ported so it enumerates in .
 `ConcurrentQueue`/`Stack`/`Bag`), `EventSource` (no backend: never enabled, .NET's names and GUIDs),
 `TaskScheduler`/`Task.Factory.StartNew`/`ContinueWith` with custom schedulers, and type tests against
 `ValueType`/`Enum`. Still open there: `BlockingCollection`, `Partitioner`, `AggregateException.InnerExceptions`,
-`Task.Status`/`AsyncState`, `EventListener`.
+`Task.Status`/`AsyncState`, `new Task(...)`, `EventListener` — none of them ranks high for Roslyn itself.
+Roslyn from IL, measured: the `IL survey` workflow's `roslyn` target lowers every method of Roslyn and
+`csharpc.dll` in 16 parallel shards and ranks what stops them
+([18-compatibility.md](18-compatibility.md#roslyn-and-csharpc)). On branch `m6-roslyn` the Roslyn methods
+that fail to lower went from 994 to 170 (csharpc's own: 102 → 77): struct layouts that are the sequential
+one, unions of primitives, fixed-size buffers and `[InlineArray]` structs from IL, rectangular arrays from
+IL, devirtualization to a generic base class's instantiation, boxed and hashed `Memory<T>`, weak
+references and `ConditionalWeakTable` (collector-cleared weak slots and ephemerons), `StrongBox<T>`,
+`ReferenceEqualityComparer`, `HashAlgorithmName`, SHA-1/SHA-256/`IncrementalHash`, `LazyInitializer`,
+`Task.Run` with a token, delegates bound to library methods (with .NET's delegate equality and cached
+static method groups), and `Assembly.GetCustomAttribute<T>()` from IL metadata (part of step 4). A
+program that parses C# with Roslyn from IL can reach 33 methods csharpc can't compile yet (121 before).
 (3) Compile-time scale, first part ([ADR 0014](adr/0014-compile-time.md)): csharpc and Roslyn are
 ReadyToRun-compiled in Release builds, a compilation uses several threads (`-j`, `CSHARPC_THREADS`) to
 parse, bind, build Roslyn's CFGs ahead of lowering (each built once per body) and generate machine code
@@ -221,6 +233,21 @@ projects get csharpc by switching the AOT backend ([ADR 0016](adr/0016-nativeaot
 Prerequisites: M6 (IL as the primary input path, csharpc compiling Roslyn and itself) and NativeAOT
 parity on the compatibility corpus. Until then `Csharpc.Sdk` is the integration point and adopts
 NativeAOT's property names as it honours them.
+
+### M8 — The win: TechEmpower with the csharpc-built dotnet
+The final proof, and the project's definition of done: in the dotnet fork of M7, NativeAOT's code is
+removed and csharpc takes its place; the fork is built, and that build compiles the ASP.NET Core
+entries of the [TechEmpower Framework Benchmarks](https://github.com/TechEmpower/FrameworkBenchmarks)
+that .NET runs with NativeAOT, in their benchmark environment — and they beat the NativeAOT-compiled
+entries. Same sources, same test types, same harness; only the AOT backend differs.
+
+What it takes, beyond M6–M7: ASP.NET Core and Kestrel compiled from IL (hosting, dependency
+injection, configuration, logging, `System.IO.Pipelines`, the HTTP/1.1 parser, `System.Text.Json`
+source generation, the database driver the entries use), the thread pool, sockets and async I/O at
+production throughput on Linux (epoll), and allocation/GC behaviour under sustained load. Tracked
+early by a local harness that builds the same app with NativeAOT and csharpc and loads it with the
+TechEmpower test types (plaintext, JSON, then the database ones) on CI, so the gap is measured long
+before the fork exists.
 
 ### Credibility deliverables (cross-cutting)
 - A technical report: what csharpc demonstrates (Roslyn's CFG as a mid-level IR, a C# corelib with

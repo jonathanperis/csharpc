@@ -363,6 +363,8 @@ internal static partial class BclValueTypes
                 : g.DecimalCall("csrt_decimal_from_u64", [g.Llvm.I64], ToI64(g, a[0], false));
         t[$"{D}..ctor(double)"] = (g, _, _, a, _) => g.DecimalCall("csrt_decimal_from_f64", [g.Llvm.F64], a[0]);
         t[$"{D}..ctor(float)"] = (g, _, _, a, _) => g.DecimalCall("csrt_decimal_from_f32", [g.Llvm.F32], a[0]);
+        t[$"{D}..ctor(int[])"] = (g, _, _, a, _) => g.CallCoreLib("DecimalParsing", "FromBits", a[0]);
+        t[$"{D}..ctor(System.ReadOnlySpan<int>)"] = (g, _, _, a, _) => g.CallCoreLib("DecimalParsing", "FromBitsSpan", a[0]);
         t[$"{D}..ctor(int, int, int, bool, byte)"] = (g, _, _, a, _) =>
         {
             // new decimal(lo, mid, hi, isNegative, scale)
@@ -1170,10 +1172,6 @@ internal static partial class BclValueTypes
         Dictionary<string, BclFieldHandler> t = [];
         t["string.Empty"] = (g, _) => g.Module.StringLiteral("");
         t["System.EventArgs.Empty"] = (g, _) => g.CallCoreLib("EventArgsImpl", "GetEmpty");
-        // C# compiles 0m, 1m and -1m to these fields (seen in IL, e.g. the IL-compiled corelib).
-        t["decimal.Zero"] = (g, _) => g.DecimalConstant(0m);
-        t["decimal.One"] = (g, _) => g.DecimalConstant(1m);
-        t["decimal.MinusOne"] = (g, _) => g.DecimalConstant(-1m);
         t["System.TimeSpan.Zero"] = (g, _) => I64(g, 0);
         t["System.Threading.Timeout.InfiniteTimeSpan"] = (g, _) => I64(g, -TicksPerMs);
         t["System.TimeSpan.MaxValue"] = (g, _) => I64(g, long.MaxValue);

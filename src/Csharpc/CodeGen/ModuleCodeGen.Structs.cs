@@ -1,3 +1,4 @@
+using System.Reflection;
 using Csharpc.Llvm;
 using Microsoft.CodeAnalysis;
 
@@ -58,14 +59,71 @@ public sealed partial class ModuleCodeGen
 
     private StructLayout BuildStructLayout(INamedTypeSymbol type)
     {
-        RejectCustomLayout(type);
-        RejectIlCustomLayout(type);
+        // A struct may declare an explicit layout, Pack or Size that places every field exactly where the
+        // sequential layout does (Roslyn's ExtendedSpecialType: Explicit, Size = 1, one byte at offset 0):
+        // checked against the built layout below. Anything else is still refused.
+        var custom = CustomLayoutOf(type);
 
         // Both repeat their element in memory; laid out as a single field they would silently shrink.
-        if (type.GetAttributes().Any(a => a.AttributeClass?.ToDisplayString() == "System.Runtime.CompilerServices.InlineArrayAttribute"))
-            throw CompileError.Unsupported($"[InlineArray] struct '{type.Name}'", type);
-        if (type.GetMembers().OfType<IFieldSymbol>().FirstOrDefault(f => f.IsFixedSizeBuffer) is { } buffer)
+        // [InlineArray(N)] structs from IL (the compiler's <>y__InlineArrayN<T> behind collection expressions
+        // and params spans) are N consecutive elements: IL reaches them only through the compiler's
+        // InlineArray* helpers (FunctionCodeGen.IlCalls.cs) and the field itself (element 0). C# source would
+        // also index them directly, which csharpc doesn't lower yet.
+        var inlineArray = type.GetAttributes().FirstOrDefault(a => a.AttributeClass?.ToDisplayString() == "System.Runtime.CompilerServices.InlineArrayAttribute");
+        if (inlineArray is not null)
+        {
+            var fields = type.GetMembers().OfType<IFieldSymbol>().Where(f => !f.IsStatic && !f.IsConst).ToList();
+            if (Il.OwnerOf(type) is null || custom is not null || fields.Count != 1
+                || inlineArray.ConstructorArguments is not [{ Value: int length }] || length <= 0)
+                throw CompileError.Unsupported($"[InlineArray] struct '{type.Name}'", type);
+            var arrayLayout = new StructLayout { Type = type, LlvmType = Llvm.NamedStruct("struct." + Mangler.MetadataName(type)) };
+            _structs[type] = arrayLayout;
+            arrayLayout.FieldIndex[fields[0]] = 0;
+            arrayLayout.FieldIndex[fields[0].OriginalDefinition] = 0;
+            LlvmContext.SetBody(arrayLayout.LlvmType, [LlvmContext.Array(FieldStorage(fields[0]), (uint)length)]);
+            return arrayLayout;
+        }
+        // Fixed-size buffers (`fixed ulong Acc[8]`): in IL, a field of a compiler-generated
+        // `<Acc>e__FixedBuffer` struct (.size = 8 * 8, one element field), which Roslyn presents as a
+        // pointer-typed fixed buffer field. IL addresses its elements through that field's address (ldflda
+        // + FixedElementField + pointer arithmetic), so laying it out as the element array is exact. C# source
+        // indexes fixed buffers directly, which csharpc doesn't lower yet.
+        if (type.GetMembers().OfType<IFieldSymbol>().FirstOrDefault(f => f.IsFixedSizeBuffer) is { } buffer && Il.OwnerOf(type) is null)
             throw CompileError.Unsupported($"fixed-size buffer '{type.Name}.{buffer.Name}'", buffer);
+        if (custom is { Explicit: false, Pack: 0, Size: > 0 } && Il.OwnerOf(type) is { } bufferOwner
+            && type.GetAttributes().Any(a => a.AttributeClass?.ToDisplayString() == "System.Runtime.CompilerServices.UnsafeValueTypeAttribute")
+            && InstanceFields(type).ToList() is [var element])
+        {
+            var storage = FieldStorage(element);
+            var size = (int)Types.Target.SizeOf(storage);
+            if (size == 0 || custom.Size % size != 0) throw custom.Rejection;
+            var bufferLayout = new StructLayout { Type = type, LlvmType = Llvm.NamedStruct("struct." + Mangler.MetadataName(type)) };
+            _structs[type] = bufferLayout;
+            bufferLayout.FieldIndex[element] = 0;
+            bufferLayout.FieldIndex[element.OriginalDefinition] = 0;
+            LlvmContext.SetBody(bufferLayout.LlvmType, [LlvmContext.Array(storage, (uint)(custom.Size / size))]);
+            return bufferLayout;
+        }
+
+        // A union of primitives (Roslyn's RealParser.FloatUnion: an int and a float both at offset 0):
+        // every field is the first element, which has the largest field's type; fields are read and
+        // written through their address with their own type, and struct fields share one TBAA tag
+        // (MemoryFacts), so LLVM treats the overlapping accesses as aliasing.
+        if (custom is { Explicit: true, Pack: 0 } && Il.OwnerOf(type) is not null && InstanceFields(type).ToList() is { Count: >= 2 } unionFields
+            && unionFields.All(f => custom.Offsets.TryGetValue(f, out var o) && o == 0 && Optimizations.HoldsNoReferences(f.Type)))
+        {
+            var largest = unionFields.Select(FieldStorage).OrderByDescending(t => Types.Target.SizeOf(t)).ThenByDescending(t => Types.Target.AlignOf(t)).First();
+            if (custom.Size != 0 && (ulong)custom.Size != Types.Target.SizeOf(largest)) throw custom.Rejection;
+            var unionLayout = new StructLayout { Type = type, LlvmType = Llvm.NamedStruct("struct." + Mangler.MetadataName(type)) };
+            _structs[type] = unionLayout;
+            foreach (var f in unionFields)
+            {
+                unionLayout.FieldIndex[f] = 0;
+                unionLayout.FieldIndex[f.OriginalDefinition] = 0;
+            }
+            LlvmContext.SetBody(unionLayout.LlvmType, [largest]);
+            return unionLayout;
+        }
 
         var layout = new StructLayout { Type = type, LlvmType = Llvm.NamedStruct("struct." + Mangler.MetadataName(type)) };
         _structs[type] = layout; // register first: field types may mention other structs
@@ -75,11 +133,71 @@ public sealed partial class ModuleCodeGen
         {
             layout.FieldIndex[f] = (uint)elements.Count;
             layout.FieldIndex[f.OriginalDefinition] = (uint)elements.Count; // same index in every instantiation
-            elements.Add(FieldStorage(f));
+            elements.Add(f is { IsFixedSizeBuffer: true, Type: IPointerTypeSymbol bufferPointer }
+                ? LlvmContext.Array(Types.Storage(bufferPointer.PointedAtType), (uint)f.FixedSize)
+                : FieldStorage(f));
         }
         if (elements.Count == 0) elements.Add(Llvm.I8); // an empty struct still occupies a byte, as in the CLR
         LlvmContext.SetBody(layout.LlvmType, [.. elements]);
+        if (custom is not null && !MatchesSequentialLayout(layout, custom)) throw custom.Rejection;
         return layout;
+    }
+
+    /// <summary>A struct's declared layout: [StructLayout]/[FieldOffset] in source, the ClassLayout and FieldLayout tables in IL.</summary>
+    private sealed record CustomLayout(bool Explicit, int Pack, int Size, Dictionary<IFieldSymbol, int> Offsets, CompileError Rejection);
+
+    private CustomLayout? CustomLayoutOf(INamedTypeSymbol type)
+    {
+        if (Il.OwnerOf(type) is { } owner)
+        {
+            var definition = owner.TypeDefinitionOf(type);
+            var layout = definition.GetLayout();
+            var isExplicit = (definition.Attributes & TypeAttributes.LayoutMask) == TypeAttributes.ExplicitLayout;
+            var hasFields = InstanceFields(type).Any();
+            if (!isExplicit && layout.PackingSize == 0 && (layout.Size == 0 || (layout.Size == 1 && !hasFields))) return null;
+            var offsets = new Dictionary<IFieldSymbol, int>(SymbolEqualityComparer.Default);
+            if (isExplicit)
+                foreach (var f in InstanceFields(type)) offsets[f] = owner.FieldDefinitionOf(f).GetOffset();
+            return new CustomLayout(isExplicit, layout.PackingSize, layout.Size, offsets,
+                CompileError.Unsupported($"explicit layout, .pack or .size on '{type}' ({owner.Name}.dll)", type));
+        }
+        var attribute = type.GetAttributes().FirstOrDefault(a => a.AttributeClass?.ToDisplayString() == "System.Runtime.InteropServices.StructLayoutAttribute");
+        var sourceExplicit = attribute?.ConstructorArguments.FirstOrDefault().Value is 2 /* LayoutKind.Explicit */;
+        int Named(string name) => attribute?.NamedArguments.FirstOrDefault(n => n.Key == name).Value.Value is int v ? v : 0;
+        var fieldOffsets = new Dictionary<IFieldSymbol, int>(SymbolEqualityComparer.Default);
+        foreach (var f in InstanceFields(type))
+            if (f.GetAttributes().FirstOrDefault(a => a.AttributeClass?.ToDisplayString() == "System.Runtime.InteropServices.FieldOffsetAttribute")
+                    ?.ConstructorArguments.FirstOrDefault().Value is int offset)
+                fieldOffsets[f] = offset;
+        var (pack, size) = (Named("Pack"), Named("Size"));
+        if (!sourceExplicit && pack == 0 && size == 0 && fieldOffsets.Count == 0) return null;
+        var message = fieldOffsets.Count > 0 && !sourceExplicit
+            ? $"[FieldOffset] on '{type.Name}.{fieldOffsets.Keys.First().Name}'"
+            : $"[StructLayout] with explicit layout, Pack or Size on '{type.Name}'";
+        return new CustomLayout(sourceExplicit, pack, size, fieldOffsets, CompileError.Unsupported(message, type));
+    }
+
+    private static IEnumerable<IFieldSymbol> InstanceFields(INamedTypeSymbol type) =>
+        type.GetMembers().OfType<IFieldSymbol>().Where(f => !f.IsStatic && !f.IsConst);
+
+    /// <summary>
+    /// True when the declared layout is the sequential one csharpc built: every explicit offset is the
+    /// field's offset, Pack doesn't lower any field's alignment, and Size is absent or the struct's size.
+    /// </summary>
+    private bool MatchesSequentialLayout(StructLayout layout, CustomLayout custom)
+    {
+        var target = Types.Target;
+        if (custom.Explicit && custom.Offsets.Count != layout.FieldIndex.Keys.Count(f => SymbolEqualityComparer.Default.Equals(f, f.OriginalDefinition)))
+            return false;
+        uint maxAlign = 1;
+        for (uint i = 0; i < Native.LLVMCountStructElementTypes(layout.LlvmType); i++)
+            maxAlign = Math.Max(maxAlign, target.AlignOf(Native.LLVMStructGetTypeAtIndex(layout.LlvmType, i)));
+        if (custom.Pack != 0 && custom.Pack < maxAlign) return false;
+        if (custom.Size != 0 && (ulong)custom.Size != target.SizeOf(layout.LlvmType)) return false;
+        foreach (var (field, offset) in custom.Offsets)
+            if (!layout.FieldIndex.TryGetValue(field.OriginalDefinition, out var index) || target.OffsetOf(layout.LlvmType, index) != (ulong)offset)
+                return false;
+        return true;
     }
 
     /// <summary>LLVM struct type + element index of an instance field of a struct or tuple.</summary>
@@ -179,12 +297,47 @@ public sealed partial class ModuleCodeGen
 
 public sealed partial class ModuleCodeGen
 {
-    private readonly Dictionary<INamedTypeSymbol, LLVMValueRef> _tupleMethodTables = new(SymbolEqualityComparer.Default);
+    private readonly Dictionary<INamedTypeSymbol, LLVMValueRef> _memoryMethodTables = new(SymbolEqualityComparer.Default);
 
     /// <summary>
-    /// Method table for boxed tuples: { header, [ToString, Equals, GetHashCode] } with element-wise thunks.
-    /// Boxed Memory&lt;T&gt; / ReadOnlyMemory&lt;T&gt; use the same shape (their ToString is the characters).
+    /// Method table for boxed Memory&lt;T&gt; / ReadOnlyMemory&lt;T&gt; ({ data pointer, length } after the header):
+    /// generic code boxes them (non-generic IEqualityComparer / IEnumerator.Current paths of Roslyn's
+    /// segmented collections keyed by ReadOnlyMemory&lt;char&gt;). Equals accepts the other memory type of the
+    /// same T, as .NET's Equals(object) does. Like boxed tuples, no interface map.
     /// </summary>
+    public LLVMValueRef MemoryMethodTable(INamedTypeSymbol memory)
+    {
+        if (_memoryMethodTables.TryGetValue(memory, out var existing)) return existing;
+        var index = _memoryMethodTables.Count;
+        var mtType = Llvm.Struct(Llvm.Ptr, Llvm.Ptr, Llvm.I32, Llvm.I32, Llvm.Ptr, Llvm.I32, Llvm.I32, LlvmContext.Array(Llvm.Ptr, ClassLayout.ObjectSlotCount));
+        var global = Module.AddGlobal($"__memory{index}_MT", mtType, constant: true, linkage: LLVMLinkage.Internal);
+        _memoryMethodTables[memory] = global;
+        LoweredFunction Make(string name, LLVMTypeRef ret, params LLVMTypeRef[] ps)
+        {
+            var type = Llvm.FunctionType(ret, ps);
+            var fn = Module.AddFunction($"__memory{index}_{name}", type);
+            Native.LLVMSetLinkage(fn, LLVMLinkage.Internal);
+            return new LoweredFunction(fn, type);
+        }
+        var toString = Make("ToString", Llvm.Ptr, Llvm.Ptr);
+        var equals = Make("Equals", Llvm.I1, Llvm.Ptr, Llvm.Ptr);
+        var hash = Make("GetHashCode", Llvm.I32, Llvm.Ptr);
+        var size = 8 + Types.Target.SizeOf(Types.Value(memory));
+        Native.LLVMSetInitializer(global, Llvm.ConstStruct(ExternalGlobal("csrt_Object_MT"), CString(ClrName(memory)),
+            Llvm.ConstInt(Llvm.I32, (long)size), Llvm.ConstInt(Llvm.I32, 64 /* CSRT_MT_VALUE_TYPE */), LlvmContext.Null(Llvm.Ptr), Llvm.ConstInt(Llvm.I32, 0), Llvm.ConstInt(Llvm.I32, 0),
+            LlvmContext.ConstArray(Llvm.Ptr, toString.Fn, equals.Fn, hash.Fn)));
+        var counterpart = Compilation.GetTypeByMetadataName(memory.MetadataName == "Memory`1" ? "System.ReadOnlyMemory`1" : "System.Memory`1")!
+            .Construct(memory.TypeArguments[0]);
+        var counterpartMt = MemoryMethodTable(counterpart);
+        new FunctionCodeGen(this, null, toString).EmitMemoryBoxToString(memory);
+        new FunctionCodeGen(this, null, equals).EmitMemoryBoxEquals(memory, global, counterpartMt);
+        new FunctionCodeGen(this, null, hash).EmitMemoryBoxHash(memory);
+        return global;
+    }
+
+    private readonly Dictionary<INamedTypeSymbol, LLVMValueRef> _tupleMethodTables = new(SymbolEqualityComparer.Default);
+
+    /// <summary>Method table for boxed tuples: { header, [ToString, Equals, GetHashCode] } with element-wise thunks.</summary>
     public LLVMValueRef TupleMethodTable(INamedTypeSymbol tuple, FunctionCodeGen _)
     {
         if (_tupleMethodTables.TryGetValue(tuple, out var existing)) return existing;
@@ -203,9 +356,7 @@ public sealed partial class ModuleCodeGen
         var equals = Make("Equals", Llvm.I1, Llvm.Ptr, Llvm.Ptr);
         var hash = Make("GetHashCode", Llvm.I32, Llvm.Ptr);
         var size = 8 + Types.Target.SizeOf(Types.Value(tuple));
-        var name = tuple.IsTupleType
-            ? "System.ValueTuple`" + tuple.TupleElements.Length + "[" + string.Join(",", tuple.TupleElements.Select(e => ClrName(e.Type))) + "]"
-            : "System." + tuple.MetadataName + "[" + ClrName(tuple.TypeArguments[0]) + "]"; // a boxed Memory<T> / ReadOnlyMemory<T>
+        var name = "System.ValueTuple`" + tuple.TupleElements.Length + "[" + string.Join(",", tuple.TupleElements.Select(e => ClrName(e.Type))) + "]";
         Native.LLVMSetInitializer(global, Llvm.ConstStruct(ExternalGlobal("csrt_Object_MT"), CString(name),
             Llvm.ConstInt(Llvm.I32, (long)size), Llvm.ConstInt(Llvm.I32, 64 /* CSRT_MT_VALUE_TYPE */), LlvmContext.Null(Llvm.Ptr), Llvm.ConstInt(Llvm.I32, 0), Llvm.ConstInt(Llvm.I32, 0),
             LlvmContext.ConstArray(Llvm.Ptr, toString.Fn, equals.Fn, hash.Fn)));

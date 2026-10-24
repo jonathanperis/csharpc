@@ -155,7 +155,7 @@ public sealed partial class FunctionCodeGen
             ? (NullableHas(value), NullablePayload(value, TypeMapper.NullableUnderlying(type)), TypeMapper.NullableUnderlying(type))
             : (L.True, value, type);
 
-    private void ThrowLibraryExceptionIf(LLVMValueRef failed, string typeName, string message)
+    internal void ThrowLibraryExceptionIf(LLVMValueRef failed, string typeName, string message)
     {
         var fail = NewBlock("throw");
         var ok = NewBlock("ok");

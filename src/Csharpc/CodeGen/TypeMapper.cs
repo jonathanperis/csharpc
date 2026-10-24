@@ -100,6 +100,10 @@ public sealed class TypeMapper(LlvmContext llvm, TargetMachine target)
         type is INamedTypeSymbol { MetadataName: "Span`1" or "ReadOnlySpan`1" or "Memory`1" or "ReadOnlyMemory`1", ContainingType: null } n
         && n.ContainingNamespace is { Name: "System", ContainingNamespace.IsGlobalNamespace: true };
 
+    /// <summary>System.Memory&lt;T&gt; / ReadOnlyMemory&lt;T&gt; (span-shaped, but ordinary structs that can be keys, boxed, compared).</summary>
+    public static bool IsMemory(ITypeSymbol? type) =>
+        IsSpan(type) && type!.MetadataName is "Memory`1" or "ReadOnlyMemory`1";
+
     /// <summary>Span&lt;T&gt;.Enumerator / ReadOnlySpan&lt;T&gt;.Enumerator.</summary>
     public static bool IsSpanEnumerator(ITypeSymbol? type) =>
         type is INamedTypeSymbol { Name: "Enumerator", ContainingType: { } owner } && IsSpan(owner);

@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using Csharpc.Llvm;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.FlowAnalysis;
@@ -155,6 +156,7 @@ public sealed partial class FunctionCodeGen
         if (creation.Type?.ContainingNamespace?.ToDisplayString() == "System.Linq.Expressions")
             throw CompileError.Unsupported("expression trees (a lambda converted to System.Linq.Expressions.Expression<T>)", creation);
         LLVMValueRef target, fn;
+        var capturesNothing = false;
         switch (creation.Target)
         {
             case IFlowAnonymousFunctionOperation lambda:
@@ -166,6 +168,7 @@ public sealed partial class FunctionCodeGen
                 var callee = NestedFunction(local.Method.OriginalDefinition, creation);
                 target = EnvValue(callee.Incoming);
                 fn = NestedFunctionInstance(callee, S(local.Method), creation).Fn;
+                capturesNothing = callee.Incoming is null; // compiled to a static method by C#, so cached too
                 break;
             }
             case IMethodReferenceOperation { Method.IsStatic: true } group when _m.IsUserMethod(S(group.Method)):
@@ -176,11 +179,25 @@ public sealed partial class FunctionCodeGen
             {
                 // obj.Method: the receiver is the target; virtual methods are resolved now, as in .NET.
                 target = EmitValue(group.Instance!);
-                if (group.Instance is not IInstanceReferenceOperation) NullCheck(target);
+                if (group.Instance is not IInstanceReferenceOperation) DelegateTargetCheck(target);
                 var method = S(group.Method);
                 var isVirtual = group.IsVirtual && (method.IsVirtual || method.IsAbstract || method.IsOverride)
                     && !method.IsSealed && !method.ContainingType.IsSealed;
                 fn = isVirtual ? LoadVirtualFunction(method, target) : _m.GetFunction(method).Fn;
+                break;
+            }
+            // A library method (Path.GetFullPath, set.Contains, char.IsAscii...): a thunk with the delegate's
+            // calling convention calls it through the ordinary call lowering (intrinsics, corelib, dispatch).
+            case IMethodReferenceOperation group when LibraryDelegateTarget(Substitution.Apply(group.Method)):
+            {
+                var method = Substitution.Apply(group.Method); // the library member itself: an instance shadow is a static corelib method
+                if (method.IsStatic) target = LlvmContext.Null(L.Ptr);
+                else
+                {
+                    target = EmitValue(group.Instance!);
+                    if (group.Instance is not IInstanceReferenceOperation) DelegateTargetCheck(target);
+                }
+                fn = _m.LibraryDelegateThunk(method, group.IsVirtual, creation.Syntax);
                 break;
             }
             case IMethodReferenceOperation group:
@@ -188,12 +205,67 @@ public sealed partial class FunctionCodeGen
             default:
                 throw CompileError.Unsupported($"delegate creation from {creation.Target.Kind}", creation);
         }
-        var mt = _m.DelegateMethodTable((INamedTypeSymbol)TypeOf(creation)!);
+        var delegateType = (INamedTypeSymbol)TypeOf(creation)!;
+        var mt = _m.DelegateMethodTable(delegateType);
+        // C# 11+ caches a static method group's delegate in a static field of the converting type (Roslyn's
+        // <>O container), so two conversions of M there are the same object: ReferenceEquals sees it.
+        if (creation.Target is IMethodReferenceOperation { Method: var staticMethod }
+            && (staticMethod.MethodKind == MethodKind.LocalFunction ? capturesNothing : staticMethod.IsStatic)
+            && creation.Syntax is not Microsoft.CodeAnalysis.CSharp.Syntax.BaseObjectCreationExpressionSyntax && _method is not null)
+        {
+            var key = $"{Mangler.TypeSymbol((INamedTypeSymbol)S(_method.ContainingType), "dcache")}.{Mangler.MetadataName(delegateType)}.{Mangler.Method(S(staticMethod))}";
+            var cache = _m.DelegateCache(key);
+            var existing = _b.Load(L.Ptr, cache);
+            var done = NewBlock("dcache.done");
+            var create = NewBlock("dcache.create");
+            var result = NewTemp(L.Ptr, "dcache.value");
+            _b.Store(existing, result);
+            _b.CondBr(_b.ICmp(LLVMIntPredicate.NE, existing, LlvmContext.Null(L.Ptr)), done, create);
+            _b.PositionAtEnd(create);
+            var fresh = NewDelegate(mt, target, fn);
+            _b.Store(fresh, cache);
+            _b.Store(fresh, result);
+            _b.Br(done);
+            _b.PositionAtEnd(done);
+            return _b.Load(L.Ptr, result);
+        }
+        return NewDelegate(mt, target, fn);
+    }
+
+    private LLVMValueRef NewDelegate(LLVMValueRef mt, LLVMValueRef target, LLVMValueRef fn)
+    {
         var obj = CallRuntime("csrt_alloc", L.Ptr, [L.Ptr, L.I64], mt, L.ConstInt(L.I64, (long)T.Target.SizeOf(DelegateType)));
         _b.Store(target, _b.StructGep(DelegateType, obj, 1));
         _b.Store(fn, _b.StructGep(DelegateType, obj, 2));
         return obj;
     }
+
+    /// <summary>Binding an instance method to null is an ArgumentException when the delegate is created, as in .NET.</summary>
+    private void DelegateTargetCheck(LLVMValueRef target) =>
+        ThrowLibraryExceptionIf(_b.ICmp(LLVMIntPredicate.EQ, target, LlvmContext.Null(L.Ptr)),
+            "System.ArgumentException", "Delegate to an instance method cannot have null 'this'.");
+
+    /// <summary>Library methods a delegate thunk can call: by-value parameters, and a reference-type receiver if any.</summary>
+    private static bool LibraryDelegateTarget(IMethodSymbol method) =>
+        method.Parameters.All(p => p.RefKind == RefKind.None) && method.RefKind == RefKind.None
+        && (method.IsStatic || method.ContainingType.IsReferenceType) && !TypeSubstitution.IsOpen(method);
+
+    /// <summary>The body of ModuleCodeGen.LibraryDelegateThunk: (target, args...) => method(args...).</summary>
+    internal void EmitLibraryDelegateThunk(IMethodSymbol method, bool isVirtual, SyntaxNode syntax)
+    {
+        var instance = method.IsStatic ? null
+            : new IlValueOperation(syntax, method.ContainingType, () => _fn.Fn.Param(0), nonNull: true);
+        var arguments = method.Parameters.Select((p, i) => (IArgumentOperation)new IlArgumentOperation(syntax, p,
+            new IlValueOperation(syntax, p.Type, () => _fn.Fn.Param((uint)(i + 1))))).ToImmutableArray();
+        var invocation = new IlInvocationOperation(syntax, method, instance, isVirtual && !method.IsStatic, arguments, null);
+        var result = EmitValue(invocation);
+        if (method.ReturnsVoid) _b.RetVoid();
+        else _b.Ret(ToStorageIfNeeded(result, method.ReturnType));
+        Finish();
+    }
+
+    private LLVMValueRef ToStorageIfNeeded(LLVMValueRef value, ITypeSymbol type) =>
+        value.Type.Handle == T.Value(type).Handle ? value : Coerce(value, type, type);
 
     /// <summary>Resolves a user virtual method on <paramref name="self"/> via its vtable (delegate binding).</summary>
     private LLVMValueRef LoadVirtualFunction(IMethodSymbol method, LLVMValueRef self)

@@ -9,6 +9,9 @@ namespace CsharpcCoreLib
     [ShadowMembers("System.Array")]
     internal static class ArrayExtras
     {
+        /// <summary>The largest length of any array (.NET's 0x7FFFFFC7, the same for every element type).</summary>
+        public static int MaxLength => 0x7FFFFFC7;
+
         public static System.Collections.ObjectModel.ReadOnlyCollection<T> AsReadOnly<T>(T[] array)
         {
             if (array == null) ThrowHelper.ArgumentNull("array");

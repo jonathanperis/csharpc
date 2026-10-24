@@ -374,6 +374,16 @@ public sealed partial class FunctionCodeGen
     private bool TryVolatile(IInvocationOperation inv, out LLVMValueRef result)
     {
         result = default;
+        // Volatile.ReadBarrier/WriteBarrier (.NET 10): acquire / release fences, no operand.
+        if (inv.TargetMethod.Parameters.IsEmpty)
+        {
+            switch (inv.TargetMethod.Name)
+            {
+                case "ReadBarrier": Native.LLVMBuildFence(_b.Ref, LLVMAtomicOrdering.Acquire, 0, ""); return true;
+                case "WriteBarrier": Native.LLVMBuildFence(_b.Ref, LLVMAtomicOrdering.Release, 0, ""); return true;
+            }
+            return false;
+        }
         var type = S(inv.TargetMethod.Parameters[0].Type);
         switch (inv.TargetMethod.Name)
         {

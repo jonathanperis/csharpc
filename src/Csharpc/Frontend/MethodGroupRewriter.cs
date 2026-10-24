@@ -6,9 +6,9 @@ using Microsoft.CodeAnalysis.Operations;
 namespace Csharpc.Frontend;
 
 /// <summary>
-/// Rewrites method groups that bind to *library* static methods (`s.Where(char.IsLetterOrDigit)`,
-/// `xs.Select(Math.Sqrt)`, `values.Count(T.IsZero)`) into equivalent lambdas
-/// (`(a0) => char.IsLetterOrDigit(a0)`) in the compilation csharpc lowers. Library methods are
+/// Rewrites method groups that bind to static abstract interface members of a type parameter
+/// (`values.Count(T.IsZero)`) into equivalent lambdas
+/// (`(a0) => T.IsZero(a0)`) in the compilation csharpc lowers. Library methods are
 /// implemented as intrinsics / corelib redirects keyed on invocations, so a lambda gets them for free.
 /// For static methods the rewrite is semantically identical.
 /// </summary>
@@ -67,6 +67,9 @@ public static class MethodGroupRewriter
                 if (reference.Parent is not IDelegateCreationOperation) continue;
                 if (SymbolEqualityComparer.Default.Equals(method.ContainingAssembly, compilation.Assembly)) continue;
                 if (method.Parameters.Any(p => p.RefKind != RefKind.None) || method.IsVararg) continue;
+                // Other library static methods get delegate thunks in code generation (FunctionCodeGen.
+                // Closures.cs), which keep .NET's delegate identity: equal per method, cached per group.
+                if (method.ContainingType.TypeKind != TypeKind.Interface) continue;
                 if (node.Ancestors().Any(a => replacements.ContainsKey(a))) continue;
                 var parameters = string.Join(", ", method.Parameters.Select((_, i) => $"__mg{i}"));
                 var lambda = SyntaxFactory.ParseExpression($"({parameters}) => {node.WithoutTrivia()}({parameters})")
