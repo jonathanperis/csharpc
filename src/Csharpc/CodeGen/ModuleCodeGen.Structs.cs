@@ -83,8 +83,27 @@ public sealed partial class ModuleCodeGen
             LlvmContext.SetBody(arrayLayout.LlvmType, [LlvmContext.Array(FieldStorage(fields[0]), (uint)length)]);
             return arrayLayout;
         }
-        if (type.GetMembers().OfType<IFieldSymbol>().FirstOrDefault(f => f.IsFixedSizeBuffer) is { } buffer)
+        // Fixed-size buffers (`fixed ulong Acc[8]`): in IL, a field of a compiler-generated
+        // `<Acc>e__FixedBuffer` struct (.size = 8 * 8, one element field), which Roslyn presents as a
+        // pointer-typed fixed buffer field. IL addresses its elements through that field's address (ldflda
+        // + FixedElementField + pointer arithmetic), so laying it out as the element array is exact. C# source
+        // indexes fixed buffers directly, which csharpc doesn't lower yet.
+        if (type.GetMembers().OfType<IFieldSymbol>().FirstOrDefault(f => f.IsFixedSizeBuffer) is { } buffer && Il.OwnerOf(type) is null)
             throw CompileError.Unsupported($"fixed-size buffer '{type.Name}.{buffer.Name}'", buffer);
+        if (custom is { Explicit: false, Pack: 0, Size: > 0 } && Il.OwnerOf(type) is { } bufferOwner
+            && type.GetAttributes().Any(a => a.AttributeClass?.ToDisplayString() == "System.Runtime.CompilerServices.UnsafeValueTypeAttribute")
+            && InstanceFields(type).ToList() is [var element])
+        {
+            var storage = FieldStorage(element);
+            var size = (int)Types.Target.SizeOf(storage);
+            if (size == 0 || custom.Size % size != 0) throw custom.Rejection;
+            var bufferLayout = new StructLayout { Type = type, LlvmType = Llvm.NamedStruct("struct." + Mangler.MetadataName(type)) };
+            _structs[type] = bufferLayout;
+            bufferLayout.FieldIndex[element] = 0;
+            bufferLayout.FieldIndex[element.OriginalDefinition] = 0;
+            LlvmContext.SetBody(bufferLayout.LlvmType, [LlvmContext.Array(storage, (uint)(custom.Size / size))]);
+            return bufferLayout;
+        }
 
         var layout = new StructLayout { Type = type, LlvmType = Llvm.NamedStruct("struct." + Mangler.MetadataName(type)) };
         _structs[type] = layout; // register first: field types may mention other structs
@@ -94,7 +113,9 @@ public sealed partial class ModuleCodeGen
         {
             layout.FieldIndex[f] = (uint)elements.Count;
             layout.FieldIndex[f.OriginalDefinition] = (uint)elements.Count; // same index in every instantiation
-            elements.Add(FieldStorage(f));
+            elements.Add(f is { IsFixedSizeBuffer: true, Type: IPointerTypeSymbol bufferPointer }
+                ? LlvmContext.Array(Types.Storage(bufferPointer.PointedAtType), (uint)f.FixedSize)
+                : FieldStorage(f));
         }
         if (elements.Count == 0) elements.Add(Llvm.I8); // an empty struct still occupies a byte, as in the CLR
         LlvmContext.SetBody(layout.LlvmType, [.. elements]);

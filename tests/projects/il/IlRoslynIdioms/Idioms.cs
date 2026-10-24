@@ -145,6 +145,28 @@ public sealed class ArrayWrapper<T> : IList<T>, System.Collections.IList
     object System.Collections.ICollection.SyncRoot => this;
 }
 
+/// <summary>Fixed-size buffers, as in Roslyn's copy of XxHash128's State (accumulators, buffer, secret).</summary>
+public unsafe struct HashState
+{
+    public fixed ulong Accumulators[8];
+    public fixed byte Buffer[20];
+    public int Length;
+
+    public static string Run()
+    {
+        var state = new HashState();
+        for (var i = 0; i < 8; i++) state.Accumulators[i] = (ulong)(i * i) << 33;
+        for (var i = 0; i < 20; i++) state.Buffer[i] = (byte)(i * 7);
+        state.Length = 20;
+        var copy = state; // the buffers are part of the value
+        copy.Accumulators[0] = 99;
+        ulong sum = 0;
+        ulong* acc = state.Accumulators;
+            for (var i = 0; i < 8; i++) sum += acc[i] >> 33;
+        return $"{sum} {state.Accumulators[0]} {copy.Accumulators[0]} {state.Buffer[19]} {copy.Buffer[3]} {sizeof(HashState)} {state.Length}";
+    }
+}
+
 /// <summary>Pointer idioms of Roslyn's hashing and event-source code.</summary>
 public static unsafe class Pointers
 {
