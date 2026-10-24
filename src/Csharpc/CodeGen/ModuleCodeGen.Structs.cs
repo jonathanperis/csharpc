@@ -65,8 +65,24 @@ public sealed partial class ModuleCodeGen
         var custom = CustomLayoutOf(type);
 
         // Both repeat their element in memory; laid out as a single field they would silently shrink.
-        if (type.GetAttributes().Any(a => a.AttributeClass?.ToDisplayString() == "System.Runtime.CompilerServices.InlineArrayAttribute"))
-            throw CompileError.Unsupported($"[InlineArray] struct '{type.Name}'", type);
+        // [InlineArray(N)] structs from IL (the compiler's <>y__InlineArrayN<T> behind collection expressions
+        // and params spans) are N consecutive elements: IL reaches them only through the compiler's
+        // InlineArray* helpers (FunctionCodeGen.IlCalls.cs) and the field itself (element 0). C# source would
+        // also index them directly, which csharpc doesn't lower yet.
+        var inlineArray = type.GetAttributes().FirstOrDefault(a => a.AttributeClass?.ToDisplayString() == "System.Runtime.CompilerServices.InlineArrayAttribute");
+        if (inlineArray is not null)
+        {
+            var fields = type.GetMembers().OfType<IFieldSymbol>().Where(f => !f.IsStatic && !f.IsConst).ToList();
+            if (Il.OwnerOf(type) is null || custom is not null || fields.Count != 1
+                || inlineArray.ConstructorArguments is not [{ Value: int length }] || length <= 0)
+                throw CompileError.Unsupported($"[InlineArray] struct '{type.Name}'", type);
+            var arrayLayout = new StructLayout { Type = type, LlvmType = Llvm.NamedStruct("struct." + Mangler.MetadataName(type)) };
+            _structs[type] = arrayLayout;
+            arrayLayout.FieldIndex[fields[0]] = 0;
+            arrayLayout.FieldIndex[fields[0].OriginalDefinition] = 0;
+            LlvmContext.SetBody(arrayLayout.LlvmType, [LlvmContext.Array(FieldStorage(fields[0]), (uint)length)]);
+            return arrayLayout;
+        }
         if (type.GetMembers().OfType<IFieldSymbol>().FirstOrDefault(f => f.IsFixedSizeBuffer) is { } buffer)
             throw CompileError.Unsupported($"fixed-size buffer '{type.Name}.{buffer.Name}'", buffer);
 

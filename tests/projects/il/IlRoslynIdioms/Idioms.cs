@@ -85,6 +85,34 @@ public static class Matrices
     }
 }
 
+/// <summary>Collection expressions and params spans over non-constant elements: the compiler's &lt;&gt;y__InlineArrayN&lt;T&gt;.</summary>
+public static class InlineArrays
+{
+    public static string Join(string a, string b, string c, string d, string e)
+    {
+        ReadOnlySpan<string> parts = [a, b, c, d, e];
+        var text = "";
+        foreach (var part in parts) text += part;
+        return text + parts.Length;
+    }
+
+    public static int Sum(params ReadOnlySpan<int> values)
+    {
+        var sum = 0;
+        foreach (var v in values) sum += v;
+        return sum;
+    }
+
+    public static int SumOf(int x, int y, int z) => Sum(x, y, z, x * y, y * z, 1, 2);
+
+    // More elements than the BCL's InlineArray2..16 cover: the compiler synthesizes <>y__InlineArray18<T>
+    // (Roslyn's own assemblies, built by an older compiler, have them for small N too).
+    public static int Many(int x) => Sum(x, x + 1, x + 2, x + 3, x + 4, x + 5, x + 6, x + 7, x + 8, x + 9,
+        x + 10, x + 11, x + 12, x + 13, x + 14, x + 15, x + 16, x + 17);
+
+    public static string Describe(object first, object second) => string.Join("|", (ReadOnlySpan<object>)[first, second, first]);
+}
+
 /// <summary>Pointer idioms of Roslyn's hashing and event-source code.</summary>
 public static unsafe class Pointers
 {
