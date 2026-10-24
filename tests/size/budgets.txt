@@ -30,7 +30,7 @@ windows-x86_64 linq 83968
 windows-x86_64 numbers 57344
 windows-x86_64 typeinfo 64512
 wasi-wasm32 async 79872
-wasi-wasm32 collections 104448
+wasi-wasm32 collections 98304
 wasi-wasm32 exceptions 53248
 wasi-wasm32 hello 52224
 wasi-wasm32 linq 93184
