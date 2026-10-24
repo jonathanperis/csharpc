@@ -1201,6 +1201,17 @@ namespace CsharpcCoreLib
             return r;
         }
 
+        // IFormattable.ToString(format, provider) of a boxed primitive (ModuleCodeGen.Primitives.cs), one per
+        // kind of number: as FormatObjectWith, without reaching the other types' formatters.
+        internal static string FormatBoxedSigned(long value, string format, int bits, IFormatProvider provider) =>
+            FormatInt64With(value, format != null && format.Length == 0 ? null : format, bits, provider);
+
+        internal static string FormatBoxedUnsigned(ulong value, string format, int bits, IFormatProvider provider) =>
+            FormatUInt64With(value, format != null && format.Length == 0 ? null : format, bits, provider);
+
+        internal static string FormatBoxedFloat(double value, string format, bool single, IFormatProvider provider) =>
+            FormatDoubleWith(value, format != null && format.Length == 0 ? null : format, single, provider);
+
         /// <summary>Formats any object with an optional format string (boxed numbers honour it).</summary>
         internal static string FormatObject(object value, string format) => FormatObjectWith(value, format, null);
 

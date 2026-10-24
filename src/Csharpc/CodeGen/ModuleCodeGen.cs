@@ -175,7 +175,7 @@ public sealed partial class ModuleCodeGen
         // Type metadata describes every method table, and describing one can create more (and queue
         // their methods): iterate to a fixed point.
         do DrainWorklists();
-        while (EmitRuntimeExports() | EmitTypeMetadata());
+        while (EmitRuntimeExports() | EmitTypeMetadata() | EmitDeferredPrimitiveSlots());
         FinishMethodTables();
         Guard(entryPoint, FinishTypeMetadata);
         ReportIlFailures();
@@ -1238,7 +1238,7 @@ public sealed partial class ModuleCodeGen
                 else if (builtinType.SpecialType == SpecialType.System_String) RequestStringInterface(itf);
                 var registerBuiltin = Runtime("csrt_register_builtin_interface", Llvm.Void, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr);
                 var slots = builtinType.SpecialType != SpecialType.System_String && builtinType is not IArrayTypeSymbol
-                    ? PrimitiveInterfaceSlots(builtinType, itf) : LlvmContext.Null(Llvm.Ptr);
+                    ? DeferredPrimitiveInterfaceSlots(builtinType, itf, mtName) : LlvmContext.Null(Llvm.Ptr);
                 b.Call(registerBuiltin.Type, registerBuiltin.Fn, [mt, InterfaceMethodTable(itf), slots]);
             }
 
