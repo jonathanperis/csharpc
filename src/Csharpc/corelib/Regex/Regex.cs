@@ -80,7 +80,7 @@ namespace CsharpcCoreLib.RegularExpressions
         /// (invariant if none) and without validating the option combination; this builds the interpreter
         /// for the same tree. Patterns the generator can't handle (NonBacktracking) become `new Regex(...)`.
         /// </summary>
-        internal static Regex CreateForGeneratedRegex(string pattern, RegexOptions options, int matchTimeoutMilliseconds, string cultureName)
+        public static Regex CreateForGeneratedRegex(string pattern, RegexOptions options, int matchTimeoutMilliseconds, string cultureName)
         {
             TimeSpan matchTimeout = matchTimeoutMilliseconds == int.MinValue ? s_defaultMatchTimeout : TimeSpan.FromMilliseconds(matchTimeoutMilliseconds);
             if ((options & RegexOptions.NonBacktracking) != 0)

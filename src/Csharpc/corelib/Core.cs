@@ -77,6 +77,13 @@ namespace CsharpcCoreLib
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern string ResourceStrings();
         /// <summary>runtimeconfig.json configProperties, encoded (ModuleCodeGen.Resources.cs).</summary>
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern string RuntimeConfig();
+        /// <summary>
+        /// Calls the program's CsharpcCoreLib.ProgramHooks.JsonConfigure (code the front end generates for
+        /// reflection-style System.Text.Json calls, Frontend/JsonReflectionContexts.cs) if it has one.
+        /// </summary>
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern void JsonConfigureHook(ref bool reflectionEnabled, ref System.Text.Json.Serialization.Metadata.IJsonTypeInfoResolver resolver);
+        /// <summary>The program's CsharpcCoreLib.ProgramHooks.JsonBuiltIn(type, options) if it has one, else null.</summary>
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern object JsonBuiltInHook(Type type, object options);
         /// <summary>csrt_task_try_fault_async: faults a pending task, or cancels it for an OperationCanceledException.</summary>
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern bool TryFaultAsyncTask(System.Threading.Tasks.Task task, Exception exception);
         /// <summary>An enum's underlying value as .NET's EnumConverter keys it: sign-extended, then reinterpreted as ulong.</summary>

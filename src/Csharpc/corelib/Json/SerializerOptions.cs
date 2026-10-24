@@ -19,20 +19,16 @@ using System.Text.Json.Serialization.Metadata;
 
 namespace CsharpcCoreLib
 {
-    /// <summary>Compile-time hook: the synthesized contexts and the reflection switch (Frontend/JsonReflectionContexts.cs).</summary>
-    internal static partial class JsonReflection
+    /// <summary>
+    /// Compile-time hooks: the synthesized contexts and the reflection switch, generated into the program
+    /// as CsharpcCoreLib.ProgramHooks (Frontend/JsonReflectionContexts.cs) and called through core
+    /// intrinsics, which work whether the corelib is compiled with the program or precompiled (ADR 0015).
+    /// </summary>
+    internal static class JsonReflection
     {
-        static partial void Configure(ref bool reflectionEnabled, ref IJsonTypeInfoResolver resolver);
-
-        static partial void CreateBuiltIn(Type type, JsonSerializerOptionsImpl options, ref JsonTypeInfoImpl info);
-
         /// <summary>DefaultJsonTypeInfoResolver's metadata for a built-in type (JsonBuiltInTypeInfos.TryCreate when linked in).</summary>
-        internal static JsonTypeInfoImpl BuiltIn(Type type, JsonSerializerOptionsImpl options)
-        {
-            JsonTypeInfoImpl info = null;
-            CreateBuiltIn(type, options, ref info);
-            return info;
-        }
+        internal static JsonTypeInfoImpl BuiltIn(Type type, JsonSerializerOptionsImpl options) =>
+            (JsonTypeInfoImpl)CoreIntrinsics.JsonBuiltInHook(type, options);
 
         private static bool s_configured;
         private static bool s_enabled;
@@ -43,7 +39,7 @@ namespace CsharpcCoreLib
             if (s_configured) return;
             bool enabled = true;
             IJsonTypeInfoResolver resolver = null;
-            Configure(ref enabled, ref resolver);
+            CoreIntrinsics.JsonConfigureHook(ref enabled, ref resolver);
             s_enabled = enabled;
             s_resolver = new ReflectionStandInResolver(resolver);
             s_configured = true;
