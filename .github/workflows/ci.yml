@@ -50,9 +50,9 @@ jobs:
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Install LLVM 18 and clang (Linux)
+      - name: Install LLVM 18, clang and lld (Linux)
         if: matrix.os == 'linux'
-        run: sudo apt-get update && sudo apt-get install -y llvm-18 clang-18 libllvm18 && sudo ln -sf /usr/bin/clang-18 /usr/local/bin/clang
+        run: sudo apt-get update && sudo apt-get install -y llvm-18 clang-18 libllvm18 lld-18 && sudo ln -sf /usr/bin/clang-18 /usr/local/bin/clang && sudo ln -sf /usr/bin/ld.lld-18 /usr/local/bin/ld.lld
 
       # Homebrew's clang 18 (not Apple clang) compiles the runtime, so its LTO bitcode matches the
       # LLVM 18 that csharpc links it into; Apple's ld still links. The test scripts use bash 4+ and
