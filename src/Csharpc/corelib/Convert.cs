@@ -2,8 +2,8 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 // System.Convert's conversions between primitives, strings (with providers and bases) and DateTime,
 // ported from dotnet/runtime (release/11.0) src/libraries/System.Private.CoreLib/src/System/Convert.cs and
-// ParseNumbers.cs; see THIRD-PARTY-NOTICES.md. The object/IConvertible overloads (but ToString(object)) and
-// ChangeType are not ported (CSLLVM0002); hex and Base64 are in ConvertExtras.cs. Conversions that .NET routes through IConvertible and
+// ParseNumbers.cs; see THIRD-PARTY-NOTICES.md. The object/IConvertible overloads and ChangeType match the BCL's
+// IConvertible types by type (csharpc's boxed primitives have no IConvertible dispatch); hex and Base64 are in ConvertExtras.cs. Conversions that .NET routes through IConvertible and
 // that always fail (e.g. ToBoolean(char), ToDateTime(int)) throw its InvalidCastException directly.
 #nullable disable
 using System;
@@ -17,15 +17,531 @@ namespace CsharpcCoreLib
     {
         // Convert.ToString(object): .NET asks IConvertible, then IFormattable, then ToString() (null: the empty
         // string). Every BCL IConvertible is IFormattable with the same result, or (bool, char, string) formats
-        // like ToString(); boxed primitives have no IConvertible dispatch in csharpc.
+        // like ToString(); boxed primitives have no IConvertible dispatch in csharpc, so only other types ask it.
         public static string ToString(object value) => ToString(value, null);
 
         public static string ToString(object value, IFormatProvider provider)
         {
-            if (value is decimal number) return number.ToString(provider); // a boxed decimal has no IFormattable slots
+            if (value is IConvertible convertible && !IsBuiltinConvertible(value) && value is not Enum) return convertible.ToString(provider);
             if (value is IFormattable formattable) return formattable.ToString(null, provider);
             return value != null ? value.ToString() : string.Empty;
         }
+
+        // Convert.ToX(object[, provider]): .NET calls ((IConvertible)value).ToX(provider) (null: the default). csharpc's
+        // boxed primitives have no IConvertible dispatch, so the BCL's IConvertible types are matched here, each with
+        // exactly what its IConvertible implementation does (the typed overloads below; strings parse with the
+        // provider), boxed enums through their underlying value, and anything else through IConvertible itself.
+
+        public static bool ToBoolean(object value) => ToBoolean(value, null);
+
+        public static bool ToBoolean(object value, IFormatProvider provider)
+        {
+            switch (value)
+            {
+                case null: return false;
+                case string v: return ToBoolean(v, provider);
+                case bool v: return ToBoolean(v);
+                case char v: return ToBoolean(v);
+                case sbyte v: return ToBoolean(v);
+                case byte v: return ToBoolean(v);
+                case short v: return ToBoolean(v);
+                case ushort v: return ToBoolean(v);
+                case int v: return ToBoolean(v);
+                case uint v: return ToBoolean(v);
+                case long v: return ToBoolean(v);
+                case ulong v: return ToBoolean(v);
+                case float v: return ToBoolean(v);
+                case double v: return ToBoolean(v);
+                case decimal v: return ToBoolean(v);
+                case DateTime v: return ToBoolean(v);
+                case Enum: return EnumIsNegative(value, out long signed, out ulong unsigned) ? ToBoolean(signed) : ToBoolean(unsigned);
+                case IConvertible v: return v.ToBoolean(provider);
+                default: throw NotConvertible(value);
+            }
+        }
+
+        public static char ToChar(object value) => ToChar(value, null);
+
+        public static char ToChar(object value, IFormatProvider provider)
+        {
+            switch (value)
+            {
+                case null: return '\0';
+                case string v: return ToChar(v, provider);
+                case bool v: return ToChar(v);
+                case char v: return ToChar(v);
+                case sbyte v: return ToChar(v);
+                case byte v: return ToChar(v);
+                case short v: return ToChar(v);
+                case ushort v: return ToChar(v);
+                case int v: return ToChar(v);
+                case uint v: return ToChar(v);
+                case long v: return ToChar(v);
+                case ulong v: return ToChar(v);
+                case float v: return ToChar(v);
+                case double v: return ToChar(v);
+                case decimal v: return ToChar(v);
+                case DateTime v: return ToChar(v);
+                case Enum: return EnumIsNegative(value, out long signed, out ulong unsigned) ? ToChar(signed) : ToChar(unsigned);
+                case IConvertible v: return v.ToChar(provider);
+                default: throw NotConvertible(value);
+            }
+        }
+
+        public static sbyte ToSByte(object value) => ToSByte(value, null);
+
+        public static sbyte ToSByte(object value, IFormatProvider provider)
+        {
+            switch (value)
+            {
+                case null: return 0;
+                case string v: return ToSByte(v, provider);
+                case bool v: return ToSByte(v);
+                case char v: return ToSByte(v);
+                case sbyte v: return ToSByte(v);
+                case byte v: return ToSByte(v);
+                case short v: return ToSByte(v);
+                case ushort v: return ToSByte(v);
+                case int v: return ToSByte(v);
+                case uint v: return ToSByte(v);
+                case long v: return ToSByte(v);
+                case ulong v: return ToSByte(v);
+                case float v: return ToSByte(v);
+                case double v: return ToSByte(v);
+                case decimal v: return ToSByte(v);
+                case DateTime v: return ToSByte(v);
+                case Enum: return EnumIsNegative(value, out long signed, out ulong unsigned) ? ToSByte(signed) : ToSByte(unsigned);
+                case IConvertible v: return v.ToSByte(provider);
+                default: throw NotConvertible(value);
+            }
+        }
+
+        public static byte ToByte(object value) => ToByte(value, null);
+
+        public static byte ToByte(object value, IFormatProvider provider)
+        {
+            switch (value)
+            {
+                case null: return 0;
+                case string v: return ToByte(v, provider);
+                case bool v: return ToByte(v);
+                case char v: return ToByte(v);
+                case sbyte v: return ToByte(v);
+                case byte v: return ToByte(v);
+                case short v: return ToByte(v);
+                case ushort v: return ToByte(v);
+                case int v: return ToByte(v);
+                case uint v: return ToByte(v);
+                case long v: return ToByte(v);
+                case ulong v: return ToByte(v);
+                case float v: return ToByte(v);
+                case double v: return ToByte(v);
+                case decimal v: return ToByte(v);
+                case DateTime v: return ToByte(v);
+                case Enum: return EnumIsNegative(value, out long signed, out ulong unsigned) ? ToByte(signed) : ToByte(unsigned);
+                case IConvertible v: return v.ToByte(provider);
+                default: throw NotConvertible(value);
+            }
+        }
+
+        public static short ToInt16(object value) => ToInt16(value, null);
+
+        public static short ToInt16(object value, IFormatProvider provider)
+        {
+            switch (value)
+            {
+                case null: return 0;
+                case string v: return ToInt16(v, provider);
+                case bool v: return ToInt16(v);
+                case char v: return ToInt16(v);
+                case sbyte v: return ToInt16(v);
+                case byte v: return ToInt16(v);
+                case short v: return ToInt16(v);
+                case ushort v: return ToInt16(v);
+                case int v: return ToInt16(v);
+                case uint v: return ToInt16(v);
+                case long v: return ToInt16(v);
+                case ulong v: return ToInt16(v);
+                case float v: return ToInt16(v);
+                case double v: return ToInt16(v);
+                case decimal v: return ToInt16(v);
+                case DateTime v: return ToInt16(v);
+                case Enum: return EnumIsNegative(value, out long signed, out ulong unsigned) ? ToInt16(signed) : ToInt16(unsigned);
+                case IConvertible v: return v.ToInt16(provider);
+                default: throw NotConvertible(value);
+            }
+        }
+
+        public static ushort ToUInt16(object value) => ToUInt16(value, null);
+
+        public static ushort ToUInt16(object value, IFormatProvider provider)
+        {
+            switch (value)
+            {
+                case null: return 0;
+                case string v: return ToUInt16(v, provider);
+                case bool v: return ToUInt16(v);
+                case char v: return ToUInt16(v);
+                case sbyte v: return ToUInt16(v);
+                case byte v: return ToUInt16(v);
+                case short v: return ToUInt16(v);
+                case ushort v: return ToUInt16(v);
+                case int v: return ToUInt16(v);
+                case uint v: return ToUInt16(v);
+                case long v: return ToUInt16(v);
+                case ulong v: return ToUInt16(v);
+                case float v: return ToUInt16(v);
+                case double v: return ToUInt16(v);
+                case decimal v: return ToUInt16(v);
+                case DateTime v: return ToUInt16(v);
+                case Enum: return EnumIsNegative(value, out long signed, out ulong unsigned) ? ToUInt16(signed) : ToUInt16(unsigned);
+                case IConvertible v: return v.ToUInt16(provider);
+                default: throw NotConvertible(value);
+            }
+        }
+
+        public static int ToInt32(object value) => ToInt32(value, null);
+
+        public static int ToInt32(object value, IFormatProvider provider)
+        {
+            switch (value)
+            {
+                case null: return 0;
+                case string v: return ToInt32(v, provider);
+                case bool v: return ToInt32(v);
+                case char v: return ToInt32(v);
+                case sbyte v: return ToInt32(v);
+                case byte v: return ToInt32(v);
+                case short v: return ToInt32(v);
+                case ushort v: return ToInt32(v);
+                case int v: return ToInt32(v);
+                case uint v: return ToInt32(v);
+                case long v: return ToInt32(v);
+                case ulong v: return ToInt32(v);
+                case float v: return ToInt32(v);
+                case double v: return ToInt32(v);
+                case decimal v: return ToInt32(v);
+                case DateTime v: return ToInt32(v);
+                case Enum: return EnumIsNegative(value, out long signed, out ulong unsigned) ? ToInt32(signed) : ToInt32(unsigned);
+                case IConvertible v: return v.ToInt32(provider);
+                default: throw NotConvertible(value);
+            }
+        }
+
+        public static uint ToUInt32(object value) => ToUInt32(value, null);
+
+        public static uint ToUInt32(object value, IFormatProvider provider)
+        {
+            switch (value)
+            {
+                case null: return 0;
+                case string v: return ToUInt32(v, provider);
+                case bool v: return ToUInt32(v);
+                case char v: return ToUInt32(v);
+                case sbyte v: return ToUInt32(v);
+                case byte v: return ToUInt32(v);
+                case short v: return ToUInt32(v);
+                case ushort v: return ToUInt32(v);
+                case int v: return ToUInt32(v);
+                case uint v: return ToUInt32(v);
+                case long v: return ToUInt32(v);
+                case ulong v: return ToUInt32(v);
+                case float v: return ToUInt32(v);
+                case double v: return ToUInt32(v);
+                case decimal v: return ToUInt32(v);
+                case DateTime v: return ToUInt32(v);
+                case Enum: return EnumIsNegative(value, out long signed, out ulong unsigned) ? ToUInt32(signed) : ToUInt32(unsigned);
+                case IConvertible v: return v.ToUInt32(provider);
+                default: throw NotConvertible(value);
+            }
+        }
+
+        public static long ToInt64(object value) => ToInt64(value, null);
+
+        public static long ToInt64(object value, IFormatProvider provider)
+        {
+            switch (value)
+            {
+                case null: return 0;
+                case string v: return ToInt64(v, provider);
+                case bool v: return ToInt64(v);
+                case char v: return ToInt64(v);
+                case sbyte v: return ToInt64(v);
+                case byte v: return ToInt64(v);
+                case short v: return ToInt64(v);
+                case ushort v: return ToInt64(v);
+                case int v: return ToInt64(v);
+                case uint v: return ToInt64(v);
+                case long v: return ToInt64(v);
+                case ulong v: return ToInt64(v);
+                case float v: return ToInt64(v);
+                case double v: return ToInt64(v);
+                case decimal v: return ToInt64(v);
+                case DateTime v: return ToInt64(v);
+                case Enum: return EnumIsNegative(value, out long signed, out ulong unsigned) ? ToInt64(signed) : ToInt64(unsigned);
+                case IConvertible v: return v.ToInt64(provider);
+                default: throw NotConvertible(value);
+            }
+        }
+
+        public static ulong ToUInt64(object value) => ToUInt64(value, null);
+
+        public static ulong ToUInt64(object value, IFormatProvider provider)
+        {
+            switch (value)
+            {
+                case null: return 0;
+                case string v: return ToUInt64(v, provider);
+                case bool v: return ToUInt64(v);
+                case char v: return ToUInt64(v);
+                case sbyte v: return ToUInt64(v);
+                case byte v: return ToUInt64(v);
+                case short v: return ToUInt64(v);
+                case ushort v: return ToUInt64(v);
+                case int v: return ToUInt64(v);
+                case uint v: return ToUInt64(v);
+                case long v: return ToUInt64(v);
+                case ulong v: return ToUInt64(v);
+                case float v: return ToUInt64(v);
+                case double v: return ToUInt64(v);
+                case decimal v: return ToUInt64(v);
+                case DateTime v: return ToUInt64(v);
+                case Enum: return EnumIsNegative(value, out long signed, out ulong unsigned) ? ToUInt64(signed) : ToUInt64(unsigned);
+                case IConvertible v: return v.ToUInt64(provider);
+                default: throw NotConvertible(value);
+            }
+        }
+
+        public static float ToSingle(object value) => ToSingle(value, null);
+
+        public static float ToSingle(object value, IFormatProvider provider)
+        {
+            switch (value)
+            {
+                case null: return 0;
+                case string v: return ToSingle(v, provider);
+                case bool v: return ToSingle(v);
+                case char v: return ToSingle(v);
+                case sbyte v: return ToSingle(v);
+                case byte v: return ToSingle(v);
+                case short v: return ToSingle(v);
+                case ushort v: return ToSingle(v);
+                case int v: return ToSingle(v);
+                case uint v: return ToSingle(v);
+                case long v: return ToSingle(v);
+                case ulong v: return ToSingle(v);
+                case float v: return ToSingle(v);
+                case double v: return ToSingle(v);
+                case decimal v: return ToSingle(v);
+                case DateTime v: return ToSingle(v);
+                case Enum: return EnumIsNegative(value, out long signed, out ulong unsigned) ? ToSingle(signed) : ToSingle(unsigned);
+                case IConvertible v: return v.ToSingle(provider);
+                default: throw NotConvertible(value);
+            }
+        }
+
+        public static double ToDouble(object value) => ToDouble(value, null);
+
+        public static double ToDouble(object value, IFormatProvider provider)
+        {
+            switch (value)
+            {
+                case null: return 0;
+                case string v: return ToDouble(v, provider);
+                case bool v: return ToDouble(v);
+                case char v: return ToDouble(v);
+                case sbyte v: return ToDouble(v);
+                case byte v: return ToDouble(v);
+                case short v: return ToDouble(v);
+                case ushort v: return ToDouble(v);
+                case int v: return ToDouble(v);
+                case uint v: return ToDouble(v);
+                case long v: return ToDouble(v);
+                case ulong v: return ToDouble(v);
+                case float v: return ToDouble(v);
+                case double v: return ToDouble(v);
+                case decimal v: return ToDouble(v);
+                case DateTime v: return ToDouble(v);
+                case Enum: return EnumIsNegative(value, out long signed, out ulong unsigned) ? ToDouble(signed) : ToDouble(unsigned);
+                case IConvertible v: return v.ToDouble(provider);
+                default: throw NotConvertible(value);
+            }
+        }
+
+        public static decimal ToDecimal(object value) => ToDecimal(value, null);
+
+        public static decimal ToDecimal(object value, IFormatProvider provider)
+        {
+            switch (value)
+            {
+                case null: return 0;
+                case string v: return ToDecimal(v, provider);
+                case bool v: return ToDecimal(v);
+                case char v: return ToDecimal(v);
+                case sbyte v: return ToDecimal(v);
+                case byte v: return ToDecimal(v);
+                case short v: return ToDecimal(v);
+                case ushort v: return ToDecimal(v);
+                case int v: return ToDecimal(v);
+                case uint v: return ToDecimal(v);
+                case long v: return ToDecimal(v);
+                case ulong v: return ToDecimal(v);
+                case float v: return ToDecimal(v);
+                case double v: return ToDecimal(v);
+                case decimal v: return ToDecimal(v);
+                case DateTime v: return ToDecimal(v);
+                case Enum: return EnumIsNegative(value, out long signed, out ulong unsigned) ? ToDecimal(signed) : ToDecimal(unsigned);
+                case IConvertible v: return v.ToDecimal(provider);
+                default: throw NotConvertible(value);
+            }
+        }
+
+        public static DateTime ToDateTime(object value) => ToDateTime(value, null);
+
+        public static DateTime ToDateTime(object value, IFormatProvider provider)
+        {
+            switch (value)
+            {
+                case null: return DateTime.MinValue;
+                case string v: return ToDateTime(v, provider);
+                case bool v: return ToDateTime(v);
+                case char v: return ToDateTime(v);
+                case sbyte v: return ToDateTime(v);
+                case byte v: return ToDateTime(v);
+                case short v: return ToDateTime(v);
+                case ushort v: return ToDateTime(v);
+                case int v: return ToDateTime(v);
+                case uint v: return ToDateTime(v);
+                case long v: return ToDateTime(v);
+                case ulong v: return ToDateTime(v);
+                case float v: return ToDateTime(v);
+                case double v: return ToDateTime(v);
+                case decimal v: return ToDateTime(v);
+                case DateTime v: return ToDateTime(v);
+                case Enum: throw new NotSupportedException("not supported by csharpc yet: Convert.ToDateTime of an enum value");
+                case IConvertible v: return v.ToDateTime(provider);
+                default: throw NotConvertible(value);
+            }
+        }
+
+        // A boxed enum's underlying value, from its "D" format (csharpc's enum boxes implement IFormattable only).
+        private static bool EnumIsNegative(object value, out long signed, out ulong unsigned)
+        {
+            string digits = ((IFormattable)value).ToString("D", CultureInfo.InvariantCulture);
+            signed = 0;
+            unsigned = 0;
+            if (digits.Length > 0 && digits[0] == '-')
+            {
+                signed = long.Parse(digits, NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture);
+                return true;
+            }
+            unsigned = ulong.Parse(digits, NumberStyles.None, CultureInfo.InvariantCulture);
+            return false;
+        }
+
+        private static InvalidCastException NotConvertible(object value) =>
+            new InvalidCastException("Unable to cast object of type '" + value.GetType().FullName + "' to type 'System.IConvertible'.");
+
+        public static TypeCode GetTypeCode(object value) => value switch
+        {
+            null => TypeCode.Empty,
+            bool => TypeCode.Boolean,
+            char => TypeCode.Char,
+            sbyte => TypeCode.SByte,
+            byte => TypeCode.Byte,
+            short => TypeCode.Int16,
+            ushort => TypeCode.UInt16,
+            int => TypeCode.Int32,
+            uint => TypeCode.UInt32,
+            long => TypeCode.Int64,
+            ulong => TypeCode.UInt64,
+            float => TypeCode.Single,
+            double => TypeCode.Double,
+            decimal => TypeCode.Decimal,
+            DateTime => TypeCode.DateTime,
+            string => TypeCode.String,
+            Enum => throw new NotSupportedException("not supported by csharpc yet: Convert.GetTypeCode of an enum value"),
+            IConvertible c => c.GetTypeCode(),
+            _ => TypeCode.Object,
+        };
+
+        // Convert.ChangeType, as .NET's (Convert.cs), with the conversions above in place of the IConvertible calls.
+        public static object ChangeType(object value, TypeCode typeCode) => ChangeType(value, typeCode, CultureInfo.CurrentCulture);
+
+        public static object ChangeType(object value, TypeCode typeCode, IFormatProvider provider)
+        {
+            if (value == null && (typeCode == TypeCode.Empty || typeCode == TypeCode.String || typeCode == TypeCode.Object))
+                return null;
+            if (!IsConvertible(value)) throw new InvalidCastException("Object must implement IConvertible.");
+            switch (typeCode)
+            {
+                case TypeCode.Boolean: return ToBoolean(value, provider);
+                case TypeCode.Char: return ToChar(value, provider);
+                case TypeCode.SByte: return ToSByte(value, provider);
+                case TypeCode.Byte: return ToByte(value, provider);
+                case TypeCode.Int16: return ToInt16(value, provider);
+                case TypeCode.UInt16: return ToUInt16(value, provider);
+                case TypeCode.Int32: return ToInt32(value, provider);
+                case TypeCode.UInt32: return ToUInt32(value, provider);
+                case TypeCode.Int64: return ToInt64(value, provider);
+                case TypeCode.UInt64: return ToUInt64(value, provider);
+                case TypeCode.Single: return ToSingle(value, provider);
+                case TypeCode.Double: return ToDouble(value, provider);
+                case TypeCode.Decimal: return ToDecimal(value, provider);
+                case TypeCode.DateTime: return ToDateTime(value, provider);
+                case TypeCode.String: return ToString(value, provider);
+                case TypeCode.Object: return value;
+                case TypeCode.DBNull: throw new InvalidCastException("Object cannot be cast to DBNull.");
+                case TypeCode.Empty: throw new InvalidCastException("Object cannot be cast to Empty.");
+                default: throw new ArgumentException("Unknown TypeCode value.");
+            }
+        }
+
+        public static object ChangeType(object value, Type conversionType) => ChangeType(value, conversionType, CultureInfo.CurrentCulture);
+
+        public static object ChangeType(object value, Type conversionType, IFormatProvider provider)
+        {
+            if (conversionType == null) throw new ArgumentNullException(nameof(conversionType));
+            if (value == null)
+            {
+                if (conversionType.IsValueType) throw new InvalidCastException("Null object cannot be converted to a value type.");
+                return null;
+            }
+            if (!IsConvertible(value))
+            {
+                if (value.GetType() == conversionType) return value;
+                throw new InvalidCastException("Object must implement IConvertible.");
+            }
+            if (conversionType == typeof(bool)) return ToBoolean(value, provider);
+            if (conversionType == typeof(char)) return ToChar(value, provider);
+            if (conversionType == typeof(sbyte)) return ToSByte(value, provider);
+            if (conversionType == typeof(byte)) return ToByte(value, provider);
+            if (conversionType == typeof(short)) return ToInt16(value, provider);
+            if (conversionType == typeof(ushort)) return ToUInt16(value, provider);
+            if (conversionType == typeof(int)) return ToInt32(value, provider);
+            if (conversionType == typeof(uint)) return ToUInt32(value, provider);
+            if (conversionType == typeof(long)) return ToInt64(value, provider);
+            if (conversionType == typeof(ulong)) return ToUInt64(value, provider);
+            if (conversionType == typeof(float)) return ToSingle(value, provider);
+            if (conversionType == typeof(double)) return ToDouble(value, provider);
+            if (conversionType == typeof(decimal)) return ToDecimal(value, provider);
+            if (conversionType == typeof(DateTime)) return ToDateTime(value, provider);
+            if (conversionType == typeof(string)) return ToString(value, provider);
+            if (conversionType == typeof(object)) return value;
+            if (conversionType == typeof(Enum)) return (Enum)value;
+            // IConvertible.ToType: the BCL's types (Convert.DefaultToType) return the value for its own type and
+            // fail for any other; a user IConvertible decides itself.
+            if (value.GetType() == conversionType) return value;
+            if (value is Enum) throw new NotSupportedException("not supported by csharpc yet: Convert.ChangeType of an enum value to '" + conversionType.FullName + "'");
+            if (value is IConvertible custom && !IsBuiltinConvertible(value)) return custom.ToType(conversionType, provider);
+            throw new InvalidCastException("Invalid cast from '" + value.GetType().FullName + "' to '" + conversionType.FullName + "'.");
+        }
+
+        private static bool IsBuiltinConvertible(object value) =>
+            value is bool or char or sbyte or byte or short or ushort or int or uint or long or ulong or float or double
+                or decimal or DateTime or string;
+
+        private static bool IsConvertible(object value) => IsBuiltinConvertible(value) || value is Enum || value is IConvertible;
 
         internal static void ThrowOverflow(string type)
         {

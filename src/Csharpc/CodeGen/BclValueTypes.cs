@@ -388,9 +388,9 @@ internal static partial class BclValueTypes
                 return default;
             };
         }
-        foreach (var target in new[] { "int", "long", "double" })
-            t[$"{D}.To{(target == "int" ? "Int32" : target == "long" ? "Int64" : "Double")}({D})"] = (g, m, _, a, at) =>
-                g.DecimalConvert(a[0], m.Parameters[0].Type, m.ReturnType, at);
+        // decimal.ToInt32(d) etc.: the explicit conversions (truncating, with .NET's OverflowException messages).
+        foreach (var target in new[] { "SByte", "Byte", "Int16", "UInt16", "Int32", "UInt32", "Int64", "UInt64", "Single", "Double" })
+            t[$"{D}.To{target}({D})"] = (g, m, _, a, at) => g.DecimalConvert(a[0], m.Parameters[0].Type, m.ReturnType, at);
 
         // ===== System.TimeSpan (i64 ticks) =====
         const string TS = "System.TimeSpan";

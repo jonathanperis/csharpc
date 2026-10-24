@@ -1,0 +1,280 @@
+ToInt32 String(42) = 42 (Int32)
+ToInt64 String(42) = 42 (Int64)
+ToByte String(42) = 42 (Byte)
+ToUInt64 String(42) = 42 (UInt64)
+ToDouble String(42) = 42 (Double)
+ToDecimal String(42) = 42 (Decimal)
+ToBoolean String(42) -> FormatException: String '42' was not recognized as a valid Boolean.
+ToChar String(42) -> FormatException: String must be exactly one character long.
+ToSingle String(42) = 42 (Single)
+ToInt16 String(42) = 42 (Int16)
+ToString String(42) = 42 (String)
+GetTypeCode String(42) = String (TypeCode)
+ToInt32 String( -7 ) = -7 (Int32)
+ToInt64 String( -7 ) = -7 (Int64)
+ToByte String( -7 ) -> OverflowException: Value was either too large or too small for an unsigned byte.
+ToUInt64 String( -7 ) -> OverflowException: Value was either too large or too small for a UInt64.
+ToDouble String( -7 ) = -7 (Double)
+ToDecimal String( -7 ) = -7 (Decimal)
+ToBoolean String( -7 ) -> FormatException: String ' -7 ' was not recognized as a valid Boolean.
+ToChar String( -7 ) -> FormatException: String must be exactly one character long.
+ToSingle String( -7 ) = -7 (Single)
+ToInt16 String( -7 ) = -7 (Int16)
+ToString String( -7 ) =  -7  (String)
+GetTypeCode String( -7 ) = String (TypeCode)
+ToInt32 Double(3.5) = 4 (Int32)
+ToInt64 Double(3.5) = 4 (Int64)
+ToByte Double(3.5) = 4 (Byte)
+ToUInt64 Double(3.5) = 4 (UInt64)
+ToDouble Double(3.5) = 3.5 (Double)
+ToDecimal Double(3.5) = 3.5 (Decimal)
+ToBoolean Double(3.5) = True (Boolean)
+ToChar Double(3.5) -> InvalidCastException: Invalid cast from 'Double' to 'Char'.
+ToSingle Double(3.5) = 3.5 (Single)
+ToInt16 Double(3.5) = 4 (Int16)
+ToString Double(3.5) = 3.5 (String)
+GetTypeCode Double(3.5) = Double (TypeCode)
+ToInt32 Single(2.5) = 2 (Int32)
+ToInt64 Single(2.5) = 2 (Int64)
+ToByte Single(2.5) = 2 (Byte)
+ToUInt64 Single(2.5) = 2 (UInt64)
+ToDouble Single(2.5) = 2.5 (Double)
+ToDecimal Single(2.5) = 2.5 (Decimal)
+ToBoolean Single(2.5) = True (Boolean)
+ToChar Single(2.5) -> InvalidCastException: Invalid cast from 'Single' to 'Char'.
+ToSingle Single(2.5) = 2.5 (Single)
+ToInt16 Single(2.5) = 2 (Int16)
+ToString Single(2.5) = 2.5 (String)
+GetTypeCode Single(2.5) = Single (TypeCode)
+ToInt32 Decimal(1234.5678) = 1235 (Int32)
+ToInt64 Decimal(1234.5678) = 1235 (Int64)
+ToByte Decimal(1234.5678) -> OverflowException: Value was either too large or too small for an unsigned byte.
+ToUInt64 Decimal(1234.5678) = 1235 (UInt64)
+ToDouble Decimal(1234.5678) = 1234.5678 (Double)
+ToDecimal Decimal(1234.5678) = 1234.5678 (Decimal)
+ToBoolean Decimal(1234.5678) = True (Boolean)
+ToChar Decimal(1234.5678) -> InvalidCastException: Invalid cast from 'Decimal' to 'Char'.
+ToSingle Decimal(1234.5678) = 1234.5677 (Single)
+ToInt16 Decimal(1234.5678) = 1235 (Int16)
+ToString Decimal(1234.5678) = 1234.5678 (String)
+GetTypeCode Decimal(1234.5678) = Decimal (TypeCode)
+ToInt32 Byte(200) = 200 (Int32)
+ToInt64 Byte(200) = 200 (Int64)
+ToByte Byte(200) = 200 (Byte)
+ToUInt64 Byte(200) = 200 (UInt64)
+ToDouble Byte(200) = 200 (Double)
+ToDecimal Byte(200) = 200 (Decimal)
+ToBoolean Byte(200) = True (Boolean)
+ToChar Byte(200) = U+00C8 (Char)
+ToSingle Byte(200) = 200 (Single)
+ToInt16 Byte(200) = 200 (Int16)
+ToString Byte(200) = 200 (String)
+GetTypeCode Byte(200) = Byte (TypeCode)
+ToInt32 SByte(-5) = -5 (Int32)
+ToInt64 SByte(-5) = -5 (Int64)
+ToByte SByte(-5) -> OverflowException: Value was either too large or too small for an unsigned byte.
+ToUInt64 SByte(-5) -> OverflowException: Value was either too large or too small for a UInt64.
+ToDouble SByte(-5) = -5 (Double)
+ToDecimal SByte(-5) = -5 (Decimal)
+ToBoolean SByte(-5) = True (Boolean)
+ToChar SByte(-5) -> OverflowException: Value was either too large or too small for a character.
+ToSingle SByte(-5) = -5 (Single)
+ToInt16 SByte(-5) = -5 (Int16)
+ToString SByte(-5) = -5 (String)
+GetTypeCode SByte(-5) = SByte (TypeCode)
+ToInt32 Int16(-300) = -300 (Int32)
+ToInt64 Int16(-300) = -300 (Int64)
+ToByte Int16(-300) -> OverflowException: Value was either too large or too small for an unsigned byte.
+ToUInt64 Int16(-300) -> OverflowException: Value was either too large or too small for a UInt64.
+ToDouble Int16(-300) = -300 (Double)
+ToDecimal Int16(-300) = -300 (Decimal)
+ToBoolean Int16(-300) = True (Boolean)
+ToChar Int16(-300) -> OverflowException: Value was either too large or too small for a character.
+ToSingle Int16(-300) = -300 (Single)
+ToInt16 Int16(-300) = -300 (Int16)
+ToString Int16(-300) = -300 (String)
+GetTypeCode Int16(-300) = Int16 (TypeCode)
+ToInt32 UInt16(65000) = 65000 (Int32)
+ToInt64 UInt16(65000) = 65000 (Int64)
+ToByte UInt16(65000) -> OverflowException: Value was either too large or too small for an unsigned byte.
+ToUInt64 UInt16(65000) = 65000 (UInt64)
+ToDouble UInt16(65000) = 65000 (Double)
+ToDecimal UInt16(65000) = 65000 (Decimal)
+ToBoolean UInt16(65000) = True (Boolean)
+ToChar UInt16(65000) = U+FDE8 (Char)
+ToSingle UInt16(65000) = 65000 (Single)
+ToInt16 UInt16(65000) -> OverflowException: Value was either too large or too small for an Int16.
+ToString UInt16(65000) = 65000 (String)
+GetTypeCode UInt16(65000) = UInt16 (TypeCode)
+ToInt32 UInt32(123) = 123 (Int32)
+ToInt64 UInt32(123) = 123 (Int64)
+ToByte UInt32(123) = 123 (Byte)
+ToUInt64 UInt32(123) = 123 (UInt64)
+ToDouble UInt32(123) = 123 (Double)
+ToDecimal UInt32(123) = 123 (Decimal)
+ToBoolean UInt32(123) = True (Boolean)
+ToChar UInt32(123) = U+007B (Char)
+ToSingle UInt32(123) = 123 (Single)
+ToInt16 UInt32(123) = 123 (Int16)
+ToString UInt32(123) = 123 (String)
+GetTypeCode UInt32(123) = UInt32 (TypeCode)
+ToInt32 Int64(-9) = -9 (Int32)
+ToInt64 Int64(-9) = -9 (Int64)
+ToByte Int64(-9) -> OverflowException: Value was either too large or too small for an unsigned byte.
+ToUInt64 Int64(-9) -> OverflowException: Value was either too large or too small for a UInt64.
+ToDouble Int64(-9) = -9 (Double)
+ToDecimal Int64(-9) = -9 (Decimal)
+ToBoolean Int64(-9) = True (Boolean)
+ToChar Int64(-9) -> OverflowException: Value was either too large or too small for a character.
+ToSingle Int64(-9) = -9 (Single)
+ToInt16 Int64(-9) = -9 (Int16)
+ToString Int64(-9) = -9 (String)
+GetTypeCode Int64(-9) = Int64 (TypeCode)
+ToInt32 UInt64(18446744073709551615) -> OverflowException: Value was either too large or too small for an Int32.
+ToInt64 UInt64(18446744073709551615) -> OverflowException: Value was either too large or too small for an Int64.
+ToByte UInt64(18446744073709551615) -> OverflowException: Value was either too large or too small for an unsigned byte.
+ToUInt64 UInt64(18446744073709551615) = 18446744073709551615 (UInt64)
+ToDouble UInt64(18446744073709551615) = 1.8446744073709552E+19 (Double)
+ToDecimal UInt64(18446744073709551615) = 18446744073709551615 (Decimal)
+ToBoolean UInt64(18446744073709551615) = True (Boolean)
+ToChar UInt64(18446744073709551615) -> OverflowException: Value was either too large or too small for a character.
+ToSingle UInt64(18446744073709551615) = 1.8446744E+19 (Single)
+ToInt16 UInt64(18446744073709551615) -> OverflowException: Value was either too large or too small for an Int16.
+ToString UInt64(18446744073709551615) = 18446744073709551615 (String)
+GetTypeCode UInt64(18446744073709551615) = UInt64 (TypeCode)
+ToInt32 Boolean(True) = 1 (Int32)
+ToInt64 Boolean(True) = 1 (Int64)
+ToByte Boolean(True) = 1 (Byte)
+ToUInt64 Boolean(True) = 1 (UInt64)
+ToDouble Boolean(True) = 1 (Double)
+ToDecimal Boolean(True) = 1 (Decimal)
+ToBoolean Boolean(True) = True (Boolean)
+ToChar Boolean(True) -> InvalidCastException: Invalid cast from 'Boolean' to 'Char'.
+ToSingle Boolean(True) = 1 (Single)
+ToInt16 Boolean(True) = 1 (Int16)
+ToString Boolean(True) = True (String)
+GetTypeCode Boolean(True) = Boolean (TypeCode)
+ToInt32 Char(A) = 65 (Int32)
+ToInt64 Char(A) = 65 (Int64)
+ToByte Char(A) = 65 (Byte)
+ToUInt64 Char(A) = 65 (UInt64)
+ToDouble Char(A) -> InvalidCastException: Invalid cast from 'Char' to 'Double'.
+ToDecimal Char(A) -> InvalidCastException: Invalid cast from 'Char' to 'Decimal'.
+ToBoolean Char(A) -> InvalidCastException: Invalid cast from 'Char' to 'Boolean'.
+ToChar Char(A) = U+0041 (Char)
+ToSingle Char(A) -> InvalidCastException: Invalid cast from 'Char' to 'Single'.
+ToInt16 Char(A) = 65 (Int16)
+ToString Char(A) = A (String)
+GetTypeCode Char(A) = Char (TypeCode)
+ToInt32 DateTime(01/02/2020 03:04:05) -> InvalidCastException: Invalid cast from 'DateTime' to 'Int32'.
+ToInt64 DateTime(01/02/2020 03:04:05) -> InvalidCastException: Invalid cast from 'DateTime' to 'Int64'.
+ToByte DateTime(01/02/2020 03:04:05) -> InvalidCastException: Invalid cast from 'DateTime' to 'Byte'.
+ToUInt64 DateTime(01/02/2020 03:04:05) -> InvalidCastException: Invalid cast from 'DateTime' to 'UInt64'.
+ToDouble DateTime(01/02/2020 03:04:05) -> InvalidCastException: Invalid cast from 'DateTime' to 'Double'.
+ToDecimal DateTime(01/02/2020 03:04:05) -> InvalidCastException: Invalid cast from 'DateTime' to 'Decimal'.
+ToBoolean DateTime(01/02/2020 03:04:05) -> InvalidCastException: Invalid cast from 'DateTime' to 'Boolean'.
+ToChar DateTime(01/02/2020 03:04:05) -> InvalidCastException: Invalid cast from 'DateTime' to 'Char'.
+ToSingle DateTime(01/02/2020 03:04:05) -> InvalidCastException: Invalid cast from 'DateTime' to 'Single'.
+ToInt16 DateTime(01/02/2020 03:04:05) -> InvalidCastException: Invalid cast from 'DateTime' to 'Int16'.
+ToString DateTime(01/02/2020 03:04:05) = 01/02/2020 03:04:05 (String)
+GetTypeCode DateTime(01/02/2020 03:04:05) = DateTime (TypeCode)
+ToInt32 Level(Low) = -3 (Int32)
+ToInt64 Level(Low) = -3 (Int64)
+ToByte Level(Low) -> OverflowException: Value was either too large or too small for an unsigned byte.
+ToUInt64 Level(Low) -> OverflowException: Value was either too large or too small for a UInt64.
+ToDouble Level(Low) = -3 (Double)
+ToDecimal Level(Low) = -3 (Decimal)
+ToBoolean Level(Low) = True (Boolean)
+ToChar Level(Low) -> OverflowException: Value was either too large or too small for a character.
+ToSingle Level(Low) = -3 (Single)
+ToInt16 Level(Low) = -3 (Int16)
+ToString Level(Low) = Low (String)
+ToInt32 Level(High) = 300 (Int32)
+ToInt64 Level(High) = 300 (Int64)
+ToByte Level(High) -> OverflowException: Value was either too large or too small for an unsigned byte.
+ToUInt64 Level(High) = 300 (UInt64)
+ToDouble Level(High) = 300 (Double)
+ToDecimal Level(High) = 300 (Decimal)
+ToBoolean Level(High) = True (Boolean)
+ToChar Level(High) = U+012C (Char)
+ToSingle Level(High) = 300 (Single)
+ToInt16 Level(High) = 300 (Int16)
+ToString Level(High) = High (String)
+ToInt32 Big(Max) -> OverflowException: Value was either too large or too small for an Int32.
+ToInt64 Big(Max) -> OverflowException: Value was either too large or too small for an Int64.
+ToByte Big(Max) -> OverflowException: Value was either too large or too small for an unsigned byte.
+ToUInt64 Big(Max) = 18446744073709551615 (UInt64)
+ToDouble Big(Max) = 1.8446744073709552E+19 (Double)
+ToDecimal Big(Max) = 18446744073709551615 (Decimal)
+ToBoolean Big(Max) = True (Boolean)
+ToChar Big(Max) -> OverflowException: Value was either too large or too small for a character.
+ToSingle Big(Max) = 1.8446744E+19 (Single)
+ToInt16 Big(Max) -> OverflowException: Value was either too large or too small for an Int16.
+ToString Big(Max) = Max (String)
+ToInt32 Meters(2.6 m) = 3 (Int32)
+ToInt64 Meters(2.6 m) = 2 (Int64)
+ToByte Meters(2.6 m) = 2 (Byte)
+ToUInt64 Meters(2.6 m) = 2 (UInt64)
+ToDouble Meters(2.6 m) = 2.6 (Double)
+ToDecimal Meters(2.6 m) = 2.6000000000000000888178419700 (Decimal)
+ToBoolean Meters(2.6 m) = True (Boolean)
+ToChar Meters(2.6 m) = U+006D (Char)
+ToSingle Meters(2.6 m) = 2.6 (Single)
+ToInt16 Meters(2.6 m) = 2 (Int16)
+ToString Meters(2.6 m) = 2.6 m (String)
+GetTypeCode Meters(2.6 m) = Object (TypeCode)
+ToInt32 TimeSpan(00:00:01) -> InvalidCastException: Unable to cast object of type 'System.TimeSpan' to type 'System.IConvertible'.
+ToInt64 TimeSpan(00:00:01) -> InvalidCastException: Unable to cast object of type 'System.TimeSpan' to type 'System.IConvertible'.
+ToByte TimeSpan(00:00:01) -> InvalidCastException: Unable to cast object of type 'System.TimeSpan' to type 'System.IConvertible'.
+ToUInt64 TimeSpan(00:00:01) -> InvalidCastException: Unable to cast object of type 'System.TimeSpan' to type 'System.IConvertible'.
+ToDouble TimeSpan(00:00:01) -> InvalidCastException: Unable to cast object of type 'System.TimeSpan' to type 'System.IConvertible'.
+ToDecimal TimeSpan(00:00:01) -> InvalidCastException: Unable to cast object of type 'System.TimeSpan' to type 'System.IConvertible'.
+ToBoolean TimeSpan(00:00:01) -> InvalidCastException: Unable to cast object of type 'System.TimeSpan' to type 'System.IConvertible'.
+ToChar TimeSpan(00:00:01) -> InvalidCastException: Unable to cast object of type 'System.TimeSpan' to type 'System.IConvertible'.
+ToSingle TimeSpan(00:00:01) -> InvalidCastException: Unable to cast object of type 'System.TimeSpan' to type 'System.IConvertible'.
+ToInt16 TimeSpan(00:00:01) -> InvalidCastException: Unable to cast object of type 'System.TimeSpan' to type 'System.IConvertible'.
+ToString TimeSpan(00:00:01) = 00:00:01 (String)
+GetTypeCode TimeSpan(00:00:01) = Object (TypeCode)
+ToInt32 null = 0 (Int32)
+ToInt64 null = 0 (Int64)
+ToByte null = 0 (Byte)
+ToUInt64 null = 0 (UInt64)
+ToDouble null = 0 (Double)
+ToDecimal null = 0 (Decimal)
+ToBoolean null = False (Boolean)
+ToChar null = U+0000 (Char)
+ToSingle null = 0 (Single)
+ToInt16 null = 0 (Int16)
+ToString null =  (String)
+GetTypeCode null = Empty (TypeCode)
+ToDateTime string = 2021-03-04T00:00:00 (String)
+ToDateTime int -> InvalidCastException: Invalid cast from 'Int32' to 'DateTime'.
+ToBoolean string = True (Boolean)
+ToBoolean bad -> FormatException: String 'yes' was not recognized as a valid Boolean.
+ChangeType string->double = 3.25 (Double)
+ChangeType double->int = 4 (Int32)
+ChangeType int->string = 17 (String)
+ChangeType int->decimal = 17 (Decimal)
+ChangeType long->byte overflow -> OverflowException: Value was either too large or too small for an unsigned byte.
+ChangeType enum->int = 300 (Int32)
+ChangeType int->object = 5 (Int32)
+ChangeType int->int = 5 (Int32)
+ChangeType int->enum -> InvalidCastException: Invalid cast from 'System.Int32' to 'Level'.
+ChangeType int->int? -> InvalidCastException: Invalid cast from 'System.Int32' to 'System.Nullable`1[[System.Int32, System.Private.CoreLib, Version=11.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e]]'.
+ChangeType null->int -> InvalidCastException: Null object cannot be converted to a value type.
+ChangeType null->string = null (-)
+ChangeType null type -> ArgumentNullException: Value cannot be null. (Parameter 'conversionType')
+ChangeType TimeSpan->TimeSpan = 00:00:00 (TimeSpan)
+ChangeType TimeSpan->int -> InvalidCastException: Object must implement IConvertible.
+ChangeType Meters->TimeSpan = 00:01:30 (TimeSpan)
+ChangeType Meters->Guid -> InvalidCastException: to Guid
+ChangeType Meters->int = 90 (Int32)
+ChangeType TypeCode.Int16 = 12 (Int16)
+ChangeType TypeCode.String = 1.5 (String)
+ChangeType TypeCode.Object = 1.5 (Double)
+ChangeType TypeCode.Empty -> InvalidCastException: Object cannot be cast to Empty.
+ChangeType TypeCode.DBNull -> InvalidCastException: Object cannot be cast to DBNull.
+ChangeType null TypeCode.Int32 -> InvalidCastException: Object must implement IConvertible.
+ChangeType null TypeCode.String = null (-)
+ChangeType TypeCode 17 -> ArgumentException: Unknown TypeCode value.
+ChangeType TimeSpan TypeCode.Int32 -> InvalidCastException: Object must implement IConvertible.
