@@ -160,10 +160,12 @@ public sealed partial class ModuleCodeGen
             });
 
         // 2. Method bodies of non-generic code; generic instantiations are queued as they're referenced.
-        foreach (var type in _userTypes.Where(t => t.TypeKind is TypeKind.Class or TypeKind.Interface or TypeKind.Struct or TypeKind.Extension
-                     && !TypeSubstitution.IsGenericContext(t)))
-            foreach (var method in type.GetMembers().OfType<IMethodSymbol>().Where(m => !m.IsGenericMethod))
-                Guard(method, () => EmitMethod(method));
+        var userMethods = _userTypes.Where(t => t.TypeKind is TypeKind.Class or TypeKind.Interface or TypeKind.Struct or TypeKind.Extension
+                && !TypeSubstitution.IsGenericContext(t))
+            .SelectMany(t => t.GetMembers().OfType<IMethodSymbol>().Where(m => !m.IsGenericMethod)).ToList();
+        foreach (var method in userMethods) PrefetchCfg(method);
+        foreach (var method in userMethods)
+            Guard(method, () => EmitMethod(method));
         if (IlSurvey) QueueIlSurveyMethods();
 
         DrainWorklists();
@@ -284,6 +286,7 @@ public sealed partial class ModuleCodeGen
         // Generic instantiations, corelib and IL methods are lowered on demand, when first referenced.
         if ((generic || CoreLib.IsCoreLib(method) || IsIlMethod(method)) && IsUserMethod(method) && !method.IsAbstract && !method.IsExtern)
             _pendingInstantiations.Enqueue(method);
+            PrefetchCfg(method);
         return _functions[method] = new LoweredFunction(fn, type);
     }
 
@@ -599,7 +602,7 @@ public sealed partial class ModuleCodeGen
             case MethodDeclarationSyntax or ConstructorDeclarationSyntax or AccessorDeclarationSyntax
                 or ArrowExpressionClauseSyntax or CompilationUnitSyntax or OperatorDeclarationSyntax
                 or ConversionOperatorDeclarationSyntax:
-                var cfg = ControlFlowGraph.Create(syntax, ModelFor(syntax.SyntaxTree))
+                var cfg = TakePrefetchedCfg(syntax) ?? ControlFlowGraph.Create(syntax, ModelFor(syntax.SyntaxTree))
                     ?? throw CompileError.Unsupported("method without a body", method);
                 Dump(method, cfg);
                 gen.Emit(prologue, cfg);
