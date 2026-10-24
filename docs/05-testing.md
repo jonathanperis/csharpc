@@ -139,3 +139,7 @@ Guidelines:
   compiler error (exit 70, `<output>.invalid.ll` written for inspection).
 - `--dump-cfg` and `--emit llvm-ir` (at `-O0` and `-O2`) are the main debugging tools. When libLLVM
   crashes, use `CSHARPC_TRACE=1` and `gdb` ([07-spike-log.md](07-spike-log.md)).
+- `tests/size.sh` compiles the small programs in `tests/size/` with the default options and fails when
+  one exceeds its budget in `tests/size/budgets.txt` (per platform; size + ~3 %). Being smaller than
+  .NET is part of the standing goal ([06-roadmap.md](06-roadmap.md)), so a size regression is a test
+  failure. Platforms without budgets print the sizes (`tests/size.sh --print` gives budget lines).

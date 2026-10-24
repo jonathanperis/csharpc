@@ -40,6 +40,7 @@ tests/programs.sh              # larger real-world programs
 tests/projects.sh              # .csproj input and dotnet build/run/publish integration
 tests/il.sh                    # libraries consumed only as DLLs / NuGet packages (IL front-end)
 tests/debuginfo.sh             # gdb-driven debug-info checks
+tests/size.sh                  # binary-size budgets (a size regression is a failure)
 benchmarks/run.sh              # csharpc vs .NET JIT vs NativeAOT (Markdown table)
 CSHARPC_TEST_TARGET=wasm32-wasip1 tests/run.sh 40_try   # any suite, compiled for WebAssembly, run under wasmtime
 ```

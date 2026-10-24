@@ -1187,8 +1187,11 @@ public sealed partial class ModuleCodeGen
         SpecialType[] primitives = [SpecialType.System_Int32, SpecialType.System_Int64, SpecialType.System_Double, SpecialType.System_Boolean,
             SpecialType.System_Char, SpecialType.System_Single, SpecialType.System_Int16, SpecialType.System_UInt16, SpecialType.System_UInt32,
             SpecialType.System_UInt64, SpecialType.System_Byte, SpecialType.System_SByte];
-        // Method-table globals are only referenced for registrations that happen: referencing one is what
-        // triggers the corelib's runtime exports for that type (ModuleCodeGen.RuntimeExports.cs).
+        // Method tables are declared only for a builtin that implements one of the program's interfaces:
+        // a declared boxed table counts as used for the Type metadata (ModuleCodeGen.TypeInfo.cs), and its
+        // vtable would link that primitive's formatting code.
+        // Registering doesn't box anything either: it doesn't count as a reference that triggers the
+        // corelib's runtime exports for that type (ModuleCodeGen.RuntimeExports.cs).
         var builtins = new List<(ITypeSymbol Type, string MT)> { (Compilation.GetSpecialType(SpecialType.System_String), "csrt_String_MT") };
         foreach (var sp in primitives) builtins.Add((Compilation.GetSpecialType(sp), $"csrt_Boxed_{Compilation.GetSpecialType(sp).MetadataName}_MT"));
         foreach (var itf in _interfaceTables.Keys.ToList())
