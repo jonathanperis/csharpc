@@ -484,14 +484,19 @@ logger), file-system watching for configuration reload (`FileSystemWatcher`, `Fi
 configured awaiters). Beyond compiling: Kestrel's socket transport needs `Socket.ReceiveAsync`/
 `SendAsync` with `SocketAsyncEventArgs` on an epoll engine (csharpc's sockets are synchronous today).
 
-NativeAOT baseline (`TechEmpower` workflow, GitHub `ubuntu-24.04` runner, 4 vCPUs shared by server and
-wrk, 2026-10-24; runs vary by ±20 % between runners):
+NativeAOT baseline (`TechEmpower` workflow, three runs on GitHub `ubuntu-24.04` runners, 4 vCPUs shared by
+server and wrk, 2026-10-24; runners differ by up to 40 %, so compare builds within one run):
 
 | | NativeAOT | JIT |
 |---|---:|---:|
-| plaintext, 256 connections, pipeline 16 | 555 000–754 000 req/s | 704 000–972 000 req/s |
-| plaintext, 1024 connections, pipeline 16 | 537 000–655 000 req/s | 646 000–841 000 req/s |
-| JSON, 16 / 64 / 256 connections | 101 000 / 116 000 / 119 000 req/s (p99 0.3 / 1.3 / 4.1 ms) | 105 000 / 124 000 / 127 000 req/s |
+| plaintext, 256 connections, pipeline 16 | 529 000–754 000 req/s | 693 000–972 000 req/s |
+| plaintext, 1024 connections, pipeline 16 | 475 000–655 000 req/s | 640 000–841 000 req/s |
+| JSON, 16 connections | 68 000–101 000 req/s (p99 0.3–0.5 ms) | 75 000–105 000 req/s |
+| JSON, 64 connections | 83 000–116 000 req/s (p99 1.3–1.9 ms) | 92 000–124 000 req/s |
+| JSON, 256 connections | 86 000–119 000 req/s (p99 4.1–5.4 ms) | 97 000–127 000 req/s |
 | peak RSS, idle → after load | 17 → 65 MiB | 54 → 140 MiB |
 | executable | 8.9 MiB | (framework-dependent) |
-| start-up to the first response | 23–27 ms | 125–152 ms |
+| start-up to the first response | 23–27 ms | 125–156 ms |
+
+On these shared runners the JIT is ahead of NativeAOT by 5–30 % on throughput; NativeAOT starts 5x
+faster and uses half the memory.
