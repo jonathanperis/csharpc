@@ -280,16 +280,33 @@ public sealed partial class ModuleCodeGen
                     var member = implemented.GetMembers(definition.Name).OfType<IMethodSymbol>()
                         .FirstOrDefault(m => SymbolEqualityComparer.Default.Equals(m.OriginalDefinition, definition));
                     if (member is not null && type.FindImplementationForInterfaceMember(member) is IMethodSymbol implementation)
+                    {
                         yield return implementation;
+                        // The implementing method may be a virtual of a base class that `type` (or a class
+                        // derived from it) overrides: the interface call dispatches to the override.
+                        if (implementation.IsVirtual || implementation.IsAbstract || implementation.IsOverride)
+                            foreach (var overrider in ClassOverrides(implementation)) yield return overrider;
+                    }
                 }
             yield break;
         }
-        var root = ClassLayout.RootOf(definition);
-        foreach (var type in HierarchyTypes)
-            foreach (var m in type.GetMembers(definition.Name).OfType<IMethodSymbol>())
-                if ((m.IsVirtual || m.IsOverride) && SymbolEqualityComparer.Default.Equals(ClassLayout.RootOf(m), root))
-                    yield return m;
+        foreach (var overrider in ClassOverrides(definition)) yield return overrider;
     }
+
+    /// <summary>Every method of the hierarchy that fills <paramref name="definition"/>'s vtable slot.</summary>
+    private List<IMethodSymbol> ClassOverrides(IMethodSymbol definition)
+    {
+        var root = ClassLayout.RootOf(definition.OriginalDefinition);
+        if (_classOverrides.TryGetValue(root, out var known)) return known;
+        var found = new List<IMethodSymbol>();
+        foreach (var type in HierarchyTypes)
+            foreach (var m in type.GetMembers(root.Name).OfType<IMethodSymbol>())
+                if ((m.IsVirtual || m.IsOverride) && SymbolEqualityComparer.Default.Equals(ClassLayout.RootOf(m), root))
+                    found.Add(m);
+        return _classOverrides[root] = found;
+    }
+
+    private readonly Dictionary<IMethodSymbol, List<IMethodSymbol>> _classOverrides = new(SymbolEqualityComparer.Default);
 
     /// <summary>beforefieldinit: the type's initializer runs on first static field access, not on first use (ECMA-335 II.10.5.3.3).</summary>
     private bool IlBeforeFieldInit(INamedTypeSymbol type) =>
