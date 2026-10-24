@@ -27,6 +27,30 @@ public sealed partial class ModuleCodeGen
         return global;
     }
 
+    private readonly List<(ITypeSymbol Type, string MT, INamedTypeSymbol Itf)> _bclBoxRegistrations = [];
+    private LLVMValueRef _bclBoxRegister;
+
+    /// <summary>
+    /// Registers the boxed decimal/DateTime/TimeSpan method tables for the program's interfaces, from the
+    /// function main calls first (EmitNativeMain), once the program boxes that type; true if it added any.
+    /// </summary>
+    private bool EmitDeferredBclBoxRegistrations()
+    {
+        var any = false;
+        for (var i = _bclBoxRegistrations.Count - 1; i >= 0; i--)
+        {
+            var (type, mt, itf) = _bclBoxRegistrations[i];
+            if (!_globals.TryGetValue(mt, out var table) || _registrationOnlyGlobals.Contains(mt)) continue;
+            _bclBoxRegistrations.RemoveAt(i);
+            using var b = new IrBuilder(Llvm);
+            b.PositionBefore(Native.LLVMGetBasicBlockTerminator(Native.LLVMGetFirstBasicBlock(_bclBoxRegister)));
+            var register = Runtime("csrt_register_builtin_interface", Llvm.Void, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr);
+            b.Call(register.Type, register.Fn, [table, InterfaceMethodTable(itf), DeferredPrimitiveInterfaceSlots(type, itf, mt)]);
+            any = true;
+        }
+        return any;
+    }
+
     /// <summary>Fills the slot tables of primitives the program boxes; true if it compiled anything.</summary>
     private bool EmitDeferredPrimitiveSlots()
     {
