@@ -9,7 +9,9 @@ on:
   schedule:
     - cron: "0 6 * * 1" # Mondays 06:00 UTC
   push:
-    branches: [main]
+    # ci/** is the measurement-branch namespace (docs/20-status.md). A push still has to touch
+    # src, benchmarks, or this file, same as main.
+    branches: [main, "ci/**"]
     paths: ["src/**", "benchmarks/**", ".github/workflows/bench.yml"]
 
 permissions:
@@ -39,7 +41,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Install LLVM 18, clang, valgrind and NativeAOT prerequisites
-        run: sudo apt-get update && sudo apt-get install -y llvm-18 clang-18 libllvm18 lld-18 valgrind zlib1g-dev && sudo ln -sf /usr/bin/clang-18 /usr/local/bin/clang && sudo ln -sf /usr/bin/ld.lld-18 /usr/local/bin/ld.lld
+        run: sudo apt-get update && sudo apt-get install -y llvm-18 clang-18 libllvm18 lld-18 valgrind zlib1g-dev time && sudo ln -sf /usr/bin/clang-18 /usr/local/bin/clang && sudo ln -sf /usr/bin/ld.lld-18 /usr/local/bin/ld.lld
 
       - name: Install .NET 11 SDK
         run: |
@@ -67,9 +69,15 @@ jobs:
           benchmarks/instructions.sh | tee instructions.md
           { echo "## Executed instructions, csharpc -O2 (${{ matrix.arch }})"; cat instructions.md; } >> "$GITHUB_STEP_SUMMARY"
 
+      - name: GC throughput, pauses and RSS
+        run: |
+          GC_BENCH_RUNS=3 benchmarks/gc/gc.sh | tee gc.md
+          { echo "## GC latency (${{ matrix.arch }})"; cat gc.md; } >> "$GITHUB_STEP_SUMMARY"
+
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: bench-${{ matrix.arch }}
           path: |
             bench.md
             instructions.md
+            gc.md
