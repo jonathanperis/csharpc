@@ -38,10 +38,9 @@ public sealed partial class ModuleCodeGen
     }
 
     /// <summary>
-    /// Explicit layouts (overlapping [FieldOffset] fields, unions), Pack and Size change where fields
-    /// live in memory, which unsafe code, sizeof and P/Invoke observe; csharpc lays fields out
-    /// sequentially, so such a type would silently get a different layout. (Field-access aliasing
-    /// facts for LLVM, MemoryFacts.cs, also assume fields never overlap.)
+    /// Classes with explicit layouts ([FieldOffset] fields), Pack or Size: they change where fields live
+    /// in memory, which unsafe code and P/Invoke observe; csharpc lays class fields out sequentially, so
+    /// such a type would silently get a different layout. (Structs: BuildStructLayout.)
     /// </summary>
     internal static void RejectCustomLayout(INamedTypeSymbol type)
     {
@@ -106,7 +105,7 @@ public sealed partial class ModuleCodeGen
         // every field is the first element, which has the largest field's type; fields are read and
         // written through their address with their own type, and struct fields share one TBAA tag
         // (MemoryFacts), so LLVM treats the overlapping accesses as aliasing.
-        if (custom is { Explicit: true, Pack: 0 } && Il.OwnerOf(type) is not null && InstanceFields(type).ToList() is { Count: >= 2 } unionFields
+        if (custom is { Explicit: true, Pack: 0 } && InstanceFields(type).ToList() is { Count: >= 2 } unionFields
             && unionFields.All(f => custom.Offsets.TryGetValue(f, out var o) && o == 0 && Optimizations.HoldsNoReferences(f.Type)))
         {
             var largest = unionFields.Select(FieldStorage).OrderByDescending(t => Types.Target.SizeOf(t)).ThenByDescending(t => Types.Target.AlignOf(t)).First();
@@ -120,6 +119,40 @@ public sealed partial class ModuleCodeGen
             }
             LlvmContext.SetBody(unionLayout.LlvmType, [largest]);
             return unionLayout;
+        }
+
+        // Explicit offsets that don't overlap (`[FieldOffset(0)] int A; [FieldOffset(8)] long B;`): the
+        // fields in offset order with byte padding between them (and up to Size), checked against LLVM's
+        // layout of the result; a field LLVM would align differently (an int at offset 2) is refused.
+        if (custom is { Explicit: true, Pack: 0 } && InstanceFields(type).ToList() is { Count: > 0 } explicitFields
+            && explicitFields.All(f => custom.Offsets.ContainsKey(f) && !f.IsFixedSizeBuffer))
+        {
+            var explicitLayout = new StructLayout { Type = type, LlvmType = Llvm.NamedStruct("struct." + Mangler.MetadataName(type)) };
+            _structs[type] = explicitLayout; // field types may mention other structs
+            List<LLVMTypeRef> parts = [];
+            List<(IFieldSymbol Field, int Offset)> placed = [];
+            ulong end = 0, align = 1;
+            foreach (var f in explicitFields.OrderBy(f => custom.Offsets[f]))
+            {
+                var offset = (ulong)custom.Offsets[f];
+                if (offset < end) throw custom.Rejection; // overlapping fields that aren't a union of primitives
+                if (offset > end) parts.Add(LlvmContext.Array(Llvm.I8, (uint)(offset - end)));
+                var storage = FieldStorage(f);
+                explicitLayout.FieldIndex[f] = (uint)parts.Count;
+                explicitLayout.FieldIndex[f.OriginalDefinition] = (uint)parts.Count;
+                placed.Add((f, (int)offset));
+                parts.Add(storage);
+                end = offset + Types.Target.SizeOf(storage);
+                align = Math.Max(align, Types.Target.AlignOf(storage));
+            }
+            // The CLR rounds an explicit layout up to its largest field's alignment; a larger Size adds bytes.
+            var size = Math.Max((end + align - 1) / align * align, (ulong)custom.Size);
+            if (size > end) parts.Add(LlvmContext.Array(Llvm.I8, (uint)(size - end)));
+            LlvmContext.SetBody(explicitLayout.LlvmType, [.. parts]);
+            if (Types.Target.SizeOf(explicitLayout.LlvmType) != size
+                || placed.Any(p => Types.Target.OffsetOf(explicitLayout.LlvmType, explicitLayout.FieldIndex[p.Field]) != (ulong)p.Offset))
+                throw custom.Rejection;
+            return explicitLayout;
         }
 
         var layout = new StructLayout { Type = type, LlvmType = Llvm.NamedStruct("struct." + Mangler.MetadataName(type)) };

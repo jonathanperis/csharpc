@@ -1,0 +1,11 @@
+MyUnion: size 8, d = 1.5, i = 0x00000000
+after i = 0: d = 1.5, bits 0x3FF8000000000000
+Bytes: size 4, low byte 0x44, low short 0x3344
+Bytes after Low = 0xFF: 0x112233FF
+copies are values: 0x112233FF 0x00000001
+Gapped: size 24 = 24, A at 0, B at 8, C at 20
+Gapped values: 7 0x0102030405060708 3
+Sized: size 32
+array: 3 1 2 3
+boxed: 2 Gapped
+by value: 0
