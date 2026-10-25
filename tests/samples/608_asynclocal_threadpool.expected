@@ -1,0 +1,14 @@
+0 null
+inner sees 1 main
+inner after await 99 inner
+caller keeps 1 main
+Task.Run sees 1
+thread sees 1, main still 1
+QueueUserWorkItem sees 2
+UnsafeQueueUserWorkItem sees 0
+state-2
+work item sees 0
+callBack
+callBack
+fr-FR 3 1.5
+0 fr-FR

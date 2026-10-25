@@ -510,6 +510,13 @@ void csrt_queue_action(void* action) {
     enqueue(K_INVOKE, action, NULL);
 }
 
+/// ThreadPool.QueueUserWorkItem (flowContext: with the caller's execution-context flow) and
+/// UnsafeQueueUserWorkItem (without it): the corelib wraps the work in an Action.
+void csrt_pool_queue_action(void* action, bool flowContext) {
+    if (!action) csrt_throw_null_reference();
+    enqueue_flow(K_INVOKE, action, NULL, flowContext ? csrt_tl_flow : NULL);
+}
+
 /// `await Task.Yield()`: resume on the pool, after work already queued.
 void csrt_async_yield(void* frame) { enqueue(K_RESUME, frame, NULL); }
 
