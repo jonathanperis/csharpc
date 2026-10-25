@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main, m8-perf]
+    branches: [main]
   pull_request:
   workflow_dispatch:
 
