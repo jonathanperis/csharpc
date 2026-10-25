@@ -122,7 +122,7 @@ jobs:
           # Never push test/dryrun versions (nuget.org cannot delete packages, only unlist).
           publish_nuget_org=false
           if [[ $should_publish == true && -n ${NUGET_USER} ]]; then
-            if [[ $version == *test* || $version == *dryrun* || $channel == branch-dry-run || $channel == dispatch ]]; then
+            if [[ $version == *test* || $version == *dryrun* || $channel == dispatch ]]; then
               echo "nuget.org: skipping version '$version' (test/dry-run; not deletable on nuget.org)"
             else
               publish_nuget_org=true
