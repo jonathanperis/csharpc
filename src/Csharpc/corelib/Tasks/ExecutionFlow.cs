@@ -117,37 +117,56 @@ namespace CsharpcCoreLib
     public static unsafe class ThreadPoolImpl
     {
         [DllImport("__Internal", EntryPoint = "csrt_pool_queue_action")]
-        private static extern void QueueAction(IntPtr action, int flowContext);
+        private static extern void QueueAction(IntPtr action, int flowContext);  // int: P/Invoke's bool is a 4-byte BOOL
+
+        // A one-argument delegate and its (reference) argument, queued as they are: Kestrel and
+        // System.IO.Pipelines queue an IThreadPoolWorkItem or an Action<object> with its state for
+        // every I/O completion, and wrapping them in a closure allocated two objects each time.
+        [DllImport("__Internal", EntryPoint = "csrt_pool_queue_state")]
+        private static extern void QueueState(IntPtr action, IntPtr state, int flowContext);
+
+        private static Action<IThreadPoolWorkItem> s_execute;
 
         private static void Queue(Action action, bool flowContext) => QueueAction(CoreIntrinsics.ObjectToPointer(action), flowContext ? 1 : 0);
+
+        private static void Queue<TState>(Action<TState> callBack, TState state, bool flowContext)
+        {
+            if (CoreIntrinsics.IsValueType<TState>()) QueueClosure(callBack, state, flowContext);
+            else QueueState(CoreIntrinsics.ObjectToPointer(callBack), CoreIntrinsics.ObjectToPointer(state), flowContext ? 1 : 0);
+        }
+
+        // A separate method: C# allocates a lambda's closure where its captured parameters come into scope,
+        // so a lambda in Queue<TState> allocated one on every call, even on the reference-type path.
+        private static void QueueClosure<TState>(Action<TState> callBack, TState state, bool flowContext) =>
+            Queue(() => callBack(state), flowContext);
 
         public static bool QueueUserWorkItem(WaitCallback callBack) => QueueUserWorkItem(callBack, null);
 
         public static bool QueueUserWorkItem(WaitCallback callBack, object state)
         {
             if (callBack == null) throw new ArgumentNullException("callBack");
-            Queue(() => callBack(state), true);
+            QueueState(CoreIntrinsics.ObjectToPointer(callBack), CoreIntrinsics.ObjectToPointer(state), 1);
             return true;
         }
 
         public static bool QueueUserWorkItem<TState>(Action<TState> callBack, TState state, bool preferLocal)
         {
             if (callBack == null) throw new ArgumentNullException("callBack");
-            Queue(() => callBack(state), true);
+            Queue(callBack, state, true);
             return true;
         }
 
         public static bool UnsafeQueueUserWorkItem(WaitCallback callBack, object state)
         {
             if (callBack == null) throw new ArgumentNullException("callBack");
-            Queue(() => callBack(state), false);
+            QueueState(CoreIntrinsics.ObjectToPointer(callBack), CoreIntrinsics.ObjectToPointer(state), 0);
             return true;
         }
 
         public static bool UnsafeQueueUserWorkItem<TState>(Action<TState> callBack, TState state, bool preferLocal)
         {
             if (callBack == null) throw new ArgumentNullException("callBack");
-            Queue(() => callBack(state), false);
+            Queue(callBack, state, false);
             return true;
         }
 
@@ -156,7 +175,8 @@ namespace CsharpcCoreLib
             if (callBack == null) throw new ArgumentNullException("callBack");
             if (callBack is System.Threading.Tasks.Task)
                 throw new ArgumentOutOfRangeException("callBack");
-            Queue(callBack.Execute, false);
+            Action<IThreadPoolWorkItem> execute = s_execute ??= static item => item.Execute();
+            QueueState(CoreIntrinsics.ObjectToPointer(execute), CoreIntrinsics.ObjectToPointer(callBack), 0);
             return true;
         }
     }

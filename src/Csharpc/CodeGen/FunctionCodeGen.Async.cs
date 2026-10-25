@@ -10,8 +10,9 @@ namespace Csharpc.CodeGen;
 /// async methods and iterators as LLVM coroutines (switch-resumed lowering — clang's C++20
 /// coroutine machinery). The method itself is the coroutine "ramp":
 ///
-///   start:   promise = csrt_task_new / csrt_iterator_new      (the object the caller gets back)
-///            id = llvm.coro.id; mem = csrt_coro_alloc(llvm.coro.size); hdl = llvm.coro.begin
+///   start:   async:    id = llvm.coro.id; mem = csrt_coro_alloc_task(llvm.coro.size, payload, &promise)
+///            iterator: promise = csrt_iterator_new; id = llvm.coro.id; mem = csrt_coro_alloc(llvm.coro.size)
+///            hdl = llvm.coro.begin(id, mem)                  (promise: the object the caller gets back)
 ///            [iterator: initial suspend — the body runs on the first MoveNext()]
 ///   await t: if (!completed(t)) { csrt_task_on_completed(t, hdl); suspend }  result = t.payload
 ///   yield v: it.current = v; it.state = 1; suspend (destroy path runs pending finally blocks)
@@ -72,10 +73,11 @@ public sealed partial class FunctionCodeGen
         var isAsyncVoid = kind == CoroutineKind.Async && _fn.Type.ReturnType().IsVoid;
         var voidContext = isAsyncVoid ? CallCoreLib("SynchronizationContextImpl", "AsyncVoidStarted") : default;
 
-        coro.Promise = kind == CoroutineKind.Async
-            ? CallRuntime("csrt_task_new", L.Ptr, [L.I32], L.ConstInt(L.I32, payloadSize))
-            : NewIterator(method, payloadSize, _m.IteratorMethodTable(valueType!, kind == CoroutineKind.AsyncIterator));
-        coro.Promise.SetName(kind == CoroutineKind.Async ? "task" : "iterator");
+        if (kind != CoroutineKind.Async)
+        {
+            coro.Promise = NewIterator(method, payloadSize, _m.IteratorMethodTable(valueType!, kind == CoroutineKind.AsyncIterator));
+            coro.Promise.SetName("iterator");
+        }
 
         var id = CoroIntrinsic("llvm.coro.id", L.Token, L.I32, L.Ptr, L.Ptr, L.Ptr);
         // -g: LLVM 18's coroutine frame debug info (buildFrameDebugInfo) dereferences the promise
@@ -84,7 +86,16 @@ public sealed partial class FunctionCodeGen
         coro.Id = _b.Call(id.Type, id.Fn, [L.ConstInt(L.I32, 16), promise, LlvmContext.Null(L.Ptr), LlvmContext.Null(L.Ptr)], "coro.id");
         var sizeFn = CoroIntrinsic("llvm.coro.size.i64", L.I64);
         var size = _b.Call(sizeFn.Type, sizeFn.Fn, [], "coro.size");
-        var mem = CallRuntime("csrt_coro_alloc", L.Ptr, [L.I64], size);
+        LLVMValueRef mem;
+        if (kind == CoroutineKind.Async)
+        {
+            // The task and the frame are one object: an async method call allocates once, which
+            // matters most for the calls that complete without suspending (no frame is ever resumed).
+            var taskSlot = _allocas.Alloca(L.Ptr, "coro.task.slot");
+            mem = CallRuntime("csrt_coro_alloc_task", L.Ptr, [L.I64, L.I32, L.Ptr], size, L.ConstInt(L.I32, payloadSize), taskSlot);
+            coro.Promise = _b.Load(L.Ptr, taskSlot, "task");
+        }
+        else mem = CallRuntime("csrt_coro_alloc", L.Ptr, [L.I64], size);
         var begin = CoroIntrinsic("llvm.coro.begin", L.Ptr, L.Token, L.Ptr);
         coro.Handle = _b.Call(begin.Type, begin.Fn, [coro.Id, mem], "coro.handle");
 

@@ -31,9 +31,11 @@ end:     it.state = 2 (async iterator: complete the pending MoveNextAsync with f
 suspend: switch (llvm.coro.suspend(none, false)) { 0: resume, 1: cleanup, default: ret promise }
 ```
 
-- **Frames** come from `csrt_coro_alloc` and live on the GC heap. Everything CoroSplit spills
-  into the frame (locals, temporaries, the awaited task) is scanned by the conservative collector.
-  `llvm.coro.free` frees nothing.
+- **Frames** live on the GC heap. An async method's frame shares one object with its task
+  (`csrt_coro_alloc_task`: the task first, the frame after its payload), so a call allocates once;
+  iterators get theirs from `csrt_coro_alloc`. Everything CoroSplit spills into the frame (locals,
+  temporaries, the awaited task) is scanned by the conservative collector. `llvm.coro.free` frees
+  nothing.
 - **Resuming from C.** The split resume and destroy functions use `fastcc`, so the runtime never
   calls `frame[0]` directly. Modules containing coroutines emit C-ABI `csrt_coro_resume` and
   `csrt_coro_destroy` wrappers around `llvm.coro.resume`/`llvm.coro.destroy`. `src/runtime/async.c`
@@ -75,11 +77,15 @@ on first use from one counter as in .NET; `flags` tells `Task.Status` a pending 
 **Threading model** (.NET semantics for console apps, `src/runtime/async.c`):
 
 - **Thread pool.** `Task.Run` work items run on a pool of background worker threads
-  (processor-count workers, minimum 2), concurrently with the caller. Pool threads never keep the
-  process alive: when `Main` returns, the process exits.
+  (processor-count workers, minimum 2; the count is the process's CPU affinity, as .NET's), concurrently
+  with the caller. Pool threads never keep the process alive: when `Main` returns, the process exits.
+  As in .NET, wake-ups are rationed: a worker that runs out of work polls the queue for up to 30 µs
+  before sleeping, queueing wakes a sleeper only when no worker is polling, and a worker that takes an
+  item while more wait wakes the next one. `ThreadPool.QueueUserWorkItem` & co. queue a one-argument
+  delegate and its reference argument as they are (no closure).
 - **Continuations.** An `await` on an already-completed task continues synchronously. Otherwise the
-  coroutine registers itself as a continuation and is resumed by the thread that completes the task,
-  inline, as .NET does. Past 32 nested inlined continuations it is resumed on the pool instead.
+  coroutine registers itself as a continuation (the first one is stored in the task itself, further
+  ones in an array) and is resumed by the thread that completes the task, inline, as .NET does. Past 32 nested inlined continuations it is resumed on the pool instead.
   `Task.Yield()` always resumes on the pool. There is no `SynchronizationContext`.
 - **Publishing a frame safely.** Before handing its frame to the runtime, a coroutine executes
   `llvm.coro.save`. From that point it counts as suspended, so another thread may resume it even
@@ -87,8 +93,10 @@ on first use from one counter as in .NET; `flags` tells `Task.Status` a pending 
   just before the suspend, after the frame was already published, and a fast resume on another
   thread would use a stale resume index.
 - **Blocking.** `.Result`, `.Wait()`, `GetAwaiter().GetResult()` and `async Main` (the native `main`
-  calls `csrt_task_wait` on the returned task) block on a condition variable. If a pool worker
-  blocks this way and no other worker is free, another one is started.
+  calls `csrt_task_wait` on the returned task) block on a condition variable. The waiter marks the
+  task (under its lock), and only completing a marked task wakes the waiters: a server's main thread
+  waits in `app.Run()` for its whole life. If a pool worker blocks this way and no other worker is
+  free, another one is started.
 - **Timers.** A timer thread hands expired `Task.Delay` / `CancelAfter` timers to the pool, earliest
   deadline first. Once every 100 ms it also checks for starvation: queued work with no progress and
   no idle worker. When that happens it injects a worker, up to 512. This is the

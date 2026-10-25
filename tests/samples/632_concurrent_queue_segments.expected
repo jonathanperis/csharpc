@@ -1,0 +1,11 @@
+True 0 False 0 False
+100 False True 0
+130 40,41,42,43,44 13585 130 169
+snapshot 130 13585; now 121 True
+0 50 -1
+Destination array is not long enough to copy all the items in the collection. Check array index and length.
+index
+collection
+0 True
+50 s0 end
+80000 True 0

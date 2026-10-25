@@ -7,6 +7,10 @@
 // Throwing helpers return on wasm32 (CSRT_THROWS), so every throw below is followed by a return.
 #define _POSIX_C_SOURCE 200809L
 #include "csrt.h"
+#include "csrt_pthread.h"
+#ifndef _WIN32
+#include <sched.h>
+#endif
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -31,17 +35,29 @@ const struct { csrt_MethodTable header; void* vtable[3 + TYPE_MEMBERINFO_SLOTS];
 #define TYPE_CACHE_SIZE 4096
 static struct { const csrt_MethodTable* key; TypeObject* value; } s_types[TYPE_CACHE_SIZE];
 
+// A thread inserting a type claims its slot by compare-and-swapping the key, then publishes the value;
+// a reader that finds the key waits for the value. Unsynchronized, two threads asking for a new type at
+// once could see a key whose value was still NULL, or create two Type objects for one type
+// (typeof(X) != typeof(X)).
 TypeObject* csrt_type_from_mt(const csrt_MethodTable* mt) {
     size_t h = ((uintptr_t)mt >> 4) & (TYPE_CACHE_SIZE - 1);
-    for (size_t probe = 0; probe < TYPE_CACHE_SIZE; probe++, h = (h + 1) & (TYPE_CACHE_SIZE - 1)) {
-        if (s_types[h].key == mt) return s_types[h].value;
-        if (!s_types[h].key) {
+    for (size_t probe = 0; probe < TYPE_CACHE_SIZE;) {
+        const csrt_MethodTable* key = __atomic_load_n(&s_types[h].key, __ATOMIC_ACQUIRE);
+        if (!key) {
+            if (!__atomic_compare_exchange_n(&s_types[h].key, &key, mt, false, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE))
+                continue;  // another thread claimed the slot: look at it again
             TypeObject* t = csrt_alloc(&csrt_Type_MT.header, sizeof(TypeObject));
             t->target = mt;
-            s_types[h].key = mt;
-            s_types[h].value = t;
+            __atomic_store_n(&s_types[h].value, t, __ATOMIC_RELEASE);
             return t;
         }
+        if (key == mt) {
+            TypeObject* t;
+            while (!(t = __atomic_load_n(&s_types[h].value, __ATOMIC_ACQUIRE))) sched_yield();
+            return t;
+        }
+        probe++;
+        h = (h + 1) & (TYPE_CACHE_SIZE - 1);
     }
     abort();  // more than 4096 distinct types asked for at runtime
 }

@@ -65,6 +65,18 @@ frame layout of `-g` builds.
 - `CSHARPC_FLAGS=-g tests/run.sh --all-opts` — the whole differential suite with debug info (every
   sample must still pass the LLVM verifier and produce identical output).
 
+## Profiling
+
+- `--no-strip` keeps the symbols in a release build, for `perf record` / `perf report`. The program's
+  functions appear under their mangled names (`_CN…`); the runtime's under their C names.
+- `CSRT_GC_STATS=1` prints the collector's totals at exit (collections, pause time, bytes allocated,
+  peak heap). A runtime built with `CSHARPC_RUNTIME_CFLAGS=-DCSRT_ALLOC_PROFILE` (extra C flags for the
+  runtime, part of its cache key) also prints the objects collections freed, by type, top 40 by bytes:
+  what the program allocates and drops, without touching the allocation fast path.
+- The TechEmpower workflow's `profile` input does all of this on CI (benchmarks/techempower/run.sh,
+  `PROFILE=1`): perf profiles, annotated hot functions and the allocation profile of the server under
+  load, next to NativeAOT's profiles.
+
 ## Limitations / future work
 
 - No lexical-block scopes (all locals are function-scoped in the debugger).

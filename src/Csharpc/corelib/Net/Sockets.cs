@@ -243,7 +243,12 @@ namespace CsharpcCoreLib
         public bool ReceiveAsync(SocketAsyncEventArgs e)
         {
             var args = Begin(e, SocketAsyncOperation.Receive);
-            var op = new EventArgsOperations.Receive { Args = args, Buffer = args.OperationBuffer, BufferList = args.BufferList, Flags = args.SocketFlags };
+            // One operation object per SocketAsyncEventArgs, reused: it has one operation in flight at a time.
+            var op = args.ReceiveOperation ??= new EventArgsOperations.Receive { Args = args };
+            op.Reset();
+            op.Buffer = args.OperationBuffer;
+            op.BufferList = args.BufferList;
+            op.Flags = args.SocketFlags;
             return Run(StartContext(args), op);
         }
 
@@ -251,7 +256,10 @@ namespace CsharpcCoreLib
         {
             var args = Begin(e, SocketAsyncOperation.Send);
             if (args.SocketFlags != SocketFlags.None) { args.FinishSynchronously(SocketError.Success, 0); throw new NotSupportedException("csharpc: socket flags are not supported yet."); }
-            var op = new EventArgsOperations.Send { Args = args, Buffer = args.OperationBuffer, BufferList = args.BufferList };
+            var op = args.SendOperation ??= new EventArgsOperations.Send { Args = args };
+            op.Reset();
+            op.Buffer = args.OperationBuffer;
+            op.BufferList = args.BufferList;
             return Run(StartContext(args), op);
         }
 
@@ -264,7 +272,9 @@ namespace CsharpcCoreLib
                 args.FinishSynchronously(SocketError.Success, 0);
                 throw new NotSupportedException("Accepting into an existing socket (SocketAsyncEventArgs.AcceptSocket) is not supported by csharpc yet.");
             }
-            return Run(StartContext(args), new EventArgsOperations.Accept { Args = args });
+            var accept = args.AcceptOperation ??= new EventArgsOperations.Accept { Args = args };
+            accept.Reset();
+            return Run(StartContext(args), accept);
         }
 
         private SocketAsyncContext StartContext(SocketAsyncEventArgsImpl args)

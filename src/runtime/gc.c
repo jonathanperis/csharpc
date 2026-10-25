@@ -532,15 +532,23 @@ static void ack_wait(void) { while (sem_wait(&g.ack) != 0 && errno == EINTR) {} 
 static int cache_segments(struct dl_phdr_info* info, size_t size, void* data) {
     (void)size; (void)data;
     // The first entry is the main executable; static fields live in its writable PT_LOAD segments.
+    // The RELRO range (method tables, vtables, interface maps, the GOT) is read-only once the loader has
+    // relocated it, so it can't point into the heap: it is cut from the segment it starts.
+    // In a large program it is most of the writable image (megabytes for an ASP.NET Core app).
+    uintptr_t relro_lo = 0, relro_hi = 0;
     for (int i = 0; i < info->dlpi_phnum; i++) {
         const ElfW(Phdr)* ph = &info->dlpi_phdr[i];
-        if (ph->p_type == PT_TLS) { g.tls_size = ph->p_memsz; g.tls_align = ph->p_align ? ph->p_align : 1; }
-        if (ph->p_type != PT_LOAD || !(ph->p_flags & PF_W) || g.segment_count == MAX_SEGMENTS) continue;
         uintptr_t start = (uintptr_t)(info->dlpi_addr + ph->p_vaddr);
+        if (ph->p_type == PT_TLS) { g.tls_size = ph->p_memsz; g.tls_align = ph->p_align ? ph->p_align : 1; }
+        if (ph->p_type == PT_GNU_RELRO) { relro_lo = start; relro_hi = start + ph->p_memsz; }
+        if (ph->p_type != PT_LOAD || !(ph->p_flags & PF_W) || g.segment_count == MAX_SEGMENTS) continue;
         g.segments[g.segment_count].lo = start;
         g.segments[g.segment_count].hi = start + ph->p_memsz;
         g.segment_count++;
     }
+    // PT_GNU_RELRO starts a writable segment (and may cover all of it).
+    for (size_t i = 0; i < g.segment_count; i++)
+        if (relro_lo <= g.segments[i].lo && g.segments[i].lo < relro_hi) g.segments[i].lo = relro_hi < g.segments[i].hi ? relro_hi : g.segments[i].hi;
     return 1;  // stop after the main executable
 }
 
@@ -1128,6 +1136,42 @@ bool csrt_gc_is_multithreaded(void) { return g.multithreaded; }
 // ---------------------------------------------------------------------------------------------
 // Sweeping
 // ---------------------------------------------------------------------------------------------
+#ifdef CSRT_ALLOC_PROFILE
+// Allocation profile (a runtime built with CSHARPC_RUNTIME_CFLAGS=-DCSRT_ALLOC_PROFILE, printed at exit
+// with CSRT_GC_STATS=1): every object a sweep frees is counted under its method table, so the table
+// shows what the program allocates and drops, by type, without touching the allocation fast path.
+// Static storage: the world is stopped while it is updated (no malloc).
+#define PROFILE_SLOTS 4096
+static struct { const csrt_MethodTable* mt; uint64_t count, bytes; } s_profile[PROFILE_SLOTS];
+
+static void profile_dead(const void* object, size_t size) {
+    const csrt_MethodTable* mt = *(const csrt_MethodTable* const*)object;
+    if (!mt) return;
+    size_t h = ((uintptr_t)mt >> 4) & (PROFILE_SLOTS - 1);
+    for (size_t probe = 0; probe < PROFILE_SLOTS; probe++, h = (h + 1) & (PROFILE_SLOTS - 1)) {
+        if (s_profile[h].mt == mt || !s_profile[h].mt) {
+            s_profile[h].mt = mt;
+            s_profile[h].count++;
+            s_profile[h].bytes += size;
+            return;
+        }
+    }
+}
+
+static void profile_print(void) {
+    fprintf(stderr, "csrt gc: objects freed by collections, by type (top 40 by bytes):\n");
+    for (int n = 0; n < 40; n++) {
+        size_t best = PROFILE_SLOTS;
+        for (size_t i = 0; i < PROFILE_SLOTS; i++)
+            if (s_profile[i].mt && s_profile[i].bytes && (best == PROFILE_SLOTS || s_profile[i].bytes > s_profile[best].bytes)) best = i;
+        if (best == PROFILE_SLOTS) break;
+        fprintf(stderr, "  %12llu objects %10.1f MiB  %s\n", (unsigned long long)s_profile[best].count,
+                s_profile[best].bytes / 1048576.0, s_profile[best].mt->name ? s_profile[best].mt->name : "?");
+        s_profile[best].bytes = 0;
+    }
+}
+#endif
+
 static size_t sweep(void) {
     size_t live = 0;
     for (size_t cls = 0; cls < NUM_CLASSES; cls++) {
@@ -1141,6 +1185,10 @@ static size_t sweep(void) {
         uint32_t still_live = 0;
         size_t words = (c->slots + 63) / 64;
         for (size_t w = 0; w < words; w++) {
+#ifdef CSRT_ALLOC_PROFILE
+            for (uint64_t dead = c->allocated[w] & ~c->marked[w]; dead; dead &= dead - 1)
+                profile_dead((uint8_t*)c + CHUNK_HEADER + (w * 64 + (size_t)__builtin_ctzll(dead)) * c->object_size, c->object_size);
+#endif
             c->allocated[w] &= c->marked[w];
             still_live += (uint32_t)__builtin_popcountll(c->allocated[w]);
             c->marked[w] = 0;
@@ -1174,6 +1222,9 @@ static size_t sweep(void) {
                 g.deferred_capacity = capacity;
             }
             g.deferred_free[g.deferred_count++] = obj.start;
+#ifdef CSRT_ALLOC_PROFILE
+            profile_dead(obj.start, obj.size);
+#endif
         }
     }
     g.large_count = kept;
@@ -1344,4 +1395,7 @@ void csrt_gc_shutdown(void) {
             "csrt gc: %zu collections, %.1f ms total, allocated %.1f MiB, peak heap %.1f MiB, live %.1f MiB, %zu chunks, %zu large objects\n",
             g.collections, g.total_gc_seconds * 1000.0, g.total_allocated / 1048576.0, g.peak_heap / 1048576.0,
             (g.live_bytes + g.allocated_since_gc) / 1048576.0, g.chunk_count, g.large_count);
+#ifdef CSRT_ALLOC_PROFILE
+    profile_print();
+#endif
 }

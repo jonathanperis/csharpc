@@ -177,4 +177,6 @@ windows 621_exception_hresult_token_members live: Windows file-system errors and
 wasi 621_exception_hresult_token_members  WASI has no permission bits: .NET throws PlatformNotSupportedException from the Unix file modes
 wasi 616_idn_mapping_uri_builder   WASI has no ICU: .NET runs its managed IdnMapping there, whose error for a bad punycode label is "Invalid IDN encoded string."
 windows 625_runtime_counters_pem    live: PemEncoding writes "\n" line breaks on every OS, which the Linux-derived expectation would turn into "\r\n"
+wasi 631_threadpool_work_items     needs threads: CountdownEvent.Wait blocks the only thread while the work items it waits for are queued
+wasi 633_lock_contention           needs threads: Thread.Start throws PlatformNotSupportedException on WebAssembly
 wasi 555_monitor_pulse_handoff         needs threads: Thread.Start throws PlatformNotSupportedException on WebAssembly

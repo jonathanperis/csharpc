@@ -67,7 +67,13 @@ namespace CsharpcCoreLib
         internal static void WriteCore(Utf8JsonWriterImpl writer, object value, JsonTypeInfoImpl info)
         {
             JsonSerializerOptionsImpl options = info._options;
-            JsonWriteState state = new JsonWriteState(options);
+            JsonWriteState state = t_state;
+            if (state == null) state = new JsonWriteState(options);
+            else
+            {
+                t_state = null;
+                state.Reset(options);
+            }
             if (options.ReferenceHandler != null)
             {
                 if (options.ReferenceHandler.HandlingStrategy == 2) state.Ancestors = new List<object>();
@@ -101,6 +107,7 @@ namespace CsharpcCoreLib
                 throw new NotSupportedException(ex.Message + " Path: " + state.PropertyPath() + ".", ex);
             }
             writer.Flush();
+            t_state = state;
         }
 
         /// <summary>
@@ -199,16 +206,41 @@ namespace CsharpcCoreLib
 
         private static string ToJsonString(object value, JsonTypeInfoImpl info)
         {
-            Utf8JsonWriterImpl writer = new Utf8JsonWriterImpl(info._options.GetWriterOptions());
+            Utf8JsonWriterImpl writer = RentWriter(info._options.GetWriterOptions());
             WriteCore(writer, value, info);
-            return writer.WrittenString();
+            string result = writer.WrittenString();
+            ReturnWriter(writer);
+            return result;
         }
 
         private static byte[] ToUtf8Bytes(object value, JsonTypeInfoImpl info)
         {
-            Utf8JsonWriterImpl writer = new Utf8JsonWriterImpl(info._options.GetWriterOptions());
+            Utf8JsonWriterImpl writer = RentWriter(info._options.GetWriterOptions());
             WriteCore(writer, value, info);
-            return writer.WrittenBytes();
+            byte[] result = writer.WrittenBytes();
+            ReturnWriter(writer);
+            return result;
+        }
+
+        // One writer and one write state per thread, reused by the serializer's own entry points, as .NET's
+        // Utf8JsonWriterCache does: SerializeToUtf8Bytes allocated a writer, its buffers, a state and its
+        // name list for every call (the TechEmpower JSON test serializes once per request). A nested
+        // serialization (from a converter) finds the cache empty and allocates; one that throws leaves it so.
+        [ThreadStatic] private static Utf8JsonWriterImpl t_writer;
+        [ThreadStatic] private static JsonWriteState t_state;
+
+        private static Utf8JsonWriterImpl RentWriter(JsonWriterOptionsImpl options)
+        {
+            Utf8JsonWriterImpl writer = t_writer;
+            if (writer == null) return new Utf8JsonWriterImpl(options);
+            t_writer = null;
+            writer.ResetForReuse(options);
+            return writer;
+        }
+
+        private static void ReturnWriter(Utf8JsonWriterImpl writer)
+        {
+            if (writer.KeepForReuse) t_writer = writer;
         }
 
         // ---------------------------------------------------------------- Serialize
