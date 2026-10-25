@@ -1,5 +1,6 @@
 // epoll for the corelib's socket engine (corelib/Net/SocketEngine.cs): struct epoll_event is packed on
 // x86-64 and naturally aligned on arm64, so its layout stays on this side of the P/Invoke boundary.
+#define _GNU_SOURCE
 #include "csrt.h"
 
 #if defined(__linux__)

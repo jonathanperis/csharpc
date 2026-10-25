@@ -1,0 +1,9 @@
+192.168.0.0/16 192.168.0.0 16
+True False True False
+2001:db8::/32 True False
+False False True 10.0.0.0/8
+True False 0.0.0.0/0 0.0.0.0/0
+An invalid IP network was specified.
+prefixLength
+False True True False
+square 6

@@ -121,7 +121,8 @@ public sealed partial class ModuleCodeGen
             {
                 if (entry < 0)
                 {
-                    if (table.RequestedSlots.Add(slot)) { SlotFunction(table.Layout.VTable[slot]!); requested = true; }
+                    if (table.RequestedSlots.Add(slot) && table.Layout.VTable[slot] is { IsAbstract: false } implementation)
+                    { SlotFunction(implementation); requested = true; }
                 }
                 else if (slot < table.Interfaces[entry].Members.Count && table.RequestedInterfaceSlots.Add((entry, slot)))
                 {
@@ -144,8 +145,9 @@ public sealed partial class ModuleCodeGen
         foreach (var table in _pendingMethodTables)
         {
             var layout = table.Layout;
+            // An abstract override (`public abstract override string ToString()`) leaves its slot without a body.
             var slots = layout.VTable.Select((m, i) => m is not null
-                ? table.RequestedSlots.Contains(i) ? SlotFunction(m) : pruned
+                ? table.RequestedSlots.Contains(i) && !m.IsAbstract ? SlotFunction(m) : pruned
                 : layout.RuntimeSlots.TryGetValue(i, out var runtimeSlot)
                     ? RuntimeSlotFunction(runtimeSlot)
                 : i < ClassLayout.ObjectSlotCount
