@@ -238,7 +238,17 @@ static void pool_start_locked(void) {
 // ---------------------------------------------------------------------------------------------
 // Tasks
 // ---------------------------------------------------------------------------------------------
-void* csrt_coro_alloc(int64_t size) { return csrt_alloc(&csrt_CoroFrame_MT.header, size); }
+/// A coroutine frame: LLVM writes its own header (the resume and destroy functions) at the start of the
+/// memory it gets, so the frame lives one word after the object's method-table pointer. Handing LLVM
+/// the object itself would overwrite that word, and the collector would read a method table's flags
+/// from the resume function's code: frames whose code bytes happen to say "no references" were never
+/// scanned, and everything only they kept alive (the tasks they await) was swept while still in use.
+/// The frame pointer is an interior pointer, which the conservative collector maps to its object. The
+/// offset keeps the frame 16-byte aligned (heap objects are), as optimized code may assume of its spills.
+#define CORO_FRAME_OFFSET 16
+void* csrt_coro_alloc(int64_t size) {
+    return (uint8_t*)csrt_alloc(&csrt_CoroFrame_MT.header, size + CORO_FRAME_OFFSET) + CORO_FRAME_OFFSET;
+}
 
 csrt_Task* csrt_task_new(int32_t payload_size) {
     csrt_Task* t = csrt_alloc(&csrt_Task_MT.header, (int64_t)sizeof(csrt_Task) + (payload_size > 0 ? payload_size : 0));
