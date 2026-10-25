@@ -1,0 +1,5 @@
+Int32<-Int32 42 | Int32<-String text / base 1.5 c
+String<-Int32 42 | String<-String text / base 1.5 c
+overridden 42 | overridden text / base 1.5 c
+String<-Int32 42 | String<-String text / base 1.5 c
+overridden 7

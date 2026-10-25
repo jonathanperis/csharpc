@@ -20,6 +20,10 @@ namespace CsharpcCoreLib
         private readonly object _lock = new object();
         private CancellationTokenSource _schedule;
         private bool _disposed;
+        private static long s_active;
+
+        /// <summary>Timer.ActiveCount: the timers created and not disposed.</summary>
+        public static long ActiveCount => Interlocked.Read(ref s_active);
 
         public TimerImpl(TimerCallback callback) : this(callback, null, -1L, -1L, false) => _state = this; // .NET passes the timer itself
 
@@ -40,6 +44,7 @@ namespace CsharpcCoreLib
             _state = state;
             if (check) Check(dueTime, period);
             Schedule(dueTime, period);
+            Interlocked.Increment(ref s_active);
         }
 
         private static long Milliseconds(TimeSpan time, string paramName)
@@ -110,6 +115,7 @@ namespace CsharpcCoreLib
             {
                 if (_disposed) return;
                 _disposed = true;
+                Interlocked.Decrement(ref s_active);
                 _schedule?.Cancel();
                 _schedule = null;
             }

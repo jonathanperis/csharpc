@@ -102,6 +102,16 @@ public sealed partial class ModuleCodeGen
             return bufferLayout;
         }
 
+        // Padding structs ([StructLayout(Explicit, Size = N)] with no fields, Internal.PaddingFor32 in the
+        // framework's concurrent collections): N bytes, so the fields around them keep their cache lines.
+        if (custom is { Pack: 0, Size: > 0 } && Il.OwnerOf(type) is not null && !InstanceFields(type).Any())
+        {
+            var paddingLayout = new StructLayout { Type = type, LlvmType = Llvm.NamedStruct("struct." + Mangler.MetadataName(type)) };
+            _structs[type] = paddingLayout;
+            LlvmContext.SetBody(paddingLayout.LlvmType, [LlvmContext.Array(Llvm.I8, (uint)custom.Size)]);
+            return paddingLayout;
+        }
+
         // A union of primitives (Roslyn's RealParser.FloatUnion: an int and a float both at offset 0):
         // every field is the first element, which has the largest field's type; fields are read and
         // written through their address with their own type, and struct fields share one TBAA tag

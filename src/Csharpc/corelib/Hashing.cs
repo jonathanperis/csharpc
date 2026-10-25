@@ -378,6 +378,23 @@ namespace CsharpcCoreLib
             return _engine.Finish();
         }
 
+        public int GetHashAndReset(Span<byte> destination)
+        {
+            if (_disposed) throw new ObjectDisposedException("IncrementalHash");
+            if (destination.Length < _engine.HashSizeInBytes) throw new ArgumentException("Destination is too short.", "destination");
+            byte[] hash = _engine.Finish();
+            hash.AsSpan().CopyTo(destination);
+            return hash.Length;
+        }
+
+        public bool TryGetHashAndReset(Span<byte> destination, out int bytesWritten)
+        {
+            if (_disposed) throw new ObjectDisposedException("IncrementalHash");
+            if (destination.Length < _engine.HashSizeInBytes) { bytesWritten = 0; return false; }
+            bytesWritten = GetHashAndReset(destination);
+            return true;
+        }
+
         public void Dispose() { _disposed = true; }
     }
 }

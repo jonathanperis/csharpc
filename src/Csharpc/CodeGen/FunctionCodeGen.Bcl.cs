@@ -207,8 +207,20 @@ public sealed partial class FunctionCodeGen
     // ======================================================================================
 
     /// <summary>The canonical Type object for a statically known type.</summary>
-    internal LLVMValueRef TypeObject(ITypeSymbol type, IOperation at) =>
-        CallRuntime("csrt_type_from_mt", L.Ptr, [L.Ptr], _m.TypeMethodTable(type, at));
+    internal LLVMValueRef TypeObject(ITypeSymbol type, IOperation at)
+    {
+        // typeof(SomeAttribute) may reach GetCustomAttributes(typeof(A)), which returns an A[]: keep that array type.
+        if (type is INamedTypeSymbol { TypeKind: TypeKind.Class, IsAbstract: false } named && DerivesFromAttribute(named)) _m.ArrayMethodTable(named);
+        if (type is INamedTypeSymbol { TypeKind: TypeKind.Delegate } delegateType) _m.NoteDelegateType(delegateType);
+        return CallRuntime("csrt_type_from_mt", L.Ptr, [L.Ptr], _m.TypeMethodTable(type, at));
+    }
+
+    private static bool DerivesFromAttribute(INamedTypeSymbol type)
+    {
+        for (var t = type.BaseType; t is not null; t = t.BaseType)
+            if (t is { Name: "Attribute", ContainingNamespace: { Name: "System", ContainingNamespace.IsGlobalNamespace: true } }) return true;
+        return false;
+    }
 
     /// <summary>obj.GetType(): static for value types and sealed-by-construction cases, else from the object's MT.</summary>
     internal LLVMValueRef EmitGetType(IInvocationOperation inv)

@@ -68,13 +68,17 @@ public sealed partial class ModuleCodeGen
     {
         _pendingMethodTables.Add(table);
         var layout = table.Layout;
-        var keepMessage = DerivesFromLibraryException(layout);
+        var runtimeBase = LibraryBaseOf(layout);
+        var keepMessage = runtimeBase is not null && IsLibraryException(runtimeBase);
+        // Classes deriving from CancellationTokenSource: csrt calls Dispose(bool) (CancellationTokenSource.Dispose()).
+        var keepDispose = runtimeBase is not null && IsRuntimeCancellationSource(runtimeBase);
         var rootsBySlot = layout.SlotOf.GroupBy(kv => kv.Value).ToDictionary(g => g.Key, g => g.Select(kv => kv.Key).ToList());
         for (var i = 0; i < layout.VTable.Count; i++)
         {
             if (layout.VTable[i] is null) continue;
             // The runtime calls the System.Object slots (and Exception.Message) itself.
-            if (i < ClassLayout.ObjectSlotCount || (i == ExceptionMessageSlot && keepMessage)) { _slotRequests.Enqueue((table, i, -1)); continue; }
+            if (i < ClassLayout.ObjectSlotCount || (i == ExceptionMessageSlot && keepMessage) || (i == CancellationDisposeBoolSlot && keepDispose))
+            { _slotRequests.Enqueue((table, i, -1)); continue; }
             if (!rootsBySlot.TryGetValue(i, out var roots)) continue;
             foreach (var root in roots)
             {
@@ -93,11 +97,12 @@ public sealed partial class ModuleCodeGen
         }
     }
 
-    private static bool DerivesFromLibraryException(ClassLayout layout)
+    /// <summary>The csrt-implemented class a class derives from (a library exception, CancellationTokenSource), or null.</summary>
+    private static INamedTypeSymbol? LibraryBaseOf(ClassLayout layout)
     {
         for (var l = layout; l is not null; l = l.Base)
-            if (l.IsLibrary) return true;
-        return false;
+            if (l.IsLibrary) return l.Type;
+        return null;
     }
 
     /// <summary>
@@ -116,7 +121,8 @@ public sealed partial class ModuleCodeGen
             {
                 if (entry < 0)
                 {
-                    if (table.RequestedSlots.Add(slot)) { SlotFunction(table.Layout.VTable[slot]!); requested = true; }
+                    if (table.RequestedSlots.Add(slot) && table.Layout.VTable[slot] is { IsAbstract: false } implementation)
+                    { SlotFunction(implementation); requested = true; }
                 }
                 else if (slot < table.Interfaces[entry].Members.Count && table.RequestedInterfaceSlots.Add((entry, slot)))
                 {
@@ -139,8 +145,9 @@ public sealed partial class ModuleCodeGen
         foreach (var table in _pendingMethodTables)
         {
             var layout = table.Layout;
+            // An abstract override (`public abstract override string ToString()`) leaves its slot without a body.
             var slots = layout.VTable.Select((m, i) => m is not null
-                ? table.RequestedSlots.Contains(i) ? SlotFunction(m) : pruned
+                ? table.RequestedSlots.Contains(i) && !m.IsAbstract ? SlotFunction(m) : pruned
                 : layout.RuntimeSlots.TryGetValue(i, out var runtimeSlot)
                     ? RuntimeSlotFunction(runtimeSlot)
                 : i < ClassLayout.ObjectSlotCount

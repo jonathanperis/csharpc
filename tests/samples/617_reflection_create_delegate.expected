@@ -1,0 +1,7 @@
+first handles /plaintext
+True Handler
+m:contravariant
+Cannot bind to the target method because its signature is not compatible with that of the delegate type.
+Cannot bind to the target method because its signature is not compatible with that of the delegate type.
+Type must derive from Delegate. (Parameter 'delegateType') delegateType
+0 NeverUsedAttribute[] False

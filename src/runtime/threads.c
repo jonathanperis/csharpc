@@ -148,6 +148,12 @@ static _Thread_local __attribute__((tls_model("local-exec"))) csrt_Thread* tl_cu
 _Thread_local __attribute__((tls_model("local-exec"))) void* csrt_tl_flow;
 void* csrt_flow_get(void) { return csrt_tl_flow; }
 void csrt_flow_set(void* flow) { csrt_tl_flow = flow; }
+// ExecutionContext.SuppressFlow(): work queued, threads started and awaits registered on this thread
+// meanwhile capture no flow (they run with the default context), as .NET's Capture returns null then.
+_Thread_local bool csrt_tl_flow_suppressed;
+void* csrt_flow_capture(void) { return csrt_tl_flow_suppressed ? NULL : csrt_tl_flow; }
+bool csrt_flow_suppressed(void) { return csrt_tl_flow_suppressed; }
+void csrt_flow_suppress(bool suppressed) { csrt_tl_flow_suppressed = suppressed; }
 static atomic_int s_next_id = 2;               // the main thread is 1, like .NET
 static pthread_mutex_t s_join_lock = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t s_join_cond = PTHREAD_COND_INITIALIZER;
@@ -236,7 +242,7 @@ static void thread_start(csrt_Thread* t, void* parameter, bool has_parameter) {
     if (!t->background) s_foreground++;
     pthread_mutex_unlock(&s_join_lock);
     t->parameter = parameter;
-    t->flow = csrt_tl_flow;  // like .NET's ExecutionContext capture in Thread.Start
+    t->flow = csrt_flow_capture();  // like .NET's ExecutionContext capture in Thread.Start
     spawn(t);
 }
 

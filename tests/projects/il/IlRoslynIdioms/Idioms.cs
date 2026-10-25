@@ -231,3 +231,44 @@ public static unsafe class Pointers
     private static long TicksOf(in DateTime value) => value.Ticks;
     public static long MinTicks() => TicksOf(in DateTime.MinValue) + TicksOf(in DateTime.MaxValue) % 1000;
 }
+
+/// <summary>
+/// Calls the C# compiler lowers through boxes and function pointers: `HasFlag` on two boxed enums,
+/// delegates bound with `ldvirtftn` to interface and virtual methods (a null receiver throws
+/// NullReferenceException there), ValueType.Equals over a struct holding a CancellationToken.
+/// </summary>
+public static class DelegateIdioms
+{
+    [Flags] public enum Access { None = 0, Read = 1, Write = 2, Both = 3 }
+    public interface ISource { int Next(); string Name(string prefix); }
+    public sealed class Counter : ISource { private int _n; public int Next() => ++_n; public string Name(string prefix) => prefix + "counter"; }
+    public class Shape { public virtual string Kind() => "shape"; }
+    public sealed class Circle : Shape { public override string Kind() => "circle"; }
+    public struct Pending { public System.Threading.CancellationToken Token; public int Id; }
+
+    public static bool Has(Access value, Access flag) => value.HasFlag(flag);
+
+    public static string Bind(ISource source)
+    {
+        Func<int> next = source.Next;
+        Func<string, string> name = source.Name;
+        return $"{next()} {next()} {name("a ")}";
+    }
+
+    public static string Kind(Shape shape) { Func<string> kind = shape.Kind; return kind(); }
+
+    public static string BindNull()
+    {
+        ISource? none = null;
+        try { Func<int> next = none!.Next; return "bound"; }
+        catch (NullReferenceException) { return "NullReferenceException"; }
+    }
+
+    public static string Equal()
+    {
+        var source = new System.Threading.CancellationTokenSource();
+        object a = new Pending { Token = source.Token, Id = 1 }, b = new Pending { Token = source.Token, Id = 1 };
+        object c = new Pending { Token = default, Id = 1 };
+        return $"{a.Equals(b)} {a.Equals(c)} {c.Equals(new Pending { Id = 1 })}";
+    }
+}

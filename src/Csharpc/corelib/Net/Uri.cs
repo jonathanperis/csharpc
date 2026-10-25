@@ -255,6 +255,17 @@ namespace CsharpcCoreLib
         public static bool operator ==(UriImpl uri1, UriImpl uri2) => ReferenceEquals(uri1, uri2) || (uri1 is not null && uri1.Equals((object)uri2));
         public static bool operator !=(UriImpl uri1, UriImpl uri2) => !(uri1 == uri2);
 
+        public static string UnescapeDataString(ReadOnlySpan<char> charsToUnescape) => UnescapeDataString(new string(charsToUnescape));
+
+        public static bool TryUnescapeDataString(ReadOnlySpan<char> charsToUnescape, Span<char> destination, out int charsWritten)
+        {
+            string unescaped = UnescapeDataString(new string(charsToUnescape));
+            if (unescaped.Length > destination.Length) { charsWritten = 0; return false; }
+            unescaped.AsSpan().CopyTo(destination);
+            charsWritten = unescaped.Length;
+            return true;
+        }
+
         // Uri.UnescapeDataString: %XX runs that decode as UTF-8; other '%' text stays as it is.
         public static string UnescapeDataString(string stringToUnescape)
         {

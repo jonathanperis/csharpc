@@ -106,6 +106,7 @@ _Noreturn void csrt_pruned_virtual(void);
 extern _Thread_local __attribute__((tls_model("local-exec"))) void* csrt_tl_flow;
 void* csrt_flow_get(void);
 void csrt_flow_set(void* flow);
+void* csrt_flow_capture(void);   // the flow work queued now carries: none while ExecutionContext.SuppressFlow is in effect
 void* csrt_alloc_noclear(const csrt_MethodTable* mt, int64_t size);           // caller initializes every byte it reads
 csrt_Array* csrt_new_array_primitive_noclear(int64_t element_size, int64_t length);
 // Integer formatting into a caller buffer ending at `end`; returns the first character written.
@@ -132,11 +133,16 @@ typedef struct csrt_Exception {
     csrt_String* actual_value;  // ArgumentOutOfRangeException(paramName, actualValue, message), formatted
     csrt_Array* trace;          // stack-trace frames recorded while thrown (eh.c, "Stack traces"); null: none
     csrt_Array* inners;         // AggregateException: InnerExceptions (exception pointers); null otherwise
+    void* token;                // OperationCanceledException.CancellationToken (its source; null: None)
+    int32_t hresult;            // HResult when set (constructor argument, the HResult setter); 0: the type's default
 } csrt_Exception;
 typedef struct { csrt_MethodTable header; void* vtable[4]; } csrt_ExceptionMethodTable;
 enum { CSRT_SLOT_GET_MESSAGE = 3 };
 
 CSRT_THROWS void csrt_throw_object(void* exception);
+int32_t csrt_exception_get_hresult(void* exception);
+void csrt_exception_set_token(void* exception, void* token);
+void csrt_exception_set_hresult(void* exception, int32_t hresult);
 CSRT_THROWS void csrt_rethrow(void* exception);
 // Stack traces (docs/adr/0012-stack-traces.md): compiler-emitted site tables, registered by main.
 void csrt_trace_init(const void* tables);
@@ -213,7 +219,7 @@ enum {
 typedef struct csrt_TypeInfo {
     const csrt_MethodTable* mt;
     const csrt_MethodTable* base;                 // Type.BaseType
-    const csrt_MethodTable* element;              // Type.GetElementType()
+    const csrt_MethodTable* element;              // Type.GetElementType(); enums: the underlying type
     const csrt_MethodTable* definition;           // Type.GetGenericTypeDefinition()
     const csrt_MethodTable* declaring;            // Type.DeclaringType
     const csrt_MethodTable* const* generic_args;  // arguments (constructed types) or parameters (definitions)
@@ -228,6 +234,80 @@ typedef struct csrt_TypeInfo {
 } csrt_TypeInfo;
 
 typedef struct { int64_t count; const csrt_TypeInfo* entries; } csrt_TypeInfoTable;
+
+// Member metadata (constructors, methods, parameters, custom attributes): generated at compile time
+// by ModuleCodeGen.Reflection.cs for the types the program hands to [DynamicallyAccessedMembers]
+// locations (NativeAOT's model, docs/adr/0018-reflection-metadata.md), read by the corelib
+// (corelib/Reflection/Members.cs). Only programs that reflect over members carry the table.
+typedef struct csrt_AttributeRecord {
+    const csrt_MethodTable* type;   // the attribute class
+    void* (*create)(void);          // a new instance of the attribute, as GetCustomAttributes returns it
+    void* (*data)(void);            // a new CustomAttributeData describing it
+} csrt_AttributeRecord;
+
+enum { CSRT_PARAM_HAS_DEFAULT = 1 << 16, CSRT_PARAM_BYREF = 1 << 17 };  // above ParameterAttributes' 16 bits
+typedef struct csrt_ParameterRecord {
+    const char* name;               // UTF-8; NULL: unnamed
+    const csrt_MethodTable* type;   // the parameter type (the element type for by-ref parameters)
+    void* (*default_value)(void);   // CSRT_PARAM_HAS_DEFAULT: the boxed constant (NULL here: a null default)
+    const csrt_AttributeRecord* attributes;
+    uint32_t attribute_count;
+    uint32_t flags;                 // ParameterAttributes | CSRT_PARAM_*
+} csrt_ParameterRecord;
+
+enum { CSRT_METHOD_SOURCE_LAMBDA = 1 /* a lambda/local function lowered by csharpc: no .NET name */ };
+typedef struct csrt_MethodRecord {
+    const char* name;                          // ".ctor" for constructors
+    const csrt_MethodTable* declaring;
+    const csrt_MethodTable* return_type;       // NULL: void (and constructors)
+    void* (*invoke)(void* target, void* args); // object Invoke(object target, object[] args); NULL: not invokable
+    const csrt_ParameterRecord* parameters;
+    const csrt_AttributeRecord* attributes;
+    uint32_t parameter_count;
+    uint32_t attribute_count;
+    uint32_t method_attributes;                // MethodAttributes
+    uint32_t flags;                            // CSRT_METHOD_*
+    const void* function;                      // an instance method's own function (MethodInfo.CreateDelegate); NULL: none
+} csrt_MethodRecord;
+
+// MethodInfo.CreateDelegate: the Invoke signatures of the delegate types the program names.
+typedef struct { const csrt_MethodTable* mt; const csrt_MethodTable* return_type; const csrt_MethodTable* const* parameters;
+                 uint32_t parameter_count; uint32_t reserved; } csrt_DelegateSignature;
+void* csrt_delegate_create(const csrt_MethodTable* mt, void* target, const void* fn);
+void* csrt_gc_object_base(const void* p);   // the heap object an interior pointer is in, or NULL
+
+// Which member kinds an entry lists (DynamicallyAccessedMemberTypes they were kept for).
+enum { CSRT_RI_PUBLIC_CONSTRUCTORS = 1, CSRT_RI_NONPUBLIC_CONSTRUCTORS = 2, CSRT_RI_PUBLIC_METHODS = 4,
+       CSRT_RI_NONPUBLIC_METHODS = 8, CSRT_RI_ATTRIBUTES = 16, CSRT_RI_PUBLIC_PROPERTIES = 32, CSRT_RI_NONPUBLIC_PROPERTIES = 64,
+       CSRT_RI_ATTRIBUTES_UNKNOWN = 128 /* the type's attributes can't be listed exactly: querying them throws */ };
+enum { CSRT_PROPERTY_PUBLIC = 1 /* an accessor is public */, CSRT_PROPERTY_STATIC = 2 };
+typedef struct csrt_PropertyRecord {
+    const char* name;
+    const csrt_MethodTable* type;
+    const csrt_MethodRecord* getter;           // NULL: no get accessor
+    const csrt_MethodRecord* setter;           // NULL: no set accessor
+    const csrt_AttributeRecord* attributes;
+    uint32_t attribute_count;
+    uint32_t flags;                            // CSRT_PROPERTY_*
+} csrt_PropertyRecord;
+typedef struct csrt_ReflectionInfo {
+    const csrt_MethodTable* mt;
+    const csrt_MethodRecord* constructors;
+    const csrt_MethodRecord* methods;
+    const csrt_AttributeRecord* attributes;    // the type's (or generic parameter's) own custom attributes
+    const csrt_PropertyRecord* properties;
+    uint32_t constructor_count;
+    uint32_t method_count;
+    uint32_t attribute_count;
+    uint32_t described;                        // CSRT_RI_*
+    uint32_t property_count;
+    uint32_t reserved;
+} csrt_ReflectionInfo;
+typedef struct { int64_t count; const csrt_ReflectionInfo* entries; } csrt_ReflectionTable;
+
+// Delegate.Method: the method a delegate's function pointer stands for.
+typedef struct { const void* fn; const csrt_MethodRecord* method; } csrt_DelegateMethodEntry;
+typedef struct { int64_t count; const csrt_DelegateMethodEntry* entries; } csrt_DelegateMethodTable;
 
 // Type.FullName where it differs from the method table's name (generic instantiations print
 // assembly-qualified arguments, generic parameters have none); `unknown`: csharpc can't tell.
@@ -280,7 +360,7 @@ _Noreturn void csrt_environment_exit(int32_t code);
 #define CSRT_BOXED_TYPES(X) \
     X(Int32, int32_t) X(Int64, int64_t) X(UInt32, uint32_t) X(UInt64, uint64_t) \
     X(Int16, int16_t) X(UInt16, uint16_t) X(Byte, uint8_t) X(SByte, int8_t) \
-    X(Double, double) X(Single, float) X(Boolean, bool) X(Char, uint16_t)
+    X(Double, double) X(Single, float) X(Boolean, bool) X(Char, uint16_t) X(IntPtr, intptr_t) X(UIntPtr, uintptr_t)
 #define CSRT_DECLARE_BOXED_MT(Name, CType) extern const csrt_BuiltinMethodTable csrt_Boxed_##Name##_MT;
 CSRT_BOXED_TYPES(CSRT_DECLARE_BOXED_MT)
 void* csrt_unbox(void* obj, const csrt_MethodTable* type);   // payload address, or NRE / InvalidCast

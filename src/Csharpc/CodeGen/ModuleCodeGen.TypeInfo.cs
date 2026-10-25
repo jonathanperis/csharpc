@@ -196,6 +196,7 @@ public sealed partial class ModuleCodeGen
         SpecialType.System_Int32, SpecialType.System_Int64, SpecialType.System_UInt32, SpecialType.System_UInt64,
         SpecialType.System_Int16, SpecialType.System_UInt16, SpecialType.System_Byte, SpecialType.System_SByte,
         SpecialType.System_Double, SpecialType.System_Single, SpecialType.System_Boolean, SpecialType.System_Char,
+        SpecialType.System_IntPtr, SpecialType.System_UIntPtr,
     ];
 
     private static readonly (string Table, string Type)[] s_boxedRuntimeTypes =
@@ -275,6 +276,8 @@ public sealed partial class ModuleCodeGen
                     break;
                 case INamedTypeSymbol named:
                 {
+                    // An enum's `element` is its underlying type (Type.GetEnumUnderlyingType; GetElementType is null).
+                    if (named is { TypeKind: TypeKind.Enum, EnumUnderlyingType: { } underlyingType }) element = MetadataMethodTable(underlyingType);
                     if (named.TypeKind != TypeKind.Interface && named.BaseType is { } baseType)
                     {
                         if (TypeSubstitution.IsOpen(baseType)) flags |= TI.NoHierarchy;

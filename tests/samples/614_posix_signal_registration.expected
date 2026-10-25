@@ -1,0 +1,6 @@
+handler
+second SIGTERM False
+first SIGTERM False
+still running
+raw 10
+done

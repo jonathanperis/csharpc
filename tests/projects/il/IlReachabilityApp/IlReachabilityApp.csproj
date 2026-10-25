@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- References IlReachability only as a prebuilt DLL (no ProjectReference): csharpc compiles the library
+       from its IL. tests/il.sh builds IlReachability first and passes its path in IlReachabilityDll. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net11.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IlReachabilityDll Condition="'$(IlReachabilityDll)' == ''">../IlReachability/bin/Release/net11.0/IlReachability.dll</IlReachabilityDll>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="IlReachability">
+      <HintPath>$(IlReachabilityDll)</HintPath>
+    </Reference>
+  </ItemGroup>
+</Project>

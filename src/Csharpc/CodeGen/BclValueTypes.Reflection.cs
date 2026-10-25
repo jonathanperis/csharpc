@@ -29,6 +29,7 @@ internal static partial class BclValueTypes
 
         t[$"{Type}.get_BaseType()"] = (g, _, self, _, _) => TypeResult(g, "csrt_type_base", self);
         t[$"{Type}.GetElementType()"] = (g, _, self, _, _) => TypeResult(g, "csrt_type_element", self);
+        t[$"{Type}.GetEnumUnderlyingType()"] = (g, _, self, _, _) => TypeResult(g, "csrt_type_enum_underlying", self);
         t[$"{Type}.get_DeclaringType()"] = t["System.Reflection.MemberInfo.get_DeclaringType()"] =
             (g, _, self, _, _) => TypeResult(g, "csrt_type_declaring", self);
         t[$"{Type}.GetGenericTypeDefinition()"] = (g, _, self, _, _) => TypeResult(g, "csrt_type_generic_definition", self);
@@ -61,6 +62,60 @@ internal static partial class BclValueTypes
             Rt(g, "csrt_type_full_name_of", g.Llvm.Ptr, (self, g.Llvm.Ptr), (g.Module.TypeNameTable(), g.Llvm.Ptr));
         t[$"{Type}.get_AssemblyQualifiedName()"] = (g, _, self, _, _) => Rt(g, "csrt_type_assembly_qualified_name", g.Llvm.Ptr,
             (self, g.Llvm.Ptr), (Table(g), g.Llvm.Ptr), (g.Module.TypeNameTable(), g.Llvm.Ptr));
+
+        // Member reflection over compile-time metadata (ModuleCodeGen.Reflection.cs, corelib/Reflection/Members.cs).
+        BclHandler core(string method) => (g, _, self, a, _) => g.CallCoreLib("ReflectionRuntime", method, [self, .. a]);
+        t[$"{Type}.GetConstructors()"] = core("GetConstructorsAll");
+        t[$"{Type}.GetConstructors(System.Reflection.BindingFlags)"] = core("GetConstructorsFlags");
+        t[$"{Type}.GetConstructor(System.Type[])"] = core("GetConstructorTypes");
+        t[$"{Type}.GetConstructor(System.Reflection.BindingFlags, System.Type[])"] = core("GetConstructorFlagsTypes");
+        t[$"{Type}.GetConstructor(System.Reflection.BindingFlags, System.Reflection.Binder, System.Type[], System.Reflection.ParameterModifier[])"] = core("GetConstructor");
+        t[$"{Type}.GetMethods()"] = core("GetMethodsAll");
+        t[$"{Type}.GetMethods(System.Reflection.BindingFlags)"] = core("GetMethodsFlags");
+        t[$"{Type}.GetMethod(string)"] = core("GetMethodName");
+        t[$"{Type}.GetMethod(string, System.Reflection.BindingFlags)"] = core("GetMethodNameFlags");
+        t[$"{Type}.GetMethod(string, System.Type[])"] = core("GetMethodNameTypes");
+        t[$"{Type}.GetMethod(string, System.Reflection.BindingFlags, System.Type[])"] = core("GetMethodNameFlagsTypes");
+        BclHandler propertyLookup(string method) => (g, _, self, a, _) => g.CallCoreLib("PropertyReflection", method, [self, .. a]);
+        t[$"{Type}.GetProperties()"] = propertyLookup("GetPropertiesAll");
+        t[$"{Type}.GetProperties(System.Reflection.BindingFlags)"] = propertyLookup("GetPropertiesFlags");
+        t[$"{Type}.GetProperty(string)"] = propertyLookup("GetPropertyName");
+        t[$"{Type}.GetProperty(string, System.Reflection.BindingFlags)"] = propertyLookup("GetPropertyNameFlags");
+        t[$"{Type}.GetProperty(string, System.Type)"] = propertyLookup("GetPropertyNameReturn");
+        t[$"{Type}.GetProperty(string, System.Type, System.Type[])"] = propertyLookup("GetPropertyNameReturnTypes");
+        t[$"{Type}.GetProperty(string, System.Reflection.BindingFlags, System.Reflection.Binder, System.Type, System.Type[], System.Reflection.ParameterModifier[])"] = propertyLookup("GetPropertyFull");
+        // A type's own attributes: the program keeps those of every type and generic parameter once it asks.
+        BclHandler typeAttributes(string method) => (g, _, self, a, _) =>
+        {
+            g.Module.NoteTypeAttributesQueried();
+            return g.CallCoreLib("ReflectionRuntime", method, [self, .. a]);
+        };
+        t[$"{Type}.GetCustomAttributes(bool)"] = typeAttributes("TypeAttributesAll");
+        t[$"{Type}.GetCustomAttributes(System.Type, bool)"] = typeAttributes("TypeAttributesOf");
+        t[$"{Type}.IsDefined(System.Type, bool)"] = typeAttributes("IsTypeDefined");
+        t[$"{Type}.GetCustomAttributesData()"] = typeAttributes("GetTypeCustomAttributesData");
+        t[$"{Type}.MakeGenericType(System.Type[])"] = (g, _, self, a, _) =>
+            Rt(g, "csrt_type_make_generic", g.Llvm.Ptr, (self, g.Llvm.Ptr), (a[0], g.Llvm.Ptr), (Table(g), g.Llvm.Ptr));
+        t[$"{Type}.MakeArrayType()"] = (g, _, self, _, _) => TypeResult(g, "csrt_type_make_array", self);
+        t[$"{Type}.MakeByRefType()"] = core("MakeByRefType");
+        t[$"{Type}.get_GenericParameterAttributes()"] = (g, _, self, _, _) =>
+            Rt(g, "csrt_type_generic_parameter_attributes", g.Llvm.I32, (self, g.Llvm.Ptr), (Table(g), g.Llvm.Ptr));
+        t["System.Array.CreateInstance(System.Type, int)"] = (g, _, _, a, _) => g.CallCoreLib("ReflectionRuntime", "CreateInstance", a[0], a[1]);
+        t["System.Array.SetValue(object, int)"] = (g, _, self, a, _) => g.CallCoreLib("ReflectionRuntime", "SetValue", self, a[0], a[1]);
+        t["System.Enum.ToObject(System.Type, object)"] = (g, _, _, a, _) =>
+            Rt(g, "csrt_enum_to_object", g.Llvm.Ptr, (a[0], g.Llvm.Ptr), (a[1], g.Llvm.Ptr), (Table(g), g.Llvm.Ptr));
+        foreach (var integral in new[] { "int", "long", "uint", "ulong", "short", "ushort", "byte", "sbyte" })
+            t[$"System.Enum.ToObject(System.Type, {integral})"] = (g, m, _, a, at) =>
+                Rt(g, "csrt_enum_to_object", g.Llvm.Ptr, (a[0], g.Llvm.Ptr), (g.Box(a[1], m.Parameters[1].Type, at), g.Llvm.Ptr), (Table(g), g.Llvm.Ptr));
+        t["System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(System.Type)"] = (g, _, _, a, _) =>
+            Rt(g, "csrt_type_uninitialized_object", g.Llvm.Ptr, (a[0], g.Llvm.Ptr), (Table(g), g.Llvm.Ptr));
+        // Exception.HResult and OperationCanceledException.CancellationToken: fields of csrt_Exception (eh.c).
+        t["System.Exception.get_HResult()"] = (g, _, self, _, _) => Rt(g, "csrt_exception_get_hresult", g.Llvm.I32, (self, g.Llvm.Ptr));
+        t["System.Exception.set_HResult(int)"] = (g, _, self, a, _) => { Rt(g, "csrt_exception_set_hresult", g.Llvm.Void, (self, g.Llvm.Ptr), (a[0], g.Llvm.I32)); return default; };
+        t["System.OperationCanceledException.get_CancellationToken()"] = (g, _, self, _, _) => Rt(g, "csrt_exception_get_token", g.Llvm.Ptr, (self, g.Llvm.Ptr));
+        t["System.Delegate.get_Method()"] = (g, _, self, _, _) => g.CallCoreLib("ReflectionRuntime", "DelegateMethod", self);
+        t["System.Delegate.get_Target()"] = (g, _, self, _, _) => g.CallCoreLib("ReflectionRuntime", "DelegateTarget", self);
+        t["System.Reflection.RuntimeReflectionExtensions.GetMethodInfo(System.Delegate)"] = (g, _, _, a, _) => g.CallCoreLib("ReflectionRuntime", "DelegateMethod", a[0]);
 
         // Assembly objects are corelib C# (corelib/Reflection/Assembly.cs), one per assembly name.
         t[$"{Type}.get_Assembly()"] = (g, _, self, _, _) =>

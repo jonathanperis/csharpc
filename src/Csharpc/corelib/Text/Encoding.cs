@@ -59,6 +59,7 @@ namespace CsharpcCoreLib
         public virtual bool IsSingleByte => false;
 
         public virtual byte[] GetPreamble() => PreambleBytes;
+        public virtual Encoder GetEncoder() => (Encoder)(object)new EncodingEncoder(this);
         public virtual ReadOnlySpan<byte> Preamble => PreambleBytes;
 
         public virtual int GetMaxByteCount(int charCount) => (charCount + 1) * 3;
@@ -128,8 +129,56 @@ namespace CsharpcCoreLib
 
         public virtual int GetBytes(ReadOnlySpan<char> chars, Span<byte> bytes)
         {
-            fixed (char* c = chars) fixed (byte* b = bytes) return EncodeChars(c, chars.Length, b);
+            fixed (char* c = chars) fixed (byte* b = bytes)
+            {
+                // .NET's fallback buffer check: the whole output must fit.
+                if (ByteCount(c, chars.Length) > bytes.Length) throw TooSmall("bytes", "byte");
+                return EncodeChars(c, chars.Length, b);
+            }
         }
+
+        public virtual int GetByteCount(ReadOnlySpan<char> chars)
+        {
+            fixed (char* c = chars) return ByteCount(c, chars.Length);
+        }
+
+        public virtual int GetCharCount(ReadOnlySpan<byte> bytes)
+        {
+            fixed (byte* b = bytes) return CharCount(b, bytes.Length);
+        }
+
+        public virtual int GetChars(ReadOnlySpan<byte> bytes, Span<char> chars)
+        {
+            fixed (byte* b = bytes) fixed (char* c = chars)
+            {
+                if (CharCount(b, bytes.Length) > chars.Length) throw TooSmall("chars", "char");
+                return DecodeBytes(b, bytes.Length, c);
+            }
+        }
+
+        public virtual bool TryGetBytes(ReadOnlySpan<char> chars, Span<byte> bytes, out int bytesWritten)
+        {
+            fixed (char* c = chars) fixed (byte* b = bytes)
+            {
+                if (ByteCount(c, chars.Length) > bytes.Length) { bytesWritten = 0; return false; }
+                bytesWritten = EncodeChars(c, chars.Length, b);
+                return true;
+            }
+        }
+
+        public virtual bool TryGetChars(ReadOnlySpan<byte> bytes, Span<char> chars, out int charsWritten)
+        {
+            fixed (byte* b = bytes) fixed (char* c = chars)
+            {
+                if (CharCount(b, bytes.Length) > chars.Length) { charsWritten = 0; return false; }
+                charsWritten = DecodeBytes(b, bytes.Length, c);
+                return true;
+            }
+        }
+
+        private ArgumentException TooSmall(string parameter, string unit) => new ArgumentException(
+            "The output " + unit + " buffer is too small to contain the encoded data, encoding codepage '" + CodePage + "' and fallback '"
+            + (unit == "byte" ? "System.Text.EncoderReplacementFallback" : "System.Text.DecoderReplacementFallback") + "'.", parameter);
 
         public virtual int GetCharCount(byte[] bytes)
         {

@@ -1,0 +1,34 @@
+5 héllo 5 6
+ArgumentException chars
+True 2
+True 12,345
+False 0 True 3.50
+True FF
+True 12345 5
+True -42 3 False 0
+False 0 True 255 False
+1,0,0,0,2,1,0,0
+2 1 2 7
+6
+False made True
+True WINDOWS True
+False
+Exception of type 'System.Reflection.ReflectionTypeLoadException' was thrown.|one 2
+High Low High Level
+The value passed in must be an enum base or an underlying type for an enum, such as an Int32. (Parameter 'value')
+(0,0) null
+2 ab m True
+Multiple custom attributes of the same type 'NoteAttribute' found.
+fast
+12345 True True 7 System.IntPtr
+True False
+True False
+True /usr/share
+0 False
+0 False
+False True
+timeout
+-1 -1
+Red
+-1
+The ConsoleColor enum value was not defined on that enum. Please use a defined color from the enum.

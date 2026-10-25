@@ -363,7 +363,7 @@ public sealed partial class FunctionCodeGen
                     Push(new IlEntry(IlKind.Ref, _m.ExternalGlobal("csrt_Object_MT"), Special(SpecialType.System_Object)) { NonNull = true });
                     return false;
                 }
-                Push(new IlEntry(IlKind.Ref, Box(IlTyped(value, type), st, IlAt()), Special(SpecialType.System_Object)));
+                Push(new IlEntry(IlKind.Ref, Box(IlTyped(value, type), st, IlAt()), Special(SpecialType.System_Object)) { Unboxed = value with { Type = st } });
                 return false;
             }
             case ILOpCode.Unbox_any:

@@ -241,25 +241,37 @@ public sealed partial class ModuleCodeGen
         var edges = _references.GroupBy(r => (ISymbol?)r.From?.OriginalDefinition, SymbolEqualityComparer.Default)
             .ToDictionary(g => g.Key ?? Compilation.Assembly, g => g.ToList(), SymbolEqualityComparer.Default);
         var reached = new HashSet<ISymbol>(SymbolEqualityComparer.Default);
+        // CSHARPC_WHY=1: how the program reaches each failing method (the first reference chain found).
+        var why = Environment.GetEnvironmentVariable("CSHARPC_WHY") == "1"
+            ? new Dictionary<ISymbol, IMethodSymbol?>(SymbolEqualityComparer.Default) : null;
         var work = new Queue<IMethodSymbol>();
-        void Reach(IMethodSymbol m)
+        void Reach(IMethodSymbol m, IMethodSymbol? from)
         {
-            if (reached.Add(m.OriginalDefinition)) work.Enqueue(m);
+            if (!reached.Add(m.OriginalDefinition)) return;
+            work.Enqueue(m);
+            if (why != null) why[m.OriginalDefinition] = from?.OriginalDefinition;
         }
-        void Follow(IMethodSymbol to, bool isVirtual)
+        void Follow(IMethodSymbol? from, IMethodSymbol to, bool isVirtual)
         {
-            Reach(to);
-            if (isVirtual) foreach (var implementation in PossibleTargets(to)) Reach(implementation);
+            Reach(to, from);
+            if (isVirtual) foreach (var implementation in PossibleTargets(to)) Reach(implementation, from);
         }
         // Roots: references made by the program's own code (sources and the corelib).
         foreach (var (from, to, isVirtual) in _references)
-            if (from is null || !IsIlMethod(from) || Il.IsCoreLib(from)) Follow(to, isVirtual);
+            if (from is null || !IsIlMethod(from) || Il.IsCoreLib(from)) Follow(from, to, isVirtual);
         while (work.TryDequeue(out var method))
             if (edges.TryGetValue(method.OriginalDefinition, out var outgoing))
-                foreach (var (_, to, isVirtual) in outgoing) Follow(to, isVirtual);
+                foreach (var (_, to, isVirtual) in outgoing) Follow(method, to, isVirtual);
 
         foreach (var (method, error) in _ilFailures)
         {
+            if (why != null && reached.Contains(method.OriginalDefinition))
+            {
+                Console.Error.WriteLine($"why {method.OriginalDefinition}:");
+                ISymbol? step = method.OriginalDefinition;
+                for (int depth = 0; step != null && depth < 40 && why.TryGetValue(step, out var parent); depth++, step = parent)
+                    Console.Error.WriteLine($"    <- {(parent == null ? "(program)" : parent.ToString())}");
+            }
             if (reached.Contains(method.OriginalDefinition)) Errors.Add(error);
             else Warnings.Add(new CompileError("CSLLVM0007",
                 $"{error.Message} — the program does not reach this method (class-hierarchy analysis), so it was compiled as a stub that ends the program if it is ever called",
@@ -280,16 +292,33 @@ public sealed partial class ModuleCodeGen
                     var member = implemented.GetMembers(definition.Name).OfType<IMethodSymbol>()
                         .FirstOrDefault(m => SymbolEqualityComparer.Default.Equals(m.OriginalDefinition, definition));
                     if (member is not null && type.FindImplementationForInterfaceMember(member) is IMethodSymbol implementation)
+                    {
                         yield return implementation;
+                        // The implementing method may be a virtual of a base class that `type` (or a class
+                        // derived from it) overrides: the interface call dispatches to the override.
+                        if (implementation.IsVirtual || implementation.IsAbstract || implementation.IsOverride)
+                            foreach (var overrider in ClassOverrides(implementation)) yield return overrider;
+                    }
                 }
             yield break;
         }
-        var root = ClassLayout.RootOf(definition);
-        foreach (var type in HierarchyTypes)
-            foreach (var m in type.GetMembers(definition.Name).OfType<IMethodSymbol>())
-                if ((m.IsVirtual || m.IsOverride) && SymbolEqualityComparer.Default.Equals(ClassLayout.RootOf(m), root))
-                    yield return m;
+        foreach (var overrider in ClassOverrides(definition)) yield return overrider;
     }
+
+    /// <summary>Every method of the hierarchy that fills <paramref name="definition"/>'s vtable slot.</summary>
+    private List<IMethodSymbol> ClassOverrides(IMethodSymbol definition)
+    {
+        var root = ClassLayout.RootOf(definition.OriginalDefinition);
+        if (_classOverrides.TryGetValue(root, out var known)) return known;
+        var found = new List<IMethodSymbol>();
+        foreach (var type in HierarchyTypes)
+            foreach (var m in type.GetMembers(root.Name).OfType<IMethodSymbol>())
+                if ((m.IsVirtual || m.IsOverride) && SymbolEqualityComparer.Default.Equals(ClassLayout.RootOf(m), root))
+                    found.Add(m);
+        return _classOverrides[root] = found;
+    }
+
+    private readonly Dictionary<IMethodSymbol, List<IMethodSymbol>> _classOverrides = new(SymbolEqualityComparer.Default);
 
     /// <summary>beforefieldinit: the type's initializer runs on first static field access, not on first use (ECMA-335 II.10.5.3.3).</summary>
     private bool IlBeforeFieldInit(INamedTypeSymbol type) =>

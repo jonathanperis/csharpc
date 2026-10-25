@@ -98,6 +98,9 @@ public sealed partial class ModuleCodeGen
             && layout.SlotOf.TryGetValue(RootOf(impl), out var slot))
             impl = layout.VTable[slot];
         if (impl is null || impl.IsAbstract) return LlvmContext.Null(Llvm.Ptr);
+        // A class deriving from CancellationTokenSource: IDisposable.Dispose is Dispose(true) through its vtable.
+        if (!IsUserMethod(impl) && IsRuntimeCancellationSource(impl.ContainingType) && impl.Name == "Dispose" && impl.Parameters.IsEmpty)
+            return RuntimeSlotFunction("csrt_cts_dispose_virtual");
         if (!IsUserMethod(impl)) return LlvmContext.Null(Llvm.Ptr); // e.g. object.ToString satisfying an interface
         return SlotFunction(impl);
     }

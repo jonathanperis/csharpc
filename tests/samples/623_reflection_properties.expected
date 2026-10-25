@@ -1,0 +1,22 @@
+Age Int32 True True Person 0 Property
+Inherited Int32 True True Base 0 Property
+Item Int32 True True Person 1 Property
+Kind String True False Person 0 Property
+Name String True True Person 0 Property
+WriteOnly String False True Person 0 Property
+Secret
+Species
+Age,Item,Kind,Name,WriteOnly
+Ada get_Name set_Name full name System.String Name
+Grace
+36 True True True
+37
+20 Int32
+99
+person human True
+Name
+Property Get method was not found.
+Property set method not found.
+5 42
+Size,Label,Weight
+3

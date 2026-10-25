@@ -1,0 +1,26 @@
+Exception 0x80131500
+ArgumentException 0x80070057
+ArgumentNullException 0x80004003
+ArgumentOutOfRangeException 0x80131502
+InvalidOperationException 0x80131509
+NotSupportedException 0x80131515
+FormatException 0x80131537
+IOException 0x80131620
+FileNotFoundException 0x80070002
+DirectoryNotFoundException 0x80070003
+UnauthorizedAccessException 0x80070005
+OperationCanceledException 0x8013153B
+KeyNotFoundException 0x80131577
+TimeoutException 0x80131505
+ObjectDisposedException 0x80131622
+AggregateException 0x80131500
+CustomError 0x00001234
+IOException 0x00000011
+DirectoryNotFoundException 0x80070003
+True True
+True True
+[a][b][][c,d,e]
+[x][y]2
+True UserExecute, UserWrite, UserRead
+True
+1.3.6.1.5.5.7.3.1 Server Authentication 1

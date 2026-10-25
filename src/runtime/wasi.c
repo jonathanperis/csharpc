@@ -19,6 +19,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <time.h>
+#include <wasi/api.h>
 
 static int* lock_count(pthread_mutex_t* m) { return &m->__u.__i[0]; }
 
@@ -33,8 +34,15 @@ int pthread_mutex_trylock(pthread_mutex_t* m) {
     return 0;
 }
 
+/// Sleeps for what remains until `deadline` on `clock`. Relative, not TIMER_ABSTIME: wasmtime treats an
+/// absolute CLOCK_REALTIME deadline (seconds since 1970) as a relative one, so a 1 ms timed wait slept for decades.
 static void sleep_until(clockid_t clock, const struct timespec* deadline) {
-    while (clock_nanosleep(clock, TIMER_ABSTIME, deadline, NULL) == EINTR) {}
+    struct timespec now;
+    clock_gettime(clock, &now);
+    int64_t ns = (int64_t)(deadline->tv_sec - now.tv_sec) * 1000000000 + (deadline->tv_nsec - now.tv_nsec);
+    if (ns <= 0) return;
+    struct timespec rest = { (time_t)(ns / 1000000000), (long)(ns % 1000000000) };
+    while (nanosleep(&rest, &rest) == -1 && errno == EINTR) {}
 }
 
 int pthread_mutex_timedlock(pthread_mutex_t* m, const struct timespec* deadline) {
@@ -91,5 +99,15 @@ int pthread_attr_setstacksize(pthread_attr_t* a, size_t size) { (void)a; (void)s
 int pthread_create(pthread_t* thread, const pthread_attr_t* attr, void* (*start)(void*), void* arg) {
     (void)thread; (void)attr; (void)start; (void)arg;
     return ENOTSUP;
+}
+
+/// Environment.WorkingSet: the linear memory, all of which the module has resident.
+int64_t csrt_wasi_memory_bytes(void) { return (int64_t)__builtin_wasm_memory_size(0) * 65536; }
+
+/// Environment.CpuUsage: WASI's process CPU-time clock in 100-ns ticks (0 where the host has none).
+int64_t csrt_wasi_cpu_ticks(void) {
+    __wasi_timestamp_t ns = 0;
+    if (__wasi_clock_time_get(__WASI_CLOCKID_PROCESS_CPUTIME_ID, 1, &ns) != 0) return 0;
+    return (int64_t)(ns / 100);
 }
 #endif

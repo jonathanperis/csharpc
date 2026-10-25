@@ -20,7 +20,7 @@ public sealed partial class FunctionCodeGen
     [
         "System.Threading.Tasks.Parallel", "System.Threading.Thread", "System.Threading.Monitor", "System.Threading.Lock",
         "System.Threading.Interlocked", "System.Threading.Volatile", "System.Threading.ManualResetEventSlim",
-        "System.Threading.ManualResetEvent", "System.Threading.AutoResetEvent", "System.Threading.SemaphoreSlim",
+        "System.Threading.ManualResetEvent", "System.Threading.AutoResetEvent",
         "System.Threading.CountdownEvent", "System.Threading.EventWaitHandle", "System.Threading.WaitHandle",
     ];
 
@@ -71,9 +71,6 @@ public sealed partial class FunctionCodeGen
                 return true;
             case "AutoResetEvent" when IsThreading(type, "AutoResetEvent"):
                 result = Event(1, BoolCount(0), I32(1));
-                return true;
-            case "SemaphoreSlim" when IsThreading(type, "SemaphoreSlim"):
-                result = Event(2, CtorArg(0), ctor.Parameters.Length > 1 ? CtorArg(1) : I32(int.MaxValue));
                 return true;
             case "CountdownEvent" when IsThreading(type, "CountdownEvent"):
                 result = Event(3, CtorArg(0), I32(0));
@@ -137,7 +134,7 @@ public sealed partial class FunctionCodeGen
             return true;
         }
         if (owner is INamedTypeSymbol { ContainingNamespace: { } ns } && ns.ToDisplayString() == "System.Threading"
-            && owner.Name is "ManualResetEventSlim" or "ManualResetEvent" or "AutoResetEvent" or "SemaphoreSlim" or "CountdownEvent" or "EventWaitHandle" or "WaitHandle")
+            && owner.Name is "ManualResetEventSlim" or "ManualResetEvent" or "AutoResetEvent" or "CountdownEvent" or "EventWaitHandle" or "WaitHandle")
         {
             result = name switch
             {
@@ -190,6 +187,8 @@ public sealed partial class FunctionCodeGen
                     result = Rt("csrt_thread_join_timeout", L.I1, [L.Ptr, L.I32], Self(), TArg(inv, 0)); return true;
                 case "Sleep" when n == 1 && m.Parameters[0].Type.SpecialType == SpecialType.System_Int32:
                     Rt("csrt_thread_sleep", L.Void, [L.I32], TArg(inv, 0)); return true;
+                case "Sleep" when n == 1 && BclValueTypes.IsTimeSpan(m.Parameters[0].Type):
+                    Rt("csrt_thread_sleep", L.Void, [L.I32], CallCoreLib("WaitTimeouts", "TimeoutMilliseconds", TArg(inv, 0))); return true;
                 case "Yield": result = Rt("csrt_thread_yield", L.I1, []); return true;
                 case "SpinWait": EmitValue(inv.Arguments[0].Value); return true;
                 case "MemoryBarrier": Native.LLVMBuildFence(_b.Ref, LLVMAtomicOrdering.SequentiallyConsistent, 0, ""); return true;
@@ -245,11 +244,13 @@ public sealed partial class FunctionCodeGen
         }
 
         if (owner is INamedTypeSymbol { ContainingNamespace: { } ns } && ns.ToDisplayString() == "System.Threading"
-            && owner.Name is "ManualResetEventSlim" or "ManualResetEvent" or "AutoResetEvent" or "SemaphoreSlim" or "CountdownEvent" or "EventWaitHandle" or "WaitHandle")
+            && owner.Name is "ManualResetEventSlim" or "ManualResetEvent" or "AutoResetEvent" or "CountdownEvent" or "EventWaitHandle" or "WaitHandle")
         {
-            if (m.Parameters.Any(p => p.Type.SpecialType is not (SpecialType.System_Int32 or SpecialType.System_Boolean))) return false;
+            // Wait(TimeSpan): the timeout in milliseconds, checked like .NET (-1 to int.MaxValue).
+            var timeSpanTimeout = m.Name is "Wait" or "WaitOne" && n == 1 && BclValueTypes.IsTimeSpan(m.Parameters[0].Type);
+            if (!timeSpanTimeout && m.Parameters.Any(p => p.Type.SpecialType is not (SpecialType.System_Int32 or SpecialType.System_Boolean))) return false;
             var self = Self();
-            var arg0 = n > 0 ? TArg(inv, 0) : default;
+            var arg0 = timeSpanTimeout ? CallCoreLib("WaitTimeouts", "TimeoutMilliseconds", TArg(inv, 0)) : n > 0 ? TArg(inv, 0) : default;
             switch (m.Name)
             {
                 case "Set": result = Rt("csrt_event_set", L.I32, [L.Ptr, L.I32], self, I32(1)); result = m.ReturnsVoid ? default : L.True; return true;
@@ -288,6 +289,8 @@ public sealed partial class FunctionCodeGen
             return (_b.Cast(LLVMOpcode.BitCast, v, it), r => _b.Cast(LLVMOpcode.BitCast, r, type));
         }
         if (type.IsPointer) return (_b.Cast(LLVMOpcode.PtrToInt, v, T.NativeInt), r => _b.Cast(LLVMOpcode.IntToPtr, r, L.Ptr));
+        // bool (Interlocked.Exchange<bool> in System.Threading.Channels): its storage byte.
+        if (type.IsInteger && type.IntWidth == 1) return (_b.Cast(LLVMOpcode.ZExt, v, L.I8), r => _b.ICmp(LLVMIntPredicate.NE, r, L.ConstInt(L.I8, 0)));
         return (v, r => r);
     }
 

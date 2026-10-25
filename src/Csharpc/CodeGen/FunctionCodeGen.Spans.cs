@@ -290,6 +290,13 @@ public sealed partial class FunctionCodeGen
             result = MemoryExtensionsMethod(inv);
             return true;
         }
+        // MemoryMarshal.AsMemory(ReadOnlyMemory<T>): both are { ptr, length }, so the value as it is.
+        if (method is { Name: "AsMemory", IsStatic: true, Parameters.Length: 1 } && owner.Name == "MemoryMarshal"
+            && owner.ContainingNamespace.ToDisplayString() == "System.Runtime.InteropServices" && TypeMapper.IsMemory(method.Parameters[0].Type))
+        {
+            result = EmitValue(inv.Arguments[0].Value);
+            return true;
+        }
         return TryParamsSpanMethod(inv, out result);
     }
 

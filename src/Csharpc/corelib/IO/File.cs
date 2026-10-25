@@ -14,6 +14,29 @@ namespace CsharpcCoreLib
     {
         public static bool Exists(string path) => !string.IsNullOrEmpty(path) && Posix.IsFile(path);
 
+        public static Microsoft.Win32.SafeHandles.SafeFileHandle OpenNullHandle() =>
+            throw new NotSupportedException("File.OpenNullHandle (file handles) is not supported by csharpc yet.");
+
+        public static void SetUnixFileMode(string path, UnixFileMode mode)
+        {
+            ArgumentException.ThrowIfNullOrEmpty(path);
+            FileStatusImpl.SetUnixFileMode(path, mode);
+        }
+
+        public static UnixFileMode GetUnixFileMode(string path)
+        {
+            ArgumentException.ThrowIfNullOrEmpty(path);
+            return FileStatusImpl.GetUnixFileMode(path);
+        }
+
+        public static FileSystemInfo CreateSymbolicLink(string path, string pathToTarget)
+        {
+            ArgumentException.ThrowIfNullOrEmpty(path);
+            ArgumentException.ThrowIfNullOrEmpty(pathToTarget);
+            FileStatusImpl.CreateSymbolicLink(path, pathToTarget);
+            return new FileInfo(path);
+        }
+
         public static FileStream Open(string path, FileMode mode) => new FileStream(path, mode);
         public static FileStream Open(string path, FileMode mode, FileAccess access) => new FileStream(path, mode, access);
         public static FileStream Open(string path, FileMode mode, FileAccess access, FileShare share) => new FileStream(path, mode, access, share);
@@ -353,19 +376,34 @@ namespace CsharpcCoreLib
             if (path == null) throw new ArgumentNullException("path");
             if (path.Length == 0) throw new ArgumentException("The value cannot be an empty string. (Parameter 'path')");
             string full = PathImpl.GetFullPath(path);
-            CreateRecursive(PathImpl.TrimEndingDirectorySeparator(full));
+            CreateRecursive(PathImpl.TrimEndingDirectorySeparator(full), 0x1FF);
             return new DirectoryInfo(path);
         }
 
-        private static void CreateRecursive(string full)
+        /// <summary>The directories created get the mode (minus the umask, as mkdir applies it).</summary>
+        public static DirectoryInfo CreateDirectory(string path, UnixFileMode unixCreateMode)
+        {
+#if CSHARPC_TARGET_WINDOWS
+            throw new PlatformNotSupportedException("Unix file modes are not supported on this platform.");
+#else
+            if (((int)unixCreateMode & ~0xFFF) != 0) throw new ArgumentException("UnixFileMode value is invalid.", "unixCreateMode");
+            if (path == null) throw new ArgumentNullException("path");
+            if (path.Length == 0) throw new ArgumentException("The value cannot be an empty string. (Parameter 'path')");
+            string full = PathImpl.GetFullPath(path);
+            CreateRecursive(PathImpl.TrimEndingDirectorySeparator(full), (int)unixCreateMode);
+            return new DirectoryInfo(path);
+#endif
+        }
+
+        private static void CreateRecursive(string full, int mode)
         {
             int type = Posix.FileType(full);
             if (type == Posix.S_IFDIR) return;
             if (type != 0) throw new IOException("The file '" + full + "' already exists.");
             string parent = PathImpl.GetDirectoryName(full);
-            if (parent != null) CreateRecursive(parent);
+            if (parent != null) CreateRecursive(parent, mode);
             byte* p = Utf8.ToNative(full);
-            int r = Posix.mkdir(p, 0x1FF);
+            int r = Posix.mkdir(p, mode);
             int errno = Posix.Errno;
             Libc.free(p);
             if (r != 0 && errno != Posix.EEXIST) throw Posix.IOError(errno, full, true);
@@ -452,6 +490,8 @@ namespace CsharpcCoreLib
             Enumerate(path, searchPattern, searchOption == SearchOption.AllDirectories, false, true, true);
         public static IEnumerable<string> EnumerateFileSystemEntries(string path) => Enumerate(path, "*", false, true, true, true);
         public static IEnumerable<string> EnumerateFileSystemEntries(string path, string searchPattern) => Enumerate(path, searchPattern, false, true, true, true);
+        public static IEnumerable<string> EnumerateFileSystemEntries(string path, string searchPattern, SearchOption searchOption) =>
+            Enumerate(path, searchPattern, searchOption == SearchOption.AllDirectories, true, true, true);
 
         private static string[] ToArray(List<string> list) => list.ToArray();
 
@@ -546,6 +586,21 @@ namespace CsharpcCoreLib
         public abstract void Delete();
         public void Refresh() { }
         public override string ToString() => OriginalPath;
+
+        /// <summary>The attributes .NET reports (FileStatusImpl); -1 when the entry doesn't exist.</summary>
+        public FileAttributes Attributes => FileStatusImpl.GetAttributes(FullPath, Name);
+
+        public UnixFileMode UnixFileMode
+        {
+            get => FileStatusImpl.GetUnixFileMode(FullPath);
+            set => FileStatusImpl.SetUnixFileMode(FullPath, value);
+        }
+
+        /// <summary>The target of a symbolic link as stored in the link, or null when this is not a link.</summary>
+        public string LinkTarget => FileStatusImpl.ReadLink(FullPath);
+
+        public FileSystemInfo ResolveLinkTarget(bool returnFinalTarget) =>
+            FileStatusImpl.ResolveLinkTarget(FullPath, returnFinalTarget, this is DirectoryInfoImpl);
     }
 
     [Shadows("System.IO.FileInfo")]
@@ -648,5 +703,23 @@ namespace CsharpcCoreLib
         public IEnumerable<FileInfo> EnumerateFiles(string searchPattern) => GetFiles(searchPattern);
         public IEnumerable<FileInfo> EnumerateFiles(string searchPattern, SearchOption searchOption) => GetFiles(searchPattern, searchOption);
         public IEnumerable<DirectoryInfo> EnumerateDirectories() => GetDirectories();
+
+        public FileSystemInfo[] GetFileSystemInfos() => GetFileSystemInfos("*", SearchOption.TopDirectoryOnly);
+        public FileSystemInfo[] GetFileSystemInfos(string searchPattern) => GetFileSystemInfos(searchPattern, SearchOption.TopDirectoryOnly);
+        public FileSystemInfo[] GetFileSystemInfos(string searchPattern, SearchOption searchOption)
+        {
+            if (searchOption != SearchOption.TopDirectoryOnly && searchOption != SearchOption.AllDirectories)
+                throw new ArgumentOutOfRangeException("searchOption", "Enum value was out of legal range.");
+            // Entries in directory order, each a DirectoryInfo or FileInfo by its kind (readdir's, links followed).
+            var names = DirectoryImpl.Enumerate(FullPath, searchPattern, searchOption == SearchOption.AllDirectories, true, true, true);
+            var result = new FileSystemInfo[names.Count];
+            for (int i = 0; i < result.Length; i++)
+                result[i] = Posix.IsDirectory(names[i]) ? new DirectoryInfo(names[i]) : new FileInfo(names[i]);
+            return result;
+        }
+
+        public IEnumerable<FileSystemInfo> EnumerateFileSystemInfos() => GetFileSystemInfos();
+        public IEnumerable<FileSystemInfo> EnumerateFileSystemInfos(string searchPattern) => GetFileSystemInfos(searchPattern);
+        public IEnumerable<FileSystemInfo> EnumerateFileSystemInfos(string searchPattern, SearchOption searchOption) => GetFileSystemInfos(searchPattern, searchOption);
     }
 }
