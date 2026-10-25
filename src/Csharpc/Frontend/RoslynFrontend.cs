@@ -274,14 +274,22 @@ public static class RoslynFrontend
             .Select(p => (MetadataReference)MetadataReference.CreateFromFile(p))];
     }
 
-    /// <summary>Newest net11.0 reference pack among the usual dotnet installation roots.</summary>
+    /// <summary>
+    /// Newest net11.0 reference pack: a release bundle's <c>ref/net11.0</c> next to the executable
+    /// (so NativeAOT installs need no SDK), then the usual dotnet installation roots.
+    /// </summary>
     private static string? FindReferencePack(string pack = "Microsoft.NETCore.App.Ref")
     {
+        var bundled = Path.Combine(AppContext.BaseDirectory, "ref", "net11.0");
+        if (Directory.Exists(bundled) && Directory.EnumerateFiles(bundled, "*.dll").Any())
+            return bundled;
+
         IEnumerable<string?> roots =
         [
             Environment.GetEnvironmentVariable("DOTNET_ROOT"),
             DotnetOnPath(),
             Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".dotnet"),
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".dotnet11"),
             "/usr/share/dotnet", "/usr/lib/dotnet", "/usr/local/share/dotnet",
         ];
         return roots.Where(r => r is not null && Directory.Exists(Path.Combine(r, "packs", pack)))
