@@ -54,6 +54,8 @@ namespace CsharpcCoreLib
         /// <summary>An object reference as an IntPtr and back, for runtime slots that hold managed objects (GC-visible ones only).</summary>
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern IntPtr ObjectToPointer(object value);
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern object PointerToObject(IntPtr pointer);
+        /// <summary>The same reference, typed as T without a type test (Unsafe.As).</summary>
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern T ReinterpretAs<T>(object o) where T : class;
         /// <summary>
         /// The frames .NET's own library lists for this exception below the program's frames, innermost
         /// first, one per line (a constant): `throw LibraryFrames(new X(...), "System.Ns.Type.Method(Int32 a)")`.
@@ -119,6 +121,20 @@ namespace CsharpcCoreLib
         // Cancellation (runtime/async.c, corelib/Cancellation.cs): a CancellationToken is its source.
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern object TokenSource(System.Threading.CancellationToken token);
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern System.Threading.CancellationToken SourceToken(object source);
+        // Reflection (corelib/Reflection/Members.cs, src/runtime/type.c): the compile-time tables' addresses.
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern nint TypeInfoTableAddress();
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern nint ReflectionTableAddress();
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern nint DelegateMethodTableAddress();
+        /// <summary>The function a delegate calls (the last one of a multicast delegate).</summary>
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern nint DelegateFunction(Delegate d);
+        /// <summary>The object a delegate is bound to (the last one of a multicast delegate).</summary>
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern object DelegateTargetObject(Delegate d);
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern unsafe byte* csrt_reflection_info(Type type, nint table);
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern unsafe byte* csrt_reflection_delegate_method(nint fn, nint table);
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern nint csrt_type_handle(Type type);
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern unsafe Type csrt_type_from_mt(void* mt);
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern Array csrt_array_create_instance(Type element, long length, nint table);
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern void csrt_array_set_value(Array array, object value, long index, nint table);
         // Runtime functions called directly (an extern named csrt_*: FunctionCodeGen.CoreLib.cs).
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern int csrt_cts_register_node(object token, object node);
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern bool csrt_cts_unregister(object token, object node);

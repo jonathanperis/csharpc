@@ -449,3 +449,146 @@ csrt_String* csrt_type_assembly_qualified_name(TypeObject* t, const csrt_TypeInf
     free(buf);
     return r;
 }
+
+// ============================================================================================
+// Reflection beyond System.Type's own answers (docs/adr/0018-reflection-metadata.md): generic
+// instantiation and arrays over the program's method tables, and the member metadata tables.
+// ============================================================================================
+
+static const csrt_MethodTable mt_index_out_of_range = { NULL, "System.IndexOutOfRangeException", 0, 0, NULL, 0, 0 };
+static const csrt_MethodTable mt_invalid_cast = { NULL, "System.InvalidCastException", 0, 0, NULL, 0, 0 };
+
+static void throw_formatted(const csrt_MethodTable* type, const char* format, const char* argument) {
+    char message[768];
+    snprintf(message, sizeof message, format, argument);
+    throw_utf8(type, message);
+}
+
+/// The method table of a Type object (corelib: CoreIntrinsics.TypeHandle).
+const csrt_MethodTable* csrt_type_handle(TypeObject* t) {
+    if (!t) { csrt_throw_null_reference(); return NULL; }
+    return t->target;
+}
+
+/// Type.MakeGenericType(typeArguments): the closed instantiation among the program's types. csharpc
+/// compiles generic code per instantiation, so one the program never creates has no code (NativeAOT's
+/// limit for value types; csharpc's for every type): NotSupportedException rather than a wrong answer.
+TypeObject* csrt_type_make_generic(TypeObject* t, csrt_Array* arguments, const csrt_TypeInfoTable* table) {
+    const csrt_TypeInfo* definition = info_of(t, table);
+    if (!definition) return NULL;
+    if (!(definition->flags & CSRT_TI_GENERIC_DEFINITION)) {
+        throw_formatted(&mt_invalid_operation, "%s is not a GenericTypeDefinition. MakeGenericType may only be called on a type for which Type.IsGenericTypeDefinition is true.", full_name(t));
+        return NULL;
+    }
+    if (!arguments) { throw_utf8(&mt_argument_null, "Value cannot be null. (Parameter 'typeArguments')"); return NULL; }
+    TypeObject** args = (TypeObject**)arguments->data;
+    for (int64_t i = 0; i < arguments->length; i++)
+        if (!args[i]) { throw_utf8(&mt_argument_null, "Value cannot be null."); return NULL; }
+    if (arguments->length != (int64_t)definition->generic_count) {
+        throw_utf8(&mt_argument, "The number of generic arguments provided doesn't equal the arity of the generic type definition. (Parameter 'typeArguments')");
+        return NULL;
+    }
+    for (int64_t e = 0; e < table->count; e++) {
+        const csrt_TypeInfo* candidate = &table->entries[e];
+        if (candidate->definition != definition->mt || !(candidate->flags & CSRT_TI_CONSTRUCTED_GENERIC)
+            || candidate->generic_count != definition->generic_count)
+            continue;
+        bool same = true;
+        for (uint32_t k = 0; k < candidate->generic_count && same; k++) same = candidate->generic_args[k] == args[k]->target;
+        if (same) return csrt_type_from_mt(candidate->mt);
+    }
+    char names[512];
+    size_t used = 0;
+    names[0] = 0;
+    for (int64_t i = 0; i < arguments->length && used < sizeof names - 1; i++)
+        used += (size_t)snprintf(names + used, sizeof names - used, i ? ",%s" : "%s", full_name(args[i]));
+    char message[1024];
+    snprintf(message, sizeof message, "MakeGenericType of '%s' with [%s] is not supported by csharpc yet: csharpc compiles only the generic instantiations the program creates.",
+             full_name(t), names);
+    throw_utf8(&mt_not_supported, message);
+    return NULL;
+}
+
+/// The program's method table for `element[]` (NULL if there is none).
+static const csrt_TypeInfo* array_info_of(const csrt_MethodTable* element, const csrt_TypeInfoTable* table) {
+    for (int64_t e = 0; e < table->count; e++) {
+        const csrt_TypeInfo* candidate = &table->entries[e];
+        if ((candidate->flags & CSRT_TI_SZARRAY) && candidate->element == element) return candidate;
+    }
+    return NULL;
+}
+
+/// Type.MakeArrayType().
+TypeObject* csrt_type_make_array(TypeObject* t, const csrt_TypeInfoTable* table) {
+    const csrt_TypeInfo* info = info_of(t, table);
+    if (!info) return NULL;
+    const csrt_TypeInfo* array = array_info_of(t->target, table);
+    if (!array) { throw_formatted(&mt_not_supported, "MakeArrayType of '%s' is not supported by csharpc yet: the program has no arrays of it.", full_name(t)); return NULL; }
+    return csrt_type_from_mt(array->mt);
+}
+
+/// Array.CreateInstance(elementType, length) once the corelib checked the arguments: arrays of reference
+/// types (their elements are pointers; csharpc's value-type arrays need the element layout).
+csrt_Array* csrt_array_create_instance(TypeObject* element, int64_t length, const csrt_TypeInfoTable* table) {
+    const csrt_TypeInfo* info = info_of(element, table);
+    if (!info) return NULL;
+    if (!(info->flags & CSRT_TI_REFERENCE_TYPE)) {
+        throw_formatted(&mt_not_supported, "Array.CreateInstance of value type '%s' is not supported by csharpc yet.", full_name(element));
+        return NULL;
+    }
+    const csrt_TypeInfo* array = array_info_of(element->target, table);
+    if (!array) { throw_formatted(&mt_not_supported, "Array.CreateInstance of '%s' is not supported by csharpc yet: the program has no arrays of it.", full_name(element)); return NULL; }
+    csrt_Array* result = csrt_new_array(sizeof(void*), length);
+    result->mt = array->mt;
+    return result;
+}
+
+/// Array.SetValue(value, index) on a one-dimensional array of a reference type.
+void csrt_array_set_value(csrt_Array* array, void* value, int64_t index, const csrt_TypeInfoTable* table) {
+    if (!array) { csrt_throw_null_reference(); return; }
+    if (!__atomic_load_n(&s_table, __ATOMIC_ACQUIRE)) __atomic_store_n(&s_table, table, __ATOMIC_RELEASE);
+    const csrt_TypeInfo* info = info_for(array->mt);
+    if (!info) return;
+    if (!(info->flags & CSRT_TI_SZARRAY)) { throw_utf8(&mt_argument, "Only single dimension arrays are supported here."); return; }
+    const csrt_TypeInfo* element = info_for(info->element);
+    if (!element) return;
+    if (!(element->flags & CSRT_TI_REFERENCE_TYPE)) {
+        throw_formatted(&mt_not_supported, "Array.SetValue on an array of value type '%s' is not supported by csharpc yet.", info->element->name);
+        return;
+    }
+    if ((uint64_t)index >= (uint64_t)array->length) { throw_utf8(&mt_index_out_of_range, "Index was outside the bounds of the array."); return; }
+    if (value) {
+        const csrt_TypeInfo* from = info_for(((csrt_Object*)value)->mt);
+        if (!from) return;
+        if (!assignable(element, from)) { throw_utf8(&mt_invalid_cast, "Object cannot be stored in an array of this type."); return; }
+    }
+    ((void**)array->data)[index] = value;
+}
+
+/// Type.GenericParameterAttributes (kept in the variance field of a generic parameter's entry).
+int32_t csrt_type_generic_parameter_attributes(TypeObject* t, const csrt_TypeInfoTable* table) {
+    const csrt_TypeInfo* info = info_of(t, table);
+    if (!info) return 0;
+    if (!(info->flags & CSRT_TI_GENERIC_PARAMETER)) {
+        throw_utf8(&mt_invalid_operation, "Method may only be called on a Type for which Type.IsGenericParameter is true.");
+        return 0;
+    }
+    return (int32_t)info->variance;
+}
+
+static Index s_reflection_index;
+static Index s_delegate_index;
+
+/// The member metadata of a type (NULL: none was generated).
+const csrt_ReflectionInfo* csrt_reflection_info(TypeObject* t, const csrt_ReflectionTable* table) {
+    if (!t) { csrt_throw_null_reference(); return NULL; }
+    build_index(&s_reflection_index, table->entries, table->count, sizeof(csrt_ReflectionInfo));
+    return index_find(&s_reflection_index, t->target);
+}
+
+/// The method record of a delegate's function (NULL: not described).
+const csrt_MethodRecord* csrt_reflection_delegate_method(const void* fn, const csrt_DelegateMethodTable* table) {
+    build_index(&s_delegate_index, table->entries, table->count, sizeof(csrt_DelegateMethodEntry));
+    const csrt_DelegateMethodEntry* entry = index_find(&s_delegate_index, (const csrt_MethodTable*)fn);
+    return entry ? entry->method : NULL;
+}

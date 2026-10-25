@@ -225,6 +225,59 @@ typedef struct csrt_TypeInfo {
 
 typedef struct { int64_t count; const csrt_TypeInfo* entries; } csrt_TypeInfoTable;
 
+// Member metadata (constructors, methods, parameters, custom attributes): generated at compile time
+// by ModuleCodeGen.Reflection.cs for the types the program hands to [DynamicallyAccessedMembers]
+// locations (NativeAOT's model, docs/adr/0018-reflection-metadata.md), read by the corelib
+// (corelib/Reflection/Members.cs). Only programs that reflect over members carry the table.
+typedef struct csrt_AttributeRecord {
+    const csrt_MethodTable* type;   // the attribute class
+    void* (*create)(void);          // a new instance of the attribute, as GetCustomAttributes returns it
+    void* (*data)(void);            // a new CustomAttributeData describing it
+} csrt_AttributeRecord;
+
+enum { CSRT_PARAM_HAS_DEFAULT = 1 << 16, CSRT_PARAM_BYREF = 1 << 17 };  // above ParameterAttributes' 16 bits
+typedef struct csrt_ParameterRecord {
+    const char* name;               // UTF-8; NULL: unnamed
+    const csrt_MethodTable* type;   // the parameter type (the element type for by-ref parameters)
+    void* (*default_value)(void);   // CSRT_PARAM_HAS_DEFAULT: the boxed constant (NULL here: a null default)
+    const csrt_AttributeRecord* attributes;
+    uint32_t attribute_count;
+    uint32_t flags;                 // ParameterAttributes | CSRT_PARAM_*
+} csrt_ParameterRecord;
+
+enum { CSRT_METHOD_SOURCE_LAMBDA = 1 /* a lambda/local function lowered by csharpc: no .NET name */ };
+typedef struct csrt_MethodRecord {
+    const char* name;                          // ".ctor" for constructors
+    const csrt_MethodTable* declaring;
+    const csrt_MethodTable* return_type;       // NULL: void (and constructors)
+    void* (*invoke)(void* target, void* args); // object Invoke(object target, object[] args); NULL: not invokable
+    const csrt_ParameterRecord* parameters;
+    const csrt_AttributeRecord* attributes;
+    uint32_t parameter_count;
+    uint32_t attribute_count;
+    uint32_t method_attributes;                // MethodAttributes
+    uint32_t flags;                            // CSRT_METHOD_*
+} csrt_MethodRecord;
+
+// Which member kinds an entry lists (DynamicallyAccessedMemberTypes they were kept for).
+enum { CSRT_RI_PUBLIC_CONSTRUCTORS = 1, CSRT_RI_NONPUBLIC_CONSTRUCTORS = 2, CSRT_RI_PUBLIC_METHODS = 4,
+       CSRT_RI_NONPUBLIC_METHODS = 8, CSRT_RI_ATTRIBUTES = 16 };
+typedef struct csrt_ReflectionInfo {
+    const csrt_MethodTable* mt;
+    const csrt_MethodRecord* constructors;
+    const csrt_MethodRecord* methods;
+    const csrt_AttributeRecord* attributes;    // the type's (or generic parameter's) own custom attributes
+    uint32_t constructor_count;
+    uint32_t method_count;
+    uint32_t attribute_count;
+    uint32_t described;                        // CSRT_RI_*
+} csrt_ReflectionInfo;
+typedef struct { int64_t count; const csrt_ReflectionInfo* entries; } csrt_ReflectionTable;
+
+// Delegate.Method: the method a delegate's function pointer stands for.
+typedef struct { const void* fn; const csrt_MethodRecord* method; } csrt_DelegateMethodEntry;
+typedef struct { int64_t count; const csrt_DelegateMethodEntry* entries; } csrt_DelegateMethodTable;
+
 // Type.FullName where it differs from the method table's name (generic instantiations print
 // assembly-qualified arguments, generic parameters have none); `unknown`: csharpc can't tell.
 typedef struct { const csrt_MethodTable* mt; const char* full_name; uint64_t unknown; } csrt_TypeNameEntry;

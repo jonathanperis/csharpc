@@ -157,11 +157,14 @@ public sealed partial class FunctionCodeGen
             throw CompileError.Unsupported("expression trees (a lambda converted to System.Linq.Expressions.Expression<T>)", creation);
         LLVMValueRef target, fn;
         var capturesNothing = false;
+        IMethodSymbol? described = null; // what Delegate.Method reports (ModuleCodeGen.NoteDelegateMethod)
+        var sourceLambda = false;
         switch (creation.Target)
         {
             case IFlowAnonymousFunctionOperation lambda:
                 target = EnvValue(NestedFunction(lambda.Symbol, creation).Incoming);
                 fn = _m.GetNestedFunction(lambda.Symbol, _subst).Fn;
+                (described, sourceLambda) = (lambda.Symbol, true);
                 break;
             case IMethodReferenceOperation { Method.MethodKind: MethodKind.LocalFunction } local:
             {
@@ -169,11 +172,13 @@ public sealed partial class FunctionCodeGen
                 target = EnvValue(callee.Incoming);
                 fn = NestedFunctionInstance(callee, S(local.Method), creation).Fn;
                 capturesNothing = callee.Incoming is null; // compiled to a static method by C#, so cached too
+                (described, sourceLambda) = (S(local.Method), true);
                 break;
             }
             case IMethodReferenceOperation { Method.IsStatic: true } group when _m.IsUserMethod(S(group.Method)):
                 target = LlvmContext.Null(L.Ptr);
                 fn = _m.StaticThunk(S(group.Method));
+                described = S(group.Method);
                 break;
             case IMethodReferenceOperation group when _m.IsUserMethod(group.Method):
             {
@@ -187,6 +192,7 @@ public sealed partial class FunctionCodeGen
                 else if (group.Instance is not IInstanceReferenceOperation) DelegateTargetCheck(target);
                 var isVirtual = dispatched && !method.IsSealed && !method.ContainingType.IsSealed;
                 fn = isVirtual ? LoadVirtualFunction(method, target) : _m.GetFunction(method).Fn;
+                if (!isVirtual) described = method;
                 break;
             }
             // A library method (Path.GetFullPath, set.Contains, char.IsAscii...): a thunk with the delegate's
@@ -201,6 +207,7 @@ public sealed partial class FunctionCodeGen
                     if (group.Instance is not IInstanceReferenceOperation) DelegateTargetCheck(target);
                 }
                 fn = _m.LibraryDelegateThunk(method, group.IsVirtual, creation.Syntax);
+                if (!group.IsVirtual || method.IsStatic || !(method.IsVirtual || method.IsAbstract || method.IsOverride)) described = method;
                 break;
             }
             case IMethodReferenceOperation group:
@@ -208,6 +215,7 @@ public sealed partial class FunctionCodeGen
             default:
                 throw CompileError.Unsupported($"delegate creation from {creation.Target.Kind}", creation);
         }
+        if (described is not null) _m.NoteDelegateMethod(fn, described, sourceLambda);
         var delegateType = (INamedTypeSymbol)TypeOf(creation)!;
         var mt = _m.DelegateMethodTable(delegateType);
         // C# 11+ caches a static method group's delegate in a static field of the converting type (Roslyn's

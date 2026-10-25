@@ -1172,6 +1172,9 @@ internal static partial class BclValueTypes
         Dictionary<string, BclFieldHandler> t = [];
         t["string.Empty"] = (g, _) => g.Module.StringLiteral("");
         t["System.EventArgs.Empty"] = (g, _) => g.CallCoreLib("EventArgsImpl", "GetEmpty");
+        t["System.Type.EmptyTypes"] = (g, _) => g.CallCoreLib("ReflectionRuntime", "EmptyTypes");
+        t["System.Type.Missing"] = t["System.Reflection.Missing.Value"] = (g, _) => g.CallCoreLib("MissingImpl", "GetValue");
+        t["System.DBNull.Value"] = (g, _) => g.CallCoreLib("DBNullImpl", "GetValue");
         t["System.TimeSpan.Zero"] = (g, _) => I64(g, 0);
         t["System.Threading.Timeout.InfiniteTimeSpan"] = (g, _) => I64(g, -TicksPerMs);
         t["System.TimeSpan.MaxValue"] = (g, _) => I64(g, long.MaxValue);

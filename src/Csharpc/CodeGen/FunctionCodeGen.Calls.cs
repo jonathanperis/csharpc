@@ -17,9 +17,11 @@ public sealed partial class FunctionCodeGen
     {
         // [Conditional] methods are void, so an omitted call has no value (FunctionCodeGen.Conditional.cs).
         if (IsConditionallyOmitted(inv)) return default;
+        NoteDynamicallyAccessedArguments(S(inv.TargetMethod), inv.Arguments);
         if (Intrinsics.TryGetConsoleFastPath(inv, out var consoleFastPath)) return consoleFastPath(this, inv);
         var target = S(inv.TargetMethod);
         if (IsCoreIntrinsic(target)) return EmitCoreIntrinsic(target, inv);
+        if (TypeObjectMember(inv.TargetMethod, inv.Instance) is { } typeMember) return CallBcl(typeMember, inv.TargetMethod, inv.Instance, inv.Arguments, inv);
         if (UnsafeAccessorOf(target) is { } unsafeAccessor) return EmitUnsafeAccessor(target, unsafeAccessor, inv);
         if (target.IsStatic && TryUnsafeMethod(target, inv) is { } unsafeResult) return unsafeResult;
         // `T.Create()` on a static abstract/virtual interface member: after substitution T is concrete.
@@ -380,6 +382,7 @@ public sealed partial class FunctionCodeGen
     private LLVMValueRef EmitObjectCreation(IObjectCreationOperation creation)
     {
         if (creation.Initializer is not null) throw CompileError.Unsupported("object initializer", creation);
+        if (creation.Constructor is { } created) NoteDynamicallyAccessedArguments(S(created), creation.Arguments);
         var type = (INamedTypeSymbol)TypeOf(creation)!;
         if (TrySpanConstruction(creation, out var span) || TryStatelessLibraryCreation(creation, out span) || TryThreadingCreation(creation, out span)) return span;
         if (IsStringBuilderHandler(type))  // new AppendInterpolatedStringHandler(literalLength, formattedCount, sb[, provider])
@@ -564,6 +567,9 @@ public sealed partial class FunctionCodeGen
         // Boxed value types and enums are flagged in their method tables (csrt_isinst_class).
         { SpecialType: SpecialType.System_ValueType } => _m.ExternalGlobal("csrt_ValueType_MT"),
         { SpecialType: SpecialType.System_Enum } => _m.ExternalGlobal("csrt_Enum_MT"),
+        // Type objects are runtime objects (src/runtime/type.c), all with one method table.
+        INamedTypeSymbol { Name: "Type", ContainingType: null, ContainingNamespace: { Name: "System", ContainingNamespace.IsGlobalNamespace: true } } =>
+            _m.ExternalGlobal("csrt_Type_MT"),
         INamedTypeSymbol { Name: "CancellationTokenSource", ContainingNamespace: { Name: "Threading", ContainingNamespace.Name: "System" } } =>
             _m.ExternalGlobal("csrt_CancellationTokenSource_MT"), // a runtime object (runtime/async.c)
         _ when IsBoxablePrimitive(type) => _m.ExternalGlobal($"csrt_Boxed_{type.MetadataName}_MT"),
@@ -601,8 +607,27 @@ public sealed partial class FunctionCodeGen
     // Properties
     // ======================================================================================
 
+    /// <summary>
+    /// A MemberInfo member called on a System.Type: C# binds `type.Name` to MemberInfo.Name, but csharpc's
+    /// Type objects are runtime objects (src/runtime/type.c), not MemberInfo instances: Type's intrinsic.
+    /// </summary>
+    private BclHandler? TypeObjectMember(IMethodSymbol target, IOperation? instance)
+    {
+        if (instance is null || target.IsStatic) return null;
+        var owner = (INamedTypeSymbol)_m.CoreLib.Unmap(target.ContainingType);
+        if (owner is not { Name: "MemberInfo", ContainingNamespace: { Name: "Reflection", ContainingNamespace.Name: "System" } }) return null;
+        if (!SymbolEqualityComparer.Default.Equals(owner, target.ContainingType))
+            target = owner.GetMembers(target.Name).OfType<IMethodSymbol>().FirstOrDefault(m => m.Parameters.Length == target.Parameters.Length) ?? target;
+        for (var t = TypeOf(instance) as INamedTypeSymbol; t is not null; t = t.BaseType)
+            if (t is { Name: "Type", ContainingNamespace: { Name: "System", ContainingNamespace.IsGlobalNamespace: true } })
+                return BclValueTypes.TryGet(target, out var handler) ? handler : null;
+        return null;
+    }
+
     private LLVMValueRef EmitPropertyGet(IPropertyReferenceOperation p)
     {
+        if (p.Property.GetMethod is { } typeGetter && TypeObjectMember(typeGetter, p.Instance) is { } typeMember)
+            return CallBcl(typeMember, typeGetter, p.Instance, p.Arguments, p);
         var property = S(p.Property);
         if (TypeMapper.IsNullable(property.ContainingType)) return EmitNullableMember(p);
         if (property.ContainingType.IsAnonymousType) return AnonymousPropertyGet(p);

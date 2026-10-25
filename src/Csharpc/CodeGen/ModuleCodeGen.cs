@@ -184,11 +184,11 @@ public sealed partial class ModuleCodeGen
         // Type metadata describes every method table, and describing one can create more (and queue
         // their methods): iterate to a fixed point.
         do DrainWorklists();
-        while (EmitRuntimeExports() | EmitTypeMetadata() | EmitDeferredPrimitiveSlots());
+        while (EmitRuntimeExports() | EmitReflectionMetadata() | EmitTypeMetadata() | EmitDeferredPrimitiveSlots());
         // Close the generic interface dispatchers, then lower what their last cases call.
         if (EmitGenericInterfaceDispatchers(final: true) | EmitVariantDelegateTests(final: true))
             do DrainWorklists();
-            while (EmitRuntimeExports() | EmitTypeMetadata() | EmitDeferredPrimitiveSlots());
+            while (EmitRuntimeExports() | EmitReflectionMetadata() | EmitTypeMetadata() | EmitDeferredPrimitiveSlots());
         CheckGenericInterfaceDispatchers();
         // Last: every dispatched slot is known once nothing is left to lower.
         // The IL methods that failed are reported even when finishing the tables fails too (that error
@@ -196,6 +196,7 @@ public sealed partial class ModuleCodeGen
         try
         {
             FinishMethodTables();
+            Guard(entryPoint, FinishReflectionMetadata);
             Guard(entryPoint, FinishTypeMetadata);
             FinishEventSourceAttributes();
         }
@@ -285,7 +286,7 @@ public sealed partial class ModuleCodeGen
         if (_functions.TryGetValue(method, out var existing)) return existing;
         if (generic && TypeSubstitution.IsOpen(method))
             throw CompileError.Unsupported($"open generic instantiation '{method}'", method);
-        if (generic) CheckGenericDepth(method);
+        if (generic) { CheckGenericDepth(method); NoteDynamicallyAccessedInstantiation(method); }
 
         var type = FunctionTypeOf(method);
         var fn = Module.AddFunction(Mangler.Method(method), type);
@@ -797,6 +798,7 @@ public sealed partial class ModuleCodeGen
                 ? GetLibraryExceptionLayout(type)
                 : throw CompileError.Unsupported($"instances of library class '{type}'", type);
         if (TypeSubstitution.IsOpen(type)) throw CompileError.Unsupported($"open generic type '{type}'", type);
+        NoteDynamicallyAccessedInstantiation(type);
         RejectCustomLayout(type);
         RejectIlCustomLayout(type);
         return BuildOrForget(_layouts, type, BuildLayout);

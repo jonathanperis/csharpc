@@ -117,6 +117,7 @@ public sealed partial class FunctionCodeGen
             // An object reference as a native-sized integer and back (the GC never moves objects).
             "ObjectToPointer" => args[0].Type.Kind == LLVMTypeKind.Pointer
                 ? _b.Cast(LLVMOpcode.PtrToInt, args[0], T.Value(_m.Compilation.GetSpecialType(SpecialType.System_IntPtr))) : args[0],
+            "ReinterpretAs" => args[0],
             "PointerToObject" => args[0].Type.Kind == LLVMTypeKind.Pointer ? args[0] : _b.Cast(LLVMOpcode.IntToPtr, args[0], L.Ptr),
             "EnumToUInt64" => EnumToUInt64(t!, args[0]),
             "EnumFromUInt64" => EnumFromUInt64(t!, args[0]),
@@ -140,6 +141,11 @@ public sealed partial class FunctionCodeGen
             "IsCoroutineIterator" => CallRuntime("csrt_is_iterator", L.I1, [L.Ptr], args[0]),
             "RuntimeConfig" => _m.AppContextBlob(),
             "LoadableAssemblies" => _m.LoadableAssembliesBlob(),
+            "TypeInfoTableAddress" => _b.Cast(LLVMOpcode.PtrToInt, _m.TypeInfoTable(), T.NativeInt),
+            "ReflectionTableAddress" => _b.Cast(LLVMOpcode.PtrToInt, _m.ReflectionTable(), T.NativeInt),
+            "DelegateMethodTableAddress" => _b.Cast(LLVMOpcode.PtrToInt, _m.DelegateMethodTable(), T.NativeInt),
+            "DelegateFunction" => _b.Cast(LLVMOpcode.PtrToInt, LastDelegateField(args[0], 2), T.NativeInt),
+            "DelegateTargetObject" => LastDelegateField(args[0], 1),
             "TryFaultAsyncTask" => CallRuntime("csrt_task_try_fault_async", L.I1, [L.Ptr, L.Ptr], args[0], args[1]),
             "CompareStringsWith" => CallRuntime("csrt_string_compare_with", L.I32, [L.Ptr, L.Ptr, L.I32], args[0], args[1], args[2]),
             "JsonConfigureHook" => ProgramHook("JsonConfigure", target, args),

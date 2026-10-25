@@ -1,0 +1,26 @@
+Void .ctor() public=True static=False attributes=Public, HideBySig, SpecialName, RTSpecialName Constructor .ctor Service
+Void .ctor(System.String, Int32, System.String) public=True static=False attributes=Public, HideBySig, SpecialName, RTSpecialName Constructor .ctor Service
+  0 name: System.String optional=False default=False [] None 0  - False System.String name
+  1 count: System.Int32 optional=True default=True [3] Optional, HasDefault 1 OptionalAttribute - False Int32 count
+  2 suffix: System.String optional=True default=True [null] Optional, HasDefault 2 TagAttribute,OptionalAttribute opt/2 True System.String suffix
+True True
+default
+abcx7!
+abcx7
+True
+True
+True
+1
+Parameter count mismatch.
+Object of type 'System.Int32' cannot be converted to type 'System.String'.
+Exception has been thrown by the target of an invocation. -> InvalidOperationException: negative: -1
+unwrapped: negative: -2
+Repository`1[System.String] Void .ctor(Clock) Clock -> Repository<String> at 42
+The number of generic arguments provided doesn't equal the arity of the generic type definition. (Parameter 'typeArguments')
+Clock is not a GenericTypeDefinition. MakeGenericType may only be called on a type for which Type.IsGenericTypeDefinition is true.
+Service[] 2 in-arrayx3 True
+Object cannot be stored in an array of this type.
+length ('-1') must be a non-negative value. (Parameter 'length')
+Actual value was -1.
+Answer Program Int32 Answer() True System.Int32
+True

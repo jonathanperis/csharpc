@@ -62,6 +62,34 @@ internal static partial class BclValueTypes
         t[$"{Type}.get_AssemblyQualifiedName()"] = (g, _, self, _, _) => Rt(g, "csrt_type_assembly_qualified_name", g.Llvm.Ptr,
             (self, g.Llvm.Ptr), (Table(g), g.Llvm.Ptr), (g.Module.TypeNameTable(), g.Llvm.Ptr));
 
+        // Member reflection over compile-time metadata (ModuleCodeGen.Reflection.cs, corelib/Reflection/Members.cs).
+        BclHandler core(string method) => (g, _, self, a, _) => g.CallCoreLib("ReflectionRuntime", method, [self, .. a]);
+        t[$"{Type}.GetConstructors()"] = core("GetConstructorsAll");
+        t[$"{Type}.GetConstructors(System.Reflection.BindingFlags)"] = core("GetConstructorsFlags");
+        t[$"{Type}.GetConstructor(System.Type[])"] = core("GetConstructorTypes");
+        t[$"{Type}.GetConstructor(System.Reflection.BindingFlags, System.Type[])"] = core("GetConstructorFlagsTypes");
+        t[$"{Type}.GetConstructor(System.Reflection.BindingFlags, System.Reflection.Binder, System.Type[], System.Reflection.ParameterModifier[])"] = core("GetConstructor");
+        t[$"{Type}.GetMethods()"] = core("GetMethodsAll");
+        t[$"{Type}.GetMethods(System.Reflection.BindingFlags)"] = core("GetMethodsFlags");
+        t[$"{Type}.GetMethod(string)"] = core("GetMethodName");
+        t[$"{Type}.GetMethod(string, System.Reflection.BindingFlags)"] = core("GetMethodNameFlags");
+        t[$"{Type}.GetMethod(string, System.Type[])"] = core("GetMethodNameTypes");
+        t[$"{Type}.GetMethod(string, System.Reflection.BindingFlags, System.Type[])"] = core("GetMethodNameFlagsTypes");
+        t[$"{Type}.GetCustomAttributes(bool)"] = core("TypeAttributesAll");
+        t[$"{Type}.GetCustomAttributes(System.Type, bool)"] = core("TypeAttributesOf");
+        t[$"{Type}.IsDefined(System.Type, bool)"] = core("IsTypeDefined");
+        t[$"{Type}.GetCustomAttributesData()"] = core("GetTypeCustomAttributesData");
+        t[$"{Type}.MakeGenericType(System.Type[])"] = (g, _, self, a, _) =>
+            Rt(g, "csrt_type_make_generic", g.Llvm.Ptr, (self, g.Llvm.Ptr), (a[0], g.Llvm.Ptr), (Table(g), g.Llvm.Ptr));
+        t[$"{Type}.MakeArrayType()"] = (g, _, self, _, _) => TypeResult(g, "csrt_type_make_array", self);
+        t[$"{Type}.get_GenericParameterAttributes()"] = (g, _, self, _, _) =>
+            Rt(g, "csrt_type_generic_parameter_attributes", g.Llvm.I32, (self, g.Llvm.Ptr), (Table(g), g.Llvm.Ptr));
+        t["System.Array.CreateInstance(System.Type, int)"] = (g, _, _, a, _) => g.CallCoreLib("ReflectionRuntime", "CreateInstance", a[0], a[1]);
+        t["System.Array.SetValue(object, int)"] = (g, _, self, a, _) => g.CallCoreLib("ReflectionRuntime", "SetValue", self, a[0], a[1]);
+        t["System.Delegate.get_Method()"] = (g, _, self, _, _) => g.CallCoreLib("ReflectionRuntime", "DelegateMethod", self);
+        t["System.Delegate.get_Target()"] = (g, _, self, _, _) => g.CallCoreLib("ReflectionRuntime", "DelegateTarget", self);
+        t["System.Reflection.RuntimeReflectionExtensions.GetMethodInfo(System.Delegate)"] = (g, _, _, a, _) => g.CallCoreLib("ReflectionRuntime", "DelegateMethod", a[0]);
+
         // Assembly objects are corelib C# (corelib/Reflection/Assembly.cs), one per assembly name.
         t[$"{Type}.get_Assembly()"] = (g, _, self, _, _) =>
             g.CallCoreLib("AssemblyImpl", "ForName", TypeResult(g, "csrt_type_assembly_name", self));

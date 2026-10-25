@@ -30,6 +30,8 @@ public sealed partial class FunctionCodeGen
         if (op != ILOpCode.Newobj && !method.IsStatic)
             receiver = stack.Count > 0 ? stack.Pop() : throw new IlException("evaluation stack underflow");
 
+        if (args.Any(a => a is { Kind: IlKind.Ref, Symbol: ITypeSymbol }))
+            _m.NoteDynamicallyAccessedArguments(S(method), i => args[i] is { Kind: IlKind.Ref, Symbol: ITypeSymbol type } ? type : null);
         if (IlSpecialCall(method, receiver, args) is { } special)
         {
             if (special.Kind != IlKind.Token) stack.Push(special); // Token = handled, nothing to push

@@ -490,6 +490,15 @@ namespace CsharpcCoreLib
         public abstract void Delete();
         public void Refresh() { }
         public override string ToString() => OriginalPath;
+
+        /// <summary>The attributes .NET reports (FileStatusImpl); -1 when the entry doesn't exist.</summary>
+        public FileAttributes Attributes => FileStatusImpl.GetAttributes(FullPath, Name);
+
+        /// <summary>The target of a symbolic link as stored in the link, or null when this is not a link.</summary>
+        public string LinkTarget => FileStatusImpl.ReadLink(FullPath);
+
+        public FileSystemInfo ResolveLinkTarget(bool returnFinalTarget) =>
+            FileStatusImpl.ResolveLinkTarget(FullPath, returnFinalTarget, this is DirectoryInfoImpl);
     }
 
     [Shadows("System.IO.FileInfo")]
@@ -592,5 +601,23 @@ namespace CsharpcCoreLib
         public IEnumerable<FileInfo> EnumerateFiles(string searchPattern) => GetFiles(searchPattern);
         public IEnumerable<FileInfo> EnumerateFiles(string searchPattern, SearchOption searchOption) => GetFiles(searchPattern, searchOption);
         public IEnumerable<DirectoryInfo> EnumerateDirectories() => GetDirectories();
+
+        public FileSystemInfo[] GetFileSystemInfos() => GetFileSystemInfos("*", SearchOption.TopDirectoryOnly);
+        public FileSystemInfo[] GetFileSystemInfos(string searchPattern) => GetFileSystemInfos(searchPattern, SearchOption.TopDirectoryOnly);
+        public FileSystemInfo[] GetFileSystemInfos(string searchPattern, SearchOption searchOption)
+        {
+            if (searchOption != SearchOption.TopDirectoryOnly && searchOption != SearchOption.AllDirectories)
+                throw new ArgumentOutOfRangeException("searchOption", "Enum value was out of legal range.");
+            // Entries in directory order, each a DirectoryInfo or FileInfo by its kind (readdir's, links followed).
+            var names = DirectoryImpl.Enumerate(FullPath, searchPattern, searchOption == SearchOption.AllDirectories, true, true, true);
+            var result = new FileSystemInfo[names.Count];
+            for (int i = 0; i < result.Length; i++)
+                result[i] = Posix.IsDirectory(names[i]) ? new DirectoryInfo(names[i]) : new FileInfo(names[i]);
+            return result;
+        }
+
+        public IEnumerable<FileSystemInfo> EnumerateFileSystemInfos() => GetFileSystemInfos();
+        public IEnumerable<FileSystemInfo> EnumerateFileSystemInfos(string searchPattern) => GetFileSystemInfos(searchPattern);
+        public IEnumerable<FileSystemInfo> EnumerateFileSystemInfos(string searchPattern, SearchOption searchOption) => GetFileSystemInfos(searchPattern, searchOption);
     }
 }
