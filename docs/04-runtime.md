@@ -156,7 +156,7 @@ pthread subset csrt uses):
 
 | Concern | Linux (glibc) | macOS (arm64) | Windows (x64, MinGW-w64) | WASI (wasm32, wasi-libc) |
 |---|---|---|---|---|
-| GC static roots | writable `PT_LOAD` segments via `dl_iterate_phdr` | writable `LC_SEGMENT_64`s of image 0 (`_dyld_get_image_header`) | writable sections of the executable's PE image (`GetModuleHandle(NULL)`) | the data segment, `__global_base` to `__data_end` |
+| GC static roots | writable `PT_LOAD` segments via `dl_iterate_phdr`, minus `PT_GNU_RELRO` (method tables, vtables, the GOT: read-only once relocated) | writable `LC_SEGMENT_64`s of image 0 (`_dyld_get_image_header`) | writable sections of the executable's PE image (`GetModuleHandle(NULL)`) | the data segment, `__global_base` to `__data_end` |
 | GC thread-local roots | the executable's `PT_TLS` block (`dlpi_tls_data`) | the thread's TLV block: a `__thread_vars` descriptor's thunk gives one variable's address, minus its offset = block start; size = `__thread_data` + `__thread_bss` | `TEB.ThreadLocalStoragePointer[_tls_index]`; size from the image's TLS directory | none (`_Thread_local` becomes ordinary globals without the threads proposal) |
 | GC heap chunks | `mmap` + trim to alignment | the same | `VirtualAlloc`: reserve twice the size, release, map at the aligned address | `aligned_alloc` (linear memory only grows) |
 | thread stack bounds | `__libc_stack_end`, `pthread_getattr_np` | `pthread_get_stackaddr_np` | `GetCurrentThreadStackLimits` | the linear-memory stack, up to `__stack_high`; values in wasm locals are spilled there by the compiler (RootSpilling) |

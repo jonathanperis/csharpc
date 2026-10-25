@@ -435,12 +435,14 @@ slot_table: [members x ptr]                                   ; implementations,
 
 The vtable now starts at offset 40.
 
-* **Dispatch** (`Interfaces.cs`): `slots = csrt_interface_slots(obj, @IFoo.IMT)` does a linear scan
-  of a short map. The call then loads `slots[i]` and calls it indirectly. We chose this over
-  per-interface fixed itable offsets (which need a global coloring pass) and over hashed dispatch
-  cells: it's simple, it handles any number of interfaces, and most calls never reach it (see
-  devirtualization). A fast path that LLVM can see, caching the last (MT → slots) pair, is a
-  possible later improvement.
+* **Dispatch** (`Interfaces.cs`): `slots = csrt_interface_slots_cached(obj, @IFoo.IMT, @site)` and the
+  call then loads `slots[i]` and calls it indirectly. Each call site has a one-word cache in `.bss`:
+  the last receiver's method table in the low 48 bits and the interface's index in its map above
+  them, read and written with relaxed atomics (a race is only a miss). A hit is two loads, a compare
+  and two loads; a miss scans the receiver's map and refills the word. Kestrel's `HttpProtocol`
+  implements 30+ feature interfaces, so scanning on every call was several percent of a request. We
+  chose this over per-interface fixed itable offsets (which need a global coloring pass) and over a
+  global (MT, interface) cache, which measured no faster than the scan.
 * **Implementations** come from Roslyn's `FindImplementationForInterfaceMember`. When the
   implementation is virtual, the slot takes the class's *vtable* entry, so overrides in derived
   classes are honoured. Explicit implementations, default interface methods (compiled with an

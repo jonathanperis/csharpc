@@ -58,11 +58,20 @@ collection. Thread caches are never reset by the collector.
 
 ## Monitors (src/runtime/threads.c)
 
-Objects never move, so monitors live in a striped hash table keyed by object address. An entry
-holds a `pthread_mutex_t` (the lock), a condition variable (`Wait`/`Pulse`), the owner and the
-recursion count; it is reference-counted by threads that hold, wait for or are entering it, and
-freed when the count drops to zero. `System.Threading.Lock` uses the same monitors keyed by the
-`Lock` object; a `Lock.Scope` value is represented by the `Lock` pointer itself.
+Objects never move, so monitors live in a hash table of 256 buckets keyed by object address. Every
+field of an entry (owner, recursion count, the number of threads with an interest in it, two
+condition variables: `released` for blocked `Enter`s, `cond` for `Wait`/`Pulse`) is guarded by its
+bucket's mutex, which is also the mutex the condition variables wait with: an uncontended
+`Enter`/`Exit` pair is one short critical section each. An entry lives while some thread owns,
+enters or waits for it, then goes to its bucket's spare list (zeroed mutexes and condition variables
+are initialized ones on glibc, Windows and WASI; macOS initializes them).
+
+`System.Threading.Lock` keeps its state in the object, as .NET's does: the owner's lock id (a small
+per-thread number, 0 = free), the recursion count and the number of parked waiters. An uncontended
+`Enter` is one compare-and-swap, `Exit` one store plus a load of the waiter count; a contended `Enter`
+spins briefly, then parks on the `Lock`'s monitor-table entry (its `lock_released` condition). Kestrel
+and System.IO.Pipelines take a `Lock` a dozen times per request. `Monitor` on a `Lock` instance is a
+separate lock, as in .NET. A `Lock.Scope` value is represented by the `Lock` pointer itself.
 
 ## Parallel loops
 
