@@ -555,7 +555,14 @@ public sealed partial class ModuleCodeGen
         var fn = Module.AddFunction(name, type);
         Native.LLVMSetLinkage(fn, LLVMLinkage.Internal);
         Llvm.AddFunctionAttribute(fn, "uwtable", 2);
-        body(new FunctionCodeGen(this, null, new LoweredFunction(fn, type)), ReflectionSyntax);
+        try { body(new FunctionCodeGen(this, null, new LoweredFunction(fn, type)), ReflectionSyntax); }
+        catch
+        {
+            // This function, not an earlier one of the same name (several attribute instances share a
+            // constructor: LLVM suffixes the later names).
+            Native.LLVMDeleteFunction(fn);
+            throw;
+        }
         return fn;
     }
 
@@ -575,7 +582,6 @@ public sealed partial class ModuleCodeGen
         try { return SyntheticFunction(name, Llvm.FunctionType(Llvm.Ptr), (g, syntax) => g.EmitAttributeFactory(instance, syntax)); }
         catch (CompileError)
         {
-            if (Module.GetFunction(name) is { IsNull: false } partial) Native.LLVMDeleteFunction(partial);
             var message = $"Creating the custom attribute '{instance.Constructor.ContainingType}' is not supported by csharpc yet.";
             return SyntheticFunction(name, Llvm.FunctionType(Llvm.Ptr), (g, _) => g.EmitThrowingFactory(message));
         }
