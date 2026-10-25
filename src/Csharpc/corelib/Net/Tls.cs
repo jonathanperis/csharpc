@@ -354,6 +354,21 @@ namespace CsharpcCoreLib
 
         public static string WriteString(ReadOnlySpan<char> label, ReadOnlySpan<byte> data) => new string(Write(label, data));
 
+        /// <summary>The length Write produces: both encapsulation boundaries, the newline after the first, base64 lines of 64 plus a newline each.</summary>
+        public static int GetEncodedSize(int labelLength, int dataLength)
+        {
+            ArgumentOutOfRangeException.ThrowIfNegative(labelLength);
+            ArgumentOutOfRangeException.ThrowIfNegative(dataLength);
+            if (labelLength > 1_073_741_808) throw new ArgumentOutOfRangeException(nameof(labelLength), "The encoded PEM size is too large.");
+            if (dataLength > 1_585_834_053) throw new ArgumentOutOfRangeException(nameof(dataLength), "The encoded PEM size is too large.");
+            long encapsulation = 11 + labelLength + 5 + 9 + labelLength + 5 + 1L;
+            long encoded = ((dataLength + 2L) / 3) << 2;
+            long lines = (encoded + 63) / 64;
+            long total = encapsulation + encoded + lines;
+            if (total > int.MaxValue) throw new ArgumentException("The encoded PEM size is too large.");
+            return (int)total;
+        }
+
         public static char[] Write(ReadOnlySpan<char> label, ReadOnlySpan<byte> data)
         {
             if (!IsValidLabel(label)) throw new ArgumentException("The specified label is not valid.", "label");

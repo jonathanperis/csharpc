@@ -45,6 +45,24 @@ namespace CsharpcCoreLib
         public Microsoft.Win32.SafeHandles.SafeFileHandle StandardInputHandle { get; set; }
         public Microsoft.Win32.SafeHandles.SafeFileHandle StandardOutputHandle { get; set; }
         public Microsoft.Win32.SafeHandles.SafeFileHandle StandardErrorHandle { get; set; }
+
+        private Dictionary<string, string> _environment;
+
+        /// <summary>A copy of this process's environment on first use (variable names ignore case on Windows only).</summary>
+        public IDictionary<string, string> Environment
+        {
+            get
+            {
+                if (_environment is null)
+                {
+                    var environment = new Dictionary<string, string>(OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal);
+                    foreach (System.Collections.DictionaryEntry entry in System.Environment.GetEnvironmentVariables())
+                        environment[(string)entry.Key] = (string)entry.Value;
+                    _environment = environment;
+                }
+                return _environment;
+            }
+        }
     }
 
     [Shadows("System.Diagnostics.ProcessExitStatus")]
