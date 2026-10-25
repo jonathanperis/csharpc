@@ -126,10 +126,15 @@ jobs:
             if [[ $version == *-* ]]; then prerelease=true; else prerelease=false; fi
           fi
 
-          # nuget.org only when a Trusted Publishing username is configured (never on dry-run).
+          # nuget.org: Trusted Publishing via NuGet/login in this file (release.yml, no environment).
+          # Never push test/dryrun versions (nuget.org cannot delete packages, only unlist).
           publish_nuget_org=false
           if [[ $should_publish == true && -n ${NUGET_USER} ]]; then
-            publish_nuget_org=true
+            if [[ $version == *test* || $version == *dryrun* || $channel == branch-dry-run || $channel == dispatch ]]; then
+              echo "nuget.org: skipping version '$version' (test/dry-run; not deletable on nuget.org)"
+            else
+              publish_nuget_org=true
+            fi
           fi
 
           {
@@ -300,8 +305,13 @@ jobs:
       - name: Smoke-test bundle
         run: |
           chmod +x tools/smoke-release.sh
-          archive=$(ls bundles/csharpc-*-${{ matrix.rid }}.tar.gz bundles/csharpc-*-${{ matrix.rid }}.zip 2>/dev/null | head -1)
-          test -n "$archive"
+          # nullglob: under pipefail, `ls missing-glob` exits 2 when the .zip/.tar.gz pattern is absent.
+          shopt -s nullglob
+          archives=(bundles/csharpc-*-${{ matrix.rid }}.tar.gz bundles/csharpc-*-${{ matrix.rid }}.zip)
+          echo "bundles:"; ls -la bundles || true
+          archive="${archives[0]:-}"
+          test -n "$archive" || { echo "no archive for ${{ matrix.rid }}"; exit 1; }
+          echo "using $archive"
           tools/smoke-release.sh "$archive" "$PWD"
 
   publish:
@@ -421,9 +431,9 @@ jobs:
         if: needs.setup.outputs.publish_nuget_org != 'true' || (needs.setup.outputs.publish_nuget_org == 'true' && steps.nuget_login.outcome != 'success')
         run: |
           if [[ '${{ needs.setup.outputs.publish_nuget_org }}' != 'true' ]]; then
-            echo "nuget.org publish skipped: set repository variable NUGET_USER (nuget.org profile name) and a Trusted Publishing policy for workflow file release.yml (no GitHub environment)."
+            echo "nuget.org publish skipped (NUGET_USER unset, or version is a test/dry-run). Policy: release.yml, no environment, vars.NUGET_USER."
           else
-            echo "nuget.org login failed; packages were still published to GitHub Packages. Check the Trusted Publishing policy for jonathanperis/csharpc workflow release.yml (no environment)."
+            echo "nuget.org login failed; GitHub Packages/Releases may already be updated. Policy must be Active for jonathanperis/csharpc workflow release.yml (no environment), NUGET_USER=Jonathanperis."
             exit 1
           fi
 

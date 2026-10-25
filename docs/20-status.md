@@ -77,12 +77,15 @@ program using Roslyn's parser compiles from IL at -O0.
 
 Release packaging on `ci/release-packaging`, 2026-10-25. Times are BRT (UTC−3).
 
-**nuget.org Trusted Publishing (for the owner, set this first):** OIDC push lives in
-`.github/workflows/release.yml` (workflow file name for the policy: **`release.yml`**). **No**
-GitHub Actions environment. `NuGet/login` uses `user: ${{ vars.NUGET_USER }}`. Policy fields:
-Repository Owner `jonathanperis`, Repository `csharpc`, Workflow File `release.yml`, Environment
-empty. Set repo variable `NUGET_USER` to the nuget.org profile name. If `NUGET_USER` is unset, the
-release job skips nuget.org with a notice and still publishes GitHub Packages / Releases / GHCR.
+**nuget.org Trusted Publishing — configured (BRT 17:18, 2026-10-25).** Owner Jonathan signed in
+to nuget.org as account **`Jonathanperis`**, created Active Trusted Publishing policy
+**`csharpc-release`** for GitHub Actions: repo `jonathanperis/csharpc`, workflow file
+**`release.yml`**, no environment, package glob `*`. Repo variable **`NUGET_USER=Jonathanperis`**
+is set. OIDC `NuGet/login` + nuget.org push live in `.github/workflows/release.yml` (claim is
+`release.yml`, not a reusable callee); publish job has `id-token: write`. Trigger is
+`workflow_run` after green CI on main (and `v*` tags), so the five merge-bar jobs are untouched.
+Test/dry-run versions are never pushed to nuget.org (unlist-only). First nuget.org push is the
+real `v0.1.0-spike` tag (or `0.1.0-spike.<ci_run_number>` from main after merge).
 
 **17:00–17:50.** Goal: ship csharpc via GitHub Releases and GitHub Packages. Driver facts:
 `AppContext.BaseDirectory/{corelib,runtime}` (already `CopyToPublishDirectory`); libLLVM via
