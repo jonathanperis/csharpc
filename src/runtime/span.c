@@ -24,34 +24,66 @@ csrt_Array* csrt_span_to_array(const void* data, int32_t length, int64_t element
 // wasm simd128 when enabled, scalar code otherwise): Kestrel's HTTP parser looks for CR, LF, ':' and
 // friends in every header with MemoryExtensions.IndexOf/IndexOfAny. `except` finds the first element
 // that is none of the values. Values a, b, c may repeat (IndexOfAny with two values passes b twice).
-typedef uint8_t u8x16 __attribute__((vector_size(16)));
-typedef uint16_t u16x8 __attribute__((vector_size(16)));
+//
+// Most searches are over a few dozen bytes, so there is no scalar head or tail: every load is an
+// aligned 16-byte block, the first and last ones masked to the span. An aligned block never crosses a
+// page boundary, so reading the bytes around the span can't fault (as libc's memchr does); the
+// sanitizers are told so.
+typedef uint8_t u8x16 __attribute__((vector_size(16), aligned(16)));
+typedef uint16_t u16x8 __attribute__((vector_size(16), aligned(16)));
+typedef bool b16 __attribute__((ext_vector_type(16)));
+typedef bool b8 __attribute__((ext_vector_type(8)));
 
-int32_t csrt_span_index_of_any_u8(const uint8_t* p, int32_t length, uint8_t a, uint8_t b, uint8_t c, bool except) {
-    int32_t i = 0;
-    for (; i + 16 <= length; i += 16) {
-        u8x16 v;
-        memcpy(&v, p + i, sizeof v);
+#if defined(__has_feature)
+#if __has_feature(address_sanitizer)
+#define CSRT_NO_ASAN __attribute__((no_sanitize("address")))
+#endif
+#endif
+#ifndef CSRT_NO_ASAN
+#define CSRT_NO_ASAN
+#endif
+
+CSRT_NO_ASAN int32_t csrt_span_index_of_any_u8(const uint8_t* p, int32_t length, uint8_t a, uint8_t b, uint8_t c, bool except) {
+    if (length <= 0) return -1;
+    const uint8_t* block = (const uint8_t*)((uintptr_t)p & ~(uintptr_t)15);
+    uint32_t first = (uint32_t)(p - block);  // lanes of the first block before the span
+    for (const uint8_t* end = p + length; block < end; block += 16) {
+        u8x16 v = *(const u8x16*)block;
         u8x16 hit = (u8x16)((v == a) | (v == b) | (v == c));
         if (except) hit = ~hit;
-        if (__builtin_reduce_or(hit)) break;
+        uint32_t mask = __builtin_bit_cast(uint16_t, __builtin_convertvector(hit, b16)) >> first << first;
+        first = 0;
+        if (mask) {
+            int64_t index = block - p + __builtin_ctz(mask);
+            return index < length ? (int32_t)index : -1;
+        }
     }
-    for (; i < length; i++)
-        if ((p[i] == a || p[i] == b || p[i] == c) != except) return i;
     return -1;
 }
 
-int32_t csrt_span_index_of_any_u16(const uint16_t* p, int32_t length, uint16_t a, uint16_t b, uint16_t c, bool except) {
-    int32_t i = 0;
-    for (; i + 8 <= length; i += 8) {
-        u16x8 v;
-        memcpy(&v, p + i, sizeof v);
+CSRT_NO_ASAN int32_t csrt_span_index_of_any_u16(const uint16_t* p, int32_t length, uint16_t a, uint16_t b, uint16_t c, bool except) {
+    if (length <= 0) return -1;
+    if ((uintptr_t)p & 1) {  // not char-aligned (a span over unaligned memory): plain loop
+        for (int32_t i = 0; i < length; i++) {
+            uint16_t x;
+            memcpy(&x, (const uint8_t*)p + 2 * (size_t)i, 2);
+            if ((x == a || x == b || x == c) != except) return i;
+        }
+        return -1;
+    }
+    const uint16_t* block = (const uint16_t*)((uintptr_t)p & ~(uintptr_t)15);
+    uint32_t first = (uint32_t)(p - block);
+    for (const uint16_t* end = p + length; block < end; block += 8) {
+        u16x8 v = *(const u16x8*)block;
         u16x8 hit = (u16x8)((v == a) | (v == b) | (v == c));
         if (except) hit = ~hit;
-        if (__builtin_reduce_or(hit)) break;
+        uint32_t mask = (uint32_t)__builtin_bit_cast(uint8_t, __builtin_convertvector(hit, b8)) >> first << first;
+        first = 0;
+        if (mask) {
+            int64_t index = block - p + __builtin_ctz(mask);
+            return index < length ? (int32_t)index : -1;
+        }
     }
-    for (; i < length; i++)
-        if ((p[i] == a || p[i] == b || p[i] == c) != except) return i;
     return -1;
 }
 

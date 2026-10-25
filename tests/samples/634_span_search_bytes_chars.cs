@@ -38,6 +38,21 @@ static class Program
         }
         Console.Write(sb);
         Console.WriteLine(checksum);
+
+        // Spans starting at every offset into a buffer, with matches just outside them on both sides.
+        var big = new byte[96];
+        var bigChars = new char[96];
+        for (int i = 0; i < big.Length; i++) { big[i] = (byte)(i % 5 == 0 ? '\n' : 'x'); bigChars[i] = i % 5 == 0 ? LS : 'x'; }
+        long offsets = 0;
+        for (int start = 0; start < 20; start++)
+            for (int length = 0; start + length <= 60; length++)
+            {
+                var b = new ReadOnlySpan<byte>(big, start, length);
+                var c = new ReadOnlySpan<char>(bigChars, start, length);
+                offsets = offsets * 17 + b.IndexOf((byte)'\n') + 2 * b.IndexOfAny((byte)'\r', (byte)'\n') + 3 * b.IndexOfAnyExcept((byte)'x')
+                    + 5 * c.IndexOf(LS) + 7 * c.IndexOfAny('\r', LS) + 11 * c.IndexOfAnyExcept('x', 'y');
+            }
+        Console.WriteLine(offsets);
         Span<byte> all = new byte[50];
         all.Fill((byte)'z');
         Console.WriteLine($"{all.IndexOfAnyExcept((byte)'z')} {all.IndexOfAny((byte)'z', (byte)'y')} {((ReadOnlySpan<byte>)all).IndexOf((byte)'y')}");
