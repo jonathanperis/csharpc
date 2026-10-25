@@ -342,6 +342,7 @@ typedef struct Monitor {
     int entering;             // threads blocked in Enter (or reacquiring after Wait) on `released`
     pthread_cond_t released;  // the owner left
     pthread_cond_t cond;      // Monitor.Wait / Pulse
+    pthread_cond_t lock_released;  // a System.Threading.Lock with waiters parked here was released
     struct Monitor* next;
 } Monitor;
 
@@ -379,6 +380,7 @@ __attribute__((noinline)) static Monitor* monitor_new(MonitorBucket* b, void* ob
         // Zeroed condition variables are initialized ones elsewhere (glibc, Windows, WASI), as the mutexes.
         pthread_cond_init(&m->released, NULL);
         pthread_cond_init(&m->cond, NULL);
+        pthread_cond_init(&m->lock_released, NULL);
 #endif
     }
     m->obj = obj;
@@ -556,25 +558,115 @@ void csrt_monitor_pulse_all(void* obj) {
     pthread_mutex_unlock(&b->lock);
 }
 
-// System.Threading.Lock (.NET 9): a plain object whose monitor is the lock. `lock (l)` lowers to
-// l.EnterScope() + Scope.Dispose(); a Scope is represented by the Lock pointer itself.
+// System.Threading.Lock (.NET 9) keeps its state in the object, as .NET's does: the owner's lock id
+// (a small per-thread number, 0 = free), the recursion count and the number of parked waiters. An
+// uncontended Enter is one compare-and-swap and Exit one store, where the monitor table took a bucket
+// lock twice; Kestrel and System.IO.Pipelines use Lock for every pipe read, write and flush. A
+// contended Enter spins briefly, then parks on the monitor-table entry of the Lock object (its
+// lock_released condition, under the bucket lock); Exit wakes a parked waiter only when there is
+// one. `lock (l)` lowers to l.EnterScope() + Scope.Dispose(); a Scope is the Lock pointer itself.
+// Monitor.Enter on a Lock instance stays a separate lock, as in .NET.
+typedef struct {
+    const csrt_MethodTable* mt;
+    int32_t owner;       // lock id of the owning thread, 0 when free (atomic)
+    int32_t recursion;   // owner only
+    int32_t waiters;     // threads parked in lock_enter_contended (atomic)
+    int32_t reserved;
+} LockObject;
+
 const csrt_BuiltinMethodTable csrt_Lock_MT = {
-    { &csrt_Object_MT.header, "System.Threading.Lock", sizeof(csrt_Object), 0, NULL, 0, 0 },
+    { &csrt_Object_MT.header, "System.Threading.Lock", sizeof(LockObject), CSRT_MT_NO_REFERENCES, NULL, 0, 0 },
     { (void*)csrt_object_to_string_default, (void*)csrt_object_equals_default, (void*)csrt_object_get_hash_code_default },
 };
 
-void* csrt_lock_new(void) { return csrt_alloc(&csrt_Lock_MT.header, sizeof(csrt_Object)); }
+void* csrt_lock_new(void) { return csrt_alloc(&csrt_Lock_MT.header, sizeof(LockObject)); }
 
-static void lock_exit(void* lock) {
-    if (!lock) csrt_throw_null_reference();
-    if (!monitor_exit(lock)) throw_msg(&mt_sync_lock, "The calling thread does not hold the lock.");
+static _Thread_local __attribute__((tls_model("local-exec"))) int32_t tl_lock_id;
+static int32_t s_lock_ids;
+
+static inline int32_t lock_id(void) {
+    int32_t id = tl_lock_id;
+    if (__builtin_expect(id == 0, 0)) id = tl_lock_id = __atomic_add_fetch(&s_lock_ids, 1, __ATOMIC_RELAXED);
+    return id;
 }
 
-void csrt_lock_enter(void* lock) { if (!lock) csrt_throw_null_reference(); csrt_monitor_enter(lock); }
-void csrt_lock_exit(void* lock) { lock_exit(lock); }
-bool csrt_lock_try_enter(void* lock, int32_t ms) { if (!lock) csrt_throw_null_reference(); return csrt_monitor_try_enter(lock, ms); }
-void* csrt_lock_enter_scope(void* lock) { csrt_lock_enter(lock); return lock; }
-bool csrt_lock_is_held(void* lock) { if (!lock) csrt_throw_null_reference(); return csrt_monitor_is_entered(lock); }
+static inline bool lock_try_acquire(LockObject* l, int32_t self) {
+    int32_t expected = 0;
+    return __atomic_compare_exchange_n(&l->owner, &expected, self, false, __ATOMIC_SEQ_CST, __ATOMIC_RELAXED);
+}
+
+__attribute__((noinline)) static bool lock_enter_contended(LockObject* l, int32_t self, int32_t ms) {
+    if (ms == 0) return false;
+    for (int i = 0; i < 64; i++) {
+#if defined(__x86_64__) || defined(__i386__)
+        __builtin_ia32_pause();
+#elif defined(__aarch64__)
+        __asm__ __volatile__("yield");
+#endif
+        if (__atomic_load_n(&l->owner, __ATOMIC_RELAXED) == 0 && lock_try_acquire(l, self)) goto acquired;
+    }
+    {
+        MonitorBucket* b = bucket_of(l);
+        struct timespec deadline;
+        if (ms > 0) deadline_after(&deadline, ms);
+        pthread_mutex_lock(&b->lock);
+        Monitor* m = monitor_find(b, l, true);
+        m->interest++;
+        // Registered before the final attempt: an Exit that frees the lock after it fails sees the
+        // waiter and signals, and can't signal before we wait, since that needs the bucket lock.
+        __atomic_add_fetch(&l->waiters, 1, __ATOMIC_SEQ_CST);
+        bool acquired = false;
+        for (;;) {
+            if (lock_try_acquire(l, self)) { acquired = true; break; }
+            if (ms < 0) pthread_cond_wait(&m->lock_released, &b->lock);
+            else if (pthread_cond_timedwait(&m->lock_released, &b->lock, &deadline) == ETIMEDOUT) {
+                acquired = lock_try_acquire(l, self);
+                break;
+            }
+        }
+        __atomic_sub_fetch(&l->waiters, 1, __ATOMIC_SEQ_CST);
+        monitor_release_interest(b, m);
+        pthread_mutex_unlock(&b->lock);
+        if (!acquired) return false;
+    }
+acquired:
+    l->recursion = 1;
+    return true;
+}
+
+static inline bool lock_enter(void* lock, int32_t ms) {
+    if (!lock) csrt_throw_null_reference();
+    LockObject* l = lock;
+    int32_t self = lock_id();
+    if (__builtin_expect(lock_try_acquire(l, self), 1)) { l->recursion = 1; return true; }
+    if (__atomic_load_n(&l->owner, __ATOMIC_RELAXED) == self) { l->recursion++; return true; }
+    return lock_enter_contended(l, self, ms);
+}
+
+__attribute__((noinline)) static void lock_wake(LockObject* l) {
+    MonitorBucket* b = bucket_of(l);
+    pthread_mutex_lock(&b->lock);
+    Monitor* m = monitor_find(b, l, false);
+    if (m) pthread_cond_signal(&m->lock_released);
+    pthread_mutex_unlock(&b->lock);
+}
+
+void csrt_lock_exit(void* lock) {
+    if (!lock) csrt_throw_null_reference();
+    LockObject* l = lock;
+    if (__atomic_load_n(&l->owner, __ATOMIC_RELAXED) != lock_id()) throw_msg(&mt_sync_lock, "The calling thread does not hold the lock.");
+    if (--l->recursion > 0) return;
+    __atomic_store_n(&l->owner, 0, __ATOMIC_SEQ_CST);
+    if (__atomic_load_n(&l->waiters, __ATOMIC_SEQ_CST) > 0) lock_wake(l);
+}
+
+void csrt_lock_enter(void* lock) { lock_enter(lock, -1); }
+bool csrt_lock_try_enter(void* lock, int32_t ms) { return lock_enter(lock, ms); }
+void* csrt_lock_enter_scope(void* lock) { lock_enter(lock, -1); return lock; }
+bool csrt_lock_is_held(void* lock) {
+    if (!lock) csrt_throw_null_reference();
+    return __atomic_load_n(&((LockObject*)lock)->owner, __ATOMIC_RELAXED) == lock_id();
+}
 
 // ---------------------------------------------------------------------------------------------
 // Wait handles: ManualResetEventSlim / ManualResetEvent / AutoResetEvent / SemaphoreSlim /

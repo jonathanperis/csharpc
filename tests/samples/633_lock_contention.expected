@@ -1,0 +1,8 @@
+200000 57144 False
+try now: False, try 50 ms: False, held here: False
+SynchronizationLockException: The calling thread does not hold the lock.
+monitor: True
+waiter done before release: False
+waiter got it: True
+try after: True True
+False
