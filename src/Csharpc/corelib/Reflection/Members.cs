@@ -968,28 +968,62 @@ namespace CsharpcCoreLib
 
         // ---- Type members over the reflection table ---------------------------------------------
 
-        internal static object[] GetTypeCustomAttributes(Type type, Type attributeType)
+        // A type's own attributes (ModuleCodeGen.DescribeTypeAttributes): once the program asks for them, the
+        // program's types, the types kept for [DynamicallyAccessedMembers] and every generic parameter with
+        // attributes have an entry listing them (CSRT_RI_ATTRIBUTES); a generic parameter without one has none.
+        // CSRT_RI_ATTRIBUTES_UNKNOWN marks types whose list csharpc can't reproduce exactly (pseudo-attributes,
+        // reference-assembly types, attributes the C# compiler synthesizes). Null: no attributes.
+        private static byte* TypeAttributeInfo(Type type)
         {
             byte* info = InfoOf(type, "custom attributes");
-            if (info == null || (ReflectionRecords.InfoDescribed(info) & 16) == 0) throw NotKept(type, "custom attributes");
-            return CreateAttributes(ReflectionRecords.InfoAttributes(info), ReflectionRecords.InfoAttributeCount(info), attributeType);
+            if (info == null)
+            {
+                if (type.IsGenericParameter) return null;
+                throw NotKept(type, "custom attributes");
+            }
+            uint described = (uint)ReflectionRecords.InfoDescribed(info);
+            if ((described & 128) != 0)
+                throw new NotSupportedException("The custom attributes of '" + type + "' are not supported by csharpc yet: it can't reproduce the list .NET reports for this type.");
+            if ((described & 16) == 0) throw NotKept(type, "custom attributes");
+            return info;
         }
 
-        public static object[] TypeAttributesAll(Type type, bool inherit) => GetTypeCustomAttributes(type, typeof(object));
-        public static object[] TypeAttributesOf(Type type, Type attributeType, bool inherit) => GetTypeCustomAttributes(type, attributeType);
+        /// <summary>inherit: true adds the base types' inheritable attributes; without attributes on any base type the answer is exact.</summary>
+        private static void CheckInherited(Type type, bool inherit)
+        {
+            if (!inherit || type.IsInterface) return;
+            for (Type b = type.BaseType; b != null; b = b.BaseType)
+            {
+                byte* info = TypeAttributeInfo(b);
+                if (info != null && ReflectionRecords.InfoAttributeCount(info) > 0)
+                    throw new NotSupportedException("Inherited custom attributes of '" + type + "' (from '" + b + "') are not supported by csharpc yet.");
+            }
+        }
+
+        internal static object[] GetTypeCustomAttributes(Type type, Type attributeType, bool inherit)
+        {
+            ArgumentNullException.ThrowIfNull(attributeType);
+            byte* info = TypeAttributeInfo(type);
+            CheckInherited(type, inherit);
+            return info == null ? CreateAttributes(null, 0, attributeType)
+                : CreateAttributes(ReflectionRecords.InfoAttributes(info), ReflectionRecords.InfoAttributeCount(info), attributeType);
+        }
+
+        public static object[] TypeAttributesAll(Type type, bool inherit) => GetTypeCustomAttributes(type, typeof(object), inherit);
+        public static object[] TypeAttributesOf(Type type, Type attributeType, bool inherit) => GetTypeCustomAttributes(type, attributeType, inherit);
 
         public static bool IsTypeDefined(Type type, Type attributeType, bool inherit)
         {
-            byte* info = InfoOf(type, "custom attributes");
-            if (info == null || (ReflectionRecords.InfoDescribed(info) & 16) == 0) throw NotKept(type, "custom attributes");
-            return IsDefined(ReflectionRecords.InfoAttributes(info), ReflectionRecords.InfoAttributeCount(info), attributeType);
+            ArgumentNullException.ThrowIfNull(attributeType);
+            byte* info = TypeAttributeInfo(type);
+            CheckInherited(type, inherit);
+            return info != null && IsDefined(ReflectionRecords.InfoAttributes(info), ReflectionRecords.InfoAttributeCount(info), attributeType);
         }
 
         public static IList<CustomAttributeData> GetTypeCustomAttributesData(Type type)
         {
-            byte* info = InfoOf(type, "custom attributes");
-            if (info == null || (ReflectionRecords.InfoDescribed(info) & 16) == 0) throw NotKept(type, "custom attributes");
-            return AttributeData(ReflectionRecords.InfoAttributes(info), ReflectionRecords.InfoAttributeCount(info));
+            byte* info = TypeAttributeInfo(type);
+            return info == null ? AttributeData(null, 0) : AttributeData(ReflectionRecords.InfoAttributes(info), ReflectionRecords.InfoAttributeCount(info));
         }
 
         // ---- Arrays ------------------------------------------------------------------------------

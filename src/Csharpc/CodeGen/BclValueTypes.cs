@@ -46,6 +46,18 @@ internal static partial class BclValueTypes
         return false;
     }
 
+    /// <summary>
+    /// A MemberInfo member called on a System.Type (`callvirt MemberInfo::GetCustomAttributesData` — compilers
+    /// reference the declaring member, and System.Type doesn't redeclare these): the Type handler of that member.
+    /// </summary>
+    public static bool TryGetForType(IMethodSymbol memberInfoMethod, out BclHandler handler)
+    {
+        const string prefix = "System.Reflection.MemberInfo.";
+        var key = Intrinsics.Key(memberInfoMethod.OriginalDefinition);
+        if (key.StartsWith(prefix, StringComparison.Ordinal) && s_methods.TryGetValue("System.Type." + key[prefix.Length..], out handler!)) return true;
+        return TryGet(memberInfoMethod, out handler);
+    }
+
     public static bool TryGetRaw(IMethodSymbol method, out BclRawHandler handler) =>
         s_raw.TryGetValue(Intrinsics.Key(method.OriginalDefinition), out handler!);
 

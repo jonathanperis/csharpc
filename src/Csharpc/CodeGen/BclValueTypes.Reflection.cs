@@ -84,10 +84,16 @@ internal static partial class BclValueTypes
         t[$"{Type}.GetProperty(string, System.Type)"] = propertyLookup("GetPropertyNameReturn");
         t[$"{Type}.GetProperty(string, System.Type, System.Type[])"] = propertyLookup("GetPropertyNameReturnTypes");
         t[$"{Type}.GetProperty(string, System.Reflection.BindingFlags, System.Reflection.Binder, System.Type, System.Type[], System.Reflection.ParameterModifier[])"] = propertyLookup("GetPropertyFull");
-        t[$"{Type}.GetCustomAttributes(bool)"] = core("TypeAttributesAll");
-        t[$"{Type}.GetCustomAttributes(System.Type, bool)"] = core("TypeAttributesOf");
-        t[$"{Type}.IsDefined(System.Type, bool)"] = core("IsTypeDefined");
-        t[$"{Type}.GetCustomAttributesData()"] = core("GetTypeCustomAttributesData");
+        // A type's own attributes: the program keeps those of every type and generic parameter once it asks.
+        BclHandler typeAttributes(string method) => (g, _, self, a, _) =>
+        {
+            g.Module.NoteTypeAttributesQueried();
+            return g.CallCoreLib("ReflectionRuntime", method, [self, .. a]);
+        };
+        t[$"{Type}.GetCustomAttributes(bool)"] = typeAttributes("TypeAttributesAll");
+        t[$"{Type}.GetCustomAttributes(System.Type, bool)"] = typeAttributes("TypeAttributesOf");
+        t[$"{Type}.IsDefined(System.Type, bool)"] = typeAttributes("IsTypeDefined");
+        t[$"{Type}.GetCustomAttributesData()"] = typeAttributes("GetTypeCustomAttributesData");
         t[$"{Type}.MakeGenericType(System.Type[])"] = (g, _, self, a, _) =>
             Rt(g, "csrt_type_make_generic", g.Llvm.Ptr, (self, g.Llvm.Ptr), (a[0], g.Llvm.Ptr), (Table(g), g.Llvm.Ptr));
         t[$"{Type}.MakeArrayType()"] = (g, _, self, _, _) => TypeResult(g, "csrt_type_make_array", self);

@@ -656,7 +656,8 @@ public sealed partial class FunctionCodeGen
             target = owner.GetMembers(target.Name).OfType<IMethodSymbol>().FirstOrDefault(m => m.Parameters.Length == target.Parameters.Length) ?? target;
         for (var t = TypeOf(instance) as INamedTypeSymbol; t is not null; t = t.BaseType)
             if (t is { Name: "Type", ContainingNamespace: { Name: "System", ContainingNamespace.IsGlobalNamespace: true } })
-                return BclValueTypes.TryGet(target, out var handler) ? handler : null;
+                return BclValueTypes.TryGetForType(target, out var handler) ? handler : throw new CompileError("CSLLVM0002",
+                    $"'System.Type.{target.Name}' has no implementation in the csharpc runtime yet", instance.Syntax?.GetLocation());
         return null;
     }
 

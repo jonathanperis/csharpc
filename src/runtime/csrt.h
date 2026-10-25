@@ -278,7 +278,8 @@ void* csrt_gc_object_base(const void* p);   // the heap object an interior point
 
 // Which member kinds an entry lists (DynamicallyAccessedMemberTypes they were kept for).
 enum { CSRT_RI_PUBLIC_CONSTRUCTORS = 1, CSRT_RI_NONPUBLIC_CONSTRUCTORS = 2, CSRT_RI_PUBLIC_METHODS = 4,
-       CSRT_RI_NONPUBLIC_METHODS = 8, CSRT_RI_ATTRIBUTES = 16, CSRT_RI_PUBLIC_PROPERTIES = 32, CSRT_RI_NONPUBLIC_PROPERTIES = 64 };
+       CSRT_RI_NONPUBLIC_METHODS = 8, CSRT_RI_ATTRIBUTES = 16, CSRT_RI_PUBLIC_PROPERTIES = 32, CSRT_RI_NONPUBLIC_PROPERTIES = 64,
+       CSRT_RI_ATTRIBUTES_UNKNOWN = 128 /* the type's attributes can't be listed exactly: querying them throws */ };
 enum { CSRT_PROPERTY_PUBLIC = 1 /* an accessor is public */, CSRT_PROPERTY_STATIC = 2 };
 typedef struct csrt_PropertyRecord {
     const char* name;

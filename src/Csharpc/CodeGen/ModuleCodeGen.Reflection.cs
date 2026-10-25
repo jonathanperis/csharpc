@@ -58,8 +58,8 @@ public sealed partial class ModuleCodeGen
         public required ITypeSymbol Type;
         public required LLVMValueRef Mt;
         public uint Described;
-        public uint Complete;
-        public HashSet<ISymbol> Listed = new(SymbolEqualityComparer.Default); // the constructors and methods listed so far // the Described kinds listed in full (the others: only members asked for by name)
+        public uint Complete; // the Described kinds listed in full (the others: only members asked for by name)
+        public HashSet<ISymbol> Listed = new(SymbolEqualityComparer.Default); // the constructors and methods listed so far
         public List<MethodRecordData> Constructors = [], Methods = [];
         public List<AttributeRecordData> Attributes = [];
         public List<PropertyRecordData> Properties = [];
@@ -316,6 +316,7 @@ public sealed partial class ModuleCodeGen
         if (_reflectionTable.IsNull && _delegateMethodTable.IsNull) return DescribeDelegateSignatures();
         var any = CloseOpenGenericRegistrations() | DescribeDelegateMethods() | DescribeDelegateSignatures();
         if (_reflectionTable.IsNull) return any;
+        any |= DescribeTypeAttributes();
         while (_damQueue.TryDequeue(out var type))
         {
             any = true;
@@ -347,6 +348,146 @@ public sealed partial class ModuleCodeGen
             return;
         }
         Describe(type, kinds, null);
+    }
+
+    // ======================================================================================
+    // A type's own custom attributes (Type.GetCustomAttributes/GetCustomAttributesData/IsDefined)
+    // ======================================================================================
+    // Once the program asks a Type for its attributes, the types reflection can see get them
+    // (CSRT_RI_ATTRIBUTES, possibly an empty list): the program's own types, the types kept for
+    // [DynamicallyAccessedMembers], and every generic parameter (dependency injection reads the annotations
+    // of open generics' parameters; a parameter without an entry has none). Other types have no entry and
+    // the query throws NotSupportedException, as their attribute classes aren't compiled in. Where csharpc
+    // can't know the exact list .NET returns, the entry says so (CSRT_RI_ATTRIBUTES_UNKNOWN) and the query
+    // throws rather than answering with a different list.
+
+    private const uint RiAttributes = 16, RiAttributesUnknown = 128;
+    private bool _typeAttributesQueried;
+    private int _typeAttributesScanned;
+
+    internal void NoteTypeAttributesQueried()
+    {
+        _typeAttributesQueried = true;
+        ReflectionTable();
+    }
+
+    private bool DescribeTypeAttributes()
+    {
+        if (!_typeAttributesQueried) return false;
+        var any = false;
+        for (; _typeAttributesScanned < _typeMts.Count; _typeAttributesScanned++)
+        {
+            var (mt, described) = _typeMts[_typeAttributesScanned];
+            ITypeSymbol key;
+            List<AttributeInstance>? attributes;
+            switch (described)
+            {
+                case INamedTypeSymbol named when DescribesOwnAttributes(named) && named.OriginalDefinition.Locations.Any(l => l.IsInSource):
+                    key = named;
+                    attributes = Decoded(() => TypeAttributeInstances(named.OriginalDefinition));
+                    break;
+                case GenericParameter parameter:
+                    key = parameter.Parameter;
+                    attributes = Decoded(() => GenericParameterAttributeInstances(parameter.Parameter));
+                    break;
+                default:
+                    continue;
+            }
+            if (attributes is { Count: 0 } && key is ITypeParameterSymbol) continue;
+            if (!_reflectionEntries.TryGetValue(key, out var entry))
+            {
+                entry = new ReflectionEntry { Type = key, Mt = mt };
+                _reflectionEntries[key] = entry;
+                _reflectionOrder.Add(entry);
+            }
+            SetTypeAttributes(entry, attributes);
+            any = true;
+        }
+        // Types kept for [DynamicallyAccessedMembers] (whenever their entry appeared).
+        for (var i = 0; i < _reflectionOrder.Count; i++)
+        {
+            var entry = _reflectionOrder[i];
+            if ((entry.Described & (RiAttributes | RiAttributesUnknown)) != 0 || entry.Type is not INamedTypeSymbol named || !DescribesOwnAttributes(named)) continue;
+            SetTypeAttributes(entry, Decoded(() => TypeAttributeInstances(named.OriginalDefinition)));
+            any = true;
+        }
+        return any;
+    }
+
+    private static bool DescribesOwnAttributes(INamedTypeSymbol type) =>
+        type.TypeKind is TypeKind.Class or TypeKind.Struct or TypeKind.Interface or TypeKind.Enum or TypeKind.Delegate && !type.IsAnonymousType && !type.IsTupleType;
+
+    private void SetTypeAttributes(ReflectionEntry entry, List<AttributeInstance>? attributes)
+    {
+        if (attributes is null) entry.Described |= RiAttributesUnknown;
+        else
+        {
+            entry.Attributes = Attributes(attributes);
+            entry.Described |= RiAttributes;
+        }
+    }
+
+    /// <summary>An attribute csharpc can't decode yet (a typeof argument it can't represent...) makes the list unknown.</summary>
+    private static List<AttributeInstance>? Decoded(Func<List<AttributeInstance>?> decode)
+    {
+        try { return decode(); }
+        catch (CompileError) { return null; }
+    }
+
+    /// <summary>A type definition's attributes as RuntimeType reports them; null when csharpc can't know them exactly.</summary>
+    private List<AttributeInstance>? TypeAttributeInstances(INamedTypeSymbol definition)
+    {
+        var il = definition.MetadataToken != 0 ? Il.OwnerOf(definition) : null;
+        if (il is not null)
+        {
+            // [Serializable] and [ComImport] are pseudo-attributes CoreCLR adds to the list.
+            if ((il.AttributesOf(definition) & (System.Reflection.TypeAttributes.Serializable | System.Reflection.TypeAttributes.Import)) != 0) return null;
+            return DecodeAttributes(il, il.TypeDefinitionOf(definition).GetCustomAttributes(), IlGenericContext.For(definition)).ToList();
+        }
+        // Reference-assembly types (the BCL): Roslyn hides the attributes the compiler decodes, and reference
+        // assemblies differ from the implementation .NET loads.
+        if (definition.MetadataToken != 0 || !definition.Locations.Any(l => l.IsInSource)) return null;
+        // Source types: Roslyn's symbols omit the attributes the compiler synthesizes into metadata.
+        if (SynthesizesTypeAttributes(definition)) return null;
+        return definition.GetAttributes().Select(FromAttributeData).OfType<AttributeInstance>().ToList();
+    }
+
+    /// <summary>Whether Roslyn emits attributes for a source type that its symbol doesn't list (Nullable, DefaultMember, Extension, IsReadOnly...).</summary>
+    private bool SynthesizesTypeAttributes(INamedTypeSymbol type)
+    {
+        if (type.IsRecord || type.IsReadOnly || type.IsRefLikeType || type.IsSerializable) return true;
+        if (type.GetMembers().Any(m => m is IPropertySymbol { IsIndexer: true } or IMethodSymbol { IsExtensionMethod: true }
+                or IPropertySymbol { IsRequired: true } or IFieldSymbol { IsRequired: true }))
+            return true;
+        // Nullable annotations in the declaration become [NullableContext]/[Nullable] attributes.
+        foreach (var reference in type.DeclaringSyntaxReferences)
+        {
+            var syntax = reference.GetSyntax();
+            var model = Compilation.GetSemanticModel(reference.SyntaxTree);
+            if (model.GetNullableContext(syntax.SpanStart).AnnotationsEnabled() || model.GetNullableContext(syntax.Span.End).AnnotationsEnabled()
+                || syntax.DescendantTrivia().Any(t => t.IsKind(Microsoft.CodeAnalysis.CSharp.SyntaxKind.NullableDirectiveTrivia)))
+                return true;
+        }
+        return false;
+    }
+
+    /// <summary>A generic parameter's attributes; null when csharpc can't know them exactly.</summary>
+    private List<AttributeInstance>? GenericParameterAttributeInstances(ITypeParameterSymbol parameter)
+    {
+        var owner = parameter.ContainingSymbol.OriginalDefinition;
+        var il = owner.MetadataToken != 0 ? Il.OwnerOf(owner) : null;
+        if (il is not null)
+        {
+            var handles = owner is INamedTypeSymbol type ? il.TypeDefinitionOf(type).GetGenericParameters() : il.MethodDefinitionOf((IMethodSymbol)owner).GetGenericParameters();
+            var row = il.Reader.GetGenericParameter(handles[parameter.Ordinal]);
+            return DecodeAttributes(il, row.GetCustomAttributes(), owner is INamedTypeSymbol t ? IlGenericContext.For(t) : IlGenericContext.For((IMethodSymbol)owner)).ToList();
+        }
+        if (owner.MetadataToken != 0 || !owner.Locations.Any(l => l.IsInSource)) return null;
+        // Source: [Nullable] on constrained or annotated parameters is synthesized.
+        if (parameter.HasNotNullConstraint || parameter.ConstraintTypes.Length > 0
+            || (owner is INamedTypeSymbol ownerType ? SynthesizesTypeAttributes(ownerType) : owner.ContainingType is { } c && SynthesizesTypeAttributes(c)))
+            return null;
+        return parameter.GetAttributes().Select(FromAttributeData).OfType<AttributeInstance>().ToList();
     }
 
     /// <summary>Lists the members <paramref name="kinds"/> names; with <paramref name="name"/>, only those called that.</summary>
