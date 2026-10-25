@@ -128,38 +128,10 @@ namespace CsharpcCoreLib.Globalization
         // csharpc: .NET keeps the current cultures in AsyncLocals, so they flow with the ExecutionContext
         // into threads started, work queued and await continuations registered afterwards. csharpc's
         // runtime keeps an execution-context flow per logical flow (csrt_tl_flow, captured at Thread.Start,
-        // at queueing and at await); the cultures live in an immutable CultureFlow object there.
-        private sealed class CultureFlow
-        {
-            internal readonly CultureInfo? Culture;
-            internal readonly CultureInfo? UICulture;
+        // at queueing and at await); the cultures live in its immutable ExecutionFlow (Tasks/AsyncLocal.cs).
+        private static CultureInfo? s_currentThreadCulture => (CultureInfo?)CsharpcCoreLib.ExecutionFlow.Current?.Culture;
 
-            internal CultureFlow(CultureInfo? culture, CultureInfo? uiCulture)
-            {
-                Culture = culture;
-                UICulture = uiCulture;
-            }
-        }
-
-        [System.Runtime.InteropServices.DllImport("__Internal", EntryPoint = "csrt_flow_get")]
-        private static extern IntPtr FlowGet();
-
-        [System.Runtime.InteropServices.DllImport("__Internal", EntryPoint = "csrt_flow_set")]
-        private static extern void FlowSet(IntPtr flow);
-
-        private static CultureFlow? CurrentFlow
-        {
-            get
-            {
-                IntPtr flow = FlowGet();
-                return flow == IntPtr.Zero ? null : (CultureFlow)CsharpcCoreLib.CoreIntrinsics.PointerToObject(flow);
-            }
-            set => FlowSet(value == null ? IntPtr.Zero : CsharpcCoreLib.CoreIntrinsics.ObjectToPointer(value));
-        }
-
-        private static CultureInfo? s_currentThreadCulture => CurrentFlow?.Culture;
-
-        private static CultureInfo? s_currentThreadUICulture => CurrentFlow?.UICulture;
+        private static CultureInfo? s_currentThreadUICulture => (CultureInfo?)CsharpcCoreLib.ExecutionFlow.Current?.UICulture;
 
         private static Dictionary<string, CultureInfo>? s_cachedCulturesByName;
         private static Dictionary<int, CultureInfo>? s_cachedCulturesByLcid;
@@ -403,7 +375,7 @@ namespace CsharpcCoreLib.Globalization
             {
                 ArgumentNullException.ThrowIfNull(value);
 
-                CurrentFlow = new CultureFlow(value, CurrentFlow?.UICulture);
+                CsharpcCoreLib.ExecutionFlow.SetCultures(value, CsharpcCoreLib.ExecutionFlow.Current?.UICulture);
             }
         }
 
@@ -421,7 +393,7 @@ namespace CsharpcCoreLib.Globalization
 
                 VerifyCultureName(value, true);
 
-                CurrentFlow = new CultureFlow(CurrentFlow?.Culture, value);
+                CsharpcCoreLib.ExecutionFlow.SetCultures(CsharpcCoreLib.ExecutionFlow.Current?.Culture, value);
             }
         }
 
