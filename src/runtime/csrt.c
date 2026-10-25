@@ -465,22 +465,6 @@ static void* const* variant_interface_slots(const csrt_MethodTable* mt, const cs
     return NULL;
 }
 
-void* csrt_isinst_class(void* obj, const csrt_MethodTable* type) {
-    if (!obj) return NULL;
-    const csrt_MethodTable* objmt = ((csrt_Object*)obj)->mt;
-    if (type->flags & CSRT_MT_INTERFACE) {
-        return exact_interface_slots(objmt, type) || variant_interface_slots(objmt, type) ? obj : NULL;
-    }
-    for (const csrt_MethodTable* mt = objmt; mt; mt = mt->base)
-        if (mt == type) return obj;
-    if (type == &csrt_ValueType_MT.header) return (objmt->flags & CSRT_MT_VALUE_TYPE) ? obj : NULL;
-    if (type == &csrt_Enum_MT.header) return (objmt->flags & CSRT_MT_ENUM) ? obj : NULL;
-    // `is System.Array`: element-typed array tables derive from csrt_Array_MT; arrays the runtime
-    // allocated untagged may still carry the GC's primitive-array table.
-    if (type == &csrt_Array_MT.header && objmt == &csrt_PrimitiveArray_MT.header) return obj;
-    return NULL;
-}
-
 // Interface lookups go through a cache of (receiver method table, interface) -> index in the receiver's
 // interface map: one word per entry, the method table in the low 48 bits (user-space addresses fit on
 // every target csharpc supports) and the index above them. A hit is validated against the map itself
@@ -492,35 +476,50 @@ void* csrt_isinst_class(void* obj, const csrt_MethodTable* type) {
 #define ICACHE_BITS 12
 static uint64_t s_icache[1 << ICACHE_BITS];
 
-static inline size_t icache_slot(const csrt_MethodTable* mt, const csrt_MethodTable* itf) {
-    return (size_t)((((uintptr_t)mt >> 3) ^ ((uintptr_t)itf >> 3) * 0x9E3779B97F4A7C15ull) * 0x9E3779B97F4A7C15ull >> (64 - ICACHE_BITS));
-}
-
-__attribute__((noinline)) static void* const* interface_lookup(const csrt_MethodTable* mt, const csrt_MethodTable* interface_type, uint64_t* entry) {
-    for (uint32_t i = 0; i < mt->interface_count; i++)
-        if (mt->interfaces[i].interface_type == interface_type) {
+/// The slot table of `itf` in `mt`'s own interface map (NULL: not there), through the cache.
+__attribute__((noinline)) static void* const* map_interface_slots(const csrt_MethodTable* mt, const csrt_MethodTable* itf) {
+    size_t slot = (size_t)((((uintptr_t)mt >> 3) ^ ((uintptr_t)itf >> 3) * 0x9E3779B97F4A7C15ull) * 0x9E3779B97F4A7C15ull >> (64 - ICACHE_BITS));
+    uint64_t w = __atomic_load_n(&s_icache[slot], __ATOMIC_RELAXED);
+    uint32_t i = (uint32_t)(w >> 48);
+    if ((w & ICACHE_MT_MASK) == (uint64_t)(uintptr_t)mt && i < mt->interface_count && mt->interfaces[i].interface_type == itf)
+        return mt->interfaces[i].slots;
+    for (i = 0; i < mt->interface_count; i++)
+        if (mt->interfaces[i].interface_type == itf) {
             if (((uintptr_t)mt & ~ICACHE_MT_MASK) == 0)  // maps hold < 65536 entries (ModuleCodeGen)
-                __atomic_store_n(entry, (uint64_t)(uintptr_t)mt | ((uint64_t)i << 48), __ATOMIC_RELAXED);
+                __atomic_store_n(&s_icache[slot], (uint64_t)(uintptr_t)mt | ((uint64_t)i << 48), __ATOMIC_RELAXED);
             return mt->interfaces[i].slots;
         }
-    void* const* builtin = builtin_interface_slots(mt, interface_type);
-    if (builtin) return builtin;
-    void* const* variant = variant_interface_slots(mt, interface_type);
-    if (variant) return variant;
+    return NULL;
+}
+
+void* const* csrt_interface_slots(void* obj, const csrt_MethodTable* interface_type) {
+    const csrt_MethodTable* mt = ((csrt_Object*)obj)->mt;
+    void* const* slots = map_interface_slots(mt, interface_type);
+    if (slots) return slots;
+    slots = builtin_interface_slots(mt, interface_type);
+    if (slots) return slots;
+    slots = variant_interface_slots(mt, interface_type);
+    if (slots) return slots;
     fflush(stdout);
     fprintf(stderr, "Unhandled exception. System.InvalidCastException: Unable to cast object of type '%s' to type '%s'." CSRT_NEWLINE,
             mt->name, interface_type->name);
     csrt_fail_unhandled();
 }
 
-__attribute__((noinline)) void* const* csrt_interface_slots(void* obj, const csrt_MethodTable* interface_type) {
-    const csrt_MethodTable* mt = ((csrt_Object*)obj)->mt;
-    uint64_t* entry = &s_icache[icache_slot(mt, interface_type)];
-    uint64_t w = __atomic_load_n(entry, __ATOMIC_RELAXED);
-    uint32_t i = (uint32_t)(w >> 48);
-    if ((w & ICACHE_MT_MASK) == (uint64_t)(uintptr_t)mt && i < mt->interface_count && mt->interfaces[i].interface_type == interface_type)
-        return mt->interfaces[i].slots;
-    return interface_lookup(mt, interface_type, entry);
+void* csrt_isinst_class(void* obj, const csrt_MethodTable* type) {
+    if (!obj) return NULL;
+    const csrt_MethodTable* objmt = ((csrt_Object*)obj)->mt;
+    if (type->flags & CSRT_MT_INTERFACE) {
+        return map_interface_slots(objmt, type) || builtin_interface_slots(objmt, type) || variant_interface_slots(objmt, type) ? obj : NULL;
+    }
+    for (const csrt_MethodTable* mt = objmt; mt; mt = mt->base)
+        if (mt == type) return obj;
+    if (type == &csrt_ValueType_MT.header) return (objmt->flags & CSRT_MT_VALUE_TYPE) ? obj : NULL;
+    if (type == &csrt_Enum_MT.header) return (objmt->flags & CSRT_MT_ENUM) ? obj : NULL;
+    // `is System.Array`: element-typed array tables derive from csrt_Array_MT; arrays the runtime
+    // allocated untagged may still carry the GC's primitive-array table.
+    if (type == &csrt_Array_MT.header && objmt == &csrt_PrimitiveArray_MT.header) return obj;
+    return NULL;
 }
 
 _Noreturn void csrt_unsupported_method(const char* message) {
