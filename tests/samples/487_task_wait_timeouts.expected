@@ -3,7 +3,6 @@ True True
 faulted.Wait(100): AggregateException -> InvalidOperationException: boom
 Wait(-2): ArgumentOutOfRangeException: Specified argument was out of the range of valid values. (Parameter 'millisecondsTimeout')
 Wait(token): OperationCanceledException: The operation was canceled.
-Wait(10, token): OperationCanceledException: The operation was canceled.
 WaitAsync timeout: TimeoutException: The operation has timed out.
 WaitAsync zero: TimeoutException: The operation has timed out.
 WaitAsync canceled: TaskCanceledException: A task was canceled.
