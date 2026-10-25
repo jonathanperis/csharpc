@@ -305,9 +305,14 @@ public sealed partial class FunctionCodeGen
         IOperation? instance = null;
         if (method.IsStatic)
         {
-            // A static method closed over its first argument (`Func<int> f = s.ExtensionMethod`) needs a thunk csharpc doesn't build yet.
+            // A static method closed over its first argument (`Func<int> f = s.ExtensionMethod`): a reference
+            // first parameter takes the target as it is (FunctionCodeGen.Closures.cs); others need a thunk.
             if (!(target.Kind == IlKind.Ref && target.Type is null))
-                throw new IlException($"delegate to static method '{method}' closed over its first argument");
+            {
+                if (method.Parameters is not [{ RefKind: RefKind.None } first, ..] || !S(first.Type).IsReferenceType)
+                    throw new IlException($"delegate to static method '{method}' closed over its first argument");
+                instance = IlOperand(target, first.Type);
+            }
         }
         else instance = IlOperand(target, target.Type is { } t && S(t).IsReferenceType ? t : method.ContainingType);
         var reference = new IlMethodReferenceOperation(il.Syntax, method, instance, isVirtual: pointer.Target is not null);

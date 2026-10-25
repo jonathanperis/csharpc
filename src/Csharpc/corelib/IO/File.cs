@@ -472,6 +472,8 @@ namespace CsharpcCoreLib
             Enumerate(path, searchPattern, searchOption == SearchOption.AllDirectories, false, true, true);
         public static IEnumerable<string> EnumerateFileSystemEntries(string path) => Enumerate(path, "*", false, true, true, true);
         public static IEnumerable<string> EnumerateFileSystemEntries(string path, string searchPattern) => Enumerate(path, searchPattern, false, true, true, true);
+        public static IEnumerable<string> EnumerateFileSystemEntries(string path, string searchPattern, SearchOption searchOption) =>
+            Enumerate(path, searchPattern, searchOption == SearchOption.AllDirectories, true, true, true);
 
         private static string[] ToArray(List<string> list) => list.ToArray();
 
@@ -569,6 +571,12 @@ namespace CsharpcCoreLib
 
         /// <summary>The attributes .NET reports (FileStatusImpl); -1 when the entry doesn't exist.</summary>
         public FileAttributes Attributes => FileStatusImpl.GetAttributes(FullPath, Name);
+
+        public UnixFileMode UnixFileMode
+        {
+            get => FileStatusImpl.GetUnixFileMode(FullPath);
+            set => FileStatusImpl.SetUnixFileMode(FullPath, value);
+        }
 
         /// <summary>The target of a symbolic link as stored in the link, or null when this is not a link.</summary>
         public string LinkTarget => FileStatusImpl.ReadLink(FullPath);

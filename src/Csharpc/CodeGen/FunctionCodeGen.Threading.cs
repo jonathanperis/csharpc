@@ -187,6 +187,8 @@ public sealed partial class FunctionCodeGen
                     result = Rt("csrt_thread_join_timeout", L.I1, [L.Ptr, L.I32], Self(), TArg(inv, 0)); return true;
                 case "Sleep" when n == 1 && m.Parameters[0].Type.SpecialType == SpecialType.System_Int32:
                     Rt("csrt_thread_sleep", L.Void, [L.I32], TArg(inv, 0)); return true;
+                case "Sleep" when n == 1 && BclValueTypes.IsTimeSpan(m.Parameters[0].Type):
+                    Rt("csrt_thread_sleep", L.Void, [L.I32], CallCoreLib("WaitTimeouts", "TimeoutMilliseconds", TArg(inv, 0))); return true;
                 case "Yield": result = Rt("csrt_thread_yield", L.I1, []); return true;
                 case "SpinWait": EmitValue(inv.Arguments[0].Value); return true;
                 case "MemoryBarrier": Native.LLVMBuildFence(_b.Ref, LLVMAtomicOrdering.SequentiallyConsistent, 0, ""); return true;

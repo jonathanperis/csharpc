@@ -12,6 +12,10 @@ namespace CsharpcCoreLib
         /// <summary>The largest length of any array (.NET's 0x7FFFFFC7, the same for every element type).</summary>
         public static int MaxLength => 0x7FFFFFC7;
 
+        /// <summary>Array.GetEnumerator(): the array's own IEnumerable implementation.</summary>
+        [ShadowInstance]
+        public static System.Collections.IEnumerator GetEnumerator(Array array) => ((System.Collections.IEnumerable)array).GetEnumerator();
+
         public static System.Collections.ObjectModel.ReadOnlyCollection<T> AsReadOnly<T>(T[] array)
         {
             if (array == null) ThrowHelper.ArgumentNull("array");

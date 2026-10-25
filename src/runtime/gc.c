@@ -850,6 +850,36 @@ static inline __attribute__((always_inline)) void mark_candidate(uintptr_t word)
     }
 }
 
+/// The start of the live heap object `p` points into, or NULL (MemoryMarshal.TryGetArray: Memory<T> is a
+/// bare { pointer, length }, and the collector knows which array an interior pointer belongs to).
+void* csrt_gc_object_base(const void* p) {
+    uintptr_t word = (uintptr_t)p;
+    void* result = NULL;
+    gc_lock();
+    if (word >= g.heap_min && word < g.heap_max) {
+        uintptr_t base = word & ~(CHUNK_SIZE - 1);
+        if (chunk_set_contains(base)) {
+            Chunk* c = (Chunk*)base;
+            size_t offset = word - base;
+            if (c->object_size != 0 && offset >= CHUNK_HEADER) {
+                size_t index = (offset - CHUNK_HEADER) / c->object_size;
+                if (index < c->slots && bit_get(c->allocated, index)) result = (uint8_t*)base + CHUNK_HEADER + index * c->object_size;
+            }
+        } else {
+            size_t lo = 0, hi = g.large_count;
+            while (lo < hi) {
+                size_t mid = (lo + hi) / 2;
+                LargeObject* obj = &g.large[mid];
+                if (word < (uintptr_t)obj->start) hi = mid;
+                else if (word >= (uintptr_t)obj->start + obj->size) lo = mid + 1;
+                else { result = obj->start; break; }
+            }
+        }
+    }
+    gc_unlock();
+    return result;
+}
+
 // Conservative scanning reads every word of stacks, TLS and data segments on purpose; under
 // AddressSanitizer (csharpc --sanitize=address) those reads must not be checked.
 #if defined(__SANITIZE_ADDRESS__) || (defined(__has_feature) && __has_feature(address_sanitizer))

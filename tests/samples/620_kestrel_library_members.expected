@@ -1,0 +1,19 @@
+True 20
+one waiter
+False False
+period
+True True 5
+0 False
+Cannot restore context flow when it is not suppressed.
+True True 3 4
+False
+System.Int16 System.Int32 True
+Type provided must be an Enum. (Parameter 'enumType')
+6
+True
+[ab] [axx] [ab]
+False True False
+True a b/c False 0
+11 True
+timeout
+http/1.1 h2 custom True 0xff 0x01

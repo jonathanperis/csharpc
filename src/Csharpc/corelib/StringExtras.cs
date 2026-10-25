@@ -349,6 +349,41 @@ namespace CsharpcCoreLib
     [ShadowMembers("System.MemoryExtensions")]
     internal static class MemoryExtensionsExtras
     {
+        public static bool ContainsAnyInRange<T>(ReadOnlySpan<T> span, T lowInclusive, T highInclusive) where T : IComparable<T> =>
+            IndexOfAnyInRange(span, lowInclusive, highInclusive) >= 0;
+        public static bool ContainsAnyExceptInRange<T>(ReadOnlySpan<T> span, T lowInclusive, T highInclusive) where T : IComparable<T> =>
+            IndexOfAnyExceptInRange(span, lowInclusive, highInclusive) >= 0;
+
+        private static bool In<T>(T value, ReadOnlySpan<T> set) where T : IEquatable<T>
+        {
+            for (int i = 0; i < set.Length; i++)
+                if (CoreIntrinsics.AreEqual(value, set[i])) return true;
+            return false;
+        }
+
+        public static ReadOnlySpan<T> TrimStart<T>(ReadOnlySpan<T> span, ReadOnlySpan<T> trimElements) where T : IEquatable<T>
+        {
+            if (trimElements.Length == 0) return span;
+            int start = 0;
+            while (start < span.Length && In(span[start], trimElements)) start++;
+            return span.Slice(start);
+        }
+
+        public static ReadOnlySpan<T> TrimEnd<T>(ReadOnlySpan<T> span, ReadOnlySpan<T> trimElements) where T : IEquatable<T>
+        {
+            if (trimElements.Length == 0) return span;
+            int end = span.Length;
+            while (end > 0 && In(span[end - 1], trimElements)) end--;
+            return span.Slice(0, end);
+        }
+
+        public static ReadOnlySpan<T> Trim<T>(ReadOnlySpan<T> span, ReadOnlySpan<T> trimElements) where T : IEquatable<T> =>
+            TrimEnd(TrimStart(span, trimElements), trimElements);
+
+        public static ReadOnlySpan<char> Trim(ReadOnlySpan<char> span, ReadOnlySpan<char> trimChars) => Trim<char>(span, trimChars);
+        public static ReadOnlySpan<char> TrimStart(ReadOnlySpan<char> span, ReadOnlySpan<char> trimChars) => TrimStart<char>(span, trimChars);
+        public static ReadOnlySpan<char> TrimEnd(ReadOnlySpan<char> span, ReadOnlySpan<char> trimChars) => TrimEnd<char>(span, trimChars);
+
         /// <summary>Copies source to destination, replacing oldValue with newValue.</summary>
         public static void Replace<T>(ReadOnlySpan<T> source, Span<T> destination, T oldValue, T newValue) where T : IEquatable<T>
         {

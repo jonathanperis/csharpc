@@ -131,9 +131,12 @@ namespace CsharpcCoreLib
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern nint TypeInfoTableAddress();
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern nint ReflectionTableAddress();
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern nint DelegateMethodTableAddress();
+        /// <summary>The version of the shared framework the program was compiled against ("11.0.0-rc.2.26504.105").</summary>
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern string FrameworkVersion();
         /// <summary>The delegate types' Invoke signatures (MethodInfo.CreateDelegate): { count, { mt, return, parameters, count, 0 }[] }.</summary>
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern nint DelegateSignatureTableAddress();
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern unsafe void* csrt_delegate_create(nint mt, nint target, nint fn);
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern unsafe void* csrt_gc_object_base(void* p);
         /// <summary>The function a delegate calls (the last one of a multicast delegate).</summary>
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern nint DelegateFunction(Delegate d);
         /// <summary>The object a delegate is bound to (the last one of a multicast delegate).</summary>
@@ -618,6 +621,13 @@ namespace CsharpcCoreLib
         {
             var h = new HashCodeImpl();
             h.Add(value1); h.Add(value2); h.Add(value3); h.Add(value4); h.Add(value5); h.Add(value6); h.Add(value7);
+            return h.ToHashCode();
+        }
+
+        public static int Combine<T1, T2, T3, T4, T5, T6, T7, T8>(T1 value1, T2 value2, T3 value3, T4 value4, T5 value5, T6 value6, T7 value7, T8 value8)
+        {
+            var h = new HashCodeImpl();
+            h.Add(value1); h.Add(value2); h.Add(value3); h.Add(value4); h.Add(value5); h.Add(value6); h.Add(value7); h.Add(value8);
             return h.ToHashCode();
         }
 

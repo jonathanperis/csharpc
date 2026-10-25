@@ -181,7 +181,7 @@ static void enqueue_flow(intptr_t kind, void* a, void* b, void* flow) {
 }
 
 /// Queues work with the calling code's execution-context flow.
-static void enqueue(intptr_t kind, void* a, void* b) { enqueue_flow(kind, a, b, csrt_tl_flow); }
+static void enqueue(intptr_t kind, void* a, void* b) { enqueue_flow(kind, a, b, csrt_flow_capture()); }
 
 static bool dequeue_locked(intptr_t* kind, void** a, void** b, void** flow) {
     if (s_qcount == 0) return false;
@@ -512,7 +512,7 @@ csrt_Task* csrt_task_from_exception(void* exception, int32_t payload_size) {
 /// already executed llvm.coro.save, so a resume from another thread before it actually suspends
 /// is fine.
 void csrt_task_on_completed(csrt_Task* t, void* frame) {
-    void* flow = csrt_tl_flow;
+    void* flow = csrt_flow_capture();
     bool added;
     if (flow) {
         ResumeWithFlow* r = csrt_alloc(&csrt_Object_MT.header, sizeof(ResumeWithFlow));
@@ -541,7 +541,7 @@ void csrt_queue_action(void* action) {
 /// UnsafeQueueUserWorkItem (without it): the corelib wraps the work in an Action.
 void csrt_pool_queue_action(void* action, bool flowContext) {
     if (!action) csrt_throw_null_reference();
-    enqueue_flow(K_INVOKE, action, NULL, flowContext ? csrt_tl_flow : NULL);
+    enqueue_flow(K_INVOKE, action, NULL, flowContext ? csrt_flow_capture() : NULL);
 }
 
 /// `await Task.Yield()`: resume on the pool, after work already queued.

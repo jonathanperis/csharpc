@@ -29,6 +29,7 @@ internal static partial class BclValueTypes
 
         t[$"{Type}.get_BaseType()"] = (g, _, self, _, _) => TypeResult(g, "csrt_type_base", self);
         t[$"{Type}.GetElementType()"] = (g, _, self, _, _) => TypeResult(g, "csrt_type_element", self);
+        t[$"{Type}.GetEnumUnderlyingType()"] = (g, _, self, _, _) => TypeResult(g, "csrt_type_enum_underlying", self);
         t[$"{Type}.get_DeclaringType()"] = t["System.Reflection.MemberInfo.get_DeclaringType()"] =
             (g, _, self, _, _) => TypeResult(g, "csrt_type_declaring", self);
         t[$"{Type}.GetGenericTypeDefinition()"] = (g, _, self, _, _) => TypeResult(g, "csrt_type_generic_definition", self);

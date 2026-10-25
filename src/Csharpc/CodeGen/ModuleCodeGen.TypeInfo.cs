@@ -276,6 +276,8 @@ public sealed partial class ModuleCodeGen
                     break;
                 case INamedTypeSymbol named:
                 {
+                    // An enum's `element` is its underlying type (Type.GetEnumUnderlyingType; GetElementType is null).
+                    if (named is { TypeKind: TypeKind.Enum, EnumUnderlyingType: { } underlyingType }) element = MetadataMethodTable(underlyingType);
                     if (named.TypeKind != TypeKind.Interface && named.BaseType is { } baseType)
                     {
                         if (TypeSubstitution.IsOpen(baseType)) flags |= TI.NoHierarchy;

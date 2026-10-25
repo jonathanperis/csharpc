@@ -228,7 +228,15 @@ TypeObject* csrt_type_base(TypeObject* t, const csrt_TypeInfoTable* table) {
 /// Type.GetElementType().
 TypeObject* csrt_type_element(TypeObject* t, const csrt_TypeInfoTable* table) {
     const csrt_TypeInfo* info = info_of(t, table);
-    return info ? type_or_null(info->element) : NULL;
+    return info && !(info->flags & CSRT_TI_ENUM) ? type_or_null(info->element) : NULL;
+}
+
+/// Type.GetEnumUnderlyingType().
+TypeObject* csrt_type_enum_underlying(TypeObject* t, const csrt_TypeInfoTable* table) {
+    const csrt_TypeInfo* info = info_of(t, table);
+    if (!info) return NULL;
+    if (!(info->flags & CSRT_TI_ENUM)) { throw_utf8(&mt_argument, "Type provided must be an Enum. (Parameter 'enumType')"); return NULL; }
+    return type_or_null(info->element);
 }
 
 /// Type.DeclaringType.

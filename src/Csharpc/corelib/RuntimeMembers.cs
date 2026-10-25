@@ -70,6 +70,35 @@ namespace CsharpcCoreLib
         public double PauseTimePercentage => 0;
     }
 
+    [ShadowMembers("System.Runtime.InteropServices.RuntimeInformation")]
+    internal static class RuntimeInformationDescription
+    {
+        /// <summary>".NET 11.0.0-rc.2.26504.105": the framework the program was compiled against.</summary>
+        public static string FrameworkDescription => ".NET " + CoreIntrinsics.FrameworkVersion();
+    }
+
+    [ShadowMembers("System.Environment")]
+    internal static class EnvironmentVersionMembers
+    {
+        private static Version s_version;
+
+        /// <summary>The runtime's major.minor.build ("11.0.0" for 11.0.0-rc.2.*), as .NET reports Environment.Version.</summary>
+        public static Version Version
+        {
+            get
+            {
+                if (s_version != null) return s_version;
+                string version = CoreIntrinsics.FrameworkVersion();
+                int dash = version.IndexOf('-');
+                string[] parts = (dash < 0 ? version : version.Substring(0, dash)).Split('.');
+                return s_version = new Version(int.Parse(parts[0]), parts.Length > 1 ? int.Parse(parts[1]) : 0, parts.Length > 2 ? int.Parse(parts[2]) : 0);
+            }
+        }
+
+        public static string StackTrace =>
+            throw new NotSupportedException("Environment.StackTrace (the current call stack as text) is not supported by csharpc yet.");
+    }
+
     [ShadowMembers("System.GC")]
     internal static class GCMembers
     {

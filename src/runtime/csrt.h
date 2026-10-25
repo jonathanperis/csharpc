@@ -106,6 +106,7 @@ _Noreturn void csrt_pruned_virtual(void);
 extern _Thread_local __attribute__((tls_model("local-exec"))) void* csrt_tl_flow;
 void* csrt_flow_get(void);
 void csrt_flow_set(void* flow);
+void* csrt_flow_capture(void);   // the flow work queued now carries: none while ExecutionContext.SuppressFlow is in effect
 void* csrt_alloc_noclear(const csrt_MethodTable* mt, int64_t size);           // caller initializes every byte it reads
 csrt_Array* csrt_new_array_primitive_noclear(int64_t element_size, int64_t length);
 // Integer formatting into a caller buffer ending at `end`; returns the first character written.
@@ -213,7 +214,7 @@ enum {
 typedef struct csrt_TypeInfo {
     const csrt_MethodTable* mt;
     const csrt_MethodTable* base;                 // Type.BaseType
-    const csrt_MethodTable* element;              // Type.GetElementType()
+    const csrt_MethodTable* element;              // Type.GetElementType(); enums: the underlying type
     const csrt_MethodTable* definition;           // Type.GetGenericTypeDefinition()
     const csrt_MethodTable* declaring;            // Type.DeclaringType
     const csrt_MethodTable* const* generic_args;  // arguments (constructed types) or parameters (definitions)
@@ -268,6 +269,7 @@ typedef struct csrt_MethodRecord {
 typedef struct { const csrt_MethodTable* mt; const csrt_MethodTable* return_type; const csrt_MethodTable* const* parameters;
                  uint32_t parameter_count; uint32_t reserved; } csrt_DelegateSignature;
 void* csrt_delegate_create(const csrt_MethodTable* mt, void* target, const void* fn);
+void* csrt_gc_object_base(const void* p);   // the heap object an interior pointer is in, or NULL
 
 // Which member kinds an entry lists (DynamicallyAccessedMemberTypes they were kept for).
 enum { CSRT_RI_PUBLIC_CONSTRUCTORS = 1, CSRT_RI_NONPUBLIC_CONSTRUCTORS = 2, CSRT_RI_PUBLIC_METHODS = 4,

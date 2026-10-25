@@ -12,6 +12,32 @@ namespace CsharpcCoreLib
     [ShadowMembers("System.Runtime.InteropServices.MemoryMarshal")]
     internal static unsafe class MemoryMarshalImpl
     {
+        /// <summary>
+        /// The array behind a Memory: csharpc's Memory&lt;T&gt; is a bare { pointer, length }, so the array is the heap
+        /// object the pointer is in, when that is a T[] (not a string, native or MemoryManager memory).
+        /// </summary>
+        public static bool TryGetArray<T>(ReadOnlyMemory<T> memory, out ArraySegment<T> segment)
+        {
+            if (memory.IsEmpty)
+            {
+                // .NET reports an empty array-backed memory as an empty segment of its array; csharpc's empty
+                // memory has no array left: the empty segment of an empty array.
+                segment = new ArraySegment<T>(Array.Empty<T>());
+                return true;
+            }
+            byte* data = (byte*)CoreIntrinsics.SpanAddress(memory.Span);
+            byte* start = (byte*)CoreIntrinsics.csrt_gc_object_base(data);
+            if (start != null && *(nint*)start == CoreIntrinsics.csrt_type_handle(typeof(T[])))
+            {
+                T[] array = CoreIntrinsics.ReinterpretAs<T[]>(CoreIntrinsics.PointerToObject((nint)start));
+                int offset = (int)((data - (start + 16)) / CoreIntrinsics.SizeOf<T>());
+                segment = new ArraySegment<T>(array, offset, memory.Length);
+                return true;
+            }
+            segment = default;
+            return false;
+        }
+
         /// <summary>Memory over a pinned array: every array is pinned for csharpc's non-moving collector.</summary>
         public static Memory<T> CreateFromPinnedArray<T>(T[] array, int start, int length)
         {

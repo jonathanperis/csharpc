@@ -159,6 +159,12 @@ public sealed partial class FunctionCodeGen
         var capturesNothing = false;
         IMethodSymbol? described = null; // what Delegate.Method reports (ModuleCodeGen.NoteDelegateMethod)
         var sourceLambda = false;
+        // `Func<string> f = s.Ext`: Roslyn's operation tree has no receiver for an extension method group
+        // closed over its first argument (only IL's ldftn form is lowered, FunctionCodeGen.IlCalls.cs).
+        if (creation.Target is IMethodReferenceOperation { Method.IsExtensionMethod: true, Instance: null } extension
+            && extension.Syntax is Microsoft.CodeAnalysis.CSharp.Syntax.MemberAccessExpressionSyntax access
+            && access.Expression.ToString() != extension.Method.ContainingType.Name && access.Expression.ToString() != extension.Method.ContainingType.ToDisplayString())
+            throw CompileError.Unsupported($"a delegate to extension method '{extension.Method}' closed over its receiver", creation);
         switch (creation.Target)
         {
             case IFlowAnonymousFunctionOperation lambda:
@@ -175,6 +181,15 @@ public sealed partial class FunctionCodeGen
                 (described, sourceLambda) = (S(local.Method), true);
                 break;
             }
+            // A static method closed over its first argument (IL's `ldarg x; ldftn Ext; newobj D` for
+            // `Func<T> f = x.Ext`): the delegate calls fn(target, rest...), which is the method itself when
+            // its first parameter is a reference (the target's representation).
+            case IMethodReferenceOperation { Method.IsStatic: true, Instance: { } closedOver } group
+                when _m.IsUserMethod(S(group.Method)) && S(group.Method).Parameters is [{ RefKind: RefKind.None, Type.IsReferenceType: true }, ..]:
+                target = EmitValue(closedOver);
+                fn = _m.GetFunction(S(group.Method)).Fn;
+                described = S(group.Method);
+                break;
             case IMethodReferenceOperation { Method.IsStatic: true } group when _m.IsUserMethod(S(group.Method)):
                 target = LlvmContext.Null(L.Ptr);
                 fn = _m.StaticThunk(S(group.Method));
@@ -220,7 +235,7 @@ public sealed partial class FunctionCodeGen
         var mt = _m.DelegateMethodTable(delegateType);
         // C# 11+ caches a static method group's delegate in a static field of the converting type (Roslyn's
         // <>O container), so two conversions of M there are the same object: ReferenceEquals sees it.
-        if (creation.Target is IMethodReferenceOperation { Method: var staticMethod }
+        if (creation.Target is IMethodReferenceOperation { Method: var staticMethod, Instance: null }
             && (staticMethod.MethodKind == MethodKind.LocalFunction ? capturesNothing : staticMethod.IsStatic)
             && creation.Syntax is not Microsoft.CodeAnalysis.CSharp.Syntax.BaseObjectCreationExpressionSyntax && _method is not null)
         {
