@@ -401,18 +401,41 @@ typedef struct {
 } VariantDescriptor;
 static VariantDescriptor* s_variant;
 static int s_variant_count, s_variant_cap;
+// Descriptor lookup by interface: open addressing over descriptor index + 1 (0 = empty), at most half
+// full. A failed `is IFoo<T>` test asks for a descriptor every time, and an ASP.NET Core program
+// registers hundreds: the linear search was most of csrt_isinst_class in the TechEmpower JSON profile.
+static uint32_t* s_variant_index;
+static size_t s_variant_index_mask;
 
+static inline size_t variant_hash(const csrt_MethodTable* itf) { return (size_t)(((uintptr_t)itf >> 3) * 0x9E3779B97F4A7C15ull >> 32); }
+
+static void variant_index_insert(uint32_t* index, size_t mask, int i) {
+    size_t h = variant_hash(s_variant[i].itf) & mask;
+    while (index[h]) h = (h + 1) & mask;
+    index[h] = (uint32_t)i + 1;
+}
+
+// Registration runs at startup, before other threads exist.
 void csrt_register_variant_interface(const csrt_MethodTable* itf, const void* definition, int32_t argc,
                                      const csrt_MethodTable* const* args, uint32_t mask) {
     if (s_variant_count == s_variant_cap) {
         s_variant_cap = s_variant_cap ? s_variant_cap * 2 : 16;
         s_variant = realloc(s_variant, sizeof *s_variant * (size_t)s_variant_cap);
+        size_t capacity = (size_t)s_variant_cap * 2;
+        free(s_variant_index);
+        s_variant_index = calloc(capacity, sizeof *s_variant_index);
+        if (!s_variant || !s_variant_index) abort();
+        s_variant_index_mask = capacity - 1;
+        for (int i = 0; i < s_variant_count; i++) variant_index_insert(s_variant_index, s_variant_index_mask, i);
     }
-    s_variant[s_variant_count++] = (VariantDescriptor){ itf, definition, argc, args, mask };
+    s_variant[s_variant_count] = (VariantDescriptor){ itf, definition, argc, args, mask };
+    variant_index_insert(s_variant_index, s_variant_index_mask, s_variant_count++);
 }
 
 static const VariantDescriptor* variant_descriptor(const csrt_MethodTable* itf) {
-    for (int i = 0; i < s_variant_count; i++) if (s_variant[i].itf == itf) return &s_variant[i];
+    if (!s_variant_index) return NULL;
+    for (size_t h = variant_hash(itf) & s_variant_index_mask; s_variant_index[h]; h = (h + 1) & s_variant_index_mask)
+        if (s_variant[s_variant_index[h] - 1].itf == itf) return &s_variant[s_variant_index[h] - 1];
     return NULL;
 }
 
