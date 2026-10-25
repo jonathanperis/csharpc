@@ -148,26 +148,65 @@ and the division was on the hot path.
 - **A page-protection write barrier.** `livemutate` stores into scattered old cells. A fault per
   newly-dirtied page would cost more than the collection it is trying to shrink.
 
-### Next increment
+### Increment shipped (opt-in): non-moving nursery + compiler card table
 
-**Non-moving generational collection.** A minor collection traces stacks, statics and a remembered
-set, plus the nursery, and does not walk the old pointer graph. Surviving young chunks are promoted
-and not allocated into until a major collection. The major collection is today's full mark-sweep.
+Implemented on `ci/gc-nursery` and kept **off by default**. Enable with `--gc-nursery` or
+`CSHARPC_GC_NURSERY=1` (runtime compiled with `-DCSRT_GC_NURSERY_DEFAULT`; override at run time with
+`CSRT_GC_NURSERY=0`). Without that flag the default binary is the same single-generation collector
+as before: nursery/card code is `#if`'d out so size budgets stay green.
 
-This needs a **card table written by the compiler** on every store of a reference into the heap
-(not into a local or a static; those are roots). The store exists in both front ends, so the IL
-path and wasm32 get the same barrier. wasm32 keeps the shadow stack (ADR 0011); it does not get
-the parallel marker. There is no `mprotect` barrier.
+Design (measured, not the ADR sketch as written):
 
-After a nursery is in place and measured, **mostly-copying** (Bartlett): precise maps for the
-heap, conservative pins for the stack, compact the nursery, still no statepoints. Statepoints are
-only justified when a fully precise moving collector beats that on a benchmark, with the codegen
-and compile-time cost written down next to the pause numbers.
+1. **Young chunks, not a contiguous nursery.** Small objects still live in 256 KiB size-classed
+   chunks. Fresh chunks are young. A minor collection marks only young objects (from stacks,
+   statics, and dirty old regions), sweeps only young chunks, then **promotes survivors in place**
+   by clearing the chunk's young bit. Promoted chunks are not allocated into again until a major
+   frees them. Large objects are born old. After 32 minors, or on `GC.Collect` / stress, a major
+   runs today's full mark-sweep.
+2. **Per-chunk / per-large dirty bits, not a flat card table.** A table over `[heap_min, heap_max)`
+   under ASLR is sparse and tried to reserve gigabytes; that OOM'd. Dirty is one byte on the chunk
+   header (and a single `large_dirty` flag for the large-object list). Coarse: a minor that has
+   dirtied many old chunks still walks a lot of old memory.
+3. **Compiler write barrier.** With `--gc-nursery`, every heap reference store goes through
+   `csrt_gc_write` (dirty, then store — dirty first so a stop-the-world suspend cannot hide an
+   old→young edge). Locals and statics are roots and skip the barrier. Atomics / volatile pointer
+   stores and `Array.Copy` of references dirty via `csrt_gc_cards_dirty`. The same path covers the
+   IL front-end and wasm32-wasi (wasm keeps the shadow stack; ADR 0011). There is no `mprotect`
+   barrier.
+
+Local 4-vCPU median (same harness as above; NativeAOT numbers from the pre-nursery baseline on this
+host where the AOT publish was unavailable in later runs):
+
+| mode | phase | ops/s | pause | collections | heap | RSS |
+|---|---|---:|---:|---:|---:|---:|
+| default (off) | churn | 18.7M | 3.08 ms | 14 | 40 MiB | 205 MiB |
+| default (off) | livemutate | 4.00M | 36.0 ms | 2 | 99 MiB | 205 MiB |
+| `--gc-nursery` | churn | 11.7M | 3.99 ms | 14 | 29 MiB | 135 MiB |
+| `--gc-nursery` | livemutate | 3.53M | 53.3 ms | 7 | 110 MiB | 135 MiB |
+| NativeAOT (baseline) | churn | 20.8M | 2.08 ms | 3 | 89 MiB | 235 MiB |
+| NativeAOT (baseline) | livemutate | 3.04M | 117.4 ms | 1 | 164 MiB | 235 MiB |
+
+RSS on livemutate drops (~205 → ~135 MiB) because minors reclaim short-lived cells instead of
+waiting for one full collection. That does **not** pay for the rest: churn throughput falls ~37 %
+(barrier + minors that still scan coarse dirty old chunks once the live set has promoted), and
+livemutate pause rises (~36 → ~53 ms) because several minors plus a major cost more wall time than
+two full collections on this pointer-dense ring. A sticky-survivor variant (keep young bit, only
+clear cards) mis-collected after cards cleared (checksum wrong); promotion was required.
+
+Size: default hello **28520** / async **147200** (budgets 32768 / 147456). With barriers linked,
+async jumped to ~167 KiB (over by ~20 KiB) — that alone forbids making nursery the default.
+
+So the nursery is behind the flag, with the negative result recorded here. Next collector work that
+could make it win: a denser remembered set (or remembered slots) so minors do not re-walk whole
+dirty chunks; a smaller nursery trigger only after that; then **mostly-copying** (Bartlett) with
+precise heap maps. Statepoints stay unjustified until a fully precise moving collector beats that
+on a benchmark with codegen cost written down next to the pause numbers.
 
 The mark/sweep split and the pause percentiles above were timed with extra clocks in the collector.
 That instrumentation, and a multiplicative inverse in place of the size-class division, added about
 1 KiB of text. On CI that was enough to push `tests/size` `async` from under its 147456-byte budget
 to 151376 (one 4 KiB page; run 40224424838, x86-64 and arm64). Both came back out. The default
-`gc.c` machine code matches the previous collector; `CSRT_GC_STATS=1` is the same one-line summary
-as before. The ownership marker is source in `gc.c` under `-DCSRT_GC_PARALLEL_MARK` and contributes
-no bytes unless that flag is passed.
+`gc.c` machine code matches the previous collector when nursery is not compiled in;
+`CSRT_GC_STATS=1` is the same one-line summary (plus ", nursery on" when enabled). The ownership
+marker remains source under `-DCSRT_GC_PARALLEL_MARK` and contributes no bytes unless that flag is
+passed.

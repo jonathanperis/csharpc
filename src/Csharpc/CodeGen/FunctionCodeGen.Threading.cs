@@ -327,6 +327,9 @@ public sealed partial class FunctionCodeGen
             {
                 var address = ArgAddress(inv, 0);
                 var (value, back) = AsAtomicInt(TArg(inv, 1));
+                // Dirty before the atomic so a suspend cannot hide an old→young edge.
+                if (_m.GcNursery && TArg(inv, 1).Type.IsPointer && !IsStackOrGlobalAddress(address))
+                    CallRuntime("csrt_gc_cards_dirty", L.Void, [L.Ptr, L.I64], address, L.ConstInt(L.I64, (long)T.PointerSize));
                 result = back(Rmw(LLVMAtomicRMWBinOp.Xchg, address, value));
                 return true;
             }
@@ -335,6 +338,8 @@ public sealed partial class FunctionCodeGen
                 var address = ArgAddress(inv, 0);
                 var (value, back) = AsAtomicInt(TArg(inv, 1));
                 var (comparand, _) = AsAtomicInt(TArg(inv, 2));
+                if (_m.GcNursery && TArg(inv, 1).Type.IsPointer && !IsStackOrGlobalAddress(address))
+                    CallRuntime("csrt_gc_cards_dirty", L.Void, [L.Ptr, L.I64], address, L.ConstInt(L.I64, (long)T.PointerSize));
                 var pair = Native.LLVMBuildAtomicCmpXchg(_b.Ref, address, comparand, value, seq, seq, 0);
                 result = back(_b.ExtractValue(pair, 0));
                 return true;
@@ -367,7 +372,14 @@ public sealed partial class FunctionCodeGen
     internal void VolatileStore(LLVMValueRef value, LLVMValueRef address, ITypeSymbol type)
     {
         var stored = ToStorage(value, type);
+        // Pointer stores into the heap need a card dirty before the release store; csrt_gc_write is
+        // not atomic, so dirty then emit an ordered store directly.
+        if (_m.GcNursery && stored.Type.IsPointer && !IsStackOrGlobalAddress(address))
+            CallRuntime("csrt_gc_cards_dirty", L.Void, [L.Ptr, L.I64], address, L.ConstInt(L.I64, (long)T.PointerSize));
+        var prev = _b.PointerStoreOverride;
+        _b.PointerStoreOverride = null;
         var store = _b.Store(stored, address);
+        _b.PointerStoreOverride = prev;
         if (IsAtomicCapable(stored.Type)) Native.LLVMSetOrdering(store, LLVMAtomicOrdering.Release);
     }
 
