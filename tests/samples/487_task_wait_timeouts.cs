@@ -27,7 +27,8 @@ var canceledSource = new CancellationTokenSource();
 canceledSource.Cancel();
 Try("Wait(-2)", () => pending.Task.Wait(-2));
 Try("Wait(token)", () => pending.Task.Wait(canceledSource.Token));
-Try("Wait(10, token)", () => pending.Task.Wait(10, canceledSource.Token));
+// Not Wait(10, canceledToken): .NET spins before it looks at the token, and how long depends on the
+// processor count, so real .NET throws on one machine and returns false on another.
 
 await TryAsync("WaitAsync timeout", () => pending.Task.WaitAsync(TimeSpan.FromMilliseconds(10)));
 await TryAsync("WaitAsync zero", () => pending.Task.WaitAsync(TimeSpan.Zero));
