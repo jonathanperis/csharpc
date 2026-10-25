@@ -114,9 +114,11 @@ char* csrt_itoa_u64(uint64_t value, char* end);
 char* csrt_itoa_i64(int64_t value, char* end);
 void csrt_gc_collect(void);           // System.GC.Collect()
 int64_t csrt_gc_total_memory(void);  // System.GC.GetTotalMemory(bool)
+#if defined(CSRT_GC_NURSERY_DEFAULT)
 // Heap reference store + card dirty (codegen write barrier; see gc.c / ADR 0004).
 void csrt_gc_write(void** slot, void* value);
 void csrt_gc_cards_dirty(void* start, size_t n);
+#endif
 // Weak references and ephemerons (gc.c; corelib/WeakReferences.cs). Handles are slot index + 1.
 intptr_t csrt_weak_alloc(void* target, void* value, void* owner, int32_t ephemeron);
 void* csrt_weak_target(intptr_t handle);

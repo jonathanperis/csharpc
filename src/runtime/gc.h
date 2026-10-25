@@ -46,11 +46,13 @@ void* csrt_gc_alloc_noclear(size_t size);
 void csrt_gc_collect(void);
 int64_t csrt_gc_total_memory(void);
 
+#if defined(CSRT_GC_NURSERY_DEFAULT)
 // Generational write barrier (ADR 0004): dirty the card for `slot`, then store `value`.
 // The compiler emits this instead of a plain store for heap reference writes. Dirty-before-store
 // so a stop-the-world suspend between the two steps cannot hide a young pointer in an old object.
 void csrt_gc_write(void** slot, void* value);
 // Dirty every card covering [start, start+n): bulk reference copies (Array.Copy).
 void csrt_gc_cards_dirty(void* start, size_t n);
+#endif
 
 #endif

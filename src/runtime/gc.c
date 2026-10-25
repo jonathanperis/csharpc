@@ -227,7 +227,10 @@ static struct {
     size_t minors_since_major;
 #endif
     size_t stress, stress_count;  // CSRT_GC_STRESS
-    size_t collections, major_collections, peak_heap, total_allocated;
+    size_t collections, peak_heap, total_allocated;
+#if CSRT_HAS_NURSERY
+    size_t major_collections;  // CollectionCount(gen>0); equals collections when nursery is off
+#endif
     double total_gc_seconds;
 } g;
 
@@ -324,10 +327,9 @@ void csrt_gc_write(void** slot, void* value) {
     if (g.nursery) card_dirty(slot);
     *slot = value;
 }
-#else
-void csrt_gc_cards_dirty(void* start, size_t n) { (void)start; (void)n; }
-void csrt_gc_write(void** slot, void* value) { *slot = value; }
 #endif
+// Without CSRT_HAS_NURSERY the barrier symbols are not defined: default binaries must not
+// reference them (codegen emits calls only under --gc-nursery; bclmisc gates Array.Copy).
 
 // ---------------------------------------------------------------------------------------------
 // Chunks
@@ -899,10 +901,16 @@ void* csrt_gc_alloc(size_t size) { return gc_alloc(size, true); }
 
 void* csrt_gc_alloc_noclear(size_t size) { return gc_alloc(size, false); }
 
-/// GC.CollectionCount(generation): gen 0 counts every collection; higher gens count majors only.
+/// GC.CollectionCount(generation): gen 0 counts every collection; higher gens count majors only
+/// (majors == all collections when the nursery is not compiled in).
 int64_t csrt_gc_collection_count(int32_t generation) {
     gc_lock();
+#if CSRT_HAS_NURSERY
     int64_t n = generation <= 0 ? (int64_t)g.collections : (int64_t)g.major_collections;
+#else
+    (void)generation;
+    int64_t n = (int64_t)g.collections;
+#endif
     gc_unlock();
     return n;
 }
@@ -2119,7 +2127,6 @@ __attribute__((noinline)) void csrt_gc_collect_now(void) {
     g.minor = false;
 #else
     g.collections++;
-    g.major_collections++;
 #endif
 
     clock_gettime(CLOCK_MONOTONIC, &t1);
