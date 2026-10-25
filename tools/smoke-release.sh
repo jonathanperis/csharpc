@@ -11,7 +11,23 @@ rm -rf "$WORKDIR"
 mkdir -p "$WORKDIR"
 
 case "$ARCHIVE" in
-  *.zip) unzip -q "$ARCHIVE" -d "$WORKDIR" ;;
+  *.zip)
+    # Prefer Expand-Archive on Windows (handles both / and \ zip entries). Info-ZIP unzip
+    # warns and exits 1 on backslash separators from Compress-Archive.
+    if command -v powershell.exe >/dev/null 2>&1 || command -v pwsh >/dev/null 2>&1; then
+      ps="$(command -v pwsh || command -v powershell.exe)"
+      win_archive="$ARCHIVE"
+      win_workdir="$WORKDIR"
+      if command -v cygpath >/dev/null 2>&1; then
+        win_archive="$(cygpath -w "$ARCHIVE")"
+        win_workdir="$(cygpath -w "$WORKDIR")"
+      fi
+      "$ps" -NoProfile -Command \
+        "Expand-Archive -LiteralPath '$win_archive' -DestinationPath '$win_workdir' -Force"
+    else
+      unzip -q "$ARCHIVE" -d "$WORKDIR"
+    fi
+    ;;
   *.tar.gz|*.tgz) tar -xzf "$ARCHIVE" -C "$WORKDIR" ;;
   *) echo "unsupported archive: $ARCHIVE" >&2; exit 2 ;;
 esac

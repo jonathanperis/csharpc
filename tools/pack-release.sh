@@ -168,15 +168,36 @@ cp -a "$PUBLISH"/. "$BUNDLE"/
 if [[ $RID == win-x64 ]]; then
   ARCHIVE="$ARCHIVE_DIR/${NAME}.zip"
   rm -f "$ARCHIVE"
+  # Prefer Info-ZIP or Python: Compress-Archive stores backslash separators, which Info-ZIP
+  # unzip (Git Bash) treats as literal characters and exits 1 on the warning.
   if command -v zip >/dev/null 2>&1; then
     (cd "$OUT_ROOT" && zip -qr "$ARCHIVE" "$NAME")
-  elif command -v cygpath >/dev/null 2>&1; then
-    win_bundle="$(cygpath -w "$BUNDLE")"
-    win_archive="$(cygpath -w "$ARCHIVE")"
-    powershell.exe -NoProfile -Command \
-      "Compress-Archive -Path '$win_bundle' -DestinationPath '$win_archive' -Force"
   else
-    (cd "$OUT_ROOT" && tar -a -cf "$(basename "$ARCHIVE")" "$NAME")
+    python="${PYTHON:-}"
+    if [[ -z $python ]]; then
+      for candidate in python3 python py; do
+        if command -v "$candidate" >/dev/null 2>&1; then python=$candidate; break; fi
+      done
+    fi
+    if [[ -n $python ]]; then
+      "$python" - "$OUT_ROOT" "$NAME" "$ARCHIVE" <<'PY'
+import os, sys, zipfile
+out_root, name, archive = sys.argv[1], sys.argv[2], sys.argv[3]
+root = os.path.join(out_root, name)
+with zipfile.ZipFile(archive, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+    for dirpath, _, filenames in os.walk(root):
+        for filename in filenames:
+            path = os.path.join(dirpath, filename)
+            # Always forward slashes in the zip (portable across unzip implementations).
+            arcname = os.path.relpath(path, out_root).replace(os.sep, "/")
+            zf.write(path, arcname)
+PY
+    elif command -v tar >/dev/null 2>&1; then
+      (cd "$OUT_ROOT" && tar -a -cf "$(basename "$ARCHIVE")" "$NAME")
+    else
+      echo "pack-release: need zip, python, or tar to build the Windows archive" >&2
+      exit 1
+    fi
   fi
 else
   ARCHIVE="$ARCHIVE_DIR/${NAME}.tar.gz"

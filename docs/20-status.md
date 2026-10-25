@@ -98,6 +98,15 @@ a documented host prerequisite (full clang+sysroot is much larger and OS-specifi
 needs LLVM-MinGW for the linker/CRT). Container image included: zero host toolchain for
 `docker run … csharpc`.
 
+**17:18.** Owner (Jonathan Peris / nuget.org account `Jonathanperis`) configured Trusted Publishing
+policy `csharpc-release` on nuget.org: Active for GitHub Actions, repo `jonathanperis/csharpc`,
+workflow file `release.yml`, no environment, package glob `*`. Repo variable
+`NUGET_USER=Jonathanperis` set. Publish stays in `.github/workflows/release.yml` (not a reusable
+workflow called from `ci.yml`): NuGet matches OIDC `job_workflow_ref` to the workflow that requests
+the token, so a reusable workflow would claim the shared path and fail (NuGet/login#6). Trigger is
+`workflow_run` after green CI. No test/dry-run versions to nuget.org (undeletable); first real push
+is `0.1.0-spike` (tag) or the main rolling `0.1.0-spike.<ci_run_number>`.
+
 **17:55.** Added `tools/pack-release.sh`, `tools/smoke-release.sh`, release workflow
 (build ×4 RIDs → smoke without installing the .NET SDK → publish Release + NuGet to
 `nuget.pkg.github.com/jonathanperis` + `ghcr.io/jonathanperis/csharpc`), `install.sh` /
@@ -114,12 +123,23 @@ RID-specific NativeAOT tool packages (`ToolPackageRuntimeIdentifiers` + `Csharpc
 by `tools/pack-tool-pointer.sh` (manual DotnetTool v2 nuspec — `dotnet pack` without `-r` was
 rebuilding the host RID and wiping the good nupkg). nuget.org via Trusted Publishing in
 `release.yml` as above. TechEmpower / Benchmarks / Compatibility keep building csharpc from the
-commit under test (they measure that tree); documented in those workflow headers. Windows zip fix:
-`cygpath -w` for Compress-Archive. Local linux-x64: archive 55 MiB, RID nupkg 117 MiB, smoke OK.
+commit under test (they measure that tree); documented in those workflow headers. Local linux-x64:
+archive 55 MiB, RID nupkg 117 MiB, smoke OK.
 
 **18:25.** Release dry-run 40230115161: all four RID builds green (win-x64 included); all four smoke
 jobs failed immediately — `ls a.tar.gz a.zip` under `pipefail` exits 2 when the `.zip` glob is
 absent. Fixed with `nullglob` + array. nuget.org push gated off for `*test*`/`*dryrun*` versions.
+
+**18:30.** Release 40230552303: smoke found the archive but corelib bind failed — NativeAOT has no
+`TRUSTED_PLATFORM_ASSEMBLIES`, and smoke runners have no .NET 11 ref pack. Bundle
+`Microsoft.NETCore.App.Ref/.../ref/net11.0` as `ref/net11.0/` next to the binary; `FindReferencePack`
+prefers it. Local retest without any `dotnet` on PATH: 01_hello and 104_linq OK; archive 58 MiB.
+
+**17:40.** Release 40231133703: linux/osx/arm64 smoke green after ref-pack; win-x64 smoke failed —
+`Compress-Archive` zip uses backslash separators, Info-ZIP unzip warns and exits 1. Fixed:
+`pack-release.sh` builds Windows zips with Python `zipfile` (forward slashes); smoke uses
+`Expand-Archive` on Windows. nuget.org login no longer `continue-on-error` — real push when
+`publish_nuget_org=true` (policy `csharpc-release` Active as of 17:18).
 
 Audit of the `m8-perf` merge on 2026-10-25. Times are BRT (UTC−3).
 

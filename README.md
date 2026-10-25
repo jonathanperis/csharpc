@@ -78,9 +78,10 @@ outside the closed world. Not supported yet: `dynamic`, expression trees and mem
 
 Prebuilt NativeAOT bundles (no .NET SDK required) ship on
 [GitHub Releases](https://github.com/jonathanperis/csharpc/releases). Each archive includes the
-`csharpc` binary, `corelib/`, `runtime/` and a bundled `libLLVM` 18 under `lib/` (Apache-2.0 with
-LLVM exceptions). You still need **clang** on the host (and **lld** when available) to compile the
-C runtime and link programs; on Windows that means
+`csharpc` binary, `corelib/`, `runtime/`, a bundled `libLLVM` 18 under `lib/` (Apache-2.0 with LLVM
+exceptions), and `ref/net11.0/` (the Microsoft.NETCore.App reference assemblies used to bind). You
+still need **clang** on the host (and **lld** when available) to compile the C runtime and link
+programs; on Windows that means
 [LLVM-MinGW](https://github.com/mstorsjo/llvm-mingw). WebAssembly (`--target wasm32-wasip1`) still
 needs the WASI SDK 24 and wasmtime separately.
 
