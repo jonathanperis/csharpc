@@ -220,9 +220,12 @@ What made the difference:
   spectral-norm stay scalar on both sides. That's correct C# semantics; csharpc doesn't trade
   accuracy for speed.
 - **The GC is conservative and non-generational.** Full-heap marking at 2× live growth makes the
-  cost proportional to the live heap at each collection. That's fine for these programs, but
-  allocation-heavy code with a very large live heap would favor .NET's generational GC. A
-  precise or generational collector needs compiler-emitted pointer maps and write barriers.
+  cost proportional to the live heap at each collection. On `benchmarks/gc` (4 threads, 800k-node
+  ring) csharpc's pause is 30 ms against ~118 ms for the JIT and NativeAOT, and mark is 97 % of
+  that time; a parallel marker was slower on 4 cores. The next step is a non-moving nursery
+  ([ADR 0004](../docs/adr/0004-memory-management.md)). Churn of short-lived objects is still behind
+  (16.5M ops/s vs 20.8M NativeAOT and 24.4M JIT) because the 32 MiB minimum trigger collects more
+  often, and the mutator is slower.
 - **Feature coverage limits what can be benchmarked.** Programs built on `List<T>`,
   `Dictionary<K,V>` or LINQ (k-nucleotide, regex-redux, ...) can't be ported until the self-hosted
   corelib exists.
@@ -239,6 +242,7 @@ What made the difference:
 export PATH=$HOME/.dotnet11:$PATH
 RUNS=5 benchmarks/run.sh            # all benchmarks (NO_AOT=1 skips NativeAOT)
 benchmarks/run.sh strbuild          # one benchmark
+benchmarks/gc/gc.sh                 # GC throughput, pauses, RSS (GC_BENCH_RUNS, NO_AOT=1)
 csharpc --cpu native ...       # opt into host-specific tuning
 CSHARPC_NO_RUNTIME_LTO=1 ...   # link the runtime as objects instead of bitcode
 ```

@@ -220,16 +220,13 @@ math). Hello world is about 65 KiB at -O2.
 
 ## GC plan
 
-The full design is in [ADR 0004](adr/0004-memory-management.md). In short:
-
-1. **Now:** bump/`calloc` allocation; memory is never freed. This is fine for short-running programs
-   and benchmarks with bounded allocation.
-2. **Next:** a conservative mark-sweep collector inside csrt. Roots come from scanning the native
-   stack, registers (via `setjmp`) and the data segment. Heap objects are recognized through
-   allocator metadata, and object interiors are scanned conservatively at first, then precisely
-   using per-type pointer maps emitted in method tables. It doesn't move objects.
-3. **Later:** a precise collector with LLVM statepoints / stack maps (as gollvm does), which also
-   allows moving and compacting. On wasm32, a shadow stack (as NativeAOT-LLVM does).
+The collector in `src/runtime/gc.c` is a conservative, non-moving, stop-the-world mark-sweep.
+Small objects live in 256 KiB size-classed chunks; large objects are tracked in a sorted table.
+Roots are the writable data segments, each thread's stack (registers spilled by `setjmp` or, on
+Windows, `GetThreadContext`) and its TLS. Strings and arrays of primitives are not scanned
+(`CSRT_MT_NO_REFERENCES`). Allocation is thread-local (one claimed bitmap word per size class).
+The full design, including why the next step is a non-moving nursery rather than LLVM statepoints,
+is [ADR 0004](adr/0004-memory-management.md). On wasm32 the shadow stack is [ADR 0011](adr/0011-wasm32.md).
 
 ### Weak references and ephemerons
 

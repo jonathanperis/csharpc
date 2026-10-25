@@ -61,11 +61,19 @@ build to 389 s with the parity-blockers corelib that landed in the same merge.
 **Roslyn** (M6): Roslyn's non-generic methods that fail to compile went from 994 to 170; a small
 program using Roslyn's parser compiles from IL at -O0.
 
+**GC** (`benchmarks/gc`, local 4-vCPU, median of 3, published binaries): on an 800k-node ring,
+csharpc pause 30.3 ms and 4.29M ops/s vs NativeAOT 117.4 ms and 3.04M, RSS 205 vs 235 MiB. Mark is
+97 % of stop-the-world time (46.6 ms mark, 1.4 ms sweep). Short-lived churn is behind (16.5M ops/s
+vs 20.8M NativeAOT). Parallel marking was slower on this machine and is not in the default binary
+([ADR 0004](adr/0004-memory-management.md)).
+
 ## Next, in order
 
 1. M8 gap: plaintext at 1024 connections (0.97 of NativeAOT on run 40214226895), memory under load,
    binary size (15.7 vs 8.9 MiB), build time (389 s vs 23 s); the TechEmpower workflow has a
-   perf-profiling input.
+   perf-profiling input. GC: the mark is ~97 % of stop-the-world time on `benchmarks/gc` and a
+   parallel marker was slower on 4 cores (ADR 0004); the next collector increment is a non-moving
+   nursery with a compiler card table.
 2. M4: the remaining parity blockers (see 18-compatibility.md) to 100 %.
 3. Runtime tier 1 (ADR 0017): move the C runtime's ordinary code to C# where it's at least as fast.
 4. Early gauge for M7's acceptance gate: build dotnet's AOT test suites with csharpc on CI.
@@ -141,6 +149,33 @@ above. Nothing else was pushed to `main` while 40214226809 was running.
 Local checks before the first `m8-perf` push: conformance 195/195; differential `-O0` and `-O2` for
 the thread, monitor, lock and async samples, including 555 and 544.
 
+**16:05.** GC measurement on `ci/precise-gc`, not a faster collector. `benchmarks/gc` (4 threads,
+checksum `1008676208218` from `dotnet run`) median of 3 published runs on this 4-vCPU VM:
+`livemutate` csharpc wall 112 ms, 4.29M ops/s, pause 30.3 ms, RSS 205 MiB; JIT 161 ms, 2.98M, pause
+118.8 ms, RSS 258 MiB; NativeAOT 158 ms, 3.04M, pause 117.4 ms, RSS 235 MiB. Churn is the other way:
+csharpc 16.5M ops/s and 2.73 ms pause (14 collections) vs NativeAOT 20.8M / 2.08 ms (3) and JIT
+24.4M / 1.68 ms (3). A quiet `CSRT_GC_STATS=1` run was mark 46.6 ms, sweep 1.4 ms, 18 collections.
+csharpc compile of that program 2.3 s, stripped 195 KiB, NativeAOT 1.33 MiB. Hello world file size
+stayed 35056 bytes.
+
+What did not work, both checksum-correct:
+
+- Atomic `fetch_or` mark bits. Idle helpers spinning on the mark lock made sample 21 ~30× slower
+  (p50 46 ms). After they sleep, forced parallel was still slower (sample 21 mark 158 ms vs ~75 ms
+  serial; `livemutate` pause ~55 ms vs ~31 ms). The mark bitmap's cache lines are shared by every
+  object in the chunk.
+- Chunk ownership with plain stores and batched handoff, large arrays sliced across workers. Mark
+  53–74 ms vs ~47 ms serial on this VM. The serial scan is already ~1.5–2 GB/s; the handoff costs
+  more than the scan. Linked into every binary it grew hello from 35056 to 43256 bytes (budget
+  32768), so it is compiled only with `-DCSRT_GC_PARALLEL_MARK`.
+
+A multiplicative inverse for the size-class division was inside the noise and stayed (exact for
+every byte offset in a chunk). Thread-local allocation was already there. Statepoints and precise
+maps are the wrong first lever on a pointer-dense heap; the write-up in ADR 0004 is a non-moving
+nursery with a compiler card table. Differential `-O0`/`-O2`: 20, 21, 125, 310, 627. `CSRT_GC_STRESS=1`
+on 310 passed. Sample 21 under stress (a collection per allocation) hit the suite timeout; that is
+the mode, not a wrong output. `gh workflow run` is still HTTP 403, so CI is the `ci/**` push filter.
+
 ## Working rules
 
 Build with `dotnet build src/Csharpc -c Release -m:1`, compile with `-j2`, run heavy suites on CI
@@ -148,3 +183,10 @@ Build with `dotnet build src/Csharpc -c Release -m:1`, compile with `-j2`, run h
 After corelib edits run `CSHARPC_CHECK_CORELIB=1` (compiles every corelib member). Merge only
 CI-verified branches; avoid docs-only pushes to `main` while a merge's CI is pending (a push cancels
 the running run). Delete merged branches.
+
+Pushes to `main` are what start CI. A measurement branch is named `ci/<topic>` (the `ci/**` push
+filter on `ci.yml` and `bench.yml`). That does not change `main`: a push to `main` still runs CI,
+and the Benchmarks workflow still also requires a path change under `src/`, `benchmarks/` or its
+own file. TechEmpower has no branch filter, only those paths, so a `ci/**` branch that touches
+`benchmarks/techempower/**` or the workflow file runs it too; do not add a branch filter there.
+`gh workflow run` from this checkout returns HTTP 403 (no `actions: write`).
