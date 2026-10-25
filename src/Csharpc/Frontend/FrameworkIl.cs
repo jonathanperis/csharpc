@@ -13,16 +13,20 @@ namespace Csharpc.Frontend;
 ///   - the program *uses* it: the sources name one of its namespaces and a public type of it (or one of
 ///     its extension methods, when no other framework assembly shares the namespace), or an assembly
 ///     compiled from IL references it (transitively), and
-///   - it is *eligible*: it has code of its own (not System.Private.*, no type forwarders), csharpc
-///     implements none of its types (no corelib shadow, no intrinsic), and it calls no native shim of
-///     the runtime (libSystem.*.Native, QCalls).
+///   - it is *eligible*: it is not System.Private.CoreLib or a facade of what the corelib serves, csharpc
+///     implements none of its types (no corelib shadow, no intrinsic), and it calls no native code of the
+///     runtime (QCalls, libSystem.*.Native) other than the shims csharpc links statically from the
+///     NativeAOT runtime pack, as NativeAOT does (NativeAotPack: libSystem.IO.Compression.Native, ...).
 /// `--framework-il A,B` forces eligible assemblies in, and `--framework-il none` turns the automatic
 /// choice off. The result joins the IL references like a `-r`: Roslyn binds against the implementation
-/// assembly instead of its reference-pack twin, and reachable methods are lowered from its IL.
+/// assembly instead of its reference-pack twin, and reachable methods are lowered from its IL. Facades of
+/// a chosen System.Private.* library (System.Xml.ReaderWriter for System.Private.Xml) come along, so the
+/// types the program binds to are the implementation's.
 /// </summary>
 public static partial class FrameworkIl
 {
-    public sealed record Choice(string Name, string Path, string Reason);
+    /// <param name="NativeModules">The .NET shims its IL calls (NativeAotPack.Shims), linked from the NativeAOT runtime pack.</param>
+    public sealed record Choice(string Name, string Path, string Reason, IReadOnlyList<string> NativeModules);
 
     /// <summary>One framework assembly as the index records it.</summary>
     private sealed class Assembly
@@ -33,6 +37,10 @@ public static partial class FrameworkIl
         /// <summary>Why it can't be compiled from IL; null if it can.</summary>
         public string? Ineligible { get; set; }
         public string[] References { get; set; } = [];
+        /// <summary>Assemblies it forwards types to (a facade such as System.Xml.ReaderWriter forwards everything).</summary>
+        public string[] ForwardsTo { get; set; } = [];
+        /// <summary>.NET shims it P/Invokes (NativeAotPack.Shims): eligible where their archives can be linked.</summary>
+        public string[] NativeModules { get; set; } = [];
         /// <summary>Namespace → public top-level type names (no arity).</summary>
         public Dictionary<string, string[]> Types { get; } = new(StringComparer.Ordinal);
         /// <summary>Namespace → public methods of its public static classes (extension methods are used without naming their class).</summary>
@@ -47,7 +55,7 @@ public static partial class FrameworkIl
     /// --framework-il; <paramref name="automatic"/> = false is `--framework-il none`. Assemblies already
     /// among the IL references (<paramref name="ilPaths"/>) are not repeated.
     /// </summary>
-    public static List<Choice> Select(FrontendSettings settings, IReadOnlyList<string> ilPaths, IReadOnlyList<string> forced, bool automatic)
+    public static List<Choice> Select(FrontendSettings settings, IReadOnlyList<string> ilPaths, IReadOnlyList<string> forced, bool automatic, string triple)
     {
         var result = new List<Choice>();
         foreach (var framework in settings.SharedFrameworks)
@@ -74,14 +82,28 @@ public static partial class FrameworkIl
         void Add(Assembly a, string reason)
         {
             if (given.Contains(a.Name) || !chosen.Add(a.Name)) return;
-            result.Add(new Choice(a.Name, Path.Combine(a.Directory, a.Name + ".dll"), reason));
+            result.Add(new Choice(a.Name, Path.Combine(a.Directory, a.Name + ".dll"), reason, a.NativeModules));
+        }
+
+        // An assembly that calls .NET's native shims is usable where their static archives can be linked
+        // (checked, and the NativeAOT pack restored, only for assemblies the program would take).
+        string? Unusable(Assembly a)
+        {
+            if (a.Ineligible is { } why) return why;
+            if (a.NativeModules.Length == 0) return null;
+            if (NativeAotPack.Rid(triple) is not { } rid)
+                return $"it calls .NET's native {string.Join(", ", a.NativeModules)}, which csharpc can't link for {triple} yet";
+            if (NativeAotPack.NativeDirectory(rid, out var reason) is not { } native)
+                return $"it calls .NET's native {string.Join(", ", a.NativeModules)}, and {reason}";
+            return a.NativeModules.FirstOrDefault(m => !NativeAotPack.HasShim(native, m)) is { } missing
+                ? $"it calls .NET's native {missing}, which the NativeAOT runtime pack for {rid} doesn't ship as a static library" : null;
         }
 
         foreach (var name in forced)
         {
             if (!index.TryGetValue(name, out var a))
                 throw new InvalidOperationException($"--framework-il: '{name}' is not an assembly of the shared framework ({dir})");
-            if (a.Ineligible is { } why) throw new InvalidOperationException($"--framework-il: '{name}' can't be compiled from IL: {why}");
+            if (Unusable(a) is { } why) throw new InvalidOperationException($"--framework-il: '{name}' can't be compiled from IL: {why}");
             Add(a, "--framework-il");
         }
         if (!automatic) return result;
@@ -96,7 +118,7 @@ public static partial class FrameworkIl
                 .Concat(a.Extensions.Where(n => owners.GetValueOrDefault(n.Key) == 1 && Named(n.Key))
                     .SelectMany(n => n.Value.Where(identifiers.Contains).Select(m => n.Key + "." + m + "()")))
                 .OrderBy(u => u, StringComparer.Ordinal).FirstOrDefault();
-            if (use is not null) Add(a, $"the program uses {use}");
+            if (use is not null && Unusable(a) is null) Add(a, $"the program uses {use}");
         }
 
         // Closure: what the IL assemblies (the program's and the chosen framework ones) reference.
@@ -108,11 +130,18 @@ public static partial class FrameworkIl
             var (from, references) = queue.Dequeue();
             foreach (var reference in references)
             {
-                if (chosen.Contains(reference) || given.Contains(reference) || !index.TryGetValue(reference, out var a) || a.Ineligible is not null) continue;
+                if (chosen.Contains(reference) || given.Contains(reference) || !index.TryGetValue(reference, out var a) || Unusable(a) is not null) continue;
                 Add(a, $"referenced by {from}");
                 queue.Enqueue((a.Name, a.References));
             }
         }
+
+        // Facades of a chosen assembly (System.Xml.ReaderWriter, System.Xml.XDocument for System.Private.Xml and
+        // System.Private.Xml.Linq): their reference-pack twins define the types the program binds to, which
+        // the implementation defines again; taking the facade instead makes Roslyn follow its forwards.
+        foreach (var a in index.Values.Where(a => a.Ineligible is null && a.ForwardsTo.Length > 0).OrderBy(a => a.Name, StringComparer.Ordinal))
+            if (a.ForwardsTo.FirstOrDefault(t => t.StartsWith("System.Private.", StringComparison.Ordinal) && chosen.Contains(t)) is { } target)
+                Add(a, $"a facade of {target}");
         return result;
     }
 
@@ -168,7 +197,7 @@ public static partial class FrameworkIl
         var cacheRoot = Environment.GetEnvironmentVariable("XDG_CACHE_HOME")
             ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".cache");
         var build = typeof(FrameworkIl).Assembly.ManifestModule.ModuleVersionId;
-        var key = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes($"{dir}|{build}|2")))[..16];
+        var key = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes($"{dir}|{build}|4")))[..16];
         // Named by build, then by framework directory: an index per framework (Microsoft.NETCore.App's and ASP.NET Core's).
         var buildTag = build.ToString("N")[..8];
         var cache = Path.Combine(cacheRoot, "csharpc", $"framework-il-{buildTag}-{key}.txt");
@@ -188,6 +217,7 @@ public static partial class FrameworkIl
             }
             catch (BadImageFormatException) { }
         }
+        MarkFacades(index);
         try
         {
             Directory.CreateDirectory(Path.GetDirectoryName(cache)!);
@@ -206,6 +236,9 @@ public static partial class FrameworkIl
     {
         var a = new Assembly { Name = md.GetString(md.GetAssemblyDefinition().Name) };
         a.References = [.. md.AssemblyReferences.Select(h => md.GetString(md.GetAssemblyReference(h).Name))];
+        a.ForwardsTo = [.. md.ExportedTypes.Select(h => md.GetExportedType(h).Implementation)
+            .Where(i => i.Kind == HandleKind.AssemblyReference)
+            .Select(i => md.GetString(md.GetAssemblyReference((AssemblyReferenceHandle)i).Name)).Distinct(StringComparer.Ordinal)];
         var types = new Dictionary<string, List<string>>(StringComparer.Ordinal);
         var extensions = new Dictionary<string, List<string>>(StringComparer.Ordinal);
         var fullNames = new List<string>();
@@ -232,47 +265,54 @@ public static partial class FrameworkIl
         foreach (var (ns, list) in extensions) a.Extensions[ns] = [.. list.Distinct(StringComparer.Ordinal)];
 
         var known = KnownTypes();
+        // Native code of the .NET runtime it calls: the shims csharpc links from the NativeAOT pack are
+        // recorded (eligible where that works), any other (QCalls, libSystem.Native ...) rules it out.
+        var shims = new List<string>();
         string? ModuleOfRuntime()
         {
             for (var i = 1; i <= md.GetTableRowCount(TableIndex.ModuleRef); i++)
             {
                 var module = md.GetString(md.GetModuleReference(MetadataTokens.ModuleReferenceHandle(i)).Name);
-                if (module.StartsWith("libSystem.", StringComparison.Ordinal) || module.StartsWith("System.", StringComparison.Ordinal) || module == "QCall") return module;
+                if (!(module.StartsWith("libSystem.", StringComparison.Ordinal) || module.StartsWith("System.", StringComparison.Ordinal) || module == "QCall")) continue;
+                if (!NativeAotPack.MayCall(a.Name, module)) return module;
+                shims.Add(module);
             }
             return null;
         }
-        a.Ineligible = a.Name.StartsWith("System.Private.", StringComparison.OrdinalIgnoreCase) ? "it is part of the runtime itself"
-            : ForwardsToCoreLib(md) ? "it forwards types to System.Private.CoreLib (a facade)"
+        // System.Private.CoreLib is the runtime's own code (FCalls, intrinsics, the type system); the other
+        // System.Private.* assemblies (Xml, Xml.Linq, DataContractSerialization, Uri) are ordinary libraries
+        // behind facades and get the same checks as any other assembly.
+        a.Ineligible = a.Name.Equals("System.Private.CoreLib", StringComparison.OrdinalIgnoreCase) ? "it is part of the runtime itself"
             : ModuleOfRuntime() is { } native ? $"it calls native code of the .NET runtime ({native})"
             : fullNames.FirstOrDefault(known.Contains) is { } shadowed ? $"csharpc implements its type '{shadowed}' itself"
             : null;
+        a.NativeModules = [.. shims.Distinct(StringComparer.Ordinal)];
         return a;
     }
 
     /// <summary>
-    /// Whether the assembly forwards types where the compilation can't follow: into System.Private.*
-    /// (System.Runtime, System.Collections ... are facades of CoreLib, which the corelib serves). Forwards
-    /// to other assemblies are harmless — Roslyn follows them to a reference assembly or another
-    /// assembly compiled from IL: System.Diagnostics.DiagnosticSource forwards only IsExternalInit to
-    /// System.Runtime, ASP.NET Core's assemblies forward types they once defined to their neighbours
-    /// (FeatureCollection to Microsoft.Extensions.Features).
+    /// Facades: an assembly that forwards types into System.Private.* can only be compiled from IL when the
+    /// target can (System.Xml.ReaderWriter → System.Private.Xml); System.Runtime, System.Collections ...
+    /// are facades of CoreLib, which the corelib serves. Forwards to other assemblies are harmless — Roslyn
+    /// follows them to a reference assembly or another assembly compiled from IL: System.Diagnostics.DiagnosticSource
+    /// forwards only IsExternalInit to System.Runtime, ASP.NET Core's assemblies forward types they once
+    /// defined to their neighbours (FeatureCollection to Microsoft.Extensions.Features).
     /// </summary>
-    private static bool ForwardsToCoreLib(MetadataReader md)
+    private static void MarkFacades(Dictionary<string, Assembly> index)
     {
-        foreach (var h in md.ExportedTypes)
+        foreach (var a in index.Values)
         {
-            var exported = md.GetExportedType(h);
-            if (exported.Implementation.Kind == HandleKind.AssemblyReference
-                && md.GetString(md.GetAssemblyReference((AssemblyReferenceHandle)exported.Implementation).Name).StartsWith("System.Private.", StringComparison.Ordinal))
-                return true;
+            if (a.Ineligible is not null) continue;
+            var blocked = a.ForwardsTo.FirstOrDefault(t => t.StartsWith("System.Private.", StringComparison.Ordinal)
+                && (!index.TryGetValue(t, out var target) || target.Ineligible is not null));
+            if (blocked is not null) a.Ineligible = $"it forwards types to {blocked} (a facade)";
         }
-        return false;
     }
 
-    // Lines: "A\tname\treason-or-empty\treferences", then "T\tnamespace\ttypes" / "E\tnamespace\tmethods" for it.
+    // Lines: "A\tname\treason-or-empty\treferences\tforwarded-to\tnative-shims", then "T\tnamespace\ttypes" / "E\tnamespace\tmethods" for it.
     private static IEnumerable<string> WriteAssembly(Assembly a)
     {
-        yield return $"A\t{a.Name}\t{a.Ineligible}\t{string.Join(' ', a.References)}";
+        yield return $"A\t{a.Name}\t{a.Ineligible}\t{string.Join(' ', a.References)}\t{string.Join(' ', a.ForwardsTo)}\t{string.Join(' ', a.NativeModules)}";
         foreach (var (ns, names) in a.Types) yield return $"T\t{ns}\t{string.Join(' ', names)}";
         foreach (var (ns, names) in a.Extensions) yield return $"E\t{ns}\t{string.Join(' ', names)}";
     }
@@ -286,9 +326,15 @@ public static partial class FrameworkIl
             foreach (var line in File.ReadLines(path))
             {
                 var parts = line.Split('\t');
-                if (parts is ["A", var name, var reason, var references])
+                if (parts is ["A", var name, var reason, var references, var forwards, var natives])
                 {
-                    current = new Assembly { Name = name, Ineligible = reason.Length == 0 ? null : reason, References = references.Split(' ', StringSplitOptions.RemoveEmptyEntries) };
+                    current = new Assembly
+                    {
+                        Name = name, Ineligible = reason.Length == 0 ? null : reason,
+                        References = references.Split(' ', StringSplitOptions.RemoveEmptyEntries),
+                        ForwardsTo = forwards.Split(' ', StringSplitOptions.RemoveEmptyEntries),
+                        NativeModules = natives.Split(' ', StringSplitOptions.RemoveEmptyEntries),
+                    };
                     index[name] = current;
                 }
                 else if (current is not null && parts is ["T" or "E", var ns, var names])
