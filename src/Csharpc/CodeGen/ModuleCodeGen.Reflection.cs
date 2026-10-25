@@ -32,6 +32,9 @@ public sealed partial class ModuleCodeGen
 
     private readonly Dictionary<ITypeSymbol, int> _damMarks = new(SymbolEqualityComparer.Default);
     private readonly Queue<ITypeSymbol> _damQueue = new();
+    // typeof(X).GetMethod("Name") / GetProperty("Name"): only the members with that name (ILLink's rule).
+    private readonly Dictionary<ITypeSymbol, List<(int Kinds, string Name)>> _damNames = new(SymbolEqualityComparer.Default);
+    private readonly Queue<(ITypeSymbol Type, int Kinds, string Name)> _damNamedQueue = new();
     private readonly HashSet<ISymbol> _damInstantiations = new(SymbolEqualityComparer.Default);
     private readonly Dictionary<ITypeSymbol, ReflectionEntry> _reflectionEntries = new(SymbolEqualityComparer.Default);
     private readonly List<ReflectionEntry> _reflectionOrder = [];
@@ -55,6 +58,8 @@ public sealed partial class ModuleCodeGen
         public required ITypeSymbol Type;
         public required LLVMValueRef Mt;
         public uint Described;
+        public uint Complete;
+        public HashSet<ISymbol> Listed = new(SymbolEqualityComparer.Default); // the constructors and methods listed so far // the Described kinds listed in full (the others: only members asked for by name)
         public List<MethodRecordData> Constructors = [], Methods = [];
         public List<AttributeRecordData> Attributes = [];
         public List<PropertyRecordData> Properties = [];
@@ -151,7 +156,7 @@ public sealed partial class ModuleCodeGen
     }
 
     /// <summary>Keeps metadata for the members of <paramref name="type"/> that <paramref name="kinds"/> names.</summary>
-    internal void MarkDynamicallyAccessed(ITypeSymbol type, int kinds)
+    internal void MarkDynamicallyAccessed(ITypeSymbol type, int kinds, string? name = null)
     {
         kinds &= DamConstructors | DamMethods | DamProperties;
         if (kinds == 0 || type is ITypeParameterSymbol || type.TypeKind == TypeKind.Error) return;
@@ -160,8 +165,18 @@ public sealed partial class ModuleCodeGen
             // typeof(Impl<>): the closed instantiations the program has keep the same members.
             if (named.IsUnboundGenericType || named.IsDefinition) type = named.OriginalDefinition;
             else return;
+            name = null;
         }
         var previous = _damMarks.GetValueOrDefault(type);
+        if (name is not null)
+        {
+            if ((previous | kinds) == previous) return;
+            if (!_damNames.TryGetValue(type, out var names)) _damNames[type] = names = [];
+            if (names.Contains((kinds, name))) return;
+            names.Add((kinds, name));
+            _damNamedQueue.Enqueue((type, kinds, name));
+            return;
+        }
         if ((previous | kinds) == previous) return;
         _damMarks[type] = previous | kinds;
         _damQueue.Enqueue(type);
@@ -307,10 +322,35 @@ public sealed partial class ModuleCodeGen
             try { Describe(type, _damMarks[type]); }
             catch (CompileError error) { Errors.Add(error); }
         }
+        while (_damNamedQueue.TryDequeue(out var named))
+        {
+            any = true;
+            try { Describe(named.Type, named.Kinds, named.Name); }
+            catch (CompileError error) { Errors.Add(error); }
+        }
         return any;
     }
 
     private void Describe(ITypeSymbol type, int kinds)
+    {
+        // Members listed by name first: list everything again in RuntimeType's order, then the named ones not
+        // covered (a GetMethod("Name") on kinds still described by name only).
+        if (_reflectionEntries.TryGetValue(type, out var entry) && entry.Described != entry.Complete)
+        {
+            entry.Constructors.Clear();
+            entry.Methods.Clear();
+            entry.Properties.Clear();
+            entry.Listed.Clear();
+            entry.Described = entry.Complete = 0;
+            Describe(type, kinds, null);
+            foreach (var (namedKinds, name) in _damNames.GetValueOrDefault(type) ?? []) Describe(type, namedKinds, name);
+            return;
+        }
+        Describe(type, kinds, null);
+    }
+
+    /// <summary>Lists the members <paramref name="kinds"/> names; with <paramref name="name"/>, only those called that.</summary>
+    private void Describe(ITypeSymbol type, int kinds, string? name)
     {
         if (type is not INamedTypeSymbol named || named.TypeKind is TypeKind.Error) return;
         var real = RealType(named) as INamedTypeSymbol ?? named;
@@ -325,17 +365,21 @@ public sealed partial class ModuleCodeGen
         uint wanted = ((kinds & DamPublicConstructors) != 0 ? RiPublicConstructors : 0) | ((kinds & DamNonPublicConstructors) != 0 ? RiNonPublicConstructors : 0)
             | ((kinds & DamPublicMethods) != 0 ? RiPublicMethods : 0) | ((kinds & DamNonPublicMethods) != 0 ? RiNonPublicMethods : 0)
             | ((kinds & DamPublicProperties) != 0 ? RiPublicProperties : 0) | ((kinds & DamNonPublicProperties) != 0 ? RiNonPublicProperties : 0);
-        var added = wanted & ~entry.Described;
+        var added = wanted & ~entry.Complete;
+        if (name is null) added &= ~entry.Described;
         if (added == 0) return;
         entry.Described |= added;
+        if (name is null) entry.Complete |= added;
         bool Wanted(ISymbol member, uint publicBit, uint nonPublicBit) =>
-            (added & (member.DeclaredAccessibility == Accessibility.Public ? publicBit : nonPublicBit)) != 0;
+            (added & (member.DeclaredAccessibility == Accessibility.Public ? publicBit : nonPublicBit)) != 0
+            && (name is null || member.MetadataName == name) && !entry.Listed.Contains(member);
         foreach (var ctor in real.InstanceConstructors)
         {
             if (ctor.IsImplicitlyDeclared && real.IsValueType) continue; // a struct's default constructor isn't metadata
-            if (Wanted(ctor, RiPublicConstructors, RiNonPublicConstructors)) entry.Constructors.Add(MethodRecord(ctor, invoker: true));
+            if (name is null && Wanted(ctor, RiPublicConstructors, RiNonPublicConstructors) && entry.Listed.Add(ctor))
+                entry.Constructors.Add(MethodRecord(ctor, invoker: true));
         }
-        if ((added & (RiPublicProperties | RiNonPublicProperties)) != 0) DescribeProperties(entry, real, added);
+        if ((added & (RiPublicProperties | RiNonPublicProperties)) != 0) DescribeProperties(entry, real, added, name);
         if ((added & (RiPublicMethods | RiNonPublicMethods)) == 0) return;
         // Declared methods, then inherited ones not overridden (RuntimeType's order: most derived first).
         var seen = new HashSet<IMethodSymbol>(SymbolEqualityComparer.Default);
@@ -352,13 +396,14 @@ public sealed partial class ModuleCodeGen
                 if (!Wanted(m, RiPublicMethods, RiNonPublicMethods)) continue;
                 var root = ClassLayout.RootOf(m.OriginalDefinition);
                 if ((m.IsVirtual || m.IsOverride || m.IsAbstract) && !seen.Add(root)) continue; // overridden lower down
+                entry.Listed.Add(m);
                 entry.Methods.Add(MethodRecord(m, invoker: true));
             }
         }
     }
 
     /// <summary>Declared properties, then inherited ones not overridden; public when an accessor is (RuntimePropertyInfo's rule).</summary>
-    private void DescribeProperties(ReflectionEntry entry, INamedTypeSymbol real, uint added)
+    private void DescribeProperties(ReflectionEntry entry, INamedTypeSymbol real, uint added, string? name)
     {
         var seen = new HashSet<ISymbol>(SymbolEqualityComparer.Default);
         foreach (var listed in entry.Properties) seen.Add(PropertyRoot(listed.Property));
@@ -366,6 +411,7 @@ public sealed partial class ModuleCodeGen
         {
             foreach (var p in t.GetMembers().OfType<IPropertySymbol>())
             {
+                if (name is not null && p.MetadataName != name) continue;
                 bool isPublic = p.GetMethod?.DeclaredAccessibility == Accessibility.Public || p.SetMethod?.DeclaredAccessibility == Accessibility.Public;
                 if (!SymbolEqualityComparer.Default.Equals(t, real) && !isPublic
                     && (p.GetMethod?.DeclaredAccessibility ?? Accessibility.Private) == Accessibility.Private
@@ -655,9 +701,22 @@ public sealed partial class ModuleCodeGen
     }
 
     /// <summary>object Invoke(object target, object[] args): the corelib has checked the argument count and types.</summary>
-    private LLVMValueRef ReflectionInvoker(IMethodSymbol method) =>
-        SyntheticFunction(Mangler.Method(method) + "$invoke", Llvm.FunctionType(Llvm.Ptr, Llvm.Ptr, Llvm.Ptr),
-            (g, syntax) => g.EmitReflectionInvoker(method, syntax));
+    /// <summary>
+    /// The method's invoker, or, when csharpc can't call it yet (a library method without an implementation,
+    /// an argument it can't unbox), one that throws NotSupportedException: invoking that member fails
+    /// explicitly at run time instead of the whole program failing to compile, as reading it keeps working.
+    /// </summary>
+    private LLVMValueRef ReflectionInvoker(IMethodSymbol method)
+    {
+        var name = Mangler.Method(method) + "$invoke";
+        var type = Llvm.FunctionType(Llvm.Ptr, Llvm.Ptr, Llvm.Ptr);
+        try { return SyntheticFunction(name, type, (g, syntax) => g.EmitReflectionInvoker(method, syntax)); }
+        catch (CompileError)
+        {
+            var message = $"Invoking '{method.ToDisplayString()}' through reflection is not supported by csharpc yet.";
+            return SyntheticFunction(name, type, (g, _) => g.EmitThrowingFactory(message));
+        }
+    }
 
     /// <summary>
     /// The attribute's factory, or, when csharpc can't construct the attribute class yet (a library attribute

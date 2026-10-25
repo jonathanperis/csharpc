@@ -241,25 +241,37 @@ public sealed partial class ModuleCodeGen
         var edges = _references.GroupBy(r => (ISymbol?)r.From?.OriginalDefinition, SymbolEqualityComparer.Default)
             .ToDictionary(g => g.Key ?? Compilation.Assembly, g => g.ToList(), SymbolEqualityComparer.Default);
         var reached = new HashSet<ISymbol>(SymbolEqualityComparer.Default);
+        // CSHARPC_WHY=1: how the program reaches each failing method (the first reference chain found).
+        var why = Environment.GetEnvironmentVariable("CSHARPC_WHY") == "1"
+            ? new Dictionary<ISymbol, IMethodSymbol?>(SymbolEqualityComparer.Default) : null;
         var work = new Queue<IMethodSymbol>();
-        void Reach(IMethodSymbol m)
+        void Reach(IMethodSymbol m, IMethodSymbol? from)
         {
-            if (reached.Add(m.OriginalDefinition)) work.Enqueue(m);
+            if (!reached.Add(m.OriginalDefinition)) return;
+            work.Enqueue(m);
+            if (why != null) why[m.OriginalDefinition] = from?.OriginalDefinition;
         }
-        void Follow(IMethodSymbol to, bool isVirtual)
+        void Follow(IMethodSymbol? from, IMethodSymbol to, bool isVirtual)
         {
-            Reach(to);
-            if (isVirtual) foreach (var implementation in PossibleTargets(to)) Reach(implementation);
+            Reach(to, from);
+            if (isVirtual) foreach (var implementation in PossibleTargets(to)) Reach(implementation, from);
         }
         // Roots: references made by the program's own code (sources and the corelib).
         foreach (var (from, to, isVirtual) in _references)
-            if (from is null || !IsIlMethod(from) || Il.IsCoreLib(from)) Follow(to, isVirtual);
+            if (from is null || !IsIlMethod(from) || Il.IsCoreLib(from)) Follow(from, to, isVirtual);
         while (work.TryDequeue(out var method))
             if (edges.TryGetValue(method.OriginalDefinition, out var outgoing))
-                foreach (var (_, to, isVirtual) in outgoing) Follow(to, isVirtual);
+                foreach (var (_, to, isVirtual) in outgoing) Follow(method, to, isVirtual);
 
         foreach (var (method, error) in _ilFailures)
         {
+            if (why != null && reached.Contains(method.OriginalDefinition))
+            {
+                Console.Error.WriteLine($"why {method.OriginalDefinition}:");
+                ISymbol? step = method.OriginalDefinition;
+                for (int depth = 0; step != null && depth < 40 && why.TryGetValue(step, out var parent); depth++, step = parent)
+                    Console.Error.WriteLine($"    <- {(parent == null ? "(program)" : parent.ToString())}");
+            }
             if (reached.Contains(method.OriginalDefinition)) Errors.Add(error);
             else Warnings.Add(new CompileError("CSLLVM0007",
                 $"{error.Message} — the program does not reach this method (class-hierarchy analysis), so it was compiled as a stub that ends the program if it is ever called",

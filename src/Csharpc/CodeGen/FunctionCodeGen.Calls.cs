@@ -20,7 +20,7 @@ public sealed partial class FunctionCodeGen
         NoteDynamicallyAccessedArguments(S(inv.TargetMethod), inv.Arguments);
         if (Intrinsics.TryGetConsoleFastPath(inv, out var consoleFastPath)) return consoleFastPath(this, inv);
         var target = S(inv.TargetMethod);
-        if (inv.Instance is ITypeOfOperation reflectedType) NoteReflectedType(target, S(reflectedType.TypeOperand));
+        if (inv.Instance is ITypeOfOperation reflectedType) NoteReflectedType(target, S(reflectedType.TypeOperand), inv.Arguments is [{ Value.ConstantValue: { HasValue: true, Value: string name } }, ..] ? name : null);
         if (inv.Instance is { } shadowReceiver && _m.CoreLib.MapForReceiver(target, TypeOf(shadowReceiver)) is { } shadowMember) target = shadowMember;
         if (IsCoreIntrinsic(target)) return EmitCoreIntrinsic(target, inv);
         if (TypeObjectMember(inv.TargetMethod, inv.Instance) is { } typeMember) return CallBcl(typeMember, inv.TargetMethod, inv.Instance, inv.Arguments, inv);
@@ -629,7 +629,11 @@ public sealed partial class FunctionCodeGen
     /// typeof(X).GetProperty/GetMethod/GetConstructor(...) on a known type keeps X's members of that kind, as
     /// ILLink's intrinsic handling of these calls does for NativeAOT.
     /// </summary>
-    private void NoteReflectedType(IMethodSymbol target, ITypeSymbol type)
+    /// <summary>
+    /// typeof(X).GetMethod("Name")... on a statically known X keeps X's members of that kind, as ILLink does:
+    /// with a constant name only the members called that, otherwise all of them.
+    /// </summary>
+    private void NoteReflectedType(IMethodSymbol target, ITypeSymbol type, string? name)
     {
         if (type is ITypeParameterSymbol || target.ContainingType is not { Name: "Type", ContainingNamespace: { Name: "System", ContainingNamespace.IsGlobalNamespace: true } })
             return;
@@ -640,7 +644,7 @@ public sealed partial class FunctionCodeGen
             "GetConstructor" or "GetConstructors" => ModuleCodeGen.DamConstructors,
             _ => 0,
         };
-        if (kinds != 0) _m.MarkDynamicallyAccessed(type, kinds);
+        if (kinds != 0) _m.MarkDynamicallyAccessed(type, kinds, target.Name is "GetProperty" or "GetMethod" ? name : null);
     }
 
     private BclHandler? TypeObjectMember(IMethodSymbol target, IOperation? instance)

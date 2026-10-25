@@ -30,6 +30,17 @@ class Person : Base
     public string WriteOnly { set { } }
 }
 
+// Asked for by name first (typeof(Gadget).GetProperty("Size")), then listed in full by Keep: the full list
+// keeps RuntimeType's order.
+class Gadget
+{
+    public int Size { get; set; } = 5;
+    public string Label { get; set; } = "g";
+    public int Weight => 2;
+    public int Twice(int x) => 2 * x;
+    public int Thrice(int x) => 3 * x;
+}
+
 class Program
 {
     static PropertyInfo[] Keep([DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicProperties | DynamicallyAccessedMemberTypes.NonPublicProperties)] Type t, BindingFlags flags) =>
@@ -62,6 +73,8 @@ class Program
         var writeOnly = typeof(Person).GetProperty("WriteOnly");
         try { writeOnly.GetValue(person); } catch (ArgumentException e) { Console.WriteLine(e.Message); }
         try { typeof(Person).GetProperty("Kind").SetValue(person, "x"); } catch (ArgumentException e) { Console.WriteLine(e.Message); }
+        Console.WriteLine($"{typeof(Gadget).GetProperty("Size").GetValue(new Gadget())} {typeof(Gadget).GetMethod("Twice").Invoke(new Gadget(), new object[] { 21 })}");
+        Console.WriteLine(string.Join(",", Keep(typeof(Gadget), BindingFlags.Public | BindingFlags.Instance).Select(p => p.Name)));
         Console.WriteLine(typeof(Person).GetProperty("Inherited", BindingFlags.Public | BindingFlags.Instance, null, typeof(int), Type.EmptyTypes, null).GetValue(person));
     }
 }
