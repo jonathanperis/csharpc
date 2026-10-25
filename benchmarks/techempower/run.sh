@@ -13,6 +13,10 @@
 #
 # Environment: DURATION=15 (seconds per load run), WARMUP=5, PORT=8080, CSHARPC_FLAGS="-O2",
 # PLAINTEXT_CONNECTIONS="256 1024", JSON_CONNECTIONS="16 64 256", PIPELINE=16, DOTNET=dotnet.
+# PROFILE=1: builds keep their symbols (csharpc --no-strip, NativeAOT StripSymbols=false) and the
+# PROFILE_SCENARIOS ("plaintext,256 json,256") load runs are sampled with `perf record` on the server
+# (DIR/<build>.<scenario>.perf.txt: flat profile, callers of the top symbols, perf stat counters;
+# csharpc's collector statistics in DIR/csharpc.server.log). Needs perf and perf_event_paranoid <= 1.
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -38,6 +42,10 @@ PIPELINE="${PIPELINE:-16}"
 PLAINTEXT_CONNECTIONS="${PLAINTEXT_CONNECTIONS:-256 1024}"
 JSON_CONNECTIONS="${JSON_CONNECTIONS:-16 64 256}"
 CSHARPC_FLAGS="${CSHARPC_FLAGS:--O2}"
+PROFILE="${PROFILE:-0}"
+PROFILE_SCENARIOS="${PROFILE_SCENARIOS:-plaintext,256 json,256}"
+AOT_FLAGS=()
+if [[ $PROFILE == 1 ]]; then CSHARPC_FLAGS="$CSHARPC_FLAGS --no-strip"; AOT_FLAGS=(-p:StripSymbols=false); fi
 export DOTNET_CLI_TELEMETRY_OPTOUT=1 DOTNET_NOLOGO=1
 mkdir -p "$OUT"
 WORK="$(mktemp -d)"
@@ -58,7 +66,7 @@ declare -A BIN STATUS
 if wants aot; then
   echo "== NativeAOT publish"
   t0=$(date +%s%N)
-  if "$DOTNET" publish "$APP" -c Release -o "$WORK/aot" -p:PublishAot=true > "$OUT/aot.build.log" 2>&1; then
+  if "$DOTNET" publish "$APP" -c Release -o "$WORK/aot" -p:PublishAot=true "${AOT_FLAGS[@]}" > "$OUT/aot.build.log" 2>&1; then
     BIN[aot]="$WORK/aot/TechEmpower"; STATUS[aot]="built in $(( ($(date +%s%N) - t0) / 1000000000 )) s"
   else STATUS[aot]="build failed"; tail -30 "$OUT/aot.build.log"; fi
 fi
@@ -90,7 +98,7 @@ start_server() {
   local build="$1" t0 t1 cmd
   if [[ "$build" == jit ]]; then cmd=("$DOTNET" "$WORK/jit/TechEmpower.dll"); else cmd=("${BIN[$build]}"); fi
   t0=$(date +%s%N)
-  ASPNETCORE_URLS="http://127.0.0.1:$PORT" taskset -c "$SERVER_CPUS" "${cmd[@]}" > "$OUT/$build.server.log" 2>&1 &
+  CSRT_GC_STATS="$PROFILE" ASPNETCORE_URLS="http://127.0.0.1:$PORT" taskset -c "$SERVER_CPUS" "${cmd[@]}" > "$OUT/$build.server.log" 2>&1 &
   SERVER_PID=$!
   for _ in $(seq 2000); do
     if curl -s -o /dev/null "http://127.0.0.1:$PORT/plaintext"; then
@@ -104,15 +112,47 @@ start_server() {
 stop_server() { kill "$SERVER_PID" 2>/dev/null; wait "$SERVER_PID" 2>/dev/null; SERVER_PID=""; }
 rss_kib() { awk '/VmHWM/ {print $2}' "/proc/$SERVER_PID/status" 2>/dev/null || echo "?"; }
 
-# wrk <out> <connections> <pipeline-depth> <path>: prints "req/s|avg latency|p99 latency"
+# profile_start <file stem>: samples the server during the next DURATION seconds (PROFILE=1).
+PERF_PIDS=()
+profile_start() {
+  local stem="$1"
+  perf record -F 499 -g --call-graph dwarf,16384 -p "$SERVER_PID" -o "$stem.data" -- sleep "$DURATION" > /dev/null 2>&1 &
+  PERF_PIDS=($!)
+  perf stat -e task-clock,context-switches,cpu-migrations,page-faults,cycles,instructions -p "$SERVER_PID" -o "$stem.stat" -- sleep "$DURATION" > /dev/null 2>&1 &
+  PERF_PIDS+=($!)
+}
+profile_finish() {
+  local stem="$1"
+  wait "${PERF_PIDS[@]}" 2>/dev/null
+  PERF_PIDS=()
+  {
+    echo "## perf stat"; cat "$stem.stat" 2>/dev/null; echo
+    echo "## flat profile (self)"
+    perf report -i "$stem.data" --no-children --sort dso,sym --percent-limit 0.2 --stdio -g none 2>/dev/null | grep -v '^$' | head -150
+    echo
+    echo "## by thread"
+    perf report -i "$stem.data" --no-children --sort comm --stdio -g none 2>/dev/null | grep -v '^#' | grep -v '^$' | head -30
+    echo
+    echo "## inclusive (children)"
+    perf report -i "$stem.data" --children --sort sym --percent-limit 1 --stdio -g none 2>/dev/null | grep -v '^$' | head -140
+    echo
+    echo "## callers of the hottest symbols"
+    perf report -i "$stem.data" --no-children --sort sym --percent-limit 1.5 --stdio -g caller,0.5,callee,function,percent --max-stack 14 2>/dev/null | grep -v '^$' | head -2000
+  } > "$stem.perf.txt"
+  rm -f "$stem.data" "$stem.data.old" "$stem.stat"
+}
+
+# wrk <out> <connections> <pipeline-depth> <path> [profile stem]: prints "req/s|avg latency|p99 latency"
 load() {
-  local out="$1" c="$2" depth="$3" path="$4" threads="$CLIENT_THREADS" script=()
+  local out="$1" c="$2" depth="$3" path="$4" stem="${5:-}" threads="$CLIENT_THREADS" script=()
   (( threads > c )) && threads=$c
   (( depth > 1 )) && script=(-s "$HERE/pipeline.lua" -- "$depth")
   taskset -c "$CLIENT_CPUS" wrk -H 'Host: localhost' -H 'Accept: text/plain,text/html;q=0.9,application/xhtml+xml;q=0.9,application/xml;q=0.8,*/*;q=0.7' \
     -H 'Connection: keep-alive' --latency -d "$WARMUP" -c "$c" --timeout 8 -t "$threads" "http://127.0.0.1:$PORT$path" "${script[@]}" > /dev/null 2>&1
+  [[ -n "$stem" ]] && profile_start "$stem"
   taskset -c "$CLIENT_CPUS" wrk -H 'Host: localhost' -H 'Accept: text/plain,text/html;q=0.9,application/xhtml+xml;q=0.9,application/xml;q=0.8,*/*;q=0.7' \
     -H 'Connection: keep-alive' --latency -d "$DURATION" -c "$c" --timeout 8 -t "$threads" "http://127.0.0.1:$PORT$path" "${script[@]}" > "$WORK/wrk.txt" 2>&1
+  [[ -n "$stem" ]] && profile_finish "$stem"
   { echo "### $path c=$c pipeline=$depth"; cat "$WORK/wrk.txt"; echo; } >> "$out"
   awk '/^Requests\/sec/ {rps=$2} /^    Latency/ && !lat {lat=$2} /^ +99%/ {p99=$2} /Non-2xx|Socket errors/ {err=err $0}
        END {printf "%s|%s|%s%s\n", (rps ? sprintf("%.0f", rps) : "?"), (lat ? lat : "?"), (p99 ? p99 : "?"), (err ? " (errors)" : "")}' "$WORK/wrk.txt"
@@ -141,7 +181,9 @@ for build in aot csharpc jit; do
     : > "$OUT/$build.wrk.txt"
     for s in "${SCENARIOS[@]}"; do
       IFS='|' read -r name path c depth <<< "$s"
-      ROW[$build,$name,$c]=$(load "$OUT/$build.wrk.txt" "$c" "$depth" "$path")
+      stem=""
+      [[ $PROFILE == 1 && " $PROFILE_SCENARIOS " == *" $name,$c "* ]] && stem="$OUT/$build.$name-$c"
+      ROW[$build,$name,$c]=$(load "$OUT/$build.wrk.txt" "$c" "$depth" "$path" "$stem")
     done
   fi
   ROW[$build,rss]=$(rss_kib)

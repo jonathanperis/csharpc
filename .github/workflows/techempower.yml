@@ -11,6 +11,13 @@ on:
       duration:
         description: 'Seconds per load run'
         default: '15'
+      profile:
+        description: 'Sample the NativeAOT and csharpc servers with perf during the 256-connection runs (unstripped builds)'
+        type: boolean
+        default: false
+      only:
+        description: 'Builds to run (aot,csharpc,jit)'
+        default: 'aot,csharpc,jit'
   schedule:
     - cron: "0 7 * * 1" # Mondays 07:00 UTC, after the benchmarks
   push:
@@ -43,6 +50,13 @@ jobs:
           echo "$HOME/.dotnet11" >> "$GITHUB_PATH"
           echo "DOTNET_ROOT=$HOME/.dotnet11" >> "$GITHUB_ENV"
 
+      - name: Install perf
+        if: ${{ inputs.profile }}
+        run: |
+          sudo apt-get install -y linux-tools-common "linux-tools-$(uname -r)" || sudo apt-get install -y linux-tools-azure linux-tools-generic
+          sudo sysctl -w kernel.perf_event_paranoid=-1 kernel.kptr_restrict=0
+          perf --version
+
       - name: Runner
         run: |
           {
@@ -55,7 +69,7 @@ jobs:
 
       - name: Build, verify and load
         run: |
-          DURATION="${{ inputs.duration || '15' }}" benchmarks/techempower/run.sh --out techempower-results
+          PROFILE="${{ inputs.profile && '1' || '0' }}" DURATION="${{ inputs.duration || '15' }}" benchmarks/techempower/run.sh --out techempower-results --only "${{ inputs.only || 'aot,csharpc,jit' }}"
           cat techempower-results/results.md >> "$GITHUB_STEP_SUMMARY"
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
