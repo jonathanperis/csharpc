@@ -53,7 +53,9 @@ using (var transform = aes.CreateEncryptor(key256, iv))
     Console.WriteLine($"transform: {transform.InputBlockSize} {transform.OutputBlockSize} {transform.CanTransformMultipleBlocks} {transform.CanReuseTransform}");
 }
 
-// Errors are .NET's.
+// Errors are .NET's. (A fixed key: KeySize = 256 above made a random one, which decrypts the zero block
+// with valid padding once in 256 runs.)
+aes.Key = key256;
 try { aes.Key = new byte[10]; }
 catch (CryptographicException e) { Console.WriteLine($"{e.GetType().Name}: {e.Message}"); }
 try { aes.DecryptCbc(new byte[16], iv); }
