@@ -16,6 +16,7 @@
 # PROFILE=1: builds keep their symbols (csharpc --no-strip, NativeAOT StripSymbols=false) and the
 # PROFILE_SCENARIOS ("plaintext,256 json,256") load runs are sampled with `perf record` on the server
 # (DIR/<build>.<scenario>.perf.txt: flat profile, callers of the top symbols, perf stat counters;
+# DIR/<build>.<scenario>.annotate.txt: the hottest functions annotated; the objects csharpc's collector frees, by type, and
 # csharpc's collector statistics in DIR/csharpc.server.log). Needs perf and perf_event_paranoid <= 1.
 set -uo pipefail
 
@@ -45,7 +46,8 @@ CSHARPC_FLAGS="${CSHARPC_FLAGS:--O2}"
 PROFILE="${PROFILE:-0}"
 PROFILE_SCENARIOS="${PROFILE_SCENARIOS:-plaintext,256 json,256}"
 AOT_FLAGS=()
-if [[ $PROFILE == 1 ]]; then CSHARPC_FLAGS="$CSHARPC_FLAGS --no-strip"; AOT_FLAGS=(-p:StripSymbols=false); fi
+# Profiling builds also count what the collector frees, by type (gc.c, CSRT_ALLOC_PROFILE).
+if [[ $PROFILE == 1 ]]; then CSHARPC_FLAGS="$CSHARPC_FLAGS --no-strip"; AOT_FLAGS=(-p:StripSymbols=false); export CSHARPC_RUNTIME_CFLAGS="-DCSRT_ALLOC_PROFILE"; fi
 export DOTNET_CLI_TELEMETRY_OPTOUT=1 DOTNET_NOLOGO=1
 mkdir -p "$OUT"
 WORK="$(mktemp -d)"
