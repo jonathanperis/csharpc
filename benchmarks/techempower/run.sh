@@ -139,6 +139,14 @@ profile_finish() {
     echo "## callers of the hottest symbols"
     perf report -i "$stem.data" --no-children --sort sym --percent-limit 1.5 --stdio -g caller,0.5,callee,function,percent --max-stack 14 2>/dev/null | grep -v '^$' | head -2000
   } > "$stem.perf.txt"
+  # The hottest functions of the program itself, instruction by instruction.
+  perf report -i "$stem.data" --no-children --sort dso,sym --stdio -g none 2>/dev/null \
+    | awk '$2 == "TechEmpower" && $3 == "[.]" {print $4}' | head -4 > "$stem.top"
+  while read -r sym; do
+    echo "## annotate $sym"
+    perf annotate -i "$stem.data" --stdio -s "$sym" 2>/dev/null | grep -v '^\s*0.00 *:' | head -400
+  done < "$stem.top" > "$stem.annotate.txt"
+  rm -f "$stem.top"
   rm -f "$stem.data" "$stem.data.old" "$stem.stat"
 }
 
