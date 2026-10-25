@@ -500,11 +500,27 @@ bool csrt_is_operation_canceled(void* exception) {
 }
 
 void* csrt_task_canceled_exception_new(void) {
-    return new_exception(&csrt_MT_System_Threading_Tasks_TaskCanceledException, "A task was canceled.");
+    csrt_Exception* e = new_exception(&csrt_MT_System_Threading_Tasks_TaskCanceledException, "A task was canceled.");
+    e->token = CSRT_TOKEN_UNKNOWN;
+    return e;
 }
 
-void* csrt_operation_canceled_exception_new(void) {
-    return new_exception(&csrt_MT_System_OperationCanceledException, "The operation was canceled.");
+/// OperationCanceledException.CancellationToken.
+void* csrt_exception_cancellation_token(void* exception) {
+    if (!exception) csrt_throw_null_reference();
+    void* token = ((csrt_Exception*)exception)->token;
+    if (token == CSRT_TOKEN_UNKNOWN)
+        csrt_throw_object(new_exception(&csrt_MT_System_NotSupportedException,
+                  "not supported by csharpc yet: the CancellationToken of a TaskCanceledException for a canceled task"));
+    return token;
+}
+
+void csrt_exception_set_cancellation_token(void* exception, void* token) { ((csrt_Exception*)exception)->token = token; }
+
+void* csrt_operation_canceled_exception_new(void* token) {
+    csrt_Exception* e = new_exception(&csrt_MT_System_OperationCanceledException, "The operation was canceled.");
+    e->token = token;
+    return e;
 }
 
 void* csrt_object_disposed_exception_new(const char* message) {

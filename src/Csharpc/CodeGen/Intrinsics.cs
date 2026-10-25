@@ -819,26 +819,30 @@ internal static class Intrinsics
 
         // The awaiter pattern as compiled async state machines (IL) and custom awaitables call it:
         // OnCompleted/UnsafeOnCompleted register an Action continuation on the task (docs/10-async.md).
-        IntrinsicHandler onCompleted = (g, inv) =>
+        // A TaskAwaiter posts to the captured SynchronizationContext; a configured one (IL code awaits
+        // with ConfigureAwait(false), and the awaiter doesn't keep the flag) doesn't.
+        IntrinsicHandler OnCompleted(string runtime) => (g, inv) =>
         {
             var task = g.EmitValue(inv.Instance!);
-            g.CallRuntime("csrt_task_on_completed_action", g.Module.Llvm.Void, [g.Module.Llvm.Ptr, g.Module.Llvm.Ptr], task, Arg(g, inv, 0));
+            g.CallRuntime(runtime, g.Module.Llvm.Void, [g.Module.Llvm.Ptr, g.Module.Llvm.Ptr], task, Arg(g, inv, 0));
             return default;
         };
         foreach (var awaiter in TaskAwaiterTypes)
         {
+            var onCompleted = OnCompleted(awaiter.Contains("Configured", StringComparison.Ordinal)
+                ? "csrt_task_on_completed_action_no_context" : "csrt_task_on_completed_action");
             t[$"{awaiter}.OnCompleted(System.Action)"] = onCompleted;
             t[$"{awaiter}.UnsafeOnCompleted(System.Action)"] = onCompleted;
         }
-        // Task.Yield(): YieldAwaitable/YieldAwaiter are a null task pointer; the continuation always
-        // goes to the pool (no SynchronizationContext or TaskScheduler to post to).
+        // Task.Yield(): YieldAwaitable/YieldAwaiter are a null task pointer; the continuation goes to the
+        // current SynchronizationContext, else to the pool.
         const string yieldAwaiter = $"{Rcs}.YieldAwaitable.YieldAwaiter";
         t[$"{Rcs}.YieldAwaitable.GetAwaiter()"] = self;
         t[$"{yieldAwaiter}.GetResult()"] = (g, inv) => { g.EmitValue(inv.Instance!); return default; };
         IntrinsicHandler queue = (g, inv) =>
         {
             g.EmitValue(inv.Instance!);
-            g.CallRuntime("csrt_queue_action", g.Module.Llvm.Void, [g.Module.Llvm.Ptr], Arg(g, inv, 0));
+            g.CallRuntime("csrt_yield_action", g.Module.Llvm.Void, [g.Module.Llvm.Ptr], Arg(g, inv, 0));
             return default;
         };
         t[$"{yieldAwaiter}.OnCompleted(System.Action)"] = queue;

@@ -122,7 +122,7 @@ void csrt_weak_free(intptr_t handle);
 
 // Exceptions (eh.c) -----------------------------------------------------------------------------
 // Exception objects: { mt, String* message, Exception* inner, String* paramName, String* actualValue,
-// int32[] trace }. Throwing raises an Itanium-ABI unwind (_Unwind_RaiseException) handled by
+// int32[] trace, inners, token }. Throwing raises an Itanium-ABI unwind (_Unwind_RaiseException) handled by
 // csrt_personality; see eh.c. Mirrored by ModuleCodeGen.GetLibraryExceptionLayout.
 typedef struct csrt_Exception {
     const csrt_MethodTable* mt;
@@ -132,7 +132,10 @@ typedef struct csrt_Exception {
     csrt_String* actual_value;  // ArgumentOutOfRangeException(paramName, actualValue, message), formatted
     csrt_Array* trace;          // stack-trace frames recorded while thrown (eh.c, "Stack traces"); null: none
     csrt_Array* inners;         // AggregateException: InnerExceptions (exception pointers); null otherwise
+    void* token;                // OperationCanceledException.CancellationToken (its source); CSRT_TOKEN_UNKNOWN: not tracked
 } csrt_Exception;
+// The token of a TaskCanceledException for a canceled task: csrt doesn't know which token canceled it.
+#define CSRT_TOKEN_UNKNOWN ((void*)1)
 typedef struct { csrt_MethodTable header; void* vtable[4]; } csrt_ExceptionMethodTable;
 enum { CSRT_SLOT_GET_MESSAGE = 3 };
 
@@ -162,7 +165,7 @@ int32_t csrt_exception_inner_count(void* exception);
 void* csrt_exception_inner_at(void* exception, int32_t index);
 void* csrt_task_canceled_exception_new(void);
 bool csrt_is_operation_canceled(void* exception);
-void* csrt_operation_canceled_exception_new(void);
+void* csrt_operation_canceled_exception_new(void* token);
 void* csrt_object_disposed_exception_new(const char* message); // ObjectDisposedException(null, message)
 CSRT_THROWS void csrt_throw_invalid_cast_from(const csrt_MethodTable* from, const csrt_MethodTable* to);
 csrt_String* csrt_string_from_utf8(const char* text);

@@ -35,11 +35,11 @@ public sealed partial class FunctionCodeGen
         if (method.Name == "Await")
         {
             // Await(Task / ValueTask / their configured awaitables) and the generic Await<T> overloads: all of
-            // them are a csrt task pointer (TypeMapper), and ConfigureAwait has no context to drop.
+            // them are a csrt task pointer (TypeMapper); a configured awaitable doesn't post to a SynchronizationContext.
             if (!Coroutines.IsTaskHandleType(operandType) || Coroutines.IsYieldAwaitable(operandType))
                 throw new Frontend.Il.IlException($"AsyncHelpers.Await({operandType})");
             var task = IlTyped(args[0], parameterType);
-            AwaitCompletion(task);
+            AwaitCompletion(task, AwaitContextRuntime(null, operandType));
             CallRuntime("csrt_task_throw_if_faulted", L.Void, [L.Ptr], task); // rethrows the original exception
             if (method.ReturnsVoid) return handled;
             return IlPush(TaskResult(task, S(method.ReturnType)), method.ReturnType);
@@ -53,7 +53,8 @@ public sealed partial class FunctionCodeGen
         }
         if (Coroutines.IsTaskHandleType(operandType))
         {
-            AwaitCompletion(IlTyped(args[0], parameterType));
+            AwaitCompletion(IlTyped(args[0], parameterType), operandType.Name.StartsWith("Configured", StringComparison.Ordinal)
+                ? "csrt_task_on_completed_no_context" : "csrt_task_on_completed");
             return handled;
         }
         return IlAwaitCustomAwaiter(method, args[0], parameterType, operandType);

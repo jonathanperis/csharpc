@@ -689,6 +689,43 @@ bool csrt_event_wait(csrt_Event* e, int32_t ms) {
     }
 }
 
+/// Wait(timeout, CancellationToken) (corelib/Threading/CancelableWaits.cs): 1 when signalled, 0 on timeout,
+/// 2 when `source` was canceled first. The corelib registers a callback on the token that kicks the
+/// event (csrt_event_kick), so a waiter sees the cancellation as soon as Cancel runs it.
+int32_t csrt_event_wait_token(csrt_Event* e, int32_t ms, const int32_t* source) {
+    if (!e) csrt_throw_null_reference();
+    struct timespec deadline;
+    if (ms > 0) deadline_after(&deadline, ms);
+    pthread_mutex_lock(e->mutex);
+    for (;;) {
+        bool ready = e->kind == EVENT_COUNTDOWN ? e->count == 0 : e->count > 0;
+        if (ready) {
+            if (e->kind == EVENT_AUTO) e->count = 0;
+            else if (e->kind == EVENT_SEMAPHORE) e->count--;
+            pthread_mutex_unlock(e->mutex);
+            return 1;
+        }
+        // The source's `canceled` word follows its method-table pointer (async.c, CancellationSource).
+        if (source && __atomic_load_n((const int32_t*)((const char*)source + sizeof(void*)), __ATOMIC_ACQUIRE)) {
+            pthread_mutex_unlock(e->mutex);
+            return 2;
+        }
+        int rc = ms == 0 ? ETIMEDOUT : interruptible_wait(e->cond, e->mutex, ms > 0 ? &deadline : NULL, true);
+        if (rc == EINTR) { pthread_mutex_unlock(e->mutex); throw_interrupted(); }
+        if (rc == ETIMEDOUT) {
+            bool now = e->kind == EVENT_COUNTDOWN ? e->count == 0 : e->count > 0;
+            if (!now) { pthread_mutex_unlock(e->mutex); return 0; }
+        }
+    }
+}
+
+/// Wakes the event's waiters without signalling it (they re-check their cancellation token).
+void csrt_event_kick(csrt_Event* e) {
+    pthread_mutex_lock(e->mutex);
+    pthread_cond_broadcast(e->cond);
+    pthread_mutex_unlock(e->mutex);
+}
+
 // ---------------------------------------------------------------------------------------------
 // Worker pool + Parallel.For / ForEach / Invoke
 // ---------------------------------------------------------------------------------------------

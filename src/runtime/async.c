@@ -508,10 +508,23 @@ csrt_Task* csrt_task_from_exception(void* exception, int32_t payload_size) {
     return t;
 }
 
-/// `await t` when t wasn't complete: resume `frame` on the pool once it is. The coroutine has
-/// already executed llvm.coro.save, so a resume from another thread before it actually suspends
-/// is fine.
-void csrt_task_on_completed(csrt_Task* t, void* frame) {
+// SynchronizationContext (corelib/Tasks/SynchronizationContext.cs): while a thread's current context is
+// of a derived type, an await that captures it continues by posting to it. The corelib keeps that
+// context here and gives the hook that turns a continuation into an Action that Posts it.
+_Thread_local __attribute__((tls_model("local-exec"))) void* csrt_tl_sync_context;
+static void* (*s_sync_context_capture)(void* context, void* frame, void* action, void* flow);
+
+void csrt_sync_context_set(void* context) { csrt_tl_sync_context = context; }
+void csrt_sync_context_hook(void* hook) { s_sync_context_capture = (void* (*)(void*, void*, void*, void*))hook; }
+
+/// The Action that posts the continuation to the current thread's captured context, or null (none).
+static void* sync_context_continuation(void* frame, void* action) {
+    void* context = csrt_tl_sync_context;
+    if (!context || !s_sync_context_capture) return NULL;
+    return s_sync_context_capture(context, frame, action, csrt_tl_flow);
+}
+
+static void on_completed_no_context(csrt_Task* t, void* frame) {
     void* flow = csrt_tl_flow;
     bool added;
     if (flow) {
@@ -523,22 +536,63 @@ void csrt_task_on_completed(csrt_Task* t, void* frame) {
     if (!added) enqueue(K_RESUME, frame, NULL);
 }
 
+/// `await t` when t wasn't complete: resume `frame` once it is — posted to the captured
+/// SynchronizationContext if there is one, else on the completing thread (or the pool). The coroutine
+/// has already executed llvm.coro.save, so a resume from another thread (or this one, from a Post that
+/// runs the callback right away) before it actually suspends is fine.
+void csrt_task_on_completed(csrt_Task* t, void* frame) {
+    void* post = sync_context_continuation(frame, NULL);
+    if (!post) { on_completed_no_context(t, frame); return; }
+    if (!add_continuation(t, K_INVOKE, post)) invoke_action(post);
+}
+
+/// `await t.ConfigureAwait(false)`: no context to post to.
+void csrt_task_on_completed_no_context(csrt_Task* t, void* frame) { on_completed_no_context(t, frame); }
+
+/// `await` of a configured awaitable whose setting isn't known at the await (one kept in a variable).
+void csrt_task_on_completed_unknown_context(csrt_Task* t, void* frame) {
+    if (csrt_tl_sync_context)
+        async_fail("not supported by csharpc yet: awaiting a configured awaitable that is not a direct ConfigureAwait(...) call while a SynchronizationContext is set");
+    on_completed_no_context(t, frame);
+}
+
 /// awaiter.OnCompleted(action) / UnsafeOnCompleted(action) (IL async state machines, custom awaiter
 /// patterns): run the action when `t` completes — inline on the completing thread, or on the pool if
-/// `t` already completed, as TaskAwaiter does without a SynchronizationContext.
+/// `t` already completed; TaskAwaiter posts it to the captured SynchronizationContext instead.
 void csrt_task_on_completed_action(csrt_Task* t, void* action) {
+    if (!action) csrt_throw_null_reference();
+    void* post = sync_context_continuation(NULL, action);
+    if (!post) {
+        if (!t || !add_continuation(t, K_INVOKE, action)) enqueue(K_INVOKE, action, NULL);
+        return;
+    }
+    if (!t || !add_continuation(t, K_INVOKE, post)) invoke_action(post);
+}
+
+/// ConfiguredTaskAwaiter.OnCompleted(action): as above, never posting to a context.
+void csrt_task_on_completed_action_no_context(csrt_Task* t, void* action) {
     if (!action) csrt_throw_null_reference();
     if (!t || !add_continuation(t, K_INVOKE, action)) enqueue(K_INVOKE, action, NULL);
 }
 
-/// YieldAwaiter.OnCompleted(action): run the action on the pool.
+/// Runs an Action on the pool (ThreadPool.QueueUserWorkItem).
 void csrt_queue_action(void* action) {
     if (!action) csrt_throw_null_reference();
     enqueue(K_INVOKE, action, NULL);
 }
 
-/// `await Task.Yield()`: resume on the pool, after work already queued.
-void csrt_async_yield(void* frame) { enqueue(K_RESUME, frame, NULL); }
+/// YieldAwaiter.OnCompleted(action): post it to the current SynchronizationContext, or run it on the pool.
+void csrt_yield_action(void* action) {
+    if (!action) csrt_throw_null_reference();
+    void* post = sync_context_continuation(NULL, action);
+    if (post) invoke_action(post); else enqueue(K_INVOKE, action, NULL);
+}
+
+/// `await Task.Yield()`: post to the current SynchronizationContext, else resume on the pool, after work already queued.
+void csrt_async_yield(void* frame) {
+    void* post = sync_context_continuation(frame, NULL);
+    if (post) invoke_action(post); else enqueue(K_RESUME, frame, NULL);
+}
 
 static csrt_Task* s_completed;  // Task.CompletedTask
 
@@ -865,7 +919,7 @@ void csrt_cts_cancel_after(CancellationSource* cts, int32_t ms) {
 bool csrt_token_is_cancellation_requested(CancellationSource* token) { return token && __atomic_load_n(&token->canceled, __ATOMIC_ACQUIRE); }
 
 void csrt_token_throw_if_cancellation_requested(CancellationSource* token) {
-    if (csrt_token_is_cancellation_requested(token)) csrt_throw_object(csrt_operation_canceled_exception_new());
+    if (csrt_token_is_cancellation_requested(token)) csrt_throw_object(csrt_operation_canceled_exception_new(token));
 }
 
 /// new CancellationToken(true): one canceled source shared by every such token (.NET's s_canceledSource).

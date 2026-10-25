@@ -427,7 +427,7 @@ public sealed partial class FunctionCodeGen
     /// <summary>Runs a BCL exception constructor: binds message / innerException / paramName by name.</summary>
     private void EmitExceptionConstructor(IMethodSymbol constructor, LLVMValueRef exception, ImmutableArray<IArgumentOperation> arguments)
     {
-        LLVMValueRef? message = null, inner = null, paramName = null, actualValue = null, objectName = null, inners = null;
+        LLVMValueRef? message = null, inner = null, paramName = null, actualValue = null, objectName = null, inners = null, token = null;
         var aggregate = Mangler.MetadataName(constructor.ContainingType) == "System.AggregateException";
         foreach (var argument in arguments)
         {
@@ -451,6 +451,13 @@ public sealed partial class FunctionCodeGen
                 case "paramName": paramName = value; break;
                 case "fileName": paramName = value; break; // FileNotFoundException.FileName (csrt keeps it in param_name)
                 case "objectName": objectName = value; break;
+                // OperationCanceledException(..., CancellationToken token); TaskCanceledException(Task task)
+                // reports the token that canceled the task, which csrt doesn't track.
+                case "token" when argument.Parameter!.Type.Name == "CancellationToken": token = value; break;
+                case "task" when Mangler.MetadataName(constructor.ContainingType) == "System.Threading.Tasks.TaskCanceledException":
+                    token = _b.Select(_b.ICmp(LLVMIntPredicate.EQ, value, LlvmContext.Null(L.Ptr)), LlvmContext.Null(L.Ptr),
+                        _b.Cast(LLVMOpcode.IntToPtr, L.ConstInt(T.NativeInt, 1), L.Ptr));
+                    break;
                 case "innerExceptions" when aggregate: // Exception[] or IEnumerable<Exception>
                     inners = CallCoreLib("AggregateExceptionSupport", argument.Parameter!.Type is IArrayTypeSymbol ? "FromArray" : "FromEnumerable", value);
                     break;
@@ -475,6 +482,7 @@ public sealed partial class FunctionCodeGen
         // AggregateException keeps every inner exception (InnerExceptions, ToString's "(Inner Exception #i)").
         if (aggregate && inners is { } list) CallRuntime("csrt_exception_set_inners", L.Void, [L.Ptr, L.Ptr], exception, list);
         if (actualValue is { } actual) CallRuntime("csrt_exception_set_actual_value", L.Void, [L.Ptr, L.Ptr], exception, actual);
+        if (token is { } t) CallRuntime("csrt_exception_set_cancellation_token", L.Void, [L.Ptr, L.Ptr], exception, t);
     }
 
     private bool TryEmitLibraryExceptionCall(IInvocationOperation inv, out LLVMValueRef result)
@@ -526,9 +534,15 @@ public sealed partial class FunctionCodeGen
             _ => null,
         };
         var innerExceptions = property.Name == "InnerExceptions" && Mangler.MetadataName(property.ContainingType) == "System.AggregateException";
-        if (field is null && property.Name is not ("Message" or "StackTrace") && !innerExceptions) return false;
+        var cancellationToken = property.Name == "CancellationToken" && Mangler.MetadataName(property.ContainingType) == "System.OperationCanceledException";
+        if (field is null && property.Name is not ("Message" or "StackTrace") && !innerExceptions && !cancellationToken) return false;
         var self = EmitValue(p.Instance!);
         NullCheck(self);
+        if (cancellationToken)
+        {
+            result = CallRuntime("csrt_exception_cancellation_token", L.Ptr, [L.Ptr], self);
+            return true;
+        }
         if (innerExceptions)
         {
             result = CallCoreLib("AggregateExceptionSupport", "InnerExceptions", self);
