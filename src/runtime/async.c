@@ -69,7 +69,7 @@ _Static_assert(offsetof(csrt_Task, payload) == (sizeof(void*) == 8 ? 56 : 40), "
 // A task that runs a delegate on the pool (Task.Run, not the unwrapping Func<Task> forms) is
 // WaitingToRun, then Running; every other pending task (async methods, TaskCompletionSource,
 // Delay, WhenAll, unwrap promises) is WaitingForActivation, as in .NET.
-enum { TF_DELEGATE = 1, TF_RUNNING = 2 };
+enum { TF_DELEGATE = 1, TF_RUNNING = 2, TF_CREATED = 4 /* new Task(...) not started yet: TaskStatus.Created */ };
 
 typedef struct csrt_Iterator {
     const csrt_MethodTable* mt;
@@ -271,13 +271,20 @@ int32_t csrt_task_status(csrt_Task* t) {
         case T_CANCELED: return Canceled;
     }
     int32_t flags = __atomic_load_n(&t->flags, __ATOMIC_ACQUIRE);
+    if (flags & TF_CREATED) return 0; // Created
     if (!(flags & TF_DELEGATE)) return WaitingForActivation;
     return flags & TF_RUNNING ? Running : WaitingToRun;
 }
 
 /// Delegate tasks the corelib starts on top of a TaskCompletionSource (TaskFactory.StartNew, Task.Run with
 /// a token, scheduled continuations, custom schedulers): queued, then running, as Task.Status reports.
-void csrt_task_mark_queued(csrt_Task* t) { if (t) __atomic_or_fetch(&t->flags, TF_DELEGATE, __ATOMIC_RELEASE); }
+void csrt_task_mark_queued(csrt_Task* t) {
+    if (!t) return;
+    __atomic_and_fetch(&t->flags, ~TF_CREATED, __ATOMIC_RELEASE);
+    __atomic_or_fetch(&t->flags, TF_DELEGATE, __ATOMIC_RELEASE);
+}
+void csrt_task_mark_created(csrt_Task* t) { if (t) __atomic_or_fetch(&t->flags, TF_CREATED, __ATOMIC_RELEASE); }
+void csrt_task_clear_created(csrt_Task* t) { if (t) __atomic_and_fetch(&t->flags, ~TF_CREATED, __ATOMIC_RELEASE); }
 void csrt_task_mark_running(csrt_Task* t) { if (t) __atomic_or_fetch(&t->flags, TF_DELEGATE | TF_RUNNING, __ATOMIC_RELEASE); }
 
 static int32_t s_task_id_counter;
@@ -1064,12 +1071,21 @@ csrt_Task* csrt_task_run_thunk(void (*thunk)(void*), void* del, int32_t payload_
     return t;
 }
 
+// Task.CurrentId: the delegate task this thread is executing (its inline continuations included, as in
+// .NET, where they run before the task's execution scope ends); null outside one.
+static _Thread_local csrt_Task* tl_current_task;
+
+int32_t csrt_task_current_id(void) { return tl_current_task ? csrt_task_id(tl_current_task) : 0; }
+void* csrt_task_swap_current(void* task) { void* saved = tl_current_task; tl_current_task = task; return saved; }
+
 static void run_item(intptr_t kind, void* a, void* b) {
+    csrt_Task* saved_current = tl_current_task;
     switch (kind) {
         case K_RESUME: csrt_coro_resume(a); break;
         case K_INVOKE: invoke_action(a); break;
         case K_RUN_ACTION: {
             Delegate* d = a;
+            tl_current_task = b;
             __atomic_or_fetch(&((csrt_Task*)b)->flags, TF_RUNNING, __ATOMIC_RELEASE);
             void* exception = csrt_call_catching_void((void (*)(void*))d->fn, d->target);
             if (exception) csrt_task_fault(b, exception);
@@ -1079,6 +1095,7 @@ static void run_item(intptr_t kind, void* a, void* b) {
         case K_RUN_FUNC_TASK: {
             Delegate* d = a;
             csrt_Task* inner = NULL;
+            tl_current_task = csrt_task_new(0); // .NET's hidden delegate task behind the unwrapping proxy
             void* exception = csrt_call_catching_ptr((void* (*)(void*))d->fn, d->target, (void**)&inner);
             if (exception) csrt_task_fault(b, exception);
             else if (!inner || !add_continuation(inner, K_CHAIN, b)) chain(inner, b);
@@ -1086,6 +1103,7 @@ static void run_item(intptr_t kind, void* a, void* b) {
         }
         case K_RUN_THUNK: {
             RunThunk* pack = a;
+            tl_current_task = b;
             __atomic_or_fetch(&((csrt_Task*)b)->flags, TF_RUNNING, __ATOMIC_RELEASE);
             void* exception = csrt_call_catching_void(pack->thunk, pack);
             if (exception) csrt_task_fault(b, exception);
@@ -1095,6 +1113,7 @@ static void run_item(intptr_t kind, void* a, void* b) {
         case K_TIMER_TASK: csrt_task_try_complete(a); break;
         case K_TIMER_CANCEL: csrt_cts_cancel(a); break;
     }
+    tl_current_task = saved_current;
 }
 
 #ifdef __wasi__

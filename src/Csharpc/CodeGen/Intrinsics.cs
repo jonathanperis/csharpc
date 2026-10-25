@@ -934,6 +934,28 @@ internal static class Intrinsics
             t[$"{tcs}..ctor()"] = newTcs;
             t[$"{tcs}..ctor({Tasks}.TaskCreationOptions)"] = newTcs;
         }
+        // new Task(...) / new Task<TResult>(...): a created (cold) task, corelib/Tasks/ColdTasks.cs.
+        ConstructorHandler newColdTask = (g, c) =>
+        {
+            LLVMValueRef Named(string name, LLVMValueRef fallback) =>
+                c.Arguments.FirstOrDefault(a => a.Parameter!.Name == name) is { } argument
+                    ? g.Coerce(g.EmitValue(argument.Value), g.TypeOf(argument.Value), g.S(argument.Parameter!.Type)) : fallback;
+            var l = g.Module.Llvm;
+            var withState = c.Arguments.Any(a => a.Parameter!.Name == "state");
+            var body = Named(c.Constructor!.Parameters[0].Name, default);
+            var state = withState ? Named("state", default) : default;
+            var token = Named("cancellationToken", LlvmContext.Null(l.Ptr));
+            var options = Named("creationOptions", l.ConstInt(l.I32, 0));
+            LLVMValueRef[] args = withState ? [body, state, token, options] : [body, token, options];
+            return ((INamedTypeSymbol)g.TypeOf(c)!).TypeArguments is [var result]
+                ? g.CallCoreLibGenericMethod("ColdTasks", withState ? "CreateFuncWithState" : "CreateFunc", [result], args)
+                : g.CallCoreLib("ColdTasks", withState ? "CreateWithState" : "Create", args);
+        };
+        const string token = "System.Threading.CancellationToken", options = $"{Tasks}.TaskCreationOptions";
+        foreach (var (type, plain, stateful) in new[] { ("Task", "System.Action", "System.Action<object>"), ("Task<TResult>", "System.Func<TResult>", "System.Func<object, TResult>") })
+            foreach (var parameters in new[] { plain, $"{plain}, {token}", $"{plain}, {options}", $"{plain}, {token}, {options}",
+                         $"{stateful}, object", $"{stateful}, object, {token}", $"{stateful}, object, {options}", $"{stateful}, object, {token}, {options}" })
+                t[$"{Tasks}.{type}..ctor({parameters})"] = newColdTask;
         t["System.Threading.CancellationTokenSource..ctor()"] = (g, _) => g.CallRuntime("csrt_cts_new", g.Module.Llvm.Ptr, []);
         t["System.Threading.CancellationToken..ctor(bool)"] = (g, c) =>
             g.CallRuntime("csrt_token_new", g.Module.Llvm.Ptr, [g.Module.Llvm.I1], CtorArg(g, c, 0));

@@ -151,6 +151,7 @@ namespace CsharpcCoreLib
                 bool savedAttach = t_inAttachableTask;
                 t_currentScheduler = (options & TaskCreationOptions.HideScheduler) != 0 || scheduler is ThreadPoolTaskSchedulerImpl ? null : scheduler;
                 t_inAttachableTask = (options & TaskCreationOptions.DenyChildAttach) == 0;
+                IntPtr savedTask = ColdTasks.SwapCurrent(CoreIntrinsics.ObjectToPointer(tcs.Task)); // Task.CurrentId
                 try
                 {
                     if (token.IsCancellationRequested) { tcs.TrySetCanceled(); return; }
@@ -164,6 +165,7 @@ namespace CsharpcCoreLib
                 {
                     t_currentScheduler = savedScheduler;
                     t_inAttachableTask = savedAttach;
+                    ColdTasks.SwapCurrent(savedTask);
                 }
             };
         }
@@ -176,6 +178,7 @@ namespace CsharpcCoreLib
                 bool savedAttach = t_inAttachableTask;
                 t_currentScheduler = (options & TaskCreationOptions.HideScheduler) != 0 || scheduler is ThreadPoolTaskSchedulerImpl ? null : scheduler;
                 t_inAttachableTask = (options & TaskCreationOptions.DenyChildAttach) == 0;
+                IntPtr savedTask = ColdTasks.SwapCurrent(CoreIntrinsics.ObjectToPointer(tcs.Task)); // Task.CurrentId
                 try
                 {
                     if (token.IsCancellationRequested) { tcs.TrySetCanceled(); return; }
@@ -188,6 +191,7 @@ namespace CsharpcCoreLib
                 {
                     t_currentScheduler = savedScheduler;
                     t_inAttachableTask = savedAttach;
+                    ColdTasks.SwapCurrent(savedTask);
                 }
             };
         }
