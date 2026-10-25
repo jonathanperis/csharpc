@@ -38,42 +38,51 @@ None from this stretch. `parity-blockers` is merged (CI run 40198351938, NativeA
 `main`, no wrong outputs; csharpc compiles faster than NativeAOT on most
 programs (median 4.3 s vs 6.0 s) and is ~10× smaller (median 131 KiB vs 1,330 KiB).
 
-**TechEmpower** (`main` `2119997`, run 40214226895, 4-vCPU runner, csharpc -O2; both builds pass the
+**TechEmpower** (`main` `ee7f8f8`, run 40230540571, 4-vCPU runner, csharpc -O2; both builds pass the
 TechEmpower checks with identical responses):
 
 | | NativeAOT | csharpc | ratio |
 |---|---:|---:|---:|
-| plaintext, 256 connections, pipelined | 548,509 req/s | 546,204 | 1.00 |
-| plaintext, 1024 connections, pipelined | 486,836 | 472,140 | 0.97 |
-| JSON, 16 / 64 / 256 connections | 70.0k / 84.4k / 86.3k | **74.9k / 87.3k / 92.1k** | 1.07 / 1.03 / 1.07 |
-| JSON p99 at 256 connections | 5.26 ms | **4.00 ms** | |
-| start-up | 27 ms | **21 ms** | |
-| peak RSS idle → after load | 17.2 → 64.9 MiB | **13.3** → 73.3 MiB | |
+| plaintext, 256 connections, pipelined | 799,811 req/s | 757,935 | 0.95 |
+| plaintext, 1024 connections, pipelined | 774,706 | 703,443 | 0.91 |
+| JSON, 16 / 64 / 256 connections | 121.5k / 145.7k / 146.2k | 117.8k / 131.3k / 130.6k | 0.97 / 0.90 / 0.89 |
+| JSON p99 at 256 connections | 3.80 ms | **2.94 ms** | |
+| start-up | 22 ms | **18 ms** | |
+| peak RSS idle → after load | 17.2 → 67.8 MiB | **13.4** → 73.3 MiB | |
 | binary size | 8.9 MiB | 15.7 MiB | |
-| build time | 23 s | 389 s | |
+| build time | 21 s | 373 s | |
 
-The pre-merge measurement on the same bits (run 40208654140) was plaintext 541,209 / 480,547 vs
-539,354 / 484,517 and JSON 74.0k / 86.6k / 90.3k vs 69.7k / 84.3k / 87.5k. Before `m8-perf`, plaintext
-was 49 % of NativeAOT. Against that branch's run 40193556960 (plaintext 0.99 / 0.98, JSON 1.05 / 1.02 /
-1.04, binary 14.3 MiB, build 313 s), throughput and startup held; the binary grew to 15.7 MiB and the
-build to 389 s with the parity-blockers corelib that landed in the same merge.
+The previous table was run 40214226895 on `2119997`: plaintext 548,509 / 486,836 vs 546,204 / 472,140
+(1.00 / 0.97) and JSON csharpc ahead at 74.9k / 87.3k / 92.1k. `ee7f8f8` does not change that server
+binary's collector: default `gc.o` is still text 13458, data 4, bss 1401, hello is 28520 bytes (28528
+on 40214226809) and async is 147280 against the 147456 budget. Absolute req/s rose for every engine
+on this runner (NativeAOT plaintext 549k → 800k), and the ratios moved with them. Before `m8-perf`,
+plaintext was 49 % of NativeAOT. The pre-merge measurement on the `m8-perf` bits (run 40208654140)
+was plaintext 541,209 / 480,547 vs 539,354 / 484,517.
 
 **Roslyn** (M6): Roslyn's non-generic methods that fail to compile went from 994 to 170; a small
 program using Roslyn's parser compiles from IL at -O0.
 
-**GC** (`benchmarks/gc`, local 4-vCPU, median of 3, published binaries): on an 800k-node ring,
-csharpc pause 30.3 ms and 4.29M ops/s vs NativeAOT 117.4 ms and 3.04M, RSS 205 vs 235 MiB. Mark is
-97 % of stop-the-world time (46.6 ms mark, 1.4 ms sweep). Short-lived churn is behind (16.5M ops/s
-vs 20.8M NativeAOT). Parallel marking was slower on this machine and is not in the default binary
+**GC** (`benchmarks/gc`, hosted runners, median of 3, run 40230540325 on `ee7f8f8`): x86-64
+`livemutate` csharpc pause 18.6 ms, 4.57M ops/s, heap 205 MiB, RSS 225 MiB against NativeAOT 366 ms,
+1.06M ops/s, heap 76 MiB, RSS 106 MiB, and the JIT 394 ms, 0.99M, RSS 129 MiB (1 collection vs 17).
+Churn is 22.5M ops/s and a 2.95 ms pause (14 collections) vs NativeAOT 18.5M and 22.6 ms (25).
+arm64 `livemutate` pause 17.2 ms vs NativeAOT 220 ms, RSS 224 vs 150 MiB. The local 4-vCPU run that
+drove the design was pause 30.3 ms and 4.29M ops/s vs NativeAOT 117.4 ms and 3.04M, RSS 205 vs 235
+MiB; an instrumented build (not this binary) spent 46.6 ms marking and 1.4 ms sweeping. Parallel
+marking was slower on 4 cores and is not in the default binary
 ([ADR 0004](adr/0004-memory-management.md)).
 
 ## Next, in order
 
-1. M8 gap: plaintext at 1024 connections (0.97 of NativeAOT on run 40214226895), memory under load,
-   binary size (15.7 vs 8.9 MiB), build time (389 s vs 23 s); the TechEmpower workflow has a
-   perf-profiling input. GC: the mark is ~97 % of stop-the-world time on `benchmarks/gc` and a
-   parallel marker was slower on 4 cores (ADR 0004); the next collector increment is a non-moving
-   nursery with a compiler card table.
+1. M8 gap: memory under load (RSS 13.4 → 73.3 MiB vs NativeAOT 17.2 → 67.8 on run 40230540571;
+   the same collector was 13.3 → 73.3 vs 17.2 → 64.9 on 40214226895), binary size (15.7 vs 8.9 MiB),
+   build time (373 s vs 21 s). Plaintext on 40230540571 was 0.95 / 0.91 of NativeAOT and JSON
+   throughput was 0.97 / 0.90 / 0.89; JSON p99 and startup were still ahead. On 40214226895 the same
+   server bits were plaintext 1.00 / 0.97 and JSON was ahead, so the ratio move is the runner.
+   GC: hosted x86-64 `livemutate` pause 18.6 ms vs NativeAOT 366 ms, with a larger retained heap
+   (205 vs 76 MiB). The next collector increment is a non-moving nursery with a compiler card table
+   (ADR 0004). Short-lived churn still collects more often than NativeAOT when the heap is small.
 2. M4: the remaining parity blockers (see 18-compatibility.md) to 100 %.
 3. Runtime tier 1 (ADR 0017): move the C runtime's ordinary code to C# where it's at least as fast.
 4. Early gauge for M7's acceptance gate: build dotnet's AOT test suites with csharpc on CI.
@@ -182,6 +191,34 @@ Differential `-O0`/`-O2`: 20, 21, 125, 310, 627. `CSRT_GC_STRESS=1` on 310 passe
 stress (a collection per allocation) hit the suite timeout; that is the mode, not a wrong output.
 `gh workflow run` is still HTTP 403, so CI is the `ci/**` push filter. The size failure cancelled
 nothing by itself; the fix is a second push, which supersedes 40224424838.
+
+**18:32.** `38224e0` is that second push. It dropped the pause histogram and the size-class inverse
+out of the default runtime. Branch CI
+[40225871920](https://github.com/jonathanperis/csharpc/actions/runs/40225871920) then went green on
+all five: x86-64 121267283423, arm64 121267283048, macos-arm64 121267283324, windows-x64
+121267283267, wasm32-wasi 121267283189. Size budgets passed (the previous failure was async 151376
+vs 147456). Branch Benchmarks
+[40225871859](https://github.com/jonathanperis/csharpc/actions/runs/40225871859) green. TechEmpower
+did not re-run on `38224e0`: its path filter missed a push that only touched `src/runtime/gc.c` and
+docs. The parent `ad5ca76` (histogram still linked) had TechEmpower
+[40224424831](https://github.com/jonathanperis/csharpc/actions/runs/40224424831), green, plaintext
+499,644 / 464,468 vs NativeAOT 544,380 / 485,715. That binary is not what merged. `origin/main` was
+still `799936f`.
+
+Merged `--no-ff` as `ee7f8f8` and deleted `ci/precise-gc`. Nothing else was pushed while main CI
+[40230540448](https://github.com/jonathanperis/csharpc/actions/runs/40230540448) ran. It is green:
+x86-64 121281095989, arm64 121281095896, macos-arm64 121281096001, windows-x64 121281096478,
+wasm32-wasi 121281096015. hello 28520 / async 147280, both under budget. Main Benchmarks
+[40230540325](https://github.com/jonathanperis/csharpc/actions/runs/40230540325) green (x86-64
+121281095290, arm64 121281095503): `livemutate` pause 18.6 ms vs NativeAOT 366 ms on x86-64, 17.2 vs
+220 ms on arm64. Main TechEmpower
+[40230540571](https://github.com/jonathanperis/csharpc/actions/runs/40230540571) green; numbers are
+the measured-state table. Local differential on the restored `gc.c` at `38224e0`: 20, 21, 125, 310
+and 627 at `-O0` and `-O2`.
+
+The default collector is not faster than `2119997`. Both parallel markers lost to one thread, and
+the timing code that measured mark vs sweep missed the async budget, so it is gone. The nursery and
+the card table are not implemented.
 
 ## Working rules
 
