@@ -506,6 +506,14 @@ public sealed partial class FunctionCodeGen
             CallCoreLib("AggregateExceptionSupport", "Handle", self, EmitValue(inv.Arguments[0].Value));
             return true;
         }
+        if (!target.IsStatic && target.Name == "Flatten" && target.Parameters.IsEmpty
+            && Mangler.MetadataName(target.ContainingType) == "System.AggregateException")
+        {
+            var self = EmitValue(inv.Instance!);
+            NullCheck(self);
+            result = CallCoreLib("AggregateExceptionSupport", "Flatten", self);
+            return true;
+        }
         return false;
     }
 

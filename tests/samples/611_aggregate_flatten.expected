@@ -1,0 +1,5 @@
+outer (a) (d) (b) (c)
+InvalidOperationException:a,NotSupportedException:d,ArgumentException:b,FormatException:c
+4 False a
+One or more errors occurred. | 0
+One or more errors occurred. | 0
