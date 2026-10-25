@@ -2,7 +2,8 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    # ci/** so packaging and other CI branches run without workflow_dispatch (token lacks actions:write).
+    branches: [main, "ci/**"]
   pull_request:
   workflow_dispatch:
 

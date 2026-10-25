@@ -74,6 +74,12 @@ Both packages carry `src/runtime/*.c`. csrt is compiled on the user's machine on
 cached in `~/.cache/csharpc`, so the packages are architecture-neutral. You need `clang`, or
 `CSHARPC_CC`, plus libLLVM 18–20.
 
+Published releases also push the `csharpc` tool to GitHub Packages
+(`https://nuget.pkg.github.com/jonathanperis/index.json`) and NativeAOT platform archives to
+[GitHub Releases](https://github.com/jonathanperis/csharpc/releases) (libLLVM bundled under `lib/`;
+see the README Install section). The tool package still needs a host libLLVM; the release archives
+do not.
+
 ## How it works
 
 ### Project evaluation (`src/Csharpc/Driver/ProjectLoader.cs`)

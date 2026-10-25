@@ -75,7 +75,29 @@ program using Roslyn's parser compiles from IL at -O0.
 
 ## Cursor progress
 
+Release packaging on `ci/release-packaging`, 2026-10-25. Times are BRT (UTC−3).
+
+**17:00–17:50.** Goal: ship csharpc via GitHub Releases and GitHub Packages. Driver facts:
+`AppContext.BaseDirectory/{corelib,runtime}` (already `CopyToPublishDirectory`); libLLVM via
+`$CSHARPC_LIBLLVM` then sonames (`Llvm/Native.cs`); clang/lld for csrt compile and link
+(`Driver/Toolchain.cs`). Measured on this linux-x64 VM: self-contained R2R publish ~126 MiB / 19 s /
+52 MiB `.tar.gz` without libLLVM; NativeAOT ~42 MiB binary / 61 s, with bundled libLLVM (~118 MiB)
+~262 MiB on disk / **55 MiB** `.tar.gz`. Chose **NativeAOT bundles** so a clean machine needs no
+.NET SDK or runtime. Bundled libLLVM (Apache-2.0 with LLVM exceptions) under `lib/`; clang/lld stay
+a documented host prerequisite (full clang+sysroot is much larger and OS-specific; Windows still
+needs LLVM-MinGW for the linker/CRT). Container image included: zero host toolchain for
+`docker run … csharpc`.
+
+**17:55.** Added `tools/pack-release.sh`, `tools/smoke-release.sh`, `.github/workflows/release.yml`
+(build ×4 RIDs → smoke without installing the .NET SDK → publish Release + NuGet to
+`nuget.pkg.github.com/jonathanperis` + `ghcr.io/jonathanperis/csharpc`), `install.sh` /
+`install.ps1`, `Dockerfile`, README Install section, roadmap/08-drop-in notes. `Native.cs` probes
+`lib/` next to the binary. `ci.yml` push trigger extended to `ci/**`. Local smoke of the packed
+linux-x64 archive: `01_hello` and `104_linq` match `.expected` with bundled libLLVM and
+`CSHARPC_LD=bfd` (this VM has no `lld` package).
+
 Audit of the `m8-perf` merge on 2026-10-25. Times are BRT (UTC−3).
+
 
 **12:46.** Merged `origin/main` (`91f2d97`) into `m8-perf` as `a9dbbd0`. Four conflicts, both sides kept:
 
