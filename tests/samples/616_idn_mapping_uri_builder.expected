@@ -1,0 +1,14 @@
+xn--bcher-kva.example
+bücher.example
+xn--df-bja
+plain.host
+IDN labels must be between 1 and 63 characters long. (Parameter 'unicode')
+Decoded string is not a valid IDN name. (Parameter 'ascii')
+False False True True
+http api.example.localhost 5000 /path ?q=1 #top
+http://localhost:5000/path?q=1#top
+https://example.com:443/
+http://example.org:8080/a/b?x=1#f http://example.org:8080/a/b?x=1#f
+http://localhost/
+value
+ArgumentException

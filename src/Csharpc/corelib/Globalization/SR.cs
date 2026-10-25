@@ -92,6 +92,14 @@ namespace CsharpcCoreLib.Globalization
         public const string ArgumentOutOfRange_Era = "Time value was out of era range.";
         public const string ArgumentOutOfRange_GetByteCountOverflow = "Too many characters. The resulting number of bytes is larger than what can be returned as an int.";
         public const string ArgumentOutOfRange_IndexMustBeLess = "Index was out of range. Must be non-negative and less than the size of the collection.";
+        public const string Argument_IdnBadBidi = "Left to right characters may not be mixed with right to left characters in IDN labels.";
+        public const string Argument_IdnBadLabelSize = "IDN labels must be between 1 and 63 characters long.";
+        public const string Argument_IdnBadNameSize = "IDN names must be between 1 and {0} characters long.";
+        public const string Argument_IdnBadPunycode = "Invalid IDN encoded string.";
+        public const string Argument_IdnBadStd3 = "Label contains character '{0}' not allowed with UseStd3AsciiRules";
+        public const string Argument_IdnIllegalName = "Decoded string is not a valid IDN name.";
+        public const string Argument_InvalidCharSequence = "Invalid Unicode code point found at index {0}.";
+        public const string ArgumentOutOfRange_IndexCountBuffer = "Index and count must refer to a location within the buffer.";
         public const string ArgumentOutOfRange_IndexMustBeLessOrEqual = "Index was out of range. Must be non-negative and less than or equal to the size of the collection.";
         public const string ArgumentOutOfRange_InvalidEraValue = "Era value was not valid.";
         public const string ArgumentOutOfRange_Month = "Month must be between one and twelve.";
