@@ -1,5 +1,5 @@
 // Static helpers of System.Uri that ASP.NET Core's PathString and URL decoding call (the Uri type
-// itself isn't implemented yet).
+// itself is Net/Uri.cs).
 #nullable disable
 using System;
 

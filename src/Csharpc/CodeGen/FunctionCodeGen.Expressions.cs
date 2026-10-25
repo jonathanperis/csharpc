@@ -33,6 +33,8 @@ public sealed partial class FunctionCodeGen
                 BclValueTypes.TryGetField(f.Field, out var bclField) ? bclField(this, f)
                     : throw CompileError.Unsupported($"static field '{f.Field}' of a library type", f),
             IFieldReferenceOperation { Field.IsVolatile: true } vf => VolatileLoad(FieldAddress(vf), S(vf.Field.Type)),
+            // A fixed-size buffer (`fixed char b[128]`) is a pointer-typed expression: its first element's address.
+            IFieldReferenceOperation { Field.IsFixedSizeBuffer: true } f => FieldAddress(f),
             IFieldReferenceOperation f => LoadValue(FieldAddress(f), S(f.Field.Type)),
             ITypeOfOperation t => TypeObject(S(t.TypeOperand), t),
             IPropertyReferenceOperation { Property.RefKind: not RefKind.None } p => LoadValue(RefPropertyAddress(p), TypeOf(p)!),

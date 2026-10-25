@@ -131,6 +131,7 @@ typedef struct csrt_Exception {
     csrt_String* param_name;
     csrt_String* actual_value;  // ArgumentOutOfRangeException(paramName, actualValue, message), formatted
     csrt_Array* trace;          // stack-trace frames recorded while thrown (eh.c, "Stack traces"); null: none
+    csrt_Array* inners;         // AggregateException: InnerExceptions (exception pointers); null otherwise
 } csrt_Exception;
 typedef struct { csrt_MethodTable header; void* vtable[4]; } csrt_ExceptionMethodTable;
 enum { CSRT_SLOT_GET_MESSAGE = 3 };
@@ -156,6 +157,9 @@ csrt_String* csrt_exception_get_message(void* exception);
 csrt_String* csrt_exception_to_string(void* exception);
 _Noreturn void csrt_unhandled_exception(void* exception);
 void* csrt_aggregate_exception_new(void** inners, int64_t count);
+void csrt_exception_set_inners(void* exception, csrt_Array* inners);
+int32_t csrt_exception_inner_count(void* exception);
+void* csrt_exception_inner_at(void* exception, int32_t index);
 void* csrt_task_canceled_exception_new(void);
 bool csrt_is_operation_canceled(void* exception);
 void* csrt_operation_canceled_exception_new(void);

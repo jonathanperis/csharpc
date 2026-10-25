@@ -327,9 +327,25 @@ namespace CsharpcCoreLib
         }
 
         public virtual void Flush() { }
+
         public void Dispose() => Dispose(true);
         public virtual void Close() => Dispose(true);
         protected virtual void Dispose(bool disposing) { }
+    }
+
+    internal static class AsyncText
+    {
+        public static Task<T> Run<T>(Func<T> work)
+        {
+            try { return Task.FromResult(work()); }
+            catch (Exception e) { return Task.FromException<T>(e); }
+        }
+
+        public static Task Run(Action work)
+        {
+            try { work(); return Task.CompletedTask; }
+            catch (Exception e) { return Task.FromException(e); }
+        }
     }
 
     // ---------------------------------------------------------------------------------------------

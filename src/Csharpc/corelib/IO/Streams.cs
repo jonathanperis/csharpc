@@ -441,6 +441,10 @@ namespace CsharpcCoreLib
         public FileStreamImpl(string path, FileMode mode) : this(path, mode, mode == FileMode.Append ? FileAccess.Write : FileAccess.ReadWrite, FileShare.Read, DefaultBufferSize) { }
         public FileStreamImpl(string path, FileMode mode, FileAccess access) : this(path, mode, access, FileShare.Read, DefaultBufferSize) { }
         public FileStreamImpl(string path, FileMode mode, FileAccess access, FileShare share) : this(path, mode, access, share, DefaultBufferSize) { }
+        // useAsync only changes how .NET issues the I/O (csharpc's is synchronous underneath).
+        public FileStreamImpl(string path, FileMode mode, FileAccess access, FileShare share, int bufferSize, bool useAsync)
+            : this(path, mode, access, share, bufferSize) { }
+
         public FileStreamImpl(string path, FileMode mode, FileAccess access, FileShare share, int bufferSize)
         {
             if (path == null) throw new ArgumentNullException("path");

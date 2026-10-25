@@ -403,6 +403,7 @@ public sealed partial class FunctionCodeGen
         ["System.OverflowException"] = "Arithmetic operation resulted in an overflow.",
         ["System.InvalidCastException"] = "Specified cast is not valid.",
         ["System.FormatException"] = "One of the identified items was in an invalid format.",
+        ["System.UriFormatException"] = "One of the identified items was in an invalid format.",
         ["System.Collections.Generic.KeyNotFoundException"] = "The given key was not present in the dictionary.",
         ["System.OperationCanceledException"] = "The operation was canceled.",
         ["System.Threading.Tasks.TaskCanceledException"] = "A task was canceled.",
@@ -439,9 +440,12 @@ public sealed partial class FunctionCodeGen
                 continue;
             }
             var value = EmitValue(argument.Value);
+            var uriFormat = Mangler.MetadataName(constructor.ContainingType) == "System.UriFormatException";
             switch (argument.Parameter?.Name)
             {
                 case "message": message = value; break;
+                case "textString" when uriFormat: message = value; break; // UriFormatException(string textString, Exception e)
+                case "e" when uriFormat: inner = value; break;
                 case "innerException": inner = value; break;
                 case "paramName": paramName = value; break;
                 case "fileName": paramName = value; break; // FileNotFoundException.FileName (csrt keeps it in param_name)
@@ -467,6 +471,8 @@ public sealed partial class FunctionCodeGen
             message = _m.StringLiteral(text);
         var none = LlvmContext.Null(L.Ptr);
         CallRuntime("csrt_exception_init", L.Void, [L.Ptr, L.Ptr, L.Ptr, L.Ptr], exception, message ?? none, inner ?? none, paramName ?? none);
+        // AggregateException keeps every inner exception (InnerExceptions, ToString's "(Inner Exception #i)").
+        if (aggregate && inners is { } list) CallRuntime("csrt_exception_set_inners", L.Void, [L.Ptr, L.Ptr], exception, list);
         if (actualValue is { } actual) CallRuntime("csrt_exception_set_actual_value", L.Void, [L.Ptr, L.Ptr], exception, actual);
     }
 
@@ -491,6 +497,15 @@ public sealed partial class FunctionCodeGen
                 : VirtualCall(target, self, [self]);
             return true;
         }
+        // AggregateException.Handle(predicate): corelib/AggregateExceptionSupport.cs over its inner exceptions.
+        if (!target.IsStatic && target.Name == "Handle" && target.Parameters.Length == 1
+            && Mangler.MetadataName(target.ContainingType) == "System.AggregateException")
+        {
+            var self = EmitValue(inv.Instance!);
+            NullCheck(self);
+            CallCoreLib("AggregateExceptionSupport", "Handle", self, EmitValue(inv.Arguments[0].Value));
+            return true;
+        }
         return false;
     }
 
@@ -509,9 +524,15 @@ public sealed partial class FunctionCodeGen
             "FileName" when IsFileException(property.ContainingType) => ModuleCodeGen.ExceptionParamNameField,
             _ => null,
         };
-        if (field is null && property.Name is not ("Message" or "StackTrace")) return false;
+        var innerExceptions = property.Name == "InnerExceptions" && Mangler.MetadataName(property.ContainingType) == "System.AggregateException";
+        if (field is null && property.Name is not ("Message" or "StackTrace") && !innerExceptions) return false;
         var self = EmitValue(p.Instance!);
         NullCheck(self);
+        if (innerExceptions)
+        {
+            result = CallCoreLib("AggregateExceptionSupport", "InnerExceptions", self);
+            return true;
+        }
         if (property.Name == "StackTrace")
         {
             // Exceptions only carry frames when the program records them (ModuleCodeGen.StackTraces),

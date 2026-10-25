@@ -77,6 +77,9 @@ namespace CsharpcCoreLib
         public static long Size(byte* st) => *(long*)(st + 48);
         public static long MTimeSeconds(byte* st) => *(long*)(st + 88);
         public static long MTimeNanoseconds(byte* st) => *(int*)(st + 96);
+        // No birth time: the older of the modification and status-change times (st_ctim @104), as .NET on Linux.
+        public static void CreationTime(byte* st, out long seconds, out long nanoseconds) =>
+            OlderOf(MTimeSeconds(st), MTimeNanoseconds(st), *(long*)(st + 104), *(int*)(st + 112), out seconds, out nanoseconds);
 
         // struct dirent (wasi-libc): d_ino @0 (u64), d_type @8, d_name @9. File types are WASI's.
         public const int DirentTypeOffset = 8, DirentNameOffset = 9;
@@ -91,6 +94,12 @@ namespace CsharpcCoreLib
         public static long Size(byte* st) => *(long*)(st + 96);
         public static long MTimeSeconds(byte* st) => *(long*)(st + 48);
         public static long MTimeNanoseconds(byte* st) => *(long*)(st + 56);
+        // st_birthtimespec @80: .NET reports the birth time where the OS keeps one.
+        public static void CreationTime(byte* st, out long seconds, out long nanoseconds)
+        {
+            seconds = *(long*)(st + 80);
+            nanoseconds = *(long*)(st + 88);
+        }
 
         // struct dirent (Darwin, 64-bit ino_t): d_namlen @18 (u16), d_type @20, d_name @21.
         public const int DirentTypeOffset = 20, DirentNameOffset = 21;
@@ -113,6 +122,10 @@ namespace CsharpcCoreLib
         public static long Size(byte* st) => *(long*)(st + 40);
         public static long MTimeSeconds(byte* st) => *(long*)(st + 112);
         public static long MTimeNanoseconds(byte* st) => *(uint*)(st + 120);
+        // .NET's System.Native reads struct stat on Linux, which has no birth time, so CreationTime is the
+        // older of the modification and status-change times (stx_ctime @96), not statx's stx_btime.
+        public static void CreationTime(byte* st, out long seconds, out long nanoseconds) =>
+            OlderOf(MTimeSeconds(st), MTimeNanoseconds(st), *(long*)(st + 96), *(uint*)(st + 104), out seconds, out nanoseconds);
 
         // struct dirent (glibc, LP64 Linux: x86-64 and AArch64 alike): d_type @18, d_name @19.
         public const int DirentTypeOffset = 18, DirentNameOffset = 19;
@@ -120,6 +133,15 @@ namespace CsharpcCoreLib
 #if !CSHARPC_TARGET_WASI
         public const byte DT_UNKNOWN = 0, DT_DIR = 4, DT_REG = 8, DT_LNK = 10;
 #endif
+
+        // FileStatus.GetCreationTime without a birth time: the modification time if it is older, else the
+        // status-change time.
+        private static void OlderOf(long mSeconds, long mNanoseconds, long cSeconds, long cNanoseconds, out long seconds, out long nanoseconds)
+        {
+            bool modified = mSeconds < cSeconds || (mSeconds == cSeconds && mNanoseconds < cNanoseconds);
+            seconds = modified ? mSeconds : cSeconds;
+            nanoseconds = modified ? mNanoseconds : cNanoseconds;
+        }
 
         // ---- read-only file views (System.IO.MemoryMappedFiles) --------------------------------
 #if CSHARPC_TARGET_WASI

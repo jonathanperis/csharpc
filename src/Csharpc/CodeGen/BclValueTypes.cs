@@ -165,9 +165,23 @@ internal static partial class BclValueTypes
         return b.BinOp(LLVMOpcode.Sub, b.Cast(LLVMOpcode.ZExt, greater, g.Llvm.I32), b.Cast(LLVMOpcode.ZExt, less, g.Llvm.I32));
     }
 
-    private static LLVMValueRef ICompare(FunctionCodeGen g, LLVMValueRef a, LLVMValueRef c, bool signed) => ThreeWay(g,
-        g.Builder.ICmp(signed ? LLVMIntPredicate.SLT : LLVMIntPredicate.ULT, a, c),
-        g.Builder.ICmp(signed ? LLVMIntPredicate.SGT : LLVMIntPredicate.UGT, a, c));
+    private static LLVMValueRef ICompare(FunctionCodeGen g, LLVMValueRef a, LLVMValueRef c, bool signed) => IntegerCompareTo(g, a, c, signed);
+
+    /// <summary>
+    /// CompareTo of two integers as .NET's: sbyte, byte, short, ushort and char return the difference
+    /// (`m_value - value`, so (byte)200 vs 0 is 200, not 1); wider integers and bool the sign.
+    /// </summary>
+    public static LLVMValueRef IntegerCompareTo(FunctionCodeGen g, LLVMValueRef a, LLVMValueRef c, bool signed)
+    {
+        var b = g.Builder;
+        if (a.Type.IntWidth is 8 or 16)
+        {
+            var ext = signed ? LLVMOpcode.SExt : LLVMOpcode.ZExt;
+            return b.BinOp(LLVMOpcode.Sub, b.Cast(ext, a, g.Llvm.I32), b.Cast(ext, c, g.Llvm.I32));
+        }
+        return ThreeWay(g, b.ICmp(signed ? LLVMIntPredicate.SLT : LLVMIntPredicate.ULT, a, c),
+            b.ICmp(signed ? LLVMIntPredicate.SGT : LLVMIntPredicate.UGT, a, c));
+    }
 
     /// <summary>double.CompareTo: NaN sorts before everything and equals itself.</summary>
     private static LLVMValueRef FCompare(FunctionCodeGen g, LLVMValueRef a, LLVMValueRef c)
@@ -388,9 +402,9 @@ internal static partial class BclValueTypes
                 return default;
             };
         }
-        foreach (var target in new[] { "int", "long", "double" })
-            t[$"{D}.To{(target == "int" ? "Int32" : target == "long" ? "Int64" : "Double")}({D})"] = (g, m, _, a, at) =>
-                g.DecimalConvert(a[0], m.Parameters[0].Type, m.ReturnType, at);
+        // decimal.ToInt32(d) etc.: the explicit conversions (truncating, with .NET's OverflowException messages).
+        foreach (var target in new[] { "SByte", "Byte", "Int16", "UInt16", "Int32", "UInt32", "Int64", "UInt64", "Single", "Double" })
+            t[$"{D}.To{target}({D})"] = (g, m, _, a, at) => g.DecimalConvert(a[0], m.Parameters[0].Type, m.ReturnType, at);
 
         // ===== System.TimeSpan (i64 ticks) =====
         const string TS = "System.TimeSpan";

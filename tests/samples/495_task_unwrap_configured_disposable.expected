@@ -1,0 +1,14 @@
+42
+inner ran
+after inner
+7 True
+outer failed
+inner failed
+ArgumentException Faulted
+canceled Canceled
+null inner Canceled
+task
+using a
+disposed a
+using b
+disposed b

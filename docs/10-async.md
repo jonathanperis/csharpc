@@ -65,10 +65,12 @@ the `Configured*` ones, `YieldAwaitable`) and `CancellationToken` are all repres
 to one csrt task object (`TypeMapper` maps these library types to `ptr`):
 
 ```
-{ mt, i32 state, i32 payload_size, conts, i32 ncont, i32 lock, exception, aggregate, payload @ +48 }
+{ mt, i32 state, i32 payload_size, conts, i32 ncont, i32 lock, exception, aggregate, i32 id, i32 flags, payload @ +56 }
 ```
 
-`default(ValueTask)` is a null pointer, meaning "completed".
+(+40 on wasm32.) `default(ValueTask)` is a null pointer, meaning "completed". `id` is `Task.Id`, assigned
+on first use from one counter as in .NET; `flags` tells `Task.Status` a pending `Task.Run` delegate task
+(`WaitingToRun`, then `Running`) from a promise-style one (`WaitingForActivation`).
 
 **Threading model** (.NET semantics for console apps, `src/runtime/async.c`):
 

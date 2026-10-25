@@ -1,0 +1,26 @@
+Decimal: IFormattable=True IComparable=True IConvertible=True ISpanFormattable=True
+  null: 12.5 | empty: 12.5
+Decimal: IFormattable=True IComparable=True IConvertible=True ISpanFormattable=True
+  null: -0.125 | empty: -0.125
+DateTime: IFormattable=True IComparable=True IConvertible=True ISpanFormattable=True
+  null: 05/06/2024 07:08:09 | empty: 05/06/2024 07:08:09
+TimeSpan: IFormattable=True IComparable=True IConvertible=False ISpanFormattable=True
+  null: 01:30:30 | empty: 01:30:30
+Int32: IFormattable=True IComparable=True IConvertible=True ISpanFormattable=True
+  null: 7 | empty: 7
+1,234.57 1234.6 50 % 4.200E+001
+2024-05-06 2024-05-06T13:04:05
+01:02:05 01:02
+0 -1 1 1
+0 -1
+0 1
+ArgumentException: Object must be of type Decimal.
+ArgumentException: Object must be of type DateTime.
+0 -1 True False
+-1 True
+True 1
+1, 2.25, 3.5
+1.5
+02/03/2001 00:00:00
+0:00:00:01.5000000
+3.25

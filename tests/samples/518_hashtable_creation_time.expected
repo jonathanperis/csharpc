@@ -1,0 +1,25 @@
+49=v7 14=v2 63=v9 28=v4 77=v11 42=v6 7=v1 56=v8 21=v3 70=v10 35=v5 0=v0 (count 12)
+49=v7 1000=new 63=v9 28=v4 77=v11 42=v6 7=v1 56=v8 21=v3 70=replaced 35=v5 0=v0 (count 12)
+True False True False null
+49 1000 63 28 77 42 7 56 21 70 35 0 
+v7 new v9 v4 v11 v6 v1 v8 v3 replaced v5 v0 
+0 12
+200=400 191=382 182=364 173=346 164=328 155=310 (count 6)
+1 2 missing 2
+12
+49 v7 49
+Item has already been added. Key in dictionary: '0'  Key being added: '0'
+Value cannot be null. (Parameter 'key')
+capacity ('-1') must be a non-negative value. (Parameter 'capacity')
+Actual value was -1.
+Load factor needs to be between 0.1 and 1.0. (Parameter 'loadFactor')
+Collection was modified; enumeration operation may not execute.
+Enumeration has not started. Call MoveNext.
+Enumeration has either not started or has already finished.
+Enumeration has either not started or has already finished.
+Enumeration has either not started or has already finished.
+Enumeration has not started. Call MoveNext.
+Enumeration has either not started or has already finished.
+1601-01-01T00:00:00.0000000Z
+1601
+True Utc Local True

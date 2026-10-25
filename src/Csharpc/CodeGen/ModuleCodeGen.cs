@@ -184,11 +184,11 @@ public sealed partial class ModuleCodeGen
         // Type metadata describes every method table, and describing one can create more (and queue
         // their methods): iterate to a fixed point.
         do DrainWorklists();
-        while (EmitRuntimeExports() | EmitTypeMetadata() | EmitDeferredPrimitiveSlots());
+        while (EmitRuntimeExports() | EmitTypeMetadata() | EmitDeferredBclBoxRegistrations() | EmitDeferredPrimitiveSlots());
         // Close the generic interface dispatchers, then lower what their last cases call.
         if (EmitGenericInterfaceDispatchers(final: true) | EmitVariantDelegateTests(final: true))
             do DrainWorklists();
-            while (EmitRuntimeExports() | EmitTypeMetadata() | EmitDeferredPrimitiveSlots());
+            while (EmitRuntimeExports() | EmitTypeMetadata() | EmitDeferredBclBoxRegistrations() | EmitDeferredPrimitiveSlots());
         CheckGenericInterfaceDispatchers();
         // Last: every dispatched slot is known once nothing is left to lower.
         // The IL methods that failed are reported even when finishing the tables fails too (that error
@@ -968,10 +968,10 @@ public sealed partial class ModuleCodeGen
         var baseLayout = type.BaseType is { SpecialType: not SpecialType.System_Object } b ? GetLibraryExceptionLayout(b) : null;
 
         var structType = Llvm.NamedStruct("class." + name);
-        // { mt, message, inner, paramName, actualValue, trace } — csrt_Exception in src/runtime/csrt.h.
-        LlvmContext.SetBody(structType, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr);
+        // { mt, message, inner, paramName, actualValue, trace, inners } — csrt_Exception in src/runtime/csrt.h.
+        LlvmContext.SetBody(structType, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr);
         var layout = new ClassLayout { Type = type, InstanceType = structType, Base = baseLayout, IsLibrary = true };
-        layout.Elements.AddRange([Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr]);
+        layout.Elements.AddRange([Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr]);
         layout.InstanceSize = Types.Target.SizeOf(structType);
         AddObjectSlots(layout);
         layout.VTable.Add(null);
@@ -1306,6 +1306,20 @@ public sealed partial class ModuleCodeGen
         // corelib's runtime exports for that type (ModuleCodeGen.RuntimeExports.cs).
         var builtins = new List<(ITypeSymbol Type, string MT)> { (Compilation.GetSpecialType(SpecialType.System_String), "csrt_String_MT") };
         foreach (var sp in primitives) builtins.Add((Compilation.GetSpecialType(sp), $"csrt_Boxed_{Compilation.GetSpecialType(sp).MetadataName}_MT"));
+        // decimal, DateTime and TimeSpan boxes are runtime method tables too (decimal.c, datetime.c), registered
+        // only once the program boxes one (EmitDeferredBclBoxRegistrations): most programs never do, and a
+        // registration per interface they use is code in main.
+        ITypeSymbol?[] bclBoxes = [Compilation.GetSpecialType(SpecialType.System_Decimal), Compilation.GetSpecialType(SpecialType.System_DateTime),
+            Compilation.GetTypeByMetadataName("System.TimeSpan")];
+        var registerBcl = Module.AddFunction("csharpc.register.bclboxes", Llvm.FunctionType(Llvm.Void));
+        Native.LLVMSetLinkage(registerBcl, LLVMLinkage.Internal);
+        using (var rb = new IrBuilder(Llvm)) { rb.PositionAtEnd(rb.AppendBlock(registerBcl, "entry")); rb.RetVoid(); }
+        _bclBoxRegister = registerBcl;
+        foreach (var itf in _interfaceTables.Keys.ToList())
+            foreach (var t in bclBoxes)
+                if (t is not null && Compilation.ClassifyCommonConversion(t, itf) is { Exists: true, IsImplicit: true, IsUserDefined: false })
+                    _bclBoxRegistrations.Add((t, $"csrt_Boxed_{t.MetadataName}_MT", itf));
+        b.Call(Llvm.FunctionType(Llvm.Void), registerBcl, []);
         foreach (var itf in _interfaceTables.Keys.ToList())
             foreach (var (builtinType, mtName) in builtins)
             {

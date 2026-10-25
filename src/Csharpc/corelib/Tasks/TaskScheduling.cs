@@ -85,6 +85,7 @@ namespace CsharpcCoreLib
 
         internal void Schedule(Task task, Action work)
         {
+            TaskSupport.MarkQueued(task); // Task.Status: WaitingToRun from here, Running once the work starts
             if (this is ThreadPoolTaskSchedulerImpl)
             {
                 Task.Run(work);
@@ -121,6 +122,15 @@ namespace CsharpcCoreLib
             | TaskCreationOptions.HideScheduler | TaskCreationOptions.LongRunning | TaskCreationOptions.PreferFairness
             | TaskCreationOptions.RunContinuationsAsynchronously;
 
+        // A delegate task started here is a TaskCompletionSource's task: the runtime is told it is queued and
+        // then running, so Task.Status reports WaitingToRun / Running like .NET's (async.c, TF_* flags).
+        [System.Runtime.InteropServices.DllImport("__Internal", EntryPoint = "csrt_task_mark_queued")]
+        private static extern void MarkQueued(IntPtr task);
+        [System.Runtime.InteropServices.DllImport("__Internal", EntryPoint = "csrt_task_mark_running")]
+        private static extern void MarkRunning(IntPtr task);
+        internal static void MarkQueued(Task task) => MarkQueued(CoreIntrinsics.ObjectToPointer(task));
+        internal static void MarkRunning(Task task) => MarkRunning(CoreIntrinsics.ObjectToPointer(task));
+
         internal static void CheckCreationOptions(TaskCreationOptions creationOptions)
         {
             if ((creationOptions & ~ValidCreationOptions) != 0) throw new ArgumentOutOfRangeException("creationOptions");
@@ -144,6 +154,7 @@ namespace CsharpcCoreLib
                 try
                 {
                     if (token.IsCancellationRequested) { tcs.TrySetCanceled(); return; }
+                    MarkRunning(tcs.Task);
                     body();
                     tcs.TrySetResult();
                 }
@@ -168,6 +179,7 @@ namespace CsharpcCoreLib
                 try
                 {
                     if (token.IsCancellationRequested) { tcs.TrySetCanceled(); return; }
+                    MarkRunning(tcs.Task);
                     tcs.TrySetResult(body());
                 }
                 catch (OperationCanceledException) when (token.IsCancellationRequested) { tcs.TrySetCanceled(); }
@@ -399,6 +411,63 @@ namespace CsharpcCoreLib
         }
     }
 
+    /// <summary>
+    /// TaskExtensions.Unwrap (TaskExtensions.cs, Task.CreateUnwrapPromise): an outer task that already ran to
+    /// completion gives its inner task itself; otherwise a proxy that is faulted or canceled like the outer
+    /// task, canceled for a null inner task, and else completes like the inner one. (csharpc's tasks keep one
+    /// exception, the first, where .NET's proxy would carry every inner exception of an aggregate.)
+    /// </summary>
+    [ShadowMembers("System.Threading.Tasks.TaskExtensions")]
+    internal static class TaskExtensionsImpl
+    {
+        public static Task Unwrap(Task<Task> task)
+        {
+            if (task == null) throw new ArgumentNullException("task");
+            if (task.IsCompletedSuccessfully) return task.Result ?? Canceled<object>();
+            var proxy = new TaskCompletionSource<object>();
+            task.ContinueWith(outer =>
+            {
+                if (Forward(outer, proxy)) return;
+                Task inner = outer.Result;
+                if (inner == null) { proxy.TrySetCanceled(); return; }
+                inner.ContinueWith(i => { if (!Forward(i, proxy)) proxy.TrySetResult(null); },
+                    CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+            }, CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+            return proxy.Task;
+        }
+
+        public static Task<TResult> Unwrap<TResult>(Task<Task<TResult>> task)
+        {
+            if (task == null) throw new ArgumentNullException("task");
+            if (task.IsCompletedSuccessfully) return task.Result ?? Canceled<TResult>();
+            var proxy = new TaskCompletionSource<TResult>();
+            task.ContinueWith(outer =>
+            {
+                if (Forward(outer, proxy)) return;
+                Task<TResult> inner = outer.Result;
+                if (inner == null) { proxy.TrySetCanceled(); return; }
+                inner.ContinueWith(i => { if (!Forward(i, proxy)) proxy.TrySetResult(i.Result); },
+                    CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+            }, CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+            return proxy.Task;
+        }
+
+        // A faulted or canceled task passes its outcome to the proxy; false when it ran to completion.
+        private static bool Forward<T>(Task task, TaskCompletionSource<T> proxy)
+        {
+            if (task.IsFaulted) { proxy.TrySetException(task.Exception.InnerException); return true; }
+            if (task.IsCanceled) { proxy.TrySetCanceled(); return true; }
+            return false;
+        }
+
+        private static Task<T> Canceled<T>()
+        {
+            var tcs = new TaskCompletionSource<T>();
+            tcs.SetCanceled();
+            return tcs.Task;
+        }
+    }
+
     /// <summary>Task.Factory and Task.ContinueWith (Task&lt;TResult&gt;'s are Intrinsics.cs forwarders to TaskResultContinuations).</summary>
     [ShadowMembers("System.Threading.Tasks.Task")]
     internal static class TaskMembers
@@ -407,32 +476,28 @@ namespace CsharpcCoreLib
         public static TaskFactoryImpl Factory => s_factory ??= new TaskFactoryImpl();
 
         // Task.Run with a token: .NET's Task.InternalStartNew(DenyChildAttach, TaskScheduler.Default); a
-        // token that is already canceled gives a canceled task without queueing anything.
+        // token that is already canceled still queues the task (WaitingToRun), which cancels when it would run.
         public static Task Run(Action action, CancellationToken cancellationToken)
         {
             if (action == null) throw new ArgumentNullException("action");
-            if (cancellationToken.IsCancellationRequested) return FromCanceled(cancellationToken);
             return TaskSupport.StartNew(action, action, cancellationToken, TaskCreationOptions.DenyChildAttach, TaskSchedulerImpl.Default);
         }
 
         public static Task<TResult> Run<TResult>(Func<TResult> function, CancellationToken cancellationToken)
         {
             if (function == null) throw new ArgumentNullException("function");
-            if (cancellationToken.IsCancellationRequested) return FromCanceled<TResult>(cancellationToken);
             return TaskSupport.StartNew(function, function, cancellationToken, TaskCreationOptions.DenyChildAttach, TaskSchedulerImpl.Default);
         }
 
         public static Task Run(Func<Task> function, CancellationToken cancellationToken)
         {
             if (function == null) throw new ArgumentNullException("function");
-            if (cancellationToken.IsCancellationRequested) return FromCanceled(cancellationToken);
             return Unwrap(TaskSupport.StartNew(function, function, cancellationToken, TaskCreationOptions.DenyChildAttach, TaskSchedulerImpl.Default));
         }
 
         public static Task<TResult> Run<TResult>(Func<Task<TResult>> function, CancellationToken cancellationToken)
         {
             if (function == null) throw new ArgumentNullException("function");
-            if (cancellationToken.IsCancellationRequested) return FromCanceled<TResult>(cancellationToken);
             return Unwrap(TaskSupport.StartNew(function, function, cancellationToken, TaskCreationOptions.DenyChildAttach, TaskSchedulerImpl.Default));
         }
 
@@ -468,6 +533,70 @@ namespace CsharpcCoreLib
             TaskCompletionSource<TResult> tcs = new TaskCompletionSource<TResult>();
             tcs.SetCanceled();
             return tcs.Task;
+        }
+
+        // Task.WaitAll / WaitAny (Task.cs): validate, wait (for all tasks, or the first), then WaitAll throws one
+        // AggregateException of every faulted task's exceptions and a TaskCanceledException per canceled task,
+        // in task order.
+        public static void WaitAll(params Task[] tasks) => WaitAllCore(tasks, -1, default);
+        public static void WaitAll(ReadOnlySpan<Task> tasks) => WaitAllCore(tasks.ToArray(), -1, default);
+        public static void WaitAll(IEnumerable<Task> tasks, CancellationToken cancellationToken = default)
+        {
+            if (tasks == null) throw new ArgumentNullException("tasks");
+            WaitAllCore(new List<Task>(tasks).ToArray(), -1, cancellationToken);
+        }
+        public static bool WaitAll(Task[] tasks, int millisecondsTimeout) => WaitAllCore(tasks, millisecondsTimeout, default);
+        public static bool WaitAll(Task[] tasks, TimeSpan timeout) => WaitAllCore(tasks, TimeoutMilliseconds(timeout), default);
+        public static void WaitAll(Task[] tasks, CancellationToken cancellationToken) => WaitAllCore(tasks, -1, cancellationToken);
+        public static bool WaitAll(Task[] tasks, int millisecondsTimeout, CancellationToken cancellationToken) => WaitAllCore(tasks, millisecondsTimeout, cancellationToken);
+
+        private static int TimeoutMilliseconds(TimeSpan timeout)
+        {
+            long totalMilliseconds = (long)timeout.TotalMilliseconds;
+            if (totalMilliseconds < -1 || totalMilliseconds > int.MaxValue) throw new ArgumentOutOfRangeException("timeout");
+            return (int)totalMilliseconds;
+        }
+
+        private static void CheckTasks(Task[] tasks)
+        {
+            if (tasks == null) throw new ArgumentNullException("tasks");
+            foreach (Task task in tasks)
+                if (task == null) throw new ArgumentException("The tasks array included at least one null element.", "tasks");
+        }
+
+        private static bool WaitAllCore(Task[] tasks, int millisecondsTimeout, CancellationToken cancellationToken)
+        {
+            CheckTasks(tasks);
+            if (millisecondsTimeout < -1) throw new ArgumentOutOfRangeException("millisecondsTimeout");
+            // A gate that completes (never faults) once every task has: the wait itself doesn't throw.
+            Task gate = Task.WhenAll(tasks).ContinueWith(_ => { }, CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+            if (!Wait(gate, millisecondsTimeout, cancellationToken)) return false;
+            List<Exception> exceptions = null;
+            foreach (Task task in tasks)
+            {
+                if (task.IsFaulted) (exceptions ??= new List<Exception>()).AddRange(task.Exception.InnerExceptions);
+                else if (task.IsCanceled) (exceptions ??= new List<Exception>()).Add(new TaskCanceledException(task));
+            }
+            if (exceptions != null) throw new AggregateException(exceptions);
+            return true;
+        }
+
+        public static int WaitAny(params Task[] tasks) => WaitAnyCore(tasks, -1, default);
+        public static int WaitAny(Task[] tasks, int millisecondsTimeout) => WaitAnyCore(tasks, millisecondsTimeout, default);
+        public static int WaitAny(Task[] tasks, TimeSpan timeout) => WaitAnyCore(tasks, TimeoutMilliseconds(timeout), default);
+        public static int WaitAny(Task[] tasks, CancellationToken cancellationToken) => WaitAnyCore(tasks, -1, cancellationToken);
+        public static int WaitAny(Task[] tasks, int millisecondsTimeout, CancellationToken cancellationToken) => WaitAnyCore(tasks, millisecondsTimeout, cancellationToken);
+
+        private static int WaitAnyCore(Task[] tasks, int millisecondsTimeout, CancellationToken cancellationToken)
+        {
+            CheckTasks(tasks);
+            if (millisecondsTimeout < -1) throw new ArgumentOutOfRangeException("millisecondsTimeout");
+            for (int i = 0; i < tasks.Length; i++) if (tasks[i].IsCompleted) return i; // the first already done, in order
+            // No tasks: nothing can complete, so the wait runs into the timeout (or the token).
+            if (tasks.Length == 0) { Wait(new TaskCompletionSource().Task, millisecondsTimeout, cancellationToken); return -1; }
+            Task<Task> any = Task.WhenAny(tasks);
+            if (!Wait(any, millisecondsTimeout, cancellationToken)) return -1;
+            return Array.IndexOf(tasks, any.Result);
         }
 
         // WaitAsync (Task.cs): the task itself when it is done or nothing could interrupt the wait, otherwise a
