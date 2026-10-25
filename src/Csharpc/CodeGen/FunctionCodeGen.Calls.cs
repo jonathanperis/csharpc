@@ -256,6 +256,15 @@ public sealed partial class FunctionCodeGen
     {
         var root = ClassLayout.RootOf(target.OriginalDefinition);
         var typeArgs = target.TypeArguments.ToArray();
+        // Overrides declared in generic classes: their instantiations are only known once lowering is done,
+        // so the call goes through a dispatcher filled in rounds (ModuleCodeGen.GenericInterfaces.cs).
+        foreach (var generic in _m.GenericClassesDerivedFrom(target.ContainingType))
+            if (generic.GetMembers(target.Name).OfType<IMethodSymbol>().Any(m => m.IsOverride && m.IsGenericMethod
+                    && SymbolEqualityComparer.Default.Equals(ClassLayout.RootOf(m.OriginalDefinition), root)))
+            {
+                var dispatcher = _m.GenericInterfaceDispatcherFor(target);
+                return _b.Call(dispatcher.Type, dispatcher.Fn, args);
+            }
         LLVMValueRef? resultSlot = target.ReturnsVoid ? null : NewTemp(T.Value(target.ReturnType), "gvm.result");
         var done = NewBlock("gvm.done");
         IMethodSymbol? ImplementationIn(INamedTypeSymbol cls)
@@ -267,12 +276,6 @@ public sealed partial class FunctionCodeGen
                         return m.Construct(typeArgs);
             return null;
         }
-        // Overrides declared in generic classes would need the (lazily discovered) set of their
-        // instantiations here; calling the base implementation instead would be silently wrong.
-        foreach (var generic in _m.GenericClassesDerivedFrom(target.ContainingType))
-            if (generic.GetMembers(target.Name).OfType<IMethodSymbol>().Any(m => m.IsOverride && m.IsGenericMethod
-                    && SymbolEqualityComparer.Default.Equals(ClassLayout.RootOf(m.OriginalDefinition), root)))
-                throw CompileError.Unsupported($"generic virtual method '{root.ContainingType.Name}.{root.Name}' overridden in generic class '{generic.Name}'", target);
         foreach (var cls in _m.ClassesDerivedFrom(target.ContainingType))
         {
             if (ImplementationIn(cls) is not { } impl) continue;

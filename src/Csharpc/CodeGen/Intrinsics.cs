@@ -640,6 +640,16 @@ internal static class Intrinsics
                         ? g.CallRuntime("csrt_task_try_cancel", g.Module.Llvm.I1, [g.Module.Llvm.Ptr], self)
                         : g.CallRuntime("csrt_task_cancel", g.Module.Llvm.Void, [g.Module.Llvm.Ptr], self);
                 };
+                // (Try)SetCanceled(token): the TaskCanceledException an await throws carries the token.
+                t[$"{tcs}.{prefix}Canceled(System.Threading.CancellationToken)"] = (g, inv) =>
+                {
+                    var self = g.EmitValue(inv.Instance!);
+                    g.NullCheck(self);
+                    var done = g.CallRuntime("csrt_task_try_cancel_token", g.Module.Llvm.I1, [g.Module.Llvm.Ptr, g.Module.Llvm.Ptr], self, Arg(g, inv, 0));
+                    if (tryMode) return done;
+                    g.CallCoreLib("TaskCompletionChecks", "ThrowIfNotSet", done);
+                    return default;
+                };
             }
         }
 

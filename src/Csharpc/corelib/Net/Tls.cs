@@ -300,6 +300,158 @@ namespace CsharpcCoreLib
         public X509RevocationFlag RevocationFlag { get => throw Tls.NotSupported(); set => throw Tls.NotSupported(); }
     }
 
+    [Shadows("System.Security.Cryptography.X509Certificates.X509ChainElementCollection")]
+    public sealed class X509ChainElementCollectionImpl
+    {
+        private X509ChainElementCollectionImpl() { }
+        public int Count => throw Tls.NotSupported();
+        public X509ChainElement this[int index] => throw Tls.NotSupported();
+    }
+
+    [Shadows("System.Security.Cryptography.X509Certificates.X509ChainElement")]
+    public class X509ChainElementImpl
+    {
+        private X509ChainElementImpl() { }
+        public X509Certificate2 Certificate => throw Tls.NotSupported();
+    }
+
+    [Shadows("System.Security.Cryptography.RSACryptoServiceProvider")]
+    public sealed class RSACryptoServiceProviderImpl
+    {
+        public RSACryptoServiceProviderImpl() => throw Tls.NotSupported();
+        public CspKeyContainerInfo CspKeyContainerInfo => throw Tls.NotSupported();
+    }
+
+    [Shadows("System.Security.Cryptography.CngKey")]
+    public sealed class CngKeyImpl : IDisposable
+    {
+        private CngKeyImpl() => throw Tls.NotSupported();
+        public CngExportPolicies ExportPolicy => throw Tls.NotSupported();
+        public void Dispose() { }
+    }
+
+    /// <summary>PEM text (RFC 7468) after .NET's PemEncoding.Write: base64 in 64-character lines between BEGIN/END labels.</summary>
+    [ShadowMembers("System.Security.Cryptography.PemEncoding")]
+    internal static class PemEncodingMembers
+    {
+        private static bool IsLabelChar(char c) => (uint)(c - 0x21) <= 0x5d && c != '-';
+
+        private static bool IsValidLabel(ReadOnlySpan<char> label)
+        {
+            if (label.IsEmpty) return true;
+            if (!IsLabelChar(label[0])) return false;
+            bool previousSpaceOrHyphen = false;
+            for (int i = 1; i < label.Length; i++)
+            {
+                char c = label[i];
+                if (IsLabelChar(c)) { previousSpaceOrHyphen = false; continue; }
+                bool spaceOrHyphen = c == ' ' || c == '-';
+                if (!spaceOrHyphen || previousSpaceOrHyphen) return false;
+                previousSpaceOrHyphen = true;
+            }
+            return !previousSpaceOrHyphen;
+        }
+
+        public static string WriteString(ReadOnlySpan<char> label, ReadOnlySpan<byte> data) => new string(Write(label, data));
+
+        public static char[] Write(ReadOnlySpan<char> label, ReadOnlySpan<byte> data)
+        {
+            if (!IsValidLabel(label)) throw new ArgumentException("The specified label is not valid.", "label");
+            var sb = new StringBuilder();
+            sb.Append("-----BEGIN ").Append(label).Append("-----\n");
+            const int BytesPerLine = 48;
+            while (data.Length > 0)
+            {
+                int n = Math.Min(BytesPerLine, data.Length);
+                sb.Append(Convert.ToBase64String(data.Slice(0, n))).Append('\n');
+                data = data.Slice(n);
+            }
+            sb.Append("-----END ").Append(label).Append("-----");
+            return sb.ToString().ToCharArray();
+        }
+    }
+
+    [Shadows("System.Security.Cryptography.RSACng")]
+    public sealed class RSACngImpl
+    {
+        public RSACngImpl() => throw Tls.NotSupported();
+        public CngKey Key => throw Tls.NotSupported();
+    }
+
+    [ShadowMembers("System.Security.Cryptography.AsymmetricAlgorithm")]
+    internal static class AsymmetricAlgorithmMembers
+    {
+        // No AsymmetricAlgorithm can exist (every factory throws): disposing one has nothing to do.
+        [ShadowInstance]
+        public static void Dispose(AsymmetricAlgorithm algorithm) { }
+        [ShadowInstance]
+        public static byte[] ExportEncryptedPkcs8PrivateKey(AsymmetricAlgorithm algorithm, ReadOnlySpan<char> password, PbeParameters pbeParameters) => throw Tls.NotSupported();
+        [ShadowInstance]
+        public static byte[] ExportEncryptedPkcs8PrivateKey(AsymmetricAlgorithm algorithm, ReadOnlySpan<byte> passwordBytes, PbeParameters pbeParameters) => throw Tls.NotSupported();
+        [ShadowInstance]
+        public static byte[] ExportPkcs8PrivateKey(AsymmetricAlgorithm algorithm) => throw Tls.NotSupported();
+        [ShadowInstance]
+        public static void ImportFromPem(AsymmetricAlgorithm algorithm, ReadOnlySpan<char> input) => throw Tls.NotSupported();
+        [ShadowInstance]
+        public static void ImportFromEncryptedPem(AsymmetricAlgorithm algorithm, ReadOnlySpan<char> input, ReadOnlySpan<char> password) => throw Tls.NotSupported();
+    }
+
+    [ShadowMembers("System.Security.Cryptography.RSA")]
+    internal static class RSAFactories
+    {
+        public static RSA Create() => throw Tls.NotSupported();
+        public static RSA Create(int keySizeInBits) => throw Tls.NotSupported();
+        public static RSA Create(RSAParameters parameters) => throw Tls.NotSupported();
+    }
+
+    [ShadowMembers("System.Security.Cryptography.ECDsa")]
+    internal static class ECDsaFactories
+    {
+        public static ECDsa Create() => throw Tls.NotSupported();
+        public static ECDsa Create(ECCurve curve) => throw Tls.NotSupported();
+    }
+
+    [ShadowMembers("System.Security.Cryptography.DSA")]
+    internal static class DSAFactories
+    {
+        public static DSA Create() => throw Tls.NotSupported();
+    }
+
+    [ShadowMembers("System.Security.Cryptography.X509Certificates.X509CertificateLoader")]
+    internal static class X509CertificateLoaderMembers
+    {
+        public static X509Certificate2 LoadCertificate(byte[] data) => throw Tls.NotSupported();
+        public static X509Certificate2 LoadCertificate(ReadOnlySpan<byte> data) => throw Tls.NotSupported();
+        public static X509Certificate2 LoadCertificateFromFile(string path) => throw Tls.NotSupported();
+        public static X509Certificate2 LoadPkcs12(byte[] data, string password, X509KeyStorageFlags keyStorageFlags = X509KeyStorageFlags.DefaultKeySet,
+            Pkcs12LoaderLimits loaderLimits = null) => throw Tls.NotSupported();
+        public static X509Certificate2 LoadPkcs12FromFile(string path, string password, X509KeyStorageFlags keyStorageFlags = X509KeyStorageFlags.DefaultKeySet,
+            Pkcs12LoaderLimits loaderLimits = null) => throw Tls.NotSupported();
+    }
+
+    [Shadows("System.Security.Cryptography.CspKeyContainerInfo")]
+    public sealed class CspKeyContainerInfoImpl
+    {
+        private CspKeyContainerInfoImpl() { }
+        public bool Exportable => throw Tls.NotSupported();
+    }
+
+    /// <summary>Password-based encryption parameters (a plain value holder, as in .NET).</summary>
+    [Shadows("System.Security.Cryptography.PbeParameters")]
+    public sealed class PbeParametersImpl
+    {
+        public PbeParametersImpl(PbeEncryptionAlgorithm encryptionAlgorithm, HashAlgorithmName hashAlgorithm, int iterationCount)
+        {
+            ArgumentOutOfRangeException.ThrowIfNegative(iterationCount);
+            EncryptionAlgorithm = encryptionAlgorithm;
+            HashAlgorithm = hashAlgorithm;
+            IterationCount = iterationCount;
+        }
+        public PbeEncryptionAlgorithm EncryptionAlgorithm { get; }
+        public HashAlgorithmName HashAlgorithm { get; }
+        public int IterationCount { get; }
+    }
+
     [Shadows("System.Net.Security.SslStreamCertificateContext")]
     public sealed class SslStreamCertificateContextImpl
     {

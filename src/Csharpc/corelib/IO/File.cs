@@ -14,6 +14,9 @@ namespace CsharpcCoreLib
     {
         public static bool Exists(string path) => !string.IsNullOrEmpty(path) && Posix.IsFile(path);
 
+        public static Microsoft.Win32.SafeHandles.SafeFileHandle OpenNullHandle() =>
+            throw new NotSupportedException("File.OpenNullHandle (file handles) is not supported by csharpc yet.");
+
         public static void SetUnixFileMode(string path, UnixFileMode mode)
         {
             ArgumentException.ThrowIfNullOrEmpty(path);
