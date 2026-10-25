@@ -20,7 +20,51 @@ csrt_Array* csrt_span_to_array(const void* data, int32_t length, int64_t element
     return a;
 }
 
+// Searches over bytes and chars, 16 bytes at a time with portable vector extensions (SSE2 / NEON /
+// wasm simd128 when enabled, scalar code otherwise): Kestrel's HTTP parser looks for CR, LF, ':' and
+// friends in every header with MemoryExtensions.IndexOf/IndexOfAny. `except` finds the first element
+// that is none of the values. Values a, b, c may repeat (IndexOfAny with two values passes b twice).
+typedef uint8_t u8x16 __attribute__((vector_size(16)));
+typedef uint16_t u16x8 __attribute__((vector_size(16)));
+
+int32_t csrt_span_index_of_any_u8(const uint8_t* p, int32_t length, uint8_t a, uint8_t b, uint8_t c, bool except) {
+    int32_t i = 0;
+    for (; i + 16 <= length; i += 16) {
+        u8x16 v;
+        memcpy(&v, p + i, sizeof v);
+        u8x16 hit = (u8x16)((v == a) | (v == b) | (v == c));
+        if (except) hit = ~hit;
+        if (__builtin_reduce_or(hit)) break;
+    }
+    for (; i < length; i++)
+        if ((p[i] == a || p[i] == b || p[i] == c) != except) return i;
+    return -1;
+}
+
+int32_t csrt_span_index_of_any_u16(const uint16_t* p, int32_t length, uint16_t a, uint16_t b, uint16_t c, bool except) {
+    int32_t i = 0;
+    for (; i + 8 <= length; i += 8) {
+        u16x8 v;
+        memcpy(&v, p + i, sizeof v);
+        u16x8 hit = (u16x8)((v == a) | (v == b) | (v == c));
+        if (except) hit = ~hit;
+        if (__builtin_reduce_or(hit)) break;
+    }
+    for (; i < length; i++)
+        if ((p[i] == a || p[i] == b || p[i] == c) != except) return i;
+    return -1;
+}
+
 int32_t csrt_span_index_of(const void* data, int32_t length, int64_t element_size, const void* value) {
+    if (element_size == 1) {
+        const void* hit = length > 0 ? memchr(data, *(const uint8_t*)value, (size_t)length) : NULL;
+        return hit ? (int32_t)((const uint8_t*)hit - (const uint8_t*)data) : -1;
+    }
+    if (element_size == 2) {
+        uint16_t v;
+        memcpy(&v, value, sizeof v);
+        return csrt_span_index_of_any_u16(data, length, v, v, v, false);
+    }
     const char* p = data;
     for (int32_t i = 0; i < length; i++)
         if (memcmp(p + (size_t)i * (size_t)element_size, value, (size_t)element_size) == 0) return i;
