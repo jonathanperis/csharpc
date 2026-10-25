@@ -28,6 +28,8 @@ public static partial class FrameworkIl
     private sealed class Assembly
     {
         public required string Name { get; init; }
+        /// <summary>The shared-framework directory it is in (not part of the cached index).</summary>
+        public string Directory { get; set; } = "";
         /// <summary>Why it can't be compiled from IL; null if it can.</summary>
         public string? Ineligible { get; set; }
         public string[] References { get; set; } = [];
@@ -37,6 +39,9 @@ public static partial class FrameworkIl
         public Dictionary<string, string[]> Extensions { get; } = new(StringComparer.Ordinal);
     }
 
+    /// <summary>Shared frameworks a project can reference besides Microsoft.NETCore.App.</summary>
+    public static readonly string[] SupportedFrameworks = ["Microsoft.AspNetCore.App"];
+
     /// <summary>
     /// Framework assemblies to compile from IL for these sources. <paramref name="forced"/> are names from
     /// --framework-il; <paramref name="automatic"/> = false is `--framework-il none`. Assemblies already
@@ -45,20 +50,31 @@ public static partial class FrameworkIl
     public static List<Choice> Select(FrontendSettings settings, IReadOnlyList<string> ilPaths, IReadOnlyList<string> forced, bool automatic)
     {
         var result = new List<Choice>();
+        foreach (var framework in settings.SharedFrameworks)
+            if (!SupportedFrameworks.Contains(framework, StringComparer.OrdinalIgnoreCase))
+                throw new InvalidOperationException($"the framework reference '{framework}' is not supported by csharpc yet (supported: Microsoft.NETCore.App, {string.Join(", ", SupportedFrameworks)})");
         if (!automatic && forced.Count == 0) return result;
         if (SharedFramework.Directory is not { } dir)
         {
-            if (forced.Count > 0) throw new InvalidOperationException("--framework-il: the .NET 11 shared framework (Microsoft.NETCore.App) was not found");
+            if (forced.Count > 0 || settings.SharedFrameworks.Count > 0) throw new InvalidOperationException("--framework-il: the .NET 11 shared framework (Microsoft.NETCore.App) was not found");
             return result;
         }
         var index = Index(dir);
+        // Other shared frameworks (ASP.NET Core) have no corelib counterpart: everything of theirs the
+        // program uses comes from their IL, with Microsoft.NETCore.App underneath.
+        foreach (var framework in settings.SharedFrameworks)
+        {
+            var frameworkDir = SharedFramework.DirectoryOf(framework)
+                ?? throw new InvalidOperationException($"the shared framework {framework} (version 11) was not found next to {dir}; install the matching runtime");
+            foreach (var (name, a) in Index(frameworkDir)) index.TryAdd(name, a);
+        }
         var given = new HashSet<string>(ilPaths.Select(p => Path.GetFileNameWithoutExtension(p)), StringComparer.OrdinalIgnoreCase);
         var chosen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         void Add(Assembly a, string reason)
         {
             if (given.Contains(a.Name) || !chosen.Add(a.Name)) return;
-            result.Add(new Choice(a.Name, Path.Combine(dir, a.Name + ".dll"), reason));
+            result.Add(new Choice(a.Name, Path.Combine(a.Directory, a.Name + ".dll"), reason));
         }
 
         foreach (var name in forced)
@@ -142,11 +158,20 @@ public static partial class FrameworkIl
     /// </summary>
     private static Dictionary<string, Assembly> Index(string dir)
     {
+        var index = LoadIndex(dir);
+        foreach (var a in index.Values) a.Directory = dir;
+        return index;
+    }
+
+    private static Dictionary<string, Assembly> LoadIndex(string dir)
+    {
         var cacheRoot = Environment.GetEnvironmentVariable("XDG_CACHE_HOME")
             ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".cache");
         var build = typeof(FrameworkIl).Assembly.ManifestModule.ModuleVersionId;
-        var key = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes($"{dir}|{build}|1")))[..16];
-        var cache = Path.Combine(cacheRoot, "csharpc", $"framework-il-{key}.txt");
+        var key = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes($"{dir}|{build}|2")))[..16];
+        // Named by build, then by framework directory: an index per framework (Microsoft.NETCore.App's and ASP.NET Core's).
+        var buildTag = build.ToString("N")[..8];
+        var cache = Path.Combine(cacheRoot, "csharpc", $"framework-il-{buildTag}-{key}.txt");
         if (File.Exists(cache) && ReadIndex(cache) is { Count: > 0 } cached) return cached;
 
         var index = new Dictionary<string, Assembly>(StringComparer.OrdinalIgnoreCase);
@@ -171,7 +196,7 @@ public static partial class FrameworkIl
             File.Move(temp, cache, overwrite: true);
             // Indexes of earlier csharpc builds are dead weight.
             foreach (var stale in Directory.EnumerateFiles(Path.GetDirectoryName(cache)!, "framework-il-*.txt"))
-                if (!stale.Equals(cache, StringComparison.Ordinal)) File.Delete(stale);
+                if (!Path.GetFileName(stale).StartsWith($"framework-il-{buildTag}-", StringComparison.Ordinal)) File.Delete(stale);
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
         return index;
@@ -217,11 +242,31 @@ public static partial class FrameworkIl
             return null;
         }
         a.Ineligible = a.Name.StartsWith("System.Private.", StringComparison.OrdinalIgnoreCase) ? "it is part of the runtime itself"
-            : md.ExportedTypes.Count > 0 ? "it forwards types to other assemblies (a facade)"
+            : ForwardsToCoreLib(md) ? "it forwards types to System.Private.CoreLib (a facade)"
             : ModuleOfRuntime() is { } native ? $"it calls native code of the .NET runtime ({native})"
             : fullNames.FirstOrDefault(known.Contains) is { } shadowed ? $"csharpc implements its type '{shadowed}' itself"
             : null;
         return a;
+    }
+
+    /// <summary>
+    /// Whether the assembly forwards types where the compilation can't follow: into System.Private.*
+    /// (System.Runtime, System.Collections ... are facades of CoreLib, which the corelib serves). Forwards
+    /// to other assemblies are harmless — Roslyn follows them to a reference assembly or another
+    /// assembly compiled from IL: System.Diagnostics.DiagnosticSource forwards only IsExternalInit to
+    /// System.Runtime, ASP.NET Core's assemblies forward types they once defined to their neighbours
+    /// (FeatureCollection to Microsoft.Extensions.Features).
+    /// </summary>
+    private static bool ForwardsToCoreLib(MetadataReader md)
+    {
+        foreach (var h in md.ExportedTypes)
+        {
+            var exported = md.GetExportedType(h);
+            if (exported.Implementation.Kind == HandleKind.AssemblyReference
+                && md.GetString(md.GetAssemblyReference((AssemblyReferenceHandle)exported.Implementation).Name).StartsWith("System.Private.", StringComparison.Ordinal))
+                return true;
+        }
+        return false;
     }
 
     // Lines: "A\tname\treason-or-empty\treferences", then "T\tnamespace\ttypes" / "E\tnamespace\tmethods" for it.

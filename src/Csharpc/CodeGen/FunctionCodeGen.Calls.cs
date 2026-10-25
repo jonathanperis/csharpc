@@ -462,8 +462,12 @@ public sealed partial class FunctionCodeGen
             // decided by the type alone (boxing never fails; `is` ignores user-defined conversions).
             if (from is { IsValueType: true, TypeKind: not TypeKind.TypeParameter })
             {
+                // The pattern's matched type comes corelib-mapped (SequencePosition -> its shadow) while T? may
+                // still name the library struct: compare them mapped, or `pos is { } p` on a
+                // SequencePosition? / Guid? / KeyValuePair<,>? would always be false.
                 bool Boxes(ITypeSymbol type) =>
                     SymbolEqualityComparer.Default.Equals(type, target)
+                    || SymbolEqualityComparer.Default.Equals(S(type), S(target))
                     || ((Microsoft.CodeAnalysis.CSharp.CSharpCompilation)_m.Compilation).ClassifyConversion(type, target) is { IsImplicit: true, IsBoxing: true };
                 if (!TypeMapper.IsNullable(from)) return Boxes(from) ? L.True : L.False;
                 var (has, _, underlying) = NullableParts(value, from); // a null T? boxes to null

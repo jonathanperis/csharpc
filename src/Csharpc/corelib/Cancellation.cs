@@ -201,6 +201,18 @@ namespace CsharpcCoreLib
             return source;
         }
 
+        // CancelAfter(TimeSpan) as .NET checks it (-1 ms is "never"; up to 2^32-2 ms), on the runtime's
+        // millisecond timer, which takes an int.
+        [ShadowInstance]
+        public static void CancelAfter(CancellationTokenSource source, TimeSpan delay)
+        {
+            long ms = (long)delay.TotalMilliseconds;
+            if (ms < -1 || ms > 0xfffffffeL) throw new ArgumentOutOfRangeException("delay");
+            if (ms > int.MaxValue)
+                throw new NotSupportedException("CancelAfter beyond Int32.MaxValue milliseconds is not supported by csharpc yet.");
+            source.CancelAfter((int)ms);
+        }
+
         /// <summary>.NET runs the callbacks on the thread pool; the returned task ends with them.</summary>
         [ShadowInstance]
         public static Task CancelAsync(CancellationTokenSource source)

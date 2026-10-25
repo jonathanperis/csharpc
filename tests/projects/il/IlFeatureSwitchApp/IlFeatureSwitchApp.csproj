@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- PublishAot sets the dynamic-code feature switches to false for `dotnet run` too: the oracle answers
+       what NativeAOT (and csharpc) answer. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net11.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <PublishAot>true</PublishAot>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="IlFeatureSwitchLib">
+      <HintPath>../IlFeatureSwitchLib/bin/Release/net11.0/IlFeatureSwitchLib.dll</HintPath>
+    </Reference>
+  </ItemGroup>
+</Project>

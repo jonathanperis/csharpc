@@ -228,6 +228,18 @@ order: (3, continued) lowering on several threads, bounded code-generation memor
 (`typeof(X).Assembly`, resource lookup, analyzer activation) as compile-time metadata with diagnostics
 for the rest; (5) csharpc compiled by csharpc, LLVM C API P/Invokes included.
 
+### Runtime tiers — C# all the way down to a minimal native floor
+[ADR 0017](adr/0017-runtime-tiers.md). **Tier 1 (now, alongside M2/M4):** move the C runtime's ordinary
+code to the C# corelib — task scheduler, thread pool and timers, type/interface/delegate helpers and the
+remaining library helpers — with identical behaviour, sizes within budgets and benchmarks not slower.
+**Tier 2 (after M6, before M7):** the GC, exception dispatch and thread management in a restricted
+"systems C#" checked by the compiler (`[RuntimeCritical]`: no allocation, no safepoint, no throw),
+behind a flag next to the C version, made the default once it matches it on the benchmarks, the GC
+stress run and dotnet's own AOT tests. C# where possible, not as a rule: a C# port that is measurably slower or bigger is optimized first
+(the code and csharpc's codegen), and C stays wherever it is better for performance or safety. **Tier 3 (permanent):** a few hundred lines of native glue
+(entry, signal/SEH stubs, unwinder ABI, register spilling), plus dotnet's own C shims for the OS
+(`System.Native`, `System.Globalization.Native`), as NativeAOT does.
+
 ### M7 — End state: csharpc as dotnet's AOT backend
 A fork of dotnet in which `dotnet publish -p:PublishAot=true` runs csharpc where NativeAOT's ILCompiler
 runs today: the same IL inputs from `csc`, the same MSBuild properties (`OptimizationPreference`,
@@ -235,7 +247,11 @@ runs today: the same IL inputs from `csc`, the same MSBuild properties (`Optimiz
 `DirectPInvoke`, trimming descriptors and feature switches, ...) and the same outputs, so existing
 projects get csharpc by switching the AOT backend ([ADR 0016](adr/0016-nativeaot-parity-and-end-state.md)).
 Prerequisites: M6 (IL as the primary input path, csharpc compiling Roslyn and itself) and NativeAOT
-parity on the compatibility corpus. Until then `Csharpc.Sdk` is the integration point and adopts
+parity on the compatibility corpus.
+Acceptance gate: dotnet's own tests for the AOT path all pass with csharpc in NativeAOT's place —
+dotnet/runtime's NativeAOT runtime tests, the libraries' tests in their NativeAOT configuration, and the
+SDK's `PublishAot` tests (exclusions only for tests of ILCompiler internals, each listed). Tracked before
+the fork by building those suites with csharpc on CI and reporting the pass rate. Until then `Csharpc.Sdk` is the integration point and adopts
 NativeAOT's property names as it honours them.
 
 ### M8 — The win: TechEmpower with the csharpc-built dotnet
@@ -252,6 +268,23 @@ production throughput on Linux (epoll), and allocation/GC behaviour under sustai
 early by a local harness that builds the same app with NativeAOT and csharpc and loads it with the
 TechEmpower test types (plaintext, JSON, then the database ones) on CI, so the gap is measured long
 before the fork exists.
+
+Status (2026-10-24, branch `m8-harness`): the harness exists — `benchmarks/techempower/app` (plaintext
+and JSON on Kestrel, System.Text.Json source generation) and the `TechEmpower` workflow, which builds it
+with NativeAOT, csharpc and the JIT, checks each build with TechEmpower's requests and loads it with wrk
+(NativeAOT on a 4-vCPU runner: 530 000–750 000 plaintext req/s pipelined, 86 000–119 000 JSON req/s,
+8.9 MiB, 65 MiB peak RSS under load, 23–27 ms to the first response; the JIT is 5–30 % ahead on throughput). csharpc compiles Microsoft.NET.Sdk.Web
+projects, taking the ASP.NET Core assemblies a program uses from the shared framework's IL, and lowers
+.NET 11's runtime-async methods; the TechEmpower app doesn't build yet: 43 methods it reaches fail
+to compile, most of them dependency injection's reflection (`GetConstructors`, `ConstructorInfo.Invoke`,
+`MakeGenericType`). The IL survey's `aspnetcore` target ranks the rest: of the methods of the 48 ASP.NET
+Core / Extensions / Pipelines / System.Net assemblies the app reaches, 1 691 fail to lower (2 888 at the
+start of the branch) — reflection (524), TLS (170), `DateTimeOffset` (156), `MemoryPool<T>`/`MemoryManager<T>`
+(120), `Uri` (78) lead ([18-compatibility.md](18-compatibility.md#aspnet-core-and-the-techempower-app)).
+Next, in order: reflection metadata for DI (constructors and parameters of the types DI's
+`[DynamicallyAccessedMembers]` annotations name, closed generic instantiations of registered open
+generics), `DateTimeOffset` and `MemoryPool<T>` (in progress elsewhere), async sockets on epoll for
+Kestrel's transport (`SocketAsyncEventArgs`), then the first csharpc build of the app and its numbers.
 
 ### Credibility deliverables (cross-cutting)
 - A technical report: what csharpc demonstrates (Roslyn's CFG as a mid-level IR, a C# corelib with

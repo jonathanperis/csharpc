@@ -795,6 +795,7 @@ internal static class Intrinsics
         {
             t[$"{Tasks}.{type}.GetAwaiter()"] = self;
             t[$"{Tasks}.{type}.ConfigureAwait(bool)"] = self;
+            if (type.StartsWith("ValueTask", StringComparison.Ordinal)) t[$"{Tasks}.{type}.Preserve()"] = self; // the task itself can be awaited again
             t[$"{Tasks}.{type}.Wait()"] = (g, inv) => { ThrowAggregate(g, Wait(g, g.EmitValue(inv.Instance!))); return default; };
         }
         t[$"{Tasks}.ValueTask.AsTask()"] = (g, inv) =>
@@ -859,8 +860,13 @@ internal static class Intrinsics
         }
         t[$"{Tasks}.Task.Exception"] = (g, p) => g.CallRuntime("csrt_task_exception", g.Module.Llvm.Ptr, [g.Module.Llvm.Ptr], g.EmitValue(p.Instance!));
         // TaskStatus from the runtime task's state and flags; Id assigned lazily from a global counter (async.c).
-        t[$"{Tasks}.Task.Status"] = (g, p) => g.CallRuntime("csrt_task_status", g.Module.Llvm.I32, [g.Module.Llvm.Ptr], g.EmitValue(p.Instance!));
         t[$"{Tasks}.Task.Id"] = (g, p) => g.CallRuntime("csrt_task_id", g.Module.Llvm.I32, [g.Module.Llvm.Ptr], g.EmitValue(p.Instance!));
+        t[$"{Tasks}.Task.Status"] = (g, p) =>
+        {
+            var task = g.EmitValue(p.Instance!);
+            g.NullCheck(task); // a null Task throws NullReferenceException (csrt_task_status reads null as a default ValueTask)
+            return g.CallRuntime("csrt_task_status", g.Module.Llvm.I32, [g.Module.Llvm.Ptr], task);
+        };
         foreach (var tcs in new[] { $"{Tasks}.TaskCompletionSource", $"{Tasks}.TaskCompletionSource<TResult>" })
             t[$"{tcs}.Task"] = (g, p) => g.EmitValue(p.Instance!);
         const string Th = "System.Threading";

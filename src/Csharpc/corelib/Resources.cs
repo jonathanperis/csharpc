@@ -133,6 +133,23 @@ namespace CsharpcCoreLib
             }
         }
 
+        private static string s_baseDirectory;
+
+        /// <summary>
+        /// NativeAOT's answer: the directory of the executable, with a trailing separator (the JIT's is the
+        /// directory of the app's .dll, which is the same directory for an apphost).
+        /// </summary>
+        public static string BaseDirectory
+        {
+            get
+            {
+                if (s_baseDirectory != null) return s_baseDirectory;
+                string exe = Environment.ProcessPath;
+                string dir = exe == null ? null : System.IO.Path.GetDirectoryName(exe);
+                return s_baseDirectory = dir == null ? "" : dir.EndsWith(System.IO.Path.DirectorySeparatorChar) ? dir : dir + System.IO.Path.DirectorySeparatorChar;
+            }
+        }
+
         public static object GetData(string name)
         {
             if (name == null) throw new ArgumentNullException("name");

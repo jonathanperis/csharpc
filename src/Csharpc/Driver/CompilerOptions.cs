@@ -32,6 +32,8 @@ public sealed record CompilerOptions
     public List<string> FrameworkIl { get; } = [];
     /// <summary>--framework-il none: no automatic choice of framework assemblies to compile from IL.</summary>
     public bool FrameworkIlAutomatic { get; set; } = true;
+    /// <summary>--framework: shared frameworks besides Microsoft.NETCore.App (a project's &lt;FrameworkReference&gt;).</summary>
+    public List<string> SharedFrameworks { get; } = [];
     /// <summary>
     /// --corelib il|source: the corelib as a precompiled IL assembly lowered through the IL front-end
     /// (docs/adr/0015-corelib-il.md), or parsed and bound from its C# sources in every compilation.
@@ -94,6 +96,8 @@ public sealed record CompilerOptions
           --framework-il <names> Compile these shared-framework assemblies from their IL (comma-separated);
                                  'none' turns off the automatic choice (assemblies the program uses that
                                  csharpc's corelib does not implement)
+          --framework <name>     Also reference this shared framework, like <FrameworkReference> in a project
+                                 (Microsoft.AspNetCore.App); its assemblies are compiled from IL
           --corelib <il|source>  Lower the corelib from its precompiled IL (cached) or bind its C# sources
                                  (default: il, or $CSHARPC_CORELIB)
           --no-implicit-usings   Don't add the SDK's implicit global usings
@@ -168,6 +172,9 @@ public sealed record CompilerOptions
                     foreach (var name in Next().Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
                         if (name.Equals("none", StringComparison.OrdinalIgnoreCase)) o.FrameworkIlAutomatic = false;
                         else o.FrameworkIl.Add(name.EndsWith(".dll", StringComparison.OrdinalIgnoreCase) ? name[..^4] : name);
+                    break;
+                case "--framework":
+                    o.SharedFrameworks.Add(Next());
                     break;
                 case var _ when a.StartsWith("-r:", StringComparison.Ordinal) || a.StartsWith("/r:", StringComparison.Ordinal):
                     o.References.Add(Path.GetFullPath(a[3..]));

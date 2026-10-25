@@ -35,6 +35,8 @@ public sealed record ProjectInfo
     public List<string> AssemblyReferences { get; } = [];
     /// <summary>RuntimeHostConfigurationOption items (runtimeconfig.json configProperties), in item order.</summary>
     public List<KeyValuePair<string, string>> RuntimeConfig { get; } = [];
+    /// <summary>&lt;FrameworkReference&gt; items other than Microsoft.NETCore.App (Microsoft.AspNetCore.App from Microsoft.NET.Sdk.Web).</summary>
+    public List<string> FrameworkReferences { get; } = [];
     /// <summary>&lt;Reference&gt; items csharpc could not map to a file (e.g. GAC-style names).</summary>
     public List<string> UnresolvedReferences { get; } = [];
     /// <summary>What stack traces show of this project (Optimize, DebugType/DebugSymbols, PathMap).</summary>
@@ -82,7 +84,7 @@ public static class ProjectLoader
         foreach (var v in new[] { "1_0", "1_1", "2_0", "2_1", "2_2", "3_0", "3_1" }) yield return $"NETCOREAPP{v}_OR_GREATER";
     }
 
-    private static readonly string[] Items = ["Compile", "Using", "ProjectReference", "PackageReference", "Reference", "RuntimeHostConfigurationOption"];
+    private static readonly string[] Items = ["Compile", "Using", "ProjectReference", "PackageReference", "Reference", "RuntimeHostConfigurationOption", "FrameworkReference"];
 
     /// <summary>
     /// configProperties of a file-based app (`dotnet run app.cs`, which defaults to PublishAot=true and
@@ -303,6 +305,12 @@ public static class ProjectLoader
         foreach (var r in Item("ProjectReference"))
             if (Meta(r, "FullPath") is { } path) info.ProjectReferences.Add(path);
 
+        // Microsoft.NET.Sdk.Web adds Microsoft.AspNetCore.App implicitly; Microsoft.NETCore.App is always there.
+        foreach (var f in Item("FrameworkReference"))
+            if (Meta(f, "Identity") is { } framework && !framework.Equals("Microsoft.NETCore.App", StringComparison.OrdinalIgnoreCase)
+                && !info.FrameworkReferences.Contains(framework, StringComparer.OrdinalIgnoreCase))
+                info.FrameworkReferences.Add(framework);
+
         // <Reference Include="Name"><HintPath>path/Name.dll</HintPath></Reference> or Include="path/Name.dll".
         foreach (var r in Item("Reference"))
         {
@@ -395,6 +403,7 @@ public static class ProjectLoader
             AssemblyVersion = root.AssemblyVersion,
             MainTypeName = root.StartupObject,
             IlReferencePaths = [.. all.SelectMany(p => p.AssemblyReferences).Distinct(StringComparer.Ordinal)],
+            SharedFrameworks = [.. all.SelectMany(p => p.FrameworkReferences).Distinct(StringComparer.OrdinalIgnoreCase)],
             RuntimeConfig = root.RuntimeConfig,
             JsonReflectionEnabled = root.JsonReflectionEnabled,
             Symbols = root.Symbols,

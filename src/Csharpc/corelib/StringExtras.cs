@@ -29,6 +29,11 @@ namespace CsharpcCoreLib
         /// <summary>The hash string.GetHashCode() gives the same characters.</summary>
         public static int GetHashCode(ReadOnlySpan<char> value) => new string(value).GetHashCode();
 
+        public static int GetHashCode(ReadOnlySpan<char> value, StringComparison comparisonType) => StringComparer.FromComparison(comparisonType).GetHashCode(new string(value));
+
+        [ShadowInstance]
+        public static int GetHashCode(string s, StringComparison comparisonType) => StringComparer.FromComparison(comparisonType).GetHashCode(s);
+
         /// <summary>Formats with a CompositeFormat: its format string, parsed once.</summary>
         public static string Format(IFormatProvider provider, System.Text.CompositeFormat format, params object[] args)
         {
@@ -478,6 +483,26 @@ namespace CsharpcCoreLib
                 return value.Length <= span.Length && EqualsOrdinalIgnoreCase(span.Slice(0, value.Length), value);
             return span.ToString().StartsWith(value.ToString(), comparisonType);
         }
+
+        public static bool EndsWith(ReadOnlySpan<char> span, ReadOnlySpan<char> value, StringComparison comparisonType)
+        {
+            if (comparisonType == StringComparison.Ordinal)
+                return value.Length <= span.Length && SequenceEqualAt(span, span.Length - value.Length, value);
+            if (comparisonType == StringComparison.OrdinalIgnoreCase)
+                return value.Length <= span.Length && EqualsOrdinalIgnoreCase(span.Slice(span.Length - value.Length), value);
+            return span.ToString().EndsWith(value.ToString(), comparisonType);
+        }
+
+        public static bool Contains(ReadOnlySpan<char> span, ReadOnlySpan<char> value, StringComparison comparisonType) =>
+            IndexOf(span, value, comparisonType) >= 0;
+
+        public static int LastIndexOf(ReadOnlySpan<char> span, ReadOnlySpan<char> value, StringComparison comparisonType) =>
+            span.ToString().LastIndexOf(value.ToString(), comparisonType);
+
+        // The ordinal comparisons answer like SpanHelpers.SequenceCompareTo (the difference of the first
+        // differing chars, else of the lengths), which string.CompareOrdinal does too.
+        public static int CompareTo(ReadOnlySpan<char> span, ReadOnlySpan<char> other, StringComparison comparisonType) =>
+            string.Compare(span.ToString(), other.ToString(), comparisonType);
 
         private static bool Contains<T>(ReadOnlySpan<T> values, T value)
         {

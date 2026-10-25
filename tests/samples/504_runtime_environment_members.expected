@@ -1,0 +1,15 @@
+True
+True
+True
+True
+False False
+False
+True
+1000
+-00:00:00.0010000 -1 True
+a-b+c-d
+A-b::c-d
+A-bc-d
+Index was out of range. Must be non-negative and less than or equal to the size of the collection. (Parameter 'count')
+Index was out of range. Must be non-negative and less than or equal to the size of the collection. (Parameter 'startIndex')
+The value cannot be an empty string. (Parameter 'oldValue')

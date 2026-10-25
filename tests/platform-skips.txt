@@ -26,6 +26,7 @@ windows 161_stringbuilder               live: AppendLine appends Environment.New
 windows 17_string_library               live: AppendLine appends Environment.NewLine ("\r\n"), so lengths differ
 windows 250_stringbuilder_interpolation live: AppendLine appends Environment.NewLine ("\r\n"), so lengths differ
 windows 84_misc_bcl                     live: prints Environment.NewLine.Length (2)
+windows 510_text_io_apm_buffer        live: prints its writer's Environment.NewLine escaped, and a read that ends at a bare "\n" of its own input
 windows bcl/006_environment             live: prints Environment.NewLine.Length (2)
 windows lexical/005_raw_strings         live: the raw string literal's line breaks are the source file's "\n"
 windows 160_pinvoke_dllimport           live: loads the Linux soname "libm.so.6" (DllNotFoundException on Windows)

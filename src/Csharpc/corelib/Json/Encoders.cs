@@ -164,6 +164,8 @@ namespace CsharpcCoreLib
         // '"' may use the short "\"" form (JavaScriptEncoder.UnsafeRelaxedJsonEscaping).
         internal AllowedBmpBitmap _allowed;
         internal bool _minimalEscaping;
+        // UrlEncoder: escapes are the scalar's UTF-8 bytes as %XX (DefaultUrlEncoder.EscaperImplementation).
+        internal bool _percentEncoding;
 
         protected TextEncoderImpl() { }
 
@@ -173,13 +175,19 @@ namespace CsharpcCoreLib
 
         public virtual bool WillEncode(int unicodeScalar)
         {
-            if ((uint)unicodeScalar > 0x10FFFF) return true;
+            // The inbox encoders build a Rune from it: a value that is no Unicode scalar throws, as in .NET.
+            if (!Rune.IsValid(unicodeScalar)) throw new ArgumentOutOfRangeException("value");
             return !IsScalarAllowed(unicodeScalar);
         }
 
         /// <summary>Appends the escaped form of a scalar that is not allowed.</summary>
         internal void AppendEscaped(StringBuilder sb, int scalar)
         {
+            if (_percentEncoding)
+            {
+                AppendPercentEncoded(sb, scalar);
+                return;
+            }
             switch (scalar)
             {
                 case '\b': sb.Append("\\b"); return;
@@ -199,6 +207,14 @@ namespace CsharpcCoreLib
                 AppendHex(sb, 0xD800 + (v >> 10));
                 AppendHex(sb, 0xDC00 + (v & 0x3FF));
             }
+        }
+
+        private static void AppendPercentEncoded(StringBuilder sb, int scalar)
+        {
+            const string digits = "0123456789ABCDEF";
+            Span<byte> utf8 = stackalloc byte[4];
+            int n = new Rune(scalar).EncodeToUtf8(utf8);
+            for (int i = 0; i < n; i++) sb.Append('%').Append(digits[utf8[i] >> 4]).Append(digits[utf8[i] & 0xF]);
         }
 
         internal static void AppendHex(StringBuilder sb, int value)

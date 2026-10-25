@@ -413,6 +413,41 @@ namespace CsharpcCoreLib
             return This;
         }
 
+        public StringBuilderImpl Replace(char oldChar, char newChar, int startIndex, int count)
+        {
+            CheckReplaceRange(startIndex, count);
+            Span<char> chars = _chars.AsSpan(startIndex, count);
+            for (int i = 0; i < chars.Length; i++)
+                if (chars[i] == oldChar) chars[i] = newChar;
+            return This;
+        }
+
+        public StringBuilderImpl Replace(string oldValue, string newValue, int startIndex, int count)
+        {
+            if (oldValue == null) throw new ArgumentNullException("oldValue");
+            if (oldValue.Length == 0) throw new ArgumentException("The value cannot be an empty string.", "oldValue");
+            CheckReplaceRange(startIndex, count);
+            // Matches lie wholly inside the range, left to right without overlapping: string.Replace on it.
+            string range = new string(_chars, startIndex, count);
+            string replaced = range.Replace(oldValue, newValue);
+            if ((object)replaced != range)
+            {
+                string tail = new string(_chars, startIndex + count, _length - startIndex - count);
+                _length = startIndex;
+                Append(replaced);
+                Append(tail);
+            }
+            return This;
+        }
+
+        private void CheckReplaceRange(int startIndex, int count)
+        {
+            if ((uint)startIndex > (uint)_length)
+                throw new ArgumentOutOfRangeException("startIndex", "Index was out of range. Must be non-negative and less than or equal to the size of the collection.");
+            if (count < 0 || startIndex > _length - count)
+                throw new ArgumentOutOfRangeException("count", "Index was out of range. Must be non-negative and less than or equal to the size of the collection.");
+        }
+
         public StringBuilderImpl Replace(string oldValue, string newValue)
         {
             if (oldValue == null) throw new ArgumentNullException("oldValue");

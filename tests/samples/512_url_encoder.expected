@@ -1,0 +1,16 @@
+plain-text_1.2~
+a%20b%26c%3Dd%3Fe%23f
+path%2Fwith%3Acolon
+%5Bx%5D%7By%7D%7Cz%5E%60%5C%25
+!$()*,;@%27%2B%22%3C%3E
+caf%C3%A9%20%E2%82%AC
+emoji%20%F0%9F%98%80
+%EF%BF%BDx
+
+True 9
+False True False True True
+not a scalar: value
+café%20ü%20%E2%82%AC
+a%2Db%20c
+True
+value

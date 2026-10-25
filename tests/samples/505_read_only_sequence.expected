@@ -1,0 +1,25 @@
+57 False False 10 10
+10 20 27 
+/plaintext
+25 3 29
+23
+GET /plaintext HTTP/1.1
+0 True True
+True
+GET|/plaintext|HTTP/1.1|25|32
+Host=localhost
+Accept=*/*
+True 57 0 False
+True 13 True 13 4 23
+0 True True 5 True plaintext
+True  HTTP/1.1 2
+True True
+1 2 -257 False 0
+world System.Buffers.ReadOnlySequence<Int32>[3] 0
+2 8 True
+start
+length
+offset
+length
+endSegment
+pipelined 9

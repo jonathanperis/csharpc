@@ -36,6 +36,14 @@ those parts of csharpc.
   and `src/libraries/System.Collections.Concurrent/src/System/Collections/Concurrent/ConcurrentStack.cs`,
   with the non-randomized string hashing of `System.Private.CoreLib/src/System/String.Comparison.cs`;
   `ConcurrentBag` follows `ConcurrentBag.cs`. Each ported file keeps the upstream license header.
+- **What:** `ReadOnlySequence<T>`, `SequenceReader<T>`, `BuffersExtensions` and the sequence types in
+  `src/Csharpc/corelib/Buffers/ReadOnlySequence.cs`, ported from `src/libraries/System.Memory/src/System/Buffers/`
+  (`ReadOnlySequence.cs`, `ReadOnlySequence.Helpers.cs`, `SequenceReader.cs`, `SequenceReader.Search.cs`,
+  `BuffersExtensions.cs`) and `System.Private.CoreLib`'s `ReadOnlySequenceSegment.cs` and `SequencePosition.cs`;
+  the file keeps the upstream license header.
+- **What:** `System.Text.Rune` in `src/Csharpc/corelib/Rune.cs`, ported from
+  `src/libraries/System.Private.CoreLib/src/System/Text/Rune.cs` (decoding, encoding, validation); the file keeps
+  the upstream license header.
 - **Source:** <https://github.com/dotnet/runtime>, release/11.0.
 - **License:** MIT
 

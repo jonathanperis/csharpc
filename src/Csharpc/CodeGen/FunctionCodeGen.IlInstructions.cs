@@ -134,6 +134,14 @@ public sealed partial class FunctionCodeGen
             }
             case ILOpCode.Brtrue or ILOpCode.Brtrue_s or ILOpCode.Brfalse or ILOpCode.Brfalse_s:
             {
+                if (IlFoldedBranch(block, _ilIndex) is { } only) // a feature switch: the other way is never lowered
+                {
+                    Pop();
+                    var target = IlTarget(only);
+                    IlTransfer(target, stack);
+                    _b.Br(target.Llvm);
+                    return true;
+                }
                 var v = Pop();
                 var nonZero = IlIsNonZero(v);
                 IlCondBranch(op is ILOpCode.Brtrue or ILOpCode.Brtrue_s ? nonZero : _b.Not(nonZero), instruction, stack);
@@ -166,6 +174,11 @@ public sealed partial class FunctionCodeGen
             }
             case ILOpCode.Ret:
             {
+                if (_coro is not null)
+                {
+                    IlCoroutineReturn(stack);
+                    return true;
+                }
                 if (_method!.ReturnsVoid || _method.MethodKind == MethodKind.Constructor)
                 {
                     if (stack.Count > 0 && _method.MethodKind != MethodKind.Constructor) throw new IlException("stack not empty at ret");
