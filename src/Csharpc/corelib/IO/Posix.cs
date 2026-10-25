@@ -50,6 +50,21 @@ namespace CsharpcCoreLib
         [DllImport("libc", SetLastError = true)] public static extern int rmdir(byte* path);
         [DllImport("libc", SetLastError = true)] public static extern int unlink(byte* path);
         [DllImport("libc", SetLastError = true)] public static extern int rename(byte* from, byte* to);
+#if !CSHARPC_TARGET_WASI
+        [DllImport("libc", SetLastError = true)] public static extern int symlink(byte* target, byte* linkPath);
+        [DllImport("libc", SetLastError = true)] public static extern int link(byte* target, byte* linkPath);
+        [DllImport("libc", SetLastError = true)] public static extern int chmod(byte* path, int mode);
+        [DllImport("libc", SetLastError = true)] public static extern int fchmod(int fd, int mode);
+        /// <summary>times: two struct timespec { long tv_sec; long tv_nsec; } (access, modification).</summary>
+        [DllImport("libc", SetLastError = true)] public static extern int utimensat(int dirfd, byte* path, long* times, int flags);
+#if CSHARPC_TARGET_MACOS
+        public const int AT_FDCWD = -2;
+        public const long UTIME_OMIT = -2;
+#else
+        public const int AT_FDCWD = -100;
+        public const long UTIME_OMIT = (1L << 30) - 2;
+#endif
+#endif
         [DllImport("libc", SetLastError = true)] public static extern byte* getcwd(byte* buffer, nuint size);
         [DllImport("libc", SetLastError = true)] public static extern int chdir(byte* path);
         [DllImport("libc", SetLastError = true)] public static extern void* opendir(byte* path);
@@ -108,7 +123,7 @@ namespace CsharpcCoreLib
         // architecture, while struct stat does not (st_mode is at offset 24 on x86-64 but 16 on AArch64).
         // struct statx: stx_mode @28 (u16), stx_size @40 (u64), stx_mtime.tv_sec @112 (i64), tv_nsec @120 (u32); 256 bytes.
         [DllImport("libc", SetLastError = true)] private static extern int statx(int dirfd, byte* path, int flags, uint mask, byte* buffer);
-        private const int AT_FDCWD = -100, AT_SYMLINK_NOFOLLOW = 0x100, AT_EMPTY_PATH = 0x1000;
+        private const int AT_SYMLINK_NOFOLLOW = 0x100, AT_EMPTY_PATH = 0x1000; // AT_FDCWD: above
         private const uint STATX_BASIC_STATS = 0x7FF;
         public const int StatSize = 256;
         public static int stat(byte* path, byte* buffer) => statx(AT_FDCWD, path, 0, STATX_BASIC_STATS, buffer);

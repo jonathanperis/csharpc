@@ -106,6 +106,8 @@ public sealed partial class FunctionCodeGen
         public List<IlTry> Trys { get; } = [];
         public List<IlClause> Clauses { get; } = [];
         public LLVMValueRef[] Locals { get; set; } = [];
+        /// <summary>Why a local has no slot: its type can't be laid out (reported only if an instruction uses it).</summary>
+        public CompileError?[] LocalErrors { get; set; } = [];
         public List<(LLVMBasicBlockRef Block, IlClause Clause)> FinallyEnds { get; } = [];
         public IlInstruction Current { get; set; }
         // Prefixes apply to the next instruction.
@@ -132,10 +134,19 @@ public sealed partial class FunctionCodeGen
 
         // Locals: zero-initialized (also without `localsinit`: the conservative GC scans them).
         il.Locals = new LLVMValueRef[body.Locals.Length];
+        il.LocalErrors = new CompileError?[body.Locals.Length];
         for (var i = 0; i < body.Locals.Length; i++)
         {
             var local = body.Locals[i];
-            var storage = local.IsByRef ? L.Ptr : T.Storage(S(local.Type));
+            // A local of a type csharpc can't lay out (Vector<T> in a SIMD path a folded feature switch
+            // skips) is an error only where an instruction uses it.
+            LLVMTypeRef storage;
+            try { storage = local.IsByRef ? L.Ptr : T.Storage(S(local.Type)); }
+            catch (CompileError e)
+            {
+                il.LocalErrors[i] = e;
+                continue;
+            }
             il.Locals[i] = _allocas.Alloca(storage, $"loc{i}");
             _allocas.Store(LlvmContext.Null(storage), il.Locals[i]);
         }

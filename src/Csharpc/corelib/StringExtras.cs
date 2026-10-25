@@ -446,6 +446,50 @@ namespace CsharpcCoreLib
             return -1;
         }
 
+        public static bool ContainsAnyInRange<T>(ReadOnlySpan<T> span, T lowInclusive, T highInclusive) => IndexOfAnyInRange(span, lowInclusive, highInclusive) >= 0;
+        public static bool ContainsAnyExceptInRange<T>(ReadOnlySpan<T> span, T lowInclusive, T highInclusive) => IndexOfAnyExceptInRange(span, lowInclusive, highInclusive) >= 0;
+
+        public static int LastIndexOfAny<T>(ReadOnlySpan<T> span, T value0, T value1)
+        {
+            for (int i = span.Length - 1; i >= 0; i--)
+                if (CoreIntrinsics.AreEqual(span[i], value0) || CoreIntrinsics.AreEqual(span[i], value1)) return i;
+            return -1;
+        }
+
+        public static int LastIndexOfAny<T>(ReadOnlySpan<T> span, T value0, T value1, T value2)
+        {
+            for (int i = span.Length - 1; i >= 0; i--)
+                if (CoreIntrinsics.AreEqual(span[i], value0) || CoreIntrinsics.AreEqual(span[i], value1) || CoreIntrinsics.AreEqual(span[i], value2)) return i;
+            return -1;
+        }
+
+        // Trim(span, element): the span without leading/trailing copies of the element.
+        public static ReadOnlySpan<T> Trim<T>(ReadOnlySpan<T> span, T trimElement) where T : IEquatable<T> => TrimEnd(TrimStart(span, trimElement), trimElement);
+
+        public static ReadOnlySpan<T> TrimStart<T>(ReadOnlySpan<T> span, T trimElement) where T : IEquatable<T>
+        {
+            int start = 0;
+            while (start < span.Length && CoreIntrinsics.AreEqual(span[start], trimElement)) start++;
+            return span.Slice(start);
+        }
+
+        public static ReadOnlySpan<T> TrimEnd<T>(ReadOnlySpan<T> span, T trimElement) where T : IEquatable<T>
+        {
+            int end = span.Length - 1;
+            while (end >= 0 && CoreIntrinsics.AreEqual(span[end], trimElement)) end--;
+            return span.Slice(0, end + 1);
+        }
+
+        public static Span<T> Trim<T>(Span<T> span, T trimElement) where T : IEquatable<T>
+        {
+            int start = TrimStart((ReadOnlySpan<T>)span, trimElement).Length;
+            Span<T> rest = span.Slice(span.Length - start);
+            return rest.Slice(0, TrimEnd((ReadOnlySpan<T>)rest, trimElement).Length);
+        }
+
+        /// <summary>array.CopyTo(span) (MemoryExtensions.CopyTo): the whole array, ArgumentException if it doesn't fit.</summary>
+        public static void CopyTo<T>(T[] source, Span<T> destination) => new ReadOnlySpan<T>(source).CopyTo(destination);
+
         public static int LastIndexOf<T>(ReadOnlySpan<T> span, ReadOnlySpan<T> value)
         {
             if (value.Length == 0) return span.Length;

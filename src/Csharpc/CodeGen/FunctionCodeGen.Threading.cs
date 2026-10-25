@@ -289,6 +289,9 @@ public sealed partial class FunctionCodeGen
             return (_b.Cast(LLVMOpcode.BitCast, v, it), r => _b.Cast(LLVMOpcode.BitCast, r, type));
         }
         if (type.IsPointer) return (_b.Cast(LLVMOpcode.PtrToInt, v, T.NativeInt), r => _b.Cast(LLVMOpcode.IntToPtr, r, L.Ptr));
+        // bool (Interlocked.Exchange<bool>, CompareExchange<bool>): an i1 value, a byte in memory.
+        if (type.Kind == LLVMTypeKind.Integer && type.IntWidth == 1)
+            return (_b.Cast(LLVMOpcode.ZExt, v, L.I8), r => _b.ICmp(LLVMIntPredicate.NE, r, L.ConstInt(L.I8, 0)));
         return (v, r => r);
     }
 

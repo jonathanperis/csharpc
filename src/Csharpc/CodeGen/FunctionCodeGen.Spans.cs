@@ -360,6 +360,10 @@ public sealed partial class FunctionCodeGen
                 return MemoryEquals(span, ArgValue(inv, 0));
             case ("GetHashCode", 0) when TypeMapper.IsMemory(owner):
                 return MemoryHash(span);
+            // Memory<T>.Pin(): objects never move (ADR 0004), so the handle is just the data pointer
+            // (corelib MemoryHandleImpl: { _pointer, _handle, _pinnable }, nothing to free).
+            case ("Pin", 0) when TypeMapper.IsMemory(owner):
+                return _b.InsertValue(LlvmContext.Null(T.Value(S(method.ReturnType))), SpanPointer(span), 0);
             case ("ToString", 0):
                 return SpanToString(span, owner);
         }

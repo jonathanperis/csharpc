@@ -446,6 +446,15 @@ namespace CsharpcCoreLib
             : this(path, mode, access, share, bufferSize) { }
 
         public FileStreamImpl(string path, FileMode mode, FileAccess access, FileShare share, int bufferSize)
+            : this(path, mode, access, share, bufferSize, 0x1B6 /* 0666, minus umask */) { }
+
+        public FileStreamImpl(string path, FileStreamOptions options)
+            : this(path, OptionsOrThrow(options).Mode, options.Access, options.Share, options.BufferSize,
+                options.UnixCreateMode is { } unixMode ? (int)unixMode : 0x1B6) { }
+
+        private static FileStreamOptions OptionsOrThrow(FileStreamOptions options) => options ?? throw new ArgumentNullException("options");
+
+        private FileStreamImpl(string path, FileMode mode, FileAccess access, FileShare share, int bufferSize, int unixCreateMode)
         {
             if (path == null) throw new ArgumentNullException("path");
             if (path.Length == 0) throw new ArgumentException("Empty path name is not legal. (Parameter 'path')");
@@ -463,7 +472,7 @@ namespace CsharpcCoreLib
                 case FileMode.Append: flags |= Posix.O_CREAT; _append = true; break;
             }
             byte* p = Utf8.ToNative(_path);
-            _fd = Posix.open(p, flags, 0x1B6 /* 0666, minus umask */, (int)share);
+            _fd = Posix.open(p, flags, unixCreateMode, (int)share);
             int errno = Posix.Errno;
             Libc.free(p);
             if (_fd < 0) throw Posix.IOError(errno, _path, false);
@@ -478,6 +487,21 @@ namespace CsharpcCoreLib
         }
 
         public string Name => _path;
+
+#if !CSHARPC_TARGET_WINDOWS && !CSHARPC_TARGET_WASI
+        private Microsoft.Win32.SafeHandles.SafeFileHandle _safeHandle;
+
+        /// <summary>The descriptor, after the buffered writes (as .NET flushes before handing it out); the stream keeps owning it.</summary>
+        public virtual Microsoft.Win32.SafeHandles.SafeFileHandle SafeFileHandle
+        {
+            get
+            {
+                if (_disposed) throw new ObjectDisposedException(null, "Cannot access a closed file.");
+                Flush();
+                return _safeHandle ??= new Microsoft.Win32.SafeHandles.SafeFileHandle((IntPtr)_fd, ownsHandle: false);
+            }
+        }
+#endif
         public override bool CanRead => _canRead && !_disposed;
         public override bool CanWrite => _canWrite && !_disposed;
         public override bool CanSeek => !_disposed;
@@ -671,6 +695,92 @@ namespace CsharpcCoreLib
     }
 
     /// <summary>A read-only stream over unmanaged memory (System.Reflection.Metadata's GetStream()).</summary>
+    /// <summary>System.IO.FileStreamOptions (FileStreamOptions.cs): the arguments of FileStream(path, options), validated as .NET does.</summary>
+    [Shadows("System.IO.FileStreamOptions")]
+    public sealed class FileStreamOptionsImpl
+    {
+        private FileMode _mode = FileMode.Open;
+        private FileAccess _access = FileAccess.Read;
+        private FileShare _share = FileShare.Read;
+        private FileOptions _options;
+        private long _preallocationSize;
+        private int _bufferSize = 4096;
+        private UnixFileMode? _unixCreateMode;
+
+        private static ArgumentOutOfRangeException EnumValue() => new ArgumentOutOfRangeException("value", "Enum value was out of legal range.");
+
+        public FileMode Mode
+        {
+            get => _mode;
+            set => _mode = value < FileMode.CreateNew || value > FileMode.Append ? throw EnumValue() : value;
+        }
+
+        public FileAccess Access
+        {
+            get => _access;
+            set => _access = value < FileAccess.Read || value > FileAccess.ReadWrite ? throw EnumValue() : value;
+        }
+
+        public FileShare Share
+        {
+            get => _share;
+            set
+            {
+                FileShare share = value & ~FileShare.Inheritable;
+                if (share < FileShare.None || share > (FileShare.ReadWrite | FileShare.Delete)) throw EnumValue();
+                _share = value;
+            }
+        }
+
+        public FileOptions Options
+        {
+            get => _options;
+            set
+            {
+                // FileStreamHelpers.AreInvalid: only the documented flags (and 0x4000, FILE_FLAG_OPEN_NO_RECALL... as .NET accepts).
+                const FileOptions Valid = FileOptions.WriteThrough | FileOptions.Asynchronous | FileOptions.RandomAccess
+                    | FileOptions.DeleteOnClose | FileOptions.SequentialScan | FileOptions.Encrypted | (FileOptions)0x20000000;
+                if (value != FileOptions.None && (value & ~Valid) != 0) throw EnumValue();
+                _options = value;
+            }
+        }
+
+        public long PreallocationSize
+        {
+            get => _preallocationSize;
+            set
+            {
+                ArgumentOutOfRangeException.ThrowIfNegative(value);
+                _preallocationSize = value;
+            }
+        }
+
+        public int BufferSize
+        {
+            get => _bufferSize;
+            set
+            {
+                ArgumentOutOfRangeException.ThrowIfNegative(value);
+                _bufferSize = value;
+            }
+        }
+
+        public UnixFileMode? UnixCreateMode
+        {
+            get => _unixCreateMode;
+            set
+            {
+#if CSHARPC_TARGET_WINDOWS
+                throw new PlatformNotSupportedException("Unix file modes are not supported on this platform.");
+#else
+                if (value.HasValue && ((int)value.Value & ~0xFFF) != 0)
+                    throw new ArgumentException("Invalid UnixFileMode value.", "UnixCreateMode");
+                _unixCreateMode = value;
+#endif
+            }
+        }
+    }
+
     [Shadows("System.IO.UnmanagedMemoryStream")]
     public unsafe class UnmanagedMemoryStreamImpl : StreamImpl
     {

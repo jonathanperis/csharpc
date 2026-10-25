@@ -20,6 +20,9 @@ public sealed partial class FunctionCodeGen
         {
             // No code is generated at run time (as under NativeAOT): corelib/RuntimeServices.cs answers the same.
             ("System.Runtime.CompilerServices.RuntimeFeature", "get_IsDynamicCodeSupported" or "get_IsDynamicCodeCompiled") => false,
+            // csharpc has no Vector<T> yet: framework IL takes its scalar paths (System.Formats.Tar's checksum),
+            // which compute the same values. (Only IL is folded; C# source asking gets the usual diagnostic.)
+            ("System.Numerics.Vector", "get_IsHardwareAccelerated") => false,
             _ => null,
         };
 

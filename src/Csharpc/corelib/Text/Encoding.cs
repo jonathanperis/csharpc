@@ -77,6 +77,11 @@ namespace CsharpcCoreLib
             fixed (char* c = chars) return ByteCount(c, chars.Length);
         }
 
+        public virtual int GetByteCount(ReadOnlySpan<char> chars)
+        {
+            fixed (char* c = chars) return ByteCount(c, chars.Length);
+        }
+
         public virtual byte[] GetBytes(string s)
         {
             if (s == null) throw new ArgumentNullException("s");

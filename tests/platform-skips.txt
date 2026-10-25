@@ -142,5 +142,9 @@ windows 532_idn_mapping                live: IDNA comes from the OS's ICU (icu.d
 wasi 532_idn_mapping                   no ICU on WASI (invariant globalization mode; 533_idn_mapping_invariant covers that)
 wasi 534_thread_interrupt              needs threads: Thread.Start throws PlatformNotSupportedException on WebAssembly
 windows 534_thread_interrupt              live: Thread.Join is an alertable wait on Windows (an interrupt ends it), not on Unix
+windows 537_compression_streams        known gap: .NET's native compression shim is linked from the NativeAOT runtime pack, which csharpc can't link with MinGW yet
+wasi 537_compression_streams           known gap: no NativeAOT runtime pack (native compression shim) for WebAssembly
 windows 538_aes_cryptostream           known gap: Aes.Create() needs CNG (BCrypt), not implemented yet
 wasi 538_aes_cryptostream              known gap: no OS cipher on WebAssembly (WASI)
+windows 540_tar_zipfile                known gap: .NET's native shims are linked from the NativeAOT runtime pack, which csharpc can't link with MinGW yet
+wasi 540_tar_zipfile                   known gap: no NativeAOT runtime pack (native shims) for WebAssembly

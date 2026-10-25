@@ -167,6 +167,9 @@ namespace CsharpcCoreLib
         public static int GetLastSystemError() => Libc.csrt_get_last_system_error();
         public static void SetLastSystemError(int error) => Libc.csrt_set_last_system_error(error);
         public static string GetLastPInvokeErrorMessage() => GetPInvokeErrorMessage(GetLastPInvokeError());
+
+        /// <summary>Marshal.InitHandle: a SafeHandle created by marshalling code takes the native handle.</summary>
+        public static void InitHandle(SafeHandle safeHandle, IntPtr handle) => ((SafeHandleImpl)(object)safeHandle).SetHandle(handle);
 #if CSHARPC_TARGET_WINDOWS
         // Windows, as in .NET: HGlobal is LocalAlloc/LocalFree, CoTaskMem is CoTaskMemAlloc/Free (memory
         // native code frees with the matching allocator), "Ansi" is the system ANSI code page (CP_ACP,
