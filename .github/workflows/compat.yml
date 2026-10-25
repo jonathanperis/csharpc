@@ -5,6 +5,7 @@ name: Compatibility
 # run with NativeAOT (the parity denominator), and compiled and run with csharpc.
 # Too heavy for every push (hours); run on demand and weekly. The summary lands in the job summary,
 # the per-program results as an artifact (copy results into tools/compat/results.tsv to publish them).
+# Builds csharpc from this commit (not the published tool): parity is about the tree under test.
 on:
   workflow_dispatch:
     inputs:

@@ -74,11 +74,14 @@ Both packages carry `src/runtime/*.c`. csrt is compiled on the user's machine on
 cached in `~/.cache/csharpc`, so the packages are architecture-neutral. You need `clang`, or
 `CSHARPC_CC`, plus libLLVM 18–20.
 
-Published releases also push the `csharpc` tool to GitHub Packages
-(`https://nuget.pkg.github.com/jonathanperis/index.json`) and NativeAOT platform archives to
-[GitHub Releases](https://github.com/jonathanperis/csharpc/releases) (libLLVM bundled under `lib/`;
-see the README Install section). The tool package still needs a host libLLVM; the release archives
-do not.
+Published builds (`.github/workflows/release.yml`, after green CI on `main`, and on `v*` tags) push
+RID-specific NativeAOT **tool** packages (`csharpc.<rid>` plus a pointer `csharpc` package) to
+GitHub Packages and, when Trusted Publishing is configured, nuget.org — the same binaries as the
+[GitHub Release](https://github.com/jonathanperis/csharpc/releases) archives (libLLVM under `lib/`).
+`dotnet tool install -g csharpc` therefore installs a ready native compiler for the host RID; clang
+is still required on the machine to compile csrt and link. nuget.org OIDC lives in `release.yml`
+(no GitHub environment; variable `NUGET_USER`). See the README Install section.
+
 
 ## How it works
 

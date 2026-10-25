@@ -105,18 +105,29 @@ irm https://raw.githubusercontent.com/jonathanperis/csharpc/main/install.ps1 | i
 # Then put LLVM-MinGW's bin\ on PATH (clang + lld). libLLVM-18.dll is already in the archive.
 ```
 
-**dotnet tool** (needs the .NET 11 SDK; libLLVM + clang still required on the host):
+**dotnet tool** (RID-specific NativeAOT packages — same binaries as the release archives, including
+bundled libLLVM; still needs host **clang**/lld). Prefer nuget.org when published; otherwise GitHub
+Packages:
 
 ```bash
+# nuget.org (after the first Trusted Publishing release)
+dotnet tool install -g csharpc --prerelease
+
+# or GitHub Packages
 dotnet nuget add source https://nuget.pkg.github.com/jonathanperis/index.json \
   --name github-jonathanperis --username USERNAME --password GITHUB_TOKEN --store-password-in-clear-text
 dotnet tool install -g csharpc --prerelease --add-source https://nuget.pkg.github.com/jonathanperis/index.json
 ```
 
+Every green `main` CI publishes a rolling GitHub prerelease (`latest-main`) and a versioned tool
+package `0.1.0-spike.<ci_run_number>`. Tags `v*` publish a named release and that version to the
+feeds (`.github/workflows/release.yml`).
+
 **Container** (clang and libLLVM included; linux/amd64):
 
 ```bash
-docker run --rm -v "$PWD":/work -w /work ghcr.io/jonathanperis/csharpc:latest app.cs -o app
+docker run --rm -v "$PWD":/work -w /work ghcr.io/jonathanperis/csharpc:latest-main app.cs -o app
+# or a release tag / version: ghcr.io/jonathanperis/csharpc:v0.1.0-spike
 ```
 
 ## Build from source

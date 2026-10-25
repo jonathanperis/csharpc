@@ -77,6 +77,13 @@ program using Roslyn's parser compiles from IL at -O0.
 
 Release packaging on `ci/release-packaging`, 2026-10-25. Times are BRT (UTC−3).
 
+**nuget.org Trusted Publishing (for the owner, set this first):** OIDC push lives in
+`.github/workflows/release.yml` (workflow file name for the policy: **`release.yml`**). **No**
+GitHub Actions environment. `NuGet/login` uses `user: ${{ vars.NUGET_USER }}`. Policy fields:
+Repository Owner `jonathanperis`, Repository `csharpc`, Workflow File `release.yml`, Environment
+empty. Set repo variable `NUGET_USER` to the nuget.org profile name. If `NUGET_USER` is unset, the
+release job skips nuget.org with a notice and still publishes GitHub Packages / Releases / GHCR.
+
 **17:00–17:50.** Goal: ship csharpc via GitHub Releases and GitHub Packages. Driver facts:
 `AppContext.BaseDirectory/{corelib,runtime}` (already `CopyToPublishDirectory`); libLLVM via
 `$CSHARPC_LIBLLVM` then sonames (`Llvm/Native.cs`); clang/lld for csrt compile and link
@@ -88,13 +95,24 @@ a documented host prerequisite (full clang+sysroot is much larger and OS-specifi
 needs LLVM-MinGW for the linker/CRT). Container image included: zero host toolchain for
 `docker run … csharpc`.
 
-**17:55.** Added `tools/pack-release.sh`, `tools/smoke-release.sh`, `.github/workflows/release.yml`
+**17:55.** Added `tools/pack-release.sh`, `tools/smoke-release.sh`, release workflow
 (build ×4 RIDs → smoke without installing the .NET SDK → publish Release + NuGet to
 `nuget.pkg.github.com/jonathanperis` + `ghcr.io/jonathanperis/csharpc`), `install.sh` /
 `install.ps1`, `Dockerfile`, README Install section, roadmap/08-drop-in notes. `Native.cs` probes
 `lib/` next to the binary. `ci.yml` push trigger extended to `ci/**`. Local smoke of the packed
 linux-x64 archive: `01_hello` and `104_linq` match `.expected` with bundled libLLVM and
 `CSHARPC_LD=bfd` (this VM has no `lld` package).
+
+**18:10–18:20.** Scope extension: publish is part of the main pipeline via
+`workflow_run` on green CI (`release.yml`), not inside the five merge-bar jobs. Rolling GitHub
+prerelease `latest-main` + package `0.1.0-spike.<ci_run_number>`; tags `v*` get named releases.
+RID-specific NativeAOT tool packages (`ToolPackageRuntimeIdentifiers` + `CsharpcBundleLibLLVM`) so
+`dotnet tool install -g csharpc` installs the same binaries as the archives. Pointer package built
+by `tools/pack-tool-pointer.sh` (manual DotnetTool v2 nuspec — `dotnet pack` without `-r` was
+rebuilding the host RID and wiping the good nupkg). nuget.org via Trusted Publishing in
+`release.yml` as above. TechEmpower / Benchmarks / Compatibility keep building csharpc from the
+commit under test (they measure that tree); documented in those workflow headers. Windows zip fix:
+`cygpath -w` for Compress-Archive.
 
 Audit of the `m8-perf` merge on 2026-10-25. Times are BRT (UTC−3).
 

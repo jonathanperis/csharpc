@@ -1,27 +1,47 @@
 name: Release
 
-# Builds NativeAOT platform bundles (libLLVM bundled; clang/lld remain a system prerequisite),
-# smoke-tests each on a runner without the .NET SDK, then publishes a GitHub Release, the
-# csharpc dotnet tool to GitHub Packages, and a container image to ghcr.io.
+# Builds NativeAOT platform bundles + RID-specific tool packages, smoke-tests them, then
+# publishes a GitHub Release, GitHub Packages, and (when configured) nuget.org.
+#
+# nuget.org Trusted Publishing: NuGet/login + push live in THIS file (release.yml). The OIDC
+# workflow claim is `release.yml`. No GitHub Actions environment. Policy must use:
+#   Repository Owner: jonathanperis | Repository: csharpc | Workflow File: release.yml | Environment: (empty)
+# Repo variable: NUGET_USER = nuget.org profile name.
+#
+# Triggers:
+#   - After CI succeeds on main (workflow_run): rolling prerelease `latest-main`, package
+#     version 0.1.0-spike.<ci_run_number>. Does not run inside ci.yml, so it never cancels
+#     or slows the five merge-bar jobs.
+#   - Push of v* tags: named release + package version from the tag.
+#   - workflow_dispatch: dry-run by default (build+smoke only).
 on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
   push:
     tags: ["v*"]
-    # Temporary: exercise build+smoke on the packaging branch (publish job is tag-only).
-    # Remove this branch filter after the first real release lands on main.
+    # Temporary: dry-run build+smoke on the packaging branch (publish stays false).
+    # Remove after the first real tag release on main.
     branches: ["ci/release-packaging"]
   workflow_dispatch:
     inputs:
       dry_run:
-        description: "Build and smoke-test only (do not publish release/packages)"
+        description: "Build and smoke-test only (do not publish)"
         type: boolean
         default: true
+      version:
+        description: "Package version override (empty: from csproj / tag)"
+        type: string
+        required: false
+        default: ""
 
-
+# NuGet Trusted Publishing (OIDC) requires id-token on THIS workflow file (release.yml).
+# A policy on nuget.org must name workflow file `release.yml` (no GitHub environment).
 permissions:
   contents: read
 
 concurrency:
-  group: release-${{ github.ref }}
+  group: publish-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: false
 
 env:
@@ -29,8 +49,105 @@ env:
   DOTNET_NOLOGO: 1
 
 jobs:
+  # Decide whether to run and which version/channel to publish.
+  setup:
+    name: setup
+    runs-on: ubuntu-24.04
+    outputs:
+      should_run: ${{ steps.meta.outputs.should_run }}
+      should_publish: ${{ steps.meta.outputs.should_publish }}
+      version: ${{ steps.meta.outputs.version }}
+      channel: ${{ steps.meta.outputs.channel }}
+      release_tag: ${{ steps.meta.outputs.release_tag }}
+      prerelease: ${{ steps.meta.outputs.prerelease }}
+      publish_nuget_org: ${{ steps.meta.outputs.publish_nuget_org }}
+      sha: ${{ steps.meta.outputs.sha }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
+          fetch-depth: 0
+
+      - id: meta
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          WR_CONCLUSION: ${{ github.event.workflow_run.conclusion || '' }}
+          WR_BRANCH: ${{ github.event.workflow_run.head_branch || '' }}
+          WR_SHA: ${{ github.event.workflow_run.head_sha || '' }}
+          WR_RUN_NUMBER: ${{ github.event.workflow_run.run_number || '' }}
+          REF_NAME: ${{ github.ref_name }}
+          SHA: ${{ github.sha }}
+          DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run || false }}
+          VERSION_OVERRIDE: ${{ github.event_name == 'workflow_dispatch' && inputs.version || '' }}
+          NUGET_USER: ${{ vars.NUGET_USER || '' }}
+        run: |
+          set -euo pipefail
+          csproj_ver="$(sed -n 's/.*<Version>\([^<]*\)<\/Version>.*/\1/p' src/Csharpc/Csharpc.csproj | head -1)"
+          should_run=false
+          should_publish=false
+          channel=none
+          version="$csproj_ver"
+          release_tag=""
+          prerelease=true
+          sha="$SHA"
+
+          if [[ $EVENT_NAME == workflow_run ]]; then
+            if [[ $WR_CONCLUSION == success && $WR_BRANCH == main ]]; then
+              should_run=true
+              should_publish=true
+              channel=main
+              version="0.1.0-spike.${WR_RUN_NUMBER}"
+              release_tag=latest-main
+              prerelease=true
+              sha="$WR_SHA"
+            fi
+          elif [[ $EVENT_NAME == push && $REF_NAME == v* ]]; then
+            should_run=true
+            should_publish=true
+            channel=tag
+            version="${REF_NAME#v}"
+            release_tag="$REF_NAME"
+            if [[ $version == *-* ]]; then prerelease=true; else prerelease=false; fi
+            sha="$SHA"
+          elif [[ $EVENT_NAME == push && $REF_NAME == ci/release-packaging ]]; then
+            should_run=true
+            should_publish=false
+            channel=branch-dry-run
+            version="${csproj_ver}.dryrun"
+            release_tag="v${version}"
+            prerelease=true
+            sha="$SHA"
+          elif [[ $EVENT_NAME == workflow_dispatch ]]; then
+            should_run=true
+            should_publish=$([[ $DRY_RUN == true || $DRY_RUN == True ]] && echo false || echo true)
+            channel=dispatch
+            version="${VERSION_OVERRIDE:-$csproj_ver}"
+            release_tag="v${version}"
+            if [[ $version == *-* ]]; then prerelease=true; else prerelease=false; fi
+          fi
+
+          # nuget.org only when a Trusted Publishing username is configured (never on dry-run).
+          publish_nuget_org=false
+          if [[ $should_publish == true && -n ${NUGET_USER} ]]; then
+            publish_nuget_org=true
+          fi
+
+          {
+            echo "should_run=$should_run"
+            echo "should_publish=$should_publish"
+            echo "version=$version"
+            echo "channel=$channel"
+            echo "release_tag=$release_tag"
+            echo "prerelease=$prerelease"
+            echo "publish_nuget_org=$publish_nuget_org"
+            echo "sha=$sha"
+          } >> "$GITHUB_OUTPUT"
+          echo "Publish setup: run=$should_run publish=$should_publish channel=$channel version=$version tag=$release_tag nuget.org=$publish_nuget_org sha=$sha"
+
   build:
     name: build (${{ matrix.rid }})
+    needs: setup
+    if: needs.setup.outputs.should_run == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -58,6 +175,8 @@ jobs:
         run: git config --global core.autocrlf false
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.setup.outputs.sha }}
 
       - name: Install LLVM 18, clang and lld (Linux)
         if: matrix.os == 'linux'
@@ -99,24 +218,25 @@ jobs:
           "$env:USERPROFILE\.dotnet11" | Out-File -Append -Encoding utf8 $env:GITHUB_PATH
           "DOTNET_ROOT=$env:USERPROFILE\.dotnet11" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
 
-      - name: Pack release bundle
+      - name: Pack release bundle and RID tool package
         run: |
           chmod +x tools/pack-release.sh
-          if [[ ${{ github.ref }} == refs/tags/v* ]]; then
-            export CSHARPC_VERSION="${GITHUB_REF_NAME#v}"
-          fi
+          export CSHARPC_VERSION='${{ needs.setup.outputs.version }}'
           tools/pack-release.sh "${{ matrix.rid }}" "$PWD/artifacts/release"
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: bundle-${{ matrix.rid }}
-          path: artifacts/release/csharpc-*-${{ matrix.rid }}.*
+          path: |
+            artifacts/release/csharpc-*-${{ matrix.rid }}.*
+            artifacts/release/nupkg/csharpc.${{ matrix.rid }}.*.nupkg
           if-no-files-found: error
           retention-days: 14
 
   smoke:
     name: smoke (${{ matrix.rid }})
-    needs: build
+    needs: [setup, build]
+    if: ${{ !cancelled() && needs.setup.outputs.should_run == 'true' }}
     strategy:
       fail-fast: false
       matrix:
@@ -143,9 +263,9 @@ jobs:
         if: matrix.os == 'windows'
         run: git config --global core.autocrlf false
 
-      # Samples' .expected files only — no .NET SDK on this job (the bundle must run alone).
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ needs.setup.outputs.sha }}
           sparse-checkout: |
             tests/samples
             tools/smoke-release.sh
@@ -156,8 +276,6 @@ jobs:
           name: bundle-${{ matrix.rid }}
           path: bundles
 
-      # clang compiles csrt and drives the link; libLLVM is inside the bundle. Do not install the
-      # .NET SDK here — that is the point of the smoke job.
       - name: Install clang and lld only (Linux)
         if: matrix.os == 'linux'
         run: sudo apt-get update && sudo apt-get install -y clang-18 lld-18 && sudo ln -sf /usr/bin/clang-18 /usr/local/bin/clang && sudo ln -sf /usr/bin/ld.lld-18 /usr/local/bin/ld.lld
@@ -179,14 +297,6 @@ jobs:
           bin="$(cygpath -w "$RUNNER_TEMP/llvm-mingw-20240619-ucrt-x86_64/bin")"
           echo "$bin" >> "$GITHUB_PATH"
 
-      - name: Assert .NET SDK is not required
-        run: |
-          if command -v dotnet >/dev/null 2>&1; then
-            echo "warning: runner image ships dotnet at $(command -v dotnet); smoke still only runs the bundled binary"
-          else
-            echo "no dotnet on PATH (good)"
-          fi
-
       - name: Smoke-test bundle
         run: |
           chmod +x tools/smoke-release.sh
@@ -196,12 +306,8 @@ jobs:
 
   publish:
     name: publish
-    needs: smoke
-    # Only real version tags publish. Branch pushes and dry-run dispatches stop after smoke.
-    if: >-
-      (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) ||
-      (github.event_name == 'workflow_dispatch' && inputs.dry_run == false)
-
+    needs: [setup, smoke]
+    if: needs.setup.outputs.should_publish == 'true' && needs.smoke.result == 'success'
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     permissions:
@@ -215,6 +321,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ needs.setup.outputs.sha }}
           fetch-depth: 0
 
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
@@ -223,30 +330,29 @@ jobs:
           pattern: bundle-*
           merge-multiple: true
 
-      - name: Install .NET 11 SDK (for packing the tool)
+      - name: Install .NET 11 SDK
         run: |
           curl -sSL https://dot.net/v1/dotnet-install.sh -o dotnet-install.sh
           bash dotnet-install.sh --jsonfile global.json --install-dir "$HOME/.dotnet11"
           echo "$HOME/.dotnet11" >> "$GITHUB_PATH"
           echo "DOTNET_ROOT=$HOME/.dotnet11" >> "$GITHUB_ENV"
 
-      - name: Collect assets and SHA256SUMS
-        id: assets
+      - name: Collect assets, pointer package, SHA256SUMS
         run: |
-          mkdir -p release-assets
+          set -euo pipefail
+          VERSION='${{ needs.setup.outputs.version }}'
+          mkdir -p release-assets nupkg
           cp bundles/csharpc-*.tar.gz bundles/csharpc-*.zip release-assets/ 2>/dev/null || true
           cp bundles/csharpc-*.sizes.txt release-assets/ 2>/dev/null || true
+          cp bundles/csharpc.*.nupkg nupkg/ 2>/dev/null || true
+          chmod +x tools/pack-tool-pointer.sh
+          tools/pack-tool-pointer.sh "$VERSION" "$PWD/nupkg"
+          cp nupkg/csharpc."$VERSION".nupkg release-assets/
           cd release-assets
-          sha256sum csharpc-*.tar.gz csharpc-*.zip > SHA256SUMS
+          sha256sum csharpc-*.tar.gz csharpc-*.zip csharpc."$VERSION".nupkg > SHA256SUMS 2>/dev/null \
+            || sha256sum csharpc-*.tar.gz csharpc-*.zip > SHA256SUMS
           cat SHA256SUMS
           ls -lh
-          echo "tag=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
-          # Tags with a prerelease suffix (-spike, -alpha, -test.N, …) become GitHub prereleases.
-          if [[ ${GITHUB_REF_NAME} == *-* ]]; then
-            echo "prerelease=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "prerelease=false" >> "$GITHUB_OUTPUT"
-          fi
 
       - name: Attest release archives
         uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2.4.0
@@ -255,42 +361,77 @@ jobs:
             release-assets/*.tar.gz
             release-assets/*.zip
 
-      - name: Create GitHub Release
+      - name: Create or update GitHub Release
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
         with:
-          tag_name: ${{ github.ref_name }}
-          name: csharpc ${{ github.ref_name }}
-          generate_release_notes: true
-          prerelease: ${{ steps.assets.outputs.prerelease }}
+          tag_name: ${{ needs.setup.outputs.release_tag }}
+          target_commitish: ${{ needs.setup.outputs.sha }}
+          name: ${{ needs.setup.outputs.channel == 'main' && format('csharpc latest-main ({0})', needs.setup.outputs.version) || format('csharpc {0}', needs.setup.outputs.release_tag) }}
+          generate_release_notes: ${{ needs.setup.outputs.channel == 'tag' }}
+          prerelease: ${{ needs.setup.outputs.prerelease == 'true' }}
+          make_latest: ${{ needs.setup.outputs.channel == 'tag' && needs.setup.outputs.prerelease != 'true' }}
+          body: ${{ needs.setup.outputs.channel == 'main' && format('Rolling main prerelease. Package version `{0}`. Assets replaced on every green main CI. Prefer a `v*` tag for a frozen release.', needs.setup.outputs.version) || '' }}
           files: |
             release-assets/*.tar.gz
             release-assets/*.zip
             release-assets/SHA256SUMS
             release-assets/*.sizes.txt
+            release-assets/csharpc.*.nupkg
           fail_on_unmatched_files: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Pack and push csharpc dotnet tool to GitHub Packages
+      - name: Push packages to GitHub Packages
         run: |
-          mkdir -p nupkg
-          dotnet pack src/Csharpc -c Release -o nupkg -p:CsharpcReadyToRun=false
-          ls -lh nupkg
-          dotnet nuget push nupkg/*.nupkg \
+          set -euo pipefail
+          # RID packages first, pointer last (install resolves RIDs from the pointer).
+          for pkg in nupkg/csharpc.linux-*.nupkg nupkg/csharpc.osx-*.nupkg nupkg/csharpc.win-*.nupkg; do
+            [[ -f $pkg ]] || continue
+            dotnet nuget push "$pkg" \
+              --source "https://nuget.pkg.github.com/jonathanperis/index.json" \
+              --api-key "${{ secrets.GITHUB_TOKEN }}" \
+              --skip-duplicate
+          done
+          dotnet nuget push nupkg/csharpc."${{ needs.setup.outputs.version }}".nupkg \
             --source "https://nuget.pkg.github.com/jonathanperis/index.json" \
             --api-key "${{ secrets.GITHUB_TOKEN }}" \
             --skip-duplicate
 
-      # Container decision: ship ghcr.io/jonathanperis/csharpc so users who do not want a local
-      # LLVM/clang install can `docker run … csharpc app.cs`. The image is linux/amd64 only (the
-      # linux-x64 bundle plus apt clang/lld); multi-arch can follow once arm64 runners pack the
-      # same layout. Size is dominated by libLLVM (~100 MiB) plus the NativeAOT binary.
+      - name: NuGet.org Trusted Publishing login
+        id: nuget_login
+        if: needs.setup.outputs.publish_nuget_org == 'true'
+        continue-on-error: true
+        uses: NuGet/login@8d196754b4036150537f80ac539e15c2f1028841 # v1.2.0
+        with:
+          user: ${{ vars.NUGET_USER }}
+
+      - name: Push packages to nuget.org
+        if: needs.setup.outputs.publish_nuget_org == 'true' && steps.nuget_login.outcome == 'success'
+        run: |
+          set -euo pipefail
+          KEY='${{ steps.nuget_login.outputs.NUGET_API_KEY }}'
+          for pkg in nupkg/csharpc.linux-*.nupkg nupkg/csharpc.osx-*.nupkg nupkg/csharpc.win-*.nupkg; do
+            [[ -f $pkg ]] || continue
+            dotnet nuget push "$pkg" --api-key "$KEY" --source https://api.nuget.org/v3/index.json --skip-duplicate
+          done
+          dotnet nuget push nupkg/csharpc."${{ needs.setup.outputs.version }}".nupkg \
+            --api-key "$KEY" --source https://api.nuget.org/v3/index.json --skip-duplicate
+
+      - name: nuget.org skipped or login failed
+        if: needs.setup.outputs.publish_nuget_org != 'true' || (needs.setup.outputs.publish_nuget_org == 'true' && steps.nuget_login.outcome != 'success')
+        run: |
+          if [[ '${{ needs.setup.outputs.publish_nuget_org }}' != 'true' ]]; then
+            echo "nuget.org publish skipped: set repository variable NUGET_USER (nuget.org profile name) and a Trusted Publishing policy for workflow file release.yml (no GitHub environment)."
+          else
+            echo "nuget.org login failed; packages were still published to GitHub Packages. Check the Trusted Publishing policy for jonathanperis/csharpc workflow release.yml (no environment)."
+            exit 1
+          fi
+
       - name: Prepare docker-bundle context
         run: |
           mkdir -p docker-bundle
           tar -xzf release-assets/csharpc-*-linux-x64.tar.gz -C docker-bundle --strip-components=1
           test -x docker-bundle/csharpc
-          test -d docker-bundle/lib
 
       - name: Log in to GHCR
         uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772 # v3.4.0
@@ -302,12 +443,21 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@b5ca514318bd6ebac0fb2aedd5d36ec1b5c232a2 # v3.10.0
 
+      - name: Container image tags
+        id: image_tags
+        run: |
+          tags=$'ghcr.io/jonathanperis/csharpc:${{ needs.setup.outputs.version }}\nghcr.io/jonathanperis/csharpc:${{ needs.setup.outputs.release_tag }}'
+          if [[ '${{ needs.setup.outputs.channel }}' == tag && '${{ needs.setup.outputs.prerelease }}' != true ]]; then
+            tags+=$'\nghcr.io/jonathanperis/csharpc:latest'
+          fi
+          echo "tags<<EOF" >> "$GITHUB_OUTPUT"
+          echo "$tags" >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
+
       - name: Build and push container image
         uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6.18.0
         with:
           context: .
           file: Dockerfile
           push: true
-          tags: |
-            ghcr.io/jonathanperis/csharpc:${{ github.ref_name }}
-            ghcr.io/jonathanperis/csharpc:latest
+          tags: ${{ steps.image_tags.outputs.tags }}
