@@ -297,6 +297,17 @@ void* csrt_coro_alloc(int64_t size) {
     return (uint8_t*)csrt_alloc(&csrt_CoroFrame_MT.header, size + CORO_FRAME_OFFSET) + CORO_FRAME_OFFSET;
 }
 
+/// An async method's task and coroutine frame in one object: the task (method table first, so the
+/// object is a Task), then its payload, then the frame at the next 16-byte boundary. The frame pointer
+/// is an interior pointer of the task, so the frame lives exactly as long as the task does.
+void* csrt_coro_alloc_task(int64_t size, int32_t payload_size, csrt_Task** task) {
+    int64_t head = ((int64_t)sizeof(csrt_Task) + (payload_size > 0 ? payload_size : 0) + 15) & ~(int64_t)15;
+    csrt_Task* t = csrt_alloc(&csrt_Task_MT.header, head + size);
+    t->payload_size = payload_size;
+    *task = t;
+    return (uint8_t*)t + head;
+}
+
 csrt_Task* csrt_task_new(int32_t payload_size) {
     csrt_Task* t = csrt_alloc(&csrt_Task_MT.header, (int64_t)sizeof(csrt_Task) + (payload_size > 0 ? payload_size : 0));
     t->payload_size = payload_size;
