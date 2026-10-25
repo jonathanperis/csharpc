@@ -1,4 +1,4 @@
-// SemaphoreSlim.Wait and ManualResetEventSlim.Wait with a CancellationToken, over the C runtime's events
+// SemaphoreSlim.Wait and ManualResetEventSlim.Wait (Tasks/ManualResetEventSlim.cs) with a CancellationToken, over the C runtime's events
 // (runtime/threads.c): a callback registered on the token kicks the event's waiters, which then see the
 // source canceled (csrt_event_wait_token). The argument checks come in .NET's order (SemaphoreSlim.cs,
 // ManualResetEventSlim.cs).
@@ -36,6 +36,25 @@ namespace CsharpcCoreLib
         }
     }
 
+    [ShadowMembers("System.Threading.CountdownEvent")]
+    internal static class CountdownEventWaits
+    {
+        [ShadowInstance] public static void Wait(CountdownEvent e, CancellationToken cancellationToken) => Wait(e, -1, cancellationToken);
+
+        [ShadowInstance] public static bool Wait(CountdownEvent e, TimeSpan timeout) =>
+            Wait(e, CancelableWaits.Milliseconds(timeout, null), default(CancellationToken));
+
+        [ShadowInstance] public static bool Wait(CountdownEvent e, TimeSpan timeout, CancellationToken cancellationToken) =>
+            Wait(e, CancelableWaits.Milliseconds(timeout, null), cancellationToken);
+
+        [ShadowInstance] public static bool Wait(CountdownEvent e, int millisecondsTimeout, CancellationToken cancellationToken)
+        {
+            ArgumentOutOfRangeException.ThrowIfLessThan(millisecondsTimeout, -1);
+            cancellationToken.ThrowIfCancellationRequested();
+            return CancelableWaits.Wait(e, millisecondsTimeout, cancellationToken);
+        }
+    }
+
     [ShadowMembers("System.Threading.SemaphoreSlim")]
     internal static class SemaphoreSlimWaits
     {
@@ -54,25 +73,6 @@ namespace CsharpcCoreLib
             if (millisecondsTimeout < -1) throw new ArgumentOutOfRangeException("millisecondsTimeout", millisecondsTimeout, TimeoutWrong);
             cancellationToken.ThrowIfCancellationRequested();
             return CancelableWaits.Wait(semaphore, millisecondsTimeout, cancellationToken);
-        }
-    }
-
-    [ShadowMembers("System.Threading.ManualResetEventSlim")]
-    internal static class ManualResetEventSlimWaits
-    {
-        [ShadowInstance] public static void Wait(ManualResetEventSlim e, CancellationToken cancellationToken) => Wait(e, -1, cancellationToken);
-
-        [ShadowInstance] public static bool Wait(ManualResetEventSlim e, TimeSpan timeout) =>
-            Wait(e, CancelableWaits.Milliseconds(timeout, null), default(CancellationToken));
-
-        [ShadowInstance] public static bool Wait(ManualResetEventSlim e, TimeSpan timeout, CancellationToken cancellationToken) =>
-            Wait(e, CancelableWaits.Milliseconds(timeout, null), cancellationToken);
-
-        [ShadowInstance] public static bool Wait(ManualResetEventSlim e, int millisecondsTimeout, CancellationToken cancellationToken)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            ArgumentOutOfRangeException.ThrowIfLessThan(millisecondsTimeout, -1);
-            return CancelableWaits.Wait(e, millisecondsTimeout, cancellationToken);
         }
     }
 }

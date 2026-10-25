@@ -53,16 +53,43 @@ namespace CsharpcCoreLib
 
         public static void Sort<TKey, TValue>(TKey[] keys, TValue[] items)
         {
-            // Sorts items along with keys: sort an index permutation, then apply it to both.
-            int n = keys.Length;
-            int[] perm = new int[n];
-            for (int i = 0; i < n; i++) perm[i] = i;
-            TKey[] k = new TKey[n];
-            for (int i = 0; i < n; i++) k[i] = keys[i];
-            SortHelper<int>.Sort(perm, 0, n, (a, b) => CoreIntrinsics.Compare(k[a], k[b]));
-            TValue[] v = new TValue[items.Length];
-            for (int i = 0; i < v.Length; i++) v[i] = items[i];
-            for (int i = 0; i < n; i++) { keys[i] = k[perm[i]]; items[i] = v[perm[i]]; }
+            if (keys == null) ThrowHelper.ArgumentNull("keys");
+            Sort(keys, items, 0, keys.Length, null);
+        }
+
+        public static void Sort<TKey, TValue>(TKey[] keys, TValue[] items, IComparer<TKey> comparer)
+        {
+            if (keys == null) ThrowHelper.ArgumentNull("keys");
+            Sort(keys, items, 0, keys.Length, comparer);
+        }
+
+        public static void Sort<TKey, TValue>(TKey[] keys, TValue[] items, int index, int length) => Sort(keys, items, index, length, null);
+
+        public static void Sort<TKey, TValue>(TKey[] keys, TValue[] items, int index, int length, IComparer<TKey> comparer)
+        {
+            if (keys == null) ThrowHelper.ArgumentNull("keys");
+            if (index < 0 || length < 0) ThrowHelper.ArgumentOutOfRange(length < 0 ? "length" : "index", "Non-negative number required.");
+            if (keys.Length - index < length || (items != null && index > items.Length - length))
+                throw new ArgumentException("Offset and length were out of bounds for the array or count is greater than the number of elements from index to the end of the source collection.");
+            if (length <= 1) return;
+            if (items == null)
+            {
+                SortHelper<TKey>.Sort(keys, index, length, comparer);
+                return;
+            }
+            // Sorts items along with keys: the same introsort over an index permutation makes the same
+            // decisions (they only depend on the comparisons), then the permutation is applied to both.
+            int[] perm = new int[length];
+            for (int i = 0; i < length; i++) perm[i] = i;
+            TKey[] k = new TKey[length];
+            Array.Copy(keys, index, k, 0, length);
+            TValue[] v = new TValue[length];
+            Array.Copy(items, index, v, 0, length);
+            if (comparer == null || comparer == Comparer<TKey>.Default)
+                SortHelper<int>.Sort(perm, 0, length, (a, b) => CoreIntrinsics.Compare(k[a], k[b]));
+            else
+                SortHelper<int>.Sort(perm, 0, length, (a, b) => comparer.Compare(k[a], k[b]));
+            for (int i = 0; i < length; i++) { keys[index + i] = k[perm[i]]; items[index + i] = v[perm[i]]; }
         }
 
         public static void Reverse<T>(T[] array)

@@ -40,7 +40,7 @@ __attribute__((weak)) void csrt_coro_resume(void* frame) { (void)frame; abort();
 __attribute__((weak)) void csrt_coro_destroy(void* frame) { (void)frame; abort(); }
 
 const csrt_BuiltinMethodTable csrt_Task_MT = {
-    { &csrt_Object_MT.header, "System.Threading.Tasks.Task", 0, 0 },
+    { &csrt_Object_MT.header, "System.Threading.Tasks.Task", 0, CSRT_MT_DISPOSABLE /* Task.Dispose: nothing to release */ },
     { (void*)csrt_object_to_string_default, (void*)csrt_object_equals_default, (void*)csrt_object_get_hash_code_default },
 };
 static const csrt_BuiltinMethodTable csrt_CoroFrame_MT = {
@@ -325,11 +325,13 @@ static atomic_int s_waiters;
 
 static void run_continuations(csrt_Task* t, csrt_Array* conts, int32_t n);
 
-/// The one place a task leaves the pending state. False if it had already completed.
-static bool try_finish(csrt_Task* t, int32_t state, void* exception) {
+/// The one place a task leaves the pending state. False if it had already completed. `aggregate`: the
+/// Task.Exception of a task faulted with several exceptions (null: made from `exception` when asked for).
+static bool try_finish_aggregate(csrt_Task* t, int32_t state, void* exception, void* aggregate) {
     task_lock(t);
     if (task_state(t) != T_PENDING) { task_unlock(t); return false; }
     if (exception) t->exception = exception;
+    if (aggregate) t->aggregate = aggregate;
     csrt_Array* conts = t->conts;
     int32_t n = t->ncont;
     t->conts = NULL;
@@ -343,6 +345,16 @@ static bool try_finish(csrt_Task* t, int32_t state, void* exception) {
         pthread_mutex_unlock(&s_wlock);
     }
     return true;
+}
+
+static bool try_finish(csrt_Task* t, int32_t state, void* exception) { return try_finish_aggregate(t, state, exception, NULL); }
+
+/// TaskCompletionSource.TrySetException(IEnumerable<Exception>): faulted with all of them (Task.Exception's
+/// InnerExceptions); `await` rethrows the first, as in .NET.
+bool csrt_task_try_fault_many(csrt_Task* t, csrt_Array* exceptions) {
+    if (!t || !exceptions) csrt_throw_null_reference();
+    void** items = (void**)exceptions->data;
+    return try_finish_aggregate(t, T_FAULTED, items[0], csrt_aggregate_exception_new(items, (int32_t)exceptions->length));
 }
 
 static void finish(csrt_Task* t, int32_t state, void* exception) {

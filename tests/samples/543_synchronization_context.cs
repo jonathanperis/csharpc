@@ -57,7 +57,7 @@ static async Task<int> RunAsync(List<string> log, int main)
 {
     await Task.Delay(5);
     log.Add($"after await: on context thread {Environment.CurrentManagedThreadId == main}, current {SynchronizationContext.Current?.GetType().Name}");
-    await Task.Run(() => 1);
+    await Task.Run(async () => { await Task.Delay(5); return 1; }); // still running when awaited: the continuation is posted
     log.Add($"after Task.Run: on context thread {Environment.CurrentManagedThreadId == main}");
     await Task.Yield();
     log.Add($"after Yield: on context thread {Environment.CurrentManagedThreadId == main}");

@@ -1,2 +1,0 @@
-324_gvm_generic_override.cs(8,27): error CSLLVM0001: not supported by csharpc yet: generic virtual method 'Base.Describe' overridden in generic class 'Wrapper'
-csharpc: error : 1 construct(s) not supported by csharpc yet

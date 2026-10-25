@@ -1,0 +1,19 @@
+ordered: 34,68,102,136,170,204,238,272,306,340,374
+sum 20100, max 200, count 66
+ordered take: 6,7,8,9,10
+sorted: 10,30,50,70,90
+grouped: 3:fig 4:date/kiwi/pear/plum 5:apple
+select many: pfakpd
+ForAll: 50,100,150,200
+with degree: 20100
+AggregateException: bad element
+canceled: OperationCanceledException
+parent RanToCompletion, child finished first: True
+failing parent Faulted: 2 child aggregate(s)
+flattened: FormatException, TimeoutException
+DenyChildAttach parent: RanToCompletion
+tcs: Faulted 2 [first, second]
+await rethrows the first: ArgumentException first
+TrySetException again: False
+The exceptions collection was empty. (Parameter 'exceptions')
+IDisposable task: True

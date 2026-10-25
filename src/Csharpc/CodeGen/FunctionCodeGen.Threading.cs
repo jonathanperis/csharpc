@@ -19,8 +19,7 @@ public sealed partial class FunctionCodeGen
     internal static readonly string[] TypesLoweredByName =
     [
         "System.Threading.Tasks.Parallel", "System.Threading.Thread", "System.Threading.Monitor", "System.Threading.Lock",
-        "System.Threading.Interlocked", "System.Threading.Volatile", "System.Threading.ManualResetEventSlim",
-        "System.Threading.ManualResetEvent", "System.Threading.AutoResetEvent", "System.Threading.SemaphoreSlim",
+        "System.Threading.Interlocked", "System.Threading.Volatile", "System.Threading.ManualResetEvent", "System.Threading.AutoResetEvent", "System.Threading.SemaphoreSlim",
         "System.Threading.CountdownEvent", "System.Threading.EventWaitHandle", "System.Threading.WaitHandle",
     ];
 
@@ -62,9 +61,6 @@ public sealed partial class FunctionCodeGen
                 return true;
             case "Lock" when IsThreading(type, "Lock"):
                 result = Rt("csrt_lock_new", L.Ptr, []);
-                return true;
-            case "ManualResetEventSlim" when IsThreading(type, "ManualResetEventSlim"):
-                result = Event(0, ctor.Parameters.IsEmpty ? I32(0) : BoolCount(0), I32(0));
                 return true;
             case "ManualResetEvent" when IsThreading(type, "ManualResetEvent"):
                 result = Event(0, BoolCount(0), I32(1));
@@ -137,7 +133,7 @@ public sealed partial class FunctionCodeGen
             return true;
         }
         if (owner is INamedTypeSymbol { ContainingNamespace: { } ns } && ns.ToDisplayString() == "System.Threading"
-            && owner.Name is "ManualResetEventSlim" or "ManualResetEvent" or "AutoResetEvent" or "SemaphoreSlim" or "CountdownEvent" or "EventWaitHandle" or "WaitHandle")
+            && owner.Name is "ManualResetEvent" or "AutoResetEvent" or "SemaphoreSlim" or "CountdownEvent" or "EventWaitHandle" or "WaitHandle")
         {
             result = name switch
             {
@@ -246,7 +242,7 @@ public sealed partial class FunctionCodeGen
         }
 
         if (owner is INamedTypeSymbol { ContainingNamespace: { } ns } && ns.ToDisplayString() == "System.Threading"
-            && owner.Name is "ManualResetEventSlim" or "ManualResetEvent" or "AutoResetEvent" or "SemaphoreSlim" or "CountdownEvent" or "EventWaitHandle" or "WaitHandle")
+            && owner.Name is "ManualResetEvent" or "AutoResetEvent" or "SemaphoreSlim" or "CountdownEvent" or "EventWaitHandle" or "WaitHandle")
         {
             if (m.Parameters.Any(p => p.Type.SpecialType is not (SpecialType.System_Int32 or SpecialType.System_Boolean))) return false;
             var self = Self();

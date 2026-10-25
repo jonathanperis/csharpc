@@ -40,7 +40,7 @@ Console.WriteLine($"after edits: {order.ToString(SaveOptions.DisableFormatting)}
 
 // Whitespace preservation.
 var spaced = XElement.Parse("<a>\n  <b> x </b>\n</a>", LoadOptions.PreserveWhitespace);
-Console.WriteLine($"preserved: {spaced.ToString(SaveOptions.DisableFormatting).Replace("\n", "\\n")}");
+Console.WriteLine($"preserved: {spaced.ToString(SaveOptions.DisableFormatting).Replace("\r\n", "\\n").Replace("\n", "\\n")}"); // the newline the writer emits is Environment.NewLine
 
 // XmlWriter to a StringBuilder, XmlReader over a string.
 var sb = new StringBuilder();
@@ -76,7 +76,7 @@ Console.WriteLine(Encoding.ASCII.GetString(SaveAscii(text)));
 // Files: XDocument.Save / Load, and XElement.Load(path).
 string path = Path.Combine(Path.GetTempPath(), $"csharpc-546-{Environment.ProcessId}.xml");
 doc.Save(path);
-Console.WriteLine($"file starts: {File.ReadAllText(path)[..60].Replace("\r", "").Replace("\n", "\\n")}");
+Console.WriteLine($"file starts: {File.ReadAllText(path).Replace("\r", "")[..60].Replace("\n", "\\n")}");
 Console.WriteLine($"reloaded {XElement.Load(path).Elements().Count()} elements, {XDocument.Load(path).Descendants("title").Count()} titles");
 File.Delete(path);
 

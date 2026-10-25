@@ -31,6 +31,9 @@ public sealed partial class ModuleCodeGen
 
     private readonly Dictionary<IMethodSymbol, GenericInterfaceDispatcher> _genericInterfaceDispatchers = new(SymbolEqualityComparer.Default);
 
+    /// <summary>The deepest type arguments a dispatcher case is compiled for (see EmitGenericInterfaceDispatchers).</summary>
+    private const int MaxDispatcherDepth = 6;
+
     /// <summary>The dispatcher for a call to the generic interface method instantiation <paramref name="target"/>.</summary>
     internal LoweredFunction GenericInterfaceDispatcherFor(IMethodSymbol target)
     {
@@ -77,7 +80,14 @@ public sealed partial class ModuleCodeGen
                     var next = b.AppendBlock(d.Tail, "next");
                     b.CondBr(b.ICmp(LLVMIntPredicate.EQ, mt, methodTable), hit, next);
                     b.PositionAtEnd(hit);
-                    var f = SlotFunction(callee);
+                    // The dispatcher instantiates every candidate type's implementation, more than the program
+                    // can call: a generic virtual method whose overrides wrap its type argument (PLINQ's
+                    // WrapPartitionedStream<Pair<TKey, ...>>) would expand without end. Past a depth no real
+                    // program reaches, a case ends the program with a diagnostic instead of being compiled.
+                    var f = callee.TypeArguments.Select(GenericDepth).DefaultIfEmpty(0).Max() > MaxDispatcherDepth
+                        ? UnsupportedStub(Mangler.Method(callee) + "$toodeep", FunctionTypeOf(callee),
+                            $"not supported by csharpc yet: '{callee}', a generic method instantiation nested more than {MaxDispatcherDepth} levels deep")
+                        : SlotFunction(callee);
                     var args = (LLVMValueRef[])parameters.Clone();
                     // A boxed struct's implementation runs on the payload after the method-table pointer.
                     if (type.IsValueType) args[0] = b.InBoundsGep(Llvm.I8, self, [Llvm.ConstInt(Llvm.I64, 8)]);
@@ -121,8 +131,25 @@ public sealed partial class ModuleCodeGen
         var itf = target.ContainingType;
         var member = target.ConstructedFrom;
         var typeArgs = target.TypeArguments.ToArray();
+        // A generic virtual method of a class (GenericVirtualCall, when generic classes override it): the
+        // derived types' most-derived override.
+        IMethodSymbol? MostDerived(INamedTypeSymbol type, IMethodSymbol root)
+        {
+            for (INamedTypeSymbol? t = type; t is not null; t = t.BaseType)
+                if (t.GetMembers(root.Name).OfType<IMethodSymbol>().FirstOrDefault(m => m.IsGenericMethod && !m.IsAbstract
+                        && SymbolEqualityComparer.Default.Equals(ClassLayout.RootOf(m.OriginalDefinition), root)) is { } found)
+                    return found;
+            return null;
+        }
         IMethodSymbol? CalleeIn(INamedTypeSymbol type)
         {
+            if (itf.TypeKind != TypeKind.Interface)
+            {
+                for (INamedTypeSymbol? b = type; b is not null; b = b.BaseType)
+                    if (SymbolEqualityComparer.Default.Equals(b, itf))
+                        return MostDerived(type, ClassLayout.RootOf(target.OriginalDefinition)) is { } classImpl ? classImpl.Construct(typeArgs) : null;
+                return null;
+            }
             if (!type.AllInterfaces.Any(i => SymbolEqualityComparer.Default.Equals(i, itf))) return null;
             var impl = type.FindImplementationForInterfaceMember(member) as IMethodSymbol;
             if (impl is null) return member.IsAbstract ? null : target; // the interface's default body

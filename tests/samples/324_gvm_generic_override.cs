@@ -1,8 +1,8 @@
 using System;
 
-// A generic virtual method overridden in a generic class. csharpc dispatches generic virtual
-// methods over the program's non-generic classes only, so instead of silently calling the base
-// implementation it rejects the call with an explicit diagnostic (324_gvm_generic_override.diagnostics).
+// A generic virtual method overridden in a generic class: its instantiations are only known once
+// lowering is done, so the call goes through a dispatcher filled in rounds over every class with a
+// method table (ModuleCodeGen.GenericInterfaces.cs), each case calling that class's override.
 class Base
 {
     public virtual string Describe<T>(T value) => "base " + value;
@@ -22,7 +22,8 @@ class Program
 {
     static void Main()
     {
-        Base[] items = { new Base(), new Plain(), new Wrapper<int>() };
+        Base[] items = { new Base(), new Plain(), new Wrapper<int>(), new Wrapper<string>() };
         foreach (Base item in items) Console.WriteLine(item.Describe(42));
+        foreach (Base item in items) Console.WriteLine(item.Describe("text"));
     }
 }

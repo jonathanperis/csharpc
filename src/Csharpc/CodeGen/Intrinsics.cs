@@ -627,6 +627,14 @@ internal static class Intrinsics
                         ? g.CallRuntime("csrt_task_try_fault", g.Module.Llvm.I1, [g.Module.Llvm.Ptr, g.Module.Llvm.Ptr], self, e)
                         : g.CallRuntime("csrt_task_fault", g.Module.Llvm.Void, [g.Module.Llvm.Ptr, g.Module.Llvm.Ptr], self, e);
                 };
+                // Several exceptions: corelib/Tasks/TaskExceptions.cs checks and collects them.
+                t[$"{tcs}.{prefix}Exception(System.Collections.Generic.IEnumerable<System.Exception>)"] = (g, inv) =>
+                {
+                    var self = g.EmitValue(inv.Instance!);
+                    g.NullCheck(self);
+                    var result = g.CallCoreLib("TaskExceptions", tryMode ? "TrySetMany" : "SetMany", self, Arg(g, inv, 0));
+                    return tryMode ? result : default;
+                };
                 t[$"{tcs}.{prefix}Canceled()"] = (g, inv) =>
                 {
                     var self = g.EmitValue(inv.Instance!);

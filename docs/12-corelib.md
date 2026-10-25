@@ -247,8 +247,7 @@ all option combinations) checks.
   unchanged; a program serializing a few types through a source-generated context is about 1 MB, one
   using the reflection-style API about 1.5 MB, and these compile in 20–60 s (most of it in LLVM).
 * **Explicit diagnostics (CSLLVM0001/0002)** instead of run-time surprises: anonymous types with the
-  reflection-style API, generic virtual methods overridden in generic classes (a codegen limit the
-  node and converter classes are written around), `Guid` members and BCL types csharpc
+  reflection-style API, `Guid` members and BCL types csharpc
   doesn't implement yet (`ConcurrentDictionary`, `ReadOnlyCollection`, immutable collections), and
   `System.Text.Json.Schema`.
 

@@ -329,6 +329,11 @@ namespace CsharpcCoreLib
     {
         public static bool IsDynamicCodeSupported => false;
         public static bool IsDynamicCodeCompiled => false;
+#if CSHARPC_TARGET_WASM32
+        public static bool IsMultithreadingSupported => false; // WASI preview 1: one thread (docs/adr/0011-wasm32.md)
+#else
+        public static bool IsMultithreadingSupported => true;
+#endif
     }
 
     [ShadowMembers("System.GC")]

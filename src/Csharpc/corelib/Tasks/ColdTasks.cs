@@ -61,8 +61,8 @@ namespace CsharpcCoreLib
         private static Task Build(Action body, CancellationToken token, TaskCreationOptions options)
         {
             CheckOptions(options);
-            TaskSupport.CheckAttach(options);
             var tcs = new TaskCompletionSource();
+            TaskSupport.AttachToParent(tcs.Task, options);
             return Register(tcs.Task, scheduler => TaskSupport.Work(body, tcs, token, options, scheduler), () => tcs.TrySetCanceled(), token);
         }
 
@@ -81,8 +81,8 @@ namespace CsharpcCoreLib
         private static Task<TResult> BuildFunc<TResult>(Func<TResult> body, CancellationToken token, TaskCreationOptions options)
         {
             CheckOptions(options);
-            TaskSupport.CheckAttach(options);
             var tcs = new TaskCompletionSource<TResult>();
+            TaskSupport.AttachToParent(tcs.Task, options);
             Register(tcs.Task, scheduler => TaskSupport.Work(body, tcs, token, options, scheduler), () => tcs.TrySetCanceled(), token);
             return tcs.Task;
         }

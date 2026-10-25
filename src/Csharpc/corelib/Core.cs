@@ -137,6 +137,12 @@ namespace CsharpcCoreLib
         // Waits of the runtime's events/semaphores that a CancellationToken can end (runtime/threads.c).
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern int csrt_event_wait_token(object e, int milliseconds, object source);
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern void csrt_event_kick(object e);
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern bool csrt_task_try_fault_many(object task, Exception[] exceptions);
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern object csrt_event_new(int kind, int count, int max);
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern int csrt_event_set(object e, int n);
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern void csrt_event_reset(object e);
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern bool csrt_event_is_set(object e);
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern bool csrt_event_wait(object e, int milliseconds);
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern void csrt_cts_link(System.Threading.CancellationTokenSource linked, System.Threading.CancellationToken token);
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern object csrt_cts_token(System.Threading.CancellationTokenSource source);
     }
