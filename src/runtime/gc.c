@@ -531,27 +531,24 @@ static void ack_wait(void) { while (sem_wait(&g.ack) != 0 && errno == EINTR) {} 
 
 static int cache_segments(struct dl_phdr_info* info, size_t size, void* data) {
     (void)size; (void)data;
-    // The RELRO range (method tables, vtables, interface maps, the GOT) is read-only once the loader has
-    // relocated it, so it can't point into the heap: leave it out of the roots. In a large program it is
-    // most of the writable image (megabytes for an ASP.NET Core app), and every collection scanned it.
-    uintptr_t relro_lo = 0, relro_hi = 0;
-    for (int i = 0; i < info->dlpi_phnum; i++)
-        if (info->dlpi_phdr[i].p_type == PT_GNU_RELRO) {
-            relro_lo = (uintptr_t)(info->dlpi_addr + info->dlpi_phdr[i].p_vaddr);
-            relro_hi = relro_lo + info->dlpi_phdr[i].p_memsz;
-        }
     // The first entry is the main executable; static fields live in its writable PT_LOAD segments.
+    // The RELRO range (method tables, vtables, interface maps, the GOT) is read-only once the loader has
+    // relocated it, so it can't point into the heap: it is cut from the segment it starts.
+    // In a large program it is most of the writable image (megabytes for an ASP.NET Core app).
+    uintptr_t relro_lo = 0, relro_hi = 0;
     for (int i = 0; i < info->dlpi_phnum; i++) {
         const ElfW(Phdr)* ph = &info->dlpi_phdr[i];
+        uintptr_t start = (uintptr_t)(info->dlpi_addr + ph->p_vaddr);
         if (ph->p_type == PT_TLS) { g.tls_size = ph->p_memsz; g.tls_align = ph->p_align ? ph->p_align : 1; }
+        if (ph->p_type == PT_GNU_RELRO) { relro_lo = start; relro_hi = start + ph->p_memsz; }
         if (ph->p_type != PT_LOAD || !(ph->p_flags & PF_W) || g.segment_count == MAX_SEGMENTS) continue;
-        uintptr_t start = (uintptr_t)(info->dlpi_addr + ph->p_vaddr), end = start + ph->p_memsz;
-        if (relro_lo <= start && start < relro_hi) start = relro_hi < end ? relro_hi : end;  // RELRO is the segment's head
-        if (start >= end) continue;
         g.segments[g.segment_count].lo = start;
-        g.segments[g.segment_count].hi = end;
+        g.segments[g.segment_count].hi = start + ph->p_memsz;
         g.segment_count++;
     }
+    // PT_GNU_RELRO starts a writable segment (and may cover all of it).
+    for (size_t i = 0; i < g.segment_count; i++)
+        if (relro_lo <= g.segments[i].lo && g.segments[i].lo < relro_hi) g.segments[i].lo = relro_hi < g.segments[i].hi ? relro_hi : g.segments[i].hi;
     return 1;  // stop after the main executable
 }
 
