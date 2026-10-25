@@ -156,3 +156,4 @@ windows 553_rsa                        known gap: RSA.Create() needs CNG (BCrypt
 wasi 553_rsa                           known gap: no OS RSA on WebAssembly (WASI)
 wasi 549_async_local                   needs threads: the sample starts a Thread (Thread.Start throws PlatformNotSupportedException on WebAssembly)
 wasi 552_plinq_attached_children       needs threads: the parallel sort merges partitions through barriers (pool work items run one after another on WebAssembly)
+windows 547_bcl_members_for_xml        live: .NET's Uri takes "/dir/x" for an implicit file path on Unix only (csharpc reports drive-less file paths on Windows as not supported yet)

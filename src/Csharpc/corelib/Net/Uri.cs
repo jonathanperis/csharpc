@@ -97,6 +97,11 @@ namespace CsharpcCoreLib
                 return false;
             }
             if (!drive && rest.Length > 1 && (rest[1] == '/' || rest[1] == '\\')) throw Unsupported("UNC paths");
+#if CSHARPC_TARGET_WINDOWS
+            // .NET on Windows takes "/dir/x" for no implicit file path, and gives drive-less file URIs other
+            // local paths than on Unix: not modelled.
+            if (!drive) throw Unsupported("drive-less file paths on Windows");
+#endif
             string slashed = drive ? rest.Replace('\\', '/') : rest;
             if (!IsPlain(slashed, 0, false) || HasDotSegment(slashed) || slashed.Contains("//")) throw Unsupported("file paths .NET escapes or rewrites");
             path = drive ? "/" + slashed : slashed;
