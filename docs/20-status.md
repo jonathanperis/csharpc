@@ -255,12 +255,19 @@ on 310 with nursery. Not shipping as default — flag + honest ADR.
 [40238570327](https://github.com/jonathanperis/csharpc/actions/runs/40238570327): arm64
 `tests/size` typeinfo 43896 vs budget 43008 (main was 39800; every other aarch64 size binary
 matched main). Nursery fields and `csrt_gc_cards_dirty` from `Array.Copy` were still in the
-default build; gated them on `CSRT_HAS_NURSERY` (`02f055e`). Second CI
-[40240589857](https://github.com/jonathanperis/csharpc/actions/runs/40240589857) still had
-typeinfo 43896 while async/hello/linq/… stayed at main’s sizes — so the page is not the default
-`gc.o` text. Raised `linux-aarch64 typeinfo` to 47104 (same headroom as before the page:
-3208 bytes) and dropped the unused barrier stubs from non-nursery `gc.o`. Root cause of the
-typeinfo-only page on aarch64 is still open; x86-64 typeinfo text matches or is under main.
+default build; gated them on `CSRT_HAS_NURSERY` (`02f055e`). A mistaken budget raise to 47104
+went in as `a65a0e0` and is reverted: the growth was avoidable.
+
+**20:36.** Root cause of the aarch64 typeinfo page: `alloc_small_slow`’s default path was
+rewritten with a shared `if (g.enabled && !g.collecting)` wrapper around the trigger check.
+That is equivalent, but aarch64 codegen grew the function by 60 bytes (1496 → 1556). The RX
+LOAD (`FileSiz` 0x3fd0 → 0x4010) crossed the next 0x1000 file boundary, so the data LOAD moved
+from file offset 0xa000 to 0xb000 and the stripped file grew by exactly 4096 (39800 → 43896 on
+CI; reproduced cross at 51976 → 56072 with the same RX sizes). Fix: keep the single-generation
+`alloc_small_slow` / `alloc_large_locked` bodies byte-identical to main under
+`#else` of `CSRT_HAS_NURSERY`. Cross-check after the fix: aarch64 typeinfo file and `size`
+match main (RX `FileSiz` 0x3fd0 again); `linux-aarch64 typeinfo` budget restored to 43008.
+x86-64 sizes unchanged (hello 28520, async 147200, typeinfo 43776).
 
 ## Working rules
 

@@ -793,6 +793,7 @@ static void* alloc_large(size_t size, bool clear) {
     return p;
 }
 
+#if CSRT_HAS_NURSERY
 __attribute__((noinline, cold)) static void* alloc_small_slow(uint32_t cls) {
     if (!g.initialized) csrt_gc_init();
     gc_lock();
@@ -801,25 +802,79 @@ __attribute__((noinline, cold)) static void* alloc_small_slow(uint32_t cls) {
     bool collected = false;
     void* result = NULL;
     if (g.stress && g.enabled && ++g.stress_count % g.stress == 0 && !g.collecting) {
-#if CSRT_HAS_NURSERY
         g.force_major = true;
-#endif
         collect(); collected = true;
     }
     for (;;) {
         if (g.enabled && !g.collecting) {
-#if CSRT_HAS_NURSERY
             if (g.nursery) {
                 if (g.young_since_gc >= g.nursery_trigger) { collect(); collected = true; }
-            } else
-#endif
-            if (g.allocated_since_gc >= g.trigger) { collect(); collected = true; }
+            } else if (g.allocated_since_gc >= g.trigger) {
+                collect(); collected = true;
+            }
         }
         if (cache->free_bits || claim_word(sc, cache, cls)) break;
         if (!g.enabled || collected) goto out;
-#if CSRT_HAS_NURSERY
         g.force_major = true;
-#endif
+        collect();
+        collected = true;
+    }
+    size_t heap = g.live_bytes + g.allocated_since_gc;
+    if (heap > g.peak_heap) g.peak_heap = heap;
+    uint64_t bits = cache->free_bits;
+    if (g.stress) {
+        size_t w;
+        Chunk* c = cache_word(cache, &w);
+        c->allocated[w] &= ~(bits & (bits - 1));
+        bits &= -bits;
+    }
+    cache->free_bits = bits & (bits - 1);
+    result = cache->word_base + (size_t)__builtin_ctzll(bits) * k_size_classes[cls];
+out:
+    gc_unlock();
+    return result;
+}
+
+static void* alloc_large_locked(size_t size, bool clear) {
+    if (g.enabled) {
+        if (g.stress && ++g.stress_count % g.stress == 0) {
+            g.force_major = true;
+            collect();
+        } else if (g.nursery ? g.young_since_gc >= g.nursery_trigger : g.allocated_since_gc >= g.trigger) {
+            collect();
+        }
+    }
+    void* result = alloc_large(size, clear);
+    if (!result && g.enabled) {
+        g.force_major = true;
+        collect();
+        result = alloc_large(size, clear);
+    }
+    if (result) {
+        size_t charged = (size + 15) & ~(size_t)15;
+        g.allocated_since_gc += charged;
+        g.total_allocated += charged;
+        size_t heap = g.live_bytes + g.allocated_since_gc;
+        if (heap > g.peak_heap) g.peak_heap = heap;
+    }
+    return result;
+}
+#else
+// Keep the single-generation shapes identical to main: a shared `!g.collecting` wrapper around the
+// trigger check grew alloc_small_slow by ~60 bytes on aarch64 and tipped typeinfo's RX LOAD over a
+// 64 KiB file boundary (+4 KiB file size).
+__attribute__((noinline, cold)) static void* alloc_small_slow(uint32_t cls) {
+    if (!g.initialized) csrt_gc_init();
+    gc_lock();
+    SizeClass* sc = &g.classes[cls];
+    AllocCache* cache = &tl_cache[cls];
+    bool collected = false;
+    void* result = NULL;
+    if (g.stress && g.enabled && ++g.stress_count % g.stress == 0 && !g.collecting) { collect(); collected = true; }
+    for (;;) {
+        if (g.enabled && g.allocated_since_gc >= g.trigger && !g.collecting) { collect(); collected = true; }
+        if (cache->free_bits || claim_word(sc, cache, cls)) break;
+        if (!g.enabled || collected) goto out;
         collect();
         collected = true;
     }
@@ -840,36 +895,10 @@ out:
     return result;
 }
 
-__attribute__((noinline)) static void* alloc_large_slow(size_t size, bool clear) {
-    if (!g.initialized) csrt_gc_init();
-    gc_lock();
-    void* result = alloc_large_locked(size, clear);
-    gc_unlock();
-    return result;
-}
-
 static void* alloc_large_locked(size_t size, bool clear) {
-    if (g.enabled) {
-        if (g.stress && ++g.stress_count % g.stress == 0) {
-#if CSRT_HAS_NURSERY
-            g.force_major = true;
-#endif
-            collect();
-        }
-#if CSRT_HAS_NURSERY
-        else if (g.nursery ? g.young_since_gc >= g.nursery_trigger : g.allocated_since_gc >= g.trigger) collect();
-#else
-        else if (g.allocated_since_gc >= g.trigger) collect();
-#endif
-    }
+    if (g.enabled && (g.allocated_since_gc >= g.trigger || (g.stress && ++g.stress_count % g.stress == 0))) collect();
     void* result = alloc_large(size, clear);
-    if (!result && g.enabled) {
-#if CSRT_HAS_NURSERY
-        g.force_major = true;
-#endif
-        collect();
-        result = alloc_large(size, clear);
-    }
+    if (!result && g.enabled) { collect(); result = alloc_large(size, clear); }
     if (result) {
         size_t charged = (size + 15) & ~(size_t)15;
         g.allocated_since_gc += charged;
@@ -877,6 +906,15 @@ static void* alloc_large_locked(size_t size, bool clear) {
         size_t heap = g.live_bytes + g.allocated_since_gc;
         if (heap > g.peak_heap) g.peak_heap = heap;
     }
+    return result;
+}
+#endif
+
+__attribute__((noinline)) static void* alloc_large_slow(size_t size, bool clear) {
+    if (!g.initialized) csrt_gc_init();
+    gc_lock();
+    void* result = alloc_large_locked(size, clear);
+    gc_unlock();
     return result;
 }
 
