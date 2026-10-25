@@ -962,10 +962,21 @@ namespace CsharpcCoreLib
             catch (Exception e) { return Task.FromException<int>(e); }
         }
 
+        // .NET's async Memory overloads go through Read/Write(byte[], int, int) when the memory is an array
+        // (MemoryMarshal.TryGetArray), which a derived class may override. csharpc's Memory<T> is a pointer and a
+        // length without its array, so a derived stream gets the bytes through a temporary array of the same length.
+        private int ReadThroughArray(Span<byte> destination)
+        {
+            byte[] temp = new byte[destination.Length];
+            int n = Read(temp, 0, temp.Length);
+            new ReadOnlySpan<byte>(temp, 0, n).CopyTo(destination);
+            return n;
+        }
+
         public override ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
         {
             if (cancellationToken.IsCancellationRequested) return new ValueTask<int>(Task.FromCanceled<int>(cancellationToken));
-            try { return new ValueTask<int>(Read(buffer.Span)); }
+            try { return new ValueTask<int>(GetType() == typeof(MemoryStream) ? Read(buffer.Span) : ReadThroughArray(buffer.Span)); }
             catch (OperationCanceledException) { return new ValueTask<int>(Task.FromCanceled<int>(cancellationToken)); }
             catch (Exception e) { return ValueTask.FromException<int>(e); }
         }
@@ -988,7 +999,8 @@ namespace CsharpcCoreLib
             if (cancellationToken.IsCancellationRequested) return new ValueTask(Task.FromCanceled(cancellationToken));
             try
             {
-                Write(buffer.Span);
+                if (GetType() == typeof(MemoryStream)) Write(buffer.Span);
+                else Write(buffer.ToArray(), 0, buffer.Length);
                 return default;
             }
             catch (OperationCanceledException) { return new ValueTask(Task.FromCanceled(cancellationToken)); }

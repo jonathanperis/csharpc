@@ -468,6 +468,14 @@ namespace CsharpcCoreLib
         }
     }
 
+    /// <summary>ValueTask factories beyond the intrinsics (a ValueTask is its task: Intrinsics.cs).</summary>
+    [ShadowMembers("System.Threading.Tasks.ValueTask")]
+    internal static class ValueTaskMembers
+    {
+        public static ValueTask FromCanceled(CancellationToken cancellationToken) => new ValueTask(Task.FromCanceled(cancellationToken));
+        public static ValueTask<TResult> FromCanceled<TResult>(CancellationToken cancellationToken) => new ValueTask<TResult>(Task.FromCanceled<TResult>(cancellationToken));
+    }
+
     /// <summary>Task.Factory and Task.ContinueWith (Task&lt;TResult&gt;'s are Intrinsics.cs forwarders to TaskResultContinuations).</summary>
     [ShadowMembers("System.Threading.Tasks.Task")]
     internal static class TaskMembers

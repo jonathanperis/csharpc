@@ -917,6 +917,7 @@ internal static class Intrinsics
         t[$"{Tasks}.ValueTask<TResult>..ctor(TResult)"] = (g, c) =>
             g.CompletedTask(CtorArg(g, c, 0), ((INamedTypeSymbol)g.TypeOf(c)!).TypeArguments[0]);
         t[$"{Tasks}.ValueTask..ctor({Tasks}.Task)"] = (g, c) => CtorArg(g, c, 0);
+        t[$"{Tasks}.ValueTask<TResult>..ctor({Tasks}.Task<TResult>)"] = (g, c) => CtorArg(g, c, 0);
         ConstructorHandler newTcs = (g, c) =>
         {
             foreach (var a in c.Arguments) g.EmitValue(a.Value); // TaskCreationOptions / state: ignored (continuations are always queued)
