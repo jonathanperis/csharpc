@@ -75,6 +75,10 @@ namespace CsharpcCoreLib
     {
         public static GCMemoryInfo GetGCMemoryInfo() => (GCMemoryInfo)(object)new GCMemoryInfoImpl(GC.GetTotalMemory(false));
         public static GCMemoryInfo GetGCMemoryInfo(GCKind kind) => GetGCMemoryInfo();
+
+        // csharpc's collector never moves objects: every array is pinned, and fresh memory is zeroed anyway.
+        public static T[] AllocateUninitializedArray<T>(int length, bool pinned = false) => new T[length];
+        public static T[] AllocateArray<T>(int length, bool pinned = false) => new T[length];
     }
 
     [Shadows("System.Reflection.ReflectionTypeLoadException")]

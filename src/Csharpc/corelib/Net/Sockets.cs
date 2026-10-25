@@ -114,6 +114,8 @@ namespace CsharpcCoreLib
         // the engine made non-blocking (or accepted non-blocking) waits with poll() in synchronous calls.
         private SocketAsyncContext _async;
         private bool _nonBlocking;
+        // new Socket(SafeSocketHandle(fd, ownsHandle: false)) (an inherited listen socket): Dispose leaves the fd open.
+        private bool _ownsHandle = true;
 
         internal long RawHandle => _handle;
 
@@ -143,6 +145,32 @@ namespace CsharpcCoreLib
             AddressFamily = addressFamily;
             SocketType = socketType;
             ProtocolType = protocolType;
+        }
+
+        /// <summary>A socket over an existing descriptor (systemd socket activation, Kestrel's FileHandleEndPoint).</summary>
+        public SocketImpl(SafeSocketHandle handle)
+        {
+            ArgumentNullException.ThrowIfNull(handle);
+            var safe = (SafeSocketHandleImpl)(object)handle;
+            if (safe.IsInvalid) throw new ArgumentException("The handle is invalid.", "handle");
+#if CSHARPC_TARGET_LINUX
+            long fd = safe.DangerousGetHandle();
+            int domain = NetNative.GetInt(fd, NetNative.SOL_SOCKET, 39 /* SO_DOMAIN */);
+            int type = NetNative.GetInt(fd, NetNative.SOL_SOCKET, 3 /* SO_TYPE */);
+            int protocol = NetNative.GetInt(fd, NetNative.SOL_SOCKET, 38 /* SO_PROTOCOL */);
+            if (domain != NetNative.AF_INET && domain != NetNative.AF_INET6)
+                throw new NotSupportedException("csharpc: sockets support only the InterNetwork and InterNetworkV6 address families.");
+            _handle = fd;
+            _ownsHandle = safe.OwnsHandle;
+            AddressFamily = domain == NetNative.AF_INET6 ? AddressFamily.InterNetworkV6 : AddressFamily.InterNetwork;
+            SocketType = type == NetNative.SOCK_DGRAM ? SocketType.Dgram : SocketType.Stream;
+            ProtocolType = protocol == NetNative.IPPROTO_UDP ? ProtocolType.Udp : ProtocolType.Tcp;
+            _bound = true;
+            _listening = NetNative.GetInt(fd, NetNative.SOL_SOCKET, 30 /* SO_ACCEPTCONN */) != 0;
+            if (AddressFamily == AddressFamily.InterNetworkV6) _dualMode = NetNative.GetInt(fd, NetNative.IPPROTO_IPV6, NetNative.IPV6_V6ONLY) == 0;
+#else
+            throw new NotSupportedException("A socket over an existing handle is not supported by csharpc yet on this platform.");
+#endif
         }
 
         private SocketImpl(long handle, AddressFamily family, SocketType type, ProtocolType protocol, bool dualMode)
@@ -603,8 +631,37 @@ namespace CsharpcCoreLib
             _connected = false;
             // Pending operations end with OperationAborted before the descriptor goes away.
             Volatile.Read(ref _async)?.Close();
-            NetNative.Close(_handle);
+            if (_ownsHandle) NetNative.Close(_handle);
             _handle = NetNative.InvalidSocket;
+        }
+    }
+
+    [Shadows("System.Net.Sockets.SafeSocketHandle")]
+    public sealed class SafeSocketHandleImpl : IDisposable
+    {
+        private readonly nint _handle;
+        private bool _closed;
+        internal bool OwnsHandle { get; }
+
+        public SafeSocketHandleImpl() { _handle = -1; OwnsHandle = true; }
+
+        public SafeSocketHandleImpl(nint preexistingHandle, bool ownsHandle)
+        {
+            _handle = preexistingHandle;
+            OwnsHandle = ownsHandle;
+        }
+
+        public bool IsInvalid => _handle == -1;
+        public bool IsClosed => _closed;
+        public nint DangerousGetHandle() => _handle;
+
+        public void Close() => Dispose();
+
+        public void Dispose()
+        {
+            if (_closed) return;
+            _closed = true;
+            if (OwnsHandle && !IsInvalid) NetNative.Close(_handle);
         }
     }
 

@@ -149,3 +149,4 @@ wasi 613_socket_async_operations   opens loopback sockets: WASI preview 1 has no
 macos 614_posix_signal_registration  sends raw signal 10, which is SIGUSR1 on Linux but SIGBUS on macOS
 windows 614_posix_signal_registration known gap: PosixSignalRegistration on Windows (console control events) is not supported by csharpc yet; the sample also calls libc kill()
 wasi 614_posix_signal_registration    WASI has no signals: .NET throws PlatformNotSupportedException
+wasi 618_execution_context_memory_members  creates a UnixDomainSocketEndPoint: WASI has no sockets (PlatformNotSupportedException)

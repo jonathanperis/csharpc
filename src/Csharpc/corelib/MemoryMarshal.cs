@@ -12,6 +12,17 @@ namespace CsharpcCoreLib
     [ShadowMembers("System.Runtime.InteropServices.MemoryMarshal")]
     internal static unsafe class MemoryMarshalImpl
     {
+        /// <summary>Memory over a pinned array: every array is pinned for csharpc's non-moving collector.</summary>
+        public static Memory<T> CreateFromPinnedArray<T>(T[] array, int start, int length)
+        {
+            if (array == null)
+            {
+                if (start != 0 || length != 0) throw new ArgumentOutOfRangeException();
+                return default;
+            }
+            return new Memory<T>(array, start, length);
+        }
+
         private static void Copy(byte* from, byte* to, int count)
         {
             for (int i = 0; i < count; i++) to[i] = from[i];
