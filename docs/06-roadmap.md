@@ -69,7 +69,7 @@ every failure is a clean "not supported by csharpc yet" diagnostic.
 | Multithreading (`Thread`, `Monitor`, `Interlocked`, `Parallel`) | ✅ | `Task.Run` still on the single-threaded scheduler |
 | Unhandled exceptions (message + exit 134) | ✅ | |
 | Static initialization | ✅ | lazy per type with CoreCLR's triggers, `TypeInitializationException`; generic types ❌ |
-| Reflection | 🟡 | `GetType()`, `typeof`, names; `System.Type` predicates, generics, assignability and `Type.Assembly` over compile-time metadata ([12-corelib.md](12-corelib.md#type-metadata-systemtype-reflection)); no member reflection ❌ |
+| Reflection | 🟡 | `GetType()`, `typeof`, names; `System.Type` predicates, generics, assignability and `Type.Assembly` over compile-time metadata ([12-corelib.md](12-corelib.md#type-metadata-systemtype-reflection)); constructors, methods, properties, attributes, `Invoke`, `CreateDelegate`, closed-world `MakeGenericType` for what `[DynamicallyAccessedMembers]` reaches ([ADR 0018](adr/0018-reflection-metadata.md)); fields, events, `GetInterfaces` ❌ |
 | Finalizers | ⬜ | |
 | Debug info (DWARF, gdb/lldb) | ✅ | `-g` |
 
