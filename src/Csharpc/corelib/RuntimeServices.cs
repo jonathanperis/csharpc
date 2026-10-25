@@ -336,14 +336,6 @@ namespace CsharpcCoreLib
 #endif
     }
 
-    [ShadowMembers("System.GC")]
-    internal static class GCMembers
-    {
-        // csharpc's arrays are always zeroed and never move: both are an ordinary array.
-        public static T[] AllocateUninitializedArray<T>(int length, bool pinned = false) => new T[length];
-        public static T[] AllocateArray<T>(int length, bool pinned = false) => new T[length];
-    }
-
     [ShadowMembers("System.Runtime.CompilerServices.RuntimeHelpers")]
     internal static unsafe class RuntimeHelpersMembers
     {
@@ -382,6 +374,8 @@ namespace CsharpcCoreLib
         public static bool IsAttached => false;
         public static bool IsLogging() => false;
         public static void Log(int level, string category, string message) { }
+        public static void BreakForUserUnhandledException(Exception exception) { }
+        public static void NotifyOfCrossThreadDependency() { }
     }
 
     [Shadows("System.Threading.Timeout")]

@@ -377,6 +377,26 @@ namespace CsharpcCoreLib.Globalization
             internal const int AllowUnassigned = 0x1;
             internal const int UseStd3AsciiRules = 0x2;
 
+            internal static int ToAscii(uint flags, ReadOnlySpan<char> src, int srcLen, Span<char> dstBuffer, int dstBufferCapacity)
+            {
+                fixed (char* s = src) fixed (char* dst = dstBuffer) return ToAscii(flags, s, srcLen, dst, dstBufferCapacity);
+            }
+
+            internal static int ToUnicode(uint flags, ReadOnlySpan<char> src, int srcLen, Span<char> dstBuffer, int dstBufferCapacity)
+            {
+                fixed (char* s = src) fixed (char* dst = dstBuffer) return ToUnicode(flags, s, srcLen, dst, dstBufferCapacity);
+            }
+
+            internal static int ToAscii(uint flags, char* src, int srcLen, Span<char> dstBuffer, int dstBufferCapacity)
+            {
+                fixed (char* dst = dstBuffer) return ToAscii(flags, src, srcLen, dst, dstBufferCapacity);
+            }
+
+            internal static int ToUnicode(uint flags, char* src, int srcLen, Span<char> dstBuffer, int dstBufferCapacity)
+            {
+                fixed (char* dst = dstBuffer) return ToUnicode(flags, src, srcLen, dst, dstBufferCapacity);
+            }
+
 #if CSHARPC_TARGET_WASI
             internal static int ToAscii(uint flags, char* src, int srcLen, char* dstBuffer, int dstBufferCapacity) { GlobalizationMode.EnsureIcuLoaded(); throw new PlatformNotSupportedException(); }
 #else

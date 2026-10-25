@@ -41,6 +41,12 @@ namespace CsharpcCoreLib
             return string.Format(provider, format.Format, args);
         }
 
+        public static string Format(IFormatProvider provider, System.Text.CompositeFormat format, params ReadOnlySpan<object> args)
+        {
+            if (format == null) throw new ArgumentNullException("format");
+            return string.Format(provider, format.Format, args.ToArray());
+        }
+
         public static string Format<TArg0>(IFormatProvider provider, System.Text.CompositeFormat format, TArg0 arg0)
         {
             if (format == null) throw new ArgumentNullException("format");
@@ -267,6 +273,49 @@ namespace CsharpcCoreLib
             return (quotient, left - (quotient * right));
         }
 
+        public static (uint Quotient, uint Remainder) DivRem(uint left, uint right)
+        {
+            uint quotient = left / right;
+            return (quotient, left - (quotient * right));
+        }
+
+        public static (ulong Quotient, ulong Remainder) DivRem(ulong left, ulong right)
+        {
+            ulong quotient = left / right;
+            return (quotient, left - (quotient * right));
+        }
+
+        public static (byte Quotient, byte Remainder) DivRem(byte left, byte right)
+        {
+            byte quotient = (byte)(left / right);
+            return (quotient, (byte)(left - (quotient * right)));
+        }
+
+        public static (ushort Quotient, ushort Remainder) DivRem(ushort left, ushort right)
+        {
+            ushort quotient = (ushort)(left / right);
+            return (quotient, (ushort)(left - (quotient * right)));
+        }
+
+        public static (short Quotient, short Remainder) DivRem(short left, short right)
+        {
+            short quotient = (short)(left / right);
+            return (quotient, (short)(left - (quotient * right)));
+        }
+
+        public static (sbyte Quotient, sbyte Remainder) DivRem(sbyte left, sbyte right)
+        {
+            sbyte quotient = (sbyte)(left / right);
+            return (quotient, (sbyte)(left - (quotient * right)));
+        }
+
+        public static long DivRem(long a, long b, out long result)
+        {
+            long quotient = a / b;
+            result = a - (quotient * b);
+            return quotient;
+        }
+
         public static double CopySign(double x, double y) =>
             CoreIntrinsics.BitsToDouble((CoreIntrinsics.DoubleToBits(x) & long.MaxValue) | (CoreIntrinsics.DoubleToBits(y) & long.MinValue));
 
@@ -300,6 +349,36 @@ namespace CsharpcCoreLib
     [ShadowMembers("System.MemoryExtensions")]
     internal static class MemoryExtensionsExtras
     {
+        /// <summary>.NET's MemoryExtensions.Split: up to destination.Length ranges, the last one holding the rest.</summary>
+        public static int Split(ReadOnlySpan<char> source, Span<Range> destination, char separator, StringSplitOptions options = StringSplitOptions.None)
+        {
+            if ((options & ~(StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)) != 0)
+                throw new ArgumentException("Value of flags is invalid.", "options");
+            if (destination.IsEmpty) return 0;
+            bool keepEmpty = (options & StringSplitOptions.RemoveEmptyEntries) == 0;
+            bool trim = (options & StringSplitOptions.TrimEntries) != 0;
+            int count = 0, start = 0;
+            while (true)
+            {
+                int index = count == destination.Length - 1 ? -1 : source.Slice(start).IndexOf(separator);
+                int end = index < 0 ? source.Length : start + index;
+                int s = start, e = end;
+                if (trim)
+                {
+                    while (s < e && char.IsWhiteSpace(source[s])) s++;
+                    while (e > s && char.IsWhiteSpace(source[e - 1])) e--;
+                }
+                if (keepEmpty || e > s)
+                {
+                    destination[count++] = new Range(s, e);
+                    if (count == destination.Length) break;
+                }
+                if (index < 0) break;
+                start = end + 1;
+            }
+            return count;
+        }
+
         public static int SequenceCompareTo<T>(ReadOnlySpan<T> span, ReadOnlySpan<T> other) where T : IComparable<T>
         {
             int n = span.Length < other.Length ? span.Length : other.Length;
@@ -330,6 +409,8 @@ namespace CsharpcCoreLib
             return false;
         }
 
+        public static bool ContainsAny<T>(Span<T> span, T value0, T value1) where T : IEquatable<T> => ContainsAny((ReadOnlySpan<T>)span, value0, value1);
+        public static bool ContainsAny<T>(Span<T> span, T value0, T value1, T value2) where T : IEquatable<T> => ContainsAny((ReadOnlySpan<T>)span, value0, value1, value2);
         public static bool Equals(ReadOnlySpan<char> span, ReadOnlySpan<char> other, StringComparison comparisonType) =>
             string.Equals(new string(span), new string(other), comparisonType);
 

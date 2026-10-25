@@ -1,0 +1,13 @@
+Cell<String>(s) probed with Int32 42
+Cell<String>(s) probed with String text
+cell String/Double
+plain 42
+plain text
+base Double
+Pair<Int32,String>(two) Cell<Int32>(1) probed with Int32 42
+Pair<Int32,String>(two) Cell<Int32>(1) probed with String text
+cell Int32/Double
+Pair<Int64,List`1>() Cell<Int64>(7) probed with Int32 42
+Pair<Int64,List`1>() Cell<Int64>(7) probed with String text
+cell Int64/Double
+null receiver

@@ -14,6 +14,29 @@ namespace CsharpcCoreLib
     {
         public static bool Exists(string path) => !string.IsNullOrEmpty(path) && Posix.IsFile(path);
 
+        public static Microsoft.Win32.SafeHandles.SafeFileHandle OpenNullHandle() =>
+            throw new NotSupportedException("File.OpenNullHandle (file handles) is not supported by csharpc yet.");
+
+        public static void SetUnixFileMode(string path, UnixFileMode mode)
+        {
+            ArgumentException.ThrowIfNullOrEmpty(path);
+            FileStatusImpl.SetUnixFileMode(path, mode);
+        }
+
+        public static UnixFileMode GetUnixFileMode(string path)
+        {
+            ArgumentException.ThrowIfNullOrEmpty(path);
+            return FileStatusImpl.GetUnixFileMode(path);
+        }
+
+        public static FileSystemInfo CreateSymbolicLink(string path, string pathToTarget)
+        {
+            ArgumentException.ThrowIfNullOrEmpty(path);
+            ArgumentException.ThrowIfNullOrEmpty(pathToTarget);
+            FileStatusImpl.CreateSymbolicLink(path, pathToTarget);
+            return new FileInfo(path);
+        }
+
         public static FileStream Open(string path, FileMode mode) => new FileStream(path, mode);
         public static FileStream Open(string path, FileMode mode, FileAccess access) => new FileStream(path, mode, access);
         public static FileStream Open(string path, FileMode mode, FileAccess access, FileShare share) => new FileStream(path, mode, access, share);
@@ -287,38 +310,13 @@ namespace CsharpcCoreLib
 #if !CSHARPC_TARGET_WINDOWS && !CSHARPC_TARGET_WASI
         public static void SetLastWriteTime(string path, DateTime lastWriteTime) => SetLastWriteTimeUtc(path, lastWriteTime.ToUniversalTime());
 
-        // Unix file modes (the permission bits of st_mode), by path or by an open file's handle.
-        public static UnixFileMode GetUnixFileMode(string path)
-        {
-            if (path == null) throw new ArgumentNullException("path");
-            string full = PathImpl.GetFullPath(path);
-            byte* st = stackalloc byte[Posix.StatSize];
-            byte* p = Utf8.ToNative(full);
-            int r = Posix.stat(p, st);
-            int errno = Posix.Errno;
-            Libc.free(p);
-            if (r != 0) throw Posix.IOError(errno, full, false);
-            return (UnixFileMode)(Posix.Mode(st) & 0xFFF);
-        }
-
+        // Unix file modes of an open file's handle (by path: FileStatusImpl, above).
         public static UnixFileMode GetUnixFileMode(Microsoft.Win32.SafeHandles.SafeFileHandle fileHandle)
         {
             if (fileHandle == null) throw new ArgumentNullException("fileHandle");
             byte* st = stackalloc byte[Posix.StatSize];
             if (Posix.fstat((int)fileHandle.DangerousGetHandle(), st) != 0) throw Posix.IOError(Posix.Errno, null, false);
             return (UnixFileMode)(Posix.Mode(st) & 0xFFF);
-        }
-
-        public static void SetUnixFileMode(string path, UnixFileMode mode)
-        {
-            if (path == null) throw new ArgumentNullException("path");
-            if (((int)mode & ~0xFFF) != 0) throw new ArgumentException("Invalid UnixFileMode value.", "mode");
-            string full = PathImpl.GetFullPath(path);
-            byte* p = Utf8.ToNative(full);
-            int r = Posix.chmod(p, (int)mode);
-            int errno = Posix.Errno;
-            Libc.free(p);
-            if (r != 0) throw Posix.IOError(errno, full, false);
         }
 
         public static void SetUnixFileMode(Microsoft.Win32.SafeHandles.SafeFileHandle fileHandle, UnixFileMode mode)
@@ -328,9 +326,8 @@ namespace CsharpcCoreLib
             if (Posix.fchmod((int)fileHandle.DangerousGetHandle(), (int)mode) != 0) throw Posix.IOError(Posix.Errno, null, false);
         }
 
-        /// <summary>link(2) / symlink(2): <paramref name="path"/> becomes a link to <paramref name="pathToTarget"/>.</summary>
+        /// <summary>link(2): <paramref name="path"/> becomes a hard link to <paramref name="pathToTarget"/>.</summary>
         public static FileSystemInfo CreateHardLink(string path, string pathToTarget) => CreateLink(path, pathToTarget, hard: true);
-        public static FileSystemInfo CreateSymbolicLink(string path, string pathToTarget) => CreateLink(path, pathToTarget, hard: false);
 
         private static FileSystemInfo CreateLink(string path, string pathToTarget, bool hard)
         {
@@ -442,18 +439,20 @@ namespace CsharpcCoreLib
             return new DirectoryInfo(path);
         }
 
-#if !CSHARPC_TARGET_WINDOWS
-        /// <summary>Directory.CreateDirectory(path, unixCreateMode): the directories it creates get that mode (minus the umask).</summary>
+        /// <summary>The directories created get the mode (minus the umask, as mkdir applies it).</summary>
         public static DirectoryInfo CreateDirectory(string path, UnixFileMode unixCreateMode)
         {
+#if CSHARPC_TARGET_WINDOWS
+            throw new PlatformNotSupportedException("Unix file modes are not supported on this platform.");
+#else
+            if (((int)unixCreateMode & ~0xFFF) != 0) throw new ArgumentException("UnixFileMode value is invalid.", "unixCreateMode");
             if (path == null) throw new ArgumentNullException("path");
             if (path.Length == 0) throw new ArgumentException("The value cannot be an empty string. (Parameter 'path')");
-            if (((int)unixCreateMode & ~0xFFF) != 0) throw new ArgumentException("Invalid UnixFileMode value.", "unixCreateMode");
             string full = PathImpl.GetFullPath(path);
             CreateRecursive(PathImpl.TrimEndingDirectorySeparator(full), (int)unixCreateMode);
             return new DirectoryInfo(path);
-        }
 #endif
+        }
 
         private static void CreateRecursive(string full, int mode)
         {
@@ -550,6 +549,8 @@ namespace CsharpcCoreLib
             Enumerate(path, searchPattern, searchOption == SearchOption.AllDirectories, false, true, true);
         public static IEnumerable<string> EnumerateFileSystemEntries(string path) => Enumerate(path, "*", false, true, true, true);
         public static IEnumerable<string> EnumerateFileSystemEntries(string path, string searchPattern) => Enumerate(path, searchPattern, false, true, true, true);
+        public static IEnumerable<string> EnumerateFileSystemEntries(string path, string searchPattern, SearchOption searchOption) =>
+            Enumerate(path, searchPattern, searchOption == SearchOption.AllDirectories, true, true, true);
 
         private static string[] ToArray(List<string> list) => list.ToArray();
 
@@ -645,6 +646,20 @@ namespace CsharpcCoreLib
         public void Refresh() { }
         public override string ToString() => OriginalPath;
 
+        /// <summary>The attributes .NET reports (FileStatusImpl); -1 when the entry doesn't exist.</summary>
+        public FileAttributes Attributes => FileStatusImpl.GetAttributes(FullPath, Name);
+
+        public UnixFileMode UnixFileMode
+        {
+            get => FileStatusImpl.GetUnixFileMode(FullPath);
+            set => FileStatusImpl.SetUnixFileMode(FullPath, value);
+        }
+
+        /// <summary>The target of a symbolic link as stored in the link, or null when this is not a link.</summary>
+        public string LinkTarget => FileStatusImpl.ReadLink(FullPath);
+
+        public FileSystemInfo ResolveLinkTarget(bool returnFinalTarget) =>
+            FileStatusImpl.ResolveLinkTarget(FullPath, returnFinalTarget, this is DirectoryInfoImpl);
 #if !CSHARPC_TARGET_WINDOWS && !CSHARPC_TARGET_WASI
         /// <summary>A symbolic link at this path pointing to <paramref name="pathToTarget"/> (symlink(2), as .NET).</summary>
         public void CreateAsSymbolicLink(string pathToTarget)
@@ -761,5 +776,23 @@ namespace CsharpcCoreLib
         public IEnumerable<FileInfo> EnumerateFiles(string searchPattern) => GetFiles(searchPattern);
         public IEnumerable<FileInfo> EnumerateFiles(string searchPattern, SearchOption searchOption) => GetFiles(searchPattern, searchOption);
         public IEnumerable<DirectoryInfo> EnumerateDirectories() => GetDirectories();
+
+        public FileSystemInfo[] GetFileSystemInfos() => GetFileSystemInfos("*", SearchOption.TopDirectoryOnly);
+        public FileSystemInfo[] GetFileSystemInfos(string searchPattern) => GetFileSystemInfos(searchPattern, SearchOption.TopDirectoryOnly);
+        public FileSystemInfo[] GetFileSystemInfos(string searchPattern, SearchOption searchOption)
+        {
+            if (searchOption != SearchOption.TopDirectoryOnly && searchOption != SearchOption.AllDirectories)
+                throw new ArgumentOutOfRangeException("searchOption", "Enum value was out of legal range.");
+            // Entries in directory order, each a DirectoryInfo or FileInfo by its kind (readdir's, links followed).
+            var names = DirectoryImpl.Enumerate(FullPath, searchPattern, searchOption == SearchOption.AllDirectories, true, true, true);
+            var result = new FileSystemInfo[names.Count];
+            for (int i = 0; i < result.Length; i++)
+                result[i] = Posix.IsDirectory(names[i]) ? new DirectoryInfo(names[i]) : new FileInfo(names[i]);
+            return result;
+        }
+
+        public IEnumerable<FileSystemInfo> EnumerateFileSystemInfos() => GetFileSystemInfos();
+        public IEnumerable<FileSystemInfo> EnumerateFileSystemInfos(string searchPattern) => GetFileSystemInfos(searchPattern);
+        public IEnumerable<FileSystemInfo> EnumerateFileSystemInfos(string searchPattern, SearchOption searchOption) => GetFileSystemInfos(searchPattern, searchOption);
     }
 }

@@ -1,0 +1,17 @@
+2 True True False 0
+0 1 3
+Adding the specified count to the semaphore would cause it to exceed its maximum count.
+releaseCount
+False False False
+first False
+second True
+third 0
+timed out: False False False
+async canceled
+sync canceled
+woken True
+initialCount
+initialCount
+millisecondsTimeout
+Cannot access a disposed object.
+Object name: 'System.Threading.SemaphoreSlim'.

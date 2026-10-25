@@ -17,10 +17,14 @@ public sealed partial class FunctionCodeGen
     {
         // [Conditional] methods are void, so an omitted call has no value (FunctionCodeGen.Conditional.cs).
         if (IsConditionallyOmitted(inv)) return default;
+        NoteDynamicallyAccessedArguments(S(inv.TargetMethod), inv.Arguments);
         if (Intrinsics.TryGetConsoleFastPath(inv, out var consoleFastPath)) return consoleFastPath(this, inv);
         var target = S(inv.TargetMethod);
+        if (inv.Instance is ITypeOfOperation reflectedType) NoteReflectedType(target, S(reflectedType.TypeOperand), inv.Arguments is [{ Value.ConstantValue: { HasValue: true, Value: string name } }, ..] ? name : null);
+        if (inv.Instance is { } shadowReceiver && _m.CoreLib.MapForReceiver(target, TypeOf(shadowReceiver)) is { } shadowMember) target = shadowMember;
         if (IsCoreIntrinsic(target)) return EmitCoreIntrinsic(target, inv);
         if (target.IsStatic) CheckJsonSerializerRoots(target, inv);
+        if (TypeObjectMember(inv.TargetMethod, inv.Instance) is { } typeMember) return CallBcl(typeMember, inv.TargetMethod, inv.Instance, inv.Arguments, inv);
         if (UnsafeAccessorOf(target) is { } unsafeAccessor) return EmitUnsafeAccessor(target, unsafeAccessor, inv);
         if (target.IsStatic && TryUnsafeMethod(target, inv) is { } unsafeResult) return unsafeResult;
         // `T.Create()` on a static abstract/virtual interface member: after substitution T is concrete.
@@ -61,6 +65,9 @@ public sealed partial class FunctionCodeGen
                 return VirtualCall(target, boxed, [boxed, .. extra]);
             }
         }
+        // `: base()` / `: base(delay)` of a class deriving from CancellationTokenSource (ModuleCodeGen.Cancellation.cs).
+        if (target.MethodKind == MethodKind.Constructor && inv.Instance is not null && ModuleCodeGen.IsRuntimeCancellationSource(target.ContainingType))
+            return EmitCancellationSourceBaseConstructor(target, inv);
         if (_m.IsUserMethod(target))
         {
             var arguments = inv.Arguments;
@@ -272,9 +279,8 @@ public sealed partial class FunctionCodeGen
     {
         var root = ClassLayout.RootOf(target.OriginalDefinition);
         var typeArgs = target.TypeArguments.ToArray();
-        // Overrides declared in generic classes: their instantiations are only known once lowering is
-        // done, so the call goes through a dispatcher filled in rounds, like a generic interface method's
-        // (ModuleCodeGen.GenericInterfaces.cs), over every class with a method table.
+        // Overrides declared in generic classes: their instantiations are only known once lowering is done,
+        // so the call goes through a dispatcher filled in rounds (ModuleCodeGen.GenericInterfaces.cs).
         foreach (var generic in _m.GenericClassesDerivedFrom(target.ContainingType))
             if (generic.GetMembers(target.Name).OfType<IMethodSymbol>().Any(m => m.IsOverride && m.IsGenericMethod
                     && SymbolEqualityComparer.Default.Equals(ClassLayout.RootOf(m.OriginalDefinition), root)))
@@ -307,8 +313,20 @@ public sealed partial class FunctionCodeGen
             _b.Br(done);
             _b.PositionAtEnd(next);
         }
-        CallRuntime("csrt_throw_null_reference", L.Void, []); // unreachable for valid receivers
-        _b.Unreachable();
+        // The switch lists non-generic classes only. A receiver of a generic class (the method's own
+        // OptionsBuilder<T>, or a generic class deriving from it without overriding: overrides were
+        // rejected above) runs the implementation inherited from the declaring instantiation.
+        if (target.ContainingType is { IsGenericType: true } owner && ImplementationIn(owner) is { } inherited)
+        {
+            var r = DirectCall(inherited, args);
+            if (resultSlot is { } slot) _b.Store(r, slot);
+            _b.Br(done);
+        }
+        else
+        {
+            CallRuntime("csrt_throw_null_reference", L.Void, []); // unreachable for valid receivers
+            _b.Unreachable();
+        }
         _b.PositionAtEnd(done);
         return resultSlot is { } s ? _b.Load(T.Value(target.ReturnType), s) : default;
     }
@@ -395,6 +413,7 @@ public sealed partial class FunctionCodeGen
     private LLVMValueRef EmitObjectCreation(IObjectCreationOperation creation)
     {
         if (creation.Initializer is not null) throw CompileError.Unsupported("object initializer", creation);
+        if (creation.Constructor is { } created) NoteDynamicallyAccessedArguments(S(created), creation.Arguments);
         var type = (INamedTypeSymbol)TypeOf(creation)!;
         if (TrySpanConstruction(creation, out var span) || TryStatelessLibraryCreation(creation, out span) || TryThreadingCreation(creation, out span)) return span;
         if (IsStringBuilderHandler(type))  // new AppendInterpolatedStringHandler(literalLength, formattedCount, sb[, provider])
@@ -569,7 +588,7 @@ public sealed partial class FunctionCodeGen
     private static bool IsBoxablePrimitive(ITypeSymbol type) => type.SpecialType is SpecialType.System_Int32 or SpecialType.System_Int64
         or SpecialType.System_UInt32 or SpecialType.System_UInt64 or SpecialType.System_Int16 or SpecialType.System_UInt16
         or SpecialType.System_Byte or SpecialType.System_SByte or SpecialType.System_Double or SpecialType.System_Single
-        or SpecialType.System_Boolean or SpecialType.System_Char;
+        or SpecialType.System_Boolean or SpecialType.System_Char or SpecialType.System_IntPtr or SpecialType.System_UIntPtr;
 
     private LLVMValueRef MethodTableFor(ITypeSymbol type, IOperation at) => _m.CoreLib.Map(type) switch
     {
@@ -579,6 +598,15 @@ public sealed partial class FunctionCodeGen
         // Boxed value types and enums are flagged in their method tables (csrt_isinst_class).
         { SpecialType: SpecialType.System_ValueType } => _m.ExternalGlobal("csrt_ValueType_MT"),
         { SpecialType: SpecialType.System_Enum } => _m.ExternalGlobal("csrt_Enum_MT"),
+        // Tasks are runtime objects with one method table (docs/10-async.md): `is Task` holds for every task.
+        // A TaskCompletionSource is its task, so a test against TaskCompletionSource(<T>) accepts any task
+        // object (the cast .NET would reject, of a plain Task, is the one csharpc can't tell apart).
+        INamedTypeSymbol { Name: "Task", TypeArguments.Length: 0, ContainingNamespace: { Name: "Tasks", ContainingNamespace: { Name: "Threading", ContainingNamespace.Name: "System" } } }
+            or INamedTypeSymbol { Name: "TaskCompletionSource", ContainingNamespace: { Name: "Tasks", ContainingNamespace: { Name: "Threading", ContainingNamespace.Name: "System" } } } =>
+            _m.ExternalGlobal("csrt_Task_MT"),
+        // Type objects are runtime objects (src/runtime/type.c), all with one method table.
+        INamedTypeSymbol { Name: "Type", ContainingType: null, ContainingNamespace: { Name: "System", ContainingNamespace.IsGlobalNamespace: true } } =>
+            _m.ExternalGlobal("csrt_Type_MT"),
         INamedTypeSymbol { Name: "CancellationTokenSource", ContainingNamespace: { Name: "Threading", ContainingNamespace.Name: "System" } } =>
             _m.ExternalGlobal("csrt_CancellationTokenSource_MT"), // a runtime object (runtime/async.c)
         _ when IsBoxablePrimitive(type) => _m.ExternalGlobal($"csrt_Boxed_{type.MetadataName}_MT"),
@@ -616,8 +644,50 @@ public sealed partial class FunctionCodeGen
     // Properties
     // ======================================================================================
 
+    /// <summary>
+    /// A MemberInfo member called on a System.Type: C# binds `type.Name` to MemberInfo.Name, but csharpc's
+    /// Type objects are runtime objects (src/runtime/type.c), not MemberInfo instances: Type's intrinsic.
+    /// </summary>
+    /// <summary>
+    /// typeof(X).GetProperty/GetMethod/GetConstructor(...) on a known type keeps X's members of that kind, as
+    /// ILLink's intrinsic handling of these calls does for NativeAOT.
+    /// </summary>
+    /// <summary>
+    /// typeof(X).GetMethod("Name")... on a statically known X keeps X's members of that kind, as ILLink does:
+    /// with a constant name only the members called that, otherwise all of them.
+    /// </summary>
+    private void NoteReflectedType(IMethodSymbol target, ITypeSymbol type, string? name)
+    {
+        if (type is ITypeParameterSymbol || target.ContainingType is not { Name: "Type", ContainingNamespace: { Name: "System", ContainingNamespace.IsGlobalNamespace: true } })
+            return;
+        var kinds = target.Name switch
+        {
+            "GetProperty" or "GetProperties" => ModuleCodeGen.DamProperties,
+            "GetMethod" or "GetMethods" => ModuleCodeGen.DamMethods,
+            "GetConstructor" or "GetConstructors" => ModuleCodeGen.DamConstructors,
+            _ => 0,
+        };
+        if (kinds != 0) _m.MarkDynamicallyAccessed(type, kinds, target.Name is "GetProperty" or "GetMethod" ? name : null);
+    }
+
+    private BclHandler? TypeObjectMember(IMethodSymbol target, IOperation? instance)
+    {
+        if (instance is null || target.IsStatic) return null;
+        var owner = (INamedTypeSymbol)_m.CoreLib.Unmap(target.ContainingType);
+        if (owner is not { Name: "MemberInfo", ContainingNamespace: { Name: "Reflection", ContainingNamespace.Name: "System" } }) return null;
+        if (!SymbolEqualityComparer.Default.Equals(owner, target.ContainingType))
+            target = owner.GetMembers(target.Name).OfType<IMethodSymbol>().FirstOrDefault(m => m.Parameters.Length == target.Parameters.Length) ?? target;
+        for (var t = TypeOf(instance) as INamedTypeSymbol; t is not null; t = t.BaseType)
+            if (t is { Name: "Type", ContainingNamespace: { Name: "System", ContainingNamespace.IsGlobalNamespace: true } })
+                return BclValueTypes.TryGetForType(target, out var handler) ? handler : throw new CompileError("CSLLVM0002",
+                    $"'System.Type.{target.Name}' has no implementation in the csharpc runtime yet", instance.Syntax?.GetLocation());
+        return null;
+    }
+
     private LLVMValueRef EmitPropertyGet(IPropertyReferenceOperation p)
     {
+        if (p.Property.GetMethod is { } typeGetter && TypeObjectMember(typeGetter, p.Instance) is { } typeMember)
+            return CallBcl(typeMember, typeGetter, p.Instance, p.Arguments, p);
         var property = S(p.Property);
         if (TypeMapper.IsNullable(property.ContainingType)) return EmitNullableMember(p);
         if (property.ContainingType.IsAnonymousType) return AnonymousPropertyGet(p);
@@ -674,13 +744,6 @@ public sealed partial class FunctionCodeGen
             var assignedValue = Coerce(value(), valueType, property.Type);
             bclSetter(this, librarySetter, setterSelf, [assignedValue], p);
             return assignedValue;
-        }
-        // Exception.HResult (protected set, in exception constructors): csharpc keeps no HResult, and reading it
-        // is not supported, so nothing can observe the value — evaluate and drop it.
-        if (property.Name == "HResult" && _m.IsLibraryException(property.ContainingType) && !property.IsStatic)
-        {
-            NullCheck(EmitValue(p.Instance!));
-            return Coerce(value(), valueType, property.Type);
         }
         if (!_m.IsUserType(property.ContainingType))
             throw CompileError.Unsupported($"setting '{property.ContainingType}.{property.Name}'", p);

@@ -157,3 +157,23 @@ wasi 553_rsa                           known gap: no OS RSA on WebAssembly (WASI
 wasi 549_async_local                   needs threads: the sample starts a Thread (Thread.Start throws PlatformNotSupportedException on WebAssembly)
 wasi 552_plinq_attached_children       needs threads: the parallel sort merges partitions through barriers (pool work items run one after another on WebAssembly)
 windows 547_bcl_members_for_xml        live: .NET's Uri takes "/dir/x" for an implicit file path on Unix only (csharpc reports drive-less file paths on Windows as not supported yet)
+windows 605_file_attributes_links  live: Windows reports its own file attributes (Archive) and has no Unix modes or (unprivileged) symbolic links
+wasi 605_file_attributes_links     WASI has no permission bits: .NET throws PlatformNotSupportedException from SetUnixFileMode
+wasi 608_asynclocal_threadpool      needs threads: Thread.Start throws PlatformNotSupportedException on WebAssembly
+macos 609_filesystemwatcher        known gap: FileSystemWatcher is only ported for Linux (inotify); csharpc throws NotSupportedException on macOS (FSEvents)
+windows 609_filesystemwatcher      known gap: FileSystemWatcher is only ported for Linux (inotify); csharpc throws NotSupportedException on Windows
+wasi 609_filesystemwatcher         WASI has no file watching: .NET throws PlatformNotSupportedException
+macos 613_socket_async_operations  known gap: asynchronous socket operations are blocking calls on the thread pool on macOS (no kqueue engine yet), so a pending one cannot be canceled
+windows 613_socket_async_operations known gap: asynchronous socket operations are blocking calls on the thread pool on Windows (no IOCP engine yet), so a pending one cannot be canceled
+wasi 613_socket_async_operations   opens loopback sockets: WASI preview 1 has none (PlatformNotSupportedException)
+macos 614_posix_signal_registration  sends raw signal 10, which is SIGUSR1 on Linux but SIGBUS on macOS
+windows 614_posix_signal_registration known gap: PosixSignalRegistration on Windows (console control events) is not supported by csharpc yet; the sample also calls libc kill()
+wasi 614_posix_signal_registration    WASI has no signals: .NET throws PlatformNotSupportedException
+wasi 618_execution_context_memory_members  creates a UnixDomainSocketEndPoint: WASI has no sockets (PlatformNotSupportedException)
+wasi 619_semaphore_slim              needs threads: a synchronous Wait is woken by work on another thread
+wasi 620_kestrel_library_members     needs threads: Thread.Start throws PlatformNotSupportedException on WebAssembly
+windows 606_runtime_library_gaps   live: prints Unix special folders and console colors only on Unix (Windows has its own)
+windows 621_exception_hresult_token_members live: Windows file-system errors and their HResults are Win32 ones
+wasi 621_exception_hresult_token_members  WASI has no permission bits: .NET throws PlatformNotSupportedException from the Unix file modes
+wasi 616_idn_mapping_uri_builder   WASI has no ICU: .NET runs its managed IdnMapping there, whose error for a bad punycode label is "Invalid IDN encoded string."
+windows 625_runtime_counters_pem    live: PemEncoding writes "\n" line breaks on every OS, which the Linux-derived expectation would turn into "\r\n"

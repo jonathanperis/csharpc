@@ -25,6 +25,12 @@ namespace CsharpcCoreLib
             _mode = LazyThreadSafetyMode.None;
         }
 
+        // Lazy<T>() creates T with its parameterless constructor (Activator.CreateInstance<T>(), resolved at compile time).
+        public LazyImpl() : this(CreateDefault, LazyThreadSafetyMode.ExecutionAndPublication) { }
+        public LazyImpl(bool isThreadSafe) : this(CreateDefault, isThreadSafe ? LazyThreadSafetyMode.ExecutionAndPublication : LazyThreadSafetyMode.None) { }
+        public LazyImpl(LazyThreadSafetyMode mode) : this(CreateDefault, mode) { }
+        private static T CreateDefault() => Activator.CreateInstance<T>();
+
         public LazyImpl(Func<T> valueFactory) : this(valueFactory, LazyThreadSafetyMode.ExecutionAndPublication) { }
 
         public LazyImpl(Func<T> valueFactory, bool isThreadSafe)

@@ -8,7 +8,6 @@ namespace CsharpcCoreLib
     internal static partial class PathImpl
     {
         public static ReadOnlySpan<char> GetDirectoryName(ReadOnlySpan<char> path) => AsSpan(GetDirectoryName(path.ToString()));
-        public static ReadOnlySpan<char> GetFileName(ReadOnlySpan<char> path) => AsSpan(GetFileName(path.ToString()));
         public static ReadOnlySpan<char> GetFileNameWithoutExtension(ReadOnlySpan<char> path) => AsSpan(GetFileNameWithoutExtension(path.ToString()));
         public static ReadOnlySpan<char> GetExtension(ReadOnlySpan<char> path) => AsSpan(GetExtension(path.ToString()));
         public static bool HasExtension(ReadOnlySpan<char> path) => HasExtension(path.ToString());

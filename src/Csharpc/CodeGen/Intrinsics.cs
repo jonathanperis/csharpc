@@ -177,8 +177,13 @@ internal static class Intrinsics
         t["System.Enum.HasFlag(System.Enum)"] = (g, inv) =>
         {
             var b = g.Builder;
-            var value = g.EmitValue(UnboxEnum(inv.Instance!));
-            var flag = g.EmitValue(UnboxEnum(inv.Arguments[0].Value));
+            var (self, other) = (UnboxEnum(inv.Instance!), UnboxEnum(inv.Arguments[0].Value));
+            // IL boxes both operands; FunctionCodeGen.IlCalls folds the boxes it can see. A boxed Enum of
+            // unknown type would need its payload width at run time.
+            if (g.TypeOf(self) is not { TypeKind: TypeKind.Enum } || g.TypeOf(other) is not { TypeKind: TypeKind.Enum })
+                throw CompileError.Unsupported("Enum.HasFlag on a boxed value of unknown enum type", inv);
+            var value = g.EmitValue(self);
+            var flag = g.EmitValue(other);
             return b.ICmp(LLVMIntPredicate.EQ, b.BinOp(LLVMOpcode.And, value, flag), flag);
         };
         t["System.Enum.GetName(System.Type, object)"] = (g, inv) =>
@@ -643,6 +648,16 @@ internal static class Intrinsics
                         ? g.CallRuntime("csrt_task_try_cancel", g.Module.Llvm.I1, [g.Module.Llvm.Ptr], self)
                         : g.CallRuntime("csrt_task_cancel", g.Module.Llvm.Void, [g.Module.Llvm.Ptr], self);
                 };
+                // (Try)SetCanceled(token): the TaskCanceledException an await throws carries the token.
+                t[$"{tcs}.{prefix}Canceled(System.Threading.CancellationToken)"] = (g, inv) =>
+                {
+                    var self = g.EmitValue(inv.Instance!);
+                    g.NullCheck(self);
+                    var done = g.CallRuntime("csrt_task_try_cancel_token", g.Module.Llvm.I1, [g.Module.Llvm.Ptr, g.Module.Llvm.Ptr], self, Arg(g, inv, 0));
+                    if (tryMode) return done;
+                    g.CallCoreLib("TaskCompletionChecks", "ThrowIfNotSet", done);
+                    return default;
+                };
             }
         }
 
@@ -739,8 +754,18 @@ internal static class Intrinsics
         t[$"{Th}.CancellationToken.op_Equality({Th}.CancellationToken, {Th}.CancellationToken)"] = sameSource;
         t[$"{Th}.CancellationToken.op_Inequality({Th}.CancellationToken, {Th}.CancellationToken)"] = (g, inv) =>
             g.Builder.Not(sameSource(g, inv));
+        // Dispose() is Dispose(true) through the vtable: classes deriving from the source override Dispose(bool).
         t[$"{Th}.CancellationTokenSource.Dispose()"] = (g, inv) =>
-        { g.CallRuntime("csrt_cts_dispose", g.Module.Llvm.Void, [g.Module.Llvm.Ptr], g.EmitValue(inv.Instance!)); return default; };
+        { g.CallRuntime("csrt_cts_dispose_virtual", g.Module.Llvm.Void, [g.Module.Llvm.Ptr], g.EmitValue(inv.Instance!)); return default; };
+        t[$"{Th}.CancellationTokenSource.Dispose(bool)"] = (g, inv) =>
+        {
+            var self = g.EmitValue(inv.Instance!);
+            var disposing = Arg(g, inv, 0);
+            // `base.Dispose(disposing)` from an override is the base implementation; other calls dispatch.
+            if (inv.IsVirtual) g.CallRuntime("csrt_cts_dispose_bool_virtual", g.Module.Llvm.Void, [g.Module.Llvm.Ptr, g.Module.Llvm.I1], self, disposing);
+            else g.CallRuntime("csrt_cts_dispose_bool", g.Module.Llvm.Void, [g.Module.Llvm.Ptr, g.Module.Llvm.I1], self, disposing);
+            return default;
+        };
         t[$"{Th}.CancellationToken.ThrowIfCancellationRequested()"] = (g, inv) =>
         {
             g.CallRuntime("csrt_token_throw_if_cancellation_requested", g.Module.Llvm.Void, [g.Module.Llvm.Ptr], g.EmitValue(inv.Instance!));
@@ -872,13 +897,13 @@ internal static class Intrinsics
         }
         t[$"{Tasks}.Task.Exception"] = (g, p) => g.CallRuntime("csrt_task_exception", g.Module.Llvm.Ptr, [g.Module.Llvm.Ptr], g.EmitValue(p.Instance!));
         // TaskStatus from the runtime task's state and flags; Id assigned lazily from a global counter (async.c).
-        t[$"{Tasks}.Task.Id"] = (g, p) => g.CallRuntime("csrt_task_id", g.Module.Llvm.I32, [g.Module.Llvm.Ptr], g.EmitValue(p.Instance!));
         t[$"{Tasks}.Task.Status"] = (g, p) =>
         {
             var task = g.EmitValue(p.Instance!);
             g.NullCheck(task); // a null Task throws NullReferenceException (csrt_task_status reads null as a default ValueTask)
             return g.CallRuntime("csrt_task_status", g.Module.Llvm.I32, [g.Module.Llvm.Ptr], task);
         };
+        t[$"{Tasks}.Task.Id"] = (g, p) => g.CallRuntime("csrt_task_id", g.Module.Llvm.I32, [g.Module.Llvm.Ptr], g.EmitValue(p.Instance!));
         foreach (var tcs in new[] { $"{Tasks}.TaskCompletionSource", $"{Tasks}.TaskCompletionSource<TResult>" })
             t[$"{tcs}.Task"] = (g, p) => g.EmitValue(p.Instance!);
         const string Th = "System.Threading";

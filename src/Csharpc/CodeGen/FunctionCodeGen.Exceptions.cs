@@ -409,6 +409,7 @@ public sealed partial class FunctionCodeGen
         ["System.OperationCanceledException"] = "The operation was canceled.",
         ["System.Threading.Tasks.TaskCanceledException"] = "A task was canceled.",
         ["System.AggregateException"] = "One or more errors occurred.",
+        ["System.Threading.SemaphoreFullException"] = "Adding the specified count to the semaphore would cause it to exceed its maximum count.",
         ["System.TimeoutException"] = "The operation has timed out.",
         ["System.IO.IOException"] = "I/O error occurred.",
         ["System.UnauthorizedAccessException"] = "Attempted to perform an unauthorized operation.",
@@ -427,7 +428,7 @@ public sealed partial class FunctionCodeGen
     /// <summary>Runs a BCL exception constructor: binds message / innerException / paramName by name.</summary>
     private void EmitExceptionConstructor(IMethodSymbol constructor, LLVMValueRef exception, ImmutableArray<IArgumentOperation> arguments)
     {
-        LLVMValueRef? message = null, inner = null, paramName = null, actualValue = null, objectName = null, inners = null, token = null;
+        LLVMValueRef? message = null, inner = null, paramName = null, actualValue = null, objectName = null, inners = null, hresult = null, token = null;
         var aggregate = Mangler.MetadataName(constructor.ContainingType) == "System.AggregateException";
         foreach (var argument in arguments)
         {
@@ -451,13 +452,8 @@ public sealed partial class FunctionCodeGen
                 case "paramName": paramName = value; break;
                 case "fileName": paramName = value; break; // FileNotFoundException.FileName (csrt keeps it in param_name)
                 case "objectName": objectName = value; break;
-                // OperationCanceledException(..., CancellationToken token); TaskCanceledException(Task task)
-                // reports the token that canceled the task, which csrt doesn't track.
-                case "token" when argument.Parameter!.Type.Name == "CancellationToken": token = value; break;
-                case "task" when Mangler.MetadataName(constructor.ContainingType) == "System.Threading.Tasks.TaskCanceledException":
-                    token = _b.Select(_b.ICmp(LLVMIntPredicate.EQ, value, LlvmContext.Null(L.Ptr)), LlvmContext.Null(L.Ptr),
-                        _b.Cast(LLVMOpcode.IntToPtr, L.ConstInt(T.NativeInt, 1), L.Ptr));
-                    break;
+                case "hresult" when argument.Parameter!.Type.SpecialType == SpecialType.System_Int32: hresult = value; break; // IOException(message, hresult)
+                case "token" when argument.Parameter!.Type.Name == "CancellationToken": token = value; break; // OperationCanceledException(..., token)
                 case "innerExceptions" when aggregate: // Exception[] or IEnumerable<Exception>
                     inners = CallCoreLib("AggregateExceptionSupport", argument.Parameter!.Type is IArrayTypeSymbol ? "FromArray" : "FromEnumerable", value);
                     break;
@@ -482,7 +478,8 @@ public sealed partial class FunctionCodeGen
         // AggregateException keeps every inner exception (InnerExceptions, ToString's "(Inner Exception #i)").
         if (aggregate && inners is { } list) CallRuntime("csrt_exception_set_inners", L.Void, [L.Ptr, L.Ptr], exception, list);
         if (actualValue is { } actual) CallRuntime("csrt_exception_set_actual_value", L.Void, [L.Ptr, L.Ptr], exception, actual);
-        if (token is { } t) CallRuntime("csrt_exception_set_cancellation_token", L.Void, [L.Ptr, L.Ptr], exception, t);
+        if (hresult is { } h) CallRuntime("csrt_exception_set_hresult", L.Void, [L.Ptr, L.I32], exception, h);
+        if (token is { } t) CallRuntime("csrt_exception_set_token", L.Void, [L.Ptr, L.Ptr], exception, t);
     }
 
     private bool TryEmitLibraryExceptionCall(IInvocationOperation inv, out LLVMValueRef result)
@@ -524,6 +521,14 @@ public sealed partial class FunctionCodeGen
             CallCoreLib("AggregateExceptionSupport", "Handle", self, EmitValue(inv.Arguments[0].Value));
             return true;
         }
+        if (!target.IsStatic && target.Name == "Flatten" && target.Parameters.IsEmpty
+            && Mangler.MetadataName(target.ContainingType) == "System.AggregateException")
+        {
+            var self = EmitValue(inv.Instance!);
+            NullCheck(self);
+            result = CallCoreLib("AggregateExceptionSupport", "Flatten", self);
+            return true;
+        }
         return false;
     }
 
@@ -549,7 +554,7 @@ public sealed partial class FunctionCodeGen
         NullCheck(self);
         if (cancellationToken)
         {
-            result = CallRuntime("csrt_exception_cancellation_token", L.Ptr, [L.Ptr], self);
+            result = CallRuntime("csrt_exception_get_token", L.Ptr, [L.Ptr], self);
             return true;
         }
         if (innerExceptions)

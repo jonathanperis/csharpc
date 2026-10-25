@@ -1,23 +1,51 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// Ported to csharpc from dotnet/runtime (release/11.0), src/libraries/System.Private.CoreLib/src/System/Globalization/
-// IdnMapping.cs and IdnMapping.Icu.cs; see THIRD-PARTY-NOTICES.md. Adapted to the csharpc corelib
-// (docs/12-corelib.md): ICU everywhere (no NLS), the strong bidi categories of invariant mode from IdnBidi.g.cs.
+// Ported to csharpc from dotnet/runtime (release/11.0), src/libraries/System.Private.CoreLib/src/System/Globalization;
+// see THIRD-PARTY-NOTICES.md. Adapted to the csharpc corelib (docs/12-corelib.md); changes of substance
+// are marked `csharpc:`.
 #nullable enable annotations
 
 using System;
 using System.Diagnostics;
-using System.Globalization;
+using System.Diagnostics.CodeAnalysis;
+using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 using System.Text;
+
+// This file contains the IDN functions and implementation.
+//
+// This allows encoding of non-ASCII domain names in a "punycode" form,
+// for example:
+//
+//     \u5B89\u5BA4\u5948\u7F8E\u6075-with-SUPER-MONKEYS
+//
+// is encoded as:
+//
+//     xn---with-SUPER-MONKEYS-pc58ag80a8qai00g7n9n
+//
+// Additional options are provided to allow unassigned IDN characters and
+// to validate according to the Std3ASCII Rules (like DNS names).
+//
+// There are also rules regarding bidirectionality of text and the length
+// of segments.
+//
+// For additional rules see also:
+//  RFC 3490 - Internationalizing Domain Names in Applications (IDNA)
+//  RFC 3491 - Nameprep: A Stringprep Profile for Internationalized Domain Names (IDN)
+//  RFC 3492 - Punycode: A Bootstring encoding of Unicode for Internationalized Domain Names in Applications (IDNA)
+
 
 namespace CsharpcCoreLib.Globalization
 {
     // (repeated inside the namespace: they must win over global-namespace types of the program)
     using System;
-    using System.Diagnostics;
     using System.Globalization;
+    using System.Diagnostics;
+    using System.Diagnostics.CodeAnalysis;
+    using System.Runtime.CompilerServices;
+    using System.Runtime.InteropServices;
     using System.Text;
-
+    // IdnMapping class used to map names to Punycode
     [Shadows("System.Globalization.IdnMapping")]
     public sealed partial class IdnMapping
     {
@@ -76,7 +104,7 @@ namespace CsharpcCoreLib.Globalization
                 return GetAsciiInvariant(unicode, index, count);
             }
 
-            return IcuGetAsciiCore(unicode, index, count);
+            return /* csharpc: no NLS */ IcuGetAsciiCore(unicode, index, count);
         }
 
         /// <summary>
@@ -109,7 +137,7 @@ namespace CsharpcCoreLib.Globalization
                 return TryGetAsciiInvariant(unicode, destination, out charsWritten);
             }
 
-            return IcuTryGetAsciiCore(unicode, destination, out charsWritten);
+            return /* csharpc: no NLS */ IcuTryGetAsciiCore(unicode, destination, out charsWritten);
         }
 
         // Gets Unicode version of the string.  Normalized and limited to IDNA characters.
@@ -145,7 +173,7 @@ namespace CsharpcCoreLib.Globalization
                 return GetUnicodeInvariant(ascii, index, count);
             }
 
-            return IcuGetUnicodeCore(ascii, index, count);
+            return /* csharpc: no NLS */ IcuGetUnicodeCore(ascii, index, count);
         }
 
         /// <summary>
@@ -176,10 +204,10 @@ namespace CsharpcCoreLib.Globalization
                 return TryGetUnicodeInvariant(ascii, destination, out charsWritten);
             }
 
-            return IcuTryGetUnicodeCore(ascii, destination, out charsWritten);
+            return /* csharpc: no NLS */ IcuTryGetUnicodeCore(ascii, destination, out charsWritten);
         }
 
-        public override bool Equals(object? obj) =>
+        public override bool Equals([NotNullWhen(true)] object? obj) =>
             obj is IdnMapping that &&
             _allowUnassigned == that._allowUnassigned &&
             _useStd3AsciiRules == that._useStd3AsciiRules;
@@ -187,14 +215,15 @@ namespace CsharpcCoreLib.Globalization
         public override int GetHashCode() =>
             (_allowUnassigned ? 100 : 200) + (_useStd3AsciiRules ? 1000 : 2000);
 
-        
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private static string GetStringForOutput(string? originalString, ReadOnlySpan<char> input, ReadOnlySpan<char> output)
         {
+            Debug.Assert(input.Length > 0);
 
             if (originalString is not null &&
                 originalString.Length == input.Length &&
                 input.Length == output.Length &&
-                input.Equals(output, StringComparison.OrdinalIgnoreCase))
+                input.Equals(output, StringComparison.OrdinalIgnoreCase) /* csharpc */)
             {
                 return originalString;
             }
@@ -237,6 +266,7 @@ namespace CsharpcCoreLib.Globalization
 
             // Cannot be null terminated (normalization won't help us with this one, and
             // may have returned false before checking the whole string above)
+            Debug.Assert(unicode.Length >= 1, "[IdnMapping.GetAscii] Expected 0 length strings to fail before now.");
             if (unicode[^1] <= 0x1f)
             {
                 throw new ArgumentException(SR.Format(SR.Argument_InvalidCharSequence, unicode.Length - 1), nameof(unicode));
@@ -270,6 +300,7 @@ namespace CsharpcCoreLib.Globalization
 
             // Cannot be null terminated (normalization won't help us with this one, and
             // may have returned false before checking the whole string above)
+            Debug.Assert(unicode.Length >= 1, "[IdnMapping.GetAscii] Expected 0 length strings to fail before now.");
             if (unicode[^1] <= 0x1f)
             {
                 throw new ArgumentException(SR.Format(SR.Argument_InvalidCharSequence, unicode.Length - 1), nameof(unicode));
@@ -422,7 +453,7 @@ namespace CsharpcCoreLib.Globalization
                 bool bRightToLeft = false;
 
                 // Check for RTL.  If right-to-left, then 1st & last chars must be RTL
-                StrongBidiCategory eBidi = IdnBidi.GetBidiCategory(unicode, iAfterLastDot);
+                StrongBidiCategory eBidi = BidiData.GetBidiCategory(unicode, iAfterLastDot);
                 if (eBidi == StrongBidiCategory.StrongRightToLeft)
                 {
                     // It has to be right to left.
@@ -435,7 +466,7 @@ namespace CsharpcCoreLib.Globalization
                         iTest--;
                     }
 
-                    eBidi = IdnBidi.GetBidiCategory(unicode, iTest);
+                    eBidi = BidiData.GetBidiCategory(unicode, iTest);
                     if (eBidi != StrongBidiCategory.StrongRightToLeft)
                     {
                         // Oops, last wasn't RTL, last should be RTL if first is RTL
@@ -449,9 +480,10 @@ namespace CsharpcCoreLib.Globalization
                 for (basicCount = iAfterLastDot; basicCount < iNextDot; basicCount++)
                 {
                     // Can't be lonely surrogate because it would've thrown in normalization
+                    Debug.Assert(!char.IsLowSurrogate(unicode[basicCount]), "[IdnMapping.punycode_encode]Unexpected low surrogate");
 
                     // Double check our bidi rules
-                    StrongBidiCategory testBidi = IdnBidi.GetBidiCategory(unicode, basicCount);
+                    StrongBidiCategory testBidi = BidiData.GetBidiCategory(unicode, basicCount);
 
                     // If we're RTL, we can't have LTR chars
                     if (bRightToLeft && testBidi == StrongBidiCategory.StrongLeftToRight)
@@ -525,6 +557,7 @@ namespace CsharpcCoreLib.Globalization
                         /* Increase delta enough to advance the decoder's    */
                         /* <n,i> state to <m,0>, but guard against overflow: */
                         delta += (int)((m - n) * ((numProcessed - numSurrogatePairs) + 1));
+                        Debug.Assert(delta > 0, "[IdnMapping.cs]1 punycode_encode - delta overflowed int");
                         n = m;
 
                         for (j = iAfterLastDot; j < iNextDot; j += IsSupplementary(test) ? 2 : 1)
@@ -538,6 +571,7 @@ namespace CsharpcCoreLib.Globalization
                             if (test < n)
                             {
                                 delta++;
+                                Debug.Assert(delta > 0, "[IdnMapping.cs]2 punycode_encode - delta overflowed int");
                             }
 
                             if (test == n)
@@ -548,6 +582,7 @@ namespace CsharpcCoreLib.Globalization
                                 {
                                     int t = k <= bias ? c_tmin : k >= bias + c_tmax ? c_tmax : k - bias;
                                     if (q < t) break;
+                                    Debug.Assert(c_punycodeBase != t, "[IdnMapping.punycode_encode]Expected c_punycodeBase (36) to be != t");
                                     output.Append(EncodeDigit(t + (q - t) % (c_punycodeBase - t)));
                                     q = (q - t) / (c_punycodeBase - t);
                                 }
@@ -566,6 +601,7 @@ namespace CsharpcCoreLib.Globalization
                         }
                         ++delta;
                         ++n;
+                        Debug.Assert(delta > 0, "[IdnMapping.cs]3 punycode_encode - delta overflowed int");
                     }
                 }
 
@@ -805,6 +841,7 @@ namespace CsharpcCoreLib.Globalization
                             // decode the digit from the next char
                             int digit = DecodeDigit(ascii[asciiIndex++]);
 
+                            Debug.Assert(w > 0, "[IdnMapping.punycode_decode]Expected w > 0");
                             if (digit > (c_maxint - i) / w)
                                 throw new ArgumentException(SR.Argument_IdnBadPunycode, nameof(ascii));
 
@@ -812,6 +849,7 @@ namespace CsharpcCoreLib.Globalization
                             int t = k <= bias ? c_tmin : k >= bias + c_tmax ? c_tmax : k - bias;
                             if (digit < t)
                                 break;
+                            Debug.Assert(c_punycodeBase != t, "[IdnMapping.punycode_decode]Expected t != c_punycodeBase (36)");
                             if (w > c_maxint / (c_punycodeBase - t))
                                 throw new ArgumentException(SR.Argument_IdnBadPunycode, nameof(ascii));
                             w *= (c_punycodeBase - t);
@@ -821,6 +859,8 @@ namespace CsharpcCoreLib.Globalization
 
                         /* i was supposed to wrap around from output.Length to 0,   */
                         /* incrementing n each time, so we'll fix that now: */
+                        Debug.Assert((output.Length - iOutputAfterLastDot - numSurrogatePairs) + 1 > 0,
+                            "[IdnMapping.punycode_decode]Expected to have added > 0 characters this segment");
                         if (i / ((output.Length - iOutputAfterLastDot - numSurrogatePairs) + 1) > c_maxint - n)
                             throw new ArgumentException(SR.Argument_IdnBadPunycode, nameof(ascii));
                         n += (int)(i / (output.Length - iOutputAfterLastDot - numSurrogatePairs + 1));
@@ -869,7 +909,7 @@ namespace CsharpcCoreLib.Globalization
                     bool bRightToLeft = false;
 
                     // Check for RTL.  If right-to-left, then 1st & last chars must be RTL
-                    StrongBidiCategory eBidi = IdnBidi.GetBidiCategory(output, iOutputAfterLastDot);
+                    StrongBidiCategory eBidi = BidiData.GetBidiCategory(output, iOutputAfterLastDot);
                     if (eBidi == StrongBidiCategory.StrongRightToLeft)
                     {
                         // It has to be right to left.
@@ -884,7 +924,7 @@ namespace CsharpcCoreLib.Globalization
                             continue;
 
                         // Check to see if its LTR
-                        eBidi = IdnBidi.GetBidiCategory(output, iTest);
+                        eBidi = BidiData.GetBidiCategory(output, iTest);
                         if ((bRightToLeft && eBidi == StrongBidiCategory.StrongLeftToRight) ||
                             (!bRightToLeft && eBidi == StrongBidiCategory.StrongRightToLeft))
                             throw new ArgumentException(SR.Argument_IdnBadBidi, nameof(ascii));
@@ -943,6 +983,7 @@ namespace CsharpcCoreLib.Globalization
             uint k;
 
             delta = firsttime ? delta / c_damp : delta / 2;
+            Debug.Assert(numpoints != 0, "[IdnMapping.adapt]Expected non-zero numpoints.");
             delta += delta / numpoints;
 
             for (k = 0; delta > ((c_punycodeBase - c_tmin) * c_tmax) / 2; k += c_punycodeBase)
@@ -950,6 +991,7 @@ namespace CsharpcCoreLib.Globalization
                 delta /= c_punycodeBase - c_tmin;
             }
 
+            Debug.Assert(delta + c_skew != 0, "[IdnMapping.adapt]Expected non-zero delta+skew.");
             return (int)(k + (c_punycodeBase - c_tmin + 1) * delta / (delta + c_skew));
         }
 
@@ -974,232 +1016,12 @@ namespace CsharpcCoreLib.Globalization
 
         private static char EncodeDigit(int d)
         {
+            Debug.Assert(d >= 0 && d < c_punycodeBase, "[IdnMapping.encode_digit]Expected 0 <= d < punycodeBase");
             // 26-35 map to ASCII 0-9
             if (d > 25) return (char)(d - 26 + '0');
 
             // 0-25 map to a-z or A-Z
             return (char)(d + 'a');
         }
-    }
-
-    public sealed partial class IdnMapping
-    {
-        private unsafe string IcuGetAsciiCore(string unicodeString, int index, int count)
-        {
-
-            ReadOnlySpan<char> unicode = unicodeString.AsSpan(index, count);
-            uint flags = IcuFlags;
-            CheckInvalidIdnCharacters(unicode, flags, nameof(unicode));
-
-            const int StackallocThreshold = 512;
-            // Each unicode character is represented by up to 3 ASCII chars
-            // and the whole string is prefixed by "xn--" (length 4)
-            int estimatedLength = (int)Math.Min(checked(count * 3L + 4), StackallocThreshold);
-            int actualLength;
-            if ((uint)estimatedLength < StackallocThreshold)
-            {
-                Span<char> outputStack = stackalloc char[estimatedLength];
-                actualLength = IcuToAscii(flags, unicode, count, outputStack, estimatedLength);
-                if (actualLength > 0 && actualLength <= estimatedLength)
-                {
-                    return GetStringForOutput(unicodeString, unicode, outputStack.Slice(0, actualLength));
-                }
-            }
-            else
-            {
-                actualLength = IcuToAscii(flags, unicode, count, Span<char>.Empty, 0);
-            }
-            if (actualLength == 0)
-            {
-                throw new ArgumentException(SR.Argument_IdnIllegalName, nameof(unicode));
-            }
-
-            char[] outputHeap = new char[actualLength];
-            actualLength = IcuToAscii(flags, unicode, count, outputHeap, actualLength);
-            if (actualLength == 0 || actualLength > outputHeap.Length)
-            {
-                throw new ArgumentException(SR.Argument_IdnIllegalName, nameof(unicode));
-            }
-
-            return GetStringForOutput(unicodeString, unicode, outputHeap.AsSpan(0, actualLength));
-        }
-
-        private bool IcuTryGetAsciiCore(ReadOnlySpan<char> unicode, Span<char> destination, out int charsWritten)
-        {
-
-            uint flags = IcuFlags;
-            CheckInvalidIdnCharacters(unicode, flags, nameof(unicode));
-
-            int actualLength = IcuToAscii(flags, unicode, unicode.Length, destination, destination.Length);
-
-            if (actualLength <= destination.Length)
-            {
-                if (actualLength == 0)
-                {
-                    throw new ArgumentException(SR.Argument_IdnIllegalName, nameof(unicode));
-                }
-
-                charsWritten = actualLength;
-                return true;
-            }
-
-            charsWritten = 0;
-            return false;
-        }
-
-        private unsafe string IcuGetUnicodeCore(string asciiString, int index, int count)
-        {
-
-            ReadOnlySpan<char> ascii = asciiString.AsSpan(index, count);
-            uint flags = IcuFlags;
-            CheckInvalidIdnCharacters(ascii, flags, nameof(ascii));
-
-            const int StackAllocThreshold = 512;
-            if ((uint)count < StackAllocThreshold)
-            {
-                Span<char> output = stackalloc char[count];
-                return IcuGetUnicodeCore(asciiString, ascii, flags, output, reattempt: true);
-            }
-            else
-            {
-                char[] output = new char[count];
-                return IcuGetUnicodeCore(asciiString, ascii, flags, output, reattempt: true);
-            }
-        }
-
-        private static string IcuGetUnicodeCore(string asciiString, ReadOnlySpan<char> ascii, uint flags, Span<char> output, bool reattempt)
-        {
-
-            int realLen = IcuToUnicode(flags, ascii, ascii.Length, output, output.Length);
-
-            if (realLen == 0)
-            {
-                throw new ArgumentException(SR.Argument_IdnIllegalName, nameof(ascii));
-            }
-            else if (realLen <= output.Length)
-            {
-                return GetStringForOutput(asciiString, ascii, output.Slice(0, realLen));
-            }
-            else if (reattempt)
-            {
-                char[] newOutput = new char[realLen];
-                return IcuGetUnicodeCore(asciiString, ascii, flags, newOutput, reattempt: false);
-            }
-
-            throw new ArgumentException(SR.Argument_IdnIllegalName, nameof(ascii));
-        }
-
-        private bool IcuTryGetUnicodeCore(ReadOnlySpan<char> ascii, Span<char> destination, out int charsWritten)
-        {
-
-            uint flags = IcuFlags;
-            CheckInvalidIdnCharacters(ascii, flags, nameof(ascii));
-
-            int actualLength = IcuToUnicode(flags, ascii, ascii.Length, destination, destination.Length);
-
-            if (actualLength <= destination.Length)
-            {
-                if (actualLength == 0)
-                {
-                    throw new ArgumentException(SR.Argument_IdnIllegalName, nameof(ascii));
-                }
-
-                charsWritten = actualLength;
-                return true;
-            }
-
-            charsWritten = 0;
-            return false;
-        }
-
-        private uint IcuFlags
-        {
-            get
-            {
-                int flags =
-                    (AllowUnassigned ? Interop.Globalization.AllowUnassigned : 0) |
-                    (UseStd3AsciiRules ? Interop.Globalization.UseStd3AsciiRules : 0);
-                return (uint)flags;
-            }
-        }
-
-        /// <summary>
-        /// ICU doesn't check for invalid characters unless the STD3 rules option
-        /// is enabled.
-        ///
-        /// To match Windows behavior, we walk the string ourselves looking for these
-        /// bad characters so we can continue to throw ArgumentException in these cases.
-        /// </summary>
-        private static void CheckInvalidIdnCharacters(ReadOnlySpan<char> s, uint flags, string paramName)
-        {
-            if ((flags & Interop.Globalization.UseStd3AsciiRules) == 0)
-            {
-                for (int i = 0; i < s.Length; i++)
-                {
-                    char c = s[i];
-
-                    // These characters are prohibited regardless of the UseStd3AsciiRules property.
-                    // See https://msdn.microsoft.com/en-us/library/system.globalization.idnmapping.usestd3asciirules(v=vs.110).aspx
-                    if (c <= 0x1F || c == 0x7F)
-                    {
-                        throw new ArgumentException(SR.Argument_IdnIllegalName, paramName);
-                    }
-                }
-            }
-        }
-
-        // csharpc: the corelib's IDNA imports take pointers (Interop.Globalization.cs).
-        private static unsafe int IcuToAscii(uint flags, ReadOnlySpan<char> src, int srcLen, Span<char> dst, int dstCapacity)
-        {
-            fixed (char* s = src) fixed (char* d = dst) return Interop.Globalization.ToAscii(flags, s, srcLen, d, dstCapacity);
-        }
-
-        private static unsafe int IcuToUnicode(uint flags, ReadOnlySpan<char> src, int srcLen, Span<char> dst, int dstCapacity)
-        {
-            fixed (char* s = src) fixed (char* d = dst) return Interop.Globalization.ToUnicode(flags, s, srcLen, d, dstCapacity);
-        }
-    }
-
-    /// <summary>CharUnicodeInfo's StrongBidiCategory.</summary>
-    internal enum StrongBidiCategory
-    {
-        Other = 0x00,
-        StrongLeftToRight = 0x20,
-        StrongRightToLeft = 0x40,
-    }
-
-    /// <summary>CharUnicodeInfo.GetBidiCategory over .NET's data (IdnBidi.g.cs, tools/unicode/GenBidiTable.cs).</summary>
-    internal static class IdnBidi
-    {
-        internal static StrongBidiCategory GetBidiCategory(ReadOnlySpan<char> s, int index)
-        {
-            if ((uint)index >= (uint)s.Length) throw new ArgumentOutOfRangeException(nameof(index));
-            int c = s[index];
-            if (index < s.Length - 1 && char.IsHighSurrogate((char)c) && char.IsLowSurrogate(s[index + 1])) c = char.ConvertToUtf32((char)c, s[index + 1]);
-            return Of(c);
-        }
-
-        internal static StrongBidiCategory GetBidiCategory(StringBuilder s, int index)
-        {
-            if ((uint)index >= (uint)s.Length) throw new ArgumentOutOfRangeException(nameof(index));
-            int c = s[index];
-            if (index < s.Length - 1 && char.IsHighSurrogate((char)c) && char.IsLowSurrogate(s[index + 1])) c = char.ConvertToUtf32((char)c, s[index + 1]);
-            return Of(c);
-        }
-
-        private static StrongBidiCategory Of(int codePoint)
-        {
-            ReadOnlySpan<byte> table = IdnBidiData.Breakpoints;
-            int lo = 0, hi = IdnBidiData.Count - 1;
-            while (lo < hi)
-            {
-                int mid = (lo + hi + 1) >> 1;
-                if (Entry(table, mid) >> 2 <= codePoint) lo = mid; else hi = mid - 1;
-            }
-            return (Entry(table, lo) & 3) switch { 1 => StrongBidiCategory.StrongLeftToRight, 2 => StrongBidiCategory.StrongRightToLeft, _ => StrongBidiCategory.Other };
-        }
-
-        private static int Entry(ReadOnlySpan<byte> table, int i) =>
-            ((table[4 * i] - '0') << 18) | ((table[4 * i + 1] - '0') << 12) | ((table[4 * i + 2] - '0') << 6) | (table[4 * i + 3] - '0');
     }
 }

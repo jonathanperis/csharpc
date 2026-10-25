@@ -157,11 +157,20 @@ public sealed partial class FunctionCodeGen
             throw CompileError.Unsupported("expression trees (a lambda converted to System.Linq.Expressions.Expression<T>)", creation);
         LLVMValueRef target, fn;
         var capturesNothing = false;
+        IMethodSymbol? described = null; // what Delegate.Method reports (ModuleCodeGen.NoteDelegateMethod)
+        var sourceLambda = false;
+        // `Func<string> f = s.Ext`: Roslyn's operation tree has no receiver for an extension method group
+        // closed over its first argument (only IL's ldftn form is lowered, FunctionCodeGen.IlCalls.cs).
+        if (creation.Target is IMethodReferenceOperation { Method.IsExtensionMethod: true, Instance: null } extension
+            && extension.Syntax is Microsoft.CodeAnalysis.CSharp.Syntax.MemberAccessExpressionSyntax access
+            && access.Expression.ToString() != extension.Method.ContainingType.Name && access.Expression.ToString() != extension.Method.ContainingType.ToDisplayString())
+            throw CompileError.Unsupported($"a delegate to extension method '{extension.Method}' closed over its receiver", creation);
         switch (creation.Target)
         {
             case IFlowAnonymousFunctionOperation lambda:
                 target = EnvValue(NestedFunction(lambda.Symbol, creation).Incoming);
                 fn = _m.GetNestedFunction(lambda.Symbol, _subst).Fn;
+                (described, sourceLambda) = (lambda.Symbol, true);
                 break;
             case IMethodReferenceOperation { Method.MethodKind: MethodKind.LocalFunction } local:
             {
@@ -169,21 +178,36 @@ public sealed partial class FunctionCodeGen
                 target = EnvValue(callee.Incoming);
                 fn = NestedFunctionInstance(callee, S(local.Method), creation).Fn;
                 capturesNothing = callee.Incoming is null; // compiled to a static method by C#, so cached too
+                (described, sourceLambda) = (S(local.Method), true);
                 break;
             }
+            // A static method closed over its first argument (IL's `ldarg x; ldftn Ext; newobj D` for
+            // `Func<T> f = x.Ext`): the delegate calls fn(target, rest...), which is the method itself when
+            // its first parameter is a reference (the target's representation).
+            case IMethodReferenceOperation { Method.IsStatic: true, Instance: { } closedOver } group
+                when _m.IsUserMethod(S(group.Method)) && S(group.Method).Parameters is [{ RefKind: RefKind.None, Type.IsReferenceType: true }, ..]:
+                target = EmitValue(closedOver);
+                fn = _m.GetFunction(S(group.Method)).Fn;
+                described = S(group.Method);
+                break;
             case IMethodReferenceOperation { Method.IsStatic: true } group when _m.IsUserMethod(S(group.Method)):
                 target = LlvmContext.Null(L.Ptr);
                 fn = _m.StaticThunk(S(group.Method));
+                described = S(group.Method);
                 break;
             case IMethodReferenceOperation group when _m.IsUserMethod(group.Method):
             {
                 // obj.Method: the receiver is the target; virtual methods are resolved now, as in .NET.
                 target = EmitValue(group.Instance!);
-                if (group.Instance is not IInstanceReferenceOperation) DelegateTargetCheck(target);
                 var method = S(group.Method);
-                var isVirtual = group.IsVirtual && (method.IsVirtual || method.IsAbstract || method.IsOverride)
-                    && !method.IsSealed && !method.ContainingType.IsSealed;
+                var dispatched = group.IsVirtual && (method.IsVirtual || method.IsAbstract || method.IsOverride);
+                // A virtual method group compiles to `ldvirtftn`, which throws NullReferenceException on a
+                // null receiver; `ldftn` + the delegate constructor reject it with an ArgumentException.
+                if (dispatched) NullCheck(target);
+                else if (group.Instance is not IInstanceReferenceOperation) DelegateTargetCheck(target);
+                var isVirtual = dispatched && !method.IsSealed && !method.ContainingType.IsSealed;
                 fn = isVirtual ? LoadVirtualFunction(method, target) : _m.GetFunction(method).Fn;
+                if (!isVirtual) described = method;
                 break;
             }
             // A library method (Path.GetFullPath, set.Contains, char.IsAscii...): a thunk with the delegate's
@@ -198,6 +222,7 @@ public sealed partial class FunctionCodeGen
                     if (group.Instance is not IInstanceReferenceOperation) DelegateTargetCheck(target);
                 }
                 fn = _m.LibraryDelegateThunk(method, group.IsVirtual, creation.Syntax);
+                if (!group.IsVirtual || method.IsStatic || !(method.IsVirtual || method.IsAbstract || method.IsOverride)) described = method;
                 break;
             }
             case IMethodReferenceOperation group:
@@ -205,11 +230,12 @@ public sealed partial class FunctionCodeGen
             default:
                 throw CompileError.Unsupported($"delegate creation from {creation.Target.Kind}", creation);
         }
+        if (described is not null) _m.NoteDelegateMethod(fn, described, sourceLambda);
         var delegateType = (INamedTypeSymbol)TypeOf(creation)!;
         var mt = _m.DelegateMethodTable(delegateType);
         // C# 11+ caches a static method group's delegate in a static field of the converting type (Roslyn's
         // <>O container), so two conversions of M there are the same object: ReferenceEquals sees it.
-        if (creation.Target is IMethodReferenceOperation { Method: var staticMethod }
+        if (creation.Target is IMethodReferenceOperation { Method: var staticMethod, Instance: null }
             && (staticMethod.MethodKind == MethodKind.LocalFunction ? capturesNothing : staticMethod.IsStatic)
             && creation.Syntax is not Microsoft.CodeAnalysis.CSharp.Syntax.BaseObjectCreationExpressionSyntax && _method is not null)
         {
@@ -271,6 +297,17 @@ public sealed partial class FunctionCodeGen
     private LLVMValueRef LoadVirtualFunction(IMethodSymbol method, LLVMValueRef self)
     {
         _m.NoteVirtualCall(method);
+        if (method.ContainingType.TypeKind == TypeKind.Interface)
+        {
+            // `ldvirtftn IFoo::M` / `obj.M` with obj typed as an interface: the implementation comes from
+            // the object's interface map, like an interface call (InterfaceDispatch).
+            if (method.IsGenericMethod) throw CompileError.Unsupported($"delegate to generic interface method '{method}'", method);
+            var itf = method.ContainingType;
+            var index = ModuleCodeGen.InterfaceSlotIndex(itf, method);
+            _m.NoteInterfaceDispatch(itf, index);
+            var slots = CallRuntime("csrt_interface_slots", L.Ptr, [L.Ptr, L.Ptr], self, _m.InterfaceMethodTable(itf));
+            return _b.Load(L.Ptr, _b.InBoundsGep(L.I8, slots, [L.ConstUInt(L.I64, (ulong)index * T.PointerSize)], "islot"), "ifn");
+        }
         var layout = _m.GetLayout(method.ContainingType);
         if (!layout.SlotOf.TryGetValue(_m.RootOf(method), out var slot))
             throw CompileError.Unsupported($"delegate to virtual method '{method}'", method);

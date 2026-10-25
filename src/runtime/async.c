@@ -181,7 +181,7 @@ static void enqueue_flow(intptr_t kind, void* a, void* b, void* flow) {
 }
 
 /// Queues work with the calling code's execution-context flow.
-static void enqueue(intptr_t kind, void* a, void* b) { enqueue_flow(kind, a, b, csrt_tl_flow); }
+static void enqueue(intptr_t kind, void* a, void* b) { enqueue_flow(kind, a, b, csrt_flow_capture()); }
 
 static bool dequeue_locked(intptr_t* kind, void** a, void** b, void** flow) {
     if (s_qcount == 0) return false;
@@ -238,7 +238,17 @@ static void pool_start_locked(void) {
 // ---------------------------------------------------------------------------------------------
 // Tasks
 // ---------------------------------------------------------------------------------------------
-void* csrt_coro_alloc(int64_t size) { return csrt_alloc(&csrt_CoroFrame_MT.header, size); }
+/// A coroutine frame: LLVM writes its own header (the resume and destroy functions) at the start of the
+/// memory it gets, so the frame lives one word after the object's method-table pointer. Handing LLVM
+/// the object itself would overwrite that word, and the collector would read a method table's flags
+/// from the resume function's code: frames whose code bytes happen to say "no references" were never
+/// scanned, and everything only they kept alive (the tasks they await) was swept while still in use.
+/// The frame pointer is an interior pointer, which the conservative collector maps to its object. The
+/// offset keeps the frame 16-byte aligned (heap objects are), as optimized code may assume of its spills.
+#define CORO_FRAME_OFFSET 16
+void* csrt_coro_alloc(int64_t size) {
+    return (uint8_t*)csrt_alloc(&csrt_CoroFrame_MT.header, size + CORO_FRAME_OFFSET) + CORO_FRAME_OFFSET;
+}
 
 csrt_Task* csrt_task_new(int32_t payload_size) {
     csrt_Task* t = csrt_alloc(&csrt_Task_MT.header, (int64_t)sizeof(csrt_Task) + (payload_size > 0 ? payload_size : 0));
@@ -382,6 +392,14 @@ void csrt_task_fault_async(csrt_Task* t, void* exception) {
 bool csrt_task_try_complete(csrt_Task* t) { return try_finish(t, T_DONE, NULL); }
 bool csrt_task_try_fault(csrt_Task* t, void* e) { return try_finish(t, T_FAULTED, e); }
 bool csrt_task_try_cancel(csrt_Task* t) { return try_finish(t, T_CANCELED, NULL); }
+
+/// TrySetCanceled(token): awaiting the task throws a TaskCanceledException whose CancellationToken is `token`.
+bool csrt_task_try_cancel_token(csrt_Task* t, void* token) {
+    if (!token) return csrt_task_try_cancel(t);
+    void* e = csrt_task_canceled_exception_new();
+    csrt_exception_set_token(e, token);
+    return try_finish(t, T_CANCELED, e);
+}
 
 static void when_all_step(WhenAllState* s) {
     if (__atomic_sub_fetch(&s->remaining, 1, __ATOMIC_ACQ_REL) > 0) return;
@@ -540,11 +558,11 @@ void csrt_sync_context_hook(void* hook) { s_sync_context_capture = (void* (*)(vo
 static void* sync_context_continuation(void* frame, void* action) {
     void* context = csrt_tl_sync_context;
     if (!context || !s_sync_context_capture) return NULL;
-    return s_sync_context_capture(context, frame, action, csrt_tl_flow);
+    return s_sync_context_capture(context, frame, action, csrt_flow_capture());
 }
 
 static void on_completed_no_context(csrt_Task* t, void* frame) {
-    void* flow = csrt_tl_flow;
+    void* flow = csrt_flow_capture();
     bool added;
     if (flow) {
         ResumeWithFlow* r = csrt_alloc(&csrt_Object_MT.header, sizeof(ResumeWithFlow));
@@ -594,11 +612,18 @@ void csrt_task_on_completed_action_no_context(csrt_Task* t, void* action) {
     if (!t || !add_continuation(t, K_INVOKE, action)) enqueue(K_INVOKE, action, NULL);
 }
 
-/// Runs an Action on the pool (ThreadPool.QueueUserWorkItem).
-void csrt_queue_action(void* action) {
+/// ThreadPool.ThreadCount / PendingWorkItemCount / CompletedWorkItemCount (work items started).
+int32_t csrt_pool_thread_count(void) { pthread_mutex_lock(&s_qlock); int32_t n = s_workers; pthread_mutex_unlock(&s_qlock); return n; }
+int64_t csrt_pool_pending_count(void) { pthread_mutex_lock(&s_qlock); int64_t n = s_qcount; pthread_mutex_unlock(&s_qlock); return n; }
+int64_t csrt_pool_completed_count(void) { pthread_mutex_lock(&s_qlock); int64_t n = s_dequeued; pthread_mutex_unlock(&s_qlock); return n; }
+
+/// ThreadPool.QueueUserWorkItem (flowContext: with the caller's execution-context flow) and
+/// UnsafeQueueUserWorkItem (without it): the corelib wraps the work in an Action.
+void csrt_pool_queue_action(void* action, bool flowContext) {
     if (!action) csrt_throw_null_reference();
-    enqueue(K_INVOKE, action, NULL);
+    enqueue_flow(K_INVOKE, action, NULL, flowContext ? csrt_flow_capture() : NULL);
 }
+
 
 /// YieldAwaiter.OnCompleted(action): post it to the current SynchronizationContext, or run it on the pool.
 void csrt_yield_action(void* action) {
@@ -641,11 +666,14 @@ typedef struct CancellationSource {
 } CancellationSource;
 
 void csrt_cts_dispose(CancellationSource* cts);
-// IDisposable.Dispose (`using var cts = ...` through the interface) is a real Dispose: slot 3.
-const struct { csrt_MethodTable header; void* vtable[4]; } csrt_CancellationTokenSource_MT = {
+void csrt_cts_dispose_bool(CancellationSource* cts, bool disposing);
+// IDisposable.Dispose (`using var cts = ...` through the interface) is a real Dispose: slot 3; slot 4 is
+// the protected virtual Dispose(bool) classes deriving from CancellationTokenSource override
+// (ModuleCodeGen.Cancellation.cs lays them out over this struct).
+const struct { csrt_MethodTable header; void* vtable[5]; } csrt_CancellationTokenSource_MT = {
     { &csrt_Object_MT.header, "System.Threading.CancellationTokenSource", sizeof(CancellationSource), CSRT_MT_DISPOSABLE | CSRT_MT_DISPOSE_SLOT },
     { (void*)csrt_object_to_string_default, (void*)csrt_object_equals_default, (void*)csrt_object_get_hash_code_default,
-      (void*)csrt_cts_dispose },
+      (void*)csrt_cts_dispose, (void*)csrt_cts_dispose_bool },
 };
 
 static pthread_mutex_t s_tlock = PTHREAD_MUTEX_INITIALIZER;
@@ -903,6 +931,33 @@ void csrt_cts_dispose(CancellationSource* cts) {
         }
     }
     pthread_mutex_unlock(&s_tlock);
+}
+
+/// CancellationTokenSource.Dispose(bool): the base implementation (disposing: Dispose's work).
+void csrt_cts_dispose_bool(CancellationSource* cts, bool disposing) {
+    if (!cts) csrt_throw_null_reference();
+    if (disposing) csrt_cts_dispose(cts);
+}
+
+/// CancellationTokenSource.Dispose(): Dispose(true) through the vtable, so a derived class's override runs.
+void csrt_cts_dispose_virtual(CancellationSource* cts) {
+    if (!cts) csrt_throw_null_reference();
+    void (*dispose)(CancellationSource*, bool) = (void (*)(CancellationSource*, bool))((void* const*)(cts->mt + 1))[4];
+    dispose(cts, true);
+}
+
+/// A virtual call of Dispose(bool) (from a class deriving from CancellationTokenSource).
+void csrt_cts_dispose_bool_virtual(CancellationSource* cts, bool disposing) {
+    if (!cts) csrt_throw_null_reference();
+    void (*dispose)(CancellationSource*, bool) = (void (*)(CancellationSource*, bool))((void* const*)(cts->mt + 1))[4];
+    dispose(cts, disposing);
+}
+
+/// `: base(millisecondsDelay)` of a class deriving from CancellationTokenSource: the timer of the
+/// CancellationTokenSource(int) constructor on the already allocated (zeroed) source.
+void csrt_cts_init_after(CancellationSource* cts, int32_t ms) {
+    if (ms == 0) cts->canceled = 1;
+    else if (ms > 0) add_timer(now_ms() + ms, NULL, cts);
 }
 
 /// CancellationTokenSource.TryReset(): an uncanceled source forgets its registrations and timers.

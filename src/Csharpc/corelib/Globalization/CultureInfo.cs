@@ -128,10 +128,13 @@ namespace CsharpcCoreLib.Globalization
         // csharpc: .NET keeps the current cultures in AsyncLocals, so they flow with the ExecutionContext
         // into threads started, work queued and await continuations registered afterwards. csharpc's
         // runtime keeps an execution-context flow per logical flow (csrt_tl_flow, captured at Thread.Start,
-        // at queueing and at await); the cultures live in its immutable ExecutionFlow (Tasks/AsyncLocal.cs).
-        private static CultureInfo? s_currentThreadCulture => (CultureInfo?)CsharpcCoreLib.ExecutionFlow.Current?.Culture;
+        // at queueing and at await); the cultures are two of its values (corelib/Tasks/ExecutionFlow.cs).
+        // The flow's keys: string literals are single constant objects (no static constructor needed).
+        private const string s_cultureKey = "CultureInfo.CurrentCulture", s_uiCultureKey = "CultureInfo.CurrentUICulture";
 
-        private static CultureInfo? s_currentThreadUICulture => (CultureInfo?)CsharpcCoreLib.ExecutionFlow.Current?.UICulture;
+        private static CultureInfo? s_currentThreadCulture => (CultureInfo?)CsharpcCoreLib.ExecutionFlow.Get(s_cultureKey);
+
+        private static CultureInfo? s_currentThreadUICulture => (CultureInfo?)CsharpcCoreLib.ExecutionFlow.Get(s_uiCultureKey);
 
         private static Dictionary<string, CultureInfo>? s_cachedCulturesByName;
         private static Dictionary<int, CultureInfo>? s_cachedCulturesByLcid;
@@ -375,7 +378,7 @@ namespace CsharpcCoreLib.Globalization
             {
                 ArgumentNullException.ThrowIfNull(value);
 
-                CsharpcCoreLib.ExecutionFlow.SetCultures(value, CsharpcCoreLib.ExecutionFlow.Current?.UICulture);
+                CsharpcCoreLib.ExecutionFlow.Set(s_cultureKey, value);
             }
         }
 
@@ -393,7 +396,7 @@ namespace CsharpcCoreLib.Globalization
 
                 VerifyCultureName(value, true);
 
-                CsharpcCoreLib.ExecutionFlow.SetCultures(CsharpcCoreLib.ExecutionFlow.Current?.Culture, value);
+                CsharpcCoreLib.ExecutionFlow.Set(s_uiCultureKey, value);
             }
         }
 

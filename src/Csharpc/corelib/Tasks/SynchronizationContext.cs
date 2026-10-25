@@ -1,13 +1,10 @@
-// SynchronizationContext, ExecutionContext.Capture/Run and ThreadPool.QueueUserWorkItem.
+// SynchronizationContext (ExecutionContext, the flow and the thread pool: ExecutionContexts.cs, ExecutionFlow.cs).
 //
 // SynchronizationContext.Current is per thread, as in .NET. An `await` that captures the context (no
 // ConfigureAwait(false)) of a derived type posts its continuation there: the C runtime keeps such a
 // context in a thread-local of its own (csrt_tl_sync_context, runtime/async.c), and while one is set an
 // await asks Capture below for the continuation to register, which Posts the coroutine's resumption.
 // A plain `new SynchronizationContext()` behaves like none, as .NET's awaiters treat it.
-//
-// ExecutionContext is csharpc's execution-context flow (csrt_tl_flow, runtime/threads.c: the cultures
-// that flow like AsyncLocals): Capture takes the current one and Run runs a callback with it.
 #nullable disable
 using System;
 using System.Runtime.ExceptionServices;
@@ -51,7 +48,7 @@ namespace CsharpcCoreLib
         public virtual void Send(SendOrPostCallback d, object state) => d(state);
 
         public virtual void Post(SendOrPostCallback d, object state) =>
-            ThreadPoolMembers.Queue(() => d(state), flow: true);
+            ThreadPool.QueueUserWorkItem(static s => s.d(s.state), (d, state), preferLocal: false);
 
         public virtual SynchronizationContext CreateCopy() => new SynchronizationContext();
         public virtual void OperationStarted() { }
@@ -122,7 +119,7 @@ namespace CsharpcCoreLib
                     edi = ExceptionDispatchInfo.Capture(new AggregateException(exception, postException));
                 }
             }
-            ThreadPoolMembers.Queue(() => edi.Throw(), flow: true);
+            ThreadPool.QueueUserWorkItem(static e => e.Throw(), edi, preferLocal: false);
         }
     }
 
@@ -152,116 +149,19 @@ namespace CsharpcCoreLib
                 _action();
                 return;
             }
-            IntPtr saved = ExecutionContextImpl.FlowGet();
-            ExecutionContextImpl.FlowSet(_flow);
+            IntPtr saved = FlowGet();
+            FlowSet(_flow);
             try { csrt_coro_resume(_frame); }
-            finally { ExecutionContextImpl.FlowSet(saved); }
+            finally { FlowSet(saved); }
         }
+
+        [DllImport("__Internal", EntryPoint = "csrt_flow_get")]
+        private static extern IntPtr FlowGet();
+
+        [DllImport("__Internal", EntryPoint = "csrt_flow_set")]
+        private static extern void FlowSet(IntPtr flow);
 
         [DllImport("__Internal", EntryPoint = "csrt_coro_resume")]
         private static extern void csrt_coro_resume(IntPtr frame);
-    }
-
-    [Shadows("System.Threading.ExecutionContext")]
-    public sealed class ExecutionContextImpl : IDisposable
-    {
-        private static readonly ExecutionContextImpl s_default = new ExecutionContextImpl(IntPtr.Zero);
-        private readonly IntPtr _flow;
-
-        private ExecutionContextImpl(IntPtr flow) { _flow = flow; }
-
-        public static ExecutionContext Capture()
-        {
-            IntPtr flow = FlowGet();
-            return (ExecutionContext)(object)(flow == IntPtr.Zero ? s_default : new ExecutionContextImpl(flow));
-        }
-
-        public static void Run(ExecutionContext executionContext, ContextCallback callback, object state)
-        {
-            if (executionContext == null) throw new InvalidOperationException("Cannot call Set on a null context");
-            // .NET's RunInternal also puts back the thread's SynchronizationContext.
-            IntPtr saved = FlowGet();
-            SynchronizationContext savedContext = SynchronizationContext.Current;
-            FlowSet(((ExecutionContextImpl)(object)executionContext)._flow);
-            try { callback(state); }
-            finally
-            {
-                FlowSet(saved);
-                if (SynchronizationContext.Current != savedContext) SynchronizationContext.SetSynchronizationContext(savedContext);
-            }
-        }
-
-        public static void Restore(ExecutionContext executionContext)
-        {
-            if (executionContext == null) throw new InvalidOperationException("Cannot call Set on a null context");
-            FlowSet(((ExecutionContextImpl)(object)executionContext)._flow);
-        }
-
-        public static bool IsFlowSuppressed() => false;
-
-        public ExecutionContext CreateCopy() => (ExecutionContext)(object)this;
-        public void Dispose() { }
-
-        [DllImport("__Internal", EntryPoint = "csrt_flow_get")]
-        internal static extern IntPtr FlowGet();
-
-        [DllImport("__Internal", EntryPoint = "csrt_flow_set")]
-        internal static extern void FlowSet(IntPtr flow);
-    }
-
-    [ShadowMembers("System.Threading.ThreadPool")]
-    internal static class ThreadPoolMembers
-    {
-        [DllImport("__Internal", EntryPoint = "csrt_queue_action")]
-        private static extern void csrt_queue_action(IntPtr action);
-
-        /// <summary>Runs `action` on the pool (an exception escaping it is unhandled); `flow`: with the current execution context.</summary>
-        internal static void Queue(Action action, bool flow)
-        {
-            if (flow)
-            {
-                csrt_queue_action(CoreIntrinsics.ObjectToPointer(action));
-                return;
-            }
-            IntPtr saved = ExecutionContextImpl.FlowGet();
-            ExecutionContextImpl.FlowSet(IntPtr.Zero);
-            try { csrt_queue_action(CoreIntrinsics.ObjectToPointer(action)); }
-            finally { ExecutionContextImpl.FlowSet(saved); }
-        }
-
-        public static bool QueueUserWorkItem(WaitCallback callBack)
-        {
-            if (callBack == null) throw new ArgumentNullException("callBack");
-            Queue(() => callBack(null), flow: true);
-            return true;
-        }
-
-        public static bool QueueUserWorkItem(WaitCallback callBack, object state)
-        {
-            if (callBack == null) throw new ArgumentNullException("callBack");
-            Queue(() => callBack(state), flow: true);
-            return true;
-        }
-
-        public static bool QueueUserWorkItem<TState>(Action<TState> callBack, TState state, bool preferLocal)
-        {
-            if (callBack == null) throw new ArgumentNullException("callBack");
-            Queue(() => callBack(state), flow: true);
-            return true;
-        }
-
-        public static bool UnsafeQueueUserWorkItem(WaitCallback callBack, object state)
-        {
-            if (callBack == null) throw new ArgumentNullException("callBack");
-            Queue(() => callBack(state), flow: false);
-            return true;
-        }
-
-        public static bool UnsafeQueueUserWorkItem<TState>(Action<TState> callBack, TState state, bool preferLocal)
-        {
-            if (callBack == null) throw new ArgumentNullException("callBack");
-            Queue(() => callBack(state), flow: false);
-            return true;
-        }
     }
 }

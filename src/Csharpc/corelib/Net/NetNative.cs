@@ -116,9 +116,104 @@ namespace CsharpcCoreLib
         [DllImport("libc")] private static extern int getaddrinfo(byte* node, byte* service, byte* hints, byte** result);
         [DllImport("libc")] private static extern void freeaddrinfo(byte* info);
         [DllImport("libc")] private static extern int gethostname(byte* name, nuint length);
+        [DllImport("libc", SetLastError = true)] private static extern int fcntl(int fd, int command, int argument);
+        [DllImport("libc", SetLastError = true)] private static extern int poll(long* fds, nuint count, int timeout);
+#if CSHARPC_TARGET_LINUX
+        [DllImport("libc", SetLastError = true)] private static extern int accept4(int s, byte* address, int* length, int flags);
+#endif
         private static void Startup() { }
         private static int LastError() => Marshal.GetLastPInvokeError();
 #endif
+
+        // ---- non-blocking operations (corelib/Net/SocketEngine.cs): the result, or -1 and the error ----
+        public const int MSG_PEEK = 2;
+#if CSHARPC_TARGET_MACOS
+        public const int EAGAIN = 35, EINPROGRESS = 36;
+        public const int SO_LINGER = 0x1080; // SO_LINGER_SEC: the timeout in seconds, as .NET sets it
+#elif CSHARPC_TARGET_WINDOWS
+        public const int EAGAIN = 10035, EINPROGRESS = 10036;
+        public const int SO_LINGER = 0x80;
+#else
+        public const int EAGAIN = 11, EINPROGRESS = 115;
+        public const int SO_LINGER = 13;
+#endif
+
+        public static bool IsWouldBlock(int error) => error == EAGAIN;
+
+        public static int TryReceive(long s, byte* buffer, int count, int flags, out int error)
+        {
+            while (true)
+            {
+                long n = recv(H(s), buffer, Count(count), flags);
+                if (n >= 0) { error = 0; return (int)n; }
+                error = LastError();
+                if (!IsInterrupted(error)) return -1;
+            }
+        }
+
+        public static int TrySend(long s, byte* buffer, int count, out int error)
+        {
+            while (true)
+            {
+                long n = send(H(s), buffer, Count(count), SendFlags);
+                if (n >= 0) { error = 0; return (int)n; }
+                error = LastError();
+                if (!IsInterrupted(error)) return -1;
+            }
+        }
+
+        /// <summary>accept() of a ready connection; the new socket is non-blocking where the engine is epoll.</summary>
+        public static long TryAccept(long s, out int error)
+        {
+            while (true)
+            {
+#if CSHARPC_TARGET_LINUX
+                long client = accept4(H(s), null, null, 0x800 /* SOCK_NONBLOCK */ | 0x80000 /* SOCK_CLOEXEC */);
+#else
+                long client = accept(H(s), null, null);
+#endif
+                if (client != InvalidSocket) { error = 0; return client; }
+                error = LastError();
+                if (!IsInterrupted(error)) return InvalidSocket;
+            }
+        }
+
+#if !CSHARPC_TARGET_WINDOWS && !CSHARPC_TARGET_WASI
+        public static void SetNonBlocking(long s)
+        {
+#if CSHARPC_TARGET_MACOS
+            const int O_NONBLOCK = 0x4;
+#else
+            const int O_NONBLOCK = 0x800;
+#endif
+            int flags = fcntl(H(s), 3 /* F_GETFL */, 0);
+            if (flags < 0 || fcntl(H(s), 4 /* F_SETFL */, flags | O_NONBLOCK) < 0) throw Error(LastError());
+        }
+
+        /// <summary>Waits until the socket is readable (or writable); false when the timeout (ms, -1: none) expires.</summary>
+        public static bool Wait(long s, bool write, int timeout)
+        {
+            // struct pollfd { int fd; short events; short revents; }: POLLIN 1, POLLOUT 4.
+            long pollfd = (uint)H(s) | ((long)(write ? 4 : 1) << 32);
+            while (true)
+            {
+                int n = poll(&pollfd, 1, timeout);
+                if (n > 0) return true;
+                if (n == 0) return false;
+                int error = LastError();
+                if (!IsInterrupted(error)) throw Error(error);
+            }
+        }
+#endif
+
+        /// <summary>SO_LINGER: Close(0) resets the connection instead of a graceful FIN.</summary>
+        public static void SetLinger(long s, bool enabled, int seconds)
+        {
+            int* linger = stackalloc int[2];
+            linger[0] = enabled ? 1 : 0;
+            linger[1] = seconds;
+            if (setsockopt(H(s), SOL_SOCKET, SO_LINGER, (byte*)linger, 8) != 0) throw Error(LastError());
+        }
 
         // ---- socket calls: return -1 (or a negative count) and leave the error in LastError -------
         public static long Socket(int family, int type, int protocol)

@@ -1,0 +1,13 @@
+inside Run: captured
+after Run: changed
+after Restore: captured False
+Cannot call Set on a null context
+True
+posted 1
+sent 2
+SynchronizationContext
+16 4 0
+8 42 True
+7 8
+/tmp/csharpc.sock Unix True
+path

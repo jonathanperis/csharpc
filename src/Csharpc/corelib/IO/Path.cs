@@ -76,6 +76,24 @@ namespace CsharpcCoreLib
             return result;
         }
 
+        public static string Combine(params ReadOnlySpan<string> paths)
+        {
+            string result = "";
+            for (int i = 0; i < paths.Length; i++)
+            {
+                if (paths[i] == null) throw new ArgumentNullException("paths");
+                result = CombineTwo(result, paths[i]);
+            }
+            return result;
+        }
+
+        public static string Join(params ReadOnlySpan<string> paths)
+        {
+            string result = "";
+            for (int i = 0; i < paths.Length; i++) result = JoinTwo(result, paths[i] ?? "");
+            return result;
+        }
+
         private static string CombineTwo(string first, string second)
         {
             if (second.Length == 0) return first;
@@ -113,6 +131,17 @@ namespace CsharpcCoreLib
             return i < 0 ? path : path.Substring(i + 1);
         }
 #endif
+
+        public static ReadOnlySpan<char> GetFileName(ReadOnlySpan<char> path)
+        {
+            int i = path.Length;
+            while (--i >= 0)
+            {
+                char c = path[i];
+                if (IsSep(c) || (OperatingSystem.IsWindows() && c == ':' && i == 1)) break;
+            }
+            return path.Slice(i + 1);
+        }
 
         public static string GetFileNameWithoutExtension(string path)
         {

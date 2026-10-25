@@ -290,6 +290,16 @@ static int s_exit_code;
 int32_t csrt_get_exit_code(void) { return s_exit_code; }
 void csrt_set_exit_code(int32_t code) { s_exit_code = code; }
 
+// Environment.GetEnvironmentVariables() on Unix (corelib IO/Environment.cs): the process's
+// environment block, which C# can't name (a data symbol, not a function).
+#if defined(__wasi__)
+char** __wasilibc_get_environ(void);  // wasi-libc fills `environ` lazily
+char** csrt_environ(void) { return __wasilibc_get_environ(); }
+#elif !defined(_WIN32)
+extern char** environ;
+char** csrt_environ(void) { return environ; }
+#endif
+
 // Console.Error / Console.In as TextWriter/TextReader objects (corelib) go through these.
 void csrt_console_error_write_string(csrt_String* s);
 void csrt_console_error_write_utf8(const char* text) {

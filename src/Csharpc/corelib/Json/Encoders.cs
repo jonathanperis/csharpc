@@ -166,6 +166,8 @@ namespace CsharpcCoreLib
         internal bool _minimalEscaping;
         // UrlEncoder: escapes are the scalar's UTF-8 bytes as %XX (DefaultUrlEncoder.EscaperImplementation).
         internal bool _percentEncoding;
+        // HtmlEncoder: the named entities for < > & ", else &#xHEX; (DefaultHtmlEncoder.EscaperImplementation).
+        internal bool _htmlEncoding;
 
         protected TextEncoderImpl() { }
 
@@ -186,6 +188,18 @@ namespace CsharpcCoreLib
             if (_percentEncoding)
             {
                 AppendPercentEncoded(sb, scalar);
+                return;
+            }
+            if (_htmlEncoding)
+            {
+                switch (scalar)
+                {
+                    case '<': sb.Append("&lt;"); return;
+                    case '>': sb.Append("&gt;"); return;
+                    case '&': sb.Append("&amp;"); return;
+                    case '"': sb.Append("&quot;"); return;
+                }
+                sb.Append("&#x").Append(scalar.ToString("X")).Append(';');
                 return;
             }
             switch (scalar)
@@ -311,5 +325,39 @@ namespace CsharpcCoreLib
                 _allowed.ForbidChar('`');
             }
         }
+    }
+}
+
+namespace CsharpcCoreLib
+{
+    using System;
+
+    [Shadows("System.Text.Encodings.Web.HtmlEncoder")]
+    public abstract class HtmlEncoderImpl : TextEncoderImpl
+    {
+        private static HtmlEncoderImpl s_default;
+
+        public static HtmlEncoderImpl Default => s_default ??= new DefaultHtmlEncoder(new TextEncoderSettingsImpl(UnicodeRangesImpl.BasicLatin));
+
+        public static HtmlEncoderImpl Create(TextEncoderSettingsImpl settings)
+        {
+            if (settings == null) throw new ArgumentNullException("settings");
+            return new DefaultHtmlEncoder(settings);
+        }
+
+        public static HtmlEncoderImpl Create(params UnicodeRangeImpl[] allowedRanges) => new DefaultHtmlEncoder(new TextEncoderSettingsImpl(allowedRanges));
+    }
+
+    internal sealed class DefaultHtmlEncoder : HtmlEncoderImpl
+    {
+        internal DefaultHtmlEncoder(TextEncoderSettingsImpl settings)
+        {
+            _allowed = settings._bitmap.Clone();
+            _allowed.ForbidUndefinedCharacters();
+            _allowed.ForbidHtmlCharacters();
+            _htmlEncoding = true;
+        }
+
+        public override int MaxOutputCharactersPerInputCharacter => 10;
     }
 }

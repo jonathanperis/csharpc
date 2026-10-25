@@ -1,12 +1,14 @@
 // System.Net.Sockets: Socket, NetworkStream, TcpListener, TcpClient, UdpClient, Dns, and the
 // ExternalException -> Win32Exception -> SocketException chain (error codes need fields, which the
-// runtime's fixed exception layout doesn't have). Blocking calls; the async methods run them on the
-// thread pool, which is observably the same for programs that await them.
+// runtime's fixed exception layout doesn't have). Blocking calls; the asynchronous operations
+// (SocketAsyncEventArgs, ValueTask Receive/Send/AcceptAsync) run on the socket engine (SocketEngine.cs:
+// epoll on Linux). Connecting asynchronously is still a blocking connect on the thread pool.
 #nullable disable
 using System;
 using System.IO;
 using System.Net;
 using System.Net.Sockets;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace CsharpcCoreLib
@@ -108,6 +110,14 @@ namespace CsharpcCoreLib
         private EndPoint _remote;
         private int _receiveTimeout, _sendTimeout;
         private bool _noDelay;
+        // Asynchronous operations (SocketEngine.cs): the socket's queues, created by the first one. A socket
+        // the engine made non-blocking (or accepted non-blocking) waits with poll() in synchronous calls.
+        private SocketAsyncContext _async;
+        private bool _nonBlocking;
+        // new Socket(SafeSocketHandle(fd, ownsHandle: false)) (an inherited listen socket): Dispose leaves the fd open.
+        private bool _ownsHandle = true;
+
+        internal long RawHandle => _handle;
 
         public AddressFamily AddressFamily { get; }
         public SocketType SocketType { get; }
@@ -137,6 +147,32 @@ namespace CsharpcCoreLib
             ProtocolType = protocolType;
         }
 
+        /// <summary>A socket over an existing descriptor (systemd socket activation, Kestrel's FileHandleEndPoint).</summary>
+        public SocketImpl(SafeSocketHandle handle)
+        {
+            ArgumentNullException.ThrowIfNull(handle);
+            var safe = (SafeSocketHandleImpl)(object)handle;
+            if (safe.IsInvalid) throw new ArgumentException("The handle is invalid.", "handle");
+#if CSHARPC_TARGET_LINUX
+            long fd = safe.DangerousGetHandle();
+            int domain = NetNative.GetInt(fd, NetNative.SOL_SOCKET, 39 /* SO_DOMAIN */);
+            int type = NetNative.GetInt(fd, NetNative.SOL_SOCKET, 3 /* SO_TYPE */);
+            int protocol = NetNative.GetInt(fd, NetNative.SOL_SOCKET, 38 /* SO_PROTOCOL */);
+            if (domain != NetNative.AF_INET && domain != NetNative.AF_INET6)
+                throw new NotSupportedException("csharpc: sockets support only the InterNetwork and InterNetworkV6 address families.");
+            _handle = fd;
+            _ownsHandle = safe.OwnsHandle;
+            AddressFamily = domain == NetNative.AF_INET6 ? AddressFamily.InterNetworkV6 : AddressFamily.InterNetwork;
+            SocketType = type == NetNative.SOCK_DGRAM ? SocketType.Dgram : SocketType.Stream;
+            ProtocolType = protocol == NetNative.IPPROTO_UDP ? ProtocolType.Udp : ProtocolType.Tcp;
+            _bound = true;
+            _listening = NetNative.GetInt(fd, NetNative.SOL_SOCKET, 30 /* SO_ACCEPTCONN */) != 0;
+            if (AddressFamily == AddressFamily.InterNetworkV6) _dualMode = NetNative.GetInt(fd, NetNative.IPPROTO_IPV6, NetNative.IPV6_V6ONLY) == 0;
+#else
+            throw new NotSupportedException("A socket over an existing handle is not supported by csharpc yet on this platform.");
+#endif
+        }
+
         private SocketImpl(long handle, AddressFamily family, SocketType type, ProtocolType protocol, bool dualMode)
         {
             _handle = handle;
@@ -151,6 +187,147 @@ namespace CsharpcCoreLib
         {
             if (_disposed) throw new ObjectDisposedException(typeof(Socket).FullName);
         }
+
+        private SocketAsyncContext AsyncContext()
+        {
+            EnsureOpen();
+            SocketAsyncContext context = Volatile.Read(ref _async);
+            if (context != null) return context;
+            lock (this)
+            {
+                if (_async == null)
+                {
+                    context = new SocketAsyncContext(this);
+                    SocketEngine.Register(context);
+                    _nonBlocking = !SocketEngine.Blocking;
+                    Volatile.Write(ref _async, context);
+                }
+                return _async;
+            }
+        }
+
+        /// <summary>A connection accepted from this listener (non-blocking where the engine accepts it so).</summary>
+        internal SocketImpl CreateAccepted(long client) =>
+            new SocketImpl(client, AddressFamily, SocketType, ProtocolType, _dualMode) { _nonBlocking = !SocketEngine.Blocking };
+
+        /// <summary>Synchronous calls on a non-blocking socket wait for readiness (the timeout, or none).</summary>
+        private void WaitReady(bool write, int timeout)
+        {
+#if !CSHARPC_TARGET_WINDOWS && !CSHARPC_TARGET_WASI
+            if (!NetNative.Wait(_handle, write, timeout <= 0 ? -1 : timeout))
+                throw (SocketException)(object)new SocketExceptionImpl(SocketError.TimedOut, NetNative.EAGAIN, (EndPoint)null);
+#endif
+        }
+
+        public static bool OSSupportsIPv4 => !OperatingSystem.IsWasi();
+        public static bool OSSupportsIPv6 => !OperatingSystem.IsWasi();
+        public static bool OSSupportsUnixDomainSockets => false;
+
+        // ---- SocketAsyncEventArgs operations: true when pending (Completed is raised later) ----------
+        private SocketAsyncEventArgsImpl Begin(SocketAsyncEventArgs e, SocketAsyncOperation operation)
+        {
+            if (e == null) throw new ArgumentNullException("e");
+            EnsureOpen();
+            var args = (SocketAsyncEventArgsImpl)(object)e;
+            args.StartOperation(this, operation);
+            return args;
+        }
+
+        private static bool Run(SocketAsyncContext context, SocketOperation op)
+        {
+            if (context.Start(op)) return true;
+            op.Complete(true);
+            return false;
+        }
+
+        public bool ReceiveAsync(SocketAsyncEventArgs e)
+        {
+            var args = Begin(e, SocketAsyncOperation.Receive);
+            var op = new EventArgsOperations.Receive { Args = args, Buffer = args.OperationBuffer, BufferList = args.BufferList, Flags = args.SocketFlags };
+            return Run(StartContext(args), op);
+        }
+
+        public bool SendAsync(SocketAsyncEventArgs e)
+        {
+            var args = Begin(e, SocketAsyncOperation.Send);
+            if (args.SocketFlags != SocketFlags.None) { args.FinishSynchronously(SocketError.Success, 0); throw new NotSupportedException("csharpc: socket flags are not supported yet."); }
+            var op = new EventArgsOperations.Send { Args = args, Buffer = args.OperationBuffer, BufferList = args.BufferList };
+            return Run(StartContext(args), op);
+        }
+
+        public bool AcceptAsync(SocketAsyncEventArgs e)
+        {
+            var args = Begin(e, SocketAsyncOperation.Accept);
+            if (!_listening) { args.FinishSynchronously(SocketError.Success, 0); throw new InvalidOperationException("You must call the Listen method before performing this operation."); }
+            if (args.AcceptSocket != null)
+            {
+                args.FinishSynchronously(SocketError.Success, 0);
+                throw new NotSupportedException("Accepting into an existing socket (SocketAsyncEventArgs.AcceptSocket) is not supported by csharpc yet.");
+            }
+            return Run(StartContext(args), new EventArgsOperations.Accept { Args = args });
+        }
+
+        private SocketAsyncContext StartContext(SocketAsyncEventArgsImpl args)
+        {
+            try { return AsyncContext(); }
+            catch { args.FinishSynchronously(SocketError.Success, 0); throw; }
+        }
+
+        // ---- Task-based operations ----------------------------------------------------------------
+        private T StartTask<T>(T op, CancellationToken cancellationToken) where T : SocketOperation
+        {
+            SocketAsyncContext context = AsyncContext();
+            if (!context.Start(op)) { op.Complete(true); return op; }
+            if (cancellationToken.CanBeCanceled)
+            {
+                op.Token = cancellationToken;
+                op.Registration = cancellationToken.Register(() =>
+                {
+                    if (!context.Remove(op)) return;
+                    op.Canceled = true;
+                    op.Complete(false);
+                });
+            }
+            return op;
+        }
+
+        public ValueTask<Socket> AcceptAsync(CancellationToken cancellationToken) => AcceptAsync((Socket)null, cancellationToken);
+
+        public ValueTask<Socket> AcceptAsync(Socket acceptSocket, CancellationToken cancellationToken)
+        {
+            if (cancellationToken.IsCancellationRequested) return new ValueTask<Socket>(Task.FromCanceled<Socket>(cancellationToken));
+            EnsureOpen();
+            if (!_listening) throw new InvalidOperationException("You must call the Listen method before performing this operation.");
+            if (acceptSocket != null) throw new NotSupportedException("Accepting into an existing socket is not supported by csharpc yet.");
+            return new ValueTask<Socket>(StartTask(new TaskOperations.Accept(), cancellationToken).Source.Task);
+        }
+
+        public Task<Socket> AcceptAsync() => AcceptAsync(CancellationToken.None).AsTask();
+
+        public ValueTask<int> ReceiveAsync(Memory<byte> buffer, CancellationToken cancellationToken = default) =>
+            ReceiveAsync(buffer, SocketFlags.None, cancellationToken);
+
+        public ValueTask<int> ReceiveAsync(Memory<byte> buffer, SocketFlags socketFlags, CancellationToken cancellationToken = default)
+        {
+            if (cancellationToken.IsCancellationRequested) return new ValueTask<int>(Task.FromCanceled<int>(cancellationToken));
+            return new ValueTask<int>(StartTask(new TaskOperations.Receive { Buffer = buffer, Flags = socketFlags }, cancellationToken).Source.Task);
+        }
+
+        public ValueTask<int> SendAsync(ReadOnlyMemory<byte> buffer, CancellationToken cancellationToken = default) =>
+            SendAsync(buffer, SocketFlags.None, cancellationToken);
+
+        public ValueTask<int> SendAsync(ReadOnlyMemory<byte> buffer, SocketFlags socketFlags, CancellationToken cancellationToken = default)
+        {
+            if (cancellationToken.IsCancellationRequested) return new ValueTask<int>(Task.FromCanceled<int>(cancellationToken));
+            if (socketFlags != SocketFlags.None) throw new NotSupportedException("csharpc: socket flags are not supported yet.");
+            return new ValueTask<int>(StartTask(new TaskOperations.Send { Buffer = buffer }, cancellationToken).Source.Task);
+        }
+
+        public Task<int> ReceiveAsync(ArraySegment<byte> buffer, SocketFlags socketFlags) =>
+            ReceiveAsync((Memory<byte>)buffer, socketFlags, CancellationToken.None).AsTask();
+
+        public Task<int> SendAsync(ArraySegment<byte> buffer, SocketFlags socketFlags) =>
+            SendAsync((ReadOnlyMemory<byte>)buffer, socketFlags, CancellationToken.None).AsTask();
 
         public bool DualMode
         {
@@ -276,11 +453,19 @@ namespace CsharpcCoreLib
         {
             EnsureOpen();
             if (!_listening) throw new InvalidOperationException("You must call the Start() method before calling this method.");
+            if (_nonBlocking)
+            {
+                while (true)
+                {
+                    long ready = NetNative.TryAccept(_handle, out int error);
+                    if (ready != NetNative.InvalidSocket) return (Socket)(object)CreateAccepted(ready);
+                    if (!NetNative.IsWouldBlock(error)) throw NetNative.Error(error);
+                    WaitReady(false, 0);
+                }
+            }
             long client = NetNative.Accept(_handle);
             return (Socket)(object)new SocketImpl(client, AddressFamily, SocketType, ProtocolType, _dualMode);
         }
-
-        public Task<Socket> AcceptAsync() => Task.Run(() => Accept());
 
         public void Connect(EndPoint remoteEP)
         {
@@ -316,6 +501,8 @@ namespace CsharpcCoreLib
         }
 
         public Task ConnectAsync(EndPoint remoteEP) => Task.Run(() => Connect(remoteEP));
+        public ValueTask ConnectAsync(EndPoint remoteEP, CancellationToken cancellationToken) =>
+            cancellationToken.IsCancellationRequested ? new ValueTask(Task.FromCanceled(cancellationToken)) : new ValueTask(Task.Run(() => Connect(remoteEP)));
         public Task ConnectAsync(IPAddress address, int port) => Task.Run(() => Connect(address, port));
         public Task ConnectAsync(string host, int port) => Task.Run(() => Connect(host, port));
 
@@ -342,6 +529,19 @@ namespace CsharpcCoreLib
                 int sent = 0;
                 while (sent < buffer.Length)
                 {
+                    if (_nonBlocking)
+                    {
+                        int m = NetNative.TrySend(_handle, p + sent, buffer.Length - sent, out int error);
+                        if (m < 0)
+                        {
+                            if (!NetNative.IsWouldBlock(error)) throw NetNative.Error(error);
+                            WaitReady(true, _sendTimeout);
+                            continue;
+                        }
+                        sent += m;
+                        if (SocketType != SocketType.Stream) break;
+                        continue;
+                    }
                     int n = NetNative.Send(_handle, p + sent, buffer.Length - sent, _sendTimeout > 0);
                     if (n == 0) break;
                     sent += n;
@@ -368,13 +568,18 @@ namespace CsharpcCoreLib
         {
             EnsureOpen();
             if (socketFlags != SocketFlags.None) throw new NotSupportedException("csharpc: socket flags are not supported yet.");
-            fixed (byte* p = buffer) return NetNative.Receive(_handle, p, buffer.Length, _receiveTimeout > 0);
+            fixed (byte* p = buffer)
+            {
+                if (!_nonBlocking) return NetNative.Receive(_handle, p, buffer.Length, _receiveTimeout > 0);
+                while (true)
+                {
+                    int n = NetNative.TryReceive(_handle, p, buffer.Length, 0, out int error);
+                    if (n >= 0) return n;
+                    if (!NetNative.IsWouldBlock(error)) throw NetNative.Error(error);
+                    WaitReady(false, _receiveTimeout);
+                }
+            }
         }
-
-        public Task<int> SendAsync(ArraySegment<byte> buffer, SocketFlags socketFlags) =>
-            Task.Run(() => Send(buffer.Array, buffer.Offset, buffer.Count, socketFlags));
-        public Task<int> ReceiveAsync(ArraySegment<byte> buffer, SocketFlags socketFlags) =>
-            Task.Run(() => Receive(buffer.Array, buffer.Offset, buffer.Count, socketFlags));
 
         public int SendTo(byte[] buffer, EndPoint remoteEP) => SendTo(buffer, 0, buffer?.Length ?? 0, SocketFlags.None, remoteEP);
 
@@ -406,15 +611,61 @@ namespace CsharpcCoreLib
         }
 
         public void Close() => Dispose();
-        public void Close(int timeout) => Dispose();
+
+        /// <summary>Close(0) resets the connection (SO_LINGER with a zero timeout), as .NET does.</summary>
+        public void Close(int timeout)
+        {
+            if (timeout < -1) throw new ArgumentOutOfRangeException("timeout");
+            if (!_disposed && timeout == 0)
+            {
+                try { NetNative.SetLinger(_handle, true, 0); }
+                catch (SocketException) { }
+            }
+            Dispose();
+        }
+
+        private int _disposeStarted;
 
         public void Dispose()
         {
-            if (_disposed) return;
+            // Kestrel disposes a connection's socket from its send and receive loops at once: closing the
+            // descriptor twice could close another socket that reused the number.
+            if (Interlocked.Exchange(ref _disposeStarted, 1) != 0) return;
             _disposed = true;
             _connected = false;
-            NetNative.Close(_handle);
+            // Pending operations end with OperationAborted before the descriptor goes away.
+            Volatile.Read(ref _async)?.Close();
+            if (_ownsHandle) NetNative.Close(_handle);
             _handle = NetNative.InvalidSocket;
+        }
+    }
+
+    [Shadows("System.Net.Sockets.SafeSocketHandle")]
+    public sealed class SafeSocketHandleImpl : IDisposable
+    {
+        private readonly nint _handle;
+        private bool _closed;
+        internal bool OwnsHandle { get; }
+
+        public SafeSocketHandleImpl() { _handle = -1; OwnsHandle = true; }
+
+        public SafeSocketHandleImpl(nint preexistingHandle, bool ownsHandle)
+        {
+            _handle = preexistingHandle;
+            OwnsHandle = ownsHandle;
+        }
+
+        public bool IsInvalid => _handle == -1;
+        public bool IsClosed => _closed;
+        public nint DangerousGetHandle() => _handle;
+
+        public void Close() => Dispose();
+
+        public void Dispose()
+        {
+            if (_closed) return;
+            _closed = true;
+            if (OwnsHandle && !IsInvalid) NetNative.Close(_handle);
         }
     }
 

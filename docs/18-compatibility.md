@@ -658,3 +658,15 @@ server and wrk, 2026-10-24; runners differ by up to 40 %, so compare builds with
 
 On these shared runners the JIT is ahead of NativeAOT by 5–30 % on throughput; NativeAOT starts 5x
 faster and uses half the memory.
+
+Since 2026-10-25 (branch `m8-kestrel`) csharpc builds the app with no stubbed method. Its responses pass
+TechEmpower's checks identically to NativeAOT. In its first load run it was at 49 % of NativeAOT's
+pipelined plaintext throughput and 55–63 % of its JSON throughput. It started faster (20 ms vs 26 ms) and
+used less memory idle (13.0 vs 17.7 MiB), but more under load (80.3 vs 64.9 MiB), with a 14.5 MiB binary
+(8.9 MiB for NativeAOT). The numbers are in [06-roadmap.md](06-roadmap.md). Still open on this path:
+- Logging configured through the host (`AddConsole` with configuration binding) needs `Array.CreateInstance`
+  of a type the program has no array of (`IEnumerable<LoggingConfiguration>` from DI). The app clears
+  its providers, as TechEmpower's entries do.
+- Async sockets are blocking calls on the thread pool on macOS and Windows (no kqueue/IOCP engine yet).
+- `MemberInfo` members called on a `Type` through a `MemberInfo`-typed reference throw
+  `NotSupportedException`. Through a `Type`-typed reference they work.

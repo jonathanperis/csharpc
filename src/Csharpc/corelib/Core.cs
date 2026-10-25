@@ -54,6 +54,14 @@ namespace CsharpcCoreLib
         /// <summary>An object reference as an IntPtr and back, for runtime slots that hold managed objects (GC-visible ones only).</summary>
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern IntPtr ObjectToPointer(object value);
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern object PointerToObject(IntPtr pointer);
+        /// <summary>The same reference, typed as T without a type test (Unsafe.As).</summary>
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern T ReinterpretAs<T>(object o) where T : class;
+        /// <summary>sizeof(T) as csharpc lays T out (its storage type).</summary>
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern int SizeOf<T>();
+        /// <summary>The address of a span's first element (never moves: the GC doesn't).</summary>
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern nint SpanAddress<T>(ReadOnlySpan<T> span);
+        /// <summary>The address a reference points at.</summary>
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern nint RefAddress<T>(in T value);
         /// <summary>
         /// The frames .NET's own library lists for this exception below the program's frames, innermost
         /// first, one per line (a constant): `throw LibraryFrames(new X(...), "System.Ns.Type.Method(Int32 a)")`.
@@ -77,11 +85,12 @@ namespace CsharpcCoreLib
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern string ResourceStrings();
         /// <summary>runtimeconfig.json configProperties, encoded (ModuleCodeGen.Resources.cs).</summary>
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern string RuntimeConfig();
+        /// <summary>Full names of the program's own and IL assemblies, encoded (ModuleCodeGen.Resources.cs).</summary>
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern string LoadableAssemblies();
         /// <summary>
         /// The product version of the .NET runtime csharpc compiles against ("11.0.0-rc.2.26504.105"): System.Private.CoreLib's
         /// informational version without the commit, which .NET compiles into Environment.Version and RuntimeInformation.FrameworkDescription.
         /// </summary>
-        [MethodImpl(MethodImplOptions.InternalCall)] public static extern string FrameworkProductVersion();
         /// <summary>
         /// Calls the program's CsharpcCoreLib.ProgramHooks.JsonConfigure (code the front end generates for
         /// reflection-style System.Text.Json calls, Frontend/JsonReflectionContexts.cs) if it has one.
@@ -122,6 +131,28 @@ namespace CsharpcCoreLib
         // Cancellation (runtime/async.c, corelib/Cancellation.cs): a CancellationToken is its source.
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern object TokenSource(System.Threading.CancellationToken token);
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern System.Threading.CancellationToken SourceToken(object source);
+        // Reflection (corelib/Reflection/Members.cs, src/runtime/type.c): the compile-time tables' addresses.
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern nint TypeInfoTableAddress();
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern nint ReflectionTableAddress();
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern nint DelegateMethodTableAddress();
+        /// <summary>The version of the shared framework the program was compiled against ("11.0.0-rc.2.26504.105").</summary>
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern string FrameworkVersion();
+        /// <summary>System.Runtime.InteropServices.Architecture of the target triple (X64 1, Arm64 3, Wasm 5).</summary>
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern int TargetArchitecture();
+        /// <summary>The delegate types' Invoke signatures (MethodInfo.CreateDelegate): { count, { mt, return, parameters, count, 0 }[] }.</summary>
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern nint DelegateSignatureTableAddress();
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern unsafe void* csrt_delegate_create(nint mt, nint target, nint fn);
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern unsafe void* csrt_gc_object_base(void* p);
+        /// <summary>The function a delegate calls (the last one of a multicast delegate).</summary>
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern nint DelegateFunction(Delegate d);
+        /// <summary>The object a delegate is bound to (the last one of a multicast delegate).</summary>
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern object DelegateTargetObject(Delegate d);
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern unsafe byte* csrt_reflection_info(Type type, nint table);
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern unsafe byte* csrt_reflection_delegate_method(nint fn, nint table);
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern nint csrt_type_handle(Type type);
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern unsafe Type csrt_type_from_mt(void* mt);
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern Array csrt_array_create_instance(Type element, long length, nint table);
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern void csrt_array_set_value(Array array, object value, long index, nint table);
         // Runtime functions called directly (an extern named csrt_*: FunctionCodeGen.CoreLib.cs).
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern int csrt_cts_register_node(object token, object node);
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern bool csrt_cts_unregister(object token, object node);
@@ -616,6 +647,13 @@ namespace CsharpcCoreLib
         {
             var h = new HashCodeImpl();
             h.Add(value1); h.Add(value2); h.Add(value3); h.Add(value4); h.Add(value5); h.Add(value6); h.Add(value7);
+            return h.ToHashCode();
+        }
+
+        public static int Combine<T1, T2, T3, T4, T5, T6, T7, T8>(T1 value1, T2 value2, T3 value3, T4 value4, T5 value5, T6 value6, T7 value7, T8 value8)
+        {
+            var h = new HashCodeImpl();
+            h.Add(value1); h.Add(value2); h.Add(value3); h.Add(value4); h.Add(value5); h.Add(value6); h.Add(value7); h.Add(value8);
             return h.ToHashCode();
         }
 

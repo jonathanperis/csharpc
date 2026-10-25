@@ -62,10 +62,10 @@ namespace CsharpcCoreLib
             new System.Collections.ObjectModel.ReadOnlyCollection<Exception>(Inners(aggregate));
 
         /// <summary>
-        /// AggregateException.Flatten: the inner exceptions of this one and of every nested AggregateException,
-        /// breadth first, under this one's own message (without the inner messages its Message appends).
+        /// AggregateException.Flatten: the inner exceptions of nested AggregateExceptions, breadth first, in a
+        /// new AggregateException with this one's own message (its Message without the inner messages).
         /// </summary>
-        public static Exception Flatten(Exception aggregate)
+        public static AggregateException Flatten(Exception aggregate)
         {
             var flattened = new List<Exception>();
             var toFlatten = new List<Exception> { aggregate };
@@ -82,13 +82,13 @@ namespace CsharpcCoreLib
             return new AggregateException(BaseMessage(aggregate), flattened);
         }
 
-        /// <summary>The message an AggregateException was created with: its Message less the " (inner message)" parts.</summary>
+        /// <summary>The message the AggregateException was created with: csharpc stores Message with the inner messages appended.</summary>
         private static string BaseMessage(Exception aggregate)
         {
-            string message = aggregate.Message;
+            string full = aggregate.Message;
             string suffix = "";
             foreach (Exception inner in Inners(aggregate)) suffix += " (" + inner.Message + ")";
-            return message.EndsWith(suffix, StringComparison.Ordinal) ? message.Substring(0, message.Length - suffix.Length) : message;
+            return full.EndsWith(suffix, StringComparison.Ordinal) ? full.Substring(0, full.Length - suffix.Length) : full;
         }
 
         /// <summary>

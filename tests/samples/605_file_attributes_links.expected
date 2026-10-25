@@ -1,0 +1,13 @@
+Normal
+Hidden
+Directory
+-1
+ReadOnly
+ReparsePoint data.txt True
+data.txt data.txt
+ReparsePoint
+d:sub f:.hidden f:dangling f:data.txt f:link
+True
+False
+options False
+104

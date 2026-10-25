@@ -12,6 +12,10 @@ namespace CsharpcCoreLib
         /// <summary>The largest length of any array (.NET's 0x7FFFFFC7, the same for every element type).</summary>
         public static int MaxLength => 0x7FFFFFC7;
 
+        /// <summary>Array.GetEnumerator(): the array's own IEnumerable implementation.</summary>
+        [ShadowInstance]
+        public static System.Collections.IEnumerator GetEnumerator(Array array) => ((System.Collections.IEnumerable)array).GetEnumerator();
+
         public static System.Collections.ObjectModel.ReadOnlyCollection<T> AsReadOnly<T>(T[] array)
         {
             if (array == null) ThrowHelper.ArgumentNull("array");
@@ -284,7 +288,10 @@ namespace CsharpcCoreLib
         public static void SetValue(Array array, object value, int index)
         {
             if (array.Rank != 1) throw new ArgumentException("Array was not a one-dimensional array.");
-            ((System.Collections.IList)array)[index] = value;
+            // Reference-type elements: the runtime's assignability check and .NET's message
+            // (ReflectionRuntime.SetValue); value-type elements unbox through the array's IList.
+            try { ReflectionRuntime.SetValue(array, value, index); }
+            catch (NotSupportedException) { ((System.Collections.IList)array)[index] = value; }
         }
 
         /// <summary>A new array of `arrayType` (closed world: a type csharpc emitted, e.g. through typeof(X[])).</summary>

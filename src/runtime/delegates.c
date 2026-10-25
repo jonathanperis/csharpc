@@ -45,6 +45,14 @@ static bool same_entry(const Delegate* x, const Delegate* y) { return x->target 
 
 /// The virtual GetHashCode of delegate method tables (ModuleCodeGen.DelegateMethodTable): equal
 /// delegates hash alike (the type and methods; .NET's values are unspecified).
+/// A single-cast delegate of type `mt` over `fn` closed over `target` (MethodInfo.CreateDelegate).
+void* csrt_delegate_create(const csrt_MethodTable* mt, void* target, const void* fn) {
+    Delegate* d = csrt_alloc(mt, sizeof(Delegate));
+    d->target = target;
+    d->fn = (void*)fn;
+    return d;
+}
+
 int32_t csrt_delegate_get_hash_code(Delegate* self) {
     uint64_t h = (uintptr_t)self->mt;
     int64_t n = count_of(self);

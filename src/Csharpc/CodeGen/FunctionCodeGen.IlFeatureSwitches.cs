@@ -20,11 +20,20 @@ public sealed partial class FunctionCodeGen
         {
             // No code is generated at run time (as under NativeAOT): corelib/RuntimeServices.cs answers the same.
             ("System.Runtime.CompilerServices.RuntimeFeature", "get_IsDynamicCodeSupported" or "get_IsDynamicCodeCompiled") => false,
-            // csharpc has no Vector<T> yet: framework IL takes its scalar paths (System.Formats.Tar's checksum),
-            // which compute the same values. (Only IL is folded; C# source asking gets the usual diagnostic.)
-            ("System.Numerics.Vector", "get_IsHardwareAccelerated") => false,
+            // csharpc has no hardware intrinsics yet: the framework's scalar fallbacks run (same results by
+            // design). Ssse3.IsSupported, AdvSimd.Arm64.IsSupported, Vector128.IsHardwareAccelerated, ...
+            (_, "get_IsSupported") when IsHardwareIntrinsicClass(method.ContainingType) => false,
+            ("System.Runtime.Intrinsics.Vector64" or "System.Runtime.Intrinsics.Vector128" or "System.Runtime.Intrinsics.Vector256"
+                or "System.Runtime.Intrinsics.Vector512" or "System.Numerics.Vector", "get_IsHardwareAccelerated") => false,
             _ => null,
         };
+
+    private static bool IsHardwareIntrinsicClass(INamedTypeSymbol type)
+    {
+        var outer = type;
+        while (outer.ContainingType is { } containing) outer = containing;
+        return outer.ContainingNamespace?.ToDisplayString() is "System.Runtime.Intrinsics.X86" or "System.Runtime.Intrinsics.Arm" or "System.Runtime.Intrinsics.Wasm";
+    }
 
     /// <summary>The value a conditional branch tests, when the instruction before it in its block is a constant.</summary>
     private bool? IlConstantCondition(IlBlock block, int index)

@@ -1,0 +1,15 @@
+'' * FileName, DirectoryName, LastWrite False False 8192
+* *,*.txt
+4096
+The value of argument 'value' (1024) is invalid for Enum type 'NotifyFilters'.
+The directory name 'ROOT/missing' does not exist. (Parameter 'path') path
+The directory name  is invalid. (Parameter 'path') path
+The directory name 'ROOT/missing' does not exist. (Parameter 'Path') Path
+created a.txt Created a.txt True
+renamed a.txt -> b.txt a.txt
+created sub/c.log Created sub/c.log True
+deleted b.txt
+created newdir Created newdir True
+created newdir/d.txt Created newdir/d.txt True
+Created take.txt null False False
+0 null True

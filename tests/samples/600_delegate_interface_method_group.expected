@@ -1,0 +1,8 @@
+42 Foo:x
+bar y
+7 S:z7
+2 3
+NullReferenceException
+NullReferenceException
+NullReferenceException
+ArgumentException

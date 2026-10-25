@@ -41,7 +41,7 @@ every failure is a clean "not supported by csharpc yet" diagnostic.
 | Delegates, lambdas, closures, events, multicast | ✅ | |
 | Pointers, `fixed`, `stackalloc`, function pointers | ✅ | |
 | `Span<T>`, `ReadOnlySpan<T>`, `Memory<T>`, UTF-8 literals | ✅ | |
-| `dynamic` | ❌ | no DLR (same as NativeAOT) |
+| `dynamic` | ⬜ | NativeAOT runs `dynamic` through Microsoft.CSharp, so it's in scope (ADR 0016) |
 
 ### Statements and expressions
 
@@ -59,7 +59,7 @@ every failure is a clean "not supported by csharpc yet" diagnostic.
 | Interpolation with alignment/format, composite formatting | ✅ | current culture or provider; `FormattableString` |
 | C# 14 extension members | ✅ | |
 | Query expressions / LINQ | ✅ | shadow corelib |
-| Expression trees | ⬜ | |
+| Expression trees | ⬜ | in scope: NativeAOT runs them through the expression interpreter |
 
 ### Semantics and runtime
 
@@ -69,7 +69,7 @@ every failure is a clean "not supported by csharpc yet" diagnostic.
 | Multithreading (`Thread`, `Monitor`, `Interlocked`, `Parallel`) | ✅ | `Task.Run` still on the single-threaded scheduler |
 | Unhandled exceptions (message + exit 134) | ✅ | |
 | Static initialization | ✅ | lazy per type with CoreCLR's triggers, `TypeInitializationException`; generic types ❌ |
-| Reflection | 🟡 | `GetType()`, `typeof`, names; `System.Type` predicates, generics, assignability and `Type.Assembly` over compile-time metadata ([12-corelib.md](12-corelib.md#type-metadata-systemtype-reflection)); no member reflection ❌ |
+| Reflection | 🟡 | `GetType()`, `typeof`, names; `System.Type` predicates, generics, assignability and `Type.Assembly` over compile-time metadata ([12-corelib.md](12-corelib.md#type-metadata-systemtype-reflection)); constructors, methods, properties, attributes, `Invoke`, `CreateDelegate`, closed-world `MakeGenericType` for what `[DynamicallyAccessedMembers]` reaches ([ADR 0018](adr/0018-reflection-metadata.md)); fields, events, `GetInterfaces` ❌ |
 | Finalizers | ⬜ | |
 | Debug info (DWARF, gdb/lldb) | ✅ | `-g` |
 
@@ -94,9 +94,10 @@ bug like a wrong output.
   **100 % parity with what .NET NativeAOT supports**: every program and library that works when published
   with `PublishAot` must work with csharpc, with the same behaviour (byte-identical output, exit codes,
   exception messages), the same inputs (`.cs`, `.csproj`, NuGet packages) and the same workflow
-  (`dotnet build`/`run`/`publish`). What NativeAOT doesn't support (run-time code generation:
-  `Reflection.Emit`, `MakeGenericType` over unseen instantiations, compiled expression trees, the DLR,
-  loading assemblies at run time) is out of scope (❌) and must stay an explicit diagnostic. The JIT is
+  (`dotnet build`/`run`/`publish`). What NativeAOT doesn't support — measured by running it, e.g. `Reflection.Emit`,
+  `MakeGenericType` over unseen instantiations, loading assemblies at run time — is out of scope (❌)
+  and must stay an explicit diagnostic; what it does run (expression trees via its interpreter,
+  `dynamic`) is in scope. The JIT is
   the behavioural oracle for the tests and a benchmark baseline, not a support target
   ([ADR 0016](adr/0016-nativeaot-parity-and-end-state.md)). The finish line is M8: the dotnet fork with csharpc in
   NativeAOT's place, beating NativeAOT on the TechEmpower benchmarks.
@@ -285,6 +286,28 @@ Next, in order: reflection metadata for DI (constructors and parameters of the t
 `[DynamicallyAccessedMembers]` annotations name, closed generic instantiations of registered open
 generics), `DateTimeOffset` and `MemoryPool<T>` (in progress elsewhere), async sockets on epoll for
 Kestrel's transport (`SocketAsyncEventArgs`), then the first csharpc build of the app and its numbers.
+
+Status (2026-10-25, branch `m8-kestrel`): csharpc builds the TechEmpower app with no stubbed method and its
+responses pass TechEmpower's checks identically to NativeAOT. This took member reflection over compile-time
+metadata ([ADR 0018](adr/0018-reflection-metadata.md)), async sockets on an epoll engine (blocking calls on
+the thread pool on macOS and Windows for now), and the library surface Kestrel, hosting and routing reach.
+The first load runs also exposed two collector bugs that only show under sustained load: coroutine frames
+skipped by marking, and large arrays missed by `TryGetArray`. First numbers (`TechEmpower` workflow, one
+run, csharpc at -O2):
+
+| | NativeAOT | csharpc | JIT |
+|---|---:|---:|---:|
+| plaintext, 256 connections, pipeline 16 | 545 000 req/s | 268 000 req/s | 696 000 req/s |
+| plaintext, 1024 connections, pipeline 16 | 526 000 req/s | 243 000 req/s | 692 000 req/s |
+| JSON, 16 / 64 / 256 connections | 69 000 / 84 000 / 87 000 req/s | 38 000 / 50 000 / 55 000 req/s | 75 000 / 93 000 / 97 000 req/s |
+| peak RSS, idle → after load | 17.7 → 64.9 MiB | 13.0 → 80.3 MiB | 54.0 → 141.3 MiB |
+| executable | 8.9 MiB | 14.5 MiB | (framework-dependent) |
+| start-up to the first response | 26 ms | 20 ms | 157 ms |
+
+csharpc starts faster and idles smaller, but reaches about half of NativeAOT's plaintext throughput and
+60 % of its JSON throughput, with a larger binary. Next: profile the request path (the socket engine's
+locking and completions, the async state machines lowered from IL, the conservative collector under
+load), then the binary size.
 
 ### Credibility deliverables (cross-cutting)
 - A technical report: what csharpc demonstrates (Roslyn's CFG as a mid-level IR, a C# corelib with

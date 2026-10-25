@@ -1,0 +1,15 @@
+4 5 False héll
+4 5 False
+2 1 True
+2 5 True F0-9F-98-80-62
+2 5
+ArgumentException bytes
+4 78-C3-A9-79
+&lt;a href=&quot;x?y=1&amp;z=&#x27;2&#x27;&quot;&gt;caf&#xE9; &#x2B; &#x1F600;&lt;/a&gt;
+plain text
+a-   7|FF
+a/b/c.txt a/b/c.txt
+(3, 2) (3, 2) (3, 2) (-3, -2) -3 -2
+a+b+c
+x/y/z
+Destination is too short. (Parameter 'destination')

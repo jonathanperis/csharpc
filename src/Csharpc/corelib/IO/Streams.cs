@@ -441,9 +441,45 @@ namespace CsharpcCoreLib
         public FileStreamImpl(string path, FileMode mode) : this(path, mode, mode == FileMode.Append ? FileAccess.Write : FileAccess.ReadWrite, FileShare.Read, DefaultBufferSize) { }
         public FileStreamImpl(string path, FileMode mode, FileAccess access) : this(path, mode, access, FileShare.Read, DefaultBufferSize) { }
         public FileStreamImpl(string path, FileMode mode, FileAccess access, FileShare share) : this(path, mode, access, share, DefaultBufferSize) { }
-        // useAsync only changes how .NET issues the I/O (csharpc's is synchronous underneath).
+        /// <summary>
+        /// FileOptions: SequentialScan, RandomAccess and WriteThrough are hints or durability modes no output
+        /// depends on; Asynchronous makes IsAsync true on Windows only, as .NET reports it (an overlapped
+        /// handle there; this stream completes its async methods synchronously); DeleteOnClose removes the
+        /// file when the stream is disposed. Encrypted (Windows EFS) is not supported.
+        /// </summary>
+        public FileStreamImpl(string path, FileMode mode, FileAccess access, FileShare share, int bufferSize, FileOptions options)
+            : this(path, mode, access, share, bufferSize, CheckOptions(options), validate: true)
+        {
+        }
+
         public FileStreamImpl(string path, FileMode mode, FileAccess access, FileShare share, int bufferSize, bool useAsync)
-            : this(path, mode, access, share, bufferSize) { }
+            : this(path, mode, access, share, bufferSize, useAsync ? FileOptions.Asynchronous : FileOptions.None, validate: true)
+        {
+        }
+
+        private FileStreamImpl(string path, FileMode mode, FileAccess access, FileShare share, int bufferSize, FileOptions options, bool validate)
+            : this(path, mode, access, share, bufferSize)
+        {
+#if CSHARPC_TARGET_WINDOWS
+            _isAsync = (options & FileOptions.Asynchronous) != 0; // an overlapped handle
+#endif
+            _deleteOnClose = (options & FileOptions.DeleteOnClose) != 0;
+        }
+
+        // Checked before the file is opened, as FileStreamHelpers.ValidateArguments does.
+        private static FileOptions CheckOptions(FileOptions options)
+        {
+            const FileOptions known = FileOptions.WriteThrough | FileOptions.Asynchronous | FileOptions.RandomAccess
+                | FileOptions.DeleteOnClose | FileOptions.SequentialScan | FileOptions.Encrypted | (FileOptions)0x20000000 /* NoBuffering */;
+            if (options != FileOptions.None && (options & ~known) != 0)
+                throw new ArgumentOutOfRangeException("options", "Enum value was out of legal range.");
+            if ((options & FileOptions.Encrypted) != 0 || (options & (FileOptions)0x20000000) != 0)
+                throw new NotSupportedException("FileOptions." + ((options & FileOptions.Encrypted) != 0 ? "Encrypted" : "NoBuffering") + " is not supported by csharpc yet.");
+            return options;
+        }
+
+        private readonly bool _isAsync, _deleteOnClose;
+        public virtual bool IsAsync => _isAsync;
 
         public FileStreamImpl(string path, FileMode mode, FileAccess access, FileShare share, int bufferSize)
             : this(path, mode, access, share, bufferSize, 0x1B6 /* 0666, minus umask */) { }
@@ -690,6 +726,12 @@ namespace CsharpcCoreLib
                 _disposed = true;
                 if (_fd >= 0) Posix.close(_fd);
                 _fd = -1;
+                if (_deleteOnClose)
+                {
+                    byte* p = Utf8.ToNative(_path);
+                    Posix.unlink(p);
+                    Libc.free(p);
+                }
             }
         }
     }

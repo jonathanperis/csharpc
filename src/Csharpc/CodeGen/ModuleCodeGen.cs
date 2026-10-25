@@ -184,11 +184,11 @@ public sealed partial class ModuleCodeGen
         // Type metadata describes every method table, and describing one can create more (and queue
         // their methods): iterate to a fixed point.
         do DrainWorklists();
-        while (EmitRuntimeExports() | EmitTypeMetadata() | EmitDeferredBclBoxRegistrations() | EmitDeferredPrimitiveSlots());
+        while (EmitRuntimeExports() | EmitReflectionMetadata() | EmitTypeMetadata() | EmitDeferredBclBoxRegistrations() | EmitDeferredPrimitiveSlots());
         // Close the generic interface dispatchers, then lower what their last cases call.
         if (EmitGenericInterfaceDispatchers(final: true) | EmitVariantDelegateTests(final: true))
             do DrainWorklists();
-            while (EmitRuntimeExports() | EmitTypeMetadata() | EmitDeferredBclBoxRegistrations() | EmitDeferredPrimitiveSlots());
+            while (EmitRuntimeExports() | EmitReflectionMetadata() | EmitTypeMetadata() | EmitDeferredBclBoxRegistrations() | EmitDeferredPrimitiveSlots());
         CheckGenericInterfaceDispatchers();
         // Last: every dispatched slot is known once nothing is left to lower.
         // The IL methods that failed are reported even when finishing the tables fails too (that error
@@ -196,6 +196,7 @@ public sealed partial class ModuleCodeGen
         try
         {
             FinishMethodTables();
+            Guard(entryPoint, FinishReflectionMetadata);
             Guard(entryPoint, FinishTypeMetadata);
             FinishEventSourceAttributes();
         }
@@ -289,7 +290,7 @@ public sealed partial class ModuleCodeGen
         if (_functions.TryGetValue(method, out var existing)) return existing;
         if (generic && TypeSubstitution.IsOpen(method))
             throw CompileError.Unsupported($"open generic instantiation '{method}'", method);
-        if (generic) CheckGenericDepth(method);
+        if (generic) { CheckGenericDepth(method); NoteDynamicallyAccessedInstantiation(method); }
 
         var type = FunctionTypeOf(method);
         var fn = Module.AddFunction(Mangler.Method(method), type);
@@ -805,8 +806,11 @@ public sealed partial class ModuleCodeGen
         if (!IsUserType(type))
             return IsLibraryException(type)
                 ? GetLibraryExceptionLayout(type)
-                : throw CompileError.Unsupported($"instances of library class '{type}'", type);
+                : IsRuntimeCancellationSource(type)
+                    ? GetCancellationSourceLayout(type)
+                    : throw CompileError.Unsupported($"instances of library class '{type}'", type);
         if (TypeSubstitution.IsOpen(type)) throw CompileError.Unsupported($"open generic type '{type}'", type);
+        NoteDynamicallyAccessedInstantiation(type);
         RejectCustomLayout(type);
         RejectIlCustomLayout(type);
         return BuildOrForget(_layouts, type, BuildLayout);
@@ -850,7 +854,7 @@ public sealed partial class ModuleCodeGen
         if (type.BaseType is { SpecialType: not SpecialType.System_Object } declaredBase)
         {
             var baseType = CoreLib.TryMap(declaredBase) ?? declaredBase; // e.g. `class ByLength : Comparer<string>`
-            if (!IsUserType(baseType) && !IsLibraryException(baseType))
+            if (!IsUserType(baseType) && !IsLibraryException(baseType) && !IsRuntimeCancellationSource(baseType))
                 throw CompileError.Unsupported($"deriving from library class '{baseType}'", type);
             baseLayout = GetLayout(baseType);
         }
@@ -989,10 +993,10 @@ public sealed partial class ModuleCodeGen
         var baseLayout = type.BaseType is { SpecialType: not SpecialType.System_Object } b ? GetLibraryExceptionLayout(b) : null;
 
         var structType = Llvm.NamedStruct("class." + name);
-        // { mt, message, inner, paramName, actualValue, trace, inners, token } — csrt_Exception in src/runtime/csrt.h.
-        LlvmContext.SetBody(structType, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr);
+        // { mt, message, inner, paramName, actualValue, trace, inners, token, hresult } — csrt_Exception in src/runtime/csrt.h.
+        LlvmContext.SetBody(structType, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.I32);
         var layout = new ClassLayout { Type = type, InstanceType = structType, Base = baseLayout, IsLibrary = true };
-        layout.Elements.AddRange([Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr]);
+        layout.Elements.AddRange([Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.I32]);
         layout.InstanceSize = Types.Target.SizeOf(structType);
         AddObjectSlots(layout);
         layout.VTable.Add(null);
@@ -1016,6 +1020,8 @@ public sealed partial class ModuleCodeGen
     {
         "csrt_object_equals_default" => Runtime(name, Llvm.I1, Llvm.Ptr, Llvm.Ptr).Fn,
         "csrt_object_get_hash_code_default" => Runtime(name, Llvm.I32, Llvm.Ptr).Fn,
+        "csrt_cts_dispose_virtual" => Runtime(name, Llvm.Void, Llvm.Ptr).Fn,
+        "csrt_cts_dispose_bool" => Runtime(name, Llvm.Void, Llvm.Ptr, Llvm.I1).Fn,
         _ => Runtime(name, Llvm.Ptr, Llvm.Ptr).Fn,
     };
 

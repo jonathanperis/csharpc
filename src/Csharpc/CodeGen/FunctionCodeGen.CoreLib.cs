@@ -117,6 +117,10 @@ public sealed partial class FunctionCodeGen
             // An object reference as a native-sized integer and back (the GC never moves objects).
             "ObjectToPointer" => args[0].Type.Kind == LLVMTypeKind.Pointer
                 ? _b.Cast(LLVMOpcode.PtrToInt, args[0], T.Value(_m.Compilation.GetSpecialType(SpecialType.System_IntPtr))) : args[0],
+            "ReinterpretAs" => args[0],
+            "SizeOf" => L.ConstInt(L.I32, (long)T.Target.SizeOf(T.Storage(S(t!)))),
+            "SpanAddress" => _b.Cast(LLVMOpcode.PtrToInt, SpanPointer(args[0]), T.NativeInt),
+            "RefAddress" => _b.Cast(LLVMOpcode.PtrToInt, args[0], T.NativeInt),
             "PointerToObject" => args[0].Type.Kind == LLVMTypeKind.Pointer ? args[0] : _b.Cast(LLVMOpcode.IntToPtr, args[0], L.Ptr),
             "EnumToUInt64" => EnumToUInt64(t!, args[0]),
             "EnumFromUInt64" => EnumFromUInt64(t!, args[0]),
@@ -139,8 +143,19 @@ public sealed partial class FunctionCodeGen
             "ResourceStrings" => _m.ResourceStringsBlob(),
             "IsCoroutineIterator" => CallRuntime("csrt_is_iterator", L.I1, [L.Ptr], args[0]),
             "RuntimeConfig" => _m.AppContextBlob(),
-            "FrameworkProductVersion" => _m.StringLiteral(Frontend.SharedFramework.ProductVersion
-                ?? throw CompileError.Unsupported("the .NET runtime version (Environment.Version, RuntimeInformation.FrameworkDescription) without the .NET 11 shared framework", inv)),
+            "LoadableAssemblies" => _m.LoadableAssembliesBlob(),
+            // The shared framework the program was compiled against ("11.0.0-rc.2.26504.105"), as NativeAOT
+            // bakes in its System.Private.CoreLib's version.
+            "TargetArchitecture" => L.ConstInt(L.I32, _m.Types.Target.Triple.StartsWith("x86_64") ? 1 : _m.Types.Target.Triple.StartsWith("wasm32") ? 5
+                : _m.Types.Target.Triple.StartsWith("aarch64") || _m.Types.Target.Triple.StartsWith("arm64") ? 3 : 1),
+            "FrameworkVersion" => _m.StringLiteral(Frontend.SharedFramework.ProductVersion
+                ?? (Path.GetFileName(Frontend.SharedFramework.Directory?.TrimEnd('/', '\\') ?? "") is { Length: > 0 } version ? version : "11.0.0")),
+            "TypeInfoTableAddress" => _b.Cast(LLVMOpcode.PtrToInt, _m.TypeInfoTable(), T.NativeInt),
+            "ReflectionTableAddress" => _b.Cast(LLVMOpcode.PtrToInt, _m.ReflectionTable(), T.NativeInt),
+            "DelegateMethodTableAddress" => _b.Cast(LLVMOpcode.PtrToInt, _m.DelegateMethodTable(), T.NativeInt),
+            "DelegateSignatureTableAddress" => _b.Cast(LLVMOpcode.PtrToInt, _m.DelegateSignatureTable(), T.NativeInt),
+            "DelegateFunction" => _b.Cast(LLVMOpcode.PtrToInt, LastDelegateField(args[0], 2), T.NativeInt),
+            "DelegateTargetObject" => LastDelegateField(args[0], 1),
             "TryFaultAsyncTask" => CallRuntime("csrt_task_try_fault_async", L.I1, [L.Ptr, L.Ptr], args[0], args[1]),
             "CompareStringsWith" => CallRuntime("csrt_string_compare_with", L.I32, [L.Ptr, L.Ptr, L.I32], args[0], args[1], args[2]),
             "JsonConfigureHook" => ProgramHook("JsonConfigure", target, args),
@@ -612,6 +627,13 @@ public sealed partial class FunctionCodeGen
             if (ModuleCodeGen.StructOverride(s, "GetHashCode") is { } overrider) return CallMethod(overrider, [Spill(a)]);
             var hash = _m.StructDefaultHash(s);
             return _b.Call(hash.Type, hash.Fn, [Spill(a)]);
+        }
+        if (t.IsValueType && Coroutines.IsTaskHandleType(t))
+        {
+            // A task-handle struct is the task / cancellation source pointer (docs/10-async.md): hash its
+            // identity, like .NET's (reference-field) hash of these structs, and consistent with TaskHandleEquals.
+            var address = _b.Cast(LLVMOpcode.PtrToInt, a, L.I64);
+            return _b.Cast(LLVMOpcode.Trunc, _b.BinOp(LLVMOpcode.Mul, _b.BinOp(LLVMOpcode.LShr, address, L.ConstInt(L.I64, 3)), L.ConstInt(L.I64, 2654435761)), i32);
         }
         if (t.IsValueType)
         {

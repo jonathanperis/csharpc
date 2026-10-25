@@ -1,7 +1,7 @@
-// SemaphoreSlim.Wait and ManualResetEventSlim.Wait (Tasks/ManualResetEventSlim.cs) with a CancellationToken, over the C runtime's events
+// ManualResetEventSlim.Wait (Tasks/ManualResetEventSlim.cs) and CountdownEvent.Wait with a CancellationToken, over the C runtime's events
 // (runtime/threads.c): a callback registered on the token kicks the event's waiters, which then see the
-// source canceled (csrt_event_wait_token). The argument checks come in .NET's order (SemaphoreSlim.cs,
-// ManualResetEventSlim.cs).
+// source canceled (csrt_event_wait_token). The argument checks come in .NET's order (ManualResetEventSlim.cs,
+// CountdownEvent.cs).
 #nullable disable
 using System;
 using System.Threading;
@@ -52,27 +52,6 @@ namespace CsharpcCoreLib
             ArgumentOutOfRangeException.ThrowIfLessThan(millisecondsTimeout, -1);
             cancellationToken.ThrowIfCancellationRequested();
             return CancelableWaits.Wait(e, millisecondsTimeout, cancellationToken);
-        }
-    }
-
-    [ShadowMembers("System.Threading.SemaphoreSlim")]
-    internal static class SemaphoreSlimWaits
-    {
-        private const string TimeoutWrong = "The timeout must represent a value between -1 and Int32.MaxValue, inclusive.";
-
-        [ShadowInstance] public static void Wait(SemaphoreSlim semaphore, CancellationToken cancellationToken) => Wait(semaphore, -1, cancellationToken);
-
-        [ShadowInstance] public static bool Wait(SemaphoreSlim semaphore, TimeSpan timeout) =>
-            Wait(semaphore, CancelableWaits.Milliseconds(timeout, TimeoutWrong), default(CancellationToken));
-
-        [ShadowInstance] public static bool Wait(SemaphoreSlim semaphore, TimeSpan timeout, CancellationToken cancellationToken) =>
-            Wait(semaphore, CancelableWaits.Milliseconds(timeout, TimeoutWrong), cancellationToken);
-
-        [ShadowInstance] public static bool Wait(SemaphoreSlim semaphore, int millisecondsTimeout, CancellationToken cancellationToken)
-        {
-            if (millisecondsTimeout < -1) throw new ArgumentOutOfRangeException("millisecondsTimeout", millisecondsTimeout, TimeoutWrong);
-            cancellationToken.ThrowIfCancellationRequested();
-            return CancelableWaits.Wait(semaphore, millisecondsTimeout, cancellationToken);
         }
     }
 }

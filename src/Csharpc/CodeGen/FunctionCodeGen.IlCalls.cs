@@ -30,6 +30,8 @@ public sealed partial class FunctionCodeGen
         if (op != ILOpCode.Newobj && !method.IsStatic)
             receiver = stack.Count > 0 ? stack.Pop() : throw new IlException("evaluation stack underflow");
 
+        if (args.Any(a => a is { Kind: IlKind.Ref, Symbol: ITypeSymbol }))
+            _m.NoteDynamicallyAccessedArguments(S(method), i => args[i] is { Kind: IlKind.Ref, Symbol: ITypeSymbol type } ? type : null);
         if (IlSpecialCall(method, receiver, args) is { } special)
         {
             if (special.Kind != IlKind.Token) stack.Push(special); // Token = handled, nothing to push
@@ -146,6 +148,7 @@ public sealed partial class FunctionCodeGen
         if (receiver is { Type: { } receiverType } && !method.IsStatic && method.ContainingType.TypeKind == TypeKind.Interface
             && S(receiverType) is IArrayTypeSymbol or { SpecialType: SpecialType.System_Array } && S(method.ContainingType) is INamedTypeSymbol arrayInterface)
             _m.RequestArrayInterface(arrayInterface);
+        if (receiver is { Symbol: ITypeSymbol reflected }) NoteReflectedType(method, S(reflected), args is [{ Constant: string name }, ..] ? name : null);
 
         // Library operators and conversions (decimal + decimal, (long)BigInteger ...): the source path's operator lowering.
         if (method.MethodKind is MethodKind.UserDefinedOperator or MethodKind.Conversion && method.IsStatic && !_m.IsUserMethod(mapped)
@@ -308,9 +311,14 @@ public sealed partial class FunctionCodeGen
         IOperation? instance = null;
         if (method.IsStatic)
         {
-            // A static method closed over its first argument (`Func<int> f = s.ExtensionMethod`) needs a thunk csharpc doesn't build yet.
+            // A static method closed over its first argument (`Func<int> f = s.ExtensionMethod`): a reference
+            // first parameter takes the target as it is (FunctionCodeGen.Closures.cs); others need a thunk.
             if (!(target.Kind == IlKind.Ref && target.Type is null))
-                throw new IlException($"delegate to static method '{method}' closed over its first argument");
+            {
+                if (method.Parameters is not [{ RefKind: RefKind.None } first, ..] || !S(first.Type).IsReferenceType)
+                    throw new IlException($"delegate to static method '{method}' closed over its first argument");
+                instance = IlOperand(target, first.Type);
+            }
         }
         else instance = IlOperand(target, target.Type is { } t && S(t).IsReferenceType ? t : method.ContainingType);
         var reference = new IlMethodReferenceOperation(il.Syntax, method, instance, isVirtual: pointer.Target is not null);
@@ -372,6 +380,13 @@ public sealed partial class FunctionCodeGen
         }
         switch (ownerName, method.Name)
         {
+            // `x.HasFlag(y)` compiles to two boxes: test the enum values (the JIT doesn't allocate either).
+            case ("System.Enum", "HasFlag") when receiver is { Unboxed: { Type: INamedTypeSymbol { TypeKind: TypeKind.Enum } e } value }
+                && args is [{ Unboxed: { Type: { } flagType } flag }] && SymbolEqualityComparer.Default.Equals(e, flagType):
+            {
+                var (v, f) = (IlTyped(value, e), IlTyped(flag, e));
+                return IlPush(_b.ICmp(LLVMIntPredicate.EQ, _b.BinOp(LLVMOpcode.And, v, f), f), Special(SpecialType.System_Boolean));
+            }
             case ("System.Type", "GetTypeFromHandle") when args is [{ Kind: IlKind.Token, Symbol: ITypeSymbol type }]:
                 return new IlEntry(IlKind.Ref, TypeObject(S(type), IlAt()), method.ReturnType) { NonNull = true, Symbol = S(type) };
             // typeof(T).IsValueType after monomorphization (ImmutableExtensions.IsValueType<T>(), generic fast paths).

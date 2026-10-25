@@ -1,8 +1,7 @@
 using System;
 
-// A generic virtual method overridden in a generic class: its instantiations are only known once
-// lowering is done, so the call goes through a dispatcher filled in rounds over every class with a
-// method table (ModuleCodeGen.GenericInterfaces.cs), each case calling that class's override.
+// A generic virtual method overridden in a generic class: the call dispatches to the receiver's
+// instantiation (csharpc once rejected it with a diagnostic rather than calling the base implementation).
 class Base
 {
     public virtual string Describe<T>(T value) => "base " + value;

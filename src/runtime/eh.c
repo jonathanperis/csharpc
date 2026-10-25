@@ -122,6 +122,50 @@ csrt_String* csrt_exception_get_message(void* exception) {
     return message;
 }
 
+/// Exception.HResult: the value set, else the default .NET's constructors assign for the nearest type that
+/// has one (HResults.cs), walking the method-table chain by name.
+int32_t csrt_exception_get_hresult(void* exception) {
+    if (!exception) csrt_throw_null_reference();
+    csrt_Exception* e = exception;
+    if (e->hresult) return e->hresult;
+    static const struct { const char* name; uint32_t hresult; } defaults[] = {
+        { "System.ArgumentNullException", 0x80004003 }, { "System.ArgumentOutOfRangeException", 0x80131502 },
+        { "System.ArgumentException", 0x80070057 }, { "System.DivideByZeroException", 0x80020012 },
+        { "System.OverflowException", 0x80131516 }, { "System.ArithmeticException", 0x80070216 },
+        { "System.FormatException", 0x80131537 }, { "System.IndexOutOfRangeException", 0x80131508 },
+        { "System.InvalidCastException", 0x80004002 }, { "System.ObjectDisposedException", 0x80131622 },
+        { "System.InvalidOperationException", 0x80131509 }, { "System.PlatformNotSupportedException", 0x80131539 },
+        { "System.NotSupportedException", 0x80131515 }, { "System.NotImplementedException", 0x80004001 },
+        { "System.NullReferenceException", 0x80004003 }, { "System.OperationCanceledException", 0x8013153B },
+        { "System.TimeoutException", 0x80131505 }, { "System.Collections.Generic.KeyNotFoundException", 0x80131577 },
+        { "System.IO.FileNotFoundException", 0x80070002 }, { "System.IO.DirectoryNotFoundException", 0x80070003 },
+        { "System.IO.PathTooLongException", 0x800700CE }, { "System.IO.EndOfStreamException", 0x80070026 },
+        { "System.IO.FileLoadException", 0x80131621 }, { "System.IO.IOException", 0x80131620 },
+        { "System.UnauthorizedAccessException", 0x80070005 }, { "System.OutOfMemoryException", 0x8007000E },
+        { "System.ArrayTypeMismatchException", 0x80131503 }, { "System.RankException", 0x80131517 },
+        { "System.TypeInitializationException", 0x80131534 }, { "System.Reflection.TargetInvocationException", 0x80131604 },
+        { "System.Threading.SemaphoreFullException", 0x8013152B }, { "System.Threading.SynchronizationLockException", 0x80131518 },
+        { "System.Threading.ThreadInterruptedException", 0x80131519 }, { "System.Threading.ThreadStateException", 0x80131520 },
+        { "System.InsufficientExecutionStackException", 0x80131578 }, { "System.ApplicationException", 0x80131600 },
+        { "System.SystemException", 0x80131501 }, { "System.Exception", 0x80131500 },
+    };
+    for (const csrt_MethodTable* mt = e->mt; mt; mt = mt->base)
+        for (size_t i = 0; i < sizeof defaults / sizeof defaults[0]; i++)
+            if (strcmp(mt->name, defaults[i].name) == 0) return (int32_t)defaults[i].hresult;
+    return (int32_t)0x80131500;
+}
+
+void csrt_exception_set_hresult(void* exception, int32_t hresult) {
+    if (!exception) csrt_throw_null_reference();
+    ((csrt_Exception*)exception)->hresult = hresult;
+}
+
+void csrt_exception_set_token(void* exception, void* token) { ((csrt_Exception*)exception)->token = token; }
+void* csrt_exception_get_token(void* exception) {
+    if (!exception) csrt_throw_null_reference();
+    return ((csrt_Exception*)exception)->token;
+}
+
 void csrt_exception_set_actual_value(void* exception, csrt_String* actual_value) {
     ((csrt_Exception*)exception)->actual_value = actual_value;
 }
@@ -501,21 +545,8 @@ bool csrt_is_operation_canceled(void* exception) {
 
 void* csrt_task_canceled_exception_new(void) {
     csrt_Exception* e = new_exception(&csrt_MT_System_Threading_Tasks_TaskCanceledException, "A task was canceled.");
-    e->token = CSRT_TOKEN_UNKNOWN;
     return e;
 }
-
-/// OperationCanceledException.CancellationToken.
-void* csrt_exception_cancellation_token(void* exception) {
-    if (!exception) csrt_throw_null_reference();
-    void* token = ((csrt_Exception*)exception)->token;
-    if (token == CSRT_TOKEN_UNKNOWN)
-        csrt_throw_object(new_exception(&csrt_MT_System_NotSupportedException,
-                  "not supported by csharpc yet: the CancellationToken of a TaskCanceledException for a canceled task"));
-    return token;
-}
-
-void csrt_exception_set_cancellation_token(void* exception, void* token) { ((csrt_Exception*)exception)->token = token; }
 
 void* csrt_operation_canceled_exception_new(void* token) {
     csrt_Exception* e = new_exception(&csrt_MT_System_OperationCanceledException, "The operation was canceled.");

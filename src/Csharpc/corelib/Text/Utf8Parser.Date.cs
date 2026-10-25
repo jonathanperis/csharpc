@@ -9,7 +9,9 @@ using System.Buffers;
 
 namespace CsharpcCoreLib
 {
-    internal static partial class Utf8ParserMembers
+    // (The integer overloads: corelib/Utf8Parser.cs.)
+    [ShadowMembers("System.Buffers.Text.Utf8Parser")]
+    internal static class Utf8ParserDateMembers
     {
         private static readonly int[] DaysToMonth365 = { 0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334, 365 };
         private static readonly int[] DaysToMonth366 = { 0, 31, 60, 91, 121, 152, 182, 213, 244, 274, 305, 335, 366 };

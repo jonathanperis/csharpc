@@ -215,10 +215,11 @@ namespace CsharpcCoreLib
                 case EPERM:
                 case EISDIR:
                     return new UnauthorizedAccessException("Access to the path '" + full + "' is denied.");
+                // .NET's Interop.GetExceptionForIoErrno: an IOException's HResult is the raw errno.
                 case EEXIST:
-                    return new IOException("The file '" + full + "' already exists.");
+                    return new IOException("The file '" + full + "' already exists.", errno);
                 default:
-                    return new IOException(full == null ? ErrorMessage(errno) : ErrorMessage(errno) + " : '" + full + "'");
+                    return new IOException(full == null ? ErrorMessage(errno) : ErrorMessage(errno) + " : '" + full + "'", errno);
             }
         }
 

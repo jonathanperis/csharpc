@@ -1,0 +1,14 @@
+False True PooledSource a True
+a: Dispose(True) reset=True
+1 False
+True True
+a: Dispose(True) reset=False
+disposed
+b: Dispose(True) reset=False
+c: Dispose(True) reset=True
+d: Dispose(True) reset=True
+PooledSource
+False
+delayed canceled True
+True
+True

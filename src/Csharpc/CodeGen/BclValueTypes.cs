@@ -46,6 +46,18 @@ internal static partial class BclValueTypes
         return false;
     }
 
+    /// <summary>
+    /// A MemberInfo member called on a System.Type (`callvirt MemberInfo::GetCustomAttributesData` — compilers
+    /// reference the declaring member, and System.Type doesn't redeclare these): the Type handler of that member.
+    /// </summary>
+    public static bool TryGetForType(IMethodSymbol memberInfoMethod, out BclHandler handler)
+    {
+        const string prefix = "System.Reflection.MemberInfo.";
+        var key = Intrinsics.Key(memberInfoMethod.OriginalDefinition);
+        if (key.StartsWith(prefix, StringComparison.Ordinal) && s_methods.TryGetValue("System.Type." + key[prefix.Length..], out handler!)) return true;
+        return TryGet(memberInfoMethod, out handler);
+    }
+
     public static bool TryGetRaw(IMethodSymbol method, out BclRawHandler handler) =>
         s_raw.TryGetValue(Intrinsics.Key(method.OriginalDefinition), out handler!);
 
@@ -1188,6 +1200,9 @@ internal static partial class BclValueTypes
         t["bool.TrueString"] = (g, _) => g.Module.StringLiteral("True");
         t["bool.FalseString"] = (g, _) => g.Module.StringLiteral("False");
         t["System.EventArgs.Empty"] = (g, _) => g.CallCoreLib("EventArgsImpl", "GetEmpty");
+        t["System.Type.EmptyTypes"] = (g, _) => g.CallCoreLib("ReflectionRuntime", "EmptyTypes");
+        t["System.Type.Missing"] = t["System.Reflection.Missing.Value"] = (g, _) => g.CallCoreLib("MissingImpl", "GetValue");
+        t["System.DBNull.Value"] = (g, _) => g.CallCoreLib("DBNullImpl", "GetValue");
         t["System.TimeSpan.Zero"] = (g, _) => I64(g, 0);
         t["System.Threading.Timeout.InfiniteTimeSpan"] = (g, _) => I64(g, -TicksPerMs);
         t["System.TimeSpan.MaxValue"] = (g, _) => I64(g, long.MaxValue);

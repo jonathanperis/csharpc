@@ -23,6 +23,25 @@ public sealed partial class ModuleCodeGen
         return StringLiteral(_resourceBlob);
     }
 
+    /// <summary>
+    /// Full names of the assemblies Assembly.Load can return (corelib/Reflection/Assembly.cs): the program's
+    /// own and the IL assemblies, whose code is compiled in.
+    /// </summary>
+    internal LLVMValueRef LoadableAssembliesBlob()
+    {
+        var names = new List<string>();
+        foreach (var unit in ProgramAssemblies)
+        {
+            var name = unit.IsRoot ? Compilation.AssemblyName ?? unit.Name : unit.Name;
+            var version = unit.Version == "source" ? (unit.IsRoot ? Compilation.Assembly.Identity.Version.ToString() : null) : unit.Version ?? "1.0.0.0";
+            if (version is not null) names.Add($"{name}, Version={version}, Culture=neutral, PublicKeyToken=null");
+        }
+        if (ProgramAssemblies.Count == 0 && ProgramAssemblyName(null) is { } single) names.Add(single);
+        foreach (var assembly in Il.Assemblies)
+            if (!assembly.IsCoreLib) names.Add(assembly.Symbol.Identity.GetDisplayName());
+        return StringLiteral(Encode(names.Distinct()));
+    }
+
     /// <summary>(name, value) pairs of the runtime configuration.</summary>
     internal LLVMValueRef AppContextBlob() => StringLiteral(Encode(RuntimeConfig.SelectMany(kv => new[] { kv.Key, kv.Value })));
 

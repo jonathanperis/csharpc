@@ -170,6 +170,7 @@ static struct {
 
     LargeObject* large;
     size_t large_count, large_capacity;
+    size_t large_sorted;  // large[0, large_sorted) is sorted by address; later allocations are appended after it
 
     uintptr_t heap_min, heap_max;  // quick range filter over everything we own
 
@@ -756,6 +757,20 @@ void* csrt_gc_alloc(size_t size) { return gc_alloc(size, true); }
 
 void* csrt_gc_alloc_noclear(size_t size) { return gc_alloc(size, false); }
 
+/// GC.CollectionCount: the collections so far.
+int64_t csrt_gc_collection_count(void) { gc_lock(); int64_t n = (int64_t)g.collections; gc_unlock(); return n; }
+
+/// GC.GetTotalAllocatedBytes: every byte handed out so far (allocation caches count when they claim slots).
+int64_t csrt_gc_total_allocated(void) { return (int64_t)__atomic_load_n(&g.total_allocated, __ATOMIC_RELAXED); }
+
+/// GC.GetTotalPauseDuration in 100-ns ticks: the collections' stop-the-world time.
+int64_t csrt_gc_total_pause_ticks(void) {
+    gc_lock();
+    int64_t ticks = (int64_t)(g.total_gc_seconds * 1e7);
+    gc_unlock();
+    return ticks;
+}
+
 int64_t csrt_gc_total_memory(void) {
     gc_lock();
     int64_t total = (int64_t)(g.live_bytes + g.allocated_since_gc);
@@ -848,6 +863,50 @@ static inline __attribute__((always_inline)) void mark_candidate(uintptr_t word)
             return;
         }
     }
+}
+
+/// The start of the live heap object `p` points into, or NULL (MemoryMarshal.TryGetArray: Memory<T> is a
+/// bare { pointer, length }, and the collector knows which array an interior pointer belongs to).
+/// The large object containing `word`, outside a collection: the table is sorted at each collection, and
+/// objects allocated since then are appended unsorted (a short tail, scanned; sorted once it grows).
+static LargeObject* find_large_between_collections(uintptr_t word) {
+    if (g.large_count - g.large_sorted > 64) {
+        sort_large(g.large, g.large_count);
+        g.large_sorted = g.large_count;
+    }
+    size_t lo = 0, hi = g.large_sorted;
+    while (lo < hi) {
+        size_t mid = (lo + hi) / 2;
+        LargeObject* obj = &g.large[mid];
+        if (word < (uintptr_t)obj->start) hi = mid;
+        else if (word >= (uintptr_t)obj->start + obj->size) lo = mid + 1;
+        else return obj;
+    }
+    for (size_t i = g.large_sorted; i < g.large_count; i++)
+        if (word >= (uintptr_t)g.large[i].start && word < (uintptr_t)g.large[i].start + g.large[i].size) return &g.large[i];
+    return NULL;
+}
+
+void* csrt_gc_object_base(const void* p) {
+    uintptr_t word = (uintptr_t)p;
+    void* result = NULL;
+    gc_lock();
+    if (word >= g.heap_min && word < g.heap_max) {
+        uintptr_t base = word & ~(CHUNK_SIZE - 1);
+        if (chunk_set_contains(base)) {
+            Chunk* c = (Chunk*)base;
+            size_t offset = word - base;
+            if (c->object_size != 0 && offset >= CHUNK_HEADER) {
+                size_t index = (offset - CHUNK_HEADER) / c->object_size;
+                if (index < c->slots && bit_get(c->allocated, index)) result = (uint8_t*)base + CHUNK_HEADER + index * c->object_size;
+            }
+        } else {
+            LargeObject* obj = find_large_between_collections(word);
+            if (obj) result = obj->start;
+        }
+    }
+    gc_unlock();
+    return result;
 }
 
 // Conservative scanning reads every word of stacks, TLS and data segments on purpose; under
@@ -1118,6 +1177,7 @@ static size_t sweep(void) {
         }
     }
     g.large_count = kept;
+    g.large_sorted = kept;
     return live;
 }
 
@@ -1249,7 +1309,7 @@ __attribute__((noinline)) void csrt_gc_collect_now(void) {
     if (g.collecting) return;
     g.collecting = true;
     struct timespec t0, t1;
-    if (g.stats) clock_gettime(CLOCK_MONOTONIC, &t0);
+    clock_gettime(CLOCK_MONOTONIC, &t0);  // GC.GetTotalPauseDuration
 
     stop_world();
     sort_large(g.large, g.large_count);
@@ -1265,10 +1325,8 @@ __attribute__((noinline)) void csrt_gc_collect_now(void) {
     g.trigger = 2 * g.live_bytes > g.min_trigger ? 2 * g.live_bytes : g.min_trigger;
     g.collections++;
 
-    if (g.stats) {
-        clock_gettime(CLOCK_MONOTONIC, &t1);
-        g.total_gc_seconds += (double)(t1.tv_sec - t0.tv_sec) + (double)(t1.tv_nsec - t0.tv_nsec) / 1e9;
-    }
+    clock_gettime(CLOCK_MONOTONIC, &t1);
+    g.total_gc_seconds += (double)(t1.tv_sec - t0.tv_sec) + (double)(t1.tv_nsec - t0.tv_nsec) / 1e9;
     g.collecting = false;
 }
 

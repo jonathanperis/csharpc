@@ -15,6 +15,10 @@ namespace Csharpc.CodeGen;
 /// round appends the types discovered since the last one and ends with a call to the next round's
 /// (still empty) continuation; the last continuation, emitted when nothing changes any more, throws.
 /// Types are matched by exact method table, so the order of the rounds doesn't matter.
+///
+/// Generic virtual methods of classes overridden in generic classes (FrozenDictionary's
+/// GetAlternateLookupDelegate&lt;T&gt; in DefaultFrozenDictionary&lt;K, V&gt;) use the same dispatchers: the cases
+/// are the classes deriving from the method's class, each calling its most-derived override.
 /// </summary>
 public sealed partial class ModuleCodeGen
 {
@@ -115,6 +119,27 @@ public sealed partial class ModuleCodeGen
     /// Types that only appeared while lowering the closed dispatchers' last cases would be missing from the
     /// switch: report them instead of dispatching wrongly.
     /// </summary>
+    /// <summary>Classes (instantiations included) deriving from a generic virtual method's class, with the override each runs.</summary>
+    private IEnumerable<(INamedTypeSymbol Type, LLVMValueRef MethodTable, IMethodSymbol Callee)> OverridingClasses(IMethodSymbol target)
+    {
+        var owner = target.ContainingType;
+        var root = ClassLayout.RootOf(target.OriginalDefinition);
+        var typeArgs = target.TypeArguments.ToArray();
+        foreach (var (type, layout) in _layouts.ToList())
+        {
+            if (type is not { TypeKind: TypeKind.Class, IsAbstract: false } || layout.MethodTable.IsNull || TypeSubstitution.IsOpen(type)) continue;
+            bool derives = false;
+            for (INamedTypeSymbol? t = type; t is not null && !derives; t = t.BaseType)
+                derives = SymbolEqualityComparer.Default.Equals(t, owner);
+            if (!derives) continue;
+            IMethodSymbol? callee = null;
+            for (INamedTypeSymbol? t = type; t is not null && callee is null; t = t.BaseType)
+                callee = t.GetMembers(target.Name).OfType<IMethodSymbol>().FirstOrDefault(m => m.IsGenericMethod && !m.IsAbstract
+                    && m.TypeParameters.Length == typeArgs.Length && SymbolEqualityComparer.Default.Equals(ClassLayout.RootOf(m.OriginalDefinition), root));
+            if (callee is not null) yield return (type, layout.MethodTable, callee.Construct(typeArgs));
+        }
+    }
+
     private void CheckGenericInterfaceDispatchers()
     {
         foreach (var d in _genericInterfaceDispatchers.Values)
@@ -128,6 +153,11 @@ public sealed partial class ModuleCodeGen
     /// <summary>Instantiable types implementing the target's interface that the program has method tables for, with their implementation.</summary>
     private IEnumerable<(INamedTypeSymbol Type, LLVMValueRef MethodTable, IMethodSymbol Callee)> ImplementingTypes(IMethodSymbol target)
     {
+        if (target.ContainingType.TypeKind != TypeKind.Interface)
+        {
+            foreach (var entry in OverridingClasses(target)) yield return entry;
+            yield break;
+        }
         var itf = target.ContainingType;
         var member = target.ConstructedFrom;
         var typeArgs = target.TypeArguments.ToArray();
