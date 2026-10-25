@@ -186,7 +186,15 @@ static bool deadline_passed(const struct timespec* deadline) {
 /// (callers re-check their condition), ETIMEDOUT at the deadline (NULL = none), or EINTR when the
 /// thread was interrupted (the interrupt is consumed; `mutex` is still held). `kick`: the interrupter
 /// may broadcast `cond` (waits that loop on a predicate; not Monitor.Wait, whose wakeups mean Pulse).
+static int interruptible_wait_core(pthread_cond_t* cond, pthread_mutex_t* mutex, const struct timespec* deadline, bool kick, bool single);
+
 static int interruptible_wait(pthread_cond_t* cond, pthread_mutex_t* mutex, const struct timespec* deadline, bool kick) {
+    return interruptible_wait_core(cond, mutex, deadline, kick, false);
+}
+
+/// `single`: one wait of the condition — a poll slice that expires returns 0 like a wakeup, so a caller
+/// with a predicate of its own re-checks it.
+static int interruptible_wait_core(pthread_cond_t* cond, pthread_mutex_t* mutex, const struct timespec* deadline, bool kick, bool single) {
     csrt_Thread* t = tl_current;
     // Only a thread whose Thread object exists can be interrupted (Interrupt needs it).
     if (!t) return deadline ? pthread_cond_timedwait(cond, mutex, deadline) : pthread_cond_wait(cond, mutex);
@@ -206,6 +214,7 @@ static int interruptible_wait(pthread_cond_t* cond, pthread_mutex_t* mutex, cons
         if (atomic_load(&t->interrupted)) { rc = EINTR; break; }
         if (rc != ETIMEDOUT) { rc = 0; break; }
         if (last || (deadline && deadline_passed(deadline))) break;
+        if (single) { rc = 0; break; }
     }
     if (kick) {
         pthread_mutex_lock(&s_interrupt_lock);
@@ -412,10 +421,20 @@ void csrt_threads_wait_foreground(void) {
 // Monitors (`lock`, Monitor.*, System.Threading.Lock). The GC never moves objects, so a side
 // table keyed by address works; an entry lives while some thread holds, waits for or enters it.
 // ---------------------------------------------------------------------------------------------
+// A thread in Monitor.Wait, queued in arrival order: Pulse releases the first one, PulseAll all of them,
+// as .NET's waiting queue does. The released flag is the condition a waiter re-checks, so a wakeup
+// that a timed-out wait of the condition variable swallows (glibc may hand a signal to a waiter whose
+// timeout expires at the same moment) or a spurious one never loses or invents a pulse.
+typedef struct MonitorWaiter {
+    struct MonitorWaiter* next;
+    bool released;
+} MonitorWaiter;
+
 typedef struct Monitor {
     void* obj;
     pthread_mutex_t mutex;
-    pthread_cond_t cond;      // Monitor.Wait / Pulse
+    pthread_cond_t cond;      // Monitor.Wait / Pulse (broadcast; each waiter checks its own flag)
+    MonitorWaiter* waiters;   // waiting threads, oldest first (guarded by mutex)
     _Atomic(pthread_t) owner;
     atomic_bool owned;
     int recursion;
@@ -524,25 +543,57 @@ bool csrt_monitor_is_entered(void* obj) {
     return result;
 }
 
+static void remove_waiter(Monitor* m, MonitorWaiter* w) {
+    for (MonitorWaiter** p = &m->waiters; *p; p = &(*p)->next)
+        if (*p == w) { *p = w->next; return; }
+}
+
 /// Monitor.Wait(obj[, timeout]): releases the lock (even when held recursively) and reacquires it.
+/// True when pulsed, false on timeout; a pulse that arrives with the timeout wins, as in .NET.
 bool csrt_monitor_wait(void* obj, int32_t ms) {
     Monitor* m = owned_monitor(obj);
     int recursion = m->recursion;
     atomic_store(&m->owned, false);
     struct timespec d;
     if (ms >= 0) deadline_after(&d, ms);
-    // An interrupted Wait reacquires the lock before it throws, as .NET's does.
-    int rc = interruptible_wait(&m->cond, &m->mutex, ms < 0 ? NULL : &d, false);
+    MonitorWaiter self = { NULL, false };
+    MonitorWaiter** tail = &m->waiters;
+    while (*tail) tail = &(*tail)->next;
+    *tail = &self;
+    int rc = 0;
+    while (!self.released) {
+        // Each return of the condition wait (pulse, interrupt kick, poll slice, spurious) re-checks the flag.
+        rc = interruptible_wait_core(&m->cond, &m->mutex, ms < 0 ? NULL : &d, true, true);
+        if (self.released) { rc = 0; break; }
+        if (rc == EINTR || rc == ETIMEDOUT) { remove_waiter(m, &self); break; }
+    }
     atomic_store(&m->owner, pthread_self());
     atomic_store(&m->owned, true);
     m->recursion = recursion;
     monitor_unref(m);
+    // An interrupted Wait reacquires the lock before it throws, as .NET's does.
     if (rc == EINTR) throw_interrupted();
     return rc != ETIMEDOUT;
 }
 
-void csrt_monitor_pulse(void* obj) { Monitor* m = owned_monitor(obj); pthread_cond_signal(&m->cond); monitor_unref(m); }
-void csrt_monitor_pulse_all(void* obj) { Monitor* m = owned_monitor(obj); pthread_cond_broadcast(&m->cond); monitor_unref(m); }
+void csrt_monitor_pulse(void* obj) {
+    Monitor* m = owned_monitor(obj);
+    if (m->waiters) {
+        MonitorWaiter* w = m->waiters;
+        m->waiters = w->next;
+        w->released = true;
+        pthread_cond_broadcast(&m->cond);
+    }
+    monitor_unref(m);
+}
+
+void csrt_monitor_pulse_all(void* obj) {
+    Monitor* m = owned_monitor(obj);
+    for (MonitorWaiter* w = m->waiters; w; w = w->next) w->released = true;
+    m->waiters = NULL;
+    pthread_cond_broadcast(&m->cond);
+    monitor_unref(m);
+}
 
 // System.Threading.Lock (.NET 9): a plain object whose monitor is the lock. `lock (l)` lowers to
 // l.EnterScope() + Scope.Dispose(); a Scope is represented by the Lock pointer itself.
