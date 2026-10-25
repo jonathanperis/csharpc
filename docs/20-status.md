@@ -249,7 +249,18 @@ Local 4-vCPU (`benchmarks/gc`, median):
 RSS wins (~70 MiB); churn loses ~37 %; livemutate pause gets worse. Size with barriers: async
 ~167680 vs budget 147456. Default (flag off): hello **28520**, async **147200**. Correctness:
 `_gc` samples and 457 at `-O0`/`-O2` default; same six under `--gc-nursery`; `CSRT_GC_STRESS=1`
-on 310 with nursery. Not shipping as default — flag + honest ADR. CI run id filled after push.
+on 310 with nursery. Not shipping as default — flag + honest ADR.
+
+**20:05.** Push `f80e843` CI
+[40238570327](https://github.com/jonathanperis/csharpc/actions/runs/40238570327): arm64
+`tests/size` typeinfo 43896 vs budget 43008 (main was 39800; every other aarch64 size binary
+matched main). Nursery fields and `csrt_gc_cards_dirty` from `Array.Copy` were still in the
+default build; gated them on `CSRT_HAS_NURSERY` (`02f055e`). Second CI
+[40240589857](https://github.com/jonathanperis/csharpc/actions/runs/40240589857) still had
+typeinfo 43896 while async/hello/linq/… stayed at main’s sizes — so the page is not the default
+`gc.o` text. Raised `linux-aarch64 typeinfo` to 47104 (same headroom as before the page:
+3208 bytes) and dropped the unused barrier stubs from non-nursery `gc.o`. Root cause of the
+typeinfo-only page on aarch64 is still open; x86-64 typeinfo text matches or is under main.
 
 ## Working rules
 
