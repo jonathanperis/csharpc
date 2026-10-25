@@ -303,6 +303,16 @@ namespace CsharpcCoreLib
 
         public JsonWriteState(JsonSerializerOptionsImpl options) { Options = options; }
 
+        /// <summary>A cached state starts over (Serializer.WriteCore's state cache).</summary>
+        internal void Reset(JsonSerializerOptionsImpl options)
+        {
+            _names.Clear();
+            NumberHandling = null;
+            Options = options;
+            ReferenceResolver = null;
+            Ancestors = null;
+        }
+
         public void Push(string name) => _names.Add(name);
 
         public void Pop() => _names.RemoveAt(_names.Count - 1);
