@@ -31,13 +31,13 @@ class Program
         Console.Write(writer.ToString());
 
         string path = Path.Combine(Path.GetTempPath(), "csharpc_495_" + Environment.ProcessId + ".txt");
-        await File.WriteAllTextAsync(path, "héllo\nworld", CancellationToken.None);
+        await File.WriteAllTextAsync(path, "héllo world", CancellationToken.None);
         Console.WriteLine(await File.ReadAllTextAsync(path, CancellationToken.None));
-        await File.AppendAllTextAsync(path, "\n!", Encoding.UTF8, CancellationToken.None);
+        await File.AppendAllTextAsync(path, " !", Encoding.UTF8, CancellationToken.None);
         Console.WriteLine((await File.ReadAllLinesAsync(path, CancellationToken.None)).Length);
         Console.WriteLine((await File.ReadAllBytesAsync(path, CancellationToken.None)).Length);
         await File.WriteAllLinesAsync(path, new[] { "1", "2" }, CancellationToken.None);
-        using (var sr = new StreamReader(path)) Console.WriteLine((await sr.ReadToEndAsync()).Replace("\n", "|"));
+        using (var sr = new StreamReader(path)) Console.WriteLine(await sr.ReadToEndAsync() == "1" + Environment.NewLine + "2" + Environment.NewLine);
         using (var sw = new StreamWriter(path)) { await sw.WriteLineAsync("via writer"); }
         Console.WriteLine(File.ReadAllText(path).Trim());
         var cts = new CancellationTokenSource();

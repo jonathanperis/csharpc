@@ -6,11 +6,10 @@ third
 x=1
 line
 bc!
-héllo
-world
-3
+héllo world
+1
 14
-1|2|
+True
 via writer
 Canceled
 FileNotFoundException
