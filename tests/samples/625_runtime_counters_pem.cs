@@ -21,7 +21,7 @@ class Program
         Console.WriteLine($"{Environment.WorkingSet > 0} {Environment.CpuUsage.TotalTime >= TimeSpan.Zero}");
 
         var os = Environment.OSVersion;
-        Console.WriteLine(os.Platform == (OperatingSystem.IsWindows() ? PlatformID.Win32NT : PlatformID.Unix));
+        Console.WriteLine(os.Platform == (OperatingSystem.IsWindows() ? PlatformID.Win32NT : OperatingSystem.IsWasi() ? PlatformID.Other : PlatformID.Unix));
         Console.WriteLine($"{os.Version.Major >= 0} {os.VersionString.Length > 0} {RuntimeInformation.OSDescription.Length > 0}");
 
         byte[] der = new byte[70];

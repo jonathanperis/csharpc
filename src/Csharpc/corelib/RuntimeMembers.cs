@@ -96,8 +96,11 @@ namespace CsharpcCoreLib
         {
             get
             {
-#if CSHARPC_TARGET_WINDOWS || CSHARPC_TARGET_WASI
-                throw new NotSupportedException("RuntimeInformation.OSDescription on this platform is not supported by csharpc yet.");
+#if CSHARPC_TARGET_WINDOWS
+                // "Microsoft Windows 10.0.22631" (and the service pack), as RuntimeInformation.Windows.cs formats it.
+                if (s_osDescription != null) return s_osDescription;
+                var (major, minor, build, _, csd) = OSVersionMembers.WindowsVersion();
+                return s_osDescription = "Microsoft Windows " + major + "." + minor + "." + build + (csd.Length > 0 ? " " + csd : "");
 #else
                 return s_osDescription ??= OSVersionMembers.UnameField(0) + " " + OSVersionMembers.UnameField(2) + " " + OSVersionMembers.UnameField(3);
 #endif
@@ -165,7 +168,18 @@ namespace CsharpcCoreLib
     [ShadowMembers("System.Environment")]
     internal static unsafe class WorkingSetMembers
     {
-        /// <summary>The resident set (/proc/self/statm's second field, in pages).</summary>
+#if CSHARPC_TARGET_MACOS
+        [DllImport("libc")] private static extern int getpid();
+        [DllImport("libc")] private static extern int proc_pidinfo(int pid, int flavor, ulong arg, void* buffer, int size);
+        private const int PROC_PIDTASKINFO = 4, ProcTaskInfoSize = 96; // struct proc_taskinfo; pti_resident_size at 8
+#elif CSHARPC_TARGET_WINDOWS
+        [DllImport("kernel32")] private static extern int K32GetProcessMemoryInfo(nint process, void* counters, int size);
+        private const int ProcessMemoryCountersSize = 72; // PROCESS_MEMORY_COUNTERS (64-bit); WorkingSetSize at 16
+#elif CSHARPC_TARGET_WASI
+        [DllImport("__Internal", EntryPoint = "csrt_wasi_memory_bytes")] private static extern long WasmMemoryBytes();
+#endif
+
+        /// <summary>The resident set: /proc/self/statm (Linux), proc_pidinfo (macOS), GetProcessMemoryInfo (Windows), as .NET reads it.</summary>
         public static long WorkingSet
         {
             get
@@ -177,6 +191,15 @@ namespace CsharpcCoreLib
                     return long.Parse(fields[1]) * Environment.SystemPageSize;
                 }
                 catch (Exception) { return 0; }
+#elif CSHARPC_TARGET_MACOS
+                byte* info = stackalloc byte[ProcTaskInfoSize];
+                return proc_pidinfo(getpid(), PROC_PIDTASKINFO, 0, info, ProcTaskInfoSize) == ProcTaskInfoSize ? (long)*(ulong*)(info + 8) : 0;
+#elif CSHARPC_TARGET_WINDOWS
+                byte* counters = stackalloc byte[ProcessMemoryCountersSize];
+                *(int*)counters = ProcessMemoryCountersSize;
+                return K32GetProcessMemoryInfo(-1, counters, ProcessMemoryCountersSize) != 0 ? (long)*(ulong*)(counters + 16) : 0;
+#elif CSHARPC_TARGET_WASI
+                return WasmMemoryBytes(); // the linear memory: all of it is resident
 #else
                 throw new NotSupportedException("Environment.WorkingSet on this platform is not supported by csharpc yet.");
 #endif
@@ -207,7 +230,11 @@ namespace CsharpcCoreLib
     [ShadowMembers("System.Environment")]
     internal static unsafe class CpuUsageMembers
     {
-#if !CSHARPC_TARGET_WINDOWS && !CSHARPC_TARGET_WASI
+#if CSHARPC_TARGET_WINDOWS
+        [DllImport("kernel32")] private static extern int GetProcessTimes(nint process, long* creation, long* exit, long* kernel, long* user);
+#elif CSHARPC_TARGET_WASI
+        [DllImport("__Internal", EntryPoint = "csrt_wasi_cpu_ticks")] private static extern long WasiCpuTicks();
+#else
         [DllImport("libc")] private static extern int getrusage(int who, long* usage);
 #endif
 
@@ -216,8 +243,14 @@ namespace CsharpcCoreLib
         {
             get
             {
-#if CSHARPC_TARGET_WINDOWS || CSHARPC_TARGET_WASI
-                throw new NotSupportedException("Environment.CpuUsage on this platform is not supported by csharpc yet.");
+#if CSHARPC_TARGET_WINDOWS
+                // GetProcessTimes: FILETIMEs in 100-ns units, as TimeSpan ticks.
+                long creation, exit, kernel, user;
+                if (GetProcessTimes(-1, &creation, &exit, &kernel, &user) == 0) return default;
+                return (Environment.ProcessCpuUsage)(object)new ProcessCpuUsageImpl(new TimeSpan(user), new TimeSpan(kernel));
+#elif CSHARPC_TARGET_WASI
+                // WASI's process CPU clock doesn't split user from kernel time: all of it is user time.
+                return (Environment.ProcessCpuUsage)(object)new ProcessCpuUsageImpl(new TimeSpan(WasiCpuTicks()), TimeSpan.Zero);
 #else
                 long* usage = stackalloc long[18];
                 if (getrusage(0, usage) != 0) return default;

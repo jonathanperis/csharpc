@@ -1,6 +1,7 @@
 // System.OperatingSystem objects (Environment.OSVersion) and RuntimeInformation.OSDescription, after
 // .NET's Environment.OSVersion.Unix.cs: uname's release parsed for its first four numbers, and
-// "sysname release version" as System.Native's GetUnixVersion formats it.
+// "sysname release version" as System.Native's GetUnixVersion formats it. Windows: RtlGetVersion, as
+// Environment.OSVersion.Windows.cs reads it. WASI: PlatformID.Other 1.0.0.0, as .NET reports for WebAssembly.
 #nullable disable
 using System;
 using System.Runtime.InteropServices;
@@ -63,8 +64,11 @@ namespace CsharpcCoreLib
 
         private static OperatingSystem Create()
         {
-#if CSHARPC_TARGET_WINDOWS || CSHARPC_TARGET_WASI
-            throw new NotSupportedException("Environment.OSVersion on this platform is not supported by csharpc yet.");
+#if CSHARPC_TARGET_WINDOWS
+            var (major, minor, build, servicePack, csd) = WindowsVersion();
+            return (OperatingSystem)(object)new OperatingSystemInstance(PlatformID.Win32NT, new Version(major, minor, build, servicePack), csd);
+#elif CSHARPC_TARGET_WASI
+            return (OperatingSystem)(object)new OperatingSystemInstance(PlatformID.Other, new Version(1, 0, 0, 0));
 #else
             string release = UnameField(2);
             int i = 0;
@@ -85,7 +89,22 @@ namespace CsharpcCoreLib
             return num;
         }
 
-#if !CSHARPC_TARGET_WINDOWS && !CSHARPC_TARGET_WASI
+#if CSHARPC_TARGET_WINDOWS
+        [DllImport("ntdll")] private static extern int RtlGetVersion(byte* info);
+
+        /// <summary>RTL_OSVERSIONINFOEXW: major, minor, build, (service pack major &lt;&lt; 16 | minor), and the CSD string.</summary>
+        internal static (int Major, int Minor, int Build, int ServicePack, string Csd) WindowsVersion()
+        {
+            const int Size = 284;
+            byte* info = stackalloc byte[Size];
+            new Span<byte>(info, Size).Clear();
+            *(int*)info = Size;
+            if (RtlGetVersion(info) != 0) return (0, 0, 0, 0, string.Empty);
+            string csd = new string((char*)(info + 20));
+            int servicePack = (*(ushort*)(info + 276) << 16) | *(ushort*)(info + 278);
+            return (*(int*)(info + 4), *(int*)(info + 8), *(int*)(info + 12), servicePack, csd);
+        }
+#else
         [DllImport("libc")] private static extern int uname(byte* buffer);
 
         /// <summary>struct utsname: sysname, nodename, release, version, machine (65 bytes each on Linux, 256 on macOS).</summary>

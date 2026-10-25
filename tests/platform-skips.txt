@@ -155,3 +155,4 @@ wasi 620_kestrel_library_members     needs threads: Thread.Start throws Platform
 windows 606_runtime_library_gaps   live: prints Unix special folders and console colors only on Unix (Windows has its own)
 windows 621_exception_hresult_token_members live: Windows file-system errors and their HResults are Win32 ones
 wasi 621_exception_hresult_token_members  WASI has no permission bits: .NET throws PlatformNotSupportedException from the Unix file modes
+wasi 616_idn_mapping_uri_builder   WASI has no ICU: .NET runs its managed IdnMapping there, whose error for a bad punycode label is "Invalid IDN encoded string."
