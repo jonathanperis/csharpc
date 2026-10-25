@@ -59,6 +59,7 @@ namespace CsharpcCoreLib
         public virtual bool IsSingleByte => false;
 
         public virtual byte[] GetPreamble() => PreambleBytes;
+        public virtual Encoder GetEncoder() => (Encoder)(object)new EncodingEncoder(this);
         public virtual ReadOnlySpan<byte> Preamble => PreambleBytes;
 
         public virtual int GetMaxByteCount(int charCount) => (charCount + 1) * 3;

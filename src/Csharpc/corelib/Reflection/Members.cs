@@ -698,6 +698,13 @@ namespace CsharpcCoreLib
             if ((flags & BindingFlags.NonPublic) != 0 && (described & nonPublicBit) == 0) throw NotKept(type, "non-public " + what);
         }
 
+        /// <summary>csharpc has no Type objects for by-ref types (an explicit error, never a wrong type).</summary>
+        public static Type MakeByRefType(Type type)
+        {
+            ArgumentNullException.ThrowIfNull(type);
+            throw new NotSupportedException("Type.MakeByRefType() ('" + type + "&') is not supported by csharpc yet.");
+        }
+
         public static ConstructorInfo[] GetConstructorsAll(Type type) => GetConstructors(type, BindingFlags.Public | BindingFlags.Instance);
         public static ConstructorInfo[] GetConstructorsFlags(Type type, BindingFlags flags) => GetConstructors(type, flags);
 

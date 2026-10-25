@@ -76,6 +76,24 @@ namespace CsharpcCoreLib
             return result;
         }
 
+        public static string Combine(params ReadOnlySpan<string> paths)
+        {
+            string result = "";
+            for (int i = 0; i < paths.Length; i++)
+            {
+                if (paths[i] == null) throw new ArgumentNullException("paths");
+                result = CombineTwo(result, paths[i]);
+            }
+            return result;
+        }
+
+        public static string Join(params ReadOnlySpan<string> paths)
+        {
+            string result = "";
+            for (int i = 0; i < paths.Length; i++) result = JoinTwo(result, paths[i] ?? "");
+            return result;
+        }
+
         private static string CombineTwo(string first, string second)
         {
             if (second.Length == 0) return first;

@@ -82,6 +82,7 @@ internal static partial class BclValueTypes
         t[$"{Type}.MakeGenericType(System.Type[])"] = (g, _, self, a, _) =>
             Rt(g, "csrt_type_make_generic", g.Llvm.Ptr, (self, g.Llvm.Ptr), (a[0], g.Llvm.Ptr), (Table(g), g.Llvm.Ptr));
         t[$"{Type}.MakeArrayType()"] = (g, _, self, _, _) => TypeResult(g, "csrt_type_make_array", self);
+        t[$"{Type}.MakeByRefType()"] = core("MakeByRefType");
         t[$"{Type}.get_GenericParameterAttributes()"] = (g, _, self, _, _) =>
             Rt(g, "csrt_type_generic_parameter_attributes", g.Llvm.I32, (self, g.Llvm.Ptr), (Table(g), g.Llvm.Ptr));
         t["System.Array.CreateInstance(System.Type, int)"] = (g, _, _, a, _) => g.CallCoreLib("ReflectionRuntime", "CreateInstance", a[0], a[1]);
