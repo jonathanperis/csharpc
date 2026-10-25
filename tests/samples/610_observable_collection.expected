@@ -1,0 +1,34 @@
+  property Count
+  property Item[]
+Add new=[a]@0 old=null@-1 True
+  property Count
+  property Item[]
+Add new=[b]@1 old=null@-1 True
+  property Count
+  property Item[]
+Add new=[x]@1 old=null@-1 True
+  property Item[]
+Replace new=[A]@0 old=[a]@0 True
+  property Item[]
+Move new=[A]@2 old=[A]@0 True
+  property Count
+  property Item[]
+Remove new=null@-1 old=[x]@0 True
+  property Count
+  property Item[]
+Remove new=null@-1 old=[b]@0 True
+A
+  property Count
+  property Item[]
+Reset new=null@-1 old=null@-1 True
+0
+view Add [4] True
+4 4
+0,1,2
+Constructor supports only the 'Reset' action. (Parameter 'action')
+Constructor only supports either a Reset, Add, or Remove action. (Parameter 'action')
+Reset action must be initialized with no changed items. (Parameter 'action')
+[5,6] 2 True
+Collection is read-only.
+index
+0
