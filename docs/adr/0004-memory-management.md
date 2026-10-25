@@ -164,5 +164,10 @@ heap, conservative pins for the stack, compact the nursery, still no statepoints
 only justified when a fully precise moving collector beats that on a benchmark, with the codegen
 and compile-time cost written down next to the pause numbers.
 
-`CSRT_GC_STATS=1` now prints mark time, sweep time and pause p50/p99/max so the next change has
-the same breakdown.
+The mark/sweep split and the pause percentiles above were timed with extra clocks in the collector.
+That instrumentation, and a multiplicative inverse in place of the size-class division, added about
+1 KiB of text. On CI that was enough to push `tests/size` `async` from under its 147456-byte budget
+to 151376 (one 4 KiB page; run 40224424838, x86-64 and arm64). Both came back out. The default
+`gc.c` machine code matches the previous collector; `CSRT_GC_STATS=1` is the same one-line summary
+as before. The ownership marker is source in `gc.c` under `-DCSRT_GC_PARALLEL_MARK` and contributes
+no bytes unless that flag is passed.
