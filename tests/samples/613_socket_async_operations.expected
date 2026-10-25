@@ -1,0 +1,14 @@
+accept pending: True
+accepted 127.0.0.1 True
+waiting: True
+data ready: Success 0 Receive
+received 5: hello
+sent 4 Success
+abde
+ArgumentException
+big: sent 1048576 received 1048576 sum 133693440
+receive canceled
+accept canceled
+eof: 0
+after dispose: OperationAborted
+disposed socket

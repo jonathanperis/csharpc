@@ -143,3 +143,6 @@ wasi 608_asynclocal_threadpool      needs threads: Thread.Start throws PlatformN
 macos 609_filesystemwatcher        known gap: FileSystemWatcher is only ported for Linux (inotify); csharpc throws NotSupportedException on macOS (FSEvents)
 windows 609_filesystemwatcher      known gap: FileSystemWatcher is only ported for Linux (inotify); csharpc throws NotSupportedException on Windows
 wasi 609_filesystemwatcher         WASI has no file watching: .NET throws PlatformNotSupportedException
+macos 613_socket_async_operations  known gap: asynchronous socket operations are blocking calls on the thread pool on macOS (no kqueue engine yet), so a pending one cannot be canceled
+windows 613_socket_async_operations known gap: asynchronous socket operations are blocking calls on the thread pool on Windows (no IOCP engine yet), so a pending one cannot be canceled
+wasi 613_socket_async_operations   opens loopback sockets: WASI preview 1 has none (PlatformNotSupportedException)
