@@ -132,6 +132,17 @@ namespace CsharpcCoreLib
         }
 #endif
 
+        public static ReadOnlySpan<char> GetFileName(ReadOnlySpan<char> path)
+        {
+            int i = path.Length;
+            while (--i >= 0)
+            {
+                char c = path[i];
+                if (IsSep(c) || (OperatingSystem.IsWindows() && c == ':' && i == 1)) break;
+            }
+            return path.Slice(i + 1);
+        }
+
         public static string GetFileNameWithoutExtension(string path)
         {
             if (path == null) return null;

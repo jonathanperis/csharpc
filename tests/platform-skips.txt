@@ -138,3 +138,7 @@ wasi 464_string_writer_provider        no ICU on WASI (invariant globalization m
 windows 467_sha1_sha256                live: .NET asks CNG there, so an unknown hash algorithm is CNG's "Unknown error (0xc1000225)"
 windows 605_file_attributes_links  live: Windows reports its own file attributes (Archive) and has no Unix modes or (unprivileged) symbolic links
 wasi 605_file_attributes_links     WASI has no permission bits: .NET throws PlatformNotSupportedException from SetUnixFileMode
+wasi 608_asynclocal_threadpool      needs threads: Thread.Start throws PlatformNotSupportedException on WebAssembly
+macos 609_filesystemwatcher        known gap: FileSystemWatcher is only ported for Linux (inotify); csharpc throws NotSupportedException on macOS (FSEvents)
+windows 609_filesystemwatcher      known gap: FileSystemWatcher is only ported for Linux (inotify); csharpc throws NotSupportedException on Windows
+wasi 609_filesystemwatcher         WASI has no file watching: .NET throws PlatformNotSupportedException

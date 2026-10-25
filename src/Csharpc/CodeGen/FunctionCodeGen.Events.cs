@@ -158,7 +158,8 @@ public sealed partial class FunctionCodeGen
             _b.Store(assignment.Adds ? CombineDelegates(old, handler) : RemoveDelegate(old, handler), address);
             return default;
         }
-        var accessor = (assignment.Adds ? e.AddMethod : e.RemoveMethod)!;
+        // A corelib shadow's event (FileSystemWatcher.Created) binds to the shadow's accessor.
+        var accessor = _m.CoreLib.Map((assignment.Adds ? e.AddMethod : e.RemoveMethod)!);
         if (!_m.IsUserMethod(accessor)) throw CompileError.Unsupported($"event '{e}' of a library type", assignment);
         var self = e.IsStatic ? default : EmitValue(reference.Instance!);
         var value = EmitValue(assignment.HandlerValue);

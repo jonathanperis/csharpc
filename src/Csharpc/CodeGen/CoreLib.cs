@@ -229,6 +229,26 @@ public sealed class CoreLib
         return result;
     }
 
+    /// <summary>
+    /// A member a library type inherits from a library base class its shadow doesn't derive from
+    /// (FileSystemWatcher's Component.Dispose(): the shadow is no Component): the shadow's own member of
+    /// that signature, or null when the call binds normally.
+    /// </summary>
+    public IMethodSymbol? MapForReceiver(IMethodSymbol method, ITypeSymbol? receiver)
+    {
+        if (!HasShadows || method.IsStatic || receiver is not INamedTypeSymbol { TypeKind: TypeKind.Class } r || !IsLibrary(method)
+            || method.ContainingType is not { } owner || SymbolEqualityComparer.Default.Equals(owner.OriginalDefinition, r.OriginalDefinition)
+            || (IsCoreLib(r) ? r : TryMap(r)) is not { } shadow)
+            return null;
+        var mappedOwner = TryMap(owner) ?? owner;
+        for (INamedTypeSymbol? t = shadow; t is not null; t = t.BaseType)
+            if (SymbolEqualityComparer.Default.Equals(t.OriginalDefinition, mappedOwner.OriginalDefinition)) return null;
+        for (INamedTypeSymbol? t = shadow; t is not null && IsCoreLib(t); t = t.BaseType)
+            if (MatchDefinition(method.OriginalDefinition, t.OriginalDefinition) is IMethodSymbol { IsStatic: false } match)
+                return InConstructed(match, t);
+        return null;
+    }
+
     public IPropertySymbol Map(IPropertySymbol property)
     {
         if (!HasShadows || !IsLibrary(property)) return property;
