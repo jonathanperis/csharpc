@@ -1,0 +1,63 @@
+utf-8 C080: FFFD FFFD (count 2)
+utf-8 E08080: FFFD FFFD FFFD (count 3)
+utf-8 EDA080: FFFD FFFD FFFD (count 3)
+utf-8 F4908080: FFFD FFFD FFFD FFFD (count 4)
+utf-8 E282: FFFD (count 1)
+utf-8 F09F98: FFFD (count 1)
+utf-8 41E228A1: 0041 FFFD 0028 FFFD (count 4)
+utf-8 FFFE: FFFD FFFD (count 2)
+utf-8 F09F9880: D83D DE00 (count 2)
+utf-8 E282AC80: 20AC FFFD (count 2)
+utf-8: 61EFBFBD62EFBFBD63F09F9880C3A9C481E282AC -> 0061 FFFD 0062 FFFD 0063 D83D DE00 00E9 0101 20AC
+utf-16: 6100FDFF6200FDFF63003DD800DEE9000101AC20 -> 0061 FFFD 0062 FFFD 0063 D83D DE00 00E9 0101 20AC
+utf-16BE: 0061FFFD0062FFFD0063D83DDE0000E9010120AC -> 0061 FFFD 0062 FFFD 0063 D83D DE00 00E9 0101 20AC
+us-ascii: 613F623F633F3F3F3F3F -> 0061 003F 0062 003F 0063 003F 003F 003F 003F 003F
+iso-8859-1: 613F623F633F3FE9613F -> 0061 003F 0062 003F 0063 003F 003F 00E9 0061 003F
+utf-16 odd byte: 0041 FFFD, lone: FFFD 0041
+latin1 best fit: Ac-"A?
+DecoderFallbackException: Unable to translate bytes [C3] at index 1 from specified code page to Unicode. [C3] at 1
+EncoderFallbackException: Unable to translate Unicode character \\uD800 at index 1 to specified code page. D800 at 1
+ascii: Unable to translate Unicode character \\u00E9 at index 3 to specified code page.
+ascii: Unable to translate bytes [80] at index 1 from specified code page to Unicode.
+read-only: True clone False
+custom: na[?]ve [?][?] a<bad>b max 15 20
+Instance is read-only.
+String contains invalid Unicode code points. (Parameter 'replacement')
+equals: True False False False
+chunk E2: count 0 got 0
+chunk 82ACF0: count 1 got 1
+chunk 9F98: count 0 got 0
+chunk 80: count 2 got 2
+decoded 20AC D83D DE00
+incomplete then flush: 0 1 FFFD
+convert: 6 bytes -> 0068 0065 006C completed False
+convert: 8 bytes -> 006C 006F 0020 completed False
+convert: 4 bytes -> D83D DE00 0021 completed True
+encoder: 1 + 4: 78F09F9880
+dangling: 0 + 3: EFBFBD
+encoder convert: 4 chars 4 bytes completed False
+The output byte buffer is too small to contain the encoded data, encoding codepage '65001' and fallback 'System.Text.EncoderReplacementFallback'. (Parameter 'bytes')
+Index and count must refer to a location within the buffer. (Parameter 'bytes')
+Value cannot be null. (Parameter 'chars')
+max: 33 11 22 7 10 11
+utf-8: 65001 utf-8 Unicode (UTF-8) utf-8 utf-8
+UTF-16LE: 1200 utf-16 Unicode utf-16 utf-16
+unicodeFFFE: 1201 utf-16BE Unicode (Big-Endian) utf-16BE utf-16BE
+latin1: 28591 iso-8859-1 Western European (ISO) iso-8859-1 iso-8859-1
+ascii: 20127 us-ascii US-ASCII us-ascii us-ascii
+us: 20127 us-ascii US-ASCII us-ascii us-ascii
+utf8: ArgumentException: 'utf8' is not a supported encoding name. For information on defining a custom encoding, see the documentation for the Encoding.RegisterProvider method. (Parameter 'name')
+utf-7: NotSupportedException: Support for UTF-7 is disabled. See https://aka.ms/dotnet-warnings/SYSLIB0001 for more information.
+x-unknown: ArgumentException: 'x-unknown' is not a supported encoding name. For information on defining a custom encoding, see the documentation for the Encoding.RegisterProvider method. (Parameter 'name')
+0: utf-8
+1200: utf-16
+1201: utf-16BE
+20127: us-ascii
+28591: iso-8859-1
+65001: utf-8
+1: ArgumentException: 1 is not a supported code page. (Parameter 'codepage')
+437: NotSupportedException: No data is available for encoding 437. For information on defining a custom encoding, see the documentation for the Encoding.RegisterProvider method.
+70000: ArgumentOutOfRangeException: Valid values are between 0 and 65535, inclusive. (Parameter 'codepage')
+rot13: 5572797962 Hello 3 2
+rot13 decoder: 1 85
+No data is available for encoding 0. For information on defining a custom encoding, see the documentation for the Encoding.RegisterProvider method.
