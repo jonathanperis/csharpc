@@ -1,320 +1,320 @@
-docs-core-compatibility-core-libraries-10-0-bufferedstream-writebyte-flush-BufferedStreamWriteByteFlush	COMPILE-UNSUPPORTED	error CSLLVM0001: not supported by csharpc yet: creating instances of 'System.IO.BufferedStream'
-docs-core-deploying-trimming-ConsoleApp1-ConsoleApp1	COMPILE-UNSUPPORTED	error CSLLVM0002: 'System.Type.GetMethods()' has no implementation in the csharpc runtime yet
-docs-core-diagnostics-diagnosticsource-DiagnosticSource	COMPILE-UNSUPPORTED	error CSLLVM0002: 'System.Diagnostics.DiagnosticSource.IsEnabled(string)' has no implementation in the csharpc runtime yet
-docs-core-diagnostics-distributed-tracing-configuration-TracingConfiguration	COMPILE-ERROR	exit 1: /home/runner/work/_temp/compat-work/tree/docs/docs/core/diagnostics/snippets/distributed-tracing-configuration/csharp/Program.cs(7,40): error CS0246: The type or namespace name 'ConfigurationBuilder' could not be found (are you missing a using directive or an assembly reference?)
-docs-core-docker-App-DotNet-Docker	SKIPPED	times out under .NET (waits for input or runs > 30s)
-docs-core-extensions-channels-channels	SKIPPED	non-deterministic under .NET
-docs-core-extensions-configuration-binding-scenarios-ConfigurationIgnore-ConfigurationIgnore	COMPILE-ERROR	exit 1: /home/runner/work/_temp/compat-work/tree/docs/docs/core/extensions/snippets/configuration/binding-scenarios/ConfigurationIgnore/Program.cs(17,33): error CS0246: The type or namespace name 'ConfigurationManager' could not be found (are you missing a using directive or an assembly reference?)
-docs-core-get-started-get-started	PASS	
-docs-core-tools-global-tools-how-to-create-dotnet-env	COMPILE-UNSUPPORTED	error CSLLVM0002: 'System.Reflection.CustomAttributeExtensions.GetCustomAttribute(System.Reflection.Assembly)' has no implementation in the csharpc runtime yet
-docs-core-tutorials-create-class-library-ShowCase-ShowCase	PASS	
-docs-core-tutorials-create-console-app-HelloWorld	PASS	
-docs-core-whats-new-dotnet-10-Project	COMPILE-UNSUPPORTED	error CSLLVM0002: 'System.StringComparer.Create(System.Globalization.CultureInfo, System.Globalization.CompareOptions)' has no implementation in the csharpc runtime yet
-docs-core-whats-new-dotnet-core-2-1-whats-new	COMPILE-UNSUPPORTED	error CSLLVM0001: not supported by csharpc yet: creating instances of 'System.IO.Compression.BrotliStream'
-docs-csharp-advanced-topics-expression-trees-ExpressionTreeExample	COMPILE-UNSUPPORTED	error CSLLVM0001: not supported by csharpc yet: deriving from library class 'System.Linq.Expressions.ExpressionVisitor'
-docs-csharp-advanced-topics-interface-implementation-default-interface-members-versions-finished-customer-relationship-customer-relationship	PASS	
-docs-csharp-advanced-topics-interface-implementation-default-interface-members-versions-starter-customer-relationship-customer-relationship	PASS	
-docs-csharp-advanced-topics-interface-implementation-mixins-with-default-interface-methods-mixins-with-interfaces	PASS	
-docs-csharp-advanced-topics-interface-implementation-staticinterfaces-staticinterfaces	PASS	
-docs-csharp-advanced-topics-interop-using-dynamic-using-dynamic	COMPILE-UNSUPPORTED	error CSLLVM0001: not supported by csharpc yet: operation DynamicInvocation
-docs-csharp-advanced-topics-performance-interpolated-string-handler-interpolated-string-handler	COMPILE-UNSUPPORTED	error CSLLVM0001: not supported by csharpc yet: capture used before definition
-docs-csharp-advanced-topics-performance-ref-safety-ref-safety	PASS	
-docs-csharp-advanced-topics-performance-ref-tutorial-IntruderAlert-finished-IntruderAlert	SKIPPED	non-deterministic under .NET
-docs-csharp-advanced-topics-performance-ref-tutorial-IntruderAlert-starter-IntruderAlert	SKIPPED	non-deterministic under .NET
-docs-csharp-advanced-topics-reflection-and-attributes-tutorial-attributes	COMPILE-UNSUPPORTED	error CSLLVM0002: 'System.Reflection.IntrospectionExtensions.GetTypeInfo(System.Type)' has no implementation in the csharpc runtime yet
-docs-csharp-advanced-topics-update-applications-nullable-migration-strategies-nullable-migration-strategies	PASS	
-docs-csharp-asynchronous-programming-async-return-types-AsyncExamples	SKIPPED	non-deterministic under .NET
-docs-csharp-asynchronous-programming-file-access-file-access	COMPILE-UNSUPPORTED	error CSLLVM0002: 'System.IO.File.WriteAllTextAsync(string, string, System.Threading.CancellationToken)' has no implementation in the csharpc runtime yet
-docs-csharp-asynchronous-programming-index-AsyncBreakfast-starter-AsyncBreakfast	PASS	
-docs-csharp-asynchronous-programming-index-ContinueWith-comparison-ContinueWith-comparison	COMPILE-UNSUPPORTED	error CSLLVM0002: 'System.Threading.Tasks.Task<object>.ContinueWith(System.Action<System.Threading.Tasks.Task<object>>)' has no implementation in the csharpc runtime yet
-docs-csharp-events-events	PASS	
-docs-csharp-fundamentals-building-software-iterators-iterators	PASS	
-docs-csharp-fundamentals-building-software-lambdas-lambdas	PASS	
-docs-csharp-fundamentals-building-software-local-functions-local-functions	PASS	
-docs-csharp-fundamentals-building-software-overview-overview	PASS	
-docs-csharp-fundamentals-exceptions-exceptions-exceptions	PASS	
-docs-csharp-fundamentals-expressions-equality-equality	PASS	
-docs-csharp-fundamentals-expressions-expressions-expressions	PASS	
-docs-csharp-fundamentals-expressions-operators-operators	PASS	
-docs-csharp-fundamentals-null-safety-common-tasks-resolve-warnings-resolve-warnings	PASS	
-docs-csharp-fundamentals-null-safety-null-operators-null-operators	PASS	
-docs-csharp-fundamentals-null-safety-null-safety-overview-null-safety-overview	PASS	
-docs-csharp-fundamentals-null-safety-nullable-reference-types-nullable-reference-types	PASS	
-docs-csharp-fundamentals-null-safety-nullable-value-types-nullable-value-types	PASS	
-docs-csharp-fundamentals-object-oriented-inheritance-inheritance	PASS	
-docs-csharp-fundamentals-object-oriented-objects-objects	PASS	
-docs-csharp-fundamentals-patterns-discards-discards	PASS	
-docs-csharp-fundamentals-patterns-patterns-patterns	COMPILE-UNSUPPORTED	error CSLLVM0001: not supported by csharpc yet: creating instances of 'System.Uri'
-docs-csharp-fundamentals-program-structure-main-arguments-main-arguments	PASS	
-docs-csharp-fundamentals-program-structure-main-command-line-main-command-line	PASS	
-docs-csharp-fundamentals-program-structure-namespaces-namespaces	COMPILE-UNSUPPORTED	error CSLLVM0001: not supported by csharpc yet: 'System.Globalization.CultureInfo.Name' has no implementation in the csharpc runtime yet
-docs-csharp-fundamentals-program-structure-organizing-programs-organizing-programs	PASS	
-docs-csharp-fundamentals-program-structure-preprocessor-directives-preprocessor-directives	PASS	
-docs-csharp-fundamentals-program-structure-structure-structure	PASS	
-docs-csharp-fundamentals-program-structure-top-level-statements-1-top-level-statements	PASS	
-docs-csharp-fundamentals-program-structure-top-level-statements-2-top-level-statements	PASS	
-docs-csharp-fundamentals-program-structure-top-level-statements-3-top-level-statements	PASS	
-docs-csharp-fundamentals-program-structure-top-level-statements-4-top-level-statements	PASS	
-docs-csharp-fundamentals-program-structure-top-level-statements-5-top-level-statements	PASS	
-docs-csharp-fundamentals-program-structure-toplevel-structure-toplevel-structure	PASS	
-docs-csharp-fundamentals-statements-collections-statements-collections-statements	PASS	
-docs-csharp-fundamentals-statements-iteration-statements-iteration-statements	PASS	
-docs-csharp-fundamentals-statements-linq-statements-linq-statements	PASS	
-docs-csharp-fundamentals-statements-selection-statements-selection-statements	PASS	
-docs-csharp-fundamentals-statements-statements-overview-statements-overview	PASS	
-docs-csharp-fundamentals-strings-common-tasks-compare-compare	PASS	
-docs-csharp-fundamentals-strings-common-tasks-concatenate-concatenate	PASS	
-docs-csharp-fundamentals-strings-common-tasks-modify-modify	PASS	
-docs-csharp-fundamentals-strings-common-tasks-search-search	PASS	
-docs-csharp-fundamentals-strings-common-tasks-split-split	PASS	
-docs-csharp-fundamentals-strings-interpolation-interpolation	COMPILE-UNSUPPORTED	error CSLLVM0002: 'System.Globalization.CultureInfo.GetCultureInfo(string)' has no implementation in the csharpc runtime yet
-docs-csharp-fundamentals-strings-nameof-nameof	PASS	
-docs-csharp-fundamentals-strings-raw-string-literals-raw-string-literals	PASS	
-docs-csharp-fundamentals-strings-strings-overview-strings-overview	PASS	
-docs-csharp-fundamentals-tutorials-NullableIntroduction-NullableIntroduction	SKIPPED	non-deterministic under .NET
-docs-csharp-fundamentals-tutorials-command-line-arguments-command-line-arguments	PASS	
-docs-csharp-fundamentals-tutorials-inheritance-inheritance	COMPILE-UNSUPPORTED	error CSLLVM0002: 'ulong.TryParse(string, ulong)' has no implementation in the csharpc runtime yet
-docs-csharp-fundamentals-tutorials-introduction-to-classes-classes	PASS	
-docs-csharp-fundamentals-tutorials-object-oriented-programming-object-oriented-programming	PASS	
-docs-csharp-fundamentals-tutorials-pattern-matching-objects-pattern-matching-objects	PASS	
-docs-csharp-fundamentals-tutorials-patterns-finished-toll-calculator-toll-calculator	PASS	
-docs-csharp-fundamentals-tutorials-patterns-start-toll-calculator-toll-calculator	PASS	
-docs-csharp-fundamentals-tutorials-records-record-types	PASS	
-docs-csharp-fundamentals-tutorials-safelycast-asandis-asandis	PASS	
-docs-csharp-fundamentals-tutorials-safelycast-nullablepatternmatching-nullablepatternmatching	PASS	
-docs-csharp-fundamentals-tutorials-safelycast-patternmatching-patternmatching	PASS	
-docs-csharp-fundamentals-tutorials-xml-documentation-object-oriented-programming	PASS	
-docs-csharp-fundamentals-types-built-in-types-built-in-types	COMPILE-UNSUPPORTED	error CSLLVM0001: not supported by csharpc yet: operation DynamicInvocation
-docs-csharp-fundamentals-types-classes-classes	PASS	
-docs-csharp-fundamentals-types-conversions-conversions	PASS	
-docs-csharp-fundamentals-types-delegates-lambdas-delegates-lambdas	PASS	
-docs-csharp-fundamentals-types-enums-enums	PASS	
-docs-csharp-fundamentals-types-generics-generics	PASS	
-docs-csharp-fundamentals-types-index-index	PASS	
-docs-csharp-fundamentals-types-records-Records	PASS	
-docs-csharp-fundamentals-types-structs-structs	PASS	
-docs-csharp-fundamentals-types-tuples-tuples	PASS	
-docs-csharp-language-reference-attributes-attributes	SKIPPED	non-deterministic under .NET
-docs-csharp-language-reference-builtin-types-shared-builtin-types	SKIPPED	non-deterministic under .NET
-docs-csharp-language-reference-builtin-types-string-operations-string-operations	COMPILE-UNSUPPORTED	error CSLLVM0001: not supported by csharpc yet: formatting 'System.ReadOnlySpan<char>'
-docs-csharp-language-reference-builtin-types-unions-unions	COMPILE-ERROR	exit 1: /home/runner/work/_temp/compat-work/tree/docs/docs/csharp/language-reference/builtin-types/snippets/unions/UnionPatternMatching.cs(20,36): error CS0117: 'object' does not contain a definition for 'Name'
-docs-csharp-language-reference-compiler-messages-WarningWaves-WarningWaves	PASS	
-docs-csharp-language-reference-compiler-messages-array-warnings-array-warnings	PASS	
-docs-csharp-language-reference-memory-safety-memory-safety	PASS	
-docs-csharp-language-reference-operators-EqualityHierarchies-EqualityHierarchies	PASS	
-docs-csharp-language-reference-operators-lambda-expressions-lambda-expressions	COMPILE-UNSUPPORTED	error CSLLVM0001: not supported by csharpc yet: expression trees (a lambda converted to System.Linq.Expressions.Expression<T>)
-docs-csharp-language-reference-operators-patterns-patterns	SKIPPED	non-deterministic under .NET
-docs-csharp-language-reference-operators-with-expression-with-expression	PASS	
-docs-csharp-language-reference-statements-checked-and-unchecked-checked-and-unchecked	PASS	
-docs-csharp-language-reference-statements-declarations-declarations	PASS	
-docs-csharp-language-reference-statements-exception-handling-statements-exception-handling-statements	COMPILE-UNSUPPORTED	error CSLLVM0001: not supported by csharpc yet: branch with Rethrow semantics
-docs-csharp-language-reference-statements-fixed-fixed	SKIPPED	non-deterministic under .NET
-docs-csharp-language-reference-statements-iteration-statements-iteration-statements	PASS	
-docs-csharp-language-reference-statements-jump-statements-jump-statements	PASS	
-docs-csharp-language-reference-statements-lock-lock	PASS	
-docs-csharp-language-reference-statements-selection-statements-selection-statements	PASS	
-docs-csharp-language-reference-statements-using-using	PASS	
-docs-csharp-language-reference-statements-yield-yield	PASS	
-docs-csharp-language-reference-tokens-string-interpolation	COMPILE-UNSUPPORTED	error CSLLVM0001: not supported by csharpc yet: setting 'System.Globalization.CultureInfo.CurrentCulture'
-docs-csharp-language-reference-unsafe-code-UnsafeCodePointers	COMPILE-UNSUPPORTED	error CSLLVM0001: not supported by csharpc yet: fixed-size buffer 'Buffer.fixedBuffer'
-docs-csharp-language-reference-xmldoc-xmldoc-xmldoc	PASS	
-docs-csharp-linq-HowToCollections-HowToCollections	COMPILE-UNSUPPORTED	error CSLLVM0001: not supported by csharpc yet: creating instances of 'System.Collections.ArrayList'
-docs-csharp-linq-HowToExtend-HowToExtend	PASS	
-docs-csharp-linq-HowToFilesAndDirectories-HowToFilesAndDirectories	COMPILE-UNSUPPORTED	error CSLLVM0001: not supported by csharpc yet: 'System.IO.FileSystemInfo.CreationTime' has no implementation in the csharpc runtime yet
-docs-csharp-linq-HowToStrings-HowToStrings	PASS	
-docs-csharp-linq-get-started-SnippetApp-LinqGetStarted	COMPILE-UNSUPPORTED	error CSLLVM0002: 'System.Xml.Linq.XElement.Load(string)' has no implementation in the csharpc runtime yet
-docs-csharp-linq-get-started-WalkthroughWritingLinqQueries-WalkthroughWritingLinqQueries	PASS	
-docs-csharp-linq-linq-index-linq-index	PASS	
-docs-csharp-linq-standard-query-operators-standard-query-operators-standard-query-operators	COMPILE-UNSUPPORTED	error CSLLVM0001: not supported by csharpc yet: creating instances of 'System.Xml.Linq.XElement'
-docs-csharp-methods-methods	PASS	
-docs-csharp-programming-guide-classes-and-structs-ExtensionMembers-ExtensionMembers	PASS	
-docs-csharp-programming-guide-classes-and-structs-access-modifiers-objectoriented	PASS	
-docs-csharp-programming-guide-classes-and-structs-anonymous-types-AnonymousTypes	PASS	
-docs-csharp-programming-guide-classes-and-structs-classes-and-structs-methods-methods	PASS	
-docs-csharp-programming-guide-classes-and-structs-constants-Calendar	PASS	
-docs-csharp-programming-guide-classes-and-structs-constructors-constructors	PASS	
-docs-csharp-programming-guide-classes-and-structs-fields-fields	COMPILE-UNSUPPORTED	error CSLLVM0002: 'System.Convert.ToDateTime(string)' has no implementation in the csharpc runtime yet
-docs-csharp-programming-guide-classes-and-structs-finalizers-finalizers	PASS	
-docs-csharp-programming-guide-classes-and-structs-how-to-declare-and-use-read-write-properties-Properties	PASS	
-docs-csharp-programming-guide-classes-and-structs-how-to-define-constants-Constants	PASS	
-docs-csharp-programming-guide-classes-and-structs-how-to-implement-and-call-a-custom-extension-method-classic-how-to-implement-and-call-a-custom-extension-method-classic	PASS	
-docs-csharp-programming-guide-classes-and-structs-how-to-implement-and-call-a-custom-extension-method-how-to-implement-and-call-a-custom-extension-method	PASS	
-docs-csharp-programming-guide-classes-and-structs-how-to-write-a-copy-constructor-CopyConstructor	PASS	
-docs-csharp-programming-guide-classes-and-structs-instance-constructors-coords-Coords	PASS	
-docs-csharp-programming-guide-classes-and-structs-instance-constructors-person-Person	PASS	
-docs-csharp-programming-guide-classes-and-structs-instance-constructors-shapes-Shapes	PASS	
-docs-csharp-programming-guide-classes-and-structs-instance-constructors-widgets-widgets	PASS	
-docs-csharp-programming-guide-classes-and-structs-methods-Methods	PASS	
-docs-csharp-programming-guide-classes-and-structs-object-collection-initializers-object-collection-initializers	PASS	
-docs-csharp-programming-guide-classes-and-structs-partial-classes-and-methods-PartialClassesAndMethods	COMPILE-UNSUPPORTED	error CSLLVM0001: not supported by csharpc yet: property 'MyProperty' without accessor or backing field
-docs-csharp-programming-guide-classes-and-structs-private-constructors-PrivateConstructors	PASS	
-docs-csharp-programming-guide-classes-and-structs-properties-properties	PASS	
-docs-csharp-programming-guide-classes-and-structs-static-classes-and-static-class-members-static-classes-and-static-class-members	PASS	
-docs-csharp-programming-guide-classes-and-structs-static-constructors-static-constructors	SKIPPED	non-deterministic under .NET
-docs-csharp-programming-guide-classes-and-structs-using-constructors-UsingConstructors	PASS	
-docs-csharp-programming-guide-concepts-covariance-contravariance-using-variance-in-delegates-ContravarianceExample	SKIPPED	non-deterministic under .NET
-docs-csharp-programming-guide-delegates-DelegateExamples	PASS	
-docs-csharp-programming-guide-generics-generics	COMPILE-UNSUPPORTED	error CSLLVM0002: 'System.Array.GetEnumerator()' has no implementation in the csharpc runtime yet
-docs-csharp-programming-guide-indexers-DayOfWeekIndexers-DayOfWeekIndexers	PASS	
-docs-csharp-programming-guide-indexers-StringIndexers-StringIndexers	PASS	
-docs-csharp-programming-guide-indexers-Temperatures-Temperatures	PASS	
-docs-csharp-programming-guide-indexers-indexers-Indexers	PASS	
-docs-csharp-programming-guide-strings-StringExamples	COMPILE-UNSUPPORTED	error CSLLVM0002: 'byte.TryParse(string, byte)' has no implementation in the csharpc runtime yet
-docs-csharp-programming-guide-types-CastingAndConversions-CastingAndConversions	SKIPPED	does not build under .NET net11.0
-docs-csharp-tutorials-RangesIndexes-RangesIndexes	COMPILE-UNSUPPORTED	error CSLLVM0001: not supported by csharpc yet: formatting 'System.Index'
-docs-csharp-tutorials-console-linq-LInqFaroShuffle	PASS	
-docs-csharp-tutorials-top-level-statements-TopLevelStatements	SKIPPED	non-deterministic under .NET
-docs-csharp-whats-new-tutorials-CompoundAssignment-CompoundAssignment	SKIPPED	non-deterministic under .NET
-docs-csharp-whats-new-tutorials-shared-telemetry-monitor-SmartHome-App-SmartHome-App	COMPILE-UNSUPPORTED	error CSLLVM0001: not supported by csharpc yet: union types (C# 15 `union` declarations)
-docs-fundamentals-reflection-csharp-construct-generic-method-Project	SKIPPED	does not build under .NET net11.0
-docs-fundamentals-reflection-csharp-emit-generic-type-Project	SKIPPED	does not build under .NET net11.0
-docs-standard-assembly-type-forwarders-before-Consumer-Consumer	SKIPPED	non-deterministic under .NET
-docs-standard-asynchronous-programming-patterns-async-coordination-primitives-AsyncCoordinationPrimitives	SKIPPED	non-deterministic under .NET
-docs-standard-asynchronous-programming-patterns-async-coordination-primitives-advanced-AsyncCoordinationPrimitivesAdvanced	SKIPPED	non-deterministic under .NET
-docs-standard-asynchronous-programming-patterns-async-lambda-pitfalls-AsyncLambdaPitfalls	SKIPPED	non-deterministic under .NET
-docs-standard-asynchronous-programming-patterns-async-wrappers-for-synchronous-methods-AsyncWrappersForSync	COMPILE-UNSUPPORTED	error CSLLVM0001: not supported by csharpc yet: creating instances of 'System.Threading.Timer'
-docs-standard-asynchronous-programming-patterns-coalescing-cancellation-tokens-from-timeouts-CoalescingCancellationTokensFromTimeouts	COMPILE-UNSUPPORTED	error CSLLVM0001: not supported by csharpc yet: creating instances of 'System.Threading.CancellationTokenSource'
-docs-standard-asynchronous-programming-patterns-common-async-bugs-CommonAsyncBugs	COMPILE-UNSUPPORTED	error CSLLVM0002: 'System.Threading.Tasks.TaskFactory.StartNew(System.Func<System.Threading.Tasks.Task>)' has no implementation in the csharpc runtime yet
-docs-standard-asynchronous-programming-patterns-complete-your-tasks-CompleteYourTasks	COMPILE-UNSUPPORTED	error CSLLVM0002: 'System.Threading.Tasks.Task.Wait(int)' has no implementation in the csharpc runtime yet
-docs-standard-asynchronous-programming-patterns-executioncontext-synchronizationcontext-ExecutionContextAndSyncContext	COMPILE-UNSUPPORTED	error CSLLVM0001: not supported by csharpc yet: deriving from library class 'System.Threading.SynchronizationContext'
-docs-standard-asynchronous-programming-patterns-keeping-async-methods-alive-KeepingAsyncMethodsAlive	COMPILE-UNSUPPORTED	error CSLLVM0001: not supported by csharpc yet: 'System.Threading.Tasks.Task.Id' has no implementation in the csharpc runtime yet
-docs-standard-asynchronous-programming-patterns-synchronizationcontext-console-apps-SyncContextConsoleApps	SKIPPED	non-deterministic under .NET
-docs-standard-asynchronous-programming-patterns-synchronous-wrappers-for-async-methods-SyncWrappersForAsync	PASS	
-docs-standard-asynchronous-programming-patterns-task-based-asynchronous-pattern-tap-task-based-asynchronous-pattern-tap	COMPILE-UNSUPPORTED	error CSLLVM0002: 'System.Threading.Tasks.Task.Run(System.Action, System.Threading.CancellationToken)' has no implementation in the csharpc runtime yet
-docs-standard-asynchronous-programming-patterns-task-exception-handling-TaskExceptionHandling	COMPILE-UNSUPPORTED	error CSLLVM0002: 'System.AggregateException.Flatten()' has no implementation in the csharpc runtime yet
-docs-standard-base-types-alternation-constructs-in-regular-expressions-csharp	PASS	
-docs-standard-base-types-best-practices-display-data-formattable-formattable	COMPILE-UNSUPPORTED	error CSLLVM0001: not supported by csharpc yet: type test against 'System.FormattableString'
-docs-standard-base-types-best-practices-display-data-tostring-tostring	PASS	
-docs-standard-base-types-best-practices-strings-comparison1-comparison	COMPILE-UNSUPPORTED	error CSLLVM0001: not supported by csharpc yet: 'System.Globalization.CultureInfo.Name' has no implementation in the csharpc runtime yet
-docs-standard-base-types-best-practices-strings-comparison2-comparison	PASS	
-docs-standard-base-types-best-practices-strings-comparison3-comparison	PASS	
-docs-standard-base-types-best-practices-strings-embeddednulls1-embeddednulls	COMPILE-UNSUPPORTED	error CSLLVM0002: 'System.Globalization.CultureInfo.GetCultureInfo(string)' has no implementation in the csharpc runtime yet
-docs-standard-base-types-best-practices-strings-embeddednulls2-embeddednulls	PASS	
-docs-standard-base-types-best-practices-strings-everythingelse-everythingelse	COMPILE-UNSUPPORTED	error CSLLVM0002: 'System.Buffers.SearchValues<string>.Contains(string)' has no implementation in the csharpc runtime yet
-docs-standard-base-types-best-practices-strings-explicitargs-explicitargs	COMPILE-UNSUPPORTED	error CSLLVM0001: not supported by csharpc yet: creating instances of 'System.Uri'
-docs-standard-base-types-best-practices-strings-indirect1-indirect1	COMPILE-UNSUPPORTED	error CSLLVM0001: not supported by csharpc yet: creating instances of 'System.Collections.Hashtable'
-docs-standard-base-types-best-practices-strings-stringcomparer-api1	PASS	
-docs-standard-base-types-best-practices-strings-turkish-turkish	COMPILE-UNSUPPORTED	error CSLLVM0001: not supported by csharpc yet: creating instances of 'System.Globalization.CultureInfo'
-docs-standard-base-types-character-classes-in-regular-expressions-RegexSnippets	COMPILE-UNSUPPORTED	error CSLLVM0002: 'System.Convert.ToUInt16(char)' has no implementation in the csharpc runtime yet
-docs-standard-base-types-character-encoding-introduction-RuneSamples	COMPILE-UNSUPPORTED	error CSLLVM0001: not supported by csharpc yet: struct 'System.Text.Rune'
-docs-standard-base-types-composite-formatting-framework-Formatting	PASS	
-docs-standard-base-types-composite-formatting-net-Formatting	COMPILE-UNSUPPORTED	error CSLLVM0002: 'System.Text.CompositeFormat.Parse(string)' has no implementation in the csharpc runtime yet
-docs-standard-base-types-creating-new-creating-new	PASS	
-docs-standard-base-types-how-to-display-milliseconds-in-date-and-time-values-DateTimeCode	COMPILE-UNSUPPORTED	error CSLLVM0001: not supported by csharpc yet: struct 'System.DateTimeOffset'
-docs-standard-base-types-how-to-verify-that-strings-are-in-valid-email-format-email-cs	COMPILE-UNSUPPORTED	error CSLLVM0001: not supported by csharpc yet: creating instances of 'System.Globalization.IdnMapping'
-docs-standard-base-types-parse-strings-parse-strings	PASS	
-docs-standard-base-types-parsing-datetime-parsing-datetime	COMPILE-UNSUPPORTED	error CSLLVM0001: not supported by csharpc yet: creating instances of 'System.Globalization.CultureInfo'
-docs-standard-base-types-regex-backtracking-Project	SKIPPED	non-deterministic under .NET
-docs-standard-base-types-regular-expression-example-scanning-for-hrefs-regex	PASS	
-docs-standard-datetime-how-to-use-dateonly-timeonly-dateonlytimeonly	SKIPPED	non-deterministic under .NET
-docs-standard-datetime-system-text-json-support-computing-with-jsondocument-error-computing-with-jsondocument-error	COMPILE-UNSUPPORTED	error CSLLVM0001: not supported by csharpc yet: struct 'System.DateTimeOffset'
-docs-standard-datetime-system-text-json-support-computing-with-jsondocument-valid-computing-with-jsondocument-valid	COMPILE-UNSUPPORTED	error CSLLVM0001: not supported by csharpc yet: struct 'System.DateTimeOffset'
-docs-standard-datetime-system-text-json-support-custom-reading-with-utf8jsonreader-custom-reading-with-utf8jsonreader	COMPILE-UNSUPPORTED	error CSLLVM0001: not supported by csharpc yet: struct 'System.DateTimeOffset'
-docs-standard-datetime-system-text-json-support-custom-writing-with-utf8jsonwriter-custom-writing-with-utf8jsonwriter	COMPILE-UNSUPPORTED	error CSLLVM0002: 'System.DateTime.ToString(string, System.IFormatProvider)' has no implementation in the csharpc runtime yet
-docs-standard-datetime-system-text-json-support-datetime-converter-examples-example1-example1	PASS	
-docs-standard-datetime-system-text-json-support-datetime-converter-examples-example2-example2	COMPILE-UNSUPPORTED	error CSLLVM0002: 'System.Buffers.Text.Utf8Parser.TryParse(System.ReadOnlySpan<byte>, System.DateTime, int, char)' has no implementation in the csharpc runtime yet
-docs-standard-datetime-system-text-json-support-datetime-converter-examples-example3-example3	PASS	
-docs-standard-datetime-system-text-json-support-deserializing-with-jsonserializer-error-deserializing-with-jsonserializer-error	PASS	
-docs-standard-datetime-system-text-json-support-deserializing-with-jsonserializer-valid-deserializing-with-jsonserializer-valid	PASS	
-docs-standard-datetime-system-text-json-support-reading-with-utf8jsonreader-error-reading-with-utf8jsonreader-error	PASS	
-docs-standard-datetime-system-text-json-support-reading-with-utf8jsonreader-valid-reading-with-utf8jsonreader-valid	PASS	
-docs-standard-datetime-system-text-json-support-serializing-with-jsonserializer-serializing-with-jsonserializer	PASS	
-docs-standard-datetime-system-text-json-support-writing-with-utf8jsonwriter-writing-with-utf8jsonwriter	SKIPPED	non-deterministic under .NET
-docs-standard-datetime-timeprovider-overview-myproject	SKIPPED	non-deterministic under .NET
-docs-standard-datetime-working-with-calendars-ChangeCalendar	COMPILE-UNSUPPORTED	error CSLLVM0002: 'System.Globalization.CultureInfo.CreateSpecificCulture(string)' has no implementation in the csharpc runtime yet
-docs-standard-events-how-to-handle-multiple-events-using-event-properties-EventProperties	COMPILE-UNSUPPORTED	error CSLLVM0002: 'System.ComponentModel.EventHandlerList.AddHandler(object, System.Delegate)' has no implementation in the csharpc runtime yet
-docs-standard-events-how-to-raise-and-consume-events-csharp	PASS	
-docs-standard-events-index-eventsCS	PASS	
-docs-standard-events-observables-Observables	PASS	
-docs-standard-events-shared-how-to-provider-observer-temperaturemonitorcs	SKIPPED	non-deterministic under .NET
-docs-standard-exceptions-best-practices-Project	PASS	
-docs-standard-exceptions-how-to-use-finally-blocks-Project	PASS	
-docs-standard-exceptions-how-to-use-specific-exceptions-in-a-catch-block-CatchException	PASS	
-docs-standard-exceptions-how-to-use-the-try-catch-block-to-catch-exceptions-CatchException	PASS	
-docs-standard-garbage-collection-dispose-async-dispose-async	COMPILE-UNSUPPORTED	error CSLLVM0002: 'System.GC.SuppressFinalize(object)' has no implementation in the csharpc runtime yet
-docs-standard-io-composing-streams-Article	COMPILE-UNSUPPORTED	error CSLLVM0002: 'System.Convert.ToByte(int)' has no implementation in the csharpc runtime yet
-docs-standard-io-how-to-copy-directories-AppCS	PASS	
-docs-standard-io-how-to-read-text-from-a-file-FileReader	COMPILE-UNSUPPORTED	error CSLLVM0002: 'System.IO.TextReader.ReadToEndAsync()' has no implementation in the csharpc runtime yet
-docs-standard-io-how-to-use-named-pipes-for-network-interprocess-communication-NamedPipeServerStream-ImpersonationSample-NamedPipeServerStream-ImpersonationSample	SKIPPED	times out under .NET (waits for input or runs > 30s)
-docs-standard-io-zip-tar-best-practices-Project	COMPILE-UNSUPPORTED	error CSLLVM0001: not supported by csharpc yet: 'System.IO.Compression.ZipArchiveEntry.Length' has no implementation in the csharpc runtime yet
-docs-standard-linq-preserve-white-space-serializing-preserve-white-space-serializing	COMPILE-UNSUPPORTED	error CSLLVM0002: 'System.Xml.Linq.XDocument.Parse(string)' has no implementation in the csharpc runtime yet
-docs-standard-memory-and-spans-usage-guidelines-owner-owner	COMPILE-UNSUPPORTED	error CSLLVM0002: 'System.Buffers.MemoryPool<char>.Rent(int)' has no implementation in the csharpc runtime yet
-docs-standard-memory-and-spans-usage-guidelines-owner-using-owner-using	COMPILE-UNSUPPORTED	error CSLLVM0002: 'System.Buffers.MemoryPool<char>.Rent(int)' has no implementation in the csharpc runtime yet
-docs-standard-memory-and-spans-usage-guidelines-ownerless-ownerless	COMPILE-UNSUPPORTED	error CSLLVM0001: not supported by csharpc yet: formatting 'System.Memory<char>'
-docs-standard-memory-and-spans-usage-guidelines-task-returning-async-project	COMPILE-UNSUPPORTED	error CSLLVM0002: 'System.Buffers.MemoryPool<char>.Rent(int)' has no implementation in the csharpc runtime yet
-docs-standard-memory-and-spans-usage-guidelines-task-returning-task-returning	COMPILE-UNSUPPORTED	error CSLLVM0002: 'System.Buffers.MemoryPool<char>.Rent(int)' has no implementation in the csharpc runtime yet
-docs-standard-memory-and-spans-usage-guidelines-void-returning-void-returning	COMPILE-UNSUPPORTED	error CSLLVM0002: 'System.Buffers.MemoryPool<char>.Rent(int)' has no implementation in the csharpc runtime yet
-docs-standard-native-interop-marshalling-data-with-platform-invoke-PInvokeLibManaged-PInvokeLibManaged	COMPILE-UNSUPPORTED	error CSLLVM0001: not supported by csharpc yet: [StructLayout] with explicit layout, Pack or Size on 'MyUnion'
-docs-standard-parallel-programming-potential-pitfalls-with-plinq-RaceConditionExample-RaceConditionExample	SKIPPED	non-deterministic under .NET
-docs-standard-security-cryptographic-signatures-example	COMPILE-UNSUPPORTED	error CSLLVM0002: 'System.Security.Cryptography.SHA256.Create()' has no implementation in the csharpc runtime yet
-docs-standard-security-decrypting-data-aesdecrypt	COMPILE-UNSUPPORTED	error CSLLVM0002: 'System.Security.Cryptography.Aes.Create()' has no implementation in the csharpc runtime yet
-docs-standard-security-encrypting-data-aesencrypt	COMPILE-UNSUPPORTED	error CSLLVM0002: 'System.Security.Cryptography.Aes.Create()' has no implementation in the csharpc runtime yet
-docs-standard-serialization-binaryformatter-event-source-binaryformatter-event-source	SKIPPED	Windows-only under .NET
-docs-standard-serialization-system-text-json-converters-how-to-SystemTextJsonSamples	PASS	
-docs-standard-serialization-system-text-json-custom-contracts-Project	COMPILE-UNSUPPORTED	error CSLLVM0002: 'System.Reflection.MemberInfo.IsDefined(System.Type, bool)' has no implementation in the csharpc runtime yet
-docs-standard-serialization-system-text-json-how-to-6-0-SystemTextJsonSamples	COMPILE-UNSUPPORTED	error CSLLVM0001: not supported by csharpc yet: struct 'System.DateTimeOffset'
-docs-standard-serialization-system-text-json-how-to-SystemTextJsonSamples	COMPILE-UNSUPPORTED	error CSLLVM0001: not supported by csharpc yet: System.Text.Json serialization of file-local type 'SeriesDataPoint'
-docs-standard-serialization-system-text-json-nullable-annotations-Project	PASS	
-docs-standard-serialization-system-text-json-populate-properties-Project	PASS	
-docs-standard-serialization-system-text-json-required-properties-Project	PASS	
-docs-standard-serialization-system-text-json-schema-exporter-Project	COMPILE-UNSUPPORTED	error CSLLVM0002: 'System.Text.Json.Schema.JsonSchemaExporter.GetJsonSchemaAsNode(System.Text.Json.JsonSerializerOptions, System.Type, System.Text.Json.Schema.JsonSchemaExporterOptions)' has no implementation in the csharpc runtime yet
-docs-standard-serialization-system-text-json-source-generation-SystemTextJsonSamples	PASS	
-docs-standard-serialization-system-text-json-supported-types-SystemTextJsonSamples	COMPILE-UNSUPPORTED	error CSLLVM0001: not supported by csharpc yet: System.Text.Json serialization of anonymous types
-docs-standard-serialization-system-text-json-use-dom-utf8jsonreader-utf8jsonwriter-SystemTextJsonSamples	COMPILE-UNSUPPORTED	error CSLLVM0002: 'System.Text.Json.Schema.JsonSchemaExporter.GetJsonSchemaAsNode(System.Text.Json.JsonSerializerOptions, System.Type, System.Text.Json.Schema.JsonSchemaExporterOptions)' has no implementation in the csharpc runtime yet
-docs-standard-threading-cancellation-in-managed-threads-LinkedTokens-LinkedTokens	COMPILE-UNSUPPORTED	error CSLLVM0002: 'System.Threading.CancellationTokenSource.CreateLinkedTokenSource(System.Threading.CancellationToken)' has no implementation in the csharpc runtime yet
-docs-standard-threading-pausing-and-resuming-threads-InterruptThread-InterruptThread	COMPILE-UNSUPPORTED	error CSLLVM0002: 'System.Threading.Thread.Interrupt()' has no implementation in the csharpc runtime yet
-samples-NullableIntroduction-NullableIntroduction-NullableIntroduction	SKIPPED	non-deterministic under .NET
-samples-PatternMatching-PatternMatching	PASS	
-samples-api-datetime-parse-datetime-parse	SKIPPED	times out under .NET (waits for input or runs > 30s)
-samples-api-string-format-string-format-examples	SKIPPED	times out under .NET (waits for input or runs > 30s)
-samples-branches-quickstart-BranchesAndLoops	PASS	
-samples-classes-quickstart-classes	PASS	
-samples-core-console-apps-FibonacciBetterMsBuild-Fibonacci	PASS	
-samples-core-console-apps-HelloMsBuild-Hello	PASS	
-samples-core-console-apps-NewTypesMsBuild-src-NewTypes-NewTypes	PASS	
-samples-core-console-apps-fibonacci-msbuild-Hello	PASS	
-samples-core-linq-aggregate-aggregate	PASS	
-samples-core-linq-concatenation-concatenation	PASS	
-samples-core-linq-conversion-conversion	PASS	
-samples-core-linq-customsequence-customsequence	PASS	
-samples-core-linq-element-element	PASS	
-samples-core-linq-equality-equality	COMPILE-UNSUPPORTED	error CSLLVM0002: 'System.MemoryExtensions.SequenceEqual(System.ReadOnlySpan<string>, System.ReadOnlySpan<string>, System.Collections.Generic.IEqualityComparer<string>)' has no implementation in the csharpc runtime yet
-samples-core-linq-generation-generation	PASS	
-samples-core-linq-grouping-grouping	PASS	
-samples-core-linq-join-join	PASS	
-samples-core-linq-ordering-ordering	PASS	
-samples-core-linq-partitioning-partitioning	PASS	
-samples-core-linq-projection-projection	COMPILE-UNSUPPORTED	error CSLLVM0002: 'System.Xml.Linq.XContainer.Elements(System.Xml.Linq.XName)' has no implementation in the csharpc runtime yet
-samples-core-linq-quantifier-quantifier	PASS	
-samples-core-linq-queryexecution-queryexecution	PASS	
-samples-core-linq-restriction-restriction	PASS	
-samples-core-linq-setoperators-setoperators	PASS	
-samples-core-tutorials-Unloading-Host-Host	COMPILE-UNSUPPORTED	error CSLLVM0001: not supported by csharpc yet: deriving from library class 'System.Runtime.Loader.AssemblyLoadContext'
-samples-core-tutorials-cli-templates-create-item-template-content-consoleasync-consoleasync	COMPILE-UNSUPPORTED	error CSLLVM0002: 'System.IO.TextWriter.WriteAsync(string)' has no implementation in the csharpc runtime yet
-samples-core-tutorials-using-on-mac-vs-full-solution-WordCounter-WordCounterApp-WordCounterApp	PASS	
-samples-delegates-and-events-delegates-and-events	PASS	
-samples-events-events	PASS	
-samples-getting-started-console-linq-console-linq	PASS	
-samples-getting-started-console-teleprompter-console-teleprompter	PASS	
-samples-indexers-indexers	SKIPPED	non-deterministic under .NET
-samples-iterators-iterators	PASS	
-samples-list-quickstart-list-quickstart	PASS	
-samples-numbers-quickstart-NumbersInCSharp	PASS	
-samples-parallel-ComputePi-ComputePi	SKIPPED	non-deterministic under .NET
-samples-parallel-EditDistance-EditDistance	SKIPPED	does not build under .NET net11.0
-samples-parallel-PLINQ-PLINQ	SKIPPED	non-deterministic under .NET
-samples-parallel-ParallelGrep-ParallelGrep	COMPILE-UNSUPPORTED	error CSLLVM0002: 'System.Linq.ParallelEnumerable.Select(System.Linq.ParallelQuery<<anonymous type: string file, <anonymous type: int Num, string Text, string File> line>>, System.Func<<anonymous type: string file, <anonymous type: int Num, string Text, string File> line>, <anonymous type: int Num, string Text, string File>>)' has no implementation in the csharpc runtime yet
-samples-ref-tutorial-IntruderAlert-finished-IntruderAlert	SKIPPED	non-deterministic under .NET
-samples-ref-tutorial-IntruderAlert-starter-IntruderAlert	SKIPPED	non-deterministic under .NET
-samples-roslyn-sdk-Tutorials-MakeConstTestProject-MakeConstTestProject-MakeConstTestProject	PASS	
-samples-safe-efficient-code-ref-readonly-struct-ref-readonly-struct	PASS	
-samples-serialization-serialization	SKIPPED	non-deterministic under .NET
-samples-tutorials-default-interface-members-versions-finished-customer-relationship-customer-relationship	PASS	
-samples-tutorials-default-interface-members-versions-starter-customer-relationship-customer-relationship	PASS	
-samples-tutorials-exploration-csharp6-finished-csharp6-finished	PASS	
-samples-tutorials-exploration-csharp6-starter-csharp6-starter	PASS	
-samples-tutorials-mixins-with-interfaces-mixins-with-interfaces	PASS	
-samples-tutorials-patterns-finished-toll-calculator-toll-calculator	PASS	
-samples-tutorials-patterns-start-toll-calculator-toll-calculator	PASS	
-samples-versioning-new-new	PASS	
-samples-versioning-override-override	PASS	
+docs-core-compatibility-core-libraries-10-0-bufferedstream-writebyte-flush-BufferedStreamWriteByteFlush	COMPILE-UNSUPPORTED	error CSLLVM0001: not supported by csharpc yet: creating instances of 'System.IO.BufferedStream'	NATIVEAOT-OK		-	5170	-	1349408
+docs-core-deploying-trimming-ConsoleApp1-ConsoleApp1	COMPILE-UNSUPPORTED	error CSLLVM0002: 'System.Type.GetMethods()' has no implementation in the csharpc runtime yet	NATIVEAOT-OK	warnings IL2037,IL2035,IL2075,IL2026,IL2070,IL2063	-	7633	-	1981280
+docs-core-diagnostics-diagnosticsource-DiagnosticSource	COMPILE-UNSUPPORTED	error CSLLVM0002: 'System.Diagnostics.DiagnosticSource.IsEnabled(string)' has no implementation in the csharpc runtime yet	NATIVEAOT-OK	warnings IL2026	-	6318	-	1564616
+docs-core-diagnostics-distributed-tracing-configuration-TracingConfiguration	COMPILE-ERROR	exit 1: /home/runner/work/_temp/compat-work/tree/docs/docs/core/diagnostics/snippets/distributed-tracing-configuration/csharp/Program.cs(7,40): error CS0246: The type or namespace name 'ConfigurationBuilder' could not be found (are you missing a using directive or an assembly reference?)	NATIVEAOT-OK		-	8860	-	2918072
+docs-core-docker-App-DotNet-Docker	SKIPPED	times out under .NET (waits for input or runs > 30s)	-		-	-	-	-
+docs-core-extensions-channels-channels	SKIPPED	non-deterministic under .NET	-		-	-	-	-
+docs-core-extensions-configuration-binding-scenarios-ConfigurationIgnore-ConfigurationIgnore	COMPILE-ERROR	exit 1: /home/runner/work/_temp/compat-work/tree/docs/docs/core/extensions/snippets/configuration/binding-scenarios/ConfigurationIgnore/Program.cs(17,33): error CS0246: The type or namespace name 'ConfigurationManager' could not be found (are you missing a using directive or an assembly reference?)	NATIVEAOT-OK		-	5257	-	1643688
+docs-core-get-started-get-started	PASS		NATIVEAOT-OK		1410	4616	28520	1332992
+docs-core-tools-global-tools-how-to-create-dotnet-env	COMPILE-UNSUPPORTED	error CSLLVM0001: not supported by csharpc yet: 'System.Environment.Version' has no implementation in the csharpc runtime yet	NATIVEAOT-OK		-	5522	-	2047216
+docs-core-tutorials-create-class-library-ShowCase-ShowCase	PASS		NATIVEAOT-OK		2673	4697	47656	1398880
+docs-core-tutorials-create-console-app-HelloWorld	PASS		NATIVEAOT-OK		4879	4779	270792	1703872
+docs-core-whats-new-dotnet-10-Project	PASS		NATIVEAOT-OK		10309	2651	807800	1332984
+docs-core-whats-new-dotnet-core-2-1-whats-new	COMPILE-UNSUPPORTED	error CSLLVM0001: not supported by csharpc yet: creating instances of 'System.IO.Compression.BrotliStream'	NATIVEAOT-OK		-	3148	-	1332992
+docs-csharp-advanced-topics-expression-trees-ExpressionTreeExample	COMPILE-UNSUPPORTED	error CSLLVM0001: not supported by csharpc yet: expression trees (a lambda converted to System.Linq.Expressions.Expression<T>)	NATIVEAOT-OK		-	7756	-	3041864
+docs-csharp-advanced-topics-interface-implementation-default-interface-members-versions-finished-customer-relationship-customer-relationship	PASS		NATIVEAOT-OK		5448	5652	343520	1667080
+docs-csharp-advanced-topics-interface-implementation-default-interface-members-versions-starter-customer-relationship-customer-relationship	PASS		NATIVEAOT-OK		6324	4131	335104	1658872
+docs-csharp-advanced-topics-interface-implementation-mixins-with-default-interface-methods-mixins-with-interfaces	PASS		NATIVEAOT-OK		1822	2957	71048	1561656
+docs-csharp-advanced-topics-interface-implementation-staticinterfaces-staticinterfaces	PASS		NATIVEAOT-OK		2561	4132	116760	1341272
+docs-csharp-advanced-topics-interop-using-dynamic-using-dynamic	COMPILE-UNSUPPORTED	error CSLLVM0001: not supported by csharpc yet: operation DynamicInvocation	NATIVEAOT-OK	warnings IL3050,IL2026	-	6443	-	3807104
+docs-csharp-advanced-topics-performance-interpolated-string-handler-interpolated-string-handler	SKIPPED	non-deterministic under .NET (a third run differed)	-		-	4414	-	1654384
+docs-csharp-advanced-topics-performance-ref-safety-ref-safety	PASS		NATIVEAOT-OK		1731	3045	38008	1333008
+docs-csharp-advanced-topics-performance-ref-tutorial-IntruderAlert-finished-IntruderAlert	SKIPPED	non-deterministic under .NET	-		-	-	-	-
+docs-csharp-advanced-topics-performance-ref-tutorial-IntruderAlert-starter-IntruderAlert	SKIPPED	non-deterministic under .NET	-		-	-	-	-
+docs-csharp-advanced-topics-reflection-and-attributes-tutorial-attributes	COMPILE-UNSUPPORTED	error CSLLVM0002: 'System.Reflection.CustomAttributeExtensions.GetCustomAttributes(System.Reflection.MemberInfo)' has no implementation in the csharpc runtime yet	NATIVEAOT-OK		-	4017	-	1932176
+docs-csharp-advanced-topics-update-applications-nullable-migration-strategies-nullable-migration-strategies	PASS		NATIVEAOT-OK		1315	2935	28528	1333008
+docs-csharp-asynchronous-programming-async-return-types-AsyncExamples	SKIPPED	non-deterministic under .NET	-		-	-	-	-
+docs-csharp-asynchronous-programming-file-access-file-access	PASS		NATIVEAOT-OK		2790	3241	225792	1880160
+docs-csharp-asynchronous-programming-index-AsyncBreakfast-starter-AsyncBreakfast	PASS		NATIVEAOT-OK		2315	5878	58040	1524144
+docs-csharp-asynchronous-programming-index-ContinueWith-comparison-ContinueWith-comparison	PASS		NATIVEAOT-OK		2877	3601	104712	1570024
+docs-csharp-events-events	PASS		NATIVEAOT-OK		4874	5800	136112	1391368
+docs-csharp-fundamentals-building-software-iterators-iterators	PASS		NATIVEAOT-OK		2144	3232	126728	1345952
+docs-csharp-fundamentals-building-software-lambdas-lambdas	PASS		NATIVEAOT-OK		2551	2993	152888	1589432
+docs-csharp-fundamentals-building-software-local-functions-local-functions	PASS		NATIVEAOT-OK		2652	3682	133256	1556304
+docs-csharp-fundamentals-building-software-overview-overview	PASS		NATIVEAOT-OK		2303	3318	132072	1362512
+docs-csharp-fundamentals-exceptions-exceptions-exceptions	PASS		NATIVEAOT-UNSUPPORTED	output differs; -   at Exceptions.Program.TestThrow() in /home/runner/work/_temp/compat-work/tree/docs/docs/csharp/fundamentals/exceptions/snippets/exceptions/Program.cs:line 4	3270	3522	169080	1586048
+docs-csharp-fundamentals-expressions-equality-equality	PASS		NATIVEAOT-OK		2355	3120	54888	1370832
+docs-csharp-fundamentals-expressions-expressions-expressions	PASS		NATIVEAOT-OK		2841	5472	121272	1341216
+docs-csharp-fundamentals-expressions-operators-operators	PASS		NATIVEAOT-OK		4020	4620	120328	1341232
+docs-csharp-fundamentals-null-safety-common-tasks-resolve-warnings-resolve-warnings	PASS		NATIVEAOT-OK		3520	4892	38328	1341208
+docs-csharp-fundamentals-null-safety-null-operators-null-operators	PASS		NATIVEAOT-OK		3923	4317	148472	1349488
+docs-csharp-fundamentals-null-safety-null-safety-overview-null-safety-overview	PASS		NATIVEAOT-OK		3276	4396	133976	1341224
+docs-csharp-fundamentals-null-safety-nullable-reference-types-nullable-reference-types	PASS		NATIVEAOT-OK		3051	4582	116304	1341232
+docs-csharp-fundamentals-null-safety-nullable-value-types-nullable-value-types	PASS		NATIVEAOT-OK		2916	4091	116200	1341224
+docs-csharp-fundamentals-object-oriented-inheritance-inheritance	PASS		NATIVEAOT-OK		2802	4719	118504	1341232
+docs-csharp-fundamentals-object-oriented-objects-objects	PASS		NATIVEAOT-OK		2863	4914	116232	1332984
+docs-csharp-fundamentals-patterns-discards-discards	PASS		NATIVEAOT-OK		3228	4198	116280	1337104
+docs-csharp-fundamentals-patterns-patterns-patterns	PASS		NATIVEAOT-OK		6983	6022	386128	1818816
+docs-csharp-fundamentals-program-structure-main-arguments-main-arguments	PASS		NATIVEAOT-OK		1427	4862	51464	1264336
+docs-csharp-fundamentals-program-structure-main-command-line-main-command-line	PASS		NATIVEAOT-OK		2375	5621	38040	1333000
+docs-csharp-fundamentals-program-structure-namespaces-namespaces	PASS		NATIVEAOT-OK		4187	5659	112424	1332992
+docs-csharp-fundamentals-program-structure-organizing-programs-organizing-programs	PASS		NATIVEAOT-OK		4596	5749	130568	1345336
+docs-csharp-fundamentals-program-structure-preprocessor-directives-preprocessor-directives	PASS		NATIVEAOT-OK		2694	5623	38184	1333000
+docs-csharp-fundamentals-program-structure-structure-structure	PASS		NATIVEAOT-OK		1744	5199	28520	1332992
+docs-csharp-fundamentals-program-structure-top-level-statements-1-top-level-statements	PASS		NATIVEAOT-OK		2336	5315	29360	1333000
+docs-csharp-fundamentals-program-structure-top-level-statements-2-top-level-statements	PASS		NATIVEAOT-OK		1815	5327	28624	1333000
+docs-csharp-fundamentals-program-structure-top-level-statements-3-top-level-statements	PASS		NATIVEAOT-OK		1903	3998	28832	1333000
+docs-csharp-fundamentals-program-structure-top-level-statements-4-top-level-statements	PASS		NATIVEAOT-OK		2029	6508	51464	1540712
+docs-csharp-fundamentals-program-structure-top-level-statements-5-top-level-statements	PASS		NATIVEAOT-OK		2972	4556	116264	1398872
+docs-csharp-fundamentals-program-structure-toplevel-structure-toplevel-structure	PASS		NATIVEAOT-OK		1595	4329	28520	1333000
+docs-csharp-fundamentals-statements-collections-statements-collections-statements	PASS		NATIVEAOT-OK		4294	4938	151912	1556296
+docs-csharp-fundamentals-statements-iteration-statements-iteration-statements	PASS		NATIVEAOT-OK		3503	5650	133232	1619688
+docs-csharp-fundamentals-statements-linq-statements-linq-statements	PASS		NATIVEAOT-OK		5239	6583	267704	1759936
+docs-csharp-fundamentals-statements-selection-statements-selection-statements	PASS		NATIVEAOT-OK		1856	5694	28600	1333000
+docs-csharp-fundamentals-statements-statements-overview-statements-overview	PASS		NATIVEAOT-OK		2742	4092	37944	1341208
+docs-csharp-fundamentals-strings-common-tasks-compare-compare	PASS		NATIVEAOT-OK		1671	4664	33720	1341192
+docs-csharp-fundamentals-strings-common-tasks-concatenate-concatenate	PASS		NATIVEAOT-OK		2665	4207	38664	1341216
+docs-csharp-fundamentals-strings-common-tasks-modify-modify	PASS		NATIVEAOT-OK		10520	9236	501160	2781928
+docs-csharp-fundamentals-strings-common-tasks-search-search	PASS		NATIVEAOT-OK		4038	6779	138136	1341176
+docs-csharp-fundamentals-strings-common-tasks-split-split	PASS		NATIVEAOT-OK		3834	6645	126536	1349432
+docs-csharp-fundamentals-strings-interpolation-interpolation	PASS		NATIVEAOT-OK		8344	6570	352944	1658480
+docs-csharp-fundamentals-strings-nameof-nameof	PASS		NATIVEAOT-OK		4062	5649	61792	1341208
+docs-csharp-fundamentals-strings-raw-string-literals-raw-string-literals	PASS		NATIVEAOT-OK		6456	5967	275392	1642088
+docs-csharp-fundamentals-strings-strings-overview-strings-overview	PASS		NATIVEAOT-OK		5209	5180	147064	1345336
+docs-csharp-fundamentals-tutorials-NullableIntroduction-NullableIntroduction	SKIPPED	non-deterministic under .NET	-		-	-	-	-
+docs-csharp-fundamentals-tutorials-command-line-arguments-command-line-arguments	PASS		NATIVEAOT-OK		3700	6068	111960	1333000
+docs-csharp-fundamentals-tutorials-inheritance-inheritance	COMPILE-UNSUPPORTED	error CSLLVM0002: 'System.Type.GetMembers(System.Reflection.BindingFlags)' has no implementation in the csharpc runtime yet	NATIVEAOT-OK		-	6997	-	1674896
+docs-csharp-fundamentals-tutorials-introduction-to-classes-classes	PASS		NATIVEAOT-UNSUPPORTED	output differs; -   at Classes.BankAccount.MakeDeposit(Decimal amount, DateTime date, String note) in /home/runner/work/_temp/compat-work/tree/docs/docs/csharp/fundamentals/tut	7580	6615	298184	1658584
+docs-csharp-fundamentals-tutorials-object-oriented-programming-object-oriented-programming	PASS		NATIVEAOT-UNSUPPORTED	output differs; -   at OOProgramming.BankAccount.CheckWithdrawalLimit(Boolean isOverdrawn) in /home/runner/work/_temp/compat-work/tree/docs/docs/csharp/fundamentals/tutorials/s	7376	7190	308072	1666784
+docs-csharp-fundamentals-tutorials-pattern-matching-objects-pattern-matching-objects	PASS		NATIVEAOT-OK		2269	6734	43408	1345360
+docs-csharp-fundamentals-tutorials-patterns-finished-toll-calculator-toll-calculator	PASS		NATIVEAOT-OK		7633	6444	285080	1658512
+docs-csharp-fundamentals-tutorials-patterns-start-toll-calculator-toll-calculator	PASS		NATIVEAOT-OK		1598	5779	11296	1332992
+docs-csharp-fundamentals-tutorials-records-record-types	PASS		NATIVEAOT-OK		4927	5333	150824	1378720
+docs-csharp-fundamentals-tutorials-safelycast-asandis-asandis	PASS		NATIVEAOT-OK		4225	5544	124664	1341192
+docs-csharp-fundamentals-tutorials-safelycast-nullablepatternmatching-nullablepatternmatching	PASS		NATIVEAOT-OK		4199	6017	128664	1341240
+docs-csharp-fundamentals-tutorials-safelycast-patternmatching-patternmatching	PASS		NATIVEAOT-OK		1995	5584	28936	1332992
+docs-csharp-fundamentals-tutorials-xml-documentation-object-oriented-programming	PASS		NATIVEAOT-UNSUPPORTED	publish fails: error MSB3030: Could not copy the file "bin/Release/net11.0/linux-x64/oo-programming.xml" because it was not found. [/home/runner/work/_temp/compat-work/tree/docs/docs/csharp/fundamentals/tutorials/sn	6716	-	317656	-
+docs-csharp-fundamentals-types-built-in-types-built-in-types	COMPILE-UNSUPPORTED	error CSLLVM0001: not supported by csharpc yet: operation DynamicInvocation	NATIVEAOT-UNSUPPORTED	crashes: signal 6 (JIT exit 0) (warnings IL3050,IL2026); -System.Int32	-	11665	-	3980240
+docs-csharp-fundamentals-types-classes-classes	PASS		NATIVEAOT-OK		4353	6697	120696	1332984
+docs-csharp-fundamentals-types-conversions-conversions	PASS		NATIVEAOT-OK		4237	6774	117224	1341184
+docs-csharp-fundamentals-types-delegates-lambdas-delegates-lambdas	PASS		NATIVEAOT-OK		4005	5633	136696	1375032
+docs-csharp-fundamentals-types-enums-enums	PASS		NATIVEAOT-OK		3549	5819	116504	1345320
+docs-csharp-fundamentals-types-generics-generics	PASS		NATIVEAOT-OK		6293	6687	246160	1779856
+docs-csharp-fundamentals-types-index-index	PASS		NATIVEAOT-OK		3570	6304	117896	1337080
+docs-csharp-fundamentals-types-records-Records	PASS		NATIVEAOT-OK		4323	5427	129624	1349496
+docs-csharp-fundamentals-types-structs-structs	PASS		NATIVEAOT-OK		4677	5708	138024	1345304
+docs-csharp-fundamentals-types-tuples-tuples	PASS		NATIVEAOT-OK		4808	5724	163416	1370120
+docs-csharp-language-reference-attributes-attributes	SKIPPED	non-deterministic under .NET	-		-	-	-	-
+docs-csharp-language-reference-builtin-types-shared-builtin-types	SKIPPED	non-deterministic under .NET	-		-	-	-	-
+docs-csharp-language-reference-builtin-types-string-operations-string-operations	PASS		NATIVEAOT-OK		11017	9194	492696	2765320
+docs-csharp-language-reference-builtin-types-unions-unions	COMPILE-ERROR	exit 1: /home/runner/work/_temp/compat-work/tree/docs/docs/csharp/language-reference/builtin-types/snippets/unions/UnionPatternMatching.cs(20,36): error CS0117: 'object' does not contain a definition for 'Name'	NATIVEAOT-OK		-	5352	-	1357736
+docs-csharp-language-reference-compiler-messages-WarningWaves-WarningWaves	PASS		NATIVEAOT-OK		3151	7539	38296	1539792
+docs-csharp-language-reference-compiler-messages-array-warnings-array-warnings	PASS		NATIVEAOT-OK		2020	6535	28888	1332992
+docs-csharp-language-reference-memory-safety-memory-safety	PASS		NATIVEAOT-OK		4416	6240	128688	1519936
+docs-csharp-language-reference-operators-EqualityHierarchies-EqualityHierarchies	PASS		NATIVEAOT-OK		2334	6490	29208	1341256
+docs-csharp-language-reference-operators-lambda-expressions-lambda-expressions	COMPILE-UNSUPPORTED	error CSLLVM0001: not supported by csharpc yet: expression trees (a lambda converted to System.Linq.Expressions.Expression<T>)	NATIVEAOT-OK		-	7861	-	2340216
+docs-csharp-language-reference-operators-patterns-patterns	SKIPPED	non-deterministic under .NET (a third run differed)	-		6274	6255	186792	1687552
+docs-csharp-language-reference-operators-with-expression-with-expression	PASS		NATIVEAOT-OK		4887	5882	145576	1370896
+docs-csharp-language-reference-statements-checked-and-unchecked-checked-and-unchecked	PASS		NATIVEAOT-OK		3822	5599	111888	1341256
+docs-csharp-language-reference-statements-declarations-declarations	PASS		NATIVEAOT-OK		4575	6897	146664	1564528
+docs-csharp-language-reference-statements-exception-handling-statements-exception-handling-statements	PASS		NATIVEAOT-OK		6835	6540	315312	1544928
+docs-csharp-language-reference-statements-fixed-fixed	SKIPPED	non-deterministic under .NET	-		-	-	-	-
+docs-csharp-language-reference-statements-iteration-statements-iteration-statements	PASS		NATIVEAOT-OK		4406	5319	117304	1341208
+docs-csharp-language-reference-statements-jump-statements-jump-statements	PASS		NATIVEAOT-OK		5367	5604	159288	1366528
+docs-csharp-language-reference-statements-lock-lock	PASS		NATIVEAOT-OK		4771	5285	141680	1528104
+docs-csharp-language-reference-statements-selection-statements-selection-statements	PASS		NATIVEAOT-OK		4239	4755	125240	1341192
+docs-csharp-language-reference-statements-using-using	PASS		NATIVEAOT-OK		2559	4130	38216	1056984
+docs-csharp-language-reference-statements-yield-yield	PASS		NATIVEAOT-OK		5357	7026	158256	1632248
+docs-csharp-language-reference-tokens-string-interpolation	PASS		NATIVEAOT-OK		5600	6183	311536	1683384
+docs-csharp-language-reference-unsafe-code-UnsafeCodePointers	PASS		NATIVEAOT-OK		5217	5635	169304	1349464
+docs-csharp-language-reference-xmldoc-xmldoc-xmldoc	PASS		NATIVEAOT-UNSUPPORTED	publish fails: error MSB3030: Could not copy the file "bin/Release/net11.0/linux-x64/xmldoc.xml" because it was not found. [/home/runner/work/_temp/compat-work/tree/docs/docs/csharp/language-reference/xmldoc/snippet	1903	-	37928	-
+docs-csharp-linq-HowToCollections-HowToCollections	PASS		NATIVEAOT-OK		7450	5963	297544	1842216
+docs-csharp-linq-HowToExtend-HowToExtend	PASS		NATIVEAOT-OK		3932	6706	155704	1387488
+docs-csharp-linq-HowToFilesAndDirectories-HowToFilesAndDirectories	PASS		NATIVEAOT-OK		12321	8924	897200	2321712
+docs-csharp-linq-HowToStrings-HowToStrings	PASS		NATIVEAOT-OK		11913	8680	674728	2220704
+docs-csharp-linq-get-started-SnippetApp-LinqGetStarted	COMPILE-UNSUPPORTED	error CSLLVM0002: 'System.Xml.Linq.XElement.Load(string)' has no implementation in the csharpc runtime yet	NATIVEAOT-OK		-	6701	-	1794480
+docs-csharp-linq-get-started-WalkthroughWritingLinqQueries-WalkthroughWritingLinqQueries	PASS		NATIVEAOT-OK		5731	6548	266424	1627200
+docs-csharp-linq-linq-index-linq-index	PASS		NATIVEAOT-OK		3206	6912	126968	1354192
+docs-csharp-linq-standard-query-operators-standard-query-operators-standard-query-operators	COMPILE-UNSUPPORTED	error CSLLVM0001: not supported by csharpc yet: creating instances of 'System.Xml.Linq.XElement'	NATIVEAOT-OK		-	11880	-	3420320
+docs-csharp-methods-methods	PASS		NATIVEAOT-OK		5124	5342	170696	1056984
+docs-csharp-programming-guide-classes-and-structs-ExtensionMembers-ExtensionMembers	PASS		NATIVEAOT-OK		5063	6662	150456	1379048
+docs-csharp-programming-guide-classes-and-structs-access-modifiers-objectoriented	PASS		NATIVEAOT-OK		2009	5377	28528	1056992
+docs-csharp-programming-guide-classes-and-structs-anonymous-types-AnonymousTypes	PASS		NATIVEAOT-OK		4612	5673	154072	1556256
+docs-csharp-programming-guide-classes-and-structs-classes-and-structs-methods-methods	PASS		NATIVEAOT-OK		3715	6090	128720	1540760
+docs-csharp-programming-guide-classes-and-structs-constants-Calendar	PASS		NATIVEAOT-OK		2767	5526	37880	1332992
+docs-csharp-programming-guide-classes-and-structs-constructors-constructors	PASS		NATIVEAOT-OK		1966	5556	28536	1332992
+docs-csharp-programming-guide-classes-and-structs-fields-fields	PASS		NATIVEAOT-OK		6583	5195	284656	1056984
+docs-csharp-programming-guide-classes-and-structs-finalizers-finalizers	COMPILE-ERROR	exit 1: /home/runner/work/_temp/compat-work/tree/docs/docs/csharp/programming-guide/classes-and-structs/snippets/finalizers/Program.cs(22,34): error CS0012: The type 'Object' is defined in an assembly that is not referenced. You must add a reference to assembly 'System.Private.CoreLib, Version=11.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e'.	NATIVEAOT-UNSUPPORTED	output differs; +The Destroyer finalizer is executing.	-	6007	-	1332992
+docs-csharp-programming-guide-classes-and-structs-how-to-declare-and-use-read-write-properties-Properties	PASS		NATIVEAOT-OK		3822	6159	116728	1361904
+docs-csharp-programming-guide-classes-and-structs-how-to-define-constants-Constants	PASS		NATIVEAOT-OK		3276	6048	37880	1333008
+docs-csharp-programming-guide-classes-and-structs-how-to-implement-and-call-a-custom-extension-method-classic-how-to-implement-and-call-a-custom-extension-method-classic	PASS		NATIVEAOT-OK		3610	5428	112040	1345376
+docs-csharp-programming-guide-classes-and-structs-how-to-implement-and-call-a-custom-extension-method-how-to-implement-and-call-a-custom-extension-method	PASS		NATIVEAOT-OK		3848	5790	112040	1345368
+docs-csharp-programming-guide-classes-and-structs-how-to-write-a-copy-constructor-CopyConstructor	PASS		NATIVEAOT-OK		3685	5750	116632	1361904
+docs-csharp-programming-guide-classes-and-structs-instance-constructors-coords-Coords	PASS		NATIVEAOT-OK		3528	5629	112024	1332984
+docs-csharp-programming-guide-classes-and-structs-instance-constructors-person-Person	PASS		NATIVEAOT-OK		3770	5629	112040	1332984
+docs-csharp-programming-guide-classes-and-structs-instance-constructors-shapes-Shapes	PASS		NATIVEAOT-OK		4443	5426	120424	1332984
+docs-csharp-programming-guide-classes-and-structs-instance-constructors-widgets-widgets	PASS		NATIVEAOT-OK		1756	5765	28520	1332984
+docs-csharp-programming-guide-classes-and-structs-methods-Methods	PASS		NATIVEAOT-OK		3939	5703	116184	1332984
+docs-csharp-programming-guide-classes-and-structs-object-collection-initializers-object-collection-initializers	PASS		NATIVEAOT-OK		5462	6947	215304	1601888
+docs-csharp-programming-guide-classes-and-structs-partial-classes-and-methods-PartialClassesAndMethods	PASS		NATIVEAOT-OK		4625	6347	164728	1361920
+docs-csharp-programming-guide-classes-and-structs-private-constructors-PrivateConstructors	PASS		NATIVEAOT-OK		3186	6277	44384	1361912
+docs-csharp-programming-guide-classes-and-structs-properties-properties	PASS		NATIVEAOT-OK		4724	6159	155576	1332992
+docs-csharp-programming-guide-classes-and-structs-static-classes-and-static-class-members-static-classes-and-static-class-members	PASS		NATIVEAOT-OK		4617	6218	133672	1423480
+docs-csharp-programming-guide-classes-and-structs-static-constructors-static-constructors	SKIPPED	non-deterministic under .NET	-		-	-	-	-
+docs-csharp-programming-guide-classes-and-structs-using-constructors-UsingConstructors	PASS		NATIVEAOT-OK		1952	5270	28600	1333016
+docs-csharp-programming-guide-concepts-covariance-contravariance-using-variance-in-delegates-ContravarianceExample	SKIPPED	non-deterministic under .NET	-		-	-	-	-
+docs-csharp-programming-guide-delegates-DelegateExamples	PASS		NATIVEAOT-OK		4883	5734	144120	1353512
+docs-csharp-programming-guide-generics-generics	COMPILE-UNSUPPORTED	error CSLLVM0002: 'System.Array.GetEnumerator()' has no implementation in the csharpc runtime yet	NATIVEAOT-UNSUPPORTED	crashes: signal 6 (JIT exit 0) (warnings IL3050); -0: Red	-	6406	-	1568544
+docs-csharp-programming-guide-indexers-DayOfWeekIndexers-DayOfWeekIndexers	PASS		NATIVEAOT-OK		3820	5656	44840	1341224
+docs-csharp-programming-guide-indexers-StringIndexers-StringIndexers	PASS		NATIVEAOT-OK		3107	6785	44984	1341216
+docs-csharp-programming-guide-indexers-Temperatures-Temperatures	PASS		NATIVEAOT-OK		4197	6428	120264	1332992
+docs-csharp-programming-guide-indexers-indexers-Indexers	PASS		NATIVEAOT-OK		8318	5893	383952	1362704
+docs-csharp-programming-guide-strings-StringExamples	PASS		NATIVEAOT-OK		6528	5613	201016	1370000
+docs-csharp-programming-guide-types-CastingAndConversions-CastingAndConversions	SKIPPED	does not build under .NET net11.0	-		-	-	-	-
+docs-csharp-tutorials-RangesIndexes-RangesIndexes	PASS		NATIVEAOT-OK		5407	5386	160808	1576944
+docs-csharp-tutorials-console-linq-LInqFaroShuffle	PASS		NATIVEAOT-OK		5316	5400	220024	1639056
+docs-csharp-tutorials-top-level-statements-TopLevelStatements	SKIPPED	non-deterministic under .NET	-		-	-	-	-
+docs-csharp-whats-new-tutorials-CompoundAssignment-CompoundAssignment	SKIPPED	non-deterministic under .NET	-		-	-	-	-
+docs-csharp-whats-new-tutorials-shared-telemetry-monitor-SmartHome-App-SmartHome-App	COMPILE-UNSUPPORTED	error CSLLVM0001: not supported by csharpc yet: union types (C# 15 `union` declarations)	NATIVEAOT-OK		-	5900	-	1357808
+docs-fundamentals-reflection-csharp-construct-generic-method-Project	SKIPPED	does not build under .NET net11.0	-		-	-	-	-
+docs-fundamentals-reflection-csharp-emit-generic-type-Project	SKIPPED	does not build under .NET net11.0	-		-	-	-	-
+docs-standard-assembly-type-forwarders-before-Consumer-Consumer	SKIPPED	non-deterministic under .NET	-		-	-	-	-
+docs-standard-asynchronous-programming-patterns-async-coordination-primitives-AsyncCoordinationPrimitives	SKIPPED	non-deterministic under .NET	-		-	-	-	-
+docs-standard-asynchronous-programming-patterns-async-coordination-primitives-advanced-AsyncCoordinationPrimitivesAdvanced	SKIPPED	non-deterministic under .NET	-		-	-	-	-
+docs-standard-asynchronous-programming-patterns-async-lambda-pitfalls-AsyncLambdaPitfalls	SKIPPED	non-deterministic under .NET	-		-	-	-	-
+docs-standard-asynchronous-programming-patterns-async-wrappers-for-synchronous-methods-AsyncWrappersForSync	PASS		NATIVEAOT-OK		3325	4340	164016	1532392
+docs-standard-asynchronous-programming-patterns-coalescing-cancellation-tokens-from-timeouts-CoalescingCancellationTokensFromTimeouts	PASS		NATIVEAOT-OK		2351	4405	95288	1561600
+docs-standard-asynchronous-programming-patterns-common-async-bugs-CommonAsyncBugs	PASS		NATIVEAOT-OK		5834	6276	193344	1586640
+docs-standard-asynchronous-programming-patterns-complete-your-tasks-CompleteYourTasks	PASS		NATIVEAOT-OK		2674	6585	133968	1507464
+docs-standard-asynchronous-programming-patterns-executioncontext-synchronizationcontext-ExecutionContextAndSyncContext	COMPILE-UNSUPPORTED	error CSLLVM0001: not supported by csharpc yet: deriving from library class 'System.Threading.SynchronizationContext'	NATIVEAOT-OK		-	6449	-	1607312
+docs-standard-asynchronous-programming-patterns-keeping-async-methods-alive-KeepingAsyncMethodsAlive	COMPILE-UNSUPPORTED	error CSLLVM0002: 'System.Exception.GetBaseException()' has no implementation in the csharpc runtime yet	NATIVEAOT-UNSUPPORTED	non-deterministic	-	5804	-	1578240
+docs-standard-asynchronous-programming-patterns-synchronizationcontext-console-apps-SyncContextConsoleApps	SKIPPED	non-deterministic under .NET	-		-	-	-	-
+docs-standard-asynchronous-programming-patterns-synchronous-wrappers-for-async-methods-SyncWrappersForAsync	PASS		NATIVEAOT-OK		3369	5903	135552	1536616
+docs-standard-asynchronous-programming-patterns-task-based-asynchronous-pattern-tap-task-based-asynchronous-pattern-tap	PASS		NATIVEAOT-OK		1959	5151	34752	1057016
+docs-standard-asynchronous-programming-patterns-task-exception-handling-TaskExceptionHandling	SKIPPED	non-deterministic under .NET	-		-	-	-	-
+docs-standard-base-types-alternation-constructs-in-regular-expressions-csharp	PASS		NATIVEAOT-OK		9839	6563	514824	2070184
+docs-standard-base-types-best-practices-display-data-formattable-formattable	PASS		NATIVEAOT-OK		4559	6127	160376	1341232
+docs-standard-base-types-best-practices-display-data-tostring-tostring	PASS		NATIVEAOT-OK		3669	5759	120120	1332992
+docs-standard-base-types-best-practices-strings-comparison1-comparison	PASS		NATIVEAOT-OK		4263	5706	121768	1370256
+docs-standard-base-types-best-practices-strings-comparison2-comparison	PASS		NATIVEAOT-OK		4321	5853	138008	1341200
+docs-standard-base-types-best-practices-strings-comparison3-comparison	PASS		NATIVEAOT-OK		3885	6305	121464	1337088
+docs-standard-base-types-best-practices-strings-embeddednulls1-embeddednulls	PASS		NATIVEAOT-OK		4729	6294	130088	1366064
+docs-standard-base-types-best-practices-strings-embeddednulls2-embeddednulls	PASS		NATIVEAOT-OK		4336	5423	116264	1337088
+docs-standard-base-types-best-practices-strings-everythingelse-everythingelse	PASS		NATIVEAOT-OK		4407	6180	149592	1370192
+docs-standard-base-types-best-practices-strings-explicitargs-explicitargs	PASS		NATIVEAOT-OK		4572	6173	148344	1266592
+docs-standard-base-types-best-practices-strings-indirect1-indirect1	PASS		NATIVEAOT-OK		7599	6058	321248	1666864
+docs-standard-base-types-best-practices-strings-stringcomparer-api1	PASS		NATIVEAOT-OK		4609	5429	135304	1341192
+docs-standard-base-types-best-practices-strings-turkish-turkish	PASS		NATIVEAOT-OK		4138	6774	130184	1370184
+docs-standard-base-types-character-classes-in-regular-expressions-RegexSnippets	PASS		NATIVEAOT-OK		12183	9511	551864	2790496
+docs-standard-base-types-character-encoding-introduction-RuneSamples	COMPILE-UNSUPPORTED	error CSLLVM0001: not supported by csharpc yet: struct 'System.Text.Rune'	NATIVEAOT-OK		-	6928	-	1374144
+docs-standard-base-types-composite-formatting-framework-Formatting	PASS		NATIVEAOT-OK		6332	6401	160120	1332992
+docs-standard-base-types-composite-formatting-net-Formatting	PASS		NATIVEAOT-OK		7442	6269	306352	1658528
+docs-standard-base-types-creating-new-creating-new	PASS		NATIVEAOT-OK		2626	5944	28544	1333024
+docs-standard-base-types-how-to-display-milliseconds-in-date-and-time-values-DateTimeCode	PASS		NATIVEAOT-OK		15301	8417	791752	2354304
+docs-standard-base-types-how-to-verify-that-strings-are-in-valid-email-format-email-cs	COMPILE-UNSUPPORTED	error CSLLVM0001: not supported by csharpc yet: creating instances of 'System.Globalization.IdnMapping'	NATIVEAOT-OK		-	9202	-	2790224
+docs-standard-base-types-parse-strings-parse-strings	PASS		NATIVEAOT-OK		6569	7271	215288	1345328
+docs-standard-base-types-parsing-datetime-parsing-datetime	PASS		NATIVEAOT-OK		9911	6313	398368	1765240
+docs-standard-base-types-regex-backtracking-Project	SKIPPED	non-deterministic under .NET	-		-	-	-	-
+docs-standard-base-types-regular-expression-example-scanning-for-hrefs-regex	PASS		NATIVEAOT-OK		11026	8805	520592	2765384
+docs-standard-datetime-how-to-use-dateonly-timeonly-dateonlytimeonly	SKIPPED	non-deterministic under .NET	-		-	-	-	-
+docs-standard-datetime-system-text-json-support-computing-with-jsondocument-error-computing-with-jsondocument-error	PASS		NATIVEAOT-OK		5824	7078	213664	1834920
+docs-standard-datetime-system-text-json-support-computing-with-jsondocument-valid-computing-with-jsondocument-valid	PASS		NATIVEAOT-OK		6203	6807	213664	1834920
+docs-standard-datetime-system-text-json-support-custom-reading-with-utf8jsonreader-custom-reading-with-utf8jsonreader	PASS		NATIVEAOT-OK		8369	6186	382968	1765096
+docs-standard-datetime-system-text-json-support-custom-writing-with-utf8jsonwriter-custom-writing-with-utf8jsonwriter	SKIPPED	non-deterministic under .NET (a third run differed)	-		6045	6234	331680	1691336
+docs-standard-datetime-system-text-json-support-datetime-converter-examples-example1-example1	PASS		NATIVEAOT-UNSUPPORTED	crashes: signal 6 (JIT exit 0) (warnings IL3050,IL2026); -The JSON value could not be converted to System.DateTime. Path: $ | LineNumber: 0 | BytePositionInLine: 20.	16434	7074	984912	2231680
+docs-standard-datetime-system-text-json-support-datetime-converter-examples-example2-example2	COMPILE-UNSUPPORTED	error CSLLVM0002: 'System.Buffers.Text.Utf8Parser.TryParse(System.ReadOnlySpan<byte>, System.DateTime, int, char)' has no implementation in the csharpc runtime yet	NATIVEAOT-UNSUPPORTED	crashes: signal 6 (JIT exit 0) (warnings IL3050,IL2026); -The JSON value could not be converted to System.DateTime. Path: $ | LineNumber: 0 | BytePositionInLine: 31.	-	7856	-	2223488
+docs-standard-datetime-system-text-json-support-datetime-converter-examples-example3-example3	PASS		NATIVEAOT-UNSUPPORTED	crashes: signal 6 (JIT exit 0) (warnings IL3050,IL2026); -The JSON value could not be converted to System.DateTime. Path: $ | LineNumber: 0 | BytePositionInLine: 35.	17709	8182	984968	2231680
+docs-standard-datetime-system-text-json-support-deserializing-with-jsonserializer-error-deserializing-with-jsonserializer-error	PASS		NATIVEAOT-UNSUPPORTED	crashes: signal 6 (JIT exit 0) (warnings IL3050,IL2026); -The JSON value could not be converted to System.DateTime. Path: $.ExpiryDate | LineNumber: 0 | BytePositionInLine: 42.	16854	7858	875960	1956520
+docs-standard-datetime-system-text-json-support-deserializing-with-jsonserializer-valid-deserializing-with-jsonserializer-valid	PASS		NATIVEAOT-UNSUPPORTED	crashes: signal 6 (JIT exit 0) (warnings IL3050,IL2026); -Banana	18430	8603	876008	2252824
+docs-standard-datetime-system-text-json-support-reading-with-utf8jsonreader-error-reading-with-utf8jsonreader-error	PASS		NATIVEAOT-OK		8127	7467	325472	1724072
+docs-standard-datetime-system-text-json-support-reading-with-utf8jsonreader-valid-reading-with-utf8jsonreader-valid	PASS		NATIVEAOT-OK		7783	7371	325472	1724072
+docs-standard-datetime-system-text-json-support-serializing-with-jsonserializer-serializing-with-jsonserializer	PASS		NATIVEAOT-UNSUPPORTED	crashes: signal 6 (JIT exit 0) (warnings IL3050,IL2026); -{"Name":"Banana","ExpiryDate":"2019-07-26T00:00:00"}	14827	7833	807064	1898400
+docs-standard-datetime-system-text-json-support-writing-with-utf8jsonwriter-writing-with-utf8jsonwriter	SKIPPED	non-deterministic under .NET	-		-	-	-	-
+docs-standard-datetime-timeprovider-overview-myproject	SKIPPED	non-deterministic under .NET	-		-	-	-	-
+docs-standard-datetime-working-with-calendars-ChangeCalendar	PASS		NATIVEAOT-OK		7710	8100	341032	1675264
+docs-standard-events-how-to-handle-multiple-events-using-event-properties-EventProperties	PASS		NATIVEAOT-OK		5205	6870	124888	1341200
+docs-standard-events-how-to-raise-and-consume-events-csharp	PASS		NATIVEAOT-OK		7492	6021	285008	1361896
+docs-standard-events-index-eventsCS	PASS		NATIVEAOT-OK		2181	5115	28896	1332992
+docs-standard-events-observables-Observables	PASS		NATIVEAOT-OK		6324	4461	232824	1408272
+docs-standard-events-shared-how-to-provider-observer-temperaturemonitorcs	SKIPPED	non-deterministic under .NET	-		-	-	-	-
+docs-standard-exceptions-best-practices-Project	PASS		NATIVEAOT-OK		1935	4189	38216	1143384
+docs-standard-exceptions-how-to-use-finally-blocks-Project	PASS		NATIVEAOT-UNSUPPORTED	output differs; -   at System.ArgumentOutOfRangeException.ThrowNegative[T](T value, String paramName)	3228	4278	116320	1333000
+docs-standard-exceptions-how-to-use-specific-exceptions-in-a-catch-block-CatchException	PASS		NATIVEAOT-UNSUPPORTED	output differs; -Error passing data to PromoteEmployee method. Unable to cast object of type 'System.DateTime' to type 'Employee'.	4766	4669	248024	1637968
+docs-standard-exceptions-how-to-use-the-try-catch-block-to-catch-exceptions-CatchException	PASS		NATIVEAOT-UNSUPPORTED	output differs; -   at Interop.ThrowExceptionForIoErrno(ErrorInfo errorInfo, String path, Boolean isDirError)	3629	4721	150944	1435872
+docs-standard-garbage-collection-dispose-async-dispose-async	PASS		NATIVEAOT-OK		1996	5024	51640	1669088
+docs-standard-io-composing-streams-Article	PASS		NATIVEAOT-OK		3522	4541	147912	1444072
+docs-standard-io-how-to-copy-directories-AppCS	PASS		NATIVEAOT-OK		3060	4801	128472	1230808
+docs-standard-io-how-to-read-text-from-a-file-FileReader	PASS		NATIVEAOT-OK		3443	5057	159288	1817760
+docs-standard-io-how-to-use-named-pipes-for-network-interprocess-communication-NamedPipeServerStream-ImpersonationSample-NamedPipeServerStream-ImpersonationSample	SKIPPED	times out under .NET (waits for input or runs > 30s)	-		-	-	-	-
+docs-standard-io-zip-tar-best-practices-Project	COMPILE-UNSUPPORTED	error CSLLVM0001: not supported by csharpc yet: 'System.IO.Compression.ZipArchiveEntry.Length' has no implementation in the csharpc runtime yet	NATIVEAOT-OK		-	3108	-	1056984
+docs-standard-linq-preserve-white-space-serializing-preserve-white-space-serializing	COMPILE-UNSUPPORTED	error CSLLVM0002: 'System.Xml.Linq.XDocument.Parse(string)' has no implementation in the csharpc runtime yet	NATIVEAOT-OK		-	10732	-	7574632
+docs-standard-memory-and-spans-usage-guidelines-owner-owner	PASS		NATIVEAOT-OK		3280	4348	149368	1407112
+docs-standard-memory-and-spans-usage-guidelines-owner-using-owner-using	PASS		NATIVEAOT-OK		2557	3646	149368	1407120
+docs-standard-memory-and-spans-usage-guidelines-ownerless-ownerless	PASS		NATIVEAOT-OK		2197	3615	116376	1402976
+docs-standard-memory-and-spans-usage-guidelines-task-returning-async-project	PASS		NATIVEAOT-OK		3494	4822	210592	1593832
+docs-standard-memory-and-spans-usage-guidelines-task-returning-task-returning	PASS		NATIVEAOT-OK		3210	5136	183040	1593824
+docs-standard-memory-and-spans-usage-guidelines-void-returning-void-returning	PASS		NATIVEAOT-OK		3106	4846	145160	1398912
+docs-standard-native-interop-marshalling-data-with-platform-invoke-PInvokeLibManaged-PInvokeLibManaged	COMPILE-UNSUPPORTED	error CSLLVM0001: not supported by csharpc yet: [StructLayout] with explicit layout, Pack or Size on 'MyUnion'	NATIVEAOT-OK		-	3979	-	1333000
+docs-standard-parallel-programming-potential-pitfalls-with-plinq-RaceConditionExample-RaceConditionExample	SKIPPED	non-deterministic under .NET	-		-	-	-	-
+docs-standard-security-cryptographic-signatures-example	COMPILE-UNSUPPORTED	error CSLLVM0002: 'System.Security.Cryptography.RSA.Create()' has no implementation in the csharpc runtime yet	NATIVEAOT-OK		-	5049	-	1690360
+docs-standard-security-decrypting-data-aesdecrypt	COMPILE-UNSUPPORTED	error CSLLVM0002: 'System.Security.Cryptography.Aes.Create()' has no implementation in the csharpc runtime yet	NATIVEAOT-UNSUPPORTED	output differs; -   at Interop.ThrowExceptionForIoErrno(ErrorInfo errorInfo, String path, Boolean isDirError)	-	5468	-	1953600
+docs-standard-security-encrypting-data-aesencrypt	COMPILE-UNSUPPORTED	error CSLLVM0002: 'System.Security.Cryptography.Aes.Create()' has no implementation in the csharpc runtime yet	NATIVEAOT-OK		-	4974	-	1821328
+docs-standard-serialization-binaryformatter-event-source-binaryformatter-event-source	SKIPPED	Windows-only under .NET	-		-	-	-	-
+docs-standard-serialization-system-text-json-converters-how-to-SystemTextJsonSamples	PASS		NATIVEAOT-UNSUPPORTED	output differs (warnings IL3050,IL2026); -{	17473	7927	1074768	2363848
+docs-standard-serialization-system-text-json-custom-contracts-Project	COMPILE-UNSUPPORTED	error CSLLVM0002: 'System.Reflection.MemberInfo.IsDefined(System.Type, bool)' has no implementation in the csharpc runtime yet	NATIVEAOT-UNSUPPORTED	crashes: signal 6 (JIT exit 0) (warnings IL3050,IL2026,IL2075); -{"Name":"Aquafresh","RoundTrips":0}	-	11778	-	4674856
+docs-standard-serialization-system-text-json-how-to-6-0-SystemTextJsonSamples	PASS		NATIVEAOT-UNSUPPORTED	crashes: signal 6 (JIT exit 0) (warnings IL3050,IL2026); -{	23550	8549	1186048	2363848
+docs-standard-serialization-system-text-json-how-to-SystemTextJsonSamples	COMPILE-UNSUPPORTED	error CSLLVM0001: not supported by csharpc yet: System.Text.Json serialization of file-local type 'SeriesDataPoint'	NATIVEAOT-OK		-	5672	-	1247752
+docs-standard-serialization-system-text-json-nullable-annotations-Project	PASS		NATIVEAOT-UNSUPPORTED	crashes: signal 6 (JIT exit 0) (warnings IL3050,IL2026); -True	20137	8262	1021352	1956504
+docs-standard-serialization-system-text-json-populate-properties-Project	PASS		NATIVEAOT-UNSUPPORTED	crashes: signal 6 (JIT exit 0) (warnings IL3050,IL2026)	18699	7603	881176	1783336
+docs-standard-serialization-system-text-json-required-properties-Project	PASS		NATIVEAOT-OK	warnings IL3050,IL2026	24294	7598	1068408	1783336
+docs-standard-serialization-system-text-json-schema-exporter-Project	COMPILE-UNSUPPORTED	error CSLLVM0002: 'System.Text.Json.Schema.JsonSchemaExporter.GetJsonSchemaAsNode(System.Text.Json.JsonSerializerOptions, System.Type, System.Text.Json.Schema.JsonSchemaExporterOptions)' has no implementation in the csharpc runtime yet	NATIVEAOT-UNSUPPORTED	crashes: signal 6 (JIT exit 0) (warnings IL3050,IL2026); -{	-	9452	-	2438680
+docs-standard-serialization-system-text-json-source-generation-SystemTextJsonSamples	PASS		NATIVEAOT-OK	warnings IL3050,IL2026	22032	9024	1196984	3061912
+docs-standard-serialization-system-text-json-supported-types-SystemTextJsonSamples	COMPILE-UNSUPPORTED	error CSLLVM0001: not supported by csharpc yet: System.Text.Json serialization of anonymous types	NATIVEAOT-UNSUPPORTED	crashes: signal 6 (JIT exit 0) (warnings IL3050,IL2026); -{"X":1,"Y":2}	-	8014	-	1990024
+docs-standard-serialization-system-text-json-use-dom-utf8jsonreader-utf8jsonwriter-SystemTextJsonSamples	COMPILE-UNSUPPORTED	error CSLLVM0002: 'System.Text.Json.Schema.JsonSchemaExporter.GetJsonSchemaAsNode(System.Text.Json.JsonSerializerOptions, System.Type, System.Text.Json.Schema.JsonSchemaExporterOptions)' has no implementation in the csharpc runtime yet	NATIVEAOT-UNSUPPORTED	crashes: signal 6 (JIT exit 0) (warnings IL3050,IL2026); -1	-	9363	-	2337592
+docs-standard-threading-cancellation-in-managed-threads-LinkedTokens-LinkedTokens	PASS		NATIVEAOT-OK		1726	6434	51472	1366864
+docs-standard-threading-pausing-and-resuming-threads-InterruptThread-InterruptThread	COMPILE-UNSUPPORTED	error CSLLVM0002: 'System.Threading.Thread.Interrupt()' has no implementation in the csharpc runtime yet	NATIVEAOT-OK		-	6662	-	1370288
+samples-NullableIntroduction-NullableIntroduction-NullableIntroduction	SKIPPED	non-deterministic under .NET	-		-	-	-	-
+samples-PatternMatching-PatternMatching	PASS		NATIVEAOT-OK		4107	5221	124696	1341216
+samples-api-datetime-parse-datetime-parse	SKIPPED	times out under .NET (waits for input or runs > 30s)	-		-	-	-	-
+samples-api-string-format-string-format-examples	SKIPPED	times out under .NET (waits for input or runs > 30s)	-		-	-	-	-
+samples-branches-quickstart-BranchesAndLoops	PASS		NATIVEAOT-OK		3265	5206	116648	1337096
+samples-classes-quickstart-classes	PASS		NATIVEAOT-UNSUPPORTED	output differs; -   at classes.BankAccount.MakeDeposit(Decimal amount, DateTime date, String note) in /home/runner/work/_temp/compat-work/tree/samples/csharp/classes-quickstart	5644	6274	293672	1658552
+samples-core-console-apps-FibonacciBetterMsBuild-Fibonacci	PASS		NATIVEAOT-OK		22024	12936	122296	1350096
+samples-core-console-apps-HelloMsBuild-Hello	PASS		NATIVEAOT-OK		21763	13601	28520	1332984
+samples-core-console-apps-NewTypesMsBuild-src-NewTypes-NewTypes	PASS		NATIVEAOT-OK		21774	13110	40408	1333056
+samples-core-console-apps-fibonacci-msbuild-Hello	PASS		NATIVEAOT-OK		22115	13165	111992	1332984
+samples-core-linq-aggregate-aggregate	PASS		NATIVEAOT-OK		14186	8226	592936	2080016
+samples-core-linq-concatenation-concatenation	PASS		NATIVEAOT-OK		5001	8325	151880	1572784
+samples-core-linq-conversion-conversion	PASS		NATIVEAOT-OK		6193	7665	184952	1408864
+samples-core-linq-customsequence-customsequence	PASS		NATIVEAOT-OK		6040	7701	174984	1350112
+samples-core-linq-element-element	PASS		NATIVEAOT-OK		6425	6387	199064	1391576
+samples-core-linq-equality-equality	PASS		NATIVEAOT-OK		6452	6375	190552	1341216
+samples-core-linq-generation-generation	PASS		NATIVEAOT-OK		5222	6897	170600	1552192
+samples-core-linq-grouping-grouping	PASS		NATIVEAOT-OK		13031	9048	712712	2039168
+samples-core-linq-join-join	PASS		NATIVEAOT-OK		4625	8287	140272	1404408
+samples-core-linq-ordering-ordering	PASS		NATIVEAOT-OK		6709	8215	246504	1664288
+samples-core-linq-partitioning-partitioning	PASS		NATIVEAOT-OK		3742	8061	131688	1375184
+samples-core-linq-projection-projection	COMPILE-UNSUPPORTED	error CSLLVM0002: 'System.Xml.Linq.XContainer.Elements(System.Xml.Linq.XName)' has no implementation in the csharpc runtime yet	NATIVEAOT-OK		-	19362	-	7695440
+samples-core-linq-quantifier-quantifier	PASS		NATIVEAOT-OK		5589	7302	232168	1610096
+samples-core-linq-queryexecution-queryexecution	PASS		NATIVEAOT-OK		5216	7011	189352	1374960
+samples-core-linq-restriction-restriction	PASS		NATIVEAOT-OK		5610	7508	198648	1387408
+samples-core-linq-setoperators-setoperators	PASS		NATIVEAOT-OK		10062	7155	483616	1996800
+samples-core-tutorials-Unloading-Host-Host	COMPILE-UNSUPPORTED	error CSLLVM0001: not supported by csharpc yet: deriving from library class 'System.Runtime.Loader.AssemblyLoadContext'	NATIVEAOT-OK	warnings IL2026,IL3000,IL2075	-	7365	-	1395064
+samples-core-tutorials-cli-templates-create-item-template-content-consoleasync-consoleasync	PASS		NATIVEAOT-OK		2333	6914	52856	1594784
+samples-core-tutorials-using-on-mac-vs-full-solution-WordCounter-WordCounterApp-WordCounterApp	PASS		NATIVEAOT-OK		6029	5224	158408	1436664
+samples-delegates-and-events-delegates-and-events	PASS		NATIVEAOT-OK		6065	5282	291560	1666776
+samples-events-events	PASS		NATIVEAOT-OK		3518	5155	135608	1391368
+samples-getting-started-console-linq-console-linq	PASS		NATIVEAOT-OK		4195	7598	210584	1639056
+samples-getting-started-console-teleprompter-console-teleprompter	PASS		NATIVEAOT-OK		3434	6142	173440	1660264
+samples-indexers-indexers	SKIPPED	non-deterministic under .NET	-		-	-	-	-
+samples-iterators-iterators	PASS		NATIVEAOT-OK		3135	4991	127560	1345840
+samples-list-quickstart-list-quickstart	PASS		NATIVEAOT-OK		3846	5089	152840	1353616
+samples-numbers-quickstart-NumbersInCSharp	PASS		NATIVEAOT-OK		3625	5530	128728	1353552
+samples-parallel-ComputePi-ComputePi	SKIPPED	non-deterministic under .NET	-		-	-	-	-
+samples-parallel-EditDistance-EditDistance	SKIPPED	does not build under .NET net11.0	-		-	-	-	-
+samples-parallel-PLINQ-PLINQ	SKIPPED	non-deterministic under .NET	-		-	-	-	-
+samples-parallel-ParallelGrep-ParallelGrep	COMPILE-UNSUPPORTED	error CSLLVM0001: not supported by csharpc yet: type test against 'System.Collections.Concurrent.OrderablePartitioner<string>' [in 'System.Linq.Parallel.PartitionerQueryOperator<TElement>.Orderable.get' (System.Linq.Parallel.dll) IL_0006: isinst System.Collections.Concurrent.OrderablePartitioner<TElement>]	NATIVEAOT-OK	warnings IL3053	-	10004	-	2924128
+samples-ref-tutorial-IntruderAlert-finished-IntruderAlert	SKIPPED	non-deterministic under .NET	-		-	-	-	-
+samples-ref-tutorial-IntruderAlert-starter-IntruderAlert	SKIPPED	non-deterministic under .NET	-		-	-	-	-
+samples-roslyn-sdk-Tutorials-MakeConstTestProject-MakeConstTestProject-MakeConstTestProject	PASS		NATIVEAOT-OK		1383	6686	11296	1057000
+samples-safe-efficient-code-ref-readonly-struct-ref-readonly-struct	PASS		NATIVEAOT-OK		1965	5486	28608	1057000
+samples-serialization-serialization	SKIPPED	non-deterministic under .NET	-		-	-	-	-
+samples-tutorials-default-interface-members-versions-finished-customer-relationship-customer-relationship	PASS		NATIVEAOT-OK		6671	6956	343504	1667080
+samples-tutorials-default-interface-members-versions-starter-customer-relationship-customer-relationship	PASS		NATIVEAOT-OK		6674	6501	335104	1658872
+samples-tutorials-exploration-csharp6-finished-csharp6-finished	PASS		NATIVEAOT-OK		5425	6301	162376	1370712
+samples-tutorials-exploration-csharp6-starter-csharp6-starter	PASS		NATIVEAOT-OK		4403	6242	134056	1337088
+samples-tutorials-mixins-with-interfaces-mixins-with-interfaces	PASS		NATIVEAOT-OK		4182	4203	187360	1565752
+samples-tutorials-patterns-finished-toll-calculator-toll-calculator	PASS		NATIVEAOT-OK		4988	5757	285464	1658512
+samples-tutorials-patterns-start-toll-calculator-toll-calculator	PASS		NATIVEAOT-OK		2591	5652	38360	1143392
+samples-versioning-new-new	PASS		NATIVEAOT-OK		1371	4872	28696	1332984
+samples-versioning-override-override	PASS		NATIVEAOT-OK		3700	4303	160344	1332992

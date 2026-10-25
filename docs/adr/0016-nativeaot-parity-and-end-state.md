@@ -55,6 +55,11 @@ against is .NET's own AOT path, `dotnet publish -p:PublishAot=true` (NativeAOT, 
 - **Output parity.** What NativeAOT produces next to the executable (the `.dbg`/`.pdb` symbol file
   split by `StripSymbols`, `.map` with `IlcGenerateMapFile`, static/shared libraries for `NativeLib`)
   becomes part of the drop-in contract.
+- **Measured, not assumed.** The compatibility corpus decides what is in scope by running NativeAOT
+  (docs/18-compatibility.md): its first runs found NativeAOT running expression-tree programs (through
+  the expression interpreter) and a `dynamic` program exactly like the JIT, so those count against
+  parity even though the list above names them; what NativeAOT really can't do (the reflection-based
+  `System.Text.Json` serializer, stack-trace file/line information) leaves the denominator.
 - **Out-of-scope list is NativeAOT's.** The roadmap's ❌ status means exactly "NativeAOT doesn't
   support it either"; anything NativeAOT supports is ⬜/🟡/🚧 until it's ✅.
 - **Definition of done (roadmap M8):** the fork, with NativeAOT's code removed and csharpc in its
