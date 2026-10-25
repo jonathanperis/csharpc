@@ -69,10 +69,18 @@ public sealed class TypeMapper(LlvmContext llvm, TargetMachine target)
         // System.Runtime.CompilerServices.InlineArrayN<T> (compiled `params` spans): N consecutive Ts.
         INamedTypeSymbol n when LibraryInlineArrayLength(n) is { } length => LlvmContext.Array(Storage(n.TypeArguments[0]), (uint)length),
         INamedTypeSymbol { TypeKind: TypeKind.Struct } s when StructType?.Invoke(s) is { } user => user,
+        // Vector64/128/256<T>: opaque bytes. csharpc has no SIMD operations yet (their IsHardwareAccelerated
+        // and the ISA classes' IsSupported fold to false); locals and fields of these types still need a size.
+        INamedTypeSymbol n when SimdVectorBytes(n) is { } bytes => LlvmContext.Array(Llvm.I8, bytes),
         { TypeKind: TypeKind.Struct } => throw CompileError.Unsupported($"struct '{type}'", type),
         { TypeKind: TypeKind.TypeParameter } => throw CompileError.Unsupported($"generic type parameter '{type}'", type),
         _ => throw CompileError.Unsupported($"type '{type}'", type),
     };
+
+    private static uint? SimdVectorBytes(INamedTypeSymbol type) =>
+        type is { Arity: 1, ContainingNamespace: { Name: "Intrinsics", ContainingNamespace: { Name: "Runtime", ContainingNamespace: { Name: "System", ContainingNamespace.IsGlobalNamespace: true } } } }
+            ? type.Name switch { "Vector64" => 8u, "Vector128" => 16u, "Vector256" => 32u, "Vector512" => 64u, _ => null }
+            : null;
 
     /// <summary>
     /// N for the BCL's InlineArray2&lt;T&gt;..InlineArray16&lt;T&gt; ([InlineArray(N)] over one T field), which the
