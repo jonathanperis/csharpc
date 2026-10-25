@@ -2,7 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    # ci/** is the long-lived namespace for measurement branches (docs/20-status.md, Working rules).
+    # main's push behaviour is unchanged: every push to main still runs CI.
+    branches: [main, "ci/**"]
   pull_request:
   workflow_dispatch:
 

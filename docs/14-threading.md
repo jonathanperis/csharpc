@@ -111,5 +111,8 @@ calling thread after the loop drains.
   to an Invalid operation. The driver lowers with the nullable context disabled (warnings still use
   the real settings with `-W`); a `#nullable enable` directive around such a `lock` is reported as a
   compile error instead of silently losing the lock.
-- The collector is still stop-the-world and single-threaded while marking; marking in parallel is
-  a natural next step for large heaps on many cores.
+- The collector is still stop-the-world and single-threaded while marking. An ownership-based
+  parallel marker was slower than one thread on a 4-core machine (the serial scan is already about
+  1.5–2 GB/s, and handing each object to its owner cost more than scanning it) and is compiled in
+  only with `-DCSRT_GC_PARALLEL_MARK`. The next increment is a non-moving nursery
+  ([ADR 0004](adr/0004-memory-management.md)).
