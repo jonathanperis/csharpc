@@ -1,0 +1,35 @@
+sleep: about to block
+sleep: ThreadInterruptedException: Thread was interrupted from a waiting state.
+sleep: finally
+sleep: joined, alive=False
+sleep-timeout: about to block
+sleep-timeout: ThreadInterruptedException: Thread was interrupted from a waiting state.
+sleep-timeout: finally
+sleep-timeout: joined, alive=False
+monitor-wait: about to block
+monitor-wait: ThreadInterruptedException: Thread was interrupted from a waiting state.
+monitor-wait: finally
+monitor-wait: joined, alive=False
+monitor-wait-held: about to block
+monitor-wait-held: owns the lock in finally: True
+monitor-wait-held: ThreadInterruptedException: Thread was interrupted from a waiting state.
+monitor-wait-held: finally
+monitor-wait-held: joined, alive=False
+event: about to block
+event: ThreadInterruptedException: Thread was interrupted from a waiting state.
+event: finally
+event: joined, alive=False
+event-timeout: about to block
+event-timeout: ThreadInterruptedException: Thread was interrupted from a waiting state.
+event-timeout: finally
+event-timeout: joined, alive=False
+join: about to block
+join: returned, other alive=False
+join: ThreadInterruptedException: Thread was interrupted from a waiting state.
+join: finally
+join: joined, alive=False
+later: still running after Interrupt
+later: interrupted at the next Sleep
+later: a second Sleep is not interrupted
+main: Sleep(0) after its own Interrupt throws
+main: done

@@ -29,6 +29,7 @@ static const csrt_MethodTable mt_argument_null = { NULL, "System.ArgumentNullExc
 static const csrt_MethodTable mt_argument_out_of_range = { NULL, "System.ArgumentOutOfRangeException", 0, 0, NULL, 0, 0 };
 static const csrt_MethodTable mt_invalid_operation = { NULL, "System.InvalidOperationException", 0, 0, NULL, 0, 0 };
 static const csrt_MethodTable mt_platform_not_supported = { NULL, "System.PlatformNotSupportedException", 0, 0, NULL, 0, 0 };
+static const csrt_MethodTable mt_thread_interrupted = { NULL, "System.Threading.ThreadInterruptedException", 0, 0, NULL, 0, 0 };
 
 CSRT_THROWS static void throw_msg(const csrt_MethodTable* mt, const char* message) {
     csrt_throw(mt, csrt_string_from_utf8(message));
@@ -80,9 +81,9 @@ static int pthread_mutex_timedlock(pthread_mutex_t* mutex, const struct timespec
 }
 #endif
 
-/// Thread.Sleep: resumes with the remaining time when a GC signal interrupts it.
-void csrt_thread_sleep(int32_t ms) {
-    if (ms < -1) throw_msg(&mt_argument_out_of_range, "Number must be either non-negative and less than or equal to Int32.MaxValue or -1. (Parameter 'millisecondsTimeout')");
+/// Thread.Sleep on a thread nothing can interrupt (csrt_thread_sleep): resumes with the remaining
+/// time when a GC signal interrupts it.
+static void plain_sleep(int32_t ms) {
 #ifdef __wasi__
     extern bool csrt_scheduler_yield(void);
     if (ms == 0) { csrt_scheduler_yield(); return; }
@@ -134,6 +135,9 @@ typedef struct csrt_Thread {
     bool parameterized;
     bool pool;               // a pool worker (always background)
     void* flow;              // the starting thread's execution-context flow (csrt_tl_flow), captured by Start
+    atomic_bool interrupted; // Thread.Interrupt pending (consumed by the next interruptible wait)
+    pthread_cond_t* wait_cond;    // the interruptible wait in progress (under s_interrupt_lock), or NULL
+    pthread_mutex_t* wait_mutex;
 } csrt_Thread;
 
 const csrt_BuiltinMethodTable csrt_Thread_MT = {
@@ -152,6 +156,101 @@ static atomic_int s_next_id = 2;               // the main thread is 1, like .NE
 static pthread_mutex_t s_join_lock = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t s_join_cond = PTHREAD_COND_INITIALIZER;
 static int s_foreground;                       // started, unfinished foreground threads
+
+// ---------------------------------------------------------------------------------------------
+// Thread.Interrupt: a thread blocked in Sleep, Monitor.Wait or a wait handle (or the next
+// time it blocks) wakes with ThreadInterruptedException. Interruptible waits register their
+// condition variable; the interrupter sets the flag and, when it can take the waiter's mutex
+// without blocking, broadcasts the condition. It never blocks on that mutex (the interrupter may
+// own the monitor the target waits on), so waits also re-check the flag every INTERRUPT_POLL_MS.
+// ---------------------------------------------------------------------------------------------
+#define INTERRUPT_POLL_MS 50
+static pthread_mutex_t s_interrupt_lock = PTHREAD_MUTEX_INITIALIZER;
+
+static bool consume_interrupt(csrt_Thread* t) { return t && atomic_exchange(&t->interrupted, false); }
+
+static bool deadline_passed(const struct timespec* deadline) {
+    struct timespec now;
+    clock_gettime(CLOCK_REALTIME, &now);
+    return now.tv_sec > deadline->tv_sec || (now.tv_sec == deadline->tv_sec && now.tv_nsec >= deadline->tv_nsec);
+}
+
+/// pthread_cond_(timed)wait for waits Thread.Interrupt can end: `mutex` is held. Returns 0 when woken
+/// (callers re-check their condition), ETIMEDOUT at the deadline (NULL = none), or EINTR when the
+/// thread was interrupted (the interrupt is consumed; `mutex` is still held). `kick`: the interrupter
+/// may broadcast `cond` (waits that loop on a predicate; not Monitor.Wait, whose wakeups mean Pulse).
+static int interruptible_wait(pthread_cond_t* cond, pthread_mutex_t* mutex, const struct timespec* deadline, bool kick) {
+    csrt_Thread* t = tl_current;
+    // Only a thread whose Thread object exists can be interrupted (Interrupt needs it).
+    if (!t) return deadline ? pthread_cond_timedwait(cond, mutex, deadline) : pthread_cond_wait(cond, mutex);
+    if (consume_interrupt(t)) return EINTR;
+    if (kick) {
+        pthread_mutex_lock(&s_interrupt_lock);
+        t->wait_cond = cond;
+        t->wait_mutex = mutex;
+        pthread_mutex_unlock(&s_interrupt_lock);
+    }
+    int rc;
+    for (;;) {
+        struct timespec slice;
+        deadline_after(&slice, INTERRUPT_POLL_MS);
+        bool last = deadline && (deadline->tv_sec < slice.tv_sec || (deadline->tv_sec == slice.tv_sec && deadline->tv_nsec <= slice.tv_nsec));
+        rc = pthread_cond_timedwait(cond, mutex, last ? deadline : &slice);
+        if (atomic_load(&t->interrupted)) { rc = EINTR; break; }
+        if (rc != ETIMEDOUT) { rc = 0; break; }
+        if (last || (deadline && deadline_passed(deadline))) break;
+    }
+    if (kick) {
+        pthread_mutex_lock(&s_interrupt_lock);
+        t->wait_cond = NULL;
+        t->wait_mutex = NULL;
+        pthread_mutex_unlock(&s_interrupt_lock);
+    }
+    if (rc == EINTR) atomic_store(&t->interrupted, false);
+    return rc;
+}
+
+CSRT_THROWS static void throw_interrupted(void) {
+    throw_msg(&mt_thread_interrupted, "Thread was interrupted from a waiting state.");
+}
+
+void csrt_thread_interrupt(csrt_Thread* t) {
+    if (!t) csrt_throw_null_reference();
+    atomic_store(&t->interrupted, true);
+    pthread_mutex_lock(&s_interrupt_lock);
+    if (t->wait_cond && pthread_mutex_trylock(t->wait_mutex) == 0) {
+        pthread_cond_broadcast(t->wait_cond);
+        pthread_mutex_unlock(t->wait_mutex);
+    }
+    pthread_mutex_unlock(&s_interrupt_lock);
+}
+
+/// Thread.Sleep on a thread that can be interrupted: a wait on a condition nobody signals.
+static _Thread_local pthread_mutex_t tl_sleep_mutex = PTHREAD_MUTEX_INITIALIZER;
+static _Thread_local pthread_cond_t tl_sleep_cond = PTHREAD_COND_INITIALIZER;
+
+static void interruptible_sleep(int32_t ms) {
+    struct timespec deadline;
+    if (ms >= 0) deadline_after(&deadline, ms);
+    pthread_mutex_lock(&tl_sleep_mutex);
+    int rc;
+    do rc = interruptible_wait(&tl_sleep_cond, &tl_sleep_mutex, ms >= 0 ? &deadline : NULL, true);
+    while (rc == 0);
+    pthread_mutex_unlock(&tl_sleep_mutex);
+    if (rc == EINTR) throw_interrupted();
+}
+
+void csrt_thread_sleep(int32_t ms) {
+    if (ms < -1) throw_msg(&mt_argument_out_of_range, "Number must be either non-negative and less than or equal to Int32.MaxValue or -1. (Parameter 'millisecondsTimeout')");
+#ifndef __wasi__
+    if (tl_current) {
+        // A pending interrupt ends even Sleep(0).
+        if (consume_interrupt(tl_current)) throw_interrupted();
+        if (ms != 0) { interruptible_sleep(ms); return; }
+    }
+#endif
+    plain_sleep(ms);
+}
 
 static csrt_Thread* thread_alloc(void) {
     csrt_Thread* t = csrt_alloc(&csrt_Thread_MT.header, sizeof(csrt_Thread));
@@ -252,8 +351,10 @@ bool csrt_thread_join_timeout(csrt_Thread* t, int32_t ms) {
     pthread_mutex_lock(&s_join_lock);
     bool done = true;
     while (atomic_load(&t->state) != THREAD_STOPPED) {
-        if (ms < 0) pthread_cond_wait(&s_join_cond, &s_join_lock);
-        else if (pthread_cond_timedwait(&s_join_cond, &s_join_lock, &deadline) == ETIMEDOUT) {
+        // Join is not interruptible in .NET on Unix (CoreCLR): a pending interrupt waits for the next
+        // Sleep or wait.
+        int rc = ms < 0 ? pthread_cond_wait(&s_join_cond, &s_join_lock) : pthread_cond_timedwait(&s_join_cond, &s_join_lock, &deadline);
+        if (rc == ETIMEDOUT) {
             done = atomic_load(&t->state) == THREAD_STOPPED;
             break;
         }
@@ -415,18 +516,16 @@ bool csrt_monitor_wait(void* obj, int32_t ms) {
     Monitor* m = owned_monitor(obj);
     int recursion = m->recursion;
     atomic_store(&m->owned, false);
-    bool signalled = true;
-    if (ms < 0) pthread_cond_wait(&m->cond, &m->mutex);
-    else {
-        struct timespec d;
-        deadline_after(&d, ms);
-        signalled = pthread_cond_timedwait(&m->cond, &m->mutex, &d) != ETIMEDOUT;
-    }
+    struct timespec d;
+    if (ms >= 0) deadline_after(&d, ms);
+    // An interrupted Wait reacquires the lock before it throws, as .NET's does.
+    int rc = interruptible_wait(&m->cond, &m->mutex, ms < 0 ? NULL : &d, false);
     atomic_store(&m->owner, pthread_self());
     atomic_store(&m->owned, true);
     m->recursion = recursion;
     monitor_unref(m);
-    return signalled;
+    if (rc == EINTR) throw_interrupted();
+    return rc != ETIMEDOUT;
 }
 
 void csrt_monitor_pulse(void* obj) { Monitor* m = owned_monitor(obj); pthread_cond_signal(&m->cond); monitor_unref(m); }
@@ -575,12 +674,12 @@ bool csrt_event_wait(csrt_Event* e, int32_t ms) {
             pthread_mutex_unlock(e->mutex);
             return true;
         }
-        if (ms == 0 || (ms > 0 && pthread_cond_timedwait(e->cond, e->mutex, &deadline) == ETIMEDOUT)) {
+        int rc = ms == 0 ? ETIMEDOUT : interruptible_wait(e->cond, e->mutex, ms > 0 ? &deadline : NULL, true);
+        if (rc == EINTR) { pthread_mutex_unlock(e->mutex); throw_interrupted(); }
+        if (rc == ETIMEDOUT) {
             bool now = e->kind == EVENT_COUNTDOWN ? e->count == 0 : e->count > 0;
             if (!now) { pthread_mutex_unlock(e->mutex); return false; }
-            continue;
         }
-        if (ms < 0) pthread_cond_wait(e->cond, e->mutex);
     }
 }
 

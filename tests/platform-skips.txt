@@ -137,3 +137,7 @@ wasi 423_console_int_culture           no ICU on WASI (invariant globalization m
 wasi 420_boxed_iformattable_provider    no ICU on WASI (invariant globalization mode): the sample uses specific cultures
 wasi 464_string_writer_provider        no ICU on WASI (invariant globalization mode): the sample uses specific cultures
 windows 467_sha1_sha256                live: .NET asks CNG there, so an unknown hash algorithm is CNG's "Unknown error (0xc1000225)"
+macos 532_idn_mapping                  live: IDNA comes from the OS's ICU (libicucore), not Linux's ICU 74
+windows 532_idn_mapping                live: IDNA comes from the OS's ICU (icu.dll), not Linux's ICU 74
+wasi 532_idn_mapping                   no ICU on WASI (invariant globalization mode; 533_idn_mapping_invariant covers that)
+wasi 534_thread_interrupt              needs threads: Thread.Start throws PlatformNotSupportedException on WebAssembly

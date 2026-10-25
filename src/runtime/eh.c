@@ -61,6 +61,8 @@ DEF_EXC(System_FormatException, "System.FormatException", &csrt_MT_System_System
 DEF_EXC(System_Threading_ThreadStateException, "System.Threading.ThreadStateException", &csrt_MT_System_SystemException.header)
 DEF_EXC(System_Threading_SynchronizationLockException, "System.Threading.SynchronizationLockException",
         &csrt_MT_System_SystemException.header)
+DEF_EXC(System_Threading_ThreadInterruptedException, "System.Threading.ThreadInterruptedException",
+        &csrt_MT_System_SystemException.header)
 DEF_EXC(System_Collections_Generic_KeyNotFoundException, "System.Collections.Generic.KeyNotFoundException",
         &csrt_MT_System_SystemException.header)
 DEF_EXC(System_OperationCanceledException, "System.OperationCanceledException", &csrt_MT_System_SystemException.header)
@@ -672,6 +674,7 @@ static const csrt_ExceptionMethodTable* const s_by_name[] = {
     &csrt_MT_System_InvalidCastException, &csrt_MT_System_FormatException,
     &csrt_MT_System_Collections_Generic_KeyNotFoundException,
     &csrt_MT_System_Threading_ThreadStateException, &csrt_MT_System_Threading_SynchronizationLockException,
+    &csrt_MT_System_Threading_ThreadInterruptedException,
     &csrt_MT_System_Collections_Generic_KeyNotFoundException, &csrt_MT_System_OperationCanceledException,
     &csrt_MT_System_Threading_Tasks_TaskCanceledException, &csrt_MT_System_AggregateException,
     &csrt_MT_System_OutOfMemoryException,

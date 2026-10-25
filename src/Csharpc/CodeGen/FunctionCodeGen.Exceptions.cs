@@ -393,6 +393,7 @@ public sealed partial class FunctionCodeGen
         ["System.ObjectDisposedException"] = "Cannot access a disposed object.",
         ["System.Threading.ThreadStateException"] = "Thread was in an invalid state for the operation being executed.",
         ["System.Threading.SynchronizationLockException"] = "Object synchronization method was called from an unsynchronized block of code.",
+        ["System.Threading.ThreadInterruptedException"] = "Thread was interrupted from a waiting state.",
         ["System.NotSupportedException"] = "Specified method is not supported.",
         ["System.PlatformNotSupportedException"] = "Operation is not supported on this platform.",
         ["System.NotImplementedException"] = "The method or operation is not implemented.",

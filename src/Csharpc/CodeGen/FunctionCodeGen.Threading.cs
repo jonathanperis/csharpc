@@ -188,6 +188,7 @@ public sealed partial class FunctionCodeGen
                 case "Join" when n == 0: Rt("csrt_thread_join", L.Void, [L.Ptr], Self()); return true;
                 case "Join" when n == 1 && m.Parameters[0].Type.SpecialType == SpecialType.System_Int32:
                     result = Rt("csrt_thread_join_timeout", L.I1, [L.Ptr, L.I32], Self(), TArg(inv, 0)); return true;
+                case "Interrupt" when n == 0: Rt("csrt_thread_interrupt", L.Void, [L.Ptr], Self()); return true;
                 case "Sleep" when n == 1 && m.Parameters[0].Type.SpecialType == SpecialType.System_Int32:
                     Rt("csrt_thread_sleep", L.Void, [L.I32], TArg(inv, 0)); return true;
                 case "Yield": result = Rt("csrt_thread_yield", L.I1, []); return true;
