@@ -116,8 +116,10 @@ struct Chunk {
     uint32_t slots;
     uint32_t live;         // live slots after the last sweep
     uint32_t size_class;
+#if CSRT_HAS_NURSERY
     uint8_t young;         // 1: nursery chunk (minor collections sweep these)
     uint8_t dirty;         // old→young card: set by the write barrier, cleared when scanned
+#endif
 #if defined(CSRT_GC_PARALLEL_MARK)
     uint8_t owner;         // which parallel marker writes this chunk's mark bits
 #endif
@@ -162,14 +164,19 @@ typedef struct {
     uint8_t* start;
     size_t size;
     bool marked;
+#if CSRT_HAS_NURSERY
     bool dirty;  // write barrier: any store into this large object since the last minor
+#endif
 } LargeObject;
 
 static struct {
     bool enabled, stats, initialized, collecting, multithreaded;
+#if CSRT_HAS_NURSERY
     bool nursery;          // generational mode (--gc-nursery build; CSRT_GC_NURSERY=0 disables)
     bool minor;            // true while a minor collection is marking/sweeping
     bool force_major;      // next collect is major (GC.Collect, promotion pressure)
+    bool large_dirty;      // any large-object card dirty (scanned wholesale on minor)
+#endif
     pthread_mutex_t lock;  // allocation slow paths, collections, thread registry
 
     csrt_GcThread main_thread;
@@ -207,7 +214,6 @@ static struct {
     size_t large_sorted;  // large[0, large_sorted) is sorted by address; later allocations are appended after it
 
     uintptr_t heap_min, heap_max;  // quick range filter over everything we own
-    bool large_dirty;              // any large-object card dirty (scanned wholesale on minor)
 
     void* stack_bottom;
 
@@ -216,10 +222,12 @@ static struct {
     size_t mark_count, mark_capacity;
 
     size_t allocated_since_gc, live_bytes, trigger, min_trigger;
+#if CSRT_HAS_NURSERY
     size_t young_since_gc, young_live, nursery_trigger, nursery_trigger_min;
+    size_t minors_since_major;
+#endif
     size_t stress, stress_count;  // CSRT_GC_STRESS
     size_t collections, major_collections, peak_heap, total_allocated;
-    size_t minors_since_major;
     double total_gc_seconds;
 } g;
 
@@ -366,8 +374,10 @@ static void chunk_format(Chunk* c, uint32_t cls) {
     c->size_class = cls;
     c->slots = (uint32_t)((CHUNK_SIZE - CHUNK_HEADER) / size);
     c->live = 0;
+#if CSRT_HAS_NURSERY
     c->young = g.nursery ? 1 : 0;
     c->dirty = 0;
+#endif
     memset(c->allocated, 0, sizeof c->allocated);
     memset(c->marked, 0, sizeof c->marked);
 }
@@ -712,8 +722,6 @@ void csrt_gc_init(void) {
     env = getenv("CSRT_GC_NURSERY_MB");
     g.nursery_trigger_min = env && atol(env) > 0 ? (size_t)atol(env) * 1024 * 1024 : NURSERY_MIN;
     g.nursery_trigger = g.nursery_trigger_min;
-#else
-    g.nursery = false;
 #endif
     env = getenv("CSRT_GC_STRESS");
     g.stress = env && atol(env) > 0 ? (size_t)atol(env) : 0;
@@ -774,7 +782,11 @@ static void* alloc_large(size_t size, bool clear) {
         g.large = grown;
         g.large_capacity = capacity;
     }
+#if CSRT_HAS_NURSERY
     g.large[g.large_count++] = (LargeObject){ p, size, false, false };
+#else
+    g.large[g.large_count++] = (LargeObject){ p, size, false };
+#endif
     note_range((uintptr_t)p, (uintptr_t)p + size);
     return p;
 }
@@ -1940,13 +1952,17 @@ static bool weak_is_marked(uintptr_t word) {
     uintptr_t base = word & ~(CHUNK_SIZE - 1);
     if (chunk_set_contains(base)) {
         Chunk* c = (Chunk*)base;
+#if CSRT_HAS_NURSERY
         if (g.minor && !c->young) return true;
+#endif
         size_t offset = word - base;
         if (c->object_size == 0 || offset < CHUNK_HEADER) return false;
         size_t index = (offset - CHUNK_HEADER) / c->object_size;
         return index < c->slots && bit_get(c->allocated, index) && bit_get(c->marked, index);
     }
+#if CSRT_HAS_NURSERY
     if (g.minor) return true;  // large objects are old
+#endif
     size_t lo = 0, hi = g.large_count;
     while (lo < hi) {
         size_t mid = (lo + hi) / 2;
@@ -2046,19 +2062,19 @@ __attribute__((noinline)) void csrt_gc_collect_now(void) {
     bool major = !g.nursery || g.force_major || g.stress || g.minors_since_major >= 32;
     g.force_major = false;
     g.minor = g.nursery && !major;
-#else
-    g.force_major = false;
-    g.minor = false;
+    bool was_minor = g.minor;
 #endif
 #if defined(CSRT_GC_PARALLEL_MARK) && !defined(__wasi__)
     // Helpers are created outside the pause. They block until parallel_drain publishes a job.
     // Parallel marking is only wired for full collections (ownership table covers every chunk).
+#if CSRT_HAS_NURSERY
     int parallel = !g.minor && want_parallel() && ensure_pool() > 0;
+#else
+    int parallel = want_parallel() && ensure_pool() > 0;
+#endif
 #endif
     struct timespec t0, t1;
     clock_gettime(CLOCK_MONOTONIC, &t0);  // GC.GetTotalPauseDuration
-    size_t young_before = g.young_since_gc;
-    bool was_minor = g.minor;
 
     stop_world();
     sort_large(g.large, g.large_count);
@@ -2075,10 +2091,6 @@ __attribute__((noinline)) void csrt_gc_collect_now(void) {
     protect_caches();
 #if CSRT_HAS_NURSERY
     g.live_bytes = sweep(!g.minor);
-#else
-    g.live_bytes = sweep();
-#endif
-#if CSRT_HAS_NURSERY
     if (!g.minor) {
         for (Chunk* c = g.chunks; c; c = c->next) c->dirty = 0;
         g.large_dirty = false;
@@ -2088,21 +2100,27 @@ __attribute__((noinline)) void csrt_gc_collect_now(void) {
         for (csrt_GcThread* t = g.threads; t; t = t->next)
             if (t->state == THREAD_RUNNING && t->cache) release_cache(t->cache);
     }
+#else
+    g.live_bytes = sweep();
 #endif
     resume_world();
     for (size_t i = 0; i < g.deferred_count; i++) free(g.deferred_free[i]);
     g.deferred_count = 0;
     g.allocated_since_gc = 0;
+#if CSRT_HAS_NURSERY
     g.young_since_gc = 0;
+#endif
     g.trigger = 2 * g.live_bytes > g.min_trigger ? 2 * g.live_bytes : g.min_trigger;
 #if CSRT_HAS_NURSERY
     if (g.nursery && !was_minor) g.nursery_trigger = g.nursery_trigger_min;
-#endif
-    (void)young_before;
     g.collections++;
     if (!was_minor) { g.major_collections++; g.minors_since_major = 0; }
     else g.minors_since_major++;
     g.minor = false;
+#else
+    g.collections++;
+    g.major_collections++;
+#endif
 
     clock_gettime(CLOCK_MONOTONIC, &t1);
     g.total_gc_seconds += (double)(t1.tv_sec - t0.tv_sec) + (double)(t1.tv_nsec - t0.tv_nsec) / 1e9;
@@ -2119,7 +2137,9 @@ void csrt_gc_collect(void) {
     if (!g.initialized) csrt_gc_init();
     if (!g.enabled) return;
     gc_lock();
+#if CSRT_HAS_NURSERY
     g.force_major = true;
+#endif
     collect();
     gc_unlock();
 }
@@ -2129,11 +2149,18 @@ void csrt_gc_shutdown(void) {
     pool_shutdown();
 #endif
     if (!g.stats) return;
+#if CSRT_HAS_NURSERY
     fprintf(stderr,
             "csrt gc: %zu collections (%zu major), %.1f ms total, allocated %.1f MiB, peak heap %.1f MiB, live %.1f MiB, %zu chunks, %zu large objects%s\n",
             g.collections, g.major_collections, g.total_gc_seconds * 1000.0, g.total_allocated / 1048576.0, g.peak_heap / 1048576.0,
             (g.live_bytes + g.allocated_since_gc) / 1048576.0, g.chunk_count, g.large_count,
             g.nursery ? ", nursery on" : "");
+#else
+    fprintf(stderr,
+            "csrt gc: %zu collections, %.1f ms total, allocated %.1f MiB, peak heap %.1f MiB, live %.1f MiB, %zu chunks, %zu large objects\n",
+            g.collections, g.total_gc_seconds * 1000.0, g.total_allocated / 1048576.0, g.peak_heap / 1048576.0,
+            (g.live_bytes + g.allocated_since_gc) / 1048576.0, g.chunk_count, g.large_count);
+#endif
 #ifdef CSRT_ALLOC_PROFILE
     profile_print();
 #endif
