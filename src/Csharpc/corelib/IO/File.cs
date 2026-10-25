@@ -13,6 +13,26 @@ namespace CsharpcCoreLib
     {
         public static bool Exists(string path) => !string.IsNullOrEmpty(path) && Posix.IsFile(path);
 
+        public static void SetUnixFileMode(string path, UnixFileMode mode)
+        {
+            ArgumentException.ThrowIfNullOrEmpty(path);
+            FileStatusImpl.SetUnixFileMode(path, mode);
+        }
+
+        public static UnixFileMode GetUnixFileMode(string path)
+        {
+            ArgumentException.ThrowIfNullOrEmpty(path);
+            return FileStatusImpl.GetUnixFileMode(path);
+        }
+
+        public static FileSystemInfo CreateSymbolicLink(string path, string pathToTarget)
+        {
+            ArgumentException.ThrowIfNullOrEmpty(path);
+            ArgumentException.ThrowIfNullOrEmpty(pathToTarget);
+            FileStatusImpl.CreateSymbolicLink(path, pathToTarget);
+            return new FileInfo(path);
+        }
+
         public static FileStream Open(string path, FileMode mode) => new FileStream(path, mode);
         public static FileStream Open(string path, FileMode mode, FileAccess access) => new FileStream(path, mode, access);
         public static FileStream Open(string path, FileMode mode, FileAccess access, FileShare share) => new FileStream(path, mode, access, share);

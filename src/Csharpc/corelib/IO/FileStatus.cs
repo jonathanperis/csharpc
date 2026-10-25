@@ -26,6 +26,11 @@ namespace CsharpcCoreLib
 
         public static string ReadLink(string path) =>
             throw new NotSupportedException("Symbolic link targets on Windows are not supported by csharpc yet.");
+
+        public static void SetUnixFileMode(string path, UnixFileMode mode) => throw new PlatformNotSupportedException("Unix file modes are not supported on this platform.");
+        public static UnixFileMode GetUnixFileMode(string path) => throw new PlatformNotSupportedException("Unix file modes are not supported on this platform.");
+        public static void CreateSymbolicLink(string path, string target) =>
+            throw new NotSupportedException("Symbolic links on Windows are not supported by csharpc yet.");
 #else
         private const int UserRead = 0x100, UserWrite = 0x80, GroupRead = 0x20, GroupWrite = 0x10, OtherRead = 0x4, OtherWrite = 0x2;
 #if CSHARPC_TARGET_MACOS
@@ -116,6 +121,46 @@ namespace CsharpcCoreLib
             return false;
         }
 #endif
+
+        [DllImport("libc", SetLastError = true)] private static extern int symlink(byte* target, byte* path);
+#if CSHARPC_TARGET_WASI
+        // WASI has no permission bits to change.
+        public static void SetUnixFileMode(string path, UnixFileMode mode) => throw new PlatformNotSupportedException("Unix file modes are not supported on this platform.");
+#else
+        [DllImport("libc", SetLastError = true)] private static extern int chmod(byte* path, int mode);
+
+        public static void SetUnixFileMode(string path, UnixFileMode mode)
+        {
+            if (((int)mode & ~0xFFF) != 0) throw new ArgumentException("Invalid UnixFileMode value. (Parameter 'mode')");
+            byte* p = Utf8.ToNative(PathImpl.GetFullPath(path));
+            int rv = chmod(p, (int)mode);
+            int errno = Posix.Errno;
+            Libc.free(p);
+            if (rv < 0) throw Posix.IOError(errno, path, false);
+        }
+#endif
+
+        public static UnixFileMode GetUnixFileMode(string path)
+        {
+            byte* st = stackalloc byte[Posix.StatSize];
+            byte* p = Utf8.ToNative(PathImpl.GetFullPath(path));
+            int rv = Posix.stat(p, st);
+            int errno = Posix.Errno;
+            Libc.free(p);
+            if (rv < 0) throw Posix.IOError(errno, path, false);
+            return (UnixFileMode)(Posix.Mode(st) & 0xFFF);
+        }
+
+        public static void CreateSymbolicLink(string path, string target)
+        {
+            byte* t = Utf8.ToNative(target);
+            byte* p = Utf8.ToNative(PathImpl.GetFullPath(path));
+            int rv = symlink(t, p);
+            int errno = Posix.Errno;
+            Libc.free(t);
+            Libc.free(p);
+            if (rv < 0) throw Posix.IOError(errno, path, false);
+        }
 
         /// <summary>readlink(2): the link's target, or null when it is not a link or can't be read (Interop.Sys.ReadLink).</summary>
         public static string ReadLink(string path)

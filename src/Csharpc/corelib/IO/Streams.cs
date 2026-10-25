@@ -443,8 +443,8 @@ namespace CsharpcCoreLib
         public FileStreamImpl(string path, FileMode mode, FileAccess access, FileShare share) : this(path, mode, access, share, DefaultBufferSize) { }
         /// <summary>
         /// FileOptions: SequentialScan, RandomAccess and WriteThrough are hints or durability modes no output
-        /// depends on; Asynchronous only makes IsAsync true (this stream completes its async methods
-        /// synchronously, which is what an awaiting caller observes of a fast read); DeleteOnClose removes the
+        /// depends on; Asynchronous makes IsAsync true on Windows only, as .NET reports it (an overlapped
+        /// handle there; this stream completes its async methods synchronously); DeleteOnClose removes the
         /// file when the stream is disposed. Encrypted (Windows EFS) is not supported.
         /// </summary>
         public FileStreamImpl(string path, FileMode mode, FileAccess access, FileShare share, int bufferSize, FileOptions options)
@@ -460,7 +460,9 @@ namespace CsharpcCoreLib
         private FileStreamImpl(string path, FileMode mode, FileAccess access, FileShare share, int bufferSize, FileOptions options, bool validate)
             : this(path, mode, access, share, bufferSize)
         {
-            _isAsync = (options & FileOptions.Asynchronous) != 0;
+#if CSHARPC_TARGET_WINDOWS
+            _isAsync = (options & FileOptions.Asynchronous) != 0; // an overlapped handle
+#endif
             _deleteOnClose = (options & FileOptions.DeleteOnClose) != 0;
         }
 
