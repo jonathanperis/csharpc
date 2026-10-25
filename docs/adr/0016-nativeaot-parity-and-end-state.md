@@ -17,9 +17,11 @@ against is .NET's own AOT path, `dotnet publish -p:PublishAot=true` (NativeAOT, 
 1. **Support target: 100 % parity with NativeAOT.** Every program and library that works when
    published with NativeAOT must compile with csharpc and behave identically (stdout, exit code,
    exception types and messages). What NativeAOT can't do is out of scope and stays an explicit
-   diagnostic, never a guess: `Reflection.Emit`, `MakeGenericType`/`MakeGenericMethod` over
-   instantiations the compiler never saw, compiled expression trees, `dynamic` (the DLR),
-   `Assembly.Load*` of code not in the closed world.
+   diagnostic, never a guess — decided by running NativeAOT, not by a fixed list: `Reflection.Emit`,
+   `MakeGenericType`/`MakeGenericMethod` over instantiations the compiler never saw, and
+   `Assembly.Load*` of code outside the closed world fail there; expression trees (NativeAOT runs them
+   through the expression interpreter) and `dynamic` (Microsoft.CSharp) do work under NativeAOT and
+   are therefore in scope.
 2. **The JIT is the oracle and a benchmark baseline, not a support target.** Tests keep recording
    expectations with `dotnet run` (where NativeAOT and the JIT agree, which is everywhere in scope);
    benchmarks compare against both the JIT and NativeAOT; compile time is compared against
@@ -58,7 +60,7 @@ against is .NET's own AOT path, `dotnet publish -p:PublishAot=true` (NativeAOT, 
 - **Measured, not assumed.** The compatibility corpus decides what is in scope by running NativeAOT
   (docs/18-compatibility.md): its first runs found NativeAOT running expression-tree programs (through
   the expression interpreter) and a `dynamic` program exactly like the JIT, so those count against
-  parity even though the list above names them; what NativeAOT really can't do (the reflection-based
+  parity; what NativeAOT really can't do (the reflection-based
   `System.Text.Json` serializer, stack-trace file/line information) leaves the denominator.
 - **Out-of-scope list is NativeAOT's.** The roadmap's ❌ status means exactly "NativeAOT doesn't
   support it either"; anything NativeAOT supports is ⬜/🟡/🚧 until it's ✅.
