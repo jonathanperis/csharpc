@@ -1,0 +1,12 @@
+first multicast
+generic ref 4 flowed
+generic value 42
+second multicast
+unsafe generic ref 7 none
+unsafe generic tuple a1
+unsafe wait callback s2 none
+wait callback s1 flowed
+work item one
+work item two
+callBack
+callBack
