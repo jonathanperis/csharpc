@@ -1,0 +1,15 @@
+input 10689 bytes
+Optimal: deflate 210 (ED9ABB0DC330...), gzip 228 (1F8B08000000...), zlib 216 (789CED9ABB0D...), brotli 106 (1BC02900042A...)
+Fastest: deflate 393 (CAC9CC4B5530...), gzip 411 (1F8B08000000...), zlib 399 (7801CAC9CC4B...), brotli 148 (0BE0140080AA...)
+SmallestSize: deflate 185 (EDD3BB0D0230...), gzip 203 (1F8B08000000...), zlib 191 (78DAEDD3BB0D...), brotli 92 (1BC029088CC4...)
+NoCompression: deflate 10694 (01C1293ED66C...), gzip 10712 (1F8B08000000...), zlib 10700 (780101C1293E...), brotli 257 (0BE0140080AA...)
+gzip round trip: True
+brotli round trip: True
+BrotliEncoder.TryCompress: True 106
+BrotliDecoder.TryDecompress: True 10689
+InvalidDataException: The archive entry was compressed using an unsupported compression method.
+zip archive: 352 bytes
+  readme.txt name=readme.txt length=11 compressed=19 crc=E1524E8C 2024-05-06 07:08:10 "Hello, zip!"
+  docs/notes.md name=notes.md length=300 compressed=19 crc=C1E34CC5 2024-05-06 07:08:10 "notes notes notes no..."
+  empty.bin name=empty.bin length=0 compressed=0 crc=00000000 2024-05-06 07:08:10 ""
+  GetEntry: 300 True

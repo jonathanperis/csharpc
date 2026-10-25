@@ -117,9 +117,9 @@ namespace CsharpcCoreLib
     public static unsafe class ThreadPoolImpl
     {
         [DllImport("__Internal", EntryPoint = "csrt_pool_queue_action")]
-        private static extern void QueueAction(IntPtr action, bool flowContext);
+        private static extern void QueueAction(IntPtr action, int flowContext);
 
-        private static void Queue(Action action, bool flowContext) => QueueAction(CoreIntrinsics.ObjectToPointer(action), flowContext);
+        private static void Queue(Action action, bool flowContext) => QueueAction(CoreIntrinsics.ObjectToPointer(action), flowContext ? 1 : 0);
 
         public static bool QueueUserWorkItem(WaitCallback callBack) => QueueUserWorkItem(callBack, null);
 

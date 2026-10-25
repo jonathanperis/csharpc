@@ -343,6 +343,24 @@ static bool is_untyped_array_mt(const csrt_MethodTable* mt) {
     return mt == &csrt_Array_MT.header || mt == &csrt_PrimitiveArray_MT.header || (mt->flags & CSRT_MT_MDARRAY);
 }
 
+/// Array.CreateInstanceFromArrayType's checks on `type` (a System.Type): 0 when it is a one-dimensional
+/// array type csharpc emitted a method table for (its element size is in `reserved`), 1 when it isn't
+/// an array type, 2 for a multi-dimensional array type.
+typedef struct { const csrt_MethodTable* mt; const csrt_MethodTable* target; } ArrayTypeObject;  // type.c's TypeObject
+
+int32_t csrt_array_type_kind(void* type) {
+    const csrt_MethodTable* mt = ((ArrayTypeObject*)type)->target;
+    if (!mt || mt->base != &csrt_Array_MT.header) return 1;
+    if (mt->flags & CSRT_MT_MDARRAY) return 2;
+    return 0;
+}
+
+/// A new zeroed array of the (checked) one-dimensional array type `type`.
+void* csrt_array_new_of_type(void* type, int32_t length) {
+    const csrt_MethodTable* mt = ((ArrayTypeObject*)type)->target;
+    return new_array(mt, mt->reserved, length, true);
+}
+
 int32_t csrt_array_rank(void* array) {
     const csrt_MethodTable* mt = ((csrt_Object*)array)->mt;
     return mt->flags & CSRT_MT_MDARRAY ? (int32_t)mt->reserved : 1;

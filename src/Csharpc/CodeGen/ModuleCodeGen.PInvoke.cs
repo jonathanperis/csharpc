@@ -18,6 +18,9 @@ namespace Csharpc.CodeGen;
 public sealed partial class ModuleCodeGen
 {
     private readonly Dictionary<IMethodSymbol, LoweredFunction> _pinvokeStubs = new(SymbolEqualityComparer.Default);
+
+    /// <summary>.NET shim libraries linked into the program from the NativeAOT runtime pack (Frontend/NativeAotPack.cs).</summary>
+    public IReadOnlySet<string> LinkedShims { get; init; } = new HashSet<string>();
     private int _pinvokeCounter;
 
     private static readonly HashSet<string> s_directLinkLibraries =
@@ -76,8 +79,11 @@ public sealed partial class ModuleCodeGen
         // go through dlopen and throw DllNotFoundException like .NET instead of binding to libSystem.
         var runtimeSymbol = library is "__Internal" or "csrt";
         var coreLibSystemImport = Types.Target.IsWindows && CoreLib.IsCoreLib(method) && s_coreLibDirectLibrariesWindows.Contains(library);
-        var direct = Types.Target.IsWindows ? runtimeSymbol || coreLibSystemImport
-            : s_directLinkLibraries.Contains(library) && !(Types.Target.IsDarwin && library.Contains(".so", StringComparison.Ordinal));
+        // .NET's own shims (libSystem.IO.Compression.Native) are linked statically, as NativeAOT does:
+        // strong references, so the linker takes their members from the archives.
+        var shim = LinkedShims.Contains(library);
+        var direct = shim || (Types.Target.IsWindows ? runtimeSymbol || coreLibSystemImport
+            : s_directLinkLibraries.Contains(library) && !(Types.Target.IsDarwin && library.Contains(".so", StringComparison.Ordinal)));
         // WASI has no dynamic loading: libc/libm (wasi-libc, linked statically) and the runtime bind
         // directly; any other library fails to load at the call, with .NET's DllNotFoundException.
         var nativeAttributes = NativeAttributes(parameters, retKind, method, sret, retStruct);
@@ -94,7 +100,7 @@ public sealed partial class ModuleCodeGen
                 // then binds them all to the null default instead of the UCRT import).
                 // Not on wasm either: wasm-ld doesn't extract archive members (wasi-libc) for weak references,
                 // so a weak getenv would stay undefined; a symbol wasi-libc lacks is a link error instead.
-                if (!coreLibSystemImport && !Types.Target.IsWasm) Native.LLVMSetLinkage(native, (LLVMLinkage)12 /* LLVMExternalWeakLinkage */);
+                if (!coreLibSystemImport && !shim && !Types.Target.IsWasm) Native.LLVMSetLinkage(native, (LLVMLinkage)12 /* LLVMExternalWeakLinkage */);
                 foreach (var (index, attribute) in nativeAttributes) Native.LLVMAddAttributeAtIndex(native, index, attribute);
             }
         }

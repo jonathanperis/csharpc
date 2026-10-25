@@ -522,6 +522,10 @@ internal static class Intrinsics
         // there is nothing to suppress or re-register.
         t["System.GC.SuppressFinalize(object)"] = (g, inv) => { Arg(g, inv, 0); return default; };
         t["System.GC.ReRegisterForFinalize(object)"] = (g, inv) => { Arg(g, inv, 0); return default; };
+        // Nothing is pending — unless the program declares finalizers, which .NET would run before returning.
+        t["System.GC.WaitForPendingFinalizers()"] = (g, inv) => g.Module.ProgramHasFinalizers()
+            ? throw CompileError.Unsupported("GC.WaitForPendingFinalizers in a program with finalizers (csharpc runs no finalizers)", inv)
+            : default;
         t["System.GC.GetTotalMemory(bool)"] = (g, inv) =>
         {
             g.EmitValue(inv.Arguments[0].Value);
@@ -631,6 +635,14 @@ internal static class Intrinsics
                     return tryMode
                         ? g.CallRuntime("csrt_task_try_fault", g.Module.Llvm.I1, [g.Module.Llvm.Ptr, g.Module.Llvm.Ptr], self, e)
                         : g.CallRuntime("csrt_task_fault", g.Module.Llvm.Void, [g.Module.Llvm.Ptr, g.Module.Llvm.Ptr], self, e);
+                };
+                // Several exceptions: corelib/Tasks/TaskExceptions.cs checks and collects them.
+                t[$"{tcs}.{prefix}Exception(System.Collections.Generic.IEnumerable<System.Exception>)"] = (g, inv) =>
+                {
+                    var self = g.EmitValue(inv.Instance!);
+                    g.NullCheck(self);
+                    var result = g.CallCoreLib("TaskExceptions", tryMode ? "TrySetMany" : "SetMany", self, Arg(g, inv, 0));
+                    return tryMode ? result : default;
                 };
                 t[$"{tcs}.{prefix}Canceled()"] = (g, inv) =>
                 {
@@ -844,26 +856,30 @@ internal static class Intrinsics
 
         // The awaiter pattern as compiled async state machines (IL) and custom awaitables call it:
         // OnCompleted/UnsafeOnCompleted register an Action continuation on the task (docs/10-async.md).
-        IntrinsicHandler onCompleted = (g, inv) =>
+        // A TaskAwaiter posts to the captured SynchronizationContext; a configured one (IL code awaits
+        // with ConfigureAwait(false), and the awaiter doesn't keep the flag) doesn't.
+        IntrinsicHandler OnCompleted(string runtime) => (g, inv) =>
         {
             var task = g.EmitValue(inv.Instance!);
-            g.CallRuntime("csrt_task_on_completed_action", g.Module.Llvm.Void, [g.Module.Llvm.Ptr, g.Module.Llvm.Ptr], task, Arg(g, inv, 0));
+            g.CallRuntime(runtime, g.Module.Llvm.Void, [g.Module.Llvm.Ptr, g.Module.Llvm.Ptr], task, Arg(g, inv, 0));
             return default;
         };
         foreach (var awaiter in TaskAwaiterTypes)
         {
+            var onCompleted = OnCompleted(awaiter.Contains("Configured", StringComparison.Ordinal)
+                ? "csrt_task_on_completed_action_no_context" : "csrt_task_on_completed_action");
             t[$"{awaiter}.OnCompleted(System.Action)"] = onCompleted;
             t[$"{awaiter}.UnsafeOnCompleted(System.Action)"] = onCompleted;
         }
-        // Task.Yield(): YieldAwaitable/YieldAwaiter are a null task pointer; the continuation always
-        // goes to the pool (no SynchronizationContext or TaskScheduler to post to).
+        // Task.Yield(): YieldAwaitable/YieldAwaiter are a null task pointer; the continuation goes to the
+        // current SynchronizationContext, else to the pool.
         const string yieldAwaiter = $"{Rcs}.YieldAwaitable.YieldAwaiter";
         t[$"{Rcs}.YieldAwaitable.GetAwaiter()"] = self;
         t[$"{yieldAwaiter}.GetResult()"] = (g, inv) => { g.EmitValue(inv.Instance!); return default; };
         IntrinsicHandler queue = (g, inv) =>
         {
             g.EmitValue(inv.Instance!);
-            g.CallRuntime("csrt_queue_action", g.Module.Llvm.Void, [g.Module.Llvm.Ptr], Arg(g, inv, 0));
+            g.CallRuntime("csrt_yield_action", g.Module.Llvm.Void, [g.Module.Llvm.Ptr], Arg(g, inv, 0));
             return default;
         };
         t[$"{yieldAwaiter}.OnCompleted(System.Action)"] = queue;
@@ -942,6 +958,7 @@ internal static class Intrinsics
         t[$"{Tasks}.ValueTask<TResult>..ctor(TResult)"] = (g, c) =>
             g.CompletedTask(CtorArg(g, c, 0), ((INamedTypeSymbol)g.TypeOf(c)!).TypeArguments[0]);
         t[$"{Tasks}.ValueTask..ctor({Tasks}.Task)"] = (g, c) => CtorArg(g, c, 0);
+        t[$"{Tasks}.ValueTask<TResult>..ctor({Tasks}.Task<TResult>)"] = (g, c) => CtorArg(g, c, 0);
         ConstructorHandler newTcs = (g, c) =>
         {
             foreach (var a in c.Arguments) g.EmitValue(a.Value); // TaskCreationOptions / state: ignored (continuations are always queued)
@@ -954,6 +971,28 @@ internal static class Intrinsics
             t[$"{tcs}..ctor()"] = newTcs;
             t[$"{tcs}..ctor({Tasks}.TaskCreationOptions)"] = newTcs;
         }
+        // new Task(...) / new Task<TResult>(...): a created (cold) task, corelib/Tasks/ColdTasks.cs.
+        ConstructorHandler newColdTask = (g, c) =>
+        {
+            LLVMValueRef Named(string name, LLVMValueRef fallback) =>
+                c.Arguments.FirstOrDefault(a => a.Parameter!.Name == name) is { } argument
+                    ? g.Coerce(g.EmitValue(argument.Value), g.TypeOf(argument.Value), g.S(argument.Parameter!.Type)) : fallback;
+            var l = g.Module.Llvm;
+            var withState = c.Arguments.Any(a => a.Parameter!.Name == "state");
+            var body = Named(c.Constructor!.Parameters[0].Name, default);
+            var state = withState ? Named("state", default) : default;
+            var token = Named("cancellationToken", LlvmContext.Null(l.Ptr));
+            var options = Named("creationOptions", l.ConstInt(l.I32, 0));
+            LLVMValueRef[] args = withState ? [body, state, token, options] : [body, token, options];
+            return ((INamedTypeSymbol)g.TypeOf(c)!).TypeArguments is [var result]
+                ? g.CallCoreLibGenericMethod("ColdTasks", withState ? "CreateFuncWithState" : "CreateFunc", [result], args)
+                : g.CallCoreLib("ColdTasks", withState ? "CreateWithState" : "Create", args);
+        };
+        const string token = "System.Threading.CancellationToken", options = $"{Tasks}.TaskCreationOptions";
+        foreach (var (type, plain, stateful) in new[] { ("Task", "System.Action", "System.Action<object>"), ("Task<TResult>", "System.Func<TResult>", "System.Func<object, TResult>") })
+            foreach (var parameters in new[] { plain, $"{plain}, {token}", $"{plain}, {options}", $"{plain}, {token}, {options}",
+                         $"{stateful}, object", $"{stateful}, object, {token}", $"{stateful}, object, {options}", $"{stateful}, object, {token}, {options}" })
+                t[$"{Tasks}.{type}..ctor({parameters})"] = newColdTask;
         t["System.Threading.CancellationTokenSource..ctor()"] = (g, _) => g.CallRuntime("csrt_cts_new", g.Module.Llvm.Ptr, []);
         t["System.Threading.CancellationToken..ctor(bool)"] = (g, c) =>
             g.CallRuntime("csrt_token_new", g.Module.Llvm.Ptr, [g.Module.Llvm.I1], CtorArg(g, c, 0));

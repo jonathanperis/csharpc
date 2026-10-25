@@ -143,6 +143,11 @@ public sealed partial class FunctionCodeGen
         // A non-virtual call to a virtual method on `this` is C#'s `base.M()`.
         var baseCall = !isVirtual && receiver is { IsThis: true } && (method.IsVirtual || method.IsOverride || method.IsAbstract);
         var instance = receiver is null ? null : IlReceiver(method, receiver, constrained, baseCall);
+        // An interface call on an array (IL converts T[] / Array to IList implicitly, without an instruction):
+        // the arrays' interface maps must include it, as for a source conversion.
+        if (receiver is { Type: { } receiverType } && !method.IsStatic && method.ContainingType.TypeKind == TypeKind.Interface
+            && S(receiverType) is IArrayTypeSymbol or { SpecialType: SpecialType.System_Array } && S(method.ContainingType) is INamedTypeSymbol arrayInterface)
+            _m.RequestArrayInterface(arrayInterface);
         if (receiver is { Symbol: ITypeSymbol reflected }) NoteReflectedType(method, S(reflected), args is [{ Constant: string name }, ..] ? name : null);
 
         // Library operators and conversions (decimal + decimal, (long)BigInteger ...): the source path's operator lowering.
@@ -348,6 +353,14 @@ public sealed partial class FunctionCodeGen
         if (ownerName == "System.Runtime.CompilerServices.AsyncHelpers" && IlRuntimeAsyncCall(method, args) is { } awaited) return awaited;
         if (args.Length == 0 && receiver is null && FeatureSwitchValue(method) is { } feature)
             return I4(feature ? 1 : 0) with { Constant = feature ? 1 : 0 };
+        // Vector<T>.Count: framework IL reads it next to its Vector.IsHardwareAccelerated test (false: the
+        // scalar path runs, with the same results). 16 bytes, NativeAOT's default for x64 and arm64.
+        if (method is { Name: "get_Count", Parameters.IsEmpty: true } && receiver is null
+            && owner is { Name: "Vector", Arity: 1, ContainingNamespace: { Name: "Numerics", ContainingNamespace.Name: "System" } })
+        {
+            int count = 16 / Math.Max(1, (int)_m.Types.Target.SizeOf(T.Storage(S(owner.TypeArguments[0]))));
+            return I4(count) with { Constant = count };
+        }
         // `fixed (char* p = s)`: a reference to the first char (the terminator of an empty string), as in .NET;
         // the compiler tests for null before the call.
         // Span<T>/ReadOnlySpan<T>.GetPinnableReference (`fixed (T* p = span)`): the data pointer, or a null

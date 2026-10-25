@@ -46,7 +46,9 @@ public sealed class Compiler(CompilerOptions options)
             return Fail($"target '{triple}': macOS on x86-64 is not supported by csharpc yet (Apple silicon / arm64 only)");
         if (darwin && options.Static)
             return Fail("--static is not supported on macOS: Apple does not support statically linked executables (libSystem is always linked dynamically)");
-        string[] coreLibDefines = [wasm ? "CSHARPC_TARGET_WASI" : windows ? "CSHARPC_TARGET_WINDOWS" : darwin ? "CSHARPC_TARGET_MACOS" : "CSHARPC_TARGET_LINUX"];
+        string[] coreLibDefines = [wasm ? "CSHARPC_TARGET_WASI" : windows ? "CSHARPC_TARGET_WINDOWS" : darwin ? "CSHARPC_TARGET_MACOS" : "CSHARPC_TARGET_LINUX",
+            // The architecture (RuntimeInformation.ProcessArchitecture, the runtime identifier).
+            wasm ? "CSHARPC_TARGET_WASM32" : triple.StartsWith("aarch64", StringComparison.Ordinal) || triple.StartsWith("arm64", StringComparison.Ordinal) ? "CSHARPC_TARGET_ARM64" : "CSHARPC_TARGET_X64"];
         FrontendSettings settings;
         if (options.Project is { } project)
         {
@@ -74,18 +76,22 @@ public sealed class Compiler(CompilerOptions options)
                 CoreLibDefines = [.. coreLibDefines, .. FileGlobalization(options.Inputs)],
                 RuntimeConfig = options.Inputs.Count > 0 ? [.. ProjectLoader.FileBasedRuntimeConfig(options.Inputs[0])] : [],
                 AssemblyVersion = options.Inputs.Count > 0 ? ProjectLoader.FileBasedAssemblyVersion(options.Inputs[0]) : "1.0.0.0",
+                AssemblyInfo = options.Inputs.Count > 0 ? ProjectLoader.FileBasedAssemblyInfo(options.Inputs[0], options.Configuration) : null,
             };
         }
         if (options.SharedFrameworks.Count > 0)
             settings = settings with { SharedFrameworks = [.. settings.SharedFrameworks.Concat(options.SharedFrameworks).Distinct(StringComparer.OrdinalIgnoreCase)] };
         // Assemblies without sources: bound against like any reference, compiled from IL (ADR 0010).
         List<string> ilPaths = [.. settings.IlReferencePaths, .. options.References];
+        // .NET's native shims the framework IL calls, linked from the NativeAOT runtime pack (NativeAotPack).
+        var linkedShims = new SortedSet<string>(StringComparer.Ordinal);
         try
         {
-            var framework = FrameworkIl.Select(settings, ilPaths, options.FrameworkIl, options.FrameworkIlAutomatic);
+            var framework = FrameworkIl.Select(settings, ilPaths, options.FrameworkIl, options.FrameworkIlAutomatic, triple);
             foreach (var choice in framework)
             {
                 ilPaths.Add(choice.Path);
+                linkedShims.UnionWith(choice.NativeModules);
                 if (options.Verbose) Console.Error.WriteLine($"  framework IL: {choice.Name} ({choice.Reason})");
             }
             Phase($"choose framework IL ({framework.Count} assembl{(framework.Count == 1 ? "y" : "ies")})");
@@ -195,6 +201,7 @@ public sealed class Compiler(CompilerOptions options)
             IlSurveyShard = options.IlSurveyShard,
             RuntimeConfig = settings.RuntimeConfig,
             ProgramAssemblies = ProgramAssembly.From(settings, codegenCompilation.AssemblyName ?? "program"),
+            LinkedShims = linkedShims,
         };
         using var debugInfo = options.Debug
             ? codegen.Debug = new DebugInfo(codegen, settings.Files.Count > 0 ? settings.Files[0] : "program.cs", options.OptLevel > 0)
@@ -312,7 +319,7 @@ public sealed class Compiler(CompilerOptions options)
                         target.Emit(module, obj, LLVMCodeGenFileType.Object);
                     }
                     Phase(objects.Count > 1 ? $"codegen (LLVM backend, {objects.Count} partitions)" : "codegen (LLVM backend)");
-                    toolchain.Link(target.Triple, objects, output, runtimeLinkedIn: runtimeLto, weakImports);
+                    toolchain.Link(target.Triple, objects, output, runtimeLinkedIn: runtimeLto, weakImports, ShimArchives(linkedShims, target.Triple));
                     Phase("link");
                 }
                 finally
@@ -350,6 +357,17 @@ public sealed class Compiler(CompilerOptions options)
         File.WriteAllText(dump, module.PrintToString());
         Console.Error.WriteLine($"internal compiler error: csharpc produced invalid LLVM IR {stage} (written to {dump}):\n{error}");
         return 70;
+    }
+
+    /// <summary>The NativeAOT pack's static archives for the shims the framework IL calls, in link order.</summary>
+    private static List<string> ShimArchives(IEnumerable<string> shims, string triple)
+    {
+        List<string> archives = [];
+        if (!shims.Any() || NativeAotPack.Rid(triple) is not { } rid || NativeAotPack.NativeDirectory(rid, out _) is not { } dir) return archives;
+        foreach (var shim in shims)
+            foreach (var archive in NativeAotPack.Shims[shim])
+                if (!archives.Contains(Path.Combine(dir, archive))) archives.Add(Path.Combine(dir, archive));
+        return archives;
     }
 
     /// <summary>Undefined extern_weak functions (statically bound P/Invoke targets that may be missing).</summary>

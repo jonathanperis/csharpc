@@ -1,0 +1,27 @@
+consumed 0 item0
+consumed 1 item1
+consumed 2 item2
+consumed 3 item3
+consumed 4 item4
+completed True, adding completed True, count 0
+The collection has been marked as complete with regards to additions.
+The collection argument is empty and has been marked as complete with regards to additions.
+bounded 2: True True False False
+stack order: 2,1, take 2
+TryTake: True 1, again False 0
+copy 0,7,0, enumerate 7
+blocked producer done early: False
+took 1, added after take, then 2
+OperationCanceledException: The operation was canceled. (token matches: True)
+bag take 3, count 0
+ObjectDisposedException
+semaphore timeout: False
+semaphore available: True
+semaphore wait: canceled, count 0
+already canceled: The operation was canceled.
+The timeout must represent a value between -1 and Int32.MaxValue, inclusive. (Parameter 'millisecondsTimeout')
+event wait canceled by timeout
+event set: True
+sum 314850
+ThrowIfCancellationRequested token: True
+ctor token: True, none: True, task canceled: True

@@ -148,7 +148,8 @@ public sealed partial class FunctionCodeGen
             // bakes in its System.Private.CoreLib's version.
             "TargetArchitecture" => L.ConstInt(L.I32, _m.Types.Target.Triple.StartsWith("x86_64") ? 1 : _m.Types.Target.Triple.StartsWith("wasm32") ? 5
                 : _m.Types.Target.Triple.StartsWith("aarch64") || _m.Types.Target.Triple.StartsWith("arm64") ? 3 : 1),
-            "FrameworkVersion" => _m.StringLiteral(Path.GetFileName(Frontend.SharedFramework.Directory?.TrimEnd('/', '\\') ?? "") is { Length: > 0 } version ? version : "11.0.0"),
+            "FrameworkVersion" => _m.StringLiteral(Frontend.SharedFramework.ProductVersion
+                ?? (Path.GetFileName(Frontend.SharedFramework.Directory?.TrimEnd('/', '\\') ?? "") is { Length: > 0 } version ? version : "11.0.0")),
             "TypeInfoTableAddress" => _b.Cast(LLVMOpcode.PtrToInt, _m.TypeInfoTable(), T.NativeInt),
             "ReflectionTableAddress" => _b.Cast(LLVMOpcode.PtrToInt, _m.ReflectionTable(), T.NativeInt),
             "DelegateMethodTableAddress" => _b.Cast(LLVMOpcode.PtrToInt, _m.DelegateMethodTable(), T.NativeInt),

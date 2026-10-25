@@ -1,0 +1,17 @@
+current: PumpContext
+after await: on context thread True, current PumpContext
+after Task.Run: on context thread True
+after Yield: on context thread True
+after ConfigureAwait(false): on context thread False
+result 42, posts 3
+on the context: from async void
+started 2, completed 2, failures 1
+base context posts nothing: 6
+plain callback
+callback via Send: 1
+sends 1
+current: null
+run with state
+Cannot call Set on a null context
+pool items done: True
+Value cannot be null. (Parameter 'callBack')

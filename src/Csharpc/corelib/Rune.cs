@@ -466,4 +466,92 @@ namespace CsharpcCoreLib
         private static RuneImpl FromText(string text) =>
             text.Length == 1 ? UnsafeCreate(text[0]) : UnsafeCreate((uint)char.ConvertToUtf32(text[0], text[1]));
     }
+
+    /// <summary>string.EnumerateRunes() (StringRuneEnumerator.cs): an ill-formed surrogate is U+FFFD, one char long.</summary>
+    [Shadows("System.Text.StringRuneEnumerator")]
+    public struct StringRuneEnumeratorImpl : System.Collections.Generic.IEnumerable<System.Text.Rune>, System.Collections.Generic.IEnumerator<System.Text.Rune>
+    {
+        private readonly string _string;
+        private System.Text.Rune _current;
+        private int _nextIndex;
+
+        internal StringRuneEnumeratorImpl(string value)
+        {
+            _string = value;
+            _current = default;
+            _nextIndex = 0;
+        }
+
+        public System.Text.Rune Current => _current;
+        public StringRuneEnumeratorImpl GetEnumerator() => this;
+
+        public bool MoveNext()
+        {
+            if ((uint)_nextIndex >= (uint)_string.Length)
+            {
+                _current = default;
+                return false;
+            }
+            if (!System.Text.Rune.TryGetRuneAt(_string, _nextIndex, out _current)) _current = System.Text.Rune.ReplacementChar;
+            _nextIndex += _current.Utf16SequenceLength;
+            return true;
+        }
+
+        object System.Collections.IEnumerator.Current => _current;
+        void IDisposable.Dispose() { }
+        System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() => this;
+        System.Collections.Generic.IEnumerator<System.Text.Rune> System.Collections.Generic.IEnumerable<System.Text.Rune>.GetEnumerator() => this;
+        void System.Collections.IEnumerator.Reset()
+        {
+            _current = default;
+            _nextIndex = 0;
+        }
+    }
+
+    /// <summary>span.EnumerateRunes() (SpanRuneEnumerator.cs): ill-formed UTF-16 decodes to U+FFFD.</summary>
+    [Shadows("System.Text.SpanRuneEnumerator")]
+    public ref struct SpanRuneEnumeratorImpl : System.Collections.Generic.IEnumerator<System.Text.Rune>
+    {
+        private ReadOnlySpan<char> _remaining;
+        private System.Text.Rune _current;
+
+        internal SpanRuneEnumeratorImpl(ReadOnlySpan<char> buffer)
+        {
+            _remaining = buffer;
+            _current = default;
+        }
+
+        public System.Text.Rune Current => _current;
+        public SpanRuneEnumeratorImpl GetEnumerator() => this;
+
+        public bool MoveNext()
+        {
+            if (_remaining.IsEmpty)
+            {
+                _current = default;
+                return false;
+            }
+            System.Text.Rune.DecodeFromUtf16(_remaining, out _current, out int charsConsumed);
+            _remaining = _remaining.Slice(charsConsumed);
+            return true;
+        }
+
+        // .NET 9+: a ref struct implementing the enumerator interfaces (foreach in IL disposes it through IDisposable).
+        object System.Collections.IEnumerator.Current => throw new NotSupportedException();
+        void System.Collections.IEnumerator.Reset() => throw new NotSupportedException();
+        void IDisposable.Dispose() { }
+    }
+
+    [ShadowMembers("System.String")]
+    internal static class StringRunes
+    {
+        [ShadowInstance] public static StringRuneEnumeratorImpl EnumerateRunes(string s) => new StringRuneEnumeratorImpl(s);
+    }
+
+    [ShadowMembers("System.MemoryExtensions")]
+    internal static class SpanRunes
+    {
+        public static SpanRuneEnumeratorImpl EnumerateRunes(ReadOnlySpan<char> span) => new SpanRuneEnumeratorImpl(span);
+        public static SpanRuneEnumeratorImpl EnumerateRunes(Span<char> span) => new SpanRuneEnumeratorImpl(span);
+    }
 }

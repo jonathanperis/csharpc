@@ -1,0 +1,9 @@
+tar: 5120 bytes
+  RegularFile dir/hello.txt 11 Pax 2024-01-02T03:04:05.0000000+00:00 mode=600 link='' "Hello, tar!"
+  Directory dir/sub/ 0 Pax 2024-01-02T03:04:05.0000000+00:00 mode=755 link='' ""
+  SymbolicLink dir/link 0 Ustar 2024-01-02T03:04:05.0000000+00:00 mode=644 link='hello.txt' ""
+  zip a.txt 5 7
+  zip nested/b.txt 14 9
+extracted: beta beta beta 2024-01-02T03:04:04.0000000Z
+ExtractToFile: alpha
+ExtractToFile again: IOException

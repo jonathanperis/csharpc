@@ -1,0 +1,23 @@
+outside a task: CurrentId null
+created: Created
+cold task ran
+after start: RanToCompletion
+state: payload
+Task<int> created: Created
+result 42
+ran synchronously: RanToCompletion SHOUT
+RunSynchronously on the calling thread: True
+RunSynchronously waits for attached children: True RanToCompletion
+failing: Faulted boom
+cancelable: Created
+after cancel: Canceled
+Start may not be called on a task that has completed.
+created with a canceled token: Canceled
+Start may not be called on a task that has completed.
+Start may not be called on a task that was already started.
+Start may not be called on a promise-style task.
+RunSynchronously may not be called on a task not bound to a delegate, such as the task returned from an asynchronous method.
+Value cannot be null. (Parameter 'action')
+CurrentId inside matches Id: True
+Task.Run CurrentId matches: True
+thread-pool item: null

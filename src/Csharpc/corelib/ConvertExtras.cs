@@ -100,6 +100,27 @@ namespace CsharpcCoreLib
 
         public static string ToBase64String(ReadOnlySpan<byte> bytes, Base64FormattingOptions options) => Base64(bytes, options);
 
+        public static int ToBase64CharArray(byte[] inArray, int offsetIn, int length, char[] outArray, int offsetOut) =>
+            ToBase64CharArray(inArray, offsetIn, length, outArray, offsetOut, Base64FormattingOptions.None);
+
+        // Convert.ToBase64CharArray: .NET's checks in its order, then the text ToBase64String makes.
+        public static int ToBase64CharArray(byte[] inArray, int offsetIn, int length, char[] outArray, int offsetOut, Base64FormattingOptions options)
+        {
+            ArgumentNullException.ThrowIfNull(inArray);
+            ArgumentNullException.ThrowIfNull(outArray);
+            ArgumentOutOfRangeException.ThrowIfNegative(length);
+            ArgumentOutOfRangeException.ThrowIfNegative(offsetIn);
+            ArgumentOutOfRangeException.ThrowIfNegative(offsetOut);
+            if ((uint)options > (uint)Base64FormattingOptions.InsertLineBreaks)
+                throw new ArgumentException("Illegal enum value: " + (int)options + ".", "options");
+            ArgumentOutOfRangeException.ThrowIfGreaterThan(offsetIn, inArray.Length - length);
+            if (length == 0) return 0;
+            string text = Base64(new ReadOnlySpan<byte>(inArray, offsetIn, length), options);
+            ArgumentOutOfRangeException.ThrowIfGreaterThan(offsetOut, outArray.Length - text.Length);
+            text.CopyTo(0, outArray, offsetOut, text.Length);
+            return text.Length;
+        }
+
         private static string Base64(ReadOnlySpan<byte> bytes, Base64FormattingOptions options)
         {
             if ((uint)options > (uint)Base64FormattingOptions.InsertLineBreaks)

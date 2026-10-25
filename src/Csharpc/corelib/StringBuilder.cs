@@ -155,6 +155,15 @@ namespace CsharpcCoreLib
             return This;
         }
 
+        /// <summary>The rune's UTF-16 code units (one, or a surrogate pair).</summary>
+        public StringBuilderImpl Append(System.Text.Rune value)
+        {
+            if (value.IsBmp) return Append((char)value.Value);
+            int v = value.Value - 0x10000;
+            Append((char)(0xD800 + (v >> 10)));
+            return Append((char)(0xDC00 + (v & 0x3FF)));
+        }
+
         public StringBuilderImpl Append(char value, int repeatCount)
         {
             ThrowHelper.IfNegative(repeatCount, "repeatCount");

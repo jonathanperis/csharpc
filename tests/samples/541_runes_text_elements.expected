@@ -1,0 +1,23 @@
+a: chars 1, runes 1, elements 1 [0:a] indexes [0]
+\u00E1: chars 1, runes 1, elements 1 [0:\u00E1] indexes [0]
+a\u0301: chars 2, runes 2, elements 1 [0:a\u0301] indexes [0]
+\uD83D\uDC69\uD83C\uDFFD\u200D\uD83D\uDE92: chars 7, runes 4, elements 1 [0:\uD83D\uDC69\uD83C\uDFFD\u200D\uD83D\uDE92] indexes [0]
+\uD83C\uDDE7\uD83C\uDDF7\uD83C\uDDFA\uD83C\uDDF8: chars 8, runes 4, elements 2 [0:\uD83C\uDDE7\uD83C\uDDF7 4:\uD83C\uDDFA\uD83C\uDDF8] indexes [0,4]
+\u000D\u000A: chars 2, runes 2, elements 1 [0:\u000D\u000A] indexes [0]
+x\u000D\u000Ay: chars 4, runes 4, elements 3 [0:x 1:\u000D\u000A 3:y] indexes [0,1,3]
+\u0915\u094D\u0937\u093F: chars 4, runes 4, elements 2 [0:\u0915\u094D 2:\u0937\u093F] indexes [0,2]
+\u0BA8\u0BBF: chars 2, runes 2, elements 1 [0:\u0BA8\u0BBF] indexes [0]
+\uAC01: chars 1, runes 1, elements 1 [0:\uAC01] indexes [0]
+\u1100\u1161\u11A8: chars 3, runes 3, elements 1 [0:\u1100\u1161\u11A8] indexes [0]
+e\u0301\u0302\u0303: chars 4, runes 4, elements 1 [0:e\u0301\u0302\u0303] indexes [0]
+\uD83C\uDFF3\uFE0F\u200D\uD83C\uDF08: chars 6, runes 4, elements 1 [0:\uD83C\uDFF3\uFE0F\u200D\uD83C\uDF08] indexes [0]
+\uD83D\uDC4D\uD83C\uDFFF: chars 4, runes 2, elements 1 [0:\uD83D\uDC4D\uD83C\uDFFF] indexes [0]
+\u0600x: chars 2, runes 2, elements 1 [0:\u0600x] indexes [0]
+ab\uD800c: chars 4, runes 4, elements 4 [0:a 1:b 2:\uD800 3:c] indexes [0,1,2,3]
+\uDC00: chars 1, runes 1, elements 1 [0:\uDC00] indexes [0]
+: chars 0, runes 0, elements 0 [] indexes []
+GetNextTextElement: \uD83D\uDC69\uD83C\uDFFD\u200D\uD83D\uDE92 length 7
+SubstringByTextElements: \uD83D\uDC69\uD83C\uDFFD\u200D\uD83D\uDE92 w
+Specified argument was out of the range of valid values. (Parameter 'startingTextElement')
+NA\u00CFVE CAF\u00C9 \uD83E\uDD84 STRA\u00DFE
+span runes utf16 length 4

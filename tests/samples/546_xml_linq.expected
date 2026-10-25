@@ -1,0 +1,37 @@
+root catalog declaration <?xml version="1.0" encoding="utf-8"?> nodes 2
+b1: C# in Depth at 12.50
+b2: <Fast> & Loose at 7
+tag lang, total 19.50
+titles: C# in Depth | <Fast> & Loose | Monthly & Weekly
+pi: <?render mode="fast"?>
+<o:order id="42" xmlns:o="urn:orders">
+  <o:line sku="A-1" qty="2">Widget</o:line>
+  <o:line sku="B&lt;2&gt;" qty="1">Gadget &amp; "Co"</o:line>
+  <!--end-->
+</o:order>
+<o:order id="42" xmlns:o="urn:orders"><o:line sku="A-1" qty="2">Widget</o:line><o:line sku="B&lt;2&gt;" qty="1">Gadget &amp; "Co"</o:line><!--end--></o:order>
+after edits: <o:order id="42" xmlns:o="urn:orders"><o:line sku="A-1" qty="5">Widget</o:line><!--end--></o:order>
+preserved: <a>\n  <b> x </b>\n</a>
+<root version="1.0">
+  <item>one &lt; two</item>
+  <empty /><![CDATA[raw ]]]]><![CDATA[> text]]></root>
+Element r '' depth 0 attrs 1
+Element c '' depth 1 attrs 0
+Text  'text' depth 2 attrs 0
+EndElement c '' depth 1 attrs 0
+Comment  'note' depth 1 attrs 0
+Element d '' depth 1 attrs 0
+EndElement r '' depth 0 attrs 0
+utf-8: 76 bytes, EFBBBF3C3F78... -> café € 😀
+us-ascii: 94 bytes, 3C3F786D6C20... -> café € 😀
+utf-16: 138 bytes, FFFE3C003F00... -> café € 😀
+<t note="na&#xEF;ve">caf&#xE9; &#x20AC; &#x1F600;</t>
+file starts: <?xml version="1.0" encoding="utf-8"?>\n<!-- inventory -->\n<c
+reloaded 3 elements, 3 titles
+entity: hello world
+XmlException (1,9): The 'b' start tag on line 1 position 5 does not match the end tag of 'a'. Line 1, position 9.
+XmlException (1,10): 'x' is a duplicate attribute name. Line 1, position 10.
+XmlException (1,5): Reference to undeclared entity 'undefined'. Line 1, position 5.
+XmlException (1,1): Data at the root level is invalid. Line 1, position 1.
+XmlException (1,9): There are multiple root elements. Line 1, position 9.
+XmlConvert: 3.5 True a_x0020_b 2024-02-29T10:00:00.0000000Z

@@ -61,6 +61,8 @@ DEF_EXC(System_FormatException, "System.FormatException", &csrt_MT_System_System
 DEF_EXC(System_Threading_ThreadStateException, "System.Threading.ThreadStateException", &csrt_MT_System_SystemException.header)
 DEF_EXC(System_Threading_SynchronizationLockException, "System.Threading.SynchronizationLockException",
         &csrt_MT_System_SystemException.header)
+DEF_EXC(System_Threading_ThreadInterruptedException, "System.Threading.ThreadInterruptedException",
+        &csrt_MT_System_SystemException.header)
 DEF_EXC(System_Collections_Generic_KeyNotFoundException, "System.Collections.Generic.KeyNotFoundException",
         &csrt_MT_System_SystemException.header)
 DEF_EXC(System_OperationCanceledException, "System.OperationCanceledException", &csrt_MT_System_SystemException.header)
@@ -542,11 +544,14 @@ bool csrt_is_operation_canceled(void* exception) {
 }
 
 void* csrt_task_canceled_exception_new(void) {
-    return new_exception(&csrt_MT_System_Threading_Tasks_TaskCanceledException, "A task was canceled.");
+    csrt_Exception* e = new_exception(&csrt_MT_System_Threading_Tasks_TaskCanceledException, "A task was canceled.");
+    return e;
 }
 
-void* csrt_operation_canceled_exception_new(void) {
-    return new_exception(&csrt_MT_System_OperationCanceledException, "The operation was canceled.");
+void* csrt_operation_canceled_exception_new(void* token) {
+    csrt_Exception* e = new_exception(&csrt_MT_System_OperationCanceledException, "The operation was canceled.");
+    e->token = token;
+    return e;
 }
 
 void* csrt_object_disposed_exception_new(const char* message) {
@@ -716,6 +721,7 @@ static const csrt_ExceptionMethodTable* const s_by_name[] = {
     &csrt_MT_System_InvalidCastException, &csrt_MT_System_FormatException,
     &csrt_MT_System_Collections_Generic_KeyNotFoundException,
     &csrt_MT_System_Threading_ThreadStateException, &csrt_MT_System_Threading_SynchronizationLockException,
+    &csrt_MT_System_Threading_ThreadInterruptedException,
     &csrt_MT_System_Collections_Generic_KeyNotFoundException, &csrt_MT_System_OperationCanceledException,
     &csrt_MT_System_Threading_Tasks_TaskCanceledException, &csrt_MT_System_AggregateException,
     &csrt_MT_System_OutOfMemoryException,

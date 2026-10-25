@@ -349,37 +349,6 @@ namespace CsharpcCoreLib
     [ShadowMembers("System.MemoryExtensions")]
     internal static class MemoryExtensionsExtras
     {
-        public static bool ContainsAnyInRange<T>(ReadOnlySpan<T> span, T lowInclusive, T highInclusive) where T : IComparable<T> =>
-            IndexOfAnyInRange(span, lowInclusive, highInclusive) >= 0;
-        public static bool ContainsAnyExceptInRange<T>(ReadOnlySpan<T> span, T lowInclusive, T highInclusive) where T : IComparable<T> =>
-            IndexOfAnyExceptInRange(span, lowInclusive, highInclusive) >= 0;
-
-        private static bool In<T>(T value, ReadOnlySpan<T> set) where T : IEquatable<T>
-        {
-            for (int i = 0; i < set.Length; i++)
-                if (CoreIntrinsics.AreEqual(value, set[i])) return true;
-            return false;
-        }
-
-        public static ReadOnlySpan<T> TrimStart<T>(ReadOnlySpan<T> span, ReadOnlySpan<T> trimElements) where T : IEquatable<T>
-        {
-            if (trimElements.Length == 0) return span;
-            int start = 0;
-            while (start < span.Length && In(span[start], trimElements)) start++;
-            return span.Slice(start);
-        }
-
-        public static ReadOnlySpan<T> TrimEnd<T>(ReadOnlySpan<T> span, ReadOnlySpan<T> trimElements) where T : IEquatable<T>
-        {
-            if (trimElements.Length == 0) return span;
-            int end = span.Length;
-            while (end > 0 && In(span[end - 1], trimElements)) end--;
-            return span.Slice(0, end);
-        }
-
-        public static ReadOnlySpan<T> Trim<T>(ReadOnlySpan<T> span, ReadOnlySpan<T> trimElements) where T : IEquatable<T> =>
-            TrimEnd(TrimStart(span, trimElements), trimElements);
-
         /// <summary>.NET's MemoryExtensions.Split: up to destination.Length ranges, the last one holding the rest.</summary>
         public static int Split(ReadOnlySpan<char> source, Span<Range> destination, char separator, StringSplitOptions options = StringSplitOptions.None)
         {
@@ -408,27 +377,6 @@ namespace CsharpcCoreLib
                 start = end + 1;
             }
             return count;
-        }
-
-        public static ReadOnlySpan<char> Trim(ReadOnlySpan<char> span, ReadOnlySpan<char> trimChars) => Trim<char>(span, trimChars);
-        public static ReadOnlySpan<char> TrimStart(ReadOnlySpan<char> span, ReadOnlySpan<char> trimChars) => TrimStart<char>(span, trimChars);
-        public static ReadOnlySpan<char> TrimEnd(ReadOnlySpan<char> span, ReadOnlySpan<char> trimChars) => TrimEnd<char>(span, trimChars);
-
-        /// <summary>Copies source to destination, replacing oldValue with newValue.</summary>
-        public static void Replace<T>(ReadOnlySpan<T> source, Span<T> destination, T oldValue, T newValue) where T : IEquatable<T>
-        {
-            if (source.Length > destination.Length) throw new ArgumentException("Destination is too short.", "destination");
-            for (int i = 0; i < source.Length; i++)
-            {
-                T value = source[i];
-                destination[i] = CoreIntrinsics.AreEqual(value, oldValue) ? newValue : value;
-            }
-        }
-
-        public static void Replace<T>(Span<T> span, T oldValue, T newValue) where T : IEquatable<T>
-        {
-            for (int i = 0; i < span.Length; i++)
-                if (CoreIntrinsics.AreEqual(span[i], oldValue)) span[i] = newValue;
         }
 
         public static int SequenceCompareTo<T>(ReadOnlySpan<T> span, ReadOnlySpan<T> other) where T : IComparable<T>
@@ -461,25 +409,8 @@ namespace CsharpcCoreLib
             return false;
         }
 
-        public static bool ContainsAny<T>(ReadOnlySpan<T> span, T value0, T value1, T value2) where T : IEquatable<T>
-        {
-            for (int i = 0; i < span.Length; i++)
-                if (CoreIntrinsics.AreEqual(span[i], value0) || CoreIntrinsics.AreEqual(span[i], value1) || CoreIntrinsics.AreEqual(span[i], value2)) return true;
-            return false;
-        }
-
-        public static bool ContainsAny<T>(ReadOnlySpan<T> span, ReadOnlySpan<T> values) where T : IEquatable<T>
-        {
-            for (int i = 0; i < span.Length; i++)
-                for (int j = 0; j < values.Length; j++)
-                    if (CoreIntrinsics.AreEqual(span[i], values[j])) return true;
-            return false;
-        }
-
         public static bool ContainsAny<T>(Span<T> span, T value0, T value1) where T : IEquatable<T> => ContainsAny((ReadOnlySpan<T>)span, value0, value1);
         public static bool ContainsAny<T>(Span<T> span, T value0, T value1, T value2) where T : IEquatable<T> => ContainsAny((ReadOnlySpan<T>)span, value0, value1, value2);
-        public static bool ContainsAny<T>(Span<T> span, ReadOnlySpan<T> values) where T : IEquatable<T> => ContainsAny((ReadOnlySpan<T>)span, values);
-
         public static bool Equals(ReadOnlySpan<char> span, ReadOnlySpan<char> other, StringComparison comparisonType) =>
             string.Equals(new string(span), new string(other), comparisonType);
 
@@ -595,6 +526,135 @@ namespace CsharpcCoreLib
                 if (CoreIntrinsics.Compare(span[i], lowInclusive) < 0 || CoreIntrinsics.Compare(span[i], highInclusive) > 0) return i;
             return -1;
         }
+
+        public static bool ContainsAnyInRange<T>(ReadOnlySpan<T> span, T lowInclusive, T highInclusive) => IndexOfAnyInRange(span, lowInclusive, highInclusive) >= 0;
+        public static bool ContainsAnyExceptInRange<T>(ReadOnlySpan<T> span, T lowInclusive, T highInclusive) => IndexOfAnyExceptInRange(span, lowInclusive, highInclusive) >= 0;
+
+        public static int LastIndexOfAny<T>(ReadOnlySpan<T> span, T value0, T value1)
+        {
+            for (int i = span.Length - 1; i >= 0; i--)
+                if (CoreIntrinsics.AreEqual(span[i], value0) || CoreIntrinsics.AreEqual(span[i], value1)) return i;
+            return -1;
+        }
+
+        public static int LastIndexOfAny<T>(ReadOnlySpan<T> span, T value0, T value1, T value2)
+        {
+            for (int i = span.Length - 1; i >= 0; i--)
+                if (CoreIntrinsics.AreEqual(span[i], value0) || CoreIntrinsics.AreEqual(span[i], value1) || CoreIntrinsics.AreEqual(span[i], value2)) return i;
+            return -1;
+        }
+
+        // Trim(span, element): the span without leading/trailing copies of the element.
+        public static ReadOnlySpan<T> Trim<T>(ReadOnlySpan<T> span, T trimElement) where T : IEquatable<T> => TrimEnd(TrimStart(span, trimElement), trimElement);
+
+        public static ReadOnlySpan<T> TrimStart<T>(ReadOnlySpan<T> span, T trimElement) where T : IEquatable<T>
+        {
+            int start = 0;
+            while (start < span.Length && CoreIntrinsics.AreEqual(span[start], trimElement)) start++;
+            return span.Slice(start);
+        }
+
+        public static ReadOnlySpan<T> TrimEnd<T>(ReadOnlySpan<T> span, T trimElement) where T : IEquatable<T>
+        {
+            int end = span.Length - 1;
+            while (end >= 0 && CoreIntrinsics.AreEqual(span[end], trimElement)) end--;
+            return span.Slice(0, end + 1);
+        }
+
+        // Trim(span, elements) (MemoryExtensions.Trim.cs): no elements trim nothing — except for the char
+        // overloads, where they mean white space.
+        public static ReadOnlySpan<T> Trim<T>(ReadOnlySpan<T> span, ReadOnlySpan<T> trimElements) where T : IEquatable<T> =>
+            TrimEnd(TrimStart(span, trimElements), trimElements);
+
+        public static ReadOnlySpan<T> TrimStart<T>(ReadOnlySpan<T> span, ReadOnlySpan<T> trimElements) where T : IEquatable<T>
+        {
+            int start = 0;
+            while (start < span.Length && IndexIn(trimElements, span[start])) start++;
+            return span.Slice(start);
+        }
+
+        public static ReadOnlySpan<T> TrimEnd<T>(ReadOnlySpan<T> span, ReadOnlySpan<T> trimElements) where T : IEquatable<T>
+        {
+            int end = span.Length - 1;
+            while (end >= 0 && IndexIn(trimElements, span[end])) end--;
+            return span.Slice(0, end + 1);
+        }
+
+        private static bool IndexIn<T>(ReadOnlySpan<T> values, T value)
+        {
+            for (int i = 0; i < values.Length; i++)
+                if (CoreIntrinsics.AreEqual(values[i], value)) return true;
+            return false;
+        }
+
+        public static ReadOnlySpan<char> Trim(ReadOnlySpan<char> span, ReadOnlySpan<char> trimChars) =>
+            TrimEnd(TrimStart(span, trimChars), trimChars);
+
+        public static ReadOnlySpan<char> TrimStart(ReadOnlySpan<char> span, ReadOnlySpan<char> trimChars)
+        {
+            int start = 0;
+            while (start < span.Length && (trimChars.IsEmpty ? char.IsWhiteSpace(span[start]) : IndexIn(trimChars, span[start]))) start++;
+            return span.Slice(start);
+        }
+
+        public static ReadOnlySpan<char> TrimEnd(ReadOnlySpan<char> span, ReadOnlySpan<char> trimChars)
+        {
+            int end = span.Length - 1;
+            while (end >= 0 && (trimChars.IsEmpty ? char.IsWhiteSpace(span[end]) : IndexIn(trimChars, span[end]))) end--;
+            return span.Slice(0, end + 1);
+        }
+
+        public static bool ContainsAny<T>(ReadOnlySpan<T> span, ReadOnlySpan<T> values) where T : IEquatable<T>
+        {
+            for (int i = 0; i < span.Length; i++)
+                if (IndexIn(values, span[i])) return true;
+            return false;
+        }
+
+        public static bool ContainsAny<T>(Span<T> span, ReadOnlySpan<T> values) where T : IEquatable<T> => ContainsAny((ReadOnlySpan<T>)span, values);
+
+        public static bool ContainsAnyExcept<T>(ReadOnlySpan<T> span, ReadOnlySpan<T> values) where T : IEquatable<T>
+        {
+            for (int i = 0; i < span.Length; i++)
+                if (!IndexIn(values, span[i])) return true;
+            return false;
+        }
+
+        public static bool ContainsAnyExcept<T>(Span<T> span, ReadOnlySpan<T> values) where T : IEquatable<T> => ContainsAnyExcept((ReadOnlySpan<T>)span, values);
+
+        public static bool ContainsAny<T>(ReadOnlySpan<T> span, T value0, T value1, T value2) where T : IEquatable<T>
+        {
+            for (int i = 0; i < span.Length; i++)
+                if (CoreIntrinsics.AreEqual(span[i], value0) || CoreIntrinsics.AreEqual(span[i], value1) || CoreIntrinsics.AreEqual(span[i], value2)) return true;
+            return false;
+        }
+
+        /// <summary>Replace(source, destination, old, new): a copy with every `oldValue` replaced (MemoryExtensions.Replace).</summary>
+        public static void Replace<T>(ReadOnlySpan<T> source, Span<T> destination, T oldValue, T newValue) where T : IEquatable<T>
+        {
+            if (source.Length > destination.Length) throw new ArgumentException("Destination is too short.", "destination");
+            for (int i = 0; i < source.Length; i++)
+            {
+                T value = source[i];
+                destination[i] = CoreIntrinsics.AreEqual(value, oldValue) ? newValue : value;
+            }
+        }
+
+        public static void Replace<T>(Span<T> span, T oldValue, T newValue) where T : IEquatable<T>
+        {
+            for (int i = 0; i < span.Length; i++)
+                if (CoreIntrinsics.AreEqual(span[i], oldValue)) span[i] = newValue;
+        }
+
+        public static Span<T> Trim<T>(Span<T> span, T trimElement) where T : IEquatable<T>
+        {
+            int start = TrimStart((ReadOnlySpan<T>)span, trimElement).Length;
+            Span<T> rest = span.Slice(span.Length - start);
+            return rest.Slice(0, TrimEnd((ReadOnlySpan<T>)rest, trimElement).Length);
+        }
+
+        /// <summary>array.CopyTo(span) (MemoryExtensions.CopyTo): the whole array, ArgumentException if it doesn't fit.</summary>
+        public static void CopyTo<T>(T[] source, Span<T> destination) => new ReadOnlySpan<T>(source).CopyTo(destination);
 
         public static int LastIndexOf<T>(ReadOnlySpan<T> span, ReadOnlySpan<T> value)
         {
