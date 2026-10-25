@@ -796,7 +796,9 @@ public sealed partial class ModuleCodeGen
         if (!IsUserType(type))
             return IsLibraryException(type)
                 ? GetLibraryExceptionLayout(type)
-                : throw CompileError.Unsupported($"instances of library class '{type}'", type);
+                : IsRuntimeCancellationSource(type)
+                    ? GetCancellationSourceLayout(type)
+                    : throw CompileError.Unsupported($"instances of library class '{type}'", type);
         if (TypeSubstitution.IsOpen(type)) throw CompileError.Unsupported($"open generic type '{type}'", type);
         NoteDynamicallyAccessedInstantiation(type);
         RejectCustomLayout(type);
@@ -842,7 +844,7 @@ public sealed partial class ModuleCodeGen
         if (type.BaseType is { SpecialType: not SpecialType.System_Object } declaredBase)
         {
             var baseType = CoreLib.TryMap(declaredBase) ?? declaredBase; // e.g. `class ByLength : Comparer<string>`
-            if (!IsUserType(baseType) && !IsLibraryException(baseType))
+            if (!IsUserType(baseType) && !IsLibraryException(baseType) && !IsRuntimeCancellationSource(baseType))
                 throw CompileError.Unsupported($"deriving from library class '{baseType}'", type);
             baseLayout = GetLayout(baseType);
         }
@@ -899,7 +901,12 @@ public sealed partial class ModuleCodeGen
             if (m.IsOverride)
             {
                 if (!layout.SlotOf.TryGetValue(root, out var slot))
+                {
+                    // Exception.GetObjectData (binary serialization, obsolete): csharpc serializes nothing, so
+                    // nothing dispatches to it; the override stays an ordinary method.
+                    if (IsLibraryException(root.ContainingType) && root.Name == "GetObjectData") continue;
                     throw CompileError.Unsupported($"overriding library member '{root}'", m);
+                }
                 layout.VTable[slot] = m;
             }
             else
@@ -997,6 +1004,8 @@ public sealed partial class ModuleCodeGen
     {
         "csrt_object_equals_default" => Runtime(name, Llvm.I1, Llvm.Ptr, Llvm.Ptr).Fn,
         "csrt_object_get_hash_code_default" => Runtime(name, Llvm.I32, Llvm.Ptr).Fn,
+        "csrt_cts_dispose_virtual" => Runtime(name, Llvm.Void, Llvm.Ptr).Fn,
+        "csrt_cts_dispose_bool" => Runtime(name, Llvm.Void, Llvm.Ptr, Llvm.I1).Fn,
         _ => Runtime(name, Llvm.Ptr, Llvm.Ptr).Fn,
     };
 

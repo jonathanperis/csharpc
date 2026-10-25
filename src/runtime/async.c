@@ -575,11 +575,14 @@ typedef struct CancellationSource {
 } CancellationSource;
 
 void csrt_cts_dispose(CancellationSource* cts);
-// IDisposable.Dispose (`using var cts = ...` through the interface) is a real Dispose: slot 3.
-const struct { csrt_MethodTable header; void* vtable[4]; } csrt_CancellationTokenSource_MT = {
+void csrt_cts_dispose_bool(CancellationSource* cts, bool disposing);
+// IDisposable.Dispose (`using var cts = ...` through the interface) is a real Dispose: slot 3; slot 4 is
+// the protected virtual Dispose(bool) classes deriving from CancellationTokenSource override
+// (ModuleCodeGen.Cancellation.cs lays them out over this struct).
+const struct { csrt_MethodTable header; void* vtable[5]; } csrt_CancellationTokenSource_MT = {
     { &csrt_Object_MT.header, "System.Threading.CancellationTokenSource", sizeof(CancellationSource), CSRT_MT_DISPOSABLE | CSRT_MT_DISPOSE_SLOT },
     { (void*)csrt_object_to_string_default, (void*)csrt_object_equals_default, (void*)csrt_object_get_hash_code_default,
-      (void*)csrt_cts_dispose },
+      (void*)csrt_cts_dispose, (void*)csrt_cts_dispose_bool },
 };
 
 static pthread_mutex_t s_tlock = PTHREAD_MUTEX_INITIALIZER;
@@ -837,6 +840,33 @@ void csrt_cts_dispose(CancellationSource* cts) {
         }
     }
     pthread_mutex_unlock(&s_tlock);
+}
+
+/// CancellationTokenSource.Dispose(bool): the base implementation (disposing: Dispose's work).
+void csrt_cts_dispose_bool(CancellationSource* cts, bool disposing) {
+    if (!cts) csrt_throw_null_reference();
+    if (disposing) csrt_cts_dispose(cts);
+}
+
+/// CancellationTokenSource.Dispose(): Dispose(true) through the vtable, so a derived class's override runs.
+void csrt_cts_dispose_virtual(CancellationSource* cts) {
+    if (!cts) csrt_throw_null_reference();
+    void (*dispose)(CancellationSource*, bool) = (void (*)(CancellationSource*, bool))((void* const*)(cts->mt + 1))[4];
+    dispose(cts, true);
+}
+
+/// A virtual call of Dispose(bool) (from a class deriving from CancellationTokenSource).
+void csrt_cts_dispose_bool_virtual(CancellationSource* cts, bool disposing) {
+    if (!cts) csrt_throw_null_reference();
+    void (*dispose)(CancellationSource*, bool) = (void (*)(CancellationSource*, bool))((void* const*)(cts->mt + 1))[4];
+    dispose(cts, disposing);
+}
+
+/// `: base(millisecondsDelay)` of a class deriving from CancellationTokenSource: the timer of the
+/// CancellationTokenSource(int) constructor on the already allocated (zeroed) source.
+void csrt_cts_init_after(CancellationSource* cts, int32_t ms) {
+    if (ms == 0) cts->canceled = 1;
+    else if (ms > 0) add_timer(now_ms() + ms, NULL, cts);
 }
 
 /// CancellationTokenSource.TryReset(): an uncanceled source forgets its registrations and timers.

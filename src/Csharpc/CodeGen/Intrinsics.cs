@@ -739,8 +739,18 @@ internal static class Intrinsics
         t[$"{Th}.CancellationToken.op_Equality({Th}.CancellationToken, {Th}.CancellationToken)"] = sameSource;
         t[$"{Th}.CancellationToken.op_Inequality({Th}.CancellationToken, {Th}.CancellationToken)"] = (g, inv) =>
             g.Builder.Not(sameSource(g, inv));
+        // Dispose() is Dispose(true) through the vtable: classes deriving from the source override Dispose(bool).
         t[$"{Th}.CancellationTokenSource.Dispose()"] = (g, inv) =>
-        { g.CallRuntime("csrt_cts_dispose", g.Module.Llvm.Void, [g.Module.Llvm.Ptr], g.EmitValue(inv.Instance!)); return default; };
+        { g.CallRuntime("csrt_cts_dispose_virtual", g.Module.Llvm.Void, [g.Module.Llvm.Ptr], g.EmitValue(inv.Instance!)); return default; };
+        t[$"{Th}.CancellationTokenSource.Dispose(bool)"] = (g, inv) =>
+        {
+            var self = g.EmitValue(inv.Instance!);
+            var disposing = Arg(g, inv, 0);
+            // `base.Dispose(disposing)` from an override is the base implementation; other calls dispatch.
+            if (inv.IsVirtual) g.CallRuntime("csrt_cts_dispose_bool_virtual", g.Module.Llvm.Void, [g.Module.Llvm.Ptr, g.Module.Llvm.I1], self, disposing);
+            else g.CallRuntime("csrt_cts_dispose_bool", g.Module.Llvm.Void, [g.Module.Llvm.Ptr, g.Module.Llvm.I1], self, disposing);
+            return default;
+        };
         t[$"{Th}.CancellationToken.ThrowIfCancellationRequested()"] = (g, inv) =>
         {
             g.CallRuntime("csrt_token_throw_if_cancellation_requested", g.Module.Llvm.Void, [g.Module.Llvm.Ptr], g.EmitValue(inv.Instance!));

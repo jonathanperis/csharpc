@@ -68,13 +68,17 @@ public sealed partial class ModuleCodeGen
     {
         _pendingMethodTables.Add(table);
         var layout = table.Layout;
-        var keepMessage = DerivesFromLibraryException(layout);
+        var runtimeBase = LibraryBaseOf(layout);
+        var keepMessage = runtimeBase is not null && IsLibraryException(runtimeBase);
+        // Classes deriving from CancellationTokenSource: csrt calls Dispose(bool) (CancellationTokenSource.Dispose()).
+        var keepDispose = runtimeBase is not null && IsRuntimeCancellationSource(runtimeBase);
         var rootsBySlot = layout.SlotOf.GroupBy(kv => kv.Value).ToDictionary(g => g.Key, g => g.Select(kv => kv.Key).ToList());
         for (var i = 0; i < layout.VTable.Count; i++)
         {
             if (layout.VTable[i] is null) continue;
             // The runtime calls the System.Object slots (and Exception.Message) itself.
-            if (i < ClassLayout.ObjectSlotCount || (i == ExceptionMessageSlot && keepMessage)) { _slotRequests.Enqueue((table, i, -1)); continue; }
+            if (i < ClassLayout.ObjectSlotCount || (i == ExceptionMessageSlot && keepMessage) || (i == CancellationDisposeBoolSlot && keepDispose))
+            { _slotRequests.Enqueue((table, i, -1)); continue; }
             if (!rootsBySlot.TryGetValue(i, out var roots)) continue;
             foreach (var root in roots)
             {
@@ -93,11 +97,12 @@ public sealed partial class ModuleCodeGen
         }
     }
 
-    private static bool DerivesFromLibraryException(ClassLayout layout)
+    /// <summary>The csrt-implemented class a class derives from (a library exception, CancellationTokenSource), or null.</summary>
+    private static INamedTypeSymbol? LibraryBaseOf(ClassLayout layout)
     {
         for (var l = layout; l is not null; l = l.Base)
-            if (l.IsLibrary) return true;
-        return false;
+            if (l.IsLibrary) return l.Type;
+        return null;
     }
 
     /// <summary>

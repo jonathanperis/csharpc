@@ -63,6 +63,9 @@ public sealed partial class FunctionCodeGen
                 return VirtualCall(target, boxed, [boxed, .. extra]);
             }
         }
+        // `: base()` / `: base(delay)` of a class deriving from CancellationTokenSource (ModuleCodeGen.Cancellation.cs).
+        if (target.MethodKind == MethodKind.Constructor && inv.Instance is not null && ModuleCodeGen.IsRuntimeCancellationSource(target.ContainingType))
+            return EmitCancellationSourceBaseConstructor(target, inv);
         if (_m.IsUserMethod(target))
         {
             var arguments = inv.Arguments;
