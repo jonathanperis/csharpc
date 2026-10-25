@@ -226,8 +226,11 @@ static bool dequeue_locked(intptr_t* kind, void** a, void** b, void** flow) {
 
 static void run_item(intptr_t kind, void* a, void* b);
 
+void csrt_os_thread_name(const char* name);
+
 static void worker_loop(void) {
     tl_worker = true;
+    csrt_os_thread_name(".NET TP Worker");
     for (;;) {
         intptr_t kind; void* a; void* b; void* flow;
         pthread_mutex_lock(&s_qlock);

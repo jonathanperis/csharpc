@@ -192,12 +192,15 @@ static void thread_finished(csrt_Thread* t) {
     pthread_mutex_unlock(&s_join_lock);
 }
 
+static void os_thread_name_from(csrt_String* name);
+
 static void* thread_main(void* arg) {
     csrt_GcThread* gt = arg;
     csrt_gc_thread_attach(gt);
     csrt_Thread* t = gt->managed;
     tl_current = t;
     csrt_tl_flow = t->flow;
+    os_thread_name_from(t->name);
     // An exception escaping the delegate is unhandled: eh.c reports it and aborts the process,
     // exactly like an unhandled exception on a .NET thread.
     invoke_void(t->start, t->parameterized, t->parameter);
@@ -277,10 +280,30 @@ bool csrt_thread_is_alive(csrt_Thread* t) {
 
 int32_t csrt_thread_id(csrt_Thread* t) { if (!t) csrt_throw_null_reference(); return t->id; }
 csrt_String* csrt_thread_get_name(csrt_Thread* t) { if (!t) csrt_throw_null_reference(); return t->name; }
+/// The OS-level name of the calling thread (what top, perf and debuggers show), as .NET sets it on
+/// Linux: the first 15 characters (the kernel's limit), non-ASCII as '?'.
+void csrt_os_thread_name(const char* name) {
+#ifdef __linux__
+    pthread_setname_np(pthread_self(), name);
+#else
+    (void)name;
+#endif
+}
+
+static void os_thread_name_from(csrt_String* name) {
+    if (!name) return;
+    char buf[16];
+    int n = name->length < 15 ? name->length : 15;
+    for (int i = 0; i < n; i++) buf[i] = name->chars[i] > 0 && name->chars[i] < 128 ? (char)name->chars[i] : '?';
+    buf[n] = 0;
+    csrt_os_thread_name(buf);
+}
+
 void csrt_thread_set_name(csrt_Thread* t, csrt_String* name) {
     if (!t) csrt_throw_null_reference();
     if (t->name) throw_msg(&mt_invalid_operation, "This property has already been set and cannot be modified.");
     t->name = name;
+    if (t == tl_current) os_thread_name_from(name);
 }
 bool csrt_thread_get_background(csrt_Thread* t) { if (!t) csrt_throw_null_reference(); return t->background; }
 void csrt_thread_set_background(csrt_Thread* t, bool background) {
