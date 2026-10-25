@@ -20,7 +20,9 @@ foreach (var input in inputs)
         bool ok = Utf8Parser.TryParse(bytes, out DateTime value, out int consumed, format);
         bool okOffset = Utf8Parser.TryParse(bytes, out DateTimeOffset offset, out int consumedOffset, format);
         string dt = ok && value.Kind != DateTimeKind.Local ? $"{value.Ticks} {value.Kind} ({consumed})" : ok ? $"local ({consumed})" : "-";
-        string dto = okOffset && format is 'R' or 'l' or 'O' ? $"{offset.UtcTicks} {offset.Offset} ({consumedOffset})" : okOffset ? $"ok ({consumedOffset})" : "-";
+        // Without a zone ('G', default, an 'O' time without 'Z' or an offset) the offset is the machine's: not printed.
+        bool zoned = format is 'R' or 'l' || (format == 'O' && input.Length > 27);
+        string dto = okOffset && zoned ? $"{offset.UtcTicks} {offset.Offset} ({consumedOffset})" : okOffset ? $"ok ({consumedOffset})" : "-";
         Console.WriteLine($"{input} [{(format == default ? "default" : format.ToString())}]: {dt} | {dto}");
     }
 }

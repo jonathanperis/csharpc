@@ -108,13 +108,19 @@ namespace CsharpcCoreLib
     {
         private IntPtr _ctx;
         private readonly bool _encrypting;
+        private readonly CipherMode _mode;
+        private readonly int _feedbackBits;
+        private readonly byte[] _key;
 
         public NativeAesCipher(CipherMode mode, ReadOnlySpan<byte> key, ReadOnlySpan<byte> iv, int blockSize, int paddingSize, int feedback, bool encrypting)
             : base(iv.IsEmpty ? null : iv.ToArray(), blockSize, paddingSize)
         {
             _encrypting = encrypting;
+            _mode = mode;
+            _feedbackBits = feedback * 8;
+            _key = key.ToArray();
             fixed (byte* k = key) fixed (byte* v = iv)
-                _ctx = Native.Create(mode, feedback * 8, k, key.Length, iv.IsEmpty ? null : v, encrypting);
+                _ctx = Native.Create(mode, _feedbackBits, k, key.Length, iv.IsEmpty ? null : v, encrypting);
         }
 
         public override int Transform(ReadOnlySpan<byte> input, Span<byte> output)
@@ -132,6 +138,17 @@ namespace CsharpcCoreLib
 
         public void Reset(ReadOnlySpan<byte> iv)
         {
+#if CSHARPC_TARGET_MACOS
+            // CommonCrypto resets CBC only (CFB8/CFB128 and ECB report errors): a fresh cryptor starts the
+            // next operation, as .NET's AppleCCCryptor does for the modes it can't reset.
+            if (_mode != CipherMode.CBC)
+            {
+                Native.Free(_ctx);
+                fixed (byte* k = _key) fixed (byte* v = iv)
+                    _ctx = Native.Create(_mode, _feedbackBits, k, _key.Length, iv.IsEmpty ? null : v, _encrypting);
+                return;
+            }
+#endif
             fixed (byte* v = iv) Native.Reset(_ctx, iv.IsEmpty ? null : v);
         }
 
@@ -175,9 +192,6 @@ namespace CsharpcCoreLib
 
             public static void Reset(IntPtr ctx, byte* iv)
             {
-                // macOS reports an error resetting ECB, the one mode without an IV; .NET's
-                // AppleCryptoNative_CryptorReset skips it, as there is nothing to reset.
-                if (iv == null) return;
                 if (CCCryptorReset(ctx, iv) != 0) throw Error();
             }
 

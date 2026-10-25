@@ -246,12 +246,7 @@ namespace CsharpcCoreLib.Concurrent
         /// </remarks>
         public void Add(T item)
         {
-#if DEBUG
-            bool tryAddReturnValue =
-#endif
             TryAddWithNoTimeValidation(item, Timeout.Infinite, CancellationToken.None);
-#if DEBUG
-#endif
         }
 
         /// <summary>
@@ -275,12 +270,7 @@ namespace CsharpcCoreLib.Concurrent
         /// </remarks>
         public void Add(T item, CancellationToken cancellationToken)
         {
-#if DEBUG
-            bool tryAddReturnValue =
-#endif
             TryAddWithNoTimeValidation(item, Timeout.Infinite, cancellationToken);
-#if DEBUG
-#endif
         }
 
         /// <summary>
@@ -749,15 +739,8 @@ namespace CsharpcCoreLib.Concurrent
         /// </remarks>
         public static int AddToAny(BlockingCollection<T>[] collections, T item)
         {
-#if DEBUG
-            int tryAddAnyReturnValue =
-#else
             return
-#endif
                 TryAddToAny(collections, item, Timeout.Infinite, CancellationToken.None);
-#if DEBUG
-            return tryAddAnyReturnValue;
-#endif
         }
 
         /// <summary>
@@ -789,15 +772,8 @@ namespace CsharpcCoreLib.Concurrent
         /// </remarks>
         public static int AddToAny(BlockingCollection<T>[] collections, T item, CancellationToken cancellationToken)
         {
-#if DEBUG
-            int tryAddAnyReturnValue =
-#else
             return
-#endif
                 TryAddToAny(collections, item, Timeout.Infinite, cancellationToken);
-#if DEBUG
-            return tryAddAnyReturnValue;
-#endif
         }
 
         /// <summary>
@@ -1012,12 +988,7 @@ namespace CsharpcCoreLib.Concurrent
             {
                 if (Impl(collections[i])._freeNodes == null)
                 {
-#if DEBUG
-                    bool result =
-#endif
                     collections[i].TryAdd(item);
-#if DEBUG
-#endif
                     return i;
                 }
             }

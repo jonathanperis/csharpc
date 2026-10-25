@@ -69,7 +69,9 @@ public static partial class CoreLibAssembly
             foreach (Match directive in DirectivePattern().Matches(text))
                 foreach (Match identifier in IdentifierPattern().Matches(directive.Groups[1].Value))
                     tested.Add(identifier.Value);
-        var defines = allSymbols.Where(tested.Contains).ToArray();
+        // Never the program's DEBUG: [Conditional("DEBUG")] would keep the Debug.Assert calls of ported code,
+        // whose arguments test types csharpc may not support (the asserts only document upstream's invariants).
+        var defines = allSymbols.Where(s => tested.Contains(s) && s != "DEBUG").ToArray();
         var key = Hash([.. environment, string.Join(";", defines), .. files.SelectMany((f, i) => new[] { f.TreePath, texts[i] })]);
         var built = Cached(key) ?? Build(key);
         try

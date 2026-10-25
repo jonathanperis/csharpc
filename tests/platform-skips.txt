@@ -105,6 +105,7 @@ wasi bcl/006_environment          Environment.TickCount64 > 0: WASI's monotonic 
 wasi 380_readonly_collection_threadlocal  needs threads: Thread.Start throws PlatformNotSupportedException on WebAssembly
 wasi 443_concurrent_collections   needs threads (ConcurrentBag's per-thread queues): Thread.Start throws PlatformNotSupportedException on WebAssembly
 wasi 544_blocking_collection      needs threads (a producer thread, blocked takes woken by others): Thread.Start throws PlatformNotSupportedException on WebAssembly
+wasi 543_synchronization_context  needs threads: the context's thread waits for continuations that pool threads post (one thread on WebAssembly)
 wasi 194_marshal_strings          prints strerror(2): errno 2 is ENOENT on Linux, EACCES in WASI
 wasi 196_sockets_loopback         opens loopback sockets: WASI preview 1 has none (PlatformNotSupportedException)
 wasi 360_culture_numbers               no ICU on WASI (invariant globalization mode): the sample uses specific cultures
