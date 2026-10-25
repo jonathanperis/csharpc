@@ -26,11 +26,14 @@
 // never calls malloc/free, stdio or the dynamic loader (a stopped thread may hold their locks).
 //
 // Limitations: conservative scanning can retain garbage that happens to look like a pointer; no
-// finalizers; empty chunks are kept (resident) for reuse by any size class.
+// finalizers; empty chunks are kept (resident) for reuse by any size class. An ownership parallel
+// marker can be compiled in with -DCSRT_GC_PARALLEL_MARK. It was slower than this serial marker
+// on a 4-core machine, so the default binary does not include it (docs/adr/0004-memory-management.md).
 //
 // Environment: CSRT_GC=0 disables collection; CSRT_GC_STATS=1 prints statistics at exit;
 // CSRT_GC_STRESS=N collects on every N-th allocation (every allocation takes the slow path), a test
-// mode for root discovery.
+// mode for root discovery. With -DCSRT_GC_PARALLEL_MARK, CSRT_GC_PARALLEL=1 marks with one worker
+// per CPU (0 is serial, -1 after a pause of at least 3 ms) and CSRT_GC_MARK_THREADS caps the count.
 //
 // Platforms: root discovery is per object format. Linux (ELF) finds the data segments and the
 // static TLS block with dl_iterate_phdr; macOS (Mach-O) walks the main image's load commands and
@@ -91,6 +94,9 @@ struct Chunk {
     uint32_t slots;
     uint32_t live;         // live slots after the last sweep
     uint32_t size_class;
+#if defined(CSRT_GC_PARALLEL_MARK)
+    uint8_t owner;         // which parallel marker writes this chunk's mark bits
+#endif
     Chunk* next;           // all chunks
     Chunk* next_free;      // per-class list of chunks with free slots / list of empty chunks
     uint64_t allocated[MAX_SLOTS / 64];
@@ -947,6 +953,447 @@ static void drain(void) {
     }
 }
 
+// Parallel marking (native targets only). The serial marker above is unchanged and is what runs for
+// a small live set, under CSRT_GC_STRESS, and on wasm32. Helpers are not managed threads: they are
+// not registered, not stopped, and they never allocate, so a collection can mark with every CPU
+// while the mutators sit in the suspend handler.
+//
+// Mark bits stay plain stores. Each chunk, and each large object (by its index in the sorted
+// table), has one owner for this collection and only that owner sets its bits. A pointer into
+// another worker's object is batched across to that owner. Workers go idle under the same lock
+// that publishes an inbox, and the last idle worker rechecks every inbox before the mark is done.
+// A fetch_or on the shared mark bitmap was slower than the serial marker: every object in a chunk
+// hits the same few cache lines. Not in the default runtime: on a 4-core machine it was slower
+// than the serial marker and it costs several KiB in every binary. Build the runtime with
+// -DCSRT_GC_PARALLEL_MARK (CSHARPC_RUNTIME_CFLAGS) to enable it; CSRT_GC_PARALLEL then selects
+// the mode (1 always, -1 after a 3 ms mark, 0 serial). wasm32 has no threads.
+#if defined(CSRT_GC_PARALLEL_MARK) && !defined(__wasi__)
+typedef struct { uint8_t* start; size_t size; } MarkItem;
+#define MAX_HELPERS 7
+#define MAX_WORKERS (MAX_HELPERS + 1)
+#define OUT_BATCH 64
+#define ABSORB_MAX 256
+// A mark-stack entry whose size has this bit set is a raw pointer range (a slice of a large
+// array), not an object. Object sizes never use the bit.
+#define RAW_SCAN ((size_t)1 << (sizeof(size_t) * 8 - 1))
+
+extern int32_t csrt_processor_count(void);
+
+typedef struct {
+    MarkItem* items;
+    size_t count, capacity;
+    MarkItem out[MAX_WORKERS][OUT_BATCH];
+    uint16_t out_n[MAX_WORKERS];
+    int id;
+} MarkBuf;
+
+typedef struct {
+    MarkItem* items;
+    size_t count, capacity;
+} Inbox;
+
+static int g_mark_heavy;  // set once a serial mark exceeds a few milliseconds
+static int g_nworkers;
+static int nwait;          // idle workers, guarded by work_mu
+static atomic_int mark_done;
+static pthread_mutex_t work_mu = PTHREAD_MUTEX_INITIALIZER;
+static pthread_cond_t work_cv = PTHREAD_COND_INITIALIZER;
+static Inbox inboxes[MAX_WORKERS];
+
+static struct {
+    int n, idle, epoch, exit_flag, ready;
+    atomic_int finished, exited;
+    pthread_mutex_t mu;
+    pthread_cond_t cv;
+    pthread_t threads[MAX_HELPERS];
+    MarkBuf bufs[MAX_HELPERS];
+    MarkBuf self;
+} pool = { .mu = PTHREAD_MUTEX_INITIALIZER, .cv = PTHREAD_COND_INITIALIZER };
+
+static void cpu_relax(void) {
+#if defined(__x86_64__) || defined(__i386__)
+    __builtin_ia32_pause();
+#elif defined(__aarch64__)
+    __asm__ __volatile__("yield");
+#else
+    ;
+#endif
+}
+
+static int parallel_setting(void) {
+    static int cached = -2;
+    if (cached != -2) return cached;
+    const char* e = getenv("CSRT_GC_PARALLEL");
+    // Serial unless asked. On a 4-core machine the ownership marker was slower than one thread:
+    // the serial scan is a handful of instructions per word, and copying an object to its owner
+    // costs more than scanning it. =1 marks with every CPU (a larger machine can still win),
+    // =-1 is the old auto policy (parallel after a mark has taken 3 ms).
+    cached = (e && *e) ? atoi(e) : 0;
+    return cached;
+}
+
+static bool want_parallel(void) {
+    if (g.stress) return false;
+    int mode = parallel_setting();
+    if (mode == 0 || csrt_processor_count() < 2) return false;
+    // Auto mode waits until a mark has already cost a few milliseconds. Waking helpers for a
+    // short list walk is slower than doing it alone, and the previous mark predicts the next one
+    // while the live set stays large.
+    if (mode < 0 && !g_mark_heavy) return false;
+    return true;
+}
+
+static LargeObject* find_large(uintptr_t word, size_t* index_out) {
+    size_t lo = 0, hi = g.large_count;
+    while (lo < hi) {
+        size_t mid = (lo + hi) / 2;
+        LargeObject* obj = &g.large[mid];
+        if (word < (uintptr_t)obj->start) hi = mid;
+        else if (word >= (uintptr_t)obj->start + obj->size) lo = mid + 1;
+        else {
+            if (index_out) *index_out = mid;
+            return obj;
+        }
+    }
+    return NULL;
+}
+
+static void local_push(MarkBuf* b, uint8_t* start, size_t size) {
+    if (__builtin_expect(b->count == b->capacity, 0)) {
+        size_t cap = b->capacity ? b->capacity * 2 : 4096;
+        b->items = mmap_grow(b->items, b->capacity * sizeof(MarkItem), cap * sizeof(MarkItem));
+        b->capacity = cap;
+    }
+    b->items[b->count].start = start;
+    b->items[b->count].size = size;
+    b->count++;
+}
+
+static void inbox_grow(Inbox* in, size_t need) {
+    size_t cap = in->capacity ? in->capacity * 2 : 1024;
+    while (cap < need) cap *= 2;
+    in->items = mmap_grow(in->items, in->capacity * sizeof(MarkItem), cap * sizeof(MarkItem));
+    in->capacity = cap;
+}
+
+static void flush_dest(MarkBuf* b, int dest) {
+    uint16_t n = b->out_n[dest];
+    if (!n) return;
+    pthread_mutex_lock(&work_mu);
+    Inbox* in = &inboxes[dest];
+    if (in->count + n > in->capacity) inbox_grow(in, in->count + n);
+    memcpy(in->items + in->count, b->out[dest], n * sizeof(MarkItem));
+    in->count += n;
+    pthread_cond_broadcast(&work_cv);
+    pthread_mutex_unlock(&work_mu);
+    b->out_n[dest] = 0;
+}
+
+static void flush_all(MarkBuf* b) {
+    for (int i = 0; i < g_nworkers; i++)
+        if (b->out_n[i]) flush_dest(b, i);
+}
+
+static void queue_foreign(MarkBuf* b, int owner, uint8_t* start, size_t size) {
+    uint16_t n = b->out_n[owner];
+    b->out[owner][n].start = start;
+    b->out[owner][n].size = size;
+    b->out_n[owner] = (uint16_t)(n + 1);
+    if (n + 1 == OUT_BATCH) flush_dest(b, owner);
+}
+
+/// Resolves `word` the same way the serial marker does, then either marks it (when this worker
+/// owns the chunk) or copies the object start to the owner. The bit is set by the owner only.
+static inline void consider(MarkBuf* b, uintptr_t word) {
+    if (word < g.heap_min || word >= g.heap_max) return;
+    uintptr_t base = word & ~(CHUNK_SIZE - 1);
+    if (chunk_set_contains(base)) {
+        Chunk* c = (Chunk*)base;
+        size_t offset = word - base;
+        if (c->object_size == 0 || offset < CHUNK_HEADER) return;
+        size_t index = (offset - CHUNK_HEADER) / c->object_size;
+        if (index >= c->slots || !bit_get(c->allocated, index)) return;
+        uint8_t* start = (uint8_t*)base + CHUNK_HEADER + index * c->object_size;
+        if (c->owner == (uint8_t)b->id) {
+            if (bit_get(c->marked, index)) return;
+            bit_set(c->marked, index);
+            local_push(b, start, c->object_size);
+        } else {
+            queue_foreign(b, c->owner, start, c->object_size);
+        }
+        return;
+    }
+    size_t idx = 0;
+    LargeObject* obj = find_large(word, &idx);
+    if (!obj) return;
+    int owner = (int)(idx % (size_t)g_nworkers);
+    if (owner == b->id) {
+        if (obj->marked) return;
+        obj->marked = 1;
+        local_push(b, obj->start, obj->size);
+    } else {
+        queue_foreign(b, owner, obj->start, obj->size);
+    }
+}
+
+CSRT_GC_NO_SANITIZE static void scan_range_owned(MarkBuf* b, const void* from, const void* to) {
+    uintptr_t lo = ((uintptr_t)from + sizeof(void*) - 1) & ~(uintptr_t)(sizeof(void*) - 1);
+    for (const uintptr_t* p = (const uintptr_t*)lo; (const void*)(p + 1) <= to; p++) consider(b, *p);
+}
+
+CSRT_GC_NO_SANITIZE static void scan_object_owned(MarkBuf* b, uint8_t* start, size_t size) {
+    if (size & RAW_SCAN) {
+        scan_range_owned(b, start, start + (size & ~RAW_SCAN));
+        return;
+    }
+    const csrt_MethodTable* mt = *(const csrt_MethodTable* const*)start;
+    if (mt && (mt->flags & CSRT_MT_NO_REFERENCES)) return;
+    // One worker walking a multi-megabyte reference array is the serial bottleneck (every element
+    // is a pointer into some other chunk). Hand each worker an aligned slice of the word range.
+    if (size >= 8192 && g_nworkers > 1) {
+        uintptr_t from = ((uintptr_t)(start + sizeof(void*)) + sizeof(void*) - 1) & ~(uintptr_t)(sizeof(void*) - 1);
+        uintptr_t to = (uintptr_t)start + size;
+        size_t bytes = to > from ? to - from : 0;
+        size_t slice = (bytes / (size_t)g_nworkers) & ~(sizeof(void*) - 1);
+        if (slice >= 4096) {
+            for (int w = 0; w < g_nworkers; w++) {
+                uintptr_t s = from + (size_t)w * slice;
+                uintptr_t e = w == g_nworkers - 1 ? to : s + slice;
+                size_t n = e - s;
+                if (!n) continue;
+                if (w == b->id) local_push(b, (uint8_t*)s, n | RAW_SCAN);
+                else queue_foreign(b, w, (uint8_t*)s, n | RAW_SCAN);
+            }
+            return;
+        }
+    }
+    scan_range_owned(b, start + sizeof(void*), start + size);
+}
+
+/// An inbox entry is an object the sender did not mark. The owner sets the bit, once. A raw slice
+/// is not an object; it is scanned as words. Already-marked roots were pushed onto the owner's
+/// stack before the helpers started and do not come through here.
+static void claim_item(MarkBuf* b, MarkItem it) {
+    if (it.size & RAW_SCAN) {
+        local_push(b, it.start, it.size);
+        return;
+    }
+    uintptr_t start = (uintptr_t)it.start;
+    uintptr_t base = start & ~(CHUNK_SIZE - 1);
+    if (chunk_set_contains(base)) {
+        Chunk* c = (Chunk*)base;
+        if (c->object_size == 0 || start < base + CHUNK_HEADER) return;
+        size_t index = (start - base - CHUNK_HEADER) / c->object_size;
+        if (index >= c->slots || bit_get(c->marked, index)) return;
+        bit_set(c->marked, index);
+        local_push(b, it.start, c->object_size);
+        return;
+    }
+    size_t idx = 0;
+    LargeObject* obj = find_large(start, &idx);
+    if (!obj || obj->marked) return;
+    obj->marked = 1;
+    local_push(b, obj->start, obj->size);
+}
+
+static bool absorb(MarkBuf* b) {
+    pthread_mutex_lock(&work_mu);
+    Inbox* in = &inboxes[b->id];
+    size_t n = in->count;
+    if (n == 0) { pthread_mutex_unlock(&work_mu); return false; }
+    if (n > ABSORB_MAX) n = ABSORB_MAX;
+    MarkItem tmp[ABSORB_MAX];
+    memcpy(tmp, in->items + in->count - n, n * sizeof(MarkItem));
+    in->count -= n;
+    pthread_mutex_unlock(&work_mu);
+    for (size_t i = 0; i < n; i++) claim_item(b, tmp[i]);
+    return true;
+}
+
+static void worker_loop(MarkBuf* b) {
+    for (;;) {
+        if (atomic_load_explicit(&mark_done, memory_order_acquire)) return;
+        if (b->count == 0) {
+            flush_all(b);
+            if (absorb(b)) continue;
+            pthread_mutex_lock(&work_mu);
+            if (inboxes[b->id].count) { pthread_mutex_unlock(&work_mu); continue; }
+            nwait++;
+            if (nwait == g_nworkers) {
+                bool any = false;
+                for (int i = 0; i < g_nworkers; i++)
+                    if (inboxes[i].count) any = true;
+                if (any) {
+                    nwait--;
+                    pthread_cond_broadcast(&work_cv);
+                    pthread_mutex_unlock(&work_mu);
+                    continue;
+                }
+                atomic_store_explicit(&mark_done, 1, memory_order_release);
+                pthread_cond_broadcast(&work_cv);
+                pthread_mutex_unlock(&work_mu);
+                return;
+            }
+            while (!atomic_load_explicit(&mark_done, memory_order_acquire) && inboxes[b->id].count == 0)
+                pthread_cond_wait(&work_cv, &work_mu);
+            int done = atomic_load_explicit(&mark_done, memory_order_acquire);
+            if (!done) nwait--;
+            pthread_mutex_unlock(&work_mu);
+            if (done) return;
+            continue;
+        }
+        MarkItem it = b->items[--b->count];
+        scan_object_owned(b, it.start, it.size);
+    }
+}
+
+static void block_gc_signals(void) {
+#if !defined(_WIN32)
+    sigset_t set;
+    sigemptyset(&set);
+    sigaddset(&set, SIG_SUSPEND);
+    sigaddset(&set, SIG_RESUME);
+    pthread_sigmask(SIG_BLOCK, &set, NULL);
+#else
+    ;
+#endif
+}
+
+static void* helper_main(void* arg) {
+    MarkBuf* b = arg;
+    block_gc_signals();
+    int seen = 0;
+    pthread_mutex_lock(&pool.mu);
+    pool.idle++;
+    pthread_cond_broadcast(&pool.cv);
+    while (!pool.exit_flag) {
+        while (pool.epoch == seen && !pool.exit_flag) pthread_cond_wait(&pool.cv, &pool.mu);
+        if (pool.exit_flag) break;
+        seen = pool.epoch;
+        pool.idle--;
+        pthread_mutex_unlock(&pool.mu);
+        worker_loop(b);
+        pthread_mutex_lock(&pool.mu);
+        pool.idle++;
+        atomic_fetch_add_explicit(&pool.finished, 1, memory_order_release);
+        pthread_cond_broadcast(&pool.cv);
+    }
+    pthread_mutex_unlock(&pool.mu);
+    atomic_fetch_add_explicit(&pool.exited, 1, memory_order_release);
+    return NULL;
+}
+
+static MarkBuf mark_buf_new(void) {
+    MarkBuf b;
+    memset(&b, 0, sizeof b);
+    b.capacity = 4096;
+    b.items = mmap_grow(NULL, 0, b.capacity * sizeof(MarkItem));
+    return b;
+}
+
+static void inbox_init(Inbox* in) {
+    memset(in, 0, sizeof *in);
+    in->capacity = 1024;
+    in->items = mmap_grow(NULL, 0, in->capacity * sizeof(MarkItem));
+}
+
+static int ensure_pool(void) {
+    if (pool.ready) return pool.n;
+    for (int i = 0; i < MAX_WORKERS; i++) inbox_init(&inboxes[i]);
+    int n = csrt_processor_count() - 1;
+    const char* e = getenv("CSRT_GC_MARK_THREADS");
+    if (e && *e) {
+        int v = atoi(e);
+        if (v < 1) v = 1;
+        n = v - 1;
+    }
+    if (n < 1) { pool.ready = 1; pool.n = 0; return 0; }
+    if (n > MAX_HELPERS) n = MAX_HELPERS;
+    pool.self = mark_buf_new();
+    pool.self.id = 0;
+    for (int i = 0; i < n; i++) {
+        pool.bufs[i] = mark_buf_new();
+        pool.bufs[i].id = i + 1;
+        pthread_attr_t attr;
+        pthread_attr_init(&attr);
+        pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
+        pthread_attr_setstacksize(&attr, 128 * 1024);
+        if (pthread_create(&pool.threads[i], &attr, helper_main, &pool.bufs[i]) != 0) { n = i; pthread_attr_destroy(&attr); break; }
+        pthread_attr_destroy(&attr);
+    }
+    pool.n = n;
+    pthread_mutex_lock(&pool.mu);
+    while (pool.idle < pool.n) pthread_cond_wait(&pool.cv, &pool.mu);
+    pthread_mutex_unlock(&pool.mu);
+    pool.ready = 1;
+    return pool.n;
+}
+
+static void assign_owners(void) {
+    int i = 0;
+    for (Chunk* c = g.chunks; c; c = c->next) c->owner = (uint8_t)(i++ % g_nworkers);
+}
+
+static int owner_of_start(uint8_t* start) {
+    uintptr_t base = (uintptr_t)start & ~(CHUNK_SIZE - 1);
+    if (chunk_set_contains(base)) return ((Chunk*)base)->owner;
+    size_t idx = 0;
+    if (!find_large((uintptr_t)start, &idx)) return 0;
+    return (int)(idx % (size_t)g_nworkers);
+}
+
+/// Roots were marked by the serial scan. Put each one on its owner's stack so it is scanned once.
+/// Helpers are not running yet, so their stacks are private.
+static void seed_owners(void) {
+    for (size_t i = 0; i < g.mark_count; i++) {
+        MarkItem it = { g.mark_stack[i].start, g.mark_stack[i].size };
+        int owner = owner_of_start(it.start);
+        MarkBuf* dest = owner == 0 ? &pool.self : &pool.bufs[owner - 1];
+        local_push(dest, it.start, it.size);
+    }
+}
+
+static void parallel_drain(void) {
+    atomic_store_explicit(&mark_done, 0, memory_order_relaxed);
+    nwait = 0;
+    g_nworkers = pool.n + 1;
+    pool.self.id = 0;
+    pool.self.count = 0;
+    memset(pool.self.out_n, 0, sizeof pool.self.out_n);
+    for (int i = 0; i < pool.n; i++) {
+        pool.bufs[i].id = i + 1;
+        pool.bufs[i].count = 0;
+        memset(pool.bufs[i].out_n, 0, sizeof pool.bufs[i].out_n);
+    }
+    for (int i = 0; i < g_nworkers; i++) inboxes[i].count = 0;
+    assign_owners();
+    seed_owners();
+    g.mark_count = 0;
+
+    atomic_thread_fence(memory_order_seq_cst);
+    pthread_mutex_lock(&pool.mu);
+    while (pool.idle < pool.n) pthread_cond_wait(&pool.cv, &pool.mu);
+    atomic_store_explicit(&pool.finished, 0, memory_order_relaxed);
+    pool.epoch++;
+    pthread_cond_broadcast(&pool.cv);
+    pthread_mutex_unlock(&pool.mu);
+    worker_loop(&pool.self);
+    pthread_mutex_lock(&pool.mu);
+    while (atomic_load_explicit(&pool.finished, memory_order_acquire) < pool.n) pthread_cond_wait(&pool.cv, &pool.mu);
+    pthread_mutex_unlock(&pool.mu);
+    atomic_thread_fence(memory_order_seq_cst);
+}
+
+static void pool_shutdown(void) {
+    if (!pool.ready || pool.n == 0 || pool.exit_flag) return;
+    pthread_mutex_lock(&pool.mu);
+    pool.exit_flag = 1;
+    pthread_cond_broadcast(&pool.cv);
+    pthread_mutex_unlock(&pool.mu);
+    while (atomic_load_explicit(&pool.exited, memory_order_acquire) < pool.n) cpu_relax();
+}
+#endif
+
 /// noinline so the caller's frame (and every frame above it) lies inside the scanned range.
 CSRT_GC_NO_SANITIZE __attribute__((noinline)) static void scan_own_stack(const void* bottom) {
 #ifdef __wasi__
@@ -1359,12 +1806,20 @@ void csrt_weak_free(intptr_t handle) {
 __attribute__((noinline)) void csrt_gc_collect_now(void) {
     if (g.collecting) return;
     g.collecting = true;
+#if defined(CSRT_GC_PARALLEL_MARK) && !defined(__wasi__)
+    // Helpers are created outside the pause. They block until parallel_drain publishes a job.
+    int parallel = want_parallel() && ensure_pool() > 0;
+#endif
     struct timespec t0, t1;
     clock_gettime(CLOCK_MONOTONIC, &t0);  // GC.GetTotalPauseDuration
 
     stop_world();
     sort_large(g.large, g.large_count);
     scan_roots();
+#if defined(CSRT_GC_PARALLEL_MARK) && !defined(__wasi__)
+    if (parallel && g.mark_count > 0) parallel_drain();
+    else
+#endif
     drain();
     weak_process();
     protect_caches();
@@ -1378,6 +1833,12 @@ __attribute__((noinline)) void csrt_gc_collect_now(void) {
 
     clock_gettime(CLOCK_MONOTONIC, &t1);
     g.total_gc_seconds += (double)(t1.tv_sec - t0.tv_sec) + (double)(t1.tv_nsec - t0.tv_nsec) / 1e9;
+#if defined(CSRT_GC_PARALLEL_MARK) && !defined(__wasi__)
+    if ((double)(t1.tv_sec - t0.tv_sec) + (double)(t1.tv_nsec - t0.tv_nsec) / 1e9 >= 0.003) g_mark_heavy = 1;
+    // The pool is created after the pause, and only once a collection was already expensive.
+    if (g_mark_heavy && !parallel && !g.stress && parallel_setting() != 0 && csrt_processor_count() > 1)
+        ensure_pool();
+#endif
     g.collecting = false;
 }
 
@@ -1390,6 +1851,9 @@ void csrt_gc_collect(void) {
 }
 
 void csrt_gc_shutdown(void) {
+#if defined(CSRT_GC_PARALLEL_MARK) && !defined(__wasi__)
+    pool_shutdown();
+#endif
     if (!g.stats) return;
     fprintf(stderr,
             "csrt gc: %zu collections, %.1f ms total, allocated %.1f MiB, peak heap %.1f MiB, live %.1f MiB, %zu chunks, %zu large objects\n",
