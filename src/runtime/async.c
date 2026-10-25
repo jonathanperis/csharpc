@@ -316,7 +316,7 @@ csrt_Task* csrt_task_new(int32_t payload_size) {
 
 static uint8_t s_zero_payload[64];
 
-static inline int32_t task_state(const csrt_Task* t) { return __atomic_load_n(&t->state, __ATOMIC_SEQ_CST); }
+static inline int32_t task_state(const csrt_Task* t) { return __atomic_load_n(&t->state, __ATOMIC_ACQUIRE); }
 static inline void task_lock(csrt_Task* t) {
     while (__atomic_exchange_n(&t->lock, 1, __ATOMIC_ACQUIRE)) sched_yield();
 }
@@ -396,7 +396,7 @@ static bool try_finish(csrt_Task* t, int32_t state, void* exception) {
     int32_t n = t->ncont;
     t->conts = NULL;
     t->ncont = 0;
-    __atomic_store_n(&t->state, state, __ATOMIC_SEQ_CST);
+    __atomic_store_n(&t->state, state, __ATOMIC_RELEASE);  // under the lock; readers acquire (a seq_cst store is a full fence)
     bool waited = __atomic_load_n(&t->flags, __ATOMIC_RELAXED) & TF_WAITED;
     task_unlock(t);
     run_continuations(t, conts, n);
