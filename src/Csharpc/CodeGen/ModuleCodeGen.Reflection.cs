@@ -418,6 +418,7 @@ public sealed partial class ModuleCodeGen
     private List<AttributeRecordData> Attributes(IEnumerable<AttributeInstance> instances)
     {
         var list = new List<AttributeRecordData>();
+        if (Compilation.GetTypeByMetadataName("System.Attribute") is { } attribute) ArrayMethodTable(attribute); // Attribute.GetCustomAttributes' Attribute[]
         foreach (var instance in instances)
         {
             var type = instance.Constructor.ContainingType;

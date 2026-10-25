@@ -653,6 +653,8 @@ static csrt_String* box_to_string_Double(void* o) { return csrt_string_from_f64(
 static csrt_String* box_to_string_Single(void* o) { return csrt_string_from_f32(*(float*)BOX_PAYLOAD(o)); }
 static csrt_String* box_to_string_Boolean(void* o) { return csrt_string_from_bool(*(uint8_t*)BOX_PAYLOAD(o) != 0); }
 static csrt_String* box_to_string_Char(void* o) { return csrt_string_from_char(*(uint16_t*)BOX_PAYLOAD(o)); }
+static csrt_String* box_to_string_IntPtr(void* o) { return csrt_string_from_i64((int64_t)*(intptr_t*)BOX_PAYLOAD(o)); }
+static csrt_String* box_to_string_UIntPtr(void* o) { return csrt_string_from_u64((uint64_t)*(uintptr_t*)BOX_PAYLOAD(o)); }
 
 // Boxed primitives: Equals(object) is true for a box of the same type holding an Equal value, and
 // GetHashCode is the primitive's own .NET GetHashCode (deterministic, so programs can print it).
@@ -669,6 +671,8 @@ static bool box_eq_Double(double a, double b) { return a == b || (a != a && b !=
 static bool box_eq_Single(float a, float b) { return a == b || (a != a && b != b); }
 static bool box_eq_Boolean(bool a, bool b) { return a == b; }
 static bool box_eq_Char(uint16_t a, uint16_t b) { return a == b; }
+static bool box_eq_IntPtr(intptr_t a, intptr_t b) { return a == b; }
+static bool box_eq_UIntPtr(uintptr_t a, uintptr_t b) { return a == b; }
 
 static int32_t box_h_Int32(int32_t v) { return v; }
 static int32_t box_h_Int64(int64_t v) { return (int32_t)v ^ (int32_t)(v >> 32); }
@@ -690,6 +694,9 @@ static int32_t box_h_Single(float v) {
 }
 static int32_t box_h_Boolean(bool v) { return v ? 1 : 0; }
 static int32_t box_h_Char(uint16_t v) { return (int32_t)v | ((int32_t)v << 16); }
+// nint/nuint hash like the integer of their size (long/ulong on 64-bit targets).
+static int32_t box_h_IntPtr(intptr_t v) { return sizeof v == 8 ? (int32_t)v ^ (int32_t)((int64_t)v >> 32) : (int32_t)v; }
+static int32_t box_h_UIntPtr(uintptr_t v) { return sizeof v == 8 ? (int32_t)v ^ (int32_t)((uint64_t)v >> 32) : (int32_t)v; }
 
 #define DEFINE_BOXED(Name, CType) \
     static bool box_equals_##Name(void* self, void* other) { \

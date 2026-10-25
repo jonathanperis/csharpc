@@ -330,6 +330,25 @@ namespace CsharpcCoreLib
             return false;
         }
 
+        public static bool ContainsAny<T>(ReadOnlySpan<T> span, T value0, T value1, T value2) where T : IEquatable<T>
+        {
+            for (int i = 0; i < span.Length; i++)
+                if (CoreIntrinsics.AreEqual(span[i], value0) || CoreIntrinsics.AreEqual(span[i], value1) || CoreIntrinsics.AreEqual(span[i], value2)) return true;
+            return false;
+        }
+
+        public static bool ContainsAny<T>(ReadOnlySpan<T> span, ReadOnlySpan<T> values) where T : IEquatable<T>
+        {
+            for (int i = 0; i < span.Length; i++)
+                for (int j = 0; j < values.Length; j++)
+                    if (CoreIntrinsics.AreEqual(span[i], values[j])) return true;
+            return false;
+        }
+
+        public static bool ContainsAny<T>(Span<T> span, T value0, T value1) where T : IEquatable<T> => ContainsAny((ReadOnlySpan<T>)span, value0, value1);
+        public static bool ContainsAny<T>(Span<T> span, T value0, T value1, T value2) where T : IEquatable<T> => ContainsAny((ReadOnlySpan<T>)span, value0, value1, value2);
+        public static bool ContainsAny<T>(Span<T> span, ReadOnlySpan<T> values) where T : IEquatable<T> => ContainsAny((ReadOnlySpan<T>)span, values);
+
         public static bool Equals(ReadOnlySpan<char> span, ReadOnlySpan<char> other, StringComparison comparisonType) =>
             string.Equals(new string(span), new string(other), comparisonType);
 

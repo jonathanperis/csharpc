@@ -247,9 +247,20 @@ public sealed partial class FunctionCodeGen
         if (owner is INamedTypeSymbol { ContainingNamespace: { } ns } && ns.ToDisplayString() == "System.Threading"
             && owner.Name is "ManualResetEventSlim" or "ManualResetEvent" or "AutoResetEvent" or "SemaphoreSlim" or "CountdownEvent" or "EventWaitHandle" or "WaitHandle")
         {
-            if (m.Parameters.Any(p => p.Type.SpecialType is not (SpecialType.System_Int32 or SpecialType.System_Boolean))) return false;
+            // SemaphoreSlim.WaitAsync(): a corelib helper over the same event (corelib/Tasks/SemaphoreWaitAsync.cs).
+            if (m.Name == "WaitAsync" && owner.Name == "SemaphoreSlim" && n <= 1
+                && m.Parameters.All(p => p.Type.SpecialType == SpecialType.System_Int32 || p.Type.Name == "CancellationToken"))
+            {
+                result = n == 0 ? CallCoreLib("SemaphoreWaitAsync", "WaitAsync", Self())
+                    : m.Parameters[0].Type.SpecialType == SpecialType.System_Int32 ? CallCoreLib("SemaphoreWaitAsync", "WaitAsyncTimeout", Self(), TArg(inv, 0))
+                    : CallCoreLib("SemaphoreWaitAsync", "WaitAsyncToken", Self(), TArg(inv, 0));
+                return true;
+            }
+            // Wait(TimeSpan): the timeout in milliseconds, checked like .NET (-1 to int.MaxValue).
+            var timeSpanTimeout = m.Name is "Wait" or "WaitOne" && n == 1 && BclValueTypes.IsTimeSpan(m.Parameters[0].Type);
+            if (!timeSpanTimeout && m.Parameters.Any(p => p.Type.SpecialType is not (SpecialType.System_Int32 or SpecialType.System_Boolean))) return false;
             var self = Self();
-            var arg0 = n > 0 ? TArg(inv, 0) : default;
+            var arg0 = timeSpanTimeout ? CallCoreLib("SemaphoreWaitAsync", "TimeoutMilliseconds", TArg(inv, 0)) : n > 0 ? TArg(inv, 0) : default;
             switch (m.Name)
             {
                 case "Set": result = Rt("csrt_event_set", L.I32, [L.Ptr, L.I32], self, I32(1)); result = m.ReturnsVoid ? default : L.True; return true;

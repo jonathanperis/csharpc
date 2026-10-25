@@ -79,6 +79,8 @@ namespace CsharpcCoreLib
 
         public virtual string FullName => _fullName;
         public virtual bool IsDynamic => false;
+        /// <summary>A csharpc program's assemblies are compiled in: none can be unloaded.</summary>
+        public virtual bool IsCollectible => false;
         public virtual AssemblyName GetName() => AssemblyNameImpl.FromFullName(_fullName);
         public override string ToString() => _fullName;
         public override bool Equals(object o) => ReferenceEquals(this, o);

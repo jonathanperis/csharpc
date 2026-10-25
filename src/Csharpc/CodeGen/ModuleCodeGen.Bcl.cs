@@ -261,7 +261,8 @@ public sealed partial class ModuleCodeGen
             case SpecialType.System_Enum: return Builtin("csrt_Enum_MT");
             case SpecialType.System_Int32 or SpecialType.System_Int64 or SpecialType.System_UInt32 or SpecialType.System_UInt64
                 or SpecialType.System_Int16 or SpecialType.System_UInt16 or SpecialType.System_Byte or SpecialType.System_SByte
-                or SpecialType.System_Double or SpecialType.System_Single or SpecialType.System_Boolean or SpecialType.System_Char:
+                or SpecialType.System_Double or SpecialType.System_Single or SpecialType.System_Boolean or SpecialType.System_Char
+                or SpecialType.System_IntPtr or SpecialType.System_UIntPtr:
                 return Builtin($"csrt_Boxed_{type.MetadataName}_MT");
         }
         return type switch

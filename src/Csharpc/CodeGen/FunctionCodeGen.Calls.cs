@@ -557,7 +557,7 @@ public sealed partial class FunctionCodeGen
     private static bool IsBoxablePrimitive(ITypeSymbol type) => type.SpecialType is SpecialType.System_Int32 or SpecialType.System_Int64
         or SpecialType.System_UInt32 or SpecialType.System_UInt64 or SpecialType.System_Int16 or SpecialType.System_UInt16
         or SpecialType.System_Byte or SpecialType.System_SByte or SpecialType.System_Double or SpecialType.System_Single
-        or SpecialType.System_Boolean or SpecialType.System_Char;
+        or SpecialType.System_Boolean or SpecialType.System_Char or SpecialType.System_IntPtr or SpecialType.System_UIntPtr;
 
     private LLVMValueRef MethodTableFor(ITypeSymbol type, IOperation at) => _m.CoreLib.Map(type) switch
     {
@@ -567,6 +567,12 @@ public sealed partial class FunctionCodeGen
         // Boxed value types and enums are flagged in their method tables (csrt_isinst_class).
         { SpecialType: SpecialType.System_ValueType } => _m.ExternalGlobal("csrt_ValueType_MT"),
         { SpecialType: SpecialType.System_Enum } => _m.ExternalGlobal("csrt_Enum_MT"),
+        // Tasks are runtime objects with one method table (docs/10-async.md): `is Task` holds for every task.
+        // A TaskCompletionSource is its task, so a test against TaskCompletionSource(<T>) accepts any task
+        // object (the cast .NET would reject, of a plain Task, is the one csharpc can't tell apart).
+        INamedTypeSymbol { Name: "Task", TypeArguments.Length: 0, ContainingNamespace: { Name: "Tasks", ContainingNamespace: { Name: "Threading", ContainingNamespace.Name: "System" } } }
+            or INamedTypeSymbol { Name: "TaskCompletionSource", ContainingNamespace: { Name: "Tasks", ContainingNamespace: { Name: "Threading", ContainingNamespace.Name: "System" } } } =>
+            _m.ExternalGlobal("csrt_Task_MT"),
         // Type objects are runtime objects (src/runtime/type.c), all with one method table.
         INamedTypeSymbol { Name: "Type", ContainingType: null, ContainingNamespace: { Name: "System", ContainingNamespace.IsGlobalNamespace: true } } =>
             _m.ExternalGlobal("csrt_Type_MT"),

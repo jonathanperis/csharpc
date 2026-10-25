@@ -355,6 +355,8 @@ namespace CsharpcCoreLib
         public static bool IsAttached => false;
         public static bool IsLogging() => false;
         public static void Log(int level, string category, string message) { }
+        public static void BreakForUserUnhandledException(Exception exception) { }
+        public static void NotifyOfCrossThreadDependency() { }
     }
 
     [Shadows("System.Threading.Timeout")]

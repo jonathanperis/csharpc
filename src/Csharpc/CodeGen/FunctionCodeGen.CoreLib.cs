@@ -118,6 +118,9 @@ public sealed partial class FunctionCodeGen
             "ObjectToPointer" => args[0].Type.Kind == LLVMTypeKind.Pointer
                 ? _b.Cast(LLVMOpcode.PtrToInt, args[0], T.Value(_m.Compilation.GetSpecialType(SpecialType.System_IntPtr))) : args[0],
             "ReinterpretAs" => args[0],
+            "SizeOf" => L.ConstInt(L.I32, (long)T.Target.SizeOf(T.Storage(S(t!)))),
+            "SpanAddress" => _b.Cast(LLVMOpcode.PtrToInt, SpanPointer(args[0]), T.NativeInt),
+            "RefAddress" => _b.Cast(LLVMOpcode.PtrToInt, args[0], T.NativeInt),
             "PointerToObject" => args[0].Type.Kind == LLVMTypeKind.Pointer ? args[0] : _b.Cast(LLVMOpcode.IntToPtr, args[0], L.Ptr),
             "EnumToUInt64" => EnumToUInt64(t!, args[0]),
             "EnumFromUInt64" => EnumFromUInt64(t!, args[0]),

@@ -56,6 +56,12 @@ namespace CsharpcCoreLib
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern object PointerToObject(IntPtr pointer);
         /// <summary>The same reference, typed as T without a type test (Unsafe.As).</summary>
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern T ReinterpretAs<T>(object o) where T : class;
+        /// <summary>sizeof(T) as csharpc lays T out (its storage type).</summary>
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern int SizeOf<T>();
+        /// <summary>The address of a span's first element (never moves: the GC doesn't).</summary>
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern nint SpanAddress<T>(ReadOnlySpan<T> span);
+        /// <summary>The address a reference points at.</summary>
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern nint RefAddress<T>(in T value);
         /// <summary>
         /// The frames .NET's own library lists for this exception below the program's frames, innermost
         /// first, one per line (a constant): `throw LibraryFrames(new X(...), "System.Ns.Type.Method(Int32 a)")`.

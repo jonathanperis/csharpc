@@ -576,6 +576,57 @@ int32_t csrt_type_generic_parameter_attributes(TypeObject* t, const csrt_TypeInf
     return (int32_t)info->variance;
 }
 
+/// Payload width of an enum or primitive integral (element class, csrt.h); 0 if not integral.
+static size_t integral_width(uint32_t element_class) {
+    switch (element_class) { case 1: return 1; case 2: return 2; case 3: return 4; case 4: return 8; case 5: return sizeof(void*); default: return 0; }
+}
+
+/// Enum.ToObject(enumType, value): a box of the enum holding the integral (or enum) value, truncated
+/// to the enum's width as .NET does.
+void* csrt_enum_to_object(TypeObject* t, void* value, const csrt_TypeInfoTable* table) {
+    if (!t) { throw_utf8(&mt_argument_null, "Value cannot be null. (Parameter 'enumType')"); return NULL; }
+    const csrt_TypeInfo* target = info_of(t, table);
+    if (!target) return NULL;
+    if (!(target->flags & CSRT_TI_ENUM)) { throw_utf8(&mt_argument, "Type provided must be an Enum. (Parameter 'enumType')"); return NULL; }
+    if (!value) { throw_utf8(&mt_argument_null, "Value cannot be null. (Parameter 'value')"); return NULL; }
+    const csrt_TypeInfo* source = info_for(((csrt_Object*)value)->mt);
+    if (!source) return NULL;
+    size_t from = integral_width(element_class(source)), to = integral_width(element_class(target));
+    if (!from || !(source->flags & (CSRT_TI_PRIMITIVE | CSRT_TI_ENUM)) || ((source->flags & CSRT_TI_PRIMITIVE) && ((csrt_Object*)value)->mt == &csrt_Boxed_Char_MT.header)) {
+        throw_utf8(&mt_argument, "The value passed in must be an enum base or an underlying type for an enum, such as an Int32. (Parameter 'value')");
+        return NULL;
+    }
+    uint64_t bits = 0;
+    memcpy(&bits, (char*)value + 8, from);  // little-endian targets: the low bytes
+    // Sign-extend a signed source (boxed Int*/SByte, or a signed enum's own payload) before truncating.
+    const csrt_MethodTable* smt = ((csrt_Object*)value)->mt;
+    bool signed_source = smt == &csrt_Boxed_SByte_MT.header || smt == &csrt_Boxed_Int16_MT.header || smt == &csrt_Boxed_Int32_MT.header
+        || smt == &csrt_Boxed_Int64_MT.header || smt == &csrt_Boxed_IntPtr_MT.header;
+    if (signed_source && from < 8 && (bits >> (8 * from - 1)) & 1) bits |= ~0ull << (8 * from);
+    void* box = csrt_alloc(t->target, (int64_t)(8 + to));
+    memcpy((char*)box + 8, &bits, to);
+    return box;
+}
+
+/// RuntimeHelpers.GetUninitializedObject(type): a zeroed instance (or box) without running a constructor.
+void* csrt_type_uninitialized_object(TypeObject* t, const csrt_TypeInfoTable* table) {
+    if (!t) { throw_utf8(&mt_argument_null, "Value cannot be null. (Parameter 'type')"); return NULL; }
+    const csrt_TypeInfo* info = info_of(t, table);
+    if (!info) return NULL;
+    if (info->flags & (CSRT_TI_ARRAY | CSRT_TI_POINTER | CSRT_TI_BYREF_LIKE | CSRT_TI_CONTAINS_GENERIC_PARAMETERS)
+        || t->target == &csrt_String_MT.header) {
+        throw_formatted(&mt_argument, "Type '%s' cannot be created without a constructor.", full_name(t));
+        return NULL;
+    }
+    static const csrt_MethodTable mt_member_access = { NULL, "System.MemberAccessException", 0, 0, NULL, 0, 0 };
+    if (info->flags & (CSRT_TI_ABSTRACT | CSRT_TI_INTERFACE)) { throw_utf8(&mt_member_access, "Cannot create an abstract class."); return NULL; }
+    if (t->target->instance_size == 0) {
+        throw_formatted(&mt_not_supported, "RuntimeHelpers.GetUninitializedObject of '%s' is not supported by csharpc yet: the program has no instances of it.", full_name(t));
+        return NULL;
+    }
+    return csrt_alloc(t->target, t->target->instance_size);
+}
+
 static Index s_reflection_index;
 static Index s_delegate_index;
 
