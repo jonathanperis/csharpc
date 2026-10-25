@@ -1,5 +1,5 @@
-283_unsupported_field_in_base.cs(8,58): error CSLLVM0001: not supported by csharpc yet: struct 'System.Runtime.Serialization.StreamingContext'
-283_unsupported_field_in_base.cs(19,58): error CSLLVM0001: not supported by csharpc yet: struct 'System.Runtime.Serialization.StreamingContext'
-283_unsupported_field_in_base.cs(8,65): error CSLLVM0001: not supported by csharpc yet: struct 'System.Runtime.Serialization.StreamingContext'
-283_unsupported_field_in_base.cs(8,70): error CSLLVM0001: not supported by csharpc yet: struct 'System.Runtime.Serialization.StreamingContext'
+283_unsupported_field_in_base.cs(8,46): error CSLLVM0001: not supported by csharpc yet: struct 'System.Threading.AsyncFlowControl'
+283_unsupported_field_in_base.cs(19,46): error CSLLVM0001: not supported by csharpc yet: struct 'System.Threading.AsyncFlowControl'
+283_unsupported_field_in_base.cs(8,53): error CSLLVM0001: not supported by csharpc yet: struct 'System.Threading.AsyncFlowControl'
+283_unsupported_field_in_base.cs(8,58): error CSLLVM0001: not supported by csharpc yet: struct 'System.Threading.AsyncFlowControl'
 csharpc: error : 4 construct(s) not supported by csharpc yet

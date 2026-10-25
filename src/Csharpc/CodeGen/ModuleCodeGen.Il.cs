@@ -301,7 +301,7 @@ public sealed partial class ModuleCodeGen
             foreach (var m in type.GetMembers().OfType<IMethodSymbol>())
             {
                 if (m.MethodKind == MethodKind.StaticConstructor
-                    || (m.IsOverride && !IsUserMethod(ClassLayout.RootOf(m)))
+                    || (m.IsOverride && !IsUserMethod(ClassLayout.RootOf(m)) && !IsUndispatchedLibraryVirtual(ClassLayout.RootOf(m)))
                     || m.ExplicitInterfaceImplementations.Any(i => !IsUserType(i.ContainingType))
                     || m.GetAttributes().Any(a => a.AttributeClass?.Name is "ModuleInitializerAttribute" or "UnmanagedCallersOnlyAttribute"))
                     yield return m;
@@ -334,10 +334,12 @@ public sealed partial class ModuleCodeGen
                 }
             yield break;
         }
-        var root = ClassLayout.RootOf(definition);
+        // Roots compared through the corelib's shadows: the corelib's StreamReader calls StreamImpl.Read, which
+        // DeflateStream (IL) overrides as System.IO.Stream.Read.
+        var root = CoreLib.Map(ClassLayout.RootOf(definition));
         foreach (var type in HierarchyTypes)
             foreach (var m in type.GetMembers(definition.Name).OfType<IMethodSymbol>())
-                if ((m.IsVirtual || m.IsOverride) && SymbolEqualityComparer.Default.Equals(ClassLayout.RootOf(m), root))
+                if ((m.IsVirtual || m.IsOverride) && SymbolEqualityComparer.Default.Equals(CoreLib.Map(ClassLayout.RootOf(m)), root))
                     yield return m;
     }
 

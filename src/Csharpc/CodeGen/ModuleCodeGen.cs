@@ -907,7 +907,10 @@ public sealed partial class ModuleCodeGen
             if (m.IsOverride)
             {
                 if (!layout.SlotOf.TryGetValue(root, out var slot))
+                {
+                    if (IsUndispatchedLibraryVirtual(root)) continue;
                     throw CompileError.Unsupported($"overriding library member '{root}'", m);
+                }
                 layout.VTable[slot] = m;
             }
             else
@@ -919,6 +922,14 @@ public sealed partial class ModuleCodeGen
         EmitMethodTable(layout);
         return layout;
     }
+
+    /// <summary>
+    /// Library virtuals nothing in a .NET 11 program dispatches to, so an override needs no slot (it stays
+    /// an ordinary method): Exception.GetObjectData was only called by BinaryFormatter, which .NET 9
+    /// removed. Most exception classes in framework IL still override it.
+    /// </summary>
+    internal static bool IsUndispatchedLibraryVirtual(IMethodSymbol root) =>
+        root is { Name: "GetObjectData", ContainingType: { Name: "Exception", ContainingNamespace.Name: "System" } };
 
     private void AddObjectSlots(ClassLayout layout)
     {
