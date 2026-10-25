@@ -169,12 +169,19 @@ What did not work, both checksum-correct:
   more than the scan. Linked into every binary it grew hello from 35056 to 43256 bytes (budget
   32768), so it is compiled only with `-DCSRT_GC_PARALLEL_MARK`.
 
-A multiplicative inverse for the size-class division was inside the noise and stayed (exact for
-every byte offset in a chunk). Thread-local allocation was already there. Statepoints and precise
-maps are the wrong first lever on a pointer-dense heap; the write-up in ADR 0004 is a non-moving
-nursery with a compiler card table. Differential `-O0`/`-O2`: 20, 21, 125, 310, 627. `CSRT_GC_STRESS=1`
-on 310 passed. Sample 21 under stress (a collection per allocation) hit the suite timeout; that is
-the mode, not a wrong output. `gh workflow run` is still HTTP 403, so CI is the `ci/**` push filter.
+A multiplicative inverse for the size-class division was inside the noise. Together with the pause
+histogram it added about 1 KiB of text, and CI run 40224424838 failed the size budget: `async` was
+151376 bytes against 147456 on both x86-64 and arm64 (one page). Conformance, programs, projects
+and the IL front-end had already passed on those jobs. The histogram and the inverse came back
+out; the default `gc.o` text, data and bss match `main` (13458 / 4 / 1401). The ownership marker
+stays in the source under `-DCSRT_GC_PARALLEL_MARK` and is not in that object file.
+
+Thread-local allocation was already there. Statepoints and precise maps are the wrong first lever
+on a pointer-dense heap; ADR 0004's next step is a non-moving nursery with a compiler card table.
+Differential `-O0`/`-O2`: 20, 21, 125, 310, 627. `CSRT_GC_STRESS=1` on 310 passed. Sample 21 under
+stress (a collection per allocation) hit the suite timeout; that is the mode, not a wrong output.
+`gh workflow run` is still HTTP 403, so CI is the `ci/**` push filter. The size failure cancelled
+nothing by itself; the fix is a second push, which supersedes 40224424838.
 
 ## Working rules
 

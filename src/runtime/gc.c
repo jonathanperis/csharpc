@@ -26,18 +26,14 @@
 // never calls malloc/free, stdio or the dynamic loader (a stopped thread may hold their locks).
 //
 // Limitations: conservative scanning can retain garbage that happens to look like a pointer; no
-// finalizers; empty chunks are kept (resident) for reuse by any size class. Marking is serial.
-// An optional parallel marker (one owner per chunk, plain mark-bit stores, cross-chunk pointers
-// batched to the owner) is compiled in with -DCSRT_GC_PARALLEL_MARK; it was slower than one thread
-// on a 4-core machine, and an atomic mark bit was slower still, so the default binary does not
-// carry it. wasm32 stays serial either way. Slot indexing uses a per-class multiplicative inverse
-// instead of a division.
+// finalizers; empty chunks are kept (resident) for reuse by any size class. An ownership parallel
+// marker can be compiled in with -DCSRT_GC_PARALLEL_MARK. It was slower than this serial marker
+// on a 4-core machine, so the default binary does not include it (docs/adr/0004-memory-management.md).
 //
 // Environment: CSRT_GC=0 disables collection; CSRT_GC_STATS=1 prints statistics at exit;
 // CSRT_GC_STRESS=N collects on every N-th allocation (every allocation takes the slow path), a test
-// mode for root discovery. With the runtime built -DCSRT_GC_PARALLEL_MARK, CSRT_GC_PARALLEL=1
-// marks with one worker per CPU (0 is serial; -1 marks in parallel only after a mark has taken
-// at least 3 ms) and CSRT_GC_MARK_THREADS caps that count, including the collecting thread.
+// mode for root discovery. With -DCSRT_GC_PARALLEL_MARK, CSRT_GC_PARALLEL=1 marks with one worker
+// per CPU (0 is serial, -1 after a pause of at least 3 ms) and CSRT_GC_MARK_THREADS caps the count.
 //
 // Platforms: root discovery is per object format. Linux (ELF) finds the data segments and the
 // static TLS block with dl_iterate_phdr; macOS (Mach-O) walks the main image's load commands and
@@ -82,6 +78,7 @@
 #include <unistd.h>
 #endif
 #include <time.h>
+
 #define CHUNK_SIZE   ((size_t)256 * 1024)
 #define CHUNK_HEADER ((size_t)4096)
 #define MAX_SLOTS    ((CHUNK_SIZE - CHUNK_HEADER) / 16)
@@ -89,12 +86,6 @@
 #define MIN_TRIGGER  ((size_t)32 * 1024 * 1024)
 
 static const uint32_t k_size_classes[17] = {16, 32, 48, 64, 80, 96, 128, 160, 192, 256, 320, 384, 512, 768, 1024, 1536, 2048};
-// ceil(2^32 / size). (n * mul) >> 32 == n / size for every byte offset in a chunk, so the marker
-// can replace the size-class division. Checked for every numerator below CHUNK_SIZE - CHUNK_HEADER.
-static const uint32_t k_div_mul[17] = {
-    268435456u, 134217728u, 89478486u, 67108864u, 53687092u, 44739243u, 33554432u, 26843546u,
-    22369622u, 16777216u, 13421773u, 11184811u, 8388608u, 5592406u, 4194304u, 2796203u, 2097152u,
-};
 #define NUM_CLASSES (sizeof k_size_classes / sizeof k_size_classes[0])
 
 typedef struct Chunk Chunk;
@@ -103,7 +94,6 @@ struct Chunk {
     uint32_t slots;
     uint32_t live;         // live slots after the last sweep
     uint32_t size_class;
-    uint32_t div_mul;      // slot index = ((offset - CHUNK_HEADER) * div_mul) >> 32
 #if defined(CSRT_GC_PARALLEL_MARK)
     uint8_t owner;         // which parallel marker writes this chunk's mark bits
 #endif
@@ -144,12 +134,10 @@ static CSRT_TLS csrt_GcThread* tl_self;
 #endif
 #define MAX_SEGMENTS 16
 
-typedef struct { uint8_t* start; size_t size; } MarkItem;
-
 typedef struct {
     uint8_t* start;
     size_t size;
-    unsigned char marked;  // atomic byte while a collection marks in parallel
+    bool marked;
 } LargeObject;
 
 static struct {
@@ -195,13 +183,13 @@ static struct {
     void* stack_bottom;
 
     // mark stack: object start + size pairs
-    MarkItem* mark_stack;
+    struct { uint8_t* start; size_t size; }* mark_stack;
     size_t mark_count, mark_capacity;
 
     size_t allocated_since_gc, live_bytes, trigger, min_trigger;
     size_t stress, stress_count;  // CSRT_GC_STRESS
-    size_t collections, parallel_collections, peak_heap, total_allocated;
-    double total_gc_seconds, mark_seconds, sweep_seconds;
+    size_t collections, peak_heap, total_allocated;
+    double total_gc_seconds;
 } g;
 
 /// Size -> class index. Written as comparisons (not a table) so it constant-folds when the
@@ -226,11 +214,6 @@ static inline uint32_t size_class_of(size_t size) {
 // ---------------------------------------------------------------------------------------------
 static inline bool bit_get(const uint64_t* bits, size_t i) { return (bits[i >> 6] >> (i & 63)) & 1; }
 static inline void bit_set(uint64_t* bits, size_t i) { bits[i >> 6] |= (uint64_t)1 << (i & 63); }
-
-/// Byte offset from the chunk base (past the header) to a slot. `div_mul` is ceil(2^32 / object_size).
-static inline size_t slot_index(const Chunk* c, size_t offset) {
-    return (size_t)(((uint64_t)(offset - CHUNK_HEADER) * c->div_mul) >> 32);
-}
 
 static inline size_t hash_ptr(uintptr_t p) { return (size_t)((p >> 18) * 0x9E3779B97F4A7C15ull); }
 
@@ -314,7 +297,6 @@ static void chunk_format(Chunk* c, uint32_t cls) {
     uint32_t size = k_size_classes[cls];
     c->object_size = size;
     c->size_class = cls;
-    c->div_mul = k_div_mul[cls];
     c->slots = (uint32_t)((CHUNK_SIZE - CHUNK_HEADER) / size);
     c->live = 0;
     memset(c->allocated, 0, sizeof c->allocated);
@@ -367,7 +349,7 @@ static bool claim_word(SizeClass* sc, AllocCache* cache, uint32_t cls) {
 /// Chunk + bitmap word index of a cache's claimed word.
 static inline Chunk* cache_word(const AllocCache* cache, size_t* word) {
     Chunk* c = (Chunk*)((uintptr_t)cache->word_base & ~(CHUNK_SIZE - 1));
-    *word = slot_index(c, (size_t)(cache->word_base - (uint8_t*)c)) / 64;
+    *word = (size_t)(cache->word_base - (uint8_t*)c - CHUNK_HEADER) / c->object_size / 64;
     return c;
 }
 
@@ -873,7 +855,7 @@ static inline __attribute__((always_inline)) void mark_candidate(uintptr_t word)
         Chunk* c = (Chunk*)base;
         size_t offset = word - base;
         if (c->object_size == 0 || offset < CHUNK_HEADER) return;
-        size_t index = slot_index(c, offset);
+        size_t index = (offset - CHUNK_HEADER) / c->object_size;
         if (index >= c->slots || !bit_get(c->allocated, index) || bit_get(c->marked, index)) return;
         bit_set(c->marked, index);
         mark_push((uint8_t*)base + CHUNK_HEADER + index * c->object_size, c->object_size);
@@ -929,7 +911,7 @@ void* csrt_gc_object_base(const void* p) {
             Chunk* c = (Chunk*)base;
             size_t offset = word - base;
             if (c->object_size != 0 && offset >= CHUNK_HEADER) {
-                size_t index = slot_index(c, offset);
+                size_t index = (offset - CHUNK_HEADER) / c->object_size;
                 if (index < c->slots && bit_get(c->allocated, index)) result = (uint8_t*)base + CHUNK_HEADER + index * c->object_size;
             }
         } else {
@@ -986,6 +968,7 @@ static void drain(void) {
 // -DCSRT_GC_PARALLEL_MARK (CSHARPC_RUNTIME_CFLAGS) to enable it; CSRT_GC_PARALLEL then selects
 // the mode (1 always, -1 after a 3 ms mark, 0 serial). wasm32 has no threads.
 #if defined(CSRT_GC_PARALLEL_MARK) && !defined(__wasi__)
+typedef struct { uint8_t* start; size_t size; } MarkItem;
 #define MAX_HELPERS 7
 #define MAX_WORKERS (MAX_HELPERS + 1)
 #define OUT_BATCH 64
@@ -1128,7 +1111,7 @@ static inline void consider(MarkBuf* b, uintptr_t word) {
         Chunk* c = (Chunk*)base;
         size_t offset = word - base;
         if (c->object_size == 0 || offset < CHUNK_HEADER) return;
-        size_t index = slot_index(c, offset);
+        size_t index = (offset - CHUNK_HEADER) / c->object_size;
         if (index >= c->slots || !bit_get(c->allocated, index)) return;
         uint8_t* start = (uint8_t*)base + CHUNK_HEADER + index * c->object_size;
         if (c->owner == (uint8_t)b->id) {
@@ -1200,7 +1183,7 @@ static void claim_item(MarkBuf* b, MarkItem it) {
     if (chunk_set_contains(base)) {
         Chunk* c = (Chunk*)base;
         if (c->object_size == 0 || start < base + CHUNK_HEADER) return;
-        size_t index = slot_index(c, start - base);
+        size_t index = (start - base - CHUNK_HEADER) / c->object_size;
         if (index >= c->slots || bit_get(c->marked, index)) return;
         bit_set(c->marked, index);
         local_push(b, it.start, c->object_size);
@@ -1363,7 +1346,7 @@ static int owner_of_start(uint8_t* start) {
 /// Helpers are not running yet, so their stacks are private.
 static void seed_owners(void) {
     for (size_t i = 0; i < g.mark_count; i++) {
-        MarkItem it = g.mark_stack[i];
+        MarkItem it = { g.mark_stack[i].start, g.mark_stack[i].size };
         int owner = owner_of_start(it.start);
         MarkBuf* dest = owner == 0 ? &pool.self : &pool.bufs[owner - 1];
         local_push(dest, it.start, it.size);
@@ -1727,7 +1710,7 @@ static bool weak_is_marked(uintptr_t word) {
         Chunk* c = (Chunk*)base;
         size_t offset = word - base;
         if (c->object_size == 0 || offset < CHUNK_HEADER) return false;
-        size_t index = slot_index(c, offset);
+        size_t index = (offset - CHUNK_HEADER) / c->object_size;
         return index < c->slots && bit_get(c->allocated, index) && bit_get(c->marked, index);
     }
     size_t lo = 0, hi = g.large_count;
@@ -1820,14 +1803,11 @@ void csrt_weak_free(intptr_t handle) {
     gc_unlock();
 }
 
-static void note_pause(double seconds);
-
 __attribute__((noinline)) void csrt_gc_collect_now(void) {
     if (g.collecting) return;
     g.collecting = true;
-    // Thread startup stays outside the pause: the mutator is still running, and the helpers block
-    // on their condition variable until parallel_drain publishes a job.
 #if defined(CSRT_GC_PARALLEL_MARK) && !defined(__wasi__)
+    // Helpers are created outside the pause. They block until parallel_drain publishes a job.
     int parallel = want_parallel() && ensure_pool() > 0;
 #endif
     struct timespec t0, t1;
@@ -1835,22 +1815,15 @@ __attribute__((noinline)) void csrt_gc_collect_now(void) {
 
     stop_world();
     sort_large(g.large, g.large_count);
-    struct timespec t_mark0, t_mark1, t_sweep0, t_sweep1;
-    clock_gettime(CLOCK_MONOTONIC, &t_mark0);
     scan_roots();
 #if defined(CSRT_GC_PARALLEL_MARK) && !defined(__wasi__)
-    if (parallel && g.mark_count > 0) {
-        parallel_drain();
-        g.parallel_collections++;
-    } else
+    if (parallel && g.mark_count > 0) parallel_drain();
+    else
 #endif
-        drain();
+    drain();
     weak_process();
-    clock_gettime(CLOCK_MONOTONIC, &t_mark1);
     protect_caches();
-    clock_gettime(CLOCK_MONOTONIC, &t_sweep0);
     g.live_bytes = sweep();
-    clock_gettime(CLOCK_MONOTONIC, &t_sweep1);
     resume_world();
     for (size_t i = 0; i < g.deferred_count; i++) free(g.deferred_free[i]);
     g.deferred_count = 0;
@@ -1860,44 +1833,13 @@ __attribute__((noinline)) void csrt_gc_collect_now(void) {
 
     clock_gettime(CLOCK_MONOTONIC, &t1);
     g.total_gc_seconds += (double)(t1.tv_sec - t0.tv_sec) + (double)(t1.tv_nsec - t0.tv_nsec) / 1e9;
-    g.mark_seconds += (double)(t_mark1.tv_sec - t_mark0.tv_sec) + (double)(t_mark1.tv_nsec - t_mark0.tv_nsec) / 1e9;
-    g.sweep_seconds += (double)(t_sweep1.tv_sec - t_sweep0.tv_sec) + (double)(t_sweep1.tv_nsec - t_sweep0.tv_nsec) / 1e9;
-    note_pause((double)(t1.tv_sec - t0.tv_sec) + (double)(t1.tv_nsec - t0.tv_nsec) / 1e9);
 #if defined(CSRT_GC_PARALLEL_MARK) && !defined(__wasi__)
-    {
-        double mark_s = (double)(t_mark1.tv_sec - t_mark0.tv_sec) + (double)(t_mark1.tv_nsec - t_mark0.tv_nsec) / 1e9;
-        if (mark_s >= 0.003) g_mark_heavy = 1;
-        // Create the helpers after a heavy serial mark, outside this pause, so the next one
-        // does not pay for pthread_create.
-        if (g_mark_heavy && !parallel && !g.stress && parallel_setting() != 0 && csrt_processor_count() > 1)
-            ensure_pool();
-    }
+    if ((double)(t1.tv_sec - t0.tv_sec) + (double)(t1.tv_nsec - t0.tv_nsec) / 1e9 >= 0.003) g_mark_heavy = 1;
+    // The pool is created after the pause, and only once a collection was already expensive.
+    if (g_mark_heavy && !parallel && !g.stress && parallel_setting() != 0 && csrt_processor_count() > 1)
+        ensure_pool();
 #endif
     g.collecting = false;
-}
-
-#define PAUSE_RING 512
-static uint32_t s_pause_us[PAUSE_RING];
-static uint32_t s_pause_n, s_pause_max_us;
-
-static void note_pause(double seconds) {
-    uint32_t us = seconds <= 0 ? 0 : seconds >= 4294.0 ? 4294967295u : (uint32_t)(seconds * 1e6);
-    s_pause_us[s_pause_n % PAUSE_RING] = us;
-    s_pause_n++;
-    if (us > s_pause_max_us) s_pause_max_us = us;
-}
-
-static uint32_t pause_at(double q) {
-    uint32_t n = s_pause_n < PAUSE_RING ? s_pause_n : PAUSE_RING;
-    if (n == 0) return 0;
-    uint32_t tmp[PAUSE_RING];
-    memcpy(tmp, s_pause_us, n * sizeof tmp[0]);
-    for (uint32_t i = 1; i < n; i++) {
-        uint32_t v = tmp[i], j = i;
-        while (j > 0 && tmp[j - 1] > v) { tmp[j] = tmp[j - 1]; j--; }
-        tmp[j] = v;
-    }
-    return tmp[(uint32_t)(q * (n - 1))];
 }
 
 void csrt_gc_collect(void) {
@@ -1914,10 +1856,8 @@ void csrt_gc_shutdown(void) {
 #endif
     if (!g.stats) return;
     fprintf(stderr,
-            "csrt gc: %zu collections (%zu parallel), %.1f ms total (mark %.1f ms, sweep %.1f ms), pause p50 %.2f ms p99 %.2f ms max %.2f ms, allocated %.1f MiB, peak heap %.1f MiB, live %.1f MiB, %zu chunks, %zu large objects\n",
-            g.collections, g.parallel_collections, g.total_gc_seconds * 1000.0, g.mark_seconds * 1000.0, g.sweep_seconds * 1000.0,
-            pause_at(0.50) / 1000.0, pause_at(0.99) / 1000.0, s_pause_max_us / 1000.0,
-            g.total_allocated / 1048576.0, g.peak_heap / 1048576.0,
+            "csrt gc: %zu collections, %.1f ms total, allocated %.1f MiB, peak heap %.1f MiB, live %.1f MiB, %zu chunks, %zu large objects\n",
+            g.collections, g.total_gc_seconds * 1000.0, g.total_allocated / 1048576.0, g.peak_heap / 1048576.0,
             (g.live_bytes + g.allocated_since_gc) / 1048576.0, g.chunk_count, g.large_count);
 #ifdef CSRT_ALLOC_PROFILE
     profile_print();
