@@ -1,0 +1,39 @@
+BufferSize=4 CanRead=True CanWrite=True CanSeek=True
+  Write(3)
+after 4 WriteByte
+after 5th WriteByte
+  Write(4)
+  Write(10)
+Position=17 Length=17
+  Flush
+  Seek(0, Begin)
+  Read(4) = 4
+Read=3 [1,2,3] Position=3
+ReadByte=4
+  Seek(-2, End)
+Seek=15
+  Read(8) = 2
+  Read(4) = 0
+Read=2 ReadByte=-1
+  Seek(1, Begin)
+  Write(1)
+  Flush
+  SetLength(5)
+Length=5
+  Write(3)
+  Flush
+  Seek(0, Begin)
+  Read(16) = 5
+ReadAsync=5 [1,99,1,2,3]
+  Seek(2, Begin)
+  Read(16) = 3
+  Read(16) = 0
+CopyTo -> [1,2,3]
+  Flush
+  Dispose(True)
+disposed: CanRead=False
+Cannot access a closed Stream.
+'bufferSize' must be greater than zero. (Parameter 'bufferSize')
+Value cannot be null. (Parameter 'stream')
+Non-negative number required. (Parameter 'value')
+Cannot write to a BufferedStream while the read buffer is not empty if the underlying stream is not seekable. Ensure that the stream underlying this BufferedStream can seek or avoid interleaving read and write operations on this BufferedStream.

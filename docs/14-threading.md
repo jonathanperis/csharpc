@@ -59,12 +59,15 @@ collection. Thread caches are never reset by the collector.
 ## Monitors (src/runtime/threads.c)
 
 Objects never move, so monitors live in a hash table of 256 buckets keyed by object address. Every
-field of an entry (owner, recursion count, the number of threads with an interest in it, two
-condition variables: `released` for blocked `Enter`s, `cond` for `Wait`/`Pulse`) is guarded by its
-bucket's mutex, which is also the mutex the condition variables wait with: an uncontended
-`Enter`/`Exit` pair is one short critical section each. An entry lives while some thread owns,
-enters or waits for it, then goes to its bucket's spare list (zeroed mutexes and condition variables
-are initialized ones on glibc, Windows and WASI; macOS initializes them).
+field of an entry (owner, recursion count, the number of threads with an interest in it, the
+condition variables and the `Wait` queue) is guarded by its bucket's mutex, which is also the mutex
+the condition variables wait with: an uncontended `Enter`/`Exit` pair is one short critical section
+each. An entry lives while some thread owns, enters or waits for it, then goes to its bucket's spare
+list (zeroed mutexes and condition variables are initialized ones on glibc, Windows and WASI; macOS
+initializes them). `Wait` queues its thread in arrival order; `Pulse` releases the first waiter and
+`PulseAll` every waiter, each re-checking its own flag so a signal a timed-out wait swallows, or a
+spurious one, neither loses nor invents a pulse. `Thread.Interrupt` ends that wait (and `Sleep` and
+wait-handle waits) with `ThreadInterruptedException`, after `Wait` has reacquired the lock.
 
 `System.Threading.Lock` keeps its state in the object, as .NET's does: the owner's lock id (a small
 per-thread number, 0 = free), the recursion count and the number of parked waiters. An uncontended

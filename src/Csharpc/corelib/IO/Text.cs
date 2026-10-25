@@ -360,8 +360,9 @@ namespace CsharpcCoreLib
         private readonly bool _detectEncoding, _leaveOpen;
         private bool _checkPreamble = true;
         private readonly byte[] _bytes;
-        private int _byteLen;            // undecoded bytes carried at the start of _bytes
+        private int _byteLen;            // bytes read before the preamble could be checked
         private char[] _chars;
+        private Decoder _decoder;        // the encoding's (stateful): sequences split between reads carry over
         private int _charPos, _charLen;
         private bool _eof;
 
@@ -406,6 +407,7 @@ namespace CsharpcCoreLib
             _byteLen = 0;
             _charPos = _charLen = 0;
             _eof = false;
+            _decoder?.Reset();
         }
 
         /// <summary>Decodes the next chunk; false at end of stream.</summary>
@@ -415,28 +417,25 @@ namespace CsharpcCoreLib
             _charPos = _charLen = 0;
             while (_charLen == 0)
             {
-                if (_eof && _byteLen == 0) return false;
-                int read = _eof ? 0 : _stream.Read(_bytes, _byteLen, _bytes.Length - _byteLen);
+                if (_eof) return false;
+                int read = _stream.Read(_bytes, _byteLen, _bytes.Length - _byteLen);
                 if (read == 0) _eof = true;
                 int total = _byteLen + read;
-                fixed (byte* b = _bytes)
+                int start = 0;
+                if (_checkPreamble)
                 {
-                    int start = 0;
-                    if (_checkPreamble && (total >= 4 || _eof)) { start = DetectPreamble(b, total); _checkPreamble = false; }
-                    else if (_checkPreamble) { _byteLen = total; continue; }
-                    int usable = total - start;
-                    int tail = _eof ? 0 : ((EncodingImpl)(object)_encoding).IncompleteTail(b + start, usable);
-                    int decodeCount = usable - tail;
-                    if (decodeCount > 0)
-                    {
-                        int needed = _encoding.GetMaxCharCount(decodeCount);
-                        if (_chars.Length < needed) _chars = new char[needed];
-                        fixed (char* c = _chars) _charLen = ((EncodingImpl)(object)_encoding).DecodeBytes(b + start, decodeCount, c);
-                    }
-                    for (int i = 0; i < tail; i++) b[i] = b[start + decodeCount + i];
-                    _byteLen = tail;
-                    if (_eof && decodeCount == 0) _byteLen = 0;
+                    if (total < 4 && !_eof) { _byteLen = total; continue; }
+                    fixed (byte* b = _bytes) start = DetectPreamble(b, total);
+                    _checkPreamble = false;
                 }
+                _byteLen = 0;
+                _decoder ??= _encoding.GetDecoder();
+                int usable = total - start;
+                // The decoder may still hold a few bytes of the previous read.
+                int needed = _encoding.GetMaxCharCount(usable + 4);
+                if (_chars.Length < needed) _chars = new char[needed];
+                // At the end, flush: an incomplete sequence left over decodes to the fallback.
+                _charLen = _decoder.GetChars(_bytes, start, usable, _chars, 0, _eof);
             }
             return true;
         }
@@ -538,6 +537,7 @@ namespace CsharpcCoreLib
         private int _charPos;
         private byte[] _bytes;
         private bool _preambleChecked;
+        private Encoder _encoder;        // the encoding's (stateful): a surrogate pair split between flushes stays whole
 
         public StreamWriterImpl(Stream stream) : this(stream, new UTF8Encoding(false), 1024, false) { }
         public StreamWriterImpl(Stream stream, Encoding encoding) : this(stream, encoding, 1024, false) { }
@@ -566,7 +566,7 @@ namespace CsharpcCoreLib
         {
             if (_charPos == _chars.Length) FlushChars();
             _chars[_charPos++] = value;
-            if (AutoFlush) Flush();
+            if (AutoFlush) AutoFlushChars();
         }
 
         public override void Write(string value)
@@ -581,7 +581,7 @@ namespace CsharpcCoreLib
                 for (int i = 0; i < n; i++) _chars[_charPos + i] = value[index + i];
                 _charPos += n; index += n; count -= n;
             }
-            if (AutoFlush) Flush();
+            if (AutoFlush) AutoFlushChars();
         }
 
         public override void Write(char[] buffer, int index, int count)
@@ -594,7 +594,7 @@ namespace CsharpcCoreLib
                 Array.Copy(buffer, index, _chars, _charPos, n);
                 _charPos += n; index += n; count -= n;
             }
-            if (AutoFlush) Flush();
+            if (AutoFlush) AutoFlushChars();
         }
 
         public override void WriteLine(string value)
@@ -603,7 +603,11 @@ namespace CsharpcCoreLib
             Write(NewLine);
         }
 
-        private void FlushChars()
+        /// <summary>
+        /// Encodes the buffered chars; `flushEncoder` (Flush(), Dispose — not a full buffer or AutoFlush, as in
+        /// .NET's StreamWriter) also ends a pending high surrogate.
+        /// </summary>
+        private void FlushChars(bool flushEncoder = false)
         {
             if (_stream == null) throw new ObjectDisposedException(null, "Cannot write to a closed TextWriter.");
             if (!_preambleChecked)
@@ -612,16 +616,23 @@ namespace CsharpcCoreLib
                 byte[] preamble = _encoding.GetPreamble();
                 if (preamble.Length > 0 && (!_stream.CanSeek || _stream.Position == 0)) _stream.Write(preamble, 0, preamble.Length);
             }
-            if (_charPos == 0) return;
+            if (_charPos == 0 && !flushEncoder) return;
+            _encoder ??= _encoding.GetEncoder();
             int max = _encoding.GetMaxByteCount(_charPos);
             if (_bytes == null || _bytes.Length < max) _bytes = new byte[max];
-            int n;
-            fixed (char* c = _chars) fixed (byte* b = _bytes) n = ((EncodingImpl)(object)_encoding).EncodeChars(c, _charPos, b);
-            _stream.Write(_bytes, 0, n);
+            int n = _encoder.GetBytes(_chars, 0, _charPos, _bytes, 0, flushEncoder);
+            if (n > 0) _stream.Write(_bytes, 0, n);
             _charPos = 0;
         }
 
         public override void Flush()
+        {
+            FlushChars(flushEncoder: true);
+            _stream.Flush();
+        }
+
+        // AutoFlush: .NET's Flush(flushStream: true, flushEncoder: false).
+        private void AutoFlushChars()
         {
             FlushChars();
             _stream.Flush();
@@ -630,7 +641,7 @@ namespace CsharpcCoreLib
         protected override void Dispose(bool disposing)
         {
             if (_stream == null) return;
-            try { FlushChars(); _stream.Flush(); }
+            try { FlushChars(flushEncoder: true); _stream.Flush(); }
             finally
             {
                 if (!_leaveOpen) _stream.Dispose();

@@ -1,0 +1,16 @@
+initial: 'null' 0
+first enter: alice 1
+first after await: changed in first 2
+nested enter: changed in first 2
+nested after await: changed in nested 3
+nested exit: changed in nested 3
+first exit: changed in first 2
+after Inner: alice 1
+Task.Run sees: alice
+thread saw: alice, main still: alice
+pool saw: alice
+in captured context: alice
+back: bob
+culture '' user carol
+after yield: culture '' user carol depth 1
+cleared: 'null' 0

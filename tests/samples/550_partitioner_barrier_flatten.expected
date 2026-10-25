@@ -1,0 +1,22 @@
+ranges: [0,7) [7,14) [14,21) [21,25)
+long ranges: [10,18) [18,26) [26,30)
+toExclusive ('5') must be greater than '5'. (Parameter 'toExclusive')
+Actual value was 5.
+list partition 0: 1,2,3,4
+list partition 1: 5,6,7
+list partition 2: 8,9,10
+orderable: 0:a 1:b 2:c
+orderable: 3:d 4:e
+supports dynamic: False keys ordered True True normalized True
+dynamic: 20 items, sum 190, ordered True
+Parallel.ForEach over ranges: 499500
+barrier: phase 0 done, phase 1 done; phase 2, participants 3
+after add: 4 remaining 4
+after remove: 2
+timed out: False
+BarrierPostPhaseException: The postPhaseAction failed with an exception. / post-phase failed
+participantCount ('-1') must be a non-negative value. (Parameter 'participantCount')
+Actual value was -1.
+flatten: outer (one) (four) (two) (three)
+inner: InvalidOperationException:one, TimeoutException:four, ArgumentException:two, FormatException:three
+default message: One or more errors occurred. (x)

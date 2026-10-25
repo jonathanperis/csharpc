@@ -72,6 +72,19 @@ namespace CsharpcCoreLib
         public static void WriteUInt64LittleEndian(Span<byte> destination, ulong value) => Store(destination, 8, value);
         public static void WriteSingleLittleEndian(Span<byte> destination, float value) => Store(destination, 4, (ulong)(uint)CoreIntrinsics.SingleToBits(value));
         public static void WriteDoubleLittleEndian(Span<byte> destination, double value) => Store(destination, 8, (ulong)CoreIntrinsics.DoubleToBits(value));
+        public static void WriteUInt128LittleEndian(Span<byte> destination, UInt128 value)
+        {
+            if (destination.Length < 16) throw new ArgumentOutOfRangeException("length");
+            Store(destination, 8, (ulong)value);
+            Store(destination.Slice(8), 8, (ulong)(value >> 64));
+        }
+        public static void WriteInt128LittleEndian(Span<byte> destination, Int128 value) => WriteUInt128LittleEndian(destination, (UInt128)value);
+        public static UInt128 ReadUInt128LittleEndian(ReadOnlySpan<byte> source)
+        {
+            if (source.Length < 16) throw new ArgumentOutOfRangeException("length");
+            return new UInt128(Load(source.Slice(8), 8), Load(source, 8));
+        }
+        public static Int128 ReadInt128LittleEndian(ReadOnlySpan<byte> source) => (Int128)ReadUInt128LittleEndian(source);
 
         public static bool TryReadInt16LittleEndian(ReadOnlySpan<byte> source, out short value) { bool ok = TryLoad(source, 2, out ulong v); value = (short)v; return ok; }
         public static bool TryReadUInt16LittleEndian(ReadOnlySpan<byte> source, out ushort value) { bool ok = TryLoad(source, 2, out ulong v); value = (ushort)v; return ok; }

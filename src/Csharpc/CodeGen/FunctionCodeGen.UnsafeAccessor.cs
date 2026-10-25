@@ -77,6 +77,9 @@ public sealed partial class FunctionCodeGen
             var obj = EmitValue(inv.Arguments[0].Value);
             return CallRuntime("csrt_unbox", L.Ptr, [L.Ptr, L.Ptr], obj, MethodTableFor(t, inv));
         }
+        // Unsafe.SizeOf<T>(): the size of T's storage (a reference for classes), as sizeof(T).
+        if (target is { Name: "SizeOf", TypeArguments.Length: 1, Parameters.Length: 0 })
+            return L.ConstInt(L.I32, (long)_m.Types.Target.SizeOf(T.Storage(S(target.TypeArguments[0]))));
         return null;
     }
 

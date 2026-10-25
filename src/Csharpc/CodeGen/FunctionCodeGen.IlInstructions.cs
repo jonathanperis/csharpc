@@ -75,7 +75,7 @@ public sealed partial class FunctionCodeGen
                 var index = (int)instruction.Int;
                 var local = IlLocal(index);
                 if (local.IsByRef) throw new IlException("address of a by-ref local");
-                Push(new IlEntry(IlKind.ByRef, il.Locals[index], local.Type));
+                Push(new IlEntry(IlKind.ByRef, IlLocalSlot(index), local.Type));
                 return false;
             }
             case ILOpCode.Stloc_0 or ILOpCode.Stloc_1 or ILOpCode.Stloc_2 or ILOpCode.Stloc_3: IlStoreLocal(op - ILOpCode.Stloc_0, Pop()); return false;
@@ -831,10 +831,12 @@ public sealed partial class FunctionCodeGen
     private IlType IlLocal(int index) =>
         index < IlBody.Locals.Length ? IlBody.Locals[index] : throw new IlException($"local {index} does not exist");
 
+    private LLVMValueRef IlLocalSlot(int index) => _il!.LocalErrors[index] is { } error ? throw error : _il.Locals[index];
+
     private IlEntry IlLoadLocal(int index)
     {
         var local = IlLocal(index);
-        var slot = _il!.Locals[index];
+        var slot = IlLocalSlot(index);
         if (local.IsByRef) return new IlEntry(IlKind.ByRef, _b.Load(L.Ptr, slot), local.Type);
         return IlPush(LoadValue(slot, S(local.Type)), local.Type);
     }
@@ -842,7 +844,7 @@ public sealed partial class FunctionCodeGen
     private void IlStoreLocal(int index, IlEntry value)
     {
         var local = IlLocal(index);
-        var slot = _il!.Locals[index];
+        var slot = IlLocalSlot(index);
         if (local.IsByRef) { _b.Store(IlAddress(value), slot); return; }
         StoreValue(ToStorage(IlTyped(value, local.Type), S(local.Type)), slot);
     }

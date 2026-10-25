@@ -176,6 +176,8 @@ public sealed partial class ModuleCodeGen
         LLVMValueRef mt = type switch
         {
             INamedTypeSymbol { TypeKind: TypeKind.Struct } s when IsUserType(s) => StructMethodTable(s),
+            INamedTypeSymbol { IsTupleType: true } tuple => TupleMethodTable(tuple, null!),
+            INamedTypeSymbol { TypeKind: TypeKind.Enum } e => EnumMethodTable(e),
             { SpecialType: not SpecialType.None } => ExternalGlobal($"csrt_Boxed_{type.MetadataName}_MT"),
             _ => throw CompileError.Unsupported($"non-generic enumeration of an iterator of '{type}'", type),
         };

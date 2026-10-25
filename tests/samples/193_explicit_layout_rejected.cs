@@ -1,6 +1,6 @@
-// [StructLayout(LayoutKind.Explicit)] / [FieldOffset] unions and Pack/Size change where fields live;
-// csharpc lays fields out sequentially, so it must refuse these types instead of silently printing
-// another union member's value.
+// Explicit layouts of classes and Pack change where fields live; csharpc doesn't lay those out yet
+// (structs with explicit offsets are supported: 536_struct_explicit_layout), so it must refuse these
+// types instead of silently printing another union member's value.
 using System.Runtime.InteropServices;
 
 var u = new U();

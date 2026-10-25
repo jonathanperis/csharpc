@@ -68,6 +68,10 @@ public sealed partial class FunctionCodeGen
         // leak out. csrt_tl_flow is csharpc's execution-context flow (src/runtime/threads.c); restoring
         // it whenever the coroutine returns is the same, since resumers restore their own flow afterwards.
         var callerFlow = kind == CoroutineKind.Async ? CallRuntime("csrt_flow_get", L.Ptr, []) : default;
+        // async void reports to the current SynchronizationContext (AsyncVoidMethodBuilder): OperationStarted
+        // now, OperationCompleted at the end, and an escaping exception is rethrown on that context.
+        var isAsyncVoid = kind == CoroutineKind.Async && _fn.Type.ReturnType().IsVoid;
+        var voidContext = isAsyncVoid ? CallCoreLib("SynchronizationContextImpl", "AsyncVoidStarted") : default;
 
         if (kind != CoroutineKind.Async)
         {
@@ -114,7 +118,10 @@ public sealed partial class FunctionCodeGen
 
         _b.PositionAtEnd(coro.Complete);
         if (kind == CoroutineKind.Async)
+        {
             CallRuntime("csrt_task_complete", L.Void, [L.Ptr], coro.Promise);
+            if (isAsyncVoid) CallCoreLib("SynchronizationContextImpl", "AsyncVoidCompleted", voidContext);
+        }
         else
             _b.Store(L.ConstInt(L.I32, 2), _b.InBoundsGep(L.I8, coro.Promise, [L.ConstInt(L.I64, IteratorStateOffset)]));
         if (kind == CoroutineKind.AsyncIterator)
@@ -122,15 +129,16 @@ public sealed partial class FunctionCodeGen
         _b.Br(coro.Cleanup);
 
         // Exceptions escaping the body (C# semantics): captured into the task (even before the first
-        // await), parked for the iterator's MoveNext() caller, or — async void — a process crash.
+        // await), parked for the iterator's MoveNext() caller, or — async void — rethrown on its
+        // SynchronizationContext, a process crash without one.
         coro.ExceptionSlot = _allocas.Alloca(L.Ptr, "coro.exn");
         coro.Fault = NewBlock("coro.fault");
         _b.PositionAtEnd(coro.Fault);
         var escaped = _b.Load(L.Ptr, coro.ExceptionSlot, "exn");
-        if (kind == CoroutineKind.Async && _fn.Type.ReturnType().IsVoid)
+        if (isAsyncVoid)
         {
-            CallRuntime("csrt_unhandled_exception", L.Void, [L.Ptr], escaped);
-            _b.Unreachable();
+            CallCoreLib("SynchronizationContextImpl", "AsyncVoidFailed", voidContext, escaped); // no context: a crash
+            _b.Br(coro.Cleanup);
         }
         else
         {
@@ -299,9 +307,34 @@ public sealed partial class FunctionCodeGen
             AwaitYield();
             return default;
         }
-        AwaitCompletion(task);
+        AwaitCompletion(task, AwaitContextRuntime(operand, operandType));
         CallRuntime("csrt_task_throw_if_faulted", L.Void, [L.Ptr], task); // rethrows the original exception
         return TaskResult(task, TypeOf(await));
+    }
+
+    /// <summary>
+    /// How an await continues (SynchronizationContext.cs): posted to the captured context, unless the
+    /// awaitable is configured not to. A configured awaitable is just the task (TypeMapper), so the
+    /// setting is read off the ConfigureAwait call it comes from.
+    /// </summary>
+    private static string AwaitContextRuntime(IOperation? operand, ITypeSymbol? operandType)
+    {
+        if (operandType is not INamedTypeSymbol { Name: "ConfiguredTaskAwaitable" or "ConfiguredValueTaskAwaitable" })
+            return "csrt_task_on_completed";
+        if (operand is null) return "csrt_task_on_completed_no_context"; // IL: library code awaits with ConfigureAwait(false)
+        while (operand is IConversionOperation or IParenthesizedOperation)
+            operand = operand is IConversionOperation c ? c.Operand : ((IParenthesizedOperation)operand).Operand;
+        if (operand is IInvocationOperation { TargetMethod.Name: "ConfigureAwait", Arguments: [{ Value.ConstantValue: { HasValue: true, Value: var setting } }] })
+        {
+            var continueOnCapturedContext = setting switch
+            {
+                bool b => b,
+                int options => (options & 1) != 0, // ConfigureAwaitOptions.ContinueOnCapturedContext
+                _ => (bool?)null,
+            };
+            if (continueOnCapturedContext is { } value) return value ? "csrt_task_on_completed" : "csrt_task_on_completed_no_context";
+        }
+        return "csrt_task_on_completed_unknown_context";
     }
 
     /// <summary>Task.Yield(): resume on the pool.</summary>
@@ -314,7 +347,7 @@ public sealed partial class FunctionCodeGen
     }
 
     /// <summary>Suspends until <paramref name="task"/> has completed (a completed task continues synchronously).</summary>
-    private void AwaitCompletion(LLVMValueRef task)
+    private void AwaitCompletion(LLVMValueRef task, string onCompleted = "csrt_task_on_completed")
     {
         var coro = _coro!;
         var wait = NewBlock("await.wait");
@@ -322,7 +355,7 @@ public sealed partial class FunctionCodeGen
         _b.CondBr(CallRuntime("csrt_task_is_completed", L.I1, [L.Ptr], task), ready, wait);
         _b.PositionAtEnd(wait);
         var awaitSave = CoroSave();
-        CallRuntime("csrt_task_on_completed", L.Void, [L.Ptr, L.Ptr], task, coro.Handle);
+        CallRuntime(onCompleted, L.Void, [L.Ptr, L.Ptr], task, coro.Handle);
         Suspend(coro.Cleanup, awaitSave);
         _b.Br(ready);
         _b.PositionAtEnd(ready);

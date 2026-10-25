@@ -62,7 +62,7 @@ struct csrt_MethodTable {
     uint32_t flags;                 // CSRT_MT_*
     const csrt_InterfaceMapEntry* interfaces;  // all implemented interfaces (flattened)
     uint32_t interface_count;
-    uint32_t reserved;              // CSRT_MT_MDARRAY: the rank
+    uint32_t reserved;              // CSRT_MT_MDARRAY: the rank; a one-dimensional array type: its element size
     // void* vtable[] follows — the compiler emits it as part of the same global.
 };
 
@@ -123,7 +123,7 @@ void csrt_weak_free(intptr_t handle);
 
 // Exceptions (eh.c) -----------------------------------------------------------------------------
 // Exception objects: { mt, String* message, Exception* inner, String* paramName, String* actualValue,
-// int32[] trace }. Throwing raises an Itanium-ABI unwind (_Unwind_RaiseException) handled by
+// int32[] trace, inners, token }. Throwing raises an Itanium-ABI unwind (_Unwind_RaiseException) handled by
 // csrt_personality; see eh.c. Mirrored by ModuleCodeGen.GetLibraryExceptionLayout.
 typedef struct csrt_Exception {
     const csrt_MethodTable* mt;
@@ -168,7 +168,7 @@ int32_t csrt_exception_inner_count(void* exception);
 void* csrt_exception_inner_at(void* exception, int32_t index);
 void* csrt_task_canceled_exception_new(void);
 bool csrt_is_operation_canceled(void* exception);
-void* csrt_operation_canceled_exception_new(void);
+void* csrt_operation_canceled_exception_new(void* token);
 void* csrt_object_disposed_exception_new(const char* message); // ObjectDisposedException(null, message)
 CSRT_THROWS void csrt_throw_invalid_cast_from(const csrt_MethodTable* from, const csrt_MethodTable* to);
 csrt_String* csrt_string_from_utf8(const char* text);

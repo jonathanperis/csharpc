@@ -1,9 +1,7 @@
 // System.Threading.ExecutionContext over csharpc's execution-context flow (ExecutionFlow.cs): Capture,
 // Run and Restore move the immutable flow object around, as .NET's ExecutionContext does with its
 // AsyncLocal map; SuppressFlow makes the runtime's capture points (queued work, Thread.Start, awaits) carry
-// no flow until RestoreFlow. System.Threading.SynchronizationContext: csharpc's awaits never post to one, so there is no
-// current context and installing one is an explicit NotSupportedException; the base class's Post/Send
-// work as in .NET (the thread pool, a direct call).
+// no flow until RestoreFlow. (SynchronizationContext: SynchronizationContext.cs.)
 #nullable disable
 using System;
 using System.Threading;
@@ -21,10 +19,14 @@ namespace CsharpcCoreLib
         private static ExecutionContextImpl Default => s_default ??= new ExecutionContextImpl(null);
 
         [System.Runtime.InteropServices.DllImport("__Internal", EntryPoint = "csrt_flow_suppressed")]
-        private static extern bool FlowSuppressed();
+        private static extern int FlowSuppressedRaw();
+
+        private static bool FlowSuppressed() => FlowSuppressedRaw() != 0;
 
         [System.Runtime.InteropServices.DllImport("__Internal", EntryPoint = "csrt_flow_suppress")]
-        internal static extern void SetFlowSuppressed(bool suppressed);
+        private static extern void SetFlowSuppressedRaw(int suppressed);
+
+        internal static void SetFlowSuppressed(bool suppressed) => SetFlowSuppressedRaw(suppressed ? 1 : 0);
 
         public static ExecutionContextImpl Capture()
         {
@@ -53,10 +55,16 @@ namespace CsharpcCoreLib
         public static void Run(ExecutionContextImpl executionContext, ContextCallback callback, object state)
         {
             if (executionContext == null) throw new InvalidOperationException("Cannot call Set on a null context");
+            // .NET's RunInternal also puts back the thread's SynchronizationContext.
             ExecutionFlow saved = ExecutionFlow.Current;
+            SynchronizationContext savedContext = SynchronizationContext.Current;
             ExecutionFlow.Current = executionContext.Flow;
             try { callback(state); }
-            finally { ExecutionFlow.Current = saved; }
+            finally
+            {
+                ExecutionFlow.Current = saved;
+                if (SynchronizationContext.Current != savedContext) SynchronizationContext.SetSynchronizationContext(savedContext);
+            }
         }
 
         public static void Restore(ExecutionContextImpl executionContext)
@@ -91,29 +99,5 @@ namespace CsharpcCoreLib
         public override int GetHashCode() => _thread?.GetHashCode() ?? 0;
         public static bool operator ==(AsyncFlowControlImpl a, AsyncFlowControlImpl b) => a.Equals(b);
         public static bool operator !=(AsyncFlowControlImpl a, AsyncFlowControlImpl b) => !(a == b);
-    }
-
-    [Shadows("System.Threading.SynchronizationContext")]
-    public class SynchronizationContextImpl
-    {
-        public SynchronizationContextImpl() { }
-
-        public static SynchronizationContextImpl Current => null;
-
-        public static void SetSynchronizationContext(SynchronizationContextImpl syncContext)
-        {
-            if (syncContext != null)
-                throw new NotSupportedException("Installing a SynchronizationContext is not supported by csharpc yet (awaits never post to one).");
-        }
-
-        public virtual void Post(SendOrPostCallback d, object state) => ThreadPool.QueueUserWorkItem(static s => s.d(s.state), (d, state), preferLocal: false);
-
-        public virtual void Send(SendOrPostCallback d, object state) => d(state);
-
-        public virtual SynchronizationContextImpl CreateCopy() => new SynchronizationContextImpl();
-
-        public virtual void OperationStarted() { }
-
-        public virtual void OperationCompleted() { }
     }
 }

@@ -502,7 +502,7 @@ namespace CsharpcCoreLib
         private const long MaxOffset = 14 * 3600;  // TimeZoneInfo's offset range is +/-14 hours
 
         /// <summary>TimeZoneInfo.Local.BaseUtcOffset: the zone's current standard offset.</summary>
-        private static long BaseOffset()
+        internal static long BaseOffset()
         {
             long now = UnixNow();
             long baseOffset = LocalOffsetAt(now, out bool dst);

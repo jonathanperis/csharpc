@@ -116,9 +116,31 @@ public sealed partial class ModuleCodeGen
         return _ilSyntax[assembly] = (plain, @base);
     }
 
+    /// <summary>
+    /// Framework methods csharpc deliberately doesn't compile: a boundary that keeps a whole subsystem out
+    /// of programs that only reach it in a corner — System.Xml's resolver downloads http(s) resources with
+    /// HttpClient (System.Net.Http and the socket, TLS and QUIC stacks under it). Such a method becomes a
+    /// stub that ends the program with the message, and a program that can reach it gets a warning.
+    /// </summary>
+    private static string? IlBoundary(IMethodSymbol method) =>
+        (method.ContainingType.ToDisplayString(), method.Name) switch
+        {
+            ("System.Xml.XmlDownloadManager", "GetNonFileStreamAsync") =>
+                "not supported by csharpc yet: System.Xml reading a resource that isn't a file (an http(s) URI needs System.Net.Http)",
+            _ => null,
+        };
+
+    private readonly List<(IMethodSymbol Method, string Message)> _ilBoundaries = [];
+
     private void EmitIlMethod(IlAssembly assembly, IMethodSymbol method)
     {
         if (method.IsAbstract || IsExternal(method)) return;
+        if (!assembly.IsCoreLib && IlBoundary(method) is { } boundary)
+        {
+            _ilBoundaries.Add((method, boundary));
+            ReplaceWithStub(method, boundary);
+            return;
+        }
         var location = IlSyntax(assembly).Plain.GetLocation();
         try
         {
@@ -171,11 +193,7 @@ public sealed partial class ModuleCodeGen
     private readonly List<(IMethodSymbol Method, CompileError Error)> _ilFailures = [];
 
     /// <summary>The function lowered now references <paramref name="method"/> (a call, a delegate, a thunk...).</summary>
-    internal void NoteReference(IMethodSymbol method, bool virtualCall)
-    {
-        if (!Il.HasLibraries) return;
-        _references.Add((_currentCaller, method, virtualCall));
-    }
+    internal void NoteReference(IMethodSymbol method, bool virtualCall) => _references.Add((_currentCaller, method, virtualCall));
 
     /// <summary>A virtual or interface call site: every override / implementation of the member may run.</summary>
     internal void NoteVirtualCall(IMethodSymbol target) => NoteReference(target, virtualCall: true);
@@ -183,7 +201,7 @@ public sealed partial class ModuleCodeGen
     /// <summary>A check that runs <paramref name="type"/>'s static constructor.</summary>
     internal void NoteClassInit(INamedTypeSymbol type)
     {
-        if (Il.HasLibraries && type.StaticConstructors.FirstOrDefault() is { } cctor) NoteReference(cctor, virtualCall: false);
+        if (type.StaticConstructors.FirstOrDefault() is { } cctor) NoteReference(cctor, virtualCall: false);
     }
 
     /// <summary>
@@ -209,10 +227,32 @@ public sealed partial class ModuleCodeGen
         if (!error.Message.Contains(" [in '", StringComparison.Ordinal))
             error = new CompileError(error.Id, $"{error.Message} [in '{method.OriginalDefinition}' ({Il.OwnerOf(method)?.Name}.dll)]",
                 error.Location is { IsInSource: true } ? error.Location : Il.OwnerOf(method) is { } owner ? IlSyntax(owner).Plain.GetLocation() : null);
+        ReplaceWithStub(method, error);
+    }
+
+    /// <summary>A method of the program's sources that can't be compiled: a stub, an error if reachable (ReportIlFailures).</summary>
+    private void SourceMethodFailed(IMethodSymbol method, CompileError error)
+    {
+        if (error.Location is not { IsInSource: true } && method.Locations.FirstOrDefault() is { IsInSource: true } at)
+            error = new CompileError(error.Id, error.Message, at);
+        ReplaceWithStub(method, error);
+    }
+
+    /// <summary>The program's own source methods (not the corelib, not IL): whether they run is decided by reachability.</summary>
+    private bool IsProgramSourceMethod(IMethodSymbol method) =>
+        SymbolEqualityComparer.Default.Equals(method.ContainingAssembly, Compilation.Assembly) && !CoreLib.IsCoreLib(method);
+
+    private void ReplaceWithStub(IMethodSymbol method, CompileError error)
+    {
         _ilFailures.Add((method, error));
+        ReplaceWithStub(method, $"'{method}' could not be compiled: {error.Message}");
+    }
+
+    private void ReplaceWithStub(IMethodSymbol method, string message)
+    {
         var old = _functions[method];
         var name = Native.TakeName(old.Fn);
-        var stub = UnsupportedStub(name + "$unsupported", old.Type, $"'{method}' could not be compiled: {error.Message}");
+        var stub = UnsupportedStub(name + "$unsupported", old.Type, message);
         Native.LLVMReplaceAllUsesWith(old.Fn, stub);
         Native.LLVMDeleteFunction(old.Fn);
         Native.LLVMSetValueName2(stub, name, (nuint)System.Text.Encoding.UTF8.GetByteCount(name));
@@ -237,7 +277,7 @@ public sealed partial class ModuleCodeGen
     /// <summary>Errors for failed IL methods the program can reach; warnings (and the stub) for the rest.</summary>
     private void ReportIlFailures()
     {
-        if (_ilFailures.Count == 0) return;
+        if (_ilFailures.Count == 0 && _ilBoundaries.Count == 0) return;
         var edges = _references.GroupBy(r => (ISymbol?)r.From?.OriginalDefinition, SymbolEqualityComparer.Default)
             .ToDictionary(g => g.Key ?? Compilation.Assembly, g => g.ToList(), SymbolEqualityComparer.Default);
         var reached = new HashSet<ISymbol>(SymbolEqualityComparer.Default);
@@ -256,13 +296,26 @@ public sealed partial class ModuleCodeGen
             Reach(to, from);
             if (isVirtual) foreach (var implementation in PossibleTargets(to)) Reach(implementation, from);
         }
-        // Roots: references made by the program's own code (sources and the corelib).
+        // Roots: the entry point and what .NET itself calls in the program (overrides and implementations of
+        // library members: ToString, Finalize, IComparable...; static constructors, module initializers and
+        // native exports), and references made outside the program's methods: by the corelib, by the code
+        // csharpc generates (method tables, type metadata, main), and by lambdas and local functions
+        // (their bodies are reached through closures the graph doesn't follow).
+        if (Compilation.GetEntryPoint(default) is { } entry) Reach(entry, null);
+        foreach (var root in RuntimeCalledMethods()) Reach(root, null);
         foreach (var (from, to, isVirtual) in _references)
-            if (from is null || !IsIlMethod(from) || Il.IsCoreLib(from)) Follow(from, to, isVirtual);
+            if (from is null || IsNestedFunction(from) || (IsIlMethod(from) ? Il.IsCoreLib(from) : !IsProgramSourceMethod(from))) Follow(from, to, isVirtual);
         while (work.TryDequeue(out var method))
             if (edges.TryGetValue(method.OriginalDefinition, out var outgoing))
                 foreach (var (_, to, isVirtual) in outgoing) Follow(method, to, isVirtual);
 
+        foreach (var (method, message) in _ilBoundaries)
+            if (reached.Contains(method.OriginalDefinition))
+                Warnings.Add(new CompileError("CSLLVM0008", $"{message} — '{method}' is compiled as a stub that ends the program with this message if it is called",
+                    Il.OwnerOf(method) is { } owner ? IlSyntax(owner).Plain.GetLocation() : null));
+
+        // A construct that also fails elsewhere (a type's layout, a field) is reported there already.
+        var reported = Errors.Select(e => (e.Message, e.Location?.ToString())).ToHashSet();
         foreach (var (method, error) in _ilFailures)
         {
             if (why != null && reached.Contains(method.OriginalDefinition))
@@ -273,9 +326,38 @@ public sealed partial class ModuleCodeGen
                     Console.Error.WriteLine($"    <- {(parent == null ? "(program)" : parent.ToString())}");
             }
             if (reached.Contains(method.OriginalDefinition)) Errors.Add(error);
-            else Warnings.Add(new CompileError("CSLLVM0007",
+            else if (!reported.Contains((error.Message, error.Location?.ToString()))) Warnings.Add(new CompileError("CSLLVM0007",
                 $"{error.Message} — the program does not reach this method (class-hierarchy analysis), so it was compiled as a stub that ends the program if it is ever called",
                 error.Location));
+        }
+    }
+
+    /// <summary>
+    /// Source methods the runtime or the library may call without a call site in the program: overrides of
+    /// library virtuals, implementations of library interfaces, static constructors, module initializers
+    /// and [UnmanagedCallersOnly] exports.
+    /// </summary>
+    private IEnumerable<IMethodSymbol> RuntimeCalledMethods()
+    {
+        foreach (var type in _userTypes)
+        {
+            if (!SymbolEqualityComparer.Default.Equals(type.ContainingAssembly, Compilation.Assembly) || CoreLib.IsCoreLib(type)) continue;
+            foreach (var m in type.GetMembers().OfType<IMethodSymbol>())
+            {
+                if (m.MethodKind == MethodKind.StaticConstructor
+                    || (m.IsOverride && !IsUserMethod(ClassLayout.RootOf(m)) && !IsUndispatchedLibraryVirtual(ClassLayout.RootOf(m)))
+                    || m.ExplicitInterfaceImplementations.Any(i => !IsUserType(i.ContainingType))
+                    || m.GetAttributes().Any(a => a.AttributeClass?.Name is "ModuleInitializerAttribute" or "UnmanagedCallersOnlyAttribute"))
+                    yield return m;
+            }
+            foreach (var itf in type.AllInterfaces)
+            {
+                if (IsUserType(itf)) continue;
+                foreach (var member in itf.GetMembers().OfType<IMethodSymbol>())
+                    if (type.FindImplementationForInterfaceMember(member) is IMethodSymbol implementation
+                        && SymbolEqualityComparer.Default.Equals(implementation.ContainingAssembly, Compilation.Assembly))
+                        yield return implementation;
+            }
         }
     }
 
@@ -305,15 +387,19 @@ public sealed partial class ModuleCodeGen
         foreach (var overrider in ClassOverrides(definition)) yield return overrider;
     }
 
-    /// <summary>Every method of the hierarchy that fills <paramref name="definition"/>'s vtable slot.</summary>
+    /// <summary>
+    /// Every method of the hierarchy that fills <paramref name="definition"/>'s vtable slot. Roots are compared
+    /// through the corelib's shadows: the corelib's StreamReader calls StreamImpl.Read, which DeflateStream (IL)
+    /// overrides as System.IO.Stream.Read.
+    /// </summary>
     private List<IMethodSymbol> ClassOverrides(IMethodSymbol definition)
     {
-        var root = ClassLayout.RootOf(definition.OriginalDefinition);
+        var root = CoreLib.Map(ClassLayout.RootOf(definition.OriginalDefinition));
         if (_classOverrides.TryGetValue(root, out var known)) return known;
         var found = new List<IMethodSymbol>();
         foreach (var type in HierarchyTypes)
             foreach (var m in type.GetMembers(root.Name).OfType<IMethodSymbol>())
-                if ((m.IsVirtual || m.IsOverride) && SymbolEqualityComparer.Default.Equals(ClassLayout.RootOf(m), root))
+                if ((m.IsVirtual || m.IsOverride) && SymbolEqualityComparer.Default.Equals(CoreLib.Map(ClassLayout.RootOf(m)), root))
                     found.Add(m);
         return _classOverrides[root] = found;
     }

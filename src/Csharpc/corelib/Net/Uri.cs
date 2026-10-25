@@ -4,8 +4,10 @@
 // and '@', no '%'), without dot segments. For those, .NET only lowercases the scheme and host, drops a
 // default port and turns an empty path into "/". Everything else .NET accepts (relative URIs, other
 // schemes, user info, IPv6, percent-encoding, escaping, IDN, dot-segment removal, implicit file paths)
-// throws NotSupportedException rather than risk a different result. UnescapeDataString is exact; the
-// static escaping helpers are in UriMembers.cs.
+// throws NotSupportedException rather than risk a different result. Also exact: file URIs of plain
+// absolute paths ("/tmp/x.xml", "C:\\dir\\x.xml", "file:///tmp/x.xml": System.Xml loads files through
+// them) and relative URIs of plain text (UriKind.RelativeOrAbsolute / Relative). UnescapeDataString is
+// exact; the static escaping helpers are in UriMembers.cs.
 #nullable disable
 using System;
 using System.Text;
@@ -33,6 +35,9 @@ namespace CsharpcCoreLib
         private readonly string _path;
         private readonly string _query;
         private readonly string _fragment;
+        private readonly bool _relative;    // a relative URI: only OriginalString / ToString
+        private readonly bool _file;        // a file URI (_path: its absolute path, '/'-separated)
+        private readonly string _localPath; // a file URI's LocalPath
 
         public UriImpl(string uriString) : this(uriString, UriKind.Absolute) { }
 
@@ -41,15 +46,71 @@ namespace CsharpcCoreLib
             if (uriString == null) throw new ArgumentNullException("uriString");
             if (uriKind != UriKind.Absolute && uriKind != UriKind.RelativeOrAbsolute && uriKind != UriKind.Relative)
                 throw new ArgumentException("The value '" + ((int)uriKind).ToString() + "' passed for the UriKind parameter is invalid.", "uriKind");
-            if (uriKind == UriKind.Relative) throw Unsupported("relative URIs");
-            string error = Parse(uriString, out _scheme, out _host, out _port, out _ipv4, out _path, out _query, out _fragment);
-            if (error != null)
-            {
-                if (uriKind == UriKind.RelativeOrAbsolute && error == FormatNotDetermined) throw Unsupported("relative URIs");
-                throw new UriFormatException(error);
-            }
             _original = uriString;
+            if (TryParseFile(uriString, out _path, out _localPath))
+            {
+                if (uriKind == UriKind.Relative) throw new UriFormatException(FormatNotDetermined);
+                _file = true;
+                _scheme = "file";
+                _host = "";
+                _port = -1;
+                _query = _fragment = "";
+                return;
+            }
+            string error = Parse(uriString, out _scheme, out _host, out _port, out _ipv4, out _path, out _query, out _fragment);
+            if (error == FormatNotDetermined && uriKind != UriKind.Absolute)
+            {
+                CheckRelative(uriString);
+                _relative = true;
+                return;
+            }
+            if (error != null) throw new UriFormatException(error);
+            if (uriKind == UriKind.Relative) throw new UriFormatException(FormatNotDetermined);
         }
+
+        // A relative reference is kept as it is: only text .NET neither escapes nor unescapes.
+        private static void CheckRelative(string s)
+        {
+            if (s.Trim().Length == 0 || !IsPlain(s, 0, true) || s.IndexOf('#') >= 0) throw Unsupported("this relative URI");
+        }
+
+        /// <summary>
+        /// A file URI with a plain absolute path: an implicit one ("/dir/x", "C:\dir\x" or "C:/dir/x") or
+        /// "file:///...". `path` is the URI's path ("/dir/x", "/C:/dir/x"), `localPath` LocalPath.
+        /// </summary>
+        private static bool TryParseFile(string s, out string path, out string localPath)
+        {
+            path = localPath = null;
+            string rest;
+            bool explicitScheme = s.StartsWith("file:", StringComparison.OrdinalIgnoreCase);
+            if (explicitScheme)
+            {
+                if (string.CompareOrdinal(s, 5, "///", 0, 3) != 0) throw Unsupported("this file URI");
+                rest = s.Substring(7);
+                if (rest.Length >= 3 && char.IsAsciiLetter(rest[1]) && rest[2] == ':') rest = rest.Substring(1); // file:///C:/...
+            }
+            else rest = s;
+            bool drive = rest.Length >= 3 && char.IsAsciiLetter(rest[0]) && rest[1] == ':' && (rest[2] == '\\' || rest[2] == '/');
+            if (!drive && (rest.Length == 0 || rest[0] != '/'))
+            {
+                if (explicitScheme) throw Unsupported("this file URI");
+                return false;
+            }
+            if (!drive && rest.Length > 1 && (rest[1] == '/' || rest[1] == '\\')) throw Unsupported("UNC paths");
+#if CSHARPC_TARGET_WINDOWS
+            // .NET on Windows takes "/dir/x" for no implicit file path, and gives drive-less file URIs other
+            // local paths than on Unix: not modelled.
+            if (!drive) throw Unsupported("drive-less file paths on Windows");
+#endif
+            string slashed = drive ? rest.Replace('\\', '/') : rest;
+            if (!IsPlain(slashed, 0, false) || HasDotSegment(slashed) || slashed.Contains("//")) throw Unsupported("file paths .NET escapes or rewrites");
+            path = drive ? "/" + slashed : slashed;
+            localPath = drive ? slashed.Replace('/', '\\') : slashed;
+            return true;
+        }
+
+        private InvalidOperationException NotAbsolute() => new InvalidOperationException("This operation is not supported for a relative URI.");
+        private string Absolute(string value) => _relative ? throw NotAbsolute() : value;
 
         public UriImpl(Uri baseUri, string relativeUri) => throw Unsupported("new Uri(Uri, string)");
         public UriImpl(Uri baseUri, Uri relativeUri) => throw Unsupported("new Uri(Uri, Uri)");
@@ -58,10 +119,20 @@ namespace CsharpcCoreLib
         {
             result = null;
             if (uriString == null) return false;
-            if (uriKind == UriKind.Relative) throw Unsupported("relative URIs");
+            if (TryParseFile(uriString, out _, out _))
+            {
+                if (uriKind == UriKind.Relative) return false;
+                result = (Uri)(object)new UriImpl(uriString, UriKind.Absolute);
+                return true;
+            }
             string error = Parse(uriString, out _, out _, out _, out _, out _, out _, out _);
-            if (error == FormatNotDetermined && uriKind == UriKind.RelativeOrAbsolute) throw Unsupported("relative URIs");
-            if (error != null) return false;
+            if (error == FormatNotDetermined && uriKind != UriKind.Absolute)
+            {
+                CheckRelative(uriString);
+                result = (Uri)(object)new UriImpl(uriString, uriKind);
+                return true;
+            }
+            if (error != null || uriKind == UriKind.Relative) return false;
             result = (Uri)(object)new UriImpl(uriString, UriKind.Absolute);
             return true;
         }
@@ -183,30 +254,32 @@ namespace CsharpcCoreLib
         }
 
         public string OriginalString => _original;
-        public bool IsAbsoluteUri => true;
-        public string Scheme => _scheme;
-        public string Host => _host;
-        public string IdnHost => _host;
-        public string DnsSafeHost => _host;
-        public int Port => _port;
-        public bool IsDefaultPort => _port == DefaultPort(_scheme);
-        public string Authority => IsDefaultPort ? _host : _host + ":" + _port.ToString();
-        public string AbsolutePath => _path;
-        public string LocalPath => _path;
-        public string Query => _query;
-        public string Fragment => _fragment;
-        public string PathAndQuery => _path + _query;
-        public string UserInfo => "";
+        public bool IsAbsoluteUri => !_relative;
+        public string Scheme => Absolute(_scheme);
+        public string Host => Absolute(_host);
+        public string IdnHost => Absolute(_host);
+        public string DnsSafeHost => Absolute(_host);
+        public int Port => _relative ? throw NotAbsolute() : _port;
+        public bool IsDefaultPort => _relative ? throw NotAbsolute() : _port == DefaultPort(_scheme);
+        public string Authority => Absolute(_file ? "" : IsDefaultPort ? _host : _host + ":" + _port.ToString());
+        public string AbsolutePath => Absolute(_path);
+        public string LocalPath => Absolute(_file ? _localPath : _path);
+        public string Query => Absolute(_query);
+        public string Fragment => Absolute(_fragment);
+        public string PathAndQuery => Absolute(_path + _query);
+        public string UserInfo => Absolute("");
         public bool UserEscaped => false;
-        public bool IsFile => false;
-        public bool IsUnc => false;
-        public UriHostNameType HostNameType => _ipv4 ? UriHostNameType.IPv4 : UriHostNameType.Dns;
-        public string AbsoluteUri => _scheme + "://" + Authority + _path + _query + _fragment;
+        public bool IsFile => _relative ? throw NotAbsolute() : _file;
+        public bool IsUnc => _relative ? throw NotAbsolute() : false;
+        public bool IsLoopback => _relative ? throw NotAbsolute() : _file || _host == "localhost" || _host == "127.0.0.1";
+        public UriHostNameType HostNameType => _relative ? throw NotAbsolute() : _file ? UriHostNameType.Basic : _ipv4 ? UriHostNameType.IPv4 : UriHostNameType.Dns;
+        public string AbsoluteUri => Absolute(_scheme + "://" + Authority + _path + _query + _fragment);
 
         public string[] Segments
         {
             get
             {
+                if (_relative) throw NotAbsolute();
                 var segments = new System.Collections.Generic.List<string>();
                 int i = 0;
                 while (i < _path.Length)
@@ -220,7 +293,7 @@ namespace CsharpcCoreLib
             }
         }
 
-        public string GetLeftPart(UriPartial part) => part switch
+        public string GetLeftPart(UriPartial part) => _relative ? throw NotAbsolute() : part switch
         {
             UriPartial.Scheme => _scheme + "://",
             UriPartial.Authority => _scheme + "://" + Authority,
@@ -231,7 +304,7 @@ namespace CsharpcCoreLib
 
         private static int DefaultPort(string scheme) => scheme switch { "http" => 80, "https" => 443, "ftp" => 21, "ws" => 80, "wss" => 443, _ => -1 };
 
-        public override string ToString() => AbsoluteUri;
+        public override string ToString() => _relative ? _original : AbsoluteUri;
 
         // .NET compares the scheme, host, port, path and query (the scheme and host case-insensitively,
         // which the lowercased fields already are) and ignores the fragment; a string is parsed first.
@@ -245,12 +318,13 @@ namespace CsharpcCoreLib
                 if (comparand is not string text || !TryCreate(text, UriKind.RelativeOrAbsolute, out Uri parsed)) return false;
                 other = (UriImpl)(object)parsed;
             }
+            if (_relative || other._relative) return _relative && other._relative && _original == other._original;
             return _scheme == other._scheme && _host == other._host && _port == other._port && _path == other._path && _query == other._query;
         }
 
         public bool Equals(Uri other) => Equals((object)other);
 
-        public override int GetHashCode() => (_scheme + "://" + Authority + _path + _query).GetHashCode();
+        public override int GetHashCode() => _relative ? _original.GetHashCode() : (_scheme + "://" + Authority + _path + _query).GetHashCode();
 
         public static bool operator ==(UriImpl uri1, UriImpl uri2) => ReferenceEquals(uri1, uri2) || (uri1 is not null && uri1.Equals((object)uri2));
         public static bool operator !=(UriImpl uri1, UriImpl uri2) => !(uri1 == uri2);

@@ -104,6 +104,9 @@ wasi 481_datetimeoffset_local    sets TZ: wasi-libc has no time zone database, l
 wasi bcl/006_environment          Environment.TickCount64 > 0: WASI's monotonic clock starts at 0 with the module under wasmtime
 wasi 380_readonly_collection_threadlocal  needs threads: Thread.Start throws PlatformNotSupportedException on WebAssembly
 wasi 443_concurrent_collections   needs threads (ConcurrentBag's per-thread queues): Thread.Start throws PlatformNotSupportedException on WebAssembly
+wasi 544_blocking_collection      needs threads (a producer thread, blocked takes woken by others): Thread.Start throws PlatformNotSupportedException on WebAssembly
+wasi 543_synchronization_context  needs threads: the context's thread waits for continuations that pool threads post (one thread on WebAssembly)
+wasi 550_partitioner_barrier_flatten  needs threads: Barrier participants wait for each other (pool work items run one after another on WebAssembly)
 wasi 194_marshal_strings          prints strerror(2): errno 2 is ENOENT on Linux, EACCES in WASI
 wasi 196_sockets_loopback         opens loopback sockets: WASI preview 1 has none (PlatformNotSupportedException)
 wasi 360_culture_numbers               no ICU on WASI (invariant globalization mode): the sample uses specific cultures
@@ -137,6 +140,23 @@ wasi 423_console_int_culture           no ICU on WASI (invariant globalization m
 wasi 420_boxed_iformattable_provider    no ICU on WASI (invariant globalization mode): the sample uses specific cultures
 wasi 464_string_writer_provider        no ICU on WASI (invariant globalization mode): the sample uses specific cultures
 windows 467_sha1_sha256                live: .NET asks CNG there, so an unknown hash algorithm is CNG's "Unknown error (0xc1000225)"
+macos 532_idn_mapping                  live: IDNA comes from the OS's ICU (libicucore), not Linux's ICU 74
+windows 532_idn_mapping                live: IDNA comes from the OS's ICU (icu.dll), not Linux's ICU 74
+wasi 532_idn_mapping                   no ICU on WASI (invariant globalization mode; 533_idn_mapping_invariant covers that)
+wasi 534_thread_interrupt              needs threads: Thread.Start throws PlatformNotSupportedException on WebAssembly
+windows 534_thread_interrupt              live: Thread.Join is an alertable wait on Windows (an interrupt ends it), not on Unix
+windows 537_compression_streams        known gap: .NET's native compression shim is linked from the NativeAOT runtime pack, which csharpc can't link with MinGW yet
+wasi 537_compression_streams           known gap: no NativeAOT runtime pack (native compression shim) for WebAssembly
+windows 538_aes_cryptostream           known gap: Aes.Create() needs CNG (BCrypt), not implemented yet
+wasi 538_aes_cryptostream              known gap: no OS cipher on WebAssembly (WASI)
+windows 540_tar_zipfile                known gap: .NET's native shims are linked from the NativeAOT runtime pack, which csharpc can't link with MinGW yet
+wasi 540_tar_zipfile                   known gap: no NativeAOT runtime pack (native shims) for WebAssembly
+macos 553_rsa                          known gap: RSA.Create() needs Security.framework (SecKey), not implemented yet
+windows 553_rsa                        known gap: RSA.Create() needs CNG (BCrypt), not implemented yet
+wasi 553_rsa                           known gap: no OS RSA on WebAssembly (WASI)
+wasi 549_async_local                   needs threads: the sample starts a Thread (Thread.Start throws PlatformNotSupportedException on WebAssembly)
+wasi 552_plinq_attached_children       needs threads: the parallel sort merges partitions through barriers (pool work items run one after another on WebAssembly)
+windows 547_bcl_members_for_xml        live: .NET's Uri takes "/dir/x" for an implicit file path on Unix only (csharpc reports drive-less file paths on Windows as not supported yet)
 windows 605_file_attributes_links  live: Windows reports its own file attributes (Archive) and has no Unix modes or (unprivileged) symbolic links
 wasi 605_file_attributes_links     WASI has no permission bits: .NET throws PlatformNotSupportedException from SetUnixFileMode
 wasi 608_asynclocal_threadpool      needs threads: Thread.Start throws PlatformNotSupportedException on WebAssembly
@@ -159,3 +179,4 @@ wasi 616_idn_mapping_uri_builder   WASI has no ICU: .NET runs its managed IdnMap
 windows 625_runtime_counters_pem    live: PemEncoding writes "\n" line breaks on every OS, which the Linux-derived expectation would turn into "\r\n"
 wasi 631_threadpool_work_items     needs threads: CountdownEvent.Wait blocks the only thread while the work items it waits for are queued
 wasi 633_lock_contention           needs threads: Thread.Start throws PlatformNotSupportedException on WebAssembly
+wasi 555_monitor_pulse_handoff         needs threads: Thread.Start throws PlatformNotSupportedException on WebAssembly

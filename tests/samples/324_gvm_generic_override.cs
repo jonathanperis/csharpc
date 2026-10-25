@@ -21,7 +21,8 @@ class Program
 {
     static void Main()
     {
-        Base[] items = { new Base(), new Plain(), new Wrapper<int>() };
+        Base[] items = { new Base(), new Plain(), new Wrapper<int>(), new Wrapper<string>() };
         foreach (Base item in items) Console.WriteLine(item.Describe(42));
+        foreach (Base item in items) Console.WriteLine(item.Describe("text"));
     }
 }

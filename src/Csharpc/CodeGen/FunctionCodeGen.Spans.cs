@@ -280,6 +280,17 @@ public sealed partial class FunctionCodeGen
         }
         if (TypeMapper.IsSpan(owner))
         {
+            // span == span / !=: the same memory (pointer and length), as .NET's operators compare.
+            if (inv.Instance is null && method.Name is "op_Equality" or "op_Inequality" && inv.Arguments.Length == 2)
+            {
+                var left = EmitValue(inv.Arguments[0].Value);
+                var right = EmitValue(inv.Arguments[1].Value);
+                var same = _b.BinOp(LLVMOpcode.And,
+                    _b.ICmp(LLVMIntPredicate.EQ, SpanPointer(left), SpanPointer(right)),
+                    _b.ICmp(LLVMIntPredicate.EQ, SpanLength(left), SpanLength(right)));
+                result = method.Name == "op_Equality" ? same : _b.Not(same);
+                return true;
+            }
             // Static members reach here from IL (an operator called as a method) when nothing lowered them.
             if (inv.Instance is null) throw CompileError.Unsupported($"'{inv.TargetMethod}' (a static member of a span type)", inv);
             result = SpanInstanceMethod(inv, owner);
@@ -367,6 +378,10 @@ public sealed partial class FunctionCodeGen
                 return MemoryEquals(span, ArgValue(inv, 0));
             case ("GetHashCode", 0) when TypeMapper.IsMemory(owner):
                 return MemoryHash(span);
+            // Memory<T>.Pin(): objects never move (ADR 0004), so the handle is just the data pointer
+            // (corelib MemoryHandleImpl: { _pointer, _handle, _pinnable }, nothing to free).
+            case ("Pin", 0) when TypeMapper.IsMemory(owner):
+                return _b.InsertValue(LlvmContext.Null(T.Value(S(method.ReturnType))), SpanPointer(span), 0);
             case ("ToString", 0):
                 return SpanToString(span, owner);
         }
