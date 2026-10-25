@@ -7,6 +7,7 @@ Task<int> created: Created
 result 42
 ran synchronously: RanToCompletion SHOUT
 RunSynchronously on the calling thread: True
+RunSynchronously waits for attached children: True RanToCompletion
 failing: Faulted boom
 cancelable: Created
 after cancel: Canceled

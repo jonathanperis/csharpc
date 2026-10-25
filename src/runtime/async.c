@@ -1172,6 +1172,10 @@ void csrt_task_wait(csrt_Task* t) {
                        "(WebAssembly runs a single thread).");
 }
 
+/// One scheduler step for waits on the only thread (threads.c's events): false when nothing is queued and
+/// no timer is due before `limit` (-1 = no limit) could change what the caller waits for.
+bool csrt_scheduler_step(int64_t limit) { return scheduler_step(limit); }
+
 /// Thread.Sleep on the only thread: what pool threads would do meanwhile happens here.
 void csrt_scheduler_run_until(int64_t deadline) {
     while (now_ms() < deadline && scheduler_step(deadline)) {}

@@ -29,6 +29,10 @@ namespace CsharpcCoreLib
         [DllImport("__Internal", EntryPoint = "csrt_task_clear_created")]
         private static extern void ClearCreated(IntPtr task);
 
+        // Blocks until the task completes, without observing its outcome (async.c).
+        [DllImport("__Internal", EntryPoint = "csrt_task_wait")]
+        private static extern void WaitCompleted(IntPtr task);
+
         [DllImport("__Internal", EntryPoint = "csrt_task_current_id")]
         private static extern int CurrentIdRaw();
 
@@ -149,6 +153,10 @@ namespace CsharpcCoreLib
             TaskSupport.MarkQueued(task);
             // .NET runs it inline when the scheduler lets it (the default one does); its exception stays in the task.
             pending.Work(impl)();
+            // Like .NET's InternalRunSynchronously, it returns only once the task has completed: with
+            // attached children, after them (PLINQ disposes its merge barriers right after its root task's
+            // RunSynchronously).
+            if (!task.IsCompleted) WaitCompleted(CoreIntrinsics.ObjectToPointer(task));
         }
     }
 

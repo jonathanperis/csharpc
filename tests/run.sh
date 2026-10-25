@@ -119,6 +119,8 @@ for opt in "${OPTS[@]}"; do
     else
       echo "FAIL $label (exit $got_code, expected $want_code)"
       sed 's/^/     /' "$OUT/$name.diff" | head -20
+      # What the program printed to stderr (an unhandled exception, a runtime abort) says why.
+      if [[ -s "$OUT/$name.stderr" ]]; then sed 's/^/     stderr: /' "$OUT/$name.stderr" | head -10; fi
       fail=$((fail + 1)); failed+=("$label")
     fi
   done

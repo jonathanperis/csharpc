@@ -666,9 +666,43 @@ bool csrt_event_is_set(csrt_Event* e) {
 
 int32_t csrt_event_count(csrt_Event* e) { if (!e) csrt_throw_null_reference(); return e->count; }
 
+#ifdef __wasi__
+/// An event wait on the only thread (WebAssembly): nobody else can signal the event, so the wait runs the
+/// queued work items and timers that would run on pool threads meanwhile (like csrt_task_wait). The
+/// mutex isn't held while they run: they may set the event. 1 signalled, 0 timed out, 2 `source` canceled.
+static int32_t wasi_event_wait(csrt_Event* e, int32_t ms, const int32_t* source) {
+    extern int64_t csrt_scheduler_now_ms(void);
+    extern bool csrt_scheduler_step(int64_t limit);
+    extern void csrt_scheduler_run_until(int64_t deadline);
+    int64_t deadline = ms > 0 ? csrt_scheduler_now_ms() + ms : -1;
+    for (;;) {
+        pthread_mutex_lock(e->mutex);
+        bool ready = e->kind == EVENT_COUNTDOWN ? e->count == 0 : e->count > 0;
+        if (ready) {
+            if (e->kind == EVENT_AUTO) e->count = 0;
+            else if (e->kind == EVENT_SEMAPHORE) e->count--;
+        }
+        pthread_mutex_unlock(e->mutex);
+        if (ready) return 1;
+        if (source && __atomic_load_n((const int32_t*)((const char*)source + sizeof(void*)), __ATOMIC_ACQUIRE)) return 2;
+        if (ms == 0 || (deadline >= 0 && csrt_scheduler_now_ms() >= deadline)) return 0;
+        if (!csrt_scheduler_step(deadline)) {
+            if (deadline >= 0) { csrt_scheduler_run_until(deadline); continue; }
+            fflush(stdout);
+            fputs("csharpc: deadlock: the program waits for a signal from another thread, but WebAssembly (WASI preview 1) "
+                  "runs a single thread\n", stderr);
+            csrt_fail_unhandled();
+        }
+    }
+}
+#endif
+
 /// Wait(timeout ms, -1 = infinite) / WaitOne: true when signalled.
 bool csrt_event_wait(csrt_Event* e, int32_t ms) {
     if (!e) csrt_throw_null_reference();
+#ifdef __wasi__
+    return wasi_event_wait(e, ms, NULL) == 1;
+#endif
     struct timespec deadline;
     if (ms > 0) deadline_after(&deadline, ms);
     pthread_mutex_lock(e->mutex);
@@ -694,6 +728,9 @@ bool csrt_event_wait(csrt_Event* e, int32_t ms) {
 /// event (csrt_event_kick), so a waiter sees the cancellation as soon as Cancel runs it.
 int32_t csrt_event_wait_token(csrt_Event* e, int32_t ms, const int32_t* source) {
     if (!e) csrt_throw_null_reference();
+#ifdef __wasi__
+    return wasi_event_wait(e, ms, source);
+#endif
     struct timespec deadline;
     if (ms > 0) deadline_after(&deadline, ms);
     pthread_mutex_lock(e->mutex);

@@ -28,6 +28,10 @@ int ranOn = -1;
 var inline = new Task(() => ranOn = Environment.CurrentManagedThreadId);
 inline.RunSynchronously();
 Console.WriteLine($"RunSynchronously on the calling thread: {ranOn == Environment.CurrentManagedThreadId}");
+bool childDone = false;
+var syncParent = new Task(() => Task.Factory.StartNew(() => { Thread.Sleep(50); childDone = true; }, TaskCreationOptions.AttachedToParent));
+syncParent.RunSynchronously(); // returns once the attached child has completed too
+Console.WriteLine($"RunSynchronously waits for attached children: {childDone} {syncParent.Status}");
 
 var failing = new Task(() => throw new InvalidOperationException("boom"));
 failing.RunSynchronously();

@@ -11,7 +11,7 @@ var numbers = Enumerable.Range(1, 200).ToArray();
 Console.WriteLine($"ordered: {string.Join(",", numbers.AsParallel().AsOrdered().Where(n => n % 17 == 0).Select(n => n * 2))}");
 Console.WriteLine($"sum {numbers.AsParallel().Sum()}, max {numbers.AsParallel().Max()}, count {numbers.AsParallel().Count(n => n % 3 == 0)}");
 Console.WriteLine($"ordered take: {string.Join(",", numbers.AsParallel().AsOrdered().Skip(5).Take(5))}");
-Console.WriteLine($"sorted: {string.Join(",", new[] { 5, 3, 9, 1, 7 }.AsParallel().OrderBy(x => x).Select(x => x * 10))}");
+Console.WriteLine($"sorted: {string.Join(",", new[] { 5, 3, 9, 1, 7 }.AsParallel().WithDegreeOfParallelism(4).OrderBy(x => x).Select(x => x * 10))}");
 var words = new[] { "pear", "fig", "apple", "kiwi", "plum", "date" };
 Console.WriteLine($"grouped: {string.Join(" ", words.AsParallel().GroupBy(w => w.Length).OrderBy(g => g.Key).Select(g => $"{g.Key}:{string.Join("/", g.OrderBy(w => w))}"))}");
 Console.WriteLine($"select many: {string.Join("", words.AsParallel().AsOrdered().SelectMany(w => w.Take(1)))}");
