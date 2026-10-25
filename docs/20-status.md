@@ -141,6 +141,11 @@ prefers it. Local retest without any `dotnet` on PATH: 01_hello and 104_linq OK;
 `Expand-Archive` on Windows. nuget.org login no longer `continue-on-error` — real push when
 `publish_nuget_org=true` (policy `csharpc-release` Active as of 17:18).
 
+**17:45.** Release 40231809254 (`d416a11`): zip extract OK on win-x64; smoke failed on
+`01_hello` stdout — CRLF vs LF (`.expected` recorded on Linux; `Environment.NewLine` is `\r\n` on
+Windows). `smoke-release.sh` now derives want-stdout like `tests/platform.sh` `platform_expected`.
+Merged `origin/main` (`ee7f8f8` precise-GC) into the packaging branch before re-verify.
+
 Audit of the `m8-perf` merge on 2026-10-25. Times are BRT (UTC−3).
 
 

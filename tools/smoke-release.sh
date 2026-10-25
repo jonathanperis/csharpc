@@ -53,17 +53,29 @@ if command -v dotnet >/dev/null 2>&1; then
   echo "smoke-release: note: dotnet is on PATH ($(command -v dotnet)); the smoke still invokes the bundled binary only"
 fi
 
+# .expected files are recorded on Linux (LF). On Windows, Console.WriteLine uses
+# Environment.NewLine ("\r\n") — same derivation as tests/platform.sh platform_expected.
+want_stdout() {
+  if [[ ${OSTYPE:-} == msys* || ${OSTYPE:-} == cygwin* || "$(uname -s 2>/dev/null)" == MINGW* ]]; then
+    perl -pe 's/\n/\r\n/g' "$1"
+  else
+    cat "$1"
+  fi
+}
+
 run_sample() {
   local sample=$1
   local src="$ROOT/tests/samples/${sample}.cs"
   local expected="$ROOT/tests/samples/${sample}.expected"
   local out="$WORKDIR/${sample}"
+  local want="$WORKDIR/${sample}.want"
   echo "smoke-release: compiling $sample"
   "$CSHARPC" "$src" -o "$out" -O0
   # Windows: csharpc may write .exe
   local exe=$out
   [[ -f ${out}.exe ]] && exe=${out}.exe
-  diff -u "$expected" <("$exe")
+  want_stdout "$expected" > "$want"
+  diff -u "$want" <("$exe")
   echo "smoke-release: $sample OK"
 }
 
