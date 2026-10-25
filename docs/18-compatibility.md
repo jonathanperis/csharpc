@@ -6,7 +6,7 @@ validation, [06-roadmap.md](06-roadmap.md)). The differential samples and the co
 ([09-conformance.md](09-conformance.md)) are written *for* csharpc. This corpus is not: it is
 unmodified console programs from Microsoft's documentation and sample repositories.
 
-Latest run of 2026-10-25: csharpc `aot-parity` at `ad0d7e8` on the CI `Compatibility` workflow (hosted
+Latest run of 2026-10-25: csharpc `aot-parity` at `29cff62` (with `main`'s m8-harness merged) on the CI `Compatibility` workflow (hosted
 `ubuntu-24.04` runner), .NET SDK `11.0.100-rc.2.26504.105`, Linux x86-64; every program is also published
 with NativeAOT ([ADR 0016](adr/0016-nativeaot-parity-and-end-state.md)). The first run (csharpc `integ` at
 `8183dfb`, 2026-10-22) is the baseline the blocker tables below were measured on;
@@ -17,21 +17,21 @@ with NativeAOT ([ADR 0016](adr/0016-nativeaot-parity-and-end-state.md)). The fir
 The headline metric: of the programs NativeAOT (`dotnet publish -p:PublishAot=true`) builds and runs exactly
 like the JIT, how many does csharpc match? See [Method](#method), step 5.
 
-| | first parity run (`ac17a87` + harness) | latest run (`ad0d7e8`) |
+| | first parity run (`ac17a87` + harness) | latest run (`29cff62`) |
 |---|---:|---:|
-| compared (not skipped under .NET) | 282 | 277 |
+| compared (not skipped under .NET) | 282 | 276 |
 | NativeAOT-unsupported (out of the denominator) | 34 | 28 |
-| **NativeAOT-working (the denominator)** | **248** | **249** |
-| **parity: csharpc PASS among them** | **200 (80.6 %)** | **220 (88.4 %)** |
-| csharpc COMPILE-UNSUPPORTED among them | 45 | 26 |
-| csharpc COMPILE-ERROR among them | 3 | 3 |
+| **NativeAOT-working (the denominator)** | **248** | **248** |
+| **parity: csharpc PASS among them** | **200 (80.6 %)** | **220 (88.7 %)** |
+| csharpc COMPILE-UNSUPPORTED among them | 45 | 27 |
+| csharpc COMPILE-ERROR among them | 3 | 1 |
 | csharpc RUNTIME-DIFF / RUNTIME-CRASH / COMPILE-CRASH among them | 0 | 0 |
 
 (The first parity run counted some clock-dependent programs as NativeAOT differences; the harness now
 re-runs the JIT before blaming NativeAOT or csharpc, which moved a few programs to SKIPPED.)
 
-- **88.4 % parity**, and no wrong output: every NativeAOT-working program csharpc compiles matches .NET.
-  By corpus: dotnet/samples 41 of 44 (93.2 %), dotnet/docs 179 of 205 (87.3 %).
+- **88.7 % parity**, and no wrong output: every NativeAOT-working program csharpc compiles matches .NET.
+  By corpus: dotnet/samples 41 of 44 (93.2 %), dotnet/docs 179 of 204 (87.7 %).
 - **NativeAOT-unsupported, by reason** (28): crashes 15 (12 are `System.Text.Json`'s reflection-based
   serializer, which NativeAOT disables; trim/AOT warnings `IL2026`/`IL3050`), output differs 10 (stack-trace
   lines: NativeAOT prints other frames and no file/line; exception messages such as `InvalidCastException`'s),
@@ -42,14 +42,14 @@ re-runs the JIT before blaming NativeAOT or csharpc, which moved a few programs 
 - In scope, contrary to ADR 0016's expectation: NativeAOT runs the corpus' expression-tree programs
   (`lambda-expressions`, `ExpressionTreeExample`, interpreted) and `using-dynamic` identically to the JIT, so
   those count against csharpc's parity.
-- **Faster and smaller than NativeAOT** (220 programs both handle): compile time median 4.2 s vs 5.8 s
-  (csharpc faster on 176 of 220; the max is csharpc's, 24.3 s vs 13.6 s), executable size median
-  131 KiB vs 1,330 KiB (a tenth; smaller on all 220; max 1,169 KiB vs 2,990 KiB). Compile time is
+- **Faster and smaller than NativeAOT** (220 programs both handle): compile time median 4.3 s vs 6.0 s
+  (csharpc faster on 175 of 220; the max is csharpc's, 26.0 s vs 11.7 s), executable size median
+  131 KiB vs 1,330 KiB (a tenth; smaller on all 220; max 1,173 KiB vs 2,990 KiB). Compile time is
   `csharpc App.csproj -c Release` against `dotnet publish -c Release -r linux-x64 -p:PublishAot=true`,
   wall clock, 4 programs in parallel on the runner; size is the executable alone (NativeAOT's symbols are in
   a separate `.dbg`).
 
-**The 29 in-scope programs csharpc doesn't pass yet**, by what blocks them (programs; "only" = the sole
+**The 28 in-scope programs csharpc doesn't pass yet**, by what blocks them (programs; "only" = the sole
 blocker):
 
 | # | blocker | programs | only |
@@ -60,38 +60,37 @@ blocker):
 | 4 | `System.Reflection.CustomAttributeExtensions` (attributes as run-time objects) | 2 | 1 |
 | 5 | `dynamic` | 1 | 0 |
 | 6 | C# 15 unions (csharpc's Roslyn binds them differently from the SDK's) | 2 | 1 |
-| 7 | `Microsoft.Extensions.Configuration` (`FrameworkReference Microsoft.AspNetCore.App`) | 2 | 2 |
+| 7 | `Microsoft.Extensions.Configuration` binding and the tracing DI extensions (now reachable through `main`'s `FrameworkReference` support) | 2 | 1 |
 | 8 | cryptography (`RSA.Create`, `Aes.Create`) | 2 | 2 |
 | 9 | `Rune` / text elements (`StringInfo.GetTextElementEnumerator`) | 1 | 0 |
 | 10 | `System.IO.Compression` (`BrotliStream`; `ZipArchive`, `TarReader`) | 2 | 1 |
 | 11 | `BufferedStream` | 1 | 1 |
 | 12 | `IdnMapping` | 1 | 1 |
-| 13 | `DiagnosticListener` / `DiagnosticSource` | 1 | 0 |
-| 14 | `Environment.Version` / `RuntimeInformation` | 1 | 1 |
-| 15 | `[StructLayout(Explicit)]` unions | 1 | 1 |
-| 16 | deriving from `SynchronizationContext`, `ExecutionContext.Capture`, `BlockingCollection<T>` | 1 | 0 |
-| 17 | `Thread.Interrupt` | 1 | 1 |
-| 18 | System.Text.Json of a `file`-local type | 1 | 1 |
-| 19 | `AssemblyLoadContext` (plugin unloading) | 1 | 0 |
-| 20 | PLINQ partitioners, `Barrier`, `AggregateException.Flatten`, `new Task(...)` (`ParallelGrep`) | 1 | 0 |
+| 13 | `Environment.Version` / `RuntimeInformation` | 1 | 1 |
+| 14 | `[StructLayout(Explicit)]` unions | 1 | 1 |
+| 15 | deriving from `SynchronizationContext`, `ExecutionContext.Capture`, `BlockingCollection<T>` | 1 | 0 |
+| 16 | `Thread.Interrupt` | 1 | 1 |
+| 17 | System.Text.Json of a `file`-local type | 1 | 1 |
+| 18 | `AssemblyLoadContext` (plugin unloading) | 1 | 0 |
+| 19 | PLINQ partitioners, `Barrier`, `AggregateException.Flatten`, `new Task(...)` (`ParallelGrep`) | 1 | 0 |
 
 ## Summary (JIT baseline, kept for continuity)
 
-| | first run (`8183dfb`) | `36fd745` (2026-10-22) | `51ef64e` (2026-10-23) | `b7a36a6` (2026-10-24) | latest run (`ad0d7e8`) |
+| | first run (`8183dfb`) | `36fd745` (2026-10-22) | `51ef64e` (2026-10-23) | `b7a36a6` (2026-10-24) | latest run (`29cff62`) |
 |---|---:|---:|---:|---:|---:|
 | corpus (candidate console programs) | 323 | 323 | 320 | 320 | 320 |
-| skipped (non-deterministic or broken under .NET itself) | 40 | 43 | 40 | 40 | 43 |
-| **compared** | **283** | **280** | **280** | **280** | **277** |
-| **PASS** (byte-identical stdout, same exit code) | **115 (40.6 %)** | **147 (52.5 %)** | 182 (65.0 %) | 189 (67.5 %) | **238 (85.9 %)** |
-| COMPILE-UNSUPPORTED (explicit `CSLLVM0001/0002` diagnostic) | 135 (47.7 %) | 95 (33.9 %) | 88 (31.4 %) | 88 (31.4 %) | 35 (12.6 %) |
-| COMPILE-ERROR (compile fails some other way) | 22 (7.8 %) | 22 (7.9 %) | 3 (1.1 %) | 3 (1.1 %) | 4 (1.4 %) |
-| COMPILE-CRASH (internal compiler error, crash) | 3 (1.1 %) | 4 (1.4 %) | 0 | 0 | 0 |
+| skipped (non-deterministic or broken under .NET itself) | 40 | 43 | 40 | 40 | 44 |
+| **compared** | **283** | **280** | **280** | **280** | **276** |
+| **PASS** (byte-identical stdout, same exit code) | **115 (40.6 %)** | **147 (52.5 %)** | 182 (65.0 %) | 189 (67.5 %) | **238 (86.2 %)** |
+| COMPILE-UNSUPPORTED (explicit `CSLLVM0001/0002` diagnostic) | 135 (47.7 %) | 95 (33.9 %) | 88 (31.4 %) | 88 (31.4 %) | 36 (13.0 %) |
+| COMPILE-ERROR (compile fails some other way) | 22 (7.8 %) | 22 (7.9 %) | 3 (1.1 %) | 3 (1.1 %) | 2 (0.7 %) |
+| COMPILE-CRASH (internal compiler error, crash) | 3 (1.1 %) | 2 (0.7 %) | 0 | 0 | 0 |
 | RUNTIME-DIFF (wrong output or exit code) | 7 (2.5 %) | 11 (3.9 %) | 7 (2.5 %) | **0** | **0** |
 | RUNTIME-CRASH (native binary crashed, .NET didn't) | 1 (0.4 %) | 1 (0.4 %) | 0 | 0 | 0 |
 
-- **Latest run (`ad0d7e8`): 85.9 %** of all compared programs pass, and all 238 programs csharpc compiles
+- **Latest run (`29cff62`): 86.2 %** of all compared programs pass, and all 238 programs csharpc compiles
   behave exactly like .NET. The gain over `b7a36a6` comes from `main`'s `DateTimeOffset`/`MemoryPool`/
-  `Convert` work and this branch's fixes ([Progress](#progress-since-the-first-run)).
+  `Convert` and m8-harness work and this branch's fixes ([Progress](#progress-since-the-first-run)).
 - At `b7a36a6` (2026-10-24): 67.5 %, and **every program csharpc compiles (189 of 189) behaves exactly like
   .NET**: no wrong output, no crash. By corpus: dotnet/samples 40 of 45 (88.9 %), dotnet/docs 149 of
   235 (63.4 %). The seven differences of the previous run were all missing stack-trace lines; csharpc
