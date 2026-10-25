@@ -496,17 +496,15 @@ static void* const* variant_interface_slots(const csrt_MethodTable* mt, const cs
 // table keyed by method table and interface, validated against the map, was no faster than the scan.)
 #define ICACHE_MT_MASK (((uint64_t)1 << 48) - 1)
 
-/// The index of `itf` in `mt`'s own interface map (-1: not there).
-__attribute__((noinline)) static int32_t map_interface_index(const csrt_MethodTable* mt, const csrt_MethodTable* itf) {
-    for (uint32_t i = 0; i < mt->interface_count; i++)
-        if (mt->interfaces[i].interface_type == itf) return (int32_t)i;
-    return -1;
-}
-
-void* const* csrt_interface_slots(void* obj, const csrt_MethodTable* interface_type) {
+/// The scan behind both entry points: `site` (or NULL) is refilled when the receiver's own map has it.
+__attribute__((noinline)) static void* const* interface_lookup(void* obj, const csrt_MethodTable* interface_type, uint64_t* site) {
     const csrt_MethodTable* mt = ((csrt_Object*)obj)->mt;
-    int32_t i = map_interface_index(mt, interface_type);
-    if (i >= 0) return mt->interfaces[i].slots;
+    for (uint32_t i = 0; i < mt->interface_count; i++)
+        if (mt->interfaces[i].interface_type == interface_type) {
+            if (site && ((uintptr_t)mt & ~ICACHE_MT_MASK) == 0)  // maps hold < 65536 entries (ModuleCodeGen)
+                __atomic_store_n(site, (uint64_t)(uintptr_t)mt | ((uint64_t)i << 48), __ATOMIC_RELAXED);
+            return mt->interfaces[i].slots;
+        }
     void* const* slots = builtin_interface_slots(mt, interface_type);
     if (slots) return slots;
     slots = variant_interface_slots(mt, interface_type);
@@ -517,26 +515,26 @@ void* const* csrt_interface_slots(void* obj, const csrt_MethodTable* interface_t
     csrt_fail_unhandled();
 }
 
+void* const* csrt_interface_slots(void* obj, const csrt_MethodTable* interface_type) {
+    return interface_lookup(obj, interface_type, NULL);
+}
+
 /// An interface call: the call site's own cache word (method table | index << 48, as above) remembers
 /// its last receiver, so a monomorphic site costs a load and a compare; a hit needs no validation, as a
-/// site always asks for the same interface. A miss looks the index up and refills the word.
+/// site always asks for the same interface. A miss scans and refills the word (out of line, so the hit
+/// path saves no registers).
 __attribute__((noinline)) void* const* csrt_interface_slots_cached(void* obj, const csrt_MethodTable* itf, uint64_t* site) {
     const csrt_MethodTable* mt = ((csrt_Object*)obj)->mt;
     uint64_t w = __atomic_load_n(site, __ATOMIC_RELAXED);
-    if ((w & ICACHE_MT_MASK) != (uint64_t)(uintptr_t)mt) {
-        int32_t i = map_interface_index(mt, itf);
-        if (i < 0) return csrt_interface_slots(obj, itf);  // runtime-provided and variant interfaces, or the cast failure
-        w = (uint64_t)(uintptr_t)mt | ((uint64_t)i << 48);
-        if (((uintptr_t)mt & ~ICACHE_MT_MASK) == 0) __atomic_store_n(site, w, __ATOMIC_RELAXED);
-    }
-    return mt->interfaces[w >> 48].slots;
+    if (__builtin_expect((w & ICACHE_MT_MASK) == (uint64_t)(uintptr_t)mt, 1)) return mt->interfaces[w >> 48].slots;
+    return interface_lookup(obj, itf, site);
 }
 
 void* csrt_isinst_class(void* obj, const csrt_MethodTable* type) {
     if (!obj) return NULL;
     const csrt_MethodTable* objmt = ((csrt_Object*)obj)->mt;
     if (type->flags & CSRT_MT_INTERFACE) {
-        return map_interface_index(objmt, type) >= 0 || builtin_interface_slots(objmt, type) || variant_interface_slots(objmt, type) ? obj : NULL;
+        return exact_interface_slots(objmt, type) || variant_interface_slots(objmt, type) ? obj : NULL;
     }
     for (const csrt_MethodTable* mt = objmt; mt; mt = mt->base)
         if (mt == type) return obj;
