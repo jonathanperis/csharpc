@@ -146,3 +146,6 @@ wasi 609_filesystemwatcher         WASI has no file watching: .NET throws Platfo
 macos 613_socket_async_operations  known gap: asynchronous socket operations are blocking calls on the thread pool on macOS (no kqueue engine yet), so a pending one cannot be canceled
 windows 613_socket_async_operations known gap: asynchronous socket operations are blocking calls on the thread pool on Windows (no IOCP engine yet), so a pending one cannot be canceled
 wasi 613_socket_async_operations   opens loopback sockets: WASI preview 1 has none (PlatformNotSupportedException)
+macos 614_posix_signal_registration  sends raw signal 10, which is SIGUSR1 on Linux but SIGBUS on macOS
+windows 614_posix_signal_registration known gap: PosixSignalRegistration on Windows (console control events) is not supported by csharpc yet; the sample also calls libc kill()
+wasi 614_posix_signal_registration    WASI has no signals: .NET throws PlatformNotSupportedException
