@@ -151,3 +151,6 @@ windows 538_aes_cryptostream           known gap: Aes.Create() needs CNG (BCrypt
 wasi 538_aes_cryptostream              known gap: no OS cipher on WebAssembly (WASI)
 windows 540_tar_zipfile                known gap: .NET's native shims are linked from the NativeAOT runtime pack, which csharpc can't link with MinGW yet
 wasi 540_tar_zipfile                   known gap: no NativeAOT runtime pack (native shims) for WebAssembly
+macos 553_rsa                          known gap: RSA.Create() needs Security.framework (SecKey), not implemented yet
+windows 553_rsa                        known gap: RSA.Create() needs CNG (BCrypt), not implemented yet
+wasi 553_rsa                           known gap: no OS RSA on WebAssembly (WASI)
