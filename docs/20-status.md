@@ -23,21 +23,29 @@ System.Type basics and reflection metadata as NativeAOT does it (ADR 0018), Date
 Convert, Roslyn blocker fixes, the NativeAOT-parity metric, the TechEmpower harness, and csharpc
 building and serving the TechEmpower app.
 
-## Open branches (pushed, not merged)
+## Open branch (pushed, not merged)
 
-| branch | head | what | CI when paused |
+`parity-blockers` is merged (CI run 40198351938 green on all five platforms): NativeAOT parity on
+`main` is now 95.9 %.
+
+| branch | head | what | CI |
 |---|---|---|---|
-| `parity-blockers` | `f208b53` | NativeAOT parity 88.7 % → **95.9 %** (System.Xml.Linq, expression trees, compression, RSA/AES over OpenSSL on Linux, PLINQ, smaller items); main merged in | final run 40198351938: wasm32 and macOS green, others still running |
-| `m8-perf` | `afcbfbc` | TechEmpower throughput (profiling, socket engine, thread pool, interface caches, task/ValueTask allocations, vectorized span searches, lock-free ConcurrentQueue, JSON writer reuse, GC root scanning) | run 40198013749: arm64, wasm32, macOS green, others still running; TechEmpower run 40193556960 green |
+| `m8-perf` | `afcbfbc` | TechEmpower throughput (profiling, socket engine, thread pool, interface caches, task/ValueTask allocations, vectorized span searches, lock-free ConcurrentQueue, JSON writer reuse, GC root scanning) | run 40198013749 green on all five platforms; TechEmpower run 40193556960 green |
 
-To resume: check those runs (`gh run view <id>`); if a job failed, fix it on the branch and re-run CI;
-when all five jobs are green, merge each into `main` (merge the other branch's changes in first if both
-touch the same files), then delete the branch.
+**To resume:** merge `origin/main` into `m8-perf`. It conflicts in `src/runtime/threads.c`,
+`src/runtime/async.c`, `src/Csharpc/corelib/Tasks/ExecutionFlow.cs` and `tests/platform-skips.txt`.
+The real work is `threads.c`: both branches rewrote the monitor (`lock`/`Monitor`/`System.Threading.Lock`).
+`m8-perf` made Enter/Exit one bucket-locked critical section with no allocation (for Kestrel's request
+path). `main` (from `parity-blockers`) added an ordered waiter queue and interruptible waits (Pulse
+order and `Thread.Interrupt` as in .NET). The merged design needs both: m8-perf's bucket-locked fast
+path plus main's per-waiter queue and interruptible wait. `ExecutionFlow.cs` takes m8-perf's version
+(a superset); `platform-skips.txt` keeps both sides' lines. Then run ci.yml and the TechEmpower workflow
+on the merge, compare TechEmpower numbers with run 40193556960, and merge when green.
 
 ## Measured state
 
 **NativeAOT parity** (compatibility corpus, [18-compatibility.md](18-compatibility.md)): 95.9 % on
-`parity-blockers` (88.7 % on `main`), no wrong outputs; csharpc compiles faster than NativeAOT on most
+`main`, no wrong outputs; csharpc compiles faster than NativeAOT on most
 programs (median 4.3 s vs 6.0 s) and is ~10× smaller (median 131 KiB vs 1,330 KiB).
 
 **TechEmpower** (`m8-perf`, CI run 40193556960, 4-vCPU runner, csharpc -O2; both builds pass the
@@ -61,7 +69,7 @@ program using Roslyn's parser compiles from IL at -O0.
 
 ## Next, in order
 
-1. Merge `parity-blockers` and `m8-perf` once green.
+1. Merge `m8-perf` (resolve the monitor conflict described above).
 2. M8 gap: plaintext ≥ NativeAOT, memory under load, binary size (14.3 vs 8.9 MiB), build time
    (313 s vs 21 s); the TechEmpower workflow has a perf-profiling input.
 3. M4: the remaining parity blockers (see 18-compatibility.md) to 100 %.
