@@ -280,5 +280,24 @@ namespace CsharpcCoreLib
             if (source == null) throw new ArgumentNullException("source");
             return new ConfiguredCancelableAsyncEnumerableImpl<T>(source, continueOnCapturedContext, default(CancellationToken));
         }
+
+        // `await using (resource.ConfigureAwait(false))`; .NET doesn't check for null here, DisposeAsync throws.
+        public static ConfiguredAsyncDisposableImpl ConfigureAwait(IAsyncDisposable source, bool continueOnCapturedContext) =>
+            new ConfiguredAsyncDisposableImpl(source, continueOnCapturedContext);
+    }
+
+    [Shadows("System.Runtime.CompilerServices.ConfiguredAsyncDisposable")]
+    public struct ConfiguredAsyncDisposableImpl
+    {
+        private readonly IAsyncDisposable _source;
+        private readonly bool _continueOnCapturedContext;
+
+        internal ConfiguredAsyncDisposableImpl(IAsyncDisposable source, bool continueOnCapturedContext)
+        {
+            _source = source;
+            _continueOnCapturedContext = continueOnCapturedContext;
+        }
+
+        public ConfiguredValueTaskAwaitable DisposeAsync() => _source.DisposeAsync().ConfigureAwait(_continueOnCapturedContext);
     }
 }

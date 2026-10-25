@@ -1,0 +1,35 @@
+0 0
+0:4 1:4 2:4 3:4 4:8 
+start,0,x,null,10,20,30,40,3.5,1.25
+True True False 5 6 8
+,10,20,30,40,3.5,1.25
+1,3,5,7,9 3 -3
+9,7,5,3,1
+9,7,5,3,1
+apple,Apple,fig,pear
+3 7,5,3
+9 100
+_,9,7,5,3,1,_
+rrr 4
+3 3
+10
+Omelchenko: 98
+Mortensen: 88
+Svetlana
+index get: ArgumentOutOfRangeException: Index was out of range. Must be non-negative and less than the size of the collection. (Parameter 'index')
+index set: ArgumentOutOfRangeException: Index was out of range. Must be non-negative and less than the size of the collection. (Parameter 'index')
+insert: ArgumentOutOfRangeException: Index was out of range. Must be non-negative and less than or equal to the size of the collection. (Parameter 'index')
+insert range: ArgumentOutOfRangeException: Index was out of range. Must be non-negative and less than or equal to the size of the collection. (Parameter 'index')
+remove at: ArgumentOutOfRangeException: Index was out of range. Must be non-negative and less than the size of the collection. (Parameter 'index')
+remove range: ArgumentException: Offset and length were out of bounds for the array or count is greater than the number of elements from index to the end of the source collection.
+ctor capacity: ArgumentOutOfRangeException: 'capacity' must be non-negative. (Parameter 'capacity')
+ctor null: ArgumentNullException: Value cannot be null. (Parameter 'c')
+capacity: ArgumentOutOfRangeException: capacity was less than the current size. (Parameter 'value')
+get range: ArgumentOutOfRangeException: index ('-1') must be a non-negative value. (Parameter 'index')
+Actual value was -1.
+index of: ArgumentOutOfRangeException: Index was out of range. Must be non-negative and less than or equal to the size of the collection. (Parameter 'startIndex')
+sort mixed: InvalidOperationException: Failed to compare two elements in the array.
+modified: InvalidOperationException: Collection was modified; enumeration operation may not execute.
+current before: InvalidOperationException: Enumeration has not started. Call MoveNext.
+repeat: ArgumentOutOfRangeException: count ('-1') must be a non-negative value. (Parameter 'count')
+Actual value was -1.

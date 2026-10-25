@@ -222,12 +222,7 @@ internal static class Intrinsics
                 || !SymbolEqualityComparer.Default.Equals(g.TypeOf(other), enumType))
                 throw CompileError.Unsupported("Enum.CompareTo with operands of different or unknown enum types", inv);
             var signed = TypeMapper.IsSigned(enumType.EnumUnderlyingType!);
-            var a = g.EmitValue(self);
-            var b = g.EmitValue(other);
-            var l = g.Module.Llvm;
-            var less = g.Builder.ICmp(signed ? LLVMIntPredicate.SLT : LLVMIntPredicate.ULT, a, b);
-            var greater = g.Builder.ICmp(signed ? LLVMIntPredicate.SGT : LLVMIntPredicate.UGT, a, b);
-            return g.Builder.Select(less, l.ConstInt(l.I32, -1), g.Builder.Select(greater, l.ConstInt(l.I32, 1), l.ConstInt(l.I32, 0)));
+            return BclValueTypes.IntegerCompareTo(g, g.EmitValue(self), g.EmitValue(other), signed);
         };
         t["System.Enum.GetHashCode()"] = (g, inv) =>
         {
@@ -292,13 +287,8 @@ internal static class Intrinsics
                      ("uint", false), ("ulong", false), ("ushort", false), ("byte", false), ("char", false) })
             t[$"{type}.CompareTo({type})"] = (g, inv) =>
             {
-                var b = g.Builder;
                 var x = g.EmitValue(g.ConcreteReceiver(inv.Instance!));
-                var y = Arg(g, inv, 0);
-                var l = g.Module.Llvm;
-                var lt = b.ICmp(signed ? LLVMIntPredicate.SLT : LLVMIntPredicate.ULT, x, y);
-                var gt = b.ICmp(signed ? LLVMIntPredicate.SGT : LLVMIntPredicate.UGT, x, y);
-                return b.Select(lt, l.ConstInt(l.I32, -1), b.Cast(LLVMOpcode.ZExt, gt, l.I32));
+                return BclValueTypes.IntegerCompareTo(g, x, Arg(g, inv, 0), signed);
             };
         foreach (var type in new[] { "double", "float" })
             t[$"{type}.CompareTo({type})"] = (g, inv) =>
@@ -726,6 +716,13 @@ internal static class Intrinsics
             g.CallRuntime("csrt_cts_cancel_after", g.Module.Llvm.Void, [g.Module.Llvm.Ptr, g.Module.Llvm.I32], g.EmitValue(inv.Instance!), Arg(g, inv, 0));
             return default;
         };
+        t[$"{Th}.CancellationTokenSource.CancelAfter(System.TimeSpan)"] = (g, inv) =>
+        {
+            var self = g.EmitValue(inv.Instance!);
+            var ms = g.CallCoreLib("CancellationRuntime", "DelayMilliseconds", Arg(g, inv, 0));
+            g.CallRuntime("csrt_cts_cancel_after", g.Module.Llvm.Void, [g.Module.Llvm.Ptr, g.Module.Llvm.I32], self, ms);
+            return default;
+        };
         t[$"{Th}.CancellationTokenSource.CreateLinkedTokenSource({Th}.CancellationToken, {Th}.CancellationToken)"] = (g, inv) =>
             g.CallRuntime("csrt_cts_new_linked", g.Module.Llvm.Ptr, [g.Module.Llvm.Ptr, g.Module.Llvm.Ptr], Arg(g, inv, 0), Arg(g, inv, 1));
         // Tokens are equal when they come from the same source (None and default are both null).
@@ -952,6 +949,9 @@ internal static class Intrinsics
             g.CallRuntime("csrt_token_new", g.Module.Llvm.Ptr, [g.Module.Llvm.I1], CtorArg(g, c, 0));
         t["System.Threading.CancellationTokenSource..ctor(int)"] = (g, c) =>
             g.CallRuntime("csrt_cts_new_after", g.Module.Llvm.Ptr, [g.Module.Llvm.I32], CtorArg(g, c, 0));
+        t["System.Threading.CancellationTokenSource..ctor(System.TimeSpan)"] = (g, c) =>
+            g.CallRuntime("csrt_cts_new_after", g.Module.Llvm.Ptr, [g.Module.Llvm.I32],
+                g.CallCoreLib("CancellationRuntime", "DelayMilliseconds", CtorArg(g, c, 0)));
         t[$"{Tasks}.ValueTask<TResult>..ctor({Tasks}.Task<TResult>)"] = (g, c) => CtorArg(g, c, 0);
         // ValueTasks over an IValueTaskSource (async iterators' MoveNextAsync): bridged to a csrt task (corelib/AsyncIterators.cs).
         t[$"{Tasks}.ValueTask<TResult>..ctor({Tasks}.Sources.IValueTaskSource<TResult>, short)"] = (g, c) =>
@@ -960,6 +960,7 @@ internal static class Intrinsics
             g.CallCoreLibGeneric("ValueTaskSourceBridge", "Create", [], CtorArg(g, c, 0), CtorArg(g, c, 1));
         // `a..b` compiled to IL: two Index conversions and this constructor.
         t["System.Range..ctor(System.Index, System.Index)"] = (g, c) => g.MakeRange(CtorArg(g, c, 0), CtorArg(g, c, 1));
+        t["System.Index..ctor(int, bool)"] = (g, c) => g.MakeIndex(CtorArg(g, c, 0), CtorArg(g, c, 1));
         t["string..ctor(char, int)"] = (g, c) =>
             g.CallRuntime("csrt_string_new_repeat", g.Module.Llvm.Ptr, [g.Module.Llvm.I16, g.Module.Llvm.I32], CtorArg(g, c, 0), CtorArg(g, c, 1));
         // Strings from native memory: new string(char*, int, int) / (char*) / (sbyte*).

@@ -411,6 +411,63 @@ namespace CsharpcCoreLib
         }
     }
 
+    /// <summary>
+    /// TaskExtensions.Unwrap (TaskExtensions.cs, Task.CreateUnwrapPromise): an outer task that already ran to
+    /// completion gives its inner task itself; otherwise a proxy that is faulted or canceled like the outer
+    /// task, canceled for a null inner task, and else completes like the inner one. (csharpc's tasks keep one
+    /// exception, the first, where .NET's proxy would carry every inner exception of an aggregate.)
+    /// </summary>
+    [ShadowMembers("System.Threading.Tasks.TaskExtensions")]
+    internal static class TaskExtensionsImpl
+    {
+        public static Task Unwrap(Task<Task> task)
+        {
+            if (task == null) throw new ArgumentNullException("task");
+            if (task.IsCompletedSuccessfully) return task.Result ?? Canceled<object>();
+            var proxy = new TaskCompletionSource<object>();
+            task.ContinueWith(outer =>
+            {
+                if (Forward(outer, proxy)) return;
+                Task inner = outer.Result;
+                if (inner == null) { proxy.TrySetCanceled(); return; }
+                inner.ContinueWith(i => { if (!Forward(i, proxy)) proxy.TrySetResult(null); },
+                    CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+            }, CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+            return proxy.Task;
+        }
+
+        public static Task<TResult> Unwrap<TResult>(Task<Task<TResult>> task)
+        {
+            if (task == null) throw new ArgumentNullException("task");
+            if (task.IsCompletedSuccessfully) return task.Result ?? Canceled<TResult>();
+            var proxy = new TaskCompletionSource<TResult>();
+            task.ContinueWith(outer =>
+            {
+                if (Forward(outer, proxy)) return;
+                Task<TResult> inner = outer.Result;
+                if (inner == null) { proxy.TrySetCanceled(); return; }
+                inner.ContinueWith(i => { if (!Forward(i, proxy)) proxy.TrySetResult(i.Result); },
+                    CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+            }, CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+            return proxy.Task;
+        }
+
+        // A faulted or canceled task passes its outcome to the proxy; false when it ran to completion.
+        private static bool Forward<T>(Task task, TaskCompletionSource<T> proxy)
+        {
+            if (task.IsFaulted) { proxy.TrySetException(task.Exception.InnerException); return true; }
+            if (task.IsCanceled) { proxy.TrySetCanceled(); return true; }
+            return false;
+        }
+
+        private static Task<T> Canceled<T>()
+        {
+            var tcs = new TaskCompletionSource<T>();
+            tcs.SetCanceled();
+            return tcs.Task;
+        }
+    }
+
     /// <summary>Task.Factory and Task.ContinueWith (Task&lt;TResult&gt;'s are Intrinsics.cs forwarders to TaskResultContinuations).</summary>
     [ShadowMembers("System.Threading.Tasks.Task")]
     internal static class TaskMembers

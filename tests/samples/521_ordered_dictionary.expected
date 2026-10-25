@@ -1,0 +1,24 @@
+0
+the=3, quick=1, brown=1, fox=1, jumps=1, over=1, lazy=1, dog=1, end=1 | 9 17
+first=100, THE=9, quick=7, brown=1, jumps=1, over=1, lazy=1, dog=1, new=8
+3 -1 True True [quick, 7]
+True 1 7 True 1
+keys: first THE quick brown jumps over lazy new | first True | values: 100 9 7 1 1 1 1 8 9
+8 8 [first, 100]
+59 59
+11
+1 2 A
+3,1 7
+add dup: ArgumentException: An item with the same key has already been added. Key: new (Parameter 'key')
+get missing: KeyNotFoundException: The given key 'missing' was not present in the dictionary.
+get at: ArgumentOutOfRangeException: Specified argument was out of the range of valid values. (Parameter 'index')
+get at -1: ArgumentOutOfRangeException: Specified argument was out of the range of valid values. (Parameter 'index')
+insert: ArgumentOutOfRangeException: Specified argument was out of the range of valid values. (Parameter 'index')
+insert dup: ArgumentException: An item with the same key has already been added. Key: new (Parameter 'key')
+set at dup: ArgumentException: An item with the same key has already been added. Key: new (Parameter 'key')
+remove at: ArgumentOutOfRangeException: Specified argument was out of the range of valid values. (Parameter 'index')
+null key: ArgumentNullException: Value cannot be null. (Parameter 'key')
+capacity: ArgumentOutOfRangeException: capacity ('-1') must be a non-negative value. (Parameter 'capacity')
+Actual value was -1.
+modified: InvalidOperationException: Collection was modified after the enumerator was instantiated.
+keys readonly: NotSupportedException: Specified method is not supported.

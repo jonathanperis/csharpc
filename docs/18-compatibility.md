@@ -6,26 +6,92 @@ validation, [06-roadmap.md](06-roadmap.md)). The differential samples and the co
 ([09-conformance.md](09-conformance.md)) are written *for* csharpc. This corpus is not: it is
 unmodified console programs from Microsoft's documentation and sample repositories.
 
-Latest run of 2026-10-24: csharpc `stacktraces` at `b7a36a6` (since merged into `main`) on the CI
-`Compatibility` workflow (hosted `ubuntu-24.04` runner), .NET SDK `11.0.100-rc.2.26504.105`, Linux x86-64. The first run (csharpc `integ`
-at `8183dfb`, 2026-10-22) is the baseline the blocker tables below were measured on;
+Latest run of 2026-10-25: csharpc `aot-parity` at `29cff62` (with `main`'s m8-harness merged) on the CI `Compatibility` workflow (hosted
+`ubuntu-24.04` runner), .NET SDK `11.0.100-rc.2.26504.105`, Linux x86-64; every program is also published
+with NativeAOT ([ADR 0016](adr/0016-nativeaot-parity-and-end-state.md)). The first run (csharpc `integ` at
+`8183dfb`, 2026-10-22) is the baseline the blocker tables below were measured on;
 [Progress](#progress-since-the-first-run) lists what changed since.
 
-## Summary
+## NativeAOT parity
 
-| | first run (`8183dfb`) | `36fd745` (2026-10-22) | `51ef64e` (2026-10-23) | latest run (`b7a36a6`) |
-|---|---:|---:|---:|---:|
-| corpus (candidate console programs) | 323 | 323 | 320 | 320 |
-| skipped (non-deterministic or broken under .NET itself) | 40 | 43 | 40 | 40 |
-| **compared** | **283** | **280** | **280** | **280** |
-| **PASS** (byte-identical stdout, same exit code) | **115 (40.6 %)** | **147 (52.5 %)** | 182 (65.0 %) | **189 (67.5 %)** |
-| COMPILE-UNSUPPORTED (explicit `CSLLVM0001/0002` diagnostic) | 135 (47.7 %) | 95 (33.9 %) | 88 (31.4 %) | 88 (31.4 %) |
-| COMPILE-ERROR (compile fails some other way) | 22 (7.8 %) | 22 (7.9 %) | 3 (1.1 %) | 3 (1.1 %) |
-| COMPILE-CRASH (internal compiler error, crash) | 3 (1.1 %) | 4 (1.4 %) | 0 | 0 |
-| RUNTIME-DIFF (wrong output or exit code) | 7 (2.5 %) | 11 (3.9 %) | 7 (2.5 %) | **0** |
-| RUNTIME-CRASH (native binary crashed, .NET didn't) | 1 (0.4 %) | 1 (0.4 %) | 0 | 0 |
+The headline metric: of the programs NativeAOT (`dotnet publish -p:PublishAot=true`) builds and runs exactly
+like the JIT, how many does csharpc match? See [Method](#method), step 5.
 
-- **Latest run: 67.5 %** pass, and **every program csharpc compiles (189 of 189) behaves exactly like
+| | first parity run (`ac17a87` + harness) | latest run (`29cff62`) |
+|---|---:|---:|
+| compared (not skipped under .NET) | 282 | 276 |
+| NativeAOT-unsupported (out of the denominator) | 34 | 28 |
+| **NativeAOT-working (the denominator)** | **248** | **248** |
+| **parity: csharpc PASS among them** | **200 (80.6 %)** | **220 (88.7 %)** |
+| csharpc COMPILE-UNSUPPORTED among them | 45 | 27 |
+| csharpc COMPILE-ERROR among them | 3 | 1 |
+| csharpc RUNTIME-DIFF / RUNTIME-CRASH / COMPILE-CRASH among them | 0 | 0 |
+
+(The first parity run counted some clock-dependent programs as NativeAOT differences; the harness now
+re-runs the JIT before blaming NativeAOT or csharpc, which moved a few programs to SKIPPED.)
+
+- **88.7 % parity**, and no wrong output: every NativeAOT-working program csharpc compiles matches .NET.
+  By corpus: dotnet/samples 41 of 44 (93.2 %), dotnet/docs 179 of 204 (87.7 %).
+- **NativeAOT-unsupported, by reason** (28): crashes 15 (12 are `System.Text.Json`'s reflection-based
+  serializer, which NativeAOT disables; trim/AOT warnings `IL2026`/`IL3050`), output differs 10 (stack-trace
+  lines: NativeAOT prints other frames and no file/line; exception messages such as `InvalidCastException`'s),
+  publish fails 2 (an XML documentation file NativeAOT's publish can't copy), non-deterministic 1.
+  **csharpc passes 18 of these 28** — programs that work with csharpc but not with NativeAOT.
+- 7 in-scope programs publish with trim/AOT warnings but run identically; they stay in scope (the run is
+  the evidence that NativeAOT supports them).
+- In scope, contrary to ADR 0016's expectation: NativeAOT runs the corpus' expression-tree programs
+  (`lambda-expressions`, `ExpressionTreeExample`, interpreted) and `using-dynamic` identically to the JIT, so
+  those count against csharpc's parity.
+- **Faster and smaller than NativeAOT** (220 programs both handle): compile time median 4.3 s vs 6.0 s
+  (csharpc faster on 175 of 220; the max is csharpc's, 26.0 s vs 11.7 s), executable size median
+  131 KiB vs 1,330 KiB (a tenth; smaller on all 220; max 1,173 KiB vs 2,990 KiB). Compile time is
+  `csharpc App.csproj -c Release` against `dotnet publish -c Release -r linux-x64 -p:PublishAot=true`,
+  wall clock, 4 programs in parallel on the runner; size is the executable alone (NativeAOT's symbols are in
+  a separate `.dbg`).
+
+**The 28 in-scope programs csharpc doesn't pass yet**, by what blocks them (programs; "only" = the sole
+blocker):
+
+| # | blocker | programs | only |
+|---:|---|---:|---:|
+| 1 | `System.Xml.Linq` (`XElement`, `XDocument`) | 4 | 3 |
+| 2 | reflection over members (`Type.GetMethods/GetMembers/GetProperties`, `Activator.CreateInstance(Type)`) | 2 | 1 |
+| 3 | expression trees (compiled or interpreted `Expression<T>`) | 2 | 1 |
+| 4 | `System.Reflection.CustomAttributeExtensions` (attributes as run-time objects) | 2 | 1 |
+| 5 | `dynamic` | 1 | 0 |
+| 6 | C# 15 unions (csharpc's Roslyn binds them differently from the SDK's) | 2 | 1 |
+| 7 | `Microsoft.Extensions.Configuration` binding and the tracing DI extensions (now reachable through `main`'s `FrameworkReference` support) | 2 | 1 |
+| 8 | cryptography (`RSA.Create`, `Aes.Create`) | 2 | 2 |
+| 9 | `Rune` / text elements (`StringInfo.GetTextElementEnumerator`) | 1 | 0 |
+| 10 | `System.IO.Compression` (`BrotliStream`; `ZipArchive`, `TarReader`) | 2 | 1 |
+| 11 | `BufferedStream` | 1 | 1 |
+| 12 | `IdnMapping` | 1 | 1 |
+| 13 | `Environment.Version` / `RuntimeInformation` | 1 | 1 |
+| 14 | `[StructLayout(Explicit)]` unions | 1 | 1 |
+| 15 | deriving from `SynchronizationContext`, `ExecutionContext.Capture`, `BlockingCollection<T>` | 1 | 0 |
+| 16 | `Thread.Interrupt` | 1 | 1 |
+| 17 | System.Text.Json of a `file`-local type | 1 | 1 |
+| 18 | `AssemblyLoadContext` (plugin unloading) | 1 | 0 |
+| 19 | PLINQ partitioners, `Barrier`, `AggregateException.Flatten`, `new Task(...)` (`ParallelGrep`) | 1 | 0 |
+
+## Summary (JIT baseline, kept for continuity)
+
+| | first run (`8183dfb`) | `36fd745` (2026-10-22) | `51ef64e` (2026-10-23) | `b7a36a6` (2026-10-24) | latest run (`29cff62`) |
+|---|---:|---:|---:|---:|---:|
+| corpus (candidate console programs) | 323 | 323 | 320 | 320 | 320 |
+| skipped (non-deterministic or broken under .NET itself) | 40 | 43 | 40 | 40 | 44 |
+| **compared** | **283** | **280** | **280** | **280** | **276** |
+| **PASS** (byte-identical stdout, same exit code) | **115 (40.6 %)** | **147 (52.5 %)** | 182 (65.0 %) | 189 (67.5 %) | **238 (86.2 %)** |
+| COMPILE-UNSUPPORTED (explicit `CSLLVM0001/0002` diagnostic) | 135 (47.7 %) | 95 (33.9 %) | 88 (31.4 %) | 88 (31.4 %) | 36 (13.0 %) |
+| COMPILE-ERROR (compile fails some other way) | 22 (7.8 %) | 22 (7.9 %) | 3 (1.1 %) | 3 (1.1 %) | 2 (0.7 %) |
+| COMPILE-CRASH (internal compiler error, crash) | 3 (1.1 %) | 2 (0.7 %) | 0 | 0 | 0 |
+| RUNTIME-DIFF (wrong output or exit code) | 7 (2.5 %) | 11 (3.9 %) | 7 (2.5 %) | **0** | **0** |
+| RUNTIME-CRASH (native binary crashed, .NET didn't) | 1 (0.4 %) | 1 (0.4 %) | 0 | 0 | 0 |
+
+- **Latest run (`29cff62`): 86.2 %** of all compared programs pass, and all 238 programs csharpc compiles
+  behave exactly like .NET. The gain over `b7a36a6` comes from `main`'s `DateTimeOffset`/`MemoryPool`/
+  `Convert` and m8-harness work and this branch's fixes ([Progress](#progress-since-the-first-run)).
+- At `b7a36a6` (2026-10-24): 67.5 %, and **every program csharpc compiles (189 of 189) behaves exactly like
   .NET**: no wrong output, no crash. By corpus: dotnet/samples 40 of 45 (88.9 %), dotnet/docs 149 of
   235 (63.4 %). The seven differences of the previous run were all missing stack-trace lines; csharpc
   now records .NET's stack traces ([ADR 0012](adr/0012-stack-traces.md)). Of the 3 remaining
@@ -104,6 +170,22 @@ restore. So the corpus is copied to a work tree, and every `<TargetFramework(s)>
    - **PASS**: stdout is identical and the exit code matches.
    - **RUNTIME-CRASH**: a signal or timeout that .NET didn't have.
    - **RUNTIME-DIFF**: anything else that differs.
+5. NativeAOT ([ADR 0016](adr/0016-nativeaot-parity-and-end-state.md)): after the csharpc step (so its
+   RID-specific restore can't change what csharpc evaluates), `dotnet publish -c Release -r <host rid>
+   -p:PublishAot=true` with the program's own project properties (only `PublishAot`, the RID and the same
+   warning overrides as the .NET build are forced), then the native binary runs twice in the same
+   environment. The program is **NATIVEAOT-UNSUPPORTED**, with the reason recorded, when the publish fails,
+   the binary crashes or times out, its two runs differ, or its stdout or exit code differs from the
+   JIT's; otherwise it is **NATIVEAOT-OK**. Trim/AOT analysis warnings (`IL2xxx`/`IL3xxx`) are recorded
+   but don't exclude a program whose binary behaves exactly like the JIT: the run is the evidence.
+   The NativeAOT publish time and executable size (without the separate `.dbg` file) are recorded next to
+   csharpc's.
+6. When csharpc's or NativeAOT's output differs, the JIT runs a third time; if that run differs from the
+   first, the program is SKIPPED as non-deterministic (two runs can agree by chance, e.g. a clock printed
+   to the minute).
+
+**Parity** is csharpc PASS among the NativeAOT-OK programs; it is the headline number. The JIT-based
+pass rate (PASS among all compared programs) is kept for continuity.
 
 `tools/compat/analyze.py` aggregates the results. It parses every unsupported diagnostic in each
 program's compile log, and normalizes it to its kind, its owning type or construct, its area
@@ -199,6 +281,35 @@ Still open from step 3: `new Random(seed)` (2 programs) and `Debug.Assert(bool, 
 `Array.GetEnumerator()` (non-generic `foreach` over an `Array` returned by `Enum.GetValues`)
 needs the element type at run time and stays a diagnostic.
 
+**NativeAOT-parity blockers (`aot-parity` branch, samples `tests/samples/490`–`499`, `513`–`524`).** The first
+parity run (80.6 %) ranked the in-scope blockers; fixed since, each with a regression sample recorded from
+`dotnet run`:
+
+| fix | programs | sample |
+|---|---|---|
+| boxed `decimal`/`DateTime`/`TimeSpan` as `IFormattable`/`IComparable`/`IComparable<T>`/`IEquatable<T>` (`o is IFormattable` was silently false) | (silent-difference risk) | 490 |
+| `Task.Status` (exact: WaitingForActivation / WaitingToRun / Running for runtime and corelib-started tasks) and `Task.Id`; the runtime task gains `id` and status flags | — | 491 |
+| `Convert`'s object/`IConvertible` overloads, `GetTypeCode`, `ChangeType`; `decimal.ToByte` & co. | — | 492 |
+| boxed enums as `IComparable`; `Comparer<object>.Default` as .NET's `ObjectComparer` (`List<object>.Sort()` crashed) | — | 493 |
+| small-integer `CompareTo` returns the difference (`(byte)200` vs `0` is 200), in every form — a silent difference | — | 494 |
+| `TaskExtensions.Unwrap`, `ConfigureAwait(IAsyncDisposable)` | `ContinueWith-comparison`, `dispose-async` | 495 |
+| async `TextReader`/`TextWriter` members, `File` token overloads, `StartsWith(string, bool, CultureInfo)`, `Index`/`Range` formatting | `FileReader`, `consoleasync`, `turkish` | 496 |
+| `System.Uri` (simple absolute URIs; anything else is `NotSupportedException`) | `explicitargs` | 497 |
+| `UriFormatException`'s message and inner exception were dropped (its parameters are `textString`, `e`) — a silent difference | — | 498 |
+| partial properties with `field` / semi-auto accessors | `PartialClassesAndMethods` | 499 |
+| `CancellationTokenSource(TimeSpan)`, `CancelAfter(TimeSpan)` | `CoalescingCancellationTokensFromTimeouts` | 513 |
+| list patterns on `List<T>` and other countable classes; `new Index(..)`, `Index`/`Range.Equals` | `patterns`, `RangesIndexes` | 514 |
+| `Stream` async members, `FileStream(..., useAsync)` | `file-access` | 515 |
+| `ArrayList`; arrays' non-generic `ICollection.CopyTo` (a null slot: crashed) | `HowToCollections` | 516 |
+| `System.Threading.Timer` | `AsyncWrappersForSync` | 517 |
+| `Hashtable` (ported bucket layout: .NET's enumeration order), `CreationTime` per OS | `indirect1`, `HowToFilesAndDirectories` | 518 |
+| `SearchValues` (bytes, chars, strings) | `everythingelse` | 519 |
+| fixed-size buffers in C# source; function pointers in generic code | `UnsafeCodePointers` | 520 |
+| `OrderedDictionary<TKey, TValue>` | `whats-new/dotnet-10` | 521 |
+| `AggregateException` keeps every inner exception (`ToString()` dropped the `(Inner Exception #i)` parts — a silent difference), `InnerExceptions`, `Handle` | — | 522 |
+| `Task.WaitAll` / `WaitAny` | — | 523 |
+| `ExceptBy`/`IntersectBy`/`UnionBy`, three-way `Zip`; IL tuple creation with a `bool` element (invalid IR) | — | 524 |
+
 ## Bugs: wrong output and crashes
 
 Each bug has a minimal reproducer in `tools/compat/repros/`. Run `tools/compat/repro.sh FILE.cs`,
@@ -293,14 +404,18 @@ the latest numbers.
 ## Re-running
 
 On CI: the `Compatibility` workflow (`.github/workflows/compat.yml`, manual and weekly) runs the whole
-corpus on a hosted runner and publishes the summary in the job summary and `results.tsv` /
-`summary.md` as an artifact; copy the artifact's `results.tsv` into `tools/compat/` to publish a run.
-Locally:
+corpus on a hosted runner (~20 minutes with the NativeAOT publishes) and publishes the summary in the
+job summary and `results.tsv` / `summary.md` / the csharpc logs and diffs of every program that doesn't
+pass as an artifact; copy the artifact's `results.tsv` into `tools/compat/` to publish a run.
+`gh workflow run compat.yml --ref <branch> -f filter=<id substring>` re-runs a few programs.
+`results.tsv` columns: id, csharpc category, detail, NativeAOT verdict, NativeAOT detail, csharpc ms,
+NativeAOT ms, csharpc bytes, NativeAOT bytes. Locally (NativeAOT's ILCompiler is heavy: prefer CI):
 
 ```sh
 export PATH=$HOME/.dotnet11:$PATH
-tools/compat/run.sh -j 2                    # fetch the pinned corpus, run all programs (~2.5 h on 4 shared cores)
+tools/compat/run.sh -j 2                    # fetch the pinned corpus, run all programs (hours on 4 shared cores)
 tools/compat/run.sh --no-fetch -j 2 linq    # only program ids containing "linq"
+tools/compat/run.sh --no-aot linq           # without the NativeAOT publishes
 python3 -I tools/compat/analyze.py /tmp/compat-work    # re-print the tables (also writes summary.md there)
 tools/compat/repro.sh tools/compat/repros/*.cs         # check the single-file reproducers
 ```

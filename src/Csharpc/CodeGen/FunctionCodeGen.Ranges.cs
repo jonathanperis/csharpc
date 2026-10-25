@@ -29,6 +29,22 @@ public sealed partial class FunctionCodeGen
         return value;
     }
 
+    /// <summary>new Index(value, fromEnd): .NET's non-negative check, then n or ~n.</summary>
+    internal LLVMValueRef MakeIndex(LLVMValueRef value, LLVMValueRef fromEnd)
+    {
+        CheckNonNegative(value);
+        return _b.Select(fromEnd, _b.Not(value), value);
+    }
+
+    /// <summary>Index.ToString(): the value, "^value" from the end (n is stored as ~n).</summary>
+    internal LLVMValueRef FormatIndex(LLVMValueRef index, IOperation at)
+    {
+        var fromEnd = _b.ICmp(LLVMIntPredicate.SLT, index, L.ConstInt(L.I32, 0));
+        var value = _b.Select(fromEnd, _b.Not(index), index);
+        var digits = FormatValue(value, _m.Compilation.GetSpecialType(SpecialType.System_Int32), at);
+        return ConcatStrings(_b.Select(fromEnd, _m.StringLiteral("^"), _m.StringLiteral("")), digits);
+    }
+
     /// <summary>`^n` (Index.FromEnd) = ~n.</summary>
     private LLVMValueRef EmitHat(IUnaryOperation op)
     {
@@ -194,6 +210,16 @@ public sealed partial class FunctionCodeGen
             case IInvocationOperation { TargetMethod.ContainingType: var owner, TargetMethod.Name: "GetOffset", Instance: { } instance } inv when IsIndexType(owner):
                 result = ResolveIndex(EmitValue(instance), ArgValue(inv, 0));
                 return true;
+            // Index.Equals(Index) / Range.Equals(Range): the encoded values are equal.
+            case IInvocationOperation { TargetMethod: { Name: "Equals", ContainingType: var owner, Parameters: [var other] }, Instance: { } instance } inv
+                when (IsIndexType(owner) || IsRangeType(owner)) && SymbolEqualityComparer.Default.Equals(other.Type, owner):
+            {
+                var (a, b) = (EmitValue(instance), ArgValue(inv, 0));
+                result = IsIndexType(owner) ? _b.ICmp(LLVMIntPredicate.EQ, a, b)
+                    : _b.BinOp(LLVMOpcode.And, _b.ICmp(LLVMIntPredicate.EQ, _b.ExtractValue(a, 0), _b.ExtractValue(b, 0)),
+                        _b.ICmp(LLVMIntPredicate.EQ, _b.ExtractValue(a, 1), _b.ExtractValue(b, 1)));
+                return true;
+            }
         }
         return false;
     }

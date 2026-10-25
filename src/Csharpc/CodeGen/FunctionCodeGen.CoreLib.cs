@@ -666,12 +666,7 @@ public sealed partial class FunctionCodeGen
         LLVMValueRef Sign(LLVMValueRef gt, LLVMValueRef lt) =>
             _b.BinOp(LLVMOpcode.Sub, _b.Cast(LLVMOpcode.ZExt, gt, i32), _b.Cast(LLVMOpcode.ZExt, lt, i32));
 
-        if (IsIntegral(t))
-        {
-            var signed = TypeMapper.IsSigned(t);
-            return Sign(_b.ICmp(signed ? LLVMIntPredicate.SGT : LLVMIntPredicate.UGT, a, b),
-                        _b.ICmp(signed ? LLVMIntPredicate.SLT : LLVMIntPredicate.ULT, a, b));
-        }
+        if (IsIntegral(t)) return BclValueTypes.IntegerCompareTo(this, a, b, TypeMapper.IsSigned(t));
         if (TypeMapper.IsFloatingPoint(t))
         {
             // double.CompareTo: NaN is smaller than everything (and equal to NaN).
@@ -724,8 +719,11 @@ public sealed partial class FunctionCodeGen
             if (comparable is not null) return CallMethod(comparable, [t.IsValueType ? Spill(a) : a, b]);
             if (nonGeneric is not null)
                 return CallMethod(nonGeneric, [t.IsValueType ? Spill(a) : a, t.IsValueType ? Box(b, t, at) : b]);
-            // Interface-/object-typed T: dispatch IComparable<T> at runtime.
+            // Interface-/object-typed T: dispatch IComparable<T> at runtime when T itself is one; otherwise
+            // .NET's Comparer<T>.Default is an ObjectComparer, i.e. the non-generic Comparer.Default.
             var itf = _m.Compilation.GetTypeByMetadataName("System.IComparable`1")!.Construct(t);
+            if (!SymbolEqualityComparer.Default.Equals(t, itf) && !t.AllInterfaces.Contains(itf, SymbolEqualityComparer.Default))
+                return CallCoreLib("ObjectComparison", "Compare", a, b);
             return InterfaceDispatch(itf.GetMembers("CompareTo").OfType<IMethodSymbol>().First(), a, [a, b]);
         }
         if (t.IsValueType) return Call();

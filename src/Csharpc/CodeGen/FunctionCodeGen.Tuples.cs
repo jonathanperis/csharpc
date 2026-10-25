@@ -84,6 +84,9 @@ public sealed partial class FunctionCodeGen
     {
         if (type.SpecialType == SpecialType.System_String)
             return CallRuntime("csrt_string_compare_culture", L.I32, [L.Ptr, L.Ptr, L.I1], x, y, L.False);
+        if (BclValueTypes.IsDecimal(type)) return CallRuntime("csrt_decimal_compare", L.I32, [L.Ptr, L.Ptr], Spill(x), Spill(y));
+        // DateTime orders by ticks alone (its Kind bits never take part), TimeSpan by ticks.
+        if (BclValueTypes.IsTicks(type)) (x, y) = (BclValueTypes.TicksOf(this, type, x), BclValueTypes.TicksOf(this, type, y));
         if (x.Type.IsInteger || x.Type.IsFloatingPoint)
         {
             LLVMValueRef lt, gt;
@@ -95,12 +98,7 @@ public sealed partial class FunctionCodeGen
                 lt = _b.BinOp(LLVMOpcode.Or, _b.FCmp(LLVMRealPredicate.OLT, x, y), _b.BinOp(LLVMOpcode.And, xNaN, _b.Not(yNaN)));
                 gt = _b.BinOp(LLVMOpcode.Or, _b.FCmp(LLVMRealPredicate.OGT, x, y), _b.BinOp(LLVMOpcode.And, yNaN, _b.Not(xNaN)));
             }
-            else
-            {
-                var signed = TypeMapper.IsSigned(type);
-                lt = _b.ICmp(signed ? LLVMIntPredicate.SLT : LLVMIntPredicate.ULT, x, y);
-                gt = _b.ICmp(signed ? LLVMIntPredicate.SGT : LLVMIntPredicate.UGT, x, y);
-            }
+            else return BclValueTypes.IntegerCompareTo(this, x, y, TypeMapper.IsSigned(BclValueTypes.IsTicks(type) ? _m.Compilation.GetSpecialType(SpecialType.System_Int64) : type));
             return _b.BinOp(LLVMOpcode.Sub, _b.Cast(LLVMOpcode.ZExt, gt, L.I32), _b.Cast(LLVMOpcode.ZExt, lt, L.I32));
         }
         throw CompileError.Unsupported($"tuple CompareTo over '{type}'", at);

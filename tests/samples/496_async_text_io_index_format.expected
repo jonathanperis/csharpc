@@ -1,0 +1,23 @@
+first
+second
+third
+<eof>
+4 abcd 2
+x=1
+line
+bc!
+héllo world
+1
+14
+True
+via writer
+Canceled
+FileNotFoundException
+The value cannot be an empty string. (Parameter 'path')
+True
+False
+True
+False
+value
+^3 1..^2 4 0..^0 1 0..5 2..^0 3 True
+[^3] ^2

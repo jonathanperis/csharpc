@@ -4,7 +4,8 @@
 // and '@', no '%'), without dot segments. For those, .NET only lowercases the scheme and host, drops a
 // default port and turns an empty path into "/". Everything else .NET accepts (relative URIs, other
 // schemes, user info, IPv6, percent-encoding, escaping, IDN, dot-segment removal, implicit file paths)
-// throws NotSupportedException rather than risk a different result. Escape/UnescapeDataString are exact.
+// throws NotSupportedException rather than risk a different result. UnescapeDataString is exact; the
+// static escaping helpers are in UriMembers.cs.
 #nullable disable
 using System;
 using System.Text;
@@ -254,25 +255,6 @@ namespace CsharpcCoreLib
         public static bool operator ==(UriImpl uri1, UriImpl uri2) => ReferenceEquals(uri1, uri2) || (uri1 is not null && uri1.Equals((object)uri2));
         public static bool operator !=(UriImpl uri1, UriImpl uri2) => !(uri1 == uri2);
 
-        // Uri.EscapeDataString: everything but the RFC 3986 unreserved characters as %XX (uppercase hex) of
-        // its UTF-8 bytes, a lone surrogate as U+FFFD's.
-        public static string EscapeDataString(string stringToEscape)
-        {
-            if (stringToEscape == null) throw new ArgumentNullException("stringToEscape");
-            var sb = new StringBuilder(stringToEscape.Length);
-            byte[] bytes = new UTF8Encoding(false, false).GetBytes(stringToEscape);
-            const string hex = "0123456789ABCDEF";
-            foreach (byte b in bytes)
-            {
-                char c = (char)b;
-                if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '-' || c == '_' || c == '.' || c == '~')
-                    sb.Append(c);
-                else
-                    sb.Append('%').Append(hex[b >> 4]).Append(hex[b & 15]);
-            }
-            return sb.ToString();
-        }
-
         // Uri.UnescapeDataString: %XX runs that decode as UTF-8; other '%' text stays as it is.
         public static string UnescapeDataString(string stringToUnescape)
         {
@@ -312,7 +294,6 @@ namespace CsharpcCoreLib
 
         private static int Hex(char c) => c >= '0' && c <= '9' ? c - '0' : c >= 'a' && c <= 'f' ? c - 'a' + 10 : c >= 'A' && c <= 'F' ? c - 'A' + 10 : -1;
 
-        public static bool IsHexDigit(char character) => Hex(character) >= 0;
         public static bool CheckSchemeName(string schemeName)
         {
             if (string.IsNullOrEmpty(schemeName) || !char.IsAsciiLetter(schemeName[0])) return false;

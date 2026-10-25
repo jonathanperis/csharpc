@@ -154,11 +154,15 @@ Compile unmodified open-source C# console applications and tools, publish a comp
 (what builds, what matches .NET, what is missing and why), and turn every gap into a regression test.
 First report (2026-10-22, 323 programs from dotnet/samples and dotnet/docs, 40.6 % identical to
 .NET): [18-compatibility.md](18-compatibility.md); harness in `tools/compat/`, re-run on CI by the
-`Compatibility` workflow. Latest (2026-10-24): 67.5 % identical, and every program csharpc compiles
-(189 of 189) matches .NET; the rest stop at explicit "not supported yet" diagnostics, ranked there.
-Next metric: **parity with NativeAOT** — the harness also publishes each program with `PublishAot` and
-runs it; programs NativeAOT can't build or run identically are out of scope, and the headline number
-becomes the share of NativeAOT-working programs that csharpc matches (target: 100 %).
+`Compatibility` workflow. The headline metric is now **parity with NativeAOT** (ADR 0016): the harness
+also publishes each program with `PublishAot` and runs it; programs NativeAOT can't build or run
+identically are out of scope, and parity is the share of NativeAOT-working programs csharpc matches
+(target: 100 %). Latest (2026-10-25, `aot-parity`): **88.7 % parity (220 of 248)**, up from 80.6 % at the
+first parity run; no in-scope program differs from .NET (the 28 others stop at explicit diagnostics,
+ranked in [18](18-compatibility.md#nativeaot-parity), led by `System.Xml.Linq`, member reflection,
+expression trees and attributes); csharpc also passes 18 of the 28 programs NativeAOT can't run. Against
+NativeAOT on the 220: compile time median 4.3 s vs 6.0 s, executables a tenth of the size (131 KiB vs
+1,330 KiB median). JIT-based pass rate 86.2 % (from 67.5 %).
 
 ### M5 — Drop-in: binary packages (🚧)
 An IL front-end (IL → the same lowering) so NuGet packages that ship only assemblies can be linked

@@ -221,8 +221,9 @@ public sealed partial class FunctionCodeGen
 
     private LLVMTypeRef FunctionPointerType(IMethodSymbol signature)
     {
-        var parameters = signature.Parameters.Select(p => p.RefKind == RefKind.None ? T.Value(p.Type) : L.Ptr).ToArray();
-        var ret = signature.RefKind != RefKind.None ? L.Ptr : T.Value(signature.ReturnType);
+        // Through S(): a function pointer in generic code (`delegate*<T, T, T>`) has the instantiation's types.
+        var parameters = signature.Parameters.Select(p => p.RefKind == RefKind.None ? T.Value(S(p.Type)) : L.Ptr).ToArray();
+        var ret = signature.RefKind != RefKind.None ? L.Ptr : T.Value(S(signature.ReturnType));
         return L.FunctionType(ret, parameters);
     }
 
@@ -233,6 +234,6 @@ public sealed partial class FunctionCodeGen
         var args = new LLVMValueRef[signature.Parameters.Length];
         foreach (var argument in op.Arguments) args[argument.Parameter!.Ordinal] = EmitArgument(argument);
         var result = _b.Call(FunctionPointerType(signature), fn, args);
-        return signature.RefKind != RefKind.None ? LoadValue(result, signature.ReturnType) : result;
+        return signature.RefKind != RefKind.None ? LoadValue(result, S(signature.ReturnType)) : result;
     }
 }

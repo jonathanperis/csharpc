@@ -658,9 +658,12 @@ public sealed partial class FunctionCodeGen
         throw CompileError.Unsupported($"closure: local function or lambda capturing parameter '{parameter.Name}'", at);
     }
 
+    // A partial property's backing field (`field`, or a semi-auto `set;`) belongs to one of its two parts.
     internal IFieldSymbol BackingField(IPropertySymbol property) =>
         property.ContainingType.GetMembers().OfType<IFieldSymbol>()
-            .FirstOrDefault(f => SymbolEqualityComparer.Default.Equals(f.AssociatedSymbol, property))
+            .FirstOrDefault(f => SymbolEqualityComparer.Default.Equals(f.AssociatedSymbol, property)
+                || (f.AssociatedSymbol is not null && (SymbolEqualityComparer.Default.Equals(f.AssociatedSymbol, property.PartialImplementationPart)
+                    || SymbolEqualityComparer.Default.Equals(f.AssociatedSymbol, property.PartialDefinitionPart))))
         ?? throw CompileError.Unsupported($"property '{property.Name}' without accessor or backing field", property);
 
     internal LLVMValueRef FieldAddressOn(LLVMValueRef instance, IFieldSymbol field)

@@ -204,6 +204,10 @@ namespace CsharpcCoreLib
         public static Exception NoElementsException() => new InvalidOperationException("Sequence contains no elements");
         public static Exception NoMatchException() => new InvalidOperationException("Sequence contains no matching element");
         public static void EnumOpCantHappen() => throw new InvalidOperationException("Enumeration has either not started or has already finished.");
+        // IComparable.CompareTo(object) of a boxed enum given another type (ModuleCodeGen.EnumMethodTable).
+        public static void EnumCompareMismatch(object other, string source) =>
+            throw new ArgumentException("Object must be the same type as the enum. The type passed in was '" + other.GetType().FullName +
+                "'; the enum type was '" + source + "'.");
 
         // ArgumentOutOfRangeException.ThrowIf* (.NET 8+): exact messages, with the actual value.
         public static void IfNegative(int value, string paramName)
@@ -294,6 +298,24 @@ namespace CsharpcCoreLib
     internal sealed class DefaultComparer<T> : ComparerImpl<T>
     {
         public override int Compare(T x, T y) => CoreIntrinsics.Compare(x, y);
+    }
+
+    /// <summary>
+    /// System.Collections.Comparer.Default.Compare, what Comparer&lt;T&gt;.Default does for an object- or
+    /// interface-typed T that isn't IComparable&lt;T&gt; (.NET's ObjectComparer&lt;T&gt;).
+    /// </summary>
+    internal static class ObjectComparison
+    {
+        public static int Compare(object a, object b)
+        {
+            if (a == b) return 0;
+            if (a == null) return -1;
+            if (b == null) return 1;
+            if (a is string sa && b is string sb) return string.Compare(sa, sb);
+            if (a is IComparable ia) return ia.CompareTo(b);
+            if (b is IComparable ib) return -ib.CompareTo(a);
+            throw new ArgumentException("At least one object must implement IComparable.");
+        }
     }
 
     internal sealed class ComparisonComparer<T> : ComparerImpl<T>

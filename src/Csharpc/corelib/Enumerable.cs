@@ -143,6 +143,57 @@ namespace CsharpcCoreLib
             return new ZipIterator<TFirst, TSecond, (TFirst, TSecond)>(first, second, (a, b) => (a, b));
         }
 
+        public static IEnumerable<(TFirst First, TSecond Second, TThird Third)> Zip<TFirst, TSecond, TThird>(
+            IEnumerable<TFirst> first, IEnumerable<TSecond> second, IEnumerable<TThird> third)
+        {
+            Check(first, "first"); Check(second, "second"); Check(third, "third");
+            return Zip3(first, second, third);
+        }
+
+        private static IEnumerable<(TFirst, TSecond, TThird)> Zip3<TFirst, TSecond, TThird>(IEnumerable<TFirst> first, IEnumerable<TSecond> second, IEnumerable<TThird> third)
+        {
+            using IEnumerator<TFirst> e1 = first.GetEnumerator();
+            using IEnumerator<TSecond> e2 = second.GetEnumerator();
+            using IEnumerator<TThird> e3 = third.GetEnumerator();
+            while (e1.MoveNext() && e2.MoveNext() && e3.MoveNext()) yield return (e1.Current, e2.Current, e3.Current);
+        }
+
+        // ExceptBy / IntersectBy (the second sequence holds keys) and UnionBy (.NET 6), deferred like .NET's
+        // with the arguments checked at once.
+        public static IEnumerable<TSource> ExceptBy<TSource, TKey>(IEnumerable<TSource> first, IEnumerable<TKey> second, Func<TSource, TKey> keySelector) =>
+            ExceptBy(first, second, keySelector, null);
+
+        public static IEnumerable<TSource> ExceptBy<TSource, TKey>(IEnumerable<TSource> first, IEnumerable<TKey> second, Func<TSource, TKey> keySelector, IEqualityComparer<TKey> comparer)
+        {
+            Check(first, "first"); Check(second, "second"); Check(keySelector, "keySelector");
+            return KeySetBy(first, second, keySelector, comparer, except: true);
+        }
+
+        public static IEnumerable<TSource> IntersectBy<TSource, TKey>(IEnumerable<TSource> first, IEnumerable<TKey> second, Func<TSource, TKey> keySelector) =>
+            IntersectBy(first, second, keySelector, null);
+
+        public static IEnumerable<TSource> IntersectBy<TSource, TKey>(IEnumerable<TSource> first, IEnumerable<TKey> second, Func<TSource, TKey> keySelector, IEqualityComparer<TKey> comparer)
+        {
+            Check(first, "first"); Check(second, "second"); Check(keySelector, "keySelector");
+            return KeySetBy(first, second, keySelector, comparer, except: false);
+        }
+
+        private static IEnumerable<TSource> KeySetBy<TSource, TKey>(IEnumerable<TSource> first, IEnumerable<TKey> second, Func<TSource, TKey> keySelector, IEqualityComparer<TKey> comparer, bool except)
+        {
+            var set = new HashSet<TKey>(second, comparer);
+            foreach (TSource element in first)
+                if (except ? set.Add(keySelector(element)) : set.Remove(keySelector(element))) yield return element;
+        }
+
+        public static IEnumerable<TSource> UnionBy<TSource, TKey>(IEnumerable<TSource> first, IEnumerable<TSource> second, Func<TSource, TKey> keySelector) =>
+            UnionBy(first, second, keySelector, null);
+
+        public static IEnumerable<TSource> UnionBy<TSource, TKey>(IEnumerable<TSource> first, IEnumerable<TSource> second, Func<TSource, TKey> keySelector, IEqualityComparer<TKey> comparer)
+        {
+            Check(first, "first"); Check(second, "second"); Check(keySelector, "keySelector");
+            return new SetIterator<TSource, TKey>(first, second, 1, keySelector, comparer);
+        }
+
         public static IEnumerable<TSource> DefaultIfEmpty<TSource>(IEnumerable<TSource> source) => DefaultIfEmpty(source, default(TSource));
 
         public static IEnumerable<TSource> DefaultIfEmpty<TSource>(IEnumerable<TSource> source, TSource defaultValue)

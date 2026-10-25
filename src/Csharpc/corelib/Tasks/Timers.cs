@@ -45,17 +45,17 @@ namespace CsharpcCoreLib
         private static long Milliseconds(TimeSpan time, string paramName)
         {
             long ms = (long)time.TotalMilliseconds;
-            if (ms < -1) throw new ArgumentOutOfRangeException(paramName, "Number must be either non-negative and less than or equal to Int32.MaxValue or -1.");
-            if (ms > 0xfffffffeL) throw new ArgumentOutOfRangeException(paramName, "Time-out interval must be less than 2^32-2.");
+            ArgumentOutOfRangeException.ThrowIfLessThan(ms, -1L, paramName); // .NET 11's checks and messages
+            ArgumentOutOfRangeException.ThrowIfGreaterThan(ms, 0xfffffffeL, paramName);
             return ms;
         }
 
         private static void Check(long dueTime, long period)
         {
-            if (dueTime < -1) throw new ArgumentOutOfRangeException("dueTime", "Number must be either non-negative and less than or equal to Int32.MaxValue or -1.");
-            if (period < -1) throw new ArgumentOutOfRangeException("period", "Number must be either non-negative and less than or equal to Int32.MaxValue or -1.");
-            if (dueTime > 0xfffffffeL) throw new ArgumentOutOfRangeException("dueTime", "Time-out interval must be less than 2^32-2.");
-            if (period > 0xfffffffeL) throw new ArgumentOutOfRangeException("period", "Time-out interval must be less than 2^32-2.");
+            ArgumentOutOfRangeException.ThrowIfLessThan(dueTime, -1L, "dueTime");
+            ArgumentOutOfRangeException.ThrowIfLessThan(period, -1L, "period");
+            ArgumentOutOfRangeException.ThrowIfGreaterThan(dueTime, 0xfffffffeL, "dueTime");
+            ArgumentOutOfRangeException.ThrowIfGreaterThan(period, 0xfffffffeL, "period");
             if (dueTime > MaxDelay || period > MaxDelay)
                 throw new NotSupportedException("Timer intervals longer than Int32.MaxValue milliseconds are not supported by csharpc yet.");
         }
