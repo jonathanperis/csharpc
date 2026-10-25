@@ -202,9 +202,124 @@ namespace CsharpcCoreLib
         protected virtual void Dispose(bool disposing) { }
     }
 
+    [Shadows("System.Security.Cryptography.Oid")]
+    public sealed class OidImpl
+    {
+        public OidImpl() { }
+        public OidImpl(string oid) { Value = oid; }
+        public OidImpl(string value, string friendlyName) { Value = value; FriendlyName = friendlyName; }
+        public OidImpl(OidImpl oid)
+        {
+            ArgumentNullException.ThrowIfNull(oid);
+            Value = oid.Value;
+            FriendlyName = oid.FriendlyName;
+        }
+        public string Value { get; set; }
+        public string FriendlyName { get; set; }
+    }
+
+    [Shadows("System.Security.Cryptography.OidCollection")]
+    public sealed class OidCollectionImpl : System.Collections.ICollection
+    {
+        private readonly List<Oid> _list = new List<Oid>();
+        public int Add(Oid oid) { _list.Add(oid); return _list.Count - 1; }
+        public Oid this[int index] => _list[index];
+        public Oid this[string oid]
+        {
+            get
+            {
+                foreach (var o in _list) if (o.Value == oid || o.FriendlyName == oid) return o;
+                return null;
+            }
+        }
+        public int Count => _list.Count;
+        public bool IsSynchronized => false;
+        public object SyncRoot => this;
+        public OidEnumerator GetEnumerator() => (OidEnumerator)(object)new OidEnumeratorImpl(this);
+        System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() => (System.Collections.IEnumerator)(object)new OidEnumeratorImpl(this);
+        public void CopyTo(Oid[] array, int index) => _list.CopyTo(array, index);
+        void System.Collections.ICollection.CopyTo(Array array, int index) { for (int i = 0; i < _list.Count; i++) array.SetValue(_list[i], index + i); }
+    }
+
+    [Shadows("System.Security.Cryptography.OidEnumerator")]
+    public sealed class OidEnumeratorImpl : System.Collections.IEnumerator
+    {
+        private readonly OidCollectionImpl _oids;
+        private int _current = -1;
+        internal OidEnumeratorImpl(OidCollectionImpl oids) { _oids = oids; }
+        public Oid Current => _oids[_current];
+        object System.Collections.IEnumerator.Current => Current;
+        public bool MoveNext()
+        {
+            if (_current >= _oids.Count - 1) return false;
+            _current++;
+            return true;
+        }
+        public void Reset() => _current = -1;
+    }
+
+    [Shadows("System.Security.Cryptography.AsnEncodedData")]
+    public class AsnEncodedDataImpl
+    {
+        protected AsnEncodedDataImpl() => throw Tls.NotSupported();
+        public AsnEncodedDataImpl(byte[] rawData) => throw Tls.NotSupported();
+        public Oid Oid { get => throw Tls.NotSupported(); set => throw Tls.NotSupported(); }
+        public byte[] RawData { get => throw Tls.NotSupported(); set => throw Tls.NotSupported(); }
+    }
+
+    [Shadows("System.Security.Cryptography.X509Certificates.X509Extension")]
+    public class X509ExtensionImpl : AsnEncodedDataImpl
+    {
+        protected X509ExtensionImpl() : base() { }
+        public X509ExtensionImpl(string oid, byte[] rawData, bool critical) : base() { }
+        public X509ExtensionImpl(Oid oid, byte[] rawData, bool critical) : base() { }
+        public bool Critical { get => throw Tls.NotSupported(); set => throw Tls.NotSupported(); }
+    }
+
+    [Shadows("System.Security.Cryptography.X509Certificates.X509EnhancedKeyUsageExtension")]
+    public sealed class X509EnhancedKeyUsageExtensionImpl : X509ExtensionImpl
+    {
+        public X509EnhancedKeyUsageExtensionImpl() : base() { }
+        public X509EnhancedKeyUsageExtensionImpl(OidCollection enhancedKeyUsages, bool critical) : base() { }
+        public OidCollection EnhancedKeyUsages => throw Tls.NotSupported();
+    }
+
+    [Shadows("System.Security.Cryptography.X509Certificates.X509SubjectAlternativeNameExtension")]
+    public sealed class X509SubjectAlternativeNameExtensionImpl : X509ExtensionImpl
+    {
+        public X509SubjectAlternativeNameExtensionImpl() : base() { }
+        public IEnumerable<string> EnumerateDnsNames() => throw Tls.NotSupported();
+        public IEnumerable<System.Net.IPAddress> EnumerateIPAddresses() => throw Tls.NotSupported();
+    }
+
+    [Shadows("System.Security.Cryptography.X509Certificates.X509ChainPolicy")]
+    public sealed class X509ChainPolicyImpl
+    {
+        public X509ChainPolicyImpl() => throw Tls.NotSupported();
+        public X509RevocationMode RevocationMode { get => throw Tls.NotSupported(); set => throw Tls.NotSupported(); }
+        public X509RevocationFlag RevocationFlag { get => throw Tls.NotSupported(); set => throw Tls.NotSupported(); }
+    }
+
+    [Shadows("System.Net.Security.SslStreamCertificateContext")]
+    public sealed class SslStreamCertificateContextImpl
+    {
+        private SslStreamCertificateContextImpl() { }
+        public static SslStreamCertificateContextImpl Create(X509Certificate2 target, X509Certificate2Collection additionalCertificates, bool offline = false,
+            SslCertificateTrust trust = null) => throw Tls.NotSupported();
+        public X509Certificate2 TargetCertificate => throw Tls.NotSupported();
+    }
+
+    [ShadowMembers("System.Security.Cryptography.X509Certificates.RSACertificateExtensions")]
+    internal static class RSACertificateExtensionsMembers
+    {
+        public static RSA GetRSAPrivateKey(X509Certificate2 certificate) => throw Tls.NotSupported();
+        public static RSA GetRSAPublicKey(X509Certificate2 certificate) => throw Tls.NotSupported();
+    }
+
     [Shadows("System.Security.Cryptography.X509Certificates.X509Certificate2")]
     public class X509Certificate2Impl : X509CertificateImpl
     {
+        public X509Certificate2Impl(X509Certificate certificate) : base() { }
         public X509Certificate2Impl(byte[] rawData) : base() { }
         public X509Certificate2Impl(ReadOnlySpan<byte> rawData) : base() { }
         public X509Certificate2Impl(string fileName) : base() { }

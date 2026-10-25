@@ -373,19 +373,34 @@ namespace CsharpcCoreLib
             if (path == null) throw new ArgumentNullException("path");
             if (path.Length == 0) throw new ArgumentException("The value cannot be an empty string. (Parameter 'path')");
             string full = PathImpl.GetFullPath(path);
-            CreateRecursive(PathImpl.TrimEndingDirectorySeparator(full));
+            CreateRecursive(PathImpl.TrimEndingDirectorySeparator(full), 0x1FF);
             return new DirectoryInfo(path);
         }
 
-        private static void CreateRecursive(string full)
+        /// <summary>The directories created get the mode (minus the umask, as mkdir applies it).</summary>
+        public static DirectoryInfo CreateDirectory(string path, UnixFileMode unixCreateMode)
+        {
+#if CSHARPC_TARGET_WINDOWS
+            throw new PlatformNotSupportedException("Unix file modes are not supported on this platform.");
+#else
+            if (((int)unixCreateMode & ~0xFFF) != 0) throw new ArgumentException("UnixFileMode value is invalid.", "unixCreateMode");
+            if (path == null) throw new ArgumentNullException("path");
+            if (path.Length == 0) throw new ArgumentException("The value cannot be an empty string. (Parameter 'path')");
+            string full = PathImpl.GetFullPath(path);
+            CreateRecursive(PathImpl.TrimEndingDirectorySeparator(full), (int)unixCreateMode);
+            return new DirectoryInfo(path);
+#endif
+        }
+
+        private static void CreateRecursive(string full, int mode)
         {
             int type = Posix.FileType(full);
             if (type == Posix.S_IFDIR) return;
             if (type != 0) throw new IOException("The file '" + full + "' already exists.");
             string parent = PathImpl.GetDirectoryName(full);
-            if (parent != null) CreateRecursive(parent);
+            if (parent != null) CreateRecursive(parent, mode);
             byte* p = Utf8.ToNative(full);
-            int r = Posix.mkdir(p, 0x1FF);
+            int r = Posix.mkdir(p, mode);
             int errno = Posix.Errno;
             Libc.free(p);
             if (r != 0 && errno != Posix.EEXIST) throw Posix.IOError(errno, full, true);

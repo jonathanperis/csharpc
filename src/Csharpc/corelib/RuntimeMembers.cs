@@ -73,6 +73,10 @@ namespace CsharpcCoreLib
     [ShadowMembers("System.Runtime.InteropServices.RuntimeInformation")]
     internal static class RuntimeInformationDescription
     {
+        /// <summary>The target's architecture (x86-64, arm64 or wasm32), fixed at compile time as NativeAOT's is.</summary>
+        public static Architecture ProcessArchitecture => (Architecture)CoreIntrinsics.TargetArchitecture();
+        public static Architecture OSArchitecture => (Architecture)CoreIntrinsics.TargetArchitecture();
+
         /// <summary>".NET 11.0.0-rc.2.26504.105": the framework the program was compiled against.</summary>
         public static string FrameworkDescription => ".NET " + CoreIntrinsics.FrameworkVersion();
     }

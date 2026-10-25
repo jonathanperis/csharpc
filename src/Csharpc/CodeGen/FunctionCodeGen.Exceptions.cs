@@ -427,7 +427,7 @@ public sealed partial class FunctionCodeGen
     /// <summary>Runs a BCL exception constructor: binds message / innerException / paramName by name.</summary>
     private void EmitExceptionConstructor(IMethodSymbol constructor, LLVMValueRef exception, ImmutableArray<IArgumentOperation> arguments)
     {
-        LLVMValueRef? message = null, inner = null, paramName = null, actualValue = null, objectName = null, inners = null;
+        LLVMValueRef? message = null, inner = null, paramName = null, actualValue = null, objectName = null, inners = null, hresult = null, token = null;
         var aggregate = Mangler.MetadataName(constructor.ContainingType) == "System.AggregateException";
         foreach (var argument in arguments)
         {
@@ -451,6 +451,8 @@ public sealed partial class FunctionCodeGen
                 case "paramName": paramName = value; break;
                 case "fileName": paramName = value; break; // FileNotFoundException.FileName (csrt keeps it in param_name)
                 case "objectName": objectName = value; break;
+                case "hresult" when argument.Parameter!.Type.SpecialType == SpecialType.System_Int32: hresult = value; break; // IOException(message, hresult)
+                case "token" when argument.Parameter!.Type.Name == "CancellationToken": token = value; break; // OperationCanceledException(..., token)
                 case "innerExceptions" when aggregate: // Exception[] or IEnumerable<Exception>
                     inners = CallCoreLib("AggregateExceptionSupport", argument.Parameter!.Type is IArrayTypeSymbol ? "FromArray" : "FromEnumerable", value);
                     break;
@@ -475,6 +477,8 @@ public sealed partial class FunctionCodeGen
         // AggregateException keeps every inner exception (InnerExceptions, ToString's "(Inner Exception #i)").
         if (aggregate && inners is { } list) CallRuntime("csrt_exception_set_inners", L.Void, [L.Ptr, L.Ptr], exception, list);
         if (actualValue is { } actual) CallRuntime("csrt_exception_set_actual_value", L.Void, [L.Ptr, L.Ptr], exception, actual);
+        if (hresult is { } h) CallRuntime("csrt_exception_set_hresult", L.Void, [L.Ptr, L.I32], exception, h);
+        if (token is { } t) CallRuntime("csrt_exception_set_token", L.Void, [L.Ptr, L.Ptr], exception, t);
     }
 
     private bool TryEmitLibraryExceptionCall(IInvocationOperation inv, out LLVMValueRef result)

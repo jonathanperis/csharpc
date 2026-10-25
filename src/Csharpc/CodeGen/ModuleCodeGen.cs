@@ -977,10 +977,10 @@ public sealed partial class ModuleCodeGen
         var baseLayout = type.BaseType is { SpecialType: not SpecialType.System_Object } b ? GetLibraryExceptionLayout(b) : null;
 
         var structType = Llvm.NamedStruct("class." + name);
-        // { mt, message, inner, paramName, actualValue, trace, inners } — csrt_Exception in src/runtime/csrt.h.
-        LlvmContext.SetBody(structType, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr);
+        // { mt, message, inner, paramName, actualValue, trace, inners, token, hresult } — csrt_Exception in src/runtime/csrt.h.
+        LlvmContext.SetBody(structType, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.I32);
         var layout = new ClassLayout { Type = type, InstanceType = structType, Base = baseLayout, IsLibrary = true };
-        layout.Elements.AddRange([Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr]);
+        layout.Elements.AddRange([Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.I32]);
         layout.InstanceSize = Types.Target.SizeOf(structType);
         AddObjectSlots(layout);
         layout.VTable.Add(null);

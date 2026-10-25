@@ -133,11 +133,16 @@ typedef struct csrt_Exception {
     csrt_String* actual_value;  // ArgumentOutOfRangeException(paramName, actualValue, message), formatted
     csrt_Array* trace;          // stack-trace frames recorded while thrown (eh.c, "Stack traces"); null: none
     csrt_Array* inners;         // AggregateException: InnerExceptions (exception pointers); null otherwise
+    void* token;                // OperationCanceledException.CancellationToken (its source; null: None)
+    int32_t hresult;            // HResult when set (constructor argument, the HResult setter); 0: the type's default
 } csrt_Exception;
 typedef struct { csrt_MethodTable header; void* vtable[4]; } csrt_ExceptionMethodTable;
 enum { CSRT_SLOT_GET_MESSAGE = 3 };
 
 CSRT_THROWS void csrt_throw_object(void* exception);
+int32_t csrt_exception_get_hresult(void* exception);
+void csrt_exception_set_token(void* exception, void* token);
+void csrt_exception_set_hresult(void* exception, int32_t hresult);
 CSRT_THROWS void csrt_rethrow(void* exception);
 // Stack traces (docs/adr/0012-stack-traces.md): compiler-emitted site tables, registered by main.
 void csrt_trace_init(const void* tables);

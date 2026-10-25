@@ -133,6 +133,8 @@ namespace CsharpcCoreLib
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern nint DelegateMethodTableAddress();
         /// <summary>The version of the shared framework the program was compiled against ("11.0.0-rc.2.26504.105").</summary>
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern string FrameworkVersion();
+        /// <summary>System.Runtime.InteropServices.Architecture of the target triple (X64 1, Arm64 3, Wasm 5).</summary>
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern int TargetArchitecture();
         /// <summary>The delegate types' Invoke signatures (MethodInfo.CreateDelegate): { count, { mt, return, parameters, count, 0 }[] }.</summary>
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern nint DelegateSignatureTableAddress();
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern unsafe void* csrt_delegate_create(nint mt, nint target, nint fn);

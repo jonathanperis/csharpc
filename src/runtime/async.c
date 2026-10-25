@@ -902,7 +902,11 @@ void csrt_cts_cancel_after(CancellationSource* cts, int32_t ms) {
 bool csrt_token_is_cancellation_requested(CancellationSource* token) { return token && __atomic_load_n(&token->canceled, __ATOMIC_ACQUIRE); }
 
 void csrt_token_throw_if_cancellation_requested(CancellationSource* token) {
-    if (csrt_token_is_cancellation_requested(token)) csrt_throw_object(csrt_operation_canceled_exception_new());
+    if (csrt_token_is_cancellation_requested(token)) {
+        void* e = csrt_operation_canceled_exception_new();
+        csrt_exception_set_token(e, token);  // OperationCanceledException(token): CancellationToken is the one canceled
+        csrt_throw_object(e);
+    }
 }
 
 /// new CancellationToken(true): one canceled source shared by every such token (.NET's s_canceledSource).

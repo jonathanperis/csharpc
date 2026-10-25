@@ -95,6 +95,10 @@ internal static partial class BclValueTypes
                 Rt(g, "csrt_enum_to_object", g.Llvm.Ptr, (a[0], g.Llvm.Ptr), (g.Box(a[1], m.Parameters[1].Type, at), g.Llvm.Ptr), (Table(g), g.Llvm.Ptr));
         t["System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(System.Type)"] = (g, _, _, a, _) =>
             Rt(g, "csrt_type_uninitialized_object", g.Llvm.Ptr, (a[0], g.Llvm.Ptr), (Table(g), g.Llvm.Ptr));
+        // Exception.HResult and OperationCanceledException.CancellationToken: fields of csrt_Exception (eh.c).
+        t["System.Exception.get_HResult()"] = (g, _, self, _, _) => Rt(g, "csrt_exception_get_hresult", g.Llvm.I32, (self, g.Llvm.Ptr));
+        t["System.Exception.set_HResult(int)"] = (g, _, self, a, _) => { Rt(g, "csrt_exception_set_hresult", g.Llvm.Void, (self, g.Llvm.Ptr), (a[0], g.Llvm.I32)); return default; };
+        t["System.OperationCanceledException.get_CancellationToken()"] = (g, _, self, _, _) => Rt(g, "csrt_exception_get_token", g.Llvm.Ptr, (self, g.Llvm.Ptr));
         t["System.Delegate.get_Method()"] = (g, _, self, _, _) => g.CallCoreLib("ReflectionRuntime", "DelegateMethod", self);
         t["System.Delegate.get_Target()"] = (g, _, self, _, _) => g.CallCoreLib("ReflectionRuntime", "DelegateTarget", self);
         t["System.Reflection.RuntimeReflectionExtensions.GetMethodInfo(System.Delegate)"] = (g, _, _, a, _) => g.CallCoreLib("ReflectionRuntime", "DelegateMethod", a[0]);

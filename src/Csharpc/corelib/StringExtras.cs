@@ -380,6 +380,36 @@ namespace CsharpcCoreLib
         public static ReadOnlySpan<T> Trim<T>(ReadOnlySpan<T> span, ReadOnlySpan<T> trimElements) where T : IEquatable<T> =>
             TrimEnd(TrimStart(span, trimElements), trimElements);
 
+        /// <summary>.NET's MemoryExtensions.Split: up to destination.Length ranges, the last one holding the rest.</summary>
+        public static int Split(ReadOnlySpan<char> source, Span<Range> destination, char separator, StringSplitOptions options = StringSplitOptions.None)
+        {
+            if ((options & ~(StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)) != 0)
+                throw new ArgumentException("Value of flags is invalid.", "options");
+            if (destination.IsEmpty) return 0;
+            bool keepEmpty = (options & StringSplitOptions.RemoveEmptyEntries) == 0;
+            bool trim = (options & StringSplitOptions.TrimEntries) != 0;
+            int count = 0, start = 0;
+            while (true)
+            {
+                int index = count == destination.Length - 1 ? -1 : source.Slice(start).IndexOf(separator);
+                int end = index < 0 ? source.Length : start + index;
+                int s = start, e = end;
+                if (trim)
+                {
+                    while (s < e && char.IsWhiteSpace(source[s])) s++;
+                    while (e > s && char.IsWhiteSpace(source[e - 1])) e--;
+                }
+                if (keepEmpty || e > s)
+                {
+                    destination[count++] = new Range(s, e);
+                    if (count == destination.Length) break;
+                }
+                if (index < 0) break;
+                start = end + 1;
+            }
+            return count;
+        }
+
         public static ReadOnlySpan<char> Trim(ReadOnlySpan<char> span, ReadOnlySpan<char> trimChars) => Trim<char>(span, trimChars);
         public static ReadOnlySpan<char> TrimStart(ReadOnlySpan<char> span, ReadOnlySpan<char> trimChars) => TrimStart<char>(span, trimChars);
         public static ReadOnlySpan<char> TrimEnd(ReadOnlySpan<char> span, ReadOnlySpan<char> trimChars) => TrimEnd<char>(span, trimChars);
