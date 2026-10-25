@@ -62,6 +62,36 @@ namespace CsharpcCoreLib
             new System.Collections.ObjectModel.ReadOnlyCollection<Exception>(Inners(aggregate));
 
         /// <summary>
+        /// AggregateException.Flatten: the inner exceptions of this one and of every nested AggregateException,
+        /// breadth first, under this one's own message (without the inner messages its Message appends).
+        /// </summary>
+        public static Exception Flatten(Exception aggregate)
+        {
+            var flattened = new List<Exception>();
+            var toFlatten = new List<Exception> { aggregate };
+            int next = 0;
+            while (toFlatten.Count > next)
+            {
+                foreach (Exception inner in Inners(toFlatten[next++]))
+                {
+                    if (inner == null) continue;
+                    if (inner is AggregateException) toFlatten.Add(inner);
+                    else flattened.Add(inner);
+                }
+            }
+            return new AggregateException(BaseMessage(aggregate), flattened);
+        }
+
+        /// <summary>The message an AggregateException was created with: its Message less the " (inner message)" parts.</summary>
+        private static string BaseMessage(Exception aggregate)
+        {
+            string message = aggregate.Message;
+            string suffix = "";
+            foreach (Exception inner in Inners(aggregate)) suffix += " (" + inner.Message + ")";
+            return message.EndsWith(suffix, StringComparison.Ordinal) ? message.Substring(0, message.Length - suffix.Length) : message;
+        }
+
+        /// <summary>
         /// AggregateException.Handle: the predicate sees every inner exception in order; those it doesn't handle
         /// are rethrown in a new AggregateException with this one's Message.
         /// </summary>

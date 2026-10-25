@@ -440,7 +440,13 @@ public sealed partial class FunctionCodeGen
             var source = inv.Arguments.First(a => a.Parameter!.Ordinal == 0).Value;
             while (source is IConversionOperation { Conversion.IsImplicit: true } c) source = c.Operand;
             if (TypeOf(source) is not IArrayTypeSymbol { Rank: 1 } arrayType)
-                throw CompileError.Unsupported($"Parallel.ForEach over '{TypeOf(source)}' (only arrays so far)", inv);
+            {
+                // Other enumerables and partitioners: corelib/Tasks/ParallelForEach.cs.
+                if (m.TypeArguments.Length != 1) return false;
+                var overSource = m.Parameters[0].Type is INamedTypeSymbol { Name: "Partitioner" or "OrderablePartitioner" } ? "ForEachPartitioner" : "ForEach";
+                CallCoreLibGenericMethod("ParallelForEachSupport", overSource, [S(m.TypeArguments[0])], TArg(inv, 0), TArg(inv, 1));
+                return true;
+            }
             var array = EmitValue(source);
             NullCheck(array);
             var body = TArg(inv, 1);
