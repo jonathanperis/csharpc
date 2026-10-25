@@ -84,7 +84,7 @@ public static class RoslynFrontend
             specificDiagnosticOptions: new Dictionary<string, ReportDiagnostic> { ["CS8019"] = ReportDiagnostic.Suppress });
 
         var name = settings.AssemblyName ?? (settings.Files.Count > 0 ? Path.GetFileNameWithoutExtension(settings.Files[0]) : "program");
-        var compilation = CSharpCompilation.Create(name, trees, [.. FrameworkReferences(settings), .. settings.IlReferences], options);
+        var compilation = CSharpCompilation.Create(name, trees, [.. FrameworkReferences(settings), .. settings.IlReferences, .. CoreLibFacadeFor(settings)], options);
         // Reflection-based System.Text.Json calls get compile-time metadata from synthesized contexts.
         List<Diagnostic> jsonDiagnostics = [];
         compilation = JsonReflectionContexts.Add(compilation, [.. trees.Where(t => !IsCoreLibTree(t) && t.FilePath is not ("<global-usings>.g.cs" or AssemblyInfoTreePath))],
@@ -143,7 +143,7 @@ public static class RoslynFrontend
         CSharpCompilation Build(ProjectUnit project)
         {
             if (built.TryGetValue(project.ProjectPath, out var existing)) return existing;
-            List<MetadataReference> references = [.. FrameworkReferences(settings), .. settings.IlReferences];
+            List<MetadataReference> references = [.. FrameworkReferences(settings), .. settings.IlReferences, .. CoreLibFacadeFor(settings)];
             foreach (var reference in project.References)
                 if (byPath.TryGetValue(reference, out var referenced)) references.Add(Build(referenced).ToMetadataReference());
             var parseOptions = ParseOptions(LanguageVersionOf(project.LanguageVersion), project.Defines);
@@ -184,6 +184,10 @@ public static class RoslynFrontend
             .Select(r => Path.GetFileNameWithoutExtension(r.FilePath)).ToHashSet(StringComparer.OrdinalIgnoreCase);
         return all.Where(r => r is not PortableExecutableReference pe || !replaced.Contains(Path.GetFileNameWithoutExtension(pe.FilePath)));
     }
+
+    /// <summary>The System.Private.CoreLib facade (CoreLibFacade.cs) when an IL reference names that assembly.</summary>
+    private static IEnumerable<MetadataReference> CoreLibFacadeFor(FrontendSettings settings) =>
+        settings.IlReferences.Count > 0 && CoreLibFacade.For(settings.IlReferences, ReferenceAssemblies()) is { } facade ? [facade] : [];
 
     private static readonly Dictionary<string, ImmutableArray<MetadataReference>> s_frameworkReferences = new(StringComparer.OrdinalIgnoreCase);
 

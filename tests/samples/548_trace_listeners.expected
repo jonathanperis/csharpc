@@ -1,0 +1,12 @@
+listeners: 2 [Default:DefaultTraceListener, console:TextWriterTraceListener]
+hello from Trace
+partial category: line
+    indented once
+    indent level 2, size 2
+conditional true
+from Debug
+Debug.Print args
+Debug conditional
+to both listeners
+captured: to both listeners
+done, listeners 1

@@ -443,7 +443,29 @@ public sealed class IlAssembly : IDisposable, ISignatureTypeProvider<IlType, IlG
                 if (Matches(candidate, signature)) return OnConstructed(owner, candidate);
             }
         }
+        // A static member of System.Private.CoreLib the reference pack doesn't have (Debug.SetProvider,
+        // which System.Diagnostics.TraceSource calls): the corelib shadow that implements it.
+        if (!header.IsInstance && definition.TypeParameters.IsEmpty && ShadowOf(definition) is { } shadow)
+        {
+            var shadowContext = new IlGenericContext([], []);
+            foreach (var candidate in shadow.GetMembers(name).OfType<IMethodSymbol>())
+            {
+                if (candidate.Arity != arity || !candidate.IsStatic) continue;
+                var signature = reference.DecodeMethodSignature(this, shadowContext with { MethodParameters = [.. candidate.TypeParameters] });
+                if (Matches(candidate, signature)) return candidate;
+            }
+        }
         throw new IlException($"method '{owner}.{name}' with the referenced signature not found");
+    }
+
+    /// <summary>The corelib class shadowing a (non-generic) library type, from the corelib's shadow index.</summary>
+    private INamedTypeSymbol? ShadowOf(INamedTypeSymbol type)
+    {
+        if (CoreLibAssembly.Current is not { } corelib || type.ContainingType is not null) return null;
+        var full = type.ContainingNamespace is { IsGlobalNamespace: false } ns ? ns.ToDisplayString() + "." + type.MetadataName : type.MetadataName;
+        foreach (var shadow in corelib.Shadows)
+            if (shadow.Real == full && Compilation.GetTypeByMetadataName(shadow.Shadow) is { } found) return found;
+        return null;
     }
 
     private static int PeekGenericArity(BlobReader blob)
