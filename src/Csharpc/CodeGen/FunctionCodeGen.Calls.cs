@@ -20,6 +20,7 @@ public sealed partial class FunctionCodeGen
         if (Intrinsics.TryGetConsoleFastPath(inv, out var consoleFastPath)) return consoleFastPath(this, inv);
         var target = S(inv.TargetMethod);
         if (IsCoreIntrinsic(target)) return EmitCoreIntrinsic(target, inv);
+        if (target.IsStatic) CheckJsonSerializerRoots(target, inv);
         if (UnsafeAccessorOf(target) is { } unsafeAccessor) return EmitUnsafeAccessor(target, unsafeAccessor, inv);
         if (target.IsStatic && TryUnsafeMethod(target, inv) is { } unsafeResult) return unsafeResult;
         // `T.Create()` on a static abstract/virtual interface member: after substitution T is concrete.

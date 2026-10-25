@@ -212,6 +212,21 @@ public static class JsonReflectionContexts
         return compilation.AddSyntaxTrees(CSharpSyntaxTree.ParseText(source.ToString(), parseOptions, path: TreePath));
     }
 
+    /// <summary>
+    /// Why a reflection-based serializer call's type can't get compile-time metadata, or null: anonymous
+    /// types have no name the generated code could use, and generated metadata lives in another file,
+    /// which can't name a file-local type.
+    /// </summary>
+    public static string? UnsupportedRoot(ITypeSymbol type) =>
+        RootFinder.ContainsAnonymous(type) ? "System.Text.Json serialization of anonymous types"
+        : RootFinder.FileLocalPart(type) is { } fileLocal ? $"System.Text.Json serialization of file-local type '{fileLocal.Name}'"
+        : null;
+
+    /// <summary>A JsonTypeInfo/JsonSerializerContext parameter: the call brings its own metadata.</summary>
+    public static bool IsJsonMetadataParameter(IParameterSymbol p) => p.Type is INamedTypeSymbol t
+        && t.ContainingNamespace?.ToDisplayString() is "System.Text.Json.Serialization.Metadata" or "System.Text.Json.Serialization"
+        && t.Name is "JsonTypeInfo" or "JsonSerializerContext";
+
     /// <summary>The JSON generator's default TypeInfoPropertyName (type name plus type arguments, "Array" suffix).</summary>
     private static string GeneratorTypeName(ITypeSymbol type) => type switch
     {
@@ -333,7 +348,7 @@ public static class JsonReflectionContexts
                         if (model.GetTypeInfo(node).Type is INamedTypeSymbol { IsGenericType: true } created) _typeUses.Add(created);
                         break;
                     case GenericNameSyntax generic:
-                        if (model.GetSymbolInfo(generic).Symbol is INamedTypeSymbol { IsGenericType: true } named && !named.IsDefinition) _typeUses.Add(named);
+                        if (model.GetSymbolInfo(generic).Symbol is INamedTypeSymbol { IsGenericType: true, IsUnboundGenericType: false } named && !named.IsDefinition) _typeUses.Add(named); // not typeof(G<>)
                         break;
                 }
             }
@@ -377,21 +392,13 @@ public static class JsonReflectionContexts
         private void Add(ITypeSymbol type, Location at)
         {
             if (type.TypeKind == TypeKind.Error || type.TypeKind == TypeKind.Dynamic || type is IPointerTypeSymbol or IFunctionPointerTypeSymbol) return;
-            if (ContainsAnonymous(type))
-            {
-                diagnostics.Add(Diagnostic.Create(s_unsupported, at, "System.Text.Json serialization of anonymous types"));
-                return;
-            }
-            // Generated metadata lives in another file, which can't name a file-local type.
-            if (FileLocalPart(type) is { } fileLocal)
-            {
-                diagnostics.Add(Diagnostic.Create(s_unsupported, at, $"System.Text.Json serialization of file-local type '{fileLocal.Name}'"));
-                return;
-            }
+            // No metadata for these: the call is reported where it is lowered (FunctionCodeGen.JsonRoots.cs),
+            // as an error only when the program can reach it.
+            if (UnsupportedRoot(type) is not null) return;
             _roots.Add((type, at));
         }
 
-        private static INamedTypeSymbol? FileLocalPart(ITypeSymbol t)
+        internal static INamedTypeSymbol? FileLocalPart(ITypeSymbol t)
         {
             switch (t)
             {
@@ -408,11 +415,19 @@ public static class JsonReflectionContexts
             }
         }
 
-        private static bool ContainsAnonymous(ITypeSymbol t) => t switch
+        internal static bool ContainsAnonymous(ITypeSymbol t) => t switch
         {
             { IsAnonymousType: true } => true,
             IArrayTypeSymbol a => ContainsAnonymous(a.ElementType),
             INamedTypeSymbol n => n.TypeArguments.Any(ContainsAnonymous),
+            _ => false,
+        };
+
+        private static bool ContainsErrorType(ITypeSymbol t) => t switch
+        {
+            { TypeKind: TypeKind.Error } => true,
+            IArrayTypeSymbol a => ContainsErrorType(a.ElementType),
+            INamedTypeSymbol n => n.TypeArguments.Any(ContainsErrorType),
             _ => false,
         };
 
@@ -435,7 +450,7 @@ public static class JsonReflectionContexts
                 var (type, at, depth) = pending.Dequeue();
                 if (!ContainsTypeParameters(type))
                 {
-                    if (seen.Add(type)) result.Add((type, at));
+                    if (!ContainsErrorType(type) && seen.Add(type)) result.Add((type, at));
                     continue;
                 }
                 if (depth > 4) continue;

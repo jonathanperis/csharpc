@@ -171,11 +171,7 @@ public sealed partial class ModuleCodeGen
     private readonly List<(IMethodSymbol Method, CompileError Error)> _ilFailures = [];
 
     /// <summary>The function lowered now references <paramref name="method"/> (a call, a delegate, a thunk...).</summary>
-    internal void NoteReference(IMethodSymbol method, bool virtualCall)
-    {
-        if (!Il.HasLibraries) return;
-        _references.Add((_currentCaller, method, virtualCall));
-    }
+    internal void NoteReference(IMethodSymbol method, bool virtualCall) => _references.Add((_currentCaller, method, virtualCall));
 
     /// <summary>A virtual or interface call site: every override / implementation of the member may run.</summary>
     internal void NoteVirtualCall(IMethodSymbol target) => NoteReference(target, virtualCall: true);
@@ -183,7 +179,7 @@ public sealed partial class ModuleCodeGen
     /// <summary>A check that runs <paramref name="type"/>'s static constructor.</summary>
     internal void NoteClassInit(INamedTypeSymbol type)
     {
-        if (Il.HasLibraries && type.StaticConstructors.FirstOrDefault() is { } cctor) NoteReference(cctor, virtualCall: false);
+        if (type.StaticConstructors.FirstOrDefault() is { } cctor) NoteReference(cctor, virtualCall: false);
     }
 
     /// <summary>
@@ -209,6 +205,23 @@ public sealed partial class ModuleCodeGen
         if (!error.Message.Contains(" [in '", StringComparison.Ordinal))
             error = new CompileError(error.Id, $"{error.Message} [in '{method.OriginalDefinition}' ({Il.OwnerOf(method)?.Name}.dll)]",
                 error.Location is { IsInSource: true } ? error.Location : Il.OwnerOf(method) is { } owner ? IlSyntax(owner).Plain.GetLocation() : null);
+        ReplaceWithStub(method, error);
+    }
+
+    /// <summary>A method of the program's sources that can't be compiled: a stub, an error if reachable (ReportIlFailures).</summary>
+    private void SourceMethodFailed(IMethodSymbol method, CompileError error)
+    {
+        if (error.Location is not { IsInSource: true } && method.Locations.FirstOrDefault() is { IsInSource: true } at)
+            error = new CompileError(error.Id, error.Message, at);
+        ReplaceWithStub(method, error);
+    }
+
+    /// <summary>The program's own source methods (not the corelib, not IL): whether they run is decided by reachability.</summary>
+    private bool IsProgramSourceMethod(IMethodSymbol method) =>
+        SymbolEqualityComparer.Default.Equals(method.ContainingAssembly, Compilation.Assembly) && !CoreLib.IsCoreLib(method);
+
+    private void ReplaceWithStub(IMethodSymbol method, CompileError error)
+    {
         _ilFailures.Add((method, error));
         var old = _functions[method];
         var name = Native.TakeName(old.Fn);
@@ -251,19 +264,56 @@ public sealed partial class ModuleCodeGen
             Reach(to);
             if (isVirtual) foreach (var implementation in PossibleTargets(to)) Reach(implementation);
         }
-        // Roots: references made by the program's own code (sources and the corelib).
+        // Roots: the entry point and what .NET itself calls in the program (overrides and implementations of
+        // library members: ToString, Finalize, IComparable...; static constructors, module initializers and
+        // native exports), and references made outside the program's methods: by the corelib, by the code
+        // csharpc generates (method tables, type metadata, main), and by lambdas and local functions
+        // (their bodies are reached through closures the graph doesn't follow).
+        if (Compilation.GetEntryPoint(default) is { } entry) Reach(entry);
+        foreach (var root in RuntimeCalledMethods()) Reach(root);
         foreach (var (from, to, isVirtual) in _references)
-            if (from is null || !IsIlMethod(from) || Il.IsCoreLib(from)) Follow(to, isVirtual);
+            if (from is null || IsNestedFunction(from) || (IsIlMethod(from) ? Il.IsCoreLib(from) : !IsProgramSourceMethod(from))) Follow(to, isVirtual);
         while (work.TryDequeue(out var method))
             if (edges.TryGetValue(method.OriginalDefinition, out var outgoing))
                 foreach (var (_, to, isVirtual) in outgoing) Follow(to, isVirtual);
 
+        // A construct that also fails elsewhere (a type's layout, a field) is reported there already.
+        var reported = Errors.Select(e => (e.Message, e.Location?.ToString())).ToHashSet();
         foreach (var (method, error) in _ilFailures)
         {
             if (reached.Contains(method.OriginalDefinition)) Errors.Add(error);
-            else Warnings.Add(new CompileError("CSLLVM0007",
+            else if (!reported.Contains((error.Message, error.Location?.ToString()))) Warnings.Add(new CompileError("CSLLVM0007",
                 $"{error.Message} — the program does not reach this method (class-hierarchy analysis), so it was compiled as a stub that ends the program if it is ever called",
                 error.Location));
+        }
+    }
+
+    /// <summary>
+    /// Source methods the runtime or the library may call without a call site in the program: overrides of
+    /// library virtuals, implementations of library interfaces, static constructors, module initializers
+    /// and [UnmanagedCallersOnly] exports.
+    /// </summary>
+    private IEnumerable<IMethodSymbol> RuntimeCalledMethods()
+    {
+        foreach (var type in _userTypes)
+        {
+            if (!SymbolEqualityComparer.Default.Equals(type.ContainingAssembly, Compilation.Assembly) || CoreLib.IsCoreLib(type)) continue;
+            foreach (var m in type.GetMembers().OfType<IMethodSymbol>())
+            {
+                if (m.MethodKind == MethodKind.StaticConstructor
+                    || (m.IsOverride && !IsUserMethod(ClassLayout.RootOf(m)))
+                    || m.ExplicitInterfaceImplementations.Any(i => !IsUserType(i.ContainingType))
+                    || m.GetAttributes().Any(a => a.AttributeClass?.Name is "ModuleInitializerAttribute" or "UnmanagedCallersOnlyAttribute"))
+                    yield return m;
+            }
+            foreach (var itf in type.AllInterfaces)
+            {
+                if (IsUserType(itf)) continue;
+                foreach (var member in itf.GetMembers().OfType<IMethodSymbol>())
+                    if (type.FindImplementationForInterfaceMember(member) is IMethodSymbol implementation
+                        && SymbolEqualityComparer.Default.Equals(implementation.ContainingAssembly, Compilation.Assembly))
+                        yield return implementation;
+            }
         }
     }
 
