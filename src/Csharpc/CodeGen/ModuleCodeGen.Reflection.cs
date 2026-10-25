@@ -38,8 +38,10 @@ public sealed partial class ModuleCodeGen
     private int _closedServicesScanned;
     private LLVMValueRef _reflectionTable, _delegateMethodTable;
     private readonly Dictionary<IMethodSymbol, MethodRecordData> _methodRecords = new(SymbolEqualityComparer.Default);
-    private readonly Dictionary<nint, (LLVMValueRef Fn, IMethodSymbol Method, bool SourceLambda)> _delegateCreations = [];
-    private readonly Dictionary<nint, (LLVMValueRef Fn, MethodRecordData Record)> _delegateMethods = [];
+    // By function name: an IL method that fails to compile is replaced by a stub of the same name (its old value is deleted).
+    private readonly Dictionary<nint, (LLVMValueRef Fn, IMethodSymbol Method, bool SourceLambda, string Name)> _delegateCreations = [];
+    private readonly Dictionary<nint, (string Fn, MethodRecordData Record)> _delegateMethods = [];
+    private readonly HashSet<nint> _delegateDescribed = [];
     private SyntaxNode? _reflectionSyntax;
 
     private sealed class ReflectionEntry
@@ -561,9 +563,22 @@ public sealed partial class ModuleCodeGen
         SyntheticFunction(Mangler.Method(method) + "$invoke", Llvm.FunctionType(Llvm.Ptr, Llvm.Ptr, Llvm.Ptr),
             (g, syntax) => g.EmitReflectionInvoker(method, syntax));
 
-    private LLVMValueRef AttributeFactory(AttributeInstance instance) =>
-        SyntheticFunction(Mangler.Method(instance.Constructor) + "$attribute", Llvm.FunctionType(Llvm.Ptr),
-            (g, syntax) => g.EmitAttributeFactory(instance, syntax));
+    /// <summary>
+    /// The attribute's factory, or, when csharpc can't construct the attribute class yet (a library attribute
+    /// without a corelib implementation), one that throws NotSupportedException: reading that member's
+    /// attributes fails explicitly at run time instead of the whole program failing to compile.
+    /// </summary>
+    private LLVMValueRef AttributeFactory(AttributeInstance instance)
+    {
+        var name = Mangler.Method(instance.Constructor) + "$attribute";
+        try { return SyntheticFunction(name, Llvm.FunctionType(Llvm.Ptr), (g, syntax) => g.EmitAttributeFactory(instance, syntax)); }
+        catch (CompileError)
+        {
+            if (Module.GetFunction(name) is { IsNull: false } partial) Native.LLVMDeleteFunction(partial);
+            var message = $"Creating the custom attribute '{instance.Constructor.ContainingType}' is not supported by csharpc yet.";
+            return SyntheticFunction(name, Llvm.FunctionType(Llvm.Ptr), (g, _) => g.EmitThrowingFactory(message));
+        }
+    }
 
     private LLVMValueRef AttributeDataFactory(AttributeInstance instance) =>
         SyntheticFunction(Mangler.Method(instance.Constructor) + "$attributedata", Llvm.FunctionType(Llvm.Ptr),
@@ -579,16 +594,16 @@ public sealed partial class ModuleCodeGen
 
     /// <summary>A delegate over <paramref name="fn"/> was created: Delegate.Method can answer for it, if asked.</summary>
     internal void NoteDelegateMethod(LLVMValueRef fn, IMethodSymbol method, bool sourceLambda) =>
-        _delegateCreations.TryAdd(fn.Handle, (fn, method, sourceLambda));
+        _delegateCreations.TryAdd(fn.Handle, (fn, method, sourceLambda, Native.LLVMGetValueName(fn)));
 
     /// <summary>The records of the delegate targets (once Delegate.Method is lowered).</summary>
     private bool DescribeDelegateMethods()
     {
         if (_delegateMethodTable.IsNull) return false;
         var any = false;
-        foreach (var (handle, (fn, method, lambda)) in _delegateCreations.ToList())
+        foreach (var (handle, (_, method, lambda, name)) in _delegateCreations.ToList())
         {
-            if (_delegateMethods.ContainsKey(handle)) continue;
+            if (!_delegateDescribed.Add(handle)) continue;
             any = true;
             try
             {
@@ -600,7 +615,7 @@ public sealed partial class ModuleCodeGen
                         Invoke = LlvmContext.Null(Llvm.Ptr), Parameters = record.Parameters, Attributes = [], MethodAttributes = record.MethodAttributes,
                         Flags = 1, // CSRT_METHOD_SOURCE_LAMBDA
                     };
-                _delegateMethods[handle] = (fn, record);
+                _delegateMethods[handle] = (name, record);
             }
             catch (CompileError error) { Errors.Add(error); }
         }
@@ -624,10 +639,17 @@ public sealed partial class ModuleCodeGen
     }
 
     private LLVMValueRef AttributeArray(List<AttributeRecordData> attributes) =>
-        ConstTable("csharpc.reflection.attributes", AttributeRecordType, attributes.Select(a => Llvm.ConstStruct(a.Type, a.Create, a.Data)).ToList());
+        ConstTable("csharpc.reflection.attributes", AttributeRecordType, attributes.Select(a => Llvm.ConstStruct(Checked(a.Type, "attribute type"), Checked(a.Create, "attribute factory"), Checked(a.Data, "attribute data"))).ToList());
+
+    private static LLVMValueRef Checked(LLVMValueRef value, string what) =>
+        value.IsNull ? throw new InvalidOperationException("reflection metadata: missing " + what) : value;
 
     private LLVMValueRef MethodRecordConstant(MethodRecordData m)
     {
+        foreach (var (value, what) in new[] { (m.Name, "name"), (m.Declaring, "declaring type"), (m.ReturnType, "return type"), (m.Invoke, "invoker") })
+            if (value.IsNull) throw new InvalidOperationException($"reflection record of '{m.Method}' has no {what}");
+        foreach (var p in m.Parameters)
+            if (p.Name.IsNull || p.Type.IsNull || p.DefaultValue.IsNull) throw new InvalidOperationException($"reflection record of '{m.Method}' has an incomplete parameter");
         var parameters = ConstTable("csharpc.reflection.parameters", ParameterRecordType, m.Parameters.Select(p => Llvm.ConstStruct(
             p.Name, p.Type, p.DefaultValue, AttributeArray(p.Attributes), Llvm.ConstInt(Llvm.I32, p.Attributes.Count), Llvm.ConstUInt(Llvm.I32, p.Flags))).ToList());
         return Llvm.ConstStruct(m.Name, m.Declaring, m.ReturnType, m.Invoke, parameters, AttributeArray(m.Attributes),
@@ -645,7 +667,7 @@ public sealed partial class ModuleCodeGen
             {
                 var ctors = ConstTable("csharpc.reflection.ctors", MethodRecordType, e.Constructors.Select(MethodRecordConstant).ToList());
                 var methods = ConstTable("csharpc.reflection.methods", MethodRecordType, e.Methods.Select(MethodRecordConstant).ToList());
-                entries.Add(Llvm.ConstStruct(e.Mt, ctors, methods, AttributeArray(e.Attributes), Llvm.ConstInt(Llvm.I32, e.Constructors.Count),
+                entries.Add(Llvm.ConstStruct(Checked(e.Mt, "method table of " + e.Type), ctors, methods, AttributeArray(e.Attributes), Llvm.ConstInt(Llvm.I32, e.Constructors.Count),
                     Llvm.ConstInt(Llvm.I32, e.Methods.Count), Llvm.ConstInt(Llvm.I32, e.Attributes.Count), Llvm.ConstUInt(Llvm.I32, e.Described)));
             }
             Native.LLVMSetInitializer(_reflectionTable, Header(ConstTable("csharpc.reflection.entries", ReflectionInfoType, entries), entries.Count));
@@ -656,7 +678,7 @@ public sealed partial class ModuleCodeGen
             foreach (var (fn, record) in _delegateMethods.Values)
             {
                 var global = Module.AddGlobal("csharpc.reflection.method", MethodRecordType, MethodRecordConstant(record), constant: true, linkage: LLVMLinkage.Private);
-                entries.Add(Llvm.ConstStruct(fn, global));
+                entries.Add(Llvm.ConstStruct(Checked(Module.GetFunction(fn), "delegate function of " + record.Method), global));
             }
             Native.LLVMSetInitializer(_delegateMethodTable, Header(ConstTable("csharpc.delegatemethods.entries", Llvm.Struct(Llvm.Ptr, Llvm.Ptr), entries), entries.Count));
         }

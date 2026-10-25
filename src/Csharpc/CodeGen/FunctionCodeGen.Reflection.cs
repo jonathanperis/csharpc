@@ -121,6 +121,13 @@ public sealed partial class FunctionCodeGen
         Finish();
     }
 
+    /// <summary>A factory that throws NotSupportedException (ModuleCodeGen.AttributeFactory).</summary>
+    internal void EmitThrowingFactory(string message)
+    {
+        ThrowNewLibraryException(_m.Compilation.GetTypeByMetadataName("System.NotSupportedException")!, message);
+        Finish();
+    }
+
     /// <summary>A parameter's default value, boxed as ParameterInfo.DefaultValue reports it.</summary>
     internal void EmitDefaultValueFactory(IParameterSymbol p, SyntaxNode syntax)
     {
