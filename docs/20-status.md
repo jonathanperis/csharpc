@@ -115,9 +115,14 @@ by `tools/pack-tool-pointer.sh` (manual DotnetTool v2 nuspec — `dotnet pack` w
 rebuilding the host RID and wiping the good nupkg). nuget.org via Trusted Publishing in
 `release.yml` as above. TechEmpower / Benchmarks / Compatibility keep building csharpc from the
 commit under test (they measure that tree); documented in those workflow headers. Windows zip fix:
-`cygpath -w` for Compress-Archive.
+`cygpath -w` for Compress-Archive. Local linux-x64: archive 55 MiB, RID nupkg 117 MiB, smoke OK.
+
+**18:25.** Release dry-run 40230115161: all four RID builds green (win-x64 included); all four smoke
+jobs failed immediately — `ls a.tar.gz a.zip` under `pipefail` exits 2 when the `.zip` glob is
+absent. Fixed with `nullglob` + array. nuget.org push gated off for `*test*`/`*dryrun*` versions.
 
 Audit of the `m8-perf` merge on 2026-10-25. Times are BRT (UTC−3).
+
 
 
 **12:46.** Merged `origin/main` (`91f2d97`) into `m8-perf` as `a9dbbd0`. Four conflicts, both sides kept:

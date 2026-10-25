@@ -85,6 +85,17 @@
       Lines="This directory contains a binary build of LLVM's libLLVM (the C API shared library), redistributed under the Apache License v2.0 with LLVM Exceptions: https://llvm.org/LICENSE.txt;csharpc itself is MIT; see the repository LICENSE." />
   </Target>
 
+  <!-- Bundle Microsoft.NETCore.App.Ref/net11.0 so NativeAOT installs bind without an SDK. -->
+  <Target Name="CsharpcBundleRefPack" AfterTargets="ComputeResolvedFilesToPublishList"
+          Condition="'$(CsharpcBundleRefPack)' != '' and '$(RuntimeIdentifier)' != ''">
+    <Error Condition="!Exists('$(CsharpcBundleRefPack)')"
+           Text="csharpc: CsharpcBundleRefPack directory missing: $(CsharpcBundleRefPack)" />
+    <ItemGroup>
+      <_CsharpcRefDll Include="$(CsharpcBundleRefPack)/*.dll" />
+      <ResolvedFileToPublish Include="@(_CsharpcRefDll)" RelativePath="ref/net11.0/%(Filename)%(Extension)" CopyToPublishDirectory="PreserveNewest" />
+    </ItemGroup>
+  </Target>
+
   <!--
     ReadyToRun at build time (docs/adr/0014-compile-time.md). Every csharpc run used to JIT Roslyn's
     binder and parser and csharpc's code generator before compiling anything (~1-2 s of CPU per

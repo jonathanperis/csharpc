@@ -69,6 +69,30 @@ LIBLLVM="$(resolve_libllvm)"
 export CSHARPC_LIBLLVM="$LIBLLVM"
 mkdir -p "$ARCHIVE_DIR" "$NUPKG_DIR"
 
+# Microsoft.NETCore.App.Ref (net11.0): NativeAOT csharpc has no TRUSTED_PLATFORM_ASSEMBLIES
+# list, so binding needs these DLLs next to the binary when no SDK is installed.
+resolve_ref_pack() {
+  local root="${DOTNET_ROOT:-$(dirname "$(command -v dotnet)")}"
+  local pack_root="$root/packs/Microsoft.NETCore.App.Ref"
+  if [[ ! -d $pack_root ]]; then
+    echo "pack-release: missing $pack_root (need the .NET 11 SDK to pack)" >&2
+    exit 1
+  fi
+  local best=""
+  local d
+  for d in "$pack_root"/*; do
+    [[ -d $d/ref/net11.0 ]] || continue
+    best=$d
+  done
+  if [[ -z $best ]]; then
+    echo "pack-release: no net11.0 reference pack under $pack_root" >&2
+    exit 1
+  fi
+  printf '%s' "$best/ref/net11.0"
+}
+REF_PACK="$(resolve_ref_pack)"
+echo "pack-release: reference pack=$REF_PACK"
+
 echo "pack-release: packing NativeAOT RID tool for $RID (version $VERSION)"
 echo "pack-release: libLLVM=$LIBLLVM"
 # Pack (not bare publish): produces csharpc.$RID.$VERSION.nupkg with corelib/, runtime/, lib/.
@@ -76,6 +100,7 @@ dotnet pack "$ROOT/src/Csharpc" -c Release -r "$RID" -o "$NUPKG_DIR" \
   -p:PublishAot=true \
   -p:CsharpcPackRidTools=true \
   -p:CsharpcBundleLibLLVM=true \
+  -p:CsharpcBundleRefPack="$REF_PACK" \
   -p:Version="$VERSION" \
   -p:PackageVersion="$VERSION" \
   -p:CsharpcLibLLVM="$LIBLLVM" \
