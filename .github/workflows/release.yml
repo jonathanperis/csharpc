@@ -4,9 +4,12 @@ name: Release
 # publishes a GitHub Release, GitHub Packages, and (when configured) nuget.org.
 #
 # nuget.org Trusted Publishing: NuGet/login + push live in THIS file (release.yml). The OIDC
-# workflow claim is `release.yml`. No GitHub Actions environment. Policy must use:
-#   Repository Owner: jonathanperis | Repository: csharpc | Workflow File: release.yml | Environment: (empty)
-# Repo variable: NUGET_USER = nuget.org profile name.
+# job_workflow_ref claim is the workflow that REQUESTS the token — a reusable workflow called
+# from ci.yml would claim the shared workflow's path, not release.yml, and nuget.org would
+# reject it (NuGet/login#6). So publish stays here, triggered by workflow_run after CI.
+# Policy (Active): Owner jonathanperis | Repo csharpc | Workflow File release.yml | Environment (empty)
+# | Package glob *. Repo variable: NUGET_USER = nuget.org profile name (Jonathanperis).
+# Never push *test*/*dryrun* versions (nuget.org cannot delete packages).
 #
 # Triggers:
 #   - After CI succeeds on main (workflow_run): rolling prerelease `latest-main`, package
@@ -410,16 +413,16 @@ jobs:
       - name: NuGet.org Trusted Publishing login
         id: nuget_login
         if: needs.setup.outputs.publish_nuget_org == 'true'
-        continue-on-error: true
         uses: NuGet/login@8d196754b4036150537f80ac539e15c2f1028841 # v1.2.0
         with:
           user: ${{ vars.NUGET_USER }}
 
       - name: Push packages to nuget.org
-        if: needs.setup.outputs.publish_nuget_org == 'true' && steps.nuget_login.outcome == 'success'
+        if: needs.setup.outputs.publish_nuget_org == 'true'
         run: |
           set -euo pipefail
           KEY='${{ steps.nuget_login.outputs.NUGET_API_KEY }}'
+          test -n "$KEY" || { echo "nuget.org: empty NUGET_API_KEY from NuGet/login"; exit 1; }
           for pkg in nupkg/csharpc.linux-*.nupkg nupkg/csharpc.osx-*.nupkg nupkg/csharpc.win-*.nupkg; do
             [[ -f $pkg ]] || continue
             dotnet nuget push "$pkg" --api-key "$KEY" --source https://api.nuget.org/v3/index.json --skip-duplicate
@@ -427,15 +430,12 @@ jobs:
           dotnet nuget push nupkg/csharpc."${{ needs.setup.outputs.version }}".nupkg \
             --api-key "$KEY" --source https://api.nuget.org/v3/index.json --skip-duplicate
 
-      - name: nuget.org skipped or login failed
-        if: needs.setup.outputs.publish_nuget_org != 'true' || (needs.setup.outputs.publish_nuget_org == 'true' && steps.nuget_login.outcome != 'success')
+      - name: nuget.org skipped (test/dry-run or NUGET_USER unset)
+        if: needs.setup.outputs.publish_nuget_org != 'true'
         run: |
-          if [[ '${{ needs.setup.outputs.publish_nuget_org }}' != 'true' ]]; then
-            echo "nuget.org publish skipped (NUGET_USER unset, or version is a test/dry-run). Policy: release.yml, no environment, vars.NUGET_USER."
-          else
-            echo "nuget.org login failed; GitHub Packages/Releases may already be updated. Policy must be Active for jonathanperis/csharpc workflow release.yml (no environment), NUGET_USER=Jonathanperis."
-            exit 1
-          fi
+          echo "nuget.org publish skipped (NUGET_USER unset, or version is a test/dry-run)."
+          echo "Real pushes: main rolling 0.1.0-spike.<ci_run> or tag v* (first: v0.1.0-spike)."
+          echo "Policy: Jonathanperis/csharpc-release → release.yml, no environment, vars.NUGET_USER."
 
       - name: Prepare docker-bundle context
         run: |
