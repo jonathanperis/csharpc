@@ -22,11 +22,13 @@ public sealed partial class ModuleCodeGen
 {
     // DynamicallyAccessedMemberTypes values csharpc keeps metadata for.
     internal const int DamPublicParameterlessConstructor = 0x1, DamPublicConstructors = 0x3, DamNonPublicConstructors = 0x4,
-        DamPublicMethods = 0x8, DamNonPublicMethods = 0x10;
-    private const int DamConstructors = DamPublicConstructors | DamNonPublicConstructors, DamMethods = DamPublicMethods | DamNonPublicMethods;
+        DamPublicMethods = 0x8, DamNonPublicMethods = 0x10, DamPublicProperties = 0x200, DamNonPublicProperties = 0x400;
+    internal const int DamConstructors = DamPublicConstructors | DamNonPublicConstructors, DamMethods = DamPublicMethods | DamNonPublicMethods,
+        DamProperties = DamPublicProperties | DamNonPublicProperties;
 
     // CSRT_RI_* (csrt.h)
-    private const uint RiPublicConstructors = 1, RiNonPublicConstructors = 2, RiPublicMethods = 4, RiNonPublicMethods = 8;
+    private const uint RiPublicConstructors = 1, RiNonPublicConstructors = 2, RiPublicMethods = 4, RiNonPublicMethods = 8,
+        RiPublicProperties = 32, RiNonPublicProperties = 64;
 
     private readonly Dictionary<ITypeSymbol, int> _damMarks = new(SymbolEqualityComparer.Default);
     private readonly Queue<ITypeSymbol> _damQueue = new();
@@ -55,7 +57,12 @@ public sealed partial class ModuleCodeGen
         public uint Described;
         public List<MethodRecordData> Constructors = [], Methods = [];
         public List<AttributeRecordData> Attributes = [];
+        public List<PropertyRecordData> Properties = [];
     }
+
+    /// <summary>A property: its accessors' method records (null: none), attributes, and CSRT_PROPERTY_* flags.</summary>
+    internal sealed record PropertyRecordData(IPropertySymbol Property, LLVMValueRef Name, LLVMValueRef Type, MethodRecordData? Getter, MethodRecordData? Setter,
+        List<AttributeRecordData> Attributes, uint Flags);
 
     internal sealed class MethodRecordData
     {
@@ -146,7 +153,7 @@ public sealed partial class ModuleCodeGen
     /// <summary>Keeps metadata for the members of <paramref name="type"/> that <paramref name="kinds"/> names.</summary>
     internal void MarkDynamicallyAccessed(ITypeSymbol type, int kinds)
     {
-        kinds &= DamConstructors | DamMethods;
+        kinds &= DamConstructors | DamMethods | DamProperties;
         if (kinds == 0 || type is ITypeParameterSymbol || type.TypeKind == TypeKind.Error) return;
         if (type is INamedTypeSymbol named && (named.IsUnboundGenericType || TypeSubstitution.IsOpen(named)))
         {
@@ -316,7 +323,8 @@ public sealed partial class ModuleCodeGen
         // Open definitions (typeof(Impl<>)) list no members: their instantiations do.
         if (named.IsDefinition && named.IsGenericType) return;
         uint wanted = ((kinds & DamPublicConstructors) != 0 ? RiPublicConstructors : 0) | ((kinds & DamNonPublicConstructors) != 0 ? RiNonPublicConstructors : 0)
-            | ((kinds & DamPublicMethods) != 0 ? RiPublicMethods : 0) | ((kinds & DamNonPublicMethods) != 0 ? RiNonPublicMethods : 0);
+            | ((kinds & DamPublicMethods) != 0 ? RiPublicMethods : 0) | ((kinds & DamNonPublicMethods) != 0 ? RiNonPublicMethods : 0)
+            | ((kinds & DamPublicProperties) != 0 ? RiPublicProperties : 0) | ((kinds & DamNonPublicProperties) != 0 ? RiNonPublicProperties : 0);
         var added = wanted & ~entry.Described;
         if (added == 0) return;
         entry.Described |= added;
@@ -327,6 +335,7 @@ public sealed partial class ModuleCodeGen
             if (ctor.IsImplicitlyDeclared && real.IsValueType) continue; // a struct's default constructor isn't metadata
             if (Wanted(ctor, RiPublicConstructors, RiNonPublicConstructors)) entry.Constructors.Add(MethodRecord(ctor, invoker: true));
         }
+        if ((added & (RiPublicProperties | RiNonPublicProperties)) != 0) DescribeProperties(entry, real, added);
         if ((added & (RiPublicMethods | RiNonPublicMethods)) == 0) return;
         // Declared methods, then inherited ones not overridden (RuntimeType's order: most derived first).
         var seen = new HashSet<IMethodSymbol>(SymbolEqualityComparer.Default);
@@ -346,6 +355,41 @@ public sealed partial class ModuleCodeGen
                 entry.Methods.Add(MethodRecord(m, invoker: true));
             }
         }
+    }
+
+    /// <summary>Declared properties, then inherited ones not overridden; public when an accessor is (RuntimePropertyInfo's rule).</summary>
+    private void DescribeProperties(ReflectionEntry entry, INamedTypeSymbol real, uint added)
+    {
+        var seen = new HashSet<ISymbol>(SymbolEqualityComparer.Default);
+        foreach (var listed in entry.Properties) seen.Add(PropertyRoot(listed.Property));
+        for (INamedTypeSymbol? t = real; t is not null; t = t.BaseType)
+        {
+            foreach (var p in t.GetMembers().OfType<IPropertySymbol>())
+            {
+                bool isPublic = p.GetMethod?.DeclaredAccessibility == Accessibility.Public || p.SetMethod?.DeclaredAccessibility == Accessibility.Public;
+                if (!SymbolEqualityComparer.Default.Equals(t, real) && !isPublic
+                    && (p.GetMethod?.DeclaredAccessibility ?? Accessibility.Private) == Accessibility.Private
+                    && (p.SetMethod?.DeclaredAccessibility ?? Accessibility.Private) == Accessibility.Private)
+                    continue; // inherited private properties aren't listed
+                if ((added & (isPublic ? RiPublicProperties : RiNonPublicProperties)) == 0) continue;
+                if (!seen.Add(PropertyRoot(p))) continue; // overridden lower down
+                var definition = p.OriginalDefinition;
+                var il = definition.MetadataToken != 0 ? Il.OwnerOf(definition) : null;
+                var attributes = il is not null
+                    ? DecodeAttributes(il, il.PropertyDefinitionOf(definition).GetCustomAttributes(), IlGenericContext.For(definition.ContainingType)).ToList()
+                    : definition.GetAttributes().Select(FromAttributeData).OfType<AttributeInstance>().ToList();
+                uint flags = (isPublic ? 1u : 0u) | (p.IsStatic ? 2u : 0u);
+                entry.Properties.Add(new PropertyRecordData(p, CString(p.MetadataName), MetadataMethodTable(p.Type),
+                    p.GetMethod is { } getter ? MethodRecord(getter, invoker: true) : null,
+                    p.SetMethod is { } setter ? MethodRecord(setter, invoker: true) : null, Attributes(attributes), flags));
+            }
+        }
+    }
+
+    private static ISymbol PropertyRoot(IPropertySymbol p)
+    {
+        while (p.OverriddenProperty is { } overridden) p = overridden;
+        return p.OriginalDefinition;
     }
 
     internal MethodRecordData MethodRecord(IMethodSymbol method, bool invoker)
@@ -681,7 +725,16 @@ public sealed partial class ModuleCodeGen
     private LLVMTypeRef ParameterRecordType => Llvm.Struct(Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.I32, Llvm.I32);
     private LLVMTypeRef MethodRecordType => Llvm.Struct(Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.I32, Llvm.I32, Llvm.I32, Llvm.I32, Llvm.Ptr);
     private LLVMTypeRef DelegateSignatureType => Llvm.Struct(Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.I32, Llvm.I32);
-    private LLVMTypeRef ReflectionInfoType => Llvm.Struct(Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.I32, Llvm.I32, Llvm.I32, Llvm.I32);
+    private LLVMTypeRef ReflectionInfoType => Llvm.Struct(Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.I32, Llvm.I32, Llvm.I32, Llvm.I32, Llvm.I32, Llvm.I32);
+    private LLVMTypeRef PropertyRecordType => Llvm.Struct(Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.I32, Llvm.I32);
+
+    private LLVMValueRef PropertyRecordConstant(PropertyRecordData p)
+    {
+        LLVMValueRef Accessor(MethodRecordData? m) => m is null ? LlvmContext.Null(Llvm.Ptr)
+            : Module.AddGlobal("csharpc.reflection.accessor", MethodRecordType, MethodRecordConstant(m), constant: true, linkage: LLVMLinkage.Private);
+        return Llvm.ConstStruct(p.Name, Checked(p.Type, "property type"), Accessor(p.Getter), Accessor(p.Setter), AttributeArray(p.Attributes),
+            Llvm.ConstInt(Llvm.I32, p.Attributes.Count), Llvm.ConstUInt(Llvm.I32, p.Flags));
+    }
 
     private LLVMValueRef ConstTable(string name, LLVMTypeRef entryType, IReadOnlyList<LLVMValueRef> entries)
     {
@@ -719,8 +772,10 @@ public sealed partial class ModuleCodeGen
             {
                 var ctors = ConstTable("csharpc.reflection.ctors", MethodRecordType, e.Constructors.Select(MethodRecordConstant).ToList());
                 var methods = ConstTable("csharpc.reflection.methods", MethodRecordType, e.Methods.Select(MethodRecordConstant).ToList());
-                entries.Add(Llvm.ConstStruct(Checked(e.Mt, "method table of " + e.Type), ctors, methods, AttributeArray(e.Attributes), Llvm.ConstInt(Llvm.I32, e.Constructors.Count),
-                    Llvm.ConstInt(Llvm.I32, e.Methods.Count), Llvm.ConstInt(Llvm.I32, e.Attributes.Count), Llvm.ConstUInt(Llvm.I32, e.Described)));
+                var properties = ConstTable("csharpc.reflection.properties", PropertyRecordType, e.Properties.Select(PropertyRecordConstant).ToList());
+                entries.Add(Llvm.ConstStruct(Checked(e.Mt, "method table of " + e.Type), ctors, methods, AttributeArray(e.Attributes), properties,
+                    Llvm.ConstInt(Llvm.I32, e.Constructors.Count), Llvm.ConstInt(Llvm.I32, e.Methods.Count), Llvm.ConstInt(Llvm.I32, e.Attributes.Count),
+                    Llvm.ConstUInt(Llvm.I32, e.Described), Llvm.ConstInt(Llvm.I32, e.Properties.Count), Llvm.ConstInt(Llvm.I32, 0)));
             }
             Native.LLVMSetInitializer(_reflectionTable, Header(ConstTable("csharpc.reflection.entries", ReflectionInfoType, entries), entries.Count));
         }

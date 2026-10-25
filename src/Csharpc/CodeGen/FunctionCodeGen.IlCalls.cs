@@ -143,6 +143,7 @@ public sealed partial class FunctionCodeGen
         // A non-virtual call to a virtual method on `this` is C#'s `base.M()`.
         var baseCall = !isVirtual && receiver is { IsThis: true } && (method.IsVirtual || method.IsOverride || method.IsAbstract);
         var instance = receiver is null ? null : IlReceiver(method, receiver, constrained, baseCall);
+        if (receiver is { Symbol: ITypeSymbol reflected }) NoteReflectedType(method, S(reflected));
 
         // Library operators and conversions (decimal + decimal, (long)BigInteger ...): the source path's operator lowering.
         if (method.MethodKind is MethodKind.UserDefinedOperator or MethodKind.Conversion && method.IsStatic && !_m.IsUserMethod(mapped)

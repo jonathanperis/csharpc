@@ -278,16 +278,29 @@ void* csrt_gc_object_base(const void* p);   // the heap object an interior point
 
 // Which member kinds an entry lists (DynamicallyAccessedMemberTypes they were kept for).
 enum { CSRT_RI_PUBLIC_CONSTRUCTORS = 1, CSRT_RI_NONPUBLIC_CONSTRUCTORS = 2, CSRT_RI_PUBLIC_METHODS = 4,
-       CSRT_RI_NONPUBLIC_METHODS = 8, CSRT_RI_ATTRIBUTES = 16 };
+       CSRT_RI_NONPUBLIC_METHODS = 8, CSRT_RI_ATTRIBUTES = 16, CSRT_RI_PUBLIC_PROPERTIES = 32, CSRT_RI_NONPUBLIC_PROPERTIES = 64 };
+enum { CSRT_PROPERTY_PUBLIC = 1 /* an accessor is public */, CSRT_PROPERTY_STATIC = 2 };
+typedef struct csrt_PropertyRecord {
+    const char* name;
+    const csrt_MethodTable* type;
+    const csrt_MethodRecord* getter;           // NULL: no get accessor
+    const csrt_MethodRecord* setter;           // NULL: no set accessor
+    const csrt_AttributeRecord* attributes;
+    uint32_t attribute_count;
+    uint32_t flags;                            // CSRT_PROPERTY_*
+} csrt_PropertyRecord;
 typedef struct csrt_ReflectionInfo {
     const csrt_MethodTable* mt;
     const csrt_MethodRecord* constructors;
     const csrt_MethodRecord* methods;
     const csrt_AttributeRecord* attributes;    // the type's (or generic parameter's) own custom attributes
+    const csrt_PropertyRecord* properties;
     uint32_t constructor_count;
     uint32_t method_count;
     uint32_t attribute_count;
     uint32_t described;                        // CSRT_RI_*
+    uint32_t property_count;
+    uint32_t reserved;
 } csrt_ReflectionInfo;
 typedef struct { int64_t count; const csrt_ReflectionInfo* entries; } csrt_ReflectionTable;
 

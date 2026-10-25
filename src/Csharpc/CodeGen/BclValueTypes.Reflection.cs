@@ -76,6 +76,14 @@ internal static partial class BclValueTypes
         t[$"{Type}.GetMethod(string, System.Reflection.BindingFlags)"] = core("GetMethodNameFlags");
         t[$"{Type}.GetMethod(string, System.Type[])"] = core("GetMethodNameTypes");
         t[$"{Type}.GetMethod(string, System.Reflection.BindingFlags, System.Type[])"] = core("GetMethodNameFlagsTypes");
+        BclHandler propertyLookup(string method) => (g, _, self, a, _) => g.CallCoreLib("PropertyReflection", method, [self, .. a]);
+        t[$"{Type}.GetProperties()"] = propertyLookup("GetPropertiesAll");
+        t[$"{Type}.GetProperties(System.Reflection.BindingFlags)"] = propertyLookup("GetPropertiesFlags");
+        t[$"{Type}.GetProperty(string)"] = propertyLookup("GetPropertyName");
+        t[$"{Type}.GetProperty(string, System.Reflection.BindingFlags)"] = propertyLookup("GetPropertyNameFlags");
+        t[$"{Type}.GetProperty(string, System.Type)"] = propertyLookup("GetPropertyNameReturn");
+        t[$"{Type}.GetProperty(string, System.Type, System.Type[])"] = propertyLookup("GetPropertyNameReturnTypes");
+        t[$"{Type}.GetProperty(string, System.Reflection.BindingFlags, System.Reflection.Binder, System.Type, System.Type[], System.Reflection.ParameterModifier[])"] = propertyLookup("GetPropertyFull");
         t[$"{Type}.GetCustomAttributes(bool)"] = core("TypeAttributesAll");
         t[$"{Type}.GetCustomAttributes(System.Type, bool)"] = core("TypeAttributesOf");
         t[$"{Type}.IsDefined(System.Type, bool)"] = core("IsTypeDefined");

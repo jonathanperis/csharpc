@@ -469,10 +469,21 @@ namespace CsharpcCoreLib
         internal static byte* InfoConstructors(byte* i) => (byte*)*(nint*)(i + P);
         internal static byte* InfoMethods(byte* i) => (byte*)*(nint*)(i + 2 * P);
         internal static byte* InfoAttributes(byte* i) => (byte*)*(nint*)(i + 3 * P);
-        internal static int InfoConstructorCount(byte* i) => *(int*)(i + 4 * P);
-        internal static int InfoMethodCount(byte* i) => *(int*)(i + 4 * P + 4);
-        internal static int InfoAttributeCount(byte* i) => *(int*)(i + 4 * P + 8);
-        internal static int InfoDescribed(byte* i) => *(int*)(i + 4 * P + 12);
+        internal static byte* InfoProperties(byte* i) => (byte*)*(nint*)(i + 4 * P);
+        internal static int InfoConstructorCount(byte* i) => *(int*)(i + 5 * P);
+        internal static int InfoMethodCount(byte* i) => *(int*)(i + 5 * P + 4);
+        internal static int InfoAttributeCount(byte* i) => *(int*)(i + 5 * P + 8);
+        internal static int InfoDescribed(byte* i) => *(int*)(i + 5 * P + 12);
+        internal static int InfoPropertyCount(byte* i) => *(int*)(i + 5 * P + 16);
+        // csrt_PropertyRecord
+        internal static int PropertySize => 5 * P + 8;
+        internal static byte* PropertyName(byte* p) => (byte*)*(nint*)p;
+        internal static nint PropertyType(byte* p) => *(nint*)(p + P);
+        internal static byte* PropertyGetter(byte* p) => (byte*)*(nint*)(p + 2 * P);
+        internal static byte* PropertySetter(byte* p) => (byte*)*(nint*)(p + 3 * P);
+        internal static byte* PropertyAttributes(byte* p) => (byte*)*(nint*)(p + 4 * P);
+        internal static int PropertyAttributeCount(byte* p) => *(int*)(p + 5 * P);
+        internal static int PropertyFlags(byte* p) => *(int*)(p + 5 * P + 4);
     }
 
     [Shadows("System.Reflection.RuntimeConstructorInfo")]
@@ -708,6 +719,10 @@ namespace CsharpcCoreLib
         /// <summary>Type.EmptyTypes (a static readonly field in .NET, read through BclValueTypes' field table).</summary>
         public static Type[] EmptyTypes() => s_emptyTypes ??= new Type[0];
 
+        internal static byte* Info(Type type, string what) => InfoOf(type, what);
+        internal static void Require(byte* info, Type type, BindingFlags flags, int publicBit, int nonPublicBit, string what) =>
+            RequireDescribed(info, type, flags, publicBit, nonPublicBit, what);
+
         private static byte* InfoOf(Type type, string what)
         {
             ArgumentNullException.ThrowIfNull(type);
@@ -718,7 +733,7 @@ namespace CsharpcCoreLib
             "The " + what + " of '" + type + "' are not available: csharpc keeps reflection metadata only for types the program passes to [DynamicallyAccessedMembers] locations (as NativeAOT does). Not supported by csharpc yet.");
 
         /// <summary>One MemberInfo per record, as RuntimeType caches them (== holds between calls).</summary>
-        private static MemberInfo Member(byte* record, bool constructor)
+        internal static MemberInfo Member(byte* record, bool constructor)
         {
             lock (s_lock)
             {

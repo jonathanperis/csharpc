@@ -20,6 +20,7 @@ public sealed partial class FunctionCodeGen
         NoteDynamicallyAccessedArguments(S(inv.TargetMethod), inv.Arguments);
         if (Intrinsics.TryGetConsoleFastPath(inv, out var consoleFastPath)) return consoleFastPath(this, inv);
         var target = S(inv.TargetMethod);
+        if (inv.Instance is ITypeOfOperation reflectedType) NoteReflectedType(target, S(reflectedType.TypeOperand));
         if (inv.Instance is { } shadowReceiver && _m.CoreLib.MapForReceiver(target, TypeOf(shadowReceiver)) is { } shadowMember) target = shadowMember;
         if (IsCoreIntrinsic(target)) return EmitCoreIntrinsic(target, inv);
         if (TypeObjectMember(inv.TargetMethod, inv.Instance) is { } typeMember) return CallBcl(typeMember, inv.TargetMethod, inv.Instance, inv.Arguments, inv);
@@ -624,6 +625,24 @@ public sealed partial class FunctionCodeGen
     /// A MemberInfo member called on a System.Type: C# binds `type.Name` to MemberInfo.Name, but csharpc's
     /// Type objects are runtime objects (src/runtime/type.c), not MemberInfo instances: Type's intrinsic.
     /// </summary>
+    /// <summary>
+    /// typeof(X).GetProperty/GetMethod/GetConstructor(...) on a known type keeps X's members of that kind, as
+    /// ILLink's intrinsic handling of these calls does for NativeAOT.
+    /// </summary>
+    private void NoteReflectedType(IMethodSymbol target, ITypeSymbol type)
+    {
+        if (type is ITypeParameterSymbol || target.ContainingType is not { Name: "Type", ContainingNamespace: { Name: "System", ContainingNamespace.IsGlobalNamespace: true } })
+            return;
+        var kinds = target.Name switch
+        {
+            "GetProperty" or "GetProperties" => ModuleCodeGen.DamProperties,
+            "GetMethod" or "GetMethods" => ModuleCodeGen.DamMethods,
+            "GetConstructor" or "GetConstructors" => ModuleCodeGen.DamConstructors,
+            _ => 0,
+        };
+        if (kinds != 0) _m.MarkDynamicallyAccessed(type, kinds);
+    }
+
     private BclHandler? TypeObjectMember(IMethodSymbol target, IOperation? instance)
     {
         if (instance is null || target.IsStatic) return null;
