@@ -311,21 +311,20 @@ namespace CsharpcCoreLib
         /// <summary>Readiness from the engine: retries the waiting operations of that direction.</summary>
         internal void Process(bool readable, bool writable)
         {
-            List<SocketOperation> completed = null;
-            lock (this)
-            {
-                if (Closed) return;
-                if (readable) Drain(Reads, ref completed);
-                if (writable) Drain(Writes, ref completed);
-            }
-            if (completed != null)
-                foreach (SocketOperation op in completed) op.Complete(false);
+            // One operation at a time, each completed outside the lock: a socket rarely has more than one
+            // pending read and one pending write (Kestrel never does), and collecting them in a list
+            // allocated two objects per event.
+            if (readable) while (DrainOne(Reads) is { } op) op.Complete(false);
+            if (writable) while (DrainOne(Writes) is { } op) op.Complete(false);
         }
 
-        private void Drain(Queue<SocketOperation> queue, ref List<SocketOperation> completed)
+        private SocketOperation DrainOne(Queue<SocketOperation> queue)
         {
-            while (queue.Count > 0 && queue.Peek().TryRun(Socket))
-                (completed ??= new List<SocketOperation>()).Add(queue.Dequeue());
+            lock (this)
+            {
+                if (Closed || queue.Count == 0 || !queue.Peek().TryRun(Socket)) return null;
+                return queue.Dequeue();
+            }
         }
 
         /// <summary>The socket is closing: every pending operation ends with OperationAborted.</summary>

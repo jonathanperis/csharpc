@@ -131,9 +131,14 @@ namespace CsharpcCoreLib
 
         private static void Queue<TState>(Action<TState> callBack, TState state, bool flowContext)
         {
-            if (CoreIntrinsics.IsValueType<TState>()) Queue(() => callBack(state), flowContext);
+            if (CoreIntrinsics.IsValueType<TState>()) QueueClosure(callBack, state, flowContext);
             else QueueState(CoreIntrinsics.ObjectToPointer(callBack), CoreIntrinsics.ObjectToPointer(state), flowContext ? 1 : 0);
         }
+
+        // A separate method: C# allocates a lambda's closure where its captured parameters come into scope,
+        // so a lambda in Queue<TState> allocated one on every call, even on the reference-type path.
+        private static void QueueClosure<TState>(Action<TState> callBack, TState state, bool flowContext) =>
+            Queue(() => callBack(state), flowContext);
 
         public static bool QueueUserWorkItem(WaitCallback callBack) => QueueUserWorkItem(callBack, null);
 
