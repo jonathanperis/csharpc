@@ -7,6 +7,7 @@
 // Throwing helpers return on wasm32 (CSRT_THROWS), so every throw below is followed by a return.
 #define _POSIX_C_SOURCE 200809L
 #include "csrt.h"
+#include "csrt_pthread.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -31,19 +32,37 @@ const struct { csrt_MethodTable header; void* vtable[3 + TYPE_MEMBERINFO_SLOTS];
 #define TYPE_CACHE_SIZE 4096
 static struct { const csrt_MethodTable* key; TypeObject* value; } s_types[TYPE_CACHE_SIZE];
 
-TypeObject* csrt_type_from_mt(const csrt_MethodTable* mt) {
+static pthread_mutex_t s_types_lock = PTHREAD_MUTEX_INITIALIZER;
+
+/// The cached Type of `mt`, or NULL (and *free_slot: where it would go) when there is none yet.
+static TypeObject* type_lookup(const csrt_MethodTable* mt, size_t* free_slot) {
     size_t h = ((uintptr_t)mt >> 4) & (TYPE_CACHE_SIZE - 1);
     for (size_t probe = 0; probe < TYPE_CACHE_SIZE; probe++, h = (h + 1) & (TYPE_CACHE_SIZE - 1)) {
-        if (s_types[h].key == mt) return s_types[h].value;
-        if (!s_types[h].key) {
-            TypeObject* t = csrt_alloc(&csrt_Type_MT.header, sizeof(TypeObject));
-            t->target = mt;
-            s_types[h].key = mt;
-            s_types[h].value = t;
-            return t;
-        }
+        const csrt_MethodTable* key = __atomic_load_n(&s_types[h].key, __ATOMIC_ACQUIRE);
+        if (key == mt) return s_types[h].value;
+        if (!key) { *free_slot = h; return NULL; }
     }
     abort();  // more than 4096 distinct types asked for at runtime
+}
+
+TypeObject* csrt_type_from_mt(const csrt_MethodTable* mt) {
+    size_t slot;
+    TypeObject* t = type_lookup(mt, &slot);
+    if (t) return t;
+    // Inserts are serialized and publish the value before the key: two threads asking for a new type
+    // at once used to be able to see a key whose value was still NULL, or create two Type objects for
+    // one type (typeof(X) != typeof(X)). The object is allocated outside the lock (it may collect).
+    TypeObject* fresh = csrt_alloc(&csrt_Type_MT.header, sizeof(TypeObject));
+    fresh->target = mt;
+    pthread_mutex_lock(&s_types_lock);
+    t = type_lookup(mt, &slot);
+    if (!t) {
+        t = fresh;
+        s_types[slot].value = t;
+        __atomic_store_n(&s_types[slot].key, mt, __ATOMIC_RELEASE);
+    }
+    pthread_mutex_unlock(&s_types_lock);
+    return t;
 }
 
 TypeObject* csrt_type_of_object(void* obj) {
