@@ -622,14 +622,14 @@ int64_t csrt_pool_completed_count(void) { pthread_mutex_lock(&s_qlock); int64_t 
 
 /// ThreadPool.QueueUserWorkItem (flowContext: with the caller's execution-context flow) and
 /// UnsafeQueueUserWorkItem (without it): the corelib wraps the work in an Action.
-void csrt_pool_queue_action(void* action, bool flowContext) {
+void csrt_pool_queue_action(void* action, int32_t flowContext) {
     if (!action) csrt_throw_null_reference();
     enqueue_flow(K_INVOKE, action, NULL, flowContext ? csrt_flow_capture() : NULL);
 }
 
 /// The same for a delegate taking one reference argument and that argument (WaitCallback,
 /// Action<TState> with a reference-type TState, IThreadPoolWorkItem.Execute): no closure to allocate.
-void csrt_pool_queue_state(void* action, void* state, bool flowContext) {
+void csrt_pool_queue_state(void* action, void* state, int32_t flowContext) {
     if (!action) csrt_throw_null_reference();
     enqueue_flow(K_INVOKE_STATE, action, state, flowContext ? csrt_flow_capture() : NULL);
 }

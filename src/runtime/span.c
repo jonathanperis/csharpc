@@ -43,7 +43,7 @@ typedef bool b8 __attribute__((ext_vector_type(8)));
 #define CSRT_NO_ASAN
 #endif
 
-CSRT_NO_ASAN int32_t csrt_span_index_of_any_u8(const uint8_t* p, int32_t length, uint8_t a, uint8_t b, uint8_t c, bool except) {
+CSRT_NO_ASAN int32_t csrt_span_index_of_any_u8(const uint8_t* p, int32_t length, uint8_t a, uint8_t b, uint8_t c, int32_t except) {
     if (length <= 0) return -1;
     const uint8_t* block = (const uint8_t*)((uintptr_t)p & ~(uintptr_t)15);
     uint32_t first = (uint32_t)(p - block);  // lanes of the first block before the span
@@ -61,13 +61,13 @@ CSRT_NO_ASAN int32_t csrt_span_index_of_any_u8(const uint8_t* p, int32_t length,
     return -1;
 }
 
-CSRT_NO_ASAN int32_t csrt_span_index_of_any_u16(const uint16_t* p, int32_t length, uint16_t a, uint16_t b, uint16_t c, bool except) {
+CSRT_NO_ASAN int32_t csrt_span_index_of_any_u16(const uint16_t* p, int32_t length, uint16_t a, uint16_t b, uint16_t c, int32_t except) {
     if (length <= 0) return -1;
     if ((uintptr_t)p & 1) {  // not char-aligned (a span over unaligned memory): plain loop
         for (int32_t i = 0; i < length; i++) {
             uint16_t x;
             memcpy(&x, (const uint8_t*)p + 2 * (size_t)i, 2);
-            if ((x == a || x == b || x == c) != except) return i;
+            if ((x == a || x == b || x == c) != (except != 0)) return i;
         }
         return -1;
     }
@@ -95,7 +95,7 @@ int32_t csrt_span_index_of(const void* data, int32_t length, int64_t element_siz
     if (element_size == 2) {
         uint16_t v;
         memcpy(&v, value, sizeof v);
-        return csrt_span_index_of_any_u16(data, length, v, v, v, false);
+        return csrt_span_index_of_any_u16(data, length, v, v, v, 0);
     }
     const char* p = data;
     for (int32_t i = 0; i < length; i++)

@@ -33,7 +33,7 @@ static class Program
                 int r10 = c.IndexOfAnyExcept('a');
                 checksum = checksum * 31 + r1 + 3 * r2 + 5 * r3 + 7 * r4 + 11 * r5 + 13 * r6 + 17 * r7 + 19 * r8 + 23 * r9 + 29 * r10;
                 if (length is 0 or 1 or 15 or 16 or 17 or 33 && at is -1 or 0 or 7 or 8 or 15 or 16 or 32)
-                    sb.Append($"{length}/{at}: {r1} {r2} {r3} {r4} {r5} {r6} {r7} {r8} {r9} {r10}\n");
+                    sb.AppendLine($"{length}/{at}: {r1} {r2} {r3} {r4} {r5} {r6} {r7} {r8} {r9} {r10}");
             }
         }
         Console.Write(sb);
