@@ -170,6 +170,7 @@ static struct {
 
     LargeObject* large;
     size_t large_count, large_capacity;
+    size_t large_sorted;  // large[0, large_sorted) is sorted by address; later allocations are appended after it
 
     uintptr_t heap_min, heap_max;  // quick range filter over everything we own
 
@@ -866,6 +867,26 @@ static inline __attribute__((always_inline)) void mark_candidate(uintptr_t word)
 
 /// The start of the live heap object `p` points into, or NULL (MemoryMarshal.TryGetArray: Memory<T> is a
 /// bare { pointer, length }, and the collector knows which array an interior pointer belongs to).
+/// The large object containing `word`, outside a collection: the table is sorted at each collection, and
+/// objects allocated since then are appended unsorted (a short tail, scanned; sorted once it grows).
+static LargeObject* find_large_between_collections(uintptr_t word) {
+    if (g.large_count - g.large_sorted > 64) {
+        sort_large(g.large, g.large_count);
+        g.large_sorted = g.large_count;
+    }
+    size_t lo = 0, hi = g.large_sorted;
+    while (lo < hi) {
+        size_t mid = (lo + hi) / 2;
+        LargeObject* obj = &g.large[mid];
+        if (word < (uintptr_t)obj->start) hi = mid;
+        else if (word >= (uintptr_t)obj->start + obj->size) lo = mid + 1;
+        else return obj;
+    }
+    for (size_t i = g.large_sorted; i < g.large_count; i++)
+        if (word >= (uintptr_t)g.large[i].start && word < (uintptr_t)g.large[i].start + g.large[i].size) return &g.large[i];
+    return NULL;
+}
+
 void* csrt_gc_object_base(const void* p) {
     uintptr_t word = (uintptr_t)p;
     void* result = NULL;
@@ -880,14 +901,8 @@ void* csrt_gc_object_base(const void* p) {
                 if (index < c->slots && bit_get(c->allocated, index)) result = (uint8_t*)base + CHUNK_HEADER + index * c->object_size;
             }
         } else {
-            size_t lo = 0, hi = g.large_count;
-            while (lo < hi) {
-                size_t mid = (lo + hi) / 2;
-                LargeObject* obj = &g.large[mid];
-                if (word < (uintptr_t)obj->start) hi = mid;
-                else if (word >= (uintptr_t)obj->start + obj->size) lo = mid + 1;
-                else { result = obj->start; break; }
-            }
+            LargeObject* obj = find_large_between_collections(word);
+            if (obj) result = obj->start;
         }
     }
     gc_unlock();
@@ -1162,6 +1177,7 @@ static size_t sweep(void) {
         }
     }
     g.large_count = kept;
+    g.large_sorted = kept;
     return live;
 }
 

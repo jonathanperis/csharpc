@@ -624,9 +624,13 @@ namespace CsharpcCoreLib
             Dispose();
         }
 
+        private int _disposeStarted;
+
         public void Dispose()
         {
-            if (_disposed) return;
+            // Kestrel disposes a connection's socket from its send and receive loops at once: closing the
+            // descriptor twice could close another socket that reused the number.
+            if (Interlocked.Exchange(ref _disposeStarted, 1) != 0) return;
             _disposed = true;
             _connected = false;
             // Pending operations end with OperationAborted before the descriptor goes away.
