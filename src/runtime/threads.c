@@ -610,15 +610,102 @@ static Job* s_pool_job;           // the job workers should help with (one at a 
 static uint64_t s_pool_generation;
 static int s_pool_size;           // started workers
 
+#if defined(__linux__)
+/// The cgroup CPU quota as a processor count, rounded up (at least 1), or 0 when there is none:
+/// cpu.max ("quota period", v2) or cpu.cfs_quota_us / cpu.cfs_period_us (v1) of the process's own
+/// cgroup, found through /proc/self/mountinfo and /proc/self/cgroup (CoreCLR/NativeAOT's cgroup.cpp).
+static long cgroup_cpu_limit(void) {
+    char line[4096], mount[1024] = "", root[1024] = "", path[1024] = "";
+    int v2 = 0;
+    FILE* f = fopen("/proc/self/mountinfo", "r");
+    if (!f) return 0;
+    while (fgets(line, sizeof line, f)) {
+        // "id parent major:minor root mountpoint options... - fstype source superoptions"
+        char r[1024], m[1024], type[64], super[1024];
+        char* dash = strstr(line, " - ");
+        if (!dash || sscanf(line, "%*s %*s %*s %1023s %1023s", r, m) != 2 || sscanf(dash + 3, "%63s %*s %1023s", type, super) != 2) continue;
+        if (strcmp(type, "cgroup2") == 0 && !mount[0]) { strcpy(mount, m); strcpy(root, r); v2 = 1; }
+        else if (strcmp(type, "cgroup") == 0) {
+            // v1: the hierarchy whose super options name the cpu controller wins over v2.
+            for (char* opt = strtok(super, ","); opt; opt = strtok(NULL, ","))
+                if (strcmp(opt, "cpu") == 0) { strcpy(mount, m); strcpy(root, r); v2 = 0; break; }
+        }
+    }
+    fclose(f);
+    if (!mount[0] || !(f = fopen("/proc/self/cgroup", "r"))) return 0;
+    while (fgets(line, sizeof line, f)) {
+        // "hierarchy-id:controllers:path"; v2's is "0::path"
+        char* c1 = strchr(line, ':');
+        char* c2 = c1 ? strchr(c1 + 1, ':') : NULL;
+        if (!c2) continue;
+        *c2 = 0;
+        int match = 0;
+        if (v2) match = c1[1] == 0;
+        else for (char* ctl = strtok(c1 + 1, ","); ctl; ctl = strtok(NULL, ",")) if (strcmp(ctl, "cpu") == 0) { match = 1; break; }
+        if (!match) continue;
+        char* p = c2 + 1;
+        p[strcspn(p, "\n")] = 0;
+        // The cgroup path is relative to the hierarchy's root; the mount shows the part below its own root.
+        size_t rl = strlen(root);
+        if (strcmp(root, "/") != 0 && strncmp(p, root, rl) == 0) p += rl;
+        snprintf(path, sizeof path, "%s%s", mount, p);
+        break;
+    }
+    fclose(f);
+    if (!path[0]) return 0;
+    char file[1200];
+    long long quota = -1, period = 0;
+    if (v2) {
+        snprintf(file, sizeof file, "%s/cpu.max", path);
+        if (!(f = fopen(file, "r"))) return 0;
+        char q[32];
+        if (fscanf(f, "%31s %lld", q, &period) == 2 && strcmp(q, "max") != 0) quota = atoll(q);
+        fclose(f);
+    } else {
+        snprintf(file, sizeof file, "%s/cpu.cfs_quota_us", path);
+        if ((f = fopen(file, "r"))) { if (fscanf(f, "%lld", &quota) != 1) quota = -1; fclose(f); }
+        snprintf(file, sizeof file, "%s/cpu.cfs_period_us", path);
+        if ((f = fopen(file, "r"))) { if (fscanf(f, "%lld", &period) != 1) period = 0; fclose(f); }
+    }
+    if (quota <= 0 || period <= 0) return 0;
+    if (quota <= period) return 1;
+    return (long)((double)quota / period + 0.999999999);
+}
+#endif
+
+static int32_t s_processor_count;
+
+/// Environment.ProcessorCount as .NET computes it once at startup: DOTNET_PROCESSOR_COUNT if set
+/// (1..65535), else the CPUs the process's affinity mask allows, capped by the cgroup CPU quota.
 int32_t csrt_processor_count(void) {
+    int32_t cached = __atomic_load_n(&s_processor_count, __ATOMIC_RELAXED);
+    if (cached > 0) return cached;
 #if defined(__wasi__)
     long n = 1;  // one thread: Parallel loops run inline (Environment.ProcessorCount is 1, as in .NET on wasm)
-#elif defined(_WIN32)
-    long n = pthread_num_processors_np();
 #else
-    long n = sysconf(_SC_NPROCESSORS_ONLN);
+    long n = 0;
+    const char* config = getenv("DOTNET_PROCESSOR_COUNT");
+    if (config && *config) {
+        char* end;
+        long v = strtol(config, &end, 10);
+        if (*end == 0 && v > 0 && v <= 0xffff) n = v;
+    }
+    if (n == 0) {
+#if defined(_WIN32)
+        n = pthread_num_processors_np();
+#elif defined(__linux__)
+        cpu_set_t set;
+        n = sched_getaffinity(0, sizeof set, &set) == 0 ? CPU_COUNT(&set) : sysconf(_SC_NPROCESSORS_ONLN);
+        long limit = cgroup_cpu_limit();
+        if (limit > 0 && limit < n) n = limit;
+#else
+        n = sysconf(_SC_NPROCESSORS_ONLN);
 #endif
-    return n > 0 ? (int32_t)n : 1;
+    }
+#endif
+    if (n <= 0) n = 1;
+    __atomic_store_n(&s_processor_count, (int32_t)n, __ATOMIC_RELAXED);
+    return (int32_t)n;
 }
 
 /// Runs chunks until the range is exhausted. An exception propagates to the caller.

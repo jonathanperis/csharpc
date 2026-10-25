@@ -139,6 +139,8 @@ public sealed partial class FunctionCodeGen
             "ResourceStrings" => _m.ResourceStringsBlob(),
             "IsCoroutineIterator" => CallRuntime("csrt_is_iterator", L.I1, [L.Ptr], args[0]),
             "RuntimeConfig" => _m.AppContextBlob(),
+            "FrameworkProductVersion" => _m.StringLiteral(Frontend.SharedFramework.ProductVersion
+                ?? throw CompileError.Unsupported("the .NET runtime version (Environment.Version, RuntimeInformation.FrameworkDescription) without the .NET 11 shared framework", inv)),
             "TryFaultAsyncTask" => CallRuntime("csrt_task_try_fault_async", L.I1, [L.Ptr, L.Ptr], args[0], args[1]),
             "CompareStringsWith" => CallRuntime("csrt_string_compare_with", L.I32, [L.Ptr, L.Ptr, L.I32], args[0], args[1], args[2]),
             "JsonConfigureHook" => ProgramHook("JsonConfigure", target, args),

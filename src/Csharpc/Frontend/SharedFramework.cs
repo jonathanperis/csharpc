@@ -33,6 +33,48 @@ public static class SharedFramework
         }
     }
 
+    private static string? s_productVersion;
+
+    /// <summary>
+    /// The runtime's product version: System.Private.CoreLib's [AssemblyInformationalVersion] up to the
+    /// commit ("11.0.0-rc.2.26504.105+abc" → "11.0.0-rc.2.26504.105"), which .NET compiles into
+    /// Environment.Version and RuntimeInformation.FrameworkDescription; null without a shared framework.
+    /// </summary>
+    public static string? ProductVersion
+    {
+        get
+        {
+            lock (s_lock)
+                if (s_productVersion is not null) return s_productVersion;
+            if (Directory is not { } dir) return null;
+            string? version = null;
+            try
+            {
+                using var pe = new PEReader(File.OpenRead(Path.Combine(dir, "System.Private.CoreLib.dll")));
+                var md = pe.GetMetadataReader();
+                foreach (var h in md.GetAssemblyDefinition().GetCustomAttributes())
+                {
+                    var attribute = md.GetCustomAttribute(h);
+                    var type = attribute.Constructor.Kind switch
+                    {
+                        HandleKind.MethodDefinition => md.GetString(md.GetTypeDefinition(md.GetMethodDefinition((MethodDefinitionHandle)attribute.Constructor).GetDeclaringType()).Name),
+                        HandleKind.MemberReference when md.GetMemberReference((MemberReferenceHandle)attribute.Constructor).Parent is { Kind: HandleKind.TypeReference } parent
+                            => md.GetString(md.GetTypeReference((TypeReferenceHandle)parent).Name),
+                        _ => null,
+                    };
+                    if (type != "AssemblyInformationalVersionAttribute") continue;
+                    var blob = md.GetBlobReader(attribute.Value);
+                    if (blob.ReadUInt16() == 1) version = blob.ReadSerializedString(); // after the prolog
+                }
+            }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException or BadImageFormatException) { }
+            // Fallback: the framework directory is named after the version.
+            version ??= Path.GetFileName(Path.TrimEndingDirectorySeparator(dir));
+            if (version.IndexOf('+') is var plus and >= 0) version = version[..plus];
+            lock (s_lock) return s_productVersion = version;
+        }
+    }
+
     /// <summary>
     /// Another shared framework of the same installation (Microsoft.AspNetCore.App): the directory next to
     /// <see cref="Directory"/> with the same version, else that framework's newest 11.x; null if absent.

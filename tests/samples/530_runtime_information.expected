@@ -1,0 +1,21 @@
+Version: major 11, minor 0, build 0, revision -1
+FrameworkDescription starts with '.NET 11.0.0': True
+RuntimeIdentifier matches the OS and architecture: True
+OSArchitecture is the process architecture: True
+OSDescription is set: True
+ProcessorCount is positive: True
+True
+True
+True
+False
+OSX
+The value cannot be an empty string. (Parameter 'osPlatform')
+530_runtime_information
+530_runtime_information
+530_runtime_information
+Debug
+1.0.0.0
+True
+True
+.NETCoreApp,Version=v11.0 (.NET 11.0)
+1.0.0.0

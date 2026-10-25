@@ -7,11 +7,11 @@ namespace Csharpc.CodeGen;
 
 /// <summary>
 /// Assembly.GetCustomAttribute&lt;T&gt;() as compile-time metadata (closed world, ADR 0006): the attributes of
-/// every IL assembly the program has are known when it is compiled, so the call becomes a switch on the
-/// assembly's identity whose cases construct the matching attribute from its metadata, as .NET's
-/// CustomAttribute does at run time (a new object per call). Assemblies whose attributes csharpc doesn't
-/// have — the program's own (no SDK-generated AssemblyInfo), the shared framework — throw
-/// NotSupportedException instead of answering null.
+/// every IL assembly the program has, and of the program's own assembly (its sources plus the AssemblyInfo
+/// the SDK generates), are known when it is compiled, so the call becomes a switch on the assembly's
+/// identity whose cases construct the matching attribute from its metadata, as .NET's CustomAttribute
+/// does at run time (a new object per call). Assemblies whose attributes csharpc doesn't have — the
+/// shared framework, other projects of the build — throw NotSupportedException instead of answering null.
 /// </summary>
 public sealed partial class FunctionCodeGen
 {
@@ -23,13 +23,26 @@ public sealed partial class FunctionCodeGen
         var result = NewTemp(L.Ptr, "attribute");
         _b.Store(LlvmContext.Null(L.Ptr), result);
         var done = NewBlock("attribute.done");
-        foreach (var il in _m.Il.Assemblies)
+        // The program's own (root) assembly: its [assembly: ...] attributes, the SDK-generated AssemblyInfo
+        // included (FrontendSettings.AssemblyInfo). Attributes of other projects folded into the compilation
+        // belong to their own assemblies, which stay unknown.
+        List<(string Identity, IEnumerable<AttributeData> Attributes)> assemblies = [];
+        if (_m.ProgramAssemblyName(null) is { } programName)
         {
-            var symbol = il.Symbol;
-            var matches = symbol.GetAttributes().Where(a => a.AttributeClass is { } c && DerivesFromOrEquals(c, attributeType)).ToList();
+            var root = _m.ProgramAssemblies.FirstOrDefault(a => a.IsRoot);
+            bool OfRoot(AttributeData a) => _m.ProgramAssemblies.Count <= 1
+                || a.ApplicationSyntaxReference?.SyntaxTree.FilePath is not { } path
+                || path == Frontend.RoslynFrontend.AssemblyInfoTreePath
+                || root?.Files.Contains(Path.GetFullPath(path)) == true;
+            assemblies.Add((programName, _m.Compilation.Assembly.GetAttributes().Where(OfRoot)));
+        }
+        foreach (var il in _m.Il.Assemblies) assemblies.Add((il.Symbol.Identity.GetDisplayName(), il.Symbol.GetAttributes()));
+        foreach (var (identity, attributes) in assemblies)
+        {
+            var matches = attributes.Where(a => a.AttributeClass is { } c && DerivesFromOrEquals(c, attributeType)).ToList();
             var hit = NewBlock("attribute.assembly");
             var next = NewBlock("attribute.next");
-            var same = CallRuntime("csrt_string_equals", L.I1, [L.Ptr, L.Ptr], name, _m.StringLiteral(symbol.Identity.GetDisplayName()));
+            var same = CallRuntime("csrt_string_equals", L.I1, [L.Ptr, L.Ptr], name, _m.StringLiteral(identity));
             _b.CondBr(same, hit, next);
             _b.PositionAtEnd(hit);
             if (matches.Count > 1)

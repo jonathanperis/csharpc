@@ -46,7 +46,9 @@ public sealed class Compiler(CompilerOptions options)
             return Fail($"target '{triple}': macOS on x86-64 is not supported by csharpc yet (Apple silicon / arm64 only)");
         if (darwin && options.Static)
             return Fail("--static is not supported on macOS: Apple does not support statically linked executables (libSystem is always linked dynamically)");
-        string[] coreLibDefines = [wasm ? "CSHARPC_TARGET_WASI" : windows ? "CSHARPC_TARGET_WINDOWS" : darwin ? "CSHARPC_TARGET_MACOS" : "CSHARPC_TARGET_LINUX"];
+        string[] coreLibDefines = [wasm ? "CSHARPC_TARGET_WASI" : windows ? "CSHARPC_TARGET_WINDOWS" : darwin ? "CSHARPC_TARGET_MACOS" : "CSHARPC_TARGET_LINUX",
+            // The architecture (RuntimeInformation.ProcessArchitecture, the runtime identifier).
+            wasm ? "CSHARPC_TARGET_WASM32" : triple.StartsWith("aarch64", StringComparison.Ordinal) || triple.StartsWith("arm64", StringComparison.Ordinal) ? "CSHARPC_TARGET_ARM64" : "CSHARPC_TARGET_X64"];
         FrontendSettings settings;
         if (options.Project is { } project)
         {
@@ -74,6 +76,7 @@ public sealed class Compiler(CompilerOptions options)
                 CoreLibDefines = [.. coreLibDefines, .. FileGlobalization(options.Inputs)],
                 RuntimeConfig = options.Inputs.Count > 0 ? [.. ProjectLoader.FileBasedRuntimeConfig(options.Inputs[0])] : [],
                 AssemblyVersion = options.Inputs.Count > 0 ? ProjectLoader.FileBasedAssemblyVersion(options.Inputs[0]) : "1.0.0.0",
+                AssemblyInfo = options.Inputs.Count > 0 ? ProjectLoader.FileBasedAssemblyInfo(options.Inputs[0], options.Configuration) : null,
             };
         }
         if (options.SharedFrameworks.Count > 0)

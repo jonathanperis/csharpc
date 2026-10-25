@@ -78,6 +78,11 @@ namespace CsharpcCoreLib
         /// <summary>runtimeconfig.json configProperties, encoded (ModuleCodeGen.Resources.cs).</summary>
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern string RuntimeConfig();
         /// <summary>
+        /// The product version of the .NET runtime csharpc compiles against ("11.0.0-rc.2.26504.105"): System.Private.CoreLib's
+        /// informational version without the commit, which .NET compiles into Environment.Version and RuntimeInformation.FrameworkDescription.
+        /// </summary>
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern string FrameworkProductVersion();
+        /// <summary>
         /// Calls the program's CsharpcCoreLib.ProgramHooks.JsonConfigure (code the front end generates for
         /// reflection-style System.Text.Json calls, Frontend/JsonReflectionContexts.cs) if it has one.
         /// </summary>

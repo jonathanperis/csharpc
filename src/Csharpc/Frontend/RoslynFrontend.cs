@@ -13,6 +13,9 @@ namespace Csharpc.Frontend;
 /// </summary>
 public static class RoslynFrontend
 {
+    /// <summary>The synthesized SDK AssemblyInfo (FrontendSettings.AssemblyInfo).</summary>
+    public const string AssemblyInfoTreePath = "<assembly-info>.g.cs";
+
     /// <summary>Same set the .NET SDK injects for &lt;ImplicitUsings&gt;enable&lt;/ImplicitUsings&gt; console apps.</summary>
     private const string ImplicitUsings = """
         global using global::System;
@@ -68,6 +71,8 @@ public static class RoslynFrontend
         List<SyntaxTree> trees = [.. settings.Files.Select(f => s_parsed.TryGetValue(Path.GetFullPath(f), out var tree) ? tree : parsed[loose++])];
         if (settings.GlobalUsings is { Length: > 0 } usings)
             trees.Add(CSharpSyntaxTree.ParseText(usings, parseOptions, path: "<global-usings>.g.cs"));
+        if (settings.AssemblyInfo is { Length: > 0 } assemblyInfo)
+            trees.Add(CSharpSyntaxTree.ParseText(assemblyInfo, parseOptions, path: AssemblyInfoTreePath));
         trees.AddRange(parsed[(projectFiles.Count + looseFiles.Count)..]);
 
         var nullable = NullableOf(settings.Nullable);
@@ -82,7 +87,7 @@ public static class RoslynFrontend
         var compilation = CSharpCompilation.Create(name, trees, [.. FrameworkReferences(settings), .. settings.IlReferences], options);
         // Reflection-based System.Text.Json calls get compile-time metadata from synthesized contexts.
         List<Diagnostic> jsonDiagnostics = [];
-        compilation = JsonReflectionContexts.Add(compilation, [.. trees.Where(t => !IsCoreLibTree(t) && t.FilePath != "<global-usings>.g.cs")],
+        compilation = JsonReflectionContexts.Add(compilation, [.. trees.Where(t => !IsCoreLibTree(t) && t.FilePath is not ("<global-usings>.g.cs" or AssemblyInfoTreePath))],
             settings.JsonReflectionEnabled, jsonDiagnostics, out _);
         // Source generators the SDK runs implicitly ([LibraryImport], [GeneratedRegex], [JsonSerializable]).
         compilation = SourceGenerators.Run(compilation, compilation.SyntaxTrees.Where(t => !IsCoreLibTree(t)), out var generatorDiagnostics);
@@ -145,6 +150,8 @@ public static class RoslynFrontend
             List<SyntaxTree> trees = [.. project.Files.Select(f => s_parsed[Path.GetFullPath(f)])];
             if (project.GlobalUsings is { Length: > 0 } usings)
                 trees.Add(CSharpSyntaxTree.ParseText(usings, parseOptions, path: "<global-usings>.g.cs"));
+            if (project.AssemblyInfo is { Length: > 0 } assemblyInfo)
+                trees.Add(CSharpSyntaxTree.ParseText(assemblyInfo, parseOptions, path: AssemblyInfoTreePath));
             var options = new CSharpCompilationOptions(project.IsRoot ? OutputKind.ConsoleApplication : OutputKind.DynamicallyLinkedLibrary,
                 nullableContextOptions: NullableOf(project.Nullable),
                 allowUnsafe: project.AllowUnsafe,
@@ -319,6 +326,11 @@ public sealed record FrontendSettings
     /// sets it; "source" = from the program's own [AssemblyVersion]; null = unknown at compile time.
     /// </summary>
     public string? AssemblyVersion { get; init; } = "1.0.0.0";
+    /// <summary>
+    /// The SDK-generated AssemblyInfo source of the program's (root) assembly — `[assembly: AssemblyCompany(...)]`
+    /// and the other GenerateAssemblyInfo attributes — compiled in as `dotnet build` does; null = none.
+    /// </summary>
+    public string? AssemblyInfo { get; init; }
     /// <summary>Type whose Main is the entry point (&lt;StartupObject&gt;); null = the only one.</summary>
     public string? MainTypeName { get; init; }
     /// <summary>
@@ -368,6 +380,8 @@ public sealed record ProjectUnit
     public required bool IsRoot { get; init; }
     /// <summary>See FrontendSettings.AssemblyVersion.</summary>
     public string? AssemblyVersion { get; init; } = "1.0.0.0";
+    /// <summary>See FrontendSettings.AssemblyInfo.</summary>
+    public string? AssemblyInfo { get; init; }
     public required IReadOnlyList<string> Files { get; init; }
     public IReadOnlyList<string> Defines { get; init; } = [];
     public string? LanguageVersion { get; init; }

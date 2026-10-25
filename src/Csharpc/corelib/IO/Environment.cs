@@ -195,6 +195,21 @@ namespace CsharpcCoreLib
         public static bool Is64BitOperatingSystem => true;
         public static int SystemPageSize => 4096;
 
+        /// <summary>The runtime's product version without its prerelease label ("11.0.0-rc.2..." → 11.0.0), as .NET compiles it in.</summary>
+        public static Version Version
+        {
+            get
+            {
+                string product = CoreIntrinsics.FrameworkProductVersion();
+                int dash = product.IndexOf('-');
+                string[] parts = (dash >= 0 ? product.Substring(0, dash) : product).Split('.');
+                int major = int.Parse(parts[0]), minor = parts.Length > 1 ? int.Parse(parts[1]) : 0;
+                if (parts.Length > 3) return new Version(major, minor, int.Parse(parts[2]), int.Parse(parts[3]));
+                if (parts.Length > 2) return new Version(major, minor, int.Parse(parts[2]));
+                return new Version(major, minor);
+            }
+        }
+
         public static int ExitCode
         {
             get => csrt_get_exit_code();
