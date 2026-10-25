@@ -28,9 +28,9 @@ reuse, GC root scanning, bucket-locked monitors).
 
 ## Open branches
 
-None from this stretch. `parity-blockers` is merged (CI run 40198351938, NativeAOT parity 95.9 %).
-`m8-perf` is merged (CI run 40208654147 on `5b06180`, green on all five; the merge commit is
-`2119997`). Remote `m8-perf` is deleted.
+`ci/gc-nursery` (this stretch): non-moving nursery + compiler card table, **off by default**
+(`--gc-nursery` / `CSHARPC_GC_NURSERY=1`). See ADR 0004 revision and Cursor progress below.
+`parity-blockers` and `m8-perf` are merged; remote `m8-perf` and `ci/precise-gc` are deleted.
 
 ## Measured state
 
@@ -81,8 +81,10 @@ marking was slower on 4 cores and is not in the default binary
    throughput was 0.97 / 0.90 / 0.89; JSON p99 and startup were still ahead. On 40214226895 the same
    server bits were plaintext 1.00 / 0.97 and JSON was ahead, so the ratio move is the runner.
    GC: hosted x86-64 `livemutate` pause 18.6 ms vs NativeAOT 366 ms, with a larger retained heap
-   (205 vs 76 MiB). The next collector increment is a non-moving nursery with a compiler card table
-   (ADR 0004). Short-lived churn still collects more often than NativeAOT when the heap is small.
+   (205 vs 76 MiB). The nursery + card table landed opt-in only (ADR 0004): RSS falls with
+   `--gc-nursery` but churn throughput and livemutate pause get worse, and barriers blow the async
+   size budget — not the default. Next collector lever is a denser remembered set (or
+   mostly-copying), not flipping the flag.
 2. M4: the remaining parity blockers (see 18-compatibility.md) to 100 %.
 3. Runtime tier 1 (ADR 0017): move the C runtime's ordinary code to C# where it's at least as fast.
 4. Early gauge for M7's acceptance gate: build dotnet's AOT test suites with csharpc on CI.
@@ -219,6 +221,35 @@ and 627 at `-O0` and `-O2`.
 The default collector is not faster than `2119997`. Both parallel markers lost to one thread, and
 the timing code that measured mark vs sweep missed the async budget, so it is gone. The nursery and
 the card table are not implemented.
+
+**19:05.** `ci/gc-nursery`: non-moving nursery + compiler card table, off by default. Design after
+measurement (ADR 0004 updated):
+
+- Young is a bit on each 256 KiB chunk (and large objects are born old), not a contiguous space.
+  Minors mark young only from stacks, statics and dirty old regions, sweep young chunks, then
+  promote survivors in place so cards can clear. Majors are today's full mark-sweep (also every
+  32nd minor, `GC.Collect`, and stress).
+- Cards are per-chunk / per-large dirty bits. A flat table over `[heap_min, heap_max)` OOM'd under
+  ASLR (sparse mmap). `--gc-nursery` makes codegen emit `csrt_gc_write` (dirty-before-store) on
+  heap reference stores; atomics/volatile and `Array.Copy` of refs use `csrt_gc_cards_dirty`.
+  Locals and statics stay plain stores. wasm32-wasi gets the same barrier; shadow stack unchanged.
+- Nursery code is `#if CSRT_HAS_NURSERY` / `-DCSRT_GC_NURSERY_DEFAULT` so the default `gc.o` stays
+  lean. Sticky survivors (keep young, only clear cards) produced a wrong checksum once cards
+  cleared; promotion was required. A 4 MiB nursery trigger made too many minors once the live set
+  had promoted; floor is 32 MiB (`CSRT_GC_NURSERY_MB`).
+
+Local 4-vCPU (`benchmarks/gc`, median):
+
+| | churn ops/s | churn pause | livemutate ops/s | livemutate pause | collections (live) | heap / RSS |
+|---|---:|---:|---:|---:|---:|---:|
+| default | 18.7M | 3.08 ms | 4.00M | 36.0 ms | 2 | 99 / 205 MiB |
+| `--gc-nursery` | 11.7M | 3.99 ms | 3.53M | 53.3 ms | 7 | 110 / 135 MiB |
+| NativeAOT (earlier baseline on this host) | 20.8M | 2.08 ms | 3.04M | 117.4 ms | 1 | 164 / 235 MiB |
+
+RSS wins (~70 MiB); churn loses ~37 %; livemutate pause gets worse. Size with barriers: async
+~167680 vs budget 147456. Default (flag off): hello **28520**, async **147200**. Correctness:
+`_gc` samples and 457 at `-O0`/`-O2` default; same six under `--gc-nursery`; `CSRT_GC_STRESS=1`
+on 310 with nursery. Not shipping as default — flag + honest ADR. CI run id filled after push.
 
 ## Working rules
 
