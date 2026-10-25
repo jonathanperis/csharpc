@@ -58,7 +58,8 @@ internal static class StringExtras { public static string Join<T>(string separat
   shadow name only inside its own class (or via a cast through `object`).
 * The corelib is compiled on its own, as `CsharpcCoreLib.dll`, once per symbol set and cached
   ([ADR 0015](adr/0015-corelib-il.md)); programs reference it and its methods are lowered from IL as
-  they are reached. `#if` may test `CSHARPC_TARGET_*`, the globalization modes and any program symbol:
+  they are reached. `#if` may test `CSHARPC_TARGET_*` (the OS: `LINUX`/`MACOS`/`WINDOWS`/`WASI`; the architecture:
+  `X64`/`ARM64`/`WASM32`), the globalization modes and any program symbol (never `DEBUG`, which is left out):
   each distinct set of tested symbols is its own assembly. `--corelib source` (or
   `CSHARPC_CORELIB=source`) still parses the sources into the program's compilation instead; keep the
   code valid both ways and stay conservative (no primary constructors, no collection expressions).
