@@ -53,8 +53,8 @@ typedef struct csrt_Task {
     const csrt_MethodTable* mt;
     int32_t state;            // 0 pending, 1 ran to completion, 2 faulted, 3 canceled (atomic)
     int32_t payload_size;
-    csrt_Array* conts;        // pairs (kind, ptr)
-    int32_t ncont;
+    csrt_Array* conts;        // pairs (kind, ptr); with ncont < 0: the one continuation's ptr itself
+    int32_t ncont;            // < 0: one continuation of kind -ncont, stored inline (no array)
     int32_t lock;             // spinlock guarding state transitions + conts
     void* exception;          // faulted: the exception `await` rethrows (the first one)
     void* aggregate;          // faulted: Task.Exception (AggregateException), created lazily
@@ -365,7 +365,23 @@ int32_t csrt_task_id(csrt_Task* t) {
 static bool add_continuation(csrt_Task* t, intptr_t kind, void* p) {
     task_lock(t);
     if (task_state(t) != T_PENDING) { task_unlock(t); return false; }
-    int64_t cap = t->conts ? t->conts->length / 2 : 0;
+    // Most tasks get at most one continuation (the awaiting coroutine): it is stored inline, and an
+    // array only appears with the second (an array per suspended await was 18 M of the TechEmpower
+    // server's allocations in a profiling run).
+    if (t->ncont == 0) {
+        t->conts = p;
+        t->ncont = -(int32_t)kind;
+        task_unlock(t);
+        return true;
+    }
+    if (t->ncont < 0) {
+        csrt_Array* pairs = csrt_new_array(sizeof(void*), 4 * 2);
+        words(pairs)[0] = (void*)(intptr_t)-t->ncont;
+        words(pairs)[1] = (void*)t->conts;
+        t->conts = pairs;
+        t->ncont = 1;
+    }
+    int64_t cap = t->conts->length / 2;
     if (t->ncont == cap) {
         int64_t ncap = cap ? cap * 2 : 2;
         csrt_Array* grown = csrt_new_array(sizeof(void*), ncap * 2);
@@ -510,9 +526,11 @@ static void invoke_action(void* del) {
 }
 
 static void run_continuations(csrt_Task* t, csrt_Array* conts, int32_t n) {
+    intptr_t single = n < 0 ? -(intptr_t)n : 0;  // one inline continuation of this kind
+    if (single) n = 1;
     for (int32_t i = 0; i < n; i++) {
-        intptr_t kind = (intptr_t)words(conts)[i * 2];
-        void* p = words(conts)[i * 2 + 1];
+        intptr_t kind = single ? single : (intptr_t)words(conts)[i * 2];
+        void* p = single ? (void*)conts : words(conts)[i * 2 + 1];
         switch (kind) {
             case K_RESUME:
             case K_RESUME_FLOW: {
