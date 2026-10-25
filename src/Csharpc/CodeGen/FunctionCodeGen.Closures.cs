@@ -305,7 +305,7 @@ public sealed partial class FunctionCodeGen
             var itf = method.ContainingType;
             var index = ModuleCodeGen.InterfaceSlotIndex(itf, method);
             _m.NoteInterfaceDispatch(itf, index);
-            var slots = InterfaceSlotTable(self, itf);
+            var slots = CallRuntime("csrt_interface_slots", L.Ptr, [L.Ptr, L.Ptr], self, _m.InterfaceMethodTable(itf));
             return _b.Load(L.Ptr, _b.InBoundsGep(L.I8, slots, [L.ConstUInt(L.I64, (ulong)index * T.PointerSize)], "islot"), "ifn");
         }
         var layout = _m.GetLayout(method.ContainingType);

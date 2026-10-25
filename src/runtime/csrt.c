@@ -481,10 +481,28 @@ void* csrt_isinst_class(void* obj, const csrt_MethodTable* type) {
     return NULL;
 }
 
-void* const* csrt_interface_slots(void* obj, const csrt_MethodTable* interface_type) {
-    const csrt_MethodTable* mt = ((csrt_Object*)obj)->mt;
+// Interface lookups go through a cache of (receiver method table, interface) -> index in the receiver's
+// interface map: one word per entry, the method table in the low 48 bits (user-space addresses fit on
+// every target csharpc supports) and the index above them. A hit is validated against the map itself
+// (the index is in range and names the interface), so a racing update or a collision in the table is
+// only a miss, never a wrong slot table. Kestrel's types implement 30+ feature interfaces and most
+// request-path calls go through them: scanning the map on every call was 4-7 % of the TechEmpower
+// profile. The cache is keyed in the runtime, so call sites stay as small as before.
+#define ICACHE_MT_MASK (((uint64_t)1 << 48) - 1)
+#define ICACHE_BITS 12
+static uint64_t s_icache[1 << ICACHE_BITS];
+
+static inline size_t icache_slot(const csrt_MethodTable* mt, const csrt_MethodTable* itf) {
+    return (size_t)((((uintptr_t)mt >> 3) ^ ((uintptr_t)itf >> 3) * 0x9E3779B97F4A7C15ull) * 0x9E3779B97F4A7C15ull >> (64 - ICACHE_BITS));
+}
+
+__attribute__((noinline)) static void* const* interface_lookup(const csrt_MethodTable* mt, const csrt_MethodTable* interface_type, uint64_t* entry) {
     for (uint32_t i = 0; i < mt->interface_count; i++)
-        if (mt->interfaces[i].interface_type == interface_type) return mt->interfaces[i].slots;
+        if (mt->interfaces[i].interface_type == interface_type) {
+            if (((uintptr_t)mt & ~ICACHE_MT_MASK) == 0)  // maps hold < 65536 entries (ModuleCodeGen)
+                __atomic_store_n(entry, (uint64_t)(uintptr_t)mt | ((uint64_t)i << 48), __ATOMIC_RELAXED);
+            return mt->interfaces[i].slots;
+        }
     void* const* builtin = builtin_interface_slots(mt, interface_type);
     if (builtin) return builtin;
     void* const* variant = variant_interface_slots(mt, interface_type);
@@ -495,28 +513,14 @@ void* const* csrt_interface_slots(void* obj, const csrt_MethodTable* interface_t
     csrt_fail_unhandled();
 }
 
-// Interface call sites cache their last receiver: one word per site holding the receiver's method
-// table in the low 48 bits (user-space addresses fit, on every target csharpc supports) and the index
-// of the interface in its map above them, read and written atomically, so a racing update is only a
-// miss. Kestrel's feature interfaces live in maps of 30+ entries, scanned on every call before.
-#define ICACHE_MT_MASK (((uint64_t)1 << 48) - 1)
-
-__attribute__((noinline)) static void* const* interface_slots_miss(void* obj, const csrt_MethodTable* itf, uint64_t* cache) {
+__attribute__((noinline)) void* const* csrt_interface_slots(void* obj, const csrt_MethodTable* interface_type) {
     const csrt_MethodTable* mt = ((csrt_Object*)obj)->mt;
-    for (uint32_t i = 0; i < mt->interface_count; i++)
-        if (mt->interfaces[i].interface_type == itf) {
-            if (((uintptr_t)mt & ~ICACHE_MT_MASK) == 0 && i < 0x10000)
-                __atomic_store_n(cache, (uint64_t)(uintptr_t)mt | ((uint64_t)i << 48), __ATOMIC_RELAXED);
-            return mt->interfaces[i].slots;
-        }
-    return csrt_interface_slots(obj, itf);  // runtime-provided and variant interfaces, or the cast failure
-}
-
-void* const* csrt_interface_slots_cached(void* obj, const csrt_MethodTable* itf, uint64_t* cache) {
-    const csrt_MethodTable* mt = ((csrt_Object*)obj)->mt;
-    uint64_t w = __atomic_load_n(cache, __ATOMIC_RELAXED);
-    if ((w & ICACHE_MT_MASK) == (uint64_t)(uintptr_t)mt) return mt->interfaces[w >> 48].slots;
-    return interface_slots_miss(obj, itf, cache);
+    uint64_t* entry = &s_icache[icache_slot(mt, interface_type)];
+    uint64_t w = __atomic_load_n(entry, __ATOMIC_RELAXED);
+    uint32_t i = (uint32_t)(w >> 48);
+    if ((w & ICACHE_MT_MASK) == (uint64_t)(uintptr_t)mt && i < mt->interface_count && mt->interfaces[i].interface_type == interface_type)
+        return mt->interfaces[i].slots;
+    return interface_lookup(mt, interface_type, entry);
 }
 
 _Noreturn void csrt_unsupported_method(const char* message) {

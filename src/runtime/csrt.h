@@ -318,8 +318,6 @@ typedef struct { int64_t count; const csrt_TypeNameEntry* entries; } csrt_TypeNa
 void* csrt_isinst_class(void* obj, const csrt_MethodTable* type);   // obj if it is a `type`, else null
 void* csrt_castclass(void* obj, const csrt_MethodTable* type);      // obj, or InvalidCastException
 void* const* csrt_interface_slots(void* obj, const csrt_MethodTable* interface_type);  // obj non-null
-// The same through a call site's one-entry cache (a zero-initialized uint64_t per site).
-void* const* csrt_interface_slots_cached(void* obj, const csrt_MethodTable* interface_type, uint64_t* cache);
 csrt_String* csrt_object_to_string(void* obj);                      // virtual ToString(); null -> ""
 csrt_String* csrt_object_to_string_default(void* obj);              // System.Object.ToString()
 bool csrt_object_equals_default(void* self, void* other);
