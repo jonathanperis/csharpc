@@ -163,6 +163,11 @@ prefers it. Local retest without any `dotnet` on PATH: 01_hello and 104_linq OK;
 Windows). `smoke-release.sh` now derives want-stdout like `tests/platform.sh` `platform_expected`.
 Merged `origin/main` (`ee7f8f8` precise-GC) into the packaging branch before re-verify.
 
+**19:47.** CI 40235338045 / 40235341916 and Release dry-run 40235338055 on `49f45c2`: all five CI
+jobs green; all four RID builds + smokes green (win-x64 included). Publish skipped (dry-run).
+Removed the temporary `ci/release-packaging` push trigger from `release.yml`. Merged
+`origin/main` `b2099e2` (precise-gc status log). Ready to merge to main.
+
 Audit of the `m8-perf` merge on 2026-10-25. Times are BRT (UTC−3).
 
 
