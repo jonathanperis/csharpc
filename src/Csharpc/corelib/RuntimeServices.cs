@@ -331,6 +331,14 @@ namespace CsharpcCoreLib
         public static bool IsDynamicCodeCompiled => false;
     }
 
+    [ShadowMembers("System.GC")]
+    internal static class GCMembers
+    {
+        // csharpc's arrays are always zeroed and never move: both are an ordinary array.
+        public static T[] AllocateUninitializedArray<T>(int length, bool pinned = false) => new T[length];
+        public static T[] AllocateArray<T>(int length, bool pinned = false) => new T[length];
+    }
+
     [ShadowMembers("System.Runtime.CompilerServices.RuntimeHelpers")]
     internal static unsafe class RuntimeHelpersMembers
     {
@@ -340,6 +348,20 @@ namespace CsharpcCoreLib
         private static nuint MinimumStack => (nuint)(IntPtr.Size == 8 ? 128 * 1024 : 64 * 1024);
 
         public static bool TryEnsureSufficientExecutionStack() => csrt_stack_remaining() >= MinimumStack;
+
+        /// <summary>array[range] (the compiler's RuntimeHelpers.GetSubArray): a copy of the slice.</summary>
+        public static T[] GetSubArray<T>(T[] array, Range range)
+        {
+            if (array == null) throw new ArgumentNullException("array");
+            // Range.GetOffsetAndLength
+            int offset = range.Start.GetOffset(array.Length), end = range.End.GetOffset(array.Length);
+            if ((uint)end > (uint)array.Length || (uint)offset > (uint)end) throw new ArgumentOutOfRangeException("length");
+            int length = end - offset;
+            if (length == 0) return Array.Empty<T>();
+            var dest = new T[length];
+            Array.Copy(array, offset, dest, 0, length);
+            return dest;
+        }
 
         public static void EnsureSufficientExecutionStack()
         {

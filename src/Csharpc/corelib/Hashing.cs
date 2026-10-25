@@ -1,7 +1,7 @@
 // SHA-1 and SHA-256 (FIPS 180-4) behind .NET's HashAlgorithm / SHA1 / SHA256 / IncrementalHash API.
 // .NET delegates to the OS's crypto library; the digests are defined bit for bit by the standard, so a
 // managed implementation gives the same bytes. Roslyn hashes source text, file identities and PE
-// content with them. Other algorithms (MD5, SHA-384/512, SHA-3, HMAC) are not implemented and stay
+// content with them; HMAC over them is Crypto/Pbkdf2.cs. Other algorithms (MD5, SHA-384/512, SHA-3) are not implemented and stay
 // compile-time "no implementation" diagnostics or NotSupportedException where the name is a value.
 #nullable disable
 using System;
@@ -351,6 +351,26 @@ namespace CsharpcCoreLib
         public static IncrementalHashImpl CreateHash(HashAlgorithmName hashAlgorithm) =>
             new IncrementalHashImpl(hashAlgorithm, HashEngine.For(hashAlgorithm));
 
+        public static IncrementalHashImpl CreateHMAC(HashAlgorithmName hashAlgorithm, byte[] key)
+        {
+            if (key == null) throw new ArgumentNullException("key");
+            return CreateHMAC(hashAlgorithm, new ReadOnlySpan<byte>(key));
+        }
+
+        public static IncrementalHashImpl CreateHMAC(HashAlgorithmName hashAlgorithm, ReadOnlySpan<byte> key) =>
+            new IncrementalHashImpl(hashAlgorithm, new HmacHashEngine(new HmacEngine(hashAlgorithm, key)));
+
+        /// <summary>HMAC (Crypto/Pbkdf2.cs) behind the HashEngine interface.</summary>
+        private sealed class HmacHashEngine : HashEngine
+        {
+            private readonly HmacEngine _hmac;
+            public HmacHashEngine(HmacEngine hmac) { _hmac = hmac; }
+            public override int HashSizeInBytes => _hmac.HashSizeInBytes;
+            public override void Reset() => _hmac.Finish();
+            public override void Append(ReadOnlySpan<byte> data) => _hmac.Append(data);
+            public override byte[] Finish() => _hmac.Finish();
+        }
+
         public void AppendData(byte[] data)
         {
             if (data == null) throw new ArgumentNullException("data");
@@ -376,6 +396,27 @@ namespace CsharpcCoreLib
         {
             if (_disposed) throw new ObjectDisposedException("IncrementalHash");
             return _engine.Finish();
+        }
+
+        public int GetHashAndReset(Span<byte> destination)
+        {
+            if (_disposed) throw new ObjectDisposedException("IncrementalHash");
+            if (destination.Length < HashLengthInBytes) throw new ArgumentException("Destination is too short.", "destination");
+            byte[] hash = _engine.Finish();
+            hash.CopyTo(destination);
+            return hash.Length;
+        }
+
+        public bool TryGetHashAndReset(Span<byte> destination, out int bytesWritten)
+        {
+            if (_disposed) throw new ObjectDisposedException("IncrementalHash");
+            if (destination.Length < HashLengthInBytes)
+            {
+                bytesWritten = 0;
+                return false;
+            }
+            bytesWritten = GetHashAndReset(destination);
+            return true;
         }
 
         public void Dispose() { _disposed = true; }
