@@ -7,7 +7,7 @@ using System;
 namespace CsharpcCoreLib
 {
     [ShadowMembers("System.Buffers.Text.Utf8Parser")]
-    internal static class Utf8ParserMembers
+    internal static partial class Utf8ParserMembers
     {
         public static bool TryParse(ReadOnlySpan<byte> source, out long value, out int bytesConsumed, char standardFormat = default)
         {
