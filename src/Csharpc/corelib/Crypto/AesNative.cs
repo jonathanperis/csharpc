@@ -175,6 +175,9 @@ namespace CsharpcCoreLib
 
             public static void Reset(IntPtr ctx, byte* iv)
             {
+                // macOS reports an error resetting ECB, the one mode without an IV; .NET's
+                // AppleCryptoNative_CryptorReset skips it, as there is nothing to reset.
+                if (iv == null) return;
                 if (CCCryptorReset(ctx, iv) != 0) throw Error();
             }
 
