@@ -364,6 +364,14 @@ bool csrt_task_try_complete(csrt_Task* t) { return try_finish(t, T_DONE, NULL); 
 bool csrt_task_try_fault(csrt_Task* t, void* e) { return try_finish(t, T_FAULTED, e); }
 bool csrt_task_try_cancel(csrt_Task* t) { return try_finish(t, T_CANCELED, NULL); }
 
+/// TrySetCanceled(token): awaiting the task throws a TaskCanceledException whose CancellationToken is `token`.
+bool csrt_task_try_cancel_token(csrt_Task* t, void* token) {
+    if (!token) return csrt_task_try_cancel(t);
+    void* e = csrt_task_canceled_exception_new();
+    csrt_exception_set_token(e, token);
+    return try_finish(t, T_CANCELED, e);
+}
+
 static void when_all_step(WhenAllState* s) {
     if (__atomic_sub_fetch(&s->remaining, 1, __ATOMIC_ACQ_REL) > 0) return;
     // Faulted inputs: the result faults with all their exceptions (await rethrows the first);
@@ -536,6 +544,11 @@ void csrt_queue_action(void* action) {
     if (!action) csrt_throw_null_reference();
     enqueue(K_INVOKE, action, NULL);
 }
+
+/// ThreadPool.ThreadCount / PendingWorkItemCount / CompletedWorkItemCount (work items started).
+int32_t csrt_pool_thread_count(void) { pthread_mutex_lock(&s_qlock); int32_t n = s_workers; pthread_mutex_unlock(&s_qlock); return n; }
+int64_t csrt_pool_pending_count(void) { pthread_mutex_lock(&s_qlock); int64_t n = s_qcount; pthread_mutex_unlock(&s_qlock); return n; }
+int64_t csrt_pool_completed_count(void) { pthread_mutex_lock(&s_qlock); int64_t n = s_dequeued; pthread_mutex_unlock(&s_qlock); return n; }
 
 /// ThreadPool.QueueUserWorkItem (flowContext: with the caller's execution-context flow) and
 /// UnsafeQueueUserWorkItem (without it): the corelib wraps the work in an Action.

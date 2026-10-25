@@ -756,6 +756,20 @@ void* csrt_gc_alloc(size_t size) { return gc_alloc(size, true); }
 
 void* csrt_gc_alloc_noclear(size_t size) { return gc_alloc(size, false); }
 
+/// GC.CollectionCount: the collections so far.
+int64_t csrt_gc_collection_count(void) { gc_lock(); int64_t n = (int64_t)g.collections; gc_unlock(); return n; }
+
+/// GC.GetTotalAllocatedBytes: every byte handed out so far (allocation caches count when they claim slots).
+int64_t csrt_gc_total_allocated(void) { return (int64_t)__atomic_load_n(&g.total_allocated, __ATOMIC_RELAXED); }
+
+/// GC.GetTotalPauseDuration in 100-ns ticks: the collections' stop-the-world time.
+int64_t csrt_gc_total_pause_ticks(void) {
+    gc_lock();
+    int64_t ticks = (int64_t)(g.total_gc_seconds * 1e7);
+    gc_unlock();
+    return ticks;
+}
+
 int64_t csrt_gc_total_memory(void) {
     gc_lock();
     int64_t total = (int64_t)(g.live_bytes + g.allocated_since_gc);
@@ -1279,7 +1293,7 @@ __attribute__((noinline)) void csrt_gc_collect_now(void) {
     if (g.collecting) return;
     g.collecting = true;
     struct timespec t0, t1;
-    if (g.stats) clock_gettime(CLOCK_MONOTONIC, &t0);
+    clock_gettime(CLOCK_MONOTONIC, &t0);  // GC.GetTotalPauseDuration
 
     stop_world();
     sort_large(g.large, g.large_count);
@@ -1295,10 +1309,8 @@ __attribute__((noinline)) void csrt_gc_collect_now(void) {
     g.trigger = 2 * g.live_bytes > g.min_trigger ? 2 * g.live_bytes : g.min_trigger;
     g.collections++;
 
-    if (g.stats) {
-        clock_gettime(CLOCK_MONOTONIC, &t1);
-        g.total_gc_seconds += (double)(t1.tv_sec - t0.tv_sec) + (double)(t1.tv_nsec - t0.tv_nsec) / 1e9;
-    }
+    clock_gettime(CLOCK_MONOTONIC, &t1);
+    g.total_gc_seconds += (double)(t1.tv_sec - t0.tv_sec) + (double)(t1.tv_nsec - t0.tv_nsec) / 1e9;
     g.collecting = false;
 }
 
