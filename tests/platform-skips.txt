@@ -141,3 +141,4 @@ macos 532_idn_mapping                  live: IDNA comes from the OS's ICU (libic
 windows 532_idn_mapping                live: IDNA comes from the OS's ICU (icu.dll), not Linux's ICU 74
 wasi 532_idn_mapping                   no ICU on WASI (invariant globalization mode; 533_idn_mapping_invariant covers that)
 wasi 534_thread_interrupt              needs threads: Thread.Start throws PlatformNotSupportedException on WebAssembly
+windows 534_thread_interrupt              live: Thread.Join is an alertable wait on Windows (an interrupt ends it), not on Unix

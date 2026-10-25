@@ -158,7 +158,7 @@ static pthread_cond_t s_join_cond = PTHREAD_COND_INITIALIZER;
 static int s_foreground;                       // started, unfinished foreground threads
 
 // ---------------------------------------------------------------------------------------------
-// Thread.Interrupt: a thread blocked in Sleep, Monitor.Wait or a wait handle (or the next
+// Thread.Interrupt: a thread blocked in Sleep, Monitor.Wait, a wait handle or (Windows) Join (or the next
 // time it blocks) wakes with ThreadInterruptedException. Interruptible waits register their
 // condition variable; the interrupter sets the flag and, when it can take the waiter's mutex
 // without blocking, broadcasts the condition. It never blocks on that mutex (the interrupter may
@@ -351,9 +351,15 @@ bool csrt_thread_join_timeout(csrt_Thread* t, int32_t ms) {
     pthread_mutex_lock(&s_join_lock);
     bool done = true;
     while (atomic_load(&t->state) != THREAD_STOPPED) {
+#ifdef _WIN32
+        // Windows: Join is an alertable wait, which an interrupt ends (as in .NET there).
+        int rc = interruptible_wait(&s_join_cond, &s_join_lock, ms < 0 ? NULL : &deadline, true);
+        if (rc == EINTR) { pthread_mutex_unlock(&s_join_lock); throw_interrupted(); }
+#else
         // Join is not interruptible in .NET on Unix (CoreCLR): a pending interrupt waits for the next
         // Sleep or wait.
         int rc = ms < 0 ? pthread_cond_wait(&s_join_cond, &s_join_lock) : pthread_cond_timedwait(&s_join_cond, &s_join_lock, &deadline);
+#endif
         if (rc == ETIMEDOUT) {
             done = atomic_load(&t->state) == THREAD_STOPPED;
             break;

@@ -1,5 +1,5 @@
 // Thread.Interrupt: a thread blocked in Sleep, Monitor.Wait or a wait handle wakes with
-// ThreadInterruptedException (Join is not interruptible on Unix); an interrupt sent before the thread
+// ThreadInterruptedException (Join only on Windows, an alertable wait there); an interrupt sent before the thread
 // blocks waits for its next wait
 // (docs-standard-threading-pausing-and-resuming-threads-InterruptThread).
 using System;
