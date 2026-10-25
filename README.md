@@ -68,8 +68,9 @@ $ ls -lh hello
 | **Runtime** | conservative garbage collector (thread-safe, stop-the-world), real threads (`Thread`, `Monitor`, `Interlocked`, `Parallel`), Itanium-ABI exceptions with .NET's exact messages, async scheduler on LLVM coroutines |
 | **Library** | `Console`, `Math`, strings & `StringBuilder`, number formatting/parsing (all standard and custom format strings), `DateTime`/`TimeSpan`/`Stopwatch`, `Type` objects, `System.Collections.Generic` and `System.Linq` (a corelib written in C# and compiled with your program), tasks, cancellation |
 
-Not supported, by design or for now (the same limits NativeAOT has in the first group):
-`dynamic`, runtime code loading and member reflection; network I/O. Libraries that ship only IL
+Not supported, by design (the same limits NativeAOT has): run-time code generation and loading code
+outside the closed world. Not supported yet: `dynamic`, expression trees and member reflection
+(NativeAOT runs these, so they're on the roadmap), parts of networking. Libraries that ship only IL
 (`-r X.dll`, `<Reference>`, NuGet packages) are compiled from their IL by the IL front-end
 ([ADR 0010](docs/adr/0010-il-frontend.md)), as far as the BCL surface they use is implemented. The full matrix is in [docs/06-roadmap.md](docs/06-roadmap.md).
 
@@ -289,7 +290,7 @@ csharpc is **pre-1.0** and under active development. What that means in practice
 | **Guarantee** | A compiled program behaves exactly like it does on .NET — same output, same exceptions and messages, same exit code. Anything csharpc can't compile faithfully is rejected at compile time with a `CSLLVM0001: not supported by csharpc yet` diagnostic (in libraries compiled from IL, a method the program cannot reach compiles to a stub that stops the program with that diagnostic, warning `CSLLVM0007`); a silent behavioral difference is treated as the highest-priority bug. |
 | **Verified surface** | The language and library features in the table above, checked on every commit by CI: the differential samples at `-O0` and `-O2`, the conformance corpus, and a set of larger real-world programs. |
 | **Platforms** | Linux x86-64, Linux ARM64, macOS ARM64 (Apple silicon) and Windows x64 (MinGW-w64 toolchain, `x86_64-w64-windows-gnu`), each tested in CI against real .NET on that machine. WebAssembly is on the [roadmap](docs/06-roadmap.md). |
-| **Not supported** | `dynamic`, member reflection and runtime code loading (the same limits NativeAOT has); compiled `async` methods in IL-only libraries (source `async` works); parts of the BCL such as networking and JSON, which grow with the corelib. |
+| **Not supported** | run-time code generation and loading code outside the closed world (NativeAOT's limits); not yet: `dynamic`, expression trees, member reflection; compiled `async` methods in IL-only libraries (source `async` works); parts of the BCL such as networking and JSON, which grow with the corelib. |
 | **Stability** | Whole-program compilation with no stable ABI between csharpc versions: rebuild everything when you upgrade. Command-line options may still change. |
 
 Found a gap? Open an issue with a **minimal program** and what `dotnet run` prints — the differential

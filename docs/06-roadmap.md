@@ -41,7 +41,7 @@ every failure is a clean "not supported by csharpc yet" diagnostic.
 | Delegates, lambdas, closures, events, multicast | ✅ | |
 | Pointers, `fixed`, `stackalloc`, function pointers | ✅ | |
 | `Span<T>`, `ReadOnlySpan<T>`, `Memory<T>`, UTF-8 literals | ✅ | |
-| `dynamic` | ❌ | no DLR (same as NativeAOT) |
+| `dynamic` | ⬜ | NativeAOT runs `dynamic` through Microsoft.CSharp, so it's in scope (ADR 0016) |
 
 ### Statements and expressions
 
@@ -59,7 +59,7 @@ every failure is a clean "not supported by csharpc yet" diagnostic.
 | Interpolation with alignment/format, composite formatting | ✅ | current culture or provider; `FormattableString` |
 | C# 14 extension members | ✅ | |
 | Query expressions / LINQ | ✅ | shadow corelib |
-| Expression trees | ⬜ | |
+| Expression trees | ⬜ | in scope: NativeAOT runs them through the expression interpreter |
 
 ### Semantics and runtime
 
@@ -94,9 +94,10 @@ bug like a wrong output.
   **100 % parity with what .NET NativeAOT supports**: every program and library that works when published
   with `PublishAot` must work with csharpc, with the same behaviour (byte-identical output, exit codes,
   exception messages), the same inputs (`.cs`, `.csproj`, NuGet packages) and the same workflow
-  (`dotnet build`/`run`/`publish`). What NativeAOT doesn't support (run-time code generation:
-  `Reflection.Emit`, `MakeGenericType` over unseen instantiations, compiled expression trees, the DLR,
-  loading assemblies at run time) is out of scope (❌) and must stay an explicit diagnostic. The JIT is
+  (`dotnet build`/`run`/`publish`). What NativeAOT doesn't support — measured by running it, e.g. `Reflection.Emit`,
+  `MakeGenericType` over unseen instantiations, loading assemblies at run time — is out of scope (❌)
+  and must stay an explicit diagnostic; what it does run (expression trees via its interpreter,
+  `dynamic`) is in scope. The JIT is
   the behavioural oracle for the tests and a benchmark baseline, not a support target
   ([ADR 0016](adr/0016-nativeaot-parity-and-end-state.md)). The finish line is M8: the dotnet fork with csharpc in
   NativeAOT's place, beating NativeAOT on the TechEmpower benchmarks.
