@@ -1,0 +1,13 @@
+True
+False
+True 3 5 hello
+True 10 5 world
+False ''
+[a@0][bb@2][ccc@6]
+_1_22_
+|12|34
+3
+[A-Za-z]+
+None
+True
+0

@@ -13,6 +13,7 @@ using System.ComponentModel;
 namespace CsharpcCoreLib.RegularExpressions
 {
     [EditorBrowsable(EditorBrowsableState.Never)]
+    [Shadows("System.Text.RegularExpressions.RegexRunnerFactory")]
     public abstract class RegexRunnerFactory
     {
         protected RegexRunnerFactory() { }
