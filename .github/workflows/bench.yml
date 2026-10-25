@@ -3,6 +3,7 @@ name: Benchmarks
 # csharpc vs the .NET JIT vs NativeAOT on a clean hosted runner (benchmarks/run.sh), plus csharpc's
 # executed-instruction counts (benchmarks/instructions.sh), which don't depend on runner noise.
 # Wall-clock numbers vary a few percent between runs; compare engines within one run.
+# Builds csharpc from this commit (not the published tool): the suite measures the tree under test.
 on:
   workflow_dispatch:
   schedule:

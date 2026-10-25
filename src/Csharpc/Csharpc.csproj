@@ -19,10 +19,28 @@
     <Version>0.1.0-spike</Version>
     <Description>csharpc: a C# compiler front-end for LLVM (Roslyn -> LLVM IR -> native).</Description>
     <Authors>csharpc contributors</Authors>
+    <PackageProjectUrl>https://github.com/jonathanperis/csharpc</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/jonathanperis/csharpc</RepositoryUrl>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+
+    <!--
+      RID-specific NativeAOT tool packages (SDK 10+/11): opted in only when packing for release
+      (-p:CsharpcPackRidTools=true -p:PublishAot=true). Plain `dotnet pack` stays the classic
+      framework-dependent tool. See tools/pack-release.sh and docs/08-drop-in.md.
+    -->
+    <ToolPackageRuntimeIdentifiers Condition="'$(CsharpcPackRidTools)' == 'true'">linux-x64;linux-arm64;osx-arm64;win-x64</ToolPackageRuntimeIdentifiers>
+    <RuntimeIdentifiers Condition="'$(CsharpcPackRidTools)' == 'true'">linux-x64;linux-arm64;osx-arm64;win-x64</RuntimeIdentifiers>
+    <!-- Drop the large .dbg next to the AOT binary from the tool package and release archive. -->
+    <StripSymbols Condition="'$(PublishAot)' == 'true'">true</StripSymbols>
 
     <!-- csharpc is a short-lived process: dynamic PGO's instrumented tier costs more than it gains (ADR 0014). -->
     <TieredPGO>false</TieredPGO>
   </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="../../README.md" Pack="true" PackagePath="\" />
+  </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="5.9.0" />
@@ -34,6 +52,38 @@
     <None Include="corelib/**/*.cs" LinkBase="corelib" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <None Include="../runtime/**/*.c;../runtime/**/*.h" LinkBase="runtime" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
+
+  <!--
+    Release packs bundle libLLVM next to the NativeAOT binary (lib/), so `dotnet tool install -g csharpc`
+    yields the same layout as the GitHub Release archives. Path from $CSHARPC_LIBLLVM or -p:CsharpcLibLLVM=.
+  -->
+  <!-- CsharpcBundleLibLLVM=true only from tools/pack-release.sh (per-RID AOT). The pointer pack
+       (tools/pack-tool-pointer.sh) must not require libLLVM or rebuild RID packages. -->
+  <Target Name="CsharpcBundleLibLLVM" AfterTargets="ComputeResolvedFilesToPublishList"
+          Condition="'$(CsharpcBundleLibLLVM)' == 'true' and '$(RuntimeIdentifier)' != ''">
+    <PropertyGroup>
+      <_CsharpcLibLLVM>$(CsharpcLibLLVM)</_CsharpcLibLLVM>
+      <_CsharpcLibLLVM Condition="'$(_CsharpcLibLLVM)' == ''">$(CSHARPC_LIBLLVM)</_CsharpcLibLLVM>
+      <_CsharpcLibLLVMDest Condition="$(RuntimeIdentifier.StartsWith('win'))">lib/libLLVM-18.dll</_CsharpcLibLLVMDest>
+      <_CsharpcLibLLVMDest Condition="$(RuntimeIdentifier.StartsWith('osx'))">lib/libLLVM.dylib</_CsharpcLibLLVMDest>
+      <_CsharpcLibLLVMDest Condition="'$(_CsharpcLibLLVMDest)' == ''">lib/libLLVM.so.18.1</_CsharpcLibLLVMDest>
+    </PropertyGroup>
+    <Error Condition="'$(_CsharpcLibLLVM)' == '' or !Exists('$(_CsharpcLibLLVM)')"
+           Text="csharpc: set CSHARPC_LIBLLVM (or -p:CsharpcLibLLVM=) to libLLVM 18 when packing RID tools; missing '$(_CsharpcLibLLVM)'." />
+    <ItemGroup>
+      <ResolvedFileToPublish Include="$(_CsharpcLibLLVM)" RelativePath="$(_CsharpcLibLLVMDest)" CopyToPublishDirectory="PreserveNewest" />
+    </ItemGroup>
+  </Target>
+
+  <Target Name="CsharpcFinishLibLLVM" AfterTargets="Publish"
+          Condition="'$(CsharpcBundleLibLLVM)' == 'true' and '$(RuntimeIdentifier)' != ''">
+    <MakeDir Directories="$(PublishDir)lib" />
+    <Copy Condition="$(RuntimeIdentifier.StartsWith('linux')) and Exists('$(PublishDir)lib/libLLVM.so.18.1')"
+          SourceFiles="$(PublishDir)lib/libLLVM.so.18.1" DestinationFiles="$(PublishDir)lib/libLLVM-18.so"
+          SkipUnchangedFiles="true" />
+    <WriteLinesToFile File="$(PublishDir)lib/LLVM-LICENSE.txt" Overwrite="true"
+      Lines="This directory contains a binary build of LLVM's libLLVM (the C API shared library), redistributed under the Apache License v2.0 with LLVM Exceptions: https://llvm.org/LICENSE.txt;csharpc itself is MIT; see the repository LICENSE." />
+  </Target>
 
   <!--
     ReadyToRun at build time (docs/adr/0014-compile-time.md). Every csharpc run used to JIT Roslyn's
