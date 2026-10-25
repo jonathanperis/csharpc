@@ -465,38 +465,26 @@ static void* const* variant_interface_slots(const csrt_MethodTable* mt, const cs
     return NULL;
 }
 
-// Interface lookups go through a cache of (receiver method table, interface) -> index in the receiver's
-// interface map: one word per entry, the method table in the low 48 bits (user-space addresses fit on
-// every target csharpc supports) and the index above them. A hit is validated against the map itself
-// (the index is in range and names the interface), so a racing update or a collision in the table is
-// only a miss, never a wrong slot table. Kestrel's types implement 30+ feature interfaces and most
-// request-path calls go through them: scanning the map on every call was 4-7 % of the TechEmpower
-// profile. The cache is keyed in the runtime, so call sites stay as small as before.
+// Interface call sites cache their last receiver: one word per site (.bss, ModuleCodeGen) holding the
+// receiver's method table in the low 48 bits (user-space addresses fit, on every target csharpc
+// supports) and the interface's index in its map above them, read and written atomically, so a racing
+// update is only a miss. Kestrel's types implement 30+ feature interfaces and most request-path calls
+// go through them: scanning the map on every call was 4-7 % of the TechEmpower profile. (A global
+// table keyed by method table and interface, validated against the map, was no faster than the scan.)
 #define ICACHE_MT_MASK (((uint64_t)1 << 48) - 1)
-#define ICACHE_BITS 12
-static uint64_t s_icache[1 << ICACHE_BITS];
 
-/// The slot table of `itf` in `mt`'s own interface map (NULL: not there), through the cache.
-__attribute__((noinline)) static void* const* map_interface_slots(const csrt_MethodTable* mt, const csrt_MethodTable* itf) {
-    size_t slot = (size_t)((((uintptr_t)mt >> 3) ^ ((uintptr_t)itf >> 3) * 0x9E3779B97F4A7C15ull) * 0x9E3779B97F4A7C15ull >> (64 - ICACHE_BITS));
-    uint64_t w = __atomic_load_n(&s_icache[slot], __ATOMIC_RELAXED);
-    uint32_t i = (uint32_t)(w >> 48);
-    if ((w & ICACHE_MT_MASK) == (uint64_t)(uintptr_t)mt && i < mt->interface_count && mt->interfaces[i].interface_type == itf)
-        return mt->interfaces[i].slots;
-    for (i = 0; i < mt->interface_count; i++)
-        if (mt->interfaces[i].interface_type == itf) {
-            if (((uintptr_t)mt & ~ICACHE_MT_MASK) == 0)  // maps hold < 65536 entries (ModuleCodeGen)
-                __atomic_store_n(&s_icache[slot], (uint64_t)(uintptr_t)mt | ((uint64_t)i << 48), __ATOMIC_RELAXED);
-            return mt->interfaces[i].slots;
-        }
-    return NULL;
+/// The index of `itf` in `mt`'s own interface map (-1: not there).
+__attribute__((noinline)) static int32_t map_interface_index(const csrt_MethodTable* mt, const csrt_MethodTable* itf) {
+    for (uint32_t i = 0; i < mt->interface_count; i++)
+        if (mt->interfaces[i].interface_type == itf) return (int32_t)i;
+    return -1;
 }
 
 void* const* csrt_interface_slots(void* obj, const csrt_MethodTable* interface_type) {
     const csrt_MethodTable* mt = ((csrt_Object*)obj)->mt;
-    void* const* slots = map_interface_slots(mt, interface_type);
-    if (slots) return slots;
-    slots = builtin_interface_slots(mt, interface_type);
+    int32_t i = map_interface_index(mt, interface_type);
+    if (i >= 0) return mt->interfaces[i].slots;
+    void* const* slots = builtin_interface_slots(mt, interface_type);
     if (slots) return slots;
     slots = variant_interface_slots(mt, interface_type);
     if (slots) return slots;
@@ -506,11 +494,26 @@ void* const* csrt_interface_slots(void* obj, const csrt_MethodTable* interface_t
     csrt_fail_unhandled();
 }
 
+/// An interface call: the call site's own cache word (method table | index << 48, as above) remembers
+/// its last receiver, so a monomorphic site costs a load and a compare; a hit needs no validation, as a
+/// site always asks for the same interface. A miss looks the index up and refills the word.
+__attribute__((noinline)) void* const* csrt_interface_slots_cached(void* obj, const csrt_MethodTable* itf, uint64_t* site) {
+    const csrt_MethodTable* mt = ((csrt_Object*)obj)->mt;
+    uint64_t w = __atomic_load_n(site, __ATOMIC_RELAXED);
+    if ((w & ICACHE_MT_MASK) != (uint64_t)(uintptr_t)mt) {
+        int32_t i = map_interface_index(mt, itf);
+        if (i < 0) return csrt_interface_slots(obj, itf);  // runtime-provided and variant interfaces, or the cast failure
+        w = (uint64_t)(uintptr_t)mt | ((uint64_t)i << 48);
+        if (((uintptr_t)mt & ~ICACHE_MT_MASK) == 0) __atomic_store_n(site, w, __ATOMIC_RELAXED);
+    }
+    return mt->interfaces[w >> 48].slots;
+}
+
 void* csrt_isinst_class(void* obj, const csrt_MethodTable* type) {
     if (!obj) return NULL;
     const csrt_MethodTable* objmt = ((csrt_Object*)obj)->mt;
     if (type->flags & CSRT_MT_INTERFACE) {
-        return map_interface_slots(objmt, type) || builtin_interface_slots(objmt, type) || variant_interface_slots(objmt, type) ? obj : NULL;
+        return map_interface_index(objmt, type) >= 0 || builtin_interface_slots(objmt, type) || variant_interface_slots(objmt, type) ? obj : NULL;
     }
     for (const csrt_MethodTable* mt = objmt; mt; mt = mt->base)
         if (mt == type) return obj;
