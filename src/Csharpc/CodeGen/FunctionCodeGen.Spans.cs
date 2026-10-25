@@ -280,6 +280,17 @@ public sealed partial class FunctionCodeGen
         }
         if (TypeMapper.IsSpan(owner))
         {
+            // span == span / !=: the same memory (pointer and length), as .NET's operators compare.
+            if (inv.Instance is null && method.Name is "op_Equality" or "op_Inequality" && inv.Arguments.Length == 2)
+            {
+                var left = EmitValue(inv.Arguments[0].Value);
+                var right = EmitValue(inv.Arguments[1].Value);
+                var same = _b.BinOp(LLVMOpcode.And,
+                    _b.ICmp(LLVMIntPredicate.EQ, SpanPointer(left), SpanPointer(right)),
+                    _b.ICmp(LLVMIntPredicate.EQ, SpanLength(left), SpanLength(right)));
+                result = method.Name == "op_Equality" ? same : _b.Not(same);
+                return true;
+            }
             // Static members reach here from IL (an operator called as a method) when nothing lowered them.
             if (inv.Instance is null) throw CompileError.Unsupported($"'{inv.TargetMethod}' (a static member of a span type)", inv);
             result = SpanInstanceMethod(inv, owner);

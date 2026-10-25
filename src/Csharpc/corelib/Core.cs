@@ -131,6 +131,9 @@ namespace CsharpcCoreLib
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern int csrt_cts_entry_kind(object entry);
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern void csrt_cts_cancel_delay(object task);
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern bool csrt_cts_transition(object source);
+        // Array.CreateInstanceFromArrayType (runtime/csrt.c): 0 one-dimensional array type, 1 not an array type, 2 multi-dimensional.
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern int csrt_array_type_kind(Type type);
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern Array csrt_array_new_of_type(Type type, int length);
         // Waits of the runtime's events/semaphores that a CancellationToken can end (runtime/threads.c).
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern int csrt_event_wait_token(object e, int milliseconds, object source);
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern void csrt_event_kick(object e);
@@ -512,12 +515,20 @@ namespace CsharpcCoreLib
         {
             int lo = index, hi = index + length - 1;
             bool useDefault = comparer == null || IsDefault(comparer);
-            while (lo <= hi)
+            // .NET's ArraySortHelper: whatever the comparison throws surfaces wrapped.
+            try
             {
-                int i = lo + ((hi - lo) >> 1);
-                int order = useDefault ? CoreIntrinsics.Compare(array[i], value) : comparer.Compare(array[i], value);
-                if (order == 0) return i;
-                if (order < 0) lo = i + 1; else hi = i - 1;
+                while (lo <= hi)
+                {
+                    int i = lo + ((hi - lo) >> 1);
+                    int order = useDefault ? CoreIntrinsics.Compare(array[i], value) : comparer.Compare(array[i], value);
+                    if (order == 0) return i;
+                    if (order < 0) lo = i + 1; else hi = i - 1;
+                }
+            }
+            catch (Exception e)
+            {
+                throw new InvalidOperationException("Failed to compare two elements in the array.", e);
             }
             return ~lo;
         }

@@ -116,9 +116,31 @@ public sealed partial class ModuleCodeGen
         return _ilSyntax[assembly] = (plain, @base);
     }
 
+    /// <summary>
+    /// Framework methods csharpc deliberately doesn't compile: a boundary that keeps a whole subsystem out
+    /// of programs that only reach it in a corner — System.Xml's resolver downloads http(s) resources with
+    /// HttpClient (System.Net.Http and the socket, TLS and QUIC stacks under it). Such a method becomes a
+    /// stub that ends the program with the message, and a program that can reach it gets a warning.
+    /// </summary>
+    private static string? IlBoundary(IMethodSymbol method) =>
+        (method.ContainingType.ToDisplayString(), method.Name) switch
+        {
+            ("System.Xml.XmlDownloadManager", "GetNonFileStreamAsync") =>
+                "not supported by csharpc yet: System.Xml reading a resource that isn't a file (an http(s) URI needs System.Net.Http)",
+            _ => null,
+        };
+
+    private readonly List<(IMethodSymbol Method, string Message)> _ilBoundaries = [];
+
     private void EmitIlMethod(IlAssembly assembly, IMethodSymbol method)
     {
         if (method.IsAbstract || IsExternal(method)) return;
+        if (!assembly.IsCoreLib && IlBoundary(method) is { } boundary)
+        {
+            _ilBoundaries.Add((method, boundary));
+            ReplaceWithStub(method, boundary);
+            return;
+        }
         var location = IlSyntax(assembly).Plain.GetLocation();
         try
         {
@@ -223,9 +245,14 @@ public sealed partial class ModuleCodeGen
     private void ReplaceWithStub(IMethodSymbol method, CompileError error)
     {
         _ilFailures.Add((method, error));
+        ReplaceWithStub(method, $"'{method}' could not be compiled: {error.Message}");
+    }
+
+    private void ReplaceWithStub(IMethodSymbol method, string message)
+    {
         var old = _functions[method];
         var name = Native.TakeName(old.Fn);
-        var stub = UnsupportedStub(name + "$unsupported", old.Type, $"'{method}' could not be compiled: {error.Message}");
+        var stub = UnsupportedStub(name + "$unsupported", old.Type, message);
         Native.LLVMReplaceAllUsesWith(old.Fn, stub);
         Native.LLVMDeleteFunction(old.Fn);
         Native.LLVMSetValueName2(stub, name, (nuint)System.Text.Encoding.UTF8.GetByteCount(name));
@@ -250,7 +277,7 @@ public sealed partial class ModuleCodeGen
     /// <summary>Errors for failed IL methods the program can reach; warnings (and the stub) for the rest.</summary>
     private void ReportIlFailures()
     {
-        if (_ilFailures.Count == 0) return;
+        if (_ilFailures.Count == 0 && _ilBoundaries.Count == 0) return;
         var edges = _references.GroupBy(r => (ISymbol?)r.From?.OriginalDefinition, SymbolEqualityComparer.Default)
             .ToDictionary(g => g.Key ?? Compilation.Assembly, g => g.ToList(), SymbolEqualityComparer.Default);
         var reached = new HashSet<ISymbol>(SymbolEqualityComparer.Default);
@@ -276,6 +303,11 @@ public sealed partial class ModuleCodeGen
         while (work.TryDequeue(out var method))
             if (edges.TryGetValue(method.OriginalDefinition, out var outgoing))
                 foreach (var (_, to, isVirtual) in outgoing) Follow(to, isVirtual);
+
+        foreach (var (method, message) in _ilBoundaries)
+            if (reached.Contains(method.OriginalDefinition))
+                Warnings.Add(new CompileError("CSLLVM0008", $"{message} — '{method}' is compiled as a stub that ends the program with this message if it is called",
+                    Il.OwnerOf(method) is { } owner ? IlSyntax(owner).Plain.GetLocation() : null));
 
         // A construct that also fails elsewhere (a type's layout, a field) is reported there already.
         var reported = Errors.Select(e => (e.Message, e.Location?.ToString())).ToHashSet();

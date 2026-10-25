@@ -120,7 +120,8 @@ Limitation: `object is IEnumerable<X>` on an array can't check the element type 
   own order depends on the processor count unless a concurrency level is given); `ConcurrentStack<T>` is a
   port; `ConcurrentQueue<T>` and `ConcurrentBag<T>` are lock-based with .NET's observable order (FIFO; per
   thread LIFO, stealing oldest-first from other threads, snapshots newest queue first) and snapshot
-  enumeration. `BlockingCollection<T>` and `Partitioner` are not implemented yet (CSLLVM0001/0002).
+  enumeration. `BlockingCollection<T>` is a port (its blocking waits are cancelable SemaphoreSlim waits
+  over the runtime's events); `Partitioner` is not implemented yet (CSLLVM0001/0002).
 * **Observable behavior follows .NET's implementations:** `List` growth (`Capacity`), `Dictionary`/`HashSet`
   bucket+entries+free-list design (iteration order after removals, prime sizes, FastMod), `PriorityQueue`'s
   4-ary heap (dequeue order of equal priorities), the introsort port (order of equal keys in `List.Sort` /

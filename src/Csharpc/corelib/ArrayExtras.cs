@@ -245,6 +245,67 @@ namespace CsharpcCoreLib
 
         public static int BinarySearch<T>(T[] array, int index, int length, T value) => BinarySearch(array, index, length, value, null);
 
+        // Non-generic element access goes through the array's IList (its element type boxes and unboxes).
+        [ShadowInstance]
+        public static object GetValue(Array array, int index)
+        {
+            if (array.Rank != 1) throw new ArgumentException("Array was not a one-dimensional array.");
+            return ((System.Collections.IList)array)[index];
+        }
+
+        [ShadowInstance]
+        public static void SetValue(Array array, object value, int index)
+        {
+            if (array.Rank != 1) throw new ArgumentException("Array was not a one-dimensional array.");
+            ((System.Collections.IList)array)[index] = value;
+        }
+
+        /// <summary>A new array of `arrayType` (closed world: a type csharpc emitted, e.g. through typeof(X[])).</summary>
+        public static Array CreateInstanceFromArrayType(Type arrayType, int length)
+        {
+            ArgumentNullException.ThrowIfNull(arrayType);
+            ArgumentOutOfRangeException.ThrowIfNegative(length);
+            switch (CoreIntrinsics.csrt_array_type_kind(arrayType))
+            {
+                case 1: throw new ArgumentException("Must be an array type.", "arrayType");
+                case 2: throw new ArgumentException("Only single dimensional arrays are supported for the requested action.", "arrayType");
+            }
+            return CoreIntrinsics.csrt_array_new_of_type(arrayType, length);
+        }
+
+        public static int BinarySearch(Array array, object value) => BinarySearch(array, value, null);
+
+        public static int BinarySearch(Array array, object value, System.Collections.IComparer comparer)
+        {
+            if (array == null) ThrowHelper.ArgumentNull("array");
+            return BinarySearch(array, 0, array.Length, value, comparer);
+        }
+
+        public static int BinarySearch(Array array, int index, int length, object value) => BinarySearch(array, index, length, value, null);
+
+        public static int BinarySearch(Array array, int index, int length, object value, System.Collections.IComparer comparer)
+        {
+            if (array == null) ThrowHelper.ArgumentNull("array");
+            if (array.Rank != 1) throw new RankException("Only single dimensional arrays are supported for the requested action.");
+            if (index < 0 || length < 0) throw new ArgumentOutOfRangeException(index < 0 ? "index" : "length", "Non-negative number required.");
+            if (array.Length - index < length)
+                throw new ArgumentException("Offset and length were out of bounds for the array or count is greater than the number of elements from index to the end of the source collection.");
+            comparer ??= System.Collections.Comparer.Default;
+            var list = (System.Collections.IList)array;
+            int lo = index, hi = index + length - 1;
+            while (lo <= hi)
+            {
+                int i = lo + ((hi - lo) >> 1);
+                int c;
+                try { c = comparer.Compare(list[i], value); }
+                catch (Exception e) { throw new InvalidOperationException("Failed to compare two elements in the array.", e); }
+                if (c == 0) return i;
+                if (c < 0) lo = i + 1;
+                else hi = i - 1;
+            }
+            return ~lo;
+        }
+
         public static int BinarySearch<T>(T[] array, int index, int length, T value, IComparer<T> comparer)
         {
             if (array == null) ThrowHelper.ArgumentNull("array");

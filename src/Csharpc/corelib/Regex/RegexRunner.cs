@@ -14,6 +14,7 @@ using System.Runtime.CompilerServices;
 namespace CsharpcCoreLib.RegularExpressions
 {
     [EditorBrowsable(EditorBrowsableState.Never)]
+    [Shadows("System.Text.RegularExpressions.RegexRunner")]
     public abstract class RegexRunner
     {
         protected internal int runtextbeg;

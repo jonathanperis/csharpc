@@ -196,7 +196,8 @@ public sealed partial class ModuleCodeGen
         var slots = defaults.Select(d => Runtime(d, Llvm.Ptr, Llvm.Ptr).Fn).ToArray();
         var flags = Optimizations.HoldsNoReferences(elementType) ? 8 /* CSRT_MT_NO_REFERENCES */ : 0;
         return Llvm.ConstStruct(ExternalGlobal("csrt_Array_MT"), CString(name), Llvm.ConstInt(Llvm.I32, 0), Llvm.ConstInt(Llvm.I32, flags),
-            interfaceMap, Llvm.ConstInt(Llvm.I32, interfaceCount), Llvm.ConstInt(Llvm.I32, 0),
+            // reserved = the element size (Array.CreateInstanceFromArrayType allocates from the Type: csrt.c).
+            interfaceMap, Llvm.ConstInt(Llvm.I32, interfaceCount), Llvm.ConstInt(Llvm.I32, (long)Types.Target.SizeOf(Types.Storage(elementType))),
             LlvmContext.ConstArray(Llvm.Ptr, slots));
     }
 

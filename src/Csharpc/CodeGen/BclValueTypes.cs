@@ -1185,6 +1185,8 @@ internal static partial class BclValueTypes
     {
         Dictionary<string, BclFieldHandler> t = [];
         t["string.Empty"] = (g, _) => g.Module.StringLiteral("");
+        t["bool.TrueString"] = (g, _) => g.Module.StringLiteral("True");
+        t["bool.FalseString"] = (g, _) => g.Module.StringLiteral("False");
         t["System.EventArgs.Empty"] = (g, _) => g.CallCoreLib("EventArgsImpl", "GetEmpty");
         t["System.TimeSpan.Zero"] = (g, _) => I64(g, 0);
         t["System.Threading.Timeout.InfiniteTimeSpan"] = (g, _) => I64(g, -TicksPerMs);

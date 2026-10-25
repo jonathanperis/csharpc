@@ -670,6 +670,13 @@ public sealed partial class FunctionCodeGen
             bclSetter(this, librarySetter, setterSelf, [assignedValue], p);
             return assignedValue;
         }
+        // Exception.HResult (protected set, in exception constructors): csharpc keeps no HResult, and reading it
+        // is not supported, so nothing can observe the value — evaluate and drop it.
+        if (property.Name == "HResult" && _m.IsLibraryException(property.ContainingType) && !property.IsStatic)
+        {
+            NullCheck(EmitValue(p.Instance!));
+            return Coerce(value(), valueType, property.Type);
+        }
         if (!_m.IsUserType(property.ContainingType))
             throw CompileError.Unsupported($"setting '{property.ContainingType}.{property.Name}'", p);
         var self = property.IsStatic ? default

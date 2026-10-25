@@ -62,7 +62,7 @@ struct csrt_MethodTable {
     uint32_t flags;                 // CSRT_MT_*
     const csrt_InterfaceMapEntry* interfaces;  // all implemented interfaces (flattened)
     uint32_t interface_count;
-    uint32_t reserved;              // CSRT_MT_MDARRAY: the rank
+    uint32_t reserved;              // CSRT_MT_MDARRAY: the rank; a one-dimensional array type: its element size
     // void* vtable[] follows — the compiler emits it as part of the same global.
 };
 
