@@ -1,0 +1,28 @@
+GetValue 5, BinarySearch 3 -3 -5
+after SetValue: 1,4,5,7,9
+Index was outside the bounds of the array.
+strings: 1 2
+Failed to compare two elements in the array. / At least one object must implement IComparable.
+created System.String[] length 3 [x,,]
+doubles System.Double[] 0
+Must be an array type. (Parameter 'arrayType')
+synchronized True False count 3 contains True True
+comparer: -1 1 -1 -1
+At least one object must implement IComparable.
+base64 8: [AQIDBAU=]
+offsetOut ('0') must be less than or equal to '-1'. (Parameter 'offsetOut')
+Actual value was 0.
+TryFormat: 42 -7 255 1.5 -3 200
+too small: False 0; hex: 4
+Trim: [value] [==value==--] [spaced] [--==value==--]
+ContainsAny: False True False False True
+Replace: a/b/c
+Destination is too short. (Parameter 'destination')
+True False
+utc offset 00:00:00 base 00:00:00 dst False same True True
+file: file:///tmp/data/report.xml file:///tmp/data/report.xml /tmp/data/report.xml True file [] -1 True /tmp/data/report.xml 4
+explicit: /var/log/app.log True
+relative: docs/readme.txt False docs/readme.txt True False
+This operation is not supported for a relative URI.
+Invalid URI: The format of the URI could not be determined.
+CodedException: failed

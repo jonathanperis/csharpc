@@ -106,6 +106,23 @@ namespace CsharpcCoreLib
         }
     }
 
+    // TaskScheduler.UnobservedTaskException's arguments (UnobservedTaskExceptionEventArgs.cs): the event never
+    // fires in csharpc (tasks aren't finalized), but handlers that read them compile.
+    [Shadows("System.Threading.Tasks.UnobservedTaskExceptionEventArgs")]
+    public class UnobservedTaskExceptionEventArgsImpl : EventArgs
+    {
+        private readonly AggregateException _exception;
+        internal bool _observed;
+
+        public UnobservedTaskExceptionEventArgsImpl(AggregateException exception) => _exception = exception;
+
+        public void SetObserved() => _observed = true;
+
+        public bool Observed => _observed;
+
+        public AggregateException Exception => _exception;
+    }
+
     internal sealed class ThreadPoolTaskSchedulerImpl : TaskSchedulerImpl
     {
         protected internal override void QueueTask(Task task) { }
@@ -116,7 +133,6 @@ namespace CsharpcCoreLib
     internal static class TaskSupport
     {
         [ThreadStatic] internal static TaskSchedulerImpl t_currentScheduler;
-        [ThreadStatic] internal static bool t_inAttachableTask;
 
         private const TaskCreationOptions ValidCreationOptions = TaskCreationOptions.AttachedToParent | TaskCreationOptions.DenyChildAttach
             | TaskCreationOptions.HideScheduler | TaskCreationOptions.LongRunning | TaskCreationOptions.PreferFairness
@@ -136,59 +152,106 @@ namespace CsharpcCoreLib
             if ((creationOptions & ~ValidCreationOptions) != 0) throw new ArgumentOutOfRangeException("creationOptions");
         }
 
-        internal static void CheckAttach(TaskCreationOptions options)
+        // ---- attached child tasks ------------------------------------------------------------------
+        // A delegate task without DenyChildAttach is a parent while its body runs: tasks created then with
+        // AttachedToParent join it, and it completes only when its body and all of them have, faulted with
+        // their exceptions as in .NET (a child's AggregateException, after the body's own exception).
+
+        internal sealed class ParentScope
         {
-            if ((options & TaskCreationOptions.AttachedToParent) != 0 && t_inAttachableTask)
-                throw new NotSupportedException("A task attached to its parent (TaskCreationOptions.AttachedToParent) is not supported by csharpc yet.");
+            private readonly object _lock = new object();
+            private int _pending = 1;                    // the body, then one per attached child
+            private List<Exception> _exceptions;
+            private bool _canceled;
+            private readonly Action<List<Exception>, bool> _finish;
+
+            internal ParentScope(Action<List<Exception>, bool> finish) { _finish = finish; }
+
+            internal void AddChild(Task child)
+            {
+                lock (_lock) _pending++;
+                child.ConfigureAwait(false).GetAwaiter().UnsafeOnCompleted(() =>
+                {
+                    if (child.IsFaulted) lock (_lock) (_exceptions ??= new List<Exception>()).Add(child.Exception);
+                    Release();
+                });
+            }
+
+            internal void BodyDone(Exception exception, bool canceled)
+            {
+                lock (_lock)
+                {
+                    if (exception != null) (_exceptions ??= new List<Exception>()).Insert(0, exception);
+                    _canceled = canceled;
+                }
+                Release();
+            }
+
+            private void Release()
+            {
+                bool last;
+                lock (_lock) last = --_pending == 0;
+                if (last) _finish(_exceptions, _canceled);
+            }
         }
 
-        /// <summary>Runs `body` as the task's work: scheduler context, cancellation and outcome as in .NET.</summary>
-        internal static Action Work(Action body, TaskCompletionSource tcs, CancellationToken token, TaskCreationOptions options, TaskSchedulerImpl scheduler)
+        [ThreadStatic] private static ParentScope t_parent;
+
+        /// <summary>A task just created with `options`: attached to the running parent task, if it asks to be and there is one.</summary>
+        internal static void AttachToParent(Task child, TaskCreationOptions options)
+        {
+            if ((options & TaskCreationOptions.AttachedToParent) != 0 && t_parent is { } parent) parent.AddChild(child);
+        }
+
+        /// <summary>Runs `body` as the task's work: scheduler context, cancellation, children and outcome as in .NET.</summary>
+        internal static Action Work(Action body, TaskCompletionSource tcs, CancellationToken token, TaskCreationOptions options, TaskSchedulerImpl scheduler) =>
+            Work(() => { body(); return 0; }, (exceptions, canceled, _) =>
+            {
+                if (exceptions != null) tcs.TrySetException(exceptions);
+                else if (canceled) tcs.TrySetCanceled();
+                else tcs.TrySetResult();
+            }, tcs.Task, token, options, scheduler);
+
+        internal static Action Work<TResult>(Func<TResult> body, TaskCompletionSource<TResult> tcs, CancellationToken token, TaskCreationOptions options, TaskSchedulerImpl scheduler) =>
+            Work(body, (exceptions, canceled, result) =>
+            {
+                if (exceptions != null) tcs.TrySetException(exceptions);
+                else if (canceled) tcs.TrySetCanceled();
+                else tcs.TrySetResult(result);
+            }, tcs.Task, token, options, scheduler);
+
+        private static Action Work<TResult>(Func<TResult> body, Action<List<Exception>, bool, TResult> finish, Task task,
+            CancellationToken token, TaskCreationOptions options, TaskSchedulerImpl scheduler)
         {
             return () =>
             {
                 TaskSchedulerImpl savedScheduler = t_currentScheduler;
-                bool savedAttach = t_inAttachableTask;
+                ParentScope savedParent = t_parent;
                 t_currentScheduler = (options & TaskCreationOptions.HideScheduler) != 0 || scheduler is ThreadPoolTaskSchedulerImpl ? null : scheduler;
-                t_inAttachableTask = (options & TaskCreationOptions.DenyChildAttach) == 0;
+                TResult result = default;
+                var scope = new ParentScope((exceptions, canceled) => finish(exceptions, canceled, result));
+                t_parent = (options & TaskCreationOptions.DenyChildAttach) == 0 ? scope : null;
+                IntPtr savedTask = ColdTasks.SwapCurrent(CoreIntrinsics.ObjectToPointer(task)); // Task.CurrentId
+                Exception error = null;
+                bool canceled = false;
                 try
                 {
-                    if (token.IsCancellationRequested) { tcs.TrySetCanceled(); return; }
-                    MarkRunning(tcs.Task);
-                    body();
-                    tcs.TrySetResult();
+                    if (token.IsCancellationRequested) canceled = true;
+                    else
+                    {
+                        MarkRunning(task);
+                        result = body();
+                    }
                 }
-                catch (OperationCanceledException) when (token.IsCancellationRequested) { tcs.TrySetCanceled(); }
-                catch (Exception e) { tcs.TrySetException(e); }
+                catch (OperationCanceledException) when (token.IsCancellationRequested) { canceled = true; }
+                catch (Exception e) { error = e; }
                 finally
                 {
                     t_currentScheduler = savedScheduler;
-                    t_inAttachableTask = savedAttach;
+                    t_parent = savedParent;
+                    ColdTasks.SwapCurrent(savedTask);
                 }
-            };
-        }
-
-        internal static Action Work<TResult>(Func<TResult> body, TaskCompletionSource<TResult> tcs, CancellationToken token, TaskCreationOptions options, TaskSchedulerImpl scheduler)
-        {
-            return () =>
-            {
-                TaskSchedulerImpl savedScheduler = t_currentScheduler;
-                bool savedAttach = t_inAttachableTask;
-                t_currentScheduler = (options & TaskCreationOptions.HideScheduler) != 0 || scheduler is ThreadPoolTaskSchedulerImpl ? null : scheduler;
-                t_inAttachableTask = (options & TaskCreationOptions.DenyChildAttach) == 0;
-                try
-                {
-                    if (token.IsCancellationRequested) { tcs.TrySetCanceled(); return; }
-                    MarkRunning(tcs.Task);
-                    tcs.TrySetResult(body());
-                }
-                catch (OperationCanceledException) when (token.IsCancellationRequested) { tcs.TrySetCanceled(); }
-                catch (Exception e) { tcs.TrySetException(e); }
-                finally
-                {
-                    t_currentScheduler = savedScheduler;
-                    t_inAttachableTask = savedAttach;
-                }
+                scope.BodyDone(error, canceled);
             };
         }
 
@@ -197,8 +260,8 @@ namespace CsharpcCoreLib
             if (scheduler == null) throw new ArgumentNullException("scheduler");
             if (callback == null) throw new ArgumentNullException("action");
             CheckCreationOptions(options);
-            CheckAttach(options);
             TaskCompletionSource tcs = new TaskCompletionSource();
+            AttachToParent(tcs.Task, options);
             scheduler.Schedule(tcs.Task, Work(body, tcs, token, options, scheduler)); // canceled when it would run
             return tcs.Task;
         }
@@ -208,8 +271,8 @@ namespace CsharpcCoreLib
             if (scheduler == null) throw new ArgumentNullException("scheduler");
             if (callback == null) throw new ArgumentNullException("function");
             CheckCreationOptions(options);
-            CheckAttach(options);
             TaskCompletionSource<TResult> tcs = new TaskCompletionSource<TResult>();
+            AttachToParent(tcs.Task, options);
             scheduler.Schedule(tcs.Task, Work(body, tcs, token, options, scheduler)); // canceled when it would run
             return tcs.Task;
         }
@@ -244,8 +307,8 @@ namespace CsharpcCoreLib
             if (callback == null) throw new ArgumentNullException(callbackName);
             if (scheduler == null) throw new ArgumentNullException("scheduler");
             TaskCreationOptions creation = CreationOptionsFromContinuationOptions(options);
-            CheckAttach(creation);
             TaskCompletionSource tcs = new TaskCompletionSource();
+            AttachToParent(tcs.Task, creation);
             Action work = Work(body, tcs, token, creation, scheduler);
             Hook(antecedent, () => tcs.TrySetCanceled(), tcs.Task, work, token, options, scheduler);
             return tcs.Task;
@@ -256,8 +319,8 @@ namespace CsharpcCoreLib
             if (callback == null) throw new ArgumentNullException("continuationFunction");
             if (scheduler == null) throw new ArgumentNullException("scheduler");
             TaskCreationOptions creation = CreationOptionsFromContinuationOptions(options);
-            CheckAttach(creation);
             TaskCompletionSource<TResult> tcs = new TaskCompletionSource<TResult>();
+            AttachToParent(tcs.Task, creation);
             Action work = Work(body, tcs, token, creation, scheduler);
             Hook(antecedent, () => tcs.TrySetCanceled(), tcs.Task, work, token, options, scheduler);
             return tcs.Task;
@@ -466,6 +529,14 @@ namespace CsharpcCoreLib
             tcs.SetCanceled();
             return tcs.Task;
         }
+    }
+
+    /// <summary>ValueTask factories beyond the intrinsics (a ValueTask is its task: Intrinsics.cs).</summary>
+    [ShadowMembers("System.Threading.Tasks.ValueTask")]
+    internal static class ValueTaskMembers
+    {
+        public static ValueTask FromCanceled(CancellationToken cancellationToken) => new ValueTask(Task.FromCanceled(cancellationToken));
+        public static ValueTask<TResult> FromCanceled<TResult>(CancellationToken cancellationToken) => new ValueTask<TResult>(Task.FromCanceled<TResult>(cancellationToken));
     }
 
     /// <summary>Task.Factory and Task.ContinueWith (Task&lt;TResult&gt;'s are Intrinsics.cs forwarders to TaskResultContinuations).</summary>

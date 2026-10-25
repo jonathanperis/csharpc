@@ -3,7 +3,7 @@
 // Ported to csharpc from dotnet/runtime (release/11.0), src/libraries/System.Security.Cryptography/src/
 // System/Security/Cryptography/HashAlgorithmName.cs and RSAParameters.cs; see THIRD-PARTY-NOTICES.md.
 // The value types of System.Security.Cryptography that code passes around without hashing or signing
-// anything (Roslyn's checksums and strong-name keys); the algorithms themselves are not implemented.
+// anything (Roslyn's checksums and strong-name keys); hashing is in Hashing.cs, RSA in Crypto/Rsa.cs.
 #nullable disable
 using System;
 using System.Security.Cryptography;

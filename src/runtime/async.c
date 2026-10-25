@@ -40,7 +40,7 @@ __attribute__((weak)) void csrt_coro_resume(void* frame) { (void)frame; abort();
 __attribute__((weak)) void csrt_coro_destroy(void* frame) { (void)frame; abort(); }
 
 const csrt_BuiltinMethodTable csrt_Task_MT = {
-    { &csrt_Object_MT.header, "System.Threading.Tasks.Task", 0, 0 },
+    { &csrt_Object_MT.header, "System.Threading.Tasks.Task", 0, CSRT_MT_DISPOSABLE /* Task.Dispose: nothing to release */ },
     { (void*)csrt_object_to_string_default, (void*)csrt_object_equals_default, (void*)csrt_object_get_hash_code_default },
 };
 static const csrt_BuiltinMethodTable csrt_CoroFrame_MT = {
@@ -70,8 +70,9 @@ _Static_assert(offsetof(csrt_Task, payload) == (sizeof(void*) == 8 ? 56 : 40), "
 // WaitingToRun, then Running; every other pending task (async methods, TaskCompletionSource,
 // Delay, WhenAll, unwrap promises) is WaitingForActivation, as in .NET.
 // TF_WAITED: a thread blocks on the task (csrt_task_wait), so completing it must wake the waiters;
-// set under the task's lock while it is pending.
-enum { TF_DELEGATE = 1, TF_RUNNING = 2, TF_WAITED = 4 };
+// set under the task's lock while it is pending. TF_CREATED: new Task(...) not started yet
+// (TaskStatus.Created). Distinct bits: a created task can also be waited on.
+enum { TF_DELEGATE = 1, TF_RUNNING = 2, TF_WAITED = 4, TF_CREATED = 8 };
 
 typedef struct csrt_Iterator {
     const csrt_MethodTable* mt;
@@ -339,13 +340,20 @@ int32_t csrt_task_status(csrt_Task* t) {
         case T_CANCELED: return Canceled;
     }
     int32_t flags = __atomic_load_n(&t->flags, __ATOMIC_ACQUIRE);
+    if (flags & TF_CREATED) return 0; // Created
     if (!(flags & TF_DELEGATE)) return WaitingForActivation;
     return flags & TF_RUNNING ? Running : WaitingToRun;
 }
 
 /// Delegate tasks the corelib starts on top of a TaskCompletionSource (TaskFactory.StartNew, Task.Run with
 /// a token, scheduled continuations, custom schedulers): queued, then running, as Task.Status reports.
-void csrt_task_mark_queued(csrt_Task* t) { if (t) __atomic_or_fetch(&t->flags, TF_DELEGATE, __ATOMIC_RELEASE); }
+void csrt_task_mark_queued(csrt_Task* t) {
+    if (!t) return;
+    __atomic_and_fetch(&t->flags, ~TF_CREATED, __ATOMIC_RELEASE);
+    __atomic_or_fetch(&t->flags, TF_DELEGATE, __ATOMIC_RELEASE);
+}
+void csrt_task_mark_created(csrt_Task* t) { if (t) __atomic_or_fetch(&t->flags, TF_CREATED, __ATOMIC_RELEASE); }
+void csrt_task_clear_created(csrt_Task* t) { if (t) __atomic_and_fetch(&t->flags, ~TF_CREATED, __ATOMIC_RELEASE); }
 void csrt_task_mark_running(csrt_Task* t) { if (t) __atomic_or_fetch(&t->flags, TF_DELEGATE | TF_RUNNING, __ATOMIC_RELEASE); }
 
 static int32_t s_task_id_counter;
@@ -403,11 +411,13 @@ static pthread_cond_t s_wcond = PTHREAD_COND_INITIALIZER;
 
 static void run_continuations(csrt_Task* t, csrt_Array* conts, int32_t n);
 
-/// The one place a task leaves the pending state. False if it had already completed.
-static bool try_finish(csrt_Task* t, int32_t state, void* exception) {
+/// The one place a task leaves the pending state. False if it had already completed. `aggregate`: the
+/// Task.Exception of a task faulted with several exceptions (null: made from `exception` when asked for).
+static bool try_finish_aggregate(csrt_Task* t, int32_t state, void* exception, void* aggregate) {
     task_lock(t);
     if (task_state(t) != T_PENDING) { task_unlock(t); return false; }
     if (exception) t->exception = exception;
+    if (aggregate) t->aggregate = aggregate;
     csrt_Array* conts = t->conts;
     int32_t n = t->ncont;
     t->conts = NULL;
@@ -422,6 +432,16 @@ static bool try_finish(csrt_Task* t, int32_t state, void* exception) {
         pthread_mutex_unlock(&s_wlock);
     }
     return true;
+}
+
+static bool try_finish(csrt_Task* t, int32_t state, void* exception) { return try_finish_aggregate(t, state, exception, NULL); }
+
+/// TaskCompletionSource.TrySetException(IEnumerable<Exception>): faulted with all of them (Task.Exception's
+/// InnerExceptions); `await` rethrows the first, as in .NET.
+bool csrt_task_try_fault_many(csrt_Task* t, csrt_Array* exceptions) {
+    if (!t || !exceptions) csrt_throw_null_reference();
+    void** items = (void**)exceptions->data;
+    return try_finish_aggregate(t, T_FAULTED, items[0], csrt_aggregate_exception_new(items, (int32_t)exceptions->length));
 }
 
 static void finish(csrt_Task* t, int32_t state, void* exception) {
@@ -604,10 +624,23 @@ csrt_Task* csrt_task_from_exception(void* exception, int32_t payload_size) {
     return t;
 }
 
-/// `await t` when t wasn't complete: resume `frame` on the pool once it is. The coroutine has
-/// already executed llvm.coro.save, so a resume from another thread before it actually suspends
-/// is fine.
-void csrt_task_on_completed(csrt_Task* t, void* frame) {
+// SynchronizationContext (corelib/Tasks/SynchronizationContext.cs): while a thread's current context is
+// of a derived type, an await that captures it continues by posting to it. The corelib keeps that
+// context here and gives the hook that turns a continuation into an Action that Posts it.
+_Thread_local __attribute__((tls_model("local-exec"))) void* csrt_tl_sync_context;
+static void* (*s_sync_context_capture)(void* context, void* frame, void* action, void* flow);
+
+void csrt_sync_context_set(void* context) { csrt_tl_sync_context = context; }
+void csrt_sync_context_hook(void* hook) { s_sync_context_capture = (void* (*)(void*, void*, void*, void*))hook; }
+
+/// The Action that posts the continuation to the current thread's captured context, or null (none).
+static void* sync_context_continuation(void* frame, void* action) {
+    void* context = csrt_tl_sync_context;
+    if (!context || !s_sync_context_capture) return NULL;
+    return s_sync_context_capture(context, frame, action, csrt_flow_capture());
+}
+
+static void on_completed_no_context(csrt_Task* t, void* frame) {
     void* flow = csrt_flow_capture();
     bool added;
     if (flow) {
@@ -619,18 +652,43 @@ void csrt_task_on_completed(csrt_Task* t, void* frame) {
     if (!added) enqueue(K_RESUME, frame, NULL);
 }
 
-/// awaiter.OnCompleted(action) / UnsafeOnCompleted(action) (IL async state machines, custom awaiter
-/// patterns): run the action when `t` completes — inline on the completing thread, or on the pool if
-/// `t` already completed, as TaskAwaiter does without a SynchronizationContext.
-void csrt_task_on_completed_action(csrt_Task* t, void* action) {
-    if (!action) csrt_throw_null_reference();
-    if (!t || !add_continuation(t, K_INVOKE, action)) enqueue(K_INVOKE, action, NULL);
+/// `await t` when t wasn't complete: resume `frame` once it is — posted to the captured
+/// SynchronizationContext if there is one, else on the completing thread (or the pool). The coroutine
+/// has already executed llvm.coro.save, so a resume from another thread (or this one, from a Post that
+/// runs the callback right away) before it actually suspends is fine.
+void csrt_task_on_completed(csrt_Task* t, void* frame) {
+    void* post = sync_context_continuation(frame, NULL);
+    if (!post) { on_completed_no_context(t, frame); return; }
+    if (!add_continuation(t, K_INVOKE, post)) invoke_action(post);
 }
 
-/// YieldAwaiter.OnCompleted(action): run the action on the pool.
-void csrt_queue_action(void* action) {
+/// `await t.ConfigureAwait(false)`: no context to post to.
+void csrt_task_on_completed_no_context(csrt_Task* t, void* frame) { on_completed_no_context(t, frame); }
+
+/// `await` of a configured awaitable whose setting isn't known at the await (one kept in a variable).
+void csrt_task_on_completed_unknown_context(csrt_Task* t, void* frame) {
+    if (csrt_tl_sync_context)
+        async_fail("not supported by csharpc yet: awaiting a configured awaitable that is not a direct ConfigureAwait(...) call while a SynchronizationContext is set");
+    on_completed_no_context(t, frame);
+}
+
+/// awaiter.OnCompleted(action) / UnsafeOnCompleted(action) (IL async state machines, custom awaiter
+/// patterns): run the action when `t` completes — inline on the completing thread, or on the pool if
+/// `t` already completed; TaskAwaiter posts it to the captured SynchronizationContext instead.
+void csrt_task_on_completed_action(csrt_Task* t, void* action) {
     if (!action) csrt_throw_null_reference();
-    enqueue(K_INVOKE, action, NULL);
+    void* post = sync_context_continuation(NULL, action);
+    if (!post) {
+        if (!t || !add_continuation(t, K_INVOKE, action)) enqueue(K_INVOKE, action, NULL);
+        return;
+    }
+    if (!t || !add_continuation(t, K_INVOKE, post)) invoke_action(post);
+}
+
+/// ConfiguredTaskAwaiter.OnCompleted(action): as above, never posting to a context.
+void csrt_task_on_completed_action_no_context(csrt_Task* t, void* action) {
+    if (!action) csrt_throw_null_reference();
+    if (!t || !add_continuation(t, K_INVOKE, action)) enqueue(K_INVOKE, action, NULL);
 }
 
 /// ThreadPool.ThreadCount / PendingWorkItemCount / CompletedWorkItemCount (work items started).
@@ -640,6 +698,7 @@ int64_t csrt_pool_completed_count(void) { pthread_mutex_lock(&s_qlock); int64_t 
 
 /// ThreadPool.QueueUserWorkItem (flowContext: with the caller's execution-context flow) and
 /// UnsafeQueueUserWorkItem (without it): the corelib wraps the work in an Action.
+// flowContext: an int, not a bool — P/Invoke passes bool as a 4-byte BOOL (a signature mismatch on WebAssembly).
 void csrt_pool_queue_action(void* action, int32_t flowContext) {
     if (!action) csrt_throw_null_reference();
     enqueue_flow(K_INVOKE, action, NULL, flowContext ? csrt_flow_capture() : NULL);
@@ -665,8 +724,18 @@ static void invoke_with_state(void* p) {
     }
 }
 
-/// `await Task.Yield()`: resume on the pool, after work already queued.
-void csrt_async_yield(void* frame) { enqueue(K_RESUME, frame, NULL); }
+/// YieldAwaiter.OnCompleted(action): post it to the current SynchronizationContext, or run it on the pool.
+void csrt_yield_action(void* action) {
+    if (!action) csrt_throw_null_reference();
+    void* post = sync_context_continuation(NULL, action);
+    if (post) invoke_action(post); else enqueue(K_INVOKE, action, NULL);
+}
+
+/// `await Task.Yield()`: post to the current SynchronizationContext, else resume on the pool, after work already queued.
+void csrt_async_yield(void* frame) {
+    void* post = sync_context_continuation(frame, NULL);
+    if (post) invoke_action(post); else enqueue(K_RESUME, frame, NULL);
+}
 
 static csrt_Task* s_completed;  // Task.CompletedTask
 
@@ -1023,11 +1092,7 @@ void csrt_cts_cancel_after(CancellationSource* cts, int32_t ms) {
 bool csrt_token_is_cancellation_requested(CancellationSource* token) { return token && __atomic_load_n(&token->canceled, __ATOMIC_ACQUIRE); }
 
 void csrt_token_throw_if_cancellation_requested(CancellationSource* token) {
-    if (csrt_token_is_cancellation_requested(token)) {
-        void* e = csrt_operation_canceled_exception_new();
-        csrt_exception_set_token(e, token);  // OperationCanceledException(token): CancellationToken is the one canceled
-        csrt_throw_object(e);
-    }
+    if (csrt_token_is_cancellation_requested(token)) csrt_throw_object(csrt_operation_canceled_exception_new(token));
 }
 
 /// new CancellationToken(true): one canceled source shared by every such token (.NET's s_canceledSource).
@@ -1172,7 +1237,15 @@ csrt_Task* csrt_task_run_thunk(void (*thunk)(void*), void* del, int32_t payload_
     return t;
 }
 
+// Task.CurrentId: the delegate task this thread is executing (its inline continuations included, as in
+// .NET, where they run before the task's execution scope ends); null outside one.
+static _Thread_local csrt_Task* tl_current_task;
+
+int32_t csrt_task_current_id(void) { return tl_current_task ? csrt_task_id(tl_current_task) : 0; }
+void* csrt_task_swap_current(void* task) { void* saved = tl_current_task; tl_current_task = task; return saved; }
+
 static void run_item(intptr_t kind, void* a, void* b) {
+    csrt_Task* saved_current = tl_current_task;
     switch (kind) {
         case K_RESUME: csrt_coro_resume(a); break;
         case K_INVOKE: invoke_action(a); break;
@@ -1184,6 +1257,7 @@ static void run_item(intptr_t kind, void* a, void* b) {
         }
         case K_RUN_ACTION: {
             Delegate* d = a;
+            tl_current_task = b;
             __atomic_or_fetch(&((csrt_Task*)b)->flags, TF_RUNNING, __ATOMIC_RELEASE);
             void* exception = csrt_call_catching_void((void (*)(void*))d->fn, d->target);
             if (exception) csrt_task_fault(b, exception);
@@ -1193,6 +1267,7 @@ static void run_item(intptr_t kind, void* a, void* b) {
         case K_RUN_FUNC_TASK: {
             Delegate* d = a;
             csrt_Task* inner = NULL;
+            tl_current_task = csrt_task_new(0); // .NET's hidden delegate task behind the unwrapping proxy
             void* exception = csrt_call_catching_ptr((void* (*)(void*))d->fn, d->target, (void**)&inner);
             if (exception) csrt_task_fault(b, exception);
             else if (!inner || !add_continuation(inner, K_CHAIN, b)) chain(inner, b);
@@ -1200,6 +1275,7 @@ static void run_item(intptr_t kind, void* a, void* b) {
         }
         case K_RUN_THUNK: {
             RunThunk* pack = a;
+            tl_current_task = b;
             __atomic_or_fetch(&((csrt_Task*)b)->flags, TF_RUNNING, __ATOMIC_RELEASE);
             void* exception = csrt_call_catching_void(pack->thunk, pack);
             if (exception) csrt_task_fault(b, exception);
@@ -1209,6 +1285,7 @@ static void run_item(intptr_t kind, void* a, void* b) {
         case K_TIMER_TASK: csrt_task_try_complete(a); break;
         case K_TIMER_CANCEL: csrt_cts_cancel(a); break;
     }
+    tl_current_task = saved_current;
 }
 
 #ifdef __wasi__
@@ -1254,6 +1331,10 @@ void csrt_task_wait(csrt_Task* t) {
             async_fail("csharpc: deadlock: waiting for a task that no queued work or timer can complete "
                        "(WebAssembly runs a single thread).");
 }
+
+/// One scheduler step for waits on the only thread (threads.c's events): false when nothing is queued and
+/// no timer is due before `limit` (-1 = no limit) could change what the caller waits for.
+bool csrt_scheduler_step(int64_t limit) { return scheduler_step(limit); }
 
 /// Thread.Sleep on the only thread: what pool threads would do meanwhile happens here.
 void csrt_scheduler_run_until(int64_t deadline) {

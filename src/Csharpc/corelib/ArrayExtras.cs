@@ -57,16 +57,43 @@ namespace CsharpcCoreLib
 
         public static void Sort<TKey, TValue>(TKey[] keys, TValue[] items)
         {
-            // Sorts items along with keys: sort an index permutation, then apply it to both.
-            int n = keys.Length;
-            int[] perm = new int[n];
-            for (int i = 0; i < n; i++) perm[i] = i;
-            TKey[] k = new TKey[n];
-            for (int i = 0; i < n; i++) k[i] = keys[i];
-            SortHelper<int>.Sort(perm, 0, n, (a, b) => CoreIntrinsics.Compare(k[a], k[b]));
-            TValue[] v = new TValue[items.Length];
-            for (int i = 0; i < v.Length; i++) v[i] = items[i];
-            for (int i = 0; i < n; i++) { keys[i] = k[perm[i]]; items[i] = v[perm[i]]; }
+            if (keys == null) ThrowHelper.ArgumentNull("keys");
+            Sort(keys, items, 0, keys.Length, null);
+        }
+
+        public static void Sort<TKey, TValue>(TKey[] keys, TValue[] items, IComparer<TKey> comparer)
+        {
+            if (keys == null) ThrowHelper.ArgumentNull("keys");
+            Sort(keys, items, 0, keys.Length, comparer);
+        }
+
+        public static void Sort<TKey, TValue>(TKey[] keys, TValue[] items, int index, int length) => Sort(keys, items, index, length, null);
+
+        public static void Sort<TKey, TValue>(TKey[] keys, TValue[] items, int index, int length, IComparer<TKey> comparer)
+        {
+            if (keys == null) ThrowHelper.ArgumentNull("keys");
+            if (index < 0 || length < 0) ThrowHelper.ArgumentOutOfRange(length < 0 ? "length" : "index", "Non-negative number required.");
+            if (keys.Length - index < length || (items != null && index > items.Length - length))
+                throw new ArgumentException("Offset and length were out of bounds for the array or count is greater than the number of elements from index to the end of the source collection.");
+            if (length <= 1) return;
+            if (items == null)
+            {
+                SortHelper<TKey>.Sort(keys, index, length, comparer);
+                return;
+            }
+            // Sorts items along with keys: the same introsort over an index permutation makes the same
+            // decisions (they only depend on the comparisons), then the permutation is applied to both.
+            int[] perm = new int[length];
+            for (int i = 0; i < length; i++) perm[i] = i;
+            TKey[] k = new TKey[length];
+            Array.Copy(keys, index, k, 0, length);
+            TValue[] v = new TValue[length];
+            Array.Copy(items, index, v, 0, length);
+            if (comparer == null || comparer == Comparer<TKey>.Default)
+                SortHelper<int>.Sort(perm, 0, length, (a, b) => CoreIntrinsics.Compare(k[a], k[b]));
+            else
+                SortHelper<int>.Sort(perm, 0, length, (a, b) => comparer.Compare(k[a], k[b]));
+            for (int i = 0; i < length; i++) { keys[index + i] = k[perm[i]]; items[index + i] = v[perm[i]]; }
         }
 
         public static void Reverse<T>(T[] array)
@@ -248,6 +275,70 @@ namespace CsharpcCoreLib
         }
 
         public static int BinarySearch<T>(T[] array, int index, int length, T value) => BinarySearch(array, index, length, value, null);
+
+        // Non-generic element access goes through the array's IList (its element type boxes and unboxes).
+        [ShadowInstance]
+        public static object GetValue(Array array, int index)
+        {
+            if (array.Rank != 1) throw new ArgumentException("Array was not a one-dimensional array.");
+            return ((System.Collections.IList)array)[index];
+        }
+
+        [ShadowInstance]
+        public static void SetValue(Array array, object value, int index)
+        {
+            if (array.Rank != 1) throw new ArgumentException("Array was not a one-dimensional array.");
+            // Reference-type elements: the runtime's assignability check and .NET's message
+            // (ReflectionRuntime.SetValue); value-type elements unbox through the array's IList.
+            try { ReflectionRuntime.SetValue(array, value, index); }
+            catch (NotSupportedException) { ((System.Collections.IList)array)[index] = value; }
+        }
+
+        /// <summary>A new array of `arrayType` (closed world: a type csharpc emitted, e.g. through typeof(X[])).</summary>
+        public static Array CreateInstanceFromArrayType(Type arrayType, int length)
+        {
+            ArgumentNullException.ThrowIfNull(arrayType);
+            ArgumentOutOfRangeException.ThrowIfNegative(length);
+            switch (CoreIntrinsics.csrt_array_type_kind(arrayType))
+            {
+                case 1: throw new ArgumentException("Must be an array type.", "arrayType");
+                case 2: throw new ArgumentException("Only single dimensional arrays are supported for the requested action.", "arrayType");
+            }
+            return CoreIntrinsics.csrt_array_new_of_type(arrayType, length);
+        }
+
+        public static int BinarySearch(Array array, object value) => BinarySearch(array, value, null);
+
+        public static int BinarySearch(Array array, object value, System.Collections.IComparer comparer)
+        {
+            if (array == null) ThrowHelper.ArgumentNull("array");
+            return BinarySearch(array, 0, array.Length, value, comparer);
+        }
+
+        public static int BinarySearch(Array array, int index, int length, object value) => BinarySearch(array, index, length, value, null);
+
+        public static int BinarySearch(Array array, int index, int length, object value, System.Collections.IComparer comparer)
+        {
+            if (array == null) ThrowHelper.ArgumentNull("array");
+            if (array.Rank != 1) throw new RankException("Only single dimensional arrays are supported for the requested action.");
+            if (index < 0 || length < 0) throw new ArgumentOutOfRangeException(index < 0 ? "index" : "length", "Non-negative number required.");
+            if (array.Length - index < length)
+                throw new ArgumentException("Offset and length were out of bounds for the array or count is greater than the number of elements from index to the end of the source collection.");
+            comparer ??= System.Collections.Comparer.Default;
+            var list = (System.Collections.IList)array;
+            int lo = index, hi = index + length - 1;
+            while (lo <= hi)
+            {
+                int i = lo + ((hi - lo) >> 1);
+                int c;
+                try { c = comparer.Compare(list[i], value); }
+                catch (Exception e) { throw new InvalidOperationException("Failed to compare two elements in the array.", e); }
+                if (c == 0) return i;
+                if (c < 0) lo = i + 1;
+                else hi = i - 1;
+            }
+            return ~lo;
+        }
 
         public static int BinarySearch<T>(T[] array, int index, int length, T value, IComparer<T> comparer)
         {

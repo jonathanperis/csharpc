@@ -61,6 +61,40 @@ namespace CsharpcCoreLib
     [ShadowMembers("System.MemoryExtensions")]
     internal static class MemoryExtensionsComparers
     {
+        // Overlaps (MemoryExtensions.cs): the byte offset between the starts, compared unsigned.
+        public static bool Overlaps<T>(ReadOnlySpan<T> span, ReadOnlySpan<T> other)
+        {
+            if (span.IsEmpty || other.IsEmpty) return false;
+            nint byteOffset = System.Runtime.CompilerServices.Unsafe.ByteOffset(
+                ref System.Runtime.InteropServices.MemoryMarshal.GetReference(span), ref System.Runtime.InteropServices.MemoryMarshal.GetReference(other));
+            nint size = System.Runtime.CompilerServices.Unsafe.SizeOf<T>();
+            return (nuint)byteOffset < (nuint)(span.Length * size) || (nuint)byteOffset > (nuint)(-(other.Length * size));
+        }
+
+        public static bool Overlaps<T>(Span<T> span, ReadOnlySpan<T> other) => Overlaps((ReadOnlySpan<T>)span, other);
+
+        public static bool Overlaps<T>(ReadOnlySpan<T> span, ReadOnlySpan<T> other, out int elementOffset)
+        {
+            if (span.IsEmpty || other.IsEmpty)
+            {
+                elementOffset = 0;
+                return false;
+            }
+            nint byteOffset = System.Runtime.CompilerServices.Unsafe.ByteOffset(
+                ref System.Runtime.InteropServices.MemoryMarshal.GetReference(span), ref System.Runtime.InteropServices.MemoryMarshal.GetReference(other));
+            nint size = System.Runtime.CompilerServices.Unsafe.SizeOf<T>();
+            if ((nuint)byteOffset < (nuint)(span.Length * size) || (nuint)byteOffset > (nuint)(-(other.Length * size)))
+            {
+                if (byteOffset % size != 0) throw new ArgumentException("Overlapping spans have mismatching alignment.");
+                elementOffset = (int)(byteOffset / size);
+                return true;
+            }
+            elementOffset = 0;
+            return false;
+        }
+
+        public static bool Overlaps<T>(Span<T> span, ReadOnlySpan<T> other, out int elementOffset) => Overlaps((ReadOnlySpan<T>)span, other, out elementOffset);
+
         public static bool SequenceEqual<T>(ReadOnlySpan<T> span, ReadOnlySpan<T> other, IEqualityComparer<T> comparer = null) =>
             span.Length == other.Length && SpanEqualityOps.EqualAt(span, 0, other, comparer);
 

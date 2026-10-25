@@ -19,8 +19,7 @@ public sealed partial class FunctionCodeGen
     internal static readonly string[] TypesLoweredByName =
     [
         "System.Threading.Tasks.Parallel", "System.Threading.Thread", "System.Threading.Monitor", "System.Threading.Lock",
-        "System.Threading.Interlocked", "System.Threading.Volatile", "System.Threading.ManualResetEventSlim",
-        "System.Threading.ManualResetEvent", "System.Threading.AutoResetEvent",
+        "System.Threading.Interlocked", "System.Threading.Volatile", "System.Threading.ManualResetEvent", "System.Threading.AutoResetEvent",
         "System.Threading.CountdownEvent", "System.Threading.EventWaitHandle", "System.Threading.WaitHandle",
     ];
 
@@ -62,9 +61,6 @@ public sealed partial class FunctionCodeGen
                 return true;
             case "Lock" when IsThreading(type, "Lock"):
                 result = Rt("csrt_lock_new", L.Ptr, []);
-                return true;
-            case "ManualResetEventSlim" when IsThreading(type, "ManualResetEventSlim"):
-                result = Event(0, ctor.Parameters.IsEmpty ? I32(0) : BoolCount(0), I32(0));
                 return true;
             case "ManualResetEvent" when IsThreading(type, "ManualResetEvent"):
                 result = Event(0, BoolCount(0), I32(1));
@@ -134,7 +130,7 @@ public sealed partial class FunctionCodeGen
             return true;
         }
         if (owner is INamedTypeSymbol { ContainingNamespace: { } ns } && ns.ToDisplayString() == "System.Threading"
-            && owner.Name is "ManualResetEventSlim" or "ManualResetEvent" or "AutoResetEvent" or "CountdownEvent" or "EventWaitHandle" or "WaitHandle")
+            && owner.Name is "ManualResetEvent" or "AutoResetEvent" or "CountdownEvent" or "EventWaitHandle" or "WaitHandle")
         {
             result = name switch
             {
@@ -185,6 +181,7 @@ public sealed partial class FunctionCodeGen
                 case "Join" when n == 0: Rt("csrt_thread_join", L.Void, [L.Ptr], Self()); return true;
                 case "Join" when n == 1 && m.Parameters[0].Type.SpecialType == SpecialType.System_Int32:
                     result = Rt("csrt_thread_join_timeout", L.I1, [L.Ptr, L.I32], Self(), TArg(inv, 0)); return true;
+                case "Interrupt" when n == 0: Rt("csrt_thread_interrupt", L.Void, [L.Ptr], Self()); return true;
                 case "Sleep" when n == 1 && m.Parameters[0].Type.SpecialType == SpecialType.System_Int32:
                     Rt("csrt_thread_sleep", L.Void, [L.I32], TArg(inv, 0)); return true;
                 case "Sleep" when n == 1 && BclValueTypes.IsTimeSpan(m.Parameters[0].Type):
@@ -244,7 +241,7 @@ public sealed partial class FunctionCodeGen
         }
 
         if (owner is INamedTypeSymbol { ContainingNamespace: { } ns } && ns.ToDisplayString() == "System.Threading"
-            && owner.Name is "ManualResetEventSlim" or "ManualResetEvent" or "AutoResetEvent" or "CountdownEvent" or "EventWaitHandle" or "WaitHandle")
+            && owner.Name is "ManualResetEvent" or "AutoResetEvent" or "CountdownEvent" or "EventWaitHandle" or "WaitHandle")
         {
             // Wait(TimeSpan): the timeout in milliseconds, checked like .NET (-1 to int.MaxValue).
             var timeSpanTimeout = m.Name is "Wait" or "WaitOne" && n == 1 && BclValueTypes.IsTimeSpan(m.Parameters[0].Type);
@@ -439,7 +436,13 @@ public sealed partial class FunctionCodeGen
             var source = inv.Arguments.First(a => a.Parameter!.Ordinal == 0).Value;
             while (source is IConversionOperation { Conversion.IsImplicit: true } c) source = c.Operand;
             if (TypeOf(source) is not IArrayTypeSymbol { Rank: 1 } arrayType)
-                throw CompileError.Unsupported($"Parallel.ForEach over '{TypeOf(source)}' (only arrays so far)", inv);
+            {
+                // Other enumerables and partitioners: corelib/Tasks/ParallelForEach.cs.
+                if (m.TypeArguments.Length != 1) return false;
+                var overSource = m.Parameters[0].Type is INamedTypeSymbol { Name: "Partitioner" or "OrderablePartitioner" } ? "ForEachPartitioner" : "ForEach";
+                CallCoreLibGenericMethod("ParallelForEachSupport", overSource, [S(m.TypeArguments[0])], TArg(inv, 0), TArg(inv, 1));
+                return true;
+            }
             var array = EmitValue(source);
             NullCheck(array);
             var body = TArg(inv, 1);

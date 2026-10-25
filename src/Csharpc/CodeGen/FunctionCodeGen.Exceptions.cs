@@ -393,6 +393,7 @@ public sealed partial class FunctionCodeGen
         ["System.ObjectDisposedException"] = "Cannot access a disposed object.",
         ["System.Threading.ThreadStateException"] = "Thread was in an invalid state for the operation being executed.",
         ["System.Threading.SynchronizationLockException"] = "Object synchronization method was called from an unsynchronized block of code.",
+        ["System.Threading.ThreadInterruptedException"] = "Thread was interrupted from a waiting state.",
         ["System.NotSupportedException"] = "Specified method is not supported.",
         ["System.PlatformNotSupportedException"] = "Operation is not supported on this platform.",
         ["System.NotImplementedException"] = "The method or operation is not implemented.",
@@ -502,6 +503,15 @@ public sealed partial class FunctionCodeGen
                 : VirtualCall(target, self, [self]);
             return true;
         }
+        // AggregateException.Flatten(): corelib/AggregateExceptionSupport.cs.
+        if (!target.IsStatic && target.Name == "Flatten" && target.Parameters.IsEmpty
+            && Mangler.MetadataName(target.ContainingType) == "System.AggregateException")
+        {
+            var self = EmitValue(inv.Instance!);
+            NullCheck(self);
+            result = CallCoreLib("AggregateExceptionSupport", "Flatten", self);
+            return true;
+        }
         // AggregateException.Handle(predicate): corelib/AggregateExceptionSupport.cs over its inner exceptions.
         if (!target.IsStatic && target.Name == "Handle" && target.Parameters.Length == 1
             && Mangler.MetadataName(target.ContainingType) == "System.AggregateException")
@@ -538,9 +548,15 @@ public sealed partial class FunctionCodeGen
             _ => null,
         };
         var innerExceptions = property.Name == "InnerExceptions" && Mangler.MetadataName(property.ContainingType) == "System.AggregateException";
-        if (field is null && property.Name is not ("Message" or "StackTrace") && !innerExceptions) return false;
+        var cancellationToken = property.Name == "CancellationToken" && Mangler.MetadataName(property.ContainingType) == "System.OperationCanceledException";
+        if (field is null && property.Name is not ("Message" or "StackTrace") && !innerExceptions && !cancellationToken) return false;
         var self = EmitValue(p.Instance!);
         NullCheck(self);
+        if (cancellationToken)
+        {
+            result = CallRuntime("csrt_exception_get_token", L.Ptr, [L.Ptr], self);
+            return true;
+        }
         if (innerExceptions)
         {
             result = CallCoreLib("AggregateExceptionSupport", "InnerExceptions", self);

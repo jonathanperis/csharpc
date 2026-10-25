@@ -3,8 +3,8 @@
 // System.Collections.Hashtable, ported from dotnet/runtime (release/11.0)
 // src/libraries/System.Private.CoreLib/src/System/Collections/Hashtable.cs; see THIRD-PARTY-NOTICES.md.
 // The bucket layout is .NET's (double hashing over prime sizes, collision bits, the same growth and
-// rehash points), so enumeration visits entries in .NET's order. Not ported: serialization, the
-// Synchronized wrapper and the obsolete IHashCodeProvider/IComparer constructors.
+// rehash points), so enumeration visits entries in .NET's order. Not ported: serialization and
+// the obsolete IHashCodeProvider/IComparer constructors.
 #nullable disable
 using System;
 using System.Collections;
@@ -230,6 +230,53 @@ namespace CsharpcCoreLib
 
         public virtual IDictionaryEnumerator GetEnumerator() => new HashtableEnumerator(this, HashtableEnumerator.DictEntry);
         IEnumerator IEnumerable.GetEnumerator() => new HashtableEnumerator(this, HashtableEnumerator.DictEntry);
+
+        // Synchronized: .NET's SyncHashtable — writes lock the table's SyncRoot, reads don't.
+        private HashtableImpl(bool _) { }
+
+        public static Hashtable Synchronized(Hashtable table)
+        {
+            ArgumentNullException.ThrowIfNull(table);
+            return (Hashtable)(object)new SyncHashtable(table);
+        }
+
+        private sealed class SyncHashtable : HashtableImpl, IEnumerable
+        {
+            private readonly Hashtable _table;
+
+            internal SyncHashtable(Hashtable table) : base(false) { _table = table; }
+
+            public override int Count => _table.Count;
+            public override bool IsReadOnly => _table.IsReadOnly;
+            public override bool IsFixedSize => _table.IsFixedSize;
+            public override bool IsSynchronized => true;
+
+            public override object this[object key]
+            {
+                get => _table[key];
+                set { lock (_table.SyncRoot) _table[key] = value; }
+            }
+
+            public override object SyncRoot => _table.SyncRoot;
+            public override void Add(object key, object value) { lock (_table.SyncRoot) _table.Add(key, value); }
+            public override void Clear() { lock (_table.SyncRoot) _table.Clear(); }
+            public override bool Contains(object key) => _table.Contains(key);
+
+            public override bool ContainsKey(object key)
+            {
+                ArgumentNullException.ThrowIfNull(key);
+                return _table.ContainsKey(key);
+            }
+
+            public override bool ContainsValue(object key) { lock (_table.SyncRoot) return _table.ContainsValue(key); }
+            public override void CopyTo(Array array, int arrayIndex) { lock (_table.SyncRoot) _table.CopyTo(array, arrayIndex); }
+            public override object Clone() { lock (_table.SyncRoot) return Synchronized((Hashtable)_table.Clone()); }
+            IEnumerator IEnumerable.GetEnumerator() => _table.GetEnumerator();
+            public override IDictionaryEnumerator GetEnumerator() => _table.GetEnumerator();
+            public override ICollection Keys { get { lock (_table.SyncRoot) return _table.Keys; } }
+            public override ICollection Values { get { lock (_table.SyncRoot) return _table.Values; } }
+            public override void Remove(object key) { lock (_table.SyncRoot) _table.Remove(key); }
+        }
 
         protected virtual int GetHash(object key) => _keycomparer != null ? _keycomparer.GetHashCode(key) : key.GetHashCode();
 

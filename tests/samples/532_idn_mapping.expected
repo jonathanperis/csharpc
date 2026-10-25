@@ -1,0 +1,37 @@
+contoso.中国 -> contoso.xn--fiqs8s
+bücher.example -> xn--bcher-kva.example
+example.com -> example.com
+Example.COM -> Example.COM
+münchen.de -> xn--mnchen-3ya.de
+日本語.jp -> xn--wgv71a119e.jp
+xn--fsq.com -> xn--fsq.com
+a.b.c -> a.b.c
+πόλη.gr -> xn--sxaho2c.gr
+café -> xn--caf-dma
+שלום.co.il -> xn--9dbne9b.co.il
+abc١.com -> xn--abc-d6e.com
+-start.com -> ArgumentException: Decoded string is not a valid IDN name. (Parameter 'unicode')
+xn--fiqs8s <- 中国
+xn--bcher-kva.example <- bücher.example
+xn--mnchen-3ya.de <- münchen.de
+example.com <- example.com
+xn--zz <- ArgumentException: Decoded string is not a valid IDN name. (Parameter 'ascii')
+xn--wgv71a119e.jp <- 日本語.jp
+0 chars: ArgumentException: IDN labels must be between 1 and 63 characters long. (Parameter 'unicode')
+4 chars: ArgumentException: Decoded string is not a valid IDN name. (Parameter 'unicode')
+68 chars: ArgumentException: Decoded string is not a valid IDN name. (Parameter 'unicode')
+2 chars: ArgumentException: Invalid Unicode code point found at index 1. (Parameter 'unicode')
+8 chars: ArgumentException: Decoded string is not a valid IDN name. (Parameter 'unicode')
+Value cannot be null. (Parameter 'unicode')
+count ('-1') must be a non-negative value. (Parameter 'count')
+Actual value was -1.
+std3 under_score.com -> Decoded string is not a valid IDN name. (Parameter 'unicode')
+std3 ok-name.com -> ok-name.com
+std3 -bad.com -> Decoded string is not a valid IDN name. (Parameter 'unicode')
+True False 2200 1200 False
+xn--bcher-kva.example
+False 0
+Valid: david.jones@proseware.com (david.jones@proseware.com)
+Valid: js@contoso.中国 (js@contoso.xn--fiqs8s)
+Invalid: js@proseware..com
+Valid: j_9@[129.126.118.1] (j_9@[129.126.118.1])

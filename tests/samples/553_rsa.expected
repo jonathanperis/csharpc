@@ -1,0 +1,33 @@
+default key 2048 bits, max output 256, RSA/RSA
+legal sizes: 512-16384 step 8
+public: modulus 256, exponent 010001, private parts True
+private: D 256, P 128, Q 128, DP 128, DQ 128, InverseQ 128
+PSS signature 256 bytes, verified by the public key: True
+tampered: False
+Pkcs1: 256 bytes -> Hello, from csharpc!
+OaepSHA1: 256 bytes -> Hello, from csharpc!
+OaepSHA256: 256 bytes -> Hello, from csharpc!
+Create(1024): 1024 bits, modulus 128 bytes
+imported key 1024 bits, exported D matches: True
+SHA1: 8B1057713369602D33D31B867887A5F5... verifies True
+SHA256: 8260E5685F374C1A96B0B6A51C4CF2E2... verifies True
+SHA384: 71835E645418A3BDBB248DB82800CEFE... verifies True
+SHA512: A3165AB9CBFD871B7B2F5BFFC2D0FBE2... verifies True
+MD5: 92B4FE14EB5882ACD3B722932AE3BE87... verifies True
+formatter = SignHash: True
+deformatter: True, wrong hash: False
+offset/count: True
+no algorithm: No hash algorithm has been associated with this formatter object, assign one via the SetHashAlgorithm method.
+unknown algorithm: No hash algorithm has been associated with this formatter object, assign one via the SetHashAlgorithm method.
+no key: No asymmetric key object has been associated with this formatter object, assign one via the SetKey method.
+CryptographicUnexpectedOperationException: No hash algorithm has been associated with this formatter object, assign one via the SetHashAlgorithm method.
+decrypt: The length of the data to decrypt is not valid for the size of this key.
+ArgumentNullException: Value cannot be null. (Parameter 'hashAlgorithm')
+CryptographicException: 'FOO' is not a known hash algorithm.
+paddings: Pkcs1 Pss OaepSHA512 True False
+no exponent: Value was invalid.
+inconsistent: Value was invalid.
+1000 bits accepted
+513 bits: Specified key is not a valid size for this algorithm.
+disposed: Cannot access a disposed object.
+Object name: 'System.Security.Cryptography.RSAOpenSsl'.

@@ -329,6 +329,11 @@ namespace CsharpcCoreLib
     {
         public static bool IsDynamicCodeSupported => false;
         public static bool IsDynamicCodeCompiled => false;
+#if CSHARPC_TARGET_WASM32
+        public static bool IsMultithreadingSupported => false; // WASI preview 1: one thread (docs/adr/0011-wasm32.md)
+#else
+        public static bool IsMultithreadingSupported => true;
+#endif
     }
 
     [ShadowMembers("System.Runtime.CompilerServices.RuntimeHelpers")]
@@ -340,6 +345,20 @@ namespace CsharpcCoreLib
         private static nuint MinimumStack => (nuint)(IntPtr.Size == 8 ? 128 * 1024 : 64 * 1024);
 
         public static bool TryEnsureSufficientExecutionStack() => csrt_stack_remaining() >= MinimumStack;
+
+        /// <summary>array[range] (the compiler's RuntimeHelpers.GetSubArray): a copy of the slice.</summary>
+        public static T[] GetSubArray<T>(T[] array, Range range)
+        {
+            if (array == null) throw new ArgumentNullException("array");
+            // Range.GetOffsetAndLength
+            int offset = range.Start.GetOffset(array.Length), end = range.End.GetOffset(array.Length);
+            if ((uint)end > (uint)array.Length || (uint)offset > (uint)end) throw new ArgumentOutOfRangeException("length");
+            int length = end - offset;
+            if (length == 0) return Array.Empty<T>();
+            var dest = new T[length];
+            Array.Copy(array, offset, dest, 0, length);
+            return dest;
+        }
 
         public static void EnsureSufficientExecutionStack()
         {

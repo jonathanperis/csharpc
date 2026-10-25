@@ -169,6 +169,11 @@ public sealed partial class FunctionCodeGen
                 return EmitUserCall(impl, AddressOrSpill(concrete), selfIsNonNull: true, arguments, isVirtual: false, extra.Length > 0 ? extra : null);
             if (invocation is not null && Intrinsics.TryGet(impl, out var handler)) return handler(this, invocation);
             if (invocation is not null && BclValueTypes.TryGet(impl, out var bcl)) return CallBcl(bcl, impl, concrete, invocation.Arguments, invocation);
+            // A corelib [ShadowInstance] member implementing it (int.TryFormat for ISpanFormattable...).
+            // (Value types only: a class's shadow member may itself make the interface call, as Array.GetEnumerator does.)
+            if (invocation is not null && staticType.IsValueType && !_m.IsUserMethod(impl) && _m.CoreLib.Map(impl) is var mappedImpl
+                && !SymbolEqualityComparer.Default.Equals(mappedImpl, impl) && _m.IsUserMethod(mappedImpl) && CoreLib.IsInstanceShadow(mappedImpl))
+                return EmitUserCall(mappedImpl, EmitValue(concrete), selfIsNonNull: true, invocation.Arguments, isVirtual: false, extra.Length > 0 ? extra : null);
             if (staticType.IsValueType && !ModuleCodeGen.PrimitiveSlotSupported(staticType, target.ContainingType, target))
                 throw CompileError.Unsupported($"interface call '{target}' on value type '{staticType}'", receiver);
         }

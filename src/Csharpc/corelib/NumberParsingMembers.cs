@@ -34,6 +34,12 @@ namespace CsharpcCoreLib
         public static bool TryParse(ReadOnlySpan<char> s, out int result) => TryParse(s.ToString(), DefaultStyle, null, out result);
         public static bool TryParse(ReadOnlySpan<char> s, IFormatProvider provider, out int result) => TryParse(s.ToString(), DefaultStyle, provider, out result);
         public static bool TryParse(ReadOnlySpan<char> s, NumberStyles style, IFormatProvider provider, out int result) => TryParse(s.ToString(), (int)style, provider, out result);
+        // UTF-8 text (IUtf8SpanParsable): the same parser over the decoded characters (anything that isn't ASCII fails either way).
+        public static int Parse(ReadOnlySpan<byte> utf8Text, NumberStyles style = NumberStyles.Integer, IFormatProvider provider = null) => Parse(System.Text.Encoding.UTF8.GetString(utf8Text), (int)style, provider);
+        public static int Parse(ReadOnlySpan<byte> utf8Text, IFormatProvider provider) => Parse(System.Text.Encoding.UTF8.GetString(utf8Text), DefaultStyle, provider);
+        public static bool TryParse(ReadOnlySpan<byte> utf8Text, NumberStyles style, IFormatProvider provider, out int result) => TryParse(System.Text.Encoding.UTF8.GetString(utf8Text), (int)style, provider, out result);
+        public static bool TryParse(ReadOnlySpan<byte> utf8Text, IFormatProvider provider, out int result) => TryParse(System.Text.Encoding.UTF8.GetString(utf8Text), DefaultStyle, provider, out result);
+        public static bool TryParse(ReadOnlySpan<byte> utf8Text, out int result) => TryParse(System.Text.Encoding.UTF8.GetString(utf8Text), DefaultStyle, null, out result);
     }
 
     [ShadowMembers("System.Int64")]
@@ -62,6 +68,12 @@ namespace CsharpcCoreLib
         public static bool TryParse(ReadOnlySpan<char> s, out long result) => TryParse(s.ToString(), DefaultStyle, null, out result);
         public static bool TryParse(ReadOnlySpan<char> s, IFormatProvider provider, out long result) => TryParse(s.ToString(), DefaultStyle, provider, out result);
         public static bool TryParse(ReadOnlySpan<char> s, NumberStyles style, IFormatProvider provider, out long result) => TryParse(s.ToString(), (int)style, provider, out result);
+        // UTF-8 text (IUtf8SpanParsable): the same parser over the decoded characters (anything that isn't ASCII fails either way).
+        public static long Parse(ReadOnlySpan<byte> utf8Text, NumberStyles style = NumberStyles.Integer, IFormatProvider provider = null) => Parse(System.Text.Encoding.UTF8.GetString(utf8Text), (int)style, provider);
+        public static long Parse(ReadOnlySpan<byte> utf8Text, IFormatProvider provider) => Parse(System.Text.Encoding.UTF8.GetString(utf8Text), DefaultStyle, provider);
+        public static bool TryParse(ReadOnlySpan<byte> utf8Text, NumberStyles style, IFormatProvider provider, out long result) => TryParse(System.Text.Encoding.UTF8.GetString(utf8Text), (int)style, provider, out result);
+        public static bool TryParse(ReadOnlySpan<byte> utf8Text, IFormatProvider provider, out long result) => TryParse(System.Text.Encoding.UTF8.GetString(utf8Text), DefaultStyle, provider, out result);
+        public static bool TryParse(ReadOnlySpan<byte> utf8Text, out long result) => TryParse(System.Text.Encoding.UTF8.GetString(utf8Text), DefaultStyle, null, out result);
     }
 
     [ShadowMembers("System.Int16")]

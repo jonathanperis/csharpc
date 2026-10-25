@@ -252,8 +252,14 @@ namespace CsharpcCoreLib
     public struct AsyncVoidMethodBuilderImpl
     {
         private object _box;
+        private object _context; // the SynchronizationContext it reports to (SynchronizationContext.cs)
 
-        public static AsyncVoidMethodBuilderImpl Create() { return default(AsyncVoidMethodBuilderImpl); }
+        public static AsyncVoidMethodBuilderImpl Create()
+        {
+            AsyncVoidMethodBuilderImpl builder = default(AsyncVoidMethodBuilderImpl);
+            builder._context = SynchronizationContextImpl.AsyncVoidStarted();
+            return builder;
+        }
         public void Start<TStateMachine>(ref TStateMachine stateMachine) where TStateMachine : IAsyncStateMachine =>
             AsyncBuilderCore.Start(ref stateMachine);
         public void SetStateMachine(IAsyncStateMachine stateMachine) => AsyncBuilderCore.CheckStateMachine(stateMachine);
@@ -263,13 +269,13 @@ namespace CsharpcCoreLib
         public void AwaitUnsafeOnCompleted<TAwaiter, TStateMachine>(ref TAwaiter awaiter, ref TStateMachine stateMachine)
             where TAwaiter : ICriticalNotifyCompletion where TStateMachine : IAsyncStateMachine =>
             AsyncBuilderCore.AwaitUnsafeOnCompleted(ref _box, ref awaiter, ref stateMachine);
-        public void SetResult() { }
+        public void SetResult() => SynchronizationContextImpl.AsyncVoidCompleted(_context);
 
-        /// <summary>No SynchronizationContext: .NET rethrows on the thread pool, which ends the process.</summary>
+        /// <summary>Rethrown on the SynchronizationContext; without one .NET rethrows on the thread pool, which ends the process.</summary>
         public void SetException(Exception exception)
         {
             if (exception == null) throw new ArgumentNullException("exception");
-            CoreIntrinsics.UnhandledException(exception);
+            SynchronizationContextImpl.AsyncVoidFailed(_context, exception);
         }
     }
 }

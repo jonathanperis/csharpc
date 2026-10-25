@@ -1,11 +1,11 @@
 using System;
 
-// A field of a library struct csharpc doesn't support (StreamingContext) in a base class used to
+// A field of a library struct csharpc doesn't support (LockCookie) in a base class used to
 // leave a half-built class layout behind; the derived class then crashed LLVM (SIGSEGV). The
 // expected outcome is an explicit diagnostic at the field (283_unsupported_field_in_base.diagnostics).
 public class Base
 {
-    public System.Runtime.Serialization.StreamingContext Date { get; set; }
+    public System.Threading.LockCookie Date { get; set; }
     public int Temperature { get; set; }
 }
 
@@ -16,7 +16,7 @@ public class Derived : Base
 
 public struct Reading
 {
-    public System.Runtime.Serialization.StreamingContext When;
+    public System.Threading.LockCookie When;
     public int Value;
 }
 

@@ -307,6 +307,65 @@ namespace CsharpcCoreLib
 
         public static DateTime GetLastWriteTime(string path) => GetLastWriteTimeUtc(path).ToLocalTime();
 
+#if !CSHARPC_TARGET_WINDOWS && !CSHARPC_TARGET_WASI
+        public static void SetLastWriteTime(string path, DateTime lastWriteTime) => SetLastWriteTimeUtc(path, lastWriteTime.ToUniversalTime());
+
+        // Unix file modes of an open file's handle (by path: FileStatusImpl, above).
+        public static UnixFileMode GetUnixFileMode(Microsoft.Win32.SafeHandles.SafeFileHandle fileHandle)
+        {
+            if (fileHandle == null) throw new ArgumentNullException("fileHandle");
+            byte* st = stackalloc byte[Posix.StatSize];
+            if (Posix.fstat((int)fileHandle.DangerousGetHandle(), st) != 0) throw Posix.IOError(Posix.Errno, null, false);
+            return (UnixFileMode)(Posix.Mode(st) & 0xFFF);
+        }
+
+        public static void SetUnixFileMode(Microsoft.Win32.SafeHandles.SafeFileHandle fileHandle, UnixFileMode mode)
+        {
+            if (fileHandle == null) throw new ArgumentNullException("fileHandle");
+            if (((int)mode & ~0xFFF) != 0) throw new ArgumentException("Invalid UnixFileMode value.", "mode");
+            if (Posix.fchmod((int)fileHandle.DangerousGetHandle(), (int)mode) != 0) throw Posix.IOError(Posix.Errno, null, false);
+        }
+
+        /// <summary>link(2): <paramref name="path"/> becomes a hard link to <paramref name="pathToTarget"/>.</summary>
+        public static FileSystemInfo CreateHardLink(string path, string pathToTarget) => CreateLink(path, pathToTarget, hard: true);
+
+        private static FileSystemInfo CreateLink(string path, string pathToTarget, bool hard)
+        {
+            if (path == null) throw new ArgumentNullException("path");
+            if (path.Length == 0) throw new ArgumentException("The value cannot be an empty string.", "path");
+            if (pathToTarget == null) throw new ArgumentNullException("pathToTarget");
+            if (pathToTarget.Length == 0) throw new ArgumentException("The value cannot be an empty string.", "pathToTarget");
+            string full = PathImpl.GetFullPath(path);
+            byte* target = Utf8.ToNative(hard ? PathImpl.GetFullPath(pathToTarget) : pathToTarget), link = Utf8.ToNative(full);
+            int r = hard ? Posix.link(target, link) : Posix.symlink(target, link);
+            int errno = Posix.Errno;
+            Libc.free(target);
+            Libc.free(link);
+            if (r != 0) throw Posix.IOError(errno, hard && errno == Posix.ENOENT ? PathImpl.GetFullPath(pathToTarget) : full, false);
+            return new FileInfo(path);
+        }
+
+        /// <summary>utimensat with the access time left alone (UTIME_OMIT), as .NET's FileSystem.SetLastWriteTime.</summary>
+        public static void SetLastWriteTimeUtc(string path, DateTime lastWriteTimeUtc)
+        {
+            if (path == null) throw new ArgumentNullException("path");
+            string full = PathImpl.GetFullPath(path);
+            long ticks = (lastWriteTimeUtc.Kind == DateTimeKind.Local ? lastWriteTimeUtc.ToUniversalTime() : lastWriteTimeUtc).Ticks - 621355968000000000L;
+            long seconds = ticks / 10000000, rest = ticks % 10000000;
+            if (rest < 0) { seconds--; rest += 10000000; }
+            long* times = stackalloc long[4];
+            times[0] = 0;
+            times[1] = Posix.UTIME_OMIT;
+            times[2] = seconds;
+            times[3] = rest * 100;
+            byte* p = Utf8.ToNative(full);
+            int r = Posix.utimensat(Posix.AT_FDCWD, p, times, 0);
+            int errno = Posix.Errno;
+            Libc.free(p);
+            if (r != 0) throw Posix.IOError(errno, full, false);
+        }
+#endif
+
         // CreationTime as .NET reports it per OS (Posix.CreationTime): the birth time on macOS and Windows,
         // the older of mtime and ctime on Linux; a missing file gives 1601-01-01 like the other times.
         public static DateTime GetCreationTimeUtc(string path)
@@ -570,7 +629,7 @@ namespace CsharpcCoreLib
     }
 
     [Shadows("System.IO.FileSystemInfo")]
-    public abstract class FileSystemInfoImpl
+    public abstract unsafe class FileSystemInfoImpl
     {
         protected string FullPath;
         protected string OriginalPath;
@@ -601,6 +660,20 @@ namespace CsharpcCoreLib
 
         public FileSystemInfo ResolveLinkTarget(bool returnFinalTarget) =>
             FileStatusImpl.ResolveLinkTarget(FullPath, returnFinalTarget, this is DirectoryInfoImpl);
+#if !CSHARPC_TARGET_WINDOWS && !CSHARPC_TARGET_WASI
+        /// <summary>A symbolic link at this path pointing to <paramref name="pathToTarget"/> (symlink(2), as .NET).</summary>
+        public void CreateAsSymbolicLink(string pathToTarget)
+        {
+            if (pathToTarget == null) throw new ArgumentNullException("pathToTarget");
+            if (pathToTarget.Length == 0) throw new ArgumentException("The value cannot be an empty string.", "pathToTarget");
+            byte* target = Utf8.ToNative(pathToTarget), link = Utf8.ToNative(FullPath);
+            int r = Posix.symlink(target, link);
+            int errno = Posix.Errno;
+            Libc.free(target);
+            Libc.free(link);
+            if (r != 0) throw Posix.IOError(errno, FullPath, false);
+        }
+#endif
     }
 
     [Shadows("System.IO.FileInfo")]

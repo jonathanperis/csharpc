@@ -58,7 +58,8 @@ internal static class StringExtras { public static string Join<T>(string separat
   shadow name only inside its own class (or via a cast through `object`).
 * The corelib is compiled on its own, as `CsharpcCoreLib.dll`, once per symbol set and cached
   ([ADR 0015](adr/0015-corelib-il.md)); programs reference it and its methods are lowered from IL as
-  they are reached. `#if` may test `CSHARPC_TARGET_*`, the globalization modes and any program symbol:
+  they are reached. `#if` may test `CSHARPC_TARGET_*` (the OS: `LINUX`/`MACOS`/`WINDOWS`/`WASI`; the architecture:
+  `X64`/`ARM64`/`WASM32`), the globalization modes and any program symbol (never `DEBUG`, which is left out):
   each distinct set of tested symbols is its own assembly. `--corelib source` (or
   `CSHARPC_CORELIB=source`) still parses the sources into the program's compilation instead; keep the
   code valid both ways and stay conservative (no primary constructors, no collection expressions).
@@ -120,7 +121,8 @@ Limitation: `object is IEnumerable<X>` on an array can't check the element type 
   own order depends on the processor count unless a concurrency level is given); `ConcurrentStack<T>` is a
   port; `ConcurrentQueue<T>` and `ConcurrentBag<T>` are lock-based with .NET's observable order (FIFO; per
   thread LIFO, stealing oldest-first from other threads, snapshots newest queue first) and snapshot
-  enumeration. `BlockingCollection<T>` and `Partitioner` are not implemented yet (CSLLVM0001/0002).
+  enumeration. `BlockingCollection<T>` is a port (its blocking waits are cancelable SemaphoreSlim waits
+  over the runtime's events); `Partitioner` is not implemented yet (CSLLVM0001/0002).
 * **Observable behavior follows .NET's implementations:** `List` growth (`Capacity`), `Dictionary`/`HashSet`
   bucket+entries+free-list design (iteration order after removals, prime sizes, FastMod), `PriorityQueue`'s
   4-ary heap (dequeue order of equal priorities), the introsort port (order of equal keys in `List.Sort` /
@@ -246,8 +248,7 @@ all option combinations) checks.
   unchanged; a program serializing a few types through a source-generated context is about 1 MB, one
   using the reflection-style API about 1.5 MB, and these compile in 20–60 s (most of it in LLVM).
 * **Explicit diagnostics (CSLLVM0001/0002)** instead of run-time surprises: anonymous types with the
-  reflection-style API, generic virtual methods overridden in generic classes (a codegen limit the
-  node and converter classes are written around), `Guid` members and BCL types csharpc
+  reflection-style API, `Guid` members and BCL types csharpc
   doesn't implement yet (`ConcurrentDictionary`, `ReadOnlyCollection`, immutable collections), and
   `System.Text.Json.Schema`.
 

@@ -23,6 +23,7 @@ public sealed partial class FunctionCodeGen
         if (inv.Instance is ITypeOfOperation reflectedType) NoteReflectedType(target, S(reflectedType.TypeOperand), inv.Arguments is [{ Value.ConstantValue: { HasValue: true, Value: string name } }, ..] ? name : null);
         if (inv.Instance is { } shadowReceiver && _m.CoreLib.MapForReceiver(target, TypeOf(shadowReceiver)) is { } shadowMember) target = shadowMember;
         if (IsCoreIntrinsic(target)) return EmitCoreIntrinsic(target, inv);
+        if (target.IsStatic) CheckJsonSerializerRoots(target, inv);
         if (TypeObjectMember(inv.TargetMethod, inv.Instance) is { } typeMember) return CallBcl(typeMember, inv.TargetMethod, inv.Instance, inv.Arguments, inv);
         if (UnsafeAccessorOf(target) is { } unsafeAccessor) return EmitUnsafeAccessor(target, unsafeAccessor, inv);
         if (target.IsStatic && TryUnsafeMethod(target, inv) is { } unsafeResult) return unsafeResult;
@@ -136,6 +137,27 @@ public sealed partial class FunctionCodeGen
                     L.ConstInt(x.Type.Kind == LLVMTypeKind.Double ? L.I64 : L.I32, 0)),
                 _ => signed ? _b.ICmp(LLVMIntPredicate.SGE, x, zero) : L.True,
             };
+        }
+
+        // INumberBase<T>.Zero / One (and IAdditiveIdentity / IMultiplicativeIdentity) on a primitive number: constants.
+        if (target.Name is "get_Zero" or "get_One" or "get_AdditiveIdentity" or "get_MultiplicativeIdentity" && parameters.Length == 0
+            && concrete.SpecialType is >= SpecialType.System_Char and <= SpecialType.System_Double)
+        {
+            var type = T.Value(concrete);
+            long one = target.Name is "get_One" or "get_MultiplicativeIdentity" ? 1 : 0;
+            return type.IsFloatingPoint ? LlvmContext.ConstReal(type, one) : L.ConstInt(type, one);
+        }
+
+        // IBinaryInteger<T>.ReadBigEndian/ReadLittleEndian(source, isUnsigned) on a primitive integer (explicit
+        // interface implementations there): the corelib reads the bytes and checks that the value fits.
+        if (target.Name is "ReadBigEndian" or "ReadLittleEndian" && parameters.Length == 2 && parameters[1].SpecialType == SpecialType.System_Boolean
+            && concrete.SpecialType is >= SpecialType.System_SByte and <= SpecialType.System_UInt64 && TypeMapper.IsSpan(parameters[0] as INamedTypeSymbol))
+        {
+            var args = inv.Arguments.OrderBy(a => a.Parameter!.Ordinal).Select(a => EmitArgument(a, target)).ToArray();
+            var size = (long)T.Target.SizeOf(T.Value(concrete));
+            var bits = CallCoreLib("BinaryIntegerSupport", target.Name, args[0], args[1], L.ConstInt(L.I32, size), TypeMapper.IsSigned(concrete) ? L.True : L.False);
+            var type = T.Value(concrete);
+            return size == 8 ? bits : _b.Cast(LLVMOpcode.Trunc, bits, type);
         }
 
         IEnumerable<IMethodSymbol> candidates = concrete.GetMembers(target.Name).OfType<IMethodSymbol>().Where(Matches);
@@ -264,7 +286,8 @@ public sealed partial class FunctionCodeGen
                     && SymbolEqualityComparer.Default.Equals(ClassLayout.RootOf(m.OriginalDefinition), root)))
             {
                 var dispatcher = _m.GenericInterfaceDispatcherFor(target);
-                return _b.Call(dispatcher.Type, dispatcher.Fn, args);
+                var call = _b.Call(dispatcher.Type, dispatcher.Fn, args);
+                return target.ReturnsVoid ? default : call;
             }
         LLVMValueRef? resultSlot = target.ReturnsVoid ? null : NewTemp(T.Value(target.ReturnType), "gvm.result");
         var done = NewBlock("gvm.done");

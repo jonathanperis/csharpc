@@ -9,7 +9,7 @@ using System.Runtime.CompilerServices;
 namespace CsharpcCoreLib
 {
     [Shadows("System.Collections.Generic.List`1")]
-    public class ListImpl<T> : IList<T>, IReadOnlyList<T>
+    public class ListImpl<T> : IList<T>, IReadOnlyList<T>, IList
     {
         internal T[] _items;
         internal int _size;
@@ -239,6 +239,65 @@ namespace CsharpcCoreLib
         IEnumerator<T> IEnumerable<T>.GetEnumerator() => new ListEnumeratorObject<T>(this);
 
         IEnumerator IEnumerable.GetEnumerator() => new ListEnumeratorObject<T>(this);
+
+        // ---- non-generic IList / ICollection (List.cs) ----
+
+        bool IList.IsFixedSize => false;
+        bool IList.IsReadOnly => false;
+        bool ICollection.IsSynchronized => false;
+        object ICollection.SyncRoot => this;
+
+        private static bool IsCompatibleObject(object value) => value is T || (value == null && default(T) == null);
+
+        private static void IfNullAndNullsAreIllegalThenThrow(object value, string argument)
+        {
+            if (!(default(T) == null) && value == null) throw new ArgumentNullException(argument);
+        }
+
+        private static ArgumentException WrongValueType(object value) =>
+            new ArgumentException(string.Format("The value \"{0}\" is not of type \"{1}\" and cannot be used in this generic collection.", value, typeof(T)), "value");
+
+        object IList.this[int index]
+        {
+            get => this[index];
+            set
+            {
+                IfNullAndNullsAreIllegalThenThrow(value, "value");
+                if (!IsCompatibleObject(value)) throw WrongValueType(value);
+                this[index] = (T)value;
+            }
+        }
+
+        int IList.Add(object item)
+        {
+            IfNullAndNullsAreIllegalThenThrow(item, "item");
+            if (!IsCompatibleObject(item)) throw WrongValueType(item);
+            Add((T)item);
+            return Count - 1;
+        }
+
+        bool IList.Contains(object item) => IsCompatibleObject(item) && Contains((T)item);
+
+        int IList.IndexOf(object item) => IsCompatibleObject(item) ? IndexOf((T)item) : -1;
+
+        void IList.Insert(int index, object item)
+        {
+            IfNullAndNullsAreIllegalThenThrow(item, "item");
+            if (!IsCompatibleObject(item)) throw WrongValueType(item);
+            Insert(index, (T)item);
+        }
+
+        void IList.Remove(object item)
+        {
+            if (IsCompatibleObject(item)) Remove((T)item);
+        }
+
+        void ICollection.CopyTo(Array array, int arrayIndex)
+        {
+            if (array != null && array.Rank != 1) throw new ArgumentException("Only single dimensional arrays are supported for the requested action.");
+            try { Array.Copy(_items, 0, array, arrayIndex, _size); }
+            catch (ArrayTypeMismatchException) { throw new ArgumentException("Target array type is not compatible with the type of items in the collection."); }
+        }
 
         public List<T> GetRange(int index, int count)
         {

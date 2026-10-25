@@ -103,7 +103,7 @@ public sealed partial class ModuleCodeGen
         return HierarchyTypes.Where(t => t.TypeKind == TypeKind.Class && !t.IsGenericType && !t.IsStatic && Derives(t)).OrderByDescending(Depth);
     }
 
-    /// <summary>Generic class definitions deriving from <paramref name="root"/> (their instantiations are only known lazily).</summary>
+    /// <summary>Generic class definitions deriving from <paramref name="root"/> (their instantiations are only known lazily), IL ones included.</summary>
     internal IEnumerable<INamedTypeSymbol> GenericClassesDerivedFrom(INamedTypeSymbol root) =>
         HierarchyTypes.Where(t => t.TypeKind == TypeKind.Class && t.IsGenericType && !t.IsStatic
             && Enumerable.Range(0, 64).Aggregate((INamedTypeSymbol?)t, (b, _) => b is null || SymbolEqualityComparer.Default.Equals(b.OriginalDefinition, root.OriginalDefinition) ? b : b.BaseType) is not null);
@@ -275,14 +275,18 @@ public sealed partial class ModuleCodeGen
     public LoweredFunction GetFunction(IMethodSymbol method)
     {
         if (IsPInvoke(method)) return PInvokeStub(method);
-        if (IsNestedFunction(method)) return GetNestedFunction(method, TypeSubstitution.Identity);
+        if (IsNestedFunction(method))
+        {
+            if (!_slotReference) NoteReference(method, virtualCall: false);
+            return GetNestedFunction(method, TypeSubstitution.Identity);
+        }
         method = CoreLib.Map(method);
         if (IsExtensionImplementation(method)) method = ExtensionMemberFor(method);
         // Generic code is keyed by the *constructed* symbol: one function per instantiation.
         var generic = TypeSubstitution.IsGenericContext(method);
         if (!generic) method = method.OriginalDefinition;
         if (method.PartialDefinitionPart is { } partialDefinition) method = partialDefinition; // one function per partial member
-        if (Il.HasLibraries && !_slotReference) NoteReference(method, virtualCall: false);
+        if (!_slotReference) NoteReference(method, virtualCall: false);
         if (_functions.TryGetValue(method, out var existing)) return existing;
         if (generic && TypeSubstitution.IsOpen(method))
             throw CompileError.Unsupported($"open generic instantiation '{method}'", method);
@@ -548,6 +552,12 @@ public sealed partial class ModuleCodeGen
         var corelib = CoreLib.IsCoreLib(method);
         var il = !corelib && Il.OwnerOf(method) is not null;
         try { EmitMethodCore(method); }
+        // A method of the program that can't be compiled becomes a stub; it is an error only if the program
+        // can reach it (ReportIlFailures), as for IL methods: docs samples carry code their Main never runs.
+        catch (CompileError error) when (!il && !corelib && IsProgramSourceMethod(method) && _functions.ContainsKey(method))
+        {
+            SourceMethodFailed(method, error);
+        }
         finally
         {
             var elapsed = System.Diagnostics.Stopwatch.GetTimestamp() - start;
@@ -902,9 +912,7 @@ public sealed partial class ModuleCodeGen
             {
                 if (!layout.SlotOf.TryGetValue(root, out var slot))
                 {
-                    // Exception.GetObjectData (binary serialization, obsolete): csharpc serializes nothing, so
-                    // nothing dispatches to it; the override stays an ordinary method.
-                    if (IsLibraryException(root.ContainingType) && root.Name == "GetObjectData") continue;
+                    if (IsUndispatchedLibraryVirtual(root)) continue;
                     throw CompileError.Unsupported($"overriding library member '{root}'", m);
                 }
                 layout.VTable[slot] = m;
@@ -918,6 +926,20 @@ public sealed partial class ModuleCodeGen
         EmitMethodTable(layout);
         return layout;
     }
+
+    /// <summary>
+    /// Library virtuals nothing in a .NET 11 program dispatches to, so an override needs no slot (it stays
+    /// an ordinary method): Exception.GetObjectData was only called by BinaryFormatter, which .NET 9
+    /// removed. Most exception classes in framework IL still override it.
+    /// </summary>
+    private bool? _programHasFinalizers;
+
+    /// <summary>Whether a type of the program's own source declares a finalizer (~T()).</summary>
+    internal bool ProgramHasFinalizers() => _programHasFinalizers ??= Compilation.SyntaxTrees
+        .Any(tree => tree.GetRoot().DescendantNodes().OfType<Microsoft.CodeAnalysis.CSharp.Syntax.DestructorDeclarationSyntax>().Any());
+
+    internal static bool IsUndispatchedLibraryVirtual(IMethodSymbol root) =>
+        root is { Name: "GetObjectData", ContainingType: { Name: "Exception", ContainingNamespace.Name: "System" } };
 
     private void AddObjectSlots(ClassLayout layout)
     {
@@ -949,11 +971,11 @@ public sealed partial class ModuleCodeGen
         "System.Collections.Generic.KeyNotFoundException", "System.OperationCanceledException",
         "System.Threading.Tasks.TaskCanceledException", "System.AggregateException",
         "System.Threading.ThreadStateException", "System.Threading.SynchronizationLockException",
-        "System.TypeLoadException", "System.DllNotFoundException", "System.EntryPointNotFoundException",
+        "System.Threading.ThreadInterruptedException", "System.TypeLoadException", "System.DllNotFoundException", "System.EntryPointNotFoundException",
     ];
 
     public const int ExceptionMessageSlot = 3;
-    public const uint ExceptionMessageField = 1, ExceptionInnerField = 2, ExceptionParamNameField = 3;
+    public const uint ExceptionMessageField = 1, ExceptionInnerField = 2, ExceptionParamNameField = 3, ExceptionTokenField = 7;
 
     public bool IsLibraryException(ITypeSymbol? type)
     {

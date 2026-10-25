@@ -1,3 +1,8 @@
 base 42
 plain 42
 wrapper<Int32> 42
+wrapper<String> 42
+base text
+plain text
+wrapper<Int32> text
+wrapper<String> text

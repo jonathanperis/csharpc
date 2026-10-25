@@ -613,6 +613,8 @@ public sealed partial class FunctionCodeGen
                 // C# masks the shift count to the operand width (x << 33 == x << 1 for int); LLVM would yield poison.
                 var width = l.Type.IntWidth;
                 var count = Coerce(r, rt, width == 64 ? _m.Compilation.GetSpecialType(SpecialType.System_Int64) : _m.Compilation.GetSpecialType(SpecialType.System_Int32));
+                // Int128/UInt128: the int count widened to the operand.
+                if (count.Type.IntWidth < width) count = _b.Cast(LLVMOpcode.ZExt, count, l.Type);
                 count = _b.BinOp(LLVMOpcode.And, count, L.ConstInt(l.Type, width - 1));
                 var op = kind switch
                 {

@@ -27,6 +27,8 @@ public sealed record ProjectInfo
     public bool JsonReflectionEnabled { get; init; } = true;
     /// <summary>The assembly's version as the SDK stamps it (FrontendSettings.AssemblyVersion).</summary>
     public string? AssemblyVersion { get; init; } = "1.0.0.0";
+    /// <summary>The SDK-generated AssemblyInfo (`[assembly: ...]` lines of the AssemblyAttribute items), null when none.</summary>
+    public string? AssemblyInfo { get; set; }
     public List<string> GlobalUsings { get; } = [];
     public List<string> ProjectReferences { get; } = [];
     /// <summary>Explicit &lt;PackageReference&gt; items ("Id Version").</summary>
@@ -59,7 +61,16 @@ public static class ProjectLoader
         "StartupObject", "InvariantGlobalization", "PredefinedCulturesOnly", "JsonSerializerIsReflectionEnabledByDefault",
         "AssemblyVersion", "Version", "GenerateAssemblyInfo", "GenerateAssemblyVersionAttribute", "SignAssembly",
         "Optimize", "DebugType", "DebugSymbols", "PathMap",
+        "TargetFrameworkMoniker", "TargetFrameworkMonikerDisplayName", "GenerateTargetFrameworkAttribute",
     ];
+
+    /// <summary>
+    /// [TargetFramework] as the SDK's GenerateTargetFrameworkMonikerAttribute target writes it (its own
+    /// "&lt;TFM&gt;.AssemblyAttributes.cs", not an AssemblyAttribute item).
+    /// </summary>
+    private static string? TargetFrameworkAttribute(string? moniker, string? displayName, string? generate) =>
+        moniker is null || string.Equals(generate, "false", StringComparison.OrdinalIgnoreCase) ? null
+            : $"[assembly: global::System.Runtime.Versioning.TargetFrameworkAttribute({Literal(moniker)}{(displayName is null ? "" : $", FrameworkDisplayName = {Literal(displayName)}")})]\n";
 
     /// <summary>
     /// The SDK adds the target-framework symbols (NET, NET11_0, NETCOREAPP, NET5_0_OR_GREATER ...
@@ -84,7 +95,10 @@ public static class ProjectLoader
         foreach (var v in new[] { "1_0", "1_1", "2_0", "2_1", "2_2", "3_0", "3_1" }) yield return $"NETCOREAPP{v}_OR_GREATER";
     }
 
-    private static readonly string[] Items = ["Compile", "Using", "ProjectReference", "PackageReference", "Reference", "RuntimeHostConfigurationOption", "FrameworkReference"];
+    private static readonly string[] Items = ["Compile", "Using", "ProjectReference", "PackageReference", "Reference", "RuntimeHostConfigurationOption", "FrameworkReference", "AssemblyAttribute"];
+
+    /// <summary>Computes the AssemblyAttribute items the SDK's GenerateAssemblyInfo writes (with the git commit SourceLink adds).</summary>
+    private const string AssemblyAttributesTarget = "GetAssemblyAttributes";
 
     /// <summary>
     /// configProperties of a file-based app (`dotnet run app.cs`, which defaults to PublishAot=true and
@@ -163,6 +177,12 @@ public static class ProjectLoader
     /// </summary>
     public static string? FileBasedAssemblyVersion(string entryFile)
     {
+        var properties = FileBasedProperties(entryFile);
+        return AssemblyVersionOf(name => properties.TryGetValue(name, out var v) && v.Length > 0 ? v : null);
+    }
+
+    private static Dictionary<string, string> FileBasedProperties(string entryFile)
+    {
         var properties = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         try
         {
@@ -176,8 +196,121 @@ public static class ProjectLoader
             }
         }
         catch (IOException) { }
-        return AssemblyVersionOf(name => properties.TryGetValue(name, out var v) && v.Length > 0 ? v : null);
+        return properties;
     }
+
+    /// <summary>
+    /// The assembly attributes the SDK's GenerateAssemblyInfo target writes for a file-based app
+    /// (Microsoft.NET.GenerateAssemblyInfo.targets with Microsoft.NET.DefaultAssemblyInfo.targets' defaults):
+    /// Company/Product/Title default to the assembly name, versions to 1.0.0, and the informational
+    /// version gets "+commit" when the file is in a git repository (SourceLink's SourceRevisionId).
+    /// </summary>
+    public static string? FileBasedAssemblyInfo(string entryFile, string configuration)
+    {
+        var properties = FileBasedProperties(entryFile);
+        string? Prop(string name) => properties.TryGetValue(name, out var v) && v.Length > 0 ? v : null;
+        static bool IsFalse(string? v) => string.Equals(v, "false", StringComparison.OrdinalIgnoreCase);
+        if (IsFalse(Prop("GenerateAssemblyInfo"))) return null;
+        var name = Prop("AssemblyName") ?? Path.GetFileNameWithoutExtension(entryFile);
+        var versionPrefix = Prop("VersionPrefix") ?? "1.0.0";
+        var version = Prop("Version") ?? (Prop("VersionSuffix") is { } suffix ? versionPrefix + "-" + suffix : versionPrefix);
+        var assemblyVersion = AssemblyVersionOf(n => n == "Version" ? version : Prop(n));
+        var attributes = new List<(string Type, string? Value, string Property)>
+        {
+            ("AssemblyCompanyAttribute", Prop("Company") ?? name, "GenerateAssemblyCompanyAttribute"),
+            ("AssemblyConfigurationAttribute", configuration, "GenerateAssemblyConfigurationAttribute"),
+            ("AssemblyCopyrightAttribute", Prop("Copyright"), "GenerateAssemblyCopyrightAttribute"),
+            ("AssemblyDescriptionAttribute", Prop("Description"), "GenerateAssemblyDescriptionAttribute"),
+            ("AssemblyFileVersionAttribute", Prop("FileVersion") ?? (assemblyVersion is "source" or null ? null : assemblyVersion), "GenerateAssemblyFileVersionAttribute"),
+            ("AssemblyInformationalVersionAttribute", Prop("InformationalVersion") ?? InformationalVersion(version, Path.GetDirectoryName(Path.GetFullPath(entryFile))!,
+                !IsFalse(Prop("IncludeSourceRevisionInInformationalVersion"))), "GenerateAssemblyInformationalVersionAttribute"),
+            ("AssemblyProductAttribute", Prop("Product") ?? name, "GenerateAssemblyProductAttribute"),
+            ("AssemblyTitleAttribute", Prop("AssemblyTitle") ?? name, "GenerateAssemblyTitleAttribute"),
+            ("AssemblyVersionAttribute", assemblyVersion is "source" ? null : assemblyVersion, "GenerateAssemblyVersionAttribute"),
+        };
+        var source = new StringBuilder(TargetFrameworkAttribute(".NETCoreApp,Version=v11.0", ".NET 11.0", Prop("GenerateTargetFrameworkAttribute")));
+        foreach (var (type, value, property) in attributes)
+            if (value is not null && !IsFalse(Prop(property)))
+                source.AppendLine($"[assembly: global::System.Reflection.{type}({Literal(value)})]");
+        return source.ToString();
+    }
+
+    /// <summary>$(InformationalVersion): $(Version), plus "+" and the HEAD commit inside a git repository.</summary>
+    private static string InformationalVersion(string version, string directory, bool includeRevision) =>
+        includeRevision && GitHeadCommit(directory) is { } commit ? version + "+" + commit : version;
+
+    /// <summary>The commit HEAD points to in the git repository containing <paramref name="directory"/> (what Microsoft.Build.Tasks.Git reads), or null.</summary>
+    internal static string? GitHeadCommit(string directory)
+    {
+        try
+        {
+            for (var dir = new DirectoryInfo(directory); dir is not null; dir = dir.Parent)
+            {
+                var dotGit = Path.Combine(dir.FullName, ".git");
+                string gitDir;
+                if (Directory.Exists(dotGit)) gitDir = dotGit;
+                else if (File.Exists(dotGit) && File.ReadAllText(dotGit).Trim() is var link && link.StartsWith("gitdir:", StringComparison.Ordinal))
+                    gitDir = Path.GetFullPath(link["gitdir:".Length..].Trim(), dir.FullName);
+                else continue;
+                // Worktrees keep HEAD in their own directory and refs in the common one.
+                var common = File.Exists(Path.Combine(gitDir, "commondir"))
+                    ? Path.GetFullPath(File.ReadAllText(Path.Combine(gitDir, "commondir")).Trim(), gitDir) : gitDir;
+                var head = File.ReadAllText(Path.Combine(gitDir, "HEAD")).Trim();
+                if (!head.StartsWith("ref:", StringComparison.Ordinal)) return head.Length == 40 ? head : null;
+                var reference = head["ref:".Length..].Trim();
+                foreach (var root in new[] { gitDir, common })
+                    if (File.Exists(Path.Combine(root, reference))) return File.ReadAllText(Path.Combine(root, reference)).Trim();
+                var packed = Path.Combine(common, "packed-refs");
+                if (File.Exists(packed))
+                    foreach (var line in File.ReadLines(packed))
+                        if (line.EndsWith(" " + reference, StringComparison.Ordinal)) return line[..line.IndexOf(' ')];
+                return null;
+            }
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
+        return null;
+    }
+
+    private static string Literal(string value) => Microsoft.CodeAnalysis.CSharp.SymbolDisplay.FormatLiteral(value, quote: true);
+
+    /// <summary>
+    /// `[assembly: ...]` lines for the SDK's AssemblyAttribute items (GetAssemblyAttributes target, written by
+    /// WriteCodeFragment): _Parameter1..N are positional (strings unless _ParameterN_IsLiteral), other
+    /// custom metadata named arguments.
+    /// </summary>
+    private static string? AssemblyAttributeSource(IEnumerable<JsonElement> items)
+    {
+        var source = new StringBuilder();
+        foreach (var item in items)
+        {
+            if (!item.TryGetProperty("Identity", out var identity) || identity.GetString() is not { Length: > 0 } type) continue;
+            var positional = new SortedDictionary<int, string>();
+            var named = new List<string>();
+            foreach (var meta in item.EnumerateObject())
+            {
+                var value = meta.Value.GetString() ?? "";
+                if (meta.Name.StartsWith("_Parameter", StringComparison.Ordinal))
+                {
+                    var rest = meta.Name["_Parameter".Length..];
+                    if (int.TryParse(rest, out var index))
+                    {
+                        var literal = item.TryGetProperty(meta.Name + "_IsLiteral", out var isLiteral) && string.Equals(isLiteral.GetString(), "true", StringComparison.OrdinalIgnoreCase);
+                        positional[index] = literal ? value : Literal(value);
+                    }
+                }
+                else if (!s_wellKnownItemMetadata.Contains(meta.Name)) named.Add($"{meta.Name} = {Literal(value)}");
+            }
+            source.AppendLine($"[assembly: global::{type}({string.Join(", ", positional.Values.Concat(named))})]");
+        }
+        return source.Length > 0 ? source.ToString() : null;
+    }
+
+    private static readonly HashSet<string> s_wellKnownItemMetadata = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "Identity", "FullPath", "RootDir", "Filename", "Extension", "RelativeDir", "Directory", "RecursiveDir",
+        "ModifiedTime", "CreatedTime", "AccessedTime", "DefiningProjectFullPath", "DefiningProjectDirectory",
+        "DefiningProjectName", "DefiningProjectExtension",
+    };
 
     /// <summary>Finds the single project file in a directory (like `dotnet build` with no arguments).</summary>
     public static string? FindProject(string directory)
@@ -241,7 +374,7 @@ public static class ProjectLoader
         projectPath = Path.GetFullPath(projectPath);
         if (!File.Exists(projectPath)) throw new FileNotFoundException($"project file '{projectPath}' not found");
 
-        var args = new List<string> { "msbuild", projectPath, "-nologo", $"-p:Configuration={configuration}", $"-t:{DefineConstantsTarget}" };
+        var args = new List<string> { "msbuild", projectPath, "-nologo", $"-p:Configuration={configuration}", $"-t:{DefineConstantsTarget};{AssemblyAttributesTarget}" };
         foreach (var (k, v) in globalProperties ?? new Dictionary<string, string>()) args.Add($"-p:{k}={v}");
         args.AddRange(Properties.Select(p => $"-getProperty:{p}"));
         args.AddRange(Items.Select(i => $"-getItem:{i}"));
@@ -286,6 +419,8 @@ public static class ProjectLoader
             },
         };
 
+        info.AssemblyInfo = TargetFrameworkAttribute(Prop("TargetFrameworkMoniker"), Prop("TargetFrameworkMonikerDisplayName"), Prop("GenerateTargetFrameworkAttribute"))
+            + AssemblyAttributeSource(Item("AssemblyAttribute"));
         info.Defines.AddRange((Prop("DefineConstants") ?? "").Split([';', ','], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
 
         foreach (var c in Item("Compile"))
@@ -401,6 +536,7 @@ public static class ProjectLoader
             GlobalUsings = usings.Count > 0 ? string.Join('\n', usings) : null,
             AssemblyName = root.AssemblyName,
             AssemblyVersion = root.AssemblyVersion,
+            AssemblyInfo = root.AssemblyInfo,
             MainTypeName = root.StartupObject,
             IlReferencePaths = [.. all.SelectMany(p => p.AssemblyReferences).Distinct(StringComparer.Ordinal)],
             SharedFrameworks = [.. all.SelectMany(p => p.FrameworkReferences).Distinct(StringComparer.OrdinalIgnoreCase)],
@@ -412,6 +548,7 @@ public static class ProjectLoader
                 ProjectPath = p.ProjectPath,
                 AssemblyName = p.AssemblyName,
                 AssemblyVersion = p.AssemblyVersion,
+                AssemblyInfo = p.AssemblyInfo,
                 IsRoot = ReferenceEquals(p, root),
                 Files = p.Files,
                 Defines = p.Defines,

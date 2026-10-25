@@ -130,7 +130,7 @@ namespace CsharpcCoreLib
     [ShadowMembers("System.Threading.CancellationToken")]
     internal static class CancellationTokenMembers
     {
-        // No SynchronizationContext or ExecutionContext to capture: Register and UnsafeRegister agree.
+        // No ExecutionContext to capture: Register and UnsafeRegister agree.
         [ShadowInstance]
         public static CancellationTokenRegistrationImpl Register(CancellationToken token, Action callback)
         {
@@ -140,9 +140,14 @@ namespace CsharpcCoreLib
             return CancellationRuntime.Register(token, node);
         }
 
+        // useSynchronizationContext: the callback runs through the context current now (its Send), as in .NET.
         [ShadowInstance]
-        public static CancellationTokenRegistrationImpl Register(CancellationToken token, Action callback, bool useSynchronizationContext) =>
-            Register(token, callback);
+        public static CancellationTokenRegistrationImpl Register(CancellationToken token, Action callback, bool useSynchronizationContext)
+        {
+            SynchronizationContext context = useSynchronizationContext ? SynchronizationContextImpl.CurrentCustom : null;
+            if (context == null || callback == null) return Register(token, callback);
+            return Register(token, () => context.Send(static s => ((Action)s)(), callback));
+        }
 
         [ShadowInstance]
         public static CancellationTokenRegistrationImpl Register(CancellationToken token, Action<object> callback, object state)
@@ -155,8 +160,12 @@ namespace CsharpcCoreLib
         }
 
         [ShadowInstance]
-        public static CancellationTokenRegistrationImpl Register(CancellationToken token, Action<object> callback, object state, bool useSynchronizationContext) =>
-            Register(token, callback, state);
+        public static CancellationTokenRegistrationImpl Register(CancellationToken token, Action<object> callback, object state, bool useSynchronizationContext)
+        {
+            SynchronizationContext context = useSynchronizationContext ? SynchronizationContextImpl.CurrentCustom : null;
+            if (context == null || callback == null) return Register(token, callback, state);
+            return Register(token, () => context.Send(s => callback(s), state));
+        }
 
         [ShadowInstance]
         public static CancellationTokenRegistrationImpl Register(CancellationToken token, Action<object, CancellationToken> callback, object state)

@@ -85,6 +85,13 @@ everything the corelib covers — compile and link exactly as before.
   stubs of ADR 0010 for code the program can't reach).
 - When a later corelib shadow covers a type of an eligible assembly, that assembly stops being taken
   as IL automatically (the index is rebuilt for every csharpc build).
+- Framework IL that names `System.Private.CoreLib` (rather than the reference facades) binds against an
+  in-memory CoreLib facade (`Frontend/CoreLibFacade.cs`) that type-forwards each type to the reference
+  pack or to the corelib shadow; statics the reference pack doesn't declare resolve through the shadow
+  index (`IlAssemblySet.ShadowOf`).
+- A framework method csharpc deliberately doesn't compile (it would pull in a whole subsystem, such as
+  System.Xml's http(s) downloads needing System.Net.Http) is a boundary (`ModuleCodeGen.IlBoundary`):
+  a CSLLVM0008 warning at compile time and a stub that prints the reason and aborts if called.
 
 ## Measurements (2026-10-24, shared 4-core VPS, csharpc on the JIT)
 
