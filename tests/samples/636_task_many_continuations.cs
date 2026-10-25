@@ -30,13 +30,15 @@ static class Program
         var awaiters = new List<Task>();
         for (int i = 0; i < 5; i++) awaiters.Add(Await(many.Task, $"await{i}"));
         TaskAwaiter<int> awaiter = many.Task.GetAwaiter();
-        awaiter.OnCompleted(() => { lock (s_log) s_log.Add("action"); });
+        var actionRan = new TaskCompletionSource();  // .NET may run the action on the pool: wait for it
+        awaiter.OnCompleted(() => { lock (s_log) s_log.Add("action"); actionRan.SetResult(); });
         var cont = many.Task.ContinueWith(t => { lock (s_log) s_log.Add($"continue={t.Result}"); }, TaskContinuationOptions.ExecuteSynchronously);
         var all = Task.WhenAll(many.Task, Task.FromResult(9));
         var any = Task.WhenAny(many.Task, new TaskCompletionSource<int>().Task);
         many.SetResult(3);
         await Task.WhenAll(awaiters);
         await cont;
+        await actionRan.Task;
         Console.WriteLine($"{string.Join(",", (await all))} {(await any).Result}");
         lock (s_log) { s_log.Sort(StringComparer.Ordinal); Console.WriteLine(string.Join(" ", s_log)); }
 
