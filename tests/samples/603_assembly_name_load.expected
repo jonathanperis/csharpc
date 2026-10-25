@@ -1,0 +1,24 @@
+[Microsoft.AspNetCore] v=null culture=null token=null flags=None | Microsoft.AspNetCore
+[System.Runtime] v=11.0.0.0 culture= token=B03F5F7F11D50A3A flags=None | System.Runtime, Version=11.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a
+[Spaced Name] v=1.2 culture=null token=null flags=None | Spaced Name, Version=1.2
+[Lib] v=1.2.3 culture= token= flags=Retargetable | Lib, Version=1.2.3, Culture=neutral, PublicKeyToken=null, Retargetable=Yes
+[Quoted, Name] v=4.0.0.1 culture=null token=null flags=None | Quoted\, Name, Version=4.0.0.1
+[Esc=aped,x] v=null culture=null token=null flags=None | Esc\=aped\,x
+[Lib] v=null culture=null token=null flags=None | Lib
+FileLoadException: The given assembly name was invalid.
+FileLoadException: The given assembly name was invalid.
+FileLoadException: The given assembly name was invalid.
+FileLoadException: The given assembly name was invalid.
+FileLoadException: The given assembly name was invalid.
+FileLoadException: The given assembly name was invalid.
+FileLoadException: The given assembly name was invalid.
+FileLoadException: The given assembly name was invalid.
+The value cannot be an empty string. (Parameter 'assemblyName')
+Built, Version=2.3.4
+Built, Version=2.3.4, PublicKeyToken=0102030405060708 True
+True
+True
+True
+32 BA7816BF8F01CFEA414140DE5DAE2223B00361A396177A9CB410FF61F20015AD
+False 0
+Destination is too short. (Parameter 'destination')

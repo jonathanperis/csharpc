@@ -77,6 +77,8 @@ namespace CsharpcCoreLib
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern string ResourceStrings();
         /// <summary>runtimeconfig.json configProperties, encoded (ModuleCodeGen.Resources.cs).</summary>
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern string RuntimeConfig();
+        /// <summary>Full names of the program's own and IL assemblies, encoded (ModuleCodeGen.Resources.cs).</summary>
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern string LoadableAssemblies();
         /// <summary>
         /// Calls the program's CsharpcCoreLib.ProgramHooks.JsonConfigure (code the front end generates for
         /// reflection-style System.Text.Json calls, Frontend/JsonReflectionContexts.cs) if it has one.

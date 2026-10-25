@@ -139,6 +139,7 @@ public sealed partial class FunctionCodeGen
             "ResourceStrings" => _m.ResourceStringsBlob(),
             "IsCoroutineIterator" => CallRuntime("csrt_is_iterator", L.I1, [L.Ptr], args[0]),
             "RuntimeConfig" => _m.AppContextBlob(),
+            "LoadableAssemblies" => _m.LoadableAssembliesBlob(),
             "TryFaultAsyncTask" => CallRuntime("csrt_task_try_fault_async", L.I1, [L.Ptr, L.Ptr], args[0], args[1]),
             "CompareStringsWith" => CallRuntime("csrt_string_compare_with", L.I32, [L.Ptr, L.Ptr, L.I32], args[0], args[1], args[2]),
             "JsonConfigureHook" => ProgramHook("JsonConfigure", target, args),
