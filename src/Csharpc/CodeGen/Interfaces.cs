@@ -24,6 +24,16 @@ public sealed partial class ModuleCodeGen
 {
     private readonly Dictionary<INamedTypeSymbol, LLVMValueRef> _interfaceTables = new(SymbolEqualityComparer.Default);
 
+    private int _interfaceCallSites;
+
+    /// <summary>A call site's receiver cache for csrt_interface_slots_cached: one zeroed word (.bss).</summary>
+    public LLVMValueRef NewInterfaceCallSiteCache()
+    {
+        var cache = Module.AddGlobal($"csrt.icache.{_interfaceCallSites++}", Llvm.I64, Llvm.ConstInt(Llvm.I64, 0), linkage: LLVMLinkage.Private);
+        Native.LLVMSetAlignment(cache, 8);
+        return cache;
+    }
+
     public LLVMValueRef InterfaceMethodTable(INamedTypeSymbol itf)
     {
         itf = (INamedTypeSymbol)CoreLib.Unmap(TypeSubstitution.EraseTupleNames(itf, Compilation));
@@ -60,6 +70,8 @@ public sealed partial class ModuleCodeGen
         var layout = table.Layout;
         var interfaces = layout.Type.AllInterfaces;
         if (interfaces.IsEmpty) return;
+        // The runtime's interface cache keeps a map index in 16 bits (csrt_interface_slots).
+        if (interfaces.Length >= 0x10000) throw CompileError.Unsupported($"type '{layout.Type}' implementing {interfaces.Length} interfaces", layout.Type);
         var entryType = Llvm.Struct(Llvm.Ptr, Llvm.Ptr);
         List<LLVMValueRef> entries = [];
         foreach (var itf in interfaces)
@@ -207,6 +219,10 @@ public sealed partial class FunctionCodeGen
         return _b.Call(dispatcher.Type, dispatcher.Fn, args);
     }
 
+    /// <summary>The slot table of <paramref name="itf"/> in the receiver's interface map, through this call site's cache.</summary>
+    internal LLVMValueRef InterfaceSlotTable(LLVMValueRef self, INamedTypeSymbol itf) =>
+        CallRuntime("csrt_interface_slots_cached", L.Ptr, [L.Ptr, L.Ptr, L.Ptr], self, _m.InterfaceMethodTable(itf), _m.NewInterfaceCallSiteCache());
+
     private LLVMValueRef InterfaceDispatch(IMethodSymbol target, LLVMValueRef self, LLVMValueRef[] args)
     {
         if (target.IsGenericMethod) return GenericInterfaceCall(target, self, args);
@@ -214,7 +230,7 @@ public sealed partial class FunctionCodeGen
         var index = ModuleCodeGen.InterfaceSlotIndex(itf, target);
         _m.NoteInterfaceDispatch(itf, index);
         _m.NoteVirtualCall(target);
-        var slots = CallRuntime("csrt_interface_slots", L.Ptr, [L.Ptr, L.Ptr], self, _m.InterfaceMethodTable(itf));
+        var slots = InterfaceSlotTable(self, itf);
         var slotAddress = _b.InBoundsGep(L.I8, slots, [L.ConstUInt(L.I64, (ulong)index * T.PointerSize)], "islot");
         var fn = _b.Load(L.Ptr, slotAddress, "ifn");
         return _b.Call(_m.FunctionTypeOf(target), fn, args);

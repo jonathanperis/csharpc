@@ -171,6 +171,24 @@ public static class ParallelCodegen
         // Deletes the bodies and initializers in place (definitions become external declarations,
         // keeping their attributes); the code that refers to them is untouched.
         LlvmModule.RunPasses(m, "elim-avail-extern", target);
+        if (partition != 0) DropUnusedDeclarations(m);
+    }
+
+    /// <summary>
+    /// A [ThreadStatic] lives in partition 0. Other partitions declare it, and one that never touches
+    /// it still emits the declaration: LLVM writes an unused thread_local declaration as an ordinary
+    /// undefined symbol, which the linker rejects against the TLS definition ("TLS definition
+    /// mismatches non-TLS reference"). A declaration nothing in this partition uses is not a reference.
+    /// </summary>
+    private static void DropUnusedDeclarations(LLVMModuleRef m)
+    {
+        List<LLVMValueRef> unused = [];
+        for (var g = LLVMGetFirstGlobal(m); !g.IsNull; g = LLVMGetNextGlobal(g))
+        {
+            if (LLVMIsDeclaration(g) == 0 || IsLlvmGlobal(g)) continue;
+            if (LLVMGetFirstUse(g) == 0) unused.Add(g);
+        }
+        foreach (var g in unused) LLVMDeleteGlobal(g);
     }
 
     private static void MakeAvailableExternally(LLVMValueRef value)

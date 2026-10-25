@@ -1,0 +1,11 @@
+completed: True 41
+non-generic completed: True True
+round 0: pending False
+round 0: 0
+round 1: pending False
+round 1: 10
+round 2: pending False
+round 2: 20
+faulted: broken
+canceled: True False
+late fault: late True

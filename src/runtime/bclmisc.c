@@ -222,13 +222,15 @@ bool csrt_bool_parse(csrt_String* s) {
 // ---------------------------------------------------------------------------------------------
 // System.Environment
 // ---------------------------------------------------------------------------------------------
+int32_t csrt_processor_count(void);
+
 int32_t csrt_environment_processor_count(void) {
-#ifdef _WIN32
-    long n = pthread_num_processors_np();
-#else
+#ifdef __wasi__
     long n = sysconf(_SC_NPROCESSORS_ONLN);
-#endif
     return n > 0 ? (int32_t)n : 1;
+#else
+    return csrt_processor_count();  // threads.c: the process's CPU affinity, as .NET
+#endif
 }
 
 /// Environment.GetCommandLineArgs(): [executable path, args...] (read from /proc/self/cmdline;

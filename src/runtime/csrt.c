@@ -419,18 +419,38 @@ typedef struct {
 } VariantDescriptor;
 static VariantDescriptor* s_variant;
 static int s_variant_count, s_variant_cap;
+// Descriptor lookup by interface: open addressing over descriptor index + 1 (0 = empty) in a .bss table
+// that holds the first 4096 descriptors at most half full (later ones are searched). A failed
+// `is IFoo<T>` test asks for a descriptor every time, and an ASP.NET Core program registers hundreds:
+// the linear search was most of csrt_isinst_class in the TechEmpower JSON profile.
+#define VARIANT_INDEX_BITS 13
+#define VARIANT_INDEXED (1 << (VARIANT_INDEX_BITS - 1))
+static uint32_t s_variant_index[1 << VARIANT_INDEX_BITS];
 
-void csrt_register_variant_interface(const csrt_MethodTable* itf, const void* definition, int32_t argc,
+static inline size_t variant_hash(const csrt_MethodTable* itf) {
+    return (size_t)(((uintptr_t)itf >> 3) * 0x9E3779B97F4A7C15ull >> (64 - VARIANT_INDEX_BITS));
+}
+
+// Registration runs in main's prologue, before other threads exist.
+__attribute__((noinline)) void csrt_register_variant_interface(const csrt_MethodTable* itf, const void* definition, int32_t argc,
                                      const csrt_MethodTable* const* args, uint32_t mask) {
     if (s_variant_count == s_variant_cap) {
         s_variant_cap = s_variant_cap ? s_variant_cap * 2 : 16;
         s_variant = realloc(s_variant, sizeof *s_variant * (size_t)s_variant_cap);
     }
+    if (s_variant_count < VARIANT_INDEXED) {
+        size_t h = variant_hash(itf);
+        while (s_variant_index[h]) h = (h + 1) & ((1 << VARIANT_INDEX_BITS) - 1);
+        s_variant_index[h] = (uint32_t)s_variant_count + 1;
+    }
     s_variant[s_variant_count++] = (VariantDescriptor){ itf, definition, argc, args, mask };
 }
 
-static const VariantDescriptor* variant_descriptor(const csrt_MethodTable* itf) {
-    for (int i = 0; i < s_variant_count; i++) if (s_variant[i].itf == itf) return &s_variant[i];
+__attribute__((noinline)) static const VariantDescriptor* variant_descriptor(const csrt_MethodTable* itf) {
+    for (size_t h = variant_hash(itf); s_variant_index[h]; h = (h + 1) & ((1 << VARIANT_INDEX_BITS) - 1))
+        if (s_variant[s_variant_index[h] - 1].itf == itf) return &s_variant[s_variant_index[h] - 1];
+    for (int i = VARIANT_INDEXED; i < s_variant_count; i++)
+        if (s_variant[i].itf == itf) return &s_variant[i];
     return NULL;
 }
 
@@ -483,6 +503,48 @@ static void* const* variant_interface_slots(const csrt_MethodTable* mt, const cs
     return NULL;
 }
 
+// Interface call sites cache their last receiver: one word per site (.bss, ModuleCodeGen) holding the
+// receiver's method table in the low 48 bits (user-space addresses fit, on every target csharpc
+// supports) and the interface's index in its map above them, read and written atomically, so a racing
+// update is only a miss. Kestrel's types implement 30+ feature interfaces and most request-path calls
+// go through them: scanning the map on every call was 4-7 % of the TechEmpower profile. (A global
+// table keyed by method table and interface, validated against the map, was no faster than the scan.)
+#define ICACHE_MT_MASK (((uint64_t)1 << 48) - 1)
+
+/// The scan behind both entry points: `site` (or NULL) is refilled when the receiver's own map has it.
+__attribute__((noinline)) static void* const* interface_lookup(void* obj, const csrt_MethodTable* interface_type, uint64_t* site) {
+    const csrt_MethodTable* mt = ((csrt_Object*)obj)->mt;
+    for (uint32_t i = 0; i < mt->interface_count; i++)
+        if (mt->interfaces[i].interface_type == interface_type) {
+            if (site && ((uintptr_t)mt & ~ICACHE_MT_MASK) == 0)  // maps hold < 65536 entries (ModuleCodeGen)
+                __atomic_store_n(site, (uint64_t)(uintptr_t)mt | ((uint64_t)i << 48), __ATOMIC_RELAXED);
+            return mt->interfaces[i].slots;
+        }
+    void* const* slots = builtin_interface_slots(mt, interface_type);
+    if (slots) return slots;
+    slots = variant_interface_slots(mt, interface_type);
+    if (slots) return slots;
+    fflush(stdout);
+    fprintf(stderr, "Unhandled exception. System.InvalidCastException: Unable to cast object of type '%s' to type '%s'." CSRT_NEWLINE,
+            mt->name, interface_type->name);
+    csrt_fail_unhandled();
+}
+
+void* const* csrt_interface_slots(void* obj, const csrt_MethodTable* interface_type) {
+    return interface_lookup(obj, interface_type, NULL);
+}
+
+/// An interface call: the call site's own cache word (method table | index << 48, as above) remembers
+/// its last receiver, so a monomorphic site costs a load and a compare; a hit needs no validation, as a
+/// site always asks for the same interface. A miss scans and refills the word (out of line, so the hit
+/// path saves no registers).
+__attribute__((noinline)) void* const* csrt_interface_slots_cached(void* obj, const csrt_MethodTable* itf, uint64_t* site) {
+    const csrt_MethodTable* mt = ((csrt_Object*)obj)->mt;
+    uint64_t w = __atomic_load_n(site, __ATOMIC_RELAXED);
+    if (__builtin_expect((w & ICACHE_MT_MASK) == (uint64_t)(uintptr_t)mt, 1)) return mt->interfaces[w >> 48].slots;
+    return interface_lookup(obj, itf, site);
+}
+
 void* csrt_isinst_class(void* obj, const csrt_MethodTable* type) {
     if (!obj) return NULL;
     const csrt_MethodTable* objmt = ((csrt_Object*)obj)->mt;
@@ -497,20 +559,6 @@ void* csrt_isinst_class(void* obj, const csrt_MethodTable* type) {
     // allocated untagged may still carry the GC's primitive-array table.
     if (type == &csrt_Array_MT.header && objmt == &csrt_PrimitiveArray_MT.header) return obj;
     return NULL;
-}
-
-void* const* csrt_interface_slots(void* obj, const csrt_MethodTable* interface_type) {
-    const csrt_MethodTable* mt = ((csrt_Object*)obj)->mt;
-    for (uint32_t i = 0; i < mt->interface_count; i++)
-        if (mt->interfaces[i].interface_type == interface_type) return mt->interfaces[i].slots;
-    void* const* builtin = builtin_interface_slots(mt, interface_type);
-    if (builtin) return builtin;
-    void* const* variant = variant_interface_slots(mt, interface_type);
-    if (variant) return variant;
-    fflush(stdout);
-    fprintf(stderr, "Unhandled exception. System.InvalidCastException: Unable to cast object of type '%s' to type '%s'." CSRT_NEWLINE,
-            mt->name, interface_type->name);
-    csrt_fail_unhandled();
 }
 
 _Noreturn void csrt_unsupported_method(const char* message) {

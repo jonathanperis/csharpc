@@ -53,8 +53,8 @@ typedef struct csrt_Task {
     const csrt_MethodTable* mt;
     int32_t state;            // 0 pending, 1 ran to completion, 2 faulted, 3 canceled (atomic)
     int32_t payload_size;
-    csrt_Array* conts;        // pairs (kind, ptr)
-    int32_t ncont;
+    csrt_Array* conts;        // pairs (kind, ptr); with ncont < 0: the one continuation's ptr itself
+    int32_t ncont;            // < 0: one continuation of kind -ncont, stored inline (no array)
     int32_t lock;             // spinlock guarding state transitions + conts
     void* exception;          // faulted: the exception `await` rethrows (the first one)
     void* aggregate;          // faulted: Task.Exception (AggregateException), created lazily
@@ -69,7 +69,10 @@ _Static_assert(offsetof(csrt_Task, payload) == (sizeof(void*) == 8 ? 56 : 40), "
 // A task that runs a delegate on the pool (Task.Run, not the unwrapping Func<Task> forms) is
 // WaitingToRun, then Running; every other pending task (async methods, TaskCompletionSource,
 // Delay, WhenAll, unwrap promises) is WaitingForActivation, as in .NET.
-enum { TF_DELEGATE = 1, TF_RUNNING = 2, TF_CREATED = 4 /* new Task(...) not started yet: TaskStatus.Created */ };
+// TF_WAITED: a thread blocks on the task (csrt_task_wait), so completing it must wake the waiters;
+// set under the task's lock while it is pending. TF_CREATED: new Task(...) not started yet
+// (TaskStatus.Created). Distinct bits: a created task can also be waited on.
+enum { TF_DELEGATE = 1, TF_RUNNING = 2, TF_WAITED = 4, TF_CREATED = 8 };
 
 typedef struct csrt_Iterator {
     const csrt_MethodTable* mt;
@@ -87,7 +90,8 @@ _Static_assert(offsetof(csrt_Iterator, state) == sizeof(void*), "iterator state 
 
 enum { K_RESUME = 1, K_WHEN_ALL = 2, K_CHAIN = 3, K_WHEN_ANY = 4, K_RUN_ACTION = 5, K_RUN_FUNC_TASK = 6,
        K_TIMER_TASK = 7, K_TIMER_CANCEL = 8, K_RUN_THUNK = 9,
-       K_INVOKE = 10 /* an Action continuation (awaiter.OnCompleted) */, K_RESUME_FLOW = 11 };
+       K_INVOKE = 10 /* an Action continuation (awaiter.OnCompleted) */, K_RESUME_FLOW = 11,
+       K_INVOKE_STATE = 12 /* a one-argument delegate and its argument (ThreadPool work items) */ };
 
 // An await continuation registered while a non-default execution-context flow was current (csrt.h):
 // the coroutine resumes with that flow, as .NET restores the captured ExecutionContext.
@@ -140,16 +144,37 @@ static int64_t now_ms(void) {
 // ---------------------------------------------------------------------------------------------
 // Thread pool: a FIFO of work items (kind, a, b, flow) in a GC array rooted by a global; each item runs
 // with the execution-context flow captured when it was queued.
+//
+// Wake-ups are what a busy pool pays for (a futex wake and a context switch each), so, as .NET's
+// pool does, a worker that runs out of work polls the queue for a few microseconds before sleeping,
+// and queueing wakes a sleeper only when no worker is polling. A worker that takes an item while
+// more are queued and nobody polls wakes the next sleeper, so a burst still fans out.
 // ---------------------------------------------------------------------------------------------
 static pthread_mutex_t s_qlock = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t s_qcond = PTHREAD_COND_INITIALIZER;
 static csrt_Array* s_queue;     // ring buffer of (kind, a, b, flow)
 static int64_t s_qhead, s_qcount;
 static int s_workers, s_idle, s_blocked;   // pool workers; idle (waiting for work); blocked in Wait
+static int s_spinning;                     // workers polling the queue before they sleep
 static int64_t s_dequeued;                 // progress counter (starvation detection)
 static bool s_pool_started;
+static int64_t s_pool_spin_ns;             // how long an idle worker polls (0 on one CPU)
 static _Thread_local bool tl_worker;       // this thread is a pool worker
 enum { MAX_WORKERS = 512 };
+
+static inline void pool_cpu_relax(void) {
+#if defined(__x86_64__) || defined(__i386__)
+    __builtin_ia32_pause();
+#elif defined(__aarch64__)
+    __asm__ __volatile__("yield");
+#endif
+}
+
+static int64_t now_ns(void) {
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (int64_t)ts.tv_sec * 1000000000 + ts.tv_nsec;
+}
 
 static void pool_start_locked(void);
 static void spawn_worker_locked(void);
@@ -174,9 +199,11 @@ static void enqueue_flow(intptr_t kind, void* a, void* b, void* flow) {
     words(s_queue)[at + 1] = a;
     words(s_queue)[at + 2] = b;
     words(s_queue)[at + 3] = flow;
-    s_qcount++;
-    if (s_idle > 0) pthread_cond_signal(&s_qcond);
-    else if (s_workers - s_blocked <= 0 && s_workers < MAX_WORKERS) spawn_worker_locked();
+    __atomic_store_n(&s_qcount, s_qcount + 1, __ATOMIC_RELAXED);
+    if (s_spinning == 0) {
+        if (s_idle > 0) pthread_cond_signal(&s_qcond);
+        else if (s_workers - s_blocked <= 0 && s_workers < MAX_WORKERS) spawn_worker_locked();
+    }
     pthread_mutex_unlock(&s_qlock);
 }
 
@@ -193,23 +220,43 @@ static bool dequeue_locked(intptr_t* kind, void** a, void** b, void** flow) {
     *flow = words(s_queue)[at + 3];
     words(s_queue)[at + 1] = words(s_queue)[at + 2] = words(s_queue)[at + 3] = NULL;
     s_qhead = (s_qhead + 1) % cap;
-    s_qcount--;
+    __atomic_store_n(&s_qcount, s_qcount - 1, __ATOMIC_RELAXED);
     s_dequeued++;
     return true;
 }
 
 static void run_item(intptr_t kind, void* a, void* b);
 
+void csrt_os_thread_name(const char* name);
+
 static void worker_loop(void) {
     tl_worker = true;
+    csrt_os_thread_name(".NET TP Worker");
     for (;;) {
         intptr_t kind; void* a; void* b; void* flow;
         pthread_mutex_lock(&s_qlock);
-        while (!dequeue_locked(&kind, &a, &b, &flow)) {
+        bool got = dequeue_locked(&kind, &a, &b, &flow);
+        if (!got && s_pool_spin_ns > 0) {
+            // Poll before sleeping: under load the next item comes within microseconds.
+            s_spinning++;
+            pthread_mutex_unlock(&s_qlock);
+            int64_t deadline = now_ns() + s_pool_spin_ns;
+            for (int i = 1; __atomic_load_n(&s_qcount, __ATOMIC_RELAXED) == 0; i++) {
+                pool_cpu_relax();
+                if ((i & 31) == 0 && now_ns() >= deadline) break;
+            }
+            pthread_mutex_lock(&s_qlock);
+            s_spinning--;
+            got = dequeue_locked(&kind, &a, &b, &flow);
+        }
+        while (!got) {
             s_idle++;
             pthread_cond_wait(&s_qcond, &s_qlock);
             s_idle--;
+            got = dequeue_locked(&kind, &a, &b, &flow);
         }
+        // More work than this thread takes and nobody polling for it: wake the next sleeper.
+        if (s_qcount > 0 && s_spinning == 0 && s_idle > 0) pthread_cond_signal(&s_qcond);
         pthread_mutex_unlock(&s_qlock);
         csrt_tl_flow = flow;
         run_item(kind, a, b);
@@ -230,6 +277,7 @@ static void pool_start_locked(void) {
     return;  // no threads: blocked callers run the queue (csrt_task_wait, csrt_scheduler_run_until)
 #endif
     int n = csrt_processor_count();
+    s_pool_spin_ns = n > 1 ? 30000 : 0;  // 30 us, about a futex sleep + wake round trip on a VM
     if (n < 2) n = 2;
     for (int i = 0; i < n; i++) spawn_worker_locked();
     if (!csrt_start_background_thread(timer_loop)) async_fail("csharpc: could not start the timer thread.");
@@ -250,6 +298,17 @@ void* csrt_coro_alloc(int64_t size) {
     return (uint8_t*)csrt_alloc(&csrt_CoroFrame_MT.header, size + CORO_FRAME_OFFSET) + CORO_FRAME_OFFSET;
 }
 
+/// An async method's task and coroutine frame in one object: the task (method table first, so the
+/// object is a Task), then its payload, then the frame at the next 16-byte boundary. The frame pointer
+/// is an interior pointer of the task, so the frame lives exactly as long as the task does.
+void* csrt_coro_alloc_task(int64_t size, int32_t payload_size, csrt_Task** task) {
+    int64_t head = ((int64_t)sizeof(csrt_Task) + (payload_size > 0 ? payload_size : 0) + 15) & ~(int64_t)15;
+    csrt_Task* t = csrt_alloc(&csrt_Task_MT.header, head + size);
+    t->payload_size = payload_size;
+    *task = t;
+    return (uint8_t*)t + head;
+}
+
 csrt_Task* csrt_task_new(int32_t payload_size) {
     csrt_Task* t = csrt_alloc(&csrt_Task_MT.header, (int64_t)sizeof(csrt_Task) + (payload_size > 0 ? payload_size : 0));
     t->payload_size = payload_size;
@@ -258,7 +317,7 @@ csrt_Task* csrt_task_new(int32_t payload_size) {
 
 static uint8_t s_zero_payload[64];
 
-static inline int32_t task_state(const csrt_Task* t) { return __atomic_load_n(&t->state, __ATOMIC_SEQ_CST); }
+static inline int32_t task_state(const csrt_Task* t) { return __atomic_load_n(&t->state, __ATOMIC_ACQUIRE); }
 static inline void task_lock(csrt_Task* t) {
     while (__atomic_exchange_n(&t->lock, 1, __ATOMIC_ACQUIRE)) sched_yield();
 }
@@ -314,7 +373,23 @@ int32_t csrt_task_id(csrt_Task* t) {
 static bool add_continuation(csrt_Task* t, intptr_t kind, void* p) {
     task_lock(t);
     if (task_state(t) != T_PENDING) { task_unlock(t); return false; }
-    int64_t cap = t->conts ? t->conts->length / 2 : 0;
+    // Most tasks get at most one continuation (the awaiting coroutine): it is stored inline, and an
+    // array only appears with the second (an array per suspended await was 18 M of the TechEmpower
+    // server's allocations in a profiling run).
+    if (t->ncont == 0) {
+        t->conts = p;
+        t->ncont = -(int32_t)kind;
+        task_unlock(t);
+        return true;
+    }
+    if (t->ncont < 0) {
+        csrt_Array* pairs = csrt_new_array(sizeof(void*), 4 * 2);
+        words(pairs)[0] = (void*)(intptr_t)-t->ncont;
+        words(pairs)[1] = (void*)t->conts;
+        t->conts = pairs;
+        t->ncont = 1;
+    }
+    int64_t cap = t->conts->length / 2;
     if (t->ncont == cap) {
         int64_t ncap = cap ? cap * 2 : 2;
         csrt_Array* grown = csrt_new_array(sizeof(void*), ncap * 2);
@@ -328,10 +403,11 @@ static bool add_continuation(csrt_Task* t, intptr_t kind, void* p) {
     return true;
 }
 
-// Threads blocked in csrt_task_wait.
+// Threads blocked in csrt_task_wait. Only completing a task someone waits for (TF_WAITED) touches
+// these: a server's main thread blocks in app.Run() for its whole life, and waking it on every task
+// completion cost a futex wake and a context switch per request (18 % of the TechEmpower profile).
 static pthread_mutex_t s_wlock = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t s_wcond = PTHREAD_COND_INITIALIZER;
-static atomic_int s_waiters;
 
 static void run_continuations(csrt_Task* t, csrt_Array* conts, int32_t n);
 
@@ -346,10 +422,11 @@ static bool try_finish_aggregate(csrt_Task* t, int32_t state, void* exception, v
     int32_t n = t->ncont;
     t->conts = NULL;
     t->ncont = 0;
-    __atomic_store_n(&t->state, state, __ATOMIC_SEQ_CST);
+    __atomic_store_n(&t->state, state, __ATOMIC_RELEASE);  // under the lock; readers acquire (a seq_cst store is a full fence)
+    bool waited = __atomic_load_n(&t->flags, __ATOMIC_RELAXED) & TF_WAITED;
     task_unlock(t);
     run_continuations(t, conts, n);
-    if (atomic_load(&s_waiters) > 0) {
+    if (waited) {
         pthread_mutex_lock(&s_wlock);
         pthread_cond_broadcast(&s_wcond);
         pthread_mutex_unlock(&s_wlock);
@@ -469,9 +546,11 @@ static void invoke_action(void* del) {
 }
 
 static void run_continuations(csrt_Task* t, csrt_Array* conts, int32_t n) {
+    intptr_t single = n < 0 ? -(intptr_t)n : 0;  // one inline continuation of this kind
+    if (single) n = 1;
     for (int32_t i = 0; i < n; i++) {
-        intptr_t kind = (intptr_t)words(conts)[i * 2];
-        void* p = words(conts)[i * 2 + 1];
+        intptr_t kind = single ? single : (intptr_t)words(conts)[i * 2];
+        void* p = single ? (void*)conts : words(conts)[i * 2 + 1];
         switch (kind) {
             case K_RESUME:
             case K_RESUME_FLOW: {
@@ -625,6 +704,25 @@ void csrt_pool_queue_action(void* action, int32_t flowContext) {
     enqueue_flow(K_INVOKE, action, NULL, flowContext ? csrt_flow_capture() : NULL);
 }
 
+/// The same for a delegate taking one reference argument and that argument (WaitCallback,
+/// Action<TState> with a reference-type TState, IThreadPoolWorkItem.Execute): no closure to allocate.
+void csrt_pool_queue_state(void* action, void* state, int32_t flowContext) {
+    if (!action) csrt_throw_null_reference();
+    enqueue_flow(K_INVOKE_STATE, action, state, flowContext ? csrt_flow_capture() : NULL);
+}
+
+typedef struct { const csrt_MethodTable* mt; void* target; void* fn; csrt_Array* list; } MulticastDelegate;
+typedef struct { MulticastDelegate* d; void* state; } StateCall;
+
+static void invoke_with_state(void* p) {
+    StateCall* call = p;
+    MulticastDelegate* d = call->d;
+    int64_t n = d->list ? d->list->length : 1;
+    for (int64_t i = 0; i < n; i++) {
+        MulticastDelegate* e = d->list ? ((MulticastDelegate**)d->list->data)[i] : d;
+        ((void (*)(void*, void*))e->fn)(e->target, call->state);
+    }
+}
 
 /// YieldAwaiter.OnCompleted(action): post it to the current SynchronizationContext, or run it on the pool.
 void csrt_yield_action(void* action) {
@@ -1151,6 +1249,12 @@ static void run_item(intptr_t kind, void* a, void* b) {
     switch (kind) {
         case K_RESUME: csrt_coro_resume(a); break;
         case K_INVOKE: invoke_action(a); break;
+        case K_INVOKE_STATE: {
+            StateCall call = { a, b };
+            void* exception = csrt_call_catching_void(invoke_with_state, &call);
+            if (exception) csrt_unhandled_exception(exception);
+            break;
+        }
         case K_RUN_ACTION: {
             Delegate* d = a;
             tl_current_task = b;
@@ -1262,11 +1366,13 @@ void csrt_task_wait(csrt_Task* t) {
         if (s_idle == 0 && s_workers - s_blocked <= 0 && s_workers < MAX_WORKERS) spawn_worker_locked();
     }
     pthread_mutex_unlock(&s_qlock);
-    atomic_fetch_add(&s_waiters, 1);
+    // Under the task's lock: either try_finish sees the flag, or we see the task completed.
+    task_lock(t);
+    if (task_state(t) == T_PENDING) __atomic_or_fetch(&t->flags, TF_WAITED, __ATOMIC_RELAXED);
+    task_unlock(t);
     pthread_mutex_lock(&s_wlock);
     while (!csrt_task_is_completed(t)) pthread_cond_wait(&s_wcond, &s_wlock);
     pthread_mutex_unlock(&s_wlock);
-    atomic_fetch_sub(&s_waiters, 1);
     if (tl_worker) {
         pthread_mutex_lock(&s_qlock);
         s_blocked--;

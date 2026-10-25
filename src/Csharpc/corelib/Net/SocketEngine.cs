@@ -38,6 +38,16 @@ namespace CsharpcCoreLib
         }
 
         internal virtual bool IsWrite => false;
+
+        /// <summary>Clears the outcome of a previous run (operations owned by a SocketAsyncEventArgs are reused).</summary>
+        internal virtual void Reset()
+        {
+            Error = SocketError.Success;
+            Transferred = 0;
+            Registration = default;
+            Token = default;
+            Canceled = false;
+        }
     }
 
     /// <summary>Receive into a buffer (or a buffer list); an empty buffer waits for data without reading it.</summary>
@@ -101,6 +111,12 @@ namespace CsharpcCoreLib
 
         internal override bool IsWrite => true;
 
+        internal override void Reset()
+        {
+            base.Reset();
+            _segment = _segmentOffset = 0;
+        }
+
         internal override bool TryRun(SocketImpl socket)
         {
             int error;
@@ -142,6 +158,12 @@ namespace CsharpcCoreLib
     internal unsafe class AcceptOperation : SocketOperation
     {
         internal SocketImpl Accepted;
+
+        internal override void Reset()
+        {
+            base.Reset();
+            Accepted = null;
+        }
 
         internal override bool TryRun(SocketImpl socket)
         {
@@ -289,21 +311,20 @@ namespace CsharpcCoreLib
         /// <summary>Readiness from the engine: retries the waiting operations of that direction.</summary>
         internal void Process(bool readable, bool writable)
         {
-            List<SocketOperation> completed = null;
-            lock (this)
-            {
-                if (Closed) return;
-                if (readable) Drain(Reads, ref completed);
-                if (writable) Drain(Writes, ref completed);
-            }
-            if (completed != null)
-                foreach (SocketOperation op in completed) op.Complete(false);
+            // One operation at a time, each completed outside the lock: a socket rarely has more than one
+            // pending read and one pending write (Kestrel never does), and collecting them in a list
+            // allocated two objects per event.
+            if (readable) while (DrainOne(Reads) is { } op) op.Complete(false);
+            if (writable) while (DrainOne(Writes) is { } op) op.Complete(false);
         }
 
-        private void Drain(Queue<SocketOperation> queue, ref List<SocketOperation> completed)
+        private SocketOperation DrainOne(Queue<SocketOperation> queue)
         {
-            while (queue.Count > 0 && queue.Peek().TryRun(Socket))
-                (completed ??= new List<SocketOperation>()).Add(queue.Dequeue());
+            lock (this)
+            {
+                if (Closed || queue.Count == 0 || !queue.Peek().TryRun(Socket)) return null;
+                return queue.Dequeue();
+            }
         }
 
         /// <summary>The socket is closing: every pending operation ends with OperationAborted.</summary>
@@ -337,7 +358,11 @@ namespace CsharpcCoreLib
 
         private static readonly object s_lock = new object();
         private static int s_epoll = -1;
-        private static ulong s_nextId;
+        // Registered contexts, keyed by their address: the epoll data of a socket is its context's
+        // address, so the event loop gets from an event to its context without a lookup or a lock (the
+        // collector doesn't move objects). This set keeps every registered context alive until it is
+        // unregistered; an event already read for a context closed meanwhile is still on the event
+        // loop's stack, which the collector scans, and Process ignores closed contexts.
         private static readonly Dictionary<ulong, SocketAsyncContext> s_contexts = new Dictionary<ulong, SocketAsyncContext>();
 
         /// <summary>Makes the socket non-blocking and watches it.</summary>
@@ -356,7 +381,7 @@ namespace CsharpcCoreLib
                     thread.Name = ".NET Sockets";
                     thread.Start();
                 }
-                context.Id = ++s_nextId;
+                context.Id = (ulong)(long)CoreIntrinsics.ObjectToPointer(context);
                 s_contexts[context.Id] = context;
                 int error = EpollAdd(s_epoll, (int)context.Socket.RawHandle, context.Id);
                 if (error != 0)
@@ -384,9 +409,7 @@ namespace CsharpcCoreLib
                 if (n < 0) throw NetNative.Error(-n);
                 for (int i = 0; i < n; i++)
                 {
-                    SocketAsyncContext context;
-                    lock (s_lock)
-                        if (!s_contexts.TryGetValue(datas[i], out context)) continue;
+                    var context = (SocketAsyncContext)CoreIntrinsics.PointerToObject((IntPtr)(long)datas[i]);
                     uint e = events[i];
                     bool error = (e & (EPOLLERR | EPOLLHUP)) != 0;
                     context.Process(error || (e & (EPOLLIN | EPOLLRDHUP)) != 0, error || (e & EPOLLOUT) != 0);

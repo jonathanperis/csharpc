@@ -168,19 +168,32 @@ namespace CsharpcCoreLib
         private short _token;
         private TaskCompletionSource<TResult> _promise;
 
+        // Pipe.ReadAsync / FlushAsync and Kestrel's socket awaitables come through here on every
+        // request: a completed source becomes a completed task at once (no bridge), a pending one
+        // registers a static continuation with the bridge as its state (no delegate per call).
+        private static readonly Action<object> s_complete = static state => ((ValueTaskSourceBridge<TResult>)state).Complete();
+
         public static Task<TResult> Create(IValueTaskSource<TResult> source, short token)
         {
             if (source == null) throw new ArgumentNullException("source");
+            if (source.GetStatus(token) != ValueTaskSourceStatus.Pending)
+            {
+                var done = new TaskCompletionSource<TResult>();
+                TResult value;
+                try { value = source.GetResult(token); }
+                catch (Exception e) { CoreIntrinsics.TryFaultAsyncTask(done.Task, e); return done.Task; }
+                done.SetResult(value);
+                return done.Task;
+            }
             var bridge = new ValueTaskSourceBridge<TResult>();
             bridge._source = source;
             bridge._token = token;
             bridge._promise = new TaskCompletionSource<TResult>();
-            if (source.GetStatus(token) != ValueTaskSourceStatus.Pending) bridge.Complete(null);
-            else source.OnCompleted(bridge.Complete, null, token, ValueTaskSourceOnCompletedFlags.None);
+            source.OnCompleted(s_complete, bridge, token, ValueTaskSourceOnCompletedFlags.None);
             return bridge._promise.Task;
         }
 
-        private void Complete(object state)
+        private void Complete()
         {
             TResult result;
             try { result = _source.GetResult(_token); }
@@ -196,19 +209,31 @@ namespace CsharpcCoreLib
         private short _token;
         private TaskCompletionSource _promise;
 
+        private static readonly Action<object> s_complete = static state => ((ValueTaskSourceBridge)state).Complete();
+
         public static Task Create(IValueTaskSource source, short token)
         {
             if (source == null) throw new ArgumentNullException("source");
+            if (source.GetStatus(token) != ValueTaskSourceStatus.Pending)
+            {
+                try { source.GetResult(token); }
+                catch (Exception e)
+                {
+                    var faulted = new TaskCompletionSource();
+                    CoreIntrinsics.TryFaultAsyncTask(faulted.Task, e);
+                    return faulted.Task;
+                }
+                return Task.CompletedTask;
+            }
             var bridge = new ValueTaskSourceBridge();
             bridge._source = source;
             bridge._token = token;
             bridge._promise = new TaskCompletionSource();
-            if (source.GetStatus(token) != ValueTaskSourceStatus.Pending) bridge.Complete(null);
-            else source.OnCompleted(bridge.Complete, null, token, ValueTaskSourceOnCompletedFlags.None);
+            source.OnCompleted(s_complete, bridge, token, ValueTaskSourceOnCompletedFlags.None);
             return bridge._promise.Task;
         }
 
-        private void Complete(object state)
+        private void Complete()
         {
             try { _source.GetResult(_token); }
             catch (Exception e) { CoreIntrinsics.TryFaultAsyncTask(_promise.Task, e); return; }

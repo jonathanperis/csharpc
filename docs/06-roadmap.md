@@ -309,6 +309,35 @@ csharpc starts faster and idles smaller, but reaches about half of NativeAOT's p
 locking and completions, the async state machines lowered from IL, the conservative collector under
 load), then the binary size.
 
+Status (2026-10-25, branch `m8-perf`): throughput at NativeAOT's level. The TechEmpower workflow gained
+a `profile` input (perf profiles, annotated hot functions and an allocation profile of both servers
+under load), and each round of fixes followed what it showed. Runner speed varies by up to 40 % between
+runs, so the comparison is the csharpc/NativeAOT ratio within one run:
+
+| csharpc / NativeAOT | first run (40169226460) | `m8-perf` (40193556960) |
+|---|---:|---:|
+| plaintext, 256 / 1024 connections | 49 % / 46 % | 99 % / 98 % |
+| JSON, 16 / 64 / 256 connections | 55 % / 60 % / 63 % | 105 % / 102 % / 104 % |
+| JSON p99 latency, 256 connections | 9.7 vs 5.2 ms | 4.0 vs 5.4 ms |
+| peak RSS after load | 80.3 vs 64.9 MiB | 74.9 vs 65.0 MiB |
+| executable / build time | 14.5 vs 8.9 MiB, 306 vs 22 s | 14.3 vs 8.9 MiB, 313 vs 21 s |
+
+(Profiling runs on the same branch measured plaintext at 100–102 % of NativeAOT.) What the profiles
+found, in the order they were fixed: every task completion woke the main thread blocked in
+`app.Run()` (18 % of the CPU in futex wake-ups); `lock`/`Monitor` allocated an entry per `Enter` and
+`System.Threading.Lock` went through the same table (11–15 %: Lock now keeps its state in the object,
+one compare-and-swap per `Enter`); interface calls scanned 30+-entry interface maps (4–8 %: per-call-site
+caches); the thread pool woke a thread per work item and allocated a closure per item; the corelib's
+`ConcurrentQueue` was one lock (now .NET's lock-free segments); `typeof(T) == typeof(X)` and
+`(T)(object)value` weren't folded in generic code; byte/char span searches were scalar (now 16-byte
+vector loops); variance descriptors were searched linearly on failed interface tests; and allocations
+per request (a task and a coroutine frame per async call, now one object; continuation arrays; socket
+operations; JSON writers). Next: the allocations that remain (one task object per async method call,
+even when it completes without suspending: 90 % of the bytes allocated under load), the collector's
+pause (about 5 ms per collection, single-threaded marking), then the binary size (`.data.rel.ro` method
+tables and vtables, 3.4 MiB; the corelib's code, 3 MiB) and the build time (one whole-module `default<O2>`
+pass over 1.6 M instructions is most of it).
+
 ### Credibility deliverables (cross-cutting)
 - A technical report: what csharpc demonstrates (Roslyn's CFG as a mid-level IR, a C# corelib with
   whole-program LLVM optimization, the size/start-up/throughput/security results) and where it falls

@@ -396,6 +396,16 @@ namespace CsharpcCoreLib
             SetOptions(options);
         }
 
+        /// <summary>A cached internal writer starts over with these options (Serializer's writer cache).</summary>
+        internal void ResetForReuse(JsonWriterOptionsImpl options)
+        {
+            SetOptions(options);
+            ResetHelper();
+        }
+
+        /// <summary>Whether the cached writer's buffer is small enough to keep for the next serialization.</summary>
+        internal bool KeepForReuse => _buffer.Length <= 64 * 1024;
+
         private void ResetHelper()
         {
             _pending = 0;

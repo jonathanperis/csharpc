@@ -1,0 +1,9 @@
+char byte string other other
+65 -7 -1
+True False True False
+True False True False
+True True False False
+0: True False True False
+1: False True True True
+2: False False False False
+False True True

@@ -25,6 +25,9 @@ namespace CsharpcCoreLib
         private int _inProgress;
         private bool _disposed;
         internal SocketImpl CurrentSocket;
+        internal EventArgsOperations.Receive ReceiveOperation;
+        internal EventArgsOperations.Send SendOperation;
+        internal EventArgsOperations.Accept AcceptOperation;
 
         public SocketAsyncEventArgsImpl() : this(false) { }
 

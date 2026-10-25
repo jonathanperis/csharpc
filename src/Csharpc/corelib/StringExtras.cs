@@ -459,6 +459,7 @@ namespace CsharpcCoreLib
         // Comparer<T>.Default (IComparable<T>), as in .NET.
         public static int IndexOfAny<T>(ReadOnlySpan<T> span, T value0, T value1)
         {
+            if (typeof(T) == typeof(byte) || typeof(T) == typeof(char)) return SpanSearch.IndexOfAny(span, value0, value1, value1, false);
             for (int i = 0; i < span.Length; i++)
                 if (CoreIntrinsics.AreEqual(span[i], value0) || CoreIntrinsics.AreEqual(span[i], value1)) return i;
             return -1;
@@ -466,6 +467,7 @@ namespace CsharpcCoreLib
 
         public static int IndexOfAny<T>(ReadOnlySpan<T> span, T value0, T value1, T value2)
         {
+            if (typeof(T) == typeof(byte) || typeof(T) == typeof(char)) return SpanSearch.IndexOfAny(span, value0, value1, value2, false);
             for (int i = 0; i < span.Length; i++)
                 if (CoreIntrinsics.AreEqual(span[i], value0) || CoreIntrinsics.AreEqual(span[i], value1) || CoreIntrinsics.AreEqual(span[i], value2)) return i;
             return -1;
@@ -487,6 +489,7 @@ namespace CsharpcCoreLib
 
         public static int IndexOfAnyExcept<T>(ReadOnlySpan<T> span, T value)
         {
+            if (typeof(T) == typeof(byte) || typeof(T) == typeof(char)) return SpanSearch.IndexOfAny(span, value, value, value, true);
             for (int i = 0; i < span.Length; i++)
                 if (!CoreIntrinsics.AreEqual(span[i], value)) return i;
             return -1;
@@ -494,6 +497,7 @@ namespace CsharpcCoreLib
 
         public static int IndexOfAnyExcept<T>(ReadOnlySpan<T> span, T value0, T value1)
         {
+            if (typeof(T) == typeof(byte) || typeof(T) == typeof(char)) return SpanSearch.IndexOfAny(span, value0, value1, value1, true);
             for (int i = 0; i < span.Length; i++)
                 if (!CoreIntrinsics.AreEqual(span[i], value0) && !CoreIntrinsics.AreEqual(span[i], value1)) return i;
             return -1;
@@ -501,6 +505,7 @@ namespace CsharpcCoreLib
 
         public static int IndexOfAnyExcept<T>(ReadOnlySpan<T> span, T value0, T value1, T value2)
         {
+            if (typeof(T) == typeof(byte) || typeof(T) == typeof(char)) return SpanSearch.IndexOfAny(span, value0, value1, value2, true);
             for (int i = 0; i < span.Length; i++)
                 if (!CoreIntrinsics.AreEqual(span[i], value0) && !CoreIntrinsics.AreEqual(span[i], value1) && !CoreIntrinsics.AreEqual(span[i], value2)) return i;
             return -1;
