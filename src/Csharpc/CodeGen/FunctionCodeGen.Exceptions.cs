@@ -408,6 +408,7 @@ public sealed partial class FunctionCodeGen
         ["System.OperationCanceledException"] = "The operation was canceled.",
         ["System.Threading.Tasks.TaskCanceledException"] = "A task was canceled.",
         ["System.AggregateException"] = "One or more errors occurred.",
+        ["System.Threading.SemaphoreFullException"] = "Adding the specified count to the semaphore would cause it to exceed its maximum count.",
         ["System.TimeoutException"] = "The operation has timed out.",
         ["System.IO.IOException"] = "I/O error occurred.",
         ["System.UnauthorizedAccessException"] = "Attempted to perform an unauthorized operation.",

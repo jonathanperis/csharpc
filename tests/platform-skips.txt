@@ -150,3 +150,4 @@ macos 614_posix_signal_registration  sends raw signal 10, which is SIGUSR1 on Li
 windows 614_posix_signal_registration known gap: PosixSignalRegistration on Windows (console control events) is not supported by csharpc yet; the sample also calls libc kill()
 wasi 614_posix_signal_registration    WASI has no signals: .NET throws PlatformNotSupportedException
 wasi 618_execution_context_memory_members  creates a UnixDomainSocketEndPoint: WASI has no sockets (PlatformNotSupportedException)
+wasi 619_semaphore_slim              needs threads: a synchronous Wait is woken by work on another thread
