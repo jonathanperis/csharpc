@@ -287,6 +287,28 @@ Next, in order: reflection metadata for DI (constructors and parameters of the t
 generics), `DateTimeOffset` and `MemoryPool<T>` (in progress elsewhere), async sockets on epoll for
 Kestrel's transport (`SocketAsyncEventArgs`), then the first csharpc build of the app and its numbers.
 
+Status (2026-10-25, branch `m8-kestrel`): csharpc builds the TechEmpower app with no stubbed method and its
+responses pass TechEmpower's checks identically to NativeAOT. This took member reflection over compile-time
+metadata ([ADR 0018](adr/0018-reflection-metadata.md)), async sockets on an epoll engine (blocking calls on
+the thread pool on macOS and Windows for now), and the library surface Kestrel, hosting and routing reach.
+The first load runs also exposed two collector bugs that only show under sustained load: coroutine frames
+skipped by marking, and large arrays missed by `TryGetArray`. First numbers (`TechEmpower` workflow, one
+run, csharpc at -O2):
+
+| | NativeAOT | csharpc | JIT |
+|---|---:|---:|---:|
+| plaintext, 256 connections, pipeline 16 | 545 000 req/s | 268 000 req/s | 696 000 req/s |
+| plaintext, 1024 connections, pipeline 16 | 526 000 req/s | 243 000 req/s | 692 000 req/s |
+| JSON, 16 / 64 / 256 connections | 69 000 / 84 000 / 87 000 req/s | 38 000 / 50 000 / 55 000 req/s | 75 000 / 93 000 / 97 000 req/s |
+| peak RSS, idle → after load | 17.7 → 64.9 MiB | 13.0 → 80.3 MiB | 54.0 → 141.3 MiB |
+| executable | 8.9 MiB | 14.5 MiB | (framework-dependent) |
+| start-up to the first response | 26 ms | 20 ms | 157 ms |
+
+csharpc starts faster and idles smaller, but reaches about half of NativeAOT's plaintext throughput and
+60 % of its JSON throughput, with a larger binary. Next: profile the request path (the socket engine's
+locking and completions, the async state machines lowered from IL, the conservative collector under
+load), then the binary size.
+
 ### Credibility deliverables (cross-cutting)
 - A technical report: what csharpc demonstrates (Roslyn's CFG as a mid-level IR, a C# corelib with
   whole-program LLVM optimization, the size/start-up/throughput/security results) and where it falls

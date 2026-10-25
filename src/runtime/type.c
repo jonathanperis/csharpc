@@ -15,9 +15,15 @@
 typedef struct { const csrt_MethodTable* mt; const csrt_MethodTable* target; } TypeObject;
 
 static csrt_String* type_to_string(void* o);
-const csrt_BuiltinMethodTable csrt_Type_MT = {
+static void* type_virtual_unsupported(void);
+// Type members reach the runtime through the compiler's Type handlers, not this vtable. A MemberInfo
+// virtual called on a Type through a MemberInfo-typed reference lands in the slots after Object's:
+// they throw instead of running whatever data would follow a three-slot vtable.
+#define TYPE_MEMBERINFO_SLOTS 61
+const struct { csrt_MethodTable header; void* vtable[3 + TYPE_MEMBERINFO_SLOTS]; } csrt_Type_MT = {
     { &csrt_Object_MT.header, "System.RuntimeType", sizeof(TypeObject), 0 },
-    { (void*)type_to_string, (void*)csrt_object_equals_default, (void*)csrt_object_get_hash_code_default },
+    { (void*)type_to_string, (void*)csrt_object_equals_default, (void*)csrt_object_get_hash_code_default,
+      [3 ... 3 + TYPE_MEMBERINFO_SLOTS - 1] = (void*)type_virtual_unsupported },
 };
 
 // Open-addressing cache in .bss — the conservative GC scans the executable's data segments, so
@@ -182,6 +188,11 @@ static const csrt_TypeInfo* lookup_info(const csrt_MethodTable* mt) {
 }
 
 static void throw_utf8(const csrt_MethodTable* type, const char* message) { csrt_throw(type, csrt_string_from_utf8(message)); }
+
+static void* type_virtual_unsupported(void) {
+    throw_utf8(&mt_not_supported, "Calling a MemberInfo member on a System.Type through a MemberInfo-typed reference is not supported by csharpc yet.");
+    return NULL;
+}
 
 /// A type or query the compile-time metadata doesn't describe: an explicit NotSupportedException
 /// rather than a wrong answer.
