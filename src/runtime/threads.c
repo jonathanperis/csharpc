@@ -715,6 +715,11 @@ int32_t csrt_processor_count(void) {
     long n = 1;  // one thread: Parallel loops run inline (Environment.ProcessorCount is 1, as in .NET on wasm)
 #elif defined(_WIN32)
     long n = pthread_num_processors_np();
+#elif defined(__linux__)
+    // As .NET: the CPUs the process may run on (taskset, cpusets), not every online CPU. A server
+    // pinned to 2 of 4 CPUs sized its thread pool (and Kestrel its I/O queues) for 4.
+    cpu_set_t set;
+    long n = sched_getaffinity(0, sizeof set, &set) == 0 ? CPU_COUNT(&set) : sysconf(_SC_NPROCESSORS_ONLN);
 #else
     long n = sysconf(_SC_NPROCESSORS_ONLN);
 #endif
