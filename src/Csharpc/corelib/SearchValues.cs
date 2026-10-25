@@ -6,6 +6,7 @@
 using System;
 using System.Buffers;
 using System.Collections.Generic;
+using System.Runtime.CompilerServices;
 
 namespace CsharpcCoreLib
 {
@@ -82,7 +83,9 @@ namespace CsharpcCoreLib
 
         internal bool Has(int code) => (uint)code < (uint)Map.Length && Map[code];
 
-        internal static int Code(T value) => typeof(T) == typeof(char) ? (char)(object)value : (byte)(object)value;
+        // Reinterpreted, not (char)(object)value: the cast through object boxed every character the HTTP
+        // parser classified (the typeof test folds after monomorphization; the box didn't).
+        internal static int Code(T value) => typeof(T) == typeof(char) ? Unsafe.As<T, char>(ref value) : Unsafe.As<T, byte>(ref value);
 
         internal static SearchValuesImpl<T> Of(SearchValues<T> values)
         {

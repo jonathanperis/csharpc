@@ -576,9 +576,9 @@ internal static partial class BclValueTypes
         t["System.Reflection.MemberInfo.get_Name()"] = t["System.Type.get_Name()"] = typeString("csrt_type_name");
         t["System.Type.get_Namespace()"] = typeString("csrt_type_namespace");
         t["System.Type.ToString()"] = typeString("csrt_type_full_name");
-        t["System.Type.op_Equality(System.Type, System.Type)"] = (g, _, _, a, _) => g.Builder.ICmp(LLVMIntPredicate.EQ, a[0], a[1]);
-        t["System.Type.op_Inequality(System.Type, System.Type)"] = (g, _, _, a, _) => g.Builder.ICmp(LLVMIntPredicate.NE, a[0], a[1]);
-        t["System.Type.Equals(System.Type)"] = (g, _, self, a, _) => g.Builder.ICmp(LLVMIntPredicate.EQ, self, a[0]);
+        t["System.Type.op_Equality(System.Type, System.Type)"] = (g, _, _, a, _) => g.TypeEquals(a[0], a[1], true);
+        t["System.Type.op_Inequality(System.Type, System.Type)"] = (g, _, _, a, _) => g.TypeEquals(a[0], a[1], false);
+        t["System.Type.Equals(System.Type)"] = (g, _, self, a, _) => g.TypeEquals(self, a[0], true);
 
         // ===== CompareTo / Equals on primitives =====
         foreach (var (type, signed) in new[] { ("int", true), ("long", true), ("short", true), ("sbyte", true),

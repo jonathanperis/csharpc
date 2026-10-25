@@ -363,14 +363,27 @@ public sealed partial class FunctionCodeGen
                     Push(new IlEntry(IlKind.Ref, _m.ExternalGlobal("csrt_Object_MT"), Special(SpecialType.System_Object)) { NonNull = true });
                     return false;
                 }
+                // `box T; unbox.any T` — `(char)(object)value` in generic code once T is char: the JIT
+                // drops both; so do we (the next instruction takes the value back out, see Unbox_any).
+                if (st.IsValueType && !TypeMapper.IsNullable(st) && IlNextUnboxesTo(block, st))
+                {
+                    Push(new IlEntry(IlKind.Ref, default, Special(SpecialType.System_Object)) { NonNull = true, Unboxed = value with { Type = st } });
+                    return false;
+                }
                 Push(new IlEntry(IlKind.Ref, Box(IlTyped(value, type), st, IlAt()), Special(SpecialType.System_Object)) { Unboxed = value with { Type = st } });
                 return false;
             }
             case ILOpCode.Unbox_any:
             {
                 var type = ResolveIlType(instruction.Token);
-                var obj = IlRef(Pop());
                 var st = S(type);
+                if (stack.Count > 0 && stack.Peek() is { Value.IsNull: true, Unboxed: { } unboxed } && SymbolEqualityComparer.Default.Equals(unboxed.Type, st))
+                {
+                    Pop();
+                    Push(IlPush(IlTyped(unboxed, st), type));
+                    return false;
+                }
+                var obj = IlRef(Pop());
                 if (st.IsReferenceType) { Push(new IlEntry(IlKind.Ref, IlCastClass(obj, type), type)); return false; }
                 Push(IlPush(IlUnboxValue(obj, st), type));
                 return false;
@@ -573,6 +586,14 @@ public sealed partial class FunctionCodeGen
     /// The box being lowered (instruction <c>_ilIndex</c>) is only compared with null: the next instructions,
     /// in the same block, are `brtrue`/`brfalse`, or `ldnull` and `ceq`/`cgt.un`.
     /// </summary>
+    /// <summary>Whether the instruction after this `box` is an `unbox.any` to the same value type.</summary>
+    private bool IlNextUnboxesTo(IlBlock block, ITypeSymbol boxed)
+    {
+        if (_ilIndex + 1 > block.Last) return false;
+        var next = IlBody.Instructions[_ilIndex + 1];
+        return next.OpCode == ILOpCode.Unbox_any && SymbolEqualityComparer.Default.Equals(S(ResolveIlType(next.Token)), boxed);
+    }
+
     private bool IlBoxOnlyNullTested(IlBlock block)
     {
         var instructions = IlBody.Instructions;

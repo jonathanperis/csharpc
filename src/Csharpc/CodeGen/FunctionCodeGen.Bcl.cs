@@ -215,6 +215,33 @@ public sealed partial class FunctionCodeGen
         return CallRuntime("csrt_type_from_mt", L.Ptr, [L.Ptr], _m.TypeMethodTable(type, at));
     }
 
+    /// <summary>
+    /// Type == Type / Type != Type. Type objects are canonical per method table (csrt_type_from_mt), so when
+    /// both sides were just made from method tables — typeof(T) == typeof(char) in generic code after
+    /// monomorphization, the guard of nearly every generic fast path in CoreLib and ASP.NET Core — the
+    /// method tables are compared instead, which folds to a constant, and the lookups go away.
+    /// </summary>
+    internal LLVMValueRef TypeEquals(LLVMValueRef a, LLVMValueRef b, bool equal)
+    {
+        var predicate = equal ? LLVMIntPredicate.EQ : LLVMIntPredicate.NE;
+        if (TypeObjectSource(a) is { IsNull: false } ma && TypeObjectSource(b) is { IsNull: false } mb)
+        {
+            var result = _b.ICmp(predicate, ma, mb);
+            foreach (var lookup in new[] { a, b })
+                if (Native.LLVMGetFirstUse(lookup) == 0) Native.LLVMInstructionEraseFromParent(lookup);
+            return result;
+        }
+        return _b.ICmp(predicate, a, b);
+    }
+
+    /// <summary>The method table a Type value was looked up from (a direct csrt_type_from_mt call), or null.</summary>
+    private LLVMValueRef TypeObjectSource(LLVMValueRef value)
+    {
+        if (Native.LLVMIsAInstruction(value).IsNull || Native.LLVMGetInstructionOpcode(value) != LLVMOpcode.Call) return default;
+        if (Native.LLVMGetCalledValue(value) != _m.Runtime("csrt_type_from_mt", L.Ptr, L.Ptr).Fn) return default;
+        return Native.LLVMGetOperand(value, 0);
+    }
+
     private static bool DerivesFromAttribute(INamedTypeSymbol type)
     {
         for (var t = type.BaseType; t is not null; t = t.BaseType)
