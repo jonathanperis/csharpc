@@ -131,6 +131,9 @@ namespace CsharpcCoreLib
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern nint TypeInfoTableAddress();
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern nint ReflectionTableAddress();
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern nint DelegateMethodTableAddress();
+        /// <summary>The delegate types' Invoke signatures (MethodInfo.CreateDelegate): { count, { mt, return, parameters, count, 0 }[] }.</summary>
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern nint DelegateSignatureTableAddress();
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern unsafe void* csrt_delegate_create(nint mt, nint target, nint fn);
         /// <summary>The function a delegate calls (the last one of a multicast delegate).</summary>
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern nint DelegateFunction(Delegate d);
         /// <summary>The object a delegate is bound to (the last one of a multicast delegate).</summary>

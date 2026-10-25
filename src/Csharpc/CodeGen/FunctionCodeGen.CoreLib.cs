@@ -147,6 +147,7 @@ public sealed partial class FunctionCodeGen
             "TypeInfoTableAddress" => _b.Cast(LLVMOpcode.PtrToInt, _m.TypeInfoTable(), T.NativeInt),
             "ReflectionTableAddress" => _b.Cast(LLVMOpcode.PtrToInt, _m.ReflectionTable(), T.NativeInt),
             "DelegateMethodTableAddress" => _b.Cast(LLVMOpcode.PtrToInt, _m.DelegateMethodTable(), T.NativeInt),
+            "DelegateSignatureTableAddress" => _b.Cast(LLVMOpcode.PtrToInt, _m.DelegateSignatureTable(), T.NativeInt),
             "DelegateFunction" => _b.Cast(LLVMOpcode.PtrToInt, LastDelegateField(args[0], 2), T.NativeInt),
             "DelegateTargetObject" => LastDelegateField(args[0], 1),
             "TryFaultAsyncTask" => CallRuntime("csrt_task_try_fault_async", L.I1, [L.Ptr, L.Ptr], args[0], args[1]),

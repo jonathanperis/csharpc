@@ -36,7 +36,11 @@ public sealed partial class ModuleCodeGen
     // Open generic registrations: service definition -> implementation definitions (with what they keep).
     private readonly Dictionary<INamedTypeSymbol, List<(INamedTypeSymbol Implementation, int Kinds)>> _openGenericPairs = new(SymbolEqualityComparer.Default);
     private int _closedServicesScanned;
-    private LLVMValueRef _reflectionTable, _delegateMethodTable;
+    private LLVMValueRef _reflectionTable, _delegateMethodTable, _delegateSignatureTable;
+    // Delegate types the program names (typeof(D)): MethodInfo.CreateDelegate checks a method against their Invoke.
+    private readonly HashSet<INamedTypeSymbol> _delegateSignatureTypes = new(SymbolEqualityComparer.Default);
+    private readonly Queue<INamedTypeSymbol> _delegateSignatureQueue = new();
+    private readonly List<(LLVMValueRef Mt, LLVMValueRef Return, List<LLVMValueRef> Parameters)> _delegateSignatures = [];
     private readonly Dictionary<IMethodSymbol, MethodRecordData> _methodRecords = new(SymbolEqualityComparer.Default);
     // By function name: an IL method that fails to compile is replaced by a stub of the same name (its old value is deleted).
     private readonly Dictionary<nint, (LLVMValueRef Fn, IMethodSymbol Method, bool SourceLambda, string Name)> _delegateCreations = [];
@@ -57,6 +61,8 @@ public sealed partial class ModuleCodeGen
     {
         public required IMethodSymbol Method;
         public required LLVMValueRef Name, Declaring, ReturnType, Invoke;
+        // The method's own function, for MethodInfo.CreateDelegate (instance methods of classes; else null).
+        public LLVMValueRef Function;
         public required List<ParameterRecordData> Parameters;
         public required List<AttributeRecordData> Attributes;
         public required uint MethodAttributes, Flags;
@@ -77,6 +83,41 @@ public sealed partial class ModuleCodeGen
         if (_reflectionTable.IsNull)
             _reflectionTable = Module.AddGlobal("csharpc.reflection", TypeTableHeader, constant: true, linkage: LLVMLinkage.Private);
         return _reflectionTable;
+    }
+
+    /// <summary>The delegate signatures behind MethodInfo.CreateDelegate (programs that call it have one).</summary>
+    internal LLVMValueRef DelegateSignatureTable()
+    {
+        if (_delegateSignatureTable.IsNull)
+            _delegateSignatureTable = Module.AddGlobal("csharpc.delegatesignatures", TypeTableHeader, constant: true, linkage: LLVMLinkage.Private);
+        return _delegateSignatureTable;
+    }
+
+    /// <summary>typeof(D) for a delegate type D: its Invoke signature may be needed by CreateDelegate.</summary>
+    internal void NoteDelegateType(INamedTypeSymbol type)
+    {
+        if (type.TypeKind == TypeKind.Delegate && type.DelegateInvokeMethod is not null && !TypeSubstitution.IsOpen(type) && _delegateSignatureTypes.Add(type))
+            _delegateSignatureQueue.Enqueue(type);
+    }
+
+    private bool DescribeDelegateSignatures()
+    {
+        var any = false;
+        while (_delegateSignatureQueue.TryDequeue(out var type))
+        {
+            any = true;
+            var invoke = type.DelegateInvokeMethod!;
+            if (invoke.Parameters.Any(p => p.RefKind != RefKind.None || p.Type is IPointerTypeSymbol or IFunctionPointerTypeSymbol || p.Type.IsRefLikeType)
+                || invoke.RefKind != RefKind.None || invoke.ReturnType.IsRefLikeType || invoke.ReturnType is IPointerTypeSymbol or IFunctionPointerTypeSymbol)
+                continue; // by-ref and pointer signatures: CreateDelegate reports them as not supported
+            try
+            {
+                _delegateSignatures.Add((MetadataMethodTable(type), invoke.ReturnsVoid ? LlvmContext.Null(Llvm.Ptr) : MetadataMethodTable(invoke.ReturnType),
+                    invoke.Parameters.Select(p => MetadataMethodTable(p.Type)).ToList()));
+            }
+            catch (CompileError) { }
+        }
+        return any;
     }
 
     /// <summary>The csrt_DelegateMethodTable behind Delegate.Method (only programs that read it have one).</summary>
@@ -250,8 +291,8 @@ public sealed partial class ModuleCodeGen
     /// <summary>Describes newly marked types; true when anything was created (the worklists must drain again).</summary>
     private bool EmitReflectionMetadata()
     {
-        if (_reflectionTable.IsNull && _delegateMethodTable.IsNull) return false;
-        var any = CloseOpenGenericRegistrations() | DescribeDelegateMethods();
+        if (_reflectionTable.IsNull && _delegateMethodTable.IsNull) return DescribeDelegateSignatures();
+        var any = CloseOpenGenericRegistrations() | DescribeDelegateMethods() | DescribeDelegateSignatures();
         if (_reflectionTable.IsNull) return any;
         while (_damQueue.TryDequeue(out var type))
         {
@@ -341,6 +382,9 @@ public sealed partial class ModuleCodeGen
             Declaring = MetadataMethodTable(method.ContainingType),
             ReturnType = method.ReturnsVoid || method.MethodKind == MethodKind.Constructor ? none : MetadataMethodTable(method.ReturnType),
             Invoke = invokable ? ReflectionInvoker(method) : none,
+            // An instance method of a class, called as the delegate calls its function: (target, args...).
+            Function = invokable && !method.IsStatic && method.MethodKind == MethodKind.Ordinary && method.ContainingType.IsReferenceType
+                && !TypeSubstitution.IsOpen(method.ContainingType) && IsUserMethod(method) ? GetFunction(method).Fn : none,
             Parameters = parameters,
             Attributes = Attributes(MemberAttributeInstances(method, il)),
             MethodAttributes = MethodAttributesOf(method),
@@ -635,7 +679,8 @@ public sealed partial class ModuleCodeGen
 
     private LLVMTypeRef AttributeRecordType => Llvm.Struct(Llvm.Ptr, Llvm.Ptr, Llvm.Ptr);
     private LLVMTypeRef ParameterRecordType => Llvm.Struct(Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.I32, Llvm.I32);
-    private LLVMTypeRef MethodRecordType => Llvm.Struct(Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.I32, Llvm.I32, Llvm.I32, Llvm.I32);
+    private LLVMTypeRef MethodRecordType => Llvm.Struct(Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.I32, Llvm.I32, Llvm.I32, Llvm.I32, Llvm.Ptr);
+    private LLVMTypeRef DelegateSignatureType => Llvm.Struct(Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.I32, Llvm.I32);
     private LLVMTypeRef ReflectionInfoType => Llvm.Struct(Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.I32, Llvm.I32, Llvm.I32, Llvm.I32);
 
     private LLVMValueRef ConstTable(string name, LLVMTypeRef entryType, IReadOnlyList<LLVMValueRef> entries)
@@ -661,7 +706,7 @@ public sealed partial class ModuleCodeGen
             p.Name, p.Type, p.DefaultValue, AttributeArray(p.Attributes), Llvm.ConstInt(Llvm.I32, p.Attributes.Count), Llvm.ConstUInt(Llvm.I32, p.Flags))).ToList());
         return Llvm.ConstStruct(m.Name, m.Declaring, m.ReturnType, m.Invoke, parameters, AttributeArray(m.Attributes),
             Llvm.ConstInt(Llvm.I32, m.Parameters.Count), Llvm.ConstInt(Llvm.I32, m.Attributes.Count),
-            Llvm.ConstUInt(Llvm.I32, m.MethodAttributes), Llvm.ConstUInt(Llvm.I32, m.Flags));
+            Llvm.ConstUInt(Llvm.I32, m.MethodAttributes), Llvm.ConstUInt(Llvm.I32, m.Flags), m.Function.IsNull ? LlvmContext.Null(Llvm.Ptr) : m.Function);
     }
 
     private void FinishReflectionMetadata()
@@ -678,6 +723,12 @@ public sealed partial class ModuleCodeGen
                     Llvm.ConstInt(Llvm.I32, e.Methods.Count), Llvm.ConstInt(Llvm.I32, e.Attributes.Count), Llvm.ConstUInt(Llvm.I32, e.Described)));
             }
             Native.LLVMSetInitializer(_reflectionTable, Header(ConstTable("csharpc.reflection.entries", ReflectionInfoType, entries), entries.Count));
+        }
+        if (!_delegateSignatureTable.IsNull)
+        {
+            var entries = _delegateSignatures.Select(s => Llvm.ConstStruct(s.Mt, s.Return,
+                ConstTable("csharpc.delegatesignature.parameters", Llvm.Ptr, s.Parameters), Llvm.ConstInt(Llvm.I32, s.Parameters.Count), Llvm.ConstInt(Llvm.I32, 0))).ToList();
+            Native.LLVMSetInitializer(_delegateSignatureTable, Header(ConstTable("csharpc.delegatesignatures.entries", DelegateSignatureType, entries), entries.Count));
         }
         if (!_delegateMethodTable.IsNull)
         {

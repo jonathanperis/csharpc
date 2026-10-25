@@ -261,7 +261,13 @@ typedef struct csrt_MethodRecord {
     uint32_t attribute_count;
     uint32_t method_attributes;                // MethodAttributes
     uint32_t flags;                            // CSRT_METHOD_*
+    const void* function;                      // an instance method's own function (MethodInfo.CreateDelegate); NULL: none
 } csrt_MethodRecord;
+
+// MethodInfo.CreateDelegate: the Invoke signatures of the delegate types the program names.
+typedef struct { const csrt_MethodTable* mt; const csrt_MethodTable* return_type; const csrt_MethodTable* const* parameters;
+                 uint32_t parameter_count; uint32_t reserved; } csrt_DelegateSignature;
+void* csrt_delegate_create(const csrt_MethodTable* mt, void* target, const void* fn);
 
 // Which member kinds an entry lists (DynamicallyAccessedMemberTypes they were kept for).
 enum { CSRT_RI_PUBLIC_CONSTRUCTORS = 1, CSRT_RI_NONPUBLIC_CONSTRUCTORS = 2, CSRT_RI_PUBLIC_METHODS = 4,

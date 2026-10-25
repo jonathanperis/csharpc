@@ -440,7 +440,8 @@ namespace CsharpcCoreLib
     {
         internal static readonly int P = sizeof(nint);
         // csrt_MethodRecord
-        internal static int MethodSize => 6 * P + 16;
+        internal static int MethodSize => 7 * P + 16;
+        internal static nint MethodFunction(byte* m) => *(nint*)(m + 6 * P + 16);
         internal static byte* MethodName(byte* m) => (byte*)*(nint*)m;
         internal static nint MethodDeclaring(byte* m) => *(nint*)(m + P);
         internal static nint MethodReturnType(byte* m) => *(nint*)(m + 2 * P);
@@ -519,6 +520,55 @@ namespace CsharpcCoreLib
         private string _name;
 
         internal RuntimeMethodInfoImpl(byte* record) { _record = record; }
+
+        public override Delegate CreateDelegate(Type delegateType) => CreateDelegate(delegateType, null);
+
+        /// <summary>
+        /// A delegate over this instance method closed over <paramref name="target"/>: the method's own function,
+        /// checked against the delegate type's Invoke signature (kept for delegate types the program names).
+        /// </summary>
+        public override Delegate CreateDelegate(Type delegateType, object target)
+        {
+            ArgumentNullException.ThrowIfNull(delegateType);
+            if (!typeof(Delegate).IsAssignableFrom(delegateType) || delegateType == typeof(Delegate) || delegateType == typeof(MulticastDelegate))
+                throw new ArgumentException("Type must derive from Delegate.", "delegateType");
+            byte* signature = ReflectionRuntime.DelegateSignature(delegateType);
+            nint fn = ReflectionRecords.MethodFunction(_record);
+            if (signature == null || fn == 0 || target == null)
+                throw new NotSupportedException("MethodInfo.CreateDelegate of '" + this + "' to '" + delegateType + "'" + (target == null ? " without a target" : "") + " is not supported by csharpc yet.");
+            if (!DeclaringType.IsInstanceOfType(target) || !Compatible(signature))
+                throw new ArgumentException("Cannot bind to the target method because its signature is not compatible with that of the delegate type.");
+            if (IsVirtual && !IsFinal && target.GetType() != DeclaringType)
+                throw new NotSupportedException("MethodInfo.CreateDelegate of the virtual method '" + this + "' on a derived type is not supported by csharpc yet.");
+            return CoreIntrinsics.ReinterpretAs<Delegate>(CoreIntrinsics.PointerToObject((nint)CoreIntrinsics.csrt_delegate_create(CoreIntrinsics.csrt_type_handle(delegateType), CoreIntrinsics.ObjectToPointer(target), fn)));
+        }
+
+        // The delegate's parameters must be passable to the method's (the same type, or a reference type the
+        // method's accepts) and the method's return must be the delegate's (or a reference type assignable to it).
+        private bool Compatible(byte* signature)
+        {
+            int count = *(int*)(signature + 3 * ReflectionRecords.P);
+            if (count != ReflectionRecords.MethodParameterCount(_record)) return false;
+            nint* delegateParameters = (nint*)*(nint*)(signature + 2 * ReflectionRecords.P);
+            byte* parameters = ReflectionRecords.MethodParameters(_record);
+            for (int i = 0; i < count; i++)
+            {
+                byte* p = parameters + i * ReflectionRecords.ParameterSize;
+                if ((ReflectionRecords.ParameterFlags(p) & (1 << 17)) != 0) return false; // by-ref
+                if (!Passable(delegateParameters[i], ReflectionRecords.ParameterType(p))) return false;
+            }
+            nint delegateReturn = *(nint*)(signature + ReflectionRecords.P);
+            nint methodReturn = ReflectionRecords.MethodReturnType(_record);
+            if (delegateReturn == 0 || methodReturn == 0) return delegateReturn == methodReturn;
+            return Passable(methodReturn, delegateReturn);
+        }
+
+        private static bool Passable(nint from, nint to)
+        {
+            if (from == to) return true;
+            Type source = ReflectionRuntime.TypeOf(from), destination = ReflectionRuntime.TypeOf(to);
+            return !source.IsValueType && !destination.IsValueType && destination.IsAssignableFrom(source);
+        }
 
         public override RuntimeMethodHandle MethodHandle => throw new NotSupportedException("MethodBase.MethodHandle is not supported by csharpc yet.");
 
@@ -940,6 +990,19 @@ namespace CsharpcCoreLib
             CoreIntrinsics.csrt_array_set_value(array, value, index, CoreIntrinsics.TypeInfoTableAddress());
 
         // ---- Delegates ---------------------------------------------------------------------------
+
+        /// <summary>The csrt_DelegateSignature of a delegate type, or null when the program never names it.</summary>
+        internal static byte* DelegateSignature(Type delegateType)
+        {
+            byte* table = (byte*)CoreIntrinsics.DelegateSignatureTableAddress();
+            long count = *(long*)table;
+            byte* entries = (byte*)*(nint*)(table + 8);
+            nint mt = CoreIntrinsics.csrt_type_handle(delegateType);
+            int size = 3 * ReflectionRecords.P + 8;
+            for (long i = 0; i < count; i++)
+                if (*(nint*)(entries + i * size) == mt) return entries + i * size;
+            return null;
+        }
 
         public static MethodInfo DelegateMethod(Delegate d)
         {
