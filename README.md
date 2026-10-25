@@ -74,7 +74,52 @@ outside the closed world. Not supported yet: `dynamic`, expression trees and mem
 (`-r X.dll`, `<Reference>`, NuGet packages) are compiled from their IL by the IL front-end
 ([ADR 0010](docs/adr/0010-il-frontend.md)), as far as the BCL surface they use is implemented. The full matrix is in [docs/06-roadmap.md](docs/06-roadmap.md).
 
-## Quick start
+## Install
+
+Prebuilt NativeAOT bundles (no .NET SDK required) ship on
+[GitHub Releases](https://github.com/jonathanperis/csharpc/releases). Each archive includes the
+`csharpc` binary, `corelib/`, `runtime/` and a bundled `libLLVM` 18 under `lib/` (Apache-2.0 with
+LLVM exceptions). You still need **clang** on the host (and **lld** when available) to compile the
+C runtime and link programs; on Windows that means
+[LLVM-MinGW](https://github.com/mstorsjo/llvm-mingw). WebAssembly (`--target wasm32-wasip1`) still
+needs the WASI SDK 24 and wasmtime separately.
+
+```bash
+# Linux / macOS: pick the right archive, verify, extract
+curl -fsSL -o install.sh https://raw.githubusercontent.com/jonathanperis/csharpc/main/install.sh
+bash install.sh                  # latest release tag, including prereleases
+# or manually:
+# curl -fsSL -O https://github.com/jonathanperis/csharpc/releases/download/v0.1.0-spike/csharpc-0.1.0-spike-linux-x64.tar.gz
+# curl -fsSL -O https://github.com/jonathanperis/csharpc/releases/download/v0.1.0-spike/SHA256SUMS
+# sha256sum -c --ignore-missing SHA256SUMS
+# tar xzf csharpc-0.1.0-spike-linux-x64.tar.gz && export PATH="$PWD/csharpc-0.1.0-spike-linux-x64:$PATH"
+
+# clang (Ubuntu 24.04); lld optional but used when present
+sudo apt install clang-18 lld-18
+# macOS: brew install llvm@18 && export PATH="$(brew --prefix llvm@18)/bin:$PATH"
+```
+
+```powershell
+# Windows (PowerShell): install.ps1 extracts to %LOCALAPPDATA%\csharpc and updates the user PATH
+irm https://raw.githubusercontent.com/jonathanperis/csharpc/main/install.ps1 | iex
+# Then put LLVM-MinGW's bin\ on PATH (clang + lld). libLLVM-18.dll is already in the archive.
+```
+
+**dotnet tool** (needs the .NET 11 SDK; libLLVM + clang still required on the host):
+
+```bash
+dotnet nuget add source https://nuget.pkg.github.com/jonathanperis/index.json \
+  --name github-jonathanperis --username USERNAME --password GITHUB_TOKEN --store-password-in-clear-text
+dotnet tool install -g csharpc --prerelease --add-source https://nuget.pkg.github.com/jonathanperis/index.json
+```
+
+**Container** (clang and libLLVM included; linux/amd64):
+
+```bash
+docker run --rm -v "$PWD":/work -w /work ghcr.io/jonathanperis/csharpc:latest app.cs -o app
+```
+
+## Build from source
 
 Requirements: Linux (x86-64 or ARM64), macOS on Apple silicon or Windows x64 (WebAssembly is a
 cross target, see below), the .NET 11 SDK,
@@ -109,7 +154,8 @@ csharpc hello.cs -o hello && ./hello
 Release builds of csharpc are precompiled (ReadyToRun) and a compilation uses all cores (`-j N` or
 `CSHARPC_THREADS` to limit it; the output is the same either way), see
 [ADR 0014](docs/adr/0014-compile-time.md). For the fastest start-up, build csharpc itself as a native
-executable: `tools/publish-native.sh`, then use `artifacts/csharpc-native/csharpc`.
+executable: `tools/publish-native.sh`, then use `artifacts/csharpc-native/csharpc`. Platform release
+archives are produced the same way by `tools/pack-release.sh` (used by the Release workflow).
 
 If libLLVM isn't on the default library path set `CSHARPC_LIBLLVM=/path/to/libLLVM.so`; to use another
 C compiler or linker driver pass `--cc` or set `CSHARPC_CC`.
