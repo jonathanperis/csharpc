@@ -69,7 +69,9 @@ _Static_assert(offsetof(csrt_Task, payload) == (sizeof(void*) == 8 ? 56 : 40), "
 // A task that runs a delegate on the pool (Task.Run, not the unwrapping Func<Task> forms) is
 // WaitingToRun, then Running; every other pending task (async methods, TaskCompletionSource,
 // Delay, WhenAll, unwrap promises) is WaitingForActivation, as in .NET.
-enum { TF_DELEGATE = 1, TF_RUNNING = 2 };
+// TF_WAITED: a thread blocks on the task (csrt_task_wait), so completing it must wake the waiters;
+// set under the task's lock while it is pending.
+enum { TF_DELEGATE = 1, TF_RUNNING = 2, TF_WAITED = 4 };
 
 typedef struct csrt_Iterator {
     const csrt_MethodTable* mt;
@@ -321,10 +323,11 @@ static bool add_continuation(csrt_Task* t, intptr_t kind, void* p) {
     return true;
 }
 
-// Threads blocked in csrt_task_wait.
+// Threads blocked in csrt_task_wait. Only completing a task someone waits for (TF_WAITED) touches
+// these: a server's main thread blocks in app.Run() for its whole life, and waking it on every task
+// completion cost a futex wake and a context switch per request (18 % of the TechEmpower profile).
 static pthread_mutex_t s_wlock = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t s_wcond = PTHREAD_COND_INITIALIZER;
-static atomic_int s_waiters;
 
 static void run_continuations(csrt_Task* t, csrt_Array* conts, int32_t n);
 
@@ -338,9 +341,10 @@ static bool try_finish(csrt_Task* t, int32_t state, void* exception) {
     t->conts = NULL;
     t->ncont = 0;
     __atomic_store_n(&t->state, state, __ATOMIC_SEQ_CST);
+    bool waited = __atomic_load_n(&t->flags, __ATOMIC_RELAXED) & TF_WAITED;
     task_unlock(t);
     run_continuations(t, conts, n);
-    if (atomic_load(&s_waiters) > 0) {
+    if (waited) {
         pthread_mutex_lock(&s_wlock);
         pthread_cond_broadcast(&s_wcond);
         pthread_mutex_unlock(&s_wlock);
@@ -1181,11 +1185,13 @@ void csrt_task_wait(csrt_Task* t) {
         if (s_idle == 0 && s_workers - s_blocked <= 0 && s_workers < MAX_WORKERS) spawn_worker_locked();
     }
     pthread_mutex_unlock(&s_qlock);
-    atomic_fetch_add(&s_waiters, 1);
+    // Under the task's lock: either try_finish sees the flag, or we see the task completed.
+    task_lock(t);
+    if (task_state(t) == T_PENDING) __atomic_or_fetch(&t->flags, TF_WAITED, __ATOMIC_RELAXED);
+    task_unlock(t);
     pthread_mutex_lock(&s_wlock);
     while (!csrt_task_is_completed(t)) pthread_cond_wait(&s_wcond, &s_wlock);
     pthread_mutex_unlock(&s_wlock);
-    atomic_fetch_sub(&s_waiters, 1);
     if (tl_worker) {
         pthread_mutex_lock(&s_qlock);
         s_blocked--;
