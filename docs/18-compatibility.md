@@ -6,7 +6,7 @@ validation, [06-roadmap.md](06-roadmap.md)). The differential samples and the co
 ([09-conformance.md](09-conformance.md)) are written *for* csharpc. This corpus is not: it is
 unmodified console programs from Microsoft's documentation and sample repositories.
 
-Latest run of 2026-10-25: csharpc `parity-blockers` at `7860d73` on the CI `Compatibility` workflow (hosted
+Latest run of 2026-10-25: csharpc `parity-blockers` at `21556a7` (with `main`'s m8-kestrel merged) on the CI `Compatibility` workflow (hosted
 `ubuntu-24.04` runner), .NET SDK `11.0.100-rc.2.26504.105`, Linux x86-64; every program is also published
 with NativeAOT ([ADR 0016](adr/0016-nativeaot-parity-and-end-state.md)). The first run (csharpc `integ` at
 `8183dfb`, 2026-10-22) is the baseline the blocker tables below were measured on;
@@ -17,38 +17,38 @@ with NativeAOT ([ADR 0016](adr/0016-nativeaot-parity-and-end-state.md)). The fir
 The headline metric: of the programs NativeAOT (`dotnet publish -p:PublishAot=true`) builds and runs exactly
 like the JIT, how many does csharpc match? See [Method](#method), step 5.
 
-| | first parity run (`ac17a87` + harness) | `aot-parity` (`29cff62`) | latest run (`parity-blockers`, `7860d73`) |
+| | first parity run (`ac17a87` + harness) | `aot-parity` (`29cff62`) | latest run (`parity-blockers`, `21556a7`) |
 |---|---:|---:|---:|
-| compared (not skipped under .NET) | 282 | 276 | 277 |
-| NativeAOT-unsupported (out of the denominator) | 34 | 28 | 29 |
-| **NativeAOT-working (the denominator)** | **248** | **248** | **248** |
-| **parity: csharpc PASS among them** | **200 (80.6 %)** | **220 (88.7 %)** | **238 (96.0 %)** |
-| csharpc COMPILE-UNSUPPORTED among them | 45 | 27 | 9 |
+| compared (not skipped under .NET) | 282 | 276 | 274 |
+| NativeAOT-unsupported (out of the denominator) | 34 | 28 | 28 |
+| **NativeAOT-working (the denominator)** | **248** | **248** | **246** |
+| **parity: csharpc PASS among them** | **200 (80.6 %)** | **220 (88.7 %)** | **236 (95.9 %)** |
+| csharpc COMPILE-UNSUPPORTED among them | 45 | 27 | 7 |
 | csharpc COMPILE-ERROR among them | 3 | 1 | 1 |
-| csharpc RUNTIME-DIFF / RUNTIME-CRASH / COMPILE-CRASH among them | 0 | 0 | 0 |
+| csharpc RUNTIME-DIFF / RUNTIME-CRASH / COMPILE-CRASH among them | 0 | 0 | 0 / 1 / 1 (both reflection, below) |
 
 (The first parity run counted some clock-dependent programs as NativeAOT differences; the harness now
 re-runs the JIT before blaming NativeAOT or csharpc, which moved a few programs to SKIPPED.)
 
-- **96.0 % parity**, and no wrong output: every NativeAOT-working program csharpc compiles matches .NET.
-  By corpus: dotnet/samples 43 of 44 (97.7 %), dotnet/docs 195 of 204 (95.6 %).
-- **NativeAOT-unsupported, by reason** (29): crashes 15 (most are `System.Text.Json`'s reflection-based
-  serializer, which NativeAOT disables; trim/AOT warnings `IL2026`/`IL3050`), output differs 12 (stack-trace
-  lines: NativeAOT prints other frames and no file/line; exception messages; PLINQ's `ForAll` output
-  interleaving), publish fails 2 (an XML documentation file NativeAOT's publish can't copy).
-  **csharpc passes 21 of these 29** — programs that work with csharpc but not with NativeAOT. The two
-  JIT-baseline RUNTIME-DIFFs are among them and differ from NativeAOT the same way: `aesdecrypt` prints a
-  `FileNotFoundException` without the BCL's internal frames (csharpc records frames of the program only,
-  [ADR 0012](adr/0012-stack-traces.md)), and `samples/parallel/PLINQ` interleaves `ForAll` output by
-  thread timing.
+- **95.9 % parity**, and no wrong output: every NativeAOT-working program csharpc compiles and runs matches
+  .NET. By corpus: dotnet/samples 43 of 44 (97.7 %), dotnet/docs 193 of 202 (95.5 %). (A run on `7860d73`,
+  before the merge, measured 238 of 248, 96.0 %; the corpus' skip set moves a little between runs, as
+  programs are re-checked for determinism under .NET.)
+- **NativeAOT-unsupported, by reason** (28): crashes 15 (most are `System.Text.Json`'s reflection-based
+  serializer, which NativeAOT disables; trim/AOT warnings `IL2026`/`IL3050`), output differs 11 (stack-trace
+  lines: NativeAOT prints other frames and no file/line; exception messages), publish fails 2 (an XML
+  documentation file NativeAOT's publish can't copy). **csharpc passes 21 of these 28** — programs that work
+  with csharpc but not with NativeAOT. The one JIT-baseline RUNTIME-DIFF is among them and differs from
+  NativeAOT the same way: `aesdecrypt` prints a `FileNotFoundException` without the BCL's internal frames
+  (csharpc records frames of the program only, [ADR 0012](adr/0012-stack-traces.md)).
 - 7 in-scope programs publish with trim/AOT warnings but run identically; they stay in scope (the run is
   the evidence that NativeAOT supports them).
 - In scope, contrary to ADR 0016's expectation: NativeAOT runs the corpus' expression-tree programs
   (`lambda-expressions`, `ExpressionTreeExample`, interpreted) and `using-dynamic` identically to the JIT, so
   those count against csharpc's parity.
-- **Faster and smaller than NativeAOT** (238 programs both handle): compile time median 7.1 s vs 8.5 s
-  (csharpc faster on 162 of 238; the max is csharpc's, 129.9 s for a System.Xml program vs 28.0 s),
-  executable size median 135 KiB vs 1,336 KiB (a tenth; smaller on 237 of 238; max 4,908 KiB vs
+- **Faster and smaller than NativeAOT** (236 programs both handle): compile time median 5.7 s vs 7.1 s
+  (csharpc faster on 166 of 236; the max is csharpc's, 111.7 s for a System.Xml program vs 24.3 s),
+  executable size median 136 KiB vs 1,335 KiB (a tenth; smaller on 235 of 236; max 4,908 KiB vs
   7,515 KiB). Compile time is `csharpc App.csproj -c Release` against
   `dotnet publish -c Release -r linux-x64 -p:PublishAot=true`, wall clock, 4 programs in parallel on the
   runner; size is the executable alone (NativeAOT's symbols are in a separate `.dbg`).
@@ -60,33 +60,33 @@ blocker). Everything else of the `aot-parity` table (XML, cryptography, text ele
 
 | # | blocker | programs | only |
 |---:|---|---:|---:|
-| 1 | reflection over members and attributes (`Type.GetMethods/GetProperties`, `Activator.CreateInstance(Type)`, `CustomAttributeExtensions`, configuration binding, the tracing DI extensions) | 3 | 3 |
-| 2 | expression trees (compiled or interpreted `Expression<T>`) | 2 | 2 |
+| 1 | reflection over members and attributes (`main`'s reflection metadata reaches further now: `attributes` stops at run time with an explicit `NotSupportedException` for a `MemberInfo` member called through a `Type`; configuration binding needs `Attribute.IsDefaultAttribute` overrides; the tracing DI extensions `Enum.HasFlag` on a boxed enum of unknown type) | 3 | 3 |
+| 2 | expression trees (compiled or interpreted `Expression<T>`; `ExpressionTreeExample` crashes the compiler in the reflection-invoker generation — a `Nullable<T>` call with no instance in `EmitReflectionInvoker`, the same on `main`) | 2 | 2 |
 | 3 | `dynamic` | 1 | 1 |
 | 4 | C# 15 unions (csharpc's Roslyn binds them differently from the SDK's) | 2 | 2 |
 | 5 | `System.Data` (`DataTable`/`DataRow` through `System.Text.Json`) | 1 | 1 |
 | 6 | `AssemblyLoadContext` (plugin unloading) | 1 | 1 |
 
-Rows 1-3 are member reflection (ADR 0016; handled separately from these blockers), row 4 waits for a
-Roslyn with the SDK's union binding, and rows 5-6 are whole subsystems.
+Rows 1-3 are member reflection (ADR 0018, `main`'s m8 work, handled separately from these blockers), row 4
+waits for a Roslyn with the SDK's union binding, and rows 5-6 are whole subsystems.
 
 ## Summary (JIT baseline, kept for continuity)
 
-| | first run (`8183dfb`) | `36fd745` (2026-10-22) | `51ef64e` (2026-10-23) | `b7a36a6` (2026-10-24) | `29cff62` | latest run (`7860d73`) |
+| | first run (`8183dfb`) | `36fd745` (2026-10-22) | `51ef64e` (2026-10-23) | `b7a36a6` (2026-10-24) | `29cff62` | latest run (`21556a7`) |
 |---|---:|---:|---:|---:|---:|---:|
 | corpus (candidate console programs) | 323 | 323 | 320 | 320 | 320 | 320 |
-| skipped (non-deterministic or broken under .NET itself) | 40 | 43 | 40 | 40 | 44 | 43 |
-| **compared** | **283** | **280** | **280** | **280** | **276** | **277** |
-| **PASS** (byte-identical stdout, same exit code) | **115 (40.6 %)** | **147 (52.5 %)** | 182 (65.0 %) | 189 (67.5 %) | 238 (86.2 %) | **259 (93.5 %)** |
-| COMPILE-UNSUPPORTED (explicit `CSLLVM0001/0002` diagnostic) | 135 (47.7 %) | 95 (33.9 %) | 88 (31.4 %) | 88 (31.4 %) | 36 (13.0 %) | 15 (5.4 %) |
+| skipped (non-deterministic or broken under .NET itself) | 40 | 43 | 40 | 40 | 44 | 46 |
+| **compared** | **283** | **280** | **280** | **280** | **276** | **274** |
+| **PASS** (byte-identical stdout, same exit code) | **115 (40.6 %)** | **147 (52.5 %)** | 182 (65.0 %) | 189 (67.5 %) | 238 (86.2 %) | **257 (93.8 %)** |
+| COMPILE-UNSUPPORTED (explicit `CSLLVM0001/0002` diagnostic) | 135 (47.7 %) | 95 (33.9 %) | 88 (31.4 %) | 88 (31.4 %) | 36 (13.0 %) | 13 (4.7 %) |
 | COMPILE-ERROR (compile fails some other way) | 22 (7.8 %) | 22 (7.9 %) | 3 (1.1 %) | 3 (1.1 %) | 2 (0.7 %) | 1 (0.4 %) |
-| COMPILE-CRASH (internal compiler error, crash) | 3 (1.1 %) | 2 (0.7 %) | 0 | 0 | 0 | 0 |
-| RUNTIME-DIFF (wrong output or exit code) | 7 (2.5 %) | 11 (3.9 %) | 7 (2.5 %) | **0** | **0** | 2 (0.7 %; out of NativeAOT scope, see above) |
-| RUNTIME-CRASH (native binary crashed, .NET didn't) | 1 (0.4 %) | 1 (0.4 %) | 0 | 0 | 0 | 0 |
+| COMPILE-CRASH (internal compiler error, crash) | 3 (1.1 %) | 2 (0.7 %) | 0 | 0 | 0 | 1 (0.4 %) |
+| RUNTIME-DIFF (wrong output or exit code) | 7 (2.5 %) | 11 (3.9 %) | 7 (2.5 %) | **0** | **0** | 1 (0.4 %; out of NativeAOT scope, see above) |
+| RUNTIME-CRASH (native binary crashed, .NET didn't) | 1 (0.4 %) | 1 (0.4 %) | 0 | 0 | 0 | 1 (0.4 %; reflection, see above) |
 
-- **Latest run (`7860d73`): 93.5 %** of all compared programs pass; 259 of the 261 programs csharpc
-  compiles behave exactly like .NET (the other two are the NativeAOT-unsupported `aesdecrypt` and `PLINQ`
-  above).
+- **Latest run (`21556a7`): 93.8 %** of all compared programs pass; 257 of the 259 programs csharpc
+  compiles behave exactly like .NET (the other two: the NativeAOT-unsupported `aesdecrypt` above, and
+  `attributes`, which stops with an explicit `NotSupportedException` from the reflection metadata).
 - At `29cff62`: 86.2 % of all compared programs pass, and all 238 programs csharpc compiles
   behave exactly like .NET. The gain over `b7a36a6` comes from `main`'s `DateTimeOffset`/`MemoryPool`/
   `Convert` and m8-harness work and this branch's fixes ([Progress](#progress-since-the-first-run)).
@@ -309,8 +309,8 @@ parity run (80.6 %) ranked the in-scope blockers; fixed since, each with a regre
 | `Task.WaitAll` / `WaitAny` | — | 523 |
 | `ExceptBy`/`IntersectBy`/`UnionBy`, three-way `Zip`; IL tuple creation with a `bool` element (invalid IR) | — | 524 |
 
-**NativeAOT-parity blockers, second round (`parity-blockers` branch, samples `tests/samples/530`–`553`).**
-88.7 % → 96.0 %. Each fix has a regression sample recorded from `dotnet run`:
+**NativeAOT-parity blockers, second round (`parity-blockers` branch, samples `tests/samples/530`–`555`).**
+88.7 % → 95.9 %. Each fix has a regression sample recorded from `dotnet run`:
 
 | fix | programs | sample |
 |---|---|---|
@@ -335,7 +335,12 @@ parity run (80.6 %) ranked the in-scope blockers; fixed since, each with a regre
 | PLINQ from IL: generic virtual methods overridden in generic classes (dispatched over every instantiation), attached child tasks, `TrySetException(IEnumerable)` | `samples/parallel/PLINQ` (out of scope: NativeAOT differs) | 552, 324 |
 | `RSA` over OpenSSL on Linux (key generation, `RSAParameters`, PKCS#1/PSS signatures, PKCS#1/OAEP encryption, the signature formatters) | `cryptographic-signatures` | 553 |
 
-Still open in this area: RSA (and Aes) on macOS and Windows, which need Security.framework and CNG.
+Along the way: `Monitor.Wait` lost a pulse that met its interrupt-poll timeout (a rare hang of
+`SemaphoreSlim`/`BlockingCollection` producers, sample 555); `Task.RunSynchronously` now waits for attached
+children (PLINQ's merge disposed its barriers early); event waits on WebAssembly run queued work; P/Invoke
+`bool` parameters into the C runtime trapped on WebAssembly; `UnobservedTaskExceptionEventArgs` and
+`GC.WaitForPendingFinalizers` (sample 554). Still open in this area: RSA (and Aes) on macOS and Windows,
+which need Security.framework and CNG.
 
 ## Bugs: wrong output and crashes
 
