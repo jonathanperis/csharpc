@@ -495,6 +495,30 @@ void* const* csrt_interface_slots(void* obj, const csrt_MethodTable* interface_t
     csrt_fail_unhandled();
 }
 
+// Interface call sites cache their last receiver: one word per site holding the receiver's method
+// table in the low 48 bits (user-space addresses fit, on every target csharpc supports) and the index
+// of the interface in its map above them, read and written atomically, so a racing update is only a
+// miss. Kestrel's feature interfaces live in maps of 30+ entries, scanned on every call before.
+#define ICACHE_MT_MASK (((uint64_t)1 << 48) - 1)
+
+__attribute__((noinline)) static void* const* interface_slots_miss(void* obj, const csrt_MethodTable* itf, uint64_t* cache) {
+    const csrt_MethodTable* mt = ((csrt_Object*)obj)->mt;
+    for (uint32_t i = 0; i < mt->interface_count; i++)
+        if (mt->interfaces[i].interface_type == itf) {
+            if (((uintptr_t)mt & ~ICACHE_MT_MASK) == 0 && i < 0x10000)
+                __atomic_store_n(cache, (uint64_t)(uintptr_t)mt | ((uint64_t)i << 48), __ATOMIC_RELAXED);
+            return mt->interfaces[i].slots;
+        }
+    return csrt_interface_slots(obj, itf);  // runtime-provided and variant interfaces, or the cast failure
+}
+
+void* const* csrt_interface_slots_cached(void* obj, const csrt_MethodTable* itf, uint64_t* cache) {
+    const csrt_MethodTable* mt = ((csrt_Object*)obj)->mt;
+    uint64_t w = __atomic_load_n(cache, __ATOMIC_RELAXED);
+    if ((w & ICACHE_MT_MASK) == (uint64_t)(uintptr_t)mt) return mt->interfaces[w >> 48].slots;
+    return interface_slots_miss(obj, itf, cache);
+}
+
 _Noreturn void csrt_unsupported_method(const char* message) {
     fflush(stdout);
     fprintf(stderr, "csharpc: fatal: %s\n", message);
