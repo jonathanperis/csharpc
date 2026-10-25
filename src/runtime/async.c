@@ -619,7 +619,8 @@ int64_t csrt_pool_completed_count(void) { pthread_mutex_lock(&s_qlock); int64_t 
 
 /// ThreadPool.QueueUserWorkItem (flowContext: with the caller's execution-context flow) and
 /// UnsafeQueueUserWorkItem (without it): the corelib wraps the work in an Action.
-void csrt_pool_queue_action(void* action, bool flowContext) {
+// flowContext: an int, not a bool — P/Invoke passes bool as a 4-byte BOOL (a signature mismatch on WebAssembly).
+void csrt_pool_queue_action(void* action, int32_t flowContext) {
     if (!action) csrt_throw_null_reference();
     enqueue_flow(K_INVOKE, action, NULL, flowContext ? csrt_flow_capture() : NULL);
 }

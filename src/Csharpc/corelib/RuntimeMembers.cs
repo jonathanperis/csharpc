@@ -91,21 +91,77 @@ namespace CsharpcCoreLib
 
         private static string s_osDescription;
 
-        /// <summary>uname's "sysname release version", as .NET's GetUnixVersion formats it.</summary>
+        /// <summary>
+        /// As RuntimeInformation.{Windows,OSX,Unix}.cs compute it: "Microsoft Windows 10.0.22631" (and the
+        /// service pack); "macOS 15.1.0"; on Linux /etc/os-release's PRETTY_NAME (else NAME[ VERSION]), else
+        /// uname's "sysname release version".
+        /// </summary>
         public static string OSDescription
         {
             get
             {
-#if CSHARPC_TARGET_WINDOWS
-                // "Microsoft Windows 10.0.22631" (and the service pack), as RuntimeInformation.Windows.cs formats it.
                 if (s_osDescription != null) return s_osDescription;
+#if CSHARPC_TARGET_WINDOWS
                 var (major, minor, build, _, csd) = OSVersionMembers.WindowsVersion();
                 return s_osDescription = "Microsoft Windows " + major + "." + minor + "." + build + (csd.Length > 0 ? " " + csd : "");
+#elif CSHARPC_TARGET_MACOS
+                return s_osDescription = MacProductVersion();
+#elif CSHARPC_TARGET_WASI
+                return s_osDescription = "WASI";
 #else
-                return s_osDescription ??= OSVersionMembers.UnameField(0) + " " + OSVersionMembers.UnameField(2) + " " + OSVersionMembers.UnameField(3);
+                return s_osDescription = PrettyName("/etc/os-release")
+                    ?? OSVersionMembers.UnameField(0) + " " + OSVersionMembers.UnameField(2) + " " + OSVersionMembers.UnameField(3);
 #endif
             }
         }
+
+#if CSHARPC_TARGET_MACOS
+        [DllImport("libc")] private static extern unsafe int sysctlbyname(byte* name, byte* value, nuint* length, byte* newValue, nuint newLength);
+
+        /// <summary>"macOS " + NSProcessInfo's major.minor.patch (kern.osproductversion).</summary>
+        private static unsafe string MacProductVersion()
+        {
+            byte* value = stackalloc byte[64];
+            nuint length = 64;
+            fixed (byte* name = "kern.osproductversion\0"u8)
+                if (sysctlbyname(name, value, &length, null, 0) != 0) return "macOS";
+            value[63] = 0;
+            string[] parts = Utf8.FromNative(value).Split('.');
+            int major = parts.Length > 0 && int.TryParse(parts[0], out int a) ? a : 0;
+            int minor = parts.Length > 1 && int.TryParse(parts[1], out int b) ? b : 0;
+            int patch = parts.Length > 2 && int.TryParse(parts[2], out int c) ? c : 0;
+            return "macOS " + major + "." + minor + "." + patch;
+        }
+#endif
+
+#if !CSHARPC_TARGET_WINDOWS && !CSHARPC_TARGET_MACOS && !CSHARPC_TARGET_WASI
+        private static string PrettyName(string path)
+        {
+            if (!System.IO.File.Exists(path)) return null;
+            string[] lines;
+            try { lines = System.IO.File.ReadAllLines(path); }
+            catch { return null; }
+            string name = null, version = null;
+            foreach (string line in lines)
+            {
+                if (Field(line, "PRETTY_NAME=") is { Length: > 0 } pretty) return pretty;
+                if (Field(line, "NAME=") is { } n) name = n;
+                else if (Field(line, "VERSION=") is { } v) version = v;
+            }
+            if (!string.IsNullOrEmpty(name)) return string.IsNullOrEmpty(version) ? name : name + " " + version;
+            return null;
+        }
+
+        private static string Field(string line, string prefix)
+        {
+            if (!line.StartsWith(prefix, StringComparison.Ordinal)) return null;
+            string value = line.Substring(prefix.Length);
+            // Enclosing quotes are removed.
+            if (value.Length >= 2 && (value[0] == '"' || value[0] == '\'') && value[0] == value[value.Length - 1])
+                value = value.Substring(1, value.Length - 2);
+            return value;
+        }
+#endif
         public static Architecture OSArchitecture => (Architecture)CoreIntrinsics.TargetArchitecture();
 
         /// <summary>".NET 11.0.0-rc.2.26504.105": the framework the program was compiled against.</summary>

@@ -156,8 +156,9 @@ void csrt_flow_set(void* flow) { csrt_tl_flow = flow; }
 // meanwhile capture no flow (they run with the default context), as .NET's Capture returns null then.
 _Thread_local bool csrt_tl_flow_suppressed;
 void* csrt_flow_capture(void) { return csrt_tl_flow_suppressed ? NULL : csrt_tl_flow; }
-bool csrt_flow_suppressed(void) { return csrt_tl_flow_suppressed; }
-void csrt_flow_suppress(bool suppressed) { csrt_tl_flow_suppressed = suppressed; }
+// ints, not bools: P/Invoke passes bool as a 4-byte BOOL (a signature mismatch on WebAssembly).
+int32_t csrt_flow_suppressed(void) { return csrt_tl_flow_suppressed; }
+void csrt_flow_suppress(int32_t suppressed) { csrt_tl_flow_suppressed = suppressed != 0; }
 static atomic_int s_next_id = 2;               // the main thread is 1, like .NET
 static pthread_mutex_t s_join_lock = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t s_join_cond = PTHREAD_COND_INITIALIZER;

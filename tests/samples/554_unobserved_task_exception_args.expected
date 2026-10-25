@@ -1,0 +1,4 @@
+lost observed False
+after SetObserved: True
+handler: 2 exception(s), observed False
+raised 1

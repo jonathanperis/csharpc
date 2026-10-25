@@ -19,10 +19,14 @@ namespace CsharpcCoreLib
         private static ExecutionContextImpl Default => s_default ??= new ExecutionContextImpl(null);
 
         [System.Runtime.InteropServices.DllImport("__Internal", EntryPoint = "csrt_flow_suppressed")]
-        private static extern bool FlowSuppressed();
+        private static extern int FlowSuppressedRaw();
+
+        private static bool FlowSuppressed() => FlowSuppressedRaw() != 0;
 
         [System.Runtime.InteropServices.DllImport("__Internal", EntryPoint = "csrt_flow_suppress")]
-        internal static extern void SetFlowSuppressed(bool suppressed);
+        private static extern void SetFlowSuppressedRaw(int suppressed);
+
+        internal static void SetFlowSuppressed(bool suppressed) => SetFlowSuppressedRaw(suppressed ? 1 : 0);
 
         public static ExecutionContextImpl Capture()
         {

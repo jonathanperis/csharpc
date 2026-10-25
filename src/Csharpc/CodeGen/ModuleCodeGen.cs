@@ -932,6 +932,12 @@ public sealed partial class ModuleCodeGen
     /// an ordinary method): Exception.GetObjectData was only called by BinaryFormatter, which .NET 9
     /// removed. Most exception classes in framework IL still override it.
     /// </summary>
+    private bool? _programHasFinalizers;
+
+    /// <summary>Whether a type of the program's own source declares a finalizer (~T()).</summary>
+    internal bool ProgramHasFinalizers() => _programHasFinalizers ??= Compilation.SyntaxTrees
+        .Any(tree => tree.GetRoot().DescendantNodes().OfType<Microsoft.CodeAnalysis.CSharp.Syntax.DestructorDeclarationSyntax>().Any());
+
     internal static bool IsUndispatchedLibraryVirtual(IMethodSymbol root) =>
         root is { Name: "GetObjectData", ContainingType: { Name: "Exception", ContainingNamespace.Name: "System" } };
 

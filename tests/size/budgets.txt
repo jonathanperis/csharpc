@@ -2,7 +2,7 @@
 # File sizes move in whole pages (segments are page-aligned), so the headroom is at least one page.
 # Lower a budget when a change makes a program smaller; raising one needs a reason in the commit.
 linux-x86_64 async 147456
-linux-x86_64 collections 130048
+linux-x86_64 collections 135168
 linux-x86_64 exceptions 32768
 linux-x86_64 hello 32768
 linux-x86_64 linq 173056

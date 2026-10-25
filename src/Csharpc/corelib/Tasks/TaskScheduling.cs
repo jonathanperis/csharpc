@@ -106,6 +106,23 @@ namespace CsharpcCoreLib
         }
     }
 
+    // TaskScheduler.UnobservedTaskException's arguments (UnobservedTaskExceptionEventArgs.cs): the event never
+    // fires in csharpc (tasks aren't finalized), but handlers that read them compile.
+    [Shadows("System.Threading.Tasks.UnobservedTaskExceptionEventArgs")]
+    public class UnobservedTaskExceptionEventArgsImpl : EventArgs
+    {
+        private readonly AggregateException _exception;
+        internal bool _observed;
+
+        public UnobservedTaskExceptionEventArgsImpl(AggregateException exception) => _exception = exception;
+
+        public void SetObserved() => _observed = true;
+
+        public bool Observed => _observed;
+
+        public AggregateException Exception => _exception;
+    }
+
     internal sealed class ThreadPoolTaskSchedulerImpl : TaskSchedulerImpl
     {
         protected internal override void QueueTask(Task task) { }

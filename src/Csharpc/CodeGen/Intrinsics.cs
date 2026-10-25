@@ -522,6 +522,10 @@ internal static class Intrinsics
         // there is nothing to suppress or re-register.
         t["System.GC.SuppressFinalize(object)"] = (g, inv) => { Arg(g, inv, 0); return default; };
         t["System.GC.ReRegisterForFinalize(object)"] = (g, inv) => { Arg(g, inv, 0); return default; };
+        // Nothing is pending — unless the program declares finalizers, which .NET would run before returning.
+        t["System.GC.WaitForPendingFinalizers()"] = (g, inv) => g.Module.ProgramHasFinalizers()
+            ? throw CompileError.Unsupported("GC.WaitForPendingFinalizers in a program with finalizers (csharpc runs no finalizers)", inv)
+            : default;
         t["System.GC.GetTotalMemory(bool)"] = (g, inv) =>
         {
             g.EmitValue(inv.Arguments[0].Value);
