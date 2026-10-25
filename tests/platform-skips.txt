@@ -87,6 +87,7 @@ wasi 120_threads                  needs threads: Thread.Start throws PlatformNot
 wasi 121_locks_interlocked        needs threads: Thread.Start throws PlatformNotSupportedException on WebAssembly
 wasi 123_monitor_wait_pulse       needs threads: Thread.Start throws PlatformNotSupportedException on WebAssembly
 wasi 124_threadstatic             needs threads: Thread.Start throws PlatformNotSupportedException on WebAssembly
+wasi 525_task_status_delegate_tasks  needs threads: a pool worker blocked on an event can't be observed Running with one thread
 wasi 125_gc_under_threads         needs threads: Thread.Start throws PlatformNotSupportedException on WebAssembly
 wasi 227_static_ctor_timing       needs threads (static constructors raced by threads): PlatformNotSupportedException on WebAssembly
 wasi 151_async_threadpool         needs concurrent pool threads (tasks meet at a barrier); WebAssembly runs work items one after another
