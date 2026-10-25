@@ -129,7 +129,8 @@ namespace CsharpcCoreLib.Globalization
         // into threads started, work queued and await continuations registered afterwards. csharpc's
         // runtime keeps an execution-context flow per logical flow (csrt_tl_flow, captured at Thread.Start,
         // at queueing and at await); the cultures are two of its values (corelib/Tasks/ExecutionFlow.cs).
-        private static readonly object s_cultureKey = new object(), s_uiCultureKey = new object();
+        // The flow's keys: string literals are single constant objects (no static constructor needed).
+        private const string s_cultureKey = "CultureInfo.CurrentCulture", s_uiCultureKey = "CultureInfo.CurrentUICulture";
 
         private static CultureInfo? s_currentThreadCulture => (CultureInfo?)CsharpcCoreLib.ExecutionFlow.Get(s_cultureKey);
 

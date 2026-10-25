@@ -237,7 +237,7 @@ public sealed class CoreLib
     public IMethodSymbol? MapForReceiver(IMethodSymbol method, ITypeSymbol? receiver)
     {
         if (!HasShadows || method.IsStatic || receiver is not INamedTypeSymbol { TypeKind: TypeKind.Class } r || !IsLibrary(method)
-            || method.ContainingType is not { } owner || SymbolEqualityComparer.Default.Equals(owner.OriginalDefinition, r.OriginalDefinition)
+            || method.ContainingType is not { TypeKind: TypeKind.Class } owner || SymbolEqualityComparer.Default.Equals(owner.OriginalDefinition, r.OriginalDefinition)
             || (IsCoreLib(r) ? r : TryMap(r)) is not { } shadow)
             return null;
         var mappedOwner = TryMap(owner) ?? owner;
