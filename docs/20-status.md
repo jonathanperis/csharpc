@@ -354,7 +354,11 @@ for in-progress main CI 40248320210 (release-packaging merge) before merging thi
 
 **22:05.** Main CI 40248320210 green. After merging `origin/main`, branch CI
 [40250349833](https://github.com/jonathanperis/csharpc/actions/runs/40250349833) green on all
-five; arm64 typeinfo still 39800. Merging `--no-ff` to `main`.
+five; arm64 typeinfo still 39800. Merged `--no-ff` as `1e9b379` and deleted `ci/gc-nursery`.
+
+**23:45.** Main CI [40257845022](https://github.com/jonathanperis/csharpc/actions/runs/40257845022)
+green on all five after the merge. arm64 typeinfo **39800** / 43008; x86-64 hello 28520, async
+under budget. Budget raise reverted earlier; default collector unchanged.
 
 ## Working rules
 
