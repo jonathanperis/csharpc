@@ -16,6 +16,9 @@ name: Release
 #     version 0.1.0-spike.<ci_run_number>. Does not run inside ci.yml, so it never cancels
 #     or slows the five merge-bar jobs.
 #   - Push of v* tags: named release + package version from the tag.
+#   - Push to ci/**: publish dry-run (GH Release `dryrun-ci`, GH Packages, GHCR, attestations;
+#     never nuget.org). Used to exercise release.yml Docker/attest actions when Renovate bumps
+#     them — green CI on those PRs does not run this workflow.
 #   - workflow_dispatch: dry-run by default (build+smoke only).
 on:
   workflow_run:
@@ -23,6 +26,9 @@ on:
     types: [completed]
   push:
     tags: ["v*"]
+    # Temporary while verifying Docker/attest action majors; keep until dry-run is green, then
+    # drop if we decide not to leave a permanent ci/** publish channel (see Cursor progress).
+    branches: ["ci/**"]
   workflow_dispatch:
     inputs:
       dry_run:
@@ -77,6 +83,7 @@ jobs:
           WR_RUN_NUMBER: ${{ github.event.workflow_run.run_number || '' }}
           REF_NAME: ${{ github.ref_name }}
           SHA: ${{ github.sha }}
+          RUN_NUMBER: ${{ github.run_number }}
           DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run || false }}
           VERSION_OVERRIDE: ${{ github.event_name == 'workflow_dispatch' && inputs.version || '' }}
           NUGET_USER: ${{ vars.NUGET_USER || '' }}
@@ -109,6 +116,15 @@ jobs:
             release_tag="$REF_NAME"
             if [[ $version == *-* ]]; then prerelease=true; else prerelease=false; fi
             sha="$SHA"
+          elif [[ $EVENT_NAME == push && $REF_NAME == ci/* ]]; then
+            # Exercise GH Release / Packages / GHCR / attestations without touching nuget.org.
+            should_run=true
+            should_publish=true
+            channel=ci
+            version="0.0.0-dryrun.${RUN_NUMBER}"
+            release_tag=dryrun-ci
+            prerelease=true
+            sha="$SHA"
           elif [[ $EVENT_NAME == workflow_dispatch ]]; then
             should_run=true
             should_publish=$([[ $DRY_RUN == true || $DRY_RUN == True ]] && echo false || echo true)
@@ -122,7 +138,7 @@ jobs:
           # Never push test/dryrun versions (nuget.org cannot delete packages, only unlist).
           publish_nuget_org=false
           if [[ $should_publish == true && -n ${NUGET_USER} ]]; then
-            if [[ $version == *test* || $version == *dryrun* || $channel == dispatch ]]; then
+            if [[ $version == *test* || $version == *dryrun* || $channel == dispatch || $channel == ci ]]; then
               echo "nuget.org: skipping version '$version' (test/dry-run; not deletable on nuget.org)"
             else
               publish_nuget_org=true
@@ -365,7 +381,7 @@ jobs:
           ls -lh
 
       - name: Attest release archives
-        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2.4.0
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
           subject-path: |
             release-assets/*.tar.gz
@@ -415,14 +431,14 @@ jobs:
           test -x docker-bundle/csharpc
 
       - name: Log in to GHCR
-        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
+        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@b5ca514318bd6ebac0fb2aedd5d36ec1b5c232a2 # v3.10.0
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
 
       - name: Container image tags
         id: image_tags
@@ -436,7 +452,11 @@ jobs:
           echo "EOF" >> "$GITHUB_OUTPUT"
 
       - name: Build and push container image
+<<<<<<< HEAD
         uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
+=======
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+>>>>>>> 19a4d98 (Bump release Docker/attest actions; add ci/** publish dry-run)
         with:
           context: .
           file: Dockerfile
