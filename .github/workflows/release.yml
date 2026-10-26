@@ -16,10 +16,10 @@ name: Release
 #     version 0.1.0-spike.<ci_run_number>. Does not run inside ci.yml, so it never cancels
 #     or slows the five merge-bar jobs.
 #   - Push of v* tags: named release + package version from the tag.
-#   - workflow_dispatch: dry-run by default (build+smoke only).
-# To re-verify Docker/attest action bumps: temporarily add `push.branches: [ci/**]` with
-# channel=ci / version 0.0.0-dryrun.<run> / release_tag=dryrun-ci (nuget.org off), as in
-# Release 40322655301 on ci/release-actions-bump-e726.
+#   - workflow_dispatch: dry-run by default (build+smoke only; never creates a Release/tag).
+# To exercise release.yml without publishing: workflow_dispatch with dry_run=true (default).
+# Do not add a ci/** publish channel or a dryrun-* release tag — those create public
+# prereleases/tags (cleaned up after 40322655301). GHCR/attest need a real main/tag publish.
 on:
   workflow_run:
     workflows: ["CI"]
@@ -114,11 +114,20 @@ jobs:
             sha="$SHA"
           elif [[ $EVENT_NAME == workflow_dispatch ]]; then
             should_run=true
+            # dry_run (default): build+smoke only — no GH Release/tag, Packages, or GHCR.
             should_publish=$([[ $DRY_RUN == true || $DRY_RUN == True ]] && echo false || echo true)
             channel=dispatch
             version="${VERSION_OVERRIDE:-$csproj_ver}"
             release_tag="v${version}"
             if [[ $version == *-* ]]; then prerelease=true; else prerelease=false; fi
+          fi
+
+          # Hard stop: test/dryrun versions never publish (no public Release/tag/Packages/GHCR).
+          if [[ $version == *test* || $version == *dryrun* || $release_tag == *dryrun* || $release_tag == *test* ]]; then
+            if [[ $should_publish == true ]]; then
+              echo "refusing publish for test/dry-run version='$version' tag='$release_tag' (build+smoke only)"
+            fi
+            should_publish=false
           fi
 
           # nuget.org: Trusted Publishing via NuGet/login in this file (release.yml, no environment).
