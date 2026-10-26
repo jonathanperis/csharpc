@@ -40,7 +40,12 @@ public sealed partial class FunctionCodeGen
         if (TryEmitStringBuilderInterpolation(inv, target) is { } sbResult) return sbResult;
         if (target.MethodKind == MethodKind.DelegateInvoke) return EmitDelegateInvoke(inv);
         if (target.MethodKind == MethodKind.LocalFunction) return CallLocalFunction(inv);
-        if (TypeMapper.IsNullable(target.ContainingType)) return EmitNullableMethod(inv);
+        // Nullable<T> instance members only. A null Instance here used to NRE the compiler while building
+        // reflection invokers (ExpressionTreeExample); turn that into an explicit unsupported diagnostic.
+        if (TypeMapper.IsNullable(target.ContainingType) && !target.IsStatic)
+            return inv.Instance is null
+                ? throw CompileError.Unsupported($"Nullable<T>.{target.Name} without an instance", inv)
+                : EmitNullableMethod(inv);
         if (target.ContainingType is { IsTupleType: true } && !target.IsStatic && TryTupleMethod(inv, target) is { } tupleResult) return tupleResult;
         if (TryValueEqualityCall(inv, target) is { } equalityResult) return equalityResult;
         // Span enumerators are ref structs with no state to dispose (the foreach finally calls IDisposable.Dispose).

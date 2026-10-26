@@ -521,6 +521,20 @@ public sealed partial class FunctionCodeGen
             CallCoreLib("AggregateExceptionSupport", "Handle", self, EmitValue(inv.Arguments[0].Value));
             return true;
         }
+        // Exception.GetBaseException() / AggregateException override (corelib AggregateExceptionSupport).
+        if (!target.IsStatic && target.Name == "GetBaseException" && target.Parameters.IsEmpty)
+        {
+            var self = EmitValue(inv.Instance!);
+            NullCheck(self);
+            // AggregateException overrides: unwrap only single-inner chains. A call typed as
+            // Exception.GetBaseException still needs the override (KeepingAsyncMethodsAlive).
+            result = CallCoreLib("AggregateExceptionSupport",
+                Mangler.MetadataName(target.ContainingType) == "System.AggregateException"
+                    ? "GetBaseException"
+                    : "GetBaseExceptionDispatch",
+                self);
+            return true;
+        }
         if (!target.IsStatic && target.Name == "Flatten" && target.Parameters.IsEmpty
             && Mangler.MetadataName(target.ContainingType) == "System.AggregateException")
         {

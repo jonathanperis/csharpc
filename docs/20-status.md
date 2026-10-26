@@ -93,6 +93,47 @@ marking was slower on 4 cores and is not in the default binary
 
 ## Cursor progress
 
+Parity blockers on `ci/parity-hasflag-attrs`, 2026-10-26. Times are BRT (UTC−3).
+
+**01:43.** Goal: close remaining NativeAOT-parity gaps (was **95.9 %**, 236 of 246 in-scope).
+Grouped the ten in-scope failures from `docs/18-compatibility.md` and fixed the highest-impact
+reflection cluster first.
+
+**Fixes shipped (samples 637–640, expected from real .NET):**
+
+1. **`Enum.HasFlag` on a boxed enum across basic blocks** — IL merges lose static `Unboxed`
+   tracking; intrinsic now calls `csrt_enum_has_flag` (type-match + null messages match .NET).
+2. **`TypeInfo.GetCustomAttributes()` via `MemberInfo`** — `AttributeLookup` routes `Type` to
+   `Type.GetCustomAttributes`; inherited walk skips bases with no attribute records (was
+   `NotSupportedException` on `System.Object`). `CreateAttributes` uses `new Attribute[]` instead
+   of `Array.CreateInstance` (avoids pulling every ref type into array MTs).
+3. **`Exception` / `AggregateException.GetBaseException()`** — corelib unwrap + dispatch in
+   `FunctionCodeGen.Exceptions`.
+4. **`Array.CreateInstance(Type, int)` without a compile-time `T[]`** — runtime synthesizes the
+   array MT/TypeInfo for reference elements; compile-time also keeps `T[]` (with `IEnumerable<T>`
+   maps) for closed array-interface element types and reflection-kept types when CreateInstance is
+   used. Full TypeInfo keep blew TracingConfiguration compile time; this scoped keep compiles in
+   ~10 s. `Array.GetValue` uses `csrt_array_get_value` for ref arrays (IList cast failed on
+   synthesized MTs).
+5. **Expression-tree invoker NRE** — `EmitNullableMethod` rejects a null instance with
+   `CSLLVM0001` instead of crashing (ExpressionTreeExample stays COMPILE-UNSUPPORTED on
+   DynamicMethod / expression trees).
+
+**Measured locally (compat corpus spot, `--no-aot`):**
+`tutorial-attributes` **PASS** (was RUNTIME-CRASH), `TracingConfiguration` **PASS** (was
+COMPILE-UNSUPPORTED on HasFlag, then CreateInstance). Expected in-scope parity **238 of 246
+(~96.7 %)** pending a full Compatibility run; ConfigurationIgnore still blocked on
+`System.ComponentModel.TypeConverter` (`Attribute.TypeId` / `IsDefaultAttribute` overrides,
+`Array.Sort(Array, IComparer)`, …). Expression trees (2), `dynamic` (1), C# 15 unions (2),
+`System.Data` (1), `AssemblyLoadContext` (1) unchanged. Hello size **28520** (unchanged).
+
+**Did not work:** keeping `T[]` for every TypeInfo reference type when CreateInstance appears
+(TracingConfiguration compile hung / multi-minute). Scoped keep + runtime synthesis instead.
+
+Waiting for main CI 40265042196 (windows-x64 still running) before merge; branch push next.
+
+---
+
 Release packaging on `ci/release-packaging`, 2026-10-25. Times are BRT (UTC−3).
 
 **nuget.org Trusted Publishing — configured (BRT 17:18, 2026-10-25).** Owner Jonathan signed in

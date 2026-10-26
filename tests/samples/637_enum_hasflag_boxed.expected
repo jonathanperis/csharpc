@@ -1,0 +1,4 @@
+True
+False
+flag
+The argument type, 'Other', is not the same as the enum type 'Scope'.

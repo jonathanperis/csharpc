@@ -178,13 +178,17 @@ internal static class Intrinsics
         {
             var b = g.Builder;
             var (self, other) = (UnboxEnum(inv.Instance!), UnboxEnum(inv.Arguments[0].Value));
-            // IL boxes both operands; FunctionCodeGen.IlCalls folds the boxes it can see. A boxed Enum of
-            // unknown type would need its payload width at run time.
-            if (g.TypeOf(self) is not { TypeKind: TypeKind.Enum } || g.TypeOf(other) is not { TypeKind: TypeKind.Enum })
-                throw CompileError.Unsupported("Enum.HasFlag on a boxed value of unknown enum type", inv);
-            var value = g.EmitValue(self);
-            var flag = g.EmitValue(other);
-            return b.ICmp(LLVMIntPredicate.EQ, b.BinOp(LLVMOpcode.And, value, flag), flag);
+            // IL boxes both operands; FunctionCodeGen.IlCalls folds the boxes it can see. When a box
+            // crosses a basic-block merge (flag built as `cond ? 1 : 2` then boxed), Unboxed is lost
+            // and the payload width is only on the method table — csrt_enum_has_flag.
+            if (g.TypeOf(self) is { TypeKind: TypeKind.Enum } && g.TypeOf(other) is { TypeKind: TypeKind.Enum })
+            {
+                var value = g.EmitValue(self);
+                var flag = g.EmitValue(other);
+                return b.ICmp(LLVMIntPredicate.EQ, b.BinOp(LLVMOpcode.And, value, flag), flag);
+            }
+            return g.CallRuntime("csrt_enum_has_flag", g.Module.Llvm.I1, [g.Module.Llvm.Ptr, g.Module.Llvm.Ptr],
+                g.EmitValue(inv.Instance!), g.EmitValue(inv.Arguments[0].Value));
         };
         t["System.Enum.GetName(System.Type, object)"] = (g, inv) =>
         {

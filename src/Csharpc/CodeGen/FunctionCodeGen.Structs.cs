@@ -236,7 +236,9 @@ public sealed partial class FunctionCodeGen
     private LLVMValueRef EmitNullableMethod(IInvocationOperation inv)
     {
         var type = S(inv.TargetMethod.ContainingType);
-        var value = EmitValue(inv.Instance!);
+        if (inv.Instance is null)
+            throw CompileError.Unsupported($"Nullable<T>.{inv.TargetMethod.Name} without an instance", inv);
+        var value = EmitValue(inv.Instance);
         var underlying = TypeMapper.NullableUnderlying(type);
         return (inv.TargetMethod.Name, inv.Arguments.Length) switch
         {
