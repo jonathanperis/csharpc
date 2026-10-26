@@ -276,12 +276,14 @@ namespace CsharpcCoreLib
 
         public static int BinarySearch<T>(T[] array, int index, int length, T value) => BinarySearch(array, index, length, value, null);
 
-        // Non-generic element access goes through the array's IList (its element type boxes and unboxes).
+        // Non-generic element access: reference-type arrays (including CreateInstance-synthesized T[])
+        // go through the runtime; value-type elements still box through IList.
         [ShadowInstance]
         public static object GetValue(Array array, int index)
         {
             if (array.Rank != 1) throw new ArgumentException("Array was not a one-dimensional array.");
-            return ((System.Collections.IList)array)[index];
+            try { return ReflectionRuntime.GetValue(array, index); }
+            catch (NotSupportedException) { return ((System.Collections.IList)array)[index]; }
         }
 
         [ShadowInstance]

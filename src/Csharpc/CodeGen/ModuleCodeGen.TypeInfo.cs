@@ -35,6 +35,11 @@ public sealed partial class ModuleCodeGen
     private LLVMValueRef _typeInfoTable, _typeNameTable;
     private readonly List<TypeInfoRecord> _typeInfoRecords = [];
     private int _typeInfoDone;
+    /// <summary>Array.CreateInstance appears: keep T[] for types with reflection member metadata.</summary>
+    private bool _arrayCreateInstanceUsed;
+
+    /// <summary>Called when lowering Array.CreateInstance so reflection-kept types also get T[].</summary>
+    internal void NoteArrayCreateInstance() => _arrayCreateInstanceUsed = true;
 
     /// <summary>A csrt_TypeInfo under construction: everything but the interface list, chosen at the end.</summary>
     private sealed class TypeInfoRecord
@@ -74,6 +79,37 @@ public sealed partial class ModuleCodeGen
     /// tables (a base class never instantiated, a generic argument) and queue their vtable methods,
     /// so Generate() alternates this with draining the worklists until neither has work left.
     /// </summary>
+    /// <summary>
+    /// Array.CreateInstance looks up T[] in the TypeInfo table; binders then cast to IEnumerable&lt;T&gt;.
+    /// Keep T[] for element types of closed array interfaces the program already has method tables for
+    /// (DI open-generic casts close T at run time but the closed IEnumerable&lt;U&gt; MT exists), plus
+    /// requested array interfaces and reflection-kept types — not every TypeInfo entry.
+    /// </summary>
+    private void EnsureCreateInstanceArrays()
+    {
+        if (!_arrayCreateInstanceUsed) return;
+        void KeepArrayOf(ITypeSymbol element)
+        {
+            if (element is not INamedTypeSymbol named || TypeSubstitution.IsOpen(named)) return;
+            if (!named.IsReferenceType || named.TypeKind == TypeKind.Delegate) return;
+            ArrayMethodTable(named);
+        }
+        foreach (var itf in _arrayInterfaces)
+        {
+            if (itf.IsGenericType && itf.TypeArguments.Length == 1) KeepArrayOf(itf.TypeArguments[0]);
+        }
+        foreach (var (_, type) in _typeMts.ToList())
+        {
+            if (type is not INamedTypeSymbol { IsGenericType: true } named || TypeSubstitution.IsOpen(named)) continue;
+            if (named.TypeArguments.Length != 1) continue;
+            if (!s_arrayInterfaces.Contains(Mangler.MetadataName(named.OriginalDefinition))) continue;
+            KeepArrayOf(named.TypeArguments[0]);
+            // So RefreshArrayInterfaceMaps puts IEnumerable<U> on U[] (open-generic binder casts).
+            RequestArrayInterface(named);
+        }
+        foreach (var entry in _reflectionOrder) KeepArrayOf(entry.Type);
+    }
+
     private bool EmitTypeMetadata()
     {
         if (_typeInfoTable.IsNull) return false;
@@ -83,6 +119,7 @@ public sealed partial class ModuleCodeGen
             if (_typeInfoDone == _typeMts.Count)
             {
                 RegisterKnownMethodTables();
+                EnsureCreateInstanceArrays();
                 if (_typeInfoDone == _typeMts.Count) SelectInterfaces();
                 if (_typeInfoDone == _typeMts.Count) break;
             }

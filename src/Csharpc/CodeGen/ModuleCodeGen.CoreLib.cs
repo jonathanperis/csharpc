@@ -165,6 +165,8 @@ public sealed partial class ModuleCodeGen
                 _stringSlotTables[itf] = SlotTable(itf, "STBL", m => StringInterfaceHelper(itf, m));
             RefreshInterfaceTable(itf);
         }
+        // CreateInstance may need T[] for newly requested IEnumerable<T> / IList<T> element types.
+        EnsureCreateInstanceArrays();
         return RefreshArrayInterfaceMaps() || any;
     }
 

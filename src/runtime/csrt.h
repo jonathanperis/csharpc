@@ -374,3 +374,6 @@ void* csrt_unbox(void* obj, const csrt_MethodTable* type);   // payload address,
 
 // Boxed enums: Enum.Equals (same type, same payload bytes). Structs get generated Equals/GetHashCode.
 bool csrt_valuetype_equals(void* self, void* other);
+// Enum.HasFlag when the boxed enum type isn't known at the call site (IL boxes after a branch merge).
+// Throws on wasm return after throw (CSRT_THROWS helpers are void); keep a bool return for the fast path.
+bool csrt_enum_has_flag(void* self, void* flag);

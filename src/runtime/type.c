@@ -196,11 +196,15 @@ static const void* index_find(const Index* index, const csrt_MethodTable* mt) {
 static Index s_info_index;
 static Index s_name_index;
 
+static const csrt_TypeInfo* synthesized_info_for(const csrt_MethodTable* mt); // below, with CreateInstance
+
 static const csrt_TypeInfo* lookup_info(const csrt_MethodTable* mt) {
     const csrt_TypeInfoTable* table = __atomic_load_n(&s_table, __ATOMIC_ACQUIRE);
     if (!table) return NULL;
     build_index(&s_info_index, table->entries, table->count, sizeof(csrt_TypeInfo));
-    return index_find(&s_info_index, mt);
+    const csrt_TypeInfo* found = index_find(&s_info_index, mt);
+    if (found) return found;
+    return synthesized_info_for(mt);
 }
 
 static void throw_utf8(const csrt_MethodTable* type, const char* message) { csrt_throw(type, csrt_string_from_utf8(message)); }
@@ -544,21 +548,113 @@ TypeObject* csrt_type_make_generic(TypeObject* t, csrt_Array* arguments, const c
     return NULL;
 }
 
-/// The program's method table for `element[]` (NULL if there is none).
+/// Synthesized T[] TypeInfo entries for Array.CreateInstance / MakeArrayType when the program never
+/// named T[] at compile time (DI / configuration binders). Compile-time tables stay preferred.
+typedef struct { csrt_BuiltinMethodTable array_mt; csrt_TypeInfo info; char* name; } SynthesizedArray;
+static SynthesizedArray** s_synth_arrays;
+static size_t s_synth_arrays_count, s_synth_arrays_cap;
+static pthread_mutex_t s_synth_arrays_mu = PTHREAD_MUTEX_INITIALIZER;
+
+static const csrt_TypeInfo* synthesized_info_for(const csrt_MethodTable* mt) {
+    pthread_mutex_lock(&s_synth_arrays_mu);
+    const csrt_TypeInfo* found = NULL;
+    for (size_t i = 0; i < s_synth_arrays_count; i++)
+        if (&s_synth_arrays[i]->array_mt.header == mt) { found = &s_synth_arrays[i]->info; break; }
+    pthread_mutex_unlock(&s_synth_arrays_mu);
+    return found;
+}
+
+static const csrt_TypeInfo* synthesized_array_of_locked(const csrt_MethodTable* element) {
+    for (size_t i = 0; i < s_synth_arrays_count; i++)
+        if (s_synth_arrays[i]->info.element == element) return &s_synth_arrays[i]->info;
+    return NULL;
+}
+
+static const csrt_TypeInfo* synthesized_array_of(const csrt_MethodTable* element) {
+    pthread_mutex_lock(&s_synth_arrays_mu);
+    const csrt_TypeInfo* found = synthesized_array_of_locked(element);
+    pthread_mutex_unlock(&s_synth_arrays_mu);
+    return found;
+}
+
+/// The program's method table for `element[]` (NULL if there is none), including synthesized ones.
 static const csrt_TypeInfo* array_info_of(const csrt_MethodTable* element, const csrt_TypeInfoTable* table) {
     for (int64_t e = 0; e < table->count; e++) {
         const csrt_TypeInfo* candidate = &table->entries[e];
         if ((candidate->flags & CSRT_TI_SZARRAY) && candidate->element == element) return candidate;
     }
-    return NULL;
+    return synthesized_array_of(element);
+}
+
+/// Allocate a T[] method table + TypeInfo for a reference-type element the program described but
+/// never allocated as T[]. Locked: binders create many distinct element types concurrently.
+static const csrt_TypeInfo* synthesize_szarray(const csrt_MethodTable* element) {
+    pthread_mutex_lock(&s_synth_arrays_mu);
+    const csrt_TypeInfo* existing = synthesized_array_of_locked(element);
+    if (existing) { pthread_mutex_unlock(&s_synth_arrays_mu); return existing; }
+
+    const char* ename = element->name ? element->name : "?";
+    size_t n = strlen(ename);
+    char* name = malloc(n + 3);
+    if (!name) { pthread_mutex_unlock(&s_synth_arrays_mu); csrt_throw_out_of_memory(NULL); return NULL; }
+    memcpy(name, ename, n);
+    name[n] = '['; name[n + 1] = ']'; name[n + 2] = 0;
+
+    SynthesizedArray* syn = calloc(1, sizeof *syn);
+    if (!syn) { free(name); pthread_mutex_unlock(&s_synth_arrays_mu); csrt_throw_out_of_memory(NULL); return NULL; }
+    syn->name = name;
+    syn->array_mt.header.base = &csrt_Array_MT.header;
+    syn->array_mt.header.name = name;
+    syn->array_mt.header.instance_size = 0;
+    syn->array_mt.header.flags = 0;
+    syn->array_mt.header.interfaces = NULL;
+    syn->array_mt.header.interface_count = 0;
+    syn->array_mt.header.reserved = (uint32_t)sizeof(void*);
+    syn->array_mt.vtable[0] = (void*)csrt_object_to_string_default;
+    syn->array_mt.vtable[1] = (void*)csrt_object_equals_default;
+    syn->array_mt.vtable[2] = (void*)csrt_object_get_hash_code_default;
+    // Match ModuleCodeGen.TypeInfo array flags (Class|Public|Sealed|Array|HasElementType|ReferenceType|SZArray|Visible).
+    syn->info.mt = &syn->array_mt.header;
+    syn->info.base = &csrt_Array_MT.header;
+    syn->info.element = element;
+    syn->info.flags = CSRT_TI_CLASS | CSRT_TI_PUBLIC | CSRT_TI_SEALED | CSRT_TI_ARRAY | CSRT_TI_HAS_ELEMENT_TYPE
+        | CSRT_TI_SZARRAY | CSRT_TI_VISIBLE | CSRT_TI_REFERENCE_TYPE;
+    syn->info.rank = 1;
+
+    if (s_synth_arrays_count == s_synth_arrays_cap) {
+        size_t ncap = s_synth_arrays_cap ? s_synth_arrays_cap * 2 : 8;
+        SynthesizedArray** grown = realloc(s_synth_arrays, ncap * sizeof *grown);
+        if (!grown) {
+            free(name); free(syn);
+            pthread_mutex_unlock(&s_synth_arrays_mu);
+            csrt_throw_out_of_memory(NULL);
+            return NULL;
+        }
+        s_synth_arrays = grown;
+        s_synth_arrays_cap = ncap;
+    }
+    s_synth_arrays[s_synth_arrays_count++] = syn;
+    pthread_mutex_unlock(&s_synth_arrays_mu);
+    return &syn->info;
+}
+
+static const csrt_TypeInfo* ensure_szarray(const csrt_MethodTable* element, const csrt_TypeInfoTable* table) {
+    const csrt_TypeInfo* array = array_info_of(element, table);
+    return array ? array : synthesize_szarray(element);
 }
 
 /// Type.MakeArrayType().
 TypeObject* csrt_type_make_array(TypeObject* t, const csrt_TypeInfoTable* table) {
     const csrt_TypeInfo* info = info_of(t, table);
     if (!info) return NULL;
-    const csrt_TypeInfo* array = array_info_of(t->target, table);
-    if (!array) { throw_formatted(&mt_not_supported, "MakeArrayType of '%s' is not supported by csharpc yet: the program has no arrays of it.", full_name(t)); return NULL; }
+    // Value-type arrays need the element layout at allocation time; synthesizing only covers refs.
+    if (!(info->flags & CSRT_TI_REFERENCE_TYPE)) {
+        const csrt_TypeInfo* array = array_info_of(t->target, table);
+        if (!array) { throw_formatted(&mt_not_supported, "MakeArrayType of '%s' is not supported by csharpc yet: the program has no arrays of it.", full_name(t)); return NULL; }
+        return csrt_type_from_mt(array->mt);
+    }
+    const csrt_TypeInfo* array = ensure_szarray(t->target, table);
+    if (!array) return NULL;
     return csrt_type_from_mt(array->mt);
 }
 
@@ -571,8 +667,8 @@ csrt_Array* csrt_array_create_instance(TypeObject* element, int64_t length, cons
         throw_formatted(&mt_not_supported, "Array.CreateInstance of value type '%s' is not supported by csharpc yet.", full_name(element));
         return NULL;
     }
-    const csrt_TypeInfo* array = array_info_of(element->target, table);
-    if (!array) { throw_formatted(&mt_not_supported, "Array.CreateInstance of '%s' is not supported by csharpc yet: the program has no arrays of it.", full_name(element)); return NULL; }
+    const csrt_TypeInfo* array = ensure_szarray(element->target, table);
+    if (!array) return NULL;
     csrt_Array* result = csrt_new_array(sizeof(void*), length);
     result->mt = array->mt;
     return result;
@@ -598,6 +694,23 @@ void csrt_array_set_value(csrt_Array* array, void* value, int64_t index, const c
         if (!assignable(element, from)) { throw_utf8(&mt_invalid_cast, "Object cannot be stored in an array of this type."); return; }
     }
     ((void**)array->data)[index] = value;
+}
+
+/// Array.GetValue(index) on a one-dimensional array of a reference type (synthesized T[] included).
+void* csrt_array_get_value(csrt_Array* array, int64_t index, const csrt_TypeInfoTable* table) {
+    if (!array) { csrt_throw_null_reference(); return NULL; }
+    if (!__atomic_load_n(&s_table, __ATOMIC_ACQUIRE)) __atomic_store_n(&s_table, table, __ATOMIC_RELEASE);
+    const csrt_TypeInfo* info = info_for(array->mt);
+    if (!info) return NULL;
+    if (!(info->flags & CSRT_TI_SZARRAY)) { throw_utf8(&mt_argument, "Only single dimension arrays are supported here."); return NULL; }
+    const csrt_TypeInfo* element = info_for(info->element);
+    if (!element) return NULL;
+    if (!(element->flags & CSRT_TI_REFERENCE_TYPE)) {
+        throw_formatted(&mt_not_supported, "Array.GetValue on an array of value type '%s' is not supported by csharpc yet.", info->element->name);
+        return NULL;
+    }
+    if ((uint64_t)index >= (uint64_t)array->length) { throw_utf8(&mt_index_out_of_range, "Index was outside the bounds of the array."); return NULL; }
+    return ((void**)array->data)[index];
 }
 
 /// Type.GenericParameterAttributes (kept in the variance field of a generic parameter's entry).

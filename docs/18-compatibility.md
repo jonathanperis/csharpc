@@ -60,8 +60,8 @@ blocker). Everything else of the `aot-parity` table (XML, cryptography, text ele
 
 | # | blocker | programs | only |
 |---:|---|---:|---:|
-| 1 | reflection over members and attributes (`main`'s reflection metadata reaches further now: `attributes` stops at run time with an explicit `NotSupportedException` for a `MemberInfo` member called through a `Type`; configuration binding needs `Attribute.IsDefaultAttribute` overrides; the tracing DI extensions `Enum.HasFlag` on a boxed enum of unknown type) | 3 | 3 |
-| 2 | expression trees (compiled or interpreted `Expression<T>`; `ExpressionTreeExample` crashes the compiler in the reflection-invoker generation — a `Nullable<T>` call with no instance in `EmitReflectionInvoker`, the same on `main`) | 2 | 2 |
+| 1 | reflection / configuration binding (`ConfigurationIgnore` needs `Attribute.IsDefaultAttribute` / `TypeId` and more of `System.ComponentModel.TypeConverter`; `attributes` and `TracingConfiguration` pass on `ci/parity-hasflag-attrs` — MemberInfo→Type attributes, boxed `Enum.HasFlag`, `Array.CreateInstance` synth + `T[]` keep for closed array-interface elements) | 1 | 1 |
+| 2 | expression trees (compiled or interpreted `Expression<T>`; `ExpressionTreeExample` is an explicit `CSLLVM0001` on DynamicMethod / expression trees — the Nullable invoker NRE is fixed on `ci/parity-hasflag-attrs`) | 2 | 2 |
 | 3 | `dynamic` | 1 | 1 |
 | 4 | C# 15 unions (csharpc's Roslyn binds them differently from the SDK's) | 2 | 2 |
 | 5 | `System.Data` (`DataTable`/`DataRow` through `System.Text.Json`) | 1 | 1 |
