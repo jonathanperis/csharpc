@@ -169,6 +169,12 @@ jobs green; all four RID builds + smokes green (win-x64 included). Publish skipp
 Removed the temporary `ci/release-packaging` push trigger from `release.yml`. Merged
 `origin/main` `b2099e2` (precise-gc status log). Ready to merge to main.
 
+**23:40.** Merged PR #4 as `c398fd6`. Main CI 40248320210 green. Release 40253944729 built
+version `0.1.0-spike.251` and all four smokes passed; publish failed collecting RID nupkgs —
+`download-artifact` keeps them under `bundles/nupkg/` while collect only copied
+`bundles/csharpc.*.nupkg`. Fix: `find bundles -name 'csharpc.*.nupkg'` into `nupkg/` before
+`pack-tool-pointer.sh`.
+
 Audit of the `m8-perf` merge on 2026-10-25. Times are BRT (UTC−3).
 
 
