@@ -7,6 +7,9 @@
 #                             (`dotnet run file.cs`), which is the oracle for C# semantics
 #   tests/run.sh --opt -O0    run the suite at a specific optimization level (default -O2)
 #   tests/run.sh --all-opts   run the suite at -O0 and -O2
+#   tests/run.sh --shard 0/4  deterministic slice of the filtered sample list (CI shards)
+#   tests/run.sh --repeat 20  run the selection N times (flake hunting; fails if any pass fails)
+#   tests/run.sh --list       print the selected sample names, one per line, and do not build
 #   tests/run.sh 06           only samples whose name contains "06"
 #
 # A sample with a NAME.diagnostics file is one csharpc must reject cleanly (explicit diagnostics, no
@@ -22,12 +25,32 @@ SAMPLES="$ROOT/tests/samples"
 DOTNET="${DOTNET:-dotnet}"
 OPTS=("${CSHARPC_OPT:--O2}")
 REGEN=0
+LIST_ONLY=0
 FILTER=""
+SHARD_INDEX=0
+SHARD_COUNT=1
+REPEAT=1
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --regen) REGEN=1 ;;
+    --list) LIST_ONLY=1 ;;
     --opt) shift; OPTS=("$1") ;;
     --all-opts) OPTS=(-O0 -O2) ;;
+    --shard)
+      shift
+      [[ "$1" =~ ^([0-9]+)/([1-9][0-9]*)$ ]] || { echo "bad --shard '$1' (want INDEX/COUNT)" >&2; exit 2; }
+      SHARD_INDEX="${BASH_REMATCH[1]}"
+      SHARD_COUNT="${BASH_REMATCH[2]}"
+      if (( SHARD_INDEX >= SHARD_COUNT )); then
+        echo "bad --shard $SHARD_INDEX/$SHARD_COUNT (index must be < count)" >&2
+        exit 2
+      fi
+      ;;
+    --repeat)
+      shift
+      [[ "$1" =~ ^[1-9][0-9]*$ ]] || { echo "bad --repeat '$1'" >&2; exit 2; }
+      REPEAT="$1"
+      ;;
     -O0|-O1|-O2|-O3) OPTS=("$1") ;;
     *) FILTER="$1" ;;
   esac
@@ -36,13 +59,31 @@ done
 
 source "$ROOT/tests/platform.sh"
 
+# LC_ALL=C so every runner slices the same names the same way. The test runs themselves keep the
+# culture pin from platform.sh; this sort is a separate process.
+selected=()
+index=0
+while IFS= read -r src; do
+  [[ -z "$src" ]] && continue
+  name="$(basename "$src" .cs)"
+  [[ -n "$FILTER" && "$name" != *"$FILTER"* ]] && continue
+  if (( index % SHARD_COUNT == SHARD_INDEX )); then
+    selected+=("$name")
+  fi
+  index=$((index + 1))
+done < <(printf '%s\n' "$SAMPLES"/*.cs | LC_ALL=C sort)
+
+if [[ $LIST_ONLY == 1 ]]; then
+  if ((${#selected[@]} > 0)); then printf '%s\n' "${selected[@]}"; fi
+  exit 0
+fi
+
 # Compiler warnings would otherwise end up in the recorded stdout of `dotnet run`.
 strip_warnings() { grep -Ev '^[^ ]+\([0-9]+,[0-9]+\): warning ' || true; }
 
 if [[ $REGEN == 1 ]]; then
-  for src in "$SAMPLES"/*.cs; do
-    name="$(basename "$src" .cs)"
-    [[ -n "$FILTER" && "$name" != *"$FILTER"* ]] && continue
+  if ((${#selected[@]} == 0)); then exit 0; fi
+  for name in "${selected[@]}"; do
     printf 'recording %-32s' "$name"
     # File-based apps (dotnet run app.cs) — the real .NET compiler and runtime.
     # WarningLevel=0 keeps compiler warnings out of stdout; strip_warnings is a safety net.
@@ -58,6 +99,15 @@ if [[ $REGEN == 1 ]]; then
   exit 0
 fi
 
+if ((${#selected[@]} == 0)); then
+  echo "0 passed, 0 failed"
+  exit 0
+fi
+
+if (( SHARD_COUNT > 1 || REPEAT > 1 )); then
+  echo "selection: ${#selected[@]} samples, shard $SHARD_INDEX/$SHARD_COUNT, repeat $REPEAT, opts ${OPTS[*]}"
+fi
+
 "$DOTNET" build "$ROOT/src/Csharpc" -c Release -v quiet -nologo > /dev/null || { echo "build failed"; exit 1; }
 CSHARPC=("$DOTNET" "$ROOT/src/Csharpc/bin/Release/net11.0/csharpc.dll")
 
@@ -67,64 +117,70 @@ trap 'rm -rf "$OUT"' EXIT
 # /var -> /private/var link, so getcwd() inside it would not match Path.GetTempPath() (under .NET too).
 TMPDIR="$(cd "${TMPDIR:-/tmp}" && pwd -P)/"; export TMPDIR
 pass=0; fail=0; failed=()
-for opt in "${OPTS[@]}"; do
-  for src in "$SAMPLES"/*.cs; do
-    name="$(basename "$src" .cs)"
-    [[ -n "$FILTER" && "$name" != *"$FILTER"* ]] && continue
-    label="$name [$opt]"
-    if [[ -f "$SAMPLES/$name.diagnostics" ]]; then
-      "${CSHARPC[@]}" "${TARGET_FLAGS[@]}" "$opt" ${CSHARPC_FLAGS:-} "$src" -o "$OUT/$name$opt$EXE_SUFFIX" > /dev/null 2> "$OUT/$name.compile"
-      got_code=$?
-      platform_compiler_output < "$OUT/$name.compile" | sed "s|^$SAMPLES/||" > "$OUT/$name.diag"
-      if [[ $got_code == 1 ]] && diff -u "$SAMPLES/$name.diagnostics" "$OUT/$name.diag" > "$OUT/$name.diff"; then
-        echo "PASS $label (rejected with the expected diagnostics)"; pass=$((pass + 1))
+for ((rep = 1; rep <= REPEAT; rep++)); do
+  for opt in "${OPTS[@]}"; do
+    for name in "${selected[@]}"; do
+      src="$SAMPLES/$name.cs"
+      label="$name [$opt]"
+      if (( REPEAT > 1 )); then label="$name [$opt] #$rep"; fi
+      if [[ -f "$SAMPLES/$name.diagnostics" ]]; then
+        "${CSHARPC[@]}" "${TARGET_FLAGS[@]}" "$opt" ${CSHARPC_FLAGS:-} "$src" -o "$OUT/$name$opt$EXE_SUFFIX" > /dev/null 2> "$OUT/$name.compile"
+        got_code=$?
+        platform_compiler_output < "$OUT/$name.compile" | sed "s|^$SAMPLES/||" > "$OUT/$name.diag"
+        if [[ $got_code == 1 ]] && diff -u "$SAMPLES/$name.diagnostics" "$OUT/$name.diag" > "$OUT/$name.diff"; then
+          echo "PASS $label (rejected with the expected diagnostics)"; pass=$((pass + 1))
+        else
+          echo "FAIL $label (compiler exit $got_code, expected 1 with the recorded diagnostics)"
+          sed 's/^/     /' "$OUT/$name.diff" | head -20
+          fail=$((fail + 1)); failed+=("$label")
+        fi
+        continue
+      fi
+      expected="$SAMPLES/$name.expected"
+      [[ -f "$expected" ]] || { echo "SKIP $label (no .expected — run with --regen)"; continue; }
+      reason="$(platform_skip "$name")"
+      [[ -n "$reason" ]] && ! platform_is_live "$reason" && { echo "SKIP $label (platform-dependent on $TARGET_OS: $reason)"; continue; }
+      stdin_file=/dev/null; [[ -f "$SAMPLES/$name.stdin" ]] && stdin_file="$SAMPLES/$name.stdin"
+      read -ra test_env <<< "$(platform_env "$SAMPLES" "$name")"
+      pin=("${CULTURE_PIN[@]}"); [[ ${#test_env[@]} -gt 0 ]] && pin=()
+      if [[ -n "$reason" ]]; then
+        # Recorded live from real .NET on this machine (once per run).
+        [[ -f "$OUT/$name.live" ]] || platform_live_expected "$SAMPLES" "$name.cs" "$stdin_file" "$OUT/$name.live" "${test_env[@]}" > "$OUT/$name.livecode"
+        cp "$OUT/$name.live" "$OUT/$name.want"
+        want_code="$(cat "$OUT/$name.livecode")"
       else
-        echo "FAIL $label (compiler exit $got_code, expected 1 with the recorded diagnostics)"
+        platform_expected < "$expected" > "$OUT/$name.want"
+        want_code=0
+        [[ -f "$SAMPLES/$name.exitcode" ]] && want_code="$(platform_exit_code "$(cat "$SAMPLES/$name.exitcode")")"
+      fi
+
+      exe="$OUT/$name$opt$EXE_SUFFIX"
+      if ! "${CSHARPC[@]}" "${TARGET_FLAGS[@]}" "$opt" ${CSHARPC_FLAGS:-} "$src" "${pin[@]}" -o "$exe" 2> "$OUT/$name.compile"; then
+        echo "FAIL $label (compile error)"; sed 's/^/     /' "$OUT/$name.compile" | head -8
+        fail=$((fail + 1)); failed+=("$label"); continue
+      fi
+      # Run in a child bash so the parent shell doesn't print "Aborted (core dumped)" job noise
+      # for samples that intentionally die with an unhandled exception (SIGABRT, exit 134).
+      env "${test_env[@]}" bash -c 'ulimit -c 0 2>/dev/null; t="$1" out="$2" err="$3" in="$4"; shift 4; timeout "$t" "$@" > "$out" 2> "$err" < "$in"' _ \
+        "${CSHARPC_TEST_TIMEOUT:-90}" "$OUT/$name.stdout" "$OUT/$name.stderr" "$stdin_file" "${RUN_PREFIX[@]}" "$exe" 2>/dev/null
+      got_code=$?
+      if diff -u "$OUT/$name.want" "$OUT/$name.stdout" > "$OUT/$name.diff" && [[ "$got_code" == "$want_code" ]]; then
+        echo "PASS $label"
+        pass=$((pass + 1))
+      else
+        echo "FAIL $label (exit $got_code, expected $want_code)"
         sed 's/^/     /' "$OUT/$name.diff" | head -20
+        # What the program printed to stderr (an unhandled exception, a runtime abort) says why.
+        if [[ -s "$OUT/$name.stderr" ]]; then sed 's/^/     stderr: /' "$OUT/$name.stderr" | head -10; fi
         fail=$((fail + 1)); failed+=("$label")
       fi
-      continue
-    fi
-    expected="$SAMPLES/$name.expected"
-    [[ -f "$expected" ]] || { echo "SKIP $label (no .expected — run with --regen)"; continue; }
-    reason="$(platform_skip "$name")"
-    [[ -n "$reason" ]] && ! platform_is_live "$reason" && { echo "SKIP $label (platform-dependent on $TARGET_OS: $reason)"; continue; }
-    stdin_file=/dev/null; [[ -f "$SAMPLES/$name.stdin" ]] && stdin_file="$SAMPLES/$name.stdin"
-    read -ra test_env <<< "$(platform_env "$SAMPLES" "$name")"
-    pin=("${CULTURE_PIN[@]}"); [[ ${#test_env[@]} -gt 0 ]] && pin=()
-    if [[ -n "$reason" ]]; then
-      # Recorded live from real .NET on this machine (once per run).
-      [[ -f "$OUT/$name.live" ]] || platform_live_expected "$SAMPLES" "$name.cs" "$stdin_file" "$OUT/$name.live" "${test_env[@]}" > "$OUT/$name.livecode"
-      cp "$OUT/$name.live" "$OUT/$name.want"
-      want_code="$(cat "$OUT/$name.livecode")"
-    else
-      platform_expected < "$expected" > "$OUT/$name.want"
-      want_code=0
-      [[ -f "$SAMPLES/$name.exitcode" ]] && want_code="$(platform_exit_code "$(cat "$SAMPLES/$name.exitcode")")"
-    fi
-
-    exe="$OUT/$name$opt$EXE_SUFFIX"
-    if ! "${CSHARPC[@]}" "${TARGET_FLAGS[@]}" "$opt" ${CSHARPC_FLAGS:-} "$src" "${pin[@]}" -o "$exe" 2> "$OUT/$name.compile"; then
-      echo "FAIL $label (compile error)"; sed 's/^/     /' "$OUT/$name.compile" | head -8
-      fail=$((fail + 1)); failed+=("$label"); continue
-    fi
-    # Run in a child bash so the parent shell doesn't print "Aborted (core dumped)" job noise
-    # for samples that intentionally die with an unhandled exception (SIGABRT, exit 134).
-    env "${test_env[@]}" bash -c 'ulimit -c 0 2>/dev/null; t="$1" out="$2" err="$3" in="$4"; shift 4; timeout "$t" "$@" > "$out" 2> "$err" < "$in"' _ \
-      "${CSHARPC_TEST_TIMEOUT:-90}" "$OUT/$name.stdout" "$OUT/$name.stderr" "$stdin_file" "${RUN_PREFIX[@]}" "$exe" 2>/dev/null
-    got_code=$?
-    if diff -u "$OUT/$name.want" "$OUT/$name.stdout" > "$OUT/$name.diff" && [[ "$got_code" == "$want_code" ]]; then
-      echo "PASS $label"
-      pass=$((pass + 1))
-    else
-      echo "FAIL $label (exit $got_code, expected $want_code)"
-      sed 's/^/     /' "$OUT/$name.diff" | head -20
-      # What the program printed to stderr (an unhandled exception, a runtime abort) says why.
-      if [[ -s "$OUT/$name.stderr" ]]; then sed 's/^/     stderr: /' "$OUT/$name.stderr" | head -10; fi
-      fail=$((fail + 1)); failed+=("$label")
-    fi
+    done
   done
 done
 echo
-echo "$pass passed, $fail failed${failed:+: ${failed[*]}}"
+if (( REPEAT > 1 )); then
+  echo "$pass passed, $fail failed across $REPEAT repeats${failed:+: ${failed[*]}}"
+else
+  echo "$pass passed, $fail failed${failed:+: ${failed[*]}}"
+fi
 [[ $fail == 0 ]]
