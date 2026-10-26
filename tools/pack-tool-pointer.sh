@@ -54,6 +54,8 @@ cat > "$STAGE/csharpc.nuspec" <<EOF
     <description>csharpc: a C# compiler front-end for LLVM (Roslyn -&gt; LLVM IR -&gt; native). RID-specific NativeAOT tool; install with dotnet tool install -g csharpc.</description>
     <projectUrl>https://github.com/jonathanperis/csharpc</projectUrl>
     <license type="expression">MIT</license>
+    <!-- nuget.org still requires licenseUrl when a license expression is set (legacy clients). -->
+    <licenseUrl>https://licenses.nuget.org/MIT</licenseUrl>
     <repository type="git" url="https://github.com/jonathanperis/csharpc" />
     <packageTypes>
       <packageType name="DotnetTool" />
