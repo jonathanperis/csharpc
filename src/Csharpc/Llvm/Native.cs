@@ -51,13 +51,23 @@ internal static unsafe partial class Native
 
     static Native() => NativeLibrary.SetDllImportResolver(typeof(Native).Assembly, Resolve);
 
-    /// <summary>Probe order: $CSHARPC_LIBLLVM, then versioned sonames, newest supported first.</summary>
+    /// <summary>
+    /// Probe order: $CSHARPC_LIBLLVM, a release bundle's lib/ next to the executable, then versioned
+    /// sonames (newest supported first). Release archives ship libLLVM under lib/ (Apache-2.0 with
+    /// LLVM exceptions); clang/lld stay a system prerequisite (see README Install).
+    /// </summary>
     private static nint Resolve(string name, Assembly assembly, DllImportSearchPath? path)
     {
         if (name != Lib) return 0;
+        var dir = AppContext.BaseDirectory;
+        var lib = Path.Combine(dir, "lib");
         string?[] candidates =
         [
             Environment.GetEnvironmentVariable("CSHARPC_LIBLLVM"),
+            // Bundled next to the NativeAOT / self-contained release layout.
+            Path.Combine(lib, "libLLVM-18.so"), Path.Combine(lib, "libLLVM.so.18.1"),
+            Path.Combine(lib, "libLLVM.dylib"), Path.Combine(lib, "libLLVM-18.dll"),
+            Path.Combine(dir, "libLLVM-18.so"), Path.Combine(dir, "libLLVM.dylib"), Path.Combine(dir, "libLLVM-18.dll"),
             "libLLVM-18.so", "libLLVM.so.18.1", "/usr/lib/llvm-18/lib/libLLVM.so",
             "libLLVM-19.so", "libLLVM.so.19.1", "libLLVM-20.so", "libLLVM.so.20.1",
             "libLLVM.so",
@@ -70,7 +80,9 @@ internal static unsafe partial class Native
             if (candidate is not null && NativeLibrary.TryLoad(candidate, out var handle))
                 return handle;
         throw new DllNotFoundException(
-            "csharpc could not locate libLLVM (tried LLVM 18-20). Set CSHARPC_LIBLLVM to the shared library path.");
+            "csharpc could not locate libLLVM (tried the release bundle's lib/, then LLVM 18-20 on the system). " +
+            "Install LLVM 18 (apt: libllvm18; brew: llvm@18; Windows: LLVM-MinGW) or set CSHARPC_LIBLLVM to the shared library path. " +
+            "See https://github.com/jonathanperis/csharpc#install");
     }
 
     /// <summary>The name of a global value.</summary>
