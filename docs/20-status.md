@@ -130,7 +130,14 @@ COMPILE-UNSUPPORTED on HasFlag, then CreateInstance). Expected in-scope parity *
 **Did not work:** keeping `T[]` for every TypeInfo reference type when CreateInstance appears
 (TracingConfiguration compile hung / multi-minute). Scoped keep + runtime synthesis instead.
 
-Waiting for main CI 40265042196 (windows-x64 still running) before merge; branch push next.
+**02:49.** Branch CI
+[40270584270](https://github.com/jonathanperis/csharpc/actions/runs/40270584270) failed on all
+five: `CreateAttributes` returned `Attribute[]` for filtered
+`GetCustomAttributes(typeof(TagAttribute))` (samples 604/606/617 —
+`InvalidCastException` / `NeverUsedAttribute[]` vs `Attribute[]`). Restored
+`Array.CreateInstance(attributeType, n)` for concrete Attribute subclasses only;
+`Attribute[]` / `object[]` stay direct allocations so CreateInstance does not note
+every TypeInfo type. Main CI 40265042196 was green. Re-pushing the fix.
 
 ---
 
