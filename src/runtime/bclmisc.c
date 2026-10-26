@@ -91,7 +91,13 @@ void csrt_array_copy(csrt_Array* src, int64_t si, csrt_Array* dst, int64_t di, i
         csrt_throw(&mt_argument, ascii("Source array was not long enough. Check the source index, length, and the array's lower bounds. (Parameter 'sourceArray')"));
     if (di > dst->length - length)
         csrt_throw(&mt_argument, ascii("Destination array was not long enough. Check the destination index, length, and the array's lower bounds. (Parameter 'destinationArray')"));
-    memmove(dst->data + di * elem, src->data + si * elem, (size_t)(length * elem));
+    void* dest = dst->data + di * elem;
+    size_t bytes = (size_t)(length * elem);
+#if defined(CSRT_GC_NURSERY_DEFAULT)
+    // Reference arrays: dirty cards before the copy so a suspend cannot hide old→young edges.
+    if (elem == (int64_t)sizeof(void*)) csrt_gc_cards_dirty(dest, bytes);
+#endif
+    memmove(dest, src->data + si * elem, bytes);
 }
 
 void csrt_array_fill(csrt_Array* a, const void* value, int64_t elem) {

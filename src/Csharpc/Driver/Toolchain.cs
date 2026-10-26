@@ -18,12 +18,15 @@ public sealed class Toolchain(CompilerOptions options, Csharpc.Llvm.TargetMachin
 
     private static readonly string[] PortedCFlags = ["-DNDEBUG"];
     private string[] RuntimeCFlags => target.IsWasm
-        ? [.. WasmRuntimeCFlags, .. Hardening.RuntimeCFlags(options.Hardening, target, lld: false)]
-        : [.. BaseRuntimeCFlags, .. SysrootFlags, .. (target.IsWindows ? WindowsRuntimeCFlags : []), .. Hardening.RuntimeCFlags(options.Hardening, target, HasLld), .. SanitizerFlags, .. ExtraRuntimeCFlags];
+        ? [.. WasmRuntimeCFlags, .. Hardening.RuntimeCFlags(options.Hardening, target, lld: false), .. NurseryRuntimeCFlags, .. ExtraRuntimeCFlags]
+        : [.. BaseRuntimeCFlags, .. SysrootFlags, .. (target.IsWindows ? WindowsRuntimeCFlags : []), .. Hardening.RuntimeCFlags(options.Hardening, target, HasLld), .. SanitizerFlags, .. NurseryRuntimeCFlags, .. ExtraRuntimeCFlags];
 
     /// <summary>$CSHARPC_RUNTIME_CFLAGS: extra flags for the runtime, e.g. -DCSRT_ALLOC_PROFILE (gc.c) when profiling.</summary>
     private static string[] ExtraRuntimeCFlags =>
         Environment.GetEnvironmentVariable("CSHARPC_RUNTIME_CFLAGS")?.Split(' ', StringSplitOptions.RemoveEmptyEntries) ?? [];
+
+    /// <summary>--gc-nursery / CSHARPC_GC_NURSERY=1: runtime defaults the nursery on (still overridable with CSRT_GC_NURSERY=0).</summary>
+    private string[] NurseryRuntimeCFlags => options.GcNursery ? ["-DCSRT_GC_NURSERY_DEFAULT"] : [];
 
     /// <summary>
     /// Windows: the UCRT's own printf family. _GNU_SOURCE/_POSIX_C_SOURCE would otherwise select

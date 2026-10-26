@@ -68,6 +68,9 @@ public sealed partial class ModuleCodeGen
     /// <summary>Stack-trace recording (docs/adr/0012-stack-traces.md); null when the program never looks at one.</summary>
     public StackTraceInfo? StackTraces { get; init; }
 
+    /// <summary>Emit write barriers and build a nursery-default runtime (--gc-nursery / ADR 0004).</summary>
+    public bool GcNursery { get; init; }
+
     private LLVMValueRef _traceTables;
     private LLVMValueRef _tracePadAnchor;
 
