@@ -407,33 +407,7 @@ jobs:
             --api-key "${{ secrets.GITHUB_TOKEN }}" \
             --skip-duplicate
 
-      - name: NuGet.org Trusted Publishing login
-        id: nuget_login
-        if: needs.setup.outputs.publish_nuget_org == 'true'
-        uses: NuGet/login@8d196754b4036150537f80ac539e15c2f1028841 # v1.2.0
-        with:
-          user: ${{ vars.NUGET_USER }}
-
-      - name: Push packages to nuget.org
-        if: needs.setup.outputs.publish_nuget_org == 'true'
-        run: |
-          set -euo pipefail
-          KEY='${{ steps.nuget_login.outputs.NUGET_API_KEY }}'
-          test -n "$KEY" || { echo "nuget.org: empty NUGET_API_KEY from NuGet/login"; exit 1; }
-          for pkg in nupkg/csharpc.linux-*.nupkg nupkg/csharpc.osx-*.nupkg nupkg/csharpc.win-*.nupkg; do
-            [[ -f $pkg ]] || continue
-            dotnet nuget push "$pkg" --api-key "$KEY" --source https://api.nuget.org/v3/index.json --skip-duplicate
-          done
-          dotnet nuget push nupkg/csharpc."${{ needs.setup.outputs.version }}".nupkg \
-            --api-key "$KEY" --source https://api.nuget.org/v3/index.json --skip-duplicate
-
-      - name: nuget.org skipped (test/dry-run or NUGET_USER unset)
-        if: needs.setup.outputs.publish_nuget_org != 'true'
-        run: |
-          echo "nuget.org publish skipped (NUGET_USER unset, or version is a test/dry-run)."
-          echo "Real pushes: main rolling 0.1.0-spike.<ci_run> or tag v* (first: v0.1.0-spike)."
-          echo "Policy: Jonathanperis/csharpc-release → release.yml, no environment, vars.NUGET_USER."
-
+      # GHCR before nuget.org so a pointer-package rejection still ships the container image.
       - name: Prepare docker-bundle context
         run: |
           mkdir -p docker-bundle
@@ -468,3 +442,30 @@ jobs:
           file: Dockerfile
           push: true
           tags: ${{ steps.image_tags.outputs.tags }}
+
+      - name: NuGet.org Trusted Publishing login
+        id: nuget_login
+        if: needs.setup.outputs.publish_nuget_org == 'true'
+        uses: NuGet/login@8d196754b4036150537f80ac539e15c2f1028841 # v1.2.0
+        with:
+          user: ${{ vars.NUGET_USER }}
+
+      - name: Push packages to nuget.org
+        if: needs.setup.outputs.publish_nuget_org == 'true'
+        run: |
+          set -euo pipefail
+          KEY='${{ steps.nuget_login.outputs.NUGET_API_KEY }}'
+          test -n "$KEY" || { echo "nuget.org: empty NUGET_API_KEY from NuGet/login"; exit 1; }
+          for pkg in nupkg/csharpc.linux-*.nupkg nupkg/csharpc.osx-*.nupkg nupkg/csharpc.win-*.nupkg; do
+            [[ -f $pkg ]] || continue
+            dotnet nuget push "$pkg" --api-key "$KEY" --source https://api.nuget.org/v3/index.json --skip-duplicate
+          done
+          dotnet nuget push nupkg/csharpc."${{ needs.setup.outputs.version }}".nupkg \
+            --api-key "$KEY" --source https://api.nuget.org/v3/index.json --skip-duplicate
+
+      - name: nuget.org skipped (test/dry-run or NUGET_USER unset)
+        if: needs.setup.outputs.publish_nuget_org != 'true'
+        run: |
+          echo "nuget.org publish skipped (NUGET_USER unset, or version is a test/dry-run)."
+          echo "Real pushes: main rolling 0.1.0-spike.<ci_run> or tag v* (first: v0.1.0-spike)."
+          echo "Policy: Jonathanperis/csharpc-release → release.yml, no environment, vars.NUGET_USER."
