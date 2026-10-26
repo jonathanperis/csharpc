@@ -347,6 +347,12 @@ CI; reproduced cross at 51976 → 56072 with the same RX sizes). Fix: keep the s
 match main (RX `FileSiz` 0x3fd0 again); `linux-aarch64 typeinfo` budget restored to 43008.
 x86-64 sizes unchanged (hello 28520, async 147200, typeinfo 43776).
 
+**21:38.** Branch CI [40245571259](https://github.com/jonathanperis/csharpc/actions/runs/40245571259)
+green on all five (x86-64, arm64, macos-arm64, windows-x64, wasm32-wasi). arm64 typeinfo
+**39800** / 43008 again (same as main). Benchmarks
+[40245571132](https://github.com/jonathanperis/csharpc/actions/runs/40245571132) green. Waiting
+for in-progress main CI 40248320210 (release-packaging merge) before merging this branch.
+
 ## Working rules
 
 Build with `dotnet build src/Csharpc -c Release -m:1`, compile with `-j2`, run heavy suites on CI
