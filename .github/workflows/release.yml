@@ -12,9 +12,10 @@ name: Release
 # Never push *test*/*dryrun* versions (nuget.org cannot delete packages).
 #
 # Triggers:
-#   - After CI succeeds on main (workflow_run): rolling prerelease `latest-main`, package
-#     version 0.1.0-spike.<ci_run_number>. Does not run inside ci.yml, so it never cancels
-#     or slows the five merge-bar jobs.
+#   - After CI succeeds on a push to main (workflow_run): rolling prerelease `latest-main`,
+#     package version 0.1.0-spike.<ci_run_number>. Gated to main+push+success so PR/ci/**
+#     CI completions and docs-only skipped CI do not start Release (or burn setup runners).
+#     Does not run inside ci.yml, so it never cancels or slows the five merge-bar jobs.
 #   - Push of v* tags: named release + package version from the tag.
 #   - workflow_dispatch: dry-run by default (build+smoke only; never creates a Release/tag).
 # To exercise release.yml without publishing: workflow_dispatch with dry_run=true (default).
@@ -24,6 +25,8 @@ on:
   workflow_run:
     workflows: ["CI"]
     types: [completed]
+    # Only CI runs whose head branch is main (excludes pull_request and ci/** pushes).
+    branches: [main]
   push:
     tags: ["v*"]
   workflow_dispatch:
@@ -55,6 +58,15 @@ jobs:
   # Decide whether to run and which version/channel to publish.
   setup:
     name: setup
+    # workflow_run: only after a successful push CI on main. Skipped conclusion (e.g. docs-only
+    # path filter) and pull_request / workflow_dispatch CI must not start a release build.
+    # Tag push and workflow_dispatch use the other event arms below.
+    if: >
+      github.event_name != 'workflow_run' || (
+        github.event.workflow_run.event == 'push' &&
+        github.event.workflow_run.head_branch == 'main' &&
+        github.event.workflow_run.conclusion == 'success'
+      )
     runs-on: ubuntu-24.04
     outputs:
       should_run: ${{ steps.meta.outputs.should_run }}
@@ -74,6 +86,7 @@ jobs:
       - id: meta
         env:
           EVENT_NAME: ${{ github.event_name }}
+          WR_EVENT: ${{ github.event.workflow_run.event || '' }}
           WR_CONCLUSION: ${{ github.event.workflow_run.conclusion || '' }}
           WR_BRANCH: ${{ github.event.workflow_run.head_branch || '' }}
           WR_SHA: ${{ github.event.workflow_run.head_sha || '' }}
@@ -95,7 +108,8 @@ jobs:
           sha="$SHA"
 
           if [[ $EVENT_NAME == workflow_run ]]; then
-            if [[ $WR_CONCLUSION == success && $WR_BRANCH == main ]]; then
+            # Defense in depth alongside the job-level if (push + main + success only).
+            if [[ $WR_EVENT == push && $WR_CONCLUSION == success && $WR_BRANCH == main ]]; then
               should_run=true
               should_publish=true
               channel=main
@@ -103,6 +117,8 @@ jobs:
               release_tag=latest-main
               prerelease=true
               sha="$WR_SHA"
+            else
+              echo "workflow_run ignored: event=$WR_EVENT conclusion=$WR_CONCLUSION branch=$WR_BRANCH"
             fi
           elif [[ $EVENT_NAME == push && $REF_NAME == v* ]]; then
             should_run=true
