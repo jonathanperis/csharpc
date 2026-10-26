@@ -60,7 +60,7 @@ blocker). Everything else of the `aot-parity` table (XML, cryptography, text ele
 
 | # | blocker | programs | only |
 |---:|---|---:|---:|
-| 1 | reflection / configuration binding (`ConfigurationIgnore` needs `Attribute.IsDefaultAttribute` / `TypeId` and more of `System.ComponentModel.TypeConverter`; `attributes` and `TracingConfiguration` pass on `ci/parity-hasflag-attrs` — MemberInfo→Type attributes, boxed `Enum.HasFlag`, `Array.CreateInstance` synth + `T[]` keep for closed array-interface elements) | 1 | 1 |
+| 1 | reflection / configuration binding (`ConfigurationIgnore` PASS on `ci/parity-typeconverter-bind` — TypeConverter/TypeDescriptor shadows, `Activator.CreateInstance(Type)`, `Type.GetInterfaces`, Bind DAM for concrete `object` args; `attributes` and `TracingConfiguration` pass on `ci/parity-hasflag-attrs`) | 0 | 0 |
 | 2 | expression trees (compiled or interpreted `Expression<T>`; `ExpressionTreeExample` is an explicit `CSLLVM0001` on DynamicMethod / expression trees — the Nullable invoker NRE is fixed on `ci/parity-hasflag-attrs`) | 2 | 2 |
 | 3 | `dynamic` | 1 | 1 |
 | 4 | C# 15 unions (csharpc's Roslyn binds them differently from the SDK's) | 2 | 2 |
