@@ -924,13 +924,13 @@ namespace CsharpcCoreLib
                 if (!all && !attributeType.IsAssignableFrom(TypeOf(ReflectionRecords.AttributeType(a)))) continue;
                 list.Add(CallFactory(ReflectionRecords.AttributeCreate(a)));
             }
-            // CoreCLR returns an array of the requested type (object[] when unfiltered).
-            // Use Attribute[] for the filtered case rather than Array.CreateInstance: that call would
-            // mark every TypeInfo reference type as needing a T[] method table (TracingConfiguration),
-            // and csharpc's castclass has no array covariance anyway (callers reinterpret).
-            object[] result = all
-                ? new object[list.Count]
-                : CoreIntrinsics.ReinterpretAs<object[]>(new Attribute[list.Count]);
+            // CoreCLR returns an array of the requested type (object[] / Attribute[] / TagAttribute[]).
+            // CreateInstance only for a concrete Attribute subclass: those already have T[] from
+            // attribute metadata emission. Do not CreateInstance(typeof(Attribute)) here in a way that
+            // notes every TypeInfo type for array keep — Attribute[] is allocated directly.
+            object[] result = all ? new object[list.Count]
+                : attributeType == typeof(Attribute) ? CoreIntrinsics.ReinterpretAs<object[]>(new Attribute[list.Count])
+                : CoreIntrinsics.ReinterpretAs<object[]>(Array.CreateInstance(attributeType, list.Count));
             for (int i = 0; i < list.Count; i++) result[i] = list[i];
             return result;
         }
