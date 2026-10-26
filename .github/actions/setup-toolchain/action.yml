@@ -1,0 +1,83 @@
+name: Setup csharpc toolchain
+description: LLVM 18, clang, the .NET 11 SDK, and (for wasm) the WASI SDK and wasmtime.
+inputs:
+  os:
+    description: "linux, macos, windows, or wasm"
+    required: true
+runs:
+  using: composite
+  steps:
+    - name: Install LLVM 18, clang and lld (Linux)
+      if: inputs.os == 'linux'
+      shell: bash
+      run: sudo apt-get update && sudo apt-get install -y llvm-18 clang-18 libllvm18 lld-18 && sudo ln -sf /usr/bin/clang-18 /usr/local/bin/clang && sudo ln -sf /usr/bin/ld.lld-18 /usr/local/bin/ld.lld
+
+    # Homebrew's clang 18 (not Apple clang) compiles the runtime, so its LTO bitcode matches the
+    # LLVM 18 that csharpc links it into; Apple's ld still links. The test scripts use bash 4+ and
+    # GNU coreutils (timeout, stat -c, date +%N).
+    - name: Install LLVM 18, bash and GNU coreutils (macOS)
+      if: inputs.os == 'macos'
+      shell: bash
+      run: |
+        set -euo pipefail
+        brew install llvm@18 bash coreutils
+        llvm="$(brew --prefix llvm@18)"
+        echo "$llvm/bin" >> "$GITHUB_PATH"
+        echo "$(brew --prefix coreutils)/libexec/gnubin" >> "$GITHUB_PATH"
+        echo "CSHARPC_LIBLLVM=$llvm/lib/libLLVM.dylib" >> "$GITHUB_ENV"
+        echo "SDKROOT=$(xcrun --sdk macosx --show-sdk-path)" >> "$GITHUB_ENV"
+
+    # LLVM-MinGW: clang (the runtime compiler and linker driver), lld, compiler-rt, libunwind,
+    # and the UCRT import libraries, plus libLLVM-18.dll for the compiler itself (the
+    # same LLVM 18, so the runtime's LTO bitcode matches). Pinned release and checksum.
+    - name: Install LLVM-MinGW (Windows)
+      if: inputs.os == 'windows'
+      shell: bash
+      run: |
+        set -euo pipefail
+        curl -sSLf -o "$RUNNER_TEMP/llvm-mingw.zip" https://github.com/mstorsjo/llvm-mingw/releases/download/20240619/llvm-mingw-20240619-ucrt-x86_64.zip
+        echo "810703594a7e3eea03385b5329c7ea3bd65f5e496b44cf1b68c17ff436d265e7  $RUNNER_TEMP/llvm-mingw.zip" | sha256sum -c -
+        unzip -q "$RUNNER_TEMP/llvm-mingw.zip" -d "$RUNNER_TEMP"
+        bin="$(cygpath -w "$RUNNER_TEMP/llvm-mingw-20240619-ucrt-x86_64/bin")"
+        echo "$bin" >> "$GITHUB_PATH"
+        echo "CSHARPC_LIBLLVM=$bin\\libLLVM-18.dll" >> "$GITHUB_ENV"
+
+    - name: Install LLVM 18 (WebAssembly host)
+      if: inputs.os == 'wasm'
+      shell: bash
+      run: sudo apt-get update && sudo apt-get install -y llvm-18 libllvm18
+
+    # Pinned releases and checksums: the WASI SDK (clang 18, wasm-ld, wasi-libc, compiler-rt) and the
+    # wasmtime LTS line. csharpc and the SDK must both be LLVM 18 (wasi-sdk 24).
+    - name: Install the WASI SDK and wasmtime
+      if: inputs.os == 'wasm'
+      shell: bash
+      run: |
+        set -euo pipefail
+        curl -sSLf -o "$RUNNER_TEMP/wasi-sdk.tar.gz" https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-24/wasi-sdk-24.0-x86_64-linux.tar.gz
+        echo "c6c38aab56e5de88adf6c1ebc9c3ae8da72f88ec2b656fb024eda8d4167a0bc5  $RUNNER_TEMP/wasi-sdk.tar.gz" | sha256sum -c -
+        tar xf "$RUNNER_TEMP/wasi-sdk.tar.gz" -C "$RUNNER_TEMP"
+        echo "WASI_SDK_PATH=$RUNNER_TEMP/wasi-sdk-24.0-x86_64-linux" >> "$GITHUB_ENV"
+        curl -sSLf -o "$RUNNER_TEMP/wasmtime.tar.xz" https://github.com/bytecodealliance/wasmtime/releases/download/v36.0.19/wasmtime-v36.0.19-x86_64-linux.tar.xz
+        echo "c6070b3043023f3b8e8dc3473a4c360c0d6784aa4294f5a6fc803580fcb2c875  $RUNNER_TEMP/wasmtime.tar.xz" | sha256sum -c -
+        tar xf "$RUNNER_TEMP/wasmtime.tar.xz" -C "$RUNNER_TEMP"
+        echo "$RUNNER_TEMP/wasmtime-v36.0.19-x86_64-linux" >> "$GITHUB_PATH"
+
+    - name: Install .NET 11 SDK
+      if: inputs.os != 'windows'
+      shell: bash
+      run: |
+        set -euo pipefail
+        curl -sSL https://dot.net/v1/dotnet-install.sh -o dotnet-install.sh
+        bash dotnet-install.sh --jsonfile global.json --install-dir "$HOME/.dotnet11"
+        echo "$HOME/.dotnet11" >> "$GITHUB_PATH"
+        echo "DOTNET_ROOT=$HOME/.dotnet11" >> "$GITHUB_ENV"
+
+    - name: Install .NET 11 SDK (Windows)
+      if: inputs.os == 'windows'
+      shell: pwsh
+      run: |
+        Invoke-WebRequest https://dot.net/v1/dotnet-install.ps1 -OutFile dotnet-install.ps1
+        ./dotnet-install.ps1 -JsonFile global.json -InstallDir "$env:USERPROFILE\.dotnet11"
+        "$env:USERPROFILE\.dotnet11" | Out-File -Append -Encoding utf8 $env:GITHUB_PATH
+        "DOTNET_ROOT=$env:USERPROFILE\.dotnet11" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV

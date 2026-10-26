@@ -93,6 +93,20 @@ marking was slower on 4 cores and is not in the default binary
 
 ## Cursor progress
 
+**CI sharding and targeted runs.** The differential step was the wall-clock of CI run
+[40310822368](https://github.com/jonathanperis/csharpc/actions/runs/40310822368): x86-64 38.5 min,
+Windows 49.1 min, arm64 35.4 min, macOS 29.5 min, wasm 21.5 min, 69 min end to end on Windows.
+`tests/run.sh --all-opts` is now sharded per platform (x86-64 and Windows 4, arm64/macOS/wasm 2;
+`-O0` and `-O2` stay in the same shard). Size, conformance, programs, projects, the Windows oracle
+and IL run as one suites job per platform, in parallel with the shards. The five `test (<platform>)`
+jobs only aggregate: a shard failure, a suites failure, or a manifest that does not cover every
+sample at `-O0` and `-O2` exactly once fails the gate. Docs-only pushes (`docs/**`, `*.md`, license
+files) skip the compiler when an ancestor already has those five checks green, and the checks still
+report success. `release.yml` publishes only when the triggering CI run was that full gate, so a
+docs-only or partial success does not ship. Targeted runs are a `CI-Only:` trailer or `ci/targets`
+on `ci/**`, or the **CI (targeted)** workflow; jobs are named `partial (...)` and are not the merge
+bar. Sharded timings are recorded once that run is green.
+
 **07:52.** Merged `ci/parity-hasflag-attrs` `--no-ff` as `8799df3`. Branch CI
 [40286018777](https://github.com/jonathanperis/csharpc/actions/runs/40286018777) green on all
 five (after macOS 544 flake re-run). Main CI
@@ -446,15 +460,25 @@ under budget. Budget raise reverted earlier; default collector unchanged.
 
 ## Working rules
 
-Build with `dotnet build src/Csharpc -c Release -m:1`, compile with `-j2`, run heavy suites on CI
-(`gh workflow run ci.yml --ref <branch>`, compat.yml, techempower.yml, il-survey.yml), poll CI slowly.
-After corelib edits run `CSHARPC_CHECK_CORELIB=1` (compiles every corelib member). Merge only
-CI-verified branches; avoid docs-only pushes to `main` while a merge's CI is pending (a push cancels
-the running run). Delete merged branches.
+Build with `dotnet build src/Csharpc -c Release -m:1`, compile with `-j2`, run heavy suites on CI,
+and poll CI slowly. After corelib edits run `CSHARPC_CHECK_CORELIB=1` (compiles every corelib member).
+Merge only CI-verified branches. Delete merged branches.
 
-Pushes to `main` are what start CI. A measurement branch is named `ci/<topic>` (the `ci/**` push
-filter on `ci.yml` and `bench.yml`). That does not change `main`: a push to `main` still runs CI,
-and the Benchmarks workflow still also requires a path change under `src/`, `benchmarks/` or its
-own file. TechEmpower has no branch filter, only those paths, so a `ci/**` branch that touches
-`benchmarks/techempower/**` or the workflow file runs it too; do not add a branch filter there.
-`gh workflow run` from this checkout returns HTTP 403 (no `actions: write`).
+CI (`.github/workflows/ci.yml`) runs on push to `main` and `ci/**`, on pull requests, and on a manual
+full dispatch. The merge bar is still `test (x86-64)`, `test (arm64)`, `test (macos-arm64)`,
+`test (windows-x64)` and `test (wasm32-wasi)`. A newer push to the same branch cancels the running
+run. A docs-only push skips the suite only when an ancestor's five checks are already green;
+cancelling an in-progress full run leaves that ancestor not green, so the replacement runs the
+suite. Avoid docs-only pushes to `main` while a merge's CI is in progress anyway.
+
+A measurement branch is named `ci/<topic>` (the `ci/**` push filter on `ci.yml` and `bench.yml`).
+That does not change `main`: a push to `main` still runs CI. The Benchmarks workflow still also
+requires a path change under `src/`, `benchmarks/` or its own file. TechEmpower has no branch filter,
+only those paths, so a `ci/**` branch that touches `benchmarks/techempower/**` or the workflow file
+runs it too; do not add a branch filter there.
+
+`gh workflow run` from this checkout returns HTTP 403 (no `actions: write`). Targeted runs from here
+are a push to `ci/**` with a `CI-Only:` trailer or a `ci/targets` file
+([05 — Testing](05-testing.md)). A full gate has neither. Partial runs are labeled `partial (...)`
+and do not satisfy the merge bar. Dispatching the workflow named CI, with a token that can, is a
+full gate; the targeted form is the workflow CI (targeted).

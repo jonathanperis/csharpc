@@ -1,0 +1,58 @@
+name: Run non-differential suites
+description: Size budgets, conformance, programs, projects, the Windows oracle, IL, and wasm GC stress.
+inputs:
+  os:
+    description: "linux, macos, windows, or wasm"
+    required: true
+runs:
+  using: composite
+  steps:
+    - name: Build
+      shell: bash
+      run: dotnet build src/Csharpc -c Release
+
+    - name: Binary-size budgets
+      shell: bash
+      run: tests/size.sh
+
+    - name: Conformance corpus
+      if: success() || failure()
+      shell: bash
+      run: tests/conformance.sh -j 4
+
+    # The adversarial corpus: gated on tests/conformance2/known-failures.txt (new failures and
+    # fixed known failures both fail the step). Linux and wasm only, until its outputs are checked
+    # on the other hosts.
+    - name: Adversarial conformance corpus
+      if: ${{ (success() || failure()) && (inputs.os == 'linux' || inputs.os == 'wasm') }}
+      shell: bash
+      run: tests/conformance2.sh -j 4
+
+    - name: Real-world programs
+      if: success() || failure()
+      shell: bash
+      run: tests/programs.sh
+
+    - name: Projects and dotnet build/run/publish integration
+      if: ${{ (success() || failure()) && inputs.os != 'wasm' }}
+      shell: bash
+      run: tests/projects.sh
+
+    # The Windows expectations are derived from the Linux recordings ("\r\n" line ends); check that
+    # derivation against real .NET on this machine for every test not listed in platform-skips.txt.
+    - name: Real .NET vs derived expectations (Windows)
+      if: ${{ (success() || failure()) && inputs.os == 'windows' }}
+      shell: bash
+      run: tests/check-oracle.sh -j 4
+
+    - name: IL front-end (libraries consumed as DLLs and NuGet packages)
+      if: ${{ (success() || failure()) && inputs.os != 'wasm' }}
+      shell: bash
+      run: tests/il.sh
+
+    # Root discovery under pressure: a collection at every allocation (CSRT_GC_STRESS=1). Without the
+    # compiler's stack spill slots this sample prints wrong totals.
+    - name: GC stress
+      if: ${{ (success() || failure()) && inputs.os == 'wasm' }}
+      shell: bash
+      run: CSRT_GC_STRESS=1 tests/run.sh --all-opts 310_gc_roots
