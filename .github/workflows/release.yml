@@ -344,9 +344,17 @@ jobs:
           set -euo pipefail
           VERSION='${{ needs.setup.outputs.version }}'
           mkdir -p release-assets nupkg
+          # Artifacts preserve the upload path: archives at bundles/, RID nupkgs at bundles/nupkg/.
+          shopt -s nullglob
           cp bundles/csharpc-*.tar.gz bundles/csharpc-*.zip release-assets/ 2>/dev/null || true
           cp bundles/csharpc-*.sizes.txt release-assets/ 2>/dev/null || true
-          cp bundles/csharpc.*.nupkg nupkg/ 2>/dev/null || true
+          # Flatten RID packages whether download-artifact left them nested or flat.
+          while IFS= read -r -d '' pkg; do
+            cp "$pkg" nupkg/
+          done < <(find bundles -type f -name 'csharpc.*.nupkg' -print0)
+          ls -la bundles bundles/nupkg nupkg || true
+          test "$(find nupkg -maxdepth 1 -name 'csharpc.*.nupkg' | wc -l)" -ge 4 \
+            || { echo "expected ≥4 RID nupkgs under nupkg/"; find bundles -type f -name '*.nupkg' -print; exit 1; }
           chmod +x tools/pack-tool-pointer.sh
           tools/pack-tool-pointer.sh "$VERSION" "$PWD/nupkg"
           cp nupkg/csharpc."$VERSION".nupkg release-assets/
