@@ -93,6 +93,45 @@ marking was slower on 4 cores and is not in the default binary
 
 ## Cursor progress
 
+**16:11.** Merged `ci/parity-threadpool-wait` `--no-ff` as `1932be2` (branch CI
+[40356651174](https://github.com/jonathanperis/csharpc/actions/runs/40356651174) green on all
+five after Co-authored-by strip). Event-wait pool injection only; does not fix the macOS 544
+empty-stdout hang (see `ci/fix-544-hang`).
+
+
+**16:11.** Merged `ci/parity-threadpool-wait` `--no-ff` as `31a395e` (branch CI
+[40356651174](https://github.com/jonathanperis/csharpc/actions/runs/40356651174) green on all
+five after Co-authored-by strip). Event-wait pool injection only; does not fix the macOS 544
+empty-stdout hang (see `ci/fix-544-hang`).
+
+Thread-pool event-wait injection on `ci/parity-threadpool-wait`, 2026-10-26. Times are BRT (UTC−3).
+
+**10:39.** Branch CI [40320552624](https://github.com/jonathanperis/csharpc/actions/runs/40320552624)
+(commit `0801c8a`): macos-arm64 and windows-x64 green; wasm32-wasi failed only
+`641_threadpool_event_wait_inject` (exit 124 — one-thread WASI, same class as 544). Added
+`platform-skips.txt` entry (`36e259c`); re-pushed → run
+[40332476180](https://github.com/jonathanperis/csharpc/actions/runs/40332476180). ConfigurationIgnore
+still COMPILE-UNSUPPORTED (~46 APIs: `Activator.CreateInstance(Type)`, `ParameterModifier`,
+`Type.GetInterfaces`/`GetField(s)`/`IsCollectible`, `Array.Sort(Array, IComparer)`,
+TypeConverterAttribute type tests, Half/Int128/UInt128.Parse, …) — next increment after this
+merge.
+
+**09:15.** Goal: remaining NativeAOT parity (~96.7 %, 8 in-scope programs) and the macOS
+`544_blocking_collection` merge-bar flake.
+
+**544 root cause.** Bounded `BlockingCollection` producers call `SemaphoreSlim.Wait` when full.
+Pool workers blocked there were not counted in `s_blocked`, so queued consumers never got a
+worker while `Task.WaitAll(producers)` waited — deadlock under load (empty stdout, exit 124,
+`-O0` on macOS CI). `csrt_task_wait` already injected; `csrt_event_wait` / `_token` did not.
+Fix: `csrt_pool_enter_blocking_wait` / `leave` shared by task waits and event waits. Sample
+`641_threadpool_event_wait_inject` (8 producers, capacity 2). Attribute `TypeId` /
+`IsDefaultAttribute` / `Match` virtuals added on `AttributeImpl` (ConfigurationIgnore still
+blocked on ~46 TypeConverter APIs). Hello size 28520.
+
+**ConfigurationIgnore.** Still COMPILE-UNSUPPORTED: Binder pulls `System.ComponentModel.TypeConverter`
+(`Type.GetInterfaces`, `Array.Sort(Array, IComparer)`, `Type.GetField`, `IsCollectible`, …).
+Not shipping that surface in this increment.
+
 **CI sharding and targeted runs.** The differential step was the wall-clock of CI run
 [40310822368](https://github.com/jonathanperis/csharpc/actions/runs/40310822368): x86-64 38.5 min,
 Windows 49.1 min, arm64 35.4 min, macOS 29.5 min, wasm 21.5 min, 69 min end to end on Windows.
@@ -303,8 +342,6 @@ configured BRT 17:18 on 2026-10-25. Branches `ci/release-packaging` and fix PRs 
 deleted.
 
 Audit of the `m8-perf` merge on 2026-10-25. Times are BRT (UTC−3).
-
-
 
 **12:46.** Merged `origin/main` (`91f2d97`) into `m8-perf` as `a9dbbd0`. Four conflicts, both sides kept:
 

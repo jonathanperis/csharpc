@@ -105,6 +105,7 @@ wasi bcl/006_environment          Environment.TickCount64 > 0: WASI's monotonic 
 wasi 380_readonly_collection_threadlocal  needs threads: Thread.Start throws PlatformNotSupportedException on WebAssembly
 wasi 443_concurrent_collections   needs threads (ConcurrentBag's per-thread queues): Thread.Start throws PlatformNotSupportedException on WebAssembly
 wasi 544_blocking_collection      needs threads (a producer thread, blocked takes woken by others): Thread.Start throws PlatformNotSupportedException on WebAssembly
+wasi 641_threadpool_event_wait_inject  needs threads (pool workers blocked in bounded BlockingCollection.Add, consumers on other workers): one thread on WebAssembly
 wasi 543_synchronization_context  needs threads: the context's thread waits for continuations that pool threads post (one thread on WebAssembly)
 wasi 550_partitioner_barrier_flatten  needs threads: Barrier participants wait for each other (pool work items run one after another on WebAssembly)
 wasi 194_marshal_strings          prints strerror(2): errno 2 is ENOENT on Linux, EACCES in WASI

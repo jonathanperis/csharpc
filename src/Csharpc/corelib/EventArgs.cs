@@ -22,6 +22,14 @@ namespace CsharpcCoreLib
     public abstract class AttributeImpl
     {
         protected AttributeImpl() { }
+
+        /// <summary>Attribute.TypeId: default is the attribute's runtime type (.NET).</summary>
+        public virtual object TypeId => GetType();
+
+        /// <summary>Attribute.IsDefaultAttribute: default false; ConfigurationIgnoreAttribute overrides.</summary>
+        public virtual bool IsDefaultAttribute() => false;
+
+        public virtual bool Match(object obj) => Equals(obj);
     }
 
     [Shadows("System.ComponentModel.PropertyChangedEventArgs")]
