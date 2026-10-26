@@ -298,6 +298,21 @@ csrt_Array* csrt_type_generic_arguments(TypeObject* t, const csrt_TypeInfoTable*
     return array;
 }
 
+/// Type.GetInterfaces(): all implemented interfaces described for this Type (empty when open generics
+/// omit the list). A new array each call; the caller tags it as System.Type[].
+csrt_Array* csrt_type_interfaces(TypeObject* t, const csrt_TypeInfoTable* table) {
+    const csrt_TypeInfo* info = info_of(t, table);
+    if (!info) return NULL;
+    if (info->flags & CSRT_TI_NO_INTERFACES) {
+        throw_unsupported(info->mt, "Type.GetInterfaces()");
+        return NULL;
+    }
+    uint32_t count = info->interface_count;
+    csrt_Array* array = csrt_new_array(sizeof(void*), count);
+    for (uint32_t i = 0; i < count; i++) ((TypeObject**)array->data)[i] = csrt_type_from_mt(info->interfaces[i]);
+    return array;
+}
+
 /// Type.GetArrayRank().
 int32_t csrt_type_array_rank(TypeObject* t, const csrt_TypeInfoTable* table) {
     const csrt_TypeInfo* info = info_of(t, table);

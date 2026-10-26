@@ -23,6 +23,20 @@ public sealed partial class FunctionCodeGen
             if (target.Parameters.FirstOrDefault()?.Type is not { Name: "Type", ContainingNamespace.Name: "System" }) return null;
             if (args[0].Value is not ITypeOfOperation typeOf || S(typeOf.TypeOperand) is not INamedTypeSymbol { TypeKind: TypeKind.Enum } named)
             {
+                // Configuration.Binder and similar pass a run-time Type into Enum.Parse/IsDefined:
+                // lower to a corelib helper (NotSupportedException until a full run-time enum table exists)
+                // so those libraries compile; programs that only bind non-enum properties never call it.
+                if (target.Name is "Parse" && args.Count is 2 or 3)
+                {
+                    var typeArg = EmitValue(args[0].Value);
+                    var text = Coerce(EmitValue(args[1].Value), TypeOf(args[1].Value), S(args[1].Parameter!.Type));
+                    var ignore = args.Count == 3
+                        ? Coerce(EmitValue(args[2].Value), TypeOf(args[2].Value), S(args[2].Parameter!.Type))
+                        : L.False;
+                    return CallCoreLib("EnumRuntime", "Parse", typeArg, text, ignore);
+                }
+                if (target.Name is "IsDefined" && args.Count == 2)
+                    return CallCoreLib("EnumRuntime", "IsDefined", EmitValue(args[0].Value), EmitValue(args[1].Value));
                 if (target.Name is "GetValues" or "GetNames" or "IsDefined" or "Parse" or "GetUnderlyingType")
                     throw CompileError.Unsupported($"Enum.{target.Name} with a Type that is not typeof(an enum)", inv);
                 return null;
