@@ -16,11 +16,36 @@ public sealed partial class FunctionCodeGen
     /// <summary>`typeof(T)` arguments of a source call site for the [DynamicallyAccessedMembers] dataflow.</summary>
     private void NoteDynamicallyAccessedArguments(IMethodSymbol target, ImmutableArray<IArgumentOperation> arguments)
     {
-        if (!arguments.Any(a => a.Value is ITypeOfOperation)) return;
         var byOrdinal = new ITypeSymbol?[target.Parameters.Length];
+        var any = false;
         foreach (var a in arguments)
-            if (a.Value is ITypeOfOperation t && a.Parameter is { } p && p.Ordinal < byOrdinal.Length) byOrdinal[p.Ordinal] = S(t.TypeOperand);
-        _m.NoteDynamicallyAccessedArguments(target, i => byOrdinal[i]);
+            if (a.Value is ITypeOfOperation t && a.Parameter is { } p && p.Ordinal < byOrdinal.Length)
+            {
+                byOrdinal[p.Ordinal] = S(t.TypeOperand);
+                any = true;
+            }
+        if (any) _m.NoteDynamicallyAccessedArguments(target, i => byOrdinal[i]);
+
+        // ConfigurationBinder.Bind(object) has no [DynamicallyAccessedMembers] on the instance (it uses
+        // RequiresUnreferencedCode + a source generator under NativeAOT). csharpc has no that generator
+        // yet: keep public/non-public properties (and a public parameterless ctor) of the argument's
+        // static type so Bind can see [ConfigurationIgnore] and set values like the generator would.
+        // The argument is converted to object: walk through the conversion to the concrete operand type.
+        if (target.Name == "Bind"
+            && target.ContainingType?.Name == "ConfigurationBinder"
+            && target.ContainingType.ContainingNamespace?.ToDisplayString() == "Microsoft.Extensions.Configuration")
+        {
+            foreach (var a in arguments)
+            {
+                var value = a.Value;
+                while (value is IConversionOperation { Operand: { } inner }) value = inner;
+                var staticType = S(TypeOf(value));
+                if (staticType is not INamedTypeSymbol { TypeKind: TypeKind.Class, SpecialType: SpecialType.None, IsAbstract: false } concrete)
+                    continue;
+                _m.MarkDynamicallyAccessed(concrete,
+                    ModuleCodeGen.DamProperties | ModuleCodeGen.DamPublicParameterlessConstructor | ModuleCodeGen.DamPublicConstructors);
+            }
+        }
     }
 
     /// <summary>Field <paramref name="index"/> (1 target, 2 function) of a delegate, or of the last delegate of its invocation list.</summary>
