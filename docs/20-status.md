@@ -180,6 +180,13 @@ Docs-only skip on `ci/faster-ci` is green: run
 [40353537781](https://github.com/jonathanperis/csharpc/actions/runs/40353537781). The plan kept
 the compiler off (diff and suites jobs skipped) because parent `b5da7e6` already had a green
 `test (*)` gate, and all five `test (<platform>)` checks succeeded without building.
+The same skip on the log commit is run
+[40361652626](https://github.com/jonathanperis/csharpc/actions/runs/40361652626), also green.
+
+Merged to `main` as `31a395e`. Main CI
+[40376708906](https://github.com/jonathanperis/csharpc/actions/runs/40376708906) is green on all
+five (18:19Z–19:06Z, 47 min; the macOS 1/2 shard waited until 18:47Z). Release setup treated
+that run as a full gate and started publish `0.1.0-spike.321`.
 
 **07:52.** Merged `ci/parity-hasflag-attrs` `--no-ff` as `8799df3`. Branch CI
 [40286018777](https://github.com/jonathanperis/csharpc/actions/runs/40286018777) green on all
