@@ -5,6 +5,7 @@ name: TechEmpower
 # requests (csharpc's responses must equal NativeAOT's) and loaded with wrk the way TechEmpower loads
 # it (pipelined plaintext, several concurrency levels). Until csharpc can build the app, the report
 # carries the NativeAOT/JIT numbers and csharpc's blocker list. Informational: it never gates.
+# Builds csharpc from this commit (not the published tool): throughput/size must reflect the tree.
 # No branch filter: any branch whose push touches the paths below runs the job, including a ci/**
 # measurement branch (docs/20-status.md). Adding a branch filter would stop that.
 on:
