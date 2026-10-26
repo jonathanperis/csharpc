@@ -95,6 +95,16 @@ marking was slower on 4 cores and is not in the default binary
 
 Thread-pool event-wait injection on `ci/parity-threadpool-wait`, 2026-10-26. Times are BRT (UTC−3).
 
+**10:39.** Branch CI [40320552624](https://github.com/jonathanperis/csharpc/actions/runs/40320552624)
+(commit `0801c8a`): macos-arm64 and windows-x64 green; wasm32-wasi failed only
+`641_threadpool_event_wait_inject` (exit 124 — one-thread WASI, same class as 544). Added
+`platform-skips.txt` entry (`36e259c`); re-pushed → run
+[40332476180](https://github.com/jonathanperis/csharpc/actions/runs/40332476180). ConfigurationIgnore
+still COMPILE-UNSUPPORTED (~46 APIs: `Activator.CreateInstance(Type)`, `ParameterModifier`,
+`Type.GetInterfaces`/`GetField(s)`/`IsCollectible`, `Array.Sort(Array, IComparer)`,
+TypeConverterAttribute type tests, Half/Int128/UInt128.Parse, …) — next increment after this
+merge.
+
 **09:15.** Goal: remaining NativeAOT parity (~96.7 %, 8 in-scope programs) and the macOS
 `544_blocking_collection` merge-bar flake.
 
