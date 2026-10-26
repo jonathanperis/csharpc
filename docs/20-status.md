@@ -93,6 +93,15 @@ marking was slower on 4 cores and is not in the default binary
 
 ## Cursor progress
 
+**07:52.** Merged `ci/parity-hasflag-attrs` `--no-ff` as `8799df3`. Branch CI
+[40286018777](https://github.com/jonathanperis/csharpc/actions/runs/40286018777) green on all
+five (after macOS 544 flake re-run). Main CI
+[40301384484](https://github.com/jonathanperis/csharpc/actions/runs/40301384484) green on all
+five. Branch deleted. Spot parity: `tutorial-attributes` + `TracingConfiguration` PASS → expected
+~238/246 (~96.7 %) pending full Compatibility; hello size still 28520. Remaining in-scope:
+ConfigurationIgnore (TypeConverter), expression trees (2), dynamic (1), C# 15 unions (2),
+System.Data (1), AssemblyLoadContext (1).
+
 **04:30.** Branch CI [40276316072](https://github.com/jonathanperis/csharpc/actions/runs/40276316072):
 wasm/x86-64/windows/arm64 green; macos-arm64 failed only `544_blocking_collection` [-O0]
 (exit 124 timeout, empty stdout; [-O2] PASS). Unrelated thread-scheduling flake — re-pushing
