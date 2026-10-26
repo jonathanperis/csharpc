@@ -29,6 +29,27 @@ tests/conformance.sh -j 4        # must stay at 100 %
 
 Never edit `.expected` files by hand — fix the program or the compiler, not the expectation.
 
+## CI
+
+The merge bar is the five `test (<platform>)` jobs in `.github/workflows/ci.yml` (Linux x86-64,
+Linux arm64, macOS arm64, Windows x64, wasm32-wasi). A full run shards the differential suite; the
+other suites stay intact, in parallel. Details and the shard counts are in
+[05 — Testing](05-testing.md).
+
+A commit that only touches `docs/**`, markdown, or the license files skips the compiler suite when
+the parent commit's five checks are already green. Those checks still report success.
+
+A targeted run does not count as that gate. On a `ci/<topic>` branch, either commit `ci/targets`
+or end the commit message with a trailer (keys in the trailer override the file):
+
+```
+CI-Only: filter=544_blocking_collection platforms=macos-arm64 repeat=20
+```
+
+With a token that can dispatch workflows, use Actions → **CI (targeted)**. `gh workflow run` from
+the usual agent checkout is HTTP 403. Dispatching the workflow named **CI** (no inputs) is a full
+gate, not a targeted run.
+
 ## Where things live
 
 | Area | Path |

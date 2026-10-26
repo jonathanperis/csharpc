@@ -328,7 +328,9 @@ tests/debuginfo.sh          # gdb-driven debug-info checks
 benchmarks/run.sh           # csharpc vs .NET JIT vs NativeAOT
 ```
 
-See [docs/05-testing.md](docs/05-testing.md).
+See [docs/05-testing.md](docs/05-testing.md). CI shards that differential suite and keeps the five
+`test (<platform>)` jobs as the merge bar; a docs-only change can skip the suite, and a targeted
+run (`CI-Only:` on a `ci/**` branch, or Actions → CI (targeted)) does not count as the bar.
 
 ## Documentation
 

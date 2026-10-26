@@ -1,0 +1,149 @@
+name: CI (targeted)
+
+# A partial run for one filter, platform subset, opt level, or repeat count. It is not the merge
+# bar: this workflow never creates `test (<platform>)` checks and release.yml only listens for the
+# workflow named CI. Cloud-agent tokens get HTTP 403 on `gh workflow run`; the same inputs are a
+# push to a ci/** branch with a CI-Only trailer or a ci/targets file (docs/05-testing.md).
+on:
+  workflow_dispatch:
+    inputs:
+      filter:
+        description: "Sample name substring (required when repeat > 1)"
+        type: string
+        required: false
+        default: ""
+      platforms:
+        description: "Comma-separated: x86-64, arm64, macos-arm64, windows-x64, wasm32-wasi, or all"
+        type: string
+        required: false
+        default: "all"
+      opt:
+        description: "Optimization level"
+        type: choice
+        options:
+          - all
+          - "-O0"
+          - "-O2"
+        default: all
+      repeat:
+        description: "Repeat count, 1-50 (requires a filter)"
+        type: string
+        required: false
+        default: "1"
+      skip_other:
+        description: "Skip size, conformance, programs, projects, oracle, and IL"
+        type: boolean
+        required: false
+        default: true
+
+# Blank defaults are not a narrowing, so the plan job fails instead of launching five full suites.
+run-name: CI (partial) platforms=${{ inputs.platforms }} filter=${{ inputs.filter }} opt=${{ inputs.opt }} repeat=${{ inputs.repeat }}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-targeted-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  plan:
+    name: plan (partial)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    outputs:
+      filter: ${{ steps.plan.outputs.filter }}
+      repeat: ${{ steps.plan.outputs.repeat }}
+      run_suites: ${{ steps.plan.outputs.run_suites }}
+      diff_matrix: ${{ steps.plan.outputs.diff_matrix }}
+      suites_matrix: ${{ steps.plan.outputs.suites_matrix }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Self-check the planner
+        run: bash tools/ci-plan.sh self-check
+
+      - name: Plan
+        id: plan
+        env:
+          CI_EVENT: workflow_dispatch
+          CI_REF: ${{ github.ref }}
+          CI_DISPATCH_MUST_NARROW: "1"
+          INPUT_FILTER: ${{ inputs.filter }}
+          INPUT_PLATFORMS: ${{ inputs.platforms }}
+          INPUT_OPT: ${{ inputs.opt }}
+          INPUT_REPEAT: ${{ inputs.repeat }}
+          INPUT_SKIP_OTHER: ${{ inputs.skip_other }}
+        run: bash tools/ci-plan.sh emit
+
+  diff:
+    name: ${{ matrix.job_name }}
+    needs: plan
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 100
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.diff_matrix) }}
+    env:
+      DOTNET_CLI_TELEMETRY_OPTOUT: 1
+      DOTNET_NOLOGO: 1
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Keep LF line endings (Windows)
+        if: matrix.os == 'windows'
+        run: git config --global core.autocrlf false
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: ./.github/actions/setup-toolchain
+        with:
+          os: ${{ matrix.os }}
+
+      - name: Select the WebAssembly target
+        if: matrix.os == 'wasm'
+        run: echo "CSHARPC_TEST_TARGET=wasm32-wasip1" >> "$GITHUB_ENV"
+
+      - name: Differential tests
+        env:
+          CI_FILTER: ${{ needs.plan.outputs.filter }}
+          CI_OPT: ${{ matrix.opt }}
+          CI_SHARD: ${{ matrix.shard }}
+          CI_SHARDS: ${{ matrix.shards }}
+          CI_REPEAT: ${{ needs.plan.outputs.repeat }}
+        run: bash tools/ci-plan.sh run-shard
+
+  suites:
+    name: ${{ matrix.job_name }}
+    needs: plan
+    if: needs.plan.result == 'success' && needs.plan.outputs.run_suites == 'true'
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.suites_matrix) }}
+    env:
+      DOTNET_CLI_TELEMETRY_OPTOUT: 1
+      DOTNET_NOLOGO: 1
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Keep LF line endings (Windows)
+        if: matrix.os == 'windows'
+        run: git config --global core.autocrlf false
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: ./.github/actions/setup-toolchain
+        with:
+          os: ${{ matrix.os }}
+
+      - name: Select the WebAssembly target
+        if: matrix.os == 'wasm'
+        run: echo "CSHARPC_TEST_TARGET=wasm32-wasip1" >> "$GITHUB_ENV"
+
+      - uses: ./.github/actions/run-suites
+        with:
+          os: ${{ matrix.os }}
