@@ -34,6 +34,10 @@ There are no hand-written expected outputs. That rules out a whole class of mist
 tests/run.sh                    # all samples
 tests/run.sh 06                 # samples whose name contains "06"
 CSHARPC_OPT=-O0 tests/run.sh    # unoptimized codegen (catches bugs that the optimizer hides)
+tests/run.sh --all-opts         # -O0 and -O2
+tests/run.sh --shard 0/4        # one deterministic slice of the sample list (what CI runs)
+tests/run.sh --repeat 20 544    # flake hunting; the run fails if any repeat fails
+tests/run.sh --list             # print the selected names and do not build
 tests/run.sh --regen            # re-record .expected/.exitcode from real .NET
 tests/run.sh --regen 07         # re-record a single sample
 ```
@@ -93,6 +97,74 @@ collection at every allocation), which checks that the compiler's GC root spilli
 
 Failure output shows the compile errors (including `CSLLVM0001` "not supported yet" diagnostics) or
 the first lines of a unified diff between the expected and actual stdout.
+
+## CI
+
+The merge bar is the five jobs `test (x86-64)`, `test (arm64)`, `test (macos-arm64)`,
+`test (windows-x64)` and `test (wasm32-wasi)` in [`.github/workflows/ci.yml`](../.github/workflows/ci.yml).
+A full run (push to `main` or `ci/**`, a pull request, or a manual dispatch of that workflow) splits
+the differential suite across shards and runs size, conformance, programs, projects, the Windows
+oracle and the IL front-end beside them. Each `test (<platform>)` job is only the aggregate: it
+fails if any shard or the suites job failed, or if the shard manifests do not list every sample at
+`-O0` and at `-O2` exactly once (`tools/ci-plan.sh coverage`). Shards are a round-robin over the
+`LC_ALL=C` sorted sample names (`tests/run.sh --shard INDEX/COUNT`).
+
+Shard counts are chosen from the unsharded step times on run
+[40310822368](https://github.com/jonathanperis/csharpc/actions/runs/40310822368) (x86-64 differential
+38.5 min, Windows 49.1 min, arm64 35.4 min, macOS 29.5 min, wasm 21.5 min; wall clock 69 min on
+Windows). x86-64 and Windows use 4 shards. arm64, macOS and wasm use 2: arm and macOS runners queue,
+and wasm shares `ubuntu-24.04` with x86-64, so more shards wait instead of finishing sooner.
+Run [40324256805](https://github.com/jonathanperis/csharpc/actions/runs/40324256805) measured the
+split: with a runner free, x86-64 shards take 8–9 min (suites 14 min), Windows shards 9–14 min
+(suites 20 min), arm64 shards 18 min, macOS shards 19–22 min, wasm shards 12–14 min. The full gate
+is then about 22 min. That run's 3 h end-to-end was queue time behind other workflows, not the
+shard work.
+
+A push or pull request that only touches `docs/**`, `*.md`, or `LICENSE` / `COPYING` / `NOTICE` /
+`AUTHORS` skips the compiler suite when some ancestor of that commit already has the five `test`
+checks green. The same five job names still run and pass, which is what a required check needs;
+`paths-ignore` would leave them pending. The skip does not apply when that ancestor's gate is
+missing, failed, or cancelled (a docs push that cancels an in-progress full run therefore runs the
+suite). `main` ignores a `CI-Only:` trailer and a `ci/targets` file, so those cannot drop the gate.
+
+### Targeted runs
+
+A targeted run is partial. Its jobs are named `partial (<platform>)`, and it does not report
+`test (<platform>)` as success, so it is not the merge bar. Release publishes only after a full
+gate (successful `diff (` shards for every platform and the five `test` checks); a partial or
+docs-only CI success does not publish.
+
+Two ways to start one:
+
+1. **Push a `ci/**` branch** (the agent checkout cannot dispatch workflows: `gh workflow run` is
+   HTTP 403). Put the spec in the tip commit's message, or in a `ci/targets` file, or both (trailer
+   keys win). The run title shows the commit message, so keep the trailer on the commit you push.
+
+   ```
+   CI-Only: filter=544_blocking_collection platforms=macos-arm64 repeat=20
+   ```
+
+   `ci/targets` (not read on `main` or on pull requests):
+
+   ```
+   filter=544_blocking_collection
+   platforms=macos-arm64
+   opt=-O0
+   repeat=20
+   skip_other=true
+   ```
+
+2. **Actions → CI (targeted) → Run workflow**, for a token that has `actions: write`. The same
+   keys are the inputs. The workflow is not named `CI`, so it cannot turn the merge-bar checks
+   green and it does not trigger a release.
+
+`filter` is a sample-name substring. `platforms` is `all` or a comma-separated list of `x86-64`,
+`arm64`, `macos-arm64`, `windows-x64`, `wasm32-wasi`. `opt` is `all`, `-O0`, or `-O2`. `repeat`
+is 1–50 and requires a filter (a repeat of the whole suite is refused). `skip_other` defaults to
+true on a targeted run, which skips size, conformance, programs, projects, the oracle and IL.
+The run must narrow the suite (a filter, a platform subset, one opt level, or a repeat); a bare
+`CI-Only:` is rejected. Partial runs are one job per platform, not sharded, so a repeat's log stays
+together. Delete `ci/targets` before merging the branch.
 
 ## Adding a sample
 

@@ -14,7 +14,10 @@ name: Release
 # Triggers:
 #   - After CI succeeds on main (workflow_run): rolling prerelease `latest-main`, package
 #     version 0.1.0-spike.<ci_run_number>. Does not run inside ci.yml, so it never cancels
-#     or slows the five merge-bar jobs.
+#     or slows the five merge-bar jobs. A docs-only or partial CI success does not publish:
+#     setup requires a successful `diff (` shard for every platform plus the five `test (`
+#     checks (tools/ci-plan.sh release-gate). The workflow named "CI (targeted)" is not this
+#     trigger.
 #   - Push of v* tags: named release + package version from the tag.
 #   - workflow_dispatch: dry-run by default (build+smoke only).
 on:
@@ -53,6 +56,9 @@ jobs:
   setup:
     name: setup
     runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      actions: read
     outputs:
       should_run: ${{ steps.meta.outputs.should_run }}
       should_publish: ${{ steps.meta.outputs.should_publish }}
@@ -75,11 +81,13 @@ jobs:
           WR_BRANCH: ${{ github.event.workflow_run.head_branch || '' }}
           WR_SHA: ${{ github.event.workflow_run.head_sha || '' }}
           WR_RUN_NUMBER: ${{ github.event.workflow_run.run_number || '' }}
+          WR_ID: ${{ github.event.workflow_run.id || '' }}
           REF_NAME: ${{ github.ref_name }}
           SHA: ${{ github.sha }}
           DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run || false }}
           VERSION_OVERRIDE: ${{ github.event_name == 'workflow_dispatch' && inputs.version || '' }}
           NUGET_USER: ${{ vars.NUGET_USER || '' }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           csproj_ver="$(sed -n 's/.*<Version>\([^<]*\)<\/Version>.*/\1/p' src/Csharpc/Csharpc.csproj | head -1)"
@@ -116,6 +124,24 @@ jobs:
             version="${VERSION_OVERRIDE:-$csproj_ver}"
             release_tag="v${version}"
             if [[ $version == *-* ]]; then prerelease=true; else prerelease=false; fi
+          fi
+
+          # A green CI run on main is not enough: docs-only skips and partial runs also conclude
+          # success, and neither built a tested compiler. Require the sharded diff jobs.
+          if [[ $should_run == true && $EVENT_NAME == workflow_run ]]; then
+            jobsfile="${RUNNER_TEMP:-/tmp}/ci-jobs.tsv"
+            if ! gh api --paginate "/repos/${GITHUB_REPOSITORY}/actions/runs/${WR_ID}/jobs?per_page=100" \
+                --jq '.jobs[] | [.name, (.conclusion // "")] | @tsv' > "$jobsfile"; then
+              echo "could not read CI jobs for run $WR_ID; not publishing"
+              should_run=false
+              should_publish=false
+            elif ! bash tools/ci-plan.sh release-gate "$jobsfile"; then
+              echo "CI run $WR_ID is not a full merge gate (docs-only or partial); not publishing"
+              should_run=false
+              should_publish=false
+            else
+              echo "CI run $WR_ID is a full merge gate"
+            fi
           fi
 
           # nuget.org: Trusted Publishing via NuGet/login in this file (release.yml, no environment).
