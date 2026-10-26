@@ -1,6 +1,7 @@
-// csrt garbage collector: conservative, non-moving, stop-the-world mark-sweep.
+// csrt garbage collector: conservative, non-moving, stop-the-world mark-sweep with an optional
+// sticky nursery (docs/adr/0004-memory-management.md).
 //
-// Design (docs/adr/0004-memory-management.md):
+// Design:
 //   * Small objects (<= 2048 bytes) live in 256 KiB chunks, aligned to their size, each serving a
 //     single size class. A chunk starts with a header holding the per-slot "allocated" and "mark"
 //     bitmaps, so any candidate pointer maps to (chunk, slot) with a mask, a hash lookup and a
@@ -10,13 +11,24 @@
 //     lists to thread or rebuild). A whole word is claimed at once; before marking, the unused
 //     part of each claimed word is handed back. Sweeping is just `allocated &= marked`.
 //   * Large objects get their own calloc'd block and are tracked in an array that is sorted at the
-//     start of each collection, so candidate pointers are resolved by binary search.
+//     start of each collection, so candidate pointers are resolved by binary search. They are born
+//     old: a minor collection finds young pointers in them only through the card table.
 //   * Roots are scanned conservatively: the main thread's stack (with callee-saved registers
 //     spilled by setjmp) and the writable segments (.data/.bss) of the main executable, which is
 //     where the compiler puts static fields. Pointers outside the heap — e.g. string literals in
 //     .rodata — are ignored. Every word of a reachable object is scanned conservatively, too.
-//   * A collection runs when the bytes allocated since the last one exceed max(32 MiB, 2 x live bytes)
-//     (CSRT_GC_TRIGGER_MB overrides the minimum).
+//   * Nursery (opt-in via --gc-nursery / CSHARPC_GC_NURSERY=1, which compiles with
+//     -DCSRT_GC_NURSERY_DEFAULT): small objects are allocated into young chunks. A minor
+//     collection marks only young objects from stacks, statics and dirty old chunks/large
+//     objects, then sweeps young chunks. Survivors stay in place but their chunks are promoted
+//     to old (so old→young edges from this collection become old→old and cards can be cleared).
+//     A major collection is today's full mark-sweep. CSRT_GC_NURSERY=0 disables the nursery in
+//     a nursery-built binary. The default binary does not compile nursery/card code in: barriers
+//     blow the async size budget and churn throughput drops (docs/adr/0004).
+//   * Cards: per-chunk and per-large-object dirty bits (mmap heaps are sparse; a flat table over
+//     [heap_min, heap_max) is not viable). The compiler emits csrt_gc_write for heap reference
+//     stores (dirty, then store). CSRT_GC_TRIGGER_MB is the major minimum; the nursery trigger
+//     defaults to 4 MiB (CSRT_GC_NURSERY_MB).
 //
 // Threads (docs/13-threading.md): every managed thread registers itself (stack bounds, TLS block,
 // allocation cache). Allocation caches are thread-local, so the fast path stays lock-free; slow
@@ -84,6 +96,16 @@
 #define MAX_SLOTS    ((CHUNK_SIZE - CHUNK_HEADER) / 16)
 #define LARGE_LIMIT  ((size_t)2048)
 #define MIN_TRIGGER  ((size_t)32 * 1024 * 1024)
+// 32 MiB matches the historical full-heap trigger cadence on churn; 4 MiB minors were too frequent
+// once survivors promote (each minor then walks dirty old chunks).
+#define NURSERY_MIN  ((size_t)32 * 1024 * 1024)
+// Nursery support is compiled only into --gc-nursery / CSHARPC_GC_NURSERY=1 binaries so the default
+// runtime stays inside the size budgets (async is ~176 bytes under).
+#if defined(CSRT_GC_NURSERY_DEFAULT)
+#define CSRT_HAS_NURSERY 1
+#else
+#define CSRT_HAS_NURSERY 0
+#endif
 
 static const uint32_t k_size_classes[17] = {16, 32, 48, 64, 80, 96, 128, 160, 192, 256, 320, 384, 512, 768, 1024, 1536, 2048};
 #define NUM_CLASSES (sizeof k_size_classes / sizeof k_size_classes[0])
@@ -94,6 +116,10 @@ struct Chunk {
     uint32_t slots;
     uint32_t live;         // live slots after the last sweep
     uint32_t size_class;
+#if CSRT_HAS_NURSERY
+    uint8_t young;         // 1: nursery chunk (minor collections sweep these)
+    uint8_t dirty;         // old→young card: set by the write barrier, cleared when scanned
+#endif
 #if defined(CSRT_GC_PARALLEL_MARK)
     uint8_t owner;         // which parallel marker writes this chunk's mark bits
 #endif
@@ -138,10 +164,19 @@ typedef struct {
     uint8_t* start;
     size_t size;
     bool marked;
+#if CSRT_HAS_NURSERY
+    bool dirty;  // write barrier: any store into this large object since the last minor
+#endif
 } LargeObject;
 
 static struct {
     bool enabled, stats, initialized, collecting, multithreaded;
+#if CSRT_HAS_NURSERY
+    bool nursery;          // generational mode (--gc-nursery build; CSRT_GC_NURSERY=0 disables)
+    bool minor;            // true while a minor collection is marking/sweeping
+    bool force_major;      // next collect is major (GC.Collect, promotion pressure)
+    bool large_dirty;      // any large-object card dirty (scanned wholesale on minor)
+#endif
     pthread_mutex_t lock;  // allocation slow paths, collections, thread registry
 
     csrt_GcThread main_thread;
@@ -187,8 +222,15 @@ static struct {
     size_t mark_count, mark_capacity;
 
     size_t allocated_since_gc, live_bytes, trigger, min_trigger;
+#if CSRT_HAS_NURSERY
+    size_t young_since_gc, young_live, nursery_trigger, nursery_trigger_min;
+    size_t minors_since_major;
+#endif
     size_t stress, stress_count;  // CSRT_GC_STRESS
     size_t collections, peak_heap, total_allocated;
+#if CSRT_HAS_NURSERY
+    size_t major_collections;  // CollectionCount(gen>0); equals collections when nursery is off
+#endif
     double total_gc_seconds;
 } g;
 
@@ -254,6 +296,41 @@ static void note_range(uintptr_t lo, uintptr_t hi) {
     if (hi > g.heap_max) g.heap_max = hi;
 }
 
+#if CSRT_HAS_NURSERY
+/// Mark the old chunk or large object containing `slot` dirty. Young targets are ignored (no old→young).
+/// Flat card tables over [heap_min, heap_max) are unusable: mmap chunks are sparse under ASLR.
+static inline void card_dirty(void* slot) {
+    uintptr_t p = (uintptr_t)slot;
+    if (p < g.heap_min || p >= g.heap_max) return;
+    uintptr_t base = p & ~(CHUNK_SIZE - 1);
+    if (chunk_set_contains(base)) {
+        Chunk* c = (Chunk*)base;
+        if (!c->young) c->dirty = 1;
+        return;
+    }
+    g.large_dirty = true;
+}
+
+void csrt_gc_cards_dirty(void* start, size_t n) {
+    if (!g.nursery || n == 0) return;
+    uint8_t* p = (uint8_t*)start;
+    uint8_t* end = p + n;
+    while (p < end) {
+        card_dirty(p);
+        uintptr_t next = ((uintptr_t)p & ~(CHUNK_SIZE - 1)) + CHUNK_SIZE;
+        p = (uint8_t*)next;
+    }
+}
+
+void csrt_gc_write(void** slot, void* value) {
+    // Dirty first: a signal stop between store and dirty would hide an old→young edge.
+    if (g.nursery) card_dirty(slot);
+    *slot = value;
+}
+#endif
+// Without CSRT_HAS_NURSERY the barrier symbols are not defined: default binaries must not
+// reference them (codegen emits calls only under --gc-nursery; bclmisc gates Array.Copy).
+
 // ---------------------------------------------------------------------------------------------
 // Chunks
 // ---------------------------------------------------------------------------------------------
@@ -299,6 +376,10 @@ static void chunk_format(Chunk* c, uint32_t cls) {
     c->size_class = cls;
     c->slots = (uint32_t)((CHUNK_SIZE - CHUNK_HEADER) / size);
     c->live = 0;
+#if CSRT_HAS_NURSERY
+    c->young = g.nursery ? 1 : 0;
+    c->dirty = 0;
+#endif
     memset(c->allocated, 0, sizeof c->allocated);
     memset(c->marked, 0, sizeof c->marked);
 }
@@ -339,6 +420,9 @@ static bool claim_word(SizeClass* sc, AllocCache* cache, uint32_t cls) {
             sc->word = w + 1;
             size_t bytes = (size_t)__builtin_popcountll(free_bits) * c->object_size;
             g.allocated_since_gc += bytes;
+#if CSRT_HAS_NURSERY
+            if (c->young) g.young_since_gc += bytes;
+#endif
             g.total_allocated += bytes;
             return true;
         }
@@ -632,6 +716,15 @@ void csrt_gc_init(void) {
     env = getenv("CSRT_GC_TRIGGER_MB");
     g.min_trigger = env && atol(env) > 0 ? (size_t)atol(env) * 1024 * 1024 : MIN_TRIGGER;
     g.trigger = g.min_trigger;
+#if CSRT_HAS_NURSERY
+    // Built with --gc-nursery: on unless CSRT_GC_NURSERY=0. Coarse per-chunk cards help RSS on
+    // livemutate but cost churn throughput and binary size (docs/adr/0004).
+    env = getenv("CSRT_GC_NURSERY");
+    g.nursery = !(env && env[0] == '0');
+    env = getenv("CSRT_GC_NURSERY_MB");
+    g.nursery_trigger_min = env && atol(env) > 0 ? (size_t)atol(env) * 1024 * 1024 : NURSERY_MIN;
+    g.nursery_trigger = g.nursery_trigger_min;
+#endif
     env = getenv("CSRT_GC_STRESS");
     g.stress = env && atol(env) > 0 ? (size_t)atol(env) : 0;
 #if defined(__GLIBC__)
@@ -691,11 +784,85 @@ static void* alloc_large(size_t size, bool clear) {
         g.large = grown;
         g.large_capacity = capacity;
     }
+#if CSRT_HAS_NURSERY
+    g.large[g.large_count++] = (LargeObject){ p, size, false, false };
+#else
     g.large[g.large_count++] = (LargeObject){ p, size, false };
+#endif
     note_range((uintptr_t)p, (uintptr_t)p + size);
     return p;
 }
 
+#if CSRT_HAS_NURSERY
+__attribute__((noinline, cold)) static void* alloc_small_slow(uint32_t cls) {
+    if (!g.initialized) csrt_gc_init();
+    gc_lock();
+    SizeClass* sc = &g.classes[cls];
+    AllocCache* cache = &tl_cache[cls];
+    bool collected = false;
+    void* result = NULL;
+    if (g.stress && g.enabled && ++g.stress_count % g.stress == 0 && !g.collecting) {
+        g.force_major = true;
+        collect(); collected = true;
+    }
+    for (;;) {
+        if (g.enabled && !g.collecting) {
+            if (g.nursery) {
+                if (g.young_since_gc >= g.nursery_trigger) { collect(); collected = true; }
+            } else if (g.allocated_since_gc >= g.trigger) {
+                collect(); collected = true;
+            }
+        }
+        if (cache->free_bits || claim_word(sc, cache, cls)) break;
+        if (!g.enabled || collected) goto out;
+        g.force_major = true;
+        collect();
+        collected = true;
+    }
+    size_t heap = g.live_bytes + g.allocated_since_gc;
+    if (heap > g.peak_heap) g.peak_heap = heap;
+    uint64_t bits = cache->free_bits;
+    if (g.stress) {
+        size_t w;
+        Chunk* c = cache_word(cache, &w);
+        c->allocated[w] &= ~(bits & (bits - 1));
+        bits &= -bits;
+    }
+    cache->free_bits = bits & (bits - 1);
+    result = cache->word_base + (size_t)__builtin_ctzll(bits) * k_size_classes[cls];
+out:
+    gc_unlock();
+    return result;
+}
+
+static void* alloc_large_locked(size_t size, bool clear) {
+    if (g.enabled) {
+        if (g.stress && ++g.stress_count % g.stress == 0) {
+            g.force_major = true;
+            collect();
+        } else if (g.nursery ? g.young_since_gc >= g.nursery_trigger : g.allocated_since_gc >= g.trigger) {
+            collect();
+        }
+    }
+    void* result = alloc_large(size, clear);
+    if (!result && g.enabled) {
+        g.force_major = true;
+        collect();
+        result = alloc_large(size, clear);
+    }
+    if (result) {
+        size_t charged = (size + 15) & ~(size_t)15;
+        g.allocated_since_gc += charged;
+        g.total_allocated += charged;
+        size_t heap = g.live_bytes + g.allocated_since_gc;
+        if (heap > g.peak_heap) g.peak_heap = heap;
+    }
+    return result;
+}
+#else
+// Keep the single-generation shapes identical to main: a shared `!g.collecting` wrapper around the
+// trigger check grew alloc_small_slow by ~60 bytes on aarch64 and tipped typeinfo's RX LOAD over a
+// 64 KiB file boundary (+4 KiB file size).
 __attribute__((noinline, cold)) static void* alloc_small_slow(uint32_t cls) {
     if (!g.initialized) csrt_gc_init();
     gc_lock();
@@ -728,14 +895,6 @@ out:
     return result;
 }
 
-__attribute__((noinline)) static void* alloc_large_slow(size_t size, bool clear) {
-    if (!g.initialized) csrt_gc_init();
-    gc_lock();
-    void* result = alloc_large_locked(size, clear);
-    gc_unlock();
-    return result;
-}
-
 static void* alloc_large_locked(size_t size, bool clear) {
     if (g.enabled && (g.allocated_since_gc >= g.trigger || (g.stress && ++g.stress_count % g.stress == 0))) collect();
     void* result = alloc_large(size, clear);
@@ -747,6 +906,15 @@ static void* alloc_large_locked(size_t size, bool clear) {
         size_t heap = g.live_bytes + g.allocated_since_gc;
         if (heap > g.peak_heap) g.peak_heap = heap;
     }
+    return result;
+}
+#endif
+
+__attribute__((noinline)) static void* alloc_large_slow(size_t size, bool clear) {
+    if (!g.initialized) csrt_gc_init();
+    gc_lock();
+    void* result = alloc_large_locked(size, clear);
+    gc_unlock();
     return result;
 }
 
@@ -771,8 +939,19 @@ void* csrt_gc_alloc(size_t size) { return gc_alloc(size, true); }
 
 void* csrt_gc_alloc_noclear(size_t size) { return gc_alloc(size, false); }
 
-/// GC.CollectionCount: the collections so far.
-int64_t csrt_gc_collection_count(void) { gc_lock(); int64_t n = (int64_t)g.collections; gc_unlock(); return n; }
+/// GC.CollectionCount(generation): gen 0 counts every collection; higher gens count majors only
+/// (majors == all collections when the nursery is not compiled in).
+int64_t csrt_gc_collection_count(int32_t generation) {
+    gc_lock();
+#if CSRT_HAS_NURSERY
+    int64_t n = generation <= 0 ? (int64_t)g.collections : (int64_t)g.major_collections;
+#else
+    (void)generation;
+    int64_t n = (int64_t)g.collections;
+#endif
+    gc_unlock();
+    return n;
+}
 
 /// GC.GetTotalAllocatedBytes: every byte handed out so far (allocation caches count when they claim slots).
 int64_t csrt_gc_total_allocated(void) { return (int64_t)__atomic_load_n(&g.total_allocated, __ATOMIC_RELAXED); }
@@ -853,6 +1032,9 @@ static inline __attribute__((always_inline)) void mark_candidate(uintptr_t word)
     uintptr_t base = word & ~(CHUNK_SIZE - 1);
     if (chunk_set_contains(base)) {
         Chunk* c = (Chunk*)base;
+#if CSRT_HAS_NURSERY
+        if (g.minor && !c->young) return;
+#endif
         size_t offset = word - base;
         if (c->object_size == 0 || offset < CHUNK_HEADER) return;
         size_t index = (offset - CHUNK_HEADER) / c->object_size;
@@ -861,6 +1043,11 @@ static inline __attribute__((always_inline)) void mark_candidate(uintptr_t word)
         mark_push((uint8_t*)base + CHUNK_HEADER + index * c->object_size, c->object_size);
         return;
     }
+
+#if CSRT_HAS_NURSERY
+    // Large objects are old: a minor collection ignores them as mark roots (cards scan their bodies).
+    if (g.minor) return;
+#endif
 
     // Large objects: binary search the (sorted) table; interior pointers count.
     size_t lo = 0, hi = g.large_count;
@@ -1619,6 +1806,107 @@ static void profile_print(void) {
 }
 #endif
 
+#if CSRT_HAS_NURSERY
+/// Scan dirty old chunks (and large objects) for pointers into the nursery.
+CSRT_GC_NO_SANITIZE static void scan_cards(void) {
+    for (Chunk* c = g.chunks; c; c = c->next) {
+        if (!c->dirty || c->young || c->object_size == 0) { c->dirty = 0; continue; }
+        c->dirty = 0;
+        scan_range((const uint8_t*)c + CHUNK_HEADER, (const uint8_t*)c + CHUNK_SIZE);
+    }
+    if (!g.large_dirty) return;
+    g.large_dirty = false;
+    for (size_t i = 0; i < g.large_count; i++) {
+        LargeObject* obj = &g.large[i];
+        const csrt_MethodTable* mt = *(const csrt_MethodTable* const*)obj->start;
+        if (mt && (mt->flags & CSRT_MT_NO_REFERENCES)) continue;
+        scan_range(obj->start + sizeof(void*), obj->start + obj->size);
+    }
+}
+#endif
+
+#if CSRT_HAS_NURSERY
+static size_t sweep(bool major) {
+    size_t live = 0;
+    for (size_t cls = 0; cls < NUM_CLASSES; cls++) {
+        g.classes[cls].chunk = NULL;
+        g.classes[cls].partial = NULL;
+    }
+    g.empty = NULL;
+
+    for (Chunk* c = g.chunks; c; c = c->next) {
+        if (c->object_size == 0) { c->young = 0; c->next_free = g.empty; g.empty = c; continue; }
+        if (!major && !c->young) {
+            uint32_t still_live = 0;
+            size_t words = (c->slots + 63) / 64;
+            for (size_t w = 0; w < words; w++) still_live += (uint32_t)__builtin_popcountll(c->allocated[w]);
+            c->live = still_live;
+            live += (size_t)still_live * c->object_size;
+            continue;
+        }
+        uint32_t still_live = 0;
+        size_t words = (c->slots + 63) / 64;
+        for (size_t w = 0; w < words; w++) {
+#ifdef CSRT_ALLOC_PROFILE
+            for (uint64_t dead = c->allocated[w] & ~c->marked[w]; dead; dead &= dead - 1)
+                profile_dead((uint8_t*)c + CHUNK_HEADER + (w * 64 + (size_t)__builtin_ctzll(dead)) * c->object_size, c->object_size);
+#endif
+            c->allocated[w] &= c->marked[w];
+            still_live += (uint32_t)__builtin_popcountll(c->allocated[w]);
+            c->marked[w] = 0;
+        }
+        c->live = still_live;
+        if (still_live == 0) {
+            c->object_size = 0;
+            c->young = 0;
+            c->next_free = g.empty;
+            g.empty = c;
+            continue;
+        }
+        // Survivors are old: after a minor this turns old→young edges into old→old so cards can
+        // clear. Promoted chunks are not allocated into again until a later major frees them.
+        c->young = 0;
+        c->dirty = 0;
+        if (major && still_live < c->slots) {
+            SizeClass* sc = &g.classes[c->size_class];
+            c->next_free = sc->partial;
+            sc->partial = c;
+        }
+        live += (size_t)still_live * c->object_size;
+    }
+
+    if (major) {
+        size_t kept = 0;
+        for (size_t i = 0; i < g.large_count; i++) {
+            LargeObject obj = g.large[i];
+            if (obj.marked) {
+                obj.marked = false;
+                g.large[kept++] = obj;
+                live += obj.size;
+            } else {
+                if (g.deferred_count == g.deferred_capacity) {
+                    size_t capacity = g.deferred_capacity ? g.deferred_capacity * 2 : 1024;
+                    g.deferred_free = mmap_grow(g.deferred_free, g.deferred_capacity * sizeof(void*), capacity * sizeof(void*));
+                    g.deferred_capacity = capacity;
+                }
+                g.deferred_free[g.deferred_count++] = obj.start;
+#ifdef CSRT_ALLOC_PROFILE
+                profile_dead(obj.start, obj.size);
+#endif
+            }
+        }
+        g.large_count = kept;
+        g.large_sorted = kept;
+    } else {
+        for (size_t i = 0; i < g.large_count; i++) {
+            g.large[i].marked = false;
+            live += g.large[i].size;
+        }
+    }
+    g.young_live = 0;
+    return live;
+}
+#else
 static size_t sweep(void) {
     size_t live = 0;
     for (size_t cls = 0; cls < NUM_CLASSES; cls++) {
@@ -1642,7 +1930,7 @@ static size_t sweep(void) {
         }
         c->live = still_live;
         if (still_live == 0) {
-            c->object_size = 0;  // reusable by any size class (pages stay resident: refaulting is costly)
+            c->object_size = 0;
             c->next_free = g.empty;
             g.empty = c;
             continue;
@@ -1678,6 +1966,7 @@ static size_t sweep(void) {
     g.large_sorted = kept;
     return live;
 }
+#endif
 
 // ---------------------------------------------------------------------------------------------
 // Weak references and ephemerons (WeakReference, ConditionalWeakTable: corelib/WeakReferences.cs)
@@ -1703,16 +1992,23 @@ static struct {
 
 /// Whether a candidate pointer's object was marked by this collection (pointers outside the heap —
 /// string literals, static data — are always alive). Valid between marking and sweeping.
+/// During a minor collection, old objects are treated as marked (they are not re-traced).
 static bool weak_is_marked(uintptr_t word) {
     if (word < g.heap_min || word >= g.heap_max) return true;
     uintptr_t base = word & ~(CHUNK_SIZE - 1);
     if (chunk_set_contains(base)) {
         Chunk* c = (Chunk*)base;
+#if CSRT_HAS_NURSERY
+        if (g.minor && !c->young) return true;
+#endif
         size_t offset = word - base;
         if (c->object_size == 0 || offset < CHUNK_HEADER) return false;
         size_t index = (offset - CHUNK_HEADER) / c->object_size;
         return index < c->slots && bit_get(c->allocated, index) && bit_get(c->marked, index);
     }
+#if CSRT_HAS_NURSERY
+    if (g.minor) return true;  // large objects are old
+#endif
     size_t lo = 0, hi = g.large_count;
     while (lo < hi) {
         size_t mid = (lo + hi) / 2;
@@ -1806,9 +2102,22 @@ void csrt_weak_free(intptr_t handle) {
 __attribute__((noinline)) void csrt_gc_collect_now(void) {
     if (g.collecting) return;
     g.collecting = true;
+#if CSRT_HAS_NURSERY
+    // Stress and explicit Collect always major. Many minors without a major would never sweep
+    // dead objects in promoted chunks.
+    bool major = !g.nursery || g.force_major || g.stress || g.minors_since_major >= 32;
+    g.force_major = false;
+    g.minor = g.nursery && !major;
+    bool was_minor = g.minor;
+#endif
 #if defined(CSRT_GC_PARALLEL_MARK) && !defined(__wasi__)
     // Helpers are created outside the pause. They block until parallel_drain publishes a job.
+    // Parallel marking is only wired for full collections (ownership table covers every chunk).
+#if CSRT_HAS_NURSERY
+    int parallel = !g.minor && want_parallel() && ensure_pool() > 0;
+#else
     int parallel = want_parallel() && ensure_pool() > 0;
+#endif
 #endif
     struct timespec t0, t1;
     clock_gettime(CLOCK_MONOTONIC, &t0);  // GC.GetTotalPauseDuration
@@ -1816,6 +2125,9 @@ __attribute__((noinline)) void csrt_gc_collect_now(void) {
     stop_world();
     sort_large(g.large, g.large_count);
     scan_roots();
+#if CSRT_HAS_NURSERY
+    if (g.minor) scan_cards();
+#endif
 #if defined(CSRT_GC_PARALLEL_MARK) && !defined(__wasi__)
     if (parallel && g.mark_count > 0) parallel_drain();
     else
@@ -1823,13 +2135,37 @@ __attribute__((noinline)) void csrt_gc_collect_now(void) {
     drain();
     weak_process();
     protect_caches();
+#if CSRT_HAS_NURSERY
+    g.live_bytes = sweep(!g.minor);
+    if (!g.minor) {
+        for (Chunk* c = g.chunks; c; c = c->next) c->dirty = 0;
+        g.large_dirty = false;
+    } else {
+        // Survivors' chunks were promoted: drop allocation caches so the fast path cannot place
+        // new objects into old chunks (they would be invisible to the next minor mark).
+        for (csrt_GcThread* t = g.threads; t; t = t->next)
+            if (t->state == THREAD_RUNNING && t->cache) release_cache(t->cache);
+    }
+#else
     g.live_bytes = sweep();
+#endif
     resume_world();
     for (size_t i = 0; i < g.deferred_count; i++) free(g.deferred_free[i]);
     g.deferred_count = 0;
     g.allocated_since_gc = 0;
+#if CSRT_HAS_NURSERY
+    g.young_since_gc = 0;
+#endif
     g.trigger = 2 * g.live_bytes > g.min_trigger ? 2 * g.live_bytes : g.min_trigger;
+#if CSRT_HAS_NURSERY
+    if (g.nursery && !was_minor) g.nursery_trigger = g.nursery_trigger_min;
     g.collections++;
+    if (!was_minor) { g.major_collections++; g.minors_since_major = 0; }
+    else g.minors_since_major++;
+    g.minor = false;
+#else
+    g.collections++;
+#endif
 
     clock_gettime(CLOCK_MONOTONIC, &t1);
     g.total_gc_seconds += (double)(t1.tv_sec - t0.tv_sec) + (double)(t1.tv_nsec - t0.tv_nsec) / 1e9;
@@ -1846,6 +2182,9 @@ void csrt_gc_collect(void) {
     if (!g.initialized) csrt_gc_init();
     if (!g.enabled) return;
     gc_lock();
+#if CSRT_HAS_NURSERY
+    g.force_major = true;
+#endif
     collect();
     gc_unlock();
 }
@@ -1855,10 +2194,18 @@ void csrt_gc_shutdown(void) {
     pool_shutdown();
 #endif
     if (!g.stats) return;
+#if CSRT_HAS_NURSERY
+    fprintf(stderr,
+            "csrt gc: %zu collections (%zu major), %.1f ms total, allocated %.1f MiB, peak heap %.1f MiB, live %.1f MiB, %zu chunks, %zu large objects%s\n",
+            g.collections, g.major_collections, g.total_gc_seconds * 1000.0, g.total_allocated / 1048576.0, g.peak_heap / 1048576.0,
+            (g.live_bytes + g.allocated_since_gc) / 1048576.0, g.chunk_count, g.large_count,
+            g.nursery ? ", nursery on" : "");
+#else
     fprintf(stderr,
             "csrt gc: %zu collections, %.1f ms total, allocated %.1f MiB, peak heap %.1f MiB, live %.1f MiB, %zu chunks, %zu large objects\n",
             g.collections, g.total_gc_seconds * 1000.0, g.total_allocated / 1048576.0, g.peak_heap / 1048576.0,
             (g.live_bytes + g.allocated_since_gc) / 1048576.0, g.chunk_count, g.large_count);
+#endif
 #ifdef CSRT_ALLOC_PROFILE
     profile_print();
 #endif

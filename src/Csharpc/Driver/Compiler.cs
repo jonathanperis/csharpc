@@ -202,6 +202,7 @@ public sealed class Compiler(CompilerOptions options)
             RuntimeConfig = settings.RuntimeConfig,
             ProgramAssemblies = ProgramAssembly.From(settings, codegenCompilation.AssemblyName ?? "program"),
             LinkedShims = linkedShims,
+            GcNursery = options.GcNursery,
         };
         using var debugInfo = options.Debug
             ? codegen.Debug = new DebugInfo(codegen, settings.Files.Count > 0 ? settings.Files[0] : "program.cs", options.OptLevel > 0)

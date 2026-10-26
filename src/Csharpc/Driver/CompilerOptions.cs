@@ -56,6 +56,12 @@ public sealed record CompilerOptions
     /// <summary>Sanitizers for the C runtime (e.g. "address,undefined"); test builds only.</summary>
     public string? Sanitize { get; set; } = Environment.GetEnvironmentVariable("CSHARPC_SANITIZE") is { Length: > 0 } s ? s : null;
     public bool RuntimeLto { get; set; } = Environment.GetEnvironmentVariable("CSHARPC_NO_RUNTIME_LTO") != "1";
+    /// <summary>
+    /// Emit heap write barriers and build the runtime with the nursery as the default collector
+    /// (CSHARPC_GC_NURSERY=1 / --gc-nursery). Off by default: barriers inflate binaries past the
+    /// size budgets and slow churn on coarse per-chunk cards (docs/adr/0004).
+    /// </summary>
+    public bool GcNursery { get; set; } = Environment.GetEnvironmentVariable("CSHARPC_GC_NURSERY") == "1";
     public List<string> Defines { get; } = [];
     public string CC { get; set; } = Environment.GetEnvironmentVariable("CSHARPC_CC") ?? "clang";
     /// <summary>A .csproj to evaluate instead of loose files (drop-in mode).</summary>
@@ -102,6 +108,8 @@ public sealed record CompilerOptions
                                  (default: il, or $CSHARPC_CORELIB)
           --no-implicit-usings   Don't add the SDK's implicit global usings
           --no-runtime-lto       Link the runtime as objects instead of LTO-ing its bitcode
+          --gc-nursery           Emit heap write barriers and enable the non-moving nursery by default
+                                 (also CSHARPC_GC_NURSERY=1; off by default — see docs/adr/0004)
           --stack-traces         Record stack traces in every program (default: only programs that print
                                  an exception or read Exception.StackTrace)
           --hardening <level>    none | default (full RELRO, NX, stack probes, hardened runtime) | max (+ CET IBT/SHSTK or BTI/PAC, SLH)
@@ -189,6 +197,7 @@ public sealed record CompilerOptions
                     break;
                 case "--no-implicit-usings": o.ImplicitUsings = false; break;
                 case "--no-runtime-lto": o.RuntimeLto = false; break;
+                case "--gc-nursery": o.GcNursery = true; break;
                 case "--stack-traces": o.StackTraces = true; break;
                 case "--hardening": o.Hardening = Driver.Hardening.Parse(Next()); break;
                 case "--sanitize": o.Sanitize = Next(); break;

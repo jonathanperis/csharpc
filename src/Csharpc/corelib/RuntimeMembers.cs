@@ -369,13 +369,13 @@ namespace CsharpcCoreLib
         public static TimeSpan GetTotalPauseDuration() => new TimeSpan(TotalPauseTicks());
         public static int MaxGeneration => 2;
 
-        [DllImport("__Internal", EntryPoint = "csrt_gc_collection_count")] private static extern long Collections();
+        [DllImport("__Internal", EntryPoint = "csrt_gc_collection_count")] private static extern long Collections(int generation);
 
-        /// <summary>Every csharpc collection is a full one, which .NET counts for every generation up to it.</summary>
+        /// <summary>Gen 0 counts minor and major collections; higher gens count majors only.</summary>
         public static int CollectionCount(int generation)
         {
             ArgumentOutOfRangeException.ThrowIfNegative(generation);
-            return (int)Collections();
+            return (int)Collections(generation);
         }
 
         // csharpc's collector never moves objects: every array is pinned, and fresh memory is zeroed anyway.
