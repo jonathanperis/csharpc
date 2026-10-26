@@ -32,6 +32,12 @@ namespace CsharpcCoreLib
         public static Attribute[] GetCustomAttributes(MemberInfo element, Type attributeType, bool inherit)
         {
             Check(element, attributeType);
+            // csharpc's Type objects are runtime Type handles (csrt_Type_MT), not MemberInfo instances:
+            // `is MemberInfo` is false and MemberInfo virtuals on them throw. Route through Type's own
+            // GetCustomAttributes (BclValueTypes.Reflection), which the attributes tutorial needs after
+            // GetTypeInfo() (an identity that still types the value as TypeInfo/MemberInfo at the call).
+            if (element is Type type)
+                return CoreIntrinsics.ReinterpretAs<Attribute[]>(type.GetCustomAttributes(attributeType, inherit));
             return CoreIntrinsics.ReinterpretAs<Attribute[]>(element.GetCustomAttributes(attributeType, inherit));
         }
 
@@ -46,6 +52,7 @@ namespace CsharpcCoreLib
         public static bool IsDefined(MemberInfo element, Type attributeType, bool inherit)
         {
             Check(element, attributeType);
+            if (element is Type type) return type.IsDefined(attributeType, inherit);
             return element.IsDefined(attributeType, inherit);
         }
 

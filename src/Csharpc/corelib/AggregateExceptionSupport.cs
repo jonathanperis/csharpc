@@ -103,5 +103,36 @@ namespace CsharpcCoreLib
                 if (!predicate(inner)) (unhandled ??= new List<Exception>()).Add(inner);
             if (unhandled != null) throw new AggregateException(aggregate.Message, unhandled);
         }
+
+        /// <summary>
+        /// AggregateException.GetBaseException: unwrap while there is exactly one inner exception (and it is
+        /// itself an AggregateException or any exception); with 0 or 2+ inners, return this aggregate.
+        /// </summary>
+        public static Exception GetBaseException(Exception aggregate)
+        {
+            Exception back = aggregate;
+            while (back is AggregateException)
+            {
+                Exception[] inners = Inners(back);
+                if (inners.Length != 1 || inners[0] == null) break;
+                back = inners[0];
+            }
+            return back;
+        }
+
+        /// <summary>Exception.GetBaseException: walk InnerException to the innermost.</summary>
+        public static Exception GetBaseExceptionDefault(Exception exception)
+        {
+            Exception back = exception;
+            while (back.InnerException != null) back = back.InnerException;
+            return back;
+        }
+
+        /// <summary>
+        /// Exception.GetBaseException when the compile-time type is Exception (or another library
+        /// exception): AggregateException overrides the walk; everything else uses InnerException.
+        /// </summary>
+        public static Exception GetBaseExceptionDispatch(Exception exception) =>
+            exception is AggregateException ? GetBaseException(exception) : GetBaseExceptionDefault(exception);
     }
 }

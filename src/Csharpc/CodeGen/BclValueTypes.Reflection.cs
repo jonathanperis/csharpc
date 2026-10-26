@@ -100,7 +100,13 @@ internal static partial class BclValueTypes
         t[$"{Type}.MakeByRefType()"] = core("MakeByRefType");
         t[$"{Type}.get_GenericParameterAttributes()"] = (g, _, self, _, _) =>
             Rt(g, "csrt_type_generic_parameter_attributes", g.Llvm.I32, (self, g.Llvm.Ptr), (Table(g), g.Llvm.Ptr));
-        t["System.Array.CreateInstance(System.Type, int)"] = (g, _, _, a, _) => g.CallCoreLib("ReflectionRuntime", "CreateInstance", a[0], a[1]);
+        t["System.Array.CreateInstance(System.Type, int)"] = (g, _, _, a, _) =>
+        {
+            // DI/config binders CreateInstance types kept for reflection: ensure T[] (with IList<T>)
+            // for those, not every TypeInfo type (that blew compile time on TracingConfiguration).
+            g.Module.NoteArrayCreateInstance();
+            return g.CallCoreLib("ReflectionRuntime", "CreateInstance", a[0], a[1]);
+        };
         t["System.Array.SetValue(object, int)"] = (g, _, self, a, _) => g.CallCoreLib("ReflectionRuntime", "SetValue", self, a[0], a[1]);
         t["System.Enum.ToObject(System.Type, object)"] = (g, _, _, a, _) =>
             Rt(g, "csrt_enum_to_object", g.Llvm.Ptr, (a[0], g.Llvm.Ptr), (a[1], g.Llvm.Ptr), (Table(g), g.Llvm.Ptr));

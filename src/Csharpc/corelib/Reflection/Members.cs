@@ -925,8 +925,12 @@ namespace CsharpcCoreLib
                 list.Add(CallFactory(ReflectionRecords.AttributeCreate(a)));
             }
             // CoreCLR returns an array of the requested type (object[] when unfiltered).
-            // (A reinterpretation rather than a cast: csharpc's castclass has no array covariance.)
-            object[] result = all ? new object[list.Count] : CoreIntrinsics.ReinterpretAs<object[]>(Array.CreateInstance(attributeType, list.Count));
+            // Use Attribute[] for the filtered case rather than Array.CreateInstance: that call would
+            // mark every TypeInfo reference type as needing a T[] method table (TracingConfiguration),
+            // and csharpc's castclass has no array covariance anyway (callers reinterpret).
+            object[] result = all
+                ? new object[list.Count]
+                : CoreIntrinsics.ReinterpretAs<object[]>(new Attribute[list.Count]);
             for (int i = 0; i < list.Count; i++) result[i] = list[i];
             return result;
         }
@@ -994,8 +998,16 @@ namespace CsharpcCoreLib
             if (!inherit || type.IsInterface) return;
             for (Type b = type.BaseType; b != null; b = b.BaseType)
             {
-                byte* info = TypeAttributeInfo(b);
-                if (info != null && ReflectionRecords.InfoAttributeCount(info) > 0)
+                // Object / other bases with no attribute table entry have nothing to inherit — don't
+                // demand DynamicallyAccessedMembers metadata for them (Attribute.GetCustomAttributes
+                // defaults to inherit: true; Type.GetCustomAttributes(true) did the same).
+                byte* info = InfoOf(b, "custom attributes");
+                if (info == null) continue;
+                uint described = (uint)ReflectionRecords.InfoDescribed(info);
+                if ((described & 128) != 0)
+                    throw new NotSupportedException("Inherited custom attributes of '" + type + "' (from '" + b + "') are not supported by csharpc yet.");
+                if ((described & 16) == 0) continue;
+                if (ReflectionRecords.InfoAttributeCount(info) > 0)
                     throw new NotSupportedException("Inherited custom attributes of '" + type + "' (from '" + b + "') are not supported by csharpc yet.");
             }
         }
@@ -1037,6 +1049,9 @@ namespace CsharpcCoreLib
 
         public static void SetValue(Array array, object value, int index) =>
             CoreIntrinsics.csrt_array_set_value(array, value, index, CoreIntrinsics.TypeInfoTableAddress());
+
+        public static object GetValue(Array array, int index) =>
+            CoreIntrinsics.csrt_array_get_value(array, index, CoreIntrinsics.TypeInfoTableAddress());
 
         // ---- Delegates ---------------------------------------------------------------------------
 
