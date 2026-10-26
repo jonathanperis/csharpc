@@ -234,6 +234,16 @@ packages on nuget.org; pointer package rejected (400: MIT license expression nee
 `<licenseUrl>https://licenses.nuget.org/MIT</licenseUrl>`). GHCR skipped because it ran after
 nuget.org. Fix pointer nuspec + run GHCR before nuget.org.
 
+**07:07 (2026-10-26).** nuget.org Trusted Publishing end-to-end green. Release 40301061188 pushed
+rolling `0.1.0-spike.271` / `latest-main` (archives, GH Packages, GHCR, nuget.org RID + pointer).
+Tag `v0.1.0-spike` on `8799df3` → Release 40303070856 (channel=tag): GitHub Release
+https://github.com/jonathanperis/csharpc/releases/tag/v0.1.0-spike, GH Packages `0.1.0-spike`,
+GHCR `ghcr.io/jonathanperis/csharpc:0.1.0-spike` + `:v0.1.0-spike`, nuget.org API Created for all
+five packages (gallery index lagging for `0.1.0-spike`; `0.1.0-spike.271` already listed).
+Policy `csharpc-release` (Jonathanperis, `release.yml`, no environment, `NUGET_USER=Jonathanperis`)
+configured BRT 17:18 on 2026-10-25. Branches `ci/release-packaging` and fix PRs #4/#5/#8 merged and
+deleted.
+
 Audit of the `m8-perf` merge on 2026-10-25. Times are BRT (UTC−3).
 
 
