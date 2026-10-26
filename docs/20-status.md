@@ -93,11 +93,22 @@ marking was slower on 4 cores and is not in the default binary
 
 ## Cursor progress
 
+TypeConverter / Configuration.Binder on `ci/parity-typeconverter-bind`, 2026-10-26. Times are BRT
+(UTC−3).
+
+**10:56.** ConfigurationIgnore PASS (compat spot `--no-aot`). Shadowed `TypeConverter` /
+`TypeDescriptor` (string converter only) so Binder never pulls TypeConverter.dll; added
+`Activator.CreateInstance(Type)`, `Type.GetInterfaces()`, runtime `Enum.Parse(Type,…)` stub, and
+Bind DAM that keeps properties of concrete `object` arguments (unwrap conversions). Sample
+`642_typeconverter_activator` (expected from real .NET). Expected in-scope parity **239/246
+(~97.2 %)** pending full Compatibility. Hello size **28520**. Remaining: expression trees (2),
+`dynamic` (1), C# 15 unions (2), `System.Data` (1), `AssemblyLoadContext` (1). Parallel:
+`ci/parity-threadpool-wait` (544 flake) still in CI.
+
 **16:11.** Merged `ci/parity-threadpool-wait` `--no-ff` as `1932be2` (branch CI
 [40356651174](https://github.com/jonathanperis/csharpc/actions/runs/40356651174) green on all
 five after Co-authored-by strip). Event-wait pool injection only; does not fix the macOS 544
 empty-stdout hang (see `ci/fix-544-hang`).
-
 
 **16:11.** Merged `ci/parity-threadpool-wait` `--no-ff` as `31a395e` (branch CI
 [40356651174](https://github.com/jonathanperis/csharpc/actions/runs/40356651174) green on all
