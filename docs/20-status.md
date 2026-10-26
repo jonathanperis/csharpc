@@ -93,6 +93,11 @@ marking was slower on 4 cores and is not in the default binary
 
 ## Cursor progress
 
+**04:30.** Branch CI [40276316072](https://github.com/jonathanperis/csharpc/actions/runs/40276316072):
+wasm/x86-64/windows/arm64 green; macos-arm64 failed only `544_blocking_collection` [-O0]
+(exit 124 timeout, empty stdout; [-O2] PASS). Unrelated thread-scheduling flake — re-pushing
+to re-run CI (`gh run rerun` is 403).
+
 Parity blockers on `ci/parity-hasflag-attrs`, 2026-10-26. Times are BRT (UTC−3).
 
 **01:43.** Goal: close remaining NativeAOT-parity gaps (was **95.9 %**, 236 of 246 in-scope).
