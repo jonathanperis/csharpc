@@ -1047,6 +1047,17 @@ namespace CsharpcCoreLib
             return CoreIntrinsics.csrt_array_create_instance(elementType, length, CoreIntrinsics.TypeInfoTableAddress());
         }
 
+        /// <summary>Activator.CreateInstance(Type): public parameterless constructor via kept metadata.</summary>
+        public static object ActivatorCreateInstance(Type type)
+        {
+            ArgumentNullException.ThrowIfNull(type);
+            if (type.ContainsGenericParameters)
+                throw new ArgumentException("Cannot create an instance of " + type + " because Type.ContainsGenericParameters is true.");
+            ConstructorInfo ctor = GetConstructor(type, BindingFlags.Public | BindingFlags.Instance, null, Type.EmptyTypes, null);
+            if (ctor != null) return ctor.Invoke(null);
+            throw new MissingMethodException("Cannot create an instance of " + type + " because it does not have a public parameterless constructor.");
+        }
+
         public static void SetValue(Array array, object value, int index) =>
             CoreIntrinsics.csrt_array_set_value(array, value, index, CoreIntrinsics.TypeInfoTableAddress());
 

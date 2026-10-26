@@ -43,6 +43,12 @@ internal static partial class BclValueTypes
         };
         t[$"{Type}.GetGenericArguments()"] = arguments(false);
         t[$"{Type}.get_GenericTypeArguments()"] = arguments(true);
+        t[$"{Type}.GetInterfaces()"] = (g, _, self, _, _) =>
+        {
+            var array = Rt(g, "csrt_type_interfaces", g.Llvm.Ptr, (self, g.Llvm.Ptr), (Table(g), g.Llvm.Ptr));
+            g.TagArray(array, g.Module.Compilation.GetTypeByMetadataName(Type)!);
+            return array;
+        };
         t[$"{Type}.GetArrayRank()"] = (g, _, self, _, _) =>
             Rt(g, "csrt_type_array_rank", g.Llvm.I32, (self, g.Llvm.Ptr), (Table(g), g.Llvm.Ptr));
         t[$"{Type}.get_GenericParameterPosition()"] = (g, _, self, _, _) =>
@@ -107,6 +113,9 @@ internal static partial class BclValueTypes
             g.Module.NoteArrayCreateInstance();
             return g.CallCoreLib("ReflectionRuntime", "CreateInstance", a[0], a[1]);
         };
+        // Configuration.Binder and similar: Activator.CreateInstance(Type) via kept public .ctor metadata.
+        t["System.Activator.CreateInstance(System.Type)"] = (g, _, _, a, _) =>
+            g.CallCoreLib("ReflectionRuntime", "ActivatorCreateInstance", a[0]);
         t["System.Array.SetValue(object, int)"] = (g, _, self, a, _) => g.CallCoreLib("ReflectionRuntime", "SetValue", self, a[0], a[1]);
         t["System.Enum.ToObject(System.Type, object)"] = (g, _, _, a, _) =>
             Rt(g, "csrt_enum_to_object", g.Llvm.Ptr, (a[0], g.Llvm.Ptr), (a[1], g.Llvm.Ptr), (Table(g), g.Llvm.Ptr));
