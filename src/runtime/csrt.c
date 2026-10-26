@@ -791,6 +791,35 @@ bool csrt_valuetype_equals(void* self, void* other) {
     return memcmp((char*)self + 8, (char*)other + 8, mt->instance_size - 8) == 0;
 }
 
+// Enum.HasFlag(flag): (value & flag) == flag on the underlying integers. Used when the IL front-end
+// cannot see the enum type of a box (the flag is built across a branch merge, so Unboxed is lost).
+bool csrt_enum_has_flag(void* self, void* flag) {
+    static const csrt_MethodTable mt_argument_null = { NULL, "System.ArgumentNullException", 0, 0, NULL, 0, 0 };
+    static const csrt_MethodTable mt_argument = { NULL, "System.ArgumentException", 0, 0, NULL, 0, 0 };
+    if (!self) { csrt_throw_null_reference(); return false; }
+    if (!flag) {
+        csrt_throw(&mt_argument_null, csrt_string_from_utf8("Value cannot be null. (Parameter 'flag')"));
+        return false;
+    }
+    const csrt_MethodTable* smt = ((csrt_Object*)self)->mt;
+    const csrt_MethodTable* fmt = ((csrt_Object*)flag)->mt;
+    if (!(smt->flags & CSRT_MT_ENUM) || !(fmt->flags & CSRT_MT_ENUM) || smt != fmt) {
+        // .NET: "The argument type, 'Other', is not the same as the enum type 'Color'."
+        const char* sn = smt->name ? smt->name : "?";
+        const char* fn = fmt->name ? fmt->name : "?";
+        char message[512];
+        snprintf(message, sizeof message,
+            "The argument type, '%s', is not the same as the enum type '%s'.", fn, sn);
+        csrt_throw(&mt_argument, csrt_string_from_utf8(message));
+        return false;
+    }
+    size_t payload = smt->instance_size > 8 ? smt->instance_size - 8 : 0;
+    uint64_t value = 0, bits = 0;
+    memcpy(&value, (char*)self + 8, payload);
+    memcpy(&bits, (char*)flag + 8, payload);
+    return (value & bits) == bits;
+}
+
 // ---------------------------------------------------------------------------------------------
 // Corelib exports (ADR 0008). Number formatting and parsing are C# (src/Csharpc/corelib/Number.*.cs);
 // the compiler emits these symbols from the corelib whenever the program references the runtime
