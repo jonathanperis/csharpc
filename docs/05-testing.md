@@ -114,6 +114,11 @@ Shard counts are chosen from the unsharded step times on run
 38.5 min, Windows 49.1 min, arm64 35.4 min, macOS 29.5 min, wasm 21.5 min; wall clock 69 min on
 Windows). x86-64 and Windows use 4 shards. arm64, macOS and wasm use 2: arm and macOS runners queue,
 and wasm shares `ubuntu-24.04` with x86-64, so more shards wait instead of finishing sooner.
+Run [40324256805](https://github.com/jonathanperis/csharpc/actions/runs/40324256805) measured the
+split: with a runner free, x86-64 shards take 8–9 min (suites 14 min), Windows shards 9–14 min
+(suites 20 min), arm64 shards 18 min, macOS shards 19–22 min, wasm shards 12–14 min. The full gate
+is then about 22 min. That run's 3 h end-to-end was queue time behind other workflows, not the
+shard work.
 
 A push or pull request that only touches `docs/**`, `*.md`, or `LICENSE` / `COPYING` / `NOTICE` /
 `AUTHORS` skips the compiler suite when some ancestor of that commit already has the five `test`

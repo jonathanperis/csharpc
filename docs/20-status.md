@@ -105,7 +105,28 @@ files) skip the compiler when an ancestor already has those five checks green, a
 report success. `release.yml` publishes only when the triggering CI run was that full gate, so a
 docs-only or partial success does not ship. Targeted runs are a `CI-Only:` trailer or `ci/targets`
 on `ci/**`, or the **CI (targeted)** workflow; jobs are named `partial (...)` and are not the merge
-bar. Sharded timings are recorded once that run is green.
+bar.
+
+Full gate on `ci/faster-ci` is green: run
+[40324256805](https://github.com/jonathanperis/csharpc/actions/runs/40324256805), all five
+`test (<platform>)` checks success, 858 sample/opt pairs covered exactly once on each platform.
+Runner-busy time (a job's start to its finish, which is the wall clock when a runner is free and
+the shards overlap the suites job): x86-64 shards 8.3–9.4 min and suites 13.6 min (was a 50.7 min
+job, differential step 38.5 min); Windows shards 8.7–14.2 min and suites 19.9 min (was 69.3 min,
+differential 49.1); arm64 shards 18.4 min (was 44.3 / 35.4); macOS shards 18.5–21.7 min (was 35.4 /
+29.5); wasm shards 12.2–14.0 min (was 27.7 / 21.5). Steady-state wall is the slowest of those,
+about 22 min, inside the 20–25 min target. End to end on that run was 12:39Z–15:44Z (3 h 4 min)
+because the hosted runners were shared with other CI, Release and TechEmpower runs: x86-64 shard
+0/4 waited from 13:03Z to 14:32Z, and the gate jobs waited up to an hour after the shards finished.
+The gate job itself is about 10 seconds.
+
+Targeted flake hunt, run
+[40343594351](https://github.com/jonathanperis/csharpc/actions/runs/40343594351), commit message
+trailer `CI-Only: filter=544_blocking_collection platforms=macos-arm64 repeat=20`. The plan was
+partial, the only compiler job was `partial (macos-arm64)`, and `test (${{ matrix.platform }})`
+was skipped, so the merge-bar names were not reported success. 20 repeats at `-O0` and `-O2`:
+39 passed, 1 failed — `544_blocking_collection [-O0] #19`, exit 124, empty stdout (the 90 s
+timeout). `[-O2] #19` passed. Same macOS flake as run 40276316072; it is not a shard or filter bug.
 
 **07:52.** Merged `ci/parity-hasflag-attrs` `--no-ff` as `8799df3`. Branch CI
 [40286018777](https://github.com/jonathanperis/csharpc/actions/runs/40286018777) green on all
