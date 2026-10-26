@@ -94,7 +94,85 @@ marking was slower on 4 cores and is not in the default binary
 
 ## Cursor progress
 
+Release packaging on `ci/release-packaging`, 2026-10-25. Times are BRT (UTC−3).
+
+**nuget.org Trusted Publishing — configured (BRT 17:18, 2026-10-25).** Owner Jonathan signed in
+to nuget.org as account **`Jonathanperis`**, created Active Trusted Publishing policy
+**`csharpc-release`** for GitHub Actions: repo `jonathanperis/csharpc`, workflow file
+**`release.yml`**, no environment, package glob `*`. Repo variable **`NUGET_USER=Jonathanperis`**
+is set. OIDC `NuGet/login` + nuget.org push live in `.github/workflows/release.yml` (claim is
+`release.yml`, not a reusable callee); publish job has `id-token: write`. Trigger is
+`workflow_run` after green CI on main (and `v*` tags), so the five merge-bar jobs are untouched.
+Test/dry-run versions are never pushed to nuget.org (unlist-only). First nuget.org push is the
+real `v0.1.0-spike` tag (or `0.1.0-spike.<ci_run_number>` from main after merge).
+
+**17:00–17:50.** Goal: ship csharpc via GitHub Releases and GitHub Packages. Driver facts:
+`AppContext.BaseDirectory/{corelib,runtime}` (already `CopyToPublishDirectory`); libLLVM via
+`$CSHARPC_LIBLLVM` then sonames (`Llvm/Native.cs`); clang/lld for csrt compile and link
+(`Driver/Toolchain.cs`). Measured on this linux-x64 VM: self-contained R2R publish ~126 MiB / 19 s /
+52 MiB `.tar.gz` without libLLVM; NativeAOT ~42 MiB binary / 61 s, with bundled libLLVM (~118 MiB)
+~262 MiB on disk / **55 MiB** `.tar.gz`. Chose **NativeAOT bundles** so a clean machine needs no
+.NET SDK or runtime. Bundled libLLVM (Apache-2.0 with LLVM exceptions) under `lib/`; clang/lld stay
+a documented host prerequisite (full clang+sysroot is much larger and OS-specific; Windows still
+needs LLVM-MinGW for the linker/CRT). Container image included: zero host toolchain for
+`docker run … csharpc`.
+
+**17:18.** Owner (Jonathan Peris / nuget.org account `Jonathanperis`) configured Trusted Publishing
+policy `csharpc-release` on nuget.org: Active for GitHub Actions, repo `jonathanperis/csharpc`,
+workflow file `release.yml`, no environment, package glob `*`. Repo variable
+`NUGET_USER=Jonathanperis` set. Publish stays in `.github/workflows/release.yml` (not a reusable
+workflow called from `ci.yml`): NuGet matches OIDC `job_workflow_ref` to the workflow that requests
+the token, so a reusable workflow would claim the shared path and fail (NuGet/login#6). Trigger is
+`workflow_run` after green CI. No test/dry-run versions to nuget.org (undeletable); first real push
+is `0.1.0-spike` (tag) or the main rolling `0.1.0-spike.<ci_run_number>`.
+
+**17:55.** Added `tools/pack-release.sh`, `tools/smoke-release.sh`, release workflow
+(build ×4 RIDs → smoke without installing the .NET SDK → publish Release + NuGet to
+`nuget.pkg.github.com/jonathanperis` + `ghcr.io/jonathanperis/csharpc`), `install.sh` /
+`install.ps1`, `Dockerfile`, README Install section, roadmap/08-drop-in notes. `Native.cs` probes
+`lib/` next to the binary. `ci.yml` push trigger extended to `ci/**`. Local smoke of the packed
+linux-x64 archive: `01_hello` and `104_linq` match `.expected` with bundled libLLVM and
+`CSHARPC_LD=bfd` (this VM has no `lld` package).
+
+**18:10–18:20.** Scope extension: publish is part of the main pipeline via
+`workflow_run` on green CI (`release.yml`), not inside the five merge-bar jobs. Rolling GitHub
+prerelease `latest-main` + package `0.1.0-spike.<ci_run_number>`; tags `v*` get named releases.
+RID-specific NativeAOT tool packages (`ToolPackageRuntimeIdentifiers` + `CsharpcBundleLibLLVM`) so
+`dotnet tool install -g csharpc` installs the same binaries as the archives. Pointer package built
+by `tools/pack-tool-pointer.sh` (manual DotnetTool v2 nuspec — `dotnet pack` without `-r` was
+rebuilding the host RID and wiping the good nupkg). nuget.org via Trusted Publishing in
+`release.yml` as above. TechEmpower / Benchmarks / Compatibility keep building csharpc from the
+commit under test (they measure that tree); documented in those workflow headers. Local linux-x64:
+archive 55 MiB, RID nupkg 117 MiB, smoke OK.
+
+**18:25.** Release dry-run 40230115161: all four RID builds green (win-x64 included); all four smoke
+jobs failed immediately — `ls a.tar.gz a.zip` under `pipefail` exits 2 when the `.zip` glob is
+absent. Fixed with `nullglob` + array. nuget.org push gated off for `*test*`/`*dryrun*` versions.
+
+**18:30.** Release 40230552303: smoke found the archive but corelib bind failed — NativeAOT has no
+`TRUSTED_PLATFORM_ASSEMBLIES`, and smoke runners have no .NET 11 ref pack. Bundle
+`Microsoft.NETCore.App.Ref/.../ref/net11.0` as `ref/net11.0/` next to the binary; `FindReferencePack`
+prefers it. Local retest without any `dotnet` on PATH: 01_hello and 104_linq OK; archive 58 MiB.
+
+**17:40.** Release 40231133703: linux/osx/arm64 smoke green after ref-pack; win-x64 smoke failed —
+`Compress-Archive` zip uses backslash separators, Info-ZIP unzip warns and exits 1. Fixed:
+`pack-release.sh` builds Windows zips with Python `zipfile` (forward slashes); smoke uses
+`Expand-Archive` on Windows. nuget.org login no longer `continue-on-error` — real push when
+`publish_nuget_org=true` (policy `csharpc-release` Active as of 17:18).
+
+**18:23.** Release 40231809254 (`d416a11`): zip extract OK on win-x64; smoke failed on
+`01_hello` stdout — CRLF vs LF (`.expected` recorded on Linux; `Environment.NewLine` is `\r\n` on
+Windows). `smoke-release.sh` now derives want-stdout like `tests/platform.sh` `platform_expected`.
+Merged `origin/main` (`ee7f8f8` precise-GC) into the packaging branch before re-verify.
+
+**19:47.** CI 40235338045 / 40235341916 and Release dry-run 40235338055 on `49f45c2`: all five CI
+jobs green; all four RID builds + smokes green (win-x64 included). Publish skipped (dry-run).
+Removed the temporary `ci/release-packaging` push trigger from `release.yml`. Merged
+`origin/main` `b2099e2` (precise-gc status log). Ready to merge to main.
+
 Audit of the `m8-perf` merge on 2026-10-25. Times are BRT (UTC−3).
+
+
 
 **12:46.** Merged `origin/main` (`91f2d97`) into `m8-perf` as `a9dbbd0`. Four conflicts, both sides kept:
 
