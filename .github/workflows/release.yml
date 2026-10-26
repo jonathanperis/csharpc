@@ -16,19 +16,16 @@ name: Release
 #     version 0.1.0-spike.<ci_run_number>. Does not run inside ci.yml, so it never cancels
 #     or slows the five merge-bar jobs.
 #   - Push of v* tags: named release + package version from the tag.
-#   - Push to ci/**: publish dry-run (GH Release `dryrun-ci`, GH Packages, GHCR, attestations;
-#     never nuget.org). Used to exercise release.yml Docker/attest actions when Renovate bumps
-#     them — green CI on those PRs does not run this workflow.
 #   - workflow_dispatch: dry-run by default (build+smoke only).
+# To re-verify Docker/attest action bumps: temporarily add `push.branches: [ci/**]` with
+# channel=ci / version 0.0.0-dryrun.<run> / release_tag=dryrun-ci (nuget.org off), as in
+# Release 40322655301 on ci/release-actions-bump-e726.
 on:
   workflow_run:
     workflows: ["CI"]
     types: [completed]
   push:
     tags: ["v*"]
-    # Temporary while verifying Docker/attest action majors; keep until dry-run is green, then
-    # drop if we decide not to leave a permanent ci/** publish channel (see Cursor progress).
-    branches: ["ci/**"]
   workflow_dispatch:
     inputs:
       dry_run:
@@ -83,7 +80,6 @@ jobs:
           WR_RUN_NUMBER: ${{ github.event.workflow_run.run_number || '' }}
           REF_NAME: ${{ github.ref_name }}
           SHA: ${{ github.sha }}
-          RUN_NUMBER: ${{ github.run_number }}
           DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run || false }}
           VERSION_OVERRIDE: ${{ github.event_name == 'workflow_dispatch' && inputs.version || '' }}
           NUGET_USER: ${{ vars.NUGET_USER || '' }}
@@ -116,15 +112,6 @@ jobs:
             release_tag="$REF_NAME"
             if [[ $version == *-* ]]; then prerelease=true; else prerelease=false; fi
             sha="$SHA"
-          elif [[ $EVENT_NAME == push && $REF_NAME == ci/* ]]; then
-            # Exercise GH Release / Packages / GHCR / attestations without touching nuget.org.
-            should_run=true
-            should_publish=true
-            channel=ci
-            version="0.0.0-dryrun.${RUN_NUMBER}"
-            release_tag=dryrun-ci
-            prerelease=true
-            sha="$SHA"
           elif [[ $EVENT_NAME == workflow_dispatch ]]; then
             should_run=true
             should_publish=$([[ $DRY_RUN == true || $DRY_RUN == True ]] && echo false || echo true)
@@ -138,7 +125,7 @@ jobs:
           # Never push test/dryrun versions (nuget.org cannot delete packages, only unlist).
           publish_nuget_org=false
           if [[ $should_publish == true && -n ${NUGET_USER} ]]; then
-            if [[ $version == *test* || $version == *dryrun* || $channel == dispatch || $channel == ci ]]; then
+            if [[ $version == *test* || $version == *dryrun* || $channel == dispatch ]]; then
               echo "nuget.org: skipping version '$version' (test/dry-run; not deletable on nuget.org)"
             else
               publish_nuget_org=true
