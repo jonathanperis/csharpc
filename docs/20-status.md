@@ -175,6 +175,12 @@ version `0.1.0-spike.251` and all four smokes passed; publish failed collecting 
 `bundles/csharpc.*.nupkg`. Fix: `find bundles -name 'csharpc.*.nupkg'` into `nupkg/` before
 `pack-tool-pointer.sh`.
 
+**04:25 (2026-10-26).** After the nupkg-path fix, Release 40284976582 (`0.1.0-spike.260`,
+`latest-main`): GitHub Release + all RID + pointer packages on GitHub Packages; all four RID
+packages on nuget.org; pointer package rejected (400: MIT license expression needs
+`<licenseUrl>https://licenses.nuget.org/MIT</licenseUrl>`). GHCR skipped because it ran after
+nuget.org. Fix pointer nuspec + run GHCR before nuget.org.
+
 Audit of the `m8-perf` merge on 2026-10-25. Times are BRT (UTC−3).
 
 
