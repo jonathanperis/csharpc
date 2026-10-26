@@ -28,9 +28,8 @@ reuse, GC root scanning, bucket-locked monitors).
 
 ## Open branches
 
-`ci/gc-nursery` (this stretch): non-moving nursery + compiler card table, **off by default**
-(`--gc-nursery` / `CSHARPC_GC_NURSERY=1`). See ADR 0004 revision and Cursor progress below.
-`parity-blockers` and `m8-perf` are merged; remote `m8-perf` and `ci/precise-gc` are deleted.
+None from this stretch. `ci/gc-nursery` is merging (nursery opt-in only). `parity-blockers`,
+`m8-perf`, `ci/precise-gc`, and `ci/release-packaging` are merged.
 
 ## Measured state
 
@@ -352,6 +351,10 @@ green on all five (x86-64, arm64, macos-arm64, windows-x64, wasm32-wasi). arm64 
 **39800** / 43008 again (same as main). Benchmarks
 [40245571132](https://github.com/jonathanperis/csharpc/actions/runs/40245571132) green. Waiting
 for in-progress main CI 40248320210 (release-packaging merge) before merging this branch.
+
+**22:05.** Main CI 40248320210 green. After merging `origin/main`, branch CI
+[40250349833](https://github.com/jonathanperis/csharpc/actions/runs/40250349833) green on all
+five; arm64 typeinfo still 39800. Merging `--no-ff` to `main`.
 
 ## Working rules
 
