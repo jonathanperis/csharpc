@@ -128,6 +128,20 @@ was skipped, so the merge-bar names were not reported success. 20 repeats at `-O
 39 passed, 1 failed — `544_blocking_collection [-O0] #19`, exit 124, empty stdout (the 90 s
 timeout). `[-O2] #19` passed. Same macOS flake as run 40276316072; it is not a shard or filter bug.
 
+`Co-authored-by` trailers removed on the topic branches that had them. `ci/target-544-verify`
+was already reworded on the remote (`0ce05d4` → `e6e122c`, with `0a973ac` → `12342c1`,
+`2035c5b` → `bf1e319`, `cc78ada` → `2ca4efd`, `ea8794f` → `79f99d2`). Author, committer, dates
+and trees match the commits they replace; only the trailer lines are gone, so parent links
+changed. `git log --format=%B` on that branch has no `Co-authored-by` line. `ci/faster-ci`
+never had the trailer and was not force-pushed. `ci/target-544` `c4e7825` → `6664630` via
+`git push --force-with-lease` (same author, committer, dates, tree and message; the SSH
+signature was not copied because it covered the old message). `main` was not force-pushed.
+
+Docs-only skip on `ci/faster-ci` is green: run
+[40353537781](https://github.com/jonathanperis/csharpc/actions/runs/40353537781). The plan kept
+the compiler off (diff and suites jobs skipped) because parent `b5da7e6` already had a green
+`test (*)` gate, and all five `test (<platform>)` checks succeeded without building.
+
 **07:52.** Merged `ci/parity-hasflag-attrs` `--no-ff` as `8799df3`. Branch CI
 [40286018777](https://github.com/jonathanperis/csharpc/actions/runs/40286018777) green on all
 five (after macOS 544 flake re-run). Main CI
