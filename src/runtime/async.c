@@ -1355,17 +1355,33 @@ bool csrt_scheduler_yield(void) {
     return true;
 }
 #else
+/// A pool worker is about to block outside the queue (Task.Wait, SemaphoreSlim, …): count it as
+/// blocked and inject another worker if every worker would otherwise be stuck. Without this,
+/// BlockingCollection producers that fill a bounded collection can occupy every pool thread in
+/// SemaphoreSlim.Wait while consumers sit queued — a hang under load (macOS CI flake on 544).
+void csrt_pool_enter_blocking_wait(void) {
+    if (!tl_worker) return;
+    pthread_mutex_lock(&s_qlock);
+    if (!s_pool_started) pool_start_locked();
+    s_blocked++;
+    if (s_idle == 0 && s_workers - s_blocked <= 0 && s_workers < MAX_WORKERS) spawn_worker_locked();
+    pthread_mutex_unlock(&s_qlock);
+}
+
+void csrt_pool_leave_blocking_wait(void) {
+    if (!tl_worker) return;
+    pthread_mutex_lock(&s_qlock);
+    s_blocked--;
+    pthread_mutex_unlock(&s_qlock);
+}
+
 /// Blocks the calling thread until `t` completes (async Main, .Result, .Wait(), GetResult()).
 void csrt_task_wait(csrt_Task* t) {
     if (csrt_task_is_completed(t)) return;
     pthread_mutex_lock(&s_qlock);
     if (!s_pool_started) pool_start_locked();
-    if (tl_worker) {
-        // A pool worker blocking on a task: make sure someone else can run the work it waits for.
-        s_blocked++;
-        if (s_idle == 0 && s_workers - s_blocked <= 0 && s_workers < MAX_WORKERS) spawn_worker_locked();
-    }
     pthread_mutex_unlock(&s_qlock);
+    csrt_pool_enter_blocking_wait();
     // Under the task's lock: either try_finish sees the flag, or we see the task completed.
     task_lock(t);
     if (task_state(t) == T_PENDING) __atomic_or_fetch(&t->flags, TF_WAITED, __ATOMIC_RELAXED);
@@ -1373,12 +1389,13 @@ void csrt_task_wait(csrt_Task* t) {
     pthread_mutex_lock(&s_wlock);
     while (!csrt_task_is_completed(t)) pthread_cond_wait(&s_wcond, &s_wlock);
     pthread_mutex_unlock(&s_wlock);
-    if (tl_worker) {
-        pthread_mutex_lock(&s_qlock);
-        s_blocked--;
-        pthread_mutex_unlock(&s_qlock);
-    }
+    csrt_pool_leave_blocking_wait();
 }
+#endif
+
+#ifdef __wasi__
+void csrt_pool_enter_blocking_wait(void) {}
+void csrt_pool_leave_blocking_wait(void) {}
 #endif
 
 // ---------------------------------------------------------------------------------------------

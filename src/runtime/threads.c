@@ -956,6 +956,11 @@ static int32_t wasi_event_wait(csrt_Event* e, int32_t ms, const int32_t* source)
 }
 #endif
 
+// Pool workers blocked in event waits must inject replacements (async.c); otherwise a bounded
+// BlockingCollection can stall every worker in SemaphoreSlim.Wait while consumers stay queued.
+void csrt_pool_enter_blocking_wait(void);
+void csrt_pool_leave_blocking_wait(void);
+
 /// Wait(timeout ms, -1 = infinite) / WaitOne: true when signalled.
 bool csrt_event_wait(csrt_Event* e, int32_t ms) {
     if (!e) csrt_throw_null_reference();
@@ -965,19 +970,35 @@ bool csrt_event_wait(csrt_Event* e, int32_t ms) {
     struct timespec deadline;
     if (ms > 0) deadline_after(&deadline, ms);
     pthread_mutex_lock(e->mutex);
+    bool entered = false;
     for (;;) {
         bool ready = e->kind == EVENT_COUNTDOWN ? e->count == 0 : e->count > 0;
         if (ready) {
             if (e->kind == EVENT_AUTO) e->count = 0;
             else if (e->kind == EVENT_SEMAPHORE) e->count--;
             pthread_mutex_unlock(e->mutex);
+            if (entered) csrt_pool_leave_blocking_wait();
             return true;
         }
-        int rc = ms == 0 ? ETIMEDOUT : interruptible_wait(e->cond, e->mutex, ms > 0 ? &deadline : NULL, true);
-        if (rc == EINTR) { pthread_mutex_unlock(e->mutex); throw_interrupted(); }
+        if (ms == 0) {
+            pthread_mutex_unlock(e->mutex);
+            if (entered) csrt_pool_leave_blocking_wait();
+            return false;
+        }
+        if (!entered) { csrt_pool_enter_blocking_wait(); entered = true; }
+        int rc = interruptible_wait(e->cond, e->mutex, ms > 0 ? &deadline : NULL, true);
+        if (rc == EINTR) {
+            pthread_mutex_unlock(e->mutex);
+            if (entered) csrt_pool_leave_blocking_wait();
+            throw_interrupted();
+        }
         if (rc == ETIMEDOUT) {
             bool now = e->kind == EVENT_COUNTDOWN ? e->count == 0 : e->count > 0;
-            if (!now) { pthread_mutex_unlock(e->mutex); return false; }
+            if (!now) {
+                pthread_mutex_unlock(e->mutex);
+                if (entered) csrt_pool_leave_blocking_wait();
+                return false;
+            }
         }
     }
 }
@@ -993,24 +1014,41 @@ int32_t csrt_event_wait_token(csrt_Event* e, int32_t ms, const int32_t* source) 
     struct timespec deadline;
     if (ms > 0) deadline_after(&deadline, ms);
     pthread_mutex_lock(e->mutex);
+    bool entered = false;
     for (;;) {
         bool ready = e->kind == EVENT_COUNTDOWN ? e->count == 0 : e->count > 0;
         if (ready) {
             if (e->kind == EVENT_AUTO) e->count = 0;
             else if (e->kind == EVENT_SEMAPHORE) e->count--;
             pthread_mutex_unlock(e->mutex);
+            if (entered) csrt_pool_leave_blocking_wait();
             return 1;
         }
         // The source's `canceled` word follows its method-table pointer (async.c, CancellationSource).
         if (source && __atomic_load_n((const int32_t*)((const char*)source + sizeof(void*)), __ATOMIC_ACQUIRE)) {
             pthread_mutex_unlock(e->mutex);
+            if (entered) csrt_pool_leave_blocking_wait();
             return 2;
         }
-        int rc = ms == 0 ? ETIMEDOUT : interruptible_wait(e->cond, e->mutex, ms > 0 ? &deadline : NULL, true);
-        if (rc == EINTR) { pthread_mutex_unlock(e->mutex); throw_interrupted(); }
+        if (ms == 0) {
+            pthread_mutex_unlock(e->mutex);
+            if (entered) csrt_pool_leave_blocking_wait();
+            return 0;
+        }
+        if (!entered) { csrt_pool_enter_blocking_wait(); entered = true; }
+        int rc = interruptible_wait(e->cond, e->mutex, ms > 0 ? &deadline : NULL, true);
+        if (rc == EINTR) {
+            pthread_mutex_unlock(e->mutex);
+            if (entered) csrt_pool_leave_blocking_wait();
+            throw_interrupted();
+        }
         if (rc == ETIMEDOUT) {
             bool now = e->kind == EVENT_COUNTDOWN ? e->count == 0 : e->count > 0;
-            if (!now) { pthread_mutex_unlock(e->mutex); return 0; }
+            if (!now) {
+                pthread_mutex_unlock(e->mutex);
+                if (entered) csrt_pool_leave_blocking_wait();
+                return 0;
+            }
         }
     }
 }

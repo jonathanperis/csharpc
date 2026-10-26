@@ -93,6 +93,24 @@ marking was slower on 4 cores and is not in the default binary
 
 ## Cursor progress
 
+Thread-pool event-wait injection on `ci/parity-threadpool-wait`, 2026-10-26. Times are BRT (UTC−3).
+
+**09:15.** Goal: remaining NativeAOT parity (~96.7 %, 8 in-scope programs) and the macOS
+`544_blocking_collection` merge-bar flake.
+
+**544 root cause.** Bounded `BlockingCollection` producers call `SemaphoreSlim.Wait` when full.
+Pool workers blocked there were not counted in `s_blocked`, so queued consumers never got a
+worker while `Task.WaitAll(producers)` waited — deadlock under load (empty stdout, exit 124,
+`-O0` on macOS CI). `csrt_task_wait` already injected; `csrt_event_wait` / `_token` did not.
+Fix: `csrt_pool_enter_blocking_wait` / `leave` shared by task waits and event waits. Sample
+`641_threadpool_event_wait_inject` (8 producers, capacity 2). Attribute `TypeId` /
+`IsDefaultAttribute` / `Match` virtuals added on `AttributeImpl` (ConfigurationIgnore still
+blocked on ~46 TypeConverter APIs). Hello size 28520.
+
+**ConfigurationIgnore.** Still COMPILE-UNSUPPORTED: Binder pulls `System.ComponentModel.TypeConverter`
+(`Type.GetInterfaces`, `Array.Sort(Array, IComparer)`, `Type.GetField`, `IsCollectible`, …).
+Not shipping that surface in this increment.
+
 **07:52.** Merged `ci/parity-hasflag-attrs` `--no-ff` as `8799df3`. Branch CI
 [40286018777](https://github.com/jonathanperis/csharpc/actions/runs/40286018777) green on all
 five (after macOS 544 flake re-run). Main CI
