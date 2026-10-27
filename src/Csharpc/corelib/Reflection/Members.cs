@@ -1021,6 +1021,24 @@ namespace CsharpcCoreLib
                 : CreateAttributes(ReflectionRecords.InfoAttributes(info), ReflectionRecords.InfoAttributeCount(info), attributeType);
         }
 
+        /// <summary>Whether `type` or a base type carries an attribute named `fullName`: 1 yes, 0 no (every
+        /// level's attributes are described), -1 unknown (metadata not kept). Never throws.</summary>
+        internal static int HasTypeAttributeNamed(Type type, string fullName)
+        {
+            for (Type t = type; t != null && t != typeof(object) && t != typeof(ValueType); t = t.BaseType)
+            {
+                byte* info = InfoOf(t, "custom attributes");
+                if (info == null) return -1;
+                uint described = (uint)ReflectionRecords.InfoDescribed(info);
+                if ((described & 128) != 0 || (described & 16) == 0) return -1;
+                byte* records = ReflectionRecords.InfoAttributes(info);
+                int count = ReflectionRecords.InfoAttributeCount(info);
+                for (int i = 0; i < count; i++)
+                    if (TypeOf(ReflectionRecords.AttributeType(records + i * ReflectionRecords.AttributeSize)).FullName == fullName) return 1;
+            }
+            return 0;
+        }
+
         public static object[] TypeAttributesAll(Type type, bool inherit) => GetTypeCustomAttributes(type, typeof(object), inherit);
         public static object[] TypeAttributesOf(Type type, Type attributeType, bool inherit) => GetTypeCustomAttributes(type, attributeType, inherit);
 

@@ -1,0 +1,45 @@
+Int32 True False
+Boolean True False
+Double True False
+Int64 True False
+Byte True False
+Char True False
+Guid True False
+Decimal True False
+Single True False
+SByte True False
+Int16 True False
+UInt16 True False
+UInt32 True False
+UInt64 True False
+Int32 [8080] -> 8080 (Int32)
+Int32 [  -42 ] -> -42 (Int32)
+Int32 [0x1F] -> 31 (Int32)
+Int32 [#ff] -> 255 (Int32)
+Int32 [&H10] -> 16 (Int32)
+Int32 [abc] !! ArgumentException: abc is not a valid value for Int32. (Parameter 'value') | FormatException: The input string 'abc' was not in a correct format.
+Int32 [] !! ArgumentException:  is not a valid value for Int32. (Parameter 'value') | IndexOutOfRangeException: Index was outside the bounds of the array.
+Int32 [99999999999] !! ArgumentException: 99999999999 is not a valid value for Int32. (Parameter 'value') | OverflowException: Value was either too large or too small for an Int32.
+Int64 [9000000000] -> 9000000000 (Int64)
+UInt32 [0xFFFFFFFF] -> 4294967295 (UInt32)
+UInt64 [18446744073709551615] -> 18446744073709551615 (UInt64)
+Int16 [-7] -> -7 (Int16)
+UInt16 [65535] -> 65535 (UInt16)
+Byte [255] -> 255 (Byte)
+Byte [256] !! ArgumentException: 256 is not a valid value for Byte. (Parameter 'value') | OverflowException: Value was either too large or too small for an unsigned byte.
+SByte [-128] -> -128 (SByte)
+Boolean [true] -> True (Boolean)
+Boolean [ False ] -> False (Boolean)
+Boolean [yes] !! FormatException: yes is not a valid value for Boolean. | FormatException: String 'yes' was not recognized as a valid Boolean.
+Double [0.5] -> 0.5 (Double)
+Double [1e3] -> 1000 (Double)
+Double [0x10] !! ArgumentException: 0x10 is not a valid value for Double. (Parameter 'value') | FormatException: The input string '0x10' was not in a correct format.
+Single [2.25] -> 2.25 (Single)
+Decimal [12.50] -> 12.50 (Decimal)
+Char [x] -> 120 (Char)
+Char [ y ] -> 121 (Char)
+Char [] -> 0 (Char)
+Char [xy] !! FormatException: xy is not a valid value for Char. | : 
+Guid [ 6f9619ff-8b86-d011-b42d-00c04fc964ff ] -> 6f9619ff-8b86-d011-b42d-00c04fc964ff (Guid)
+String [kept] -> kept (String)
+Int32Converter cannot convert from System.Int32.
