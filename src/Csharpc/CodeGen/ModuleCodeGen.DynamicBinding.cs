@@ -173,8 +173,9 @@ public sealed partial class ModuleCodeGen
             foreach (var p in parameters)
             {
                 if (generic && ContainsMethodTypeParameter(p.Type)) result.Generic = true;
-                result.Parameters.Add(p.Type);
-                if (p.IsParams && p.Type is IArrayTypeSymbol array) result.Parameters.Add(array.ElementType);
+                var type = site.Subst.Apply(p.Type); // a generic type's members, as the instantiation has them
+                result.Parameters.Add(type);
+                if (p.IsParams && type is IArrayTypeSymbol array) result.Parameters.Add(array.ElementType);
             }
         }
         void AddMember(ISymbol member)
@@ -411,6 +412,8 @@ public sealed partial class ModuleCodeGen
         _ => null,
     };
 
+    private enum SimpleReceiver { None, StaticType, ThisLocal }
+
     /// <summary>The C# text of a site for one case: operand declarations, operand expressions, the operation.</summary>
     private sealed record DynamicText(string[] Texts, string Declarations, bool Jump, string Expression, Func<int, int, bool, string> Arguments);
 
@@ -442,11 +445,32 @@ public sealed partial class ModuleCodeGen
         var texts = new string[operands.Count];
         var declarations = new StringBuilder();
         var needsJump = false;
+        // A simple name inside a generic type binds, at this position, to the generic definition's members; the
+        // binder binds in the instantiation: name the instantiation explicitly (all candidates static: the type;
+        // all instance: `this` as a local of that type).
+        var simpleReceiver = SimpleReceiver.None;
+        INamedTypeSymbol? simpleOwner = null;
+        if (site.SimpleName && !site.Subst.IsIdentity && site.Context is { } context && TypeSubstitution.IsOpen(context.OriginalDefinition)
+            && site.Model.LookupSymbols(site.Position, name: site.Name).OfType<IMethodSymbol>().ToList() is { Count: > 0 } candidates)
+        {
+            if (candidates.All(m => m.IsStatic) && candidates.All(m => SymbolEqualityComparer.Default.Equals(m.ContainingType, candidates[0].ContainingType)))
+            {
+                simpleReceiver = SimpleReceiver.StaticType;
+                simpleOwner = candidates[0].ContainingType;
+            }
+            else if (candidates.All(m => !m.IsStatic) && operands.Count > 0 && operands[0].Kind == DynamicOperandKind.This)
+                simpleReceiver = SimpleReceiver.ThisLocal;
+        }
         for (var i = 0; i < operands.Count; i++)
         {
             var o = operands[i];
             switch (o.Kind)
             {
+                case DynamicOperandKind.This when simpleReceiver == SimpleReceiver.ThisLocal:
+                    // A generic type's instance member, called through `this` typed as the instantiation.
+                    texts[i] = Local + i;
+                    declarations.Append(TypeText(site.Subst.Apply(site.Context!))).Append(' ').Append(Local).Append(i).Append(';');
+                    break;
                 case DynamicOperandKind.This:
                     texts[i] = "this";
                     break;
@@ -494,7 +518,14 @@ public sealed partial class ModuleCodeGen
         var hasReceiver = operands.Count > 0 && operands[0].Role is DynamicRole.Receiver or DynamicRole.IndexReceiver or DynamicRole.InvokeReceiver;
         var argStart = hasReceiver ? 1 : 0;
         var typeArguments = site.TypeArguments.Length == 0 ? "" : "<" + string.Join(", ", site.TypeArguments.Select(t => TypeText(t) ?? "object")) + ">";
-        string Receiver() => site.StaticReceiver is { } s ? TypeText(s)! + "." : site.SimpleName ? "" : Parenthesized(texts[0]) + ".";
+        string Receiver() => site.StaticReceiver is { } s ? TypeText(s)! + "."
+            : !site.SimpleName ? Parenthesized(texts[0]) + "."
+            : simpleReceiver switch
+            {
+                SimpleReceiver.StaticType => TypeText(site.Subst.Apply(simpleOwner!))! + ".",
+                SimpleReceiver.ThisLocal => texts[0] + ".",
+                _ => "",
+            };
         string expression;
         switch (site.Kind)
         {
@@ -758,7 +789,8 @@ public sealed partial class ModuleCodeGen
             {
                 // Roslyn keeps an operator it can't resolve as an ordinary operation: its symbol tells.
                 var info = model.GetSymbolInfo(Unwrapped(expression));
-                if (!hasErrors && (info.Symbol is not null || operation?.ConstantValue.HasValue == true)) return null;
+                if (!hasErrors && operation?.ConstantValue.HasValue == true) return null;
+                if (!hasErrors && info.Symbol is IMethodSymbol op && OperandsConvert(model, Unwrapped(expression), op)) return null;
                 var ambiguous = info.CandidateReason == CandidateReason.Ambiguous;
                 if (site.Kind == DynamicKind.Binary)
                     return Fail(ambiguous
@@ -792,6 +824,34 @@ public sealed partial class ModuleCodeGen
 
     private static string UnexpectedBindingError(DynamicSite site) =>
         $"\u0002this dynamic operation fails to bind in a way csharpc can't describe yet ({site.Kind} '{site.Syntax}')";
+
+    /// <summary>
+    /// Each operand converts implicitly to the operator's parameter (or, lifted, to its nullable form). Roslyn
+    /// names the operator of `decimal += object` though no conversion applies (CS0019 is only a diagnostic).
+    /// </summary>
+    private bool OperandsConvert(SemanticModel model, ExpressionSyntax expression, IMethodSymbol op)
+    {
+        ExpressionSyntax[] operands = expression switch
+        {
+            BinaryExpressionSyntax b => [b.Left, b.Right],
+            AssignmentExpressionSyntax a => [a.Left, a.Right],
+            PrefixUnaryExpressionSyntax u => [u.Operand],
+            _ => [],
+        };
+        if (operands.Length != op.Parameters.Length) return true;
+        for (var i = 0; i < operands.Length; i++)
+        {
+            var target = op.Parameters[i].Type;
+            if (model.ClassifyConversion(operands[i], target) is { Exists: true, IsImplicit: true }) continue;
+            if (target.IsValueType && !TypeMapper.IsNullable(target)
+                && Compilation.GetSpecialType(SpecialType.System_Nullable_T).Construct(target) is var lifted
+                && model.ClassifyConversion(operands[i], lifted) is { Exists: true, IsImplicit: true }) continue;
+            // Shifts take an int count; a compound assignment's left operand may narrow back (byte += int).
+            if (expression is AssignmentExpressionSyntax && i == 0) continue;
+            return false;
+        }
+        return true;
+    }
 
     private static ExpressionSyntax Unwrapped(ExpressionSyntax expression)
     {
@@ -910,6 +970,8 @@ public sealed partial class ModuleCodeGen
             {
                 case IInvalidOperation:
                 case IConversionOperation { Conversion.Exists: false }:
+                // `decimal += string`: concatenation binds, its string result doesn't convert back.
+                case ICompoundAssignmentOperation { OutConversion.Exists: false } or ICompoundAssignmentOperation { InConversion.Exists: false }:
                 case IBinaryOperation { OperatorKind: BinaryOperatorKind.None }:
                 case IUnaryOperation { OperatorKind: UnaryOperatorKind.None }:
                     return true;

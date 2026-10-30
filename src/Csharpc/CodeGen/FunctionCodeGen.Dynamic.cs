@@ -132,7 +132,7 @@ public sealed partial class FunctionCodeGen
         {
             // The binder's context: the statement the operation is in (its scope and accessibility) — or, for a
             // dynamic operation inside code bound for another site, that site's.
-            var (model, position, origin) = m.DynamicContext(syntax, (syntax.FirstAncestorOrSelf<StatementSyntax>() ?? syntax).SpanStart, context);
+            var (model, position, origin) = m.DynamicContext(syntax, DynamicPosition(syntax), context);
             return new()
             {
                 Kind = Kind, Name = Name, TypeArguments = TypeArguments, StaticReceiver = StaticReceiver, SimpleName = SimpleName,
@@ -141,6 +141,29 @@ public sealed partial class FunctionCodeGen
                 Model = model, Position = position, Context = origin, Subst = subst, Syntax = syntax,
             };
         }
+    }
+
+    /// <summary>
+    /// Where a site binds: the statement it is in. A field or property initializer has none; a body of the same
+    /// type has the same accessibility (the binder's only use of the context), so the site binds there.
+    /// </summary>
+    private static int DynamicPosition(SyntaxNode syntax)
+    {
+        if (syntax.FirstAncestorOrSelf<StatementSyntax>() is { } statement) return statement.SpanStart;
+        if (syntax.FirstAncestorOrSelf<ArrowExpressionClauseSyntax>() is { Parent: BaseMethodDeclarationSyntax or AccessorDeclarationSyntax or LocalFunctionStatementSyntax } arrow)
+            return arrow.Expression.SpanStart;
+        if (syntax.FirstAncestorOrSelf<TypeDeclarationSyntax>() is { } type)
+            foreach (var member in type.Members)
+            {
+                var body = member switch
+                {
+                    BaseMethodDeclarationSyntax { Body: { } b } => b,
+                    PropertyDeclarationSyntax { AccessorList: { } accessors } => accessors.Accessors.Select(a => a.Body).FirstOrDefault(b => b is not null),
+                    _ => null,
+                };
+                if (body is not null) return body.OpenBraceToken.Span.End;
+            }
+        return syntax.SpanStart;
     }
 
     /// <summary>Dispatches a dynamic operation (EmitValue's hook).</summary>

@@ -124,7 +124,11 @@ public sealed class CoreLib
     // Types
     // ======================================================================================
 
-    public ITypeSymbol Map(ITypeSymbol type) => type is INamedTypeSymbol named && TryMap(named) is { } mapped ? mapped : type;
+    public ITypeSymbol Map(ITypeSymbol type)
+    {
+        type = DynamicErasure.Erase(type, _compilation); // dynamic is object at run time (DynamicErasure.cs)
+        return type is INamedTypeSymbol named && TryMap(named) is { } mapped ? mapped : type;
+    }
 
     /// <summary>
     /// The inverse of <see cref="TryMap"/>, recursively: shadow types (anywhere in the type, e.g. as a type
@@ -193,6 +197,7 @@ public sealed class CoreLib
 
     public IMethodSymbol Map(IMethodSymbol method)
     {
+        method = DynamicErasure.Erase(method, _compilation);
         if (!HasShadows || !IsLibrary(method)) return method;
         if (_cache.TryGetValue(method, out var cached)) return (IMethodSymbol)cached;
         var result = method;
@@ -251,6 +256,7 @@ public sealed class CoreLib
 
     public IPropertySymbol Map(IPropertySymbol property)
     {
+        property = DynamicErasure.EraseMember(property, _compilation);
         if (!HasShadows || !IsLibrary(property)) return property;
         if (_cache.TryGetValue(property, out var cached)) return (IPropertySymbol)cached;
         var result = property;
@@ -275,6 +281,7 @@ public sealed class CoreLib
 
     public IFieldSymbol Map(IFieldSymbol field)
     {
+        field = DynamicErasure.EraseMember(field, _compilation);
         if (!HasShadows || !IsLibrary(field)) return field;
         if (_cache.TryGetValue(field, out var cached)) return (IFieldSymbol)cached;
         var result = field;

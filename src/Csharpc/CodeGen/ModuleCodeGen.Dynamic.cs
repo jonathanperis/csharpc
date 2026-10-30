@@ -23,7 +23,8 @@ public sealed partial class ModuleCodeGen
     private readonly List<DynamicSite> _dynamicSiteList = [];
     private LoweredFunction? _dynamicTypeName;
     private bool _dynamicBoxesRegistered;
-    private static readonly bool s_dynamicTrace = Environment.GetEnvironmentVariable("CSHARPC_DYNAMIC_TRACE") == "1";
+    private static readonly bool s_dynamicTrace = Environment.GetEnvironmentVariable("CSHARPC_DYNAMIC_TRACE") is "1" or "2";
+    private static readonly bool s_dynamicTraceCases = Environment.GetEnvironmentVariable("CSHARPC_DYNAMIC_TRACE") == "2";
 
     private readonly Dictionary<SyntaxTree, SemanticModel> _dynamicModels = [];
 
@@ -197,6 +198,7 @@ public sealed partial class ModuleCodeGen
             return new LoweredFunction(fn, type);
         }
         var lowered = Create();
+        if (s_dynamicTraceCases) Console.Error.WriteLine($"[dynamic] {name}: {key}");
         try
         {
             new FunctionCodeGen(this, null, lowered, substitution: site.Subst).EmitDynamicCase(site, [.. chosen]);
