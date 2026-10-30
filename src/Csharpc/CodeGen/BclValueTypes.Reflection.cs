@@ -117,6 +117,8 @@ internal static partial class BclValueTypes
         // Configuration.Binder and similar: Activator.CreateInstance(Type) via kept public .ctor metadata.
         t["System.Activator.CreateInstance(System.Type)"] = (g, _, _, a, _) =>
             g.CallCoreLib("ReflectionRuntime", "ActivatorCreateInstance", a[0]);
+        t["System.Activator.CreateInstance(System.Type, System.Reflection.BindingFlags, System.Reflection.Binder, object[], System.Globalization.CultureInfo)"] = (g, _, _, a, _) =>
+            g.CallCoreLib("ReflectionRuntime", "ActivatorCreateInstanceWith", a[0], a[1], a[2], a[3], a[4]);
         t["System.Array.SetValue(object, int)"] = (g, _, self, a, _) => g.CallCoreLib("ReflectionRuntime", "SetValue", self, a[0], a[1]);
         t["System.Enum.ToObject(System.Type, object)"] = (g, _, _, a, _) =>
             Rt(g, "csrt_enum_to_object", g.Llvm.Ptr, (a[0], g.Llvm.Ptr), (a[1], g.Llvm.Ptr), (Table(g), g.Llvm.Ptr));

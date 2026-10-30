@@ -1087,6 +1087,40 @@ namespace CsharpcCoreLib
             throw new MissingMethodException("Cannot dynamically create an instance of type '" + type + "'. Reason: No parameterless constructor defined.");
         }
 
+        /// <summary>
+        /// Activator.CreateInstance(Type, BindingFlags, Binder, object[], CultureInfo) with the default binder:
+        /// the constructor whose parameters accept the arguments (null fits any reference or nullable type).
+        /// More than one candidate would need the binder's best-match rules: reported, never guessed.
+        /// </summary>
+        public static object ActivatorCreateInstanceWith(Type type, BindingFlags bindingAttr, Binder binder, object[] args, System.Globalization.CultureInfo culture)
+        {
+            ArgumentNullException.ThrowIfNull(type);
+            if (binder != null) throw new NotSupportedException("Activator.CreateInstance with a custom Binder is not supported by csharpc yet.");
+            if ((bindingAttr & (BindingFlags.Public | BindingFlags.NonPublic)) == 0) bindingAttr |= BindingFlags.Public;
+            bindingAttr = (bindingAttr | BindingFlags.Instance) & ~BindingFlags.Static;
+            args ??= Array.Empty<object>();
+            if (args.Length == 0 && type.IsValueType && GetConstructor(type, bindingAttr, null, Type.EmptyTypes, null) == null)
+                throw new NotSupportedException("Activator.CreateInstance of value type '" + type + "' is not supported by csharpc yet.");
+            ConstructorInfo match = null;
+            foreach (ConstructorInfo ctor in GetConstructors(type, bindingAttr))
+            {
+                ParameterInfo[] parameters = ctor.GetParameters();
+                if (parameters.Length != args.Length) continue;
+                bool fits = true;
+                for (int i = 0; i < parameters.Length && fits; i++)
+                {
+                    Type p = parameters[i].ParameterType;
+                    fits = args[i] == null ? !p.IsValueType || Nullable.GetUnderlyingType(p) != null : p.IsInstanceOfType(args[i]);
+                }
+                if (!fits) continue;
+                if (match != null)
+                    throw new NotSupportedException("Activator.CreateInstance on '" + type + "' with arguments several constructors accept is not supported by csharpc yet.");
+                match = ctor;
+            }
+            if (match == null) throw new MissingMethodException("Constructor on type '" + type.FullName + "' not found.");
+            return match.Invoke(args);
+        }
+
         public static void SetValue(Array array, object value, int index) =>
             CoreIntrinsics.csrt_array_set_value(array, value, index, CoreIntrinsics.TypeInfoTableAddress());
 

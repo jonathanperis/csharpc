@@ -309,6 +309,9 @@ public static partial class FrameworkIl
         foreach (var a in index.Values)
         {
             if (a.Ineligible is not null) continue;
+            // Only a facade (no types of its own) stands or falls with its target: System.Data.Common is a
+            // library that also forwards a few types (DBNull) to CoreLib, which the corelib serves.
+            if (a.Types.Values.Any(types => types.Length > 0)) continue;
             var blocked = a.ForwardsTo.FirstOrDefault(t => t.StartsWith("System.Private.", StringComparison.Ordinal)
                 && (!index.TryGetValue(t, out var target) || target.Ineligible is not null));
             if (blocked is not null) a.Ineligible = $"it forwards types to {blocked} (a facade)";
