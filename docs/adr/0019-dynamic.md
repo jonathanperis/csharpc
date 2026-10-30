@@ -72,11 +72,11 @@ calls a function holding the code Roslyn bound for that combination of types.
 
 ## Consequences
 
-- `dynamic` programs print what `dotnet run` prints: samples 670–676 (members, overloads by run-time type, named/optional/
+- `dynamic` programs print what `dotnet run` prints: samples 670–677 (members, overloads by run-time type, named/optional/
   params/ref/out arguments, constructors, generic inference, operators, conversions, indexers, events, delegates, struct
   receivers, ExpandoObject, DynamicObject, generic code, lambdas, iterators, async, field initializers, binder errors);
   BCL types (DateTime, TimeSpan, tuples, KeyValuePair);
-  both corpus programs that use `dynamic` (`using-dynamic`, which NativeAOT runs; `built-in-types`, which it doesn't).
+  an explicit rejection of `await` on a dynamic value (677); both corpus programs that use `dynamic` (`using-dynamic`, which NativeAOT runs; `built-in-types`, which it doesn't).
 - Speed: a bound case is a type test and a direct call — no binder, no rule cache, no interpreter. A loop of 5M
   `acc += p.Add(i); p.X = i & 7;` on `dynamic` values takes 62–70 ms with csharpc, 308–403 ms on the JIT; NativeAOT
   can't run it (2026-10-30, shared VPS).
