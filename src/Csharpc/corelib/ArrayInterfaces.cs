@@ -66,9 +66,12 @@ namespace CsharpcCoreLib
         // IStructuralComparable / IStructuralEquatable (System.Array's explicit implementations): element-wise
         // over boxed elements with the given comparer. Arrays of another element type would need untyped
         // element access, which csharpc doesn't have: reported instead of guessed.
-        private static T[] OtherOfSameType(object other)
+        private static T[] OtherOfSameType(T[] a, object other)
         {
             if (other is T[] same) return same;
+            // Arrays of every reference type share SZArrayHelper<object> (ModuleCodeGen.ElementHelper),
+            // where T[] is object[] and a string[] is not: compare the arrays' own types instead.
+            if (other is Array array && other.GetType() == a.GetType()) return CoreIntrinsics.ReinterpretAs<T[]>(array);
             if (other is Array)
                 throw new NotSupportedException("csharpc: structural comparison of arrays with different element types is not supported yet.");
             return null;
@@ -77,7 +80,7 @@ namespace CsharpcCoreLib
         public static int IStructuralComparable_CompareTo(T[] a, object other, IComparer comparer)
         {
             if (other == null) return 1;
-            var o = OtherOfSameType(other);
+            var o = OtherOfSameType(a, other);
             if (o == null || a.Length != o.Length)
                 throw new ArgumentException("Object is not a array with the same number of elements as the array to compare it to.", "other");
             int i = 0, c = 0;
@@ -93,7 +96,7 @@ namespace CsharpcCoreLib
         {
             if (other == null) return false;
             if (ReferenceEquals(a, other)) return true;
-            var o = OtherOfSameType(other);
+            var o = OtherOfSameType(a, other);
             if (o == null || o.Length != a.Length) return false;
             for (int i = 0; i < o.Length; i++)
                 if (!comparer.Equals(CoreIntrinsics.Box(a[i]), CoreIntrinsics.Box(o[i]))) return false;

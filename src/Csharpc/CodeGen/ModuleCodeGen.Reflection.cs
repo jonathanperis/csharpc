@@ -699,9 +699,41 @@ public sealed partial class ModuleCodeGen
             var type = instance.Constructor.ContainingType;
             // GetCustomAttributes(typeof(A), ...) returns an A[]: the program needs that array type.
             ArrayMethodTable(type);
-            list.Add(new AttributeRecordData(MetadataMethodTable(type), AttributeFactory(instance), AttributeDataFactory(instance)));
+            var key = AttributeKey(instance);
+            if (!_attributeFactories.TryGetValue(key, out var factories))
+                _attributeFactories[key] = factories = (AttributeFactory(instance), AttributeDataFactory(instance));
+            list.Add(new AttributeRecordData(MetadataMethodTable(type), factories.Create, factories.Data));
         }
         return list;
+    }
+
+    // Identical applications (the compiler's [Nullable(1)] on hundreds of members) share their factories:
+    // each call still creates a new attribute object, as GetCustomAttributes does.
+    private readonly Dictionary<string, (LLVMValueRef Create, LLVMValueRef Data)> _attributeFactories = new(StringComparer.Ordinal);
+
+    private static string AttributeKey(AttributeInstance instance)
+    {
+        var key = new System.Text.StringBuilder(Mangler.Method(instance.Constructor));
+        foreach (var value in instance.Fixed) AppendAttributeValue(key.Append('|'), value);
+        foreach (var (name, isField, value) in instance.Named) AppendAttributeValue(key.Append('|').Append(isField ? 'F' : 'P').Append(name).Append('='), value);
+        return key.ToString();
+    }
+
+    private static void AppendAttributeValue(System.Text.StringBuilder key, AttributeValue value)
+    {
+        key.Append(value.Type.ToDisplayString()).Append('@').Append(value.Type.ContainingAssembly?.Name).Append(':');
+        switch (value.Value)
+        {
+            case null: key.Append('~'); break;
+            case ImmutableArray<AttributeValue> array:
+                key.Append('[').Append(array.Length).Append(']');
+                foreach (var element in array) AppendAttributeValue(key.Append(','), element);
+                break;
+            case ITypeSymbol type: key.Append('T').Append(type.ToDisplayString()).Append('@').Append(type.ContainingAssembly?.Name); break;
+            case string text: key.Append('"').Append(text.Length).Append(':').Append(text); break;
+            case IFormattable number: key.Append(value.Value.GetType().Name).Append(number.ToString(null, System.Globalization.CultureInfo.InvariantCulture)); break;
+            default: key.Append(value.Value.GetType().Name).Append(value.Value); break;
+        }
     }
 
     /// <summary>
