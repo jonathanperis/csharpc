@@ -564,7 +564,7 @@ reach that csharpc can't compile went from 121 to 33 on the branch; the rest are
 
 ### ASP.NET Core and the TechEmpower app
 
-M8's measure ([06-roadmap.md](06-roadmap.md#m8--the-win-techempower-with-the-csharpc-built-dotnet)):
+M7's measure ([06-roadmap.md](06-roadmap.md#m7--techempower-csharpc-beats-nativeaot)):
 `benchmarks/techempower/app` is the plaintext and JSON test types of the TechEmpower Framework Benchmarks
 in the style of the aspnetcore entries that publish with NativeAOT (Kestrel, `WebApplication.CreateSlimBuilder`,
 middleware rather than minimal-API endpoints, System.Text.Json source generation). The `TechEmpower`

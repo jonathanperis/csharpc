@@ -8,7 +8,7 @@ name: IL survey
 # in 16 parallel shards whose results are merged into one report ranked by the number of methods each
 # item blocks (docs/18-compatibility.md#roslyn-and-csharpc).
 #
-# `target: aspnetcore` surveys M8's closure the same way: the ASP.NET Core assemblies the TechEmpower
+# `target: aspnetcore` surveys M7's closure the same way: the ASP.NET Core assemblies the TechEmpower
 # app (benchmarks/techempower/app) reaches — Microsoft.AspNetCore.*, Microsoft.Extensions.*,
 # System.IO.Pipelines, System.Net.* — in 16 shards (tools/il-survey/aspnetcore.sh,
 # docs/18-compatibility.md#aspnet-core-and-the-techempower-app).

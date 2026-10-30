@@ -1,6 +1,6 @@
 name: TechEmpower
 
-# M8 harness (docs/06-roadmap.md): the TechEmpower plaintext/JSON app (benchmarks/techempower/app)
+# M7 harness (docs/06-roadmap.md): the TechEmpower plaintext/JSON app (benchmarks/techempower/app)
 # built with NativeAOT, with csharpc and on the JIT; each build is checked with TechEmpower's test
 # requests (csharpc's responses must equal NativeAOT's) and loaded with wrk the way TechEmpower loads
 # it (pipelined plaintext, several concurrency levels). Until csharpc can build the app, the report

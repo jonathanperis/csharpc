@@ -11,11 +11,13 @@ behind `PublishAot`. The compiler is C#; the runtime keeps C where it is the rig
 order: **speed, security, size**; behaviour byte-identical to .NET (an explicit "not supported" over any
 silent difference); every fix with a regression sample recorded from real .NET.
 
-## Finish line
+## Roadmap order
 
-M8: a dotnet fork with NativeAOT's code removed and csharpc in its place, used to build the ASP.NET Core
-TechEmpower entries .NET runs with NativeAOT, beating them in the TechEmpower environment. Acceptance gate
-for the fork (M7): dotnet's own AOT test suites pass with csharpc.
+M2 (library surface) → M4 (100 % NativeAOT parity) → M5/M6 (IL front-end as the primary path; csharpc
+compiling Roslyn, then itself) → **M7** (TechEmpower: csharpc-built ASP.NET Core entries beat NativeAOT's
+in the TechEmpower environment; started only once M2–M6 are done) → **M8**, the finish line (the dotnet
+fork with csharpc in NativeAOT's place behind `PublishAot`, accepted by dotnet's own AOT test suites, its
+TechEmpower entries still beating NativeAOT's). Renumbered 2026-10-30: TechEmpower was M8, the fork M7.
 
 ## `main`
 
@@ -33,9 +35,9 @@ attribute factories) with a ~25 % faster build.
 
 ## Open branches
 
-- `ci/array-covariance-checks` — the CLR's array covariance store check, which csharpc never did
-  (`object[] a = new string[1]; a[0] = 42;` stored the int: a silent heap type confusion).
-- `ci/nursery-barriers` — write barriers on every heap reference store, so the opt-in nursery is sound.
+- `ci/nursery-merge` — the opt-in nursery made sound (barriers on every store path, a GC nursery CI
+  workflow) and an iterator-argument header fix for the default build. (Array covariance checks are on
+  `main`; arrays of variant delegates and runtime-synthesized arrays are still unchecked.)
 
 ## Measured state
 
@@ -56,14 +58,16 @@ attribute factories) with a ~25 % faster build.
 
 ## Next, in order
 
-1. Tag `v0.1.0-alpha` once `main`'s CI is green; unlist the `0.1.0-spike*` packages.
-2. Merge the two open branches when green.
-3. M8, speed first: throughput (plaintext and JSON at 94–97 % of NativeAOT), then memory under load,
-   build time (the single-threaded LLVM optimizer dominates), then executable size.
-4. M4: the seven remaining parity blockers.
-5. Early gauge for M7's acceptance gate: build dotnet's AOT test suites with csharpc on CI.
-6. M5/M6: IL front-end as the primary path; Roslyn's remaining blockers; csharpc compiling itself.
-7. M7: the dotnet fork; then M8 in the TechEmpower environment.
+1. M4: the seven remaining parity blockers (expression trees, `dynamic`, C# 15 unions, `System.Data`,
+   `AssemblyLoadContext`).
+2. M2: library gaps as programs reach them (`TimeSpan.Parse`, `Version.Parse`, `Type.GetField(s)`, ...).
+3. M5: user code through the IL front-end (what `csc` hands the fork), with the Roslyn path kept for
+   standalone use and debug info; gaps between the two are bugs.
+4. M6: Roslyn's remaining blockers (non-generic ~170 methods, then generic methods), then csharpc
+   compiling itself.
+5. M7: TechEmpower — throughput first, then memory under load, build time and size (the harness keeps
+   measuring meanwhile).
+6. M8: the fork; early gauge of its acceptance gate by building dotnet's AOT test suites with csharpc.
 
 ## Working rules
 

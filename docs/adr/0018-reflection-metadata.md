@@ -1,7 +1,7 @@
 # ADR 0018 — Member reflection over compile-time metadata, as NativeAOT keeps it
 
 - **Status:** Accepted (2026-10-25). Builds on [ADR 0006](0006-closed-world-compilation.md) (closed world)
-  and [ADR 0016](0016-nativeaot-parity-and-end-state.md) (NativeAOT parity). Roadmap: M8 (the
+  and [ADR 0016](0016-nativeaot-parity-and-end-state.md) (NativeAOT parity). Roadmap: M7 (the
   TechEmpower app).
 
 ## Context

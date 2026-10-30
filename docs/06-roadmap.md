@@ -247,28 +247,15 @@ faster and as safe on the benchmarks, the GC stress run and dotnet's own AOT tes
 (entry, signal/SEH stubs, unwinder ABI, register spilling), plus dotnet's own C shims for the OS
 (`System.Native`, `System.Globalization.Native`), as NativeAOT does.
 
-### M7 — End state: csharpc as dotnet's AOT backend
-A fork of dotnet in which `dotnet publish -p:PublishAot=true` runs csharpc where NativeAOT's ILCompiler
-runs today: the same IL inputs from `csc`, the same MSBuild properties (`OptimizationPreference`,
-`IlcInstructionSet`, `InvariantGlobalization`, `StackTraceSupport`, `StripSymbols`, `NativeLib`,
-`DirectPInvoke`, trimming descriptors and feature switches, ...) and the same outputs, so existing
-projects get csharpc by switching the AOT backend ([ADR 0016](adr/0016-nativeaot-parity-and-end-state.md)).
-Prerequisites: M6 (IL as the primary input path, csharpc compiling Roslyn and itself) and NativeAOT
-parity on the compatibility corpus.
-Acceptance gate: dotnet's own tests for the AOT path all pass with csharpc in NativeAOT's place —
-dotnet/runtime's NativeAOT runtime tests, the libraries' tests in their NativeAOT configuration, and the
-SDK's `PublishAot` tests (exclusions only for tests of ILCompiler internals, each listed). Tracked before
-the fork by building those suites with csharpc on CI and reporting the pass rate. Until then `Csharpc.Sdk` is the integration point and adopts
-NativeAOT's property names as it honours them.
+### M7 — TechEmpower: csharpc beats NativeAOT
+Starts only when M2–M6 are complete (the owner's rule, 2026-10-30); until then the CI harness below keeps
+measuring the gap, without dedicated work on it. The ASP.NET Core entries of the
+[TechEmpower Framework Benchmarks](https://github.com/TechEmpower/FrameworkBenchmarks) that .NET runs
+with NativeAOT, built by csharpc directly (standalone or through `Csharpc.Sdk`) from the same sources,
+run in TechEmpower's benchmark environment and beat the NativeAOT-compiled entries. Same sources, same
+test types, same harness; only the AOT compiler differs.
 
-### M8 — The win: TechEmpower with the csharpc-built dotnet
-The final proof, and the project's definition of done: in the dotnet fork of M7, NativeAOT's code is
-removed and csharpc takes its place; the fork is built, and that build compiles the ASP.NET Core
-entries of the [TechEmpower Framework Benchmarks](https://github.com/TechEmpower/FrameworkBenchmarks)
-that .NET runs with NativeAOT, in their benchmark environment — and they beat the NativeAOT-compiled
-entries. Same sources, same test types, same harness; only the AOT backend differs.
-
-What it takes, beyond M6–M7: ASP.NET Core and Kestrel compiled from IL (hosting, dependency
+What it takes, beyond M2–M6: ASP.NET Core and Kestrel compiled from IL (hosting, dependency
 injection, configuration, logging, `System.IO.Pipelines`, the HTTP/1.1 parser, `System.Text.Json`
 source generation, the database driver the entries use), the thread pool, sockets and async I/O at
 production throughput on Linux (epoll), and allocation/GC behaviour under sustained load. Tracked
@@ -331,7 +318,7 @@ runs, so the comparison is the csharpc/NativeAOT ratio within one run:
 (Profiling runs on the same branch measured plaintext at 100–102 % of NativeAOT.) Latest on `main`
 (2026-10-30, `9406394`, run 41089947567): plaintext 94 % / 95 %, JSON 97 % / 95 % / 97 % of NativeAOT, JSON p99
 4.8 vs 6.4 ms and start-up 23 vs 30 ms ahead, peak RSS after load 76.5 vs 65.1 MiB, executable 15.6 vs
-8.9 MiB, build 410 vs 24 s. Speed first: the throughput gap is the next M8 work. What the profiles
+8.9 MiB, build 410 vs 24 s. Speed first: the throughput gap is M7 work, started once M2–M6 are done. What the profiles
 found, in the order they were fixed: every task completion woke the main thread blocked in
 `app.Run()` (18 % of the CPU in futex wake-ups); `lock`/`Monitor` allocated an entry per `Enter` and
 `System.Threading.Lock` went through the same table (11–15 %: Lock now keeps its state in the object,
@@ -346,6 +333,23 @@ even when it completes without suspending: 90 % of the bytes allocated under loa
 pause (about 5 ms per collection, single-threaded marking), then the binary size (`.data.rel.ro` method
 tables and vtables, 3.4 MiB; the corelib's code, 3 MiB) and the build time (one whole-module `default<O2>`
 pass over 1.6 M instructions is most of it).
+
+### M8 — End state and definition of done: csharpc as dotnet's AOT backend
+The finish line. A fork of dotnet in which `dotnet publish -p:PublishAot=true` runs csharpc where NativeAOT's ILCompiler
+runs today: the same IL inputs from `csc`, the same MSBuild properties (`OptimizationPreference`,
+`IlcInstructionSet`, `InvariantGlobalization`, `StackTraceSupport`, `StripSymbols`, `NativeLib`,
+`DirectPInvoke`, trimming descriptors and feature switches, ...) and the same outputs, so existing
+projects get csharpc by switching the AOT backend ([ADR 0016](adr/0016-nativeaot-parity-and-end-state.md)).
+Prerequisites: M7 (and with it M2–M6: IL as the primary input path, csharpc compiling Roslyn and itself,
+NativeAOT parity on the compatibility corpus).
+Acceptance gate: dotnet's own tests for the AOT path all pass with csharpc in NativeAOT's place —
+dotnet/runtime's NativeAOT runtime tests, the libraries' tests in their NativeAOT configuration, and the
+SDK's `PublishAot` tests (exclusions only for tests of ILCompiler internals, each listed). Tracked before
+the fork by building those suites with csharpc on CI and reporting the pass rate. Until then `Csharpc.Sdk` is the integration point and adopts
+NativeAOT's property names as it honours them.
+Done when NativeAOT's code is removed from the fork and csharpc takes its place, the fork is built, its
+acceptance gate passes, and the TechEmpower entries built by that fork's `PublishAot` still beat the
+NativeAOT-compiled ones in the TechEmpower environment (M7's result, now through the fork).
 
 ### Credibility deliverables (cross-cutting)
 - A technical report: what csharpc demonstrates (Roslyn's CFG as a mid-level IR, a C# corelib with

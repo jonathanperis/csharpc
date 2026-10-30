@@ -10,7 +10,7 @@ with the same behaviour; what NativeAOT can't do (run-time code generation) stay
 diagnostic. `Csharpc.Sdk` honours NativeAOT's MSBuild properties under their NativeAOT names as it
 gains them (a property it doesn't honour yet is a warning, not silently ignored). The end state is a
 fork of dotnet in which the `PublishAot` step runs csharpc instead of ILCompiler, with the same inputs,
-parameters and outputs (roadmap M7).
+parameters and outputs (roadmap M8).
 
 ## Usage
 
