@@ -32,6 +32,11 @@ diagnostic, overload resolution and language rule is exactly the official compil
 to LLVM IR, the object model, a garbage-collected runtime, a C# corelib, and the driver. No IL, no JIT
 and no CoreCLR at run time: the output is an ordinary native executable.
 
+Use it **standalone**, the way rustc is used (`csharpc app.cs -o app`, or on a `.csproj`), or as **.NET's
+AOT layer** in NativeAOT's place, behind `dotnet publish -p:PublishAot=true` (the end state,
+[ADR 0016](docs/adr/0016-nativeaot-parity-and-end-state.md)). Priorities, in order: **speed, security,
+size** — each measured in CI against NativeAOT.
+
 ```console
 $ csharpc hello.cs -o hello && ./hello
 Hello from C# compiled by LLVM!
@@ -49,9 +54,14 @@ $ ls -lh hello
   (CPU time), with binaries **8–120× smaller** (11–161 KiB vs 1.3–1.6 MiB on x86-64; hello world is
   27 KiB with default hardening), faster start-up and a fraction of the memory
   ([size, start-up and memory](benchmarks/RESULTS.md#size-start-up-memory-and-compile-time)).
+- **Secure by default.** Hardened executables by default (full RELRO + BIND_NOW, non-executable stack,
+  separate code segment, stack-clash probes; the C runtime with stack protector and `_FORTIFY_SOURCE=3`),
+  checked by `tools/checksec.sh` on every Linux CI run; `--hardening=max` adds CET/BTI/PAC control-flow
+  protection. Bounds and cast checks behave as .NET's ([docs/17-security.md](docs/17-security.md)).
 - **Drop-in.** Compile a `.csproj` directly, or keep using `dotnet build` / `dotnet publish` with
   `-p:UseCsharpc=true` / `-p:PublishCsharpc=true` ([docs/08-drop-in.md](docs/08-drop-in.md)). The
-  target is **100 % parity with .NET NativeAOT**, and the end state is csharpc as the AOT backend of
+  target is **100 % parity with .NET NativeAOT** — **97.2 %** of the programs NativeAOT runs today
+  ([compatibility corpus](docs/18-compatibility.md)), with no wrong outputs — and the end state is csharpc as the AOT backend of
   `dotnet publish -p:PublishAot=true` itself, with NativeAOT's parameters
   ([ADR 0016](docs/adr/0016-nativeaot-parity-and-end-state.md)). The finish line: that dotnet build
   beating NativeAOT on the ASP.NET Core TechEmpower benchmarks (roadmap M8).
@@ -69,8 +79,9 @@ $ ls -lh hello
 | **Library** | `Console`, `Math`, strings & `StringBuilder`, number formatting/parsing (all standard and custom format strings), `DateTime`/`TimeSpan`/`Stopwatch`, `Type` objects, `System.Collections.Generic` and `System.Linq` (a corelib written in C# and compiled with your program), tasks, cancellation |
 
 Not supported, by design (the same limits NativeAOT has): run-time code generation and loading code
-outside the closed world. Not supported yet: `dynamic`, expression trees and member reflection
-(NativeAOT runs these, so they're on the roadmap), parts of networking. Libraries that ship only IL
+outside the closed world. Reflection works on the members `[DynamicallyAccessedMembers]` keeps, as in
+NativeAOT ([ADR 0018](docs/adr/0018-reflection-metadata.md)). Not supported yet: `dynamic`, expression
+trees and C# 15 `union` types (NativeAOT runs these, so they're on the roadmap), parts of networking. Libraries that ship only IL
 (`-r X.dll`, `<Reference>`, NuGet packages) are compiled from their IL by the IL front-end
 ([ADR 0010](docs/adr/0010-il-frontend.md)), as far as the BCL surface they use is implemented. The full matrix is in [docs/06-roadmap.md](docs/06-roadmap.md).
 

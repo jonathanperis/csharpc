@@ -22,6 +22,8 @@ classification. That code has several costs:
   custom formats seeing 15 significant digits, half-up rounding for integers and decimals, `"-0"`
   in custom formats, `Math.Round(1.115, 2)`, and the `byte`/`sbyte` overflow messages.
 - **It goes against the project goal** of writing as much of the implementation as possible in C#.
+  *(2026-10-30: that goal was later narrowed — the compiler is C#, library code is C#, and the runtime
+  keeps C where it is the right tool; see ADR 0017's clarification.)*
 
 ## Decision
 
