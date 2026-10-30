@@ -36,9 +36,13 @@ attribute factories) with a ~25 % faster build.
 
 ## Open branches
 
-- `ci/nursery-merge` — the opt-in nursery made sound (barriers on every store path, a GC nursery CI
-  workflow) and an iterator-argument header fix for the default build. (Array covariance checks are on
-  `main`; arrays of variant delegates and runtime-synthesized arrays are still unchecked.)
+- `ci/m2-system-data` — Roslyn 5.12 (the SDK's build), C# 15 unions, field reflection (`GetField(s)`,
+  `FieldInfo`), `AssemblyLoadContext`/`AssemblyDependencyResolver` as NativeAOT has them,
+  `Assembly.GetType` with constant names kept at compile time, `PropertyDescriptor`/`AttributeCollection`
+  ports, BigInteger↔decimal, `TimeSpan`/`Version` parsing, `ReaderWriterLockSlim`, `BitArray`,
+  `SerializationInfo`, JSON `Guid`. Locally it clears four parity blockers (both union programs,
+  `System.Data`, `AssemblyLoadContext`).
+- `ci/expression-trees`, `ci/dynamic` — the last two parity blockers, in progress.
 
 ## Measured state
 
@@ -59,11 +63,11 @@ attribute factories) with a ~25 % faster build.
 
 ## Next, in order
 
-1. M4: the seven remaining parity blockers (expression trees, `dynamic`, C# 15 unions, `System.Data`,
-   `AssemblyLoadContext`).
-2. M2: library gaps as programs reach them (`TimeSpan.Parse`, `Version.Parse`, `Type.GetField(s)`, ...).
-3. M5: user code through the IL front-end (what `csc` hands the fork), with the Roslyn path kept for
-   standalone use and debug info; gaps between the two are bugs.
+1. M4: merge the branches above, then rerun the Compatibility workflow for the parity number.
+2. M2: library gaps as programs reach them.
+3. M5: user code through the IL front-end (what `csc` hands the fork): an IL main assembly as input
+   (`csharpc app.dll`) and a differential mode that runs the samples through csc → IL → csharpc. The
+   Roslyn path stays for standalone use and debug info; gaps between the two are bugs.
 4. M6: Roslyn's remaining blockers (non-generic ~170 methods, then generic methods), then csharpc
    compiling itself.
 5. M7: TechEmpower with the `csharpc` CLI — throughput first, then memory under load, build time and size

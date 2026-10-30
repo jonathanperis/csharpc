@@ -153,6 +153,7 @@ public sealed partial class FunctionCodeGen
         if (receiver is { Type: { } receiverType } && !method.IsStatic && method.ContainingType.TypeKind == TypeKind.Interface
             && S(receiverType) is IArrayTypeSymbol or { SpecialType: SpecialType.System_Array } && S(method.ContainingType) is INamedTypeSymbol arrayInterface)
             _m.RequestArrayInterface(arrayInterface);
+        if (args is [{ Constant: string typeName }, ..] && IsGetTypeByName(method)) _m.NoteTypeByName(typeName);
         if (receiver is { Symbol: ITypeSymbol reflected }) NoteReflectedType(method, S(reflected), args is [{ Constant: string name }, ..] ? name : null);
 
         // Library operators and conversions (decimal + decimal, (long)BigInteger ...): the source path's operator lowering.

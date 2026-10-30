@@ -1,0 +1,30 @@
+[1.2] -> 1.2
+  TryParse True 1.2
+[1.2.3] -> 1.2.3
+  TryParse True 1.2.3
+[1.2.3.4] -> 1.2.3.4
+  TryParse True 1.2.3.4
+[ 1 . 2 ] -> 1.2
+  TryParse True 1.2
+[+1.2] -> 1.2
+  TryParse True 1.2
+[1] !! ArgumentException: Version string portion was too short or too long. (Parameter 'input')
+  TryParse False null
+[1.2.3.4.5] !! ArgumentException: Version string portion was too short or too long. (Parameter 'input')
+  TryParse False null
+[1.-2] !! ArgumentOutOfRangeException: input ('-2') must be a non-negative value. (Parameter 'input')
+Actual value was -2.
+  TryParse False null
+[1.x] !! FormatException: The input string '1.x' was not in a correct format.
+  TryParse False null
+[1.2.99999999999] !! OverflowException: Value was either too large or too small for an Int32.
+  TryParse False null
+[] !! ArgumentException: Version string portion was too short or too long. (Parameter 'input')
+  TryParse False null
+[1..2] !! FormatException: The input string '1..2' was not in a correct format.
+  TryParse False null
+[2147483647.0] -> 2147483647.0
+  TryParse True 2147483647.0
+10.0.1
+input
+False True

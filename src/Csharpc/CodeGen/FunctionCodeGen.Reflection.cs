@@ -146,6 +146,45 @@ public sealed partial class FunctionCodeGen
         Finish();
     }
 
+    /// <summary>
+    /// object Get(object target) / void Set(object target, object value) of a field, behind FieldInfo.GetValue
+    /// and SetValue. The corelib has checked the target (an instance of the declaring type; a boxed struct for
+    /// struct fields) and the value; a constant's getter returns the boxed constant.
+    /// </summary>
+    internal void EmitFieldAccessor(IFieldSymbol field, bool set, SyntaxNode syntax)
+    {
+        var target = ParamOf(0);
+        var at = new IlValueOperation(syntax, ObjectType, () => target);
+        var type = S(field.Type);
+        if (field.IsConst)
+        {
+            if (set) throw CompileError.Unsupported($"setting the constant '{field}'", field);
+            var value = field.ConstantValue;
+            var source = value is null ? null : ConstantTypeOf(value);
+            _b.Ret(value switch
+            {
+                null => LlvmContext.Null(L.Ptr),
+                string text => _m.StringLiteral(text),
+                _ when type.IsReferenceType => Box(Constant(value, source!, at), source!, at),
+                _ => Box(Coerce(Constant(value, source!, at), source!, type), type, at),
+            });
+            Finish();
+            return;
+        }
+        LLVMValueRef address;
+        if (field.IsStatic) address = StaticFieldAddress(field);
+        else if (field.ContainingType.IsValueType) address = FieldAddressOn(_b.InBoundsGep(L.I8, target, [L.ConstInt(L.I64, 8)]), field);
+        else if (_m.IsUserType(field.ContainingType)) address = FieldAddressOn(target, field);
+        else throw CompileError.Unsupported($"field '{field}' of a library type", field);
+        if (set)
+        {
+            StoreValue(ToStorage(FromReflectionArgument(ParamOf(1), type), type), address);
+            _b.RetVoid();
+        }
+        else _b.Ret(ToReflectionResult(LoadValue(address, type), type, at));
+        Finish();
+    }
+
     /// <summary>A factory that throws NotSupportedException (ModuleCodeGen.AttributeFactory).</summary>
     internal void EmitThrowingFactory(string message)
     {

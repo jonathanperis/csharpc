@@ -1,0 +1,10 @@
+Widget
+True True False True
+Dispose(True)
+Disposed event, sender is widget: True
+7 3 9 5 -1 -1 -1 0 
+index
+origin (0,0)
+xy (3,4)
+private p (0,0)
+Constructor on type 'Point' not found.

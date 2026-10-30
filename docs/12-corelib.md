@@ -305,12 +305,12 @@ of the kind/visibility/generic families, `BaseType`, `GetElementType`, `GetArray
 `GetGenericTypeDefinition`, `GetGenericArguments`, `GenericTypeArguments`, `GenericParameterPosition`,
 `UnderlyingSystemType`, `Nullable.GetUnderlyingType`, `FullName`, `AssemblyQualifiedName`, `Assembly`,
 `Assembly.GetExecutingAssembly`/`GetEntryAssembly`, with .NET's exception types and messages.
-Member reflection — constructors, methods, properties, parameters, attributes, `Invoke`, `GetValue`/
-`SetValue`, `CreateDelegate`, and `MakeGenericType` over the instantiations the program has — works over
-metadata kept for what `[DynamicallyAccessedMembers]` and constant `typeof(X).GetMethod("Name")` patterns
-reach, as under NativeAOT ([ADR 0018](adr/0018-reflection-metadata.md)). Members that would need code
-or metadata the closed world doesn't have (`GetFields`, `GetInterfaces`, `Activator.CreateInstance(Type)`,
-`IsSerializable`) are compile-time "not supported by csharpc yet" errors. Where an entry can't be
+Member reflection — constructors, methods, properties, fields, parameters, attributes, `Invoke`,
+`GetValue`/`SetValue`, `CreateDelegate`, `GetInterfaces`, `Activator.CreateInstance(Type)`, and
+`MakeGenericType` over the instantiations the program has — works over metadata kept for what
+`[DynamicallyAccessedMembers]` and constant `typeof(X).GetMethod("Name")` patterns reach, as under
+NativeAOT ([ADR 0018](adr/0018-reflection-metadata.md)). Members that would need code or metadata the
+closed world doesn't have (`IsSerializable`) are compile-time "not supported by csharpc yet" errors. Where an entry can't be
 described faithfully (open generic types' base types and interfaces, corelib-internal types with no
 .NET counterpart, signed assemblies), the query throws `NotSupportedException` at run time rather than
 answering wrong. Samples: `tests/samples/400_type_assignability` … `403_type_assembly`.

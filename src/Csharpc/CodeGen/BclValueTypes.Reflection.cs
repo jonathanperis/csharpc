@@ -91,6 +91,11 @@ internal static partial class BclValueTypes
         t[$"{Type}.GetProperty(string, System.Type)"] = propertyLookup("GetPropertyNameReturn");
         t[$"{Type}.GetProperty(string, System.Type, System.Type[])"] = propertyLookup("GetPropertyNameReturnTypes");
         t[$"{Type}.GetProperty(string, System.Reflection.BindingFlags, System.Reflection.Binder, System.Type, System.Type[], System.Reflection.ParameterModifier[])"] = propertyLookup("GetPropertyFull");
+        BclHandler fieldLookup(string method) => (g, _, self, a, _) => g.CallCoreLib("FieldReflection", method, [self, .. a]);
+        t[$"{Type}.GetFields()"] = fieldLookup("GetFieldsAll");
+        t[$"{Type}.GetFields(System.Reflection.BindingFlags)"] = fieldLookup("GetFieldsFlags");
+        t[$"{Type}.GetField(string)"] = fieldLookup("GetFieldName");
+        t[$"{Type}.GetField(string, System.Reflection.BindingFlags)"] = fieldLookup("GetFieldNameFlags");
         // A type's own attributes: the program keeps those of every type and generic parameter once it asks.
         BclHandler typeAttributes(string method) => (g, _, self, a, _) =>
         {
@@ -115,8 +120,14 @@ internal static partial class BclValueTypes
             return g.CallCoreLib("ReflectionRuntime", "CreateInstance", a[0], a[1]);
         };
         // Configuration.Binder and similar: Activator.CreateInstance(Type) via kept public .ctor metadata.
+        t["System.Type.GetType(string)"] = (g, _, _, a, _) => g.CallCoreLib("ReflectionRuntime", "GetTypeByName", a[0]);
+        t["System.Type.GetType(string, bool)"] = (g, _, _, a, _) => g.CallCoreLib("ReflectionRuntime", "GetTypeByName", a[0], a[1]);
+        t["System.Type.GetType(string, bool, bool)"] = (g, _, _, a, _) => g.CallCoreLib("ReflectionRuntime", "GetTypeByName", a[0], a[1], a[2]);
+        t["System.Type.GetTypeCode(System.Type)"] = (g, _, _, a, _) => g.CallCoreLib("ReflectionRuntime", "GetTypeCode", a[0]);
         t["System.Activator.CreateInstance(System.Type)"] = (g, _, _, a, _) =>
             g.CallCoreLib("ReflectionRuntime", "ActivatorCreateInstance", a[0]);
+        t["System.Activator.CreateInstance(System.Type, System.Reflection.BindingFlags, System.Reflection.Binder, object[], System.Globalization.CultureInfo)"] = (g, _, _, a, _) =>
+            g.CallCoreLib("ReflectionRuntime", "ActivatorCreateInstanceWith", a[0], a[1], a[2], a[3], a[4]);
         t["System.Array.SetValue(object, int)"] = (g, _, self, a, _) => g.CallCoreLib("ReflectionRuntime", "SetValue", self, a[0], a[1]);
         t["System.Enum.ToObject(System.Type, object)"] = (g, _, _, a, _) =>
             Rt(g, "csrt_enum_to_object", g.Llvm.Ptr, (a[0], g.Llvm.Ptr), (a[1], g.Llvm.Ptr), (Table(g), g.Llvm.Ptr));

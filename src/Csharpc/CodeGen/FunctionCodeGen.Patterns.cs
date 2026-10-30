@@ -49,6 +49,15 @@ public sealed partial class FunctionCodeGen
             {
                 var narrowed = binary.LeftPattern.NarrowedType is { } n ? S(n) : inputType;
                 var rightValue = value;
+                // A union narrowed to a case type (`u is > 3 and < 10`): the right pattern gets the contents.
+                if (ModuleCodeGen.IsUnionType(inputType) && narrowed is not null && !SymbolEqualityComparer.Default.Equals(narrowed, inputType))
+                {
+                    var contents = UnionValue(value, (INamedTypeSymbol)inputType!);
+                    rightValue = narrowed.IsValueType && !TypeMapper.IsNullable(narrowed)
+                        ? LoadValue(_b.InBoundsGep(L.I8, contents, [L.ConstInt(L.I64, 8)]), narrowed) // unbox (test passed)
+                        : contents;
+                    return PatternTest(rightValue, narrowed, binary.RightPattern);
+                }
                 if (narrowed is { IsValueType: true } && value.Type.IsPointer && !TypeMapper.IsNullable(narrowed))
                     rightValue = LoadValue(_b.InBoundsGep(L.I8, value, [L.ConstInt(L.I64, 8)]), narrowed); // unbox (test passed)
                 else if (narrowed is not null && inputType is not null && !value.Type.IsPointer)
@@ -328,6 +337,25 @@ public sealed partial class FunctionCodeGen
             ? IsNaN(unboxed)
             : Arithmetic(BinaryOperatorKind.Equals, unboxed, EmitValue(constant.Value), constantType, constantType, constant);
         _b.Store(match, result);
+        _b.Br(done);
+        _b.PositionAtEnd(done);
+        return _b.Load(L.I1, result);
+    }
+
+    /// <summary>
+    /// A relational pattern on a reference (`object o is > 3`, a union's contents): a type test for the
+    /// constant's type, then the comparison of the unboxed value — false when the type doesn't match.
+    /// </summary>
+    private LLVMValueRef BoxedRelationalPatternTest(LLVMValueRef value, ITypeSymbol? inputType, ITypeSymbol relationalType, IRelationalPatternOperation relational)
+    {
+        var result = NewTemp(L.I1, "rel.match");
+        _b.Store(L.False, result);
+        var compare = NewBlock("rel.compare");
+        var done = NewBlock("rel.done");
+        _b.CondBr(IsInstance(value, inputType, relationalType, relational), compare, done);
+        _b.PositionAtEnd(compare);
+        var unboxed = LoadValue(_b.InBoundsGep(L.I8, value, [L.ConstInt(L.I64, 8)]), relationalType);
+        _b.Store(Arithmetic(relational.OperatorKind, unboxed, EmitValue(relational.Value), relationalType, relationalType, relational), result);
         _b.Br(done);
         _b.PositionAtEnd(done);
         return _b.Load(L.I1, result);

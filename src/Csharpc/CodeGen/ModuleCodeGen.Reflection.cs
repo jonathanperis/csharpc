@@ -22,13 +22,14 @@ public sealed partial class ModuleCodeGen
 {
     // DynamicallyAccessedMemberTypes values csharpc keeps metadata for.
     internal const int DamPublicParameterlessConstructor = 0x1, DamPublicConstructors = 0x3, DamNonPublicConstructors = 0x4,
-        DamPublicMethods = 0x8, DamNonPublicMethods = 0x10, DamPublicProperties = 0x200, DamNonPublicProperties = 0x400;
+        DamPublicMethods = 0x8, DamNonPublicMethods = 0x10, DamPublicFields = 0x20, DamNonPublicFields = 0x40,
+        DamPublicProperties = 0x200, DamNonPublicProperties = 0x400;
     internal const int DamConstructors = DamPublicConstructors | DamNonPublicConstructors, DamMethods = DamPublicMethods | DamNonPublicMethods,
-        DamProperties = DamPublicProperties | DamNonPublicProperties;
+        DamProperties = DamPublicProperties | DamNonPublicProperties, DamFields = DamPublicFields | DamNonPublicFields;
 
     // CSRT_RI_* (csrt.h)
     private const uint RiPublicConstructors = 1, RiNonPublicConstructors = 2, RiPublicMethods = 4, RiNonPublicMethods = 8,
-        RiPublicProperties = 32, RiNonPublicProperties = 64;
+        RiPublicProperties = 32, RiNonPublicProperties = 64, RiPublicFields = 256, RiNonPublicFields = 512;
 
     private readonly Dictionary<ITypeSymbol, int> _damMarks = new(SymbolEqualityComparer.Default);
     private readonly Queue<ITypeSymbol> _damQueue = new();
@@ -63,7 +64,12 @@ public sealed partial class ModuleCodeGen
         public List<MethodRecordData> Constructors = [], Methods = [];
         public List<AttributeRecordData> Attributes = [];
         public List<PropertyRecordData> Properties = [];
+        public List<FieldRecordData> Fields = [];
     }
+
+    /// <summary>A field: accessor stubs (object Get(object), void Set(object, object)), attributes and FieldAttributes.</summary>
+    internal sealed record FieldRecordData(LLVMValueRef Name, LLVMValueRef Declaring, LLVMValueRef Type, LLVMValueRef Get, LLVMValueRef Set,
+        List<AttributeRecordData> Attributes, uint FieldAttributes);
 
     /// <summary>A property: its accessors' method records (null: none), attributes, and CSRT_PROPERTY_* flags.</summary>
     internal sealed record PropertyRecordData(IPropertySymbol Property, LLVMValueRef Name, LLVMValueRef Type, MethodRecordData? Getter, MethodRecordData? Setter,
@@ -158,7 +164,7 @@ public sealed partial class ModuleCodeGen
     /// <summary>Keeps metadata for the members of <paramref name="type"/> that <paramref name="kinds"/> names.</summary>
     internal void MarkDynamicallyAccessed(ITypeSymbol type, int kinds, string? name = null)
     {
-        kinds &= DamConstructors | DamMethods | DamProperties;
+        kinds &= DamConstructors | DamMethods | DamProperties | DamFields;
         if (kinds == 0 || type is ITypeParameterSymbol || type.TypeKind == TypeKind.Error) return;
         if (type is INamedTypeSymbol named && (named.IsUnboundGenericType || TypeSubstitution.IsOpen(named)))
         {
@@ -181,6 +187,21 @@ public sealed partial class ModuleCodeGen
         _damMarks[type] = previous | kinds;
         _damQueue.Enqueue(type);
         if (type is INamedTypeSymbol { IsGenericType: true, IsDefinition: true }) _closedServicesScanned = 0; // its instantiations too
+    }
+
+    /// <summary>
+    /// `Type.GetType("Ns.Name")` / `assembly.GetType("Ns.Name")` with a constant name: the type is kept (it gets a
+    /// method table, so the run-time lookup finds it), as ILLink keeps it for NativeAOT. Generic and
+    /// assembly-qualified names resolve as metadata names; a name that resolves to nothing keeps nothing.
+    /// </summary>
+    internal void NoteTypeByName(string name)
+    {
+        var comma = name.IndexOf(',');
+        if (comma >= 0 && name.IndexOf('[') < 0) name = name[..comma];
+        if (name.IndexOfAny(['[', '*', '&']) >= 0) return;
+        if (Compilation.GetTypeByMetadataName(name.Trim()) is not { } type || type.IsGenericType || type.TypeKind == TypeKind.Error) return;
+        try { MetadataMethodTable(type); }
+        catch (CompileError) { }
     }
 
     /// <summary>A generic method or type instantiation: its annotated type parameters keep members of their arguments.</summary>
@@ -341,6 +362,7 @@ public sealed partial class ModuleCodeGen
             entry.Constructors.Clear();
             entry.Methods.Clear();
             entry.Properties.Clear();
+            entry.Fields.Clear();
             entry.Listed.Clear();
             entry.Described = entry.Complete = 0;
             Describe(type, kinds, null);
@@ -505,7 +527,8 @@ public sealed partial class ModuleCodeGen
         if (named.IsDefinition && named.IsGenericType) return;
         uint wanted = ((kinds & DamPublicConstructors) != 0 ? RiPublicConstructors : 0) | ((kinds & DamNonPublicConstructors) != 0 ? RiNonPublicConstructors : 0)
             | ((kinds & DamPublicMethods) != 0 ? RiPublicMethods : 0) | ((kinds & DamNonPublicMethods) != 0 ? RiNonPublicMethods : 0)
-            | ((kinds & DamPublicProperties) != 0 ? RiPublicProperties : 0) | ((kinds & DamNonPublicProperties) != 0 ? RiNonPublicProperties : 0);
+            | ((kinds & DamPublicProperties) != 0 ? RiPublicProperties : 0) | ((kinds & DamNonPublicProperties) != 0 ? RiNonPublicProperties : 0)
+            | ((kinds & DamPublicFields) != 0 ? RiPublicFields : 0) | ((kinds & DamNonPublicFields) != 0 ? RiNonPublicFields : 0);
         var added = wanted & ~entry.Complete;
         if (name is null) added &= ~entry.Described;
         if (added == 0) return;
@@ -521,6 +544,7 @@ public sealed partial class ModuleCodeGen
                 entry.Constructors.Add(MethodRecord(ctor, invoker: true));
         }
         if ((added & (RiPublicProperties | RiNonPublicProperties)) != 0) DescribeProperties(entry, real, added, name);
+        if ((added & (RiPublicFields | RiNonPublicFields)) != 0) DescribeFields(entry, real, added, name);
         if ((added & (RiPublicMethods | RiNonPublicMethods)) == 0) return;
         // Declared methods, then inherited ones not overridden (RuntimeType's order: most derived first).
         var seen = new HashSet<IMethodSymbol>(SymbolEqualityComparer.Default);
@@ -570,6 +594,123 @@ public sealed partial class ModuleCodeGen
                     p.GetMethod is { } getter ? MethodRecord(getter, invoker: true) : null,
                     p.SetMethod is { } setter ? MethodRecord(setter, invoker: true) : null, Attributes(attributes), flags));
             }
+        }
+    }
+
+    /// <summary>
+    /// Declared fields, then the non-private fields of base types (RuntimeType's
+    /// PopulateFields). A reference-assembly type in the chain hides its non-public fields, so those
+    /// aren't listed at all: asking for them throws instead of answering with fewer fields than .NET.
+    /// </summary>
+    private void DescribeFields(ReflectionEntry entry, INamedTypeSymbol real, uint added, string? name)
+    {
+        for (INamedTypeSymbol? t = real; t is not null; t = t.BaseType)
+        {
+            if (t.SpecialType is SpecialType.System_Object or SpecialType.System_ValueType or SpecialType.System_Enum) break;
+            if (t.OriginalDefinition.MetadataToken != 0 && Il.OwnerOf(t.OriginalDefinition) is null) Unknown(RiNonPublicFields);
+            var own = SymbolEqualityComparer.Default.Equals(t, real);
+            if (own && t.TypeKind == TypeKind.Enum && (added & RiPublicFields) != 0 && (name is null || name == "value__"))
+            {
+                // The enum's instance field: Roslyn has no symbol for it.
+                var underlying = t.EnumUnderlyingType!;
+                var message = $"Reading 'value__' of '{t.ToDisplayString()}' through reflection is not supported by csharpc yet.";
+                var stub = SyntheticFunction(Mangler.TypeSymbol(t, "value__$reflectget"), Llvm.FunctionType(Llvm.Ptr, Llvm.Ptr), (g, _) => g.EmitThrowingFactory(message));
+                var setStub = SyntheticFunction(Mangler.TypeSymbol(t, "value__$reflectset"), Llvm.FunctionType(Llvm.Void, Llvm.Ptr, Llvm.Ptr), (g, _) => g.EmitThrowingFactory(message));
+                entry.Fields.Add(new FieldRecordData(CString("value__"), MetadataMethodTable(t), MetadataMethodTable(underlying), stub, setStub, [], 0x606));
+            }
+            // CoreCLR's order: instance fields, then static ones (its FieldDescs), then constants (metadata only).
+            foreach (var f in t.GetMembers().OfType<IFieldSymbol>().OrderBy(f => f.IsConst ? 2 : f.IsStatic ? 1 : 0))
+            {
+                if (name is not null && f.MetadataName != name) continue;
+                if (!own && f.DeclaredAccessibility == Accessibility.Private) continue;
+                var bit = f.DeclaredAccessibility == Accessibility.Public ? RiPublicFields : RiNonPublicFields;
+                if ((added & bit) == 0 || entry.Listed.Contains(f)) continue;
+                FieldRecordData? record = null;
+                if (!f.IsFixedSizeBuffer && !f.Type.IsRefLikeType && f.RefKind == RefKind.None && f.Type is not (IPointerTypeSymbol or IFunctionPointerTypeSymbol))
+                    try { record = FieldRecord(f); }
+                    catch (CompileError) { }
+                if (record is null)
+                {
+                    Unknown(bit); // a field csharpc can't describe: listing that kind throws instead of omitting it
+                    continue;
+                }
+                entry.Listed.Add(f);
+                entry.Fields.Add(record);
+            }
+        }
+
+        void Unknown(uint bit)
+        {
+            entry.Described &= ~bit;
+            entry.Complete &= ~bit;
+            added &= ~bit;
+        }
+    }
+
+    private FieldRecordData FieldRecord(IFieldSymbol field)
+    {
+        var definition = field.OriginalDefinition;
+        var il = definition.MetadataToken != 0 ? Il.OwnerOf(definition) : null;
+        uint attributes;
+        List<AttributeInstance> instances;
+        if (il is not null)
+        {
+            var row = il.FieldDefinitionOf(definition);
+            attributes = (uint)row.Attributes;
+            instances = DecodeAttributes(il, row.GetCustomAttributes(), IlGenericContext.For(definition.ContainingType)).ToList();
+        }
+        else
+        {
+            attributes = field.DeclaredAccessibility switch
+            {
+                Accessibility.Private => 1u, Accessibility.ProtectedAndInternal => 2u, Accessibility.Internal => 3u,
+                Accessibility.Protected => 4u, Accessibility.ProtectedOrInternal => 5u, _ => 6u,
+            };
+            if (field.IsStatic) attributes |= 0x10;
+            if (field.IsReadOnly) attributes |= 0x20;
+            if (field.IsConst) attributes |= 0x40 | 0x8000; // Literal | HasDefault
+            instances = definition.GetAttributes().Select(FromAttributeData).OfType<AttributeInstance>().ToList();
+            // An auto-property's backing field: the attributes the compiler emits on it.
+            if (field.IsImplicitlyDeclared && field.AssociatedSymbol is IPropertySymbol)
+            {
+                if (PseudoAttribute("System.Runtime.CompilerServices.CompilerGeneratedAttribute") is { } generated) instances.Add(generated);
+                if (Compilation.GetTypeByMetadataName("System.Diagnostics.DebuggerBrowsableAttribute") is { } browsable
+                    && Compilation.GetTypeByMetadataName("System.Diagnostics.DebuggerBrowsableState") is { } state
+                    && browsable.InstanceConstructors.FirstOrDefault(c => c.Parameters.Length == 1) is { } ctor)
+                    instances.Add(new AttributeInstance(ctor, [new AttributeValue(state, 0)], []));
+            }
+            else if (field.IsImplicitlyDeclared)
+                throw CompileError.Unsupported($"reflection over the compiler-generated field '{field}'", field);
+        }
+        return new FieldRecordData(CString(field.MetadataName), MetadataMethodTable(field.ContainingType), MetadataMethodTable(field.Type),
+            FieldAccessor(field, set: false), FieldAccessor(field, set: true), Attributes(instances), attributes);
+    }
+
+    /// <summary>object Get(object target) / void Set(object target, object value); one that throws when csharpc can't access the field.</summary>
+    private LLVMValueRef FieldAccessor(IFieldSymbol field, bool set)
+    {
+        if (_fieldAccessors.TryGetValue((field, set), out var existing)) return existing;
+        return _fieldAccessors[(field, set)] = NewFieldAccessor(field, set);
+    }
+
+    private readonly Dictionary<(IFieldSymbol, bool), LLVMValueRef> _fieldAccessors = new(FieldAccessorKey.Instance);
+
+    private sealed class FieldAccessorKey : IEqualityComparer<(IFieldSymbol Field, bool Set)>
+    {
+        public static readonly FieldAccessorKey Instance = new();
+        public bool Equals((IFieldSymbol Field, bool Set) x, (IFieldSymbol Field, bool Set) y) => x.Set == y.Set && SymbolEqualityComparer.Default.Equals(x.Field, y.Field);
+        public int GetHashCode((IFieldSymbol Field, bool Set) key) => SymbolEqualityComparer.Default.GetHashCode(key.Field) * 2 + (key.Set ? 1 : 0);
+    }
+
+    private LLVMValueRef NewFieldAccessor(IFieldSymbol field, bool set)
+    {
+        var name = Mangler.TypeSymbol(field.ContainingType, field.Name + (set ? "$reflectset" : "$reflectget"));
+        var type = set ? Llvm.FunctionType(Llvm.Void, Llvm.Ptr, Llvm.Ptr) : Llvm.FunctionType(Llvm.Ptr, Llvm.Ptr);
+        try { return SyntheticFunction(name, type, (g, syntax) => g.EmitFieldAccessor(field, set, syntax)); }
+        catch (CompileError)
+        {
+            var message = $"{(set ? "Setting" : "Reading")} the field '{field.ToDisplayString()}' through reflection is not supported by csharpc yet.";
+            return SyntheticFunction(name, type, (g, _) => g.EmitThrowingFactory(message));
         }
     }
 
@@ -957,7 +1098,8 @@ public sealed partial class ModuleCodeGen
     private LLVMTypeRef ParameterRecordType => Llvm.Struct(Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.I32, Llvm.I32);
     private LLVMTypeRef MethodRecordType => Llvm.Struct(Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.I32, Llvm.I32, Llvm.I32, Llvm.I32, Llvm.Ptr);
     private LLVMTypeRef DelegateSignatureType => Llvm.Struct(Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.I32, Llvm.I32);
-    private LLVMTypeRef ReflectionInfoType => Llvm.Struct(Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.I32, Llvm.I32, Llvm.I32, Llvm.I32, Llvm.I32, Llvm.I32);
+    private LLVMTypeRef ReflectionInfoType => Llvm.Struct(Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.I32, Llvm.I32, Llvm.I32, Llvm.I32, Llvm.I32, Llvm.I32, Llvm.Ptr);
+    private LLVMTypeRef FieldRecordType => Llvm.Struct(Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.I32, Llvm.I32);
     private LLVMTypeRef PropertyRecordType => Llvm.Struct(Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.I32, Llvm.I32);
 
     private LLVMValueRef PropertyRecordConstant(PropertyRecordData p)
@@ -1005,9 +1147,11 @@ public sealed partial class ModuleCodeGen
                 var ctors = ConstTable("csharpc.reflection.ctors", MethodRecordType, e.Constructors.Select(MethodRecordConstant).ToList());
                 var methods = ConstTable("csharpc.reflection.methods", MethodRecordType, e.Methods.Select(MethodRecordConstant).ToList());
                 var properties = ConstTable("csharpc.reflection.properties", PropertyRecordType, e.Properties.Select(PropertyRecordConstant).ToList());
+                var fields = ConstTable("csharpc.reflection.fields", FieldRecordType, e.Fields.Select(f => Llvm.ConstStruct(f.Name, Checked(f.Declaring, "field declaring type"),
+                    Checked(f.Type, "field type"), f.Get, f.Set, AttributeArray(f.Attributes), Llvm.ConstInt(Llvm.I32, f.Attributes.Count), Llvm.ConstUInt(Llvm.I32, f.FieldAttributes))).ToList());
                 entries.Add(Llvm.ConstStruct(Checked(e.Mt, "method table of " + e.Type), ctors, methods, AttributeArray(e.Attributes), properties,
                     Llvm.ConstInt(Llvm.I32, e.Constructors.Count), Llvm.ConstInt(Llvm.I32, e.Methods.Count), Llvm.ConstInt(Llvm.I32, e.Attributes.Count),
-                    Llvm.ConstUInt(Llvm.I32, e.Described), Llvm.ConstInt(Llvm.I32, e.Properties.Count), Llvm.ConstInt(Llvm.I32, 0)));
+                    Llvm.ConstUInt(Llvm.I32, e.Described), Llvm.ConstInt(Llvm.I32, e.Properties.Count), Llvm.ConstInt(Llvm.I32, e.Fields.Count), fields));
             }
             Native.LLVMSetInitializer(_reflectionTable, Header(ConstTable("csharpc.reflection.entries", ReflectionInfoType, entries), entries.Count));
         }

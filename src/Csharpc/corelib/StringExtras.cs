@@ -769,6 +769,27 @@ namespace CsharpcCoreLib
     {
         public static System.Globalization.UnicodeCategory GetUnicodeCategory(char ch) => CharOps.GetUnicodeCategory(ch);
         public static System.Globalization.UnicodeCategory GetUnicodeCategory(string s, int index) => CharOps.CategoryAt(s, index);
+
+        // Decimal digits (category Nd) are encoded in contiguous runs from 0 to 9 (a Unicode stability
+        // guarantee), so a digit's value is the number of Nd characters right before it, modulo 10.
+        public static int GetDecimalDigitValue(char ch)
+        {
+            if (ch >= '0' && ch <= '9') return ch - '0';
+            if (CharOps.GetUnicodeCategory(ch) != System.Globalization.UnicodeCategory.DecimalDigitNumber) return -1;
+            int before = 0;
+            while (before < ch && CharOps.GetUnicodeCategory((char)(ch - before - 1)) == System.Globalization.UnicodeCategory.DecimalDigitNumber) before++;
+            return before % 10;
+        }
+
+        public static int GetDecimalDigitValue(string s, int index)
+        {
+            ArgumentNullException.ThrowIfNull(s);
+            if ((uint)index >= (uint)s.Length) throw new ArgumentOutOfRangeException(nameof(index), "Index was out of range. Must be non-negative and less than the size of the collection.");
+            char c = s[index];
+            if (char.IsHighSurrogate(c) && index + 1 < s.Length && char.IsLowSurrogate(s[index + 1]))
+                throw new NotSupportedException("CharUnicodeInfo.GetDecimalDigitValue of a supplementary-plane character is not supported by csharpc yet.");
+            return GetDecimalDigitValue(c);
+        }
     }
 }
 

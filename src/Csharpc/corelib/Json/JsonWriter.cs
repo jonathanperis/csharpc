@@ -1281,6 +1281,7 @@ namespace CsharpcCoreLib
 
         // Dates as property names (dictionary keys) are written unescaped, as in .NET: their '+' stays as is.
         internal void WritePropertyName(DateTime value) => WritePropertyNameEscaped(Ascii(JsonWriterHelper.FormatDateTime(value)));
+        internal void WritePropertyName(Guid value) => WritePropertyNameEscaped(Ascii(value.ToString()));
         internal void WritePropertyName(DateTimeOffset value) => WritePropertyNameEscaped(Ascii(JsonWriterHelper.FormatDateTimeOffset(value)));
     }
 }

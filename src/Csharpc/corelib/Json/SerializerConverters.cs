@@ -762,6 +762,22 @@ namespace CsharpcCoreLib
             writer.WritePropertyName(value);
     }
 
+    internal sealed class GuidConverter : JsonPrimitiveConverter<Guid>
+    {
+        public override Guid Read(ref Utf8JsonReaderImpl reader, Type typeToConvert, JsonSerializerOptionsImpl options) => reader.GetGuid();
+
+        public override void Write(Utf8JsonWriterImpl writer, Guid value, JsonSerializerOptionsImpl options) => writer.WriteStringValue(value);
+
+        public override Guid ReadAsPropertyName(ref Utf8JsonReaderImpl reader, Type typeToConvert, JsonSerializerOptionsImpl options)
+        {
+            if (!JsonReaderHelper.TryGetValue(reader.ValueSpan, reader.ValueIsEscaped, out Guid value)) JsonThrowHelper.ThrowFormatException("Guid");
+            return value;
+        }
+
+        public override void WriteAsPropertyName(Utf8JsonWriterImpl writer, Guid value, JsonSerializerOptionsImpl options) =>
+            writer.WritePropertyName(value);
+    }
+
     internal sealed class TimeSpanConverter : JsonPrimitiveConverter<TimeSpan>
     {
         public override TimeSpan Read(ref Utf8JsonReaderImpl reader, Type typeToConvert, JsonSerializerOptionsImpl options)
@@ -941,6 +957,18 @@ namespace CsharpcCoreLib
 
         public override T Read(ref Utf8JsonReaderImpl reader, Type typeToConvert, JsonSerializerOptionsImpl options) => throw Unsupported();
 
+        public override void Write(Utf8JsonWriterImpl writer, T value, JsonSerializerOptionsImpl options) => throw Unsupported();
+    }
+
+    /// <summary>A shape csharpc's serializer doesn't implement yet: an explicit NotSupportedException when used.</summary>
+    internal sealed class CsharpcUnsupportedConverter<T> : JsonConverterImpl<T>
+    {
+        private readonly string _what;
+        public CsharpcUnsupportedConverter(string what) { _what = what; }
+        internal override bool IsInternalConverter => true;
+        private NotSupportedException Unsupported() =>
+            new NotSupportedException("Serializing '" + typeof(T).ToString() + "' as " + _what + " is not supported by csharpc yet.");
+        public override T Read(ref Utf8JsonReaderImpl reader, Type typeToConvert, JsonSerializerOptionsImpl options) => throw Unsupported();
         public override void Write(Utf8JsonWriterImpl writer, T value, JsonSerializerOptionsImpl options) => throw Unsupported();
     }
 

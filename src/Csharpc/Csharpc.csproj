@@ -43,7 +43,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="5.9.0" />
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="5.12.0-1.26504.105" />
   </ItemGroup>
 
   <!-- The C runtime (csrt) ships next to the compiler and is compiled/linked on demand. -->
@@ -143,7 +143,9 @@
 
   <Target Name="_CsharpcReadyToRunCompile" DependsOnTargets="_CsharpcReadyToRunInputs"
           Condition="'$(CsharpcReadyToRun)' == 'true'"
-          Inputs="@(_CsharpcReadyToRunInput)" Outputs="@(_CsharpcReadyToRunInput->'%(OutputImage)')">
+          Inputs="@(_CsharpcReadyToRunInput);$(ProjectAssetsFile)" Outputs="@(_CsharpcReadyToRunInput->'%(OutputImage)')">
+    <!-- project.assets.json is an input too: package files keep their packed timestamps, so a newer
+         package version (Roslyn 5.9 -> 5.12) looked older than the image built from the previous one. -->
     <Warning Condition="!Exists('$(_CsharpcCrossgen)') or !Exists('$(_CsharpcFrameworkDir)')"
              Text="csharpc: crossgen2 or the shared framework not found ($(_CsharpcCrossgen), $(_CsharpcFrameworkDir)); csharpc stays JIT-compiled (slower compiles)" />
     <MakeDir Directories="$(_CsharpcReadyToRunDir)" />

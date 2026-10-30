@@ -185,9 +185,9 @@ public static class RoslynFrontend
         return all.Where(r => r is not PortableExecutableReference pe || !replaced.Contains(Path.GetFileNameWithoutExtension(pe.FilePath)));
     }
 
-    /// <summary>The System.Private.CoreLib facade (CoreLibFacade.cs) when an IL reference names that assembly.</summary>
+    /// <summary>The System.Private.* facades (CoreLibFacade.cs) for implementation assemblies IL references name.</summary>
     private static IEnumerable<MetadataReference> CoreLibFacadeFor(FrontendSettings settings) =>
-        settings.IlReferences.Count > 0 && CoreLibFacade.For(settings.IlReferences, ReferenceAssemblies()) is { } facade ? [facade] : [];
+        settings.IlReferences.Count > 0 ? CoreLibFacade.For(settings.IlReferences, ReferenceAssemblies()) : [];
 
     private static readonly Dictionary<string, ImmutableArray<MetadataReference>> s_frameworkReferences = new(StringComparer.OrdinalIgnoreCase);
 

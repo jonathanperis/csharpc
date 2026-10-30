@@ -15,42 +15,55 @@ namespace Csharpc.Frontend;
 /// builds the missing piece: an assembly with System.Private.CoreLib's identity that only forwards each
 /// of its public types to the reference assembly defining it — the shared framework's System.Runtime
 /// forwards the other way — so both names unify to the reference pack's types (or the corelib's, for
-/// the few public CoreLib types the pack leaves out).
+/// the few public CoreLib types the pack leaves out). The same holds for the other implementation assemblies
+/// csharpc doesn't compile from IL because the corelib serves their types (System.Private.Uri: System.Data.Common
+/// names System.Uri there).
 /// </summary>
 internal static class CoreLibFacade
 {
-    private const string Name = "System.Private.CoreLib";
-    private static MetadataReference? s_facade;
+    private static readonly Dictionary<string, MetadataReference> s_facades = new(StringComparer.OrdinalIgnoreCase);
     private static readonly object s_lock = new();
 
-    /// <summary>The facade when one of the IL references names System.Private.CoreLib (null otherwise or without a shared framework).</summary>
-    public static MetadataReference? For(IEnumerable<MetadataReference> ilReferences, IEnumerable<MetadataReference> referencePack)
+    /// <summary>
+    /// A facade for each System.Private.* assembly an IL reference names that isn't itself compiled from IL
+    /// (empty without a shared framework).
+    /// </summary>
+    public static IEnumerable<MetadataReference> For(IEnumerable<MetadataReference> ilReferences, IEnumerable<MetadataReference> referencePack)
     {
-        if (!ilReferences.OfType<PortableExecutableReference>().Any(r => r.FilePath is { } path && ReferencesCoreLib(path))) return null;
+        var il = ilReferences.OfType<PortableExecutableReference>().Select(r => r.FilePath).OfType<string>().ToList();
+        var compiled = il.Select(Path.GetFileNameWithoutExtension).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var names = il.SelectMany(PrivateReferences).Where(n => !compiled.Contains(n)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        if (names.Count == 0 || SharedFramework.Directory is not { } dir) return [];
+        var result = new List<MetadataReference>();
         lock (s_lock)
         {
-            if (s_facade is not null) return s_facade;
-            if (SharedFramework.Directory is not { } dir || !File.Exists(Path.Combine(dir, Name + ".dll"))) return null;
-            // The reference pack first; then the corelib, for public CoreLib types the pack doesn't have
-            // (System.Diagnostics.DebugProvider) that the corelib defines under the same name.
-            var paths = referencePack.OfType<PortableExecutableReference>().Select(r => r.FilePath).OfType<string>().ToList();
-            if (CoreLibAssembly.Current is { } corelib) paths.Add(corelib.Path);
-            return s_facade = Build(Path.Combine(dir, Name + ".dll"), paths);
+            foreach (var name in names)
+            {
+                if (s_facades.TryGetValue(name, out var cached)) { result.Add(cached); continue; }
+                if (!File.Exists(Path.Combine(dir, name + ".dll"))) continue;
+                // The reference pack first; then the corelib, for public CoreLib types the pack doesn't have
+                // (System.Diagnostics.DebugProvider) that the corelib defines under the same name.
+                var paths = referencePack.OfType<PortableExecutableReference>().Select(r => r.FilePath).OfType<string>().ToList();
+                if (CoreLibAssembly.Current is { } corelib) paths.Add(corelib.Path);
+                result.Add(s_facades[name] = Build(name, Path.Combine(dir, name + ".dll"), paths));
+            }
         }
+        return result;
     }
 
-    private static bool ReferencesCoreLib(string path)
+    private static IEnumerable<string> PrivateReferences(string path)
     {
         try
         {
             using var pe = new PEReader(File.OpenRead(path));
             var md = pe.GetMetadataReader();
-            return md.AssemblyReferences.Any(h => md.StringComparer.Equals(md.GetAssemblyReference(h).Name, Name));
+            return [.. md.AssemblyReferences.Select(h => md.GetString(md.GetAssemblyReference(h).Name))
+                .Where(n => n.StartsWith("System.Private.", StringComparison.Ordinal))];
         }
-        catch (Exception e) when (e is IOException or BadImageFormatException or InvalidOperationException) { return false; }
+        catch (Exception e) when (e is IOException or BadImageFormatException or InvalidOperationException) { return []; }
     }
 
-    private static MetadataReference Build(string coreLibPath, IReadOnlyList<string> referencePaths)
+    private static MetadataReference Build(string Name, string coreLibPath, IReadOnlyList<string> referencePaths)
     {
         // Which reference assembly defines each public top-level type (the first one, if several do).
         var definedIn = new Dictionary<(string Ns, string Name), int>();

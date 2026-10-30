@@ -149,7 +149,6 @@ public sealed partial class ModuleCodeGen
     {
         var entryPoint = Compilation.GetEntryPoint(CancellationToken.None)
             ?? throw new CompileError("CSLLVM0003", "program has no entry point (Main method or top-level statements)", null);
-        RejectUnionTypes();
 
         CollectTypes(Compilation.Assembly.GlobalNamespace);
 
@@ -440,15 +439,35 @@ public sealed partial class ModuleCodeGen
         return member.IsGenericMethod ? member.Construct([.. implementation.TypeArguments.Skip(blockArity)]) : member;
     }
 
-    /// <summary>C# 15 union types: Roslyn lowers them to constructs csharpc doesn't model yet.</summary>
-    private void RejectUnionTypes()
-    {
 #pragma warning disable RSEXPERIMENTAL006 // the union syntax is a preview API
-        const Microsoft.CodeAnalysis.CSharp.SyntaxKind unionDeclaration = Microsoft.CodeAnalysis.CSharp.SyntaxKind.UnionDeclaration;
+    private static readonly Microsoft.CodeAnalysis.CSharp.SyntaxKind UnionDeclarationKind = Microsoft.CodeAnalysis.CSharp.SyntaxKind.UnionDeclaration;
 #pragma warning restore RSEXPERIMENTAL006
-        foreach (var tree in Compilation.SyntaxTrees.Where(t => !Frontend.RoslynFrontend.IsCoreLibTree(t)))
-            if (tree.GetRoot().DescendantNodes().FirstOrDefault(n => n.IsKind(unionDeclaration)) is { } union)
-                throw new CompileError("CSLLVM0001", "not supported by csharpc yet: union types (C# 15 `union` declarations)", union.GetLocation());
+
+    /// <summary>
+    /// A C# 15 union type: a `union` declaration (lowered by Roslyn to a struct with a constructor per case
+    /// type and an `object? Value` property) or a struct/class marked [System.Runtime.CompilerServices.Union].
+    /// </summary>
+    internal static bool IsUnionType(ITypeSymbol? type) =>
+        type is INamedTypeSymbol { TypeKind: TypeKind.Struct or TypeKind.Class } named
+        && (named.OriginalDefinition.DeclaringSyntaxReferences.Any(r => r.GetSyntax().IsKind(UnionDeclarationKind))
+            || named.OriginalDefinition.GetAttributes().Any(a => a.AttributeClass?.ToDisplayString() == "System.Runtime.CompilerServices.UnionAttribute"));
+
+    /// <summary>Is <paramref name="method"/> a member Roslyn synthesizes for a `union` declaration (no syntax body)?</summary>
+    internal static bool IsSynthesizedUnionMember(IMethodSymbol method) =>
+        method.IsImplicitlyDeclared && method.ContainingType.OriginalDefinition.DeclaringSyntaxReferences.Any(r => r.GetSyntax().IsKind(UnionDeclarationKind));
+
+    /// <summary>
+    /// A union member the compiler uses for patterns (`Value`, `HasValue`, `TryGetValue`): on the nested
+    /// IUnionMembers provider interface when the union has one (its implementation on the union is what runs),
+    /// otherwise on the union type itself.
+    /// </summary>
+    internal static IEnumerable<ISymbol> UnionMembers(INamedTypeSymbol union, string name)
+    {
+        var provider = union.GetTypeMembers("IUnionMembers").FirstOrDefault(i => i.TypeKind == TypeKind.Interface
+            && union.AllInterfaces.Contains(i, SymbolEqualityComparer.Default));
+        if (provider is null) return union.GetMembers(name);
+        return ((IEnumerable<INamedTypeSymbol>)[provider, .. provider.AllInterfaces]).SelectMany(i => i.GetMembers(name))
+            .Select(m => union.FindImplementationForInterfaceMember(m) ?? m);
     }
 
     // Lambdas and local functions declared in an extension member have the extension type as their
@@ -617,6 +636,18 @@ public sealed partial class ModuleCodeGen
         // Extension blocks: Roslyn also synthesizes static "implementation" methods (sharing the member's
         // syntax); we lower the extension members themselves instead.
         if (IsExtensionImplementation(method)) return;
+
+        // `union` declarations: Roslyn synthesizes a constructor per case type, the parameterless one and
+        // the Value property, none of them with syntax.
+        if (IsSynthesizedUnionMember(method))
+        {
+            var unionGen = new FunctionCodeGen(this, method, GetFunction(method));
+            if (method.MethodKind == MethodKind.Constructor && method.Parameters.Length == 1) unionGen.EmitUnionConstructor();
+            else if (method.MethodKind == MethodKind.Constructor) unionGen.EmitImplicitConstructor([], zeroThis: true);
+            else if (method.AssociatedSymbol is IPropertySymbol) unionGen.EmitAutoPropertyAccessor();
+            else throw CompileError.Unsupported($"union member '{method}'", method);
+            return;
+        }
 
         // Records: members the compiler synthesizes have no syntax; generate their bodies.
         if (method.ContainingType.IsRecord && method.IsImplicitlyDeclared

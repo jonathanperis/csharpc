@@ -316,6 +316,13 @@ namespace CsharpcCoreLib
             return JsonReaderHelper.TryGetValue(Segment(index), HasComplexChildren(index), out value);
         }
 
+        internal bool TryGetValue(int index, out Guid value)
+        {
+            CheckNotDisposed();
+            CheckExpectedType(JsonTokenType.String, RowTokenType(index));
+            return JsonReaderHelper.TryGetValue(Segment(index), HasComplexChildren(index), out value);
+        }
+
         internal bool TryGetValue(int index, out DateTimeOffset value)
         {
             CheckNotDisposed();
@@ -875,6 +882,8 @@ namespace CsharpcCoreLib
         public decimal GetDecimal() { if (!TryGetDecimal(out decimal value)) throw new FormatException(); return value; }
         public bool TryGetDateTime(out DateTime value) { CheckValidInstance(); return _parent.TryGetValue(_idx, out value); }
         public DateTime GetDateTime() { if (!TryGetDateTime(out DateTime value)) throw new FormatException(); return value; }
+        public bool TryGetGuid(out Guid value) { CheckValidInstance(); return _parent.TryGetValue(_idx, out value); }
+        public Guid GetGuid() { if (!TryGetGuid(out Guid value)) throw new FormatException(); return value; }
         public bool TryGetDateTimeOffset(out DateTimeOffset value) { CheckValidInstance(); return _parent.TryGetValue(_idx, out value); }
         public DateTimeOffset GetDateTimeOffset() { if (!TryGetDateTimeOffset(out DateTimeOffset value)) throw new FormatException(); return value; }
 

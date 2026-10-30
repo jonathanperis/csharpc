@@ -709,6 +709,8 @@ public sealed partial class FunctionCodeGen
         if (c.Operand is IInterpolatedStringOperation interpolated
             && c.Type is { Name: "FormattableString" or "IFormattable", ContainingNamespace.Name: "System" })
             return EmitFormattableString(interpolated);
+        if (c.OperatorMethod is { MethodKind: MethodKind.Constructor } unionConstructor && ModuleCodeGen.IsUnionType(unionConstructor.ContainingType))
+            return EmitUnionConversion(c, S(unionConstructor));
         if (c.OperatorMethod is { } om0)
         {
             var om = S(om0);

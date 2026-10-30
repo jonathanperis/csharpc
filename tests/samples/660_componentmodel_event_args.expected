@@ -1,0 +1,6 @@
+Add item
+Refresh True
+ItemAdded 3 -1 True
+ItemMoved 4 1 True
+ItemChanged 2 2 True
+Reset -1 -1 True

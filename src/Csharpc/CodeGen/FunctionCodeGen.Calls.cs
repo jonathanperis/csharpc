@@ -20,6 +20,7 @@ public sealed partial class FunctionCodeGen
         NoteDynamicallyAccessedArguments(S(inv.TargetMethod), inv.Arguments);
         if (Intrinsics.TryGetConsoleFastPath(inv, out var consoleFastPath)) return consoleFastPath(this, inv);
         var target = S(inv.TargetMethod);
+        if (inv.Arguments is [{ Value.ConstantValue: { HasValue: true, Value: string typeName } }, ..] && IsGetTypeByName(target)) _m.NoteTypeByName(typeName);
         if (inv.Instance is ITypeOfOperation reflectedType) NoteReflectedType(target, S(reflectedType.TypeOperand), inv.Arguments is [{ Value.ConstantValue: { HasValue: true, Value: string name } }, ..] ? name : null);
         if (inv.Instance is { } shadowReceiver && _m.CoreLib.MapForReceiver(target, TypeOf(shadowReceiver)) is { } shadowMember) target = shadowMember;
         if (IsCoreIntrinsic(target)) return EmitCoreIntrinsic(target, inv);
@@ -670,10 +671,17 @@ public sealed partial class FunctionCodeGen
             "GetProperty" or "GetProperties" => ModuleCodeGen.DamProperties,
             "GetMethod" or "GetMethods" => ModuleCodeGen.DamMethods,
             "GetConstructor" or "GetConstructors" => ModuleCodeGen.DamConstructors,
+            "GetField" or "GetFields" => ModuleCodeGen.DamFields,
             _ => 0,
         };
-        if (kinds != 0) _m.MarkDynamicallyAccessed(type, kinds, target.Name is "GetProperty" or "GetMethod" ? name : null);
+        if (kinds != 0) _m.MarkDynamicallyAccessed(type, kinds, target.Name is "GetProperty" or "GetMethod" or "GetField" ? name : null);
     }
+
+    /// <summary>Type.GetType(string, ...) or Assembly.GetType(string, ...): a lookup by name.</summary>
+    private static bool IsGetTypeByName(IMethodSymbol target) =>
+        target is { Name: "GetType", Parameters: [{ Type.SpecialType: SpecialType.System_String }, ..] }
+        && (target is { IsStatic: true, ContainingType: { Name: "Type", ContainingNamespace: { Name: "System", ContainingNamespace.IsGlobalNamespace: true } } }
+            || target is { IsStatic: false, ContainingType: { Name: "Assembly", ContainingNamespace: { Name: "Reflection", ContainingNamespace: { Name: "System", ContainingNamespace.IsGlobalNamespace: true } } } });
 
     private BclHandler? TypeObjectMember(IMethodSymbol target, IOperation? instance)
     {
@@ -691,6 +699,8 @@ public sealed partial class FunctionCodeGen
 
     private LLVMValueRef EmitPropertyGet(IPropertyReferenceOperation p)
     {
+        // An indexer's [DynamicallyAccessedMembers] parameters (AttributeCollection[typeof(A)]) keep members as a call's do.
+        if (!p.Arguments.IsEmpty && p.Property.GetMethod is { } indexerGetter) NoteDynamicallyAccessedArguments(S(indexerGetter), p.Arguments);
         if (p.Property.GetMethod is { } typeGetter && TypeObjectMember(typeGetter, p.Instance) is { } typeMember)
             return CallBcl(typeMember, typeGetter, p.Instance, p.Arguments, p);
         var property = S(p.Property);
@@ -1264,6 +1274,7 @@ public sealed partial class FunctionCodeGen
 
     private LLVMValueRef PatternTest(LLVMValueRef value, ITypeSymbol? inputType, IPatternOperation pattern)
     {
+        if (TryUnionPatternTest(value, inputType, pattern) is { } unionTest) return unionTest;
         if (TypeMapper.IsNullable(inputType)) return NullablePatternTest(value, inputType!, pattern);
         switch (pattern)
         {
@@ -1282,6 +1293,10 @@ public sealed partial class FunctionCodeGen
                 if (inputType is not null && !value.Type.IsPointer) c = Coerce(c, constantType, inputType);
                 return Arithmetic(BinaryOperatorKind.Equals, value, c, inputType ?? constantType!, constantType ?? inputType!, pattern);
             }
+            case IRelationalPatternOperation relational
+                when value.Type.IsPointer && TypeOf(relational.Value) is { IsValueType: true } relationalType
+                     && !SymbolEqualityComparer.Default.Equals(inputType, relationalType):
+                return BoxedRelationalPatternTest(value, inputType, relationalType, relational);
             case IRelationalPatternOperation relational:
             {
                 var c = Coerce(EmitValue(relational.Value), TypeOf(relational.Value), inputType!);

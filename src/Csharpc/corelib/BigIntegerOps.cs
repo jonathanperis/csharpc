@@ -321,6 +321,49 @@ namespace CsharpcCoreLib
             return positive ? (long)magnitude : (long)(0UL - magnitude);
         }
 
+        /// <summary>
+        /// Explicit conversion to sbyte (1), byte (2), short (3), ushort (4) or char (9): any value outside the
+        /// target's range is .NET 11's plain OverflowException ("Arithmetic operation resulted in an overflow."),
+        /// however large it is.
+        /// </summary>
+        internal static long ToSmallInteger(uint[] a, int kind)
+        {
+            if (a != null && LengthOf(a) > 1) throw new OverflowException();
+            long v = a == null ? 0 : a[0] == 1 ? a[1] : -(long)a[1];
+            return kind switch
+            {
+                1 => checked((sbyte)v),
+                2 => checked((byte)v),
+                3 => checked((short)v),
+                4 => checked((ushort)v),
+                _ => checked((char)v),
+            };
+        }
+
+        /// <summary>
+        /// (decimal)BigInteger: at most 96 bits of magnitude. .NET 11 converts through Int128, so a value outside
+        /// Int128's range overflows with Int128's message and one inside it but over 96 bits with Decimal's.
+        /// </summary>
+        internal static decimal ToDecimal(uint[] a)
+        {
+            int n = LengthOf(a);
+            if (n == 0) return 0m;
+            if (n > 3)
+            {
+                bool int128 = n == 4 && (a[4] < 0x80000000u
+                    || (a[0] != 1 && a[4] == 0x80000000u && a[1] == 0 && a[2] == 0 && a[3] == 0)); // Int128.MinValue
+                throw new OverflowException(int128 ? "Value was either too large or too small for a Decimal." : "Value was either too large or too small for an Int128.");
+            }
+            return new decimal((int)a[1], n > 1 ? (int)a[2] : 0, n > 2 ? (int)a[3] : 0, a[0] != 1, 0);
+        }
+
+        /// <summary>(BigInteger)decimal / new BigInteger(decimal): the integral part, truncated toward zero.</summary>
+        internal static uint[] FromDecimal(decimal d)
+        {
+            int[] bits = decimal.GetBits(decimal.Truncate(d));
+            return Make(d < 0 ? -1 : 1, new uint[] { (uint)bits[0], (uint)bits[1], (uint)bits[2] }, 0, 3);
+        }
+
         internal static double ToDouble(uint[] a)
         {
             if (a == null) return 0;
@@ -485,6 +528,35 @@ namespace CsharpcCoreLib
             uint h = (uint)SignOf(a);
             for (int i = 1; i <= LengthOf(a); i++) h = h * 31 + a[i];
             return (int)h;
+        }
+    }
+
+    /// <summary>
+    /// BigInteger.Parse(string, IFormatProvider) and ToString(string, IFormatProvider): csharpc's BigInteger
+    /// parses and formats with the invariant culture's symbols; a provider whose number symbols are the same
+    /// gives the same text, any other is an explicit NotSupportedException rather than invariant output.
+    /// </summary>
+    internal static class BigIntegerCulture
+    {
+        private static void CheckInvariantSymbols(System.IFormatProvider provider)
+        {
+            var nfi = System.Globalization.NumberFormatInfo.GetInstance(provider);
+            int[] sizes = nfi.NumberGroupSizes;
+            if (nfi.NegativeSign != "-" || nfi.PositiveSign != "+" || nfi.NumberDecimalSeparator != "." || nfi.NumberGroupSeparator != ","
+                || sizes.Length != 1 || sizes[0] != 3)
+                throw new System.NotSupportedException("BigInteger with a culture whose number symbols differ from the invariant culture's is not supported by csharpc yet.");
+        }
+
+        public static System.Numerics.BigInteger Parse(string value, System.IFormatProvider provider)
+        {
+            CheckInvariantSymbols(provider);
+            return System.Numerics.BigInteger.Parse(value);
+        }
+
+        public static string Format(System.Numerics.BigInteger value, string format, System.IFormatProvider provider)
+        {
+            CheckInvariantSymbols(provider);
+            return value.ToString(format);
         }
     }
 }

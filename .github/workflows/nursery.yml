@@ -9,9 +9,10 @@ name: GC nursery
 # the suite's small programs collect too (each minor scans the old objects stores dirtied, the
 # coroutine frames, and promotes what it finds). This workflow is informational: it is not one of
 # the `test (<platform>)` merge-bar jobs.
+# It runs on main only (and on demand), so branch pushes leave the runners to the merge-bar jobs.
 on:
   push:
-    branches: [main, "ci/**"]
+    branches: [main]
     paths: ['src/**', 'tests/**', '.github/workflows/nursery.yml', '.github/actions/**']
   workflow_dispatch:
 

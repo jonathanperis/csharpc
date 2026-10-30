@@ -75,6 +75,9 @@ namespace CsharpcCoreLib
         public readonly JsonTokenType TokenType => _tokenType;
 
         public bool HasValueSequence => false;
+        // Single-segment readers only (the ReadOnlySequence constructors aren't ported): .NET's ValueSequence is
+        // then always the default sequence.
+        public System.Buffers.ReadOnlySequence<byte> ValueSequence => default;
 
         public bool ValueIsEscaped { get; private set; }
 
@@ -2512,6 +2515,18 @@ namespace CsharpcCoreLib
             }
 
             return value;
+        }
+
+        public Guid GetGuid()
+        {
+            if (!TryGetGuid(out Guid value)) JsonThrowHelper.ThrowFormatException("Guid");
+            return value;
+        }
+
+        public bool TryGetGuid(out Guid value)
+        {
+            if (TokenType != JsonTokenType.String) JsonThrowHelper.ThrowInvalidOperationException_ExpectedString(TokenType);
+            return JsonReaderHelper.TryGetValue(ValueSpan, ValueIsEscaped, out value);
         }
 
         public DateTimeOffset GetDateTimeOffset()

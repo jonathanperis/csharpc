@@ -348,6 +348,7 @@ namespace CsharpcCoreLib
         public string BaseDirectory => AppContext.BaseDirectory;
         public int Id => 1;
         public bool IsDefaultAppDomain() => true;
+        public object GetData(string name) => AppContext.GetData(name);
 
         // csharpc raises no first-chance notifications yet: handlers are kept but never called.
         public event EventHandler<System.Runtime.ExceptionServices.FirstChanceExceptionEventArgs> FirstChanceException { add { } remove { } }

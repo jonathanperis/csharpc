@@ -143,6 +143,8 @@ namespace CsharpcCoreLib.Globalization
         public const string Format_BadDateTimeCalendar = "The DateTime represented by the string '{0}' is not supported in calendar '{1}'.";
         public const string Format_BadDayOfWeek = "String '{0}' was not recognized as a valid DateTime because the day of week was incorrect.";
         public const string Format_BadFormatSpecifier = "Format specifier '{0}' was invalid.";
+        public const string Format_BadTimeSpan = "String '{0}' was not recognized as a valid TimeSpan.";
+        public const string Overflow_TimeSpanElementTooLarge = "The TimeSpan string '{0}' could not be parsed because at least one of the numeric components is out of range or contains too many digits.";
         public const string Format_BadQuote = "Cannot find a matching quote character for the character '{0}'.";
         public const string Format_BadTimeOnly = "String '{0}' was not recognized as a valid TimeOnly.";
         public const string Format_DateOutOfRange = "The DateTime represented by the string '{0}' is out of range.";

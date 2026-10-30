@@ -475,6 +475,18 @@ namespace CsharpcCoreLib
         internal static int InfoAttributeCount(byte* i) => *(int*)(i + 5 * P + 8);
         internal static int InfoDescribed(byte* i) => *(int*)(i + 5 * P + 12);
         internal static int InfoPropertyCount(byte* i) => *(int*)(i + 5 * P + 16);
+        internal static int InfoFieldCount(byte* i) => *(int*)(i + 5 * P + 20);
+        internal static byte* InfoFields(byte* i) => (byte*)*(nint*)(i + 5 * P + 24);
+        // csrt_FieldRecord
+        internal static int FieldSize => 6 * P + 8;
+        internal static byte* FieldName(byte* f) => (byte*)*(nint*)f;
+        internal static nint FieldDeclaring(byte* f) => *(nint*)(f + P);
+        internal static nint FieldType(byte* f) => *(nint*)(f + 2 * P);
+        internal static nint FieldGet(byte* f) => *(nint*)(f + 3 * P);
+        internal static nint FieldSet(byte* f) => *(nint*)(f + 4 * P);
+        internal static byte* FieldAttributes(byte* f) => (byte*)*(nint*)(f + 5 * P);
+        internal static int FieldAttributeCount(byte* f) => *(int*)(f + 6 * P);
+        internal static int FieldFlags(byte* f) => *(int*)(f + 6 * P + 4);
         // csrt_PropertyRecord
         internal static int PropertySize => 5 * P + 8;
         internal static byte* PropertyName(byte* p) => (byte*)*(nint*)p;
@@ -1085,6 +1097,145 @@ namespace CsharpcCoreLib
             if (type.IsValueType)
                 throw new NotSupportedException("Activator.CreateInstance of value type '" + type + "' is not supported by csharpc yet.");
             throw new MissingMethodException("Cannot dynamically create an instance of type '" + type + "'. Reason: No parameterless constructor defined.");
+        }
+
+        /// <summary>
+        /// Type.GetType(typeName[, throwOnError[, ignoreCase]]): a type the program kept, by its full name; an
+        /// assembly qualification is accepted and ignored. Like NativeAOT, a type the compiler didn't keep is
+        /// not found (null, or TypeLoadException when throwOnError).
+        /// </summary>
+        public static Type GetTypeByName(string typeName, bool throwOnError, bool ignoreCase)
+        {
+            ArgumentNullException.ThrowIfNull(typeName);
+            string normalized = NormalizeTypeName(typeName);
+            Type found = normalized == null ? null : CoreIntrinsics.csrt_type_find(normalized, ignoreCase, CoreIntrinsics.TypeInfoTableAddress());
+            if (found == null && throwOnError)
+                throw new TypeLoadException("Could not resolve type '" + StripAssembly(typeName) + "' in assembly '" + System.Reflection.Assembly.GetEntryAssembly()?.FullName + "'.");
+            return found;
+        }
+
+        public static Type GetTypeByName(string typeName) => GetTypeByName(typeName, false, false);
+        public static Type GetTypeByName(string typeName, bool throwOnError) => GetTypeByName(typeName, throwOnError, false);
+
+        private static string StripAssembly(string name)
+        {
+            int depth = 0;
+            for (int i = 0; i < name.Length; i++)
+            {
+                char c = name[i];
+                if (c == '[') depth++;
+                else if (c == ']') depth--;
+                else if (c == ',' && depth == 0) return name.Substring(0, i).Trim();
+            }
+            return name.Trim();
+        }
+
+        // "Ns.Gen`2[[A, Asm],[B, Asm]], Asm" -> "Ns.Gen`2[A,B]" (the ToString form csharpc names types by).
+        private static string NormalizeTypeName(string name)
+        {
+            name = StripAssembly(name);
+            int open = name.IndexOf('[');
+            if (open < 0) return name;
+            // Array suffixes ("[]", "[,]") follow the name directly.
+            if (open + 1 < name.Length && (name[open + 1] == ']' || name[open + 1] == ','))
+            {
+                string element = NormalizeTypeName(name.Substring(0, open));
+                return element == null ? null : element + name.Substring(open);
+            }
+            int close = MatchingBracket(name, open);
+            if (close < 0) return null;
+            var args = new System.Collections.Generic.List<string>();
+            int start = open + 1, depth = 0;
+            for (int i = open + 1; i < close; i++)
+            {
+                char c = name[i];
+                if (c == '[') depth++;
+                else if (c == ']') depth--;
+                else if (c == ',' && depth == 0) { args.Add(name.Substring(start, i - start)); start = i + 1; }
+            }
+            args.Add(name.Substring(start, close - start));
+            var sb = new System.Text.StringBuilder(name.Substring(0, open)).Append('[');
+            for (int i = 0; i < args.Count; i++)
+            {
+                string a = args[i].Trim();
+                if (a.Length >= 2 && a[0] == '[' && a[a.Length - 1] == ']') a = a.Substring(1, a.Length - 2);
+                string n = NormalizeTypeName(a);
+                if (n == null) return null;
+                if (i > 0) sb.Append(',');
+                sb.Append(n);
+            }
+            sb.Append(']');
+            string rest = name.Substring(close + 1);
+            return sb.Append(rest).ToString();
+        }
+
+        private static int MatchingBracket(string s, int open)
+        {
+            int depth = 0;
+            for (int i = open; i < s.Length; i++)
+            {
+                if (s[i] == '[') depth++;
+                else if (s[i] == ']' && --depth == 0) return i;
+            }
+            return -1;
+        }
+
+        /// <summary>Type.GetTypeCode(Type): the primitive's code, an enum's underlying type's, Empty for null, else Object.</summary>
+        public static TypeCode GetTypeCode(Type type)
+        {
+            if (type == null) return TypeCode.Empty;
+            if (type.IsEnum) type = type.GetEnumUnderlyingType();
+            if (type == typeof(bool)) return TypeCode.Boolean;
+            if (type == typeof(char)) return TypeCode.Char;
+            if (type == typeof(sbyte)) return TypeCode.SByte;
+            if (type == typeof(byte)) return TypeCode.Byte;
+            if (type == typeof(short)) return TypeCode.Int16;
+            if (type == typeof(ushort)) return TypeCode.UInt16;
+            if (type == typeof(int)) return TypeCode.Int32;
+            if (type == typeof(uint)) return TypeCode.UInt32;
+            if (type == typeof(long)) return TypeCode.Int64;
+            if (type == typeof(ulong)) return TypeCode.UInt64;
+            if (type == typeof(float)) return TypeCode.Single;
+            if (type == typeof(double)) return TypeCode.Double;
+            if (type == typeof(decimal)) return TypeCode.Decimal;
+            if (type == typeof(DateTime)) return TypeCode.DateTime;
+            if (type == typeof(string)) return TypeCode.String;
+            if (type == typeof(DBNull)) return TypeCode.DBNull;
+            return TypeCode.Object;
+        }
+
+        /// <summary>
+        /// Activator.CreateInstance(Type, BindingFlags, Binder, object[], CultureInfo) with the default binder:
+        /// the constructor whose parameters accept the arguments (null fits any reference or nullable type).
+        /// More than one candidate would need the binder's best-match rules: reported, never guessed.
+        /// </summary>
+        public static object ActivatorCreateInstanceWith(Type type, BindingFlags bindingAttr, Binder binder, object[] args, System.Globalization.CultureInfo culture)
+        {
+            ArgumentNullException.ThrowIfNull(type);
+            if (binder != null) throw new NotSupportedException("Activator.CreateInstance with a custom Binder is not supported by csharpc yet.");
+            if ((bindingAttr & (BindingFlags.Public | BindingFlags.NonPublic)) == 0) bindingAttr |= BindingFlags.Public;
+            bindingAttr = (bindingAttr | BindingFlags.Instance) & ~BindingFlags.Static;
+            args ??= Array.Empty<object>();
+            if (args.Length == 0 && type.IsValueType && GetConstructor(type, bindingAttr, null, Type.EmptyTypes, null) == null)
+                throw new NotSupportedException("Activator.CreateInstance of value type '" + type + "' is not supported by csharpc yet.");
+            ConstructorInfo match = null;
+            foreach (ConstructorInfo ctor in GetConstructors(type, bindingAttr))
+            {
+                ParameterInfo[] parameters = ctor.GetParameters();
+                if (parameters.Length != args.Length) continue;
+                bool fits = true;
+                for (int i = 0; i < parameters.Length && fits; i++)
+                {
+                    Type p = parameters[i].ParameterType;
+                    fits = args[i] == null ? !p.IsValueType || Nullable.GetUnderlyingType(p) != null : p.IsInstanceOfType(args[i]);
+                }
+                if (!fits) continue;
+                if (match != null)
+                    throw new NotSupportedException("Activator.CreateInstance on '" + type + "' with arguments several constructors accept is not supported by csharpc yet.");
+                match = ctor;
+            }
+            if (match == null) throw new MissingMethodException("Constructor on type '" + type.FullName + "' not found.");
+            return match.Invoke(args);
         }
 
         public static void SetValue(Array array, object value, int index) =>

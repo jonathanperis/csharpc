@@ -896,6 +896,7 @@ internal static partial class BclValueTypes
         }
         BclHandler fromDouble = (g, _, _, a, _) => Rt(g, "csrt_bigint_from_f64", g.Llvm.Ptr, (ToF64(g, a[0]), g.Llvm.F64));
         t[$"{B}.op_Explicit(double)"] = t[$"{B}.op_Explicit(float)"] = t[$"{B}..ctor(double)"] = t[$"{B}..ctor(float)"] = fromDouble;
+        t[$"{B}.op_Explicit(decimal)"] = t[$"{B}..ctor(decimal)"] = (g, _, _, a, _) => g.CallCoreLib("BigIntegerOps", "FromDecimal", a[0]);
         t[$"{B}.op_Explicit({B})"] = (g, m, _, a, at) =>
         {
             var l = g.Llvm;
@@ -903,6 +904,15 @@ internal static partial class BclValueTypes
             if (to.SpecialType == SpecialType.System_Double) return Rt(g, "csrt_bigint_to_f64", l.F64, (a[0], l.Ptr));
             if (to.SpecialType == SpecialType.System_Single)
                 return g.Builder.Cast(LLVMOpcode.FPTrunc, Rt(g, "csrt_bigint_to_f64", l.F64, (a[0], l.Ptr)), l.F32);
+            if (to.SpecialType == SpecialType.System_Decimal) return g.CallCoreLib("BigIntegerOps", "ToDecimal", a[0]);
+            var small = to.SpecialType switch
+            {
+                SpecialType.System_SByte => 1, SpecialType.System_Byte => 2, SpecialType.System_Int16 => 3,
+                SpecialType.System_UInt16 => 4, SpecialType.System_Char => 9, _ => 0,
+            };
+            if (small != 0)
+                return g.Builder.Cast(LLVMOpcode.Trunc, Rt(g, "csrt_bigint_to_small_integer", l.I64, (a[0], l.Ptr), (I32(g, small), l.I32)),
+                    small is 1 or 2 ? l.I8 : l.I16);
             var kind = to.SpecialType switch
             {
                 SpecialType.System_Int32 => 5, SpecialType.System_UInt32 => 6, SpecialType.System_Int64 => 7, SpecialType.System_UInt64 => 8,
@@ -914,6 +924,8 @@ internal static partial class BclValueTypes
         t[$"{B}.Parse(string)"] = (g, _, _, a, _) => Rt(g, "csrt_bigint_parse", g.Llvm.Ptr, (a[0], g.Llvm.Ptr));
         t[$"{B}.TryParse(string, {B})"] = (g, _, _, a, _) => Rt(g, "csrt_bigint_try_parse", g.Llvm.I1, (a[0], g.Llvm.Ptr), (a[1], g.Llvm.Ptr));
         t[$"{B}.ToString()"] = (g, _, self, _, _) => Rt(g, "csrt_bigint_to_string", g.Llvm.Ptr, (self, g.Llvm.Ptr));
+        t[$"{B}.Parse(string, System.IFormatProvider)"] = (g, _, _, a, _) => g.CallCoreLib("BigIntegerCulture", "Parse", a[0], a[1]);
+        t[$"{B}.ToString(string, System.IFormatProvider)"] = (g, _, self, a, _) => g.CallCoreLib("BigIntegerCulture", "Format", self, a[0], a[1]);
         t[$"{B}.ToString(string)"] = (g, _, self, a, _) => Rt(g, "csrt_bigint_format", g.Llvm.Ptr, (self, g.Llvm.Ptr), (a[0], g.Llvm.Ptr));
         t[$"{B}.GetHashCode()"] = (g, _, self, _, _) => Rt(g, "csrt_bigint_get_hash_code", g.Llvm.I32, (self, g.Llvm.Ptr));
         t[$"{B}.get_IsZero()"] = (g, _, self, _, _) => g.Builder.ICmp(LLVMIntPredicate.EQ, self, LlvmContext.Null(g.Llvm.Ptr));
