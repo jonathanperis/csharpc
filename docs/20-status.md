@@ -14,10 +14,11 @@ silent difference); every fix with a regression sample recorded from real .NET.
 ## Roadmap order
 
 M2 (library surface) → M4 (100 % NativeAOT parity) → M5/M6 (IL front-end as the primary path; csharpc
-compiling Roslyn, then itself) → **M7** (TechEmpower: csharpc-built ASP.NET Core entries beat NativeAOT's
-in the TechEmpower environment; started only once M2–M6 are done) → **M8**, the finish line (the dotnet
-fork with csharpc in NativeAOT's place behind `PublishAot`, accepted by dotnet's own AOT test suites, its
-TechEmpower entries still beating NativeAOT's). Renumbered 2026-10-30: TechEmpower was M8, the fork M7.
+compiling Roslyn, then itself) → **M7** (TechEmpower: the standalone `csharpc` CLI's builds of the ASP.NET
+Core entries beat NativeAOT's in the TechEmpower environment; started only once M2–M6 are done) → **M8**
+(the dotnet fork with csharpc in NativeAOT's place behind `PublishAot`, accepted by dotnet's own AOT test
+suites) → **M9**, the finish line (TechEmpower again, built through the fork's `PublishAot`, beating
+NativeAOT). Renumbered 2026-10-30.
 
 ## `main`
 
@@ -65,9 +66,10 @@ attribute factories) with a ~25 % faster build.
    standalone use and debug info; gaps between the two are bugs.
 4. M6: Roslyn's remaining blockers (non-generic ~170 methods, then generic methods), then csharpc
    compiling itself.
-5. M7: TechEmpower — throughput first, then memory under load, build time and size (the harness keeps
-   measuring meanwhile).
+5. M7: TechEmpower with the `csharpc` CLI — throughput first, then memory under load, build time and size
+   (the harness keeps measuring meanwhile).
 6. M8: the fork; early gauge of its acceptance gate by building dotnet's AOT test suites with csharpc.
+7. M9: TechEmpower through the fork.
 
 ## Working rules
 
