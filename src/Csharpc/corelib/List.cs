@@ -154,6 +154,9 @@ namespace CsharpcCoreLib
             if (array == null) ThrowHelper.ArgumentNull("array");
             if (arrayIndex < 0 || array.Length - arrayIndex < _size)
                 ThrowHelper.Argument("Destination array was not long enough. Check the destination index, length, and the array's lower bounds.");
+            // .NET's is Array.Copy: a covariant destination (a string[] seen as an object[]) casts each element
+            // (InvalidCastException, not the stores' ArrayTypeMismatchException). Reference arrays only.
+            if (_items is object[] items) { CoreIntrinsics.csrt_array_copy_checked(items, 0, array, arrayIndex, _size, null); return; }
             for (int i = 0; i < _size; i++) array[arrayIndex + i] = _items[i];
         }
 

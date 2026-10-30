@@ -1,0 +1,68 @@
+int into string[]: System.ArrayTypeMismatchException: Attempted to access an element as a type incompatible with the array.
+string into string[]: ok
+null into string[]: ok
+cat into Dog[]: System.ArrayTypeMismatchException: Attempted to access an element as a type incompatible with the array.
+dog into Dog[]: ok
+cat into Animal[]: ok
+circle into Square[]: System.ArrayTypeMismatchException: Attempted to access an element as a type incompatible with the array.
+leaf into Leaf[]: ok
+generic store: System.ArrayTypeMismatchException: Attempted to access an element as a type incompatible with the array.
+generic store ok: ok
+string[] into int[][]: System.ArrayTypeMismatchException: Attempted to access an element as a type incompatible with the array.
+int[] into int[][]: ok
+string[] into object[][]: ok
+int[] into object[][]: System.ArrayTypeMismatchException: Attempted to access an element as a type incompatible with the array.
+object[] into string[][]: System.ArrayTypeMismatchException: Attempted to access an element as a type incompatible with the array.
+List<string> into IEnumerable<string>[]: ok
+List<object> into IEnumerable<string>[]: System.ArrayTypeMismatchException: Attempted to access an element as a type incompatible with the array.
+string[] into IEnumerable<object>[]: ok
+int[] into IEnumerable<object>[]: System.ArrayTypeMismatchException: Attempted to access an element as a type incompatible with the array.
+Func<string> into Func<object>[]: ok
+conditional bad: System.ArrayTypeMismatchException: Attempted to access an element as a type incompatible with the array.
+conditional ok: ok
+coalesce ok: ok
+coalesce bad: System.ArrayTypeMismatchException: Attempted to access an element as a type incompatible with the array.
+deconstruction: System.ArrayTypeMismatchException: Attempted to access an element as a type incompatible with the array.
+read-modify-write: ok
+y
+int into string[,]: System.ArrayTypeMismatchException: Attempted to access an element as a type incompatible with the array.
+string into string[,]: ok
+ref local: System.ArrayTypeMismatchException: Attempted to access an element as a type incompatible with the array.
+y
+ref readonly local: ok
+y
+in argument: ok
+3
+ref into object[]: ok
+Interlocked.Exchange: System.ArrayTypeMismatchException: Attempted to access an element as a type incompatible with the array.
+out argument: System.ArrayTypeMismatchException: Attempted to access an element as a type incompatible with the array.
+Span<object>: System.ArrayTypeMismatchException: Attempted to access an element as a type incompatible with the array.
+Span<object> window: System.ArrayTypeMismatchException: Attempted to access an element as a type incompatible with the array.
+Span<object> over object[]: ok
+1
+ReadOnlySpan<object>: ok
+AsSpan: System.ArrayTypeMismatchException: Attempted to access an element as a type incompatible with the array.
+Memory<object>: System.ArrayTypeMismatchException: Attempted to access an element as a type incompatible with the array.
+1
+ReadOnlyMemory<object>: ok
+IList<object> int: System.ArrayTypeMismatchException: Attempted to access an element as a type incompatible with the array.
+IList<object> string: ok
+IList int: System.InvalidCastException: Object cannot be stored in an array of this type.
+IList string: ok
+IList out of range: System.IndexOutOfRangeException: Index was outside the bounds of the array.
+IList string into int[]: System.InvalidCastException: Object cannot be stored in an array of this type.
+SetValue int: System.InvalidCastException: Object cannot be stored in an array of this type.
+SetValue string: ok
+Fill bad: System.ArrayTypeMismatchException: Attempted to access an element as a type incompatible with the array.
+Fill ok: ok
+System.Object[] 3
+Resize: ok
+a,b
+Sort: ok
+a,b
+Reverse: ok
+True True True True False
+True True False False True True
+1
+(object[]) string[]: ok
+(Animal[]) string[]: System.InvalidCastException: Unable to cast object of type 'System.String[]' to type 'Animal[]'.

@@ -486,6 +486,8 @@ public sealed partial class ModuleCodeGen
             Llvm.AddFunctionAttribute(fn, "noreturn");
             Llvm.AddFunctionAttribute(fn, "cold");
         }
+        // Array covariance slow paths: only covariant (or runtime-made) arrays get there.
+        if (name is "csrt_array_store_check" or "csrt_array_exact_check") Llvm.AddFunctionAttribute(fn, "cold");
         if (!RuntimeMayThrow(name))
         {
             Llvm.AddFunctionAttribute(fn, "nounwind");
@@ -970,7 +972,7 @@ public sealed partial class ModuleCodeGen
         "System.ArgumentOutOfRangeException", "System.InvalidOperationException", "System.ObjectDisposedException",
         "System.NotSupportedException", "System.PlatformNotSupportedException", "System.NotImplementedException", "System.NullReferenceException",
         "System.IndexOutOfRangeException", "System.ArithmeticException", "System.DivideByZeroException",
-        "System.OverflowException", "System.InvalidCastException", "System.FormatException",
+        "System.OverflowException", "System.InvalidCastException", "System.FormatException", "System.ArrayTypeMismatchException",
         "System.Collections.Generic.KeyNotFoundException", "System.OperationCanceledException",
         "System.Threading.Tasks.TaskCanceledException", "System.AggregateException",
         "System.Threading.ThreadStateException", "System.Threading.SynchronizationLockException",

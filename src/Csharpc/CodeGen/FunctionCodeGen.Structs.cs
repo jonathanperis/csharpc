@@ -36,8 +36,10 @@ public sealed partial class FunctionCodeGen
                 return Spill(PatternInputValue(op));
             case IInstanceReferenceOperation when InStructMember:
                 return _this;
-            case ILocalReferenceOperation or IParameterReferenceOperation or IArrayElementReferenceOperation
-                or IDeclarationExpressionOperation:
+            // Reading through the address (`in` arguments, struct receivers): no covariance check.
+            case IArrayElementReferenceOperation element:
+                return ElementAddress(element);
+            case ILocalReferenceOperation or IParameterReferenceOperation or IDeclarationExpressionOperation:
                 return AddressOf(op);
             case IFieldReferenceOperation { Field: { IsStatic: true, Name: "Zero", ContainingType.SpecialType: SpecialType.System_IntPtr or SpecialType.System_UIntPtr } }:
                 return Spill(EmitValue(op));
@@ -439,7 +441,8 @@ public sealed partial class FunctionCodeGen
         return default;
     }
 
-    private sealed record TupleTargetPlan(IOperation Target, LLVMValueRef Address, List<TupleTargetPlan>? Nested, PropertyTarget? Property = null);
+    private sealed record TupleTargetPlan(IOperation Target, LLVMValueRef Address, List<TupleTargetPlan>? Nested, PropertyTarget? Property = null,
+        CovariantStore? Covariant = null);
 
     /// <summary>A property (or indexer) deconstruction target: receiver and indexer arguments, already evaluated.</summary>
     private sealed record PropertyTarget(IPropertyReferenceOperation Reference, IPropertySymbol Property, LLVMValueRef Self,
@@ -481,7 +484,8 @@ public sealed partial class FunctionCodeGen
             }
             return new TupleTargetPlan(e, default, null, new PropertyTarget(p, property, self, arguments));
         }
-        return new TupleTargetPlan(e, AddressOf(e), null);
+        var address = StoreAddress(e, out var covariant);
+        return new TupleTargetPlan(e, address, null, Covariant: covariant);
     }
 
     /// <summary>Assigns <paramref name="value"/> (of <paramref name="valueType"/>) to a planned target.</summary>
@@ -497,7 +501,9 @@ public sealed partial class FunctionCodeGen
         }
         if (target.Address.Handle == 0) return;
         var targetType = TypeOf(target.Target)!;
-        StoreValue(ToStorage(Coerce(value, valueType, targetType), targetType), target.Address);
+        value = Coerce(value, valueType, targetType);
+        if (target.Covariant is { } c) ArrayStoreCheck(c.Array, c.Type, value);
+        StoreValue(ToStorage(value, targetType), target.Address);
     }
 
     private void StoreTupleTargets(List<TupleTargetPlan> plan, LLVMValueRef tuple, INamedTypeSymbol tupleType)

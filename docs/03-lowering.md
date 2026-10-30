@@ -244,6 +244,20 @@ ok1:
 same offset (`FunctionCodeGen.MultiDim.cs`). `a[^1]` and `a[1..^1]` are covered in
 [Ranges](#ranges).
 
+**Array covariance** (`FunctionCodeGen.ArrayCovariance.cs`). A `string[]` is an `object[]`, so as in
+the CLR a store through an array whose static element type has subtypes (`object`, a non-sealed class,
+an interface, a variant delegate, arrays of those) checks the value against the array's real element
+type (stelem.ref: `ArrayTypeMismatchException`), and a writable reference to an element (`ref` locals
+and arguments, ldelema without `readonly.`, `new Span<T>(T[])`, `AsSpan`, `Memory<T>`) needs that
+element type to be exactly the static one. Both front-ends lower it to one inline test, the array's
+method table against its static type's (the load is `!invariant.load`, so loops hoist it); only a
+covariant array, or one the C runtime allocated untagged, calls `csrt_array_store_check` /
+`csrt_array_exact_check`. Array method tables end with the element type's method table (the one its
+instances carry; null where no single table identifies the type, e.g. tasks or variant delegates: no
+check), which `csrt_isinst_class` also uses for casts between array types (`string[]` is an
+`object[]`, `int[]` a `uint[]`). `Array.Copy` between reference arrays follows `Array.CopyImpl`
+(`csrt_array_copy_checked`): a plain copy, a cast per element, or `ArrayTypeMismatchException`.
+
 `int`/`uint` indices are actually compared in 32 bits against the truncated length (lossless, the
 length is below 2^31) and zero-extended afterwards, so the check has the same width as the usual
 `i < a.Length` loop condition and LLVM can fold one into the other.

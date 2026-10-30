@@ -1,0 +1,23 @@
+object[] -> string[]: System.InvalidCastException: Unable to cast object of type 'System.Int32' to type 'System.String'.
+a,b
+object[] of strings -> string[]: ok
+CopyTo object[] -> string[]: System.InvalidCastException: Unable to cast object of type 'System.Int32' to type 'System.String'.
+object[] -> string[] seen as object[]: System.InvalidCastException: Unable to cast object of type 'System.Int32' to type 'System.String'.
+a
+q
+string[] -> object[]: ok
+Cat[] -> Dog[], none: System.ArrayTypeMismatchException: Source array type cannot be assigned to destination array type.
+Cat[] -> Dog[]: System.ArrayTypeMismatchException: Source array type cannot be assigned to destination array type.
+Cat
+Cat[] -> Animal[]: ok
+Cat
+Animal[] of cats -> Cat[]: ok
+Animal[] -> Cat[]: System.InvalidCastException: Unable to cast object of type 'Dog' to type 'Cat'.
+Animal[] -> Cat[] static: System.InvalidCastException: Unable to cast object of type 'Dog' to type 'Cat'.
+Dog
+same array: ok
+a
+List<object>.CopyTo string[]: ok
+List<object>.CopyTo string[] bad: System.InvalidCastException: Unable to cast object of type 'System.Int32' to type 'System.String'.
+System.String[]
+Clone keeps the type: System.ArrayTypeMismatchException: Attempted to access an element as a type incompatible with the array.

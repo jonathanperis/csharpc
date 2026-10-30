@@ -39,7 +39,18 @@ namespace CsharpcCoreLib
         public static IEnumerator IEnumerable_GetEnumerator(T[] a) => new ArrayEnumerator<T>(a);
 
         public static object IList_get_Item(T[] a, int index) => CoreIntrinsics.Box(a[index]);
-        public static void IList_set_Item(T[] a, int index, object value) { a[index] = CoreIntrinsics.CastOrThrow<T>(value); }
+        // Array.SetValue's checks: the index first, then the value, which must fit the array's real element
+        // type (a string[] seen as an IList of objects) — InvalidCastException either way.
+        public static void IList_set_Item(T[] a, int index, object value)
+        {
+            if ((uint)index >= (uint)a.Length) throw new IndexOutOfRangeException();
+            T item;
+            try { item = CoreIntrinsics.CastOrThrow<T>(value); }
+            catch (InvalidCastException) { throw new InvalidCastException(StoreMismatch); }
+            try { a[index] = item; }
+            catch (ArrayTypeMismatchException) { throw new InvalidCastException(StoreMismatch); }
+        }
+        private const string StoreMismatch = "Object cannot be stored in an array of this type.";
         public static bool IList_get_IsReadOnly(T[] a) => false;
         public static bool IList_get_IsFixedSize(T[] a) => true;
         public static int IList_Add(T[] a, object value) => throw new NotSupportedException("Collection was of a fixed size.");

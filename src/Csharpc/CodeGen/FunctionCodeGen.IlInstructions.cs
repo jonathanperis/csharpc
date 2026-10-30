@@ -22,16 +22,19 @@ public sealed partial class FunctionCodeGen
         // Prefixes modify the next instruction only.
         var constrained = il.Constrained;
         var isVolatile = il.Volatile;
+        var isReadonly = il.Readonly;
         if (op is not (ILOpCode.Constrained or ILOpCode.Volatile or ILOpCode.Unaligned or ILOpCode.Readonly or ILOpCode.Tail))
         {
             il.Constrained = null;
             il.Volatile = false;
+            il.Readonly = false;
             il.Tail = false;
         }
 
         switch (op)
         {
-            case ILOpCode.Nop or ILOpCode.Break or ILOpCode.Readonly or ILOpCode.Unaligned: return false;
+            case ILOpCode.Nop or ILOpCode.Break or ILOpCode.Unaligned: return false;
+            case ILOpCode.Readonly: il.Readonly = true; return false;
             case ILOpCode.Volatile: il.Volatile = true; return false;
             case ILOpCode.Tail:
                 // F#-style code relies on `tail.` for loops: a normal call grows the stack where CoreCLR doesn't.
@@ -265,7 +268,7 @@ public sealed partial class FunctionCodeGen
 
             // ---- objects, fields, calls ----
             case ILOpCode.Call or ILOpCode.Callvirt or ILOpCode.Newobj:
-                IlCall(instruction, stack, constrained);
+                IlCall(instruction, stack, constrained, isReadonly);
                 return false;
             case ILOpCode.Ldfld or ILOpCode.Ldflda or ILOpCode.Stfld or ILOpCode.Ldsfld or ILOpCode.Ldsflda or ILOpCode.Stsfld
                 when IlAssembly.ResolveMember(instruction.Token, IlBody.Context) is IEventSymbol backing:
@@ -518,7 +521,11 @@ public sealed partial class FunctionCodeGen
                 var index = Pop();
                 var array = Pop();
                 var elementType = ResolveIlType(instruction.Token);
-                Push(new IlEntry(IlKind.ByRef, IlElementAddress(array, index, elementType), elementType));
+                var address = IlElementAddress(array, index, elementType);
+                // ldelema T checks that the array's element type is exactly T (a writable reference into a
+                // covariant array could store anything); `readonly.` waives it.
+                if (!isReadonly && !IsFreshElement(array, index)) ArrayExactTypeCheck(IlRef(array), _m.Compilation.CreateArrayTypeSymbol(S(elementType)));
+                Push(new IlEntry(IlKind.ByRef, address, elementType));
                 return false;
             }
             case ILOpCode.Ldelem or ILOpCode.Ldelem_i1 or ILOpCode.Ldelem_u1 or ILOpCode.Ldelem_i2 or ILOpCode.Ldelem_u2 or ILOpCode.Ldelem_i4
@@ -538,7 +545,10 @@ public sealed partial class FunctionCodeGen
                 var array = Pop();
                 var elementType = IlElementType(op, array, instruction);
                 var address = IlElementAddress(array, index, elementType);
-                StoreValue(ToStorage(IlTyped(value, elementType), S(elementType)), address);
+                var stored = IlTyped(value, elementType);
+                // stelem.ref (and stelem T of a reference type): the value must fit the array's real element type.
+                if (!IsFreshElement(array, index)) ArrayStoreCheck(IlRef(array), _m.Compilation.CreateArrayTypeSymbol(S(elementType)), stored);
+                StoreValue(ToStorage(stored, S(elementType)), address);
                 return false;
             }
 
@@ -1203,13 +1213,19 @@ public sealed partial class FunctionCodeGen
         return byOpcode == SpecialType.System_Object ? declared ?? Special(SpecialType.System_Object) : Special(byOpcode);
     }
 
+    /// <summary>
+    /// Array initializers (`newarr; dup; ldc i; ...; stelem`): a constant index into the array just created with
+    /// a constant length needs neither the null nor the bounds check, nor a covariance check (its type is exact).
+    /// </summary>
+    private static bool IsFreshElement(IlEntry array, IlEntry index) =>
+        array.FreshLength is int length && index.Constant is int constant && constant >= 0 && constant < length;
+
     private LLVMValueRef IlElementAddress(IlEntry array, IlEntry index, ITypeSymbol elementType)
     {
         var il = _il!;
-        // Array initializers (`newarr; dup; ldc i; ...; stelem`): a constant index into the array just
-        // created with a constant length needs neither the null nor the bounds check.
-        if (array.FreshLength is int length && index.Constant is int constant && constant >= 0 && constant < length)
+        if (IsFreshElement(array, index))
         {
+            var constant = (int)index.Constant!;
             var header = T.ArrayHeader(T.Storage(S(elementType)));
             return DataAddress(_b.InBoundsGep(header, IlRef(array), [L.ConstInt(L.I32, 0), L.ConstInt(L.I32, 2), L.ConstInt(L.I64, constant)]), DataKind.ArrayElement);
         }

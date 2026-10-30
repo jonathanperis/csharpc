@@ -931,15 +931,19 @@ public sealed partial class FunctionCodeGen
         return value.Type.IntWidth == 64 ? value : _b.Cast(TypeMapper.IsSigned(type) ? LLVMOpcode.SExt : LLVMOpcode.ZExt, value, L.I64);
     }
 
-    private LLVMValueRef ElementAddress(IArrayElementReferenceOperation element)
+    /// <summary>The (null- and bounds-checked) address of an element, for reading it (no covariance check).</summary>
+    private LLVMValueRef ElementAddress(IArrayElementReferenceOperation element) => ElementAddress(element, out _);
+
+    /// <summary>The address of an element, and the array, for the caller's covariance check (FunctionCodeGen.ArrayCovariance.cs).</summary>
+    private LLVMValueRef ElementAddress(IArrayElementReferenceOperation element, out LLVMValueRef array)
     {
-        if (element.Indices.Length != 1) return MdElementAddress(element, (IArrayTypeSymbol)TypeOf(element.ArrayReference)!);
+        if (element.Indices.Length != 1) return MdElementAddress(element, (IArrayTypeSymbol)TypeOf(element.ArrayReference)!, out array);
         var index = element.Indices[0];
         var indexType = TypeOf(index);
         var isIndex = IsIndexType(indexType); // array[^n]
         if (!isIndex && indexType?.SpecialType is not (SpecialType.System_Int32 or SpecialType.System_Int64 or SpecialType.System_UInt32 or SpecialType.System_UInt64))
             throw CompileError.Unsupported($"array index of type '{indexType}'", element);
-        var array = EmitValue(element.ArrayReference);
+        array = EmitValue(element.ArrayReference);
         var raw = isIndex ? ArrayIndexFromIndex(array, EmitValue(index)) : EmitValue(index);
         if (raw.Type.IntWidth == 64) raw = ToIndex(raw, indexType!); // the ulong overflow check precedes the null check, as in IL
         NullCheck(array);

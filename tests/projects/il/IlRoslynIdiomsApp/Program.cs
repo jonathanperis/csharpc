@@ -52,3 +52,4 @@ Console.WriteLine(NativeInts.ToUInt(NativeInts.FromULong(4000000000)));
 Console.WriteLine($"{DelegateIdioms.Has(DelegateIdioms.Access.Both, DelegateIdioms.Access.Write)} {DelegateIdioms.Has(DelegateIdioms.Access.Read, DelegateIdioms.Access.Both)} {DelegateIdioms.Has(DelegateIdioms.Access.Read, DelegateIdioms.Access.None)}");
 Console.WriteLine($"{DelegateIdioms.Bind(new DelegateIdioms.Counter())} {DelegateIdioms.Kind(new DelegateIdioms.Circle())} {DelegateIdioms.Kind(new DelegateIdioms.Shape())} {DelegateIdioms.BindNull()}");
 Console.WriteLine(DelegateIdioms.Equal());
+Console.WriteLine(ArrayCovariance.Run());

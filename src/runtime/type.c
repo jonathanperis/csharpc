@@ -565,7 +565,7 @@ TypeObject* csrt_type_make_generic(TypeObject* t, csrt_Array* arguments, const c
 
 /// Synthesized T[] TypeInfo entries for Array.CreateInstance / MakeArrayType when the program never
 /// named T[] at compile time (DI / configuration binders). Compile-time tables stay preferred.
-typedef struct { csrt_BuiltinMethodTable array_mt; csrt_TypeInfo info; char* name; } SynthesizedArray;
+typedef struct { csrt_ArrayMethodTable array_mt; csrt_TypeInfo info; char* name; } SynthesizedArray;
 static SynthesizedArray** s_synth_arrays;
 static size_t s_synth_arrays_count, s_synth_arrays_cap;
 static pthread_mutex_t s_synth_arrays_mu = PTHREAD_MUTEX_INITIALIZER;
@@ -621,7 +621,10 @@ static const csrt_TypeInfo* synthesize_szarray(const csrt_MethodTable* element) 
     syn->array_mt.header.base = &csrt_Array_MT.header;
     syn->array_mt.header.name = name;
     syn->array_mt.header.instance_size = 0;
-    syn->array_mt.header.flags = 0;
+    // Reference elements, but no element table: the Type's method table may not be the one its instances
+    // carry (library types), so stores into these arrays aren't type-checked (csrt_array_store_check).
+    syn->array_mt.header.flags = CSRT_MT_REFERENCE_ELEMENTS;
+    syn->array_mt.element = NULL;
     syn->array_mt.header.interfaces = NULL;
     syn->array_mt.header.interface_count = 0;
     syn->array_mt.header.reserved = (uint32_t)sizeof(void*);

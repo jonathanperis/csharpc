@@ -45,6 +45,8 @@ public sealed partial class FunctionCodeGen
         public HashSet<CaptureId> LvalueCaptures { get; } = [];
         /// <summary>Lvalue captures of property/indexer references: saved receiver + arguments (FunctionCodeGen.CoreLib.cs).</summary>
         public Dictionary<CaptureId, PropertyCapture> PropertyCaptures { get; } = [];
+        /// <summary>Lvalue captures of covariance-checked array elements: a slot holding the array, and its static type.</summary>
+        public Dictionary<CaptureId, (LLVMValueRef Slot, IArrayTypeSymbol Type)> CapturedArrays { get; } = [];
         /// <summary>Captures holding a foreach enumerator -> the (unsubstituted) enumerable type, if it may be an array.</summary>
         public Dictionary<CaptureId, ITypeSymbol> ArrayEnumerators { get; } = [];
         /// <summary>Per finally region: the continuation selector and where each value resumes.</summary>
@@ -545,7 +547,7 @@ public sealed partial class FunctionCodeGen
             else _b.Br(ThroughFinally(branch, DirectTarget(branch)));
             return;
         }
-        var result = _method!.RefKind != RefKind.None ? AddressOf(value!) : Coerce(EmitValue(value!), TypeOf(value), ReturnType!);
+        var result = _method!.RefKind == RefKind.RefReadOnly ? ReadOnlyAddressOf(value!) : _method!.RefKind != RefKind.None ? AddressOf(value!) : Coerce(EmitValue(value!), TypeOf(value), ReturnType!);
         if (branch.FinallyRegions.IsEmpty) { _b.Ret(result); return; }
 
         // `return x;` inside try/finally: x is evaluated before the finally runs.
@@ -582,7 +584,7 @@ public sealed partial class FunctionCodeGen
         }
         if (operation is IFlowCaptureOperation { Value.Type: not null } lvalue && _cfg!.LvalueCaptures.Contains(lvalue.Id))
         {
-            var address = AddressOrSpill(lvalue.Value);
+            var address = CaptureLvalueAddress(lvalue);
             _cfg.Captures[lvalue.Id] = (_allocas.Alloca(L.Ptr, "capture.addr"), TypeOf(lvalue.Value));
             _b.Store(address, _cfg.Captures[lvalue.Id].Slot);
             return;

@@ -57,7 +57,7 @@ $ ls -lh hello
 - **Secure by default.** Hardened executables by default (full RELRO + BIND_NOW, non-executable stack,
   separate code segment, stack-clash probes; the C runtime with stack protector and `_FORTIFY_SOURCE=3`),
   checked by `tools/checksec.sh` on every Linux CI run; `--hardening=max` adds CET/BTI/PAC control-flow
-  protection. Bounds and cast checks behave as .NET's ([docs/17-security.md](docs/17-security.md)).
+  protection. Bounds, cast and array-covariance checks behave as .NET's ([docs/17-security.md](docs/17-security.md)).
 - **Drop-in.** Compile a `.csproj` directly, or keep using `dotnet build` / `dotnet publish` with
   `-p:UseCsharpc=true` / `-p:PublishCsharpc=true` ([docs/08-drop-in.md](docs/08-drop-in.md)). The
   target is **100 % parity with .NET NativeAOT** — **97.2 %** of the programs NativeAOT runs today
