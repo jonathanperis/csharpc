@@ -1,0 +1,13 @@
+IComparable,IEnumerable,IConvertible,IEnumerable`1,IComparable`1,IEquatable`1,ICloneable,ISpanParsable`1,IParsable`1
+IList`1,ICollection`1,IEnumerable`1,IEnumerable,IList,ICollection,IReadOnlyList`1,IReadOnlyCollection`1
+IDictionary`2,ICollection`1,IEnumerable`1,IEnumerable,IDictionary,ICollection,IReadOnlyDictionary`2,IReadOnlyCollection`1,ISerializable,IDeserializationCallback
+ICloneable,IList,ICollection,IEnumerable,IStructuralComparable,IStructuralEquatable,IList`1,ICollection`1,IEnumerable`1,IReadOnlyList`1,IReadOnlyCollection`1
+IDisposable,INamedShape,IShape,IComparable`1,ICloneable
+IShape,IComparable`1
+IDisposable
+0
+Plain()
+MissingMethodException: Cannot dynamically create an instance of type 'NoDefault'. Reason: No parameterless constructor defined.
+MissingMethodException: Cannot dynamically create an instance of type 'Abstract'. Reason: Cannot create an abstract class.
+MissingMethodException: Cannot dynamically create an instance of type 'IShape'. Reason: Cannot create an instance of an interface.
+TargetInvocationException: Exception has been thrown by the target of an invocation. / ctor failed

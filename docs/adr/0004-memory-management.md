@@ -150,6 +150,15 @@ and the division was on the hot path.
 
 ### Increment shipped (opt-in): non-moving nursery + compiler card table
 
+> **Unsound, gated (2026-10-30).** A review found reference stores without a barrier: LLVM's coroutine
+> pass spills locals into async/iterator frames (heap objects) after the barrier hook runs; reference
+> `Span<T>.CopyTo` lowers to a memmove; the C runtime's `Array.Resize`/`Array.Fill`, task continuations
+> and exception fields store directly; `Array.Copy` dirties only pointer-sized elements, not structs
+> holding references. A young object reachable only through such a store is freed by a minor
+> collection. Large objects and small objects in reused old chunks also never count toward the minor
+> trigger. `--gc-nursery` now fails unless `CSHARPC_EXPERIMENTAL_GC_NURSERY=1`; it needs barriers on
+> every store path (and a CI job running the suites with it) before it can be offered again.
+
 Implemented on `ci/gc-nursery` and kept **off by default**. Enable with `--gc-nursery` or
 `CSHARPC_GC_NURSERY=1` (runtime compiled with `-DCSRT_GC_NURSERY_DEFAULT`; override at run time with
 `CSRT_GC_NURSERY=0`). Without that flag the default binary is the same single-generation collector

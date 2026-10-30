@@ -166,6 +166,67 @@ public static class SharedFramework
         return null;
     }
 
+    private static readonly Dictionary<(string, string, string), string[]?> s_interfaceOrder = [];
+
+    /// <summary>
+    /// The interfaces of the top-level type <paramref name="ns"/>.<paramref name="name"/> as the implementation
+    /// assembly lists them ("System.Collections.Generic.IEnumerable`1", generic definitions), following type
+    /// forwards; null when it can't be found. Reference assemblies sort them alphabetically, but
+    /// Type.GetInterfaces reports the implementation's order.
+    /// </summary>
+    public static string[]? InterfaceOrder(string assemblyName, string ns, string name)
+    {
+        lock (s_lock)
+        {
+            if (s_interfaceOrder.TryGetValue((assemblyName, ns, name), out var known)) return known;
+            return s_interfaceOrder[(assemblyName, ns, name)] = FindInterfaces(assemblyName, ns, name, depth: 0);
+        }
+    }
+
+    private static string[]? FindInterfaces(string assemblyName, string ns, string name, int depth)
+    {
+        if (depth > 8 || Reader(assemblyName) is not { } reader) return null;
+        foreach (var handle in reader.TypeDefinitions)
+        {
+            var type = reader.GetTypeDefinition(handle);
+            if (!type.GetDeclaringType().IsNil || !reader.StringComparer.Equals(type.Name, name) || !reader.StringComparer.Equals(type.Namespace, ns)) continue;
+            var names = new List<string>();
+            foreach (var impl in type.GetInterfaceImplementations())
+                if (TypeName(reader, reader.GetInterfaceImplementation(impl).Interface) is { } itf) names.Add(itf);
+            return [.. names];
+        }
+        foreach (var handle in reader.ExportedTypes)
+        {
+            var exported = reader.GetExportedType(handle);
+            if (!reader.StringComparer.Equals(exported.Name, name) || !reader.StringComparer.Equals(exported.Namespace, ns)) continue;
+            if (exported.Implementation.Kind != HandleKind.AssemblyReference) return null;
+            var target = reader.GetAssemblyReference((AssemblyReferenceHandle)exported.Implementation);
+            return FindInterfaces(reader.GetString(target.Name), ns, name, depth + 1);
+        }
+        return null;
+    }
+
+    /// <summary>"Namespace.Name" of a TypeDef/TypeRef, or of the generic definition of a TypeSpec instantiation.</summary>
+    private static string? TypeName(MetadataReader reader, EntityHandle handle)
+    {
+        switch (handle.Kind)
+        {
+            case HandleKind.TypeDefinition:
+                var def = reader.GetTypeDefinition((TypeDefinitionHandle)handle);
+                return reader.GetString(def.Namespace) + "." + reader.GetString(def.Name);
+            case HandleKind.TypeReference:
+                var reference = reader.GetTypeReference((TypeReferenceHandle)handle);
+                return reader.GetString(reference.Namespace) + "." + reader.GetString(reference.Name);
+            case HandleKind.TypeSpecification:
+                var blob = reader.GetBlobReader(reader.GetTypeSpecification((TypeSpecificationHandle)handle).Signature);
+                if (blob.ReadSignatureTypeCode() != SignatureTypeCode.GenericTypeInstance) return null;
+                blob.ReadSignatureTypeCode(); // CLASS or VALUETYPE
+                return TypeName(reader, blob.ReadTypeHandle());
+            default:
+                return null;
+        }
+    }
+
     private static MetadataReader? Reader(string assemblyName)
     {
         if (s_readers.TryGetValue(assemblyName, out var cached)) return cached;
