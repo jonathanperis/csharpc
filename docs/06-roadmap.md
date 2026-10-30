@@ -41,7 +41,7 @@ every failure is a clean "not supported by csharpc yet" diagnostic.
 | Delegates, lambdas, closures, events, multicast | ✅ | |
 | Pointers, `fixed`, `stackalloc`, function pointers | ✅ | |
 | `Span<T>`, `ReadOnlySpan<T>`, `Memory<T>`, UTF-8 literals | ✅ | |
-| `dynamic` | ⬜ | NativeAOT runs `dynamic` through Microsoft.CSharp, so it's in scope (ADR 0016) |
+| `dynamic` | ✅ | bound at compile time with Roslyn, per run-time type that can reach the operation, with the runtime binder's rules and `RuntimeBinderException` messages; ExpandoObject and DynamicObject ([ADR 0019](adr/0019-dynamic.md)). Not from IL yet (explicit diagnostic) |
 
 ### Statements and expressions
 

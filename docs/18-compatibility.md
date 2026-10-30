@@ -64,7 +64,7 @@ blocker). Everything else of the `aot-parity` table (XML, cryptography, text ele
 |---:|---|---:|---:|
 | 1 | reflection / configuration binding (`ConfigurationIgnore` PASS on `ci/parity-typeconverter-bind` — TypeConverter/TypeDescriptor shadows, `Activator.CreateInstance(Type)`, `Type.GetInterfaces`, Bind DAM for concrete `object` args; `attributes` and `TracingConfiguration` pass on `ci/parity-hasflag-attrs`) | 0 | 0 |
 | 2 | expression trees (compiled or interpreted `Expression<T>`; `ExpressionTreeExample` is an explicit `CSLLVM0001` on DynamicMethod / expression trees — the Nullable invoker NRE is fixed on `ci/parity-hasflag-attrs`) | 2 | 2 |
-| 3 | `dynamic` | 1 | 1 |
+| 3 | `dynamic` (supported on `ci/dynamic`, [ADR 0019](adr/0019-dynamic.md): `using-dynamic` and `built-in-types` print what `dotnet run` prints; awaiting the compatibility run) | 1 | 1 |
 | 4 | C# 15 unions (csharpc's Roslyn binds them differently from the SDK's) | 2 | 2 |
 | 5 | `System.Data` (`DataTable`/`DataRow` through `System.Text.Json`) | 1 | 1 |
 | 6 | `AssemblyLoadContext` (plugin unloading) | 1 | 1 |

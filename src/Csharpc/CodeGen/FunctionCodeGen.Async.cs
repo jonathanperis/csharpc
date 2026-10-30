@@ -301,6 +301,7 @@ public sealed partial class FunctionCodeGen
         var coro = _coro is { Kind: CoroutineKind.Async or CoroutineKind.AsyncIterator } c ? c : throw CompileError.Unsupported("await outside an async method", await);
         var operand = await.Operation;
         var operandType = TypeOf(operand);
+        if (IsDynamic(operand.Type)) throw CompileError.Unsupported("awaiting a dynamic value (a dynamically bound GetAwaiter)", await);
         if (!Coroutines.IsTaskHandleType(operandType))
             throw CompileError.Unsupported($"awaiting '{operandType}' (custom awaitables)", await);
 

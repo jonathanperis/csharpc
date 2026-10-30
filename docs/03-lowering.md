@@ -722,6 +722,15 @@ method. Capturing local functions and lambdas take an environment (see
 [Closures and delegates](#closures-and-delegates)). In generic code they are emitted once per
 enclosing substitution.
 
+## `dynamic`
+
+A dynamic operation (`IDynamicInvocationOperation`, a binary/unary/conversion/compound operation on `dynamic`,
+...) evaluates its operands as csc's call site would, then calls a dispatch function emitted for the site in the codegen
+fixed point: it switches on the method tables of the dynamic operands and calls a function holding the code Roslyn bound,
+speculatively at the operation's position, for that combination of run-time types — or throws the runtime binder's
+`RuntimeBinderException`. ExpandoObject and DynamicObject follow their meta-objects' rules. Details:
+[ADR 0019](adr/0019-dynamic.md).
+
 ## Iterators and async
 
 Iterators (`yield return`) and `async` methods are lowered to LLVM coroutines. Roslyn's CFG keeps
