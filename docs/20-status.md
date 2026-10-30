@@ -50,8 +50,9 @@ attribute factories) with a ~25 % faster build.
 
 ## Measured state
 
-**NativeAOT parity:** 243 of 250 (97.2 %), no wrong outputs (run 40424843703). Left: expression trees (2),
-`dynamic` (1), C# 15 unions (2), `System.Data` (1), deriving from `AssemblyLoadContext` (1).
+**NativeAOT parity:** 243 of 250 (97.2 %), no wrong outputs (run 40424843703). Left: expression trees (2;
+both pass on `ci/expression-trees`, [18](18-compatibility.md#expression-trees)), `dynamic` (1), C# 15 unions
+(2), `System.Data` (1), deriving from `AssemblyLoadContext` (1).
 
 **TechEmpower** (`main` `9406394`, run 41089947567, 4-vCPU runner; ratios within one run):
 

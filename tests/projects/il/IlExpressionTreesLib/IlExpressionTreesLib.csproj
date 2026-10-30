@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Expression trees compiled by csc: the IL already holds the Expression factory calls, with ldtoken +
+       GetMethodFromHandle / GetFieldFromHandle for members and real display classes for closures. -->
+  <PropertyGroup>
+    <TargetFramework>net11.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>disable</Nullable>
+  </PropertyGroup>
+</Project>

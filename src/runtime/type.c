@@ -717,14 +717,21 @@ TypeObject* csrt_type_make_array(TypeObject* t, const csrt_TypeInfoTable* table)
     return csrt_type_from_mt(array->mt);
 }
 
+void* csrt_array_new_of_type(void* type, int32_t length);  // csrt.c
+
 /// Array.CreateInstance(elementType, length) once the corelib checked the arguments: arrays of reference
-/// types (their elements are pointers; csharpc's value-type arrays need the element layout).
+/// types (their elements are pointers), and of value types the program has a T[] of (its method table
+/// knows the element size).
 csrt_Array* csrt_array_create_instance(TypeObject* element, int64_t length, const csrt_TypeInfoTable* table) {
     const csrt_TypeInfo* info = info_of(element, table);
     if (!info) return NULL;
     if (!(info->flags & CSRT_TI_REFERENCE_TYPE)) {
-        throw_formatted(&mt_not_supported, "Array.CreateInstance of value type '%s' is not supported by csharpc yet.", full_name(element));
-        return NULL;
+        const csrt_TypeInfo* array = array_info_of(element->target, table);
+        if (!array || (info->flags & CSRT_TI_NULLABLE)) {
+            throw_formatted(&mt_not_supported, "Array.CreateInstance of value type '%s' is not supported by csharpc yet.", full_name(element));
+            return NULL;
+        }
+        return csrt_array_new_of_type(csrt_type_from_mt(array->mt), (int32_t)length);
     }
     const csrt_TypeInfo* array = ensure_szarray(element->target, table);
     if (!array) return NULL;
@@ -743,7 +750,19 @@ void csrt_array_set_value(csrt_Array* array, void* value, int64_t index, const c
     const csrt_TypeInfo* element = info_for(info->element);
     if (!element) return;
     if (!(element->flags & CSRT_TI_REFERENCE_TYPE)) {
-        throw_formatted(&mt_not_supported, "Array.SetValue on an array of value type '%s' is not supported by csharpc yet.", info->element->name);
+        // A value-type element: the value must be a box of exactly that type (null stores the default).
+        uint32_t size = array->mt->reserved;
+        if ((element->flags & CSRT_TI_NULLABLE) || size == 0 || size != info->element->instance_size - 8) {
+            throw_formatted(&mt_not_supported, "Array.SetValue on an array of value type '%s' is not supported by csharpc yet.", info->element->name);
+            return;
+        }
+        if ((uint64_t)index >= (uint64_t)array->length) { throw_utf8(&mt_index_out_of_range, "Index was outside the bounds of the array."); return; }
+        if (value && ((csrt_Object*)value)->mt != info->element) { throw_utf8(&mt_invalid_cast, "Object cannot be stored in an array of this type."); return; }
+        if (value) {
+            CSRT_DIRTY(array->data + (size_t)index * size, size);  // the struct may hold references
+            memcpy(array->data + (size_t)index * size, (char*)value + 8, size);
+        }
+        else memset(array->data + (size_t)index * size, 0, size);
         return;
     }
     if ((uint64_t)index >= (uint64_t)array->length) { throw_utf8(&mt_index_out_of_range, "Index was outside the bounds of the array."); return; }
@@ -765,8 +784,16 @@ void* csrt_array_get_value(csrt_Array* array, int64_t index, const csrt_TypeInfo
     const csrt_TypeInfo* element = info_for(info->element);
     if (!element) return NULL;
     if (!(element->flags & CSRT_TI_REFERENCE_TYPE)) {
-        throw_formatted(&mt_not_supported, "Array.GetValue on an array of value type '%s' is not supported by csharpc yet.", info->element->name);
-        return NULL;
+        // A value-type element: a new box of it.
+        uint32_t size = array->mt->reserved;
+        if ((element->flags & CSRT_TI_NULLABLE) || size == 0 || size != info->element->instance_size - 8) {
+            throw_formatted(&mt_not_supported, "Array.GetValue on an array of value type '%s' is not supported by csharpc yet.", info->element->name);
+            return NULL;
+        }
+        if ((uint64_t)index >= (uint64_t)array->length) { throw_utf8(&mt_index_out_of_range, "Index was outside the bounds of the array."); return NULL; }
+        void* box = csrt_alloc(info->element, 8 + (int64_t)size);
+        memcpy((char*)box + 8, array->data + (size_t)index * size, size);
+        return box;
     }
     if ((uint64_t)index >= (uint64_t)array->length) { throw_utf8(&mt_index_out_of_range, "Index was outside the bounds of the array."); return NULL; }
     return ((void**)array->data)[index];

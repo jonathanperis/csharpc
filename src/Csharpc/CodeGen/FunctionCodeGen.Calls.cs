@@ -535,6 +535,7 @@ public sealed partial class FunctionCodeGen
     /// <summary>isinst: the object if it is a <paramref name="target"/>, else null.</summary>
     internal LLVMValueRef IsInst(LLVMValueRef value, ITypeSymbol target, IOperation at)
     {
+        if (IsDelegateBase(target)) return _b.Select(IsDelegateObject(value), value, LlvmContext.Null(L.Ptr));
         if (IsVariantDelegate(target, out var d))
         {
             var test = _m.VariantDelegateTestFor(d);
@@ -545,6 +546,20 @@ public sealed partial class FunctionCodeGen
 
     private LLVMValueRef CastClass(LLVMValueRef value, ITypeSymbol target, IOperation at)
     {
+        if (IsDelegateBase(target))
+        {
+            // null or a delegate passes; anything else fails with .NET's message (csrt_castclass, which
+            // doesn't know the flag, rejects it).
+            var isDelegate = _b.BinOp(LLVMOpcode.Or, IsDelegateObject(value), _b.ICmp(LLVMIntPredicate.EQ, value, LlvmContext.Null(L.Ptr)));
+            var notDelegate = NewBlock("cast.fail");
+            var castDone = NewBlock("cast.done");
+            _b.CondBr(isDelegate, castDone, notDelegate);
+            _b.PositionAtEnd(notDelegate);
+            CallRuntime("csrt_castclass", L.Ptr, [L.Ptr, L.Ptr], value, MethodTableFor(target, at));
+            _b.Br(castDone);
+            _b.PositionAtEnd(castDone);
+            return value;
+        }
         if (!IsVariantDelegate(target, out var d))
             return CallRuntime("csrt_castclass", L.Ptr, [L.Ptr, L.Ptr], value, MethodTableFor(target, at));
         // null or a convertible delegate passes; anything else fails like an exact cast (same exception and message).
@@ -558,6 +573,26 @@ public sealed partial class FunctionCodeGen
         _b.Br(done);
         _b.PositionAtEnd(done);
         return value;
+    }
+
+    private static bool IsDelegateBase(ITypeSymbol target) =>
+        target.SpecialType is SpecialType.System_Delegate or SpecialType.System_MulticastDelegate;
+
+    /// <summary>`value is Delegate`: every delegate type's table is flagged CSRT_MT_DELEGATE.</summary>
+    private LLVMValueRef IsDelegateObject(LLVMValueRef value)
+    {
+        var result = NewTemp(L.I1, "isdelegate");
+        _b.Store(L.False, result);
+        var test = NewBlock("isdelegate.test");
+        var done = NewBlock("isdelegate.done");
+        _b.CondBr(_b.ICmp(LLVMIntPredicate.EQ, value, LlvmContext.Null(L.Ptr)), done, test);
+        _b.PositionAtEnd(test);
+        var mt = _b.Load(L.Ptr, value, "mt");
+        var flags = _b.Load(L.I32, _b.StructGep(T.MethodTableHeader, mt, 3), "mt.flags");
+        _b.Store(_b.ICmp(LLVMIntPredicate.NE, _b.BinOp(LLVMOpcode.And, flags, L.ConstInt(L.I32, 1024 /* CSRT_MT_DELEGATE */)), L.ConstInt(L.I32, 0)), result);
+        _b.Br(done);
+        _b.PositionAtEnd(done);
+        return _b.Load(L.I1, result);
     }
 
     private static bool IsVariantDelegate(ITypeSymbol target, out INamedTypeSymbol d)
@@ -604,6 +639,8 @@ public sealed partial class FunctionCodeGen
         // Boxed value types and enums are flagged in their method tables (csrt_isinst_class).
         { SpecialType: SpecialType.System_ValueType } => _m.ExternalGlobal("csrt_ValueType_MT"),
         { SpecialType: SpecialType.System_Enum } => _m.ExternalGlobal("csrt_Enum_MT"),
+        { SpecialType: SpecialType.System_Delegate } => _m.ExternalGlobal("csrt_Delegate_MT"),
+        { SpecialType: SpecialType.System_MulticastDelegate } => _m.ExternalGlobal("csrt_MulticastDelegate_MT"),
         // Tasks are runtime objects with one method table (docs/10-async.md): `is Task` holds for every task.
         // A TaskCompletionSource is its task, so a test against TaskCompletionSource(<T>) accepts any task
         // object (the cast .NET would reject, of a plain Task, is the one csharpc can't tell apart).
@@ -628,6 +665,10 @@ public sealed partial class FunctionCodeGen
         // identity test — except where generic variance would also accept other instantiations.
         INamedTypeSymbol { TypeKind: TypeKind.Delegate } d when !MayBeVariant(d) => _m.DelegateMethodTable(d),
         IArrayTypeSymbol { Rank: 1 } array => _m.ArrayMethodTable(array.ElementType),
+        // Reflection.Emit objects never exist (no code generation at run time, as under NativeAOT): the
+        // type's name-only table, which no object carries, fails every test.
+        INamedTypeSymbol { TypeKind: TypeKind.Class, ContainingNamespace: { Name: "Emit", ContainingNamespace: { Name: "Reflection", ContainingNamespace.Name: "System" } } } emit =>
+            _m.TypeMethodTable(emit, at),
         _ => throw CompileError.Unsupported($"type test against '{type}'", at),
     };
 

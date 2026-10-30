@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Expression trees built by a library compiled by csc (IL front-end), printed and compiled; the trees
+       run through System.Linq.Expressions' interpreter, as under NativeAOT. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net11.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>disable</Nullable>
+    <PublishAot>true</PublishAot>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="IlExpressionTreesLib">
+      <HintPath>../IlExpressionTreesLib/bin/Release/net11.0/IlExpressionTreesLib.dll</HintPath>
+    </Reference>
+  </ItemGroup>
+</Project>

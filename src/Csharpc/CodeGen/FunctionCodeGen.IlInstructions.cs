@@ -1289,7 +1289,7 @@ public sealed partial class FunctionCodeGen
         var done = NewBlock("unbox.done");
         _b.CondBr(_b.ICmp(LLVMIntPredicate.NE, obj, LlvmContext.Null(L.Ptr)), some, done);
         _b.PositionAtEnd(some);
-        var payload = LoadValue(CallRuntime("csrt_unbox", L.Ptr, [L.Ptr, L.Ptr], obj, MethodTableFor(underlying, IlAt())), underlying);
+        var payload = LoadValue(CallRuntime("csrt_unbox_exact", L.Ptr, [L.Ptr, L.Ptr], obj, MethodTableFor(underlying, IlAt())), underlying);
         _b.Store(MakeNullable(st, L.True, payload), result);
         _b.Br(done);
         _b.PositionAtEnd(done);

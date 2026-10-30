@@ -87,7 +87,14 @@ csharpc keeps reflection metadata the same way, generated at compile time by
 - Fields: a type whose non-public fields csharpc can't see (a reference-assembly base type) or a field it
   can't describe (fixed buffers, ref fields) leaves that kind undescribed, so asking for it throws.
 - Not covered yet: events, `GetInterfaces`, `Activator.CreateInstance(Type)`, `MakeGenericMethod`,
-  `GetBaseDefinition` of overrides, inherited attribute lookup on overrides. Each is an explicit
-  `NotSupportedException` or compile-time error until it is added in the same scheme.
+  `GetBaseDefinition` of overrides, inherited attribute lookup on overrides (answered when the overridden
+  methods have no inheritable attributes). Each is an explicit `NotSupportedException` or compile-time
+  error until it is added in the same scheme.
+- Added for expression trees (2026-10-30, [18](../18-compatibility.md#expression-trees)): standalone
+  records of the members a program names directly — `ldtoken` + `GetMethodFromHandle`/`GetFieldFromHandle`
+  and the `MethodInfo`/`FieldInfo` constants of lowered expression trees — with a per-method identity, so
+  every record of one method is the same `MethodInfo` (`ModuleCodeGen.MemberRecords.cs`); a delegate
+  type's `Invoke` for programs that use `System.Linq.Expressions` or `Delegate.DynamicInvoke`;
+  `typeof(Impl<>).GetMethod("Name")` keeping only the named member on the instantiations.
 - Tests: `tests/samples/604_reflection_constructors`, `617_reflection_create_delegate`,
   `623_reflection_properties`, `667_reflection_fields`, plus the DI and hosting paths exercised by the TechEmpower workflow.

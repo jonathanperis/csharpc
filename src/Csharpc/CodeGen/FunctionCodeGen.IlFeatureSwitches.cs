@@ -14,12 +14,24 @@ namespace Csharpc.CodeGen;
 /// </summary>
 public sealed partial class FunctionCodeGen
 {
-    /// <summary>The compile-time value of a feature-switch getter, or null.</summary>
-    internal static bool? FeatureSwitchValue(IMethodSymbol method) =>
+    /// <summary>
+    /// The compile-time value of a feature-switch getter, or null: a known switch, or (like ILCompiler's
+    /// constant propagation) a static bool getter of an IL assembly whose body only forwards to one —
+    /// `[FeatureGuard(typeof(RequiresDynamicCodeAttribute))] static bool CanCompileToIL =>
+    /// RuntimeFeature.IsDynamicCodeSupported` in System.Linq.Expressions, without which Compile() would
+    /// reach the LambdaCompiler (Reflection.Emit) and CallInstruction its ~20,000 generic fast paths.
+    /// </summary>
+    private bool? FeatureSwitchValue(IMethodSymbol method) => KnownFeatureSwitch(method) ?? _m.ForwardingFeatureSwitch(method, 0);
+
+    internal static bool? KnownFeatureSwitch(IMethodSymbol method) =>
         (method.ContainingType.ToDisplayString(), method.Name) switch
         {
             // No code is generated at run time (as under NativeAOT): corelib/RuntimeServices.cs answers the same.
             ("System.Runtime.CompilerServices.RuntimeFeature", "get_IsDynamicCodeSupported" or "get_IsDynamicCodeCompiled") => false,
+            // [FeatureSwitchDefinition("System.Linq.Expressions.CanEmitObjectArrayDelegate")], which NativeAOT's
+            // targets set to false: the interpreter's delegates come from DynamicDelegateAugments
+            // (corelib/Reflection/ObjectArrayDelegates.cs), not Reflection.Emit.
+            ("System.Dynamic.Utils.DelegateHelpers", "get_CanEmitObjectArrayDelegate") => false,
             // csharpc has no hardware intrinsics yet: the framework's scalar fallbacks run (same results by
             // design). Ssse3.IsSupported, AdvSimd.Arm64.IsSupported, Vector128.IsHardwareAccelerated, ...
             (_, "get_IsSupported") when IsHardwareIntrinsicClass(method.ContainingType) => false,

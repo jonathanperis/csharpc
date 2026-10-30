@@ -16,6 +16,29 @@ public sealed partial class ModuleCodeGen
     /// <summary>Assemblies compiled from IL (empty when the program has none).</summary>
     public IlAssemblySet Il { get; init; } = IlAssemblySet.Empty;
 
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<IMethodSymbol, bool?> _forwardingSwitches = new(SymbolEqualityComparer.Default);
+
+    /// <summary>
+    /// A static, parameterless bool method of an IL assembly whose body is `call S; ret` with S a feature
+    /// switch (FunctionCodeGen.FeatureSwitchValue): its constant value, else null.
+    /// </summary>
+    internal bool? ForwardingFeatureSwitch(IMethodSymbol method, int depth)
+    {
+        if (depth > 4 || !method.IsStatic || !method.Parameters.IsEmpty || method.IsGenericMethod
+            || method.ReturnType.SpecialType != SpecialType.System_Boolean || Il.OwnerOf(method) is not { } owner) return null;
+        if (_forwardingSwitches.TryGetValue(method.OriginalDefinition, out var cached)) return cached;
+        bool? value = null;
+        try
+        {
+            if (owner.Body(method) is { } body && body.GetILBytes() is [0x28, var t0, var t1, var t2, var t3, 0x2A]
+                && owner.ResolveMember(t0 | t1 << 8 | t2 << 16 | t3 << 24, IlGenericContext.For(method)) is IMethodSymbol target)
+                value = FunctionCodeGen.KnownFeatureSwitch(target) ?? ForwardingFeatureSwitch(target, depth + 1);
+        }
+        catch (Exception e) when (e is IlException or BadImageFormatException or InvalidOperationException) { }
+        _forwardingSwitches[method.OriginalDefinition] = value;
+        return value;
+    }
+
     /// <summary>--dump-il: where to print the decoded IL of lowered methods.</summary>
     public TextWriter? IlDump { get; init; }
 

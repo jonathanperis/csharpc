@@ -1,0 +1,72 @@
+() => 3
+x => ((x + 1) + 2)
+x => ((x * 2) + 1)
+x => (((x % 3) / 2) - 1)
+x => ((x << 2) >> 1)
+x => ((x > 1) OrElse (((x < -1) And (x != 0)) ^ True))
+x => -x
+x => Not(x)
+b => Not(b)
+x => x
+(l, i) => (l * Convert(i, Int64))
+d => Convert(d, Int32)
+d => ConvertChecked(d, Int32)
+x => Convert(x, Object)
+o => Convert(o, String)
+o => (o As String)
+o => (o Is String)
+(ch, db, fl, de) => ((((Convert(ch, Int32) == 97) AndAlso (db > 1.5)) AndAlso (fl < 2.5)) AndAlso (de != 1.5))
+c => (Convert(c, Int32) == 5)
+c => (Convert(c, Int32) + 1)
+c => Convert((Convert(c, Int32) | 6), Color)
+s => (Convert(s, Int32) == 2)
+c => (Convert(c, Nullable`1) == Convert(Red, Nullable`1))
+(n, i) => (n + Convert(i, Nullable`1))
+n => (n > Convert(3, Nullable`1))
+n => (n ?? -1)
+n => (n == null)
+(s, t) => ((s + t) + Convert(1, Object))
+s => ((s == "x") OrElse ((s.Length > 2) AndAlso s.StartsWith("G")))
+s => (s ?? "none")
+() => "q"uote"
+() => null
+p => ((((p.X + p.Y) + Pt.S) + p.M(2)) + Twice(p.X))
+p => p.Next.Next.X
+p => (p.Echo("hi") + Convert(p.Echo(3), Object))
+p => p.get_Item(4)
+x => x.Doubled()
+xs => xs.Where(x => (x > 1)).Select(x => (x * x)).Sum()
+l => (l.get_Item(0) + l.Count)
+x => x.ToString()
+d => (Abs(d) + Max(d, 1))
+(a, b) => (a + b)
+(a, b) => (a == b)
+m => Convert(m, Decimal)
+i => Convert(i, Money)
+m => Convert(m, Nullable`1)
+x => IIF((x > 0), "pos", "neg")
+b => IIF(b, Convert("s", Object), Convert(1, Object))
+() => new Pt(1) {Y = 2, L = {Void Add(Int32)(3), Void Add(Int32)(4)}}
+() => new Pt() {X = 1, Next = new Pt() {Y = 2}}
+() => new Dictionary`2() {Void Add(System.String, Int32)("a", 1), Void Add(System.String, Int32)("b", 2)}
+() => new [] {1, 2, 3}
+n => new System.Int32[](n)
+(arr, i) => ((arr[0] + arr[ConvertChecked(i, Int32)]) + ArrayLength(arr))
+() => new Money()
+() => 01/01/0001 00:00:00
+() => System.Int32
+() => 0
+fn => Invoke(fn, 3)
+x => y => (x + y)
+x => y => (x + y)
+x => WriteLine(x)
+a => (a * 2)
+s => s.Length : System.Func`2[System.String,System.Int32]
+x => (x + value(Program+<>c__DisplayClass2_0).y)
+() => (value(Program).inst + 1)
+() => ((value(Program).inst + value(Program+<>c__DisplayClass3_0).loc) + value(Program+<>c__DisplayClass3_0).p)
+Lambda System.Func`2[System.Int32,System.Boolean] System.Boolean 1 <null> False
+LessThan Parameter Constant System.Boolean <null>
+num 5 System.Int32
+System.String Concat(System.String, System.String)
+Field X Property Y

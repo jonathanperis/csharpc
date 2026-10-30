@@ -14,8 +14,11 @@ namespace Csharpc.CodeGen;
 /// </summary>
 public sealed partial class FunctionCodeGen
 {
+    // Roslyn reports `static extern` methods from metadata as not extern when they have neither a
+    // [DllImport] nor an InternalCall flag: an [UnsafeAccessor] in framework IL is only a method with no RVA.
     private static AttributeData? UnsafeAccessorOf(IMethodSymbol method) =>
-        method.IsExtern
+        method.IsExtern || (method.IsStatic && method.MetadataToken != 0 && !method.IsAbstract && method.MethodKind == MethodKind.Ordinary
+            && method.DeclaredAccessibility is Accessibility.Private or Accessibility.Internal && !method.IsGenericMethod)
             ? method.GetAttributes().FirstOrDefault(a => a.AttributeClass is
                 { Name: "UnsafeAccessorAttribute", ContainingNamespace: { Name: "CompilerServices", ContainingNamespace.Name: "Runtime" } })
             : null;
@@ -61,6 +64,12 @@ public sealed partial class FunctionCodeGen
                 DirectCall(ctor, [obj, .. args.Select(a => EmitArgument(a, target))]);
                 return obj;
             }
+            // System.Linq.Expressions' interpreter: a delegate of any type whose Invoke packs its arguments
+            // into an object[] (NativeAOT's DynamicDelegateAugments in System.Private.CoreLib).
+            case 2 when name == "CreateObjectArrayDelegate" && target.Parameters.Length == 3
+                && target.Parameters[0].GetAttributes().Any(a => a.AttributeClass?.Name == "UnsafeAccessorTypeAttribute"
+                    && a.ConstructorArguments is [{ Value: string accessed }] && accessed.StartsWith("Internal.Runtime.Augments.DynamicDelegateAugments,", StringComparison.Ordinal)):
+                return CallCoreLib("ObjectArrayDelegates", "Create", EmitArgument(args[1], target), EmitArgument(args[2], target));
             default:
                 throw CompileError.Unsupported($"[UnsafeAccessor] of kind {kind}", inv);
         }

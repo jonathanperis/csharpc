@@ -141,6 +141,10 @@ namespace CsharpcCoreLib
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern int TargetArchitecture();
         /// <summary>The delegate types' Invoke signatures (MethodInfo.CreateDelegate): { count, { mt, return, parameters, count, 0 }[] }.</summary>
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern nint DelegateSignatureTableAddress();
+        /// <summary>The object-array thunks of the program's delegate types (ObjectArrayDelegates): { count, { mt, thunk }[] }.</summary>
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern nint ObjectArrayThunkTableAddress();
+        /// <summary>The program keeps every operator method of its types (it uses System.Linq.Expressions).</summary>
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern bool OperatorsKept();
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern unsafe void* csrt_delegate_create(nint mt, nint target, nint fn);
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern unsafe void* csrt_gc_object_base(void* p);
         /// <summary>The function a delegate calls (the last one of a multicast delegate).</summary>
@@ -150,6 +154,7 @@ namespace CsharpcCoreLib
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern unsafe byte* csrt_reflection_info(Type type, nint table);
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern unsafe byte* csrt_reflection_delegate_method(nint fn, nint table);
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern nint csrt_type_handle(Type type);
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern object csrt_object_memberwise_clone(object o);
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern unsafe Type csrt_type_from_mt(void* mt);
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern Array csrt_array_create_instance(Type element, long length, nint table);
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern Type csrt_type_find(string name, bool ignoreCase, nint table);

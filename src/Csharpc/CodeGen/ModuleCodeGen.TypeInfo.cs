@@ -195,6 +195,7 @@ public sealed partial class ModuleCodeGen
             {
                 // Only types whose FullName differs from the method table's name (ToString's form).
                 if (type is ITypeSymbol symbol && IsOpenInstance(symbol)) continue;
+                if (type is DisplayClassType or RuntimeTypeMarker) continue; // FullName is the method table's name
                 var real = type is GenericParameter ? null : RealType((ITypeSymbol)type);
                 if (real is not null && !HasGenericArguments(real) && !IsCoreLibInternal(real)) continue;
                 var unknown = false;
@@ -273,6 +274,10 @@ public sealed partial class ModuleCodeGen
         foreach (var (type, mt) in _interfaceTables) RegisterTypeMethodTable(mt, type);
         RegisterTypeMethodTable(ExternalGlobal("csrt_Object_MT"), Compilation.GetSpecialType(SpecialType.System_Object));
         RegisterTypeMethodTable(ExternalGlobal("csrt_String_MT"), Compilation.GetSpecialType(SpecialType.System_String));
+        // Type objects themselves, which System.Linq.Expressions reflects over (Expression.Constant(typeof(int),
+        // typeof(Type)) checks typeof(Type).IsAssignableFrom(value.GetType())); only its programs pay for the entry.
+        if (_usesLinqExpressions ??= Il.Assemblies.Any(a => a.Name == "System.Linq.Expressions"))
+            RegisterTypeMethodTable(ExternalGlobal("csrt_Type_MT"), RuntimeTypeMarker.Instance);
         // Boxed primitives the program uses (boxing references these without going through typeof).
         foreach (var special in s_boxedPrimitives)
         {
@@ -281,6 +286,26 @@ public sealed partial class ModuleCodeGen
         }
         foreach (var (table, name) in s_boxedRuntimeTypes)
             if (_globals.TryGetValue(table, out var mt) && Compilation.GetTypeByMetadataName(name) is { } type) RegisterTypeMethodTable(mt, type);
+    }
+
+    /// <summary>System.RuntimeType, the class of csharpc's Type objects (csrt_Type_MT): internal to CoreLib, so no symbol.</summary>
+    private sealed class RuntimeTypeMarker
+    {
+        public static readonly RuntimeTypeMarker Instance = new();
+    }
+
+    private TypeInfoRecord RuntimeTypeRecord(LLVMValueRef mt)
+    {
+        var none = LlvmContext.Null(Llvm.Ptr);
+        var typeInfo = Compilation.GetTypeByMetadataName("System.Reflection.TypeInfo")!;
+        var assembly = AssemblyOf(Compilation.GetSpecialType(SpecialType.System_Object));
+        return new TypeInfoRecord
+        {
+            Fields = [mt, MetadataMethodTable(typeInfo), none, none, none, none],
+            Namespace = CString("System"), Assembly = assembly is null ? none : CString(assembly),
+            Flags = TI.Class | TI.Sealed | TI.NotPublic | TI.TypeDefinition | TI.ReferenceType,
+            ArgumentCount = 0, Rank = 0, Variance = 0, Interfaces = ClrInterfaceOrder(typeInfo),
+        };
     }
 
     private static readonly SpecialType[] s_boxedPrimitives =
@@ -316,6 +341,8 @@ public sealed partial class ModuleCodeGen
 
     private TypeInfoRecord TypeInfoRecordFor(LLVMValueRef mt, object described)
     {
+        if (described is DisplayClassType displayClass) return DisplayClassRecord(mt, displayClass);
+        if (described is RuntimeTypeMarker) return RuntimeTypeRecord(mt);
         var none = LlvmContext.Null(Llvm.Ptr);
         LLVMValueRef baseMt = none, element = none, definition = none, declaring = none, arguments = none;
         LLVMValueRef namespaceName = none, assembly = none;

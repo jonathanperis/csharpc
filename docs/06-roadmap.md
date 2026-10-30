@@ -59,7 +59,7 @@ every failure is a clean "not supported by csharpc yet" diagnostic.
 | Interpolation with alignment/format, composite formatting | ✅ | current culture or provider; `FormattableString` |
 | C# 14 extension members | ✅ | |
 | Query expressions / LINQ | ✅ | shadow corelib |
-| Expression trees | ⬜ | in scope: NativeAOT runs them through the expression interpreter |
+| Expression trees | ✅ | System.Linq.Expressions from IL, interpreted as under NativeAOT; lambdas lowered as Roslyn does ([18](18-compatibility.md#expression-trees)) |
 
 ### Semantics and runtime
 

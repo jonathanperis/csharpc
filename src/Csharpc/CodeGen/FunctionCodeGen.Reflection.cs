@@ -139,7 +139,33 @@ public sealed partial class FunctionCodeGen
                     : new IlValueOperation(syntax, owner, () => target, nonNull: true);
             }
             var isVirtual = !method.IsStatic && (method.IsVirtual || method.IsAbstract || method.IsOverride || method.ContainingType.TypeKind == TypeKind.Interface);
-            result = EmitValue(new IlInvocationOperation(syntax, method, instance, isVirtual, arguments.MoveToImmutable(), null));
+            var callArguments = arguments.MoveToImmutable();
+            // Library accessors and Nullable<T>'s conversions are properties and conversions to the source
+            // path (string.Length, int?.Value), not methods it can call: lower them that way, as IL calls are.
+            if (!_m.IsUserMethod(method) && method.AssociatedSymbol is IPropertySymbol property && method.ContainingType.TypeKind != TypeKind.Interface
+                && method.MethodKind is MethodKind.PropertyGet or MethodKind.PropertySet)
+            {
+                var indexArguments = method.MethodKind == MethodKind.PropertySet ? callArguments.RemoveAt(callArguments.Length - 1) : callArguments;
+                var reference = new IlPropertyReferenceOperation(syntax, property, instance, [.. indexArguments.Select((a, i) =>
+                    (IArgumentOperation)new IlArgumentOperation(syntax, property.Parameters[i], a.Value))], null);
+                if (method.MethodKind == MethodKind.PropertyGet) result = EmitValue(reference);
+                else
+                {
+                    var value = callArguments[^1].Value;
+                    EmitPropertySet(reference, () => EmitValue(value), S(property.Type));
+                    result = default;
+                }
+            }
+            else if (method is { MethodKind: MethodKind.Conversion, IsStatic: true } && TypeMapper.IsNullable(S(method.ContainingType)))
+            {
+                var nullable = S(method.ContainingType);
+                var operand = EmitValue(callArguments[0].Value);
+                result = TypeMapper.IsNullable(S(method.ReturnType))
+                    ? Coerce(operand, S(method.Parameters[0].Type), nullable)
+                    : EmitValue(new IlPropertyReferenceOperation(syntax, (IPropertySymbol)nullable.GetMembers("Value").First(),
+                        new IlValueOperation(syntax, nullable, () => operand), [], null));
+            }
+            else result = EmitValue(new IlInvocationOperation(syntax, method, instance, isVirtual, callArguments, null));
             result = method.ReturnsVoid ? LlvmContext.Null(L.Ptr) : ToReflectionResult(result, method.ReturnType, at);
         }
         _b.Ret(result);
@@ -155,6 +181,10 @@ public sealed partial class FunctionCodeGen
     {
         var target = ParamOf(0);
         var at = new IlValueOperation(syntax, ObjectType, () => target);
+        // A field of a library type the corelib implements (StrongBox<T>.Value): the implementation's field.
+        if (!field.IsConst && !_m.IsUserType(field.ContainingType) && _m.CoreLib.TryMap(field.ContainingType) is INamedTypeSymbol shadow
+            && _m.IsUserType(shadow) && shadow.GetMembers(field.Name).OfType<IFieldSymbol>().FirstOrDefault(f => f.IsStatic == field.IsStatic) is { } implementation)
+            field = implementation;
         var type = S(field.Type);
         if (field.IsConst)
         {

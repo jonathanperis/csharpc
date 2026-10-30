@@ -39,6 +39,17 @@ const csrt_BuiltinMethodTable csrt_Enum_MT = {
     { &csrt_ValueType_MT.header, "System.Enum", 0, CSRT_MT_ABSTRACT },
     { (void*)csrt_object_to_string_default, (void*)csrt_object_equals_default, (void*)csrt_object_get_hash_code_default },
 };
+// Delegate instances carry their own type's table (base System.Object, ModuleCodeGen.DelegateMethodTable),
+// flagged CSRT_MT_DELEGATE, which generated code tests for `is Delegate`; these two only name the target
+// type when such a cast fails (FunctionCodeGen.IsInst / CastClass).
+const csrt_BuiltinMethodTable csrt_Delegate_MT = {
+    { &csrt_Object_MT.header, "System.Delegate", 0, CSRT_MT_ABSTRACT },
+    { (void*)csrt_object_to_string_default, (void*)csrt_object_equals_default, (void*)csrt_object_get_hash_code_default },
+};
+const csrt_BuiltinMethodTable csrt_MulticastDelegate_MT = {
+    { &csrt_Delegate_MT.header, "System.MulticastDelegate", 0, CSRT_MT_ABSTRACT },
+    { (void*)csrt_object_to_string_default, (void*)csrt_object_equals_default, (void*)csrt_object_get_hash_code_default },
+};
 
 #ifdef CSRT_PAGE_ALIGNED_SEGMENTS
 // Separate code without 64 KiB of file padding (Linux AArch64, --hardening default; see
@@ -845,6 +856,11 @@ static int32_t box_h_Char(uint16_t v) { return (int32_t)v | ((int32_t)v << 16); 
 static int32_t box_h_IntPtr(intptr_t v) { return sizeof v == 8 ? (int32_t)v ^ (int32_t)((int64_t)v >> 32) : (int32_t)v; }
 static int32_t box_h_UIntPtr(uintptr_t v) { return sizeof v == 8 ? (int32_t)v ^ (int32_t)((uint64_t)v >> 32) : (int32_t)v; }
 
+// CorElementType of each boxed primitive (csrt_unbox: enums unbox as their underlying primitive).
+enum { CSRT_KIND_Boolean = 2, CSRT_KIND_Char = 3, CSRT_KIND_SByte = 4, CSRT_KIND_Byte = 5, CSRT_KIND_Int16 = 6,
+       CSRT_KIND_UInt16 = 7, CSRT_KIND_Int32 = 8, CSRT_KIND_UInt32 = 9, CSRT_KIND_Int64 = 10, CSRT_KIND_UInt64 = 11,
+       CSRT_KIND_Single = 12, CSRT_KIND_Double = 13, CSRT_KIND_IntPtr = 0x18, CSRT_KIND_UIntPtr = 0x19 };
+
 #define DEFINE_BOXED(Name, CType) \
     static bool box_equals_##Name(void* self, void* other) { \
         return other && ((csrt_Object*)other)->mt == ((csrt_Object*)self)->mt && \
@@ -852,14 +868,31 @@ static int32_t box_h_UIntPtr(uintptr_t v) { return sizeof v == 8 ? (int32_t)v ^ 
     } \
     static int32_t box_hash_##Name(void* self) { return box_h_##Name(*(CType*)BOX_PAYLOAD(self)); } \
     const csrt_BuiltinMethodTable csrt_Boxed_##Name##_MT = { \
-        { &csrt_Object_MT.header, "System." #Name, 8 + sizeof(CType), CSRT_MT_VALUE_TYPE }, \
+        { &csrt_Object_MT.header, "System." #Name, 8 + sizeof(CType), CSRT_MT_VALUE_TYPE | CSRT_MT_PRIMITIVE, NULL, 0, CSRT_KIND_##Name }, \
         { (void*)box_to_string_##Name, (void*)box_equals_##Name, (void*)box_hash_##Name }, \
     };
 CSRT_BOXED_TYPES(DEFINE_BOXED)
 
-void* csrt_unbox(void* obj, const csrt_MethodTable* type) {
+// The primitive a boxed value is, as the CLR's CorElementType (I4 = 8, ...); 0 for other types: boxed
+// primitives and enums (ModuleCodeGen.EnumMethodTable) carry it in `reserved`.
+static uint32_t boxed_element_kind(const csrt_MethodTable* mt) {
+    return (mt->flags & (CSRT_MT_ENUM | CSRT_MT_PRIMITIVE)) ? mt->reserved : 0;
+}
+
+// Unboxing to Nullable<T> is exact in the CLR: a boxed enum is not an int? (nor an int a Color?).
+void* csrt_unbox_exact(void* obj, const csrt_MethodTable* type) {
     if (!obj) csrt_throw_null_reference();
     if (((csrt_Object*)obj)->mt != type) invalid_cast(((csrt_Object*)obj)->mt, type);
+    return BOX_PAYLOAD(obj);
+}
+
+void* csrt_unbox(void* obj, const csrt_MethodTable* type) {
+    if (!obj) csrt_throw_null_reference();
+    const csrt_MethodTable* mt = ((csrt_Object*)obj)->mt;
+    // As in the CLR, an enum unboxes as its underlying primitive and vice versa (`(int)(object)Color.Red`),
+    // and as another enum of the same underlying type; int and uint stay distinct.
+    if (mt != type && (!((mt->flags | type->flags) & CSRT_MT_ENUM) || !boxed_element_kind(mt) || boxed_element_kind(mt) != boxed_element_kind(type)))
+        invalid_cast(mt, type);
     return BOX_PAYLOAD(obj);
 }
 

@@ -1,0 +1,17 @@
+5
+1
+Second
+2
+True
+int?: InvalidCast
+Green
+uint: InvalidCast
+long: InvalidCast
+Shade: InvalidCast
+False
+False
+True True False True
+Unable to cast object of type 'System.String' to type 'System.Delegate'.
+Named(Named)
+True False 7
+1 True True
