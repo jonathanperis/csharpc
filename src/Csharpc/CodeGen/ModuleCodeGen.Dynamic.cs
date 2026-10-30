@@ -22,6 +22,8 @@ public sealed partial class ModuleCodeGen
     private readonly Dictionary<string, DynamicSite> _dynamicSites = new(StringComparer.Ordinal);
     private readonly List<DynamicSite> _dynamicSiteList = [];
     private LoweredFunction? _dynamicTypeName;
+    private List<(ITypeSymbol Type, LLVMValueRef Mt)>? _dynamicRuntimeTypes;
+    private (int, int, int) _dynamicRuntimeTypesVersion;
     private bool _dynamicBoxesRegistered;
     private static readonly bool s_dynamicTrace = Environment.GetEnvironmentVariable("CSHARPC_DYNAMIC_TRACE") is "1" or "2";
     private static readonly bool s_dynamicTraceCases = Environment.GetEnvironmentVariable("CSHARPC_DYNAMIC_TRACE") == "2";
@@ -69,7 +71,11 @@ public sealed partial class ModuleCodeGen
     internal List<(ITypeSymbol Type, LLVMValueRef Mt)> DynamicRuntimeTypes()
     {
         RegisterKnownMethodTables();
-        var result = new List<(ITypeSymbol, LLVMValueRef)>();
+        // Cached until a method table appears (every site of a round reads the same set).
+        var version = (_typeMts.Count, _anonymous.Count, _tupleMethodTables.Count);
+        if (_dynamicRuntimeTypes is { } cached && _dynamicRuntimeTypesVersion == version) return cached;
+        _dynamicRuntimeTypesVersion = version;
+        var result = _dynamicRuntimeTypes = new List<(ITypeSymbol, LLVMValueRef)>();
         var seen = new HashSet<nint>();
         foreach (var (mt, described) in _typeMts)
         {
