@@ -1,0 +1,16 @@
+NoRecursion
+True False False 1 1
+read again: LockRecursionException: Recursive read lock acquisitions not allowed in this mode.
+write after read: LockRecursionException: Write lock may not be acquired with read lock held. This pattern is prone to deadlocks. Please ensure that read locks are released before taking a write lock. If an upgrade is necessary, use an upgrade lock in place of the read lock.
+upgrade after read: LockRecursionException: Upgradeable lock may not be acquired with read lock held.
+exit read unheld: SynchronizationLockException: The read lock is being released without being held.
+exit write unheld: SynchronizationLockException: The write lock is being released without being held.
+exit upgrade unheld: SynchronizationLockException: The upgradeable lock is being released without being held.
+True True 1
+read after write: LockRecursionException: A read lock may not be acquired with the write lock held in this mode.
+True True
+2 1
+dispose while held: SynchronizationLockException: The lock is being disposed while still being used. It either is being held by a thread and/or has active waiters waiting to acquire the lock.
+use after dispose: ObjectDisposedException: Cannot access a disposed object.
+Object name: 'System.Threading.ReaderWriterLockSlim'.
+6000 6000 0 0 0
