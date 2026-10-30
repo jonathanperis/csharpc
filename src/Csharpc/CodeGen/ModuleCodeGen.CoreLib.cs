@@ -115,7 +115,7 @@ public sealed partial class ModuleCodeGen
         if (!NeedsElementTable(itf))
         {
             if (!_arraySlotTables.TryGetValue(itf, out var shared))
-                _arraySlotTables[itf] = shared = SlotTable(itf, "ATBL", m => ArrayInterfaceHelper(itf, m));
+                _arraySlotTables[itf] = shared = SlotTable(itf, "ATBL", m => ArraySlotHelper(itf, m));
             return shared;
         }
         if (_elementSlotTables.TryGetValue((itf, array.Global.Handle), out var table)) return table;
@@ -135,6 +135,22 @@ public sealed partial class ModuleCodeGen
     /// <summary>Corelib helper implementing <paramref name="member"/> of <paramref name="itf"/> for arrays, if any.</summary>
     public IMethodSymbol? ArrayInterfaceHelper(INamedTypeSymbol itf, IMethodSymbol member) =>
         BuiltinHelper("SZArrayHelper", itf, member, itf.TypeArguments.FirstOrDefault());
+
+    /// <summary>
+    /// The helper in a generic array interface's slot table (IList&lt;U&gt;, ICollection&lt;U&gt;, IReadOnlyList&lt;U&gt;,
+    /// ...). For a reference type U the elements are pointers, so SZArrayHelper&lt;object&gt;'s member does the
+    /// same thing with the same ABI and one copy serves every U — Contains/IndexOf included, since .NET
+    /// compares reference-type elements there with Equals(object) (CoreCLR's shared __Canon code), not
+    /// IEquatable&lt;U&gt;. GetEnumerator stays per U: its result must be an IEnumerator&lt;U&gt;. Only slot
+    /// tables share: a direct call is typed by the helper's U-typed signature.
+    /// </summary>
+    private IMethodSymbol? ArraySlotHelper(INamedTypeSymbol itf, IMethodSymbol member)
+    {
+        if (itf.TypeArguments.FirstOrDefault() is { IsReferenceType: true } element && !TypeSubstitution.IsOpen(element)
+            && member.Name != "GetEnumerator")
+            return BuiltinHelper("SZArrayHelper", itf, member, Compilation.GetSpecialType(SpecialType.System_Object));
+        return ArrayInterfaceHelper(itf, member);
+    }
 
     /// <summary>The helper for a call on an array whose element type is known statically.</summary>
     public IMethodSymbol? ArrayInterfaceHelper(INamedTypeSymbol itf, IMethodSymbol member, ITypeSymbol element) =>
@@ -175,7 +191,7 @@ public sealed partial class ModuleCodeGen
         {
             any = true;
             if (_arrayInterfaces.Contains(itf) && !_arraySlotTables.ContainsKey(itf))
-                _arraySlotTables[itf] = SlotTable(itf, "ATBL", m => ArrayInterfaceHelper(itf, m));
+                _arraySlotTables[itf] = SlotTable(itf, "ATBL", m => ArraySlotHelper(itf, m));
             if (_stringInterfaces.Contains(itf) && !_stringSlotTables.ContainsKey(itf))
                 _stringSlotTables[itf] = SlotTable(itf, "STBL", m => StringInterfaceHelper(itf, m));
             RefreshInterfaceTable(itf);
