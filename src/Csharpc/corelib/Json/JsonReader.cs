@@ -75,6 +75,9 @@ namespace CsharpcCoreLib
         public readonly JsonTokenType TokenType => _tokenType;
 
         public bool HasValueSequence => false;
+        // Single-segment readers only (the ReadOnlySequence constructors aren't ported): .NET's ValueSequence is
+        // then always the default sequence.
+        public System.Buffers.ReadOnlySequence<byte> ValueSequence => default;
 
         public bool ValueIsEscaped { get; private set; }
 
