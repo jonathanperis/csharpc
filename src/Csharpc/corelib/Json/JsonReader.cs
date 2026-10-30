@@ -2514,6 +2514,18 @@ namespace CsharpcCoreLib
             return value;
         }
 
+        public Guid GetGuid()
+        {
+            if (!TryGetGuid(out Guid value)) JsonThrowHelper.ThrowFormatException("Guid");
+            return value;
+        }
+
+        public bool TryGetGuid(out Guid value)
+        {
+            if (TokenType != JsonTokenType.String) JsonThrowHelper.ThrowInvalidOperationException_ExpectedString(TokenType);
+            return JsonReaderHelper.TryGetValue(ValueSpan, ValueIsEscaped, out value);
+        }
+
         public DateTimeOffset GetDateTimeOffset()
         {
             if (!TryGetDateTimeOffset(out DateTimeOffset value))

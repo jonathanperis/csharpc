@@ -717,6 +717,22 @@ namespace CsharpcCoreLib
             return JsonHelpers.TryParseAsISO(segment, out value);
         }
 
+        // Guids are the 36-character "D" format only (Utf8Parser 'D'), after unescaping (at most 6 bytes a character).
+        public static bool TryGetValue(ReadOnlySpan<byte> segment, bool isEscaped, out Guid value)
+        {
+            value = default;
+            if (segment.Length > 36 * 6) return false;
+            ReadOnlySpan<byte> text = isEscaped ? GetUnescaped(segment) : segment;
+            if (text.Length != 36) return false;
+            for (int i = 0; i < 36; i++)
+            {
+                byte b = text[i];
+                bool dash = i == 8 || i == 13 || i == 18 || i == 23;
+                if (dash ? b != (byte)'-' : !((b >= '0' && b <= '9') || (b >= 'a' && b <= 'f') || (b >= 'A' && b <= 'F'))) return false;
+            }
+            return Guid.TryParseExact(Encoding.ASCII.GetString(text), "D", out value);
+        }
+
         public static bool TryGetFloatingPointConstant(ReadOnlySpan<byte> span, out float value)
         {
             if (TryGetFloatingPointConstant(span, out double d))

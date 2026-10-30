@@ -1021,6 +1021,8 @@ namespace CsharpcCoreLib
         public static JsonConverterImpl<float> SingleConverter => s_single ??= new SingleConverter();
         public static JsonConverterImpl<string> StringConverter => s_string ??= new StringConverter();
         public static JsonConverterImpl<TimeSpan> TimeSpanConverter => s_timeSpan ??= new TimeSpanConverter();
+        private static JsonConverterImpl<Guid> s_guid;
+        public static JsonConverterImpl<Guid> GuidConverter => s_guid ??= new GuidConverter();
         public static JsonConverterImpl<ushort> UInt16Converter => s_uint16 ??= new UInt16Converter();
         public static JsonConverterImpl<uint> UInt32Converter => s_uint32 ??= new UInt32Converter();
         public static JsonConverterImpl<ulong> UInt64Converter => s_uint64 ??= new UInt64Converter();
@@ -1135,6 +1137,16 @@ namespace CsharpcCoreLib
             return typeInfo;
         }
 
+        private static JsonTypeInfoImpl<TCollection> UnsupportedCollection<TCollection>(JsonSerializerOptionsImpl options,
+            JsonCollectionInfoValuesImpl<TCollection> info, string what)
+        {
+            if (options == null) throw new ArgumentNullException("options");
+            if (info == null) throw new ArgumentNullException("collectionInfo");
+            JsonTypeInfoImpl<TCollection> typeInfo = new JsonTypeInfoImpl<TCollection>(new CsharpcUnsupportedConverter<TCollection>(what), options);
+            typeInfo.SetCreateObject(info.ObjectCreator);
+            return typeInfo;
+        }
+
         private static JsonTypeInfoImpl<TCollection> Dictionary<TCollection, TKey, TValue>(JsonSerializerOptionsImpl options,
             JsonCollectionInfoValuesImpl<TCollection> info, DictionaryConverter<TCollection, TKey, TValue> converter)
             where TCollection : IEnumerable<KeyValuePair<TKey, TValue>>
@@ -1175,6 +1187,21 @@ namespace CsharpcCoreLib
         public static JsonTypeInfoImpl<TCollection> CreateIEnumerableInfo<TCollection, TElement>(JsonSerializerOptionsImpl options, JsonCollectionInfoValuesImpl<TCollection> collectionInfo)
             where TCollection : IEnumerable<TElement> =>
             Collection(options, collectionInfo, new IEnumerableOfTConverter<TCollection, TElement>());
+
+        // Non-generic collections (System.Collections.IEnumerable / IList / IDictionary): metadata the source
+        // generator emits for every reachable property type, even unused ones (System.Data's collections).
+        // Serializing them is reported, not guessed.
+        public static JsonTypeInfoImpl<TCollection> CreateIEnumerableInfo<TCollection>(JsonSerializerOptionsImpl options, JsonCollectionInfoValuesImpl<TCollection> collectionInfo)
+            where TCollection : System.Collections.IEnumerable =>
+            UnsupportedCollection(options, collectionInfo, "a non-generic IEnumerable");
+
+        public static JsonTypeInfoImpl<TCollection> CreateIListInfo<TCollection>(JsonSerializerOptionsImpl options, JsonCollectionInfoValuesImpl<TCollection> collectionInfo)
+            where TCollection : System.Collections.IList =>
+            UnsupportedCollection(options, collectionInfo, "a non-generic IList");
+
+        public static JsonTypeInfoImpl<TCollection> CreateIDictionaryInfo<TCollection>(JsonSerializerOptionsImpl options, JsonCollectionInfoValuesImpl<TCollection> collectionInfo)
+            where TCollection : System.Collections.IDictionary =>
+            UnsupportedCollection(options, collectionInfo, "a non-generic IDictionary");
 
         public static JsonTypeInfoImpl<TCollection> CreateIReadOnlySetInfo<TCollection, TElement>(JsonSerializerOptionsImpl options, JsonCollectionInfoValuesImpl<TCollection> collectionInfo)
             where TCollection : IReadOnlySet<TElement> =>
