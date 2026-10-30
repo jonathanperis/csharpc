@@ -487,4 +487,33 @@ namespace CsharpcCoreLib
             return (int)h;
         }
     }
+
+    /// <summary>
+    /// BigInteger.Parse(string, IFormatProvider) and ToString(string, IFormatProvider): csharpc's BigInteger
+    /// parses and formats with the invariant culture's symbols; a provider whose number symbols are the same
+    /// gives the same text, any other is an explicit NotSupportedException rather than invariant output.
+    /// </summary>
+    internal static class BigIntegerCulture
+    {
+        private static void CheckInvariantSymbols(System.IFormatProvider provider)
+        {
+            var nfi = System.Globalization.NumberFormatInfo.GetInstance(provider);
+            int[] sizes = nfi.NumberGroupSizes;
+            if (nfi.NegativeSign != "-" || nfi.PositiveSign != "+" || nfi.NumberDecimalSeparator != "." || nfi.NumberGroupSeparator != ","
+                || sizes.Length != 1 || sizes[0] != 3)
+                throw new System.NotSupportedException("BigInteger with a culture whose number symbols differ from the invariant culture's is not supported by csharpc yet.");
+        }
+
+        public static System.Numerics.BigInteger Parse(string value, System.IFormatProvider provider)
+        {
+            CheckInvariantSymbols(provider);
+            return System.Numerics.BigInteger.Parse(value);
+        }
+
+        public static string Format(System.Numerics.BigInteger value, string format, System.IFormatProvider provider)
+        {
+            CheckInvariantSymbols(provider);
+            return value.ToString(format);
+        }
+    }
 }

@@ -914,6 +914,8 @@ internal static partial class BclValueTypes
         t[$"{B}.Parse(string)"] = (g, _, _, a, _) => Rt(g, "csrt_bigint_parse", g.Llvm.Ptr, (a[0], g.Llvm.Ptr));
         t[$"{B}.TryParse(string, {B})"] = (g, _, _, a, _) => Rt(g, "csrt_bigint_try_parse", g.Llvm.I1, (a[0], g.Llvm.Ptr), (a[1], g.Llvm.Ptr));
         t[$"{B}.ToString()"] = (g, _, self, _, _) => Rt(g, "csrt_bigint_to_string", g.Llvm.Ptr, (self, g.Llvm.Ptr));
+        t[$"{B}.Parse(string, System.IFormatProvider)"] = (g, _, _, a, _) => g.CallCoreLib("BigIntegerCulture", "Parse", a[0], a[1]);
+        t[$"{B}.ToString(string, System.IFormatProvider)"] = (g, _, self, a, _) => g.CallCoreLib("BigIntegerCulture", "Format", self, a[0], a[1]);
         t[$"{B}.ToString(string)"] = (g, _, self, a, _) => Rt(g, "csrt_bigint_format", g.Llvm.Ptr, (self, g.Llvm.Ptr), (a[0], g.Llvm.Ptr));
         t[$"{B}.GetHashCode()"] = (g, _, self, _, _) => Rt(g, "csrt_bigint_get_hash_code", g.Llvm.I32, (self, g.Llvm.Ptr));
         t[$"{B}.get_IsZero()"] = (g, _, self, _, _) => g.Builder.ICmp(LLVMIntPredicate.EQ, self, LlvmContext.Null(g.Llvm.Ptr));

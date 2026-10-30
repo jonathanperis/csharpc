@@ -1,0 +1,9 @@
+7 Point Point False False
+3 pt 0.5 True 2024-05-06
+3 7 True
+x:Int32 name:String ratio:Double flag:Boolean when:DateTime boxed:Int64 nothing:String 
+Cannot add the same member twice to a SerializationInfo object.
+Member 'missing' was not found.
+name
+Other.Type True
+Enumeration has either not started or has already finished.
