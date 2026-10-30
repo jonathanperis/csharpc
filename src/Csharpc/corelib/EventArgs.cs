@@ -55,4 +55,48 @@ namespace CsharpcCoreLib
         public CancelEventArgsImpl(bool cancel) { Cancel = cancel; }
         public bool Cancel { get; set; }
     }
+
+    // CollectionChangeEventArgs and ListChangedEventArgs live in System.ComponentModel.TypeConverter.dll, which
+    // the corelib keeps out of the closed world (ComponentModel/TypeConverter.cs); dotnet/runtime's code.
+    [Shadows("System.ComponentModel.CollectionChangeEventArgs")]
+    public class CollectionChangeEventArgsImpl : EventArgs
+    {
+        public CollectionChangeEventArgsImpl(System.ComponentModel.CollectionChangeAction action, object element)
+        {
+            Action = action;
+            Element = element;
+        }
+        public virtual System.ComponentModel.CollectionChangeAction Action { get; }
+        public virtual object Element { get; }
+    }
+
+    [Shadows("System.ComponentModel.ListChangedEventArgs")]
+    public class ListChangedEventArgsImpl : EventArgs
+    {
+        public ListChangedEventArgsImpl(System.ComponentModel.ListChangedType listChangedType, int newIndex) : this(listChangedType, newIndex, -1) { }
+
+        public ListChangedEventArgsImpl(System.ComponentModel.ListChangedType listChangedType, int newIndex, System.ComponentModel.PropertyDescriptor propDesc) : this(listChangedType, newIndex)
+        {
+            PropertyDescriptor = propDesc;
+            OldIndex = newIndex;
+        }
+
+        public ListChangedEventArgsImpl(System.ComponentModel.ListChangedType listChangedType, System.ComponentModel.PropertyDescriptor propDesc)
+        {
+            ListChangedType = listChangedType;
+            PropertyDescriptor = propDesc;
+        }
+
+        public ListChangedEventArgsImpl(System.ComponentModel.ListChangedType listChangedType, int newIndex, int oldIndex)
+        {
+            ListChangedType = listChangedType;
+            NewIndex = newIndex;
+            OldIndex = oldIndex;
+        }
+
+        public System.ComponentModel.ListChangedType ListChangedType { get; }
+        public int NewIndex { get; }
+        public int OldIndex { get; }
+        public System.ComponentModel.PropertyDescriptor PropertyDescriptor { get; }
+    }
 }
