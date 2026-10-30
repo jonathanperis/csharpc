@@ -88,7 +88,7 @@ needs the WASI SDK 24 and wasmtime separately.
 ```bash
 # Linux / macOS: pick the right archive, verify, extract
 curl -fsSL -o install.sh https://raw.githubusercontent.com/jonathanperis/csharpc/main/install.sh
-bash install.sh                  # latest release tag, including prereleases
+bash install.sh                  # newest v* release, including prereleases
 # or manually:
 # curl -fsSL -O https://github.com/jonathanperis/csharpc/releases/download/v0.1.0-spike/csharpc-0.1.0-spike-linux-x64.tar.gz
 # curl -fsSL -O https://github.com/jonathanperis/csharpc/releases/download/v0.1.0-spike/SHA256SUMS
@@ -107,11 +107,11 @@ irm https://raw.githubusercontent.com/jonathanperis/csharpc/main/install.ps1 | i
 ```
 
 **dotnet tool** (RID-specific NativeAOT packages — same binaries as the release archives, including
-bundled libLLVM; still needs host **clang**/lld). Prefer nuget.org when published; otherwise GitHub
-Packages:
+bundled libLLVM; still needs host **clang**/lld). nuget.org has the tagged releases; GitHub
+Packages also has every green `main` build:
 
 ```bash
-# nuget.org (after the first Trusted Publishing release)
+# nuget.org (v* tags only)
 dotnet tool install -g csharpc --prerelease
 
 # or GitHub Packages
@@ -120,9 +120,10 @@ dotnet nuget add source https://nuget.pkg.github.com/jonathanperis/index.json \
 dotnet tool install -g csharpc --prerelease --add-source https://nuget.pkg.github.com/jonathanperis/index.json
 ```
 
-Every green `main` CI publishes a rolling GitHub prerelease (`latest-main`) and a versioned tool
-package `0.1.0-spike.<ci_run_number>`. Tags `v*` publish a named release and that version to the
-feeds (`.github/workflows/release.yml`).
+Every green `main` CI publishes a rolling GitHub prerelease (`latest-main`), a container image and a
+versioned tool package `0.1.0-spike.<ci_run_number>` on GitHub Packages. A `v*` tag on a commit
+whose main CI is green publishes a named release and that version to GitHub Packages and nuget.org,
+whose packages can't be deleted (`.github/workflows/release.yml`).
 
 **Container** (clang and libLLVM included; linux/amd64):
 

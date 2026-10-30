@@ -5,7 +5,7 @@
 # (~/.local/bin/csharpc by default).
 #
 #   curl -fsSL https://raw.githubusercontent.com/jonathanperis/csharpc/main/install.sh | bash
-#   ./install.sh [version]          # default: latest release tag (incl. prereleases)
+#   ./install.sh [version]          # default: the newest v* release (prereleases included)
 #
 # Prerequisites after install: clang (and ideally lld). libLLVM is in the archive.
 set -euo pipefail
@@ -18,7 +18,7 @@ BIN_DIR="${CSHARPC_BIN_DIR:-$HOME/.local/bin}"
 need() { command -v "$1" >/dev/null 2>&1 || { echo "install.sh: need '$1' on PATH" >&2; exit 1; }; }
 need curl
 need tar
-need sha256sum
+if command -v sha256sum >/dev/null 2>&1; then sha256=(sha256sum); else need shasum; sha256=(shasum -a 256); fi
 
 uname_s="$(uname -s)"
 uname_m="$(uname -m)"
@@ -31,8 +31,9 @@ esac
 
 api="https://api.github.com/repos/${REPO}/releases"
 if [[ -z $VERSION ]]; then
-  # Prefer the newest release (prereleases included) — csharpc's first tags are -spike.
-  tag="$(curl -fsSL "$api" | grep -oP '"tag_name":\s*"\K[^"]+' | head -1 || true)"
+  # The newest v* release (prereleases included: csharpc's first tags are -spike). Not the rolling
+  # latest-main build, whose assets aren't named by a version.
+  tag="$(curl -fsSL "$api" | sed -n 's/.*"tag_name": *"\(v[^"]*\)".*/\1/p' | head -1 || true)"
   if [[ -z $tag ]]; then
     echo "install.sh: no releases found at $REPO" >&2
     exit 1
@@ -51,9 +52,18 @@ trap 'rm -rf "$tmpdir"' EXIT
 echo "install.sh: downloading $asset ($tag)"
 curl -fsSL "$base/$asset" -o "$tmpdir/$asset"
 curl -fsSL "$base/SHA256SUMS" -o "$tmpdir/SHA256SUMS"
-(cd "$tmpdir" && grep " $asset\$" SHA256SUMS | sha256sum -c -)
+(cd "$tmpdir" && grep " $asset\$" SHA256SUMS | "${sha256[@]}" -c -)
 
-rm -rf "$PREFIX"
+# Replace only a previous csharpc install (or an empty directory): CSHARPC_INSTALL_DIR=$HOME must
+# not wipe a home directory.
+if [[ -e $PREFIX ]]; then
+  if [[ -x $PREFIX/csharpc && -d $PREFIX/corelib ]] || [[ -z "$(ls -A "$PREFIX")" ]]; then
+    rm -rf "$PREFIX"
+  else
+    echo "install.sh: $PREFIX exists and is not a csharpc install; choose another CSHARPC_INSTALL_DIR" >&2
+    exit 1
+  fi
+fi
 mkdir -p "$PREFIX" "$BIN_DIR"
 tar -xzf "$tmpdir/$asset" -C "$PREFIX" --strip-components=1
 ln -sfn "$PREFIX/csharpc" "$BIN_DIR/csharpc"

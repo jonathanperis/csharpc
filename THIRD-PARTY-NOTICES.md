@@ -93,3 +93,16 @@ System.Text.Json files (all under `src/Csharpc/corelib/Json/`):
   from dotnet/runtime (MIT, above), which extracted them from the ICU headers.
 - **Source:** <https://icu.unicode.org>
 - **License:** Unicode License v3 (ICU), not redistributed by csharpc.
+
+## Redistributed in release bundles
+
+The release archives and `dotnet tool` packages (`tools/pack-release.sh`) also ship binaries of the
+following projects. Their full license texts are in [`licenses/`](licenses/) and in the `licenses/`
+directory of every bundle.
+
+- **LLVM** — `lib/libLLVM*` (the LLVM 18.1 C API library). Apache License v2.0 with LLVM Exceptions;
+  `licenses/LLVM-LICENSE.TXT` (llvm-project `llvmorg-18.1.8`, `llvm/LICENSE.TXT`).
+- **.NET reference assemblies** — `ref/net11.0/` (Microsoft.NETCore.App.Ref). MIT;
+  `licenses/dotnet-runtime-LICENSE.TXT` and `licenses/dotnet-runtime-THIRD-PARTY-NOTICES.TXT`.
+- **Roslyn** (Microsoft.CodeAnalysis) — compiled into the csharpc binary. MIT;
+  `licenses/roslyn-LICENSE.TXT`.

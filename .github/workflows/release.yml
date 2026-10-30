@@ -12,14 +12,18 @@ name: Release
 # Never push *test*/*dryrun* versions (nuget.org cannot delete packages).
 #
 # Triggers:
-#   - After CI succeeds on a push to main (workflow_run): rolling prerelease `latest-main`,
-#     package version 0.1.0-spike.<ci_run_number>. Gated to main+push+success so PR/ci/**
+#   - After CI succeeds on a push to main (workflow_run): rolling prerelease `latest-main`
+#     (recreated each time, so its tag follows main and old assets don't pile up), GitHub
+#     Packages and GHCR, package version 0.1.0-spike.<ci_run_number>; never nuget.org. Gated to main+push+success so PR/ci/**
 #     CI completions do not start Release (or burn setup runners), and a docs-only or partial
 #     CI success does not publish: setup requires a successful `diff (` shard for every platform
 #     plus the five `test (` checks (tools/ci-plan.sh release-gate). Does not run inside ci.yml,
 #     so it never cancels or slows the five merge-bar jobs.
-#   - Push of v* tags: named release + package version from the tag.
-#   - workflow_dispatch: dry-run by default (build+smoke only; never creates a Release/tag).
+#   - Push of v* tags: named release, GitHub Packages, GHCR and nuget.org (the only channel that
+#     publishes there; its packages can't be deleted). The tagged commit must be on main and
+#     already have a green full-gate CI run, or the release fails without publishing.
+#   - workflow_dispatch: dry-run by default (build+smoke only; never creates a Release/tag). With
+#     dry_run=false it needs the same green gate, a new version, and never pushes to nuget.org.
 # To exercise release.yml without publishing: workflow_dispatch with dry_run=true (default).
 # Do not add a ci/** publish channel or a dryrun-* release tag — those create public
 # prereleases/tags (cleaned up after 40322655301). GHCR/attest need a real main/tag publish.
@@ -163,6 +167,38 @@ jobs:
             fi
           fi
 
+          # A tag or a publishing dispatch ships the commit it names: that commit must be on main and must
+          # already have a green full-gate CI run (docs-only and partial runs don't count). Tag after CI.
+          if [[ $should_publish == true && ( $channel == tag || $channel == dispatch ) ]]; then
+            gated=false
+            if git merge-base --is-ancestor "$sha" origin/main 2>/dev/null; then
+              jobsfile="${RUNNER_TEMP:-/tmp}/ci-jobs.tsv"
+              for run in $(gh api "/repos/${GITHUB_REPOSITORY}/actions/workflows/ci.yml/runs?head_sha=${sha}&event=push&status=success&per_page=20" --jq '.workflow_runs[].id'); do
+                gh api --paginate "/repos/${GITHUB_REPOSITORY}/actions/runs/${run}/jobs?per_page=100" \
+                  --jq '.jobs[] | [.name, (.conclusion // "")] | @tsv' > "$jobsfile" || continue
+                if bash tools/ci-plan.sh release-gate "$jobsfile"; then gated=true; echo "CI run $run is a full gate for $sha"; break; fi
+              done
+            else
+              echo "::error::$sha is not on main; tag or dispatch only commits merged to main"
+            fi
+            if [[ $gated != true ]]; then
+              echo "::error::no green full-gate CI run for $sha; push the tag after main's CI for it is green"
+              exit 1
+            fi
+          fi
+
+          # A publishing dispatch creates a new release; it never replaces a tag's assets.
+          if [[ $should_publish == true && $channel == dispatch ]] && gh release view "$release_tag" >/dev/null 2>&1; then
+            echo "::error::release $release_tag already exists; dispatch a new version"
+            exit 1
+          fi
+
+          # Versions reach shell commands, file names and package metadata: SemVer only.
+          if [[ $should_run == true && ! $version =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::version '$version' is not a SemVer version"
+            exit 1
+          fi
+
           # Hard stop: test/dryrun versions never publish (no public Release/tag/Packages/GHCR).
           if [[ $version == *test* || $version == *dryrun* || $release_tag == *dryrun* || $release_tag == *test* ]]; then
             if [[ $should_publish == true ]]; then
@@ -172,14 +208,10 @@ jobs:
           fi
 
           # nuget.org: Trusted Publishing via NuGet/login in this file (release.yml, no environment).
-          # Never push test/dryrun versions (nuget.org cannot delete packages, only unlist).
+          # nuget.org packages can't be deleted: only v* tags publish there, never main or a dispatch.
           publish_nuget_org=false
-          if [[ $should_publish == true && -n ${NUGET_USER} ]]; then
-            if [[ $version == *test* || $version == *dryrun* || $channel == dispatch ]]; then
-              echo "nuget.org: skipping version '$version' (test/dry-run; not deletable on nuget.org)"
-            else
-              publish_nuget_org=true
-            fi
+          if [[ $should_publish == true && $channel == tag && -n ${NUGET_USER} ]]; then
+            publish_nuget_org=true
           fi
 
           {
@@ -424,6 +456,17 @@ jobs:
             release-assets/*.tar.gz
             release-assets/*.zip
 
+      # latest-main is a rolling release: delete it and its tag so the new one points at this commit
+      # and carries only this build's assets (softprops never moves a tag or removes old assets).
+      - name: Replace the rolling latest-main release
+        if: needs.setup.outputs.channel == 'main'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if gh release view latest-main --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release delete latest-main --repo "$GITHUB_REPOSITORY" --cleanup-tag --yes
+          fi
+
       - name: Create or update GitHub Release
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
         with:
@@ -505,9 +548,10 @@ jobs:
 
       - name: Push packages to nuget.org
         if: needs.setup.outputs.publish_nuget_org == 'true'
+        env:
+          KEY: ${{ steps.nuget_login.outputs.NUGET_API_KEY }}
         run: |
           set -euo pipefail
-          KEY='${{ steps.nuget_login.outputs.NUGET_API_KEY }}'
           test -n "$KEY" || { echo "nuget.org: empty NUGET_API_KEY from NuGet/login"; exit 1; }
           for pkg in nupkg/csharpc.linux-*.nupkg nupkg/csharpc.osx-*.nupkg nupkg/csharpc.win-*.nupkg; do
             [[ -f $pkg ]] || continue
@@ -516,9 +560,8 @@ jobs:
           dotnet nuget push nupkg/csharpc."${{ needs.setup.outputs.version }}".nupkg \
             --api-key "$KEY" --source https://api.nuget.org/v3/index.json --skip-duplicate
 
-      - name: nuget.org skipped (test/dry-run or NUGET_USER unset)
+      - name: nuget.org skipped (not a v* tag, or NUGET_USER unset)
         if: needs.setup.outputs.publish_nuget_org != 'true'
         run: |
-          echo "nuget.org publish skipped (NUGET_USER unset, or version is a test/dry-run)."
-          echo "Real pushes: main rolling 0.1.0-spike.<ci_run> or tag v* (first: v0.1.0-spike)."
+          echo "nuget.org publish skipped: only v* tags publish there (main goes to GitHub Releases, Packages and GHCR)."
           echo "Policy: Jonathanperis/csharpc-release → release.yml, no environment, vars.NUGET_USER."
