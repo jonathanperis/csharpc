@@ -14,7 +14,8 @@ name: Release
 # Triggers:
 #   - After CI succeeds on a push to main (workflow_run): rolling prerelease `latest-main`
 #     (recreated each time, so its tag follows main and old assets don't pile up), GitHub
-#     Packages and GHCR, package version 0.1.0-spike.<ci_run_number>; never nuget.org. Gated to main+push+success so PR/ci/**
+#     Packages and GHCR, package version <csproj Version>.<ci_run_number> (0.1.0-alpha.<n>); never
+#     nuget.org. Gated to main+push+success so PR/ci/**
 #     CI completions do not start Release (or burn setup runners), and a docs-only or partial
 #     CI success does not publish: setup requires a successful `diff (` shard for every platform
 #     plus the five `test (` checks (tools/ci-plan.sh release-gate). Does not run inside ci.yml,
@@ -43,6 +44,11 @@ on:
         default: true
       version:
         description: "Package version override (empty: from csproj / tag)"
+        type: string
+        required: false
+        default: ""
+      nuget_unlist_except:
+        description: "Only unlist on nuget.org: every version of the csharpc packages except this one (e.g. 0.1.0-alpha); nothing is built"
         type: string
         required: false
         default: ""
@@ -105,6 +111,7 @@ jobs:
           SHA: ${{ github.sha }}
           DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run || false }}
           VERSION_OVERRIDE: ${{ github.event_name == 'workflow_dispatch' && inputs.version || '' }}
+          UNLIST: ${{ github.event_name == 'workflow_dispatch' && inputs.nuget_unlist_except || '' }}
           NUGET_USER: ${{ vars.NUGET_USER || '' }}
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -124,7 +131,8 @@ jobs:
               should_run=true
               should_publish=true
               channel=main
-              version="0.1.0-spike.${WR_RUN_NUMBER}"
+              # The csproj's version plus the CI run: 0.1.0-alpha.<run> (sorts after 0.1.0-alpha).
+              version="${csproj_ver}.${WR_RUN_NUMBER}"
               release_tag=latest-main
               prerelease=true
               sha="$WR_SHA"
@@ -139,6 +147,8 @@ jobs:
             release_tag="$REF_NAME"
             if [[ $version == *-* ]]; then prerelease=true; else prerelease=false; fi
             sha="$SHA"
+          elif [[ $EVENT_NAME == workflow_dispatch && -n $UNLIST ]]; then
+            echo "unlist-only dispatch: nothing to build"
           elif [[ $EVENT_NAME == workflow_dispatch ]]; then
             should_run=true
             # dry_run (default): build+smoke only — no GH Release/tag, Packages, or GHCR.
@@ -565,3 +575,37 @@ jobs:
         run: |
           echo "nuget.org publish skipped: only v* tags publish there (main goes to GitHub Releases, Packages and GHCR)."
           echo "Policy: Jonathanperis/csharpc-release → release.yml, no environment, vars.NUGET_USER."
+
+  # nuget.org can't delete packages, only unlist them (hidden from search and from floating installs such as
+  # `dotnet tool install --prerelease`). Trusted Publishing's key comes from this workflow file only, so the
+  # operation lives here: a dispatch from main with nuget_unlist_except unlists every listed version of the
+  # pointer and RID packages except that one.
+  nuget-unlist:
+    name: nuget.org unlist
+    if: github.event_name == 'workflow_dispatch' && inputs.nuget_unlist_except != '' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: NuGet.org Trusted Publishing login
+        id: nuget_login
+        uses: NuGet/login@8d196754b4036150537f80ac539e15c2f1028841 # v1.2.0
+        with:
+          user: ${{ vars.NUGET_USER }}
+
+      - name: Unlist every other version
+        env:
+          KEY: ${{ steps.nuget_login.outputs.NUGET_API_KEY }}
+          KEEP: ${{ inputs.nuget_unlist_except }}
+        run: |
+          set -euo pipefail
+          [[ $KEEP =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]] || { echo "::error::'$KEEP' is not a SemVer version"; exit 1; }
+          for id in csharpc csharpc.linux-x64 csharpc.linux-arm64 csharpc.osx-arm64 csharpc.win-x64; do
+            versions="$(curl -fsSL "https://api.nuget.org/v3-flatcontainer/${id}/index.json" | jq -r '.versions[]' || true)"
+            for v in $versions; do
+              [[ ${v,,} == "${KEEP,,}" ]] && { echo "keep $id $v"; continue; }
+              echo "unlist $id $v"
+              dotnet nuget delete "$id" "$v" --api-key "$KEY" --source https://api.nuget.org/v3/index.json --non-interactive
+            done
+          done

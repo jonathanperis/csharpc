@@ -8,7 +8,7 @@
   <PropertyGroup>
     <TargetFramework>net11.0</TargetFramework>
     <PackageId>Csharpc.Sdk</PackageId>
-    <Version>0.1.0-spike</Version>
+    <Version>0.1.0-alpha</Version>
     <Description>Build .NET projects to native executables with csharpc, a C# front-end for LLVM.</Description>
     <Authors>csharpc contributors</Authors>
     <IncludeBuildOutput>false</IncludeBuildOutput>

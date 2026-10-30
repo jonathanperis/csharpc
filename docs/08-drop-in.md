@@ -34,7 +34,7 @@ Loose files keep working as before (`csharpc a.cs b.cs -o app`).
 Add the MSBuild package (`src/Csharpc.Sdk`):
 
 ```xml
-<PackageReference Include="Csharpc.Sdk" Version="0.1.0-spike" PrivateAssets="all" />
+<PackageReference Include="Csharpc.Sdk" Version="0.1.0-alpha" PrivateAssets="all" />
 ```
 
 ```sh
