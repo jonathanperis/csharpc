@@ -822,6 +822,8 @@ static void remove_timer_locked(int64_t index) {
     words(s_timers)[s_ntimers * 3 + 1] = words(s_timers)[s_ntimers * 3 + 2] = NULL;
 }
 
+bool csrt_cts_transition(CancellationSource* cts);
+
 /// Hands every timer due at `now` to the pool, earliest first (ties in creation order). Caller holds s_tlock.
 static void fire_due_timers_locked(int64_t now) {
     for (;;) {
@@ -834,7 +836,14 @@ static void fire_due_timers_locked(int64_t now) {
         CancellationSource* token = words(s_timers)[best * 3 + 2];
         remove_timer_locked(best);
         pthread_mutex_unlock(&s_tlock);
-        if (t) enqueue(K_TIMER_TASK, t, NULL); else enqueue(K_TIMER_CANCEL, token, NULL);
+        if (t) enqueue(K_TIMER_TASK, t, NULL);
+        else {
+            // Flip canceled on the timer thread before the pool runs callbacks. Waiters that poll
+            // the flag (ManualResetEventSlim.Wait(token)) must not depend on a free worker: on
+            // macOS, K_TIMER_CANCEL sitting behind blocked pool work hung 544's CTS(30) gate.
+            // Callbacks (kicks) still run on the pool via K_TIMER_CANCEL → notify only.
+            if (csrt_cts_transition(token)) enqueue(K_TIMER_CANCEL, token, NULL);
+        }
         pthread_mutex_lock(&s_tlock);
     }
 }
@@ -1283,7 +1292,8 @@ static void run_item(intptr_t kind, void* a, void* b) {
             break;
         }
         case K_TIMER_TASK: csrt_task_try_complete(a); break;
-        case K_TIMER_CANCEL: csrt_cts_cancel(a); break;
+        // Timer thread already transitioned the source; only run registrations here.
+        case K_TIMER_CANCEL: csrt_cts_notify(a, 0); break;
     }
     tl_current_task = saved_current;
 }
