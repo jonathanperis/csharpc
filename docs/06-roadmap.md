@@ -346,8 +346,8 @@ pass over 1.6 M instructions is most of it).
 - Scope fixed to .NET 11 (RC2 → GA) and C# 14: converge on completeness rather than track releases.
 - **Distribution:** After every green CI on `main`, `.github/workflows/release.yml` ships a rolling
   GitHub prerelease (`latest-main`) and RID-specific NativeAOT tool packages
-  (`0.1.0-spike.<ci_run_number>`) to GitHub Packages and nuget.org (Trusted Publishing via
-  `NuGet/login` in `release.yml`; repo variable `NUGET_USER`; no GitHub environment). Tags `v*`
-  publish a named release and that version. Archives and `dotnet tool install` carry the same
+  (`0.1.0-spike.<ci_run_number>`) to GitHub Packages. Tags `v*` on a commit with green main CI
+  publish a named release and that version, also to nuget.org (Trusted Publishing via `NuGet/login`
+  in `release.yml`; repo variable `NUGET_USER`; no GitHub environment). Archives and `dotnet tool install` carry the same
   binaries (libLLVM bundled; clang/lld remain a host prerequisite). Container:
   `ghcr.io/jonathanperis/csharpc`. See the README Install section.

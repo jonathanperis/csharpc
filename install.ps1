@@ -22,7 +22,10 @@ $api = "https://api.github.com/repos/$Repo/releases"
 if (-not $Version) {
     $releases = Invoke-RestMethod -Uri $api -Headers @{ "User-Agent" = "csharpc-install" }
     if (-not $releases -or $releases.Count -eq 0) { throw "no releases found at $Repo" }
-    $tag = $releases[0].tag_name
+    # The newest v* release, not the rolling latest-main build.
+    $release = $releases | Where-Object { $_.tag_name -like "v*" } | Select-Object -First 1
+    if (-not $release) { throw "no v* release found at $Repo" }
+    $tag = $release.tag_name
 } else {
     $tag = $Version
     if (-not $tag.StartsWith("v")) { $tag = "v$tag" }
@@ -47,7 +50,13 @@ try {
         throw "checksum mismatch for $asset (expected $expectedHash, got $actualHash)"
     }
 
-    if (Test-Path $InstallDir) { Remove-Item -Recurse -Force $InstallDir }
+    # Replace only a previous csharpc install (or an empty directory), never an arbitrary -InstallDir.
+    if (Test-Path $InstallDir) {
+        $previous = (Test-Path (Join-Path $InstallDir "csharpc.exe")) -and (Test-Path (Join-Path $InstallDir "corelib"))
+        $empty = -not (Get-ChildItem -Force $InstallDir | Select-Object -First 1)
+        if (-not ($previous -or $empty)) { throw "$InstallDir exists and is not a csharpc install; choose another -InstallDir" }
+        Remove-Item -Recurse -Force $InstallDir
+    }
     New-Item -ItemType Directory -Path $InstallDir | Out-Null
     Expand-Archive -Path $zip -DestinationPath $tmpdir
     $bundle = Get-ChildItem -Directory $tmpdir | Where-Object { $_.Name -like "csharpc-*" } | Select-Object -First 1

@@ -142,13 +142,12 @@ case "$RID" in
     fi
     ;;
 esac
-cat > "$PUBLISH/lib/LLVM-LICENSE.txt" <<'EOF'
-This directory contains a binary build of LLVM's libLLVM (the C API shared
-library), redistributed under the Apache License v2.0 with LLVM Exceptions:
-https://llvm.org/LICENSE.txt
-
-csharpc itself is MIT; see the repository LICENSE.
-EOF
+# License texts travel with the binaries (the csproj's CsharpcFinishLibLLVM copies them too; the
+# archive must have them even when that target didn't run).
+mkdir -p "$PUBLISH/licenses"
+cp "$ROOT"/licenses/*.TXT "$ROOT/LICENSE" "$ROOT/THIRD-PARTY-NOTICES.md" "$PUBLISH/licenses/"
+cp "$ROOT/licenses/LLVM-LICENSE.TXT" "$PUBLISH/lib/"
+rm -f "$PUBLISH/lib/LLVM-LICENSE.txt"
 rm -f "$PUBLISH"/*.dbg "$PUBLISH"/*.pdb 2>/dev/null || true
 
 test -d "$PUBLISH/corelib" || { echo "pack-release: missing corelib/ in publish output" >&2; exit 1; }

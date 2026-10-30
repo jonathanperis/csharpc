@@ -81,8 +81,13 @@
     <Copy Condition="$(RuntimeIdentifier.StartsWith('linux')) and Exists('$(PublishDir)lib/libLLVM.so.18.1')"
           SourceFiles="$(PublishDir)lib/libLLVM.so.18.1" DestinationFiles="$(PublishDir)lib/libLLVM-18.so"
           SkipUnchangedFiles="true" />
-    <WriteLinesToFile File="$(PublishDir)lib/LLVM-LICENSE.txt" Overwrite="true"
-      Lines="This directory contains a binary build of LLVM's libLLVM (the C API shared library), redistributed under the Apache License v2.0 with LLVM Exceptions: https://llvm.org/LICENSE.txt;csharpc itself is MIT; see the repository LICENSE." />
+    <!-- Redistribution needs the license texts, not links: libLLVM (Apache-2.0 with LLVM exceptions), the
+         bundled .NET reference assemblies and Roslyn (MIT), csharpc's own license and notices. -->
+    <ItemGroup>
+      <_CsharpcLicense Include="$(MSBuildThisFileDirectory)../../licenses/*.TXT;$(MSBuildThisFileDirectory)../../LICENSE;$(MSBuildThisFileDirectory)../../THIRD-PARTY-NOTICES.md" />
+    </ItemGroup>
+    <Copy SourceFiles="@(_CsharpcLicense)" DestinationFolder="$(PublishDir)licenses" SkipUnchangedFiles="true" />
+    <Copy SourceFiles="$(MSBuildThisFileDirectory)../../licenses/LLVM-LICENSE.TXT" DestinationFolder="$(PublishDir)lib" SkipUnchangedFiles="true" />
   </Target>
 
   <!-- Bundle Microsoft.NETCore.App.Ref/net11.0 so NativeAOT installs bind without an SDK. -->

@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 # Smoke-test a packed release bundle on a machine without the .NET SDK.
-# Extracts the archive, compiles 01_hello and 104_linq, compares stdout to .expected.
+# Extracts the archive and compiles a sample from each major area (strings, collections, LINQ,
+# generics, exceptions, async, reflection, formatting, regex, JSON) at -O0 and -O2 with the bundled
+# binary — the NativeAOT build that ships, which CI's suites don't run — comparing stdout and the
+# exit code to what real .NET recorded.
 #
 #   tools/smoke-release.sh <archive> [repo-root]
 set -euo pipefail
@@ -64,21 +67,32 @@ want_stdout() {
 }
 
 run_sample() {
-  local sample=$1
+  local sample=$1 opt=$2
   local src="$ROOT/tests/samples/${sample}.cs"
   local expected="$ROOT/tests/samples/${sample}.expected"
-  local out="$WORKDIR/${sample}"
+  local want_exit=0
+  [[ -f $ROOT/tests/samples/${sample}.exitcode ]] && want_exit="$(tr -d '[:space:]' < "$ROOT/tests/samples/${sample}.exitcode")"
+  local out="$WORKDIR/${sample}${opt}"
   local want="$WORKDIR/${sample}.want"
-  echo "smoke-release: compiling $sample"
-  "$CSHARPC" "$src" -o "$out" -O0
+  echo "smoke-release: compiling $sample $opt"
+  "$CSHARPC" "$src" -o "$out" "$opt"
   # Windows: csharpc may write .exe
   local exe=$out
   [[ -f ${out}.exe ]] && exe=${out}.exe
   want_stdout "$expected" > "$want"
-  diff -u "$want" <("$exe")
-  echo "smoke-release: $sample OK"
+  local code=0
+  "$exe" > "$WORKDIR/${sample}${opt}.stdout" 2>/dev/null || code=$?
+  diff -u "$want" "$WORKDIR/${sample}${opt}.stdout"
+  if [[ $code != "$want_exit" ]]; then
+    echo "smoke-release: $sample $opt exited $code, expected $want_exit" >&2
+    exit 1
+  fi
+  echo "smoke-release: $sample $opt OK"
 }
 
-run_sample 01_hello
-run_sample 104_linq
+for sample in 01_hello 05_strings 101_dictionary 104_linq 106_arrays_as_interfaces 133_enums_generic_math_misc \
+              09_unhandled_exception 110_async_exceptions 604_reflection_constructors 142_numeric_format_exact_integers \
+              290_regex_basic 311_json_escaping; do
+  for opt in -O0 -O2; do run_sample "$sample" "$opt"; done
+done
 echo "smoke-release: all OK"

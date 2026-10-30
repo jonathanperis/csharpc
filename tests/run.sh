@@ -137,7 +137,8 @@ for ((rep = 1; rep <= REPEAT; rep++)); do
         continue
       fi
       expected="$SAMPLES/$name.expected"
-      [[ -f "$expected" ]] || { echo "SKIP $label (no .expected — run with --regen)"; continue; }
+      # A sample without a recording would otherwise pass every shard and CI's coverage check unrun.
+      [[ -f "$expected" ]] || { echo "FAIL $label (no .expected — record it with --regen)"; fail=$((fail + 1)); failed+=("$label"); continue; }
       reason="$(platform_skip "$name")"
       [[ -n "$reason" ]] && ! platform_is_live "$reason" && { echo "SKIP $label (platform-dependent on $TARGET_OS: $reason)"; continue; }
       stdin_file=/dev/null; [[ -f "$SAMPLES/$name.stdin" ]] && stdin_file="$SAMPLES/$name.stdin"
