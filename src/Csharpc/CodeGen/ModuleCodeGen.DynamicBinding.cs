@@ -542,14 +542,13 @@ public sealed partial class ModuleCodeGen
                 locals[index] = (ILocalSymbol?)model.GetDeclaredSymbol(declarator);
         }
         expression ??= block.Statements.OfType<ExpressionStatementSyntax>().Last().Expression;
-        var operation = model.GetOperation(expression);
+        // A `checked(...)` expression has no operation of its own.
+        var operation = model.GetOperation(expression) ?? model.GetOperation(Unwrapped(expression));
 
         if (result is { Type: IErrorTypeSymbol } && operation?.Type is { SpecialType: SpecialType.System_Void })
             return new DynamicLeaf { Error = VoidMarker };
         var error = DescribeBindingError(site, chosen, model, expression, operation, result);
         if (error is not null) return error;
-        if (site.Kind is DynamicKind.InvokeMember && operation is IInvocationOperation { TargetMethod: { } target }
-            && !target.ReturnsVoid && site.ResultDiscarded) { /* value dropped: fine */ }
 
         var leaf = new DynamicLeaf { Locals = locals, Result = result };
         // ==/!= bound as object for a reference type: valid only if one operand converts to the other (else CS0019).
@@ -576,6 +575,10 @@ public sealed partial class ModuleCodeGen
     private DynamicLeaf? DescribeBindingError(DynamicSite site, DynamicClass?[] chosen, SemanticModel model, ExpressionSyntax expression, IOperation? operation, ILocalSymbol? result)
     {
         var hasErrors = operation is null || HasBindingErrors(operation) || result?.Type is IErrorTypeSymbol;
+        // `int r = longValue;`: the declaration's conversion isn't in the operation tree.
+        if (result is not null && site.Kind is DynamicKind.Convert or DynamicKind.IsTrue or DynamicKind.IsFalse
+            && model.GetConversion(expression) is { } declared && !(declared.Exists && (declared.IsImplicit || site.Explicit)))
+            hasErrors = true;
         string OperandName(int i) => site.Operands[i].Kind switch
         {
             DynamicOperandKind.Dynamic => chosen[i]!.Key.Kind switch
@@ -616,7 +619,7 @@ public sealed partial class ModuleCodeGen
                 {
                     if (method.ReducedFrom is null) return null;
                     // Extension methods aren't part of dynamic binding: what the binder says about the type's own members.
-                    return Fail(OverloadFailure(site, MembersNamed(ReceiverType(site, chosen) ?? method.ReceiverType!, site.Name!).OfType<IMethodSymbol>().ToList(), ArgumentCount(site.Operands.Count)));
+                    return Fail(OverloadFailure(site, model, expression, MembersNamed(ReceiverType(site, chosen) ?? method.ReceiverType!, site.Name!).OfType<IMethodSymbol>().ToList()));
                 }
                 var candidates = info.Symbol is { } s ? [s] : info.CandidateSymbols.ToList();
                 if (candidates.Count == 0 && ReceiverType(site, chosen) is { } r) candidates = [.. MembersNamed(r, site.Name!)];
@@ -627,7 +630,7 @@ public sealed partial class ModuleCodeGen
                     CandidateReason.StaticInstanceMismatch => $"An object reference is required for the non-static field, method, or property '{BinderMemberName(candidates[0])}'",
                     CandidateReason.NotInvocable => $"Non-invocable member '{BinderMemberName(candidates[0])}' cannot be used like a method.",
                     CandidateReason.Ambiguous when candidates.Count >= 2 => $"The call is ambiguous between the following methods or properties: '{BinderMemberName(candidates[0])}' and '{BinderMemberName(candidates[1])}'",
-                    _ when candidates.OfType<IMethodSymbol>().Any() => OverloadFailure(site, candidates.OfType<IMethodSymbol>().ToList(), ArgumentCount(site.Operands.Count)),
+                    _ when candidates.OfType<IMethodSymbol>().Any() => OverloadFailure(site, model, expression, candidates.OfType<IMethodSymbol>().ToList()),
                     _ when candidates.Count > 0 && candidates[0] is not IMethodSymbol => $"Non-invocable member '{BinderMemberName(candidates[0])}' cannot be used like a method.",
                     _ => $"'{OperandName(0)}' does not contain a definition for '{site.Name}'",
                 });
@@ -721,16 +724,20 @@ public sealed partial class ModuleCodeGen
                     ? $"'{BinderTypeName(created)}' does not contain a constructor that takes {count} arguments"
                     : $"The best overloaded method match for '{BinderMemberName(matching[0])}' has some invalid arguments");
             }
-            case DynamicKind.Binary:
-                if (!hasErrors) return null;
-                return Fail(IsAmbiguous(operation)
-                    ? $"Operator '{site.MessageOperator}' is ambiguous on operands of type '{OperandName(0)}' and '{OperandName(1)}'"
-                    : $"Operator '{site.MessageOperator}' cannot be applied to operands of type '{OperandName(0)}' and '{OperandName(1)}'");
-            case DynamicKind.Unary:
-                if (!hasErrors) return null;
-                return Fail(IsAmbiguous(operation)
+            case DynamicKind.Binary or DynamicKind.Unary:
+            {
+                // Roslyn keeps an operator it can't resolve as an ordinary operation: its symbol tells.
+                var info = model.GetSymbolInfo(Unwrapped(expression));
+                if (!hasErrors && (info.Symbol is not null || operation?.ConstantValue.HasValue == true)) return null;
+                var ambiguous = info.CandidateReason == CandidateReason.Ambiguous;
+                if (site.Kind == DynamicKind.Binary)
+                    return Fail(ambiguous
+                        ? $"Operator '{site.MessageOperator}' is ambiguous on operands of type '{OperandName(0)}' and '{OperandName(1)}'"
+                        : $"Operator '{site.MessageOperator}' cannot be applied to operands of type '{OperandName(0)}' and '{OperandName(1)}'");
+                return Fail(ambiguous
                     ? $"Operator '{site.MessageOperator}' is ambiguous on an operand of type '{OperandName(0)}'"
                     : $"Operator '{site.MessageOperator}' cannot be applied to operand of type '{OperandName(0)}'");
+            }
             case DynamicKind.Convert:
             {
                 if (!hasErrors) return null;
@@ -756,7 +763,18 @@ public sealed partial class ModuleCodeGen
     private static string UnexpectedBindingError(DynamicSite site) =>
         $"\u0002this dynamic operation fails to bind in a way csharpc can't describe yet ({site.Kind} '{site.Syntax}')";
 
-    private static bool IsAmbiguous(IOperation? operation) => false;
+    private static ExpressionSyntax Unwrapped(ExpressionSyntax expression)
+    {
+        while (true)
+        {
+            switch (expression)
+            {
+                case CheckedExpressionSyntax c: expression = c.Expression; continue;
+                case ParenthesizedExpressionSyntax p: expression = p.Expression; continue;
+                default: return expression;
+            }
+        }
+    }
 
     private ITypeSymbol? ReceiverType(DynamicSite site, DynamicClass?[] chosen)
     {
@@ -798,17 +816,52 @@ public sealed partial class ModuleCodeGen
             : $"Cannot implicitly convert type '{source}' to '{targetName}'";
     }
 
-    /// <summary>No applicable overload: the binder names the count if no candidate takes it, else the best candidate.</summary>
-    private string OverloadFailure(DynamicSite site, List<IMethodSymbol> candidates, int count)
+    /// <summary>
+    /// A call with no unique applicable method: Roslyn reports ambiguity, static/instance mismatches and bad
+    /// arguments alike as an overload resolution failure, so tell them apart as the binder's messages do — no
+    /// candidate takes the count; two applicable (ambiguous); the applicable one is static on an instance (or the
+    /// reverse); else the first candidate taking the count "has some invalid arguments".
+    /// </summary>
+    private string OverloadFailure(DynamicSite site, SemanticModel model, ExpressionSyntax expression, List<IMethodSymbol> candidates)
     {
-        if (candidates.Count == 0) return $"'{site.Name}' has no applicable overload";
-        var named = site.Operands.Skip(site.Operands.Count - count).Select(o => o.Name).Where(n => n is not null).ToList();
+        var invocation = Unwrapped(expression) is AssignmentExpressionSyntax assignment ? Unwrapped(assignment.Right) : Unwrapped(expression);
+        var arguments = invocation is InvocationExpressionSyntax inv ? inv.ArgumentList.Arguments : default;
+        var count = arguments.Count;
+        if (candidates.Count == 0) return UnexpectedBindingError(site);
         var matching = candidates.Where(c => Accepts(c, count)).ToList();
         if (matching.Count == 0) return $"No overload for method '{site.Name}' takes {count} arguments";
-        var best = matching[0];
-        foreach (var name in named)
-            if (!best.Parameters.Any(p => p.Name == name)) return $"The best overload for '{site.Name}' does not have a parameter named '{name}'";
-        return $"The best overloaded method match for '{BinderMemberName(best)}' has some invalid arguments";
+        foreach (var name in arguments.Select(a => a.NameColon?.Name.Identifier.ValueText).OfType<string>())
+            if (!matching[0].Parameters.Any(p => p.Name == name)) return $"The best overload for '{site.Name}' does not have a parameter named '{name}'";
+        var applicable = matching.Where(m => Applicable(model, m, arguments)).ToList();
+        var instanceReceiver = !site.SimpleName && site.StaticReceiver is null;
+        if (applicable.Count == 1 && applicable[0].IsStatic && instanceReceiver)
+            return $"Member '{BinderMemberName(applicable[0])}' cannot be accessed with an instance reference; qualify it with a type name instead";
+        if (applicable.Count == 1 && !applicable[0].IsStatic && !instanceReceiver)
+            return $"An object reference is required for the non-static field, method, or property '{BinderMemberName(applicable[0])}'";
+        if (applicable.Count >= 2)
+            return $"The call is ambiguous between the following methods or properties: '{BinderMemberName(applicable[0])}' and '{BinderMemberName(applicable[1])}'";
+        return $"The best overloaded method match for '{BinderMemberName(matching[0])}' has some invalid arguments";
+    }
+
+    /// <summary>Each argument converts implicitly to its parameter (normal or expanded form).</summary>
+    private static bool Applicable(SemanticModel model, IMethodSymbol method, SeparatedSyntaxList<ArgumentSyntax> arguments)
+    {
+        var parameters = method.Parameters;
+        for (var i = 0; i < arguments.Count; i++)
+        {
+            var argument = arguments[i];
+            IParameterSymbol? parameter = argument.NameColon is { } nameColon
+                ? parameters.FirstOrDefault(p => p.Name == nameColon.Name.Identifier.ValueText)
+                : i < parameters.Length ? parameters[i] : parameters.LastOrDefault(p => p.IsParams);
+            if (parameter is null) return false;
+            var target = parameter.Type;
+            var conversion = model.ClassifyConversion(argument.Expression, target);
+            if (conversion.Exists && conversion.IsImplicit) continue;
+            if (parameter.IsParams && target is IArrayTypeSymbol array && model.ClassifyConversion(argument.Expression, array.ElementType) is { Exists: true, IsImplicit: true })
+                continue;
+            return false;
+        }
+        return true;
     }
 
     private static bool Accepts(IMethodSymbol method, int count)

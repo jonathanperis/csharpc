@@ -478,7 +478,8 @@ public sealed partial class FunctionCodeGen
         {
             if (i == count)
             {
-                EmitDynamicLeaf(site, chosen, values);
+                var leaf = _m.DynamicCaseFunction(site, chosen);
+                _b.Ret(_b.Call(leaf.Type, leaf.Fn, [.. Enumerable.Range(0, (int)index).Select(p => ParamOf((uint)p))]));
                 return;
             }
             if (plan.Classes[i] is not { } classes)
@@ -517,6 +518,17 @@ public sealed partial class FunctionCodeGen
         }
 
         Dispatch(0);
+        Finish();
+    }
+
+    /// <summary>One case of a site: the operands' values (the site's parameters) bound for <paramref name="chosen"/>.</summary>
+    internal void EmitDynamicCase(DynamicSite site, DynamicClass?[] chosen)
+    {
+        var values = new LLVMValueRef[site.Operands.Count];
+        uint index = 0;
+        for (var i = 0; i < site.Operands.Count; i++)
+            if (site.Operands[i].Passed) values[i] = ParamOf(index++);
+        EmitDynamicLeaf(site, chosen, values);
         Finish();
     }
 

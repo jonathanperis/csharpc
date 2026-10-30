@@ -58,6 +58,10 @@ internal sealed class DynamicSite
     public required SyntaxNode Syntax { get; init; }
     public LoweredFunction Function { get; set; }
     public string? Fingerprint { get; set; }
+    /// <summary>The functions of its cases, by combination of operand classes.</summary>
+    public Dictionary<string, LoweredFunction> Cases { get; } = new(StringComparer.Ordinal);
+    /// <summary>Its emission failed (reported once).</summary>
+    public bool Failed { get; set; }
     /// <summary>Per operand: run-time type -> its class key (memoized classification).</summary>
     public Dictionary<(int Operand, ITypeSymbol Type), DynamicClassKey> Classified { get; } = new(DynamicClassifiedComparer.Instance);
 

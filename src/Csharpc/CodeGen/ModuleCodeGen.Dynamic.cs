@@ -23,6 +23,7 @@ public sealed partial class ModuleCodeGen
     private readonly List<DynamicSite> _dynamicSiteList = [];
     private LoweredFunction? _dynamicTypeName;
     private bool _dynamicBoxesRegistered;
+    private static readonly bool s_dynamicTrace = Environment.GetEnvironmentVariable("CSHARPC_DYNAMIC_TRACE") == "1";
 
     private readonly Dictionary<SyntaxTree, SemanticModel> _dynamicModels = [];
 
@@ -77,6 +78,8 @@ public sealed partial class ModuleCodeGen
         }
         foreach (var layout in _anonymous.Values)
             if (seen.Add(layout.MethodTable.Handle)) result.Add((layout.Type, layout.MethodTable));
+        foreach (var (tuple, mt) in _tupleMethodTables)
+            if (seen.Add(mt.Handle) && tuple is ITypeSymbol tupleType) result.Add((CoreLib.Unmap(tupleType), mt));
         return result;
     }
 
@@ -119,12 +122,23 @@ public sealed partial class ModuleCodeGen
         for (var i = 0; i < _dynamicSiteList.Count; i++)
         {
             var site = _dynamicSiteList[i];
+            if (site.Failed) continue;
             DynamicPlan plan;
+            var watch = System.Diagnostics.Stopwatch.StartNew();
             try { plan = PlanDynamicSite(site); }
-            catch (CompileError error) { if (site.Fingerprint != "error") Errors.Add(error); site.Fingerprint = "error"; continue; }
+            catch (CompileError error) { Errors.Add(error); site.Failed = true; continue; }
             if (plan.Fingerprint == site.Fingerprint) continue;
+            if (s_dynamicTrace && site.Fingerprint is { } before)
+            {
+                var a = before.Split(']'); var b = plan.Fingerprint.Split(']');
+                for (var k = 0; k < Math.Min(a.Length, b.Length); k++)
+                    if (a[k] != b[k]) { Console.Error.WriteLine($"[dynamic]   changed: {a[k]}  ->  {b[k]}"); break; }
+            }
             site.Fingerprint = plan.Fingerprint;
+            var planned = watch.ElapsedMilliseconds;
             EmitDynamicSiteBody(site, plan);
+            if (s_dynamicTrace)
+                Console.Error.WriteLine($"[dynamic] site {i} {site.Kind} {site.Name ?? site.Operator} '{site.Syntax}': plan {planned} ms, emit {watch.ElapsedMilliseconds - planned} ms, cases [{string.Join(",", plan.Classes.Select(c => c?.Count ?? 0))}]");
             any = true;
         }
         return any;
@@ -146,12 +160,50 @@ public sealed partial class ModuleCodeGen
         {
             Native.LLVMDeleteFunction(fn);
             Errors.Add(error.Location is { IsInSource: true } ? error : new CompileError(error.Id, error.Message, site.Syntax.GetLocation()));
-            site.Fingerprint = "error";
+            if (s_dynamicTrace) Console.Error.WriteLine($"[dynamic] site '{site.Syntax}' failed: {error.Message}\n{error.StackTrace}");
+            site.Failed = true;
             return;
         }
         Native.LLVMReplaceAllUsesWith(old.Fn, fn);
         Native.LLVMDeleteFunction(old.Fn);
         site.Function = lowered;
+    }
+
+    /// <summary>
+    /// The function of one case of a site (same signature as the site): the code bound for that combination of
+    /// operand types. Cases are kept across re-emissions of the site. A case csharpc can't lower (a library
+    /// member it doesn't implement, for a type the value may never have) throws NotSupportedException when
+    /// reached instead of failing the compile.
+    /// </summary>
+    internal LoweredFunction DynamicCaseFunction(DynamicSite site, DynamicClass?[] chosen)
+    {
+        var key = string.Join("|", chosen.Select(c => c is null ? "-" : c.Key.Kind + "/" + c.Key.Type?.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)));
+        if (site.Cases.TryGetValue(key, out var existing)) return existing;
+        var type = site.Function.Type;
+        var name = $"csharpc.dynamic.{_dynamicSiteList.IndexOf(site)}.case{site.Cases.Count}";
+        LoweredFunction Create()
+        {
+            var fn = Module.AddFunction(name, type);
+            Native.LLVMSetLinkage(fn, LLVMLinkage.Internal);
+            Llvm.AddFunctionAttribute(fn, "uwtable", 2);
+            return new LoweredFunction(fn, type);
+        }
+        var lowered = Create();
+        try
+        {
+            new FunctionCodeGen(this, null, lowered, substitution: site.Subst).EmitDynamicCase(site, [.. chosen]);
+        }
+        catch (CompileError error)
+        {
+            if (s_dynamicTrace) Console.Error.WriteLine($"[dynamic] case {key} of '{site.Syntax}': {error.Message}");
+            Native.LLVMDeleteFunction(lowered.Fn);
+            lowered = Create();
+            var message = error.Message.StartsWith("not supported by csharpc yet: ", StringComparison.Ordinal)
+                ? error.Message["not supported by csharpc yet: ".Length..] : error.Message;
+            new FunctionCodeGen(this, null, lowered).EmitThrowingFactory(
+                $"Not supported by csharpc yet: the dynamic operation '{site.Syntax}' on these operand types ({message}).");
+        }
+        return site.Cases[key] = lowered;
     }
 
     /// <summary>The type-name function's body, once every type is known (after the fixed point).</summary>
