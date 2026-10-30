@@ -101,10 +101,13 @@ bug like a wrong output.
   the behavioural oracle for the tests and a benchmark baseline, not a support target
   ([ADR 0016](adr/0016-nativeaot-parity-and-end-state.md)). The finish line is M8: the dotnet fork with csharpc in
   NativeAOT's place, beating NativeAOT on the TechEmpower benchmarks.
-- **Faster:** throughput ahead of NativeAOT and the JIT on every benchmark, on every platform; start-up
-  and compile time measured too (compile time against `dotnet publish -p:PublishAot=true`).
-- **Smaller:** executables a fraction of NativeAOT's size, with nothing linked that the program doesn't
-  use (pay-for-play library code).
+- **Faster (first priority):** throughput ahead of NativeAOT and the JIT on every benchmark, on every
+  platform; start-up and compile time measured too (compile time against `dotnet publish
+  -p:PublishAot=true`). A speed regression is never acceptable.
+- **Smaller (second priority):** executables a fraction of NativeAOT's size, with nothing linked that the
+  program doesn't use (pay-for-play library code). Size still counts — budgets fail CI, and an
+  unexplained size increase is a bug — but a measured speed gain may cost size (stated with numbers in the
+  commit, budget raised with that reason); size never buys a speed loss.
 - **Safer:** hardening on by default ([17-security.md](17-security.md)).
 
 Evidence comes from CI ([benchmarks/RESULTS.md](../benchmarks/RESULTS.md), the compatibility runs), not
