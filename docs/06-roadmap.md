@@ -104,11 +104,13 @@ bug like a wrong output.
 - **Faster (first priority):** throughput ahead of NativeAOT and the JIT on every benchmark, on every
   platform; start-up and compile time measured too (compile time against `dotnet publish
   -p:PublishAot=true`). A speed regression is never acceptable.
-- **Smaller (second priority):** executables a fraction of NativeAOT's size, with nothing linked that the
+- **Safer (second priority):** hardening on by default ([17-security.md](17-security.md)). The checks .NET
+  semantics require (bounds, casts, array covariance) are correctness, outside this order: they are never
+  dropped, only made cheaper.
+- **Smaller (third priority):** executables a fraction of NativeAOT's size, with nothing linked that the
   program doesn't use (pay-for-play library code). Size still counts — budgets fail CI, and an
-  unexplained size increase is a bug — but a measured speed gain may cost size (stated with numbers in the
-  commit, budget raised with that reason); size never buys a speed loss.
-- **Safer:** hardening on by default ([17-security.md](17-security.md)).
+  unexplained size increase is a bug — but a measured speed gain or a security measure may cost size (stated with numbers in the
+  commit, budget raised with that reason); size never buys a speed loss or weaker hardening.
 
 Evidence comes from CI ([benchmarks/RESULTS.md](../benchmarks/RESULTS.md), the compatibility runs), not
 claims. Known gaps today: NativeAOT is ahead on `asyncfanout` (x86-64 and arm64) and on `fileio`,

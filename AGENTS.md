@@ -8,14 +8,15 @@ Human-oriented docs live in [README.md](README.md) and [docs/](docs/).
 
 csharpc is an LLVM front-end for C#, used two ways: as a standalone compiler (`csharpc app.cs -o app`,
 the way rustc is used), and as the AOT layer of the .NET toolchain — a drop-in replacement for
-NativeAOT behind `PublishAot` (ADR 0016) — beating NativeAOT on speed first, then size, and on security.
+NativeAOT behind `PublishAot` (ADR 0016) — beating NativeAOT on speed first, security second, size third.
 The compiler is written in C#; the runtime uses C where it is the right tool (GC, unwinding, threads,
 OS boundaries) and C# for library code (ADR 0017).
 
 The standing goal is to be better than .NET in every area — drop-in compatible, faster and smaller —
 and to prove it in CI (docs/06-roadmap.md, "Standing goal"); a size or speed regression is a bug.
-Performance comes first and size second: a measured speed gain may cost size (numbers in the commit,
-budget raised with that reason), but size never justifies a speed loss.
+Priorities, in order: **speed, security, size.** A measured speed gain may cost size (numbers in the
+commit, budget raised with that reason); a security measure may cost size; size never justifies a speed
+loss or weaker hardening.
 The drop-in target is 100 % parity with .NET NativeAOT: what works under `PublishAot` must work with
 csharpc; what NativeAOT can't do (run-time code generation) stays an explicit diagnostic. The JIT is the
 test oracle and a benchmark baseline. End state: csharpc as the AOT backend of a dotnet fork, behind
