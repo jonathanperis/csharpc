@@ -99,7 +99,7 @@ bug like a wrong output.
   and must stay an explicit diagnostic; what it does run (expression trees via its interpreter,
   `dynamic`) is in scope. The JIT is
   the behavioural oracle for the tests and a benchmark baseline, not a support target
-  ([ADR 0016](adr/0016-nativeaot-parity-and-end-state.md)). The finish line is M8: the dotnet fork with csharpc in
+  ([ADR 0016](adr/0016-nativeaot-parity-and-end-state.md)). The finish line is M9: the dotnet fork with csharpc in
   NativeAOT's place, beating NativeAOT on the TechEmpower benchmarks.
 - **Faster (first priority):** throughput ahead of NativeAOT and the JIT on every benchmark, on every
   platform; start-up and compile time measured too (compile time against `dotnet publish
@@ -247,12 +247,13 @@ faster and as safe on the benchmarks, the GC stress run and dotnet's own AOT tes
 (entry, signal/SEH stubs, unwinder ABI, register spilling), plus dotnet's own C shims for the OS
 (`System.Native`, `System.Globalization.Native`), as NativeAOT does.
 
-### M7 — TechEmpower: csharpc beats NativeAOT
+### M7 — TechEmpower: the csharpc CLI beats NativeAOT
 Starts only when M2–M6 are complete (the owner's rule, 2026-10-30); until then the CI harness below keeps
 measuring the gap, without dedicated work on it. The ASP.NET Core entries of the
 [TechEmpower Framework Benchmarks](https://github.com/TechEmpower/FrameworkBenchmarks) that .NET runs
-with NativeAOT, built by csharpc directly (standalone or through `Csharpc.Sdk`) from the same sources,
-run in TechEmpower's benchmark environment and beat the NativeAOT-compiled entries. Same sources, same
+with NativeAOT, built by the standalone `csharpc` CLI from the same sources (the fork is M8, and M9
+repeats this through it), run in TechEmpower's benchmark environment and beat the NativeAOT-compiled
+entries. Same sources, same
 test types, same harness; only the AOT compiler differs.
 
 What it takes, beyond M2–M6: ASP.NET Core and Kestrel compiled from IL (hosting, dependency
@@ -334,8 +335,8 @@ pause (about 5 ms per collection, single-threaded marking), then the binary size
 tables and vtables, 3.4 MiB; the corelib's code, 3 MiB) and the build time (one whole-module `default<O2>`
 pass over 1.6 M instructions is most of it).
 
-### M8 — End state and definition of done: csharpc as dotnet's AOT backend
-The finish line. A fork of dotnet in which `dotnet publish -p:PublishAot=true` runs csharpc where NativeAOT's ILCompiler
+### M8 — csharpc as dotnet's AOT backend: the fork
+A fork of dotnet in which `dotnet publish -p:PublishAot=true` runs csharpc where NativeAOT's ILCompiler
 runs today: the same IL inputs from `csc`, the same MSBuild properties (`OptimizationPreference`,
 `IlcInstructionSet`, `InvariantGlobalization`, `StackTraceSupport`, `StripSymbols`, `NativeLib`,
 `DirectPInvoke`, trimming descriptors and feature switches, ...) and the same outputs, so existing
@@ -347,9 +348,15 @@ dotnet/runtime's NativeAOT runtime tests, the libraries' tests in their NativeAO
 SDK's `PublishAot` tests (exclusions only for tests of ILCompiler internals, each listed). Tracked before
 the fork by building those suites with csharpc on CI and reporting the pass rate. Until then `Csharpc.Sdk` is the integration point and adopts
 NativeAOT's property names as it honours them.
-Done when NativeAOT's code is removed from the fork and csharpc takes its place, the fork is built, its
-acceptance gate passes, and the TechEmpower entries built by that fork's `PublishAot` still beat the
-NativeAOT-compiled ones in the TechEmpower environment (M7's result, now through the fork).
+Done when NativeAOT's code is removed from the fork, csharpc takes its place, the fork is built, and its
+acceptance gate passes.
+
+### M9 — The finish line: TechEmpower through the fork
+The project's definition of done: the dotnet fork of M8 — NativeAOT's code removed, csharpc in its place
+behind `PublishAot` — builds the ASP.NET Core TechEmpower entries .NET runs with NativeAOT, through the
+ordinary `dotnet publish -p:PublishAot=true`, and they beat the NativeAOT-compiled entries in the
+TechEmpower environment. M7 proved csharpc itself; M9 proves it as a drop-in replacement, with the same
+project files and the same publish command.
 
 ### Credibility deliverables (cross-cutting)
 - A technical report: what csharpc demonstrates (Roslyn's CFG as a mid-level IR, a C# corelib with
