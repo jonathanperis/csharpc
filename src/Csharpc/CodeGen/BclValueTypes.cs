@@ -903,6 +903,14 @@ internal static partial class BclValueTypes
             if (to.SpecialType == SpecialType.System_Double) return Rt(g, "csrt_bigint_to_f64", l.F64, (a[0], l.Ptr));
             if (to.SpecialType == SpecialType.System_Single)
                 return g.Builder.Cast(LLVMOpcode.FPTrunc, Rt(g, "csrt_bigint_to_f64", l.F64, (a[0], l.Ptr)), l.F32);
+            var small = to.SpecialType switch
+            {
+                SpecialType.System_SByte => 1, SpecialType.System_Byte => 2, SpecialType.System_Int16 => 3,
+                SpecialType.System_UInt16 => 4, SpecialType.System_Char => 9, _ => 0,
+            };
+            if (small != 0)
+                return g.Builder.Cast(LLVMOpcode.Trunc, Rt(g, "csrt_bigint_to_small_integer", l.I64, (a[0], l.Ptr), (I32(g, small), l.I32)),
+                    small is 1 or 2 ? l.I8 : l.I16);
             var kind = to.SpecialType switch
             {
                 SpecialType.System_Int32 => 5, SpecialType.System_UInt32 => 6, SpecialType.System_Int64 => 7, SpecialType.System_UInt64 => 8,

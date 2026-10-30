@@ -28,22 +28,13 @@ namespace CsharpcCoreLib
         internal const string Serialization_SameNameTwice = "Cannot add the same member twice to a SerializationInfo object.";
     }
 
-    /// <summary>
-    /// csharpc: DeserializationToken tracks deserialization for a CoreLib-internal guard
-    /// (SerializationInfo.ThrowIfDeserializationInProgress) that csharpc's corelib never calls, so the token is a no-op.
-    /// </summary>
-    [Shadows("System.Runtime.Serialization.DeserializationToken")]
-    public readonly struct DeserializationTokenImpl : IDisposable
-    {
-        public void Dispose() { }
-    }
 
     /// <summary>The structure for holding all of the data needed for object serialization and deserialization.</summary>
     [Shadows("System.Runtime.Serialization.SerializationInfo")]
     public sealed class SerializationInfoImpl
     {
-        // csharpc: SerializationInfo.SerializationGuard.cs — the tracking only feeds an internal guard (see DeserializationTokenImpl).
-        public static DeserializationTokenImpl StartDeserialization() => default;
+        // csharpc: SerializationInfo.SerializationGuard.cs — the tracking only feeds an internal guard (see DeserializationToken below).
+        public static DeserializationToken StartDeserialization() => default;
 
         private const int DefaultSize = 4;
 
@@ -616,4 +607,17 @@ namespace CsharpcCoreLib
         }
     }
 
+}
+
+namespace System.Runtime.Serialization
+{
+    /// <summary>
+    /// csharpc: DeserializationToken is public in CoreLib but not in the reference pack, so System.Data.Common's IL
+    /// names it in System.Private.CoreLib; the facade (Frontend/CoreLibFacade.cs) finds it here under its own name.
+    /// It tracks deserialization for a CoreLib-internal guard csharpc's corelib never calls, so it is a no-op.
+    /// </summary>
+    public readonly struct DeserializationToken : IDisposable
+    {
+        public void Dispose() { }
+    }
 }

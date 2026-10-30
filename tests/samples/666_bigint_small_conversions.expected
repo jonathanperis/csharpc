@@ -1,0 +1,10 @@
+sbyte -100 -> -100
+sbyte 200 !! Arithmetic operation resulted in an overflow.
+byte 200 -> 200
+byte -100 !! Arithmetic operation resulted in an overflow.
+short 70000 !! Arithmetic operation resulted in an overflow.
+ushort 70000 !! Arithmetic operation resulted in an overflow.
+ushort 200 -> 200
+char 200 -> 200
+short 2^40 !! Arithmetic operation resulted in an overflow.
+byte 2^40 !! Arithmetic operation resulted in an overflow.

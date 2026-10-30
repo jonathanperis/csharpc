@@ -81,6 +81,7 @@ internal static class CoreLibRuntime
         ["csrt_bigint_sub"] = ("BigIntegerOps", "Subtract"),
         ["csrt_bigint_to_f64"] = ("BigIntegerOps", "ToDouble"),
         ["csrt_bigint_to_integer"] = ("BigIntegerOps", "ToInteger"),
+        ["csrt_bigint_to_small_integer"] = ("BigIntegerOps", "ToSmallInteger"),
         ["csrt_bigint_to_string"] = ("BigIntegerOps", "ToDecimalString"),
         ["csrt_bigint_try_parse"] = ("BigIntegerOps", "TryParse"),
         // System.TimeSpan / System.DateTime (DateTimeOps.cs)

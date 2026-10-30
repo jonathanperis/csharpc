@@ -321,6 +321,25 @@ namespace CsharpcCoreLib
             return positive ? (long)magnitude : (long)(0UL - magnitude);
         }
 
+        /// <summary>
+        /// Explicit conversion to sbyte (1), byte (2), short (3), ushort (4) or char (9): any value outside the
+        /// target's range is .NET 11's plain OverflowException ("Arithmetic operation resulted in an overflow."),
+        /// however large it is.
+        /// </summary>
+        internal static long ToSmallInteger(uint[] a, int kind)
+        {
+            if (a != null && LengthOf(a) > 1) throw new OverflowException();
+            long v = a == null ? 0 : a[0] == 1 ? a[1] : -(long)a[1];
+            return kind switch
+            {
+                1 => checked((sbyte)v),
+                2 => checked((byte)v),
+                3 => checked((short)v),
+                4 => checked((ushort)v),
+                _ => checked((char)v),
+            };
+        }
+
         internal static double ToDouble(uint[] a)
         {
             if (a == null) return 0;
