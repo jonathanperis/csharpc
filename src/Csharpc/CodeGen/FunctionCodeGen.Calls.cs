@@ -1264,6 +1264,7 @@ public sealed partial class FunctionCodeGen
 
     private LLVMValueRef PatternTest(LLVMValueRef value, ITypeSymbol? inputType, IPatternOperation pattern)
     {
+        if (TryUnionPatternTest(value, inputType, pattern) is { } unionTest) return unionTest;
         if (TypeMapper.IsNullable(inputType)) return NullablePatternTest(value, inputType!, pattern);
         switch (pattern)
         {
@@ -1282,6 +1283,10 @@ public sealed partial class FunctionCodeGen
                 if (inputType is not null && !value.Type.IsPointer) c = Coerce(c, constantType, inputType);
                 return Arithmetic(BinaryOperatorKind.Equals, value, c, inputType ?? constantType!, constantType ?? inputType!, pattern);
             }
+            case IRelationalPatternOperation relational
+                when value.Type.IsPointer && TypeOf(relational.Value) is { IsValueType: true } relationalType
+                     && !SymbolEqualityComparer.Default.Equals(inputType, relationalType):
+                return BoxedRelationalPatternTest(value, inputType, relationalType, relational);
             case IRelationalPatternOperation relational:
             {
                 var c = Coerce(EmitValue(relational.Value), TypeOf(relational.Value), inputType!);

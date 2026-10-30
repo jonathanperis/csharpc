@@ -1,0 +1,27 @@
+lucky cat tom | tom | Cat
+cat old | old | Cat
+lab rex | rex | Dog
+dog fido | fido | Dog
+bird tweety | tweety | Bird
+empty | (none) | null
+True
+True
+True
+True
+True
+int 5; big int 42; string hi; null
+True
+True
+True
+True False False True True
+some 3
+none
+True
+True
+True
+True True True False False
+Value=0 HasValue=2 TryInt=2 TryString=1
+True
+Value=0
+True False True True False
+SwitchExpressionException

@@ -81,8 +81,8 @@ $ ls -lh hello
 
 Not supported, by design (the same limits NativeAOT has): run-time code generation and loading code
 outside the closed world. Reflection works on the members `[DynamicallyAccessedMembers]` keeps, as in
-NativeAOT ([ADR 0018](docs/adr/0018-reflection-metadata.md)). Not supported yet: `dynamic`, expression
-trees and C# 15 `union` types (NativeAOT runs these, so they're on the roadmap), parts of networking. Libraries that ship only IL
+NativeAOT ([ADR 0018](docs/adr/0018-reflection-metadata.md)). Not supported yet: `dynamic` and expression
+trees (NativeAOT runs these, so they're on the roadmap), parts of networking. Libraries that ship only IL
 (`-r X.dll`, `<Reference>`, NuGet packages) are compiled from their IL by the IL front-end
 ([ADR 0010](docs/adr/0010-il-frontend.md)), as far as the BCL surface they use is implemented. The full matrix is in [docs/06-roadmap.md](docs/06-roadmap.md).
 
