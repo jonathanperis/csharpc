@@ -162,11 +162,13 @@ public sealed partial class ModuleCodeGen
         {
             new FunctionCodeGen(this, null, lowered, substitution: site.Subst).EmitDynamicSite(site, plan);
         }
-        catch (CompileError error)
+        catch (Exception e) when (e is not OutOfMemoryException)
         {
             Native.LLVMDeleteFunction(fn);
+            var error = e as CompileError ?? new CompileError("CSLLVM9999",
+                $"internal compiler error while binding the dynamic operation '{site.Syntax}': {e.GetType().Name}: {e.Message} (set CSHARPC_TRACE=1 for details)", null);
+            if (s_trace || s_dynamicTrace) Console.Error.WriteLine($"[dynamic] site '{site.Syntax}' failed: {e}");
             Errors.Add(error.Location is { IsInSource: true } ? error : new CompileError(error.Id, error.Message, site.Syntax.GetLocation()));
-            if (s_dynamicTrace) Console.Error.WriteLine($"[dynamic] site '{site.Syntax}' failed: {error.Message}\n{error.StackTrace}");
             site.Failed = true;
             return;
         }
@@ -208,6 +210,13 @@ public sealed partial class ModuleCodeGen
                 ? error.Message["not supported by csharpc yet: ".Length..] : error.Message;
             new FunctionCodeGen(this, null, lowered).EmitThrowingFactory(
                 $"Not supported by csharpc yet: the dynamic operation '{site.Syntax}' on these operand types ({message}).");
+        }
+        catch (Exception e) when (e is not OutOfMemoryException)
+        {
+            // A bug in csharpc: no half-built function stays behind; the site reports it.
+            Native.LLVMDeleteFunction(lowered.Fn);
+            throw new CompileError("CSLLVM9999",
+                $"internal compiler error while binding the dynamic operation '{site.Syntax}' ({key}): {e.GetType().Name}: {e.Message}", site.Syntax.GetLocation());
         }
         return site.Cases[key] = lowered;
     }

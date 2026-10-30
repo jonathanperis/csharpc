@@ -128,16 +128,19 @@ public sealed partial class FunctionCodeGen
         public bool SimpleName, Compound, Checked, Explicit, ResultDiscarded;
         public ITypeSymbol? ResultType;
 
-        public DynamicSite Build(ModuleCodeGen m, SyntaxNode syntax, INamedTypeSymbol? context, TypeSubstitution subst) => new()
+        public DynamicSite Build(ModuleCodeGen m, SyntaxNode syntax, INamedTypeSymbol? context, TypeSubstitution subst)
         {
-            Kind = Kind, Name = Name, TypeArguments = TypeArguments, StaticReceiver = StaticReceiver, SimpleName = SimpleName,
-            Operator = Operator, MessageOperator = MessageOperator ?? Operator, Compound = Compound, Checked = Checked, Explicit = Explicit,
-            ResultDiscarded = ResultDiscarded, ResultType = ResultType, Operands = Operands,
-            Model = m.DynamicSemanticModel(syntax.SyntaxTree),
-            // The binder's context: the statement the operation is in (its scope and accessibility).
-            Position = (syntax.FirstAncestorOrSelf<StatementSyntax>() ?? syntax).SpanStart,
-            Context = context, Subst = subst, Syntax = syntax,
-        };
+            // The binder's context: the statement the operation is in (its scope and accessibility) — or, for a
+            // dynamic operation inside code bound for another site, that site's.
+            var (model, position, origin) = m.DynamicContext(syntax, (syntax.FirstAncestorOrSelf<StatementSyntax>() ?? syntax).SpanStart, context);
+            return new()
+            {
+                Kind = Kind, Name = Name, TypeArguments = TypeArguments, StaticReceiver = StaticReceiver, SimpleName = SimpleName,
+                Operator = Operator, MessageOperator = MessageOperator ?? Operator, Compound = Compound, Checked = Checked, Explicit = Explicit,
+                ResultDiscarded = ResultDiscarded, ResultType = ResultType, Operands = Operands,
+                Model = model, Position = position, Context = origin, Subst = subst, Syntax = syntax,
+            };
+        }
     }
 
     /// <summary>Dispatches a dynamic operation (EmitValue's hook).</summary>

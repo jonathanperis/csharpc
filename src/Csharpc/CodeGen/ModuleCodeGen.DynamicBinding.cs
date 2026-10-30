@@ -109,7 +109,9 @@ public sealed partial class ModuleCodeGen
     private DynamicClassKey ClassifyCore(DynamicSite site, DynamicOperand operand, ITypeSymbol b, DynamicCandidates? candidates)
     {
         DynamicClassKey Typed() => new(DynamicClassKind.Typed, b);
-        if (IsMetaObjectProvider(b) && operand.Role is not (DynamicRole.Argument or DynamicRole.Operator))
+        // The meta-object of a receiver, a converted value, or an operator's (left) operand binds the operation.
+        if (IsMetaObjectProvider(b) && (operand.Role is not (DynamicRole.Argument or DynamicRole.Operator)
+                || (operand.Role == DynamicRole.Operator && ReferenceEquals(operand, site.Operands[0]))))
             return new DynamicClassKey(DynamicClassKind.MetaObject, b);
         switch (operand.Role)
         {
@@ -365,7 +367,7 @@ public sealed partial class ModuleCodeGen
                         _ => new DynamicLeaf { Error = BinderNonDelegate },
                     };
                 case DynamicClassKind.MetaObject:
-                    return new DynamicLeaf { Unsupported = $"dynamic operations on '{c.Key.Type!.ToDisplayString()}' (an IDynamicMetaObjectProvider) are not supported by csharpc yet" };
+                    return BindMetaObject(site, chosen, c.Key.Type!);
             }
             if (site.Kind == DynamicKind.IsEvent)
                 return new DynamicLeaf { ConstantBool = site.Model.LookupSymbols(site.Position, (INamespaceOrTypeSymbol)NamedOrObject(c.Key.Type!), site.Name).FirstOrDefault() is IEventSymbol };
@@ -385,9 +387,12 @@ public sealed partial class ModuleCodeGen
                 case DynamicClassKind.ExplicitOnly:
                     return new DynamicLeaf { ErrorTemplate = ["Cannot implicitly convert type '", 0, $"' to '{BinderTypeName(site.ResultType!)}'. An explicit conversion exists (are you missing a cast?)"] };
                 case DynamicClassKind.MetaObject:
-                    return new DynamicLeaf { Unsupported = $"dynamic conversions of '{converted.Key.Type!.ToDisplayString()}' (an IDynamicMetaObjectProvider) are not supported by csharpc yet" };
+                    return BindMetaObject(site, chosen, converted.Key.Type!);
             }
         }
+        if (site.Kind is DynamicKind.Binary or DynamicKind.Unary or DynamicKind.IsTrue or DynamicKind.IsFalse
+            && chosen[0] is { Key.Kind: DynamicClassKind.MetaObject } meta)
+            return BindMetaObject(site, chosen, meta.Key.Type!);
         return BindSpeculatively(site, chosen);
     }
 
@@ -406,8 +411,33 @@ public sealed partial class ModuleCodeGen
         _ => null,
     };
 
+    /// <summary>The C# text of a site for one case: operand declarations, operand expressions, the operation.</summary>
+    private sealed record DynamicText(string[] Texts, string Declarations, bool Jump, string Expression, Func<int, int, bool, string> Arguments);
+
     private DynamicLeaf BindSpeculatively(DynamicSite site, DynamicClass?[] chosen)
     {
+        if (DynamicExpressionText(site, chosen, out var unsupported) is not { } text) return unsupported!;
+        var (declarations, needsJump, expression) = (text.Declarations, text.Jump, text.Expression);
+        string resultDeclaration = site.Kind switch
+        {
+            DynamicKind.Convert => $"{TypeText(site.ResultType!)} {ResultLocal} = {expression};",
+            DynamicKind.IsTrue or DynamicKind.IsFalse => $"bool {ResultLocal} = {expression};",
+            _ when site.ResultDiscarded && site.Kind is DynamicKind.InvokeMember or DynamicKind.SetMember or DynamicKind.SetIndex or DynamicKind.Invoke => $"{expression};",
+            _ => $"var {ResultLocal} = {expression};",
+        };
+        var leaf = BindText(site, chosen, declarations, needsJump, resultDeclaration, expression);
+        // `var r = Void();`: the method returns nothing — fine when the value isn't used.
+        if (leaf.Error == VoidMarker)
+        {
+            if (!site.ResultDiscarded) return new DynamicLeaf { Error = BinderVoidResult };
+            leaf = BindText(site, chosen, declarations, needsJump, expression + ";", expression);
+        }
+        return leaf;
+    }
+
+    private DynamicText? DynamicExpressionText(DynamicSite site, DynamicClass?[] chosen, out DynamicLeaf? unsupported)
+    {
+        unsupported = null;
         var operands = site.Operands;
         var texts = new string[operands.Count];
         var declarations = new StringBuilder();
@@ -436,13 +466,18 @@ public sealed partial class ModuleCodeGen
                         needsJump = true;
                         declarations.Append("var ").Append(Local).Append(i).Append(" = ").Append(init).Append(';');
                     }
-                    else return new DynamicLeaf { Unsupported = $"a dynamic operation on a value of type '{type.ToDisplayString()}' (a type csharpc can't name) is not supported by csharpc yet" };
+                    else
+                    {
+                        unsupported = new DynamicLeaf { Unsupported = $"a dynamic operation on a value of type '{type.ToDisplayString()}' (a type csharpc can't name) is not supported by csharpc yet" };
+                        return null;
+                    }
                     break;
                 }
             }
         }
 
-        string Arguments(int start, int end)
+        // Arguments as C# text; `dynamic`: dynamic operands cast back to dynamic (a nested dynamic call binds them by run-time type).
+        string ArgumentList(int start, int end, bool dynamic)
         {
             var sb = new StringBuilder();
             for (var i = start; i < end; i++)
@@ -451,10 +486,11 @@ public sealed partial class ModuleCodeGen
                 var o = operands[i];
                 if (o.Name is { } name) sb.Append('@').Append(name).Append(": ");
                 sb.Append(o.RefKind switch { RefKind.Ref => "ref ", RefKind.Out => "out ", RefKind.In => "in ", _ => "" });
-                sb.Append(texts[i]);
+                sb.Append(dynamic && o.Kind == DynamicOperandKind.Dynamic && texts[i] != "null" ? "(dynamic)" + texts[i] : texts[i]);
             }
             return sb.ToString();
         }
+        string Arguments(int start, int end) => ArgumentList(start, end, false);
         var hasReceiver = operands.Count > 0 && operands[0].Role is DynamicRole.Receiver or DynamicRole.IndexReceiver or DynamicRole.InvokeReceiver;
         var argStart = hasReceiver ? 1 : 0;
         var typeArguments = site.TypeArguments.Length == 0 ? "" : "<" + string.Join(", ", site.TypeArguments.Select(t => TypeText(t) ?? "object")) + ">";
@@ -502,23 +538,7 @@ public sealed partial class ModuleCodeGen
                 throw new InvalidOperationException(site.Kind.ToString());
         }
         if (site.Checked && site.Kind is DynamicKind.Binary or DynamicKind.Unary or DynamicKind.Convert) expression = $"checked({expression})";
-
-        string resultDeclaration = site.Kind switch
-        {
-            DynamicKind.Convert => $"{TypeText(site.ResultType!)} {ResultLocal} = {expression};",
-            DynamicKind.IsTrue or DynamicKind.IsFalse => $"bool {ResultLocal} = {expression};",
-            _ when site.ResultDiscarded && site.Kind is DynamicKind.InvokeMember or DynamicKind.SetMember or DynamicKind.SetIndex or DynamicKind.Invoke => $"{expression};",
-            _ => $"var {ResultLocal} = {expression};",
-        };
-        var leaf = BindText(site, chosen, declarations.ToString(), needsJump, resultDeclaration, expression);
-        // `var r = Void();`: the method returns nothing — fine when the value isn't used.
-        if (leaf.Error == VoidMarker)
-        {
-            if (!site.ResultDiscarded && site.Kind is not (DynamicKind.InvokeMember or DynamicKind.Invoke)) return new DynamicLeaf { Error = BinderVoidResult };
-            if (!site.ResultDiscarded) return new DynamicLeaf { Error = BinderVoidResult };
-            leaf = BindText(site, chosen, declarations.ToString(), needsJump, expression + ";", expression);
-        }
-        return leaf;
+        return new DynamicText(texts, declarations.ToString(), needsJump, expression, ArgumentList);
     }
 
     private const string VoidMarker = "\u0000void";
@@ -535,6 +555,7 @@ public sealed partial class ModuleCodeGen
             throw CompileError.Unsupported($"dynamic operation csharpc can't express ({text})");
         if (!site.Model.TryGetSpeculativeSemanticModel(site.Position, block, out var model))
             throw CompileError.Unsupported("dynamic operation in this position (no speculative binding)");
+        NoteDynamicOrigin(block.SyntaxTree, site);
 
         var locals = new ILocalSymbol?[site.Operands.Count];
         ILocalSymbol? result = null;
