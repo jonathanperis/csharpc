@@ -24,7 +24,7 @@ class Program
 
     static void Main()
     {
-        foreach (Type t in new[] { typeof(int), typeof(bool), typeof(double), typeof(long), typeof(byte), typeof(char), typeof(Guid), typeof(decimal), typeof(float), typeof(sbyte), typeof(short), typeof(ushort), typeof(uint), typeof(ulong) })
+        foreach (Type t in new[] { typeof(int), typeof(bool), typeof(double), typeof(long), typeof(byte), typeof(char), typeof(TimeSpan), typeof(Guid), typeof(Version), typeof(decimal), typeof(float), typeof(sbyte), typeof(short), typeof(ushort), typeof(uint), typeof(ulong) })
             Console.WriteLine($"{t.Name} {TypeDescriptor.GetConverter(t).CanConvertFrom(typeof(string))} {TypeDescriptor.GetConverter(t).CanConvertFrom(typeof(int))}");
 
         Show(typeof(int), "8080");
@@ -56,6 +56,11 @@ class Program
         Show(typeof(char), "");
         Show(typeof(char), "xy");
         Show(typeof(Guid), " 6f9619ff-8b86-d011-b42d-00c04fc964ff ");
+        Show(typeof(TimeSpan), "01:02:03");
+        Show(typeof(TimeSpan), " 1.02:00 ");
+        Show(typeof(TimeSpan), "nope");
+        Show(typeof(Version), "1.2.3");
+        Show(typeof(Version), "x");
         Show(typeof(string), "kept");
 
         try { TypeDescriptor.GetConverter(typeof(int)).ConvertFrom(5); }

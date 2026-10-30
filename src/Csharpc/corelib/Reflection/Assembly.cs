@@ -141,6 +141,94 @@ namespace CsharpcCoreLib
 
         public object Clone() => new VersionImpl(this);
 
+        // Parse / TryParse: dotnet/runtime's ParseVersion and TryParseComponent (Version.cs), for char input.
+        public static Version Parse(string input)
+        {
+            ArgumentNullException.ThrowIfNull(input);
+            return ParseVersion(input.AsSpan(), throwOnFailure: true)!;
+        }
+
+        public static Version Parse(ReadOnlySpan<char> input) => ParseVersion(input, throwOnFailure: true)!;
+
+        public static bool TryParse(string input, out Version result)
+        {
+            if (input == null) { result = null; return false; }
+            result = ParseVersion(input.AsSpan(), throwOnFailure: false);
+            return result is not null;
+        }
+
+        public static bool TryParse(ReadOnlySpan<char> input, out Version result)
+        {
+            result = ParseVersion(input, throwOnFailure: false);
+            return result is not null;
+        }
+
+        private static Version ParseVersion(ReadOnlySpan<char> input, bool throwOnFailure)
+        {
+            int majorEnd = input.IndexOf('.');
+            if (majorEnd < 0)
+            {
+                if (throwOnFailure) throw new ArgumentException("Version string portion was too short or too long.", nameof(input));
+                return null;
+            }
+            int buildEnd = -1;
+            int minorEnd = input.Slice(majorEnd + 1).IndexOf('.');
+            if (minorEnd >= 0)
+            {
+                minorEnd += majorEnd + 1;
+                buildEnd = input.Slice(minorEnd + 1).IndexOf('.');
+                if (buildEnd >= 0)
+                {
+                    buildEnd += minorEnd + 1;
+                    if (input.Slice(buildEnd + 1).IndexOf('.') >= 0)
+                    {
+                        if (throwOnFailure) throw new ArgumentException("Version string portion was too short or too long.", nameof(input));
+                        return null;
+                    }
+                }
+            }
+            if (!TryParseComponent(input.Slice(0, majorEnd), nameof(input), throwOnFailure, input, out int major)) return null;
+            if (minorEnd != -1)
+            {
+                if (!TryParseComponent(input.Slice(majorEnd + 1, minorEnd - majorEnd - 1), nameof(input), throwOnFailure, input, out int minor)) return null;
+                if (buildEnd != -1)
+                {
+                    return TryParseComponent(input.Slice(minorEnd + 1, buildEnd - minorEnd - 1), "build", throwOnFailure, input, out int build)
+                        && TryParseComponent(input.Slice(buildEnd + 1), "revision", throwOnFailure, input, out int revision)
+                        ? (Version)(object)new VersionImpl(major, minor, build, revision) : null;
+                }
+                return TryParseComponent(input.Slice(minorEnd + 1), "build", throwOnFailure, input, out int build3)
+                    ? (Version)(object)new VersionImpl(major, minor, build3) : null;
+            }
+            return TryParseComponent(input.Slice(majorEnd + 1), nameof(input), throwOnFailure, input, out int minor2)
+                ? (Version)(object)new VersionImpl(major, minor2) : null;
+        }
+
+        private static bool TryParseComponent(ReadOnlySpan<char> component, string componentName, bool throwOnFailure, ReadOnlySpan<char> originalInput, out int parsedComponent)
+        {
+            bool ok = int.TryParse(component, System.Globalization.NumberStyles.Integer, System.Globalization.NumberFormatInfo.InvariantInfo, out parsedComponent);
+            if (ok && parsedComponent >= 0) return true;
+            if (throwOnFailure)
+            {
+                if (ok) throw new ArgumentOutOfRangeException(componentName, parsedComponent, componentName + " ('" + parsedComponent + "') must be a non-negative value.");
+                // Number.ParsingStatus.Overflow: valid integer syntax that doesn't fit an int.
+                if (IsIntegerSyntax(component)) throw new OverflowException("Value was either too large or too small for an Int32.");
+                throw new FormatException("The input string '" + originalInput.ToString() + "' was not in a correct format.");
+            }
+            parsedComponent = 0;
+            return false;
+        }
+
+        // NumberStyles.Integer: optional white space, an optional sign, digits, optional white space.
+        private static bool IsIntegerSyntax(ReadOnlySpan<char> s)
+        {
+            s = s.Trim();
+            if (s.Length > 0 && (s[0] == '-' || s[0] == '+')) s = s.Slice(1);
+            if (s.Length == 0) return false;
+            foreach (char c in s) if (c < '0' || c > '9') return false;
+            return true;
+        }
+
         public int CompareTo(object version)
         {
             if (version == null) return 1;

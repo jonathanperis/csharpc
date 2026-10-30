@@ -4,7 +4,9 @@ Double True False
 Int64 True False
 Byte True False
 Char True False
+TimeSpan True False
 Guid True False
+Version True False
 Decimal True False
 Single True False
 SByte True False
@@ -41,5 +43,10 @@ Char [ y ] -> 121 (Char)
 Char [] -> 0 (Char)
 Char [xy] !! FormatException: xy is not a valid value for Char. | : 
 Guid [ 6f9619ff-8b86-d011-b42d-00c04fc964ff ] -> 6f9619ff-8b86-d011-b42d-00c04fc964ff (Guid)
+TimeSpan [01:02:03] -> 01:02:03 (TimeSpan)
+TimeSpan [ 1.02:00 ] -> 1.02:00:00 (TimeSpan)
+TimeSpan [nope] !! FormatException: nope is not a valid value for TimeSpan. | FormatException: String 'nope' was not recognized as a valid TimeSpan.
+Version [1.2.3] -> 1.2.3 (Version)
+Version [x] !! FormatException: x is not a valid value for Version. | ArgumentException: Version string portion was too short or too long. (Parameter 'input')
 String [kept] -> kept (String)
 Int32Converter cannot convert from System.Int32.

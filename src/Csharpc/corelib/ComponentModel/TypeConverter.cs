@@ -1,9 +1,9 @@
 // System.ComponentModel.TypeConverter / TypeDescriptor: what Microsoft.Extensions.Configuration.Binder
 // uses (GetConverter → CanConvertFrom(typeof(string)) → ConvertFromInvariantString). Shadowing these keeps
 // System.ComponentModel.TypeConverter.dll out of the closed world (ReflectTypeDescriptionProvider and
-// dozens of Half/Int128/COM APIs). The string, number, Boolean, Char and Guid converters follow .NET's
-// (trim, hex prefixes, NumberStyles, exception types and messages). Any type whose .NET converter isn't
-// reproduced here — enums, Nullable<T>, TimeSpan and Version (no Parse in the corelib yet), DateTime,
+// dozens of Half/Int128/COM APIs). The string, number, Boolean, Char, Guid, TimeSpan and Version
+// converters follow .NET's (trim, hex prefixes, NumberStyles, exception types and messages). Any type whose
+// .NET converter isn't reproduced here — enums, Nullable<T>, DateTime,
 // Uri, a [TypeConverter] attribute, or a type whose attributes csharpc can't see — is an explicit
 // NotSupportedException from GetConverter: a converter that can't convert would make Binder silently
 // leave the setting at its default.
@@ -64,10 +64,11 @@ namespace CsharpcCoreLib
             if (type == typeof(decimal)) return new ComponentModelConverters.DecimalConverter();
             if (type == typeof(char)) return new ComponentModelConverters.CharConverter();
             if (type == typeof(Guid)) return new ComponentModelConverters.GuidConverter();
+            if (type == typeof(TimeSpan)) return new ComponentModelConverters.TimeSpanConverter();
+            if (type == typeof(Version)) return new ComponentModelConverters.VersionConverter();
             // typeof(object) and types csharpc can see carry no [TypeConverter]: .NET's converter for them
             // (TypeConverter, ArrayConverter, CollectionConverter, ReferenceConverter) can't convert from a
-            // string without a context either. Enums, Nullable<T> and the remaining BCL converters (TimeSpan,
-            // Version, DateTime, DateTimeOffset, DateOnly, TimeOnly, Uri, CultureInfo, Half, Int128, UInt128) can.
+            // string without a context either. Enums, Nullable<T> and the remaining BCL converters (DateTime, DateTimeOffset, DateOnly, TimeOnly, Uri, CultureInfo, Half, Int128, UInt128) can.
             if (type == typeof(object)) return new TypeConverterImpl();
             if (!type.IsEnum && Nullable.GetUnderlyingType(type) == null && !type.IsPrimitive && type.Namespace != "System"
                 && ReflectionRuntime.HasTypeAttributeNamed(type, "System.ComponentModel.TypeConverterAttribute") == 0)
@@ -131,6 +132,38 @@ namespace CsharpcCoreLib.ComponentModelConverters
                         return text[0];
                     }
                     return '\0';
+                }
+                return base.ConvertFrom(context, culture, value);
+            }
+        }
+
+        internal sealed class TimeSpanConverter : CsharpcCoreLib.TypeConverterImpl
+        {
+            public override bool CanConvertFrom(object context, Type sourceType) =>
+                sourceType == typeof(string) || base.CanConvertFrom(context, sourceType);
+
+            public override object ConvertFrom(object context, CultureInfo culture, object value)
+            {
+                if (value is string s)
+                {
+                    try { return TimeSpan.Parse(s.Trim(), culture); }
+                    catch (FormatException e) { throw new FormatException(CsharpcCoreLib.TypeConverterImpl.InvalidPrimitive(s, "TimeSpan"), e); }
+                }
+                return base.ConvertFrom(context, culture, value);
+            }
+        }
+
+        internal sealed class VersionConverter : CsharpcCoreLib.TypeConverterImpl
+        {
+            public override bool CanConvertFrom(object context, Type sourceType) =>
+                sourceType == typeof(string) || base.CanConvertFrom(context, sourceType);
+
+            public override object ConvertFrom(object context, CultureInfo culture, object value)
+            {
+                if (value is string s)
+                {
+                    try { return Version.Parse(s); }
+                    catch (Exception e) { throw new FormatException(CsharpcCoreLib.TypeConverterImpl.InvalidPrimitive(s, "Version"), e); }
                 }
                 return base.ConvertFrom(context, culture, value);
             }
