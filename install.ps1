@@ -3,7 +3,7 @@
 # adds that directory to the user PATH.
 #
 #   irm https://raw.githubusercontent.com/jonathanperis/csharpc/main/install.ps1 | iex
-#   .\install.ps1 [-Version v0.1.0-spike]
+#   .\install.ps1 [-Version v0.1.0-alpha]
 #
 # After install you still need LLVM-MinGW (clang + lld) on PATH; libLLVM-18.dll is bundled.
 param(

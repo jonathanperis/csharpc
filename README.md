@@ -90,10 +90,10 @@ needs the WASI SDK 24 and wasmtime separately.
 curl -fsSL -o install.sh https://raw.githubusercontent.com/jonathanperis/csharpc/main/install.sh
 bash install.sh                  # newest v* release, including prereleases
 # or manually:
-# curl -fsSL -O https://github.com/jonathanperis/csharpc/releases/download/v0.1.0-spike/csharpc-0.1.0-spike-linux-x64.tar.gz
-# curl -fsSL -O https://github.com/jonathanperis/csharpc/releases/download/v0.1.0-spike/SHA256SUMS
+# curl -fsSL -O https://github.com/jonathanperis/csharpc/releases/download/v0.1.0-alpha/csharpc-0.1.0-alpha-linux-x64.tar.gz
+# curl -fsSL -O https://github.com/jonathanperis/csharpc/releases/download/v0.1.0-alpha/SHA256SUMS
 # sha256sum -c --ignore-missing SHA256SUMS
-# tar xzf csharpc-0.1.0-spike-linux-x64.tar.gz && export PATH="$PWD/csharpc-0.1.0-spike-linux-x64:$PATH"
+# tar xzf csharpc-0.1.0-alpha-linux-x64.tar.gz && export PATH="$PWD/csharpc-0.1.0-alpha-linux-x64:$PATH"
 
 # clang (Ubuntu 24.04); lld optional but used when present
 sudo apt install clang-18 lld-18
@@ -121,15 +121,21 @@ dotnet tool install -g csharpc --prerelease --add-source https://nuget.pkg.githu
 ```
 
 Every green `main` CI publishes a rolling GitHub prerelease (`latest-main`), a container image and a
-versioned tool package `0.1.0-spike.<ci_run_number>` on GitHub Packages. A `v*` tag on a commit
+versioned tool package `0.1.0-alpha.<ci_run_number>` on GitHub Packages. A `v*` tag on a commit
 whose main CI is green publishes a named release and that version to GitHub Packages and nuget.org,
 whose packages can't be deleted (`.github/workflows/release.yml`).
+
+**Versions.** csharpc is pre-release: `0.MINOR.PATCH-alpha`, starting at `0.1.0-alpha` (the version in
+`src/Csharpc/Csharpc.csproj`). A tag publishes it (`v0.1.0-alpha`); the next tag bumps PATCH for fixes
+and MINOR for a milestone or a breaking change in options or output. `main` builds are
+`<that version>.<ci_run_number>` on GitHub Packages only. The earlier `0.1.0-spike*` packages are
+unlisted on nuget.org.
 
 **Container** (clang and libLLVM included; linux/amd64):
 
 ```bash
 docker run --rm -v "$PWD":/work -w /work ghcr.io/jonathanperis/csharpc:latest-main app.cs -o app
-# or a release tag / version: ghcr.io/jonathanperis/csharpc:v0.1.0-spike
+# or a release tag / version: ghcr.io/jonathanperis/csharpc:v0.1.0-alpha
 ```
 
 ## Build from source

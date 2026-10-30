@@ -16,7 +16,7 @@
     <PackAsTool>true</PackAsTool>
     <ToolCommandName>csharpc</ToolCommandName>
     <PackageId>csharpc</PackageId>
-    <Version>0.1.0-spike</Version>
+    <Version>0.1.0-alpha</Version>
     <Description>csharpc: a C# compiler front-end for LLVM (Roslyn -> LLVM IR -> native).</Description>
     <Authors>csharpc contributors</Authors>
     <PackageProjectUrl>https://github.com/jonathanperis/csharpc</PackageProjectUrl>
