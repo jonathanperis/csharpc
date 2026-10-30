@@ -163,7 +163,7 @@ public sealed partial class ModuleCodeGen
             var receiver = site.Operands[0];
             if (receiver.Kind == DynamicOperandKind.Dynamic)
             {
-                foreach (var c in classes[0] ?? []) if (c.Key.Kind == DynamicClassKind.Typed) receivers.Add(c.Key.Type!);
+                foreach (var c in classes[0] ?? []) if (c.Key.Kind is DynamicClassKind.Typed or DynamicClassKind.MetaObject) receivers.Add(c.Key.Type!); // a meta-object's real members bind first
             }
             else if (receiver.Type is { } t) receivers.Add(t);
             else if (receiver.Kind == DynamicOperandKind.This && site.Context is { } self) receivers.Add(self);

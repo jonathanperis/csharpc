@@ -8,6 +8,11 @@ error: 'System.Dynamic.ExpandoObject' does not contain a definition for 'Missing
 3
 7
 real method
+Pick(int) 5
+Pick(string) w
+  TryInvokeMember Pick args=1 named=
+  TryGetMember Pick (ignoreCase=False)
+error: The best overloaded method match for 'Bag.Pick(int)' has some invalid arguments
   TrySetMember Color = red
   TryGetMember Color (ignoreCase=False)
 red

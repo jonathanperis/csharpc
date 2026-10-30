@@ -11,6 +11,9 @@ class Bag : DynamicObject
     private readonly Dictionary<string, object> _values = new();
     public int Real = 7;
     public string Describe() => "real method";
+    // Real overloads win over TryInvokeMember, chosen by the run-time type of a dynamic argument.
+    public string Pick(int x) => "Pick(int) " + x;
+    public string Pick(string s) => "Pick(string) " + s;
 
     public override bool TryGetMember(GetMemberBinder binder, out object result)
     {
@@ -108,6 +111,11 @@ class Program
         dynamic bag = new Bag();
         Console.WriteLine(bag.Real);
         Console.WriteLine(bag.Describe());
+        dynamic number = 5, word = "w";
+        Console.WriteLine(bag.Pick(number));
+        Console.WriteLine(bag.Pick(word));
+        try { Console.WriteLine(bag.Pick(2.5)); }
+        catch (RuntimeBinderException e) { Console.WriteLine("error: " + e.Message); }
         bag.Color = "red";
         Console.WriteLine(bag.Color);
         Console.WriteLine(bag.Shout("hi", "there"));
