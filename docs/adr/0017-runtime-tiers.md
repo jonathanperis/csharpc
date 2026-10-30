@@ -51,6 +51,12 @@ for safety (e.g. code that must run where managed invariants don't hold, or that
 to verify in C), with the reason and measurements recorded in the commit. "More C#" serves self-hosting
 and memory safety; it never justifies a slower, bigger or less reliable runtime.
 
+**Clarified by the owner (2026-10-30).** C in the runtime is fine where it is needed; the compiler is
+written in C#. Tier 1 (library-level code to C#) continues where C# is at least as fast. Tier 2 (GC, EH
+and threads in systems C#) is an option to measure, not a goal: those stay in C unless a C# version is
+faster and as safe. The product goal is the front-end itself — standalone and as NativeAOT's drop-in
+replacement — not a C-free runtime.
+
 ## Consequences
 
 - New runtime code goes in the highest tier that can hold it; adding C to tiers 1–2 needs a reason in

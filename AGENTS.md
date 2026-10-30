@@ -6,8 +6,11 @@ Human-oriented docs live in [README.md](README.md) and [docs/](docs/).
 
 ## Project goal and the one rule
 
-csharpc aims to be a drop-in replacement for the .NET toolchain that beats it on speed, size and
-security, with as much of the implementation as possible written in C#.
+csharpc is an LLVM front-end for C#, used two ways: as a standalone compiler (`csharpc app.cs -o app`,
+the way rustc is used), and as the AOT layer of the .NET toolchain — a drop-in replacement for
+NativeAOT behind `PublishAot` (ADR 0016) — beating NativeAOT on speed first, then size, and on security.
+The compiler is written in C#; the runtime uses C where it is the right tool (GC, unwinding, threads,
+OS boundaries) and C# for library code (ADR 0017).
 
 The standing goal is to be better than .NET in every area — drop-in compatible, faster and smaller —
 and to prove it in CI (docs/06-roadmap.md, "Standing goal"); a size or speed regression is a bug.
