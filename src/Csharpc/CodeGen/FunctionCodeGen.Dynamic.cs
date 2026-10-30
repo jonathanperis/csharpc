@@ -498,7 +498,7 @@ public sealed partial class FunctionCodeGen
             var mt = _b.Load(L.Ptr, obj, "mt");
             foreach (var c in classes)
             {
-                if (c.Key.Kind is DynamicClassKind.Null or DynamicClassKind.Default) continue;
+                if (c.Key.Kind is DynamicClassKind.Null or DynamicClassKind.Default or DynamicClassKind.Unsupported) continue;
                 var hit = NewBlock("dyn.case");
                 var next = NewBlock("dyn.next");
                 LLVMValueRef matches = default;
@@ -513,7 +513,7 @@ public sealed partial class FunctionCodeGen
                 Dispatch(i + 1);
                 _b.PositionAtEnd(next);
             }
-            chosen[i] = classes.First(c => c.Key.Kind == DynamicClassKind.Default);
+            chosen[i] = classes.First(c => c.Key.Kind is DynamicClassKind.Default or DynamicClassKind.Unsupported);
             Dispatch(i + 1);
         }
 

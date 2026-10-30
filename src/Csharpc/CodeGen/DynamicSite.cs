@@ -105,6 +105,8 @@ internal enum DynamicClassKind
     ExplicitOnly,
     /// <summary>An IDynamicMetaObjectProvider csharpc implements the protocol of (ExpandoObject, DynamicObject).</summary>
     MetaObject,
+    /// <summary>A type csharpc doesn't bind this operand for (a generic method would be instantiated with it): NotSupportedException.</summary>
+    Unsupported,
 }
 
 internal sealed record DynamicClassKey(DynamicClassKind Kind, ITypeSymbol? Type)
@@ -113,6 +115,7 @@ internal sealed record DynamicClassKey(DynamicClassKind Kind, ITypeSymbol? Type)
     public static readonly DynamicClassKey Default = new(DynamicClassKind.Default, null);
     public static readonly DynamicClassKey Reference = new(DynamicClassKind.Reference, null);
     public static readonly DynamicClassKey ExplicitOnly = new(DynamicClassKind.ExplicitOnly, null);
+    public static readonly DynamicClassKey Unsupported = new(DynamicClassKind.Unsupported, null);
 
     public bool Equals(DynamicClassKey? other) =>
         other is not null && Kind == other.Kind && SymbolEqualityComparer.Default.Equals(Type, other.Type);

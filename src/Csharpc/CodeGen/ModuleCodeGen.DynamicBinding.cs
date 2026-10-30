@@ -55,15 +55,18 @@ public sealed partial class ModuleCodeGen
             if (operand.Kind != DynamicOperandKind.Dynamic) continue;
             if (operand.Role is DynamicRole.Argument or DynamicRole.Operator) candidates ??= Candidates(site, classes);
             var byKey = new Dictionary<DynamicClassKey, DynamicClass>();
+            // A generic method's type arguments inferred from the value: every type gets its instantiation, and a
+            // type csharpc didn't instantiate it for fails explicitly (binding it as object would be a different call).
+            var generic = operand.Role == DynamicRole.Argument && candidates!.Generic;
             var list = new List<DynamicClass>
             {
                 new() { Key = DynamicClassKey.Null },
-                new() { Key = DynamicClassKey.Default },
+                new() { Key = generic ? DynamicClassKey.Unsupported : DynamicClassKey.Default },
             };
             foreach (var (type, mt) in runtime)
             {
                 var key = Classify(site, i, type, candidates);
-                if (key.Kind == DynamicClassKind.Default) continue;
+                if (key.Kind == DynamicClassKind.Default || (generic && key.Kind == DynamicClassKind.Unsupported)) continue;
                 if (!byKey.TryGetValue(key, out var c))
                 {
                     byKey[key] = c = new DynamicClass { Key = key };
@@ -117,8 +120,9 @@ public sealed partial class ModuleCodeGen
             case DynamicRole.InvokeReceiver:
                 return b.TypeKind == TypeKind.Delegate ? Typed() : DynamicClassKey.Default;
             case DynamicRole.Argument:
+                // Bounded nesting keeps instantiations from creating ever deeper types (Gen<T> making List<T>...).
+                if (candidates!.Generic) return ReflectionNestingDepth(b) <= 2 ? Typed() : DynamicClassKey.Unsupported;
                 if (b.SpecialType == SpecialType.System_Object) return DynamicClassKey.Default;
-                if (candidates!.Generic) return Typed();
                 foreach (var p in candidates.Parameters)
                     if (ImplicitlyConvertible(b, p)) return Typed();
                 return DynamicClassKey.Default;
@@ -175,6 +179,9 @@ public sealed partial class ModuleCodeGen
         {
             switch (member)
             {
+                case IMethodSymbol m when m.IsGenericMethod && site.TypeArguments.Length == m.Arity:
+                    AddParameters(m.Construct(site.TypeArguments).Parameters, false);
+                    break;
                 case IMethodSymbol m:
                     AddParameters(m.Parameters, m.IsGenericMethod && site.TypeArguments.Length == 0);
                     break;
@@ -339,6 +346,8 @@ public sealed partial class ModuleCodeGen
     /// <summary>Binds <paramref name="site"/> for one case per dynamic operand (null for operands that aren't dynamic).</summary>
     internal DynamicLeaf BindDynamicLeaf(DynamicSite site, DynamicClass?[] chosen)
     {
+        if (chosen.Any(c => c?.Key.Kind == DynamicClassKind.Unsupported))
+            return new DynamicLeaf { Unsupported = $"the dynamic call '{site.Syntax}' with an argument whose run-time type csharpc did not instantiate the generic method for" };
         // Receivers: null, an unknown member, the meta-object protocol, IsEvent.
         if (site.Operands.Count > 0 && site.Operands[0] is { Kind: DynamicOperandKind.Dynamic } receiver
             && receiver.Role is DynamicRole.Receiver or DynamicRole.IndexReceiver or DynamicRole.InvokeReceiver)
