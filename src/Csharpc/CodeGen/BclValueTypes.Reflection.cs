@@ -45,6 +45,7 @@ internal static partial class BclValueTypes
         t[$"{Type}.get_GenericTypeArguments()"] = arguments(true);
         t[$"{Type}.GetInterfaces()"] = (g, _, self, _, _) =>
         {
+            g.Module.NoteGetInterfaces();
             var array = Rt(g, "csrt_type_interfaces", g.Llvm.Ptr, (self, g.Llvm.Ptr), (Table(g), g.Llvm.Ptr));
             g.TagArray(array, g.Module.Compilation.GetTypeByMetadataName(Type)!);
             return array;

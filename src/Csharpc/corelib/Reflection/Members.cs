@@ -1065,15 +1065,26 @@ namespace CsharpcCoreLib
             return CoreIntrinsics.csrt_array_create_instance(elementType, length, CoreIntrinsics.TypeInfoTableAddress());
         }
 
-        /// <summary>Activator.CreateInstance(Type): public parameterless constructor via kept metadata.</summary>
+        /// <summary>Activator.CreateInstance(Type): public parameterless constructor via kept metadata, with
+        /// RuntimeType.CreateInstanceDefaultCtor's checks and messages.</summary>
         public static object ActivatorCreateInstance(Type type)
         {
             ArgumentNullException.ThrowIfNull(type);
             if (type.ContainsGenericParameters)
                 throw new ArgumentException("Cannot create an instance of " + type + " because Type.ContainsGenericParameters is true.");
+            if (type.IsInterface)
+                throw new MissingMethodException("Cannot dynamically create an instance of type '" + type + "'. Reason: Cannot create an instance of an interface.");
+            if (type.IsAbstract)
+                throw new MissingMethodException("Cannot dynamically create an instance of type '" + type + "'. Reason: Cannot create an abstract class.");
+            if (type.IsArray || type.IsPointer || type.IsByRef || type.IsSubclassOf(typeof(Delegate)))
+                throw new NotSupportedException("Activator.CreateInstance(" + type + ") is not supported by csharpc yet.");
             ConstructorInfo ctor = GetConstructor(type, BindingFlags.Public | BindingFlags.Instance, null, Type.EmptyTypes, null);
             if (ctor != null) return ctor.Invoke(null);
-            throw new MissingMethodException("Cannot create an instance of " + type + " because it does not have a public parameterless constructor.");
+            // .NET returns a boxed default for a struct without a parameterless constructor; csharpc can't
+            // allocate one from a run-time Type yet.
+            if (type.IsValueType)
+                throw new NotSupportedException("Activator.CreateInstance of value type '" + type + "' is not supported by csharpc yet.");
+            throw new MissingMethodException("Cannot dynamically create an instance of type '" + type + "'. Reason: No parameterless constructor defined.");
         }
 
         public static void SetValue(Array array, object value, int index) =>

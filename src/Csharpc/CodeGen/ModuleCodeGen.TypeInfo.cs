@@ -41,6 +41,11 @@ public sealed partial class ModuleCodeGen
     /// <summary>Called when lowering Array.CreateInstance so reflection-kept types also get T[].</summary>
     internal void NoteArrayCreateInstance() => _arrayCreateInstanceUsed = true;
 
+    /// <summary>Type.GetInterfaces() appears: every described type lists all its interfaces, not only
+    /// the ones the program converts to (those are all casts and type tests need).</summary>
+    private bool _getInterfacesUsed;
+    internal void NoteGetInterfaces() => _getInterfacesUsed = true;
+
     /// <summary>A csrt_TypeInfo under construction: everything but the interface list, chosen at the end.</summary>
     private sealed class TypeInfoRecord
     {
@@ -151,6 +156,10 @@ public sealed partial class ModuleCodeGen
                 if (itf.IsGenericType && definitions.Contains(itf.OriginalDefinition)
                     && itf.OriginalDefinition.TypeParameters.Any(p => p.Variance != VarianceKind.None))
                     InterfaceMethodTable(itf);
+        if (_getInterfacesUsed)
+            foreach (var record in _typeInfoRecords.ToList())
+                foreach (var itf in record.Interfaces)
+                    InterfaceMethodTable(itf);
         RegisterKnownMethodTables();
     }
 
@@ -193,6 +202,51 @@ public sealed partial class ModuleCodeGen
             }
             Native.LLVMSetInitializer(_typeNameTable, Table("csharpc.typenames.entries", entryType, entries));
         }
+    }
+
+    /// <summary>
+    /// A type's interfaces in CoreCLR's order (Type.GetInterfaces): the base class's first, then each
+    /// interface in metadata order followed by the interfaces it inherits, each listed once
+    /// (string: IComparable, IEnumerable, IConvertible, IEnumerable`1, ..., ISpanParsable`1, IParsable`1).
+    /// </summary>
+    private static List<INamedTypeSymbol> ClrInterfaceOrder(INamedTypeSymbol type)
+    {
+        var order = new List<INamedTypeSymbol>();
+        var seen = new HashSet<INamedTypeSymbol>(SymbolEqualityComparer.Default);
+        void Expand(INamedTypeSymbol itf)
+        {
+            if (!seen.Add(itf)) return;
+            order.Add(itf);
+            foreach (var inherited in itf.Interfaces) Expand(inherited);
+        }
+        var chain = new List<INamedTypeSymbol>();
+        if (type.TypeKind != TypeKind.Interface)
+            for (var t = type; t is not null; t = t.BaseType) chain.Insert(0, t);
+        else chain.Add(type);
+        foreach (var t in chain)
+            foreach (var itf in ImplementationOrder(t)) Expand(itf);
+        // Anything Roslyn reports that the walk missed (it shouldn't) still belongs to the set.
+        foreach (var itf in type.AllInterfaces) Expand(itf);
+        return order;
+    }
+
+    /// <summary>A type's declared interfaces; for a framework type, in its implementation assembly's order
+    /// (the reference assembly Roslyn reads sorts them alphabetically).</summary>
+    private static IEnumerable<INamedTypeSymbol> ImplementationOrder(INamedTypeSymbol type)
+    {
+        var declared = type.Interfaces;
+        var definition = type.OriginalDefinition;
+        if (declared.Length < 2 || definition.ContainingType is not null || !definition.DeclaringSyntaxReferences.IsEmpty
+            || definition.ContainingAssembly is not { } assembly
+            || Frontend.SharedFramework.InterfaceOrder(assembly.Name, definition.ContainingNamespace.ToDisplayString(), definition.MetadataName) is not { } order)
+            return declared;
+        int Rank(INamedTypeSymbol itf)
+        {
+            var d = itf.OriginalDefinition;
+            var index = Array.IndexOf(order, d.ContainingNamespace.ToDisplayString() + "." + d.MetadataName);
+            return index < 0 ? int.MaxValue : index;
+        }
+        return declared.Select((itf, i) => (itf, i)).OrderBy(x => Rank(x.itf)).ThenBy(x => x.i).Select(x => x.itf);
     }
 
     private LLVMTypeRef TypeInfoEntryType => Llvm.Struct(
@@ -297,7 +351,14 @@ public sealed partial class ModuleCodeGen
                     rank = array.Rank;
                     // System.Array's interfaces; IList<T> & co. are answered from the element type
                     // (CSRT_TI_ARRAY_INTERFACE in type.c), covariance included.
-                    interfaces = [.. Compilation.GetSpecialType(SpecialType.System_Array).AllInterfaces];
+                    // GetInterfaces lists them too for a one-dimensional array (T[]: IList`1, ICollection`1,
+                    // IEnumerable`1, IReadOnlyList`1, IReadOnlyCollection`1 after Array's own).
+                    interfaces = ClrInterfaceOrder(Compilation.GetSpecialType(SpecialType.System_Array));
+                    if (array.IsSZArray && array.ElementType is not IPointerTypeSymbol and not IFunctionPointerTypeSymbol)
+                        foreach (var generic in new[] { SpecialType.System_Collections_Generic_IList_T, SpecialType.System_Collections_Generic_ICollection_T,
+                                     SpecialType.System_Collections_Generic_IEnumerable_T, SpecialType.System_Collections_Generic_IReadOnlyList_T,
+                                     SpecialType.System_Collections_Generic_IReadOnlyCollection_T })
+                            interfaces.Add(Compilation.GetSpecialType(generic).Construct(array.ElementType));
                     // .NET quirk: an array reports its innermost element type's generic arguments
                     // (typeof(List<int>[]).GetGenericArguments() is [Int32]); GenericTypeArguments stays empty.
                     var inner = array.ElementType;
@@ -321,7 +382,7 @@ public sealed partial class ModuleCodeGen
                         else baseMt = MetadataMethodTable(baseType);
                     }
                     if (named.AllInterfaces.Any(TypeSubstitution.IsOpen)) flags |= TI.NoInterfaces;
-                    else interfaces = [.. named.AllInterfaces];
+                    else interfaces = ClrInterfaceOrder(named);
                     var chain = ChainArguments(named);
                     if (chain.Count > 0)
                     {
