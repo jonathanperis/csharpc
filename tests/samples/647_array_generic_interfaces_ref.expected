@@ -1,0 +1,15 @@
+3 a 2 False True
+|B|a|c|
+Collection was of a fixed size.
+Collection was of a fixed size.
+Collection is read-only.
+ArgumentException
+ArgumentOutOfRangeException: Index was out of range. Must be non-negative and less than the size of the collection. (Parameter 'index')
+3 c
+B;a;c;
+True
+-1 False False
+1 False
+fido 0 2
+max
+null

@@ -131,10 +131,31 @@ namespace CsharpcCoreLib
         }
         public static bool ICollection1_Remove(T[] a, T item) => throw new NotSupportedException("Collection was of a fixed size.");
 
-        public static T IList1_get_Item(T[] a, int index) => a[index];
-        public static void IList1_set_Item(T[] a, int index, T value) { a[index] = value; }
+        // .NET's SZArrayHelper checks the index itself: ArgumentOutOfRangeException, not the array's
+        // IndexOutOfRangeException.
+        public static T IList1_get_Item(T[] a, int index)
+        {
+            if ((uint)index >= (uint)a.Length) ThrowIndexMustBeLess();
+            return a[index];
+        }
+        public static void IList1_set_Item(T[] a, int index, T value)
+        {
+            if ((uint)index >= (uint)a.Length) ThrowIndexMustBeLess();
+            a[index] = value;
+        }
+        private static void ThrowIndexMustBeLess() =>
+            throw new ArgumentOutOfRangeException("index", "Index was out of range. Must be non-negative and less than the size of the collection.");
         public static int IList1_IndexOf(T[] a, T item)
         {
+            // CoreCLR runs reference-type arrays' IList<T> through shared (__Canon) code that compares with
+            // Equals(object), so an IEquatable<T> that disagrees with it is not consulted; value types use
+            // EqualityComparer<T>.Default.
+            if (!typeof(T).IsValueType)
+            {
+                for (int i = 0; i < a.Length; i++)
+                    if (object.Equals(a[i], item)) return i;
+                return -1;
+            }
             for (int i = 0; i < a.Length; i++)
                 if (CoreIntrinsics.AreEqual(a[i], item)) return i;
             return -1;
@@ -143,7 +164,11 @@ namespace CsharpcCoreLib
         public static void IList1_RemoveAt(T[] a, int index) => throw new NotSupportedException("Collection was of a fixed size.");
 
         public static int IReadOnlyCollection1_get_Count(T[] a) => a.Length;
-        public static T IReadOnlyList1_get_Item(T[] a, int index) => a[index];
+        public static T IReadOnlyList1_get_Item(T[] a, int index)
+        {
+            if ((uint)index >= (uint)a.Length) ThrowIndexMustBeLess();
+            return a[index];
+        }
     }
 
     internal sealed class ArrayEnumerator<T> : IEnumerator<T>
