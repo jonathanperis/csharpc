@@ -1087,6 +1087,87 @@ namespace CsharpcCoreLib
             throw new MissingMethodException("Cannot dynamically create an instance of type '" + type + "'. Reason: No parameterless constructor defined.");
         }
 
+        /// <summary>
+        /// Type.GetType(typeName[, throwOnError[, ignoreCase]]): a type the program kept, by its full name; an
+        /// assembly qualification is accepted and ignored. Like NativeAOT, a type the compiler didn't keep is
+        /// not found (null, or TypeLoadException when throwOnError).
+        /// </summary>
+        public static Type GetTypeByName(string typeName, bool throwOnError, bool ignoreCase)
+        {
+            ArgumentNullException.ThrowIfNull(typeName);
+            string normalized = NormalizeTypeName(typeName);
+            Type found = normalized == null ? null : CoreIntrinsics.csrt_type_find(normalized, ignoreCase, CoreIntrinsics.TypeInfoTableAddress());
+            if (found == null && throwOnError)
+                throw new TypeLoadException("Could not load type '" + StripAssembly(typeName) + "' from assembly '" + System.Reflection.Assembly.GetEntryAssembly()?.FullName + "'.");
+            return found;
+        }
+
+        public static Type GetTypeByName(string typeName) => GetTypeByName(typeName, false, false);
+        public static Type GetTypeByName(string typeName, bool throwOnError) => GetTypeByName(typeName, throwOnError, false);
+
+        private static string StripAssembly(string name)
+        {
+            int depth = 0;
+            for (int i = 0; i < name.Length; i++)
+            {
+                char c = name[i];
+                if (c == '[') depth++;
+                else if (c == ']') depth--;
+                else if (c == ',' && depth == 0) return name.Substring(0, i).Trim();
+            }
+            return name.Trim();
+        }
+
+        // "Ns.Gen`2[[A, Asm],[B, Asm]], Asm" -> "Ns.Gen`2[A,B]" (the ToString form csharpc names types by).
+        private static string NormalizeTypeName(string name)
+        {
+            name = StripAssembly(name);
+            int open = name.IndexOf('[');
+            if (open < 0) return name;
+            // Array suffixes ("[]", "[,]") follow the name directly.
+            if (open + 1 < name.Length && (name[open + 1] == ']' || name[open + 1] == ','))
+            {
+                string element = NormalizeTypeName(name.Substring(0, open));
+                return element == null ? null : element + name.Substring(open);
+            }
+            int close = MatchingBracket(name, open);
+            if (close < 0) return null;
+            var args = new System.Collections.Generic.List<string>();
+            int start = open + 1, depth = 0;
+            for (int i = open + 1; i < close; i++)
+            {
+                char c = name[i];
+                if (c == '[') depth++;
+                else if (c == ']') depth--;
+                else if (c == ',' && depth == 0) { args.Add(name.Substring(start, i - start)); start = i + 1; }
+            }
+            args.Add(name.Substring(start, close - start));
+            var sb = new System.Text.StringBuilder(name.Substring(0, open)).Append('[');
+            for (int i = 0; i < args.Count; i++)
+            {
+                string a = args[i].Trim();
+                if (a.Length >= 2 && a[0] == '[' && a[a.Length - 1] == ']') a = a.Substring(1, a.Length - 2);
+                string n = NormalizeTypeName(a);
+                if (n == null) return null;
+                if (i > 0) sb.Append(',');
+                sb.Append(n);
+            }
+            sb.Append(']');
+            string rest = name.Substring(close + 1);
+            return sb.Append(rest).ToString();
+        }
+
+        private static int MatchingBracket(string s, int open)
+        {
+            int depth = 0;
+            for (int i = open; i < s.Length; i++)
+            {
+                if (s[i] == '[') depth++;
+                else if (s[i] == ']' && --depth == 0) return i;
+            }
+            return -1;
+        }
+
         /// <summary>Type.GetTypeCode(Type): the primitive's code, an enum's underlying type's, Empty for null, else Object.</summary>
         public static TypeCode GetTypeCode(Type type)
         {

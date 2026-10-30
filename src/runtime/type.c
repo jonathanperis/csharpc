@@ -313,6 +313,47 @@ csrt_Array* csrt_type_interfaces(TypeObject* t, const csrt_TypeInfoTable* table)
     return array;
 }
 
+static uint16_t fold_ascii(uint16_t c) { return c >= 'A' && c <= 'Z' ? (uint16_t)(c + 32) : c; }
+
+/// Does the UTF-8 type name `n` equal the UTF-16 `s` (ASCII case folded when `ignore_case`)?
+static bool name_equals(const char* n, const uint16_t* s, int32_t length, bool ignore_case) {
+    int32_t i = 0;
+    const unsigned char* p = (const unsigned char*)n;
+    while (*p) {
+        uint32_t cp;
+        if (*p < 0x80) cp = *p++;
+        else if ((*p & 0xE0) == 0xC0 && p[1]) { cp = ((uint32_t)(p[0] & 0x1F) << 6) | (p[1] & 0x3F); p += 2; }
+        else if ((*p & 0xF0) == 0xE0 && p[1] && p[2]) { cp = ((uint32_t)(p[0] & 0x0F) << 12) | ((uint32_t)(p[1] & 0x3F) << 6) | (p[2] & 0x3F); p += 3; }
+        else if (p[1] && p[2] && p[3]) { cp = ((uint32_t)(p[0] & 0x07) << 18) | ((uint32_t)(p[1] & 0x3F) << 12) | ((uint32_t)(p[2] & 0x3F) << 6) | (p[3] & 0x3F); p += 4; }
+        else return false;
+        if (cp >= 0x10000) {
+            if (i + 1 >= length) return false;
+            uint32_t hi = 0xD800 + ((cp - 0x10000) >> 10), lo = 0xDC00 + ((cp - 0x10000) & 0x3FF);
+            if (s[i] != hi || s[i + 1] != lo) return false;
+            i += 2;
+            continue;
+        }
+        if (i >= length) return false;
+        uint16_t c = (uint16_t)cp, d = s[i++];
+        if (ignore_case ? fold_ascii(c) != fold_ascii(d) : c != d) return false;
+    }
+    return i == length;
+}
+
+/// Type.GetType(name) once the corelib normalized the name (no assembly qualification, generic arguments
+/// in ToString form): the program's type of that full name, or NULL — a type csharpc didn't keep is
+/// missing, as under NativeAOT.
+TypeObject* csrt_type_find(csrt_String* name, bool ignore_case, const csrt_TypeInfoTable* table) {
+    if (!name) { csrt_throw_null_reference(); return NULL; }
+    if (!__atomic_load_n(&s_table, __ATOMIC_ACQUIRE)) __atomic_store_n(&s_table, table, __ATOMIC_RELEASE);
+    for (int64_t i = 0; i < table->count; i++) {
+        const csrt_TypeInfo* info = &table->entries[i];
+        if (!info->mt || !info->mt->name || (info->flags & CSRT_TI_GENERIC_PARAMETER)) continue;
+        if (name_equals(info->mt->name, name->chars, name->length, ignore_case)) return csrt_type_from_mt(info->mt);
+    }
+    return NULL;
+}
+
 /// Type.GetArrayRank().
 int32_t csrt_type_array_rank(TypeObject* t, const csrt_TypeInfoTable* table) {
     const csrt_TypeInfo* info = info_of(t, table);

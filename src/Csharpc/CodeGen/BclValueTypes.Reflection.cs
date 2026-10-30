@@ -115,6 +115,9 @@ internal static partial class BclValueTypes
             return g.CallCoreLib("ReflectionRuntime", "CreateInstance", a[0], a[1]);
         };
         // Configuration.Binder and similar: Activator.CreateInstance(Type) via kept public .ctor metadata.
+        t["System.Type.GetType(string)"] = (g, _, _, a, _) => g.CallCoreLib("ReflectionRuntime", "GetTypeByName", a[0]);
+        t["System.Type.GetType(string, bool)"] = (g, _, _, a, _) => g.CallCoreLib("ReflectionRuntime", "GetTypeByName", a[0], a[1]);
+        t["System.Type.GetType(string, bool, bool)"] = (g, _, _, a, _) => g.CallCoreLib("ReflectionRuntime", "GetTypeByName", a[0], a[1], a[2]);
         t["System.Type.GetTypeCode(System.Type)"] = (g, _, _, a, _) => g.CallCoreLib("ReflectionRuntime", "GetTypeCode", a[0]);
         t["System.Activator.CreateInstance(System.Type)"] = (g, _, _, a, _) =>
             g.CallCoreLib("ReflectionRuntime", "ActivatorCreateInstance", a[0]);
