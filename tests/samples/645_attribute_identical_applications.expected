@@ -1,0 +1,12 @@
+A Tag(1:Int32)  
+B Tag(1:Int32)  
+C Tag(1:Int64)  
+D Tag(1:Int32,n)  
+E [1,2]  
+F [1,3]  
+G Tag(System.Int32:Type)  
+H Tag(System.Int64:Type)  
+I Tag(null:)  
+J Tag(x:String)  J Tag(x:String)  
+False False True
+1

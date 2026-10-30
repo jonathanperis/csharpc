@@ -120,7 +120,7 @@ public sealed partial class ModuleCodeGen
         }
         if (_elementSlotTables.TryGetValue((itf, array.Global.Handle), out var table)) return table;
         var element = array.ElementType;
-        var slots = InterfaceSlots(itf).Select(m => BuiltinHelper("SZArrayHelper", itf, m, element) is { } h ? GetFunction(h).Fn : LlvmContext.Null(Llvm.Ptr)).ToArray();
+        var slots = InterfaceSlots(itf).Select(m => ElementHelper(itf, m, element) is { } h ? GetFunction(h).Fn : LlvmContext.Null(Llvm.Ptr)).ToArray();
         var init = LlvmContext.ConstArray(Llvm.Ptr, slots);
         table = Module.AddGlobal($"csrt.arraytbl.{array.Name}.{itf.Name}", Native.LLVMTypeOf(init), init, constant: true, linkage: LLVMLinkage.Private);
         return _elementSlotTables[(itf, array.Global.Handle)] = table;
@@ -138,7 +138,22 @@ public sealed partial class ModuleCodeGen
 
     /// <summary>The helper for a call on an array whose element type is known statically.</summary>
     public IMethodSymbol? ArrayInterfaceHelper(INamedTypeSymbol itf, IMethodSymbol member, ITypeSymbol element) =>
-        NeedsElementTable(itf) ? BuiltinHelper("SZArrayHelper", itf, member, element) : ArrayInterfaceHelper(itf, member);
+        NeedsElementTable(itf) ? ElementHelper(itf, member, element) : ArrayInterfaceHelper(itf, member);
+
+    /// <summary>
+    /// The SZArrayHelper&lt;T&gt; member behind a non-generic interface slot of T[]. A reference-type
+    /// element is a pointer that boxes to itself, so arrays of every reference type share
+    /// SZArrayHelper&lt;object&gt;'s members (one copy instead of one per element type — 561 array types
+    /// in the TechEmpower app). Not the two that must check the destination's element type:
+    /// IList's indexer setter (string[] as IList must reject an int) and ICollection.CopyTo (its
+    /// typed fast path would accept any reference array as an object[]).
+    /// </summary>
+    private IMethodSymbol? ElementHelper(INamedTypeSymbol itf, IMethodSymbol member, ITypeSymbol element)
+    {
+        var typed = (itf.Name, member.Name) is ("IList", "set_Item") or ("ICollection", "CopyTo");
+        var shared = element.IsReferenceType && !typed ? Compilation.GetSpecialType(SpecialType.System_Object) : element;
+        return BuiltinHelper("SZArrayHelper", itf, member, shared);
+    }
 
     public IMethodSymbol? StringInterfaceHelper(INamedTypeSymbol itf, IMethodSymbol member) =>
         BuiltinHelper("StringInterfaces", itf, member, null);

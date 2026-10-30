@@ -1,0 +1,15 @@
+3 a True 2 -1 True False
+B,a,c
+InvalidCastException
+Collection was of a fixed size.
+fido 0
+InvalidCastException
+B;a;c;
+rex;fido;
+|B|a|c|
+B|a|c
+ArgumentException
+True
+True
+True
+True
