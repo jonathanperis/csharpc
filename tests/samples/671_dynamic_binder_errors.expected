@@ -1,0 +1,54 @@
+st.X after st.Inc(d) = 1
+ds.X after ds.Bump() = 1
+M(string)
+N(string)
+null recv: Microsoft.CSharp.RuntimeBinder.RuntimeBinderException: Cannot perform runtime binding on a null reference
+null get: Microsoft.CSharp.RuntimeBinder.RuntimeBinderException: Cannot perform runtime binding on a null reference
+int.Foo: Microsoft.CSharp.RuntimeBinder.RuntimeBinderException: 'int' does not contain a definition for 'Foo'
+list.Foo: Microsoft.CSharp.RuntimeBinder.RuntimeBinderException: 'System.Collections.Generic.List<int>' does not contain a definition for 'Foo'
+dict.Foo: Microsoft.CSharp.RuntimeBinder.RuntimeBinderException: 'System.Collections.Generic.Dictionary<string,System.Collections.Generic.List<int>>' does not contain a definition for 'Foo'
+arr.Foo: Microsoft.CSharp.RuntimeBinder.RuntimeBinderException: 'System.Array' does not contain a definition for 'Foo'
+arr2.Foo: Microsoft.CSharp.RuntimeBinder.RuntimeBinderException: 'System.Array' does not contain a definition for 'Foo'
+hidden: Microsoft.CSharp.RuntimeBinder.RuntimeBinderException: 'object' does not contain a definition for 'Get'
+hidden val: Microsoft.CSharp.RuntimeBinder.RuntimeBinderException: 'object' does not contain a definition for 'Val'
+pub nested: Microsoft.CSharp.RuntimeBinder.RuntimeBinderException: 'Outer.Pub' does not contain a definition for 'Zz'
+anon: Microsoft.CSharp.RuntimeBinder.RuntimeBinderException: '<>f__AnonymousType0<int,string>' does not contain a definition for 'Zz'
+x
+tuple: Microsoft.CSharp.RuntimeBinder.RuntimeBinderException: 'System.ValueTuple<int,string>' does not contain a definition for 'Zz'
+nullable: Microsoft.CSharp.RuntimeBinder.RuntimeBinderException: 'int' does not contain a definition for 'Zz'
+enum: Microsoft.CSharp.RuntimeBinder.RuntimeBinderException: 'System.DayOfWeek' does not contain a definition for 'Zz'
+ex.Two(1): Microsoft.CSharp.RuntimeBinder.RuntimeBinderException: No overload for method 'Two' takes 1 arguments
+ex.Two(1,2): Microsoft.CSharp.RuntimeBinder.RuntimeBinderException: The best overloaded method match for 'Ex.Two(int, string)' has some invalid arguments
+ex.N(1): Microsoft.CSharp.RuntimeBinder.RuntimeBinderException: The best overloaded method match for 'Ex.N(string)' has some invalid arguments
+Gen System.Int32
+Gen System.Int64
+ex.Prop(): Microsoft.CSharp.RuntimeBinder.RuntimeBinderException: Non-invocable member 'Ex.Prop' cannot be used like a method.
+ex.V result: Microsoft.CSharp.RuntimeBinder.RuntimeBinderException: Cannot implicitly convert type 'void' to 'object'
+ex.St: Microsoft.CSharp.RuntimeBinder.RuntimeBinderException: Member 'Ex.St(int)' cannot be accessed with an instance reference; qualify it with a type name instead
+int + bool: Microsoft.CSharp.RuntimeBinder.RuntimeBinderException: Operator '+' cannot be applied to operands of type 'int' and 'bool'
+-string: Microsoft.CSharp.RuntimeBinder.RuntimeBinderException: Operator '-' cannot be applied to operand of type 'string'
+conv: Microsoft.CSharp.RuntimeBinder.RuntimeBinderException: Cannot implicitly convert type 'int' to 'string'
+conv expl: Microsoft.CSharp.RuntimeBinder.RuntimeBinderException: Cannot convert type 'int' to 'string'
+conv long: Microsoft.CSharp.RuntimeBinder.RuntimeBinderException: Cannot implicitly convert type 'long' to 'int'. An explicit conversion exists (are you missing a cast?)
+5
+index int: Microsoft.CSharp.RuntimeBinder.RuntimeBinderException: Cannot apply indexing with [] to an expression of type 'int'
+4
+invoke int: Microsoft.CSharp.RuntimeBinder.RuntimeBinderException: Cannot invoke a non-delegate type
+ctor: Microsoft.CSharp.RuntimeBinder.RuntimeBinderException: The best overloaded method match for 'Ex.Ex(string)' has some invalid arguments
+set readonly: Microsoft.CSharp.RuntimeBinder.RuntimeBinderException: Property or indexer 'string.Length' cannot be assigned to -- it is read only
+3
+prop set wrong type: Microsoft.CSharp.RuntimeBinder.RuntimeBinderException: Cannot implicitly convert type 'string' to 'int'
+checked: System.OverflowException: Arithmetic operation resulted in an overflow.
+-2147483648
+System.Int32
+System.Int64
+1x
+True
+False
+True
+div0: System.DivideByZeroException: Attempted to divide by zero.
+ambig: Microsoft.CSharp.RuntimeBinder.RuntimeBinderException: The call is ambiguous between the following methods or properties: 'Program.Amb(string)' and 'Program.Amb(System.Uri)'
+1
+System.Int32
+True
+-1
