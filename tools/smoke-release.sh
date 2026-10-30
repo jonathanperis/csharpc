@@ -72,6 +72,9 @@ run_sample() {
   local expected="$ROOT/tests/samples/${sample}.expected"
   local want_exit=0
   [[ -f $ROOT/tests/samples/${sample}.exitcode ]] && want_exit="$(tr -d '[:space:]' < "$ROOT/tests/samples/${sample}.exitcode")"
+  # An unhandled exception aborts with 134 on Unix; on Windows it exits 0xE0434352, which Git Bash
+  # reports as 127 (tests/platform.sh platform_exit_code).
+  if [[ $want_exit == 134 && ( ${OSTYPE:-} == msys* || ${OSTYPE:-} == cygwin* || "$(uname -s 2>/dev/null)" == MINGW* ) ]]; then want_exit=127; fi
   local out="$WORKDIR/${sample}${opt}"
   local want="$WORKDIR/${sample}.want"
   echo "smoke-release: compiling $sample $opt"
