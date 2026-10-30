@@ -699,6 +699,8 @@ public sealed partial class FunctionCodeGen
 
     private LLVMValueRef EmitPropertyGet(IPropertyReferenceOperation p)
     {
+        // An indexer's [DynamicallyAccessedMembers] parameters (AttributeCollection[typeof(A)]) keep members as a call's do.
+        if (!p.Arguments.IsEmpty && p.Property.GetMethod is { } indexerGetter) NoteDynamicallyAccessedArguments(S(indexerGetter), p.Arguments);
         if (p.Property.GetMethod is { } typeGetter && TypeObjectMember(typeGetter, p.Instance) is { } typeMember)
             return CallBcl(typeMember, typeGetter, p.Instance, p.Arguments, p);
         var property = S(p.Property);
