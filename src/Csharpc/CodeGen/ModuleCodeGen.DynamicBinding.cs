@@ -116,9 +116,11 @@ public sealed partial class ModuleCodeGen
         switch (operand.Role)
         {
             case DynamicRole.Receiver:
-                return HasMember(b, site.Name!) ? Typed() : DynamicClassKey.Default;
+                return HasMember(b, site.Name!) ? new DynamicClassKey(DynamicClassKind.Typed, LookupLevel(b, m => m.Name == site.Name)) : DynamicClassKey.Default;
             case DynamicRole.IndexReceiver:
-                return b is IArrayTypeSymbol || HasIndexer(b) ? Typed() : DynamicClassKey.Default;
+                return b is IArrayTypeSymbol ? Typed()
+                    : HasIndexer(b) ? new DynamicClassKey(DynamicClassKind.Typed, LookupLevel(b, m => m is IPropertySymbol { IsIndexer: true }))
+                    : DynamicClassKey.Default;
             case DynamicRole.InvokeReceiver:
                 return b.TypeKind == TypeKind.Delegate ? Typed() : DynamicClassKey.Default;
             case DynamicRole.Argument:
@@ -129,7 +131,10 @@ public sealed partial class ModuleCodeGen
                     if (ImplicitlyConvertible(b, p)) return Typed();
                 return DynamicClassKey.Default;
             case DynamicRole.Operator:
-                if (b.IsValueType || b.SpecialType == SpecialType.System_String || b.TypeKind == TypeKind.Delegate || HasUserOperators(b)) return Typed();
+                // A struct with no operators or conversions behaves as object would (errors name its run-time type,
+                // `s + "x"` concatenates) — except `==`, which is reference equality for object and an error for it.
+                if (b.SpecialType != SpecialType.None || b.TypeKind is TypeKind.Enum or TypeKind.Delegate || HasUserOperators(b)
+                    || (b.IsValueType && site.Operator is "==" or "!=")) return Typed();
                 foreach (var p in candidates!.OperatorParameters)
                     if (ImplicitlyConvertible(b, p)) return Typed();
                 return DynamicClassKey.Default;
@@ -278,6 +283,23 @@ public sealed partial class ModuleCodeGen
     }
 
     private bool HasMember(ITypeSymbol type, string name) => MembersNamed(type, name).Any();
+
+    /// <summary>
+    /// The class a receiver binds as: the most derived one declaring a matching member that isn't an override.
+    /// C# member lookup ignores overrides, so every type whose lookup stops at the same class binds to the same
+    /// members, called virtually: one case (object.ToString for every type) instead of one per run-time type,
+    /// each pulling in that type's own ToString. A struct binds as itself when it declares the member (its
+    /// calls mutate the box); else as the reference type declaring it (the box is that object).
+    /// </summary>
+    private ITypeSymbol LookupLevel(ITypeSymbol type, Func<ISymbol, bool> matches)
+    {
+        for (var t = type is IArrayTypeSymbol ? Compilation.GetSpecialType(SpecialType.System_Array) : type as INamedTypeSymbol; t is not null; t = t.BaseType)
+            if (t.GetMembers().Any(m => matches(m) && !m.IsOverride && m is not IMethodSymbol { MethodKind: MethodKind.Constructor or MethodKind.StaticConstructor }))
+                // Only System.Object's members are shared: binding at another base (MemberInfo for Type.Name)
+                // would call through references csharpc's runtime types may not support.
+                return t.SpecialType == SpecialType.System_Object ? t : type;
+        return type;
+    }
 
     private static bool HasIndexer(ITypeSymbol type)
     {

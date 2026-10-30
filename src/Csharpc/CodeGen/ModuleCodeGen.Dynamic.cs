@@ -103,16 +103,13 @@ public sealed partial class ModuleCodeGen
         _ => false,
     };
 
-    /// <summary>Boxed primitives can reach a dynamic operation from anywhere (the runtime boxes them too): always known.</summary>
+    /// <summary>The runtime's own objects every program can hand to a dynamic operation (strings, Type objects).</summary>
     private void RegisterDynamicPrimitiveBoxes()
     {
         if (_dynamicBoxesRegistered) return;
         _dynamicBoxesRegistered = true;
-        foreach (var special in s_boxedPrimitives)
-        {
-            var type = Compilation.GetSpecialType(special);
-            RegisterTypeMethodTable(ExternalGlobal($"csrt_Boxed_{type.MetadataName}_MT"), type);
-        }
+        // Boxed primitives are known once something boxes them (compiled code references their tables; the runtime
+        // boxes only through tables the type metadata describes), so only the program's own are dispatched on.
         RegisterTypeMethodTable(ExternalGlobal("csrt_String_MT"), Compilation.GetSpecialType(SpecialType.System_String));
         RegisterTypeMethodTable(ExternalGlobal("csrt_Object_MT"), Compilation.GetSpecialType(SpecialType.System_Object));
         // Type objects are runtime objects with one method table; .NET's RuntimeType is internal, so the binder
