@@ -49,7 +49,7 @@ public sealed partial class ModuleCodeGen
     {
         if (at.Syntax.SyntaxTree.FilePath.StartsWith("<corelib>", StringComparison.Ordinal)) return;
         // Code bound for a dynamic operation (ModuleCodeGen.Dynamic.cs), for run-time types it may never see.
-        if (!Compilation.ContainsSyntaxTree(at.Syntax.SyntaxTree)) return;
+        if (_dynamicOrigins.ContainsKey(at.Syntax.SyntaxTree)) return;
         Warnings.Add(new CompileError("CSLLVM0006",
             "stack traces list the frames of the program's own code as .NET does, but .NET's library frames only for common members (an exception thrown by, or passing through, other BCL code shows fewer \"   at ...\" lines)",
             at.Syntax.GetLocation()));
