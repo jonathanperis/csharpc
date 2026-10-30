@@ -595,8 +595,12 @@ public sealed partial class FunctionCodeGen
             StoreValue(type is null ? value : ToStorage(value, type), slot);
             return;
         }
+        _statementOperation = operation; // its value is discarded (a dynamic call may then bind to a void method)
         EmitValue(operation);
+        _statementOperation = null;
     }
+
+    private IOperation? _statementOperation;
 
     private (LLVMValueRef Slot, ITypeSymbol? Type) CaptureSlot(CaptureId id, ITypeSymbol? type)
     {

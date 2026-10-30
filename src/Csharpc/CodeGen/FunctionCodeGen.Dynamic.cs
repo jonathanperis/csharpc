@@ -182,7 +182,8 @@ public sealed partial class FunctionCodeGen
         _ => throw CompileError.Unsupported($"dynamic operation {op.Kind}", op),
     };
 
-    private bool IsDiscarded(IOperation op) => op.Parent is IExpressionStatementOperation;
+    /// <summary>The binder's ResultDiscarded: an expression statement, or a statement of the CFG (a collection initializer's Add).</summary>
+    private bool IsDiscarded(IOperation op) => op.Parent is IExpressionStatementOperation || ReferenceEquals(op, _statementOperation);
 
     /// <summary>The receiver of a member access: a value, the implicit `this` of a simple name, or a type.</summary>
     private void AddDynamicReceiver(DynamicCall call, IDynamicMemberReferenceOperation member, DynamicSiteBuilder site)

@@ -129,5 +129,14 @@ class Program
         dynamic print = new Action<object>(o => Console.WriteLine("print " + o));
         print("hi");
         print(three);
+
+        // Object and collection initializers around dynamically bound calls (a collection initializer's Add
+        // discards its result: a void Add binds).
+        var built = new Shape(three) { Name = "renamed" };
+        Console.WriteLine(built.Name);
+        var mixed = new List<object> { three, "x", 2.5 };
+        Console.WriteLine(mixed.Count + " " + mixed[0]);
+        var counts = new Dictionary<string, int> { { "a", three }, { "b", three + 1 } };
+        Console.WriteLine(counts["a"] + counts["b"]);
     }
 }
