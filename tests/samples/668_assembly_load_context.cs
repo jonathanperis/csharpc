@@ -35,7 +35,7 @@ class Program
         catch (InvalidOperationException e) { Console.WriteLine(e.GetType().Name + ": " + e.Message); }
         plugin.Unloading += c => Console.WriteLine("unloading " + (c == plugin));
         plugin.Unload();
-        try { plugin.LoadFromAssemblyPath("/tmp/none.dll"); }
+        try { plugin.LoadFromAssemblyPath(System.IO.Path.Combine(System.IO.Path.GetTempPath(), "none.dll")); }
         catch (InvalidOperationException e) { Console.WriteLine(e.GetType().Name + ": " + e.Message); }
         Console.WriteLine(string.Join(",", AssemblyLoadContext.All.Select(c => c.Name ?? "(null)")));
     }

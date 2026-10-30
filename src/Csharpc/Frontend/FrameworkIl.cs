@@ -39,6 +39,8 @@ public static partial class FrameworkIl
         public string[] References { get; set; } = [];
         /// <summary>Assemblies it forwards types to (a facade such as System.Xml.ReaderWriter forwards everything).</summary>
         public string[] ForwardsTo { get; set; } = [];
+        /// <summary>The full names of the types it forwards into System.Private.* (only while the index is built).</summary>
+        public HashSet<string> ForwardedToPrivate { get; } = new(StringComparer.Ordinal);
         /// <summary>.NET shims it P/Invokes (NativeAotPack.Shims): eligible where their archives can be linked.</summary>
         public string[] NativeModules { get; set; } = [];
         /// <summary>Namespace → public top-level type names (no arity).</summary>
@@ -203,7 +205,7 @@ public static partial class FrameworkIl
         var cacheRoot = Environment.GetEnvironmentVariable("XDG_CACHE_HOME")
             ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".cache");
         var build = typeof(FrameworkIl).Assembly.ManifestModule.ModuleVersionId;
-        var key = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes($"{dir}|{build}|4")))[..16];
+        var key = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes($"{dir}|{build}|5")))[..16];
         // Named by build, then by framework directory: an index per framework (Microsoft.NETCore.App's and ASP.NET Core's).
         var buildTag = build.ToString("N")[..8];
         var cache = Path.Combine(cacheRoot, "csharpc", $"framework-il-{buildTag}-{key}.txt");
@@ -245,6 +247,13 @@ public static partial class FrameworkIl
         a.ForwardsTo = [.. md.ExportedTypes.Select(h => md.GetExportedType(h).Implementation)
             .Where(i => i.Kind == HandleKind.AssemblyReference)
             .Select(i => md.GetString(md.GetAssemblyReference((AssemblyReferenceHandle)i).Name)).Distinct(StringComparer.Ordinal)];
+        foreach (var h in md.ExportedTypes)
+        {
+            var e = md.GetExportedType(h);
+            if (e.Implementation.Kind == HandleKind.AssemblyReference
+                && md.GetString(md.GetAssemblyReference((AssemblyReferenceHandle)e.Implementation).Name).StartsWith("System.Private.", StringComparison.Ordinal))
+                a.ForwardedToPrivate.Add(md.GetString(e.Namespace) + "." + md.GetString(e.Name));
+        }
         var types = new Dictionary<string, List<string>>(StringComparer.Ordinal);
         var extensions = new Dictionary<string, List<string>>(StringComparer.Ordinal);
         var fullNames = new List<string>();
@@ -309,13 +318,35 @@ public static partial class FrameworkIl
         foreach (var a in index.Values)
         {
             if (a.Ineligible is not null) continue;
-            // Only a facade (no types of its own) stands or falls with its target: System.Data.Common is a
-            // library that also forwards a few types (DBNull) to CoreLib, which the corelib serves.
-            if (a.Types.Values.Any(types => types.Length > 0)) continue;
+            // A library with types of its own that also forwards a few to CoreLib (System.Data.Common: DBNull)
+            // stands on its own. It stays a facade when it forwards types its reference-pack twin defines
+            // (System.Runtime.InteropServices: DllImportAttribute): with the implementation in the twin's place,
+            // those would resolve back to it through the CoreLib facade, and binding would loop.
+            if (a.Types.Values.Any(types => types.Length > 0) && !ForwardsTwinTypes(a)) continue;
             var blocked = a.ForwardsTo.FirstOrDefault(t => t.StartsWith("System.Private.", StringComparison.Ordinal)
                 && (!index.TryGetValue(t, out var target) || target.Ineligible is not null));
             if (blocked is not null) a.Ineligible = $"it forwards types to {blocked} (a facade)";
         }
+    }
+
+    private static bool ForwardsTwinTypes(Assembly a)
+    {
+        if (a.ForwardedToPrivate.Count == 0) return false;
+        var twin = RoslynFrontend.ReferenceAssemblies().OfType<Microsoft.CodeAnalysis.PortableExecutableReference>().Select(r => r.FilePath)
+            .FirstOrDefault(p => p is not null && Path.GetFileNameWithoutExtension(p).Equals(a.Name, StringComparison.OrdinalIgnoreCase));
+        if (twin is null) return false;
+        try
+        {
+            using var pe = new PEReader(File.OpenRead(twin));
+            var md = pe.GetMetadataReader();
+            foreach (var th in md.TypeDefinitions)
+            {
+                var t = md.GetTypeDefinition(th);
+                if (t.GetDeclaringType().IsNil && a.ForwardedToPrivate.Contains(md.GetString(t.Namespace) + "." + md.GetString(t.Name))) return true;
+            }
+        }
+        catch (Exception e) when (e is IOException or BadImageFormatException) { return true; }
+        return false;
     }
 
     // Lines: "A\tname\treason-or-empty\treferences\tforwarded-to\tnative-shims", then "T\tnamespace\ttypes" / "E\tnamespace\tmethods" for it.
