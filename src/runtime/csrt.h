@@ -53,7 +53,11 @@ enum { CSRT_MT_ABSTRACT = 1, CSRT_MT_INTERFACE = 2, CSRT_MT_ITERATOR = 4 /* src/
        CSRT_MT_MDARRAY = 32 /* rectangular array ("System.Int32[,]"): interfaces dispatch like the untyped array tables */,
        CSRT_MT_VALUE_TYPE = 64 /* a boxed value type (`is System.ValueType`) */,
        CSRT_MT_ENUM = 128 /* a boxed enum (`is System.Enum`) */,
-       CSRT_MT_DISPOSE_SLOT = 256 /* with CSRT_MT_DISPOSABLE: vtable slot 3 is its IDisposable.Dispose */ };
+       CSRT_MT_DISPOSE_SLOT = 256 /* with CSRT_MT_DISPOSABLE: vtable slot 3 is its IDisposable.Dispose */,
+       CSRT_MT_REFERENCE_ELEMENTS = 512 /* an array type whose elements are references (array covariance) */ };
+// Array types of integers and enums: the ECMA-335 reduced element type (4 bits: 1 int8, 2 int16, 3 int32,
+// 4 int64, 5 native int), so int[] and uint[] (and an enum's array) are cast-compatible like in the CLR.
+#define CSRT_MT_ELEMENT_CLASS_SHIFT 12
 
 struct csrt_MethodTable {
     const csrt_MethodTable* base;   // null for System.Object and interfaces
@@ -81,8 +85,13 @@ typedef struct { csrt_MethodTable header; void* vtable[3]; } csrt_BuiltinMethodT
 
 extern const csrt_BuiltinMethodTable csrt_Object_MT;
 extern const csrt_BuiltinMethodTable csrt_String_MT;
-extern const csrt_BuiltinMethodTable csrt_Array_MT;
-extern const csrt_BuiltinMethodTable csrt_PrimitiveArray_MT;  // arrays of non-references: never scanned by the GC
+// Array method tables (per element type, ModuleCodeGen.Bcl.cs; synthesized ones, type.c; the untagged
+// tables below) end with the element type's method table, the one its instances carry, for array covariance
+// (stelem.ref's store check, ldelema's exact-type check, casts between array types). NULL: a value type, or
+// a reference type whose instances csharpc can't identify by one method table (no check: never throws).
+typedef struct { csrt_MethodTable header; void* vtable[3]; const csrt_MethodTable* element; } csrt_ArrayMethodTable;
+extern const csrt_ArrayMethodTable csrt_Array_MT;
+extern const csrt_ArrayMethodTable csrt_PrimitiveArray_MT;  // arrays of non-references: never scanned by the GC
 // Never instantiated: type-test targets. Boxed value types keep csrt_Object_MT as their base; `is ValueType`
 // / `is Enum` test CSRT_MT_VALUE_TYPE / CSRT_MT_ENUM instead (csrt_isinst_class).
 extern const csrt_BuiltinMethodTable csrt_ValueType_MT;
@@ -198,6 +207,8 @@ CSRT_THROWS void csrt_throw_out_of_memory(const char* message);  // NULL: "Insuf
 csrt_String* csrt_string_alloc_checked(int64_t length);  // uninitialized chars; OOM above the limit
 csrt_String* csrt_string_alloc_zeroed(int64_t length);   // zero-filled; OOM above the limit
 CSRT_THROWS void csrt_throw_invalid_cast(void);
+CSRT_THROWS void csrt_throw_array_type_mismatch(void);  // "Attempted to access an element as a type incompatible with the array."
+CSRT_THROWS void csrt_throw_array_copy_mismatch(void);  // Array.Copy's "Source array type cannot be assigned to destination array type."
 
 // Type metadata (System.Type reflection, src/runtime/type.c; emitted by ModuleCodeGen.TypeInfo.cs) ---
 // Generated at compile time, only for programs that use a Type member needing it: one entry per
@@ -323,6 +334,14 @@ typedef struct { int64_t count; const csrt_TypeNameEntry* entries; } csrt_TypeNa
 void* csrt_isinst_class(void* obj, const csrt_MethodTable* type);   // obj if it is a `type`, else null
 void* csrt_castclass(void* obj, const csrt_MethodTable* type);      // obj, or InvalidCastException
 void* const* csrt_interface_slots(void* obj, const csrt_MethodTable* interface_type);  // obj non-null
+// Array covariance, called when an array's method table isn't the one of its static type (the inline test):
+// stelem.ref's check (ArrayTypeMismatchException unless value is null or fits the element type) and
+// ldelema's / new Span<T>(T[])'s (the element type must be exactly the static one's).
+void csrt_array_store_check(void* array, void* value);
+void csrt_array_exact_check(void* array, const csrt_MethodTable* expected);
+// Array.Copy between arrays of reference types whose runtime element types may need a cast per element.
+void csrt_array_copy_checked(void* source, int64_t source_index, void* destination, int64_t destination_index, int64_t length,
+                             const csrt_MethodTable* destination_type);
 // The same through a call site's cache (a zero-initialized uint64_t per site).
 void* const* csrt_interface_slots_cached(void* obj, const csrt_MethodTable* interface_type, uint64_t* site);
 csrt_String* csrt_object_to_string(void* obj);                      // virtual ToString(); null -> ""

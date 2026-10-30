@@ -272,3 +272,44 @@ public static class DelegateIdioms
         return $"{a.Equals(b)} {a.Equals(c)} {c.Equals(new Pending { Id = 1 })}";
     }
 }
+
+/// <summary>
+/// Array covariance through IL: stelem.ref's store check, ldelema's exact-type check (and `readonly. ldelema`,
+/// which has none), rectangular arrays' Set/Address, and Span&lt;T&gt;'s constructor over a covariant array.
+/// </summary>
+public static class ArrayCovariance
+{
+    public class Animal { }
+    public class Dog : Animal { }
+    public class Cat : Animal { }
+
+    private static string Try(Action action)
+    {
+        try { action(); return "ok"; }
+        catch (Exception e) { return e.GetType().Name; }
+    }
+
+    public static void Store(object?[] array, object? value) => array[0] = value;
+    public static void StoreGeneric<T>(T[] array, T value) => array[0] = value;
+    public static void Exchange(object?[] array, object? value) => System.Threading.Interlocked.Exchange(ref array[0], value);
+    public static object? ReadOnlyRef(object?[] array) { ref readonly object? r = ref array[0]; return r; }
+    public static void StoreRect(object?[,] array, object? value) => array[0, 0] = value;
+    public static void RefRect(object?[,] array) { ref object? r = ref array[0, 0]; r = null; }
+    public static int SpanOver(object?[] array) => new Span<object?>(array).Length;
+    public static int ReadOnlySpanOver(object?[] array) => new ReadOnlySpan<object?>(array).Length;
+
+    public static string Run()
+    {
+        object?[] strings = new string?[1];
+        Animal[] dogs = new Dog[1];
+        object?[,] rect = new string?[1, 1];
+        return string.Join(" ", [
+            Try(() => Store(strings, 1)), Try(() => Store(strings, "s")), Try(() => Store(strings, null)),
+            Try(() => StoreGeneric(dogs, new Cat())), Try(() => StoreGeneric(dogs, new Dog())),
+            Try(() => Exchange(strings, "x")), Try(() => Exchange(new object[1], 2)),
+            Try(() => ReadOnlyRef(strings)),
+            Try(() => StoreRect(rect, 1)), Try(() => StoreRect(rect, "r")), Try(() => RefRect(rect)),
+            Try(() => SpanOver(strings)), Try(() => ReadOnlySpanOver(strings)), Try(() => SpanOver(new object[2])),
+        ]);
+    }
+}

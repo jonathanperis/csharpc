@@ -32,10 +32,10 @@ public sealed class MemoryFacts(LlvmContext llvm)
     /// <summary>CSRT_MAX_STRING_LENGTH; csrt_string_alloc_* reject anything longer.</summary>
     public const long MaxStringLength = 0x3FFFFFDF;
 
-    private uint? _tbaaKind, _rangeKind, _noundefKind;
+    private uint? _tbaaKind, _rangeKind, _noundefKind, _invariantKind;
     private LLVMMetadataRef _root, _dataType, _fieldType;
     private readonly Dictionary<IFieldSymbol, LLVMValueRef> _fieldTags = new(SymbolEqualityComparer.Default);
-    private LLVMValueRef _arrayLengthTag, _stringLengthTag, _dataTag, _elementTag, _stringCharTag, _arrayLengthRange, _stringLengthRange, _empty;
+    private LLVMValueRef _arrayLengthTag, _methodTableTag, _stringLengthTag, _dataTag, _elementTag, _stringCharTag, _arrayLengthRange, _stringLengthRange, _empty;
 
     private uint Kind(ref uint? cache, string name) => cache ??= LLVMGetMDKindIDInContext(llvm.Ref, name, (uint)name.Length);
 
@@ -72,6 +72,19 @@ public sealed class MemoryFacts(LlvmContext llvm)
     {
         SetTbaa(load, ref _arrayLengthTag, "array length");
         SetRange(load, ref _arrayLengthRange, llvm.I64, MaxArrayLength);
+    }
+
+    /// <summary>
+    /// A load of an object's method table pointer. It is written only while the object is made (allocation,
+    /// then array tagging or a clone's retagging, before the object is used), so the load is `!invariant.load`:
+    /// the array covariance test (FunctionCodeGen.ArrayCovariance.cs) is hoisted out of loops, past its own
+    /// out-of-line slow call. LLVM still forwards the nearest must-alias store (the tagging one) to it.
+    /// </summary>
+    public void MethodTableLoad(LLVMValueRef load)
+    {
+        SetTbaa(load, ref _methodTableTag, "method table");
+        if (_empty.Handle == 0) _empty = AsValue(Node());
+        LLVMSetMetadata(load, Kind(ref _invariantKind, "invariant.load"), _empty);
     }
 
     /// <summary>An i32 load of string.Length.</summary>

@@ -71,9 +71,9 @@ public sealed partial class FunctionCodeGen
         return array;
     }
 
-    private LLVMValueRef MdElementAddress(IArrayElementReferenceOperation element, IArrayTypeSymbol arrayType)
+    private LLVMValueRef MdElementAddress(IArrayElementReferenceOperation element, IArrayTypeSymbol arrayType, out LLVMValueRef array)
     {
-        var array = EmitValue(element.ArrayReference);
+        array = EmitValue(element.ArrayReference);
         return MdElementAddress(array, arrayType, [.. element.Indices.Select(i => ToIndex(EmitValue(i), TypeOf(i)!))]);
     }
 

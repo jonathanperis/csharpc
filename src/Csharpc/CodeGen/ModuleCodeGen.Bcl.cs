@@ -179,26 +179,76 @@ public sealed partial class ModuleCodeGen
         // not their interfaces (and a corelib shadow is the same type as what it shadows).
         var key = "array:" + CoreLib.Map(TypeSubstitution.EraseTupleNames(elementType, Compilation)).ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
         if (_arrayMethodTables.TryGetValue(key, out var existing)) return existing;
-        var init = ArrayMethodTableInit(name, elementType, LlvmContext.Null(Llvm.Ptr), 0);
+        var tagged = new TaggedArray(name, elementType, default) { Element = LlvmContext.Null(Llvm.Ptr) };
+        var init = ArrayMethodTableInit(tagged, LlvmContext.Null(Llvm.Ptr), 0);
         var global = Module.AddGlobal("csrt.arraymt." + name, Native.LLVMTypeOf(init), init, constant: true, linkage: LLVMLinkage.Private);
-        _taggedArrays.Add(new TaggedArray(name, elementType, global));
+        tagged = tagged with { Global = global };
+        _taggedArrays.Add(tagged);
         RegisterTypeMethodTable(global, Compilation.CreateArrayTypeSymbol(elementType));
-        return _arrayMethodTables[key] = global;
+        _arrayMethodTables[key] = global;
+        // After registering: the element's table may lead back here (arrays of arrays, a class with T[] fields).
+        tagged.Element = ArrayElementMethodTable(elementType);
+        if (!tagged.Element.IsNull) Native.LLVMSetInitializer(global, ArrayMethodTableInit(tagged, LlvmContext.Null(Llvm.Ptr), 0));
+        return global;
     }
 
     /// <summary>
-    /// Header layout = TypeMapper.MethodTableHeader. The interface map is filled in once the program's
-    /// array interfaces are known (ModuleCodeGen.CoreLib.cs, RefreshArrayInterfaceMaps).
+    /// Header layout = TypeMapper.MethodTableHeader, then the vtable and the element type's method table
+    /// (csrt_ArrayMethodTable). The interface map is filled in once the program's array interfaces are known
+    /// (ModuleCodeGen.CoreLib.cs, RefreshArrayInterfaceMaps).
     /// </summary>
-    private LLVMValueRef ArrayMethodTableInit(string name, ITypeSymbol elementType, LLVMValueRef interfaceMap, int interfaceCount)
+    private LLVMValueRef ArrayMethodTableInit(TaggedArray array, LLVMValueRef interfaceMap, int interfaceCount)
     {
         string[] defaults = ["csrt_object_to_string_default", "csrt_object_equals_default", "csrt_object_get_hash_code_default"];
         var slots = defaults.Select(d => Runtime(d, Llvm.Ptr, Llvm.Ptr).Fn).ToArray();
-        var flags = Optimizations.HoldsNoReferences(elementType) ? 8 /* CSRT_MT_NO_REFERENCES */ : 0;
-        return Llvm.ConstStruct(ExternalGlobal("csrt_Array_MT"), CString(name), Llvm.ConstInt(Llvm.I32, 0), Llvm.ConstInt(Llvm.I32, flags),
+        var elementType = array.ElementType;
+        var flags = (Optimizations.HoldsNoReferences(elementType) ? 8 /* CSRT_MT_NO_REFERENCES */ : 0) | ArrayElementFlags(elementType);
+        return Llvm.ConstStruct(ExternalGlobal("csrt_Array_MT"), CString(array.Name), Llvm.ConstInt(Llvm.I32, 0), Llvm.ConstInt(Llvm.I32, flags),
             // reserved = the element size (Array.CreateInstanceFromArrayType allocates from the Type: csrt.c).
             interfaceMap, Llvm.ConstInt(Llvm.I32, interfaceCount), Llvm.ConstInt(Llvm.I32, (long)Types.Target.SizeOf(Types.Storage(elementType))),
-            LlvmContext.ConstArray(Llvm.Ptr, slots));
+            LlvmContext.ConstArray(Llvm.Ptr, slots), array.Element);
+    }
+
+    /// <summary>
+    /// csrt_MethodTable flags of an array type for casts between array types (csrt.c, array_assignable):
+    /// CSRT_MT_REFERENCE_ELEMENTS, or the reduced type of integer/enum elements (int[] is a uint[] in the CLR).
+    /// </summary>
+    private static int ArrayElementFlags(ITypeSymbol element)
+    {
+        if (element.IsReferenceType) return 512; // CSRT_MT_REFERENCE_ELEMENTS
+        var reduced = ReducedElementType(element) switch { "int8" => 1, "int16" => 2, "int32" => 3, "int64" => 4, "native int" => 5, _ => 0 };
+        return reduced << 12; // CSRT_MT_ELEMENT_CLASS_SHIFT
+    }
+
+    /// <summary>
+    /// The method table instances of an array's element type carry, for the CLR's array covariance checks
+    /// (csrt_array_store_check): only where one table identifies the type (the one `is`/castclass test
+    /// against, FunctionCodeGen.MethodTableFor), else null — no check, so a store can never throw wrongly.
+    /// </summary>
+    private LLVMValueRef ArrayElementMethodTable(ITypeSymbol element)
+    {
+        var none = LlvmContext.Null(Llvm.Ptr);
+        if (!element.IsReferenceType || TypeSubstitution.IsOpen(element)) return none;
+        var mapped = CoreLib.Map(element);
+        try
+        {
+            return mapped switch
+            {
+                { SpecialType: SpecialType.System_Object } => ExternalGlobal("csrt_Object_MT"),
+                { SpecialType: SpecialType.System_String } => ExternalGlobal("csrt_String_MT"),
+                { SpecialType: SpecialType.System_Array } => ExternalGlobal("csrt_Array_MT"),
+                IArrayTypeSymbol { IsSZArray: true } array => ArrayMethodTable(array.ElementType),
+                IArrayTypeSymbol array => MdArrayMethodTable(array),
+                INamedTypeSymbol { TypeKind: TypeKind.Interface } itf => InterfaceMethodTable(itf),
+                // Variant delegates convert between instantiations (each has its own table): no single table.
+                INamedTypeSymbol { TypeKind: TypeKind.Delegate } d when !FunctionCodeGen.MayBeVariant(d) => DelegateMethodTable(d),
+                // Runtime objects whose instances share one table whatever their static type (tasks, Type, CTS).
+                INamedTypeSymbol { Name: "Task" or "TaskCompletionSource" or "Type" or "CancellationTokenSource" or "ValueType" or "Enum" or "Delegate" or "MulticastDelegate" } => none,
+                INamedTypeSymbol { TypeKind: TypeKind.Class, IsStatic: false } c when IsUserType(c) || IsLibraryException(c) => GetLayout(c).MethodTable,
+                _ => none,
+            };
+        }
+        catch (CompileError) { return none; }
     }
 
     /// <summary>
@@ -212,14 +262,20 @@ public sealed partial class ModuleCodeGen
         if (_arrayMethodTables.TryGetValue(key, out var existing)) return existing;
         string[] defaults = ["csrt_object_to_string_default", "csrt_object_equals_default", "csrt_object_get_hash_code_default"];
         var slots = defaults.Select(d => Runtime(d, Llvm.Ptr, Llvm.Ptr).Fn).ToArray();
-        var flags = 32 /* CSRT_MT_MDARRAY */ | (Optimizations.HoldsNoReferences(array.ElementType) ? 8 /* CSRT_MT_NO_REFERENCES */ : 0);
+        var flags = 32 /* CSRT_MT_MDARRAY */ | (Optimizations.HoldsNoReferences(array.ElementType) ? 8 /* CSRT_MT_NO_REFERENCES */ : 0)
+            | (array.ElementType.IsReferenceType ? 512 /* CSRT_MT_REFERENCE_ELEMENTS */ : 0);
         var name = ClrName(array);
-        var init = Llvm.ConstStruct(ExternalGlobal("csrt_Array_MT"), CString(name), Llvm.ConstInt(Llvm.I32, 0), Llvm.ConstInt(Llvm.I32, flags),
+        LLVMValueRef Init(LLVMValueRef element) => Llvm.ConstStruct(ExternalGlobal("csrt_Array_MT"), CString(name), Llvm.ConstInt(Llvm.I32, 0), Llvm.ConstInt(Llvm.I32, flags),
             LlvmContext.Null(Llvm.Ptr), Llvm.ConstInt(Llvm.I32, 0), Llvm.ConstInt(Llvm.I32, array.Rank) /* reserved = rank */,
-            LlvmContext.ConstArray(Llvm.Ptr, slots));
+            LlvmContext.ConstArray(Llvm.Ptr, slots), element);
+        var init = Init(LlvmContext.Null(Llvm.Ptr));
         var global = Module.AddGlobal("csrt.mdarraymt." + name, Native.LLVMTypeOf(init), init, constant: true, linkage: LLVMLinkage.Private);
         RegisterTypeMethodTable(global, array);
-        return _arrayMethodTables[key] = global;
+        _arrayMethodTables[key] = global;
+        // The element type, as for one-dimensional arrays: stores into covariant rectangular arrays are checked too.
+        var element = ArrayElementMethodTable(array.ElementType);
+        if (!element.IsNull) Native.LLVMSetInitializer(global, Init(element));
+        return global;
     }
 
     /// <summary>A name-only method table identifying a library type for Type objects (never instantiated).</summary>

@@ -31,7 +31,12 @@ public sealed partial class FunctionCodeGen
         ThrowLibraryExceptionIf(failed, "System.ArgumentOutOfRangeException", "Specified argument was out of the range of valid values.");
 
     /// <summary>Span over an array's elements (null array → empty span), optionally a [start, start+length) window.</summary>
-    private LLVMValueRef ArraySpan(LLVMValueRef array, ITypeSymbol element, LLVMValueRef? start = null, LLVMValueRef? length = null)
+    /// <summary>Span&lt;T&gt; / Memory&lt;T&gt;, whose constructors from T[] check the array is exactly a T[] (array covariance).</summary>
+    private static bool IsWritableSpan(ITypeSymbol? type) => TypeMapper.IsSpan(type) && type!.MetadataName is "Span`1" or "Memory`1";
+
+    /// <param name="writable">new Span&lt;T&gt;(array) / new Memory&lt;T&gt;(array): ArrayTypeMismatchException unless the array is
+    /// exactly a T[] (checked after the null test, before the window, as .NET does).</param>
+    private LLVMValueRef ArraySpan(LLVMValueRef array, ITypeSymbol element, LLVMValueRef? start = null, LLVMValueRef? length = null, bool writable = false)
     {
         var header = T.ArrayHeader(T.Storage(element));
         var result = NewTemp(SpanType, "array.span");
@@ -40,6 +45,7 @@ public sealed partial class FunctionCodeGen
         var done = NewBlock("span.done");
         _b.CondBr(_b.ICmp(LLVMIntPredicate.EQ, array, LlvmContext.Null(L.Ptr)), start is null ? done : ThrowNullBlock(), nonNull);
         _b.PositionAtEnd(nonNull);
+        if (writable) ArrayExactTypeCheck(array, _m.Compilation.CreateArrayTypeSymbol(element));
         var count = _b.Cast(LLVMOpcode.Trunc, _b.Load(L.I64, _b.StructGep(header, array, 1)), L.I32);
         var data = _b.StructGep(header, array, 2);
         LLVMValueRef span;
@@ -92,7 +98,8 @@ public sealed partial class FunctionCodeGen
         var from = TypeOf(c.Operand);
         if (c.Operand is ICollectionExpressionOperation collection) return SpanFromCollection(collection, SpanElement(TypeOf(c)!));
         if (TypeMapper.IsSpan(from)) return EmitValue(c.Operand);
-        if (from is IArrayTypeSymbol { Rank: 1 } array) return ArraySpan(EmitValue(c.Operand), array.ElementType);
+        if (from is IArrayTypeSymbol { Rank: 1 } array)
+            return IsWritableSpan(TypeOf(c)) ? ArraySpan(EmitValue(c.Operand), SpanElement(TypeOf(c)!), writable: true) : ArraySpan(EmitValue(c.Operand), array.ElementType);
         if (from?.SpecialType == SpecialType.System_String) return StringSpan(EmitValue(c.Operand));
         if (from is null) return LlvmContext.Null(SpanType);
         if (TypeMapper.IsSystemStruct(_m.CoreLib.Unmap(from), "ArraySegment`1")) return ArraySegmentSpan(c.Operand);
@@ -248,10 +255,13 @@ public sealed partial class FunctionCodeGen
         switch (args.Length)
         {
             case 0: result = LlvmContext.Null(SpanType); return true;
-            case 1 when S(args[0].Parameter!.Type) is IArrayTypeSymbol: result = ArraySpan(Arg(0), element); return true;
+            case 1 when S(args[0].Parameter!.Type) is IArrayTypeSymbol: result = ArraySpan(Arg(0), element, writable: IsWritableSpan(type)); return true;
             // new Span<T>(ref x) / new ReadOnlySpan<T>(in x): a one-element span over the variable.
-            case 1 when args[0].Parameter!.RefKind != RefKind.None: result = MakeSpan(AddressOf(args[0].Value), L.ConstInt(L.I32, 1)); return true;
-            case 3 when S(args[0].Parameter!.Type) is IArrayTypeSymbol: result = ArraySpan(Arg(0), element, Arg(1), Arg(2)); return true;
+            case 1 when args[0].Parameter!.RefKind != RefKind.None:
+                result = MakeSpan(args[0].Parameter!.RefKind is RefKind.In or RefKind.RefReadOnlyParameter ? ReadOnlyAddressOf(args[0].Value) : AddressOf(args[0].Value),
+                    L.ConstInt(L.I32, 1));
+                return true;
+            case 3 when S(args[0].Parameter!.Type) is IArrayTypeSymbol: result = ArraySpan(Arg(0), element, Arg(1), Arg(2), IsWritableSpan(type)); return true;
             case 2 when S(args[0].Parameter!.Type) is IPointerTypeSymbol:
             {
                 var length = Arg(1);
@@ -507,7 +517,9 @@ public sealed partial class FunctionCodeGen
                 if (S(source.Parameter!.Type) is IArrayTypeSymbol)
                 {
                     var element = ((IArrayTypeSymbol)TypeOf(source.Value)!).ElementType;
-                    return ArraySpan(EmitValue(source.Value), element, start, length);
+                    // AsSpan<T>(T[]) / AsMemory<T>(T[]) are new Span<T>(array...) / new Memory<T>(array...).
+                    if (method.TypeArguments is [var t]) element = S(t);
+                    return ArraySpan(EmitValue(source.Value), element, start, length, writable: true);
                 }
                 var span = StringSpan(EmitValue(source.Value));
                 if (start is null) return span;

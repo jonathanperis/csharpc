@@ -115,6 +115,7 @@ public sealed partial class FunctionCodeGen
         // Prefixes apply to the next instruction.
         public ITypeSymbol? Constrained { get; set; }
         public bool Volatile { get; set; }
+        public bool Readonly { get; set; } // `readonly. ldelema`: no array covariance check
         public bool Tail { get; set; }
         public bool WarnedTail { get; set; }
     }

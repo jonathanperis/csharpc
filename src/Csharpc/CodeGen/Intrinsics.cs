@@ -109,9 +109,17 @@ internal static class Intrinsics
         // ---- System.Object / ToString ----------------------------------------------------------
         t["object..ctor()"] = (_, _) => default;
         // T[].Clone() (the static type gives the element type: all arrays share one method table).
-        t["System.Array.Clone()"] = (g, inv) => inv.Instance!.Type is IArrayTypeSymbol { Rank: 1 } array
-            ? g.CallCoreLibGeneric("ArrayChecks", "CloneArray", array.ElementType, g.EmitValue(inv.Instance!))
-            : throw CompileError.Unsupported("Array.Clone() on a receiver that is not statically a one-dimensional array", inv);
+        t["System.Array.Clone()"] = (g, inv) =>
+        {
+            if (inv.Instance!.Type is not IArrayTypeSymbol { Rank: 1 } array)
+                throw CompileError.Unsupported("Array.Clone() on a receiver that is not statically a one-dimensional array", inv);
+            var source = g.EmitValue(inv.Instance!);
+            var clone = g.CallCoreLibGeneric("ArrayChecks", "CloneArray", array.ElementType, source);
+            // The clone has the source's runtime type: an object[] that is a string[] clones to a string[].
+            if (FunctionCodeGen.NeedsCovarianceCheck(g.TypeOf(inv.Instance!) is IArrayTypeSymbol a ? a.ElementType : array.ElementType))
+                g.Builder.Store(g.Builder.Load(g.Module.Llvm.Ptr, source), clone);
+            return clone;
+        };
         // A shallow copy of a class instance: same method table, fields copied (the GC needs no barriers).
         t["object.MemberwiseClone()"] = (g, inv) =>
             g.CallRuntime("csrt_object_memberwise_clone", g.Module.Llvm.Ptr, [g.Module.Llvm.Ptr], g.EmitValue(inv.Instance!));

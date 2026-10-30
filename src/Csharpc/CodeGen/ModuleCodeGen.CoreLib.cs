@@ -31,6 +31,7 @@ public sealed partial class ModuleCodeGen
     private sealed record TaggedArray(string Name, ITypeSymbol ElementType, LLVMValueRef Global)
     {
         public int InterfaceCount { get; set; }
+        public LLVMValueRef Element { get; set; } // csrt_ArrayMethodTable.element
     }
 
     private readonly List<TaggedArray> _taggedArrays = [];
@@ -104,7 +105,7 @@ public sealed partial class ModuleCodeGen
             var mapInit = LlvmContext.ConstArray(entryType, entries);
             var map = Module.AddGlobal($"csrt.arraymap.{array.Name}.{interfaces.Count}", Native.LLVMTypeOf(mapInit), mapInit,
                 constant: true, linkage: LLVMLinkage.Private);
-            Native.LLVMSetInitializer(array.Global, ArrayMethodTableInit(array.Name, array.ElementType, map, interfaces.Count));
+            Native.LLVMSetInitializer(array.Global, ArrayMethodTableInit(array, map, interfaces.Count));
             array.InterfaceCount = interfaces.Count;
         }
         return changed;

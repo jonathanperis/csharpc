@@ -248,10 +248,19 @@ internal static partial class BclValueTypes
             return default;
         }
         if (de is null) throw CompileError.Unsupported($"'{m}' on a non-array argument", at);
-        if (!SymbolEqualityComparer.Default.Equals(e, de)
-            && !(e.IsReferenceType && de.IsReferenceType && g.Module.Compilation.ClassifyCommonConversion(e, de) is { IsImplicit: true, IsReference: true } or { IsIdentity: true }))
+        var references = e.IsReferenceType && de.IsReferenceType;
+        if (!SymbolEqualityComparer.Default.Equals(e, de) && !references)
             throw CompileError.Unsupported($"Array.Copy from {e}[] to {de}[] (element conversion)", at);
         g.CallCoreLib("ArrayChecks", "Copy", src, srcIndex, dst, dstIndex, length, longLength ? g.Llvm.True : g.Llvm.False);
+        // Between reference arrays the runtime element types decide (Array.CopyImpl): either array may be
+        // covariant, and object[] -> string[] casts each element. Arrays of sealed types need no check.
+        if (references && (FunctionCodeGen.NeedsCovarianceCheck(de)
+            || g.Module.Compilation.ClassifyCommonConversion(e, de) is not ({ IsImplicit: true, IsReference: true } or { IsIdentity: true })))
+        {
+            Rt(g, "csrt_array_copy_checked", g.Llvm.Void, (src, g.Llvm.Ptr), (srcIndex, g.Llvm.I64), (dst, g.Llvm.Ptr), (dstIndex, g.Llvm.I64),
+                (length, g.Llvm.I64), (g.Module.ArrayMethodTable(de), g.Llvm.Ptr));
+            return default;
+        }
         Rt(g, "csrt_array_copy", g.Llvm.Void, (src, g.Llvm.Ptr), (srcIndex, g.Llvm.I64), (dst, g.Llvm.Ptr), (dstIndex, g.Llvm.I64),
             (length, g.Llvm.I64), (I64(g, (long)g.Types.Target.SizeOf(g.Types.Storage(e))), g.Llvm.I64));
         return default;

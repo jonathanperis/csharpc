@@ -14,12 +14,12 @@ namespace Csharpc.CodeGen;
 /// </summary>
 public sealed partial class FunctionCodeGen
 {
-    private void IlCall(IlInstruction instruction, Stack<IlEntry> stack, ITypeSymbol? constrained)
+    private void IlCall(IlInstruction instruction, Stack<IlEntry> stack, ITypeSymbol? constrained, bool isReadonly = false)
     {
         var op = instruction.OpCode;
         if (IlAssembly.TryArrayAccessor(instruction.Token, IlBody.Context, out var mdArray, out var accessor, out var parameterCount))
         {
-            IlMdArrayAccessor(op, mdArray, accessor, parameterCount, stack);
+            IlMdArrayAccessor(op, mdArray, accessor, parameterCount, stack, isReadonly);
             return;
         }
         var method = IlMethod(instruction.Token);
@@ -54,7 +54,7 @@ public sealed partial class FunctionCodeGen
     /// The runtime-provided methods of a rectangular array type (ECMA-335 II.14.2): `newobj T[,]::.ctor(int32, int32)`,
     /// `call T[,]::Get/Set/Address`. Lower bounds (the 2 x rank constructor) are not supported.
     /// </summary>
-    private void IlMdArrayAccessor(ILOpCode op, IArrayTypeSymbol array, string name, int parameterCount, Stack<IlEntry> stack)
+    private void IlMdArrayAccessor(ILOpCode op, IArrayTypeSymbol array, string name, int parameterCount, Stack<IlEntry> stack, bool isReadonly)
     {
         var arrayType = (IArrayTypeSymbol)S(array);
         if (arrayType.IsSZArray) throw new IlException($"array accessor '{array}::{name}' on a vector");
@@ -84,14 +84,19 @@ public sealed partial class FunctionCodeGen
                 var value = Pop();
                 var indices = PopIndices(rank);
                 var target = IlRef(Pop());
-                StoreValue(ToStorage(IlTyped(value, array.ElementType), element), MdElementAddress(target, arrayType, indices));
+                var address = MdElementAddress(target, arrayType, indices);
+                var stored = IlTyped(value, array.ElementType);
+                ArrayStoreCheck(target, arrayType, stored); // as stelem.ref: a string[,] may be an object[,]
+                StoreValue(ToStorage(stored, element), address);
                 return;
             }
             case "Address" when parameterCount == rank:
             {
                 var indices = PopIndices(rank);
                 var target = IlRef(Pop());
-                stack.Push(new IlEntry(IlKind.ByRef, MdElementAddress(target, arrayType, indices), array.ElementType));
+                var address = MdElementAddress(target, arrayType, indices);
+                if (!isReadonly) ArrayExactTypeCheck(target, arrayType); // as ldelema
+                stack.Push(new IlEntry(IlKind.ByRef, address, array.ElementType));
                 return;
             }
         }
@@ -212,7 +217,8 @@ public sealed partial class FunctionCodeGen
         if (TypeMapper.IsSpan(to))
         {
             if (TypeMapper.IsSpan(from)) return IlPush(IlTyped(arg, method.Parameters[0].Type), method.ReturnType);
-            if (from is IArrayTypeSymbol { Rank: 1 } array) return IlPush(ArraySpan(IlTyped(arg, method.Parameters[0].Type), array.ElementType), method.ReturnType);
+            if (from is IArrayTypeSymbol { Rank: 1 } array)
+                return IlPush(ArraySpan(IlTyped(arg, method.Parameters[0].Type), array.ElementType, writable: IsWritableSpan(to)), method.ReturnType);
             if (from.SpecialType == SpecialType.System_String) return IlPush(StringSpan(IlTyped(arg, method.Parameters[0].Type)), method.ReturnType);
             // Span<T>/ReadOnlySpan<T>.op_Implicit(ArraySegment<T>): MemoryExtensions.AsSpan(segment) (the corelib's).
             if (method.Parameters[0].Type is INamedTypeSymbol { Name: "ArraySegment", Arity: 1 } segment

@@ -165,7 +165,7 @@ public sealed partial class FunctionCodeGen
         IFieldReferenceOperation { Field: { IsStatic: true, Name: "Zero", ContainingType.SpecialType: SpecialType.System_IntPtr or SpecialType.System_UIntPtr } } z =>
             Spill(LlvmContext.Null(T.Value(z.Field.Type))),
         IFieldReferenceOperation f => FieldAddress(f),
-        IArrayElementReferenceOperation a => ElementAddress(a),
+        IArrayElementReferenceOperation a => WritableElementAddress(a),
         IDeclarationExpressionOperation d => AddressOf(d.Expression),
         IInstanceReferenceOperation { ReferenceKind: InstanceReferenceKind.PatternInput } => Spill(PatternInputValue(target)),
         IInstanceReferenceOperation when InStructMember => _this, // `this = other;` in a struct
@@ -204,8 +204,9 @@ public sealed partial class FunctionCodeGen
             return SetCapturedProperty(pc, Coerce(EmitValue(a.Value), TypeOf(a.Value), pc.Property.Type));
 
         var targetType = TypeOf(a.Target)!;
-        var address = AddressOf(a.Target);           // C#: target sub-expressions are evaluated first
+        var address = StoreAddress(a.Target, out var covariant); // C#: target sub-expressions are evaluated first
         var value = Coerce(EmitValue(a.Value), TypeOf(a.Value), targetType);
+        if (covariant is { } c) ArrayStoreCheck(c.Array, c.Type, value);
         if (a.Target is IFieldReferenceOperation { Field.IsVolatile: true }) VolatileStore(value, address, targetType);
         else StoreValue(ToStorage(value, targetType), address);
         return value;
@@ -240,7 +241,8 @@ public sealed partial class FunctionCodeGen
     {
         if (a.Target is not ILocalReferenceOperation { Local.IsRef: true } refLocal)
             throw CompileError.Unsupported("ref assignment to anything but a ref local", a);
-        var address = AddressOf(a.Value);
+        // `ref readonly var x = ref a[i]` is readonly.-prefixed: no exact-type check of a covariant array.
+        var address = refLocal.Local.RefKind == RefKind.RefReadOnly ? ReadOnlyAddressOf(a.Value) : AddressOf(a.Value);
         _b.Store(address, RefLocalPointer(refLocal.Local));
         return IsAggregate(a.Type) || a.Type is null ? default : LoadValue(address, a.Type);
     }
@@ -273,8 +275,9 @@ public sealed partial class FunctionCodeGen
             _argumentCache = savedArgs;
             return result;
         }
-        var address = AddressOf(target);
+        var address = StoreAddress(target, out var covariant);
         var (updated, value) = modify(LoadValue(address, type));
+        if (covariant is { } c) ArrayStoreCheck(c.Array, c.Type, updated);
         StoreValue(ToStorage(updated, type), address);
         return value;
     }

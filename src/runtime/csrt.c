@@ -20,13 +20,16 @@ const csrt_BuiltinMethodTable csrt_String_MT = {
     // GetHashCode through object (Dictionary<object, ...>, HashSet<object>) must hash the contents, like Equals.
     { (void*)string_to_string, (void*)csrt_string_equals, (void*)csrt_string_get_hash_code },
 };
-const csrt_BuiltinMethodTable csrt_Array_MT = {
-    { &csrt_Object_MT.header, "System.Array", 0, 0 },
+// Untagged arrays (made by the runtime): references of unknown element type, or no references.
+const csrt_ArrayMethodTable csrt_Array_MT = {
+    { &csrt_Object_MT.header, "System.Array", 0, CSRT_MT_REFERENCE_ELEMENTS },
     { (void*)csrt_object_to_string_default, (void*)csrt_object_equals_default, (void*)csrt_object_get_hash_code_default },
+    NULL,
 };
-const csrt_BuiltinMethodTable csrt_PrimitiveArray_MT = {
+const csrt_ArrayMethodTable csrt_PrimitiveArray_MT = {
     { &csrt_Object_MT.header, "System.Array", 0, CSRT_MT_NO_REFERENCES },
     { (void*)csrt_object_to_string_default, (void*)csrt_object_equals_default, (void*)csrt_object_get_hash_code_default },
+    NULL,
 };
 const csrt_BuiltinMethodTable csrt_ValueType_MT = {
     { &csrt_Object_MT.header, "System.ValueType", 0, CSRT_MT_ABSTRACT },
@@ -461,10 +464,20 @@ static void* const* exact_interface_slots(const csrt_MethodTable* mt, const csrt
 }
 
 static bool variant_compatible(const csrt_MethodTable* from, const csrt_MethodTable* to, int depth);
+static bool array_assignable(const csrt_MethodTable* from, const csrt_MethodTable* to, int depth);
+
+/// A one-dimensional array type's method table (generated, synthesized or untagged: all have `element`).
+static inline bool is_szarray_mt(const csrt_MethodTable* mt) {
+    return (mt->base == &csrt_Array_MT.header && !(mt->flags & CSRT_MT_MDARRAY))
+        || mt == &csrt_Array_MT.header || mt == &csrt_PrimitiveArray_MT.header;
+}
+
+static inline const csrt_MethodTable* array_element(const csrt_MethodTable* mt) { return ((const csrt_ArrayMethodTable*)mt)->element; }
 
 /// Is a reference of runtime type `src` (a type-argument MT) assignable to type-argument `dst`?
 static bool argument_assignable(const csrt_MethodTable* src, const csrt_MethodTable* dst, int depth) {
     if (src == dst || dst == &csrt_Object_MT.header) return true;
+    if (dst->base == &csrt_Array_MT.header && !(dst->flags & CSRT_MT_MDARRAY)) return array_assignable(src, dst, depth);
     if (dst->flags & CSRT_MT_INTERFACE) {
         if (src->flags & CSRT_MT_INTERFACE) return variant_compatible(src, dst, depth + 1);
         if (exact_interface_slots(src, dst)) return true;
@@ -494,6 +507,21 @@ static bool variant_compatible(const csrt_MethodTable* from, const csrt_MethodTa
         return false;
     }
     return true;
+}
+
+/// Array covariance (ECMA-335 I.8.7.1): `from` (an object's method table) is a one-dimensional array usable as
+/// the one-dimensional array type `to`: integer/enum elements of one reduced type, or reference elements
+/// assignable to `to`'s. An element type csharpc can't identify (NULL) only matches itself and object.
+__attribute__((noinline)) static bool array_assignable(const csrt_MethodTable* from, const csrt_MethodTable* to, int depth) {
+    if (from == to) return true;
+    if (depth > 8 || !is_szarray_mt(from)) return false;
+    uint32_t to_class = (to->flags >> CSRT_MT_ELEMENT_CLASS_SHIFT) & 15;
+    if (to_class) return to_class == ((from->flags >> CSRT_MT_ELEMENT_CLASS_SHIFT) & 15);
+    const csrt_MethodTable* te = array_element(to);
+    const csrt_MethodTable* fe = array_element(from);
+    if (!te || !(from->flags & CSRT_MT_REFERENCE_ELEMENTS)) return false;
+    if (te == &csrt_Object_MT.header || fe == te) return true;
+    return fe && argument_assignable(fe, te, depth + 1);
 }
 
 static void* const* variant_interface_slots(const csrt_MethodTable* mt, const csrt_MethodTable* itf) {
@@ -553,12 +581,63 @@ void* csrt_isinst_class(void* obj, const csrt_MethodTable* type) {
     }
     for (const csrt_MethodTable* mt = objmt; mt; mt = mt->base)
         if (mt == type) return obj;
+    if (type->base == &csrt_Array_MT.header && !(type->flags & CSRT_MT_MDARRAY)) return array_assignable(objmt, type, 0) ? obj : NULL;
     if (type == &csrt_ValueType_MT.header) return (objmt->flags & CSRT_MT_VALUE_TYPE) ? obj : NULL;
     if (type == &csrt_Enum_MT.header) return (objmt->flags & CSRT_MT_ENUM) ? obj : NULL;
     // `is System.Array`: element-typed array tables derive from csrt_Array_MT; arrays the runtime
     // allocated untagged may still carry the GC's primitive-array table.
     if (type == &csrt_Array_MT.header && objmt == &csrt_PrimitiveArray_MT.header) return obj;
     return NULL;
+}
+
+// ---------------------------------------------------------------------------------------------
+// Array covariance: generated code compares the array's method table with its static type's inline
+// and calls these only when they differ (a covariant array, or one the runtime allocated).
+// ---------------------------------------------------------------------------------------------
+
+/// stelem.ref: `value` must fit the array's actual element type (null always does).
+__attribute__((noinline)) void csrt_array_store_check(void* array, void* value) {
+    if (!value) return;
+    const csrt_MethodTable* element = array_element(((csrt_Object*)array)->mt);
+    if (!element || element == &csrt_Object_MT.header || ((csrt_Object*)value)->mt == element) return;
+    if (!csrt_isinst_class(value, element)) csrt_throw_array_type_mismatch();
+}
+
+/// ldelema (without readonly.) and new Span<T>(T[]): the array's element type must be exactly the
+/// static one (`expected` is the static array type's method table).
+__attribute__((noinline)) void csrt_array_exact_check(void* array, const csrt_MethodTable* expected) {
+    const csrt_MethodTable* element = array_element(((csrt_Object*)array)->mt);
+    const csrt_MethodTable* wanted = array_element(expected);
+    if (element && wanted && element != wanted) csrt_throw_array_type_mismatch();
+}
+
+/// Array.Copy between reference-element arrays (Array.CopyImpl's CanAssignArrayType): a plain copy when the
+/// source's element type is assignable to the destination's, a cast per element when the destination's
+/// element type could be one of the source's (InvalidCastException at the first misfit, after copying the
+/// elements before it), else ArrayTypeMismatchException. `destination_type` (or NULL): the destination's static
+/// array type, whose element type stands in for a destination's own one csharpc can't identify.
+void csrt_array_copy_checked(void* source, int64_t source_index, void* destination, int64_t destination_index, int64_t length,
+                             const csrt_MethodTable* destination_type) {
+    const csrt_MethodTable* from = ((csrt_Object*)source)->mt;
+    const csrt_MethodTable* to = ((csrt_Object*)destination)->mt;
+    void** src = (void**)((csrt_Array*)source)->data + source_index;
+    void** dst = (void**)((csrt_Array*)destination)->data + destination_index;
+    const csrt_MethodTable* de = array_element(to) ? array_element(to) : destination_type ? array_element(destination_type) : NULL;
+    if (from == to || !de || de == &csrt_Object_MT.header || array_assignable(from, to, 0)
+        || ((from->flags & CSRT_MT_REFERENCE_ELEMENTS) && array_element(from) == de)) {
+        memmove(dst, src, (size_t)length * sizeof(void*));
+        return;
+    }
+    const csrt_MethodTable* se = array_element(from);
+    if (se && !(se->flags & CSRT_MT_INTERFACE) && !(de->flags & CSRT_MT_INTERFACE) && !argument_assignable(de, se, 0)) {
+        csrt_throw_array_copy_mismatch();
+        return;
+    }
+    for (int64_t i = 0; i < length; i++) {
+        void* o = src[i];
+        if (o && !csrt_isinst_class(o, de)) { csrt_throw_invalid_cast_from(((csrt_Object*)o)->mt, de); return; }
+        dst[i] = o;
+    }
 }
 
 _Noreturn void csrt_unsupported_method(const char* message) {

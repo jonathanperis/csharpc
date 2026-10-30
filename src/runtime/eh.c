@@ -57,6 +57,7 @@ DEF_EXC(System_ArithmeticException, "System.ArithmeticException", &csrt_MT_Syste
 DEF_EXC(System_DivideByZeroException, "System.DivideByZeroException", &csrt_MT_System_ArithmeticException.header)
 DEF_EXC(System_OverflowException, "System.OverflowException", &csrt_MT_System_ArithmeticException.header)
 DEF_EXC(System_InvalidCastException, "System.InvalidCastException", &csrt_MT_System_SystemException.header)
+DEF_EXC(System_ArrayTypeMismatchException, "System.ArrayTypeMismatchException", &csrt_MT_System_SystemException.header)
 DEF_EXC(System_FormatException, "System.FormatException", &csrt_MT_System_SystemException.header)
 DEF_EXC(System_Threading_ThreadStateException, "System.Threading.ThreadStateException", &csrt_MT_System_SystemException.header)
 DEF_EXC(System_Threading_SynchronizationLockException, "System.Threading.SynchronizationLockException",
@@ -702,6 +703,12 @@ void csrt_throw_negate_overflow(void) {
 }
 void csrt_throw_invalid_cast(void) {
     csrt_throw_object(new_exception(&csrt_MT_System_InvalidCastException, "Specified cast is not valid."));
+}
+void csrt_throw_array_type_mismatch(void) {
+    csrt_throw_object(new_exception(&csrt_MT_System_ArrayTypeMismatchException, "Attempted to access an element as a type incompatible with the array."));
+}
+void csrt_throw_array_copy_mismatch(void) {
+    csrt_throw_object(new_exception(&csrt_MT_System_ArrayTypeMismatchException, "Source array type cannot be assigned to destination array type."));
 }
 void csrt_throw_invalid_cast_from(const csrt_MethodTable* from, const csrt_MethodTable* to) {
     char buffer[1024];

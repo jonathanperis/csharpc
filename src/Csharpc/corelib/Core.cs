@@ -166,6 +166,8 @@ namespace CsharpcCoreLib
         // Array.CreateInstanceFromArrayType (runtime/csrt.c): 0 one-dimensional array type, 1 not an array type, 2 multi-dimensional.
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern int csrt_array_type_kind(Type type);
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern Array csrt_array_new_of_type(Type type, int length);
+        // Array.Copy's element copy between reference arrays, with the CLR's covariance rules (runtime/csrt.c).
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern void csrt_array_copy_checked(Array source, long sourceIndex, Array destination, long destinationIndex, long length, object destinationType);
         // Waits of the runtime's events/semaphores that a CancellationToken can end (runtime/threads.c).
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern int csrt_event_wait_token(object e, int milliseconds, object source);
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern void csrt_event_kick(object e);
