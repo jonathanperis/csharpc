@@ -986,7 +986,10 @@ bool csrt_event_wait(csrt_Event* e, int32_t ms) {
             return false;
         }
         if (!entered) { csrt_pool_enter_blocking_wait(); entered = true; }
-        int rc = interruptible_wait(e->cond, e->mutex, ms > 0 ? &deadline : NULL, true);
+        // single: every poll slice returns so the ready predicate is re-checked. With a Thread
+        // object, interruptible_wait's internal slices only watch Thread.Interrupt — a swallowed
+        // Set/kick broadcast then parked forever (macOS 544).
+        int rc = interruptible_wait_core(e->cond, e->mutex, ms > 0 ? &deadline : NULL, true, true);
         if (rc == EINTR) {
             pthread_mutex_unlock(e->mutex);
             if (entered) csrt_pool_leave_blocking_wait();
@@ -1036,7 +1039,9 @@ int32_t csrt_event_wait_token(csrt_Event* e, int32_t ms, const int32_t* source) 
             return 0;
         }
         if (!entered) { csrt_pool_enter_blocking_wait(); entered = true; }
-        int rc = interruptible_wait(e->cond, e->mutex, ms > 0 ? &deadline : NULL, true);
+        // single: re-check source->canceled every poll slice. CancelAfter sets that flag on the
+        // timer thread; a lost kick must not leave Wait(token) parked until the process timeout.
+        int rc = interruptible_wait_core(e->cond, e->mutex, ms > 0 ? &deadline : NULL, true, true);
         if (rc == EINTR) {
             pthread_mutex_unlock(e->mutex);
             if (entered) csrt_pool_leave_blocking_wait();
