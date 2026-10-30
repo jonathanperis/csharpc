@@ -1,0 +1,15 @@
+0 -> 0 -> 0 True
+1.9 -> 1 -> 1 True
+-1.9 -> -1 -> -1 True
+123456789012345678901234567.89 -> 123456789012345678901234567 -> 123456789012345678901234567 True
+79228162514264337593543950335 -> 79228162514264337593543950335 -> 79228162514264337593543950335 True
+-79228162514264337593543950335 -> -79228162514264337593543950335 -> -79228162514264337593543950335 True
+-0.5 -> 0 -> 0 True
+79228162514264337593543950335
+-79228162514264337593543950335
+Value was either too large or too small for a Decimal.
+Value was either too large or too small for an Int128.
+Value was either too large or too small for a Decimal.
+Value was either too large or too small for an Int128.
+Value was either too large or too small for a Decimal.
+Value was either too large or too small for an Int128.

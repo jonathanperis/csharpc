@@ -340,6 +340,30 @@ namespace CsharpcCoreLib
             };
         }
 
+        /// <summary>
+        /// (decimal)BigInteger: at most 96 bits of magnitude. .NET 11 converts through Int128, so a value outside
+        /// Int128's range overflows with Int128's message and one inside it but over 96 bits with Decimal's.
+        /// </summary>
+        internal static decimal ToDecimal(uint[] a)
+        {
+            int n = LengthOf(a);
+            if (n == 0) return 0m;
+            if (n > 3)
+            {
+                bool int128 = n == 4 && (a[4] < 0x80000000u
+                    || (a[0] != 1 && a[4] == 0x80000000u && a[1] == 0 && a[2] == 0 && a[3] == 0)); // Int128.MinValue
+                throw new OverflowException(int128 ? "Value was either too large or too small for a Decimal." : "Value was either too large or too small for an Int128.");
+            }
+            return new decimal((int)a[1], n > 1 ? (int)a[2] : 0, n > 2 ? (int)a[3] : 0, a[0] != 1, 0);
+        }
+
+        /// <summary>(BigInteger)decimal / new BigInteger(decimal): the integral part, truncated toward zero.</summary>
+        internal static uint[] FromDecimal(decimal d)
+        {
+            int[] bits = decimal.GetBits(decimal.Truncate(d));
+            return Make(d < 0 ? -1 : 1, new uint[] { (uint)bits[0], (uint)bits[1], (uint)bits[2] }, 0, 3);
+        }
+
         internal static double ToDouble(uint[] a)
         {
             if (a == null) return 0;

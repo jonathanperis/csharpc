@@ -896,6 +896,7 @@ internal static partial class BclValueTypes
         }
         BclHandler fromDouble = (g, _, _, a, _) => Rt(g, "csrt_bigint_from_f64", g.Llvm.Ptr, (ToF64(g, a[0]), g.Llvm.F64));
         t[$"{B}.op_Explicit(double)"] = t[$"{B}.op_Explicit(float)"] = t[$"{B}..ctor(double)"] = t[$"{B}..ctor(float)"] = fromDouble;
+        t[$"{B}.op_Explicit(decimal)"] = t[$"{B}..ctor(decimal)"] = (g, _, _, a, _) => g.CallCoreLib("BigIntegerOps", "FromDecimal", a[0]);
         t[$"{B}.op_Explicit({B})"] = (g, m, _, a, at) =>
         {
             var l = g.Llvm;
@@ -903,6 +904,7 @@ internal static partial class BclValueTypes
             if (to.SpecialType == SpecialType.System_Double) return Rt(g, "csrt_bigint_to_f64", l.F64, (a[0], l.Ptr));
             if (to.SpecialType == SpecialType.System_Single)
                 return g.Builder.Cast(LLVMOpcode.FPTrunc, Rt(g, "csrt_bigint_to_f64", l.F64, (a[0], l.Ptr)), l.F32);
+            if (to.SpecialType == SpecialType.System_Decimal) return g.CallCoreLib("BigIntegerOps", "ToDecimal", a[0]);
             var small = to.SpecialType switch
             {
                 SpecialType.System_SByte => 1, SpecialType.System_Byte => 2, SpecialType.System_Int16 => 3,
