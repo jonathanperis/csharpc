@@ -87,8 +87,10 @@ public sealed partial class ModuleCodeGen
     /// <summary>
     /// Array.CreateInstance looks up T[] in the TypeInfo table; binders then cast to IEnumerable&lt;T&gt;.
     /// Keep T[] for element types of closed array interfaces the program already has method tables for
-    /// (DI open-generic casts close T at run time but the closed IEnumerable&lt;U&gt; MT exists), plus
-    /// requested array interfaces and reflection-kept types — not every TypeInfo entry.
+    /// (DI open-generic casts close T at run time but the closed IEnumerable&lt;U&gt; MT exists) and
+    /// requested array interfaces — not every TypeInfo entry. Reflection-kept types don't need one
+    /// (an array of a reference type is synthesized at run time; GetCustomAttributes' arrays come with
+    /// the attribute metadata), and keeping theirs added 0.35 MB to the TechEmpower app.
     /// </summary>
     private void EnsureCreateInstanceArrays()
     {
@@ -112,7 +114,6 @@ public sealed partial class ModuleCodeGen
             // So RefreshArrayInterfaceMaps puts IEnumerable<U> on U[] (open-generic binder casts).
             RequestArrayInterface(named);
         }
-        foreach (var entry in _reflectionOrder) KeepArrayOf(entry.Type);
     }
 
     private bool EmitTypeMetadata()
