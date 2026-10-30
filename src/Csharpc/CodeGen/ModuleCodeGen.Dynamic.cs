@@ -87,6 +87,8 @@ public sealed partial class ModuleCodeGen
     {
         IArrayTypeSymbol array => !TypeSubstitution.IsOpen(array),
         INamedTypeSymbol { TypeKind: TypeKind.Interface or TypeKind.Error } => false,
+        // System.Type stands for the runtime's Type objects (RuntimeType on .NET).
+        INamedTypeSymbol { Name: "Type", ContainingNamespace: { Name: "System", ContainingNamespace.IsGlobalNamespace: true } } => true,
         INamedTypeSymbol { IsStatic: true } or INamedTypeSymbol { TypeKind: TypeKind.Class, IsAbstract: true } => false,
         INamedTypeSymbol named => !named.IsUnboundGenericType && !TypeSubstitution.IsOpen(named) && !TypeMapper.IsNullable(named)
             && named.SpecialType is not (SpecialType.System_Void or SpecialType.System_ValueType or SpecialType.System_Enum
@@ -106,6 +108,10 @@ public sealed partial class ModuleCodeGen
         }
         RegisterTypeMethodTable(ExternalGlobal("csrt_String_MT"), Compilation.GetSpecialType(SpecialType.System_String));
         RegisterTypeMethodTable(ExternalGlobal("csrt_Object_MT"), Compilation.GetSpecialType(SpecialType.System_Object));
+        // Type objects are runtime objects with one method table; .NET's RuntimeType is internal, so the binder
+        // sees System.Type. (Tasks share one table across Task<T> instantiations: they stay unknown, and a
+        // dynamic member access on one fails explicitly.)
+        if (Compilation.GetTypeByMetadataName("System.Type") is { } systemType) RegisterTypeMethodTable(ExternalGlobal("csrt_Type_MT"), systemType);
     }
 
     // ======================================================================================

@@ -107,7 +107,7 @@ public sealed partial class FunctionCodeGen
 
     private LLVMValueRef CallDynamicSite(IOperation at, string part, DynamicCall call, DynamicKind kind, Action<DynamicSiteBuilder>? configure = null)
     {
-        var key = $"{RuntimeHelpers.GetHashCode(at.Syntax.SyntaxTree)}:{at.Syntax.SpanStart}:{at.Syntax.Span.Length}:{at.Syntax.RawKind}:{part}|{_subst.Key}";
+        var key = $"{RuntimeHelpers.GetHashCode(at.Syntax.SyntaxTree)}:{at.Syntax.SpanStart}:{at.Syntax.Span.Length}:{at.Syntax.RawKind}:{kind}:{part}|{_subst.Key}";
         var site = _m.DynamicSiteFor(key, () =>
         {
             var builder = new DynamicSiteBuilder { Kind = kind, Operands = call.Operands };

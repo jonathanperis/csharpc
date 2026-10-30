@@ -1008,13 +1008,16 @@ public sealed partial class ModuleCodeGen
             bool b => b ? "true" : "false",
             string s => SyntaxFactory.Literal(s).Text,
             char c => SyntaxFactory.Literal(c).Text,
-            int i => SyntaxFactory.Literal(i).Text,
-            uint u => SyntaxFactory.Literal(u).Text,
-            long l => SyntaxFactory.Literal(l).Text,
-            ulong ul => SyntaxFactory.Literal(ul).Text,
-            float f => float.IsFinite(f) ? SyntaxFactory.Literal(f).Text : f switch { float.NaN => "global::System.Single.NaN", > 0 => "global::System.Single.PositiveInfinity", _ => "global::System.Single.NegativeInfinity" },
-            double d => double.IsFinite(d) ? SyntaxFactory.Literal(d).Text : d switch { double.NaN => "global::System.Double.NaN", > 0 => "global::System.Double.PositiveInfinity", _ => "global::System.Double.NegativeInfinity" },
-            decimal m => SyntaxFactory.Literal(m).Text,
+            // Explicit suffixes: Roslyn's literal text of 2.0 is "2", an int (a different binding).
+            int i => i.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            uint u => u.ToString(System.Globalization.CultureInfo.InvariantCulture) + "U",
+            long l => l.ToString(System.Globalization.CultureInfo.InvariantCulture) + "L",
+            ulong ul => ul.ToString(System.Globalization.CultureInfo.InvariantCulture) + "UL",
+            float f => float.IsFinite(f) ? f.ToString("R", System.Globalization.CultureInfo.InvariantCulture) + "F"
+                : f switch { float.NaN => "global::System.Single.NaN", > 0 => "global::System.Single.PositiveInfinity", _ => "global::System.Single.NegativeInfinity" },
+            double d => double.IsFinite(d) ? d.ToString("R", System.Globalization.CultureInfo.InvariantCulture) + "D"
+                : d switch { double.NaN => "global::System.Double.NaN", > 0 => "global::System.Double.PositiveInfinity", _ => "global::System.Double.NegativeInfinity" },
+            decimal m => m.ToString(System.Globalization.CultureInfo.InvariantCulture) + "M",
             sbyte or byte or short or ushort => Convert.ToString(value, System.Globalization.CultureInfo.InvariantCulture)!,
             _ => throw CompileError.Unsupported($"dynamic argument constant of type {value.GetType().Name}"),
         };
