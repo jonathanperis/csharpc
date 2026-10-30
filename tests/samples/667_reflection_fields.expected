@@ -1,0 +1,44 @@
+public: System.String Name static=False literal=False initonly=False declared=Derived
+public: System.Nullable`1[System.Int32] Maybe static=False literal=False initonly=False declared=Derived
+public: System.String Frozen static=True literal=False initonly=True declared=Derived
+public: Int64 Counter static=True literal=False initonly=False declared=Derived
+public: Int32 Answer static=True literal=True initonly=False declared=Derived
+public: System.String Greeting static=True literal=True initonly=False declared=Derived
+public: Int32 BaseValue static=False literal=False initonly=False declared=Base
+nonpublic: _id private=True family=False
+nonpublic: <Auto>k__BackingField private=True family=False
+nonpublic: Hidden private=False family=True
+flatten: Frozen
+flatten: Counter
+flatten: Answer
+flatten: Greeting
+flatten: BaseCount
+declared: Name
+declared: Maybe
+derived
+changed
+11
+True
+4
+100
+9.75
+True
+True
+Name
+42
+42
+hi
+10
+frozen
+(1, 20)
+1
+Red = Red (1) Warm Color
+Green = Green (2) - Color
+Blue = Blue (4) Cool Color
+TargetException: Non-static field requires a target.
+ArgumentException: Field 'Name' defined on type 'Derived' is not a field on the target object which is of type 'System.String'.
+ArgumentException: Object of type 'System.Int32' cannot be converted to type 'System.String'.
+FieldAccessException: Cannot set a constant field.
+FieldAccessException: Cannot set initonly static field 'Frozen' after type 'Derived' is initialized.
+InvalidOperationException: Operation is not valid due to the current state of the object.
+True

@@ -475,6 +475,18 @@ namespace CsharpcCoreLib
         internal static int InfoAttributeCount(byte* i) => *(int*)(i + 5 * P + 8);
         internal static int InfoDescribed(byte* i) => *(int*)(i + 5 * P + 12);
         internal static int InfoPropertyCount(byte* i) => *(int*)(i + 5 * P + 16);
+        internal static int InfoFieldCount(byte* i) => *(int*)(i + 5 * P + 20);
+        internal static byte* InfoFields(byte* i) => (byte*)*(nint*)(i + 5 * P + 24);
+        // csrt_FieldRecord
+        internal static int FieldSize => 6 * P + 8;
+        internal static byte* FieldName(byte* f) => (byte*)*(nint*)f;
+        internal static nint FieldDeclaring(byte* f) => *(nint*)(f + P);
+        internal static nint FieldType(byte* f) => *(nint*)(f + 2 * P);
+        internal static nint FieldGet(byte* f) => *(nint*)(f + 3 * P);
+        internal static nint FieldSet(byte* f) => *(nint*)(f + 4 * P);
+        internal static byte* FieldAttributes(byte* f) => (byte*)*(nint*)(f + 5 * P);
+        internal static int FieldAttributeCount(byte* f) => *(int*)(f + 6 * P);
+        internal static int FieldFlags(byte* f) => *(int*)(f + 6 * P + 4);
         // csrt_PropertyRecord
         internal static int PropertySize => 5 * P + 8;
         internal static byte* PropertyName(byte* p) => (byte*)*(nint*)p;

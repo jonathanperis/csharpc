@@ -306,7 +306,8 @@ void* csrt_gc_object_base(const void* p);   // the heap object an interior point
 // Which member kinds an entry lists (DynamicallyAccessedMemberTypes they were kept for).
 enum { CSRT_RI_PUBLIC_CONSTRUCTORS = 1, CSRT_RI_NONPUBLIC_CONSTRUCTORS = 2, CSRT_RI_PUBLIC_METHODS = 4,
        CSRT_RI_NONPUBLIC_METHODS = 8, CSRT_RI_ATTRIBUTES = 16, CSRT_RI_PUBLIC_PROPERTIES = 32, CSRT_RI_NONPUBLIC_PROPERTIES = 64,
-       CSRT_RI_ATTRIBUTES_UNKNOWN = 128 /* the type's attributes can't be listed exactly: querying them throws */ };
+       CSRT_RI_ATTRIBUTES_UNKNOWN = 128 /* the type's attributes can't be listed exactly: querying them throws */,
+       CSRT_RI_PUBLIC_FIELDS = 256, CSRT_RI_NONPUBLIC_FIELDS = 512 };
 enum { CSRT_PROPERTY_PUBLIC = 1 /* an accessor is public */, CSRT_PROPERTY_STATIC = 2 };
 typedef struct csrt_PropertyRecord {
     const char* name;
@@ -317,6 +318,16 @@ typedef struct csrt_PropertyRecord {
     uint32_t attribute_count;
     uint32_t flags;                            // CSRT_PROPERTY_*
 } csrt_PropertyRecord;
+typedef struct csrt_FieldRecord {
+    const char* name;
+    const csrt_MethodTable* declaring;
+    const csrt_MethodTable* type;
+    void* (*get)(void* target);                // object GetValue(object target): boxed; target NULL for static fields
+    void (*set)(void* target, void* value);    // SetValue (throws for constants)
+    const csrt_AttributeRecord* attributes;
+    uint32_t attribute_count;
+    uint32_t field_attributes;                 // FieldAttributes
+} csrt_FieldRecord;
 typedef struct csrt_ReflectionInfo {
     const csrt_MethodTable* mt;
     const csrt_MethodRecord* constructors;
@@ -328,7 +339,8 @@ typedef struct csrt_ReflectionInfo {
     uint32_t attribute_count;
     uint32_t described;                        // CSRT_RI_*
     uint32_t property_count;
-    uint32_t reserved;
+    uint32_t field_count;
+    const csrt_FieldRecord* fields;
 } csrt_ReflectionInfo;
 typedef struct { int64_t count; const csrt_ReflectionInfo* entries; } csrt_ReflectionTable;
 

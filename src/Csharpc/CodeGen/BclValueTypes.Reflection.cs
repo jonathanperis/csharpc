@@ -91,6 +91,11 @@ internal static partial class BclValueTypes
         t[$"{Type}.GetProperty(string, System.Type)"] = propertyLookup("GetPropertyNameReturn");
         t[$"{Type}.GetProperty(string, System.Type, System.Type[])"] = propertyLookup("GetPropertyNameReturnTypes");
         t[$"{Type}.GetProperty(string, System.Reflection.BindingFlags, System.Reflection.Binder, System.Type, System.Type[], System.Reflection.ParameterModifier[])"] = propertyLookup("GetPropertyFull");
+        BclHandler fieldLookup(string method) => (g, _, self, a, _) => g.CallCoreLib("FieldReflection", method, [self, .. a]);
+        t[$"{Type}.GetFields()"] = fieldLookup("GetFieldsAll");
+        t[$"{Type}.GetFields(System.Reflection.BindingFlags)"] = fieldLookup("GetFieldsFlags");
+        t[$"{Type}.GetField(string)"] = fieldLookup("GetFieldName");
+        t[$"{Type}.GetField(string, System.Reflection.BindingFlags)"] = fieldLookup("GetFieldNameFlags");
         // A type's own attributes: the program keeps those of every type and generic parameter once it asks.
         BclHandler typeAttributes(string method) => (g, _, self, a, _) =>
         {

@@ -31,12 +31,12 @@ csharpc keeps reflection metadata the same way, generated at compile time by
 
 1. **What is kept (the dataflow).** A type's members of the kinds DAM names
    (`PublicConstructors`, `NonPublicConstructors`, `PublicMethods`, `NonPublicMethods`, `PublicProperties`,
-   `NonPublicProperties`) are kept when:
+   `NonPublicProperties`, `PublicFields`, `NonPublicFields`) are kept when:
    - a `typeof(X)` argument flows into an annotated parameter (both front-ends,
      `NoteDynamicallyAccessedArguments`);
    - a generic method or type is instantiated with `X` for an annotated type parameter
      (`NoteDynamicallyAccessedInstantiation`), e.g. `services.AddSingleton<TService, TImpl>()`;
-   - `typeof(X).GetMethod/GetProperty/GetConstructor(...)` is called on a statically known `X`
+   - `typeof(X).GetMethod/GetProperty/GetField/GetConstructor(...)` is called on a statically known `X`
      (`NoteReflectedType`). With a constant name only the members called that are kept, as ILLink does.
      A type described by name is listed again in full, in RuntimeType's order, once something asks for
      all of a kind.
@@ -52,7 +52,9 @@ csharpc keeps reflection metadata the same way, generated at compile time by
    constructors, methods, properties, attributes, and which kinds were kept), `csrt_MethodRecord`
    (name, declaring type, return type, parameters with names, attributes and default-value factories,
    method attributes, an *invoke stub*, and the function itself for `CreateDelegate`), and
-   `csrt_PropertyRecord` (name, type, accessor records, attributes). Attributes are factories that
+   `csrt_PropertyRecord` (name, type, accessor records, attributes), and `csrt_FieldRecord` (name, declaring
+   type, type, a getter and setter stub, attributes, `FieldAttributes`; listed in CoreCLR's order: instance
+   fields, static fields, constants, then the non-private fields of base types). Attributes are factories that
    construct the attribute object on demand. The layouts are in `src/runtime/csrt.h`, mirrored by
    `ReflectionRecords` in the corelib.
 3. **Invocation.** Each invokable method gets a generated stub `object Invoke(object target, object[] args)`
@@ -82,8 +84,10 @@ csharpc keeps reflection metadata the same way, generated at compile time by
 - A program that reflects over members its code never names through DAM or a constant `typeof`
   pattern gets an explicit `NotSupportedException` where the JIT would answer. NativeAOT has the same
   boundary, with trimming warnings at compile time; csharpc doesn't issue those warnings yet.
-- Not covered yet: fields (`GetFields`, `FieldInfo`), events, `GetInterfaces`, `Activator.CreateInstance(Type)`, `MakeGenericMethod`,
+- Fields: a type whose non-public fields csharpc can't see (a reference-assembly base type) or a field it
+  can't describe (fixed buffers, ref fields) leaves that kind undescribed, so asking for it throws.
+- Not covered yet: events, `GetInterfaces`, `Activator.CreateInstance(Type)`, `MakeGenericMethod`,
   `GetBaseDefinition` of overrides, inherited attribute lookup on overrides. Each is an explicit
   `NotSupportedException` or compile-time error until it is added in the same scheme.
 - Tests: `tests/samples/604_reflection_constructors`, `617_reflection_create_delegate`,
-  `623_reflection_properties`, plus the DI and hosting paths exercised by the TechEmpower workflow.
+  `623_reflection_properties`, `667_reflection_fields`, plus the DI and hosting paths exercised by the TechEmpower workflow.

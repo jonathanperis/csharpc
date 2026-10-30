@@ -670,9 +670,10 @@ public sealed partial class FunctionCodeGen
             "GetProperty" or "GetProperties" => ModuleCodeGen.DamProperties,
             "GetMethod" or "GetMethods" => ModuleCodeGen.DamMethods,
             "GetConstructor" or "GetConstructors" => ModuleCodeGen.DamConstructors,
+            "GetField" or "GetFields" => ModuleCodeGen.DamFields,
             _ => 0,
         };
-        if (kinds != 0) _m.MarkDynamicallyAccessed(type, kinds, target.Name is "GetProperty" or "GetMethod" ? name : null);
+        if (kinds != 0) _m.MarkDynamicallyAccessed(type, kinds, target.Name is "GetProperty" or "GetMethod" or "GetField" ? name : null);
     }
 
     private BclHandler? TypeObjectMember(IMethodSymbol target, IOperation? instance)
