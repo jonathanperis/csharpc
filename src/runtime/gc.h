@@ -53,6 +53,9 @@ int64_t csrt_gc_total_memory(void);
 void csrt_gc_write(void** slot, void* value);
 // Dirty every card covering [start, start+n): bulk reference copies (Array.Copy).
 void csrt_gc_cards_dirty(void* start, size_t n);
+// Coroutine frames are written without barriers (LLVM spills): minors scan every live one instead.
+void csrt_gc_remember(void* obj);
+bool csrt_gc_remembered_object(const void* obj);  // async.c: is this object a frame (a task or iterator frame)?
 #endif
 
 #endif

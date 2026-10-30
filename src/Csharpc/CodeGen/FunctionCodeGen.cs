@@ -78,9 +78,6 @@ public sealed partial class FunctionCodeGen
         _traceFrame = TraceFrameOf(module, method);
         _b = new IrBuilder(module.Llvm);
         _allocas = new IrBuilder(module.Llvm);
-        // Heap reference stores: dirty then store when the nursery is compiled in (ADR 0004). Locals
-        // and statics are roots. The alloca builder is left alone — it only spills params.
-        if (module.GcNursery) _b.PointerStoreOverride = TryHeapRefStore;
         _entry = _b.AppendBlock(fn.Fn, "entry");
         _allocas.PositionAtEnd(_entry);
         // -g: describe the function and give every instruction a location (starting at its declaration).
@@ -624,35 +621,6 @@ public sealed partial class FunctionCodeGen
         type.SpecialType == SpecialType.System_Boolean && value.Type.IntWidth == 1 ? _b.Cast(LLVMOpcode.ZExt, value, L.I8) : value;
 
     internal void StoreValue(LLVMValueRef storageValue, LLVMValueRef address) => TagDataAccess(_b.Store(storageValue, address), address);
-
-    /// <summary>
-    /// Generational write barrier for a pointer store into the heap: <c>csrt_gc_write(slot, value)</c>
-    /// dirties the card then stores. Stack slots and globals are scanned as roots — no barrier.
-    /// </summary>
-    private LLVMValueRef? TryHeapRefStore(LLVMValueRef value, LLVMValueRef address)
-    {
-        if (IsStackOrGlobalAddress(address)) return null;
-        return CallRuntime("csrt_gc_write", L.Void, [L.Ptr, L.Ptr], address, value);
-    }
-
-    /// <summary>True when <paramref name="address"/> is an alloca (or GEP of one) or a global.</summary>
-    private static bool IsStackOrGlobalAddress(LLVMValueRef address)
-    {
-        for (var depth = 0; depth < 8; depth++)
-        {
-            if (!Native.LLVMIsAAllocaInst(address).IsNull) return true;
-            if (!Native.LLVMIsAGlobalValue(address).IsNull) return true;
-            if (Native.LLVMIsAInstruction(address).IsNull) return false;
-            var op = Native.LLVMGetInstructionOpcode(address);
-            if (op is LLVMOpcode.GetElementPtr or LLVMOpcode.BitCast)
-            {
-                address = Native.LLVMGetOperand(address, 0);
-                continue;
-            }
-            return false; // load of a ref local, argument, etc.: a heap location
-        }
-        return false;
-    }
 
     internal LLVMValueRef LocalSlot(ILocalSymbol local)
     {

@@ -95,6 +95,12 @@ in P/Invoke signatures, or print errno numbers. CI runs the three suites this wa
 collection at every allocation), which checks that the compiler's GC root spilling is complete
 ([ADR 0011](adr/0011-wasm32.md)).
 
+The opt-in generational nursery (`--gc-nursery`) has its own workflow, `GC nursery`
+(`.github/workflows/nursery.yml`, Linux x86-64, outside the merge bar): the differential suite at
+-O0 and -O2 and the conformance corpus with `CSHARPC_GC_NURSERY=1 CSRT_GC_NURSERY_MB=1` (a minor
+collection every MiB), then the collection-heavy samples under `CSRT_GC_STRESS=50`. A missing write
+barrier shows up there as wrong output or a crash ([ADR 0004](adr/0004-memory-management.md)).
+
 Failure output shows the compile errors (including `CSLLVM0001` "not supported yet" diagnostics) or
 the first lines of a unified diff between the expected and actual stdout.
 

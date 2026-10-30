@@ -344,7 +344,7 @@ public enum LLVMOpcode
 {
     Ret = 1, Br = 2, Switch = 3, IndirectBr = 4, Invoke = 5, Unreachable = 7, CallBr = 67,
     Alloca = 26, Load = 27, Store = 28, GetElementPtr = 29, ICmp = 42, FCmp = 43, PHI = 44, Call = 45, Select = 46,
-    ExtractValue = 53, InsertValue = 54, Resume = 58, LandingPad = 59,
+    ExtractValue = 53, InsertValue = 54, Fence = 55, AtomicCmpXchg = 56, AtomicRMW = 57, Resume = 58, LandingPad = 59,
     Add = 8, FAdd = 9, Sub = 10, FSub = 11, Mul = 12, FMul = 13, UDiv = 14, SDiv = 15, FDiv = 16,
     URem = 17, SRem = 18, FRem = 19, Shl = 20, LShr = 21, AShr = 22, And = 23, Or = 24, Xor = 25,
     Trunc = 30, ZExt = 31, SExt = 32, FPToUI = 33, FPToSI = 34, UIToFP = 35, SIToFP = 36, FPTrunc = 37, FPExt = 38,

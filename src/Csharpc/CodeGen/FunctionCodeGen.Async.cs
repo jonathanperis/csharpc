@@ -206,14 +206,17 @@ public sealed partial class FunctionCodeGen
         foreach (var p in method.Parameters)
             saved.Add((T.Value(S(p.Type)), LoadValue(ParameterSpill(p), S(p.Type))));
 
-        var argsType = L.Struct([.. saved.Select(s => s.Type)]);
+        // A heap object: its method-table word comes first, the saved arguments after it. Storing them
+        // from offset 0 overwrote the header, and the collector then read "method table flags" through
+        // an argument value (a crash, or the saved receiver never scanned).
+        var argsType = L.Struct([L.Ptr, .. saved.Select(s => s.Type)]);
         LLVMValueRef args = LlvmContext.Null(L.Ptr);
         if (saved.Count > 0)
         {
             args = CallRuntime("csrt_alloc", L.Ptr, [L.Ptr, L.I64], _m.ExternalGlobal("csrt_Object_MT"),
                 L.ConstInt(L.I64, (long)T.Target.SizeOf(argsType)));
             for (var i = 0; i < saved.Count; i++)
-                _b.Store(saved[i].Value, _b.StructGep(argsType, args, (uint)i));
+                _b.Store(saved[i].Value, _b.StructGep(argsType, args, (uint)i + 1));
         }
         var clone = _m.IteratorCloneThunk(method, _fn, argsType, saved.Count);
         return CallRuntime("csrt_iterator_new", L.Ptr, [L.Ptr, L.I32, L.Ptr, L.Ptr], methodTable, L.ConstInt(L.I32, payloadSize), clone, args);

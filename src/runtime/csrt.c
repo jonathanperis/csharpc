@@ -145,6 +145,7 @@ _Noreturn void csrt_fail_fast(const uint16_t* message) {
 void* csrt_object_memberwise_clone(void* obj) {
     const csrt_MethodTable* mt = ((csrt_Object*)obj)->mt;
     csrt_Object* copy = csrt_alloc(mt, mt->instance_size);
+    CSRT_DIRTY(copy, mt->instance_size);
     memcpy((char*)copy + sizeof(csrt_Object), (char*)obj + sizeof(csrt_Object), mt->instance_size - sizeof(csrt_Object));
     return copy;
 }
@@ -274,7 +275,7 @@ static csrt_String* string_from_wide(const wchar_t* text) {
 csrt_Array* csrt_environment_command_line_args(void) {
     int64_t n = s_argc > 0 ? s_argc : 0;
     csrt_Array* arr = csrt_new_array(sizeof(void*), n);
-    for (int64_t i = 0; i < n; i++) ((csrt_String**)arr->data)[i] = s_wargv ? string_from_wide(s_wargv[i]) : string_from_utf8(s_argv[i]);
+    for (int64_t i = 0; i < n; i++) CSRT_STORE_REF(((csrt_String**)arr->data)[i], s_wargv ? string_from_wide(s_wargv[i]) : string_from_utf8(s_argv[i]));
     return arr;
 }
 #endif
@@ -283,7 +284,7 @@ csrt_Array* csrt_environment_command_line_args(void) {
 csrt_Array* csrt_environment_command_line_args(void) {
     int64_t n = s_argc > 0 ? s_argc : 0;
     csrt_Array* arr = csrt_new_array(sizeof(void*), n);
-    for (int64_t i = 0; i < n; i++) ((csrt_String**)arr->data)[i] = string_from_utf8(s_argv[i]);
+    for (int64_t i = 0; i < n; i++) CSRT_STORE_REF(((csrt_String**)arr->data)[i], string_from_utf8(s_argv[i]));
     return arr;
 }
 #endif
@@ -295,11 +296,11 @@ csrt_Array* csrt_get_args(void) {
     csrt_String** items = (csrt_String**)arr->data;
 #ifdef _WIN32
     if (s_wargv) {
-        for (int64_t i = 0; i < n; i++) items[i] = string_from_wide(s_wargv[i + 1]);
+        for (int64_t i = 0; i < n; i++) CSRT_STORE_REF(items[i], string_from_wide(s_wargv[i + 1]));
         return arr;
     }
 #endif
-    for (int64_t i = 0; i < n; i++) items[i] = string_from_utf8(s_argv[i + 1]);
+    for (int64_t i = 0; i < n; i++) CSRT_STORE_REF(items[i], string_from_utf8(s_argv[i + 1]));
     return arr;
 }
 
@@ -625,6 +626,7 @@ void csrt_array_copy_checked(void* source, int64_t source_index, void* destinati
     const csrt_MethodTable* de = array_element(to) ? array_element(to) : destination_type ? array_element(destination_type) : NULL;
     if (from == to || !de || de == &csrt_Object_MT.header || array_assignable(from, to, 0)
         || ((from->flags & CSRT_MT_REFERENCE_ELEMENTS) && array_element(from) == de)) {
+        CSRT_DIRTY(dst, (size_t)length * sizeof(void*));  // --gc-nursery: an old array may now hold young objects
         memmove(dst, src, (size_t)length * sizeof(void*));
         return;
     }
@@ -636,7 +638,7 @@ void csrt_array_copy_checked(void* source, int64_t source_index, void* destinati
     for (int64_t i = 0; i < length; i++) {
         void* o = src[i];
         if (o && !csrt_isinst_class(o, de)) { csrt_throw_invalid_cast_from(((csrt_Object*)o)->mt, de); return; }
-        dst[i] = o;
+        CSRT_STORE_REF(dst[i], o);
     }
 }
 

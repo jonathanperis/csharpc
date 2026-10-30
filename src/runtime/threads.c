@@ -282,7 +282,7 @@ static csrt_Thread* thread_alloc(void) {
 csrt_Thread* csrt_thread_new(Delegate* start, bool parameterized) {
     if (!start) throw_msg(&mt_argument_null, "Value cannot be null. (Parameter 'start')");
     csrt_Thread* t = thread_alloc();
-    t->start = start;
+    CSRT_STORE_REF(t->start, start);
     t->parameterized = parameterized;
     return t;
 }
@@ -358,8 +358,8 @@ static void thread_start(csrt_Thread* t, void* parameter, bool has_parameter) {
     atomic_store(&t->state, THREAD_RUNNING);
     if (!t->background) s_foreground++;
     pthread_mutex_unlock(&s_join_lock);
-    t->parameter = parameter;
-    t->flow = csrt_flow_capture();  // like .NET's ExecutionContext capture in Thread.Start
+    CSRT_STORE_REF(t->parameter, parameter);
+    CSRT_STORE_REF(t->flow, csrt_flow_capture());  // like .NET's ExecutionContext capture in Thread.Start
     spawn(t);
 }
 
@@ -424,7 +424,7 @@ static void os_thread_name_from(csrt_String* name) {
 void csrt_thread_set_name(csrt_Thread* t, csrt_String* name) {
     if (!t) csrt_throw_null_reference();
     if (t->name) throw_msg(&mt_invalid_operation, "This property has already been set and cannot be modified.");
-    t->name = name;
+    CSRT_STORE_REF(t->name, name);
     if (t == tl_current) os_thread_name_from(name);
 }
 bool csrt_thread_get_background(csrt_Thread* t) { if (!t) csrt_throw_null_reference(); return t->background; }

@@ -186,6 +186,7 @@ static void enqueue_flow(intptr_t kind, void* a, void* b, void* flow) {
     if (s_qcount == cap) {
         int64_t ncap = cap ? cap * 2 : 64;
         csrt_Array* grown = csrt_new_array(sizeof(void*), ncap * 4);
+        CSRT_DIRTY(grown->data, s_qcount * 4 * sizeof(void*));
         for (int64_t i = 0; i < s_qcount; i++) {
             int64_t from = ((s_qhead + i) % cap) * 4;
             memcpy(words(grown) + i * 4, words(s_queue) + from, 4 * sizeof(void*));
@@ -195,6 +196,7 @@ static void enqueue_flow(intptr_t kind, void* a, void* b, void* flow) {
         cap = ncap;
     }
     int64_t at = ((s_qhead + s_qcount) % cap) * 4;
+    CSRT_DIRTY(words(s_queue) + at, 4 * sizeof(void*));
     words(s_queue)[at] = (void*)kind;
     words(s_queue)[at + 1] = a;
     words(s_queue)[at + 2] = b;
@@ -295,8 +297,23 @@ static void pool_start_locked(void) {
 /// offset keeps the frame 16-byte aligned (heap objects are), as optimized code may assume of its spills.
 #define CORO_FRAME_OFFSET 16
 void* csrt_coro_alloc(int64_t size) {
-    return (uint8_t*)csrt_alloc(&csrt_CoroFrame_MT.header, size + CORO_FRAME_OFFSET) + CORO_FRAME_OFFSET;
+    void* frame = csrt_alloc(&csrt_CoroFrame_MT.header, size + CORO_FRAME_OFFSET);
+#if defined(CSRT_GC_NURSERY_DEFAULT)
+    // LLVM's coroutine lowering spills locals into the frame with plain stores (after csharpc's write
+    // barriers were placed): every minor collection scans the frame instead (gc.c, "remembered").
+    csrt_gc_remember(frame);
+#endif
+    return (uint8_t*)frame + CORO_FRAME_OFFSET;
 }
+
+#if defined(CSRT_GC_NURSERY_DEFAULT)
+/// The objects csrt_gc_remember is called for: iterator frames and tasks (an async method's frame is
+/// inside its task; other tasks are scanned too, which is only conservative).
+bool csrt_gc_remembered_object(const void* obj) {
+    const csrt_MethodTable* mt = *(const csrt_MethodTable* const*)obj;
+    return mt == &csrt_CoroFrame_MT.header || mt == &csrt_Task_MT.header;
+}
+#endif
 
 /// An async method's task and coroutine frame in one object: the task (method table first, so the
 /// object is a Task), then its payload, then the frame at the next 16-byte boundary. The frame pointer
@@ -304,6 +321,9 @@ void* csrt_coro_alloc(int64_t size) {
 void* csrt_coro_alloc_task(int64_t size, int32_t payload_size, csrt_Task** task) {
     int64_t head = ((int64_t)sizeof(csrt_Task) + (payload_size > 0 ? payload_size : 0) + 15) & ~(int64_t)15;
     csrt_Task* t = csrt_alloc(&csrt_Task_MT.header, head + size);
+#if defined(CSRT_GC_NURSERY_DEFAULT)
+    csrt_gc_remember(t);  // the frame part: see csrt_coro_alloc
+#endif
     t->payload_size = payload_size;
     *task = t;
     return (uint8_t*)t + head;
@@ -377,7 +397,7 @@ static bool add_continuation(csrt_Task* t, intptr_t kind, void* p) {
     // array only appears with the second (an array per suspended await was 18 M of the TechEmpower
     // server's allocations in a profiling run).
     if (t->ncont == 0) {
-        t->conts = p;
+        CSRT_STORE_REF(t->conts, p);
         t->ncont = -(int32_t)kind;
         task_unlock(t);
         return true;
@@ -385,19 +405,20 @@ static bool add_continuation(csrt_Task* t, intptr_t kind, void* p) {
     if (t->ncont < 0) {
         csrt_Array* pairs = csrt_new_array(sizeof(void*), 4 * 2);
         words(pairs)[0] = (void*)(intptr_t)-t->ncont;
-        words(pairs)[1] = (void*)t->conts;
-        t->conts = pairs;
+        CSRT_STORE_REF(words(pairs)[1], t->conts);
+        CSRT_STORE_REF(t->conts, pairs);
         t->ncont = 1;
     }
     int64_t cap = t->conts->length / 2;
     if (t->ncont == cap) {
         int64_t ncap = cap ? cap * 2 : 2;
         csrt_Array* grown = csrt_new_array(sizeof(void*), ncap * 2);
+        CSRT_DIRTY(grown->data, (size_t)t->ncont * 2 * sizeof(void*));
         if (t->conts) memcpy(grown->data, t->conts->data, (size_t)t->ncont * 2 * sizeof(void*));
-        t->conts = grown;
+        CSRT_STORE_REF(t->conts, grown);
     }
     words(t->conts)[t->ncont * 2] = (void*)kind;
-    words(t->conts)[t->ncont * 2 + 1] = p;
+    CSRT_STORE_REF(words(t->conts)[t->ncont * 2 + 1], p);
     t->ncont++;
     task_unlock(t);
     return true;
@@ -416,8 +437,8 @@ static void run_continuations(csrt_Task* t, csrt_Array* conts, int32_t n);
 static bool try_finish_aggregate(csrt_Task* t, int32_t state, void* exception, void* aggregate) {
     task_lock(t);
     if (task_state(t) != T_PENDING) { task_unlock(t); return false; }
-    if (exception) t->exception = exception;
-    if (aggregate) t->aggregate = aggregate;
+    if (exception) CSRT_STORE_REF(t->exception, exception);
+    if (aggregate) CSRT_STORE_REF(t->aggregate, aggregate);
     csrt_Array* conts = t->conts;
     int32_t n = t->ncont;
     t->conts = NULL;
@@ -499,7 +520,7 @@ static void when_all_step(WhenAllState* s) {
         }
         void* first = inners[0];
         // The aggregate is created before the result completes (nobody can observe it earlier).
-        s->result->aggregate = csrt_aggregate_exception_new(inners, faulted);
+        CSRT_STORE_REF(s->result->aggregate, csrt_aggregate_exception_new(inners, faulted));
         free(inners);
         finish(s->result, T_FAULTED, first);
         return;
@@ -507,8 +528,10 @@ static void when_all_step(WhenAllState* s) {
     if (canceled) { finish(s->result, T_CANCELED, NULL); return; }
     if (s->element_size > 0) {
         csrt_Array* values = csrt_new_array(s->element_size, n);
+        CSRT_DIRTY(values->data, n * s->element_size);
         for (int64_t i = 0; i < n; i++)
             memcpy(values->data + i * s->element_size, csrt_task_result_ptr(words(s->tasks)[i]), (size_t)s->element_size);
+        CSRT_DIRTY(s->result->payload, sizeof(void*));
         memcpy(s->result->payload, &values, sizeof(void*));
     }
     csrt_task_complete(s->result);
@@ -519,6 +542,7 @@ static void chain(csrt_Task* from, csrt_Task* to) {
     if (st == T_FAULTED) { finish(to, T_FAULTED, from->exception); return; }
     if (st == T_CANCELED) { finish(to, T_CANCELED, from->exception); return; }
     int32_t n = to->payload_size < (from ? from->payload_size : 0) ? to->payload_size : (from ? from->payload_size : 0);
+    CSRT_DIRTY(to->payload, n);
     if (n > 0) memcpy(to->payload, from->payload, (size_t)n);
     csrt_task_complete(to);
 }
@@ -527,7 +551,7 @@ static void when_any_hit(csrt_Task* any, csrt_Task* winner) {
     // Only the first completion wins; the payload is written under the result task's lock.
     task_lock(any);
     bool first = task_state(any) == T_PENDING && *(void**)any->payload == NULL;
-    if (first) memcpy(any->payload, &winner, sizeof(void*));
+    if (first) { CSRT_DIRTY(any->payload, sizeof(void*)); memcpy(any->payload, &winner, sizeof(void*)); }
     task_unlock(any);
     if (first) csrt_task_try_complete(any);
 }
@@ -599,6 +623,7 @@ void* csrt_task_exception(csrt_Task* t) {
     if (!__atomic_load_n(&t->aggregate, __ATOMIC_ACQUIRE)) {
         void* created = csrt_aggregate_exception_new(&t->exception, 1);
         void* expected = NULL;
+        CSRT_DIRTY(&t->aggregate, sizeof(void*));
         __atomic_compare_exchange_n(&t->aggregate, &expected, created, false, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE);
     }
     return t->aggregate;
@@ -619,7 +644,7 @@ void csrt_task_throw_aggregate_if_faulted(csrt_Task* t) {
 csrt_Task* csrt_task_from_exception(void* exception, int32_t payload_size) {
     if (!exception) csrt_throw_null_reference();
     csrt_Task* t = csrt_task_new(payload_size);
-    t->exception = exception;
+    CSRT_STORE_REF(t->exception, exception);
     t->state = T_FAULTED;
     return t;
 }
@@ -645,8 +670,8 @@ static void on_completed_no_context(csrt_Task* t, void* frame) {
     bool added;
     if (flow) {
         ResumeWithFlow* r = csrt_alloc(&csrt_Object_MT.header, sizeof(ResumeWithFlow));
-        r->frame = frame;
-        r->flow = flow;
+        CSRT_STORE_REF(r->frame, frame);
+        CSRT_STORE_REF(r->flow, flow);
         added = add_continuation(t, K_RESUME_FLOW, r);
     } else added = add_continuation(t, K_RESUME, frame);
     if (!added) enqueue(K_RESUME, frame, NULL);
@@ -805,9 +830,11 @@ static void add_timer(int64_t deadline, csrt_Task* task, CancellationSource* tok
     if (s_ntimers == cap) {
         int64_t ncap = cap ? cap * 2 : 16;
         csrt_Array* grown = csrt_new_array(sizeof(void*), ncap * 3);
+        CSRT_DIRTY(grown->data, (size_t)s_ntimers * 3 * sizeof(void*));
         if (s_timers) memcpy(grown->data, s_timers->data, (size_t)s_ntimers * 3 * sizeof(void*));
         s_timers = grown;
     }
+    CSRT_DIRTY(words(s_timers) + s_ntimers * 3, 3 * sizeof(void*));
     words(s_timers)[s_ntimers * 3] = (void*)(intptr_t)deadline;
     words(s_timers)[s_ntimers * 3 + 1] = task;
     words(s_timers)[s_ntimers * 3 + 2] = token;
@@ -917,10 +944,11 @@ static void push_word_locked(csrt_Array** array, int32_t* count, void* value) {
     int64_t cap = *array ? (*array)->length : 0;
     if (*count == cap) {
         csrt_Array* grown = csrt_new_array(sizeof(void*), cap ? cap * 2 : 4);
+        CSRT_DIRTY(grown->data, (size_t)*count * sizeof(void*));
         if (*array) memcpy(grown->data, (*array)->data, (size_t)*count * sizeof(void*));
-        *array = grown;
+        CSRT_STORE_REF(*array, grown);
     }
-    words(*array)[(*count)++] = value;
+    CSRT_STORE_REF(words(*array)[(*count)++], value);
 }
 
 static bool remove_word_locked(csrt_Array* array, int32_t* count, void* value) {
@@ -953,7 +981,7 @@ void* csrt_cts_next_callback(CancellationSource* cts) {
         words(cts->callbacks)[cts->ncallbacks] = NULL;
         cts->executing_thread = pthread_self();
     }
-    cts->executing = entry;
+    CSRT_STORE_REF(cts->executing, entry);
     pthread_mutex_unlock(&s_tlock);
     return entry;
 }
@@ -1186,8 +1214,8 @@ csrt_Task* csrt_task_when_all(csrt_Array* tasks, int32_t element_size) {
     if (!tasks) csrt_throw_null_reference();
     csrt_Task* result = csrt_task_new(element_size > 0 ? (int32_t)sizeof(void*) : 0);
     WhenAllState* s = csrt_alloc(&csrt_Object_MT.header, sizeof(WhenAllState));
-    s->result = result;
-    s->tasks = tasks;
+    CSRT_STORE_REF(s->result, result);
+    CSRT_STORE_REF(s->tasks, tasks);
     s->element_size = element_size;
     s->remaining = 1;  // guard: completes only after registration
     for (int64_t i = 0; i < tasks->length; i++) {
@@ -1239,8 +1267,8 @@ csrt_Task* csrt_task_run_thunk(void (*thunk)(void*), void* del, int32_t payload_
     csrt_Task* t = csrt_task_new(payload_size);
     t->flags = TF_DELEGATE;
     RunThunk* pack = csrt_alloc(&csrt_Object_MT.header, sizeof(RunThunk));
-    pack->del = del;
-    pack->task = t;
+    CSRT_STORE_REF(pack->del, del);
+    CSRT_STORE_REF(pack->task, t);
     pack->thunk = thunk;
     enqueue(K_RUN_THUNK, pack, t);
     return t;
@@ -1416,11 +1444,11 @@ void csrt_pool_leave_blocking_wait(void) {}
 csrt_Iterator* csrt_iterator_new(const csrt_MethodTable* mt, int32_t payload_size, void* clone, void* args) {
     csrt_Iterator* it = csrt_alloc(mt, (int64_t)sizeof(csrt_Iterator) + (payload_size > 0 ? payload_size : 0));
     it->clone = (void* (*)(void*))clone;
-    it->args = args;
+    CSRT_STORE_REF(it->args, args);
     return it;
 }
 
-void csrt_iterator_set_frame(csrt_Iterator* it, void* frame) { it->frame = frame; }
+void csrt_iterator_set_frame(csrt_Iterator* it, void* frame) { CSRT_STORE_REF(it->frame, frame); }
 
 bool csrt_is_iterator(void* obj) { return obj && (((csrt_Object*)obj)->mt->flags & CSRT_MT_ITERATOR); }
 
@@ -1528,7 +1556,7 @@ csrt_Task* csrt_async_iterator_move_next(void* obj) {
     csrt_Task* t = csrt_task_new(1);
     if (it->state == 2) { t->state = T_DONE; return t; }
     if (it->reserved) async_fail("MoveNextAsync() called while a previous MoveNextAsync() is still pending.");
-    it->reserved = t;
+    CSRT_STORE_REF(it->reserved, t);
     it->state = 0;
     csrt_coro_resume(it->frame);
     return t;

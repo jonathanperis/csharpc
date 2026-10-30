@@ -21,10 +21,11 @@ static Delegate* make(const csrt_MethodTable* mt, Delegate** entries, int64_t n)
     if (n == 0) return NULL;
     if (n == 1) return entries[0];
     csrt_Array* list = csrt_new_array(sizeof(void*), n);
+    CSRT_DIRTY(list->data, sizeof(void*) * (size_t)n);
     memcpy(list->data, entries, sizeof(void*) * (size_t)n);
     Delegate* d = csrt_alloc(mt, sizeof(Delegate));
-    d->list = list;
-    d->target = entries[n - 1]->target;
+    CSRT_STORE_REF(d->list, list);
+    CSRT_STORE_REF(d->target, entries[n - 1]->target);
     d->fn = entries[n - 1]->fn;
     return d;
 }
@@ -36,6 +37,7 @@ Delegate* csrt_delegate_combine(Delegate* a, Delegate* b) {
     // Collect entries into a GC array first so every entry stays reachable during allocation.
     csrt_Array* tmp = csrt_new_array(sizeof(void*), na + nb);
     Delegate** entries = (Delegate**)tmp->data;
+    CSRT_DIRTY(entries, sizeof(void*) * (size_t)(na + nb));
     for (int64_t i = 0; i < na; i++) entries[i] = entry_at(a, i);
     for (int64_t i = 0; i < nb; i++) entries[na + i] = entry_at(b, i);
     return make(a->mt, entries, na + nb);
@@ -48,7 +50,7 @@ static bool same_entry(const Delegate* x, const Delegate* y) { return x->target 
 /// A single-cast delegate of type `mt` over `fn` closed over `target` (MethodInfo.CreateDelegate).
 void* csrt_delegate_create(const csrt_MethodTable* mt, void* target, const void* fn) {
     Delegate* d = csrt_alloc(mt, sizeof(Delegate));
-    d->target = target;
+    CSRT_STORE_REF(d->target, target);
     d->fn = (void*)fn;
     return d;
 }
@@ -83,6 +85,7 @@ Delegate* csrt_delegate_remove(Delegate* source, Delegate* value) {
         if (!match) continue;
         csrt_Array* tmp = csrt_new_array(sizeof(void*), ns - nv > 0 ? ns - nv : 1);
         Delegate** entries = (Delegate**)tmp->data;
+        CSRT_DIRTY(entries, sizeof(void*) * (size_t)(ns - nv > 0 ? ns - nv : 1));
         int64_t n = 0;
         for (int64_t i = 0; i < ns; i++)
             if (i < start || i >= start + nv) entries[n++] = entry_at(source, i);
@@ -96,6 +99,7 @@ csrt_Array* csrt_delegate_get_invocation_list(Delegate* d) {
     if (!d) csrt_throw_null_reference();
     int64_t n = count_of(d);
     csrt_Array* result = csrt_new_array(sizeof(void*), n);
+    CSRT_DIRTY(result->data, sizeof(void*) * (size_t)n);
     for (int64_t i = 0; i < n; i++) ((Delegate**)result->data)[i] = entry_at(d, i);
     return result;
 }

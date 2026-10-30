@@ -207,7 +207,11 @@ public sealed class Compiler(CompilerOptions options)
         using var debugInfo = options.Debug
             ? codegen.Debug = new DebugInfo(codegen, settings.Files.Count > 0 ? settings.Files[0] : "program.cs", options.OptLevel > 0)
             : null;
-        try { codegen.Generate(); }
+        try
+        {
+            codegen.Generate();
+            if (options.GcNursery) codegen.InsertWriteBarriers();
+        }
         catch (CompileError e)
         {
             if (Environment.GetEnvironmentVariable("CSHARPC_TRACE") == "1") Console.Error.WriteLine(e.StackTrace);

@@ -156,8 +156,9 @@ and the division was on the hot path.
 > and exception fields store directly; `Array.Copy` dirties only pointer-sized elements, not structs
 > holding references. A young object reachable only through such a store is freed by a minor
 > collection. Large objects and small objects in reused old chunks also never count toward the minor
-> trigger. `--gc-nursery` now fails unless `CSHARPC_EXPERIMENTAL_GC_NURSERY=1`; it needs barriers on
-> every store path (and a CI job running the suites with it) before it can be offered again.
+> trigger. `--gc-nursery` failed unless `CSHARPC_EXPERIMENTAL_GC_NURSERY=1` until every store path
+> had a barrier and a CI workflow ran the suites with it; see "Soundness" below. The gate is gone; the
+> flag stays opt-in.
 
 Implemented on `ci/gc-nursery` and kept **off by default**. Enable with `--gc-nursery` or
 `CSHARPC_GC_NURSERY=1` (runtime compiled with `-DCSRT_GC_NURSERY_DEFAULT`; override at run time with
@@ -170,18 +171,56 @@ Design (measured, not the ADR sketch as written):
    chunks. Fresh chunks are young. A minor collection marks only young objects (from stacks,
    statics, and dirty old regions), sweeps only young chunks, then **promotes survivors in place**
    by clearing the chunk's young bit. Promoted chunks are not allocated into again until a major
-   frees them. Large objects are born old. After 32 minors, or on `GC.Collect` / stress, a major
-   runs today's full mark-sweep.
+   frees them. Large objects are born old. After 32 minors, on `GC.Collect`, or once the heap
+   reaches twice the live size of the last major, a major runs today's full mark-sweep.
 2. **Per-chunk / per-large dirty bits, not a flat card table.** A table over `[heap_min, heap_max)`
    under ASLR is sparse and tried to reserve gigabytes; that OOM'd. Dirty is one byte on the chunk
    header (and a single `large_dirty` flag for the large-object list). Coarse: a minor that has
    dirtied many old chunks still walks a lot of old memory.
 3. **Compiler write barrier.** With `--gc-nursery`, every heap reference store goes through
    `csrt_gc_write` (dirty, then store — dirty first so a stop-the-world suspend cannot hide an
-   old→young edge). Locals and statics are roots and skip the barrier. Atomics / volatile pointer
-   stores and `Array.Copy` of references dirty via `csrt_gc_cards_dirty`. The same path covers the
-   IL front-end and wasm32-wasi (wasm keeps the shadow stack; ADR 0011). There is no `mprotect`
-   barrier.
+   old→young edge). Locals and statics are roots and skip the barrier. The barrier is one pass
+   over the finished module (`ModuleCodeGen.WriteBarriers.cs`), not a hook in one builder, so it
+   covers every function csharpc emits (source, IL front-end, corelib, thunks) and wasm32-wasi
+   (wasm keeps the shadow stack; ADR 0011). There is no `mprotect` barrier.
+
+#### Soundness (2026-10-30)
+
+A review found heap reference stores without a barrier; a young object reachable only through such
+a store was freed by a minor collection (wrong output or a crash). Every store path now has one:
+
+| store path | covered by |
+|---|---|
+| pointer stores from any builder | the module pass: `store ptr` into a non-root address becomes `csrt_gc_write` |
+| aggregate stores (structs, `KeyValuePair`, `Nullable<T>` holding references) | the pass: `csrt_gc_cards_dirty(address, size)` before the store |
+| `llvm.memcpy` / `llvm.memmove` (`Span<T>.CopyTo`, struct copies, `Unsafe.CopyBlock`) | the pass: the destination range is dirtied first |
+| atomic / volatile pointer stores, `cmpxchg`, `atomicrmw` | the pass (and `Interlocked` on references, lowered as integers, dirties explicitly) |
+| coroutine frames (async methods, iterators): LLVM's CoroSplit spills locals into the heap frame after the pass ran | *remembered* frames: `csrt_coro_alloc[_task]` calls `csrt_gc_remember`, and every minor scans the frames (task / iterator-frame objects) in remembered chunks and large objects, until none is left there |
+| the C runtime (`Array.Resize/Fill/Copy` of any element size, task continuations, results and exceptions, WhenAll/WhenAny, timers, CTS callbacks, the pool queue, delegates' invocation lists, exception fields, threads, split, args) | `CSRT_STORE_REF` / `CSRT_DIRTY` (csrt.h): `csrt_gc_write` / `csrt_gc_cards_dirty` in a nursery build, plain stores otherwise |
+| objects born old: allocated in a reused old chunk, in a thread's allocation word whose chunk a collection promoted, or large | the chunk is dirtied when the word is claimed and after every collection for the threads' current words; a large allocation sets `large_dirty`. This covers the runtime's unbarriered first stores into an object it just allocated |
+
+Collector fixes found the same way: `protect_caches` set mark bits in old chunks during a minor, which
+no sweep cleared, so the next major took those slots as already traced and freed what they
+referenced; a minor no longer protects old chunks. Mutators look chunks up without the lock (in the
+barrier) while another thread may grow the chunk set: tables carry their capacity and are never
+freed. Reformatting an empty chunk for another size class clears it, because minors scan whole dirty
+chunks and a stale pointer into a claimed but unused slot made the collector read a field as a method
+table. Stress collections (`CSRT_GC_STRESS`) are minors, with a major every 32, so they exercise the
+barriers. Allocation accounting: every byte counts toward the minor trigger (young chunks, reused old
+chunks, large objects); before, a program that allocated only large arrays never collected.
+
+Coverage: samples 650–652 fail with the earlier nursery (a frame-held object freed, `Task.WhenAll`
+results lost, 66 wrong elements after span/array copies, no collection under large-only allocation)
+and pass now. The `GC nursery` workflow (`.github/workflows/nursery.yml`, Linux x86-64, not part of
+the merge bar) runs the differential suite at -O0/-O2 and the conformance corpus with
+`CSHARPC_GC_NURSERY=1 CSRT_GC_NURSERY_MB=1` (a minor every MiB), and the collection-heavy samples
+under `CSRT_GC_STRESS=50`. The default build is unchanged: every barrier is behind
+`CSRT_GC_NURSERY_DEFAULT` or `--gc-nursery`, and the size programs and `-O0` binaries compile
+byte-identical to the build before.
+
+Not covered: a reference written into the heap as an integer (`nint` arithmetic, `Unsafe.As` to an
+integer type) by code other than `Interlocked` dirties nothing, so a minor can miss it (a major still
+finds it conservatively). Neither .NET code nor the corelib keeps object references that way.
 
 Local 4-vCPU median (same harness as above; NativeAOT numbers from the pre-nursery baseline on this
 host where the AOT publish was unavailable in later runs):

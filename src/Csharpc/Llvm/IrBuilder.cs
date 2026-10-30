@@ -64,18 +64,8 @@ public sealed class IrBuilder(LlvmContext context) : IDisposable
     public LLVMValueRef Alloca(LLVMTypeRef type, string? name = "") => LLVMBuildAlloca(Ref, type, name ?? ""); // synthesized locals (e.g. lock's lockTaken) have null names
     public LLVMValueRef Load(LLVMTypeRef type, LLVMValueRef ptr, string name = "") => LLVMBuildLoad2(Ref, type, ptr, name);
 
-    /// <summary>
-    /// When set, pointer stores go through this hook first. Return non-null to replace the store
-    /// (the generational write barrier: <c>csrt_gc_write</c>). Null keeps a plain store.
-    /// </summary>
-    public Func<LLVMValueRef, LLVMValueRef, LLVMValueRef?>? PointerStoreOverride { get; set; }
-
-    public LLVMValueRef Store(LLVMValueRef value, LLVMValueRef ptr)
-    {
-        if (value.Type.IsPointer && PointerStoreOverride?.Invoke(value, ptr) is { } replaced)
-            return replaced;
-        return LLVMBuildStore(Ref, value, ptr);
-    }
+    // --gc-nursery write barriers are added over the finished module (ModuleCodeGen.WriteBarriers.cs).
+    public LLVMValueRef Store(LLVMValueRef value, LLVMValueRef ptr) => LLVMBuildStore(Ref, value, ptr);
     public LLVMValueRef StructGep(LLVMTypeRef type, LLVMValueRef ptr, uint index, string name = "") =>
         LLVMBuildStructGEP2(Ref, type, ptr, index, name);
     public LLVMValueRef InBoundsGep(LLVMTypeRef type, LLVMValueRef ptr, LLVMValueRef[] indices, string name = "") =>

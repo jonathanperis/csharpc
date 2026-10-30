@@ -58,8 +58,8 @@ public sealed record CompilerOptions
     public bool RuntimeLto { get; set; } = Environment.GetEnvironmentVariable("CSHARPC_NO_RUNTIME_LTO") != "1";
     /// <summary>
     /// Emit heap write barriers and build the runtime with the nursery as the default collector
-    /// (CSHARPC_GC_NURSERY=1 / --gc-nursery). Unsound and gated behind CSHARPC_EXPERIMENTAL_GC_NURSERY=1:
-    /// several store paths have no barrier yet (docs/adr/0004).
+    /// (CSHARPC_GC_NURSERY=1 / --gc-nursery). Off by default: barriers inflate binaries past the
+    /// size budgets and slow churn on coarse per-chunk cards (docs/adr/0004).
     /// </summary>
     public bool GcNursery { get; set; } = Environment.GetEnvironmentVariable("CSHARPC_GC_NURSERY") == "1";
     public List<string> Defines { get; } = [];
@@ -108,8 +108,8 @@ public sealed record CompilerOptions
                                  (default: il, or $CSHARPC_CORELIB)
           --no-implicit-usings   Don't add the SDK's implicit global usings
           --no-runtime-lto       Link the runtime as objects instead of LTO-ing its bitcode
-          --gc-nursery           Unsupported, collector development only (needs
-                                 CSHARPC_EXPERIMENTAL_GC_NURSERY=1): the nursery misses write barriers
+          --gc-nursery           Emit heap write barriers and enable the non-moving nursery by default
+                                 (also CSHARPC_GC_NURSERY=1; off by default — see docs/adr/0004)
           --stack-traces         Record stack traces in every program (default: only programs that print
                                  an exception or read Exception.StackTrace)
           --hardening <level>    none | default (full RELRO, NX, stack probes, hardened runtime) | max (+ CET IBT/SHSTK or BTI/PAC, SLH)
@@ -251,15 +251,6 @@ public sealed record CompilerOptions
         {
             o.Project = ProjectLoader.FindProject(Directory.GetCurrentDirectory())
                 ?? throw new ArgumentException("no input files (and no .csproj in the current directory)");
-        }
-        if (o.GcNursery)
-        {
-            // Not every heap reference store has a write barrier yet (coroutine frame spills, span and
-            // array copies in the C runtime, Array.Resize/Fill, task fields): a minor collection can free
-            // a live object and the program prints wrong output. Only for collector development.
-            if (Environment.GetEnvironmentVariable("CSHARPC_EXPERIMENTAL_GC_NURSERY") != "1")
-                throw new ArgumentException("--gc-nursery is not supported: the nursery is missing write barriers and can free live objects (docs/adr/0004-memory-management.md); set CSHARPC_EXPERIMENTAL_GC_NURSERY=1 only to work on the collector");
-            Console.Error.WriteLine("csharpc: warning: --gc-nursery is experimental and unsound (missing write barriers); never ship its output");
         }
         return o;
     }
