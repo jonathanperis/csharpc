@@ -16,6 +16,24 @@ class Box<T>
     static string Show(T mine, object other) => $"{typeof(T).Name}+object:{mine}/{other}";
 }
 
+// Simple-name dynamic calls through a struct's `this` (mutating it) and a generic type's instance members.
+struct Acc
+{
+    public int Total;
+    void Add(int x) => Total += x;
+    void Add(string s) => Total += s.Length;
+    static int Twice(int x) => x * 2;
+    public void Feed(dynamic value) { Add(value); Add(value); }
+    public int Doubled(dynamic value) => Twice(value);
+}
+
+class Slot<T>
+{
+    public T Last;
+    void Put(T value) => Last = value;
+    public void Feed(dynamic value) => Put(value);
+}
+
 class Counter
 {
     public event EventHandler Ticked;
@@ -95,5 +113,13 @@ class Program
         values[0]++;
         values[1] += values[0];
         Console.WriteLine(values[0] + "," + values[1]);
+
+        var acc = new Acc();
+        acc.Feed(3);
+        acc.Feed("abcd");
+        Console.WriteLine(acc.Total + " " + acc.Doubled(21));
+        var slot = new Slot<long>();
+        slot.Feed(5);
+        Console.WriteLine(slot.Last.GetType().Name + " " + slot.Last);
     }
 }

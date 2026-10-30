@@ -450,7 +450,10 @@ public sealed partial class ModuleCodeGen
         // all instance: `this` as a local of that type).
         var simpleReceiver = SimpleReceiver.None;
         INamedTypeSymbol? simpleOwner = null;
-        if (site.SimpleName && !site.Subst.IsIdentity && site.Context is { } context && TypeSubstitution.IsOpen(context.OriginalDefinition)
+        // A struct's `this` (passed by reference) is always a local aliasing the instance.
+        var structThis = operands.Count > 0 && operands[0] is { Kind: DynamicOperandKind.This, RefKind: not RefKind.None };
+        if (site.SimpleName && site.Context is { } context
+            && (structThis || (!site.Subst.IsIdentity && TypeSubstitution.IsOpen(context.OriginalDefinition)))
             && site.Model.LookupSymbols(site.Position, name: site.Name).OfType<IMethodSymbol>().ToList() is { Count: > 0 } candidates)
         {
             if (candidates.All(m => m.IsStatic) && candidates.All(m => SymbolEqualityComparer.Default.Equals(m.ContainingType, candidates[0].ContainingType)))
@@ -460,6 +463,11 @@ public sealed partial class ModuleCodeGen
             }
             else if (candidates.All(m => !m.IsStatic) && operands.Count > 0 && operands[0].Kind == DynamicOperandKind.This)
                 simpleReceiver = SimpleReceiver.ThisLocal;
+        }
+        if (structThis && simpleReceiver == SimpleReceiver.None)
+        {
+            unsupported = new DynamicLeaf { Unsupported = $"the dynamic call '{site.Syntax}' through a struct's 'this' to static and instance overloads at once" };
+            return null;
         }
         for (var i = 0; i < operands.Count; i++)
         {

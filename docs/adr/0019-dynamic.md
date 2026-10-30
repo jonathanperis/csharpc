@@ -85,7 +85,7 @@ calls a function holding the code Roslyn bound for that combination of types.
 - Compile time grows with sites × relevant types: the 75-site sample binds in ~2.3 s (`CSHARPC_DYNAMIC_TRACE=1`
   prints per-site planning and emission times; `=2` also each case).
 - Not supported yet, each an explicit diagnostic or NotSupportedException: `dynamic` in IL (above), `await` on a
-  dynamic value, a dynamic value passed by `ref`/`out`, a
-  simple-name dynamic call through a struct's `this`, generic inference with a type nested deeper than 2, run-time types
+  dynamic value, a dynamic value passed by `ref`/`out`, a simple-name dynamic call through a struct's `this` whose
+  candidates are both static and instance methods, generic inference with a type nested deeper than 2, run-time types
   csharpc can't name (generic types over anonymous types), custom `IDynamicMetaObjectProvider`s, and run-time types
   csharpc has no table for (tasks share one method table across `Task<T>`).

@@ -197,10 +197,10 @@ public sealed partial class FunctionCodeGen
         }
         if (member.Instance is IInstanceReferenceOperation { IsImplicit: true } self)
         {
-            if (InStructMember) throw CompileError.Unsupported("a dynamic call to a member of a struct through its implicit 'this'", member);
             site.SimpleName = true;
-            call.Operands.Add(new DynamicOperand { Kind = DynamicOperandKind.This, Role = DynamicRole.Receiver });
-            call.Values.Add(ThisValue(self));
+            // A struct's `this` is the address of the instance: the bound call may mutate it.
+            call.Operands.Add(new DynamicOperand { Kind = DynamicOperandKind.This, Role = DynamicRole.Receiver, RefKind = InStructMember ? RefKind.Ref : RefKind.None });
+            call.Values.Add(InStructMember ? _this : ThisValue(self));
             return;
         }
         AddDynamicOperand(call, member.Instance, DynamicRole.Receiver);
@@ -593,8 +593,8 @@ public sealed partial class FunctionCodeGen
             var localType = S(local.Type);
             switch (operand.Kind)
             {
-                case DynamicOperandKind.Static when operand.RefKind != RefKind.None:
-                    _slots[local] = values[i]; // the caller's variable
+                case DynamicOperandKind.Static or DynamicOperandKind.This when operand.RefKind != RefKind.None:
+                    _slots[local] = values[i]; // the caller's variable (a struct's `this`)
                     break;
                 case DynamicOperandKind.Static:
                 {
