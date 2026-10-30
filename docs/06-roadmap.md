@@ -101,11 +101,16 @@ bug like a wrong output.
   the behavioural oracle for the tests and a benchmark baseline, not a support target
   ([ADR 0016](adr/0016-nativeaot-parity-and-end-state.md)). The finish line is M8: the dotnet fork with csharpc in
   NativeAOT's place, beating NativeAOT on the TechEmpower benchmarks.
-- **Faster:** throughput ahead of NativeAOT and the JIT on every benchmark, on every platform; start-up
-  and compile time measured too (compile time against `dotnet publish -p:PublishAot=true`).
-- **Smaller:** executables a fraction of NativeAOT's size, with nothing linked that the program doesn't
-  use (pay-for-play library code).
-- **Safer:** hardening on by default ([17-security.md](17-security.md)).
+- **Faster (first priority):** throughput ahead of NativeAOT and the JIT on every benchmark, on every
+  platform; start-up and compile time measured too (compile time against `dotnet publish
+  -p:PublishAot=true`). A speed regression is never acceptable.
+- **Safer (second priority):** hardening on by default ([17-security.md](17-security.md)). The checks .NET
+  semantics require (bounds, casts, array covariance) are correctness, outside this order: they are never
+  dropped, only made cheaper.
+- **Smaller (third priority):** executables a fraction of NativeAOT's size, with nothing linked that the
+  program doesn't use (pay-for-play library code). Size still counts — budgets fail CI, and an
+  unexplained size increase is a bug — but a measured speed gain or a security measure may cost size (stated with numbers in the
+  commit, budget raised with that reason); size never buys a speed loss or weaker hardening.
 
 Evidence comes from CI ([benchmarks/RESULTS.md](../benchmarks/RESULTS.md), the compatibility runs), not
 claims. Known gaps today: NativeAOT is ahead on `asyncfanout` (x86-64 and arm64) and on `fileio`,
@@ -158,10 +163,10 @@ First report (2026-10-22, 323 programs from dotnet/samples and dotnet/docs, 40.6
 `Compatibility` workflow. The headline metric is now **parity with NativeAOT** (ADR 0016): the harness
 also publishes each program with `PublishAot` and runs it; programs NativeAOT can't build or run
 identically are out of scope, and parity is the share of NativeAOT-working programs csharpc matches
-(target: 100 %). Latest (2026-10-25, `parity-blockers` with `main` merged): **95.9 % parity (236 of 246)**,
-up from 88.7 % (`aot-parity`) and 80.6 % at the first parity run; no in-scope program differs from .NET. The
-10 others ([18](18-compatibility.md#nativeaot-parity)): member reflection, expression trees and `dynamic` (6),
-C# 15 unions (2), `System.Data` and `AssemblyLoadContext`. csharpc also passes 21 of the 28 programs NativeAOT
+(target: 100 %). Latest (2026-10-27, run 40424843703): **97.2 % parity (243 of 250)**, up from 95.9 %
+(`parity-blockers`), 88.7 % (`aot-parity`) and 80.6 % at the first parity run; no in-scope program differs
+from .NET. The 7 others ([18](18-compatibility.md#nativeaot-parity)): expression trees (2), `dynamic` (1),
+C# 15 unions (2), `System.Data` and `AssemblyLoadContext`. (The 2026-10-25 run's figures below.) csharpc also passes 21 of the 28 programs NativeAOT
 can't run. Against NativeAOT on the 236: compile time median 5.7 s vs 7.1 s, executables a tenth of the size
 (136 KiB vs 1,335 KiB median). JIT-based pass rate 93.8 % (from 86.2 %).
 
@@ -229,14 +234,15 @@ order: (3, continued) lowering on several threads, bounded code-generation memor
 (`typeof(X).Assembly`, resource lookup, analyzer activation) as compile-time metadata with diagnostics
 for the rest; (5) csharpc compiled by csharpc, LLVM C API P/Invokes included.
 
-### Runtime tiers — C# all the way down to a minimal native floor
-[ADR 0017](adr/0017-runtime-tiers.md). **Tier 1 (now, alongside M2/M4):** move the C runtime's ordinary
+### Runtime tiers — C# for library code, C where it is the right tool
+[ADR 0017](adr/0017-runtime-tiers.md); a C-free runtime is not a goal (owner, 2026-10-30). **Tier 1 (now,
+alongside M2/M4):** move the C runtime's ordinary
 code to the C# corelib — task scheduler, thread pool and timers, type/interface/delegate helpers and the
 remaining library helpers — with identical behaviour, sizes within budgets and benchmarks not slower.
-**Tier 2 (after M6, before M7):** the GC, exception dispatch and thread management in a restricted
-"systems C#" checked by the compiler (`[RuntimeCritical]`: no allocation, no safepoint, no throw),
-behind a flag next to the C version, made the default once it matches it on the benchmarks, the GC
-stress run and dotnet's own AOT tests. C# where possible, not as a rule: a C# port that is measurably slower or bigger is optimized first
+**Tier 2 (optional, measured):** the GC, exception dispatch and thread management stay in C; a
+restricted "systems C#" version checked by the compiler (`[RuntimeCritical]`: no allocation, no
+safepoint, no throw) may be tried behind a flag next to the C one, and becomes the default only if it is
+faster and as safe on the benchmarks, the GC stress run and dotnet's own AOT tests. C# where possible, not as a rule: a C# port that is measurably slower or bigger is optimized first
 (the code and csharpc's codegen), and C stays wherever it is better for performance or safety. **Tier 3 (permanent):** a few hundred lines of native glue
 (entry, signal/SEH stubs, unwinder ABI, register spilling), plus dotnet's own C shims for the OS
 (`System.Native`, `System.Globalization.Native`), as NativeAOT does.
@@ -322,7 +328,10 @@ runs, so the comparison is the csharpc/NativeAOT ratio within one run:
 | peak RSS after load | 80.3 vs 64.9 MiB | 74.9 vs 65.0 MiB |
 | executable / build time | 14.5 vs 8.9 MiB, 306 vs 22 s | 14.3 vs 8.9 MiB, 313 vs 21 s |
 
-(Profiling runs on the same branch measured plaintext at 100–102 % of NativeAOT.) What the profiles
+(Profiling runs on the same branch measured plaintext at 100–102 % of NativeAOT.) Latest on `main`
+(2026-10-30, `9406394`, run 41089947567): plaintext 94 % / 95 %, JSON 97 % / 95 % / 97 % of NativeAOT, JSON p99
+4.8 vs 6.4 ms and start-up 23 vs 30 ms ahead, peak RSS after load 76.5 vs 65.1 MiB, executable 15.6 vs
+8.9 MiB, build 410 vs 24 s. Speed first: the throughput gap is the next M8 work. What the profiles
 found, in the order they were fixed: every task completion woke the main thread blocked in
 `app.Run()` (18 % of the CPU in futex wake-ups); `lock`/`Monitor` allocated an entry per `Enter` and
 `System.Threading.Lock` went through the same table (11–15 %: Lock now keeps its state in the object,

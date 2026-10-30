@@ -17,6 +17,16 @@ experimental NativeAOT-LLVM branch for WebAssembly (see [01-prior-art.md](01-pri
 and semantic analysis, and owns everything from Roslyn's lowered control-flow graph down to the
 linked binary.
 
+It has two ways in, sharing one compiler:
+
+- **Standalone**, like rustc: `csharpc` on `.cs` files or a `.csproj`, no .NET SDK workflow required.
+- **As .NET's AOT layer**, where NativeAOT sits today: `dotnet publish -p:PublishAot=true` hands the IL to
+  csharpc instead of ILCompiler, with NativeAOT's MSBuild properties and outputs — a drop-in replacement
+  ([ADR 0016](adr/0016-nativeaot-parity-and-end-state.md)).
+
+The compiler is C#. The runtime is C where C is the right tool (garbage collector, unwinding, threads, OS
+boundaries) and C# for the library surface ([ADR 0017](adr/0017-runtime-tiers.md)).
+
 ## Why
 
 - **C# as a systems language.** Modern C# already has `Span<T>`, `ref struct`, function pointers,
