@@ -45,7 +45,7 @@ attribute factories) with a ~25 % faster build.
 - `ci/expression-trees` — expression trees, the other remaining parity blocker, in progress.
 - `ci/dynamic` — `dynamic` bound at compile time with Roslyn, per run-time type ([ADR 0019](adr/0019-dynamic.md)):
   members, overloads by run-time type, operators, conversions, indexers, events, delegates, ExpandoObject, DynamicObject,
-  binder errors with Microsoft.CSharp's messages; samples 670–677; both corpus programs that use `dynamic` pass locally.
+  binder errors with Microsoft.CSharp's messages; samples 680–687; both corpus programs that use `dynamic` pass locally.
   `dynamic` in IL libraries is an explicit diagnostic.
 
 ## Measured state

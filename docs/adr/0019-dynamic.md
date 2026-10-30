@@ -75,20 +75,20 @@ calls a function holding the code Roslyn bound for that combination of types.
 
 ## Consequences
 
-- `dynamic` programs print what `dotnet run` prints: samples 670–677 (members, overloads by run-time type, named/optional/
+- `dynamic` programs print what `dotnet run` prints: samples 680–687 (members, overloads by run-time type, named/optional/
   params/ref/out arguments, constructors, generic inference, operators, conversions, indexers, events, delegates, struct
   receivers, ExpandoObject, DynamicObject, generic code, lambdas, iterators, async, field initializers, binder errors);
   BCL types (DateTime, TimeSpan, tuples, KeyValuePair);
-  an explicit rejection of `await` on a dynamic value (677); both corpus programs that use `dynamic` (`using-dynamic`, which NativeAOT runs; `built-in-types`, which it doesn't).
+  an explicit rejection of `await` on a dynamic value (687); both corpus programs that use `dynamic` (`using-dynamic`, which NativeAOT runs; `built-in-types`, which it doesn't).
 - Speed: a bound case is a type test and a direct call — no binder, no rule cache, no interpreter. A loop of 5M
   `acc += p.Add(i); p.X = i & 7;` on `dynamic` values takes 62–70 ms with csharpc, 308–403 ms on the JIT; NativeAOT
   can't run it (2026-10-30, shared VPS).
 - Size is pay-for-play: programs without `dynamic` compile to byte-identical executables (hello, linq, the
   `interpreter` and `json` programs, against `main`) in the same time. A program using it pays for the cases of its
   sites (`-O2`): the benchmark is 234 KB and `using-dynamic` 28 KB (NativeAOT: 3.7–3.8 MB for any `dynamic`
-  program); sample 671 (75 sites) 523 KB, sample 670 (~130 sites, many with two dynamic operands) 896 KB, sample
-  673 (ExpandoObject and DynamicObject from System.Linq.Expressions' IL) 1.26 MB.
-- Compile time grows with sites × relevant types: sample 671 compiles in 12 s at `-O2`, sample 670 in 35 s
+  program); sample 681 (75 sites) 523 KB, sample 680 (~130 sites, many with two dynamic operands) 896 KB, sample
+  683 (ExpandoObject and DynamicObject from System.Linq.Expressions' IL) 1.26 MB.
+- Compile time grows with sites × relevant types: sample 681 compiles in 12 s at `-O2`, sample 680 in 35 s
   (`CSHARPC_DYNAMIC_TRACE=1` prints per-site planning and emission times; `=2` also each case).
 - Not supported yet, each an explicit diagnostic or NotSupportedException: `dynamic` in IL (above), `await` on a
   dynamic value, a dynamic value passed by `ref`/`out`, a simple-name dynamic call through a struct's `this` whose

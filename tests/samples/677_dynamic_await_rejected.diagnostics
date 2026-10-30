@@ -1,2 +1,0 @@
-677_dynamic_await_rejected.cs(6,13): error CSLLVM0001: not supported by csharpc yet: awaiting a dynamic value (a dynamically bound GetAwaiter)
-csharpc: error : 1 construct(s) not supported by csharpc yet
