@@ -1110,7 +1110,7 @@ namespace CsharpcCoreLib
             string normalized = NormalizeTypeName(typeName);
             Type found = normalized == null ? null : CoreIntrinsics.csrt_type_find(normalized, ignoreCase, CoreIntrinsics.TypeInfoTableAddress());
             if (found == null && throwOnError)
-                throw new TypeLoadException("Could not load type '" + StripAssembly(typeName) + "' from assembly '" + System.Reflection.Assembly.GetEntryAssembly()?.FullName + "'.");
+                throw new TypeLoadException("Could not resolve type '" + StripAssembly(typeName) + "' in assembly '" + System.Reflection.Assembly.GetEntryAssembly()?.FullName + "'.");
             return found;
         }
 

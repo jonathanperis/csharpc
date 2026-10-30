@@ -78,6 +78,22 @@ namespace CsharpcCoreLib
         }
 
         public virtual string FullName => _fullName;
+
+        /// <summary>A type of this assembly by name: the types the program has (constant names are kept at compile time).</summary>
+        public virtual Type GetType(string name) => GetType(name, false, false);
+        public virtual Type GetType(string name, bool throwOnError) => GetType(name, throwOnError, false);
+        public virtual Type GetType(string name, bool throwOnError, bool ignoreCase)
+        {
+            ArgumentNullException.ThrowIfNull(name);
+            Type found = ReflectionRuntime.GetTypeByName(name, false, ignoreCase);
+            if (found != null && !ReferenceEquals(found.Assembly, this)) found = null;
+            if (found == null && throwOnError)
+                throw new TypeLoadException("Could not resolve type '" + name + "' in assembly '" + _fullName + "'.");
+            return found;
+        }
+
+        /// <summary>NativeAOT's answer: assemblies are compiled into the executable, so they have no file.</summary>
+        public virtual string Location => "";
         public virtual bool IsDynamic => false;
         /// <summary>A csharpc program's assemblies are compiled in: none can be unloaded.</summary>
         public virtual bool IsCollectible => false;

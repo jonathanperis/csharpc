@@ -20,6 +20,7 @@ public sealed partial class FunctionCodeGen
         NoteDynamicallyAccessedArguments(S(inv.TargetMethod), inv.Arguments);
         if (Intrinsics.TryGetConsoleFastPath(inv, out var consoleFastPath)) return consoleFastPath(this, inv);
         var target = S(inv.TargetMethod);
+        if (inv.Arguments is [{ Value.ConstantValue: { HasValue: true, Value: string typeName } }, ..] && IsGetTypeByName(target)) _m.NoteTypeByName(typeName);
         if (inv.Instance is ITypeOfOperation reflectedType) NoteReflectedType(target, S(reflectedType.TypeOperand), inv.Arguments is [{ Value.ConstantValue: { HasValue: true, Value: string name } }, ..] ? name : null);
         if (inv.Instance is { } shadowReceiver && _m.CoreLib.MapForReceiver(target, TypeOf(shadowReceiver)) is { } shadowMember) target = shadowMember;
         if (IsCoreIntrinsic(target)) return EmitCoreIntrinsic(target, inv);
@@ -675,6 +676,12 @@ public sealed partial class FunctionCodeGen
         };
         if (kinds != 0) _m.MarkDynamicallyAccessed(type, kinds, target.Name is "GetProperty" or "GetMethod" or "GetField" ? name : null);
     }
+
+    /// <summary>Type.GetType(string, ...) or Assembly.GetType(string, ...): a lookup by name.</summary>
+    private static bool IsGetTypeByName(IMethodSymbol target) =>
+        target is { Name: "GetType", Parameters: [{ Type.SpecialType: SpecialType.System_String }, ..] }
+        && (target is { IsStatic: true, ContainingType: { Name: "Type", ContainingNamespace: { Name: "System", ContainingNamespace.IsGlobalNamespace: true } } }
+            || target is { IsStatic: false, ContainingType: { Name: "Assembly", ContainingNamespace: { Name: "Reflection", ContainingNamespace: { Name: "System", ContainingNamespace.IsGlobalNamespace: true } } } });
 
     private BclHandler? TypeObjectMember(IMethodSymbol target, IOperation? instance)
     {

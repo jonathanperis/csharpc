@@ -1,0 +1,12 @@
+Default
+False
+True
+named False
+True
+True
+Default,named,(null)
+ArgumentException: Path "relative.dll" is not an absolute path. (Parameter 'assemblyPath')
+InvalidOperationException: Cannot unload non-collectible AssemblyLoadContext.
+unloading True
+InvalidOperationException: AssemblyLoadContext is unloading or was already unloaded.
+Default,named

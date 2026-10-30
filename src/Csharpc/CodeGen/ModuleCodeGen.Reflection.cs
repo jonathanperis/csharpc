@@ -189,6 +189,21 @@ public sealed partial class ModuleCodeGen
         if (type is INamedTypeSymbol { IsGenericType: true, IsDefinition: true }) _closedServicesScanned = 0; // its instantiations too
     }
 
+    /// <summary>
+    /// `Type.GetType("Ns.Name")` / `assembly.GetType("Ns.Name")` with a constant name: the type is kept (it gets a
+    /// method table, so the run-time lookup finds it), as ILLink keeps it for NativeAOT. Generic and
+    /// assembly-qualified names resolve as metadata names; a name that resolves to nothing keeps nothing.
+    /// </summary>
+    internal void NoteTypeByName(string name)
+    {
+        var comma = name.IndexOf(',');
+        if (comma >= 0 && name.IndexOf('[') < 0) name = name[..comma];
+        if (name.IndexOfAny(['[', '*', '&']) >= 0) return;
+        if (Compilation.GetTypeByMetadataName(name.Trim()) is not { } type || type.IsGenericType || type.TypeKind == TypeKind.Error) return;
+        try { MetadataMethodTable(type); }
+        catch (CompileError) { }
+    }
+
     /// <summary>A generic method or type instantiation: its annotated type parameters keep members of their arguments.</summary>
     internal void NoteDynamicallyAccessedInstantiation(ISymbol symbol)
     {

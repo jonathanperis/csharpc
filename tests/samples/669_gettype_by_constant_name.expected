@@ -1,0 +1,8 @@
+Plugins.Unused
+Plugins.Outer+Inner
+Unused
+True
+True
+Could not resolve type 'Plugins.Missing' in assembly '669_gettype_by_constant_name, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null'.
+Could not resolve type 'Plugins.Missing' in assembly '669_gettype_by_constant_name, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null'.
+True
