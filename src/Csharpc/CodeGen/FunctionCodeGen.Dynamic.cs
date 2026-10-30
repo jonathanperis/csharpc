@@ -500,6 +500,7 @@ public sealed partial class FunctionCodeGen
         for (var i = 0; i < count; i++)
             if (site.Operands[i].Passed) values[i] = ParamOf(index++);
         var chosen = new DynamicClass?[count];
+        var last = Array.FindLastIndex(plan.Classes, c => c is not null);
 
         void Dispatch(int i)
         {
@@ -523,9 +524,15 @@ public sealed partial class FunctionCodeGen
             Dispatch(i + 1);
             _b.PositionAtEnd(notNull);
             var mt = _b.Load(L.Ptr, obj, "mt");
+            var fallback = classes.First(c => c.Key.Kind is DynamicClassKind.Default or DynamicClassKind.Unsupported);
             foreach (var c in classes)
             {
                 if (c.Key.Kind is DynamicClassKind.Null or DynamicClassKind.Default or DynamicClassKind.Unsupported) continue;
+                if (i == last && fallback.Key.Kind == DynamicClassKind.Default)
+                {
+                    chosen[i] = c;
+                    if (_m.FoldsIntoDefault(site, chosen, i, fallback)) continue;
+                }
                 var hit = NewBlock("dyn.case");
                 var next = NewBlock("dyn.next");
                 LLVMValueRef matches = default;
@@ -561,7 +568,7 @@ public sealed partial class FunctionCodeGen
 
     private void EmitDynamicLeaf(DynamicSite site, DynamicClass?[] chosen, LLVMValueRef[] values)
     {
-        var leaf = _m.BindDynamicLeaf(site, chosen);
+        var leaf = _m.CachedDynamicLeaf(site, chosen);
         if (leaf.Error is { } error)
         {
             ThrowRuntimeBinderException(_m.StringLiteral(error));

@@ -181,6 +181,45 @@ public sealed partial class ModuleCodeGen
         site.Function = lowered;
     }
 
+    private static string DynamicCaseKey(DynamicClass?[] chosen) =>
+        string.Join("|", chosen.Select(c => c is null ? "-" : c.Key.Kind + "/" + c.Key.Type?.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)));
+
+    /// <summary>A case's binding, once per site (it depends only on the combination of operand classes).</summary>
+    internal DynamicLeaf CachedDynamicLeaf(DynamicSite site, DynamicClass?[] chosen)
+    {
+        var key = DynamicCaseKey(chosen);
+        return site.Leaves.TryGetValue(key, out var leaf) ? leaf : site.Leaves[key] = BindDynamicLeaf(site, chosen);
+    }
+
+    /// <summary>
+    /// Whether the class of operand <paramref name="index"/> in <paramref name="chosen"/> can be left to the default
+    /// case: its binding is an error whose message the default case's (naming the run-time type at run time)
+    /// spells exactly for each of its types — `int + bool` is the default `int + object`'s error for bool. Binary
+    /// operations on two dynamic operands keep only the combinations that bind.
+    /// </summary>
+    internal bool FoldsIntoDefault(DynamicSite site, DynamicClass?[] chosen, int index, DynamicClass @default)
+    {
+        if (CachedDynamicLeaf(site, chosen).Error is not { } message) return false;
+        var saved = chosen[index];
+        chosen[index] = @default;
+        var template = CachedDynamicLeaf(site, chosen).ErrorTemplate;
+        chosen[index] = saved;
+        if (template is null || saved is null) return false;
+        foreach (var type in saved.Types)
+        {
+            var text = new System.Text.StringBuilder();
+            foreach (var part in template)
+            {
+                if (part is string s) text.Append(s);
+                else if (part is int operand && (operand == index || operand == ~index))
+                    text.Append(operand < 0 && type is IArrayTypeSymbol ? "System.Array" : BinderTypeName(BestAccessibleType(type, null)));
+                else return false; // names another operand's run-time type
+            }
+            if (text.ToString() != message) return false;
+        }
+        return true;
+    }
+
     /// <summary>
     /// The function of one case of a site (same signature as the site): the code bound for that combination of
     /// operand types. Cases are kept across re-emissions of the site. A case csharpc can't lower (a library
@@ -189,7 +228,7 @@ public sealed partial class ModuleCodeGen
     /// </summary>
     internal LoweredFunction DynamicCaseFunction(DynamicSite site, DynamicClass?[] chosen)
     {
-        var key = string.Join("|", chosen.Select(c => c is null ? "-" : c.Key.Kind + "/" + c.Key.Type?.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)));
+        var key = DynamicCaseKey(chosen);
         if (site.Cases.TryGetValue(key, out var existing)) return existing;
         var type = site.Function.Type;
         var name = $"csharpc.dynamic.{_dynamicSiteList.IndexOf(site)}.case{site.Cases.Count}";

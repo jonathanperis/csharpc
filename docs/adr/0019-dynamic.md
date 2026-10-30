@@ -43,12 +43,15 @@ calls a function holding the code Roslyn bound for that combination of types.
    the null literal, a struct receiver variable is passed by reference and a boxed struct receiver is the box's payload
    (both are mutated, as on .NET). The block's control-flow graph is lowered like any other.
 2. **Which types get a case.** Per operand role (ModuleCodeGen.DynamicBinding.cs): a receiver needs a case for every type
-   with a member of that name (others: the binder's "does not contain a definition"); an argument for every type
-   implicitly convertible to some candidate parameter other than `object` (others bind as `object`, which selects the
-   same overload) — and for every type, up to a nesting depth of 2, when a candidate is generic and infers from it; an
-   operator operand for value types, strings, delegates and types with user-defined operators or conversions; a
-   conversion for every type with a conversion to the target (reference conversions share one case).
-   Reference equality between two "plain" classes is checked at run time (unrelated classes are a binder error).
+   with a member of that name (others: the binder's "does not contain a definition"; types whose lookup stops at
+   System.Object's members share one case, called virtually); an argument for every type implicitly convertible to some
+   candidate parameter other than `object` (others bind as `object`, which selects the same overload) — and for every
+   type, up to a nesting depth of 2, when a candidate is generic and infers from it; an operator operand for primitives,
+   strings, enums, delegates and types with user-defined operators or conversions (other structs too for `==`/`!=`); a
+   conversion for every type with a conversion to the target (reference conversions share one case). On the last
+   dynamic operand, a type whose binding is an error the default case reports identically (naming the run-time type)
+   gets no case: `a + b` keeps only the combinations that bind. Reference equality between two "plain" classes is
+   checked at run time (unrelated classes are a binder error).
 3. **Errors are the binder's.** A failed binding throws `RuntimeBinderException` with Microsoft.CSharp's message
    (`Strings.resx`), derived from Roslyn's symbol information: no member, bad argument count or types, ambiguity,
    static/instance mismatch, inaccessible members, read-only properties, void results, operator and conversion errors.
@@ -80,10 +83,13 @@ calls a function holding the code Roslyn bound for that combination of types.
 - Speed: a bound case is a type test and a direct call — no binder, no rule cache, no interpreter. A loop of 5M
   `acc += p.Add(i); p.X = i & 7;` on `dynamic` values takes 62–70 ms with csharpc, 308–403 ms on the JIT; NativeAOT
   can't run it (2026-10-30, shared VPS).
-- Size is pay-for-play: programs without `dynamic` are unchanged (`tests/size.sh`). A program using it pays for the cases
-  of its sites: the benchmark is 234 KB (NativeAOT: 3.7 MB); the 75-site binder-error sample is 767 KB.
-- Compile time grows with sites × relevant types: the 75-site sample binds in ~2.3 s (`CSHARPC_DYNAMIC_TRACE=1`
-  prints per-site planning and emission times; `=2` also each case).
+- Size is pay-for-play: programs without `dynamic` compile to byte-identical executables (hello, linq, the
+  `interpreter` and `json` programs, against `main`) in the same time. A program using it pays for the cases of its
+  sites (`-O2`): the benchmark is 234 KB and `using-dynamic` 28 KB (NativeAOT: 3.7–3.8 MB for any `dynamic`
+  program); sample 671 (75 sites) 523 KB, sample 670 (~130 sites, many with two dynamic operands) 896 KB, sample
+  673 (ExpandoObject and DynamicObject from System.Linq.Expressions' IL) 1.26 MB.
+- Compile time grows with sites × relevant types: sample 671 compiles in 12 s at `-O2`, sample 670 in 35 s
+  (`CSHARPC_DYNAMIC_TRACE=1` prints per-site planning and emission times; `=2` also each case).
 - Not supported yet, each an explicit diagnostic or NotSupportedException: `dynamic` in IL (above), `await` on a
   dynamic value, a dynamic value passed by `ref`/`out`, a simple-name dynamic call through a struct's `this` whose
   candidates are both static and instance methods, generic inference with a type nested deeper than 2, run-time types

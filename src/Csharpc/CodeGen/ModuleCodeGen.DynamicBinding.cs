@@ -73,6 +73,7 @@ public sealed partial class ModuleCodeGen
                     list.Add(c);
                 }
                 c.Mts.Add(mt);
+                c.Types.Add(type);
             }
             if (list.Count > 4096)
                 throw new CompileError("CSLLVM0001", $"not supported by csharpc yet: dynamic operation with {list.Count} distinct run-time operand types (csharpc's limit is 4096)", site.Syntax.GetLocation());

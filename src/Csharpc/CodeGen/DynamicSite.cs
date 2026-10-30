@@ -60,6 +60,8 @@ internal sealed class DynamicSite
     public string? Fingerprint { get; set; }
     /// <summary>The functions of its cases, by combination of operand classes.</summary>
     public Dictionary<string, LoweredFunction> Cases { get; } = new(StringComparer.Ordinal);
+    /// <summary>The bindings of its cases (a binding depends only on the combination).</summary>
+    public Dictionary<string, DynamicLeaf> Leaves { get; } = new(StringComparer.Ordinal);
     /// <summary>Its emission failed (reported once).</summary>
     public bool Failed { get; set; }
     /// <summary>Per operand: run-time type -> its class key (memoized classification).</summary>
@@ -88,6 +90,8 @@ internal sealed class DynamicClass
 {
     public required DynamicClassKey Key { get; init; }
     public List<LLVMValueRef> Mts { get; } = [];
+    /// <summary>The run-time types of <see cref="Mts"/>, in the same order.</summary>
+    public List<ITypeSymbol> Types { get; } = [];
     public ITypeSymbol? Type => Key.Type;
 }
 
