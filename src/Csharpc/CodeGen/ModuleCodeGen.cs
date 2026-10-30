@@ -48,6 +48,8 @@ public sealed partial class ModuleCodeGen
     public void WarnStackTraceFrames(IOperation at)
     {
         if (at.Syntax.SyntaxTree.FilePath.StartsWith("<corelib>", StringComparison.Ordinal)) return;
+        // Code bound for a dynamic operation (ModuleCodeGen.Dynamic.cs), for run-time types it may never see.
+        if (_dynamicOrigins.ContainsKey(at.Syntax.SyntaxTree)) return;
         Warnings.Add(new CompileError("CSLLVM0006",
             "stack traces list the frames of the program's own code as .NET does, but .NET's library frames only for common members (an exception thrown by, or passing through, other BCL code shows fewer \"   at ...\" lines)",
             at.Syntax.GetLocation()));
@@ -186,17 +188,18 @@ public sealed partial class ModuleCodeGen
         // Type metadata describes every method table, and describing one can create more (and queue
         // their methods): iterate to a fixed point.
         do DrainWorklists();
-        while (EmitRuntimeExports() | EmitReflectionMetadata() | EmitTypeMetadata() | EmitDeferredBclBoxRegistrations() | EmitDeferredPrimitiveSlots());
+        while (EmitRuntimeExports() | EmitReflectionMetadata() | EmitTypeMetadata() | EmitDeferredBclBoxRegistrations() | EmitDeferredPrimitiveSlots() | EmitDynamicSites());
         // Close the generic interface dispatchers, then lower what their last cases call.
         if (EmitGenericInterfaceDispatchers(final: true) | EmitVariantDelegateTests(final: true))
             do DrainWorklists();
-            while (EmitRuntimeExports() | EmitReflectionMetadata() | EmitTypeMetadata() | EmitDeferredBclBoxRegistrations() | EmitDeferredPrimitiveSlots());
+            while (EmitRuntimeExports() | EmitReflectionMetadata() | EmitTypeMetadata() | EmitDeferredBclBoxRegistrations() | EmitDeferredPrimitiveSlots() | EmitDynamicSites());
         CheckGenericInterfaceDispatchers();
         // Last: every dispatched slot is known once nothing is left to lower.
         // The IL methods that failed are reported even when finishing the tables fails too (that error
         // ends the compile anyway): a survey compile still lists every method it could not lower.
         try
         {
+            FinishDynamicTypeNames();
             FinishMethodTables();
             Guard(entryPoint, FinishReflectionMetadata);
             Guard(entryPoint, FinishTypeMetadata);

@@ -25,7 +25,7 @@ public sealed partial class FunctionCodeGen
     private readonly IrBuilder _allocas;
     private readonly LLVMBasicBlockRef _entry;
     private readonly LLVMBasicBlockRef _start;
-    private readonly LLVMValueRef _this;
+    private LLVMValueRef _this; // set per case in dynamic-site functions (FunctionCodeGen.Dynamic.cs)
     /// <summary>Set when this is a lambda / local function: its closure-tree node and incoming env.</summary>
     private readonly ClosureFunction? _nested;
     private readonly LLVMValueRef _incomingEnv;
@@ -595,8 +595,12 @@ public sealed partial class FunctionCodeGen
             StoreValue(type is null ? value : ToStorage(value, type), slot);
             return;
         }
+        _statementOperation = operation; // its value is discarded (a dynamic call may then bind to a void method)
         EmitValue(operation);
+        _statementOperation = null;
     }
+
+    private IOperation? _statementOperation;
 
     private (LLVMValueRef Slot, ITypeSymbol? Type) CaptureSlot(CaptureId id, ITypeSymbol? type)
     {

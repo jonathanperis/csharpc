@@ -1,0 +1,52 @@
+0: 42 is Int32, ToString=42
+1: text is String, ToString=text
+2: 2.5 is Double, ToString=2.5
+3: Point(1, 2) is Point, ToString=Point(1, 2)
+4: System.Collections.Generic.List`1[System.Int32] is List`1, ToString=System.Collections.Generic.List`1[System.Int32]
+5: c is Char, ToString=c
+6: 10 is Int64, ToString=10
+7: True is Boolean, ToString=True
+7
+20
+at(11, 9)
+PPP
+dyn(11, 9)
+PP
+40
+10
+Point(11, 9)
+9 5 14 3 1 28 3 2 7 5 -7 -8
+True True False True
+3000000200
+System.Int32
+System.Double
+3.0
+x72
+9x
+hello world
+HELLO5
+e
+eLL
+True
+yes is true
+no is false
+False
+True
+True
+small
+7 7 7 hello Point(11, 9)
+1
+0
+3 a,b,c
+zc
+zbc
+13
+True
+21
+30
+9
+13.5
+9!
+True
+null value
+1xy2.5

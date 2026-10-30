@@ -21,6 +21,7 @@ csharpc:     CsharpcCoreLib.DictionaryImpl<string,int>.set_Item(string, int)    
 | `src/Csharpc/CodeGen/FunctionCodeGen.CoreLib.cs` | `CoreIntrinsics` codegen, property lvalue captures, value-type null folds |
 | `src/Csharpc/CodeGen/ModuleCodeGen.CoreLib.cs` | arrays / strings as BCL interfaces |
 | `src/Csharpc/corelib/Globalization/` | .NET's globalization (cultures, formats, calendars, collation, casing) over ICU, see [19](19-globalization.md) |
+| `src/Csharpc/corelib/Dynamic/` | ExpandoObject's and DynamicObject's side of `dynamic` (the meta-object protocol's calls and binders), see [ADR 0019](adr/0019-dynamic.md) |
 
 ## Declaring a shadow
 

@@ -158,3 +158,22 @@ Integration bugs worth remembering:
 
 End of day: 138/138 differential runs (-O0 and -O2), 5/5 project-build routes, conformance 70.3 %,
 benchmarks ahead of NativeAOT on CPU time across the board.
+
+## 2026-10-30 — `dynamic`, bound at compile time
+
+The runtime binder binds a dynamic operation "as if the user had written it" against the best accessible run-time
+type of each dynamic operand. In a closed world every run-time type is known, so csharpc does the same binding at
+compile time with Roslyn — speculatively, at the operation's own position — once per type that changes the outcome,
+and switches on method tables at run time ([ADR 0019](adr/0019-dynamic.md)). Compiling Microsoft.CSharp and
+System.Linq.Expressions from IL instead was measured first: over ten minutes at `-O0` and 159 unsupported constructs.
+
+- Roslyn's speculative models give no diagnostics, so binder errors come from symbol information — with traps:
+  an unresolvable operator is an ordinary `IBinaryOperation` with a null symbol; `decimal += object` names
+  `decimal.op_Addition`; a declaration's narrowing conversion appears only in `GetConversion`; ambiguity and
+  static/instance mismatches are all `OverloadResolutionFailure`; `checked(...)` has no operation.
+- Roslyn writes the double `2.0` as `"2"` (an int literal): constants carry explicit suffixes in bound text.
+- A case that can't be lowered (a BCL member csharpc lacks, for a type the value may never have) is its own
+  function and throws NotSupportedException when reached, instead of failing the compile.
+- `dynamic` is `object` at run time: `CoreLib.Map` erases it, so `List<dynamic>` is `List<object>`.
+- NativeAOT can't run a dynamic call to a method only reached dynamically (trimmed; with `[DynamicDependency]`
+  the binder throws ArgumentNullException). csharpc runs the 5M-iteration benchmark in ~65 ms, the JIT in ~330 ms.

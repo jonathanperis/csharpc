@@ -15,6 +15,14 @@ public sealed partial class FunctionCodeGen
         return op switch
         {
             IlValueOperation il => il.Emit(), // an IL evaluation-stack value (FunctionCodeGen.Il.cs)
+            // `dynamic` (FunctionCodeGen.Dynamic.cs): before the static forms of the same operations.
+            IDynamicInvocationOperation or IDynamicMemberReferenceOperation or IDynamicIndexerAccessOperation or IDynamicObjectCreationOperation
+                or ISimpleAssignmentOperation { Target: IDynamicMemberReferenceOperation or IDynamicIndexerAccessOperation } => EmitDynamicOperation(op),
+            ICompoundAssignmentOperation dc when IsDynamicCompound(dc) => EmitDynamicOperation(op),
+            IIncrementOrDecrementOperation di when IsDynamic(di.Type) => EmitDynamicOperation(op),
+            IBinaryOperation db when IsDynamic(db.Type) => EmitDynamicOperation(op),
+            IUnaryOperation du when IsDynamic(du.Operand.Type) => EmitDynamicOperation(op),
+            IConversionOperation dv when IsDynamicConversion(dv) => EmitDynamicOperation(op),
             IFlowCaptureReferenceOperation r => LoadCapture(r),
             ILocalReferenceOperation l => LoadValue(LocalSlot(l.Local), S(l.Local.Type)),
             IParameterReferenceOperation p => LoadValue(ParameterSlot(p.Parameter, p), S(p.Parameter.Type)),

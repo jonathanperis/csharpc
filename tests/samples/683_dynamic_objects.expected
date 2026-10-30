@@ -1,0 +1,45 @@
+Ada 37
+Hello, Ada
+System.Dynamic.ExpandoObject
+Name,Age,Greet
+3
+error: 'System.Dynamic.ExpandoObject' does not contain a definition for 'Missing'
+error: 'System.Dynamic.ExpandoObject' does not contain a definition for 'Missing'
+3
+7
+real method
+Pick(int) 5
+Pick(string) w
+  TryInvokeMember Pick args=1 named=
+  TryGetMember Pick (ignoreCase=False)
+error: The best overloaded method match for 'Bag.Pick(int)' has some invalid arguments
+  TrySetMember Color = red
+  TryGetMember Color (ignoreCase=False)
+red
+  TryInvokeMember Shout args=2 named=
+HI THERE!
+  TryInvokeMember Shout args=1 named=word
+NAMED!
+  TrySetMember Callback = System.Func`2[System.Int32,System.Int32]
+  TryInvokeMember Callback args=1 named=
+  TryGetMember Callback (ignoreCase=False)
+40
+index[1,two]
+  TrySetIndex [k] = 5
+bag+1
+negated bag
+invoked with 3 args
+  TryConvert to Int32 explicit=False
+42
+  TryConvert to String explicit=True
+bag as string
+  TryGetMember Unknown (ignoreCase=False)
+error: 'Bag' does not contain a definition for 'Unknown'
+  TrySetMember ReadOnly = 1
+error: 'Bag' does not contain a definition for 'ReadOnly'
+  TryInvokeMember Nothing args=0 named=
+  TryGetMember Nothing (ignoreCase=False)
+error: 'Bag' does not contain a definition for 'Nothing'
+error: Operator '*' cannot be applied to operands of type 'Bag' and 'int'
+  TryConvert to Double explicit=False
+error: Cannot implicitly convert type 'Bag' to 'double'

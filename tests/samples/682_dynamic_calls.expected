@@ -1,0 +1,47 @@
+1 -> int
+2 -> long
+3 -> double
+four -> string
+c -> int
+5 -> double
+6 -> int
+System.Collections.Generic.List`1[System.Int32] -> IEnumerable<int>
+System.Int32[] -> IEnumerable<int>
+sum=0
+sum=6
+sum=6
+sum=9
+Hello, Ana
+Hi, Bo
+Hello, Cy Hello, Cy
+Yo, Di
+True 5
+False 3
+42
+static 3
+4
+4
+Int32+String
+Int64+Object
+81
+40key:k
+changed: first
+4-gon
+tri
+tri/3
+5.00$
+7.50$
+6.50$
+True
+False
+2.5
+3.00$
+6
+6
+5
+6
+print hi
+print 3
+renamed
+3 3
+7
