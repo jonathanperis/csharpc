@@ -12,18 +12,23 @@ name: Release
 # Never push *test*/*dryrun* versions (nuget.org cannot delete packages).
 #
 # Triggers:
-#   - After CI succeeds on main (workflow_run): rolling prerelease `latest-main`, package
-#     version 0.1.0-spike.<ci_run_number>. Does not run inside ci.yml, so it never cancels
-#     or slows the five merge-bar jobs. A docs-only or partial CI success does not publish:
-#     setup requires a successful `diff (` shard for every platform plus the five `test (`
-#     checks (tools/ci-plan.sh release-gate). The workflow named "CI (targeted)" is not this
-#     trigger.
+#   - After CI succeeds on a push to main (workflow_run): rolling prerelease `latest-main`,
+#     package version 0.1.0-spike.<ci_run_number>. Gated to main+push+success so PR/ci/**
+#     CI completions do not start Release (or burn setup runners), and a docs-only or partial
+#     CI success does not publish: setup requires a successful `diff (` shard for every platform
+#     plus the five `test (` checks (tools/ci-plan.sh release-gate). Does not run inside ci.yml,
+#     so it never cancels or slows the five merge-bar jobs.
 #   - Push of v* tags: named release + package version from the tag.
-#   - workflow_dispatch: dry-run by default (build+smoke only).
+#   - workflow_dispatch: dry-run by default (build+smoke only; never creates a Release/tag).
+# To exercise release.yml without publishing: workflow_dispatch with dry_run=true (default).
+# Do not add a ci/** publish channel or a dryrun-* release tag — those create public
+# prereleases/tags (cleaned up after 40322655301). GHCR/attest need a real main/tag publish.
 on:
   workflow_run:
     workflows: ["CI"]
     types: [completed]
+    # Only CI runs whose head branch is main (excludes pull_request and ci/** pushes).
+    branches: [main]
   push:
     tags: ["v*"]
   workflow_dispatch:
@@ -55,6 +60,15 @@ jobs:
   # Decide whether to run and which version/channel to publish.
   setup:
     name: setup
+    # workflow_run: only after a successful push CI on main. Skipped conclusion (e.g. docs-only
+    # path filter) and pull_request / workflow_dispatch CI must not start a release build.
+    # Tag push and workflow_dispatch use the other event arms below.
+    if: >
+      github.event_name != 'workflow_run' || (
+        github.event.workflow_run.event == 'push' &&
+        github.event.workflow_run.head_branch == 'main' &&
+        github.event.workflow_run.conclusion == 'success'
+      )
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -77,6 +91,7 @@ jobs:
       - id: meta
         env:
           EVENT_NAME: ${{ github.event_name }}
+          WR_EVENT: ${{ github.event.workflow_run.event || '' }}
           WR_CONCLUSION: ${{ github.event.workflow_run.conclusion || '' }}
           WR_BRANCH: ${{ github.event.workflow_run.head_branch || '' }}
           WR_SHA: ${{ github.event.workflow_run.head_sha || '' }}
@@ -100,7 +115,8 @@ jobs:
           sha="$SHA"
 
           if [[ $EVENT_NAME == workflow_run ]]; then
-            if [[ $WR_CONCLUSION == success && $WR_BRANCH == main ]]; then
+            # Defense in depth alongside the job-level if (push + main + success only).
+            if [[ $WR_EVENT == push && $WR_CONCLUSION == success && $WR_BRANCH == main ]]; then
               should_run=true
               should_publish=true
               channel=main
@@ -108,6 +124,8 @@ jobs:
               release_tag=latest-main
               prerelease=true
               sha="$WR_SHA"
+            else
+              echo "workflow_run ignored: event=$WR_EVENT conclusion=$WR_CONCLUSION branch=$WR_BRANCH"
             fi
           elif [[ $EVENT_NAME == push && $REF_NAME == v* ]]; then
             should_run=true
@@ -119,6 +137,7 @@ jobs:
             sha="$SHA"
           elif [[ $EVENT_NAME == workflow_dispatch ]]; then
             should_run=true
+            # dry_run (default): build+smoke only — no GH Release/tag, Packages, or GHCR.
             should_publish=$([[ $DRY_RUN == true || $DRY_RUN == True ]] && echo false || echo true)
             channel=dispatch
             version="${VERSION_OVERRIDE:-$csproj_ver}"
@@ -142,6 +161,14 @@ jobs:
             else
               echo "CI run $WR_ID is a full merge gate"
             fi
+          fi
+
+          # Hard stop: test/dryrun versions never publish (no public Release/tag/Packages/GHCR).
+          if [[ $version == *test* || $version == *dryrun* || $release_tag == *dryrun* || $release_tag == *test* ]]; then
+            if [[ $should_publish == true ]]; then
+              echo "refusing publish for test/dry-run version='$version' tag='$release_tag' (build+smoke only)"
+            fi
+            should_publish=false
           fi
 
           # nuget.org: Trusted Publishing via NuGet/login in this file (release.yml, no environment).
@@ -391,7 +418,7 @@ jobs:
           ls -lh
 
       - name: Attest release archives
-        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2.4.0
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
           subject-path: |
             release-assets/*.tar.gz
@@ -441,7 +468,7 @@ jobs:
           test -x docker-bundle/csharpc
 
       - name: Log in to GHCR
-        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
+        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -462,7 +489,7 @@ jobs:
           echo "EOF" >> "$GITHUB_OUTPUT"
 
       - name: Build and push container image
-        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
           file: Dockerfile
