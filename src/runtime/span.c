@@ -16,6 +16,7 @@ csrt_String* csrt_string_from_chars(const uint16_t* chars, int32_t length) {
 
 csrt_Array* csrt_span_to_array(const void* data, int32_t length, int64_t element_size) {
     csrt_Array* a = csrt_new_array(element_size, length);
+    CSRT_DIRTY(a->data, element_size * length);
     if (length) memcpy(a->data, data, (size_t)(element_size * length));
     return a;
 }

@@ -94,20 +94,23 @@ void csrt_array_copy(csrt_Array* src, int64_t si, csrt_Array* dst, int64_t di, i
     void* dest = dst->data + di * elem;
     size_t bytes = (size_t)(length * elem);
 #if defined(CSRT_GC_NURSERY_DEFAULT)
-    // Reference arrays: dirty cards before the copy so a suspend cannot hide old→young edges.
-    if (elem == (int64_t)sizeof(void*)) csrt_gc_cards_dirty(dest, bytes);
+    // Before the copy, so a suspend cannot hide old→young edges. Any element size: structs that hold
+    // references (KeyValuePair<string, T>[]) are copied here too.
+    if (!(dst->mt->flags & CSRT_MT_NO_REFERENCES)) csrt_gc_cards_dirty(dest, bytes);
 #endif
     memmove(dest, src->data + si * elem, bytes);
 }
 
 void csrt_array_fill(csrt_Array* a, const void* value, int64_t elem) {
     need_array(a, "array");
+    CSRT_DIRTY(a->data, a->length * elem);
     for (int64_t i = 0; i < a->length; i++) memcpy(a->data + i * elem, value, (size_t)elem);
 }
 
 csrt_Array* csrt_array_resize(csrt_Array* a, int64_t length, int64_t elem) {
     if (length < 0) csrt_throw(&mt_range, ascii("Non-negative number required. (Parameter 'newSize')"));
     csrt_Array* r = csrt_new_array(elem, length);
+    CSRT_DIRTY(r->data, length * elem);
     if (a) memcpy(r->data, a->data, (size_t)((a->length < length ? a->length : length) * elem));
     return r;
 }
@@ -249,7 +252,7 @@ csrt_Array* csrt_environment_command_line_args(void) {
     int argc = *_NSGetArgc();
     char** argv = *_NSGetArgv();
     csrt_Array* arr = csrt_new_array(sizeof(void*), argc);
-    for (int i = 0; i < argc; i++) ((csrt_String**)arr->data)[i] = ascii(argv[i]);
+    for (int i = 0; i < argc; i++) CSRT_STORE_REF(((csrt_String**)arr->data)[i], ascii(argv[i]));
     return arr;
 }
 #else
@@ -267,7 +270,7 @@ csrt_Array* csrt_environment_command_line_args(void) {
     size_t start = 0;
     for (int64_t k = 0; k < count; k++) {
         size_t len = strlen(buf + start);
-        items[k] = ascii(buf + start);  // ASCII/Latin-1 paths; UTF-8 args are rare here
+        CSRT_STORE_REF(items[k], ascii(buf + start));  // ASCII/Latin-1 paths; UTF-8 args are rare here
         start += len + 1;
     }
     return arr;
@@ -321,7 +324,7 @@ static csrt_Array* split_core(csrt_String* s, csrt_String* sep_string, csrt_Arra
     }
     csrt_Array* result = csrt_new_array(sizeof(void*), count);
     for (int32_t k = 0; k < count; k++)
-        ((csrt_String**)result->data)[k] = from_chars(s->chars + bounds[2 * k], bounds[2 * k + 1] - bounds[2 * k]);
+        CSRT_STORE_REF(((csrt_String**)result->data)[k], from_chars(s->chars + bounds[2 * k], bounds[2 * k + 1] - bounds[2 * k]));
     free(bounds);
     return result;
 }
@@ -329,7 +332,7 @@ static csrt_Array* split_core(csrt_String* s, csrt_String* sep_string, csrt_Arra
 csrt_Array* csrt_string_split_string(csrt_String* s, csrt_String* separator, int32_t options) {
     if (separator && separator->length == 0) {  // empty separator: no split
         csrt_Array* r = csrt_new_array(sizeof(void*), 1);
-        ((csrt_String**)r->data)[0] = s;
+        CSRT_STORE_REF(((csrt_String**)r->data)[0], s);
         return r;
     }
     return split_core(s, separator, NULL, options);

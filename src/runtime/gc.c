@@ -19,16 +19,18 @@
 //     .rodata — are ignored. Every word of a reachable object is scanned conservatively, too.
 //   * Nursery (opt-in via --gc-nursery / CSHARPC_GC_NURSERY=1, which compiles with
 //     -DCSRT_GC_NURSERY_DEFAULT): small objects are allocated into young chunks. A minor
-//     collection marks only young objects from stacks, statics and dirty old chunks/large
-//     objects, then sweeps young chunks. Survivors stay in place but their chunks are promoted
-//     to old (so old→young edges from this collection become old→old and cards can be cleared).
-//     A major collection is today's full mark-sweep. CSRT_GC_NURSERY=0 disables the nursery in
-//     a nursery-built binary. The default binary does not compile nursery/card code in: barriers
-//     blow the async size budget and churn throughput drops (docs/adr/0004).
+//     collection marks only young objects from stacks, statics, dirty old chunks/large objects
+//     and remembered coroutine frames, then sweeps young chunks. Survivors stay in place but their
+//     chunks are promoted to old (so old→young edges from this collection become old→old and cards
+//     can be cleared). A major collection is today's full mark-sweep. CSRT_GC_NURSERY=0 disables
+//     the nursery in a nursery-built binary. The default binary does not compile nursery/card code
+//     in: barriers blow the async size budget and churn throughput drops (docs/adr/0004).
 //   * Cards: per-chunk and per-large-object dirty bits (mmap heaps are sparse; a flat table over
-//     [heap_min, heap_max) is not viable). The compiler emits csrt_gc_write for heap reference
-//     stores (dirty, then store). CSRT_GC_TRIGGER_MB is the major minimum; the nursery trigger
-//     defaults to 4 MiB (CSRT_GC_NURSERY_MB).
+//     [heap_min, heap_max) is not viable). csharpc turns heap reference stores into csrt_gc_write
+//     (dirty, then store) and dirties before copies (ModuleCodeGen.WriteBarriers.cs); the runtime
+//     uses CSRT_STORE_REF / CSRT_DIRTY (csrt.h). A minor runs every CSRT_GC_NURSERY_MB (32) MiB
+//     of allocation; a major after 32 minors or once the heap doubles since the last major.
+//     CSRT_GC_STRESS collections are minors too.
 //
 // Threads (docs/13-threading.md): every managed thread registers itself (stack bounds, TLS block,
 // allocation cache). Allocation caches are thread-local, so the fast path stays lock-free; slow
@@ -119,6 +121,7 @@ struct Chunk {
 #if CSRT_HAS_NURSERY
     uint8_t young;         // 1: nursery chunk (minor collections sweep these)
     uint8_t dirty;         // old→young card: set by the write barrier, cleared when scanned
+    uint8_t remembered;    // may hold a coroutine frame: minors scan those objects (csrt_gc_remember)
 #endif
 #if defined(CSRT_GC_PARALLEL_MARK)
     uint8_t owner;         // which parallel marker writes this chunk's mark bits
@@ -176,6 +179,7 @@ static struct {
     bool minor;            // true while a minor collection is marking/sweeping
     bool force_major;      // next collect is major (GC.Collect, promotion pressure)
     bool large_dirty;      // any large-object card dirty (scanned wholesale on minor)
+    bool large_remembered; // a large coroutine frame may exist (csrt_gc_remember)
 #endif
     pthread_mutex_t lock;  // allocation slow paths, collections, thread registry
 
@@ -223,7 +227,9 @@ static struct {
 
     size_t allocated_since_gc, live_bytes, trigger, min_trigger;
 #if CSRT_HAS_NURSERY
-    size_t young_since_gc, young_live, nursery_trigger, nursery_trigger_min;
+    // Minors run every nursery_trigger bytes of allocation of any kind (small, large, into reused
+    // old chunks); a collection is major once the heap reaches major_trigger (2x the last major's live).
+    size_t nursery_trigger, nursery_trigger_min, major_trigger;
     size_t minors_since_major;
 #endif
     size_t stress, stress_count;  // CSRT_GC_STRESS
@@ -268,12 +274,23 @@ static void chunk_set_insert_raw(uintptr_t* table, size_t capacity, uintptr_t ba
 static void chunk_set_insert(uintptr_t base) {
     if ((g.chunk_count + 1) * 2 > g.chunk_set_capacity) {
         size_t capacity = g.chunk_set_capacity ? g.chunk_set_capacity * 2 : 64;
+#if CSRT_HAS_NURSERY
+        // Write barriers look chunks up without the lock (chunk_set_contains_unlocked): the capacity
+        // travels with the table, and a table a mutator may still be reading is never freed.
+        uintptr_t* table = calloc(capacity + 1, sizeof *table);
+        if (!table) { fputs("csrt: out of memory (gc metadata)\n", stderr); abort(); }
+        *table++ = capacity;
+        for (size_t i = 0; i < g.chunk_set_capacity; i++)
+            if (g.chunk_set[i]) chunk_set_insert_raw(table, capacity, g.chunk_set[i]);
+        __atomic_store_n(&g.chunk_set, table, __ATOMIC_RELEASE);
+#else
         uintptr_t* table = calloc(capacity, sizeof *table);
         if (!table) { fputs("csrt: out of memory (gc metadata)\n", stderr); abort(); }
         for (size_t i = 0; i < g.chunk_set_capacity; i++)
             if (g.chunk_set[i]) chunk_set_insert_raw(table, capacity, g.chunk_set[i]);
         free(g.chunk_set);
         g.chunk_set = table;
+#endif
         g.chunk_set_capacity = capacity;
     }
     chunk_set_insert_raw(g.chunk_set, g.chunk_set_capacity, base);
@@ -297,18 +314,44 @@ static void note_range(uintptr_t lo, uintptr_t hi) {
 }
 
 #if CSRT_HAS_NURSERY
+/// chunk_set_contains for mutators, which run the barrier without the lock while another thread may be
+/// growing the set: a table is published together with its capacity (the word before it) and old
+/// tables are never freed (chunk_set_insert), so a racing lookup reads a complete, consistent table.
+/// A chunk added after the table was read belongs to the thread that mapped it, not to this store.
+static inline bool chunk_set_contains_unlocked(uintptr_t base) {
+    const uintptr_t* table = __atomic_load_n(&g.chunk_set, __ATOMIC_ACQUIRE);
+    if (!table) return false;
+    size_t mask = (size_t)table[-1] - 1;
+    for (size_t i = hash_ptr(base) & mask;; i = (i + 1) & mask) {
+        uintptr_t v = __atomic_load_n(&table[i], __ATOMIC_RELAXED);
+        if (v == base) return true;
+        if (!v) return false;
+    }
+}
+
 /// Mark the old chunk or large object containing `slot` dirty. Young targets are ignored (no old→young).
 /// Flat card tables over [heap_min, heap_max) are unusable: mmap chunks are sparse under ASLR.
 static inline void card_dirty(void* slot) {
     uintptr_t p = (uintptr_t)slot;
     if (p < g.heap_min || p >= g.heap_max) return;
     uintptr_t base = p & ~(CHUNK_SIZE - 1);
-    if (chunk_set_contains(base)) {
+    if (chunk_set_contains_unlocked(base)) {
         Chunk* c = (Chunk*)base;
         if (!c->young) c->dirty = 1;
         return;
     }
     g.large_dirty = true;
+}
+
+/// Coroutine frames (async methods' tasks, iterators): LLVM's coroutine lowering stores spilled locals
+/// into them with plain stores, after csharpc placed its write barriers, so no card is dirtied for
+/// those. Instead the chunk (or the large-object list) is remembered: every minor collection scans the
+/// frames in it for as long as one is allocated there (scan_cards). Called right after allocation.
+void csrt_gc_remember(void* obj) {
+    if (!g.nursery) return;
+    uintptr_t base = (uintptr_t)obj & ~(CHUNK_SIZE - 1);
+    if (chunk_set_contains_unlocked(base)) ((Chunk*)base)->remembered = 1;
+    else g.large_remembered = true;
 }
 
 void csrt_gc_cards_dirty(void* start, size_t n) {
@@ -379,6 +422,7 @@ static void chunk_format(Chunk* c, uint32_t cls) {
 #if CSRT_HAS_NURSERY
     c->young = g.nursery ? 1 : 0;
     c->dirty = 0;
+    c->remembered = 0;
 #endif
     memset(c->allocated, 0, sizeof c->allocated);
     memset(c->marked, 0, sizeof c->marked);
@@ -401,6 +445,13 @@ static bool claim_word(SizeClass* sc, AllocCache* cache, uint32_t cls) {
             } else if (g.empty) {
                 c = g.empty;
                 g.empty = c->next_free;
+#if CSRT_HAS_NURSERY
+                // Slots claimed but not handed out yet count as allocated: a stale pointer into one makes
+                // the collector read its first word as a method table. Within one size class that is a
+                // dead object's; across classes it can be any field, so clear the old contents. Minors
+                // scan whole dirty chunks, full of stale pointers, which makes that likely.
+                if (g.nursery && c->size_class != cls) memset((uint8_t*)c + CHUNK_HEADER, 0, CHUNK_SIZE - CHUNK_HEADER);
+#endif
                 chunk_format(c, cls);
             } else {
                 c = chunk_map();
@@ -421,7 +472,9 @@ static bool claim_word(SizeClass* sc, AllocCache* cache, uint32_t cls) {
             size_t bytes = (size_t)__builtin_popcountll(free_bits) * c->object_size;
             g.allocated_since_gc += bytes;
 #if CSRT_HAS_NURSERY
-            if (c->young) g.young_since_gc += bytes;
+            // Objects handed out of an old chunk (reused after a major) are born old: their first stores
+            // may be the runtime's unbarriered initialization. The next minor scans the chunk.
+            if (!c->young) c->dirty = 1;
 #endif
             g.total_allocated += bytes;
             return true;
@@ -462,6 +515,11 @@ static void protect_caches(void) {
             if (!ac->word_base) continue;
             size_t w;
             Chunk* c = cache_word(ac, &w);
+#if CSRT_HAS_NURSERY
+            // A minor neither sweeps nor unmarks old chunks: a mark set here would survive into the next
+            // major, which would then take those slots as already traced and never scan them.
+            if (g.minor && !c->young) continue;
+#endif
             c->marked[w] |= c->allocated[w];
         }
     }
@@ -724,6 +782,7 @@ void csrt_gc_init(void) {
     env = getenv("CSRT_GC_NURSERY_MB");
     g.nursery_trigger_min = env && atol(env) > 0 ? (size_t)atol(env) * 1024 * 1024 : NURSERY_MIN;
     g.nursery_trigger = g.nursery_trigger_min;
+    g.major_trigger = g.min_trigger;
 #endif
     env = getenv("CSRT_GC_STRESS");
     g.stress = env && atol(env) > 0 ? (size_t)atol(env) : 0;
@@ -801,14 +860,12 @@ __attribute__((noinline, cold)) static void* alloc_small_slow(uint32_t cls) {
     AllocCache* cache = &tl_cache[cls];
     bool collected = false;
     void* result = NULL;
-    if (g.stress && g.enabled && ++g.stress_count % g.stress == 0 && !g.collecting) {
-        g.force_major = true;
-        collect(); collected = true;
-    }
+    // Stress collections are minors too (a major every 32): they exercise the write barriers.
+    if (g.stress && g.enabled && ++g.stress_count % g.stress == 0 && !g.collecting) { collect(); collected = true; }
     for (;;) {
         if (g.enabled && !g.collecting) {
             if (g.nursery) {
-                if (g.young_since_gc >= g.nursery_trigger) { collect(); collected = true; }
+                if (g.allocated_since_gc >= g.nursery_trigger) { collect(); collected = true; }
             } else if (g.allocated_since_gc >= g.trigger) {
                 collect(); collected = true;
             }
@@ -837,12 +894,8 @@ out:
 
 static void* alloc_large_locked(size_t size, bool clear) {
     if (g.enabled) {
-        if (g.stress && ++g.stress_count % g.stress == 0) {
-            g.force_major = true;
-            collect();
-        } else if (g.nursery ? g.young_since_gc >= g.nursery_trigger : g.allocated_since_gc >= g.trigger) {
-            collect();
-        }
+        if (g.stress && ++g.stress_count % g.stress == 0) collect();
+        else if (g.allocated_since_gc >= (g.nursery ? g.nursery_trigger : g.trigger)) collect();
     }
     void* result = alloc_large(size, clear);
     if (!result && g.enabled) {
@@ -856,6 +909,8 @@ static void* alloc_large_locked(size_t size, bool clear) {
         g.total_allocated += charged;
         size_t heap = g.live_bytes + g.allocated_since_gc;
         if (heap > g.peak_heap) g.peak_heap = heap;
+        // Large objects are born old, and the runtime may fill one before any barrier runs.
+        g.large_dirty = true;
     }
     return result;
 }
@@ -1810,18 +1865,37 @@ static void profile_print(void) {
 /// Scan dirty old chunks (and large objects) for pointers into the nursery.
 CSRT_GC_NO_SANITIZE static void scan_cards(void) {
     for (Chunk* c = g.chunks; c; c = c->next) {
-        if (!c->dirty || c->young || c->object_size == 0) { c->dirty = 0; continue; }
-        c->dirty = 0;
-        scan_range((const uint8_t*)c + CHUNK_HEADER, (const uint8_t*)c + CHUNK_SIZE);
+        if (c->young || c->object_size == 0) { c->dirty = 0; continue; }
+        if (c->dirty) {
+            c->dirty = 0;
+            scan_range((const uint8_t*)c + CHUNK_HEADER, (const uint8_t*)c + CHUNK_SIZE);
+            continue;
+        }
+        if (!c->remembered) continue;
+        // Only the frames: the rest of the chunk is clean. The flag stays while one is allocated here.
+        bool any = false;
+        size_t words = (c->slots + 63) / 64;
+        for (size_t w = 0; w < words; w++)
+            for (uint64_t bits = c->allocated[w]; bits; bits &= bits - 1) {
+                const uint8_t* start = (const uint8_t*)c + CHUNK_HEADER + (w * 64 + (size_t)__builtin_ctzll(bits)) * c->object_size;
+                if (!csrt_gc_remembered_object(start)) continue;
+                any = true;
+                scan_range(start + sizeof(void*), start + c->object_size);
+            }
+        c->remembered = any;
     }
-    if (!g.large_dirty) return;
+    if (!g.large_dirty && !g.large_remembered) return;
+    bool all = g.large_dirty, any = false;
     g.large_dirty = false;
     for (size_t i = 0; i < g.large_count; i++) {
         LargeObject* obj = &g.large[i];
         const csrt_MethodTable* mt = *(const csrt_MethodTable* const*)obj->start;
         if (mt && (mt->flags & CSRT_MT_NO_REFERENCES)) continue;
-        scan_range(obj->start + sizeof(void*), obj->start + obj->size);
+        bool frame = csrt_gc_remembered_object(obj->start);
+        any |= frame;
+        if (all || frame) scan_range(obj->start + sizeof(void*), obj->start + obj->size);
     }
+    g.large_remembered = any;
 }
 #endif
 
@@ -1903,7 +1977,6 @@ static size_t sweep(bool major) {
             live += g.large[i].size;
         }
     }
-    g.young_live = 0;
     return live;
 }
 #else
@@ -2105,7 +2178,9 @@ __attribute__((noinline)) void csrt_gc_collect_now(void) {
 #if CSRT_HAS_NURSERY
     // Stress and explicit Collect always major. Many minors without a major would never sweep
     // dead objects in promoted chunks.
-    bool major = !g.nursery || g.force_major || g.stress || g.minors_since_major >= 32;
+    // A minor reclaims nothing old (promoted survivors, large objects, objects born in reused chunks):
+    // once those reach twice the live heap of the last major, collect them.
+    bool major = !g.nursery || g.force_major || g.minors_since_major >= 32 || g.live_bytes + g.allocated_since_gc >= g.major_trigger;
     g.force_major = false;
     g.minor = g.nursery && !major;
     bool was_minor = g.minor;
@@ -2140,11 +2215,20 @@ __attribute__((noinline)) void csrt_gc_collect_now(void) {
     if (!g.minor) {
         for (Chunk* c = g.chunks; c; c = c->next) c->dirty = 0;
         g.large_dirty = false;
-    } else {
-        // Survivors' chunks were promoted: drop allocation caches so the fast path cannot place
-        // new objects into old chunks (they would be invisible to the next minor mark).
-        for (csrt_GcThread* t = g.threads; t; t = t->next)
-            if (t->state == THREAD_RUNNING && t->cache) release_cache(t->cache);
+    }
+    // Every survivor is old now, the chunks of the threads' claimed allocation words included. Their
+    // remaining slots are still handed out (a stopped thread may be inside the lock-free fast path, so
+    // its cache cannot be taken away): those objects are born old, so keep the chunks dirty until the
+    // next minor has seen what was stored into them.
+    for (csrt_GcThread* t = g.threads; t; t = t->next) {
+        if (t->state != THREAD_RUNNING || !t->cache) continue;
+        for (size_t cls = 0; cls < NUM_CLASSES; cls++) {
+            AllocCache* ac = &((AllocCache*)t->cache)[cls];
+            if (!ac->word_base) continue;
+            size_t w;
+            Chunk* c = cache_word(ac, &w);
+            if (!c->young) c->dirty = 1;
+        }
     }
 #else
     g.live_bytes = sweep();
@@ -2153,11 +2237,9 @@ __attribute__((noinline)) void csrt_gc_collect_now(void) {
     for (size_t i = 0; i < g.deferred_count; i++) free(g.deferred_free[i]);
     g.deferred_count = 0;
     g.allocated_since_gc = 0;
-#if CSRT_HAS_NURSERY
-    g.young_since_gc = 0;
-#endif
     g.trigger = 2 * g.live_bytes > g.min_trigger ? 2 * g.live_bytes : g.min_trigger;
 #if CSRT_HAS_NURSERY
+    if (!was_minor) g.major_trigger = g.trigger;
     if (g.nursery && !was_minor) g.nursery_trigger = g.nursery_trigger_min;
     g.collections++;
     if (!was_minor) { g.major_collections++; g.minors_since_major = 0; }

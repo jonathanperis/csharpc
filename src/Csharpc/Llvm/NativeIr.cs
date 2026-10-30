@@ -71,6 +71,9 @@ internal static unsafe partial class Native
     [LibraryImport(Lib)] public static partial LLVMModuleRef LLVMGetGlobalParent(LLVMValueRef global);
     [LibraryImport(Lib)] public static partial uint LLVMGetVectorSize(LLVMTypeRef type);
     [LibraryImport(Lib)] public static partial void LLVMGetStructElementTypes(LLVMTypeRef type, LLVMTypeRef* dest);
+    [LibraryImport(Lib)] public static partial LLVMAtomicOrdering LLVMGetOrdering(LLVMValueRef memoryAccess);
+    [LibraryImport(Lib)] public static partial int LLVMGetVolatile(LLVMValueRef memoryAccess);
+    [LibraryImport(Lib)] public static partial int LLVMIsConstant(LLVMValueRef value);
     [LibraryImport(Lib)] public static partial LLVMMetadataRef LLVMInstructionGetDebugLoc(LLVMValueRef inst);
     [LibraryImport(Lib)] public static partial void LLVMInstructionSetDebugLoc(LLVMValueRef inst, LLVMMetadataRef loc);
 }

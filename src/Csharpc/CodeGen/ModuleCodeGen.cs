@@ -1282,7 +1282,7 @@ public sealed partial class ModuleCodeGen
         b.PositionAtEnd(b.AppendBlock(fn, "entry"));
         var args = new LLVMValueRef[count];
         for (var i = 0; i < count; i++)
-            args[i] = b.Load(Native.LLVMStructGetTypeAtIndex(argsType, (uint)i), b.StructGep(argsType, fn.Param(0), (uint)i));
+            args[i] = b.Load(Native.LLVMStructGetTypeAtIndex(argsType, (uint)i + 1), b.StructGep(argsType, fn.Param(0), (uint)i + 1));  // [0] is the header
         b.Ret(b.Call(target.Type, target.Fn, args));
         return _globals[key] = fn;
     }

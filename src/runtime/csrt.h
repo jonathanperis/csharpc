@@ -127,6 +127,17 @@ int64_t csrt_gc_total_memory(void);  // System.GC.GetTotalMemory(bool)
 // Heap reference store + card dirty (codegen write barrier; see gc.c / ADR 0004).
 void csrt_gc_write(void** slot, void* value);
 void csrt_gc_cards_dirty(void* start, size_t n);
+void csrt_gc_remember(void* obj);  // scanned by every minor collection while it lives (coroutine frames)
+// The runtime's own stores of a heap reference into a heap object go through these, so the nursery
+// sees old-to-young edges the C code creates. A store into the object the same code just allocated,
+// with no allocation in between, would be safe without (gc.c dirties chunks it hands out as old);
+// the barrier is used anyway. Moves within one object (sorts, swaps) need none: the object is
+// already dirty if it holds a young reference. Without the nursery these are plain stores.
+#define CSRT_STORE_REF(lvalue, value) csrt_gc_write((void**)&(lvalue), (void*)(value))
+#define CSRT_DIRTY(start, bytes) csrt_gc_cards_dirty((void*)(start), (size_t)(bytes))
+#else
+#define CSRT_STORE_REF(lvalue, value) ((void)((lvalue) = (value)))
+#define CSRT_DIRTY(start, bytes) ((void)0)
 #endif
 // Weak references and ephemerons (gc.c; corelib/WeakReferences.cs). Handles are slot index + 1.
 intptr_t csrt_weak_alloc(void* target, void* value, void* owner, int32_t ephemeron);

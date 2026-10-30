@@ -80,9 +80,9 @@ DEF_EXC(System_EntryPointNotFoundException, "System.EntryPointNotFoundException"
 // ---------------------------------------------------------------------------------------------
 void csrt_exception_init(void* exception, csrt_String* message, void* inner, csrt_String* param_name) {
     csrt_Exception* e = exception;
-    e->message = message;
-    e->inner = inner;
-    e->param_name = param_name;
+    CSRT_STORE_REF(e->message, message);
+    CSRT_STORE_REF(e->inner, inner);
+    CSRT_STORE_REF(e->param_name, param_name);
 }
 
 // Not inlined: exception formatting is cold, and each inlined copy is two allocations' worth of code.
@@ -161,14 +161,14 @@ void csrt_exception_set_hresult(void* exception, int32_t hresult) {
     ((csrt_Exception*)exception)->hresult = hresult;
 }
 
-void csrt_exception_set_token(void* exception, void* token) { ((csrt_Exception*)exception)->token = token; }
+void csrt_exception_set_token(void* exception, void* token) { CSRT_STORE_REF(((csrt_Exception*)exception)->token, token); }
 void* csrt_exception_get_token(void* exception) {
     if (!exception) csrt_throw_null_reference();
     return ((csrt_Exception*)exception)->token;
 }
 
 void csrt_exception_set_actual_value(void* exception, csrt_String* actual_value) {
-    ((csrt_Exception*)exception)->actual_value = actual_value;
+    CSRT_STORE_REF(((csrt_Exception*)exception)->actual_value, actual_value);
 }
 
 // ObjectDisposedException(objectName[, message]): Message is the message (null = the default text)
@@ -266,7 +266,7 @@ static csrt_Array* trace_copy(const csrt_Array* trace, int32_t capacity) {
 
 static void trace_append(csrt_Exception* e, const csrt_TraceSite* site) {
     int32_t count = trace_count(e->trace);
-    if (!e->trace || TRACE_HEADER + count >= e->trace->length) e->trace = trace_copy(e->trace, 2 * count + 8);
+    if (!e->trace || TRACE_HEADER + count >= e->trace->length) CSRT_STORE_REF(e->trace, trace_copy(e->trace, 2 * count + 8));
     TraceData* data = trace_data(e->trace);
     data->sites[count] = site;
     data->count = count + 1;
@@ -300,7 +300,7 @@ void csrt_trace_append_library(void* exception, const void* const* sites, int32_
 void csrt_trace_preset(void* exception, const void* const* sites, int32_t count) {
     csrt_Exception* e = exception;
     if (!s_trace || !e) return;
-    e->trace = trace_copy(NULL, count + 8);
+    CSRT_STORE_REF(e->trace, trace_copy(NULL, count + 8));
     TraceData* data = trace_data(e->trace);
     memcpy(data->sites, sites, sizeof(void*) * (size_t)count);
     data->count = count;
@@ -515,15 +515,16 @@ void* csrt_aggregate_exception_new(void** inners, int64_t count) {
     void* e = csrt_alloc(&csrt_MT_System_AggregateException.header, sizeof(csrt_Exception));
     csrt_exception_init(e, message, count > 0 ? inners[0] : NULL, NULL);
     csrt_Array* list = csrt_new_array(sizeof(void*), count);
+    CSRT_DIRTY(list->data, sizeof(void*) * (size_t)count);
     memcpy(list->data, inners, sizeof(void*) * (size_t)count);
-    ((csrt_Exception*)e)->inners = list;
+    CSRT_STORE_REF(((csrt_Exception*)e)->inners, list);
     s_aggregate_text = aggregate_text;
     return e;
 }
 
 /// new AggregateException(..., innerExceptions) from compiled code: the Exception[] it was given.
 void csrt_exception_set_inners(void* exception, csrt_Array* inners) {
-    ((csrt_Exception*)exception)->inners = inners;
+    CSRT_STORE_REF(((csrt_Exception*)exception)->inners, inners);
     s_aggregate_text = aggregate_text;
 }
 
@@ -551,7 +552,7 @@ void* csrt_task_canceled_exception_new(void) {
 
 void* csrt_operation_canceled_exception_new(void* token) {
     csrt_Exception* e = new_exception(&csrt_MT_System_OperationCanceledException, "The operation was canceled.");
-    e->token = token;
+    CSRT_STORE_REF(e->token, token);
     return e;
 }
 
@@ -634,7 +635,7 @@ void csrt_exception_throw_captured(void* exception, void* captured) {
     csrt_Exception* e = exception;
     csrt_Array* frames = captured;
     if (frames) {
-        e->trace = trace_copy(frames, trace_count(frames) + 8);
+        CSRT_STORE_REF(e->trace, trace_copy(frames, trace_count(frames) + 8));
         trace_append(e, TRACE_PREVIOUS_LOCATION);
         trace_data(e->trace)->frame = 0;  // Throw() runs elsewhere on the stack than the capture
     } else trace_reset(e);

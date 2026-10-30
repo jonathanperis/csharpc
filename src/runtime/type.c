@@ -711,7 +711,7 @@ void csrt_array_set_value(csrt_Array* array, void* value, int64_t index, const c
         if (!from) return;
         if (!assignable(element, from)) { throw_utf8(&mt_invalid_cast, "Object cannot be stored in an array of this type."); return; }
     }
-    ((void**)array->data)[index] = value;
+    CSRT_STORE_REF(((void**)array->data)[index], value);
 }
 
 /// Array.GetValue(index) on a one-dimensional array of a reference type (synthesized T[] included).
