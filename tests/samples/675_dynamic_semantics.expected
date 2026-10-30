@@ -1,0 +1,45 @@
+woofmeow...
+dog
+animal
+dog == cat: RuntimeBinderException: Operator '==' cannot be applied to operands of type 'Dog' and 'Cat'
+False
+dog == other: RuntimeBinderException: Operator '==' cannot be applied to operands of type 'Dog' and 'Unrelated'
+True
+dog != 'x': RuntimeBinderException: Operator '!=' cannot be applied to operands of type 'Dog' and 'string'
+False
+False
+Green
+Blue
+3
+True
+color + color: RuntimeBinderException: Operator '+' cannot be applied to operands of type 'Color' and 'Color'
+Green
+int to enum: RuntimeBinderException: Cannot implicitly convert type 'int' to 'Color'. An explicit conversion exists (are you missing a cast?)
+4
+-1
+6
+10
+4
+Int32 String Double 
+3.5
+ten
+True
+gt
+98
+b
+3
+4294967291
+ulong + long: RuntimeBinderException: Operator '+' cannot be applied to operands of type 'ulong' and 'long'
+overflow: OverflowException: Arithmetic operation resulted in an overflow.
+-9223372036854775808
+abc
+True
+string - int: RuntimeBinderException: Operator '-' cannot be applied to operands of type 'string' and 'int'
+method group: RuntimeBinderException: The name 'ToUpper' is bound to a method and cannot be used like a property
+write-only: RuntimeBinderException: Property or indexer 'System.Collections.Generic.Dictionary<int,int>.Count' cannot be assigned to -- it is read only
+indexer missing key: KeyNotFoundException: The given key 'nope' was not present in the dictionary.
+array index out of range: IndexOutOfRangeException: Index was outside the bounds of the array.
+array wrong index count: RuntimeBinderException: Wrong number of indices inside []; expected '1'
+null to int: RuntimeBinderException: Cannot convert null to 'int' because it is a non-nullable value type
+cast fails: RuntimeBinderException: Cannot convert type 'string' to 'Dog'
+bad explicit: RuntimeBinderException: Cannot convert type 'Dog' to 'Cat'
