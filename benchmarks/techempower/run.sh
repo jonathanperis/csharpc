@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# M8 harness (docs/06-roadmap.md): the TechEmpower plaintext/JSON app (benchmarks/techempower/app)
+# M7 harness (docs/06-roadmap.md): the TechEmpower plaintext/JSON app (benchmarks/techempower/app)
 # built with NativeAOT, with csharpc and on the JIT, checked with TechEmpower's test requests and
 # loaded with wrk the way TechEmpower loads it.
 #

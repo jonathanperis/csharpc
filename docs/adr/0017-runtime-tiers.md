@@ -66,5 +66,5 @@ replacement — not a C-free runtime.
   closures, string interpolation or bounds-check failures that throw).
 - The shared runtime ABI (object/array/string layout, method tables) keeps a single definition; as code
   moves to C#, `csrt.h` shrinks to what tier 3 and the remaining C need, mirrored in `TypeMapper`.
-- In the dotnet fork (M7), csharpc owns its runtime the way NativeAOT owns its own, and the reused
+- In the dotnet fork (M8), csharpc owns its runtime the way NativeAOT owns its own, and the reused
   .NET shims keep OS behaviour aligned with NativeAOT's.

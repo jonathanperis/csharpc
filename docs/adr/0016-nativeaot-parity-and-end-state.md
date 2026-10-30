@@ -1,7 +1,7 @@
 # ADR 0016 — NativeAOT parity as the support target, csharpc as dotnet's AOT backend as the end state
 
 - **Status:** Accepted (2026-10-24). Direction for the roadmap; the end state is a plan, not code yet.
-- **Context:** [06-roadmap.md](../06-roadmap.md) (Standing goal, M4, M6, M7),
+- **Context:** [06-roadmap.md](../06-roadmap.md) (Standing goal, M4, M6, M7, M8),
   [08-drop-in.md](../08-drop-in.md), [ADR 0006](0006-closed-world-compilation.md),
   [ADR 0010](0010-il-frontend.md), [ADR 0013](0013-framework-il.md).
 
@@ -70,7 +70,7 @@ against is .NET's own AOT path, `dotnet publish -p:PublishAot=true` (NativeAOT, 
   tests. A test is only excluded where it tests ILCompiler internals rather than behaviour (each such
   exclusion listed with its reason). Tracked early: before the fork exists, the same suites are built
   with csharpc on CI and their pass rate is reported next to the compatibility numbers.
-- **Definition of done (roadmap M8):** the fork, with NativeAOT's code removed and csharpc in its
+- **Definition of done (roadmap M8; renumbered 2026-10-30 — TechEmpower with csharpc directly is now M7, before the fork):** the fork, with NativeAOT's code removed and csharpc in its
   place, is built and used to compile the ASP.NET Core TechEmpower Framework Benchmarks entries that
   .NET runs with NativeAOT; they run in the TechEmpower environment and beat the NativeAOT-compiled
   entries. That makes ASP.NET Core/Kestrel from IL and server-grade throughput (thread pool, sockets,
