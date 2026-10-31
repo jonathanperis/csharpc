@@ -662,6 +662,7 @@ public sealed partial class FunctionCodeGen
                 if (method.Name == "Format") { result = text; return true; }
                 CallRuntime("csrt_console_write_string", L.Void, [L.Ptr], text);
                 if (method.Name == "WriteLine") CallRuntime("csrt_console_newline", L.Void, []);
+                else Intrinsics.ConsoleFlush(this);
                 return true;
             }
             case ("string", "Join", 2):

@@ -75,10 +75,15 @@ csrt_String* csrt_string_new_from_utf16(const uint16_t* chars, int32_t length);
 #ifdef __wasi__
 #include <unistd.h>
 #endif
+#if !defined(_WIN32) && !defined(__wasi__)
+#include <signal.h>
+#endif
 
 // ---------------------------------------------------------------------------------------------
-// Output buffering. .NET's Console.Out autoflushes, but process exit flushes too; for a native
-// executable a big stdio buffer flushed at shutdown (and before any crash) is the sane default.
+// Output buffering. .NET's Console.Out autoflushes: every Write/WriteLine call reaches the file
+// descriptor before it returns (a reader of the pipe sees it at once, a killed process loses
+// nothing). One call is assembled in this buffer and flushed at its end (csrt_console_newline,
+// csrt_console_flush after a Write), so it costs one write(2) as in .NET, not one per character.
 // ---------------------------------------------------------------------------------------------
 static char s_stdout_buffer[1 << 16];
 
@@ -104,6 +109,12 @@ void csrt_init(int argc, char** argv) {
 #endif
     csrt_gc_init();
     setvbuf(stdout, s_stdout_buffer, _IOFBF, sizeof s_stdout_buffer);
+#if !defined(_WIN32) && !defined(__wasi__)
+    // .NET ignores SIGPIPE (CoreCLR's PAL and NativeAOT both do): writing to a closed pipe or socket fails
+    // with EPIPE, which the console drops, instead of killing the process (`app | head -1`). Children
+    // inherit the ignored disposition, as from .NET, whose Process.Start resets only handlers it installed.
+    signal(SIGPIPE, SIG_IGN);
+#endif
 }
 
 void csrt_threads_wait_foreground(void);
@@ -877,7 +888,8 @@ void csrt_console_write_u32(uint32_t v) { char b[24]; write_digits(csrt_itoa_u64
 void csrt_console_write_u64(uint64_t v) { char b[24]; write_digits(csrt_itoa_u64(v, b + 24), b + 24); }
 void csrt_console_write_bool(bool v) { fputs(v ? "True" : "False", stdout); }
 void csrt_console_write_char(uint16_t v) { write_utf16(stdout, &v, 1); }
-void csrt_console_newline(void) { fputs(CSRT_NEWLINE, stdout); }
+// The end of every WriteLine: the line goes out now, as .NET's autoflushing Console.Out writes it.
+void csrt_console_newline(void) { fputs(CSRT_NEWLINE, stdout); fflush(stdout); }
 
 // ---------------------------------------------------------------------------------------------
 // Environment

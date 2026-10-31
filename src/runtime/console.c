@@ -69,22 +69,30 @@ csrt_String* csrt_console_read_to_end(void) {
     return s;
 }
 
-static void write_utf16_to(FILE* f, const csrt_String* s) {
-    if (!s) return;
-    for (int32_t i = 0; i < s->length; i++) {
-        uint32_t cp = s->chars[i];
-        if (cp >= 0xD800 && cp <= 0xDBFF && i + 1 < s->length) cp = 0x10000 + ((cp - 0xD800) << 10) + (s->chars[++i] - 0xDC00);
-        if (cp < 0x80) fputc((int)cp, f);
-        else if (cp < 0x800) { fputc(0xC0 | (int)(cp >> 6), f); fputc(0x80 | (int)(cp & 0x3F), f); }
-        else if (cp < 0x10000) { fputc(0xE0 | (int)(cp >> 12), f); fputc(0x80 | (int)((cp >> 6) & 0x3F), f); fputc(0x80 | (int)(cp & 0x3F), f); }
-        else { fputc(0xF0 | (int)(cp >> 18), f); fputc(0x80 | (int)((cp >> 12) & 0x3F), f); fputc(0x80 | (int)((cp >> 6) & 0x3F), f); fputc(0x80 | (int)(cp & 0x3F), f); }
-    }
-}
-
-/// Console.Error.Write(string): stdout is flushed first so interleaving matches a terminal.
+/// Console.Error.Write(string): stdout is flushed first so interleaving matches a terminal. stderr is
+/// unbuffered, so the text is encoded first and written with one call (one write(2), as .NET's
+/// autoflushing Console.Error does), not a write per byte. Lone surrogates become U+FFFD, as on stdout.
 void csrt_console_error_write_string(csrt_String* s) {
     fflush(stdout);
-    write_utf16_to(stderr, s);
+    if (!s || s->length == 0 || (size_t)s->length > SIZE_MAX / 3) return;
+    char local[1024];
+    size_t cap = (size_t)s->length * 3;  // a UTF-16 unit is at most 3 UTF-8 bytes (a pair: 4 for 2)
+    char* buf = cap <= sizeof local ? local : malloc(cap);
+    if (!buf) return;
+    size_t n = 0;
+    for (int32_t i = 0; i < s->length; i++) {
+        uint32_t cp = s->chars[i];
+        if (cp >= 0xD800 && cp <= 0xDBFF && i + 1 < s->length && s->chars[i + 1] >= 0xDC00 && s->chars[i + 1] <= 0xDFFF)
+            cp = 0x10000 + ((cp - 0xD800) << 10) + (s->chars[++i] - 0xDC00);
+        else if (cp >= 0xD800 && cp <= 0xDFFF)
+            cp = 0xFFFD;
+        if (cp < 0x80) buf[n++] = (char)cp;
+        else if (cp < 0x800) { buf[n++] = (char)(0xC0 | (cp >> 6)); buf[n++] = (char)(0x80 | (cp & 0x3F)); }
+        else if (cp < 0x10000) { buf[n++] = (char)(0xE0 | (cp >> 12)); buf[n++] = (char)(0x80 | ((cp >> 6) & 0x3F)); buf[n++] = (char)(0x80 | (cp & 0x3F)); }
+        else { buf[n++] = (char)(0xF0 | (cp >> 18)); buf[n++] = (char)(0x80 | ((cp >> 12) & 0x3F)); buf[n++] = (char)(0x80 | ((cp >> 6) & 0x3F)); buf[n++] = (char)(0x80 | (cp & 0x3F)); }
+    }
+    fwrite(buf, 1, n, stderr);
+    if (buf != local) free(buf);
 }
 
 void csrt_console_flush(void) { fflush(stdout); }

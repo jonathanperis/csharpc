@@ -210,6 +210,7 @@ internal static partial class BclValueTypes
     {
         g.CallRuntime("csrt_console_write_string", g.Llvm.Void, [g.Llvm.Ptr], text);
         if (newline) g.CallRuntime("csrt_console_newline", g.Llvm.Void, []);
+        else Intrinsics.ConsoleFlush(g);
     }
 
     /// <summary>The element type of an array argument (looking through conversions to IEnumerable/Array).</summary>
