@@ -7,8 +7,9 @@ namespace Csharpc.CodeGen;
 /// Guarded devirtualization of interface calls (closed world). An interface call goes through a stub per
 /// interface slot, `ret stub(args..., site cache)`, inlined at every call site, whose body is written once
 /// the program's classes are all known (FinishMethodTables): for each constructed class whose interface
-/// map holds the interface (at most <see cref="MaxGuardedClasses"/> of them) it compares the receiver's
-/// method table and calls that class's implementation directly — the same function its slot table holds,
+/// map holds the interface (at most <see cref="MaxGuardedClasses"/> of them, sharing at most
+/// <see cref="MaxGuardedCallees"/> implementations) it compares the receiver's method table and calls
+/// that class's implementation directly — the same function its slot table holds,
 /// so the result is the same whichever path runs — and otherwise dispatches through the call site's cache
 /// as before. Most of Kestrel's request path calls interfaces with a single implementation in the program
 /// (IHttpApplication, ITimeoutControl, the feature interfaces HttpProtocol implements): a direct call is
@@ -18,8 +19,14 @@ namespace Csharpc.CodeGen;
 /// </summary>
 public sealed partial class ModuleCodeGen
 {
-    /// <summary>Compares per call before the cached lookup: more classes than this dispatch through the cache.</summary>
-    private const int MaxGuardedClasses = 3;
+    /// <summary>
+    /// Compares per call before the cached lookup: an interface with more implementing classes than this,
+    /// or more distinct implementations than <see cref="MaxGuardedCallees"/>, dispatches through the cache.
+    /// A compare is a cmp/jne on the method table already loaded; each implementation is a direct call LLVM
+    /// may inline into the caller, which is what bounds the second number (the callers' size, and so
+    /// whether they are inlined in turn).
+    /// </summary>
+    private const int MaxGuardedClasses = 8, MaxGuardedCallees = 4;
 
     private sealed class InterfaceCallStub
     {
@@ -89,15 +96,22 @@ public sealed partial class ModuleCodeGen
             var guards = GuardedImplementations(stub, implementers);
             if (guards.Count > 0)
             {
+                // One direct call per implementation, reached from the compare of every class sharing it
+                // (Http1Connection, Http2Stream and Http3Stream all inherit HttpProtocol's IFeatureCollection).
                 var mt = b.Load(Llvm.Ptr, self, "mt");
+                var calls = new Dictionary<nint, LLVMBasicBlockRef>();
                 foreach (var (methodTable, callee) in guards)
                 {
-                    var hit = b.AppendBlock(stub.Fn, "direct");
+                    if (!calls.TryGetValue(callee.Handle, out var hit))
+                    {
+                        calls[callee.Handle] = hit = b.AppendBlock(stub.Fn, "direct");
+                        using var hb = new IrBuilder(Llvm);
+                        hb.PositionAtEnd(hit);
+                        var direct = hb.Call(stub.CalleeType, callee, args);
+                        if (returnsVoid) hb.RetVoid(); else hb.Ret(direct);
+                    }
                     var next = b.AppendBlock(stub.Fn, "next");
                     b.CondBr(b.ICmp(LLVMIntPredicate.EQ, mt, methodTable), hit, next);
-                    b.PositionAtEnd(hit);
-                    var direct = b.Call(stub.CalleeType, callee, args);
-                    if (returnsVoid) b.RetVoid(); else b.Ret(direct);
                     b.PositionAtEnd(next);
                 }
             }
@@ -129,10 +143,48 @@ public sealed partial class ModuleCodeGen
 
     private int _interfaceSlowPaths;
 
-    /// <summary>The call through the receiver's interface map, found with the call site's cache.</summary>
+    /// <summary>A runtime built with -DCSRT_ALLOC_PROFILE (Toolchain's $CSHARPC_RUNTIME_CFLAGS) counts dispatches.</summary>
+    private static readonly bool s_profilingRuntime =
+        Environment.GetEnvironmentVariable("CSHARPC_RUNTIME_CFLAGS")?.Contains("CSRT_ALLOC_PROFILE", StringComparison.Ordinal) == true;
+
+    /// <summary>
+    /// The call through the receiver's interface map, found with the call site's cache. The cache's hit
+    /// (csrt_interface_slots_cached's first test: word = method table | map index &lt;&lt; 48) is inline, so a
+    /// monomorphic site makes no runtime call; a miss, or an empty word (0 matches no method table), calls
+    /// the runtime, which scans the map and refills the word. Profiling runtimes count every dispatch
+    /// there, so their builds always call it.
+    /// </summary>
     private LLVMValueRef CachedDispatch(IrBuilder b, InterfaceCallStub stub, LoweredFunction lookup, LLVMValueRef[] args, LLVMValueRef site)
     {
-        var slots = b.Call(lookup.Type, lookup.Fn, [args[0], stub.Interface, site]);
+        LLVMValueRef slots;
+        if (s_profilingRuntime) slots = b.Call(lookup.Type, lookup.Fn, [args[0], stub.Interface, site]);
+        else
+        {
+            var function = Native.LLVMGetBasicBlockParent(b.InsertBlock);
+            var word = b.Load(Llvm.I64, site, "icache");
+            Native.LLVMSetOrdering(word, LLVMAtomicOrdering.Monotonic);
+            Native.LLVMSetAlignment(word, 8);
+            var mt = b.Load(Llvm.Ptr, args[0], "mt");
+            var mtBits = b.Cast(LLVMOpcode.PtrToInt, mt, Llvm.I64);
+            var cached = b.BinOp(LLVMOpcode.And, word, Llvm.ConstInt(Llvm.I64, (1L << 48) - 1));
+            var hit = b.AppendBlock(function, "icache.hit");
+            var miss = b.AppendBlock(function, "icache.miss");
+            var done = b.AppendBlock(function, "icache.done");
+            b.CondBr(b.ICmp(LLVMIntPredicate.EQ, cached, mtBits), hit, miss);
+            b.PositionAtEnd(hit);
+            var map = b.Load(Llvm.Ptr, b.StructGep(Types.MethodTableHeader, mt, 4), "imap");
+            var index = b.BinOp(LLVMOpcode.LShr, word, Llvm.ConstInt(Llvm.I64, 48));
+            var entry = b.InBoundsGep(Llvm.Struct(Llvm.Ptr, Llvm.Ptr), map, [index], "ientry");
+            var fast = b.Load(Llvm.Ptr, b.StructGep(Llvm.Struct(Llvm.Ptr, Llvm.Ptr), entry, 1), "islots");
+            b.Br(done);
+            b.PositionAtEnd(miss);
+            var slow = b.Call(lookup.Type, lookup.Fn, [args[0], stub.Interface, site]);
+            b.Br(done);
+            b.PositionAtEnd(done);
+            slots = b.Phi(Llvm.Ptr, "slots");
+            IrBuilder.AddIncoming(slots, fast, hit);
+            IrBuilder.AddIncoming(slots, slow, miss);
+        }
         var slot = b.InBoundsGep(Llvm.I8, slots, [Llvm.ConstInt(Llvm.I64, (long)((ulong)stub.Index * Types.PointerSize))], "islot");
         var fn = b.Load(Llvm.Ptr, slot, "ifn");
         return b.Call(stub.CalleeType, fn, args);
@@ -140,13 +192,15 @@ public sealed partial class ModuleCodeGen
 
     /// <summary>
     /// (method table, implementation) for each constructed class implementing the stub's interface, when
-    /// there are at most MaxGuardedClasses and each slot holds a function of the call's type; else none.
+    /// there are at most MaxGuardedClasses (with at most MaxGuardedCallees distinct implementations) and
+    /// each slot holds a function of the call's type; else none.
     /// </summary>
     private List<(LLVMValueRef MethodTable, LLVMValueRef Callee)> GuardedImplementations(
         InterfaceCallStub stub, Dictionary<nint, List<(PendingMethodTable Table, int Entry)>> implementers)
     {
         if (!implementers.TryGetValue(stub.Interface.Handle, out var tables) || tables.Count > MaxGuardedClasses) return [];
         List<(LLVMValueRef, LLVMValueRef)> guards = [];
+        var callees = new HashSet<nint>();
         foreach (var (table, entry) in tables)
         {
             var members = table.Interfaces[entry].Members;
@@ -155,6 +209,7 @@ public sealed partial class ModuleCodeGen
             var callee = ImplementationFor(table.Layout, members[stub.Index]);
             if (callee.IsNull || Native.LLVMIsAFunction(callee).IsNull || Native.LLVMGlobalGetValueType(callee).Handle != stub.CalleeType.Handle) return [];
             guards.Add((table.Global, callee));
+            if (callees.Add(callee.Handle) && callees.Count > MaxGuardedCallees) return [];
         }
         return guards;
     }

@@ -466,7 +466,8 @@ The vtable now starts at offset 40.
   call then loads `slots[i]` and calls it indirectly. Each call site has a one-word cache in `.bss`:
   the last receiver's method table in the low 48 bits and the interface's index in its map above
   them, read and written with relaxed atomics (a race is only a miss). A hit is two loads, a compare
-  and two loads; a miss scans the receiver's map and refills the word. Kestrel's `HttpProtocol`
+  and two loads, inline at the call site; a miss calls the runtime, which scans the receiver's map
+  and refills the word. Kestrel's `HttpProtocol`
   implements 30+ feature interfaces, so scanning on every call was several percent of a request. We
   chose this over per-interface fixed itable offsets (which need a global coloring pass) and over a
   global (MT, interface) cache, which measured no faster than the scan.
@@ -476,7 +477,12 @@ The vtable now starts at offset 40.
   interface-typed `this`) and interface inheritance all work.
 * **Devirtualization.** If the receiver's static type (after substitution, and after peeling the
   implicit conversion to the interface) is a class or primitive, csharpc resolves the
-  implementation at compile time. That covers every constrained generic call.
+  implementation at compile time. That covers every constrained generic call. Otherwise, outside the
+  corelib, the call goes through a stub per interface slot (`ModuleCodeGen.InterfaceStubs.cs`) that,
+  when at most 8 constructed classes implement the interface with at most 4 distinct
+  implementations, compares the receiver's method table with each class's and calls its
+  implementation directly (classes sharing an inherited implementation share the call), before
+  falling back to the cached dispatch.
 * **Type tests**: `csrt_isinst_class` checks the interface map when the target method table is
   flagged as an interface, so `is IFoo`, `as IFoo` (`IConversionOperation.IsTryCast`) and casts work.
 * **foreach over user collections**: the pattern-based `GetEnumerator` (direct user calls), and
