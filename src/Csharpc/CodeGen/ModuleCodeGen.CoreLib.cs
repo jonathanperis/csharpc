@@ -188,13 +188,15 @@ public sealed partial class ModuleCodeGen
     /// The SZArrayHelper&lt;T&gt; member behind a non-generic interface slot of T[]. A reference-type
     /// element is a pointer that boxes to itself, so arrays of every reference type share
     /// SZArrayHelper&lt;object&gt;'s members (one copy instead of one per element type — 561 array types
-    /// in the TechEmpower app). Not the two that must check the destination's element type:
-    /// IList's indexer setter (string[] as IList must reject an int) and ICollection.CopyTo (its
-    /// typed fast path would accept any reference array as an object[]).
+    /// in the TechEmpower app). IList's indexer setter shares too: SZArrayHelper&lt;object&gt;'s store into
+    /// a string[] seen as object[] runs the array covariance check, whose ArrayTypeMismatchException it
+    /// turns into the same InvalidCastException a typed cast would throw. Not ICollection.CopyTo, which
+    /// must check the destination against the real element type (its typed fast path would accept
+    /// any reference array as an object[]).
     /// </summary>
     private IMethodSymbol? ElementHelper(INamedTypeSymbol itf, IMethodSymbol member, ITypeSymbol element)
     {
-        var typed = (itf.Name, member.Name) is ("IList", "set_Item") or ("ICollection", "CopyTo");
+        var typed = (itf.Name, member.Name) is ("ICollection", "CopyTo");
         var shared = element.IsReferenceType && !typed ? Compilation.GetSpecialType(SpecialType.System_Object) : element;
         return BuiltinHelper("SZArrayHelper", itf, member, shared);
     }

@@ -100,6 +100,20 @@ static class Program
         foreach (var o in (IEnumerable<object>)names) Console.Write(o);
         Console.WriteLine(((IReadOnlyList<string>)names)[1]);
         try { ((IList)names)[0] = 5; } catch (Exception e) { Console.WriteLine(e.GetType().Name); }
+        try { ((IList)names)[1] = new object(); } catch (Exception e) { Console.WriteLine($"{e.GetType().Name}: {e.Message}"); }
+        try { ((IList)names)[2] = "z"; } catch (Exception e) { Console.WriteLine($"{e.GetType().Name}: {e.Message}"); }
+        ((IList)names)[0] = null;
+        ((IList)names)[1] = "w";
+        Console.WriteLine($"{((string[])names)[0] ?? "null"} {((string[])names)[1]}");
+        object exceptions = new ArgumentException[1];
+        try { ((IList)exceptions)[0] = new InvalidOperationException(); } catch (Exception e) { Console.WriteLine($"{e.GetType().Name}: {e.Message}"); }
+        ((IList)exceptions)[0] = new ArgumentNullException("p");
+        Console.WriteLine(((ArgumentException[])exceptions)[0].ParamName);
+        try { ((IList)numbers)[0] = "s"; } catch (Exception e) { Console.WriteLine($"{e.GetType().Name}: {e.Message}"); }
+        var values = new Array[] { new[] { 1 }, new[] { "a" } };
+        values[1].SetValue("b", 0);
+        try { values[1].SetValue(3, 0); } catch (Exception e) { Console.WriteLine($"{e.GetType().Name}: {e.Message}"); }
+        Console.WriteLine(values[1].GetValue(0));
         IEnumerable<KeyValuePair<int, int>> entries = new KeyValuePair<int, int>[] { new(1, 2) };
         foreach (var e in entries) Console.WriteLine($"{e.Key}->{e.Value}");
     }

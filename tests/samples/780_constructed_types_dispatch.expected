@@ -13,4 +13,12 @@ k=1 1
 0,9,1,2
 xyy
 InvalidCastException
+InvalidCastException: Object cannot be stored in an array of this type.
+IndexOutOfRangeException: Index was outside the bounds of the array.
+null w
+InvalidCastException: Object cannot be stored in an array of this type.
+p
+InvalidCastException: Object cannot be stored in an array of this type.
+InvalidCastException: Object cannot be stored in an array of this type.
+b
 1->2
