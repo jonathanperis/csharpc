@@ -13,7 +13,12 @@ struct Pair<A, B> { }
 
 static class Program
 {
-    static void Show(Type t) => Console.WriteLine($"{t.FullName}\n  {t.AssemblyQualifiedName}\n  {t}");
+    static void Show(Type t)
+    {
+        Console.WriteLine(t.FullName);
+        Console.WriteLine("  " + t.AssemblyQualifiedName);
+        Console.WriteLine("  " + t);
+    }
 
     static void Main()
     {
