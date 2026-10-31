@@ -321,7 +321,7 @@ def build_images(app, out, result):
         return
     runtimes = subprocess.run([DOTNET, "--list-runtimes"], capture_output=True, text=True).stdout
     version = re.search(r"Microsoft\.AspNetCore\.App (\d+\.\d+\.\d+(?:-[a-z]+\.\d+)?)", runtimes).group(1)
-    for build, entry in result["builds"].items():
+    for n, (build, entry) in enumerate(result["builds"].items()):
         if not entry["ok"]:
             continue
         ctx = out / "work" / f"image-{build}"
@@ -349,7 +349,7 @@ def build_images(app, out, result):
         size = int(subprocess.run(["docker", "image", "inspect", "-f", "{{.Size}}", tag], capture_output=True, text=True).stdout.strip())
         # One request through the image. No database: tfb-database is localhost, where nothing answers, so the
         # entry logs at once that its cache can't be filled, and serves.
-        port = 18080
+        port = 18080 + n  # its own port: the previous image's closed connections may sit in TIME_WAIT on its port
         subprocess.run(["docker", "rm", "-f", tag], capture_output=True)
         run(["docker", "run", "-d", "--name", tag, "--network", "host", "--add-host", "tfb-database:127.0.0.2", "-e", f"URLS=http://+:{port}",
              "-e", f"ASPNETCORE_URLS=http://127.0.0.1:{port}", tag], out / "images.log")
@@ -361,7 +361,8 @@ def build_images(app, out, result):
                 break
             time.sleep(0.1)
         with open(out / "images.log", "a") as f:
-            f.write(subprocess.run(["docker", "logs", tag], capture_output=True, text=True).stdout[-2000:])
+            logs = subprocess.run(["docker", "logs", tag], capture_output=True, text=True)
+            f.write((logs.stdout + logs.stderr)[-3000:])
         subprocess.run(["docker", "rm", "-f", tag], capture_output=True)
         entry["image"] = {"ok": ok, "bytes": size, "base": base, "status": "serves /plaintext" if ok else "no answer from the image"}
         log(f"== image {build}: {size / 1048576:.1f} MiB, {'ok' if ok else 'NO ANSWER'}")

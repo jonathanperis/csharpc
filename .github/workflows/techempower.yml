@@ -111,8 +111,9 @@ jobs:
       - name: Install wrk, siege and TechEmpower's verification dependencies
         run: |
           sudo apt-get update && sudo apt-get install -y wrk siege python3-requests python3-colorama python3-psycopg2
-          # TechEmpower's server settings (docker_helper: somaxconn 65535); 16384 connections from one address.
-          sudo sysctl -w net.core.somaxconn=65535 net.ipv4.tcp_max_syn_backlog=65535 net.ipv4.ip_local_port_range="1024 65535"
+          # TechEmpower's server settings (docker_helper: somaxconn 65535); 16384 connections from one address,
+          # from ephemeral ports above the servers' (8080-8279).
+          sudo sysctl -w net.core.somaxconn=65535 net.ipv4.tcp_max_syn_backlog=65535 net.ipv4.ip_local_port_range="10000 65535"
 
       - name: Install perf
         if: ${{ inputs.profile }}
