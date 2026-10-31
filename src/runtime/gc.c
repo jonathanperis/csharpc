@@ -443,25 +443,30 @@ static bool claim_word(SizeClass* sc, AllocCache* cache, uint32_t cls) {
                 c = sc->partial;
                 sc->partial = c->next_free;
             } else if (g.empty) {
-                c = g.empty;
-                g.empty = c->next_free;
+                // Prefer an empty chunk that last held this size class (among the first few): it needs no
+                // clearing below.
+                Chunk** link = &g.empty;
+                for (int n = 0; n < 8 && *link && (*link)->size_class != cls; n++) link = &(*link)->next_free;
+                if (!*link || (*link)->size_class != cls) link = &g.empty;
+                c = *link;
+                *link = c->next_free;
                 // Slots claimed but not handed out yet count as allocated, and so does the one a stopped
                 // thread is halfway through allocating: a stale pointer into one (a conservative root, a
                 // register) makes the collector read its first word as a method table. Within one size
                 // class that is a dead object's, or zero; across classes it can be any field of an old
                 // object, so each new slot starts with a null method table, which marking skips. Without it
                 // the 4-thread GC benchmark (benchmarks/gc/gclatency.cs) crashed in about one run in ten,
-                // reading flags through a garbage "method table". Minors scan whole dirty chunks, full of
-                // stale pointers: the nursery clears the whole chunk.
-                if (c->size_class != cls) {
+                // reading flags through a garbage "method table".
+                // Slot starts of a class whose size is a multiple of the old one's are old slot starts.
+                uint32_t old_size = k_size_classes[c->size_class], new_size = k_size_classes[cls];
 #if CSRT_HAS_NURSERY
-                    if (g.nursery) memset((uint8_t*)c + CHUNK_HEADER, 0, CHUNK_SIZE - CHUNK_HEADER);
-                    else
+                if (g.nursery && c->size_class != cls) memset((uint8_t*)c + CHUNK_HEADER, 0, CHUNK_SIZE - CHUNK_HEADER);  // minors scan whole chunks
+                else
 #endif
-                    for (uint8_t *slot = (uint8_t*)c + CHUNK_HEADER, *end = slot + (CHUNK_SIZE - CHUNK_HEADER) / k_size_classes[cls] * k_size_classes[cls];
-                         slot < end; slot += k_size_classes[cls])
+                if (new_size % old_size != 0)
+                    for (uint8_t *slot = (uint8_t*)c + CHUNK_HEADER, *end = slot + (CHUNK_SIZE - CHUNK_HEADER) / new_size * new_size;
+                         slot < end; slot += new_size)
                         *(void**)slot = NULL;
-                }
                 chunk_format(c, cls);
             } else {
                 c = chunk_map();
