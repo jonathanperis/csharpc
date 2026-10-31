@@ -151,6 +151,10 @@ public sealed partial class ModuleCodeGen
         {
             ("System.Xml.XmlDownloadManager", "GetNonFileStreamAsync") =>
                 "not supported by csharpc yet: System.Xml reading a resource that isn't a file (an http(s) URI needs System.Net.Http)",
+            // Roslyn's Windows-PDB writer and reader: Microsoft.DiaSymReader.Native's COM objects, loaded with
+            // LoadLibrary and activated by CLSID. Portable PDBs and embedded PDBs don't go through it.
+            ("Microsoft.DiaSymReader.SymUnmanagedFactory", _) =>
+                "not supported by csharpc yet: Windows PDBs (Microsoft.DiaSymReader's COM writer and reader; portable and embedded PDBs work)",
             _ => null,
         };
 

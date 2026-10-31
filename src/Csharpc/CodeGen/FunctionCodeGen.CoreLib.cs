@@ -554,6 +554,8 @@ public sealed partial class FunctionCodeGen
         if (t.SpecialType == SpecialType.System_String)
             return CallRuntime("csrt_string_equals", L.I1, [L.Ptr, L.Ptr], a, b);
         if (TypeMapper.IsMemory(t)) return MemoryEquals(a, b);
+        // Pointers (a struct's byte* field in ValueType.Equals): equal when the addresses are.
+        if (IsPointerElement(t)) return _b.ICmp(LLVMIntPredicate.EQ, a, b);
         // Index is its encoded int, Range two of them (TypeMapper): equal when the encodings are.
         if (IsIndexType(t)) return _b.ICmp(LLVMIntPredicate.EQ, a, b);
         if (IsRangeType(t))
@@ -659,6 +661,13 @@ public sealed partial class FunctionCodeGen
                     () => CallRuntime("csrt_string_get_hash_code", i32, [L.Ptr], a));
         }
         if (TypeMapper.IsMemory(t)) return MemoryHash(a);
+        // A pointer hashes as its address, like nint (SRM's MemoryBlock { byte* _pointer; int Length }).
+        if (IsPointerElement(t))
+        {
+            var address = _b.Cast(LLVMOpcode.PtrToInt, a, L.I64);
+            return _b.BinOp(LLVMOpcode.Xor, _b.Cast(LLVMOpcode.Trunc, address, i32),
+                _b.Cast(LLVMOpcode.Trunc, _b.BinOp(LLVMOpcode.LShr, address, L.ConstInt(L.I64, 32)), i32));
+        }
         // Index.GetHashCode is its encoded value; Range's is HashCode.Combine of the two (seeded per process
         // in .NET, so no program can depend on the number): any mix of both encodings will do.
         if (IsIndexType(t)) return a;
