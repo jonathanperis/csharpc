@@ -443,7 +443,7 @@ namespace CsharpcCoreLib
                 {
                     Span<byte> span = _output.GetSpan(_pending);
                     if (span.Length < _pending) throw new InvalidOperationException(JsonSR.FailedToGetLargerSpan);
-                    for (int i = 0; i < _pending; i++) span[i] = _buffer[i];
+                    _buffer.AsSpan(0, _pending).CopyTo(span);
                     _output.Advance(_pending);
                     _committed += _pending;
                     _pending = 0;
@@ -491,17 +491,18 @@ namespace CsharpcCoreLib
             _buffer[_pending++] = b;
         }
 
+        // Span copies: the tokens are a few bytes, where Array.Copy's type checks cost more than the copy.
         private void PutBytes(byte[] bytes)
         {
             Ensure(bytes.Length);
-            Array.Copy(bytes, 0, _buffer, _pending, bytes.Length);
+            bytes.AsSpan().CopyTo(_buffer.AsSpan(_pending));
             _pending += bytes.Length;
         }
 
         private void PutBytes(byte[] bytes, int start, int length)
         {
             Ensure(length);
-            Array.Copy(bytes, start, _buffer, _pending, length);
+            bytes.AsSpan(start, length).CopyTo(_buffer.AsSpan(_pending));
             _pending += length;
         }
 
@@ -509,31 +510,35 @@ namespace CsharpcCoreLib
         private void PutUtf16(string s)
         {
             Ensure(s.Length * 3);
+            // Locals: stores into the byte[] could alias the fields, which were reloaded per char.
+            byte[] buffer = _buffer;
+            int pos = _pending;
             for (int i = 0; i < s.Length; i++)
             {
                 int c = s[i];
-                if (c < 0x80) _buffer[_pending++] = (byte)c;
+                if (c < 0x80) buffer[pos++] = (byte)c;
                 else if (c < 0x800)
                 {
-                    _buffer[_pending++] = (byte)(0xC0 | (c >> 6));
-                    _buffer[_pending++] = (byte)(0x80 | (c & 0x3F));
+                    buffer[pos++] = (byte)(0xC0 | (c >> 6));
+                    buffer[pos++] = (byte)(0x80 | (c & 0x3F));
                 }
                 else if (c >= 0xD800 && c <= 0xDBFF && i + 1 < s.Length && s[i + 1] >= 0xDC00 && s[i + 1] <= 0xDFFF)
                 {
                     int scalar = ((c - 0xD800) << 10) + (s[i + 1] - 0xDC00) + 0x10000;
                     i++;
-                    _buffer[_pending++] = (byte)(0xF0 | (scalar >> 18));
-                    _buffer[_pending++] = (byte)(0x80 | ((scalar >> 12) & 0x3F));
-                    _buffer[_pending++] = (byte)(0x80 | ((scalar >> 6) & 0x3F));
-                    _buffer[_pending++] = (byte)(0x80 | (scalar & 0x3F));
+                    buffer[pos++] = (byte)(0xF0 | (scalar >> 18));
+                    buffer[pos++] = (byte)(0x80 | ((scalar >> 12) & 0x3F));
+                    buffer[pos++] = (byte)(0x80 | ((scalar >> 6) & 0x3F));
+                    buffer[pos++] = (byte)(0x80 | (scalar & 0x3F));
                 }
                 else
                 {
-                    _buffer[_pending++] = (byte)(0xE0 | (c >> 12));
-                    _buffer[_pending++] = (byte)(0x80 | ((c >> 6) & 0x3F));
-                    _buffer[_pending++] = (byte)(0x80 | (c & 0x3F));
+                    buffer[pos++] = (byte)(0xE0 | (c >> 12));
+                    buffer[pos++] = (byte)(0x80 | ((c >> 6) & 0x3F));
+                    buffer[pos++] = (byte)(0x80 | (c & 0x3F));
                 }
             }
+            _pending = pos;
         }
 
         private void PutAscii(string s)
@@ -905,6 +910,58 @@ namespace CsharpcCoreLib
             _tokenType = tokenType;
         }
 
+        /// <summary>
+        /// "name":"value" for a string value. One the encoder leaves alone (every char allowed, so no
+        /// surrogates either) is checked and transcoded into the buffer in one pass; at the first char
+        /// that needs escaping the bytes written so far are dropped and the escaping path writes the
+        /// property. The checks are the same, in the same order, as EscapedValue then the byte[] overload
+        /// (escaping throws nothing, and ValidateWritingProperty and the prefix change no state).
+        /// </summary>
+        private void WritePropertyAndString(byte[] escapedName, string value)
+        {
+            JsonWriterHelper.ValidateValue(value);
+            AllowedBmpBitmap allowedChars = (_encoder ?? JavaScriptEncoderImpl.Default)._allowed;
+            if (allowedChars == null)
+            {
+                WritePropertyAndString(escapedName, JsonWriterHelper.ToUtf8Valid(JsonWriterHelper.Escape(value, _encoder)));
+                return;
+            }
+            ValidateWritingProperty();
+            int start = _pending;
+            WritePropertyNamePrefix(escapedName);
+            Ensure(value.Length * 3 + 2);
+            uint[] allowed = allowedChars.Bits;
+            byte[] buffer = _buffer;
+            int pos = _pending;
+            buffer[pos++] = JsonConstants.Quote;
+            for (int i = 0; i < value.Length; i++)
+            {
+                int c = value[i];
+                if ((c & 0xF800) == 0xD800 || (allowed[c >> 5] & (1u << (c & 31))) == 0)
+                {
+                    _pending = start;
+                    WritePropertyAndString(escapedName, JsonWriterHelper.ToUtf8Valid(JsonWriterHelper.Escape(value, _encoder)));
+                    return;
+                }
+                if (c < 0x80) buffer[pos++] = (byte)c;
+                else if (c < 0x800)
+                {
+                    buffer[pos++] = (byte)(0xC0 | (c >> 6));
+                    buffer[pos++] = (byte)(0x80 | (c & 0x3F));
+                }
+                else
+                {
+                    buffer[pos++] = (byte)(0xE0 | (c >> 12));
+                    buffer[pos++] = (byte)(0x80 | ((c >> 6) & 0x3F));
+                    buffer[pos++] = (byte)(0x80 | (c & 0x3F));
+                }
+            }
+            buffer[pos++] = JsonConstants.Quote;
+            _pending = pos;
+            SetFlagToAddListSeparatorBeforeNextItem();
+            _tokenType = JsonTokenType.String;
+        }
+
         private void WritePropertyAndString(byte[] escapedName, byte[] escapedValue)
         {
             ValidateWritingProperty();
@@ -1210,7 +1267,7 @@ namespace CsharpcCoreLib
         public void WriteString(JsonEncodedTextImpl propertyName, string value)
         {
             if (value == null) { WriteNull(propertyName); return; }
-            WritePropertyAndString(propertyName.Utf8, EscapedValue(value));
+            WritePropertyAndString(propertyName.Utf8, value);
         }
 
         public void WriteString(string propertyName, string value)
@@ -1218,7 +1275,7 @@ namespace CsharpcCoreLib
             if (propertyName == null) throw new ArgumentNullException("propertyName");
             if (value == null) { WriteNull(propertyName); return; }
             byte[] name = EscapedName(propertyName);
-            WritePropertyAndString(name, EscapedValue(value));
+            WritePropertyAndString(name, value);
         }
 
         public void WriteString(ReadOnlySpan<char> propertyName, string value) => WriteString(new string(propertyName), value);
@@ -1227,7 +1284,7 @@ namespace CsharpcCoreLib
         {
             if (value == null) { WriteNull(utf8PropertyName); return; }
             byte[] name = EscapedName(utf8PropertyName);
-            WritePropertyAndString(name, EscapedValue(value));
+            WritePropertyAndString(name, value);
         }
 
         public void WriteString(JsonEncodedTextImpl propertyName, ReadOnlySpan<char> value) => WritePropertyAndString(propertyName.Utf8, EscapedValue(new string(value)));

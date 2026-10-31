@@ -284,14 +284,23 @@ namespace CsharpcCoreLib
         /// </summary>
         internal Action<Utf8JsonWriter, object> _untypedSerializeHandler;
 
+        private bool _fastPathUsable;
+
         internal bool SerializationOnly => _untypedSerializeHandler != null && _propertyInitializer == null;
 
         /// <summary>JsonTypeInfo.CanUseSerializeHandler for a serialization-only type, else the error .NET reports.</summary>
         internal void ThrowIfFastPathUnusable()
         {
+            if (_fastPathUsable) return;
             JsonSerializerOptionsImpl options = _options;
             if (JsonSerializerContextImpl.IsCompatibleWithOptions(options.TypeInfoResolver, options)
-                || JsonSerializerContextImpl.IsCompatibleWithOptions(OriginatingResolver, options)) return;
+                || JsonSerializerContextImpl.IsCompatibleWithOptions(OriginatingResolver, options))
+            {
+                // Settled once the options are read-only (they are, once this type info is in use), as
+                // .NET's CanUseSerializeHandler is computed once when the type info is configured.
+                if (options.IsReadOnly) _fastPathUsable = true;
+                return;
+            }
             object resolver = options.TypeInfoResolver;
             throw new InvalidOperationException("TypeInfoResolver '" + (resolver == null ? "<null>" : resolver.ToString()) + "' did not provide property metadata for type '" + _type.ToString() + "'.");
         }
