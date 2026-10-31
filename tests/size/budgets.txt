@@ -27,7 +27,7 @@ windows-x86_64 collections 151552
 windows-x86_64 exceptions 50176
 windows-x86_64 hello 44032
 windows-x86_64 linq 179200
-windows-x86_64 numbers 140288
+windows-x86_64 numbers 146432
 windows-x86_64 typeinfo 57344
 wasi-wasm32 async 144384
 wasi-wasm32 collections 141312
