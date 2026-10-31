@@ -273,10 +273,20 @@ namespace CsharpcCoreLib
                 if (Closed) { op.Error = SocketError.OperationAborted; return false; }
                 ThreadPool.UnsafeQueueUserWorkItem(static state =>
                 {
-                    // A blocking socket finishes the attempt (EAGAIN only after a receive/send timeout).
-                    if (!state.op.TryRun(state.socket)) state.op.Error = SocketError.TimedOut;
+                    // A blocking socket finishes the attempt, EAGAIN only after a receive/send timeout. That
+                    // timeout is for synchronous calls (.NET's asynchronous operations never time out): try
+                    // again until the operation runs, the socket closes or the operation's token is canceled.
+                    while (!state.op.TryRun(state.socket))
+                    {
+                        if (state.op.Token.IsCancellationRequested) { state.op.Canceled = true; break; }
+                        if (state.context.Closed) { state.op.Error = SocketError.OperationAborted; break; }
+#if !CSHARPC_TARGET_WINDOWS && !CSHARPC_TARGET_WASI
+                        // A descriptor the program made non-blocking (Socket.Blocking = false): wait for readiness.
+                        NetNative.Wait(state.socket.RawHandle, state.op.IsWrite, 100);
+#endif
+                    }
                     state.op.Complete(false);
-                }, (op: op, socket: Socket), false);
+                }, (op: op, socket: Socket, context: this), false);
                 return true;
             }
             Queue<SocketOperation> queue = op.IsWrite ? Writes : Reads;
