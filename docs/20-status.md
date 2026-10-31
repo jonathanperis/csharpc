@@ -58,8 +58,9 @@ attribute factories) with a ~25 % faster build.
   `dotnet run` (`Bootstrap` workflow), Roslyn survey 101 → 38 failing methods, lowering 2.4× faster on
   Roslyn-sized programs, generic variance through interface arguments fixed (a silent difference),
   overlapping/packed struct layouts, compiled-in manifest resources, `ResourceReader`,
-  `SetDllImportResolver`; csharpc lowers all of itself, code generation runs in the `Bootstrap`
-  workflow ([06](06-roadmap.md#m6--bootstrapping)). Samples 720–729.
+  `SetDllImportResolver`, `Process.Start` on Linux/macOS; **csharpc compiles itself** and the native
+  compiler compiles samples exactly as the managed one (`Bootstrap` workflow,
+  [06](06-roadmap.md#m6--bootstrapping)). Samples 720–731.
 - `ci/m2-system-data` — Roslyn 5.12 (the SDK's build), C# 15 unions, field reflection (`GetField(s)`,
   `FieldInfo`), `AssemblyLoadContext`/`AssemblyDependencyResolver` as NativeAOT has them,
   `Assembly.GetType` with constant names kept at compile time, `PropertyDescriptor`/`AttributeCollection`

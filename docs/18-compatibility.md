@@ -577,9 +577,13 @@ capacity) the number and lengths of the chunks differ. Roslyn only hashes and co
 csharpc compiling itself (`tools/bootstrap/selfhost.sh`, M6 step 5): `csharpc.dll` (159 693 IL and
 144 969 corelib methods) now lowers completely — rows 8–9 were the last constructs it hit, both fixed
 (`ResourceReader` for `.resources` streams; `SetDllImportResolver` through one resolution function per
-program) — in 144 s at 4.5 GB on the shared VPS; coroutine lowering brings the peak to 6.4 GB and LLVM's
-backend needs more than the VPS's 8 GB, so code generation and the native compiler's comparison with the
-managed one run in the `Bootstrap` workflow (16 GB runners).
+program) — in 144 s at 4.5 GB on the shared VPS. The whole self-compile runs in the `Bootstrap` workflow (it needs
+more than the VPS's 8 GB): on a CI runner at -O0 with 2 threads it takes 248 s and peaks at 11.6 GB
+(LLVM's backend: 11.3 M instructions), and the native csharpc it produces compiles hello world and 7
+more samples with the same diagnostics and programs whose output is identical to the managed compiler's
+(run 41171411931). Getting there also fixed two things any program could hit: a precise static
+constructor now runs before a P/Invoke call (sample 730), and `Process.Start` works on Linux and macOS
+(sample 731).
 
 ### ASP.NET Core and the TechEmpower app
 

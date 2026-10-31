@@ -253,9 +253,10 @@ survey's failing methods went from 101 to 38 ([18](18-compatibility.md#roslyn-an
 were quadratic), with a per-step breakdown in `csharpc -v`; LLVM's backend (284 s for 8.1 M
 instructions on one thread at -O0) and its peak (5.6 GB, 8.4 GB with two threads) are what's left
 of step 3. (4) Manifest resources, `Assembly.ManifestModule`/`GetReferencedAssemblies`/`GetCustomAttributes`
-are compile-time metadata. (5) `tools/bootstrap/selfhost.sh`: all of `csharpc.dll` lowers with no unsupported
-construct (144 s, 4.5 GB; `ResourceReader` and `SetDllImportResolver` were the last); code generation
-needs more than 8 GB and runs in the `Bootstrap` workflow.
+are compile-time metadata. (5) csharpc compiles itself (`tools/bootstrap/selfhost.sh`, the `Bootstrap` workflow): 248 s and
+11.6 GB on a CI runner at -O0, and the native compiler compiles hello world and samples exactly as the
+managed one (run 41171411931). Next: the self-compile at -O2, the native compiler on the whole
+differential suite, and code-generation memory.
 
 ### Runtime tiers — C# for library code, C where it is the right tool
 [ADR 0017](adr/0017-runtime-tiers.md); a C-free runtime is not a goal (owner, 2026-10-30). **Tier 1 (now,
