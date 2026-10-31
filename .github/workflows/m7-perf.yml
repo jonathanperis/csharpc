@@ -1,8 +1,9 @@
 name: M7 perf
 
 # Measurement runs for csharpc's M7 performance work (docs/06-roadmap.md, M7): the TechEmpower harness
-# (benchmarks/techempower/run.sh, unchanged) on NativeAOT and csharpc builds of this commit, repeated
-# on several runners so the csharpc/NativeAOT ratios can be read as medians past runner noise, plus one
+# (benchmarks/techempower/run.sh, unchanged) with the interim plaintext/JSON app (`--app interim`, the
+# app csharpc builds today) on NativeAOT and csharpc builds of this commit: three interleaved rounds per
+# runner on three runners, so the csharpc/NativeAOT ratios can be read past runner noise, plus one
 # profiled run (perf samples, annotated hot functions, the collector's statistics). Unlike the shared
 # TechEmpower workflow it triggers on compiler/runtime changes, but only on ci/m7-perf* branches: it
 # gates nothing and doesn't run on main.
@@ -31,15 +32,19 @@ jobs:
           - { kind: load, n: 3, profile: "0" }
           - { kind: profile, n: 1, profile: "1" }
     runs-on: ubuntu-24.04
-    timeout-minutes: 90
+    timeout-minutes: 120
     env:
       DOTNET_CLI_TELEMETRY_OPTOUT: 1
       DOTNET_NOLOGO: 1
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Install LLVM 18, clang, wrk and NativeAOT prerequisites
-        run: sudo apt-get update && sudo apt-get install -y llvm-18 clang-18 libllvm18 lld-18 zlib1g-dev wrk && sudo ln -sf /usr/bin/clang-18 /usr/local/bin/clang && sudo ln -sf /usr/bin/ld.lld-18 /usr/local/bin/ld.lld
+      - name: Install LLVM 18, clang, wrk, TechEmpower's verification dependencies and NativeAOT prerequisites
+        run: |
+          sudo apt-get update && sudo apt-get install -y llvm-18 clang-18 libllvm18 lld-18 zlib1g-dev wrk siege python3-requests python3-colorama python3-psycopg2
+          sudo ln -sf /usr/bin/clang-18 /usr/local/bin/clang && sudo ln -sf /usr/bin/ld.lld-18 /usr/local/bin/ld.lld
+          # As the TechEmpower workflow: TechEmpower's server settings, ephemeral ports above the servers'.
+          sudo sysctl -w net.core.somaxconn=65535 net.ipv4.tcp_max_syn_backlog=65535 net.ipv4.ip_local_port_range="10000 65535"
 
       - name: Install .NET 11 SDK
         run: |
@@ -67,18 +72,16 @@ jobs:
 
       - name: Build, verify and load
         run: |
-          # Profiling runs keep the unstripped csharpc server (run.sh deletes its builds), so that the
-          # collector's allocation-site offsets in csharpc.server.log can be named with nm.
-          if [[ "${{ matrix.profile }}" == 1 ]]; then
-            ( for _ in $(seq 1 1440); do
-                if [[ -f m7-results/csharpc.server.log ]]; then for f in /tmp/tmp.*/csharpc/TechEmpower; do [[ -f "$f" ]] && cp "$f" m7-results/csharpc.TechEmpower; done; exit 0; fi
-                sleep 5
-              done ) &
-          fi
-          PROFILE="${{ matrix.profile }}" DURATION=15 benchmarks/techempower/run.sh --out m7-results --only aot,csharpc || status=$?
+          ulimit -n 65535 || true
+          PROFILE="${{ matrix.profile }}" DURATION=15 benchmarks/techempower/run.sh --app interim --tests deploy,plaintext,json \
+            --only aot,csharpc --rounds 3 --out m7-results || status=$?
           cat m7-results/results.md >> "$GITHUB_STEP_SUMMARY" || true
           # Phase timings of the csharpc build (-v), for the build-time work.
-          { echo '### csharpc build phases'; echo '```'; grep -E '^\s*(\[|time|phase|[A-Za-z ]+:\s+[0-9.]+ ?(s|ms))' m7-results/csharpc.build.log | tail -60; echo '```'; } >> "$GITHUB_STEP_SUMMARY" || true
+          { echo '### csharpc build phases'; echo '```'; grep -hE '^ +[0-9.]+ ms ' m7-results/build/*.log m7-results/build/*/*.log 2>/dev/null | tail -30; echo '```'; } >> "$GITHUB_STEP_SUMMARY" || true
+          # A small artifact: no binaries, except the profiled csharpc server (nm names the collector's
+          # allocation-site offsets in its log).
+          if [[ "${{ matrix.profile }}" == 1 ]]; then find m7-results/build -type f -size +2M ! -path '*csharpc*' -delete 2>/dev/null || true
+          else find m7-results/build -type f -size +2M -delete 2>/dev/null || true; fi
           exit "${status:-0}"
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
