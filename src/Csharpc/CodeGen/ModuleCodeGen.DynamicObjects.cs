@@ -27,10 +27,10 @@ public sealed partial class ModuleCodeGen
     internal void NoteDynamicOrigin(SyntaxTree tree, DynamicSite site) => _dynamicOrigins[tree] = site;
 
     /// <summary>Where a dynamic operation binds: its own source position, or the site whose bound code contains it.</summary>
-    internal (SemanticModel Model, int Position, INamedTypeSymbol? Context) DynamicContext(SyntaxNode syntax, int position, INamedTypeSymbol? context) =>
+    internal (SemanticModel Model, int Position, INamedTypeSymbol? Context, bool FromIl) DynamicContext(SyntaxNode syntax, int position, INamedTypeSymbol? context) =>
         _dynamicOrigins.TryGetValue(syntax.SyntaxTree, out var origin)
-            ? (origin.Model, origin.Position, origin.Context)
-            : (DynamicSemanticModel(syntax.SyntaxTree), position, context);
+            ? (origin.Model, origin.Position, origin.Context, origin.FromIl)
+            : (DynamicSemanticModel(syntax.SyntaxTree), position, context, false);
 
     private bool IsExpandoObject(ITypeSymbol type) =>
         type is INamedTypeSymbol { Name: "ExpandoObject" } && type.ContainingNamespace?.ToDisplayString() == "System.Dynamic";
@@ -160,7 +160,7 @@ public sealed partial class ModuleCodeGen
         var source = text.Jump
             ? $"{{ goto __csdynL; {text.Declarations} __csdynL: ; {statements} }}"
             : $"{{ {text.Declarations} {statements} }}";
-        var block = (BlockSyntax)SyntaxFactory.ParseStatement(source);
+        var block = IlSpeakable(site, (BlockSyntax)SyntaxFactory.ParseStatement(source));
         if (block.ContainsDiagnostics)
             throw CompileError.Unsupported($"dynamic operation csharpc can't express ({source})");
         if (!site.Model.TryGetSpeculativeSemanticModel(site.Position, block, out var model))
@@ -177,6 +177,7 @@ public sealed partial class ModuleCodeGen
         }
         if (model.GetOperation(block) is not { } operation || HasBindingErrors(operation))
             return new DynamicLeaf { Unsupported = $"the dynamic operation '{site.Syntax}' on '{chosen[0]?.Key.Type?.ToDisplayString()}'" };
+        if (site.FromIl && IlCheckedLeaf(site, chosen, new DynamicLeaf(), operation) is { Unsupported: not null } inaccessible) return inaccessible;
         return new DynamicLeaf { Locals = locals, Result = result, Graph = ControlFlowGraph.Create(block, model) };
     }
 }

@@ -1,6 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <!-- `dynamic` in a library consumed as IL: csc compiled it to Microsoft.CSharp call sites, which csharpc
-       rejects explicitly (it binds dynamic operations from C# source only; docs/adr/0019-dynamic.md). -->
+       decodes and binds at compile time like dynamic operations in source (docs/adr/0019-dynamic.md, "From IL"). -->
   <PropertyGroup>
     <TargetFramework>net11.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>

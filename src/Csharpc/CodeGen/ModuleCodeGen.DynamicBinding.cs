@@ -128,8 +128,11 @@ public sealed partial class ModuleCodeGen
                 // Bounded nesting keeps instantiations from creating ever deeper types (Gen<T> making List<T>...).
                 if (candidates!.Generic) return ReflectionNestingDepth(b) <= 2 ? Typed() : DynamicClassKey.Unsupported;
                 if (b.SpecialType == SpecialType.System_Object) return DynamicClassKey.Default;
+                // The value of `x op= y` converts explicitly: a type with only an explicit conversion binds as itself
+                // (as object it would unbox); the rest fail to convert (CompoundCastError).
+                var compoundValue = site.CompoundValue && ReferenceEquals(operand, site.Operands[^1]);
                 foreach (var p in candidates.Parameters)
-                    if (ImplicitlyConvertible(b, p)) return Typed();
+                    if (compoundValue ? ExplicitlyConvertible(b, p) : ImplicitlyConvertible(b, p)) return Typed();
                 return DynamicClassKey.Default;
             case DynamicRole.Operator:
                 // A struct with no operators or conversions behaves as object would (errors name its run-time type,
@@ -150,6 +153,10 @@ public sealed partial class ModuleCodeGen
                 throw new InvalidOperationException(operand.Role.ToString());
         }
     }
+
+    private bool ExplicitlyConvertible(ITypeSymbol from, ITypeSymbol to) =>
+        to.SpecialType != SpecialType.System_Object && to.TypeKind is not (TypeKind.Dynamic or TypeKind.Error)
+        && ((CSharpCompilation)Compilation).ClassifyConversion(from, to).Exists;
 
     private bool ImplicitlyConvertible(ITypeSymbol from, ITypeSymbol to)
     {
@@ -172,7 +179,7 @@ public sealed partial class ModuleCodeGen
                 foreach (var c in classes[0] ?? []) if (c.Key.Kind is DynamicClassKind.Typed or DynamicClassKind.MetaObject) receivers.Add(c.Key.Type!); // a meta-object's real members bind first
             }
             else if (receiver.Type is { } t) receivers.Add(t);
-            else if (receiver.Kind == DynamicOperandKind.This && site.Context is { } self) receivers.Add(self);
+            else if (receiver.Kind == DynamicOperandKind.This && DynamicThisType(site) is { } self) receivers.Add(self);
         }
         void AddParameters(IEnumerable<IParameterSymbol> parameters, bool generic)
         {
@@ -215,7 +222,7 @@ public sealed partial class ModuleCodeGen
         switch (site.Kind)
         {
             case DynamicKind.InvokeMember or DynamicKind.SetMember when site.SimpleName:
-                foreach (var member in site.Model.LookupSymbols(site.Position, name: site.Name)) AddMember(member);
+                foreach (var member in DynamicSimpleNameLookup(site)) AddMember(member);
                 break;
             case DynamicKind.InvokeMember or DynamicKind.SetMember:
                 foreach (var r in receivers) foreach (var member in MembersNamed(r, site.Name!)) AddMember(member);
@@ -325,7 +332,7 @@ public sealed partial class ModuleCodeGen
     /// type, else System.Array) — "something the user could have written". csharpc's own corelib types stand in for
     /// framework internals, which user code can't see either.
     /// </summary>
-    internal ITypeSymbol BestAccessibleType(ITypeSymbol type, INamedTypeSymbol? context)
+    internal ITypeSymbol BestAccessibleType(ITypeSymbol type, ISymbol? context)
     {
         if (IsAccessibleForDynamic(type, context)) return type;
         switch (type)
@@ -347,7 +354,7 @@ public sealed partial class ModuleCodeGen
         }
     }
 
-    private bool IsAccessibleForDynamic(ITypeSymbol type, INamedTypeSymbol? context)
+    private bool IsAccessibleForDynamic(ITypeSymbol type, ISymbol? context)
     {
         switch (type)
         {
@@ -356,7 +363,7 @@ public sealed partial class ModuleCodeGen
                 if (CoreLib.IsCoreLib(named)) return false;
                 foreach (var argument in named.TypeArguments) if (!IsAccessibleForDynamic(argument, context)) return false;
                 if (named.ContainingType is { } outer && !IsAccessibleForDynamic(outer, context)) return false;
-                return context is null ? Compilation.IsSymbolAccessibleWithin(named.OriginalDefinition, Compilation.Assembly)
+                return context is null ? Compilation.IsSymbolAccessibleWithin(named.OriginalDefinition, DynamicDefaultWithin)
                     : Compilation.IsSymbolAccessibleWithin(named.OriginalDefinition, context);
             default: return true;
         }
@@ -394,12 +401,12 @@ public sealed partial class ModuleCodeGen
                     return BindMetaObject(site, chosen, c.Key.Type!);
             }
             if (site.Kind == DynamicKind.IsEvent)
-                return new DynamicLeaf { ConstantBool = site.Model.LookupSymbols(site.Position, (INamespaceOrTypeSymbol)NamedOrObject(c.Key.Type!), site.Name).FirstOrDefault() is IEventSymbol };
+                return new DynamicLeaf { ConstantBool = DynamicLookup(site, (INamespaceOrTypeSymbol)NamedOrObject(c.Key.Type!), site.Name).FirstOrDefault() is IEventSymbol };
         }
         if (site.Kind == DynamicKind.IsEvent)
         {
             var type = site.Operands[0].Type ?? site.Context;
-            return new DynamicLeaf { ConstantBool = type is not null && site.Model.LookupSymbols(site.Position, (INamespaceOrTypeSymbol)NamedOrObject(type), site.Name).FirstOrDefault() is IEventSymbol };
+            return new DynamicLeaf { ConstantBool = type is not null && DynamicLookup(site, (INamespaceOrTypeSymbol)NamedOrObject(type), site.Name).FirstOrDefault() is IEventSymbol };
         }
         // Conversions with no binding of their own.
         if (site.Kind == DynamicKind.Convert && chosen[0] is { } converted)
@@ -475,9 +482,10 @@ public sealed partial class ModuleCodeGen
         INamedTypeSymbol? simpleOwner = null;
         // A struct's `this` (passed by reference) is always a local aliasing the instance.
         var structThis = operands.Count > 0 && operands[0] is { Kind: DynamicOperandKind.This, RefKind: not RefKind.None };
+        // From IL there is no position inside the context: always name the receiver.
         if (site.SimpleName && site.Context is { } context
-            && (structThis || (!site.Subst.IsIdentity && TypeSubstitution.IsOpen(context.OriginalDefinition)))
-            && site.Model.LookupSymbols(site.Position, name: site.Name).OfType<IMethodSymbol>().ToList() is { Count: > 0 } candidates)
+            && (structThis || site.FromIl || (!site.Subst.IsIdentity && TypeSubstitution.IsOpen(context.OriginalDefinition)))
+            && DynamicSimpleNameLookup(site).OfType<IMethodSymbol>().ToList() is { Count: > 0 } candidates)
         {
             if (candidates.All(m => m.IsStatic) && candidates.All(m => SymbolEqualityComparer.Default.Equals(m.ContainingType, candidates[0].ContainingType)))
             {
@@ -486,6 +494,11 @@ public sealed partial class ModuleCodeGen
             }
             else if (candidates.All(m => !m.IsStatic) && operands.Count > 0 && operands[0].Kind == DynamicOperandKind.This)
                 simpleReceiver = SimpleReceiver.ThisLocal;
+        }
+        if (site.FromIl && site.SimpleName && simpleReceiver == SimpleReceiver.None)
+        {
+            unsupported = new DynamicLeaf { Unsupported = $"the simple-name dynamic call '{site.Syntax}' to static and instance overloads at once, from IL" };
+            return null;
         }
         if (structThis && simpleReceiver == SimpleReceiver.None)
         {
@@ -500,7 +513,7 @@ public sealed partial class ModuleCodeGen
                 case DynamicOperandKind.This when simpleReceiver == SimpleReceiver.ThisLocal:
                     // A generic type's instance member, called through `this` typed as the instantiation.
                     texts[i] = Local + i;
-                    declarations.Append(TypeText(site.Subst.Apply(site.Context!))).Append(' ').Append(Local).Append(i).Append(';');
+                    declarations.Append(TypeText(site.Subst.Apply(o.Type ?? site.Context!))).Append(' ').Append(Local).Append(i).Append(';');
                     break;
                 case DynamicOperandKind.This:
                     texts[i] = "this";
@@ -515,7 +528,7 @@ public sealed partial class ModuleCodeGen
                 {
                     var type = BindingType(o, chosen[i])!;
                     texts[i] = Local + i;
-                    if (TypeText(type) is { } typeText) declarations.Append(typeText).Append(' ').Append(Local).Append(i).Append(';');
+                    if ((TypeText(type) ?? (site.FromIl ? IlUnspeakableTypeText(type) : null)) is { } typeText) declarations.Append(typeText).Append(' ').Append(Local).Append(i).Append(';');
                     else if (AnonymousInitializer(type) is { } init)
                     {
                         needsJump = true;
@@ -567,14 +580,17 @@ public sealed partial class ModuleCodeGen
                 expression = $"{Receiver()}@{site.Name}";
                 break;
             case DynamicKind.SetMember:
-                expression = $"{Receiver()}@{site.Name} {(site.Compound ? site.Operator : "")}= {texts[^1]}";
+                expression = $"{Receiver()}@{site.Name} {(site.Compound ? site.Operator : "")}= {CompoundValueText(site, declarations.ToString(), needsJump, $"{Receiver()}@{site.Name}", texts[^1])}";
                 break;
             case DynamicKind.GetIndex:
                 expression = $"{Parenthesized(texts[0])}[{Arguments(1, operands.Count)}]";
                 break;
             case DynamicKind.SetIndex:
-                expression = $"{Parenthesized(texts[0])}[{Arguments(1, operands.Count - 1)}] = {texts[^1]}";
+            {
+                var access = $"{Parenthesized(texts[0])}[{Arguments(1, operands.Count - 1)}]";
+                expression = $"{access} = {CompoundValueText(site, declarations.ToString(), needsJump, access, texts[^1])}";
                 break;
+            }
             case DynamicKind.Invoke:
                 expression = $"{Parenthesized(texts[0])}({Arguments(1, operands.Count)})";
                 break;
@@ -582,7 +598,9 @@ public sealed partial class ModuleCodeGen
                 expression = $"new {TypeText(site.ResultType!)}({Arguments(0, operands.Count)})";
                 break;
             case DynamicKind.Binary:
-                expression = site.Compound ? $"{texts[0]} {site.Operator}= {texts[1]}" : $"{Parenthesized(texts[0])} {site.Operator} {Parenthesized(texts[1])}";
+                // `x op= y` is the binder's plain `x op y` (Microsoft.CSharp maps AddAssign to Add): its result keeps its
+                // type (a dynamic variable gets it as is), and the store converts it back (CompoundValue, csc's explicit Convert).
+                expression = $"{Parenthesized(texts[0])} {site.Operator} {Parenthesized(texts[1])}";
                 break;
             case DynamicKind.Unary:
                 expression = $"{site.Operator}{Parenthesized(texts[0])}";
@@ -612,7 +630,7 @@ public sealed partial class ModuleCodeGen
         var text = jump
             ? $"{{ goto __csdynL; {declarations} __csdynL: ; {resultStatement} }}"
             : $"{{ {declarations} {resultStatement} }}";
-        var block = (BlockSyntax)SyntaxFactory.ParseStatement(text);
+        var block = IlSpeakable(site, (BlockSyntax)SyntaxFactory.ParseStatement(text));
         if (block.ContainsDiagnostics)
             throw CompileError.Unsupported($"dynamic operation csharpc can't express ({text})");
         if (!site.Model.TryGetSpeculativeSemanticModel(site.Position, block, out var model))
@@ -640,7 +658,8 @@ public sealed partial class ModuleCodeGen
         if (result is { Type: IErrorTypeSymbol } && operation?.Type is { SpecialType: SpecialType.System_Void })
             return new DynamicLeaf { Error = VoidMarker };
         var error = DescribeBindingError(site, chosen, model, expression, operation, result);
-        if (error is not null) return error;
+        if (error is not null) return IlCheckedLeaf(site, chosen, error, null);
+        if (site.FromIl && IlCheckedLeaf(site, chosen, new DynamicLeaf(), model.GetOperation(block)) is { Unsupported: not null } inaccessible) return inaccessible;
 
         var leaf = new DynamicLeaf { Locals = locals, Result = result };
         // ==/!= bound as object for a reference type: valid only if one operand converts to the other (else CS0019).
@@ -745,7 +764,7 @@ public sealed partial class ModuleCodeGen
                 if (site.Kind == DynamicKind.GetMember)
                 {
                     if (member is IPropertySymbol { GetMethod: null } p) return Fail($"The property or indexer '{BinderMemberName(p)}' cannot be used in this context because it lacks the get accessor");
-                    if (member is IPropertySymbol { GetMethod: { } getter } gp && !site.Model.IsAccessible(site.Position, getter))
+                    if (member is IPropertySymbol { GetMethod: { } getter } gp && !DynamicAccessible(site, getter, ReceiverType(site, chosen)))
                         return Fail($"The property or indexer '{BinderMemberName(gp)}' cannot be used in this context because the get accessor is inaccessible");
                     if (member is IEventSymbol ev) return Fail($"The event '{BinderMemberName(ev)}' can only appear on the left hand side of +");
                 }
@@ -753,6 +772,7 @@ public sealed partial class ModuleCodeGen
                 {
                     var setError = SetterError(site, model, member);
                     if (setError is not null) return Fail(setError);
+                    if (CompoundCastError(site, chosen, model, ((AssignmentExpressionSyntax)expression).Right, OperandName) is { } castError) return Fail(castError);
                     if (ConversionError(site, model, ((AssignmentExpressionSyntax)expression).Right, OperandName, site.Operands.Count - 1) is { } conversionError) return Fail(conversionError);
                 }
                 if (!hasErrors) return null;
@@ -769,6 +789,7 @@ public sealed partial class ModuleCodeGen
                 var info = model.GetSymbolInfo(access);
                 var indexer = info.Symbol as IPropertySymbol;
                 if (site.Kind == DynamicKind.SetIndex && indexer is not null && SetterError(site, model, indexer) is { } setError) return Fail(setError);
+                if (site.Kind == DynamicKind.SetIndex && CompoundCastError(site, chosen, model, ((AssignmentExpressionSyntax)expression).Right, OperandName) is { } castError) return Fail(castError);
                 if (site.Kind == DynamicKind.SetIndex && ConversionError(site, model, ((AssignmentExpressionSyntax)expression).Right, OperandName, site.Operands.Count - 1) is { } conversionError) return Fail(conversionError);
                 if (!hasErrors) return null;
                 if (receiverType is IArrayTypeSymbol)
@@ -905,7 +926,7 @@ public sealed partial class ModuleCodeGen
         return receiver.Role is DynamicRole.Receiver ? receiver.Kind switch
         {
             DynamicOperandKind.Dynamic => BindingType(receiver, chosen[0]),
-            DynamicOperandKind.This => site.Context,
+            DynamicOperandKind.This => DynamicThisType(site),
             _ => receiver.Type,
         } : null;
     }
@@ -914,13 +935,50 @@ public sealed partial class ModuleCodeGen
     {
         IPropertySymbol { SetMethod: null } p =>
             $"Property or indexer '{BinderMemberName(p)}' cannot be assigned to -- it is read only",
-        IPropertySymbol { SetMethod: { } setter } p when !site.Model.IsAccessible(site.Position, setter) =>
+        IPropertySymbol { SetMethod: { } setter } p when !DynamicAccessible(site, setter, null) =>
             $"The property or indexer '{BinderMemberName(p)}' cannot be used in this context because the set accessor is inaccessible",
         IFieldSymbol { IsReadOnly: true, IsStatic: true } => "A static readonly field cannot be assigned to (except in a static constructor or a variable initializer)",
         IFieldSymbol { IsReadOnly: true } => "A readonly field cannot be assigned to (except in a constructor or a variable initializer)",
         IFieldSymbol { IsConst: true } or IEventSymbol => "The left-hand side of an assignment must be a variable, property or indexer",
         _ => null,
     };
+
+    /// <summary>
+    /// The value of a compound assignment's store: `checked((T)value)` (or unchecked), T the type of the member or
+    /// indexer stored to — bound first as a read. Not a compound store, or a target that doesn't read: the value.
+    /// </summary>
+    private string CompoundValueText(DynamicSite site, string declarations, bool jump, string access, string value)
+    {
+        if (!site.CompoundValue || site.Compound) return value;
+        var text = jump
+            ? $"{{ goto __csdynL; {declarations} __csdynL: ; var __csdynt = {access}; }}"
+            : $"{{ {declarations} var __csdynt = {access}; }}";
+        var block = IlSpeakable(site, (BlockSyntax)SyntaxFactory.ParseStatement(text));
+        if (block.ContainsDiagnostics || !site.Model.TryGetSpeculativeSemanticModel(site.Position, block, out var model)) return value;
+        var read = block.DescendantNodes().OfType<VariableDeclaratorSyntax>().Last().Initializer!.Value;
+        if (model.GetTypeInfo(read).Type is not { TypeKind: not TypeKind.Error } type
+            || (TypeText(type) ?? (site.FromIl ? IlUnspeakableTypeText(type) : null)) is not { } typeText) return value;
+        return $"{(site.Checked ? "checked" : "unchecked")}(({typeText}){Parenthesized(value)})";
+    }
+
+    /// <summary>The binder's error for a compound store whose value doesn't convert (explicitly) to the member's type.</summary>
+    private string? CompoundCastError(DynamicSite site, DynamicClass?[] chosen, SemanticModel model, ExpressionSyntax right, Func<int, string> operandName)
+    {
+        if (!site.CompoundValue || site.Compound || Unwrapped(right) is not CastExpressionSyntax cast) return null;
+        if (model.GetTypeInfo(cast.Type).Type is not { TypeKind: not TypeKind.Error } target) return null;
+        var value = site.Operands.Count - 1;
+        var source = operandName(value);
+        var targetName = BinderTypeName(target);
+        if (source == "<null>")
+            return target.IsValueType && !TypeMapper.IsNullable(target) ? $"Cannot convert null to '{targetName}' because it is a non-nullable value type" : null;
+        // A value bound as object (its type converts to no member type) would unbox: the binder sees its run-time type.
+        if (site.Operands[value].Kind == DynamicOperandKind.Dynamic && chosen[value]?.Key.Kind == DynamicClassKind.Default)
+            return target.SpecialType == SpecialType.System_Object ? null : $"Cannot convert type '{source}' to '{targetName}'";
+        var conversion = model.ClassifyConversion(cast.Expression, target, isExplicitInSource: true);
+        if (!conversion.Exists) return $"Cannot convert type '{source}' to '{targetName}'";
+        if (conversion.IsUserDefined) return "\u0002a compound assignment whose result converts to the member's type through a user-defined conversion";
+        return null;
+    }
 
     /// <summary>An argument that doesn't convert to its target (an assigned value, an array index).</summary>
     private string? ConversionError(DynamicSite site, SemanticModel model, ExpressionSyntax value, Func<int, string> operandName, int operand, string? target = null)

@@ -28,12 +28,17 @@ public sealed partial class FunctionCodeGen
         // compile time from C# source (docs/adr/0019-dynamic.md); compiling Microsoft.CSharp's run-time binder from
         // IL instead would take minutes and still need Reflection.Emit. Fail here, before any of it is lowered.
         if (method.ContainingType is { Name: "Binder", ContainingNamespace: { Name: "RuntimeBinder", ContainingNamespace: { Name: "CSharp", ContainingNamespace.Name: "Microsoft" } } })
-            throw new IlException($"'dynamic' in compiled code (the call site of Microsoft.CSharp.RuntimeBinder.Binder.{method.Name}): csharpc binds dynamic operations from C# source only");
+            throw new IlException($"'dynamic' in compiled code (the call site of Microsoft.CSharp.RuntimeBinder.Binder.{method.Name}): csharpc binds the call sites csc creates, and this one isn't one of them");
         var args = new IlEntry[method.Parameters.Length];
         for (var i = args.Length - 1; i >= 0; i--) args[i] = stack.Count > 0 ? stack.Pop() : throw new IlException("evaluation stack underflow");
         IlEntry? receiver = null;
         if (op != ILOpCode.Newobj && !method.IsStatic)
             receiver = stack.Count > 0 ? stack.Pop() : throw new IlException("evaluation stack underflow");
+        if (receiver?.Dynamic is { } dynamicSite)
+        {
+            IlDynamicInvoke(method, dynamicSite, args, stack);
+            return;
+        }
 
         if (args.Any(a => a is { Kind: IlKind.Ref, Symbol: ITypeSymbol }))
             _m.NoteDynamicallyAccessedArguments(S(method), i => args[i] is { Kind: IlKind.Ref, Symbol: ITypeSymbol type } ? type : null);

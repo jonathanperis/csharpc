@@ -19,7 +19,7 @@ every failure is a clean "not supported by csharpc yet" diagnostic.
 | `dotnet build -p:UseCsharpc=true`, `dotnet publish -p:PublishCsharpc=true` | ✅ | `Csharpc.Sdk` package |
 | File-based apps (`#:property` directives) | ✅ | |
 | Assemblies without sources: `-r X.dll`, `<Reference>`, NuGet `PackageReference` | 🟡 | IL front-end (M5): the IL side is complete except `calli`/TypedReference; packages still hit BCL gaps (M2) |
-| The program as IL: `csharpc app.dll` (csc's output, the dotnet pipeline's input) | 🟡 | M5: 471/479 samples through `tests/run.sh --via-il`; no `dynamic` from IL yet (diagnostics) |
+| The program as IL: `csharpc app.dll` (csc's output, the dotnet pipeline's input) | 🟡 | M5: 480/481 samples through `tests/run.sh --via-il` (`dynamic` included); JSON of a private nested type stays a diagnostic |
 
 ### Types
 
@@ -42,7 +42,7 @@ every failure is a clean "not supported by csharpc yet" diagnostic.
 | Delegates, lambdas, closures, events, multicast | ✅ | |
 | Pointers, `fixed`, `stackalloc`, function pointers | ✅ | |
 | `Span<T>`, `ReadOnlySpan<T>`, `Memory<T>`, UTF-8 literals | ✅ | |
-| `dynamic` | ✅ | bound at compile time with Roslyn, per run-time type that can reach the operation, with the runtime binder's rules and `RuntimeBinderException` messages; ExpandoObject and DynamicObject ([ADR 0019](adr/0019-dynamic.md)). Not from IL yet (explicit diagnostic) |
+| `dynamic` | ✅ | bound at compile time with Roslyn, per run-time type that can reach the operation, with the runtime binder's rules and `RuntimeBinderException` messages; ExpandoObject and DynamicObject ([ADR 0019](adr/0019-dynamic.md)); from IL too (csc's call sites decoded into the same bindings) |
 
 ### Statements and expressions
 
@@ -193,11 +193,12 @@ top pure-IL packages still need ([18-compatibility.md](18-compatibility.md#il-fr
 main assembly — entry point from the CLI header, identity, module initializers and runtimeconfig.json
 from the build ([ADR 0010](adr/0010-il-frontend.md#the-program-as-il-2026-10-30)). `tests/run.sh --via-il`
 runs every sample through `dotnet build` → csharpc against the same recordings (CI: the informational
-`il-main.yml`): **471 / 479** pass (2026-10-31, -O0 and -O2), stack traces included (names from the
-assembly, lines from its PDB), reflection-based JSON and `[GeneratedRegex]` included; the rest are
-diagnostics — `dynamic` (7) and JSON of a private nested type (1). Gaps between the two front-ends are bugs.
+`il-main.yml`): **480 / 481** pass (2026-10-31, -O0 and -O2), stack traces included (names from the
+assembly, lines from its PDB), reflection-based JSON, `[GeneratedRegex]` and `dynamic` (csc's call sites decoded
+and bound like source sites, ADR 0019 "From IL") included; the one left is a diagnostic — JSON of a private
+nested type. Gaps between the two front-ends are bugs.
 
-Next: `dynamic` for IL programs, `-g` from the assembly's PDB, the BCL
+Next: `-g` from the assembly's PDB, the BCL
 surface packages use (ranked by the survey), `typeof(X).Assembly`, `calli`, RID-specific/native package
 assets.
 

@@ -125,20 +125,20 @@ public sealed partial class FunctionCodeGen
         public string? Name, Operator, MessageOperator;
         public ITypeSymbol[] TypeArguments = [];
         public INamedTypeSymbol? StaticReceiver;
-        public bool SimpleName, Compound, Checked, Explicit, ResultDiscarded;
+        public bool SimpleName, Compound, CompoundValue, Checked, Explicit, ResultDiscarded;
         public ITypeSymbol? ResultType;
 
         public DynamicSite Build(ModuleCodeGen m, SyntaxNode syntax, INamedTypeSymbol? context, TypeSubstitution subst)
         {
             // The binder's context: the statement the operation is in (its scope and accessibility) — or, for a
             // dynamic operation inside code bound for another site, that site's.
-            var (model, position, origin) = m.DynamicContext(syntax, DynamicPosition(syntax), context);
+            var (model, position, origin, fromIl) = m.DynamicContext(syntax, DynamicPosition(syntax), context);
             return new()
             {
                 Kind = Kind, Name = Name, TypeArguments = TypeArguments, StaticReceiver = StaticReceiver, SimpleName = SimpleName,
                 Operator = Operator, MessageOperator = MessageOperator ?? Operator, Compound = Compound, Checked = Checked, Explicit = Explicit,
-                ResultDiscarded = ResultDiscarded, ResultType = ResultType, Operands = Operands,
-                Model = model, Position = position, Context = origin, Subst = subst, Syntax = syntax,
+                ResultDiscarded = ResultDiscarded, ResultType = ResultType, Operands = Operands, CompoundValue = CompoundValue,
+                Model = model, Position = position, Context = origin, Subst = subst, Syntax = syntax, FromIl = fromIl,
             };
         }
     }
@@ -198,12 +198,25 @@ public sealed partial class FunctionCodeGen
         if (member.Instance is IInstanceReferenceOperation { IsImplicit: true } self)
         {
             site.SimpleName = true;
+            // Roslyn can give a simple name in a static context an implicit `this` (overloads taking object): there
+            // is none, and csc calls the type's static members; the name binds at its position.
+            if (!InStructMember && InStaticContext(member.Syntax)) return;
             // A struct's `this` is the address of the instance: the bound call may mutate it.
             call.Operands.Add(new DynamicOperand { Kind = DynamicOperandKind.This, Role = DynamicRole.Receiver, RefKind = InStructMember ? RefKind.Ref : RefKind.None });
             call.Values.Add(InStructMember ? _this : ThisValue(self));
             return;
         }
         AddDynamicOperand(call, member.Instance, DynamicRole.Receiver);
+    }
+
+    /// <summary>Is <paramref name="syntax"/> in a static member (or a static lambda or local function), where there is no `this`?</summary>
+    private bool InStaticContext(SyntaxNode syntax)
+    {
+        if (!_m.Compilation.ContainsSyntaxTree(syntax.SyntaxTree)) return false;
+        var symbol = _m.DynamicSemanticModel(syntax.SyntaxTree).GetEnclosingSymbol(syntax.SpanStart);
+        for (; symbol is IMethodSymbol { MethodKind: MethodKind.AnonymousFunction or MethodKind.LocalFunction } nested; symbol = nested.ContainingSymbol)
+            if (nested.IsStatic) return true;
+        return symbol is { IsStatic: true };
     }
 
     private LLVMValueRef EmitDynamicInvocation(IDynamicInvocationOperation inv)
@@ -348,12 +361,17 @@ public sealed partial class FunctionCodeGen
     }
 
     /// <summary>Converts a dynamic value to <paramref name="target"/> as the binder does (implicitly).</summary>
-    private LLVMValueRef DynamicConvertTo(IOperation at, string part, LLVMValueRef value, ITypeSymbol target)
+    private LLVMValueRef DynamicConvertTo(IOperation at, string part, LLVMValueRef value, ITypeSymbol target, bool isExplicit = false, bool isChecked = false)
     {
         if (target.SpecialType == SpecialType.System_Object || IsDynamic(target)) return value;
         var call = new DynamicCall();
         AddDynamicValue(call, value, null, DynamicRole.Convert);
-        return CallDynamicSite(at, part, call, DynamicKind.Convert, s => s.ResultType = target);
+        return CallDynamicSite(at, part, call, DynamicKind.Convert, s =>
+        {
+            s.ResultType = target;
+            s.Explicit = isExplicit;
+            s.Checked = isChecked;
+        });
     }
 
     // ======================================================================================
@@ -371,7 +389,7 @@ public sealed partial class FunctionCodeGen
                 AddDynamicOperand(call, c.Value, DynamicRole.Operator);
                 var updated = DynamicBinaryCall(c, "binary" + n, call, token, token, compound: true, c.IsChecked);
                 return (updated, updated);
-            }, eventOperator: c.OperatorKind is BinaryOperatorKind.Add or BinaryOperatorKind.Subtract ? token : null, eventValue: c.Value);
+            }, eventOperator: c.OperatorKind is BinaryOperatorKind.Add or BinaryOperatorKind.Subtract ? token : null, eventValue: c.Value, compoundChecked: c.IsChecked);
         if (c.Target is IDynamicIndexerAccessOperation access)
             return DynamicIndexUpdate(c, access, old =>
             {
@@ -380,7 +398,7 @@ public sealed partial class FunctionCodeGen
                 AddDynamicOperand(call, c.Value, DynamicRole.Operator);
                 var updated = DynamicBinaryCall(c, "binary", call, token, token, compound: true, c.IsChecked);
                 return (updated, updated);
-            });
+            }, compoundChecked: c.IsChecked);
         var targetType = _subst.Apply(c.Target.Type!);
         return ReadModifyWrite(c.Target, old =>
         {
@@ -388,7 +406,8 @@ public sealed partial class FunctionCodeGen
             AddDynamicValue(call, old, IsDynamic(targetType) ? null : targetType, DynamicRole.Operator);
             AddDynamicOperand(call, c.Value, DynamicRole.Operator);
             var updated = DynamicBinaryCall(c, "binary", call, token, token, compound: true, c.IsChecked);
-            var stored = IsDynamic(targetType) ? updated : DynamicConvertTo(c, "convert", updated, targetType);
+            // `x op= d` stores `(T)(x op d)` (csc's Convert is explicit); a dynamic variable takes the result as it is.
+            var stored = IsDynamic(targetType) ? updated : DynamicConvertTo(c, "convert", updated, targetType, isExplicit: true, c.IsChecked);
             return (stored, stored);
         });
     }
@@ -414,8 +433,12 @@ public sealed partial class FunctionCodeGen
     /// `d.M op= v`: get, operate, set on one evaluation of the receiver — after the binder's IsEvent check
     /// for `+=`/`-=`, which turns an event's into `d.E += v` (its add accessor).
     /// </summary>
+    /// <remarks>
+    /// <paramref name="compoundChecked"/> non-null: a compound assignment, whose set converts the operation's result
+    /// to the member's type explicitly (the binder's ValueFromCompoundAssignment), in that checked context.
+    /// </remarks>
     private LLVMValueRef DynamicMemberUpdate(IOperation at, IDynamicMemberReferenceOperation member,
-        Func<LLVMValueRef, string, (LLVMValueRef Stored, LLVMValueRef Result)> modify, string? eventOperator, IOperation? eventValue)
+        Func<LLVMValueRef, string, (LLVMValueRef Stored, LLVMValueRef Result)> modify, string? eventOperator, IOperation? eventValue, bool? compoundChecked = null)
     {
         var receiver = new DynamicCall();
         var shape = new DynamicSiteBuilder { Kind = DynamicKind.GetMember, Operands = receiver.Operands };
@@ -439,7 +462,12 @@ public sealed partial class FunctionCodeGen
             var (stored, result) = modify(old, n);
             var set = Receiver();
             AddDynamicValue(set, stored, null, DynamicRole.Argument);
-            CallDynamicSite(at, "set" + n, set, DynamicKind.SetMember, Shape);
+            CallDynamicSite(at, "set" + n, set, DynamicKind.SetMember, s =>
+            {
+                Shape(s);
+                s.CompoundValue = compoundChecked is not null;
+                s.Checked = compoundChecked == true;
+            });
             return result;
         }
         if (eventOperator is null || receiver.Operands.Count == 0 || receiver.Operands[0].Kind != DynamicOperandKind.Dynamic) return Update("");
@@ -469,7 +497,7 @@ public sealed partial class FunctionCodeGen
         return _b.Load(L.Ptr, resultSlot);
     }
 
-    private LLVMValueRef DynamicIndexUpdate(IOperation at, IDynamicIndexerAccessOperation access, Func<LLVMValueRef, (LLVMValueRef Stored, LLVMValueRef Result)> modify)
+    private LLVMValueRef DynamicIndexUpdate(IOperation at, IDynamicIndexerAccessOperation access, Func<LLVMValueRef, (LLVMValueRef Stored, LLVMValueRef Result)> modify, bool? compoundChecked = null)
     {
         var target = new DynamicCall();
         AddDynamicOperand(target, access.Operation, DynamicRole.IndexReceiver);
@@ -483,7 +511,11 @@ public sealed partial class FunctionCodeGen
         set.Operands.AddRange(target.Operands);
         set.Values.AddRange(target.Values);
         AddDynamicValue(set, stored, null, DynamicRole.Argument);
-        CallDynamicSite(at, "set", set, DynamicKind.SetIndex);
+        CallDynamicSite(at, "set", set, DynamicKind.SetIndex, s =>
+        {
+            s.CompoundValue = compoundChecked is not null;
+            s.Checked = compoundChecked == true;
+        });
         return result;
     }
 
@@ -576,7 +608,7 @@ public sealed partial class FunctionCodeGen
         }
         if (leaf.ErrorTemplate is { } template)
         {
-            ThrowRuntimeBinderException(DynamicMessage(template, values));
+            ThrowRuntimeBinderException(DynamicMessage(site, template, values));
             return;
         }
         if (leaf.Unsupported is { } unsupported)
@@ -703,14 +735,14 @@ public sealed partial class FunctionCodeGen
         parts.Add("' and '");
         if (Name(1) == "\u0001") parts.Add(1); else parts.Add(Name(1));
         parts.Add("'");
-        ThrowRuntimeBinderException(DynamicMessage(parts, values));
+        ThrowRuntimeBinderException(DynamicMessage(site, parts, values));
         _b.PositionAtEnd(ok);
     }
 
     /// <summary>A binder message naming run-time types: literal parts and operand indices (~i: as member lookup names it).</summary>
-    private LLVMValueRef DynamicMessage(List<object> parts, LLVMValueRef[] values)
+    private LLVMValueRef DynamicMessage(DynamicSite site, List<object> parts, LLVMValueRef[] values)
     {
-        var names = _m.DynamicTypeNameFunction();
+        var names = _m.DynamicTypeNameFunction(_m.DynamicNameView(site));
         LLVMValueRef message = default;
         foreach (var part in parts)
         {
@@ -745,14 +777,14 @@ public sealed partial class FunctionCodeGen
     }
 
     /// <summary>`string typename(mt, lookup)`: the binder's name for each run-time type; unknown types throw.</summary>
-    internal void EmitDynamicTypeNames(List<(ITypeSymbol Type, LLVMValueRef Mt)> types, ModuleCodeGen m)
+    internal void EmitDynamicTypeNames(List<(ITypeSymbol Type, LLVMValueRef Mt)> types, ModuleCodeGen m, IAssemblySymbol? view)
     {
         var mt = ParamOf(0);
         var lookup = _b.ICmp(LLVMIntPredicate.NE, ParamOf(1), L.ConstInt(L.I32, 0));
         foreach (var (type, table) in types)
         {
             string name;
-            try { name = m.BinderTypeName(m.BestAccessibleType(type, null)); }
+            try { name = m.BinderTypeName(m.BestAccessibleType(type, view)); }
             catch (Exception e) when (e is not OutOfMemoryException) { continue; }
             var hit = NewBlock("name");
             var next = NewBlock("next");

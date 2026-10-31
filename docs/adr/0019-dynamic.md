@@ -1,7 +1,8 @@
 # ADR 0019 — `dynamic`: bound at compile time, per run-time type, with Roslyn
 
 - **Status:** Accepted (2026-10-30), implemented (`CodeGen/ModuleCodeGen.Dynamic*.cs`, `CodeGen/FunctionCodeGen.Dynamic.cs`,
-  `CodeGen/DynamicSite.cs`, `CodeGen/DynamicErasure.cs`, `corelib/Dynamic/DynamicObjects.cs`).
+  `CodeGen/DynamicSite.cs`, `CodeGen/DynamicErasure.cs`, `corelib/Dynamic/DynamicObjects.cs`); from IL since 2026-10-31
+  (`CodeGen/FunctionCodeGen.IlDynamic.cs`, `CodeGen/ModuleCodeGen.DynamicIl.cs`, `Frontend/DynamicBinding.Il.cs`).
 - **Context:** [ADR 0006](0006-closed-world-compilation.md) (closed world), [ADR 0013](0013-framework-il.md) (framework IL),
   [ADR 0016](0016-nativeaot-parity-and-end-state.md) (NativeAOT parity), [ADR 0018](0018-reflection-metadata.md) (reflection metadata).
 
@@ -69,13 +70,17 @@ calls a function holding the code Roslyn bound for that combination of types.
    cases are kept across re-emissions. The type-name table is emitted after the fixed point.
 6. **`dynamic` is `object` at run time.** `CoreLib.Map` erases it from every symbol codegen reads, so `List<dynamic>`,
    `Task<dynamic>` and `dynamic[]` are the same types (layouts, method tables, statics) as their `object` forms.
-7. **The IL front-end** rejects csc's call sites (`Microsoft.CSharp.RuntimeBinder.Binder.*`) with an explicit diagnostic:
-   from IL there is no source position to bind at, and the binder's accessibility context (internals of the library's
-   own types) has no public Roslyn equivalent.
+7. **Compound assignment is the binder's.** `x op= y` binds as the plain `x op y` (Microsoft.CSharp maps `AddAssign` to
+   `Add`): a dynamic variable takes the result as it is (`2 += 0.5` is 2.5, `short += short` an int), and the store
+   converts it back explicitly, in the checked context — csc's explicit `Convert` for a statically typed variable, the
+   binder's `ValueFromCompoundAssignment` set (`x = (T)(x op y)`, T the member's or indexer's type) otherwise.
+   Increments keep the operand's type. (Until 2026-10-31 the operation was bound as a C# compound assignment of a local
+   of the left operand's run-time type, which narrowed the result of a dynamic variable: sample 761.)
+8. **The IL front-end** decodes csc's call sites into the same sites ("From IL" below).
 
 ## Consequences
 
-- `dynamic` programs print what `dotnet run` prints: samples 680–687 (members, overloads by run-time type, named/optional/
+- `dynamic` programs print what `dotnet run` prints: samples 680–687 and 760–761 (members, overloads by run-time type, named/optional/
   params/ref/out arguments, constructors, generic inference, operators, conversions, indexers, events, delegates, struct
   receivers, ExpandoObject, DynamicObject, generic code, lambdas, iterators, async, field initializers, binder errors);
   BCL types (DateTime, TimeSpan, tuples, KeyValuePair);
@@ -90,35 +95,46 @@ calls a function holding the code Roslyn bound for that combination of types.
   683 (ExpandoObject and DynamicObject from System.Linq.Expressions' IL) 1.26 MB.
 - Compile time grows with sites × relevant types: sample 681 compiles in 12 s at `-O2`, sample 680 in 35 s
   (`CSHARPC_DYNAMIC_TRACE=1` prints per-site planning and emission times; `=2` also each case).
-- Not supported yet, each an explicit diagnostic or NotSupportedException: `dynamic` in IL (above; "From IL" below), `await` on a
+- Not supported yet, each an explicit diagnostic or NotSupportedException: `await` on a
   dynamic value, a dynamic value passed by `ref`/`out`, a simple-name dynamic call through a struct's `this` whose
   candidates are both static and instance methods, generic inference with a type nested deeper than 2, run-time types
   csharpc can't name (generic types over anonymous types), custom `IDynamicMetaObjectProvider`s, and run-time types
   csharpc has no table for (tasks share one method table across `Task<T>`).
 
-## From IL (2026-10-31, not implemented yet)
+## From IL (2026-10-31)
 
-A program given as IL (`csharpc app.dll`, ADR 0010) reaches the diagnostic of point 7 in samples 680–686. What a
-reconstruction from csc's call sites needs, as found while closing the other IL gaps (`ci/il-gaps`):
+A program given as IL (`csharpc app.dll`, ADR 0010) or a library consumed as IL carries csc's call sites instead of
+Roslyn's operations. csharpc turns them into the same `DynamicSite`s, and binds them with the same code.
 
-- **The site description is all in the IL.** csc caches each site in a static field (`<>o__N.<>p__K`, a
-  `CallSite<Func<CallSite, ..., R>>`), initialized behind `ldsfld <>p__K; brtrue` from constants only:
+- **Decoding** (`FunctionCodeGen.IlDynamic.cs`). csc caches each site in a static `CallSite<TDelegate>` field of a nested
+  `<>o__N` class, created behind `ldsfld site; brtrue` (Debug: `brfalse; br`) from constants only:
   `Binder.InvokeMember/GetMember/SetMember/GetIndex/SetIndex/Invoke/InvokeConstructor/BinaryOperation/UnaryOperation/
-  Convert/IsEvent(flags, name, typeArgs, typeof(Context), CSharpArgumentInfo[])` with `CSharpArgumentInfo.Create(flags,
-  name)` per operand, then `ldfld Target; ldsfld <>p__K; operands; callvirt Invoke`. A pre-pass over a method body can
-  decode those blocks into `DynamicSite`s (binder kind, name, type arguments, `CSharpArgumentInfoFlags` →
-  Dynamic/Static/Constant/This operands, `ResultDiscarded`, `CheckedContext`, `ValueFromCompoundAssignment`,
-  `InvokeSimpleName`, `ConvertExplicit`), skip them when lowering, and emit the site call at `Invoke`. Compound
-  assignments, increments and `&&`/`||` arrive as csc's sequences of simpler sites, which the binder flags describe.
-- **Binding needs a position, and IL has none.** `DynamicBinding` binds each case speculatively at the operation's
-  source position, whose accessibility is the context type's: its private members, its bases' protected ones. A
-  synthesized tree in the binding compilation, bound with Roslyn's public `GetSemanticModel(tree, ignoreAccessibility:
-  true)`, can stand in, provided every `IsAccessible(position, ...)` and `LookupSymbols(position, ...)` use becomes an
-  accessibility check against the real context (`IsSymbolAccessibleWithin(symbol, context)`), simple names are looked
-  up in the context type (and its containers) instead of the synthesized one, and a binding that picked — or failed
-  because of — a member the real context can't access becomes `NotSupportedException` rather than an answer the
-  binder would not give. The program's internals are already visible to the binding compilation when it is IL (the
-  JSON route, docs/12-corelib.md#systemtextjson).
+  Convert/IsEvent(flags, name, typeArgs, typeof(Context), new[] { CSharpArgumentInfo.Create(flags, name), ... })`, then
+  `ldsfld site; ldfld Target; ldsfld site; operands; callvirt TDelegate::Invoke`. A pre-pass evaluates each creation
+  (constants, `typeof`, arrays, the factories) into a description; the guard folds like a feature switch (the creation
+  is never lowered: no binder, no `CallSite`), the field loads are compile-time markers, and the `Invoke` is the call of
+  the site's dispatch function. The operands' static types are the delegate's parameter types; `CSharpArgumentInfoFlags`
+  give Dynamic / Static (`UseCompileTimeType`) / Constant (the `ldc` value) / named / `ref`/`out` operands and
+  `IsStaticType` receivers (`Console.WriteLine(d)`, `new T(d)`); `CSharpBinderFlags` give `InvokeSimpleName` (csc passes
+  `this`), `ResultDiscarded`, `CheckedContext`, `ConvertExplicit`, `BinaryOperationLogical` (`&&`/`||`),
+  `ValueFromCompoundAssignment`, and `InvokeSpecialName` (`add_E`/`remove_E` after `IsEvent`); `ExpressionType` gives the
+  operator. Values a site needs at compile time — the site, `typeof` operands, constants — stay known across the
+  branches csc puts around the creation of nested sites. A creation in any other shape, `ConvertArrayIndex`, a constant
+  csharpc can't read and a `GetAwaiter` call on a dynamic value are explicit diagnostics.
+- **Binding** (`ModuleCodeGen.DynamicIl.cs`). A source site binds at its own position, whose accessibility is its context
+  type's; an IL site's context is a metadata type, inside which no position exists. IL sites bind in a synthesized method
+  (`Frontend/DynamicBinding.Il.cs`; added to the binding compilation only when an IL assembly references the binder, so
+  other programs compile exactly as before) through `Compilation.GetSemanticModel(tree, ignoreAccessibility: true)`, and
+  the real context's accessibility (`IsSymbolAccessibleWithin(member, context, throughType)`) is applied on top: lookups
+  that feed planning and messages (simple names, `IsEvent`, accessors) filter by it; a binding that succeeds must use
+  only members the context can access — then it is the binder's, since an accessible best member stays best when
+  inaccessible candidates leave the set; a binding error stands only when the context can access every candidate member
+  (removing one could turn an ambiguity into a call). Anything else is a `NotSupportedException` where that case runs.
+  Simple names always name their receiver (`this` as a local of its type, or the type for static candidates; both at
+  once: `NotSupportedException`). Types csc generated (anonymous types, iterators) are ordinary metadata types from IL,
+  which the bound text names through placeholders swapped for their metadata names after parsing. Binder messages of an
+  IL library's sites name run-time types as that library sees them (its own type-name table).
 
-That is a rework of `ModuleCodeGen.DynamicBinding.cs`'s use of `Model`/`Position` plus an IL decoder for the site
-pattern; until it exists, the diagnostic stays.
+Samples 680–687 and 760–761 pass through `tests/run.sh --via-il` at `-O0` and `-O2`; `tests/projects/il/IlDynamicApp` runs
+the dynamic code of an IL library against `dotnet run` (private and internal members of the library, the app's
+internal types seen as `object`).
