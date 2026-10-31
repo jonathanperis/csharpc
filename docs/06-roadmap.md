@@ -360,7 +360,7 @@ dotnet/runtime's NativeAOT runtime tests, the libraries' tests in their NativeAO
 SDK's `PublishAot` tests (exclusions only for tests of ILCompiler internals, each listed). Tracked before
 the fork by building those suites with csharpc on CI and reporting the pass rate. Until then `Csharpc.Sdk` is the integration point and adopts
 NativeAOT's property names as it honours them.
-How the fork is run: it keeps only its `main` and the branches the work needs (upstream's other branches
+How the fork is run: it is a fork of `dotnet/dotnet` (the virtual monolithic repository that builds the SDK, runtime and ASP.NET Core together), and it keeps only its `main` and the branches the work needs (upstream's other branches
 are not carried). The csharpc integration lands through a pull request from our working branch into the
 fork's own `main`; nothing is proposed upstream to dotnet at this stage.
 Done when NativeAOT's code is removed from the fork, csharpc takes its place, the fork is built, and its
