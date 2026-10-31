@@ -53,7 +53,7 @@ public sealed partial class ModuleCodeGen
         public required LLVMValueRef Namespace, Assembly;
         public required ulong Flags;
         public required int ArgumentCount, Rank, Variance;
-        public List<INamedTypeSymbol> Interfaces = [];           // candidates: every interface the type implements
+        public List<object> Interfaces = [];                     // candidates: every interface the type implements (symbols, HiddenInterfaces)
     }
 
     internal void RegisterTypeMethodTable(LLVMValueRef mt, object type)
@@ -157,7 +157,7 @@ public sealed partial class ModuleCodeGen
         var definitions = _interfaceTables.Keys.Where(i => i.IsGenericType).Select(i => i.OriginalDefinition)
             .ToHashSet<INamedTypeSymbol>(SymbolEqualityComparer.Default);
         foreach (var record in _typeInfoRecords.ToList())
-            foreach (var itf in record.Interfaces)
+            foreach (var itf in record.Interfaces.OfType<INamedTypeSymbol>())
                 if (itf.IsGenericType && definitions.Contains(itf.OriginalDefinition)
                     && itf.OriginalDefinition.TypeParameters.Any(p => p.Variance != VarianceKind.None))
                     InterfaceMethodTable(itf);
@@ -168,10 +168,19 @@ public sealed partial class ModuleCodeGen
             // description points at needs a method table — its definition, its arguments, and (the same
             // way) its own interfaces. int's ~30 generic-math interfaces and each array's IList<T> family
             // were a method table, a name and an entry each: ~190 KB of an expression-tree program.
-            var seen = new HashSet<INamedTypeSymbol>(SymbolEqualityComparer.Default);
-            var work = new Queue<INamedTypeSymbol>(_typeInfoRecords.ToList().SelectMany(r => r.Interfaces));
-            while (work.TryDequeue(out var itf))
+            var seen = new HashSet<object>(InterfaceIdentity.Instance);
+            var work = new Queue<object>(_typeInfoRecords.ToList().SelectMany(r => r.Interfaces));
+            while (work.TryDequeue(out var next))
             {
+                if (next is HiddenInterface hidden)
+                {
+                    // A framework-internal interface: always described lazily, from its arguments.
+                    if (!seen.Add(hidden)) continue;
+                    foreach (var argument in hidden.Arguments) MetadataMethodTable(argument);
+                    foreach (var inner in ClrInterfaceOrder(hidden)) work.Enqueue(inner);
+                    continue;
+                }
+                var itf = (INamedTypeSymbol)next;
                 var key = InterfaceKey(itf);
                 if (!seen.Add(key)) continue;
                 if (_interfaceTables.ContainsKey(key) || !CanDescribeLazily(key)) { InterfaceMethodTable(itf); continue; }
@@ -208,16 +217,25 @@ public sealed partial class ModuleCodeGen
         {
             // Interfaces without a method table that GetInterfaces lists: csrt_LazyInterface descriptions,
             // referenced as tagged pointers (index + 1 byte), numbered before anything points at them.
-            var lazyIndex = new Dictionary<INamedTypeSymbol, int>(SymbolEqualityComparer.Default);
-            var lazyOrder = new List<INamedTypeSymbol>();
+            var lazyIndex = new Dictionary<object, int>(InterfaceIdentity.Instance);
+            var lazyOrder = new List<object>();
             // What a description points at must be described already (SelectInterfaces made sure of it while
             // types could still be added): one that isn't is left out, as interfaces without tables were before.
             var described = _typeMts.Select(e => e.Type).OfType<ITypeSymbol>().Select(RealType).ToHashSet<ITypeSymbol>(SymbolEqualityComparer.Default);
             bool IsLazy(INamedTypeSymbol key) => _getInterfacesUsed && !_interfaceTables.ContainsKey(key) && CanDescribeLazily(key)
                 && (!key.IsGenericType || described.Contains(RealType(key.OriginalDefinition))) && key.TypeArguments.All(a => described.Contains(RealType(a)));
-            void Collect(INamedTypeSymbol itf)
+            bool IsLazyHidden(HiddenInterface hidden) => _getInterfacesUsed && hidden.Arguments.All(a => described.Contains(RealType(a)));
+            void Collect(object entry)
             {
-                var key = InterfaceKey(itf);
+                if (entry is HiddenInterface hidden)
+                {
+                    if (!IsLazyHidden(hidden) || lazyIndex.ContainsKey(hidden)) return;
+                    lazyIndex[hidden] = lazyOrder.Count;
+                    lazyOrder.Add(hidden);
+                    foreach (var inner in ClrInterfaceOrder(hidden)) Collect(inner);
+                    return;
+                }
+                var key = InterfaceKey((INamedTypeSymbol)entry);
                 if (!IsLazy(key) || lazyIndex.ContainsKey(key)) return;
                 lazyIndex[key] = lazyOrder.Count;
                 lazyOrder.Add(key);
@@ -234,14 +252,19 @@ public sealed partial class ModuleCodeGen
             var tableGlobal = Module.AddGlobal("csharpc.typeinfo.entries", tableType, constant: true, linkage: LLVMLinkage.Private);
             var lazyStart = (long)Types.Target.SizeOf(entriesType);
             var lazySize = (long)Types.Target.SizeOf(lazyType);
-            LLVMValueRef? InterfaceRef(INamedTypeSymbol itf)
+            LLVMValueRef? InterfaceRef(object entry)
             {
-                var key = InterfaceKey(itf);
-                if (_interfaceTables.TryGetValue(key, out var mt)) return mt;
+                object key = entry;
+                if (entry is INamedTypeSymbol itf)
+                {
+                    var symbolKey = InterfaceKey(itf);
+                    if (_interfaceTables.TryGetValue(symbolKey, out var mt)) return mt;
+                    key = symbolKey;
+                }
                 if (!lazyIndex.TryGetValue(key, out var index)) return null;
                 return Native.LLVMConstInBoundsGEP2(Llvm.I8, tableGlobal, [Llvm.ConstInt(Llvm.I64, lazyStart + index * lazySize + 1)], 1);
             }
-            LLVMValueRef InterfaceList(IEnumerable<INamedTypeSymbol> interfaces, out int count)
+            LLVMValueRef InterfaceList(IEnumerable<object> interfaces, out int count)
             {
                 var refs = interfaces.Select(InterfaceRef).OfType<LLVMValueRef>().ToList();
                 count = refs.Count;
@@ -257,8 +280,14 @@ public sealed partial class ModuleCodeGen
             }
             var lazies = new List<LLVMValueRef>();
             var none = LlvmContext.Null(Llvm.Ptr);
-            foreach (var itf in lazyOrder)
+            foreach (var entry in lazyOrder)
             {
+                if (entry is HiddenInterface hidden)
+                {
+                    lazies.Add(HiddenInterfaceDescription(hidden, InterfaceList(ClrInterfaceOrder(hidden), out var hiddenCount), hiddenCount));
+                    continue;
+                }
+                var itf = (INamedTypeSymbol)entry;
                 var interfaces = InterfaceList(ClrInterfaceOrder(itf), out var interfaceCount);
                 var arguments = itf.TypeArguments;
                 var variance = 0;
@@ -321,45 +350,156 @@ public sealed partial class ModuleCodeGen
     /// A type's interfaces in CoreCLR's order (Type.GetInterfaces): the base class's first, then each
     /// interface in metadata order followed by the interfaces it inherits, each listed once
     /// (string: IComparable, IEnumerable, IConvertible, IEnumerable`1, ..., ISpanParsable`1, IParsable`1).
+    /// A framework type's (and a framework interface's) are the implementation assembly's, which lists
+    /// them in that order and includes the framework-internal ones (HiddenInterface); the reference
+    /// assemblies Roslyn reads sort them alphabetically and leave those out. <paramref name="exact"/>
+    /// is false when that list couldn't be mapped onto the program's types: the answer would be wrong.
     /// </summary>
-    private static List<INamedTypeSymbol> ClrInterfaceOrder(INamedTypeSymbol type)
+    private List<object> ClrInterfaceOrder(object type, out bool exact)
     {
-        var order = new List<INamedTypeSymbol>();
-        var seen = new HashSet<INamedTypeSymbol>(SymbolEqualityComparer.Default);
-        void Expand(INamedTypeSymbol itf)
+        var order = new List<object>();
+        var seen = new HashSet<object>(InterfaceIdentity.Instance);
+        var ok = true;
+        void Expand(object itf)
         {
             if (!seen.Add(itf)) return;
             order.Add(itf);
-            foreach (var inherited in itf.Interfaces) Expand(inherited);
+            foreach (var inherited in DeclaredInterfaces(itf, ref ok)) Expand(inherited);
         }
-        var chain = new List<INamedTypeSymbol>();
-        if (type.TypeKind != TypeKind.Interface)
-            for (var t = type; t is not null; t = t.BaseType) chain.Insert(0, t);
+        var chain = new List<object>();
+        if (type is INamedTypeSymbol { TypeKind: not TypeKind.Interface } named)
+            for (var t = named; t is not null; t = t.BaseType) chain.Insert(0, t);
         else chain.Add(type);
         foreach (var t in chain)
-            foreach (var itf in ImplementationOrder(t)) Expand(itf);
+            foreach (var itf in DeclaredInterfaces(t, ref ok)) Expand(itf);
         // Anything Roslyn reports that the walk missed (it shouldn't) still belongs to the set.
-        foreach (var itf in type.AllInterfaces) Expand(itf);
+        if (type is INamedTypeSymbol symbol)
+            foreach (var itf in symbol.AllInterfaces) Expand(itf);
+        exact = ok;
         return order;
     }
 
-    /// <summary>A type's declared interfaces; for a framework type, in its implementation assembly's order
-    /// (the reference assembly Roslyn reads sorts them alphabetically).</summary>
-    private static IEnumerable<INamedTypeSymbol> ImplementationOrder(INamedTypeSymbol type)
+    private List<object> ClrInterfaceOrder(object type) => ClrInterfaceOrder(type, out _);
+
+    /// <summary>
+    /// An interface internal to the framework (IBinaryIntegerParseAndFormatInfo&lt;int&gt; on int, ITupleInternal
+    /// on Tuple&lt;T&gt;): reference assemblies leave it out, so there is no symbol, but Type.GetInterfaces lists it.
+    /// </summary>
+    private sealed record HiddenInterface(string FullName, string Namespace, string Name, IReadOnlyList<ITypeSymbol> Arguments,
+        string Assembly, IReadOnlyList<int> Variances)
     {
-        var declared = type.Interfaces;
-        var definition = type.OriginalDefinition;
-        if (declared.Length < 2 || definition.ContainingType is not null || !definition.DeclaringSyntaxReferences.IsEmpty
-            || definition.ContainingAssembly is not { } assembly
-            || Frontend.SharedFramework.InterfaceOrder(assembly.Name, definition.ContainingNamespace.ToDisplayString(), definition.MetadataName) is not { } order)
-            return declared;
-        int Rank(INamedTypeSymbol itf)
+        public string Key { get; } = FullName + "[" + string.Join(",", Arguments.Select(a => a.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat))) + "]";
+    }
+
+    /// <summary>Interface identity across symbols and HiddenInterfaces.</summary>
+    private sealed class InterfaceIdentity : IEqualityComparer<object>
+    {
+        public static readonly InterfaceIdentity Instance = new();
+        public new bool Equals(object? a, object? b) => a is HiddenInterface x
+            ? b is HiddenInterface y && x.Key == y.Key
+            : a is ISymbol sa && b is ISymbol sb && SymbolEqualityComparer.Default.Equals(sa, sb);
+        public int GetHashCode(object o) => o is HiddenInterface h ? h.Key.GetHashCode(StringComparison.Ordinal) : SymbolEqualityComparer.Default.GetHashCode((ISymbol)o);
+    }
+
+    /// <summary>
+    /// The interfaces a type declares, in metadata order: for a shared-framework type, its implementation
+    /// assembly's (with the type's arguments substituted); otherwise Roslyn's (source order, or the
+    /// metadata of the assembly the type comes from).
+    /// </summary>
+    private IReadOnlyList<object> DeclaredInterfaces(object type, ref bool exact)
+    {
+        if (type is HiddenInterface hidden)
+            return SharedFramework.InterfacesOf(hidden.Assembly, hidden.FullName) is { } own ? MapInterfaces(own, hidden.Arguments, ref exact) : [];
+        var named = (INamedTypeSymbol)type;
+        var definition = named.OriginalDefinition;
+        if (!definition.DeclaringSyntaxReferences.IsEmpty || definition.ContainingAssembly is not { } assembly || CoreLib.IsCoreLib(definition)
+            || SharedFramework.InterfacesOf(assembly.Name, Mangler.MetadataName(definition)) is not { } metadata)
+            return named.Interfaces;
+        var mapped = MapInterfaces(metadata, ChainArguments(named), ref exact);
+        return mapped;
+    }
+
+    private List<object> MapInterfaces(TypeInterfaces metadata, IReadOnlyList<ITypeSymbol> arguments, ref bool exact)
+    {
+        var result = new List<object>();
+        foreach (var signature in metadata.Interfaces)
         {
-            var d = itf.OriginalDefinition;
-            var index = Array.IndexOf(order, d.ContainingNamespace.ToDisplayString() + "." + d.MetadataName);
-            return index < 0 ? int.MaxValue : index;
+            if (signature is not MetadataNamed named) { exact = false; continue; }
+            var typeArguments = new List<ITypeSymbol>();
+            foreach (var argument in named.Arguments)
+                if (MapType(argument, arguments) is { } mapped) typeArguments.Add(mapped);
+                else exact = false;
+            if (typeArguments.Count != named.Arguments.Count) continue;
+            if (Compilation.GetTypeByMetadataName(named.FullName) is { TypeKind: TypeKind.Interface } definition)
+            {
+                if (typeArguments.Count == 0) result.Add(definition);
+                else if (definition.ContainingType is null && definition.Arity == typeArguments.Count) result.Add(definition.Construct([.. typeArguments]));
+                else exact = false;
+            }
+            else if (named.Declaring is null && SharedFramework.InterfacesOf(metadata.Assembly, named.FullName) is { } own)
+                result.Add(new HiddenInterface(named.FullName, named.Namespace, named.Name, typeArguments, own.Assembly, own.Variances));
+            else exact = false;
         }
-        return declared.Select((itf, i) => (itf, i)).OrderBy(x => Rank(x.itf)).ThenBy(x => x.i).Select(x => x.itf);
+        return result;
+    }
+
+    /// <summary>A metadata signature's type in the program, with the declaring type's arguments for its generic parameters.</summary>
+    private ITypeSymbol? MapType(MetadataTypeSig signature, IReadOnlyList<ITypeSymbol> arguments)
+    {
+        switch (signature)
+        {
+            case MetadataGenericParameter p: return p.Index < arguments.Count ? arguments[p.Index] : null;
+            case MetadataPrimitive p:
+                SpecialType? special = p.Code switch
+                {
+                    System.Reflection.Metadata.PrimitiveTypeCode.Boolean => SpecialType.System_Boolean,
+                    System.Reflection.Metadata.PrimitiveTypeCode.Char => SpecialType.System_Char,
+                    System.Reflection.Metadata.PrimitiveTypeCode.SByte => SpecialType.System_SByte,
+                    System.Reflection.Metadata.PrimitiveTypeCode.Byte => SpecialType.System_Byte,
+                    System.Reflection.Metadata.PrimitiveTypeCode.Int16 => SpecialType.System_Int16,
+                    System.Reflection.Metadata.PrimitiveTypeCode.UInt16 => SpecialType.System_UInt16,
+                    System.Reflection.Metadata.PrimitiveTypeCode.Int32 => SpecialType.System_Int32,
+                    System.Reflection.Metadata.PrimitiveTypeCode.UInt32 => SpecialType.System_UInt32,
+                    System.Reflection.Metadata.PrimitiveTypeCode.Int64 => SpecialType.System_Int64,
+                    System.Reflection.Metadata.PrimitiveTypeCode.UInt64 => SpecialType.System_UInt64,
+                    System.Reflection.Metadata.PrimitiveTypeCode.Single => SpecialType.System_Single,
+                    System.Reflection.Metadata.PrimitiveTypeCode.Double => SpecialType.System_Double,
+                    System.Reflection.Metadata.PrimitiveTypeCode.IntPtr => SpecialType.System_IntPtr,
+                    System.Reflection.Metadata.PrimitiveTypeCode.UIntPtr => SpecialType.System_UIntPtr,
+                    System.Reflection.Metadata.PrimitiveTypeCode.Object => SpecialType.System_Object,
+                    System.Reflection.Metadata.PrimitiveTypeCode.String => SpecialType.System_String,
+                    _ => null,
+                };
+                return special is { } st ? Compilation.GetSpecialType(st) : null;
+            case MetadataArray a:
+                return MapType(a.Element, arguments) is { } element ? Compilation.CreateArrayTypeSymbol(element, Math.Max(1, a.Rank)) : null;
+            case MetadataPointer p:
+                return MapType(p.Element, arguments) is { } pointed ? Compilation.CreatePointerTypeSymbol(pointed) : null;
+            case MetadataNamed n:
+                if (Compilation.GetTypeByMetadataName(n.FullName) is not { } definition) return null;
+                if (n.Arguments.Count == 0) return definition;
+                var mapped = n.Arguments.Select(x => MapType(x, arguments)).ToList();
+                if (mapped.Any(x => x is null) || definition.ContainingType is not null || definition.Arity != mapped.Count) return null;
+                return definition.Construct([.. mapped!]);
+            default: return null;
+        }
+    }
+
+    /// <summary>The csrt_LazyInterface of a HiddenInterface: no definition Type (csrt reports that as not supported).</summary>
+    private LLVMValueRef HiddenInterfaceDescription(HiddenInterface hidden, LLVMValueRef interfaces, int interfaceCount)
+    {
+        var none = LlvmContext.Null(Llvm.Ptr);
+        var variance = 0;
+        for (var k = 0; k < hidden.Variances.Count && k < hidden.Arguments.Count; k++) variance |= (hidden.Variances[k] & 3) << (2 * k);
+        var flags = TI.Interface | TI.Abstract | TI.NotPublic | TI.ReferenceType
+            | (hidden.Arguments.Count > 0 ? TI.GenericType | TI.ConstructedGeneric : TI.TypeDefinition);
+        var assembly = AssemblyOf(Compilation.GetSpecialType(SpecialType.System_Object)) is { } coreLib && hidden.Assembly == "System.Private.CoreLib"
+            ? CString(coreLib) : none;
+        var info = Llvm.ConstStruct(none, none, none, none, none,
+            hidden.Arguments.Count == 0 ? none : MtArray("args", [.. hidden.Arguments.Select(MetadataMethodTable)]), interfaces,
+            CString(hidden.Namespace), assembly, Llvm.ConstUInt(Llvm.I64, flags), Llvm.ConstInt(Llvm.I32, hidden.Arguments.Count),
+            Llvm.ConstInt(Llvm.I32, interfaceCount), Llvm.ConstInt(Llvm.I32, 0), Llvm.ConstInt(Llvm.I32, variance));
+        return Llvm.ConstStruct(info, CString(hidden.FullName));
     }
 
     private LLVMTypeRef TypeInfoEntryType => Llvm.Struct(
@@ -415,7 +555,7 @@ public sealed partial class ModuleCodeGen
             Fields = [mt, MetadataMethodTable(typeInfo), none, none, none, none],
             Namespace = CString("System"), Assembly = assembly is null ? none : CString(assembly),
             Flags = TI.Class | TI.Sealed | TI.NotPublic | TI.TypeDefinition | TI.ReferenceType,
-            ArgumentCount = 0, Rank = 0, Variance = 0, Interfaces = ClrInterfaceOrder(typeInfo),
+            ArgumentCount = 0, Rank = 0, Variance = 0, Interfaces = ClrInterfaceOrder(typeInfo, out _),
         };
     }
 
@@ -459,7 +599,7 @@ public sealed partial class ModuleCodeGen
         LLVMValueRef namespaceName = none, assembly = none;
         int argumentCount = 0, rank = 0, variance = 0;
         ulong flags;
-        List<INamedTypeSymbol> interfaces = [];
+        List<object> interfaces = [];
         LLVMValueRef Str(string? s) => s is null ? none : CString(s);
 
         if (described is GenericParameter gp)
@@ -492,7 +632,8 @@ public sealed partial class ModuleCodeGen
                     // (CSRT_TI_ARRAY_INTERFACE in type.c), covariance included.
                     // GetInterfaces lists them too for a one-dimensional array (T[]: IList`1, ICollection`1,
                     // IEnumerable`1, IReadOnlyList`1, IReadOnlyCollection`1 after Array's own).
-                    interfaces = ClrInterfaceOrder(Compilation.GetSpecialType(SpecialType.System_Array));
+                    interfaces = ClrInterfaceOrder(Compilation.GetSpecialType(SpecialType.System_Array), out var arrayExact);
+                    if (!arrayExact) flags |= TI.InterfacesInexact;
                     if (array.IsSZArray && array.ElementType is not IPointerTypeSymbol and not IFunctionPointerTypeSymbol)
                         foreach (var generic in new[] { SpecialType.System_Collections_Generic_IList_T, SpecialType.System_Collections_Generic_ICollection_T,
                                      SpecialType.System_Collections_Generic_IEnumerable_T, SpecialType.System_Collections_Generic_IReadOnlyList_T,
@@ -521,7 +662,12 @@ public sealed partial class ModuleCodeGen
                         else baseMt = MetadataMethodTable(baseType);
                     }
                     if (named.AllInterfaces.Any(TypeSubstitution.IsOpen)) flags |= TI.NoInterfaces;
-                    else interfaces = ClrInterfaceOrder(named);
+                    else
+                    {
+                        interfaces = ClrInterfaceOrder(named, out var exact);
+                        // The framework's list couldn't be read faithfully: Type.GetInterfaces() says so (csrt).
+                        if (!exact) flags |= TI.InterfacesInexact;
+                    }
                     var chain = ChainArguments(named);
                     if (chain.Count > 0)
                     {
@@ -568,7 +714,7 @@ public sealed partial class ModuleCodeGen
             SZArray = 1 << 24, VariableBoundArray = 1 << 25, TypeDefinition = 1 << 26, ByRefLike = 1 << 27, Nullable = 1 << 28,
             HasElementType = 1 << 29;
         public const ulong ReferenceType = 1UL << 32, NoHierarchy = 1UL << 33,
-            ArrayInterface = 1UL << 35, NoInterfaces = 1UL << 36;
+            ArrayInterface = 1UL << 35, NoInterfaces = 1UL << 36, InterfacesInexact = 1UL << 37;
         public const int ElementClassShift = 40;
     }
 

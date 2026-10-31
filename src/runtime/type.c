@@ -353,6 +353,9 @@ TypeObject* csrt_type_generic_definition(TypeObject* t, const csrt_TypeInfoTable
         throw_utf8(&mt_invalid_operation, "This operation is only valid on generic types.");
         return NULL;
     }
+    // A framework-internal interface GetInterfaces() listed (ModuleCodeGen.HiddenInterfaceDescription)
+    // has no Type for its definition.
+    if (!info->definition) { throw_unsupported(info->mt, "Type.GetGenericTypeDefinition()"); return NULL; }
     return csrt_type_from_mt(info->definition);
 }
 
@@ -372,7 +375,7 @@ csrt_Array* csrt_type_generic_arguments(TypeObject* t, const csrt_TypeInfoTable*
 csrt_Array* csrt_type_interfaces(TypeObject* t, const csrt_TypeInfoTable* table) {
     const csrt_TypeInfo* info = info_of(t, table);
     if (!info) return NULL;
-    if (info->flags & CSRT_TI_NO_INTERFACES) {
+    if (info->flags & (CSRT_TI_NO_INTERFACES | CSRT_TI_INTERFACES_INEXACT)) {
         throw_unsupported(info->mt, "Type.GetInterfaces()");
         return NULL;
     }

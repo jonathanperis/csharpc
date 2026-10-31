@@ -257,6 +257,7 @@ enum {
 #define CSRT_TI_NO_HIERARCHY (1ull << 33)        /* base type not described (open generic types) */
 #define CSRT_TI_ARRAY_INTERFACE (1ull << 35)     /* IList<T>, ICollection<T>, IEnumerable<T>, IReadOnlyList<T>, IReadOnlyCollection<T> */
 #define CSRT_TI_NO_INTERFACES (1ull << 36)       /* implemented interfaces not described (open generic types) */
+#define CSRT_TI_INTERFACES_INEXACT (1ull << 37)  /* the list misses interfaces .NET reports: GetInterfaces() can't answer */
 #define CSRT_TI_ELEMENT_CLASS_SHIFT 40           /* 4 bits: primitives that share array storage (int[] and uint[], E[]) */
 
 typedef struct csrt_TypeInfo {
