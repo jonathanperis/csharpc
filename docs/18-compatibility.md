@@ -17,20 +17,22 @@ with NativeAOT ([ADR 0016](adr/0016-nativeaot-parity-and-end-state.md)). The fir
 The headline metric: of the programs NativeAOT (`dotnet publish -p:PublishAot=true`) builds and runs exactly
 like the JIT, how many does csharpc match? See [Method](#method), step 5.
 
-| | first parity run (`ac17a87` + harness) | `aot-parity` (`29cff62`) | `parity-blockers` (`21556a7`) | latest run (`ci/typeconverter-primitives`, `b46bff2`) |
-|---|---:|---:|---:|---:|
-| compared (not skipped under .NET) | 282 | 276 | 274 | 279 |
-| NativeAOT-unsupported (out of the denominator) | 34 | 28 | 28 | 29 |
-| **NativeAOT-working (the denominator)** | **248** | **248** | **246** | **250** |
-| **parity: csharpc PASS among them** | **200 (80.6 %)** | **220 (88.7 %)** | **236 (95.9 %)** | **243 (97.2 %)** |
-| csharpc COMPILE-UNSUPPORTED among them | 45 | 27 | 7 | 5 |
-| csharpc COMPILE-ERROR among them | 3 | 1 | 1 | 1 |
-| csharpc RUNTIME-DIFF / RUNTIME-CRASH / COMPILE-CRASH among them | 0 | 0 | 0 / 1 / 1 (both reflection, below) | 0 / 0 / 1 (expression trees) |
+| | first parity run (`ac17a87` + harness) | `aot-parity` (`29cff62`) | `parity-blockers` (`21556a7`) | `ci/typeconverter-primitives` (`b46bff2`) | latest run (`main`, `d572f27`) |
+|---|---:|---:|---:|---:|---:|
+| compared (not skipped under .NET) | 282 | 276 | 274 | 279 | 276 |
+| NativeAOT-unsupported (out of the denominator) | 34 | 28 | 28 | 29 | 27 |
+| **NativeAOT-working (the denominator)** | **248** | **248** | **246** | **250** | **249** |
+| **parity: csharpc PASS among them** | **200 (80.6 %)** | **220 (88.7 %)** | **236 (95.9 %)** | **243 (97.2 %)** | **249 (100 %)** |
+| csharpc COMPILE-UNSUPPORTED among them | 45 | 27 | 7 | 5 | 0 |
+| csharpc COMPILE-ERROR among them | 3 | 1 | 1 | 1 | 0 |
+| csharpc RUNTIME-DIFF / RUNTIME-CRASH / COMPILE-CRASH among them | 0 | 0 | 0 / 1 / 1 (both reflection, below) | 0 / 0 / 1 (expression trees) | 0 / 0 / 0 |
 
 (The first parity run counted some clock-dependent programs as NativeAOT differences; the harness now
 re-runs the JIT before blaming NativeAOT or csharpc, which moved a few programs to SKIPPED.)
 
-- **97.2 % parity** (run 40424843703, 243 of 250), and no wrong output. The seven left: expression trees
+- **100 % parity** (run 41152809617 on `main` `d572f27`, 249 of 249), and no wrong output: C# 15 unions,
+  `System.Data`, `AssemblyLoadContext`, `dynamic` (ADR 0019) and expression trees (interpreted, as NativeAOT
+  runs them) closed the last seven. Before that, **97.2 % parity** (run 40424843703, 243 of 250), and no wrong output. The seven left: expression trees
   (2; one is the compile timeout), `dynamic` (1), C# 15 `union` declarations (2; csharpc's Roslyn predates
   them), `System.Data` (1) and deriving from `AssemblyLoadContext` (1). Earlier, **95.9 % parity**, and no wrong output: every NativeAOT-working program csharpc compiles and runs matches
   .NET. By corpus: dotnet/samples 43 of 44 (97.7 %), dotnet/docs 193 of 202 (95.5 %). (A run on `7860d73`,
