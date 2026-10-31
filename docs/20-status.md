@@ -82,6 +82,22 @@ attribute factories) with a ~25 % faster build.
   worse 120 → 81); fortunes 0.77–0.92 (was 0.57–0.76); cached queries 10–100 still 0.59–0.87, which is the
   JSON serialization of `CachedWorld[]` (~3× the JIT's per array locally; MemoryCache lookups are faster
   than the JIT's).
+- `ci/m7-perf-2` — M7 performance, second round (on main `42479ae`). Adaptive collector budget (growth and
+  floor follow the pause overhead; Benchmarks instruction counts as main). `ValueTask<T>` as .NET's
+  two-word struct (corelib `Tasks/ValueTaskOfT.cs`, [10](10-async.md)): the interim app's plaintext
+  allocations dropped from 4.7 GiB to 0.35 GiB per run, RSS at 256/16384 connections 50.8/739 → 25.5/257
+  MiB (NativeAOT 27.7/259; M7 perf run 41241789613). Interface stubs guard up to 8 classes sharing up to
+  4 implementations, and the cached dispatch tests the site's cache inline. The collector gives surplus
+  empty chunks back to the OS and scans the collecting thread from the collection's entry, without the
+  allocation caches (fewer false roots). The optimizer keeps the type data out of the inliner's call
+  graph (one reference SCC of 11,465 call SCCs made `removeInternalRefEdge` ~40 % of -O2): interim
+  build 195 → 141 s on CI. JSON writer string properties in one pass (a source-generated serialize
+  loop 165 → 95 ns, JIT 50). Real-entry verdict (TechEmpower run 41247424405, before the JSON writer
+  change): **275 of 456** (was 242), JSON 1.09–1.13×, plaintext 1.14/1.13/0.98/1.07 at
+  256/1024/4096/16384. Left in this area: plaintext latency at 4096 connections, JSON RSS flat at
+  42 MiB from the first level (budget floor), executable +0.2 MiB, build 150 vs 24 s (single-threaded
+  optimizer: per-partition optimization next), the rest of the JSON writer's 1,100 instructions per call.
+  The M7 perf workflow also profiles the Platform entry's json and plaintext tests.
 - `ci/m7-platform` — csharpc builds and runs TechEmpower's Platform entry (`csharpc Platform.dll`, frameworks
   from its runtimeconfig.json); all seven test types answer as the JIT does (identical verify.py
   transcripts locally). Fixes: SO_REUSEADDR on bind, non-blocking connect/Select, async NetworkStream over
