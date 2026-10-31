@@ -198,6 +198,7 @@ public sealed partial class ModuleCodeGen
         if (RequestDispatchedSlots()) throw new InvalidOperationException("method tables finished before the dispatch fixed point");
         _methodTablesFinished = true;
         FinishBuiltinSlotTables();
+        EmitInterfaceCallStubs();
         var pruned = Runtime("csrt_pruned_virtual", Llvm.Void).Fn;
         string[] defaults = ["csrt_object_to_string_default", "csrt_object_equals_default", "csrt_object_get_hash_code_default"];
         foreach (var table in _pendingMethodTables)

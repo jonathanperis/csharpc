@@ -21,7 +21,7 @@ public sealed partial class FunctionCodeGen
     /// RuntimeFeature.IsDynamicCodeSupported` in System.Linq.Expressions, without which Compile() would
     /// reach the LambdaCompiler (Reflection.Emit) and CallInstruction its ~20,000 generic fast paths.
     /// </summary>
-    private bool? FeatureSwitchValue(IMethodSymbol method) => KnownFeatureSwitch(method) ?? _m.ForwardingFeatureSwitch(method, 0);
+    private bool? FeatureSwitchValue(IMethodSymbol method) => KnownFeatureSwitch(method) ?? _m.SubstitutedSwitch(method) ?? _m.ForwardingFeatureSwitch(method, 0);
 
     internal static bool? KnownFeatureSwitch(IMethodSymbol method) =>
         (method.ContainingType.ToDisplayString(), method.Name) switch

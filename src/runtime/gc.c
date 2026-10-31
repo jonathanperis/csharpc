@@ -443,15 +443,30 @@ static bool claim_word(SizeClass* sc, AllocCache* cache, uint32_t cls) {
                 c = sc->partial;
                 sc->partial = c->next_free;
             } else if (g.empty) {
-                c = g.empty;
-                g.empty = c->next_free;
+                // Prefer an empty chunk that last held this size class (among the first few): it needs no
+                // clearing below.
+                Chunk** link = &g.empty;
+                for (int n = 0; n < 8 && *link && (*link)->size_class != cls; n++) link = &(*link)->next_free;
+                if (!*link || (*link)->size_class != cls) link = &g.empty;
+                c = *link;
+                *link = c->next_free;
+                // Slots claimed but not handed out yet count as allocated, and so does the one a stopped
+                // thread is halfway through allocating: a stale pointer into one (a conservative root, a
+                // register) makes the collector read its first word as a method table. Within one size
+                // class that is a dead object's, or zero; across classes it can be any field of an old
+                // object, so each new slot starts with a null method table, which marking skips. Without it
+                // the 4-thread GC benchmark (benchmarks/gc/gclatency.cs) crashed in about one run in ten,
+                // reading flags through a garbage "method table".
+                // Slot starts of a class whose size is a multiple of the old one's are old slot starts.
+                uint32_t old_size = k_size_classes[c->size_class], new_size = k_size_classes[cls];
 #if CSRT_HAS_NURSERY
-                // Slots claimed but not handed out yet count as allocated: a stale pointer into one makes
-                // the collector read its first word as a method table. Within one size class that is a
-                // dead object's; across classes it can be any field, so clear the old contents. Minors
-                // scan whole dirty chunks, full of stale pointers, which makes that likely.
-                if (g.nursery && c->size_class != cls) memset((uint8_t*)c + CHUNK_HEADER, 0, CHUNK_SIZE - CHUNK_HEADER);
+                if (g.nursery && c->size_class != cls) memset((uint8_t*)c + CHUNK_HEADER, 0, CHUNK_SIZE - CHUNK_HEADER);  // minors scan whole chunks
+                else
 #endif
+                if (new_size % old_size != 0)
+                    for (uint8_t *slot = (uint8_t*)c + CHUNK_HEADER, *end = slot + (CHUNK_SIZE - CHUNK_HEADER) / new_size * new_size;
+                         slot < end; slot += new_size)
+                        *(void**)slot = NULL;
                 chunk_format(c, cls);
             } else {
                 c = chunk_map();
@@ -835,6 +850,10 @@ static void* alloc_large(size_t size, bool clear) {
         if (posix_memalign(&p, 16, size) != 0) return NULL;
 #endif
         if (clear) memset(p, 0, size);
+        // A collection can run before the caller stores the method table (after the lock is released):
+        // the block is registered and the caller's registers point at it, so marking reads its first word,
+        // which is malloc's free-list data until then.
+        else *(void**)p = NULL;
     }
     if (g.large_count == g.large_capacity) {
         size_t capacity = g.large_capacity ? g.large_capacity * 2 : 64;
@@ -2290,5 +2309,9 @@ void csrt_gc_shutdown(void) {
 #endif
 #ifdef CSRT_ALLOC_PROFILE
     profile_print();
+    void csrt_task_sites_print(void);  // async.c
+    csrt_task_sites_print();
+    void csrt_dispatch_print(void);    // csrt.c
+    csrt_dispatch_print();
 #endif
 }

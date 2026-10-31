@@ -619,21 +619,63 @@ void* const* csrt_interface_slots(void* obj, const csrt_MethodTable* interface_t
 /// its last receiver, so a monomorphic site costs a load and a compare; a hit needs no validation, as a
 /// site always asks for the same interface. A miss scans and refills the word (out of line, so the hit
 /// path saves no registers).
+#ifdef CSRT_ALLOC_PROFILE
+// Profiling builds also count the interface calls that reach the cached dispatch (the guarded direct
+// calls of ModuleCodeGen.InterfaceStubs.cs don't), by interface and receiver class, printed at exit with
+// the collector's statistics: what is left of dynamic dispatch on a server's request path.
+#define DISPATCH_SLOTS 4096
+static struct { const csrt_MethodTable* itf; const csrt_MethodTable* mt; uint64_t count; } s_dispatch[DISPATCH_SLOTS];
+
+static void note_dispatch(const csrt_MethodTable* itf, const csrt_MethodTable* mt) {
+    uintptr_t key = (uintptr_t)itf ^ ((uintptr_t)mt * 31);
+    for (size_t i = (key * 0x9E3779B97F4A7C15ull) >> 52, n = 0; n < DISPATCH_SLOTS; i = (i + 1) & (DISPATCH_SLOTS - 1), n++) {
+        const csrt_MethodTable* seen = __atomic_load_n(&s_dispatch[i].itf, __ATOMIC_ACQUIRE);
+        if (!seen) {
+            const csrt_MethodTable* expected = NULL;
+            if (__atomic_compare_exchange_n(&s_dispatch[i].itf, &expected, itf, false, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) {
+                __atomic_store_n(&s_dispatch[i].mt, mt, __ATOMIC_RELEASE);
+                __atomic_fetch_add(&s_dispatch[i].count, 1, __ATOMIC_RELAXED);
+                return;
+            }
+            seen = expected;
+        }
+        if (seen == itf && __atomic_load_n(&s_dispatch[i].mt, __ATOMIC_ACQUIRE) == mt) {
+            __atomic_fetch_add(&s_dispatch[i].count, 1, __ATOMIC_RELAXED);
+            return;
+        }
+    }
+}
+
+void csrt_dispatch_print(void) {
+    fprintf(stderr, "csrt gc: cached interface dispatches (top 40):\n");
+    for (int n = 0; n < 40; n++) {
+        size_t best = DISPATCH_SLOTS;
+        for (size_t i = 0; i < DISPATCH_SLOTS; i++)
+            if (s_dispatch[i].count && (best == DISPATCH_SLOTS || s_dispatch[i].count > s_dispatch[best].count)) best = i;
+        if (best == DISPATCH_SLOTS) break;
+        fprintf(stderr, "  %12llu  %s on %s\n", (unsigned long long)s_dispatch[best].count, s_dispatch[best].itf->name,
+                s_dispatch[best].mt ? s_dispatch[best].mt->name : "?");
+        s_dispatch[best].count = 0;
+    }
+}
+#endif
+
 __attribute__((noinline)) void* const* csrt_interface_slots_cached(void* obj, const csrt_MethodTable* itf, uint64_t* site) {
     const csrt_MethodTable* mt = ((csrt_Object*)obj)->mt;
+#ifdef CSRT_ALLOC_PROFILE
+    note_dispatch(itf, mt);
+#endif
     uint64_t w = __atomic_load_n(site, __ATOMIC_RELAXED);
     if (__builtin_expect((w & ICACHE_MT_MASK) == (uint64_t)(uintptr_t)mt, 1)) return mt->interfaces[w >> 48].slots;
     return interface_lookup(obj, itf, site);
 }
 
-void* csrt_isinst_class(void* obj, const csrt_MethodTable* type) {
-    if (!obj) return NULL;
-    const csrt_MethodTable* objmt = ((csrt_Object*)obj)->mt;
-    if (type->flags & CSRT_MT_INTERFACE) {
-        return exact_interface_slots(objmt, type) || variant_interface_slots(objmt, type) ? obj : NULL;
-    }
-    for (const csrt_MethodTable* mt = objmt; mt; mt = mt->base)
-        if (mt == type) return obj;
+/// The uncommon outcomes of a type test (variance, arrays, ValueType/Enum/Array targets, failures), out
+/// of line so that the common ones need no callee-saved registers: csrt_isinst_class used to spill six
+/// of them before its first test (3 % of the TechEmpower plaintext profile, most of it the prologue).
+__attribute__((noinline)) static void* isinst_slow(void* obj, const csrt_MethodTable* objmt, const csrt_MethodTable* type) {
+    if (type->flags & CSRT_MT_INTERFACE)
+        return builtin_interface_slots(objmt, type) || variant_interface_slots(objmt, type) ? obj : NULL;
     if (type->base == &csrt_Array_MT.header && !(type->flags & CSRT_MT_MDARRAY)) return array_assignable(objmt, type, 0) ? obj : NULL;
     if (type == &csrt_ValueType_MT.header) return (objmt->flags & CSRT_MT_VALUE_TYPE) ? obj : NULL;
     if (type == &csrt_Enum_MT.header) return (objmt->flags & CSRT_MT_ENUM) ? obj : NULL;
@@ -641,6 +683,22 @@ void* csrt_isinst_class(void* obj, const csrt_MethodTable* type) {
     // allocated untagged may still carry the GC's primitive-array table.
     if (type == &csrt_Array_MT.header && objmt == &csrt_PrimitiveArray_MT.header) return obj;
     return NULL;
+}
+
+void* csrt_isinst_class(void* obj, const csrt_MethodTable* type) {
+    if (!obj) return NULL;
+    const csrt_MethodTable* objmt = ((csrt_Object*)obj)->mt;
+    if (objmt == type) return obj;
+    if (type->flags & CSRT_MT_INTERFACE) {
+        // The object's own interface map (exact_interface_slots' first step); the rest out of line.
+        const csrt_InterfaceMapEntry* map = objmt->interfaces;
+        for (uint32_t i = 0, n = objmt->interface_count; i < n; i++)
+            if (map[i].interface_type == type) return obj;
+    } else {
+        for (const csrt_MethodTable* mt = objmt->base; mt; mt = mt->base)
+            if (mt == type) return obj;
+    }
+    return isinst_slow(obj, objmt, type);
 }
 
 // ---------------------------------------------------------------------------------------------

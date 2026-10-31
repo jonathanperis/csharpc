@@ -1,0 +1,91 @@
+name: M7 perf
+
+# Measurement runs for csharpc's M7 performance work (docs/06-roadmap.md, M7): the TechEmpower harness
+# (benchmarks/techempower/run.sh, unchanged) with the interim plaintext/JSON app (`--app interim`, the
+# app csharpc builds today) on NativeAOT and csharpc builds of this commit: three interleaved rounds per
+# runner on three runners, so the csharpc/NativeAOT ratios can be read past runner noise, plus one
+# profiled run (perf samples, annotated hot functions, the collector's statistics). Unlike the shared
+# TechEmpower workflow it triggers on compiler/runtime changes, but only on ci/m7-perf* branches: it
+# gates nothing and doesn't run on main.
+on:
+  workflow_dispatch:
+  push:
+    branches: ["ci/m7-perf*"]
+    paths: ["src/**", ".github/workflows/m7-perf.yml"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: m7-perf-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  measure:
+    name: ${{ matrix.kind }} ${{ matrix.n }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { kind: load, n: 1, profile: "0" }
+          - { kind: load, n: 2, profile: "0" }
+          - { kind: load, n: 3, profile: "0" }
+          - { kind: profile, n: 1, profile: "1" }
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    env:
+      DOTNET_CLI_TELEMETRY_OPTOUT: 1
+      DOTNET_NOLOGO: 1
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install LLVM 18, clang, wrk, TechEmpower's verification dependencies and NativeAOT prerequisites
+        run: |
+          sudo apt-get update && sudo apt-get install -y llvm-18 clang-18 libllvm18 lld-18 zlib1g-dev wrk siege python3-requests python3-colorama python3-psycopg2
+          sudo ln -sf /usr/bin/clang-18 /usr/local/bin/clang && sudo ln -sf /usr/bin/ld.lld-18 /usr/local/bin/ld.lld
+          # As the TechEmpower workflow: TechEmpower's server settings, ephemeral ports above the servers'.
+          sudo sysctl -w net.core.somaxconn=65535 net.ipv4.tcp_max_syn_backlog=65535 net.ipv4.ip_local_port_range="10000 65535"
+
+      - name: Install .NET 11 SDK
+        run: |
+          curl -sSL https://dot.net/v1/dotnet-install.sh -o dotnet-install.sh
+          bash dotnet-install.sh --jsonfile global.json --install-dir "$HOME/.dotnet11"
+          echo "$HOME/.dotnet11" >> "$GITHUB_PATH"
+          echo "DOTNET_ROOT=$HOME/.dotnet11" >> "$GITHUB_ENV"
+
+      - name: Install perf
+        if: matrix.profile == '1'
+        run: |
+          sudo apt-get install -y linux-tools-common "linux-tools-$(uname -r)" || sudo apt-get install -y linux-tools-azure linux-tools-generic
+          sudo sysctl -w kernel.perf_event_paranoid=-1 kernel.kptr_restrict=0
+          perf --version
+
+      - name: Runner
+        run: |
+          {
+            echo "## Runner"
+            echo '```'
+            lscpu | grep -E 'Model name|^CPU\(s\)|Thread|MHz' || true
+            free -h | head -2
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Build, verify and load
+        run: |
+          ulimit -n 65535 || true
+          PROFILE="${{ matrix.profile }}" DURATION=15 benchmarks/techempower/run.sh --app interim --tests deploy,plaintext,json \
+            --only aot,csharpc --rounds 3 --out m7-results || status=$?
+          cat m7-results/results.md >> "$GITHUB_STEP_SUMMARY" || true
+          # Phase timings of the csharpc build (-v), for the build-time work.
+          { echo '### csharpc build phases'; echo '```'; grep -hE '^ +[0-9.]+ ms ' m7-results/build/*.log m7-results/build/*/*.log 2>/dev/null | tail -30; echo '```'; } >> "$GITHUB_STEP_SUMMARY" || true
+          # A small artifact: no binaries, except the profiled csharpc server (nm names the collector's
+          # allocation-site offsets in its log).
+          if [[ "${{ matrix.profile }}" == 1 ]]; then find m7-results/build -type f -size +2M ! -path '*csharpc*' -delete 2>/dev/null || true
+          else find m7-results/build -type f -size +2M -delete 2>/dev/null || true; fi
+          exit "${status:-0}"
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: m7-${{ matrix.kind }}-${{ matrix.n }}
+          path: m7-results/

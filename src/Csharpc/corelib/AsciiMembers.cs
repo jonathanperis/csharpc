@@ -11,12 +11,25 @@ namespace CsharpcCoreLib
     internal static unsafe class AsciiMembers
     {
 
+        // Vector loops in the C runtime (span.c); the collector doesn't move objects, so the spans stay put.
+        [System.Runtime.InteropServices.DllImport("__Internal", EntryPoint = "csrt_widen_ascii")]
+        private static extern int WidenAscii(byte* source, char* destination, int length);
+
+        [System.Runtime.InteropServices.DllImport("__Internal", EntryPoint = "csrt_narrow_ascii")]
+        private static extern int NarrowAscii(char* source, byte* destination, int length);
+
+        // Ints, not bools: P/Invoke marshals bool as a 4-byte BOOL, which C's bool isn't.
+        [System.Runtime.InteropServices.DllImport("__Internal", EntryPoint = "csrt_ascii_equals")]
+        private static extern int AsciiEquals(void* left, int leftWide, void* right, int rightWide, int length);
+
         // ---- transcoding ----------------------------------------------------------------------------
         public static OperationStatus ToUtf16(ReadOnlySpan<byte> source, Span<char> destination, out int charsWritten)
         {
             int n = Math.Min(source.Length, destination.Length);
-            int i = 0;
-            for (; i < n && source[i] <= 0x7F; i++) destination[i] = (char)source[i];
+            int i;
+            fixed (byte* s = source)
+            fixed (char* d = destination)
+                i = WidenAscii(s, d, n);
             charsWritten = i;
             return i < n ? OperationStatus.InvalidData : source.Length <= destination.Length ? OperationStatus.Done : OperationStatus.DestinationTooSmall;
         }
@@ -24,8 +37,10 @@ namespace CsharpcCoreLib
         public static OperationStatus FromUtf16(ReadOnlySpan<char> source, Span<byte> destination, out int bytesWritten)
         {
             int n = Math.Min(source.Length, destination.Length);
-            int i = 0;
-            for (; i < n && source[i] <= 0x7F; i++) destination[i] = (byte)source[i];
+            int i;
+            fixed (char* s = source)
+            fixed (byte* d = destination)
+                i = NarrowAscii(s, d, n);
             bytesWritten = i;
             return i < n ? OperationStatus.InvalidData : source.Length <= destination.Length ? OperationStatus.Done : OperationStatus.DestinationTooSmall;
         }
@@ -34,15 +49,17 @@ namespace CsharpcCoreLib
         public static bool Equals(ReadOnlySpan<byte> left, ReadOnlySpan<byte> right)
         {
             if (left.Length != right.Length) return false;
-            for (int i = 0; i < left.Length; i++) if (left[i] > 0x7F || left[i] != right[i]) return false;
-            return true;
+            fixed (byte* l = left)
+            fixed (byte* r = right)
+                return AsciiEquals(l, 0, r, 0, left.Length) != 0;
         }
 
         public static bool Equals(ReadOnlySpan<byte> left, ReadOnlySpan<char> right)
         {
             if (left.Length != right.Length) return false;
-            for (int i = 0; i < left.Length; i++) if (left[i] > 0x7F || left[i] != right[i]) return false;
-            return true;
+            fixed (byte* l = left)
+            fixed (char* r = right)
+                return AsciiEquals(l, 0, r, 1, left.Length) != 0;
         }
 
         public static bool Equals(ReadOnlySpan<char> left, ReadOnlySpan<byte> right) => Equals(right, left);
@@ -50,8 +67,9 @@ namespace CsharpcCoreLib
         public static bool Equals(ReadOnlySpan<char> left, ReadOnlySpan<char> right)
         {
             if (left.Length != right.Length) return false;
-            for (int i = 0; i < left.Length; i++) if (left[i] > 0x7F || left[i] != right[i]) return false;
-            return true;
+            fixed (char* l = left)
+            fixed (char* r = right)
+                return AsciiEquals(l, 1, r, 1, left.Length) != 0;
         }
 
         private static bool EqualIgnoringCase(uint a, uint b)

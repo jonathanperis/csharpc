@@ -249,6 +249,15 @@ public sealed partial class FunctionCodeGen
         var index = ModuleCodeGen.InterfaceSlotIndex(itf, target);
         _m.NoteInterfaceDispatch(itf, index);
         _m.NoteVirtualCall(target);
+        // Through the slot's stub (ModuleCodeGen.InterfaceStubs.cs): guarded direct calls, then this site's cache.
+        // Not in the corelib: its collections are tuned for LLVM's inliner, and the guards' code on their
+        // rarely taken custom-comparer paths kept Dictionary's Hash out of hot loops (wordfreq: +14 % executed
+        // instructions even with the cached path out of line).
+        if (_method is null || !CoreLib.IsCoreLib(_method))
+        {
+            var stub = _m.InterfaceCallStubFor(itf, index, target, _m.FunctionTypeOf(target));
+            return _b.Call(stub.Type, stub.Fn, [.. args, _m.NewInterfaceCallSiteCache()]);
+        }
         var slots = InterfaceSlotTable(self, itf);
         var slotAddress = _b.InBoundsGep(L.I8, slots, [L.ConstUInt(L.I64, (ulong)index * T.PointerSize)], "islot");
         var fn = _b.Load(L.Ptr, slotAddress, "ifn");

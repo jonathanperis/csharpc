@@ -66,7 +66,7 @@ public sealed partial class FunctionCodeGen
             IArrayCreationOperation a => EmitArrayCreation(a),
             ICollectionExpressionOperation c => EmitCollectionExpression(c),
             IInterpolatedStringOperation s => EmitInterpolatedString(s),
-            IIsNullOperation n when TypeMapper.IsNullable(n.Operand.Type) => _b.Not(NullableHas(EmitValue(n.Operand))),
+            IIsNullOperation n when TypeMapper.IsNullable(TypeOf(n.Operand)) => _b.Not(NullableHas(EmitValue(n.Operand))),
             IIsNullOperation n when TypeOf(n.Operand) is { IsValueType: true, TypeKind: not (TypeKind.Pointer or TypeKind.FunctionPointer) }
                 => L.False, // a (non-nullable) struct is never null
             IIsNullOperation n when TypeOf(n.Operand) is { IsValueType: true } vt && !TypeMapper.IsNullable(vt) => EmitValueThenFalse(n.Operand),

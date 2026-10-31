@@ -44,6 +44,31 @@ attribute factories) with a ~25 % faster build.
   the Razor generators from the project; [18](18-compatibility.md#techempowers-platform-entry)). The old
   plaintext/JSON app is `benchmarks/techempower/interim`, measured outside the verdict (23 of 106).
   Found: csharpc's `Socket.Bind` lacks .NET's `SO_REUSEADDR`.
+- `ci/m7-perf` — M7 performance. Measured with `.github/workflows/m7-perf.yml` (the TechEmpower harness,
+  unchanged, three load runs plus one profiled run per push to `ci/m7-perf*`; ratios csharpc/NativeAOT,
+  medians of three). Baseline (run 41207247881, main `f622dc8`): plaintext 256/1024 0.983/0.967, JSON
+  16/64/256 0.969/0.972/0.980, RSS after load 73.4 vs 64.8 MiB, executable 11.0 vs 8.9 MiB, build 188 vs
+  21 s. Now (run 41228623899, `28befb0`): plaintext 1.147/1.123, JSON 1.009/1.021/1.019, JSON p99
+  0.32–0.67 of NativeAOT's, start-up 21 vs 28 ms, idle RSS 13.1 vs 17.3 MiB, RSS after load 72.3 vs 65.0
+  MiB (68.8 in run 41220070541), executable 10.6 vs 8.9 MiB, build 190 vs 22 s; Benchmarks instruction
+  counts (run 41228623885) within 0.3 % of main on x86-64, arm64 churn +1.2 % (threaded, noisy). Changes:
+  guarded devirtualization of interface calls outside the corelib (per-slot stubs filled once the
+  constructed classes are known: +5–8 % plaintext), leaf-loop type tests,
+  vector ASCII encoding / `Ascii.Equals` / transcoding, `ValueTask<T>` default results and IL ValueTask
+  builders without a task, `AsTask()` of a completed ValueTask = `Task.CompletedTask`, one object per
+  pending IValueTaskSource ValueTask, ILLink substitutions (UseSystemResourceKeys drops 670 KB of
+  FxResources strings), and a collector crash fix (slots of a chunk that changed size class kept old
+  fields where marking reads a method table: gclatency segfaulted in 1 of 10 runs). Fixed silent
+  differences on the way: null tests on `T` = `int?` (sample 827), `default(ValueTask<Big>)` with
+  results over 64 bytes (826). Profiling builds now print task allocation sites and the remaining cached
+  interface dispatches. Next levers, by size of the data: `ValueTask<T>` as a two-word struct (64 % of
+  the server's task allocations are synchronous ValueTask results: Pipe.ReadAsync, socket sends/receives,
+  site profile of run 41214803825); a smaller collector budget (growth 100 %, 16 MiB: RSS 56 vs 65 MiB
+  with throughput within noise, experiment runs 41215013272/41216692814, not adopted: it changes every
+  program's GC frequency); guards by the call site's static receiver type (the cached dispatches left are
+  monomorphic IFeatureCollection/ILogger calls on interfaces with more than three implementers); the
+  optimizer's inliner (half of the 150–220 s `default<O2>` phase); type metadata (930 KB of
+  `csharpc.typeinfo.entries`).
 - `ci/techempower-json-switch` — TechEmpower compiles again (broken since `d42b5cc`: the IL check for
   reflection-based JSON also rejected the `JsonSerializer.IsReflectionEnabledByDefault` getter that
   ASP.NET Core's `JsonOptions()` reads; `tests/il.sh` IlAspNetCoreApp covers it), and the TechEmpower job now

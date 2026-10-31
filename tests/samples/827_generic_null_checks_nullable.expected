@@ -1,0 +1,7 @@
+Nullable`1: [null] none True True False False
+Nullable`1: [0] 0 False False True True
+Nullable`1: [42] 42 False False True True
+Nullable`1: [null] none True True False False
+String: [null] none True True False False
+String: [text] text False False True True
+Int32: [0] 0 False False True True
