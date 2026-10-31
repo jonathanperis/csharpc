@@ -1,10 +1,10 @@
 name: M7 perf
 
 # Measurement runs for csharpc's M7 performance work (docs/06-roadmap.md, M7): the TechEmpower harness
-# (benchmarks/techempower/run.sh, unchanged) with the interim plaintext/JSON app (`--app interim`, the
-# app csharpc builds today) on NativeAOT and csharpc builds of this commit: three interleaved rounds per
+# (benchmarks/techempower/run.sh, unchanged) with the interim plaintext/JSON app (`--app interim`) on NativeAOT and csharpc builds of this commit: three interleaved rounds per
 # runner on three runners, so the csharpc/NativeAOT ratios can be read past runner noise, plus one
-# profiled run (perf samples, annotated hot functions, the collector's statistics). Unlike the shared
+# profiled run (perf samples, annotated hot functions, the collector's statistics), and a profiled run
+# of the real Platform entry's JSON and plaintext tests. Unlike the shared
 # TechEmpower workflow it triggers on compiler/runtime changes, but only on ci/m7-perf* branches: it
 # gates nothing and doesn't run on main.
 on:
@@ -27,10 +27,12 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { kind: load, n: 1, profile: "0" }
-          - { kind: load, n: 2, profile: "0" }
-          - { kind: load, n: 3, profile: "0" }
-          - { kind: profile, n: 1, profile: "1" }
+          - { kind: load, n: 1, profile: "0", app: interim, tests: "deploy,plaintext,json" }
+          - { kind: load, n: 2, profile: "0", app: interim, tests: "deploy,plaintext,json" }
+          - { kind: load, n: 3, profile: "0", app: interim, tests: "deploy,plaintext,json" }
+          - { kind: profile, n: 1, profile: "1", app: interim, tests: "deploy,plaintext,json" }
+          # TechEmpower's real Platform entry (the M7 verdict's): a profile of its JSON and plaintext tests.
+          - { kind: platform-profile, n: 1, profile: "1", app: platform, tests: "json,plaintext" }
     runs-on: ubuntu-24.04
     timeout-minutes: 120
     env:
@@ -73,7 +75,7 @@ jobs:
       - name: Build, verify and load
         run: |
           ulimit -n 65535 || true
-          PROFILE="${{ matrix.profile }}" DURATION=15 benchmarks/techempower/run.sh --app interim --tests deploy,plaintext,json \
+          PROFILE="${{ matrix.profile }}" DURATION=15 benchmarks/techempower/run.sh --app ${{ matrix.app }} --tests ${{ matrix.tests }} \
             --only aot,csharpc --rounds 3 --out m7-results || status=$?
           cat m7-results/results.md >> "$GITHUB_STEP_SUMMARY" || true
           # Phase timings of the csharpc build (-v), for the build-time work.
