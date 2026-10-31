@@ -294,9 +294,11 @@ public sealed class Compiler(CompilerOptions options)
 
         if (!module.Verify(out var verifyError))
         {
+            // The verifier's message first: dumping a whole program's IR can take gigabytes.
             var dump = Path.ChangeExtension(options.OutputPath, ".invalid.ll");
-            File.WriteAllText(dump, module.PrintToString());
-            Console.Error.WriteLine($"internal compiler error: csharpc produced invalid LLVM IR (written to {dump}):\n{verifyError}");
+            var shown = verifyError is { Length: > 8000 } ? verifyError[..8000] + "\n(...)" : verifyError;
+            Console.Error.WriteLine($"internal compiler error: csharpc produced invalid LLVM IR:\n{shown}");
+            if (module.PrintToFile(dump)) Console.Error.WriteLine($"(the module is written to {dump})");
             return 70;
         }
         Phase("verify");

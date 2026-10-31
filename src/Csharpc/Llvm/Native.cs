@@ -110,6 +110,8 @@ internal static unsafe partial class Native
     [LibraryImport(Lib, StringMarshalling = StringMarshalling.Utf8)]
     public static partial void LLVMSetSourceFileName(LLVMModuleRef m, string name, nuint len);
     [LibraryImport(Lib)] public static partial nint LLVMPrintModuleToString(LLVMModuleRef m);
+    [LibraryImport(Lib, StringMarshalling = StringMarshalling.Utf8)]
+    public static partial int LLVMPrintModuleToFile(LLVMModuleRef m, string filename, out nint errorMessage);
     [LibraryImport(Lib)] public static partial void LLVMDisposeMessage(nint message);
     [LibraryImport(Lib)] public static partial int LLVMVerifyModule(LLVMModuleRef m, int action, out nint message);
     [LibraryImport(Lib, StringMarshalling = StringMarshalling.Utf8)]

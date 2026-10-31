@@ -166,6 +166,14 @@ public sealed class LlvmModule(LlvmContext context, string name) : IDisposable
 
     public string PrintToString() => TakeMessage(LLVMPrintModuleToString(Ref)) ?? "";
 
+    /// <summary>The module as text, written by LLVM straight to a file (a whole program's IR reaches gigabytes, too big for a string).</summary>
+    public bool PrintToFile(string path)
+    {
+        var failed = LLVMPrintModuleToFile(Ref, path, out var message) != 0;
+        TakeMessage(message);
+        return !failed;
+    }
+
     public bool Verify(out string? error)
     {
         var failed = LLVMVerifyModule(Ref, 2 /* LLVMReturnStatusAction */, out var message) != 0;
