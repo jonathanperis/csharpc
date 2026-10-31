@@ -266,12 +266,13 @@ static const csrt_MethodTable* interface_at(const csrt_TypeInfo* info, uint32_t 
 }
 
 static const csrt_TypeInfo* lookup_info(const csrt_MethodTable* mt) {
-    if (mt && (mt->flags & CSRT_MT_SYNTHESIZED_INTERFACE)) return &((const SynthesizedInterface*)mt)->info;
     const csrt_TypeInfoTable* table = __atomic_load_n(&s_table, __ATOMIC_ACQUIRE);
     if (!table) return NULL;
     build_index(&s_info_index, table->entries, CSRT_TYPEINFO_COUNT(table), sizeof(csrt_TypeInfo));
     const csrt_TypeInfo* found = index_find(&s_info_index, mt);
     if (found) return found;
+    // Not in the table: an interface csrt made from a csrt_LazyInterface, or a synthesized array.
+    if (mt && (mt->flags & CSRT_MT_SYNTHESIZED_INTERFACE)) return &((const SynthesizedInterface*)mt)->info;
     return synthesized_info_for(mt);
 }
 
