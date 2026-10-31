@@ -318,9 +318,13 @@ Semantics that sources gave the lowering and IL has to restate:
   assembly names an exception type or `StackTrace`; without a PDB, frames have no location, as in .NET.
   The program's own types (the IL assembly's) keep their custom attributes for `Type.GetCustomAttributes`
   as source types do.
-- What IL can't reach yet is explicit: reflection-based `System.Text.Json` (its metadata is generated
-  from the call sites' C# source; calls without options or a `JsonTypeInfo`/context are rejected where
-  reflection is enabled, as .NET throws where it is disabled), `dynamic` (ADR 0019 binds from source),
+- **Reflection-based `System.Text.Json`** gets the source path's synthesized contexts, with the roots read
+  from the program's bodies, and the program grants csharpc's binding compilation internals access so the
+  JSON generator sees its types as it does from source (docs/12-corelib.md#systemtextjson). A call on a
+  root the contexts can't cover (a private nested type, a compiler-generated one) is a diagnostic where it
+  is lowered. **`[GeneratedRegex]`** members (`ldsfld <Generated>::Instance; ret`, the SDK generator's
+  output built on RegexRunner internals) become cached corelib interpreters built from their attribute.
+- What IL can't reach yet is explicit: `dynamic` (ADR 0019 binds from source; see its "From IL" note),
   and turning an exception into text in IL that names no exception type (no traces were recorded).
 
 **Differential mode.** `tests/run.sh --via-il` builds every sample with `dotnet build NAME.cs` (the build

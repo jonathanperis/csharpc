@@ -144,7 +144,12 @@ public sealed class Compiler(CompilerOptions options)
         using var ilScope = il;
         if (!il.IsEmpty)
         {
-            settings = settings with { IlReferences = il.References };
+            var programIl = mainProgram is null ? null : il.Assemblies.First(a => string.Equals(a.Path, Path.GetFullPath(mainProgram.Path), StringComparison.Ordinal));
+            // Reflection-based JSON metadata is generated in the binding compilation, which must see the
+            // program's internals as the program itself does (JsonReflectionContexts.Il.cs); before any binding.
+            var jsonFromIl = programIl is not null && settings.JsonReflectionEnabled == true && JsonReflectionContexts.ReferencesJsonSerializer(programIl.Reader)
+                && JsonReflectionContexts.GrantInternalsAccess(programIl.Reference, settings.AssemblyName!);
+            settings = settings with { IlReferences = il.References, IlSet = il, ProgramIl = programIl, JsonFromIl = jsonFromIl };
             Phase($"load {il.Assemblies.Count} IL assembl{(il.Assemblies.Count == 1 ? "y" : "ies")}");
         }
         // Nullable analysis only produces warnings, never different code. Lowering uses a compilation

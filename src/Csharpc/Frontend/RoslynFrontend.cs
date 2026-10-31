@@ -88,7 +88,10 @@ public static class RoslynFrontend
         // Reflection-based System.Text.Json calls get compile-time metadata from synthesized contexts.
         List<Diagnostic> jsonDiagnostics = [];
         compilation = JsonReflectionContexts.Add(compilation, [.. trees.Where(t => !IsCoreLibTree(t) && t.FilePath is not ("<global-usings>.g.cs" or AssemblyInfoTreePath))],
-            settings.JsonReflectionEnabled, jsonDiagnostics, out _);
+            settings.JsonReflectionEnabled, jsonDiagnostics, out _, settings.IlSet, settings.JsonFromIl ? settings.ProgramIl : null);
+        // The IL program's [GeneratedRegex] members, as the source path's generator makes them.
+        if (settings.ProgramIl is { } programIl && IlGeneratedRegex.Synthesize(programIl, compilation.SyntaxTrees.FirstOrDefault()?.Options as CSharpParseOptions ?? parseOptions) is { } regexHolders)
+            compilation = compilation.AddSyntaxTrees(regexHolders);
         // Source generators the SDK runs implicitly ([LibraryImport], [GeneratedRegex], [JsonSerializable]).
         compilation = SourceGenerators.Run(compilation, compilation.SyntaxTrees.Where(t => !IsCoreLibTree(t)), out var generatorDiagnostics);
         GeneratorDiagnostics = [.. generatorDiagnostics.Where(d => !FromSynthesizedJsonContext(d)), .. jsonDiagnostics];
@@ -354,6 +357,11 @@ public sealed record FrontendSettings
     public IReadOnlyList<ProjectUnit> Projects { get; init; } = [];
     /// <summary>Assemblies without sources, compiled from IL (Frontend/Il, docs/adr/0010-il-frontend.md).</summary>
     public IReadOnlyList<MetadataReference> IlReferences { get; init; } = [];
+    /// <summary>The loaded IL assemblies (null: none) and, for `csharpc app.dll`, the program's own.</summary>
+    public Il.IlAssemblySet? IlSet { get; init; }
+    public Il.IlAssembly? ProgramIl { get; init; }
+    /// <summary>Reflection-based JSON metadata is generated from <see cref="ProgramIl"/>'s bodies (its internals are visible to the compilation).</summary>
+    public bool JsonFromIl { get; init; }
     /// <summary>Paths of the assemblies to compile from IL (-r, project &lt;Reference&gt; items).</summary>
     public IReadOnlyList<string> IlReferencePaths { get; init; } = [];
     /// <summary>

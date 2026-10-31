@@ -196,6 +196,10 @@ all option combinations) checks.
   SDK's, whose output is built on `RegexRunner` internals. Each member returns a cached interpreter
   instance for the attribute's pattern, options, timeout and culture; the SDK generator's diagnostics
   (SYSLIB1040–1043) are reproduced. Only `GetType()` differs (`Regex` instead of the generated class).
+  Members with the same pattern, options and timeout share one instance (and the first one's culture),
+  as they share the SDK generator's implementation. In a program given as IL the SDK's generator already
+  ran: each member's body (`ldsfld <Generated>::Instance; ret`) becomes the same cached instance, built
+  from its attribute, one per generated class (`Frontend/GeneratedRegex.Il.cs`).
 * **Culture:** `IgnoreCase` uses .NET's case equivalence tables with the culture's casing behaviour
   (Turkish/Azeri vs. others): the current culture's name at construction, or `CultureInvariant`, or
   `[GeneratedRegex(..., cultureName)]`, as in .NET.
@@ -243,6 +247,15 @@ all option combinations) checks.
   generator's differ (required/init-only members are set after construction). The
   `JsonSerializerIsReflectionEnabledByDefault` switch is honored: projects evaluate it, file-based apps
   default to `PublishAot` and therefore to disabled reflection, like `dotnet run app.cs`.
+  A program given as IL (`csharpc app.dll`) gets the same contexts, its roots read from the method
+  bodies (`Frontend/JsonReflectionContexts.Il.cs`: type arguments, the static type a value had before
+  csc passed it as its base or `object`, `typeof`/`GetType()` arguments, generic instantiations). The
+  generator only describes what its context can access, and the context lives in csharpc's binding
+  compilation, not in the program's assembly: the program grants that compilation internals access
+  (an `[InternalsVisibleTo]` Roslyn is told about through reflection, before anything binds), and the
+  compilation imports private members, so internal types, internal and private `[JsonInclude]` members
+  look as they do from source. Private nested types, which a source context reaches by being nested
+  beside them, are a `CSLLVM0001` where the call is lowered.
 * **Code size.** The object converter's work is in a non-generic core, the built-in metadata
   (every primitive converter) is linked only when reflection-based metadata can be requested, and
   `BuiltInJsonConverter<T>` resolves dictionary-key converters at compile time. Hello world is

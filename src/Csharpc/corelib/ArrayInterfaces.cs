@@ -201,6 +201,48 @@ namespace CsharpcCoreLib
         public void Dispose() { }
     }
 
+    // Non-generic IEnumerable over a rectangular array (T[,]...): System.Array's ArrayEnumerator, which reads the
+    // live array in row-major order and boxes each element. Rectangular arrays implement no generic interface.
+    internal static class MdArrayHelper<T>
+    {
+        public static IEnumerator IEnumerable_GetEnumerator(Array a) => new MdArrayEnumerator<T>(a);
+    }
+
+    internal sealed class MdArrayEnumerator<T> : IEnumerator, ICloneable
+    {
+        private readonly Array _array;
+        private long _index = -1;
+
+        public MdArrayEnumerator(Array array) { _array = array; }
+
+        public bool MoveNext()
+        {
+            long index = _index + 1;
+            long length = _array.Length;
+            if ((ulong)index >= (ulong)length)
+            {
+                _index = length;
+                return false;
+            }
+            _index = index;
+            return true;
+        }
+
+        public object Current
+        {
+            get
+            {
+                long index = _index;
+                if ((ulong)index >= (ulong)_array.Length)
+                    throw new InvalidOperationException(index < 0 ? "Enumeration has not started. Call MoveNext." : "Enumeration already finished.");
+                return CoreIntrinsics.Box(CoreIntrinsics.MdArrayElement<T>(_array, index));
+            }
+        }
+
+        public void Reset() { _index = -1; }
+        public object Clone() => MemberwiseClone();
+    }
+
     internal static class StringInterfaces
     {
         public static IEnumerator<char> IEnumerable1_GetEnumerator(string s) => new StringEnumerator(s);

@@ -274,16 +274,18 @@ public sealed partial class ModuleCodeGen
         var flags = 32 /* CSRT_MT_MDARRAY */ | (Optimizations.HoldsNoReferences(array.ElementType) ? 8 /* CSRT_MT_NO_REFERENCES */ : 0)
             | (array.ElementType.IsReferenceType ? 512 /* CSRT_MT_REFERENCE_ELEMENTS */ : 0);
         var name = ClrName(array);
-        LLVMValueRef Init(LLVMValueRef element) => Llvm.ConstStruct(ExternalGlobal("csrt_Array_MT"), CString(name), Llvm.ConstInt(Llvm.I32, 0), Llvm.ConstInt(Llvm.I32, flags),
-            LlvmContext.Null(Llvm.Ptr), Llvm.ConstInt(Llvm.I32, 0), Llvm.ConstInt(Llvm.I32, array.Rank) /* reserved = rank */,
+        var element = LlvmContext.Null(Llvm.Ptr);
+        LLVMValueRef Init(LLVMValueRef map, int count) => Llvm.ConstStruct(ExternalGlobal("csrt_Array_MT"), CString(name), Llvm.ConstInt(Llvm.I32, 0), Llvm.ConstInt(Llvm.I32, flags),
+            map, Llvm.ConstInt(Llvm.I32, count), Llvm.ConstInt(Llvm.I32, array.Rank) /* reserved = rank */,
             LlvmContext.ConstArray(Llvm.Ptr, slots), element);
-        var init = Init(LlvmContext.Null(Llvm.Ptr));
+        var init = Init(LlvmContext.Null(Llvm.Ptr), 0);
         var global = Module.AddGlobal("csrt.mdarraymt." + name, Native.LLVMTypeOf(init), init, constant: true, linkage: LLVMLinkage.Private);
         RegisterTypeMethodTable(global, array);
         _arrayMethodTables[key] = global;
         // The element type, as for one-dimensional arrays: stores into covariant rectangular arrays are checked too.
-        var element = ArrayElementMethodTable(array.ElementType);
-        if (!element.IsNull) Native.LLVMSetInitializer(global, Init(element));
+        element = ArrayElementMethodTable(array.ElementType);
+        if (!element.IsNull) Native.LLVMSetInitializer(global, Init(LlvmContext.Null(Llvm.Ptr), 0));
+        _mdArrays.Add(new MdArrayTable(name, array, (map, count) => Native.LLVMSetInitializer(global, Init(map, count))));
         return global;
     }
 

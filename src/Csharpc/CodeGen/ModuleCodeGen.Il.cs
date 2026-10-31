@@ -1,4 +1,5 @@
 using System.Reflection;
+using Csharpc.Frontend;
 using Csharpc.Frontend.Il;
 using Csharpc.Llvm;
 using Microsoft.CodeAnalysis;
@@ -165,6 +166,19 @@ public sealed partial class ModuleCodeGen
             return;
         }
         var location = IlSyntax(assembly).Plain.GetLocation();
+        // A [GeneratedRegex] member of the program: the corelib interpreter's cached instance (Frontend/GeneratedRegex.Il.cs).
+        if (!assembly.IsCoreLib && IlGeneratedRegex.HolderFor(method) is { } holder
+            && Compilation.GetTypeByMetadataName(holder)?.GetMembers("Get").FirstOrDefault() is IMethodSymbol get)
+        {
+            NoteReference(get, virtualCall: false);
+            var g = new FunctionCodeGen(this, null, _functions[method]);
+            g.EmitSynthetic(() =>
+            {
+                var f = GetFunction(get);
+                g.Builder.Ret(g.Builder.Call(f.Type, f.Fn, []));
+            });
+            return;
+        }
         try
         {
             if (method.OriginalDefinition.MetadataToken == 0)

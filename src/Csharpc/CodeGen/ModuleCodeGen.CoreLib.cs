@@ -35,6 +35,14 @@ public sealed partial class ModuleCodeGen
     }
 
     private readonly List<TaggedArray> _taggedArrays = [];
+
+    /// <summary>A rectangular array's method table: its own interface map only has the element-typed IEnumerable.</summary>
+    private sealed record MdArrayTable(string Name, IArrayTypeSymbol Type, Action<LLVMValueRef, int> SetInterfaceMap)
+    {
+        public bool HasMap { get; set; }
+    }
+
+    private readonly List<MdArrayTable> _mdArrays = [];
     private readonly Dictionary<(INamedTypeSymbol, nint), LLVMValueRef> _elementSlotTables = [];
 
     /// <summary>Non-generic interfaces of T[] (System.Array) that csharpc implements.</summary>
@@ -108,6 +116,23 @@ public sealed partial class ModuleCodeGen
             Native.LLVMSetInitializer(array.Global, ArrayMethodTableInit(array, map, interfaces.Count));
             array.InterfaceCount = interfaces.Count;
         }
+        // Rectangular arrays used as IEnumerable box their elements (MdArrayHelper<T>); their other
+        // non-generic interfaces only need what the untyped array tables do (csrt.c falls back to them).
+        if (_arrayInterfaces.FirstOrDefault(i => !i.IsGenericType && i.ToDisplayString() == "System.Collections.IEnumerable") is { } enumerable)
+            foreach (var md in _mdArrays)
+            {
+                if (md.HasMap) continue;
+                var element = md.Type.ElementType;
+                var shared = element.IsReferenceType ? Compilation.GetSpecialType(SpecialType.System_Object) : element;
+                if (BuiltinHelper("MdArrayHelper", enumerable, InterfaceSlots(enumerable)[0], shared) is not { } helper) continue;
+                changed = true;
+                md.HasMap = true;
+                var slotsInit = LlvmContext.ConstArray(Llvm.Ptr, [GetFunction(helper).Fn]);
+                var slots = Module.AddGlobal($"csrt.mdarraytbl.{md.Name}", Native.LLVMTypeOf(slotsInit), slotsInit, constant: true, linkage: LLVMLinkage.Private);
+                var entryType = Llvm.Struct(Llvm.Ptr, Llvm.Ptr);
+                var mapInit = LlvmContext.ConstArray(entryType, [LlvmContext.ConstNamedStruct(entryType, InterfaceMethodTable(enumerable), slots)]);
+                md.SetInterfaceMap(Module.AddGlobal($"csrt.mdarraymap.{md.Name}", Native.LLVMTypeOf(mapInit), mapInit, constant: true, linkage: LLVMLinkage.Private), 1);
+            }
         return changed;
     }
 

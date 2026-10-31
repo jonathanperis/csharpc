@@ -113,6 +113,21 @@ public sealed partial class FunctionCodeGen
         return _b.Load(L.I64, _b.InBoundsGep(header, array, [L.ConstInt(L.I32, 0), L.ConstInt(L.I32, 2), d]), "dim");
     }
 
+    /// <summary>
+    /// Element <paramref name="index"/> of a rectangular array of <paramref name="element"/>s whose rank is only known
+    /// at run time (the method table's): the data follows the header and one i64 length per dimension.
+    /// </summary>
+    internal LLVMValueRef MdArrayElement(ITypeSymbol element, LLVMValueRef array, LLVMValueRef index)
+    {
+        var storage = T.Storage(element);
+        var rank = _b.Cast(LLVMOpcode.ZExt, CallRuntime("csrt_array_rank", L.I32, [L.Ptr], array), L.I64);
+        var align = (long)T.Target.AlignOf(storage);
+        var offset = _b.BinOp(LLVMOpcode.Add, L.ConstInt(L.I64, 16 + align - 1), _b.BinOp(LLVMOpcode.Mul, rank, L.ConstInt(L.I64, 8)));
+        offset = _b.BinOp(LLVMOpcode.And, offset, L.ConstInt(L.I64, -align));
+        var data = _b.InBoundsGep(L.I8, array, [offset]);
+        return LoadValue(DataAddress(_b.InBoundsGep(storage, data, [index]), DataKind.ArrayElement), element);
+    }
+
     /// <summary>Address of element 0 (row-major data start) for an array of any rank.</summary>
     private LLVMValueRef ArrayDataStart(LLVMValueRef array, IArrayTypeSymbol arrayType)
     {

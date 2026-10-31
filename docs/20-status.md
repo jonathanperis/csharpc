@@ -48,6 +48,10 @@ attribute factories) with a ~25 % faster build.
   which runs every sample through `dotnet build` → csharpc (informational CI workflow `il-main.yml`,
   `tests/il-main-known-failures.txt`). 459/476 samples pass that way, stack traces included; the first
   runs found 72 failures, 19 of them wrong output, now fixed (ADR 0010, "The program as IL"). Samples 700–702.
+- `ci/il-gaps` — M5, what IL programs still lacked: reflection-based JSON metadata from the program's bodies
+  (the program grants the binding compilation internals access), `[GeneratedRegex]` members as cached
+  interpreters, non-generic enumeration of rectangular arrays (which also stopped them claiming
+  `IEnumerable<T>`), and the source path's `[GeneratedRegex]` instance sharing. 471/479 via IL. Samples 740–742.
 - `ci/dynamic` — `dynamic` bound at compile time with Roslyn, per run-time type ([ADR 0019](adr/0019-dynamic.md)):
   members, overloads by run-time type, operators, conversions, indexers, events, delegates, ExpandoObject, DynamicObject,
   binder errors with Microsoft.CSharp's messages; samples 680–687; both corpus programs that use `dynamic` pass locally.
@@ -78,14 +82,10 @@ the one difference is a stack-trace frame in a NativeAOT-unsupported program.
 1. M4: merge the branches above, then rerun the Compatibility workflow for the parity number.
 2. M2: library gaps as programs reach them.
 3. M5: user code through the IL front-end (what `csc` hands the fork). `csharpc app.dll` and the
-   `--via-il` differential mode exist (`ci/il-main`, 459/476); left, by count: JSON metadata for IL
-   programs (8 samples), `dynamic` from IL (7), `[GeneratedRegex]` output (1), non-generic enumeration of
-   rectangular arrays (1); then `-g` from the PDB. The Roslyn path stays for standalone use; gaps between
-   the two are bugs.
-   **Known M5 gap, decided to stay a diagnostic for now:** reflection-based `System.Text.Json` in a
-   program given as IL. Its metadata is generated from the call sites' C# source; for IL the JSON source
-   generator would have to see the program's internal types from another assembly (Roslyn internals or
-   rewriting the dll), so those calls are rejected (`CSLLVM0001`) where runtimeconfig.json enables reflection.
+   `--via-il` differential mode exist (471/479 with `ci/il-gaps`: reflection-based JSON, `[GeneratedRegex]`
+   and rectangular-array enumeration from IL); left: `dynamic` from IL (7 samples; route in ADR 0019,
+   "From IL"), JSON of a private nested type (1, stays a diagnostic); then `-g` from the PDB. The Roslyn
+   path stays for standalone use; gaps between the two are bugs.
 4. M6: Roslyn's remaining blockers (non-generic ~170 methods, then generic methods), then csharpc
    compiling itself.
 5. M7: TechEmpower with the `csharpc` CLI — throughput first, then memory under load, build time and size
