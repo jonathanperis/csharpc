@@ -95,8 +95,6 @@ public sealed partial class FunctionCodeGen
         public LLVMValueRef Slot { get; set; }
         public LLVMValueRef Selector { get; set; }
         public List<LLVMBasicBlockRef> Continuations { get; } = [];
-        public LLVMBasicBlockRef Reject { get; set; }
-        public LLVMBasicBlockRef FilterPad { get; set; }
         public bool InFilter(int offset) => Kind == ExceptionRegionKind.Filter && offset >= Region.FilterOffset && offset < HandlerStart;
         public bool InHandler(int offset) => offset >= HandlerStart && offset < HandlerEnd
             || (Kind == ExceptionRegionKind.Filter && offset >= Region.FilterOffset && offset < HandlerStart);
@@ -170,7 +168,8 @@ public sealed partial class FunctionCodeGen
         var reachable = IlReachableBlocks(il);
         foreach (var block in il.Blocks)
         {
-            if (reachable.Contains(block.Start)) EmitIlBlock(block);
+            // A filter's code is a function of its own (FunctionCodeGen.Filters.cs).
+            if (reachable.Contains(block.Start) && !IlInFilter(block)) EmitIlBlock(block);
             else
             {
                 // Only behind a folded feature switch (or dead code): nothing it calls is compiled.
@@ -195,6 +194,7 @@ public sealed partial class FunctionCodeGen
                     break;
             }
         }
+        IlFinishEhTrys(body);
         Finish();
     }
 
@@ -258,6 +258,9 @@ public sealed partial class FunctionCodeGen
         foreach (var t in il.Trys)
             t.Outer = il.Trys.Where(o => o != t && o.Start <= t.Start && o.End >= t.End && (o.End - o.Start) > (t.End - t.Start))
                 .MinBy(o => o.End - o.Start);
+        // A filter is lowered into a function of its own, without exception regions of its own.
+        if (il.Trys.FirstOrDefault(t => il.Clauses.Any(c => c.InFilter(t.Start))) is { } nested)
+            throw new IlException($"try block at IL_{nested.Start:X4} inside an exception filter");
         foreach (var block in il.Blocks)
         {
             block.Try = il.Trys.Where(t => t.Contains(block.Start)).MinBy(t => t.End - t.Start);
@@ -303,14 +306,20 @@ public sealed partial class FunctionCodeGen
         block.Emitted = true;
         il.CurrentBlock = block;
         _b.PositionAtEnd(block.Llvm);
-        // Inside a filter, an exception means "this handler doesn't match" (ECMA-335 II.19), unless a try
-        // nested in the filter itself catches it.
-        _b.UnwindDest = block.Try is { } protectedBy && (block.Handler is not { } filter || !filter.InFilter(block.Start) || protectedBy.Start >= filter.Region.FilterOffset)
-            ? IlLandingPad(protectedBy)
-            : block.Handler is { } f && f.InFilter(block.Start) ? IlFilterPad(f)
+        // Inside a filter (a function of its own), an exception means "this handler doesn't match" (ECMA-335 II.19).
+        _b.UnwindDest = _filterTry is not null ? FilterCatchAllPad()
+            : block.Try is { } protectedBy ? IlLandingPad(protectedBy)
             : _coro is not null ? CoroutinePad() : default; // runtime-async: an escaping exception faults the task
         _b.MayThrow = _m.MayThrow;
         EnableTraceHook();
+        // Entering a try whose record the first pass reads (outermost first; csrt_eh_enter ignores a
+        // record that is linked in already: a branch back to the try's first instruction).
+        foreach (var t in il.Trys.Where(t => t.Start == block.Start && IlNeedsEhFrame(t)).OrderByDescending(t => t.End - t.Start))
+        {
+            var entered = NewBlock("eh.entered");
+            _b.Br(EhPushTo(IlEhTryOf(t), entered));
+            _b.PositionAtEnd(entered);
+        }
         // ECMA-335 III.1.7.5: a block reached by neither fall-through nor an earlier branch starts empty.
         block.Entry ??= [];
         var stack = new Stack<IlEntry>();
@@ -412,11 +421,12 @@ public sealed partial class FunctionCodeGen
         if (!t.Pad.IsNull) return t.Pad;
         EnsurePersonality();
         // Catch clauses of this try and every enclosing one, innermost first, so the search phase
-        // finds a handler in this frame; filters are catch-alls here and run in the dispatch.
+        // finds a handler in this frame; a filter's clause is its csrt_EhClause.
         List<LLVMValueRef> clauses = [];
         for (var x = t; x is not null; x = x.Outer)
             foreach (var c in x.Clauses)
-                if (c.Kind == ExceptionRegionKind.Filter || (c.Kind == ExceptionRegionKind.Catch && IsCatchAllType(S(c.CatchType!))))
+                if (c.Kind == ExceptionRegionKind.Filter) clauses.Add(IlEhTryOf(x).ClauseOf(c)); // the personality runs it
+                else if (c.Kind == ExceptionRegionKind.Catch && IsCatchAllType(S(c.CatchType!)))
                     clauses.Add(LlvmContext.Null(L.Ptr));
                 else if (c.Kind == ExceptionRegionKind.Catch)
                     clauses.Add(IlCatchTypeInfo(c.CatchType!));
@@ -458,6 +468,8 @@ public sealed partial class FunctionCodeGen
         (_b.UnwindDest, _b.UnwindHook) = (default, null);
         t.Dispatch = NewBlock("il.dispatch");
         _b.PositionAtEnd(t.Dispatch);
+        var eh = IlNeedsEhFrame(t) ? IlEhTryOf(t) : null;
+        if (eh is not null) EhPop(eh); // the exception leaves the try
         foreach (var clause in t.Clauses)
         {
             var next = NewBlock("il.catch.next");
@@ -482,11 +494,15 @@ public sealed partial class FunctionCodeGen
                 }
                 case ExceptionRegionKind.Filter:
                 {
+                    // The filter ran in the first pass: enter the handler it chose.
+                    var enter = NewBlock("il.filter.chosen");
+                    var chosen = CallRuntime("csrt_eh_selected", L.I32, [L.Ptr, L.Ptr, L.Ptr], exception, eh!.Record, eh.ClauseOf(clause));
+                    _b.CondBr(_b.ICmp(LLVMIntPredicate.NE, chosen, L.ConstInt(L.I32, 0)), enter, next);
+                    _b.PositionAtEnd(enter);
                     _b.Store(exception, clause.Slot);
-                    var filter = _il!.BlockAt[clause.Region.FilterOffset];
-                    _b.Store(exception, filter.Entry![0].Slot);
-                    clause.Reject = next;
-                    _b.Br(filter.Llvm);
+                    var handler = _il!.BlockAt[clause.HandlerStart];
+                    _b.Store(exception, handler.Entry![0].Slot);
+                    _b.Br(handler.Llvm);
                     break;
                 }
                 default: // finally / fault: run it, then keep looking outward
@@ -504,29 +520,12 @@ public sealed partial class FunctionCodeGen
         else if (_coro is not null) IlCoroutineEscape(escaping);
         else
         {
-            CallRuntime("csrt_rethrow", L.Void, [L.Ptr], escaping); // unwinds into our caller
+            CallRuntime("csrt_propagate", L.Void, [L.Ptr], escaping); // unwinds into our caller
             _b.Unreachable();
         }
         _b.PositionAtEnd(savedBlock);
         (_b.UnwindDest, _b.UnwindHook) = (savedUnwind, savedHook);
         return t.Dispatch;
-    }
-
-    /// <summary>The landing pad of a filter's code: any exception rejects the handler.</summary>
-    private LLVMBasicBlockRef IlFilterPad(IlClause filter)
-    {
-        if (!filter.FilterPad.IsNull) return filter.FilterPad;
-        EnsurePersonality();
-        var (savedBlock, savedUnwind, savedHook) = (_b.InsertBlock, _b.UnwindDest, _b.UnwindHook);
-        (_b.UnwindDest, _b.UnwindHook) = (default, null);
-        filter.FilterPad = NewBlock("il.filter.lpad");
-        _b.PositionAtEnd(filter.FilterPad);
-        var lp = _b.LandingPad(LandingPadType, _m.Runtime("csrt_personality", L.I32).Fn, [LlvmContext.Null(L.Ptr)], cleanup: false);
-        CallRuntime("csrt_begin_catch", L.Ptr, [L.Ptr], _b.ExtractValue(lp, 0));
-        _b.Br(filter.Reject);
-        _b.PositionAtEnd(savedBlock);
-        (_b.UnwindDest, _b.UnwindHook) = (savedUnwind, savedHook);
-        return filter.FilterPad;
     }
 
     private void IlEnterFinally(IlClause clause, LLVMBasicBlockRef continuation, bool normal = true)
@@ -546,6 +545,7 @@ public sealed partial class FunctionCodeGen
         var dest = destination.Llvm;
         var exited = _il!.Trys.Where(t => t.Contains(from) && !t.Contains(target)).OrderByDescending(t => t.End - t.Start).ToList();
         foreach (var t in exited) // outermost first: each finally continues to the next outer one
+        {
             foreach (var clause in Enumerable.Reverse(t.Clauses).Where(c => c.Kind == ExceptionRegionKind.Finally))
             {
                 var current = _b.InsertBlock;
@@ -555,6 +555,8 @@ public sealed partial class FunctionCodeGen
                 _b.PositionAtEnd(current);
                 dest = trampoline;
             }
+            if (IlNeedsEhFrame(t)) dest = EhPopTo(IlEhTryOf(t), dest); // the try's record goes as it is left
+        }
         _b.Br(dest);
     }
 

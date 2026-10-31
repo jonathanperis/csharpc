@@ -1,0 +1,43 @@
+int?: System.Int32 = 0
+Point?: Point = (0,0)
+Color?: Color = Red
+int: System.Int32 = 0
+bool: System.Boolean = False
+double: System.Double = 0
+char: System.Char = 0
+long: System.Int64 = 0
+Point: Point = (0,0)
+Color: Color = Red
+Plain: Plain = Plain
+Gen<int>: Gen`1[System.Int32] = Gen`1[System.Int32]
+object: System.Object = System.Object
+Shape: System.MemberAccessException: Cannot create an abstract class.
+Shape<>: System.MemberAccessException: Cannot create an abstract class.
+Holder: System.MemberAccessException: Cannot create an abstract class.
+Array: System.MemberAccessException: Cannot create an abstract class.
+Enum: System.MemberAccessException: Cannot create an abstract class.
+ValueType: System.MemberAccessException: Cannot create an abstract class.
+Delegate: System.MemberAccessException: Cannot create an abstract class.
+MulticastDelegate: System.MemberAccessException: Cannot create an abstract class.
+IThing: System.MemberAccessException: Cannot create an instance of an interface.
+IList<>: System.MemberAccessException: Cannot create an instance of an interface.
+int[]: System.ArgumentException: Type is not supported.
+string[]: System.ArgumentException: Type is not supported.
+int[,]: System.ArgumentException: Type is not supported.
+string: System.ArgumentException: Uninitialized Strings cannot be created.
+Gen<>: System.MemberAccessException: Cannot create a type for which Type.ContainsGenericParameters is true.
+Nullable<>: System.MemberAccessException: Cannot create a type for which Type.ContainsGenericParameters is true.
+List<>: System.MemberAccessException: Cannot create a type for which Type.ContainsGenericParameters is true.
+Span<>: System.MemberAccessException: Cannot create a type for which Type.ContainsGenericParameters is true.
+T: System.ArgumentException: Type is not supported.
+D: System.ArgumentException: Type is not supported.
+Action: System.ArgumentException: Type is not supported.
+Func<>: System.ArgumentException: Type is not supported.
+Span<int>: System.NotSupportedException: Cannot create boxed ByRef-like values.
+ReadOnlySpan<char>: System.NotSupportedException: Cannot create boxed ByRef-like values.
+int*: System.ArgumentException: Type is not supported.
+void: System.ArgumentException: Type is not supported.
+null: System.ArgumentNullException: Value cannot be null. (Parameter 'type')
+fields: 0 null
+int? is a boxed int: True, True
+Gen<int>.Item: 0

@@ -1,0 +1,20 @@
+async finally 2
+filter caller 2 attempts 1: after await 2 -> True
+even: -2
+async finally 3
+filter caller 3 attempts 1: after await 3 -> False
+filter outer after await 3 -> True
+outer caught after await 3
+-- the async body catches into its task: no filter runs at the throw
+finally in async body
+filter await sync part -> True
+awaited and caught
+-- iterator
+item 1
+item 2
+filter iterator caller in iterator -> True
+iterator finally
+caught from iterator
+-- Task.Run
+filter on the pool -> True
+pool result 42

@@ -28,7 +28,7 @@ public sealed partial class FunctionCodeGen
     private LLVMValueRef _this; // set per case in dynamic-site functions (FunctionCodeGen.Dynamic.cs)
     /// <summary>Set when this is a lambda / local function: its closure-tree node and incoming env.</summary>
     private readonly ClosureFunction? _nested;
-    private readonly LLVMValueRef _incomingEnv;
+    private LLVMValueRef _incomingEnv; // a filter function (FunctionCodeGen.Filters.cs) loads its parent's
     private readonly Dictionary<ISymbol, LLVMValueRef> _slots = new(SymbolEqualityComparer.Default);
     private readonly HashSet<IParameterSymbol> _byRefParams = new(SymbolEqualityComparer.Default);
     private readonly HashSet<ILocalSymbol> _ownLocals = new(SymbolEqualityComparer.Default);
@@ -68,6 +68,11 @@ public sealed partial class FunctionCodeGen
 
     public FunctionCodeGen(ModuleCodeGen module, IMethodSymbol? method, LoweredFunction fn, ClosureFunction? nested = null,
         TypeSubstitution? substitution = null, INamedTypeSymbol? initializingType = null)
+        : this(module, method, fn, nested, substitution, initializingType, filterParent: null, filterTry: null) { }
+
+    /// <summary>With <paramref name="filterParent"/>: the filter function of one of its `when` clauses (FunctionCodeGen.Filters.cs).</summary>
+    private FunctionCodeGen(ModuleCodeGen module, IMethodSymbol? method, LoweredFunction fn, ClosureFunction? nested,
+        TypeSubstitution? substitution, INamedTypeSymbol? initializingType, FunctionCodeGen? filterParent, EhTry? filterTry)
     {
         _m = module;
         _initializingType = initializingType;
@@ -75,7 +80,9 @@ public sealed partial class FunctionCodeGen
         _method = method;
         _subst = substitution ?? TypeSubstitution.For(method, module.Compilation);
         _fn = fn;
-        _traceFrame = TraceFrameOf(module, method);
+        _filterParent = filterParent;
+        _filterTry = filterTry;
+        _traceFrame = filterParent is null ? TraceFrameOf(module, method) : -1;
         _b = new IrBuilder(module.Llvm);
         _allocas = new IrBuilder(module.Llvm);
         _entry = _b.AppendBlock(fn.Fn, "entry");
@@ -88,6 +95,13 @@ public sealed partial class FunctionCodeGen
             _dbg.SetLocation(_allocas, _dbg.Line, 0);
         }
 
+        if (filterParent is not null)
+        {
+            // (frame, exception): the parent's variables come through the frame record.
+            _start = _b.AppendBlock(fn.Fn, "start");
+            _b.PositionAtEnd(_start);
+            return;
+        }
         // Spill parameters to allocas (mem2reg will undo this) so they're assignable like locals.
         uint index = 0;
         if (method is not null && ModuleCodeGen.IsNestedFunction(method))
@@ -303,7 +317,7 @@ public sealed partial class FunctionCodeGen
         FindArrayEnumerators(graph, state.ArrayEnumerators);
 
         foreach (var block in graph.Blocks)
-            if (block is { Kind: BasicBlockKind.Block, IsReachable: true })
+            if (block is { Kind: BasicBlockKind.Block, IsReachable: true } && !InFilter(block)) // filters: functions of their own
                 state.Blocks[block] = _b.AppendBlock(_fn.Fn, $"bb{block.Ordinal}");
 
         EnterFunctionScope();
@@ -330,6 +344,7 @@ public sealed partial class FunctionCodeGen
             var cases = info.Continuations.Skip(1).Select((c, i) => (L.ConstInt(L.I32, i + 1), c)).ToList();
             _b.Switch(selector, info.Continuations[0], cases);
         }
+        FinishEhTrys(graph, state);
         _cfg = outer;
     }
 
@@ -409,14 +424,33 @@ public sealed partial class FunctionCodeGen
         return true;
     }
 
-    private LLVMBasicBlockRef Target(ControlFlowBranch branch) => ThroughFinally(branch, EnterScopes(branch, DirectTarget(branch)));
+    private LLVMBasicBlockRef Target(ControlFlowBranch branch) =>
+        FilterExit(branch) ?? ThroughFinally(branch, EnterScopes(branch, EnterEhFrames(branch, DirectTarget(branch))));
+
+    private static bool InFilter(BasicBlock block)
+    {
+        for (var r = block.EnclosingRegion; r is not null; r = r.EnclosingRegion)
+            if (r.Kind == ControlFlowRegionKind.Filter) return true;
+        return false;
+    }
 
     /// <summary>
     /// A branch that leaves try regions must first run their finally blocks (innermost first). Each
     /// finally is emitted once; a trampoline stores which continuation to resume and jumps in.
     /// </summary>
-    private LLVMBasicBlockRef ThroughFinally(ControlFlowBranch branch, LLVMBasicBlockRef dest) =>
-        ThroughFinally(branch.FinallyRegions, dest);
+    private LLVMBasicBlockRef ThroughFinally(ControlFlowBranch branch, LLVMBasicBlockRef dest)
+    {
+        if (!LeavesEhFrames(branch)) return ThroughFinally(branch.FinallyRegions, dest);
+        // Records of the trys left are unlinked in order with the finally blocks (FunctionCodeGen.Filters.cs).
+        var steps = ExitSteps(branch);
+        var target = dest;
+        for (var i = steps.Count - 1; i >= 0; i--)
+            target = steps[i] is EhTry eh ? EhPopTo(eh, target) : ThroughFinally([(ControlFlowRegion)steps[i]], target);
+        return target;
+    }
+
+    /// <summary>Does a branch run anything on its way (finally blocks, record unlinking)?</summary>
+    private bool PassesThrough(ControlFlowBranch branch) => !branch.FinallyRegions.IsEmpty || LeavesEhFrames(branch);
 
     private LLVMBasicBlockRef ThroughFinally(System.Collections.Immutable.ImmutableArray<ControlFlowRegion> regions, LLVMBasicBlockRef dest)
     {
@@ -449,10 +483,6 @@ public sealed partial class FunctionCodeGen
 
     private LLVMBasicBlockRef DirectTarget(ControlFlowBranch branch)
     {
-        // The false edge of a `when` filter leaves the filter region: try the next handler.
-        if (branch is { Destination: null, Semantics: ControlFlowBranchSemantics.StructuredExceptionHandling }
-            && branch.Source.EnclosingRegion?.Kind == ControlFlowRegionKind.Filter)
-            return FilterRejected(branch.Source);
         // `if (...) throw;` in a catch: the conditional edge itself rethrows.
         if (branch is { Destination: null, Semantics: ControlFlowBranchSemantics.Rethrow })
         {
@@ -515,6 +545,9 @@ public sealed partial class FunctionCodeGen
             case ControlFlowBranchSemantics.Return:
                 EmitReturn(block.BranchValue, next);
                 break;
+            case ControlFlowBranchSemantics.StructuredExceptionHandling when _filterRegion is not null:
+                _b.Br(Target(next)); // the end of a filter that declines
+                break;
             case ControlFlowBranchSemantics.StructuredExceptionHandling when EnclosingFinally(block) is { } finallyRegion:
                 _cfg!.FinallyEnds.Add((_b.InsertBlock, finallyRegion)); // terminated once all entries are known
                 break;
@@ -540,12 +573,12 @@ public sealed partial class FunctionCodeGen
         {
             if (value is not null) EmitValue(value);
             if (_cfg.Continuation is { } cont) _b.Br(ThroughFinally(branch, cont));
-            else if (branch.FinallyRegions.IsEmpty) _b.RetVoid();
+            else if (!PassesThrough(branch)) _b.RetVoid();
             else _b.Br(ThroughFinally(branch, DirectTarget(branch)));
             return;
         }
         var result = _method!.RefKind == RefKind.RefReadOnly ? ReadOnlyAddressOf(value!) : _method!.RefKind != RefKind.None ? AddressOf(value!) : Coerce(EmitValue(value!), TypeOf(value), ReturnType!);
-        if (branch.FinallyRegions.IsEmpty) { _b.Ret(result); return; }
+        if (!PassesThrough(branch)) { _b.Ret(result); return; }
 
         // `return x;` inside try/finally: x is evaluated before the finally runs.
         _retSlot = _retSlot.IsNull ? _allocas.Alloca(result.Type, "retval") : _retSlot;
@@ -604,9 +637,18 @@ public sealed partial class FunctionCodeGen
 
     private (LLVMValueRef Slot, ITypeSymbol? Type) CaptureSlot(CaptureId id, ITypeSymbol? type)
     {
-        if (_cfg!.Captures.TryGetValue(id, out var existing)) return existing;
+        if (TryGetCapture(id, out var existing)) return existing;
         var slot = _allocas.Alloca(type is null ? L.Ptr : T.Storage(type), "capture");
         return _cfg.Captures[id] = (slot, type);
+    }
+
+    /// <summary>A flow capture's slot; a filter function reads the ones its parent defined before the try.</summary>
+    private bool TryGetCapture(CaptureId id, out (LLVMValueRef Slot, ITypeSymbol? Type) capture)
+    {
+        if (_cfg!.Captures.TryGetValue(id, out capture)) return true;
+        if (_filterParent?._cfg is not { } parentState || !parentState.Captures.TryGetValue(id, out var parentCapture)) return false;
+        capture = _cfg.Captures[id] = (ParentValue(parentCapture.Slot), parentCapture.Type);
+        return true;
     }
 
     // ======================================================================================
@@ -631,6 +673,14 @@ public sealed partial class FunctionCodeGen
         if (CapturedAddress(local) is { } captured) return captured;
         if (_slots.TryGetValue(local, out var slot)) return slot;
         if (local.IsRef) return _b.Load(L.Ptr, RefLocalPointer(local), local.Name); // ref locals hold an address
+        if (FilterLocal(local) is { } parentLocal) return parentLocal;
+        return LocalStorage(local);
+    }
+
+    /// <summary>A (not captured, not ref) local's alloca, created on first use.</summary>
+    private LLVMValueRef LocalStorage(ILocalSymbol local)
+    {
+        if (_slots.TryGetValue(local, out var slot)) return slot;
         if (!_ownLocals.Contains(local))
             throw CompileError.Unsupported($"closure: local function or lambda capturing '{local.Name}'", local);
         var localSlot = _slots[local] = _allocas.Alloca(T.Storage(S(local.Type)), local.Name);
@@ -652,12 +702,14 @@ public sealed partial class FunctionCodeGen
 
     /// <summary>The slot holding a ref local's target address.</summary>
     internal LLVMValueRef RefLocalPointer(ILocalSymbol local) =>
-        _refLocals.TryGetValue(local, out var slot) ? slot : _refLocals[local] = _allocas.Alloca(L.Ptr, local.Name + ".ref");
+        _refLocals.TryGetValue(local, out var slot) ? slot
+        : _refLocals[local] = _filterParent is { } parent ? ParentValue(parent.RefLocalPointer(local)) : _allocas.Alloca(L.Ptr, local.Name + ".ref");
 
     internal LLVMValueRef ParameterSlot(IParameterSymbol parameter, IOperation at)
     {
         if (CapturedAddress(parameter) is { } captured) return captured;
         if (_slots.TryGetValue(parameter, out var slot)) return slot;
+        if (FilterParameter(parameter) is { } parentSlot) return parentSlot;
         // A primary-constructor parameter referenced from a member: read its captured field.
         if (CapturedParameterField(parameter) is { } field)
             return FieldAddressOn(ThisValue(at), S(field));

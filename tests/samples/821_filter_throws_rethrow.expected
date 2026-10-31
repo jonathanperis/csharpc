@@ -1,0 +1,45 @@
+-- a filter that throws declines
+filter inner throws
+filter outer first -> True
+finally inner
+outer caught first
+-- a filter whose own try/catch handles its exception
+filter helper caught its own exception
+caught second
+-- rethrow runs the outer filters again
+filter first pass 1 -> True
+inner handler, rethrowing
+filter middle 1 -> False
+filter outer 1 -> True
+finally after rethrow
+outer caught t passes 1
+-- the same exception thrown again
+filter first throw -> True
+inner caught
+filter second throw -> True
+outer caught k
+-- locals, parameters, captured variables, pattern variables
+name arg, local 15, captured 1, via lambda 1
+filter parameter 8 -> True
+parameter now 8
+-- this and struct this
+counter.Check #1: run 0
+run finally 0 hits 1
+run fallback 0
+counter.Check #2: run 1
+run finally 1 hits 2
+run caught 1
+counter.Check #3: run 2
+run finally 2 hits 3
+run caught 2
+box caught, value 1
+box after 1
+-- generics and lambdas
+generic caught 5
+5
+generic declined no
+null
+filter lambda: in lambda -> True
+lambda caught
+filter local 3 15 -> True
+local function caught

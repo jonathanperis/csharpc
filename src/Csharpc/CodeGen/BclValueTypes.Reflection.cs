@@ -160,14 +160,15 @@ internal static partial class BclValueTypes
         foreach (var integral in new[] { "int", "long", "uint", "ulong", "short", "ushort", "byte", "sbyte" })
             t[$"System.Enum.ToObject(System.Type, {integral})"] = (g, m, _, a, at) =>
                 Rt(g, "csrt_enum_to_object", g.Llvm.Ptr, (a[0], g.Llvm.Ptr), (g.Box(a[1], m.Parameters[1].Type, at), g.Llvm.Ptr), (Table(g), g.Llvm.Ptr));
-        // `GetUninitializedObject(typeof(C))` constructs a C (its vtable slots are kept). With a type only known
-        // at run time, a class nothing else allocates has a pruned method table (instance size 0), and csrt
-        // reports that explicitly — as NativeAOT does for a type whose MethodTable isn't constructed.
+        // `GetUninitializedObject(typeof(C))` constructs a C (its vtable slots are kept; for Nullable<T>, a boxed
+        // T). With a type only known at run time, a class nothing else allocates has a pruned method table
+        // (instance size 0), and csrt reports that explicitly — as NativeAOT does for a type whose MethodTable
+        // isn't constructed. .NET's argument checks are corelib C# (ReflectionRuntime.GetUninitializedObject).
         t["System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(System.Type)"] = (g, _, _, a, at) =>
         {
             if (at is Microsoft.CodeAnalysis.Operations.IInvocationOperation { Arguments: [var argument] } && FunctionCodeGen.TypeOfOperand(argument.Value) is { } created)
-                g.NoteConstructedType(created);
-            return Rt(g, "csrt_type_uninitialized_object", g.Llvm.Ptr, (a[0], g.Llvm.Ptr), (Table(g), g.Llvm.Ptr));
+                g.NoteConstructedType(created is INamedTypeSymbol { OriginalDefinition.SpecialType: SpecialType.System_Nullable_T, TypeArguments: [var underlying] } ? underlying : created);
+            return g.CallCoreLib("ReflectionRuntime", "GetUninitializedObject", a[0]);
         };
         // Exception.HResult and OperationCanceledException.CancellationToken: fields of csrt_Exception (eh.c).
         t["System.Exception.get_HResult()"] = (g, _, self, _, _) => Rt(g, "csrt_exception_get_hresult", g.Llvm.I32, (self, g.Llvm.Ptr));

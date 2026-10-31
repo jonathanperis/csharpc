@@ -353,6 +353,9 @@ TypeObject* csrt_type_generic_definition(TypeObject* t, const csrt_TypeInfoTable
         throw_utf8(&mt_invalid_operation, "This operation is only valid on generic types.");
         return NULL;
     }
+    // A framework-internal interface GetInterfaces() listed (ModuleCodeGen.HiddenInterfaceDescription)
+    // has no Type for its definition.
+    if (!info->definition) { throw_unsupported(info->mt, "Type.GetGenericTypeDefinition()"); return NULL; }
     return csrt_type_from_mt(info->definition);
 }
 
@@ -372,7 +375,7 @@ csrt_Array* csrt_type_generic_arguments(TypeObject* t, const csrt_TypeInfoTable*
 csrt_Array* csrt_type_interfaces(TypeObject* t, const csrt_TypeInfoTable* table) {
     const csrt_TypeInfo* info = info_of(t, table);
     if (!info) return NULL;
-    if (info->flags & CSRT_TI_NO_INTERFACES) {
+    if (info->flags & (CSRT_TI_NO_INTERFACES | CSRT_TI_INTERFACES_INEXACT)) {
         throw_unsupported(info->mt, "Type.GetInterfaces()");
         return NULL;
     }
@@ -1046,17 +1049,16 @@ void* csrt_enum_to_object(TypeObject* t, void* value, const csrt_TypeInfoTable* 
 }
 
 /// RuntimeHelpers.GetUninitializedObject(type): a zeroed instance (or box) without running a constructor.
+/// The corelib (ReflectionRuntime.GetUninitializedObject) has made .NET's checks; these are a backstop.
 void* csrt_type_uninitialized_object(TypeObject* t, const csrt_TypeInfoTable* table) {
     if (!t) { throw_utf8(&mt_argument_null, "Value cannot be null. (Parameter 'type')"); return NULL; }
     const csrt_TypeInfo* info = info_of(t, table);
     if (!info) return NULL;
-    if (info->flags & (CSRT_TI_ARRAY | CSRT_TI_POINTER | CSRT_TI_BYREF_LIKE | CSRT_TI_CONTAINS_GENERIC_PARAMETERS)
-        || t->target == &csrt_String_MT.header) {
-        throw_formatted(&mt_argument, "Type '%s' cannot be created without a constructor.", full_name(t));
+    if (info->flags & (CSRT_TI_ARRAY | CSRT_TI_POINTER | CSRT_TI_BYREF_LIKE | CSRT_TI_CONTAINS_GENERIC_PARAMETERS | CSRT_TI_ABSTRACT
+                       | CSRT_TI_INTERFACE | CSRT_TI_NULLABLE) || t->target == &csrt_String_MT.header) {
+        throw_formatted(&mt_not_supported, "RuntimeHelpers.GetUninitializedObject of '%s' is not supported by csharpc yet.", full_name(t));
         return NULL;
     }
-    static const csrt_MethodTable mt_member_access = { NULL, "System.MemberAccessException", 0, 0, NULL, 0, 0 };
-    if (info->flags & (CSRT_TI_ABSTRACT | CSRT_TI_INTERFACE)) { throw_utf8(&mt_member_access, "Cannot create an abstract class."); return NULL; }
     if (t->target->instance_size == 0) {
         throw_formatted(&mt_not_supported, "RuntimeHelpers.GetUninitializedObject of '%s' is not supported by csharpc yet: the program has no instances of it.", full_name(t));
         return NULL;

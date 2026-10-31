@@ -17,8 +17,8 @@ namespace Csharpc.Wasm;
 ///    (the return value is never looked at: every caller tests the global first);
 ///  * in <c>main</c> the propagate block reports the unhandled exception.
 ///
-/// Handler selection, `when` filters and finally blocks are unchanged: they are ordinary code in the
-/// landing-pad blocks. Only calls whose callee can reach csrt_throw_object (or makes an indirect call)
+/// Handler selection and finally blocks are unchanged: they are ordinary code in the landing-pad
+/// blocks. `when` filters run when the exception is raised (src/runtime/eh.c walks the try records). Only calls whose callee can reach csrt_throw_object (or makes an indirect call)
 /// get a test; after inlining LLVM folds the tests for code that provably doesn't throw.
 /// </summary>
 public static class ExceptionLowering
@@ -35,6 +35,7 @@ public static class ExceptionLowering
     public static void Run(LlvmModule module, LlvmContext llvm)
     {
         var m = module.Ref;
+        StripUnneededEhRecords(m);
         // Throwing = storing an exception into the pending global. After clang's inlining that store
         // can be anywhere in the runtime (csrt_rethrow, the csrt_throw_* helpers), so look for it. A
         // program whose code never stores one (the global is gone) can't throw at all.
@@ -73,6 +74,26 @@ public static class ExceptionLowering
     }
 
     private static bool HasLandingPads(LLVMValueRef fn) => LLVMHasPersonalityFn(fn) != 0;
+
+    /// <summary>
+    /// The runtime's first pass walks the try records (FunctionCodeGen.Filters.cs) to run `when`
+    /// filters; every try with a catch links one in here, since the walk must stop at a catch. In a
+    /// program without filters (no `csharpc.ehfilter.*` clause survived) nothing reads them: drop the
+    /// linking, and the optimizer drops the records.
+    /// </summary>
+    private static void StripUnneededEhRecords(LLVMModuleRef m)
+    {
+        for (var g = LLVMGetFirstGlobal(m); !g.IsNull; g = LLVMGetNextGlobal(g))
+            if (Ir.Name(g).StartsWith("csharpc.ehfilter.", StringComparison.Ordinal)) return;
+        List<LLVMValueRef> calls = [];
+        foreach (var fn in Ir.DefinedFunctions(m))
+            foreach (var bb in Ir.Blocks(fn))
+                foreach (var inst in Ir.Instructions(bb))
+                    if (Ir.Opcode(inst) == LLVMOpcode.Call && Ir.DirectCallee(inst) is { IsNull: false } callee
+                        && Ir.Name(callee) is "csrt_eh_push" or "csrt_eh_enter" or "csrt_eh_pop")
+                        calls.Add(inst);
+        foreach (var call in calls) LLVMInstructionEraseFromParent(call);
+    }
 
     private static bool StoresException(LLVMValueRef fn, LLVMValueRef pending)
     {

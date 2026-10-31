@@ -1,6 +1,6 @@
-# Conformance results (2026-10-22, csharpc -O2)
+# Conformance results (2026-10-31, csharpc -O2)
 
-**256/258 programs pass (99.2%)**
+**258/258 programs pass (100.0%)**
 
 | area | pass | total | coverage |
 |---|---:|---:|---:|
@@ -11,7 +11,7 @@
 | conversions | 12 | 12 | 100.0% |
 | dispatch | 8 | 8 | 100.0% |
 | evalorder | 12 | 12 | 100.0% |
-| exceptions | 11 | 12 | 91.7% |
+| exceptions | 12 | 12 | 100.0% |
 | formatting | 6 | 6 | 100.0% |
 | generics | 8 | 8 | 100.0% |
 | generics2 | 6 | 6 | 100.0% |
@@ -36,10 +36,9 @@
 | structs | 9 | 9 | 100.0% |
 | switches | 8 | 8 | 100.0% |
 | tuples | 5 | 5 | 100.0% |
-| **total** | **257** | **258** | **99.6%** |
+| **total** | **258** | **258** | **100.0%** |
 
 ## Failure reasons (ranked by programs blocked)
 
 | # | programs | reason | e.g. |
 |---:|---:|---|---|
-| 1 | 1 | wrong output | exceptions/003_filter_side_effect_order |

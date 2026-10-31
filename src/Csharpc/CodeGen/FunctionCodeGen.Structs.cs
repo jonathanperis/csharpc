@@ -51,7 +51,7 @@ public sealed partial class FunctionCodeGen
                 return AddressOf(op);
             case IFlowCaptureReferenceOperation c when _cfg!.LvalueCaptures.Contains(c.Id):
                 return CaptureAddress(c);
-            case IFlowCaptureReferenceOperation c when _cfg!.Captures.TryGetValue(c.Id, out var capture) && capture.Type is not null:
+            case IFlowCaptureReferenceOperation c when TryGetCapture(c.Id, out var capture) && capture.Type is not null:
                 return capture.Slot;
             default:
                 return Spill(EmitValue(op));

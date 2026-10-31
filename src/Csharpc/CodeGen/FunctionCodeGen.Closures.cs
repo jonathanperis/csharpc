@@ -69,8 +69,7 @@ public sealed partial class FunctionCodeGen
         var env = CallRuntime("csrt_alloc", L.Ptr, [L.Ptr, L.I64], mt, L.ConstInt(L.I64, (long)size));
         env.SetName("env");
         _b.Store(EnvValue(scope.Parent), _b.StructGep(scope.TypeFor(_subst), env, EnvScope.ParentField));
-        if (!_envSlots.TryGetValue(scope, out var slot)) _envSlots[scope] = slot = NewTemp(L.Ptr, "env.slot");
-        _b.Store(env, slot);
+        _b.Store(env, EnvSlot(scope));
         return env;
     }
 
@@ -79,11 +78,7 @@ public sealed partial class FunctionCodeGen
     {
         if (target is null) return LlvmContext.Null(L.Ptr);
         var closure = CurrentClosure;
-        if (target.Owner == closure)
-        {
-            if (!_envSlots.TryGetValue(target, out var slot)) _envSlots[target] = slot = NewTemp(L.Ptr, "env.slot");
-            return _b.Load(L.Ptr, slot);
-        }
+        if (target.Owner == closure) return _b.Load(L.Ptr, EnvSlot(target));
         var env = _incomingEnv;
         for (var scope = closure.Incoming; scope != target; scope = scope.Parent)
         {
@@ -91,6 +86,13 @@ public sealed partial class FunctionCodeGen
             env = _b.Load(L.Ptr, _b.StructGep(scope.TypeFor(_subst), env, EnvScope.ParentField), "env.parent");
         }
         return env;
+    }
+
+    /// <summary>The slot holding a scope's current environment (a filter function uses its parent's).</summary>
+    private LLVMValueRef EnvSlot(EnvScope scope)
+    {
+        if (_envSlots.TryGetValue(scope, out var slot)) return slot;
+        return _envSlots[scope] = _filterParent is { } parent ? ParentValue(parent.EnvSlot(scope)) : NewTemp(L.Ptr, "env.slot");
     }
 
     private LLVMValueRef? CapturedAddress(ISymbol variable)

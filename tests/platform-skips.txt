@@ -91,6 +91,7 @@ wasi 525_task_status_delegate_tasks  needs threads: a pool worker blocked on an 
 wasi 125_gc_under_threads         needs threads: Thread.Start throws PlatformNotSupportedException on WebAssembly
 wasi 227_static_ctor_timing       needs threads (static constructors raced by threads): PlatformNotSupportedException on WebAssembly
 wasi 151_async_threadpool         needs concurrent pool threads (tasks meet at a barrier); WebAssembly runs work items one after another
+wasi 411_stack_trace_rethrow     known gap: its filter reads the exception's stack trace, which wasm32 records only as the exception propagates while filters run when it is raised; csharpc stops with an explicit "not supported" there
 wasi 84_misc_bcl                  prints IntPtr.Size: 4 on wasm32
 wasi 160_pinvoke_dllimport        Linux LP64 signatures (C long as C# long; 32-bit on wasm32) and a libc symbol that doesn't exist (a link error with wasi-libc)
 wasi 176_pinvoke_struct_abi       Linux LP64 signatures: ldiv takes C long, 32-bit on wasm32

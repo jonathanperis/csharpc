@@ -105,9 +105,21 @@ enum { T_PENDING = 0, T_DONE = 1, T_FAULTED = 2, T_CANCELED = 3 };
 // (invoke + catch-all landing pad — C can't catch); these weak fallbacks don't catch, except on
 // wasm32, where a thrown exception is just pending when fn returns (eh.c).
 #ifdef __wasm__
-__attribute__((weak)) void* csrt_call_catching_void(void (*fn)(void*), void* arg) { fn(arg); return csrt_begin_catch(NULL); }
+// The barrier record tells the first pass (eh.c, "Exception filters") that this catches everything.
+void csrt_eh_push_barrier(csrt_EhFrame* frame);
+typedef struct { void* prev; const void* owner; } EhBarrier;
+__attribute__((weak)) void* csrt_call_catching_void(void (*fn)(void*), void* arg) {
+    EhBarrier barrier;
+    csrt_eh_push_barrier((csrt_EhFrame*)&barrier);
+    fn(arg);
+    csrt_eh_pop((csrt_EhFrame*)&barrier);
+    return csrt_begin_catch(NULL);
+}
 __attribute__((weak)) void* csrt_call_catching_ptr(void* (*fn)(void*), void* arg, void** result) {
+    EhBarrier barrier;
+    csrt_eh_push_barrier((csrt_EhFrame*)&barrier);
     *result = fn(arg);
+    csrt_eh_pop((csrt_EhFrame*)&barrier);
     return csrt_begin_catch(NULL);
 }
 #else
@@ -1486,8 +1498,8 @@ static void rethrow_iterator_exception(void) {
     void* e = s_iterator_exception;
     if (!e) return;
     s_iterator_exception = NULL;
-    csrt_trace_new_stack(e);
-    csrt_rethrow(e);
+    // No csrt_trace_new_stack: the search already walked on into MoveNext's callers, recording them.
+    csrt_propagate(e);  // the same dispatch: .NET's MoveNext doesn't catch (eh.c, csrt_eh_iterator_clause)
 }
 
 bool csrt_iterator_move_next(void* obj) {
