@@ -1,0 +1,14 @@
+1 2 3 4 5 6 
+a,null,c,d,
+8
+Point { X = 1, Y = 2 };Point { X = 3, Y = 4 };
+Enumeration has not started. Call MoveNext.
+7 0 0 9 
+Enumeration already finished.
+False
+True 7
+True
+10,20,30,40
+0 9
+False False True True True
+4 True

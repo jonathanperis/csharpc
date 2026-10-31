@@ -403,6 +403,8 @@ static void* const* builtin_interface_slots(const csrt_MethodTable* objmt, const
     // Arrays allocated by generated code have a per-element-type MT ("System.Int32[]") whose
     // interface map lists exactly the interfaces of that element type; the shared tables only serve
     // untagged arrays (made by the runtime), whose element type is unknown.
+    // Rectangular arrays implement only System.Array's non-generic interfaces, never IEnumerable<T> & co.
+    if ((objmt->flags & CSRT_MT_MDARRAY) && strchr(itf->name, '`')) return NULL;
     if (is_untyped_array_mt(objmt)) return (void* const*)itf->interfaces;
     // Strings and boxed primitives implementing the program's interfaces, registered at startup.
     void* const* registered_slots = NULL;

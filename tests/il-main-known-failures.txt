@@ -4,7 +4,6 @@
 #
 # <sample>  <why>
 325_json_types                      reflection-based System.Text.Json of a private nested type: the generated metadata can only reach it from source (a context nested beside it)
-393_rectangular_array_type          non-generic IEnumerable over a rectangular array: NotSupportedException at run time
 680_dynamic_basics                  `dynamic` call sites in IL (Microsoft.CSharp binder): csharpc binds dynamic from C# source (ADR 0019)
 681_dynamic_binder_errors           `dynamic` in IL (as above)
 682_dynamic_calls                   `dynamic` in IL (as above)

@@ -44,6 +44,8 @@ namespace CsharpcCoreLib
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern Span<char> StringChars(string s);
         /// <summary>The object's address (its method-table header): GCHandle.AddrOfPinnedObject; objects never move.</summary>
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern unsafe byte* ObjectAddress(object o);
+        /// <summary>Element <paramref name="index"/> (row-major) of a rectangular array whose element type is T.</summary>
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern T MdArrayElement<T>(Array array, long index);
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern long DoubleToBits(double value);
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern double BitsToDouble(long bits);
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern int SingleToBits(float value);
