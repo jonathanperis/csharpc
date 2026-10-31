@@ -326,9 +326,24 @@ static void text_append(TraceText* t, const char* s, size_t n) {
 
 static void text_append_str(TraceText* t, const char* s) { text_append(t, s, strlen(s)); }
 
+#ifdef __wasm__
+// wasm32 records an exception's frames as it propagates through them (csrt_trace_frame), but its
+// filters run when it is raised (eh_search): a filter would see none of them. Say so instead.
+static csrt_Exception* s_first_pass;
+static void trace_check_first_pass(csrt_Exception* e) {
+    if (!s_trace || !e || e != s_first_pass) return;
+    fflush(stdout);
+    fputs("csharpc: the stack trace of an exception read inside its own exception filter is not supported by csharpc yet on WebAssembly" CSRT_NEWLINE, stderr);
+    abort();
+}
+#else
+static void trace_check_first_pass(csrt_Exception* e) { (void)e; }
+#endif
+
 /// Exception.StackTrace: null until the exception is thrown (or when no frame was recorded).
 csrt_String* csrt_exception_get_stack_trace(void* exception) {
     csrt_Exception* e = exception;
+    trace_check_first_pass(e);
     int32_t count = trace_count(e->trace);
     if (count == 0 || !s_trace) return NULL;
     const csrt_TraceSite* const* entries = trace_data(e->trace)->sites;
@@ -355,6 +370,7 @@ csrt_String* csrt_exception_get_stack_trace(void* exception) {
 
 /// ExceptionDispatchInfo.Capture: a copy of the frames recorded so far (null: none).
 void* csrt_exception_capture_trace(void* exception) {
+    trace_check_first_pass(exception);
     csrt_Array* trace = ((csrt_Exception*)exception)->trace;
     if (trace_count(trace) == 0) return NULL;
     return trace_copy(trace, trace_count(trace));
@@ -493,7 +509,10 @@ static void eh_search(csrt_Exception* e) {
             // its throw makes must not look past it.
             csrt_EhFrame barrier = { NULL, &csrt_eh_barrier };
             csrt_eh_push(&barrier);
+            csrt_Exception* outer = s_first_pass;
+            s_first_pass = e;
             int32_t accepted = c->filter(f, e);
+            s_first_pass = outer;
             csrt_eh_pop(&barrier);
             if (accepted) {
                 e->eh_clause = c;
