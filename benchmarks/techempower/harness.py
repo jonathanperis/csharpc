@@ -245,8 +245,9 @@ def build(args):
             log(tail(out / "aot.build.log"))
     if "jit" in only:
         log("== JIT publish (framework-dependent)")
-        project = sources("jit", app["msbuild"])
-        rc, s = run([DOTNET, "publish", project, "-c", "Release", "-o", out / "jit"] + app["msbuild"], out / "jit.build.log", env=env)
+        jit_props = app["msbuild"] + ["-p:PublishAot=false"]  # the interim project sets PublishAot itself
+        project = sources("jit", jit_props)
+        rc, s = run([DOTNET, "publish", project, "-c", "Release", "-o", out / "jit"] + jit_props, out / "jit.build.log", env=env)
         finish("jit", rc == 0, s, out / "jit" / (app["binary"] + ".dll"), f"built in {s:.0f} s" if rc == 0 else "build failed")
         if rc:
             log(tail(out / "jit.build.log"))
@@ -451,8 +452,8 @@ def parse_wrk(text):
     m = re.search(r"^Requests/sec:\s+([\d.]+)", text, re.M)
     if m:
         r["rps"] = float(m.group(1))
-    # wrk records no latency for pipelined requests (every value 0.00us): not a measurement.
-    if r.get("lat_max") == 0:
+    # Pipelined, wrk records the latency of only some batches (most percentiles 0.00us): not a measurement.
+    if any(r.get(k) == 0 for k in ("lat_max", "lat_p50", "lat_p75", "lat_p90", "lat_p99")):
         for k in [k for k in r if k.startswith("lat_")]:
             r[k] = None
     return r
@@ -466,6 +467,11 @@ class Server:
     def start(self):
         """Starts the build pinned to the server CPUs; returns ms to the first answer, or raises."""
         ctx, entry = self.ctx, self.ctx.builds[self.build]
+        # A port per start: connections the previous server closed sit in TIME_WAIT on its port, and a
+        # restart on it then depends on SO_REUSEADDR (which .NET sets before bind and csharpc doesn't yet).
+        ctx.port = ctx.base_port + ctx.starts % 200
+        ctx.starts += 1
+        self.port = ctx.port
         cwd = ctx.builds_dir / entry["dir"]
         cmd = [DOTNET, entry["binary"]] if self.build == "jit" else ["./" + entry["binary"]]
         env = dict(os.environ)
@@ -504,7 +510,7 @@ class Server:
                 self.proc.wait()
         self.proc = None
         for _ in range(100):  # the port is free again
-            if http_status("127.0.0.1", self.ctx.port, "/plaintext", timeout=0.2) is None:
+            if http_status("127.0.0.1", self.port, "/plaintext", timeout=0.2) is None:
                 break
             time.sleep(0.1)
         m = None
@@ -666,7 +672,8 @@ def measure(args):
     ctx.test = TESTS.get(args.test, TESTS["plaintext"])
     ctx.stem = f"{args.app}.{args.test}"
     ctx.duration = int(os.environ.get("DURATION", "15"))
-    ctx.port = int(os.environ.get("PORT", "8080"))
+    ctx.base_port = ctx.port = int(os.environ.get("PORT", "8080"))
+    ctx.starts = 0
     ctx.profile = args.profile or os.environ.get("PROFILE") == "1"
     ctx.profile_scenarios = os.environ.get("PROFILE_SCENARIOS", "plaintext,256 json,256").split()
     ctx.no_tfb_verify = args.no_tfb_verify
