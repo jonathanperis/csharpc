@@ -56,7 +56,8 @@ enum { CSRT_MT_ABSTRACT = 1, CSRT_MT_INTERFACE = 2, CSRT_MT_ITERATOR = 4 /* src/
        CSRT_MT_DISPOSE_SLOT = 256 /* with CSRT_MT_DISPOSABLE: vtable slot 3 is its IDisposable.Dispose */,
        CSRT_MT_REFERENCE_ELEMENTS = 512 /* an array type whose elements are references (array covariance) */,
        CSRT_MT_DELEGATE = 1024 /* a delegate type (`is System.Delegate`) */,
-       CSRT_MT_PRIMITIVE = 2048 /* a boxed primitive; with CSRT_MT_ENUM: `reserved` is the (underlying) CorElementType */ };
+       CSRT_MT_PRIMITIVE = 2048 /* a boxed primitive; with CSRT_MT_ENUM: `reserved` is the (underlying) CorElementType */,
+       CSRT_MT_SYNTHESIZED_INTERFACE = 1 << 16 /* made by csrt from a csrt_LazyInterface (type.c) */ };
 // Array types of integers and enums: the ECMA-335 reduced element type (4 bits: 1 int8, 2 int16, 3 int32,
 // 4 int64, 5 native int), so int[] and uint[] (and an enum's array) are cast-compatible like in the CLR.
 #define CSRT_MT_ELEMENT_CLASS_SHIFT 12
@@ -264,7 +265,18 @@ typedef struct csrt_TypeInfo {
     uint32_t variance;                            // 2 bits per generic argument: 1 = out, 2 = in
 } csrt_TypeInfo;
 
-typedef struct { int64_t count; const csrt_TypeInfo* entries; } csrt_TypeInfoTable;
+// An interface only Type.GetInterfaces() hands out (IAdditiveIdentity<int, int> on int, IList<T> on an
+// array) has no method table of its own: a type's `interfaces` list points at its description, tagged
+// ((uintptr_t)lazy | 1), and csrt synthesizes the method table (named `name` + "[" + the arguments'
+// names + "]" when generic) and its TypeInfo (`info`, with `mt` set) the first time it is needed.
+typedef struct { csrt_TypeInfo info; const char* name; } csrt_LazyInterface;
+
+typedef struct {
+    int64_t count;
+    const csrt_TypeInfo* entries;
+    int64_t lazy_count;
+    const csrt_LazyInterface* lazy;
+} csrt_TypeInfoTable;
 
 // Member metadata (constructors, methods, parameters, custom attributes): generated at compile time
 // by ModuleCodeGen.Reflection.cs for the types the program hands to [DynamicallyAccessedMembers]
