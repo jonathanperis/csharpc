@@ -318,7 +318,8 @@ Deployment: start-up to the first response (5 starts per round), idle RSS, execu
 per build (chiseled runtime-deps for the native builds, chiseled aspnet for the JIT, smoke-tested). Each
 measure job runs one test type for all builds on one runner, 3 rounds for NativeAOT and csharpc in
 alternating order (the JIT once). The verdict per metric compares medians: better or worse only when
-the difference exceeds both builds' run-to-run range (max − min) and 1 % (exact metrics such as sizes:
+the difference exceeds both builds' run-to-run range (max − min; beyond 5 samples, as for the 15 start-ups,
+the 10th–90th percentile spread) and 1 % (exact metrics such as sizes:
 any difference; single samples such as the build time: 5 %); errors are a requirement (zero), not a
 comparison. `results.json` holds every sample; `results.md` opens with "M7 finish line: X of Y metrics
 beat NativeAOT". 456 compared metrics; a full run takes about 50 minutes of wall time in 13 jobs.
@@ -345,7 +346,8 @@ executable 16.4 MiB, build 31 s, image 32.7 MiB (chiseled runtime-deps; JIT 125.
 found a csharpc socket difference: `Socket.Bind` doesn't set `SO_REUSEADDR` as .NET does on Unix, so a
 server can't rebind a port with TIME_WAIT connections, and Linux then refuses even a .NET server the port
 csharpc just served (the harness gives every start its own port). The interim app, measured alongside:
-23 of 106 metrics beat NativeAOT (41 ties, 42 worse; zero errors at all 10 levels). Ahead: start-up
+23 of 106 metrics beat NativeAOT (41 ties, 42 worse; zero errors at all 10 levels); the next run, on other
+runners, counted 46 (run 41216274917), which is why M7 asks for wins held over repeated runs. Ahead: start-up
 11 vs 23 ms, idle RSS 12.9 vs 17.7 MiB, threads (8 vs 13–14), RSS at JSON 512 (57 vs 81 MiB). Behind:
 pipelined plaintext 0.93–0.97 of NativeAOT's requests/s above 256 connections (a tie at 256), JSON 0.90–0.93 (a tie at
 512), CPU per JSON request (+5–10 %), RSS under pipelined load (58 vs 28 MiB at 256 connections, 744 vs 260

@@ -29,8 +29,8 @@ records a normalized transcript of its answers (verify.py), which must be identi
 
 report: medians of the rounds per metric and build, and the verdict "csharpc better / worse / tie": the
 difference between csharpc's and NativeAOT's medians must exceed the larger run-to-run range (max - min over
-the rounds) of the two builds and 1 % of NativeAOT's median (exact metrics such as sizes: any difference;
-single samples such as the build time: 5 %). Errors are a requirement (zero for csharpc), not a comparison.
+the rounds; the 10th-90th percentile spread beyond 5 samples) of the two builds and 1 % of NativeAOT's
+median (exact metrics such as sizes: any difference; single samples such as the build time: 5 %). Errors are a requirement (zero for csharpc), not a comparison.
 Writes DIR/results.json and DIR/results.md, and exits 1 when a required build doesn't build, a build fails
 TechEmpower's verification, answers differently from NativeAOT, or its image doesn't serve a request.
 
@@ -762,12 +762,21 @@ LEVEL_METRICS = [  # key, label, unit, better
 ]
 
 
+def spread(values):
+    """Run-to-run variation: max - min of the rounds; with more than 5 samples (start-up: 5 starts per round),
+    the 10th-90th percentile spread, so that one outlier start doesn't hide a 2x difference."""
+    if len(values) <= 5:
+        return max(values) - min(values)
+    q = statistics.quantiles(values, n=10, method="inclusive")
+    return q[-1] - q[0]
+
+
 def verdict(metric):
     """Fills metric["median"], ["range"], ["noise"], ["verdict"] from metric["samples"]."""
     s = metric["samples"]
     med = {b: statistics.median(v) for b, v in s.items() if v}
     metric["median"] = med
-    metric["range"] = {b: max(v) - min(v) for b, v in s.items() if v}
+    metric["range"] = {b: spread(v) for b, v in s.items() if v}
     if metric.get("requirement"):
         c = s.get("csharpc")
         metric["verdict"] = "no result" if not c else "met" if max(c) == 0 else "not met"
@@ -960,7 +969,7 @@ def markdown_app(app, data):
                  f"{s['no_result']} without a csharpc result; csharpc error-free at {s['zero_error_levels']} of {s['levels']} load levels)")
     lines.append("")
     lines.append("Verdict: csharpc's median against NativeAOT's over the rounds; better or worse only when the difference exceeds both "
-                 "builds' run-to-run range and 1 % (exact metrics: any difference; single samples: 5 %).")
+                 "builds' run-to-run range (max - min; 10th-90th percentile beyond 5 samples) and 1 % (exact metrics: any difference; single samples: 5 %).")
     lines.append("")
     lines += ["| | NativeAOT | csharpc | JIT |", "|---|---|---|---|"]
     status = lambda b: builds.get(b, {}).get("status", "not built")
