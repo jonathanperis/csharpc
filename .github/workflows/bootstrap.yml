@@ -1,0 +1,78 @@
+name: Bootstrap
+
+# M6 (docs/06-roadmap.md "M6 — Bootstrapping"), the two measures too big for every CI shard:
+#   - roslyn-host: tests/projects/il/IlRoslynHostApp, a program that hosts Roslyn from its NuGet package
+#     (parse, bind, diagnostics, deterministic emit), compiled by csharpc and checked against `dotnet run`
+#     (tests/il.sh with CSHARPC_HEAVY_IL=1; ~8 minutes and ~6 GB at -O0);
+#   - selfhost: csharpc compiling its own csharpc.dll (tools/bootstrap/selfhost.sh), then the native
+#     compiler compiling samples exactly as the managed one does.
+# Both report compile time and peak memory. Informational: not one of the `test (<platform>)` merge-bar jobs.
+on:
+  push:
+    branches: [main, "ci/m6-**"]
+    paths: ['src/**', 'tests/projects/il/IlRoslynHostApp/**', 'tests/il.sh', 'tools/bootstrap/**', '.github/workflows/bootstrap.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bootstrap-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  DOTNET_CLI_TELEMETRY_OPTOUT: 1
+  DOTNET_NOLOGO: 1
+  CSHARPC_THREADS: 2
+
+jobs:
+  roslyn-host:
+    name: Roslyn hosted from IL
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: ./.github/actions/setup-toolchain
+        with:
+          os: linux
+
+      - name: tests/il.sh IlRoslynHostApp (-O0)
+        run: CSHARPC_HEAVY_IL=1 /usr/bin/time -v tests/il.sh IlRoslynHostApp 2>&1 | tee host.log; grep -q "0 failed" host.log
+
+      - name: Report
+        if: always()
+        run: |
+          { echo '### Roslyn hosted from IL'; echo '```'; grep -E "^(PASS|FAIL|SKIP)|passed|Maximum resident|Elapsed \(wall" host.log; echo '```'; } >> "$GITHUB_STEP_SUMMARY" || true
+
+  selfhost:
+    name: csharpc compiles csharpc
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: ./.github/actions/setup-toolchain
+        with:
+          os: linux
+
+      - name: Self-compile and compare (-O0)
+        run: SELFHOST_LOG="$PWD/selfhost.log" tools/bootstrap/selfhost.sh -O0 2>&1 | tee selfhost-summary.log; grep -q " 0 failed" selfhost-summary.log
+
+      - name: Report
+        if: always()
+        run: |
+          { echo '### csharpc compiles csharpc'; echo '```'; cat selfhost-summary.log | tail -80; echo '```'; } >> "$GITHUB_STEP_SUMMARY" || true
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: selfhost-log
+          path: selfhost.log
+          if-no-files-found: ignore

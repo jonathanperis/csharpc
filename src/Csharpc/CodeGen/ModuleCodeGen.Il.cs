@@ -338,6 +338,7 @@ public sealed partial class ModuleCodeGen
         var edges = _references.GroupBy(r => (ISymbol?)r.From?.OriginalDefinition, SymbolEqualityComparer.Default)
             .ToDictionary(g => g.Key ?? Compilation.Assembly, g => g.ToList(), SymbolEqualityComparer.Default);
         var reached = new HashSet<ISymbol>(SymbolEqualityComparer.Default);
+        var followedVirtually = new HashSet<ISymbol>(SymbolEqualityComparer.Default);
         // CSHARPC_WHY=1: how the program reaches each failing method (the first reference chain found).
         var why = Environment.GetEnvironmentVariable("CSHARPC_WHY") == "1"
             ? new Dictionary<ISymbol, IMethodSymbol?>(SymbolEqualityComparer.Default) : null;
@@ -351,7 +352,9 @@ public sealed partial class ModuleCodeGen
         void Follow(IMethodSymbol? from, IMethodSymbol to, bool isVirtual)
         {
             Reach(to, from);
-            if (isVirtual) foreach (var implementation in PossibleTargets(to)) Reach(implementation, from);
+            // The implementations of a virtual are the same from every call site: expand each target once.
+            if (isVirtual && followedVirtually.Add(to.OriginalDefinition))
+                foreach (var implementation in PossibleTargets(to)) Reach(implementation, from);
         }
         // Roots: the entry point and what .NET itself calls in the program (overrides and implementations of
         // library members: ToString, Finalize, IComparable...; static constructors, module initializers and
@@ -425,23 +428,45 @@ public sealed partial class ModuleCodeGen
         if (definition.ContainingType.TypeKind == TypeKind.Interface)
         {
             var itf = definition.ContainingType;
-            foreach (var type in HierarchyTypes)
-                foreach (var implemented in type.AllInterfaces.Where(i => SymbolEqualityComparer.Default.Equals(i.OriginalDefinition, itf)))
+            foreach (var (type, implemented) in InterfaceImplementers(itf))
+            {
+                var member = implemented.GetMembers(definition.Name).OfType<IMethodSymbol>()
+                    .FirstOrDefault(m => SymbolEqualityComparer.Default.Equals(m.OriginalDefinition, definition));
+                if (member is not null && type.FindImplementationForInterfaceMember(member) is IMethodSymbol implementation)
                 {
-                    var member = implemented.GetMembers(definition.Name).OfType<IMethodSymbol>()
-                        .FirstOrDefault(m => SymbolEqualityComparer.Default.Equals(m.OriginalDefinition, definition));
-                    if (member is not null && type.FindImplementationForInterfaceMember(member) is IMethodSymbol implementation)
-                    {
-                        yield return implementation;
-                        // The implementing method may be a virtual of a base class that `type` (or a class
-                        // derived from it) overrides: the interface call dispatches to the override.
-                        if (implementation.IsVirtual || implementation.IsAbstract || implementation.IsOverride)
-                            foreach (var overrider in ClassOverrides(implementation)) yield return overrider;
-                    }
+                    yield return implementation;
+                    // The implementing method may be a virtual of a base class that `type` (or a class
+                    // derived from it) overrides: the interface call dispatches to the override.
+                    if (implementation.IsVirtual || implementation.IsAbstract || implementation.IsOverride)
+                        foreach (var overrider in ClassOverrides(implementation)) yield return overrider;
                 }
+            }
             yield break;
         }
         foreach (var overrider in ClassOverrides(definition)) yield return overrider;
+    }
+
+    private Dictionary<INamedTypeSymbol, List<(INamedTypeSymbol Type, INamedTypeSymbol Implemented)>>? _interfaceImplementers;
+
+    /// <summary>
+    /// The hierarchy's types implementing an instantiation of <paramref name="definition"/>, with that
+    /// instantiation, in HierarchyTypes order: indexed once (the hierarchy is fixed by then) instead of a scan of
+    /// every type's interfaces per interface member (~70 s of a Roslyn-sized program's reachability).
+    /// </summary>
+    private List<(INamedTypeSymbol Type, INamedTypeSymbol Implemented)> InterfaceImplementers(INamedTypeSymbol definition)
+    {
+        if (_interfaceImplementers is null)
+        {
+            _interfaceImplementers = new(SymbolEqualityComparer.Default);
+            foreach (var type in HierarchyTypes)
+                foreach (var implemented in type.AllInterfaces)
+                {
+                    if (!_interfaceImplementers.TryGetValue(implemented.OriginalDefinition, out var list))
+                        _interfaceImplementers[implemented.OriginalDefinition] = list = [];
+                    list.Add((type, implemented));
+                }
+        }
+        return _interfaceImplementers.TryGetValue(definition.OriginalDefinition, out var found) ? found : [];
     }
 
     /// <summary>

@@ -92,6 +92,8 @@ public sealed partial class ModuleCodeGen
     /// (an array of a reference type is synthesized at run time; GetCustomAttributes' arrays come with
     /// the attribute metadata), and keeping theirs added 0.35 MB to the TechEmpower app.
     /// </summary>
+    private int _createInstanceInterfacesScanned, _createInstanceTypesScanned;
+
     private void EnsureCreateInstanceArrays()
     {
         if (!_arrayCreateInstanceUsed) return;
@@ -101,12 +103,15 @@ public sealed partial class ModuleCodeGen
             if (!named.IsReferenceType || named.TypeKind == TypeKind.Delegate) return;
             ArrayMethodTable(named);
         }
-        foreach (var itf in _arrayInterfaces)
+        // Both lists only grow and each step is idempotent: scan only what was added since the last round.
+        for (; _createInstanceInterfacesScanned < _arrayInterfaceOrder.Count; _createInstanceInterfacesScanned++)
         {
+            var itf = _arrayInterfaceOrder[_createInstanceInterfacesScanned];
             if (itf.IsGenericType && itf.TypeArguments.Length == 1) KeepArrayOf(itf.TypeArguments[0]);
         }
-        foreach (var (_, type) in _typeMts.ToList())
+        for (; _createInstanceTypesScanned < _typeMts.Count; _createInstanceTypesScanned++)
         {
+            var type = _typeMts[_createInstanceTypesScanned].Type;
             if (type is not INamedTypeSymbol { IsGenericType: true } named || TypeSubstitution.IsOpen(named)) continue;
             if (named.TypeArguments.Length != 1) continue;
             if (!s_arrayInterfaces.Contains(Mangler.MetadataName(named.OriginalDefinition))) continue;
