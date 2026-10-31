@@ -146,11 +146,16 @@ internal sealed class GeneratedRegexGenerator : IIncrementalGenerator
         sb.AppendLine("#nullable enable annotations");
         sb.AppendLine("#pragma warning disable CS0282");
         var index = 0;
+        // .NET's generator emits one implementation per (pattern, options, timeout): members that share one return
+        // the same instance, with the culture of the first of them.
+        var shared = new Dictionary<(string, int, int?), string>();
         foreach (var item in items)
         {
             if (item is Diagnostic diagnostic) { context.ReportDiagnostic(diagnostic); continue; }
             if (item is not Member m) continue;
-            var holder = $"CsharpcGeneratedRegex_{index++}";
+            var key = (m.Pattern, m.Options, m.MatchTimeout);
+            var existing = shared.TryGetValue(key, out var holder);
+            if (!existing) shared[key] = holder = $"CsharpcGeneratedRegex_{index++}";
             var depth = 0;
             if (m.Namespace.Length > 0) { sb.AppendLine($"namespace {m.Namespace}"); sb.AppendLine("{"); }
             foreach (var type in m.ContainingTypes) { sb.AppendLine(type); sb.AppendLine("{"); depth++; }
@@ -158,6 +163,7 @@ internal sealed class GeneratedRegexGenerator : IIncrementalGenerator
             sb.AppendLine($" => global::System.Text.RegularExpressions.Generated.{holder}.Instance;");
             for (var i = 0; i < depth; i++) sb.AppendLine("}");
             if (m.Namespace.Length > 0) sb.AppendLine("}");
+            if (existing) continue;
 
             sb.AppendLine("namespace System.Text.RegularExpressions.Generated");
             sb.AppendLine("{");

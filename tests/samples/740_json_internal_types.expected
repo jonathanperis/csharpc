@@ -1,0 +1,11 @@
+{"A":1,"B":"x","D":4}
+2 y 3 8
+{"secret":42,"Z":26,"Internal":5}
+7 6 1
+{"Name":"Rex"}
+{"Good":false,"Name":"Fido"}
+{"Values":[1,2],"Item":null}
+{"Value":{"Key":1,"Value":"one"},"Kind":"Pair\u00602"}
+{"Value":[{"A":3,"B":null,"D":4}],"Kind":"List\u00601"}
+{"k":{"A":0,"B":"v","D":4}}
+{"From":{"X":1,"Y":2},"To":{"X":3,"Y":4}}

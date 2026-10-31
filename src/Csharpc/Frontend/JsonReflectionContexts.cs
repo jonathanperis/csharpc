@@ -22,7 +22,7 @@ namespace Csharpc.Frontend;
 /// Types the generator can only see from inside their declaring class (private nested types) get a
 /// context nested in that class, which is made `partial` for the purpose.
 /// </summary>
-public static class JsonReflectionContexts
+public static partial class JsonReflectionContexts
 {
     private const string ContextPrefix = "__CsharpcJsonContext";
     private const string TreePath = "<csharpc-json-contexts>.g.cs";
@@ -37,12 +37,13 @@ public static class JsonReflectionContexts
     public static bool IsSynthesizedContextFile(string path) => Path.GetFileName(path).Contains(ContextPrefix, StringComparison.Ordinal);
 
     public static CSharpCompilation Add(CSharpCompilation compilation, IReadOnlyList<SyntaxTree> userTrees, bool? reflectionEnabled,
-        List<Diagnostic> diagnostics, out IReadOnlyList<SyntaxTree> newUserTrees)
+        List<Diagnostic> diagnostics, out IReadOnlyList<SyntaxTree> newUserTrees, Il.IlAssemblySet? ilSet = null, Il.IlAssembly? program = null)
     {
         newUserTrees = userTrees;
+        IlCoveredRoots = null;
         var texts = userTrees.Select(t => t.GetText().ToString()).ToList();
-        // A program given as IL has no sources: runtimeconfig.json's switch alone decides, and no contexts
-        // can be synthesized (FunctionCodeGen.JsonRoots.cs rejects the calls that would need them).
+        // A program given as IL has no sources: runtimeconfig.json's switch alone decides, and the roots
+        // come from its method bodies (JsonReflectionContexts.Il.cs).
         var asIl = userTrees.Count == 0 && reflectionEnabled is not null;
         if (!asIl && (userTrees.Count == 0 || !texts.Any(t => t.Contains("Json", StringComparison.Ordinal)))) return compilation;
         var parseOptions = asIl ? new CSharpParseOptions(LanguageVersion.Preview) : (CSharpParseOptions)userTrees[0].Options;
@@ -83,12 +84,22 @@ public static class JsonReflectionContexts
                 """;
             return compilation.AddSyntaxTrees(CSharpSyntaxTree.ParseText(disabled, parseOptions, path: TreePath));
         }
-        if (!texts.Any(t => t.Contains("JsonSerializer", StringComparison.Ordinal))) return compilation;
-        if (compilation.GetTypeByMetadataName("System.Text.Json.JsonSerializer") is not { } serializer) return compilation;
+        if (asIl ? program is null || ilSet is null || !ReferencesJsonSerializer(program.Reader) : !texts.Any(t => t.Contains("JsonSerializer", StringComparison.Ordinal)))
+            return compilation;
+        // IL bodies resolve against a compilation that imports the program's private members (as codegen's does).
+        var scanned = asIl ? compilation.WithOptions(compilation.Options.WithMetadataImportOptions(MetadataImportOptions.All)) : compilation;
+        if (scanned.GetTypeByMetadataName("System.Text.Json.JsonSerializer") is not { } serializer) return compilation;
 
-        var finder = new RootFinder(compilation, serializer, diagnostics);
-        foreach (var tree in userTrees) finder.Scan(tree);
+        var finder = new RootFinder(scanned, serializer, diagnostics);
+        if (asIl)
+        {
+            ilSet!.Bind(scanned);
+            ScanIl(program!, serializer, finder);
+        }
+        else
+            foreach (var tree in userTrees) finder.Scan(tree);
         var roots = finder.ResolveRoots();
+        if (asIl) roots.RemoveAll(r => UnsupportedIlRoot(r.Type) is not null);
         if (roots.Count == 0) return compilation;
 
         // Group the roots by the class a context must be nested in to see them.
@@ -98,6 +109,7 @@ public static class JsonReflectionContexts
         {
             if (!TryGetHost(root, out var host))
             {
+                if (asIl) continue;
                 diagnostics.Add(Diagnostic.Create(s_unsupported, at,
                     $"System.Text.Json serialization of '{root.ToDisplayString()}' (its type is only accessible from several unrelated classes)"));
                 continue;
@@ -116,6 +128,12 @@ public static class JsonReflectionContexts
         {
             for (var t = host; t is not null; t = t.ContainingType)
             {
+                // From IL no context can be nested beside a private type: such calls are reported when lowered.
+                if (asIl)
+                {
+                    groups.Remove(host);
+                    break;
+                }
                 if (t.IsGenericType || t.DeclaringSyntaxReferences.Length == 0 || t.IsImplicitlyDeclared)
                 {
                     foreach (var r in groups[host])
@@ -157,6 +175,8 @@ public static class JsonReflectionContexts
             return name;
         }
 
+        if (asIl) IlCoveredRoots = topLevel.Select(t => t.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)).ToHashSet(StringComparer.Ordinal);
+        if (asIl && topLevel.Count == 0) return compilation;
         if (topLevel.Count > 0)
         {
             source.AppendLine("namespace CsharpcJsonContexts");
@@ -212,7 +232,8 @@ public static class JsonReflectionContexts
             replaced[replaced.IndexOf(tree)] = newTree;
         }
         newUserTrees = replaced;
-        return compilation.AddSyntaxTrees(CSharpSyntaxTree.ParseText(source.ToString(), parseOptions, path: TreePath));
+        // From IL, the generator must see the program's private members, as it does in source (JsonInclude).
+        return (asIl ? scanned : compilation).AddSyntaxTrees(CSharpSyntaxTree.ParseText(source.ToString(), parseOptions, path: TreePath));
     }
 
     /// <summary>
@@ -330,6 +351,12 @@ public static class JsonReflectionContexts
         private bool IsJsonMetadataParameter(IParameterSymbol p) => p.Type is INamedTypeSymbol t
             && t.ContainingNamespace?.ToDisplayString() is "System.Text.Json.Serialization.Metadata" or "System.Text.Json.Serialization"
             && t.Name is "JsonTypeInfo" or "JsonSerializerContext";
+
+        public void AddIlRoot(ITypeSymbol type) => Add(type, Location.None);
+
+        public void AddMethodUse(IMethodSymbol method) => _methodUses.Add(method);
+
+        public void AddTypeUse(INamedTypeSymbol type) => _typeUses.Add(type);
 
         public void Scan(SyntaxTree tree)
         {
