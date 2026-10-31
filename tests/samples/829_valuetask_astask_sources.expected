@@ -9,3 +9,7 @@ text result: text
 caught: source failed
 pending: False
 completed later: 99
+string later: late text
+tuple later: 1234567890123 tuple 1.50
+caught later: late failure
+as task: 5 RanToCompletion

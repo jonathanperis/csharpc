@@ -33,6 +33,26 @@ Console.WriteLine($"pending: {later.IsCompleted}");
 _ = Task.Run(() => pending.Complete(99));
 Console.WriteLine($"completed later: {await later}");
 
+// Pending sources of other result shapes, completed from another thread, and a pending failure.
+var text = new Source<string>();
+var pendingText = new ValueTask<string>(text, text.Version);
+_ = Task.Run(() => text.Complete("late text"));
+Console.WriteLine($"string later: {await pendingText}");
+var big = new Source<(long, string, decimal)>();
+var pendingBig = new ValueTask<(long, string, decimal)>(big, big.Version);
+_ = Task.Run(() => big.Complete((1234567890123L, "tuple", 1.50m)));
+var (number, word, amount) = await pendingBig;
+Console.WriteLine($"tuple later: {number} {word} {amount}");
+var broken = new Source<int>();
+var pendingBroken = new ValueTask<int>(broken, broken.Version);
+_ = Task.Run(() => broken.Fail(new FormatException("late failure")));
+try { await pendingBroken; }
+catch (FormatException e) { Console.WriteLine($"caught later: {e.Message}"); }
+var viaTask = new Source<int>();
+var asTask = new ValueTask<int>(viaTask, viaTask.Version).AsTask();
+_ = Task.Run(() => viaTask.Complete(5));
+Console.WriteLine($"as task: {await asTask} {asTask.Status}");
+
 sealed class Source<T> : IValueTaskSource<T>
 {
     private ManualResetValueTaskSourceCore<T> _core;
