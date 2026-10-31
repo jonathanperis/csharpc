@@ -30,13 +30,23 @@ namespace CsharpcCoreLib
         public override string ToString()
         {
             string message = Message;
-            string s = GetType().ToString() + " (0x" + HResult.ToString("X8", System.Globalization.CultureInfo.InvariantCulture) + ")";
-            if (!string.IsNullOrEmpty(message)) s = s + ": " + message;
+            string s = string.Concat(GetType().ToString(), " (0x", Hex8(HResult), ")");
+            if (!string.IsNullOrEmpty(message)) s = string.Concat(s, ": ", message);
             Exception inner = InnerException;
-            if (inner != null) s = s + Environment.NewLine + " ---> " + inner.ToString();
+            if (inner != null) s = string.Concat(s, Environment.NewLine, " ---> ", inner.ToString());
             string stackTrace = StackTrace;
-            if (stackTrace != null) s += Environment.NewLine + stackTrace;
+            if (stackTrace != null) s = string.Concat(s, Environment.NewLine, stackTrace);
             return s;
+        }
+
+        // HResult.ToString("X8") without number formatting: every program that compares strings with a culture can
+        // construct this exception (CompareInfo's sort handles), so its ToString is in most binaries.
+        private static string Hex8(int value)
+        {
+            Span<char> digits = stackalloc char[8];
+            uint v = (uint)value;
+            for (int i = 7; i >= 0; i--, v >>= 4) digits[i] = (char)((v & 0xF) < 10 ? '0' + (v & 0xF) : 'A' - 10 + (v & 0xF));
+            return new string(digits);
         }
     }
 

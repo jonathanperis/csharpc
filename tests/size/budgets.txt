@@ -5,7 +5,7 @@ linux-x86_64 async 146432
 linux-x86_64 collections 140288
 linux-x86_64 exceptions 32768
 linux-x86_64 hello 32768
-linux-x86_64 linq 159744
+linux-x86_64 linq 165888
 linux-x86_64 numbers 133120
 linux-x86_64 typeinfo 44032
 linux-aarch64 async 143360
