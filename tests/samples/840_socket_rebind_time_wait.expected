@@ -1,0 +1,7 @@
+reuse address after bind: False
+client read after server close: 0
+rebind 1: ok, same port True
+rebind 2: ok, same port True
+rebind 3: ok, same port True
+reuse address set: True
+udp reuse address after bind: False

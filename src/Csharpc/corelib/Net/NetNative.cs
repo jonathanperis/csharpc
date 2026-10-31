@@ -21,17 +21,22 @@ namespace CsharpcCoreLib
         public const int SOL_SOCKET = 0xFFFF, SO_REUSEADDR = 4, SO_RCVTIMEO = 0x1006, SO_SNDTIMEO = 0x1005, SO_ERROR = 0x1007;
         public const int IPV6_V6ONLY = 27;
         public const int SendFlags = 0;
+        public const int SO_KEEPALIVE = 8, SO_SNDBUF = 0x1001, SO_RCVBUF = 0x1002, TCP_KEEPIDLE = 3, TCP_KEEPINTVL = 17, TCP_KEEPCNT = 16;
 #elif CSHARPC_TARGET_MACOS
         public const int AF_INET6 = 30;
         public const int SOL_SOCKET = 0xFFFF, SO_REUSEADDR = 4, SO_RCVTIMEO = 0x1006, SO_SNDTIMEO = 0x1005, SO_ERROR = 0x1007;
         public const int SO_NOSIGPIPE = 0x1022;
         public const int IPV6_V6ONLY = 27;
         public const int SendFlags = 0;  // SIGPIPE is suppressed per socket (SO_NOSIGPIPE)
+        public const int SO_KEEPALIVE = 8, SO_SNDBUF = 0x1001, SO_RCVBUF = 0x1002, TCP_KEEPIDLE = 0x10 /* TCP_KEEPALIVE */, TCP_KEEPINTVL = 0x101, TCP_KEEPCNT = 0x102;
+        public const int SO_REUSEPORT = 0x200;
 #else
         public const int AF_INET6 = 10;
         public const int SOL_SOCKET = 1, SO_REUSEADDR = 2, SO_RCVTIMEO = 20, SO_SNDTIMEO = 21, SO_ERROR = 4;
         public const int IPV6_V6ONLY = 26;
         public const int SendFlags = 0x4000;  // MSG_NOSIGNAL: a peer that went away is an error, not SIGPIPE
+        public const int SO_KEEPALIVE = 9, SO_SNDBUF = 7, SO_RCVBUF = 8, TCP_KEEPIDLE = 4, TCP_KEEPINTVL = 5, TCP_KEEPCNT = 6;
+        public const int SO_REUSEPORT = 15;
 #endif
 
 #if CSHARPC_TARGET_WINDOWS
@@ -204,7 +209,53 @@ namespace CsharpcCoreLib
                 if (!IsInterrupted(error)) throw Error(error);
             }
         }
+
+        // poll(2) events (the same values on Linux and macOS).
+        public const int POLLIN = 1, POLLPRI = 2, POLLOUT = 4, POLLERR = 8, POLLHUP = 16;
+
+        /// <summary>Socket.Blocking: O_NONBLOCK cleared (true) or set (false).</summary>
+        public static void SetBlockingMode(long s, bool blocking)
+        {
+#if CSHARPC_TARGET_MACOS
+            const int O_NONBLOCK = 0x4;
+#else
+            const int O_NONBLOCK = 0x800;
 #endif
+            int flags = fcntl(H(s), 3 /* F_GETFL */, 0);
+            if (flags < 0 || fcntl(H(s), 4 /* F_SETFL */, blocking ? flags & ~O_NONBLOCK : flags | O_NONBLOCK) < 0) throw Error(LastError());
+        }
+
+        /// <summary>
+        /// poll() over <paramref name="count"/> (fd, events) pairs; each pair's revents comes back in
+        /// <paramref name="revents"/>. The timeout is in milliseconds (-1: none).
+        /// </summary>
+        public static void Poll(long* handles, int* events, int* revents, int count, int timeout)
+        {
+            long* fds = stackalloc long[count];
+            for (int i = 0; i < count; i++) fds[i] = (uint)H(handles[i]) | ((long)(ushort)events[i] << 32);
+            while (true)
+            {
+                int n = poll(fds, (nuint)count, timeout);
+                if (n >= 0) break;
+                int error = LastError();
+                if (!IsInterrupted(error)) throw Error(error);
+            }
+            for (int i = 0; i < count; i++) revents[i] = (ushort)(fds[i] >> 48);
+        }
+#endif
+
+        /// <summary>connect() without waiting for it: 0, or the error (EINPROGRESS: under way on a non-blocking socket).</summary>
+        public static int TryConnect(long s, EndPoint endPoint)
+        {
+            byte* address = stackalloc byte[SockaddrMax];
+            int length = Encode(endPoint, address);
+            while (connect(H(s), address, length) != 0)
+            {
+                int error = LastError();
+                if (!IsInterrupted(error)) return error;
+            }
+            return 0;
+        }
 
         /// <summary>SO_LINGER: Close(0) resets the connection instead of a graceful FIN.</summary>
         public static void SetLinger(long s, bool enabled, int seconds)

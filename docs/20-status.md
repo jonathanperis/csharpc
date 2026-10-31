@@ -69,10 +69,16 @@ attribute factories) with a ~25 % faster build.
   monomorphic IFeatureCollection/ILogger calls on interfaces with more than three implementers); the
   optimizer's inliner (half of the 150–220 s `default<O2>` phase); type metadata (930 KB of
   `csharpc.typeinfo.entries`).
-- `m7-project-generators` — project input runs the source generators the build runs (the csc command line
-  of the SDK's Compile target: SDK, targeting-pack and package analyzers, additional files, analyzer
-  config, features). `csharpc Platform.csproj` now passes the front-end (Razor + RazorSlices) and stops in
-  codegen at 51 constructs. Tests: `tests/projects/cli/RazorComponents`, `SdkGenerators`.
+- `ci/m7-platform` — csharpc builds and runs TechEmpower's Platform entry (`csharpc Platform.dll`, frameworks
+  from its runtimeconfig.json); all seven test types answer as the JIT does (identical verify.py
+  transcripts locally). Fixes: SO_REUSEADDR on bind, non-blocking connect/Select, async NetworkStream over
+  the socket engine, Normalize, HMAC one-shots, scheduler pair, counters, AlternateLookup, IConvertible on
+  boxed builtins, IDictionary on Dictionary, run-time Enum.Parse, TextEncoder surface, [DynamicDependency],
+  span ToArray typing (samples 840–849; [18](18-compatibility.md#techempowers-platform-entry)). The harness
+  fails the run again when csharpc can't build the entry. Includes `m7-project-generators` (project input
+  runs the build's source generators; `csharpc Platform.csproj` compiles but stops at run time in
+  `config.Get<AppSettings>()`: the configuration binder's interceptors). MySqlConnector 2.6.1 in the app
+  (Dependabot #1). Left: `-O2` build time (the optimizer ~570 s single-threaded locally).
 - `ci/techempower-json-switch` — TechEmpower compiles again (broken since `d42b5cc`: the IL check for
   reflection-based JSON also rejected the `JsonSerializer.IsReflectionEnabledByDefault` getter that
   ASP.NET Core's `JsonOptions()` reads; `tests/il.sh` IlAspNetCoreApp covers it), and the TechEmpower job now

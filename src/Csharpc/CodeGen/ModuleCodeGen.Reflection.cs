@@ -758,6 +758,11 @@ public sealed partial class ModuleCodeGen
         var definition = method.OriginalDefinition;
         var il = definition.MetadataToken != 0 ? Il.OwnerOf(definition) : null;
         var ilParameters = il is not null ? IlParameters(il, definition) : null;
+        // A generic method definition (typeof(C).GetMethod("M") of `void M<T>(T x)`): csharpc has no Type objects
+        // for method type parameters, so the types that mention one stay undescribed and the record is flagged
+        // (CSRT_METHOD_GENERIC_DEFINITION): reading its signature, invoking it or MakeGenericMethod throws.
+        var genericDefinition = method.IsGenericMethod && method.TypeArguments.Any(t => t is ITypeParameterSymbol { TypeParameterKind: TypeParameterKind.Method });
+        LLVMValueRef SignatureType(ITypeSymbol type) => genericDefinition && MentionsMethodTypeParameter(type) ? none : MetadataMethodTable(type);
         foreach (var p in method.Parameters)
         {
             (IlAssembly, Parameter)? row = ilParameters is not null && ilParameters.TryGetValue(p.Ordinal + 1, out var r) ? r : null;
@@ -770,7 +775,7 @@ public sealed partial class ModuleCodeGen
                 defaultValue = DefaultValueFactory(p);
             }
             var attributes = Attributes(ParameterAttributeInstances(p, row));
-            parameters.Add(new ParameterRecordData(p.Name.Length == 0 ? none : CString(p.Name), MetadataMethodTable(p.Type), defaultValue, attributes, flags));
+            parameters.Add(new ParameterRecordData(p.Name.Length == 0 ? none : CString(p.Name), SignatureType(p.Type), defaultValue, attributes, flags));
         }
         var invokable = invoker
             && method.Parameters.All(p => p.RefKind == RefKind.None && p.Type is not (IPointerTypeSymbol or IFunctionPointerTypeSymbol) && !p.Type.IsRefLikeType)
@@ -782,7 +787,7 @@ public sealed partial class ModuleCodeGen
             Method = method,
             Name = CString(method.MethodKind == MethodKind.Constructor ? ".ctor" : method.MetadataName),
             Declaring = MetadataMethodTable(method.ContainingType),
-            ReturnType = method.ReturnsVoid || method.MethodKind == MethodKind.Constructor ? none : MetadataMethodTable(method.ReturnType),
+            ReturnType = method.ReturnsVoid || method.MethodKind == MethodKind.Constructor ? none : SignatureType(method.ReturnType),
             Invoke = invokable ? ReflectionInvoker(method) : none,
             // An instance method of a class, called as the delegate calls its function: (target, args...).
             Function = invokable && !method.IsStatic && method.MethodKind == MethodKind.Ordinary && method.ContainingType.IsReferenceType
@@ -793,12 +798,22 @@ public sealed partial class ModuleCodeGen
             Parameters = parameters,
             Attributes = Attributes(MemberAttributeInstances(method, il)),
             MethodAttributes = MethodAttributesOf(method),
-            Flags = method.IsOverride && InheritsNoAttributes(method) ? 2u /* CSRT_METHOD_NO_INHERITED_ATTRIBUTES */ : 0,
+            Flags = (method.IsOverride && InheritsNoAttributes(method) ? 2u /* CSRT_METHOD_NO_INHERITED_ATTRIBUTES */ : 0)
+                | (genericDefinition ? 4u /* CSRT_METHOD_GENERIC_DEFINITION */ : 0),
         };
         // The reflection stub is a root of the program: what it calls is reachable (IL failures there are errors).
         if (invokable) NoteReference(method, virtualCall: method.MethodKind != MethodKind.Constructor);
         return _methodRecords[method] = record;
     }
+
+    private static bool MentionsMethodTypeParameter(ITypeSymbol type) => type switch
+    {
+        ITypeParameterSymbol { TypeParameterKind: TypeParameterKind.Method } => true,
+        IArrayTypeSymbol array => MentionsMethodTypeParameter(array.ElementType),
+        IPointerTypeSymbol pointer => MentionsMethodTypeParameter(pointer.PointedAtType),
+        INamedTypeSymbol named => named.TypeArguments.Any(MentionsMethodTypeParameter) || (named.ContainingType is { } outer && MentionsMethodTypeParameter(outer)),
+        _ => false,
+    };
 
     /// <summary>
     /// GetCustomAttributes(inherit: true) of an override adds the inheritable attributes of the methods it

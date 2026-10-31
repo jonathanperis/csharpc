@@ -220,7 +220,7 @@ namespace CsharpcCoreLib
             internal override void Complete(bool synchronously)
             {
                 Registration.Dispose();
-                if (Canceled) Source.TrySetCanceled();
+                if (Canceled) CoreIntrinsics.TryFaultAsyncTask(Source.Task, new OperationCanceledException(Token)); // .NET: the socket throws OperationCanceledException(token)
                 else if (Error == SocketError.Success) Source.TrySetResult(Transferred);
                 else Source.TrySetException(new SocketException((int)Error));
             }
@@ -232,7 +232,7 @@ namespace CsharpcCoreLib
             internal override void Complete(bool synchronously)
             {
                 Registration.Dispose();
-                if (Canceled) Source.TrySetCanceled();
+                if (Canceled) CoreIntrinsics.TryFaultAsyncTask(Source.Task, new OperationCanceledException(Token)); // .NET: the socket throws OperationCanceledException(token)
                 else if (Error == SocketError.Success) Source.TrySetResult(Transferred);
                 else Source.TrySetException(new SocketException((int)Error));
             }
@@ -244,7 +244,7 @@ namespace CsharpcCoreLib
             internal override void Complete(bool synchronously)
             {
                 Registration.Dispose();
-                if (Canceled) Source.TrySetCanceled();
+                if (Canceled) CoreIntrinsics.TryFaultAsyncTask(Source.Task, new OperationCanceledException(Token)); // .NET: the socket throws OperationCanceledException(token)
                 else if (Error == SocketError.Success) Source.TrySetResult((Socket)(object)Accepted);
                 else Source.TrySetException(new SocketException((int)Error));
             }

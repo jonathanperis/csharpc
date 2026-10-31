@@ -1,0 +1,14 @@
+default: missing alpha=1 True False 2 4 False removed beta=2 alpha,gamma True
+  KeyNotFoundException
+ordinal: missing alpha=1 True False 2 4 False removed beta=2 alpha,gamma True
+  KeyNotFoundException
+ignore-case: found 1 alpha=1 True False 2 4 True removed beta=2 alpha,gamma True
+  KeyNotFoundException
+1000 999 True 500
+False
+The collection's comparer does not support the requested operation.
+2 1
+concurrent ok True, at most 2 True, exclusive alone True True
+completed RanToCompletion
+TaskSchedulerException / InvalidOperationException
+maxConcurrencyLevel

@@ -2159,6 +2159,203 @@ namespace CsharpcCoreLib
             internal volatile Node? _node;
         }
 
+        // ---- Alternate lookups (dotnet/runtime's ConcurrentDictionary.AlternateLookup<TAlternateKey>) ----------------
+
+        public AlternateLookup<TAlternateKey> GetAlternateLookup<TAlternateKey>() where TAlternateKey : notnull, allows ref struct
+        {
+            if (AlternateComparerOf<TAlternateKey>(_tables._comparer) is null)
+                throw new InvalidOperationException("The collection's comparer does not support the requested operation.");
+            return new AlternateLookup<TAlternateKey>(this);
+        }
+
+        public bool TryGetAlternateLookup<TAlternateKey>(out AlternateLookup<TAlternateKey> lookup) where TAlternateKey : notnull, allows ref struct
+        {
+            if (AlternateComparerOf<TAlternateKey>(_tables._comparer) is not null)
+            {
+                lookup = new AlternateLookup<TAlternateKey>(this);
+                return true;
+            }
+            lookup = default;
+            return false;
+        }
+
+        /// <summary>
+        /// The tables' comparer as an IAlternateEqualityComparer, or null. csharpc: after a rehash the string
+        /// comparer is the underlying EqualityComparer&lt;string&gt;.Default (where .NET's is a randomized one that
+        /// supports spans): StringComparer.Ordinal compares and hashes the same, so it answers for it.
+        /// </summary>
+        private static IAlternateEqualityComparer<TAlternateKey, TKey>? AlternateComparerOf<TAlternateKey>(IEqualityComparer<TKey>? comparer) where TAlternateKey : allows ref struct
+        {
+            if (comparer is IAlternateEqualityComparer<TAlternateKey, TKey> alternate) return alternate;
+            if (typeof(TKey) == typeof(string) && ReferenceEquals(comparer, EqualityComparer<string>.Default))
+                return StringComparer.Ordinal as IAlternateEqualityComparer<TAlternateKey, TKey>;
+            return null;
+        }
+
+        [Shadows("System.Collections.Concurrent.ConcurrentDictionary`2+AlternateLookup`1")]
+        public readonly struct AlternateLookup<TAlternateKey> where TAlternateKey : notnull, allows ref struct
+        {
+            internal AlternateLookup(ConcurrentDictionaryImpl<TKey, TValue> dictionary) { Dictionary = (System.Collections.Concurrent.ConcurrentDictionary<TKey, TValue>)(object)dictionary; }
+
+            public System.Collections.Concurrent.ConcurrentDictionary<TKey, TValue> Dictionary { get; }
+
+            private ConcurrentDictionaryImpl<TKey, TValue> Impl => (ConcurrentDictionaryImpl<TKey, TValue>)(object)Dictionary;
+
+            public TValue this[TAlternateKey key]
+            {
+                get
+                {
+                    if (!TryGetValue(key, out TValue value)) throw new KeyNotFoundException();
+                    return value;
+                }
+                set => TryAdd(key, value, updateIfExists: true, out _);
+            }
+
+            public bool ContainsKey(TAlternateKey key) => TryGetValue(key, out _);
+
+            public bool TryAdd(TAlternateKey key, TValue value) => TryAdd(key, value, updateIfExists: false, out _);
+
+            private bool TryAdd(TAlternateKey key, TValue value, bool updateIfExists, out TValue resultingValue)
+            {
+                if (key is null) throw new ArgumentNullException("key");
+                ConcurrentDictionaryImpl<TKey, TValue> dictionary = Impl;
+                Tables tables = dictionary._tables;
+                IEqualityComparer<TKey>? seen = tables._comparer;
+                IAlternateEqualityComparer<TAlternateKey, TKey> comparer = AlternateComparerOf<TAlternateKey>(seen)!;
+                int hashcode = comparer.GetHashCode(key);
+                while (true)
+                {
+                    object[] locks = tables._locks;
+                    ref Node? bucket = ref GetBucketAndLock(tables, hashcode, out uint lockNo);
+                    bool resizeDesired = false, forceRehash = false, lockTaken = false;
+                    try
+                    {
+                        Monitor.Enter(locks[lockNo], ref lockTaken);
+                        if (tables != dictionary._tables)
+                        {
+                            tables = dictionary._tables;
+                            if (!ReferenceEquals(seen, tables._comparer))
+                            {
+                                seen = tables._comparer;
+                                comparer = AlternateComparerOf<TAlternateKey>(seen)!;
+                                hashcode = comparer.GetHashCode(key);
+                            }
+                            continue;
+                        }
+                        uint collisionCount = 0;
+                        Node? prev = null;
+                        for (Node? node = bucket; node is not null; node = node._next)
+                        {
+                            if (hashcode == node._hashcode && comparer.Equals(key, node._key))
+                            {
+                                if (updateIfExists)
+                                {
+                                    if (!CoreIntrinsics.IsValueType<TValue>() || ConcurrentDictionaryTypeProps<TValue>.IsWriteAtomic) node._value = value;
+                                    else
+                                    {
+                                        var newNode = new Node(node._key, value, hashcode, node._next);
+                                        if (prev is null) Volatile.Write(ref bucket, newNode);
+                                        else prev._next = newNode;
+                                    }
+                                    resultingValue = value;
+                                }
+                                else resultingValue = node._value;
+                                return false;
+                            }
+                            prev = node;
+                            if (!CoreIntrinsics.IsValueType<TKey>()) collisionCount++;
+                        }
+                        TKey actualKey = comparer.Create(key);
+                        if (actualKey is null) throw new ArgumentNullException("key");
+                        var resultNode = new Node(actualKey, value, hashcode, bucket);
+                        Volatile.Write(ref bucket, resultNode);
+                        checked { tables._countPerLock[lockNo]++; }
+                        if (tables._countPerLock[lockNo] > dictionary._budget) resizeDesired = true;
+                        if (!CoreIntrinsics.IsValueType<TKey>() && collisionCount > 100 && seen is NonRandomizedStringComparer) forceRehash = true;
+                    }
+                    finally
+                    {
+                        if (lockTaken) Monitor.Exit(locks[lockNo]);
+                    }
+                    if (resizeDesired | forceRehash) dictionary.GrowTable(tables, resizeDesired, forceRehash);
+                    resultingValue = value;
+                    return true;
+                }
+            }
+
+            public bool TryGetValue(TAlternateKey key, out TValue value) => TryGetValue(key, out _, out value);
+
+            public bool TryGetValue(TAlternateKey key, out TKey actualKey, out TValue value)
+            {
+                if (key is null) throw new ArgumentNullException("key");
+                Tables tables = Impl._tables;
+                IAlternateEqualityComparer<TAlternateKey, TKey> comparer = AlternateComparerOf<TAlternateKey>(tables._comparer)!;
+                int hashcode = comparer.GetHashCode(key);
+                for (Node? node = GetBucket(tables, hashcode); node is not null; node = node._next)
+                {
+                    if (hashcode == node._hashcode && comparer.Equals(key, node._key))
+                    {
+                        actualKey = node._key;
+                        value = node._value;
+                        return true;
+                    }
+                }
+                actualKey = default!;
+                value = default!;
+                return false;
+            }
+
+            public bool TryRemove(TAlternateKey key, out TValue value) => TryRemove(key, out _, out value);
+
+            public bool TryRemove(TAlternateKey key, out TKey actualKey, out TValue value)
+            {
+                if (key is null) throw new ArgumentNullException("key");
+                ConcurrentDictionaryImpl<TKey, TValue> dictionary = Impl;
+                Tables tables = dictionary._tables;
+                IEqualityComparer<TKey>? seen = tables._comparer;
+                IAlternateEqualityComparer<TAlternateKey, TKey> comparer = AlternateComparerOf<TAlternateKey>(seen)!;
+                int hashcode = comparer.GetHashCode(key);
+                while (true)
+                {
+                    object[] locks = tables._locks;
+                    ref Node? bucket = ref GetBucketAndLock(tables, hashcode, out uint lockNo);
+                    if (tables._countPerLock[lockNo] == 0) break;
+                    lock (locks[lockNo])
+                    {
+                        if (tables != dictionary._tables)
+                        {
+                            tables = dictionary._tables;
+                            if (!ReferenceEquals(seen, tables._comparer))
+                            {
+                                seen = tables._comparer;
+                                comparer = AlternateComparerOf<TAlternateKey>(seen)!;
+                                hashcode = comparer.GetHashCode(key);
+                            }
+                            continue;
+                        }
+                        Node? prev = null;
+                        for (Node? curr = bucket; curr is not null; curr = curr._next)
+                        {
+                            if (hashcode == curr._hashcode && comparer.Equals(key, curr._key))
+                            {
+                                if (prev is null) Volatile.Write(ref bucket, curr._next);
+                                else prev._next = curr._next;
+                                actualKey = curr._key;
+                                value = curr._value;
+                                tables._countPerLock[lockNo]--;
+                                return true;
+                            }
+                            prev = curr;
+                        }
+                    }
+                    break;
+                }
+                actualKey = default!;
+                value = default!;
+                return false;
+            }
+        }
+
         /// <summary>
         /// A node in a singly-linked list representing a particular hash table bucket.
         /// </summary>
@@ -2306,7 +2503,7 @@ namespace CsharpcCoreLib
     /// Ordinal and OrdinalIgnoreCase comparers hash with string.GetNonRandomizedHashCode{OrdinalIgnoreCase}
     /// (dotnet/runtime String.Comparison.cs), which bucket order depends on.
     /// </summary>
-    internal sealed class NonRandomizedStringComparer : IEqualityComparer<string>
+    internal sealed class NonRandomizedStringComparer : IEqualityComparer<string>, IAlternateEqualityComparer<ReadOnlySpan<char>, string?>
     {
         private readonly IEqualityComparer<string> _underlying;
         private readonly bool _ignoreCase;
@@ -2334,6 +2531,56 @@ namespace CsharpcCoreLib
         {
             if (obj is null) throw new ArgumentNullException("obj");
             return _ignoreCase ? HashOrdinalIgnoreCase(obj) : Hash(obj);
+        }
+
+        // Span keys (ConcurrentDictionary<string, _>.AlternateLookup<ReadOnlySpan<char>>): the same equality and the
+        // same hash as the string with those chars, so either finds the other's entries.
+        public bool Equals(ReadOnlySpan<char> alternate, string? other) =>
+            other is not null && (_ignoreCase ? alternate.Equals(other.AsSpan(), StringComparison.OrdinalIgnoreCase) : alternate.SequenceEqual(other.AsSpan()));
+
+        public int GetHashCode(ReadOnlySpan<char> alternate) => _ignoreCase ? HashOrdinalIgnoreCase(alternate) : Hash(alternate);
+
+        public string Create(ReadOnlySpan<char> alternate) => new string(alternate);
+
+        private static uint Pair(ReadOnlySpan<char> s, int i) => (uint)s[i] | (i + 1 < s.Length ? (uint)s[i + 1] << 16 : 0u);
+
+        internal static int Hash(ReadOnlySpan<char> s)
+        {
+            uint hash1 = (5381 << 16) + 5381;
+            uint hash2 = hash1;
+            int length = s.Length, i = 0;
+            while (length > 2)
+            {
+                length -= 4;
+                hash1 = (Rol5(hash1) + hash1) ^ Pair(s, i);
+                hash2 = (Rol5(hash2) + hash2) ^ Pair(s, i + 2);
+                i += 4;
+            }
+            if (length > 0) hash2 = (Rol5(hash2) + hash2) ^ Pair(s, i);
+            return (int)(hash1 + (hash2 * 1566083941));
+        }
+
+        internal static int HashOrdinalIgnoreCase(ReadOnlySpan<char> s)
+        {
+            uint hash1 = (5381 << 16) + 5381;
+            uint hash2 = hash1;
+            int length = s.Length, i = 0;
+            while (length > 2)
+            {
+                uint p0 = Pair(s, i), p1 = Pair(s, i + 2);
+                if (!AllAscii(p0 | p1)) return HashOrdinalIgnoreCaseSlow(hash1, hash2, new string(s.Slice(s.Length - length)), 0);
+                length -= 4;
+                hash1 = (Rol5(hash1) + hash1) ^ (p0 | NormalizeToLowercase);
+                hash2 = (Rol5(hash2) + hash2) ^ (p1 | NormalizeToLowercase);
+                i += 4;
+            }
+            if (length > 0)
+            {
+                uint p0 = Pair(s, i);
+                if (!AllAscii(p0)) return HashOrdinalIgnoreCaseSlow(hash1, hash2, new string(s.Slice(s.Length - length)), 0);
+                hash2 = (Rol5(hash2) + hash2) ^ (p0 | NormalizeToLowercase);
+            }
+            return (int)(hash1 + (hash2 * 1566083941));
         }
 
         // Strings are read two chars (one uint) at a time; an odd length also reads the terminating '\0'.

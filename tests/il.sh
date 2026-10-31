@@ -100,6 +100,18 @@ if [[ -z "$FILTER" || "IlApp" == *"$FILTER"* ]]; then
   else echo "FAIL IlApp: csharpc IlApp.dll"; sed 's/^/     /' "$WORK/log" | head; fail=$((fail+1)); fi
 fi
 
+# 3c. A web app as IL: its runtimeconfig.json lists Microsoft.AspNetCore.App, which csharpc references as the
+#     host would load it (no --framework).
+if [[ -z "$FILTER" || "IlAspNetCoreApp" == *"$FILTER"* ]]; then
+  (cd "$WORK/il/IlAspNetCoreApp" && "$DOTNET" run -v quiet 2>/dev/null) > "$WORK/expected"
+  if "$DOTNET" build "$WORK/il/IlAspNetCoreApp/IlAspNetCoreApp.csproj" -c Release -o "$WORK/webmain" -v quiet -nologo > "$WORK/log" 2>&1 \
+     && grep -q '"Microsoft.AspNetCore.App"' "$WORK/webmain/IlAspNetCoreApp.runtimeconfig.json" \
+     && "$DOTNET" "$CSHARPC_DLL" "$WORK/webmain/IlAspNetCoreApp.dll" -O0 -o "$WORK/webmain-exe/" > "$WORK/log" 2>&1; then
+    (cd "$WORK/il/IlAspNetCoreApp" && "$WORK/webmain-exe/IlAspNetCoreApp") > "$WORK/actual" 2>&1
+    check "IlAspNetCoreApp: csharpc IlAspNetCoreApp.dll (frameworks from runtimeconfig.json)" "$WORK/expected" "$WORK/actual"
+  else echo "FAIL IlAspNetCoreApp: csharpc IlAspNetCoreApp.dll"; sed 's/^/     /' "$WORK/log" | head; fail=$((fail+1)); fi
+fi
+
 # 4. --framework-il (docs/adr/0013-framework-il.md): framework assemblies the program uses are compiled
 #    from the shared framework's IL by default (IlMetadataApp, IlExtensionsApp above); the option turns
 #    that off or forces assemblies in, and refuses what csharpc can't take as IL, all with diagnostics.

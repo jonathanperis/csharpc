@@ -84,7 +84,7 @@ public sealed partial class ModuleCodeGen
     private readonly Dictionary<INamedTypeSymbol, LLVMValueRef> _enumMethodTables = new(SymbolEqualityComparer.Default);
 
     /// <summary>
-    /// Method table for boxed enums: { csrt_Object_MT, "Ns.Color", 8 + size, 0, IFormattable + IComparable map, [ToString, Equals, GetHashCode] }.
+    /// Method table for boxed enums: { csrt_Object_MT, "Ns.Color", 8 + size, 0, IFormattable + IComparable + IConvertible map, [ToString, Equals, GetHashCode] }.
     /// ToString formats the payload by name (EnumFormatter); equality is bytewise, the hash is the underlying integer's.
     /// </summary>
     public LLVMValueRef EnumMethodTable(INamedTypeSymbol enumType)
@@ -143,18 +143,29 @@ public sealed partial class ModuleCodeGen
             var slotTable = Module.AddGlobal(Mangler.TypeSymbol(enumType, suffix), Native.LLVMTypeOf(slotsInit), slotsInit, constant: true, linkage: LLVMLinkage.Internal);
             return LlvmContext.ConstNamedStruct(entryType, InterfaceMethodTable(itf), slotTable);
         }
-        var mapInit = LlvmContext.ConstArray(entryType, Entry(formattable, formatThunk, "BoxITBL"), Entry(comparable, compareThunk, "BoxICMP"));
+        // IConvertible, as System.Enum's (Convert.ToX of the underlying value; System.Data's connection string
+        // builders convert enum values with it): corelib's BoxedConvertible, each slot filled only once the program
+        // dispatches that member (a builtin slot table, ModuleCodeGen.CoreLib.cs).
+        var convertible = Compilation.GetTypeByMetadataName("System.IConvertible")!;
+        var convertibleSlots = BuiltinSlotTable(convertible, Mangler.TypeSymbol(enumType, "BoxICNV"), LLVMLinkage.Internal, BoxedConvertibleMember);
+        var mapInit = LlvmContext.ConstArray(entryType, Entry(formattable, formatThunk, "BoxITBL"), Entry(comparable, compareThunk, "BoxICMP"),
+            LlvmContext.ConstNamedStruct(entryType, InterfaceMethodTable(convertible), convertibleSlots));
         var map = Module.AddGlobal(Mangler.TypeSymbol(enumType, "BoxIMAP"), Native.LLVMTypeOf(mapInit), mapInit, constant: true, linkage: LLVMLinkage.Internal);
         Native.LLVMSetInitializer(global, Llvm.ConstStruct(
             ExternalGlobal("csrt_Object_MT"),
             CString(Mangler.MetadataName(enumType)),
             Llvm.ConstInt(Llvm.I32, 8 + (long)Types.Target.SizeOf(valueType)),
             Llvm.ConstInt(Llvm.I32, 64 | 128 /* CSRT_MT_VALUE_TYPE | CSRT_MT_ENUM */),
-            map, Llvm.ConstInt(Llvm.I32, 2), Llvm.ConstInt(Llvm.I32, ElementKind(underlying)),
+            map, Llvm.ConstInt(Llvm.I32, 3), Llvm.ConstInt(Llvm.I32, ElementKind(underlying)),
             LlvmContext.ConstArray(Llvm.Ptr, thunk, Runtime("csrt_valuetype_equals", Llvm.I1, Llvm.Ptr, Llvm.Ptr).Fn,
                 hashThunk)));
         return global;
     }
+
+    /// <summary>corelib's BoxedConvertible method for an IConvertible member: (object self, args...).</summary>
+    internal IMethodSymbol? BoxedConvertibleMember(IMethodSymbol member) =>
+        Compilation.GetTypeByMetadataName(CoreLib.Namespace + ".BoxedConvertible")?.GetMembers(member.Name).OfType<IMethodSymbol>()
+            .SingleOrDefault(m => m.Parameters.Length == member.Parameters.Length + 1);
 
     /// <summary>The CLR's CorElementType of an enum's underlying type (csrt_unbox lets the two unbox as each other).</summary>
     private static int ElementKind(ITypeSymbol underlying) => underlying.SpecialType switch
@@ -326,6 +337,8 @@ public sealed partial class ModuleCodeGen
         // corelib redirect keep; the generic type definition is what reflection describes.
         if (type is INamedTypeSymbol unbound && (unbound.IsUnboundGenericType || ChainArguments(unbound).Any(a => a.TypeKind == TypeKind.Error)))
             type = unbound.OriginalDefinition;
+        // `dynamic` is System.Object in metadata (a property or parameter typed dynamic reflects as Object).
+        if (type.TypeKind == TypeKind.Dynamic) type = Compilation.GetSpecialType(SpecialType.System_Object);
         if (BclValueTypes.IsDecimal(type)) return Builtin("csrt_Boxed_Decimal_MT");
         if (BclValueTypes.IsTimeSpan(type)) return Builtin("csrt_Boxed_TimeSpan_MT");
         if (BclValueTypes.IsDateTime(type)) return Builtin("csrt_Boxed_DateTime_MT");

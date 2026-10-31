@@ -354,7 +354,12 @@ public sealed partial class FunctionCodeGen
                 // `fixed (T* p = span)` in IL: element 0, or a null reference for an empty span (as in .NET).
                 return _b.Select(_b.ICmp(LLVMIntPredicate.EQ, SpanLength(span), L.ConstInt(L.I32, 0)), LlvmContext.Null(L.Ptr), SpanPointer(span));
             case ("ToArray", 0):
-                return CallRuntime("csrt_span_to_array", L.Ptr, [L.Ptr, L.I32, L.I64], SpanPointer(span), SpanLength(span), ElementSize(element));
+            {
+                // A T[] (its GetType(), casts and covariance checks), as NewArray makes them.
+                var array = CallRuntime("csrt_span_to_array", L.Ptr, [L.Ptr, L.I32, L.I64], SpanPointer(span), SpanLength(span), ElementSize(element));
+                TagArray(array, element);
+                return array;
+            }
             case ("Clear", 0):
                 MemSet(SpanPointer(span), SpanByteCount(span, element));
                 return default;

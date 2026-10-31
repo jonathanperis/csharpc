@@ -140,6 +140,39 @@ public sealed partial class FunctionCodeGen
         type is INamedTypeSymbol { Name: "AppendInterpolatedStringHandler", ContainingType.Name: "StringBuilder" };
 
     /// <summary>
+    /// This function creates a StringBuilder handler with a format provider (sb.Append(provider, $"...")): its
+    /// handlers may be corelib StringBuilderProviderHandler objects, so their calls go through the corelib.
+    /// Set when the creation is lowered, which comes before the calls on that handler.
+    /// </summary>
+    private bool _sbProviderHandlers;
+
+    private LLVMValueRef EmitProviderHandlerCall(IInvocationOperation inv, IMethodSymbol target)
+    {
+        var handler = EmitValue(inv.Instance!);
+        var args = inv.Arguments.OrderBy(a => a.Parameter!.Ordinal).ToArray();
+        if (target.Name == "AppendLiteral")
+        {
+            CallCoreLib("StringBuilderProviderHandler", "AppendLiteral", handler, EmitValue(args[0].Value));
+            return default(LLVMValueRef);
+        }
+        if (target.Name != "AppendFormatted") throw CompileError.Unsupported($"AppendInterpolatedStringHandler.{target.Name}", inv);
+        var valueType = S(target.Parameters[0].Type);
+        var value = Coerce(EmitValue(args[0].Value), TypeOf(args[0].Value), valueType);
+        var format = args.FirstOrDefault(a => a.Parameter!.Name == "format" && a.ArgumentKind != ArgumentKind.DefaultValue) is { } f
+            ? EmitValue(f.Value) : LlvmContext.Null(L.Ptr);
+        var int32 = _m.Compilation.GetSpecialType(SpecialType.System_Int32);
+        var alignment = args.FirstOrDefault(a => a.Parameter!.Name == "alignment" && a.ArgumentKind != ArgumentKind.DefaultValue) is { } al
+            ? Coerce(EmitValue(al.Value), TypeOf(al.Value), int32) : L.ConstInt(L.I32, 0);
+        if (valueType is INamedTypeSymbol { Name: "ReadOnlySpan", ContainingNamespace.Name: "System" })
+            CallCoreLib("StringBuilderProviderHandler", "AppendSpan", handler, value, alignment);
+        else if (valueType.SpecialType == SpecialType.System_String)
+            CallCoreLib("StringBuilderProviderHandler", "AppendString", handler, value, format, alignment);
+        else
+            CallCoreLibGenericMethod("StringBuilderProviderHandler", "AppendFormatted", [valueType], handler, value, format, alignment);
+        return default(LLVMValueRef);
+    }
+
+    /// <summary>
     /// sb.Append($"..."): Roslyn's CFG expands the AppendInterpolatedStringHandler: create(…, sb),
     /// handler.AppendLiteral/AppendFormatted(…) per part, then sb.Append(ref handler). As in .NET the
     /// handler appends straight into the builder, so it is represented by the builder pointer itself.
@@ -148,6 +181,8 @@ public sealed partial class FunctionCodeGen
     {
         // DefaultInterpolatedStringHandler (string.Create(provider, ...), FormattableString, interpolation in
         // IL) is the corelib shadow InterpolatedStringHandler.cs, which carries the format provider.
+        if (IsStringBuilderHandler(target.ContainingType) && !target.IsStatic && _sbProviderHandlers)
+            return EmitProviderHandlerCall(inv, target);
         if (IsStringBuilderHandler(target.ContainingType) && !target.IsStatic)
         {
             var sb = EmitValue(inv.Instance!);

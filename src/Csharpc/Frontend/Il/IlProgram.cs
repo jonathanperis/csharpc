@@ -20,6 +20,12 @@ public sealed record IlProgram
     public required int EntryPointToken { get; init; }
     /// <summary>`app.runtimeconfig.json`'s configProperties, as the host hands them to AppContext (strings).</summary>
     public required IReadOnlyList<KeyValuePair<string, string>> RuntimeConfig { get; init; }
+    /// <summary>
+    /// `app.runtimeconfig.json`'s frameworks other than Microsoft.NETCore.App, which is always there: the
+    /// shared frameworks the host loads the program's framework assemblies from (Microsoft.AspNetCore.App
+    /// for a web app), as --framework names them.
+    /// </summary>
+    public required IReadOnlyList<string> Frameworks { get; init; }
 
     /// <summary>Reads the assembly's identity and entry point; throws <see cref="InvalidOperationException"/> with a user-facing message.</summary>
     public static IlProgram Read(string path)
@@ -40,12 +46,14 @@ public sealed record IlProgram
             var token = cor.EntryPointTokenOrRelativeVirtualAddress;
             if (token == 0 || MetadataTokens.EntityHandle(token).Kind != HandleKind.MethodDefinition)
                 throw new InvalidOperationException($"'{path}' has no entry point: it is a library, not a program (reference it with -r instead)");
+            var runtimeConfig = System.IO.Path.ChangeExtension(path, ".runtimeconfig.json");
             return new IlProgram
             {
                 Path = path,
                 Name = reader.GetString(reader.GetAssemblyDefinition().Name),
                 EntryPointToken = token,
-                RuntimeConfig = ReadRuntimeConfig(System.IO.Path.ChangeExtension(path, ".runtimeconfig.json")),
+                RuntimeConfig = ReadRuntimeConfig(runtimeConfig),
+                Frameworks = ReadFrameworks(runtimeConfig),
                 AppLocalAssemblies = AppLocal(path, reader),
             };
         }
@@ -109,6 +117,34 @@ public sealed record IlProgram
                     JsonValueKind.String => property.Value.GetString()!,
                     _ => property.Value.GetRawText(),
                 }));
+        }
+        catch (JsonException e) { throw new InvalidOperationException($"'{path}': {e.Message}"); }
+        return result;
+    }
+
+    /// <summary>
+    /// The frameworks of runtimeconfig.json by name (hostfxr reads `framework`, an object, and `frameworks`,
+    /// an array), without Microsoft.NETCore.App. A self-contained app's runtimeconfig lists
+    /// `includedFrameworks` instead: its framework assemblies are in the app directory.
+    /// </summary>
+    private static List<string> ReadFrameworks(string path)
+    {
+        List<string> result = [];
+        if (!File.Exists(path)) return result;
+        try
+        {
+            using var document = JsonDocument.Parse(File.ReadAllText(path), new JsonDocumentOptions { CommentHandling = JsonCommentHandling.Skip, AllowTrailingCommas = true });
+            if (!document.RootElement.TryGetProperty("runtimeOptions", out var options) || options.ValueKind != JsonValueKind.Object) return result;
+            void Add(JsonElement framework)
+            {
+                if (framework.ValueKind == JsonValueKind.Object && framework.TryGetProperty("name", out var name) && name.ValueKind == JsonValueKind.String
+                    && name.GetString() is { Length: > 0 } n && !n.Equals("Microsoft.NETCore.App", StringComparison.OrdinalIgnoreCase)
+                    && !result.Contains(n, StringComparer.OrdinalIgnoreCase))
+                    result.Add(n);
+            }
+            if (options.TryGetProperty("framework", out var single)) Add(single);
+            if (options.TryGetProperty("frameworks", out var many) && many.ValueKind == JsonValueKind.Array)
+                foreach (var framework in many.EnumerateArray()) Add(framework);
         }
         catch (JsonException e) { throw new InvalidOperationException($"'{path}': {e.Message}"); }
         return result;

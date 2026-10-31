@@ -167,8 +167,9 @@ public sealed partial class ModuleCodeGen
 
     public void RequestStringInterface(INamedTypeSymbol itf)
     {
+        // Generic interfaces (IEnumerable<char> ...) and IConvertible have corelib helpers (StringInterfaces).
         foreach (var i in (IEnumerable<INamedTypeSymbol>)[itf, .. itf.AllInterfaces])
-            if (i.IsGenericType && _stringInterfaces.Add(i)) _pendingBuiltinInterfaces.Enqueue(i);
+            if ((i.IsGenericType || i.ToDisplayString() == "System.IConvertible") && _stringInterfaces.Add(i)) _pendingBuiltinInterfaces.Enqueue(i);
     }
 
     /// <summary>Corelib helper implementing <paramref name="member"/> of <paramref name="itf"/> for arrays, if any.</summary>

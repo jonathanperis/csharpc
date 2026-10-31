@@ -148,6 +148,11 @@ namespace CsharpcCoreLib
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern System.Threading.CancellationToken SourceToken(object source);
         // Reflection (corelib/Reflection/Members.cs, src/runtime/type.c): the compile-time tables' addresses.
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern nint TypeInfoTableAddress();
+        /// <summary>Type attributes are read at run time (Type.GetCustomAttributesData through a MemberInfo): keeps their metadata.</summary>
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern void TypeAttributesQueried();
+        /// <summary>The run-time Enum.Parse table (ModuleCodeGen.Enums.cs, EnumParseTable).</summary>
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern nint EnumParseTableAddress();
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern unsafe long csrt_enum_parse_or_throw(string s, bool ignoreCase, void* values, void* names, int count, int bits, bool isSigned);
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern nint ReflectionTableAddress();
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern nint DelegateMethodTableAddress();
         /// <summary>The version of the shared framework the program was compiled against ("11.0.0-rc.2.26504.105").</summary>

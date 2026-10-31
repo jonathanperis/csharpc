@@ -1372,4 +1372,43 @@ namespace CsharpcCoreLib
 
         public override bool IsSingleByte => true;
     }
+
+    [ShadowMembers("System.Text.EncodingExtensions")]
+    internal static class EncodingExtensionsMembers
+    {
+        /// <summary>
+        /// dotnet/runtime's EncodingExtensions.GetString(Encoding, in ReadOnlySequence&lt;byte&gt;): one segment is
+        /// GetString(span); several go through one stateful Decoder (a character split across segments decodes
+        /// as one), flushed with the last.
+        /// </summary>
+        public static string GetString(Encoding encoding, in System.Buffers.ReadOnlySequence<byte> bytes)
+        {
+            ArgumentNullException.ThrowIfNull(encoding);
+            if (bytes.IsSingleSegment) return encoding.GetString(bytes.FirstSpan);
+            Decoder decoder = encoding.GetDecoder();
+            var builder = new System.Collections.Generic.List<char[]>();
+            int total = 0;
+            var segments = new System.Collections.Generic.List<ReadOnlyMemory<byte>>();
+            foreach (ReadOnlyMemory<byte> segment in bytes) segments.Add(segment);
+            for (int i = 0; i < segments.Count; i++)
+            {
+                ReadOnlySpan<byte> span = segments[i].Span;
+                bool last = i == segments.Count - 1;
+                char[] chars = new char[decoder.GetCharCount(span, last)];
+                int written = decoder.GetChars(span, chars, last);
+                if (written != chars.Length) Array.Resize(ref chars, written);
+                builder.Add(chars);
+                total += written;
+                if (total < 0) throw new OutOfMemoryException();
+            }
+            char[] all = new char[total];
+            int at = 0;
+            foreach (char[] part in builder)
+            {
+                part.CopyTo(all, at);
+                at += part.Length;
+            }
+            return new string(all);
+        }
+    }
 }

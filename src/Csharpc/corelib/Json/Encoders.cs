@@ -6,7 +6,9 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 #nullable disable
 using System;
+using System.Buffers;
 using System.Collections.Generic;
+using System.IO;
 using System.Text;
 using System.Text.Encodings.Web;
 using System.Text.Unicode;
@@ -241,12 +243,256 @@ namespace CsharpcCoreLib
         public virtual string Encode(string value)
         {
             if (value == null) throw new ArgumentNullException("value");
+            if (_allowed == null) return EncodeThroughScalars(value);
             int first = FindFirstToEncode(value, 0);
             if (first < 0) return value;
             StringBuilder sb = new StringBuilder(value.Length + 16);
             sb.Append(value, 0, first);
             EncodeFrom(sb, value, first);
             return sb.ToString();
+        }
+
+        // ---- The rest of TextEncoder's surface (dotnet/runtime TextEncoder.cs): the TextWriter, span and UTF-8
+        // members. A derived encoder (Microsoft.AspNetCore.Razor's NullHtmlEncoder) is served through its
+        // WillEncode / TryEncodeUnicodeScalar / FindFirstCharacterToEncode, scalar by scalar, as .NET's base does;
+        // the inbox encoders answer from their allowed-character bitmap. ------------------------------------
+
+        public virtual unsafe int FindFirstCharacterToEncode(char* text, int textLength)
+        {
+            for (int i = 0; i < textLength; i++)
+            {
+                char c = text[i];
+                if ((c >= 0xD800 && c <= 0xDFFF) || _allowed == null || !_allowed.IsAllowed(c)) return i;
+            }
+            return -1;
+        }
+
+        public virtual unsafe bool TryEncodeUnicodeScalar(int unicodeScalar, char* buffer, int bufferLength, out int numberOfCharactersWritten)
+        {
+            string text;
+            if (!WillEncode(unicodeScalar)) text = char.ConvertFromUtf32(unicodeScalar);
+            else
+            {
+                var sb = new StringBuilder(12);
+                AppendEscaped(sb, unicodeScalar);
+                text = sb.ToString();
+            }
+            if (text.Length > bufferLength)
+            {
+                numberOfCharactersWritten = 0;
+                return false;
+            }
+            for (int i = 0; i < text.Length; i++) buffer[i] = text[i];
+            numberOfCharactersWritten = text.Length;
+            return true;
+        }
+
+        public void Encode(TextWriter output, string value) => Encode(output, value, 0, value?.Length ?? 0);
+
+        public virtual void Encode(TextWriter output, string value, int startIndex, int characterCount)
+        {
+            if (output == null) throw new ArgumentNullException("output");
+            if (value == null) throw new ArgumentNullException("value");
+            ValidateRanges(startIndex, characterCount, value.Length);
+            EncodeToWriter(output, value.AsSpan(startIndex, characterCount));
+        }
+
+        public virtual void Encode(TextWriter output, char[] value, int startIndex, int characterCount)
+        {
+            if (output == null) throw new ArgumentNullException("output");
+            if (value == null) throw new ArgumentNullException("value");
+            ValidateRanges(startIndex, characterCount, value.Length);
+            EncodeToWriter(output, new ReadOnlySpan<char>(value, startIndex, characterCount));
+        }
+
+        private static void ValidateRanges(int startIndex, int characterCount, int actualInputLength)
+        {
+            if (startIndex < 0 || startIndex > actualInputLength) throw new ArgumentOutOfRangeException("startIndex");
+            if (characterCount < 0 || characterCount > actualInputLength - startIndex) throw new ArgumentOutOfRangeException("characterCount");
+        }
+
+        private unsafe int FirstToEncode(ReadOnlySpan<char> text)
+        {
+            fixed (char* p = text) return FindFirstCharacterToEncode(p, text.Length);
+        }
+
+        private void EncodeToWriter(TextWriter output, ReadOnlySpan<char> value)
+        {
+            int first = FirstToEncode(value);
+            if (first < 0)
+            {
+                output.Write(value);
+                return;
+            }
+            output.Write(value.Slice(0, first));
+            char[] buffer = new char[Math.Max(16, 2 * MaxOutputCharactersPerInputCharacter)];
+            for (int i = first; i < value.Length;)
+            {
+                int scalar = NextScalar(value, i, out int length);
+                i += length;
+                output.Write(new ReadOnlySpan<char>(buffer, 0, EncodeScalar(scalar, buffer)));
+            }
+        }
+
+        // The scalar at value[i] (U+FFFD for an unpaired surrogate) and the chars it takes.
+        private static int NextScalar(ReadOnlySpan<char> value, int i, out int length)
+        {
+            char c = value[i];
+            length = 1;
+            if (c < 0xD800 || c > 0xDFFF) return c;
+            if (c <= 0xDBFF && i + 1 < value.Length && value[i + 1] >= 0xDC00 && value[i + 1] <= 0xDFFF)
+            {
+                length = 2;
+                return ((c - 0xD800) << 10) + (value[i + 1] - 0xDC00) + 0x10000;
+            }
+            return 0xFFFD;
+        }
+
+        // A scalar as the encoder writes it: itself, or its escape (an encoder that can't escape it into a buffer
+        // that large has no valid answer, as .NET reports).
+        private unsafe int EncodeScalar(int scalar, char[] buffer)
+        {
+            if (!WillEncode(scalar))
+            {
+                if (scalar < 0x10000) { buffer[0] = (char)scalar; return 1; }
+                buffer[0] = (char)(0xD800 + ((scalar - 0x10000) >> 10));
+                buffer[1] = (char)(0xDC00 + ((scalar - 0x10000) & 0x3FF));
+                return 2;
+            }
+            fixed (char* p = buffer)
+                if (TryEncodeUnicodeScalar(scalar, p, buffer.Length, out int written)) return written;
+            throw new ArgumentException("Argument encoder does not implement MaxOutputCharsPerInputChar correctly.");
+        }
+
+        private string EncodeThroughScalars(string value)
+        {
+            int first = FirstToEncode(value);
+            if (first < 0) return value;
+            var writer = new StringWriter();
+            EncodeToWriter(writer, value);
+            return writer.ToString();
+        }
+
+        public virtual OperationStatus Encode(ReadOnlySpan<char> source, Span<char> destination, out int charsConsumed, out int charsWritten, bool isFinalBlock = true)
+        {
+            char[] buffer = new char[Math.Max(16, 2 * MaxOutputCharactersPerInputCharacter)];
+            int read = 0, written = 0;
+            while (read < source.Length)
+            {
+                char c = source[read];
+                if (c >= 0xD800 && c <= 0xDBFF && read + 1 == source.Length && !isFinalBlock)
+                {
+                    charsConsumed = read;
+                    charsWritten = written;
+                    return OperationStatus.NeedMoreData;
+                }
+                int scalar = NextScalar(source, read, out int length);
+                int n = EncodeScalar(scalar, buffer);
+                if (n > destination.Length - written)
+                {
+                    charsConsumed = read;
+                    charsWritten = written;
+                    return OperationStatus.DestinationTooSmall;
+                }
+                new ReadOnlySpan<char>(buffer, 0, n).CopyTo(destination.Slice(written));
+                written += n;
+                read += length;
+            }
+            charsConsumed = read;
+            charsWritten = written;
+            return OperationStatus.Done;
+        }
+
+        public virtual OperationStatus EncodeUtf8(ReadOnlySpan<byte> utf8Source, Span<byte> utf8Destination, out int bytesConsumed, out int bytesWritten, bool isFinalBlock = true)
+        {
+            char[] buffer = new char[Math.Max(16, 2 * MaxOutputCharactersPerInputCharacter)];
+            Span<byte> encoded = stackalloc byte[4];
+            int read = 0, written = 0;
+            while (read < utf8Source.Length)
+            {
+                byte b = utf8Source[read];
+                // ASCII the encoder lets through: copied as is.
+                if (b < 0x80 && !WillEncode(b))
+                {
+                    if (written == utf8Destination.Length)
+                    {
+                        bytesConsumed = read;
+                        bytesWritten = written;
+                        return OperationStatus.DestinationTooSmall;
+                    }
+                    utf8Destination[written++] = b;
+                    read++;
+                    continue;
+                }
+                OperationStatus status = Rune.DecodeFromUtf8(utf8Source.Slice(read), out Rune rune, out int length);
+                if (status == OperationStatus.NeedMoreData && !isFinalBlock)
+                {
+                    bytesConsumed = read;
+                    bytesWritten = written;
+                    return OperationStatus.NeedMoreData;
+                }
+                int scalar = status == OperationStatus.Done ? rune.Value : 0xFFFD;
+                int needed;
+                if (!WillEncode(scalar))
+                {
+                    if (status == OperationStatus.Done)
+                    {
+                        needed = length;
+                        if (needed > utf8Destination.Length - written)
+                        {
+                            bytesConsumed = read;
+                            bytesWritten = written;
+                            return OperationStatus.DestinationTooSmall;
+                        }
+                        utf8Source.Slice(read, length).CopyTo(utf8Destination.Slice(written));
+                    }
+                    else
+                    {
+                        needed = new Rune(0xFFFD).EncodeToUtf8(encoded);
+                        if (needed > utf8Destination.Length - written)
+                        {
+                            bytesConsumed = read;
+                            bytesWritten = written;
+                            return OperationStatus.DestinationTooSmall;
+                        }
+                        encoded.Slice(0, needed).CopyTo(utf8Destination.Slice(written));
+                    }
+                }
+                else
+                {
+                    int chars = EncodeScalar(scalar, buffer);
+                    needed = Encoding.UTF8.GetByteCount(new ReadOnlySpan<char>(buffer, 0, chars));
+                    if (needed > utf8Destination.Length - written)
+                    {
+                        bytesConsumed = read;
+                        bytesWritten = written;
+                        return OperationStatus.DestinationTooSmall;
+                    }
+                    Encoding.UTF8.GetBytes(new ReadOnlySpan<char>(buffer, 0, chars), utf8Destination.Slice(written));
+                }
+                written += needed;
+                read += length;
+            }
+            bytesConsumed = read;
+            bytesWritten = written;
+            return OperationStatus.Done;
+        }
+
+        public virtual int FindFirstCharacterToEncodeUtf8(ReadOnlySpan<byte> utf8Text)
+        {
+            int i = 0;
+            while (i < utf8Text.Length)
+            {
+                if (utf8Text[i] < 0x80)
+                {
+                    if (WillEncode(utf8Text[i])) return i;
+                    i++;
+                    continue;
+                }
+                if (Rune.DecodeFromUtf8(utf8Text.Slice(i), out Rune rune, out int length) != OperationStatus.Done || WillEncode(rune.Value)) return i;
+                i += length;
+            }
+            return -1;
         }
 
         /// <summary>Index of the first char that is escaped, or -1.</summary>

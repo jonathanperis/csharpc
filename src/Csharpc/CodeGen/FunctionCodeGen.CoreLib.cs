@@ -158,6 +158,8 @@ public sealed partial class FunctionCodeGen
             "FrameworkVersion" => _m.StringLiteral(Frontend.SharedFramework.ProductVersion
                 ?? (Path.GetFileName(Frontend.SharedFramework.Directory?.TrimEnd('/', '\\') ?? "") is { Length: > 0 } version ? version : "11.0.0")),
             "TypeInfoTableAddress" => _b.Cast(LLVMOpcode.PtrToInt, _m.TypeInfoTable(), T.NativeInt),
+            "TypeAttributesQueried" => NoteTypeAttributesQueried(),
+            "EnumParseTableAddress" => _b.Cast(LLVMOpcode.PtrToInt, _m.EnumParseTable(), T.NativeInt),
             "ReflectionTableAddress" => _b.Cast(LLVMOpcode.PtrToInt, _m.ReflectionTable(), T.NativeInt),
             "DelegateMethodTableAddress" => _b.Cast(LLVMOpcode.PtrToInt, _m.DelegateMethodTable(), T.NativeInt),
             "DelegateSignatureTableAddress" => _b.Cast(LLVMOpcode.PtrToInt, _m.DelegateSignatureTable(), T.NativeInt),
@@ -340,6 +342,12 @@ public sealed partial class FunctionCodeGen
             ?? throw CompileError.Unsupported($"corelib type '{type}' not found", (ISymbol?)null!);
         var target = owner.GetMembers(method).OfType<IMethodSymbol>().Single(m => m.IsStatic && m.Parameters.Length == args.Length && m.IsGenericMethod);
         return DirectCall(target.Construct(S(typeArgument)), args);
+    }
+
+    private LLVMValueRef NoteTypeAttributesQueried()
+    {
+        _m.NoteTypeAttributesQueried();
+        return default;
     }
 
     internal LLVMValueRef CallCoreLib(string type, string method, params LLVMValueRef[] args)

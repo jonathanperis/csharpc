@@ -94,9 +94,9 @@ APPS = {
         aot=["-p:OptimizationPreference=Speed", "-p:GarbageCollectionAdaptationMode=0"],
         settings="appsettings.postgresql.json", database=True, csharpc_input="il", counted=True,
         urls=lambda port: {"URLS": f"http://+:{port}"},
-        # csharpc doesn't build the entry yet (its blockers are the report's csharpc-blockers.md): until it
-        # does, a csharpc build failure is reported, not a failed run. Set to False once it builds.
-        csharpc_may_fail=True),
+        # csharpc builds the entry: a csharpc build failure fails the run (its blockers are the report's
+        # csharpc-blockers.md).
+        csharpc_may_fail=False),
     "interim": dict(
         title="Interim plaintext/JSON middleware app (not a TechEmpower entry, not counted for M7)", dir=HERE / "interim",
         project="TechEmpower.csproj", binary="TechEmpower", tests=["plaintext", "json"], msbuild=[], aot=[], settings=None,
@@ -281,11 +281,12 @@ def build_csharpc(app, project, out, work, aot_props, flags, env, finish):
     if app["csharpc_input"] == "il":
         # NativeAOT's pipeline: csc builds the IL with the AOT properties (configuration binding and JSON
         # source generators, trimming feature switches), then the AOT compiler compiles it; csharpc does
-        # the second step. -v: the framework assemblies taken from IL and each phase's time and memory.
+        # the second step, with the shared frameworks Platform.runtimeconfig.json lists (as `dotnet Platform.dll`
+        # would load them). -v: the framework assemblies taken from IL and each phase's time and memory.
         rc, s1 = run([DOTNET, "build", project, "-c", "Release", "-o", work / "il"] + aot_props, log_path, env=env)
         s2 = 0
         if rc == 0:
-            rc, s2 = run(csharpc + [work / "il" / (app["binary"] + ".dll"), "--framework", "Microsoft.AspNetCore.App"] + flags
+            rc, s2 = run(csharpc + [work / "il" / (app["binary"] + ".dll")] + flags
                          + ["-v", "-o", binary], log_path, env=env)
         seconds = s1 + s2
     else:

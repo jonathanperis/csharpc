@@ -371,7 +371,12 @@ public sealed partial class FunctionCodeGen
         if (ownerName == "System.Runtime.CompilerServices.Unsafe" && IlUnsafeCall(method, args) is { } unsafeResult) return unsafeResult;
         if (ownerName == "System.Runtime.CompilerServices.AsyncHelpers" && IlRuntimeAsyncCall(method, args) is { } awaited) return awaited;
         if (args.Length == 0 && receiver is null && FeatureSwitchValue(method) is { } feature)
+        {
+            // A guard whose value is fixed but whose getter still checks something (QUIC: stops the program where
+            // MsQuic is installed, corelib/Net/Quic.cs): it is called, and its constant result folds the branches.
+            if (IsCheckedFeatureGuard(method)) EmitValue(new IlInvocationOperation(_il!.Syntax, method, null, isVirtual: false, [], null));
             return I4(feature ? 1 : 0) with { Constant = feature ? 1 : 0 };
+        }
         // Vector<T>.Count: framework IL reads it next to its Vector.IsHardwareAccelerated test (false: the
         // scalar path runs, with the same results). 16 bytes, NativeAOT's default for x64 and arm64.
         if (method is { Name: "get_Count", Parameters.IsEmpty: true } && receiver is null

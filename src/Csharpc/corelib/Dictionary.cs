@@ -139,7 +139,7 @@ namespace CsharpcCoreLib
     }
 
     [Shadows("System.Collections.Generic.Dictionary`2")]
-    public class DictionaryImpl<TKey, TValue> : IDictionary<TKey, TValue>, IReadOnlyDictionary<TKey, TValue>
+    public class DictionaryImpl<TKey, TValue> : IDictionary<TKey, TValue>, IReadOnlyDictionary<TKey, TValue>, IDictionary
     {
         internal struct Entry
         {
@@ -424,6 +424,140 @@ namespace CsharpcCoreLib
         IEnumerator<KeyValuePair<TKey, TValue>> IEnumerable<KeyValuePair<TKey, TValue>>.GetEnumerator() => new EnumeratorObject(this);
         IEnumerator IEnumerable.GetEnumerator() => new EnumeratorObject(this);
 
+        // ---- The non-generic IDictionary / ICollection (dotnet/runtime's Dictionary.cs; System.Data's connection
+        // string builders use their Dictionary<string, object> through it) ----------------------------------------
+
+        bool ICollection.IsSynchronized => false;
+        object ICollection.SyncRoot => this;
+        bool IDictionary.IsFixedSize => false;
+        bool IDictionary.IsReadOnly => false;
+        ICollection IDictionary.Keys => Keys;
+        ICollection IDictionary.Values => Values;
+
+        private static bool IsCompatibleKey(object key)
+        {
+            if (key == null) ThrowHelper.ArgumentNull("key");
+            return key is TKey;
+        }
+
+        internal static ArgumentException WrongType(object value, Type targetType, string parameter) =>
+            new ArgumentException("The value \"" + value + "\" is not of type \"" + targetType + "\" and cannot be used in this generic collection.", parameter);
+
+        private static void CheckValueNullability(object value)
+        {
+            if (value == null && default(TValue) != null) ThrowHelper.ArgumentNull("value");
+        }
+
+        object IDictionary.this[object key]
+        {
+            get
+            {
+                if (IsCompatibleKey(key))
+                {
+                    int i = FindEntry((TKey)key);
+                    if (i >= 0) return CoreIntrinsics.Box(_entries[i].value);
+                }
+                return null;
+            }
+            set
+            {
+                if (key == null) ThrowHelper.ArgumentNull("key");
+                CheckValueNullability(value);
+                if (!(key is TKey typedKey)) throw WrongType(key, typeof(TKey), "key");
+                if (value != null && !(value is TValue)) throw WrongType(value, typeof(TValue), "value");
+                this[typedKey] = (TValue)value;
+            }
+        }
+
+        void IDictionary.Add(object key, object value)
+        {
+            if (key == null) ThrowHelper.ArgumentNull("key");
+            CheckValueNullability(value);
+            if (!(key is TKey typedKey)) throw WrongType(key, typeof(TKey), "key");
+            if (value != null && !(value is TValue)) throw WrongType(value, typeof(TValue), "value");
+            Add(typedKey, (TValue)value);
+        }
+
+        bool IDictionary.Contains(object key) => IsCompatibleKey(key) && ContainsKey((TKey)key);
+
+        IDictionaryEnumerator IDictionary.GetEnumerator() => new DictionaryEntryEnumerator(this);
+
+        void IDictionary.Remove(object key)
+        {
+            if (IsCompatibleKey(key)) Remove((TKey)key);
+        }
+
+        void ICollection.CopyTo(Array array, int index)
+        {
+            CollectionCopyChecks.Check(array, index, Count);
+            if (array is KeyValuePair<TKey, TValue>[] pairs)
+            {
+                ((ICollection<KeyValuePair<TKey, TValue>>)this).CopyTo(pairs, index);
+                return;
+            }
+            if (array is DictionaryEntry[] dictEntries)
+            {
+                for (int i = 0; i < _count; i++)
+                    if (_entries[i].next >= -1) dictEntries[index++] = new DictionaryEntry(CoreIntrinsics.Box(_entries[i].key), CoreIntrinsics.Box(_entries[i].value));
+                return;
+            }
+            if (!(array is object[] objects)) throw CollectionCopyChecks.IncompatibleArrayType();
+            try
+            {
+                for (int i = 0; i < _count; i++)
+                    if (_entries[i].next >= -1) objects[index++] = CoreIntrinsics.Box(new KeyValuePair<TKey, TValue>(_entries[i].key, _entries[i].value));
+            }
+            catch (ArrayTypeMismatchException)
+            {
+                throw CollectionCopyChecks.IncompatibleArrayType();
+            }
+        }
+
+        /// <summary>IDictionary.GetEnumerator(): Current is a DictionaryEntry (.NET's Enumerator with DictEntry).</summary>
+        internal sealed class DictionaryEntryEnumerator : IDictionaryEnumerator
+        {
+            private readonly DictionaryImpl<TKey, TValue> _dictionary;
+            private readonly int _version;
+            private int _index;
+            private KeyValuePair<TKey, TValue> _current;
+
+            public DictionaryEntryEnumerator(DictionaryImpl<TKey, TValue> dictionary) { _dictionary = dictionary; _version = dictionary._version; }
+
+            public bool MoveNext()
+            {
+                if (_version != _dictionary._version) ThrowHelper.VersionChanged();
+                while ((uint)_index < (uint)_dictionary._count)
+                {
+                    int i = _index++;
+                    if (_dictionary._entries[i].next >= -1)
+                    {
+                        _current = new KeyValuePair<TKey, TValue>(_dictionary._entries[i].key, _dictionary._entries[i].value);
+                        return true;
+                    }
+                }
+                _index = _dictionary._count + 1;
+                _current = default(KeyValuePair<TKey, TValue>);
+                return false;
+            }
+
+            private void CheckCurrent()
+            {
+                if (_index == 0 || _index == _dictionary._count + 1) ThrowHelper.EnumOpCantHappen();
+            }
+
+            public object Current => Entry;
+            public DictionaryEntry Entry { get { CheckCurrent(); return new DictionaryEntry(CoreIntrinsics.Box(_current.Key), CoreIntrinsics.Box(_current.Value)); } }
+            public object Key { get { CheckCurrent(); return CoreIntrinsics.Box(_current.Key); } }
+            public object Value { get { CheckCurrent(); return CoreIntrinsics.Box(_current.Value); } }
+
+            public void Reset()
+            {
+                if (_version != _dictionary._version) ThrowHelper.VersionChanged();
+                _index = 0;
+                _current = default(KeyValuePair<TKey, TValue>);
+            }
+        }
+
         void ICollection<KeyValuePair<TKey, TValue>>.Add(KeyValuePair<TKey, TValue> item) => Add(item.Key, item.Value);
 
         bool ICollection<KeyValuePair<TKey, TValue>>.Contains(KeyValuePair<TKey, TValue> item)
@@ -557,8 +691,24 @@ namespace CsharpcCoreLib
         }
 
         [Shadows("System.Collections.Generic.Dictionary`2+KeyCollection")]
-        public sealed class KeyCollection : ICollection<TKey>, IReadOnlyCollection<TKey>
+        public sealed class KeyCollection : ICollection<TKey>, IReadOnlyCollection<TKey>, ICollection
         {
+            bool ICollection.IsSynchronized => false;
+            object ICollection.SyncRoot => ((ICollection)_dictionary).SyncRoot;
+
+            void ICollection.CopyTo(Array array, int index)
+            {
+                CollectionCopyChecks.Check(array, index, _dictionary.Count);
+                if (array is TKey[] keys) { CopyTo(keys, index); return; }
+                if (!(array is object[] objects)) throw CollectionCopyChecks.IncompatibleArrayType();
+                try
+                {
+                    for (int i = 0; i < _dictionary._count; i++)
+                        if (_dictionary._entries[i].next >= -1) objects[index++] = CoreIntrinsics.Box(_dictionary._entries[i].key);
+                }
+                catch (ArrayTypeMismatchException) { throw CollectionCopyChecks.IncompatibleArrayType(); }
+            }
+
             private readonly DictionaryImpl<TKey, TValue> _dictionary;
 
             public KeyCollection(DictionaryImpl<TKey, TValue> dictionary) { _dictionary = dictionary; }
@@ -661,8 +811,24 @@ namespace CsharpcCoreLib
         }
 
         [Shadows("System.Collections.Generic.Dictionary`2+ValueCollection")]
-        public sealed class ValueCollection : ICollection<TValue>, IReadOnlyCollection<TValue>
+        public sealed class ValueCollection : ICollection<TValue>, IReadOnlyCollection<TValue>, ICollection
         {
+            bool ICollection.IsSynchronized => false;
+            object ICollection.SyncRoot => ((ICollection)_dictionary).SyncRoot;
+
+            void ICollection.CopyTo(Array array, int index)
+            {
+                CollectionCopyChecks.Check(array, index, _dictionary.Count);
+                if (array is TValue[] values) { CopyTo(values, index); return; }
+                if (!(array is object[] objects)) throw CollectionCopyChecks.IncompatibleArrayType();
+                try
+                {
+                    for (int i = 0; i < _dictionary._count; i++)
+                        if (_dictionary._entries[i].next >= -1) objects[index++] = CoreIntrinsics.Box(_dictionary._entries[i].value);
+                }
+                catch (ArrayTypeMismatchException) { throw CollectionCopyChecks.IncompatibleArrayType(); }
+            }
+
             private readonly DictionaryImpl<TKey, TValue> _dictionary;
 
             public ValueCollection(DictionaryImpl<TKey, TValue> dictionary) { _dictionary = dictionary; }
@@ -791,5 +957,21 @@ namespace CsharpcCoreLib
             value = default(TValue);
             return false;
         }
+    }
+
+    /// <summary>ICollection.CopyTo(Array, int)'s argument checks, with .NET's exceptions (Dictionary.cs).</summary>
+    internal static class CollectionCopyChecks
+    {
+        internal static void Check(Array array, int index, int count)
+        {
+            if (array == null) ThrowHelper.ArgumentNull("array");
+            if (array.Rank != 1) throw new ArgumentException("Only single dimensional arrays are supported for the requested action.");
+            if (array.GetLowerBound(0) != 0) throw new ArgumentException("The lower bound of target array must be zero.");
+            if ((uint)index > (uint)array.Length) throw new ArgumentOutOfRangeException("index", "Non-negative number required.");
+            if (array.Length - index < count) throw new ArgumentException("Destination array is not long enough to copy all the items in the collection. Check array index and length.");
+        }
+
+        internal static ArgumentException IncompatibleArrayType() =>
+            new ArgumentException("Target array type is not compatible with the type of items in the collection.");
     }
 }

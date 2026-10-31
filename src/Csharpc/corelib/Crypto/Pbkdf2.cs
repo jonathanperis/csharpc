@@ -116,4 +116,79 @@ namespace CsharpcCoreLib
             }
         }
     }
+
+    /// <summary>The one-shot HMACSHA*.HashData of .NET 6+ (Npgsql's SCRAM-SHA-256 authentication), over HmacEngine.</summary>
+    internal static class HmacOneShot
+    {
+        internal static byte[] Hash(HashAlgorithmName name, byte[] key, byte[] source)
+        {
+            ArgumentNullException.ThrowIfNull(key);
+            ArgumentNullException.ThrowIfNull(source);
+            return Hash(name, new ReadOnlySpan<byte>(key), new ReadOnlySpan<byte>(source));
+        }
+
+        internal static byte[] Hash(HashAlgorithmName name, ReadOnlySpan<byte> key, ReadOnlySpan<byte> source)
+        {
+            var hmac = new HmacEngine(name, key);
+            hmac.Append(source);
+            return hmac.Finish();
+        }
+
+        internal static int Hash(HashAlgorithmName name, ReadOnlySpan<byte> key, ReadOnlySpan<byte> source, Span<byte> destination)
+        {
+            byte[] mac = Hash(name, key, source);
+            if (destination.Length < mac.Length) throw new ArgumentException("Destination is too short.", "destination");
+            mac.CopyTo(destination);
+            return mac.Length;
+        }
+
+        internal static bool TryHash(HashAlgorithmName name, ReadOnlySpan<byte> key, ReadOnlySpan<byte> source, Span<byte> destination, out int bytesWritten)
+        {
+            byte[] mac = Hash(name, key, source);
+            if (destination.Length < mac.Length) { bytesWritten = 0; return false; }
+            mac.CopyTo(destination);
+            bytesWritten = mac.Length;
+            return true;
+        }
+    }
+
+    [ShadowMembers("System.Security.Cryptography.HMACSHA256")]
+    internal static class HMACSHA256Members
+    {
+        public static byte[] HashData(byte[] key, byte[] source) => HmacOneShot.Hash(HashAlgorithmName.SHA256, key, source);
+        public static byte[] HashData(ReadOnlySpan<byte> key, ReadOnlySpan<byte> source) => HmacOneShot.Hash(HashAlgorithmName.SHA256, key, source);
+        public static int HashData(ReadOnlySpan<byte> key, ReadOnlySpan<byte> source, Span<byte> destination) => HmacOneShot.Hash(HashAlgorithmName.SHA256, key, source, destination);
+        public static bool TryHashData(ReadOnlySpan<byte> key, ReadOnlySpan<byte> source, Span<byte> destination, out int bytesWritten) =>
+            HmacOneShot.TryHash(HashAlgorithmName.SHA256, key, source, destination, out bytesWritten);
+    }
+
+    [ShadowMembers("System.Security.Cryptography.HMACSHA1")]
+    internal static class HMACSHA1Members
+    {
+        public static byte[] HashData(byte[] key, byte[] source) => HmacOneShot.Hash(HashAlgorithmName.SHA1, key, source);
+        public static byte[] HashData(ReadOnlySpan<byte> key, ReadOnlySpan<byte> source) => HmacOneShot.Hash(HashAlgorithmName.SHA1, key, source);
+        public static int HashData(ReadOnlySpan<byte> key, ReadOnlySpan<byte> source, Span<byte> destination) => HmacOneShot.Hash(HashAlgorithmName.SHA1, key, source, destination);
+        public static bool TryHashData(ReadOnlySpan<byte> key, ReadOnlySpan<byte> source, Span<byte> destination, out int bytesWritten) =>
+            HmacOneShot.TryHash(HashAlgorithmName.SHA1, key, source, destination, out bytesWritten);
+    }
+
+    [ShadowMembers("System.Security.Cryptography.HMACSHA384")]
+    internal static class HMACSHA384Members
+    {
+        public static byte[] HashData(byte[] key, byte[] source) => HmacOneShot.Hash(HashAlgorithmName.SHA384, key, source);
+        public static byte[] HashData(ReadOnlySpan<byte> key, ReadOnlySpan<byte> source) => HmacOneShot.Hash(HashAlgorithmName.SHA384, key, source);
+        public static int HashData(ReadOnlySpan<byte> key, ReadOnlySpan<byte> source, Span<byte> destination) => HmacOneShot.Hash(HashAlgorithmName.SHA384, key, source, destination);
+        public static bool TryHashData(ReadOnlySpan<byte> key, ReadOnlySpan<byte> source, Span<byte> destination, out int bytesWritten) =>
+            HmacOneShot.TryHash(HashAlgorithmName.SHA384, key, source, destination, out bytesWritten);
+    }
+
+    [ShadowMembers("System.Security.Cryptography.HMACSHA512")]
+    internal static class HMACSHA512Members
+    {
+        public static byte[] HashData(byte[] key, byte[] source) => HmacOneShot.Hash(HashAlgorithmName.SHA512, key, source);
+        public static byte[] HashData(ReadOnlySpan<byte> key, ReadOnlySpan<byte> source) => HmacOneShot.Hash(HashAlgorithmName.SHA512, key, source);
+        public static int HashData(ReadOnlySpan<byte> key, ReadOnlySpan<byte> source, Span<byte> destination) => HmacOneShot.Hash(HashAlgorithmName.SHA512, key, source, destination);
+        public static bool TryHashData(ReadOnlySpan<byte> key, ReadOnlySpan<byte> source, Span<byte> destination, out int bytesWritten) =>
+            HmacOneShot.TryHash(HashAlgorithmName.SHA512, key, source, destination, out bytesWritten);
+    }
 }

@@ -246,6 +246,26 @@ namespace CsharpcCoreLib
     internal static class StringInterfaces
     {
         public static IEnumerator<char> IEnumerable1_GetEnumerator(string s) => new StringEnumerator(s);
+
+        // IConvertible (System.Data's connection string builders convert their values with it): String's own
+        // implementation, which parses with the provider (Convert.ToX(string, provider)).
+        public static TypeCode IConvertible_GetTypeCode(string s) => TypeCode.String;
+        public static bool IConvertible_ToBoolean(string s, IFormatProvider provider) => Convert.ToBoolean(s, provider);
+        public static char IConvertible_ToChar(string s, IFormatProvider provider) => Convert.ToChar(s, provider);
+        public static sbyte IConvertible_ToSByte(string s, IFormatProvider provider) => Convert.ToSByte(s, provider);
+        public static byte IConvertible_ToByte(string s, IFormatProvider provider) => Convert.ToByte(s, provider);
+        public static short IConvertible_ToInt16(string s, IFormatProvider provider) => Convert.ToInt16(s, provider);
+        public static ushort IConvertible_ToUInt16(string s, IFormatProvider provider) => Convert.ToUInt16(s, provider);
+        public static int IConvertible_ToInt32(string s, IFormatProvider provider) => Convert.ToInt32(s, provider);
+        public static uint IConvertible_ToUInt32(string s, IFormatProvider provider) => Convert.ToUInt32(s, provider);
+        public static long IConvertible_ToInt64(string s, IFormatProvider provider) => Convert.ToInt64(s, provider);
+        public static ulong IConvertible_ToUInt64(string s, IFormatProvider provider) => Convert.ToUInt64(s, provider);
+        public static float IConvertible_ToSingle(string s, IFormatProvider provider) => Convert.ToSingle(s, provider);
+        public static double IConvertible_ToDouble(string s, IFormatProvider provider) => Convert.ToDouble(s, provider);
+        public static decimal IConvertible_ToDecimal(string s, IFormatProvider provider) => Convert.ToDecimal(s, provider);
+        public static DateTime IConvertible_ToDateTime(string s, IFormatProvider provider) => Convert.ToDateTime(s, provider);
+        public static string IConvertible_ToString(string s, IFormatProvider provider) => s;
+        public static object IConvertible_ToType(string s, Type conversionType, IFormatProvider provider) => Convert.ChangeType(s, conversionType, provider);
     }
 
     internal sealed class StringEnumerator : IEnumerator<char>

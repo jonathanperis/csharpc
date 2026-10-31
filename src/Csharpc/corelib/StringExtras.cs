@@ -884,6 +884,22 @@ namespace CsharpcCoreLib
             return new CultureAware(((CsharpcCoreLib.Globalization.CultureInfo)(object)culture).CompareInfo, options);
         }
 
+        /// <summary>
+        /// compareInfo.GetStringComparer(options) (GlobalizationExtensions): the ordinal comparers for Ordinal and
+        /// OrdinalIgnoreCase, else a CultureAwareComparer, whose constructor rejects the flags Compare doesn't take.
+        /// </summary>
+        internal static StringComparerImpl ForCompareInfo(System.Globalization.CompareInfo compareInfo, System.Globalization.CompareOptions options)
+        {
+            if (compareInfo == null) throw new ArgumentNullException(nameof(compareInfo));
+            if (options == System.Globalization.CompareOptions.Ordinal) return Ordinal;
+            if (options == System.Globalization.CompareOptions.OrdinalIgnoreCase) return OrdinalIgnoreCase;
+            const System.Globalization.CompareOptions valid = System.Globalization.CompareOptions.IgnoreCase | System.Globalization.CompareOptions.IgnoreSymbols
+                | System.Globalization.CompareOptions.IgnoreNonSpace | System.Globalization.CompareOptions.IgnoreWidth | System.Globalization.CompareOptions.IgnoreKanaType
+                | System.Globalization.CompareOptions.StringSort | System.Globalization.CompareOptions.NumericOrdering;
+            if ((options & ~valid) != 0) throw new ArgumentException("Value of flags is invalid.", nameof(options));
+            return new CultureAware((CsharpcCoreLib.Globalization.CompareInfo)(object)compareInfo, options);
+        }
+
         public static StringComparerImpl FromComparison(StringComparison comparisonType) => comparisonType switch
         {
             StringComparison.CurrentCulture => CurrentCulture,
@@ -903,8 +919,14 @@ namespace CsharpcCoreLib
         public new bool Equals(object x, object y) => x == y || (x is string a && y is string b && Equals(a, b));
         public int GetHashCode(object obj) => obj is string s ? GetHashCode(s) : obj.GetHashCode();
 
-        private sealed class Standard(StringComparison comparison) : StringComparerImpl
+        // StringComparer.Ordinal / OrdinalIgnoreCase take span keys too, as .NET's OrdinalComparer does (alternate
+        // lookups of string-keyed collections); a span hashes as the string with its chars.
+        private sealed class Standard(StringComparison comparison) : StringComparerImpl, IAlternateEqualityComparer<ReadOnlySpan<char>, string>
         {
+            public bool Equals(ReadOnlySpan<char> alternate, string other) => other != null && alternate.Equals(other.AsSpan(), comparison);
+            public int GetHashCode(ReadOnlySpan<char> alternate) => GetHashCode(new string(alternate));
+            public string Create(ReadOnlySpan<char> alternate) => new string(alternate);
+
             private bool IgnoreCase => comparison is StringComparison.OrdinalIgnoreCase or StringComparison.InvariantCultureIgnoreCase
                 or StringComparison.CurrentCultureIgnoreCase;
 
@@ -951,5 +973,12 @@ namespace CsharpcCoreLib
                 return _compareInfo.GetHashCode(obj, _options);
             }
         }
+    }
+
+    [ShadowMembers("System.Globalization.GlobalizationExtensions")]
+    internal static class GlobalizationExtensionsMembers
+    {
+        public static StringComparer GetStringComparer(System.Globalization.CompareInfo compareInfo, System.Globalization.CompareOptions options) =>
+            (StringComparer)(object)StringComparerImpl.ForCompareInfo(compareInfo, options);
     }
 }
