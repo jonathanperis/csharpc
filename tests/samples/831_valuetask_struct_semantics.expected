@@ -1,0 +1,18 @@
+equal results: True True True True hash True
+default: True hash 0 ''
+task-backed: True False AsTask same True '7'
+result AsTask: 5 RanToCompletion distinct True
+preserve: True 5 True
+boxed: True 5 True
+Result throws InvalidOperationException: bad
+faulted: True True False False ''
+await throws factory
+canceled: True False
+await canceled TaskCanceledException
+source: True 11
+second await: InvalidOperationException
+pending as task: done RanToCompletion
+configured: 3 4
+async: 10 12 pair
+sync async method: True 16
+async fault: from async

@@ -46,13 +46,15 @@ public static class Coroutines
         IsTaskLike(returnType) && returnType is INamedTypeSymbol { TypeArguments.Length: 1 } generic ? generic.TypeArguments[0] : null;
 
     public static bool IsTaskLike(ITypeSymbol? type) =>
-        type is INamedTypeSymbol { Name: "Task" or "ValueTask" } named && Namespace(named) == "System.Threading.Tasks";
+        type is INamedTypeSymbol { Name: "Task" or "ValueTask" } named && Namespace(named) == "System.Threading.Tasks"
+        // ValueTask<T> after corelib mapping (corelib/Tasks/ValueTaskOfT.cs)
+        || type is INamedTypeSymbol { Name: "ValueTaskImpl", Arity: 1 } shadow && Namespace(shadow) == CoreLib.Namespace;
 
     /// <summary>
     /// The task-shaped library types (tasks, awaiters, configured awaitables). All of them are
     /// represented by a pointer to the csrt task object — awaiters are just the task again.
     /// </summary>
-    public static bool IsTaskHandleType(ITypeSymbol? type) => type is INamedTypeSymbol named && (Namespace(named), named.Name) switch
+    public static bool IsTaskHandleType(ITypeSymbol? type) => type is INamedTypeSymbol named && !IsValueTaskOfT(named) && (Namespace(named), named.Name) switch
     {
         ("System.Threading.Tasks", "Task" or "ValueTask") => true,
         ("System.Threading", "CancellationToken") => true, // ignored by the single-threaded scheduler; default == null
@@ -60,6 +62,15 @@ public static class Coroutines
             or "ConfiguredValueTaskAwaitable" or "ConfiguredValueTaskAwaiter" or "YieldAwaitable" or "YieldAwaiter") => true,
         _ => false,
     };
+
+    /// <summary>
+    /// ValueTask&lt;T&gt;, its awaiter and its configured awaitable and awaiter: structs ported from .NET
+    /// (corelib/Tasks/ValueTaskOfT.cs) — the result inline, a Task&lt;T&gt; or an IValueTaskSource&lt;T&gt; — not task pointers.
+    /// </summary>
+    public static bool IsValueTaskOfT(ITypeSymbol? type) => type is INamedTypeSymbol named
+        && (named.Arity == 1 || named.ContainingType is { Arity: 1 })
+        && (Namespace(named), named.Name) is ("System.Threading.Tasks", "ValueTask")
+            or ("System.Runtime.CompilerServices", "ValueTaskAwaiter" or "ConfiguredValueTaskAwaitable" or "ConfiguredValueTaskAwaiter");
 
     public static bool IsYieldAwaitable(ITypeSymbol? type) =>
         type is INamedTypeSymbol { Name: "YieldAwaitable" } named && Namespace(named) == "System.Runtime.CompilerServices";

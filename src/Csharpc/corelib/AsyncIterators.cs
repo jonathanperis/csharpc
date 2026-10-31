@@ -161,37 +161,24 @@ namespace CsharpcCoreLib
         }
     }
 
-    /// <summary>new ValueTask&lt;T&gt;(IValueTaskSource&lt;T&gt;, short) as a csrt task.</summary>
+    /// <summary>A task over a pending IValueTaskSource&lt;T&gt;: ValueTask&lt;T&gt;.AsTask() (corelib/Tasks/ValueTaskOfT.cs).</summary>
     internal static unsafe class ValueTaskSourceBridge<TResult>
     {
-        // Pipe.ReadAsync / FlushAsync and Kestrel's socket awaitables come through here on every
-        // request: a completed source becomes a completed ValueTask at once, a pending one registers a
-        // static continuation (no delegate per call) whose state is the task itself. The task carries the
-        // source and the token after its result, so a pending operation allocates one object, not a
-        // bridge object and a task (25 M of the TechEmpower server's objects in a profiling run). The
-        // collector scans a task's whole payload, which keeps the source alive until it completes.
+        // A static continuation (no delegate per call) whose state is the task itself: the task carries the
+        // source and the token after its result, so it is one object. The collector scans a task's whole
+        // payload, which keeps the source alive until it completes.
         private static readonly Action<object> s_complete = static state => Complete(state);
 
         // csrt_Task's payload offset (async.c; FunctionCodeGen.Async.cs TaskPayloadOffset), then the result's
         // storage rounded to pointers: where the source and the token go.
         private static int ExtraOffset => (IntPtr.Size == 8 ? 56 : 40) + ((CoreIntrinsics.SizeOf<TResult>() + IntPtr.Size - 1) & -IntPtr.Size);
 
-        public static ValueTask<TResult> Create(IValueTaskSource<TResult> source, short token)
+        /// <summary>
+        /// ValueTask&lt;TResult&gt;.AsTask() of a pending source (as .NET's ValueTaskSourceAsTask): a task the source
+        /// completes, calling GetResult exactly once.
+        /// </summary>
+        internal static Task<TResult> TaskFor(IValueTaskSource<TResult> source, short token)
         {
-            if (source == null) throw new ArgumentNullException("source");
-            if (source.GetStatus(token) != ValueTaskSourceStatus.Pending)
-            {
-                TResult value;
-                try { value = source.GetResult(token); }
-                catch (Exception e)
-                {
-                    var faulted = new TaskCompletionSource<TResult>();
-                    CoreIntrinsics.TryFaultAsyncTask(faulted.Task, e);
-                    return new ValueTask<TResult>(faulted.Task);
-                }
-                // The result inline: no task for a default one (a zero-byte socket receive), as for any ValueTask<T>.
-                return new ValueTask<TResult>(value);
-            }
             // A pending task (a TaskCompletionSource<TResult>, which is its task) with room for the source and token.
             IntPtr task = ValueTaskSourceBridge.NewTask(ExtraOffset - (IntPtr.Size == 8 ? 56 : 40) + 2 * IntPtr.Size);
             byte* extra = (byte*)task + ExtraOffset;
@@ -199,7 +186,7 @@ namespace CsharpcCoreLib
             *(short*)(extra + IntPtr.Size) = token;
             object promise = CoreIntrinsics.PointerToObject(task);
             source.OnCompleted(s_complete, promise, token, ValueTaskSourceOnCompletedFlags.None);
-            return new ValueTask<TResult>(CoreIntrinsics.ReinterpretAs<Task<TResult>>(promise));
+            return CoreIntrinsics.ReinterpretAs<Task<TResult>>(promise);
         }
 
         private static void Complete(object state)

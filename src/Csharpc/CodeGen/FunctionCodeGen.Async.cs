@@ -109,6 +109,8 @@ public sealed partial class FunctionCodeGen
         var end = CoroIntrinsic("llvm.coro.end", L.I1, L.Ptr, L.I1, L.Token);
         _b.Call(end.Type, end.Fn, [coro.Handle, L.False, TokenNone]);
         if (_fn.Type.ReturnType().IsVoid) _b.RetVoid(); // async void
+        else if (kind == CoroutineKind.Async && ValueTaskResultType(S(method.ReturnType)) is { } valueTaskResult)
+            _b.Ret(CallCoreLibGeneric("ValueTaskAwait`1", "OfTask", [valueTaskResult], _b.Cast(LLVMOpcode.PtrToInt, coro.Promise, T.NativeInt))); // a struct over the task
         else _b.Ret(coro.Promise);
 
         _b.PositionAtEnd(coro.Cleanup);
@@ -320,6 +322,7 @@ public sealed partial class FunctionCodeGen
         var operand = await.Operation;
         var operandType = TypeOf(operand);
         if (IsDynamic(operand.Type)) throw CompileError.Unsupported("awaiting a dynamic value (a dynamically bound GetAwaiter)", await);
+        if (ValueTaskResultType(operandType) is { } valueTaskResult) return AwaitValueTask(EmitValue(operand), operandType!, valueTaskResult);
         if (!Coroutines.IsTaskHandleType(operandType))
             throw CompileError.Unsupported($"awaiting '{operandType}' (custom awaitables)", await);
 
@@ -357,6 +360,37 @@ public sealed partial class FunctionCodeGen
             if (continueOnCapturedContext is { } value) return value ? "csrt_task_on_completed" : "csrt_task_on_completed_no_context";
         }
         return "csrt_task_on_completed_unknown_context";
+    }
+
+    /// <summary>T of a ValueTask&lt;T&gt; or ConfiguredValueTaskAwaitable&lt;T&gt; (either name: the library's or its corelib shadow's), else null.</summary>
+    internal ITypeSymbol? ValueTaskResultType(ITypeSymbol? type)
+    {
+        if (type is not INamedTypeSymbol named) return null;
+        var real = (INamedTypeSymbol)_m.CoreLib.Unmap(named);
+        return Coroutines.IsValueTaskOfT(real) && real.Name is "ValueTask" or "ConfiguredValueTaskAwaitable" ? real.TypeArguments[0] : null;
+    }
+
+    /// <summary>
+    /// `await` of a ValueTask&lt;T&gt; (corelib/Tasks/ValueTaskOfT.cs): a completed one continues at once; otherwise
+    /// the coroutine resumes from its task, or from its IValueTaskSource's OnCompleted; then GetResult (which for a
+    /// source is the source's GetResult, as in .NET).
+    /// </summary>
+    internal LLVMValueRef AwaitValueTask(LLVMValueRef awaitable, ITypeSymbol awaitableType, ITypeSymbol resultType)
+    {
+        var coro = _coro!;
+        var value = ((INamedTypeSymbol)_m.CoreLib.Unmap(awaitableType)).Name == "ConfiguredValueTaskAwaitable"
+            ? CallCoreLibGeneric("ValueTaskAwait`1", "Unconfigured", [resultType], awaitable)
+            : awaitable;
+        var wait = NewBlock("await.wait");
+        var ready = NewBlock("await.ready");
+        _b.CondBr(CallCoreLibGeneric("ValueTaskAwait`1", "IsCompleted", [resultType], value), ready, wait);
+        _b.PositionAtEnd(wait);
+        var save = CoroSave();
+        CallCoreLibGeneric("ValueTaskAwait`1", "OnCompleted", [resultType], value, _b.Cast(LLVMOpcode.PtrToInt, coro.Handle, T.NativeInt));
+        Suspend(coro.Cleanup, save);
+        _b.Br(ready);
+        _b.PositionAtEnd(ready);
+        return CallCoreLibGeneric("ValueTaskAwait`1", "GetResult", [resultType], value);
     }
 
     /// <summary>Task.Yield(): resume on the pool.</summary>
@@ -409,74 +443,6 @@ public sealed partial class FunctionCodeGen
 
     /// <summary>The size of csrt's zeroed payload (async.c s_zero_payload), what a null task's result reads.</summary>
     private const ulong ZeroPayloadSize = 64;
-
-    /// <summary>
-    /// new ValueTask&lt;T&gt;(result) / ValueTask.FromResult(result). A default result is the null task pointer, which is
-    /// what default(ValueTask&lt;T&gt;) is and every consumer reads as completed with default(T) — .NET's ValueTask holds
-    /// the result inline and allocates nothing either way. Kestrel's pipe flushes complete with a default
-    /// FlushResult on every response: without this, each one allocated a task. Other results get a completed task.
-    /// </summary>
-    internal LLVMValueRef CompletedValueTask(LLVMValueRef value, ITypeSymbol resultType)
-    {
-        if (T.Target.SizeOf(T.Storage(resultType)) > ZeroPayloadSize || IsZeroValue(value, 16) is not { } zero) return CompletedTask(value, resultType);
-        var allocate = NewBlock("vtask.alloc");
-        var join = NewBlock("vtask.done");
-        var entry = _b.InsertBlock;
-        // freeze: an undefined part of the value (a null Nullable's payload) must not make the branch undefined.
-        _b.CondBr(_b.Freeze(zero), join, allocate);
-        _b.PositionAtEnd(allocate);
-        var task = CompletedTask(value, resultType);
-        var allocated = _b.InsertBlock;
-        _b.Br(join);
-        _b.PositionAtEnd(join);
-        var phi = _b.Phi(L.Ptr, "vtask");
-        IrBuilder.AddIncoming(phi, LlvmContext.Null(L.Ptr), entry);
-        IrBuilder.AddIncoming(phi, task, allocated);
-        return phi;
-    }
-
-    /// <summary>
-    /// An i1 that is true when every bit of <paramref name="value"/>'s fields is zero (padding aside), or null
-    /// when the type has more than <paramref name="budget"/> scalar parts or a kind this doesn't compare.
-    /// Floating-point values compare by their bits: -0.0 isn't a default.
-    /// </summary>
-    private LLVMValueRef? IsZeroValue(LLVMValueRef value, int budget)
-    {
-        var parts = new List<LLVMValueRef>();
-        if (!CollectScalars(value, parts, budget)) return null;
-        LLVMValueRef? all = null;
-        foreach (var part in parts)
-        {
-            var type = Native.LLVMTypeOf(part);
-            var bits = type.IsFloatingPoint ? _b.Cast(LLVMOpcode.BitCast, part, type.Kind == LLVMTypeKind.Float ? L.I32 : L.I64) : part;
-            var isZero = _b.ICmp(LLVMIntPredicate.EQ, bits, Native.LLVMConstNull(Native.LLVMTypeOf(bits)));
-            all = all is { } a ? _b.BinOp(LLVMOpcode.And, a, isZero) : isZero;
-        }
-        return all ?? L.True;
-    }
-
-    private bool CollectScalars(LLVMValueRef value, List<LLVMValueRef> parts, int budget)
-    {
-        var type = Native.LLVMTypeOf(value);
-        switch (type.Kind)
-        {
-            case LLVMTypeKind.Integer or LLVMTypeKind.Pointer or LLVMTypeKind.Float or LLVMTypeKind.Double:
-                parts.Add(value);
-                return parts.Count <= budget;
-            case LLVMTypeKind.Struct:
-                for (uint i = 0, n = Native.LLVMCountStructElementTypes(type); i < n; i++)
-                    if (!CollectScalars(_b.ExtractValue(value, i), parts, budget)) return false;
-                return true;
-            case LLVMTypeKind.Array:
-                var length = Native.LLVMGetArrayLength2(type);
-                if (length > (ulong)budget) return false;
-                for (uint i = 0; i < length; i++)
-                    if (!CollectScalars(_b.ExtractValue(value, i), parts, budget)) return false;
-                return true;
-            default:
-                return false;
-        }
-    }
 
     /// <summary>A new, already-completed task holding <paramref name="value"/> (Task.FromResult).</summary>
     internal LLVMValueRef CompletedTask(LLVMValueRef value, ITypeSymbol? resultType)

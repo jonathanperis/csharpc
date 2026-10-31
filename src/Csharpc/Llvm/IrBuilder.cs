@@ -53,7 +53,6 @@ public sealed class IrBuilder(LlvmContext context) : IDisposable
     public LLVMValueRef Cast(LLVMOpcode op, LLVMValueRef value, LLVMTypeRef dest) => LLVMBuildCast(Ref, op, value, dest, "");
     public LLVMValueRef Select(LLVMValueRef cond, LLVMValueRef then, LLVMValueRef @else) =>
         LLVMBuildSelect(Ref, cond, then, @else, "");
-    public LLVMValueRef Freeze(LLVMValueRef value, string name = "") => LLVMBuildFreeze(Ref, value, name);
 
     // Aggregates (structs, Nullable<T>, ValueTuple)
     public LLVMValueRef ExtractValue(LLVMValueRef aggregate, uint index, string name = "") =>

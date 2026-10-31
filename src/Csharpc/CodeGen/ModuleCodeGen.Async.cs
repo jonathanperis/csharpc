@@ -154,8 +154,14 @@ public sealed partial class ModuleCodeGen
                 b.Ret(Call("csrt_iterator_move_next", Llvm.I1));
                 break;
             case "MoveNextAsync":
-                b.Ret(Call("csrt_async_iterator_move_next", Llvm.Ptr));
+            {
+                // ValueTask<bool> is a struct (corelib/Tasks/ValueTaskOfT.cs): one over the iterator's pending task.
+                var task = Call("csrt_async_iterator_move_next", Llvm.Ptr);
+                var owner = Compilation.GetTypeByMetadataName(CoreLib.Namespace + ".ValueTaskAwait`1")!.Construct(Compilation.GetSpecialType(SpecialType.System_Boolean));
+                var ofTask = GetFunction(owner.GetMembers("OfTask").OfType<IMethodSymbol>().Single());
+                b.Ret(b.Call(ofTask.Type, ofTask.Fn, [b.Cast(LLVMOpcode.PtrToInt, task, Types.NativeInt)]));
                 break;
+            }
             case "DisposeAsync":
                 b.Ret(Call("csrt_async_iterator_dispose", Llvm.Ptr));
                 break;
