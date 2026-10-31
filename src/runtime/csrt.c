@@ -493,7 +493,14 @@ static bool argument_assignable(const csrt_MethodTable* src, const csrt_MethodTa
     if (src == dst || dst == &csrt_Object_MT.header) return true;
     if (dst->base == &csrt_Array_MT.header && !(dst->flags & CSRT_MT_MDARRAY)) return array_assignable(src, dst, depth);
     if (dst->flags & CSRT_MT_INTERFACE) {
-        if (src->flags & CSRT_MT_INTERFACE) return variant_compatible(src, dst, depth + 1);
+        if (src->flags & CSRT_MT_INTERFACE) {
+            // An interface argument is assignable to its base interfaces (IDerived : IBase), listed without
+            // slots in its method table by the compiler (Interfaces.cs ListInterfaceBases), and through variance.
+            if (variant_compatible(src, dst, depth + 1)) return true;
+            for (uint32_t i = 0; i < src->interface_count; i++)
+                if (src->interfaces[i].interface_type == dst || variant_compatible(src->interfaces[i].interface_type, dst, depth + 1)) return true;
+            return false;
+        }
         if (exact_interface_slots(src, dst)) return true;
         for (uint32_t i = 0; i < src->interface_count; i++)
             if (variant_compatible(src->interfaces[i].interface_type, dst, depth + 1)) return true;

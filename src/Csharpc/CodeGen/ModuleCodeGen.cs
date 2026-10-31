@@ -196,27 +196,25 @@ public sealed partial class ModuleCodeGen
         // Type metadata describes every method table, and describing one can create more (and queue
         // their methods): iterate to a fixed point.
         do DrainWorklists();
-        while (EmitRuntimeExports() | EmitReflectionMetadata() | EmitTypeMetadata() | EmitDeferredBclBoxRegistrations() | EmitDeferredPrimitiveSlots() | EmitDynamicSites()
-               | EmitObjectArrayThunks());
+        while (EmitMetadataRound());
         // Close the generic interface dispatchers, then lower what their last cases call.
-        if (EmitGenericInterfaceDispatchers(final: true) | EmitVariantDelegateTests(final: true))
+        if (Timed("generic interface dispatchers", () => EmitGenericInterfaceDispatchers(final: true)) | Timed("variant delegate tests", () => EmitVariantDelegateTests(final: true)))
             do DrainWorklists();
-            while (EmitRuntimeExports() | EmitReflectionMetadata() | EmitTypeMetadata() | EmitDeferredBclBoxRegistrations() | EmitDeferredPrimitiveSlots() | EmitDynamicSites()
-                   | EmitObjectArrayThunks());
-        CheckGenericInterfaceDispatchers();
+            while (EmitMetadataRound());
+        Timed("check dispatchers", CheckGenericInterfaceDispatchers);
         // Last: every dispatched slot is known once nothing is left to lower.
         // The IL methods that failed are reported even when finishing the tables fails too (that error
         // ends the compile anyway): a survey compile still lists every method it could not lower.
         try
         {
             FinishDynamicTypeNames();
-            FinishMethodTables();
-            Guard(entryPoint, FinishReflectionMetadata);
+            Timed("finish method tables", FinishMethodTables);
+            Timed("finish reflection metadata", () => Guard(entryPoint, FinishReflectionMetadata));
             Guard(entryPoint, FinishObjectArrayThunks);
-            Guard(entryPoint, FinishTypeMetadata);
+            Timed("finish type metadata", () => Guard(entryPoint, FinishTypeMetadata));
             FinishEventSourceAttributes();
         }
-        finally { ReportIlFailures(); ReportWhyLowered(); }
+        finally { Timed("IL failure reachability", ReportIlFailures); ReportWhyLowered(); }
         // Every call site is known now: the stack-trace tables main registers.
         if (StackTraces is { } traces && !_traceTables.IsNull)
             Native.LLVMSetInitializer(_traceTables, traces.EmitTables(this));
@@ -225,9 +223,29 @@ public sealed partial class ModuleCodeGen
     private void DrainWorklists()
     {
         do DrainFunctionWorklists();
-        while (EmitPendingClassInits() | EmitPendingBuiltinInterfaceTables() | EmitGenericInterfaceDispatchers(final: false)
-               | EmitVariantDelegateTests(final: false) | RequestDispatchedSlots());
+        while (Timed("class inits", EmitPendingClassInits) | Timed("builtin interface tables", EmitPendingBuiltinInterfaceTables)
+               | Timed("generic interface dispatchers", () => EmitGenericInterfaceDispatchers(final: false))
+               | Timed("variant delegate tests", () => EmitVariantDelegateTests(final: false)) | Timed("dispatched slots", RequestDispatchedSlots));
     }
+
+    /// <summary>
+    /// One round of the metadata that describing method tables can grow (every function is evaluated, as
+    /// the non-short-circuiting | requires): true while a round adds work.
+    /// </summary>
+    private bool EmitMetadataRound() =>
+        Timed("runtime exports", EmitRuntimeExports) | Timed("reflection metadata", EmitReflectionMetadata) | Timed("type metadata", EmitTypeMetadata)
+        | Timed("box registrations", EmitDeferredBclBoxRegistrations) | Timed("primitive slots", EmitDeferredPrimitiveSlots)
+        | Timed("dynamic sites", EmitDynamicSites) | Timed("object-array thunks", EmitObjectArrayThunks);
+
+    /// <summary>Runs a module-level lowering step, adding its time to <see cref="LoweringStats.Steps"/> (csharpc -v).</summary>
+    private bool Timed(string step, Func<bool> action)
+    {
+        var start = System.Diagnostics.Stopwatch.GetTimestamp();
+        try { return action(); }
+        finally { Stats.AddStep(step, System.Diagnostics.Stopwatch.GetTimestamp() - start); }
+    }
+
+    private void Timed(string step, Action action) => Timed(step, () => { action(); return false; });
 
     private void DrainFunctionWorklists()
     {
@@ -602,9 +620,21 @@ public sealed partial class ModuleCodeGen
         public int IlMethods, SourceMethods, CoreLibMethods;
         public int CfgBuilt, CfgRequests, CfgThreads = 1;
         public long IlTicks, IlDecodeTicks, SourceTicks, CoreLibTicks, CfgTicks, CfgWaitTicks;
+        /// <summary>Module-level steps (tables, dispatchers, metadata, reachability), in first-run order.</summary>
+        public readonly List<(string Name, long Ticks)> Steps = [];
+
+        internal void AddStep(string name, long ticks)
+        {
+            var i = Steps.FindIndex(s => s.Name == name);
+            if (i < 0) Steps.Add((name, ticks));
+            else Steps[i] = (name, Steps[i].Ticks + ticks);
+        }
+
         public override string ToString() =>
             $"IL {IlMethods} methods {Ms(IlTicks)} ms (decode {Ms(IlDecodeTicks)} ms), source {SourceMethods} methods {Ms(SourceTicks)} ms, corelib {CoreLibMethods} methods {Ms(CoreLibTicks)} ms\n"
-            + $"             Roslyn CFGs: {CfgRequests} requested, {CfgBuilt} built in {Ms(CfgTicks)} ms on {CfgThreads} thread(s), lowering waited {Ms(CfgWaitTicks)} ms";
+            + $"             Roslyn CFGs: {CfgRequests} requested, {CfgBuilt} built in {Ms(CfgTicks)} ms on {CfgThreads} thread(s), lowering waited {Ms(CfgWaitTicks)} ms"
+            + (Steps.Count == 0 ? "" : "\n             steps (ms, including what they lower): "
+                + string.Join(", ", Steps.Where(s => Ms(s.Ticks) != "0").Select(s => $"{s.Name} {Ms(s.Ticks)}")));
         private static string Ms(long ticks) => (ticks * 1000.0 / System.Diagnostics.Stopwatch.Frequency).ToString("F0", System.Globalization.CultureInfo.InvariantCulture);
     }
 
@@ -1469,6 +1499,8 @@ public sealed partial class ModuleCodeGen
         {
             var itf = _variantInterfaces[i];
             var definition = itf.OriginalDefinition;
+            foreach (var argument in itf.TypeArguments)
+                if (argument is INamedTypeSymbol { TypeKind: TypeKind.Interface } argumentInterface) ListInterfaceBases(argumentInterface);
             var argTables = itf.TypeArguments.Select(a => TypeMethodTable(a, null!)).ToArray();
             uint mask = 0;
             for (var k = 0; k < itf.TypeArguments.Length; k++)

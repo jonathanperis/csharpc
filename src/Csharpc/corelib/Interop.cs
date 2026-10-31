@@ -200,6 +200,12 @@ namespace CsharpcCoreLib
 
         public static void GetNativeVariantForObject<T>(T obj, IntPtr pDstNativeVariant) =>
             throw new PlatformNotSupportedException("COM Interop is not supported on this platform.");
+#else
+        // Windows has built-in COM, which csharpc (like NativeAOT) doesn't implement: explicit, at run time.
+        public static Type GetTypeFromCLSID(Guid clsid) => throw BuiltInComNotSupported();
+        public static void GetNativeVariantForObject(object obj, IntPtr pDstNativeVariant) => throw BuiltInComNotSupported();
+        public static void GetNativeVariantForObject<T>(T obj, IntPtr pDstNativeVariant) => throw BuiltInComNotSupported();
+        private static NotSupportedException BuiltInComNotSupported() => new NotSupportedException("Built-in COM interop is not supported by csharpc yet.");
 #endif
 
         /// <summary>Marshal.InitHandle: a SafeHandle created by marshalling code takes the native handle.</summary>

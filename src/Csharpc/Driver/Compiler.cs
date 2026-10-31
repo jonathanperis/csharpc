@@ -272,7 +272,8 @@ public sealed class Compiler(CompilerOptions options)
         // The managed heap peaks with lowering (Roslyn's bound bodies and CFGs, released by Generate):
         // when there were many, hand the memory back before LLVM allocates its own peak (a full
         // compacting collection costs ~0.1 s, so not for small programs).
-        if (codegen.Stats.CfgBuilt >= 500)
+        // Programs lowered from IL (Roslyn hosted from its package: ~120 000 IL methods, 2 Roslyn CFGs) peak there too.
+        if (codegen.Stats.CfgBuilt + codegen.Stats.IlMethods >= 500)
         {
             GC.Collect(2, GCCollectionMode.Aggressive, blocking: true, compacting: true);
             Phase("release front-end memory");

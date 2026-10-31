@@ -48,6 +48,28 @@ public sealed partial class ModuleCodeGen
         return _interfaceTables[itf] = g;
     }
 
+    private readonly HashSet<INamedTypeSymbol> _interfaceBasesListed = new(SymbolEqualityComparer.Default);
+
+    /// <summary>
+    /// An interface that is a type argument of a variant interface (IEnumerable&lt;IDerived&gt; tested as
+    /// IEnumerable&lt;IBase&gt;) lists its base interfaces in its method table (all of them, with no slots), so
+    /// the runtime's variance check sees IDerived : IBase (csrt.c argument_assignable). Other interface
+    /// method tables keep an empty list.
+    /// </summary>
+    internal void ListInterfaceBases(INamedTypeSymbol itf)
+    {
+        itf = (INamedTypeSymbol)CoreLib.Unmap(TypeSubstitution.EraseTupleNames(itf, Compilation));
+        if (itf.AllInterfaces.IsEmpty || !_interfaceBasesListed.Add(itf)) return;
+        var table = InterfaceMethodTable(itf);
+        var entryType = Llvm.Struct(Llvm.Ptr, Llvm.Ptr);
+        var entries = itf.AllInterfaces.Select(b => Llvm.ConstStruct(InterfaceMethodTable(b), LlvmContext.Null(Llvm.Ptr))).ToArray();
+        var listInit = LlvmContext.ConstArray(entryType, entries);
+        var list = Module.AddGlobal(Mangler.TypeSymbol(itf, "IBASES"), Native.LLVMTypeOf(listInit), listInit, constant: true, linkage: LLVMLinkage.Internal);
+        Native.LLVMSetInitializer(table, Llvm.ConstStruct(LlvmContext.Null(Llvm.Ptr), CString(Mangler.MetadataName(itf)),
+            Llvm.ConstInt(Llvm.I32, 0), Llvm.ConstInt(Llvm.I32, 2 /* CSRT_MT_INTERFACE */),
+            list, Llvm.ConstInt(Llvm.I32, entries.Length), Llvm.ConstInt(Llvm.I32, 0)));
+    }
+
     /// <summary>Dispatchable members of one interface (not inherited ones), in slot order.</summary>
     public static List<IMethodSymbol> InterfaceSlots(INamedTypeSymbol itf) =>
         // Generic interface methods (generic virtual methods) have no slots: they'd need one per instantiation.

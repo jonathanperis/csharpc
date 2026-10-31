@@ -1,0 +1,10 @@
+list: True True True True False
+iterator: True Impl,null
+generic iterator: True 1
+custom: True 1
+array: True True
+nested: True True False
+contravariant: True False
+sorted: 1,2
+negative: False False False False
+Unable to cast object of type 'System.Collections.Generic.List`1[IBase]' to type 'System.Collections.Generic.IEnumerable`1[IDerived]'.
