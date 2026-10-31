@@ -17,6 +17,7 @@ public sealed partial class FunctionCodeGen
     {
         // [Conditional] methods are void, so an omitted call has no value (FunctionCodeGen.Conditional.cs).
         if (IsConditionallyOmitted(inv)) return default;
+        if (InterceptorOf(inv) is { } interceptor) return EmitInterceptedCall(inv, interceptor); // FunctionCodeGen.Interceptors.cs
         NoteDynamicallyAccessedArguments(S(inv.TargetMethod), inv.Arguments);
         if (Intrinsics.TryGetConsoleFastPath(inv, out var consoleFastPath)) return consoleFastPath(this, inv);
         var target = S(inv.TargetMethod);

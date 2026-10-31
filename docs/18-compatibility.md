@@ -727,9 +727,11 @@ pipeline: `dotnet build` with the AOT properties, then `csharpc Platform.dll` â€
 shared frameworks `Platform.runtimeconfig.json` lists (Microsoft.AspNetCore.App), as `dotnet Platform.dll`
 would load them, so `--framework` is not needed. All seven test types answer as the JIT does (the harness's
 normalized transcripts are identical, `benchmarks/techempower/verify.py`). The project input
-(`csharpc Platform.csproj`, with the Razor and RazorSlices generators) compiles too; it stops at run time
-with an explicit error: `config.Get<AppSettings>()` reaches reflection over `AppSettings` because the
-configuration binding generator's interceptors are not applied to the project input yet.
+(`csharpc Platform.csproj`, with the Razor and RazorSlices generators) compiles and runs too: since
+`ci/m7-correctness` the source front-end applies C# interceptors (`[InterceptsLocation]`) as csc's emit does
+(`FunctionCodeGen.Interceptors.cs`, `SemanticModel.GetInterceptorMethod`), so `config.Get<AppSettings>()`
+calls the configuration binding generator's code instead of reaching reflection over `AppSettings`
+(`tests/projects/cli/ConfigBinding`).
 
 What it took, besides library members (all with regression samples 840â€“849):
 
