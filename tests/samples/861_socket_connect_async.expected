@@ -1,0 +1,7 @@
+connected True, bound True, local port set True, remote True
+server received 4 bytes
+again: IsConnected
+async: ConnectionRefused 'Connection refused' connected False
+sync: ConnectionRefused 'Connection refused 127.0.0.1:PORT'
+canceled: TaskCanceledException
+Task overload: connected True

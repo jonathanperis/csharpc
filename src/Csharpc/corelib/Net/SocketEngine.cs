@@ -176,6 +176,40 @@ namespace CsharpcCoreLib
         internal override void Complete(bool synchronously) { }
     }
 
+    /// <summary>
+    /// A connect (.NET's ConnectOperation): started by the first attempt; once under way (EINPROGRESS) it waits
+    /// among the writes, and writability ends it with SO_ERROR's outcome. Pending, it can be canceled, which is
+    /// how callers time a connect out (Npgsql's Timeout): it no longer runs as a blocking connect on a pool thread.
+    /// </summary>
+    internal unsafe class ConnectOperation : SocketOperation
+    {
+        internal EndPoint Target;
+        private bool _started;
+        internal override bool IsWrite => true;
+
+        internal override bool TryRun(SocketImpl socket)
+        {
+            if (!_started)
+            {
+                _started = true;
+                int error = NetNative.TryConnect(socket.RawHandle, Target);
+                if (error == 0) { socket.ConnectCompleted(); return true; }
+                return error == NetNative.EINPROGRESS || NetNative.IsWouldBlock(error) ? false : Fail(error);
+            }
+#if !CSHARPC_TARGET_WINDOWS && !CSHARPC_TARGET_WASI
+            // A readiness event can predate the connect (an unconnected socket reports POLLOUT|POLLHUP when it
+            // joins epoll): only a connect that poll() reports finished is done.
+            if (!NetNative.Wait(socket.RawHandle, true, 0)) return false;
+#endif
+            int outcome = NetNative.GetInt(socket.RawHandle, NetNative.SOL_SOCKET, NetNative.SO_ERROR);
+            if (outcome != 0) return Fail(outcome);
+            socket.ConnectCompleted();
+            return true;
+        }
+
+        internal override void Complete(bool synchronously) { }
+    }
+
     /// <summary>The operations of a SocketAsyncEventArgs: its buffers in, BytesTransferred and SocketError out.</summary>
     internal static class EventArgsOperations
     {
@@ -235,6 +269,18 @@ namespace CsharpcCoreLib
                 if (Canceled) CoreIntrinsics.TryFaultAsyncTask(Source.Task, new OperationCanceledException(Token)); // .NET: the socket throws OperationCanceledException(token)
                 else if (Error == SocketError.Success) Source.TrySetResult(Transferred);
                 else Source.TrySetException(new SocketException((int)Error));
+            }
+        }
+
+        internal sealed class Connect : ConnectOperation
+        {
+            internal readonly TaskCompletionSource Source = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            internal override void Complete(bool synchronously)
+            {
+                Registration.Dispose();
+                if (Canceled) CoreIntrinsics.TryFaultAsyncTask(Source.Task, new OperationCanceledException(Token)); // .NET: the socket throws OperationCanceledException(token)
+                else if (Error == SocketError.Success) Source.TrySetResult();
+                else Source.TrySetException(new SocketException((int)Error)); // .NET's asynchronous connect: no endpoint in the message
             }
         }
 
