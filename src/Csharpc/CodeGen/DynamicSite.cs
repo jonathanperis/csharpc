@@ -43,8 +43,16 @@ internal sealed class DynamicSite
     public string? Operator { get; init; }
     /// <summary>The operator as binder messages print it.</summary>
     public string? MessageOperator { get; init; }
-    /// <summary>`x op= y`: binds as the compound assignment of a local (with its implicit narrowing).</summary>
+    /// <summary>
+    /// `x op= y` (Binary: binds as the plain `x op y`, as Microsoft.CSharp does, and keeps the operator in messages
+    /// and DynamicObject's ExpressionType; SetMember: an event's `+=`/`-=`).
+    /// </summary>
     public bool Compound { get; init; }
+    /// <summary>
+    /// SetMember / SetIndex of `x op= y` (the binder's ValueFromCompoundAssignment): the value, the result of the
+    /// operation, converts to the member's type explicitly — `x = (T)(x op y)`.
+    /// </summary>
+    public bool CompoundValue { get; init; }
     public bool Checked { get; init; }
     public bool Explicit { get; init; }
     public bool ResultDiscarded { get; init; }

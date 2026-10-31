@@ -42,7 +42,7 @@ public sealed partial class FunctionCodeGen
     // Microsoft.CSharp.RuntimeBinder.CSharpArgumentInfoFlags and CSharpBinderFlags.
     private const int ArgUseCompileTimeType = 1, ArgConstant = 2, ArgNamed = 4, ArgIsRef = 8, ArgIsOut = 16, ArgIsStaticType = 32;
     private const int BinderChecked = 1, BinderSimpleName = 2, BinderSpecialName = 4, BinderLogical = 8, BinderExplicit = 16,
-        BinderArrayIndex = 32, BinderResultDiscarded = 256;
+        BinderArrayIndex = 32, BinderCompoundValue = 128, BinderResultDiscarded = 256;
 
     /// <summary>Per call-site field of the method: its decoded description, or why it can't be decoded.</summary>
     private Dictionary<ISymbol, object>? _ilDynamicSites;
@@ -430,6 +430,7 @@ public sealed partial class FunctionCodeGen
                 Kind = siteKind, Name = name, TypeArguments = [.. spec.TypeArguments.Select(_subst.Apply)], StaticReceiver = staticReceiver,
                 SimpleName = simpleName && staticReceiver is null, Operator = token, MessageOperator = message ?? token, Compound = compound,
                 Checked = (flags & BinderChecked) != 0, Explicit = (flags & BinderExplicit) != 0, ResultDiscarded = discarded, ResultType = resultType,
+                CompoundValue = (flags & BinderCompoundValue) != 0 && siteKind is DynamicKind.SetMember or DynamicKind.SetIndex && !compound,
                 Operands = operands, Model = model, Position = position, Context = context, Subst = _subst, Syntax = syntax, FromIl = true,
             };
         });

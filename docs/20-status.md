@@ -55,7 +55,11 @@ attribute factories) with a ~25 % faster build.
 - `ci/dynamic` — `dynamic` bound at compile time with Roslyn, per run-time type ([ADR 0019](adr/0019-dynamic.md)):
   members, overloads by run-time type, operators, conversions, indexers, events, delegates, ExpandoObject, DynamicObject,
   binder errors with Microsoft.CSharp's messages; samples 680–687; both corpus programs that use `dynamic` pass locally.
-  `dynamic` in IL libraries is an explicit diagnostic.
+- `ci/il-dynamic` — M5, `dynamic` from IL: csc's call sites decoded into the source path's sites and bound
+  in a synthesized context that ignores accessibility, with the call site's real context checked on top
+  ([ADR 0019](adr/0019-dynamic.md), "From IL"); IL libraries' dynamic code too (IlDynamicApp). Also fixes the
+  binder's compound-assignment semantics on both paths (`d += 0.5` on a dynamic int was 2, now 2.5) and a
+  simple-name dynamic call in a static member (rejected before). 480/481 via IL. Samples 760–761.
 
 ## Measured state
 
@@ -83,8 +87,8 @@ the one difference is a stack-trace frame in a NativeAOT-unsupported program.
 2. M2: library gaps as programs reach them.
 3. M5: user code through the IL front-end (what `csc` hands the fork). `csharpc app.dll` and the
    `--via-il` differential mode exist (471/479 with `ci/il-gaps`: reflection-based JSON, `[GeneratedRegex]`
-   and rectangular-array enumeration from IL); left: `dynamic` from IL (7 samples; route in ADR 0019,
-   "From IL"), JSON of a private nested type (1, stays a diagnostic); then `-g` from the PDB. The Roslyn
+   and rectangular-array enumeration from IL); `dynamic` from IL with `ci/il-dynamic` (480/481); left:
+   JSON of a private nested type (1, stays a diagnostic); then `-g` from the PDB. The Roslyn
    path stays for standalone use; gaps between the two are bugs.
 4. M6: Roslyn's remaining blockers (non-generic ~170 methods, then generic methods), then csharpc
    compiling itself.

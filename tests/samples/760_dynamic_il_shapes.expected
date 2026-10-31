@@ -1,0 +1,44 @@
+int 7
+string abc
+long 3000000000
+decimal 1.5
+mode On
+char q
+object 2.5
+Off 1lx
+Off 3lx
+Off 7cd
+10
+0
+17.5
+2.5
+True
+3
+114
+7
+abc
+14abcabc
+True 42 1
+False 0 2
+107
+214
+abc100
+abc100abc100
+16
+Pair(7, 2)
+Pair(1, 7)
+20
+2 On
+49
+#7
+56 3000000001
+2.5
+checked: OverflowException: Arithmetic operation resulted in an overflow.
+-2147483648
+8,4
+no member: RuntimeBinderException: 'Light' does not contain a definition for 'Missing'
+bad arg: RuntimeBinderException: The best overloaded method match for 'Light.Describe(int, string)' has some invalid arguments
+no ctor: RuntimeBinderException: The best overloaded method match for 'Pair.Pair(int, int)' has some invalid arguments
+conversion: RuntimeBinderException: Cannot implicitly convert type 'string' to 'Mode'
+operator: RuntimeBinderException: Operator '-' cannot be applied to operands of type 'string' and 'int'
+null: RuntimeBinderException: Cannot perform runtime binding on a null reference

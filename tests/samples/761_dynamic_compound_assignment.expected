@@ -1,0 +1,28 @@
+2.5
+2.5
+Int32 4
+a1
+2
+3
+2
+1
+0
+2
+2
+-12
+-1294967296
+M1
+1
+45
+1
+a1
+Byte 4
+1
+checked field: OverflowException: Arithmetic operation resulted in an overflow.
+checked local: OverflowException: Arithmetic operation resulted in an overflow.
+checked short: OverflowException: Arithmetic operation resulted in an overflow.
+no conversion back: RuntimeBinderException: Cannot convert type 'string' to 'int'
+no conversion to local: RuntimeBinderException: Cannot convert type 'string' to 'int'
+no operator: RuntimeBinderException: Operator '+=' cannot be applied to operands of type 'object' and 'int'
+no operator, field: RuntimeBinderException: Operator '+=' cannot be applied to operands of type 'int' and 'object'
+no operator, local: RuntimeBinderException: Operator '+=' cannot be applied to operands of type 'int' and 'object'
