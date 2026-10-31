@@ -456,6 +456,20 @@ public sealed partial class FunctionCodeGen
             return array;
         }
         if (value.Type is IArrayTypeSymbol) return EmitValue(value);
+        // A params span built by csc (IL: an inline array viewed as ReadOnlySpan<Task>): copied into an
+        // object[] of the task references.
+        if (TypeOf(value) is INamedTypeSymbol { Name: "ReadOnlySpan" or "Span", TypeArguments: [{ IsReferenceType: true }] } spanType
+            && spanType.ContainingNamespace?.ToDisplayString() == "System")
+        {
+            var span = EmitValue(value);
+            var length = _b.Cast(LLVMOpcode.ZExt, SpanLength(span), L.I64);
+            var objectType = _m.Compilation.GetSpecialType(SpecialType.System_Object);
+            var array = NewArray(objectType, length);
+            var first = _b.InBoundsGep(T.ArrayHeader(L.Ptr), array, [L.ConstInt(L.I32, 0), L.ConstInt(L.I32, 2), L.ConstInt(L.I64, 0)]);
+            var memcpy = _m.Intrinsic("llvm.memcpy.p0.p0.i64", L.Void, L.Ptr, L.Ptr, L.I64, L.I1);
+            _b.Call(memcpy.Type, memcpy.Fn, [first, SpanPointer(span), _b.BinOp(LLVMOpcode.Mul, length, L.ConstInt(L.I64, (long)T.PointerSize)), L.False]);
+            return array;
+        }
         throw CompileError.Unsupported($"task collection of type '{value.Type}' (use an array)", argument);
     }
 }

@@ -50,6 +50,7 @@ public sealed class Compiler(CompilerOptions options)
             // The architecture (RuntimeInformation.ProcessArchitecture, the runtime identifier).
             wasm ? "CSHARPC_TARGET_WASM32" : triple.StartsWith("aarch64", StringComparison.Ordinal) || triple.StartsWith("arm64", StringComparison.Ordinal) ? "CSHARPC_TARGET_ARM64" : "CSHARPC_TARGET_X64"];
         FrontendSettings settings;
+        IlProgram? mainProgram = null;
         if (options.Project is { } project)
         {
             var (projectSettings, root, all) = ProjectLoader.Load(project, options.Configuration, options.Verbose ? Console.Error : null, options.Properties);
@@ -64,6 +65,29 @@ public sealed class Compiler(CompilerOptions options)
             {
                 Defines = [.. projectSettings.Defines, .. options.Defines],
                 CoreLibDefines = [.. coreLibDefines, .. ProjectLoader.GlobalizationDefines(root.InvariantGlobalization, root.PredefinedCulturesOnly)],
+            };
+        }
+        else if (options.MainAssembly is { } mainAssembly)
+        {
+            // A program built by csc (ADR 0010, "The program as IL"): no sources; the assembly is an IL
+            // reference whose entry point is the program's, and what `dotnet app.dll` would read next to
+            // it (app.runtimeconfig.json) configures the runtime. File-based `#:` directives were
+            // already applied by the build that produced it.
+            try { mainProgram = IlProgram.Read(mainAssembly); }
+            catch (InvalidOperationException e) { return Fail(e.Message); }
+            options.DefaultOutputName = mainProgram.Name;
+            settings = new FrontendSettings
+            {
+                Files = [],
+                Defines = [.. ProjectLoader.ImplicitDefines(options.Configuration), .. options.Defines],
+                CoreLibDefines = [.. coreLibDefines, .. ProjectLoader.GlobalizationDefines(
+                    mainProgram.Switch("System.Globalization.Invariant"), mainProgram.Switch("System.Globalization.PredefinedCulturesOnly"))],
+                RuntimeConfig = mainProgram.RuntimeConfig,
+                JsonReflectionEnabled = mainProgram.Switch("System.Text.Json.JsonSerializer.IsReflectionEnabledByDefault") ?? true,
+                // The Roslyn compilation only binds; its name must not clash with the program assembly's.
+                AssemblyName = mainProgram.Name + ".csharpc",
+                AssemblyVersion = null,
+                IlReferencePaths = [mainAssembly, .. mainProgram.AppLocalAssemblies],
             };
         }
         else
@@ -154,7 +178,7 @@ public sealed class Compiler(CompilerOptions options)
         // Entry-point errors (several Mains, a bad <StartupObject>) are compilation-level diagnostics
         // that the per-tree diagnostics above don't include; only look for them when there's no entry
         // point, since collecting them binds the whole corelib.
-        if (errors == 0 && options.Emit == EmitKind.Exe && compilation.GetEntryPoint(CancellationToken.None) is null)
+        if (errors == 0 && options.Emit == EmitKind.Exe && mainProgram is null && compilation.GetEntryPoint(CancellationToken.None) is null)
             foreach (var d in compilation.GetDiagnostics().Where(d => d.Severity == DiagnosticSeverity.Error && d.Id is "CS0017" or "CS1555" or "CS1556" or "CS1558" or "CS5001" or "CS7022"))
             {
                 WriteDiagnostic(d.ToString(), isError: true);
@@ -170,9 +194,9 @@ public sealed class Compiler(CompilerOptions options)
             3 => LLVMCodeGenOptLevel.Aggressive,
             _ => LLVMCodeGenOptLevel.Default,
         }, options.Cpu, options.Features);
-        using var module = new LlvmModule(llvm, compilation.AssemblyName ?? "program");
+        using var module = new LlvmModule(llvm, mainProgram?.Name ?? compilation.AssemblyName ?? "program");
         module.ConfigureFor(target);
-        module.SourceFileName = settings.Files.Count > 0 ? settings.Files[0] : "program";
+        module.SourceFileName = settings.Files.Count > 0 ? settings.Files[0] : mainProgram?.Path ?? "program";
 
         // Codegen binds against a nullable-oblivious copy of the compilation: nullability never affects
         // generated code, and Roslyn's nullable re-inference can surface error types in IOperation
@@ -182,9 +206,26 @@ public sealed class Compiler(CompilerOptions options)
         if (!il.IsEmpty) codegenOptions = codegenOptions.WithMetadataImportOptions(MetadataImportOptions.All);
         var codegenCompilation = MethodGroupRewriter.Rewrite(compilation.WithOptions(codegenOptions));
         if (!il.IsEmpty) il.Bind(codegenCompilation);
+        IlAssembly? mainIl = null;
+        IMethodSymbol? entryPoint = null;
+        if (mainProgram is not null)
+        {
+            mainIl = il.Assemblies.First(a => string.Equals(a.Path, mainProgram.Path, StringComparison.Ordinal));
+            entryPoint = mainIl.Definition(System.Reflection.Metadata.Ecma335.MetadataTokens.EntityHandle(mainProgram.EntryPointToken)) as IMethodSymbol;
+            if (entryPoint is null) return Fail($"'{mainProgram.Path}': its entry point token 0x{mainProgram.EntryPointToken:X8} is not a method");
+        }
         // Stack traces cost a landing pad per call site: only for programs that can look at one.
         StackTraceInfo? stackTraces = null;
-        if (options.StackTraces || StackTraceInfo.FindObservation(compilation) is not null)
+        if (mainIl is not null)
+        {
+            // The program as IL: names from its metadata, lines from the PDB csc wrote beside it.
+            if (options.StackTraces || StackTraceInfo.IlMayObserve(mainIl.Reader))
+            {
+                stackTraces = new StackTraceInfo(mainIl);
+                Phase($"stack-trace metadata (IL + PDB, {(stackTraces.HasPdb ? "ok" : "no PDB")})");
+            }
+        }
+        else if (options.StackTraces || StackTraceInfo.FindObservation(compilation) is not null)
         {
             var symbols = settings.Symbols ?? new DebugSymbolSettings { Optimize = options.Configuration.Equals("Release", StringComparison.OrdinalIgnoreCase) };
             stackTraces = new StackTraceInfo(compilation, symbols);
@@ -197,11 +238,13 @@ public sealed class Compiler(CompilerOptions options)
             CfgDump = options.DumpCfg ? Console.Out : null,
             IlDump = options.DumpIl ? Console.Out : null,
             Il = il,
+            MainIl = mainIl,
+            EntryPoint = entryPoint,
             IlSurvey = options.IlSurvey,
             IlSurveyAssemblies = options.IlSurveyAssemblies,
             IlSurveyShard = options.IlSurveyShard,
             RuntimeConfig = settings.RuntimeConfig,
-            ProgramAssemblies = ProgramAssembly.From(settings, codegenCompilation.AssemblyName ?? "program"),
+            ProgramAssemblies = mainIl is null ? ProgramAssembly.From(settings, codegenCompilation.AssemblyName ?? "program") : [],
             LinkedShims = linkedShims,
             GcNursery = options.GcNursery,
         };

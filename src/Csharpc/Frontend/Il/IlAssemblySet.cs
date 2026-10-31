@@ -260,6 +260,33 @@ public sealed class IlAssembly : IDisposable, ISignatureTypeProvider<IlType, IlG
     public FieldDefinition FieldDefinitionOf(IFieldSymbol field) =>
         Reader.GetFieldDefinition(MetadataTokens.FieldDefinitionHandle(MetadataTokens.GetRowNumber(MetadataTokens.EntityHandle(field.OriginalDefinition.MetadataToken))));
 
+    /// <summary>
+    /// What the module constructor (`&lt;Module&gt;..cctor`, which Roslyn's symbols hide) calls: for C#, the
+    /// [ModuleInitializer] methods in the order csc chose. A module constructor doing anything else (IL
+    /// weavers) is rejected rather than half run.
+    /// </summary>
+    public List<IMethodSymbol> ModuleConstructorCalls()
+    {
+        List<IMethodSymbol> calls = [];
+        var module = Reader.GetTypeDefinition(MetadataTokens.TypeDefinitionHandle(1)); // <Module> is always row 1
+        foreach (var handle in module.GetMethods())
+        {
+            var definition = Reader.GetMethodDefinition(handle);
+            if (!Reader.StringComparer.Equals(definition.Name, ".cctor") || definition.RelativeVirtualAddress == 0) continue;
+            foreach (var instruction in IlDecoder.Decode(Pe.GetMethodBody(definition.RelativeVirtualAddress).GetILReader()))
+                switch (instruction.OpCode)
+                {
+                    case ILOpCode.Nop or ILOpCode.Ret: break;
+                    case ILOpCode.Call when Definition(MetadataTokens.EntityHandle(instruction.Token)) is IMethodSymbol { IsStatic: true, Parameters.Length: 0 } target:
+                        calls.Add(target);
+                        break;
+                    default:
+                        throw new IlException($"the module constructor of {Name} does more than call module initializers ({instruction}); not supported by csharpc yet");
+                }
+        }
+        return calls;
+    }
+
     /// <summary>The IL body of a method defined in this assembly (null: abstract, extern, runtime-implemented).</summary>
     public MethodBodyBlock? Body(IMethodSymbol method)
     {

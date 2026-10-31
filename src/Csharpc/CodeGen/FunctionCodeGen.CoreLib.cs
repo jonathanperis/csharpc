@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using Csharpc.Llvm;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.FlowAnalysis;
@@ -98,6 +99,7 @@ public sealed partial class FunctionCodeGen
             "Compare" => CompareOf(t!, args[0], args[1], inv),
             "IsValueType" => t!.IsValueType ? L.True : L.False,
             "Box" => BoxOrThrow(t!, args[0], inv),
+            "FormatValue" => FormatValueDirect(S(t!), args, inv),
             "Unbox" => UnboxOrThrow(t!, args[0], inv),
             "CastOrThrow" => CastOrThrow(t!, args[0], inv),
             "FastAllocateString" => FastAllocateString(args[0]),
@@ -388,6 +390,45 @@ public sealed partial class FunctionCodeGen
             ThrowAndContinue("System.NotSupportedException", $"csharpc: boxing '{t}' is not supported yet.");
             return LlvmContext.Null(L.Ptr);
         }
+    }
+
+    /// <summary>
+    /// CoreIntrinsics.FormatValue: a library struct with its own ToString(string, IFormatProvider) lowering
+    /// (BigInteger, Int128...) is formatted through it, as `value.ToString(format, provider)` in source would be:
+    /// its box (if it has one) isn't IFormattable. Null for every other T.
+    /// </summary>
+    private LLVMValueRef FormatValueDirect(ITypeSymbol t, LLVMValueRef[] args, IInvocationOperation inv)
+    {
+        // Index and Range have no box, and aren't IFormattable: their ToString().
+        if (IsIndexType(t) || IsRangeType(t)) return FormatValue(args[0], t, inv);
+        if (Int128Support.Is128(t))
+        {
+            // Int128/UInt128 have no box yet; without a format string they format as in source.
+            var plain = NewBlock("i128.plain");
+            var formatted = NewBlock("i128.format");
+            var length = NewBlock("i128.length");
+            _b.CondBr(_b.ICmp(LLVMIntPredicate.EQ, args[1], LlvmContext.Null(L.Ptr)), plain, length);
+            _b.PositionAtEnd(length);
+            _b.CondBr(_b.ICmp(LLVMIntPredicate.NE, LoadStringLength(args[1]), L.ConstInt(L.I32, 0)), formatted, plain);
+            _b.PositionAtEnd(formatted);
+            ThrowAndContinue("System.NotSupportedException", $"csharpc: formatting '{t}' with a format string is not supported yet.");
+            _b.Br(plain);
+            _b.PositionAtEnd(plain);
+            return Int128Support.Format(this, args[0], TypeMapper.IsSigned(t));
+        }
+        if (t is not INamedTypeSymbol { IsValueType: true, TypeKind: TypeKind.Struct, SpecialType: SpecialType.None } named || _m.IsUserType(named)
+            || !named.AllInterfaces.Any(i => i is { Name: "IFormattable", ContainingNamespace.Name: "System" })
+            || named.GetMembers("ToString").OfType<IMethodSymbol>().FirstOrDefault(m => !m.IsStatic
+                && m.Parameters is [{ Type.SpecialType: SpecialType.System_String }, { Type: { Name: "IFormatProvider", ContainingNamespace.Name: "System" } }]) is not { } toString
+            || !BclValueTypes.TryGet(toString, out _))
+            return LlvmContext.Null(L.Ptr);
+        var self = new IlValueOperation(inv.Syntax, named, () => args[0], Spill(args[0]), nonNull: true);
+        ImmutableArray<IArgumentOperation> arguments =
+        [
+            new IlArgumentOperation(inv.Syntax, toString.Parameters[0], new IlValueOperation(inv.Syntax, toString.Parameters[0].Type, () => args[1])),
+            new IlArgumentOperation(inv.Syntax, toString.Parameters[1], new IlValueOperation(inv.Syntax, toString.Parameters[1].Type, () => args[2])),
+        ];
+        return EmitValue(new IlInvocationOperation(inv.Syntax, toString, self, isVirtual: false, arguments, constrainedTo: null));
     }
 
     /// <summary>(T)obj with a checked cast; types csharpc can't type-test yet throw at run time only.</summary>

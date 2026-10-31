@@ -47,6 +47,10 @@ public sealed partial class ModuleCodeGen
     /// <summary>See <see cref="WarnExceptionToString"/>; also for reads of Exception.StackTrace.</summary>
     public void WarnStackTraceFrames(IOperation at)
     {
+        // A program given as IL records its frames when it names an exception type (StackTraceInfo.IlMayObserve);
+        // one that doesn't, but still gets an exception's text, would print it without the program's frames.
+        if (at is IlOperation && MainIl is not null && StackTraces is null && Il.OwnerOf(_currentCaller) == MainIl)
+            throw CompileError.Unsupported("an exception's stack trace (Exception.ToString() or StackTrace) in a program compiled from IL: csharpc records the frames of C# source only", at);
         if (at.Syntax.SyntaxTree.FilePath.StartsWith("<corelib>", StringComparison.Ordinal)) return;
         // Code bound for a dynamic operation (ModuleCodeGen.Dynamic.cs), for run-time types it may never see.
         if (_dynamicOrigins.ContainsKey(at.Syntax.SyntaxTree)) return;
@@ -147,9 +151,21 @@ public sealed partial class ModuleCodeGen
         }
     }
 
+    /// <summary>
+    /// The program's assembly when it is given as IL (`csharpc app.dll`, ADR 0010 "The program as IL"):
+    /// its identity is the program's, and the source compilation holds none of its code.
+    /// </summary>
+    public Frontend.Il.IlAssembly? MainIl { get; init; }
+
+    /// <summary>The entry point of an IL program (its CLI header's EntryPoint); null: Roslyn's, for sources.</summary>
+    public IMethodSymbol? EntryPoint { get; init; }
+
+    /// <summary>Main: the IL program's, or the one Roslyn chose among the sources.</summary>
+    internal IMethodSymbol? ProgramEntryPoint => EntryPoint ?? Compilation.GetEntryPoint(CancellationToken.None);
+
     private void GenerateCore()
     {
-        var entryPoint = Compilation.GetEntryPoint(CancellationToken.None)
+        var entryPoint = ProgramEntryPoint
             ?? throw new CompileError("CSLLVM0003", "program has no entry point (Main method or top-level statements)", null);
 
         CollectTypes(Compilation.Assembly.GlobalNamespace);
@@ -178,6 +194,16 @@ public sealed partial class ModuleCodeGen
         foreach (var method in userMethods)
             Guard(method, () => EmitMethod(method));
         if (IlSurvey) QueueIlSurveyMethods();
+        // A program given as IL has no eager methods: Main (and what it reaches) must be lowered before
+        // main() registers the builtin types' interfaces, as source Mains are.
+        if (MainIl is not null)
+            Guard(entryPoint, () =>
+            {
+                GetFunction(entryPoint);
+                // (a module constructor csharpc can't run is reported by EmitNativeMain)
+                try { foreach (var initializer in MainIl.ModuleConstructorCalls()) GetFunction(initializer); }
+                catch (Frontend.Il.IlException) { }
+            });
 
         DrainWorklists();
 
@@ -1338,6 +1364,22 @@ public sealed partial class ModuleCodeGen
     /// <summary>Does any syntax in the method (incl. lambdas/local functions inside it) bind to the parameter?</summary>
     private bool ParameterIsReferenced(IMethodSymbol method, IParameterSymbol parameter)
     {
+        if (Il.OwnerOf(method) is { } owner)
+        {
+            // IL: any instruction naming the argument (the synthesized <Main> of an async Main passes it on).
+            if (owner.Body(method) is not { } block) return true;
+            var index = parameter.Ordinal + (method.IsStatic ? 0 : 1);
+            return Frontend.Il.IlDecoder.Decode(block.GetILReader()).Any(i => i.OpCode switch
+            {
+                System.Reflection.Metadata.ILOpCode.Ldarg_0 => index == 0,
+                System.Reflection.Metadata.ILOpCode.Ldarg_1 => index == 1,
+                System.Reflection.Metadata.ILOpCode.Ldarg_2 => index == 2,
+                System.Reflection.Metadata.ILOpCode.Ldarg_3 => index == 3,
+                System.Reflection.Metadata.ILOpCode.Ldarg_s or System.Reflection.Metadata.ILOpCode.Ldarg or System.Reflection.Metadata.ILOpCode.Ldarga_s
+                    or System.Reflection.Metadata.ILOpCode.Ldarga or System.Reflection.Metadata.ILOpCode.Starg_s or System.Reflection.Metadata.ILOpCode.Starg => i.Int == index,
+                _ => false,
+            });
+        }
         foreach (var reference in method.DeclaringSyntaxReferences)
         {
             var root = reference.GetSyntax();
@@ -1447,6 +1489,12 @@ public sealed partial class ModuleCodeGen
             .Select(p => p.method)
             .Distinct<IMethodSymbol>(SymbolEqualityComparer.Default)
             .ToList();
+        // A program given as IL: its module constructor calls them (in csc's order).
+        if (MainIl is not null)
+        {
+            try { moduleInitializers.AddRange(MainIl.ModuleConstructorCalls()); }
+            catch (Frontend.Il.IlException e) { throw new CompileError("CSLLVM0001", "not supported by csharpc yet: " + e.Message, IlSyntax(MainIl).Plain.GetLocation()); }
+        }
         foreach (var initializer in moduleInitializers)
         {
             var initializerFunction = GetFunction(initializer);

@@ -19,6 +19,7 @@ every failure is a clean "not supported by csharpc yet" diagnostic.
 | `dotnet build -p:UseCsharpc=true`, `dotnet publish -p:PublishCsharpc=true` | ✅ | `Csharpc.Sdk` package |
 | File-based apps (`#:property` directives) | ✅ | |
 | Assemblies without sources: `-r X.dll`, `<Reference>`, NuGet `PackageReference` | 🟡 | IL front-end (M5): the IL side is complete except `calli`/TypedReference; packages still hit BCL gaps (M2) |
+| The program as IL: `csharpc app.dll` (csc's output, the dotnet pipeline's input) | 🟡 | M5: 459/476 samples through `tests/run.sh --via-il`; no reflection-based JSON or `dynamic` from IL yet (diagnostics) |
 
 ### Types
 
@@ -169,10 +170,11 @@ in-scope program differs from .NET ([18](18-compatibility.md#nativeaot-parity)).
 can't run. Against NativeAOT on the 236: compile time median 5.7 s vs 7.1 s, executables a tenth of the size
 (136 KiB vs 1,335 KiB median). JIT-based pass rate 93.8 % (from 86.2 %).
 
-### M5 — Drop-in: binary packages (🚧)
+### M5 — Drop-in: binary packages and the program as IL (🚧)
 An IL front-end (IL → the same lowering) so NuGet packages that ship only assemblies can be linked
-into the closed-world program; the source front-end remains the primary path. With M2 and M4 this is
-what makes csharpc a drop-in replacement for existing projects.
+into the closed-world program, and so the program itself can come as IL — the input csharpc gets inside
+the dotnet pipeline (ADR 0016). The source front-end stays for standalone use; every feature must work
+through both. With M2 and M4 this is what makes csharpc a drop-in replacement for existing projects.
 
 Design: [ADR 0010](adr/0010-il-frontend.md) — IL is a second method-body source for Roslyn's metadata
 symbols, lowered through the same `FunctionCodeGen` (synthetic `IOperation`s for library-facing
@@ -186,8 +188,19 @@ messages); `AppContext` with runtimeconfig defaults; `System.Collections.Immutab
 shared framework's IL. `tests/il.sh` checks library projects consumed as DLLs, a nuget.org package
 (Ardalis.GuardClauses) and a framework assembly against `dotnet run`; `tools/il-survey` ranks what the
 top pure-IL packages still need ([18-compatibility.md](18-compatibility.md#il-front-end-survey)).
-Next: the BCL surface packages use (ranked by the survey), `typeof(X).Assembly`, `calli`,
-RID-specific/native package assets.
+
+**The program as IL** (what csc hands the fork, ADR 0016): `csharpc app.dll` compiles a program from its
+main assembly — entry point from the CLI header, identity, module initializers and runtimeconfig.json
+from the build ([ADR 0010](adr/0010-il-frontend.md#the-program-as-il-2026-10-30)). `tests/run.sh --via-il`
+runs every sample through `dotnet build` → csharpc against the same recordings (CI: the informational
+`il-main.yml`): **459 / 476** pass (2026-10-30, -O0 and -O2), stack traces included (names from the
+assembly, lines from its PDB); the rest are diagnostics or `NotSupportedException` — reflection-based JSON
+(8), `dynamic` (7), `[GeneratedRegex]` output (1), rectangular-array enumeration (1). Gaps between the two
+front-ends are bugs.
+
+Next: JSON metadata and `dynamic` for IL programs, `-g` from the assembly's PDB, the BCL
+surface packages use (ranked by the survey), `typeof(X).Assembly`, `calli`, RID-specific/native package
+assets.
 
 ### M6 — Bootstrapping
 csharpc compiles csharpc (and Roslyn) — the strongest possible proof of maturity.

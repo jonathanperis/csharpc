@@ -27,7 +27,7 @@ public sealed partial class FunctionCodeGen
         // included (FrontendSettings.AssemblyInfo). Attributes of other projects folded into the compilation
         // belong to their own assemblies, which stay unknown.
         List<(string Identity, IEnumerable<AttributeData> Attributes)> assemblies = [];
-        if (_m.ProgramAssemblyName(null) is { } programName)
+        if (_m.MainIl is null && _m.ProgramAssemblyName(null) is { } programName)
         {
             var root = _m.ProgramAssemblies.FirstOrDefault(a => a.IsRoot);
             bool OfRoot(AttributeData a) => _m.ProgramAssemblies.Count <= 1

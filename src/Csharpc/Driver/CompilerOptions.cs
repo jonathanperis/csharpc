@@ -74,13 +74,19 @@ public sealed record CompilerOptions
     public string Configuration { get; set; } = "Debug";
     public bool OptLevelExplicit { get; set; }
     public Dictionary<string, string> Properties { get; } = [];
-    /// <summary>Default output name when the input is a project (its AssemblyName).</summary>
+    /// <summary>
+    /// The program as an assembly built by csc (`csharpc app.dll`): everything, Main included, is lowered
+    /// from its IL (docs/adr/0010-il-frontend.md, "The program as IL"); null for source and project input.
+    /// </summary>
+    public string? MainAssembly { get; set; }
+    /// <summary>Default output name when the input is a project or an assembly (its AssemblyName).</summary>
     public string? DefaultOutputName { get; set; }
 
     public const string Usage = """
         csharpc — a C# compiler front-end for LLVM
 
         Usage: csharpc [options] <file.cs>...
+               csharpc [options] <app.dll | app.exe>              (a program built by csc, compiled from its IL)
                csharpc [options] [<project.csproj> | <directory>]   (drop-in: compiles a .NET project)
 
         Options:
@@ -235,6 +241,16 @@ public sealed record CompilerOptions
             }
         }
 
+        // A program built by csc: its main assembly, compiled from IL like a -r assembly.
+        var assemblies = o.Inputs.Where(IsAssemblyInput).ToList();
+        if (assemblies.Count > 0)
+        {
+            if (assemblies.Count > 1 || o.Inputs.Count > 1)
+                throw new ArgumentException("pass either one program assembly (.dll/.exe) or a list of .cs files, not both (other assemblies are -r references)");
+            o.MainAssembly = Path.GetFullPath(assemblies[0]);
+            return o;
+        }
+
         // Drop-in mode: a .csproj, a directory, or nothing (the project in the current directory).
         var projects = o.Inputs.Where(i => i.EndsWith(".csproj", StringComparison.OrdinalIgnoreCase) || Directory.Exists(i)).ToList();
         if (projects.Count > 1 || (projects.Count == 1 && o.Inputs.Count > 1))
@@ -254,6 +270,9 @@ public sealed record CompilerOptions
         }
         return o;
     }
+
+    private static bool IsAssemblyInput(string input) =>
+        (input.EndsWith(".dll", StringComparison.OrdinalIgnoreCase) || input.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)) && !Directory.Exists(input);
 
     public string OutputPath
     {

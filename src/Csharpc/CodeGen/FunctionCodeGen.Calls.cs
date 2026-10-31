@@ -66,6 +66,12 @@ public sealed partial class FunctionCodeGen
             if (receiverType is { IsValueType: true } && target.ContainingType.SpecialType is SpecialType.System_Object or SpecialType.System_ValueType)
             {
                 if (target.Name == "ToString" && target.Parameters.IsEmpty) return FormatValue(EmitValue(receiver), receiverType, inv);
+                // IL's `constrained. T? callvirt object::Equals/GetHashCode`: Nullable<T>'s overrides, which an
+                // empty T? answers without a box (boxing it gives null).
+                if (TypeMapper.IsNullable(receiverType) && target.Name == "GetHashCode" && target.Parameters.IsEmpty)
+                    return HashOf(receiverType, EmitValue(receiver), inv);
+                if (TypeMapper.IsNullable(receiverType) && target.Name == "Equals" && target.Parameters is [{ Type.SpecialType: SpecialType.System_Object }])
+                    return NullableEqualsObject(EmitValue(receiver), TypeMapper.NullableUnderlying(receiverType), EmitArgument(inv.Arguments[0]), inv);
                 var boxed = Box(EmitValue(receiver), receiverType, inv);
                 var extra = inv.Arguments.OrderBy(a => a.Parameter!.Ordinal).Select(EmitArgument);
                 return VirtualCall(target, boxed, [boxed, .. extra]);

@@ -28,8 +28,20 @@ namespace CsharpcCoreLib
     {
         public TStateMachine StateMachine;
         public Action MoveNextAction;
+        /// <summary>The execution-context flow captured by the last await (ExecutionContext.Capture() in .NET).</summary>
+        public ExecutionFlow Flow;
+        public bool FlowSuppressed;
 
-        public void MoveNext() { StateMachine.MoveNext(); }
+        // .NET's AsyncStateMachineBox.MoveNext: the continuation runs in the context its await captured
+        // (AsyncLocal values, cultures), and the resuming thread gets its own back afterwards.
+        public void MoveNext()
+        {
+            if (FlowSuppressed) { StateMachine.MoveNext(); return; }
+            ExecutionFlow saved = ExecutionFlow.Current;
+            ExecutionFlow.Current = Flow;
+            try { StateMachine.MoveNext(); }
+            finally { ExecutionFlow.Current = saved; }
+        }
     }
 
     internal static class AsyncBuilderCore
@@ -42,12 +54,23 @@ namespace CsharpcCoreLib
         /// </summary>
         public static Action GetMoveNext<TStateMachine>(ref object box, ref TStateMachine stateMachine) where TStateMachine : IAsyncStateMachine
         {
-            if (box is AsyncStateMachineBox<TStateMachine> existing) return existing.MoveNextAction;
+            if (box is AsyncStateMachineBox<TStateMachine> existing)
+            {
+                CaptureFlow(existing);
+                return existing.MoveNextAction;
+            }
             var created = new AsyncStateMachineBox<TStateMachine>();
             box = created;
+            CaptureFlow(created);
             created.StateMachine = stateMachine;
             created.MoveNextAction = created.MoveNext;
             return created.MoveNextAction;
+        }
+
+        private static void CaptureFlow<TStateMachine>(AsyncStateMachineBox<TStateMachine> box) where TStateMachine : IAsyncStateMachine
+        {
+            box.FlowSuppressed = ExecutionContextImpl.IsFlowSuppressed();
+            box.Flow = box.FlowSuppressed ? null : ExecutionFlow.Current;
         }
 
         public static void AwaitOnCompleted<TAwaiter, TStateMachine>(ref object box, ref TAwaiter awaiter, ref TStateMachine stateMachine)
@@ -62,10 +85,19 @@ namespace CsharpcCoreLib
             awaiter.UnsafeOnCompleted(GetMoveNext(ref box, ref stateMachine));
         }
 
+        // .NET's AsyncMethodBuilderCore.Start: context changes made before the first await (an AsyncLocal
+        // set, a culture changed) don't flow back to the caller, and neither does a SynchronizationContext change.
         public static void Start<TStateMachine>(ref TStateMachine stateMachine) where TStateMachine : IAsyncStateMachine
         {
             if (stateMachine == null) throw new ArgumentNullException("stateMachine");
-            stateMachine.MoveNext();
+            ExecutionFlow savedFlow = ExecutionFlow.Current;
+            System.Threading.SynchronizationContext savedContext = System.Threading.SynchronizationContext.Current;
+            try { stateMachine.MoveNext(); }
+            finally
+            {
+                ExecutionFlow.Current = savedFlow;
+                if (System.Threading.SynchronizationContext.Current != savedContext) System.Threading.SynchronizationContext.SetSynchronizationContext(savedContext);
+            }
         }
 
         public static void CheckStateMachine(IAsyncStateMachine stateMachine)
@@ -277,5 +309,17 @@ namespace CsharpcCoreLib
             if (exception == null) throw new ArgumentNullException("exception");
             SynchronizationContextImpl.AsyncVoidFailed(_context, exception);
         }
+    }
+
+    /// <summary>
+    /// What csc's synthesized sync entry point (`&lt;Main&gt;` of an async Main) calls since .NET 11: wait for
+    /// the task and rethrow its original exception, as GetAwaiter().GetResult() does.
+    /// </summary>
+    [Shadows("System.Runtime.CompilerServices.AsyncHelpers")]
+    public static class AsyncHelpersImpl
+    {
+        public static void HandleAsyncEntryPoint(Task task) { task.GetAwaiter().GetResult(); }
+
+        public static int HandleAsyncEntryPoint(Task<int> task) => task.GetAwaiter().GetResult();
     }
 }

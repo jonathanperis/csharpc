@@ -47,6 +47,18 @@ internal sealed class IlValueOperation(SyntaxNode syntax, ITypeSymbol type, Func
     /// <summary>The C# constant of an operand loaded by `ldc.*`/`ldstr` (FunctionCodeGen.TypedConstant).</summary>
     public Optional<object?> Constant { get; init; }
     public override Optional<object?> ConstantValue => Constant;
+    /// <summary>T, when the value is `typeof(T)` (`ldtoken T; call Type.GetTypeFromHandle`): what source sees as an ITypeOfOperation.</summary>
+    public ITypeSymbol? TypeOfOperand { get; init; }
+    /// <summary>
+    /// The value a `box` made this object from: what source sees as the operand of a boxing conversion, for
+    /// lowering that looks through one to the static type (Enum.CompareTo, Enum.IsDefined). Reading the
+    /// operation itself still yields the box the IL made.
+    /// </summary>
+    public IlValueOperation? BoxedFrom { get; init; }
+    /// <summary>The static type the IL stack entry had (more derived than <see cref="IOperation.Type"/> when passed as object).</summary>
+    public ITypeSymbol? EntryType { get; init; }
+    /// <summary>The operand is IL's `ldnull` (C#'s null literal, or a defaulted optional argument).</summary>
+    public bool IsNullLiteral { get; init; }
     public LLVMValueRef Emit() => value();
 }
 

@@ -21,7 +21,7 @@ public sealed partial class FunctionCodeGen
             // The Type overloads (Enum.GetValues(typeof(Color))): with a typeof operand they are the
             // generic ones in disguise; the leading Type argument is dropped.
             if (target.Parameters.FirstOrDefault()?.Type is not { Name: "Type", ContainingNamespace.Name: "System" }) return null;
-            if (args[0].Value is not ITypeOfOperation typeOf || S(typeOf.TypeOperand) is not INamedTypeSymbol { TypeKind: TypeKind.Enum } named)
+            if (TypeOfOperand(args[0].Value) is not { } typeOperand || S(typeOperand) is not INamedTypeSymbol { TypeKind: TypeKind.Enum } named)
             {
                 // Configuration.Binder and similar pass a run-time Type into Enum.Parse/IsDefined:
                 // lower to a corelib helper (NotSupportedException until a full run-time enum table exists)
@@ -132,7 +132,15 @@ public sealed partial class FunctionCodeGen
             {
                 // The value is a boxed enum of this type, a boxed integer of its underlying type, or a name.
                 var raw = args[0].Value;
-                while (raw is IConversionOperation { Operand.Type: not null } c && (c.Operand.Type.IsValueType || c.Operand.Type.SpecialType == SpecialType.System_String)) raw = c.Operand;
+                while (true)
+                {
+                    if (raw is IConversionOperation { Operand.Type: not null } c && (c.Operand.Type.IsValueType || c.Operand.Type.SpecialType == SpecialType.System_String)) raw = c.Operand;
+                    else if (raw is IlValueOperation { BoxedFrom: { } boxed }) raw = boxed; // IL's `box E`
+                    else break;
+                }
+                // IL passes a string to the object parameter as is.
+                if (raw is IlValueOperation { EntryType.SpecialType: SpecialType.System_String, Type.SpecialType: SpecialType.System_Object } passed)
+                    raw = new IlValueOperation(passed.Syntax, passed.EntryType!, passed.Emit);
                 var type = TypeOf(raw);
                 if (type?.SpecialType == SpecialType.System_String)
                 {

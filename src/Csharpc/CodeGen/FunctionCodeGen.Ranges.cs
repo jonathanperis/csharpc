@@ -207,6 +207,29 @@ public sealed partial class FunctionCodeGen
                 when IsRangeType(owner) && name is "Start" or "End":
                 result = _b.ExtractValue(EmitValue(instance), name == "Start" ? 0u : 1u);
                 return true;
+            // The static members C# itself never names but compiled code calls (`[..]` is Range.All in IL).
+            case IPropertyReferenceOperation { Property: { IsStatic: true, ContainingType: var owner, Name: var name } }
+                when (IsIndexType(owner) && name is "Start" or "End") || (IsRangeType(owner) && name == "All"):
+                result = name switch
+                {
+                    "Start" => L.ConstInt(L.I32, 0),
+                    "End" => L.ConstInt(L.I32, -1), // ^0
+                    _ => MakeRange(L.ConstInt(L.I32, 0), L.ConstInt(L.I32, -1)),
+                };
+                return true;
+            case IInvocationOperation { TargetMethod: { IsStatic: true, ContainingType: var owner, Name: var name, Parameters.Length: 1 } } inv
+                when (IsIndexType(owner) && name is "FromStart" or "FromEnd") || (IsRangeType(owner) && name is "StartAt" or "EndAt"):
+            {
+                var argument = ArgValue(inv, 0);
+                result = name switch
+                {
+                    "FromStart" => MakeIndex(argument, L.False),
+                    "FromEnd" => MakeIndex(argument, L.True),
+                    "StartAt" => MakeRange(argument, L.ConstInt(L.I32, -1)),
+                    _ => MakeRange(L.ConstInt(L.I32, 0), argument),
+                };
+                return true;
+            }
             case IInvocationOperation { TargetMethod.ContainingType: var owner, TargetMethod.Name: "GetOffset", Instance: { } instance } inv when IsIndexType(owner):
                 result = ResolveIndex(EmitValue(instance), ArgValue(inv, 0));
                 return true;

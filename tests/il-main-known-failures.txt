@@ -1,0 +1,22 @@
+# Samples that fail through csc -> IL -> csharpc (tests/run.sh --via-il; .github/workflows/il-main.yml).
+# Every entry fails with an explicit diagnostic or a run-time NotSupportedException, never wrong output;
+# take a sample off the list when it passes (tests/il-main-check.sh fails a shard until then).
+#
+# <sample>  <why>
+305_regex_generated                 [GeneratedRegex] output sets Regex's protected fields (CapNames, ...): the corelib Regex has no such fields yet
+316_json_serialize                  reflection-based System.Text.Json: its metadata is generated from C# source (JsonReflectionContexts)
+317_json_deserialize                reflection-based System.Text.Json (as above)
+318_json_options                    reflection-based System.Text.Json (as above)
+319_json_converters                 reflection-based System.Text.Json (as above)
+320_json_polymorphism               reflection-based System.Text.Json (as above)
+321_json_references                 reflection-based System.Text.Json (as above)
+325_json_types                      reflection-based System.Text.Json (as above)
+535_unreachable_unsupported         reflection-based System.Text.Json in reachable code (as above)
+393_rectangular_array_type          non-generic IEnumerable over a rectangular array: NotSupportedException at run time
+680_dynamic_basics                  `dynamic` call sites in IL (Microsoft.CSharp binder): csharpc binds dynamic from C# source (ADR 0019)
+681_dynamic_binder_errors           `dynamic` in IL (as above)
+682_dynamic_calls                   `dynamic` in IL (as above)
+683_dynamic_objects                 `dynamic` in IL (as above)
+684_dynamic_generic                 `dynamic` in IL (as above)
+685_dynamic_semantics               `dynamic` in IL (as above)
+686_dynamic_bcl                     `dynamic` in IL (as above)

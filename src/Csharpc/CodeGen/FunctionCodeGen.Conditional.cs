@@ -18,6 +18,8 @@ public sealed partial class FunctionCodeGen
 
     private static bool IsConditionallyOmitted(IInvocationOperation inv)
     {
+        // A call in IL is there because the compiler that produced the IL kept it (with its own symbols).
+        if (inv is IlOperation) return false;
         var method = inv.TargetMethod.OriginalDefinition;
         while (method.OverriddenMethod is { } overridden) method = overridden.OriginalDefinition;
         List<string>? conditions = null;

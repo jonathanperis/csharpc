@@ -82,6 +82,16 @@ if [[ -z "$FILTER" || "IlApp" == *"$FILTER"* ]]; then
   else echo "FAIL IlApp: csharpc -r"; sed 's/^/     /' "$WORK/log" | head; fail=$((fail+1)); fi
 fi
 
+# 3b. The program as IL (ADR 0010, "The program as IL"): csharpc compiles the app's own assembly as csc built
+#     it, with the libraries `dotnet build` copied next to it (IlShapes.dll) found there.
+if [[ -z "$FILTER" || "IlApp" == *"$FILTER"* ]]; then
+  if "$DOTNET" build "$WORK/il/IlApp/IlApp.csproj" -c Release -o "$WORK/ilmain" -v quiet -nologo > "$WORK/log" 2>&1 \
+     && "$DOTNET" "$CSHARPC_DLL" "$WORK/ilmain/IlApp.dll" -O0 -o "$WORK/ilmain-exe/" > "$WORK/log" 2>&1; then
+    (cd "$WORK/il/IlApp" && "$DOTNET" run -v quiet 2>/dev/null) > "$WORK/expected"
+    "$WORK/ilmain-exe/IlApp" > "$WORK/actual" 2>&1; check "IlApp: csharpc IlApp.dll (the program as IL)" "$WORK/expected" "$WORK/actual"
+  else echo "FAIL IlApp: csharpc IlApp.dll"; sed 's/^/     /' "$WORK/log" | head; fail=$((fail+1)); fi
+fi
+
 # 4. --framework-il (docs/adr/0013-framework-il.md): framework assemblies the program uses are compiled
 #    from the shared framework's IL by default (IlMetadataApp, IlExtensionsApp above); the option turns
 #    that off or forces assemblies in, and refuses what csharpc can't take as IL, all with diagnostics.

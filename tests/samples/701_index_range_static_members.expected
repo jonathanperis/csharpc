@@ -1,0 +1,6 @@
+10,20,30,40,50 | 40,50 | 10,20
+0 ^0 2 ^1 50 20
+0..^0 ^1..^0 0..2 True True
+4 20
+Non-negative number required. (Parameter 'value')
+Non-negative number required. (Parameter 'value')
