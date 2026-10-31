@@ -276,8 +276,9 @@ namespace CsharpcCoreLib
                     // A blocking socket finishes the attempt, EAGAIN only after a receive/send timeout. That
                     // timeout is for synchronous calls (.NET's asynchronous operations never time out): try
                     // again until the operation runs, the socket closes or the operation's token is canceled.
-                    while (!state.op.TryRun(state.socket))
+                    while (!state.op.TryRun(state.socket) || TimedOutBySocketTimeout(state.op, state.socket))
                     {
+                        state.op.Error = SocketError.Success;
                         if (state.op.Token.IsCancellationRequested) { state.op.Canceled = true; break; }
                         if (state.context.Closed) { state.op.Error = SocketError.OperationAborted; break; }
 #if !CSHARPC_TARGET_WINDOWS && !CSHARPC_TARGET_WASI
@@ -299,6 +300,11 @@ namespace CsharpcCoreLib
             }
             return true;
         }
+
+        // Winsock reports an expired SO_RCVTIMEO/SO_SNDTIMEO as WSAETIMEDOUT rather than EAGAIN: for a socket with
+        // that timeout set, the blocking engine's attempt timed out, not the connection.
+        private static bool TimedOutBySocketTimeout(SocketOperation op, SocketImpl socket) =>
+            op.Error == SocketError.TimedOut && !op.Canceled && (op.IsWrite ? socket.SendTimeout : socket.ReceiveTimeout) > 0;
 
         /// <summary>Takes a pending operation out of its queue (cancellation); false if it already completed.</summary>
         internal bool Remove(SocketOperation op)
