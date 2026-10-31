@@ -63,14 +63,11 @@ public sealed partial class ModuleCodeGen
 
     private LLVMTypeRef TypeTableHeader => Llvm.Struct(Llvm.I64, Llvm.Ptr);
 
-    /// <summary>csrt_TypeInfoTable: { count, entries, lazy_count, lazy }.</summary>
-    private LLVMTypeRef TypeInfoTableHeader => Llvm.Struct(Llvm.I64, Llvm.Ptr, Llvm.I64, Llvm.Ptr);
-
     /// <summary>The program's csrt_TypeInfoTable (filled in once codegen is done).</summary>
     internal LLVMValueRef TypeInfoTable()
     {
         if (_typeInfoTable.IsNull)
-            _typeInfoTable = Module.AddGlobal("csharpc.typeinfo", TypeInfoTableHeader, constant: true, linkage: LLVMLinkage.Private);
+            _typeInfoTable = Module.AddGlobal("csharpc.typeinfo", TypeTableHeader, constant: true, linkage: LLVMLinkage.Private);
         return _typeInfoTable;
     }
 
@@ -228,16 +225,21 @@ public sealed partial class ModuleCodeGen
             }
             foreach (var record in _typeInfoRecords)
                 foreach (var itf in record.Interfaces) Collect(itf);
+            // csrt_TypeInfoTable: the count packs both lengths, and the lazy interfaces follow the entries in
+            // one object { [entries], [lazies] } (csrt.h), so programs without them keep the same table.
             var lazyType = Llvm.Struct(TypeInfoEntryType, Llvm.Ptr);
-            var lazyGlobal = lazyOrder.Count == 0 ? LlvmContext.Null(Llvm.Ptr)
-                : Module.AddGlobal("csharpc.typeinfo.lazy", LlvmContext.Array(lazyType, (ulong)lazyOrder.Count), constant: true, linkage: LLVMLinkage.Private);
+            var entriesType = LlvmContext.Array(TypeInfoEntryType, (ulong)_typeInfoRecords.Count);
+            var lazyArrayType = LlvmContext.Array(lazyType, (ulong)lazyOrder.Count);
+            var tableType = lazyOrder.Count == 0 ? entriesType : Llvm.Struct(entriesType, lazyArrayType);
+            var tableGlobal = Module.AddGlobal("csharpc.typeinfo.entries", tableType, constant: true, linkage: LLVMLinkage.Private);
+            var lazyStart = (long)Types.Target.SizeOf(entriesType);
             var lazySize = (long)Types.Target.SizeOf(lazyType);
             LLVMValueRef? InterfaceRef(INamedTypeSymbol itf)
             {
                 var key = InterfaceKey(itf);
                 if (_interfaceTables.TryGetValue(key, out var mt)) return mt;
                 if (!lazyIndex.TryGetValue(key, out var index)) return null;
-                return Native.LLVMConstInBoundsGEP2(Llvm.I8, lazyGlobal, [Llvm.ConstInt(Llvm.I64, index * lazySize + 1)], 1);
+                return Native.LLVMConstInBoundsGEP2(Llvm.I8, tableGlobal, [Llvm.ConstInt(Llvm.I64, lazyStart + index * lazySize + 1)], 1);
             }
             LLVMValueRef InterfaceList(IEnumerable<INamedTypeSymbol> interfaces, out int count)
             {
@@ -269,11 +271,11 @@ public sealed partial class ModuleCodeGen
                     Llvm.ConstInt(Llvm.I32, 0), Llvm.ConstInt(Llvm.I32, variance));
                 lazies.Add(Llvm.ConstStruct(info, CString(Mangler.MetadataName(itf.IsGenericType ? itf.OriginalDefinition : itf))));
             }
-            if (lazyOrder.Count > 0) Native.LLVMSetInitializer(lazyGlobal, LlvmContext.ConstArray(lazyType, [.. lazies]));
-            var infoInit = LlvmContext.ConstArray(TypeInfoEntryType, [.. entries]);
-            var infoArray = Module.AddGlobal("csharpc.typeinfo.entries", Native.LLVMTypeOf(infoInit), infoInit, constant: true, linkage: LLVMLinkage.Private);
-            Native.LLVMSetInitializer(_typeInfoTable, Llvm.ConstStruct(Llvm.ConstInt(Llvm.I64, entries.Count), infoArray,
-                Llvm.ConstInt(Llvm.I64, lazyOrder.Count), lazyGlobal));
+            var entriesInit = LlvmContext.ConstArray(TypeInfoEntryType, [.. entries]);
+            Native.LLVMSetInitializer(tableGlobal, lazyOrder.Count == 0 ? entriesInit
+                : Llvm.ConstStruct(entriesInit, LlvmContext.ConstArray(lazyType, [.. lazies])));
+            Native.LLVMSetInitializer(_typeInfoTable, Llvm.ConstStruct(
+                Llvm.ConstInt(Llvm.I64, entries.Count | ((long)lazyOrder.Count << 32)), tableGlobal));
         }
         if (!_typeNameTable.IsNull)
         {

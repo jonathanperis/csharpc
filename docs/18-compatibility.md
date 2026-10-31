@@ -712,9 +712,15 @@ the factory calls Roslyn's `ExpressionLambdaRewriter` emits for IL, so the trees
   and `using`. At run time, `NotSupportedException`: `Expression.Field/Property/Call` by name on members
   the program doesn't name (as under NativeAOT, where those overloads are `RequiresUnreferencedCode`),
   `MakeArrayType(rank)`, rectangular arrays through reflection.
-- **Cost, pay for play.** Programs that don't use `System.Linq.Expressions` are unchanged (the size
-  budgets are byte-identical). A minimal `Compile()` program is 3.6 MB and compiles in ~75 s; the corpus
-  programs are 3.9 MB (`lambda-expressions`, NativeAOT 2.3 MB) and 4.0 MB (`ExpressionTreeExample`,
-  NativeAOT 3.0 MB). Samples: `tests/samples/672_expression_trees_tostring`, `673_expression_trees_compile`,
+- **Cost, pay for play.** Programs that don't use `System.Linq.Expressions` don't carry it. Most of
+  what the interpreter used to bring was unreachable: overrides of classes nothing constructs (the
+  LambdaCompiler's visitors through generic virtual `VisitLambda<T>`), every interface helper of every
+  array type, expanded assembly-qualified type names, and method tables for the interfaces only
+  `Type.GetInterfaces()` lists (docs/03-lowering.md, "Pruning"; `csrt_LazyInterface`). Compatibility run
+  41177667628 (4 programs at a time on the runner) against 41177669294 on `main`: `lambda-expressions`
+  2.24 MB / 29.7 s (was 3.88 MB / 51.0 s; NativeAOT 2.34 MB), `ExpressionTreeExample` 2.40 MB / 46.6 s
+  (was 4.06 MB / 78.8 s; NativeAOT 3.04 MB). A minimal `Compile()` program: 2.09 MB, ~31 s at `-O2 -j 2`
+  on the shared VPS (was 3.66 MB, ~63 s); `benchmarks/programs/exprtree.cs` tracks it in the Benchmarks
+  workflow. Most of the remaining time is LLVM's `-O2` pipeline over the interpreter (~2,700 functions). Samples: `tests/samples/672_expression_trees_tostring`, `673_expression_trees_compile`,
   `674_expression_api`, `676_expression_trees_generics` (and `675_unbox_enum_base_object_calls` for the
   runtime fixes); IL front-end: `tests/projects/il/IlExpressionTreesApp`.

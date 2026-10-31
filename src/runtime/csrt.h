@@ -271,12 +271,12 @@ typedef struct csrt_TypeInfo {
 // names + "]" when generic) and its TypeInfo (`info`, with `mt` set) the first time it is needed.
 typedef struct { csrt_TypeInfo info; const char* name; } csrt_LazyInterface;
 
-typedef struct {
-    int64_t count;
-    const csrt_TypeInfo* entries;
-    int64_t lazy_count;
-    const csrt_LazyInterface* lazy;
-} csrt_TypeInfoTable;
+// `count`: the number of entries in its low 32 bits, of csrt_LazyInterfaces in its high ones; the lazy
+// interfaces follow the entries in the same object (CSRT_TYPEINFO_COUNT / CSRT_TYPEINFO_LAZY).
+typedef struct { int64_t count; const csrt_TypeInfo* entries; } csrt_TypeInfoTable;
+#define CSRT_TYPEINFO_COUNT(table) ((table)->count & 0xffffffff)
+#define CSRT_TYPEINFO_LAZY_COUNT(table) ((table)->count >> 32)
+#define CSRT_TYPEINFO_LAZY(table) ((const csrt_LazyInterface*)((table)->entries + CSRT_TYPEINFO_COUNT(table)))
 
 // Member metadata (constructors, methods, parameters, custom attributes): generated at compile time
 // by ModuleCodeGen.Reflection.cs for the types the program hands to [DynamicallyAccessedMembers]
