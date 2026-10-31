@@ -237,7 +237,8 @@ public sealed partial class ModuleCodeGen
     private bool EmitMetadataRound() =>
         Timed("runtime exports", EmitRuntimeExports) | Timed("reflection metadata", EmitReflectionMetadata) | Timed("type metadata", EmitTypeMetadata)
         | Timed("box registrations", EmitDeferredBclBoxRegistrations) | Timed("primitive slots", EmitDeferredPrimitiveSlots)
-        | Timed("dynamic sites", EmitDynamicSites) | Timed("object-array thunks", EmitObjectArrayThunks) | EmitPInvokeResolver();
+        | Timed("dynamic sites", EmitDynamicSites) | Timed("object-array thunks", EmitObjectArrayThunks) | EmitPInvokeResolver()
+        | Timed("lazy invokers", EmitLazyInvokers);
 
     /// <summary>Runs a module-level lowering step, adding its time to <see cref="LoweringStats.Steps"/> (csharpc -v).</summary>
     private bool Timed(string step, Func<bool> action)
@@ -647,6 +648,7 @@ public sealed partial class ModuleCodeGen
         var start = System.Diagnostics.Stopwatch.GetTimestamp();
         NoteLowered(method);
         NoteDynamicDependencies(method);
+        NoteReflectionUse(method);
         var corelib = CoreLib.IsCoreLib(method);
         var il = !corelib && Il.OwnerOf(method) is not null;
         try { EmitMethodCore(method); }

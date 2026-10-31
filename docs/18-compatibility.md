@@ -749,8 +749,12 @@ What it took, besides library members (all with regression samples 840–849):
   `T[]` (it made an untyped array: `GetType()` said `System.Array` and casts to `T[]` failed).
 - **MemoryCache**: `ConcurrentDictionary`'s `AlternateLookup<ReadOnlySpan<char>>`.
 - **RazorSlices**: `[DynamicDependency]` on the program's and packages' members is honoured (constructors,
-  properties and fields; not methods, whose reflection invokers would compile every `Write` overload of a
-  slice: reflecting over them fails explicitly), a `Type` known at compile time stored into a
+  properties, fields and, since `ci/m7-correctness`, methods, as NativeAOT keeps them: a listed method's
+  invoker and delegate function, which compile it, are made only once the program can invoke methods
+  through reflection, `ModuleCodeGen.LazyInvokers.cs`; the Platform entry can (the framework code it runs
+  calls `MethodBase.Invoke`), so its slice's ~100 `Write` overloads are compiled, +0.8 % at -O0; what they reach that csharpc
+  can't compile yet — BigInteger's `ISpanFormattable` — is an unreached method's run-time stub, not a
+  compile error), a `Type` known at compile time stored into a
   `[DynamicallyAccessedMembers]` field keeps those members, `TextEncoder`'s TextWriter/span/UTF-8 members
   (also for encoders derived from it), `Utf8.FromUtf16`/`ToUtf16`, `MetadataUpdater.IsSupported` folded to
   false (no hot reload, as under NativeAOT); `NullabilityInfoContext.Create` is an explicit error.
