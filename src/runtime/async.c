@@ -1533,6 +1533,9 @@ void csrt_iterator_dispose(void* obj) {
 /// ValueTask.AsTask(): default(ValueTask) is a null task pointer meaning "completed, default result".
 csrt_Task* csrt_valuetask_as_task(csrt_Task* t, int32_t payload_size) {
     if (t) return t;
+    // A completed non-generic ValueTask's AsTask() is Task.CompletedTask in .NET, not a new task: Kestrel's
+    // response writes end in WriteAsync(...).AsTask() on every request.
+    if (payload_size == 0) return csrt_task_completed_task();
     csrt_Task* done = csrt_task_new(payload_size);
     done->state = T_DONE;
     return done;

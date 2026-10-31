@@ -1,0 +1,11 @@
+default AsTask is CompletedTask: True RanToCompletion
+ValueTask.CompletedTask AsTask: True
+wrapping a task keeps it: True
+round 0: True True 0
+round 1: True True 0
+round 2: True True 14
+null result: null
+text result: text
+caught: source failed
+pending: False
+completed later: 99

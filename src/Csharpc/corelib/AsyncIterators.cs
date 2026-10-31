@@ -173,24 +173,28 @@ namespace CsharpcCoreLib
         // registers a static continuation with the bridge as its state (no delegate per call).
         private static readonly Action<object> s_complete = static state => ((ValueTaskSourceBridge<TResult>)state).Complete();
 
-        public static Task<TResult> Create(IValueTaskSource<TResult> source, short token)
+        public static ValueTask<TResult> Create(IValueTaskSource<TResult> source, short token)
         {
             if (source == null) throw new ArgumentNullException("source");
             if (source.GetStatus(token) != ValueTaskSourceStatus.Pending)
             {
-                var done = new TaskCompletionSource<TResult>();
                 TResult value;
                 try { value = source.GetResult(token); }
-                catch (Exception e) { CoreIntrinsics.TryFaultAsyncTask(done.Task, e); return done.Task; }
-                done.SetResult(value);
-                return done.Task;
+                catch (Exception e)
+                {
+                    var faulted = new TaskCompletionSource<TResult>();
+                    CoreIntrinsics.TryFaultAsyncTask(faulted.Task, e);
+                    return new ValueTask<TResult>(faulted.Task);
+                }
+                // The result inline: no task for a default one (a zero-byte socket receive), as for any ValueTask<T>.
+                return new ValueTask<TResult>(value);
             }
             var bridge = new ValueTaskSourceBridge<TResult>();
             bridge._source = source;
             bridge._token = token;
             bridge._promise = new TaskCompletionSource<TResult>();
             source.OnCompleted(s_complete, bridge, token, ValueTaskSourceOnCompletedFlags.None);
-            return bridge._promise.Task;
+            return new ValueTask<TResult>(bridge._promise.Task);
         }
 
         private void Complete()
