@@ -187,7 +187,7 @@ public sealed partial class FunctionCodeGen
     };
 
     private LLVMValueRef CaptureAddress(IFlowCaptureReferenceOperation r) =>
-        _b.Load(L.Ptr, _cfg!.Captures.TryGetValue(r.Id, out var c) ? c.Slot : throw CompileError.Unsupported("capture used before definition", r));
+        _b.Load(L.Ptr, TryGetCapture(r.Id, out var c) ? c.Slot : throw CompileError.Unsupported("capture used before definition", r));
 
     private LLVMValueRef FieldAddress(IFieldReferenceOperation f)
     {

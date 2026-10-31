@@ -208,15 +208,9 @@ public sealed partial class FunctionCodeGen
             case ILOpCode.Endfilter:
             {
                 var clause = IlHandlerOf(block);
-                if (clause.Kind != ExceptionRegionKind.Filter) throw new IlException("endfilter outside a filter");
-                var accept = IlIsNonZero(Pop());
-                if (clause.Reject.IsNull) throw new IlException("filter without a dispatch"); // dispatches are created up front
-                var enter = NewBlock("il.filter.accept");
-                _b.CondBr(accept, enter, clause.Reject);
-                _b.PositionAtEnd(enter);
-                var handler = il.BlockAt[clause.HandlerStart];
-                _b.Store(_b.Load(L.Ptr, clause.Slot), handler.Entry![0].Slot);
-                _b.Br(handler.Llvm);
+                if (clause.Kind != ExceptionRegionKind.Filter || _filterTry is null) throw new IlException("endfilter outside a filter");
+                // The filter function's verdict (FunctionCodeGen.Filters.cs).
+                _b.Ret(_b.Cast(LLVMOpcode.ZExt, IlIsNonZero(Pop()), L.I32));
                 return true;
             }
             case ILOpCode.Throw:
@@ -868,7 +862,14 @@ public sealed partial class FunctionCodeGen
     private IlType IlLocal(int index) =>
         index < IlBody.Locals.Length ? IlBody.Locals[index] : throw new IlException($"local {index} does not exist");
 
-    private LLVMValueRef IlLocalSlot(int index) => _il!.LocalErrors[index] is { } error ? throw error : _il.Locals[index];
+    private LLVMValueRef IlLocalSlot(int index) =>
+        _il!.LocalErrors[index] is { } error ? throw error
+        : _il.Locals[index].IsNull && _filterParent is { } parent ? _il.Locals[index] = ParentValue(parent._il!.Locals[index]) // a filter function
+        : _il.Locals[index];
+
+    /// <summary>An argument's slot (a filter function reaches its parent's).</summary>
+    private LLVMValueRef IlArgSlot(IParameterSymbol parameter) =>
+        _slots.TryGetValue(parameter, out var slot) ? slot : FilterParameter(parameter) ?? throw new IlException($"argument '{parameter.Name}' without a slot");
 
     private IlEntry IlLoadLocal(int index)
     {
@@ -903,7 +904,7 @@ public sealed partial class FunctionCodeGen
                 : new IlEntry(IlKind.Ref, _this, owner) { IsThis = true, NonNull = true };
         }
         var parameter = IlParameter(index);
-        var slot = _slots[parameter];
+        var slot = IlArgSlot(parameter);
         if (parameter.RefKind != RefKind.None) return new IlEntry(IlKind.ByRef, slot, parameter.Type);
         return IlPush(LoadValue(slot, S(parameter.Type)), parameter.Type);
     }
@@ -922,7 +923,7 @@ public sealed partial class FunctionCodeGen
         }
         var parameter = IlParameter(index);
         if (parameter.RefKind != RefKind.None) throw new IlException("address of a by-ref argument");
-        return new IlEntry(IlKind.ByRef, _slots[parameter], parameter.Type);
+        return new IlEntry(IlKind.ByRef, IlArgSlot(parameter), parameter.Type);
     }
 
     private void IlStoreArg(int index, IlEntry value)
@@ -930,7 +931,7 @@ public sealed partial class FunctionCodeGen
         if (IlHasThis && index == 0) throw new IlException("assignment to 'this'");
         var parameter = IlParameter(index);
         if (parameter.RefKind != RefKind.None) throw new IlException("starg on a by-ref argument");
-        StoreValue(ToStorage(IlTyped(value, parameter.Type), S(parameter.Type)), _slots[parameter]);
+        StoreValue(ToStorage(IlTyped(value, parameter.Type), S(parameter.Type)), IlArgSlot(parameter));
     }
 
     // ======================================================================================

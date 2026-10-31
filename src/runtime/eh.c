@@ -8,9 +8,11 @@
 //    the catch type's *method table pointer* as type-info (null = catch-all); every landing pad
 //    is also a cleanup. LLVM turns that into the standard LSDA in .gcc_except_table.
 //  * csrt_personality (below) parses the LSDA. Search phase: a frame "handles" the exception if
-//    one of the call site's clauses names a method table on the thrown object's base chain.
-//    Cleanup phase: every frame with a landing pad is entered; the compiled code re-checks the
-//    clause types (and runs `when` filters) and either enters a handler or rethrows outward.
+//    one of the call site's clauses names a method table on the thrown object's base chain, or is
+//    a `when` clause whose filter accepts it (filters run here, in the first pass, as in .NET; see
+//    "Exception filters"). Cleanup phase: every frame with a landing pad is entered; the compiled
+//    code re-checks the clause types (and the filters' verdict) and either enters a handler or
+//    propagates outward.
 //  * If the search phase finds no handler, the exception is unhandled. Like .NET we still run
 //    the finally blocks on the way out (a forced unwind), then print
 //    "Unhandled exception. <ToString()>" and abort() (exit status 134).
@@ -371,11 +373,149 @@ csrt_String* csrt_object_type_name(void* obj, bool full) {
 // ---------------------------------------------------------------------------------------------
 // Throwing
 // ---------------------------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------------------------
+// Exception filters
+//
+// .NET dispatches in two passes: the first walks up the stack running `when` filters until one
+// accepts (or a catch matches by type), and only then does the second run the finally blocks on the
+// way to that handler. A filter therefore sees the stack before any of them ran, and filters further
+// out run before inner finally blocks.
+//
+// csharpc compiles each filter to a function of its own, `int32 filter(csrt_EhFrame*, exception)`,
+// that reaches the method's locals through the try's frame record: { prev, try, addresses... },
+// filled and linked into tl_eh_frames when the try is entered and unlinked when it is left (also
+// around an await). A `when` clause's type-info is a csrt_EhClause rather than a method table:
+//  * native: the personality's search phase finds a clause's record (the innermost one of its try
+//    not yet passed, eh_find_frame) and calls the filter right there;
+//  * wasm32 (no unwinder): raise_exception walks the records before the exception becomes pending.
+//    There every try with catch clauses has a record, as do the bodies of coroutines and the C code
+//    that catches (barriers), so the walk stops where a catch would take the exception.
+// The verdict is kept in the exception (eh_clause, eh_frame): landing pads re-raise the exception
+// on their way out (csrt_propagate), and those searches must not run a filter again; the handler's
+// dispatch code asks csrt_eh_selected. A new throw of the exception (throw, `throw;`, an await,
+// ExceptionDispatchInfo.Throw) starts over. An exception a filter throws is caught by the filter
+// itself, which then declines (ECMA-335 II.19).
+// ---------------------------------------------------------------------------------------------
+#define CSRT_EH_CLAUSE_MAGIC 0xC5A7F117E2C1A05EULL  // not a canonical address: no method table starts with it
+typedef struct csrt_EhTry csrt_EhTry;
+typedef int32_t (*csrt_FilterFn)(csrt_EhFrame* frame, void* exception);
+typedef struct {
+    uint64_t magic;
+    const csrt_MethodTable* type;  // null: any exception
+    csrt_FilterFn filter;          // null: a plain catch (wasm32 records list every handler)
+    const csrt_EhTry* owner;
+} csrt_EhClause;
+struct csrt_EhTry { int64_t count; const csrt_EhClause* clauses[]; };
+struct csrt_EhFrame { csrt_EhFrame* prev; const csrt_EhTry* owner; void* values[]; };
+#define CSRT_EH_SEARCHED ((const void*)1)  // filters ran and none accepted
+
+#ifdef __wasm__
+static csrt_EhFrame* tl_eh_frames;
+#else
+static _Thread_local __attribute__((tls_model("local-exec"))) csrt_EhFrame* tl_eh_frames;
+#endif
+
+// wasm32: programs without filters have every call to these deleted (ExceptionLowering), so no
+// inlined copy may stay behind to unlink a record that was never linked.
+#ifdef __wasm__
+#define EH_LINKAGE __attribute__((noinline))
+#else
+#define EH_LINKAGE
+#endif
+
+EH_LINKAGE void csrt_eh_push(csrt_EhFrame* frame) {
+    frame->prev = tl_eh_frames;
+    tl_eh_frames = frame;
+}
+
+/// IL: entering the try at its first instruction, which a branch inside the try may also reach.
+EH_LINKAGE void csrt_eh_enter(csrt_EhFrame* frame) {
+    if (frame != tl_eh_frames) csrt_eh_push(frame);
+}
+
+EH_LINKAGE void csrt_eh_pop(csrt_EhFrame* frame) { tl_eh_frames = frame->prev; }
+
+/// Dispatch code of a `when` clause: did the first pass choose it (in this frame)? Consumes the verdict.
+int32_t csrt_eh_selected(void* exception, csrt_EhFrame* frame, const void* clause) {
+    csrt_Exception* e = exception;
+    if (e->eh_clause != clause || e->eh_frame != frame) return 0;
+    e->eh_clause = NULL;
+    e->eh_frame = NULL;
+    return 1;
+}
+
+/// A new dispatch of the exception: filters run again.
+static void eh_forget(csrt_Exception* e) {
+    e->eh_clause = NULL;
+    e->eh_frame = NULL;
+}
+
+static bool eh_is_instance_of(void* exception, const csrt_MethodTable* type) {
+    for (const csrt_MethodTable* mt = ((csrt_Object*)exception)->mt; mt; mt = mt->base)
+        if (mt == type) return true;
+    return false;
+}
+
+_Noreturn static void eh_fatal(const char* what) {
+    fflush(stdout);
+    fprintf(stderr, "csharpc runtime: internal error: %s" CSRT_NEWLINE, what);
+    abort();
+}
+
+/// A record whose try catches everything and runs no filter: the bodies of async methods (which fault
+/// their task) and the C code that catches. Only wasm32's walk needs them; the personality sees the
+/// landing pads themselves.
+static const csrt_EhClause s_catch_all = { CSRT_EH_CLAUSE_MAGIC, NULL, NULL, NULL };
+const csrt_EhTry csrt_eh_barrier = { 1, { &s_catch_all } };
+
+/// A sync iterator's body: its landing pad catches everything to finish the iterator, which MoveNext
+/// then rethrows (csrt_propagate), so to the first pass it is no handler. .NET's MoveNext doesn't catch.
+const csrt_EhClause csrt_eh_iterator_clause = { CSRT_EH_CLAUSE_MAGIC, NULL, NULL, NULL };
+
+#ifdef __wasm__
+void csrt_eh_push_barrier(csrt_EhFrame* frame) {
+    frame->owner = &csrt_eh_barrier;
+    csrt_eh_push(frame);
+}
+
+/// The first pass (wasm32): run the filters of the records up to the first try that catches.
+static void eh_search(csrt_Exception* e) {
+    if (e->eh_clause || !tl_eh_frames) return;
+    bool ran = false;
+    for (csrt_EhFrame* f = tl_eh_frames; f; f = f->prev)
+        for (int64_t i = 0; i < f->owner->count; i++) {
+            const csrt_EhClause* c = f->owner->clauses[i];
+            if (c->type && !eh_is_instance_of(e, c->type)) continue;
+            if (!c->filter) goto done;  // a catch (or a barrier) takes it
+            ran = true;
+            // An exception thrown in the filter is the filter's own (it catches everything): the walk
+            // its throw makes must not look past it.
+            csrt_EhFrame barrier = { NULL, &csrt_eh_barrier };
+            csrt_eh_push(&barrier);
+            int32_t accepted = c->filter(f, e);
+            csrt_eh_pop(&barrier);
+            if (accepted) {
+                e->eh_clause = c;
+                e->eh_frame = f;
+                return;
+            }
+        }
+done:
+    if (ran) e->eh_clause = CSRT_EH_SEARCHED;
+}
+#endif
+
 #ifndef __wasm__
 static const uint64_t CSRT_EXCEPTION_CLASS = 0x43534841524E4554ULL;  // "CSHARNET"
 
 typedef struct {
     void* exception;  // the managed object (also rooted in s_in_flight while unwinding)
+    // Exception filters: whether this search runs them (no verdict yet), and the frame record the
+    // last `when` clause was matched to (with its frame's CFA).
+    bool fresh;
+    struct csrt_EhFrame* cursor;
+    uintptr_t cursor_cfa;
     struct _Unwind_Exception unwind;
 } csrt_Throw;
 
@@ -566,6 +706,7 @@ void* csrt_object_disposed_exception_new(const char* message) {
 void* csrt_pending_exception;
 
 static CSRT_THROWS void raise_exception(void* exception) {
+    eh_search(exception);
     csrt_pending_exception = exception;
     // Debugging aid: wasm has no unwinder to show where an exception came from, but a trap prints
     // the engine's backtrace (wasmtime: with function names unless the module was stripped).
@@ -583,7 +724,10 @@ void* csrt_begin_catch(void* unused) {
 /// ExceptionLowering leaves the calls in these functions alone: they look at the pending
 /// exception themselves (they are the only C code that catches).
 void* csrt_trap_call(void (*fn)(void*), void* arg) {
+    csrt_EhFrame barrier;
+    csrt_eh_push_barrier(&barrier);
     fn(arg);
+    csrt_eh_pop(&barrier);
     return csrt_begin_catch(NULL);
 }
 
@@ -595,6 +739,7 @@ static CSRT_THROWS void raise_exception(void* exception) {
     csrt_Throw* t = calloc(1, sizeof *t);
     if (!t) abort();
     t->exception = exception;
+    t->fresh = ((csrt_Exception*)exception)->eh_clause == NULL;
     t->unwind.exception_class = CSRT_EXCEPTION_CLASS;
     t->unwind.exception_cleanup = throw_cleanup;
     s_in_flight = exception;
@@ -622,12 +767,20 @@ void csrt_throw_object(void* exception) {
     if (!exception)  // `throw null;` throws a NullReferenceException
         exception = new_exception(&csrt_MT_System_NullReferenceException, "Object reference not set to an instance of an object.");
     trace_reset(exception);
+    eh_forget(exception);
     raise_exception(exception);
 }
 
-// `throw;`, an exception leaving a handler region, `await` of a faulted task: the frames recorded so
-// far stay, and the frames it passes through next are appended.
-void csrt_rethrow(void* exception) { raise_exception(exception); }
+// `throw;`, `await` of a faulted task: a new dispatch, but the frames recorded so far stay, and the
+// frames it passes through next are appended.
+void csrt_rethrow(void* exception) {
+    eh_forget(exception);
+    raise_exception(exception);
+}
+
+// An exception leaving a landing pad's dispatch (finally blocks run, no handler there): the same
+// dispatch goes on, with the first pass's verdict.
+void csrt_propagate(void* exception) { raise_exception(exception); }
 
 /// ExceptionDispatchInfo.Throw(): the frames captured by Capture(), then .NET's marker line, then the
 /// frames from here on.
@@ -639,6 +792,7 @@ void csrt_exception_throw_captured(void* exception, void* captured) {
         trace_append(e, TRACE_PREVIOUS_LOCATION);
         trace_data(e->trace)->frame = 0;  // Throw() runs elsewhere on the stack than the capture
     } else trace_reset(e);
+    eh_forget(e);
     raise_exception(exception);
 }
 
@@ -844,6 +998,38 @@ static int is_instance_of(void* exception, const csrt_MethodTable* type) {
     return 0;
 }
 
+/// The record of the innermost frame of `owner` the search has not passed yet. Records are linked
+/// innermost first, the search meets frames innermost first, and within a frame it meets the clauses
+/// of inner trys first, so the cursor only moves outward; a clause of the try the cursor is on, in
+/// the same frame (CFA), is another handler of that try.
+static csrt_EhFrame* eh_find_frame(csrt_Throw* t, const csrt_EhTry* owner, uintptr_t cfa) {
+    csrt_EhFrame* f = t->cursor;
+    if (!f) f = tl_eh_frames;
+    else if (f->owner != owner || t->cursor_cfa != cfa) f = f->prev;
+    while (f && f->owner != owner) f = f->prev;
+    if (f) {
+        t->cursor = f;
+        t->cursor_cfa = cfa;
+    }
+    return f;
+}
+
+/// Search phase at a `when` clause whose type matches: run its filter (first search of this dispatch)
+/// or look up the verdict of the search that ran them.
+static bool eh_filter_accepts(csrt_Throw* t, const csrt_EhClause* c, uintptr_t cfa) {
+    csrt_EhFrame* f = eh_find_frame(t, c->owner, cfa);
+    if (!f) eh_fatal("exception filter without its frame record");
+    csrt_Exception* e = t->exception;
+    if (!t->fresh) return e->eh_clause == c && e->eh_frame == f;
+    int32_t accepted = c->filter(f, e);
+    s_in_flight = e;  // an exception thrown and caught inside the filter took the root
+    if (accepted) {
+        e->eh_clause = c;
+        e->eh_frame = f;
+    } else if (!e->eh_clause) e->eh_clause = CSRT_EH_SEARCHED;
+    return accepted;
+}
+
 #ifdef _WIN32
 // On Windows (MinGW, SEH unwind tables) LLVM registers the personality as each function's SEH
 // language handler. libunwind's _GCC_specific_handler adapts the SEH callback to the Itanium
@@ -926,6 +1112,13 @@ _Unwind_Reason_Code csrt_personality(int version, _Unwind_Action actions, uint64
                 const void* type = (const void*)read_encoded(&entry, ttype_encoding);
                 if (type && *(const uint64_t*)type == CSRT_TRACE_SITE_MAGIC) {
                     if (record_sites) trace_append(e, type);
+                } else if (type && *(const uint64_t*)type == CSRT_EH_CLAUSE_MAGIC) {
+                    const csrt_EhClause* c = type;
+                    if (c->filter && (!c->type || is_instance_of(exception, c->type))
+                        && eh_filter_accepts((csrt_Throw*)((char*)unwind - offsetof(csrt_Throw, unwind)), c, frame)) {
+                        result = _URC_HANDLER_FOUND;
+                        break;
+                    }
                 } else if (!type || is_instance_of(exception, type)) { result = _URC_HANDLER_FOUND; break; }
             }
             if (displacement == 0) break;

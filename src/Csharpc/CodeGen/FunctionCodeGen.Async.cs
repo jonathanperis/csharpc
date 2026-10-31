@@ -158,7 +158,22 @@ public sealed partial class FunctionCodeGen
             CallRuntime("csrt_iterator_set_frame", L.Void, [L.Ptr, L.Ptr], coro.Promise, coro.Handle);
             Suspend(coro.Cleanup); // initial suspend: nothing runs until MoveNext()
         }
+        // wasm32: the body of an async method catches everything (FunctionCodeGen.Filters.cs).
+        if (kind != CoroutineKind.Iterator)
+        {
+            PushCoroutineBarrier();
+            PopCoroutineBarrier(coro.Complete);
+            PopCoroutineBarrier(coro.Fault);
+        }
     }
+
+    /// <summary>
+    /// The coroutine body's catch-all clause. A sync iterator's MoveNext rethrows what escapes the body
+    /// (csrt_propagate) and .NET's doesn't catch at all: to the first pass it is no handler, so filters
+    /// further out run before the body's finally blocks (src/runtime/eh.c, csrt_eh_iterator_clause).
+    /// </summary>
+    private LLVMValueRef CoroutineCatchClause =>
+        _coro is { Kind: CoroutineKind.Iterator } && !T.Target.IsWasm ? _m.ExternalGlobal("csrt_eh_iterator_clause") : LlvmContext.Null(L.Ptr);
 
     /// <summary>Catch-all landing pad for code of a coroutine body that no try region protects.</summary>
     private LLVMBasicBlockRef CoroutinePad()
@@ -171,7 +186,7 @@ public sealed partial class FunctionCodeGen
         LLVMValueRef lp;
         if (Traced)
         {
-            var target = NewSitePadTarget([LlvmContext.Null(L.Ptr)], cleanup: false, "coro.lpad.record");
+            var target = NewSitePadTarget([CoroutineCatchClause], cleanup: false, "coro.lpad.record");
             coro.Pad = target.Body;
             lp = target.Pad;
         }
@@ -179,7 +194,7 @@ public sealed partial class FunctionCodeGen
         {
             coro.Pad = NewBlock("coro.lpad");
             _b.PositionAtEnd(coro.Pad);
-            lp = _b.LandingPad(LandingPadType, _m.Runtime("csrt_personality", L.I32).Fn, [LlvmContext.Null(L.Ptr)], cleanup: false);
+            lp = _b.LandingPad(LandingPadType, _m.Runtime("csrt_personality", L.I32).Fn, [CoroutineCatchClause], cleanup: false);
         }
         _b.Store(CallRuntime("csrt_begin_catch", L.Ptr, [L.Ptr], _b.ExtractValue(lp, 0)), coro.ExceptionSlot);
         _b.Br(coro.Fault);
@@ -230,11 +245,13 @@ public sealed partial class FunctionCodeGen
     /// <summary>suspend; resume continues in a fresh block, destroy goes to <paramref name="onDestroy"/>.</summary>
     private void Suspend(LLVMBasicBlockRef onDestroy, LLVMValueRef? saveToken = null)
     {
+        UnlinkEhRecordsForSuspend(); // (CoroSave did, if there is one)
         var suspend = CoroIntrinsic("llvm.coro.suspend", L.I8, L.Token, L.I1);
         var state = _b.Call(suspend.Type, suspend.Fn, [saveToken ?? TokenNone, L.False], "suspend");
         var resume = NewBlock("resume");
         _b.Switch(state, _coro!.SuspendReturn, [(L.ConstInt(L.I8, 0), resume), (L.ConstInt(L.I8, 1), onDestroy)]);
         _b.PositionAtEnd(resume);
+        RelinkEhRecordsAfterResume();
     }
 
     /// <summary>
@@ -244,6 +261,7 @@ public sealed partial class FunctionCodeGen
     /// </summary>
     private LLVMValueRef CoroSave()
     {
+        UnlinkEhRecordsForSuspend(); // exception filter records (FunctionCodeGen.Filters.cs) stay with the thread
         var save = CoroIntrinsic("llvm.coro.save", L.Token, L.Ptr);
         return _b.Call(save.Type, save.Fn, [_coro!.Handle], "coro.save");
     }
@@ -261,7 +279,7 @@ public sealed partial class FunctionCodeGen
             if (coro.Kind == CoroutineKind.Async && coro.ValueType is { } resultType)
                 StoreValue(ToStorage(Coerce(v, TypeOf(value), resultType), resultType), PromisePayload);
         }
-        _b.Br(ThroughFinally(branch.FinallyRegions, coro.Complete));
+        _b.Br(ThroughFinally(branch, coro.Complete)); // (and out of the trys with filter records)
     }
 
     /// <summary>`yield return v;`</summary>

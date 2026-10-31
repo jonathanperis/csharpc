@@ -1,0 +1,38 @@
+-- outer filter accepts after inner ones decline
+filter level2 deep 1 (state 3) -> False
+filter level1 InvalidOperationException (state 3) -> False
+filter main (state 3) -> True
+finally level3
+finally level2 inner
+finally level2 outer
+finally level1
+main caught: deep 1, state -2
+-- inner filter accepts
+filter level2 deep 9 (state 3) -> True
+finally level3
+finally level2 inner
+caught in level2
+finally level2 outer
+finally level1
+state -2
+-- recursion: the same filter in several frames
+filter recurse 0 (state -2) -> False
+filter recurse 1 (state -2) -> False
+filter recurse 2 (state -2) -> True
+finally recurse 0
+finally recurse 1
+caught at 2
+finally recurse 2
+finally recurse 3
+finally recurse 4
+result 2
+-- several handlers of one try
+filter arg 0 (state -2) -> True
+finally 0
+handler arg 0
+filter null 1 (state -2) -> True
+finally 1
+handler null 1
+filter arg 2 (state -2) -> False
+finally 2
+plain handler 2 a2

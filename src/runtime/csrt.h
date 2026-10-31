@@ -153,7 +153,7 @@ void csrt_weak_free(intptr_t handle);
 
 // Exceptions (eh.c) -----------------------------------------------------------------------------
 // Exception objects: { mt, String* message, Exception* inner, String* paramName, String* actualValue,
-// int32[] trace, inners, token }. Throwing raises an Itanium-ABI unwind (_Unwind_RaiseException) handled by
+// int32[] trace, inners, token, hresult, eh_clause, eh_frame }. Throwing raises an Itanium-ABI unwind (_Unwind_RaiseException) handled by
 // csrt_personality; see eh.c. Mirrored by ModuleCodeGen.GetLibraryExceptionLayout.
 typedef struct csrt_Exception {
     const csrt_MethodTable* mt;
@@ -165,6 +165,10 @@ typedef struct csrt_Exception {
     csrt_Array* inners;         // AggregateException: InnerExceptions (exception pointers); null otherwise
     void* token;                // OperationCanceledException.CancellationToken (its source; null: None)
     int32_t hresult;            // HResult when set (constructor argument, the HResult setter); 0: the type's default
+    // The first pass's verdict while the exception propagates (eh.c, "Exception filters"): the `when`
+    // clause that accepted it and its frame record, CSRT_EH_SEARCHED, or null (no filter has run).
+    const void* eh_clause;
+    void* eh_frame;
 } csrt_Exception;
 typedef struct { csrt_MethodTable header; void* vtable[4]; } csrt_ExceptionMethodTable;
 enum { CSRT_SLOT_GET_MESSAGE = 3 };
@@ -174,6 +178,13 @@ int32_t csrt_exception_get_hresult(void* exception);
 void csrt_exception_set_token(void* exception, void* token);
 void csrt_exception_set_hresult(void* exception, int32_t hresult);
 CSRT_THROWS void csrt_rethrow(void* exception);
+CSRT_THROWS void csrt_propagate(void* exception);
+// Exception filters (eh.c): the records of the try regions whose `when` clauses run in the first pass.
+typedef struct csrt_EhFrame csrt_EhFrame;
+void csrt_eh_push(csrt_EhFrame* frame);
+void csrt_eh_enter(csrt_EhFrame* frame);
+void csrt_eh_pop(csrt_EhFrame* frame);
+int32_t csrt_eh_selected(void* exception, csrt_EhFrame* frame, const void* clause);
 // Stack traces (docs/adr/0012-stack-traces.md): compiler-emitted site tables, registered by main.
 void csrt_trace_init(const void* tables);
 void csrt_trace_frame(void* unwind_exception, const void* site);   // wasm32 only

@@ -76,6 +76,13 @@ finally blocks, flushes stdout, prints `Unhandled exception. <ToString()>` to st
 like .NET (SIGABRT, status 134, on Unix; 0xE0434352 on Windows). Runtime-raised exceptions use .NET's
 exact message texts (`Object reference not set to an instance of an object.`, ...).
 
+Dispatch has .NET's two passes: every `when` filter up to the handler runs before any finally block on
+the way there. Each filter is a function of its own that reaches the method's variables through its
+try's frame record, linked into a per-thread chain while the try is active; the personality's search
+phase (on wasm32, the throw itself, walking the chain) runs it, and the verdict travels with the
+exception (`eh.c`, "Exception filters"; `FunctionCodeGen.Filters.cs`). Code without filters is unchanged
+on native targets; a try with a filter costs two runtime stores on entry and one on exit.
+
 Stack traces ([ADR 0012](adr/0012-stack-traces.md)): in programs that read `Exception.StackTrace` or
 turn an exception into text (or with `--stack-traces`), every call site of the program's own code that
 may throw has a landing pad whose first catch clause is a `{ magic, method, file, line }` descriptor;
@@ -187,7 +194,8 @@ compile time from the target triple, not in C ([16-interop-io.md](16-interop-io.
 The design is in [ADR 0011](adr/0011-wasm32.md). What a program sees:
 
 - **Exceptions** behave as on the native targets, filters and `finally` included. The compiler
-  lowers them to explicit propagation, since WebAssembly has no unwinder.
+  lowers them to explicit propagation, since WebAssembly has no unwinder. In programs with `when`
+  filters every try with a catch links a record the first pass walks (dropped again in programs without).
 - **Garbage collection** is the same collector. References that the optimized code keeps in wasm
   locals are spilled into stack slots in linear memory, so the scan finds them. `CSRT_GC_STRESS=N`
   collects on every N-th allocation (any platform) to test this.

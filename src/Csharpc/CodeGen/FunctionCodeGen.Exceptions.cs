@@ -15,16 +15,16 @@ namespace Csharpc.CodeGen;
 ///    *and of every enclosing try in this function* (type-info = the catch type's method table,
 ///    null = catch-all), plus `cleanup`. csrt_personality matches clauses in the search phase.
 ///  * The landing pad unwraps the exception (csrt_begin_catch) into R's slot and jumps to R's
-///    dispatch: test handlers in order (type test, then `when` filter), enter the first match;
-///    otherwise run R's finally (if any) and move on to the enclosing try's dispatch, or rethrow
-///    out of the function.
+///    dispatch: test handlers in order (type test; for a `when` clause, whether the first pass
+///    chose it — filters are functions of their own, FunctionCodeGen.Filters.cs), enter the first
+///    match; otherwise run R's finally (if any) and move on to the enclosing try's dispatch, or
+///    propagate out of the function.
 /// </summary>
 public sealed partial class FunctionCodeGen
 {
     private readonly Dictionary<ControlFlowRegion, LLVMBasicBlockRef> _landingPads = new(ReferenceEqualityComparer.Instance);
     private readonly Dictionary<ControlFlowRegion, LLVMBasicBlockRef> _dispatch = new(ReferenceEqualityComparer.Instance);
     private readonly Dictionary<ControlFlowRegion, LLVMValueRef> _exceptionSlots = new(ReferenceEqualityComparer.Instance);
-    private readonly Dictionary<ControlFlowRegion, LLVMBasicBlockRef> _filterRejected = new(ReferenceEqualityComparer.Instance);
     private BasicBlock? _currentBlock;
     private bool _hasPersonality;
 
@@ -177,6 +177,11 @@ public sealed partial class FunctionCodeGen
     private void BeginBlock(BasicBlock block)
     {
         _currentBlock = block;
+        if (_filterRegion is not null)
+        {
+            (_b.UnwindDest, _b.UnwindHook, _b.MayThrow) = (FilterCatchAllPad(), null, _m.MayThrow);
+            return;
+        }
         var tryRegion = ProtectingTry(block.EnclosingRegion);
         _b.UnwindDest = tryRegion is not null ? LandingPad(tryRegion) : _coro is not null ? CoroutinePad() : default;
         _b.MayThrow = _m.MayThrow;
@@ -204,9 +209,10 @@ public sealed partial class FunctionCodeGen
         for (var t = tryRegion; t is not null; t = OuterTry(t))
             if (t.EnclosingRegion!.Kind == ControlFlowRegionKind.TryAndCatch)
                 foreach (var handler in Handlers(t.EnclosingRegion))
-                    clauses.Add(IsCatchAll(handler.ExceptionType) ? LlvmContext.Null(L.Ptr) : CatchTypeInfo(handler.ExceptionType!));
+                    clauses.Add(handler.Kind == ControlFlowRegionKind.FilterAndHandler ? EhTryOf(t).ClauseOf(handler) // the personality runs it
+                        : IsCatchAll(handler.ExceptionType) ? LlvmContext.Null(L.Ptr) : CatchTypeInfo(handler.ExceptionType!));
         // A coroutine body catches everything at its outermost level (the exception goes into the task).
-        if (_coro is not null) clauses.Add(LlvmContext.Null(L.Ptr));
+        if (_coro is not null) clauses.Add(CoroutineCatchClause);
 
         var (savedBlock, savedUnwind, savedHook) = (_b.InsertBlock, _b.UnwindDest, _b.UnwindHook);
         (_b.UnwindDest, _b.UnwindHook) = (default, null);
@@ -261,16 +267,26 @@ public sealed partial class FunctionCodeGen
 
         if (statement.Kind == ControlFlowRegionKind.TryAndCatch)
         {
+            // The exception leaves the try: its record goes (FunctionCodeGen.Filters.cs).
+            var eh = NeedsEhFrame(tryRegion) ? EhTryOf(tryRegion) : null;
+            if (eh is not null) EhPop(eh);
             foreach (var handler in Handlers(statement))
             {
                 var next = NewBlock("catch.next");
-                if (handler.Kind == ControlFlowRegionKind.FilterAndHandler) _filterRejected[handler] = next;
-                var entry = _cfg!.Graph.Blocks[handler.FirstBlockOrdinal];
+                var filtered = handler.Kind == ControlFlowRegionKind.FilterAndHandler;
+                // A `when` clause's filter ran in the first pass; the handler starts after it.
+                var body = filtered ? handler.NestedRegions.First(r => r.Kind == ControlFlowRegionKind.Catch) : handler;
+                var entry = _cfg!.Graph.Blocks[body.FirstBlockOrdinal];
                 if (!_cfg.Blocks.TryGetValue(entry, out var entryBlock)) { _b.Br(next); _b.PositionAtEnd(next); continue; }
 
                 var exception = _b.Load(L.Ptr, slot);
                 var enter = NewBlock("catch");
-                if (IsCatchAll(handler.ExceptionType)) _b.Br(enter);
+                if (filtered)
+                {
+                    var chosen = CallRuntime("csrt_eh_selected", L.I32, [L.Ptr, L.Ptr, L.Ptr], exception, eh!.Record, eh.ClauseOf(handler));
+                    _b.CondBr(_b.ICmp(LLVMIntPredicate.NE, chosen, L.ConstInt(L.I32, 0)), enter, next);
+                }
+                else if (IsCatchAll(handler.ExceptionType)) _b.Br(enter);
                 else
                 {
                     var matched = CallRuntime("csrt_isinst_class", L.Ptr, [L.Ptr, L.Ptr], exception, CatchTypeInfo(handler.ExceptionType!));
@@ -278,6 +294,7 @@ public sealed partial class FunctionCodeGen
                 }
                 _b.PositionAtEnd(enter);
                 _b.Store(exception, ExceptionSlot(handler));
+                EnterHandlerScope(body); // captured variables of the catch block (a filter allocated its own)
                 _b.Br(entryBlock);
                 _b.PositionAtEnd(next);
             }
@@ -313,7 +330,7 @@ public sealed partial class FunctionCodeGen
         }
         else
         {
-            CallRuntime("csrt_rethrow", L.Void, [L.Ptr], exception); // plain call: unwinds into our caller
+            CallRuntime("csrt_propagate", L.Void, [L.Ptr], exception); // plain call: unwinds into our caller
             _b.Unreachable();
         }
     }
@@ -328,15 +345,6 @@ public sealed partial class FunctionCodeGen
         _b.Store(L.ConstInt(L.I32, index), info.Selector);
         NoteFinallyEntry(finallyRegion, normal: false);
         _b.Br(_cfg.Blocks[_cfg.Graph.Blocks[finallyRegion.FirstBlockOrdinal]]);
-    }
-
-    /// <summary>A `when` filter evaluated to false: continue with the next handler.</summary>
-    private LLVMBasicBlockRef FilterRejected(BasicBlock filterBlock)
-    {
-        var handler = HandlerOf(filterBlock) ?? throw CompileError.Unsupported("exception filter outside a handler");
-        var tryRegion = handler.EnclosingRegion!.NestedRegions.First(r => r.Kind == ControlFlowRegionKind.Try);
-        Dispatch(tryRegion);
-        return _filterRejected[handler];
     }
 
     // ======================================================================================

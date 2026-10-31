@@ -85,15 +85,29 @@ public sealed partial class ModuleCodeGen
             Native.LLVMSetPersonalityFn(fn, personality);
             using var b = new IrBuilder(Llvm);
             b.PositionAtEnd(b.AppendBlock(fn, "entry"));
+            // wasm32: a barrier record tells the runtime's first pass that this catches everything
+            // (src/runtime/eh.c, "Exception filters"); native targets see the landing pad.
+            var barrier = default(LLVMValueRef);
+            var frameType = Llvm.Struct(Llvm.Ptr, Llvm.Ptr, Llvm.Ptr);
+            var push = Runtime("csrt_eh_push", Llvm.Void, Llvm.Ptr);
+            var pop = Runtime("csrt_eh_pop", Llvm.Void, Llvm.Ptr);
+            if (Types.Target.IsWasm)
+            {
+                barrier = b.Alloca(frameType, "eh.barrier");
+                b.Store(ExternalGlobal("csrt_eh_barrier"), b.StructGep(frameType, barrier, 1));
+                b.Call(push.Type, push.Fn, [barrier]);
+            }
             var pad = b.AppendBlock(fn, "lpad");
             b.UnwindDest = pad;
             var calleeType = Llvm.FunctionType(returnsPtr ? Llvm.Ptr : Llvm.Void, Llvm.Ptr);
             var result = b.Call(calleeType, fn.Param(0), [fn.Param(1)]);
             b.UnwindDest = default;
+            if (!barrier.IsNull) b.Call(pop.Type, pop.Fn, [barrier]);
             if (returnsPtr) b.Store(result, fn.Param(2));
             b.Ret(LlvmContext.Null(Llvm.Ptr));
             b.PositionAtEnd(pad);
             var lp = b.LandingPad(Llvm.Struct(Llvm.Ptr, Llvm.I32), personality, [LlvmContext.Null(Llvm.Ptr)], cleanup: false);
+            if (!barrier.IsNull) b.Call(pop.Type, pop.Fn, [barrier]);
             var beginCatch = Runtime("csrt_begin_catch", Llvm.Ptr, Llvm.Ptr);
             b.Ret(b.Call(beginCatch.Type, beginCatch.Fn, [b.ExtractValue(lp, 0)]));
         }

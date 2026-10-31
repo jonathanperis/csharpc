@@ -535,7 +535,7 @@ public sealed partial class ModuleCodeGen
         if (_runtime.TryGetValue(name, out var existing)) return existing;
         var type = Llvm.FunctionType(ret, parameters);
         var fn = Module.GetOrDeclare(name, type);
-        if (name.StartsWith("csrt_throw", StringComparison.Ordinal) || name == "csrt_rethrow")
+        if (name.StartsWith("csrt_throw", StringComparison.Ordinal) || name is "csrt_rethrow" or "csrt_propagate")
         {
             Llvm.AddFunctionAttribute(fn, "noreturn");
             Llvm.AddFunctionAttribute(fn, "cold");
@@ -561,6 +561,10 @@ public sealed partial class ModuleCodeGen
 
     private readonly HashSet<nint> _noThrow = [];
 
+    private int _ehTryCounter;
+    /// <summary>Numbers the try statements with frame records (FunctionCodeGen.Filters.cs) for their symbol names.</summary>
+    internal int NextEhTryId() => _ehTryCounter++;
+
     /// <summary>
     /// Can a runtime helper raise a managed exception (directly, or through a virtual call back into
     /// C# code)? Conservative: every csrt_* function may, except this allowlist of helpers that
@@ -582,6 +586,7 @@ public sealed partial class ModuleCodeGen
         "csrt_object_get_hash_code_default", "csrt_exception_init", "csrt_environment_tick_count64",
         "csrt_environment_exit", "csrt_trace_frame", "csrt_trace_init", "csrt_exception_get_stack_trace",
         "csrt_exception_capture_trace", "csrt_trace_finally", "csrt_trace_new_stack", "csrt_trace_preset", "csrt_trace_append_library",
+        "csrt_eh_push", "csrt_eh_enter", "csrt_eh_pop", "csrt_eh_selected",
     ];
 
     /// <summary>False for callees known not to unwind (LLVM intrinsics, libm, most of csrt): no invoke needed.</summary>
@@ -1072,10 +1077,11 @@ public sealed partial class ModuleCodeGen
         var baseLayout = type.BaseType is { SpecialType: not SpecialType.System_Object } b ? GetLibraryExceptionLayout(b) : null;
 
         var structType = Llvm.NamedStruct("class." + name);
-        // { mt, message, inner, paramName, actualValue, trace, inners, token, hresult } — csrt_Exception in src/runtime/csrt.h.
-        LlvmContext.SetBody(structType, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.I32);
+        // { mt, message, inner, paramName, actualValue, trace, inners, token, hresult, ehClause, ehFrame } — csrt_Exception
+        // in src/runtime/csrt.h.
+        LlvmContext.SetBody(structType, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.I32, Llvm.Ptr, Llvm.Ptr);
         var layout = new ClassLayout { Type = type, InstanceType = structType, Base = baseLayout, IsLibrary = true };
-        layout.Elements.AddRange([Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.I32]);
+        layout.Elements.AddRange([Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.I32, Llvm.Ptr, Llvm.Ptr]);
         layout.InstanceSize = Types.Target.SizeOf(structType);
         AddObjectSlots(layout);
         layout.VTable.Add(null);

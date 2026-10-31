@@ -1,0 +1,5 @@
+filter thrower
+filter main nobody catches this
+finally thrower
+finally middle
+finally main
