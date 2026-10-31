@@ -193,8 +193,14 @@ public sealed partial class ModuleCodeGen
         if (!_typeNameTable.IsNull)
         {
             RegisterKnownMethodTables();
-            var entryType = Llvm.Struct(Llvm.Ptr, Llvm.Ptr, Llvm.I64);
+            // csrt_TypeNameEntry { mt, full_name, unknown, argument_count, arguments }
+            var entryType = Llvm.Struct(Llvm.Ptr, Llvm.Ptr, Llvm.I32, Llvm.I32, Llvm.Ptr);
+            var argumentType = Llvm.Struct(Llvm.Ptr, Llvm.Ptr);
             var entries = new List<LLVMValueRef>();
+            // The method table of each described type (by its .NET type), for composed names' arguments.
+            var mtOf = new Dictionary<ITypeSymbol, LLVMValueRef>(SymbolEqualityComparer.Default);
+            foreach (var (mt, type) in _typeMts)
+                if (type is ITypeSymbol symbol && !IsOpenInstance(symbol)) mtOf.TryAdd(RealType(symbol), mt);
             foreach (var (mt, type) in _typeMts)
             {
                 // Only types whose FullName differs from the method table's name (ToString's form).
@@ -204,7 +210,21 @@ public sealed partial class ModuleCodeGen
                 if (real is not null && !HasGenericArguments(real) && !IsCoreLibInternal(real)) continue;
                 var unknown = false;
                 var fullName = real is null ? null : FullNameOf(real, ref unknown);
-                entries.Add(Llvm.ConstStruct(mt, fullName is null ? LlvmContext.Null(Llvm.Ptr) : CString(fullName), Llvm.ConstInt(Llvm.I64, unknown ? 1 : 0)));
+                // A generic instantiation whose arguments all have method tables: the runtime composes its
+                // name from the definition's and the arguments' (csrt.h), each long name stored once.
+                if (!unknown && fullName is not null && real is INamedTypeSymbol named && !IsDef(named)
+                    && ChainArguments(named) is { Count: > 0 and <= 64 } arguments
+                    && arguments.All(a => mtOf.ContainsKey(a) && AssemblyOf(a) is not null))
+                {
+                    var parts = arguments.Select(a => Llvm.ConstStruct(mtOf[a], CString(AssemblyOf(a)!))).ToList();
+                    var init = LlvmContext.ConstArray(argumentType, [.. parts]);
+                    var table = Module.AddGlobal("csharpc.typenames.args", Native.LLVMTypeOf(init), init, constant: true, linkage: LLVMLinkage.Private);
+                    entries.Add(Llvm.ConstStruct(mt, CString(Mangler.MetadataName(named.OriginalDefinition)), Llvm.ConstInt(Llvm.I32, 0),
+                        Llvm.ConstInt(Llvm.I32, arguments.Count), table));
+                    continue;
+                }
+                entries.Add(Llvm.ConstStruct(mt, fullName is null ? LlvmContext.Null(Llvm.Ptr) : CString(fullName), Llvm.ConstInt(Llvm.I32, unknown ? 1 : 0),
+                    Llvm.ConstInt(Llvm.I32, 0), LlvmContext.Null(Llvm.Ptr)));
             }
             Native.LLVMSetInitializer(_typeNameTable, Table("csharpc.typenames.entries", entryType, entries));
         }

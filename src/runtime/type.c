@@ -512,12 +512,80 @@ csrt_String* csrt_type_assembly_name(TypeObject* t, const csrt_TypeInfoTable* ta
 /// Type.FullName: the method table's name, unless the (small) name table says otherwise — generic
 /// instantiations list assembly-qualified arguments, generic parameters have none.
 /// NULL for a null FullName (and after throwing).
+static const char* composed_full_name(const csrt_TypeNameTable* names, const csrt_TypeNameEntry* entry, int depth);
+
+/// FullName of a generic argument's type (NULL: unknown, too deep, or out of memory).
+static const char* argument_full_name(const csrt_TypeNameTable* names, const csrt_MethodTable* mt, int depth) {
+    const csrt_TypeNameEntry* entry = index_find(&s_name_index, mt);
+    if (!entry) return mt->name;
+    if (entry->unknown) return NULL;
+    return entry->argument_count ? composed_full_name(names, entry, depth + 1) : entry->full_name;
+}
+
+static const char** s_composed_names;  // per name-table entry, built on first use
+
+static char* append_cstr(char* to, const char* s) {
+    size_t n = strlen(s);
+    memcpy(to, s, n);
+    return to + n;
+}
+
+/// "Def[[Arg, Assembly],...]" for an entry with arguments (csrt.h), cached per entry.
+static const char* composed_full_name(const csrt_TypeNameTable* names, const csrt_TypeNameEntry* entry, int depth) {
+    if (depth > 64) return NULL;
+    const char** cache = __atomic_load_n(&s_composed_names, __ATOMIC_ACQUIRE);
+    if (!cache) {
+        const char** fresh = calloc((size_t)names->count, sizeof *fresh);
+        if (!fresh) return NULL;
+        const char** expected = NULL;
+        if (__atomic_compare_exchange_n(&s_composed_names, &expected, fresh, false, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) cache = fresh;
+        else { free(fresh); cache = expected; }
+    }
+    size_t index = (size_t)(entry - names->entries);
+    const char* known = __atomic_load_n(&cache[index], __ATOMIC_ACQUIRE);
+    if (known) return known;
+    size_t length = strlen(entry->full_name) + 3;
+    const char* parts[2 * 64];
+    if (entry->argument_count > 64) return NULL;
+    for (uint32_t i = 0; i < entry->argument_count; i++) {
+        const char* name = argument_full_name(names, entry->arguments[i].mt, depth);
+        if (!name) return NULL;
+        parts[2 * i] = name;
+        parts[2 * i + 1] = entry->arguments[i].assembly;
+        length += strlen(name) + strlen(entry->arguments[i].assembly) + 5;
+    }
+    char* built = malloc(length);
+    if (!built) return NULL;
+    char* p = built;
+    p = append_cstr(p, entry->full_name);
+    *p++ = '[';
+    for (uint32_t i = 0; i < entry->argument_count; i++) {
+        if (i) *p++ = ',';
+        *p++ = '[';
+        p = append_cstr(p, parts[2 * i]);
+        p = append_cstr(p, ", ");
+        p = append_cstr(p, parts[2 * i + 1]);
+        *p++ = ']';
+    }
+    *p++ = ']';
+    *p = 0;
+    const char* expected = NULL;
+    if (!__atomic_compare_exchange_n(&cache[index], &expected, built, false, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) {
+        free(built);
+        return expected;
+    }
+    return built;
+}
+
 static const char* full_name_of(TypeObject* t, const csrt_TypeNameTable* names, const char* what) {
     build_index(&s_name_index, names->entries, names->count, sizeof(csrt_TypeNameEntry));
     const csrt_TypeNameEntry* entry = index_find(&s_name_index, t->target);
     if (!entry) return full_name(t);
     if (entry->unknown) { throw_unsupported(t->target, what); return NULL; }
-    return entry->full_name;
+    if (!entry->argument_count) return entry->full_name;
+    const char* composed = composed_full_name(names, entry, 0);
+    if (!composed) { throw_unsupported(t->target, what); return NULL; }
+    return composed;
 }
 
 csrt_String* csrt_type_full_name_of(TypeObject* t, const csrt_TypeNameTable* names) {

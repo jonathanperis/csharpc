@@ -357,7 +357,17 @@ typedef struct { int64_t count; const csrt_DelegateMethodEntry* entries; } csrt_
 
 // Type.FullName where it differs from the method table's name (generic instantiations print
 // assembly-qualified arguments, generic parameters have none); `unknown`: csharpc can't tell.
-typedef struct { const csrt_MethodTable* mt; const char* full_name; uint64_t unknown; } csrt_TypeNameEntry;
+// With argument_count > 0, full_name is the generic definition's and the name is composed at run time:
+// "Def[[Arg1FullName, Arg1Assembly],...]" (each argument's FullName looked up the same way), instead
+// of storing every instantiation's expanded name (a third of an expression-tree program's strings).
+typedef struct { const csrt_MethodTable* mt; const char* assembly; } csrt_TypeNameArgument;
+typedef struct {
+    const csrt_MethodTable* mt;
+    const char* full_name;
+    uint32_t unknown;
+    uint32_t argument_count;
+    const csrt_TypeNameArgument* arguments;
+} csrt_TypeNameEntry;
 typedef struct { int64_t count; const csrt_TypeNameEntry* entries; } csrt_TypeNameTable;
 
 // Type system -------------------------------------------------------------------------------
