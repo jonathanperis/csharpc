@@ -226,8 +226,9 @@ public sealed partial class ModuleCodeGen
 
     /// <summary>
     /// Layouts of reference-free structs that LLVM struct types can't express — explicit fields that overlap
-    /// partially (Roslyn's DiaSymReader VariantStructure: a decimal at 0 over a long at 8), or Pack below a
-    /// field's alignment (ImageDebugDirectory, Pack = 1) — placed exactly as the CLR places them: the body
+    /// partially (Roslyn's DiaSymReader VariantStructure: a decimal at 0 over a long at 8), Pack below a
+    /// field's alignment (ImageDebugDirectory, Pack = 1), explicit offsets with a Pack (CodePages'
+    /// CodePageIndex) — placed exactly as the CLR places them: the body
     /// is the struct's size in bytes behind an integer that carries its alignment, and every field is read
     /// and written at its byte offset (FunctionCodeGen.FieldAddressOn). Null when the ordinary paths fit
     /// (sequential, unions at offset 0, non-overlapping explicit offsets) or the layout needs references,
@@ -243,20 +244,21 @@ public sealed partial class ModuleCodeGen
         ulong end = 0, align = 1;
         if (custom.Explicit)
         {
-            if (custom.Pack != 0 || !fields.All(custom.Offsets.ContainsKey)) return null;
+            if (!fields.All(custom.Offsets.ContainsKey)) return null;
             var ordered = fields.OrderBy(f => custom.Offsets[f]).ToList();
             bool overlaps = false;
             for (int i = 1; i < ordered.Count; i++)
                 if ((ulong)custom.Offsets[ordered[i]] < (ulong)custom.Offsets[ordered[i - 1]] + target.SizeOf(storage[ordered[i - 1]])) overlaps = true;
-            // All at offset 0 is the union path; disjoint fields the explicit one.
-            if (!overlaps || fields.All(f => custom.Offsets[f] == 0)) return null;
+            // Without Pack, all at offset 0 is the union path and disjoint fields the explicit one; a Pack
+            // (System.Text.Encoding.CodePages' CodePageIndex, Pack = 2) lowers the struct's alignment.
+            if (custom.Pack == 0 && (!overlaps || fields.All(f => custom.Offsets[f] == 0))) return null;
             foreach (var f in fields)
             {
                 var offset = (ulong)custom.Offsets[f];
                 if (offset % target.AlignOf(storage[f]) != 0) return null; // a misaligned field: refused
                 offsets[f] = (uint)offset;
                 end = Math.Max(end, offset + target.SizeOf(storage[f]));
-                align = Math.Max(align, target.AlignOf(storage[f]));
+                align = Math.Max(align, custom.Pack == 0 ? target.AlignOf(storage[f]) : Math.Min(target.AlignOf(storage[f]), (ulong)custom.Pack));
             }
         }
         else

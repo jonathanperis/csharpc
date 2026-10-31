@@ -21,7 +21,10 @@ public sealed partial class FunctionCodeGen
         if (Intrinsics.TryGetConsoleFastPath(inv, out var consoleFastPath)) return consoleFastPath(this, inv);
         var target = S(inv.TargetMethod);
         if (inv.Arguments is [{ Value.ConstantValue: { HasValue: true, Value: string typeName } }, ..] && IsGetTypeByName(target)) _m.NoteTypeByName(typeName);
-        if (inv.Instance is ITypeOfOperation reflectedType) NoteReflectedType(target, S(reflectedType.TypeOperand), inv.Arguments is [{ Value.ConstantValue: { HasValue: true, Value: string name } }, ..] ? name : null);
+        // typeof(X).M(...), or typeof(X).GetTypeInfo().M(...) (GetTypeInfo is the identity).
+        var reflectedType = inv.Instance as ITypeOfOperation
+            ?? (inv.Instance as IInvocationOperation is { TargetMethod.Name: "GetTypeInfo", Arguments: [{ Value: ITypeOfOperation viaInfo }] } ? viaInfo : null);
+        if (reflectedType is not null) NoteReflectedType(target, S(reflectedType.TypeOperand), inv.Arguments is [{ Value.ConstantValue: { HasValue: true, Value: string name } }, ..] ? name : null);
         if (inv.Instance is { } shadowReceiver && _m.CoreLib.MapForReceiver(target, TypeOf(shadowReceiver)) is { } shadowMember) target = shadowMember;
         if (IsCoreIntrinsic(target)) return EmitCoreIntrinsic(target, inv);
         if (target.IsStatic) CheckJsonSerializerRoots(target, inv);
@@ -678,7 +681,20 @@ public sealed partial class FunctionCodeGen
     /// </summary>
     private void NoteReflectedType(IMethodSymbol target, ITypeSymbol type, string? name)
     {
-        if (type is ITypeParameterSymbol || target.ContainingType is not { Name: "Type", ContainingNamespace: { Name: "System", ContainingNamespace.IsGlobalNamespace: true } })
+        if (type is ITypeParameterSymbol) return;
+        // TypeInfo's Declared* members (typeof(X).GetTypeInfo().GetDeclaredMethods("M")): X's members of that kind.
+        if (target.ContainingType is { Name: "TypeInfo", ContainingNamespace: { Name: "Reflection", ContainingNamespace.Name: "System" } })
+        {
+            var declared = target.Name switch
+            {
+                "GetDeclaredMethods" or "GetDeclaredMethod" or "get_DeclaredMethods" => ModuleCodeGen.DamMethods,
+                "get_DeclaredConstructors" => ModuleCodeGen.DamConstructors,
+                _ => 0,
+            };
+            if (declared != 0) _m.MarkDynamicallyAccessed(type, declared, target.Name is "GetDeclaredMethods" or "GetDeclaredMethod" ? name : null);
+            return;
+        }
+        if (target.ContainingType is not { Name: "Type", ContainingNamespace: { Name: "System", ContainingNamespace.IsGlobalNamespace: true } })
             return;
         var kinds = target.Name switch
         {

@@ -168,6 +168,25 @@ namespace CsharpcCoreLib
         public static void SetLastSystemError(int error) => Libc.csrt_set_last_system_error(error);
         public static string GetLastPInvokeErrorMessage() => GetPInvokeErrorMessage(GetLastPInvokeError());
 
+        /// <summary>The last P/Invoke error as an HRESULT: negative values already are one, others become FACILITY_WIN32.</summary>
+        public static int GetHRForLastWin32Error()
+        {
+            int error = GetLastPInvokeError();
+            return (error & 0x80000000) == 0x80000000 ? error : (error & 0x0000FFFF) | unchecked((int)0x80070000);
+        }
+
+#if !CSHARPC_TARGET_WINDOWS
+        // Built-in COM exists only on Windows: elsewhere .NET finds no class for a CLSID and refuses variants.
+        // (Roslyn's DiaSymReader reaches these on its Windows-PDB path.)
+        public static Type GetTypeFromCLSID(Guid clsid) => null;
+
+        public static void GetNativeVariantForObject(object obj, IntPtr pDstNativeVariant) =>
+            throw new PlatformNotSupportedException("COM Interop is not supported on this platform.");
+
+        public static void GetNativeVariantForObject<T>(T obj, IntPtr pDstNativeVariant) =>
+            throw new PlatformNotSupportedException("COM Interop is not supported on this platform.");
+#endif
+
         /// <summary>Marshal.InitHandle: a SafeHandle created by marshalling code takes the native handle.</summary>
         public static void InitHandle(SafeHandle safeHandle, IntPtr handle) => ((SafeHandleImpl)(object)safeHandle).SetHandle(handle);
 #if CSHARPC_TARGET_WINDOWS

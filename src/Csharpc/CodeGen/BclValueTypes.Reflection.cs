@@ -73,6 +73,16 @@ internal static partial class BclValueTypes
         // Member reflection over compile-time metadata (ModuleCodeGen.Reflection.cs, corelib/Reflection/Members.cs).
         BclHandler core(string method) => (g, _, self, a, _) => g.CallCoreLib("ReflectionRuntime", method, [self, .. a]);
         t["System.Reflection.TypeInfo.get_GenericTypeParameters()"] = core("GenericTypeParameters");
+        t["System.Reflection.TypeInfo.GetDeclaredMethods(string)"] = core("GetDeclaredMethods");
+        t["System.Reflection.TypeInfo.GetDeclaredMethod(string)"] = core("GetDeclaredMethod");
+        t["System.Reflection.TypeInfo.get_DeclaredConstructors()"] = (g, m, self, a, at) =>
+        {
+            // typeof(X).GetTypeInfo().DeclaredConstructors keeps X's constructors (a property, so the call-site hook doesn't see it).
+            if (at is Microsoft.CodeAnalysis.Operations.IPropertyReferenceOperation
+                { Instance: Microsoft.CodeAnalysis.Operations.IInvocationOperation { TargetMethod.Name: "GetTypeInfo", Arguments: [{ Value: Microsoft.CodeAnalysis.Operations.ITypeOfOperation known }] } })
+                g.Module.MarkDynamicallyAccessed(g.S(known.TypeOperand), ModuleCodeGen.DamConstructors);
+            return core("DeclaredConstructors")(g, m, self, a, at);
+        };
         t[$"{Type}.GetConstructors()"] = core("GetConstructorsAll");
         t[$"{Type}.GetConstructors(System.Reflection.BindingFlags)"] = core("GetConstructorsFlags");
         t[$"{Type}.GetConstructor(System.Type[])"] = core("GetConstructorTypes");

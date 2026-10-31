@@ -509,7 +509,7 @@ namespace CsharpcCoreLib
 
         public override RuntimeMethodHandle MethodHandle => throw new NotSupportedException("MethodBase.MethodHandle is not supported by csharpc yet.");
 
-        public override string Name => ".ctor";
+        public override string Name => IsStatic ? ".cctor" : ".ctor";
         public override Type DeclaringType => ReflectionRuntime.TypeOf(ReflectionRecords.MethodDeclaring(_record));
         public override Type ReflectedType => DeclaringType;
         public override MethodAttributes Attributes => (MethodAttributes)ReflectionRecords.MethodFlags(_record);
@@ -523,6 +523,7 @@ namespace CsharpcCoreLib
         public override object Invoke(BindingFlags invokeAttr, Binder binder, object[] parameters, CultureInfo culture)
         {
             Type declaring = DeclaringType;
+            if (IsStatic) throw new MemberAccessException("Type initializer was not callable.");
             if (declaring.IsAbstract) throw new MemberAccessException("Cannot create an abstract class.");
             return ReflectionRuntime.Invoke(_record, ParametersNoCopy, null, invokeAttr, parameters, this);
         }
@@ -532,7 +533,7 @@ namespace CsharpcCoreLib
         public override object[] GetCustomAttributes(Type attributeType, bool inherit) => ReflectionRuntime.CreateAttributes(ReflectionRecords.MethodAttributes(_record), ReflectionRecords.MethodAttributeCount(_record), attributeType);
         public override IList<CustomAttributeData> GetCustomAttributesData() => ReflectionRuntime.AttributeData(ReflectionRecords.MethodAttributes(_record), ReflectionRecords.MethodAttributeCount(_record));
 
-        public override string ToString() => "Void " + ReflectionRuntime.NameAndSignature(".ctor", ParametersNoCopy);
+        public override string ToString() => "Void " + ReflectionRuntime.NameAndSignature(Name, ParametersNoCopy);
     }
 
     [Shadows("System.Reflection.RuntimeMethodInfo")]
@@ -802,14 +803,36 @@ namespace CsharpcCoreLib
             return type.IsGenericTypeDefinition ? type.GetGenericArguments() : Type.EmptyTypes;
         }
 
+        // TypeInfo's Declared* members: DeclaredOnly with every visibility and both instance and static members.
+        private const BindingFlags DeclaredFlags = BindingFlags.DeclaredOnly | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static;
+
+        public static IEnumerable<MethodInfo> GetDeclaredMethods(Type type, string name)
+        {
+            if (type == null) throw new NullReferenceException();
+            var matches = new List<MethodInfo>();
+            foreach (var method in GetMethods(type, DeclaredFlags))
+                if (method.Name == name) matches.Add(method);
+            return matches.ToArray();
+        }
+
+        public static MethodInfo GetDeclaredMethod(Type type, string name)
+        {
+            if (type == null) throw new NullReferenceException();
+            return GetMethod(type, name, DeclaredFlags);
+        }
+
+        public static IEnumerable<ConstructorInfo> DeclaredConstructors(Type type)
+        {
+            if (type == null) throw new NullReferenceException();
+            return GetConstructors(type, DeclaredFlags);
+        }
+
         public static ConstructorInfo[] GetConstructorsAll(Type type) => GetConstructors(type, BindingFlags.Public | BindingFlags.Instance);
         public static ConstructorInfo[] GetConstructorsFlags(Type type, BindingFlags flags) => GetConstructors(type, flags);
 
         internal static ConstructorInfo[] GetConstructors(Type type, BindingFlags flags)
         {
             byte* info = InfoOf(type, "constructors");
-            // Type initializers (.cctor) are never described; Static alone finds none.
-            if ((flags & BindingFlags.Instance) == 0) return new ConstructorInfo[0];
             RequireDescribed(info, type, flags, 1, 2, "constructors");
             var list = new List<ConstructorInfo>();
             byte* records = ReflectionRecords.InfoConstructors(info);

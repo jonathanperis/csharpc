@@ -172,6 +172,16 @@ namespace CsharpcCoreLib
         public virtual int CodePage => _codePage;
         public virtual bool IsSingleByte => false;
 
+        /// <summary>EncodingTable's UI family code page: 1200 for the Unicode encodings, 1252 for ASCII and Latin-1.</summary>
+        public virtual int WindowsCodePage
+        {
+            get
+            {
+                DataItem(); // unknown code pages: .NET's NotSupportedException
+                return _codePage is 20127 or 28591 ? 1252 : 1200;
+            }
+        }
+
         public virtual byte[] GetPreamble() => [];
         public virtual ReadOnlySpan<byte> Preamble => GetPreamble();
 
