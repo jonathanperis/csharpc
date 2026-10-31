@@ -42,6 +42,51 @@ public sealed partial class ModuleCodeGen
         return StringLiteral(Encode(names.Distinct()));
     }
 
+    private string? _manifestIndex;
+    private LLVMValueRef _manifestData;
+
+    /// <summary>
+    /// Assembly.GetManifestResourceStream / GetManifestResourceNames (corelib/Reflection/Assembly.cs): the IL
+    /// assemblies' embedded resources, as (assembly full name, resource name, offset, length) quadruples
+    /// into one read-only data global. Built only when the program reaches those members, so programs that
+    /// don't read resources carry none of the bytes.
+    /// </summary>
+    internal LLVMValueRef ManifestResourceIndex()
+    {
+        BuildManifestResources();
+        return StringLiteral(_manifestIndex!);
+    }
+
+    internal LLVMValueRef ManifestResourceData()
+    {
+        BuildManifestResources();
+        return _manifestData;
+    }
+
+    private void BuildManifestResources()
+    {
+        if (_manifestIndex is not null) return;
+        var fields = new List<string>();
+        var data = new MemoryStream();
+        foreach (var assembly in Il.Assemblies)
+        {
+            if (assembly.IsCoreLib) continue;
+            var fullName = assembly.Symbol.Identity.GetDisplayName();
+            foreach (var (name, bytes) in assembly.ReadManifestResources())
+            {
+                while (data.Length % 8 != 0) data.WriteByte(0); // each resource 8-byte aligned, as the PE resource directory is
+                fields.AddRange([fullName, name, data.Length.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                    bytes.Length.ToString(System.Globalization.CultureInfo.InvariantCulture)]);
+                data.Write(bytes);
+            }
+        }
+        if (data.Length == 0) data.WriteByte(0);
+        var init = Llvm.ConstBytes(data.ToArray());
+        _manifestData = Module.AddGlobal(".manifest_resources", Native.LLVMTypeOf(init), init, constant: true, linkage: LLVMLinkage.Private);
+        Native.LLVMSetAlignment(_manifestData, 8);
+        _manifestIndex = Encode(fields);
+    }
+
     /// <summary>(name, value) pairs of the runtime configuration.</summary>
     internal LLVMValueRef AppContextBlob() => StringLiteral(Encode(RuntimeConfig.SelectMany(kv => new[] { kv.Key, kv.Value })));
 

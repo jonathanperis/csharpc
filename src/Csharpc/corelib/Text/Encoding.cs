@@ -172,6 +172,12 @@ namespace CsharpcCoreLib
         public virtual int CodePage => _codePage;
         public virtual bool IsSingleByte => false;
 
+        // EncodingTable's MIME flags for the code pages csharpc has (DataItem() rejects the others).
+        public virtual bool IsBrowserDisplay { get { DataItem(); return _codePage is 65001 or 28591; } }
+        public virtual bool IsBrowserSave { get { DataItem(); return _codePage is 65001 or 1200 or 28591; } }
+        public virtual bool IsMailNewsDisplay { get { DataItem(); return _codePage is 65001 or 20127 or 28591; } }
+        public virtual bool IsMailNewsSave { get { DataItem(); return _codePage is 65001 or 20127 or 28591; } }
+
         /// <summary>EncodingTable's UI family code page: 1200 for the Unicode encodings, 1252 for ASCII and Latin-1.</summary>
         public virtual int WindowsCodePage
         {

@@ -147,6 +147,8 @@ public sealed partial class FunctionCodeGen
             "IsCoroutineIterator" => CallRuntime("csrt_is_iterator", L.I1, [L.Ptr], args[0]),
             "RuntimeConfig" => _m.AppContextBlob(),
             "LoadableAssemblies" => _m.LoadableAssembliesBlob(),
+            "ManifestResourceIndex" => _m.ManifestResourceIndex(),
+            "ManifestResourceData" => _m.ManifestResourceData(),
             // The shared framework the program was compiled against ("11.0.0-rc.2.26504.105"), as NativeAOT
             // bakes in its System.Private.CoreLib's version.
             "TargetArchitecture" => L.ConstInt(L.I32, _m.Types.Target.Triple.StartsWith("x86_64") ? 1 : _m.Types.Target.Triple.StartsWith("wasm32") ? 5

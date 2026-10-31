@@ -1,11 +1,11 @@
 declared Spin: Int32 Spin(Int32), Void Spin()
 declared Hidden: Void Hidden() none: null inherited: 0
 declared constructors: Void .cctor(), Void .ctor(), Void .ctor(Int32)
-utf-8 1200
-utf-16 1200
-utf-16BE 1200
-us-ascii 1252
-iso-8859-1 1252
+utf-8 1200 True True True True
+utf-16 1200 False True False False
+utf-16BE 1200 False False False False
+us-ascii 1252 False False True True
+iso-8859-1 1252 True True True True
 clsid type: null
 COM Interop is not supported on this platform.
 hr for 0: 0x80070000

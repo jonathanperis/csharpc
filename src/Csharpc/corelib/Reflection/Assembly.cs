@@ -10,6 +10,13 @@ using System.Threading;
 
 namespace CsharpcCoreLib
 {
+    /// <summary>What .NET hands out for an embedded resource: a read-only UnmanagedMemoryStream over the image's bytes.</summary>
+    [Shadows("System.Reflection.RuntimeAssembly+ManifestResourceStream")]
+    internal sealed unsafe class ManifestResourceStreamImpl : System.IO.UnmanagedMemoryStream
+    {
+        internal ManifestResourceStreamImpl(byte* pointer, long length) : base(pointer, length) { }
+    }
+
     [Shadows("System.Reflection.Assembly")]
     public class AssemblyImpl
     {
@@ -90,6 +97,36 @@ namespace CsharpcCoreLib
             if (found == null && throwOnError)
                 throw new TypeLoadException("Could not resolve type '" + name + "' in assembly '" + _fullName + "'.");
             return found;
+        }
+
+        // ---- manifest resources (compiled in: ModuleCodeGen.Resources.cs) ----
+
+        /// <summary>An embedded resource of this assembly as a read-only stream over the compiled-in bytes; null if it has none of that name.</summary>
+        public virtual unsafe System.IO.Stream GetManifestResourceStream(string name)
+        {
+            ArgumentNullException.ThrowIfNull(name);
+            var index = CompiledBlob.Fields(CoreIntrinsics.ManifestResourceIndex());
+            for (int i = 0; i + 3 < index.Count; i += 4)
+                if (index[i] == _fullName && index[i + 1] == name)
+                    return new ManifestResourceStreamImpl(CoreIntrinsics.ManifestResourceData() + long.Parse(index[i + 2]), long.Parse(index[i + 3]));
+            return null;
+        }
+
+        public virtual System.IO.Stream GetManifestResourceStream(Type type, string name)
+        {
+            if (type == null && name == null) throw new ArgumentNullException("type");
+            string nameSpace = type?.Namespace;
+            string resourceName = nameSpace != null && name != null ? nameSpace + "." + name : string.Concat(nameSpace, name);
+            return GetManifestResourceStream(resourceName);
+        }
+
+        public virtual string[] GetManifestResourceNames()
+        {
+            var index = CompiledBlob.Fields(CoreIntrinsics.ManifestResourceIndex());
+            var names = new System.Collections.Generic.List<string>();
+            for (int i = 0; i + 3 < index.Count; i += 4)
+                if (index[i] == _fullName) names.Add(index[i + 1]);
+            return names.ToArray();
         }
 
         /// <summary>NativeAOT's answer: assemblies are compiled into the executable, so they have no file.</summary>

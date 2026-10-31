@@ -34,6 +34,32 @@ namespace CsharpcCoreLib
         [ShadowInstance]
         public static int GetHashCode(string s, StringComparison comparisonType) => StringComparer.FromComparison(comparisonType).GetHashCode(s);
 
+        /// <summary>Every newline sequence .NET recognizes (CR, LF, CRLF, NEL, LS, FF, PS) replaced by Environment.NewLine.</summary>
+        [ShadowInstance]
+        public static string ReplaceLineEndings(string s) => ReplaceLineEndings(s, Environment.NewLine);
+
+        /// <summary>string.ReplaceLineEndings(replacementText): the same sequences, replaced by the given text.</summary>
+        [ShadowInstance]
+        public static string ReplaceLineEndings(string s, string replacementText)
+        {
+            if (replacementText == null) throw new ArgumentNullException("replacementText");
+            int first = s.AsSpan().IndexOfAny("\r\n\f\u0085\u2028\u2029");
+            if (first < 0) return s;
+            var sb = new System.Text.StringBuilder(s.Length);
+            sb.Append(s, 0, first);
+            for (int i = first; i < s.Length; i++)
+            {
+                char c = s[i];
+                if (c is '\r' or '\n' or '\f' or '\u0085' or '\u2028' or '\u2029')
+                {
+                    if (c == '\r' && i + 1 < s.Length && s[i + 1] == '\n') i++;
+                    sb.Append(replacementText);
+                }
+                else sb.Append(c);
+            }
+            return sb.ToString();
+        }
+
         /// <summary>Formats with a CompositeFormat: its format string, parsed once.</summary>
         public static string Format(IFormatProvider provider, System.Text.CompositeFormat format, params object[] args)
         {

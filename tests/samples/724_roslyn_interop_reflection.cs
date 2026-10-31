@@ -13,7 +13,7 @@ Console.WriteLine($"declared Hidden: {typeof(Widget).GetTypeInfo().GetDeclaredMe
 Console.WriteLine($"declared constructors: {string.Join(", ", typeof(Widget).GetTypeInfo().DeclaredConstructors.Select(c => c.ToString()).OrderBy(s => s, StringComparer.Ordinal))}");
 
 foreach (var e in new[] { Encoding.UTF8, Encoding.Unicode, Encoding.BigEndianUnicode, Encoding.ASCII, Encoding.Latin1 })
-    Console.WriteLine($"{e.WebName} {e.WindowsCodePage}");
+    Console.WriteLine($"{e.WebName} {e.WindowsCodePage} {e.IsBrowserDisplay} {e.IsBrowserSave} {e.IsMailNewsDisplay} {e.IsMailNewsSave}");
 
 if (!OperatingSystem.IsWindows())
 {

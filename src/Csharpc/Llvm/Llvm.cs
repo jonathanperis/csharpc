@@ -84,6 +84,12 @@ public sealed class LlvmContext : IDisposable
     public static LLVMValueRef ConstArray(LLVMTypeRef element, params LLVMValueRef[] values) =>
         LLVMConstArray2(element, values, (ulong)values.Length);
 
+    /// <summary>An [N x i8] constant of raw bytes (no terminator).</summary>
+    public unsafe LLVMValueRef ConstBytes(byte[] bytes)
+    {
+        fixed (byte* p = bytes) return LLVMConstStringInContext(Ref, p, (uint)bytes.Length, 1);
+    }
+
     public unsafe LLVMValueRef ConstCString(string text)
     {
         var bytes = Encoding.UTF8.GetBytes(text);

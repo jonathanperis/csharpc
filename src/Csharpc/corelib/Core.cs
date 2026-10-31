@@ -94,6 +94,10 @@ namespace CsharpcCoreLib
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern string RuntimeConfig();
         /// <summary>Full names of the program's own and IL assemblies, encoded (ModuleCodeGen.Resources.cs).</summary>
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern string LoadableAssemblies();
+        /// <summary>(assembly, resource, offset, length) of the IL assemblies' manifest resources, encoded (ModuleCodeGen.Resources.cs).</summary>
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern string ManifestResourceIndex();
+        /// <summary>The bytes ManifestResourceIndex's offsets point into.</summary>
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern unsafe byte* ManifestResourceData();
         /// <summary>
         /// The product version of the .NET runtime csharpc compiles against ("11.0.0-rc.2.26504.105"): System.Private.CoreLib's
         /// informational version without the commit, which .NET compiles into Environment.Version and RuntimeInformation.FrameworkDescription.

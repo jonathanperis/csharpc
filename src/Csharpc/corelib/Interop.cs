@@ -175,6 +175,21 @@ namespace CsharpcCoreLib
             return (error & 0x80000000) == 0x80000000 ? error : (error & 0x0000FFFF) | unchecked((int)0x80070000);
         }
 
+        // Success codes return; a failure HRESULT maps to an exception type through CoreCLR's table, which
+        // csharpc doesn't have: an explicit NotSupportedException rather than a guessed exception type.
+        public static void ThrowExceptionForHR(int errorCode)
+        {
+            if (errorCode < 0) ThrowForFailedHR(errorCode);
+        }
+
+        public static void ThrowExceptionForHR(int errorCode, IntPtr errorInfo)
+        {
+            if (errorCode < 0) ThrowForFailedHR(errorCode);
+        }
+
+        private static void ThrowForFailedHR(int errorCode) =>
+            throw new NotSupportedException("Marshal.ThrowExceptionForHR(0x" + errorCode.ToString("X8") + ") is not supported by csharpc yet (no HRESULT-to-exception table).");
+
 #if !CSHARPC_TARGET_WINDOWS
         // Built-in COM exists only on Windows: elsewhere .NET finds no class for a CLSID and refuses variants.
         // (Roslyn's DiaSymReader reaches these on its Windows-PDB path.)

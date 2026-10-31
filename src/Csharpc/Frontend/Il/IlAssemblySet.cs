@@ -174,6 +174,20 @@ public sealed class IlAssembly : IDisposable, ISignatureTypeProvider<IlType, IlG
         DecodedBodies.Clear();
     }
 
+    /// <summary>The assembly's embedded manifest resources (name, bytes), in metadata order; linked ones are skipped.</summary>
+    public IEnumerable<(string Name, byte[] Bytes)> ReadManifestResources()
+    {
+        if (Pe.PEHeaders.CorHeader is not { } cor || cor.ResourcesDirectory.Size == 0) yield break;
+        var directory = Pe.GetSectionData(cor.ResourcesDirectory.RelativeVirtualAddress);
+        foreach (var handle in Reader.ManifestResources)
+        {
+            var resource = Reader.GetManifestResource(handle);
+            if (!resource.Implementation.IsNil) continue; // linked or in another assembly
+            var block = directory.GetReader((int)resource.Offset, directory.Length - (int)resource.Offset);
+            yield return (Reader.GetString(resource.Name), block.ReadBytes(block.ReadInt32()));
+        }
+    }
+
     /// <summary>
     /// The string entries of the assembly's embedded `.resources` (System.Resources.ResourceReader
     /// format): (base name, key, value), the base name being the manifest resource name without
