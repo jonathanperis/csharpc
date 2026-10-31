@@ -11,7 +11,7 @@ using System;
 namespace CsharpcCoreLib
 {
     [Shadows("System.Guid")]
-    public readonly unsafe struct GuidImpl : ISpanFormattable, IComparable, IComparable<Guid>, IEquatable<Guid>, ISpanParsable<Guid>
+    public readonly unsafe struct GuidImpl : ISpanFormattable, IUtf8SpanFormattable, IComparable, IComparable<Guid>, IEquatable<Guid>, ISpanParsable<Guid>
     {
         private const byte Variant10xxMask = 0xC0;
         private const byte Variant10xxValue = 0x80;
@@ -923,6 +923,9 @@ namespace CsharpcCoreLib
 
         bool ISpanFormattable.TryFormat(Span<char> destination, out int charsWritten, ReadOnlySpan<char> format, IFormatProvider provider) =>
             TryFormatCore(destination, out charsWritten, format);
+
+        bool IUtf8SpanFormattable.TryFormat(Span<byte> utf8Destination, out int bytesWritten, ReadOnlySpan<char> format, IFormatProvider provider) =>
+            TryFormat(utf8Destination, out bytesWritten, format);
 
         public bool TryFormat(Span<byte> utf8Destination, out int bytesWritten, ReadOnlySpan<char> format = default)
         {

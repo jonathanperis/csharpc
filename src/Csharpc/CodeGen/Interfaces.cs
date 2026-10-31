@@ -209,6 +209,10 @@ public sealed partial class FunctionCodeGen
             return CallBuiltinHelper(stringHelper, concrete, arguments, extra, target);
 
         var receiverValue = boxed ?? EmitValue(receiver);
+        // A struct value no path above handles (IL's `constrained.` call on a corelib struct that lacks the interface):
+        // an explicit error rather than dispatching on the struct as if it were an object.
+        if (boxed is null && !receiverValue.Type.IsPointer)
+            throw CompileError.Unsupported($"interface call '{target}' on value type '{staticType}'", receiver);
         if (boxed is null) NullCheck(receiverValue);
         var args = new LLVMValueRef[1 + target.Parameters.Length];
         args[0] = receiverValue;

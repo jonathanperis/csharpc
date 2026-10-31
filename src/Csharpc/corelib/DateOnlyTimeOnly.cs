@@ -7,7 +7,7 @@ using System.Globalization;
 namespace CsharpcCoreLib
 {
     [Shadows("System.DateOnly")]
-    public readonly struct DateOnlyImpl : IComparable, IComparable<DateOnly>, IEquatable<DateOnly>, IFormattable
+    public readonly struct DateOnlyImpl : IComparable, IComparable<DateOnly>, IEquatable<DateOnly>, IFormattable, ISpanFormattable, IUtf8SpanFormattable
     {
         private const long TicksPerDay = 864000000000L;
         private const int MaxDayNumber = 3652058;  // 9999-12-31
@@ -90,6 +90,11 @@ namespace CsharpcCoreLib
         public string ToString(string format) => ToString(format, null);
         // The culture's patterns and names (Globalization/DateOnlyTimeOnlyCulture.cs, .NET's DateOnly.cs).
         public string ToString(string format, IFormatProvider provider) => Globalization.DateOnlyTimeOnlyCulture.FormatDate(_dayNumber, format, provider);
+        // TryFormat: ToString's text ("d" for an empty format), copied when it fits.
+        public bool TryFormat(Span<char> destination, out int charsWritten, ReadOnlySpan<char> format = default, IFormatProvider provider = null) =>
+            NumberTryFormat.Copy(ToString(format.Length == 0 ? "d" : new string(format), provider), destination, out charsWritten);
+        public bool TryFormat(Span<byte> utf8Destination, out int bytesWritten, ReadOnlySpan<char> format = default, IFormatProvider provider = null) =>
+            NumberTryFormat.CopyUtf8(ToString(format.Length == 0 ? "d" : new string(format), provider), utf8Destination, out bytesWritten);
 
         // ---- parsing (.NET's DateTimeParse with the provider's DateTimeFormatInfo) ------------------
         private static DateOnly Parsed(string s, IFormatProvider provider, DateTimeStyles style) => Make(Globalization.DateOnlyTimeOnlyCulture.Parse(s, provider, style, true));
@@ -152,7 +157,7 @@ namespace CsharpcCoreLib
     }
 
     [Shadows("System.TimeOnly")]
-    public readonly struct TimeOnlyImpl : IComparable, IComparable<TimeOnly>, IEquatable<TimeOnly>, IFormattable
+    public readonly struct TimeOnlyImpl : IComparable, IComparable<TimeOnly>, IEquatable<TimeOnly>, IFormattable, ISpanFormattable, IUtf8SpanFormattable
     {
         private const long TicksPerDay = 864000000000L, TicksPerHour = 36000000000L, TicksPerMinute = 600000000L;
         private const long TicksPerSecond = 10000000L, TicksPerMs = 10000L;
@@ -251,6 +256,11 @@ namespace CsharpcCoreLib
         public string ToString(string format) => ToString(format, null);
         // The culture's patterns and names (Globalization/DateOnlyTimeOnlyCulture.cs, .NET's TimeOnly.cs).
         public string ToString(string format, IFormatProvider provider) => Globalization.DateOnlyTimeOnlyCulture.FormatTime(_ticks, format, provider);
+        // TryFormat: ToString's text ("t" for an empty format), copied when it fits.
+        public bool TryFormat(Span<char> destination, out int charsWritten, ReadOnlySpan<char> format = default, IFormatProvider provider = null) =>
+            NumberTryFormat.Copy(ToString(format.Length == 0 ? "t" : new string(format), provider), destination, out charsWritten);
+        public bool TryFormat(Span<byte> utf8Destination, out int bytesWritten, ReadOnlySpan<char> format = default, IFormatProvider provider = null) =>
+            NumberTryFormat.CopyUtf8(ToString(format.Length == 0 ? "t" : new string(format), provider), utf8Destination, out bytesWritten);
 
         // ---- parsing (.NET's DateTimeParse with the provider's DateTimeFormatInfo) ------------------
         private static TimeOnly Parsed(string s, IFormatProvider provider, DateTimeStyles style) => Make(Globalization.DateOnlyTimeOnlyCulture.Parse(s, provider, style, false));
