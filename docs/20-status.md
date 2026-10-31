@@ -60,7 +60,8 @@ attribute factories) with a ~25 % faster build.
   overlapping/packed struct layouts, compiled-in manifest resources, `ResourceReader`,
   `SetDllImportResolver`, `Process.Start` on Linux/macOS; **csharpc compiles itself** and the native
   compiler compiles samples exactly as the managed one (`Bootstrap` workflow,
-  [06](06-roadmap.md#m6--bootstrapping)). Samples 720–731.
+  [06](06-roadmap.md#m6--bootstrapping)). `StringBuilder` is .NET's chunked builder (exact `GetChunks`,
+  `Capacity`, `EnsureCapacity`; sample 732). Samples 720–732.
 - `ci/m2-system-data` — Roslyn 5.12 (the SDK's build), C# 15 unions, field reflection (`GetField(s)`,
   `FieldInfo`), `AssemblyLoadContext`/`AssemblyDependencyResolver` as NativeAOT has them,
   `Assembly.GetType` with constant names kept at compile time, `PropertyDescriptor`/`AttributeCollection`
@@ -121,6 +122,15 @@ the one difference is a stack-trace frame in a NativeAOT-unsupported program.
    (the harness keeps measuring meanwhile).
 6. M8: the fork; early gauge of its acceptance gate by building dotnet's AOT test suites with csharpc.
 7. M9: TechEmpower through the fork.
+
+Later, when it matters: a `StringBuilder` that keeps .NET's chunks but not their linked list. Insert and
+Replace(string) are slower than the old single buffer because they must keep .NET's layout (40K inserts:
+55 → 296 ms with 8,429 chunks; 60 growing/shrinking replaces: 39 → 117 ms with 67,470 chunks; both still
+faster than .NET's 400 ms and 101 s). Every insert shifts the stored offset of each later chunk, and
+finding a chunk walks the predecessor links. Holding the chunks in an array with lengths in a prefix-sum
+(Fenwick) tree would make finding a chunk and shifting offsets O(log n), and inserting a chunk one pointer
+memmove, while `GetChunks`/`Capacity` stay exactly .NET's. The builder object is .NET's last chunk today,
+so this is a redesign of `corelib/StringBuilder.cs`, not a patch.
 
 ## Working rules
 
