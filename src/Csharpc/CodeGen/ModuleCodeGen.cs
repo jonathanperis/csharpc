@@ -1500,7 +1500,7 @@ public sealed partial class ModuleCodeGen
             var itf = _variantInterfaces[i];
             var definition = itf.OriginalDefinition;
             foreach (var argument in itf.TypeArguments)
-                if (argument is INamedTypeSymbol { TypeKind: TypeKind.Interface } argumentInterface) ListInterfaceBases(argumentInterface);
+                if (argument is INamedTypeSymbol { TypeKind: TypeKind.Interface } argumentInterface) RegisterInterfaceBases(b, argumentInterface);
             var argTables = itf.TypeArguments.Select(a => TypeMethodTable(a, null!)).ToArray();
             uint mask = 0;
             for (var k = 0; k < itf.TypeArguments.Length; k++)

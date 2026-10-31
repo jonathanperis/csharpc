@@ -52,22 +52,19 @@ public sealed partial class ModuleCodeGen
 
     /// <summary>
     /// An interface that is a type argument of a variant interface (IEnumerable&lt;IDerived&gt; tested as
-    /// IEnumerable&lt;IBase&gt;) lists its base interfaces in its method table (all of them, with no slots), so
-    /// the runtime's variance check sees IDerived : IBase (csrt.c argument_assignable). Other interface
-    /// method tables keep an empty list.
+    /// IEnumerable&lt;IBase&gt;) registers its base interfaces (all of them) at startup, so the runtime's variance
+    /// check sees IDerived : IBase (csrt.c argument_assignable). A side table: interface method tables'
+    /// own fields already hold their string and array slot tables (RefreshInterfaceTable).
     /// </summary>
-    internal void ListInterfaceBases(INamedTypeSymbol itf)
+    internal void RegisterInterfaceBases(IrBuilder b, INamedTypeSymbol itf)
     {
         itf = (INamedTypeSymbol)CoreLib.Unmap(TypeSubstitution.EraseTupleNames(itf, Compilation));
         if (itf.AllInterfaces.IsEmpty || !_interfaceBasesListed.Add(itf)) return;
-        var table = InterfaceMethodTable(itf);
-        var entryType = Llvm.Struct(Llvm.Ptr, Llvm.Ptr);
-        var entries = itf.AllInterfaces.Select(b => Llvm.ConstStruct(InterfaceMethodTable(b), LlvmContext.Null(Llvm.Ptr))).ToArray();
-        var listInit = LlvmContext.ConstArray(entryType, entries);
+        var bases = itf.AllInterfaces.Select(InterfaceMethodTable).ToArray();
+        var listInit = LlvmContext.ConstArray(Llvm.Ptr, bases);
         var list = Module.AddGlobal(Mangler.TypeSymbol(itf, "IBASES"), Native.LLVMTypeOf(listInit), listInit, constant: true, linkage: LLVMLinkage.Internal);
-        Native.LLVMSetInitializer(table, Llvm.ConstStruct(LlvmContext.Null(Llvm.Ptr), CString(Mangler.MetadataName(itf)),
-            Llvm.ConstInt(Llvm.I32, 0), Llvm.ConstInt(Llvm.I32, 2 /* CSRT_MT_INTERFACE */),
-            list, Llvm.ConstInt(Llvm.I32, entries.Length), Llvm.ConstInt(Llvm.I32, 0)));
+        var register = Runtime("csrt_register_interface_bases", Llvm.Void, Llvm.Ptr, Llvm.Ptr, Llvm.I32);
+        b.Call(register.Type, register.Fn, [InterfaceMethodTable(itf), list, Llvm.ConstInt(Llvm.I32, bases.Length)]);
     }
 
     /// <summary>Dispatchable members of one interface (not inherited ones), in slot order.</summary>

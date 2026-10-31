@@ -477,6 +477,36 @@ static void* const* exact_interface_slots(const csrt_MethodTable* mt, const csrt
     return builtin_interface_slots(mt, itf);
 }
 
+// Base interfaces of the interfaces that are type arguments of variant interfaces (IDerived : IBase, for
+// IEnumerable<IDerived> as IEnumerable<IBase>), registered at startup (Interfaces.cs RegisterInterfaceBases)
+// and indexed by the interface's method table like the variance descriptors.
+typedef struct { const csrt_MethodTable* itf; const csrt_MethodTable* const* bases; int32_t count; } InterfaceBases;
+static InterfaceBases* s_bases;
+static int s_bases_count, s_bases_cap;
+static uint32_t s_bases_index[1 << VARIANT_INDEX_BITS];
+
+__attribute__((noinline)) void csrt_register_interface_bases(const csrt_MethodTable* itf, const csrt_MethodTable* const* bases, int32_t count) {
+    if (s_bases_count == s_bases_cap) {
+        s_bases_cap = s_bases_cap ? s_bases_cap * 2 : 16;
+        s_bases = realloc(s_bases, sizeof *s_bases * (size_t)s_bases_cap);
+        if (!s_bases) abort();
+    }
+    if (s_bases_count < VARIANT_INDEXED) {
+        size_t h = variant_hash(itf);
+        while (s_bases_index[h]) h = (h + 1) & ((1 << VARIANT_INDEX_BITS) - 1);
+        s_bases_index[h] = (uint32_t)s_bases_count + 1;
+    }
+    s_bases[s_bases_count++] = (InterfaceBases){ itf, bases, count };
+}
+
+static const InterfaceBases* interface_bases(const csrt_MethodTable* itf) {
+    for (size_t h = variant_hash(itf); s_bases_index[h]; h = (h + 1) & ((1 << VARIANT_INDEX_BITS) - 1))
+        if (s_bases[s_bases_index[h] - 1].itf == itf) return &s_bases[s_bases_index[h] - 1];
+    for (int i = VARIANT_INDEXED; i < s_bases_count; i++)
+        if (s_bases[i].itf == itf) return &s_bases[i];
+    return NULL;
+}
+
 static bool variant_compatible(const csrt_MethodTable* from, const csrt_MethodTable* to, int depth);
 static bool array_assignable(const csrt_MethodTable* from, const csrt_MethodTable* to, int depth);
 
@@ -494,11 +524,13 @@ static bool argument_assignable(const csrt_MethodTable* src, const csrt_MethodTa
     if (dst->base == &csrt_Array_MT.header && !(dst->flags & CSRT_MT_MDARRAY)) return array_assignable(src, dst, depth);
     if (dst->flags & CSRT_MT_INTERFACE) {
         if (src->flags & CSRT_MT_INTERFACE) {
-            // An interface argument is assignable to its base interfaces (IDerived : IBase), listed without
-            // slots in its method table by the compiler (Interfaces.cs ListInterfaceBases), and through variance.
+            // An interface argument is assignable to its base interfaces (IDerived : IBase, registered by
+            // csrt_register_interface_bases), directly or through variance.
             if (variant_compatible(src, dst, depth + 1)) return true;
-            for (uint32_t i = 0; i < src->interface_count; i++)
-                if (src->interfaces[i].interface_type == dst || variant_compatible(src->interfaces[i].interface_type, dst, depth + 1)) return true;
+            const InterfaceBases* bases = interface_bases(src);
+            if (bases)
+                for (int32_t i = 0; i < bases->count; i++)
+                    if (bases->bases[i] == dst || variant_compatible(bases->bases[i], dst, depth + 1)) return true;
             return false;
         }
         if (exact_interface_slots(src, dst)) return true;
