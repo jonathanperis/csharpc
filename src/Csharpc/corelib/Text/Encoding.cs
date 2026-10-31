@@ -765,10 +765,24 @@ namespace CsharpcCoreLib
             return Encode(e, chars, default, true, ref fb, e.EncoderFallback, null, true, false, out _, out _);
         }
 
-        internal static int Bytes(EncodingImpl e, ReadOnlySpan<char> chars, Span<byte> bytes)
+        [System.Runtime.InteropServices.DllImport("__Internal", EntryPoint = "csrt_narrow_ascii")]
+        private static extern unsafe int NarrowAscii(char* src, byte* dst, int length);
+
+        internal static unsafe int Bytes(EncodingImpl e, ReadOnlySpan<char> chars, Span<byte> bytes)
         {
+            // ASCII text in a UTF-8, ASCII or Latin-1 encoding is one byte per char whatever the fallback: the
+            // leading run is narrowed 8 chars at a time and Encode, scalar by scalar, takes only what follows
+            // (it starts at an ASCII boundary, so no surrogate state is split). The collector doesn't move objects.
+            int done = 0;
+            if ((e._codec is EncodingImpl.CodecUtf8 or EncodingImpl.CodecAscii or EncodingImpl.CodecLatin1) && chars.Length > 0)
+            {
+                fixed (char* src = chars)
+                fixed (byte* dst = bytes)
+                    done = NarrowAscii(src, dst, Math.Min(chars.Length, bytes.Length));
+                if (done == chars.Length) return done;
+            }
             EncoderFallbackBuffer fb = null;
-            return Encode(e, chars, bytes, false, ref fb, e.EncoderFallback, null, true, false, out _, out _);
+            return done + Encode(e, chars.Slice(done), bytes.Slice(done), false, ref fb, e.EncoderFallback, null, true, false, out _, out _);
         }
 
         /// <summary>

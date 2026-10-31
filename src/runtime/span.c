@@ -88,6 +88,25 @@ CSRT_NO_ASAN int32_t csrt_span_index_of_any_u16(const uint16_t* p, int32_t lengt
     return -1;
 }
 
+/// Narrows the leading ASCII chars of `src` into `dst` (at most `length` of each), 8 at a time; returns
+/// how many it wrote: the encoders' fast path (Encoding.ASCII/UTF8/Latin1.GetBytes), which Kestrel runs
+/// on every response header value it writes. Unaligned 16-byte accesses through memcpy (one movdqu).
+int32_t csrt_narrow_ascii(const uint16_t* src, uint8_t* dst, int32_t length) {
+    typedef uint16_t u16x8u __attribute__((vector_size(16)));
+    typedef uint8_t u8x8u __attribute__((vector_size(8)));
+    int32_t i = 0;
+    for (; i + 8 <= length; i += 8) {
+        u16x8u v;
+        memcpy(&v, src + i, sizeof v);
+        u16x8u high = v & (uint16_t)0xFF80;
+        if (__builtin_reduce_or(high)) break;
+        u8x8u narrow = __builtin_convertvector(v, u8x8u);
+        memcpy(dst + i, &narrow, sizeof narrow);
+    }
+    for (; i < length && src[i] < 0x80; i++) dst[i] = (uint8_t)src[i];
+    return i;
+}
+
 int32_t csrt_span_index_of(const void* data, int32_t length, int64_t element_size, const void* value) {
     if (element_size == 1) {
         const void* hit = length > 0 ? memchr(data, *(const uint8_t*)value, (size_t)length) : NULL;
