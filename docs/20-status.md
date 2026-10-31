@@ -48,10 +48,12 @@ attribute factories) with a ~25 % faster build.
   unchanged, three load runs plus one profiled run per push to `ci/m7-perf*`; ratios csharpc/NativeAOT,
   medians of three). Baseline (run 41207247881, main `f622dc8`): plaintext 256/1024 0.983/0.967, JSON
   16/64/256 0.969/0.972/0.980, RSS after load 73.4 vs 64.8 MiB, executable 11.0 vs 8.9 MiB, build 188 vs
-  21 s. Now (run 41214803825): plaintext 1.140/1.123, JSON 1.003/1.015/1.017, JSON p99 0.27–0.66 of
-  NativeAOT's, start-up 21 vs 27 ms, idle RSS 13.2 vs 17.4 MiB, RSS after load 71.6 vs 64.9 MiB,
-  executable 10.7 vs 8.9 MiB, build 208 vs 20 s. Changes: guarded devirtualization of interface calls
-  (per-slot stubs filled once the constructed classes are known: +5–8 % plaintext), leaf-loop type tests,
+  21 s. Now (run 41228623899, `28befb0`): plaintext 1.147/1.123, JSON 1.009/1.021/1.019, JSON p99
+  0.32–0.67 of NativeAOT's, start-up 21 vs 28 ms, idle RSS 13.1 vs 17.3 MiB, RSS after load 72.3 vs 65.0
+  MiB (68.8 in run 41220070541), executable 10.6 vs 8.9 MiB, build 190 vs 22 s; Benchmarks instruction
+  counts (run 41228623885) within 0.3 % of main on x86-64, arm64 churn +1.2 % (threaded, noisy). Changes:
+  guarded devirtualization of interface calls outside the corelib (per-slot stubs filled once the
+  constructed classes are known: +5–8 % plaintext), leaf-loop type tests,
   vector ASCII encoding / `Ascii.Equals` / transcoding, `ValueTask<T>` default results and IL ValueTask
   builders without a task, `AsTask()` of a completed ValueTask = `Task.CompletedTask`, one object per
   pending IValueTaskSource ValueTask, ILLink substitutions (UseSystemResourceKeys drops 670 KB of
