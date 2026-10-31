@@ -193,8 +193,8 @@ public sealed partial class ModuleCodeGen
         if (!_typeNameTable.IsNull)
         {
             RegisterKnownMethodTables();
-            // csrt_TypeNameEntry { mt, full_name, unknown, argument_count, arguments }
-            var entryType = Llvm.Struct(Llvm.Ptr, Llvm.Ptr, Llvm.I32, Llvm.I32, Llvm.Ptr);
+            // csrt_TypeNameEntry { mt, name (a string or a csrt_TypeNameComposition), unknown, argument_count }
+            var entryType = Llvm.Struct(Llvm.Ptr, Llvm.Ptr, Llvm.I32, Llvm.I32);
             var argumentType = Llvm.Struct(Llvm.Ptr, Llvm.Ptr);
             var entries = new List<LLVMValueRef>();
             // The method table of each described type (by its .NET type), for composed names' arguments.
@@ -217,14 +217,14 @@ public sealed partial class ModuleCodeGen
                     && arguments.All(a => mtOf.ContainsKey(a) && AssemblyOf(a) is not null))
                 {
                     var parts = arguments.Select(a => Llvm.ConstStruct(mtOf[a], CString(AssemblyOf(a)!))).ToList();
-                    var init = LlvmContext.ConstArray(argumentType, [.. parts]);
-                    var table = Module.AddGlobal("csharpc.typenames.args", Native.LLVMTypeOf(init), init, constant: true, linkage: LLVMLinkage.Private);
-                    entries.Add(Llvm.ConstStruct(mt, CString(Mangler.MetadataName(named.OriginalDefinition)), Llvm.ConstInt(Llvm.I32, 0),
-                        Llvm.ConstInt(Llvm.I32, arguments.Count), table));
+                    var init = Llvm.ConstStruct(CString(Mangler.MetadataName(named.OriginalDefinition)), LlvmContext.ConstArray(argumentType, [.. parts]));
+                    var composition = Module.AddGlobal("csharpc.typenames.args", Native.LLVMTypeOf(init), init, constant: true, linkage: LLVMLinkage.Private);
+                    entries.Add(Llvm.ConstStruct(mt, composition, Llvm.ConstInt(Llvm.I32, 0), Llvm.ConstInt(Llvm.I32, arguments.Count)));
                     continue;
                 }
-                entries.Add(Llvm.ConstStruct(mt, fullName is null ? LlvmContext.Null(Llvm.Ptr) : CString(fullName), Llvm.ConstInt(Llvm.I32, unknown ? 1 : 0),
-                    Llvm.ConstInt(Llvm.I32, 0), LlvmContext.Null(Llvm.Ptr)));
+                // An unknown name is never read (csrt reports it as not supported): no string for it.
+                entries.Add(Llvm.ConstStruct(mt, fullName is null || unknown ? LlvmContext.Null(Llvm.Ptr) : CString(fullName),
+                    Llvm.ConstInt(Llvm.I32, unknown ? 1 : 0), Llvm.ConstInt(Llvm.I32, 0)));
             }
             Native.LLVMSetInitializer(_typeNameTable, Table("csharpc.typenames.entries", entryType, entries));
         }

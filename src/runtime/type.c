@@ -519,7 +519,7 @@ static const char* argument_full_name(const csrt_TypeNameTable* names, const csr
     const csrt_TypeNameEntry* entry = index_find(&s_name_index, mt);
     if (!entry) return mt->name;
     if (entry->unknown) return NULL;
-    return entry->argument_count ? composed_full_name(names, entry, depth + 1) : entry->full_name;
+    return entry->argument_count ? composed_full_name(names, entry, depth + 1) : (const char*)entry->name;
 }
 
 static const char** s_composed_names;  // per name-table entry, built on first use
@@ -544,20 +544,21 @@ static const char* composed_full_name(const csrt_TypeNameTable* names, const csr
     size_t index = (size_t)(entry - names->entries);
     const char* known = __atomic_load_n(&cache[index], __ATOMIC_ACQUIRE);
     if (known) return known;
-    size_t length = strlen(entry->full_name) + 3;
+    const csrt_TypeNameComposition* composition = entry->name;
+    size_t length = strlen(composition->definition) + 3;
     const char* parts[2 * 64];
     if (entry->argument_count > 64) return NULL;
     for (uint32_t i = 0; i < entry->argument_count; i++) {
-        const char* name = argument_full_name(names, entry->arguments[i].mt, depth);
+        const char* name = argument_full_name(names, composition->arguments[i].mt, depth);
         if (!name) return NULL;
         parts[2 * i] = name;
-        parts[2 * i + 1] = entry->arguments[i].assembly;
-        length += strlen(name) + strlen(entry->arguments[i].assembly) + 5;
+        parts[2 * i + 1] = composition->arguments[i].assembly;
+        length += strlen(name) + strlen(composition->arguments[i].assembly) + 5;
     }
     char* built = malloc(length);
     if (!built) return NULL;
     char* p = built;
-    p = append_cstr(p, entry->full_name);
+    p = append_cstr(p, composition->definition);
     *p++ = '[';
     for (uint32_t i = 0; i < entry->argument_count; i++) {
         if (i) *p++ = ',';
@@ -582,7 +583,7 @@ static const char* full_name_of(TypeObject* t, const csrt_TypeNameTable* names, 
     const csrt_TypeNameEntry* entry = index_find(&s_name_index, t->target);
     if (!entry) return full_name(t);
     if (entry->unknown) { throw_unsupported(t->target, what); return NULL; }
-    if (!entry->argument_count) return entry->full_name;
+    if (!entry->argument_count) return entry->name;
     const char* composed = composed_full_name(names, entry, 0);
     if (!composed) { throw_unsupported(t->target, what); return NULL; }
     return composed;
