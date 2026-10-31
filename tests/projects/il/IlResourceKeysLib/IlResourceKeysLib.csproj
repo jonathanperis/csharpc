@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- A library shaped like the runtime's: an SR class over FxResources.IlResourceKeysLib.SR.resources and
+       an ILLink.Substitutions.xml that stubs SR.UsingResourceKeys() and removes the resources when
+       UseSystemResourceKeys is on (what NativeAOT's ILCompiler, and csharpc, apply). -->
+  <PropertyGroup>
+    <TargetFramework>net11.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+  <ItemGroup>
+    <EmbeddedResource Update="Strings.resx" LogicalName="FxResources.IlResourceKeysLib.SR.resources" />
+    <EmbeddedResource Include="ILLink.Substitutions.xml" LogicalName="ILLink.Substitutions.xml" />
+  </ItemGroup>
+</Project>

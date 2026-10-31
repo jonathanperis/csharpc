@@ -1,0 +1,13 @@
+<linker>
+  <assembly fullname="IlResourceKeysLib" feature="System.Resources.UseSystemResourceKeys" featurevalue="true">
+    <resource name="FxResources.IlResourceKeysLib.SR.resources" action="remove" />
+    <type fullname="System.SR">
+      <method signature="System.Boolean UsingResourceKeys()" body="stub" value="true" />
+    </type>
+  </assembly>
+  <assembly fullname="IlResourceKeysLib" feature="System.Resources.UseSystemResourceKeys" featurevalue="false">
+    <type fullname="System.SR">
+      <method signature="System.Boolean UsingResourceKeys()" body="stub" value="false" />
+    </type>
+  </assembly>
+</linker>

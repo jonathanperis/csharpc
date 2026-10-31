@@ -19,7 +19,9 @@ public sealed partial class ModuleCodeGen
     /// <summary>(base name, key, value) triples of every IL assembly's string resources.</summary>
     internal LLVMValueRef ResourceStringsBlob()
     {
-        _resourceBlob ??= Encode(Il.Assemblies.SelectMany(a => a.ReadStringResources()).SelectMany(e => new[] { e.BaseName, e.Key, e.Value }));
+        // Resources an ILLink substitution removes under the program's feature switches stay out (ModuleCodeGen.IlSubstitutions.cs).
+        _resourceBlob ??= Encode(Il.Assemblies.SelectMany(a => a.ReadStringResources().Where(e => !IsResourceRemoved(a, e.BaseName + ".resources")))
+            .SelectMany(e => new[] { e.BaseName, e.Key, e.Value }));
         return StringLiteral(_resourceBlob);
     }
 
@@ -74,6 +76,7 @@ public sealed partial class ModuleCodeGen
             var fullName = assembly.Symbol.Identity.GetDisplayName();
             foreach (var (name, bytes) in assembly.ReadManifestResources())
             {
+                if (IsResourceRemoved(assembly, name)) continue;
                 while (data.Length % 8 != 0) data.WriteByte(0); // each resource 8-byte aligned, as the PE resource directory is
                 fields.AddRange([fullName, name, data.Length.ToString(System.Globalization.CultureInfo.InvariantCulture),
                     bytes.Length.ToString(System.Globalization.CultureInfo.InvariantCulture)]);
