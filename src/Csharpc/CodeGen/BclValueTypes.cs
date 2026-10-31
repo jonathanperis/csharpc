@@ -345,6 +345,22 @@ internal static partial class BclValueTypes
                      ("Divide", "csrt_decimal_div"), ("Remainder", "csrt_decimal_rem") })
             t[$"{D}.{op}({D}, {D})"] = (g, _, _, a, _) => g.DecimalCall(fn, [], a[0], a[1]);
         t[$"{D}.Negate({D})"] = (g, _, _, a, _) => g.DecimalNegate(a[0]);
+        // The operator methods themselves (reflection invokers, expression trees' MethodInfo calls).
+        foreach (var (op, kind) in new[] { ("op_Addition", BinaryOperatorKind.Add), ("op_Subtraction", BinaryOperatorKind.Subtract),
+                     ("op_Multiply", BinaryOperatorKind.Multiply), ("op_Division", BinaryOperatorKind.Divide), ("op_Modulus", BinaryOperatorKind.Remainder),
+                     ("op_Equality", BinaryOperatorKind.Equals), ("op_Inequality", BinaryOperatorKind.NotEquals), ("op_LessThan", BinaryOperatorKind.LessThan),
+                     ("op_LessThanOrEqual", BinaryOperatorKind.LessThanOrEqual), ("op_GreaterThan", BinaryOperatorKind.GreaterThan),
+                     ("op_GreaterThanOrEqual", BinaryOperatorKind.GreaterThanOrEqual) })
+            t[$"{D}.{op}({D}, {D})"] = (g, _, _, a, at) => g.DecimalArithmetic(kind, a[0], a[1], at);
+        t[$"{D}.op_UnaryNegation({D})"] = (g, _, _, a, _) => g.DecimalNegate(a[0]);
+        t[$"{D}.op_UnaryPlus({D})"] = (g, _, _, a, _) => a[0];
+        t[$"{D}.op_Increment({D})"] = (g, _, _, a, _) => g.DecimalCall("csrt_decimal_add", [], a[0], g.DecimalOne);
+        t[$"{D}.op_Decrement({D})"] = (g, _, _, a, _) => g.DecimalCall("csrt_decimal_sub", [], a[0], g.DecimalOne);
+        foreach (var source in new[] { "sbyte", "byte", "short", "ushort", "int", "uint", "long", "ulong", "char", "float", "double" })
+        {
+            t[$"{D}.op_Implicit({source})"] = t[$"{D}.op_Explicit({source})"] = (g, m, _, a, at) => g.DecimalConvert(a[0], m.Parameters[0].Type, m.ReturnType, at);
+        }
+        t[$"{D}.op_Explicit({D})"] = (g, m, _, a, at) => g.DecimalConvert(a[0], m.Parameters[0].Type, m.ReturnType, at);
         t[$"{D}.Compare({D}, {D})"] = (g, _, _, a, _) => g.DecimalCompare(a[0], a[1]);
         t[$"{D}.CompareTo({D})"] = (g, _, self, a, _) => g.DecimalCompare(self, a[0]);
         t[$"{D}.Equals({D})"] = (g, _, self, a, at) => g.DecimalArithmetic(BinaryOperatorKind.Equals, self, a[0], at);

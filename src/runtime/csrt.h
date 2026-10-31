@@ -54,7 +54,9 @@ enum { CSRT_MT_ABSTRACT = 1, CSRT_MT_INTERFACE = 2, CSRT_MT_ITERATOR = 4 /* src/
        CSRT_MT_VALUE_TYPE = 64 /* a boxed value type (`is System.ValueType`) */,
        CSRT_MT_ENUM = 128 /* a boxed enum (`is System.Enum`) */,
        CSRT_MT_DISPOSE_SLOT = 256 /* with CSRT_MT_DISPOSABLE: vtable slot 3 is its IDisposable.Dispose */,
-       CSRT_MT_REFERENCE_ELEMENTS = 512 /* an array type whose elements are references (array covariance) */ };
+       CSRT_MT_REFERENCE_ELEMENTS = 512 /* an array type whose elements are references (array covariance) */,
+       CSRT_MT_DELEGATE = 1024 /* a delegate type (`is System.Delegate`) */,
+       CSRT_MT_PRIMITIVE = 2048 /* a boxed primitive; with CSRT_MT_ENUM: `reserved` is the (underlying) CorElementType */ };
 // Array types of integers and enums: the ECMA-335 reduced element type (4 bits: 1 int8, 2 int16, 3 int32,
 // 4 int64, 5 native int), so int[] and uint[] (and an enum's array) are cast-compatible like in the CLR.
 #define CSRT_MT_ELEMENT_CLASS_SHIFT 12
@@ -96,6 +98,8 @@ extern const csrt_ArrayMethodTable csrt_PrimitiveArray_MT;  // arrays of non-ref
 // / `is Enum` test CSRT_MT_VALUE_TYPE / CSRT_MT_ENUM instead (csrt_isinst_class).
 extern const csrt_BuiltinMethodTable csrt_ValueType_MT;
 extern const csrt_BuiltinMethodTable csrt_Enum_MT;
+extern const csrt_BuiltinMethodTable csrt_Delegate_MT;            // a failed cast to Delegate (CSRT_MT_DELEGATE)
+extern const csrt_BuiltinMethodTable csrt_MulticastDelegate_MT;
 
 // Lifecycle -------------------------------------------------------------------------------
 void csrt_init(int argc, char** argv);
@@ -282,7 +286,8 @@ typedef struct csrt_ParameterRecord {
     uint32_t flags;                 // ParameterAttributes | CSRT_PARAM_*
 } csrt_ParameterRecord;
 
-enum { CSRT_METHOD_SOURCE_LAMBDA = 1 /* a lambda/local function lowered by csharpc: no .NET name */ };
+enum { CSRT_METHOD_SOURCE_LAMBDA = 1 /* a lambda/local function lowered by csharpc: no .NET name */,
+       CSRT_METHOD_NO_INHERITED_ATTRIBUTES = 2 /* an override whose overridden methods have no inheritable attributes */ };
 typedef struct csrt_MethodRecord {
     const char* name;                          // ".ctor" for constructors
     const csrt_MethodTable* declaring;
@@ -295,6 +300,8 @@ typedef struct csrt_MethodRecord {
     uint32_t method_attributes;                // MethodAttributes
     uint32_t flags;                            // CSRT_METHOD_*
     const void* function;                      // an instance method's own function (MethodInfo.CreateDelegate); NULL: none
+    const void* identity;                      // one address per method: records of the same method (in a type's list,
+                                               // a property's accessor, an expression tree's ldtoken) are one MethodInfo
 } csrt_MethodRecord;
 
 // MethodInfo.CreateDelegate: the Invoke signatures of the delegate types the program names.
@@ -412,7 +419,8 @@ _Noreturn void csrt_environment_exit(int32_t code);
     X(Double, double) X(Single, float) X(Boolean, bool) X(Char, uint16_t) X(IntPtr, intptr_t) X(UIntPtr, uintptr_t)
 #define CSRT_DECLARE_BOXED_MT(Name, CType) extern const csrt_BuiltinMethodTable csrt_Boxed_##Name##_MT;
 CSRT_BOXED_TYPES(CSRT_DECLARE_BOXED_MT)
-void* csrt_unbox(void* obj, const csrt_MethodTable* type);   // payload address, or NRE / InvalidCast
+void* csrt_unbox(void* obj, const csrt_MethodTable* type);   // payload address, or NRE / InvalidCast (enums as their underlying type)
+void* csrt_unbox_exact(void* obj, const csrt_MethodTable* type);  // the same for Nullable<T>: the exact type only
 
 // Boxed enums: Enum.Equals (same type, same payload bytes). Structs get generated Equals/GetHashCode.
 bool csrt_valuetype_equals(void* self, void* other);

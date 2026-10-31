@@ -1,0 +1,24 @@
+n => {var result; ... }
+1 120 3628800
+zero,one,few,few,many
+finally
+42
+The input string 'x' was not in a correct format.
+finally
+-1
+caught boom
+item => IIF((item.Count > 0), item.Describe("> "), (item.Name ?? "(none)"))
+> apples:3 | (none) | pears
+plums:7
+81
+True False
+3,1,2
+a+b
+a => ArrayLength(a)
+(a, b) => (a + b) : System.Func`3[System.Int32,System.Int32,System.Int32]
+5
+() => Invoke((a, b) => (a + b), 4, 5) = 9
+v => ((v - 20) - 30) -> 50
+Assign=1 Block=1 Conditional=1 Constant=2 Goto=1 GreaterThan=1 Lambda=1 Loop=1 MultiplyAssign=1 Parameter=7 PostDecrementAssign=1
+The binary operator Add is not defined for the types 'System.Int32' and 'System.String'.
+Expression of type 'System.String' cannot be used for return type 'System.Int32'

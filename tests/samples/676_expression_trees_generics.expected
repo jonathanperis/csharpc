@@ -1,0 +1,9 @@
+x => x
+s
+l => l.Count 2
+x => IIF((x == null), "null", x.ToString()) null
+() => (Program.counter * 2) 6
+20
+w => (w.Plus(2) + w.X) 10
+() => value(Holder`1[System.String]).Value held
+1,3

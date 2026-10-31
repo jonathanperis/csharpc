@@ -1,0 +1,61 @@
+42
+3
+9000000000
+-7
+5
+134217728
+True
+20
+0.33333334
+4.0
+False
+66
+Overflow: Arithmetic operation resulted in an overflow.
+DivideByZero: Attempted to divide by zero.
+InvalidCast
+NullReference
+Format: FormatException
+True
+7
+7
+5 []
+True False
+4 -1
+True False
+a1
+True False True False
+none
+42!
+26
+7
+hi3
+42
+13
+12
+9
+3.25
+True
+3.5
+8
+pos neg zero
+Pt(1,2,[3,4])
+Pt(0,2,[])
+a=1;b=2
+1,2,3
+4
+b2
+True
+null
+0
+System.Int32
+21
+15
+y => (Convert(value(System.Runtime.CompilerServices.StrongBox`1[System.Object]).Value, Int32) + y) -> 101
+action ran
+21 21
+5
+0
+2
+6
+12
+56

@@ -201,7 +201,7 @@ public sealed partial class FunctionCodeGen
                 _b.CondBr(_b.ICmp(LLVMIntPredicate.EQ, mt, MethodTableFor(underlying, c)), matches, done);
                 _b.PositionAtEnd(matches);
             }
-            var payload = CallRuntime("csrt_unbox", L.Ptr, [L.Ptr, L.Ptr], obj, MethodTableFor(underlying, c));
+            var payload = CallRuntime("csrt_unbox_exact", L.Ptr, [L.Ptr, L.Ptr], obj, MethodTableFor(underlying, c));
             _b.Store(MakeNullable(to, L.True, LoadValue(payload, underlying)), result);
             _b.Br(done);
             _b.PositionAtEnd(done);

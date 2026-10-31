@@ -193,6 +193,7 @@ public sealed class Compiler(CompilerOptions options)
         var codegen = new ModuleCodeGen(codegenCompilation, llvm, module, target)
         {
             StackTraces = stackTraces,
+            SourceOptimized = settings.Symbols?.Optimize ?? options.Configuration.Equals("Release", StringComparison.OrdinalIgnoreCase),
             CfgDump = options.DumpCfg ? Console.Out : null,
             IlDump = options.DumpIl ? Console.Out : null,
             Il = il,

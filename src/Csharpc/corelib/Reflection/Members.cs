@@ -440,7 +440,8 @@ namespace CsharpcCoreLib
     {
         internal static readonly int P = sizeof(nint);
         // csrt_MethodRecord
-        internal static int MethodSize => 7 * P + 16;
+        internal static int MethodSize => 8 * P + 16;
+        internal static nint MethodIdentity(byte* m) => *(nint*)(m + 7 * P + 16);
         internal static nint MethodFunction(byte* m) => *(nint*)(m + 6 * P + 16);
         internal static byte* MethodName(byte* m) => (byte*)*(nint*)m;
         internal static nint MethodDeclaring(byte* m) => *(nint*)(m + P);
@@ -557,7 +558,14 @@ namespace CsharpcCoreLib
                 throw new ArgumentException("Type must derive from Delegate.", "delegateType");
             byte* signature = ReflectionRuntime.DelegateSignature(delegateType);
             nint fn = ReflectionRecords.MethodFunction(_record);
-            if (signature == null || fn == 0 || target == null)
+            // A static method: open over no argument (its function is a thunk ignoring the target).
+            if (IsStatic && signature != null && fn != 0 && target == null)
+            {
+                if (!Compatible(signature))
+                    throw new ArgumentException("Cannot bind to the target method because its signature is not compatible with that of the delegate type.");
+                return CoreIntrinsics.ReinterpretAs<Delegate>(CoreIntrinsics.PointerToObject((nint)CoreIntrinsics.csrt_delegate_create(CoreIntrinsics.csrt_type_handle(delegateType), 0, fn)));
+            }
+            if (signature == null || fn == 0 || target == null || IsStatic)
                 throw new NotSupportedException("MethodInfo.CreateDelegate of '" + this + "' to '" + delegateType + "'" + (target == null ? " without a target" : "") + " is not supported by csharpc yet.");
             if (!DeclaringType.IsInstanceOfType(target) || !Compatible(signature))
                 throw new ArgumentException("Cannot bind to the target method because its signature is not compatible with that of the delegate type.");
@@ -650,7 +658,8 @@ namespace CsharpcCoreLib
         public override object[] GetCustomAttributes(bool inherit) => GetCustomAttributes(typeof(object), inherit);
         public override object[] GetCustomAttributes(Type attributeType, bool inherit)
         {
-            if (inherit && IsVirtual && (Attributes & MethodAttributes.NewSlot) == 0)
+            // CSRT_METHOD_NO_INHERITED_ATTRIBUTES: the overridden methods have no inheritable attributes.
+            if (inherit && IsVirtual && (Attributes & MethodAttributes.NewSlot) == 0 && (ReflectionRecords.MethodExtraFlags(_record) & 2) == 0)
                 throw new NotSupportedException("GetCustomAttributes(inherit: true) of an override is not supported by csharpc yet.");
             return ReflectionRuntime.CreateAttributes(ReflectionRecords.MethodAttributes(_record), ReflectionRecords.MethodAttributeCount(_record), attributeType);
         }
@@ -750,10 +759,14 @@ namespace CsharpcCoreLib
             lock (s_lock)
             {
                 s_members ??= new Dictionary<nint, MemberInfo>();
-                if (!s_members.TryGetValue((nint)record, out var member))
+                // Keyed by the method's identity: its records in a type's list, a property's accessors and an
+                // expression tree's ldtoken are one MethodInfo (== holds, as for RuntimeMethodInfo).
+                nint key = ReflectionRecords.MethodIdentity(record);
+                if (key == 0) key = (nint)record;
+                if (!s_members.TryGetValue(key, out var member))
                 {
                     member = constructor ? new RuntimeConstructorInfoImpl(record) : new RuntimeMethodInfoImpl(record);
-                    s_members[(nint)record] = member;
+                    s_members[key] = member;
                 }
                 return member;
             }
@@ -850,9 +863,17 @@ namespace CsharpcCoreLib
 
         public static MethodInfo GetMethodNameFlags(Type type, string name, BindingFlags flags) => GetMethod(type, name, flags);
 
+        /// <summary>
+        /// GetMethod("op_...") on a type with no reflection entry in a program that keeps every type's operators
+        /// (ModuleCodeGen.DescribeDelegateInvokes): the type has none.
+        /// </summary>
+        private static bool NoOperator(Type type, string name) =>
+            name.StartsWith("op_", StringComparison.Ordinal) && CoreIntrinsics.OperatorsKept() && InfoOf(type, "methods") == null;
+
         internal static MethodInfo GetMethod(Type type, string name, BindingFlags flags)
         {
             ArgumentNullException.ThrowIfNull(name);
+            if (NoOperator(type, name)) return null;
             MethodInfo found = null;
             foreach (var m in GetMethods(type, flags))
             {
@@ -869,6 +890,7 @@ namespace CsharpcCoreLib
         {
             ArgumentNullException.ThrowIfNull(name);
             ArgumentNullException.ThrowIfNull(types);
+            if (NoOperator(type, name)) return null;
             foreach (var m in GetMethods(type, flags))
                 if (m.Name == name && SameParameterTypes(((RuntimeMethodInfoImpl)(object)m).ParametersNoCopy, types)) return m;
             return null;

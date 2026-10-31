@@ -188,11 +188,13 @@ public sealed partial class ModuleCodeGen
         // Type metadata describes every method table, and describing one can create more (and queue
         // their methods): iterate to a fixed point.
         do DrainWorklists();
-        while (EmitRuntimeExports() | EmitReflectionMetadata() | EmitTypeMetadata() | EmitDeferredBclBoxRegistrations() | EmitDeferredPrimitiveSlots() | EmitDynamicSites());
+        while (EmitRuntimeExports() | EmitReflectionMetadata() | EmitTypeMetadata() | EmitDeferredBclBoxRegistrations() | EmitDeferredPrimitiveSlots() | EmitDynamicSites()
+               | EmitObjectArrayThunks());
         // Close the generic interface dispatchers, then lower what their last cases call.
         if (EmitGenericInterfaceDispatchers(final: true) | EmitVariantDelegateTests(final: true))
             do DrainWorklists();
-            while (EmitRuntimeExports() | EmitReflectionMetadata() | EmitTypeMetadata() | EmitDeferredBclBoxRegistrations() | EmitDeferredPrimitiveSlots() | EmitDynamicSites());
+            while (EmitRuntimeExports() | EmitReflectionMetadata() | EmitTypeMetadata() | EmitDeferredBclBoxRegistrations() | EmitDeferredPrimitiveSlots() | EmitDynamicSites()
+                   | EmitObjectArrayThunks());
         CheckGenericInterfaceDispatchers();
         // Last: every dispatched slot is known once nothing is left to lower.
         // The IL methods that failed are reported even when finishing the tables fails too (that error
@@ -202,6 +204,7 @@ public sealed partial class ModuleCodeGen
             FinishDynamicTypeNames();
             FinishMethodTables();
             Guard(entryPoint, FinishReflectionMetadata);
+            Guard(entryPoint, FinishObjectArrayThunks);
             Guard(entryPoint, FinishTypeMetadata);
             FinishEventSourceAttributes();
         }
@@ -576,6 +579,7 @@ public sealed partial class ModuleCodeGen
     private void EmitMethod(IMethodSymbol method)
     {
         var start = System.Diagnostics.Stopwatch.GetTimestamp();
+        NoteLowered(method);
         var corelib = CoreLib.IsCoreLib(method);
         var il = !corelib && Il.OwnerOf(method) is not null;
         try { EmitMethodCore(method); }
@@ -716,6 +720,7 @@ public sealed partial class ModuleCodeGen
         foreach (var child in function.Children)
         {
             if (child.Symbol!.IsGenericMethod) continue; // generic local functions: instantiated on use
+            if (child.IsExpressionTree) continue; // data: lowered to factory calls where it is converted
             RequestNested(child, child.Symbol, subst);
         }
     }
@@ -784,7 +789,7 @@ public sealed partial class ModuleCodeGen
         var key = "dmt:" + name;
         if (_globals.TryGetValue(key, out var g)) return g;
         // Delegates compare and hash by invocation list (runtime/delegates.c), as Delegate.Equals does.
-        var init = Llvm.ConstStruct(ExternalGlobal("csrt_Object_MT"), CString(name), Llvm.ConstInt(Llvm.I32, 32), Llvm.ConstInt(Llvm.I32, 0),
+        var init = Llvm.ConstStruct(ExternalGlobal("csrt_Object_MT"), CString(name), Llvm.ConstInt(Llvm.I32, 32), Llvm.ConstInt(Llvm.I32, 1024 /* CSRT_MT_DELEGATE */),
             LlvmContext.Null(Llvm.Ptr), Llvm.ConstInt(Llvm.I32, 0), Llvm.ConstInt(Llvm.I32, 0),
             LlvmContext.ConstArray(Llvm.Ptr, Runtime("csrt_object_to_string_default", Llvm.Ptr, Llvm.Ptr).Fn,
                 Runtime("csrt_delegate_equals", Llvm.I1, Llvm.Ptr, Llvm.Ptr).Fn, Runtime("csrt_delegate_get_hash_code", Llvm.I32, Llvm.Ptr).Fn));

@@ -47,7 +47,8 @@ re-runs the JIT before blaming NativeAOT or csharpc, which moved a few programs 
   the evidence that NativeAOT supports them).
 - In scope, contrary to ADR 0016's expectation: NativeAOT runs the corpus' expression-tree programs
   (`lambda-expressions`, `ExpressionTreeExample`, interpreted) and `using-dynamic` identically to the JIT, so
-  those count against csharpc's parity.
+  those count against csharpc's parity. Both expression-tree programs pass on `ci/expression-trees`
+  ([Expression trees](#expression-trees)); the next Compatibility run will count them.
 - **Faster and smaller than NativeAOT** (236 programs both handle): compile time median 5.7 s vs 7.1 s
   (csharpc faster on 166 of 236; the max is csharpc's, 111.7 s for a System.Xml program vs 24.3 s),
   executable size median 136 KiB vs 1,335 KiB (a tenth; smaller on 235 of 236; max 4,908 KiB vs
@@ -63,7 +64,7 @@ blocker). Everything else of the `aot-parity` table (XML, cryptography, text ele
 | # | blocker | programs | only |
 |---:|---|---:|---:|
 | 1 | reflection / configuration binding (`ConfigurationIgnore` PASS on `ci/parity-typeconverter-bind` — TypeConverter/TypeDescriptor shadows, `Activator.CreateInstance(Type)`, `Type.GetInterfaces`, Bind DAM for concrete `object` args; `attributes` and `TracingConfiguration` pass on `ci/parity-hasflag-attrs`) | 0 | 0 |
-| 2 | expression trees (compiled or interpreted `Expression<T>`; `ExpressionTreeExample` is an explicit `CSLLVM0001` on DynamicMethod / expression trees — the Nullable invoker NRE is fixed on `ci/parity-hasflag-attrs`) | 2 | 2 |
+| 2 | expression trees — **both pass on `ci/expression-trees`** (checked locally against `dotnet run -c Release`; the compile timeout is gone: ~80 s, 3.9 and 4.0 MB), see [Expression trees](#expression-trees) | 0 | 0 |
 | 3 | `dynamic` (supported on `ci/dynamic`, [ADR 0019](adr/0019-dynamic.md); `tools/compat/run.sh` on the branch, 2026-10-30: `using-dynamic` PASS — 6.4 s / 28 KiB vs NativeAOT's 12.3 s / 3.7 MiB — and `built-in-types` PASS, which NativeAOT crashes on; awaiting the full compatibility run) | 1 | 1 |
 | 4 | C# 15 unions (csharpc's Roslyn binds them differently from the SDK's) | 2 | 2 |
 | 5 | `System.Data` (`DataTable`/`DataRow` through `System.Text.Json`) | 1 | 1 |
@@ -677,3 +678,41 @@ used less memory idle (13.0 vs 17.7 MiB), but more under load (80.3 vs 64.9 MiB)
 - Async sockets are blocking calls on the thread pool on macOS and Windows (no kqueue/IOCP engine yet).
 - `MemberInfo` members called on a `Type` through a `MemberInfo`-typed reference throw
   `NotSupportedException`. Through a `Type`-typed reference they work.
+
+## Expression trees
+
+csharpc runs expression trees the way NativeAOT does: `System.Linq.Expressions` is compiled from the
+shared framework's IL ([ADR 0013](adr/0013-framework-il.md)) and `Compile()` runs its interpreter, because
+`RuntimeFeature.IsDynamicCodeSupported` is false. Lambdas converted to `Expression<T>` (and, with C# 10's
+natural types, to `Expression` / `LambdaExpression`) are lowered by `FunctionCodeGen.ExpressionTrees.cs` to
+the factory calls Roslyn's `ExpressionLambdaRewriter` emits for IL, so the trees and their `ToString()` are
+.NET's; code compiled by csc reaches the same factories through the IL front-end (`ldtoken` +
+`MethodBase.GetMethodFromHandle` / `FieldInfo.GetFieldFromHandle`, real display classes).
+
+- **What it took.** Feature switches that only forward to `RuntimeFeature.IsDynamicCodeSupported`
+  (`LambdaExpression.CanCompileToIL`, `CallInstruction.CanCreateArbitraryDelegates`) fold like NativeAOT's
+  constant propagation folds them: before, the LambdaCompiler and ~20,000 generic `FuncCallInstruction`
+  instantiations were lowered, which is what timed out at 600 s. `CanEmitObjectArrayDelegate` is false (as
+  NativeAOT's targets set it) and NativeAOT's `DynamicDelegateAugments.CreateObjectArrayDelegate` is a
+  thunk per delegate type (`ModuleCodeGen.ObjectArrayDelegates.cs`). Reflection gained `FieldInfo`
+  (standalone records, `GetField` with a constant name, `StrongBox<T>.Value`), delegate types' `Invoke`,
+  per-member identity (every record of a method is one `MethodInfo`), static `MethodInfo.CreateDelegate`,
+  `Delegate.DynamicInvoke`, value-type arrays through `Array.CreateInstance`/`GetValue`/`SetValue`, and
+  CLR unboxing of enums as their underlying type.
+- **Captured variables** are read live, through the closure environment presented as Roslyn's display
+  class: `value(Program+<>c__DisplayClass1_0).y`, with Roslyn's method and closure ordinals and its
+  `CS$<>8__locals{n}` parent links (`RoslynClosureModel` in `ModuleCodeGen.DisplayClasses.cs`).
+- **Explicitly not supported yet** (a `CSLLVM0001` error, never a different tree): anonymous types,
+  interpolated strings and method-group conversions inside a tree, rectangular array element access, `ref`/`out` arguments,
+  delegate combination, trees inside lambdas or local functions that capture variables or `this`,
+  generic display classes (captures in generic methods or types), several closure scopes in a release
+  build (Roslyn merges them there), variables declared in other constructs than blocks, `for`, `foreach`
+  and `using`. At run time, `NotSupportedException`: `Expression.Field/Property/Call` by name on members
+  the program doesn't name (as under NativeAOT, where those overloads are `RequiresUnreferencedCode`),
+  `MakeArrayType(rank)`, rectangular arrays through reflection.
+- **Cost, pay for play.** Programs that don't use `System.Linq.Expressions` are unchanged (the size
+  budgets are byte-identical). A minimal `Compile()` program is 3.6 MB and compiles in ~75 s; the corpus
+  programs are 3.9 MB (`lambda-expressions`, NativeAOT 2.3 MB) and 4.0 MB (`ExpressionTreeExample`,
+  NativeAOT 3.0 MB). Samples: `tests/samples/672_expression_trees_tostring`, `673_expression_trees_compile`,
+  `674_expression_api`, `676_expression_trees_generics` (and `675_unbox_enum_base_object_calls` for the
+  runtime fixes); IL front-end: `tests/projects/il/IlExpressionTreesApp`.

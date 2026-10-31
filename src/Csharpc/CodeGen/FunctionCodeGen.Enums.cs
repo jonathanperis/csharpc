@@ -37,6 +37,8 @@ public sealed partial class FunctionCodeGen
                 }
                 if (target.Name is "IsDefined" && args.Count == 2)
                     return CallCoreLib("EnumRuntime", "IsDefined", EmitValue(args[0].Value), EmitValue(args[1].Value));
+                if (target.Name is "GetUnderlyingType" && args.Count == 1)
+                    return CallCoreLib("TypeExtras", "EnumUnderlyingType", EmitValue(args[0].Value));
                 if (target.Name is "GetValues" or "GetNames" or "IsDefined" or "Parse" or "GetUnderlyingType")
                     throw CompileError.Unsupported($"Enum.{target.Name} with a Type that is not typeof(an enum)", inv);
                 return null;

@@ -401,6 +401,29 @@ public sealed partial class FunctionCodeGen
             }
             case ("System.Type", "GetTypeFromHandle") when args is [{ Kind: IlKind.Token, Symbol: ITypeSymbol type }]:
                 return new IlEntry(IlKind.Ref, TypeObject(S(type), IlAt()), method.ReturnType) { NonNull = true, Symbol = S(type) };
+            // `d.Target as SomeDelegate` (System.Linq.Expressions' CallInstruction.TryGetLightLambdaTarget): csharpc's
+            // closure objects aren't .NET's display classes (Delegate.Target refuses them), but neither is a
+            // delegate, so a test for a delegate type answers the same with the raw target.
+            case ("System.Delegate", "get_Target") when receiver is not null && _ilIndex + 1 < IlBody.Instructions.Length
+                && IlBody.Instructions[_ilIndex + 1] is { OpCode: ILOpCode.Isinst } next
+                && S(ResolveIlType(next.Token)) is INamedTypeSymbol { TypeKind: TypeKind.Delegate }:
+                return new IlEntry(IlKind.Ref, LastDelegateField(IlRef(receiver), 1), method.ReturnType);
+            // methodof / fieldof (expression trees compiled by csc): the member's standalone reflection record
+            // (ModuleCodeGen.MemberRecords.cs). The RuntimeTypeHandle overloads name the declaring generic
+            // instantiation, which substitution has already applied.
+            case ("System.Reflection.MethodBase", "GetMethodFromHandle") when args is [{ Kind: IlKind.Token, Symbol: IMethodSymbol tokenMethod }, ..]:
+            {
+                var target = Substitution.Apply(tokenMethod);
+                var record = _b.Cast(LLVMOpcode.PtrToInt, _m.MethodRecordGlobal(target), T.NativeInt);
+                var isConstructor = target.MethodKind is MethodKind.Constructor or MethodKind.StaticConstructor;
+                return new IlEntry(IlKind.Ref, CallCoreLib("MemberRecords", "MethodBase", record, isConstructor ? L.True : L.False), method.ReturnType) { NonNull = true };
+            }
+            case ("System.Reflection.FieldInfo", "GetFieldFromHandle") when args is [{ Kind: IlKind.Token, Symbol: IFieldSymbol tokenField }, ..]:
+            {
+                var field = Substitution.Apply(tokenField);
+                var record = _b.Cast(LLVMOpcode.PtrToInt, _m.FieldRecordGlobal(field), T.NativeInt);
+                return new IlEntry(IlKind.Ref, CallCoreLib("MemberRecords", "Field", record), method.ReturnType) { NonNull = true };
+            }
             // typeof(T).IsValueType after monomorphization (ImmutableExtensions.IsValueType<T>(), generic fast paths).
             case ("System.Type", "get_IsValueType") when receiver is { Symbol: ITypeSymbol known } && known is not ITypeParameterSymbol:
                 return I4(known.IsValueType ? 1 : 0);

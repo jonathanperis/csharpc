@@ -110,6 +110,32 @@ internal static partial class BclValueTypes
             Rt(g, "csrt_type_make_generic", g.Llvm.Ptr, (self, g.Llvm.Ptr), (a[0], g.Llvm.Ptr), (Table(g), g.Llvm.Ptr));
         t[$"{Type}.MakeArrayType()"] = (g, _, self, _, _) => TypeResult(g, "csrt_type_make_array", self);
         t[$"{Type}.MakeByRefType()"] = core("MakeByRefType");
+        // System.Linq.Expressions' interpreter and other reflection users (corelib/Reflection/TypeExtras.cs).
+        BclHandler extras(string method) => (g, _, self, a, _) => g.CallCoreLib("TypeExtras", method, [self, .. a]);
+        BclHandler staticExtras(string method) => (g, _, _, a, _) => g.CallCoreLib("TypeExtras", method, a);
+        t[$"{Type}.GetMethod(string, System.Reflection.BindingFlags, System.Reflection.Binder, System.Type[], System.Reflection.ParameterModifier[])"] = extras("GetMethodBinder");
+        t[$"{Type}.GetMemberWithSameMetadataDefinitionAs(System.Reflection.MemberInfo)"] = extras("GetMemberWithSameMetadataDefinitionAs");
+        t[$"{Type}.MakeArrayType(int)"] = extras("MakeArrayTypeRank");
+        t["System.Array.CreateInstance(System.Type, int[])"] = staticExtras("CreateArrayInstance");
+        t["System.Runtime.CompilerServices.RuntimeHelpers.GetObjectValue(object)"] = staticExtras("GetObjectValue");
+        t["System.Array.SetValue(object, int, int)"] = (g, _, self, a, _) => g.CallCoreLib("TypeExtras", "ArraySetValueRank", self, a[0], LlvmContext.Null(g.Llvm.Ptr));
+        t["System.Array.SetValue(object, int, int, int)"] = (g, _, self, a, _) => g.CallCoreLib("TypeExtras", "ArraySetValueRank", self, a[0], LlvmContext.Null(g.Llvm.Ptr));
+        // No collectible assemblies (closed world); no COM type equivalence: identity.
+        t[$"{Type}.get_IsCollectible()"] = t["System.Reflection.MemberInfo.get_IsCollectible()"] = (g, _, self, _, _) => { g.NullCheck(self); return g.Llvm.False; };
+        t[$"{Type}.IsEquivalentTo(System.Type)"] = (g, _, self, a, _) =>
+        {
+            g.NullCheck(self);
+            return g.Builder.ICmp(LLVMIntPredicate.EQ, self, a[0]);
+        };
+        // Delegate.DynamicInvoke: the delegate type's Invoke through reflection (kept for every delegate type
+        // of programs that call it, ModuleCodeGen.ObjectArrayDelegates.cs).
+        t["System.Delegate.DynamicInvoke(object[])"] = (g, _, self, a, _) =>
+        {
+            g.Module.NoteDynamicInvoke();
+            return g.CallCoreLib("TypeExtras", "DynamicInvoke", self, a[0]);
+        };
+        // Exception.Data (corelib/ExceptionData.cs): csrt_Exception has no field for it.
+        t["System.Exception.get_Data()"] = (g, _, self, _, _) => g.CallCoreLib("ExceptionData", "Get", self);
         t[$"{Type}.get_GenericParameterAttributes()"] = (g, _, self, _, _) =>
             Rt(g, "csrt_type_generic_parameter_attributes", g.Llvm.I32, (self, g.Llvm.Ptr), (Table(g), g.Llvm.Ptr));
         t["System.Array.CreateInstance(System.Type, int)"] = (g, _, _, a, _) =>

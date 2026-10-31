@@ -115,7 +115,7 @@ namespace CsharpcCoreLib
         private static readonly object s_lock = new object();
         private static Dictionary<nint, FieldInfo> s_fields;
 
-        private static FieldInfo Field(byte* record)
+        internal static FieldInfo Field(byte* record)
         {
             lock (s_lock)
             {
@@ -174,5 +174,17 @@ namespace CsharpcCoreLib
             }
             return found;
         }
+    }
+
+    /// <summary>
+    /// The MemberInfo objects of standalone records (ModuleCodeGen.MemberRecords.cs: expression trees' member
+    /// constants, `ldtoken` + GetMethodFromHandle / GetFieldFromHandle), one per member.
+    /// </summary>
+    internal static unsafe class MemberRecords
+    {
+        public static MethodInfo Method(nint record) => (MethodInfo)ReflectionRuntime.Member((byte*)record, false);
+        public static ConstructorInfo Constructor(nint record) => (ConstructorInfo)ReflectionRuntime.Member((byte*)record, true);
+        public static MethodBase MethodBase(nint record, bool constructor) => (MethodBase)ReflectionRuntime.Member((byte*)record, constructor);
+        public static FieldInfo Field(nint record) => FieldReflection.Field((byte*)record);
     }
 }

@@ -150,11 +150,20 @@ public sealed partial class ModuleCodeGen
             CString(Mangler.MetadataName(enumType)),
             Llvm.ConstInt(Llvm.I32, 8 + (long)Types.Target.SizeOf(valueType)),
             Llvm.ConstInt(Llvm.I32, 64 | 128 /* CSRT_MT_VALUE_TYPE | CSRT_MT_ENUM */),
-            map, Llvm.ConstInt(Llvm.I32, 2), Llvm.ConstInt(Llvm.I32, 0),
+            map, Llvm.ConstInt(Llvm.I32, 2), Llvm.ConstInt(Llvm.I32, ElementKind(underlying)),
             LlvmContext.ConstArray(Llvm.Ptr, thunk, Runtime("csrt_valuetype_equals", Llvm.I1, Llvm.Ptr, Llvm.Ptr).Fn,
                 hashThunk)));
         return global;
     }
+
+    /// <summary>The CLR's CorElementType of an enum's underlying type (csrt_unbox lets the two unbox as each other).</summary>
+    private static int ElementKind(ITypeSymbol underlying) => underlying.SpecialType switch
+    {
+        SpecialType.System_Boolean => 2, SpecialType.System_Char => 3, SpecialType.System_SByte => 4, SpecialType.System_Byte => 5,
+        SpecialType.System_Int16 => 6, SpecialType.System_UInt16 => 7, SpecialType.System_Int32 => 8, SpecialType.System_UInt32 => 9,
+        SpecialType.System_Int64 => 10, SpecialType.System_UInt64 => 11, SpecialType.System_IntPtr => 0x18, SpecialType.System_UIntPtr => 0x19,
+        _ => 0,
+    };
 
     /// <summary>CLR full name as Type.FullName reports it: "System.Int32", "Program+Nested", "System.String[]".</summary>
     public static string ClrName(ITypeSymbol type) => type switch

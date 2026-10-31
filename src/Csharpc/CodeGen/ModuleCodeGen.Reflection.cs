@@ -37,6 +37,7 @@ public sealed partial class ModuleCodeGen
     private readonly Dictionary<ITypeSymbol, List<(int Kinds, string Name)>> _damNames = new(SymbolEqualityComparer.Default);
     private readonly Queue<(ITypeSymbol Type, int Kinds, string Name)> _damNamedQueue = new();
     private readonly HashSet<ISymbol> _damInstantiations = new(SymbolEqualityComparer.Default);
+    private readonly Dictionary<ITypeSymbol, List<(int Kinds, string Name)>> _openNamed = new(SymbolEqualityComparer.Default);
     private readonly Dictionary<ITypeSymbol, ReflectionEntry> _reflectionEntries = new(SymbolEqualityComparer.Default);
     private readonly List<ReflectionEntry> _reflectionOrder = [];
     // Open generic registrations: service definition -> implementation definitions (with what they keep).
@@ -151,6 +152,8 @@ public sealed partial class ModuleCodeGen
     // ======================================================================================
 
     /// <summary>The DynamicallyAccessedMemberTypes an attribute list asks for (0: none).</summary>
+    private static readonly bool s_traceDam = Environment.GetEnvironmentVariable("CSHARPC_TRACE_REFLECTION") == "1";
+
     internal static int DamKindsOf(ImmutableArray<AttributeData> attributes)
     {
         foreach (var a in attributes)
@@ -165,13 +168,25 @@ public sealed partial class ModuleCodeGen
     internal void MarkDynamicallyAccessed(ITypeSymbol type, int kinds, string? name = null)
     {
         kinds &= DamConstructors | DamMethods | DamProperties | DamFields;
+        if (s_traceDam) Console.Error.WriteLine($"[csharpc] keep {kinds:x} {(name is null ? "(all)" : name)} of {type}");
         if (kinds == 0 || type is ITypeParameterSymbol || type.TypeKind == TypeKind.Error) return;
         if (type is INamedTypeSymbol named && (named.IsUnboundGenericType || TypeSubstitution.IsOpen(named)))
         {
             // typeof(Impl<>): the closed instantiations the program has keep the same members.
             if (named.IsUnboundGenericType || named.IsDefinition) type = named.OriginalDefinition;
             else return;
-            name = null;
+            // typeof(Impl<>).GetMethod("Name"): the instantiations keep just that member, as ILLink does
+            // (typeof(Expression<>).GetMethod("Compile") must not keep Expression's 400 static factories
+            // for every Expression<TDelegate>).
+            if (name is not null)
+            {
+                if (!_openNamed.TryGetValue(type, out var openNames)) _openNamed[type] = openNames = [];
+                if (!openNames.Contains((kinds, name)))
+                {
+                    openNames.Add((kinds, name));
+                    _closedServicesScanned = 0;
+                }
+            }
         }
         var previous = _damMarks.GetValueOrDefault(type);
         if (name is not null)
@@ -282,6 +297,12 @@ public sealed partial class ModuleCodeGen
                 MarkDynamicallyAccessed(closedType, definitionKinds);
                 any = true;
             }
+            if (_openNamed.TryGetValue(closedType.OriginalDefinition, out var openNames))
+                foreach (var (namedKinds, name) in openNames.ToList())
+                {
+                    MarkDynamicallyAccessed(closedType, namedKinds, name);
+                    any = true;
+                }
             if (!_openGenericPairs.TryGetValue(closedType.OriginalDefinition, out var implementations)) continue;
             foreach (var (implementation, kinds) in implementations)
             {
@@ -555,7 +576,7 @@ public sealed partial class ModuleCodeGen
             {
                 if (m.MethodKind is not (MethodKind.Ordinary or MethodKind.PropertyGet or MethodKind.PropertySet
                         or MethodKind.EventAdd or MethodKind.EventRemove or MethodKind.UserDefinedOperator or MethodKind.Conversion
-                        or MethodKind.ExplicitInterfaceImplementation))
+                        or MethodKind.ExplicitInterfaceImplementation or MethodKind.DelegateInvoke))
                     continue;
                 if (!SymbolEqualityComparer.Default.Equals(t, real) && m.DeclaredAccessibility == Accessibility.Private) continue;
                 if (!Wanted(m, RiPublicMethods, RiNonPublicMethods)) continue;
@@ -745,7 +766,7 @@ public sealed partial class ModuleCodeGen
         var invokable = invoker
             && method.Parameters.All(p => p.RefKind == RefKind.None && p.Type is not (IPointerTypeSymbol or IFunctionPointerTypeSymbol) && !p.Type.IsRefLikeType)
             && method.ReturnType is not (IPointerTypeSymbol or IFunctionPointerTypeSymbol) && !method.ReturnType.IsRefLikeType && method.RefKind == RefKind.None
-            && !method.IsGenericMethod && !method.IsAbstract && !(method.MethodKind == MethodKind.Constructor && method.ContainingType.IsAbstract)
+            && !method.IsAbstract && !(method.MethodKind == MethodKind.Constructor && method.ContainingType.IsAbstract)
             && !TypeSubstitution.IsOpen(method);
         var record = new MethodRecordData
         {
@@ -756,15 +777,45 @@ public sealed partial class ModuleCodeGen
             Invoke = invokable ? ReflectionInvoker(method) : none,
             // An instance method of a class, called as the delegate calls its function: (target, args...).
             Function = invokable && !method.IsStatic && method.MethodKind == MethodKind.Ordinary && method.ContainingType.IsReferenceType
-                && !TypeSubstitution.IsOpen(method.ContainingType) && IsUserMethod(method) ? GetFunction(method).Fn : none,
+                && !TypeSubstitution.IsOpen(method.ContainingType) && IsUserMethod(method) ? GetFunction(method).Fn
+                // A static method, through the thunk with the delegate calling convention (an ignored target first).
+                : invokable && method is { IsStatic: true, MethodKind: MethodKind.Ordinary } && IsUserMethod(method) ? StaticThunk(method)
+                : none,
             Parameters = parameters,
             Attributes = Attributes(MemberAttributeInstances(method, il)),
             MethodAttributes = MethodAttributesOf(method),
-            Flags = 0,
+            Flags = method.IsOverride && InheritsNoAttributes(method) ? 2u /* CSRT_METHOD_NO_INHERITED_ATTRIBUTES */ : 0,
         };
         // The reflection stub is a root of the program: what it calls is reachable (IL failures there are errors).
         if (invokable) NoteReference(method, virtualCall: method.MethodKind != MethodKind.Constructor);
         return _methodRecords[method] = record;
+    }
+
+    /// <summary>
+    /// GetCustomAttributes(inherit: true) of an override adds the inheritable attributes of the methods it
+    /// overrides: when none of them has one, the answer is the method's own list.
+    /// </summary>
+    private bool InheritsNoAttributes(IMethodSymbol method)
+    {
+        for (var m = method.OverriddenMethod; m is not null; m = m.OverriddenMethod)
+        {
+            var definition = m.OriginalDefinition;
+            var il = definition.MetadataToken != 0 ? Il.OwnerOf(definition) : null;
+            IEnumerable<AttributeInstance> attributes;
+            try { attributes = MemberAttributeInstances(m, il); }
+            catch (CompileError) { return false; }
+            if (attributes.Any(a => IsInheritedAttribute(a.Constructor.ContainingType))) return false;
+        }
+        return true;
+    }
+
+    /// <summary>[AttributeUsage(Inherited = ...)] of an attribute class (true when not stated, as in .NET).</summary>
+    private static bool IsInheritedAttribute(INamedTypeSymbol attribute)
+    {
+        for (var t = attribute; t is not null; t = t.BaseType)
+            if (t.GetAttributes().FirstOrDefault(a => a.AttributeClass?.ToDisplayString() == "System.AttributeUsageAttribute") is { } usage)
+                return usage.NamedArguments.FirstOrDefault(n => n.Key == "Inherited").Value.Value as bool? ?? true;
+        return true;
     }
 
     /// <summary>The method's MethodAttributes: from metadata for IL methods, as Roslyn emits them for source.</summary>
@@ -887,7 +938,13 @@ public sealed partial class ModuleCodeGen
         var definition = method.OriginalDefinition;
         if (il is not null)
             return DecodeAttributes(il, il.MethodDefinitionOf(definition).GetCustomAttributes(), IlGenericContext.For(definition)).ToList();
-        return definition.GetAttributes().Select(FromAttributeData).OfType<AttributeInstance>().ToList();
+        var list = definition.GetAttributes().Select(FromAttributeData).OfType<AttributeInstance>().ToList();
+        // Roslyn reports [Extension] as IsExtensionMethod, not among the attributes; the metadata has it
+        // (ExpressionStringBuilder prints `xs.Where(...)` for an extension method's call because of it).
+        if (definition.IsExtensionMethod && PseudoAttribute("System.Runtime.CompilerServices.ExtensionAttribute") is { } extension
+            && !list.Any(a => a.Constructor.ContainingType.Name == "ExtensionAttribute"))
+            list.Insert(0, extension);
+        return list;
     }
 
     private IEnumerable<AttributeInstance> ParameterAttributeInstances(IParameterSymbol p, (IlAssembly Assembly, Parameter Row)? row)
@@ -1025,8 +1082,9 @@ public sealed partial class ModuleCodeGen
         var name = Mangler.Method(method) + "$invoke";
         var type = Llvm.FunctionType(Llvm.Ptr, Llvm.Ptr, Llvm.Ptr);
         try { return SyntheticFunction(name, type, (g, syntax) => g.EmitReflectionInvoker(method, syntax)); }
-        catch (CompileError)
+        catch (CompileError error)
         {
+            if (Environment.GetEnvironmentVariable("CSHARPC_TRACE") == "1") Console.Error.WriteLine($"[csharpc] no reflection invoker for {method}: {error.Message}");
             var message = $"Invoking '{method.ToDisplayString()}' through reflection is not supported by csharpc yet.";
             return SyntheticFunction(name, type, (g, _) => g.EmitThrowingFactory(message));
         }
@@ -1096,7 +1154,7 @@ public sealed partial class ModuleCodeGen
 
     private LLVMTypeRef AttributeRecordType => Llvm.Struct(Llvm.Ptr, Llvm.Ptr, Llvm.Ptr);
     private LLVMTypeRef ParameterRecordType => Llvm.Struct(Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.I32, Llvm.I32);
-    private LLVMTypeRef MethodRecordType => Llvm.Struct(Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.I32, Llvm.I32, Llvm.I32, Llvm.I32, Llvm.Ptr);
+    private LLVMTypeRef MethodRecordType => Llvm.Struct(Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.I32, Llvm.I32, Llvm.I32, Llvm.I32, Llvm.Ptr, Llvm.Ptr);
     private LLVMTypeRef DelegateSignatureType => Llvm.Struct(Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.I32, Llvm.I32);
     private LLVMTypeRef ReflectionInfoType => Llvm.Struct(Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.I32, Llvm.I32, Llvm.I32, Llvm.I32, Llvm.I32, Llvm.I32, Llvm.Ptr);
     private LLVMTypeRef FieldRecordType => Llvm.Struct(Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.I32, Llvm.I32);
@@ -1133,11 +1191,26 @@ public sealed partial class ModuleCodeGen
             p.Name, p.Type, p.DefaultValue, AttributeArray(p.Attributes), Llvm.ConstInt(Llvm.I32, p.Attributes.Count), Llvm.ConstUInt(Llvm.I32, p.Flags))).ToList());
         return Llvm.ConstStruct(m.Name, m.Declaring, m.ReturnType, m.Invoke, parameters, AttributeArray(m.Attributes),
             Llvm.ConstInt(Llvm.I32, m.Parameters.Count), Llvm.ConstInt(Llvm.I32, m.Attributes.Count),
-            Llvm.ConstUInt(Llvm.I32, m.MethodAttributes), Llvm.ConstUInt(Llvm.I32, m.Flags), m.Function.IsNull ? LlvmContext.Null(Llvm.Ptr) : m.Function);
+            Llvm.ConstUInt(Llvm.I32, m.MethodAttributes), Llvm.ConstUInt(Llvm.I32, m.Flags), m.Function.IsNull ? LlvmContext.Null(Llvm.Ptr) : m.Function,
+            MemberIdentity(m.Method));
+    }
+
+    private readonly Dictionary<ISymbol, LLVMValueRef> _memberIdentities = new(SymbolEqualityComparer.Default);
+
+    /// <summary>
+    /// A unique address per member (a writable byte, so LLVM never merges two): the corelib keeps one
+    /// MemberInfo per identity, so the records of one method in different tables compare equal.
+    /// </summary>
+    internal LLVMValueRef MemberIdentity(ISymbol member)
+    {
+        if (_memberIdentities.TryGetValue(member, out var identity)) return identity;
+        identity = Module.AddGlobal("csharpc.reflection.id", Llvm.I8, Llvm.ConstInt(Llvm.I8, 0), constant: false, linkage: LLVMLinkage.Private);
+        return _memberIdentities[member] = identity;
     }
 
     private void FinishReflectionMetadata()
     {
+        FinishMemberRecords();
         LLVMValueRef Header(LLVMValueRef array, int count) => Llvm.ConstStruct(Llvm.ConstInt(Llvm.I64, count), array);
         if (!_reflectionTable.IsNull)
         {

@@ -62,7 +62,11 @@ public sealed partial class FunctionCodeGen
     private LLVMValueRef AllocateEnv(EnvScope scope)
     {
         var size = T.Target.SizeOf(scope.TypeFor(_subst));
-        var env = CallRuntime("csrt_alloc", L.Ptr, [L.Ptr, L.I64], _m.ExternalGlobal("csrt_Object_MT"), L.ConstInt(L.I64, (long)size));
+        // An environment expression trees read is a display class to them (FunctionCodeGen.ExpressionTrees.cs).
+        var mt = scope.Owner.Analysis.HasExpressionTrees && (scope.CapturedByExpressionTree
+            || RoslynClosureModel.For(scope.Owner.Analysis, _m) is { Invalid: null } model && model.EnvOf(scope) is not null)
+            ? DisplayClassMethodTable(scope) : _m.ExternalGlobal("csrt_Object_MT");
+        var env = CallRuntime("csrt_alloc", L.Ptr, [L.Ptr, L.I64], mt, L.ConstInt(L.I64, (long)size));
         env.SetName("env");
         _b.Store(EnvValue(scope.Parent), _b.StructGep(scope.TypeFor(_subst), env, EnvScope.ParentField));
         if (!_envSlots.TryGetValue(scope, out var slot)) _envSlots[scope] = slot = NewTemp(L.Ptr, "env.slot");
@@ -153,8 +157,10 @@ public sealed partial class FunctionCodeGen
     private LLVMValueRef EmitDelegateCreation(IDelegateCreationOperation creation)
     {
         // A lambda converted to Expression<TDelegate> is data (an expression tree), not a delegate.
-        if (creation.Type?.ContainingNamespace?.ToDisplayString() == "System.Linq.Expressions")
-            throw CompileError.Unsupported("expression trees (a lambda converted to System.Linq.Expressions.Expression<T>)", creation);
+        if (ClosureAnalysis.IsExpressionType(creation.Type))
+            return creation.Target is IFlowAnonymousFunctionOperation tree
+                ? EmitExpressionTree(tree.Symbol, tree.Syntax, creation.Type!, creation)
+                : throw CompileError.Unsupported($"converting a {creation.Target.Kind} to an expression tree", creation);
         LLVMValueRef target, fn;
         var capturesNothing = false;
         IMethodSymbol? described = null; // what Delegate.Method reports (ModuleCodeGen.NoteDelegateMethod)

@@ -123,9 +123,12 @@ internal static class Intrinsics
         // A shallow copy of a class instance: same method table, fields copied (the GC needs no barriers).
         t["object.MemberwiseClone()"] = (g, inv) =>
             g.CallRuntime("csrt_object_memberwise_clone", g.Module.Llvm.Ptr, [g.Module.Llvm.Ptr], g.EmitValue(inv.Instance!));
+        // `base.ToString()` / `base.Equals(o)` / `base.GetHashCode()` on System.Object (IL's non-virtual
+        // `call`): Object's own implementation, not the override that is calling it.
         t["object.ToString()"] = (g, inv) =>
         {
             var self = ObjectReceiver(g, inv.Instance!);
+            if (!inv.IsVirtual) return ObjectDefault(g, "csrt_object_to_string_default", g.Module.Llvm.Ptr, [g.Module.Llvm.Ptr], self);
             return g.VirtualCall(inv.TargetMethod, self, [self]);
         };
         t["System.Array.GetLength(int)"] = (g, inv) =>
@@ -284,11 +287,14 @@ internal static class Intrinsics
         t["object.Equals(object)"] = (g, inv) =>
         {
             var self = ObjectReceiver(g, inv.Instance!);
+            if (!inv.IsVirtual)
+                return ObjectDefault(g, "csrt_object_equals_default", g.Module.Llvm.I1, [g.Module.Llvm.Ptr, g.Module.Llvm.Ptr], self, Arg(g, inv, 0));
             return g.VirtualCall(inv.TargetMethod, self, [self, Arg(g, inv, 0)]);
         };
         t["object.GetHashCode()"] = (g, inv) =>
         {
             var self = ObjectReceiver(g, inv.Instance!);
+            if (!inv.IsVirtual) return ObjectDefault(g, "csrt_object_get_hash_code_default", g.Module.Llvm.I32, [g.Module.Llvm.Ptr], self);
             return g.VirtualCall(inv.TargetMethod, self, [self]);
         };
         foreach (var type in new[] { "int", "long", "uint", "ulong", "short", "ushort", "byte", "sbyte", "double", "float", "bool", "char", "string" })
@@ -1105,6 +1111,16 @@ internal static class Intrinsics
     // ---- helpers ------------------------------------------------------------------------------
 
     /// <summary>Receiver for System.Object's virtuals: value types (without an override) are boxed first.</summary>
+    /// <summary>
+    /// A call of System.Object's own ToString/Equals/GetHashCode in csrt. Method tables declare these with a
+    /// generic slot signature, so the call states the real one.
+    /// </summary>
+    private static LLVMValueRef ObjectDefault(FunctionCodeGen g, string name, LLVMTypeRef ret, LLVMTypeRef[] parameters, params LLVMValueRef[] args)
+    {
+        var fn = g.Module.Runtime(name, ret, parameters).Fn;
+        return g.Builder.Call(g.Module.Llvm.FunctionType(ret, parameters), fn, args);
+    }
+
     private static LLVMValueRef ObjectReceiver(FunctionCodeGen g, IOperation instance)
     {
         var value = g.EmitValue(instance);
