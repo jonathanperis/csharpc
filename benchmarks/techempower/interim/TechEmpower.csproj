@@ -1,9 +1,9 @@
 <Project Sdk="Microsoft.NET.Sdk.Web">
   <!--
-    The plaintext and JSON test types of the TechEmpower Framework Benchmarks in the style of the
-    aspnetcore entries that publish with NativeAOT (Kestrel, no MVC, System.Text.Json source
-    generation). The roadmap's M8 harness (benchmarks/techempower/run.sh) builds this project with
-    NativeAOT and with csharpc and loads both the same way.
+    Interim app, not a TechEmpower entry: plaintext and JSON on Kestrel middleware with System.Text.Json
+    source generation, the app M7's harness measured before it took TechEmpower's real entry
+    (benchmarks/techempower/app). It stays measured, outside M7's verdict, while csharpc can't build
+    the real entry yet, so throughput work keeps a csharpc-vs-NativeAOT signal.
   -->
   <PropertyGroup>
     <TargetFramework>net11.0</TargetFramework>

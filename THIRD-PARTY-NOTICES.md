@@ -88,6 +88,19 @@ System.Text.Json files (all under `src/Csharpc/corelib/Json/`):
 | `JsonNodes.cs` | `System.Text.Json`: `JsonNode`, `JsonObject`, `JsonArray`, `JsonValue*` |
 | `SerializerOptions.cs`, `SerializerMetadata.cs`, `SerializerConverters.cs`, `SerializerObjects.cs`, `Serializer.cs` | `System.Text.Json`: `JsonSerializer*`, `JsonSerializerOptions`, `JsonSerializerContext`, `JsonTypeInfo*`, `JsonPropertyInfo*`, `JsonMetadataServices*`, `PolymorphicTypeResolver`, `JsonNamingPolicy` (`JsonSeparatorNamingPolicy`), the value, enum, object and collection converters, `ThrowHelper.Serialization` |
 
+## TechEmpower Framework Benchmarks (TechEmpower/FrameworkBenchmarks)
+
+- **What:** `benchmarks/techempower/app/` is TechEmpower's ASP.NET Core [Platform] entry,
+  `frameworks/CSharp/aspnetcore/src/Platform` with `appsettings.postgresql.json`, copied for M7's harness
+  (net11.0 instead of net10.0, a cleared package source mapping in `NuGet.Config`). Its files keep their
+  upstream headers (.NET Foundation, Apache License 2.0). The harness (`benchmarks/techempower/harness.py`)
+  runs TechEmpower's toolset (test-type verification, PostgreSQL image, wrk pipeline script) from a
+  checkout of the same commit; it is not copied into this repository. None of it is part of the compiler
+  or the release bundles.
+- **Source:** <https://github.com/TechEmpower/FrameworkBenchmarks>, commit
+  `57d92fbec6f8fd7431bc77326dd0484e60c96e20`.
+- **License:** BSD 3-Clause (the repository); Apache License 2.0 (the entry's sources, .NET Foundation).
+
 ## ICU (International Components for Unicode)
 
 - **What:** csharpc does not include ICU. Programs load the ICU libraries installed on the machine at run

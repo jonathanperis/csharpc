@@ -1,0 +1,38 @@
+﻿<Project Sdk="Microsoft.NET.Sdk.Web">
+  <!--
+    TechEmpower's ASP.NET Core [Platform] entry, the one its "aspnetcore-aot" test publishes with
+    NativeAOT: TechEmpower/FrameworkBenchmarks frameworks/CSharp/aspnetcore/src/Platform at commit
+    57d92fbec6f8fd7431bc77326dd0484e60c96e20, copied unchanged (with appsettings.postgresql.json)
+    except for net10.0 -> net11.0 (the SDK global.json pins) and NuGet.Config's package source mapping.
+    benchmarks/techempower/harness.py builds it the way the entry's dockerfiles do.
+  -->
+
+  <PropertyGroup>
+    <TargetFramework>net11.0</TargetFramework>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <IsTestAssetProject>true</IsTestAssetProject>
+    <LangVersion>preview</LangVersion>
+    <UserSecretsId>38063504-d08c-495a-89c9-daaad2f60f31</UserSecretsId>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <DefineConstants Condition=" '$(DatabaseProvider)' == '' or '$(DatabaseProvider)' == 'Npgsql'">$(DefineConstants);NPGSQL</DefineConstants>
+    <DefineConstants Condition=" '$(DatabaseProvider)' == 'MySqlConnector' ">$(DefineConstants);MYSQLCONNECTOR</DefineConstants>
+  </PropertyGroup>
+  
+  <ItemGroup>
+    <None Include="appsettings.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Npgsql" Version="10.0.0" />
+    <PackageReference Include="MySqlConnector" Version="2.5.0" />
+    <PackageReference Include="Dapper" Version="2.1.66" />
+    <PackageReference Include="RazorSlices" Version="0.9.5" />
+  </ItemGroup>
+
+  <ItemGroup Condition="$(PublishAot) == 'true'">
+    <RuntimeHostConfigurationOption Include="System.Threading.ThreadPool.HillClimbing.Disable" Value="true" />
+  </ItemGroup>
+
+</Project>

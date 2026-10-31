@@ -1,52 +1,96 @@
-using System.Text.Json.Serialization;
+﻿// Copyright (c) .NET Foundation. All rights reserved.
+// Licensed under the Apache License, Version 2.0. See License.txt in the project root for license information.
 
-// TechEmpower's plaintext and JSON test types (https://github.com/TechEmpower/FrameworkBenchmarks/wiki/Project-Information-Framework-Tests-Overview):
-// /plaintext answers "Hello, World!" as text/plain, /json serializes {"message":"Hello, World!"} for
-// every request; both carry Kestrel's Server and Date headers. Middleware rather than MapGet: minimal
-// API endpoints need the request delegate generator, which this harness doesn't want to depend on.
-var builder = WebApplication.CreateSlimBuilder(args);
-builder.Logging.ClearProviders();
-// TechEmpower runs the server on port 8080; ASPNETCORE_URLS / --urls still override it.
-if (builder.Configuration["urls"] is null) builder.WebHost.UseUrls("http://0.0.0.0:8080");
-var app = builder.Build();
+using System;
+using System.Runtime.InteropServices;
+using System.Text;
+using System.Threading.Tasks;
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Hosting;
 
-app.Run(context =>
+namespace PlatformBenchmarks;
+
+public class Program
 {
-    var path = context.Request.Path.Value;
-    var response = context.Response;
-    if (path == "/plaintext")
+    public static string[] Args;
+
+    public static async Task Main(string[] args)
     {
-        response.StatusCode = 200;
-        response.ContentType = "text/plain";
-        response.ContentLength = Payloads.Plaintext.Length;
-        return response.Body.WriteAsync(Payloads.Plaintext).AsTask();
+        Args = args;
+
+        Console.WriteLine(Encoding.UTF8.GetString(BenchmarkApplication.ApplicationName));
+        Console.WriteLine(Encoding.UTF8.GetString(BenchmarkApplication.Paths.Plaintext));
+        Console.WriteLine(Encoding.UTF8.GetString(BenchmarkApplication.Paths.Json));
+        Console.WriteLine(Encoding.UTF8.GetString(BenchmarkApplication.Paths.FortunesRaw));
+        Console.WriteLine(Encoding.UTF8.GetString(BenchmarkApplication.Paths.SingleQuery));
+        Console.WriteLine(Encoding.UTF8.GetString(BenchmarkApplication.Paths.Updates));
+        Console.WriteLine(Encoding.UTF8.GetString(BenchmarkApplication.Paths.MultipleQueries));
+        DateHeader.SyncDateTimer();
+
+        var host = BuildWebHost(args);
+        var config = (IConfiguration)host.Services.GetService(typeof(IConfiguration));
+
+        try
+        {
+            await BenchmarkApplication.RawDb.PopulateCache();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error trying to populate database cache: {ex}");
+        }
+
+        await host.RunAsync();
     }
-    if (path == "/json")
+
+    public static IHost BuildWebHost(string[] args)
     {
-        var body = System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(new JsonMessage { Message = "Hello, World!" }, AppJsonContext.Default.JsonMessage);
-        response.StatusCode = 200;
-        response.ContentType = "application/json";
-        response.ContentLength = body.Length;
-        return response.Body.WriteAsync(body).AsTask();
+        Console.WriteLine($"BuildWebHost()");
+        Console.WriteLine($"Args: {string.Join(' ', args)}");
+
+        var config = new ConfigurationBuilder()
+            .AddJsonFile("appsettings.json")
+#if DEBUG
+            .AddUserSecrets<Program>()
+#endif
+            .AddEnvironmentVariables()
+            .AddCommandLine(args)
+            .Build();
+
+        var appSettings = config.Get<AppSettings>();
+        Console.WriteLine($"ConnectionString: {appSettings.ConnectionString}");
+
+        BenchmarkApplication.RawDb = new RawDb(appSettings);
+
+        var hostBuilder = Host.CreateDefaultBuilder(args)
+            .ConfigureWebHost(webHostBuilder =>
+            {
+                webHostBuilder
+                    .UseBenchmarksConfiguration(config)
+                    .UseKestrel((context, options) =>
+                    {
+                        var endPoint = context.Configuration.CreateIPEndPoint();
+
+                        options.Listen(endPoint, builder =>
+                        {
+                            builder.UseHttpApplication<BenchmarkApplication>();
+                        });
+                    })
+                    .UseStartup<Startup>();
+
+                webHostBuilder.UseSockets(options =>
+                {
+                    options.WaitForDataBeforeAllocatingBuffer = false;
+
+                    if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
+                    {
+                        options.UnsafePreferInlineScheduling = true;
+                    }
+                });
+            });
+
+        var host = hostBuilder.Build();
+
+        return host;
     }
-    response.StatusCode = 404;
-    return Task.CompletedTask;
-});
-
-app.Run();
-
-static class Payloads
-{
-    public static readonly byte[] Plaintext = "Hello, World!"u8.ToArray();
-}
-
-public struct JsonMessage
-{
-    [JsonPropertyName("message")]
-    public string Message { get; set; }
-}
-
-[JsonSerializable(typeof(JsonMessage))]
-internal partial class AppJsonContext : JsonSerializerContext
-{
 }

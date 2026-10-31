@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # The IL survey's `aspnetcore` target (docs/18-compatibility.md#aspnet-core-and-the-techempower-app):
-# every method of the ASP.NET Core assemblies the TechEmpower app (benchmarks/techempower/app) reaches
+# every method of the ASP.NET Core assemblies the interim TechEmpower app (benchmarks/techempower/interim) reaches
 # — Microsoft.AspNetCore.*, Microsoft.Extensions.*, Microsoft.Net.Http.Headers, System.IO.Pipelines,
 # System.Net.* — lowered by `csharpc --il-survey`, ranked by the number of methods each item stops.
 #
@@ -15,7 +15,7 @@ CSHARPC="${CSHARPC:-$ROOT/src/Csharpc/bin/Release/net11.0/csharpc.dll}"
 WORK="${SURVEY_WORK:-$(mktemp -d)}"
 mkdir -p "$WORK"
 
-dotnet "$CSHARPC" "$ROOT/benchmarks/techempower/app/TechEmpower.csproj" -v -O0 --emit llvm-bc -o "$WORK/app.bc" > "$WORK/app.log" 2>&1 || true
+dotnet "$CSHARPC" "$ROOT/benchmarks/techempower/interim/TechEmpower.csproj" -v -O0 --emit llvm-bc -o "$WORK/app.bc" > "$WORK/app.log" 2>&1 || true
 mapfile -t names < <(sed -n 's/^  framework IL: \([^ ]*\) .*/\1/p' "$WORK/app.log" | sort -u)
 (( ${#names[@]} > 0 )) || { echo "aspnetcore.sh: csharpc chose no framework assemblies for the app:" >&2; tail -20 "$WORK/app.log" >&2; exit 1; }
 
