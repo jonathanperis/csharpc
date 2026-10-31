@@ -24,3 +24,9 @@ var media = MediaTypeHeaderValue.Parse("text/plain; charset=utf-8");
 Console.WriteLine($"{media.MediaType} {media.Charset} {media.Parameters.Count}");
 Console.WriteLine(MediaTypeHeaderValue.TryParse("application/json;q=0.5", out var json) + " " + json!.Quality);
 Console.WriteLine(StringValues.Concat("a", new StringValues(["b", "c"])));
+
+// Minimal APIs' JSON options read JsonSerializer.IsReflectionEnabledByDefault in their constructor: the
+// switch, not a serialization, so it compiles (csharpc once reported it as reflection-based serialization).
+var jsonOptions = new Microsoft.AspNetCore.Http.Json.JsonOptions().SerializerOptions;
+Console.WriteLine($"{jsonOptions.PropertyNamingPolicy == System.Text.Json.JsonNamingPolicy.CamelCase} {jsonOptions.PropertyNameCaseInsensitive} {jsonOptions.TypeInfoResolver is not null}");
+Console.WriteLine(System.Text.Json.JsonSerializer.IsReflectionEnabledByDefault);

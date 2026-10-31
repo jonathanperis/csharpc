@@ -576,7 +576,7 @@ NativeAOT, csharpc and the JIT, checks every build with TechEmpower's test reque
 status, `Content-Type`, `Content-Length`, `Server`, `Date`, bodies, 16 pipelined requests;
 csharpc's normalized responses must equal NativeAOT's), loads it with wrk the way TechEmpower does and
 writes requests/s, latency, peak RSS, binary size and start-up time; when csharpc can't build the app it
-lists what stops it (`blockers.py`).
+lists what stops it (`blockers.py`) and the job fails, as it does when a build fails the checks.
 
 csharpc reads `<FrameworkReference Include="Microsoft.AspNetCore.App">` (implicit in `Microsoft.NET.Sdk.Web`)
 and `--framework Microsoft.AspNetCore.App`: Roslyn binds against the ASP.NET Core reference pack, and the

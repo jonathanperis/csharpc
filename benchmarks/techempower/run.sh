@@ -7,8 +7,9 @@
 #
 # Writes DIR/results.md (Markdown table: requests/s, latency, peak RSS, binary size, start-up),
 # DIR/<build>.verify.txt (normalized responses; csharpc's must equal NativeAOT's), DIR/<build>.wrk.txt,
-# and, when csharpc can't build the app yet, DIR/csharpc-blockers.md (its diagnostics ranked by the
-# number of methods each item stops). Linux only (taskset, /proc). Heavy: meant for CI
+# and, when csharpc can't build the app, DIR/csharpc-blockers.md (its diagnostics ranked by the
+# number of methods each item stops). Exits 1 when a requested build fails to build, start or pass the
+# checks. Linux only (taskset, /proc). Heavy: meant for CI
 # (.github/workflows/techempower.yml); locally use --no-load.
 #
 # Environment: DURATION=15 (seconds per load run), WARMUP=5, PORT=8080, CSHARPC_FLAGS="-O2",
@@ -238,3 +239,13 @@ fi
   fi
 } > "$OUT/results.md"
 cat "$OUT/results.md"
+
+# A requested build that doesn't build, start or answer like NativeAOT fails the run (after the report):
+# csharpc builds the app since M7 began, so a blockers table is a regression, not an informational result.
+failed=()
+for build in aot csharpc jit; do
+  wants "$build" || continue
+  case "${STATUS[$build]:-}" in "build failed"* | "does not"*) failed+=("$build: ${STATUS[$build]}"); continue ;; esac
+  [[ "${ROW[$build,verify]:-}" == FAIL* ]] && failed+=("$build: ${ROW[$build,verify]}")
+done
+if (( ${#failed[@]} )); then printf 'FAILED %s\n' "${failed[@]}" >&2; exit 1; fi

@@ -36,6 +36,15 @@ attribute factories) with a ~25 % faster build.
 
 ## Open branches
 
+- `ci/techempower-json-switch` — TechEmpower compiles again (broken since `d42b5cc`: the IL check for
+  reflection-based JSON also rejected the `JsonSerializer.IsReflectionEnabledByDefault` getter that
+  ASP.NET Core's `JsonOptions()` reads; `tests/il.sh` IlAspNetCoreApp covers it), and the TechEmpower job now
+  fails when a build fails (run 41179977525 had passed with only a blockers table). CI 41187053940 green;
+  TechEmpower 41187053942: responses identical to NativeAOT; plaintext 503k / 496k vs 548k / 522k req/s
+  (0.92 / 0.95), JSON 74.7k / 80.1k / 79.3k vs 76.5k / 80.4k / 79.8k (0.98 / 1.00 / 0.99), JSON p99 at 256
+  4.20 vs 6.04 ms, start-up 21 vs 27 ms, RSS 12.8 → 84.4 vs 17.4 → 64.3 MiB, executable 11.1 MiB (was 15.6)
+  vs 8.9, build 240 s (was 410) vs 20 s.
+
 - `ci/expression-tree-size` — M7 build time and size: method-table slots only for constructed classes
   (rapid type analysis), generic virtual methods through dispatchers over constructed classes, array/string
   interface helpers per dispatched member, invariant interfaces dispatched per instantiation, FullNames

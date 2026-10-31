@@ -20,6 +20,9 @@ public sealed partial class FunctionCodeGen
     {
         // The library method as bound (S() would already name the corelib's JsonSerializer).
         if (inv.TargetMethod.ContainingType is not { Name: "JsonSerializer", ContainingNamespace: { Name: "Json", ContainingNamespace: { Name: "Text", ContainingNamespace.Name: "System" } } }) return;
+        // Only the Serialize*/Deserialize* methods serialize: the IsReflectionEnabledByDefault getter is the
+        // switch that code (ASP.NET Core's JsonOptions()) reads to pick a resolver, and reads like any property.
+        if (inv.TargetMethod.MethodKind != MethodKind.Ordinary) return;
         if (target.Parameters.Any(JsonReflectionContexts.IsJsonMetadataParameter)) return;
         // Compiled code: the metadata of reflection-based serialization is generated from the C# sources of the
         // call sites (JsonReflectionContexts), which IL doesn't have; without it the call would throw at run time.
