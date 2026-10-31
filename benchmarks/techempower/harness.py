@@ -772,7 +772,7 @@ def verdict(metric):
         c = s.get("csharpc")
         metric["verdict"] = "no result" if not c else "met" if max(c) == 0 else "not met"
         return
-    if "aot" not in med:
+    if "aot" not in med or metric.get("unmeasured"):
         metric["verdict"] = "n/a"
         return
     if "csharpc" not in med:
@@ -834,8 +834,13 @@ def app_metrics(app, built, measures):
         for level in spec["levels"]:
             def samples(key):
                 return {b: [lv.get(key) for r in rounds if r["build"] == b for lv in r["levels"] if lv["level"] == level] for b in BUILDS}
+            served = {b for b, v in samples("rps").items() if b != "jit" and any(x for x in v if x)}
             for key, label, unit, better in LEVEL_METRICS:
-                add(test, test, level, key, label, unit, better, samples(key))
+                kw = {}
+                if key.startswith("lat_") and not {b for b, v in samples(key).items() if any(x is not None for x in v)} >= served:
+                    # A build served the level but wrk recorded no latency for it (pipelined batches): unmeasured.
+                    kw["unmeasured"] = True
+                add(test, test, level, key, label, unit, better, samples(key), **kw)
             errs = {b: [(lv.get("socket_errors") or 0) + (lv.get("non_2xx") or 0) for r in rounds if r["build"] == b
                         for lv in r["levels"] if lv["level"] == level] for b in BUILDS}
             add(test, test, level, "errors", "errors (socket + non-2xx)", "", LOWER, errs, requirement=True)

@@ -73,9 +73,10 @@ frame layout of `-g` builds.
   peak heap). A runtime built with `CSHARPC_RUNTIME_CFLAGS=-DCSRT_ALLOC_PROFILE` (extra C flags for the
   runtime, part of its cache key) also prints the objects collections freed, by type, top 40 by bytes:
   what the program allocates and drops, without touching the allocation fast path.
-- The TechEmpower workflow's `profile` input does all of this on CI (benchmarks/techempower/run.sh,
-  `PROFILE=1`): perf profiles, annotated hot functions and the allocation profile of the server under
-  load, next to NativeAOT's profiles.
+- The TechEmpower workflow's `profile` input does all of this on CI (benchmarks/techempower/harness.py,
+  `PROFILE=1`, the levels in `PROFILE_SCENARIOS`): perf profiles, annotated hot functions and the
+  allocation profile of the server under load (`<build>.<test>-<level>.perf.txt` / `.annotate.txt` in
+  the measure job's artifact), next to NativeAOT's profiles.
 
 ## Limitations / future work
 

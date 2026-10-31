@@ -272,8 +272,7 @@ faster and as safe on the benchmarks, the GC stress run and dotnet's own AOT tes
 (`System.Native`, `System.Globalization.Native`), as NativeAOT does.
 
 ### M7 — TechEmpower: the csharpc CLI beats NativeAOT
-Starts only when M2–M6 are complete (the owner's rule, 2026-10-30); until then the CI harness below keeps
-measuring the gap, without dedicated work on it. The ASP.NET Core entries of the
+Started 2026-10-31, once M2–M6 were complete (the owner's rule, 2026-10-30). The ASP.NET Core entries of the
 [TechEmpower Framework Benchmarks](https://github.com/TechEmpower/FrameworkBenchmarks) that .NET runs
 with NativeAOT, built by the standalone `csharpc` CLI from the same sources (the fork is M8, and M9
 repeats this through it), run in TechEmpower's benchmark environment and beat the NativeAOT-compiled
@@ -286,19 +285,75 @@ TechEmpower's own results for every test type (plaintext, JSON, single query, mu
 updates, cached queries) at every concurrency and query-count level they use (requests per second, the
 latency distribution, zero errors); resources under load (peak and steady RSS, CPU time per request,
 threads, GC pauses); and deployment (start-up to the first response, idle RSS, executable size, build time,
-container image size). A tie or a loss on any of them means M7 isn't done. The first M7 step extends the
-harness to report all of them side by side. Baseline when this was set (TechEmpower run
+container image size). A tie or a loss on any of them means M7 isn't done. The harness reports all of them
+side by side with a verdict each (below). Baseline when this was set, on the interim app (TechEmpower run
 41187053942, 4-vCPU runner): behind on plaintext (0.92 / 0.95 of NativeAOT), JSON (0.98 / 1.00 / 0.99), RSS
 after load (84.4 vs 64.3 MiB), size (11.1 vs 8.9 MiB) and build (240 vs 20 s); ahead on JSON p99 (4.20 vs
 6.04 ms), start-up (21 vs 27 ms) and idle RSS (12.8 vs 17.4 MiB).
 
 What it takes, beyond M2–M6: ASP.NET Core and Kestrel compiled from IL (hosting, dependency
 injection, configuration, logging, `System.IO.Pipelines`, the HTTP/1.1 parser, `System.Text.Json`
-source generation, the database driver the entries use), the thread pool, sockets and async I/O at
-production throughput on Linux (epoll), and allocation/GC behaviour under sustained load. Tracked
-early by a local harness that builds the same app with NativeAOT and csharpc and loads it with the
-TechEmpower test types (plaintext, JSON, then the database ones) on CI, so the gap is measured long
-before the fork exists.
+source generation), the entry's libraries (Npgsql, RazorSlices, `Microsoft.Extensions.Caching.Memory`)
+and, for the project input, the source generators its build runs (Razor, RazorSlices), the thread pool,
+sockets and async I/O at production throughput on Linux (epoll), and allocation/GC behaviour under
+sustained load.
+
+**The harness** (`benchmarks/techempower/harness.py`, the `TechEmpower` workflow; branch `ci/m7-harness`,
+2026-10-31). The app is TechEmpower's ASP.NET Core [Platform] entry itself, the one its `aspnetcore-aot`
+test publishes with NativeAOT (`frameworks/CSharp/aspnetcore/src/Platform` at `57d92fb`, unchanged but
+for net11.0), on PostgreSQL in TechEmpower's own database image. Builds: NativeAOT and the JIT as the
+entry's dockerfiles build them (`OptimizationPreference=Speed`, `GarbageCollectionAdaptationMode=0`;
+the JIT with ReadyToRun and hill climbing off); csharpc from the same IL NativeAOT compiles (`dotnet
+build` with the AOT properties, then `csharpc Platform.dll`), with `csharpc Platform.csproj` checked
+alongside. Every build is verified with TechEmpower's own verification code from the pinned checkout
+(real-run rules: exact query and row counts through `pg_stat_statements`), and csharpc's normalized
+answers must equal NativeAOT's and the JIT's; a build that fails isn't loaded and fails the run. Load:
+TechEmpower's scripts (primer, warm-up at 512 connections, then each level for 15 s) at every level it
+uses: plaintext 256–16384 connections pipelined ×16, JSON, single query and fortunes 16–512
+connections, multiple queries and updates 1–20 queries and cached queries 1–100 at 512 connections, 37
+levels. Metrics per level: requests/s; latency average, stdev, max, p50, p75, p90, p99; socket errors
+and non-2xx answers; from `/proc`, the server's peak and steady RSS, threads and CPU time per request.
+Per run: peak RSS and csharpc's GC pause total (NativeAOT reports its pause time only in-process).
+Deployment: start-up to the first response (5 starts per round), idle RSS, executable size, build time and a minimal runtime image
+per build (chiseled runtime-deps for the native builds, chiseled aspnet for the JIT, smoke-tested). Each
+measure job runs one test type for all builds on one runner, 3 rounds for NativeAOT and csharpc in
+alternating order (the JIT once). The verdict per metric compares medians: better or worse only when
+the difference exceeds both builds' run-to-run range (max − min) and 1 % (exact metrics such as sizes:
+any difference; single samples such as the build time: 5 %); errors are a requirement (zero), not a
+comparison. `results.json` holds every sample; `results.md` opens with "M7 finish line: X of Y metrics
+beat NativeAOT". 456 compared metrics; a full run takes about 50 minutes of wall time in 13 jobs.
+
+Status (2026-10-31, branch `ci/m7-harness`, TechEmpower run 41214295059): **M7 finish line: 0 of 456
+metrics beat NativeAOT. csharpc doesn't build the entry yet**, so every metric is "no csharpc result".
+NativeAOT and the JIT pass TechEmpower's verification for all seven test types with identical answers.
+From IL, csharpc stops at 44 methods (32 items; [18-compatibility.md](18-compatibility.md#techempowers-platform-entry)):
+Npgsql (`Dns.GetHostAddressesAsync`, setting `Socket.Blocking`, `ConcurrentExclusiveSchedulerPair`,
+`EncodingExtensions.GetString(ReadOnlySequence<byte>)`, `SslStream`/`SslClientAuthenticationOptions`
+members, `PollingCounter`, `Version(string)`, `string.Normalize`, `decimal.Scale`/`CreateChecked`,
+`Array.GetValue/SetValue(int[])`, culture string comparers), `MemoryCache` (the `AlternateLookup` struct of
+`ConcurrentDictionary`), RazorSlices' hot-reload and nullability reflection, hosting's `UseStartup` reflection
+(`Activator.CreateInstance(Type, object[])`, `Assembly.DefinedTypes`, assembly attributes), and Kestrel's
+certificate and QUIC paths. The project input stops earlier: csharpc doesn't run the Razor and RazorSlices
+source generators, so the fortunes template classes don't exist. `csharpc Platform.dll` also needs
+`--framework Microsoft.AspNetCore.App`: it doesn't take the frameworks from `Platform.runtimeconfig.json`.
+NativeAOT on the entry (ratios to the JIT within each job; runners differ by up to 2× between jobs):
+plaintext 2.46 M / 1.90 M / 1.58 M / 1.31 M req/s at 256 / 1024 / 4096 / 16384 connections (the JIT at 1.00 /
+0.98 / 0.92 / 1.04 of that), JSON 165 k–157 k req/s (0.95–0.99 of the JIT), database tests at 0.89–1.02 of
+the JIT except updates (0.56–0.82: the JIT ran after NativeAOT's first round on the same database), start-up
+551 ms (the entry fills its cache with 10 000 queries first; JIT 1 186 ms), idle RSS 37.7 MiB (JIT 76.3),
+executable 16.4 MiB, build 31 s, image 32.7 MiB (chiseled runtime-deps; JIT 125.2 MiB). The harness also
+found a csharpc socket difference: `Socket.Bind` doesn't set `SO_REUSEADDR` as .NET does on Unix, so a
+server can't rebind a port with TIME_WAIT connections, and Linux then refuses even a .NET server the port
+csharpc just served (the harness gives every start its own port). The interim app, measured alongside:
+23 of 106 metrics beat NativeAOT (41 ties, 42 worse; zero errors at all 10 levels). Ahead: start-up
+11 vs 23 ms, idle RSS 12.9 vs 17.7 MiB, threads (8 vs 13–14), RSS at JSON 512 (57 vs 81 MiB). Behind:
+pipelined plaintext 0.93–0.97 of NativeAOT's requests/s above 256 connections (a tie at 256), JSON 0.90–0.93 (a tie at
+512), CPU per JSON request (+5–10 %), RSS under pipelined load (58 vs 28 MiB at 256 connections, 744 vs 260
+MiB at 16384), executable 11.0 vs 8.9 MiB, image 27.3 vs 25.2 MiB, build 154 vs 16 s. Next: the
+blockers above (the other M7 work), then the gaps the verdicts list.
+
+History, on the interim app (the plaintext/JSON middleware app the harness measured until 2026-10-31,
+now `benchmarks/techempower/interim`):
 
 Status (2026-10-24, branch `m8-harness`): the harness exists — `benchmarks/techempower/app` (plaintext
 and JSON on Kestrel, System.Text.Json source generation) and the `TechEmpower` workflow, which builds it
