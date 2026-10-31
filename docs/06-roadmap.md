@@ -268,10 +268,14 @@ repeats this through it), run in TechEmpower's benchmark environment and beat th
 entries. Same sources, same
 test types, same harness; only the AOT compiler differs.
 
-**Done when** the csharpc build beats the NativeAOT build on every number the harness reports, held over
-repeated CI runs: plaintext and JSON throughput at every connection count (and the database test types once
-they are in the harness), JSON p99 latency, start-up time, peak RSS idle and after load, executable size and
-build time. A tie or a loss on any of them means M7 isn't done. Baseline when this was set (TechEmpower run
+**Done when** the csharpc build beats the NativeAOT build on every metric measured, held over repeated CI
+runs; the set is open-ended, and anything TechEmpower's toolset or the harness reports joins it. Planned:
+TechEmpower's own results for every test type (plaintext, JSON, single query, multiple queries, fortunes,
+updates, cached queries) at every concurrency and query-count level they use (requests per second, the
+latency distribution, zero errors); resources under load (peak and steady RSS, CPU time per request,
+threads, GC pauses); and deployment (start-up to the first response, idle RSS, executable size, build time,
+container image size). A tie or a loss on any of them means M7 isn't done. The first M7 step extends the
+harness to report all of them side by side. Baseline when this was set (TechEmpower run
 41187053942, 4-vCPU runner): behind on plaintext (0.92 / 0.95 of NativeAOT), JSON (0.98 / 1.00 / 0.99), RSS
 after load (84.4 vs 64.3 MiB), size (11.1 vs 8.9 MiB) and build (240 vs 20 s); ahead on JSON p99 (4.20 vs
 6.04 ms), start-up (21 vs 27 ms) and idle RSS (12.8 vs 17.4 MiB).
