@@ -46,7 +46,7 @@ attribute factories) with a ~25 % faster build.
 - `ci/il-main` — M5, the program as IL: `csharpc app.dll` (entry point from the CLI header, the IL
   assembly's identity, module initializers, runtimeconfig.json next to it) and `tests/run.sh --via-il`,
   which runs every sample through `dotnet build` → csharpc (informational CI workflow `il-main.yml`,
-  `tests/il-main-known-failures.txt`). 451/468 samples pass that way, stack traces included; the first
+  `tests/il-main-known-failures.txt`). 454/471 samples pass that way, stack traces included; the first
   runs found 72 failures, 19 of them wrong output, now fixed (ADR 0010, "The program as IL"). Samples 700–702.
 - `ci/dynamic` — `dynamic` bound at compile time with Roslyn, per run-time type ([ADR 0019](adr/0019-dynamic.md)):
   members, overloads by run-time type, operators, conversions, indexers, events, delegates, ExpandoObject, DynamicObject,
@@ -76,7 +76,7 @@ both pass on `ci/expression-trees`, [18](18-compatibility.md#expression-trees)),
 1. M4: merge the branches above, then rerun the Compatibility workflow for the parity number.
 2. M2: library gaps as programs reach them.
 3. M5: user code through the IL front-end (what `csc` hands the fork). `csharpc app.dll` and the
-   `--via-il` differential mode exist (`ci/il-main`, 451/468); left, by count: JSON metadata for IL
+   `--via-il` differential mode exist (`ci/il-main`, 454/471); left, by count: JSON metadata for IL
    programs (8 samples), `dynamic` from IL (7), `[GeneratedRegex]` output (1), non-generic enumeration of
    rectangular arrays (1); then `-g` from the PDB. The Roslyn path stays for standalone use; gaps between
    the two are bugs.

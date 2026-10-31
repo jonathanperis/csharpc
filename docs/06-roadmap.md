@@ -19,7 +19,7 @@ every failure is a clean "not supported by csharpc yet" diagnostic.
 | `dotnet build -p:UseCsharpc=true`, `dotnet publish -p:PublishCsharpc=true` | ✅ | `Csharpc.Sdk` package |
 | File-based apps (`#:property` directives) | ✅ | |
 | Assemblies without sources: `-r X.dll`, `<Reference>`, NuGet `PackageReference` | 🟡 | IL front-end (M5): the IL side is complete except `calli`/TypedReference; packages still hit BCL gaps (M2) |
-| The program as IL: `csharpc app.dll` (csc's output, the dotnet pipeline's input) | 🟡 | M5: 451/468 samples through `tests/run.sh --via-il`; no reflection-based JSON or `dynamic` from IL yet (diagnostics) |
+| The program as IL: `csharpc app.dll` (csc's output, the dotnet pipeline's input) | 🟡 | M5: 454/471 samples through `tests/run.sh --via-il`; no reflection-based JSON or `dynamic` from IL yet (diagnostics) |
 
 ### Types
 
@@ -194,7 +194,7 @@ top pure-IL packages still need ([18-compatibility.md](18-compatibility.md#il-fr
 main assembly — entry point from the CLI header, identity, module initializers and runtimeconfig.json
 from the build ([ADR 0010](adr/0010-il-frontend.md#the-program-as-il-2026-10-30)). `tests/run.sh --via-il`
 runs every sample through `dotnet build` → csharpc against the same recordings (CI: the informational
-`il-main.yml`): **451 / 468** pass (2026-10-30, -O0 and -O2), stack traces included (names from the
+`il-main.yml`): **454 / 471** pass (2026-10-30, -O0 and -O2), stack traces included (names from the
 assembly, lines from its PDB); the rest are diagnostics or `NotSupportedException` — reflection-based JSON
 (8), `dynamic` (7), `[GeneratedRegex]` output (1), rectangular-array enumeration (1). Gaps between the two
 front-ends are bugs.
