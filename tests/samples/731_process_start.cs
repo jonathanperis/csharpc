@@ -1,21 +1,11 @@
 // Process.Start on Linux and macOS (csharpc's driver starts clang and dotnet this way): ArgumentList, the
 // working directory and environment, redirected standard output and error, exit codes (128 + the signal
-// for a killed child), a program that doesn't exist, and output larger than a pipe's buffer. On Windows
-// csharpc's Process.Start is an explicit NotSupportedException so far: the sample prints the same lines there.
+// for a killed child), a program that doesn't exist, and output larger than a pipe's buffer. It runs sh, so
+// it is a Unix program (tests/platform-skips.txt).
 using System;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Linq;
-
-if (OperatingSystem.IsWindows() || OperatingSystem.IsWasi())
-{
-    Console.WriteLine("out: [/|out value|] err: [err|] exit 3 exited True");
-    Console.WriteLine("large: 20000 last line19999 err done");
-    Console.WriteLine("signal: 137");
-    Console.WriteLine("missing: 2 True");
-    Console.WriteLine("not started: No process is associated with this object.");
-    return;
-}
 
 var psi = new ProcessStartInfo("sh") { RedirectStandardOutput = true, RedirectStandardError = true, WorkingDirectory = "/" };
 psi.ArgumentList.Add("-c");
