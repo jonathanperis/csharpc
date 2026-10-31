@@ -569,6 +569,10 @@ public sealed partial class FunctionCodeGen
             }
             return ConcatStrings(text, _m.StringLiteral(")"));
         }
+        // A library struct with a corelib shadow (RSAParameters in a tuple, from IL) formats as the shadow.
+        if (type is INamedTypeSymbol { TypeKind: TypeKind.Struct } library && _m.CoreLib.TryMap(library) is { TypeKind: TypeKind.Struct } shadow
+            && _m.IsUserType(shadow) && !SymbolEqualityComparer.Default.Equals(shadow, type))
+            return FormatValue(value, shadow, at);
         if (type is INamedTypeSymbol { TypeKind: TypeKind.Struct } user && _m.IsUserType(user))
         {
             var toString = user.GetMembers("ToString").OfType<IMethodSymbol>().FirstOrDefault(m => m.IsOverride && m.Parameters.IsEmpty);

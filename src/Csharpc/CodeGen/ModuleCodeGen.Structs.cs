@@ -10,6 +10,11 @@ public sealed class StructLayout
     public required INamedTypeSymbol Type { get; init; }
     public required LLVMTypeRef LlvmType { get; init; }
     public Dictionary<IFieldSymbol, uint> FieldIndex { get; } = new(SymbolEqualityComparer.Default);
+    /// <summary>
+    /// Layouts LLVM's struct types can't express (overlapping explicit fields, Pack below a field's
+    /// alignment): the body is opaque bytes and each field lives at this byte offset (ModuleCodeGen.ByteOffsetLayout).
+    /// </summary>
+    public Dictionary<IFieldSymbol, uint>? ByteOffset { get; set; }
     /// <summary>Method table used only when the struct is boxed (created lazily).</summary>
     public LLVMValueRef MethodTable { get; set; }
     /// <summary>Generated ValueType.Equals / GetHashCode on the unboxed value (ModuleCodeGen.StructEquality.cs).</summary>
@@ -131,6 +136,8 @@ public sealed partial class ModuleCodeGen
             return unionLayout;
         }
 
+        if (custom is not null && ByteOffsetLayout(type, custom) is { } bytesLayout) return bytesLayout;
+
         // Explicit offsets that don't overlap (`[FieldOffset(0)] int A; [FieldOffset(8)] long B;`): the
         // fields in offset order with byte padding between them (and up to Size), checked against LLVM's
         // layout of the result; a field LLVM would align differently (an int at offset 2) is refused.
@@ -215,6 +222,65 @@ public sealed partial class ModuleCodeGen
             ? $"[FieldOffset] on '{type.Name}.{fieldOffsets.Keys.First().Name}'"
             : $"[StructLayout] with explicit layout, Pack or Size on '{type.Name}'";
         return new CustomLayout(sourceExplicit, pack, size, fieldOffsets, CompileError.Unsupported(message, type));
+    }
+
+    /// <summary>
+    /// Layouts of reference-free structs that LLVM struct types can't express — explicit fields that overlap
+    /// partially (Roslyn's DiaSymReader VariantStructure: a decimal at 0 over a long at 8), or Pack below a
+    /// field's alignment (ImageDebugDirectory, Pack = 1) — placed exactly as the CLR places them: the body
+    /// is the struct's size in bytes behind an integer that carries its alignment, and every field is read
+    /// and written at its byte offset (FunctionCodeGen.FieldAddressOn). Null when the ordinary paths fit
+    /// (sequential, unions at offset 0, non-overlapping explicit offsets) or the layout needs references,
+    /// misaligned fields or fixed buffers, which stay refused.
+    /// </summary>
+    private StructLayout? ByteOffsetLayout(INamedTypeSymbol type, CustomLayout custom)
+    {
+        var fields = InstanceFields(type).ToList();
+        if (fields.Count == 0 || fields.Any(f => f.IsFixedSizeBuffer || Optimizations.IsReferenceOrContainsReferences(f.Type))) return null;
+        var target = Types.Target;
+        var storage = fields.ToDictionary(f => f, FieldStorage, SymbolEqualityComparer.Default);
+        var offsets = new Dictionary<IFieldSymbol, uint>(SymbolEqualityComparer.Default);
+        ulong end = 0, align = 1;
+        if (custom.Explicit)
+        {
+            if (custom.Pack != 0 || !fields.All(custom.Offsets.ContainsKey)) return null;
+            var ordered = fields.OrderBy(f => custom.Offsets[f]).ToList();
+            bool overlaps = false;
+            for (int i = 1; i < ordered.Count; i++)
+                if ((ulong)custom.Offsets[ordered[i]] < (ulong)custom.Offsets[ordered[i - 1]] + target.SizeOf(storage[ordered[i - 1]])) overlaps = true;
+            // All at offset 0 is the union path; disjoint fields the explicit one.
+            if (!overlaps || fields.All(f => custom.Offsets[f] == 0)) return null;
+            foreach (var f in fields)
+            {
+                var offset = (ulong)custom.Offsets[f];
+                if (offset % target.AlignOf(storage[f]) != 0) return null; // a misaligned field: refused
+                offsets[f] = (uint)offset;
+                end = Math.Max(end, offset + target.SizeOf(storage[f]));
+                align = Math.Max(align, target.AlignOf(storage[f]));
+            }
+        }
+        else
+        {
+            // Sequential with Pack: each field at the next multiple of min(its alignment, Pack) (ECMA-335 II.10.7).
+            if (custom.Pack == 0 || fields.All(f => target.AlignOf(storage[f]) <= (ulong)custom.Pack)) return null;
+            foreach (var f in fields)
+            {
+                var fieldAlign = Math.Min(target.AlignOf(storage[f]), (ulong)custom.Pack);
+                end = (end + fieldAlign - 1) / fieldAlign * fieldAlign;
+                offsets[f] = (uint)end;
+                end += target.SizeOf(storage[f]);
+                align = Math.Max(align, fieldAlign);
+            }
+        }
+        var size = Math.Max((end + align - 1) / align * align, (ulong)custom.Size);
+        if (size % align != 0) return null;
+        var carrier = Llvm.IntTypeOf((int)(align * 8));
+        var layout = new StructLayout { Type = type, LlvmType = Llvm.NamedStruct("struct." + Mangler.MetadataName(type)), ByteOffset = offsets };
+        foreach (var (f, offset) in offsets.ToList()) offsets[f.OriginalDefinition] = offset;
+        _structs[type] = layout;
+        LlvmContext.SetBody(layout.LlvmType, size == align ? [carrier] : [carrier, LlvmContext.Array(Llvm.I8, (uint)(size - align))]);
+        if (target.SizeOf(layout.LlvmType) != size || target.AlignOf(layout.LlvmType) != align) throw custom.Rejection;
+        return layout;
     }
 
     private static IEnumerable<IFieldSymbol> InstanceFields(INamedTypeSymbol type) =>

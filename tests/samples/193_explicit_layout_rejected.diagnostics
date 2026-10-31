@@ -1,3 +1,2 @@
-193_explicit_layout_rejected.cs(13,7): error CSLLVM0001: not supported by csharpc yet: [StructLayout] with explicit layout, Pack or Size on 'U'
-193_explicit_layout_rejected.cs(16,8): error CSLLVM0001: not supported by csharpc yet: [StructLayout] with explicit layout, Pack or Size on 'P'
-csharpc: error : 2 construct(s) not supported by csharpc yet
+193_explicit_layout_rejected.cs(12,7): error CSLLVM0001: not supported by csharpc yet: [StructLayout] with explicit layout, Pack or Size on 'U'
+csharpc: error : 1 construct(s) not supported by csharpc yet

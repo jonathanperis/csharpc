@@ -310,6 +310,12 @@ public sealed partial class ModuleCodeGen
     {
         var fn = Module.AddFunction(name, type);
         Native.LLVMSetLinkage(fn, LLVMLinkage.Internal);
+        return UnsupportedBody(fn, message);
+    }
+
+    /// <summary>Gives <paramref name="fn"/> a body that ends the program with <paramref name="message"/>.</summary>
+    internal LLVMValueRef UnsupportedBody(LLVMValueRef fn, string message)
+    {
         Llvm.AddFunctionAttribute(fn, "cold");
         Llvm.AddFunctionAttribute(fn, "noinline");
         var fail = Runtime("csrt_unsupported_method", Llvm.Void, Llvm.Ptr);

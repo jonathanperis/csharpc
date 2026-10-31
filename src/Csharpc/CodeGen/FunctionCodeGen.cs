@@ -224,12 +224,30 @@ public sealed partial class FunctionCodeGen
             && _m.IsUserType(baseType))
         {
             var baseCtor = baseType.InstanceConstructors.FirstOrDefault(c => c.Parameters.IsEmpty)
+                ?? ImplicitBaseConstructorWithDefaults(baseType)
                 ?? throw CompileError.Unsupported("base class without a parameterless constructor", _method);
             var f = _m.GetFunction(baseCtor);
-            _b.Call(f.Type, f.Fn, [_this]);
+            // `class R : CSharpSyntaxRewriter { }` calls `base(visitIntoStructuredTrivia: false)`: C# fills in
+            // the optional parameters' defaults, as at any call site.
+            LLVMValueRef[] args = [_this, .. baseCtor.Parameters.Select(p => Constant(p.ExplicitDefaultValue, S(p.Type)))];
+            _b.Call(f.Type, f.Fn, args);
         }
         _b.RetVoid();
         Finish();
+    }
+
+    /// <summary>
+    /// The base constructor an implicit constructor calls when the base has no parameterless one: the single
+    /// constructor whose parameters all have constant defaults (C# reports two such as ambiguous). Only the
+    /// defaults <see cref="Constant"/> lowers exactly: primitives, enums, strings and null.
+    /// </summary>
+    private IMethodSymbol? ImplicitBaseConstructorWithDefaults(INamedTypeSymbol baseType)
+    {
+        var candidates = baseType.InstanceConstructors.Where(c => c.DeclaredAccessibility != Accessibility.Private
+            && c.Parameters.All(p => p is { HasExplicitDefaultValue: true, IsParams: false, RefKind: RefKind.None }
+                && !TypeMapper.IsNullable(p.Type) && p.ExplicitDefaultValue is null or string or bool or char or sbyte or byte
+                    or short or ushort or int or uint or long or ulong or float or double)).ToList();
+        return candidates.Count == 1 ? candidates[0] : null;
     }
 
     public void EmitPrimaryConstructor(IReadOnlyList<ControlFlowGraph> initializers, ControlFlowGraph? baseCall)
@@ -728,6 +746,15 @@ public sealed partial class FunctionCodeGen
     {
         if (field.ContainingType.IsValueType)
         {
+            if (!field.ContainingType.IsTupleType)
+            {
+                var structLayout = _m.GetStructLayout(field.ContainingType);
+                // Overlapping or packed fields (ModuleCodeGen.ByteOffsetLayout): the CLR's byte offset into the struct.
+                if (structLayout.ByteOffset is { } offsets && offsets.TryGetValue(field.OriginalDefinition, out var byteOffset))
+                    return DataAddress(_b.InBoundsGep(L.I8, instance, [L.ConstInt(L.I64, byteOffset)]), DataKind.Any);
+                if (structLayout.FieldIndex.TryGetValue(field.OriginalDefinition, out var fieldIndex))
+                    return DataAddress(_b.StructGep(structLayout.LlvmType, instance, fieldIndex, field.Name), DataKind.Any);
+            }
             var (structType, index) = _m.ValueTypeField(field);
             return DataAddress(_b.StructGep(structType, instance, index, field.Name), DataKind.Any); // the struct may be an array element
         }
