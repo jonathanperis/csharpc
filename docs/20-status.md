@@ -1,4 +1,4 @@
-# 20 — Status and next steps (2026-10-30)
+# 20 — Status and next steps (2026-10-31)
 
 Where the work stands and what to pick up next. The plan is [06-roadmap.md](06-roadmap.md); the
 direction is [00-vision.md](00-vision.md), [ADR 0016](adr/0016-nativeaot-parity-and-end-state.md)
@@ -36,6 +36,14 @@ attribute factories) with a ~25 % faster build.
 
 ## Open branches
 
+- `ci/m7-harness` — M7 step 1: the TechEmpower harness measures TechEmpower's real ASP.NET Core
+  [Platform] entry (all seven test types on PostgreSQL, every level TechEmpower uses, TechEmpower's own
+  verification), every metric side by side with a csharpc-vs-NativeAOT verdict
+  ([06](06-roadmap.md#m7--techempower-csharpc-beats-nativeaot), "The harness"). TechEmpower run
+  41214295059 green: **M7 finish line 0 of 456**, csharpc doesn't build the entry (44 methods from IL,
+  the Razor generators from the project; [18](18-compatibility.md#techempowers-platform-entry)). The old
+  plaintext/JSON app is `benchmarks/techempower/interim`, measured outside the verdict (23 of 106).
+  Found: csharpc's `Socket.Bind` lacks .NET's `SO_REUSEADDR`.
 - `ci/techempower-json-switch` — TechEmpower compiles again (broken since `d42b5cc`: the IL check for
   reflection-based JSON also rejected the `JsonSerializer.IsReflectionEnabledByDefault` getter that
   ASP.NET Core's `JsonOptions()` reads; `tests/il.sh` IlAspNetCoreApp covers it), and the TechEmpower job now
@@ -95,17 +103,20 @@ executable median 141 KiB vs 1,338 KiB (smaller in 245); slowest compile 128.5 s
 expression-tree programs: the M7 build-time work). 271 of the 272 programs csharpc compiles behave like .NET;
 the one difference is a stack-trace frame in a NativeAOT-unsupported program.
 
-**TechEmpower** (`main` `9406394`, run 41089947567, 4-vCPU runner; ratios within one run):
+**TechEmpower** (`ci/m7-harness`, run 41214295059, 4-vCPU runners): TechEmpower's ASP.NET Core
+[Platform] entry, 456 compared metrics. **M7 finish line: 0 of 456 metrics beat NativeAOT**: csharpc
+doesn't build the entry yet (blockers in [18](18-compatibility.md#techempowers-platform-entry)). NativeAOT
+passes TechEmpower's verification on all seven test types (2.46 M plaintext req/s at 256 connections,
+165 k JSON, 551 ms start-up including its 10 000-query cache fill, 16.4 MiB, 32.7 MiB image). On the
+interim plaintext/JSON app, ratios within one runner:
 
-| | NativeAOT | csharpc | ratio |
-|---|---:|---:|---:|
-| plaintext, 256 / 1024 connections | 528,049 / 475,789 req/s | 498,250 / 453,925 | 0.94 / 0.95 |
-| JSON, 16 / 64 / 256 connections | 76.3k / 81.3k / 75.5k | 74.3k / 77.6k / 72.9k | 0.97 / 0.95 / 0.97 |
-| JSON p99 at 256 connections | 6.41 ms | **4.82 ms** | |
-| start-up | 30 ms | **23 ms** | |
-| peak RSS idle → after load | 17.3 → 65.1 MiB | **14.2** → 76.5 MiB | |
-| executable | 8.9 MiB | 15.6 MiB | |
-| build | 24 s | 410 s | |
+| | NativeAOT | csharpc | verdict |
+|---|---:|---:|---|
+| plaintext pipelined, 256 / 1024 / 4096 / 16384 connections | 558k / 529k / 511k / 471k req/s | 553k / 514k / 475k / 449k | tie / worse ×3 |
+| JSON, 16–512 connections | 149k–160k req/s | 141k–149k | worse ×5, tie at 512 |
+| start-up / idle RSS | 23 ms / 17.7 MiB | **11 ms / 12.9 MiB** | better |
+| RSS, plaintext 16384 / JSON 512 | 260 / 81 MiB | 744 / **57** MiB | worse / better |
+| executable / image / build | 8.9 MiB / 25.2 MiB / 16 s | 11.0 MiB / 27.3 MiB / 154 s | worse |
 
 ## Next, in order
 
@@ -118,8 +129,10 @@ the one difference is a stack-trace frame in a NativeAOT-unsupported program.
    path stays for standalone use; gaps between the two are bugs.
 4. M6: Roslyn's remaining blockers (non-generic ~170 methods, then generic methods), then csharpc
    compiling itself.
-5. M7: TechEmpower with the `csharpc` CLI — throughput first, then memory under load, build time and size
-   (the harness keeps measuring meanwhile).
+5. M7: TechEmpower with the `csharpc` CLI. First build the real entry (the blockers in
+   [18](18-compatibility.md#techempowers-platform-entry): Npgsql, `MemoryCache`, RazorSlices, `UseStartup`;
+   Razor generators for the project input; frameworks from runtimeconfig.json for IL input), then every
+   metric the harness reports as worse or tied: throughput first, then memory under load, build time and size.
 6. M8: the fork; early gauge of its acceptance gate by building dotnet's AOT test suites with csharpc.
 7. M9: TechEmpower through the fork.
 

@@ -590,16 +590,26 @@ constructor now runs before a P/Invoke call (sample 730), and `Process.Start` wo
 
 ### ASP.NET Core and the TechEmpower app
 
-M7's measure ([06-roadmap.md](06-roadmap.md#m7--techempower-csharpc-beats-nativeaot)):
-`benchmarks/techempower/app` is the plaintext and JSON test types of the TechEmpower Framework Benchmarks
-in the style of the aspnetcore entries that publish with NativeAOT (Kestrel, `WebApplication.CreateSlimBuilder`,
-middleware rather than minimal-API endpoints, System.Text.Json source generation). The `TechEmpower`
-workflow (`.github/workflows/techempower.yml`, `benchmarks/techempower/run.sh`) builds it with
-NativeAOT, csharpc and the JIT, checks every build with TechEmpower's test requests (`verify.py`:
-status, `Content-Type`, `Content-Length`, `Server`, `Date`, bodies, 16 pipelined requests;
-csharpc's normalized responses must equal NativeAOT's), loads it with wrk the way TechEmpower does and
-writes requests/s, latency, peak RSS, binary size and start-up time; when csharpc can't build the app it
-lists what stops it (`blockers.py`) and the job fails, as it does when a build fails the checks.
+M7's measure ([06-roadmap.md](06-roadmap.md#m7--techempower-csharpc-beats-nativeaot)) is TechEmpower's
+own entry since 2026-10-31: `benchmarks/techempower/app` is the ASP.NET Core [Platform] entry that
+TechEmpower publishes with NativeAOT (`frameworks/CSharp/aspnetcore/src/Platform` at commit `57d92fb`,
+unchanged but for net11.0): Kestrel with its HTTP parser driven directly (`HttpParser<T>`, no
+middleware), System.Text.Json source generation, Npgsql with multiplexing on PostgreSQL, RazorSlices
+templates for fortunes, `MemoryCache` for cached queries. The `TechEmpower` workflow
+(`.github/workflows/techempower.yml`, `benchmarks/techempower/harness.py`; `run.sh` runs the same phases
+on one machine) builds it with NativeAOT and the JIT as the entry's dockerfiles do and with csharpc from
+the same IL NativeAOT compiles, verifies every build with TechEmpower's own verification code
+(`tfb_verify.py`, run from the pinned FrameworkBenchmarks checkout: headers, bodies, the `queries`
+parameter cases, fortune escaping and sorting, and the exact number of queries and rows PostgreSQL's
+`pg_stat_statements` counts), requires csharpc's normalized answers to equal NativeAOT's and the JIT's
+(`verify.py`), and measures every test type at every level TechEmpower uses with a csharpc-vs-NativeAOT
+verdict per metric ([06](06-roadmap.md#m7--techempower-csharpc-beats-nativeaot), "The harness"). When
+csharpc can't build the entry it ranks what stops it (`blockers.py`).
+
+The plaintext/JSON app the harness measured until then (Kestrel middleware on
+`WebApplication.CreateSlimBuilder`, not a TechEmpower entry) is `benchmarks/techempower/interim`. It is
+measured in the same workflow, outside M7's verdict, while csharpc can't build the real entry, and the IL
+survey's `aspnetcore` target below still surveys its closure.
 
 csharpc reads `<FrameworkReference Include="Microsoft.AspNetCore.App">` (implicit in `Microsoft.NET.Sdk.Web`)
 and `--framework Microsoft.AspNetCore.App`: Roslyn binds against the ASP.NET Core reference pack, and the
@@ -610,7 +620,7 @@ only when it leads into `System.Private.*`; ASP.NET Core's assemblies forward ty
 and DiagnosticSource forwards only `IsExternalInit`.
 
 The survey's `aspnetcore` target (`tools/il-survey/aspnetcore.sh`, the `IL survey` workflow with
-`target: aspnetcore`, 16 shards) lowers every method of those of the app's assemblies that are
+`target: aspnetcore`, 16 shards) lowers every method of those of the interim app's assemblies that are
 `Microsoft.AspNetCore.*`, `Microsoft.Extensions.*`, `Microsoft.Net.Http.Headers`, `System.IO.Pipelines`
 and `System.Net.*` (not the Windows-only IIS and HTTP.sys servers, nor the obsolete WebRequest stack) —
 58 assemblies — ranked by the methods each item stops.
@@ -692,7 +702,7 @@ server and wrk, 2026-10-24; runners differ by up to 40 %, so compare builds with
 On these shared runners the JIT is ahead of NativeAOT by 5–30 % on throughput; NativeAOT starts 5x
 faster and uses half the memory.
 
-Since 2026-10-25 (branch `m8-kestrel`) csharpc builds the app with no stubbed method. Its responses pass
+Since 2026-10-25 (branch `m8-kestrel`) csharpc builds the interim app with no stubbed method. Its responses pass
 TechEmpower's checks identically to NativeAOT. In its first load run it was at 49 % of NativeAOT's
 pipelined plaintext throughput and 55–63 % of its JSON throughput. It started faster (20 ms vs 26 ms) and
 used less memory idle (13.0 vs 17.7 MiB), but more under load (80.3 vs 64.9 MiB), with a 14.5 MiB binary
@@ -703,6 +713,71 @@ used less memory idle (13.0 vs 17.7 MiB), but more under load (80.3 vs 64.9 MiB)
 - Async sockets are blocking calls on the thread pool on macOS and Windows (no kqueue/IOCP engine yet).
 - `MemberInfo` members called on a `Type` through a `MemberInfo`-typed reference throw
   `NotSupportedException`. Through a `Type`-typed reference they work.
+- `Socket.Bind` doesn't set `SO_REUSEADDR`, which .NET sets before every TCP bind on Unix: a csharpc
+  server can't rebind a port while connections it closed are in TIME_WAIT (about a minute), and since
+  Linux lets a bind take over a TIME_WAIT socket only when both set the option, a .NET server can't
+  rebind a port csharpc just served either (found by the harness, run 41210180999; reproduced with the
+  interim app's NativeAOT and csharpc builds: NativeAOT → NativeAOT rebinds, csharpc → NativeAOT and
+  NativeAOT → csharpc fail with "address already in use").
+
+#### TechEmpower's Platform entry
+
+csharpc doesn't build the entry yet (TechEmpower run 41214295059, 2026-10-31). Two inputs, two stops:
+
+- **IL** (what NativeAOT compiles, and what the harness measures: `dotnet build` with the AOT properties,
+  then `csharpc Platform.dll --framework Microsoft.AspNetCore.App`): 44 reachable methods fail to
+  compile, ranked below. Without `--framework` csharpc stops earlier, at the ASP.NET Core assemblies
+  "csharpc was not given": the program-as-IL input doesn't take the shared frameworks from
+  `Platform.runtimeconfig.json`, which lists them.
+- **Project** (`csharpc Platform.csproj`): two front-end errors, CS0246 `Platform.Templates` and
+  CS0103 `FortunesUtf8`. The fortunes template classes come from the Razor source generator (and
+  RazorSlices' generator adds their `Create` factories); csharpc runs only the SDK's LibraryImport, JSON
+  and its own `[GeneratedRegex]` generators, not the ones a project's SDK and packages bring.
+
+| # | Methods | Item | Where |
+|---:|---:|---|---|
+| 1 | 8 | `construct: struct 'System.Collections.Concurrent.ConcurrentDictionary<…>.AlternateLookup<…>'` | Microsoft.Extensions.Caching.Memory 7, (program or corelib) 1 |
+| 2 | 3 | `System.Text.EncodingExtensions.GetString(System.Text.Encoding, System.Buffers.ReadOnlySequence<…>)` | Npgsql 3 |
+| 3 | 2 | `System.Net.Security.SslClientAuthenticationOptions.ClientCertificates` | Npgsql 2 |
+| 4 | 2 | `System.Numerics.INumberBase<…>.CreateChecked(…)` | Npgsql 2 |
+| 5 | 2 | `decimal.CreateChecked(decimal)` | Npgsql 2 |
+| 6 | 1 | `construct: StringBuilder.Append(IFormatProvider, $"...") (an interpolated string with a format provider)` | Npgsql 1 |
+| 7 | 1 | `System.Activator.CreateInstance(System.Type, object[])` | Microsoft.AspNetCore.Hosting 1 |
+| 8 | 1 | `System.Array.GetValue(int[])` | Npgsql 1 |
+| 9 | 1 | `System.Array.SetValue(object, int[])` | Npgsql 1 |
+| 10 | 1 | `System.Diagnostics.Tracing.DiagnosticCounter.Dispose()` | Npgsql 1 |
+| 11 | 1 | `System.Globalization.GlobalizationExtensions.GetStringComparer(System.Globalization.CompareInfo, System.Globalization.CompareOptions)` | Npgsql 1 |
+| 12 | 1 | `System.Math.Abs(short)` | Npgsql 1 |
+| 13 | 1 | `System.Net.Dns.GetHostAddressesAsync(string, System.Threading.CancellationToken)` | Npgsql 1 |
+| 14 | 1 | `System.Net.Quic.QuicListener.IsSupported` | Microsoft.AspNetCore.Server.Kestrel.Transport.Quic 1 |
+| 15 | 1 | `System.Net.Security.SslStream.ShutdownAsync()` | Npgsql 1 |
+| 16 | 1 | `System.Reflection.Assembly.DefinedTypes` | Microsoft.AspNetCore.Hosting 1 |
+| 17 | 1 | `System.Reflection.CustomAttributeExtensions.GetCustomAttributes(System.Reflection.Assembly)` | Microsoft.AspNetCore.Hosting 1 |
+| 18 | 1 | `System.Reflection.Metadata.MetadataUpdater.IsSupported` | RazorSlices 1 |
+| 19 | 1 | `System.Reflection.NullabilityInfoContext.Create(System.Reflection.PropertyInfo)` | RazorSlices 1 |
+| 20 | 1 | `System.Runtime.CompilerServices.MetadataUpdateOriginalTypeAttribute.OriginalType` | RazorSlices 1 |
+| 21 | 1 | `System.Security.Cryptography.X509Certificates.PublicKey.Oid` | Microsoft.AspNetCore.Server.Kestrel.Core 1 |
+| 22 | 1 | `System.Security.Cryptography.X509Certificates.X509Certificate2Enumerator.Current` | Microsoft.AspNetCore.Server.Kestrel.Core 1 |
+| 23 | 1 | `System.Version..ctor(string)` | Npgsql 1 |
+| 24 | 1 | `construct: creating instances of 'System.Diagnostics.Tracing.PollingCounter'` | Npgsql 1 |
+| 25 | 1 | `construct: creating instances of 'System.Reflection.NullabilityInfoContext'` | RazorSlices 1 |
+| 26 | 1 | `construct: creating instances of 'System.Threading.Tasks.ConcurrentExclusiveSchedulerPair'` | Npgsql 1 |
+| 27 | 1 | `decimal.Scale` | Npgsql 1 |
+| 28 | 1 | `construct: setting 'System.Net.Sockets.Socket.Blocking'` | Npgsql 1 |
+| 29 | 1 | `string.Normalize(System.Text.NormalizationForm)` | Npgsql 1 |
+| 30 | 1 | `construct: type test against 'System.Runtime.CompilerServices.MetadataUpdateOriginalTypeAttribute'` | CsharpcCoreLib 1 |
+| 31 | 1 | `construct: typeof(T)` | (program or corelib) 1 |
+| 32 | 1 | `construct: typeof(TContainer)` | (program or corelib) 1 |
+
+Most are Npgsql's (connecting through `Dns.GetHostAddressesAsync` and a blocking-mode socket, its
+command scheduler, text decoding from a `ReadOnlySequence<byte>`, the TLS options it configures even
+with SSL off, its EventSource counters, numeric and array converters reached through its type
+mapping). `MemoryCache` needs `ConcurrentDictionary`'s `AlternateLookup` struct; RazorSlices reaches
+hot-reload and nullability reflection; hosting's `UseStartup<Startup>()` reaches the reflection that
+finds a startup class (`Activator.CreateInstance`, `Assembly.DefinedTypes`, assembly attributes for
+hosting startups); Kestrel's HTTPS certificate loading and QUIC check are reachable through its options.
+The entry passes TechEmpower's verification with NativeAOT and with the JIT, with identical normalized
+answers; their numbers are in [06-roadmap.md](06-roadmap.md#m7--techempower-csharpc-beats-nativeaot).
 
 ## Expression trees
 
