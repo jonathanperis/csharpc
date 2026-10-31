@@ -484,6 +484,8 @@ public sealed partial class FunctionCodeGen
             _m.RequestArrayInterface(itf);
         if (from is not null)
         {
+            // A T? tested against its own type (an unconstrained type parameter's `is { }` with T = int?): non-null.
+            if (TypeMapper.IsNullable(from) && SymbolEqualityComparer.Default.Equals(S(from), S(target))) return NullableHas(value);
             var conversion = _m.Compilation.ClassifyCommonConversion(from, target);
             if (conversion.IsIdentity && from.IsValueType) return L.True;
             // A value of a (substituted) struct type: `state is IReadOnlyList<...>` with TState = a struct is
@@ -496,6 +498,8 @@ public sealed partial class FunctionCodeGen
                 bool Boxes(ITypeSymbol type) =>
                     SymbolEqualityComparer.Default.Equals(type, target)
                     || SymbolEqualityComparer.Default.Equals(S(type), S(target))
+                    // A T value tested against T? (a T? input's payload, the pattern typed by a type parameter = T?).
+                    || (TypeMapper.IsNullable(S(target)) && SymbolEqualityComparer.Default.Equals(S(type), S(TypeMapper.NullableUnderlying(S(target)))))
                     || ((Microsoft.CodeAnalysis.CSharp.CSharpCompilation)_m.Compilation).ClassifyConversion(type, target) is { IsImplicit: true, IsBoxing: true };
                 if (!TypeMapper.IsNullable(from)) return Boxes(from) ? L.True : L.False;
                 var (has, _, underlying) = NullableParts(value, from); // a null T? boxes to null
