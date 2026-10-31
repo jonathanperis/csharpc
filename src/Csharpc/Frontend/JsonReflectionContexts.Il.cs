@@ -140,7 +140,10 @@ public static partial class JsonReflectionContexts
                     body = IlMethodBody.Decode(program, method, block);
                 }
                 catch (Exception e) when (e is IlException or BadImageFormatException) { continue; }
-                new IlRootScan(program, body, serializer, finder).Run();
+                // Best effort: a body the scan can't follow leaves its roots uncovered, which the lowering of
+                // the call reports (FunctionCodeGen.JsonRoots.cs) if the program can reach it.
+                try { new IlRootScan(program, body, serializer, finder).Run(); }
+                catch (Exception e) when (e is not OutOfMemoryException) { }
             }
     }
 
@@ -248,13 +251,16 @@ public static partial class JsonReflectionContexts
             switch (instruction.OpCode)
             {
                 case ILOpCode.Newobj:
-                    return (Member(instruction.Token) as IMethodSymbol)?.ContainingType;
+                    if (Member(instruction.Token) is IMethodSymbol constructor) return constructor.ContainingType;
+                    return program.TryArrayAccessor(instruction.Token, body.Context, out var created, out _, out _) ? created : null;
                 case ILOpCode.Call or ILOpCode.Callvirt:
                     return Member(instruction.Token) is IMethodSymbol { ReturnsVoid: false, RefKind: RefKind.None } m ? m.ReturnType : null;
                 case ILOpCode.Ldfld or ILOpCode.Ldsfld:
                     return (Member(instruction.Token) as IFieldSymbol)?.Type;
                 case ILOpCode.Box or ILOpCode.Castclass or ILOpCode.Isinst or ILOpCode.Unbox_any:
                     return TypeOf(instruction.Token);
+                case ILOpCode.Newarr:
+                    return TypeOf(instruction.Token) is { } element ? program.Compilation.CreateArrayTypeSymbol(element) : null;
                 case ILOpCode.Ldstr:
                     return program.Compilation.GetSpecialType(SpecialType.System_String);
                 case ILOpCode.Ldloc_0 or ILOpCode.Ldloc_1 or ILOpCode.Ldloc_2 or ILOpCode.Ldloc_3:
