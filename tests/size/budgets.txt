@@ -14,7 +14,7 @@ linux-aarch64 exceptions 37888
 linux-aarch64 hello 32768
 linux-aarch64 linq 155648
 linux-aarch64 numbers 123904
-linux-aarch64 typeinfo 43008
+linux-aarch64 typeinfo 48128
 macos-arm64 async 158720
 macos-arm64 collections 157696
 macos-arm64 exceptions 73728
