@@ -55,11 +55,11 @@ attribute factories) with a ~25 % faster build.
   so its size couldn't be compared.
 
 - `ci/m6-bootstrap` — M6: a Roslyn-hosting program compiled from IL with output identical to
-  `dotnet run` (`Bootstrap` workflow), Roslyn survey 101 → 60 failing methods, lowering 2.4× faster on
+  `dotnet run` (`Bootstrap` workflow), Roslyn survey 101 → 38 failing methods, lowering 2.4× faster on
   Roslyn-sized programs, generic variance through interface arguments fixed (a silent difference),
-  overlapping/packed struct layouts, compiled-in manifest resources; the self-host stops on
-  `NativeLibrary.SetDllImportResolver` and `ResourceReader` ([06](06-roadmap.md#m6--bootstrapping)).
-  Samples 720–728.
+  overlapping/packed struct layouts, compiled-in manifest resources, `ResourceReader`,
+  `SetDllImportResolver`; csharpc lowers all of itself, code generation runs in the `Bootstrap`
+  workflow ([06](06-roadmap.md#m6--bootstrapping)). Samples 720–729.
 - `ci/m2-system-data` — Roslyn 5.12 (the SDK's build), C# 15 unions, field reflection (`GetField(s)`,
   `FieldInfo`), `AssemblyLoadContext`/`AssemblyDependencyResolver` as NativeAOT has them,
   `Assembly.GetType` with constant names kept at compile time, `PropertyDescriptor`/`AttributeCollection`

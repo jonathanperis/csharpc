@@ -32,6 +32,8 @@ windows lexical/005_raw_strings         live: the raw string literal's line brea
 windows 160_pinvoke_dllimport           live: loads the Linux soname "libm.so.6" (DllNotFoundException on Windows)
 windows 176_pinvoke_struct_abi          live: loads the Linux soname "libm.so.6" (DllNotFoundException on Windows)
 windows 162_pinvoke_libraryimport       live: imports from "libc", which doesn't exist on Windows
+windows 728_failfast                    live: .NET ends FailFast with COR_E_FAILFAST (0x80131623) on Windows, SIGABRT (134) elsewhere
+windows 729_dllimport_resolver           live: .NET names the library kind "DLL" on Windows ("shared library" elsewhere) in EntryPointNotFoundException
 windows 286_pinvoke_portable_abi        live: imports from "libc", which doesn't exist on Windows
 windows 295_regex_charclass             live: prints matched text that contains a bare "\n" (from the input string)
 windows 303_regex_options               live: prints matched text that contains a bare "\n" (from the input string)

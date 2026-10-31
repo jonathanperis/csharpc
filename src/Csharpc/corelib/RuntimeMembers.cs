@@ -381,7 +381,7 @@ namespace CsharpcCoreLib
     {
 #if CSHARPC_TARGET_WINDOWS
         [DllImport("kernel32")] private static extern void ExitProcess(uint exitCode);
-        private static void Terminate() => ExitProcess(0xC0000409); // as RaiseFailFastException reports it
+        private static void Terminate() => ExitProcess(0x80131623); // COR_E_FAILFAST, the exit status .NET reports on Windows
 #else
         [DllImport("libc")] private static extern void abort();
         private static void Terminate() => abort();

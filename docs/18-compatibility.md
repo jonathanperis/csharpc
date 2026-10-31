@@ -523,6 +523,7 @@ slice: `python3 -I tools/il-survey/survey.py --no-packages --local "roslyn+cshar
 | 2026-10-24, final (`m6-roslyn`, corelib compiled to IL as on `main`) | 170 | 77 | 41 (+1 corelib) | 289 |
 | 2026-10-31, `main` at `d572f27` (Roslyn 5.12; run 41155098091) | 73 | 17 | 3 (+8 corelib) | 101 |
 | 2026-10-31, `ci/m6-bootstrap` at `a2288d9` (run 41166551602) | 41 | 10 | 2 (+7 corelib) | 60 |
+| 2026-10-31, `ci/m6-bootstrap` at `e377ede` (run 41167914958; shards' compile time 4 532 s → 1 556 s) | 32 | 2 | 2 (+2 corelib) | 38 |
 
 What the `ci/m6-bootstrap` branch fixed, by methods stopped in the 2026-10-31 survey of `main`: struct
 layouts LLVM's struct types can't express — overlapping explicit fields and `Pack` below a field's
@@ -540,7 +541,7 @@ and `EncodingProvider`; `TypeInfo.GenericTypeParameters`/`GetDeclaredMethods`/`D
 After that run, also: `Environment.FailFast`, `Assembly.ManifestModule`, `Assembly.GetReferencedAssemblies`,
 `Assembly.GetCustomAttributes(Type, bool)`, `RuntimeEnvironment.GetRuntimeDirectory`,
 `Process.GetCurrentProcess`, `GC.Collect` overloads, `FileNotFoundException.FusionLog` and type tests
-against `Thread` (19 more methods of that run's list).
+against `Thread` (the `e377ede` row).
 
 Ranked list of the `a2288d9` run without what the branch fixed after it (methods stopped):
 
@@ -553,8 +554,8 @@ Ranked list of the `a2288d9` run without what the branch fixed after it (methods
 | 5 | 2 | `Mutex` | Roslyn |
 | 6 | 3 | `AppDomain.Load` / `AssemblyResolve` / `ResolveEventArgs.Name` (analyzer loading) | Roslyn |
 | 7 | 1 each | `Delegate.CreateDelegate(Type, object, MethodInfo)`, `Environment.ExpandEnvironmentVariables`, `File.SetAttributes`, `Assembly.GlobalAssemblyCache`, `AssemblyName.GetAssemblyName`, `GetRuntimeMethods`, `StringBuilder.Append(char*, int)`, `StringBuilder.CopyTo`, `Mutex.TryOpenExisting`, `SynchronizationContext.Wait`, `Uri.MakeRelativeUri`, `object.Finalize()`, `ComTypes.STATSTG` | Roslyn |
-| 8 | 1 | `NativeLibrary.SetDllImportResolver` (how csharpc finds libLLVM) | csharpc |
-| 9 | 1 | `System.Resources.ResourceReader` (csharpc reads `.resources` files) | csharpc |
+| 8 | 1 | `NativeLibrary.SetDllImportResolver` (how csharpc finds libLLVM) — fixed since | csharpc |
+| 9 | 1 | `System.Resources.ResourceReader` (csharpc reads `.resources` files) — fixed since | csharpc |
 
 The survey only counts methods that fail to *lower*. A program that hosts Roslyn is the other
 measure: `tests/projects/il/IlRoslynHostApp` references `Microsoft.CodeAnalysis.CSharp` as a package,
@@ -573,9 +574,12 @@ difference C# programs could hit too: generic variance through interface type ar
 concatenated content is exact, but where .NET has linked several chunks (past the first chunk's
 capacity) the number and lengths of the chunks differ. Roslyn only hashes and compares the content.
 
-csharpc compiling itself (`tools/bootstrap/selfhost.sh`, M6 step 5): lowering `csharpc.dll` (159 693 IL
-and 144 969 corelib methods) takes 155 s at 4.5 GB; it stops on `NativeLibrary.SetDllImportResolver`
-and `ResourceReader` (rows 8–9) before code generation.
+csharpc compiling itself (`tools/bootstrap/selfhost.sh`, M6 step 5): `csharpc.dll` (159 693 IL and
+144 969 corelib methods) now lowers completely — rows 8–9 were the last constructs it hit, both fixed
+(`ResourceReader` for `.resources` streams; `SetDllImportResolver` through one resolution function per
+program) — in 144 s at 4.5 GB on the shared VPS; coroutine lowering brings the peak to 6.4 GB and LLVM's
+backend needs more than the VPS's 8 GB, so code generation and the native compiler's comparison with the
+managed one run in the `Bootstrap` workflow (16 GB runners).
 
 ### ASP.NET Core and the TechEmpower app
 
