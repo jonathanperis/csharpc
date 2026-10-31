@@ -2290,5 +2290,7 @@ void csrt_gc_shutdown(void) {
 #endif
 #ifdef CSRT_ALLOC_PROFILE
     profile_print();
+    void csrt_task_sites_print(void);  // async.c
+    csrt_task_sites_print();
 #endif
 }

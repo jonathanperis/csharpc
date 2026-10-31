@@ -67,6 +67,14 @@ jobs:
 
       - name: Build, verify and load
         run: |
+          # Profiling runs keep the unstripped csharpc server (run.sh deletes its builds), so that the
+          # collector's allocation-site offsets in csharpc.server.log can be named with nm.
+          if [[ "${{ matrix.profile }}" == 1 ]]; then
+            ( for _ in $(seq 1 1440); do
+                if [[ -f m7-results/csharpc.server.log ]]; then for f in /tmp/tmp.*/csharpc/TechEmpower; do [[ -f "$f" ]] && cp "$f" m7-results/csharpc.TechEmpower; done; exit 0; fi
+                sleep 5
+              done ) &
+          fi
           PROFILE="${{ matrix.profile }}" DURATION=15 benchmarks/techempower/run.sh --out m7-results --only aot,csharpc || status=$?
           cat m7-results/results.md >> "$GITHUB_STEP_SUMMARY" || true
           # Phase timings of the csharpc build (-v), for the build-time work.

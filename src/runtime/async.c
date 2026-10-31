@@ -330,7 +330,45 @@ bool csrt_gc_remembered_object(const void* obj) {
 /// An async method's task and coroutine frame in one object: the task (method table first, so the
 /// object is a Task), then its payload, then the frame at the next 16-byte boundary. The frame pointer
 /// is an interior pointer of the task, so the frame lives exactly as long as the task does.
-void* csrt_coro_alloc_task(int64_t size, int32_t payload_size, csrt_Task** task) {
+#ifdef CSRT_ALLOC_PROFILE
+// Task allocation sites (profiling builds, -DCSRT_ALLOC_PROFILE, printed at exit with CSRT_GC_STATS=1):
+// the return address of each csrt_task_new / csrt_coro_alloc_task call, counted in a lock-free table, as
+// offsets from the executable's start (`nm` on the unstripped binary names them). Tasks are most of what
+// a server allocates and share one method table, so the by-type profile can't tell them apart.
+#define SITE_SLOTS 4096
+static struct { uintptr_t site; uint64_t count; } s_task_sites[SITE_SLOTS];
+extern char __executable_start[];
+
+static void note_task_site(void* address) {
+    uintptr_t site = (uintptr_t)address;
+    for (size_t i = (site * 0x9E3779B97F4A7C15ull) >> 52, n = 0; n < SITE_SLOTS; i = (i + 1) & (SITE_SLOTS - 1), n++) {
+        uintptr_t seen = __atomic_load_n(&s_task_sites[i].site, __ATOMIC_RELAXED);
+        if (seen == 0 && __atomic_compare_exchange_n(&s_task_sites[i].site, &seen, site, false, __ATOMIC_RELAXED, __ATOMIC_RELAXED)) seen = site;
+        if (seen == site) { __atomic_fetch_add(&s_task_sites[i].count, 1, __ATOMIC_RELAXED); return; }
+    }
+}
+
+void csrt_task_sites_print(void) {
+    fprintf(stderr, "csrt gc: task allocation sites (top 40; return address - __executable_start):\n");
+    for (int n = 0; n < 40; n++) {
+        size_t best = SITE_SLOTS;
+        for (size_t i = 0; i < SITE_SLOTS; i++)
+            if (s_task_sites[i].count && (best == SITE_SLOTS || s_task_sites[i].count > s_task_sites[best].count)) best = i;
+        if (best == SITE_SLOTS) break;
+        fprintf(stderr, "  %12llu  0x%llx\n", (unsigned long long)s_task_sites[best].count,
+                (unsigned long long)(s_task_sites[best].site - (uintptr_t)__executable_start));
+        s_task_sites[best].count = 0;
+    }
+}
+#define CSRT_TASK_SITE() note_task_site(__builtin_return_address(0))
+#define CSRT_PROFILED_ALLOCATOR __attribute__((noinline))
+#else
+#define CSRT_TASK_SITE() ((void)0)
+#define CSRT_PROFILED_ALLOCATOR
+#endif
+
+CSRT_PROFILED_ALLOCATOR void* csrt_coro_alloc_task(int64_t size, int32_t payload_size, csrt_Task** task) {
+    CSRT_TASK_SITE();
     int64_t head = ((int64_t)sizeof(csrt_Task) + (payload_size > 0 ? payload_size : 0) + 15) & ~(int64_t)15;
     csrt_Task* t = csrt_alloc(&csrt_Task_MT.header, head + size);
 #if defined(CSRT_GC_NURSERY_DEFAULT)
@@ -341,7 +379,8 @@ void* csrt_coro_alloc_task(int64_t size, int32_t payload_size, csrt_Task** task)
     return (uint8_t*)t + head;
 }
 
-csrt_Task* csrt_task_new(int32_t payload_size) {
+CSRT_PROFILED_ALLOCATOR csrt_Task* csrt_task_new(int32_t payload_size) {
+    CSRT_TASK_SITE();
     csrt_Task* t = csrt_alloc(&csrt_Task_MT.header, (int64_t)sizeof(csrt_Task) + (payload_size > 0 ? payload_size : 0));
     t->payload_size = payload_size;
     return t;
