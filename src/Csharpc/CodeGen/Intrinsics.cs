@@ -203,7 +203,7 @@ internal static class Intrinsics
         };
         t["System.Enum.GetName(System.Type, object)"] = (g, inv) =>
         {
-            if (inv.Arguments.First(a => a.Parameter!.Ordinal == 0).Value is not ITypeOfOperation { TypeOperand: INamedTypeSymbol { TypeKind: TypeKind.Enum } enumType })
+            if (FunctionCodeGen.TypeOfOperand(inv.Arguments.First(a => a.Parameter!.Ordinal == 0).Value) is not INamedTypeSymbol { TypeKind: TypeKind.Enum } enumType)
                 throw CompileError.Unsupported("Enum.GetName with a non-constant Type", inv);
             var raw = UnboxEnum(inv.Arguments.First(a => a.Parameter!.Ordinal == 1).Value);
             var value = g.Coerce(g.EmitValue(raw), raw.Type, enumType.EnumUnderlyingType!);
@@ -1168,8 +1168,12 @@ internal static class Intrinsics
     /// <summary>Strips the boxing conversion of an enum/integer value passed as Enum/object.</summary>
     private static IOperation UnboxEnum(IOperation op)
     {
-        while (op is IConversionOperation { Operand.Type: { IsValueType: true } } c) op = c.Operand;
-        return op;
+        while (true)
+        {
+            if (op is IConversionOperation { Operand.Type: { IsValueType: true } } c) op = c.Operand;
+            else if (op is IlValueOperation { BoxedFrom: { } boxed }) op = boxed; // IL's `box E`
+            else return op;
+        }
     }
 
     private static void NewLine(FunctionCodeGen g) => g.CallRuntime("csrt_console_newline", g.Module.Llvm.Void, []);

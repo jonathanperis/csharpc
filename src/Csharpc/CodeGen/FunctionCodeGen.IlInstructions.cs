@@ -738,6 +738,12 @@ public sealed partial class FunctionCodeGen
                 break;
             case IlKind.Value:
                 if (source.Handle == target.Handle) return v;
+                // The same struct under two LLVM spellings (a library member's lowering returns decimal as a
+                // literal { i32, i32, i64 }, storage names it): same type, same layout, reinterpret in memory.
+                if (e.Type is { } valueType && SymbolEqualityComparer.Default.Equals(S(valueType), st)
+                    && source.Kind == LLVMTypeKind.Struct && target.Kind == LLVMTypeKind.Struct
+                    && T.Target.SizeOf(source) == T.Target.SizeOf(target))
+                    return _b.Load(target, Spill(v));
                 break;
         }
         throw new IlException($"a {e.Kind} value ({e.Type?.ToDisplayString() ?? "?"}) used as '{st}'");
@@ -806,8 +812,20 @@ public sealed partial class FunctionCodeGen
         return new IlValueOperation(il.Syntax, type, () => IlTyped(e, type), nonNull: e.NonNull || e.IsThis)
         {
             Constant = e.Constant is null ? default : TypedConstant(e.Constant, type),
+            TypeOfOperand = e is { Kind: IlKind.Ref, Symbol: ITypeSymbol known } ? known : null,
+            BoxedFrom = e is { Kind: IlKind.Ref, Unboxed: { Type: { } boxedType } boxed } && !boxed.Value.IsNull ? IlOperand(boxed, boxedType) : null,
+            IsNullLiteral = e is { Kind: IlKind.Ref, Type: null } && !e.Value.IsNull && Native.LLVMIsNull(e.Value) != 0,
+            EntryType = e.Type,
         };
     }
+
+    /// <summary>T of an operand that is `typeof(T)`, in source or in IL; null otherwise.</summary>
+    internal static ITypeSymbol? TypeOfOperand(IOperation operation) => operation switch
+    {
+        ITypeOfOperation typeOf => typeOf.TypeOperand,
+        IlValueOperation { TypeOfOperand: { } known } => known,
+        _ => null,
+    };
 
     /// <summary>An IL constant as the C# constant of an operand of <paramref name="type"/> (enums: their underlying value), if exact.</summary>
     private static Optional<object?> TypedConstant(object constant, ITypeSymbol type)

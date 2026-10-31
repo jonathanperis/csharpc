@@ -169,7 +169,17 @@ public sealed partial class ModuleCodeGen
         {
             if (method.OriginalDefinition.MetadataToken == 0)
                 throw new CompileError("CSLLVM0001", $"not supported by csharpc yet: '{method}' has no metadata definition (synthesized by Roslyn) [in {assembly.Name}.dll]", location);
-            var block = assembly.Body(method)
+            var block = assembly.Body(method);
+            // C#'s `extern` without [DllImport] or any other implementation: .NET loads the program and throws
+            // BadImageFormatException when the method is called, as the source path does (EmitBodylessExternStub).
+            if (block is null && !assembly.IsCoreLib && !method.IsAbstract
+                && (method.MethodImplementationFlags & (System.Reflection.MethodImplAttributes.InternalCall | System.Reflection.MethodImplAttributes.Runtime)) == 0
+                && !method.GetAttributes().Any(a => a.AttributeClass?.Name is "UnsafeAccessorAttribute" or "WasmImportLinkageAttribute"))
+            {
+                new FunctionCodeGen(this, null, GetFunction(method)).EmitBodylessExternStub();
+                return;
+            }
+            block = block
                 ?? throw new CompileError("CSLLVM0001", $"not supported by csharpc yet: '{method}' has no IL body (runtime-implemented method in {assembly.Name}.dll)", location);
             IlMethodBody body;
             var decodeStart = System.Diagnostics.Stopwatch.GetTimestamp();
@@ -324,7 +334,7 @@ public sealed partial class ModuleCodeGen
         // native exports), and references made outside the program's methods: by the corelib, by the code
         // csharpc generates (method tables, type metadata, main), and by lambdas and local functions
         // (their bodies are reached through closures the graph doesn't follow).
-        if (Compilation.GetEntryPoint(default) is { } entry) Reach(entry, null);
+        if (ProgramEntryPoint is { } entry) Reach(entry, null);
         foreach (var root in RuntimeCalledMethods()) Reach(root, null);
         foreach (var (from, to, isVirtual) in _references)
             if (from is null || IsNestedFunction(from) || (IsIlMethod(from) ? Il.IsCoreLib(from) : !IsProgramSourceMethod(from))) Follow(from, to, isVirtual);

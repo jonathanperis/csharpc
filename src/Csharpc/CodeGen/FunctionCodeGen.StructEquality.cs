@@ -68,11 +68,15 @@ public sealed partial class FunctionCodeGen
         var isEquals = target is { Name: "Equals", Parameters.Length: 1 };
         if (!isHash && !isEquals) return null;
         var owner = target.ContainingType;
+        // In IL, `base.Equals(obj)` of a struct is a non-virtual call on a box of a copy of `this`.
+        var ilBase = inv is IlInvocationOperation { IsVirtual: false } && inv.Instance is IlValueOperation { BoxedFrom: { } boxedThis }
+            && _method is not null && SymbolEqualityComparer.Default.Equals(boxedThis.Type?.OriginalDefinition, _method.ContainingType.OriginalDefinition)
+            ? boxedThis : null;
         if (owner.SpecialType == SpecialType.System_ValueType
-            && inv.Instance is Microsoft.CodeAnalysis.Operations.IInstanceReferenceOperation && _method is not null
+            && (inv.Instance is Microsoft.CodeAnalysis.Operations.IInstanceReferenceOperation || ilBase is not null) && _method is not null
             && UserStruct(_m.CoreLib.Map(S(_method.ContainingType))) is { } s)
         {
-            var self = ThisValue(inv);
+            var self = ilBase is not null ? Spill(EmitValue(ilBase)) : ThisValue(inv);
             if (isHash)
             {
                 var hash = _m.StructDefaultHash(s);

@@ -693,6 +693,7 @@ public sealed partial class ModuleCodeGen
     /// <summary>"name, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null" for the program's own types.</summary>
     internal string? ProgramAssemblyName(ISymbol? symbol)
     {
+        if (MainIl is not null) return MainIl.Symbol.Identity.GetDisplayName();
         var unit = ProgramAssemblies.Count > 1 && symbol?.Locations.FirstOrDefault(l => l.IsInSource)?.SourceTree?.FilePath is { } path
             ? ProgramAssemblies.FirstOrDefault(a => a.Files.Contains(Path.GetFullPath(path)))
             : null;

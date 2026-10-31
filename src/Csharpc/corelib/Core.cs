@@ -29,6 +29,11 @@ namespace CsharpcCoreLib
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern int Compare<T>(T a, T b);
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern bool IsValueType<T>();
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern object Box<T>(T value);
+        /// <summary>
+        /// value.ToString(format, provider) for library structs whose box isn't IFormattable (BigInteger, Int128...);
+        /// null for every other T (format the box instead).
+        /// </summary>
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern string FormatValue<T>(T value, string format, IFormatProvider provider);
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern T Unbox<T>(object value);
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern T CastOrThrow<T>(object value);
         /// <summary>csrt_string_compare_with: culture and ordinal comparisons (StringComparison 0..4).</summary>

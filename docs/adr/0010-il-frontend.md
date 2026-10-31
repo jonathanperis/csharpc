@@ -1,7 +1,8 @@
 # ADR 0010 — IL front-end: IL as a method-body source for Roslyn's metadata symbols
 
 - **Status:** Accepted (2026-10-23). Vertical slice implemented; see [Status of the implementation](#status-of-the-implementation)
-  and [Follow-up: phase 2](#follow-up-phase-2-2026-10-23) (compiled async, resources, AppContext, framework IL).
+  and [Follow-up: phase 2](#follow-up-phase-2-2026-10-23) (compiled async, resources, AppContext, framework IL);
+  the program's own assembly as input: [The program as IL](#the-program-as-il-2026-10-30).
 
 ## Context
 
@@ -263,6 +264,73 @@ samples 343–346):
 iterator compiled from C# source throws `NotSupportedException`; resource lookups for a base name with
 no embedded resources throw `NotSupportedException`; `IStructuralComparable/Equatable` between arrays
 of different element types throws `NotSupportedException`.
+
+## The program as IL (2026-10-30)
+
+Inside the dotnet pipeline (ADR 0016) csharpc's input is what csc built, not sources, so the IL
+front-end has to take the program's own assembly too: `csharpc app.dll -o app` (or `app.exe`).
+
+- **Input.** One `.dll`/`.exe` among the inputs makes it the program (mixing it with `.cs` files is an
+  error; other assemblies stay `-r`). `Frontend/Il/IlProgram.cs` reads its name and the CLI header's
+  `EntryPoint` token — for an async or top-level Main that is csc's synthesized sync `<Main>` wrapper,
+  which calls .NET 11's `AsyncHelpers.HandleAsyncEntryPoint` (a corelib shadow: wait, rethrow the original
+  exception). A library (no entry point) or a native entry point is rejected.
+- **Compilation.** The assembly joins the IL references like a `-r`; the Roslyn compilation has no
+  sources of the program (only the corelib facade) and is named `<name>.csharpc` so the two identities
+  never clash. `ModuleCodeGen.MainIl`/`EntryPoint` replace Roslyn's `GetEntryPoint`, and Main (with what
+  it reaches, and the module initializers) is lowered before `main()` registers the builtin types'
+  interfaces, as the eager source Mains are. Everything else is on demand, through the stubs and the
+  class-hierarchy analysis above.
+- **Identity.** `Assembly.GetEntryAssembly()`, `GetExecutingAssembly()`, `Type.Assembly` and
+  `Assembly.Load` report the IL assembly's identity; the default output name is its assembly name.
+- **Module initializers.** csc calls them from `<Module>..cctor`, which Roslyn's symbols hide: its IL
+  (a list of `call`s) is read and run before Main, in csc's order. Any other module constructor (IL
+  weavers) is a diagnostic.
+- **Runtime configuration.** `app.runtimeconfig.json` next to the assembly — what `dotnet app.dll` reads —
+  gives AppContext's `configProperties` (`EntryPointFilePath` of a file-based app included), the
+  globalization switches (invariant mode, predefined cultures) and `IsReflectionEnabledByDefault`. A
+  file-based app's `#:` directives were applied by the build that made the assembly.
+- **Framework IL.** `FrameworkIl.Select` already followed the IL assemblies' references: for an IL
+  program that is the whole choice, the program's assembly references being the "uses".
+
+Semantics that sources gave the lowering and IL has to restate:
+
+- A `call` in IL is never `[Conditional]`-omitted (csc decided with its own symbols); a `newobj` of a
+  delegate is always a new object (C#'s method-group cache is a static field in the IL); `ldarg` decides
+  whether Main reads `args`; `InitializeArray` on a rectangular array writes after its bounds; a
+  constrained `object::Equals/GetHashCode` on an empty `T?` answers without boxing; a struct's
+  `base.Equals(obj)` is a non-virtual call on a box of `this`; a boxed enum (`box E`) still has its
+  static type for `Enum.CompareTo`/`IsDefined`; `typeof(E)` is `ldtoken` + `GetTypeFromHandle` for
+  `Enum.GetValues(Type)` & co.; body-less `extern` methods throw `BadImageFormatException` and
+  `[UnsafeAccessor]` externs are accessors; compiled async methods save and restore the
+  ExecutionContext (AsyncLocal, cultures) in `Start` and resume in the context captured by each await,
+  as `AsyncMethodBuilderCore` and `AsyncStateMachineBox` do; `DefaultInterpolatedStringHandler` formats
+  library structs without an IFormattable box (BigInteger, Int128, Index, Range) as their own
+  `ToString(format, provider)` (also a fix for `string.Create(provider, $"...")` in source, sample 700).
+- What IL can't reach yet is explicit: reflection-based `System.Text.Json` (its metadata is generated
+  from the call sites' C# source; calls without options or a `JsonTypeInfo`/context are rejected where
+  reflection is enabled), stack traces (IL frames have no trace metadata: turning an exception into
+  text in the program's IL is a diagnostic), `dynamic` (ADR 0019 binds from source).
+
+**Differential mode.** `tests/run.sh --via-il` builds every sample with `dotnet build NAME.cs` (the build
+`dotnet run` makes, runtimeconfig.json included) and compiles `NAME.dll`; the recordings are the same.
+The informational CI workflow `il-main.yml` runs it on Linux x86-64 at -O0 and -O2 against
+`tests/il-main-known-failures.txt`.
+
+Measured 2026-10-30 (-O0, Linux x86-64): **440 of 468 samples** pass through IL (94.0 %), the source path
+being 468/468. The 28 failures, by cause: stack traces of IL frames 9 (410–417, 522), reflection-based
+JSON 8 (316–321, 325, 535), `dynamic` 7 (680–686), reflection metadata reached through IL 2 (626, 638),
+`[GeneratedRegex]` output 1 (305), non-generic enumeration of a rectangular array 1 (393). All of them
+are diagnostics or a run-time `NotSupportedException`; none prints wrong output. The first runs found
+72 failures, 19 of them wrong output with .NET's exit status (module initializers not run, `[Conditional]`
+calls dropped, builtin types' interfaces registered before Main was lowered, `new` delegates cached,
+ExecutionContext not flowing through compiled async, BigInteger formats ignored, stack traces printed
+without the program's frames), the rest crashes and diagnostics.
+
+Next for the IL path: stack traces from the assembly's portable PDB (sequence points by IL offset, the
+method names csc chose), JSON metadata for types defined in IL (the source generator over metadata
+symbols, with accessibility for the program's internal types), `dynamic` call sites from their IL
+(`CallSite<T>` + binder arguments), and debug info (`-g`) from the PDB.
 
 ## Next steps
 

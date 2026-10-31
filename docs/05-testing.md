@@ -40,7 +40,19 @@ tests/run.sh --repeat 20 544    # flake hunting; the run fails if any repeat fai
 tests/run.sh --list             # print the selected names and do not build
 tests/run.sh --regen            # re-record .expected/.exitcode from real .NET
 tests/run.sh --regen 07         # re-record a single sample
+tests/run.sh --via-il -O0 07    # the program as IL: `dotnet build 07*.cs`, then `csharpc 07*.dll`
 ```
+
+`--via-il` runs the same samples against the same recordings through csc first, as the dotnet pipeline
+hands csharpc its input ([ADR 0010](adr/0010-il-frontend.md#the-program-as-il-2026-10-30)): each sample is
+built with `dotnet build NAME.cs` (the build `dotnet run NAME.cs` makes, with its runtimeconfig.json) and
+csharpc compiles `NAME.dll`, Main included, from IL. Samples with a `.diagnostics` file pass when csharpc
+rejects the assembly (exit 1, any diagnostic). `CSHARPC_IL_BUILD=dir` keeps the SDK builds between runs
+(a sample is rebuilt when its `.cs` is newer) and `CSHARPC_IL_JOBS=N` builds N samples at once (default
+2). Linux hosts only. CI runs it in the informational
+[Program as IL](../.github/workflows/il-main.yml) workflow; `tests/il-main-known-failures.txt` lists the
+samples known to fail that way, and a shard fails on a sample outside the list or a listed one that
+passes (`tests/il-main-check.sh`).
 
 Environment: `DOTNET` (path to the `dotnet` executable; the .NET 11 SDK must be first on `PATH`),
 `CSHARPC_OPT`, `CSHARPC_TEST_TIMEOUT`, `CSHARPC_TEST_TARGET` (cross-target runs, see below).

@@ -41,8 +41,11 @@ public static class JsonReflectionContexts
     {
         newUserTrees = userTrees;
         var texts = userTrees.Select(t => t.GetText().ToString()).ToList();
-        if (userTrees.Count == 0 || !texts.Any(t => t.Contains("Json", StringComparison.Ordinal))) return compilation;
-        var parseOptions = (CSharpParseOptions)userTrees[0].Options;
+        // A program given as IL has no sources: runtimeconfig.json's switch alone decides, and no contexts
+        // can be synthesized (FunctionCodeGen.JsonRoots.cs rejects the calls that would need them).
+        var asIl = userTrees.Count == 0 && reflectionEnabled is not null;
+        if (!asIl && (userTrees.Count == 0 || !texts.Any(t => t.Contains("Json", StringComparison.Ordinal)))) return compilation;
+        var parseOptions = asIl ? new CSharpParseOptions(LanguageVersion.Preview) : (CSharpParseOptions)userTrees[0].Options;
         var enabled = reflectionEnabled ?? FileBasedReflectionDefault(userTrees);
 
         // DefaultJsonTypeInfoResolver's knowledge of the built-in types (every primitive converter) is only

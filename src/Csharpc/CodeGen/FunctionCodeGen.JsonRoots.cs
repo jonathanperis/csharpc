@@ -12,11 +12,22 @@ namespace Csharpc.CodeGen;
 /// </summary>
 public sealed partial class FunctionCodeGen
 {
+    /// <summary>System.Text.Json.JsonSerializer.IsReflectionEnabledByDefault as the program's runtimeconfig.json sets it (default: true).</summary>
+    private bool JsonReflectionByDefault() =>
+        _m.RuntimeConfig.LastOrDefault(kv => kv.Key == "System.Text.Json.JsonSerializer.IsReflectionEnabledByDefault").Value != "false";
+
     private void CheckJsonSerializerRoots(IMethodSymbol target, IInvocationOperation inv)
     {
         // The library method as bound (S() would already name the corelib's JsonSerializer).
         if (inv.TargetMethod.ContainingType is not { Name: "JsonSerializer", ContainingNamespace: { Name: "Json", ContainingNamespace: { Name: "Text", ContainingNamespace.Name: "System" } } }) return;
         if (target.Parameters.Any(JsonReflectionContexts.IsJsonMetadataParameter)) return;
+        // Compiled code: the metadata of reflection-based serialization is generated from the C# sources of the
+        // call sites (JsonReflectionContexts), which IL doesn't have; without it the call would throw at run time.
+        // (Options may carry a source-generated TypeInfoResolver: calls given options are left to run time. With
+        // reflection disabled in runtimeconfig.json, .NET throws InvalidOperationException there, as the corelib does.)
+        if (inv is IlOperation && !_m.Il.IsCoreLib(_method) && JsonReflectionByDefault() && !inv.TargetMethod.Parameters.Any(JsonReflectionContexts.IsJsonMetadataParameter)
+            && !inv.Arguments.Any(a => a.Parameter?.Type is { Name: "JsonSerializerOptions", ContainingNamespace.Name: "Json" } && a.Value is not IlValueOperation { IsNullLiteral: true }))
+            throw CompileError.Unsupported($"reflection-based System.Text.Json serialization in compiled code ('{inv.TargetMethod}' without a JsonTypeInfo or JsonSerializerContext): csharpc generates that metadata from C# source only; use the JSON source generator ([JsonSerializable])", inv);
         foreach (var t in target.TypeArguments)
             if (JsonReflectionContexts.UnsupportedRoot(S(t)) is { } why) throw CompileError.Unsupported(why, inv);
         foreach (var arg in inv.Arguments)

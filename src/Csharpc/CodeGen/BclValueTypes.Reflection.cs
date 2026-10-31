@@ -182,7 +182,7 @@ internal static partial class BclValueTypes
                 : g.CallCoreLib("AssemblyImpl", "ForName", g.Module.StringLiteral(name));
         };
         t["System.Reflection.Assembly.GetEntryAssembly()"] = (g, _, _, _, at) =>
-            g.Module.ProgramAssemblyName(g.Module.Compilation.GetEntryPoint(CancellationToken.None)) is { } name
+            g.Module.ProgramAssemblyName(g.Module.ProgramEntryPoint) is { } name
                 ? g.CallCoreLib("AssemblyImpl", "ForName", g.Module.StringLiteral(name))
                 : throw CompileError.Unsupported("Assembly.GetEntryAssembly() of a signed or wildcard-versioned assembly", at);
     }

@@ -241,7 +241,8 @@ public sealed partial class FunctionCodeGen
         var mt = _m.DelegateMethodTable(delegateType);
         // C# 11+ caches a static method group's delegate in a static field of the converting type (Roslyn's
         // <>O container), so two conversions of M there are the same object: ReferenceEquals sees it.
-        if (creation.Target is IMethodReferenceOperation { Method: var staticMethod, Instance: null }
+        // IL has that cache spelled out (a static field); its `newobj` is always a new delegate.
+        if (creation is not IlOperation && creation.Target is IMethodReferenceOperation { Method: var staticMethod, Instance: null }
             && (staticMethod.MethodKind == MethodKind.LocalFunction ? capturesNothing : staticMethod.IsStatic)
             && creation.Syntax is not Microsoft.CodeAnalysis.CSharp.Syntax.BaseObjectCreationExpressionSyntax && _method is not null)
         {

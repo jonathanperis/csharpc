@@ -54,6 +54,8 @@ namespace CsharpcCoreLib
                 string custom = _customFormatter.Format(format, CoreIntrinsics.Box(value), _provider);
                 if (custom != null) return custom;
             }
+            string direct = CoreIntrinsics.FormatValue(value, format, _provider);
+            if (direct != null) return direct;
             object boxed = CoreIntrinsics.Box(value);
             if (boxed == null) return "";
             return Number.FormatObjectWith(boxed, format, _provider);

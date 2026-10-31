@@ -84,7 +84,8 @@ outside the closed world. Reflection works on the members `[DynamicallyAccessedM
 NativeAOT ([ADR 0018](docs/adr/0018-reflection-metadata.md)). Not supported yet: `dynamic` and expression
 trees (NativeAOT runs these, so they're on the roadmap), parts of networking. Libraries that ship only IL
 (`-r X.dll`, `<Reference>`, NuGet packages) are compiled from their IL by the IL front-end
-([ADR 0010](docs/adr/0010-il-frontend.md)), as far as the BCL surface they use is implemented. The full matrix is in [docs/06-roadmap.md](docs/06-roadmap.md).
+([ADR 0010](docs/adr/0010-il-frontend.md)), as far as the BCL surface they use is implemented; so is a
+whole program given as its assembly (`csharpc app.dll`, what the dotnet pipeline hands csharpc). The full matrix is in [docs/06-roadmap.md](docs/06-roadmap.md).
 
 ## Install
 
@@ -208,6 +209,7 @@ single-threaded WebAssembly builds), no sockets and no dynamic libraries
 
 ```bash
 csharpc path/to/App.csproj                 # evaluates the project with MSBuild; ProjectReferences included
+csharpc bin/Debug/net11.0/App.dll          # the program as csc built it: everything lowered from IL
 dotnet build   -p:UseCsharpc=true          # with the Csharpc.Sdk package: native exe replaces the apphost
 dotnet publish -p:PublishCsharpc=true      # one native executable, like PublishAot
 dotnet pack src/Csharpc && dotnet tool install -g csharpc --add-source src/Csharpc/bin/Release   # as a dotnet tool
@@ -218,6 +220,7 @@ dotnet pack src/Csharpc && dotnet tool install -g csharpc --add-source src/Cshar
 ```
 csharpc [options] <file.cs>...
 csharpc [options] [<project.csproj> | <directory>]
+csharpc [options] <app.dll | app.exe>      # a program built by csc, compiled from its IL
 
   -o, --output <path>     Output file, or directory for <AssemblyName>
   -c, --configuration <c> Debug (default) | Release, like dotnet: #if symbols and project properties

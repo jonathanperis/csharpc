@@ -37,6 +37,7 @@ public sealed partial class FunctionCodeGen
 
         if (args.Any(a => a is { Kind: IlKind.Ref, Symbol: ITypeSymbol }))
             _m.NoteDynamicallyAccessedArguments(S(method), i => args[i] is { Kind: IlKind.Ref, Symbol: ITypeSymbol type } ? type : null);
+        IlCheckExceptionText(method, receiver, args);
         if (IlSpecialCall(method, receiver, args) is { } special)
         {
             if (special.Kind != IlKind.Token) stack.Push(special); // Token = handled, nothing to push
@@ -183,7 +184,8 @@ public sealed partial class FunctionCodeGen
 
         // Library property accessors (string.Length, Console.Out, List<T>.Count on an interface...): the
         // source path implements them as properties, not as accessor methods.
-        if (method.AssociatedSymbol is IPropertySymbol property && !_m.IsUserMethod(mapped) && method.ContainingType.TypeKind != TypeKind.Interface)
+        // (and generic math identities, T.Zero with T = decimal: the source path's numeric constants)
+        if (method.AssociatedSymbol is IPropertySymbol property && !_m.IsUserMethod(mapped) && (method.ContainingType.TypeKind != TypeKind.Interface || (method.IsStatic && constrained is not null && property.Name is "Zero" or "One" or "AdditiveIdentity" or "MultiplicativeIdentity")))
         {
             if (method.MethodKind == MethodKind.PropertyGet)
             {
@@ -432,7 +434,10 @@ public sealed partial class FunctionCodeGen
                 var data = IlRvaData(field) ?? throw new IlException($"InitializeArray from field '{field}' without RVA data");
                 var target = IlRef(array);
                 NullCheck(target);
-                var elements = _b.InBoundsGep(L.I8, target, [L.ConstInt(L.I64, 16)]); // { mt, i64 length, data }
+                // Rectangular arrays (`double[,] m = { { ... } }`) keep their bounds between the length and the data.
+                var elements = array.Type is { } arrayType && S(arrayType) is IArrayTypeSymbol known
+                    ? ArrayDataStart(target, known)
+                    : throw new IlException("InitializeArray on a value not known to be an array");
                 var copy = _m.Intrinsic("llvm.memcpy.p0.p0.i64", L.Void, L.Ptr, L.Ptr, L.I64, L.I1);
                 _b.Call(copy.Type, copy.Fn, [elements, data.Global, L.ConstInt(L.I64, data.Size), L.False]);
                 return handled;
