@@ -34,6 +34,8 @@ internal static partial class BclValueTypes
             (g, _, self, _, _) => TypeResult(g, "csrt_type_declaring", self);
         t[$"{Type}.GetGenericTypeDefinition()"] = (g, _, self, _, _) => TypeResult(g, "csrt_type_generic_definition", self);
         t[$"{Type}.get_UnderlyingSystemType()"] = (g, _, self, _, _) => { g.NullCheck(self); return self; };
+        // Only the runtime's assembly loader sets it (csharpc loads no assemblies at run time): null.
+        t["System.IO.FileNotFoundException.get_FusionLog()"] = (g, _, self, _, _) => { g.NullCheck(self); return LlvmContext.Null(g.Llvm.Ptr); };
         BclHandler arguments(bool constructedOnly) => (g, _, self, _, _) =>
         {
             var array = Rt(g, "csrt_type_generic_arguments", g.Llvm.Ptr, (self, g.Llvm.Ptr), (Table(g), g.Llvm.Ptr),

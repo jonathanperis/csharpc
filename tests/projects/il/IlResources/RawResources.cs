@@ -18,6 +18,16 @@ public static class RawResources
         return $"{name}: {stream.GetType().Name} length {stream.Length} canRead {stream.CanRead} canWrite {stream.CanWrite} canSeek {stream.CanSeek} text '{(name.EndsWith(".dat") ? System.Text.Encoding.ASCII.GetString(bytes).ReplaceLineEndings("|") : $"0x{bytes[0]:X2}{bytes[1]:X2}{bytes[2]:X2}{bytes[3]:X2}")}'";
     }
 
+    // Module and reference metadata of an IL assembly (csharpc keys its caches on its module's MVID).
+    public static string ModuleInfo()
+    {
+        var module = Self.ManifestModule;
+        return $"module {module.ScopeName} {module.ModuleVersionId != Guid.Empty} {ReferenceEquals(module, Self.ManifestModule)} {module.Assembly == Self}";
+    }
+
+    public static string References() =>
+        string.Join(";", Self.GetReferencedAssemblies().Select(a => a.Name).OrderBy(n => n, StringComparer.Ordinal));
+
     public static string ByType()
     {
         using var stream = Self.GetManifestResourceStream(typeof(RawResources), "table.dat");

@@ -148,6 +148,8 @@ public sealed partial class FunctionCodeGen
             "RuntimeConfig" => _m.AppContextBlob(),
             "LoadableAssemblies" => _m.LoadableAssembliesBlob(),
             "ManifestResourceIndex" => _m.ManifestResourceIndex(),
+            "ModuleVersionIds" => _m.ModuleVersionIdsBlob(),
+            "AssemblyReferences" => _m.AssemblyReferencesBlob(),
             "ManifestResourceData" => _m.ManifestResourceData(),
             // The shared framework the program was compiled against ("11.0.0-rc.2.26504.105"), as NativeAOT
             // bakes in its System.Private.CoreLib's version.

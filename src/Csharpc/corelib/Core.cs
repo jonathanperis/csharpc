@@ -96,6 +96,10 @@ namespace CsharpcCoreLib
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern string LoadableAssemblies();
         /// <summary>(assembly, resource, offset, length) of the IL assemblies' manifest resources, encoded (ModuleCodeGen.Resources.cs).</summary>
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern string ManifestResourceIndex();
+        /// <summary>(assembly, module name, MVID) of the IL assemblies, encoded (ModuleCodeGen.Resources.cs).</summary>
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern string ModuleVersionIds();
+        /// <summary>(assembly, count, referenced full names...) of the IL assemblies, encoded (ModuleCodeGen.Resources.cs).</summary>
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern string AssemblyReferences();
         /// <summary>The bytes ManifestResourceIndex's offsets point into.</summary>
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern unsafe byte* ManifestResourceData();
         /// <summary>

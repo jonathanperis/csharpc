@@ -173,6 +173,14 @@ internal static class Intrinsics
             inv.TargetMethod.TypeArguments.Length == 1
                 ? g.AssemblyCustomAttribute(g.Substitution.Apply(inv.TargetMethod.TypeArguments[0]), Arg(g, inv, 0), inv)
                 : throw CompileError.Unsupported("CustomAttributeExtensions.GetCustomAttribute(Assembly, Type)", inv);
+        t["System.Reflection.Assembly.GetCustomAttributes(System.Type, bool)"] = (g, inv) =>
+        {
+            var self = g.EmitValue(inv.Instance!);
+            Arg(g, inv, 1); // `inherit`: evaluated, no effect for assemblies
+            return FunctionCodeGen.TypeOfOperand(inv.Arguments.First(a => a.Parameter!.Ordinal == 0).Value) is INamedTypeSymbol attributeType
+                ? g.AssemblyCustomAttributes((INamedTypeSymbol)g.Substitution.Apply(attributeType), self, inv)
+                : throw CompileError.Unsupported("Assembly.GetCustomAttributes with a Type that is not typeof(an attribute)", inv);
+        };
         // The identity hash object.GetHashCode falls back to: csrt_object_get_hash_code_default's formula
         // (csrt.c), inline (0 for null, like .NET).
         t["System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(object)"] = (g, inv) =>

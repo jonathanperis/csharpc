@@ -357,6 +357,49 @@ namespace CsharpcCoreLib
             throw new NotSupportedException("AppDomain.GetAssemblies (the loaded assemblies) is not supported by csharpc yet.");
     }
 
+    /// <summary>
+    /// RuntimeEnvironment.GetRuntimeDirectory: .NET's formula — the directory of CoreLib's file, or the app's base
+    /// directory when that has no rooted path, which is NativeAOT's case and csharpc's (assemblies are compiled in).
+    /// </summary>
+    [ShadowMembers("System.Runtime.InteropServices.RuntimeEnvironment")]
+    internal static class RuntimeEnvironmentMembers
+    {
+        public static string GetRuntimeDirectory()
+        {
+            string runtimeDirectory = typeof(object).Assembly.Location;
+            if (!System.IO.Path.IsPathRooted(runtimeDirectory)) runtimeDirectory = AppContext.BaseDirectory;
+            return System.IO.Path.GetDirectoryName(runtimeDirectory) + System.IO.Path.DirectorySeparatorChar;
+        }
+    }
+
+    /// <summary>
+    /// Environment.FailFast: "Process terminated." and the message on stderr, then the process ends without
+    /// running finally blocks or finalizers — SIGABRT off Windows (exit status 134), as .NET's does.
+    /// </summary>
+    [ShadowMembers("System.Environment")]
+    internal static class FailFastMembers
+    {
+#if CSHARPC_TARGET_WINDOWS
+        [DllImport("kernel32")] private static extern void ExitProcess(uint exitCode);
+        private static void Terminate() => ExitProcess(0xC0000409); // as RaiseFailFastException reports it
+#else
+        [DllImport("libc")] private static extern void abort();
+        private static void Terminate() => abort();
+#endif
+
+        public static void FailFast(string message) => FailFast(message, null);
+
+        public static void FailFast(string message, Exception exception)
+        {
+            Console.Out.Flush();
+            var text = new System.Text.StringBuilder("Process terminated. ").Append(message).Append(Environment.NewLine);
+            if (exception != null) text.Append(exception.ToString()).Append(Environment.NewLine);
+            Console.Error.Write(text.ToString());
+            Console.Error.Flush();
+            Terminate();
+        }
+    }
+
     [ShadowMembers("System.GC")]
     internal static class GCMembers
     {
@@ -369,6 +412,22 @@ namespace CsharpcCoreLib
         public static long GetTotalAllocatedBytes(bool precise = false) => TotalAllocated();
         public static TimeSpan GetTotalPauseDuration() => new TimeSpan(TotalPauseTicks());
         public static int MaxGeneration => 2;
+
+        [DllImport("__Internal", EntryPoint = "csrt_gc_collect")] private static extern void FullCollection();
+
+        // csharpc's collector has one kind of collection: every overload runs it, after .NET's argument checks.
+        public static void Collect(int generation) => Collect(generation, GCCollectionMode.Default, true, false);
+        public static void Collect(int generation, GCCollectionMode mode) => Collect(generation, mode, true, false);
+        public static void Collect(int generation, GCCollectionMode mode, bool blocking) => Collect(generation, mode, blocking, false);
+
+        public static void Collect(int generation, GCCollectionMode mode, bool blocking, bool compacting)
+        {
+            ThrowHelper.IfNegative(generation, "generation");
+            if (mode < GCCollectionMode.Default || mode > GCCollectionMode.Aggressive) throw new ArgumentOutOfRangeException("mode", "Enum value was out of legal range.");
+            if (mode == GCCollectionMode.Aggressive && (generation != MaxGeneration || !blocking || !compacting))
+                throw new NotSupportedException("GC.Collect with GCCollectionMode.Aggressive and a generation below MaxGeneration, or not blocking and compacting, is not supported by csharpc yet.");
+            FullCollection();
+        }
 
         [DllImport("__Internal", EntryPoint = "csrt_gc_collection_count")] private static extern long Collections(int generation);
 

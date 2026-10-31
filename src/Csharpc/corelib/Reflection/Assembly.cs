@@ -10,6 +10,36 @@ using System.Threading;
 
 namespace CsharpcCoreLib
 {
+    /// <summary>
+    /// System.Reflection.Module: the identity of an assembly's manifest module, from its metadata (compiled in:
+    /// ModuleCodeGen.ModuleVersionIdsBlob). File-related members stay "not supported" (assemblies are compiled into the program).
+    /// </summary>
+    [Shadows("System.Reflection.Module")]
+    public abstract class ModuleImpl
+    {
+        protected ModuleImpl() { }
+        public virtual Guid ModuleVersionId => throw new NotSupportedException("Module.ModuleVersionId is not supported by csharpc yet.");
+        public virtual string ScopeName => throw new NotSupportedException("Module.ScopeName is not supported by csharpc yet.");
+        public virtual Assembly Assembly => throw new NotSupportedException("Module.Assembly is not supported by csharpc yet.");
+        public virtual string Name => throw new NotSupportedException("Module.Name is not supported by csharpc yet (the module has no file).");
+        public virtual string FullyQualifiedName => throw new NotSupportedException("Module.FullyQualifiedName is not supported by csharpc yet (the module has no file).");
+        public override string ToString() => ScopeName;
+    }
+
+    [Shadows("System.Reflection.RuntimeModule")]
+    internal sealed class RuntimeModuleImpl : ModuleImpl
+    {
+        private readonly Assembly _assembly;
+        private readonly string _scopeName;
+        private readonly Guid _mvid;
+
+        internal RuntimeModuleImpl(Assembly assembly, string scopeName, Guid mvid) { _assembly = assembly; _scopeName = scopeName; _mvid = mvid; }
+
+        public override Guid ModuleVersionId => _mvid;
+        public override string ScopeName => _scopeName;
+        public override Assembly Assembly => _assembly;
+    }
+
     /// <summary>What .NET hands out for an embedded resource: a read-only UnmanagedMemoryStream over the image's bytes.</summary>
     [Shadows("System.Reflection.RuntimeAssembly+ManifestResourceStream")]
     internal sealed unsafe class ManifestResourceStreamImpl : System.IO.UnmanagedMemoryStream
@@ -97,6 +127,41 @@ namespace CsharpcCoreLib
             if (found == null && throwOnError)
                 throw new TypeLoadException("Could not resolve type '" + name + "' in assembly '" + _fullName + "'.");
             return found;
+        }
+
+        private Module _manifestModule;
+
+        /// <summary>The manifest module of an IL assembly (its metadata name and MVID); the one object per assembly, as in .NET.</summary>
+        public virtual Module ManifestModule
+        {
+            get
+            {
+                if ((object)_manifestModule != null) return _manifestModule;
+                var ids = CompiledBlob.Fields(CoreIntrinsics.ModuleVersionIds());
+                for (int i = 0; i + 2 < ids.Count; i += 3)
+                    if (ids[i] == _fullName)
+                    {
+                        var module = (Module)(object)new RuntimeModuleImpl((Assembly)(object)this, ids[i + 1], Guid.Parse(ids[i + 2]));
+                        Interlocked.CompareExchange(ref _manifestModule, module, null);
+                        return _manifestModule;
+                    }
+                throw new NotSupportedException("Assembly.ManifestModule of '" + _fullName + "' is not supported by csharpc yet (only assemblies compiled from IL have their module metadata).");
+            }
+        }
+
+        /// <summary>The assemblies this one references, from its metadata (a new array of new names per call, as in .NET).</summary>
+        public virtual AssemblyName[] GetReferencedAssemblies()
+        {
+            var fields = CompiledBlob.Fields(CoreIntrinsics.AssemblyReferences());
+            for (int i = 0; i + 1 < fields.Count; i += 2 + int.Parse(fields[i + 1]))
+            {
+                if (fields[i] != _fullName) continue;
+                int count = int.Parse(fields[i + 1]);
+                var names = new AssemblyName[count];
+                for (int k = 0; k < count; k++) names[k] = AssemblyNameImpl.FromFullName(fields[i + 2 + k]);
+                return names;
+            }
+            throw new NotSupportedException("Assembly.GetReferencedAssemblies of '" + _fullName + "' is not supported by csharpc yet (only assemblies compiled from IL have their references).");
         }
 
         // ---- manifest resources (compiled in: ModuleCodeGen.Resources.cs) ----

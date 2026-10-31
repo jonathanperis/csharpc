@@ -15,3 +15,5 @@ Console.WriteLine(AppContext.TryGetSwitch("System.Globalization.Invariant", out 
 foreach (var name in RawResources.Names()) Console.WriteLine(RawResources.Describe(name));
 Console.WriteLine(RawResources.Describe("IlResources.missing.dat"));
 Console.WriteLine(RawResources.ByType());
+Console.WriteLine(RawResources.ModuleInfo());
+Console.WriteLine(RawResources.References());

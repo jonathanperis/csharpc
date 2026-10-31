@@ -1,4 +1,5 @@
-// Starting processes (System.Diagnostics.Process) is not supported by csharpc yet. ProcessStartInfo is a
+// Starting processes (System.Diagnostics.Process) is not supported by csharpc yet; the current process
+// (GetCurrentProcess: Id, CPU times, working set on Linux) is. ProcessStartInfo is a
 // property bag, as in .NET; Process.Start and the members around it throw NotSupportedException.
 #nullable disable
 using System;
@@ -80,6 +81,38 @@ namespace CsharpcCoreLib
         private static NotSupportedException NotSupported() => new NotSupportedException("Starting processes (System.Diagnostics.Process) is not supported by csharpc yet.");
 
         public ProcessImpl() => throw NotSupported();
+
+        // ---- the current process (Process.GetCurrentProcess): its id, CPU times and memory high-water mark ----
+        private readonly bool _current;
+        private ProcessImpl(bool current) { _current = current; }
+
+        /// <summary>A new Process object for this process on every call, as in .NET.</summary>
+        public static Process GetCurrentProcess() => (Process)(object)new ProcessImpl(current: true);
+
+        private void RequireCurrent() { if (!_current) throw NotSupported(); }
+
+        public TimeSpan TotalProcessorTime { get { RequireCurrent(); return Environment.CpuUsage.TotalTime; } }
+        public TimeSpan UserProcessorTime { get { RequireCurrent(); return Environment.CpuUsage.UserTime; } }
+        public TimeSpan PrivilegedProcessorTime { get { RequireCurrent(); return Environment.CpuUsage.PrivilegedTime; } }
+        public long PeakWorkingSet64 { get { RequireCurrent(); return ProcStatusBytes("VmHWM:"); } }
+        public long WorkingSet64 { get { RequireCurrent(); return ProcStatusBytes("VmRSS:"); } }
+
+        /// <summary>A "Name:  N kB" line of /proc/self/status, in bytes (what .NET reads on Linux).</summary>
+        private static long ProcStatusBytes(string field)
+        {
+#if CSHARPC_TARGET_LINUX
+            foreach (var line in File.ReadAllLines("/proc/self/status"))
+                if (line.StartsWith(field, StringComparison.Ordinal))
+                {
+                    var digits = line.Substring(field.Length).Trim();
+                    if (digits.EndsWith(" kB", StringComparison.Ordinal)) digits = digits.Substring(0, digits.Length - 3);
+                    return long.Parse(digits) * 1024;
+                }
+            return 0;
+#else
+            throw new NotSupportedException("Process." + (field == "VmHWM:" ? "PeakWorkingSet64" : "WorkingSet64") + " is not supported by csharpc yet on this platform.");
+#endif
+        }
         public static Process Start(ProcessStartInfo startInfo) => throw NotSupported();
         public static Process Start(string fileName) => throw NotSupported();
         public static Process Start(string fileName, string arguments) => throw NotSupported();
@@ -92,8 +125,8 @@ namespace CsharpcCoreLib
         public StreamReader StandardError => throw NotSupported();
         public StreamWriter StandardInput => throw NotSupported();
         public int ExitCode => throw NotSupported();
-        public bool HasExited => throw NotSupported();
-        public int Id => throw NotSupported();
+        public bool HasExited { get { RequireCurrent(); return false; } }
+        public int Id { get { RequireCurrent(); return Environment.ProcessId; } }
         public void WaitForExit() => throw NotSupported();
         public bool WaitForExit(int milliseconds) => throw NotSupported();
         public bool WaitForExit(TimeSpan timeout) => throw NotSupported();

@@ -87,6 +87,54 @@ public sealed partial class ModuleCodeGen
         _manifestIndex = Encode(fields);
     }
 
+    private string? _moduleIds;
+
+    /// <summary>
+    /// (assembly full name, module name, MVID) of every IL assembly (Assembly.ManifestModule, corelib/Reflection/Assembly.cs):
+    /// emitted only when the program reaches ManifestModule.
+    /// </summary>
+    internal LLVMValueRef ModuleVersionIdsBlob()
+    {
+        if (_moduleIds is null)
+        {
+            var fields = new List<string>();
+            foreach (var assembly in Il.Assemblies)
+            {
+                if (assembly.IsCoreLib) continue;
+                var module = assembly.Reader.GetModuleDefinition();
+                fields.AddRange([assembly.Symbol.Identity.GetDisplayName(), assembly.Reader.GetString(module.Name),
+                    assembly.Reader.GetGuid(module.Mvid).ToString("D")]);
+            }
+            _moduleIds = Encode(fields);
+        }
+        return StringLiteral(_moduleIds);
+    }
+
+    private string? _assemblyReferences;
+
+    /// <summary>
+    /// (assembly full name, number of references, their full names...) of every IL assembly, from its AssemblyRef
+    /// table in metadata order (Assembly.GetReferencedAssemblies): emitted only when the program reaches it.
+    /// </summary>
+    internal LLVMValueRef AssemblyReferencesBlob()
+    {
+        if (_assemblyReferences is null)
+        {
+            var fields = new List<string>();
+            foreach (var assembly in Il.Assemblies)
+            {
+                if (assembly.IsCoreLib) continue;
+                var reader = assembly.Reader;
+                var names = reader.AssemblyReferences.Select(h => reader.GetAssemblyReference(h).GetAssemblyName().FullName).ToList();
+                fields.Add(assembly.Symbol.Identity.GetDisplayName());
+                fields.Add(names.Count.ToString(System.Globalization.CultureInfo.InvariantCulture));
+                fields.AddRange(names);
+            }
+            _assemblyReferences = Encode(fields);
+        }
+        return StringLiteral(_assemblyReferences);
+    }
+
     /// <summary>(name, value) pairs of the runtime configuration.</summary>
     internal LLVMValueRef AppContextBlob() => StringLiteral(Encode(RuntimeConfig.SelectMany(kv => new[] { kv.Key, kv.Value })));
 

@@ -61,6 +61,53 @@ public sealed partial class FunctionCodeGen
         return _b.Load(L.Ptr, result);
     }
 
+    /// <summary>
+    /// assembly.GetCustomAttributes(typeof(A), inherit): an A[] of the matching attributes (assemblies have no
+    /// base to inherit from, so `inherit` changes nothing), built from the same compile-time metadata.
+    /// </summary>
+    internal LLVMValueRef AssemblyCustomAttributes(INamedTypeSymbol attributeType, LLVMValueRef assembly, IOperation at)
+    {
+        NullCheck(assembly);
+        var name = CallCoreLib("AssemblyImpl", "NameOf", assembly);
+        var result = NewTemp(L.Ptr, "attributes");
+        var done = NewBlock("attributes.done");
+        foreach (var (identity, attributes) in KnownAssemblyAttributes())
+        {
+            var matches = attributes.Where(a => a.AttributeClass is { } c && DerivesFromOrEquals(c, attributeType)).ToList();
+            var hit = NewBlock("attributes.assembly");
+            var next = NewBlock("attributes.next");
+            _b.CondBr(CallRuntime("csrt_string_equals", L.I1, [L.Ptr, L.Ptr], name, _m.StringLiteral(identity)), hit, next);
+            _b.PositionAtEnd(hit);
+            var array = NewArray(attributeType, L.ConstInt(L.I64, matches.Count));
+            for (var i = 0; i < matches.Count; i++)
+                StoreValue(ConstructAttribute(matches[i], at), ArrayElementAddress(array, attributeType, L.ConstInt(L.I64, i)));
+            _b.Store(array, result);
+            _b.Br(done);
+            _b.PositionAtEnd(next);
+        }
+        ThrowNewLibraryException(_m.Compilation.GetTypeByMetadataName("System.NotSupportedException")!,
+            "The custom attributes of this assembly are not available to csharpc yet (only those of assemblies compiled from IL are).");
+        _b.PositionAtEnd(done);
+        return _b.Load(L.Ptr, result);
+    }
+
+    /// <summary>(identity, attributes) of the assemblies whose attributes csharpc knows: the program's own and the IL ones.</summary>
+    private List<(string Identity, IEnumerable<AttributeData> Attributes)> KnownAssemblyAttributes()
+    {
+        List<(string Identity, IEnumerable<AttributeData> Attributes)> assemblies = [];
+        if (_m.MainIl is null && _m.ProgramAssemblyName(null) is { } programName)
+        {
+            var root = _m.ProgramAssemblies.FirstOrDefault(a => a.IsRoot);
+            bool OfRoot(AttributeData a) => _m.ProgramAssemblies.Count <= 1
+                || a.ApplicationSyntaxReference?.SyntaxTree.FilePath is not { } path
+                || path == Frontend.RoslynFrontend.AssemblyInfoTreePath
+                || root?.Files.Contains(Path.GetFullPath(path)) == true;
+            assemblies.Add((programName, _m.Compilation.Assembly.GetAttributes().Where(OfRoot)));
+        }
+        foreach (var il in _m.Il.Assemblies) assemblies.Add((il.Symbol.Identity.GetDisplayName(), il.Symbol.GetAttributes()));
+        return assemblies;
+    }
+
     private static bool DerivesFromOrEquals(INamedTypeSymbol type, ITypeSymbol baseType)
     {
         for (INamedTypeSymbol? t = type; t is not null; t = t.BaseType)
