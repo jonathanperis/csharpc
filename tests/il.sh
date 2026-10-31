@@ -8,6 +8,8 @@
 #   tests/projects/il/<App>/expect-error    optional: the app must fail to compile with this diagnostic text
 #   tests/projects/il/<App>/levels          optional: the levels to compile it at instead of -O0 -O2 (a large app's -O2
 #                                           build costs more CI time than it adds: IlKestrelErrorsApp)
+#   tests/projects/il/<App>/os              optional: the host OSes (linux, macos, windows) it runs on; skipped elsewhere
+#                                           (a Kestrel server needs what csharpc has on Linux only: inotify, epoll)
 #   tests/projects/il/<App>/heavy           optional: a compile too big for every CI shard (the Roslyn host, ~6 GB): skipped
 #                                           unless CSHARPC_HEAVY_IL=1; its content, if any, lists the levels (default -O0 -O2)
 #
@@ -24,6 +26,7 @@ WORK="$(cd "$(mktemp -d)" && pwd -P)"
 trap 'rm -rf "$WORK"' EXIT
 FILTER="${1:-}"
 pass=0; fail=0
+case "$(uname -s)" in Darwin) HOST_OS=macos ;; MINGW*|MSYS*|CYGWIN*) HOST_OS=windows ;; *) HOST_OS=linux ;; esac
 
 check() { # name expected actual
   if diff -u "$2" "$3" > "$WORK/diff"; then echo "PASS $1"; pass=$((pass + 1));
@@ -51,6 +54,9 @@ for proj in "$WORK"/il/*/*.csproj; do
   app="$(basename "$proj" .csproj)"
   dir="$(dirname "$proj")"
   [[ -n "$FILTER" && "$app" != *"$FILTER"* ]] && continue
+  if [[ -s "$dir/os" ]] && ! grep -qw "$HOST_OS" "$dir/os"; then
+    echo "SKIP $app (runs on $(tr '\n' ' ' < "$dir/os")only)"; continue
+  fi
   levels="-O0 -O2"
   [[ -s "$dir/levels" ]] && levels="$(cat "$dir/levels")"
   if [[ -f "$dir/heavy" ]]; then
