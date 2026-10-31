@@ -122,6 +122,23 @@ public sealed partial class ModuleCodeGen
 
         using var b = new IrBuilder(Llvm);
         b.PositionAtEnd(b.AppendBlock(stub, "entry"));
+        // A P/Invoke is a static method of its type: a precise static constructor runs before the call, as
+        // in .NET (Llvm.Native registers its DllImport resolver there).
+        if (TriggersClassInitOnEntry(method) && ClassInitFor(method.ContainingType) is { } init)
+        {
+            NoteClassInit(init.Type);
+            var stateType = Llvm.Struct(Llvm.I32, Llvm.I32, Llvm.Ptr, Llvm.Ptr);
+            var state = b.Load(Llvm.I32, b.StructGep(stateType, init.State, 0), "cctor.state");
+            Native.LLVMSetOrdering(state, LLVMAtomicOrdering.Acquire);
+            Native.LLVMSetAlignment(state, 4);
+            var run = b.AppendBlock(stub, "cctor.run");
+            var initialized = b.AppendBlock(stub, "cctor.done");
+            b.CondBr(b.ICmp(LLVMIntPredicate.EQ, state, Llvm.ConstInt(Llvm.I32, 2)), initialized, run);
+            b.PositionAtEnd(run);
+            b.Call(init.Check.Type, init.Check.Fn, []);
+            b.Br(initialized);
+            b.PositionAtEnd(initialized);
+        }
 
         // ---- marshal arguments ----
         List<LLVMValueRef> args = [];
