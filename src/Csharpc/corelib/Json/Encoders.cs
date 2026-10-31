@@ -405,6 +405,7 @@ namespace CsharpcCoreLib
 
         public virtual OperationStatus EncodeUtf8(ReadOnlySpan<byte> utf8Source, Span<byte> utf8Destination, out int bytesConsumed, out int bytesWritten, bool isFinalBlock = true)
         {
+            if (_allowed != null) return EncodeUtf8Inbox(utf8Source, utf8Destination, out bytesConsumed, out bytesWritten, isFinalBlock);
             char[] buffer = new char[Math.Max(16, 2 * MaxOutputCharactersPerInputCharacter)];
             Span<byte> encoded = stackalloc byte[4];
             int read = 0, written = 0;
@@ -480,6 +481,11 @@ namespace CsharpcCoreLib
 
         public virtual int FindFirstCharacterToEncodeUtf8(ReadOnlySpan<byte> utf8Text)
         {
+            if (_allowed != null)
+            {
+                int run = AllowedAsciiRun(utf8Text);
+                return run == utf8Text.Length ? -1 : FirstToEncodeUtf8Inbox(utf8Text, run);
+            }
             int i = 0;
             while (i < utf8Text.Length)
             {
@@ -493,6 +499,157 @@ namespace CsharpcCoreLib
                 i += length;
             }
             return -1;
+        }
+
+        // ---- The inbox encoders' UTF-8 paths (OptimizedInboxTextEncoder): a run of allowed ASCII is found with one
+        // bitmap test per byte and copied as a block; only escapes and non-ASCII scalars go one at a time, written
+        // straight as UTF-8 (escapes are ASCII). Output and the progress reported on a full destination are the
+        // generic path's above (which derived encoders take). RazorSlices writes every HTML-encoded value this way. --
+
+        /// <summary>The length of the leading run of ASCII bytes the encoder lets through.</summary>
+        private int AllowedAsciiRun(ReadOnlySpan<byte> text)
+        {
+            uint[] bits = _allowed.Bits;
+            ulong low = bits[0] | ((ulong)bits[1] << 32), high = bits[2] | ((ulong)bits[3] << 32);
+            int i = 0;
+            while (i < text.Length)
+            {
+                uint b = text[i];
+                ulong word = b < 64 ? low : high;
+                if (b >= 0x80 || ((word >> (int)(b & 63)) & 1) == 0) break;
+                i++;
+            }
+            return i;
+        }
+
+        /// <summary>FindFirstCharacterToEncodeUtf8 from <paramref name="i"/>, a byte that isn't allowed ASCII.</summary>
+        private int FirstToEncodeUtf8Inbox(ReadOnlySpan<byte> text, int i)
+        {
+            while (i < text.Length)
+            {
+                if (text[i] < 0x80) return i;
+                if (Rune.DecodeFromUtf8(text.Slice(i), out Rune rune, out int length) != OperationStatus.Done || !IsScalarAllowed(rune.Value)) return i;
+                i += length;
+                i += AllowedAsciiRun(text.Slice(i));
+            }
+            return -1;
+        }
+
+        private OperationStatus EncodeUtf8Inbox(ReadOnlySpan<byte> source, Span<byte> destination, out int bytesConsumed, out int bytesWritten, bool isFinalBlock)
+        {
+            Span<byte> escape = stackalloc byte[32];
+            int read = 0, written = 0;
+            OperationStatus result = OperationStatus.Done;
+            while (read < source.Length)
+            {
+                int run = AllowedAsciiRun(source.Slice(read));
+                if (run > 0)
+                {
+                    int room = destination.Length - written;
+                    if (run > room)
+                    {
+                        source.Slice(read, room).CopyTo(destination.Slice(written));
+                        read += room;
+                        written += room;
+                        result = OperationStatus.DestinationTooSmall;
+                        break;
+                    }
+                    source.Slice(read, run).CopyTo(destination.Slice(written));
+                    read += run;
+                    written += run;
+                    if (read == source.Length) break;
+                }
+                int length;
+                scoped ReadOnlySpan<byte> output;
+                byte b = source[read];
+                if (b < 0x80)
+                {
+                    length = 1;
+                    output = escape.Slice(0, EscapeUtf8(b, escape));
+                }
+                else
+                {
+                    OperationStatus status = Rune.DecodeFromUtf8(source.Slice(read), out Rune rune, out length);
+                    if (status == OperationStatus.NeedMoreData && !isFinalBlock)
+                    {
+                        result = OperationStatus.NeedMoreData;
+                        break;
+                    }
+                    // Invalid UTF-8 is U+FFFD, always escaped (even by an encoder that allows U+FFFD itself).
+                    if (status == OperationStatus.Done && IsScalarAllowed(rune.Value)) output = source.Slice(read, length);
+                    else output = escape.Slice(0, EscapeUtf8(status == OperationStatus.Done ? rune.Value : 0xFFFD, escape));
+                }
+                if (output.Length > destination.Length - written)
+                {
+                    result = OperationStatus.DestinationTooSmall;
+                    break;
+                }
+                output.CopyTo(destination.Slice(written));
+                written += output.Length;
+                read += length;
+            }
+            bytesConsumed = read;
+            bytesWritten = written;
+            return result;
+        }
+
+        /// <summary>A disallowed scalar's escape as UTF-8 (ASCII): AppendEscaped's text.</summary>
+        private int EscapeUtf8(int scalar, Span<byte> destination)
+        {
+            const string digits = "0123456789ABCDEF";
+            int n = 0;
+            if (_percentEncoding)
+            {
+                Span<byte> utf8 = stackalloc byte[4];
+                int count = new Rune(scalar).EncodeToUtf8(utf8);
+                for (int i = 0; i < count; i++)
+                {
+                    destination[n++] = (byte)'%';
+                    destination[n++] = (byte)digits[utf8[i] >> 4];
+                    destination[n++] = (byte)digits[utf8[i] & 0xF];
+                }
+                return n;
+            }
+            if (_htmlEncoding)
+            {
+                ReadOnlySpan<byte> named = scalar switch { '<' => "&lt;"u8, '>' => "&gt;"u8, '&' => "&amp;"u8, '"' => "&quot;"u8, _ => default };
+                if (!named.IsEmpty)
+                {
+                    named.CopyTo(destination);
+                    return named.Length;
+                }
+                destination[n++] = (byte)'&';
+                destination[n++] = (byte)'#';
+                destination[n++] = (byte)'x';
+                int shift = 20;
+                while (shift > 0 && (scalar >> shift) == 0) shift -= 4; // scalar.ToString("X"): no leading zeros
+                for (; shift >= 0; shift -= 4) destination[n++] = (byte)digits[(scalar >> shift) & 0xF];
+                destination[n++] = (byte)';';
+                return n;
+            }
+            byte simple = scalar switch { '\b' => (byte)'b', '\t' => (byte)'t', '\n' => (byte)'n', '\f' => (byte)'f', '\r' => (byte)'r', '\\' => (byte)'\\', '"' when _minimalEscaping => (byte)'"', _ => 0 };
+            if (simple != 0)
+            {
+                destination[0] = (byte)'\\';
+                destination[1] = simple;
+                return 2;
+            }
+            if (scalar < 0x10000) return EscapeUtf16Unit(scalar, destination);
+            int v = scalar - 0x10000;
+            n = EscapeUtf16Unit(0xD800 + (v >> 10), destination);
+            return n + EscapeUtf16Unit(0xDC00 + (v & 0x3FF), destination.Slice(n));
+        }
+
+        private static int EscapeUtf16Unit(int unit, Span<byte> destination)
+        {
+            const string digits = "0123456789ABCDEF";
+            destination[0] = (byte)'\\';
+            destination[1] = (byte)'u';
+            destination[2] = (byte)digits[(unit >> 12) & 0xF];
+            destination[3] = (byte)digits[(unit >> 8) & 0xF];
+            destination[4] = (byte)digits[(unit >> 4) & 0xF];
+            destination[5] = (byte)digits[unit & 0xF];
+            return 6;
         }
 
         /// <summary>Index of the first char that is escaped, or -1.</summary>
