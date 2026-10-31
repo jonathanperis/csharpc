@@ -328,8 +328,9 @@ Semantics that sources gave the lowering and IL has to restate:
 The informational CI workflow `il-main.yml` runs it on Linux x86-64 at -O0 and -O2 against
 `tests/il-main-known-failures.txt`.
 
-Measured 2026-10-30 (Linux x86-64, -O0 and -O2; "Program as IL" run 41151570621): **454 of 471
-samples** pass through IL (96.4 %), the source path being 471/471. The 17 failures, by cause:
+Measured 2026-10-30 (Linux x86-64, -O0 and -O2; "Program as IL" run 41151570621, then on `main` with
+expression trees, whose samples 672–676 pass through IL too): **459 of 476 samples** pass through IL
+(96.4 %), the source path being 476/476. The 17 failures, by cause:
 reflection-based JSON 8 (316–321, 325, 535),
 `dynamic` 7 (680–686), `[GeneratedRegex]` output 1 (305: it sets `Regex`'s protected fields, which the
 corelib's Regex doesn't have), non-generic enumeration of a rectangular array 1 (393). All of them are
