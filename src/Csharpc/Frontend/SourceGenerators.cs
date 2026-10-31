@@ -1,57 +1,81 @@
+using System.Collections.Concurrent;
+using System.Collections.Immutable;
 using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Runtime.Loader;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.Diagnostics;
+using Microsoft.CodeAnalysis.Text;
 
 namespace Csharpc.Frontend;
 
 /// <summary>
-/// Runs the source generators the .NET SDK runs for every project — the ones shipped in the
-/// Microsoft.NETCore.App.Ref pack's analyzers folder ([LibraryImport] interop stubs, [GeneratedRegex],
-/// [JsonSerializable]...). Like csc, csharpc then compiles the generated C# with the user's code, so
-/// e.g. LibraryImport marshalling is ordinary C# lowered by csharpc (no special casing in codegen).
+/// What csc gets for source generators in a project build (ProjectLoader reads it from the csc command
+/// line the SDK's CoreCompile target computes): the /analyzer assemblies after the SDK's own selection
+/// (targeting packs, NuGet packages' analyzers folders, the Razor SDK's generator), the /additionalfile
+/// items (.cshtml/.razor for Razor), the /analyzerconfig files (the GeneratedMSBuildEditorConfig with the
+/// build_property.* / build_metadata.* options, .editorconfig and .globalconfig files) and the /features
+/// (InterceptorsNamespaces for the interceptors the request-delegate and configuration-binder generators emit).
+/// </summary>
+public sealed record GeneratorInputs
+{
+    public IReadOnlyList<string> Analyzers { get; init; } = [];
+    public IReadOnlyList<string> AdditionalFiles { get; init; } = [];
+    public IReadOnlyList<string> AnalyzerConfigFiles { get; init; } = [];
+    public IReadOnlyDictionary<string, string> Features { get; init; } = ImmutableDictionary<string, string>.Empty;
+    /// <summary>csc's base directory for generated files (its /out directory): generated trees' paths, as PDBs and stack traces show them.</summary>
+    public string? GeneratedFilesDirectory { get; init; }
+}
+
+/// <summary>
+/// Runs Roslyn source generators over the program, as csc does, and compiles the generated C# with the
+/// user's code: e.g. LibraryImport marshalling or Razor templates are ordinary C# lowered by csharpc (no
+/// special casing in codegen). A project brings its generators (<see cref="GeneratorInputs"/>); single
+/// files get the ones the SDK runs for every project, from the Microsoft.NETCore.App.Ref pack.
 /// </summary>
 public static class SourceGenerators
 {
     /// <summary>
-    /// Generators worth loading, keyed by the attribute that triggers them. A null assembly is a generator
-    /// built into csharpc: [GeneratedRegex] (GeneratedRegex.cs) replaces the SDK's, whose output is built on
-    /// RegexRunner internals.
+    /// Single files: generators worth loading, keyed by the attribute that triggers them. A null assembly is
+    /// a generator built into csharpc: [GeneratedRegex] (GeneratedRegex.cs) replaces the SDK's, whose output
+    /// is built on RegexRunner internals.
     /// </summary>
     private static readonly (string Trigger, string? Assembly)[] s_generators =
     [
         ("LibraryImport", "Microsoft.Interop.LibraryImportGenerator.dll"),
         ("GeneratedRegex", null),
-        ("JsonSerializable", "System.Text.Json.SourceGeneration.dll"),
+        ("JsonSerializable", JsonGeneratorAssembly),
     ];
 
-    public static CSharpCompilation Run(CSharpCompilation compilation, IEnumerable<SyntaxTree> userTrees, out IReadOnlyList<Diagnostic> diagnostics)
+    private const string JsonGeneratorAssembly = "System.Text.Json.SourceGeneration.dll";
+    /// <summary>The SDK's (and the System.Text.RegularExpressions package's) [GeneratedRegex] generator, which csharpc replaces.</summary>
+    private const string RegexGeneratorAssembly = "System.Text.RegularExpressions.Generator.dll";
+
+    public static CSharpCompilation Run(CSharpCompilation compilation, IEnumerable<SyntaxTree> userTrees, GeneratorInputs? inputs, out IReadOnlyList<Diagnostic> diagnostics)
     {
         diagnostics = [];
         if (Environment.GetEnvironmentVariable("CSHARPC_NO_GENERATORS") == "1") return compilation;
-        var text = string.Concat(userTrees.Select(t => t.GetText().ToString()));
-        var wanted = s_generators.Where(g => text.Contains(g.Trigger, StringComparison.Ordinal)).ToList();
-        if (wanted.Count == 0) return compilation;
+        List<Diagnostic> found = [];
+        var generators = inputs is null ? DefaultGenerators(userTrees) : ProjectGenerators(compilation, inputs, found);
+        if (generators.Count == 0) { diagnostics = found; return compilation; }
 
-        var dir = AnalyzerDirectory();
-        var loader = dir is null ? null : new Loader(dir);
-        List<ISourceGenerator> generators = [];
-        foreach (var (_, assembly) in wanted)
+        var parseOptions = (CSharpParseOptions)compilation.SyntaxTrees.First().Options;
+        ImmutableArray<AdditionalText> additionalTexts = [];
+        AnalyzerConfigOptionsProvider? optionsProvider = null;
+        string? generatedDirectory = null;
+        if (inputs is not null)
         {
-            if (assembly is null) { generators.Add(new GeneratedRegexGenerator().AsSourceGenerator()); continue; }
-            if (dir is null || loader is null) continue;
-            var path = Path.Combine(dir, assembly);
-            if (!File.Exists(path)) continue;
-            var reference = new AnalyzerFileReference(path, loader);
-            generators.AddRange(reference.GetGenerators(LanguageNames.CSharp));
+            additionalTexts = [.. inputs.AdditionalFiles.Select(p => (AdditionalText)new AdditionalFile(p))];
+            optionsProvider = ConfigOptions.Create(inputs.AnalyzerConfigFiles, found);
+            generatedDirectory = inputs.GeneratedFilesDirectory is { } dir && Path.IsPathRooted(dir) ? dir : null;
         }
-        if (generators.Count == 0) return compilation;
-
-        var driver = CSharpGeneratorDriver.Create(generators, parseOptions: (CSharpParseOptions)compilation.SyntaxTrees.First().Options);
+        // csc disables host outputs (RegisterHostOutput is for IDEs) and roots generated files at its /out directory.
+        var driver = CSharpGeneratorDriver.Create(generators, additionalTexts, parseOptions, optionsProvider,
+            new GeneratorDriverOptions(IncrementalGeneratorOutputKind.Host, trackIncrementalGeneratorSteps: false, generatedDirectory));
         driver.RunGeneratorsAndUpdateCompilation(compilation, out var updated, out var generatorDiagnostics);
-        diagnostics = generatorDiagnostics;
+        found.AddRange(generatorDiagnostics.Select(GeneratorFailureAsError));
+        diagnostics = found;
         updated = DropReflectionOnlyMetadata(compilation, (CSharpCompilation)updated);
         if (Environment.GetEnvironmentVariable("CSHARPC_DUMP_GENERATED") is { Length: > 0 } dumpDir)
         {
@@ -61,6 +85,81 @@ public static class SourceGenerators
         }
         return (CSharpCompilation)updated;
     }
+
+    private static List<ISourceGenerator> DefaultGenerators(IEnumerable<SyntaxTree> userTrees)
+    {
+        var text = string.Concat(userTrees.Select(t => t.GetText().ToString()));
+        var dir = AnalyzerDirectory();
+        List<ISourceGenerator> generators = [];
+        foreach (var (trigger, assembly) in s_generators)
+        {
+            if (!text.Contains(trigger, StringComparison.Ordinal)) continue;
+            if (assembly is null) { generators.Add(new GeneratedRegexGenerator().AsSourceGenerator()); continue; }
+            if (dir is not null && File.Exists(Path.Combine(dir, assembly)))
+                generators.AddRange(Reference(Path.Combine(dir, assembly)).GetGenerators(LanguageNames.CSharp));
+        }
+        return generators;
+    }
+
+    /// <summary>
+    /// The generators of a project's /analyzer assemblies (assemblies with only analyzers contribute
+    /// nothing; csharpc doesn't run analyzers, whose findings never change the program). The SDK's
+    /// [GeneratedRegex] generator is replaced by csharpc's.
+    /// </summary>
+    private static List<ISourceGenerator> ProjectGenerators(CSharpCompilation compilation, GeneratorInputs inputs, List<Diagnostic> diagnostics)
+    {
+        List<ISourceGenerator> generators = [];
+        var analyzers = inputs.Analyzers.ToList();
+        // csharpc's reflection-based System.Text.Json support synthesizes [JsonSerializable] contexts
+        // (JsonReflectionContexts) that the JSON generator must turn into metadata, whatever the project's analyzers.
+        if (!analyzers.Any(a => Path.GetFileName(a).Equals(JsonGeneratorAssembly, StringComparison.OrdinalIgnoreCase))
+            && compilation.SyntaxTrees.Any(JsonReflectionContexts.IsSynthesizedTree) && AnalyzerDirectory() is { } sdkDir
+            && File.Exists(Path.Combine(sdkDir, JsonGeneratorAssembly)))
+            analyzers.Add(Path.Combine(sdkDir, JsonGeneratorAssembly));
+        foreach (var path in analyzers)
+        {
+            if (Path.GetFileName(path).Equals(RegexGeneratorAssembly, StringComparison.OrdinalIgnoreCase))
+            {
+                generators.Add(new GeneratedRegexGenerator().AsSourceGenerator());
+                continue;
+            }
+            if (!File.Exists(path))
+            {
+                // csc: error CS0006 for an /analyzer file that doesn't exist.
+                diagnostics.Add(Error("CS0006", $"Metadata file '{path}' could not be found"));
+                continue;
+            }
+            var reference = Reference(path);
+            void OnFailure(object? sender, AnalyzerLoadFailureEventArgs e)
+            {
+                // No analyzers at all (CS8033) is fine; anything else means a generator csc would load and run
+                // is missing here, so its output would be missing too: an error, not csc's warning.
+                if (e.ErrorCode == AnalyzerLoadFailureEventArgs.FailureErrorCode.NoAnalyzers) return;
+                var what = e.TypeName is null ? $"analyzer assembly '{path}'" : $"generator '{e.TypeName}' from '{path}'";
+                diagnostics.Add(Error(e.ErrorCode == AnalyzerLoadFailureEventArgs.FailureErrorCode.UnableToLoadAnalyzer ? "CS8034" : "CS8032",
+                    $"csharpc could not load {what}: {e.Message}{(e.Exception is { } x ? $" ({x.GetType().Name}: {x.Message})" : "")}"));
+            }
+            reference.AnalyzerLoadFailed += OnFailure;
+            try { generators.AddRange(reference.GetGenerators(LanguageNames.CSharp)); }
+            finally { reference.AnalyzerLoadFailed -= OnFailure; }
+        }
+        // csc runs one instance per generator type; an assembly listed twice would otherwise run twice.
+        return [.. generators.DistinctBy(g => g.GetGeneratorType())];
+    }
+
+    /// <summary>
+    /// csc reports a generator that throws (CS8784 in Initialize, CS8785 while generating) as a warning and
+    /// compiles without its output. Under csharpc that is likely csharpc's environment, not the program, and the
+    /// missing output would make the program differ from `dotnet build`'s: an error.
+    /// </summary>
+    private static Diagnostic GeneratorFailureAsError(Diagnostic d) =>
+        d.Id is "CS8784" or "CS8785" && d.Severity != DiagnosticSeverity.Error
+            ? Diagnostic.Create(new DiagnosticDescriptor(d.Id, d.Descriptor.Title, "{0}", d.Descriptor.Category, DiagnosticSeverity.Error, true),
+                d.Location, d.GetMessage(System.Globalization.CultureInfo.InvariantCulture))
+            : d;
+
+    private static Diagnostic Error(string id, string message) =>
+        Diagnostic.Create(new DiagnosticDescriptor(id, "Source generator", "{0}", "Compiler", DiagnosticSeverity.Error, true), Location.None, message);
 
     /// <summary>
     /// The JSON source generator emits reflection lambdas (`AttributeProviderFactory = static () =>
@@ -100,23 +199,117 @@ public static class SourceGenerators
             .LastOrDefault(Directory.Exists);
     }
 
-    /// <summary>Loads generator assemblies (and their sibling dependencies) into the default context.</summary>
+    /// <summary>One reference per analyzer file, so generator instances (and loaded assemblies) are shared by every run.</summary>
+    private static AnalyzerFileReference Reference(string path) =>
+        s_references.GetOrAdd(Path.GetFullPath(path), p => new AnalyzerFileReference(p, Loader.Instance));
+
+    private static readonly ConcurrentDictionary<string, AnalyzerFileReference> s_references = new(StringComparer.Ordinal);
+
+    /// <summary>
+    /// Loads analyzer assemblies like csc on .NET: one load context per directory, so two packages may ship
+    /// different versions of the same dependency, with the compiler's own assemblies (Roslyn, the framework)
+    /// shared from the host, which generators must bind to.
+    /// </summary>
     private sealed class Loader : IAnalyzerAssemblyLoader
     {
-        private readonly string _dir;
-
-        public Loader(string dir)
-        {
-            _dir = dir;
-            AssemblyLoadContext.Default.Resolving += (_, name) =>
-            {
-                var candidate = Path.Combine(_dir, name.Name + ".dll");
-                return File.Exists(candidate) ? AssemblyLoadContext.Default.LoadFromAssemblyPath(candidate) : null;
-            };
-        }
+        public static readonly Loader Instance = new();
+        private readonly ConcurrentDictionary<string, DirectoryContext> _contexts = new(StringComparer.Ordinal);
 
         public void AddDependencyLocation(string fullPath) { }
 
-        public Assembly LoadFromPath(string fullPath) => AssemblyLoadContext.Default.LoadFromAssemblyPath(fullPath);
+        public Assembly LoadFromPath(string fullPath) =>
+            _contexts.GetOrAdd(Path.GetDirectoryName(fullPath)!, d => new DirectoryContext(d)).LoadFile(fullPath);
+
+        private sealed class DirectoryContext(string directory) : AssemblyLoadContext($"csharpc analyzers: {directory}")
+        {
+            private readonly Dictionary<string, Assembly> _loaded = new(StringComparer.Ordinal);
+
+            public Assembly LoadFile(string path)
+            {
+                lock (_loaded)
+                {
+                    if (!_loaded.TryGetValue(path, out var assembly))
+                        _loaded[path] = assembly = HostAssembly(AssemblyName.GetAssemblyName(path)) ?? LoadFromAssemblyPath(path);
+                    return assembly;
+                }
+            }
+
+            protected override Assembly? Load(AssemblyName name)
+            {
+                if (HostAssembly(name) is { } host) return host;
+                var candidate = Path.Combine(directory, name.Name + ".dll");
+                return File.Exists(candidate) ? LoadFile(candidate) : null;
+            }
+
+            /// <summary>The host's copy when it has one (Microsoft.CodeAnalysis*, System.*), as csc's loader prefers the compiler's context.</summary>
+            private static Assembly? HostAssembly(AssemblyName name)
+            {
+                if (name.Name is null) return null;
+                foreach (var loaded in Default.Assemblies)
+                    if (string.Equals(loaded.GetName().Name, name.Name, StringComparison.OrdinalIgnoreCase)) return loaded;
+                try { return Default.LoadFromAssemblyName(new AssemblyName(name.Name)); }
+                catch (Exception e) when (e is FileNotFoundException or FileLoadException or BadImageFormatException) { return null; }
+            }
+        }
+    }
+
+    /// <summary>An /additionalfile, read the way csc reads it (BOM-detected, UTF-8 by default).</summary>
+    private sealed class AdditionalFile(string path) : AdditionalText
+    {
+        private SourceText? _text;
+        public override string Path => path;
+
+        public override SourceText? GetText(CancellationToken cancellationToken = default)
+        {
+            if (_text is not null) return _text;
+            try
+            {
+                using var stream = File.OpenRead(path);
+                return _text = SourceText.From(stream, checksumAlgorithm: SourceHashAlgorithm.Sha256);
+            }
+            catch (IOException) { return null; }
+        }
+    }
+
+    /// <summary>
+    /// The options generators read (build_property.* globals, build_metadata.* per file, editorconfig keys),
+    /// from the /analyzerconfig files as csc combines them (AnalyzerConfigSet).
+    /// </summary>
+    private sealed class ConfigOptions : AnalyzerConfigOptionsProvider
+    {
+        private readonly AnalyzerConfigSet _set;
+        private readonly ConcurrentDictionary<string, AnalyzerConfigOptions> _byPath = new(StringComparer.Ordinal);
+
+        private ConfigOptions(AnalyzerConfigSet set)
+        {
+            _set = set;
+            GlobalOptions = new Options(set.GlobalConfigOptions.AnalyzerOptions);
+        }
+
+        public static ConfigOptions Create(IEnumerable<string> paths, List<Diagnostic> diagnostics)
+        {
+            List<AnalyzerConfig> configs = [];
+            foreach (var path in paths)
+            {
+                try { configs.Add(AnalyzerConfig.Parse(SourceText.From(File.ReadAllText(path)), path)); }
+                catch (IOException e) { diagnostics.Add(Error("CS8700", $"Could not read analyzer config file '{path}': {e.Message}")); }
+            }
+            var set = AnalyzerConfigSet.Create(configs, out var configDiagnostics);
+            diagnostics.AddRange(configDiagnostics);
+            return new ConfigOptions(set);
+        }
+
+        public override AnalyzerConfigOptions GlobalOptions { get; }
+        public override AnalyzerConfigOptions GetOptions(SyntaxTree tree) => For(tree.FilePath);
+        public override AnalyzerConfigOptions GetOptions(AdditionalText textFile) => For(textFile.Path);
+
+        private AnalyzerConfigOptions For(string path) =>
+            _byPath.GetOrAdd(path, p => new Options(_set.GetOptionsForSourcePath(p).AnalyzerOptions));
+
+        private sealed class Options(ImmutableDictionary<string, string> values) : AnalyzerConfigOptions
+        {
+            public override bool TryGetValue(string key, [System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out string? value) => values.TryGetValue(key, out value);
+            public override IEnumerable<string> Keys => values.Keys;
+        }
     }
 }

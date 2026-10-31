@@ -3,7 +3,9 @@
     TechEmpower's ASP.NET Core [Platform] entry, the one its "aspnetcore-aot" test publishes with
     NativeAOT: TechEmpower/FrameworkBenchmarks frameworks/CSharp/aspnetcore/src/Platform at commit
     57d92fbec6f8fd7431bc77326dd0484e60c96e20, copied unchanged (with appsettings.postgresql.json)
-    except for net10.0 -> net11.0 (the SDK global.json pins) and NuGet.Config's package source mapping.
+    except for net10.0 -> net11.0 (the SDK global.json pins), NuGet.Config's package source mapping and
+    MySqlConnector 2.5.0 -> 2.6.1 (security fix: MySqlConnector before 2.6.1 discloses the password to a
+    man-in-the-middle in zero-configuration TLS mode; the measured build uses Npgsql, not MySqlConnector).
     benchmarks/techempower/harness.py builds it the way the entry's dockerfiles do.
   -->
 
@@ -26,7 +28,7 @@
 
   <ItemGroup>
     <PackageReference Include="Npgsql" Version="10.0.0" />
-    <PackageReference Include="MySqlConnector" Version="2.5.0" />
+    <PackageReference Include="MySqlConnector" Version="2.6.1" />
     <PackageReference Include="Dapper" Version="2.1.66" />
     <PackageReference Include="RazorSlices" Version="0.9.5" />
   </ItemGroup>

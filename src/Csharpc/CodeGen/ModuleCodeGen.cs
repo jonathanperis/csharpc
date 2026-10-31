@@ -212,6 +212,7 @@ public sealed partial class ModuleCodeGen
             Timed("finish reflection metadata", () => Guard(entryPoint, FinishReflectionMetadata));
             Guard(entryPoint, FinishObjectArrayThunks);
             Timed("finish type metadata", () => Guard(entryPoint, FinishTypeMetadata));
+            FinishEnumParseTable();
             FinishEventSourceAttributes();
             FinishPInvokeResolver();
         }
@@ -645,6 +646,7 @@ public sealed partial class ModuleCodeGen
     {
         var start = System.Diagnostics.Stopwatch.GetTimestamp();
         NoteLowered(method);
+        NoteDynamicDependencies(method);
         var corelib = CoreLib.IsCoreLib(method);
         var il = !corelib && Il.OwnerOf(method) is not null;
         try { EmitMethodCore(method); }

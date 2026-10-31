@@ -173,6 +173,20 @@ internal static class Intrinsics
             inv.TargetMethod.TypeArguments.Length == 1
                 ? g.AssemblyCustomAttribute(g.Substitution.Apply(inv.TargetMethod.TypeArguments[0]), Arg(g, inv, 0), inv)
                 : throw CompileError.Unsupported("CustomAttributeExtensions.GetCustomAttribute(Assembly, Type)", inv);
+        // assembly.GetCustomAttributes<A>() (hosting's IHostingStartup discovery): .NET's GetCustomAttributes(assembly,
+        // typeof(A)), an A[].
+        t["System.Reflection.CustomAttributeExtensions.GetCustomAttributes(System.Reflection.Assembly)"] = (g, inv) =>
+        {
+            if (inv.TargetMethod.TypeArguments.Length != 1)
+                throw CompileError.Unsupported("CustomAttributeExtensions.GetCustomAttributes(Assembly) (every attribute of an assembly)", inv);
+            var attributeType = g.Substitution.Apply(inv.TargetMethod.TypeArguments[0]);
+            var assembly = Arg(g, inv, 0);
+            g.ThrowLibraryExceptionIf(g.Builder.ICmp(LLVMIntPredicate.EQ, assembly, LlvmContext.Null(g.Module.Llvm.Ptr)),
+                "System.ArgumentNullException", "Value cannot be null. (Parameter 'element')");
+            return attributeType is INamedTypeSymbol named
+                ? g.AssemblyCustomAttributes(named, assembly, inv)
+                : throw CompileError.Unsupported("CustomAttributeExtensions.GetCustomAttributes<T>(Assembly) with T a type parameter", inv);
+        };
         t["System.Reflection.Assembly.GetCustomAttributes(System.Type, bool)"] = (g, inv) =>
         {
             var self = g.EmitValue(inv.Instance!);
@@ -441,7 +455,7 @@ internal static class Intrinsics
         foreach (var name in new[] { "exp", "log", "log10", "sin", "cos", "tan", "asin", "acos", "atan", "sinh", "cosh", "tanh", "cbrt" })
             t[$"System.Math.{char.ToUpperInvariant(name[0])}{name[1..]}(double)"] = (g, inv) => CallUnaryF64(g, name, Arg(g, inv, 0));
 
-        foreach (var type in new[] { "int", "long" })
+        foreach (var type in new[] { "int", "long", "short", "sbyte", "nint" })
         {
             t[$"System.Math.Abs({type})"] = (g, inv) =>
             {

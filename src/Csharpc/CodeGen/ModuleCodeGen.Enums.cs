@@ -174,6 +174,41 @@ public sealed partial class ModuleCodeGen
         return _enumTables[enumType] = (values, names, members.Count);
     }
 
+    private LLVMValueRef _enumParseTable;
+
+    /// <summary>
+    /// Enum.Parse(Type, string, bool) with a Type known only at run time (corelib EnumRuntime.Parse): a table of
+    /// { boxed enum method table, values, names, count, bits, signed } for every enum whose Type object can exist
+    /// (its method table was emitted), filled once lowering is done (<see cref="FinishEnumParseTable"/>).
+    /// </summary>
+    internal LLVMValueRef EnumParseTable()
+    {
+        if (_enumParseTable.IsNull)
+        {
+            var type = Llvm.Struct(Llvm.I64, Llvm.Ptr);
+            _enumParseTable = Module.AddGlobal("csharpc.enumparse", type, LlvmContext.Null(type), constant: true, linkage: LLVMLinkage.Internal);
+        }
+        return _enumParseTable;
+    }
+
+    private void FinishEnumParseTable()
+    {
+        if (_enumParseTable.IsNull) return;
+        var entryType = Llvm.Struct(Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.I32, Llvm.I32, Llvm.I32, Llvm.I32);
+        var entries = new List<LLVMValueRef>();
+        foreach (var (enumType, mt) in _enumMethodTables.ToList())
+        {
+            var (values, names, count) = EnumTable(enumType);
+            var underlying = enumType.EnumUnderlyingType!;
+            entries.Add(LlvmContext.ConstNamedStruct(entryType, mt, values, names, Llvm.ConstInt(Llvm.I32, count),
+                Llvm.ConstInt(Llvm.I32, Types.Value(underlying).IntWidth), Llvm.ConstInt(Llvm.I32, TypeMapper.IsSigned(underlying) ? 1 : 0),
+                Llvm.ConstInt(Llvm.I32, 0)));
+        }
+        var arrayInit = LlvmContext.ConstArray(entryType, [.. entries]);
+        var array = Module.AddGlobal("csharpc.enumparse.entries", Native.LLVMTypeOf(arrayInit), arrayInit, constant: true, linkage: LLVMLinkage.Internal);
+        Native.LLVMSetInitializer(_enumParseTable, Llvm.ConstStruct(Llvm.ConstInt(Llvm.I64, entries.Count), array));
+    }
+
     private readonly Dictionary<INamedTypeSymbol, LoweredFunction> _enumFormatWith = new(SymbolEqualityComparer.Default);
 
     /// <summary>

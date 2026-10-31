@@ -196,8 +196,20 @@ public sealed partial class FunctionCodeGen
         var to = target.ContainingType.TypeKind == TypeKind.Interface && inv.ConstrainedToType is { } ct ? S(ct) : S(target.ContainingType);
         var argument = inv.Arguments[0].Value;
         var from = TypeOf(argument);
-        if (from is null || to.SpecialType == SpecialType.None || from.SpecialType == SpecialType.None
-            || to.SpecialType == SpecialType.System_Decimal || from.SpecialType == SpecialType.System_Decimal) return null;
+        if (from is null || to.SpecialType == SpecialType.None || from.SpecialType == SpecialType.None) return null;
+        if (to.SpecialType == SpecialType.System_Decimal || from.SpecialType == SpecialType.System_Decimal)
+        {
+            // decimal.CreateChecked(decimal) (Npgsql's DecimalNumericConverter<decimal>): the value itself. Integer → decimal
+            // is exact whichever Create it is; decimal → integer is the explicit (checked) conversion only for
+            // CreateChecked (CreateSaturating/CreateTruncating clamp instead), and floating point → decimal throws
+            // on overflow for CreateChecked alone.
+            if (SymbolEqualityComparer.Default.Equals(from, to)) return EmitValue(argument);
+            bool exact = to.SpecialType == SpecialType.System_Decimal && T.Value(from).IsInteger && from.SpecialType != SpecialType.System_Char;
+            if (!exact && target.Name != "CreateChecked") return null;
+            if (from.SpecialType == SpecialType.System_Char || to.SpecialType == SpecialType.System_Char
+                || from.SpecialType is SpecialType.System_IntPtr or SpecialType.System_UIntPtr || to.SpecialType is SpecialType.System_IntPtr or SpecialType.System_UIntPtr) return null;
+            return DecimalConvert(EmitValue(argument), from, to, inv);
+        }
         var value = EmitValue(argument);
         if (target.Name == "CreateSaturating" && value.Type.IsInteger && T.Value(to).IsInteger && !to.IsReferenceType)
             return SaturateInteger(value, from, to);
@@ -389,10 +401,15 @@ public sealed partial class FunctionCodeGen
         if (TrySpanConstruction(creation, out var span) || TryStatelessLibraryCreation(creation, out span) || TryThreadingCreation(creation, out span)) return span;
         if (IsStringBuilderHandler(type))  // new AppendInterpolatedStringHandler(literalLength, formattedCount, sb[, provider])
         {
-            // The holes are formatted with the current culture; a provider would need the handler to carry it.
-            if (creation.Arguments.FirstOrDefault(a => a.Parameter!.Ordinal == 3) is { Value.ConstantValue: not { HasValue: true, Value: null } })
-                throw CompileError.Unsupported("StringBuilder.Append(IFormatProvider, $\"...\") (an interpolated string with a format provider)", creation);
-            return EmitValue(creation.Arguments.First(a => a.Parameter!.Ordinal == 2).Value);
+            // The handler is its builder, whose holes format with the current culture; with a provider it is a corelib
+            // object carrying the provider (StringBuilderProviderHandler), and this function's handler calls go there.
+            var builder = EmitValue(creation.Arguments.First(a => a.Parameter!.Ordinal == 2).Value);
+            if (creation.Arguments.FirstOrDefault(a => a.Parameter!.Ordinal == 3) is { Value.ConstantValue: not { HasValue: true, Value: null } } provider)
+            {
+                _sbProviderHandlers = true;
+                return CallCoreLib("StringBuilderProviderHandler", "Create", builder, EmitValue(provider.Value));
+            }
+            return builder;
         }
         if (type.IsValueType) return EmitValueTypeCreation(creation, type);
         if (type.SpecialType == SpecialType.System_Object)
@@ -628,7 +645,9 @@ public sealed partial class FunctionCodeGen
             or INamedTypeSymbol { Name: "TaskCompletionSource", ContainingNamespace: { Name: "Tasks", ContainingNamespace: { Name: "Threading", ContainingNamespace.Name: "System" } } } =>
             _m.ExternalGlobal("csrt_Task_MT"),
         // Type objects are runtime objects (src/runtime/type.c), all with one method table.
-        INamedTypeSymbol { Name: "Type", ContainingType: null, ContainingNamespace: { Name: "System", ContainingNamespace.IsGlobalNamespace: true } } =>
+        // They are csharpc's TypeInfo objects too (GetTypeInfo is the identity), as every RuntimeType is a TypeInfo.
+        INamedTypeSymbol { Name: "Type", ContainingType: null, ContainingNamespace: { Name: "System", ContainingNamespace.IsGlobalNamespace: true } }
+            or INamedTypeSymbol { Name: "TypeInfo", ContainingType: null, ContainingNamespace: { Name: "Reflection", ContainingNamespace: { Name: "System", ContainingNamespace.IsGlobalNamespace: true } } } =>
             _m.ExternalGlobal("csrt_Type_MT"),
         INamedTypeSymbol { Name: "CancellationTokenSource", ContainingNamespace: { Name: "Threading", ContainingNamespace.Name: "System" } } =>
             _m.ExternalGlobal("csrt_CancellationTokenSource_MT"), // a runtime object (runtime/async.c)

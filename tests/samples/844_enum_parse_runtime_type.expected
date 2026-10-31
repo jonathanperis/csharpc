@@ -1,0 +1,10 @@
+DayOfWeek.Friday (5)
+DayOfWeek.Friday (5)
+ArgumentException: Requested value 'friday' was not found.
+DayOfWeek.Wednesday (3)
+FileAccess.ReadWrite (3)
+ConsoleColor.DarkCyan (3)
+ArgumentException: Must specify valid information for parsing in the string. (Parameter 'value')
+ArgumentException: Type provided must be an Enum. (Parameter 'enumType')
+ArgumentNullException: Value cannot be null. (Parameter 'value')
+ArgumentNullException: Value cannot be null. (Parameter 'enumType')

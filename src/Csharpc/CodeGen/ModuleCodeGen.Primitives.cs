@@ -75,6 +75,9 @@ public sealed partial class ModuleCodeGen
             ("IComparable", "CompareTo") when !itf.IsGenericType => true,
             ("IFormattable", "ToString") => true,
             ("IComparable", "CompareTo") or ("IEquatable", "Equals") => itf.IsGenericType && SymbolEqualityComparer.Default.Equals(itf.TypeArguments[0], primitive),
+            // IConvertible (System.Data's connection string builders convert boxed values with it): corelib's
+            // BoxedConvertible, member for member.
+            ("IConvertible", _) => itf.ContainingNamespace?.ToDisplayString() == "System" && primitive.AllInterfaces.Any(i => i.Name == "IConvertible"),
             _ => false,
         };
 
@@ -90,6 +93,13 @@ public sealed partial class ModuleCodeGen
     {
         switch (itf.Name, member.Name)
         {
+            case ("IConvertible", _) when PrimitiveSlotSupported(primitive, itf, member):
+            {
+                // BoxedConvertible.M(object self, args...): the box is the slot's receiver, its first argument.
+                var target = BoxedConvertibleMember(member)!;
+                NoteReference(target, virtualCall: false);
+                return GetFunction(target).Fn;
+            }
             case ("IComparable", "CompareTo") when !itf.IsGenericType:
             {
                 var fnType = Llvm.FunctionType(Llvm.I32, Llvm.Ptr, Llvm.Ptr);

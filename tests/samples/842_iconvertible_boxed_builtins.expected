@@ -1,0 +1,129 @@
+DayOfWeek: Int32 'Friday'
+  ToInt32: 5
+  ToDouble: 5
+  ToBoolean: True
+  ToChar: 
+  ToDecimal: 5
+  ToDateTime: InvalidCastException: Invalid cast from 'Enum' to 'DateTime'.
+  ToType(long): 5
+  ToType(string): Friday
+FileAccess: Int32 'ReadWrite'
+  ToInt32: 3
+  ToDouble: 3
+  ToBoolean: True
+  ToChar: 
+  ToDecimal: 3
+  ToDateTime: InvalidCastException: Invalid cast from 'Enum' to 'DateTime'.
+  ToType(long): 3
+  ToType(string): ReadWrite
+Int32: Int32 '5432'
+  ToInt32: 5432
+  ToDouble: 5432
+  ToBoolean: True
+  ToChar: ᔸ
+  ToDecimal: 5432
+  ToDateTime: InvalidCastException: Invalid cast from 'Int32' to 'DateTime'.
+  ToType(long): 5432
+  ToType(string): 5432
+Boolean: Boolean 'True'
+  ToInt32: 1
+  ToDouble: 1
+  ToBoolean: True
+  ToChar: InvalidCastException: Invalid cast from 'Boolean' to 'Char'.
+  ToDecimal: 1
+  ToDateTime: InvalidCastException: Invalid cast from 'Boolean' to 'DateTime'.
+  ToType(long): 1
+  ToType(string): True
+Char: Char 'x'
+  ToInt32: 120
+  ToDouble: InvalidCastException: Invalid cast from 'Char' to 'Double'.
+  ToBoolean: InvalidCastException: Invalid cast from 'Char' to 'Boolean'.
+  ToChar: x
+  ToDecimal: InvalidCastException: Invalid cast from 'Char' to 'Decimal'.
+  ToDateTime: InvalidCastException: Invalid cast from 'Char' to 'DateTime'.
+  ToType(long): 120
+  ToType(string): x
+Byte: Byte '7'
+  ToInt32: 7
+  ToDouble: 7
+  ToBoolean: True
+  ToChar: 
+  ToDecimal: 7
+  ToDateTime: InvalidCastException: Invalid cast from 'Byte' to 'DateTime'.
+  ToType(long): 7
+  ToType(string): 7
+Int16: Int16 '-3'
+  ToInt32: -3
+  ToDouble: -3
+  ToBoolean: True
+  ToChar: OverflowException: Value was either too large or too small for a character.
+  ToDecimal: -3
+  ToDateTime: InvalidCastException: Invalid cast from 'Int16' to 'DateTime'.
+  ToType(long): -3
+  ToType(string): -3
+Int64: Int64 '12345678901'
+  ToInt32: OverflowException: Value was either too large or too small for an Int32.
+  ToDouble: 12345678901
+  ToBoolean: True
+  ToChar: OverflowException: Value was either too large or too small for a character.
+  ToDecimal: 12345678901
+  ToDateTime: InvalidCastException: Invalid cast from 'Int64' to 'DateTime'.
+  ToType(long): 12345678901
+  ToType(string): 12345678901
+Double: Double '3.5'
+  ToInt32: 4
+  ToDouble: 3.5
+  ToBoolean: True
+  ToChar: InvalidCastException: Invalid cast from 'Double' to 'Char'.
+  ToDecimal: 3.5
+  ToDateTime: InvalidCastException: Invalid cast from 'Double' to 'DateTime'.
+  ToType(long): 4
+  ToType(string): 3.5
+Single: Single '2.25'
+  ToInt32: 2
+  ToDouble: 2.25
+  ToBoolean: True
+  ToChar: InvalidCastException: Invalid cast from 'Single' to 'Char'.
+  ToDecimal: 2.25
+  ToDateTime: InvalidCastException: Invalid cast from 'Single' to 'DateTime'.
+  ToType(long): 2
+  ToType(string): 2.25
+Decimal: Decimal '19.99'
+  ToInt32: 20
+  ToDouble: 19.99
+  ToBoolean: True
+  ToChar: InvalidCastException: Invalid cast from 'Decimal' to 'Char'.
+  ToDecimal: 19.99
+  ToDateTime: InvalidCastException: Invalid cast from 'Decimal' to 'DateTime'.
+  ToType(long): 20
+  ToType(string): 19.99
+String: String '42'
+  ToInt32: 42
+  ToDouble: 42
+  ToBoolean: FormatException: String '42' was not recognized as a valid Boolean.
+  ToChar: FormatException: String must be exactly one character long.
+  ToDecimal: 42
+  ToDateTime: FormatException: String '42' was not recognized as a valid DateTime.
+  ToType(long): 42
+  ToType(string): 42
+UInt64: UInt64 '18'
+  ToInt32: 18
+  ToDouble: 18
+  ToBoolean: True
+  ToChar: 
+  ToDecimal: 18
+  ToDateTime: InvalidCastException: Invalid cast from 'UInt64' to 'DateTime'.
+  ToType(long): 18
+  ToType(string): 18
+DateTime: DateTime '02/29/2024 13:45:00'
+  ToInt32: InvalidCastException: Invalid cast from 'DateTime' to 'Int32'.
+  ToDouble: InvalidCastException: Invalid cast from 'DateTime' to 'Double'.
+  ToBoolean: InvalidCastException: Invalid cast from 'DateTime' to 'Boolean'.
+  ToChar: InvalidCastException: Invalid cast from 'DateTime' to 'Char'.
+  ToDecimal: InvalidCastException: Invalid cast from 'DateTime' to 'Decimal'.
+  ToDateTime: 02/29/2024 13:45:00
+  ToType(long): InvalidCastException: Invalid cast from 'DateTime' to 'Int64'.
+  ToType(string): 02/29/2024 13:45:00
+  ToByte(300): OverflowException: Value was either too large or too small for an unsigned byte.
+  string ToInt32: FormatException: The input string 'not a number' was not in a correct format.
+  string ToBoolean: True

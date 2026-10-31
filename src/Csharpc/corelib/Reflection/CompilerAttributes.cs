@@ -229,4 +229,63 @@ namespace CsharpcCoreLib
         public CallerArgumentExpressionAttributeImpl(string parameterName) { ParameterName = parameterName; }
         public string ParameterName { get; }
     }
+    // Hot reload's record of the type an edited type replaces (RazorSlices' HotReloadService reads it); csharpc has
+    // no hot reload (MetadataUpdater.IsSupported is false, as under NativeAOT), so nothing carries it, but code
+    // testing for it must compile and find none.
+    [Shadows("System.Runtime.CompilerServices.MetadataUpdateOriginalTypeAttribute")]
+    public sealed class MetadataUpdateOriginalTypeAttributeImpl : Attribute
+    {
+        public MetadataUpdateOriginalTypeAttributeImpl(Type originalType) { OriginalType = originalType; }
+        public Type OriginalType { get; }
+    }
+
+    /// <summary>
+    /// System.Reflection.NullabilityInfoContext: creating one works (RazorSlices keeps one in a static field);
+    /// reading nullability isn't implemented yet (it needs the members' NullableAttribute/NullableContextAttribute
+    /// data and their modules'), so Create is an explicit error rather than a guessed answer.
+    /// </summary>
+    /// <summary>System.Reflection.NullabilityInfo: only NullabilityInfoContext.Create makes one (not supported yet).</summary>
+    [Shadows("System.Reflection.NullabilityInfo")]
+    public sealed class NullabilityInfoImpl
+    {
+        private NullabilityInfoImpl() { }
+        public Type Type { get; }
+        public System.Reflection.NullabilityState ReadState { get; internal set; }
+        public System.Reflection.NullabilityState WriteState { get; internal set; }
+        public System.Reflection.NullabilityInfo ElementType { get; }
+        public System.Reflection.NullabilityInfo[] GenericTypeArguments { get; }
+    }
+
+    [Shadows("System.Reflection.NullabilityInfoContext")]
+    public sealed class NullabilityInfoContextImpl
+    {
+        public NullabilityInfoContextImpl() { }
+
+        private static NotSupportedException NotSupported() =>
+            new NotSupportedException("NullabilityInfoContext.Create is not supported by csharpc yet (reading nullable reference type annotations through reflection).");
+
+        public System.Reflection.NullabilityInfo Create(System.Reflection.ParameterInfo parameterInfo)
+        {
+            ArgumentNullException.ThrowIfNull(parameterInfo);
+            throw NotSupported();
+        }
+
+        public System.Reflection.NullabilityInfo Create(System.Reflection.PropertyInfo propertyInfo)
+        {
+            ArgumentNullException.ThrowIfNull(propertyInfo);
+            throw NotSupported();
+        }
+
+        public System.Reflection.NullabilityInfo Create(System.Reflection.EventInfo eventInfo)
+        {
+            ArgumentNullException.ThrowIfNull(eventInfo);
+            throw NotSupported();
+        }
+
+        public System.Reflection.NullabilityInfo Create(System.Reflection.FieldInfo fieldInfo)
+        {
+            ArgumentNullException.ThrowIfNull(fieldInfo);
+            throw NotSupported();
+        }
+    }
 }

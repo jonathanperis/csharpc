@@ -53,6 +53,9 @@ public sealed partial class FunctionCodeGen
         var bits = (int)valueType.IntWidth;
         var signed = TypeMapper.IsSigned(underlying);
         LLVMValueRef Arg(int i) => Coerce(EmitValue(args[i].Value), TypeOf(args[i].Value), S(args[i].Parameter!.Type));
+        // The text to parse: a ReadOnlySpan<char> overload's span as the string with its chars (the runtime parses strings).
+        LLVMValueRef Text(int i) => S(args[i].Parameter!.Type) is INamedTypeSymbol { Name: "ReadOnlySpan", ContainingNamespace.Name: "System" }
+            ? CallCoreLib("EnumRuntime", "SpanText", Arg(i)) : Arg(i);
         LLVMValueRef Narrow(LLVMValueRef v64) => bits == 64 ? v64 : _b.Cast(LLVMOpcode.Trunc, v64, valueType);
         LLVMValueRef[] Table()
         {
@@ -64,7 +67,7 @@ public sealed partial class FunctionCodeGen
         {
             case ("TryParse", 2 or 3) when target.IsGenericMethod:
             {
-                var s = Arg(0);
+                var s = Text(0);
                 var ignoreCase = args.Count == 3 ? Arg(1) : L.False;
                 var temp = NewTemp(L.I64, "enum.parsed");
                 var status = CallRuntime("csrt_enum_parse", L.I32, [L.Ptr, L.I1, L.Ptr, L.Ptr, L.I32, L.I32, L.I1, L.Ptr],
@@ -75,7 +78,7 @@ public sealed partial class FunctionCodeGen
             }
             case ("Parse", 1 or 2):
             {
-                var s = Arg(0);
+                var s = Text(0);
                 var ignoreCase = args.Count == 2 ? Arg(1) : L.False;
                 if (!target.IsGenericMethod)  // Enum.Parse(Type, string): the parsed value, boxed
                     return Box(Narrow(CallRuntime("csrt_enum_parse_or_throw", L.I64, [L.Ptr, L.I1, L.Ptr, L.Ptr, L.I32, L.I32, L.I1],

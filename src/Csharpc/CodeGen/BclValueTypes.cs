@@ -365,7 +365,10 @@ internal static partial class BclValueTypes
         t[$"{D}.CompareTo({D})"] = (g, _, self, a, _) => g.DecimalCompare(self, a[0]);
         t[$"{D}.Equals({D})"] = (g, _, self, a, at) => g.DecimalArithmetic(BinaryOperatorKind.Equals, self, a[0], at);
         t[$"{D}.Equals({D}, {D})"] = (g, _, _, a, at) => g.DecimalArithmetic(BinaryOperatorKind.Equals, a[0], a[1], at);
-        t[$"{D}.GetHashCode()"] = (g, _, self, _, _) => Rt(g, "csrt_decimal_get_hash_code", g.Llvm.I32, (g.Spill(self), g.Llvm.Ptr));
+        // decimal.Scale: the power of ten in bits 16-23 of the flags word.
+        t[$"{D}.get_Scale()"] = (g, _, self, _, _) => g.Builder.Cast(LLVMOpcode.Trunc,
+            g.Builder.BinOp(LLVMOpcode.LShr, g.Builder.ExtractValue(self, 0), I32(g, 16)), g.Llvm.I8);
+        t[$"{D}.GetHashCode()"] =(g, _, self, _, _) => Rt(g, "csrt_decimal_get_hash_code", g.Llvm.I32, (g.Spill(self), g.Llvm.Ptr));
         t[$"{D}.ToString()"] = (g, _, self, _, _) => g.CallCoreLib("Number", "DecimalToString", self);
         t[$"{D}.ToString(string)"] = (g, _, self, a, _) =>
             g.CallCoreLib("Number", "FormatDecimal", self, a[0]);

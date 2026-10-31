@@ -1,0 +1,6 @@
+pending after the timeout: True
+read: 3
+read memory: 2
+server received 1048576 bytes, sum 133693440
+IOException (TimedOut)
+canceled: OperationCanceledException

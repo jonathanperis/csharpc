@@ -195,6 +195,13 @@ namespace CsharpcCoreLib
         public static IList<CustomAttributeData> GetCustomAttributes(MemberInfo target)
         {
             ArgumentNullException.ThrowIfNull(target);
+            // A Type (Microsoft.Extensions.Logging's ProviderAliasUtilities asks for a provider type's): Type objects
+            // are runtime objects, whose members are called through Type, not the MemberInfo slots.
+            if (target is Type type)
+            {
+                CoreIntrinsics.TypeAttributesQueried();
+                return ReflectionRuntime.GetTypeCustomAttributesData(type);
+            }
             return target.GetCustomAttributesData();
         }
 
@@ -555,6 +562,7 @@ namespace CsharpcCoreLib
         public override Delegate CreateDelegate(Type delegateType, object target)
         {
             ArgumentNullException.ThrowIfNull(delegateType);
+            CheckNotGenericDefinition("MethodInfo.CreateDelegate");
             if (!typeof(Delegate).IsAssignableFrom(delegateType) || delegateType == typeof(Delegate) || delegateType == typeof(MulticastDelegate))
                 throw new ArgumentException("Type must derive from Delegate.", "delegateType");
             byte* signature = ReflectionRuntime.DelegateSignature(delegateType);
@@ -606,6 +614,16 @@ namespace CsharpcCoreLib
 
         private bool IsSourceLambda => (ReflectionRecords.MethodExtraFlags(_record) & 1) != 0;
 
+        // A generic method definition (CSRT_METHOD_GENERIC_DEFINITION): csharpc has no Type objects for method type
+        // parameters, so its signature, invocation and MakeGenericMethod are explicit errors.
+        private bool IsGenericDefinition => (ReflectionRecords.MethodExtraFlags(_record) & 4) != 0;
+
+        private void CheckNotGenericDefinition(string what)
+        {
+            if (IsGenericDefinition)
+                throw new NotSupportedException(what + " of the generic method definition '" + Name + "' is not supported by csharpc yet.");
+        }
+
         public override string Name
         {
             get
@@ -624,6 +642,7 @@ namespace CsharpcCoreLib
         {
             get
             {
+                CheckNotGenericDefinition("MethodInfo.ReturnType");
                 nint mt = ReflectionRecords.MethodReturnType(_record);
                 return mt == 0 ? typeof(void) : ReflectionRuntime.TypeOf(mt);
             }
@@ -632,11 +651,26 @@ namespace CsharpcCoreLib
         public override ParameterInfo ReturnParameter =>
             _returnParameter ??= new RuntimeParameterInfoImpl(null, this, -1, ReturnType);
         public override ICustomAttributeProvider ReturnTypeCustomAttributes => ReturnParameter;
-        public override ParameterInfo[] GetParameters() => (ParameterInfo[])ReflectionRuntime.Parameters(_record, this, ref _parameters).Clone();
+        public override ParameterInfo[] GetParameters()
+        {
+            CheckNotGenericDefinition("MethodInfo.GetParameters");
+            return (ParameterInfo[])ReflectionRuntime.Parameters(_record, this, ref _parameters).Clone();
+        }
         internal ParameterInfo[] ParametersNoCopy => ReflectionRuntime.Parameters(_record, this, ref _parameters);
-        public override bool IsGenericMethod => false;
-        public override bool IsGenericMethodDefinition => false;
-        public override Type[] GetGenericArguments() => new Type[0];
+        public override bool IsGenericMethod => IsGenericDefinition;
+        public override bool IsGenericMethodDefinition => IsGenericDefinition;
+        public override bool ContainsGenericParameters => IsGenericDefinition;
+        public override Type[] GetGenericArguments()
+        {
+            CheckNotGenericDefinition("MethodInfo.GetGenericArguments");
+            return new Type[0];
+        }
+
+        public override MethodInfo MakeGenericMethod(params Type[] typeArguments)
+        {
+            if (!IsGenericDefinition) throw new InvalidOperationException(this + " is not a GenericMethodDefinition. MakeGenericMethod may only be called on a method for which MethodBase.IsGenericMethodDefinition is true.");
+            throw new NotSupportedException("MethodInfo.MakeGenericMethod of '" + Name + "' is not supported by csharpc yet.");
+        }
 
         public override MethodInfo GetBaseDefinition()
         {
@@ -647,6 +681,7 @@ namespace CsharpcCoreLib
 
         public override object Invoke(object obj, BindingFlags invokeAttr, Binder binder, object[] parameters, CultureInfo culture)
         {
+            if (IsGenericDefinition) throw new InvalidOperationException("Late bound operations cannot be performed on types or methods for which ContainsGenericParameters is true.");
             if (!IsStatic)
             {
                 if (obj == null) throw new TargetException("Non-static method requires a target.");

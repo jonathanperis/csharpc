@@ -1,0 +1,25 @@
+4 2 null null True False
+False False False True
+  two = 2
+  three = 3
+  four = 4
+  two/2/DictionaryEntry
+  three/3/DictionaryEntry
+  four/4/DictionaryEntry
+two three four 
+2 3 4 
+null, [two, 2], [three, 3], [four, 4]
+two:2, three:3, four:4
+two,three,four
+2,3,4
+ArgumentException: The value "5" is not of type "System.String" and cannot be used in this generic collection. (Parameter 'key')
+ArgumentException: The value "not an int" is not of type "System.Int32" and cannot be used in this generic collection. (Parameter 'value')
+ArgumentNullException: Value cannot be null. (Parameter 'value')
+ArgumentNullException: Value cannot be null. (Parameter 'key')
+ArgumentException: An item with the same key has already been added. Key: two
+ArgumentException: Destination array is not long enough to copy all the items in the collection. Check array index and length.
+ArgumentException: Target array type is not compatible with the type of items in the collection.
+ArgumentOutOfRangeException: Non-negative number required. (Parameter 'index')
+ArgumentException: Only single dimensional arrays are supported for the requested action.
+ArgumentNullException: Value cannot be null. (Parameter 'key')
+True null

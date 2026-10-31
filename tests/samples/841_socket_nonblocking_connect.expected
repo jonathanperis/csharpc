@@ -1,0 +1,13 @@
+keep-alive: True
+buffers set: True True
+blocking before: True
+blocking now: False
+connect: Success
+connected: True
+blocking again: True
+server got: 1,2,3
+readable: 1 True
+blocking before: True
+blocking now: False
+refused: ConnectionRefused
+ArgumentNullException: All lists are either null or empty.

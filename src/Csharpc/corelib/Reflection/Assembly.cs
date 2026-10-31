@@ -5,6 +5,7 @@
 // implementation assemblies reached through type forwards, e.g. System.Private.CoreLib).
 #nullable disable
 using System;
+using System.Collections.Generic;
 using System.Reflection;
 using System.Threading;
 
@@ -129,6 +130,18 @@ namespace CsharpcCoreLib
             return found;
         }
 
+        // Enumerating an assembly's types (hosting's UseStartup(assemblyName) / startupAssembly setting looks for a
+        // Startup class this way): csharpc keeps metadata only for the types the program reflects on by name, so
+        // the list would be incomplete; it is an explicit error rather than a partial answer.
+        public virtual IEnumerable<TypeInfo> DefinedTypes =>
+            throw new NotSupportedException("Assembly.DefinedTypes is not supported by csharpc yet (enumerating an assembly's types).");
+        public virtual Type[] GetTypes() =>
+            throw new NotSupportedException("Assembly.GetTypes() is not supported by csharpc yet (enumerating an assembly's types).");
+        public virtual IEnumerable<Type> ExportedTypes =>
+            throw new NotSupportedException("Assembly.ExportedTypes is not supported by csharpc yet (enumerating an assembly's types).");
+        public virtual Type[] GetExportedTypes() =>
+            throw new NotSupportedException("Assembly.GetExportedTypes() is not supported by csharpc yet (enumerating an assembly's types).");
+
         private Module _manifestModule;
 
         /// <summary>The manifest module of an IL assembly (its metadata name and MVID); the one object per assembly, as in .NET.</summary>
@@ -242,6 +255,13 @@ namespace CsharpcCoreLib
         }
 
         public VersionImpl() { _Build = -1; _Revision = -1; }
+
+        // .NET: Version.Parse(version) (its exceptions), then its four components.
+        public VersionImpl(string version)
+        {
+            VersionImpl v = Of(Parse(version));
+            _Major = v._Major; _Minor = v._Minor; _Build = v._Build; _Revision = v._Revision;
+        }
 
         private static VersionImpl Of(Version v) => (VersionImpl)(object)v;
 

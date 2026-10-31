@@ -290,6 +290,7 @@ public sealed partial class FunctionCodeGen
                 var field = IlField(instruction.Token);
                 var value = Pop();
                 var instance = Pop();
+                NoteDynamicallyAccessedField(field, value);
                 if (IlLibraryInstanceField(field)) throw new IlException($"assignment to field '{field}' of a library type");
                 var address = IlInstanceFieldAddress(field, instance);
                 var typed = IlTyped(value, field.Type);
@@ -330,6 +331,7 @@ public sealed partial class FunctionCodeGen
             {
                 var field = IlField(instruction.Token);
                 var value = Pop();
+                NoteDynamicallyAccessedField(field, value);
                 if (!_m.IsUserType(_m.CoreLib.Map(S(field)).ContainingType)) throw new IlException($"assignment to static field '{field}' of a library type");
                 var address = StaticFieldAddress(S(field));
                 var typed = IlTyped(value, field.Type);
@@ -1156,6 +1158,17 @@ public sealed partial class FunctionCodeGen
 
     /// <summary>A placeholder operation for helpers that want an IOperation for diagnostics.</summary>
     private IOperation IlAt() => new IlValueOperation(_il!.Syntax, Special(SpecialType.System_Object), () => default);
+
+    /// <summary>
+    /// `[DynamicallyAccessedMembers(K)] static readonly Type t = typeof(X);` (RazorSlices' RazorSliceFactory): a
+    /// Type known at compile time stored into an annotated field keeps X's members of kinds K, as ILLink's
+    /// data flow does for NativeAOT.
+    /// </summary>
+    private void NoteDynamicallyAccessedField(IFieldSymbol field, IlEntry value)
+    {
+        if (value is not { Kind: IlKind.Ref, Symbol: ITypeSymbol type }) return;
+        if (ModuleCodeGen.DamKindsOf(field.OriginalDefinition.GetAttributes()) is var kinds and not 0) _m.MarkDynamicallyAccessed(type, kinds);
+    }
 
     /// <summary>Instance fields csharpc does not lay out (library classes): read through the IOperation path.</summary>
     private bool IlLibraryInstanceField(IFieldSymbol field)

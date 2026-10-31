@@ -296,6 +296,26 @@ namespace CsharpcCoreLib
             catch (NotSupportedException) { ((System.Collections.IList)array)[index] = value; }
         }
 
+        // GetValue(params int[]) / SetValue(object, params int[]) (Npgsql's ArrayBasedArrayConverter): .NET's checks,
+        // then the one-dimensional access; a rectangular array's reflective access is not supported yet.
+        [ShadowInstance]
+        public static object GetValue(Array array, int[] indices)
+        {
+            if (indices == null) throw new ArgumentNullException("indices");
+            if (array.Rank != indices.Length) throw new ArgumentException("Indices length does not match the array rank.");
+            if (indices.Length != 1) throw new NotSupportedException("Array.GetValue on a rectangular array is not supported by csharpc yet.");
+            return GetValue(array, indices[0]);
+        }
+
+        [ShadowInstance]
+        public static void SetValue(Array array, object value, int[] indices)
+        {
+            if (indices == null) throw new ArgumentNullException("indices");
+            if (array.Rank != indices.Length) throw new ArgumentException("Indices length does not match the array rank.");
+            if (indices.Length != 1) throw new NotSupportedException("Array.SetValue on a rectangular array is not supported by csharpc yet.");
+            SetValue(array, value, indices[0]);
+        }
+
         /// <summary>A new array of `arrayType` (closed world: a type csharpc emitted, e.g. through typeof(X[])).</summary>
         public static Array CreateInstanceFromArrayType(Type arrayType, int length)
         {

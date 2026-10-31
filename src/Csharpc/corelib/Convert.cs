@@ -537,7 +537,7 @@ namespace CsharpcCoreLib
             throw new InvalidCastException("Invalid cast from '" + value.GetType().FullName + "' to '" + conversionType.FullName + "'.");
         }
 
-        private static bool IsBuiltinConvertible(object value) =>
+        internal static bool IsBuiltinConvertible(object value) =>
             value is bool or char or sbyte or byte or short or ushort or int or uint or long or ulong or float or double
                 or decimal or DateTime or string;
 
@@ -2545,5 +2545,35 @@ namespace CsharpcCoreLib
         internal const string Overflow_UInt16 = "Value was either too large or too small for a UInt16.";
         internal const string Overflow_UInt32 = "Value was either too large or too small for a UInt32.";
         internal const string Overflow_UInt64 = "Value was either too large or too small for a UInt64.";
+    }
+
+    /// <summary>
+    /// IConvertible on boxed primitives, decimal and DateTime (ModuleCodeGen.Primitives.cs: each slot is the
+    /// method of the same name here, called with the box as its first argument). What the BCL type's
+    /// IConvertible member does is what Convert.ToX(object, provider) does for it (ConvertPort matches the
+    /// BCL's convertible types by type), so each member forwards there.
+    /// </summary>
+    internal static class BoxedConvertible
+    {
+        // An enum's is its underlying type's (Enum.GetTypeCode).
+        public static TypeCode GetTypeCode(object self) => self is Enum ? Type.GetTypeCode(self.GetType()) : ConvertPort.GetTypeCode(self);
+        public static bool ToBoolean(object self, IFormatProvider provider) => ConvertPort.ToBoolean(self, provider);
+        public static char ToChar(object self, IFormatProvider provider) => ConvertPort.ToChar(self, provider);
+        public static sbyte ToSByte(object self, IFormatProvider provider) => ConvertPort.ToSByte(self, provider);
+        public static byte ToByte(object self, IFormatProvider provider) => ConvertPort.ToByte(self, provider);
+        public static short ToInt16(object self, IFormatProvider provider) => ConvertPort.ToInt16(self, provider);
+        public static ushort ToUInt16(object self, IFormatProvider provider) => ConvertPort.ToUInt16(self, provider);
+        public static int ToInt32(object self, IFormatProvider provider) => ConvertPort.ToInt32(self, provider);
+        public static uint ToUInt32(object self, IFormatProvider provider) => ConvertPort.ToUInt32(self, provider);
+        public static long ToInt64(object self, IFormatProvider provider) => ConvertPort.ToInt64(self, provider);
+        public static ulong ToUInt64(object self, IFormatProvider provider) => ConvertPort.ToUInt64(self, provider);
+        public static float ToSingle(object self, IFormatProvider provider) => ConvertPort.ToSingle(self, provider);
+        public static double ToDouble(object self, IFormatProvider provider) => ConvertPort.ToDouble(self, provider);
+        public static decimal ToDecimal(object self, IFormatProvider provider) => ConvertPort.ToDecimal(self, provider);
+        public static DateTime ToDateTime(object self, IFormatProvider provider) =>
+            self is Enum ? throw new InvalidCastException("Invalid cast from 'Enum' to 'DateTime'.") : ConvertPort.ToDateTime(self, provider);
+        // IFormattable.ToString(null, provider): bool and char ignore the provider, as their IConvertible.ToString does.
+        public static string ToString(object self, IFormatProvider provider) => ConvertPort.ToString(self, provider);
+        public static object ToType(object self, Type conversionType, IFormatProvider provider) => ConvertPort.ChangeType(self, conversionType, provider);
     }
 }

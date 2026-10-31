@@ -92,7 +92,16 @@ namespace CsharpcCoreLib
                 return;
             }
             lock (_pending) _pending.Add(new KeyValuePair<Task, Action>(task, work));
-            QueueTask(task);
+            // .NET (Task.ScheduleAndStart): a scheduler that refuses the task makes Start/StartNew throw a
+            // TaskSchedulerException wrapping its exception.
+            try { QueueTask(task); }
+            catch (Exception e)
+            {
+                lock (_pending)
+                    for (int i = 0; i < _pending.Count; i++)
+                        if (ReferenceEquals(_pending[i].Key, task)) { _pending.RemoveAt(i); break; }
+                throw new TaskSchedulerException(e);
+            }
         }
 
         public static TaskSchedulerImpl FromCurrentSynchronizationContext() =>

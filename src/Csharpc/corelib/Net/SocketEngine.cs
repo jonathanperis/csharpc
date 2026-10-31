@@ -220,7 +220,7 @@ namespace CsharpcCoreLib
             internal override void Complete(bool synchronously)
             {
                 Registration.Dispose();
-                if (Canceled) Source.TrySetCanceled();
+                if (Canceled) CoreIntrinsics.TryFaultAsyncTask(Source.Task, new OperationCanceledException(Token)); // .NET: the socket throws OperationCanceledException(token)
                 else if (Error == SocketError.Success) Source.TrySetResult(Transferred);
                 else Source.TrySetException(new SocketException((int)Error));
             }
@@ -232,7 +232,7 @@ namespace CsharpcCoreLib
             internal override void Complete(bool synchronously)
             {
                 Registration.Dispose();
-                if (Canceled) Source.TrySetCanceled();
+                if (Canceled) CoreIntrinsics.TryFaultAsyncTask(Source.Task, new OperationCanceledException(Token)); // .NET: the socket throws OperationCanceledException(token)
                 else if (Error == SocketError.Success) Source.TrySetResult(Transferred);
                 else Source.TrySetException(new SocketException((int)Error));
             }
@@ -244,7 +244,7 @@ namespace CsharpcCoreLib
             internal override void Complete(bool synchronously)
             {
                 Registration.Dispose();
-                if (Canceled) Source.TrySetCanceled();
+                if (Canceled) CoreIntrinsics.TryFaultAsyncTask(Source.Task, new OperationCanceledException(Token)); // .NET: the socket throws OperationCanceledException(token)
                 else if (Error == SocketError.Success) Source.TrySetResult((Socket)(object)Accepted);
                 else Source.TrySetException(new SocketException((int)Error));
             }
@@ -273,10 +273,21 @@ namespace CsharpcCoreLib
                 if (Closed) { op.Error = SocketError.OperationAborted; return false; }
                 ThreadPool.UnsafeQueueUserWorkItem(static state =>
                 {
-                    // A blocking socket finishes the attempt (EAGAIN only after a receive/send timeout).
-                    if (!state.op.TryRun(state.socket)) state.op.Error = SocketError.TimedOut;
+                    // A blocking socket finishes the attempt, EAGAIN only after a receive/send timeout. That
+                    // timeout is for synchronous calls (.NET's asynchronous operations never time out): try
+                    // again until the operation runs, the socket closes or the operation's token is canceled.
+                    while (!state.op.TryRun(state.socket) || TimedOutBySocketTimeout(state.op, state.socket))
+                    {
+                        state.op.Error = SocketError.Success;
+                        if (state.op.Token.IsCancellationRequested) { state.op.Canceled = true; break; }
+                        if (state.context.Closed) { state.op.Error = SocketError.OperationAborted; break; }
+#if !CSHARPC_TARGET_WINDOWS && !CSHARPC_TARGET_WASI
+                        // A descriptor the program made non-blocking (Socket.Blocking = false): wait for readiness.
+                        NetNative.Wait(state.socket.RawHandle, state.op.IsWrite, 100);
+#endif
+                    }
                     state.op.Complete(false);
-                }, (op: op, socket: Socket), false);
+                }, (op: op, socket: Socket, context: this), false);
                 return true;
             }
             Queue<SocketOperation> queue = op.IsWrite ? Writes : Reads;
@@ -289,6 +300,11 @@ namespace CsharpcCoreLib
             }
             return true;
         }
+
+        // Winsock reports an expired SO_RCVTIMEO/SO_SNDTIMEO as WSAETIMEDOUT rather than EAGAIN: for a socket with
+        // that timeout set, the blocking engine's attempt timed out, not the connection.
+        private static bool TimedOutBySocketTimeout(SocketOperation op, SocketImpl socket) =>
+            op.Error == SocketError.TimedOut && !op.Canceled && (op.IsWrite ? socket.SendTimeout : socket.ReceiveTimeout) > 0;
 
         /// <summary>Takes a pending operation out of its queue (cancellation); false if it already completed.</summary>
         internal bool Remove(SocketOperation op)

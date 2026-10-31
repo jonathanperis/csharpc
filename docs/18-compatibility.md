@@ -722,62 +722,46 @@ used less memory idle (13.0 vs 17.7 MiB), but more under load (80.3 vs 64.9 MiB)
 
 #### TechEmpower's Platform entry
 
-csharpc doesn't build the entry yet (TechEmpower run 41214295059, 2026-10-31). Two inputs, two stops:
+csharpc builds and runs the entry (branch `ci/m7-platform`, 2026-10-31). The measured build is NativeAOT's
+pipeline: `dotnet build` with the AOT properties, then `csharpc Platform.dll` — the program as IL takes the
+shared frameworks `Platform.runtimeconfig.json` lists (Microsoft.AspNetCore.App), as `dotnet Platform.dll`
+would load them, so `--framework` is not needed. All seven test types answer as the JIT does (the harness's
+normalized transcripts are identical, `benchmarks/techempower/verify.py`). The project input
+(`csharpc Platform.csproj`, with the Razor and RazorSlices generators) compiles too; it stops at run time
+with an explicit error: `config.Get<AppSettings>()` reaches reflection over `AppSettings` because the
+configuration binding generator's interceptors are not applied to the project input yet.
 
-- **IL** (what NativeAOT compiles, and what the harness measures: `dotnet build` with the AOT properties,
-  then `csharpc Platform.dll --framework Microsoft.AspNetCore.App`): 44 reachable methods fail to
-  compile, ranked below. Without `--framework` csharpc stops earlier, at the ASP.NET Core assemblies
-  "csharpc was not given": the program-as-IL input doesn't take the shared frameworks from
-  `Platform.runtimeconfig.json`, which lists them.
-- **Project** (`csharpc Platform.csproj`): two front-end errors, CS0246 `Platform.Templates` and
-  CS0103 `FortunesUtf8`. The fortunes template classes come from the Razor source generator (and
-  RazorSlices' generator adds their `Create` factories); csharpc runs only the SDK's LibraryImport, JSON
-  and its own `[GeneratedRegex]` generators, not the ones a project's SDK and packages bring.
+What it took, besides library members (all with regression samples 840–849):
 
-| # | Methods | Item | Where |
-|---:|---:|---|---|
-| 1 | 8 | `construct: struct 'System.Collections.Concurrent.ConcurrentDictionary<…>.AlternateLookup<…>'` | Microsoft.Extensions.Caching.Memory 7, (program or corelib) 1 |
-| 2 | 3 | `System.Text.EncodingExtensions.GetString(System.Text.Encoding, System.Buffers.ReadOnlySequence<…>)` | Npgsql 3 |
-| 3 | 2 | `System.Net.Security.SslClientAuthenticationOptions.ClientCertificates` | Npgsql 2 |
-| 4 | 2 | `System.Numerics.INumberBase<…>.CreateChecked(…)` | Npgsql 2 |
-| 5 | 2 | `decimal.CreateChecked(decimal)` | Npgsql 2 |
-| 6 | 1 | `construct: StringBuilder.Append(IFormatProvider, $"...") (an interpolated string with a format provider)` | Npgsql 1 |
-| 7 | 1 | `System.Activator.CreateInstance(System.Type, object[])` | Microsoft.AspNetCore.Hosting 1 |
-| 8 | 1 | `System.Array.GetValue(int[])` | Npgsql 1 |
-| 9 | 1 | `System.Array.SetValue(object, int[])` | Npgsql 1 |
-| 10 | 1 | `System.Diagnostics.Tracing.DiagnosticCounter.Dispose()` | Npgsql 1 |
-| 11 | 1 | `System.Globalization.GlobalizationExtensions.GetStringComparer(System.Globalization.CompareInfo, System.Globalization.CompareOptions)` | Npgsql 1 |
-| 12 | 1 | `System.Math.Abs(short)` | Npgsql 1 |
-| 13 | 1 | `System.Net.Dns.GetHostAddressesAsync(string, System.Threading.CancellationToken)` | Npgsql 1 |
-| 14 | 1 | `System.Net.Quic.QuicListener.IsSupported` | Microsoft.AspNetCore.Server.Kestrel.Transport.Quic 1 |
-| 15 | 1 | `System.Net.Security.SslStream.ShutdownAsync()` | Npgsql 1 |
-| 16 | 1 | `System.Reflection.Assembly.DefinedTypes` | Microsoft.AspNetCore.Hosting 1 |
-| 17 | 1 | `System.Reflection.CustomAttributeExtensions.GetCustomAttributes(System.Reflection.Assembly)` | Microsoft.AspNetCore.Hosting 1 |
-| 18 | 1 | `System.Reflection.Metadata.MetadataUpdater.IsSupported` | RazorSlices 1 |
-| 19 | 1 | `System.Reflection.NullabilityInfoContext.Create(System.Reflection.PropertyInfo)` | RazorSlices 1 |
-| 20 | 1 | `System.Runtime.CompilerServices.MetadataUpdateOriginalTypeAttribute.OriginalType` | RazorSlices 1 |
-| 21 | 1 | `System.Security.Cryptography.X509Certificates.PublicKey.Oid` | Microsoft.AspNetCore.Server.Kestrel.Core 1 |
-| 22 | 1 | `System.Security.Cryptography.X509Certificates.X509Certificate2Enumerator.Current` | Microsoft.AspNetCore.Server.Kestrel.Core 1 |
-| 23 | 1 | `System.Version..ctor(string)` | Npgsql 1 |
-| 24 | 1 | `construct: creating instances of 'System.Diagnostics.Tracing.PollingCounter'` | Npgsql 1 |
-| 25 | 1 | `construct: creating instances of 'System.Reflection.NullabilityInfoContext'` | RazorSlices 1 |
-| 26 | 1 | `construct: creating instances of 'System.Threading.Tasks.ConcurrentExclusiveSchedulerPair'` | Npgsql 1 |
-| 27 | 1 | `decimal.Scale` | Npgsql 1 |
-| 28 | 1 | `construct: setting 'System.Net.Sockets.Socket.Blocking'` | Npgsql 1 |
-| 29 | 1 | `string.Normalize(System.Text.NormalizationForm)` | Npgsql 1 |
-| 30 | 1 | `construct: type test against 'System.Runtime.CompilerServices.MetadataUpdateOriginalTypeAttribute'` | CsharpcCoreLib 1 |
-| 31 | 1 | `construct: typeof(T)` | (program or corelib) 1 |
-| 32 | 1 | `construct: typeof(TContainer)` | (program or corelib) 1 |
-
-Most are Npgsql's (connecting through `Dns.GetHostAddressesAsync` and a blocking-mode socket, its
-command scheduler, text decoding from a `ReadOnlySequence<byte>`, the TLS options it configures even
-with SSL off, its EventSource counters, numeric and array converters reached through its type
-mapping). `MemoryCache` needs `ConcurrentDictionary`'s `AlternateLookup` struct; RazorSlices reaches
-hot-reload and nullability reflection; hosting's `UseStartup<Startup>()` reaches the reflection that
-finds a startup class (`Activator.CreateInstance`, `Assembly.DefinedTypes`, assembly attributes for
-hosting startups); Kestrel's HTTPS certificate loading and QUIC check are reachable through its options.
-The entry passes TechEmpower's verification with NativeAOT and with the JIT, with identical normalized
-answers; their numbers are in [06-roadmap.md](06-roadmap.md#m7--techempower-csharpc-beats-nativeaot).
+- **Sockets**: `Bind` sets `SO_REUSEADDR` on TCP sockets as .NET does on Unix (a restarted server could not
+  rebind a port in `TIME_WAIT`, a silent difference); `ReuseAddress` reads `SO_REUSEPORT`, as .NET's
+  native shim does. `Socket.Blocking`, a non-blocking `Connect` (WouldBlock, `Connected` completing it),
+  `Select`, `GetSocketOption`, buffer sizes and TCP keep-alive options (Npgsql's synchronous connect).
+  `NetworkStream`'s asynchronous reads and writes are the socket's asynchronous operations: before, they
+  ran the synchronous ones on a pool thread, where the socket's `ReceiveTimeout` applied (Npgsql's
+  writes failed with "Timeout during writing attempt"); a canceled socket operation throws
+  `OperationCanceledException`, as .NET's.
+- **Npgsql**: `Dns.GetHostAddressesAsync(host, token)`, `string.Normalize` (ICU, for SCRAM-SHA-256
+  passwords), `HMACSHA256.HashData`, `ConcurrentExclusiveSchedulerPair`, EventCounters (never polled: csharpc
+  has no listener), `GetString(ReadOnlySequence<byte>)`, `GetStringComparer`, IConvertible on boxed
+  primitives, enums and strings, the non-generic `IDictionary` of `Dictionary<,>`, `Enum.Parse(Type, ...)`
+  with a Type known only at run time, `StringBuilder.Append(provider, $"...")`, `Span<T>.ToArray()` making a
+  `T[]` (it made an untyped array: `GetType()` said `System.Array` and casts to `T[]` failed).
+- **MemoryCache**: `ConcurrentDictionary`'s `AlternateLookup<ReadOnlySpan<char>>`.
+- **RazorSlices**: `[DynamicDependency]` on the program's and packages' members is honoured (constructors,
+  properties and fields; not methods, whose reflection invokers would compile every `Write` overload of a
+  slice: reflecting over them fails explicitly), a `Type` known at compile time stored into a
+  `[DynamicallyAccessedMembers]` field keeps those members, `TextEncoder`'s TextWriter/span/UTF-8 members
+  (also for encoders derived from it), `Utf8.FromUtf16`/`ToUtf16`, `MetadataUpdater.IsSupported` folded to
+  false (no hot reload, as under NativeAOT); `NullabilityInfoContext.Create` is an explicit error.
+- **Hosting and Kestrel**: hosting startups read `assembly.GetCustomAttributes<T>()`; `UseStartup<T>()`'s
+  `Activator.CreateInstance(Type, object[])`; generic method definitions found through reflection are
+  described (their signature, invocation and `MakeGenericMethod` are explicit errors);
+  `Assembly.DefinedTypes`/`GetTypes()` are explicit errors (the `startupAssembly` setting).
+  `QuicListener.IsSupported` is false where MsQuic isn't installed, as .NET answers, folding Kestrel's
+  HTTP/3 transport away; where MsQuic is installed csharpc stops with an explicit error. TLS client options
+  are a property bag; certificates, SSL streams and the post-quantum keys Kestrel's certificate loader names
+  throw `NotSupportedException` (TLS is not implemented yet).
 
 ## Expression trees
 

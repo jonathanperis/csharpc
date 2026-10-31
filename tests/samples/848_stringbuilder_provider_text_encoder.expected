@@ -1,0 +1,11 @@
+(1234.5, 1,234.5, -0.25) [1234,5|   1234,50|text  |span] SHOUT <42>
+1234.5!
+a&lt;b &amp; &#x27;c&#x27; &#x2B; &quot;d&quot;|&gt;y|plain
+Done 5 11 &lt;tag&gt;
+DestinationTooSmall 3 6
+Done 12 29 1 &lt; 2 &#xE9; &quot;q&quot;
+NeedMoreData 1 1
+Done 3 10 a&#xFFFD;b
+3 -1
+characterCount
+a[#]b[#]c [#][#] Done x[#]y

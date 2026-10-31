@@ -167,7 +167,12 @@ internal static partial class BclValueTypes
             g.CallCoreLib("ReflectionRuntime", "ActivatorCreateInstance", a[0]);
         t["System.Activator.CreateInstance(System.Type, System.Reflection.BindingFlags, System.Reflection.Binder, object[], System.Globalization.CultureInfo)"] = (g, _, _, a, _) =>
             g.CallCoreLib("ReflectionRuntime", "ActivatorCreateInstanceWith", a[0], a[1], a[2], a[3], a[4]);
-        t["System.Array.SetValue(object, int)"] = (g, _, self, a, _) => g.CallCoreLib("ReflectionRuntime", "SetValue", self, a[0], a[1]);
+        // Activator.CreateInstance(type, params args): .NET's CreateInstance(type, Instance | Public | CreateInstance, null, args, null).
+        t["System.Activator.CreateInstance(System.Type, object[])"] = (g, _, _, a, _) =>
+            g.CallCoreLib("ReflectionRuntime", "ActivatorCreateInstanceWith", a[0],
+                g.Llvm.ConstInt(g.Llvm.I32, (int)(System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.CreateInstance)),
+                LlvmContext.Null(g.Llvm.Ptr), a[1], LlvmContext.Null(g.Llvm.Ptr));
+        t["System.Array.SetValue(object, int)"] =(g, _, self, a, _) => g.CallCoreLib("ReflectionRuntime", "SetValue", self, a[0], a[1]);
         t["System.Enum.ToObject(System.Type, object)"] = (g, _, _, a, _) =>
             Rt(g, "csrt_enum_to_object", g.Llvm.Ptr, (a[0], g.Llvm.Ptr), (a[1], g.Llvm.Ptr), (Table(g), g.Llvm.Ptr));
         foreach (var integral in new[] { "int", "long", "uint", "ulong", "short", "ushort", "byte", "sbyte" })

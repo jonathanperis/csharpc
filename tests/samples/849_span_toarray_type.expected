@@ -1,0 +1,5 @@
+System.Byte[] 2 True False
+System.Int32[] 1,2,3
+System.String[] 2
+ArrayTypeMismatchException
+System.Char[] System.Double[]

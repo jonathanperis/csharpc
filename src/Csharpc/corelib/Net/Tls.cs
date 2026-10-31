@@ -5,6 +5,7 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 #nullable disable
+#pragma warning disable SYSLIB5006 // CompositeMLDsa is [Experimental]: named here only to refuse it
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -147,6 +148,56 @@ namespace CsharpcCoreLib
         }
     }
 
+    // A property bag (dotnet/runtime's SslClientAuthenticationOptions, release/11.0): Npgsql fills one even with SSL off.
+    [Shadows("System.Net.Security.SslClientAuthenticationOptions")]
+    public class SslClientAuthenticationOptionsImpl
+    {
+        private X509RevocationMode _checkCertificateRevocation = X509RevocationMode.NoCheck;
+        private SslProtocols _enabledSslProtocols = SslProtocols.None;
+        private EncryptionPolicy _encryptionPolicy = EncryptionPolicy.RequireEncryption;
+
+        public bool AllowRenegotiation { get; set; } = true;
+        public bool AllowTlsResume { get; set; } = true;
+        public bool AllowRsaPssPadding { get; set; } = true;
+        public bool AllowRsaPkcs1Padding { get; set; } = true;
+        public LocalCertificateSelectionCallback LocalCertificateSelectionCallback { get; set; }
+        public RemoteCertificateValidationCallback RemoteCertificateValidationCallback { get; set; }
+        public List<SslApplicationProtocol> ApplicationProtocols { get; set; }
+        public string TargetHost { get; set; }
+        public X509CertificateCollection ClientCertificates { get; set; }
+        public SslStreamCertificateContext ClientCertificateContext { get; set; }
+        public CipherSuitesPolicy CipherSuitesPolicy { get; set; }
+        public X509ChainPolicy CertificateChainPolicy { get; set; }
+
+        public X509RevocationMode CertificateRevocationCheckMode
+        {
+            get => _checkCertificateRevocation;
+            set
+            {
+                if (value != X509RevocationMode.NoCheck && value != X509RevocationMode.Offline && value != X509RevocationMode.Online)
+                    throw new ArgumentException("The specified value is not valid in the 'X509RevocationMode' enumeration.", "value");
+                _checkCertificateRevocation = value;
+            }
+        }
+
+        public EncryptionPolicy EncryptionPolicy
+        {
+            get => _encryptionPolicy;
+            set
+            {
+                if (value != EncryptionPolicy.RequireEncryption && value != EncryptionPolicy.AllowNoEncryption && value != EncryptionPolicy.NoEncryption)
+                    throw new ArgumentException("The specified value is not valid in the 'EncryptionPolicy' enumeration.", "value");
+                _encryptionPolicy = value;
+            }
+        }
+
+        public SslProtocols EnabledSslProtocols
+        {
+            get => _enabledSslProtocols;
+            set => _enabledSslProtocols = value;
+        }
+    }
+
     [Shadows("System.Net.Security.SslStream")]
     public class SslStreamImpl : Stream
     {
@@ -160,6 +211,9 @@ namespace CsharpcCoreLib
         public Task AuthenticateAsServerAsync(SslServerAuthenticationOptions sslServerAuthenticationOptions, CancellationToken cancellationToken = default) => throw Tls.NotSupported();
         public Task AuthenticateAsServerAsync(ServerOptionsSelectionCallback optionsCallback, object state, CancellationToken cancellationToken = default) => throw Tls.NotSupported();
         public Task NegotiateClientCertificateAsync(CancellationToken cancellationToken = default) => throw Tls.NotSupported();
+        public Task AuthenticateAsClientAsync(SslClientAuthenticationOptions sslClientAuthenticationOptions, CancellationToken cancellationToken = default) => throw Tls.NotSupported();
+        public void AuthenticateAsClient(SslClientAuthenticationOptions sslClientAuthenticationOptions) => throw Tls.NotSupported();
+        public Task ShutdownAsync() => throw Tls.NotSupported();
         public SslProtocols SslProtocol => throw Tls.NotSupported();
         public SslApplicationProtocol NegotiatedApplicationProtocol => throw Tls.NotSupported();
         public TlsCipherSuite NegotiatedCipherSuite => throw Tls.NotSupported();
@@ -481,6 +535,48 @@ namespace CsharpcCoreLib
     {
         public static RSA GetRSAPrivateKey(X509Certificate2 certificate) => throw Tls.NotSupported();
         public static RSA GetRSAPublicKey(X509Certificate2 certificate) => throw Tls.NotSupported();
+        public static X509Certificate2 CopyWithPrivateKey(X509Certificate2 certificate, RSA privateKey) => throw Tls.NotSupported();
+    }
+
+    // The post-quantum signature keys Kestrel can load from PEM files (no key can be created: Import* throw).
+    [ShadowMembers("System.Security.Cryptography.MLDsa")]
+    internal static class MLDsaMembers
+    {
+        public static MLDsa ImportFromPem(string source) => throw Tls.NotSupported();
+        public static MLDsa ImportFromEncryptedPem(string source, string password) => throw Tls.NotSupported();
+        [ShadowInstance] public static void Dispose(MLDsa key) { }
+    }
+
+    [ShadowMembers("System.Security.Cryptography.SlhDsa")]
+    internal static class SlhDsaMembers
+    {
+        public static SlhDsa ImportFromPem(string source) => throw Tls.NotSupported();
+        public static SlhDsa ImportFromEncryptedPem(string source, string password) => throw Tls.NotSupported();
+        [ShadowInstance] public static void Dispose(SlhDsa key) { }
+    }
+
+    [ShadowMembers("System.Security.Cryptography.CompositeMLDsa")]
+    internal static class CompositeMLDsaMembers
+    {
+        public static CompositeMLDsa ImportFromPem(string source) => throw Tls.NotSupported();
+        public static CompositeMLDsa ImportFromEncryptedPem(string source, string password) => throw Tls.NotSupported();
+        [ShadowInstance] public static void Dispose(CompositeMLDsa key) { }
+    }
+
+    [ShadowMembers("System.Security.Cryptography.X509Certificates.ECDsaCertificateExtensions")]
+    internal static class ECDsaCertificateExtensionsMembers
+    {
+        public static ECDsa GetECDsaPrivateKey(X509Certificate2 certificate) => throw Tls.NotSupported();
+        public static ECDsa GetECDsaPublicKey(X509Certificate2 certificate) => throw Tls.NotSupported();
+        public static X509Certificate2 CopyWithPrivateKey(X509Certificate2 certificate, ECDsa privateKey) => throw Tls.NotSupported();
+    }
+
+    [ShadowMembers("System.Security.Cryptography.X509Certificates.DSACertificateExtensions")]
+    internal static class DSACertificateExtensionsMembers
+    {
+        public static DSA GetDSAPrivateKey(X509Certificate2 certificate) => throw Tls.NotSupported();
+        public static DSA GetDSAPublicKey(X509Certificate2 certificate) => throw Tls.NotSupported();
+        public static X509Certificate2 CopyWithPrivateKey(X509Certificate2 certificate, DSA privateKey) => throw Tls.NotSupported();
     }
 
     [Shadows("System.Security.Cryptography.X509Certificates.X509Certificate2")]
@@ -505,21 +601,58 @@ namespace CsharpcCoreLib
         public string SerialNumber => throw Tls.NotSupported();
         public PublicKey PublicKey => throw Tls.NotSupported();
         public string GetNameInfo(X509NameType nameType, bool forIssuer) => throw Tls.NotSupported();
+        public X509Certificate2 CopyWithPrivateKey(ECDiffieHellman privateKey) => throw Tls.NotSupported();
+        public X509Certificate2 CopyWithPrivateKey(MLDsa privateKey) => throw Tls.NotSupported();
+        public X509Certificate2 CopyWithPrivateKey(MLKem privateKey) => throw Tls.NotSupported();
+        public X509Certificate2 CopyWithPrivateKey(SlhDsa privateKey) => throw Tls.NotSupported();
+        public X509Certificate2 CopyWithPrivateKey(CompositeMLDsa privateKey) => throw Tls.NotSupported();
         public static X509ContentType GetCertContentType(byte[] rawData) => throw Tls.NotSupported();
         public static X509ContentType GetCertContentType(string fileName) => throw Tls.NotSupported();
     }
 
-    [Shadows("System.Security.Cryptography.X509Certificates.X509Certificate2Collection")]
-    public class X509Certificate2CollectionImpl : IEnumerable<X509Certificate2>
+    // Certificate collections can't be created (X509CertificateCollection's constructors throw): no instance exists.
+    [Shadows("System.Security.Cryptography.X509Certificates.X509CertificateCollection")]
+    public class X509CertificateCollectionImpl : System.Collections.IEnumerable
     {
-        public X509Certificate2CollectionImpl() => throw Tls.NotSupported();
-        public X509Certificate2CollectionImpl(X509Certificate2 certificate) => throw Tls.NotSupported();
-        public X509Certificate2 this[int index] => throw Tls.NotSupported();
+        public X509CertificateCollectionImpl() => throw Tls.NotSupported();
+        public X509CertificateCollectionImpl(X509Certificate[] value) => throw Tls.NotSupported();
         public int Count => throw Tls.NotSupported();
+        public int Add(X509Certificate value) => throw Tls.NotSupported();
+        public void AddRange(X509Certificate[] value) => throw Tls.NotSupported();
+        public void AddRange(X509CertificateCollection value) => throw Tls.NotSupported();
+        public bool Contains(X509Certificate value) => throw Tls.NotSupported();
+        public X509Certificate this[int index] { get => throw Tls.NotSupported(); set => throw Tls.NotSupported(); }
+        System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() => throw Tls.NotSupported();
+    }
+
+    [Shadows("System.Security.Cryptography.X509Certificates.X509Certificate2Collection")]
+    public class X509Certificate2CollectionImpl : X509CertificateCollectionImpl, IEnumerable<X509Certificate2>
+    {
+        public X509Certificate2CollectionImpl() : base() { }
+        public X509Certificate2CollectionImpl(X509Certificate2 certificate) : base() { }
+        public new X509Certificate2 this[int index] => throw Tls.NotSupported();
         public X509Certificate2CollectionImpl Find(X509FindType findType, object findValue, bool validOnly) => throw Tls.NotSupported();
         public void ImportFromPemFile(string certPemFilePath) => throw Tls.NotSupported();
-        public IEnumerator<X509Certificate2> GetEnumerator() => throw Tls.NotSupported();
-        System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() => throw Tls.NotSupported();
+        public X509Certificate2EnumeratorImpl GetEnumerator() => throw Tls.NotSupported();
+        IEnumerator<X509Certificate2> IEnumerable<X509Certificate2>.GetEnumerator() => throw Tls.NotSupported();
+    }
+
+    [Shadows("System.Security.Cryptography.X509Certificates.X509Certificate2Enumerator")]
+    public sealed class X509Certificate2EnumeratorImpl : IEnumerator<X509Certificate2>
+    {
+        private X509Certificate2EnumeratorImpl() => throw Tls.NotSupported();
+        public X509Certificate2 Current => throw Tls.NotSupported();
+        object System.Collections.IEnumerator.Current => throw Tls.NotSupported();
+        public bool MoveNext() => throw Tls.NotSupported();
+        public void Reset() => throw Tls.NotSupported();
+        public void Dispose() { }
+    }
+
+    [Shadows("System.Security.Cryptography.X509Certificates.PublicKey")]
+    public sealed class PublicKeyImpl
+    {
+        public PublicKeyImpl(Oid oid, AsnEncodedData parameters, AsnEncodedData keyValue) => throw Tls.NotSupported();
+        public Oid Oid => throw Tls.NotSupported();
     }
 
     [Shadows("System.Security.Cryptography.X509Certificates.X509Chain")]

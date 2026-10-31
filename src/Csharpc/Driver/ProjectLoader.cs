@@ -43,6 +43,8 @@ public sealed record ProjectInfo
     public List<string> UnresolvedReferences { get; } = [];
     /// <summary>What stack traces show of this project (Optimize, DebugType/DebugSymbols, PathMap).</summary>
     public DebugSymbolSettings Symbols { get; init; } = new();
+    /// <summary>The source generators csc would run and their inputs (from the csc command line the SDK's Compile target computes).</summary>
+    public GeneratorInputs? Generators { get; set; }
     public string ProjectDirectory => Path.GetDirectoryName(ProjectPath)!;
 }
 
@@ -471,33 +473,74 @@ public static class ProjectLoader
             if (!string.Equals(Meta(p, "IsImplicitlyDefined"), "true", StringComparison.OrdinalIgnoreCase))
                 info.PackageReferences.Add(Meta(p, "Identity") + (Meta(p, "Version") is { } v ? " " + v : ""));
 
-        // NuGet packages ship assemblies: restore, then take the runtime assets NuGet selected for this
-        // target framework (the implementation assemblies, transitive closure included) and compile
-        // them from IL like any other <Reference> (docs/adr/0010-il-frontend.md).
-        if (info.PackageReferences.Count > 0)
-            info.AssemblyReferences.AddRange(ResolvePackageAssemblies(projectPath, configuration, globalProperties));
-
+        var (packageAssemblies, generators) = ResolveCompilerInputs(projectPath, configuration, globalProperties, info.PackageReferences.Count > 0);
+        // NuGet packages ship assemblies: the runtime assets NuGet selected for this target framework (the
+        // implementation assemblies, transitive closure included), compiled from IL like any other
+        // <Reference> (docs/adr/0010-il-frontend.md).
+        info.AssemblyReferences.AddRange(packageAssemblies);
+        info.Generators = generators;
         return info;
     }
 
-    /// <summary>`dotnet msbuild -restore -t:ResolvePackageAssets`: the package DLLs `dotnet build` would copy to the output.</summary>
-    private static IEnumerable<string> ResolvePackageAssemblies(string projectPath, string configuration, IReadOnlyDictionary<string, string>? globalProperties)
+    /// <summary>
+    /// Restores the project, then runs the SDK's Compile target (ResolveReferences ... CoreCompile; CoreCompile
+    /// alone resolves no references nor targeting-pack analyzers) without running the compiler
+    /// (SkipCompilerExecution + ProvideCommandLineArgs, what design-time builds use): the Csc task then
+    /// reports the command line csc would get. Its /analyzer, /additionalfile, /analyzerconfig and /features
+    /// are the source generators' inputs after everything the SDK does to compute them — targeting packs'
+    /// and packages' analyzers (ResolveTargetingPackAssets, ResolvePackageAssets), the Razor SDK's generator
+    /// and its .cshtml/.razor additional files with their metadata, the GeneratedMSBuildEditorConfig built from
+    /// CompilerVisibleProperty/CompilerVisibleItemMetadata, .editorconfig/.globalconfig discovery, interceptor
+    /// namespaces — so csharpc needs no copy of that logic, and it follows the SDK and the packages exactly.
+    /// The same run gives the package DLLs `dotnet build` would copy to the output (RuntimeCopyLocalItems).
+    /// It writes what a build's Compile prerequisites write in obj/ (restore output, AssemblyInfo, the
+    /// editorconfig), never the assembly. NonExistentFile is CoreCompile's always-out-of-date input, so an
+    /// earlier `dotnet build` can't make it skip; referenced projects aren't built (BuildProjectReferences=false)
+    /// nor restored here (RestoreRecursive=false: each is evaluated, and restored, on its own, in parallel).
+    /// </summary>
+    private static (List<string> PackageAssemblies, GeneratorInputs? Generators) ResolveCompilerInputs(
+        string projectPath, string configuration, IReadOnlyDictionary<string, string>? globalProperties, bool hasPackages)
     {
+        var directory = Path.GetDirectoryName(projectPath)!;
         var args = new List<string> { "msbuild", projectPath, "-nologo", "-restore", $"-p:Configuration={configuration}",
-            "-t:ResolvePackageAssets", "-getItem:RuntimeCopyLocalItems" };
+            "-t:ResolvePackageAssets;Compile", "-p:SkipCompilerExecution=true", "-p:ProvideCommandLineArgs=true",
+            "-p:BuildProjectReferences=false", "-p:RestoreRecursive=false", "-p:NonExistentFile=__csharpc_NonExistentFile__",
+            "-getItem:RuntimeCopyLocalItems", "-getItem:CscCommandLineArgs" };
         foreach (var (k, v) in globalProperties ?? new Dictionary<string, string>()) args.Add($"-p:{k}={v}");
         string json;
-        try { json = RunDotnet(args, Path.GetDirectoryName(projectPath)!); }
+        try { json = RunDotnet(args, directory); }
         catch (InvalidOperationException e)
         {
-            throw new InvalidOperationException($"could not restore the NuGet packages of '{Path.GetFileName(projectPath)}': {e.Message}", e);
+            throw new InvalidOperationException(hasPackages
+                ? $"could not restore the NuGet packages of '{Path.GetFileName(projectPath)}': {e.Message}"
+                : $"could not compute the compiler inputs (source generators) of '{Path.GetFileName(projectPath)}': {e.Message}", e);
         }
         using var doc = JsonDocument.Parse(json);
-        if (!doc.RootElement.TryGetProperty("Items", out var items) || !items.TryGetProperty("RuntimeCopyLocalItems", out var assets)) return [];
-        return [.. assets.EnumerateArray()
-            .Select(a => a.TryGetProperty("FullPath", out var p) ? p.GetString() : null)
-            .Where(p => p is not null && p.EndsWith(".dll", StringComparison.OrdinalIgnoreCase))
-            .Select(p => p!)];
+        List<string> assemblies = [];
+        List<string> cscArgs = [];
+        if (doc.RootElement.TryGetProperty("Items", out var items))
+        {
+            if (items.TryGetProperty("RuntimeCopyLocalItems", out var assets))
+                assemblies.AddRange(assets.EnumerateArray()
+                    .Select(a => a.TryGetProperty("FullPath", out var p) ? p.GetString() : null)
+                    .Where(p => p is not null && p.EndsWith(".dll", StringComparison.OrdinalIgnoreCase))
+                    .Select(p => p!));
+            if (items.TryGetProperty("CscCommandLineArgs", out var cscItems))
+                cscArgs.AddRange(cscItems.EnumerateArray().Select(a => a.TryGetProperty("Identity", out var i) ? i.GetString() : null).OfType<string>());
+        }
+        // A project whose CoreCompile doesn't run the Csc task: the SDK's implicit generators, as for single files.
+        if (cscArgs.Count == 0) return (assemblies, null);
+        // Roslyn's own csc command-line parser: the same quoting and path rules as csc.
+        var parsed = Microsoft.CodeAnalysis.CSharp.CSharpCommandLineParser.Default.Parse(cscArgs, directory, sdkDirectory: null);
+        var generators = new GeneratorInputs
+        {
+            Analyzers = [.. parsed.AnalyzerReferences.Select(r => Path.GetFullPath(r.FilePath, directory))],
+            AdditionalFiles = [.. parsed.AdditionalFiles.Select(f => Path.GetFullPath(f.Path, directory))],
+            AnalyzerConfigFiles = [.. parsed.AnalyzerConfigPaths.Select(p => Path.GetFullPath(p, directory))],
+            Features = parsed.ParseOptions.Features.ToDictionary(),
+            GeneratedFilesDirectory = parsed.GeneratedFilesOutputDirectory ?? parsed.OutputDirectory,
+        };
+        return (assemblies, generators);
     }
 
     /// <summary>
@@ -525,6 +568,22 @@ public static class ProjectLoader
         }
 
         var files = all.SelectMany(p => p.Files).Distinct(StringComparer.Ordinal).ToList();
+        // One generator run over the merged program (generators work per declaration, so their output for all
+        // projects' code at once is the projects' outputs together): the root's options, and the analyzers of
+        // the referenced projects the root doesn't have (by file name: a package's copy of an SDK generator
+        // isn't run twice). Additional files of a referenced project would be read with the root's global
+        // options (RootNamespace...), which can change what is generated: not supported.
+        var generators = root.Generators;
+        foreach (var p in all.Where(p => !ReferenceEquals(p, root) && p.Generators is not null))
+        {
+            if (p.Generators!.AdditionalFiles.Count > 0)
+                throw new InvalidOperationException($"{Path.GetFileName(p.ProjectPath)}: source generator inputs (additional files such as Razor templates: "
+                    + $"{string.Join(", ", p.Generators.AdditionalFiles.Take(3).Select(Path.GetFileName))}) in a referenced project are not supported by csharpc yet");
+            if (generators is null) continue;
+            var names = generators.Analyzers.Select(Path.GetFileName).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var extra = p.Generators.Analyzers.Where(a => !names.Contains(Path.GetFileName(a))).ToList();
+            if (extra.Count > 0) generators = generators with { Analyzers = [.. generators.Analyzers, .. extra] };
+        }
         var usings = all.SelectMany(p => p.GlobalUsings).Distinct(StringComparer.Ordinal).ToList();
         var settings = new FrontendSettings
         {
@@ -543,6 +602,7 @@ public static class ProjectLoader
             RuntimeConfig = root.RuntimeConfig,
             JsonReflectionEnabled = root.JsonReflectionEnabled,
             Symbols = root.Symbols,
+            Generators = generators,
             Projects = all.Count > 1 ? [.. all.Select(p => new ProjectUnit
             {
                 ProjectPath = p.ProjectPath,
@@ -557,6 +617,7 @@ public static class ProjectLoader
                 AllowUnsafe = p.AllowUnsafe,
                 GlobalUsings = p.GlobalUsings.Count > 0 ? string.Join('\n', p.GlobalUsings) : null,
                 References = [.. p.ProjectReferences.Select(Path.GetFullPath)],
+                Generators = p.Generators,
             })] : [],
         };
         return (settings, root, all);

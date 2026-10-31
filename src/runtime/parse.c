@@ -68,6 +68,13 @@ static const csrt_MethodTable mt_argument = { NULL, "System.ArgumentException", 
 int64_t csrt_enum_parse_or_throw(csrt_String* s, bool ignore_case, const uint64_t* values, csrt_String* const* names, int32_t count,
                                  int32_t bits, bool is_signed) {
     if (!s) csrt_throw(&mt_argument_null, make("Value cannot be null. (Parameter 'value')"));
+    // Empty or white space only: .NET's own message (not "Requested value '' was not found.").
+    int32_t blank = 0;
+    while (blank < s->length && (s->chars[blank] == ' ' || (s->chars[blank] >= '\t' && s->chars[blank] <= '\r'))) blank++;
+    if (blank == s->length) {
+        csrt_throw(&mt_argument, make("Must specify valid information for parsing in the string. (Parameter 'value')"));
+        return 0;
+    }
     int64_t v;
     if (csrt_enum_parse(s, ignore_case, values, names, count, bits, is_signed, &v)) return v;
     char head[] = "Requested value '";

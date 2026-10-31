@@ -88,6 +88,8 @@ public sealed class Compiler(CompilerOptions options)
                 AssemblyName = mainProgram.Name + ".csharpc",
                 AssemblyVersion = null,
                 IlReferencePaths = [mainAssembly, .. mainProgram.AppLocalAssemblies],
+                // The shared frameworks the host would run it on (Microsoft.AspNetCore.App), as --framework adds them.
+                SharedFrameworks = mainProgram.Frameworks,
             };
         }
         else

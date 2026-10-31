@@ -311,7 +311,8 @@ typedef struct csrt_ParameterRecord {
 } csrt_ParameterRecord;
 
 enum { CSRT_METHOD_SOURCE_LAMBDA = 1 /* a lambda/local function lowered by csharpc: no .NET name */,
-       CSRT_METHOD_NO_INHERITED_ATTRIBUTES = 2 /* an override whose overridden methods have no inheritable attributes */ };
+       CSRT_METHOD_NO_INHERITED_ATTRIBUTES = 2 /* an override whose overridden methods have no inheritable attributes */,
+       CSRT_METHOD_GENERIC_DEFINITION = 4 /* a generic method definition: its signature's method type parameters are not described */ };
 typedef struct csrt_MethodRecord {
     const char* name;                          // ".ctor" for constructors
     const csrt_MethodTable* declaring;

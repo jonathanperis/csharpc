@@ -14,8 +14,8 @@ name: TechEmpower
 #   report   results.md (this run's summary) and results.json.
 #
 # It gates no merge, but the report fails when a required build doesn't build, a build fails TechEmpower's
-# verification or answers differently from NativeAOT, or an image doesn't serve. While csharpc can't build
-# the entry (csharpc_may_fail in harness.py), that is reported with its blockers, not a failure.
+# verification or answers differently from NativeAOT, or an image doesn't serve; a csharpc build failure fails
+# it too (csharpc_may_fail in harness.py), with its blockers in the report.
 # Builds csharpc from this commit (not the published tool): the numbers must reflect the tree.
 # No branch filter: any branch whose push touches the paths below runs it, including a ci/** branch.
 on:

@@ -32,6 +32,13 @@ public sealed partial class FunctionCodeGen
             // targets set to false: the interpreter's delegates come from DynamicDelegateAugments
             // (corelib/Reflection/ObjectArrayDelegates.cs), not Reflection.Emit.
             ("System.Dynamic.Utils.DelegateHelpers", "get_CanEmitObjectArrayDelegate") => false,
+            // No hot reload (no edits are applied to a native program): [FeatureSwitchDefinition
+            // ("System.Reflection.Metadata.MetadataUpdater.IsSupported")], false under NativeAOT and in the
+            // runtimeconfig PublishAot writes. RazorSlices' HotReloadService and others guard their handlers with it.
+            ("System.Reflection.Metadata.MetadataUpdater", "get_IsSupported") => false,
+            // csharpc has no QUIC: false, as .NET answers without MsQuic; the getter itself still runs and stops
+            // the program where MsQuic is installed (IsCheckedFeatureGuard). Kestrel's UseQuic tests it on start.
+            ("System.Net.Quic.QuicListener" or "System.Net.Quic.QuicConnection", "get_IsSupported") => false,
             // csharpc has no hardware intrinsics yet: the framework's scalar fallbacks run (same results by
             // design). Ssse3.IsSupported, AdvSimd.Arm64.IsSupported, Vector128.IsHardwareAccelerated, ...
             (_, "get_IsSupported") when IsHardwareIntrinsicClass(method.ContainingType) => false,
@@ -39,6 +46,10 @@ public sealed partial class FunctionCodeGen
                 or "System.Runtime.Intrinsics.Vector512" or "System.Numerics.Vector", "get_IsHardwareAccelerated") => false,
             _ => null,
         };
+
+    /// <summary>A known feature switch whose getter must still be called for its checks (it may throw).</summary>
+    private static bool IsCheckedFeatureGuard(IMethodSymbol method) =>
+        method.Name == "get_IsSupported" && method.ContainingType.ToDisplayString() is "System.Net.Quic.QuicListener" or "System.Net.Quic.QuicConnection";
 
     private static bool IsHardwareIntrinsicClass(INamedTypeSymbol type)
     {

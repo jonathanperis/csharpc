@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk.Razor">
+  <!-- Source generators come from the project, as csc gets them: the Razor SDK adds its generator, the
+       .razor files as additional files (with TargetPath/CssScope metadata) and RootNamespace as a
+       build_property option; the component classes exist only once that generator has run.
+       No ASP.NET Core reference: Rendering.cs is the small part of the components runtime the
+       generated BuildRenderTree code calls, so the program is only about what the generator emits. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net11.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>Shop.Views</RootNamespace>
+  </PropertyGroup>
+</Project>

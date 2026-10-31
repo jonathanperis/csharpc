@@ -42,14 +42,14 @@ public static class RoslynFrontend
     {
         var languageVersion = LanguageVersionOf(settings.LanguageVersion);
 
-        var parseOptions = ParseOptions(languageVersion, settings.Defines);
+        var parseOptions = ParseOptions(languageVersion, settings.Defines, settings.Generators?.Features);
 
         // Each project's files are parsed with that project's own symbols (DefineConstants).
         s_parsed.Clear();
         List<(string Path, CSharpParseOptions Options)> projectFiles = [];
         foreach (var project in settings.Projects)
         {
-            var projectOptions = ParseOptions(LanguageVersionOf(project.LanguageVersion), project.Defines);
+            var projectOptions = ParseOptions(LanguageVersionOf(project.LanguageVersion), project.Defines, project.Generators?.Features);
             foreach (var f in project.Files)
                 if (s_parsed.TryAdd(Path.GetFullPath(f), null!)) projectFiles.Add((Path.GetFullPath(f), projectOptions));
         }
@@ -95,8 +95,9 @@ public static class RoslynFrontend
         // Dynamic call sites in IL bind at a position of their own (IlDynamicBinding).
         if (IlDynamicBinding.Needed(settings.IlSet))
             compilation = compilation.AddSyntaxTrees(IlDynamicBinding.Tree(compilation.SyntaxTrees.FirstOrDefault()?.Options as CSharpParseOptions ?? parseOptions));
-        // Source generators the SDK runs implicitly ([LibraryImport], [GeneratedRegex], [JsonSerializable]).
-        compilation = SourceGenerators.Run(compilation, compilation.SyntaxTrees.Where(t => !IsCoreLibTree(t)), out var generatorDiagnostics);
+        // Source generators: the project's (SDK, packages), or for single files the ones the SDK runs implicitly
+        // ([LibraryImport], [GeneratedRegex], [JsonSerializable]).
+        compilation = SourceGenerators.Run(compilation, compilation.SyntaxTrees.Where(t => !IsCoreLibTree(t)), settings.Generators, out var generatorDiagnostics);
         GeneratorDiagnostics = [.. generatorDiagnostics.Where(d => !FromSynthesizedJsonContext(d)), .. jsonDiagnostics];
         return compilation;
     }
@@ -112,10 +113,11 @@ public static class RoslynFrontend
         return languageVersion;
     }
 
-    private static CSharpParseOptions ParseOptions(LanguageVersion languageVersion, IEnumerable<string> defines) =>
+    private static CSharpParseOptions ParseOptions(LanguageVersion languageVersion, IEnumerable<string> defines, IReadOnlyDictionary<string, string>? features = null) =>
         new CSharpParseOptions(languageVersion, DocumentationMode.None, SourceCodeKind.Regular, ["CSHARPC", .. defines])
-            // Accept file-based app directives (`#:property ...`, `#:package ...`) like `dotnet run app.cs`.
-            .WithFeatures([new("FileBasedProgram", "true")]);
+            // Accept file-based app directives (`#:property ...`, `#:package ...`) like `dotnet run app.cs`;
+            // a project's /features (e.g. InterceptorsNamespaces for generated interceptors) as csc gets them.
+            .WithFeatures([new("FileBasedProgram", "true"), .. (features ?? ImmutableDictionary<string, string>.Empty).Where(f => f.Key != "FileBasedProgram")]);
 
     private static NullableContextOptions NullableOf(string? text) => text?.ToLowerInvariant() switch
     {
@@ -152,7 +154,7 @@ public static class RoslynFrontend
             List<MetadataReference> references = [.. FrameworkReferences(settings), .. settings.IlReferences, .. CoreLibFacadeFor(settings)];
             foreach (var reference in project.References)
                 if (byPath.TryGetValue(reference, out var referenced)) references.Add(Build(referenced).ToMetadataReference());
-            var parseOptions = ParseOptions(LanguageVersionOf(project.LanguageVersion), project.Defines);
+            var parseOptions = ParseOptions(LanguageVersionOf(project.LanguageVersion), project.Defines, project.Generators?.Features);
             List<SyntaxTree> trees = [.. project.Files.Select(f => s_parsed[Path.GetFullPath(f)])];
             if (project.GlobalUsings is { Length: > 0 } usings)
                 trees.Add(CSharpSyntaxTree.ParseText(usings, parseOptions, path: "<global-usings>.g.cs"));
@@ -165,7 +167,7 @@ public static class RoslynFrontend
                 mainTypeName: project.IsRoot ? settings.MainTypeName : null,
                 specificDiagnosticOptions: new Dictionary<string, ReportDiagnostic> { ["CS8019"] = ReportDiagnostic.Suppress });
             var compilation = CSharpCompilation.Create(project.AssemblyName, trees, references, options);
-            compilation = SourceGenerators.Run(compilation, trees, out var generatorDiagnostics);
+            compilation = SourceGenerators.Run(compilation, trees, project.Generators, out var generatorDiagnostics);
             builder.AddRange(generatorDiagnostics);
             foreach (var tree in compilation.SyntaxTrees)
                 builder.AddRange(compilation.GetSemanticModel(tree).GetDiagnostics());
@@ -382,6 +384,12 @@ public sealed record FrontendSettings
     /// null for single files, decided by the configuration (`dotnet run app.cs`).
     /// </summary>
     public DebugSymbolSettings? Symbols { get; init; }
+    /// <summary>
+    /// The project's source generators and their inputs, as csc gets them (null: single files, which get
+    /// the SDK's implicit LibraryImport/JSON/[GeneratedRegex] generators). With several projects, the
+    /// merged program's: the root's options and the union of the projects' analyzers (ProjectLoader.Load).
+    /// </summary>
+    public GeneratorInputs? Generators { get; init; }
 }
 
 /// <summary>The project properties that decide what .NET's stack traces show (CodeGen/StackTraces.cs).</summary>
@@ -413,4 +421,6 @@ public sealed record ProjectUnit
     public string? GlobalUsings { get; init; }
     /// <summary>Full paths of the referenced projects.</summary>
     public IReadOnlyList<string> References { get; init; } = [];
+    /// <summary>See FrontendSettings.Generators.</summary>
+    public GeneratorInputs? Generators { get; init; }
 }

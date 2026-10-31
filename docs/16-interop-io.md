@@ -56,17 +56,36 @@ an `[UnmanagedCallersOnly]` method (`&Compare`) — that is the supported, alloc
 
 ### `[LibraryImport]` and other source generators
 
-csharpc runs the SDK's Roslyn source generators (`Frontend/SourceGenerators.cs`) when their
-trigger attribute appears in user code: `LibraryImportGenerator` (`[LibraryImport]`) and the
-System.Text.Json generator (`[JsonSerializable]`). `[GeneratedRegex]` is handled by csharpc's own
-generator (`Frontend/GeneratedRegex.cs`, [12-corelib.md](12-corelib.md#regular-expressions)), since the
-SDK's emits code built on `RegexRunner` internals. The generated marshalling code is ordinary C#; the marshallers it uses
+csharpc runs Roslyn source generators (`Frontend/SourceGenerators.cs`) and compiles their output
+with the program, as csc does. `[GeneratedRegex]` is handled by csharpc's own generator
+(`Frontend/GeneratedRegex.cs`, [12-corelib.md](12-corelib.md#regular-expressions)) in place of the
+SDK's, which emits code built on `RegexRunner` internals. The generated marshalling code is ordinary C#; the marshallers it uses
 (`Utf8StringMarshaller`, `Utf16StringMarshaller`, `AnsiStringMarshaller`, `SpanMarshaller`,
 `ReadOnlySpanMarshaller`, `ArrayMarshaller`) are corelib shadows.
 
+Which generators, with which inputs:
+
+* **Projects** (`csharpc App.csproj`): what csc gets in `dotnet build`. The project evaluation
+  (`Driver/ProjectLoader.cs`) restores and runs the SDK's `Compile` target with
+  `SkipCompilerExecution=true ProvideCommandLineArgs=true` (what design-time builds use), and reads the
+  csc command line: every `/analyzer` (the targeting packs', the Web/Razor SDKs', NuGet packages'
+  `analyzers` folders), the `/additionalfile`s (`.razor`/`.cshtml` for Razor), the `/analyzerconfig`
+  files (the `GeneratedMSBuildEditorConfig` with `build_property.*` from `CompilerVisibleProperty` and
+  `build_metadata.*` from `CompilerVisibleItemMetadata`, `.editorconfig`, `.globalconfig`) and the
+  `/features` (`InterceptorsNamespaces` for the request-delegate and configuration-binder interceptors).
+  Generated files get csc's paths (under the `/out` directory). Analyzers that aren't generators are not
+  run: their findings never change the program. With ProjectReferences, one generator run covers the
+  merged program with the root's options and the union of the projects' analyzers; additional files in a
+  referenced project are reported as not supported.
+* **Single files**: the targeting pack's LibraryImport and System.Text.Json generators, when their
+  attribute appears in the code, and csharpc's `[GeneratedRegex]`.
+
+A generator that throws (csc's warnings CS8784/CS8785) or can't be loaded is an error under csharpc:
+csc would compile without its output, so the program would silently differ.
+
 * `CSHARPC_DUMP_GENERATED=dir` writes the generated files to `dir`.
 * `CSHARPC_NO_GENERATORS=1` disables generators.
-* `CSHARPC_ANALYZERS=dir` overrides the analyzer directory
+* `CSHARPC_ANALYZERS=dir` overrides the single-file analyzer directory
   (default: `packs/Microsoft.NETCore.App.Ref/<version>/analyzers/dotnet/cs`).
 
 ## System.IO

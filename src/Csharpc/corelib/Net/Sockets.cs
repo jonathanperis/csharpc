@@ -116,6 +116,10 @@ namespace CsharpcCoreLib
         private bool _nonBlocking;
         // new Socket(SafeSocketHandle(fd, ownsHandle: false)) (an inherited listen socket): Dispose leaves the fd open.
         private bool _ownsHandle = true;
+        // Socket.Blocking (the user's mode; the engine's own non-blocking mode is _nonBlocking), and a connect
+        // started on a non-blocking socket, which Connected completes (.NET's _nonBlockingConnectInProgress).
+        private bool _willBlock = true;
+        private bool _connectInProgress;
 
         internal long RawHandle => _handle;
 
@@ -355,8 +359,176 @@ namespace CsharpcCoreLib
             }
         }
 
-        public bool Connected => _connected;
+        public bool Connected
+        {
+            get
+            {
+                // .NET's CheckNonBlockingConnectCompleted: writable means done; SO_ERROR says whether it worked.
+                if (_connectInProgress && !_disposed && HasConnectCompleted(out bool succeeded))
+                {
+                    _connectInProgress = false;
+                    if (succeeded) _connected = true;
+                }
+                return _connected;
+            }
+        }
+
         public bool IsBound => _bound;
+
+        private bool HasConnectCompleted(out bool succeeded)
+        {
+#if CSHARPC_TARGET_WINDOWS || CSHARPC_TARGET_WASI
+            succeeded = false;
+            return false;
+#else
+            long handle = _handle;
+            int events = NetNative.POLLOUT, revents;
+            NetNative.Poll(&handle, &events, &revents, 1, 0);
+            succeeded = false;
+            if ((revents & NetNative.POLLOUT) == 0) return false;
+            succeeded = NetNative.GetInt(_handle, NetNative.SOL_SOCKET, NetNative.SO_ERROR) == 0;
+            return true;
+#endif
+        }
+
+        /// <summary>
+        /// Whether synchronous calls wait (.NET's default) or fail with WouldBlock. Async operations make the
+        /// descriptor non-blocking for the engine; Blocking = true then only changes how synchronous calls behave.
+        /// </summary>
+        public bool Blocking
+        {
+            get => _willBlock;
+            set
+            {
+                EnsureOpen();
+#if CSHARPC_TARGET_WINDOWS || CSHARPC_TARGET_WASI
+                if (!value) throw new NotSupportedException("csharpc: non-blocking sockets (Socket.Blocking = false) are not supported yet on this platform.");
+#else
+                if (!value) NetNative.SetBlockingMode(_handle, false);
+                else if (!_nonBlocking) NetNative.SetBlockingMode(_handle, true);
+#endif
+                _willBlock = value;
+            }
+        }
+
+        public int ReceiveBufferSize
+        {
+            get { EnsureOpen(); return NetNative.GetInt(_handle, NetNative.SOL_SOCKET, NetNative.SO_RCVBUF); }
+            set
+            {
+                if (value < 0) throw new ArgumentOutOfRangeException("value");
+                EnsureOpen();
+                NetNative.SetInt(_handle, NetNative.SOL_SOCKET, NetNative.SO_RCVBUF, value);
+            }
+        }
+
+        public int SendBufferSize
+        {
+            get { EnsureOpen(); return NetNative.GetInt(_handle, NetNative.SOL_SOCKET, NetNative.SO_SNDBUF); }
+            set
+            {
+                if (value < 0) throw new ArgumentOutOfRangeException("value");
+                EnsureOpen();
+                NetNative.SetInt(_handle, NetNative.SOL_SOCKET, NetNative.SO_SNDBUF, value);
+            }
+        }
+
+        /// <summary>
+        /// Socket.Select over poll(), as .NET does on Unix: a socket stays in checkRead when it is readable or
+        /// hung up, in checkWrite when writable, in checkError on urgent data or an error.
+        /// </summary>
+        public static void Select(System.Collections.IList checkRead, System.Collections.IList checkWrite, System.Collections.IList checkError, int microSeconds)
+        {
+            int reads = checkRead == null ? 0 : checkRead.Count, writes = checkWrite == null ? 0 : checkWrite.Count, errors = checkError == null ? 0 : checkError.Count;
+            if (reads == 0 && writes == 0 && errors == 0) throw new ArgumentNullException(null, "All lists are either null or empty.");
+            const int MaxSelect = 65536;
+            if (reads > MaxSelect) throw new ArgumentOutOfRangeException("checkRead", "The checkRead list contains too many items; a maximum of 65536 is allowed.");
+            if (writes > MaxSelect) throw new ArgumentOutOfRangeException("checkWrite", "The checkWrite list contains too many items; a maximum of 65536 is allowed.");
+            if (errors > MaxSelect) throw new ArgumentOutOfRangeException("checkError", "The checkError list contains too many items; a maximum of 65536 is allowed.");
+#if CSHARPC_TARGET_WINDOWS || CSHARPC_TARGET_WASI
+            throw new NotSupportedException("csharpc: Socket.Select is not supported yet on this platform.");
+#else
+            int count = reads + writes + errors;
+            long[] handles = new long[count];
+            int[] events = new int[count], revents = new int[count];
+            int at = 0;
+            void Add(System.Collections.IList list, int n, int wanted)
+            {
+                for (int i = 0; i < n; i++, at++)
+                {
+                    if (!(list[i] is Socket socket)) throw new ArgumentException("The specified value is not a valid 'Socket'.", "socketList");
+                    var impl = (SocketImpl)(object)socket;
+                    impl.EnsureOpen();
+                    handles[at] = impl._handle;
+                    events[at] = wanted;
+                }
+            }
+            Add(checkRead, reads, NetNative.POLLIN | NetNative.POLLHUP);
+            Add(checkWrite, writes, NetNative.POLLOUT);
+            Add(checkError, errors, NetNative.POLLPRI);
+            fixed (long* h = handles)
+            fixed (int* e = events)
+            fixed (int* r = revents)
+                NetNative.Poll(h, e, r, count, microSeconds == -1 ? -1 : microSeconds / 1000);
+            at = 0;
+            void Filter(System.Collections.IList list, int n, int ready)
+            {
+                int first = at;
+                at += n;
+                for (int i = n - 1; i >= 0; i--)
+                    if ((revents[first + i] & ready) == 0) list.RemoveAt(i);
+            }
+            Filter(checkRead, reads, NetNative.POLLIN | NetNative.POLLHUP);
+            Filter(checkWrite, writes, NetNative.POLLOUT);
+            Filter(checkError, errors, NetNative.POLLPRI | NetNative.POLLERR);
+#endif
+        }
+
+        public static void Select(System.Collections.IList checkRead, System.Collections.IList checkWrite, System.Collections.IList checkError, TimeSpan timeout) =>
+            Select(checkRead, checkWrite, checkError, ToSelectMicroseconds(timeout));
+
+        private static int ToSelectMicroseconds(TimeSpan timeout)
+        {
+            long ticks = timeout.Ticks;
+            if (ticks == -TimeSpan.TicksPerMillisecond) return -1; // Timeout.InfiniteTimeSpan
+            long micro = ticks / 10;
+            if (ticks < 0 || micro > int.MaxValue) throw new ArgumentOutOfRangeException("timeout");
+            return (int)micro;
+        }
+
+        /// <summary>The option's value as .NET returns it (SocketOptionName.Error: a SocketError).</summary>
+        public object GetSocketOption(SocketOptionLevel optionLevel, SocketOptionName optionName)
+        {
+            EnsureOpen();
+            if (optionLevel == SocketOptionLevel.Socket)
+            {
+                switch (optionName)
+                {
+                    case SocketOptionName.Error:
+                        return (int)NetNative.ToSocketError(NetNative.GetInt(_handle, NetNative.SOL_SOCKET, NetNative.SO_ERROR));
+                    case SocketOptionName.ReuseAddress:
+#if CSHARPC_TARGET_WINDOWS
+                        return NetNative.GetInt(_handle, NetNative.SOL_SOCKET, NetNative.SO_REUSEADDR);
+#else
+                        // .NET on Unix reads SO_REUSEPORT (Bind's own SO_REUSEADDR doesn't show), as 0 or 1.
+                        return NetNative.GetInt(_handle, NetNative.SOL_SOCKET, NetNative.SO_REUSEPORT) != 0 ? 1 : 0;
+#endif
+                    case SocketOptionName.KeepAlive:
+                        return NetNative.GetInt(_handle, NetNative.SOL_SOCKET, NetNative.SO_KEEPALIVE);
+                    case SocketOptionName.ReceiveBuffer:
+                        return ReceiveBufferSize;
+                    case SocketOptionName.SendBuffer:
+                        return SendBufferSize;
+                    case SocketOptionName.ReceiveTimeout:
+                        return _receiveTimeout;
+                    case SocketOptionName.SendTimeout:
+                        return _sendTimeout;
+                }
+            }
+            else if (optionLevel == SocketOptionLevel.Tcp && optionName == SocketOptionName.NoDelay)
+                return NetNative.GetInt(_handle, NetNative.IPPROTO_TCP, NetNative.TCP_NODELAY);
+            throw new NotSupportedException("csharpc: socket option " + optionLevel.ToString() + "." + optionName.ToString() + " is not supported yet.");
+        }
 
         public bool NoDelay
         {
@@ -414,7 +586,13 @@ namespace CsharpcCoreLib
         {
             EnsureOpen();
             if (optionLevel == SocketOptionLevel.Socket && optionName == SocketOptionName.ReuseAddress)
+            {
+#if !CSHARPC_TARGET_WINDOWS
+                // .NET on Unix (SystemNative_SetSockOpt): SO_REUSEPORT, which lets sockets share an address, then SO_REUSEADDR.
+                NetNative.SetInt(_handle, NetNative.SOL_SOCKET, NetNative.SO_REUSEPORT, optionValue);
+#endif
                 NetNative.SetInt(_handle, NetNative.SOL_SOCKET, NetNative.SO_REUSEADDR, optionValue);
+            }
             else if (optionLevel == SocketOptionLevel.Tcp && optionName == SocketOptionName.NoDelay)
                 NoDelay = optionValue != 0;
             else if (optionLevel == SocketOptionLevel.Socket && optionName == SocketOptionName.ReceiveTimeout)
@@ -423,6 +601,18 @@ namespace CsharpcCoreLib
                 SendTimeout = optionValue;
             else if (optionLevel == SocketOptionLevel.IPv6 && optionName == SocketOptionName.IPv6Only)
                 DualMode = optionValue == 0;
+            else if (optionLevel == SocketOptionLevel.Socket && optionName == SocketOptionName.KeepAlive)
+                NetNative.SetInt(_handle, NetNative.SOL_SOCKET, NetNative.SO_KEEPALIVE, optionValue);
+            else if (optionLevel == SocketOptionLevel.Socket && optionName == SocketOptionName.ReceiveBuffer)
+                ReceiveBufferSize = optionValue;
+            else if (optionLevel == SocketOptionLevel.Socket && optionName == SocketOptionName.SendBuffer)
+                SendBufferSize = optionValue;
+            else if (optionLevel == SocketOptionLevel.Tcp && optionName == SocketOptionName.TcpKeepAliveTime)
+                NetNative.SetInt(_handle, NetNative.IPPROTO_TCP, NetNative.TCP_KEEPIDLE, optionValue);
+            else if (optionLevel == SocketOptionLevel.Tcp && optionName == SocketOptionName.TcpKeepAliveInterval)
+                NetNative.SetInt(_handle, NetNative.IPPROTO_TCP, NetNative.TCP_KEEPINTVL, optionValue);
+            else if (optionLevel == SocketOptionLevel.Tcp && optionName == SocketOptionName.TcpKeepAliveRetryCount)
+                NetNative.SetInt(_handle, NetNative.IPPROTO_TCP, NetNative.TCP_KEEPCNT, optionValue);
             else
                 throw new NotSupportedException("csharpc: socket option " + optionLevel.ToString() + "." + optionName.ToString() + " is not supported yet.");
         }
@@ -446,7 +636,13 @@ namespace CsharpcCoreLib
         {
             EnsureOpen();
             if (localEP == null) throw new ArgumentNullException("localEP");
-            NetNative.Bind(_handle, Adapt(localEP));
+            var target = Adapt(localEP);
+#if !CSHARPC_TARGET_WINDOWS
+            // .NET on Unix (SystemNative_Bind): a TCP socket gets SO_REUSEADDR before bind, so a server can rebind its
+            // port while connections of a previous run are in TIME_WAIT (Windows allows that by default).
+            if (ProtocolType == ProtocolType.Tcp) NetNative.SetInt(_handle, NetNative.SOL_SOCKET, NetNative.SO_REUSEADDR, 1);
+#endif
+            NetNative.Bind(_handle, target);
             _bound = true;
         }
 
@@ -482,6 +678,17 @@ namespace CsharpcCoreLib
             EnsureOpen();
             if (_connected) throw new SocketException((int)SocketError.IsConnected);
             var target = Adapt(remoteEP);
+            if (!_willBlock)
+            {
+                // A non-blocking connect: under way is WouldBlock (.NET's SocketPal.Connect); Connected completes it.
+                // .NET marks the connect in progress before trying, failed or not (Connected then asks SO_ERROR).
+                _connectInProgress = true;
+                int error = NetNative.TryConnect(_handle, target);
+                _bound = true;
+                if (error == 0) { _connectInProgress = false; _connected = true; return; }
+                if (error == NetNative.EINPROGRESS || NetNative.IsWouldBlock(error)) throw NetNative.Error(NetNative.EAGAIN, remoteEP);
+                throw NetNative.Error(error, remoteEP);
+            }
             NetNative.Connect(_handle, target);
             _connected = true;
             _bound = true;
@@ -736,6 +943,81 @@ namespace CsharpcCoreLib
             }
         }
 
+        public override int Read(Span<byte> buffer)
+        {
+            EnsureOpen();
+            try { return _socket.Receive(buffer, SocketFlags.None); }
+            catch (SocketException e) { throw ReadError(e); }
+        }
+
+        public override void Write(ReadOnlySpan<byte> buffer)
+        {
+            EnsureOpen();
+            try { _socket.Send(buffer, SocketFlags.None); }
+            catch (SocketException e) { throw WriteError(e); }
+        }
+
+        private static IOException ReadError(SocketException e) =>
+            new IOException("Unable to read data from the transport connection: " + e.Message + ".", e);
+
+        private static IOException WriteError(SocketException e) =>
+            new IOException("Unable to write data to the transport connection: " + e.Message + ".", e);
+
+        // Asynchronous reads and writes are the socket's asynchronous operations (SocketEngine.cs), as .NET's
+        // NetworkStream does: no thread waits, and the socket's ReceiveTimeout/SendTimeout (synchronous calls
+        // only) don't apply. Socket errors become IOExceptions with .NET's messages.
+        public override Task<int> ReadAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken)
+        {
+            ValidateBufferArguments(buffer, offset, count);
+            return ReadAsync(new Memory<byte>(buffer, offset, count), cancellationToken).AsTask();
+        }
+
+        public override ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
+        {
+            EnsureOpen();
+            ValueTask<int> receive = _socket.ReceiveAsync(buffer, SocketFlags.None, cancellationToken);
+            return receive.IsCompletedSuccessfully ? receive : FinishRead(receive);
+        }
+
+        private static async ValueTask<int> FinishRead(ValueTask<int> receive)
+        {
+            try { return await receive.ConfigureAwait(false); }
+            catch (SocketException e) { throw ReadError(e); }
+        }
+
+        public override Task WriteAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken)
+        {
+            ValidateBufferArguments(buffer, offset, count);
+            return WriteAsync(new ReadOnlyMemory<byte>(buffer, offset, count), cancellationToken).AsTask();
+        }
+
+        public override ValueTask WriteAsync(ReadOnlyMemory<byte> buffer, CancellationToken cancellationToken = default)
+        {
+            EnsureOpen();
+            ValueTask<int> send = _socket.SendAsync(buffer, SocketFlags.None, cancellationToken);
+            if (send.IsCompletedSuccessfully && send.Result == buffer.Length) return default;
+            return FinishWrite(send, buffer, cancellationToken);
+        }
+
+        // A stream socket's send completes all the bytes, as .NET's SendAsyncForNetworkStream does.
+        private async ValueTask FinishWrite(ValueTask<int> send, ReadOnlyMemory<byte> buffer, CancellationToken cancellationToken)
+        {
+            try
+            {
+                int sent = await send.ConfigureAwait(false);
+                while (sent < buffer.Length)
+                {
+                    int n = await _socket.SendAsync(buffer.Slice(sent), SocketFlags.None, cancellationToken).ConfigureAwait(false);
+                    if (n <= 0) break;
+                    sent += n;
+                }
+            }
+            catch (SocketException e) { throw WriteError(e); }
+        }
+
+        public override Task FlushAsync(CancellationToken cancellationToken) =>
+            cancellationToken.IsCancellationRequested ? Task.FromCanceled(cancellationToken) : Task.CompletedTask;
+
         protected override void Dispose(bool disposing)
         {
             if (_disposed) return;
@@ -963,7 +1245,18 @@ namespace CsharpcCoreLib
             return NetNative.Resolve(hostNameOrAddress);
         }
 
-        public static Task<IPAddress[]> GetHostAddressesAsync(string hostNameOrAddress) => Task.Run(() => GetHostAddresses(hostNameOrAddress));
+        public static Task<IPAddress[]> GetHostAddressesAsync(string hostNameOrAddress) => GetHostAddressesAsync(hostNameOrAddress, CancellationToken.None);
+
+        // .NET: argument errors are thrown, not returned in the task; an address literal completes synchronously;
+        // a name is resolved off the caller's thread (getaddrinfo blocks), observing the token before it starts.
+        public static Task<IPAddress[]> GetHostAddressesAsync(string hostNameOrAddress, CancellationToken cancellationToken)
+        {
+            ArgumentNullException.ThrowIfNull(hostNameOrAddress);
+            if (cancellationToken.IsCancellationRequested) return Task.FromCanceled<IPAddress[]>(cancellationToken);
+            IPAddress literal;
+            if (IPAddress.TryParse(hostNameOrAddress, out literal)) return Task.FromResult(new[] { literal });
+            return Task.Run(() => NetNative.Resolve(hostNameOrAddress), cancellationToken);
+        }
 
         public static string GetHostName() => NetNative.HostName();
     }
