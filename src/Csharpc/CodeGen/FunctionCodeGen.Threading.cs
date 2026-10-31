@@ -435,6 +435,16 @@ public sealed partial class FunctionCodeGen
             var wide = indexType.SpecialType == SpecialType.System_Int64;
             RunParallel(wide ? from : _b.Cast(LLVMOpcode.SExt, from, L.I64), wide ? to : _b.Cast(LLVMOpcode.SExt, to, L.I64),
                 body, LlvmContext.Null(L.Ptr), ParallelBody(null, wide));
+            // The loop ran to completion (or threw): IsCompleted, as .NET reports it.
+            if (!m.ReturnsVoid) result = CallCoreLib("ParallelForSupport", "Completed");
+            return true;
+        }
+        // With ParallelOptions (a token, a degree of parallelism): corelib/Tasks/ParallelLoops.cs.
+        if (m.Name == "For" && m.Parameters.Length == 4 && m.Parameters[2].Type is INamedTypeSymbol { Name: "ParallelOptions" }
+            && m.Parameters[3].Type is INamedTypeSymbol { Name: "Action", TypeArguments: [{ SpecialType: SpecialType.System_Int32 or SpecialType.System_Int64 } index] })
+        {
+            result = CallCoreLib("ParallelForSupport", index.SpecialType == SpecialType.System_Int64 ? "For64" : "For",
+                TArg(inv, 0), TArg(inv, 1), TArg(inv, 2), TArg(inv, 3));
             return true;
         }
         if (m.Name == "ForEach" && m.Parameters.Length == 2 && m.Parameters[1].Type is INamedTypeSymbol { Name: "Action", TypeArguments.Length: 1 })

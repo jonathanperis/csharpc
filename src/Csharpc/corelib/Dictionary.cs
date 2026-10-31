@@ -244,7 +244,11 @@ namespace CsharpcCoreLib
         }
 
         /// <summary>throwOnExisting: Add semantics; else indexer-set semantics. Returns false if the key existed (Add/TryAdd).</summary>
-        private bool TryInsert(TKey key, TValue value, bool add, bool throwOnExisting = true)
+        private bool TryInsert(TKey key, TValue value, bool add, bool throwOnExisting = true) =>
+            TryInsert(key, value, add, throwOnExisting, out _);
+
+        /// <summary>TryInsert that also reports the entry holding the key (CollectionsMarshal's refs).</summary>
+        private bool TryInsert(TKey key, TValue value, bool add, bool throwOnExisting, out int entry)
         {
             if (key == null) ThrowHelper.ArgumentNull("key");
             if (_buckets == null) Initialize(0);
@@ -255,6 +259,7 @@ namespace CsharpcCoreLib
             {
                 if (_entries[i].hashCode == hashCode && KeysEqual(_entries[i].key, key))
                 {
+                    entry = i;
                     if (!add)
                     {
                         _entries[i].value = value;
@@ -289,7 +294,23 @@ namespace CsharpcCoreLib
             _entries[index].value = value;
             _buckets[bucket] = index + 1;
             _version++;
+            entry = index;
             return true;
+        }
+
+        /// <summary>CollectionsMarshal.GetValueRefOrAddDefault: the value's slot, added as default(TValue) if missing.</summary>
+        internal ref TValue GetValueRefOrAddDefault(TKey key, out bool exists)
+        {
+            exists = !TryInsert(key, default(TValue), true, false, out int entry);
+            return ref _entries[entry].value;
+        }
+
+        /// <summary>CollectionsMarshal.GetValueRefOrNullRef: the value's slot, or a null reference.</summary>
+        internal ref TValue GetValueRefOrNullRef(TKey key)
+        {
+            int i = FindEntry(key);
+            if (i < 0) return ref System.Runtime.CompilerServices.Unsafe.NullRef<TValue>();
+            return ref _entries[i].value;
         }
 
         private void Resize(int newSize)

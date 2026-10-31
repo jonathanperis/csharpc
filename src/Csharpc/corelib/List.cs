@@ -567,6 +567,13 @@ namespace CsharpcCoreLib
             return new Span<T>(l._items, 0, l._size);
         }
 
+        // Dictionary<TKey, TValue>'s value slots, as .NET hands them out (corelib/Dictionary.cs).
+        public static ref TValue GetValueRefOrAddDefault<TKey, TValue>(Dictionary<TKey, TValue> dictionary, TKey key, out bool exists) =>
+            ref ((DictionaryImpl<TKey, TValue>)(object)dictionary).GetValueRefOrAddDefault(key, out exists);
+
+        public static ref TValue GetValueRefOrNullRef<TKey, TValue>(Dictionary<TKey, TValue> dictionary, TKey key) =>
+            ref ((DictionaryImpl<TKey, TValue>)(object)dictionary).GetValueRefOrNullRef(key);
+
         public static void SetCount<T>(List<T> list, int count)
         {
             if (count < 0) ThrowHelper.ArgumentOutOfRange("count", "Non-negative number required.");

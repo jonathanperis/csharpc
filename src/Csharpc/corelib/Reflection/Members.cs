@@ -795,6 +795,13 @@ namespace CsharpcCoreLib
             throw new NotSupportedException("Type.MakeByRefType() ('" + type + "&') is not supported by csharpc yet.");
         }
 
+        /// <summary>TypeInfo.GenericTypeParameters: a definition's parameters, no types for anything else.</summary>
+        public static Type[] GenericTypeParameters(Type type)
+        {
+            if (type == null) throw new NullReferenceException();
+            return type.IsGenericTypeDefinition ? type.GetGenericArguments() : Type.EmptyTypes;
+        }
+
         public static ConstructorInfo[] GetConstructorsAll(Type type) => GetConstructors(type, BindingFlags.Public | BindingFlags.Instance);
         public static ConstructorInfo[] GetConstructorsFlags(Type type, BindingFlags flags) => GetConstructors(type, flags);
 

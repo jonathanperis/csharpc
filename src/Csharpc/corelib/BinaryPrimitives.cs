@@ -23,6 +23,41 @@ namespace CsharpcCoreLib
         public static nint ReverseEndianness(nint value) => (nint)ReverseEndianness((long)value);
         public static nuint ReverseEndianness(nuint value) => (nuint)ReverseEndianness((ulong)value);
 
+        // The span forms: element by element; source and destination may be the same span (in place),
+        // and a too-short destination is .NET's ArgumentException for "destination".
+        public static void ReverseEndianness(ReadOnlySpan<short> source, Span<short> destination)
+        {
+            if (destination.Length < source.Length) DestinationTooShort();
+            for (int i = 0; i < source.Length; i++) destination[i] = ReverseEndianness(source[i]);
+        }
+        public static void ReverseEndianness(ReadOnlySpan<ushort> source, Span<ushort> destination)
+        {
+            if (destination.Length < source.Length) DestinationTooShort();
+            for (int i = 0; i < source.Length; i++) destination[i] = ReverseEndianness(source[i]);
+        }
+        public static void ReverseEndianness(ReadOnlySpan<int> source, Span<int> destination)
+        {
+            if (destination.Length < source.Length) DestinationTooShort();
+            for (int i = 0; i < source.Length; i++) destination[i] = ReverseEndianness(source[i]);
+        }
+        public static void ReverseEndianness(ReadOnlySpan<uint> source, Span<uint> destination)
+        {
+            if (destination.Length < source.Length) DestinationTooShort();
+            for (int i = 0; i < source.Length; i++) destination[i] = ReverseEndianness(source[i]);
+        }
+        public static void ReverseEndianness(ReadOnlySpan<long> source, Span<long> destination)
+        {
+            if (destination.Length < source.Length) DestinationTooShort();
+            for (int i = 0; i < source.Length; i++) destination[i] = ReverseEndianness(source[i]);
+        }
+        public static void ReverseEndianness(ReadOnlySpan<ulong> source, Span<ulong> destination)
+        {
+            if (destination.Length < source.Length) DestinationTooShort();
+            for (int i = 0; i < source.Length; i++) destination[i] = ReverseEndianness(source[i]);
+        }
+
+        private static void DestinationTooShort() => throw new ArgumentException("Not enough space available in the buffer.", "destination");
+
         private static void TooShort() => throw new ArgumentOutOfRangeException("length");
 
         private static ulong Load(ReadOnlySpan<byte> source, int size)

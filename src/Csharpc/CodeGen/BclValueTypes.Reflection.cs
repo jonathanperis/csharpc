@@ -72,6 +72,7 @@ internal static partial class BclValueTypes
 
         // Member reflection over compile-time metadata (ModuleCodeGen.Reflection.cs, corelib/Reflection/Members.cs).
         BclHandler core(string method) => (g, _, self, a, _) => g.CallCoreLib("ReflectionRuntime", method, [self, .. a]);
+        t["System.Reflection.TypeInfo.get_GenericTypeParameters()"] = core("GenericTypeParameters");
         t[$"{Type}.GetConstructors()"] = core("GetConstructorsAll");
         t[$"{Type}.GetConstructors(System.Reflection.BindingFlags)"] = core("GetConstructorsFlags");
         t[$"{Type}.GetConstructor(System.Type[])"] = core("GetConstructorTypes");

@@ -261,6 +261,17 @@ namespace CsharpcCoreLib
     [ShadowMembers("System.Math")]
     internal static class MathExtras
     {
+        /// <summary>The high 64 bits of the 128-bit product; the low ones through <paramref name="low"/>.</summary>
+        public static ulong BigMul(ulong a, ulong b, out ulong low) => CoreDebug.BigMul(a, b, out low);
+
+        public static long BigMul(long a, long b, out long low)
+        {
+            ulong high = CoreDebug.BigMul((ulong)a, (ulong)b, out ulong ulow);
+            low = (long)ulow;
+            // Signed correction of the unsigned product (as .NET's Math.BigMul(long, long, out long)).
+            return (long)high - ((a >> 63) & b) - ((b >> 63) & a);
+        }
+
         public static (int Quotient, int Remainder) DivRem(int left, int right)
         {
             int quotient = left / right;

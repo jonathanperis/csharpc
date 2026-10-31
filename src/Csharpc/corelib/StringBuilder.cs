@@ -258,6 +258,8 @@ namespace CsharpcCoreLib
             if (args == null) throw new ArgumentNullException(format == null ? "format" : "args");
             return Append(Number.FormatCompositeWith(provider, format, args));
         }
+        public StringBuilderImpl AppendFormat(IFormatProvider provider, string format, params ReadOnlySpan<object> args) =>
+            Append(Number.FormatCompositeWith(provider, format, args.ToArray()));
 
         public StringBuilderImpl AppendLine() => Append(global::System.Environment.NewLine);
         public StringBuilderImpl AppendLine(string value) => Append(value).Append(global::System.Environment.NewLine);
@@ -494,6 +496,40 @@ namespace CsharpcCoreLib
             string result = CoreIntrinsics.FastAllocateString(length);
             _chars.AsSpan(startIndex, length).CopyTo(CoreIntrinsics.StringChars(result));
             return result;
+        }
+
+        /// <summary>
+        /// The builder's text as read-only memory chunks. csharpc's builder is one buffer, so this is a
+        /// single chunk with the whole text; .NET links chunks of up to 8000 chars, so the concatenated
+        /// content is the same but the number and lengths of the chunks can differ (docs/18-compatibility.md).
+        /// </summary>
+        public ChunkEnumerator GetChunks() => new ChunkEnumerator(this);
+
+        [Shadows("System.Text.StringBuilder+ChunkEnumerator")]
+        public struct ChunkEnumerator
+        {
+            private readonly StringBuilderImpl _builder;
+            private int _state; // 0 before the chunk, 1 on it, 2 past it
+
+            internal ChunkEnumerator(StringBuilderImpl builder) { _builder = builder; _state = 0; }
+
+            public ChunkEnumerator GetEnumerator() => this;
+
+            public bool MoveNext()
+            {
+                if (_state >= 1) { _state = 2; return false; }
+                _state = 1;
+                return true;
+            }
+
+            public ReadOnlyMemory<char> Current
+            {
+                get
+                {
+                    if (_state != 1) throw new InvalidOperationException("Enumeration has either not started or has already finished.");
+                    return new ReadOnlyMemory<char>(_builder._chars, 0, _builder._length);
+                }
+            }
         }
 
         // Shadow types are matched by their real names (CoreLib.Signature) and return types are ignored,

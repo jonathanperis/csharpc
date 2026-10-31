@@ -61,8 +61,12 @@ namespace CsharpcCoreLib
 
         private const string NoCodepageData = "No data is available for encoding {0}. For information on defining a custom encoding, see the documentation for the Encoding.RegisterProvider method.";
 
+        // Registered providers come first, as in .NET (CodePagesEncodingProvider, which Roslyn registers).
+        public static void RegisterProvider(EncodingProvider provider) => EncodingProviderImpl.AddProvider(provider);
+
         public static Encoding GetEncoding(int codepage)
         {
+            if (EncodingProviderImpl.GetEncodingFromProvider(codepage) is { } provided && provided.CodePage != 65000) return provided;
             switch (codepage)
             {
                 case 0: return Default;
@@ -85,16 +89,26 @@ namespace CsharpcCoreLib
 
         public static Encoding GetEncoding(int codepage, EncoderFallback encoderFallback, DecoderFallback decoderFallback)
         {
+            if (EncodingProviderImpl.GetEncodingFromProvider(codepage, encoderFallback, decoderFallback) is { } provided && provided.CodePage != 65000)
+                return provided;
             Encoding fallbackEncoding = (Encoding)GetEncoding(codepage).Clone();
             fallbackEncoding.EncoderFallback = encoderFallback;
             fallbackEncoding.DecoderFallback = decoderFallback;
             return fallbackEncoding;
         }
 
-        public static Encoding GetEncoding(string name) => GetEncoding(CodePageFromName(name));
+        public static Encoding GetEncoding(string name)
+        {
+            if (EncodingProviderImpl.GetEncodingFromProvider(name) is { } provided && provided.CodePage != 65000) return provided;
+            return GetEncoding(CodePageFromName(name));
+        }
 
-        public static Encoding GetEncoding(string name, EncoderFallback encoderFallback, DecoderFallback decoderFallback) =>
-            GetEncoding(CodePageFromName(name), encoderFallback, decoderFallback);
+        public static Encoding GetEncoding(string name, EncoderFallback encoderFallback, DecoderFallback decoderFallback)
+        {
+            if (EncodingProviderImpl.GetEncodingFromProvider(name, encoderFallback, decoderFallback) is { } provided && provided.CodePage != 65000)
+                return provided;
+            return GetEncoding(CodePageFromName(name), encoderFallback, decoderFallback);
+        }
 
         private static int CodePageFromName(string name)
         {
