@@ -90,8 +90,35 @@ calls a function holding the code Roslyn bound for that combination of types.
   683 (ExpandoObject and DynamicObject from System.Linq.Expressions' IL) 1.26 MB.
 - Compile time grows with sites × relevant types: sample 681 compiles in 12 s at `-O2`, sample 680 in 35 s
   (`CSHARPC_DYNAMIC_TRACE=1` prints per-site planning and emission times; `=2` also each case).
-- Not supported yet, each an explicit diagnostic or NotSupportedException: `dynamic` in IL (above), `await` on a
+- Not supported yet, each an explicit diagnostic or NotSupportedException: `dynamic` in IL (above; "From IL" below), `await` on a
   dynamic value, a dynamic value passed by `ref`/`out`, a simple-name dynamic call through a struct's `this` whose
   candidates are both static and instance methods, generic inference with a type nested deeper than 2, run-time types
   csharpc can't name (generic types over anonymous types), custom `IDynamicMetaObjectProvider`s, and run-time types
   csharpc has no table for (tasks share one method table across `Task<T>`).
+
+## From IL (2026-10-31, not implemented yet)
+
+A program given as IL (`csharpc app.dll`, ADR 0010) reaches the diagnostic of point 7 in samples 680–686. What a
+reconstruction from csc's call sites needs, as found while closing the other IL gaps (`ci/il-gaps`):
+
+- **The site description is all in the IL.** csc caches each site in a static field (`<>o__N.<>p__K`, a
+  `CallSite<Func<CallSite, ..., R>>`), initialized behind `ldsfld <>p__K; brtrue` from constants only:
+  `Binder.InvokeMember/GetMember/SetMember/GetIndex/SetIndex/Invoke/InvokeConstructor/BinaryOperation/UnaryOperation/
+  Convert/IsEvent(flags, name, typeArgs, typeof(Context), CSharpArgumentInfo[])` with `CSharpArgumentInfo.Create(flags,
+  name)` per operand, then `ldfld Target; ldsfld <>p__K; operands; callvirt Invoke`. A pre-pass over a method body can
+  decode those blocks into `DynamicSite`s (binder kind, name, type arguments, `CSharpArgumentInfoFlags` →
+  Dynamic/Static/Constant/This operands, `ResultDiscarded`, `CheckedContext`, `ValueFromCompoundAssignment`,
+  `InvokeSimpleName`, `ConvertExplicit`), skip them when lowering, and emit the site call at `Invoke`. Compound
+  assignments, increments and `&&`/`||` arrive as csc's sequences of simpler sites, which the binder flags describe.
+- **Binding needs a position, and IL has none.** `DynamicBinding` binds each case speculatively at the operation's
+  source position, whose accessibility is the context type's: its private members, its bases' protected ones. A
+  synthesized tree in the binding compilation, bound with Roslyn's public `GetSemanticModel(tree, ignoreAccessibility:
+  true)`, can stand in, provided every `IsAccessible(position, ...)` and `LookupSymbols(position, ...)` use becomes an
+  accessibility check against the real context (`IsSymbolAccessibleWithin(symbol, context)`), simple names are looked
+  up in the context type (and its containers) instead of the synthesized one, and a binding that picked — or failed
+  because of — a member the real context can't access becomes `NotSupportedException` rather than an answer the
+  binder would not give. The program's internals are already visible to the binding compilation when it is IL (the
+  JSON route, docs/12-corelib.md#systemtextjson).
+
+That is a rework of `ModuleCodeGen.DynamicBinding.cs`'s use of `Model`/`Position` plus an IL decoder for the site
+pattern; until it exists, the diagnostic stays.
