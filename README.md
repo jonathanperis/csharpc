@@ -60,8 +60,8 @@ $ ls -lh hello
   protection. Bounds, cast and array-covariance checks behave as .NET's ([docs/17-security.md](docs/17-security.md)).
 - **Drop-in.** Compile a `.csproj` directly, or keep using `dotnet build` / `dotnet publish` with
   `-p:UseCsharpc=true` / `-p:PublishCsharpc=true` ([docs/08-drop-in.md](docs/08-drop-in.md)). The
-  target is **100 % parity with .NET NativeAOT** — **97.2 %** of the programs NativeAOT runs today
-  ([compatibility corpus](docs/18-compatibility.md)), with no wrong outputs — and the end state is csharpc as the AOT backend of
+  target is **100 % parity with .NET NativeAOT** — reached: **all 249** programs of the [compatibility corpus](docs/18-compatibility.md) that NativeAOT
+  runs like the JIT, with no wrong outputs — and the end state is csharpc as the AOT backend of
   `dotnet publish -p:PublishAot=true` itself, with NativeAOT's parameters
   ([ADR 0016](docs/adr/0016-nativeaot-parity-and-end-state.md)). The finish line: that dotnet build
   beating NativeAOT on the ASP.NET Core TechEmpower benchmarks (roadmap M7 with the `csharpc` CLI; M9,

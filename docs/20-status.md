@@ -50,9 +50,11 @@ attribute factories) with a ~25 % faster build.
 
 ## Measured state
 
-**NativeAOT parity:** 243 of 250 (97.2 %), no wrong outputs (run 40424843703). Left: expression trees (2;
-both pass on `ci/expression-trees`, [18](18-compatibility.md#expression-trees)), `dynamic` (1), C# 15 unions
-(2), `System.Data` (1), deriving from `AssemblyLoadContext` (1).
+**NativeAOT parity: 249 of 249 (100 %)**, no wrong outputs (run 41152809617, `main` `d572f27`, 2026-10-30) —
+M4's target. Against NativeAOT on those 249: compile time median 4.0 s vs 5.2 s (csharpc faster in 183),
+executable median 141 KiB vs 1,338 KiB (smaller in 245); slowest compile 128.5 s vs 16.9 s (the
+expression-tree programs: the M7 build-time work). 271 of the 272 programs csharpc compiles behave like .NET;
+the one difference is a stack-trace frame in a NativeAOT-unsupported program.
 
 **TechEmpower** (`main` `9406394`, run 41089947567, 4-vCPU runner; ratios within one run):
 

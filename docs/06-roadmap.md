@@ -163,10 +163,9 @@ First report (2026-10-22, 323 programs from dotnet/samples and dotnet/docs, 40.6
 `Compatibility` workflow. The headline metric is now **parity with NativeAOT** (ADR 0016): the harness
 also publishes each program with `PublishAot` and runs it; programs NativeAOT can't build or run
 identically are out of scope, and parity is the share of NativeAOT-working programs csharpc matches
-(target: 100 %). Latest (2026-10-27, run 40424843703): **97.2 % parity (243 of 250)**, up from 95.9 %
-(`parity-blockers`), 88.7 % (`aot-parity`) and 80.6 % at the first parity run; no in-scope program differs
-from .NET. The 7 others ([18](18-compatibility.md#nativeaot-parity)): expression trees (2), `dynamic` (1),
-C# 15 unions (2), `System.Data` and `AssemblyLoadContext`. (The 2026-10-25 run's figures below.) csharpc also passes 21 of the 28 programs NativeAOT
+(target: 100 %). Latest (2026-10-30, run 41152809617): **100 % parity (249 of 249)** — the target —
+up from 97.2 %, 95.9 % (`parity-blockers`), 88.7 % (`aot-parity`) and 80.6 % at the first parity run; no
+in-scope program differs from .NET ([18](18-compatibility.md#nativeaot-parity)). (The 2026-10-25 run's figures below.) csharpc also passes 21 of the 28 programs NativeAOT
 can't run. Against NativeAOT on the 236: compile time median 5.7 s vs 7.1 s, executables a tenth of the size
 (136 KiB vs 1,335 KiB median). JIT-based pass rate 93.8 % (from 86.2 %).
 
