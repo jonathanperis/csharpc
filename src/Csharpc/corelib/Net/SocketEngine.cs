@@ -196,7 +196,7 @@ namespace CsharpcCoreLib
                 if (error == 0) { socket.ConnectCompleted(); return true; }
                 return error == NetNative.EINPROGRESS || NetNative.IsWouldBlock(error) ? false : Fail(error);
             }
-#if !CSHARPC_TARGET_WINDOWS && !CSHARPC_TARGET_WASI
+#if !CSHARPC_TARGET_WASI
             // A readiness event can predate the connect (an unconnected socket reports POLLOUT|POLLHUP when it
             // joins epoll): only a connect that poll() reports finished is done.
             if (!NetNative.Wait(socket.RawHandle, true, 0)) return false;
@@ -327,7 +327,7 @@ namespace CsharpcCoreLib
                         state.op.Error = SocketError.Success;
                         if (state.op.Token.IsCancellationRequested) { state.op.Canceled = true; break; }
                         if (state.context.Closed) { state.op.Error = SocketError.OperationAborted; break; }
-#if !CSHARPC_TARGET_WINDOWS && !CSHARPC_TARGET_WASI
+#if !CSHARPC_TARGET_WASI
                         // A descriptor the program made non-blocking (Socket.Blocking = false): wait for readiness.
                         NetNative.Wait(state.socket.RawHandle, state.op.IsWrite, 100);
 #endif

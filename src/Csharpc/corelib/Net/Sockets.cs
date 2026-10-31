@@ -243,7 +243,7 @@ namespace CsharpcCoreLib
         /// <summary>Synchronous calls on a non-blocking socket wait for readiness (the timeout, or none).</summary>
         private void WaitReady(bool write, int timeout)
         {
-#if !CSHARPC_TARGET_WINDOWS && !CSHARPC_TARGET_WASI
+#if !CSHARPC_TARGET_WASI
             if (!NetNative.Wait(_handle, write, timeout <= 0 ? -1 : timeout))
                 throw (SocketException)(object)new SocketExceptionImpl(SocketError.TimedOut, NetNative.EAGAIN, (EndPoint)null);
 #endif
@@ -403,16 +403,17 @@ namespace CsharpcCoreLib
 
         private bool HasConnectCompleted(out bool succeeded)
         {
-#if CSHARPC_TARGET_WINDOWS || CSHARPC_TARGET_WASI
+#if CSHARPC_TARGET_WASI
             succeeded = false;
             return false;
 #else
+            // Done when writable, or (Winsock) reported in exceptfds after failing.
             long handle = _handle;
-            int events = NetNative.POLLOUT, revents;
+            int events = NetNative.POLLOUT | NetNative.POLLERR, revents;
             NetNative.Poll(&handle, &events, &revents, 1, 0);
             succeeded = false;
-            if ((revents & NetNative.POLLOUT) == 0) return false;
-            succeeded = NetNative.GetInt(_handle, NetNative.SOL_SOCKET, NetNative.SO_ERROR) == 0;
+            if ((revents & (NetNative.POLLOUT | NetNative.POLLERR)) == 0) return false;
+            succeeded = (revents & NetNative.POLLOUT) != 0 && NetNative.GetInt(_handle, NetNative.SOL_SOCKET, NetNative.SO_ERROR) == 0;
             return true;
 #endif
         }
@@ -427,7 +428,7 @@ namespace CsharpcCoreLib
             set
             {
                 EnsureOpen();
-#if CSHARPC_TARGET_WINDOWS || CSHARPC_TARGET_WASI
+#if CSHARPC_TARGET_WASI
                 if (!value) throw new NotSupportedException("csharpc: non-blocking sockets (Socket.Blocking = false) are not supported yet on this platform.");
 #else
                 if (!value) NetNative.SetBlockingMode(_handle, false);
@@ -471,7 +472,7 @@ namespace CsharpcCoreLib
             if (reads > MaxSelect) throw new ArgumentOutOfRangeException("checkRead", "The checkRead list contains too many items; a maximum of 65536 is allowed.");
             if (writes > MaxSelect) throw new ArgumentOutOfRangeException("checkWrite", "The checkWrite list contains too many items; a maximum of 65536 is allowed.");
             if (errors > MaxSelect) throw new ArgumentOutOfRangeException("checkError", "The checkError list contains too many items; a maximum of 65536 is allowed.");
-#if CSHARPC_TARGET_WINDOWS || CSHARPC_TARGET_WASI
+#if CSHARPC_TARGET_WASI
             throw new NotSupportedException("csharpc: Socket.Select is not supported yet on this platform.");
 #else
             int count = reads + writes + errors;

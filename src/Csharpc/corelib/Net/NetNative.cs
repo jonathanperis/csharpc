@@ -242,6 +242,69 @@ namespace CsharpcCoreLib
             }
             for (int i = 0; i < count; i++) revents[i] = (ushort)(fds[i] >> 48);
         }
+#elif CSHARPC_TARGET_WINDOWS
+        // Winsock: Socket.Blocking through ioctlsocket(FIONBIO), and readiness through select(), as .NET's
+        // Windows sockets do (Socket.Select and Poll are Winsock's select). WSAPoll isn't used: it doesn't
+        // report a connect that failed (the exceptfds of select do).
+        [DllImport("ws2_32")] private static extern int ioctlsocket(nint s, int command, uint* argument);
+        [DllImport("ws2_32")] private static extern int select(int ignored, nint* readfds, nint* writefds, nint* exceptfds, int* timeout);
+
+        // The poll(2) event bits csharpc's callers use (its own values here): readable, priority/error, writable.
+        public const int POLLIN = 1, POLLPRI = 2, POLLOUT = 4, POLLERR = 8, POLLHUP = 16;
+
+        /// <summary>Socket.Blocking: FIONBIO cleared (true) or set (false).</summary>
+        public static void SetBlockingMode(long s, bool blocking)
+        {
+            uint mode = blocking ? 0u : 1u;
+            if (ioctlsocket(H(s), unchecked((int)0x8004667E) /* FIONBIO */, &mode) != 0) throw Error(LastError());
+        }
+
+        /// <summary>Waits until the socket is readable (or writable, or its connect failed); false when the timeout (ms, -1: none) expires.</summary>
+        public static bool Wait(long s, bool write, int timeout)
+        {
+            long handle = s;
+            int events = write ? POLLOUT | POLLERR : POLLIN, revents;
+            Poll(&handle, &events, &revents, 1, timeout);
+            return revents != 0;
+        }
+
+        /// <summary>
+        /// poll() over select(): POLLIN|POLLHUP asks for readfds (readable, a connection to accept, or closed),
+        /// POLLOUT for writefds (writable, a connect done), POLLPRI|POLLERR for exceptfds (out-of-band data, a
+        /// connect that failed). The fd_sets are Winsock's { count; SOCKET[count] } (no FD_SETSIZE limit).
+        /// </summary>
+        public static void Poll(long* handles, int* events, int* revents, int count, int timeout)
+        {
+            nint* read = stackalloc nint[count + 1], write = stackalloc nint[count + 1], except = stackalloc nint[count + 1];
+            read[0] = write[0] = except[0] = 0;
+            for (int i = 0; i < count; i++)
+            {
+                if ((events[i] & (POLLIN | POLLHUP)) != 0) read[1 + read[0]++] = H(handles[i]);
+                if ((events[i] & POLLOUT) != 0) write[1 + write[0]++] = H(handles[i]);
+                if ((events[i] & (POLLPRI | POLLERR)) != 0) except[1 + except[0]++] = H(handles[i]);
+            }
+            int* timeval = stackalloc int[2]; // struct timeval { long tv_sec; long tv_usec; }: 32-bit longs on Windows
+            timeval[0] = timeout / 1000;
+            timeval[1] = timeout % 1000 * 1000;
+            int n = select(0, read[0] == 0 ? null : read, write[0] == 0 ? null : write, except[0] == 0 ? null : except, timeout < 0 ? null : timeval);
+            if (n < 0) throw Error(LastError());
+            for (int i = 0; i < count; i++)
+            {
+                nint h = H(handles[i]);
+                int ready = 0;
+                if (Contains(read, h)) ready |= POLLIN;
+                if (Contains(write, h)) ready |= POLLOUT;
+                if (Contains(except, h)) ready |= POLLPRI | POLLERR;
+                revents[i] = ready & (events[i] | POLLERR);
+            }
+        }
+
+        // select() leaves only the ready sockets in each set.
+        private static bool Contains(nint* set, nint handle)
+        {
+            for (nint i = 0; i < set[0]; i++) if (set[1 + i] == handle) return true;
+            return false;
+        }
 #endif
 
         /// <summary>connect() without waiting for it: 0, or the error (EINPROGRESS: under way on a non-blocking socket).</summary>

@@ -192,7 +192,6 @@ wasi 631_threadpool_work_items     needs threads: CountdownEvent.Wait blocks the
 wasi 633_lock_contention           needs threads: Thread.Start throws PlatformNotSupportedException on WebAssembly
 wasi 659_reader_writer_lock_slim  needs threads: Thread.Start throws PlatformNotSupportedException on WebAssembly
 wasi 555_monitor_pulse_handoff         needs threads: Thread.Start throws PlatformNotSupportedException on WebAssembly
-windows 841_socket_nonblocking_connect     known gap: Socket.Blocking = false and Socket.Select are explicit NotSupportedExceptions on Windows yet
 wasi 840_socket_rebind_time_wait      opens loopback sockets: WASI preview 1 has none (PlatformNotSupportedException)
 wasi 841_socket_nonblocking_connect   opens loopback sockets: WASI preview 1 has none (PlatformNotSupportedException)
 wasi 845_networkstream_async_receive_timeout opens loopback sockets: WASI preview 1 has none (PlatformNotSupportedException)
