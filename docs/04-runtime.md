@@ -132,7 +132,8 @@ boxed method tables and the clocks.
 - number formatting and parsing (`Number.Formatting.cs`, `Number.Parsing.cs`, `Number.cs`, `BigNum.cs`);
 - string operations and `char` with Unicode tables generated from .NET (`StringOps.cs`,
   `UnicodeData.g.cs`, `tools/unicode`);
-- `StringBuilder` (`StringBuilder.cs`);
+- `StringBuilder` (`StringBuilder.cs`, .NET's chunk list and growth policy, so `GetChunks` and
+  `Capacity` match);
 - `decimal` (`DecimalOps.cs`), `BigInteger` (`BigIntegerOps.cs`), and `DateTime`/`TimeSpan` (`DateTimeOps.cs`);
 - collections and LINQ.
 

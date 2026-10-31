@@ -1,0 +1,110 @@
+empty: chunks 1 [0] length 0 capacity 16 sum 0
+full first chunk: chunks 1 [16] length 16 capacity 16 sum 285443752
+one more char: chunks 2 [16,1] length 17 capacity 32 sum 258821840
+100 words: chunks 7 [16,16,32,64,128,256,195] length 707 capacity 1024 sum 2108554714
+3000 numbers: chunks 11 [16,16,32,64,128,256,512,1024,2048,4096,3405] length 11597 capacity 16192 sum 258548484
+20000 z: chunks 12 [16,16,32,64,128,256,512,1024,2048,4096,8000,15405] length 31597 capacity 31597 sum 845104900
+9000 q string: chunks 13 [16,16,32,64,128,256,512,1024,2048,4096,8000,15405,9000] length 40597 capacity 40597 sum -867578492
+insert in small: chunks 1 [5] length 5 capacity 16 sum 92291811
+inserts: chunks 10 [5,9,16,16,32,64,18,128,3,149] length 440 capacity 547 sum 2060323981
+insert values: chunks 10 [13,14,16,16,32,64,18,128,3,149] length 453 capacity 560 sum 402635800
+before remove: chunks 8 [16,16,32,64,128,256,512,976] length 2000 capacity 2048 sum -651961880
+remove in first: chunks 8 [12,16,32,64,128,256,512,976] length 1996 capacity 2044 sum -1002798166
+remove across: chunks 4 [10,198,512,976] length 1696 capacity 1744 sum 790810900
+remove tail: chunks 4 [10,198,512,926] length 1646 capacity 1744 sum -819573477
+remove head: chunks 3 [108,512,926] length 1546 capacity 1644 sum 221366373
+before replace: chunks 10 [16,16,32,64,128,256,512,1024,2048,1904] length 6000 capacity 8192 sum 110973052
+replace same: chunks 10 [16,16,32,64,128,256,512,1024,2048,1904] length 6000 capacity 8192 sum -274143748
+replace longer: chunks 19 [16,2,16,4,32,6,64,12,128,26,256,52,512,102,1024,204,2048,192,1904] length 6600 capacity 8792 sum 1759042196
+replace shorter: chunks 19 [16,1,13,4,24,6,52,9,107,19,211,41,419,85,837,168,1676,156,1556] length 5400 capacity 7940 sum 2098686344
+replace char range: chunks 19 [16,1,13,4,24,6,52,9,107,19,211,41,419,85,837,168,1676,156,1556] length 5400 capacity 7940 sum 1436183660
+replace across chunks: chunks 2 [16,2] length 18 capacity 32 sum -567717782
+truncate: chunks 9 [16,16,32,64,128,256,512,1024,952] length 3000 capacity 6000 sum -124478116
+extend: chunks 9 [16,16,32,64,128,256,512,1024,1052] length 3100 capacity 6000 sum -1947123876
+truncate to first: chunks 1 [10] length 10 capacity 3952 sum 1584875013
+clear: chunks 1 [0] length 0 capacity 3952 sum 0
+append after clear: chunks 1 [11] length 11 capacity 3952 sum -1249182967
+capacity 5: chunks 1 [0] length 0 capacity 5 sum 0
+ensure 3 -> 5, ensure 40 -> 40
+after 50: chunks 2 [40,10] length 50 capacity 80 sum -1203646688
+ensure 100 -> 100
+ensured 100: chunks 2 [40,10] length 50 capacity 100 sum -1203646688
+capacity = length: chunks 2 [40,10] length 50 capacity 50 sum -1203646688
+value: capacity was less than the current size. (Parameter 'value')
+text over capacity: chunks 1 [5] length 5 capacity 5 sum 99162322
+substring ctor: chunks 1 [5] length 5 capacity 16 sum 103065478
+max capacity 30
+bounded: chunks 3 [4,6,10] length 20 capacity 20 sum -981038646
+valueCount: The length cannot be greater than the capacity. (Parameter 'valueCount')
+capacity: Capacity exceeds maximum capacity. (Parameter 'capacity')
+AppendFormat: chunks 3 [16,16,7] length 39 capacity 64 sum -1166585765
+interpolation: chunks 3 [16,16,7] length 39 capacity 64 sum -1789452512
+0123456789abc[        42][ab     ][   ]
+AppendJoin: chunks 3 [16,16,3] length 35 capacity 64 sum -1732076786
+Append(StringBuilder): chunks 2 [16,1532] length 1548 capacity 1548 sum -516748762
+equals True efghi
+many: chunks 9 [16,16,32,64,128,256,512,1024,1952] length 4000 capacity 4096 sum -1521516088
+indexer 24028 # $ copy f5g6h7i8j9k0
+IndexOutOfRangeException
+mix start: chunks 9 [16,16,32,64,128,256,512,1024,233] length 2281 capacity 4096 sum -119362006
+remove: chunks 9 [16,16,32,64,128,256,512,1024,216] length 2264 capacity 4096 sum -1235472689
+append: chunks 9 [16,16,32,64,128,256,512,1024,249] length 2297 capacity 4096 sum -1578081452
+replace 'ab' '' 94 853: chunks 9 [16,16,32,51,99,154,408,1024,249] length 2049 capacity 3848 sum -1061881524
+replace 'bbbbbbbbbbbbbbbbbbbb' '' 1885 71: chunks 9 [16,16,32,51,99,154,408,1024,229] length 2029 capacity 3848 sum -235034804
+append: chunks 9 [16,16,32,51,99,154,408,1024,232] length 2032 capacity 3848 sum -1125056201
+remove: chunks 9 [16,16,32,51,99,154,282,956,232] length 1838 capacity 3654 sum 1259428760
+append: chunks 9 [16,16,32,51,99,154,282,956,252] length 1858 capacity 3654 sum -392506920
+insert: chunks 10 [16,16,32,51,99,154,282,3,956,252] length 1861 capacity 3657 sum -1081694944
+replace 'a' 'ba' 547 567: chunks 13 [16,16,32,51,99,154,31,282,2,3,170,956,252] length 2064 capacity 3860 sum -327396594
+replace 'b' 'ab' 1278 329: chunks 14 [16,16,32,51,99,154,31,282,2,3,170,195,956,252] length 2259 capacity 4055 sum -528165919
+replace 'abba' 'abba' 1379 194: chunks 14 [16,16,32,51,99,154,31,282,2,3,170,195,956,252] length 2259 capacity 4055 sum -528165919
+replace 'abba' 'bbbbbbbbbbbbbbbbbbbb' 1430 460: chunks 15 [16,16,32,51,99,154,31,282,2,3,170,195,48,956,252] length 2307 capacity 4103 sum 944176513
+insert: chunks 16 [16,16,32,51,99,154,31,282,2,3,170,195,48,9,956,252] length 2316 capacity 4112 sum 1978409633
+append: chunks 16 [16,16,32,51,99,154,31,282,2,3,170,195,48,9,956,278] length 2342 capacity 4112 sum -300356960
+replace 'bbbbbbbbbbbbbbbbbbbb' 'aab' 1688 278: chunks 16 [16,16,32,51,99,154,31,282,2,3,170,195,48,9,871,278] length 2257 capacity 4027 sum -1195013854
+replace 'ba' 'aab' 2037 27: chunks 17 [16,16,32,51,99,154,31,282,2,3,170,195,48,9,871,7,278] length 2264 capacity 4034 sum 729719903
+replace 'aab' 'aaaa' 204 596: chunks 21 [16,16,32,51,1,99,9,154,2,31,5,282,2,3,170,195,48,9,871,7,278] length 2281 capacity 4051 sum 1275332611
+replace 'ba' 'bbbbbbbbbbbbbbbbbbbb' 1899 207: chunks 24 [16,16,32,51,1,99,9,154,2,31,5,282,2,3,170,195,48,9,162,871,36,7,234,278] length 2713 capacity 4483 sum -723337529
+replace 'ab' 'abba' 2005 374: chunks 27 [16,16,32,51,1,99,9,154,2,31,5,282,2,3,170,195,48,9,162,6,871,2,36,7,10,234,278] length 2731 capacity 4501 sum 694991430
+append: chunks 27 [16,16,32,51,1,99,9,154,2,31,5,282,2,3,170,195,48,9,162,6,871,2,36,7,10,234,316] length 2769 capacity 4501 sum 1785240102
+replace 'ab' 'a' 1183 1045: chunks 27 [16,16,32,51,1,99,9,154,2,31,5,282,2,3,170,195,48,9,131,4,645,1,34,7,10,234,316] length 2507 capacity 4239 sum -1036566412
+replace 'a' '' 276 2110: chunks 26 [16,16,32,51,1,99,9,96,2,20,5,217,2,1,120,134,38,9,90,1,240,32,7,10,207,241] length 1696 capacity 3503 sum -1377290173
+replace 'aab' 'aab' 558 892: chunks 26 [16,16,32,51,1,99,9,96,2,20,5,217,2,1,120,134,38,9,90,1,240,32,7,10,207,241] length 1696 capacity 3503 sum -1377290173
+remove: chunks 26 [16,16,32,51,1,99,9,96,2,20,5,217,2,1,60,134,38,9,90,1,240,32,7,10,207,241] length 1636 capacity 3443 sum -481798461
+replace 'ab' 'ab' 398 1226: chunks 26 [16,16,32,51,1,99,9,96,2,20,5,217,2,1,60,134,38,9,90,1,240,32,7,10,207,241] length 1636 capacity 3443 sum -481798461
+append: chunks 26 [16,16,32,51,1,99,9,96,2,20,5,217,2,1,60,134,38,9,90,1,240,32,7,10,207,278] length 1673 capacity 3443 sum -1296632033
+replace 'ba' 'abba' 47 811: chunks 30 [16,16,8,32,22,51,1,8,99,9,2,96,2,20,5,217,2,1,60,134,38,9,90,1,240,32,7,10,207,278] length 1713 capacity 3483 sum -1147723711
+replace 'ab' 'bbbbbbbbbbbbbbbbbbbb' 1243 244: chunks 30 [16,16,8,32,22,51,1,8,99,9,2,96,2,20,5,217,2,1,60,134,38,9,90,1,240,32,7,10,207,278] length 1713 capacity 3483 sum -1147723711
+replace 'bbbbbbbbbbbbbbbbbbbb' 'aaaa' 1332 73: chunks 30 [16,16,8,32,22,51,1,8,99,9,2,96,2,20,5,217,2,1,60,134,38,9,90,1,240,32,7,10,159,278] length 1665 capacity 3435 sum -709711103
+append: chunks 30 [16,16,8,32,22,51,1,8,99,9,2,96,2,20,5,217,2,1,60,134,38,9,90,1,240,32,7,10,159,297] length 1684 capacity 3435 sum 1692429633
+insert: chunks 31 [16,16,8,32,22,51,1,8,99,9,2,96,2,20,5,217,2,1,60,4,134,38,9,90,1,240,32,7,10,159,297] length 1688 capacity 3439 sum -998813501
+insert: chunks 32 [16,16,8,32,22,51,1,8,99,9,2,96,2,20,5,217,2,1,60,4,134,40,38,9,90,1,240,32,7,10,159,297] length 1728 capacity 3479 sum -89968189
+insert: chunks 33 [16,16,8,32,22,51,1,8,99,9,2,96,2,20,5,217,2,1,60,4,134,40,38,9,90,1,8,240,32,7,10,159,297] length 1736 capacity 3487 sum 602091395
+append: chunks 33 [16,16,8,32,22,51,1,8,99,9,2,96,2,20,5,217,2,1,60,4,134,40,38,9,90,1,8,240,32,7,10,159,302] length 1741 capacity 3487 sum -354414017
+replace 'ab' 'aaaa' 237 674: chunks 36 [16,16,8,32,22,51,1,8,4,99,9,2,4,96,2,20,5,217,2,1,60,4,4,134,40,38,9,90,1,8,240,32,7,10,159,302] length 1753 capacity 3499 sum 2132287425
+replace 'ba' 'b' 672 81: chunks 36 [16,16,8,32,22,51,1,8,4,99,9,2,4,96,2,20,5,217,2,1,60,4,4,134,40,38,9,90,1,8,240,32,7,10,159,302] length 1753 capacity 3499 sum 2132287425
+replace 'bbbbbbbbbbbbbbbbbbbb' '' 1681 2: chunks 36 [16,16,8,32,22,51,1,8,4,99,9,2,4,96,2,20,5,217,2,1,60,4,4,134,40,38,9,90,1,8,240,32,7,10,159,302] length 1753 capacity 3499 sum 2132287425
+replace 'aab' 'bbbbbbbbbbbbbbbbbbbb' 440 320: chunks 36 [16,16,8,32,22,51,1,8,4,99,9,2,4,96,2,20,5,217,2,1,60,4,4,134,40,38,9,90,1,8,240,32,7,10,159,302] length 1753 capacity 3499 sum 2132287425
+replace 'a' 'b' 836 89: chunks 36 [16,16,8,32,22,51,1,8,4,99,9,2,4,96,2,20,5,217,2,1,60,4,4,134,40,38,9,90,1,8,240,32,7,10,159,302] length 1753 capacity 3499 sum 2132287425
+append: chunks 36 [16,16,8,32,22,51,1,8,4,99,9,2,4,96,2,20,5,217,2,1,60,4,4,134,40,38,9,90,1,8,240,32,7,10,159,338] length 1789 capacity 3499 sum 930111424
+insert: chunks 37 [16,16,8,32,22,51,1,8,4,99,9,2,4,96,2,20,5,217,2,1,60,4,4,134,40,38,9,90,1,8,240,32,7,10,159,8,338] length 1797 capacity 3507 sum -46534848
+remove: chunks 32 [16,16,8,32,22,51,1,7,81,2,20,5,217,2,1,60,4,4,134,40,38,9,90,1,8,240,32,7,10,159,8,338] length 1663 capacity 3373 sum -1127196159
+insert: chunks 33 [16,16,8,32,22,51,1,7,81,2,20,5,217,2,1,60,4,4,4,134,40,38,9,90,1,8,240,32,7,10,159,8,338] length 1667 capacity 3377 sum -1818928381
+insert: chunks 34 [16,16,8,32,22,51,1,7,81,2,20,5,217,2,1,60,4,4,4,134,40,38,9,90,1,8,240,32,7,10,159,8,3,338] length 1670 capacity 3380 sum 1420558204
+insert: chunks 35 [16,16,8,32,22,51,1,7,81,2,20,5,217,2,1,60,4,4,4,134,40,38,9,2,90,1,8,240,32,7,10,159,8,3,338] length 1672 capacity 3382 sum -1574200292
+replace 'ab' 'abba' 661 730: chunks 38 [16,16,8,32,22,51,1,7,81,2,20,5,217,2,1,60,4,4,4,134,40,38,9,2,2,90,1,8,6,240,32,7,10,2,159,8,3,338] length 1682 capacity 3392 sum -160884483
+remove: chunks 38 [16,16,8,32,22,51,1,7,81,2,20,5,217,2,1,60,4,4,4,134,40,38,9,2,2,90,1,8,6,240,32,7,10,2,159,8,3,336] length 1680 capacity 3392 sum -1799753603
+remove: chunks 38 [16,16,8,32,22,51,1,7,81,2,20,5,217,2,1,60,4,4,4,134,40,38,9,2,2,90,1,8,6,240,32,7,10,2,159,8,3,211] length 1555 capacity 3392 sum 2013166145
+remove: chunks 38 [16,16,8,32,22,51,1,7,81,2,20,5,217,2,1,60,4,4,4,134,40,38,9,2,2,90,1,8,6,188,32,7,10,2,159,8,3,211] length 1503 capacity 3340 sum -1014172541
+remove: chunks 36 [16,16,8,32,22,51,1,7,81,2,20,5,217,2,1,60,4,4,4,134,40,38,9,2,2,90,1,8,6,188,32,7,10,2,101,43] length 1266 capacity 3271 sum 1592397596
+remove: chunks 32 [16,16,8,32,22,51,1,7,81,2,20,5,217,2,1,60,4,4,4,134,40,38,9,2,2,90,1,8,6,172,38,43] length 1136 capacity 3141 sum -95365604
+replace 'ba' 'aaaa' 631 340: chunks 35 [16,16,8,32,22,51,1,7,81,2,20,5,217,2,1,60,4,4,4,2,134,40,38,9,2,2,4,90,1,8,6,2,172,38,43] length 1144 capacity 3149 sum 517524414
+insert: chunks 36 [16,16,8,32,22,51,1,7,81,2,20,5,217,2,1,60,4,4,4,2,60,134,40,38,9,2,2,4,90,1,8,6,2,172,38,43] length 1204 capacity 3209 sum -80741826
+remove: chunks 33 [16,16,8,32,22,51,1,7,81,2,20,5,217,2,1,60,4,4,4,2,60,134,40,3,2,90,1,8,6,2,172,38,43] length 1154 capacity 3159 sum 2052524926
+remove: chunks 29 [16,16,8,32,22,51,1,7,81,2,20,5,217,2,1,45,53,134,40,3,2,90,1,8,6,2,172,38,43] length 1118 capacity 3123 sum 1334414206
+append: chunks 29 [16,16,8,32,22,51,1,7,81,2,20,5,217,2,1,45,53,134,40,3,2,90,1,8,6,2,172,38,73] length 1148 capacity 3123 sum -1815412034
+replace 'ba' 'ab' 463 586: chunks 29 [16,16,8,32,22,51,1,7,81,2,20,5,217,2,1,45,53,134,40,3,2,90,1,8,6,2,172,38,73] length 1148 capacity 3123 sum -384849794
+replace 'a' 'aab' 392 98: chunks 29 [16,16,8,32,22,51,1,7,81,2,20,5,217,2,1,45,53,134,40,3,2,90,1,8,6,2,172,38,73] length 1148 capacity 3123 sum -384849794
+insert: chunks 30 [16,16,8,32,22,51,1,7,81,2,20,5,217,2,1,45,53,134,40,3,2,90,1,8,6,2,4,172,38,73] length 1152 capacity 3127 sum 1053805022
+append: chunks 30 [16,16,8,32,22,51,1,7,81,2,20,5,217,2,1,45,53,134,40,3,2,90,1,8,6,2,4,172,38,103] length 1182 capacity 3127 sum 1012622526
+mix end: chunks 1 [0] length 0 capacity 2048 sum 0

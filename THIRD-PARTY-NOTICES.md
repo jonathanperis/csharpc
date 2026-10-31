@@ -25,6 +25,9 @@ those parts of csharpc.
 - **What:** `System.Random` in `src/Csharpc/corelib/Random/` is a port of
   `src/libraries/System.Private.CoreLib/src/System/Random*.cs` (the public API, the legacy seeded
   generator .NET keeps for `new Random(seed)`, and xoshiro256**), adapted to the csharpc corelib.
+- **What:** `System.Text.StringBuilder` in `src/Csharpc/corelib/StringBuilder.cs` is a port of
+  `src/libraries/System.Private.CoreLib/src/System/Text/StringBuilder.cs` (the chunk list, its growth
+  policy, Insert/Remove/Replace, AppendFormat and the chunk enumerator), adapted to the csharpc corelib.
 - **Source:** <https://github.com/dotnet/runtime>, release/11.0, commit
   `bc123d0bd173a538addc07e0f8fa38a90f0925c1`.
 - **What:** `System.Text.Json` and `System.Text.Encodings.Web` in `src/Csharpc/corelib/Json/`, ported

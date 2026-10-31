@@ -570,9 +570,12 @@ runner with 2 threads, 4 min 22 s (with the `dotnet run` oracle) and 8.4 GB. Get
 difference C# programs could hit too: generic variance through interface type arguments
 (`List<IDerived> is IEnumerable<IBase>` was False; sample 726).
 
-`StringBuilder.GetChunks` is implemented with one chunk: csharpc's builder is one buffer, so the
-concatenated content is exact, but where .NET has linked several chunks (past the first chunk's
-capacity) the number and lengths of the chunks differ. Roslyn only hashes and compares the content.
+`StringBuilder` is .NET's chunked builder (the corelib port of dotnet/runtime's `StringBuilder.cs`):
+`GetChunks`, `Capacity` and `EnsureCapacity` report the chunks .NET would have after any sequence of
+appends, inserts, removals and replacements (sample 732). csharpc's walks differ only where they
+change nothing observable: `Replace` goes front to back over forward links instead of searching from
+the end for every chunk, and the indexer remembers the chunk it found last, so neither is quadratic in
+the number of chunks as .NET's are.
 
 csharpc compiling itself (`tools/bootstrap/selfhost.sh`, M6 step 5): `csharpc.dll` (159 693 IL and
 144 969 corelib methods) now lowers completely — rows 8–9 were the last constructs it hit, both fixed
