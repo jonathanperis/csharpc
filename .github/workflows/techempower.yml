@@ -3,8 +3,9 @@ name: TechEmpower
 # M7 harness (docs/06-roadmap.md): the TechEmpower plaintext/JSON app (benchmarks/techempower/app)
 # built with NativeAOT, with csharpc and on the JIT; each build is checked with TechEmpower's test
 # requests (csharpc's responses must equal NativeAOT's) and loaded with wrk the way TechEmpower loads
-# it (pipelined plaintext, several concurrency levels). Until csharpc can build the app, the report
-# carries the NativeAOT/JIT numbers and csharpc's blocker list. Informational: it never gates.
+# it (pipelined plaintext, several concurrency levels). It gates no merge, but the job fails when a
+# requested build doesn't build, start or pass the checks (the report then carries csharpc's blocker
+# list): a failed csharpc build must not show up as a successful run.
 # Builds csharpc from this commit (not the published tool): throughput/size must reflect the tree.
 # No branch filter: any branch whose push touches the paths below runs the job, including a ci/**
 # measurement branch (docs/20-status.md). Adding a branch filter would stop that.
@@ -72,8 +73,9 @@ jobs:
 
       - name: Build, verify and load
         run: |
-          PROFILE="${{ inputs.profile && '1' || '0' }}" DURATION="${{ inputs.duration || '15' }}" benchmarks/techempower/run.sh --out techempower-results --only "${{ inputs.only || 'aot,csharpc,jit' }}"
-          cat techempower-results/results.md >> "$GITHUB_STEP_SUMMARY"
+          PROFILE="${{ inputs.profile && '1' || '0' }}" DURATION="${{ inputs.duration || '15' }}" benchmarks/techempower/run.sh --out techempower-results --only "${{ inputs.only || 'aot,csharpc,jit' }}" || status=$?
+          cat techempower-results/results.md >> "$GITHUB_STEP_SUMMARY" || true
+          exit "${status:-0}"
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
