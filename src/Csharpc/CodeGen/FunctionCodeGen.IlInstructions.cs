@@ -280,6 +280,11 @@ public sealed partial class FunctionCodeGen
             {
                 var field = IlField(instruction.Token);
                 var instance = Pop();
+                if (instance.Dynamic is { IsTarget: false } site && op == ILOpCode.Ldfld && field.Name == "Target")
+                {
+                    Push(new IlEntry(IlKind.Ref, LlvmContext.Null(L.Ptr), field.Type) { Dynamic = site with { IsTarget = true }, NonNull = true });
+                    return false;
+                }
                 if (op == ILOpCode.Ldflda) { Push(new IlEntry(IlKind.ByRef, IlInstanceFieldAddress(field, instance), field.Type)); return false; }
                 if (IlLibraryInstanceField(field)) { Push(IlPush(EmitValue(new IlFieldReferenceOperation(il.Syntax, field, IlOperand(instance, field.ContainingType, lvalue: field.ContainingType.IsValueType))), field.Type)); return false; }
                 var address = IlInstanceFieldAddress(field, instance);
@@ -301,6 +306,7 @@ public sealed partial class FunctionCodeGen
             case ILOpCode.Ldsfld:
             {
                 var field = IlField(instruction.Token);
+                if (IlDynamicSiteLoad(field) is { } site) { Push(site); return false; }
                 if (!_m.IsUserType(_m.CoreLib.Map(S(field)).ContainingType))
                 {
                     Push(IlPush(EmitValue(new IlFieldReferenceOperation(il.Syntax, field, null)), field.Type));
@@ -713,6 +719,7 @@ public sealed partial class FunctionCodeGen
             var code = FunctionPointerTo(S(pointed), IlAt());
             return target.IsPointer ? code : _b.Cast(LLVMOpcode.PtrToInt, code, target);
         }
+        if (e.Dynamic is not null) throw new IlException("'dynamic' in compiled code: a call site used as a value");
         var source = e.Kind is IlKind.MethodPtr or IlKind.Token ? throw new IlException($"{e.Kind} value used as '{st}'") : Native.LLVMTypeOf(v);
         switch (e.Kind)
         {
@@ -751,7 +758,7 @@ public sealed partial class FunctionCodeGen
         throw new IlException($"a {e.Kind} value ({e.Type?.ToDisplayString() ?? "?"}) used as '{st}'");
     }
 
-    private LLVMValueRef IlRef(IlEntry e) => e.Kind switch
+    private LLVMValueRef IlRef(IlEntry e) => e.Dynamic is not null ? throw new IlException("'dynamic' in compiled code: a call site used as a value") : e.Kind switch
     {
         IlKind.Ref or IlKind.ByRef or IlKind.Pointer => e.Value,
         IlKind.NativeInt => _b.Cast(LLVMOpcode.IntToPtr, e.Value, L.Ptr),

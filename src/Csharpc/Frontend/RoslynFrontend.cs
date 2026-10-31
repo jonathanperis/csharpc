@@ -92,6 +92,9 @@ public static class RoslynFrontend
         // The IL program's [GeneratedRegex] members, as the source path's generator makes them.
         if (settings.ProgramIl is { } programIl && IlGeneratedRegex.Synthesize(programIl, compilation.SyntaxTrees.FirstOrDefault()?.Options as CSharpParseOptions ?? parseOptions) is { } regexHolders)
             compilation = compilation.AddSyntaxTrees(regexHolders);
+        // Dynamic call sites in IL bind at a position of their own (IlDynamicBinding).
+        if (IlDynamicBinding.Needed(settings.IlSet))
+            compilation = compilation.AddSyntaxTrees(IlDynamicBinding.Tree(compilation.SyntaxTrees.FirstOrDefault()?.Options as CSharpParseOptions ?? parseOptions));
         // Source generators the SDK runs implicitly ([LibraryImport], [GeneratedRegex], [JsonSerializable]).
         compilation = SourceGenerators.Run(compilation, compilation.SyntaxTrees.Where(t => !IsCoreLibTree(t)), out var generatorDiagnostics);
         GeneratorDiagnostics = [.. generatorDiagnostics.Where(d => !FromSynthesizedJsonContext(d)), .. jsonDiagnostics];

@@ -56,6 +56,8 @@ public sealed partial class FunctionCodeGen
         {
             case ILOpCode.Ldc_i4_0: return false;
             case ILOpCode.Ldc_i4_1: return true;
+            // csc's guard around a dynamic call site's creation: csharpc binds the site, there is nothing to create.
+            case ILOpCode.Ldsfld when IlIsDynamicGuard(previous.Token): return true;
             case ILOpCode.Call or ILOpCode.Callvirt:
                 try { return IlAssembly.ResolveMember(previous.Token, IlBody.Context) is IMethodSymbol m ? FeatureSwitchValue(m) : null; }
                 catch (Exception e) when (e is IlException or BadImageFormatException or InvalidOperationException) { return null; }

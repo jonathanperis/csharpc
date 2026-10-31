@@ -22,6 +22,8 @@ public sealed partial class ModuleCodeGen
     private readonly Dictionary<string, DynamicSite> _dynamicSites = new(StringComparer.Ordinal);
     private readonly List<DynamicSite> _dynamicSiteList = [];
     private LoweredFunction? _dynamicTypeName;
+    /// <summary>Type-name tables of other assemblies' views (IL libraries' call sites: ModuleCodeGen.DynamicIl.cs).</summary>
+    private readonly Dictionary<IAssemblySymbol, LoweredFunction> _dynamicTypeNameViews = new(SymbolEqualityComparer.Default);
     private List<(ITypeSymbol Type, LLVMValueRef Mt)>? _dynamicRuntimeTypes;
     private (int, int, int) _dynamicRuntimeTypesVersion;
     private bool _dynamicBoxesRegistered;
@@ -53,8 +55,16 @@ public sealed partial class ModuleCodeGen
     }
 
     /// <summary>`string csharpc.dynamic.typename(ptr mt, i32 lookup)`: the binder's name for a run-time type (null: unknown).</summary>
-    internal LoweredFunction DynamicTypeNameFunction()
+    internal LoweredFunction DynamicTypeNameFunction(IAssemblySymbol? view = null)
     {
+        if (view is not null)
+        {
+            if (_dynamicTypeNameViews.TryGetValue(view, out var viewed)) return viewed;
+            var viewType = Llvm.FunctionType(Llvm.Ptr, Llvm.Ptr, Llvm.I32);
+            var viewFn = Module.AddFunction("csharpc.dynamic.typename." + _dynamicTypeNameViews.Count, viewType);
+            Native.LLVMSetLinkage(viewFn, LLVMLinkage.Internal);
+            return _dynamicTypeNameViews[view] = new LoweredFunction(viewFn, viewType);
+        }
         if (_dynamicTypeName is { } f) return f;
         var type = Llvm.FunctionType(Llvm.Ptr, Llvm.Ptr, Llvm.I32);
         var fn = Module.AddFunction("csharpc.dynamic.typename", type);
@@ -212,7 +222,7 @@ public sealed partial class ModuleCodeGen
             {
                 if (part is string s) text.Append(s);
                 else if (part is int operand && (operand == index || operand == ~index))
-                    text.Append(operand < 0 && type is IArrayTypeSymbol ? "System.Array" : BinderTypeName(BestAccessibleType(type, null)));
+                    text.Append(operand < 0 && type is IArrayTypeSymbol ? "System.Array" : BinderTypeName(BestAccessibleType(type, DynamicNameView(site))));
                 else return false; // names another operand's run-time type
             }
             if (text.ToString() != message) return false;
@@ -268,7 +278,9 @@ public sealed partial class ModuleCodeGen
     /// <summary>The type-name function's body, once every type is known (after the fixed point).</summary>
     private void FinishDynamicTypeNames()
     {
+        foreach (var (view, viewed) in _dynamicTypeNameViews)
+            new FunctionCodeGen(this, null, viewed).EmitDynamicTypeNames(DynamicRuntimeTypes(), this, view);
         if (_dynamicTypeName is not { } f) return;
-        new FunctionCodeGen(this, null, f).EmitDynamicTypeNames(DynamicRuntimeTypes(), this);
+        new FunctionCodeGen(this, null, f).EmitDynamicTypeNames(DynamicRuntimeTypes(), this, null);
     }
 }

@@ -56,6 +56,11 @@ internal sealed class DynamicSite
     public required INamedTypeSymbol? Context { get; init; }
     public required TypeSubstitution Subst { get; init; }
     public required SyntaxNode Syntax { get; init; }
+    /// <summary>
+    /// A call site of code compiled from IL (or code bound for one): <see cref="Model"/> ignores accessibility, and
+    /// the members a binding uses are checked against <see cref="Context"/> instead (ModuleCodeGen.DynamicIl.cs).
+    /// </summary>
+    public bool FromIl { get; init; }
     public LoweredFunction Function { get; set; }
     public string? Fingerprint { get; set; }
     /// <summary>The functions of its cases, by combination of operand classes.</summary>

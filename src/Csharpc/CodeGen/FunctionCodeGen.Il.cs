@@ -42,6 +42,8 @@ internal sealed record IlEntry(IlKind Kind, LLVMValueRef Value, ITypeSymbol? Typ
     public (IlEntry Index, long Factor)? Scaled { get; init; }
     /// <summary>A `box` of a value type: the value before boxing (Enum.HasFlag on two boxed enums).</summary>
     public IlEntry? Unboxed { get; init; }
+    /// <summary>csc's `dynamic` call site (or its Target delegate), which csharpc binds at compile time (FunctionCodeGen.IlDynamic.cs).</summary>
+    public IlDynamicMarker? Dynamic { get; init; }
 }
 
 /// <summary>
@@ -63,6 +65,8 @@ public sealed partial class FunctionCodeGen
         public int Last { get; } = last;
         public LLVMBasicBlockRef Llvm { get; set; }
         public List<(IlKind Kind, ITypeSymbol? Type, LLVMTypeRef LlvmType, LLVMValueRef Slot)>? Entry { get; set; }
+        /// <summary>Entry values that carry compile-time facts across the branch (dynamic call sites, `typeof` operands of them).</summary>
+        public IlEntry?[]? Carried { get; set; }
         public bool Emitted { get; set; }
         public IlTry? Try { get; set; }
         public IlClause? Handler { get; set; }
@@ -310,8 +314,11 @@ public sealed partial class FunctionCodeGen
         // ECMA-335 III.1.7.5: a block reached by neither fall-through nor an earlier branch starts empty.
         block.Entry ??= [];
         var stack = new Stack<IlEntry>();
-        foreach (var (kind, type, llvmType, slot) in block.Entry)
-            stack.Push(new IlEntry(kind, _b.Load(llvmType, slot), type));
+        for (var e = 0; e < block.Entry.Count; e++)
+        {
+            var (kind, type, llvmType, slot) = block.Entry[e];
+            stack.Push(block.Carried?[e] is { } carried ? IlCarriedEntry(carried, _b.Load(llvmType, slot)) : new IlEntry(kind, _b.Load(llvmType, slot), type));
+        }
 
         var terminated = false;
         for (var i = block.First; i <= block.Last; i++)
@@ -369,7 +376,9 @@ public sealed partial class FunctionCodeGen
                 var type = Native.LLVMTypeOf(v.Value);
                 return (v.Kind, v.Type, type, _allocas.Alloca(type, "stack"));
             })];
+            target.Carried = IlCarry(values);
         }
+        else IlCheckCarried(target, values);
         if (target.Entry.Count != values.Count)
             throw new IlException($"stack depth {values.Count} at a branch to IL_{target.Start:X4}, which expects {target.Entry.Count}");
         for (var i = 0; i < values.Count; i++)

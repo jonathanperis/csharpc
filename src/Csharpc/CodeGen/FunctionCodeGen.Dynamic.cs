@@ -132,13 +132,13 @@ public sealed partial class FunctionCodeGen
         {
             // The binder's context: the statement the operation is in (its scope and accessibility) — or, for a
             // dynamic operation inside code bound for another site, that site's.
-            var (model, position, origin) = m.DynamicContext(syntax, DynamicPosition(syntax), context);
+            var (model, position, origin, fromIl) = m.DynamicContext(syntax, DynamicPosition(syntax), context);
             return new()
             {
                 Kind = Kind, Name = Name, TypeArguments = TypeArguments, StaticReceiver = StaticReceiver, SimpleName = SimpleName,
                 Operator = Operator, MessageOperator = MessageOperator ?? Operator, Compound = Compound, Checked = Checked, Explicit = Explicit,
                 ResultDiscarded = ResultDiscarded, ResultType = ResultType, Operands = Operands,
-                Model = model, Position = position, Context = origin, Subst = subst, Syntax = syntax,
+                Model = model, Position = position, Context = origin, Subst = subst, Syntax = syntax, FromIl = fromIl,
             };
         }
     }
@@ -576,7 +576,7 @@ public sealed partial class FunctionCodeGen
         }
         if (leaf.ErrorTemplate is { } template)
         {
-            ThrowRuntimeBinderException(DynamicMessage(template, values));
+            ThrowRuntimeBinderException(DynamicMessage(site, template, values));
             return;
         }
         if (leaf.Unsupported is { } unsupported)
@@ -703,14 +703,14 @@ public sealed partial class FunctionCodeGen
         parts.Add("' and '");
         if (Name(1) == "\u0001") parts.Add(1); else parts.Add(Name(1));
         parts.Add("'");
-        ThrowRuntimeBinderException(DynamicMessage(parts, values));
+        ThrowRuntimeBinderException(DynamicMessage(site, parts, values));
         _b.PositionAtEnd(ok);
     }
 
     /// <summary>A binder message naming run-time types: literal parts and operand indices (~i: as member lookup names it).</summary>
-    private LLVMValueRef DynamicMessage(List<object> parts, LLVMValueRef[] values)
+    private LLVMValueRef DynamicMessage(DynamicSite site, List<object> parts, LLVMValueRef[] values)
     {
-        var names = _m.DynamicTypeNameFunction();
+        var names = _m.DynamicTypeNameFunction(_m.DynamicNameView(site));
         LLVMValueRef message = default;
         foreach (var part in parts)
         {
@@ -745,14 +745,14 @@ public sealed partial class FunctionCodeGen
     }
 
     /// <summary>`string typename(mt, lookup)`: the binder's name for each run-time type; unknown types throw.</summary>
-    internal void EmitDynamicTypeNames(List<(ITypeSymbol Type, LLVMValueRef Mt)> types, ModuleCodeGen m)
+    internal void EmitDynamicTypeNames(List<(ITypeSymbol Type, LLVMValueRef Mt)> types, ModuleCodeGen m, IAssemblySymbol? view)
     {
         var mt = ParamOf(0);
         var lookup = _b.ICmp(LLVMIntPredicate.NE, ParamOf(1), L.ConstInt(L.I32, 0));
         foreach (var (type, table) in types)
         {
             string name;
-            try { name = m.BinderTypeName(m.BestAccessibleType(type, null)); }
+            try { name = m.BinderTypeName(m.BestAccessibleType(type, view)); }
             catch (Exception e) when (e is not OutOfMemoryException) { continue; }
             var hit = NewBlock("name");
             var next = NewBlock("next");
