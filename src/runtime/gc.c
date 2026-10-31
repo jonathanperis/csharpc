@@ -226,6 +226,8 @@ static struct {
     size_t mark_count, mark_capacity;
 
     size_t allocated_since_gc, live_bytes, trigger, min_trigger;
+    size_t growth_pct, budget_floor;  // the budget after a collection: growth_pct % of live, at least budget_floor (adapt_budget)
+    double last_gc_end;               // CLOCK_MONOTONIC seconds when the previous collection resumed the world
 #if CSRT_HAS_NURSERY
     // Minors run every nursery_trigger bytes of allocation of any kind (small, large, into reused
     // old chunks); a collection is major once the heap reaches major_trigger (2x the last major's live).
@@ -789,6 +791,8 @@ void csrt_gc_init(void) {
     env = getenv("CSRT_GC_TRIGGER_MB");
     g.min_trigger = env && atol(env) > 0 ? (size_t)atol(env) * 1024 * 1024 : MIN_TRIGGER;
     g.trigger = g.min_trigger;
+    g.growth_pct = 200;
+    g.budget_floor = g.min_trigger;
 #if CSRT_HAS_NURSERY
     // Built with --gc-nursery: on unless CSRT_GC_NURSERY=0. Coarse per-chunk cards help RSS on
     // livemutate but cost churn throughput and binary size (docs/adr/0004).
@@ -2191,6 +2195,30 @@ void csrt_weak_free(intptr_t handle) {
     gc_unlock();
 }
 
+/// The allocation budget follows what collecting costs. It starts at the throughput setting (twice the
+/// live heap, at least min_trigger) and steps toward the live heap and half of min_trigger while pauses
+/// take under 2 % of the time, back up past 4 %. Allocation-bound programs (binarytrees, churn: GC is
+/// several % of their time) keep the large budget; a server whose request garbage is cheap to collect
+/// runs near its live size. A fixed growth of 100 % with 16 MiB cost binarytrees +26 % and churn +17 %
+/// executed instructions, and took the TechEmpower server from 72 to 52-56 MiB (NativeAOT: 65).
+static void adapt_budget(struct timespec start, struct timespec end) {
+    double now = (double)end.tv_sec + (double)end.tv_nsec / 1e9;
+    double pause = now - ((double)start.tv_sec + (double)start.tv_nsec / 1e9);
+    double since = now - g.last_gc_end;
+    bool first = g.last_gc_end == 0;
+    g.last_gc_end = now;
+    if (first || since <= pause) return;
+    double overhead = pause / since;
+    size_t floor_min = g.min_trigger / 2, step = g.min_trigger / 8;
+    if (overhead < 0.02) {
+        if (g.growth_pct > 100) g.growth_pct -= 25;
+        g.budget_floor = g.budget_floor > floor_min + step ? g.budget_floor - step : floor_min;
+    } else if (overhead > 0.04) {
+        g.growth_pct = g.growth_pct + 50 < 200 ? g.growth_pct + 50 : 200;
+        g.budget_floor = g.budget_floor + 2 * step < g.min_trigger ? g.budget_floor + 2 * step : g.min_trigger;
+    }
+}
+
 __attribute__((noinline)) void csrt_gc_collect_now(void) {
     if (g.collecting) return;
     g.collecting = true;
@@ -2253,12 +2281,16 @@ __attribute__((noinline)) void csrt_gc_collect_now(void) {
     g.live_bytes = sweep();
 #endif
     resume_world();
+    clock_gettime(CLOCK_MONOTONIC, &t1);
+    adapt_budget(t0, t1);
     for (size_t i = 0; i < g.deferred_count; i++) free(g.deferred_free[i]);
     g.deferred_count = 0;
     g.allocated_since_gc = 0;
-    g.trigger = 2 * g.live_bytes > g.min_trigger ? 2 * g.live_bytes : g.min_trigger;
+    size_t grown = g.live_bytes / 100 * g.growth_pct;
+    g.trigger = grown > g.budget_floor ? grown : g.budget_floor;
 #if CSRT_HAS_NURSERY
-    if (!was_minor) g.major_trigger = g.trigger;
+    // Majors stay at twice the last major's live heap (live + a smaller budget would make every one major).
+    if (!was_minor) g.major_trigger = 2 * g.live_bytes > g.min_trigger ? 2 * g.live_bytes : g.min_trigger;
     if (g.nursery && !was_minor) g.nursery_trigger = g.nursery_trigger_min;
     g.collections++;
     if (!was_minor) { g.major_collections++; g.minors_since_major = 0; }
@@ -2268,7 +2300,6 @@ __attribute__((noinline)) void csrt_gc_collect_now(void) {
     g.collections++;
 #endif
 
-    clock_gettime(CLOCK_MONOTONIC, &t1);
     g.total_gc_seconds += (double)(t1.tv_sec - t0.tv_sec) + (double)(t1.tv_nsec - t0.tv_nsec) / 1e9;
 #if defined(CSRT_GC_PARALLEL_MARK) && !defined(__wasi__)
     if ((double)(t1.tv_sec - t0.tv_sec) + (double)(t1.tv_nsec - t0.tv_nsec) / 1e9 >= 0.003) g_mark_heavy = 1;
