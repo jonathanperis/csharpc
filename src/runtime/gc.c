@@ -445,13 +445,23 @@ static bool claim_word(SizeClass* sc, AllocCache* cache, uint32_t cls) {
             } else if (g.empty) {
                 c = g.empty;
                 g.empty = c->next_free;
+                // Slots claimed but not handed out yet count as allocated, and so does the one a stopped
+                // thread is halfway through allocating: a stale pointer into one (a conservative root, a
+                // register) makes the collector read its first word as a method table. Within one size
+                // class that is a dead object's, or zero; across classes it can be any field of an old
+                // object, so each new slot starts with a null method table, which marking skips. Without it
+                // the 4-thread GC benchmark (benchmarks/gc/gclatency.cs) crashed in about one run in ten,
+                // reading flags through a garbage "method table". Minors scan whole dirty chunks, full of
+                // stale pointers: the nursery clears the whole chunk.
+                if (c->size_class != cls) {
 #if CSRT_HAS_NURSERY
-                // Slots claimed but not handed out yet count as allocated: a stale pointer into one makes
-                // the collector read its first word as a method table. Within one size class that is a
-                // dead object's; across classes it can be any field, so clear the old contents. Minors
-                // scan whole dirty chunks, full of stale pointers, which makes that likely.
-                if (g.nursery && c->size_class != cls) memset((uint8_t*)c + CHUNK_HEADER, 0, CHUNK_SIZE - CHUNK_HEADER);
+                    if (g.nursery) memset((uint8_t*)c + CHUNK_HEADER, 0, CHUNK_SIZE - CHUNK_HEADER);
+                    else
 #endif
+                    for (uint8_t *slot = (uint8_t*)c + CHUNK_HEADER, *end = slot + (CHUNK_SIZE - CHUNK_HEADER) / k_size_classes[cls] * k_size_classes[cls];
+                         slot < end; slot += k_size_classes[cls])
+                        *(void**)slot = NULL;
+                }
                 chunk_format(c, cls);
             } else {
                 c = chunk_map();
@@ -835,6 +845,10 @@ static void* alloc_large(size_t size, bool clear) {
         if (posix_memalign(&p, 16, size) != 0) return NULL;
 #endif
         if (clear) memset(p, 0, size);
+        // A collection can run before the caller stores the method table (after the lock is released):
+        // the block is registered and the caller's registers point at it, so marking reads its first word,
+        // which is malloc's free-list data until then.
+        else *(void**)p = NULL;
     }
     if (g.large_count == g.large_capacity) {
         size_t capacity = g.large_capacity ? g.large_capacity * 2 : 64;
