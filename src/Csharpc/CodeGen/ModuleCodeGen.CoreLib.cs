@@ -59,7 +59,11 @@ public sealed partial class ModuleCodeGen
     {
         foreach (var i in (IEnumerable<INamedTypeSymbol>)[itf, .. itf.AllInterfaces])
             if ((i.IsGenericType ? !TypeSubstitution.IsOpen(i) : IsNonGenericArrayInterface(i))
-                && _arrayInterfaces.Add(i)) _pendingBuiltinInterfaces.Enqueue(i);
+                && _arrayInterfaces.Add(i))
+            {
+                _pendingBuiltinInterfaces.Enqueue(i);
+                if (s_whyLowered is not null) Console.Error.WriteLine($"array interface {i.ToDisplayString()} (as {itf.ToDisplayString()}) by {_currentCaller?.ToDisplayString() ?? _whyContext}");
+            }
     }
 
     /// <summary>Does an array with this element type implement the (requested) interface?</summary>
@@ -146,9 +150,7 @@ public sealed partial class ModuleCodeGen
         }
         if (_elementSlotTables.TryGetValue((itf, array.Global.Handle), out var table)) return table;
         var element = array.ElementType;
-        var slots = InterfaceSlots(itf).Select(m => ElementHelper(itf, m, element) is { } h ? GetFunction(h).Fn : LlvmContext.Null(Llvm.Ptr)).ToArray();
-        var init = LlvmContext.ConstArray(Llvm.Ptr, slots);
-        table = Module.AddGlobal($"csrt.arraytbl.{array.Name}.{itf.Name}", Native.LLVMTypeOf(init), init, constant: true, linkage: LLVMLinkage.Private);
+        table = BuiltinSlotTable(itf, $"csrt.arraytbl.{array.Name}.{itf.Name}", LLVMLinkage.Private, m => ElementHelper(itf, m, element));
         return _elementSlotTables[(itf, array.Global.Handle)] = table;
     }
 
@@ -227,11 +229,82 @@ public sealed partial class ModuleCodeGen
         return RefreshArrayInterfaceMaps() || any;
     }
 
-    private LLVMValueRef SlotTable(INamedTypeSymbol itf, string suffix, Func<IMethodSymbol, IMethodSymbol?> helper)
+    private LLVMValueRef SlotTable(INamedTypeSymbol itf, string suffix, Func<IMethodSymbol, IMethodSymbol?> helper) =>
+        BuiltinSlotTable(itf, Mangler.TypeSymbol(itf, suffix), LLVMLinkage.Internal, helper);
+
+    /// <summary>
+    /// An array or string slot table: like a class's interface map entry (ModuleCodeGen.VTables.cs), a slot
+    /// gets its helper only once emitted code dispatches through that interface member; the others point
+    /// at csrt_pruned_virtual. Without this every array type the program allocates (a Dictionary's Entry[],
+    /// an interpreter's Instruction[]) carried all ~30 IList/ICollection/IEnumerable helpers.
+    /// </summary>
+    private sealed class PendingBuiltinSlotTable
     {
-        var slots = InterfaceSlots(itf).Select(m => helper(m) is { } h ? GetFunction(h).Fn : LlvmContext.Null(Llvm.Ptr)).ToArray();
-        var init = LlvmContext.ConstArray(Llvm.Ptr, slots);
-        return Module.AddGlobal(Mangler.TypeSymbol(itf, suffix), Native.LLVMTypeOf(init), init, constant: true, linkage: LLVMLinkage.Internal);
+        public required LLVMValueRef Global { get; init; }
+        public required IMethodSymbol?[] Helpers { get; init; }
+        public required string Name { get; init; }
+        public required string? Instantiation { get; init; }
+        public HashSet<int> Requested { get; } = [];
+    }
+
+    private readonly List<PendingBuiltinSlotTable> _builtinSlotTables = [];
+    private readonly Dictionary<INamedTypeSymbol, List<PendingBuiltinSlotTable>> _builtinSlotTablesByInterface = new(SymbolEqualityComparer.Default);
+    private readonly Queue<(PendingBuiltinSlotTable Table, int Slot)> _builtinSlotRequests = new();
+
+    private LLVMValueRef BuiltinSlotTable(INamedTypeSymbol itf, string name, LLVMLinkage linkage, Func<IMethodSymbol, IMethodSymbol?> helper)
+    {
+        var helpers = InterfaceSlots(itf).Select(helper).ToArray();
+        var type = LlvmContext.Array(Llvm.Ptr, (ulong)helpers.Length);
+        var table = new PendingBuiltinSlotTable { Global = Module.AddGlobal(name, type, constant: true, linkage: linkage), Helpers = helpers, Name = name,
+            Instantiation = InterfaceDispatchKey(itf) };
+        _builtinSlotTables.Add(table);
+        var definition = itf.OriginalDefinition;
+        if (!_builtinSlotTablesByInterface.TryGetValue(definition, out var tables)) _builtinSlotTablesByInterface[definition] = tables = [];
+        tables.Add(table);
+        if (_dispatchedInterfaceSlots.TryGetValue(definition, out var dispatched))
+            foreach (var dispatch in dispatched)
+                if (DispatchReaches(dispatch, table.Instantiation)) _builtinSlotRequests.Enqueue((table, dispatch.Slot));
+        SetBuiltinSlotTableInitializer(table);
+        return table.Global;
+    }
+
+    /// <summary>Queues the helpers of builtin slot tables for a newly dispatched interface member.</summary>
+    private void NoteBuiltinInterfaceDispatch(INamedTypeSymbol definition, (int Slot, string? Instantiation) dispatch)
+    {
+        if (_builtinSlotTablesByInterface.TryGetValue(definition, out var tables))
+            foreach (var table in tables)
+                if (DispatchReaches(dispatch, table.Instantiation)) _builtinSlotRequests.Enqueue((table, dispatch.Slot));
+    }
+
+    /// <summary>Declares (queues the lowering of) the helpers of dispatched builtin slots; true when anything was requested.</summary>
+    private bool RequestDispatchedBuiltinSlots()
+    {
+        var requested = false;
+        while (_builtinSlotRequests.TryDequeue(out var request))
+        {
+            var (table, slot) = request;
+            if (slot >= table.Helpers.Length || table.Helpers[slot] is not { } helper || !table.Requested.Add(slot)) continue;
+            if (s_whyLowered is not null) _whyContext = $"slot of {table.Name}";
+            try { GetFunction(helper); }
+            catch (CompileError error) { Errors.Add(error); }
+            _whyContext = null;
+            requested = true;
+        }
+        return requested;
+    }
+
+    private void SetBuiltinSlotTableInitializer(PendingBuiltinSlotTable table)
+    {
+        var pruned = Runtime("csrt_pruned_virtual", Llvm.Void).Fn;
+        var slots = table.Helpers.Select((h, i) => h is null ? LlvmContext.Null(Llvm.Ptr)
+            : table.Requested.Contains(i) ? GetFunction(h).Fn : pruned).ToArray();
+        Native.LLVMSetInitializer(table.Global, LlvmContext.ConstArray(Llvm.Ptr, slots));
+    }
+
+    /// <summary>Sets the builtin slot tables' final initializers (at the dispatch fixed point, with the method tables).</summary>
+    private void FinishBuiltinSlotTables()
+    {
+        foreach (var table in _builtinSlotTables) SetBuiltinSlotTableInitializer(table);
     }
 
     private void RefreshInterfaceTable(INamedTypeSymbol itf)

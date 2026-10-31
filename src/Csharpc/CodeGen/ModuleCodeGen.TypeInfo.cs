@@ -110,6 +110,10 @@ public sealed partial class ModuleCodeGen
             if (type is not INamedTypeSymbol { IsGenericType: true } named || TypeSubstitution.IsOpen(named)) continue;
             if (named.TypeArguments.Length != 1) continue;
             if (!s_arrayInterfaces.Contains(Mangler.MetadataName(named.OriginalDefinition))) continue;
+            // Only reference-type U, like KeepArrayOf: CreateInstance makes no other U[] than the program's
+            // own (whose casts request their interfaces), and every Dictionary's ICollection<KeyValuePair<K, V>>
+            // and every enumerator's IEnumerable<Entry> would otherwise put IList<...> on KeyValuePair[] and Entry[].
+            if (!named.TypeArguments[0].IsReferenceType) continue;
             KeepArrayOf(named.TypeArguments[0]);
             // So RefreshArrayInterfaceMaps puts IEnumerable<U> on U[] (open-generic binder casts).
             RequestArrayInterface(named);

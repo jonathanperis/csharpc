@@ -127,7 +127,7 @@ public sealed partial class ModuleCodeGen
         var typeArgs = target.TypeArguments.ToArray();
         foreach (var (type, layout) in _layouts.ToList())
         {
-            if (type is not { TypeKind: TypeKind.Class, IsAbstract: false } || layout.MethodTable.IsNull || TypeSubstitution.IsOpen(type)) continue;
+            if (type is not { TypeKind: TypeKind.Class, IsAbstract: false } || layout.MethodTable.IsNull || TypeSubstitution.IsOpen(type) || !IsConstructed(layout)) continue;
             bool derives = false;
             for (INamedTypeSymbol? t = type; t is not null && !derives; t = t.BaseType)
                 derives = SymbolEqualityComparer.Default.Equals(t, owner);
@@ -197,7 +197,7 @@ public sealed partial class ModuleCodeGen
             return impl.Construct(typeArgs);
         }
         foreach (var (type, layout) in _layouts.ToList())
-            if (type is { TypeKind: TypeKind.Class, IsAbstract: false } && !layout.MethodTable.IsNull && CalleeIn(type) is { } callee)
+            if (type is { TypeKind: TypeKind.Class, IsAbstract: false } && !layout.MethodTable.IsNull && IsConstructed(layout) && CalleeIn(type) is { } callee)
                 yield return (type, layout.MethodTable, callee);
         foreach (var (type, layout) in _structs.ToList())
             if (!layout.MethodTable.IsNull && CalleeIn(type) is { } callee)

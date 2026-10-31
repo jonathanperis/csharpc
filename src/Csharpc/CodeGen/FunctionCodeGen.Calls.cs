@@ -284,63 +284,19 @@ public sealed partial class FunctionCodeGen
 
     /// <summary>
     /// Generic virtual methods have no vtable slot (one per instantiation would be needed). The program
-    /// is closed, so dispatch with a type switch over the classes that can receive the call, most-derived
-    /// first, each calling its override instantiated with the same type arguments.
+    /// is closed, so a call goes through a dispatcher per instantiation (ModuleCodeGen.GenericInterfaces.cs)
+    /// that compares the receiver's method table with every class deriving from the method's class that
+    /// the program constructs, each case calling its most-derived override instantiated with the same type
+    /// arguments. Only constructed classes: an inline switch over every derived class compiled the
+    /// overrides of visitors nothing creates (System.Linq.Expressions' ~30 ExpressionVisitors each got a
+    /// VisitLambda&lt;T&gt; per delegate type, the LambdaCompiler's VariableBinder among them).
     /// </summary>
     private LLVMValueRef GenericVirtualCall(IMethodSymbol target, LLVMValueRef self, LLVMValueRef[] args)
     {
-        var root = ClassLayout.RootOf(target.OriginalDefinition);
-        var typeArgs = target.TypeArguments.ToArray();
-        // Overrides declared in generic classes: their instantiations are only known once lowering is done,
-        // so the call goes through a dispatcher filled in rounds (ModuleCodeGen.GenericInterfaces.cs).
-        foreach (var generic in _m.GenericClassesDerivedFrom(target.ContainingType))
-            if (generic.GetMembers(target.Name).OfType<IMethodSymbol>().Any(m => m.IsOverride && m.IsGenericMethod
-                    && SymbolEqualityComparer.Default.Equals(ClassLayout.RootOf(m.OriginalDefinition), root)))
-            {
-                var dispatcher = _m.GenericInterfaceDispatcherFor(target);
-                var call = _b.Call(dispatcher.Type, dispatcher.Fn, args);
-                return target.ReturnsVoid ? default : call;
-            }
-        LLVMValueRef? resultSlot = target.ReturnsVoid ? null : NewTemp(T.Value(target.ReturnType), "gvm.result");
-        var done = NewBlock("gvm.done");
-        IMethodSymbol? ImplementationIn(INamedTypeSymbol cls)
-        {
-            for (INamedTypeSymbol? t = cls; t is not null; t = t.BaseType)
-                foreach (var m in t.GetMembers(target.Name).OfType<IMethodSymbol>())
-                    if (m.IsGenericMethod && m.TypeParameters.Length == typeArgs.Length
-                        && SymbolEqualityComparer.Default.Equals(ClassLayout.RootOf(m.OriginalDefinition), root) && !m.IsAbstract)
-                        return m.Construct(typeArgs);
-            return null;
-        }
-        foreach (var cls in _m.ClassesDerivedFrom(target.ContainingType))
-        {
-            if (ImplementationIn(cls) is not { } impl) continue;
-            var next = NewBlock("gvm.next");
-            var hit = NewBlock("gvm.call");
-            var isCls = CallRuntime("csrt_isinst_class", L.Ptr, [L.Ptr, L.Ptr], self, _m.GetLayout(cls).MethodTable);
-            _b.CondBr(_b.ICmp(LLVMIntPredicate.NE, isCls, LlvmContext.Null(L.Ptr)), hit, next);
-            _b.PositionAtEnd(hit);
-            var r = DirectCall(impl, args);
-            if (resultSlot is { } slot) _b.Store(r, slot);
-            _b.Br(done);
-            _b.PositionAtEnd(next);
-        }
-        // The switch lists non-generic classes only. A receiver of a generic class (the method's own
-        // OptionsBuilder<T>, or a generic class deriving from it without overriding: overrides were
-        // rejected above) runs the implementation inherited from the declaring instantiation.
-        if (target.ContainingType is { IsGenericType: true } owner && ImplementationIn(owner) is { } inherited)
-        {
-            var r = DirectCall(inherited, args);
-            if (resultSlot is { } slot) _b.Store(r, slot);
-            _b.Br(done);
-        }
-        else
-        {
-            CallRuntime("csrt_throw_null_reference", L.Void, []); // unreachable for valid receivers
-            _b.Unreachable();
-        }
-        _b.PositionAtEnd(done);
-        return resultSlot is { } s ? _b.Load(T.Value(target.ReturnType), s) : default;
+        _m.NoteVirtualCall(target);
+        var dispatcher = _m.GenericInterfaceDispatcherFor(target);
+        var call = _b.Call(dispatcher.Type, dispatcher.Fn, args);
+        return target.ReturnsVoid ? default : call;
     }
 
     private LLVMValueRef DirectCall(IMethodSymbol target, LLVMValueRef[] args)
@@ -492,8 +448,19 @@ public sealed partial class FunctionCodeGen
         throw CompileError.Unsupported($"Activator.CreateInstance<T>() with T = '{type}'", at);
     }
 
-    private LLVMValueRef Allocate(LLVMValueRef methodTable, LLVMValueRef size) =>
-        CallRuntime("csrt_alloc", L.Ptr, [L.Ptr, L.I64], methodTable, size);
+    /// <summary>The runtime creates instances of this class (RuntimeHelpers.GetUninitializedObject(typeof(C))).</summary>
+    internal void NoteConstructedType(ITypeSymbol type)
+    {
+        if (S(type) is INamedTypeSymbol { TypeKind: TypeKind.Class, IsAbstract: false, IsStatic: false } named && _m.IsUserType(named)
+            && !TypeSubstitution.IsOpen(named))
+            _m.NoteConstructed(_m.GetLayout(named).MethodTable);
+    }
+
+    private LLVMValueRef Allocate(LLVMValueRef methodTable, LLVMValueRef size)
+    {
+        _m.NoteConstructed(methodTable); // its vtable slots can be dispatched now (ModuleCodeGen.VTables.cs)
+        return CallRuntime("csrt_alloc", L.Ptr, [L.Ptr, L.I64], methodTable, size);
+    }
 
     internal LLVMValueRef ObjectToString(LLVMValueRef obj) =>
         CallRuntime("csrt_object_to_string", L.Ptr, [L.Ptr], obj);

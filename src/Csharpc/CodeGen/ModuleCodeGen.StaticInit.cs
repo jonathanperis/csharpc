@@ -189,6 +189,7 @@ public sealed partial class ModuleCodeGen
         var tieType = Compilation.GetTypeByMetadataName("System.TypeInitializationException")!;
         var layout = GetLayout(tieType);
         var alloc = Runtime("csrt_alloc", Llvm.Ptr, Llvm.Ptr, Llvm.I64);
+        NoteConstructed(layout.MethodTable);
         var tie = b.Call(alloc.Type, alloc.Fn, [layout.MethodTable, Llvm.ConstInt(Llvm.I64, (long)layout.InstanceSize)]);
         var exceptionInit = Runtime("csrt_exception_init", Llvm.Void, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr);
         b.Call(exceptionInit.Type, exceptionInit.Fn,
