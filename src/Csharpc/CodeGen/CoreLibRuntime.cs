@@ -22,6 +22,7 @@ internal static class CoreLibRuntime
         ["csrt_sb_new"] = ("StringBuilderImpl", "RtNew"),
         ["csrt_sb_append_string"] = ("StringBuilderImpl", "RtAppend"),
         ["csrt_sb_to_string"] = ("StringBuilderImpl", "RtToString"),
+        ["csrt_sb_append_aligned"] = ("StringBuilderImpl", "RtAppendAligned"),
         // integer -> string (ToString(), interpolation, concatenation)
         ["csrt_string_from_i32"] = ("Number", "Int32ToDecStr"),
         ["csrt_string_from_i64"] = ("Number", "Int64ToDecStr"),

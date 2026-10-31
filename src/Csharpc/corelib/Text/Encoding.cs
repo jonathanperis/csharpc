@@ -61,8 +61,12 @@ namespace CsharpcCoreLib
 
         private const string NoCodepageData = "No data is available for encoding {0}. For information on defining a custom encoding, see the documentation for the Encoding.RegisterProvider method.";
 
+        // Registered providers come first, as in .NET (CodePagesEncodingProvider, which Roslyn registers).
+        public static void RegisterProvider(EncodingProvider provider) => EncodingProviderImpl.AddProvider(provider);
+
         public static Encoding GetEncoding(int codepage)
         {
+            if (EncodingProviderImpl.GetEncodingFromProvider(codepage) is { } provided && provided.CodePage != 65000) return provided;
             switch (codepage)
             {
                 case 0: return Default;
@@ -85,16 +89,26 @@ namespace CsharpcCoreLib
 
         public static Encoding GetEncoding(int codepage, EncoderFallback encoderFallback, DecoderFallback decoderFallback)
         {
+            if (EncodingProviderImpl.GetEncodingFromProvider(codepage, encoderFallback, decoderFallback) is { } provided && provided.CodePage != 65000)
+                return provided;
             Encoding fallbackEncoding = (Encoding)GetEncoding(codepage).Clone();
             fallbackEncoding.EncoderFallback = encoderFallback;
             fallbackEncoding.DecoderFallback = decoderFallback;
             return fallbackEncoding;
         }
 
-        public static Encoding GetEncoding(string name) => GetEncoding(CodePageFromName(name));
+        public static Encoding GetEncoding(string name)
+        {
+            if (EncodingProviderImpl.GetEncodingFromProvider(name) is { } provided && provided.CodePage != 65000) return provided;
+            return GetEncoding(CodePageFromName(name));
+        }
 
-        public static Encoding GetEncoding(string name, EncoderFallback encoderFallback, DecoderFallback decoderFallback) =>
-            GetEncoding(CodePageFromName(name), encoderFallback, decoderFallback);
+        public static Encoding GetEncoding(string name, EncoderFallback encoderFallback, DecoderFallback decoderFallback)
+        {
+            if (EncodingProviderImpl.GetEncodingFromProvider(name, encoderFallback, decoderFallback) is { } provided && provided.CodePage != 65000)
+                return provided;
+            return GetEncoding(CodePageFromName(name), encoderFallback, decoderFallback);
+        }
 
         private static int CodePageFromName(string name)
         {
@@ -157,6 +171,22 @@ namespace CsharpcCoreLib
         public virtual string WebName => DataItem()[0];
         public virtual int CodePage => _codePage;
         public virtual bool IsSingleByte => false;
+
+        // EncodingTable's MIME flags for the code pages csharpc has (DataItem() rejects the others).
+        public virtual bool IsBrowserDisplay { get { DataItem(); return _codePage is 65001 or 28591; } }
+        public virtual bool IsBrowserSave { get { DataItem(); return _codePage is 65001 or 1200 or 28591; } }
+        public virtual bool IsMailNewsDisplay { get { DataItem(); return _codePage is 65001 or 20127 or 28591; } }
+        public virtual bool IsMailNewsSave { get { DataItem(); return _codePage is 65001 or 20127 or 28591; } }
+
+        /// <summary>EncodingTable's UI family code page: 1200 for the Unicode encodings, 1252 for ASCII and Latin-1.</summary>
+        public virtual int WindowsCodePage
+        {
+            get
+            {
+                DataItem(); // unknown code pages: .NET's NotSupportedException
+                return _codePage is 20127 or 28591 ? 1252 : 1200;
+            }
+        }
 
         public virtual byte[] GetPreamble() => [];
         public virtual ReadOnlySpan<byte> Preamble => GetPreamble();

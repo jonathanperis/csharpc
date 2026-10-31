@@ -942,6 +942,9 @@ internal static partial class BclValueTypes
         t[$"{B}.ToString()"] = (g, _, self, _, _) => Rt(g, "csrt_bigint_to_string", g.Llvm.Ptr, (self, g.Llvm.Ptr));
         t[$"{B}.Parse(string, System.IFormatProvider)"] = (g, _, _, a, _) => g.CallCoreLib("BigIntegerCulture", "Parse", a[0], a[1]);
         t[$"{B}.ToString(string, System.IFormatProvider)"] = (g, _, self, a, _) => g.CallCoreLib("BigIntegerCulture", "Format", self, a[0], a[1]);
+        t[$"{B}.TryParse(string, System.Globalization.NumberStyles, System.IFormatProvider, {B})"] = (g, _, _, a, _) =>
+            g.CallCoreLib("BigIntegerCulture", "TryParse", a[0], a[1], a[2], a[3]);
+        t[$"{B}.ToByteArray()"] = (g, _, self, _, _) => g.CallCoreLib("BigIntegerOps", "ToByteArray", self);
         t[$"{B}.ToString(string)"] = (g, _, self, a, _) => Rt(g, "csrt_bigint_format", g.Llvm.Ptr, (self, g.Llvm.Ptr), (a[0], g.Llvm.Ptr));
         t[$"{B}.GetHashCode()"] = (g, _, self, _, _) => Rt(g, "csrt_bigint_get_hash_code", g.Llvm.I32, (self, g.Llvm.Ptr));
         t[$"{B}.get_IsZero()"] = (g, _, self, _, _) => g.Builder.ICmp(LLVMIntPredicate.EQ, self, LlvmContext.Null(g.Llvm.Ptr));

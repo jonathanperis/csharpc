@@ -1,0 +1,17 @@
+threads: True 0 False True False
+ArgumentException
+lock: True 0
+generation: generation ('-1') must be a non-negative value. (Parameter 'generation')
+Actual value was -1.
+mode: Enum value was out of legal range. (Parameter 'mode')
+collected
+fusion log: null
+process: True False True True
+memory: True True True
+another object: True
+runtime directory: True True
+attributes: TagAttribute[] 2 first,second
+none: 0
+foreach: True 6
+foreach canceled: True
+foreach failed: 1 two

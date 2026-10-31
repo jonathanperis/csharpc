@@ -568,6 +568,11 @@ public sealed partial class ModuleCodeGen
             if (name is null && Wanted(ctor, RiPublicConstructors, RiNonPublicConstructors) && entry.Listed.Add(ctor))
                 entry.Constructors.Add(MethodRecord(ctor, invoker: true));
         }
+        // The type initializer is a (static, private) constructor in metadata: GetConstructors(Static | NonPublic)
+        // and TypeInfo.DeclaredConstructors list it. Not invocable, as in .NET.
+        foreach (var cctor in real.StaticConstructors)
+            if (name is null && Wanted(cctor, RiPublicConstructors, RiNonPublicConstructors) && entry.Listed.Add(cctor))
+                entry.Constructors.Add(MethodRecord(cctor, invoker: false));
         if ((added & (RiPublicProperties | RiNonPublicProperties)) != 0) DescribeProperties(entry, real, added, name);
         if ((added & (RiPublicFields | RiNonPublicFields)) != 0) DescribeFields(entry, real, added, name);
         if ((added & (RiPublicMethods | RiNonPublicMethods)) == 0) return;

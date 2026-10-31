@@ -23,14 +23,19 @@ internal static class IlGeneratedRegex
     /// <summary>The program's [GeneratedRegex] methods (property getters included), by metadata token: the holder type's metadata name.</summary>
     private static Dictionary<int, string> s_holders = [];
 
+    /// <summary>The program's assembly: tokens are per assembly, and every IL library has methods with the same ones.</summary>
+    private static string? s_program;
+
     /// <summary>The holder whose Get() replaces <paramref name="method"/>'s IL body, if it is a [GeneratedRegex] member of the program.</summary>
     public static string? HolderFor(IMethodSymbol method) =>
-        method.OriginalDefinition.MetadataToken is var token and not 0 && s_holders.TryGetValue(token, out var holder) ? holder : null;
+        s_program is not null && method.OriginalDefinition.ContainingAssembly?.Identity.Name == s_program
+        && method.OriginalDefinition.MetadataToken is var token and not 0 && s_holders.TryGetValue(token, out var holder) ? holder : null;
 
     /// <summary>The holders' source, or null when the program has no [GeneratedRegex] member csharpc can redirect.</summary>
     public static SyntaxTree? Synthesize(IlAssembly program, CSharpParseOptions options)
     {
         s_holders = [];
+        s_program = program.Reader.GetString(program.Reader.GetAssemblyDefinition().Name);
         var reader = program.Reader;
         var members = new List<(MethodDefinitionHandle Method, CustomAttribute Attribute)>();
         foreach (var handle in reader.MethodDefinitions)

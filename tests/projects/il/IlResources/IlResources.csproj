@@ -6,4 +6,8 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
   </PropertyGroup>
+  <ItemGroup>
+    <!-- A raw manifest resource (IlResources.table.dat), read with Assembly.GetManifestResourceStream. -->
+    <EmbeddedResource Include="table.dat" />
+  </ItemGroup>
 </Project>

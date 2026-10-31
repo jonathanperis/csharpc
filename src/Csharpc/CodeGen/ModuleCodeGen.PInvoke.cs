@@ -66,8 +66,23 @@ public sealed partial class ModuleCodeGen
         var lowered = _pinvokeStubs[method] = new LoweredFunction(stub, managedType);
 
         // ---- native signature ----
-        var parameters = method.Parameters.Select(p => ClassifyParameter(p, unicodeDefault)).ToList();
-        var (nativeRet, retKind, retStruct, sret) = ClassifyReturn(method, unicodeDefault);
+        List<NativeParam> parameters;
+        (LLVMTypeRef, ParamKind, LLVMTypeRef, bool) classifiedReturn;
+        try
+        {
+            parameters = method.Parameters.Select(p => ClassifyParameter(p, unicodeDefault)).ToList();
+            classifiedReturn = ClassifyReturn(method, unicodeDefault);
+        }
+        catch (CompileError e) when (IsIlMethod(method) && !Il.IsCoreLib(method))
+        {
+            // A library's P/Invoke csharpc can't marshal (built-in COM objects in Roslyn's Windows PDB writer,
+            // which NativeAOT doesn't marshal either): callers still compile; calling it ends the program
+            // with the diagnostic, and a program that can reach it gets the CSLLVM0008 warning.
+            _ilBoundaries.Add((method, e.Message));
+            UnsupportedBody(stub, $"'{method}' could not be compiled: {e.Message}");
+            return lowered;
+        }
+        var (nativeRet, retKind, retStruct, sret) = classifiedReturn;
         List<LLVMTypeRef> nativeParamTypes = [];
         if (sret) nativeParamTypes.Add(Llvm.Ptr);
         foreach (var p in parameters) nativeParamTypes.AddRange(p.NativeTypes);
@@ -107,6 +122,23 @@ public sealed partial class ModuleCodeGen
 
         using var b = new IrBuilder(Llvm);
         b.PositionAtEnd(b.AppendBlock(stub, "entry"));
+        // A P/Invoke is a static method of its type: a precise static constructor runs before the call, as
+        // in .NET (Llvm.Native registers its DllImport resolver there).
+        if (TriggersClassInitOnEntry(method) && ClassInitFor(method.ContainingType) is { } init)
+        {
+            NoteClassInit(init.Type);
+            var stateType = Llvm.Struct(Llvm.I32, Llvm.I32, Llvm.Ptr, Llvm.Ptr);
+            var state = b.Load(Llvm.I32, b.StructGep(stateType, init.State, 0), "cctor.state");
+            Native.LLVMSetOrdering(state, LLVMAtomicOrdering.Acquire);
+            Native.LLVMSetAlignment(state, 4);
+            var run = b.AppendBlock(stub, "cctor.run");
+            var initialized = b.AppendBlock(stub, "cctor.done");
+            b.CondBr(b.ICmp(LLVMIntPredicate.EQ, state, Llvm.ConstInt(Llvm.I32, 2)), initialized, run);
+            b.PositionAtEnd(run);
+            b.Call(init.Check.Type, init.Check.Fn, []);
+            b.Br(initialized);
+            b.PositionAtEnd(initialized);
+        }
 
         // ---- marshal arguments ----
         List<LLVMValueRef> args = [];
@@ -192,8 +224,10 @@ public sealed partial class ModuleCodeGen
             var call = b.AppendBlock(stub, "call");
             b.CondBr(b.ICmp(LLVMIntPredicate.EQ, cached, LlvmContext.Null(Llvm.Ptr)), resolve, call);
             b.PositionAtEnd(resolve);
-            var resolver = Runtime("csrt_pinvoke_resolve", Llvm.Ptr, Llvm.Ptr, Llvm.Ptr);
-            var resolved = b.Call(resolver.Type, resolver.Fn, [CString(library), CString(entry)]);
+            var resolver = PInvokeResolveFunction();
+            var declaringAssembly = AssemblyOf(method.ContainingType);
+            var resolved = b.Call(resolver.Type, resolver.Fn,
+                [CString(library), CString(entry), declaringAssembly is null ? LlvmContext.Null(Llvm.Ptr) : CString(declaringAssembly)]);
             b.Store(resolved, cache);
             b.Br(call);
             b.PositionAtEnd(call);
@@ -324,6 +358,7 @@ public sealed partial class ModuleCodeGen
             case INamedTypeSymbol { TypeKind: TypeKind.Struct } s when !IsPrimitiveLike(s):
             {
                 if (!IsBlittable(s)) throw CompileError.Unsupported($"P/Invoke parameter of non-blittable struct '{s}'", p);
+                if (IsByteOffsetStruct(s)) throw CompileError.Unsupported($"P/Invoke by-value struct '{s}' with an overlapping or packed layout", p);
                 var llvmType = Types.Value(s);
                 return ClassifyStruct(llvmType, p) is { } eightbytes
                     ? new NativeParam(ParamKind.Struct, type, eightbytes, StructType: llvmType)
@@ -357,6 +392,7 @@ public sealed partial class ModuleCodeGen
             case INamedTypeSymbol { TypeKind: TypeKind.Struct } s when !IsPrimitiveLike(s):
             {
                 if (!IsBlittable(s)) throw CompileError.Unsupported($"P/Invoke return of non-blittable struct '{s}'", method);
+                if (IsByteOffsetStruct(s)) throw CompileError.Unsupported($"P/Invoke return of struct '{s}' with an overlapping or packed layout", method);
                 var llvmType = Types.Value(s);
                 return ClassifyStruct(llvmType, method) is { } eightbytes
                     ? (CoercedStruct(eightbytes), ParamKind.Struct, llvmType, false)
@@ -386,6 +422,53 @@ public sealed partial class ModuleCodeGen
         type.SpecialType != SpecialType.None || type.TypeKind == TypeKind.Enum;
 
     /// <summary>Blittable: primitives (not bool/char), enums, pointers, and structs made only of those.</summary>
+    // ---- lazy P/Invoke binding and NativeLibrary.SetDllImportResolver ----------------------------------
+    //
+    // A lazily bound P/Invoke stub resolves its target through one internal function,
+    // csharpc.pinvoke.resolve(library, entry, declaring assembly), whose body is written last: when the
+    // program reaches NativeLibrary.SetDllImportResolver it calls the corelib's ResolveImport, which asks
+    // the declaring assembly's resolver first (as .NET does, and in managed code, so a resolver's exception
+    // reaches the P/Invoke's caller); otherwise it is csrt_pinvoke_resolve, as before.
+
+    private LoweredFunction? _pinvokeResolve, _pinvokeManagedResolve;
+
+    private LoweredFunction PInvokeResolveFunction()
+    {
+        if (_pinvokeResolve is { } existing) return existing;
+        var type = Llvm.FunctionType(Llvm.Ptr, [Llvm.Ptr, Llvm.Ptr, Llvm.Ptr]);
+        var fn = Module.AddFunction("csharpc.pinvoke.resolve", type);
+        Native.LLVMSetLinkage(fn, LLVMLinkage.Internal);
+        return (_pinvokeResolve = new LoweredFunction(fn, type)).Value;
+    }
+
+    private IMethodSymbol? CoreLibNativeLibraryMethod(string name) =>
+        Compilation.GetTypeByMetadataName(CoreLib.Namespace + ".NativeLibraryImpl")?.GetMembers(name).OfType<IMethodSymbol>().FirstOrDefault();
+
+    /// <summary>A step of the metadata rounds: once SetDllImportResolver is lowered, lower ResolveImport too.</summary>
+    private bool EmitPInvokeResolver()
+    {
+        if (_pinvokeResolve is null || _pinvokeManagedResolve is not null) return false;
+        if (CoreLibNativeLibraryMethod("SetDllImportResolver") is not { } set || !_functions.ContainsKey(set)) return false;
+        _pinvokeManagedResolve = GetFunction(CoreLibNativeLibraryMethod("ResolveImport")!);
+        return true;
+    }
+
+    private void FinishPInvokeResolver()
+    {
+        if (_pinvokeResolve is not { } resolve) return;
+        using var b = new IrBuilder(Llvm);
+        b.PositionAtEnd(b.AppendBlock(resolve.Fn, "entry"));
+        LLVMValueRef[] parameters = [Native.LLVMGetParam(resolve.Fn, 0), Native.LLVMGetParam(resolve.Fn, 1), Native.LLVMGetParam(resolve.Fn, 2)];
+        var target = _pinvokeManagedResolve ?? Runtime("csrt_pinvoke_resolve", Llvm.Ptr, Llvm.Ptr, Llvm.Ptr);
+        b.Ret(b.Call(target.Type, target.Fn, _pinvokeManagedResolve is null ? parameters[..2] : parameters));
+    }
+
+    /// <summary>A struct laid out as opaque bytes (ByteOffsetLayout), or holding one: its LLVM type says nothing of
+    /// the field classes the C ABI passes it by, so by-value passing would be guessed.</summary>
+    private bool IsByteOffsetStruct(INamedTypeSymbol s) =>
+        IsUserType(s) && (GetStructLayout(s).ByteOffset is not null
+            || InstanceFields(s).Any(f => f.Type is INamedTypeSymbol { TypeKind: TypeKind.Struct } inner && !IsPrimitiveLike(inner) && IsByteOffsetStruct(inner)));
+
     private bool IsBlittable(ITypeSymbol type) => type switch
     {
         IPointerTypeSymbol or IFunctionPointerTypeSymbol => true,
@@ -396,6 +479,10 @@ public sealed partial class ModuleCodeGen
         INamedTypeSymbol { TypeKind: TypeKind.Enum } => true,
         INamedTypeSymbol { TypeKind: TypeKind.Struct } s when IsUserType(s) =>
             s.GetMembers().OfType<IFieldSymbol>().Where(f => !f.IsStatic && !f.IsConst).All(f => IsBlittable(f.Type)),
+        // Guid's corelib shadow has .NET's own fields (corelib/Guid.cs), so COM interop's `ref Guid` is
+        // blittable as in .NET. Other shadows may lay their fields out differently from .NET: not blittable.
+        INamedTypeSymbol { Name: "Guid", TypeKind: TypeKind.Struct, ContainingType: null, ContainingNamespace: { Name: "System", ContainingNamespace.IsGlobalNamespace: true } } s
+            when CoreLib.TryMap(s) is { TypeKind: TypeKind.Struct } shadow && IsUserType(shadow) => IsBlittable(shadow),
         _ => false,
     };
 

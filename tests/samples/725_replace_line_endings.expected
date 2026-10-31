@@ -1,0 +1,15 @@
+[] [] 
+True
+[plain] [plain] plain
+True
+[a|b|c|d] [abcd] a<NL>b<NL>c<NL>d
+False
+[||] [] <NL><NL>
+False
+[x|y|z|w|v] [xyzwv] x<NL>y<NL>z<NL>w<NL>v
+False
+[||] [] <NL><NL>
+False
+[tab	verticalkept] [tab	verticalkept] tab	verticalkept
+True
+replacementText

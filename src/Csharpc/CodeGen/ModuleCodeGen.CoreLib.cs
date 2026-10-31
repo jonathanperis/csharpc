@@ -28,10 +28,16 @@ public sealed partial class ModuleCodeGen
     private readonly Dictionary<INamedTypeSymbol, LLVMValueRef> _arraySlotTables = new(SymbolEqualityComparer.Default);
     private readonly Dictionary<INamedTypeSymbol, LLVMValueRef> _stringSlotTables = new(SymbolEqualityComparer.Default);
 
+    /// <summary>_arrayInterfaces in the order they were requested, so array maps are extended incrementally.</summary>
+    private readonly List<INamedTypeSymbol> _arrayInterfaceOrder = [];
+
     private sealed record TaggedArray(string Name, ITypeSymbol ElementType, LLVMValueRef Global)
     {
         public int InterfaceCount { get; set; }
         public LLVMValueRef Element { get; set; } // csrt_ArrayMethodTable.element
+        /// <summary>The requested interfaces this array implements, and how many of _arrayInterfaceOrder were tested.</summary>
+        public List<INamedTypeSymbol> Implemented { get; } = [];
+        public int InterfacesTested { get; set; }
     }
 
     private readonly List<TaggedArray> _taggedArrays = [];
@@ -61,6 +67,7 @@ public sealed partial class ModuleCodeGen
             if ((i.IsGenericType ? !TypeSubstitution.IsOpen(i) : IsNonGenericArrayInterface(i))
                 && _arrayInterfaces.Add(i))
             {
+                _arrayInterfaceOrder.Add(i);
                 _pendingBuiltinInterfaces.Enqueue(i);
                 if (s_whyLowered is not null) Console.Error.WriteLine($"array interface {i.ToDisplayString()} (as {itf.ToDisplayString()}) by {_currentCaller?.ToDisplayString() ?? _whyContext}");
             }
@@ -108,9 +115,13 @@ public sealed partial class ModuleCodeGen
         for (var a = 0; a < _taggedArrays.Count; a++)
         {
             var array = _taggedArrays[a];
-            var interfaces = _arrayInterfaces.Where(i => ArrayImplements(array.ElementType, i))
-                .OrderBy(i => i.ToDisplayString(), StringComparer.Ordinal).ToList();
-            if (interfaces.Count == array.InterfaceCount) continue; // the set only grows
+            // Both the arrays and the requested interfaces only grow: test each pair once (every round used to
+            // retest all of them, ~100 s of a Roslyn-sized program's lowering).
+            for (; array.InterfacesTested < _arrayInterfaceOrder.Count; array.InterfacesTested++)
+                if (ArrayImplements(array.ElementType, _arrayInterfaceOrder[array.InterfacesTested]))
+                    array.Implemented.Add(_arrayInterfaceOrder[array.InterfacesTested]);
+            if (array.Implemented.Count == array.InterfaceCount) continue;
+            var interfaces = array.Implemented.OrderBy(i => i.ToDisplayString(), StringComparer.Ordinal).ToList();
             changed = true;
             var entryType = Llvm.Struct(Llvm.Ptr, Llvm.Ptr);
             var entries = interfaces.Select(i => LlvmContext.ConstNamedStruct(entryType, InterfaceMethodTable(i), ArraySlotTable(i, array))).ToArray();

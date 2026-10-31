@@ -147,6 +147,10 @@ public sealed partial class FunctionCodeGen
             "IsCoroutineIterator" => CallRuntime("csrt_is_iterator", L.I1, [L.Ptr], args[0]),
             "RuntimeConfig" => _m.AppContextBlob(),
             "LoadableAssemblies" => _m.LoadableAssembliesBlob(),
+            "ManifestResourceIndex" => _m.ManifestResourceIndex(),
+            "ModuleVersionIds" => _m.ModuleVersionIdsBlob(),
+            "AssemblyReferences" => _m.AssemblyReferencesBlob(),
+            "ManifestResourceData" => _m.ManifestResourceData(),
             // The shared framework the program was compiled against ("11.0.0-rc.2.26504.105"), as NativeAOT
             // bakes in its System.Private.CoreLib's version.
             "TargetArchitecture" => L.ConstInt(L.I32, _m.Types.Target.Triple.StartsWith("x86_64") ? 1 : _m.Types.Target.Triple.StartsWith("wasm32") ? 5
@@ -381,9 +385,18 @@ public sealed partial class FunctionCodeGen
         _b.PositionAtEnd(NewBlock("after.throw"));
     }
 
+    private static bool IsPointerElement(ITypeSymbol t) => t is IPointerTypeSymbol or IFunctionPointerTypeSymbol;
+
+    /// <summary>
+    /// Arrays of pointers (byte*[]) reach the corelib's generic array helpers through IList, GetValue and
+    /// Array.Copy into object[]; .NET can't box their elements either and throws this exception.
+    /// </summary>
+    private void PointerElementNotSupported() => ThrowAndContinue("System.NotSupportedException", "Specified type is not supported");
+
     /// <summary>(object)value for any T; value types without a boxed representation yet throw at run time only.</summary>
     private LLVMValueRef BoxOrThrow(ITypeSymbol t, LLVMValueRef value, IOperation at)
     {
+        if (IsPointerElement(t)) { PointerElementNotSupported(); return LlvmContext.Null(L.Ptr); }
         if (!t.IsValueType) return value;
         try { return Box(value, t, at); }
         catch (CompileError)
@@ -435,6 +448,7 @@ public sealed partial class FunctionCodeGen
     /// <summary>(T)obj with a checked cast; types csharpc can't type-test yet throw at run time only.</summary>
     private LLVMValueRef CastOrThrow(ITypeSymbol t, LLVMValueRef obj, IOperation at)
     {
+        if (IsPointerElement(t)) { PointerElementNotSupported(); return LlvmContext.Null(T.Value(t)); }
         if (t.IsValueType) return UnboxOrThrow(t, obj, at);
         try { return CastClass(obj, t, at); }
         catch (CompileError)
@@ -446,6 +460,7 @@ public sealed partial class FunctionCodeGen
 
     private LLVMValueRef UnboxOrThrow(ITypeSymbol t, LLVMValueRef obj, IOperation at)
     {
+        if (IsPointerElement(t)) { PointerElementNotSupported(); return LlvmContext.Null(T.Value(t)); }
         if (!t.IsValueType) return obj; // reference types: the corelib only uses this where the type is known
         try
         {
@@ -541,6 +556,13 @@ public sealed partial class FunctionCodeGen
         if (t.SpecialType == SpecialType.System_String)
             return CallRuntime("csrt_string_equals", L.I1, [L.Ptr, L.Ptr], a, b);
         if (TypeMapper.IsMemory(t)) return MemoryEquals(a, b);
+        // Pointers (a struct's byte* field in ValueType.Equals): equal when the addresses are.
+        if (IsPointerElement(t)) return _b.ICmp(LLVMIntPredicate.EQ, a, b);
+        // Index is its encoded int, Range two of them (TypeMapper): equal when the encodings are.
+        if (IsIndexType(t)) return _b.ICmp(LLVMIntPredicate.EQ, a, b);
+        if (IsRangeType(t))
+            return _b.BinOp(LLVMOpcode.And, _b.ICmp(LLVMIntPredicate.EQ, _b.ExtractValue(a, 0), _b.ExtractValue(b, 0)),
+                _b.ICmp(LLVMIntPredicate.EQ, _b.ExtractValue(a, 1), _b.ExtractValue(b, 1)));
         if (t is INamedTypeSymbol { IsTupleType: true } tuple)
         {
             // ValueTuple.Equals: Item1 && Item2 && ... — short-circuit once an element's Equals may run user code.
@@ -641,6 +663,18 @@ public sealed partial class FunctionCodeGen
                     () => CallRuntime("csrt_string_get_hash_code", i32, [L.Ptr], a));
         }
         if (TypeMapper.IsMemory(t)) return MemoryHash(a);
+        // A pointer hashes as its address, like nint (SRM's MemoryBlock { byte* _pointer; int Length }).
+        if (IsPointerElement(t))
+        {
+            var address = _b.Cast(LLVMOpcode.PtrToInt, a, L.I64);
+            return _b.BinOp(LLVMOpcode.Xor, _b.Cast(LLVMOpcode.Trunc, address, i32),
+                _b.Cast(LLVMOpcode.Trunc, _b.BinOp(LLVMOpcode.LShr, address, L.ConstInt(L.I64, 32)), i32));
+        }
+        // Index.GetHashCode is its encoded value; Range's is HashCode.Combine of the two (seeded per process
+        // in .NET, so no program can depend on the number): any mix of both encodings will do.
+        if (IsIndexType(t)) return a;
+        if (IsRangeType(t))
+            return _b.BinOp(LLVMOpcode.Add, _b.BinOp(LLVMOpcode.Mul, _b.ExtractValue(a, 0), L.ConstInt(i32, 31)), _b.ExtractValue(a, 1));
         if (t is INamedTypeSymbol { IsTupleType: true } tuple)
         {
             LLVMValueRef h = L.ConstInt(i32, 17);

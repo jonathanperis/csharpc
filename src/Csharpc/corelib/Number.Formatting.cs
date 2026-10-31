@@ -1251,7 +1251,7 @@ namespace CsharpcCoreLib
         }
 
         // .NET's ThrowHelper.ThrowFormatInvalidString(offset, reason).
-        private static void ThrowInvalidComposite(int offset, string reason) =>
+        internal static void ThrowInvalidComposite(int offset, string reason) =>
             throw new FormatException("Input string was not in a correct format. Failure to parse near offset " +
                 Int32ToDecStr(offset) + ". " + reason);
 
@@ -1265,6 +1265,8 @@ namespace CsharpcCoreLib
             if (pos >= format.Length) ThrowInvalidComposite(pos, UnclosedFormatItem);
             return format[pos];
         }
+
+        internal static char CompositeMoveNext(string format, ref int pos) => MoveNext(format, ref pos);
 
         /// <summary>
         /// string.Format(format, args): "{index[,alignment][:format]}" with "{{" / "}}" escapes. Mirrors

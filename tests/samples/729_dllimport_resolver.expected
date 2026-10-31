@@ -1,0 +1,8 @@
+abs(-5) = 5, labs = 7
+EntryPointNotFoundException: Unable to find an entry point named 'csharpc_no_such_function' in shared library 'alias-of-libc'.
+InvalidOperationException: the resolver refused failing-library
+DllNotFoundException
+A resolver is already set for the assembly.
+assembly
+resolver
+alias-of-libc True null | alias-of-libc True null | failing-library True null | csharpc-no-such-library True null

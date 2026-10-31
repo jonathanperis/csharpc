@@ -160,6 +160,19 @@ public sealed class TypeSubstitution
                     ? named.OriginalDefinition.Construct(args)
                     : named;
             }
+            // A type nested in a generic one (ImmutableArray<(int a, int b)>.Enumerator): the names live in the
+            // container's arguments, so erase the container and take the same member of the erased one —
+            // otherwise the two spellings get distinct struct layouts and values of one can't flow into the other.
+            case INamedTypeSymbol { ContainingType.IsGenericType: true } nested:
+            {
+                var container = EraseTupleNames(nested.ContainingType, compilation);
+                var own = nested.TypeArguments.Select(a => EraseTupleNames(a, compilation)).ToArray();
+                bool ownChanged = own.Where((a, i) => !ReferenceEquals(a, nested.TypeArguments[i])).Any();
+                if (ReferenceEquals(container, nested.ContainingType) && !ownChanged) return nested;
+                var member = container.GetTypeMembers(nested.Name, nested.Arity).FirstOrDefault();
+                if (member is null) return nested;
+                return nested.Arity == 0 ? member : member.Construct(own);
+            }
             default:
                 return type;
         }

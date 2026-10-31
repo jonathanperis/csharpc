@@ -435,6 +435,16 @@ public sealed partial class FunctionCodeGen
             var wide = indexType.SpecialType == SpecialType.System_Int64;
             RunParallel(wide ? from : _b.Cast(LLVMOpcode.SExt, from, L.I64), wide ? to : _b.Cast(LLVMOpcode.SExt, to, L.I64),
                 body, LlvmContext.Null(L.Ptr), ParallelBody(null, wide));
+            // The loop ran to completion (or threw): IsCompleted, as .NET reports it.
+            if (!m.ReturnsVoid) result = CallCoreLib("ParallelForSupport", "Completed");
+            return true;
+        }
+        // With ParallelOptions (a token, a degree of parallelism): corelib/Tasks/ParallelLoops.cs.
+        if (m.Name == "For" && m.Parameters.Length == 4 && m.Parameters[2].Type is INamedTypeSymbol { Name: "ParallelOptions" }
+            && m.Parameters[3].Type is INamedTypeSymbol { Name: "Action", TypeArguments: [{ SpecialType: SpecialType.System_Int32 or SpecialType.System_Int64 } index] })
+        {
+            result = CallCoreLib("ParallelForSupport", index.SpecialType == SpecialType.System_Int64 ? "For64" : "For",
+                TArg(inv, 0), TArg(inv, 1), TArg(inv, 2), TArg(inv, 3));
             return true;
         }
         if (m.Name == "ForEach" && m.Parameters.Length == 2 && m.Parameters[1].Type is INamedTypeSymbol { Name: "Action", TypeArguments.Length: 1 })
@@ -447,6 +457,7 @@ public sealed partial class FunctionCodeGen
                 if (m.TypeArguments.Length != 1) return false;
                 var overSource = m.Parameters[0].Type is INamedTypeSymbol { Name: "Partitioner" or "OrderablePartitioner" } ? "ForEachPartitioner" : "ForEach";
                 CallCoreLibGenericMethod("ParallelForEachSupport", overSource, [S(m.TypeArguments[0])], TArg(inv, 0), TArg(inv, 1));
+                if (!m.ReturnsVoid) result = CallCoreLib("ParallelForSupport", "Completed");
                 return true;
             }
             var array = EmitValue(source);
@@ -455,6 +466,15 @@ public sealed partial class FunctionCodeGen
             NullCheck(body);
             var length = LoadArrayLength(array);
             RunParallel(L.ConstInt(L.I64, 0), length, body, array, ParallelBody(S(arrayType.ElementType), false));
+            if (!m.ReturnsVoid) result = CallCoreLib("ParallelForSupport", "Completed");
+            return true;
+        }
+        // ForEach(IEnumerable<T>, ParallelOptions, Action<T>): corelib/Tasks/ParallelForEach.cs.
+        if (m.Name == "ForEach" && m.Parameters.Length == 3 && m.TypeArguments.Length == 1
+            && m.Parameters[0].Type is INamedTypeSymbol { Name: "IEnumerable" } && m.Parameters[1].Type is INamedTypeSymbol { Name: "ParallelOptions" }
+            && m.Parameters[2].Type is INamedTypeSymbol { Name: "Action", TypeArguments.Length: 1 })
+        {
+            result = CallCoreLibGenericMethod("ParallelForEachSupport", "ForEachOptions", [S(m.TypeArguments[0])], TArg(inv, 0), TArg(inv, 1), TArg(inv, 2));
             return true;
         }
         return false;

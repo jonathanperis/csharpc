@@ -84,6 +84,12 @@ public sealed class LlvmContext : IDisposable
     public static LLVMValueRef ConstArray(LLVMTypeRef element, params LLVMValueRef[] values) =>
         LLVMConstArray2(element, values, (ulong)values.Length);
 
+    /// <summary>An [N x i8] constant of raw bytes (no terminator).</summary>
+    public unsafe LLVMValueRef ConstBytes(byte[] bytes)
+    {
+        fixed (byte* p = bytes) return LLVMConstStringInContext(Ref, p, (uint)bytes.Length, 1);
+    }
+
     public unsafe LLVMValueRef ConstCString(string text)
     {
         var bytes = Encoding.UTF8.GetBytes(text);
@@ -159,6 +165,14 @@ public sealed class LlvmModule(LlvmContext context, string name) : IDisposable
     }
 
     public string PrintToString() => TakeMessage(LLVMPrintModuleToString(Ref)) ?? "";
+
+    /// <summary>The module as text, written by LLVM straight to a file (a whole program's IR reaches gigabytes, too big for a string).</summary>
+    public bool PrintToFile(string path)
+    {
+        var failed = LLVMPrintModuleToFile(Ref, path, out var message) != 0;
+        TakeMessage(message);
+        return !failed;
+    }
 
     public bool Verify(out string? error)
     {

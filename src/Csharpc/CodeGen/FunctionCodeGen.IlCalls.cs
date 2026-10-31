@@ -408,6 +408,9 @@ public sealed partial class FunctionCodeGen
             }
             case ("System.Type", "GetTypeFromHandle") when args is [{ Kind: IlKind.Token, Symbol: ITypeSymbol type }]:
                 return new IlEntry(IlKind.Ref, TypeObject(S(type), IlAt()), method.ReturnType) { NonNull = true, Symbol = S(type) };
+            // typeof(X).GetTypeInfo() is the Type object itself: X stays known for the reflection that follows.
+            case ("System.Reflection.IntrospectionExtensions", "GetTypeInfo") when args is [{ Kind: IlKind.Ref, NonNull: true, Symbol: ITypeSymbol known } typeObject]:
+                return new IlEntry(IlKind.Ref, IlRef(typeObject), method.ReturnType) { NonNull = true, Symbol = known };
             // `d.Target as SomeDelegate` (System.Linq.Expressions' CallInstruction.TryGetLightLambdaTarget): csharpc's
             // closure objects aren't .NET's display classes (Delegate.Target refuses them), but neither is a
             // delegate, so a test for a delegate type answers the same with the raw target.

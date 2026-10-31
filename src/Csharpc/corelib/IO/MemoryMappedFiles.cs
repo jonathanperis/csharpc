@@ -110,50 +110,79 @@ namespace CsharpcCoreLib
         }
     }
 
-    /// <summary>SafeBuffer: a pointer to unmanaged memory with an acquire/release discipline.</summary>
+    /// <summary>
+    /// SafeBuffer (ported from dotnet/runtime's SafeBuffer.cs): a SafeHandle over unmanaged memory of a length
+    /// set by Initialize; AcquirePointer/ReleasePointer add and release a reference. Libraries compiled from
+    /// IL derive from it (System.Text.Encoding.CodePages' SafeAllocHHandle).
+    /// </summary>
     [Shadows("System.Runtime.InteropServices.SafeBuffer")]
-    public abstract unsafe class SafeBufferImpl : IDisposable
+    public abstract unsafe class SafeBufferImpl : SafeHandleZeroOrMinusOneIsInvalidImpl
     {
-        internal byte* _pointer;
-        internal ulong _byteLength;
-        private bool _closed;
+        private static nuint Uninitialized => unchecked((nuint)(-1)); // nuint.MaxValue
+        private nuint _numBytes;
 
-        public bool IsClosed => _closed;
-        public ulong ByteLength => _byteLength;
+        protected SafeBufferImpl(bool ownsHandle) : base(ownsHandle) { _numBytes = Uninitialized; }
+
+        public void Initialize(ulong numBytes)
+        {
+            if (IntPtr.Size == 4 && numBytes > uint.MaxValue)
+                throw new ArgumentOutOfRangeException("numBytes", "The number of bytes cannot exceed the virtual address space on a 32 bit machine.");
+            if (numBytes >= (ulong)Uninitialized)
+                throw new ArgumentOutOfRangeException("numBytes", "The length of the buffer must be less than the maximum value for UIntPtr.");
+            _numBytes = (nuint)numBytes;
+        }
+
+        public void Initialize(uint numElements, uint sizeOfEachElement)
+        {
+            ulong total = (ulong)numElements * sizeOfEachElement;
+            if (IntPtr.Size == 4 && total > uint.MaxValue)
+                throw new ArgumentOutOfRangeException("numBytes", "The number of bytes cannot exceed the virtual address space on a 32 bit machine.");
+            if (total >= (ulong)Uninitialized)
+                throw new ArgumentOutOfRangeException("numElements", "The length of the buffer must be less than the maximum value for UIntPtr.");
+            _numBytes = (nuint)total;
+        }
 
         public void AcquirePointer(ref byte* pointer)
         {
-            if (_closed) throw new ObjectDisposedException("SafeHandle", "Safe handle has been closed.");
-            pointer = _pointer;
+            if (_numBytes == Uninitialized) throw NotInitialized();
+            pointer = null;
+            bool junk = false;
+            DangerousAddRef(ref junk);
+            pointer = (byte*)handle;
         }
 
-        public void ReleasePointer() { }
-
-        public void Close() => Dispose();
-
-        public void Dispose()
+        public void ReleasePointer()
         {
-            if (_closed) return;
-            _closed = true;
-            ReleaseHandle();
+            if (_numBytes == Uninitialized) throw NotInitialized();
+            DangerousRelease();
         }
 
-        protected abstract bool ReleaseHandle();
+        public ulong ByteLength
+        {
+            get
+            {
+                if (_numBytes == Uninitialized) throw NotInitialized();
+                return _numBytes;
+            }
+        }
+
+        private static InvalidOperationException NotInitialized() =>
+            new InvalidOperationException("You must call Initialize on this object instance before using it.");
     }
 
     [Shadows("Microsoft.Win32.SafeHandles.SafeMemoryMappedViewHandle")]
     public sealed unsafe class SafeMemoryMappedViewHandleImpl : SafeBufferImpl
     {
-        internal SafeMemoryMappedViewHandleImpl(byte* view, long length)
+        internal SafeMemoryMappedViewHandleImpl(byte* view, long length) : base(true)
         {
-            _pointer = view;
-            _byteLength = (ulong)length;
+            SetHandle((IntPtr)view);
+            Initialize((ulong)length);
         }
 
         protected override bool ReleaseHandle()
         {
-            Posix.UnmapView(_pointer, (long)_byteLength);
-            _pointer = null;
+            Posix.UnmapView((byte*)handle, (long)ByteLength);
+            handle = IntPtr.Zero;
             return true;
         }
     }

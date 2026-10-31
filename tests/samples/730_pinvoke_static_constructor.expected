@@ -1,0 +1,11 @@
+main
+Native cctor
+resolve alias-of-libc (call 1)
+3
+Wrapped cctor
+resolve alias-of-libc (call 2)
+4
+Generated cctor
+resolve alias-of-libc (call 3)
+5
+6

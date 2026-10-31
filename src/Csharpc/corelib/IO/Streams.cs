@@ -931,6 +931,7 @@ namespace CsharpcCoreLib
         private byte[] _buffer;
         private int _origin, _position, _length, _capacity;
         private readonly bool _expandable, _writable;
+        private readonly bool _exposable; // TryGetBuffer may hand out the array (.NET's _exposable)
         private bool _disposed;
 
         public MemoryStreamImpl() : this(0) { }
@@ -942,6 +943,7 @@ namespace CsharpcCoreLib
             _capacity = capacity;
             _expandable = true;
             _writable = true;
+            _exposable = true;
         }
 
         public MemoryStreamImpl(byte[] buffer) : this(buffer, true) { }
@@ -963,6 +965,22 @@ namespace CsharpcCoreLib
             _origin = _position = index;
             _length = _capacity = index + count;
             _writable = writable;
+        }
+
+        public MemoryStreamImpl(byte[] buffer, int index, int count, bool writable, bool publiclyVisible) : this(buffer, index, count, writable)
+        {
+            _exposable = publiclyVisible;
+        }
+
+        public virtual bool TryGetBuffer(out ArraySegment<byte> buffer)
+        {
+            if (!_exposable)
+            {
+                buffer = default;
+                return false;
+            }
+            buffer = new ArraySegment<byte>(_buffer, _origin, _length - _origin);
+            return true;
         }
 
         public override bool CanRead => !_disposed;
@@ -1307,6 +1325,18 @@ namespace CsharpcCoreLib
         public virtual ulong ReadUInt64() => *(ulong*)Fill(8);
         public virtual float ReadSingle() => *(float*)Fill(4);
         public virtual double ReadDouble() => *(double*)Fill(8);
+
+        public virtual int Read(byte[] buffer, int index, int count)
+        {
+            if (buffer == null) throw new ArgumentNullException("buffer");
+            ThrowHelper.IfNegative(index, "index");
+            ThrowHelper.IfNegative(count, "count");
+            if (buffer.Length - index < count)
+                throw new ArgumentException("Offset and length were out of bounds for the array or count is greater than the number of elements from index to the end of the source collection.");
+            return _stream.Read(buffer, index, count);
+        }
+
+        public virtual int Read(Span<byte> buffer) => _stream.Read(buffer);
 
         public virtual byte[] ReadBytes(int count)
         {

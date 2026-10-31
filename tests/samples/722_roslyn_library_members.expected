@@ -1,0 +1,50 @@
+for: True null True
+for long: 145
+empty: True
+no options: True
+canceled: OperationCanceledException The operation was canceled. True
+aggregate: 1 three
+degree: MaxDegreeOfParallelism
+null options: parallelOptions
+defaults: -1 False False
+counts: [a, 3],[b, 2],[c, 11],[d, 0] existed False
+grown: True 0 4
+wrapped: False True
+visible: True 2 4
+read: 3 0 9 8 7 0 0 2 6
+read bounds: ArgumentException
+read negative: index ('-1') must be a non-negative value. (Parameter 'index')
+Actual value was -1.
+reverse: 513 -257 127 513 -257 127
+reverse uint: 0x44332211
+short destination: Not enough space available in the buffer. (Parameter 'destination')
+bigmul: FFFFFFFFFFFFFFFD 0000000000000002 -3 -9223372036854775803
+bytes 0: 00
+bytes 1: 01
+bytes -1: FF
+bytes 127: 7F
+bytes 128: 8000
+bytes 255: FF00
+bytes 256: 0001
+bytes -128: 80
+bytes -129: 7FFF
+bytes -256: 00FF
+bytes 18446744073709551616: 000000000000000001
+bytes -4294967296: 00000000FF
+bytes -123456789012345678901234567890: 2EF5C0B1111F8C3C09F01671FE
+parse '123' None: True 123
+parse ' 45 ' None: False 0
+parse ' -45 ' Integer: True -45
+parse '+7' AllowLeadingSign: True 7
+parse '-7' None: False 0
+parse '' Integer: False 0
+parse '99999999999999999999' None: True 99999999999999999999
+1-2.50-x-y
+chunk 'hi there' 8
+chunks 1, content True 140
+provider: utf-8 utf-16 utf-8 DecoderExceptionFallback
+No data is available for encoding 1235. For information on defining a custom encoding, see the documentation for the Encoding.RegisterProvider method.
+null provider: provider
+ranges: a b False indexes 2 True
+generic parameters: TKey,TValue []
+3 null True Blue 1.5

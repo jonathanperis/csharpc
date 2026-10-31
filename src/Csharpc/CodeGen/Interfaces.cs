@@ -48,6 +48,25 @@ public sealed partial class ModuleCodeGen
         return _interfaceTables[itf] = g;
     }
 
+    private readonly HashSet<INamedTypeSymbol> _interfaceBasesListed = new(SymbolEqualityComparer.Default);
+
+    /// <summary>
+    /// An interface that is a type argument of a variant interface (IEnumerable&lt;IDerived&gt; tested as
+    /// IEnumerable&lt;IBase&gt;) registers its base interfaces (all of them) at startup, so the runtime's variance
+    /// check sees IDerived : IBase (csrt.c argument_assignable). A side table: interface method tables'
+    /// own fields already hold their string and array slot tables (RefreshInterfaceTable).
+    /// </summary>
+    internal void RegisterInterfaceBases(IrBuilder b, INamedTypeSymbol itf)
+    {
+        itf = (INamedTypeSymbol)CoreLib.Unmap(TypeSubstitution.EraseTupleNames(itf, Compilation));
+        if (itf.AllInterfaces.IsEmpty || !_interfaceBasesListed.Add(itf)) return;
+        var bases = itf.AllInterfaces.Select(InterfaceMethodTable).ToArray();
+        var listInit = LlvmContext.ConstArray(Llvm.Ptr, bases);
+        var list = Module.AddGlobal(Mangler.TypeSymbol(itf, "IBASES"), Native.LLVMTypeOf(listInit), listInit, constant: true, linkage: LLVMLinkage.Internal);
+        var register = Runtime("csrt_register_interface_bases", Llvm.Void, Llvm.Ptr, Llvm.Ptr, Llvm.I32);
+        b.Call(register.Type, register.Fn, [InterfaceMethodTable(itf), list, Llvm.ConstInt(Llvm.I32, bases.Length)]);
+    }
+
     /// <summary>Dispatchable members of one interface (not inherited ones), in slot order.</summary>
     public static List<IMethodSymbol> InterfaceSlots(INamedTypeSymbol itf) =>
         // Generic interface methods (generic virtual methods) have no slots: they'd need one per instantiation.

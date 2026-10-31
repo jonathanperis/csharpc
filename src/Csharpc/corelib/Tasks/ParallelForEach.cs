@@ -30,11 +30,32 @@ namespace CsharpcCoreLib
             Run(partitions, body);
         }
 
-        private static void Run<T>(IEnumerable<T> partitions, Action<T> body)
+        /// <summary>
+        /// ForEach(source, ParallelOptions, body): at most MaxDegreeOfParallelism workers; a token canceled before
+        /// the loop throws at once, one canceled while it runs stops new iterations and ends in
+        /// OperationCanceledException (corelib/Tasks/ParallelLoops.cs has the same rules for For).
+        /// </summary>
+        public static ParallelLoopResultImpl ForEachOptions<T>(IEnumerable<T> source, ParallelOptions parallelOptions, Action<T> body)
+        {
+            if (source == null) throw new ArgumentNullException("source");
+            if (body == null) throw new ArgumentNullException("body");
+            if (parallelOptions == null) throw new ArgumentNullException("parallelOptions");
+            CancellationToken token = parallelOptions.CancellationToken;
+            token.ThrowIfCancellationRequested();
+            int degree = parallelOptions.MaxDegreeOfParallelism == -1 ? Math.Max(1, Environment.ProcessorCount) : parallelOptions.MaxDegreeOfParallelism;
+            Run(Partitioner.Create(source).GetDynamicPartitions(), body, degree, token);
+            token.ThrowIfCancellationRequested();
+            return ParallelForSupport.Completed();
+        }
+
+        private static void Run<T>(IEnumerable<T> partitions, Action<T> body) =>
+            Run(partitions, body, Math.Max(1, Environment.ProcessorCount), CancellationToken.None);
+
+        private static void Run<T>(IEnumerable<T> partitions, Action<T> body, int degree, CancellationToken token)
         {
             var exceptions = new ConcurrentQueue<Exception>();
             int stop = 0;
-            var workers = new Task[Math.Max(1, Environment.ProcessorCount)];
+            var workers = new Task[degree];
             for (int w = 0; w < workers.Length; w++)
             {
                 workers[w] = Task.Run(() =>
@@ -44,7 +65,7 @@ namespace CsharpcCoreLib
                     catch (Exception e) { exceptions.Enqueue(e); Volatile.Write(ref stop, 1); return; }
                     using (partition)
                     {
-                        while (Volatile.Read(ref stop) == 0)
+                        while (Volatile.Read(ref stop) == 0 && !token.IsCancellationRequested)
                         {
                             try
                             {

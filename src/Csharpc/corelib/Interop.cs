@@ -23,6 +23,7 @@ namespace CsharpcCoreLib
         [DllImport("__Internal")] public static extern void csrt_set_last_system_error(int error);
         [DllImport("__Internal")] public static extern void* csrt_pinvoke_load_library(byte* name, byte throwOnError);
         [DllImport("__Internal")] public static extern void* csrt_native_library_get_export(void* handle, byte* entry, byte throwOnError);
+        [DllImport("__Internal")] public static extern void* csrt_pinvoke_resolve(byte* library, byte* entry);
 
         public static void* Alloc(nuint size)
         {
@@ -167,6 +168,46 @@ namespace CsharpcCoreLib
         public static int GetLastSystemError() => Libc.csrt_get_last_system_error();
         public static void SetLastSystemError(int error) => Libc.csrt_set_last_system_error(error);
         public static string GetLastPInvokeErrorMessage() => GetPInvokeErrorMessage(GetLastPInvokeError());
+
+        /// <summary>The last P/Invoke error as an HRESULT: negative values already are one, others become FACILITY_WIN32.</summary>
+        public static int GetHRForLastWin32Error()
+        {
+            int error = GetLastPInvokeError();
+            return (error & 0x80000000) == 0x80000000 ? error : (error & 0x0000FFFF) | unchecked((int)0x80070000);
+        }
+
+        // Success codes return; a failure HRESULT maps to an exception type through CoreCLR's table, which
+        // csharpc doesn't have: an explicit NotSupportedException rather than a guessed exception type.
+        public static void ThrowExceptionForHR(int errorCode)
+        {
+            if (errorCode < 0) ThrowForFailedHR(errorCode);
+        }
+
+        public static void ThrowExceptionForHR(int errorCode, IntPtr errorInfo)
+        {
+            if (errorCode < 0) ThrowForFailedHR(errorCode);
+        }
+
+        private static void ThrowForFailedHR(int errorCode) =>
+            throw new NotSupportedException("Marshal.ThrowExceptionForHR(0x" + errorCode.ToString("X8") + ") is not supported by csharpc yet (no HRESULT-to-exception table).");
+
+#if !CSHARPC_TARGET_WINDOWS
+        // Built-in COM exists only on Windows: elsewhere .NET finds no class for a CLSID and refuses variants.
+        // (Roslyn's DiaSymReader reaches these on its Windows-PDB path.)
+        public static Type GetTypeFromCLSID(Guid clsid) => null;
+
+        public static void GetNativeVariantForObject(object obj, IntPtr pDstNativeVariant) =>
+            throw new PlatformNotSupportedException("COM Interop is not supported on this platform.");
+
+        public static void GetNativeVariantForObject<T>(T obj, IntPtr pDstNativeVariant) =>
+            throw new PlatformNotSupportedException("COM Interop is not supported on this platform.");
+#else
+        // Windows has built-in COM, which csharpc (like NativeAOT) doesn't implement: explicit, at run time.
+        public static Type GetTypeFromCLSID(Guid clsid) => throw BuiltInComNotSupported();
+        public static void GetNativeVariantForObject(object obj, IntPtr pDstNativeVariant) => throw BuiltInComNotSupported();
+        public static void GetNativeVariantForObject<T>(T obj, IntPtr pDstNativeVariant) => throw BuiltInComNotSupported();
+        private static NotSupportedException BuiltInComNotSupported() => new NotSupportedException("Built-in COM interop is not supported by csharpc yet.");
+#endif
 
         /// <summary>Marshal.InitHandle: a SafeHandle created by marshalling code takes the native handle.</summary>
         public static void InitHandle(SafeHandle safeHandle, IntPtr handle) => ((SafeHandleImpl)(object)safeHandle).SetHandle(handle);
@@ -402,6 +443,67 @@ namespace CsharpcCoreLib
         }
 
         public static void Free(IntPtr handle) { }
+
+        // ---- NativeLibrary.SetDllImportResolver (ModuleCodeGen.PInvoke.cs: csharpc.pinvoke.resolve) ----
+        private static readonly object s_resolverLock = new object();
+        private static string[] s_resolverAssemblies = new string[0];
+        private static DllImportResolver[] s_resolvers = new DllImportResolver[0];
+
+        /// <summary>The resolver P/Invokes declared in <paramref name="assembly"/> ask first; one per assembly, as in .NET.</summary>
+        public static void SetDllImportResolver(System.Reflection.Assembly assembly, DllImportResolver resolver)
+        {
+            ArgumentNullException.ThrowIfNull(assembly);
+            ArgumentNullException.ThrowIfNull(resolver);
+            string name = AssemblyImpl.NameOf(assembly);
+            lock (s_resolverLock)
+            {
+                if (Array.IndexOf(s_resolverAssemblies, name) >= 0) throw new InvalidOperationException("A resolver is already set for the assembly.");
+                var assemblies = new string[s_resolverAssemblies.Length + 1];
+                var resolvers = new DllImportResolver[s_resolvers.Length + 1];
+                Array.Copy(s_resolverAssemblies, assemblies, s_resolverAssemblies.Length);
+                Array.Copy(s_resolvers, resolvers, s_resolvers.Length);
+                assemblies[^1] = name;
+                resolvers[^1] = resolver;
+                s_resolverAssemblies = assemblies;
+                s_resolvers = resolvers;
+            }
+        }
+
+        /// <summary>
+        /// A lazily bound P/Invoke's target: the declaring assembly's resolver gets the library name first; a
+        /// handle it returns is searched for the entry point, otherwise the default probing runs
+        /// (csrt_pinvoke_resolve). A resolver's exception propagates to the P/Invoke's caller.
+        /// </summary>
+        internal static void* ResolveImport(byte* library, byte* entry, byte* assembly)
+        {
+            if (assembly != null)
+            {
+                string assemblyName = Utf8.FromNative(assembly);
+                DllImportResolver resolver = null;
+                string[] assemblies = s_resolverAssemblies;
+                for (int i = 0; i < assemblies.Length; i++)
+                    if (assemblies[i] == assemblyName) resolver = s_resolvers[i];
+                if (resolver != null)
+                {
+                    string libraryName = Utf8.FromNative(library);
+                    IntPtr handle = resolver(libraryName, AssemblyImpl.ForName(assemblyName), null);
+                    if (handle != IntPtr.Zero)
+                    {
+                        void* symbol = Libc.csrt_native_library_get_export((void*)handle, entry, 0);
+                        if (symbol == null)
+                            throw new EntryPointNotFoundException("Unable to find an entry point named '" + Utf8.FromNative(entry) + "' in "
+#if CSHARPC_TARGET_WINDOWS
+                                + "DLL '"
+#else
+                                + "shared library '"
+#endif
+                                + libraryName + "'.");
+                        return symbol;
+                    }
+                }
+            }
+            return Libc.csrt_pinvoke_resolve(library, entry);
+        }
     }
 
 #pragma warning disable CS8500 // blittable element types only (what the generator uses these for)

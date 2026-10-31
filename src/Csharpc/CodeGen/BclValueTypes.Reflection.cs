@@ -34,6 +34,8 @@ internal static partial class BclValueTypes
             (g, _, self, _, _) => TypeResult(g, "csrt_type_declaring", self);
         t[$"{Type}.GetGenericTypeDefinition()"] = (g, _, self, _, _) => TypeResult(g, "csrt_type_generic_definition", self);
         t[$"{Type}.get_UnderlyingSystemType()"] = (g, _, self, _, _) => { g.NullCheck(self); return self; };
+        // Only the runtime's assembly loader sets it (csharpc loads no assemblies at run time): null.
+        t["System.IO.FileNotFoundException.get_FusionLog()"] = (g, _, self, _, _) => { g.NullCheck(self); return LlvmContext.Null(g.Llvm.Ptr); };
         BclHandler arguments(bool constructedOnly) => (g, _, self, _, _) =>
         {
             var array = Rt(g, "csrt_type_generic_arguments", g.Llvm.Ptr, (self, g.Llvm.Ptr), (Table(g), g.Llvm.Ptr),
@@ -72,6 +74,17 @@ internal static partial class BclValueTypes
 
         // Member reflection over compile-time metadata (ModuleCodeGen.Reflection.cs, corelib/Reflection/Members.cs).
         BclHandler core(string method) => (g, _, self, a, _) => g.CallCoreLib("ReflectionRuntime", method, [self, .. a]);
+        t["System.Reflection.TypeInfo.get_GenericTypeParameters()"] = core("GenericTypeParameters");
+        t["System.Reflection.TypeInfo.GetDeclaredMethods(string)"] = core("GetDeclaredMethods");
+        t["System.Reflection.TypeInfo.GetDeclaredMethod(string)"] = core("GetDeclaredMethod");
+        t["System.Reflection.TypeInfo.get_DeclaredConstructors()"] = (g, m, self, a, at) =>
+        {
+            // typeof(X).GetTypeInfo().DeclaredConstructors keeps X's constructors (a property, so the call-site hook doesn't see it).
+            if (at is Microsoft.CodeAnalysis.Operations.IPropertyReferenceOperation
+                { Instance: Microsoft.CodeAnalysis.Operations.IInvocationOperation { TargetMethod.Name: "GetTypeInfo", Arguments: [{ Value: Microsoft.CodeAnalysis.Operations.ITypeOfOperation known }] } })
+                g.Module.MarkDynamicallyAccessed(g.S(known.TypeOperand), ModuleCodeGen.DamConstructors);
+            return core("DeclaredConstructors")(g, m, self, a, at);
+        };
         t[$"{Type}.GetConstructors()"] = core("GetConstructorsAll");
         t[$"{Type}.GetConstructors(System.Reflection.BindingFlags)"] = core("GetConstructorsFlags");
         t[$"{Type}.GetConstructor(System.Type[])"] = core("GetConstructorTypes");

@@ -522,6 +522,37 @@ namespace CsharpcCoreLib
             return ok;
         }
 
+        /// <summary>BigInteger.ToByteArray(): little-endian two's complement in the fewest bytes that keep the sign.</summary>
+        internal static byte[] ToByteArray(uint[] a)
+        {
+            int length = LengthOf(a);
+            if (length == 0) return new byte[] { 0 };
+            bool negative = SignOf(a) < 0;
+            uint[] limbs = new uint[length];
+            uint carry = 1;
+            for (int i = 0; i < length; i++)
+            {
+                uint limb = a[i + 1];
+                if (negative)
+                {
+                    limb = ~limb + carry;
+                    carry = limb == 0 && carry == 1 ? 1u : 0u;
+                }
+                limbs[i] = limb;
+            }
+            byte fill = negative ? (byte)0xFF : (byte)0;
+            int count = length * 4;
+            byte[] bytes = new byte[count + 1];
+            for (int i = 0; i < count; i++) bytes[i] = (byte)(limbs[i / 4] >> (8 * (i % 4)));
+            // Drop sign-only top bytes, keeping one whose high bit carries the sign.
+            while (count > 1 && bytes[count - 1] == fill && ((bytes[count - 2] & 0x80) != 0) == negative) count--;
+            if (((bytes[count - 1] & 0x80) != 0) != negative) bytes[count++] = fill;
+            if (count == bytes.Length) return bytes;
+            byte[] result = new byte[count];
+            Array.Copy(bytes, result, count);
+            return result;
+        }
+
         [RuntimeExport("csrt_bigint_get_hash_code", "csrt_Boxed_BigInteger_MT")]
         internal static int Hash(uint[] a)
         {
@@ -552,6 +583,31 @@ namespace CsharpcCoreLib
             CheckInvariantSymbols(provider);
             return System.Numerics.BigInteger.Parse(value);
         }
+
+        /// <summary>
+        /// TryParse(string, NumberStyles, IFormatProvider, out BigInteger) for the integer styles (None,
+        /// AllowLeadingWhite/TrailingWhite/LeadingSign and their Integer combination); the others (hex,
+        /// thousands, exponents, ...) are an explicit NotSupportedException.
+        /// </summary>
+        internal static bool TryParse(string value, System.Globalization.NumberStyles style, System.IFormatProvider provider, ref uint[] result)
+        {
+            const System.Globalization.NumberStyles Supported = System.Globalization.NumberStyles.Integer;
+            if ((style & ~Supported) != 0)
+                throw new System.NotSupportedException("BigInteger.TryParse with NumberStyles." + style + " is not supported by csharpc yet.");
+            CheckInvariantSymbols(provider);
+            result = null;
+            if (value == null || value.Length == 0) return false;
+            int start = 0, end = value.Length;
+            if ((style & System.Globalization.NumberStyles.AllowLeadingWhite) != 0) while (start < end && IsWhite(value[start])) start++;
+            if ((style & System.Globalization.NumberStyles.AllowTrailingWhite) != 0) while (end > start && IsWhite(value[end - 1])) end--;
+            int digits = start;
+            if ((style & System.Globalization.NumberStyles.AllowLeadingSign) != 0 && digits < end && (value[digits] == '-' || value[digits] == '+')) digits++;
+            if (digits >= end) return false;
+            for (int i = digits; i < end; i++) if (value[i] < '0' || value[i] > '9') return false;
+            return BigIntegerOps.TryParse(value.Substring(start, end - start), ref result);
+        }
+
+        private static bool IsWhite(char c) => c == ' ' || (c >= '\t' && c <= '\r');
 
         public static string Format(System.Numerics.BigInteger value, string format, System.IFormatProvider provider)
         {

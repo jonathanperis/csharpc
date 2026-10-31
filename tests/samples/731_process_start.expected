@@ -1,0 +1,5 @@
+out: [/|out value|] err: [err|] exit 3 exited True
+large: 20000 last line19999 err done
+signal: 137
+missing: 2 True
+not started: No process is associated with this object.

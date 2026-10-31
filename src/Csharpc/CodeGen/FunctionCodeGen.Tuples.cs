@@ -159,9 +159,13 @@ public sealed partial class FunctionCodeGen
                 var format = args.FirstOrDefault(a => a.Parameter!.Name == "format" && a.ArgumentKind != ArgumentKind.DefaultValue);
                 var alignment = args.FirstOrDefault(a => a.Parameter!.Name == "alignment" && a.ArgumentKind != ArgumentKind.DefaultValue);
                 piece = format is not null ? FormatWith(args[0].Value, EmitValue(format.Value)) : ToStringValue(args[0].Value);
+                // Padding is a separate append, before or after the value as in .NET (it decides where chunks split).
                 if (alignment is not null)
-                    piece = CallRuntime("csrt_string_align", L.Ptr, [L.Ptr, L.I32], piece,
+                {
+                    CallRuntime("csrt_sb_append_aligned", L.Ptr, [L.Ptr, L.Ptr, L.I32], sb, piece,
                         Coerce(EmitValue(alignment.Value), TypeOf(alignment.Value), _m.Compilation.GetSpecialType(SpecialType.System_Int32)));
+                    return default(LLVMValueRef);
+                }
             }
             else throw CompileError.Unsupported($"AppendInterpolatedStringHandler.{target.Name}", inv);
             CallRuntime("csrt_sb_append_string", L.Ptr, [L.Ptr, L.Ptr], sb, piece);

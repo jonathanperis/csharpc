@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- M6: a program that hosts Roslyn (consumed as IL from its NuGet package): parse, bind, report
+       diagnostics, emit deterministically in memory and read the result back with System.Reflection.Metadata. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net11.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <InvariantGlobalization>true</InvariantGlobalization>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- The version csharpc itself references (src/Csharpc/Csharpc.csproj). -->
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="5.12.0-1.26504.105" />
+  </ItemGroup>
+</Project>

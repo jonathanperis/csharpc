@@ -6,6 +6,8 @@
 #   tests/projects/il/<Lib>/<Lib>.csproj    libraries: built with `dotnet build -c Release` first; csharpc
 #                                           never sees their sources, only bin/Release/net11.0/<Lib>.dll
 #   tests/projects/il/<App>/expect-error    optional: the app must fail to compile with this diagnostic text
+#   tests/projects/il/<App>/heavy           optional: a compile too big for every CI shard (the Roslyn host, ~6 GB): skipped
+#                                           unless CSHARPC_HEAVY_IL=1; its content, if any, lists the levels (default -O0 -O2)
 #
 # Each app is compiled with `csharpc <App>.csproj` at -O0 and -O2 and must print exactly what
 # `dotnet run` prints (and exit with the same code). One app is also compiled from loose files with -r.
@@ -47,6 +49,12 @@ for proj in "$WORK"/il/*/*.csproj; do
   app="$(basename "$proj" .csproj)"
   dir="$(dirname "$proj")"
   [[ -n "$FILTER" && "$app" != *"$FILTER"* ]] && continue
+  levels="-O0 -O2"
+  if [[ -f "$dir/heavy" ]]; then
+    [[ -n "${CSHARPC_HEAVY_IL:-}" ]] || { echo "SKIP $app (heavy: CSHARPC_HEAVY_IL=1 runs it; .github/workflows/bootstrap.yml)"; continue; }
+    [[ -s "$dir/heavy" ]] && levels="$(cat "$dir/heavy")"
+    levels="${CSHARPC_HEAVY_LEVELS:-$levels}"
+  fi
 
   if [[ -f "$dir/expect-error" ]]; then
     if "$DOTNET" "$CSHARPC_DLL" "$proj" -o "$WORK/out/" > "$WORK/log" 2>&1; then
@@ -61,7 +69,7 @@ for proj in "$WORK"/il/*/*.csproj; do
 
   (cd "$dir" && "$DOTNET" run -v quiet 2>/dev/null) > "$WORK/expected"; expected_code=$?
   rm -rf "$dir/bin" "$dir/obj" # csharpc must not see the managed build
-  for opt in -O0 -O2; do
+  for opt in $levels; do
     if "$DOTNET" "$CSHARPC_DLL" "$proj" "$opt" -o "$WORK/out$opt/" > "$WORK/log" 2>&1; then
       # Run where `dotnet run` runs (apps may read their sibling libraries by relative path).
       (cd "$dir" && "$WORK/out$opt/$app") > "$WORK/actual" 2>&1; code=$?

@@ -16,6 +16,11 @@ namespace CsharpcCoreLib
         {
             if (argument == null) throw new ArgumentNullException(paramName);
         }
+
+        public static unsafe void ThrowIfNull(void* argument, string paramName)
+        {
+            if (argument == null) throw new ArgumentNullException(paramName);
+        }
     }
 
     [ShadowMembers("System.ArgumentException")]
