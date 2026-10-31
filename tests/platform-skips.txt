@@ -97,6 +97,7 @@ wasi 160_pinvoke_dllimport        Linux LP64 signatures (C long as C# long; 32-b
 wasi 176_pinvoke_struct_abi       Linux LP64 signatures: ldiv takes C long, 32-bit on wasm32
 wasi 286_pinvoke_portable_abi     Linux LP64 signatures: ldiv takes C long, 32-bit on wasm32
 wasi 162_pinvoke_libraryimport    prints an errno value (ENOENT is 2 on Linux, 44 in WASI)
+wasi 729_dllimport_resolver        loads a shared library with NativeLibrary.Load: WASI has no dynamic libraries
 wasi 188_datetime_zone_new_york   sets TZ: wasi-libc has no time zone database, local time is UTC
 wasi 189_datetime_zone_lord_howe  sets TZ: wasi-libc has no time zone database, local time is UTC
 wasi 190_datetime_zone_apia       sets TZ: wasi-libc has no time zone database, local time is UTC

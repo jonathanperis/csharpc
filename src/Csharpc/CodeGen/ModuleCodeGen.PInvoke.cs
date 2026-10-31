@@ -207,8 +207,10 @@ public sealed partial class ModuleCodeGen
             var call = b.AppendBlock(stub, "call");
             b.CondBr(b.ICmp(LLVMIntPredicate.EQ, cached, LlvmContext.Null(Llvm.Ptr)), resolve, call);
             b.PositionAtEnd(resolve);
-            var resolver = Runtime("csrt_pinvoke_resolve", Llvm.Ptr, Llvm.Ptr, Llvm.Ptr);
-            var resolved = b.Call(resolver.Type, resolver.Fn, [CString(library), CString(entry)]);
+            var resolver = PInvokeResolveFunction();
+            var declaringAssembly = AssemblyOf(method.ContainingType);
+            var resolved = b.Call(resolver.Type, resolver.Fn,
+                [CString(library), CString(entry), declaringAssembly is null ? LlvmContext.Null(Llvm.Ptr) : CString(declaringAssembly)]);
             b.Store(resolved, cache);
             b.Br(call);
             b.PositionAtEnd(call);
@@ -403,6 +405,47 @@ public sealed partial class ModuleCodeGen
         type.SpecialType != SpecialType.None || type.TypeKind == TypeKind.Enum;
 
     /// <summary>Blittable: primitives (not bool/char), enums, pointers, and structs made only of those.</summary>
+    // ---- lazy P/Invoke binding and NativeLibrary.SetDllImportResolver ----------------------------------
+    //
+    // A lazily bound P/Invoke stub resolves its target through one internal function,
+    // csharpc.pinvoke.resolve(library, entry, declaring assembly), whose body is written last: when the
+    // program reaches NativeLibrary.SetDllImportResolver it calls the corelib's ResolveImport, which asks
+    // the declaring assembly's resolver first (as .NET does, and in managed code, so a resolver's exception
+    // reaches the P/Invoke's caller); otherwise it is csrt_pinvoke_resolve, as before.
+
+    private LoweredFunction? _pinvokeResolve, _pinvokeManagedResolve;
+
+    private LoweredFunction PInvokeResolveFunction()
+    {
+        if (_pinvokeResolve is { } existing) return existing;
+        var type = Llvm.FunctionType(Llvm.Ptr, [Llvm.Ptr, Llvm.Ptr, Llvm.Ptr]);
+        var fn = Module.AddFunction("csharpc.pinvoke.resolve", type);
+        Native.LLVMSetLinkage(fn, LLVMLinkage.Internal);
+        return (_pinvokeResolve = new LoweredFunction(fn, type)).Value;
+    }
+
+    private IMethodSymbol? CoreLibNativeLibraryMethod(string name) =>
+        Compilation.GetTypeByMetadataName(CoreLib.Namespace + ".NativeLibraryImpl")?.GetMembers(name).OfType<IMethodSymbol>().FirstOrDefault();
+
+    /// <summary>A step of the metadata rounds: once SetDllImportResolver is lowered, lower ResolveImport too.</summary>
+    private bool EmitPInvokeResolver()
+    {
+        if (_pinvokeResolve is null || _pinvokeManagedResolve is not null) return false;
+        if (CoreLibNativeLibraryMethod("SetDllImportResolver") is not { } set || !_functions.ContainsKey(set)) return false;
+        _pinvokeManagedResolve = GetFunction(CoreLibNativeLibraryMethod("ResolveImport")!);
+        return true;
+    }
+
+    private void FinishPInvokeResolver()
+    {
+        if (_pinvokeResolve is not { } resolve) return;
+        using var b = new IrBuilder(Llvm);
+        b.PositionAtEnd(b.AppendBlock(resolve.Fn, "entry"));
+        LLVMValueRef[] parameters = [Native.LLVMGetParam(resolve.Fn, 0), Native.LLVMGetParam(resolve.Fn, 1), Native.LLVMGetParam(resolve.Fn, 2)];
+        var target = _pinvokeManagedResolve ?? Runtime("csrt_pinvoke_resolve", Llvm.Ptr, Llvm.Ptr, Llvm.Ptr);
+        b.Ret(b.Call(target.Type, target.Fn, _pinvokeManagedResolve is null ? parameters[..2] : parameters));
+    }
+
     /// <summary>A struct laid out as opaque bytes (ByteOffsetLayout), or holding one: its LLVM type says nothing of
     /// the field classes the C ABI passes it by, so by-value passing would be guessed.</summary>
     private bool IsByteOffsetStruct(INamedTypeSymbol s) =>

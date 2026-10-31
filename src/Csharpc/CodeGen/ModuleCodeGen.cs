@@ -213,6 +213,7 @@ public sealed partial class ModuleCodeGen
             Guard(entryPoint, FinishObjectArrayThunks);
             Timed("finish type metadata", () => Guard(entryPoint, FinishTypeMetadata));
             FinishEventSourceAttributes();
+            FinishPInvokeResolver();
         }
         finally { Timed("IL failure reachability", ReportIlFailures); ReportWhyLowered(); }
         // Every call site is known now: the stack-trace tables main registers.
@@ -235,7 +236,7 @@ public sealed partial class ModuleCodeGen
     private bool EmitMetadataRound() =>
         Timed("runtime exports", EmitRuntimeExports) | Timed("reflection metadata", EmitReflectionMetadata) | Timed("type metadata", EmitTypeMetadata)
         | Timed("box registrations", EmitDeferredBclBoxRegistrations) | Timed("primitive slots", EmitDeferredPrimitiveSlots)
-        | Timed("dynamic sites", EmitDynamicSites) | Timed("object-array thunks", EmitObjectArrayThunks);
+        | Timed("dynamic sites", EmitDynamicSites) | Timed("object-array thunks", EmitObjectArrayThunks) | EmitPInvokeResolver();
 
     /// <summary>Runs a module-level lowering step, adding its time to <see cref="LoweringStats.Steps"/> (csharpc -v).</summary>
     private bool Timed(string step, Func<bool> action)
