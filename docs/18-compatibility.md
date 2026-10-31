@@ -729,10 +729,13 @@ csharpc doesn't build the entry yet (TechEmpower run 41214295059, 2026-10-31). T
   compile, ranked below. Without `--framework` csharpc stops earlier, at the ASP.NET Core assemblies
   "csharpc was not given": the program-as-IL input doesn't take the shared frameworks from
   `Platform.runtimeconfig.json`, which lists them.
-- **Project** (`csharpc Platform.csproj`): two front-end errors, CS0246 `Platform.Templates` and
-  CS0103 `FortunesUtf8`. The fortunes template classes come from the Razor source generator (and
-  RazorSlices' generator adds their `Create` factories); csharpc runs only the SDK's LibraryImport, JSON
-  and its own `[GeneratedRegex]` generators, not the ones a project's SDK and packages bring.
+- **Project** (`csharpc Platform.csproj -c Release -p:PublishAot=true -p:DatabaseProvider=Npgsql`): the
+  C# front-end passes. csharpc runs the source generators the project's build runs (the Razor SDK's, which
+  makes the fortunes template classes, and RazorSlices', which adds their `Create` factories;
+  [16-interop-io.md](16-interop-io.md#libraryimport-and-other-source-generators)), and stops in codegen at
+  51 constructs: the items below, plus the HTML encoding RazorSlices' templates reach
+  (`TextEncoder.Encode`/`EncodeUtf8` over spans and a `TextWriter`, `Utf8.FromUtf16`, and
+  Microsoft.AspNetCore.Razor's `NullHtmlEncoder` overriding `TextEncoder.Encode(TextWriter, char[], int, int)`).
 
 | # | Methods | Item | Where |
 |---:|---:|---|---|

@@ -1,0 +1,20 @@
+<h1>Basket of @Owner</h1>
+<ul class="items">
+    @foreach (var line in Lines)
+    {
+        <li class="@(line.Quantity > 1 ? "many" : "one")" data-sku="@line.Sku">@line.Quantity x @line.Name: @line.Total.ToString("0.00", CultureInfo.InvariantCulture)</li>
+    }
+</ul>
+@if (Lines.Count == 0)
+{
+    <p>Empty &amp; waiting.</p>
+}
+else
+{
+    <p>Total: <b>@Lines.Sum(l => l.Total).ToString("0.00", CultureInfo.InvariantCulture)</b></p>
+}
+
+@code {
+    public string Owner { get; set; } = "";
+    public IReadOnlyList<Line> Lines { get; set; } = [];
+}

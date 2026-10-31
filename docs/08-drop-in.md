@@ -186,8 +186,10 @@ is not, yet. In rough order of impact:
    constraints. The answer is the same as there: trimming-style analysis plus generated metadata
    for what's statically knowable, and diagnostics for the rest.
 5. **Source generators and analyzers.** Analyzers already run in the regular `CoreCompile` and
-   don't affect the native build. Source generators would need to run inside csharpc (Roslyn
-   supports this via `GeneratorDriver`), using the project's `Analyzer` items.
+   don't affect the native build. Source generators run inside csharpc (Roslyn's `GeneratorDriver`)
+   with the inputs csc gets from the project: its analyzers, additional files, analyzer config and
+   features, read from the csc command line of the SDK's `Compile` target
+   ([16-interop-io.md](16-interop-io.md#libraryimport-and-other-source-generators)).
 6. **Platforms.** `--target` passes the triple through, but csrt and the linker step are only
    exercised on Linux x86-64. Windows (COFF, `link.exe`/`lld-link`, `.exe`), macOS (Mach-O) and
    wasm need toolchain work.

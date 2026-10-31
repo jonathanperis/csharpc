@@ -334,8 +334,8 @@ members, `PollingCounter`, `Version(string)`, `string.Normalize`, `decimal.Scale
 `Array.GetValue/SetValue(int[])`, culture string comparers), `MemoryCache` (the `AlternateLookup` struct of
 `ConcurrentDictionary`), RazorSlices' hot-reload and nullability reflection, hosting's `UseStartup` reflection
 (`Activator.CreateInstance(Type, object[])`, `Assembly.DefinedTypes`, assembly attributes), and Kestrel's
-certificate and QUIC paths. The project input stops earlier: csharpc doesn't run the Razor and RazorSlices
-source generators, so the fortunes template classes don't exist. `csharpc Platform.dll` also needs
+certificate and QUIC paths. The project input runs the Razor and RazorSlices source generators like the
+build does, and stops at the same items plus RazorSlices' HTML encoding. `csharpc Platform.dll` also needs
 `--framework Microsoft.AspNetCore.App`: it doesn't take the frameworks from `Platform.runtimeconfig.json`.
 NativeAOT on the entry (ratios to the JIT within each job; runners differ by up to 2× between jobs):
 plaintext 2.46 M / 1.90 M / 1.58 M / 1.31 M req/s at 256 / 1024 / 4096 / 16384 connections (the JIT at 1.00 /
