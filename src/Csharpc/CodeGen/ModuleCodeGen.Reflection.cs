@@ -425,7 +425,7 @@ public sealed partial class ModuleCodeGen
             List<AttributeInstance>? attributes;
             switch (described)
             {
-                case INamedTypeSymbol named when DescribesOwnAttributes(named) && named.OriginalDefinition.Locations.Any(l => l.IsInSource):
+                case INamedTypeSymbol named when DescribesOwnAttributes(named) && IsProgramType(named):
                     key = named;
                     attributes = Decoded(() => TypeAttributeInstances(named.OriginalDefinition));
                     break;
@@ -456,6 +456,10 @@ public sealed partial class ModuleCodeGen
         }
         return any;
     }
+
+    /// <summary>A type of the program's own code: from its sources, or from its assembly when it is given as IL.</summary>
+    private bool IsProgramType(INamedTypeSymbol type) =>
+        type.OriginalDefinition.Locations.Any(l => l.IsInSource) || (MainIl is not null && Il.OwnerOf(type.OriginalDefinition) == MainIl);
 
     private static bool DescribesOwnAttributes(INamedTypeSymbol type) =>
         type.TypeKind is TypeKind.Class or TypeKind.Struct or TypeKind.Interface or TypeKind.Enum or TypeKind.Delegate && !type.IsAnonymousType && !type.IsTupleType;

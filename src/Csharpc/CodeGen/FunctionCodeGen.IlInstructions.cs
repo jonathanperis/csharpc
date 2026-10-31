@@ -226,7 +226,9 @@ public sealed partial class FunctionCodeGen
             case ILOpCode.Rethrow:
             {
                 var clause = IlHandlerOf(block);
-                CallRuntime("csrt_rethrow", L.Void, [L.Ptr], _b.Load(L.Ptr, clause.Slot));
+                _traceSuppressed = true; // the frame is in the trace already (where the exception was caught)
+                try { CallRuntime("csrt_rethrow", L.Void, [L.Ptr], _b.Load(L.Ptr, clause.Slot)); }
+                finally { _traceSuppressed = false; }
                 _b.Unreachable();
                 return true;
             }

@@ -29,7 +29,8 @@ public sealed partial class FunctionCodeGen
     private SyntaxNode? _traceAt;
     /// <summary>While lowering `throw;`: .NET doesn't list the rethrowing frame a second time.</summary>
     private bool _traceSuppressed;
-    private readonly Dictionary<(nint Body, int Site, ControlFlowRegion? Leaving), LLVMBasicBlockRef> _sitePads = [];
+    // Finally regions are ControlFlowRegions in source and IlClauses in IL.
+    private readonly Dictionary<(nint Body, int Site, object? Leaving), LLVMBasicBlockRef> _sitePads = [];
     private readonly Dictionary<nint, SitePadTarget> _sitePadTargets = [];
     private SitePadTarget? _traceResume;
 
@@ -39,8 +40,10 @@ public sealed partial class FunctionCodeGen
     private bool Traced => _traceFrame >= 0;
 
     private static int TraceFrameOf(ModuleCodeGen module, IMethodSymbol? method) =>
-        module.StackTraces is { } traces && method is not null && module.IsUserMethod(method) && module.Il.OwnerOf(method) is null
-            ? traces.FrameOf(method) : -1;
+        module.StackTraces is not { } traces || method is null || !module.IsUserMethod(method) ? -1
+        // The program given as IL (ADR 0010): every method of its assembly is a frame, named from metadata.
+        : module.MainIl is { } main ? (module.Il.OwnerOf(method) == main ? traces.IlFrameOf(method) : -1)
+        : module.Il.OwnerOf(method) is null ? traces.FrameOf(method) : -1;
 
     /// <summary>Calls lowered from the CFG get per-site pads; synthesized scaffolding doesn't.</summary>
     private void EnableTraceHook() => _b.UnwindHook = Traced ? SitePad : null;
@@ -100,15 +103,15 @@ public sealed partial class FunctionCodeGen
         return _sitePads[(target.Body.Handle, site, leaving)] = pad;
     }
 
-    private readonly Dictionary<ControlFlowRegion, LLVMValueRef> _finallyNormal = new(ReferenceEqualityComparer.Instance);
-    private readonly Dictionary<ControlFlowRegion, int> _finallyParentSite = new(ReferenceEqualityComparer.Instance);
+    private readonly Dictionary<object, LLVMValueRef> _finallyNormal = new(ReferenceEqualityComparer.Instance);
+    private readonly Dictionary<object, int> _finallyParentSite = new(ReferenceEqualityComparer.Instance);
 
     /// <summary>Per finally region of a traced function: true while it runs on the normal path (not unwinding).</summary>
-    private LLVMValueRef FinallyNormalFlag(ControlFlowRegion finallyRegion) =>
+    private LLVMValueRef FinallyNormalFlag(object finallyRegion) =>
         _finallyNormal.TryGetValue(finallyRegion, out var flag) ? flag : _finallyNormal[finallyRegion] = _allocas.Alloca(L.I1, "finally.normal");
 
     /// <summary>Records how a finally block was entered (ThroughFinally: normally; Dispatch: unwinding).</summary>
-    private void NoteFinallyEntry(ControlFlowRegion finallyRegion, bool normal)
+    private void NoteFinallyEntry(object finallyRegion, bool normal)
     {
         if (Traced) _b.Store(normal ? L.True : L.False, FinallyNormalFlag(finallyRegion));
     }
@@ -117,8 +120,13 @@ public sealed partial class FunctionCodeGen
     /// The finally region an exception thrown at the current call leaves (no try inside it is in
     /// the way), or null.
     /// </summary>
-    private ControlFlowRegion? FinallyLeftFrom()
+    private object? FinallyLeftFrom()
     {
+        if (_il is { CurrentBlock: { } ilBlock })
+            // IL: the innermost handler is a finally, and no try inside that finally protects the instruction.
+            return ilBlock.Handler is { Kind: System.Reflection.Metadata.ExceptionRegionKind.Finally } finallyClause
+                && !(ilBlock.Try is { } t && t.Start >= finallyClause.HandlerStart && t.End <= finallyClause.HandlerEnd)
+                ? finallyClause : null;
         if (_currentBlock is null || _cfg is null) return null;
         ControlFlowRegion? finallyRegion = null;
         for (var r = _currentBlock.EnclosingRegion; r is not null && !ReferenceEquals(r, _cfg.Graph.Root); r = r.EnclosingRegion)
@@ -135,9 +143,13 @@ public sealed partial class FunctionCodeGen
     /// code: the try block's first statement (for using/lock the statement, for foreach the collection
     /// expression), the IL offset its frame is left at.
     /// </summary>
-    private int FinallyParentSite(ControlFlowRegion finallyRegion)
+    private int FinallyParentSite(object region)
     {
-        if (_finallyParentSite.TryGetValue(finallyRegion, out var known)) return known;
+        if (_finallyParentSite.TryGetValue(region, out var known)) return known;
+        // IL: the same rule over the PDB's sequence points (the method's first one; the try's first one when optimized).
+        if (region is IlClause clause)
+            return _finallyParentSite[region] = _m.StackTraces!.IlFirstSite(_traceFrame, _method!, _m.StackTraces.Release ? clause.Try.Start : 0);
+        var finallyRegion = (ControlFlowRegion)region;
         SyntaxNode? at = null;
         if (_m.StackTraces!.Release)
         {
@@ -190,7 +202,9 @@ public sealed partial class FunctionCodeGen
         return target;
     }
 
-    private int CurrentTraceSite() => _m.StackTraces!.Site(_traceFrame, _traceAt ?? DeclarationSyntax(), _traceAtEnd);
+    private int CurrentTraceSite() => _il is { } il
+        ? _m.StackTraces!.IlSite(_traceFrame, _method!, il.Current.Offset)
+        : _m.StackTraces!.Site(_traceFrame, _traceAt ?? DeclarationSyntax(), _traceAtEnd);
 
     /// <summary>Set with <see cref="_traceAt"/>: the location is the node's last token.</summary>
     private bool _traceAtEnd;

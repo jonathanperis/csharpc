@@ -106,6 +106,8 @@ public sealed partial class FunctionCodeGen
         public List<IlBlock> Blocks { get; } = [];
         public Dictionary<int, IlBlock> BlockAt { get; } = [];
         public List<IlTry> Trys { get; } = [];
+        /// <summary>The block being lowered (stack traces: which finally an exception would leave).</summary>
+        public IlBlock? CurrentBlock { get; set; }
         public List<IlClause> Clauses { get; } = [];
         public LLVMValueRef[] Locals { get; set; } = [];
         /// <summary>Why a local has no slot: its type can't be laid out (reported only if an instruction uses it).</summary>
@@ -175,7 +177,7 @@ public sealed partial class FunctionCodeGen
         }
 
         // End of each finally: resume wherever the code that entered it continues.
-        _b.UnwindDest = default;
+        (_b.UnwindDest, _b.UnwindHook) = (default, null);
         foreach (var (end, clause) in il.FinallyEnds)
         {
             _b.PositionAtEnd(end);
@@ -295,6 +297,7 @@ public sealed partial class FunctionCodeGen
     {
         var il = _il!;
         block.Emitted = true;
+        il.CurrentBlock = block;
         _b.PositionAtEnd(block.Llvm);
         // Inside a filter, an exception means "this handler doesn't match" (ECMA-335 II.19), unless a try
         // nested in the filter itself catches it.
@@ -303,6 +306,7 @@ public sealed partial class FunctionCodeGen
             : block.Handler is { } f && f.InFilter(block.Start) ? IlFilterPad(f)
             : _coro is not null ? CoroutinePad() : default; // runtime-async: an escaping exception faults the task
         _b.MayThrow = _m.MayThrow;
+        EnableTraceHook();
         // ECMA-335 III.1.7.5: a block reached by neither fall-through nor an earlier branch starts empty.
         block.Entry ??= [];
         var stack = new Stack<IlEntry>();
@@ -407,16 +411,27 @@ public sealed partial class FunctionCodeGen
                     clauses.Add(LlvmContext.Null(L.Ptr));
                 else if (c.Kind == ExceptionRegionKind.Catch)
                     clauses.Add(IlCatchTypeInfo(c.CatchType!));
-        var (savedBlock, savedUnwind) = (_b.InsertBlock, _b.UnwindDest);
-        _b.UnwindDest = default;
-        t.Pad = NewBlock("il.lpad");
-        _b.PositionAtEnd(t.Pad);
-        var lp = _b.LandingPad(LandingPadType, _m.Runtime("csrt_personality", L.I32).Fn, clauses, cleanup: true);
+        var (savedBlock, savedUnwind, savedHook) = (_b.InsertBlock, _b.UnwindDest, _b.UnwindHook);
+        (_b.UnwindDest, _b.UnwindHook) = (default, null);
+        LLVMValueRef lp;
+        if (Traced)
+        {
+            // Calls reach this through per-site pads (FunctionCodeGen.StackTraces.cs), which record the frame.
+            var target = NewSitePadTarget(clauses, cleanup: true, "il.lpad.record");
+            t.Pad = target.Body;
+            lp = target.Pad;
+        }
+        else
+        {
+            t.Pad = NewBlock("il.lpad");
+            _b.PositionAtEnd(t.Pad);
+            lp = _b.LandingPad(LandingPadType, _m.Runtime("csrt_personality", L.I32).Fn, clauses, cleanup: true);
+        }
         var exception = CallRuntime("csrt_begin_catch", L.Ptr, [L.Ptr], _b.ExtractValue(lp, 0));
         _b.Store(exception, t.Slot);
         _b.Br(IlDispatch(t));
         _b.PositionAtEnd(savedBlock);
-        _b.UnwindDest = savedUnwind;
+        (_b.UnwindDest, _b.UnwindHook) = (savedUnwind, savedHook);
         return t.Pad;
     }
 
@@ -430,8 +445,8 @@ public sealed partial class FunctionCodeGen
     private LLVMBasicBlockRef IlDispatch(IlTry t)
     {
         if (!t.Dispatch.IsNull) return t.Dispatch;
-        var (savedBlock, savedUnwind) = (_b.InsertBlock, _b.UnwindDest);
-        _b.UnwindDest = default;
+        var (savedBlock, savedUnwind, savedHook) = (_b.InsertBlock, _b.UnwindDest, _b.UnwindHook);
+        (_b.UnwindDest, _b.UnwindHook) = (default, null);
         t.Dispatch = NewBlock("il.dispatch");
         _b.PositionAtEnd(t.Dispatch);
         foreach (var clause in t.Clauses)
@@ -466,7 +481,7 @@ public sealed partial class FunctionCodeGen
                     break;
                 }
                 default: // finally / fault: run it, then keep looking outward
-                    IlEnterFinally(clause, next);
+                    IlEnterFinally(clause, next, normal: false);
                     break;
             }
             _b.PositionAtEnd(next);
@@ -484,7 +499,7 @@ public sealed partial class FunctionCodeGen
             _b.Unreachable();
         }
         _b.PositionAtEnd(savedBlock);
-        _b.UnwindDest = savedUnwind;
+        (_b.UnwindDest, _b.UnwindHook) = (savedUnwind, savedHook);
         return t.Dispatch;
     }
 
@@ -493,20 +508,21 @@ public sealed partial class FunctionCodeGen
     {
         if (!filter.FilterPad.IsNull) return filter.FilterPad;
         EnsurePersonality();
-        var (savedBlock, savedUnwind) = (_b.InsertBlock, _b.UnwindDest);
-        _b.UnwindDest = default;
+        var (savedBlock, savedUnwind, savedHook) = (_b.InsertBlock, _b.UnwindDest, _b.UnwindHook);
+        (_b.UnwindDest, _b.UnwindHook) = (default, null);
         filter.FilterPad = NewBlock("il.filter.lpad");
         _b.PositionAtEnd(filter.FilterPad);
         var lp = _b.LandingPad(LandingPadType, _m.Runtime("csrt_personality", L.I32).Fn, [LlvmContext.Null(L.Ptr)], cleanup: false);
         CallRuntime("csrt_begin_catch", L.Ptr, [L.Ptr], _b.ExtractValue(lp, 0));
         _b.Br(filter.Reject);
         _b.PositionAtEnd(savedBlock);
-        _b.UnwindDest = savedUnwind;
+        (_b.UnwindDest, _b.UnwindHook) = (savedUnwind, savedHook);
         return filter.FilterPad;
     }
 
-    private void IlEnterFinally(IlClause clause, LLVMBasicBlockRef continuation)
+    private void IlEnterFinally(IlClause clause, LLVMBasicBlockRef continuation, bool normal = true)
     {
+        if (clause.Kind == ExceptionRegionKind.Finally) NoteFinallyEntry(clause, normal);
         var index = clause.Continuations.Count;
         clause.Continuations.Add(continuation);
         _b.Store(L.ConstInt(L.I32, index), clause.Selector);

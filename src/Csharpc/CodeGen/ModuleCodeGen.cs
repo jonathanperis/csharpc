@@ -47,9 +47,9 @@ public sealed partial class ModuleCodeGen
     /// <summary>See <see cref="WarnExceptionToString"/>; also for reads of Exception.StackTrace.</summary>
     public void WarnStackTraceFrames(IOperation at)
     {
-        // A program given as IL: its frames have no stack-trace metadata yet (ADR 0012 reads them from
-        // the sources' PDB), so the text would lack every "   at ..." line of the program.
-        if (at is IlOperation && MainIl is not null && Il.OwnerOf(_currentCaller) == MainIl)
+        // A program given as IL records its frames when it names an exception type (StackTraceInfo.IlMayObserve);
+        // one that doesn't, but still gets an exception's text, would print it without the program's frames.
+        if (at is IlOperation && MainIl is not null && StackTraces is null && Il.OwnerOf(_currentCaller) == MainIl)
             throw CompileError.Unsupported("an exception's stack trace (Exception.ToString() or StackTrace) in a program compiled from IL: csharpc records the frames of C# source only", at);
         if (at.Syntax.SyntaxTree.FilePath.StartsWith("<corelib>", StringComparison.Ordinal)) return;
         // Code bound for a dynamic operation (ModuleCodeGen.Dynamic.cs), for run-time types it may never see.

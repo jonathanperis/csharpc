@@ -216,7 +216,16 @@ public sealed class Compiler(CompilerOptions options)
         }
         // Stack traces cost a landing pad per call site: only for programs that can look at one.
         StackTraceInfo? stackTraces = null;
-        if (options.StackTraces || StackTraceInfo.FindObservation(compilation) is not null)
+        if (mainIl is not null)
+        {
+            // The program as IL: names from its metadata, lines from the PDB csc wrote beside it.
+            if (options.StackTraces || StackTraceInfo.IlMayObserve(mainIl.Reader))
+            {
+                stackTraces = new StackTraceInfo(mainIl);
+                Phase($"stack-trace metadata (IL + PDB, {(stackTraces.HasPdb ? "ok" : "no PDB")})");
+            }
+        }
+        else if (options.StackTraces || StackTraceInfo.FindObservation(compilation) is not null)
         {
             var symbols = settings.Symbols ?? new DebugSymbolSettings { Optimize = options.Configuration.Equals("Release", StringComparison.OrdinalIgnoreCase) };
             stackTraces = new StackTraceInfo(compilation, symbols);

@@ -116,6 +116,158 @@ public sealed class StackTraceInfo
     }
 
     // ======================================================================================
+    // A program given as IL: names and lines from its own assembly and PDB
+    // ======================================================================================
+
+    private readonly MetadataReader? _ilMetadata;
+    /// <summary>Per method token: its sequence points (IL offset, document, start line; hidden ones as line -1), by offset.</summary>
+    private readonly Dictionary<int, List<(int Offset, string? Document, int Line)>> _ilPoints = [];
+    /// <summary>MoveNext token → (kickoff token, the kickoff is an iterator) for state machines csc generated.</summary>
+    private readonly Dictionary<int, (int Kickoff, bool Iterator)> _ilKickoff = [];
+    private readonly Dictionary<int, int> _ilFrames = [];
+
+    /// <summary>
+    /// Stack-trace metadata of a program compiled from its main assembly (ADR 0010, "The program as IL"):
+    /// frame names from the assembly's metadata (the names csc chose, as .NET prints them), lines from its
+    /// portable PDB (next to it or embedded), as System.Diagnostics.StackTrace reads them: the last
+    /// non-hidden sequence point at or before the frame's IL offset. Without a PDB, frames have no location.
+    /// </summary>
+    public StackTraceInfo(Frontend.Il.IlAssembly program)
+    {
+        _resolver = new SourceFileResolver([], null);
+        _ilMetadata = program.Reader;
+        Release = !DisablesOptimizations(program.Reader);
+        MetadataReaderProvider? provider = null;
+        try
+        {
+            var pdbPath = Path.ChangeExtension(program.Path, ".pdb");
+            if (program.Pe.ReadDebugDirectory().FirstOrDefault(e => e.Type == DebugDirectoryEntryType.EmbeddedPortablePdb) is { DataSize: > 0 } embedded)
+                provider = program.Pe.ReadEmbeddedPortablePdbDebugDirectoryData(embedded);
+            else if (File.Exists(pdbPath))
+                provider = MetadataReaderProvider.FromPortablePdbStream(File.OpenRead(pdbPath));
+            if (provider is not null) ReadIlPdb(provider.GetMetadataReader());
+        }
+        catch (Exception e) when (e is BadImageFormatException or IOException or InvalidOperationException)
+        {
+            Warnings.Add(new CompileError("CSLLVM0006", $"stack traces: the PDB of {program.Name}.dll could not be read ({e.Message}); frames have no file and line", null));
+            _ilPoints.Clear();
+            provider = null;
+        }
+        finally { provider?.Dispose(); }
+        _lines = HasPdb = provider is not null;
+    }
+
+    private void ReadIlPdb(MetadataReader pdb)
+    {
+        var documents = new Dictionary<DocumentHandle, string>();
+        foreach (var handle in _ilMetadata!.MethodDefinitions)
+        {
+            var info = pdb.GetMethodDebugInformation(handle.ToDebugInformationHandle());
+            var token = MetadataTokens.GetToken(handle);
+            List<(int, string?, int)> points = [];
+            foreach (var sp in info.GetSequencePoints())
+            {
+                if (sp.IsHidden) { points.Add((sp.Offset, null, -1)); continue; }
+                if (!documents.TryGetValue(sp.Document, out var name)) documents[sp.Document] = name = pdb.GetString(pdb.GetDocument(sp.Document).Name);
+                points.Add((sp.Offset, name, sp.StartLine));
+            }
+            if (points.Count > 0) _ilPoints[token] = points;
+            if (info.GetStateMachineKickoffMethod() is { IsNil: false } kickoff)
+            {
+                var kickoffMethod = _ilMetadata.GetMethodDefinition(kickoff);
+                var iterator = kickoffMethod.GetCustomAttributes().Any(a => AttributeName(_ilMetadata, a) is "IteratorStateMachineAttribute" or "AsyncIteratorStateMachineAttribute");
+                _ilKickoff[token] = (MetadataTokens.GetToken(kickoff), iterator);
+            }
+        }
+    }
+
+    /// <summary>[assembly: Debuggable(... DisableOptimizations ...)]: csc's Debug configuration.</summary>
+    private static bool DisablesOptimizations(MetadataReader md)
+    {
+        foreach (var handle in md.GetAssemblyDefinition().GetCustomAttributes())
+        {
+            if (AttributeName(md, handle) != "DebuggableAttribute") continue;
+            var blob = md.GetBlobReader(md.GetCustomAttribute(handle).Value);
+            if (blob.Length < 4 || blob.ReadUInt16() != 1) return false;
+            // Debuggable(DebuggingModes) or Debuggable(bool isJITTrackingEnabled, bool isJITOptimizerDisabled).
+            if (blob.RemainingBytes >= 6) return (blob.ReadInt32() & 0x100) != 0;
+            blob.ReadBoolean();
+            return blob.ReadBoolean();
+        }
+        return false;
+    }
+
+    private static string? AttributeName(MetadataReader md, CustomAttributeHandle handle)
+    {
+        var ctor = md.GetCustomAttribute(handle).Constructor;
+        var type = ctor.Kind switch
+        {
+            HandleKind.MemberReference => md.GetMemberReference((MemberReferenceHandle)ctor).Parent,
+            HandleKind.MethodDefinition => md.GetMethodDefinition((MethodDefinitionHandle)ctor).GetDeclaringType(),
+            _ => default,
+        };
+        return type.Kind switch
+        {
+            HandleKind.TypeReference => md.GetString(md.GetTypeReference((TypeReferenceHandle)type).Name),
+            HandleKind.TypeDefinition => md.GetString(md.GetTypeDefinition((TypeDefinitionHandle)type).Name),
+            _ => null,
+        };
+    }
+
+    /// <summary>The frame of a method of the IL program: its metadata name; a state machine's MoveNext is its kickoff method (+MoveNext() for iterators).</summary>
+    public int IlFrameOf(IMethodSymbol method)
+    {
+        var token = method.OriginalDefinition.MetadataToken;
+        if (_ilFrames.TryGetValue(token, out var known)) return known;
+        var md = _ilMetadata!;
+        string name;
+        if (_ilKickoff.TryGetValue(token, out var kickoff))
+            name = FormatMethod(md, MetadataTokens.MethodDefinitionHandle(kickoff.Kickoff & 0xFFFFFF)) + (kickoff.Iterator ? "+MoveNext()" : "");
+        else name = FormatMethod(md, MetadataTokens.MethodDefinitionHandle(token & 0xFFFFFF));
+        return _ilFrames[token] = Intern(_methods, _methodIndex, name);
+    }
+
+    /// <summary>The site of the first non-hidden sequence point at or after <paramref name="fromOffset"/> (CoreCLR's parent frame of a finally funclet).</summary>
+    public int IlFirstSite(int frame, IMethodSymbol method, int fromOffset)
+    {
+        if (_lines && _ilPoints.TryGetValue(method.OriginalDefinition.MetadataToken, out var points))
+            foreach (var (offset, _, startLine) in points)
+                if (offset >= fromOffset && startLine >= 0) return IlSite(frame, method, offset);
+        return IlSite(frame, method, fromOffset);
+    }
+
+    /// <summary>The site of IL offset <paramref name="ilOffset"/> in a method of the IL program.</summary>
+    public int IlSite(int frame, IMethodSymbol method, int ilOffset)
+    {
+        string? file = null;
+        var line = 0;
+        if (_lines && _ilPoints.TryGetValue(method.OriginalDefinition.MetadataToken, out var points))
+            foreach (var (offset, document, startLine) in points)
+            {
+                if (offset > ilOffset) break;
+                if (startLine >= 0) (file, line) = (document, startLine);
+            }
+        var key = (frame, file is null ? -1 : Intern(_files, _fileIndex, file), file is null ? 0 : line);
+        if (_siteIndex.TryGetValue(key, out var site)) return site;
+        _sites.Add(key);
+        return _siteIndex[key] = _sites.Count - 1;
+    }
+
+    /// <summary>
+    /// Whether a program given as IL may turn an exception into text: it names an exception type or
+    /// System.Diagnostics.StackTrace (catch clauses, `new`, ToString, StackTrace all do).
+    /// </summary>
+    public static bool IlMayObserve(MetadataReader md)
+    {
+        foreach (var handle in md.TypeReferences)
+        {
+            var name = md.GetString(md.GetTypeReference(handle).Name);
+            if (name.EndsWith("Exception", StringComparison.Ordinal) || name == "StackTrace") return true;
+        }
+        return false;
+    }
+
+    // ======================================================================================
     // Does the program look at stack traces?
     // ======================================================================================
 

@@ -307,30 +307,40 @@ Semantics that sources gave the lowering and IL has to restate:
   as `AsyncMethodBuilderCore` and `AsyncStateMachineBox` do; `DefaultInterpolatedStringHandler` formats
   library structs without an IFormattable box (BigInteger, Int128, Index, Range) as their own
   `ToString(format, provider)` (also a fix for `string.Create(provider, $"...")` in source, sample 700).
+- **Stack traces** (ADR 0012) come from the assembly itself: a frame per method of the program's
+  assembly, named from its metadata (the names csc chose for lambdas, local functions and closures; a
+  state machine's `MoveNext` is its kickoff method, `+MoveNext()` for iterators), and the line of the
+  last non-hidden sequence point at or before the call's IL offset in the PDB beside the assembly (or
+  embedded), as `System.Diagnostics.StackTrace` reads it. The landing pads of IL try regions record the
+  frame like the source path's, `rethrow` doesn't list it again, and an exception leaving a finally run
+  on the normal path lists the method twice, as CoreCLR's funclets do (the method's first sequence
+  point; the try's first one when `[Debuggable]` says the IL is optimized). Traces are recorded when the
+  assembly names an exception type or `StackTrace`; without a PDB, frames have no location, as in .NET.
+  The program's own types (the IL assembly's) keep their custom attributes for `Type.GetCustomAttributes`
+  as source types do.
 - What IL can't reach yet is explicit: reflection-based `System.Text.Json` (its metadata is generated
   from the call sites' C# source; calls without options or a `JsonTypeInfo`/context are rejected where
-  reflection is enabled), stack traces (IL frames have no trace metadata: turning an exception into
-  text in the program's IL is a diagnostic), `dynamic` (ADR 0019 binds from source).
+  reflection is enabled, as .NET throws where it is disabled), `dynamic` (ADR 0019 binds from source),
+  and turning an exception into text in IL that names no exception type (no traces were recorded).
 
 **Differential mode.** `tests/run.sh --via-il` builds every sample with `dotnet build NAME.cs` (the build
 `dotnet run` makes, runtimeconfig.json included) and compiles `NAME.dll`; the recordings are the same.
 The informational CI workflow `il-main.yml` runs it on Linux x86-64 at -O0 and -O2 against
 `tests/il-main-known-failures.txt`.
 
-Measured 2026-10-30 (-O0, Linux x86-64): **440 of 468 samples** pass through IL (94.0 %), the source path
-being 468/468. The 28 failures, by cause: stack traces of IL frames 9 (410–417, 522), reflection-based
-JSON 8 (316–321, 325, 535), `dynamic` 7 (680–686), reflection metadata reached through IL 2 (626, 638),
-`[GeneratedRegex]` output 1 (305), non-generic enumeration of a rectangular array 1 (393). All of them
-are diagnostics or a run-time `NotSupportedException`; none prints wrong output. The first runs found
+Measured 2026-10-30 (Linux x86-64, -O0 and -O2): **451 of 468 samples** pass through IL (96.4 %), the
+source path being 468/468. The 17 failures, by cause: reflection-based JSON 8 (316–321, 325, 535),
+`dynamic` 7 (680–686), `[GeneratedRegex]` output 1 (305: it sets `Regex`'s protected fields, which the
+corelib's Regex doesn't have), non-generic enumeration of a rectangular array 1 (393). All of them are
+diagnostics or a run-time `NotSupportedException`; none prints wrong output. The first runs found
 72 failures, 19 of them wrong output with .NET's exit status (module initializers not run, `[Conditional]`
 calls dropped, builtin types' interfaces registered before Main was lowered, `new` delegates cached,
 ExecutionContext not flowing through compiled async, BigInteger formats ignored, stack traces printed
 without the program's frames), the rest crashes and diagnostics.
 
-Next for the IL path: stack traces from the assembly's portable PDB (sequence points by IL offset, the
-method names csc chose), JSON metadata for types defined in IL (the source generator over metadata
-symbols, with accessibility for the program's internal types), `dynamic` call sites from their IL
-(`CallSite<T>` + binder arguments), and debug info (`-g`) from the PDB.
+Next for the IL path: JSON metadata for types defined in IL (the source generator over metadata
+symbols, which needs access to the program's internal types), `dynamic` call sites from their IL
+(`CallSite<T>` + the binder's arguments), `[GeneratedRegex]` output, and debug info (`-g`) from the PDB.
 
 ## Next steps
 
