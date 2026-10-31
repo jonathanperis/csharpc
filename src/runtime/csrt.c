@@ -626,14 +626,12 @@ __attribute__((noinline)) void* const* csrt_interface_slots_cached(void* obj, co
     return interface_lookup(obj, itf, site);
 }
 
-void* csrt_isinst_class(void* obj, const csrt_MethodTable* type) {
-    if (!obj) return NULL;
-    const csrt_MethodTable* objmt = ((csrt_Object*)obj)->mt;
-    if (type->flags & CSRT_MT_INTERFACE) {
-        return exact_interface_slots(objmt, type) || variant_interface_slots(objmt, type) ? obj : NULL;
-    }
-    for (const csrt_MethodTable* mt = objmt; mt; mt = mt->base)
-        if (mt == type) return obj;
+/// The uncommon outcomes of a type test (variance, arrays, ValueType/Enum/Array targets, failures), out
+/// of line so that the common ones need no callee-saved registers: csrt_isinst_class used to spill six
+/// of them before its first test (3 % of the TechEmpower plaintext profile, most of it the prologue).
+__attribute__((noinline)) static void* isinst_slow(void* obj, const csrt_MethodTable* objmt, const csrt_MethodTable* type) {
+    if (type->flags & CSRT_MT_INTERFACE)
+        return builtin_interface_slots(objmt, type) || variant_interface_slots(objmt, type) ? obj : NULL;
     if (type->base == &csrt_Array_MT.header && !(type->flags & CSRT_MT_MDARRAY)) return array_assignable(objmt, type, 0) ? obj : NULL;
     if (type == &csrt_ValueType_MT.header) return (objmt->flags & CSRT_MT_VALUE_TYPE) ? obj : NULL;
     if (type == &csrt_Enum_MT.header) return (objmt->flags & CSRT_MT_ENUM) ? obj : NULL;
@@ -641,6 +639,22 @@ void* csrt_isinst_class(void* obj, const csrt_MethodTable* type) {
     // allocated untagged may still carry the GC's primitive-array table.
     if (type == &csrt_Array_MT.header && objmt == &csrt_PrimitiveArray_MT.header) return obj;
     return NULL;
+}
+
+void* csrt_isinst_class(void* obj, const csrt_MethodTable* type) {
+    if (!obj) return NULL;
+    const csrt_MethodTable* objmt = ((csrt_Object*)obj)->mt;
+    if (objmt == type) return obj;
+    if (type->flags & CSRT_MT_INTERFACE) {
+        // The object's own interface map (exact_interface_slots' first step); the rest out of line.
+        const csrt_InterfaceMapEntry* map = objmt->interfaces;
+        for (uint32_t i = 0, n = objmt->interface_count; i < n; i++)
+            if (map[i].interface_type == type) return obj;
+    } else {
+        for (const csrt_MethodTable* mt = objmt->base; mt; mt = mt->base)
+            if (mt == type) return obj;
+    }
+    return isinst_slow(obj, objmt, type);
 }
 
 // ---------------------------------------------------------------------------------------------
