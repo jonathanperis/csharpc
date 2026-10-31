@@ -6,14 +6,14 @@ linux-x86_64 collections 135168
 linux-x86_64 exceptions 32768
 linux-x86_64 hello 32768
 linux-x86_64 linq 159744
-linux-x86_64 numbers 128000
+linux-x86_64 numbers 133120
 linux-x86_64 typeinfo 44032
 linux-aarch64 async 143360
-linux-aarch64 collections 130048
+linux-aarch64 collections 136192
 linux-aarch64 exceptions 37888
 linux-aarch64 hello 32768
 linux-aarch64 linq 155648
-linux-aarch64 numbers 123904
+linux-aarch64 numbers 129024
 linux-aarch64 typeinfo 48128
 macos-arm64 async 158720
 macos-arm64 collections 157696
