@@ -155,7 +155,7 @@ public sealed partial class FunctionCodeGen
             "DelegateMethodTableAddress" => _b.Cast(LLVMOpcode.PtrToInt, _m.DelegateMethodTable(), T.NativeInt),
             "DelegateSignatureTableAddress" => _b.Cast(LLVMOpcode.PtrToInt, _m.DelegateSignatureTable(), T.NativeInt),
             "ObjectArrayThunkTableAddress" => _b.Cast(LLVMOpcode.PtrToInt, _m.ObjectArrayThunkTable(), T.NativeInt),
-            "OperatorsKept" => _m.UsesLinqExpressions ? L.True : L.False,
+            "OperatorsKept" => _b.ICmp(LLVMIntPredicate.NE, _b.Load(L.I8, _m.OperatorsKeptFlag()), L.ConstInt(L.I8, 0)),
             "DelegateFunction" => _b.Cast(LLVMOpcode.PtrToInt, LastDelegateField(args[0], 2), T.NativeInt),
             "DelegateTargetObject" => LastDelegateField(args[0], 1),
             "TryFaultAsyncTask" => CallRuntime("csrt_task_try_fault_async", L.I1, [L.Ptr, L.Ptr], args[0], args[1]),

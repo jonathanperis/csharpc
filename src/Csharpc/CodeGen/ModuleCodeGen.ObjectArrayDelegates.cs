@@ -28,12 +28,38 @@ public sealed partial class ModuleCodeGen
     private int _delegateInvokesDescribed;
 
     /// <summary>System.Linq.Expressions is compiled from IL (its reflection needs are kept, see below).</summary>
-    internal bool UsesLinqExpressions => _usesLinqExpressions ??= Il.Assemblies.Any(a => a.Name == "System.Linq.Expressions");
+    internal bool UsesLinqExpressions => _expressionTreesUsed;
+
+    /// <summary>
+    /// Expression trees are built: a lambda expression is made (LambdaExpression, Expression&lt;T&gt;) or an
+    /// operator is looked up for one (Expression.GetUserDefined*). Only then does the program pay for what they
+    /// reflect over; System.Linq.Expressions alone (ExpandoObject and the binders of `dynamic`, which also make a
+    /// LabelTarget) doesn't.
+    /// </summary>
+    private volatile bool _expressionTreesUsed;
+
+    internal void NoteLowered(IMethodSymbol method)
+    {
+        if (_expressionTreesUsed || method.ContainingType is not { ContainingNamespace: { Name: "Expressions", ContainingNamespace: { Name: "Linq", ContainingNamespace.Name: "System" } } } type)
+            return;
+        if (type.Name == "LambdaExpression" || type is { Name: "Expression", Arity: 1 }
+            || type is { Name: "Expression", Arity: 0 } && method.Name.StartsWith("GetUserDefined", StringComparison.Ordinal))
+            _expressionTreesUsed = true;
+    }
+
+    private LLVMValueRef _operatorsKept;
+
+    /// <summary>CoreIntrinsics.OperatorsKept: a flag set once codegen knows (the corelib may be lowered first).</summary>
+    internal LLVMValueRef OperatorsKeptFlag()
+    {
+        if (_operatorsKept.IsNull)
+            _operatorsKept = Module.AddGlobal("csharpc.operatorskept", Llvm.I8, constant: true, linkage: LLVMLinkage.Private);
+        return _operatorsKept;
+    }
     private bool _dynamicInvokeUsed;
 
     /// <summary>Delegate.DynamicInvoke is lowered: delegate types keep their Invoke method for reflection.</summary>
     internal void NoteDynamicInvoke() => _dynamicInvokeUsed = true;
-    private bool? _usesLinqExpressions;
 
     /// <summary>
     /// System.Linq.Expressions reads delegate types' Invoke methods through reflection (TypeExtensions.GetInvokeMethod:
@@ -43,10 +69,9 @@ public sealed partial class ModuleCodeGen
     private bool DescribeDelegateInvokes()
     {
         if (_reflectionTable.IsNull) return false;
-        _usesLinqExpressions ??= Il.Assemblies.Any(a => a.Name == "System.Linq.Expressions");
-        if (_usesLinqExpressions != true && !_dynamicInvokeUsed) return false;
+        if (!UsesLinqExpressions && !_dynamicInvokeUsed) return false;
         var any = false;
-        var creator = _usesLinqExpressions == true ? Compilation.GetTypeByMetadataName("System.Linq.Expressions.ExpressionCreator`1") : null;
+        var creator = UsesLinqExpressions ? Compilation.GetTypeByMetadataName("System.Linq.Expressions.ExpressionCreator`1") : null;
         while (_delegateInvokesDescribed < _delegateTypes.Count)
         {
             var type = _delegateTypes[_delegateInvokesDescribed++];
@@ -57,7 +82,7 @@ public sealed partial class ModuleCodeGen
             if (creator is not null) MarkDynamicallyAccessed(creator.Construct(type), DamPublicMethods, "CreateExpressionFunc");
             any = true;
         }
-        if (_usesLinqExpressions != true) return any;
+        if (!UsesLinqExpressions) return any;
         // Expression.Equal/Add/Convert/... without a MethodInfo look the operator up on the operand types
         // (TypeExtensions.GetAnyStaticMethodValidated, GetUserDefinedCoercionMethod): keep the operators of
         // the program's types, or none, so that lookup answers instead of failing (`decimal != decimal`,
@@ -124,6 +149,7 @@ public sealed partial class ModuleCodeGen
 
     private void FinishObjectArrayThunks()
     {
+        if (!_operatorsKept.IsNull) Native.LLVMSetInitializer(_operatorsKept, Llvm.ConstInt(Llvm.I8, UsesLinqExpressions ? 1 : 0));
         if (_objectArrayThunkTable.IsNull) return;
         var entries = _objectArrayThunks.Select(t => Llvm.ConstStruct(t.Mt, t.Thunk)).ToList();
         Native.LLVMSetInitializer(_objectArrayThunkTable, Llvm.ConstStruct(Llvm.ConstInt(Llvm.I64, entries.Count),

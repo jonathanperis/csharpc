@@ -276,7 +276,7 @@ public sealed partial class ModuleCodeGen
         RegisterTypeMethodTable(ExternalGlobal("csrt_String_MT"), Compilation.GetSpecialType(SpecialType.System_String));
         // Type objects themselves, which System.Linq.Expressions reflects over (Expression.Constant(typeof(int),
         // typeof(Type)) checks typeof(Type).IsAssignableFrom(value.GetType())); only its programs pay for the entry.
-        if (_usesLinqExpressions ??= Il.Assemblies.Any(a => a.Name == "System.Linq.Expressions"))
+        if (UsesLinqExpressions)
             RegisterTypeMethodTable(ExternalGlobal("csrt_Type_MT"), RuntimeTypeMarker.Instance);
         // Boxed primitives the program uses (boxing references these without going through typeof).
         foreach (var special in s_boxedPrimitives)

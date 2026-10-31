@@ -579,6 +579,7 @@ public sealed partial class ModuleCodeGen
     private void EmitMethod(IMethodSymbol method)
     {
         var start = System.Diagnostics.Stopwatch.GetTimestamp();
+        NoteLowered(method);
         var corelib = CoreLib.IsCoreLib(method);
         var il = !corelib && Il.OwnerOf(method) is not null;
         try { EmitMethodCore(method); }
