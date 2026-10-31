@@ -808,7 +808,8 @@ internal static class Intrinsics
         t[$"{Tasks}.Task.Yield()"] = (g, _) => LlvmContext.Null(g.Module.Llvm.Ptr);
         t[$"{Tasks}.Task.FromResult(TResult)"] = (g, inv) =>
             g.CompletedTask(Arg(g, inv, 0), ((INamedTypeSymbol)g.TypeOf(inv)!).TypeArguments[0]);
-        t[$"{Tasks}.ValueTask.FromResult(TResult)"] = t[$"{Tasks}.Task.FromResult(TResult)"];
+        t[$"{Tasks}.ValueTask.FromResult(TResult)"] = (g, inv) =>
+            g.CompletedValueTask(Arg(g, inv, 0), ((INamedTypeSymbol)g.TypeOf(inv)!).TypeArguments[0]);
 
         IntrinsicHandler whenAll = (g, inv) =>
         {
@@ -982,7 +983,7 @@ internal static class Intrinsics
                     return g.ConvertNumeric(value, from, to, c, isChecked: from is not IPointerTypeSymbol);
                 };
         t[$"{Tasks}.ValueTask<TResult>..ctor(TResult)"] = (g, c) =>
-            g.CompletedTask(CtorArg(g, c, 0), ((INamedTypeSymbol)g.TypeOf(c)!).TypeArguments[0]);
+            g.CompletedValueTask(CtorArg(g, c, 0), ((INamedTypeSymbol)g.TypeOf(c)!).TypeArguments[0]);
         t[$"{Tasks}.ValueTask..ctor({Tasks}.Task)"] = (g, c) => CtorArg(g, c, 0);
         t[$"{Tasks}.ValueTask<TResult>..ctor({Tasks}.Task<TResult>)"] = (g, c) => CtorArg(g, c, 0);
         ConstructorHandler newTcs = (g, c) =>

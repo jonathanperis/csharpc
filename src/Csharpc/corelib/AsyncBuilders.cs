@@ -199,6 +199,9 @@ namespace CsharpcCoreLib
             if (_source == null || !_source.TrySetResult(result)) throw new InvalidOperationException(AsyncBuilderCore.AlreadyCompleted);
         }
 
+        /// <summary>Nothing asked for the task yet: the method hasn't suspended (the ValueTask builders' synchronous path).</summary>
+        internal bool HasTask => _task != null;
+
         public void SetException(Exception exception)
         {
             if (exception == null) throw new ArgumentNullException("exception");
@@ -230,17 +233,27 @@ namespace CsharpcCoreLib
     public struct AsyncValueTaskMethodBuilderImpl<TResult>
     {
         private AsyncTaskMethodBuilderImpl<TResult> _inner;
+        // A method that returns without suspending keeps its result here, as .NET's builder does: the ValueTask
+        // then holds it inline (no task for a default result, see `new ValueTask<T>(result)`).
+        private TResult _result;
+        private bool _completed;
 
         public static AsyncValueTaskMethodBuilderImpl<TResult> Create() { return default(AsyncValueTaskMethodBuilderImpl<TResult>); }
         public void Start<TStateMachine>(ref TStateMachine stateMachine) where TStateMachine : IAsyncStateMachine =>
             AsyncBuilderCore.Start(ref stateMachine);
         public void SetStateMachine(IAsyncStateMachine stateMachine) => AsyncBuilderCore.CheckStateMachine(stateMachine);
-        public ValueTask<TResult> Task => new ValueTask<TResult>(_inner.Task);
+        public ValueTask<TResult> Task => _completed ? new ValueTask<TResult>(_result) : new ValueTask<TResult>(_inner.Task);
         public void AwaitOnCompleted<TAwaiter, TStateMachine>(ref TAwaiter awaiter, ref TStateMachine stateMachine)
             where TAwaiter : INotifyCompletion where TStateMachine : IAsyncStateMachine => _inner.AwaitOnCompleted(ref awaiter, ref stateMachine);
         public void AwaitUnsafeOnCompleted<TAwaiter, TStateMachine>(ref TAwaiter awaiter, ref TStateMachine stateMachine)
             where TAwaiter : ICriticalNotifyCompletion where TStateMachine : IAsyncStateMachine => _inner.AwaitUnsafeOnCompleted(ref awaiter, ref stateMachine);
-        public void SetResult(TResult result) => _inner.SetResult(result);
+        public void SetResult(TResult result)
+        {
+            if (_completed) throw new InvalidOperationException(AsyncBuilderCore.AlreadyCompleted);
+            if (_inner.HasTask) { _inner.SetResult(result); return; }
+            _result = result;
+            _completed = true;
+        }
         public void SetException(Exception exception) => _inner.SetException(exception);
     }
 
@@ -266,17 +279,25 @@ namespace CsharpcCoreLib
     public struct PoolingAsyncValueTaskMethodBuilderImpl<TResult>
     {
         private AsyncTaskMethodBuilderImpl<TResult> _inner;
+        private TResult _result;  // as AsyncValueTaskMethodBuilderImpl<TResult>
+        private bool _completed;
 
         public static PoolingAsyncValueTaskMethodBuilderImpl<TResult> Create() { return default(PoolingAsyncValueTaskMethodBuilderImpl<TResult>); }
         public void Start<TStateMachine>(ref TStateMachine stateMachine) where TStateMachine : IAsyncStateMachine =>
             AsyncBuilderCore.Start(ref stateMachine);
         public void SetStateMachine(IAsyncStateMachine stateMachine) => AsyncBuilderCore.CheckStateMachine(stateMachine);
-        public ValueTask<TResult> Task => new ValueTask<TResult>(_inner.Task);
+        public ValueTask<TResult> Task => _completed ? new ValueTask<TResult>(_result) : new ValueTask<TResult>(_inner.Task);
         public void AwaitOnCompleted<TAwaiter, TStateMachine>(ref TAwaiter awaiter, ref TStateMachine stateMachine)
             where TAwaiter : INotifyCompletion where TStateMachine : IAsyncStateMachine => _inner.AwaitOnCompleted(ref awaiter, ref stateMachine);
         public void AwaitUnsafeOnCompleted<TAwaiter, TStateMachine>(ref TAwaiter awaiter, ref TStateMachine stateMachine)
             where TAwaiter : ICriticalNotifyCompletion where TStateMachine : IAsyncStateMachine => _inner.AwaitUnsafeOnCompleted(ref awaiter, ref stateMachine);
-        public void SetResult(TResult result) => _inner.SetResult(result);
+        public void SetResult(TResult result)
+        {
+            if (_completed) throw new InvalidOperationException(AsyncBuilderCore.AlreadyCompleted);
+            if (_inner.HasTask) { _inner.SetResult(result); return; }
+            _result = result;
+            _completed = true;
+        }
         public void SetException(Exception exception) => _inner.SetException(exception);
     }
 

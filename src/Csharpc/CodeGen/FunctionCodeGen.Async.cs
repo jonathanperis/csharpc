@@ -388,7 +388,94 @@ public sealed partial class FunctionCodeGen
     {
         if (resultType is null || resultType.SpecialType == SpecialType.System_Void) return default;
         var payload = CallRuntime("csrt_task_result_ptr", L.Ptr, [L.Ptr], task);
-        return LoadValue(payload, resultType);
+        if (T.Target.SizeOf(T.Storage(resultType)) <= ZeroPayloadSize) return LoadValue(payload, resultType);
+        // A null task (default(ValueTask<T>)) reads csrt's zeroed payload, which is only ZeroPayloadSize bytes:
+        // a larger default result is built here instead of reading past it.
+        var isNull = _b.ICmp(LLVMIntPredicate.EQ, task, LlvmContext.Null(L.Ptr));
+        var fromTask = NewBlock("result.task");
+        var join = NewBlock("result.done");
+        var entry = _b.InsertBlock;
+        _b.CondBr(isNull, join, fromTask);
+        _b.PositionAtEnd(fromTask);
+        var loaded = LoadValue(payload, resultType);
+        var loadedEnd = _b.InsertBlock;
+        _b.Br(join);
+        _b.PositionAtEnd(join);
+        var phi = _b.Phi(Native.LLVMTypeOf(loaded), "result");
+        IrBuilder.AddIncoming(phi, Native.LLVMConstNull(Native.LLVMTypeOf(loaded)), entry);
+        IrBuilder.AddIncoming(phi, loaded, loadedEnd);
+        return phi;
+    }
+
+    /// <summary>The size of csrt's zeroed payload (async.c s_zero_payload), what a null task's result reads.</summary>
+    private const ulong ZeroPayloadSize = 64;
+
+    /// <summary>
+    /// new ValueTask&lt;T&gt;(result) / ValueTask.FromResult(result). A default result is the null task pointer, which is
+    /// what default(ValueTask&lt;T&gt;) is and every consumer reads as completed with default(T) — .NET's ValueTask holds
+    /// the result inline and allocates nothing either way. Kestrel's pipe flushes complete with a default
+    /// FlushResult on every response: without this, each one allocated a task. Other results get a completed task.
+    /// </summary>
+    internal LLVMValueRef CompletedValueTask(LLVMValueRef value, ITypeSymbol resultType)
+    {
+        if (T.Target.SizeOf(T.Storage(resultType)) > ZeroPayloadSize || IsZeroValue(value, 16) is not { } zero) return CompletedTask(value, resultType);
+        var allocate = NewBlock("vtask.alloc");
+        var join = NewBlock("vtask.done");
+        var entry = _b.InsertBlock;
+        // freeze: an undefined part of the value (a null Nullable's payload) must not make the branch undefined.
+        _b.CondBr(_b.Freeze(zero), join, allocate);
+        _b.PositionAtEnd(allocate);
+        var task = CompletedTask(value, resultType);
+        var allocated = _b.InsertBlock;
+        _b.Br(join);
+        _b.PositionAtEnd(join);
+        var phi = _b.Phi(L.Ptr, "vtask");
+        IrBuilder.AddIncoming(phi, LlvmContext.Null(L.Ptr), entry);
+        IrBuilder.AddIncoming(phi, task, allocated);
+        return phi;
+    }
+
+    /// <summary>
+    /// An i1 that is true when every bit of <paramref name="value"/>'s fields is zero (padding aside), or null
+    /// when the type has more than <paramref name="budget"/> scalar parts or a kind this doesn't compare.
+    /// Floating-point values compare by their bits: -0.0 isn't a default.
+    /// </summary>
+    private LLVMValueRef? IsZeroValue(LLVMValueRef value, int budget)
+    {
+        var parts = new List<LLVMValueRef>();
+        if (!CollectScalars(value, parts, budget)) return null;
+        LLVMValueRef? all = null;
+        foreach (var part in parts)
+        {
+            var type = Native.LLVMTypeOf(part);
+            var bits = type.IsFloatingPoint ? _b.Cast(LLVMOpcode.BitCast, part, type.Kind == LLVMTypeKind.Float ? L.I32 : L.I64) : part;
+            var isZero = _b.ICmp(LLVMIntPredicate.EQ, bits, Native.LLVMConstNull(Native.LLVMTypeOf(bits)));
+            all = all is { } a ? _b.BinOp(LLVMOpcode.And, a, isZero) : isZero;
+        }
+        return all ?? L.True;
+    }
+
+    private bool CollectScalars(LLVMValueRef value, List<LLVMValueRef> parts, int budget)
+    {
+        var type = Native.LLVMTypeOf(value);
+        switch (type.Kind)
+        {
+            case LLVMTypeKind.Integer or LLVMTypeKind.Pointer or LLVMTypeKind.Float or LLVMTypeKind.Double:
+                parts.Add(value);
+                return parts.Count <= budget;
+            case LLVMTypeKind.Struct:
+                for (uint i = 0, n = Native.LLVMCountStructElementTypes(type); i < n; i++)
+                    if (!CollectScalars(_b.ExtractValue(value, i), parts, budget)) return false;
+                return true;
+            case LLVMTypeKind.Array:
+                var length = Native.LLVMGetArrayLength2(type);
+                if (length > (ulong)budget) return false;
+                for (uint i = 0; i < length; i++)
+                    if (!CollectScalars(_b.ExtractValue(value, i), parts, budget)) return false;
+                return true;
+            default:
+                return false;
+        }
     }
 
     /// <summary>A new, already-completed task holding <paramref name="value"/> (Task.FromResult).</summary>
