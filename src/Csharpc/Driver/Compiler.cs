@@ -339,7 +339,10 @@ public sealed class Compiler(CompilerOptions options)
         {
             var pipeline = options.SizeLevel switch { 1 => "default<Os>", 2 => "default<Oz>", _ => $"default<O{options.OptLevel}>" };
             if (options.SizeLevel > 0) Optimizations.MarkOptimizeForSize(module, llvm, minimize: options.SizeLevel == 2);
+            // The type data's function pointers stay out of the inliner's call graph (TypeDataDetach).
+            var detached = TypeDataDetach.Detach(module, llvm);
             module.RunPasses(pipeline, target);
+            TypeDataDetach.Reattach(module, detached, target);
             Phase($"optimize ({pipeline})");
         }
 
