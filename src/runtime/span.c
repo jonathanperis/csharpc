@@ -107,6 +107,46 @@ int32_t csrt_narrow_ascii(const uint16_t* src, uint8_t* dst, int32_t length) {
     return i;
 }
 
+/// The reverse: widens the leading ASCII bytes of `src` into chars; returns how many it wrote.
+int32_t csrt_widen_ascii(const uint8_t* src, uint16_t* dst, int32_t length) {
+    typedef uint16_t u16x8u __attribute__((vector_size(16)));
+    typedef uint8_t u8x8u __attribute__((vector_size(8)));
+    int32_t i = 0;
+    for (; i + 8 <= length; i += 8) {
+        u8x8u v;
+        memcpy(&v, src + i, sizeof v);
+        if (__builtin_reduce_or(v & (uint8_t)0x80)) break;
+        u16x8u wide = __builtin_convertvector(v, u16x8u);
+        memcpy(dst + i, &wide, sizeof wide);
+    }
+    for (; i < length && src[i] < 0x80; i++) dst[i] = src[i];
+    return i;
+}
+
+/// System.Text.Ascii.Equals over `length` elements of each side (bytes or chars: `a_wide`/`b_wide`): true
+/// when every element is ASCII and equal. Kestrel compares each request header value with the string it
+/// kept from the previous request on the connection (to reuse it), 8 elements at a time here.
+int32_t csrt_ascii_equals(const void* a, int32_t a_wide, const void* b, int32_t b_wide, int32_t length) {
+    typedef uint16_t u16x8u __attribute__((vector_size(16)));
+    typedef uint8_t u8x8u __attribute__((vector_size(8)));
+    int32_t i = 0;
+    for (; i + 8 <= length; i += 8) {
+        u16x8u x, y;
+        if (a_wide) memcpy(&x, (const uint16_t*)a + i, sizeof x);
+        else { u8x8u n; memcpy(&n, (const uint8_t*)a + i, sizeof n); x = __builtin_convertvector(n, u16x8u); }
+        if (b_wide) memcpy(&y, (const uint16_t*)b + i, sizeof y);
+        else { u8x8u n; memcpy(&n, (const uint8_t*)b + i, sizeof n); y = __builtin_convertvector(n, u16x8u); }
+        // Equal and ASCII: (x ^ y) | (x & 0xFF80) is zero in every lane.
+        if (__builtin_reduce_or((x ^ y) | (x & (uint16_t)0xFF80))) return 0;
+    }
+    for (; i < length; i++) {
+        uint16_t x = a_wide ? ((const uint16_t*)a)[i] : ((const uint8_t*)a)[i];
+        uint16_t y = b_wide ? ((const uint16_t*)b)[i] : ((const uint8_t*)b)[i];
+        if (x != y || x > 0x7F) return 0;
+    }
+    return 1;
+}
+
 int32_t csrt_span_index_of(const void* data, int32_t length, int64_t element_size, const void* value) {
     if (element_size == 1) {
         const void* hit = length > 0 ? memchr(data, *(const uint8_t*)value, (size_t)length) : NULL;

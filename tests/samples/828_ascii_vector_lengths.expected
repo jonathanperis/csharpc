@@ -1,0 +1,83 @@
+ 0: 4/4  Done 0 Done 0 17 17
+    fits: 0
+ 1: 4/4 . DestinationTooSmall 0 Done 1 599 599
+    ArgumentException: The output byte buffer is too small to contain the encoded data, encoding codepage '20127' and fallback 'System.Text.EncoderReplacementFallback'. (Parameter 'bytes')
+ 2: 4/4 .. DestinationTooSmall 0 Done 2 18680 18680
+    ArgumentException: The output byte buffer is too small to contain the encoded data, encoding codepage '20127' and fallback 'System.Text.EncoderReplacementFallback'. (Parameter 'bytes')
+ 3: 4/4 ... DestinationTooSmall 0 Done 3 579195 579195
+    ArgumentException: The output byte buffer is too small to contain the encoded data, encoding codepage '20127' and fallback 'System.Text.EncoderReplacementFallback'. (Parameter 'bytes')
+ 4: 4/4 .... DestinationTooSmall 1 Done 4 17955161 17955161
+    ArgumentException: The output byte buffer is too small to contain the encoded data, encoding codepage '20127' and fallback 'System.Text.EncoderReplacementFallback'. (Parameter 'bytes')
+ 5: 4/4 ..... DestinationTooSmall 2 Done 5 556610049 556610049
+    ArgumentException: The output byte buffer is too small to contain the encoded data, encoding codepage '20127' and fallback 'System.Text.EncoderReplacementFallback'. (Parameter 'bytes')
+ 6: 4/4 ...... DestinationTooSmall 3 Done 6 75042367 75042367
+    ArgumentException: The output byte buffer is too small to contain the encoded data, encoding codepage '20127' and fallback 'System.Text.EncoderReplacementFallback'. (Parameter 'bytes')
+ 7: 4/4 ....... DestinationTooSmall 4 Done 7 -1968653818 -1968653818
+    ArgumentException: The output byte buffer is too small to contain the encoded data, encoding codepage '20127' and fallback 'System.Text.EncoderReplacementFallback'. (Parameter 'bytes')
+ 8: 4/4 ........ DestinationTooSmall 5 Done 8 -898726094 -898726094
+    ArgumentException: The output byte buffer is too small to contain the encoded data, encoding codepage '20127' and fallback 'System.Text.EncoderReplacementFallback'. (Parameter 'bytes')
+ 9: 4/4 ......... DestinationTooSmall 6 Done 9 -2090705041 -2090705041
+    ArgumentException: The output byte buffer is too small to contain the encoded data, encoding codepage '20127' and fallback 'System.Text.EncoderReplacementFallback'. (Parameter 'bytes')
+10: 4/4 .......... DestinationTooSmall 7 Done 10 -387346722 -387346722
+    ArgumentException: The output byte buffer is too small to contain the encoded data, encoding codepage '20127' and fallback 'System.Text.EncoderReplacementFallback'. (Parameter 'bytes')
+11: 4/4 ........... DestinationTooSmall 8 Done 11 877153618 877153618
+    ArgumentException: The output byte buffer is too small to contain the encoded data, encoding codepage '20127' and fallback 'System.Text.EncoderReplacementFallback'. (Parameter 'bytes')
+12: 4/4 ............ DestinationTooSmall 9 Done 12 1421958490 1421958490
+    ArgumentException: The output byte buffer is too small to contain the encoded data, encoding codepage '20127' and fallback 'System.Text.EncoderReplacementFallback'. (Parameter 'bytes')
+13: 4/4 ............. DestinationTooSmall 10 Done 13 1131040331 1131040331
+    ArgumentException: The output byte buffer is too small to contain the encoded data, encoding codepage '20127' and fallback 'System.Text.EncoderReplacementFallback'. (Parameter 'bytes')
+14: 4/4 .............. DestinationTooSmall 11 Done 14 702511939 702511939
+    ArgumentException: The output byte buffer is too small to contain the encoded data, encoding codepage '20127' and fallback 'System.Text.EncoderReplacementFallback'. (Parameter 'bytes')
+15: 4/4 ............... DestinationTooSmall 12 Done 15 303033728 303033728
+    ArgumentException: The output byte buffer is too small to contain the encoded data, encoding codepage '20127' and fallback 'System.Text.EncoderReplacementFallback'. (Parameter 'bytes')
+16: 4/4 ................ DestinationTooSmall 13 Done 16 804111087 804111087
+    ArgumentException: The output byte buffer is too small to contain the encoded data, encoding codepage '20127' and fallback 'System.Text.EncoderReplacementFallback'. (Parameter 'bytes')
+17: 4/4 ................. DestinationTooSmall 14 Done 17 -842359970 -842359970
+    ArgumentException: The output byte buffer is too small to contain the encoded data, encoding codepage '20127' and fallback 'System.Text.EncoderReplacementFallback'. (Parameter 'bytes')
+18: 4/4 .................. DestinationTooSmall 15 Done 18 -343355250 -343355250
+    ArgumentException: The output byte buffer is too small to contain the encoded data, encoding codepage '20127' and fallback 'System.Text.EncoderReplacementFallback'. (Parameter 'bytes')
+19: 4/4 ................... DestinationTooSmall 16 Done 19 -2054078126 -2054078126
+    ArgumentException: The output byte buffer is too small to contain the encoded data, encoding codepage '20127' and fallback 'System.Text.EncoderReplacementFallback'. (Parameter 'bytes')
+20: 4/4 .................... DestinationTooSmall 17 Done 20 748087599 748087599
+    ArgumentException: The output byte buffer is too small to contain the encoded data, encoding codepage '20127' and fallback 'System.Text.EncoderReplacementFallback'. (Parameter 'bytes')
+21: 4/4 ..................... DestinationTooSmall 18 Done 21 1715879188 1715879188
+    ArgumentException: The output byte buffer is too small to contain the encoded data, encoding codepage '20127' and fallback 'System.Text.EncoderReplacementFallback'. (Parameter 'bytes')
+22: 4/4 ...................... DestinationTooSmall 19 Done 22 1652647375 1652647375
+    ArgumentException: The output byte buffer is too small to contain the encoded data, encoding codepage '20127' and fallback 'System.Text.EncoderReplacementFallback'. (Parameter 'bytes')
+23: 4/4 ....................... DestinationTooSmall 20 Done 23 -307538826 -307538826
+    ArgumentException: The output byte buffer is too small to contain the encoded data, encoding codepage '20127' and fallback 'System.Text.EncoderReplacementFallback'. (Parameter 'bytes')
+24: 4/4 ........................ DestinationTooSmall 21 Done 24 -943768902 -943768902
+    ArgumentException: The output byte buffer is too small to contain the encoded data, encoding codepage '20127' and fallback 'System.Text.EncoderReplacementFallback'. (Parameter 'bytes')
+25: 4/4 ......................... DestinationTooSmall 22 Done 25 807935226 807935226
+    ArgumentException: The output byte buffer is too small to contain the encoded data, encoding codepage '20127' and fallback 'System.Text.EncoderReplacementFallback'. (Parameter 'bytes')
+26: 4/4 .......................... DestinationTooSmall 23 Done 26 -723811712 -723811712
+    ArgumentException: The output byte buffer is too small to contain the encoded data, encoding codepage '20127' and fallback 'System.Text.EncoderReplacementFallback'. (Parameter 'bytes')
+27: 4/4 ........................... DestinationTooSmall 24 Done 27 -963326560 -963326560
+    ArgumentException: The output byte buffer is too small to contain the encoded data, encoding codepage '20127' and fallback 'System.Text.EncoderReplacementFallback'. (Parameter 'bytes')
+28: 4/4 ............................ DestinationTooSmall 25 Done 28 201647828 201647828
+    ArgumentException: The output byte buffer is too small to contain the encoded data, encoding codepage '20127' and fallback 'System.Text.EncoderReplacementFallback'. (Parameter 'bytes')
+29: 4/4 ............................. DestinationTooSmall 26 Done 29 1956115473 1956115473
+    ArgumentException: The output byte buffer is too small to contain the encoded data, encoding codepage '20127' and fallback 'System.Text.EncoderReplacementFallback'. (Parameter 'bytes')
+30: 4/4 .............................. DestinationTooSmall 27 Done 30 510037639 510037639
+    ArgumentException: The output byte buffer is too small to contain the encoded data, encoding codepage '20127' and fallback 'System.Text.EncoderReplacementFallback'. (Parameter 'bytes')
+31: 4/4 ............................... DestinationTooSmall 28 Done 31 -1368702259 -1368702259
+    ArgumentException: The output byte buffer is too small to contain the encoded data, encoding codepage '20127' and fallback 'System.Text.EncoderReplacementFallback'. (Parameter 'bytes')
+32: 4/4 ................................ DestinationTooSmall 29 Done 32 519902978 519902978
+    ArgumentException: The output byte buffer is too small to contain the encoded data, encoding codepage '20127' and fallback 'System.Text.EncoderReplacementFallback'. (Parameter 'bytes')
+33: 4/4 ................................. DestinationTooSmall 30 Done 33 -1062876754 -1062876754
+    ArgumentException: The output byte buffer is too small to contain the encoded data, encoding codepage '20127' and fallback 'System.Text.EncoderReplacementFallback'. (Parameter 'bytes')
+34: 4/4 .................................. DestinationTooSmall 31 Done 34 1410559102 1410559102
+    ArgumentException: The output byte buffer is too small to contain the encoded data, encoding codepage '20127' and fallback 'System.Text.EncoderReplacementFallback'. (Parameter 'bytes')
+35: 4/4 ................................... DestinationTooSmall 32 Done 35 777659299 777659299
+    ArgumentException: The output byte buffer is too small to contain the encoded data, encoding codepage '20127' and fallback 'System.Text.EncoderReplacementFallback'. (Parameter 'bytes')
+36: 4/4 .................................... DestinationTooSmall 33 Done 36 -1662365402 -1662365402
+    ArgumentException: The output byte buffer is too small to contain the encoded data, encoding codepage '20127' and fallback 'System.Text.EncoderReplacementFallback'. (Parameter 'bytes')
+37: 4/4 ..................................... DestinationTooSmall 34 Done 37 6280200 6280200
+    ArgumentException: The output byte buffer is too small to contain the encoded data, encoding codepage '20127' and fallback 'System.Text.EncoderReplacementFallback'. (Parameter 'bytes')
+38: 4/4 ...................................... DestinationTooSmall 35 Done 38 194686259 194686259
+    ArgumentException: The output byte buffer is too small to contain the encoded data, encoding codepage '20127' and fallback 'System.Text.EncoderReplacementFallback'. (Parameter 'bytes')
+39: 4/4 ....................................... DestinationTooSmall 36 Done 39 1740306765 1740306765
+    ArgumentException: The output byte buffer is too small to contain the encoded data, encoding codepage '20127' and fallback 'System.Text.EncoderReplacementFallback'. (Parameter 'bytes')
+40: 4/4 ........................................ DestinationTooSmall 37 Done 40 -1885065020 -1885065020
+    ArgumentException: The output byte buffer is too small to contain the encoded data, encoding codepage '20127' and fallback 'System.Text.EncoderReplacementFallback'. (Parameter 'bytes')
+236772743
