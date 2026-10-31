@@ -470,7 +470,8 @@ class Server:
         """Starts the build pinned to the server CPUs; returns ms to the first answer, or raises."""
         ctx, entry = self.ctx, self.ctx.builds[self.build]
         # A port per start: connections the previous server closed sit in TIME_WAIT on its port, and a
-        # restart on it then depends on SO_REUSEADDR (which .NET sets before bind and csharpc doesn't yet).
+        # restart on it then depends on SO_REUSEADDR (which .NET sets before bind, and csharpc too since
+        # sample 840): a port per start keeps the rounds independent of it.
         ctx.port = ctx.base_port + ctx.starts % 200
         ctx.starts += 1
         self.port = ctx.port
