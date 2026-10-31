@@ -249,9 +249,8 @@ public sealed partial class FunctionCodeGen
         var index = ModuleCodeGen.InterfaceSlotIndex(itf, target);
         _m.NoteInterfaceDispatch(itf, index);
         _m.NoteVirtualCall(target);
-        var slots = InterfaceSlotTable(self, itf);
-        var slotAddress = _b.InBoundsGep(L.I8, slots, [L.ConstUInt(L.I64, (ulong)index * T.PointerSize)], "islot");
-        var fn = _b.Load(L.Ptr, slotAddress, "ifn");
-        return _b.Call(_m.FunctionTypeOf(target), fn, args);
+        // Through the slot's stub (ModuleCodeGen.InterfaceStubs.cs): guarded direct calls, then this site's cache.
+        var stub = _m.InterfaceCallStubFor(itf, index, target, _m.FunctionTypeOf(target));
+        return _b.Call(stub.Type, stub.Fn, [.. args, _m.NewInterfaceCallSiteCache()]);
     }
 }
