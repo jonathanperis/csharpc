@@ -101,12 +101,41 @@ public sealed partial class ModuleCodeGen
                     b.PositionAtEnd(next);
                 }
             }
-            var slots = b.Call(lookup.Type, lookup.Fn, [self, stub.Interface, site]);
-            var slot = b.InBoundsGep(Llvm.I8, slots, [Llvm.ConstInt(Llvm.I64, (long)((ulong)stub.Index * Types.PointerSize))], "islot");
-            var fn = b.Load(Llvm.Ptr, slot, "ifn");
-            var result = b.Call(stub.CalleeType, fn, args);
-            if (returnsVoid) b.RetVoid(); else b.Ret(result);
+            if (guards.Count == 0)
+            {
+                var result = CachedDispatch(b, stub, lookup, args, site);
+                if (returnsVoid) b.RetVoid(); else b.Ret(result);
+                continue;
+            }
+            // With guards, the cached dispatch is out of line (and cold): inlined at every call site it made
+            // the callers too large for LLVM to inline them in turn (Dictionary<string, int>'s Hash and
+            // KeysEqual stopped being inlined into wordfreq's loop: +24 % executed instructions).
+            var slow = Module.AddFunction($"csrt.istub.slow.{_interfaceSlowPaths++}", stub.Type);
+            Native.LLVMSetLinkage(slow, LLVMLinkage.Internal);
+            Llvm.AddFunctionAttribute(slow, "noinline");
+            Llvm.AddFunctionAttribute(slow, "cold");
+            Llvm.AddFunctionAttribute(slow, "uwtable", 2);
+            using (var sb = new IrBuilder(Llvm))
+            {
+                sb.PositionAtEnd(sb.AppendBlock(slow, "entry"));
+                var slowArgs = Enumerable.Range(0, count - 1).Select(i => slow.Param((uint)i)).ToArray();
+                var result = CachedDispatch(sb, stub, lookup, slowArgs, slow.Param((uint)(count - 1)));
+                if (returnsVoid) sb.RetVoid(); else sb.Ret(result);
+            }
+            var viaSlow = b.Call(stub.Type, slow, [.. args, site]);
+            if (returnsVoid) b.RetVoid(); else b.Ret(viaSlow);
         }
+    }
+
+    private int _interfaceSlowPaths;
+
+    /// <summary>The call through the receiver's interface map, found with the call site's cache.</summary>
+    private LLVMValueRef CachedDispatch(IrBuilder b, InterfaceCallStub stub, LoweredFunction lookup, LLVMValueRef[] args, LLVMValueRef site)
+    {
+        var slots = b.Call(lookup.Type, lookup.Fn, [args[0], stub.Interface, site]);
+        var slot = b.InBoundsGep(Llvm.I8, slots, [Llvm.ConstInt(Llvm.I64, (long)((ulong)stub.Index * Types.PointerSize))], "islot");
+        var fn = b.Load(Llvm.Ptr, slot, "ifn");
+        return b.Call(stub.CalleeType, fn, args);
     }
 
     /// <summary>
