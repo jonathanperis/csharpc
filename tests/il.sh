@@ -6,6 +6,8 @@
 #   tests/projects/il/<Lib>/<Lib>.csproj    libraries: built with `dotnet build -c Release` first; csharpc
 #                                           never sees their sources, only bin/Release/net11.0/<Lib>.dll
 #   tests/projects/il/<App>/expect-error    optional: the app must fail to compile with this diagnostic text
+#   tests/projects/il/<App>/levels          optional: the levels to compile it at instead of -O0 -O2 (a large app's -O2
+#                                           build costs more CI time than it adds: IlKestrelErrorsApp)
 #   tests/projects/il/<App>/heavy           optional: a compile too big for every CI shard (the Roslyn host, ~6 GB): skipped
 #                                           unless CSHARPC_HEAVY_IL=1; its content, if any, lists the levels (default -O0 -O2)
 #
@@ -50,6 +52,7 @@ for proj in "$WORK"/il/*/*.csproj; do
   dir="$(dirname "$proj")"
   [[ -n "$FILTER" && "$app" != *"$FILTER"* ]] && continue
   levels="-O0 -O2"
+  [[ -s "$dir/levels" ]] && levels="$(cat "$dir/levels")"
   if [[ -f "$dir/heavy" ]]; then
     [[ -n "${CSHARPC_HEAVY_IL:-}" ]] || { echo "SKIP $app (heavy: CSHARPC_HEAVY_IL=1 runs it; .github/workflows/bootstrap.yml)"; continue; }
     [[ -s "$dir/heavy" ]] && levels="$(cat "$dir/heavy")"
