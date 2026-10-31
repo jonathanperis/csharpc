@@ -245,6 +245,16 @@ instead of 1.5 s, the SRM program in 3.7 s instead of 4.6 s, with 30–40 MB les
 order: (3, continued) lowering on several threads, bounded code-generation memory; (4) reflection Roslyn needs at startup
 (`typeof(X).Assembly`, resource lookup, analyzer activation) as compile-time metadata with diagnostics
 for the rest; (5) csharpc compiled by csharpc, LLVM C API P/Invokes included.
+Branch `ci/m6-bootstrap` (2026-10-31): a program hosting Roslyn from its package — parse, rewrite,
+bind, diagnostics, deterministic in-memory emit read back with SRM — compiles and prints exactly what
+`dotnet run` prints (`tests/projects/il/IlRoslynHostApp`, run by the `Bootstrap` workflow); the Roslyn
+survey's failing methods went from 101 to 60 (then 19 more fixed; [18](18-compatibility.md#roslyn-and-csharpc)).
+(3) Lowering that program went from 255 s to 106 s (array interface maps and IL-failure reachability
+were quadratic), with a per-step breakdown in `csharpc -v`; LLVM's backend (284 s for 8.1 M
+instructions on one thread at -O0) and its peak (5.6 GB, 8.4 GB with two threads) are what's left
+of step 3. (4) Manifest resources, `Assembly.ManifestModule`/`GetReferencedAssemblies`/`GetCustomAttributes`
+are compile-time metadata. (5) `tools/bootstrap/selfhost.sh` lowers all of `csharpc.dll` (155 s, 4.5 GB)
+and stops on `NativeLibrary.SetDllImportResolver` and `ResourceReader`.
 
 ### Runtime tiers — C# for library code, C where it is the right tool
 [ADR 0017](adr/0017-runtime-tiers.md); a C-free runtime is not a goal (owner, 2026-10-30). **Tier 1 (now,

@@ -505,7 +505,7 @@ default; `--only Id1,Id2` for a subset).
 ### Roslyn and csharpc
 
 The same survey over M6's bootstrap closure: Roslyn (`Microsoft.CodeAnalysis`,
-`Microsoft.CodeAnalysis.CSharp`, the 5.9.0 assemblies csharpc itself references) and `csharpc.dll`.
+`Microsoft.CodeAnalysis.CSharp`, the version csharpc itself references) and `csharpc.dll`.
 `--il-survey=A,B` lowers every non-generic method of just those assemblies (framework assemblies
 they use are compiled from IL on demand, [ADR 0013](adr/0013-framework-il.md)), and
 `--il-survey-shard i/n` splits the types into shards, so the manual `IL survey` workflow run with
@@ -516,54 +516,66 @@ slice: `python3 -I tools/il-survey/survey.py --no-packages --local "roslyn+cshar
 --survey-assemblies Microsoft.CodeAnalysis,Microsoft.CodeAnalysis.CSharp,csharpc --shards 16
 --shard-index 0 --rank-by methods`.
 
-| Survey run (2026-10-24, CI) | Roslyn | csharpc | framework IL | total methods that fail to lower |
+| Survey run (CI) | Roslyn | csharpc | framework IL | total methods that fail to lower |
 |---|---:|---:|---:|---:|
-| start of the `m6-roslyn` branch | 994 | 102 | 25 | 1 111 |
-| after the first fixes (layouts, memories, StrongBox ...) | 293 | 74 | 29 | 396 |
-| final (`m6-roslyn`, corelib compiled to IL as on `main`) | 170 | 77 | 41 (+1 corelib) | 289 |
+| 2026-10-24, start of the `m6-roslyn` branch | 994 | 102 | 25 | 1 111 |
+| 2026-10-24, after the first fixes (layouts, memories, StrongBox ...) | 293 | 74 | 29 | 396 |
+| 2026-10-24, final (`m6-roslyn`, corelib compiled to IL as on `main`) | 170 | 77 | 41 (+1 corelib) | 289 |
+| 2026-10-31, `main` at `d572f27` (Roslyn 5.12; run 41155098091) | 73 | 17 | 3 (+8 corelib) | 101 |
+| 2026-10-31, `ci/m6-bootstrap` at `a2288d9` (run 41166551602) | 41 | 10 | 2 (+7 corelib) | 60 |
 
-What blocked the most Roslyn methods at the start, and is fixed on the branch (methods in the
-first survey): `ExtendedSpecialType`'s explicit layout that is the sequential one (413), the
-`HashAlgorithmName` and `RSAParameters` value types (105), `StrongBox<T>` (38), conditional weak
-tables and weak references (37), `RuntimeHelpers.GetHashCode`/`ReferenceEqualityComparer` (34),
-devirtualization to an open generic base method (26 — a bug C# programs could hit too), boxing,
-hashing and comparing `ReadOnlyMemory<char>` keys (23 methods, 204 sites), `decimal` constants read as
-fields (19), `CollectionsMarshal` (13), `GetTypeInfo` (13), fixed-size buffers (10), `Task.Run` with a
-token and `LazyInitializer` (19), rectangular arrays, `[InlineArray]` structs, unions, interface calls
-on array fields, IntPtr operators, SHA-1/SHA-256 and `IncrementalHash`, Base64/hex, delegates bound to
-library methods, and `Assembly.GetCustomAttribute<T>()` as compile-time metadata.
+What the `ci/m6-bootstrap` branch fixed, by methods stopped in the 2026-10-31 survey of `main`: struct
+layouts LLVM's struct types can't express — overlapping explicit fields and `Pack` below a field's
+alignment, now opaque bodies of the CLR's size with fields at their byte offsets (DiaSymReader's
+`VariantStructure` and `ImageDebugDirectory`, CodePages' `CodePageIndex`); `ParallelLoopResult` and
+`Parallel.For`/`ForEach` with `ParallelOptions`; tuple names inside a generic container's arguments
+(`ImmutableArray<(A a, B b)>.Enumerator`); pointer-element arrays and pointer fields in generic equality
+(the `type test against 'byte*'` seen in every shard); `Guid` in P/Invoke; COM-object P/Invokes as stubs
+that end the program (the CSLLVM0008 boundary, as for DiaSymReader's Windows-PDB factory); SHA-384,
+SHA-512 and MD5; `CollectionsMarshal.GetValueRefOrAddDefault`; `MemoryStream.TryGetBuffer`;
+`BinaryReader.Read`; `BigInteger.ToByteArray`/`TryParse` with styles; `Math.BigMul`; span
+`ReverseEndianness`; `StringBuilder.AppendFormat` with a provider and a span; `Encoding.RegisterProvider`
+and `EncodingProvider`; `TypeInfo.GenericTypeParameters`/`GetDeclaredMethods`/`DeclaredConstructors`;
+`SafeBuffer` on `SafeHandle`; and `Assembly.GetManifestResourceStream` (compiled-in resources, M6 step 4).
+After that run, also: `Environment.FailFast`, `Assembly.ManifestModule`, `Assembly.GetReferencedAssemblies`,
+`Assembly.GetCustomAttributes(Type, bool)`, `RuntimeEnvironment.GetRuntimeDirectory`,
+`Process.GetCurrentProcess`, `GC.Collect` overloads, `FileNotFoundException.FusionLog` and type tests
+against `Thread` (19 more methods of that run's list).
 
-Ranked list now (final run; methods stopped, all in one target):
+Ranked list of the `a2288d9` run without what the branch fixed after it (methods stopped):
 
 | # | Methods | Item | Where |
 |---:|---:|---|---|
-| 1 | 12 + 4 + 4 + 2 | `RegexRunner`/`RegexRunnerFactory` subclasses (the SDK's `[GeneratedRegex]` output) | csharpc |
-| 2 | 6 | `new Task(...)` | System.Linq.Parallel (csharpc's PLINQ) |
-| 3 | 5 | `Environment.GetFolderPath` | Roslyn, csharpc |
-| 4 | 5 | `Assembly.Location` | Roslyn |
-| 5 | 5 | deriving from `DeflateStream` (embedded text, PDB) | Roslyn |
-| 6 | 4 | `OperationCanceledException.CancellationToken` | Roslyn, PLINQ |
-| 7 | 4 | `Convert.ToInt64(object)` | csharpc |
-| 8 | 4 | `Task.CurrentId` | PLINQ |
-| 9 | 4 | `XmlReaderSettings`/`XmlReader` (XML doc comments) | Roslyn |
-| 10 | 4 | boxing `CancellationToken` | Roslyn |
-| 11 | 3 | `AppContext.BaseDirectory` | csharpc |
-| 12 | 3 | `Environment.FailFast` | Roslyn |
-| 13 | 3 | `MemoryMarshal.AsBytes` | System.Reflection.Metadata |
-| 14 | 3 | `RuntimeEnvironment.GetRuntimeDirectory` | csharpc |
-| 15 | 3 | `Version.TryParse` | csharpc |
-| 16 | 3 | `SHA384.Create` | Roslyn |
-| 17 | 3 | `Parallel.For` with `ParallelOptions` | csharpc |
-| 18 | 3 | `AppDomain.CurrentDomain` / `AssemblyLoadContext.Default` (analyzer loading) | Roslyn, csharpc |
-| 19 | 3 | `ImmutableArray<T>.Enumerator` typing in iterators | Roslyn |
-| 20 | 3 | `ParallelLoopResult` | Roslyn |
+| 1 | 5 + 2 | deriving from / creating `DeflateStream` (embedded text, PDB compression) | Roslyn, SRM |
+| 2 | 2 | `type test against Task<…>` | corelib |
+| 3 | 2 | `Debugger.Break` | Roslyn |
+| 4 | 2 | `BinaryWriter.Write(char[])` | Roslyn |
+| 5 | 2 | `Mutex` | Roslyn |
+| 6 | 3 | `AppDomain.Load` / `AssemblyResolve` / `ResolveEventArgs.Name` (analyzer loading) | Roslyn |
+| 7 | 1 each | `Delegate.CreateDelegate(Type, object, MethodInfo)`, `Environment.ExpandEnvironmentVariables`, `File.SetAttributes`, `Assembly.GlobalAssemblyCache`, `AssemblyName.GetAssemblyName`, `GetRuntimeMethods`, `StringBuilder.Append(char*, int)`, `StringBuilder.CopyTo`, `Mutex.TryOpenExisting`, `SynchronizationContext.Wait`, `Uri.MakeRelativeUri`, `object.Finalize()`, `ComTypes.STATSTG` | Roslyn |
+| 8 | 1 | `NativeLibrary.SetDllImportResolver` (how csharpc finds libLLVM) | csharpc |
+| 9 | 1 | `System.Resources.ResourceReader` (csharpc reads `.resources` files) | csharpc |
 
-The survey only counts methods that fail to *lower*. A program that parses C# with Roslyn from IL
-(`CSharpSyntaxTree.ParseText(...)` and a walk over the tree) is the other measure: the methods it can
-reach that csharpc can't compile went from 121 to 33 on the branch; the rest are `StringBuilder.GetChunks`
-(its chunk layout is observable and csharpc's builder has one buffer), `MemoryMarshal.TryGetArray` over
-`ReadOnlyMemory<T>` (memories don't keep their owner array), `DeflateStream`, `SHA384`,
-`Vector256`, `BigInteger` byte conversions, encoding providers and a few single members.
+The survey only counts methods that fail to *lower*. A program that hosts Roslyn is the other
+measure: `tests/projects/il/IlRoslynHostApp` references `Microsoft.CodeAnalysis.CSharp` as a package,
+parses a snippet, normalizes and rewrites it, binds it against a core library the snippet defines,
+prints symbols, constant values and diagnostics (with Roslyn's resource messages), emits it
+deterministically in memory and reads the image back with System.Reflection.Metadata. Compiled by
+csharpc, it prints exactly what `dotnet run` prints, the MVID and a hash of the PE image included. It
+is a `heavy` IL test (`tests/il.sh` runs it with `CSHARPC_HEAVY_IL=1`; the `Bootstrap` workflow does):
+on the shared VPS at -O0 with one thread the compile takes 466 s (lowering 106 s — 120 788 IL and
+99 878 corelib methods —, LLVM's backend 284 s for 8.1 M instructions) and peaks at 5.6 GB; on a CI
+runner with 2 threads, 4 min 22 s (with the `dotnet run` oracle) and 8.4 GB. Getting there fixed a silent
+difference C# programs could hit too: generic variance through interface type arguments
+(`List<IDerived> is IEnumerable<IBase>` was False; sample 726).
+
+`StringBuilder.GetChunks` is implemented with one chunk: csharpc's builder is one buffer, so the
+concatenated content is exact, but where .NET has linked several chunks (past the first chunk's
+capacity) the number and lengths of the chunks differ. Roslyn only hashes and compares the content.
+
+csharpc compiling itself (`tools/bootstrap/selfhost.sh`, M6 step 5): lowering `csharpc.dll` (159 693 IL
+and 144 969 corelib methods) takes 155 s at 4.5 GB; it stops on `NativeLibrary.SetDllImportResolver`
+and `ResourceReader` (rows 8–9) before code generation.
 
 ### ASP.NET Core and the TechEmpower app
 
