@@ -164,6 +164,7 @@ namespace CsharpcCoreLib
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern object csrt_object_memberwise_clone(object o);
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern unsafe Type csrt_type_from_mt(void* mt);
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern Array csrt_array_create_instance(Type element, long length, nint table);
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern object csrt_type_uninitialized_object(Type type, nint table);
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern Type csrt_type_find(string name, bool ignoreCase, nint table);
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern void csrt_array_set_value(Array array, object value, long index, nint table);
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern object csrt_array_get_value(Array array, long index, nint table);

@@ -1101,6 +1101,26 @@ namespace CsharpcCoreLib
 
         /// <summary>Activator.CreateInstance(Type): public parameterless constructor via kept metadata, with
         /// RuntimeType.CreateInstanceDefaultCtor's checks and messages.</summary>
+        /// <summary>
+        /// RuntimeHelpers.GetUninitializedObject(type): a zeroed instance without running a constructor (for
+        /// Nullable&lt;T&gt;, a boxed default T), after CoreCLR's checks in its order and with its exceptions
+        /// (ReflectionInvocation_GetUninitializedObject); the allocation is csrt's.
+        /// </summary>
+        public static object GetUninitializedObject(Type type)
+        {
+            ArgumentNullException.ThrowIfNull(type);
+            if (type == typeof(void) || type.IsArray || type.IsPointer || type.IsByRef || type.IsGenericParameter || type.IsFunctionPointer
+                || type.IsSubclassOf(typeof(MulticastDelegate)))
+                throw new ArgumentException("Type is not supported.");
+            if (type == typeof(string)) throw new ArgumentException("Uninitialized Strings cannot be created.");
+            if (type.IsInterface) throw new MemberAccessException("Cannot create an instance of an interface.");
+            if (type.IsAbstract) throw new MemberAccessException("Cannot create an abstract class.");
+            if (type.ContainsGenericParameters) throw new MemberAccessException("Cannot create a type for which Type.ContainsGenericParameters is true.");
+            if (type.IsByRefLike) throw new NotSupportedException("Cannot create boxed ByRef-like values.");
+            if (Nullable.GetUnderlyingType(type) is Type underlying) type = underlying;
+            return CoreIntrinsics.csrt_type_uninitialized_object(type, CoreIntrinsics.TypeInfoTableAddress());
+        }
+
         public static object ActivatorCreateInstance(Type type)
         {
             ArgumentNullException.ThrowIfNull(type);
