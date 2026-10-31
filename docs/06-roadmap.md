@@ -268,6 +268,18 @@ repeats this through it), run in TechEmpower's benchmark environment and beat th
 entries. Same sources, same
 test types, same harness; only the AOT compiler differs.
 
+**Done when** the csharpc build beats the NativeAOT build on every metric measured, held over repeated CI
+runs; the set is open-ended, and anything TechEmpower's toolset or the harness reports joins it. Planned:
+TechEmpower's own results for every test type (plaintext, JSON, single query, multiple queries, fortunes,
+updates, cached queries) at every concurrency and query-count level they use (requests per second, the
+latency distribution, zero errors); resources under load (peak and steady RSS, CPU time per request,
+threads, GC pauses); and deployment (start-up to the first response, idle RSS, executable size, build time,
+container image size). A tie or a loss on any of them means M7 isn't done. The first M7 step extends the
+harness to report all of them side by side. Baseline when this was set (TechEmpower run
+41187053942, 4-vCPU runner): behind on plaintext (0.92 / 0.95 of NativeAOT), JSON (0.98 / 1.00 / 0.99), RSS
+after load (84.4 vs 64.3 MiB), size (11.1 vs 8.9 MiB) and build (240 vs 20 s); ahead on JSON p99 (4.20 vs
+6.04 ms), start-up (21 vs 27 ms) and idle RSS (12.8 vs 17.4 MiB).
+
 What it takes, beyond M2–M6: ASP.NET Core and Kestrel compiled from IL (hosting, dependency
 injection, configuration, logging, `System.IO.Pipelines`, the HTTP/1.1 parser, `System.Text.Json`
 source generation, the database driver the entries use), the thread pool, sockets and async I/O at
@@ -360,6 +372,9 @@ dotnet/runtime's NativeAOT runtime tests, the libraries' tests in their NativeAO
 SDK's `PublishAot` tests (exclusions only for tests of ILCompiler internals, each listed). Tracked before
 the fork by building those suites with csharpc on CI and reporting the pass rate. Until then `Csharpc.Sdk` is the integration point and adopts
 NativeAOT's property names as it honours them.
+How the fork is run: it is a fork of `dotnet/dotnet` (the virtual monolithic repository that builds the SDK, runtime and ASP.NET Core together), and it keeps only its `main` and the branches the work needs (upstream's other branches
+are not carried). The csharpc integration lands through a pull request from our working branch into the
+fork's own `main`; nothing is proposed upstream to dotnet at this stage.
 Done when NativeAOT's code is removed from the fork, csharpc takes its place, the fork is built, and its
 acceptance gate passes.
 
