@@ -36,6 +36,15 @@ attribute factories) with a ~25 % faster build.
 
 ## Open branches
 
+- `ci/expression-tree-size` — M7 build time and size: method-table slots only for constructed classes
+  (rapid type analysis), generic virtual methods through dispatchers over constructed classes, array/string
+  interface helpers per dispatched member, invariant interfaces dispatched per instantiation, FullNames
+  composed at run time, lazily described `GetInterfaces()` interfaces. Expression-tree programs are now
+  smaller than NativeAOT's and compile in about half the time (docs/18-compatibility.md, "Expression trees";
+  compat runs 41177667628 vs 41177669294); `benchmarks/programs/exprtree.cs` tracks them. Samples 780–782.
+  TechEmpower doesn't compile on `main` either (run 41179977525: `JsonOptions()` reaches reflection JSON),
+  so its size couldn't be compared.
+
 - `ci/m2-system-data` — Roslyn 5.12 (the SDK's build), C# 15 unions, field reflection (`GetField(s)`,
   `FieldInfo`), `AssemblyLoadContext`/`AssemblyDependencyResolver` as NativeAOT has them,
   `Assembly.GetType` with constant names kept at compile time, `PropertyDescriptor`/`AttributeCollection`

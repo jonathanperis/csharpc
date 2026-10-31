@@ -129,7 +129,9 @@ before every commit that touches `src/`.
 ## Debugging
 
 - `--dump-cfg` prints Roslyn's control-flow graph per method; `--emit llvm-ir -O0` shows generated IR.
-- `CSHARPC_TRACE=1` prints which symbol is being lowered (and stack traces of internal errors).
+- `CSHARPC_TRACE=1` prints which symbol is being lowered (and stack traces of internal errors);
+  `CSHARPC_WHY_LOWERED=<substring>` prints, for each compiled function whose name contains it, the chain of
+  functions (or method-table slots) whose lowering first referenced it — what to look at when a binary grows.
 - The system libLLVM is a release build without assertions: crashes inside LLVM usually mean
   malformed IR — use `gdb` and `--emit llvm-ir`.
 - `-g` produces DWARF; `tools/gdb/csharpc.py` pretty-prints strings and arrays.

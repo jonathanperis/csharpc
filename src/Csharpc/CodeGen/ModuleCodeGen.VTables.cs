@@ -29,7 +29,8 @@ public sealed partial class ModuleCodeGen
 
     private readonly List<PendingMethodTable> _pendingMethodTables = [];
     private readonly HashSet<IMethodSymbol> _dispatchedVirtuals = new(SymbolEqualityComparer.Default);
-    private readonly Dictionary<INamedTypeSymbol, HashSet<int>> _dispatchedInterfaceSlots = new(SymbolEqualityComparer.Default);
+    // Per generic definition: the dispatched (slot, instantiation) pairs; a null instantiation is any (InterfaceDispatchKey).
+    private readonly Dictionary<INamedTypeSymbol, HashSet<(int Slot, string? Instantiation)>> _dispatchedInterfaceSlots = new(SymbolEqualityComparer.Default);
     // Slots waiting for their root / interface member to be dispatched.
     private readonly Dictionary<IMethodSymbol, List<(PendingMethodTable Table, int Slot)>> _slotsByRoot = new(SymbolEqualityComparer.Default);
     private readonly Dictionary<INamedTypeSymbol, List<(PendingMethodTable Table, int Interface)>> _interfaceEntries = new(SymbolEqualityComparer.Default);
@@ -46,16 +47,32 @@ public sealed partial class ModuleCodeGen
             foreach (var (table, slot) in slots) _slotRequests.Enqueue((table, slot, -1));
     }
 
+    /// <summary>
+    /// Which instantiations of a generic interface a dispatch through <paramref name="itf"/> can reach: only
+    /// itself when every type parameter is invariant (ICollection&lt;T&gt;, IList&lt;T&gt;, IDictionary&lt;K, V&gt;: a call
+    /// through ICollection&lt;int&gt; never runs a Dictionary's ICollection&lt;KeyValuePair&lt;K, V&gt;&gt;.CopyTo), else
+    /// null, any of them (variance lets an IEnumerable&lt;object&gt; call use an IEnumerable&lt;string&gt; table; an
+    /// open instantiation is conservatively any). Compared by .NET metadata name, which corelib shadows share.
+    /// </summary>
+    private string? InterfaceDispatchKey(INamedTypeSymbol itf) =>
+        itf.IsGenericType && !TypeSubstitution.IsOpen(itf) && itf.OriginalDefinition.TypeParameters.All(p => p.Variance == VarianceKind.None)
+            ? Mangler.MetadataName(itf) : null;
+
+    private static bool DispatchReaches((int Slot, string? Instantiation) dispatch, string? table) =>
+        dispatch.Instantiation is null || table is null || dispatch.Instantiation == table;
+
     /// <summary>Emitted code dispatches through slot <paramref name="index"/> of <paramref name="itf"/>.</summary>
     internal void NoteInterfaceDispatch(INamedTypeSymbol itf, int index)
     {
-        // Keyed on the generic definition: variance lets an IEnumerable<object> call use an IEnumerable<string> table.
         var definition = itf.OriginalDefinition;
+        var dispatch = (index, InterfaceDispatchKey(itf));
         if (!_dispatchedInterfaceSlots.TryGetValue(definition, out var dispatched)) _dispatchedInterfaceSlots[definition] = dispatched = [];
-        if (!dispatched.Add(index)) return;
+        if (!dispatched.Add(dispatch)) return;
         CheckNotFinished();
         if (_interfaceEntries.TryGetValue(definition, out var entries))
-            foreach (var (table, entry) in entries) _slotRequests.Enqueue((table, index, entry));
+            foreach (var (table, entry) in entries)
+                if (DispatchReaches(dispatch, InterfaceDispatchKey(table.Interfaces[entry].Interface))) _slotRequests.Enqueue((table, index, entry));
+        NoteBuiltinInterfaceDispatch(definition, dispatch);
     }
 
     private void CheckNotFinished()
@@ -63,10 +80,45 @@ public sealed partial class ModuleCodeGen
         if (_methodTablesFinished) throw new InvalidOperationException("virtual dispatch emitted after the method tables were finished");
     }
 
-    /// <summary>Registers a class method table: its slots are filled as dispatches through them appear.</summary>
+    // Rapid type analysis proper: only a class something allocates can be a receiver, so the slots of a
+    // method table nothing allocates (abstract classes, bases, classes only named in casts, signatures or
+    // typeof) stay pruned, and generic virtual dispatchers get no case for it. A visitor base class with
+    // 30 subclasses, of which the program creates two, no longer keeps the other 28's overrides.
+    // A table waits here (keyed on its global) until NoteConstructed sees an allocation with it. One that
+    // never is gets instance size 0 too, which csrt's GetUninitializedObject reports as "no instances"
+    // (a type known only at run time; `GetUninitializedObject(typeof(C))` constructs C).
+    private readonly Dictionary<nint, PendingMethodTable> _unconstructedTables = [];
+    private readonly HashSet<nint> _constructedMethodTables = [];
+
+    /// <summary>
+    /// Generated code allocates an object with this method table (csrt_alloc). Other method tables
+    /// (csrt's, arrays', boxes') are ignored.
+    /// </summary>
+    internal void NoteConstructed(LLVMValueRef methodTable)
+    {
+        if (!_constructedMethodTables.Add(methodTable.Handle)) return;
+        if (_unconstructedTables.Remove(methodTable.Handle, out var table))
+        {
+            if (s_whyLowered is not null) Console.Error.WriteLine($"constructed {table.Layout.Type.ToDisplayString()} by {_currentCaller?.ToDisplayString()}");
+            RegisterMethodTableSlots(table);
+        }
+    }
+
+    /// <summary>Can an object with this class layout's method table exist at run time (as far as lowering has seen)?</summary>
+    internal bool IsConstructed(ClassLayout layout) =>
+        !layout.MethodTable.IsNull && _constructedMethodTables.Contains(layout.MethodTable.Handle);
+
+    /// <summary>Registers a class method table: its slots are filled as dispatches through them appear, once it is constructed.</summary>
     private void AddPendingMethodTable(PendingMethodTable table)
     {
         _pendingMethodTables.Add(table);
+        if (_constructedMethodTables.Contains(table.Global.Handle)) RegisterMethodTableSlots(table);
+        else _unconstructedTables[table.Global.Handle] = table;
+    }
+
+    private void RegisterMethodTableSlots(PendingMethodTable table)
+    {
+        CheckNotFinished();
         var layout = table.Layout;
         var runtimeBase = LibraryBaseOf(layout);
         var keepMessage = runtimeBase is not null && IsLibraryException(runtimeBase);
@@ -92,8 +144,10 @@ public sealed partial class ModuleCodeGen
             var definition = table.Interfaces[j].Interface.OriginalDefinition;
             if (!_interfaceEntries.TryGetValue(definition, out var entries)) _interfaceEntries[definition] = entries = [];
             entries.Add((table, j));
+            var key = InterfaceDispatchKey(table.Interfaces[j].Interface);
             if (_dispatchedInterfaceSlots.TryGetValue(definition, out var dispatched))
-                foreach (var index in dispatched) _slotRequests.Enqueue((table, index, j));
+                foreach (var dispatch in dispatched)
+                    if (DispatchReaches(dispatch, key)) _slotRequests.Enqueue((table, dispatch.Slot, j));
         }
     }
 
@@ -111,10 +165,12 @@ public sealed partial class ModuleCodeGen
     /// </summary>
     private bool RequestDispatchedSlots()
     {
-        var requested = false;
+        var requested = RequestDispatchedBuiltinSlots();
         while (_slotRequests.TryDequeue(out var request))
         {
             var (table, slot, entry) = request;
+            if (s_whyLowered is not null)
+                _whyContext = $"slot of {table.Layout.Type.ToDisplayString()}" + (entry < 0 ? "" : $" for {table.Interfaces[entry].Interface.ToDisplayString()}");
             // One slot that can't be declared (a library method whose signature mentions an unsupported
             // type) is that slot's error, not the end of code generation for every other method.
             try
@@ -131,6 +187,7 @@ public sealed partial class ModuleCodeGen
                 }
             }
             catch (CompileError error) { Errors.Add(error); }
+            _whyContext = null;
         }
         return requested;
     }
@@ -140,6 +197,7 @@ public sealed partial class ModuleCodeGen
     {
         if (RequestDispatchedSlots()) throw new InvalidOperationException("method tables finished before the dispatch fixed point");
         _methodTablesFinished = true;
+        FinishBuiltinSlotTables();
         var pruned = Runtime("csrt_pruned_virtual", Llvm.Void).Fn;
         string[] defaults = ["csrt_object_to_string_default", "csrt_object_equals_default", "csrt_object_get_hash_code_default"];
         foreach (var table in _pendingMethodTables)
@@ -167,7 +225,7 @@ public sealed partial class ModuleCodeGen
             Native.LLVMSetInitializer(table.Global, Llvm.ConstStruct(
                 baseMt,
                 CString(Mangler.MetadataName(layout.Type)),
-                Llvm.ConstInt(Llvm.I32, (long)layout.InstanceSize),
+                Llvm.ConstInt(Llvm.I32, IsConstructed(layout) ? (long)layout.InstanceSize : 0),
                 Llvm.ConstInt(Llvm.I32, layout.Type.IsAbstract ? 1 : 0),
                 map,
                 Llvm.ConstInt(Llvm.I32, table.Interfaces.Count),

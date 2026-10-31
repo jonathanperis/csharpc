@@ -99,24 +99,6 @@ public sealed partial class ModuleCodeGen
     private int _lambdaCounter;
     private readonly List<INamedTypeSymbol> _userTypes = [];
 
-    /// <summary>Non-generic user classes deriving from (or equal to) <paramref name="root"/>, most-derived first.</summary>
-    internal IEnumerable<INamedTypeSymbol> ClassesDerivedFrom(INamedTypeSymbol root)
-    {
-        static int Depth(INamedTypeSymbol t) { var d = 0; for (var b = t.BaseType; b is not null; b = b.BaseType) d++; return d; }
-        bool Derives(INamedTypeSymbol t)
-        {
-            for (INamedTypeSymbol? b = t; b is not null; b = b.BaseType)
-                if (SymbolEqualityComparer.Default.Equals(b.OriginalDefinition, root.OriginalDefinition)) return true;
-            return false;
-        }
-        return HierarchyTypes.Where(t => t.TypeKind == TypeKind.Class && !t.IsGenericType && !t.IsStatic && Derives(t)).OrderByDescending(Depth);
-    }
-
-    /// <summary>Generic class definitions deriving from <paramref name="root"/> (their instantiations are only known lazily), IL ones included.</summary>
-    internal IEnumerable<INamedTypeSymbol> GenericClassesDerivedFrom(INamedTypeSymbol root) =>
-        HierarchyTypes.Where(t => t.TypeKind == TypeKind.Class && t.IsGenericType && !t.IsStatic
-            && Enumerable.Range(0, 64).Aggregate((INamedTypeSymbol?)t, (b, _) => b is null || SymbolEqualityComparer.Default.Equals(b.OriginalDefinition, root.OriginalDefinition) ? b : b.BaseType) is not null);
-
     public ModuleCodeGen(Compilation compilation, LlvmContext llvm, LlvmModule module, TargetMachine target)
     {
         Compilation = compilation;
@@ -234,7 +216,7 @@ public sealed partial class ModuleCodeGen
             Guard(entryPoint, FinishTypeMetadata);
             FinishEventSourceAttributes();
         }
-        finally { ReportIlFailures(); }
+        finally { ReportIlFailures(); ReportWhyLowered(); }
         // Every call site is known now: the stack-trace tables main registers.
         if (StackTraces is { } traces && !_traceTables.IsNull)
             Native.LLVMSetInitializer(_traceTables, traces.EmitTables(this));
@@ -260,6 +242,26 @@ public sealed partial class ModuleCodeGen
     }
 
     private static readonly bool s_trace = Environment.GetEnvironmentVariable("CSHARPC_TRACE") == "1";
+
+    // CSHARPC_WHY_LOWERED=<substring>: for each lowered function whose name contains it, the chain of
+    // functions whose lowering first referenced it (what keeps it in the binary).
+    private static readonly string? s_whyLowered = Environment.GetEnvironmentVariable("CSHARPC_WHY_LOWERED");
+    private readonly Dictionary<IMethodSymbol, (IMethodSymbol? Caller, string? How)> _loweredBy = new(SymbolEqualityComparer.Default);
+    internal string? _whyContext;
+
+    private void ReportWhyLowered()
+    {
+        if (s_whyLowered is null) return;
+        foreach (var (method, _) in _loweredBy)
+        {
+            var name = method.ToDisplayString();
+            if (!name.Contains(s_whyLowered, StringComparison.Ordinal)) continue;
+            Console.Error.WriteLine($"why {name}:");
+            var seen = new HashSet<IMethodSymbol>(SymbolEqualityComparer.Default);
+            for (IMethodSymbol? m = method; m is not null && seen.Add(m) && _loweredBy.TryGetValue(m, out var by); m = by.Caller)
+                Console.Error.WriteLine($"    <- {(by.How is null ? "" : "[" + by.How + "] ")}{by.Caller?.ToDisplayString() ?? "(root)"}");
+        }
+    }
 
     private void Guard(ISymbol symbol, Action action)
     {
@@ -325,6 +327,7 @@ public sealed partial class ModuleCodeGen
         if (generic && TypeSubstitution.IsOpen(method))
             throw CompileError.Unsupported($"open generic instantiation '{method}'", method);
         if (generic) { CheckGenericDepth(method); NoteDynamicallyAccessedInstantiation(method); }
+        if (s_whyLowered is not null) _loweredBy[method] = (_currentCaller, _whyContext ?? (_slotReference ? "slot" : null));
 
         var type = FunctionTypeOf(method);
         var fn = Module.AddFunction(Mangler.Method(method), type);

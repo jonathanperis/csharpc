@@ -1,0 +1,36 @@
+String[]: 11
+  System.ICloneable | ICloneable | System | False True True False | True True 0
+  System.Collections.IList | IList | System.Collections | False True True False | True True 2
+  System.Collections.ICollection | ICollection | System.Collections | False True True False | True True 1
+  System.Collections.IEnumerable | IEnumerable | System.Collections | False True True False | True True 0
+  System.Collections.IStructuralComparable | IStructuralComparable | System.Collections | False True True False | True True 0
+  System.Collections.IStructuralEquatable | IStructuralEquatable | System.Collections | False True True False | True True 0
+  System.Collections.Generic.IList`1[[System.String, System.Private.CoreLib, Version=11.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e]] | IList`1 | System.Collections.Generic | True True True False | IList`1 [String] | True True 3
+  System.Collections.Generic.ICollection`1[[System.String, System.Private.CoreLib, Version=11.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e]] | ICollection`1 | System.Collections.Generic | True True True False | ICollection`1 [String] | True True 2
+  System.Collections.Generic.IEnumerable`1[[System.String, System.Private.CoreLib, Version=11.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e]] | IEnumerable`1 | System.Collections.Generic | True True True False | IEnumerable`1 [String] | True True 1
+  System.Collections.Generic.IReadOnlyList`1[[System.String, System.Private.CoreLib, Version=11.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e]] | IReadOnlyList`1 | System.Collections.Generic | True True True False | IReadOnlyList`1 [String] | True True 3
+  System.Collections.Generic.IReadOnlyCollection`1[[System.String, System.Private.CoreLib, Version=11.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e]] | IReadOnlyCollection`1 | System.Collections.Generic | True True True False | IReadOnlyCollection`1 [String] | True True 2
+Square: 4
+  IShape`1[[System.Double, System.Private.CoreLib, Version=11.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e]] | IShape`1 |  | True True False False | IShape`1 [Double] | True True 0
+  IArea | IArea |  | False True False False | True True 1
+  System.IComparable`1[[IArea, 782_get_interfaces_lazy, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null]] | IComparable`1 | System | True True True False | IComparable`1 [IArea] | True True 0
+  System.IEquatable`1[[Square, 782_get_interfaces_lazy, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null]] | IEquatable`1 | System | True True True False | IEquatable`1 [Square] | True True 0
+List`1: 8
+  System.Collections.Generic.IList`1[[Square, 782_get_interfaces_lazy, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null]] | IList`1 | System.Collections.Generic | True True True False | IList`1 [Square] | True True 3
+  System.Collections.Generic.ICollection`1[[Square, 782_get_interfaces_lazy, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null]] | ICollection`1 | System.Collections.Generic | True True True False | ICollection`1 [Square] | True True 2
+  System.Collections.Generic.IEnumerable`1[[Square, 782_get_interfaces_lazy, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null]] | IEnumerable`1 | System.Collections.Generic | True True True False | IEnumerable`1 [Square] | True True 1
+  System.Collections.IEnumerable | IEnumerable | System.Collections | False True True False | True True 0
+  System.Collections.IList | IList | System.Collections | False True True False | True True 2
+  System.Collections.ICollection | ICollection | System.Collections | False True True False | True True 1
+  System.Collections.Generic.IReadOnlyList`1[[Square, 782_get_interfaces_lazy, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null]] | IReadOnlyList`1 | System.Collections.Generic | True True True False | IReadOnlyList`1 [Square] | True True 3
+  System.Collections.Generic.IReadOnlyCollection`1[[Square, 782_get_interfaces_lazy, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null]] | IReadOnlyCollection`1 | System.Collections.Generic | True True True False | IReadOnlyCollection`1 [Square] | True True 2
+True
+True True
+System.Numerics.IAdditionOperators`3[System.Int32,System.Int32,System.Int32] System.Numerics.IAdditionOperators`3[[System.Int32, System.Private.CoreLib, Version=11.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e],[System.Int32, System.Private.CoreLib, Version=11.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e],[System.Int32, System.Private.CoreLib, Version=11.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e]], System.Private.CoreLib, Version=11.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e
+True
+False
+System.Collections.Generic.IList`1[System.String] True False True
+  System.Collections.Generic.ICollection`1[System.String]
+  System.Collections.Generic.IEnumerable`1[System.String]
+  System.Collections.IEnumerable
+True

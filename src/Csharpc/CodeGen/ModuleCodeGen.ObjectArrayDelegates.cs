@@ -79,7 +79,7 @@ public sealed partial class ModuleCodeGen
             // Expression.Lambda without a delegate type makes typeof(ExpressionCreator<>).MakeGenericType(type)
             // and binds its CreateExpressionFunc (Expression.CreateLambda): NativeAOT shares that code over
             // reference types; csharpc has the instantiation for each delegate type it has.
-            if (creator is not null) MarkDynamicallyAccessed(creator.Construct(type), DamPublicMethods, "CreateExpressionFunc");
+            if (creator is not null && CanBeLambdaType(type)) MarkDynamicallyAccessed(creator.Construct(type), DamPublicMethods, "CreateExpressionFunc");
             any = true;
         }
         if (!UsesLinqExpressions) return any;
@@ -106,6 +106,28 @@ public sealed partial class ModuleCodeGen
             any = true;
         }
         return any;
+    }
+
+    /// <summary>
+    /// Can the program build a LambdaExpression of this delegate type at run time? It names the type itself
+    /// (a delegate of its own code), or Expression.GetDelegateType makes it from parameter types the program
+    /// can name: Func/Action over public types. A delegate type internal to the libraries
+    /// (ConditionalWeakTable's CreateValueCallback, Func&lt;LabelScopeInfo, LabelScopeInfo&gt; of the interpreter)
+    /// never is, and each ExpressionCreator&lt;T&gt; brings Expression&lt;T&gt; and its five subclasses. Should one be
+    /// reached anyway, MakeGenericType reports the missing instantiation.
+    /// </summary>
+    private bool CanBeLambdaType(INamedTypeSymbol type)
+    {
+        bool Nameable(ITypeSymbol t) => t switch
+        {
+            IArrayTypeSymbol a => Nameable(a.ElementType),
+            IPointerTypeSymbol => false,
+            INamedTypeSymbol n when IsProgramType(n) && !CoreLib.IsCoreLib(n) => n.TypeArguments.All(Nameable),
+            INamedTypeSymbol n => (n.DeclaredAccessibility == Accessibility.Public || n.SpecialType != SpecialType.None)
+                && (n.ContainingType is null || Nameable(n.ContainingType)) && n.TypeArguments.All(Nameable),
+            _ => false,
+        };
+        return Nameable(CoreLib.Unmap(type));
     }
 
     private int _operatorTypesScanned;

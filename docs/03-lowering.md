@@ -322,6 +322,16 @@ Sound() … }`, from before the interface-map fields existed (the vtable then st
 - Overriding library members other than the three `object` virtuals is rejected, except in
   classes deriving from corelib shadows (`Comparer<T>`, `EqualityComparer<T>`, ...) and from
   `System.Exception`, whose layout and method tables are shared with `src/runtime/eh.c`.
+- **Pruning (rapid type analysis, `ModuleCodeGen.VTables.cs`).** A slot is filled only when emitted code
+  dispatches through it *and* the class is constructed: generated code allocates an object with its
+  method table (`csrt_alloc` in `FunctionCodeGen.Allocate`, a class initializer's
+  `TypeInitializationException`, `RuntimeHelpers.GetUninitializedObject(typeof(C))`). Other slots point
+  at `csrt_pruned_virtual`, which fails loudly. A class only named in casts, signatures or `typeof` keeps
+  its method table (type tests, `Type` objects, base chains) with instance size 0, which csrt's
+  `GetUninitializedObject` reports as a type the program has no instances of. Array and string slot
+  tables (`ModuleCodeGen.CoreLib.cs`) are filled per dispatched interface member the same way, and
+  invariant generic interfaces (`ICollection<T>`, `IList<T>`) are dispatched per instantiation.
+  `CSHARPC_WHY_LOWERED=<substring>` prints why matching functions were compiled.
 
 **Object creation:** `new C(args)` calls `csrt_alloc(@C_MT, instance_size)` (zeroed, header set)
 and then calls the constructor directly with `this`. Constructors return `void`.
@@ -422,8 +432,11 @@ generic dictionary. See `src/Csharpc/CodeGen/Generics.cs`.
     interface members. Once `T` is a primitive, csharpc emits the built-in instruction.
 * `new T()`, `default(T)`, `is T`/`as T`, `T[]`, nested generic types (`Outer<T>.Inner`) and
   generic base classes all work.
-* **Generic virtual methods** have no vtable slots. A call site switches over the closed world of
-  overriding classes and calls the matching instantiation directly (`GenericVirtualCall`).
+* **Generic virtual methods** have no vtable slots. A call goes through a dispatcher per instantiation
+  (`GenericVirtualCall`, `ModuleCodeGen.GenericInterfaces.cs`) that compares the receiver's method table
+  with every class the program constructs that derives from the method's class, and calls that class's
+  most-derived override instantiated with the same type arguments. The cases are filled in rounds as
+  classes get constructed; a class nothing allocates gets no case, so its overrides aren't compiled.
 * **Variance** (`IEnumerable<string>` as `IEnumerable<object>`): every variant interface the program
   uses is registered at startup with its type arguments' method tables, and the runtime's interface
   lookup falls back to a variance-compatible entry.

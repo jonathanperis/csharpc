@@ -110,6 +110,10 @@ public sealed partial class ModuleCodeGen
             if (type is not INamedTypeSymbol { IsGenericType: true } named || TypeSubstitution.IsOpen(named)) continue;
             if (named.TypeArguments.Length != 1) continue;
             if (!s_arrayInterfaces.Contains(Mangler.MetadataName(named.OriginalDefinition))) continue;
+            // Only reference-type U, like KeepArrayOf: CreateInstance makes no other U[] than the program's
+            // own (whose casts request their interfaces), and every Dictionary's ICollection<KeyValuePair<K, V>>
+            // and every enumerator's IEnumerable<Entry> would otherwise put IList<...> on KeyValuePair[] and Entry[].
+            if (!named.TypeArguments[0].IsReferenceType) continue;
             KeepArrayOf(named.TypeArguments[0]);
             // So RefreshArrayInterfaceMaps puts IEnumerable<U> on U[] (open-generic binder casts).
             RequestArrayInterface(named);
@@ -158,11 +162,39 @@ public sealed partial class ModuleCodeGen
                     && itf.OriginalDefinition.TypeParameters.Any(p => p.Variance != VarianceKind.None))
                     InterfaceMethodTable(itf);
         if (_getInterfacesUsed)
-            foreach (var record in _typeInfoRecords.ToList())
-                foreach (var itf in record.Interfaces)
-                    InterfaceMethodTable(itf);
+        {
+            // Type.GetInterfaces() lists every interface of every described type. One the program has no
+            // method table for is described lazily (csrt_LazyInterface, FinishTypeMetadata): only what its
+            // description points at needs a method table — its definition, its arguments, and (the same
+            // way) its own interfaces. int's ~30 generic-math interfaces and each array's IList<T> family
+            // were a method table, a name and an entry each: ~190 KB of an expression-tree program.
+            var seen = new HashSet<INamedTypeSymbol>(SymbolEqualityComparer.Default);
+            var work = new Queue<INamedTypeSymbol>(_typeInfoRecords.ToList().SelectMany(r => r.Interfaces));
+            while (work.TryDequeue(out var itf))
+            {
+                var key = InterfaceKey(itf);
+                if (!seen.Add(key)) continue;
+                if (_interfaceTables.ContainsKey(key) || !CanDescribeLazily(key)) { InterfaceMethodTable(itf); continue; }
+                if (key.IsGenericType)
+                {
+                    MetadataMethodTable(key.OriginalDefinition);
+                    foreach (var argument in key.TypeArguments) MetadataMethodTable(argument);
+                }
+                foreach (var inner in ClrInterfaceOrder(key)) work.Enqueue(inner);
+            }
+        }
         RegisterKnownMethodTables();
     }
+
+    /// <summary>
+    /// Can Type.GetInterfaces() hand out this interface without a method table (csrt_LazyInterface)? csrt
+    /// composes its name from its definition's and its arguments', so not nested types (their arguments
+    /// span the declaring types) nor corelib-internal ones (their names aren't .NET's).
+    /// </summary>
+    private bool CanDescribeLazily(INamedTypeSymbol itf) =>
+        itf.TypeKind == TypeKind.Interface && itf.ContainingType is null && !TypeSubstitution.IsOpen(itf)
+        && !CoreLib.IsCoreLib(itf.OriginalDefinition) && !itf.AllInterfaces.Any(TypeSubstitution.IsOpen)
+        && itf.TypeArguments.All(a => a is INamedTypeSymbol or IArrayTypeSymbol);
 
     private void FinishTypeMetadata()
     {
@@ -174,23 +206,88 @@ public sealed partial class ModuleCodeGen
         }
         if (!_typeInfoTable.IsNull)
         {
+            // Interfaces without a method table that GetInterfaces lists: csrt_LazyInterface descriptions,
+            // referenced as tagged pointers (index + 1 byte), numbered before anything points at them.
+            var lazyIndex = new Dictionary<INamedTypeSymbol, int>(SymbolEqualityComparer.Default);
+            var lazyOrder = new List<INamedTypeSymbol>();
+            // What a description points at must be described already (SelectInterfaces made sure of it while
+            // types could still be added): one that isn't is left out, as interfaces without tables were before.
+            var described = _typeMts.Select(e => e.Type).OfType<ITypeSymbol>().Select(RealType).ToHashSet<ITypeSymbol>(SymbolEqualityComparer.Default);
+            bool IsLazy(INamedTypeSymbol key) => _getInterfacesUsed && !_interfaceTables.ContainsKey(key) && CanDescribeLazily(key)
+                && (!key.IsGenericType || described.Contains(RealType(key.OriginalDefinition))) && key.TypeArguments.All(a => described.Contains(RealType(a)));
+            void Collect(INamedTypeSymbol itf)
+            {
+                var key = InterfaceKey(itf);
+                if (!IsLazy(key) || lazyIndex.ContainsKey(key)) return;
+                lazyIndex[key] = lazyOrder.Count;
+                lazyOrder.Add(key);
+                foreach (var inner in ClrInterfaceOrder(key)) Collect(inner);
+            }
+            foreach (var record in _typeInfoRecords)
+                foreach (var itf in record.Interfaces) Collect(itf);
+            // csrt_TypeInfoTable: the count packs both lengths, and the lazy interfaces follow the entries in
+            // one object { [entries], [lazies] } (csrt.h), so programs without them keep the same table.
+            var lazyType = Llvm.Struct(TypeInfoEntryType, Llvm.Ptr);
+            var entriesType = LlvmContext.Array(TypeInfoEntryType, (ulong)_typeInfoRecords.Count);
+            var lazyArrayType = LlvmContext.Array(lazyType, (ulong)lazyOrder.Count);
+            var tableType = lazyOrder.Count == 0 ? entriesType : Llvm.Struct(entriesType, lazyArrayType);
+            var tableGlobal = Module.AddGlobal("csharpc.typeinfo.entries", tableType, constant: true, linkage: LLVMLinkage.Private);
+            var lazyStart = (long)Types.Target.SizeOf(entriesType);
+            var lazySize = (long)Types.Target.SizeOf(lazyType);
+            LLVMValueRef? InterfaceRef(INamedTypeSymbol itf)
+            {
+                var key = InterfaceKey(itf);
+                if (_interfaceTables.TryGetValue(key, out var mt)) return mt;
+                if (!lazyIndex.TryGetValue(key, out var index)) return null;
+                return Native.LLVMConstInBoundsGEP2(Llvm.I8, tableGlobal, [Llvm.ConstInt(Llvm.I64, lazyStart + index * lazySize + 1)], 1);
+            }
+            LLVMValueRef InterfaceList(IEnumerable<INamedTypeSymbol> interfaces, out int count)
+            {
+                var refs = interfaces.Select(InterfaceRef).OfType<LLVMValueRef>().ToList();
+                count = refs.Count;
+                return refs.Count == 0 ? LlvmContext.Null(Llvm.Ptr) : MtArray("ifaces", refs);
+            }
             var entries = new List<LLVMValueRef>();
             foreach (var record in _typeInfoRecords)
             {
-                var interfaces = new List<LLVMValueRef>();
-                foreach (var itf in record.Interfaces)
-                    if (_interfaceTables.TryGetValue(InterfaceKey(itf), out var mt)) interfaces.Add(mt);
-                entries.Add(Llvm.ConstStruct([.. record.Fields, interfaces.Count == 0 ? LlvmContext.Null(Llvm.Ptr) : MtArray("ifaces", interfaces),
+                var interfaces = InterfaceList(record.Interfaces, out var interfaceCount);
+                entries.Add(Llvm.ConstStruct([.. record.Fields, interfaces,
                     record.Namespace, record.Assembly, Llvm.ConstUInt(Llvm.I64, record.Flags), Llvm.ConstInt(Llvm.I32, record.ArgumentCount),
-                    Llvm.ConstInt(Llvm.I32, interfaces.Count), Llvm.ConstInt(Llvm.I32, record.Rank), Llvm.ConstInt(Llvm.I32, record.Variance)]));
+                    Llvm.ConstInt(Llvm.I32, interfaceCount), Llvm.ConstInt(Llvm.I32, record.Rank), Llvm.ConstInt(Llvm.I32, record.Variance)]));
             }
-            Native.LLVMSetInitializer(_typeInfoTable, Table("csharpc.typeinfo.entries", TypeInfoEntryType, entries));
+            var lazies = new List<LLVMValueRef>();
+            var none = LlvmContext.Null(Llvm.Ptr);
+            foreach (var itf in lazyOrder)
+            {
+                var interfaces = InterfaceList(ClrInterfaceOrder(itf), out var interfaceCount);
+                var arguments = itf.TypeArguments;
+                var variance = 0;
+                for (var k = 0; k < itf.TypeParameters.Length; k++)
+                    variance |= itf.OriginalDefinition.TypeParameters[k].Variance switch { VarianceKind.Out => 1, VarianceKind.In => 2, _ => 0 } << (2 * k);
+                var info = Llvm.ConstStruct(none, none, none, itf.IsGenericType ? MetadataMethodTable(itf.OriginalDefinition) : none, none,
+                    arguments.Length == 0 ? none : MtArray("args", [.. arguments.Select(MetadataMethodTable)]), interfaces,
+                    NamespaceOf(itf) is { } ns ? CString(ns) : none, AssemblyOf(itf) is { } assembly ? CString(assembly) : none,
+                    Llvm.ConstUInt(Llvm.I64, TypeFlags(RealType(itf))), Llvm.ConstInt(Llvm.I32, arguments.Length), Llvm.ConstInt(Llvm.I32, interfaceCount),
+                    Llvm.ConstInt(Llvm.I32, 0), Llvm.ConstInt(Llvm.I32, variance));
+                lazies.Add(Llvm.ConstStruct(info, CString(Mangler.MetadataName(itf.IsGenericType ? itf.OriginalDefinition : itf))));
+            }
+            var entriesInit = LlvmContext.ConstArray(TypeInfoEntryType, [.. entries]);
+            Native.LLVMSetInitializer(tableGlobal, lazyOrder.Count == 0 ? entriesInit
+                : Llvm.ConstStruct(entriesInit, LlvmContext.ConstArray(lazyType, [.. lazies])));
+            Native.LLVMSetInitializer(_typeInfoTable, Llvm.ConstStruct(
+                Llvm.ConstInt(Llvm.I64, entries.Count | ((long)lazyOrder.Count << 32)), tableGlobal));
         }
         if (!_typeNameTable.IsNull)
         {
             RegisterKnownMethodTables();
-            var entryType = Llvm.Struct(Llvm.Ptr, Llvm.Ptr, Llvm.I64);
+            // csrt_TypeNameEntry { mt, name (a string or a csrt_TypeNameComposition), unknown, argument_count }
+            var entryType = Llvm.Struct(Llvm.Ptr, Llvm.Ptr, Llvm.I32, Llvm.I32);
+            var argumentType = Llvm.Struct(Llvm.Ptr, Llvm.Ptr);
             var entries = new List<LLVMValueRef>();
+            // The method table of each described type (by its .NET type), for composed names' arguments.
+            var mtOf = new Dictionary<ITypeSymbol, LLVMValueRef>(SymbolEqualityComparer.Default);
+            foreach (var (mt, type) in _typeMts)
+                if (type is ITypeSymbol symbol && !IsOpenInstance(symbol)) mtOf.TryAdd(RealType(symbol), mt);
             foreach (var (mt, type) in _typeMts)
             {
                 // Only types whose FullName differs from the method table's name (ToString's form).
@@ -200,7 +297,21 @@ public sealed partial class ModuleCodeGen
                 if (real is not null && !HasGenericArguments(real) && !IsCoreLibInternal(real)) continue;
                 var unknown = false;
                 var fullName = real is null ? null : FullNameOf(real, ref unknown);
-                entries.Add(Llvm.ConstStruct(mt, fullName is null ? LlvmContext.Null(Llvm.Ptr) : CString(fullName), Llvm.ConstInt(Llvm.I64, unknown ? 1 : 0)));
+                // A generic instantiation whose arguments all have method tables: the runtime composes its
+                // name from the definition's and the arguments' (csrt.h), each long name stored once.
+                if (!unknown && fullName is not null && real is INamedTypeSymbol named && !IsDef(named)
+                    && ChainArguments(named) is { Count: > 0 and <= 64 } arguments
+                    && arguments.All(a => mtOf.ContainsKey(a) && AssemblyOf(a) is not null))
+                {
+                    var parts = arguments.Select(a => Llvm.ConstStruct(mtOf[a], CString(AssemblyOf(a)!))).ToList();
+                    var init = Llvm.ConstStruct(CString(Mangler.MetadataName(named.OriginalDefinition)), LlvmContext.ConstArray(argumentType, [.. parts]));
+                    var composition = Module.AddGlobal("csharpc.typenames.args", Native.LLVMTypeOf(init), init, constant: true, linkage: LLVMLinkage.Private);
+                    entries.Add(Llvm.ConstStruct(mt, composition, Llvm.ConstInt(Llvm.I32, 0), Llvm.ConstInt(Llvm.I32, arguments.Count)));
+                    continue;
+                }
+                // An unknown name is never read (csrt reports it as not supported): no string for it.
+                entries.Add(Llvm.ConstStruct(mt, fullName is null || unknown ? LlvmContext.Null(Llvm.Ptr) : CString(fullName),
+                    Llvm.ConstInt(Llvm.I32, unknown ? 1 : 0), Llvm.ConstInt(Llvm.I32, 0)));
             }
             Native.LLVMSetInitializer(_typeNameTable, Table("csharpc.typenames.entries", entryType, entries));
         }

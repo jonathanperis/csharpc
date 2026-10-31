@@ -1,0 +1,24 @@
+print Int32 42 | print String s | visitor printer
+count 1 | count 2 | visitor counter
+print Int32 42 | print String s | visitor inheriting
+generic<DateTime> Int32 | generic<DateTime> String | visitor generic
+ghost 42 null | ghost s null | visitor ghost
+ghost 1.5 set
+List`1 1
+Bag 1
+HashSet`1 1
+k=1 1
+3 9 2 True
+1 3 True
+0,9,1,2
+xyy
+InvalidCastException
+InvalidCastException: Object cannot be stored in an array of this type.
+IndexOutOfRangeException: Index was outside the bounds of the array.
+null w
+InvalidCastException: Object cannot be stored in an array of this type.
+p
+InvalidCastException: Object cannot be stored in an array of this type.
+InvalidCastException: Object cannot be stored in an array of this type.
+b
+1->2

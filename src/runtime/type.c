@@ -198,12 +198,81 @@ static Index s_name_index;
 
 static const csrt_TypeInfo* synthesized_info_for(const csrt_MethodTable* mt); // below, with CreateInstance
 
+/// An interface made from a csrt_LazyInterface: its method table, then its metadata.
+typedef struct {
+    csrt_MethodTable mt;
+    csrt_TypeInfo info;
+    const csrt_LazyInterface* lazy;
+    const char* full_name;  // Type.FullName, composed on first use
+} SynthesizedInterface;
+
+static const csrt_MethodTable** s_lazy_mts;  // per csrt_LazyInterface of the program's table
+
+/// The method table of a lazily described interface, made once (NULL when out of memory).
+static const csrt_MethodTable* lazy_interface_mt(const csrt_LazyInterface* lazy) {
+    const csrt_TypeInfoTable* table = __atomic_load_n(&s_table, __ATOMIC_ACQUIRE);
+    const csrt_MethodTable** cache = __atomic_load_n(&s_lazy_mts, __ATOMIC_ACQUIRE);
+    if (!cache) {
+        const csrt_MethodTable** fresh = calloc((size_t)CSRT_TYPEINFO_LAZY_COUNT(table), sizeof *fresh);
+        if (!fresh) return NULL;
+        const csrt_MethodTable** expected = NULL;
+        if (__atomic_compare_exchange_n(&s_lazy_mts, &expected, fresh, false, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) cache = fresh;
+        else { free(fresh); cache = expected; }
+    }
+    size_t index = (size_t)(lazy - CSRT_TYPEINFO_LAZY(table));
+    const csrt_MethodTable* known = __atomic_load_n(&cache[index], __ATOMIC_ACQUIRE);
+    if (known) return known;
+    // The method table's name, as the compiler spells it (Mangler.MetadataName): "Def`1[Arg1,Arg2]".
+    size_t length = strlen(lazy->name) + 3;
+    for (uint32_t i = 0; i < lazy->info.generic_count; i++) length += strlen(lazy->info.generic_args[i]->name) + 1;
+    char* name = malloc(length);
+    SynthesizedInterface* s = calloc(1, sizeof *s);
+    if (!name || !s) { free(name); free(s); return NULL; }
+    size_t used = strlen(lazy->name);
+    memcpy(name, lazy->name, used);
+    if (lazy->info.generic_count) {
+        name[used++] = '[';
+        for (uint32_t i = 0; i < lazy->info.generic_count; i++) {
+            if (i) name[used++] = ',';
+            size_t n = strlen(lazy->info.generic_args[i]->name);
+            memcpy(name + used, lazy->info.generic_args[i]->name, n);
+            used += n;
+        }
+        name[used++] = ']';
+    }
+    name[used] = 0;
+    s->mt.name = name;
+    s->mt.flags = CSRT_MT_INTERFACE | CSRT_MT_SYNTHESIZED_INTERFACE;
+    s->info = lazy->info;
+    s->info.mt = &s->mt;
+    s->lazy = lazy;
+    const csrt_MethodTable* expected = NULL;
+    if (!__atomic_compare_exchange_n(&cache[index], &expected, &s->mt, false, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) {
+        free(name);
+        free(s);
+        return expected;
+    }
+    return &s->mt;
+}
+
+/// An entry of a csrt_TypeInfo's `interfaces`: a method table, or a tagged csrt_LazyInterface (csrt.h).
+/// NULL after throwing OutOfMemoryException.
+static const csrt_MethodTable* interface_at(const csrt_TypeInfo* info, uint32_t i) {
+    const csrt_MethodTable* entry = info->interfaces[i];
+    if (!((uintptr_t)entry & 1)) return entry;
+    const csrt_MethodTable* mt = lazy_interface_mt((const csrt_LazyInterface*)((uintptr_t)entry - 1));
+    if (!mt) csrt_throw_out_of_memory(NULL);
+    return mt;
+}
+
 static const csrt_TypeInfo* lookup_info(const csrt_MethodTable* mt) {
     const csrt_TypeInfoTable* table = __atomic_load_n(&s_table, __ATOMIC_ACQUIRE);
     if (!table) return NULL;
-    build_index(&s_info_index, table->entries, table->count, sizeof(csrt_TypeInfo));
+    build_index(&s_info_index, table->entries, CSRT_TYPEINFO_COUNT(table), sizeof(csrt_TypeInfo));
     const csrt_TypeInfo* found = index_find(&s_info_index, mt);
     if (found) return found;
+    // Not in the table: an interface csrt made from a csrt_LazyInterface, or a synthesized array.
+    if (mt && (mt->flags & CSRT_MT_SYNTHESIZED_INTERFACE)) return &((const SynthesizedInterface*)mt)->info;
     return synthesized_info_for(mt);
 }
 
@@ -309,7 +378,11 @@ csrt_Array* csrt_type_interfaces(TypeObject* t, const csrt_TypeInfoTable* table)
     }
     uint32_t count = info->interface_count;
     csrt_Array* array = csrt_new_array(sizeof(void*), count);
-    for (uint32_t i = 0; i < count; i++) ((TypeObject**)array->data)[i] = csrt_type_from_mt(info->interfaces[i]);
+    for (uint32_t i = 0; i < count; i++) {
+        const csrt_MethodTable* itf = interface_at(info, i);
+        if (!itf) return NULL;
+        ((TypeObject**)array->data)[i] = csrt_type_from_mt(itf);
+    }
     return array;
 }
 
@@ -346,10 +419,15 @@ static bool name_equals(const char* n, const uint16_t* s, int32_t length, bool i
 TypeObject* csrt_type_find(csrt_String* name, bool ignore_case, const csrt_TypeInfoTable* table) {
     if (!name) { csrt_throw_null_reference(); return NULL; }
     if (!__atomic_load_n(&s_table, __ATOMIC_ACQUIRE)) __atomic_store_n(&s_table, table, __ATOMIC_RELEASE);
-    for (int64_t i = 0; i < table->count; i++) {
+    for (int64_t i = 0; i < CSRT_TYPEINFO_COUNT(table); i++) {
         const csrt_TypeInfo* info = &table->entries[i];
         if (!info->mt || !info->mt->name || (info->flags & CSRT_TI_GENERIC_PARAMETER)) continue;
         if (name_equals(info->mt->name, name->chars, name->length, ignore_case)) return csrt_type_from_mt(info->mt);
+    }
+    for (int64_t i = 0; i < CSRT_TYPEINFO_LAZY_COUNT(table); i++) {
+        const csrt_MethodTable* mt = lazy_interface_mt(&CSRT_TYPEINFO_LAZY(table)[i]);
+        if (!mt) { csrt_throw_out_of_memory(NULL); return NULL; }
+        if (name_equals(mt->name, name->chars, name->length, ignore_case)) return csrt_type_from_mt(mt);
     }
     return NULL;
 }
@@ -433,8 +511,10 @@ static bool assignable(const csrt_TypeInfo* to, const csrt_TypeInfo* from) {
         if (variant_compatible(to, from)) return true;
         if (from->flags & CSRT_TI_NO_INTERFACES) { throw_unsupported(from->mt, "Type.IsAssignableFrom"); return false; }
         for (uint32_t i = 0; i < from->interface_count; i++) {
-            if (from->interfaces[i] == to->mt) return true;
-            const csrt_TypeInfo* itf = info_for(from->interfaces[i]);
+            const csrt_MethodTable* entry = interface_at(from, i);
+            if (!entry) return false;
+            if (entry == to->mt) return true;
+            const csrt_TypeInfo* itf = info_for(entry);
             if (!itf) return false;
             if (variant_compatible(to, itf)) return true;
         }
@@ -512,12 +592,125 @@ csrt_String* csrt_type_assembly_name(TypeObject* t, const csrt_TypeInfoTable* ta
 /// Type.FullName: the method table's name, unless the (small) name table says otherwise — generic
 /// instantiations list assembly-qualified arguments, generic parameters have none.
 /// NULL for a null FullName (and after throwing).
+static const char* composed_full_name(const csrt_TypeNameTable* names, const csrt_TypeNameEntry* entry, int depth);
+
+/// FullName of a generic argument's type (NULL: unknown, too deep, or out of memory).
+static const char* argument_full_name(const csrt_TypeNameTable* names, const csrt_MethodTable* mt, int depth) {
+    const csrt_TypeNameEntry* entry = index_find(&s_name_index, mt);
+    if (!entry) return mt->name;
+    if (entry->unknown) return NULL;
+    return entry->argument_count ? composed_full_name(names, entry, depth + 1) : (const char*)entry->name;
+}
+
+static const char** s_composed_names;  // per name-table entry, built on first use
+
+static char* append_cstr(char* to, const char* s) {
+    size_t n = strlen(s);
+    memcpy(to, s, n);
+    return to + n;
+}
+
+/// "Def[[Arg, Assembly],...]" for an entry with arguments (csrt.h), cached per entry.
+static const char* composed_full_name(const csrt_TypeNameTable* names, const csrt_TypeNameEntry* entry, int depth) {
+    if (depth > 64) return NULL;
+    const char** cache = __atomic_load_n(&s_composed_names, __ATOMIC_ACQUIRE);
+    if (!cache) {
+        const char** fresh = calloc((size_t)names->count, sizeof *fresh);
+        if (!fresh) return NULL;
+        const char** expected = NULL;
+        if (__atomic_compare_exchange_n(&s_composed_names, &expected, fresh, false, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) cache = fresh;
+        else { free(fresh); cache = expected; }
+    }
+    size_t index = (size_t)(entry - names->entries);
+    const char* known = __atomic_load_n(&cache[index], __ATOMIC_ACQUIRE);
+    if (known) return known;
+    const csrt_TypeNameComposition* composition = entry->name;
+    size_t length = strlen(composition->definition) + 3;
+    const char* parts[2 * 64];
+    if (entry->argument_count > 64) return NULL;
+    for (uint32_t i = 0; i < entry->argument_count; i++) {
+        const char* name = argument_full_name(names, composition->arguments[i].mt, depth);
+        if (!name) return NULL;
+        parts[2 * i] = name;
+        parts[2 * i + 1] = composition->arguments[i].assembly;
+        length += strlen(name) + strlen(composition->arguments[i].assembly) + 5;
+    }
+    char* built = malloc(length);
+    if (!built) return NULL;
+    char* p = built;
+    p = append_cstr(p, composition->definition);
+    *p++ = '[';
+    for (uint32_t i = 0; i < entry->argument_count; i++) {
+        if (i) *p++ = ',';
+        *p++ = '[';
+        p = append_cstr(p, parts[2 * i]);
+        p = append_cstr(p, ", ");
+        p = append_cstr(p, parts[2 * i + 1]);
+        *p++ = ']';
+    }
+    *p++ = ']';
+    *p = 0;
+    const char* expected = NULL;
+    if (!__atomic_compare_exchange_n(&cache[index], &expected, built, false, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) {
+        free(built);
+        return expected;
+    }
+    return built;
+}
+
+/// Type.FullName of a synthesized generic interface: "Def[[Arg, Assembly],...]" (NULL: an argument csharpc
+/// can't name, or out of memory), cached in it.
+static const char* synthesized_full_name(const csrt_TypeNameTable* names, SynthesizedInterface* s) {
+    const char* known = __atomic_load_n(&s->full_name, __ATOMIC_ACQUIRE);
+    if (known) return known;
+    const csrt_TypeInfo* info = &s->info;
+    if (info->generic_count > 64) return NULL;
+    const char* parts[2 * 64];
+    size_t length = strlen(s->lazy->name) + 3;
+    for (uint32_t i = 0; i < info->generic_count; i++) {
+        const char* name = argument_full_name(names, info->generic_args[i], 0);
+        const csrt_TypeInfo* argument = lookup_info(info->generic_args[i]);
+        if (!name || !argument || !argument->assembly) return NULL;
+        parts[2 * i] = name;
+        parts[2 * i + 1] = argument->assembly;
+        length += strlen(name) + strlen(argument->assembly) + 5;
+    }
+    char* built = malloc(length);
+    if (!built) return NULL;
+    char* p = append_cstr(built, s->lazy->name);
+    *p++ = '[';
+    for (uint32_t i = 0; i < info->generic_count; i++) {
+        if (i) *p++ = ',';
+        *p++ = '[';
+        p = append_cstr(p, parts[2 * i]);
+        p = append_cstr(p, ", ");
+        p = append_cstr(p, parts[2 * i + 1]);
+        *p++ = ']';
+    }
+    *p++ = ']';
+    *p = 0;
+    const char* expected = NULL;
+    if (!__atomic_compare_exchange_n(&s->full_name, &expected, built, false, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) {
+        free(built);
+        return expected;
+    }
+    return built;
+}
+
 static const char* full_name_of(TypeObject* t, const csrt_TypeNameTable* names, const char* what) {
     build_index(&s_name_index, names->entries, names->count, sizeof(csrt_TypeNameEntry));
     const csrt_TypeNameEntry* entry = index_find(&s_name_index, t->target);
+    if (!entry && (t->target->flags & CSRT_MT_SYNTHESIZED_INTERFACE) && ((const SynthesizedInterface*)t->target)->info.generic_count) {
+        const char* composed = synthesized_full_name(names, (SynthesizedInterface*)t->target);
+        if (!composed) throw_unsupported(t->target, what);
+        return composed;
+    }
     if (!entry) return full_name(t);
     if (entry->unknown) { throw_unsupported(t->target, what); return NULL; }
-    return entry->full_name;
+    if (!entry->argument_count) return entry->name;
+    const char* composed = composed_full_name(names, entry, 0);
+    if (!composed) { throw_unsupported(t->target, what); return NULL; }
+    return composed;
 }
 
 csrt_String* csrt_type_full_name_of(TypeObject* t, const csrt_TypeNameTable* names) {
@@ -583,7 +776,7 @@ TypeObject* csrt_type_make_generic(TypeObject* t, csrt_Array* arguments, const c
         throw_utf8(&mt_argument, "The number of generic arguments provided doesn't equal the arity of the generic type definition. (Parameter 'typeArguments')");
         return NULL;
     }
-    for (int64_t e = 0; e < table->count; e++) {
+    for (int64_t e = 0; e < CSRT_TYPEINFO_COUNT(table); e++) {
         const csrt_TypeInfo* candidate = &table->entries[e];
         if (candidate->definition != definition->mt || !(candidate->flags & CSRT_TI_CONSTRUCTED_GENERIC)
             || candidate->generic_count != definition->generic_count)
@@ -591,6 +784,16 @@ TypeObject* csrt_type_make_generic(TypeObject* t, csrt_Array* arguments, const c
         bool same = true;
         for (uint32_t k = 0; k < candidate->generic_count && same; k++) same = candidate->generic_args[k] == args[k]->target;
         if (same) return csrt_type_from_mt(candidate->mt);
+    }
+    for (int64_t e = 0; e < CSRT_TYPEINFO_LAZY_COUNT(table); e++) {
+        const csrt_TypeInfo* candidate = &CSRT_TYPEINFO_LAZY(table)[e].info;
+        if (candidate->definition != definition->mt || candidate->generic_count != definition->generic_count) continue;
+        bool same = true;
+        for (uint32_t k = 0; k < candidate->generic_count && same; k++) same = candidate->generic_args[k] == args[k]->target;
+        if (!same) continue;
+        const csrt_MethodTable* mt = lazy_interface_mt(&CSRT_TYPEINFO_LAZY(table)[e]);
+        if (!mt) { csrt_throw_out_of_memory(NULL); return NULL; }
+        return csrt_type_from_mt(mt);
     }
     char names[512];
     size_t used = 0;
@@ -635,7 +838,7 @@ static const csrt_TypeInfo* synthesized_array_of(const csrt_MethodTable* element
 
 /// The program's method table for `element[]` (NULL if there is none), including synthesized ones.
 static const csrt_TypeInfo* array_info_of(const csrt_MethodTable* element, const csrt_TypeInfoTable* table) {
-    for (int64_t e = 0; e < table->count; e++) {
+    for (int64_t e = 0; e < CSRT_TYPEINFO_COUNT(table); e++) {
         const csrt_TypeInfo* candidate = &table->entries[e];
         if ((candidate->flags & CSRT_TI_SZARRAY) && candidate->element == element) return candidate;
     }

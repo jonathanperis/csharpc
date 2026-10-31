@@ -73,7 +73,8 @@ internal static class StringExtras { public static string Join<T>(string separat
   compile fails every compile with Roslyn's errors; `CSHARPC_CHECK_CORELIB=1` binds the sources inside
   a program's compilation (the source corelib) and reports them all, warnings included.
 * Lowering is flow-insensitive: everything a reached method references is lowered and linked, and its
-  virtual call sites keep their targets. Keep rarely needed work (big tables, culture-sensitive
+  virtual call sites keep the overrides of the classes the program constructs (pruning, docs/03-lowering.md;
+  `CSHARPC_WHY_LOWERED=<substring>` shows what referenced a function). Keep rarely needed work (big tables, culture-sensitive
   fallbacks, composite formatting in exception messages) out of common paths, or behind something only
   the programs that need it reference. A trailing `StringComparison` argument that is a constant
   `Ordinal`/`OrdinalIgnoreCase` binds to a `<Name>Ordinal` / `<Name>OrdinalIgnoreCase` (or, against an
