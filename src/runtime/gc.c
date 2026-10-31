@@ -2292,5 +2292,7 @@ void csrt_gc_shutdown(void) {
     profile_print();
     void csrt_task_sites_print(void);  // async.c
     csrt_task_sites_print();
+    void csrt_dispatch_print(void);    // csrt.c
+    csrt_dispatch_print();
 #endif
 }
