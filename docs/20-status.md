@@ -104,7 +104,9 @@ attribute factories) with a ~25 % faster build.
   27.6 MiB (NativeAOT 37.7; TechEmpower runs 41260599507 and 41266326519: **275 and 264 of 456**, the verdict moving with the runner, 232–275 on this branch): the collector kept the peak its
   start-up's cache fill reached (31 MiB of chunks for 8 MiB live); the pool's timer thread now gives free slot
   pages back to the OS once allocation goes quiet (gc.c, "Idle trimming"; size budget linux-x86_64 async
-  +4 KiB). Start-up is still behind (747–751 vs 600–610 ms in runs 41266326519/41268870848, with about the
+  +4 KiB). Rebased onto main `97ca487`: the idle trim and `ci/m7-perf-2`'s surplus release share one
+  `released` flag (release_chunk, now on Windows and macOS too), and a reused released chunk skips clearing
+  where released pages read as zero (Linux, Windows). Start-up is still behind (747–751 vs 600–610 ms in runs 41266326519/41268870848, with about the
   same CPU time, 1.11 vs 1.00 s: the 10,000-query fill is latency-bound): the timer thread no longer wakes per
   Npgsql command timeout, and the socket engine takes no lock for readiness with nothing pending (futex calls
   to the first response 204k → 116k locally, NativeAOT 60k; start-up 762 → 747 ms). Left: ~38.4k voluntary
@@ -115,7 +117,11 @@ attribute factories) with a ~25 % faster build.
   .NET prints resource keys, csharpc's corelib full messages (sample 880; the interim app dropped it).
   `new SocketException(SocketError)` takes .NET's errno for each value (11 of 47 differed on Linux) and WASI's
   numbering on WebAssembly ("Connection refused" was another text there); samples 881–882. Harness: start-up
-  CPU time and idle RSS by mapping in the deploy log.
+  CPU time and idle RSS by mapping in the deploy log. Found, not fixed (needs scheduling): for an exception
+  thrown inside Npgsql (the entry against a closed port) the JIT prints 13 Npgsql/System.Net frames and an
+  `--- End of stack trace from previous location ---` line before the program's two; csharpc prints only the
+  program's two. It is ADR 0012's documented gap (frames of IL-compiled methods aren't recorded; BCL frames
+  only for listed members) and warned with CSLLVM0006 at compile time, but the text differs from the oracle.
 - `ci/m7-platform` — csharpc builds and runs TechEmpower's Platform entry (`csharpc Platform.dll`, frameworks
   from its runtimeconfig.json); all seven test types answer as the JIT does (identical verify.py
   transcripts locally). Fixes: SO_REUSEADDR on bind, non-blocking connect/Select, async NetworkStream over
