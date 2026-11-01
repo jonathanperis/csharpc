@@ -229,7 +229,7 @@ public static class SourceGenerators
                 lock (_loaded)
                 {
                     if (!_loaded.TryGetValue(path, out var assembly))
-                        _loaded[path] = assembly = HostAssembly(AssemblyName.GetAssemblyName(path)) ?? LoadFromAssemblyPath(path);
+                        _loaded[path] = assembly = HostAssembly(System.Reflection.Metadata.MetadataReader.GetAssemblyName(path)) ?? LoadFromAssemblyPath(path);
                     return assembly;
                 }
             }

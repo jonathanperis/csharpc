@@ -206,3 +206,5 @@ wasi 903_stack_trace_socket_connect     opens loopback sockets: WASI preview 1 h
 windows 903_stack_trace_socket_connect  live: the socket implementation behind the frames is per OS (Winsock overlapped connects)
 macos 903_stack_trace_socket_connect    live: the socket implementation behind the frames is per OS (kqueue)
 windows 912_directory_not_found_path   live: Path.Combine and the messages use the OS's directory separator
+macos 903_stack_trace_socket_connect  live: a refused connect completes asynchronously on macOS, so .NET's trace takes the ValueTask-to-Task continuation path
+windows 940_expand_environment_variables  live: .NET expands through Win32's ExpandEnvironmentStrings, whose handling of unset names differs from the Unix algorithm
