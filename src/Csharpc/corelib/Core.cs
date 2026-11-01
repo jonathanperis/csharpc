@@ -245,6 +245,9 @@ namespace CsharpcCoreLib
         public static void InvalidOperation(string message) => throw new InvalidOperationException(message);
         public static void VersionChanged() => throw new InvalidOperationException("Collection was modified; enumeration operation may not execute.");
         public static void NoElements() => throw new InvalidOperationException("Sequence contains no elements");
+        /// <summary>MemoryExtensions' wording (with a period): .NET's Enumerable.Min/Max of integers and of other value
+        /// types go through it when the source is an array or a List&lt;T&gt; (TryGetSpan).</summary>
+        public static void NoElementsSpan() => throw new InvalidOperationException("Sequence contains no elements.");
         public static void NoMatch() => throw new InvalidOperationException("Sequence contains no matching element");
         public static void MoreThanOne() => throw new InvalidOperationException("Sequence contains more than one element");
         public static void MoreThanOneMatch() => throw new InvalidOperationException("Sequence contains more than one matching element");
@@ -295,6 +298,16 @@ namespace CsharpcCoreLib
     [OptimizeForSize]
     internal static class LibraryThrowHelper
     {
+        /// <summary>
+        /// What a sort throws when its comparison threw `e` (.NET's ArraySortHelper): an IndexOutOfRangeException (a
+        /// bogus comparer sends the sort past the array's ends) becomes an ArgumentException naming the comparer,
+        /// anything else is wrapped in an InvalidOperationException.
+        /// </summary>
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        public static Exception SortFailed(Exception e, object comparer) => e is IndexOutOfRangeException
+            ? new ArgumentException("Unable to sort because the IComparer.Compare() method returns inconsistent results. Either a value does not compare equal to itself, or one value repeatedly compared to another value yields different results. IComparer: '"
+                + (comparer == null ? "" : comparer.ToString()) + "'.")
+            : new InvalidOperationException("Failed to compare two elements in the array.", e);
         [MethodImpl(MethodImplOptions.NoInlining)]
         public static void ListEnumeratorVersionChanged() =>
             throw CoreIntrinsics.LibraryFrames(new InvalidOperationException("Collection was modified; enumeration operation may not execute."), "System.Collections.Generic.List`1.Enumerator.MoveNext()");
@@ -418,11 +431,16 @@ namespace CsharpcCoreLib
     {
         private const int IntrosortSizeThreshold = 16;
 
+        // .NET's ArraySortHelper entry points: whatever the comparison throws surfaces wrapped (LibraryThrowHelper.SortFailed).
         public static void Sort(T[] keys, int index, int length, IComparer<T> comparer)
         {
             if (length < 2) return;
-            if (comparer == null || IsDefault(comparer)) SortDefault(keys, index, length);
-            else Sort(keys, index, length, (a, b) => comparer.Compare(a, b));
+            try
+            {
+                if (comparer == null || IsDefault(comparer)) IntroSortDefault(keys, index, length, 2 * (Log2(length) + 1));
+                else IntroSort(keys, index, length, 2 * (Log2(length) + 1), (a, b) => comparer.Compare(a, b));
+            }
+            catch (Exception e) { throw LibraryThrowHelper.SortFailed(e, comparer); }
         }
 
         private static bool IsDefault(IComparer<T> comparer) => (object)comparer == (object)Comparer<T>.Default;
@@ -433,7 +451,9 @@ namespace CsharpcCoreLib
 
         public static void SortDefault(T[] keys, int index, int length)
         {
-            if (length > 1) IntroSortDefault(keys, index, length, 2 * (Log2(length) + 1));
+            if (length < 2) return;
+            try { IntroSortDefault(keys, index, length, 2 * (Log2(length) + 1)); }
+            catch (Exception e) { throw LibraryThrowHelper.SortFailed(e, null); }
         }
 
         private static void SwapIfGreaterDefault(T[] k, int i, int j)
@@ -521,7 +541,9 @@ namespace CsharpcCoreLib
 
         public static void Sort(T[] keys, int index, int length, Comparison<T> comparer)
         {
-            if (length > 1) IntroSort(keys, index, length, 2 * (Log2(length) + 1), comparer);
+            if (length < 2) return;
+            try { IntroSort(keys, index, length, 2 * (Log2(length) + 1), comparer); }
+            catch (Exception e) { throw LibraryThrowHelper.SortFailed(e, comparer); }
         }
 
         private static void SwapIfGreater(T[] k, int i, int j, Comparison<T> c)

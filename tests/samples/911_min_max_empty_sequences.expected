@@ -1,0 +1,25 @@
+int[] Max: InvalidOperationException: Sequence contains no elements.
+List<int> Max: InvalidOperationException: Sequence contains no elements.
+List<int> Min: InvalidOperationException: Sequence contains no elements.
+List<long> Max: InvalidOperationException: Sequence contains no elements.
+List<short> Max: InvalidOperationException: Sequence contains no elements.
+List<DateTime> Max: InvalidOperationException: Sequence contains no elements.
+List<int> Max(comparer): InvalidOperationException: Sequence contains no elements.
+int[] as IEnumerable<int> Max: InvalidOperationException: Sequence contains no elements.
+DateTime[] as IEnumerable Max: InvalidOperationException: Sequence contains no elements.
+iterator Max: InvalidOperationException: Sequence contains no elements
+iterator Min: InvalidOperationException: Sequence contains no elements
+List<double> Max: InvalidOperationException: Sequence contains no elements
+List<float> Min: InvalidOperationException: Sequence contains no elements
+List<decimal> Max: InvalidOperationException: Sequence contains no elements
+double[] as IEnumerable Min: InvalidOperationException: Sequence contains no elements
+selector Max: InvalidOperationException: Sequence contains no elements
+Average: InvalidOperationException: Sequence contains no elements
+List<string> Max: null
+List<int?> Max: null
+string[] Max: null
+string[] Max with nulls: b
+string[] Min with nulls: a
+int?[] Max: null
+int?[] Min with nulls: 1
+int?[] Max with nulls: 5

@@ -371,6 +371,31 @@ public sealed partial class FunctionCodeGen
         catch (Exception e) when (e is IlException or BadImageFormatException or InvalidOperationException) { return instruction.ToString(); }
     }
 
+    /// <summary>
+    /// A block reached with object references of different static types in one stack slot (csc's
+    /// `list ?? (IEnumerable&lt;T&gt;)[]`: a List&lt;T&gt; on one path, Array.Empty&lt;T&gt;()'s T[] on the
+    /// other) types that slot as what both are (ECMA-335 III.1.8.1.3's merge), not as the first path's:
+    /// an interface call on it may then reach an array, whose interface maps must include it.
+    /// </summary>
+    private void IlMergeEntryTypes(IlBlock target, List<IlEntry> values)
+    {
+        for (var i = 0; i < values.Count; i++)
+        {
+            var (kind, type, llvmType, slot) = target.Entry![i];
+            var other = values[i].Type;
+            if (kind != IlKind.Ref || values[i].Kind != IlKind.Ref || type is null || other is null
+                || SymbolEqualityComparer.Default.Equals(type, other) || !type.IsReferenceType || !other.IsReferenceType)
+                continue;
+            ITypeSymbol merged = _m.Compilation.ClassifyCommonConversion(other, type) is { IsImplicit: true, IsReference: true } or { IsIdentity: true } ? type
+                : _m.Compilation.ClassifyCommonConversion(type, other) is { IsImplicit: true, IsReference: true } ? other
+                : _m.Compilation.GetSpecialType(SpecialType.System_Object);
+            // The array reaches the slot as the interface (an implicit conversion, as for a store).
+            if (merged is INamedTypeSymbol { TypeKind: TypeKind.Interface } itf && (S(type) is IArrayTypeSymbol { Rank: 1 } || S(other) is IArrayTypeSymbol { Rank: 1 }))
+                _m.RequestArrayInterface(S(itf) as INamedTypeSymbol ?? itf);
+            target.Entry[i] = (kind, merged, llvmType, slot);
+        }
+    }
+
     /// <summary>Hands the current stack to a successor block: its entry slots receive the values.</summary>
     private void IlTransfer(IlBlock target, Stack<IlEntry> stack)
     {
@@ -387,7 +412,11 @@ public sealed partial class FunctionCodeGen
             })];
             target.Carried = IlCarry(values);
         }
-        else IlCheckCarried(target, values);
+        else
+        {
+            IlCheckCarried(target, values);
+            if (!target.Emitted && target.Entry.Count == values.Count) IlMergeEntryTypes(target, values);
+        }
         if (target.Entry.Count != values.Count)
             throw new IlException($"stack depth {values.Count} at a branch to IL_{target.Start:X4}, which expects {target.Entry.Count}");
         for (var i = 0; i < values.Count; i++)

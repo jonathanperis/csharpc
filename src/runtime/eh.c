@@ -97,11 +97,13 @@ static bool is_exception_of(const csrt_Exception* e, const csrt_MethodTable* typ
 }
 
 /// FileNotFoundException keeps its FileName in the param_name slot (ArgumentException's ParamName).
-static bool is_file_not_found(const csrt_Exception* e) {
+static bool derives_from(const csrt_Exception* e, const char* name) {
     for (const csrt_MethodTable* mt = e->mt; mt; mt = mt->base)
-        if (strcmp(mt->name, "System.IO.FileNotFoundException") == 0) return true;
+        if (strcmp(mt->name, name) == 0) return true;
     return false;
 }
+
+static bool is_file_not_found(const csrt_Exception* e) { return derives_from(e, "System.IO.FileNotFoundException"); }
 
 // Exception.Message (+ ArgumentException's " (Parameter 'x')" suffix).
 csrt_String* csrt_exception_get_message(void* exception) {
@@ -203,10 +205,12 @@ csrt_String* csrt_exception_to_string(void* exception) {
     csrt_String* s = csrt_string_from_utf8(e->mt->name);
     csrt_String* message = virtual_message(exception);
     if (message && message->length > 0) s = csrt_string_concat(concat_utf8(s, ": "), message);
-    if (is_file_not_found(e)) {
-        // FileNotFoundException.ToString(): "File name: '...'", and the inner exception without the end line.
+    bool file = is_file_not_found(e);
+    if (file || derives_from(e, "System.IO.DirectoryNotFoundException")) {
+        // FileNotFoundException.ToString(): "File name: '...'"; DirectoryNotFoundException's (.NET 11):
+        // "Directory path: '...'"; both list the inner exception without the end line.
         if (e->param_name && e->param_name->length > 0)
-            s = concat_utf8(csrt_string_concat(concat_utf8(s, CSRT_NEWLINE "File name: '"), e->param_name), "'");
+            s = concat_utf8(csrt_string_concat(concat_utf8(s, file ? CSRT_NEWLINE "File name: '" : CSRT_NEWLINE "Directory path: '"), e->param_name), "'");
         if (e->inner) s = csrt_string_concat(concat_utf8(s, CSRT_NEWLINE " ---> "), csrt_object_to_string(e->inner));
     } else if (e->inner) {
         s = csrt_string_concat(concat_utf8(s, CSRT_NEWLINE " ---> "), csrt_object_to_string(e->inner));
@@ -222,8 +226,8 @@ csrt_String* csrt_exception_to_string(void* exception) {
 // Stack traces (docs/adr/0012-stack-traces.md)
 //
 // csharpc gives every call site of the program's own code that may throw a landing pad of its own
-// whose first catch clause is the site's descriptor (method, file, line; csrt_TraceSite), a
-// compiler-emitted constant the personality tells from a method table by its magic number. During
+// whose first catch clause is the site's descriptor (method, flags, file and line; csrt_TraceSite), a
+// compiler-emitted constant the personality tells from a method table by its tag. During
 // the search phase the personality walks the frames from the throw point up to the catching frame --
 // exactly the frame list .NET records -- and appends each descriptor it meets to the exception;
 // inlined code carries its callers' clauses too, so inlined frames are listed. Descriptors never
@@ -241,15 +245,24 @@ csrt_String* csrt_exception_to_string(void* exception) {
 // Frames: trace = an array of { count, frame, site*... }; a null site is the "--- End of stack trace
 // from previous location ---" line ExceptionDispatchInfo.Throw() adds.
 // ---------------------------------------------------------------------------------------------
-#define CSRT_TRACE_SITE_MAGIC 0xC5A7AC5E7A1E5175ULL  // not a canonical address: no method table starts with it
-// flags: TRACE_ASYNC, TRACE_HIDDEN (CodeGen/StackTraces.cs, FrameFlags)
-typedef struct { uint64_t magic; int32_t method, file, line, flags; } csrt_TraceSite;  // file < 0: no location
-enum { TRACE_ASYNC = 1, TRACE_HIDDEN = 2 };
+// A site's word: the tag in bits 63-48 (not a canonical address: no method table starts with it; the
+// filters' csrt_EhClause magic has another), the flags in bits 47-44, the method in bits 27-0.
+// flags: TRACE_ASYNC, TRACE_HIDDEN (CodeGen/StackTraces.cs, FrameFlags); TRACE_LOCATED: { file, line } follow.
+#define CSRT_TRACE_SITE_TAG 0xC5A8u
+typedef struct { uint64_t word; } csrt_TraceSite;
+typedef struct { csrt_TraceSite site; int32_t file, line; } csrt_TraceSiteLocated;
+enum { TRACE_ASYNC = 1, TRACE_HIDDEN = 2, TRACE_LOCATED = 4 };
+static bool trace_is_site(const void* type) { return (*(const uint64_t*)type >> 48) == CSRT_TRACE_SITE_TAG; }
+static uint32_t trace_flags(const csrt_TraceSite* site) { return (uint32_t)(site->word >> 44) & 0xF; }
+static uint32_t trace_method(const csrt_TraceSite* site) { return (uint32_t)site->word & 0xFFFFFFF; }
 typedef struct {
-    const char* const* methods;  // "Method(Int32 x)": a frame as .NET's StackTrace formats it, after its type prefix
+    const uint8_t* names;        // the frames' text ("Namespace.Type.Method(Int32 x)", formatted like .NET's
+                                 // StackTrace), '\0'-terminated one after the other, DEFLATE-compressed
+    uint32_t names_size;         // compressed bytes
+    uint32_t names_length;       // inflated bytes
+    uint32_t method_count;
+    uint32_t unused;
     const char* const* files;    // document paths, as the PDB records them
-    const int32_t* method_types; // per method: its entry in types (-1: none, methods has the whole text)
-    const char* const* types;    // "Namespace.Type.", shared by the methods of a type
 } csrt_TraceTables;
 
 // preset: the frames are library frames set before the throw (csrt_trace_preset), kept by it.
@@ -336,6 +349,195 @@ void csrt_trace_preset(void* exception, const void* const* sites, int32_t count)
     data->preset = 1;
 }
 
+// ---------------------------------------------------------------------------------------------
+// The frame names: inflated (RFC 1951 DEFLATE, as the compiler's System.IO.Compression wrote them) the
+// first time a trace is formatted. The input is the compiler's own constant, but the decoder still
+// checks every bound: a malformed table fails the inflation, never reads or writes out of range.
+// ---------------------------------------------------------------------------------------------
+typedef struct {
+    const uint8_t* in; size_t in_length, in_pos;
+    uint32_t bits; int32_t bit_count;
+    uint8_t* out; size_t out_length, out_pos;
+} Inflater;
+
+typedef struct { int16_t count[16]; int16_t symbol[288]; } Huffman;
+
+static int32_t inflate_bits(Inflater* s, int32_t need) {
+    uint32_t value = s->bits;
+    while (s->bit_count < need) {
+        if (s->in_pos >= s->in_length) return -1;
+        value |= (uint32_t)s->in[s->in_pos++] << s->bit_count;
+        s->bit_count += 8;
+    }
+    s->bits = need < 32 ? value >> need : 0;
+    s->bit_count -= need;
+    return (int32_t)(value & ((1u << need) - 1u));
+}
+
+/// Canonical Huffman code from code lengths: false when over-subscribed (incomplete codes are allowed).
+static bool huffman_build(Huffman* h, const int16_t* lengths, int32_t n) {
+    memset(h->count, 0, sizeof h->count);
+    for (int32_t symbol = 0; symbol < n; symbol++) h->count[lengths[symbol]]++;
+    int32_t left = 1;
+    for (int32_t length = 1; length < 16; length++) {
+        left = (left << 1) - h->count[length];
+        if (left < 0) return false;
+    }
+    int16_t offsets[16];
+    offsets[1] = 0;
+    for (int32_t length = 1; length < 15; length++) offsets[length + 1] = (int16_t)(offsets[length] + h->count[length]);
+    for (int32_t symbol = 0; symbol < n; symbol++)
+        if (lengths[symbol] != 0) h->symbol[offsets[lengths[symbol]]++] = (int16_t)symbol;
+    return true;
+}
+
+static int32_t huffman_decode(Inflater* s, const Huffman* h) {
+    int32_t code = 0, first = 0, index = 0;
+    for (int32_t length = 1; length < 16; length++) {
+        int32_t bit = inflate_bits(s, 1);
+        if (bit < 0) return -1;
+        code |= bit;
+        int32_t count = h->count[length];
+        if (code - count < first) return h->symbol[index + (code - first)];
+        index += count;
+        first = (first + count) << 1;
+        code <<= 1;
+    }
+    return -1;
+}
+
+static bool inflate_codes(Inflater* s, const Huffman* lengths, const Huffman* distances) {
+    static const int16_t length_base[29] = { 3, 4, 5, 6, 7, 8, 9, 10, 11, 13, 15, 17, 19, 23, 27, 31, 35, 43, 51, 59, 67, 83, 99, 115, 131, 163, 195, 227, 258 };
+    static const int16_t length_extra[29] = { 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3, 4, 4, 4, 4, 5, 5, 5, 5, 0 };
+    static const int16_t distance_base[30] = { 1, 2, 3, 4, 5, 7, 9, 13, 17, 25, 33, 49, 65, 97, 129, 193, 257, 385, 513, 769, 1025, 1537, 2049, 3073, 4097, 6145, 8193, 12289, 16385, 24577 };
+    static const int16_t distance_extra[30] = { 0, 0, 0, 0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6, 7, 7, 8, 8, 9, 9, 10, 10, 11, 11, 12, 12, 13, 13 };
+    for (;;) {
+        int32_t symbol = huffman_decode(s, lengths);
+        if (symbol < 0) return false;
+        if (symbol < 256) {
+            if (s->out_pos >= s->out_length) return false;
+            s->out[s->out_pos++] = (uint8_t)symbol;
+            continue;
+        }
+        if (symbol == 256) return true;
+        symbol -= 257;
+        if (symbol >= 29) return false;
+        int32_t extra = inflate_bits(s, length_extra[symbol]);
+        if (extra < 0) return false;
+        size_t length = (size_t)(length_base[symbol] + extra);
+        int32_t code = huffman_decode(s, distances);
+        if (code < 0 || code >= 30) return false;
+        extra = inflate_bits(s, distance_extra[code]);
+        if (extra < 0) return false;
+        size_t distance = (size_t)(distance_base[code] + extra);
+        if (distance > s->out_pos || length > s->out_length - s->out_pos) return false;
+        for (size_t i = 0; i < length; i++, s->out_pos++) s->out[s->out_pos] = s->out[s->out_pos - distance];
+    }
+}
+
+static bool inflate_dynamic(Inflater* s, Huffman* lengths, Huffman* distances) {
+    static const uint8_t order[19] = { 16, 17, 18, 0, 8, 7, 9, 6, 10, 5, 11, 4, 12, 3, 13, 2, 14, 1, 15 };
+    int32_t nlen = inflate_bits(s, 5), ndist = inflate_bits(s, 5), ncode = inflate_bits(s, 4);
+    if (nlen < 0 || ndist < 0 || ncode < 0) return false;
+    nlen += 257; ndist += 1; ncode += 4;
+    if (nlen > 286 || ndist > 30) return false;
+    int16_t code_lengths[320] = { 0 };
+    for (int32_t i = 0; i < ncode; i++) {
+        int32_t bits = inflate_bits(s, 3);
+        if (bits < 0) return false;
+        code_lengths[order[i]] = (int16_t)bits;
+    }
+    Huffman code;
+    if (!huffman_build(&code, code_lengths, 19)) return false;
+    memset(code_lengths, 0, sizeof code_lengths);
+    for (int32_t i = 0; i < nlen + ndist;) {
+        int32_t symbol = huffman_decode(s, &code);
+        if (symbol < 0) return false;
+        if (symbol < 16) { code_lengths[i++] = (int16_t)symbol; continue; }
+        int16_t value = 0;
+        int32_t repeat;
+        if (symbol == 16) {
+            if (i == 0) return false;
+            value = code_lengths[i - 1];
+            repeat = inflate_bits(s, 2); if (repeat < 0) return false; repeat += 3;
+        } else if (symbol == 17) {
+            repeat = inflate_bits(s, 3); if (repeat < 0) return false; repeat += 3;
+        } else {
+            repeat = inflate_bits(s, 7); if (repeat < 0) return false; repeat += 11;
+        }
+        if (i + repeat > nlen + ndist) return false;
+        while (repeat-- > 0) code_lengths[i++] = value;
+    }
+    if (code_lengths[256] == 0) return false;  // no end-of-block code
+    return huffman_build(lengths, code_lengths, nlen) && huffman_build(distances, code_lengths + nlen, ndist);
+}
+
+static bool inflate_all(Inflater* s) {
+    Huffman* lengths = malloc(sizeof(Huffman) * 2);
+    if (!lengths) return false;
+    Huffman* distances = lengths + 1;
+    bool ok = true;
+    for (int32_t last = 0; ok && !last;) {
+        last = inflate_bits(s, 1);
+        int32_t type = inflate_bits(s, 2);
+        if (last < 0 || type < 0) { ok = false; break; }
+        if (type == 0) {
+            // Stored: byte-aligned length, its complement, the bytes.
+            s->bits = 0; s->bit_count = 0;
+            if (s->in_length - s->in_pos < 4) { ok = false; break; }
+            size_t length = s->in[s->in_pos] | ((size_t)s->in[s->in_pos + 1] << 8);
+            size_t complement = s->in[s->in_pos + 2] | ((size_t)s->in[s->in_pos + 3] << 8);
+            s->in_pos += 4;
+            if (length != (~complement & 0xFFFF) || length > s->in_length - s->in_pos || length > s->out_length - s->out_pos) { ok = false; break; }
+            memcpy(s->out + s->out_pos, s->in + s->in_pos, length);
+            s->in_pos += length; s->out_pos += length;
+        } else if (type == 1) {
+            int16_t fixed[288 + 30];
+            for (int32_t i = 0; i < 144; i++) fixed[i] = 8;
+            for (int32_t i = 144; i < 256; i++) fixed[i] = 9;
+            for (int32_t i = 256; i < 280; i++) fixed[i] = 7;
+            for (int32_t i = 280; i < 288; i++) fixed[i] = 8;
+            for (int32_t i = 0; i < 30; i++) fixed[288 + i] = 5;
+            ok = huffman_build(lengths, fixed, 288) && huffman_build(distances, fixed + 288, 30) && inflate_codes(s, lengths, distances);
+        } else if (type == 2) {
+            ok = inflate_dynamic(s, lengths, distances) && inflate_codes(s, lengths, distances);
+        } else ok = false;
+    }
+    free(lengths);
+    return ok && s->out_pos == s->out_length;
+}
+
+static const char* const* s_trace_names;  // per method, into the inflated text
+
+static const char* const* trace_names(void) {
+    const char* const* names = __atomic_load_n(&s_trace_names, __ATOMIC_ACQUIRE);
+    if (names) return names;
+    uint32_t count = s_trace->method_count, length = s_trace->names_length;
+    char* text = malloc(length ? length : 1);
+    const char** index = malloc(sizeof(char*) * (count ? count : 1));
+    if (!text || !index) abort();
+    Inflater s = { .in = s_trace->names, .in_length = s_trace->names_size, .out = (uint8_t*)text, .out_length = length };
+    uint32_t found = 0;
+    if (inflate_all(&s))
+        for (uint32_t pos = 0; pos < length && found < count; found++) {
+            index[found] = text + pos;
+            while (pos < length && text[pos]) pos++;
+            pos++;
+        }
+    if (found != count || (length && text[length - 1] != '\0')) {
+        fflush(stdout);
+        fputs("csharpc: the stack-trace name table is corrupt" CSRT_NEWLINE, stderr);
+        abort();
+    }
+    const char* const* expected = NULL;
+    if (!__atomic_compare_exchange_n(&s_trace_names, &expected, (const char* const*)index, false, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) {
+        free(text);
+        free(index);
+        return expected;
+    }
+    return index;
+}
+
 typedef struct { char* data; size_t length, capacity; } TraceText;
 
 static void text_append(TraceText* t, const char* s, size_t n) {
@@ -386,22 +588,21 @@ csrt_String* csrt_exception_get_stack_trace(void* exception) {
         const csrt_TraceSite* site = entries[i];
         if (site == TRACE_PREVIOUS_LOCATION) {
             const csrt_TraceSite* before = i > 0 ? entries[i - 1] : TRACE_PREVIOUS_LOCATION;
-            if (before != TRACE_PREVIOUS_LOCATION && !(before->flags & (TRACE_ASYNC | TRACE_HIDDEN)))
+            if (before != TRACE_PREVIOUS_LOCATION && !(trace_flags(before) & (TRACE_ASYNC | TRACE_HIDDEN)))
                 text_append_str(&text, CSRT_NEWLINE "--- End of stack trace from previous location ---");
             continue;
         }
-        if ((site->flags & TRACE_HIDDEN) && i != last) continue;
+        if ((trace_flags(site) & TRACE_HIDDEN) && i != last) continue;
         if (!first) text_append_str(&text, CSRT_NEWLINE);
         first = false;
         text_append_str(&text, "   at ");
-        int32_t type = s_trace->method_types[site->method];
-        if (type >= 0) text_append_str(&text, s_trace->types[type]);
-        text_append_str(&text, s_trace->methods[site->method]);
-        if (site->file >= 0) {
+        text_append_str(&text, trace_names()[trace_method(site)]);
+        if (trace_flags(site) & TRACE_LOCATED) {
+            const csrt_TraceSiteLocated* located = (const csrt_TraceSiteLocated*)site;
             char number[24];
-            char* digits = csrt_itoa_i64(site->line, number + sizeof number);
+            char* digits = csrt_itoa_i64(located->line, number + sizeof number);
             text_append_str(&text, " in ");
-            text_append_str(&text, s_trace->files[site->file]);
+            text_append_str(&text, s_trace->files[located->file]);
             text_append_str(&text, ":line ");
             text_append(&text, digits, (size_t)(number + sizeof number - digits));
         }
@@ -1172,7 +1373,7 @@ _Unwind_Reason_Code csrt_personality(int version, _Unwind_Action actions, uint64
             if (type_index > 0 && class_info) {
                 const uint8_t* entry = class_info - (uintptr_t)type_index * encoded_size(ttype_encoding);
                 const void* type = (const void*)read_encoded(&entry, ttype_encoding);
-                if (type && *(const uint64_t*)type == CSRT_TRACE_SITE_MAGIC) {
+                if (type && trace_is_site(type)) {
                     if (record_sites) trace_append(e, type);
                 } else if (type && *(const uint64_t*)type == CSRT_EH_CLAUSE_MAGIC) {
                     const csrt_EhClause* c = type;
@@ -1203,7 +1404,7 @@ _Unwind_Reason_Code csrt_personality(int version, _Unwind_Action actions, uint64
             if (type_index > 0 && class_info) {
                 const uint8_t* entry = class_info - (uintptr_t)type_index * encoded_size(ttype_encoding);
                 const void* type = (const void*)read_encoded(&entry, ttype_encoding);
-                if (!type || *(const uint64_t*)type != CSRT_TRACE_SITE_MAGIC) { cleanup = true; break; }  // a catch: the code re-checks it
+                if (!type || !trace_is_site(type)) { cleanup = true; break; }  // a catch: the code re-checks it
             }
             if (displacement == 0) break;
             record = displacement_at + displacement;

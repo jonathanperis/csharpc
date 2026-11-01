@@ -208,9 +208,9 @@ namespace CsharpcCoreLib
                         if (parent == null || IsDirectory(parent))
                             return new FileNotFoundException("Could not find file '" + full + "'.", full);
                     }
-                    return new DirectoryNotFoundException("Could not find a part of the path '" + full + "'.");
+                    return new DirectoryNotFoundException("Could not find a part of the path '" + full + "'.", full);
                 case ENOTDIR:
-                    return new DirectoryNotFoundException("Could not find a part of the path '" + full + "'.");
+                    return new DirectoryNotFoundException("Could not find a part of the path '" + full + "'.", full);
                 case EACCES:
                 case EPERM:
                 case EISDIR:

@@ -162,7 +162,9 @@ public sealed partial class FunctionCodeGen
         // An interface call on an array (IL converts T[] / Array to IList implicitly, without an instruction):
         // the arrays' interface maps must include it, as for a source conversion.
         if (receiver is { Type: { } receiverType } && !method.IsStatic && method.ContainingType.TypeKind == TypeKind.Interface
-            && S(receiverType) is IArrayTypeSymbol or { SpecialType: SpecialType.System_Array } && S(method.ContainingType) is INamedTypeSymbol arrayInterface)
+            // (An `object` receiver: a stack slot that merged an array with another type, IlMergeEntryTypes.)
+            && S(receiverType) is IArrayTypeSymbol or { SpecialType: SpecialType.System_Array or SpecialType.System_Object }
+            && S(method.ContainingType) is INamedTypeSymbol arrayInterface)
             _m.RequestArrayInterface(arrayInterface);
         if (args is [{ Constant: string typeName }, ..] && IsGetTypeByName(method)) _m.NoteTypeByName(typeName);
         if (receiver is { Symbol: ITypeSymbol reflected }) NoteReflectedType(method, S(reflected), args is [{ Constant: string name }, ..] ? name : null);

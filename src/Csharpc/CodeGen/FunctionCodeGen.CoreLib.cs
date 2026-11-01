@@ -213,12 +213,13 @@ public sealed partial class FunctionCodeGen
     internal (LLVMValueRef Table, int Count) LibraryFrameTable(string text)
     {
         var traces = _m.StackTraces!;
+        if (traces.LibraryTables.TryGetValue(text, out var known)) return known;
         var sites = text.Split('\n').Select(frame => frame == "---" ? LlvmContext.Null(L.Ptr)
             : frame.StartsWith("async ", StringComparison.Ordinal)
                 ? traces.SiteDescriptor(_m, traces.LibrarySite(frame["async ".Length..], StackTraceInfo.FrameFlags.Async))
                 : traces.SiteDescriptor(_m, traces.LibrarySite(frame))).ToArray();
         var table = LlvmContext.ConstArray(L.Ptr, sites);
-        return (_m.Module.AddGlobal("csharpc.trace.library", Native.LLVMTypeOf(table), table, constant: true, linkage: LLVMLinkage.Internal), sites.Length);
+        return traces.LibraryTables[text] = (_m.Module.AddGlobal("csharpc.trace.library", Native.LLVMTypeOf(table), table, constant: true, linkage: LLVMLinkage.Internal), sites.Length);
     }
 
     private LLVMValueRef ThrowWithStackTrace(LLVMValueRef exception, LLVMValueRef captured)

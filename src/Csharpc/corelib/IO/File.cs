@@ -475,7 +475,7 @@ namespace CsharpcCoreLib
             if (path == null) throw new ArgumentNullException("path");
             string full = PathImpl.GetFullPath(path);
             if (!Posix.IsDirectory(full))
-                throw new DirectoryNotFoundException("Could not find a part of the path '" + full + "'.");
+                throw new DirectoryNotFoundException("Could not find a part of the path '" + full + "'.", full);
             if (recursive) DeleteRecursive(full);
             else RemoveDir(full);
         }
@@ -515,7 +515,7 @@ namespace CsharpcCoreLib
             if (sourceDirName == null) throw new ArgumentNullException("sourceDirName");
             if (destDirName == null) throw new ArgumentNullException("destDirName");
             string src = PathImpl.GetFullPath(sourceDirName), dst = PathImpl.GetFullPath(destDirName);
-            if (Posix.FileType(src) == 0) throw new DirectoryNotFoundException("Could not find a part of the path '" + src + "'.");
+            if (Posix.FileType(src) == 0) throw new DirectoryNotFoundException("Could not find a part of the path '" + src + "'.", src);
             if (Posix.FileType(dst) != 0) throw new IOException("Cannot create '" + dst + "' because a file or directory with the same name already exists.");
             byte* a = Utf8.ToNative(src), b = Utf8.ToNative(dst);
             int r = Posix.rename(a, b);
@@ -566,7 +566,8 @@ namespace CsharpcCoreLib
             if (checkPath && !Posix.IsDirectory(path))
             {
                 if (Posix.FileType(path) != 0) throw new IOException("The directory name is invalid. : '" + PathImpl.GetFullPath(path) + "'");
-                throw new DirectoryNotFoundException("Could not find a part of the path '" + PathImpl.GetFullPath(path) + "'.");
+                string full = PathImpl.GetFullPath(path);
+                throw new DirectoryNotFoundException("Could not find a part of the path '" + full + "'.", full);
             }
             Walk(path, pattern, recursive, files, dirs, result);
             return result;

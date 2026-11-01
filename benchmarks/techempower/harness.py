@@ -15,7 +15,8 @@ the same IL NativeAOT compiles (`dotnet build` with the AOT properties, then `cs
 check of csharpc's project input (`csharpc Platform.csproj`). Records the build time, the executable size
 and, with --images, the size of a minimal runtime image per build (Microsoft's chiseled runtime-deps image for
 the native builds, chiseled aspnet for the JIT, at the SDK's runtime version), smoke-tested with one request. When csharpc can't build the app, DIR/csharpc-blockers.md ranks
-what stops it.
+what stops it. (The entry prints an exception when its database is unreachable, so csharpc's build records
+stack traces, through all of its Npgsql and ASP.NET Core frames: docs/adr/0012-stack-traces.md.)
 
 measure: one TechEmpower test type (plaintext, json, db, query, fortune, update, cached-query) or `deploy`
 (start-up to the first response and idle RSS, 5 starts per round; recorded beside them, not judged: the

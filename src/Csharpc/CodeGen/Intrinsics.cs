@@ -319,7 +319,7 @@ internal static class Intrinsics
             if (!inv.IsVirtual) return ObjectDefault(g, "csrt_object_get_hash_code_default", g.Module.Llvm.I32, [g.Module.Llvm.Ptr], self);
             return g.VirtualCall(inv.TargetMethod, self, [self]);
         };
-        foreach (var type in new[] { "int", "long", "uint", "ulong", "short", "ushort", "byte", "sbyte", "double", "float", "bool", "char", "string" })
+        foreach (var type in new[] { "int", "long", "uint", "ulong", "short", "ushort", "byte", "sbyte", "double", "float", "bool", "char", "string", "nint", "nuint" })
             t[$"{type}.ToString()"] = (g, inv) => g.ToStringValue(inv.Instance!);
 
         // ---- IComparable<T>.CompareTo on primitives (reached via generic constraints) -------------

@@ -354,9 +354,9 @@ namespace CsharpcCoreLib
             {
                 case ENOENT:
                     if (!isDirectory) return new FileNotFoundException("Could not find file '" + full + "'.", full);
-                    return new DirectoryNotFoundException("Could not find a part of the path '" + full + "'.");
+                    return new DirectoryNotFoundException("Could not find a part of the path '" + full + "'.", full);
                 case ENOTDIR:
-                    return new DirectoryNotFoundException("Could not find a part of the path '" + full + "'.");
+                    return new DirectoryNotFoundException("Could not find a part of the path '" + full + "'.", full);
                 case EACCES:
                 case EPERM:
                 case EISDIR:

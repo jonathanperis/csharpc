@@ -67,16 +67,17 @@ Windows x64 (SEH unwinding through libunwind) and wasm32-wasi, which has no unwi
 
 In a program that records stack traces, every call that may throw in a function of the program's
 own code becomes an `invoke` with a landing pad of its own (`FunctionCodeGen.StackTraces.cs`), whose
-first catch clause is the site's descriptor — a constant `{ magic, method, file, line }` the
-compiler emits per site:
+first catch clause is the site's descriptor — a constant the compiler emits per site: one 64-bit word
+(a tag in bits 63–48, the frame's flags, its method index) and, for a frame with a location, the file
+and line (16 bytes, else 8; code compiled from IL without a PDB has one descriptor per method):
 
 ```llvm
 site.12:  %lp = landingpad { ptr, i32 } catch ptr @csharpc.trace.site.12 <the enclosing try's clauses>
           br label %continue                     ; resume / csrt_begin_catch + dispatch / coroutine fault
 ```
 
-`csrt_personality` tells a descriptor from a method table by its magic number (not a canonical
-address, so no method table starts with it). During the **search phase** it appends every descriptor
+`csrt_personality` tells a descriptor from a method table by its tag (not a canonical address, so no
+method table starts with it). During the **search phase** it appends every descriptor
 it meets to the exception (a new `trace` field) and goes on looking for a handler. The search phase
 walks exactly the frames from the throw point to the catching frame — .NET's frame list, by
 construction — and frames without descriptors (the C runtime, the corelib) are skipped, as .NET
@@ -89,7 +90,7 @@ unwinder does anyway.
   its own name and line, in the right order. The invokes themselves are all that restricts the
   optimizer (tail-call and accumulator-recursion elimination don't apply to invokes, which is also
   what keeps recursive frames). LLVM deletes landing pads that only `resume` — catch clauses and
-  all — so record-only pads contain a volatile store that never executes.
+  all — so record-only pads call an empty `asm sideeffect ""` (no code; never executed anyway).
 - **No frame twice.** csharpc's own propagation re-raises (finally blocks, handlers whose type or
   filter doesn't match, `throw;`), and a new search would walk frames already recorded. The trace
   keeps the highest frame (CFA) recorded, and the search records only frames above it. An await, an
@@ -137,8 +138,11 @@ and reads the portable PDB back with System.Reflection.Metadata:
   parameters and parameter types are decoded from metadata into `Type.Name` form.
 - **Ordinary methods** are formatted from their Roslyn symbols with the same rules.
 
-Each site's descriptor indexes the method and file string tables the compiler emits; `main`
-registers them (`csrt_trace_init`) before user code runs.
+Each site's descriptor indexes the method and file tables the compiler emits; `main` registers them
+(`csrt_trace_init`) before user code runs. The frame names are stored `'\0'`-terminated one after the
+other and DEFLATE-compressed (System.IO.Compression at compile time); the runtime inflates them the
+first time it formats a trace (a bounds-checked RFC 1951 decoder in `eh.c`): a program recording whole
+IL libraries has thousands of frames, ~1.2 MB of text that compresses about 8:1.
 
 ### Methods compiled from IL: names from metadata, lines where .NET finds a PDB
 
@@ -239,11 +243,15 @@ Measured on x86-64 Linux (shared 4-vCPU VPS), -O2, benchmark programs compiled w
   Platform.dll`, which prints an exception when the database is unreachable, so it records traces)
   against a closed PostgreSQL port now prints the JIT's trace exactly (the socket frames, 10 Npgsql
   frames, the program's two). It pays for the frames of all its Npgsql, ASP.NET Core and framework IL:
-  -O2 executable 17,088,656 → 18,975,808 bytes (+11.0 %: `.text` +387 KB and `.gcc_except_table`
-  +360 KB for the per-site pads, `.rodata` +0.9 MB for 11.6 k frame names and descriptors; frame names
-  share their type prefix, which saved 0.56 MB), build time unchanged (295 vs 290 s). Programs that
-  don't observe traces are unchanged (`tests/size.sh`: `.text` equal or smaller, `.eh_frame` +24–48 B
-  for two out-of-line corelib throw helpers).
+  first -O2 executable 17,405,512 → 19,355,584 bytes (+11.2 % over `main` 774b977). Compressing the
+  frame names (−0.67 MB), 8-byte descriptors for frames without a location (−0.07 MB) and the empty-asm
+  pad anchor instead of a volatile store (−0.16 MB of `.text`) bring it to 18,330,832 (+5.3 %). What
+  is left is the per-call-site recording itself: `.gcc_except_table` +420 KB (an LSDA for every traced
+  function and every inlined copy of one, whose pads carry the inlined frames), `.text` +197 KB (the
+  pads), `.rodata` +178 KB (12.2 k frame names compressed to 142 KB, 8.5 k descriptors), `.data` +75 KB
+  (the indirect type-info slot x86-64 PIC LSDAs use per descriptor), `.eh_frame` +59 KB. Build time
+  unchanged (224 vs 207 s). Programs that don't observe traces are unchanged (`tests/size.sh`: `.text`
+  equal or smaller, `.eh_frame` +24–48 B for two out-of-line corelib throw helpers).
 - `dotnet run app.cs` (the oracle for the differential tests) sometimes runs a cached build whose PDB
   is stale; .NET then prints frames without lines. Recording a stack-trace sample therefore needs a
   fresh build (delete the app's `~/.local/share/dotnet/runfile/<name>-*` directory first).

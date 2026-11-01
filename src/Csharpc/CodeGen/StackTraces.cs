@@ -824,52 +824,56 @@ public sealed class StackTraceInfo
 
     private readonly Dictionary<int, LLVMValueRef> _descriptors = [];
 
-    /// <summary>The csrt_TraceSite magic (src/runtime/eh.c): not a canonical address, so no method table starts with it.</summary>
-    private const ulong SiteMagic = 0xC5A7AC5E7A1E5175UL;
+    /// <summary>The csrt_TraceSite tag (bits 63-48 of its word, src/runtime/eh.c): not a canonical address, so no method table starts with it.</summary>
+    private const ulong SiteTag = 0xC5A8UL << 48;
+
+    /// <summary>csrt_TraceSite.flags: a { file, line } follows (csrt_TraceSiteLocated).</summary>
+    private const int SiteLocated = 4;
 
     /// <summary>
-    /// A site's descriptor { magic, method, file, line }, used as the type info of the site's catch
+    /// A site's descriptor { tag | flags | method[, file, line] }, used as the type info of the site's catch
     /// clause: the personality records it during the search phase (src/runtime/eh.c). One global per
-    /// site, because LLVM's LSDA only takes globals as type infos.
+    /// site, because LLVM's LSDA only takes globals as type infos; frames without a location (code
+    /// compiled from IL without a PDB: one descriptor per method) leave the location out.
     /// </summary>
     public LLVMValueRef SiteDescriptor(ModuleCodeGen m, int site)
     {
         if (_descriptors.TryGetValue(site, out var known)) return known;
         var l = m.Llvm;
         var (method, file, line) = _sites[site];
-        var init = l.ConstStruct(l.ConstUInt(l.I64, SiteMagic), l.ConstInt(l.I32, method), l.ConstInt(l.I32, file),
-            l.ConstInt(l.I32, line), l.ConstInt(l.I32, (int)_methodFlags.GetValueOrDefault(method)));
+        var flags = (int)_methodFlags.GetValueOrDefault(method) | (file < 0 ? 0 : SiteLocated);
+        if (method >= 1 << 28) throw new CompileError("CSLLVM0001", "stack traces: more than 2^28 frames", null);
+        var word = l.ConstUInt(l.I64, SiteTag | ((ulong)flags << 44) | (ulong)method);
+        var init = file < 0 ? l.ConstStruct(word) : l.ConstStruct(word, l.ConstInt(l.I32, file), l.ConstInt(l.I32, line));
         var global = m.Module.AddGlobal($"csharpc.trace.site.{site}", Native.LLVMTypeOf(init), init, constant: true, linkage: LLVMLinkage.Internal);
         return _descriptors[site] = global;
     }
 
+    /// <summary>Library frame tables by their text (CoreIntrinsics.LibraryFrames): one per distinct list, however many instantiations throw it.</summary>
+    internal Dictionary<string, (LLVMValueRef Table, int Count)> LibraryTables { get; } = new(StringComparer.Ordinal);
+
     /// <summary>
-    /// { methods, files, method_types, types } (csrt_TraceTables): the strings the descriptors index. A frame
-    /// is stored as its declaring type's prefix (shared: "Npgsql.Internal.NpgsqlConnector.", everything up to
-    /// the last '.' before the parameter list) and the rest; programs that record the frames of whole IL
-    /// libraries have thousands of methods of a few hundred types.
+    /// { names, names_size, names_length, method_count, unused, files } (csrt_TraceTables): the frame names,
+    /// '\0'-terminated one after the other and DEFLATE-compressed (the runtime inflates them the first time it
+    /// formats a trace: a program that records the frames of whole IL libraries has thousands, ~1.2 MB of
+    /// text that compresses ~8:1), and the documents' paths.
     /// </summary>
     public LLVMValueRef EmitTables(ModuleCodeGen m)
     {
         var l = m.Llvm;
-        List<string> types = [];
-        Dictionary<string, int> typeIndex = new(StringComparer.Ordinal);
-        var members = new LLVMValueRef[_methods.Count];
-        var methodTypes = new LLVMValueRef[_methods.Count];
-        for (var i = 0; i < _methods.Count; i++)
+        var text = new MemoryStream();
+        foreach (var name in _methods)
         {
-            var name = _methods[i];
-            var paren = name.IndexOf('(');
-            var dot = name.LastIndexOf('.', paren < 0 ? name.Length - 1 : paren);
-            var type = dot > 0 ? Intern(types, typeIndex, name[..(dot + 1)]) : -1;
-            members[i] = m.CString(dot > 0 ? name[(dot + 1)..] : name);
-            methodTypes[i] = l.ConstInt(l.I32, type);
+            text.Write(Encoding.UTF8.GetBytes(name));
+            text.WriteByte(0);
         }
+        var compressed = new MemoryStream();
+        using (var deflate = new System.IO.Compression.DeflateStream(compressed, System.IO.Compression.CompressionLevel.SmallestSize, leaveOpen: true))
+            deflate.Write(text.GetBuffer(), 0, (int)text.Length);
         LLVMValueRef Global(string name, LLVMValueRef init) =>
             m.Module.AddGlobal(name, Native.LLVMTypeOf(init), init, constant: true, linkage: LLVMLinkage.Internal);
-        return l.ConstStruct(Global("csharpc.trace.methods", LlvmContext.ConstArray(l.Ptr, members)),
-            Global("csharpc.trace.files", LlvmContext.ConstArray(l.Ptr, [.. _files.Select(m.CString)])),
-            Global("csharpc.trace.method_types", LlvmContext.ConstArray(l.I32, methodTypes)),
-            Global("csharpc.trace.types", LlvmContext.ConstArray(l.Ptr, [.. types.Select(m.CString)])));
+        return l.ConstStruct(Global("csharpc.trace.names", l.ConstBytes(compressed.ToArray())),
+            l.ConstInt(l.I32, compressed.Length), l.ConstInt(l.I32, text.Length), l.ConstInt(l.I32, _methods.Count), l.ConstInt(l.I32, 0),
+            Global("csharpc.trace.files", LlvmContext.ConstArray(l.Ptr, [.. _files.Select(m.CString)])));
     }
 }

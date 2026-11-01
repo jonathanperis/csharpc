@@ -1,0 +1,26 @@
+== Directory.GetFiles: DirectoryPath <missing>
+System.IO.DirectoryNotFoundException: Could not find a part of the path '<missing>'.
+Directory path: '<missing>'
+== Directory.GetDirectories: DirectoryPath <missing>
+System.IO.DirectoryNotFoundException: Could not find a part of the path '<missing>'.
+Directory path: '<missing>'
+== Directory.EnumerateFiles: DirectoryPath <missing>
+System.IO.DirectoryNotFoundException: Could not find a part of the path '<missing>'.
+Directory path: '<missing>'
+== DirectoryInfo.GetFiles: DirectoryPath <missing>
+System.IO.DirectoryNotFoundException: Could not find a part of the path '<missing>'.
+Directory path: '<missing>'
+== Directory.Delete: DirectoryPath <missing>
+System.IO.DirectoryNotFoundException: Could not find a part of the path '<missing>'.
+Directory path: '<missing>'
+== File.ReadAllText: DirectoryPath <missing>/a.txt
+System.IO.DirectoryNotFoundException: Could not find a part of the path '<missing>/a.txt'.
+Directory path: '<missing>/a.txt'
+== File.WriteAllText: DirectoryPath <missing>/a.txt
+System.IO.DirectoryNotFoundException: Could not find a part of the path '<missing>/a.txt'.
+Directory path: '<missing>/a.txt'
+== new DirectoryNotFoundException(message): DirectoryPath null
+System.IO.DirectoryNotFoundException: custom
+== new DirectoryNotFoundException(message, path): DirectoryPath /some/dir
+System.IO.DirectoryNotFoundException: with path
+Directory path: '/some/dir'
