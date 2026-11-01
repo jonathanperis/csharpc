@@ -81,10 +81,13 @@ public sealed partial class ModuleCodeGen
     private LLVMValueRef _traceTables;
     private LLVMValueRef _tracePadAnchor;
 
-    /// <summary>A byte record-only landing pads store to, so that LLVM keeps them (FunctionCodeGen.StackTraces.cs).</summary>
-    internal LLVMValueRef TracePadAnchor() => _tracePadAnchor.IsNull
-        ? _tracePadAnchor = Module.AddGlobal("csharpc.trace.anchor", Llvm.I8, Llvm.ConstInt(Llvm.I8, 0), linkage: LLVMLinkage.Internal)
-        : _tracePadAnchor;
+    /// <summary>`asm sideeffect ""`: record-only landing pads call it, so that LLVM keeps them (FunctionCodeGen.StackTraces.cs).</summary>
+    internal unsafe LLVMValueRef TracePadAnchor()
+    {
+        if (!_tracePadAnchor.IsNull) return _tracePadAnchor;
+        byte empty = 0;
+        return _tracePadAnchor = Native.LLVMGetInlineAsm(Llvm.FunctionType(Llvm.Void), &empty, 0, &empty, 0, 1, 0, 0, 0);
+    }
 
     private readonly Dictionary<IMethodSymbol, LoweredFunction> _functions = new(SymbolEqualityComparer.Default);
     private readonly Dictionary<INamedTypeSymbol, ClassLayout> _layouts = new(SymbolEqualityComparer.Default);
@@ -1452,7 +1455,7 @@ public sealed partial class ModuleCodeGen
         if (StackTraces is not null)
         {
             // csrt_TraceTables (src/runtime/eh.c); filled in once codegen has seen every call site.
-            var tablesType = Llvm.Struct(Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr);
+            var tablesType = Llvm.Struct(Llvm.Ptr, Llvm.I32, Llvm.I32, Llvm.I32, Llvm.I32, Llvm.Ptr);
             _traceTables = Module.AddGlobal("csharpc.trace.tables", tablesType, LlvmContext.Null(tablesType), constant: true, linkage: LLVMLinkage.Internal);
             var register = Runtime("csrt_trace_init", Llvm.Void, Llvm.Ptr);
             b.Call(register.Type, register.Fn, [_traceTables]);

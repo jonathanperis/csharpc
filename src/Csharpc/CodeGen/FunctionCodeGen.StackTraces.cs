@@ -69,9 +69,10 @@ public sealed partial class FunctionCodeGen
                 (_b.UnwindDest, _b.UnwindHook) = (default, null);
                 // No cleanup: only wasm32's explicit propagation ever enters these pads.
                 _traceResume = NewSitePadTarget([], cleanup: false, "trace.record");
-                // LLVM deletes landing pads that only resume, catch clauses and all; this volatile
-                // store (never executed on native targets: phase 2 doesn't stop here) keeps the pad.
-                if (!T.Target.IsWasm) Native.LLVMSetVolatile(_b.Store(L.ConstInt(L.I8, 0), _m.TracePadAnchor()), 1);
+                // LLVM deletes landing pads that only resume, catch clauses and all; an empty inline asm
+                // with side effects (no code; never executed on native targets anyway: phase 2 doesn't
+                // stop here) keeps the pad.
+                if (!T.Target.IsWasm) _b.Call(L.FunctionType(L.Void), _m.TracePadAnchor(), []);
                 _b.Resume(_traceResume.Pad);
                 _b.PositionAtEnd(savedBlock);
                 (_b.UnwindDest, _b.UnwindHook) = (savedUnwind, savedHook);

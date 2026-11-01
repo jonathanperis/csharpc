@@ -85,7 +85,7 @@ on native targets; a try with a filter costs two runtime stores on entry and one
 
 Stack traces ([ADR 0012](adr/0012-stack-traces.md)): in programs that read `Exception.StackTrace` or
 turn an exception into text (or with `--stack-traces`), every call site of the program's own code that
-may throw has a landing pad whose first catch clause is a `{ magic, method, file, line }` descriptor;
+may throw has a landing pad whose first catch clause is a `{ tag | flags | method[, file, line] }` descriptor;
 `csrt_personality` appends the descriptors it meets during the search phase to the exception's `trace`
 field, so the frames are exactly those from the throw point to the catching frame, inlined ones
 included (on wasm32 the pad code records them). `eh.c` formats them on demand like .NET's `StackTrace.ToString()`

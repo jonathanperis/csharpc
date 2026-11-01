@@ -284,6 +284,10 @@ internal static unsafe partial class Native
     public static partial LLVMValueRef LLVMBuildFence(LLVMBuilderRef b, LLVMAtomicOrdering ordering, int singleThread, string name);
     [LibraryImport(Lib)] public static partial void LLVMSetOrdering(LLVMValueRef memoryAccess, LLVMAtomicOrdering ordering);
     [LibraryImport(Lib)] public static partial void LLVMSetVolatile(LLVMValueRef memoryAccess, int isVolatile);
+    /// <summary>LLVM 18: (type, asm, asm size, constraints, constraints size, side effects, align stack, dialect, can throw).</summary>
+    [LibraryImport(Lib)]
+    public static unsafe partial LLVMValueRef LLVMGetInlineAsm(LLVMTypeRef type, byte* asmString, nuint asmSize, byte* constraints, nuint constraintsSize,
+        int hasSideEffects, int isAlignStack, int dialect, int canThrow);
     [LibraryImport(Lib, StringMarshalling = StringMarshalling.Utf8)]
     public static partial uint LLVMGetMDKindIDInContext(LLVMContextRef c, string name, uint length);
     [LibraryImport(Lib)] public static partial void LLVMSetMetadata(LLVMValueRef instruction, uint kindId, LLVMValueRef node);
