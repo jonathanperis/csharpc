@@ -50,7 +50,8 @@ env:
   DOTNET_CLI_TELEMETRY_OPTOUT: 1
   DOTNET_NOLOGO: 1
   DURATION: ${{ inputs.duration || '15' }}
-  PROFILE: ${{ inputs.profile && '1' || '0' }}
+  PROFILE: ${{ (inputs.profile || github.event_name == 'push') && '1' || '0' }}
+  PROFILE_SCENARIOS: fortune,256 fortune,64 plaintext,256
 
 jobs:
   build:
@@ -116,7 +117,7 @@ jobs:
           sudo sysctl -w net.core.somaxconn=65535 net.ipv4.tcp_max_syn_backlog=65535 net.ipv4.ip_local_port_range="10000 65535"
 
       - name: Install perf
-        if: ${{ inputs.profile }}
+        if: ${{ inputs.profile || github.event_name == 'push' }}
         run: |
           sudo apt-get install -y linux-tools-common "linux-tools-$(uname -r)" || sudo apt-get install -y linux-tools-azure linux-tools-generic
           sudo sysctl -w kernel.perf_event_paranoid=-1 kernel.kptr_restrict=0
