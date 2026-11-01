@@ -478,6 +478,7 @@ namespace CsharpcCoreLib
             }
             // MemoryExtensions' wording ends with a period (Enumerable's doesn't).
             if (span.Length == 0) throw new InvalidOperationException("Sequence contains no elements.");
+            if (comparer == null && LinqSpans.TryMinMaxPrimitive(span, sign < 0, out best)) return best; // vector reductions, same answer
             best = span[0];
             for (int i = 1; i < span.Length; i++)
             {

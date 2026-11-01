@@ -36,6 +36,28 @@ attribute factories) with a ~25 % faster build.
 
 ## Open branches
 
+- `ci/perf-cysharp` — performance techniques of Cysharp's libraries (UniTask, ZLinq, SimdLinq, ZString)
+  inside the corelib, behaviour as .NET's (samples 930-935). Pooled `PoolingAsyncValueTaskMethodBuilder<T>`
+  boxes (thread cache, then a shared one; reset on GetResult, so a second await throws as .NET's: before, it
+  returned the result again) and a full `ManualResetValueTaskSourceCore<T>` (execution context,
+  SynchronizationContext/TaskScheduler capture): benchmarks/programs/asyncpool (via IL, new `// csharpc-benchmark:
+  via-il` marker) 763 MiB / 44 collections -> 0, 2.77 G instructions (+0.6 %), CI x86-64 210 ms vs NativeAOT 356,
+  JIT 544. Enumerable over arrays/List<T> as spans (.NET's TryGetSpan): vectorized checked int Sum with the
+  16-byte Vector<int> lane order, sequential floating sums, vector Min/Max (int/long/double/float, NaN and
+  signed-zero answers recorded by bits), bitwise Contains/IndexOf, .NET's SequenceEqual/Last/ElementAtOrDefault
+  IList paths; MemoryExtensions.Min/Max (what `array.Min()` binds to) on the same reductions:
+  benchmarks/programs/linqagg 8.71 G -> 0.61 G instructions, CI x86-64 80 ms vs NativeAOT 98 (arm64 92 vs
+  92; Benchmarks 41327265382). Integer TryFormat/Utf8Formatter write digits in place. From the fortunes allocation profile (TechEmpower
+  41316922352): Enum.HasFlag from IL without boxes (44 per request), Activator.CreateInstance(Type) caches the
+  constructor (RazorSlices), Array.Empty<T>() a singleton (sharing it in empty List/Queue/Stack was reverted:
+  the static read cost listsort/sbops ~0.5 %). Fortunes on
+  a fast database (EPYC 9V45/7763 runners, NativeAOT 57-77 K req/s) were 0.79-0.91 of NativeAOT: the profile
+  shows 21.6 % of csharpc's samples polling in the thread pool (NativeAOT's workers sleep) and 4.2 s of GC
+  pauses; the poll is adaptive now (453d51e). Not done: pooling the non-generic ValueTask builder (the
+  non-generic ValueTask is a task pointer without a token), Utf8.TryWrite / MemoryExtensions.TryWrite
+  (custom interpolated string handlers are an explicit diagnostic in the source front-end), SearchValues
+  vectorization, compile-time LINQ fusion (step 5: needs its ADR).
+
 - `ci/m7-startup` — the start-up regression of `ci/m7-perf-3` (628 ms in TechEmpower run 41273842626, 1.3-1.4 s
   since 774b977) was the thread pool's 100 us polling (69b83a3): every idle worker polled, and the start-up's
   10,000-query cache fill hands each reply to the pool, so all the server's CPUs spun for the one that worked.

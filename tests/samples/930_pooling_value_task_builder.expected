@@ -1,0 +1,28 @@
+consumer before
+posted 1
+consumer after 42 on context True
+rounds 2, consumer done True
+sync completed: True
+sync first: 42
+sync second: 42
+sync fault faulted: True
+sync fault first: ArgumentException: negative
+sync fault second: InvalidOperationException: Operation is not valid due to the current state of the object.
+pending completed: False
+pending completed after SetResult: True
+pending first: 15
+pending second: InvalidOperationException: Operation is not valid due to the current state of the object.
+pending IsCompleted after await: InvalidOperationException: Operation is not valid due to the current state of the object.
+stale after reuse: InvalidOperationException: Operation is not valid due to the current state of the object.
+reused: 101
+AsTask: 2 2
+thrown faulted: True
+thrown: InvalidOperationException: after await
+canceled: True faulted: False
+canceled: OperationCanceledException: The operation was canceled.
+local after start: outer
+flow: inner
+local after await: outer
+configured: 42
+sequential sum: 1999000
+concurrent sum: 19900

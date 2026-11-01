@@ -410,7 +410,21 @@ namespace CsharpcCoreLib
 
         public static List<TSource> ToList<TSource>(IEnumerable<TSource> source) { Check(source, "source"); return new List<TSource>(source); }
 
-        public static TSource[] ToArray<TSource>(IEnumerable<TSource> source) { Check(source, "source"); return new List<TSource>(source).ToArray(); }
+        public static TSource[] ToArray<TSource>(IEnumerable<TSource> source)
+        {
+            Check(source, "source");
+            if (LinqSpans.TryGetSpan(source, out ReadOnlySpan<TSource> span)) return span.ToArray();
+            if (source is ICollection<TSource> collection)
+            {
+                // .NET's ICollectionToArray: the count, then CopyTo (an empty collection gives the shared empty array).
+                int count = collection.Count;
+                if (count == 0) return Array.Empty<TSource>();
+                var result = new TSource[count];
+                collection.CopyTo(result, 0);
+                return result;
+            }
+            return new List<TSource>(source).ToArray();
+        }
 
         public static HashSet<TSource> ToHashSet<TSource>(IEnumerable<TSource> source) => ToHashSet(source, null);
 
@@ -482,6 +496,7 @@ namespace CsharpcCoreLib
         public static int Count<TSource>(IEnumerable<TSource> source)
         {
             Check(source, "source");
+            if (LinqSpans.TryGetSpan(source, out ReadOnlySpan<TSource> span)) return span.Length;
             if (source is ICollection<TSource> c) return c.Count;
             int count = 0;
             using (IEnumerator<TSource> e = source.GetEnumerator())
@@ -536,6 +551,7 @@ namespace CsharpcCoreLib
         public static bool Contains<TSource>(IEnumerable<TSource> source, TSource value)
         {
             Check(source, "source");
+            if (LinqSpans.TryGetSpan(source, out ReadOnlySpan<TSource> span)) return LinqSpans.Contains(span, value);
             if (source is ICollection<TSource> c) return c.Contains(value);
             foreach (TSource item in source) if (CoreIntrinsics.AreEqual(item, value)) return true;
             return false;
@@ -554,6 +570,24 @@ namespace CsharpcCoreLib
         public static bool SequenceEqual<TSource>(IEnumerable<TSource> first, IEnumerable<TSource> second, IEqualityComparer<TSource> comparer)
         {
             Check(first, "first"); Check(second, "second");
+            // .NET's order: two collections compare as spans (arrays, lists), else by Count first and through
+            // their indexers when both are lists; anything else is enumerated.
+            if (first is ICollection<TSource> firstCollection && second is ICollection<TSource> secondCollection)
+            {
+                if (LinqSpans.TryGetSpan(first, out ReadOnlySpan<TSource> firstSpan) && LinqSpans.TryGetSpan(second, out ReadOnlySpan<TSource> secondSpan))
+                    return LinqSpans.SequenceEqual(firstSpan, secondSpan, comparer);
+                if (firstCollection.Count != secondCollection.Count) return false;
+                if (firstCollection is IList<TSource> firstList && secondCollection is IList<TSource> secondList)
+                {
+                    int count = firstCollection.Count;
+                    for (int i = 0; i < count; i++)
+                    {
+                        bool same = comparer == null ? CoreIntrinsics.AreEqual(firstList[i], secondList[i]) : comparer.Equals(firstList[i], secondList[i]);
+                        if (!same) return false;
+                    }
+                    return true;
+                }
+            }
             using (IEnumerator<TSource> e1 = first.GetEnumerator())
             using (IEnumerator<TSource> e2 = second.GetEnumerator())
             {
@@ -572,6 +606,13 @@ namespace CsharpcCoreLib
         private static bool TryFirst<TSource>(IEnumerable<TSource> source, Func<TSource, bool> predicate, out TSource result)
         {
             Check(source, "source");
+            if (predicate == null && source is IList<TSource> list && source is not Iterator<TSource>)
+            {
+                // .NET's TryGetFirstNonIterator: an IList's first element through the indexer.
+                if (list.Count > 0) { result = list[0]; return true; }
+                result = default(TSource);
+                return false;
+            }
             foreach (TSource item in source)
                 if (predicate == null || predicate(item)) { result = item; return true; }
             result = default(TSource);
@@ -581,6 +622,25 @@ namespace CsharpcCoreLib
         private static bool TryLast<TSource>(IEnumerable<TSource> source, Func<TSource, bool> predicate, out TSource result)
         {
             Check(source, "source");
+            if (source is IList<TSource> list && source is not Iterator<TSource>)
+            {
+                // .NET's TryGetLast: the last element through the indexer; a predicate from the end.
+                if (predicate == null)
+                {
+                    int count = list.Count;
+                    if (count > 0) { result = list[count - 1]; return true; }
+                }
+                else
+                {
+                    for (int i = list.Count - 1; i >= 0; --i)
+                    {
+                        TSource item = list[i];
+                        if (predicate(item)) { result = item; return true; }
+                    }
+                }
+                result = default(TSource);
+                return false;
+            }
             bool found = false;
             result = default(TSource);
             foreach (TSource item in source)
@@ -690,6 +750,7 @@ namespace CsharpcCoreLib
         public static TSource ElementAtOrDefault<TSource>(IEnumerable<TSource> source, int index)
         {
             Check(source, "source");
+            if (source is IList<TSource> list && source is not Iterator<TSource>) return (uint)index < (uint)list.Count ? list[index] : default(TSource);
             if (index >= 0)
                 foreach (TSource item in source)
                     if (index-- == 0) return item;
@@ -698,10 +759,30 @@ namespace CsharpcCoreLib
 
         // ---- aggregates ----------------------------------------------------------------------
 
-        public static int Sum(IEnumerable<int> source) { Check(source, "source"); int sum = 0; foreach (int v in source) sum = checked(sum + v); return sum; }
-        public static long Sum(IEnumerable<long> source) { Check(source, "source"); long sum = 0; foreach (long v in source) sum = checked(sum + v); return sum; }
-        public static double Sum(IEnumerable<double> source) { Check(source, "source"); double sum = 0; foreach (double v in source) sum += v; return sum; }
-        public static float Sum(IEnumerable<float> source) { Check(source, "source"); double sum = 0; foreach (float v in source) sum += v; return (float)sum; }
+        public static int Sum(IEnumerable<int> source)
+        {
+            Check(source, "source");
+            if (LinqSpans.TryGetSpan(source, out ReadOnlySpan<int> span)) return LinqSpans.Sum(span);
+            int sum = 0; foreach (int v in source) sum = checked(sum + v); return sum;
+        }
+        public static long Sum(IEnumerable<long> source)
+        {
+            Check(source, "source");
+            if (LinqSpans.TryGetSpan(source, out ReadOnlySpan<long> span)) return LinqSpans.Sum(span);
+            long sum = 0; foreach (long v in source) sum = checked(sum + v); return sum;
+        }
+        public static double Sum(IEnumerable<double> source)
+        {
+            Check(source, "source");
+            if (LinqSpans.TryGetSpan(source, out ReadOnlySpan<double> span)) return LinqSpans.Sum(span);
+            double sum = 0; foreach (double v in source) sum += v; return sum;
+        }
+        public static float Sum(IEnumerable<float> source)
+        {
+            Check(source, "source");
+            if (LinqSpans.TryGetSpan(source, out ReadOnlySpan<float> span)) return (float)LinqSpans.Sum(span);
+            double sum = 0; foreach (float v in source) sum += v; return (float)sum;
+        }
 
         public static int Sum<TSource>(IEnumerable<TSource> source, Func<TSource, int> selector)
         { Check(source, "source"); Check(selector, "selector"); int sum = 0; foreach (TSource v in source) sum = checked(sum + selector(v)); return sum; }
@@ -717,7 +798,12 @@ namespace CsharpcCoreLib
 
         // decimal and nullable aggregates (.NET: nulls are skipped; Sum of nothing is 0, Average/Min/Max of
         // no non-null values is null for nullable overloads).
-        public static decimal Sum(IEnumerable<decimal> source) { Check(source, "source"); decimal sum = 0; foreach (decimal v in source) sum += v; return sum; }
+        public static decimal Sum(IEnumerable<decimal> source)
+        {
+            Check(source, "source");
+            if (LinqSpans.TryGetSpan(source, out ReadOnlySpan<decimal> span)) return LinqSpans.Sum(span);
+            decimal sum = 0; foreach (decimal v in source) sum += v; return sum;
+        }
         public static decimal Sum<TSource>(IEnumerable<TSource> source, Func<TSource, decimal> selector)
         { Check(source, "source"); Check(selector, "selector"); decimal sum = 0; foreach (TSource v in source) sum += selector(v); return sum; }
         public static decimal Average(IEnumerable<decimal> source)
@@ -766,6 +852,11 @@ namespace CsharpcCoreLib
         public static double Average(IEnumerable<int> source)
         {
             Check(source, "source");
+            if (LinqSpans.TryGetSpan(source, out ReadOnlySpan<int> span))
+            {
+                if (span.IsEmpty) ThrowHelper.NoElements();
+                return (double)LinqSpans.SumWide(span) / span.Length;
+            }
             long sum = 0; long count = 0;
             foreach (int v in source) { sum = checked(sum + v); count++; }
             if (count == 0) ThrowHelper.NoElements();
@@ -775,6 +866,11 @@ namespace CsharpcCoreLib
         public static double Average(IEnumerable<long> source)
         {
             Check(source, "source");
+            if (LinqSpans.TryGetSpan(source, out ReadOnlySpan<long> span))
+            {
+                if (span.IsEmpty) ThrowHelper.NoElements();
+                return (double)LinqSpans.Sum(span) / span.Length;
+            }
             long sum = 0; long count = 0;
             foreach (long v in source) { sum = checked(sum + v); count++; }
             if (count == 0) ThrowHelper.NoElements();
@@ -784,6 +880,11 @@ namespace CsharpcCoreLib
         public static double Average(IEnumerable<double> source)
         {
             Check(source, "source");
+            if (LinqSpans.TryGetSpan(source, out ReadOnlySpan<double> span))
+            {
+                if (span.IsEmpty) ThrowHelper.NoElements();
+                return LinqSpans.Sum(span) / span.Length;
+            }
             double sum = 0; long count = 0;
             foreach (double v in source) { sum += v; count++; }
             if (count == 0) ThrowHelper.NoElements();
@@ -793,6 +894,11 @@ namespace CsharpcCoreLib
         public static float Average(IEnumerable<float> source)
         {
             Check(source, "source");
+            if (LinqSpans.TryGetSpan(source, out ReadOnlySpan<float> span))
+            {
+                if (span.IsEmpty) ThrowHelper.NoElements();
+                return (float)(LinqSpans.Sum(span) / span.Length);
+            }
             double sum = 0; long count = 0;
             foreach (float v in source) { sum += v; count++; }
             if (count == 0) ThrowHelper.NoElements();
@@ -807,6 +913,11 @@ namespace CsharpcCoreLib
         public static int Min(IEnumerable<int> source)
         {
             Check(source, "source");
+            if (LinqSpans.TryGetSpan(source, out ReadOnlySpan<int> span))
+            {
+                if (span.IsEmpty) ThrowHelper.NoElementsSpan();
+                return LinqSpans.MinMax(span, false);
+            }
             using (IEnumerator<int> e = source.GetEnumerator())
             {
                 if (!e.MoveNext()) { if (source is int[] || source is List<int>) ThrowHelper.NoElementsSpan(); ThrowHelper.NoElements(); }
@@ -819,6 +930,11 @@ namespace CsharpcCoreLib
         public static int Max(IEnumerable<int> source)
         {
             Check(source, "source");
+            if (LinqSpans.TryGetSpan(source, out ReadOnlySpan<int> span))
+            {
+                if (span.IsEmpty) ThrowHelper.NoElementsSpan();
+                return LinqSpans.MinMax(span, true);
+            }
             using (IEnumerator<int> e = source.GetEnumerator())
             {
                 if (!e.MoveNext()) { if (source is int[] || source is List<int>) ThrowHelper.NoElementsSpan(); ThrowHelper.NoElements(); }
@@ -831,6 +947,11 @@ namespace CsharpcCoreLib
         public static long Min(IEnumerable<long> source)
         {
             Check(source, "source");
+            if (LinqSpans.TryGetSpan(source, out ReadOnlySpan<long> span))
+            {
+                if (span.IsEmpty) ThrowHelper.NoElementsSpan();
+                return LinqSpans.MinMax(span, false);
+            }
             using (IEnumerator<long> e = source.GetEnumerator())
             {
                 if (!e.MoveNext()) { if (source is long[] || source is List<long>) ThrowHelper.NoElementsSpan(); ThrowHelper.NoElements(); }
@@ -843,6 +964,11 @@ namespace CsharpcCoreLib
         public static long Max(IEnumerable<long> source)
         {
             Check(source, "source");
+            if (LinqSpans.TryGetSpan(source, out ReadOnlySpan<long> span))
+            {
+                if (span.IsEmpty) ThrowHelper.NoElementsSpan();
+                return LinqSpans.MinMax(span, true);
+            }
             using (IEnumerator<long> e = source.GetEnumerator())
             {
                 if (!e.MoveNext()) { if (source is long[] || source is List<long>) ThrowHelper.NoElementsSpan(); ThrowHelper.NoElements(); }
@@ -855,6 +981,11 @@ namespace CsharpcCoreLib
         public static double Min(IEnumerable<double> source)
         {
             Check(source, "source");
+            if (LinqSpans.TryGetSpan(source, out ReadOnlySpan<double> span))
+            {
+                if (span.IsEmpty) ThrowHelper.NoElements();
+                return LinqSpans.Min(span);
+            }
             using (IEnumerator<double> e = source.GetEnumerator())
             {
                 if (!e.MoveNext()) ThrowHelper.NoElements();
@@ -873,6 +1004,11 @@ namespace CsharpcCoreLib
         public static double Max(IEnumerable<double> source)
         {
             Check(source, "source");
+            if (LinqSpans.TryGetSpan(source, out ReadOnlySpan<double> span))
+            {
+                if (span.IsEmpty) ThrowHelper.NoElements();
+                return LinqSpans.Max(span);
+            }
             using (IEnumerator<double> e = source.GetEnumerator())
             {
                 if (!e.MoveNext()) ThrowHelper.NoElements();
@@ -891,8 +1027,26 @@ namespace CsharpcCoreLib
             }
         }
 
-        public static float Min(IEnumerable<float> source) => (float)Min(Select(source, (float x) => (double)x));
-        public static float Max(IEnumerable<float> source) => (float)Max(Select(source, (float x) => (double)x));
+        public static float Min(IEnumerable<float> source)
+        {
+            Check(source, "source");
+            if (LinqSpans.TryGetSpan(source, out ReadOnlySpan<float> span))
+            {
+                if (span.IsEmpty) ThrowHelper.NoElements();
+                return LinqSpans.Min(span);
+            }
+            return (float)Min(Select(source, (float x) => (double)x));
+        }
+        public static float Max(IEnumerable<float> source)
+        {
+            Check(source, "source");
+            if (LinqSpans.TryGetSpan(source, out ReadOnlySpan<float> span))
+            {
+                if (span.IsEmpty) ThrowHelper.NoElements();
+                return LinqSpans.Max(span);
+            }
+            return (float)Max(Select(source, (float x) => (double)x));
+        }
 
         public static int Min<TSource>(IEnumerable<TSource> source, Func<TSource, int> selector) => Min(Select(source, selector));
         public static int Max<TSource>(IEnumerable<TSource> source, Func<TSource, int> selector) => Max(Select(source, selector));

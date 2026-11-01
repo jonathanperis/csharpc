@@ -1,0 +1,16 @@
+1 2 False
+502500 1002
+throws: TargetInvocationException: Exception has been thrown by the target of an invocation. / attempt 1
+no default: MissingMethodException: Cannot dynamically create an instance of type 'NoDefault'. Reason: No parameterless constructor defined.
+abstract: MissingMethodException: Cannot dynamically create an instance of type 'Abstract'. Reason: Cannot create an abstract class.
+interface: MissingMethodException: Cannot dynamically create an instance of type 'IThing'. Reason: Cannot create an instance of an interface.
+throws: TargetInvocationException: Exception has been thrown by the target of an invocation. / attempt 2
+no default: MissingMethodException: Cannot dynamically create an instance of type 'NoDefault'. Reason: No parameterless constructor defined.
+abstract: MissingMethodException: Cannot dynamically create an instance of type 'Abstract'. Reason: Cannot create an abstract class.
+interface: MissingMethodException: Cannot dynamically create an instance of type 'IThing'. Reason: Cannot create an instance of an interface.
+throws: TargetInvocationException: Exception has been thrown by the target of an invocation. / attempt 3
+no default: MissingMethodException: Cannot dynamically create an instance of type 'NoDefault'. Reason: No parameterless constructor defined.
+abstract: MissingMethodException: Cannot dynamically create an instance of type 'Abstract'. Reason: Cannot create an abstract class.
+interface: MissingMethodException: Cannot dynamically create an instance of type 'IThing'. Reason: Cannot create an instance of an interface.
+True
+System.Object

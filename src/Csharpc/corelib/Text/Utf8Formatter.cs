@@ -83,6 +83,28 @@ namespace CsharpcCoreLib
             bytesWritten = 0;
             char symbol = format.IsDefault ? 'G' : format.Symbol;
             int precision = format.HasPrecision ? format.Precision : 0;
+            if (symbol is 'G' or 'g' or 'D' or 'd' or 'X' or 'x')
+            {
+                // Digits written in place (invariant: '-' and ASCII digits; hex of the value's own bits).
+                bool hex = symbol is 'X' or 'x';
+                ulong v = hex ? bits : magnitude;
+                if (hex) negative = false;
+                ulong radix = hex ? 16UL : 10UL;
+                int count = 1;
+                for (ulong rest = v; rest >= radix; rest /= radix) count++;
+                int total = Math.Max(count, precision) + (negative ? 1 : 0);
+                if (destination.Length < total) return false;
+                int first = 0;
+                if (negative) destination[first++] = (byte)'-';
+                for (int i = total - 1; i >= first; i--)
+                {
+                    int digit = (int)(v % radix);
+                    v /= radix;
+                    destination[i] = (byte)(digit < 10 ? '0' + digit : (symbol == 'X' ? 'A' : 'a') + digit - 10);
+                }
+                bytesWritten = total;
+                return true;
+            }
             string digits;
             switch (symbol)
             {

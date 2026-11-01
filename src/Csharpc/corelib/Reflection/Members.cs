@@ -984,7 +984,7 @@ namespace CsharpcCoreLib
             if (invoker == 0) throw new NotSupportedException("Invoking '" + method + "' through reflection is not supported by csharpc yet.");
             int count = arguments == null ? 0 : arguments.Length;
             if (count != parameters.Length) throw new TargetParameterCountException("Parameter count mismatch.");
-            object[] checkedArguments = parameters.Length == 0 ? new object[0] : new object[parameters.Length];
+            object[] checkedArguments = parameters.Length == 0 ? Array.Empty<object>() : new object[parameters.Length];
             for (int i = 0; i < parameters.Length; i++)
             {
                 object value = arguments[i];
@@ -1186,9 +1186,16 @@ namespace CsharpcCoreLib
             return CoreIntrinsics.csrt_type_uninitialized_object(type, CoreIntrinsics.TypeInfoTableAddress());
         }
 
+        // Activator.CreateInstance(Type)'s parameterless constructors by type, copied on write (read without a
+        // lock). RazorSlices creates every slice this way where code can't be generated (NativeAOT, csharpc):
+        // looking the constructor up each time cost a List, two arrays and the checks per TechEmpower request.
+        private static Dictionary<Type, ConstructorInfo> s_defaultConstructors = new Dictionary<Type, ConstructorInfo>();
+        private static readonly object s_defaultConstructorsLock = new object();
+
         public static object ActivatorCreateInstance(Type type)
         {
             ArgumentNullException.ThrowIfNull(type);
+            if (Volatile.Read(ref s_defaultConstructors).TryGetValue(type, out ConstructorInfo known)) return known.Invoke(null);
             if (type.ContainsGenericParameters)
                 throw new ArgumentException("Cannot create an instance of " + type + " because Type.ContainsGenericParameters is true.");
             if (type.IsInterface)
@@ -1198,7 +1205,16 @@ namespace CsharpcCoreLib
             if (type.IsArray || type.IsPointer || type.IsByRef || type.IsSubclassOf(typeof(Delegate)))
                 throw new NotSupportedException("Activator.CreateInstance(" + type + ") is not supported by csharpc yet.");
             ConstructorInfo ctor = GetConstructor(type, BindingFlags.Public | BindingFlags.Instance, null, Type.EmptyTypes, null);
-            if (ctor != null) return ctor.Invoke(null);
+            if (ctor != null)
+            {
+                lock (s_defaultConstructorsLock)
+                {
+                    var grown = new Dictionary<Type, ConstructorInfo>(s_defaultConstructors);
+                    grown[type] = ctor;
+                    Volatile.Write(ref s_defaultConstructors, grown);
+                }
+                return ctor.Invoke(null);
+            }
             // .NET returns a boxed default for a struct without a parameterless constructor; csharpc can't
             // allocate one from a run-time Type yet.
             if (type.IsValueType)

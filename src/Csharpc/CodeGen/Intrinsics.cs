@@ -220,8 +220,10 @@ internal static class Intrinsics
                 var flag = g.EmitValue(other);
                 return b.ICmp(LLVMIntPredicate.EQ, b.BinOp(LLVMOpcode.And, value, flag), flag);
             }
+            // The runtime takes both boxed (a receiver may arrive as the enum value itself).
+            LLVMValueRef Boxed(IOperation op) => g.TypeOf(op) is { IsValueType: true } valueType ? g.Box(g.EmitValue(op), valueType, op) : g.EmitValue(op);
             return g.CallRuntime("csrt_enum_has_flag", g.Module.Llvm.I1, [g.Module.Llvm.Ptr, g.Module.Llvm.Ptr],
-                g.EmitValue(inv.Instance!), g.EmitValue(inv.Arguments[0].Value));
+                Boxed(inv.Instance!), Boxed(inv.Arguments[0].Value));
         };
         t["System.Enum.GetName(System.Type, object)"] = (g, inv) =>
         {
@@ -1198,6 +1200,8 @@ internal static class Intrinsics
     {
         while (true)
         {
+            // Stop at the enum: `((E)i).HasFlag(f)` converts an int to E first, and the int isn't the enum value's type.
+            if (op.Type is { TypeKind: TypeKind.Enum }) return op;
             if (op is IConversionOperation { Operand.Type: { IsValueType: true } } c) op = c.Operand;
             else if (op is IlValueOperation { BoxedFrom: { } boxed }) op = boxed; // IL's `box E`
             else return op;

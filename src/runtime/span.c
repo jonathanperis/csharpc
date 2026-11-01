@@ -147,6 +147,45 @@ int32_t csrt_ascii_equals(const void* a, int32_t a_wide, const void* b, int32_t 
     return 1;
 }
 
+// 4- and 8-byte elements (int, uint, float bits, long, ...: MemoryExtensions.IndexOf/Contains, Enumerable.Contains
+// over arrays and lists), 16 bytes at a time through unaligned loads, then the tail one element at a time.
+typedef uint32_t u32x4u __attribute__((vector_size(16)));
+typedef uint64_t u64x2u __attribute__((vector_size(16)));
+
+static int32_t index_of_u32(const void* data, int32_t length, uint32_t v) {
+    const uint8_t* p = data;
+    int32_t i = 0;
+    for (; i + 8 <= length; i += 8) {
+        u32x4u x, y;
+        memcpy(&x, p + 4 * (size_t)i, sizeof x);
+        memcpy(&y, p + 4 * (size_t)i + 16, sizeof y);
+        if (__builtin_reduce_or((x == v) | (y == v))) break;
+    }
+    for (; i < length; i++) {
+        uint32_t x;
+        memcpy(&x, p + 4 * (size_t)i, sizeof x);
+        if (x == v) return i;
+    }
+    return -1;
+}
+
+static int32_t index_of_u64(const void* data, int32_t length, uint64_t v) {
+    const uint8_t* p = data;
+    int32_t i = 0;
+    for (; i + 4 <= length; i += 4) {
+        u64x2u x, y;
+        memcpy(&x, p + 8 * (size_t)i, sizeof x);
+        memcpy(&y, p + 8 * (size_t)i + 16, sizeof y);
+        if (__builtin_reduce_or((x == v) | (y == v))) break;
+    }
+    for (; i < length; i++) {
+        uint64_t x;
+        memcpy(&x, p + 8 * (size_t)i, sizeof x);
+        if (x == v) return i;
+    }
+    return -1;
+}
+
 int32_t csrt_span_index_of(const void* data, int32_t length, int64_t element_size, const void* value) {
     if (element_size == 1) {
         const void* hit = length > 0 ? memchr(data, *(const uint8_t*)value, (size_t)length) : NULL;
@@ -156,6 +195,16 @@ int32_t csrt_span_index_of(const void* data, int32_t length, int64_t element_siz
         uint16_t v;
         memcpy(&v, value, sizeof v);
         return csrt_span_index_of_any_u16(data, length, v, v, v, 0);
+    }
+    if (element_size == 4) {
+        uint32_t v;
+        memcpy(&v, value, sizeof v);
+        return index_of_u32(data, length, v);
+    }
+    if (element_size == 8) {
+        uint64_t v;
+        memcpy(&v, value, sizeof v);
+        return index_of_u64(data, length, v);
     }
     const char* p = data;
     for (int32_t i = 0; i < length; i++)
@@ -213,3 +262,117 @@ void csrt_span_trim(const uint16_t* chars, int32_t length, int32_t mode, CharSpa
     out->ptr = chars + start;
     out->length = end - start;
 }
+
+// ---------------------------------------------------------------------------------------------
+// Enumerable aggregates over arrays and lists (corelib/LinqSpans.cs), what .NET's Enumerable runs on
+// the span of an array or List<T>.
+// ---------------------------------------------------------------------------------------------
+
+/// Enumerable.Sum over ints, as .NET's Sum<int, int>(ReadOnlySpan<int>): a span of at least four vectors is
+/// summed by SumSignedIntegersVectorized with Vector<int> of 16 bytes (csharpc's and NativeAOT's Vector<T>
+/// size, FunctionCodeGen.IlCalls.cs): four lanes, a lane overflow detected per unrolled step and per tail of
+/// whole vectors, then the lanes and the remaining elements added with overflow checks, in that order. The
+/// order decides which inputs overflow (an intermediate lane can overflow when the sequential sum would
+/// not, and the other way round), so it is .NET's exactly. Returns 1 on overflow, else 0 with the sum.
+int32_t csrt_linq_sum_i32(const int32_t* p, int32_t length, int32_t* result) {
+    enum { COUNT = 4 };
+    int32_t sum = 0;
+    size_t index = 0, n = (size_t)(length > 0 ? length : 0);
+    if (n >= COUNT * 4) {
+        const uint32_t sign = 0x80000000u;
+        u32x4u acc = { 0, 0, 0, 0 };
+        size_t limit = n - COUNT * 4;
+        do {
+            u32x4u data, acc2, overflow;
+            memcpy(&data, p + index, sizeof data);
+            acc2 = acc + data;
+            overflow = (acc2 ^ acc) & (acc2 ^ data);
+            memcpy(&data, p + index + COUNT, sizeof data);
+            acc = acc2 + data;
+            overflow |= (acc ^ acc2) & (acc ^ data);
+            memcpy(&data, p + index + COUNT * 2, sizeof data);
+            acc2 = acc + data;
+            overflow |= (acc2 ^ acc) & (acc2 ^ data);
+            memcpy(&data, p + index + COUNT * 3, sizeof data);
+            acc = acc2 + data;
+            overflow |= (acc ^ acc2) & (acc ^ data);
+            if (__builtin_reduce_or(overflow & sign)) return 1;
+            index += COUNT * 4;
+        } while (index < limit);
+        limit = n - COUNT;
+        if (index < limit) {
+            u32x4u overflow = { 0, 0, 0, 0 };
+            do {
+                u32x4u data, acc2;
+                memcpy(&data, p + index, sizeof data);
+                acc2 = acc + data;
+                overflow |= (acc2 ^ acc) & (acc2 ^ data);
+                acc = acc2;
+                index += COUNT;
+            } while (index < limit);
+            if (__builtin_reduce_or(overflow & sign)) return 1;
+        }
+        for (int i = 0; i < COUNT; i++)
+            if (__builtin_add_overflow(sum, (int32_t)acc[i], &sum)) return 1;
+    }
+    for (; index < n; index++)
+        if (__builtin_add_overflow(sum, p[index], &sum)) return 1;
+    *result = sum;
+    return 0;
+}
+
+/// Min (max = 0) or max (max = 1) of a non-empty span of ints or longs: plain reductions clang vectorizes.
+int32_t csrt_linq_min_max_i32(const int32_t* p, int32_t length, int32_t max) {
+    int32_t m = p[0];
+    if (max) { for (int32_t i = 1; i < length; i++) m = p[i] > m ? p[i] : m; }
+    else { for (int32_t i = 1; i < length; i++) m = p[i] < m ? p[i] : m; }
+    return m;
+}
+
+int64_t csrt_linq_min_max_i64(const int64_t* p, int32_t length, int32_t max) {
+    int64_t m = p[0];
+    if (max) { for (int32_t i = 1; i < length; i++) m = p[i] > m ? p[i] : m; }
+    else { for (int32_t i = 1; i < length; i++) m = p[i] < m ? p[i] : m; }
+    return m;
+}
+
+/// Enumerable.Min (max = 0) / Max (max = 1) over a non-empty span of doubles or floats, with .NET's span
+/// MinFloat / MaxFloat results: Min returns the first NaN after the first element, else the first element
+/// if it is NaN; Max skips NaNs (all NaN: the last element). With all_nan_first (MemoryExtensions.Min/Max,
+/// which order by CompareTo), Min returns the first NaN and an all-NaN Max the first element. Otherwise the extreme value, and of equal extremes the first, which only matters for -0.0 and
+/// 0.0 (equal, distinct bits): a zero result is the first zero of the span. Two lanes, 16 bytes at a time.
+#define LINQ_MIN_MAX_FLOAT(name, T, VT, LANES)                                                              \
+    T name(const T* p, int32_t length, int32_t max, int32_t all_nan_first) {                                  \
+        typedef T vec __attribute__((vector_size(16)));                                                       \
+        int32_t i = all_nan_first ? 0 : 1, start = 0;                                                         \
+        if (!max) {                                                                                           \
+            for (; i + LANES <= length; i += LANES) {                                                         \
+                vec x; memcpy(&x, p + i, sizeof x);                                                           \
+                if (__builtin_reduce_or((VT)(x != x))) break;                                                 \
+            }                                                                                                 \
+            for (; i < length; i++) if (p[i] != p[i]) return p[i];                                            \
+            if (p[0] != p[0]) return p[0];                                                                    \
+        } else {                                                                                              \
+            while (start < length && p[start] != p[start]) start++;                                           \
+            if (start == length) return p[all_nan_first ? 0 : length - 1];                                    \
+        }                                                                                                     \
+        T m = p[start];                                                                                       \
+        vec acc = m - (vec){0};                                                                               \
+        for (i = start; i + LANES <= length; i += LANES) {                                                    \
+            vec x; memcpy(&x, p + i, sizeof x);                                                               \
+            acc = max ? __builtin_elementwise_max(acc, x) : __builtin_elementwise_min(acc, x);                \
+        }                                                                                                     \
+        for (int32_t l = 0; l < LANES; l++) m = max ? (acc[l] > m ? acc[l] : m) : (acc[l] < m ? acc[l] : m);  \
+        for (; i < length; i++) {                                                                             \
+            T x = p[i];                                                                                       \
+            if (max ? x > m : x < m) m = x;                                                                   \
+        }                                                                                                     \
+        if (m == 0)                                                                                           \
+            for (i = start; i < length; i++) if (p[i] == 0) return p[i];                                      \
+        return m;                                                                                             \
+    }
+
+typedef int64_t i64x2v __attribute__((vector_size(16)));
+typedef int32_t i32x4v __attribute__((vector_size(16)));
+LINQ_MIN_MAX_FLOAT(csrt_linq_min_max_f64, double, i64x2v, 2)
+LINQ_MIN_MAX_FLOAT(csrt_linq_min_max_f32, float, i32x4v, 4)

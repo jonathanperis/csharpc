@@ -372,7 +372,7 @@ public sealed partial class FunctionCodeGen
                 }
                 // `box T; unbox.any T` — `(char)(object)value` in generic code once T is char: the JIT
                 // drops both; so do we (the next instruction takes the value back out, see Unbox_any).
-                if (st.IsValueType && !TypeMapper.IsNullable(st) && IlNextUnboxesTo(block, st))
+                if (st.IsValueType && !TypeMapper.IsNullable(st) && (IlNextUnboxesTo(block, st) || IlBoxFeedsHasFlag(block, st, stack)))
                 {
                     Push(new IlEntry(IlKind.Ref, default, Special(SpecialType.System_Object)) { NonNull = true, Unboxed = value with { Type = st } });
                     return false;
@@ -606,6 +606,39 @@ public sealed partial class FunctionCodeGen
         if (_ilIndex + 1 > block.Last) return false;
         var next = IlBody.Instructions[_ilIndex + 1];
         return next.OpCode == ILOpCode.Unbox_any && SymbolEqualityComparer.Default.Equals(S(ResolveIlType(next.Token)), boxed);
+    }
+
+    /// <summary>
+    /// `e.HasFlag(f)` on an enum: `box E; [one push]; box E; call Enum.HasFlag` (the receiver's box) or `box E;
+    /// call Enum.HasFlag` after a deferred receiver (the flag's). IlCall tests the two values instead (the JIT
+    /// allocates neither), so neither box is made: Npgsql tests its CommandBehavior and ConnectionState
+    /// with HasFlag, 44 boxes per TechEmpower fortunes request.
+    /// </summary>
+    private bool IlBoxFeedsHasFlag(IlBlock block, ITypeSymbol boxed, Stack<IlEntry> stack)
+    {
+        if (boxed.TypeKind != TypeKind.Enum) return false;
+        var instructions = IlBody.Instructions;
+        bool IsHasFlag(int i) => i <= block.Last && instructions[i].OpCode is ILOpCode.Call or ILOpCode.Callvirt
+            && SafeMember(instructions[i].Token) is IMethodSymbol { Name: "HasFlag", ContainingType.SpecialType: SpecialType.System_Enum };
+        bool BoxesSame(int i) => i <= block.Last && instructions[i].OpCode == ILOpCode.Box
+            && SymbolEqualityComparer.Default.Equals(S(ResolveIlType(instructions[i].Token)), boxed);
+        bool SimplePush(int i) => i <= block.Last && instructions[i].OpCode is ILOpCode.Ldc_i4 or ILOpCode.Ldc_i4_s or ILOpCode.Ldc_i4_0
+            or ILOpCode.Ldc_i4_1 or ILOpCode.Ldc_i4_2 or ILOpCode.Ldc_i4_3 or ILOpCode.Ldc_i4_4 or ILOpCode.Ldc_i4_5 or ILOpCode.Ldc_i4_6
+            or ILOpCode.Ldc_i4_7 or ILOpCode.Ldc_i4_8 or ILOpCode.Ldc_i4_m1 or ILOpCode.Ldc_i8 or ILOpCode.Ldloc or ILOpCode.Ldloc_s
+            or ILOpCode.Ldloc_0 or ILOpCode.Ldloc_1 or ILOpCode.Ldloc_2 or ILOpCode.Ldloc_3 or ILOpCode.Ldarg or ILOpCode.Ldarg_s
+            or ILOpCode.Ldarg_0 or ILOpCode.Ldarg_1 or ILOpCode.Ldarg_2 or ILOpCode.Ldarg_3;
+        int at = _ilIndex;
+        // The flag's box: the receiver below it must be a deferred box of the same enum.
+        if (IsHasFlag(at + 1))
+            return stack.Count > 0 && stack.Peek() is { Value.IsNull: true, Unboxed.Type: { } receiverType }
+                && SymbolEqualityComparer.Default.Equals(receiverType, boxed);
+        return SimplePush(at + 1) && BoxesSame(at + 2) && IsHasFlag(at + 3);
+    }
+
+    private ISymbol? SafeMember(int token)
+    {
+        try { return IlAssembly.ResolveMember(token, IlBody.Context); }
+        catch (Exception e) when (e is IlException or BadImageFormatException or InvalidOperationException) { return null; }
     }
 
     private bool IlBoxOnlyNullTested(IlBlock block)

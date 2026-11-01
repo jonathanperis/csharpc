@@ -193,7 +193,8 @@ namespace CsharpcCoreLib
             for (int i = startIndex; i < startIndex + count; i++) array[i] = value;
         }
 
-        public static T[] Empty<T>() => new T[0];
+        // One instance per element type, as .NET's (ReferenceEquals(Array.Empty<T>(), Array.Empty<T>()) holds).
+        public static T[] Empty<T>() => EmptyArray<T>.Value;
 
         public static bool Exists<T>(T[] array, Predicate<T> match) => FindIndex(array, match) != -1;
 
@@ -453,5 +454,10 @@ namespace CsharpcCoreLib
             if (destinationIndex > destinationArray.Length - length)
                 throw CoreIntrinsics.LibraryFrames(new ArgumentException("Destination array was not long enough. Check the destination index, length, and the array's lower bounds.", "destinationArray"), "System.Array.CopyImpl(Array sourceArray, Int32 sourceIndex, Array destinationArray, Int32 destinationIndex, Int32 length, Boolean reliable)");
         }
+    }
+
+    internal static class EmptyArray<T>
+    {
+        internal static readonly T[] Value = new T[0];
     }
 }
