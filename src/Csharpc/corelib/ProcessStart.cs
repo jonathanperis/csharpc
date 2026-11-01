@@ -126,6 +126,7 @@ namespace CsharpcCoreLib
         private bool _started, _exited;
         private int _exitCode;
         private StreamReader _stdout, _stderr;
+        private StreamWriter _stdin;
 
         public static Process Start(ProcessStartInfo startInfo)
         {
@@ -143,7 +144,7 @@ namespace CsharpcCoreLib
 
         public StreamReader StandardOutput => _stdout ?? throw new InvalidOperationException("StandardOut has not been redirected or the process hasn't started yet.");
         public StreamReader StandardError => _stderr ?? throw new InvalidOperationException("StandardError has not been redirected or the process hasn't started yet.");
-        public StreamWriter StandardInput => throw new NotSupportedException("Redirecting a started process's standard input is not supported by csharpc yet.");
+        public StreamWriter StandardInput => _stdin ?? throw new InvalidOperationException("StandardIn has not been redirected.");
 
         public int Id { get { if (_current) return Environment.ProcessId; RequireStarted(); return _pid; } }
 
@@ -200,6 +201,7 @@ namespace CsharpcCoreLib
 
         public void Dispose()
         {
+            _stdin?.Dispose();
             _stdout?.Dispose();
             _stderr?.Dispose();
         }
@@ -227,8 +229,8 @@ namespace CsharpcCoreLib
         private static ProcessImpl StartCore(ProcessStartInfoImpl startInfo)
         {
             if (startInfo.UseShellExecute) throw new NotSupportedException("ProcessStartInfo.UseShellExecute is not supported by csharpc yet.");
-            if (startInfo.RedirectStandardInput || startInfo.StandardInputHandle != null || startInfo.StandardOutputHandle != null || startInfo.StandardErrorHandle != null)
-                throw new NotSupportedException("Redirecting a started process's standard input, or to given handles, is not supported by csharpc yet.");
+            if (startInfo.StandardInputHandle != null || startInfo.StandardOutputHandle != null || startInfo.StandardErrorHandle != null)
+                throw new NotSupportedException("Redirecting a started process's standard streams to given handles is not supported by csharpc yet.");
             string fileName = startInfo.FileName;
             if (fileName.Length == 0) throw new InvalidOperationException("Cannot start process because a file name has not been provided.");
             if (startInfo.Arguments.Length > 0 && startInfo.ArgumentList.Count > 0)
@@ -241,9 +243,10 @@ namespace CsharpcCoreLib
             var envp = new List<string>();
             foreach (var pair in startInfo.Environment) if (pair.Value != null) envp.Add(pair.Key + "=" + pair.Value);
 
+            int* inPipe = stackalloc int[2];
             int* outPipe = stackalloc int[2];
             int* errPipe = stackalloc int[2];
-            outPipe[0] = outPipe[1] = errPipe[0] = errPipe[1] = -1;
+            inPipe[0] = inPipe[1] = outPipe[0] = outPipe[1] = errPipe[0] = errPipe[1] = -1;
             byte* actions = (byte*)NativeMemory.AllocZeroed(256); // posix_spawn_file_actions_t: 80 bytes on glibc, a pointer on macOS
             byte** nativeArgv = NativeStrings(argv);
             byte** nativeEnvp = NativeStrings(envp);
@@ -252,16 +255,19 @@ namespace CsharpcCoreLib
             try
             {
                 posix_spawn_file_actions_init(actions);
+                if (startInfo.RedirectStandardInput) RedirectFrom(inPipe, actions);
                 if (startInfo.RedirectStandardOutput) RedirectTo(outPipe, 1, actions);
                 if (startInfo.RedirectStandardError) RedirectTo(errPipe, 2, actions);
                 if (directory != null) posix_spawn_file_actions_addchdir_np(actions, directory);
                 int pid;
                 int error = posix_spawnp(&pid, nativeFile, actions, null, nativeArgv, nativeEnvp);
                 posix_spawn_file_actions_destroy(actions);
+                if (inPipe[0] >= 0) Posix.close(inPipe[0]);
                 if (outPipe[1] >= 0) Posix.close(outPipe[1]);
                 if (errPipe[1] >= 0) Posix.close(errPipe[1]);
                 if (error != 0)
                 {
+                    if (inPipe[1] >= 0) Posix.close(inPipe[1]);
                     if (outPipe[0] >= 0) Posix.close(outPipe[0]);
                     if (errPipe[0] >= 0) Posix.close(errPipe[0]);
                     string cwd = startInfo.WorkingDirectory.Length > 0 ? startInfo.WorkingDirectory : Environment.CurrentDirectory;
@@ -269,6 +275,9 @@ namespace CsharpcCoreLib
                         "An error occurred trying to start process '" + fileName + "' with working directory '" + cwd + "'. " + Marshal.GetPInvokeErrorMessage(error));
                 }
                 var process = new ProcessImpl(current: false) { _pid = pid, _started = true };
+                // .NET's StandardInput: UTF-8 without a byte order mark unless an encoding is given, autoflushed.
+                if (inPipe[1] >= 0)
+                    process._stdin = new StreamWriter(new PipeWriteStream(inPipe[1]), startInfo.StandardInputEncoding ?? new UTF8Encoding(false), 4096) { AutoFlush = true };
                 // .NET's defaults: the encoding given, else UTF-8, with byte order mark detection.
                 if (outPipe[0] >= 0) process._stdout = new StreamReader(new PipeReadStream(outPipe[0]), startInfo.StandardOutputEncoding ?? new UTF8Encoding(false), true, 4096);
                 if (errPipe[0] >= 0) process._stderr = new StreamReader(new PipeReadStream(errPipe[0]), startInfo.StandardErrorEncoding ?? new UTF8Encoding(false), true, 4096);
@@ -292,6 +301,16 @@ namespace CsharpcCoreLib
             fcntl(fds[1], 2, 1);
             posix_spawn_file_actions_adddup2(actions, fds[1], target); // dup2 clears FD_CLOEXEC on the child's copy
             posix_spawn_file_actions_addclose(actions, fds[0]);
+        }
+
+        /// <summary>A pipe whose read end becomes the child's standard input; the parent keeps the write end.</summary>
+        private static void RedirectFrom(int* fds, void* actions)
+        {
+            if (pipe(fds) != 0) throw new System.ComponentModel.Win32Exception(Posix.Errno);
+            fcntl(fds[0], 2 /* F_SETFD */, 1 /* FD_CLOEXEC */);
+            fcntl(fds[1], 2, 1);
+            posix_spawn_file_actions_adddup2(actions, fds[0], 0);
+            posix_spawn_file_actions_addclose(actions, fds[1]);
         }
 
         private static byte** NativeStrings(List<string> values)
@@ -349,6 +368,51 @@ namespace CsharpcCoreLib
                         nint n = Posix.read(_fd, p, (nuint)count);
                         if (n >= 0) return (int)n;
                         if (Posix.Errno != 4 /* EINTR */) throw new IOException("Reading from the process's output failed.", Posix.Errno);
+                    }
+                }
+            }
+
+            protected override void Dispose(bool disposing)
+            {
+                if (_fd >= 0) { Posix.close(_fd); _fd = -1; }
+                base.Dispose(disposing);
+            }
+        }
+
+        /// <summary>The write end of the pipe to the child's standard input (StandardInput's stream).</summary>
+        private sealed class PipeWriteStream : Stream
+        {
+            private int _fd;
+            internal PipeWriteStream(int fd) { _fd = fd; }
+            public override bool CanRead => false;
+            public override bool CanSeek => false;
+            public override bool CanWrite => _fd >= 0;
+            public override long Length => throw new NotSupportedException("Stream does not support seeking.");
+            public override long Position { get => throw new NotSupportedException("Stream does not support seeking."); set => throw new NotSupportedException("Stream does not support seeking."); }
+            public override void Flush() { }
+            public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException("Stream does not support seeking.");
+            public override void SetLength(long value) => throw new NotSupportedException("Stream does not support seeking.");
+            public override int Read(byte[] buffer, int offset, int count) => throw new NotSupportedException("Stream does not support reading.");
+
+            public override void Write(byte[] buffer, int offset, int count)
+            {
+                ArgumentNullException.ThrowIfNull(buffer);
+                if (_fd < 0) throw new ObjectDisposedException(null, "Cannot access a closed pipe.");
+                fixed (byte* start = buffer)
+                {
+                    byte* p = start + offset;
+                    while (count > 0)
+                    {
+                        nint n = Posix.write(_fd, p, (nuint)count);
+                        if (n < 0)
+                        {
+                            int errno = Posix.Errno;
+                            if (errno == 4 /* EINTR */) continue;
+                            // EPIPE (the child closed its input; SIGPIPE is ignored, as in .NET): "Broken pipe".
+                            throw new IOException(Marshal.GetPInvokeErrorMessage(errno), errno);
+                        }
+                        p += n;
+                        count -= (int)n;
                     }
                 }
             }

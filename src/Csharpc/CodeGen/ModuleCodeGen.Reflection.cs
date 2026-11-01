@@ -85,6 +85,8 @@ public sealed partial class ModuleCodeGen
         public required List<ParameterRecordData> Parameters;
         public required List<AttributeRecordData> Attributes;
         public required uint MethodAttributes, Flags;
+        // A listed method's invoker and function are made only once the program can use them (ModuleCodeGen.LazyInvokers.cs).
+        public bool InvokePending, FunctionPending;
     }
 
     internal sealed record ParameterRecordData(LLVMValueRef Name, LLVMValueRef Type, LLVMValueRef DefaultValue, List<AttributeRecordData> Attributes, uint Flags);
@@ -591,8 +593,20 @@ public sealed partial class ModuleCodeGen
                 if (!Wanted(m, RiPublicMethods, RiNonPublicMethods)) continue;
                 var root = ClassLayout.RootOf(m.OriginalDefinition);
                 if ((m.IsVirtual || m.IsOverride || m.IsAbstract) && !seen.Add(root)) continue; // overridden lower down
+                MethodRecordData record;
+                try { record = MethodRecord(m, invoker: true, lazy: true); }
+                catch (CompileError)
+                {
+                    // A method csharpc can't describe (a parameter of a type it doesn't support, such as Half in a
+                    // Razor slice's Write overloads): listing methods of that visibility throws instead of omitting it.
+                    var bit = m.DeclaredAccessibility == Accessibility.Public ? RiPublicMethods : RiNonPublicMethods;
+                    entry.Described &= ~bit;
+                    entry.Complete &= ~bit;
+                    added &= ~bit;
+                    continue;
+                }
                 entry.Listed.Add(m);
-                entry.Methods.Add(MethodRecord(m, invoker: true));
+                entry.Methods.Add(record);
             }
         }
     }
@@ -750,9 +764,14 @@ public sealed partial class ModuleCodeGen
         return p.OriginalDefinition;
     }
 
-    internal MethodRecordData MethodRecord(IMethodSymbol method, bool invoker)
+    internal MethodRecordData MethodRecord(IMethodSymbol method, bool invoker, bool lazy = false)
     {
-        if (_methodRecords.TryGetValue(method, out var existing) && (!invoker || !existing.Invoke.IsNull)) return existing;
+        if (_methodRecords.TryGetValue(method, out var existing))
+        {
+            // A use that needs the invoker now (a property accessor's record) makes a lazily listed method's.
+            if (invoker && !lazy && (existing.InvokePending || existing.FunctionPending)) FillLazyInvoker(existing, invoke: true, function: true);
+            if (!invoker || !existing.Invoke.IsNull || existing.InvokePending) return existing;
+        }
         var none = LlvmContext.Null(Llvm.Ptr);
         var parameters = new List<ParameterRecordData>();
         var definition = method.OriginalDefinition;
@@ -782,19 +801,17 @@ public sealed partial class ModuleCodeGen
             && method.ReturnType is not (IPointerTypeSymbol or IFunctionPointerTypeSymbol) && !method.ReturnType.IsRefLikeType && method.RefKind == RefKind.None
             && !method.IsAbstract && !(method.MethodKind == MethodKind.Constructor && method.ContainingType.IsAbstract)
             && !TypeSubstitution.IsOpen(method);
+        var deferred = invokable && lazy;
         var record = new MethodRecordData
         {
             Method = method,
             Name = CString(method.MethodKind == MethodKind.Constructor ? ".ctor" : method.MetadataName),
             Declaring = MetadataMethodTable(method.ContainingType),
             ReturnType = method.ReturnsVoid || method.MethodKind == MethodKind.Constructor ? none : SignatureType(method.ReturnType),
-            Invoke = invokable ? ReflectionInvoker(method) : none,
-            // An instance method of a class, called as the delegate calls its function: (target, args...).
-            Function = invokable && !method.IsStatic && method.MethodKind == MethodKind.Ordinary && method.ContainingType.IsReferenceType
-                && !TypeSubstitution.IsOpen(method.ContainingType) && IsUserMethod(method) ? GetFunction(method).Fn
-                // A static method, through the thunk with the delegate calling convention (an ignored target first).
-                : invokable && method is { IsStatic: true, MethodKind: MethodKind.Ordinary } && IsUserMethod(method) ? StaticThunk(method)
-                : none,
+            Invoke = deferred ? default : invokable ? ReflectionInvoker(method) : none,
+            Function = deferred ? default : invokable ? RecordFunction(method) : none,
+            InvokePending = deferred,
+            FunctionPending = deferred,
             Parameters = parameters,
             Attributes = Attributes(MemberAttributeInstances(method, il)),
             MethodAttributes = MethodAttributesOf(method),
@@ -802,7 +819,8 @@ public sealed partial class ModuleCodeGen
                 | (genericDefinition ? 4u /* CSRT_METHOD_GENERIC_DEFINITION */ : 0),
         };
         // The reflection stub is a root of the program: what it calls is reachable (IL failures there are errors).
-        if (invokable) NoteReference(method, virtualCall: method.MethodKind != MethodKind.Constructor);
+        if (invokable && !deferred) NoteReference(method, virtualCall: method.MethodKind != MethodKind.Constructor);
+        if (deferred) _lazyInvokerRecords.Add(record);
         return _methodRecords[method] = record;
     }
 
@@ -1234,6 +1252,7 @@ public sealed partial class ModuleCodeGen
 
     private void FinishReflectionMetadata()
     {
+        FinishLazyInvokers();
         FinishMemberRecords();
         LLVMValueRef Header(LLVMValueRef array, int count) => Llvm.ConstStruct(Llvm.ConstInt(Llvm.I64, count), array);
         if (!_reflectionTable.IsNull)

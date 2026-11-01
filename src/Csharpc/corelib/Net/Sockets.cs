@@ -2,7 +2,7 @@
 // ExternalException -> Win32Exception -> SocketException chain (error codes need fields, which the
 // runtime's fixed exception layout doesn't have). Blocking calls; the asynchronous operations
 // (SocketAsyncEventArgs, ValueTask Receive/Send/AcceptAsync) run on the socket engine (SocketEngine.cs:
-// epoll on Linux). Connecting asynchronously is still a blocking connect on the thread pool.
+// epoll on Linux), connects included; on macOS and Windows the engine runs them as blocking calls on the pool.
 #nullable disable
 using System;
 using System.IO;
@@ -17,13 +17,37 @@ namespace CsharpcCoreLib
     public class ExternalExceptionImpl : SystemException
     {
         internal const int E_FAIL = unchecked((int)0x80004005);
-        // The runtime's exception layout has no HResult slot, so the error code lives here.
-        internal int _hresult = E_FAIL;
-        public ExternalExceptionImpl() : base("External component has thrown an exception.") { }
-        public ExternalExceptionImpl(string message) : base(message) { }
-        public ExternalExceptionImpl(string message, Exception inner) : base(message, inner) { }
-        public ExternalExceptionImpl(string message, int errorCode) : base(message) { _hresult = errorCode; }
-        public virtual int ErrorCode => _hresult;
+        public ExternalExceptionImpl() : base("External component has thrown an exception.") { HResult = E_FAIL; }
+        public ExternalExceptionImpl(string message) : base(message) { HResult = E_FAIL; }
+        public ExternalExceptionImpl(string message, Exception inner) : base(message, inner) { HResult = E_FAIL; }
+        public ExternalExceptionImpl(string message, int errorCode) : base(message) { HResult = errorCode; }
+        public virtual int ErrorCode => HResult;
+
+        /// <summary>
+        /// .NET's ExternalException.ToString (DbException's, so Npgsql's): the HResult after the type name, the inner
+        /// exception after " ---> " without Exception's "--- End of inner exception stack trace ---" line, then the trace.
+        /// </summary>
+        public override string ToString()
+        {
+            string message = Message;
+            string s = string.Concat(GetType().ToString(), " (0x", Hex8(HResult), ")");
+            if (!string.IsNullOrEmpty(message)) s = string.Concat(s, ": ", message);
+            Exception inner = InnerException;
+            if (inner != null) s = string.Concat(s, Environment.NewLine, " ---> ", inner.ToString());
+            string stackTrace = StackTrace;
+            if (stackTrace != null) s = string.Concat(s, Environment.NewLine, stackTrace);
+            return s;
+        }
+
+        // HResult.ToString("X8") without number formatting: every program that compares strings with a culture can
+        // construct this exception (CompareInfo's sort handles), so its ToString is in most binaries.
+        private static string Hex8(int value)
+        {
+            Span<char> digits = stackalloc char[8];
+            uint v = (uint)value;
+            for (int i = 7; i >= 0; i--, v >>= 4) digits[i] = (char)((v & 0xF) < 10 ? '0' + (v & 0xF) : 'A' - 10 + (v & 0xF));
+            return new string(digits);
+        }
     }
 
     [Shadows("System.ComponentModel.Win32Exception")]
@@ -31,7 +55,7 @@ namespace CsharpcCoreLib
     {
         private const int E_FAIL = unchecked((int)0x80004005);
         public int NativeErrorCode { get; }
-        private int HResultValue => ((ExternalExceptionImpl)(object)this)._hresult;
+        private int HResultValue => HResult;
 
         public Win32ExceptionImpl() : this(System.Runtime.InteropServices.Marshal.GetLastPInvokeError()) { }
         public Win32ExceptionImpl(int error) : this(error, System.Runtime.InteropServices.Marshal.GetPInvokeErrorMessage(error)) { }
@@ -53,6 +77,8 @@ namespace CsharpcCoreLib
             string message = Message;
             if (!string.IsNullOrEmpty(message)) s.Append(": ").Append(message);
             if (InnerException != null) s.Append(" ---> ").Append(InnerException.ToString());
+            string stackTrace = StackTrace;
+            if (stackTrace != null) s.Append(Environment.NewLine).Append(stackTrace);
             return s.ToString();
         }
     }
@@ -217,7 +243,7 @@ namespace CsharpcCoreLib
         /// <summary>Synchronous calls on a non-blocking socket wait for readiness (the timeout, or none).</summary>
         private void WaitReady(bool write, int timeout)
         {
-#if !CSHARPC_TARGET_WINDOWS && !CSHARPC_TARGET_WASI
+#if !CSHARPC_TARGET_WASI
             if (!NetNative.Wait(_handle, write, timeout <= 0 ? -1 : timeout))
                 throw (SocketException)(object)new SocketExceptionImpl(SocketError.TimedOut, NetNative.EAGAIN, (EndPoint)null);
 #endif
@@ -377,16 +403,17 @@ namespace CsharpcCoreLib
 
         private bool HasConnectCompleted(out bool succeeded)
         {
-#if CSHARPC_TARGET_WINDOWS || CSHARPC_TARGET_WASI
+#if CSHARPC_TARGET_WASI
             succeeded = false;
             return false;
 #else
+            // Done when writable, or (Winsock) reported in exceptfds after failing.
             long handle = _handle;
-            int events = NetNative.POLLOUT, revents;
+            int events = NetNative.POLLOUT | NetNative.POLLERR, revents;
             NetNative.Poll(&handle, &events, &revents, 1, 0);
             succeeded = false;
-            if ((revents & NetNative.POLLOUT) == 0) return false;
-            succeeded = NetNative.GetInt(_handle, NetNative.SOL_SOCKET, NetNative.SO_ERROR) == 0;
+            if ((revents & (NetNative.POLLOUT | NetNative.POLLERR)) == 0) return false;
+            succeeded = (revents & NetNative.POLLOUT) != 0 && NetNative.GetInt(_handle, NetNative.SOL_SOCKET, NetNative.SO_ERROR) == 0;
             return true;
 #endif
         }
@@ -401,7 +428,7 @@ namespace CsharpcCoreLib
             set
             {
                 EnsureOpen();
-#if CSHARPC_TARGET_WINDOWS || CSHARPC_TARGET_WASI
+#if CSHARPC_TARGET_WASI
                 if (!value) throw new NotSupportedException("csharpc: non-blocking sockets (Socket.Blocking = false) are not supported yet on this platform.");
 #else
                 if (!value) NetNative.SetBlockingMode(_handle, false);
@@ -445,7 +472,7 @@ namespace CsharpcCoreLib
             if (reads > MaxSelect) throw new ArgumentOutOfRangeException("checkRead", "The checkRead list contains too many items; a maximum of 65536 is allowed.");
             if (writes > MaxSelect) throw new ArgumentOutOfRangeException("checkWrite", "The checkWrite list contains too many items; a maximum of 65536 is allowed.");
             if (errors > MaxSelect) throw new ArgumentOutOfRangeException("checkError", "The checkError list contains too many items; a maximum of 65536 is allowed.");
-#if CSHARPC_TARGET_WINDOWS || CSHARPC_TARGET_WASI
+#if CSHARPC_TARGET_WASI
             throw new NotSupportedException("csharpc: Socket.Select is not supported yet on this platform.");
 #else
             int count = reads + writes + errors;
@@ -717,10 +744,30 @@ namespace CsharpcCoreLib
             throw last ?? new SocketException((int)SocketError.AddressFamilyNotSupported);
         }
 
-        public Task ConnectAsync(EndPoint remoteEP) => Task.Run(() => Connect(remoteEP));
-        public ValueTask ConnectAsync(EndPoint remoteEP, CancellationToken cancellationToken) =>
-            cancellationToken.IsCancellationRequested ? new ValueTask(Task.FromCanceled(cancellationToken)) : new ValueTask(Task.Run(() => Connect(remoteEP)));
-        public Task ConnectAsync(IPAddress address, int port) => Task.Run(() => Connect(address, port));
+        public Task ConnectAsync(EndPoint remoteEP) => ConnectAsync(remoteEP, CancellationToken.None).AsTask();
+
+        public ValueTask ConnectAsync(EndPoint remoteEP, CancellationToken cancellationToken)
+        {
+            if (cancellationToken.IsCancellationRequested) return new ValueTask(Task.FromCanceled(cancellationToken));
+            if (remoteEP == null) throw new ArgumentNullException("remoteEP");
+            EnsureOpen();
+            if (_connected) throw new SocketException((int)SocketError.IsConnected);
+            if (_listening) throw new InvalidOperationException("You may not perform this operation after calling the Listen method.");
+            // A non-blocking connect on the socket engine (a canceled token ends it with OperationCanceledException).
+            return new ValueTask(StartTask(new TaskOperations.Connect { Target = Adapt(remoteEP) }, cancellationToken).Source.Task);
+        }
+
+        public ValueTask ConnectAsync(IPAddress address, int port, CancellationToken cancellationToken) =>
+            ConnectAsync(new IPEndPoint(address, port), cancellationToken);
+
+        public Task ConnectAsync(IPAddress address, int port) => ConnectAsync(new IPEndPoint(address, port));
+
+        /// <summary>A connect the socket engine finished: the socket is connected (and bound, by the kernel).</summary>
+        internal void ConnectCompleted()
+        {
+            _connected = true;
+            _bound = true;
+        }
         public Task ConnectAsync(string host, int port) => Task.Run(() => Connect(host, port));
 
         public int Send(byte[] buffer) => Send(buffer, 0, buffer?.Length ?? 0, SocketFlags.None);

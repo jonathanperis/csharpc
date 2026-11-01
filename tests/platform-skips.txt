@@ -35,6 +35,7 @@ windows 162_pinvoke_libraryimport       live: imports from "libc", which doesn't
 windows 728_failfast                    live: .NET ends FailFast with COR_E_FAILFAST (0x80131623) on Windows, SIGABRT (134) elsewhere
 windows 729_dllimport_resolver           live: .NET names the library kind "DLL" on Windows ("shared library" elsewhere) in EntryPointNotFoundException
 windows 731_process_start                runs a POSIX sh; csharpc's Process.Start on Windows is an explicit NotSupportedException (not implemented yet)
+windows 860_console_autoflush_pipe       starts itself with Process.Start, an explicit NotSupportedException on Windows in csharpc (not implemented yet); SIGPIPE is POSIX
 windows 286_pinvoke_portable_abi        live: imports from "libc", which doesn't exist on Windows
 windows 295_regex_charclass             live: prints matched text that contains a bare "\n" (from the input string)
 windows 303_regex_options               live: prints matched text that contains a bare "\n" (from the input string)
@@ -104,6 +105,7 @@ wasi 162_pinvoke_libraryimport    prints an errno value (ENOENT is 2 on Linux, 4
 wasi 729_dllimport_resolver        loads a shared library with NativeLibrary.Load: WASI has no dynamic libraries
 wasi 730_pinvoke_static_constructor loads a shared library with NativeLibrary.Load: WASI has no dynamic libraries
 wasi 731_process_start            WASI has no processes to start
+wasi 860_console_autoflush_pipe   WASI has no processes to start
 wasi 188_datetime_zone_new_york   sets TZ: wasi-libc has no time zone database, local time is UTC
 wasi 189_datetime_zone_lord_howe  sets TZ: wasi-libc has no time zone database, local time is UTC
 wasi 190_datetime_zone_apia       sets TZ: wasi-libc has no time zone database, local time is UTC
@@ -190,9 +192,9 @@ wasi 631_threadpool_work_items     needs threads: CountdownEvent.Wait blocks the
 wasi 633_lock_contention           needs threads: Thread.Start throws PlatformNotSupportedException on WebAssembly
 wasi 659_reader_writer_lock_slim  needs threads: Thread.Start throws PlatformNotSupportedException on WebAssembly
 wasi 555_monitor_pulse_handoff         needs threads: Thread.Start throws PlatformNotSupportedException on WebAssembly
-windows 841_socket_nonblocking_connect     known gap: Socket.Blocking = false and Socket.Select are explicit NotSupportedExceptions on Windows yet
 wasi 840_socket_rebind_time_wait      opens loopback sockets: WASI preview 1 has none (PlatformNotSupportedException)
 wasi 841_socket_nonblocking_connect   opens loopback sockets: WASI preview 1 has none (PlatformNotSupportedException)
+wasi 861_socket_connect_async         opens loopback sockets: WASI preview 1 has none (PlatformNotSupportedException)
 wasi 845_networkstream_async_receive_timeout opens loopback sockets: WASI preview 1 has none (PlatformNotSupportedException)
 wasi 846_npgsql_bcl_members           no ICU on WASI (invariant globalization mode): Unicode normalization and culture-aware comparison
 wasi 848_stringbuilder_provider_text_encoder no ICU on WASI (invariant globalization mode): the sample uses specific cultures

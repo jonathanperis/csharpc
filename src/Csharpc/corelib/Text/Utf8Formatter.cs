@@ -26,6 +26,17 @@ namespace CsharpcCoreLib
         public static bool TryFormat(sbyte value, Span<byte> destination, out int bytesWritten, StandardFormat format = default) =>
             TryFormatInteger(value < 0, value < 0 ? (ulong)(-(long)value) : (ulong)value, (byte)value, destination, out bytesWritten, format);
 
+        // Utf8Formatter.Boolean.cs: 'G' (default) "True"/"False", 'l' "true"/"false"; false when it doesn't fit.
+        public static bool TryFormat(bool value, Span<byte> destination, out int bytesWritten, StandardFormat format = default)
+        {
+            char symbol = format.IsDefault ? 'G' : format.Symbol;
+            if (symbol != 'G' && symbol != 'l') throw new FormatException("Format specifier was invalid.");
+            ReadOnlySpan<byte> text = value ? (symbol == 'G' ? "True"u8 : "true"u8) : (symbol == 'G' ? "False"u8 : "false"u8);
+            if (!text.TryCopyTo(destination)) { bytesWritten = 0; return false; }
+            bytesWritten = text.Length;
+            return true;
+        }
+
         // Dates (Utf8Formatter.Date.cs): each standard format is the invariant culture's custom pattern, so
         // ToString with the pattern gives the same ASCII text .NET writes.
         public static bool TryFormat(DateTime value, Span<byte> destination, out int bytesWritten, StandardFormat format = default)

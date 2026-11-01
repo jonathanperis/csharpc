@@ -727,6 +727,12 @@ namespace CsharpcCoreLib
         public override void Write(string value) => Console.Write(value);
         public override void WriteLine(string value) => Console.WriteLine(value);
         public override void WriteLine() => Console.WriteLine();
+        // Each call is one autoflushed write, as .NET's console writer makes it (TextWriter's defaults would
+        // write, and flush, one character at a time).
+        public override void Write(char[] buffer, int index, int count) => Console.Write(new string(buffer, index, count));
+        public override void Write(ReadOnlySpan<char> buffer) => Console.Write(new string(buffer));
+        public override void WriteLine(ReadOnlySpan<char> buffer) => Console.WriteLine(new string(buffer));
+        public override void WriteLine(char[] buffer, int index, int count) => Console.WriteLine(new string(buffer, index, count));
         public override void Flush() => csrt_console_flush();
     }
 

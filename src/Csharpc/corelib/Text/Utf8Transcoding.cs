@@ -10,8 +10,16 @@ using System.Text;
 namespace CsharpcCoreLib
 {
     [ShadowMembers("System.Text.Unicode.Utf8")]
-    internal static class Utf8TranscodingMembers
+    internal static unsafe class Utf8TranscodingMembers
     {
+        // ASCII runs go through the C runtime's vector loops (span.c), 8 elements at a time; the collector doesn't
+        // move objects, so the spans stay put. Everything else is scalar by scalar, as before.
+        [System.Runtime.InteropServices.DllImport("__Internal", EntryPoint = "csrt_narrow_ascii")]
+        private static extern int NarrowAscii(char* source, byte* destination, int length);
+
+        [System.Runtime.InteropServices.DllImport("__Internal", EntryPoint = "csrt_widen_ascii")]
+        private static extern int WidenAscii(byte* source, char* destination, int length);
+
         public static OperationStatus FromUtf16(ReadOnlySpan<char> source, Span<byte> destination, out int charsRead, out int bytesWritten,
             bool replaceInvalidSequences = true, bool isFinalBlock = true)
         {
@@ -22,8 +30,12 @@ namespace CsharpcCoreLib
                 if (c < 0x80)
                 {
                     if (written == destination.Length) return Stop(OperationStatus.DestinationTooSmall, read, written, out charsRead, out bytesWritten);
-                    destination[written++] = (byte)c;
-                    read++;
+                    int run = Math.Min(source.Length - read, destination.Length - written), copied;
+                    fixed (char* s = source)
+                    fixed (byte* d = destination)
+                        copied = NarrowAscii(s + read, d + written, run);
+                    read += copied;
+                    written += copied;
                     continue;
                 }
                 int scalar, length = 1;
@@ -60,8 +72,12 @@ namespace CsharpcCoreLib
                 if (b < 0x80)
                 {
                     if (written == destination.Length) return Stop(OperationStatus.DestinationTooSmall, read, written, out bytesRead, out charsWritten);
-                    destination[written++] = (char)b;
-                    read++;
+                    int run = Math.Min(source.Length - read, destination.Length - written), copied;
+                    fixed (byte* s = source)
+                    fixed (char* d = destination)
+                        copied = WidenAscii(s + read, d + written, run);
+                    read += copied;
+                    written += copied;
                     continue;
                 }
                 OperationStatus status = Rune.DecodeFromUtf8(source.Slice(read), out Rune rune, out int length);

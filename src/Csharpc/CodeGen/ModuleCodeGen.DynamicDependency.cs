@@ -34,14 +34,13 @@ public sealed partial class ModuleCodeGen
             if (attribute.AttributeClass is not { Name: "DynamicDependencyAttribute" } c
                 || c.ContainingNamespace?.ToDisplayString() != "System.Diagnostics.CodeAnalysis") continue;
             var args = attribute.ConstructorArguments;
-            // (memberTypes, Type) / (memberTypes, typeName, assemblyName): the members of those kinds.
-            // csharpc keeps their constructors, properties and fields; not their methods, whose reflection
-            // invokers would compile every one of them (a Razor slice's ~100 Write overloads, for BigInteger, Half
-            // and every other formattable type). Reflecting over methods the attribute named then fails with
-            // csharpc's explicit "not described" NotSupportedException rather than finding fewer of them.
+            // (memberTypes, Type) / (memberTypes, typeName, assemblyName): the members of those kinds, methods
+            // included, as NativeAOT keeps them. A method's invoker and function (which compile it) are made only
+            // if the program invokes methods through reflection (ModuleCodeGen.LazyInvokers.cs): a Razor slice's
+            // ~100 Write overloads cost their metadata, not their code, in a program that only reads properties.
             if (args.Length >= 2 && args[0].Value is int kinds)
             {
-                if (TargetOf(args, 1) is { } target) MarkDynamicallyAccessed(target, kinds & ~DamMethods);
+                if (TargetOf(args, 1) is { } target) MarkDynamicallyAccessed(target, kinds);
                 continue;
             }
             // (memberSignature[, Type | typeName, assemblyName]): the members with that name (a signature's

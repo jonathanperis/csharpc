@@ -1,0 +1,25 @@
+9:1234.5678
+8:1,234.57
+11:-1.000E-003
+too small (0)
+1:a
+2:é
+3:€
+too small (0)
+ArgumentOutOfRangeException ch
+19:02/29/2024 13:45:06
+28:2024-02-29T13:45:06.7890000Z
+16:2024-02-29 13:45
+too small (0)
+18:1.02:03:04.5670000
+18:1.02:03:04.5670000
+13:1:2:03:04.567
+5:02:03
+too small (0)
+1.500 x 02/29/2024 1.02:03:04.5670000
+10:02/29/2024 10:2024-02-29 17:Thursday February too small (0)
+5:13:45 16:13:45:06.7890000 12:13-45-06.789 too small (0)
+02/29/2024 13:45:06
+36:0f8fad5b-d9cb-469f-a165-70867728950e 32:0f8fad5bd9cb469fa16570867728950e 38:{0f8fad5b-d9cb-469f-a165-70867728950e} too small (0)
+True False true false too small (0) True
+Format specifier was invalid.

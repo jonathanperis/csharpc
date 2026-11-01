@@ -306,8 +306,12 @@ public sealed class CoreLib
     private IMethodSymbol? MatchInstanceShadow(IMethodSymbol real, INamedTypeSymbol shadow)
     {
         if (_definitionMatch.TryGetValue((real, shadow), out var known)) return known as IMethodSymbol;
-        var key = $"{real.MetadataName}`{real.Arity}({string.Join(",", real.Parameters.Select(Param))})";
-        var match = shadow.GetMembers(real.MetadataName).OfType<IMethodSymbol>().FirstOrDefault(m =>
+        // An explicit interface implementation (char's ISpanFormattable.TryFormat) is shadowed under the interface
+        // member's name: a C# method can't be called "System.ISpanFormattable.TryFormat".
+        var name = real.MethodKind == MethodKind.ExplicitInterfaceImplementation && real.ExplicitInterfaceImplementations.Length == 1
+            ? real.ExplicitInterfaceImplementations[0].MetadataName : real.MetadataName;
+        var key = $"{name}`{real.Arity}({string.Join(",", real.Parameters.Select(Param))})";
+        var match = shadow.GetMembers(name).OfType<IMethodSymbol>().FirstOrDefault(m =>
             m.IsStatic && m.Arity == real.Arity && m.Parameters.Length == real.Parameters.Length + 1 && IsInstanceShadow(m)
             && $"{m.MetadataName}`{m.Arity}({string.Join(",", m.Parameters.Skip(1).Select(Param))})" == key);
         _definitionMatch[(real, shadow)] = match;

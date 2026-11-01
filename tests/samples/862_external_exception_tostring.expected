@@ -1,0 +1,13 @@
+System.Runtime.InteropServices.ExternalException (0x80004005): boom
+System.Runtime.InteropServices.ExternalException (0x00001234): with code | 4660 00001234
+80004005 80004005
+System.Runtime.InteropServices.ExternalException (0x80004005): outer
+ ---> System.InvalidOperationException: inner
+AppDbException (0x80004005): db failed
+ ---> System.TimeoutException: timed out
+AppDbException (0x0000002A): db code
+AppDbException (0x80004005): wrapped |  ---> System.InvalidOperationException: inner thrown | at
+System.ComponentModel.Win32Exception (13): denied | at
+System.Net.Sockets.SocketException (NATIVE): MESSAGE | at | 80004005 True
+System.ComponentModel.Win32Exception (2): native two
+System.ComponentModel.Win32Exception (0x80004005): zero

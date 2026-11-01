@@ -371,6 +371,7 @@ internal static class Intrinsics
             if (sink is null) return text;
             sink(g, text);
             if (newline) NewLine(g);
+            else ConsoleFlush(g);
             return default;
         };
         Action<FunctionCodeGen, LLVMValueRef> write = (g, s) => g.CallRuntime("csrt_console_write_string", g.Module.Llvm.Void, [g.Module.Llvm.Ptr], s);
@@ -1165,6 +1166,7 @@ internal static class Intrinsics
         {
             if (value is not null) WriteValue(g, value);
             if (newline) NewLine(g);
+            else ConsoleFlush(g);
             return;
         }
         var text = value is null ? g.Module.StringLiteral("") : g.ToStringValue(value);
@@ -1199,7 +1201,11 @@ internal static class Intrinsics
         }
     }
 
+    /// <summary>Ends a WriteLine: the runtime writes the newline and flushes, as .NET's autoflushing Console.Out.</summary>
     private static void NewLine(FunctionCodeGen g) => g.CallRuntime("csrt_console_newline", g.Module.Llvm.Void, []);
+
+    /// <summary>Ends a Console.Out Write: .NET's console writer autoflushes, so the text reaches stdout before the call returns.</summary>
+    internal static void ConsoleFlush(FunctionCodeGen g) => g.CallRuntime("csrt_console_flush", g.Module.Llvm.Void, []);
 
     private static void WriteValue(FunctionCodeGen g, IOperation argument) => WriteValue(g, argument, null);
 
@@ -1215,6 +1221,7 @@ internal static class Intrinsics
             ConsoleLock(g, true);
             g.CallRuntime(name, l.Void, [argType], value);
             if (newline == true) NewLine(g);
+            else ConsoleFlush(g);
             ConsoleLock(g, false);
         }
         if (op.ConstantValue.HasValue || type is null || type.TypeKind == TypeKind.Enum)

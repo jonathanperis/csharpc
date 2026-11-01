@@ -1,0 +1,9 @@
+Int32 Twice(Int32) public False static True
+System.String Render() public True static False
+Void Write(Double) public True static False
+Void Write(Int32) public True static False
+Void Write(System.Decimal) public True static False
+Void Write(System.String) public True static False
+int 42;string text;decimal 1.5;
+42
+int 42;string text;decimal 1.5;

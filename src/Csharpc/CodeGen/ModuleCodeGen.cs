@@ -237,7 +237,8 @@ public sealed partial class ModuleCodeGen
     private bool EmitMetadataRound() =>
         Timed("runtime exports", EmitRuntimeExports) | Timed("reflection metadata", EmitReflectionMetadata) | Timed("type metadata", EmitTypeMetadata)
         | Timed("box registrations", EmitDeferredBclBoxRegistrations) | Timed("primitive slots", EmitDeferredPrimitiveSlots)
-        | Timed("dynamic sites", EmitDynamicSites) | Timed("object-array thunks", EmitObjectArrayThunks) | EmitPInvokeResolver();
+        | Timed("dynamic sites", EmitDynamicSites) | Timed("object-array thunks", EmitObjectArrayThunks) | EmitPInvokeResolver()
+        | Timed("lazy invokers", EmitLazyInvokers);
 
     /// <summary>Runs a module-level lowering step, adding its time to <see cref="LoweringStats.Steps"/> (csharpc -v).</summary>
     private bool Timed(string step, Func<bool> action)
@@ -602,7 +603,7 @@ public sealed partial class ModuleCodeGen
     [
         "csrt_init", "csrt_shutdown", "csrt_get_args", "csrt_alloc", "csrt_begin_catch", "csrt_personality",
         "csrt_isinst_class", "csrt_string_concat", "csrt_string_equals", "csrt_string_is_null_or_empty",
-        "csrt_console_newline", "csrt_object_to_string_default", "csrt_object_equals_default",
+        "csrt_console_newline", "csrt_console_flush", "csrt_object_to_string_default", "csrt_object_equals_default",
         "csrt_object_get_hash_code_default", "csrt_exception_init", "csrt_environment_tick_count64",
         "csrt_environment_exit", "csrt_trace_frame", "csrt_trace_init", "csrt_exception_get_stack_trace",
         "csrt_exception_capture_trace", "csrt_trace_finally", "csrt_trace_new_stack", "csrt_trace_preset", "csrt_trace_append_library",
@@ -647,6 +648,7 @@ public sealed partial class ModuleCodeGen
         var start = System.Diagnostics.Stopwatch.GetTimestamp();
         NoteLowered(method);
         NoteDynamicDependencies(method);
+        NoteReflectionUse(method);
         var corelib = CoreLib.IsCoreLib(method);
         var il = !corelib && Il.OwnerOf(method) is not null;
         try { EmitMethodCore(method); }
