@@ -19,6 +19,24 @@ namespace CsharpcCoreLib
         [DllImport("kernel32")] private static extern uint GetCurrentProcessId();
         [DllImport("kernel32")] private static extern char* GetCommandLineW();
         [DllImport("advapi32")] private static extern int GetUserNameW(char* buffer, uint* size);
+        [DllImport("kernel32", CharSet = CharSet.Unicode)] private static extern uint ExpandEnvironmentStringsW(string src, char* dst, uint size);
+
+        // .NET on Windows: Win32's ExpandEnvironmentStrings, retried with the size it asks for.
+        public static string ExpandEnvironmentVariables(string name)
+        {
+            if (name == null) throw new ArgumentNullException("name");
+            if (name.Length == 0) return name;
+            uint size = (uint)name.Length + 100;
+            while (true)
+            {
+                char[] buffer = new char[size];
+                uint n;
+                fixed (char* p = buffer) n = ExpandEnvironmentStringsW(name, p, size);
+                if (n == 0) throw new System.ComponentModel.Win32Exception();
+                if (n <= size) return new string(buffer, 0, (int)n - 1);
+                size = n;
+            }
+        }
 
         public static string GetEnvironmentVariable(string variable)
         {
@@ -102,6 +120,33 @@ namespace CsharpcCoreLib
             }
         }
 #else
+        // .NET's Unix ExpandEnvironmentVariablesCore: %NAME% becomes the variable's value when it is set;
+        // anything else (unset names, a lone %) is copied as written.
+        public static string ExpandEnvironmentVariables(string name)
+        {
+            if (name == null) throw new ArgumentNullException("name");
+            if (name.Length == 0) return name;
+            var result = new System.Text.StringBuilder(name.Length);
+            int lastPos = 0, pos;
+            while (lastPos < name.Length && (pos = name.IndexOf('%', lastPos + 1)) >= 0)
+            {
+                if (name[lastPos] == '%')
+                {
+                    string value = GetEnvironmentVariable(name.Substring(lastPos + 1, pos - lastPos - 1));
+                    if (value != null)
+                    {
+                        result.Append(value);
+                        lastPos = pos + 1;
+                        continue;
+                    }
+                }
+                result.Append(name, lastPos, pos - lastPos);
+                lastPos = pos;
+            }
+            result.Append(name, lastPos, name.Length - lastPos);
+            return result.ToString();
+        }
+
         public static string GetEnvironmentVariable(string variable)
         {
             if (variable == null) throw new ArgumentNullException("variable");
