@@ -36,6 +36,14 @@ attribute factories) with a ~25 % faster build.
 
 ## Open branches
 
+- `ci/m7-startup` — the start-up regression of `ci/m7-perf-3` (628 ms in TechEmpower run 41273842626, 1.3-1.4 s
+  since 774b977) was the thread pool's 100 us polling (69b83a3): every idle worker polled, and the start-up's
+  10,000-query cache fill hands each reply to the pool, so all the server's CPUs spun for the one that worked.
+  One idle worker polls at a time now. TechEmpower run 41297487760 (EPYC 9V74): start-up 277 ms vs NativeAOT's
+  548 (CPU 380 vs 960 ms), **301 of 456**, /db at 16-32 connections 1.11-1.12 of NativeAOT (what the polling was
+  for, kept). Its first attempt ran on a Xeon 8573C (start-up 663 vs 781 ms; 254 of 456): on that runner and on
+  the Xeon 6973P-C NativeAOT's fortunes are ~2x other runners' and csharpc's 0.73-0.88 of them, a fortunes gap
+  that only shows where the database is fast (CPU-bound fortunes), not from these changes.
 - `ci/il-stack-traces` — stack traces through code compiled from IL and the corelib (ADR 0012). Every
   IL-compiled method (program as IL, libraries, NuGet packages, framework IL) is a frame, named as
   `StackTrace.ToString` names it (state machines through their StateMachine attributes, runtime-async),
