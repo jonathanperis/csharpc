@@ -685,8 +685,12 @@ namespace CsharpcCoreLib
 
         private void WriteStartMinimized(byte token)
         {
-            if (_currentDepth < 0) Put(JsonConstants.ListSeparator);
-            Put(token);
+            Ensure(2);
+            byte[] buffer = _buffer;
+            int pos = _pending;
+            if (_currentDepth < 0) buffer[pos++] = JsonConstants.ListSeparator;
+            buffer[pos++] = token;
+            _pending = pos;
         }
 
         private void WriteStartIndented(byte token)
@@ -941,8 +945,34 @@ namespace CsharpcCoreLib
         private void WritePropertyAndInteger(byte[] escapedName, bool negative, ulong magnitude)
         {
             ValidateWritingProperty();
-            WritePropertyNamePrefix(escapedName);
-            PutInteger(negative, magnitude);
+            if (!_indented && escapedName.Length <= 16)
+            {
+                // Minimized with a short name ("id", "randomNumber"): one capacity check for
+                // [,]"name":digits, then direct stores.
+                Ensure(escapedName.Length + 4 + 21);
+                byte[] buffer = _buffer;
+                int pos = _pending;
+                if (_currentDepth < 0) buffer[pos++] = JsonConstants.ListSeparator;
+                buffer[pos++] = JsonConstants.Quote;
+                int length = escapedName.Length;
+                if (length >= 8)
+                {
+                    var target = buffer.AsSpan(pos, length);
+                    ReadOnlySpan<byte> name = escapedName;
+                    System.Runtime.InteropServices.MemoryMarshal.Write(target, System.Runtime.InteropServices.MemoryMarshal.Read<ulong>(name));
+                    System.Runtime.InteropServices.MemoryMarshal.Write(target.Slice(length - 8), System.Runtime.InteropServices.MemoryMarshal.Read<ulong>(name.Slice(length - 8)));
+                }
+                else for (int k = 0; k < length; k++) buffer[pos + k] = escapedName[k];
+                pos += length;
+                buffer[pos++] = JsonConstants.Quote;
+                buffer[pos++] = JsonConstants.KeyValueSeparator;
+                _pending = FormatInteger(buffer, pos, negative, magnitude);
+            }
+            else
+            {
+                WritePropertyNamePrefix(escapedName);
+                PutInteger(negative, magnitude);
+            }
             SetFlagToAddListSeparatorBeforeNextItem();
             _tokenType = JsonTokenType.Number;
         }
@@ -962,16 +992,20 @@ namespace CsharpcCoreLib
         private void PutInteger(bool negative, ulong magnitude)
         {
             Ensure(21);
-            byte[] buffer = _buffer;
-            int pos = _pending;
+            _pending = FormatInteger(_buffer, _pending, negative, magnitude);
+        }
+
+        /// <summary>Writes the digits at <paramref name="pos"/> (room for 21 bytes is the caller's) and returns the end.</summary>
+        private static int FormatInteger(byte[] buffer, int pos, bool negative, ulong magnitude)
+        {
             if (negative) buffer[pos++] = (byte)'-';
             if (magnitude <= uint.MaxValue)
             {
-                // 32-bit divisions by 10 (a multiply), the length from compares.
+                // 32-bit divisions (multiplies), the length from compares, two digits per division
+                // from a table of "00".."99".
                 uint v = (uint)magnitude;
                 int end = pos + (v < 10 ? 1 : v < 100 ? 2 : v < 1000 ? 3 : v < 10000 ? 4 : v < 100000 ? 5
                     : v < 1000000 ? 6 : v < 10000000 ? 7 : v < 100000000 ? 8 : v < 1000000000 ? 9 : 10);
-                // Two digits per division, from a table of "00".."99".
                 ReadOnlySpan<byte> pairs = DigitPairs;
                 int i = end;
                 while (v >= 100)
@@ -989,8 +1023,7 @@ namespace CsharpcCoreLib
                     buffer[i - 2] = pairs[(int)v * 2];
                 }
                 else buffer[i - 1] = (byte)('0' + v);
-                _pending = end;
-                return;
+                return end;
             }
             int digits = 1;
             for (ulong rest = magnitude / 10; rest != 0; rest /= 10) digits++;
@@ -1001,7 +1034,7 @@ namespace CsharpcCoreLib
                 buffer[i] = (byte)('0' + (int)(magnitude - quotient * 10));
                 magnitude = quotient;
             }
-            _pending = last;
+            return last;
         }
 
         private void WritePropertyAndAscii(byte[] escapedName, string ascii, JsonTokenType tokenType)
