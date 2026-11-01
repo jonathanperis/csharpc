@@ -31,40 +31,20 @@ namespace CsharpcCoreLib
         // The default format of a non-negative integer is its decimal digits whatever the culture (.NET's
         // UInt32ToDecStr / UInt64ToDecStr; only a negative number reads the culture, for its NegativeSign):
         // written straight into the destination, UTF-16 or UTF-8, without a string in between.
-        internal static int CountDigits(ulong value)
-        {
-            int digits = 1;
-            while (value >= 10000) { value /= 10000; digits += 4; }
-            if (value >= 10) digits++;
-            if (value >= 100) digits++;
-            if (value >= 1000) digits++;
-            return digits;
-        }
-
         internal static bool Digits(ulong value, Span<char> destination, out int charsWritten)
         {
-            int length = CountDigits(value);
+            int length = Number.CountDigits(value);
             if (length > destination.Length) { charsWritten = 0; return false; }
-            for (int i = length - 1; i >= 0; i--)
-            {
-                ulong quotient = value / 10;
-                destination[i] = (char)('0' + (int)(value - quotient * 10));
-                value = quotient;
-            }
+            Number.WriteDigitsExact(destination.Slice(0, length), value);
             charsWritten = length;
             return true;
         }
 
         internal static bool Digits(ulong value, Span<byte> destination, out int bytesWritten)
         {
-            int length = CountDigits(value);
+            int length = Number.CountDigits(value);
             if (length > destination.Length) { bytesWritten = 0; return false; }
-            for (int i = length - 1; i >= 0; i--)
-            {
-                ulong quotient = value / 10;
-                destination[i] = (byte)('0' + (int)(value - quotient * 10));
-                value = quotient;
-            }
+            Number.WriteDigitsExact(destination.Slice(0, length), value);
             bytesWritten = length;
             return true;
         }

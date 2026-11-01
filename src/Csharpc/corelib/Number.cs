@@ -48,6 +48,34 @@ namespace CsharpcCoreLib
         /// `end`. (With span indexing LLVM can't relate the digit count to the span length and keeps
         /// a check per char.)
         /// </summary>
+        /// <summary>Exactly CountDigits(value) digits into `dst` (UTF-16 or UTF-8), sized by the caller: no range checks.</summary>
+        internal static unsafe void WriteDigitsExact(Span<char> dst, ulong value) { fixed (char* p = dst) WriteDigitsBefore(p + dst.Length, value); }
+
+        internal static unsafe void WriteDigitsExact(Span<byte> dst, ulong value)
+        {
+            fixed (byte* p = dst)
+            fixed (byte* pairs = DigitPairs)
+            {
+                byte* end = p + dst.Length;
+                while (value >= 100)
+                {
+                    ulong q = value / 100;
+                    nint r = (nint)(value - q * 100) * 2;
+                    end -= 2;
+                    end[0] = pairs[r];
+                    end[1] = pairs[r + 1];
+                    value = q;
+                }
+                if (value >= 10)
+                {
+                    nint r = (nint)value * 2;
+                    end[-2] = pairs[r];
+                    end[-1] = pairs[r + 1];
+                }
+                else end[-1] = (byte)('0' + (int)value);
+            }
+        }
+
         private static unsafe void WriteDigitsBefore(char* end, ulong value)
         {
             fixed (byte* pairs = DigitPairs)
