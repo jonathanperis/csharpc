@@ -243,6 +243,14 @@ released chunk is zero when it is handed out again.
 The full design, including why the next step is a non-moving nursery rather than LLVM statepoints,
 is [ADR 0004](adr/0004-memory-management.md). On wasm32 the shadow stack is [ADR 0011](adr/0011-wasm32.md).
 
+Sweeping keeps chunks mapped, so without help the heap stays at its peak. In a program that starts
+threads (a server), a helper thread checks the allocation rate every 500 ms; once it falls under
+1 MiB per period after a collection, it gives back to the OS every page of slot memory that holds no
+allocated slot (`madvise(MADV_DONTNEED)` on Linux, `MADV_FREE_REUSABLE` on macOS, decommit and
+recommit on Windows), and glibc's free memory with `malloc_trim`. Under load the rate keeps it from
+trimming, so no allocation pays a page fault for it; after a burst (TechEmpower's 10,000-row cache
+fill at start-up) the idle process shrinks to about its live heap.
+
 ### Weak references and ephemerons
 
 `WeakReference`, `WeakReference<T>` and `ConditionalWeakTable<TKey, TValue>` (corelib
