@@ -46,10 +46,11 @@ attribute factories) with a ~25 % faster build.
   16-byte Vector<int> lane order, sequential floating sums, vector Min/Max (int/long/double/float, NaN and
   signed-zero answers recorded by bits), bitwise Contains/IndexOf, .NET's SequenceEqual/Last/ElementAtOrDefault
   IList paths; MemoryExtensions.Min/Max (what `array.Min()` binds to) on the same reductions:
-  benchmarks/programs/linqagg 8.71 G -> 0.61 G instructions, CI x86-64 103 ms vs NativeAOT 98 (arm64 91 vs
-  98). Integer TryFormat/Utf8Formatter write digits in place. From the fortunes allocation profile (TechEmpower
+  benchmarks/programs/linqagg 8.71 G -> 0.61 G instructions, CI x86-64 80 ms vs NativeAOT 98 (arm64 92 vs
+  92; Benchmarks 41327265382). Integer TryFormat/Utf8Formatter write digits in place. From the fortunes allocation profile (TechEmpower
   41316922352): Enum.HasFlag from IL without boxes (44 per request), Activator.CreateInstance(Type) caches the
-  constructor (RazorSlices), empty List/Queue/Stack share one array, Array.Empty<T>() a singleton. Fortunes on
+  constructor (RazorSlices), Array.Empty<T>() a singleton (sharing it in empty List/Queue/Stack was reverted:
+  the static read cost listsort/sbops ~0.5 %). Fortunes on
   a fast database (EPYC 9V45/7763 runners, NativeAOT 57-77 K req/s) were 0.79-0.91 of NativeAOT: the profile
   shows 21.6 % of csharpc's samples polling in the thread pool (NativeAOT's workers sleep) and 4.2 s of GC
   pauses; the poll is adaptive now (453d51e). Not done: pooling the non-generic ValueTask builder (the
