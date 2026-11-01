@@ -808,8 +808,19 @@ namespace CsharpcCoreLib
             int pos = _pending;
             if (_currentDepth < 0) buffer[pos++] = JsonConstants.ListSeparator;
             buffer[pos++] = JsonConstants.Quote;
-            escapedName.AsSpan().CopyTo(buffer.AsSpan(pos));
-            pos += escapedName.Length;
+            // Names are a few bytes: 8 to 16 as two overlapping 8-byte moves, fewer one by one, longer
+            // ones through memmove (a call per property cost more than the copy).
+            int length = escapedName.Length;
+            if (length >= 8 && length <= 16)
+            {
+                var target = buffer.AsSpan(pos, length);
+                ReadOnlySpan<byte> name = escapedName;
+                System.Runtime.InteropServices.MemoryMarshal.Write(target, System.Runtime.InteropServices.MemoryMarshal.Read<ulong>(name));
+                System.Runtime.InteropServices.MemoryMarshal.Write(target.Slice(length - 8), System.Runtime.InteropServices.MemoryMarshal.Read<ulong>(name.Slice(length - 8)));
+            }
+            else if (length < 8) for (int k = 0; k < length; k++) buffer[pos + k] = escapedName[k];
+            else escapedName.AsSpan().CopyTo(buffer.AsSpan(pos));
+            pos += length;
             buffer[pos++] = JsonConstants.Quote;
             buffer[pos++] = JsonConstants.KeyValueSeparator;
             _pending = pos;

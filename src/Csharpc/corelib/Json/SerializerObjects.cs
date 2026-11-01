@@ -41,8 +41,19 @@ namespace CsharpcCoreLib
         public override void Write(Utf8JsonWriterImpl writer, T value, JsonSerializerOptionsImpl options) =>
             WriteWithState(writer, value, options, new JsonWriteState(options));
 
-        internal override void WriteWithState(Utf8JsonWriterImpl writer, T value, JsonSerializerOptionsImpl options, JsonWriteState state) =>
-            ObjectConverterCore.WriteValue(TypeInfo, writer, value, options, state);
+        internal override void WriteWithState(Utf8JsonWriterImpl writer, T value, JsonSerializerOptionsImpl options, JsonWriteState state)
+        {
+            // A serialization-only source-generated type whose fast path was found usable (it stays
+            // usable: the options are read-only): its typed handler directly, without the untyped
+            // wrapper or boxing. Exactly the path ObjectConverterCore.WriteValue takes for it.
+            JsonTypeInfoImpl<T> info = TypeInfo;
+            if (value != null && info._fastPathUsable && info._serializeHandler is { } handler && writer.CurrentDepth < options.EffectiveMaxDepth)
+            {
+                handler((Utf8JsonWriter)(object)writer, value);
+                return;
+            }
+            ObjectConverterCore.WriteValue(info, writer, value, options, state);
+        }
 
         internal override T ReadWithState(ref Utf8JsonReaderImpl reader, Type typeToConvert, JsonSerializerOptionsImpl options, JsonReadState state)
         {

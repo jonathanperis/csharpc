@@ -24,6 +24,9 @@ static class Program
                     if (v >= 0) { w.WriteNumber("u", (ulong)v); if (v <= uint.MaxValue) w.WriteNumber(name, (uint)v); }
                 }
                 w.WriteNumber("max", ulong.MaxValue);
+                // Property names of every copy path: under 8 bytes, 8 to 16, longer.
+                foreach (var n in new[] { "abcdefg", "abcdefgh", "randomNumber", "sixteen_chars_xx", "seventeen_chars_x", "a_much_longer_property_name" })
+                    w.WriteNumber(JsonEncodedText.Encode(n), n.Length);
                 w.WriteStartArray("values");
                 foreach (long v in longs)
                 {
