@@ -18,7 +18,7 @@ the native builds, chiseled aspnet for the JIT, at the SDK's runtime version), s
 what stops it.
 
 measure: one TechEmpower test type (plaintext, json, db, query, fortune, update, cached-query) or `deploy`
-(start-up to the first response and idle RSS, 5 starts per round; recorded beside them, not judged: the
+(start-up to the first response, which includes the entry's 10,000-query cache fill, and idle RSS, 5 starts per round; recorded beside them, not judged: the
 start-up's CPU time and voluntary context switches, and the idle RSS by mapping). Each round restarts every build (the order
 alternates between rounds) and runs TechEmpower's script for the type: primer (5 s, 8 connections), warm-up
 (DURATION s at 512 connections), then every level TechEmpower uses, DURATION s each (plaintext 256-16384
