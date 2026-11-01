@@ -40,8 +40,8 @@
 // never calls malloc/free, stdio or the dynamic loader (a stopped thread may hold their locks).
 //
 // Limitations: conservative scanning can retain garbage that happens to look like a pointer; no
-// finalizers; empty chunks are kept mapped for reuse by any size class (in programs with threads, a
-// helper gives their pages and other free slot pages back to the OS once allocation goes quiet). An
+// finalizers; empty chunks are kept mapped for reuse by any size class (with the thread pool, its
+// timer thread gives their pages and other free slot pages back to the OS once allocation goes quiet). An
 // ownership parallel marker can be compiled in with -DCSRT_GC_PARALLEL_MARK. It was slower than this serial marker
 // on a 4-core machine, so the default binary does not include it (docs/adr/0004-memory-management.md).
 //
@@ -1813,14 +1813,13 @@ static void resume_world(void) {
 // the program needs again. A server that went quiet after start-up keeps that peak resident, though:
 // TechEmpower's Platform entry fills its cache with 37 MiB of allocations, one collection leaves 8 MiB
 // live, and 31 MiB of chunks stayed resident at idle (NativeAOT, which compacts, kept 16 MiB). Once the
-// allocation rate falls below TRIM_QUIET_BYTES per TRIM_PERIOD_MS, a helper thread gives the pages that
+// allocation rate falls below TRIM_QUIET_BYTES in half a second, the timer thread gives the pages that
 // hold no allocated slot back to the OS. Free slots are never read (marking follows allocated slots; a
 // stale pointer into a free slot reads its first word, which reads as zero on a given-back page, a null
 // method table that marking skips) and are zeroed when allocated, so the pages may come back zeroed or,
-// on macOS, unchanged. Under load the allocation rate keeps the thread from ever trimming, so no
-// allocation pays a page fault for it. Only programs that start threads link this (servers).
+// on macOS, unchanged. Under load the allocation rate keeps it from ever trimming, so no allocation pays a
+// page fault for it. Only programs with the thread pool's timer thread link this (servers, async code).
 #if !defined(__wasi__)
-#define TRIM_PERIOD_MS   500
 #define TRIM_QUIET_BYTES ((size_t)1024 * 1024)
 
 static void release_pages(uint8_t* from, uint8_t* to) {
@@ -1871,45 +1870,22 @@ static void trim_free_pages(void) {
     }
 }
 
-static void* trim_main(void* arg) {
-    (void)arg;
-    size_t seen = 0, trimmed_at = 0;
-    for (;;) {
-        struct timespec period = { 0, TRIM_PERIOD_MS * 1000000L };
-        nanosleep(&period, NULL);
-        size_t now = __atomic_load_n(&g.total_allocated, __ATOMIC_RELAXED);
-        size_t recent = now - seen;
-        seen = now;
-        // Before the first collection no slot was ever freed; after a trim, only allocation frees more.
-        if (recent >= TRIM_QUIET_BYTES || now == trimmed_at || __atomic_load_n(&g.collections, __ATOMIC_RELAXED) == 0) continue;
-        pthread_mutex_lock(&g.lock);
-        trim_free_pages();
-        pthread_mutex_unlock(&g.lock);
+/// Called by the task scheduler's timer thread (async.c) every TRIM_PERIOD_MS: trims once the allocation
+/// of the last period was under TRIM_QUIET_BYTES and something was freed since the last trim.
+void csrt_gc_idle_trim(void) {
+    static size_t seen, trimmed_at;
+    size_t now = __atomic_load_n(&g.total_allocated, __ATOMIC_RELAXED);
+    size_t recent = now - seen;
+    seen = now;
+    // Before the first collection no slot was ever freed; after a trim, only allocation frees more.
+    if (recent >= TRIM_QUIET_BYTES || now == trimmed_at || __atomic_load_n(&g.collections, __ATOMIC_RELAXED) == 0) return;
+    gc_lock();
+    trim_free_pages();
+    gc_unlock();
 #if defined(__GLIBC__)
-        malloc_trim(0);  // large objects freed by sweeps are glibc's free memory
+    malloc_trim(0);  // large objects freed by sweeps are glibc's free memory
 #endif
-        trimmed_at = now;
-    }
-    return NULL;
-}
-
-static void start_trimmer(void) {
-    pthread_attr_t attr;
-    pthread_attr_init(&attr);
-    pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
-    pthread_attr_setstacksize(&attr, 64 * 1024);
-#if !defined(_WIN32)
-    // Not a managed thread: process-directed signals (SIGTERM, SIGINT) must go to one that is.
-    sigset_t all, old;
-    sigfillset(&all);
-    pthread_sigmask(SIG_SETMASK, &all, &old);
-#endif
-    pthread_t tid;
-    pthread_create(&tid, &attr, trim_main, NULL);  // without it the heap just stays at its peak
-#if !defined(_WIN32)
-    pthread_sigmask(SIG_SETMASK, &old, NULL);
-#endif
-    pthread_attr_destroy(&attr);
+    trimmed_at = now;
 }
 #endif
 
@@ -1920,13 +1896,7 @@ csrt_GcThread* csrt_gc_thread_prepare(void* managed) {
     t->managed = managed;
     t->state = THREAD_STARTING;
     pthread_mutex_lock(&g.lock);
-    if (!g.multithreaded) {
-        install_signal_handlers();
-        g.multithreaded = true;
-#if !defined(__wasi__)
-        if (g.enabled) start_trimmer();
-#endif
-    }
+    if (!g.multithreaded) { install_signal_handlers(); g.multithreaded = true; }
     t->next = g.threads;
     g.threads = t;
     pthread_mutex_unlock(&g.lock);

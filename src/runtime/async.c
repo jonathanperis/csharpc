@@ -33,6 +33,7 @@
 #include <time.h>
 
 bool csrt_start_background_thread(void (*loop)(void));
+void csrt_gc_idle_trim(void);  // gc.c
 int32_t csrt_processor_count(void);
 
 // Emitted by csharpc in modules that contain coroutines; these weak fallbacks are never reached.
@@ -963,11 +964,20 @@ static void fire_due_timers_locked(int64_t now) {
 /// injects a worker when queued work makes no progress for a while (all workers blocked).
 static void timer_loop(void) {
     pthread_once(&s_tcond_once, init_tcond);
-    int64_t last_progress = -1, last_check = now_ms();
+    int64_t last_progress = -1, last_check = now_ms(), last_trim = last_check;
     pthread_mutex_lock(&s_tlock);
     for (;;) {
         int64_t now = now_ms();
         fire_due_timers_locked(now);
+#ifndef __wasi__
+        // Give the heap's free pages back once allocation goes quiet (gc.c, "Idle trimming").
+        if (now - last_trim >= 500) {
+            last_trim = now;
+            pthread_mutex_unlock(&s_tlock);
+            csrt_gc_idle_trim();
+            pthread_mutex_lock(&s_tlock);
+        }
+#endif
         // Starvation: queued work but no dequeue since the last check -> add a worker.
         if (now - last_check >= 100) {
             last_check = now;
