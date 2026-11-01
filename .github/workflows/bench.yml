@@ -79,6 +79,13 @@ jobs:
           GC_BENCH_RUNS=3 benchmarks/gc/gc.sh | tee gc.md
           { echo "## GC latency (${{ matrix.arch }})"; cat gc.md; } >> "$GITHUB_STEP_SUMMARY"
 
+      - name: Throughput and GC latency with concurrent marking (--gc-concurrent, docs/adr/0020)
+        run: |
+          CSHARPC_GC_CONCURRENT=1 NO_AOT=1 RUNS=5 benchmarks/run.sh | tee bench-concurrent.md
+          CSHARPC_GC_CONCURRENT=1 GC_BENCH_RUNS=3 benchmarks/gc/gc.sh | tee gc-concurrent.md
+          { echo "## Throughput with --gc-concurrent (${{ matrix.arch }})"; cat bench-concurrent.md;
+            echo "## GC latency with --gc-concurrent (${{ matrix.arch }})"; cat gc-concurrent.md; } >> "$GITHUB_STEP_SUMMARY"
+
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: bench-${{ matrix.arch }}
@@ -86,4 +93,6 @@ jobs:
             bench.md
             instructions.md
             instructions-concurrent.md
+            bench-concurrent.md
             gc.md
+            gc-concurrent.md
