@@ -97,73 +97,44 @@ namespace CsharpcCoreLib
 
         internal static long MinMax(ReadOnlySpan<long> span, bool max) => MinMaxI64((long*)Address(span), span.Length, max ? 1 : 0);
 
-        // .NET's MinFloat / MaxFloat over a span: NaN is the minimum (returned at once), Max skips leading NaNs;
-        // ties keep the first value (-0.0 and 0.0 compare equal).
-        internal static double Min(ReadOnlySpan<double> span)
+        // .NET's MinFloat / MaxFloat over a span (src/runtime/span.c): NaN is the minimum (the first one after the
+        // first element: .NET's span loop tests span[0] last), Max skips NaNs; of equal extremes the first (-0.0
+        // and 0.0 compare equal).
+        [DllImport("__Internal", EntryPoint = "csrt_linq_min_max_f64")]
+        private static extern double MinMaxF64(double* p, int length, int max, int allNaNFirst);
+
+        [DllImport("__Internal", EntryPoint = "csrt_linq_min_max_f32")]
+        private static extern float MinMaxF32(float* p, int length, int max, int allNaNFirst);
+
+        internal static double Min(ReadOnlySpan<double> span) => MinMaxF64((double*)Address(span), span.Length, 0, 0);
+        internal static double Max(ReadOnlySpan<double> span) => MinMaxF64((double*)Address(span), span.Length, 1, 0);
+        internal static float Min(ReadOnlySpan<float> span) => MinMaxF32((float*)Address(span), span.Length, 0, 0);
+        internal static float Max(ReadOnlySpan<float> span) => MinMaxF32((float*)Address(span), span.Length, 1, 0);
+
+        /// <summary>
+        /// MemoryExtensions.Min/Max (corelib StringExtras.cs) of a non-empty span of int, long, double or float with the
+        /// default comparer: CompareTo's order, which for doubles is the same as Enumerable's except that a span of
+        /// only NaNs gives its first element. False for other element types.
+        /// </summary>
+        internal static bool TryMinMaxPrimitive<T>(ReadOnlySpan<T> span, bool max, out T result)
         {
-            double value = span[0];
-            if (double.IsNaN(value)) return value;
-            for (int i = 1; i < span.Length; i++)
-            {
-                double current = span[i];
-                if (current < value) value = current;
-                else if (double.IsNaN(current)) return current;
-            }
-            return value;
+            void* p = Address(span);
+            if (typeof(T) == typeof(int)) { int r = MinMaxI32((int*)p, span.Length, max ? 1 : 0); result = Unsafe.As<int, T>(ref r); return true; }
+            if (typeof(T) == typeof(long)) { long r = MinMaxI64((long*)p, span.Length, max ? 1 : 0); result = Unsafe.As<long, T>(ref r); return true; }
+            if (typeof(T) == typeof(double)) { double r = MinMaxF64((double*)p, span.Length, max ? 1 : 0, 1); result = Unsafe.As<double, T>(ref r); return true; }
+            if (typeof(T) == typeof(float)) { float r = MinMaxF32((float*)p, span.Length, max ? 1 : 0, 1); result = Unsafe.As<float, T>(ref r); return true; }
+            result = default;
+            return false;
         }
 
-        internal static double Max(ReadOnlySpan<double> span)
-        {
-            double value = span[0];
-            int i = 1;
-            while (double.IsNaN(value))
-            {
-                if (i == span.Length) return value;
-                value = span[i++];
-            }
-            for (; i < span.Length; i++)
-            {
-                double current = span[i];
-                if (current > value) value = current;
-            }
-            return value;
-        }
-
-        internal static float Min(ReadOnlySpan<float> span)
-        {
-            float value = span[0];
-            if (float.IsNaN(value)) return value;
-            for (int i = 1; i < span.Length; i++)
-            {
-                float current = span[i];
-                if (current < value) value = current;
-                else if (float.IsNaN(current)) return current;
-            }
-            return value;
-        }
-
-        internal static float Max(ReadOnlySpan<float> span)
-        {
-            float value = span[0];
-            int i = 1;
-            while (float.IsNaN(value))
-            {
-                if (i == span.Length) return value;
-                value = span[i++];
-            }
-            for (; i < span.Length; i++)
-            {
-                float current = span[i];
-                if (current > value) value = current;
-            }
-            return value;
-        }
+        /// <summary>The first index of `value` in a span of a bitwise-equatable type (callers test IsBitwiseEquatable).</summary>
+        internal static int IndexOfBitwise<T>(ReadOnlySpan<T> span, T value) =>
+            IndexOfBits(Address(span), span.Length, CoreIntrinsics.SizeOf<T>(), Unsafe.AsPointer(ref value));
 
         /// <summary>Contains over a span: a bitwise search for types whose equality is their bits, else EqualityComparer&lt;T&gt;.Default.</summary>
         internal static bool Contains<T>(ReadOnlySpan<T> span, T value)
         {
-            if (CoreIntrinsics.IsBitwiseEquatable<T>())
-                return IndexOfBits(Address(span), span.Length, CoreIntrinsics.SizeOf<T>(), Unsafe.AsPointer(ref value)) >= 0;
+            if (CoreIntrinsics.IsBitwiseEquatable<T>()) return IndexOfBitwise(span, value) >= 0;
             for (int i = 0; i < span.Length; i++)
                 if (CoreIntrinsics.AreEqual(span[i], value)) return true;
             return false;

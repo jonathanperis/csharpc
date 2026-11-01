@@ -324,6 +324,12 @@ namespace CsharpcCoreLib
         {
             if ((uint)index > (uint)_size) ThrowHelper.ArgumentOutOfRange("index", "Index was out of range. Must be non-negative and less than or equal to the size of the collection.");
             if (count < 0 || index > _size - count) ThrowHelper.ArgumentOutOfRange("count", "Count must be positive and count must refer to a location within the string/array/collection.");
+            if (CoreIntrinsics.IsBitwiseEquatable<T>())
+            {
+                // Integers, chars, enums: a vectorized search for the bits (EqualityComparer<T>.Default's answer).
+                int found = LinqSpans.IndexOfBitwise(new ReadOnlySpan<T>(_items, index, count), item);
+                return found < 0 ? -1 : index + found;
+            }
             int end = index + count;
             for (int i = index; i < end; i++)
                 if (CoreIntrinsics.AreEqual(_items[i], item)) return i;

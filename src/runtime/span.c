@@ -335,3 +335,44 @@ int64_t csrt_linq_min_max_i64(const int64_t* p, int32_t length, int32_t max) {
     else { for (int32_t i = 1; i < length; i++) m = p[i] < m ? p[i] : m; }
     return m;
 }
+
+/// Enumerable.Min (max = 0) / Max (max = 1) over a non-empty span of doubles or floats, with .NET's span
+/// MinFloat / MaxFloat results: Min returns the first NaN after the first element, else the first element
+/// if it is NaN; Max skips NaNs (all NaN: the last element). With all_nan_first (MemoryExtensions.Min/Max,
+/// which order by CompareTo), Min returns the first NaN and an all-NaN Max the first element. Otherwise the extreme value, and of equal extremes the first, which only matters for -0.0 and
+/// 0.0 (equal, distinct bits): a zero result is the first zero of the span. Two lanes, 16 bytes at a time.
+#define LINQ_MIN_MAX_FLOAT(name, T, VT, LANES)                                                              \
+    T name(const T* p, int32_t length, int32_t max, int32_t all_nan_first) {                                  \
+        typedef T vec __attribute__((vector_size(16)));                                                       \
+        int32_t i = all_nan_first ? 0 : 1, start = 0;                                                         \
+        if (!max) {                                                                                           \
+            for (; i + LANES <= length; i += LANES) {                                                         \
+                vec x; memcpy(&x, p + i, sizeof x);                                                           \
+                if (__builtin_reduce_or((VT)(x != x))) break;                                                 \
+            }                                                                                                 \
+            for (; i < length; i++) if (p[i] != p[i]) return p[i];                                            \
+            if (p[0] != p[0]) return p[0];                                                                    \
+        } else {                                                                                              \
+            while (start < length && p[start] != p[start]) start++;                                           \
+            if (start == length) return p[all_nan_first ? 0 : length - 1];                                    \
+        }                                                                                                     \
+        T m = p[start];                                                                                       \
+        vec acc = m - (vec){0};                                                                               \
+        for (i = start; i + LANES <= length; i += LANES) {                                                    \
+            vec x; memcpy(&x, p + i, sizeof x);                                                               \
+            acc = max ? __builtin_elementwise_max(acc, x) : __builtin_elementwise_min(acc, x);                \
+        }                                                                                                     \
+        for (int32_t l = 0; l < LANES; l++) m = max ? (acc[l] > m ? acc[l] : m) : (acc[l] < m ? acc[l] : m);  \
+        for (; i < length; i++) {                                                                             \
+            T x = p[i];                                                                                       \
+            if (max ? x > m : x < m) m = x;                                                                   \
+        }                                                                                                     \
+        if (m == 0)                                                                                           \
+            for (i = start; i < length; i++) if (p[i] == 0) return p[i];                                      \
+        return m;                                                                                             \
+    }
+
+typedef int64_t i64x2v __attribute__((vector_size(16)));
+typedef int32_t i32x4v __attribute__((vector_size(16)));
+LINQ_MIN_MAX_FLOAT(csrt_linq_min_max_f64, double, i64x2v, 2)
+LINQ_MIN_MAX_FLOAT(csrt_linq_min_max_f32, float, i32x4v, 4)

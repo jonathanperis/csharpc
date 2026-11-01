@@ -1,0 +1,105 @@
+double[0] Min: 7FF8000000000001
+double[0] Max: 4008000000000000
+List<double>[0] Min: 7FF8000000000001
+List<double>[0] Max: 4008000000000000
+enumerated double[0] Min: 7FF8000000000001
+enumerated double[0] Max: 4008000000000000
+double[1] Min: 7FF8000000000001
+double[1] Max: 7FF8000000000001
+List<double>[1] Min: 7FF8000000000002
+List<double>[1] Max: 7FF8000000000002
+enumerated double[1] Min: 7FF8000000000001
+enumerated double[1] Max: 7FF8000000000002
+double[2] Min: 7FF8000000000001
+double[2] Max: 401C000000000000
+List<double>[2] Min: 7FF8000000000002
+List<double>[2] Max: 401C000000000000
+enumerated double[2] Min: 7FF8000000000001
+enumerated double[2] Max: 401C000000000000
+double[3] Min: 0000000000000000
+double[3] Max: 3FF0000000000000
+List<double>[3] Min: 0000000000000000
+List<double>[3] Max: 3FF0000000000000
+enumerated double[3] Min: 0000000000000000
+enumerated double[3] Max: 3FF0000000000000
+double[4] Min: BFF0000000000000
+double[4] Max: 8000000000000000
+List<double>[4] Min: BFF0000000000000
+List<double>[4] Max: 8000000000000000
+enumerated double[4] Min: BFF0000000000000
+enumerated double[4] Max: 8000000000000000
+double[5] Min: 8000000000000000
+double[5] Max: 4000000000000000
+List<double>[5] Min: 8000000000000000
+List<double>[5] Max: 4000000000000000
+enumerated double[5] Min: 8000000000000000
+enumerated double[5] Max: 4000000000000000
+double[6] Min: FFF0000000000000
+double[6] Max: 7FF0000000000000
+List<double>[6] Min: FFF0000000000000
+List<double>[6] Max: 7FF0000000000000
+enumerated double[6] Min: FFF0000000000000
+enumerated double[6] Max: 7FF0000000000000
+double[7] Min: C049000000000000
+double[7] Max: 4049000000000000
+List<double>[7] Min: C049000000000000
+List<double>[7] Max: 4049000000000000
+enumerated double[7] Min: C049000000000000
+enumerated double[7] Max: 4049000000000000
+double[8] Min: 7FF8000000000002
+double[8] Max: 4049000000000000
+List<double>[8] Min: 7FF8000000000002
+List<double>[8] Max: 4049000000000000
+enumerated double[8] Min: 7FF8000000000002
+enumerated double[8] Max: 4049000000000000
+double[9] Min: 0000000000000000
+double[9] Max: 4058800000000000
+List<double>[9] Min: 0000000000000000
+List<double>[9] Max: 4058800000000000
+enumerated double[9] Min: 0000000000000000
+enumerated double[9] Max: 4058800000000000
+float[0] Min: 7FC00001
+float[0] Max: 40000000
+List<float>[0] Min: 7FC00001
+List<float>[0] Max: 40000000
+enumerated float[0] Min: 7FC00001
+enumerated float[0] Max: 40000000
+float[1] Min: 7FC00001
+float[1] Max: 7FC00001
+List<float>[1] Min: 7FC00002
+List<float>[1] Max: 7FC00002
+enumerated float[1] Min: 7FC00001
+enumerated float[1] Max: 7FC00002
+float[2] Min: 7FC00001
+float[2] Max: 3F800000
+List<float>[2] Min: 7FC00002
+List<float>[2] Max: 3F800000
+enumerated float[2] Min: 7FC00001
+enumerated float[2] Max: 3F800000
+float[3] Min: 00000000
+float[3] Max: 00000000
+List<float>[3] Min: 00000000
+List<float>[3] Max: 00000000
+enumerated float[3] Min: 00000000
+enumerated float[3] Max: 00000000
+float[4] Min: 80000000
+float[4] Max: 80000000
+List<float>[4] Min: 80000000
+List<float>[4] Max: 80000000
+enumerated float[4] Min: 80000000
+enumerated float[4] Max: 80000000
+float[5] Min: C1900000
+float[5] Max: 41900000
+List<float>[5] Min: C1900000
+List<float>[5] Max: 41900000
+enumerated float[5] Min: C1900000
+enumerated float[5] Max: 41900000
+int[] Min: -2147483648
+int[] Max: 2147483647
+int[3] Min: -2
+long[] Min: -2251799813685248
+long[] Max: 2251799812636672
+long[1] Max: -9223372036854775808
+empty int[] Min: InvalidOperationException: Sequence contains no elements.
+empty double[] Max: InvalidOperationException: Sequence contains no elements.
+empty float[] Min: InvalidOperationException: Sequence contains no elements.
