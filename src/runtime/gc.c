@@ -40,8 +40,9 @@
 // never calls malloc/free, stdio or the dynamic loader (a stopped thread may hold their locks).
 //
 // Limitations: conservative scanning can retain garbage that happens to look like a pointer; no
-// finalizers; empty chunks are kept (resident) for reuse by any size class. An ownership parallel
-// marker can be compiled in with -DCSRT_GC_PARALLEL_MARK. It was slower than this serial marker
+// finalizers; empty chunks are kept mapped for reuse by any size class (with the thread pool, its
+// timer thread gives their pages and other free slot pages back to the OS once allocation goes quiet). An
+// ownership parallel marker can be compiled in with -DCSRT_GC_PARALLEL_MARK. It was slower than this serial marker
 // on a 4-core machine, so the default binary does not include it (docs/adr/0004-memory-management.md).
 //
 // Environment: CSRT_GC=0 disables collection; CSRT_GC_STATS=1 prints statistics at exit;
@@ -86,6 +87,9 @@
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
+#if defined(__GLIBC__)
+#include <malloc.h>  // malloc_trim
+#endif
 #include <string.h>
 #if !defined(_WIN32) && !defined(__wasi__)
 #include <sys/mman.h>
@@ -97,6 +101,13 @@
 #define CHUNK_HEADER ((size_t)4096)
 #define MAX_SLOTS    ((CHUNK_SIZE - CHUNK_HEADER) / 16)
 #define LARGE_LIMIT  ((size_t)2048)
+// Released slot pages (release_chunk) read as zero when touched again with Linux's MADV_DONTNEED and Windows'
+// decommit + recommit; macOS's MADV_FREE_REUSABLE may leave their old contents.
+#if defined(__APPLE__) || defined(__wasi__)
+#define RELEASED_PAGES_READ_ZERO 0
+#else
+#define RELEASED_PAGES_READ_ZERO 1
+#endif
 #define MIN_TRIGGER  ((size_t)32 * 1024 * 1024)
 // 32 MiB matches the historical full-heap trigger cadence on churn; 4 MiB minors were too frequent
 // once survivors promote (each minor then walks dirty old chunks).
@@ -126,7 +137,7 @@ struct Chunk {
 #if defined(CSRT_GC_PARALLEL_MARK)
     uint8_t owner;         // which parallel marker writes this chunk's mark bits
 #endif
-    uint8_t released;      // empty, and its slot pages were given back to the OS (zero when touched again)
+    uint8_t released;      // empty, and its slot pages were given back to the OS (release_chunk)
     Chunk* next;           // all chunks
     Chunk* next_free;      // per-class list of chunks with free slots / list of empty chunks
     uint64_t allocated[MAX_SLOTS / 64];
@@ -464,7 +475,9 @@ static bool claim_word(SizeClass* sc, AllocCache* cache, uint32_t cls) {
                 // reading flags through a garbage "method table".
                 // Slot starts of a class whose size is a multiple of the old one's are old slot starts.
                 uint32_t old_size = k_size_classes[c->size_class], new_size = k_size_classes[cls];
-                if (c->released) { c->released = 0; g.released_chunks--; }  // its pages read as zero again: nothing to clear
+                bool zeroed = c->released && RELEASED_PAGES_READ_ZERO;  // nothing to clear
+                if (c->released) { c->released = 0; g.released_chunks--; }
+                if (zeroed) {}  // its pages read as zero: nothing to clear
                 else
 #if CSRT_HAS_NURSERY
                 if (g.nursery && c->size_class != cls) memset((uint8_t*)c + CHUNK_HEADER, 0, CHUNK_SIZE - CHUNK_HEADER);  // minors scan whole chunks
@@ -1800,6 +1813,98 @@ static void resume_world(void) {
 // ---------------------------------------------------------------------------------------------
 // Thread registry
 // ---------------------------------------------------------------------------------------------
+// ---------------------------------------------------------------------------------------------
+// Idle trimming
+// ---------------------------------------------------------------------------------------------
+// Sweeping never unmaps a chunk: the heap stays at its peak, which until the next collection is what
+// the program needs again. A server that went quiet after start-up keeps that peak resident, though:
+// TechEmpower's Platform entry fills its cache with 37 MiB of allocations, one collection leaves 8 MiB
+// live, and 31 MiB of chunks stayed resident at idle (NativeAOT, which compacts, kept 16 MiB). Once the
+// allocation rate falls below TRIM_QUIET_BYTES in half a second, the timer thread gives the pages that
+// hold no allocated slot back to the OS. Free slots are never read (marking follows allocated slots; a
+// stale pointer into a free slot reads its first word, which reads as zero on a given-back page, a null
+// method table that marking skips) and are zeroed when allocated, so the pages may come back zeroed or,
+// on macOS, unchanged. Under load the allocation rate keeps it from ever trimming, so no allocation pays a
+// page fault for it. Only programs with the thread pool's timer thread link this (servers, async code).
+#if !defined(__wasi__)
+#define TRIM_QUIET_BYTES ((size_t)1024 * 1024)
+
+static bool release_pages(uint8_t* from, uint8_t* to) {
+    if (from >= to) return true;
+#if defined(_WIN32)
+    // Decommit + recommit: the range stays usable and reads as zero, but holds no memory until touched.
+    return VirtualFree(from, (size_t)(to - from), MEM_DECOMMIT) && VirtualAlloc(from, (size_t)(to - from), MEM_COMMIT, PAGE_READWRITE);
+#elif defined(__APPLE__)
+    return madvise(from, (size_t)(to - from), MADV_FREE_REUSABLE) == 0;  // Darwin's MADV_DONTNEED frees nothing
+#else
+    return madvise(from, (size_t)(to - from), MADV_DONTNEED) == 0;
+#endif
+}
+
+/// An empty chunk's slot pages go back to the OS (its header, with the bitmaps and links, stays). Both the
+/// collector's surplus release and the idle trim use it; `released` keeps a chunk from being released twice
+/// and tells claim_word that, where RELEASED_PAGES_READ_ZERO, its slots need no clearing when it is reused.
+static bool release_chunk(Chunk* c) {
+    if (c->released) return true;
+    if (!release_pages((uint8_t*)c + CHUNK_HEADER, (uint8_t*)c + CHUNK_SIZE)) return false;
+    c->released = 1;
+    g.released_chunks++;
+    return true;
+}
+
+/// Any allocated slot among [first, last]?
+static bool any_allocated(const Chunk* c, size_t first, size_t last) {
+    for (size_t w = first >> 6; w <= last >> 6; w++) {
+        uint64_t bits = c->allocated[w];
+        if (w == first >> 6) bits &= ~(uint64_t)0 << (first & 63);
+        if (w == last >> 6 && (last & 63) != 63) bits &= ((uint64_t)1 << ((last & 63) + 1)) - 1;
+        if (bits) return true;
+    }
+    return false;
+}
+
+/// Gives back every page of slot memory that holds no allocated slot. Caller holds g.lock (so no
+/// collection or claim runs); slots claimed into a thread's allocation cache count as allocated.
+static void trim_free_pages(void) {
+    const size_t page = 4096;
+    for (Chunk* c = g.chunks; c; c = c->next) {
+        uint8_t* data = (uint8_t*)c + CHUNK_HEADER;
+        if (c->object_size == 0) {
+            release_chunk(c);
+            continue;
+        }
+        if (c->live == c->slots) continue;
+        size_t size = c->object_size, used = (size_t)c->slots * size;
+        uint8_t* run = NULL;  // start of the current run of free pages
+        for (size_t off = 0; off < used; off += page) {
+            size_t end = off + page < used ? off + page : used;
+            bool free_page = end - off == page && !any_allocated(c, off / size, (end - 1) / size);
+            if (free_page && !run) run = data + off;
+            if (!free_page && run) { release_pages(run, data + off); run = NULL; }
+        }
+        if (run) release_pages(run, data + used);
+    }
+}
+
+/// Called by the task scheduler's timer thread (async.c) every TRIM_PERIOD_MS: trims once the allocation
+/// of the last period was under TRIM_QUIET_BYTES and something was freed since the last trim.
+void csrt_gc_idle_trim(void) {
+    static size_t seen, trimmed_at;
+    size_t now = __atomic_load_n(&g.total_allocated, __ATOMIC_RELAXED);
+    size_t recent = now - seen;
+    seen = now;
+    // Before the first collection no slot was ever freed; after a trim, only allocation frees more.
+    if (recent >= TRIM_QUIET_BYTES || now == trimmed_at || __atomic_load_n(&g.collections, __ATOMIC_RELAXED) == 0) return;
+    gc_lock();
+    trim_free_pages();
+    gc_unlock();
+#if defined(__GLIBC__)
+    malloc_trim(0);  // large objects freed by sweeps are glibc's free memory
+#endif
+    trimmed_at = now;
+}
+#endif
+
 csrt_GcThread* csrt_gc_thread_prepare(void* managed) {
     if (!g.initialized) csrt_gc_init();
     csrt_GcThread* t = calloc(1, sizeof *t);
@@ -2236,16 +2341,14 @@ static void adapt_budget(struct timespec start, struct timespec end) {
 /// process shrinks after a burst: a server's heap peaks under its warm-up's connections and, without
 /// this, its RSS never came down again (TechEmpower JSON: 52 MiB at every later load level, against
 /// NativeAOT's 30-44). In a steady state the empty chunks a sweep finds are about the budget, so none
-/// are released and none fault in again. The chunk header (bitmaps, links) stays resident; Linux
-/// zero-fills the released pages on their next touch, which claim_word relies on.
+/// are released and none fault in again (release_chunk; claim_word skips clearing a released chunk where
+/// its pages come back zeroed).
 static void release_surplus_chunks(void) {
-#ifdef __linux__
+#if !defined(__wasi__)
     size_t keep = g.trigger / CHUNK_SIZE + 4, committed = 0;
     for (Chunk* c = g.empty; c; c = c->next_free) {
         if (c->released || ++committed <= keep) continue;
-        if (madvise((uint8_t*)c + CHUNK_HEADER, CHUNK_SIZE - CHUNK_HEADER, MADV_DONTNEED) != 0) return;
-        c->released = 1;
-        g.released_chunks++;
+        if (!release_chunk(c)) return;
     }
 #endif
 }

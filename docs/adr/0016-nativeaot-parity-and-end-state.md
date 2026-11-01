@@ -48,7 +48,10 @@ against is .NET's own AOT path, `dotnet publish -p:PublishAot=true` (NativeAOT, 
   trim/AOT analysis warnings (`IL2xxx`/`IL3xxx`) — reported where csharpc's closed-world analysis can
   prove the same thing, `AutoreleasePoolSupport`, `EventSourceSupport` and the other feature switches
   (runtimeconfig `RuntimeHostConfigurationOption`s, which csharpc already reads).
-  A property csharpc doesn't honour yet is a warning naming it, not silently ignored.
+  A property csharpc doesn't honour yet is a warning naming it, not silently ignored — or an error
+  where ignoring it changes output: `UseSystemResourceKeys=true` is refused (compile time, and
+  `AppContext.SetSwitch` at run time) until the corelib's and runtime's messages give their .NET
+  resource keys (sample 880).
 - **The IL front-end becomes the primary path in the end state.** Inside the dotnet pipeline the
   input is IL from `csc`, not sources. csharpc's source front-end (Roslyn CFG) stays the best path for
   `csharpc file.cs` and for debug info today, but every feature must also work through the IL

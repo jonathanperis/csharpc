@@ -18,7 +18,8 @@ the native builds, chiseled aspnet for the JIT, at the SDK's runtime version), s
 what stops it.
 
 measure: one TechEmpower test type (plaintext, json, db, query, fortune, update, cached-query) or `deploy`
-(start-up to the first response and idle RSS, 5 starts per round). Each round restarts every build (the order
+(start-up to the first response and idle RSS, 5 starts per round; recorded beside them, not judged: the
+start-up's CPU time and voluntary context switches, and the idle RSS by mapping). Each round restarts every build (the order
 alternates between rounds) and runs TechEmpower's script for the type: primer (5 s, 8 connections), warm-up
 (DURATION s at 512 connections), then every level TechEmpower uses, DURATION s each (plaintext 256-16384
 connections pipelined x16; json, db, fortune 16-512 connections; query and update 1-20 queries and
@@ -397,6 +398,49 @@ def proc_status(pid):
     return rss, hwm, threads
 
 
+def rss_breakdown(pid):
+    """Idle RSS by mapping, KiB, from /proc/PID/smaps: anonymous (the GC heap, malloc, stacks; in mappings of at
+    least 1 MiB or smaller) and file-backed (the executable, shared libraries). Informational: the server log and
+    the measure JSON, outside the verdict."""
+    out = {"anon": 0, "file": 0, "binary": 0, "libraries": 0, "anon_large": 0, "anon_small": 0}
+    try:
+        exe = os.path.realpath(f"/proc/{pid}/exe")
+        name = size = None
+        for line in open(f"/proc/{pid}/smaps"):
+            head = line.split()
+            if "-" in head[0] and len(head) >= 5 and not head[0].endswith(":"):
+                lo, hi = (int(x, 16) for x in head[0].split("-"))
+                size, name = hi - lo, (head[5] if len(head) > 5 else "")
+            elif head[0] == "Rss:":
+                kib = int(head[1])
+                if not name or name.startswith("[heap]") or name.startswith("[stack"):
+                    out["anon"] += kib
+                    out["anon_large" if size >= 1 << 20 else "anon_small"] += kib
+                else:
+                    out["file"] += kib
+                    out["binary" if name == exe else "libraries"] += kib
+    except (OSError, ValueError):
+        pass
+    return out
+
+
+def context_switches(pid):
+    """Voluntary context switches of all the server's threads so far: a latency-bound start-up's thread hand-offs
+    (a thread that blocks to wait for another one)."""
+    total = 0
+    try:
+        for tid in os.listdir(f"/proc/{pid}/task"):
+            try:
+                for line in open(f"/proc/{pid}/task/{tid}/status"):
+                    if line.startswith("voluntary_ctxt_switches:"):
+                        total += int(line.split()[1])
+            except OSError:
+                pass  # the thread exited
+    except OSError:
+        return None
+    return total
+
+
 def cpu_ticks(pid):
     try:
         fields = open(f"/proc/{pid}/stat").read().rsplit(")", 1)[1].split()
@@ -718,14 +762,23 @@ def measure(args):
                     entry["startup_ms"], entry["idle_rss_kib"] = [], []
                     for _ in range(5):
                         entry["startup_ms"].append(server.start())
+                        # CPU the start-up took, all threads (informational: what the start-up costs beside waiting
+                        # for the database's 10,000 answers).
+                        ticks = cpu_ticks(server.proc.pid)
+                        entry.setdefault("startup_cpu_ms", []).append(ticks * 1000 / os.sysconf("SC_CLK_TCK") if ticks is not None else None)
+                        entry.setdefault("startup_context_switches", []).append(context_switches(server.proc.pid))
                         time.sleep(2)
                         entry["idle_rss_kib"].append(proc_status(server.proc.pid)[0])
+                        entry.setdefault("idle_rss_split_kib", []).append(rss_breakdown(server.proc.pid))
                         if round_no == 1 and not entry.get("verified"):
                             result["verification"][build] = verify(ctx, build)
                             entry["verified"] = True
                         server.stop()
-                    log(f"   start-up {min(entry['startup_ms']):.0f}-{max(entry['startup_ms']):.0f} ms, idle RSS "
-                        f"{statistics.median(entry['idle_rss_kib']) / 1024:.1f} MiB")
+                    log(f"   start-up {min(entry['startup_ms']):.0f}-{max(entry['startup_ms']):.0f} ms "
+                        f"(CPU {', '.join(f'{t:.0f}' for t in entry['startup_cpu_ms'] if t is not None)} ms, voluntary context switches "
+                        f"{', '.join(str(c) for c in entry['startup_context_switches'] if c is not None)}), idle RSS "
+                        f"{statistics.median(entry['idle_rss_kib']) / 1024:.1f} MiB "
+                        f"({', '.join(f'{k} {v / 1024:.1f}' for k, v in entry['idle_rss_split_kib'][-1].items())} MiB)")
                 else:
                     entry["startup_ms"] = server.start()
                     if round_no == 1:
@@ -904,6 +957,25 @@ def summarize(metrics):
             "no_result": count("no result"), "zero_error_levels": sum(1 for m in reqs if m["verdict"] == "met"), "levels": len(reqs)}
 
 
+def deploy_detail(measure):
+    """Per build, medians over every start of the deploy test: start-up CPU time (ms), voluntary context switches at
+    the first answer, and the idle RSS by mapping (MiB). Informational: what a start-up or idle RSS is made of."""
+    if not measure:
+        return {}
+    detail = {}
+    for b in BUILDS:
+        rounds = [r for r in measure["rounds"] if r["build"] == b]
+        cpu = [x for r in rounds for x in r.get("startup_cpu_ms", []) if x is not None]
+        switches = [x for r in rounds for x in r.get("startup_context_switches", []) if x is not None]
+        splits = [x for r in rounds for x in r.get("idle_rss_split_kib", [])]
+        if not cpu and not splits:
+            continue
+        detail[b] = {"startup_cpu_ms": statistics.median(cpu) if cpu else None,
+                     "startup_context_switches": statistics.median(switches) if switches else None,
+                     "idle_rss_mib": {k: round(statistics.median(x[k] for x in splits) / 1024, 1) for k in splits[0]} if splits else {}}
+    return detail
+
+
 def report(args):
     out = Path(args.out).resolve()
     out.mkdir(parents=True, exist_ok=True)
@@ -945,7 +1017,8 @@ def report(args):
                      "identical_answers": {f"{a} vs {b} ({t})": v for (a, b, t), v in same.items()}, "metrics": metrics,
                      "env": (built or {}).get("env") or next((m["env"] for (a, _), m in measures.items() if a == app), {}),
                      "duration": next((m["duration"] for (a, _), m in measures.items() if a == app), None),
-                     "rounds": max((r["round"] for (a, _), m in measures.items() if a == app for r in m["rounds"]), default=0)}
+                     "rounds": max((r["round"] for (a, _), m in measures.items() if a == app for r in m["rounds"]), default=0),
+                     "deploy_detail": deploy_detail(measures.get((app, "deploy")))}
         sections.append(markdown_app(app, apps[app]))
     result = {"apps": apps, "failures": failures, "noise_rule": __doc__.split("report: ", 1)[1].split("\n\n")[0].replace("\n", " ")}
     (out / "results.json").write_text(json.dumps(result, indent=1))
@@ -1004,6 +1077,15 @@ def markdown_app(app, data):
     lines += ["### Deployment", "", "| metric | NativeAOT | csharpc | JIT | verdict |", "|---|---:|---:|---:|---|"]
     for m in dep:
         lines.append(f"| {m['label']} | {cell(m, 'aot')} | {cell(m, 'csharpc')} | {cell(m, 'jit')} | {VERDICT_TEXT[m['verdict']]} |")
+    detail = data.get("deploy_detail") or {}
+    if detail:
+        def row(label, f):
+            return f"| {label} | " + " | ".join(f(detail[b]) if b in detail else "—" for b in ("aot", "csharpc", "jit")) + " | not judged |"
+        lines.append(row("start-up CPU time (all threads)", lambda d: f"{d['startup_cpu_ms']:.0f} ms" if d["startup_cpu_ms"] is not None else "—"))
+        lines.append(row("voluntary context switches to the first response",
+                         lambda d: f"{d['startup_context_switches']:,.0f}" if d["startup_context_switches"] is not None else "—"))
+        lines.append(row("idle RSS: anonymous / executable / libraries",
+                         lambda d: f"{d['idle_rss_mib'].get('anon', 0)} / {d['idle_rss_mib'].get('binary', 0)} / {d['idle_rss_mib'].get('libraries', 0)} MiB"))
     for t in APPS[app]["tests"]:
         tm = [m for m in data["metrics"] if m["group"] == t]
         if not tm:

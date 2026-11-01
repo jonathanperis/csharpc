@@ -138,6 +138,9 @@ namespace CsharpcCoreLib
 #elif CSHARPC_TARGET_WINDOWS
         public const int EAGAIN = 10035, EINPROGRESS = 10036;
         public const int SO_LINGER = 0x80;
+#elif CSHARPC_TARGET_WASI
+        public const int EAGAIN = 6, EINPROGRESS = 26;  // WASI's errno numbering
+        public const int SO_LINGER = 13;
 #else
         public const int EAGAIN = 11, EINPROGRESS = 115;
         public const int SO_LINGER = 13;
@@ -592,6 +595,8 @@ namespace CsharpcCoreLib
         private const int TimedOutNative = 10060;
 #elif CSHARPC_TARGET_MACOS
         private const int TimedOutNative = 60;
+#elif CSHARPC_TARGET_WASI
+        private const int TimedOutNative = 73;
 #else
         private const int TimedOutNative = 110;
 #endif
@@ -601,9 +606,59 @@ namespace CsharpcCoreLib
         public static SocketError ToSocketError(int error) => (SocketError)error;
         private static bool IsInterrupted(int error) => false;
         public static string Message(int nativeError) => WindowsMarshal.ErrorMessage(nativeError);
+#elif CSHARPC_TARGET_WASI
+        // WASI numbers errno its own way (preview 1's alphabetical enum, wasi-libc's errno.h): with Linux's
+        // numbers, new SocketException(SocketError.ConnectionRefused) took errno 111, which isn't WASI's, and
+        // printed wasi-libc's text for it instead of "Connection refused" (ECONNREFUSED is 14).
+        private static bool IsInterrupted(int error) => error == 27;  // EINTR
+        public static string Message(int nativeError) => UnixMessage(nativeError);
+
+        /// <summary>errno -> SocketError, as .NET's SocketErrorPal on Unix, in WASI's numbering.</summary>
+        public static SocketError ToSocketError(int error)
+        {
+            switch (error)
+            {
+                case 0: return SocketError.Success;
+                case 2: return SocketError.AccessDenied;                 // EACCES
+                case 3: return SocketError.AddressAlreadyInUse;          // EADDRINUSE
+                case 4: return SocketError.AddressNotAvailable;          // EADDRNOTAVAIL
+                case 5: return SocketError.AddressFamilyNotSupported;    // EAFNOSUPPORT
+                case 6: return SocketError.WouldBlock;                   // EAGAIN
+                case 7: return SocketError.AlreadyInProgress;            // EALREADY
+                case 8: return SocketError.OperationAborted;             // EBADF: the socket was closed
+                case 11: return SocketError.OperationAborted;            // ECANCELED
+                case 13: return SocketError.ConnectionAborted;           // ECONNABORTED
+                case 14: return SocketError.ConnectionRefused;           // ECONNREFUSED
+                case 15: return SocketError.ConnectionReset;             // ECONNRESET
+                case 17: return SocketError.DestinationAddressRequired;  // EDESTADDRREQ
+                case 21: return SocketError.Fault;                       // EFAULT
+                case 23: return SocketError.HostUnreachable;             // EHOSTUNREACH
+                case 26: return SocketError.InProgress;                  // EINPROGRESS
+                case 27: return SocketError.Interrupted;                 // EINTR
+                case 28: return SocketError.InvalidArgument;             // EINVAL
+                case 30: return SocketError.IsConnected;                 // EISCONN
+                case 33: return SocketError.TooManyOpenSockets;          // EMFILE
+                case 35: return SocketError.MessageSize;                 // EMSGSIZE
+                case 38: return SocketError.NetworkDown;                 // ENETDOWN
+                case 39: return SocketError.NetworkReset;                // ENETRESET
+                case 40: return SocketError.NetworkUnreachable;          // ENETUNREACH
+                case 41: return SocketError.TooManyOpenSockets;          // ENFILE
+                case 42: return SocketError.NoBufferSpaceAvailable;      // ENOBUFS
+                case 50: return SocketError.ProtocolOption;              // ENOPROTOOPT
+                case 53: return SocketError.NotConnected;                // ENOTCONN
+                case 57: return SocketError.NotSocket;                   // ENOTSOCK
+                case 58: return SocketError.OperationNotSupported;       // ENOTSUP (= EOPNOTSUPP)
+                case 64: return SocketError.Shutdown;                    // EPIPE
+                case 65: return SocketError.ProtocolNotSupported;        // EPROTO
+                case 66: return SocketError.ProtocolNotSupported;        // EPROTONOSUPPORT
+                case 67: return SocketError.ProtocolType;                // EPROTOTYPE
+                case 73: return SocketError.TimedOut;                    // ETIMEDOUT
+                default: return SocketError.SocketError;
+            }
+        }
 #else
         private static bool IsInterrupted(int error) => error == 4;  // EINTR
-        public static string Message(int nativeError) => Utf8.FromNative(Posix.strerror(nativeError));
+        public static string Message(int nativeError) => UnixMessage(nativeError);
 
         /// <summary>errno -> SocketError, as .NET's SocketErrorPal on Unix.</summary>
         public static SocketError ToSocketError(int error)
@@ -616,6 +671,7 @@ namespace CsharpcCoreLib
                 case 13: return SocketError.AccessDenied;
                 case 14: return SocketError.Fault;
                 case 22: return SocketError.InvalidArgument;
+                case 23: return SocketError.TooManyOpenSockets;  // ENFILE
                 case 24: return SocketError.TooManyOpenSockets;
                 case 32: return SocketError.Shutdown;          // EPIPE
 #if CSHARPC_TARGET_MACOS
@@ -647,6 +703,7 @@ namespace CsharpcCoreLib
                 case 61: return SocketError.ConnectionRefused;
                 case 64: return SocketError.HostDown;
                 case 65: return SocketError.HostUnreachable;
+                case 89: return SocketError.OperationAborted;  // ECANCELED
 #else
                 case 11: return SocketError.WouldBlock;
                 case 71: return SocketError.ProtocolNotSupported;
@@ -677,9 +734,97 @@ namespace CsharpcCoreLib
                 case 113: return SocketError.HostUnreachable;
                 case 114: return SocketError.AlreadyInProgress;
                 case 115: return SocketError.InProgress;
+                case 125: return SocketError.OperationAborted;  // ECANCELED
 #endif
                 default: return SocketError.SocketError;
             }
+        }
+#endif
+
+#if !CSHARPC_TARGET_WINDOWS
+        // .NET's PAL numbers for the two SocketErrors without an errno (EHOSTNOTFOUND, ESOCKETERROR = 0x20001,
+        // 0x20002), negated by its conversion to the platform's numbering: new SocketException(HostNotFound)
+        // has NativeErrorCode -131073.
+        private const int HostNotFoundNative = -0x20001, SocketErrorNative = -0x20002;
+
+        private static string UnixMessage(int nativeError)
+        {
+            // .NET's StrErrorR: the two PAL-only errors have texts of their own.
+            if (nativeError == SocketErrorNative) return "Unknown socket error";
+#if CSHARPC_TARGET_WASI
+            if (nativeError == HostNotFoundNative) return "Name does not resolve";  // musl's gai_strerror(EAI_NONAME); WASI has no resolver
+#elif CSHARPC_TARGET_MACOS
+            if (nativeError == HostNotFoundNative) return GaiMessage(8);   // EAI_NONAME
+#else
+            if (nativeError == HostNotFoundNative) return GaiMessage(-2);  // EAI_NONAME
+#endif
+            return Utf8.FromNative(Posix.strerror(nativeError));
+        }
+
+#if CSHARPC_TARGET_MACOS
+        private static int Errno(int linux, int macos, int wasi) => macos;
+#elif CSHARPC_TARGET_WASI
+        private static int Errno(int linux, int macos, int wasi) => wasi;
+#else
+        private static int Errno(int linux, int macos, int wasi) => linux;
+#endif
+
+        /// <summary>
+        /// SocketError -> errno, as .NET's SocketErrorPal.GetNativeErrorForSocketError on Unix (new
+        /// SocketException(int)): not the inverse of ToSocketError where several errnos share a SocketError
+        /// (IOPending is EINPROGRESS, OperationAborted ECANCELED, TooManyOpenSockets ENFILE). A SocketError
+        /// without an errno keeps its own value (strerror then says "Unknown error N"), as does one whose
+        /// errno WASI lacks (-1 below).
+        /// </summary>
+        public static int NativeErrorFor(SocketError error)
+        {
+            int native;
+            switch (error)
+            {
+                case SocketError.Success: return 0;
+                case SocketError.HostNotFound: return HostNotFoundNative;
+                case SocketError.SocketError: return SocketErrorNative;
+                case SocketError.AccessDenied: native = Errno(13, 13, 2); break;                 // EACCES
+                case SocketError.AddressAlreadyInUse: native = Errno(98, 48, 3); break;          // EADDRINUSE
+                case SocketError.AddressFamilyNotSupported: native = Errno(97, 47, 5); break;    // EAFNOSUPPORT
+                case SocketError.AddressNotAvailable: native = Errno(99, 49, 4); break;          // EADDRNOTAVAIL
+                case SocketError.AlreadyInProgress: native = Errno(114, 37, 7); break;           // EALREADY
+                case SocketError.ConnectionAborted: native = Errno(103, 53, 13); break;          // ECONNABORTED
+                case SocketError.ConnectionRefused: native = Errno(111, 61, 14); break;          // ECONNREFUSED
+                case SocketError.ConnectionReset: native = Errno(104, 54, 15); break;            // ECONNRESET
+                case SocketError.DestinationAddressRequired: native = Errno(89, 39, 17); break;  // EDESTADDRREQ
+                case SocketError.Disconnecting: native = Errno(108, 58, -1); break;              // ESHUTDOWN
+                case SocketError.Fault: native = Errno(14, 14, 21); break;                       // EFAULT
+                case SocketError.HostDown: native = Errno(112, 64, -1); break;                   // EHOSTDOWN
+                case SocketError.HostUnreachable: native = Errno(113, 65, 23); break;            // EHOSTUNREACH
+                case SocketError.InProgress:
+                case SocketError.IOPending: native = Errno(115, 36, 26); break;                  // EINPROGRESS
+                case SocketError.Interrupted: native = Errno(4, 4, 27); break;                   // EINTR
+                case SocketError.InvalidArgument: native = Errno(22, 22, 28); break;             // EINVAL
+                case SocketError.IsConnected: native = Errno(106, 56, 30); break;                // EISCONN
+                case SocketError.MessageSize: native = Errno(90, 40, 35); break;                 // EMSGSIZE
+                case SocketError.NetworkDown: native = Errno(100, 50, 38); break;                // ENETDOWN
+                case SocketError.NetworkReset: native = Errno(102, 52, 39); break;               // ENETRESET
+                case SocketError.NetworkUnreachable: native = Errno(101, 51, 40); break;         // ENETUNREACH
+                case SocketError.NoBufferSpaceAvailable: native = Errno(105, 55, 42); break;     // ENOBUFS
+                case SocketError.NoData: native = Errno(61, 96, -1); break;                      // ENODATA
+                case SocketError.NotConnected: native = Errno(107, 57, 53); break;               // ENOTCONN
+                case SocketError.NotSocket: native = Errno(88, 38, 57); break;                   // ENOTSOCK
+                case SocketError.OperationAborted: native = Errno(125, 89, 11); break;           // ECANCELED
+                case SocketError.OperationNotSupported: native = Errno(95, 45, 58); break;       // ENOTSUP
+                case SocketError.ProtocolFamilyNotSupported: native = Errno(96, 46, -1); break;  // EPFNOSUPPORT
+                case SocketError.ProtocolNotSupported: native = Errno(93, 43, 66); break;        // EPROTONOSUPPORT
+                case SocketError.ProtocolOption: native = Errno(92, 42, 50); break;              // ENOPROTOOPT
+                case SocketError.ProtocolType: native = Errno(91, 41, 67); break;                // EPROTOTYPE
+                case SocketError.Shutdown: native = Errno(32, 32, 64); break;                    // EPIPE
+                case SocketError.SocketNotSupported: native = Errno(94, 44, -1); break;          // ESOCKTNOSUPPORT
+                case SocketError.TimedOut: native = Errno(110, 60, 73); break;                   // ETIMEDOUT
+                case SocketError.TooManyOpenSockets: native = Errno(23, 23, 41); break;          // ENFILE
+                case SocketError.TryAgain:
+                case SocketError.WouldBlock: native = Errno(11, 35, 6); break;                   // EAGAIN
+                default: return (int)error;
+            }
+            return native < 0 ? (int)error : native;
         }
 #endif
     }

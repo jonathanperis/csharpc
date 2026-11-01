@@ -110,20 +110,15 @@ namespace CsharpcCoreLib
 #if CSHARPC_TARGET_WINDOWS
             return (int)error;
 #else
-            for (int i = 1; i < 200; i++) if (NetNative.ToSocketError(i) == error) return i;
-            return (int)error;
+            return NetNative.NativeErrorFor(error);
 #endif
         }
 
+        // The OS's text for the native error, as Win32Exception(int) gives it (strerror: "Unknown error 10067" for
+        // a SocketError without an errno, on Linux).
         private static string MessageFor(SocketError error, int nativeError, EndPoint endPoint)
         {
-            string message = nativeError == (int)error && error != SocketError.Success
-#if CSHARPC_TARGET_WINDOWS
-                ? NetNative.Message(nativeError)
-#else
-                ? "Unknown socket error"
-#endif
-                : NetNative.Message(nativeError);
+            string message = NetNative.Message(nativeError);
             return endPoint == null ? message : message + " " + endPoint.ToString();
         }
     }

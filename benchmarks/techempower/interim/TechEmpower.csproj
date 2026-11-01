@@ -13,7 +13,7 @@
     <AssemblyName>TechEmpower</AssemblyName>
     <PublishAot>true</PublishAot>
     <InvariantGlobalization>true</InvariantGlobalization>
-    <UseSystemResourceKeys>true</UseSystemResourceKeys>
+    <!-- No UseSystemResourceKeys: csharpc refuses it (its corelib writes full messages where .NET gives keys). -->
     <!-- TechEmpower's aspnetcore entries run the server GC. -->
     <ServerGarbageCollection>true</ServerGarbageCollection>
   </PropertyGroup>

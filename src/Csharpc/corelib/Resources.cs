@@ -160,6 +160,7 @@ namespace CsharpcCoreLib
         public static void SetData(string name, object data)
         {
             if (name == null) throw new ArgumentNullException("name");
+            if (data is string text && bool.TryParse(text, out var on)) RejectResourceKeys(name, on);  // TryGetSwitch reads it
             var store = Data;
             lock (store) store[name] = data;
             s_modifiedLookup = &TryGetSwitch;
@@ -206,9 +207,22 @@ namespace CsharpcCoreLib
         public static void SetSwitch(string switchName, bool isEnabled)
         {
             ThrowIfNullOrEmpty(switchName, "switchName");
+            RejectResourceKeys(switchName, isEnabled);
             var switches = Switches;
             lock (switches) switches[switchName] = isEnabled;
             s_modifiedLookup = &TryGetSwitch;
+        }
+
+        /// <summary>
+        /// .NET's libraries read System.Resources.UseSystemResourceKeys when they first format a message, so a
+        /// program can turn it on at run time; their messages are then resource keys. csharpc's corelib writes the
+        /// full messages (and the compiler refuses the setting in runtimeconfig), so turning it on fails explicitly
+        /// instead of every later message differing from .NET's.
+        /// </summary>
+        private static void RejectResourceKeys(string switchName, bool isEnabled)
+        {
+            if (isEnabled && switchName == "System.Resources.UseSystemResourceKeys")
+                throw new PlatformNotSupportedException("System.Resources.UseSystemResourceKeys is not supported by csharpc yet: .NET then gives its exception messages as resource keys, csharpc's library writes the full messages.");
         }
 
         private static void ThrowIfNullOrEmpty(string value, string paramName)

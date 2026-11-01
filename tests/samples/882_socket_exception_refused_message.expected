@@ -1,0 +1,3 @@
+ConnectionRefused: 'Connection refused' native set True True
+ConnectionReset: 'Connection reset by peer' native set True True
+System.Net.Sockets.SocketException (N): Connection refused

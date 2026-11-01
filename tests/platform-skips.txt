@@ -41,6 +41,9 @@ windows 295_regex_charclass             live: prints matched text that contains 
 windows 303_regex_options               live: prints matched text that contains a bare "\n" (from the input string)
 windows 194_marshal_strings              live: GetPInvokeErrorMessage is the Win32 FormatMessage text, not strerror
 windows 196_sockets_loopback            live: SocketException messages are the OS's (Winsock text on Windows)
+windows 881_socket_exception_native_errors live: SocketException numbers and messages are the OS's (Winsock's on Windows)
+windows 882_socket_exception_refused_message live: SocketException messages are the OS's (Winsock text on Windows)
+macos 881_socket_exception_native_errors   live: SocketException numbers and messages are the OS's (BSD errno numbers and texts)
 windows 161_file_io                     live: Windows paths; File.WriteAllLines / StreamWriter.WriteLine write "\r\n"
 windows 163_path_semantics              live: Windows path rules (drive roots, '\' separators)
 windows 165_environment                 live: Windows current directory and paths
@@ -120,6 +123,7 @@ wasi 543_synchronization_context  needs threads: the context's thread waits for 
 wasi 550_partitioner_barrier_flatten  needs threads: Barrier participants wait for each other (pool work items run one after another on WebAssembly)
 wasi 194_marshal_strings          prints strerror(2): errno 2 is ENOENT on Linux, EACCES in WASI
 wasi 196_sockets_loopback         opens loopback sockets: WASI preview 1 has none (PlatformNotSupportedException)
+wasi 881_socket_exception_native_errors  WASI numbers errno its own way and has no .NET to record with (882 checks the texts)
 wasi 360_culture_numbers               no ICU on WASI (invariant globalization mode): the sample uses specific cultures
 wasi 361_culture_dates                 no ICU on WASI (invariant globalization mode): the sample uses specific cultures
 wasi 362_culture_compare               no ICU on WASI (invariant globalization mode): the sample uses specific cultures

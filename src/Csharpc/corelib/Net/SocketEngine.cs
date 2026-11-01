@@ -305,6 +305,21 @@ namespace CsharpcCoreLib
         internal readonly Queue<SocketOperation> Writes = new Queue<SocketOperation>();
         internal bool Closed;
         internal ulong Id;
+        // Readiness for a direction with nothing pending takes no lock. Each event bumps its direction's count
+        // before it reads the pending count; Start publishes a queued operation (pending, a full fence)
+        // before it reads the event count again, and retries the operation itself when an event came in
+        // since its attempt began, which may have found nothing pending. Without this the event loop took the
+        // socket's lock three times per event (an EPOLLIN|EPOLLOUT edge: the read, then both queues empty) while
+        // the completed read's continuation started the next receive under it: Npgsql's read loop parked one of
+        // the two threads on the monitor for most queries of the TechEmpower entry's start-up.
+        private int _pendingReads, _pendingWrites, _readEvents, _writeEvents;
+
+        private int Events(bool write) => write ? Volatile.Read(ref _writeEvents) : Volatile.Read(ref _readEvents);
+        private void AddPending(bool write, int delta)
+        {
+            if (write) Interlocked.Add(ref _pendingWrites, delta);
+            else Interlocked.Add(ref _pendingReads, delta);
+        }
 
         internal SocketAsyncContext(SocketImpl socket) { Socket = socket; }
 
@@ -336,15 +351,40 @@ namespace CsharpcCoreLib
                 }, (op: op, socket: Socket, context: this), false);
                 return true;
             }
-            Queue<SocketOperation> queue = op.IsWrite ? Writes : Reads;
+            bool write = op.IsWrite;
+            Queue<SocketOperation> queue = write ? Writes : Reads;
             lock (this)
             {
                 if (Closed) { op.Error = SocketError.OperationAborted; return false; }
                 // Operations of one kind complete in order: a new one waits behind pending ones.
-                if (queue.Count == 0 && op.TryRun(Socket)) return false;
-                queue.Enqueue(op);
+                if (queue.Count != 0)
+                {
+                    queue.Enqueue(op);
+                    AddPending(write, 1);
+                    return true;
+                }
+                bool queued = false;
+                while (true)
+                {
+                    int seen = Events(write);
+                    if (op.TryRun(Socket))
+                    {
+                        if (queued)
+                        {
+                            queue.Dequeue();
+                            AddPending(write, -1);
+                        }
+                        return false;
+                    }
+                    if (!queued)
+                    {
+                        queue.Enqueue(op);
+                        AddPending(write, 1);
+                        queued = true;
+                    }
+                    if (Events(write) == seen) return true;
+                }
             }
-            return true;
         }
 
         // Winsock reports an expired SO_RCVTIMEO/SO_SNDTIMEO as WSAETIMEDOUT rather than EAGAIN: for a socket with
@@ -366,6 +406,7 @@ namespace CsharpcCoreLib
                     if (!ReferenceEquals(next, op)) kept.Enqueue(next);
                 }
                 while (kept.Count > 0) queue.Enqueue(kept.Dequeue());
+                AddPending(op.IsWrite, -1);
                 return true;
             }
         }
@@ -376,15 +417,25 @@ namespace CsharpcCoreLib
             // One operation at a time, each completed outside the lock: a socket rarely has more than one
             // pending read and one pending write (Kestrel never does), and collecting them in a list
             // allocated two objects per event.
-            if (readable) while (DrainOne(Reads) is { } op) op.Complete(false);
-            if (writable) while (DrainOne(Writes) is { } op) op.Complete(false);
+            // The increments are full fences: the pending count is read after the event is published.
+            if (readable)
+            {
+                Interlocked.Increment(ref _readEvents);
+                while (Volatile.Read(ref _pendingReads) != 0 && DrainOne(Reads, ref _pendingReads) is { } op) op.Complete(false);
+            }
+            if (writable)
+            {
+                Interlocked.Increment(ref _writeEvents);
+                while (Volatile.Read(ref _pendingWrites) != 0 && DrainOne(Writes, ref _pendingWrites) is { } op) op.Complete(false);
+            }
         }
 
-        private SocketOperation DrainOne(Queue<SocketOperation> queue)
+        private SocketOperation DrainOne(Queue<SocketOperation> queue, ref int pending)
         {
             lock (this)
             {
                 if (Closed || queue.Count == 0 || !queue.Peek().TryRun(Socket)) return null;
+                Interlocked.Decrement(ref pending);
                 return queue.Dequeue();
             }
         }
@@ -399,6 +450,7 @@ namespace CsharpcCoreLib
                 Closed = true;
                 while (Reads.Count > 0) aborted.Add(Reads.Dequeue());
                 while (Writes.Count > 0) aborted.Add(Writes.Dequeue());
+                _pendingReads = _pendingWrites = 0;
             }
             SocketEngine.Unregister(this);
             foreach (SocketOperation op in aborted)

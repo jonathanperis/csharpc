@@ -46,6 +46,9 @@ void* csrt_gc_alloc_noclear(size_t size);
 void csrt_gc_collect(void);
 int64_t csrt_gc_total_memory(void);
 
+// The timer thread's periodic call (async.c): free heap pages back to the OS once allocation is quiet.
+void csrt_gc_idle_trim(void);
+
 #if defined(CSRT_GC_NURSERY_DEFAULT)
 // Generational write barrier (ADR 0004): dirty the card for `slot`, then store `value`.
 // The compiler emits this instead of a plain store for heap reference writes. Dirty-before-store

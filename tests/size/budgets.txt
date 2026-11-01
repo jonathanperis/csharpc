@@ -22,7 +22,7 @@ macos-arm64 hello 57344
 macos-arm64 linq 175104
 macos-arm64 numbers 157696
 macos-arm64 typeinfo 73728
-windows-x86_64 async 153600
+windows-x86_64 async 159744
 windows-x86_64 collections 151552
 windows-x86_64 exceptions 50176
 windows-x86_64 hello 44032
