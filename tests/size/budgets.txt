@@ -33,6 +33,6 @@ wasi-wasm32 async 144384
 wasi-wasm32 collections 141312
 wasi-wasm32 exceptions 53248
 wasi-wasm32 hello 52224
-wasi-wasm32 linq 162816
+wasi-wasm32 linq 167936
 wasi-wasm32 numbers 133120
 wasi-wasm32 typeinfo 63488
