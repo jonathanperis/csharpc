@@ -843,14 +843,33 @@ public sealed class StackTraceInfo
         return _descriptors[site] = global;
     }
 
-    /// <summary>{ methods, files } (csrt_TraceTables): the strings the descriptors index.</summary>
+    /// <summary>
+    /// { methods, files, method_types, types } (csrt_TraceTables): the strings the descriptors index. A frame
+    /// is stored as its declaring type's prefix (shared: "Npgsql.Internal.NpgsqlConnector.", everything up to
+    /// the last '.' before the parameter list) and the rest; programs that record the frames of whole IL
+    /// libraries have thousands of methods of a few hundred types.
+    /// </summary>
     public LLVMValueRef EmitTables(ModuleCodeGen m)
     {
         var l = m.Llvm;
-        var methods = LlvmContext.ConstArray(l.Ptr, [.. _methods.Select(m.CString)]);
-        var files = LlvmContext.ConstArray(l.Ptr, [.. _files.Select(m.CString)]);
+        List<string> types = [];
+        Dictionary<string, int> typeIndex = new(StringComparer.Ordinal);
+        var members = new LLVMValueRef[_methods.Count];
+        var methodTypes = new LLVMValueRef[_methods.Count];
+        for (var i = 0; i < _methods.Count; i++)
+        {
+            var name = _methods[i];
+            var paren = name.IndexOf('(');
+            var dot = name.LastIndexOf('.', paren < 0 ? name.Length - 1 : paren);
+            var type = dot > 0 ? Intern(types, typeIndex, name[..(dot + 1)]) : -1;
+            members[i] = m.CString(dot > 0 ? name[(dot + 1)..] : name);
+            methodTypes[i] = l.ConstInt(l.I32, type);
+        }
         LLVMValueRef Global(string name, LLVMValueRef init) =>
             m.Module.AddGlobal(name, Native.LLVMTypeOf(init), init, constant: true, linkage: LLVMLinkage.Internal);
-        return l.ConstStruct(Global("csharpc.trace.methods", methods), Global("csharpc.trace.files", files));
+        return l.ConstStruct(Global("csharpc.trace.methods", LlvmContext.ConstArray(l.Ptr, members)),
+            Global("csharpc.trace.files", LlvmContext.ConstArray(l.Ptr, [.. _files.Select(m.CString)])),
+            Global("csharpc.trace.method_types", LlvmContext.ConstArray(l.I32, methodTypes)),
+            Global("csharpc.trace.types", LlvmContext.ConstArray(l.Ptr, [.. types.Select(m.CString)])));
     }
 }

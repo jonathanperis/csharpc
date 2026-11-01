@@ -246,8 +246,10 @@ csrt_String* csrt_exception_to_string(void* exception) {
 typedef struct { uint64_t magic; int32_t method, file, line, flags; } csrt_TraceSite;  // file < 0: no location
 enum { TRACE_ASYNC = 1, TRACE_HIDDEN = 2 };
 typedef struct {
-    const char* const* methods;  // "Namespace.Type.Method(Int32 x)", formatted like .NET's StackTrace
+    const char* const* methods;  // "Method(Int32 x)": a frame as .NET's StackTrace formats it, after its type prefix
     const char* const* files;    // document paths, as the PDB records them
+    const int32_t* method_types; // per method: its entry in types (-1: none, methods has the whole text)
+    const char* const* types;    // "Namespace.Type.", shared by the methods of a type
 } csrt_TraceTables;
 
 // preset: the frames are library frames set before the throw (csrt_trace_preset), kept by it.
@@ -392,6 +394,8 @@ csrt_String* csrt_exception_get_stack_trace(void* exception) {
         if (!first) text_append_str(&text, CSRT_NEWLINE);
         first = false;
         text_append_str(&text, "   at ");
+        int32_t type = s_trace->method_types[site->method];
+        if (type >= 0) text_append_str(&text, s_trace->types[type]);
         text_append_str(&text, s_trace->methods[site->method]);
         if (site->file >= 0) {
             char number[24];

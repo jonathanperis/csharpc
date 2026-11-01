@@ -235,6 +235,15 @@ Measured on x86-64 Linux (shared 4-vCPU VPS), -O2, benchmark programs compiled w
   compatibility programs whose only difference was the missing trace pass; the two that remain print
   BCL-internal frames (`ArgumentOutOfRangeException.ThrowNegative[T]`, `Array.CopyImpl`,
   `SafeFileHandle.Open`, ...).
+- Recording the frames of IL-compiled code (2026-11-01): TechEmpower's Platform entry (`csharpc
+  Platform.dll`, which prints an exception when the database is unreachable, so it records traces)
+  against a closed PostgreSQL port now prints the JIT's trace exactly (the socket frames, 10 Npgsql
+  frames, the program's two). It pays for the frames of all its Npgsql, ASP.NET Core and framework IL:
+  -O2 executable 17,088,656 → 18,975,808 bytes (+11.0 %: `.text` +387 KB and `.gcc_except_table`
+  +360 KB for the per-site pads, `.rodata` +0.9 MB for 11.6 k frame names and descriptors; frame names
+  share their type prefix, which saved 0.56 MB), build time unchanged (295 vs 290 s). Programs that
+  don't observe traces are unchanged (`tests/size.sh`: `.text` equal or smaller, `.eh_frame` +24–48 B
+  for two out-of-line corelib throw helpers).
 - `dotnet run app.cs` (the oracle for the differential tests) sometimes runs a cached build whose PDB
   is stale; .NET then prints frames without lines. Recording a stack-trace sample therefore needs a
   fresh build (delete the app's `~/.local/share/dotnet/runfile/<name>-*` directory first).

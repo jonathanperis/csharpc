@@ -1452,7 +1452,7 @@ public sealed partial class ModuleCodeGen
         if (StackTraces is not null)
         {
             // csrt_TraceTables (src/runtime/eh.c); filled in once codegen has seen every call site.
-            var tablesType = Llvm.Struct(Llvm.Ptr, Llvm.Ptr);
+            var tablesType = Llvm.Struct(Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr);
             _traceTables = Module.AddGlobal("csharpc.trace.tables", tablesType, LlvmContext.Null(tablesType), constant: true, linkage: LLVMLinkage.Internal);
             var register = Runtime("csrt_trace_init", Llvm.Void, Llvm.Ptr);
             b.Call(register.Type, register.Fn, [_traceTables]);
