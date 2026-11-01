@@ -110,7 +110,8 @@ public sealed partial class FunctionCodeGen
         _b.Call(end.Type, end.Fn, [coro.Handle, L.False, TokenNone]);
         if (_fn.Type.ReturnType().IsVoid) _b.RetVoid(); // async void
         else if (kind == CoroutineKind.Async && ValueTaskResultType(S(method.ReturnType)) is { } valueTaskResult)
-            _b.Ret(CallCoreLibGeneric("ValueTaskAwait`1", "OfTask", [valueTaskResult], _b.Cast(LLVMOpcode.PtrToInt, coro.Promise, T.NativeInt))); // a struct over the task
+            _b.Ret(CallCoreLibGeneric("ValueTaskAwait`1", Coroutines.UsesPoolingBuilder(method) ? "OfPooledTask" : "OfTask", [valueTaskResult],
+                _b.Cast(LLVMOpcode.PtrToInt, coro.Promise, T.NativeInt))); // a struct over the task
         else _b.Ret(coro.Promise);
 
         _b.PositionAtEnd(coro.Cleanup);

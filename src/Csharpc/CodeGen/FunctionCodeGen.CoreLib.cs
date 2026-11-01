@@ -162,6 +162,7 @@ public sealed partial class FunctionCodeGen
             "EnumParseTableAddress" => _b.Cast(LLVMOpcode.PtrToInt, _m.EnumParseTable(), T.NativeInt),
             "ReflectionTableAddress" => _b.Cast(LLVMOpcode.PtrToInt, _m.ReflectionTable(), T.NativeInt),
             "DelegateMethodTableAddress" => _b.Cast(LLVMOpcode.PtrToInt, _m.DelegateMethodTable(), T.NativeInt),
+            "IsExactClass" => IsExactClass(S(t!), args[0], inv),
             "DelegateSignatureTableAddress" => _b.Cast(LLVMOpcode.PtrToInt, _m.DelegateSignatureTable(), T.NativeInt),
             "ObjectArrayThunkTableAddress" => _b.Cast(LLVMOpcode.PtrToInt, _m.ObjectArrayThunkTable(), T.NativeInt),
             "OperatorsKept" => _b.ICmp(LLVMIntPredicate.NE, _b.Load(L.I8, _m.OperatorsKeptFlag()), L.ConstInt(L.I8, 0)),
@@ -179,6 +180,25 @@ public sealed partial class FunctionCodeGen
                 target.ReturnsVoid ? L.Void : T.Value(target.ReturnType), [.. target.Parameters.Select(p => T.Value(p.Type))], args),
             _ => throw CompileError.Unsupported($"corelib intrinsic '{target.Name}'", inv),
         };
+    }
+
+    /// <summary>CoreIntrinsics.IsExactClass&lt;T&gt;: obj is non-null and its method table is T's.</summary>
+    private LLVMValueRef IsExactClass(ITypeSymbol type, LLVMValueRef obj, IOperation at)
+    {
+        var mt = MethodTableFor(type, at);
+        var entry = _b.InsertBlock;
+        var load = NewBlock("exact.load");
+        var done = NewBlock("exact.done");
+        _b.CondBr(_b.ICmp(LLVMIntPredicate.EQ, obj, LlvmContext.Null(L.Ptr)), done, load);
+        _b.PositionAtEnd(load);
+        var same = _b.ICmp(LLVMIntPredicate.EQ, _b.Load(L.Ptr, obj, "mt"), mt);
+        var loadEnd = _b.InsertBlock;
+        _b.Br(done);
+        _b.PositionAtEnd(done);
+        var phi = _b.Phi(L.I1, "exact");
+        IrBuilder.AddIncoming(phi, L.False, entry);
+        IrBuilder.AddIncoming(phi, same, loadEnd);
+        return phi;
     }
 
     /// <summary>

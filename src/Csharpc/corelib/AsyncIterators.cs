@@ -11,6 +11,7 @@
 using System;
 using System.Collections.Generic;
 using System.Runtime.CompilerServices;
+using System.Runtime.ExceptionServices;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Threading.Tasks.Sources;
@@ -59,18 +60,23 @@ namespace CsharpcCoreLib
         public static void Invalid() => throw new InvalidOperationException("Operation is not valid due to the current state of the object.");
     }
 
-    // Port of .NET's ManualResetValueTaskSourceCore<TResult> (no ExecutionContext/SynchronizationContext:
-    // continuations run inline on the completing thread, or on the pool with RunContinuationsAsynchronously
-    // or when registered after completion).
+    // Port of .NET's ManualResetValueTaskSourceCore<TResult> (release/11.0): OnCompleted captures the
+    // execution context (FlowExecutionContext) and the SynchronizationContext or non-default TaskScheduler
+    // (UseSchedulingContext); the continuation runs inline on the completing thread unless one was captured
+    // or RunContinuationsAsynchronously is set, and is queued when it is registered after completion.
+    // The pooling async builders' boxes are this struct too (AsyncBuilders.cs).
     [Shadows("System.Threading.Tasks.Sources.ManualResetValueTaskSourceCore`1")]
     public struct ManualResetValueTaskSourceCoreImpl<TResult>
     {
         private Action<object> _continuation;
         private object _continuationState;
-        private Exception _error;
+        private object _capturedContext; // a SynchronizationContext or a TaskScheduler
+        private ExecutionFlow _executionFlow; // the captured context's flow (null: the default context)
+        private ExceptionDispatchInfo _error;
         private TResult _result;
         private short _version;
         private bool _completed;
+        private bool _hasExecutionContext; // ExecutionContext.Capture() returned non-null (flow not suppressed)
         private bool _runContinuationsAsynchronously;
 
         public bool RunContinuationsAsynchronously
@@ -86,6 +92,9 @@ namespace CsharpcCoreLib
             _continuationState = null;
             _result = default(TResult);
             _error = null;
+            _executionFlow = null;
+            _hasExecutionContext = false;
+            _capturedContext = null;
             _completed = false;
         }
 
@@ -97,7 +106,7 @@ namespace CsharpcCoreLib
 
         public void SetException(Exception error)
         {
-            _error = error;
+            _error = ExceptionDispatchInfo.Capture(error);
             SignalCompletion();
         }
 
@@ -106,9 +115,9 @@ namespace CsharpcCoreLib
         public ValueTaskSourceStatus GetStatus(short token)
         {
             ValidateToken(token);
-            return _continuation == null || !_completed ? ValueTaskSourceStatus.Pending
+            return Volatile.Read(ref _continuation) == null || !_completed ? ValueTaskSourceStatus.Pending
                 : _error == null ? ValueTaskSourceStatus.Succeeded
-                : _error is OperationCanceledException ? ValueTaskSourceStatus.Canceled
+                : _error.SourceException is OperationCanceledException ? ValueTaskSourceStatus.Canceled
                 : ValueTaskSourceStatus.Faulted;
         }
 
@@ -121,23 +130,53 @@ namespace CsharpcCoreLib
         private void ThrowForFailedGetResult(short token)
         {
             if (token != _version || !_completed) ValueTaskSourceSentinel.Invalid();
-            throw _error;
+            _error.Throw();
         }
 
         public void OnCompleted(Action<object> continuation, object state, short token, ValueTaskSourceOnCompletedFlags flags)
         {
             if (continuation == null) throw new ArgumentNullException("continuation");
             ValidateToken(token);
-            _continuationState = state;
-            var sentinel = ValueTaskSourceSentinel.Completed;
-            var old = Interlocked.CompareExchange(ref _continuation, continuation, null);
-            if (old != null)
+            if ((flags & ValueTaskSourceOnCompletedFlags.FlowExecutionContext) != 0 && !ExecutionContextImpl.IsFlowSuppressed())
             {
-                if (!ReferenceEquals(old, sentinel)) ValueTaskSourceSentinel.Invalid();
-                _continuationState = null;
-                QueueContinuation(continuation, state); // already completed: .NET queues to the pool
+                _hasExecutionContext = true;
+                _executionFlow = ExecutionFlow.Current;
+            }
+            if ((flags & ValueTaskSourceOnCompletedFlags.UseSchedulingContext) != 0)
+            {
+                SynchronizationContext sc = SynchronizationContextImpl.CurrentCustom;
+                if (sc != null) _capturedContext = sc;
+                else if (TaskSupport.t_currentScheduler is { } ts && ts != TaskSchedulerImpl.Default) _capturedContext = ts; // TaskScheduler.Current, unless Default
+            }
+            object stored = _continuation;
+            if (stored == null)
+            {
+                _continuationState = state;
+                stored = Interlocked.CompareExchange(ref _continuation, continuation, null);
+                if (stored == null) return;
+            }
+            // Already completed.
+            if (!ReferenceEquals(stored, ValueTaskSourceSentinel.Completed)) ValueTaskSourceSentinel.Invalid();
+            switch (_capturedContext)
+            {
+                case null:
+                    if (_hasExecutionContext) ThreadPool.QueueUserWorkItem(continuation, state, preferLocal: true);
+                    else ThreadPool.UnsafeQueueUserWorkItem(continuation, state, preferLocal: true);
+                    break;
+                case SynchronizationContext sc:
+                    sc.Post(s_postToContext, new ValueTaskSourceContinuation(continuation, state));
+                    break;
+                case TaskScheduler ts:
+                    Task.Factory.StartNew(continuation, state, CancellationToken.None, TaskCreationOptions.DenyChildAttach, ts);
+                    break;
             }
         }
+
+        private static readonly SendOrPostCallback s_postToContext = static s =>
+        {
+            var c = (ValueTaskSourceContinuation)s;
+            c.Continuation(c.State);
+        };
 
         private void ValidateToken(short token)
         {
@@ -148,17 +187,59 @@ namespace CsharpcCoreLib
         {
             if (_completed) ValueTaskSourceSentinel.Invalid();
             _completed = true;
-            var continuation = _continuation ?? Interlocked.CompareExchange(ref _continuation, ValueTaskSourceSentinel.Completed, null);
+            var continuation = Volatile.Read(ref _continuation) ?? Interlocked.CompareExchange(ref _continuation, ValueTaskSourceSentinel.Completed, null);
             if (continuation == null) return;
-            var state = _continuationState;
-            if (_runContinuationsAsynchronously) QueueContinuation(continuation, state);
-            else continuation(state);
+            if (!_hasExecutionContext)
+            {
+                if (_capturedContext == null)
+                {
+                    if (_runContinuationsAsynchronously) ThreadPool.UnsafeQueueUserWorkItem(continuation, _continuationState, preferLocal: true);
+                    else continuation(_continuationState);
+                }
+                else InvokeSchedulerContinuation();
+                return;
+            }
+            // .NET's InvokeContinuationWithContext: the continuation runs in the captured context, and the
+            // completing thread gets its own context and SynchronizationContext back afterwards.
+            ExecutionFlow saved = ExecutionFlow.Current;
+            SynchronizationContext savedContext = SynchronizationContext.Current;
+            ExecutionFlow.Current = _executionFlow;
+            try
+            {
+                if (_capturedContext == null)
+                {
+                    if (_runContinuationsAsynchronously) ThreadPool.QueueUserWorkItem(continuation, _continuationState, preferLocal: true);
+                    else continuation(_continuationState);
+                }
+                else InvokeSchedulerContinuation();
+            }
+            finally
+            {
+                ExecutionFlow.Current = saved;
+                if (SynchronizationContext.Current != savedContext) SynchronizationContext.SetSynchronizationContext(savedContext);
+            }
         }
 
-        private static void QueueContinuation(Action<object> continuation, object state)
+        private void InvokeSchedulerContinuation()
         {
-            Task.Run(() => continuation(state));
+            switch (_capturedContext)
+            {
+                case SynchronizationContext sc:
+                    sc.Post(s_postToContext, new ValueTaskSourceContinuation(_continuation, _continuationState));
+                    break;
+                case TaskScheduler ts:
+                    Task.Factory.StartNew(_continuation, _continuationState, CancellationToken.None, TaskCreationOptions.DenyChildAttach, ts);
+                    break;
+            }
         }
+    }
+
+    /// <summary>.NET's TupleSlim&lt;Action&lt;object&gt;, object&gt;: a continuation posted to a SynchronizationContext.</summary>
+    internal sealed class ValueTaskSourceContinuation
+    {
+        internal readonly Action<object> Continuation;
+        internal readonly object State;
+        internal ValueTaskSourceContinuation(Action<object> continuation, object state) { Continuation = continuation; State = state; }
     }
 
     /// <summary>A task over a pending IValueTaskSource&lt;T&gt;: ValueTask&lt;T&gt;.AsTask() (corelib/Tasks/ValueTaskOfT.cs).</summary>

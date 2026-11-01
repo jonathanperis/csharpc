@@ -18,7 +18,14 @@ echo "|---|---:|"
 for src in "$PROGRAMS"/*.cs; do
   name="$(basename "$src" .cs)"
   [[ -n "$FILTER" && "$name" != *"$FILTER"* ]] && continue
-  if ! "$DOTNET" "$ROOT/src/Csharpc/bin/Release/net11.0/csharpc.dll" -c Release -O2 "$src" -o "$WORK/$name" 2> "$WORK/$name.log"; then
+  input="$src"
+  if grep -q '^// csharpc-benchmark: via-il' "$src"; then # compiled from its csc Release build (benchmarks/run.sh)
+    mkdir -p "$WORK/$name-ilsrc" && cp "$src" "$WORK/$name-ilsrc/"
+    (cd "$WORK/$name-ilsrc" && "$DOTNET" build "$name.cs" -c Release -p:WarningLevel=0 -o "$WORK/$name-il") > "$WORK/$name.il.log" 2>&1 \
+      || { echo "| $name | csc build error |"; continue; }
+    input="$WORK/$name-il/$name.dll"
+  fi
+  if ! "$DOTNET" "$ROOT/src/Csharpc/bin/Release/net11.0/csharpc.dll" -c Release -O2 "$input" -o "$WORK/$name" 2> "$WORK/$name.log"; then
     echo "| $name | compile error |"; continue
   fi
   stdin="$PROGRAMS/$name.stdin"; [[ -f "$stdin" ]] || stdin=/dev/null

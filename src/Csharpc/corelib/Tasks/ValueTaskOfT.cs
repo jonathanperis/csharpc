@@ -49,6 +49,31 @@ namespace CsharpcCoreLib
     }
 
     /// <summary>
+    /// Calls on a ValueTask&lt;T&gt;'s source. A pooled builder box (AsyncBuilders.cs) is called directly: a class
+    /// test costs less than the interface dispatch, whose per-site cache would otherwise alternate between the
+    /// boxes and the program's own sources, and a failed `is` test walks the receiver's base types.
+    /// </summary>
+    internal static class ValueTaskSources<TResult>
+    {
+        internal static ValueTaskSourceStatus GetStatus(object obj, short token) =>
+            CoreIntrinsics.IsExactClass<PoolingBox<TResult>>(obj)
+                ? CoreIntrinsics.ReinterpretAs<PoolingBox<TResult>>(obj).GetStatus(token)
+                : ((IValueTaskSource<TResult>)obj).GetStatus(token);
+
+        internal static TResult GetResult(object obj, short token) =>
+            CoreIntrinsics.IsExactClass<PoolingBox<TResult>>(obj)
+                ? CoreIntrinsics.ReinterpretAs<PoolingBox<TResult>>(obj).GetResult(token)
+                : ((IValueTaskSource<TResult>)obj).GetResult(token);
+
+        internal static void OnCompleted(object obj, Action<object> continuation, object state, short token, ValueTaskSourceOnCompletedFlags flags)
+        {
+            if (CoreIntrinsics.IsExactClass<PoolingBox<TResult>>(obj))
+                CoreIntrinsics.ReinterpretAs<PoolingBox<TResult>>(obj).OnCompleted(continuation, state, token, flags);
+            else ((IValueTaskSource<TResult>)obj).OnCompleted(continuation, state, token, flags);
+        }
+    }
+
+    /// <summary>
     /// What compiled code calls (FunctionCodeGen.Async.cs, ModuleCodeGen.Async.cs): `await` of a ValueTask&lt;T&gt; or
     /// its configured awaitable, and the ValueTask&lt;T&gt; an async method or async iterator returns.
     /// </summary>
@@ -73,12 +98,24 @@ namespace CsharpcCoreLib
                 else ValueTaskSupport.OnTaskNoContext(CoreIntrinsics.ObjectToPointer(obj), frame);
                 return;
             }
-            ((IValueTaskSource<TResult>)obj).OnCompleted(ValueTaskSupport.s_resume, CoreIntrinsics.PointerToObject(ValueTaskSupport.ResumeToken(frame)),
+            ValueTaskSources<TResult>.OnCompleted(obj, ValueTaskSupport.s_resume, CoreIntrinsics.PointerToObject(ValueTaskSupport.ResumeToken(frame)),
                 value._token, value._continueOnCapturedContext ? ValueTaskSourceOnCompletedFlags.UseSchedulingContext : ValueTaskSourceOnCompletedFlags.None);
         }
 
         /// <summary>An async method's (or async iterator's MoveNextAsync's) csrt task as the ValueTask&lt;T&gt; it returns.</summary>
         internal static ValueTaskImpl<TResult> OfTask(IntPtr task) => new ValueTaskImpl<TResult>(CoreIntrinsics.PointerToObject(task), default, 0, true);
+
+        /// <summary>
+        /// The ValueTask&lt;T&gt; of a method with PoolingAsyncValueTaskMethodBuilder: the result inline when it returned
+        /// without suspending (as .NET's builder), else a pooled box over the task (one use, as .NET's boxes).
+        /// </summary>
+        internal static ValueTaskImpl<TResult> OfPooledTask(IntPtr task)
+        {
+            Task<TResult> t = CoreIntrinsics.ReinterpretAs<Task<TResult>>(CoreIntrinsics.PointerToObject(task));
+            if (t.IsCompletedSuccessfully) return new ValueTaskImpl<TResult>(t.Result);
+            PoolingBox<TResult> box = PooledTask<TResult>.For(t);
+            return new ValueTaskImpl<TResult>(box, box.Version);
+        }
     }
 
     [Shadows("System.Threading.Tasks.ValueTask`1")]
@@ -189,7 +226,7 @@ namespace CsharpcCoreLib
                 object obj = _obj;
                 if (obj == null) return true;
                 if (ValueTaskSupport.IsTask(obj)) return TaskObject.IsCompleted;
-                return Source.GetStatus(_token) != ValueTaskSourceStatus.Pending;
+                return ValueTaskSources<TResult>.GetStatus(obj, _token) != ValueTaskSourceStatus.Pending;
             }
         }
 
@@ -200,7 +237,7 @@ namespace CsharpcCoreLib
                 object obj = _obj;
                 if (obj == null) return true;
                 if (ValueTaskSupport.IsTask(obj)) return TaskObject.IsCompletedSuccessfully;
-                return Source.GetStatus(_token) == ValueTaskSourceStatus.Succeeded;
+                return ValueTaskSources<TResult>.GetStatus(obj, _token) == ValueTaskSourceStatus.Succeeded;
             }
         }
 
@@ -211,7 +248,7 @@ namespace CsharpcCoreLib
                 object obj = _obj;
                 if (obj == null) return false;
                 if (ValueTaskSupport.IsTask(obj)) return TaskObject.IsFaulted;
-                return Source.GetStatus(_token) == ValueTaskSourceStatus.Faulted;
+                return ValueTaskSources<TResult>.GetStatus(obj, _token) == ValueTaskSourceStatus.Faulted;
             }
         }
 
@@ -222,7 +259,7 @@ namespace CsharpcCoreLib
                 object obj = _obj;
                 if (obj == null) return false;
                 if (ValueTaskSupport.IsTask(obj)) return TaskObject.IsCanceled;
-                return Source.GetStatus(_token) == ValueTaskSourceStatus.Canceled;
+                return ValueTaskSources<TResult>.GetStatus(obj, _token) == ValueTaskSourceStatus.Canceled;
             }
         }
 
@@ -234,7 +271,7 @@ namespace CsharpcCoreLib
                 object obj = _obj;
                 if (obj == null) return _result;
                 if (ValueTaskSupport.IsTask(obj)) return TaskObject.GetAwaiter().GetResult();
-                return Source.GetResult(_token);
+                return ValueTaskSources<TResult>.GetResult(obj, _token);
             }
         }
 
@@ -272,7 +309,7 @@ namespace CsharpcCoreLib
             object obj = _value._obj;
             if (obj != null && ValueTaskSupport.IsTask(obj)) CoreIntrinsics.ReinterpretAs<Task<TResult>>(obj).GetAwaiter().OnCompleted(continuation);
             else if (obj != null)
-                ((IValueTaskSource<TResult>)obj).OnCompleted(ValueTaskSupport.s_invokeAction, continuation, _value._token,
+                ValueTaskSources<TResult>.OnCompleted(obj, ValueTaskSupport.s_invokeAction, continuation, _value._token,
                     ValueTaskSourceOnCompletedFlags.UseSchedulingContext | ValueTaskSourceOnCompletedFlags.FlowExecutionContext);
             else Task.CompletedTask.GetAwaiter().OnCompleted(continuation);
         }
@@ -282,7 +319,7 @@ namespace CsharpcCoreLib
             object obj = _value._obj;
             if (obj != null && ValueTaskSupport.IsTask(obj)) CoreIntrinsics.ReinterpretAs<Task<TResult>>(obj).GetAwaiter().UnsafeOnCompleted(continuation);
             else if (obj != null)
-                ((IValueTaskSource<TResult>)obj).OnCompleted(ValueTaskSupport.s_invokeAction, continuation, _value._token,
+                ValueTaskSources<TResult>.OnCompleted(obj, ValueTaskSupport.s_invokeAction, continuation, _value._token,
                     ValueTaskSourceOnCompletedFlags.UseSchedulingContext);
             else Task.CompletedTask.GetAwaiter().UnsafeOnCompleted(continuation);
         }
@@ -316,7 +353,7 @@ namespace CsharpcCoreLib
                 if (obj != null && ValueTaskSupport.IsTask(obj))
                     CoreIntrinsics.ReinterpretAs<Task<TResult>>(obj).ConfigureAwait(_value._continueOnCapturedContext).GetAwaiter().OnCompleted(continuation);
                 else if (obj != null)
-                    ((IValueTaskSource<TResult>)obj).OnCompleted(ValueTaskSupport.s_invokeAction, continuation, _value._token,
+                    ValueTaskSources<TResult>.OnCompleted(obj, ValueTaskSupport.s_invokeAction, continuation, _value._token,
                         (_value._continueOnCapturedContext ? ValueTaskSourceOnCompletedFlags.UseSchedulingContext : ValueTaskSourceOnCompletedFlags.None)
                         | ValueTaskSourceOnCompletedFlags.FlowExecutionContext);
                 else Task.CompletedTask.ConfigureAwait(_value._continueOnCapturedContext).GetAwaiter().OnCompleted(continuation);
@@ -328,7 +365,7 @@ namespace CsharpcCoreLib
                 if (obj != null && ValueTaskSupport.IsTask(obj))
                     CoreIntrinsics.ReinterpretAs<Task<TResult>>(obj).ConfigureAwait(_value._continueOnCapturedContext).GetAwaiter().UnsafeOnCompleted(continuation);
                 else if (obj != null)
-                    ((IValueTaskSource<TResult>)obj).OnCompleted(ValueTaskSupport.s_invokeAction, continuation, _value._token,
+                    ValueTaskSources<TResult>.OnCompleted(obj, ValueTaskSupport.s_invokeAction, continuation, _value._token,
                         _value._continueOnCapturedContext ? ValueTaskSourceOnCompletedFlags.UseSchedulingContext : ValueTaskSourceOnCompletedFlags.None);
                 else Task.CompletedTask.ConfigureAwait(_value._continueOnCapturedContext).GetAwaiter().UnsafeOnCompleted(continuation);
             }

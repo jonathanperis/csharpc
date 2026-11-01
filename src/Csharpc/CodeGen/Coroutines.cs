@@ -72,6 +72,21 @@ public static class Coroutines
         && (Namespace(named), named.Name) is ("System.Threading.Tasks", "ValueTask")
             or ("System.Runtime.CompilerServices", "ValueTaskAwaiter" or "ConfiguredValueTaskAwaitable" or "ConfiguredValueTaskAwaiter");
 
+    /// <summary>
+    /// `[AsyncMethodBuilder(typeof(PoolingAsyncValueTaskMethodBuilder&lt;&gt;))]` on a ValueTask&lt;T&gt; method: its
+    /// coroutine's task is handed out through a pooled, versioned source (corelib AsyncBuilders.cs, PoolingTaskBox),
+    /// so a second await of the ValueTask throws as with .NET's pooled boxes.
+    /// </summary>
+    public static bool UsesPoolingBuilder(IMethodSymbol method)
+    {
+        foreach (var attribute in method.GetAttributes())
+            if (attribute.AttributeClass is { Name: "AsyncMethodBuilderAttribute" } a && Namespace(a) == "System.Runtime.CompilerServices"
+                && attribute.ConstructorArguments is [{ Value: INamedTypeSymbol { Name: "PoolingAsyncValueTaskMethodBuilder", Arity: 1 } builder }]
+                && Namespace(builder) == "System.Runtime.CompilerServices")
+                return true;
+        return false;
+    }
+
     public static bool IsYieldAwaitable(ITypeSymbol? type) =>
         type is INamedTypeSymbol { Name: "YieldAwaitable" } named && Namespace(named) == "System.Runtime.CompilerServices";
 

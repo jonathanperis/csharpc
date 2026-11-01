@@ -157,6 +157,14 @@ their `async` methods: an `IAsyncStateMachine` (a struct in Release builds, a cl
   copy and the box share the task, later awaits reuse the box. A method that completes synchronously
   never allocates a pending task. The `ValueTask` builders wrap the `Task` ones; the generic ones keep a
   synchronous result inline, so the method returns `new ValueTask<T>(result)`, as .NET's do.
+  `PoolingAsyncValueTaskMethodBuilder<T>` is .NET's: a suspending method rents a box per state-machine type
+  (state machine, `MoveNext` delegate, `ManualResetValueTaskSourceCore<T>`) from a one-per-thread cache, then
+  a small shared one, and returns `new ValueTask<T>(box, version)`; `GetResult` resets the box and returns it,
+  so a second await of the same `ValueTask<T>` throws `InvalidOperationException` and the steady state
+  allocates nothing. Source methods with that attribute stay coroutines, but hand their task out through a
+  pooled box of the same kind (`ValueTaskAwait<T>.OfPooledTask`) for the same one-await semantics. The
+  non-generic `PoolingAsyncValueTaskMethodBuilder` is not pooled: the non-generic `ValueTask` is a task pointer
+  without a token, so a reused box could not reject a stale await.
 - **Awaiters.** `TaskAwaiter`, the non-generic `ValueTaskAwaiter`, the `Configured*` task awaiters (`IsCompleted`,
   `GetResult`, `OnCompleted`, `UnsafeOnCompleted`) and `YieldAwaitable.YieldAwaiter` are intrinsics over
   the task pointer: `OnCompleted(action)` registers an `Action` continuation (`csrt_task_on_completed_action`),
@@ -168,7 +176,7 @@ their `async` methods: an `IAsyncStateMachine` (a struct in Release builds, a cl
   no stack traces, so `Throw()` rethrows the same object). Async `void` exceptions end the process
   through `csrt_unhandled_exception`, as in the source path.
 - **Async iterators.** `AsyncIteratorMethodBuilder` and `ManualResetValueTaskSourceCore<T>` (a port of
-  .NET's, without execution contexts). `MoveNextAsync()` returns `new ValueTask<bool>(this, version)`,
+  .NET's, with its execution-context flow and SynchronizationContext / TaskScheduler capture). `MoveNextAsync()` returns `new ValueTask<bool>(this, version)`,
   which keeps the source (the struct `ValueTask<T>`, above). A non-generic `ValueTask` over an
   `IValueTaskSource` is still bridged to a csrt task, completed at once if the source is, otherwise from
   the source's `OnCompleted` continuation (`GetResult` is called once, after completion). `[EnumeratorCancellation]` tokens combine through

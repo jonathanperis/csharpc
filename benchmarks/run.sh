@@ -59,6 +59,15 @@ best_of() {
   echo "$best/$bestcpu"
 }
 
+# via_il <src> <name>: for a program marked `// csharpc-benchmark: via-il`, builds it with csc (Release) and
+# prints the assembly's path; fails (prints nothing) for other programs.
+via_il() {
+  grep -q '^// csharpc-benchmark: via-il' "$1" || return 1
+  mkdir -p "$WORK/$2-ilsrc" && cp "$1" "$WORK/$2-ilsrc/"
+  (cd "$WORK/$2-ilsrc" && "$DOTNET" build "$2.cs" -c Release -p:WarningLevel=0 -o "$WORK/$2-il") > "$WORK/$2.il.log" 2>&1 || return 1
+  echo "$WORK/$2-il/$2.dll"
+}
+
 size_kb() { [[ -f "$1" ]] && echo "$(( $(stat -c %s "$1") / 1024 ))" || echo "-"; }
 
 rows=()
@@ -69,11 +78,15 @@ for src in "$PROGRAMS"/*.cs; do
   echo "== $name" >&2
 
   # csharpc: compile time is measured on the -O2 build (includes Roslyn, LLVM and the link).
+  # A program marked `// csharpc-benchmark: via-il` is compiled from its csc Release build instead (what
+  # only exists in IL, e.g. async method builders); its compile time then excludes csc.
+  input="$src"
+  if il_input=$(via_il "$src" "$name"); then input="$il_input"; fi
   t0=$(now_ms)
-  "${CSHARPC[@]}" -O2 "$src" -o "$WORK/$name-O2" 2> "$WORK/$name.log"
+  "${CSHARPC[@]}" -O2 "$input" -o "$WORK/$name-O2" 2> "$WORK/$name.log"
   ok2=$?
   ctime=$(( $(now_ms) - t0 ))
-  "${CSHARPC[@]}" -O3 "$src" -o "$WORK/$name-O3" 2>> "$WORK/$name.log"
+  "${CSHARPC[@]}" -O3 "$input" -o "$WORK/$name-O3" 2>> "$WORK/$name.log"
   ok3=$?
   if [[ $ok2 == 0 ]]; then o2=$(best_of "$expected" "$WORK/$name-O2"); else o2="COMPILE-ERROR"; ctime="-"; fi
   if [[ $ok3 == 0 ]]; then o3=$(best_of "$expected" "$WORK/$name-O3"); else o3="COMPILE-ERROR"; fi
