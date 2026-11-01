@@ -809,7 +809,7 @@ namespace CsharpcCoreLib
             Check(source, "source");
             using (IEnumerator<int> e = source.GetEnumerator())
             {
-                if (!e.MoveNext()) ThrowHelper.NoElements();
+                if (!e.MoveNext()) { if (source is int[] || source is List<int>) ThrowHelper.NoElementsSpan(); ThrowHelper.NoElements(); }
                 int value = e.Current;
                 while (e.MoveNext()) if (e.Current < value) value = e.Current;
                 return value;
@@ -821,7 +821,7 @@ namespace CsharpcCoreLib
             Check(source, "source");
             using (IEnumerator<int> e = source.GetEnumerator())
             {
-                if (!e.MoveNext()) ThrowHelper.NoElements();
+                if (!e.MoveNext()) { if (source is int[] || source is List<int>) ThrowHelper.NoElementsSpan(); ThrowHelper.NoElements(); }
                 int value = e.Current;
                 while (e.MoveNext()) if (e.Current > value) value = e.Current;
                 return value;
@@ -833,7 +833,7 @@ namespace CsharpcCoreLib
             Check(source, "source");
             using (IEnumerator<long> e = source.GetEnumerator())
             {
-                if (!e.MoveNext()) ThrowHelper.NoElements();
+                if (!e.MoveNext()) { if (source is long[] || source is List<long>) ThrowHelper.NoElementsSpan(); ThrowHelper.NoElements(); }
                 long value = e.Current;
                 while (e.MoveNext()) if (e.Current < value) value = e.Current;
                 return value;
@@ -845,7 +845,7 @@ namespace CsharpcCoreLib
             Check(source, "source");
             using (IEnumerator<long> e = source.GetEnumerator())
             {
-                if (!e.MoveNext()) ThrowHelper.NoElements();
+                if (!e.MoveNext()) { if (source is long[] || source is List<long>) ThrowHelper.NoElementsSpan(); ThrowHelper.NoElements(); }
                 long value = e.Current;
                 while (e.MoveNext()) if (e.Current > value) value = e.Current;
                 return value;
@@ -925,7 +925,14 @@ namespace CsharpcCoreLib
                     }
                     return value;
                 }
-                if (!e.MoveNext()) ThrowHelper.NoElements();
+                if (!e.MoveNext())
+                {
+                    // .NET (TryGetSpan): arrays and lists of value types other than double, float and decimal
+                    // (Enumerable's own loops) go through MemoryExtensions.Min/Max.
+                    if ((source is TSource[] || source is List<TSource>) && !(default(TSource) is double || default(TSource) is float || default(TSource) is decimal))
+                        ThrowHelper.NoElementsSpan();
+                    ThrowHelper.NoElements();
+                }
                 value = e.Current;
                 while (e.MoveNext())
                 {

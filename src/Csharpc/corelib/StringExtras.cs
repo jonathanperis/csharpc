@@ -458,9 +458,27 @@ namespace CsharpcCoreLib
 
         private static T MinMax<T>(ReadOnlySpan<T> span, IComparer<T> comparer, int sign)
         {
+            T best = default(T);
+            if (best == null)
+            {
+                // Reference and nullable types (.NET's MemoryExtensions.MinMax): nulls are skipped; an empty or
+                // all-null span gives null.
+                int i = 0;
+                for (; i < span.Length; i++)
+                {
+                    best = span[i];
+                    if (best != null) { i++; break; }
+                }
+                for (; i < span.Length; i++)
+                {
+                    T next = span[i];
+                    if (next != null && (comparer != null ? comparer.Compare(best, next) : CoreIntrinsics.Compare(best, next)) * sign > 0) best = next;
+                }
+                return best;
+            }
             // MemoryExtensions' wording ends with a period (Enumerable's doesn't).
             if (span.Length == 0) throw new InvalidOperationException("Sequence contains no elements.");
-            T best = span[0];
+            best = span[0];
             for (int i = 1; i < span.Length; i++)
             {
                 T v = span[i];

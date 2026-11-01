@@ -1,0 +1,15 @@
+List<T>.Sort(Comparison<T>): InvalidOperationException: Failed to compare two elements in the array.
+  inner FormatException: cmp
+List<T>.Sort(IComparer<T>): InvalidOperationException: Failed to compare two elements in the array.
+  inner NotSupportedException: comparer
+List<T>.Sort() of non-comparable objects: InvalidOperationException: Failed to compare two elements in the array.
+  inner ArgumentException: At least one object must implement IComparable.
+List<T>.Sort() with a throwing CompareTo: InvalidOperationException: Failed to compare two elements in the array.
+  inner ApplicationException: CompareTo
+Array.Sort(T[], Comparison<T>): InvalidOperationException: Failed to compare two elements in the array.
+  inner InvalidCastException: strings
+Array.Sort(T[], int, int, IComparer<T>): InvalidOperationException: Failed to compare two elements in the array.
+  inner NotSupportedException: comparer
+comparison throwing IndexOutOfRangeException: ArgumentException: Unable to sort because the IComparer.Compare() method returns inconsistent results. Either a value does not compare equal to itself, or one value repeatedly compared to another value yields different results. IComparer: 'System.Comparison`1[System.Int32]'.
+IComparer throwing IndexOutOfRangeException: ArgumentException: Unable to sort because the IComparer.Compare() method returns inconsistent results. Either a value does not compare equal to itself, or one value repeatedly compared to another value yields different results. IComparer: 'OutOfRange comparer'.
+one element: not compared
