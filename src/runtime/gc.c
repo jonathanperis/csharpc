@@ -101,6 +101,13 @@
 #define CHUNK_HEADER ((size_t)4096)
 #define MAX_SLOTS    ((CHUNK_SIZE - CHUNK_HEADER) / 16)
 #define LARGE_LIMIT  ((size_t)2048)
+// Released slot pages (release_chunk) read as zero when touched again with Linux's MADV_DONTNEED and Windows'
+// decommit + recommit; macOS's MADV_FREE_REUSABLE may leave their old contents.
+#if defined(__APPLE__) || defined(__wasi__)
+#define RELEASED_PAGES_READ_ZERO 0
+#else
+#define RELEASED_PAGES_READ_ZERO 1
+#endif
 #define MIN_TRIGGER  ((size_t)32 * 1024 * 1024)
 // 32 MiB matches the historical full-heap trigger cadence on churn; 4 MiB minors were too frequent
 // once survivors promote (each minor then walks dirty old chunks).
@@ -122,7 +129,6 @@ struct Chunk {
     uint32_t slots;
     uint32_t live;         // live slots after the last sweep
     uint32_t size_class;
-    uint8_t trimmed;       // empty, and its slot pages were given back to the OS (trim_free_pages)
 #if CSRT_HAS_NURSERY
     uint8_t young;         // 1: nursery chunk (minor collections sweep these)
     uint8_t dirty;         // old→young card: set by the write barrier, cleared when scanned
@@ -131,7 +137,7 @@ struct Chunk {
 #if defined(CSRT_GC_PARALLEL_MARK)
     uint8_t owner;         // which parallel marker writes this chunk's mark bits
 #endif
-    uint8_t released;      // empty, and its slot pages were given back to the OS (zero when touched again)
+    uint8_t released;      // empty, and its slot pages were given back to the OS (release_chunk)
     Chunk* next;           // all chunks
     Chunk* next_free;      // per-class list of chunks with free slots / list of empty chunks
     uint64_t allocated[MAX_SLOTS / 64];
@@ -429,7 +435,6 @@ static void chunk_format(Chunk* c, uint32_t cls) {
     c->size_class = cls;
     c->slots = (uint32_t)((CHUNK_SIZE - CHUNK_HEADER) / size);
     c->live = 0;
-    c->trimmed = 0;
 #if CSRT_HAS_NURSERY
     c->young = g.nursery ? 1 : 0;
     c->dirty = 0;
@@ -470,7 +475,9 @@ static bool claim_word(SizeClass* sc, AllocCache* cache, uint32_t cls) {
                 // reading flags through a garbage "method table".
                 // Slot starts of a class whose size is a multiple of the old one's are old slot starts.
                 uint32_t old_size = k_size_classes[c->size_class], new_size = k_size_classes[cls];
-                if (c->released) { c->released = 0; g.released_chunks--; }  // its pages read as zero again: nothing to clear
+                bool zeroed = c->released && RELEASED_PAGES_READ_ZERO;  // nothing to clear
+                if (c->released) { c->released = 0; g.released_chunks--; }
+                if (zeroed) {}  // its pages read as zero: nothing to clear
                 else
 #if CSRT_HAS_NURSERY
                 if (g.nursery && c->size_class != cls) memset((uint8_t*)c + CHUNK_HEADER, 0, CHUNK_SIZE - CHUNK_HEADER);  // minors scan whole chunks
@@ -1822,17 +1829,27 @@ static void resume_world(void) {
 #if !defined(__wasi__)
 #define TRIM_QUIET_BYTES ((size_t)1024 * 1024)
 
-static void release_pages(uint8_t* from, uint8_t* to) {
-    if (from >= to) return;
+static bool release_pages(uint8_t* from, uint8_t* to) {
+    if (from >= to) return true;
 #if defined(_WIN32)
     // Decommit + recommit: the range stays usable and reads as zero, but holds no memory until touched.
-    VirtualFree(from, (size_t)(to - from), MEM_DECOMMIT);
-    VirtualAlloc(from, (size_t)(to - from), MEM_COMMIT, PAGE_READWRITE);
+    return VirtualFree(from, (size_t)(to - from), MEM_DECOMMIT) && VirtualAlloc(from, (size_t)(to - from), MEM_COMMIT, PAGE_READWRITE);
 #elif defined(__APPLE__)
-    madvise(from, (size_t)(to - from), MADV_FREE_REUSABLE);  // Darwin's MADV_DONTNEED frees nothing
+    return madvise(from, (size_t)(to - from), MADV_FREE_REUSABLE) == 0;  // Darwin's MADV_DONTNEED frees nothing
 #else
-    madvise(from, (size_t)(to - from), MADV_DONTNEED);
+    return madvise(from, (size_t)(to - from), MADV_DONTNEED) == 0;
 #endif
+}
+
+/// An empty chunk's slot pages go back to the OS (its header, with the bitmaps and links, stays). Both the
+/// collector's surplus release and the idle trim use it; `released` keeps a chunk from being released twice
+/// and tells claim_word that, where RELEASED_PAGES_READ_ZERO, its slots need no clearing when it is reused.
+static bool release_chunk(Chunk* c) {
+    if (c->released) return true;
+    if (!release_pages((uint8_t*)c + CHUNK_HEADER, (uint8_t*)c + CHUNK_SIZE)) return false;
+    c->released = 1;
+    g.released_chunks++;
+    return true;
 }
 
 /// Any allocated slot among [first, last]?
@@ -1853,8 +1870,7 @@ static void trim_free_pages(void) {
     for (Chunk* c = g.chunks; c; c = c->next) {
         uint8_t* data = (uint8_t*)c + CHUNK_HEADER;
         if (c->object_size == 0) {
-            if (!c->trimmed) release_pages(data, (uint8_t*)c + CHUNK_SIZE);
-            c->trimmed = 1;
+            release_chunk(c);
             continue;
         }
         if (c->live == c->slots) continue;
@@ -2325,16 +2341,14 @@ static void adapt_budget(struct timespec start, struct timespec end) {
 /// process shrinks after a burst: a server's heap peaks under its warm-up's connections and, without
 /// this, its RSS never came down again (TechEmpower JSON: 52 MiB at every later load level, against
 /// NativeAOT's 30-44). In a steady state the empty chunks a sweep finds are about the budget, so none
-/// are released and none fault in again. The chunk header (bitmaps, links) stays resident; Linux
-/// zero-fills the released pages on their next touch, which claim_word relies on.
+/// are released and none fault in again (release_chunk; claim_word skips clearing a released chunk where
+/// its pages come back zeroed).
 static void release_surplus_chunks(void) {
-#ifdef __linux__
+#if !defined(__wasi__)
     size_t keep = g.trigger / CHUNK_SIZE + 4, committed = 0;
     for (Chunk* c = g.empty; c; c = c->next_free) {
         if (c->released || ++committed <= keep) continue;
-        if (madvise((uint8_t*)c + CHUNK_HEADER, CHUNK_SIZE - CHUNK_HEADER, MADV_DONTNEED) != 0) return;
-        c->released = 1;
-        g.released_chunks++;
+        if (!release_chunk(c)) return;
     }
 #endif
 }
