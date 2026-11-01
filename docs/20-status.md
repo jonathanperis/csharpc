@@ -100,6 +100,17 @@ attribute factories) with a ~25 % faster build.
   ~25 ms at 4096+ plaintext connections (stop-the-world marking of ~1.4 M live objects: the latency gap), executable +0.2 MiB, build 150 vs 24 s (single-threaded
   optimizer: per-partition optimization next), the rest of the JSON writer's 1,100 instructions per call.
   The M7 perf workflow also profiles the Platform entry's json and plaintext tests.
+- `ci/m7-perf-4` — M7 performance, fourth round (on main `774b977`). `ArrayPool<T>.Shared` pools (it allocated a
+  fresh array per Rent): the Platform entry's cached queries allocated 13.3 → 3.2 GB per run, GC 1.56 → 0.77 s;
+  cached queries 1.08/1.14/1.05/0.99/0.93× at 1-100 on an Intel runner (M7 perf 41288905514; were
+  1.12/1.10/0.97/0.88/0.81 on AMD, 41283379606). JSON writer: integer properties and start tokens in one
+  capacity check (CachedWorld[] 740-840 ns locally, JIT 775; a 100-query request 14.3 µs vs the JIT's
+  14.7). Found: a stop-the-world collection of the server-shaped heap is ~100 % marking (sort, roots, sweep
+  under 0.3 ms of 21 ms), and the parallel marker (CSRT_GC_PARALLEL_MARK) is slower than the serial one (35
+  vs 21 ms) — shorter pauses need concurrent marking (a write barrier). Interim size gap: type metadata is
+  ~2 MB (csharpc.typeinfo.entries 933 KB at 96 bytes per type, type-name strings 530 KB, typenames 186 KB,
+  interface/argument lists 240 KB); 32-bit relative fields would save ~0.4 MB. Intel vs AMD: CPU per
+  request drops by the same ~30-40 % for both builds on Intel; the ratio shift is a few %, not a hot spot.
 - `ci/m7-perf-3` — M7 performance, third round (on main `9d234c3`). Large executables are optimized and
   code-generated per partition in parallel (ADR 0014 §5: small callees and constants imported as
   available_externally, shared symbols hidden-external, a section per function for --gc-sections):
