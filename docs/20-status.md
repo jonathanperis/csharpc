@@ -100,6 +100,19 @@ attribute factories) with a ~25 % faster build.
   ~25 ms at 4096+ plaintext connections (stop-the-world marking of ~1.4 M live objects: the latency gap), executable +0.2 MiB, build 150 vs 24 s (single-threaded
   optimizer: per-partition optimization next), the rest of the JSON writer's 1,100 instructions per call.
   The M7 perf workflow also profiles the Platform entry's json and plaintext tests.
+- `ci/m7-deploy` — M7 deployment metrics and two silent differences. Idle RSS of the Platform entry 49.5 →
+  27.6 MiB (NativeAOT 37.7; TechEmpower run 41260599507, **275 of 456**): the collector kept the peak its
+  start-up's cache fill reached (31 MiB of chunks for 8 MiB live); the pool's timer thread now gives free slot
+  pages back to the OS once allocation goes quiet (gc.c, "Idle trimming"; size budget linux-x86_64 async
+  +4 KiB). Start-up is still behind (762 vs 615 ms in run 41263341198, the same CPU time: the 10,000-query fill
+  is latency-bound): the timer thread no longer wakes per Npgsql command timeout, and the socket engine takes
+  no lock for readiness with nothing pending (futex calls to the first response 204k → 116k locally,
+  NativeAOT 60k); what is left is thread hand-offs per query (pool wake-ups; csharpc's Monitor parks without
+  spinning). `UseSystemResourceKeys=true` is refused (compile time, and `AppContext.SetSwitch` at run time):
+  .NET prints resource keys, csharpc's corelib full messages (sample 880; the interim app dropped it).
+  `new SocketException(SocketError)` takes .NET's errno for each value (11 of 47 differed on Linux) and WASI's
+  numbering on WebAssembly ("Connection refused" was another text there); samples 881–882. Harness: start-up
+  CPU time and idle RSS by mapping in the deploy log.
 - `ci/m7-platform` — csharpc builds and runs TechEmpower's Platform entry (`csharpc Platform.dll`, frameworks
   from its runtimeconfig.json); all seven test types answer as the JIT does (identical verify.py
   transcripts locally). Fixes: SO_REUSEADDR on bind, non-blocking connect/Select, async NetworkStream over
