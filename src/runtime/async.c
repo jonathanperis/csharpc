@@ -286,7 +286,7 @@ static void spawn_worker_locked(void) {
 static void timer_loop(void);
 
 static void pool_start_locked(void) {
-    s_pool_started = true;
+    __atomic_store_n(&s_pool_started, true, __ATOMIC_RELEASE);
 #ifdef __wasi__
     return;  // no threads: blocked callers run the queue (csrt_task_wait, csrt_scheduler_run_until)
 #endif
@@ -882,6 +882,11 @@ static pthread_cond_t s_tcond;
 static pthread_once_t s_tcond_once = PTHREAD_ONCE_INIT;
 static csrt_Array* s_timers;    // triples (deadline_ms, task, token); unsorted, scanned in creation order
 static int64_t s_ntimers;
+// While the timer thread sleeps, the deadline it sleeps until; INT64_MIN while it runs (it rescans the
+// timers before it sleeps again). A timer due later needs no wake-up: Npgsql arms its 30 s command
+// timeout per query (CancelAfter), and signalling the timer thread for each one cost futex calls and a
+// context switch per query of the TechEmpower entry's 10,000-query start-up.
+static int64_t s_timer_wake = INT64_MIN;
 
 static void init_tcond(void) {
 #if defined(__APPLE__) || defined(_WIN32)
@@ -899,9 +904,11 @@ static void init_tcond(void) {
 
 static void add_timer(int64_t deadline, csrt_Task* task, CancellationSource* token) {
     pthread_once(&s_tcond_once, init_tcond);
-    pthread_mutex_lock(&s_qlock);
-    if (!s_pool_started) pool_start_locked();
-    pthread_mutex_unlock(&s_qlock);
+    if (!__atomic_load_n(&s_pool_started, __ATOMIC_ACQUIRE)) {  // set once, under s_qlock
+        pthread_mutex_lock(&s_qlock);
+        if (!s_pool_started) pool_start_locked();
+        pthread_mutex_unlock(&s_qlock);
+    }
     pthread_mutex_lock(&s_tlock);
     int64_t cap = s_timers ? s_timers->length / 3 : 0;
     if (s_ntimers == cap) {
@@ -916,7 +923,7 @@ static void add_timer(int64_t deadline, csrt_Task* task, CancellationSource* tok
     words(s_timers)[s_ntimers * 3 + 1] = task;
     words(s_timers)[s_ntimers * 3 + 2] = token;
     s_ntimers++;
-    pthread_cond_signal(&s_tcond);
+    if (deadline < s_timer_wake) pthread_cond_signal(&s_tcond);
     pthread_mutex_unlock(&s_tlock);
 }
 
@@ -976,6 +983,7 @@ static void timer_loop(void) {
         struct timespec ts;
         clock_gettime(CLOCK_MONOTONIC, &ts);
         int64_t wait = next - now_ms();
+        if (wait > 0) s_timer_wake = next;
 #if defined(__APPLE__) || defined(_WIN32)
         if (wait > 0) {
             struct timespec relative = { (time_t)(wait / 1000), (long)(wait % 1000) * 1000000 };
@@ -989,6 +997,7 @@ static void timer_loop(void) {
             pthread_cond_timedwait(&s_tcond, &s_tlock, &ts);
         }
 #endif
+        s_timer_wake = INT64_MIN;
     }
 }
 
