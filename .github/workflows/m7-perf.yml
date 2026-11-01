@@ -32,7 +32,7 @@ jobs:
           - { kind: load, n: 3, profile: "0", app: interim, tests: "deploy,plaintext,json" }
           - { kind: profile, n: 1, profile: "1", app: interim, tests: "deploy,plaintext,json" }
           # TechEmpower's real Platform entry (the M7 verdict's): a profile of its JSON and plaintext tests.
-          - { kind: platform-profile, n: 1, profile: "1", app: platform, tests: "json,plaintext,cached-query" }
+          - { kind: platform-profile, n: 1, profile: "1", app: platform, tests: "json,plaintext,cached-query,db" }
     runs-on: ubuntu-24.04
     timeout-minutes: 120
     env:
@@ -75,7 +75,7 @@ jobs:
       - name: Build, verify and load
         run: |
           ulimit -n 65535 || true
-          PROFILE="${{ matrix.profile }}" PROFILE_SCENARIOS="plaintext,256 plaintext,4096 json,256 cached-query,20" DURATION=15 benchmarks/techempower/run.sh --app ${{ matrix.app }} --tests ${{ matrix.tests }} \
+          PROFILE="${{ matrix.profile }}" PROFILE_SCENARIOS="plaintext,256 plaintext,4096 json,256 cached-query,20 db,32" DURATION=15 benchmarks/techempower/run.sh --app ${{ matrix.app }} --tests ${{ matrix.tests }} \
             --only aot,csharpc --rounds 3 --out m7-results || status=$?
           cat m7-results/results.md >> "$GITHUB_STEP_SUMMARY" || true
           # Phase timings of the csharpc build (-v), for the build-time work.
