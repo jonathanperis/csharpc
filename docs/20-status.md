@@ -148,6 +148,39 @@ attribute factories) with a ~25 % faster build.
   5.2-5.4 ms, of which 4.5 ms is the remark's rescan of coroutine frames (next: concurrent pre-cleaning of frames);
   livemutate pause 32 -> 0.2 ms; wall time on arm64 +9-11 % on binarytrees/churn/exprtree, RSS +33 % in the GC suite.
   GC concurrent workflow green.
+- `ci/m7-gc-concurrent` (step 3) — frame pre-cleaning, cheaper barriers, pacing ([ADR 0020](adr/0020-concurrent-marking.md),
+  "Step 3"); `--gc-concurrent` stays off by default. What changed:
+  - **Coroutine frames.** The remark rescans only the frames still running (a running-frame stack per thread). Their
+    part of the remark went from 4.5 ms to 0.00 ms.
+  - **Barriers removed:**
+    - stores of fresh values, matched after the optimizer through a marker on the inlined allocator;
+    - copies tagged reference-free;
+    - copies out of constant data.
+  - **Value barriers for small aggregates.** A store of a small aggregate (a span) gets a value barrier per reference.
+    The range barrier took the slot's address, which kept `out` spans from being promoted to registers, and its call
+    inside a lazy initialization stopped LLVM from hoisting loads out of strbuild's IndexOf loop.
+  - **Atomic mark bits** only while a cycle runs.
+  - **Pacing.** Cycles start early, and the next budget leaves out the cycle's black allocation.
+
+  Measured (M7 perf 41319120179, Benchmarks 41319120195, TechEmpower 41315086945):
+  - **Platform plaintext pauses:** p50 0.4 ms, max 0.9–3.5 ms over three runs. The frames' part is now 0; the rest is
+    the stop-the-world handshake. Stop-the-world collections were 13–23 ms each.
+  - **Plaintext at 4096 from the new latency probe:** p99 79 ms for csharpc against 45 ms for NativeAOT in the
+    Platform entry without the flag. With the flag (a different runner): 55 ms against 48 ms. At 16384 csharpc is
+    better (239 ms against 309 ms).
+  - **Interim plaintext throughput on one CPU type** (EPYC 7763): 1.06–1.16× NativeAOT without the flag, 1.03–1.08×
+    with it, about −5 % from the flag.
+  - **Benchmarks wall time on arm64:** binarytrees and churn +13 %, exprtree +23 %, even though the arm64 instruction
+    counts rose only 4.5 % and 9 %. x86-64 is within noise.
+  - **Executed instructions on x86-64 after this round:** binarytrees +0.6 %, churn +1.0 %, exprtree +3.1 %, listsort
+    +2.5 %, strbuild +36 → +5.5 %, sbops +7.6 %, wordfreq +5.5 %. wordfreq's cost is spread across its Dictionary
+    loop (12 instructions per iteration, register pressure, no barrier on the path); about half of it is the
+    allocator marker.
+  - **GC suite peak RSS:** 256 → 207 MiB (stop-the-world: 209).
+  - **M7 verdict** (TechEmpower 41315086945, default build): 308 of 456.
+
+  Default: still off. Speed comes first, and the flag still costs about 5 % plaintext throughput and 13–23 % wall time
+  on arm64's allocation-heavy programs.
 - `ci/m7-perf-4` — M7 performance, fourth round (on main `774b977`). `ArrayPool<T>.Shared` pools (it allocated a
   fresh array per Rent): the Platform entry's cached queries allocated 13.3 → 3.2 GB per run, GC 1.56 → 0.77 s;
   cached queries 1.08/1.14/1.05/0.99/0.93× at 1-100 on an Intel runner (M7 perf 41288905514; were

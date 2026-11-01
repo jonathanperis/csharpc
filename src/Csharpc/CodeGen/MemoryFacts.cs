@@ -80,6 +80,20 @@ public sealed class MemoryFacts(LlvmContext llvm)
     /// the array covariance test (FunctionCodeGen.ArrayCovariance.cs) is hoisted out of loops, past its own
     /// out-of-line slow call. LLVM still forwards the nearest must-alias store (the tagging one) to it.
     /// </summary>
+    /// <summary>
+    /// A block copy that moves no object references: cpblk, Unsafe.CopyBlock (in .NET these have no write
+    /// barrier, so they never carry references), span copies of reference-free elements. The concurrent
+    /// marker's barrier pass skips it (ModuleCodeGen.ConcurrentBarriers.cs).
+    /// </summary>
+    public void NoReferences(LLVMValueRef copy)
+    {
+        if (_empty.Handle == 0) _empty = AsValue(Node());
+        LLVMSetMetadata(copy, NoReferencesKind, _empty);
+    }
+
+    public uint NoReferencesKind => Kind(ref _noReferencesKind, "csharpc.noref");
+    private uint? _noReferencesKind;
+
     public void MethodTableLoad(LLVMValueRef load)
     {
         SetTbaa(load, ref _methodTableTag, "method table");

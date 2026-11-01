@@ -52,7 +52,19 @@ public sealed partial class ModuleCodeGen
                             else if (HoldsPointer(type))
                             {
                                 Before(b, inst);
-                                Located(inst, b.Call(range.Type, range.Fn, [address, Llvm.ConstInt(Llvm.I64, (long)Types.Target.SizeOf(type))]));
+                                // A small aggregate (a span, a struct with a few references): a value barrier per
+                                // reference it holds. The range barrier would pass the address to a call, and a
+                                // store into a local once inlined (an `out` span) could no longer be promoted to
+                                // registers (SROA): strbuild's IndexOf loop ran +60 % instructions.
+                                var leaves = new List<uint[]>();
+                                if (PointerLeaves(type, [], leaves))
+                                    foreach (var path in leaves)
+                                    {
+                                        var field = stored;
+                                        foreach (var index in path) field = b.ExtractValue(field, index);
+                                        if (LLVMIsConstant(field) == 0) Located(inst, b.Call(value.Type, value.Fn, [field]));
+                                    }
+                                else Located(inst, b.Call(range.Type, range.Fn, [address, Llvm.ConstInt(Llvm.I64, (long)Types.Target.SizeOf(type))]));
                             }
                             break;
                         }
@@ -92,7 +104,12 @@ public sealed partial class ModuleCodeGen
                             var name = LLVMGetValueName(callee);
                             if (!name.StartsWith("llvm.memcpy", StringComparison.Ordinal) && !name.StartsWith("llvm.memmove", StringComparison.Ordinal)) break;
                             var destination = LLVMGetOperand(inst, 0);
-                            if (IsRootAddress(destination)) break;
+                            if (IsRootAddress(destination) || LLVMGetMetadata(inst, Facts.NoReferencesKind).Handle != 0) break;
+                            // A copy out of constant data (InitializeArray's RVA blob, a struct literal) stores no
+                            // heap object: those exist only at run time. Its barrier, inside a lazy initialization
+                            // in a loop, kept LLVM from hoisting the loop's loads (strbuild's IndexOf: +60 %).
+                            var source = LLVMGetOperand(inst, 1);
+                            if (!LLVMIsAGlobalVariable(source).IsNull && LLVMIsGlobalConstant(source) != 0) break;
                             var length = LLVMGetOperand(inst, 2);
                             Before(b, inst);
                             if (length.Type.IntWidth != 64) length = b.Cast(LLVMOpcode.ZExt, length, Llvm.I64);
@@ -102,6 +119,46 @@ public sealed partial class ModuleCodeGen
                     }
                 }
             }
+        }
+    }
+
+    /// <summary>The paths of the references in an aggregate, false when there are more than 8 or a vector holds some.</summary>
+    private static bool PointerLeaves(LLVMTypeRef type, List<uint> path, List<uint[]> leaves)
+    {
+        switch (type.Kind)
+        {
+            case LLVMTypeKind.Pointer:
+                if (leaves.Count == 8) return false;
+                leaves.Add([.. path]);
+                return true;
+            case LLVMTypeKind.Struct:
+                for (uint i = 0, n = LLVMCountStructElementTypes(type); i < n; i++)
+                {
+                    path.Add(i);
+                    var ok = PointerLeaves(LLVMStructGetTypeAtIndex(type, i), path, leaves);
+                    path.RemoveAt(path.Count - 1);
+                    if (!ok) return false;
+                }
+                return true;
+            case LLVMTypeKind.Array:
+            {
+                var element = LLVMGetElementType(type);
+                if (!HoldsPointer(element)) return true;
+                var length = LLVMGetArrayLength2(type);
+                if (length > 8) return false;
+                for (uint i = 0; i < length; i++)
+                {
+                    path.Add(i);
+                    var ok = PointerLeaves(element, path, leaves);
+                    path.RemoveAt(path.Count - 1);
+                    if (!ok) return false;
+                }
+                return true;
+            }
+            case LLVMTypeKind.Vector:
+                return !HoldsPointer(type);
+            default:
+                return true;
         }
     }
 

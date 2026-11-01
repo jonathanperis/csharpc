@@ -87,7 +87,7 @@ public sealed partial class FunctionCodeGen
             case "CopyBlock" or "CopyBlockUnaligned" when args.Length == 3:
             {
                 var f = _m.Intrinsic("llvm.memmove.p0.p0.i64", L.Void, L.Ptr, L.Ptr, L.I64, L.I1);
-                _b.Call(f.Type, f.Fn, [IlAddress(args[0]), IlAddress(args[1]), IlToI64(args[2], signed: false), L.False]);
+                _m.Facts.NoReferences(_b.Call(f.Type, f.Fn, [IlAddress(args[0]), IlAddress(args[1]), IlToI64(args[2], signed: false), L.False]));
                 return handled;
             }
             case "InitBlock" or "InitBlockUnaligned" when args.Length == 3:

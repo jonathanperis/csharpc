@@ -283,6 +283,28 @@ GC latency suite, peak RSS over 6 local runs (4 threads, median):
 
 Wall time did not change. The longest pause stayed under 1 ms.
 
+Copies that move no references have no barrier:
+- copies the compiler knows are reference-free (cpblk, `Unsafe.CopyBlock`, span copies of reference-free elements),
+  which carry a `csharpc.noref` tag;
+- copies out of constant globals (InitializeArray).
+
+A store of a small aggregate (up to 8 references) gets one value barrier per reference instead of a range barrier
+on its address. The address passed to the range barrier's call kept an inlined `out` span from being promoted to
+registers. Inside a lazy initialization in a loop, that call also kept LLVM from hoisting the loop's loads. Together
+these made strbuild's IndexOf loop run 60 % more instructions, and strbuild as a whole went from +36 % to +5.5 %.
+
+### On CI (M7 perf 41319120179, Benchmarks 41319120195, TechEmpower 41315086945)
+
+- **Platform plaintext with the flag:** pause p50 0.37 ms. The maximum was 2.69, 0.92 and 3.46 ms over three runs.
+  The frames' part is 0.00 ms. The rest is the stop-the-world handshake, where the phases inside the pause total
+  under 0.8 ms. JSON, db and cached queries: max 0.7–1.9 ms.
+- **Throughput on one CPU type** (EPYC 7763, Interim plaintext): csharpc/NativeAOT is 1.15/1.15/1.08/1.16 at
+  256/1024/4096/16384 connections without the flag, and 1.06/1.05/1.03/1.08 with it.
+- **arm64 Benchmarks wall time:** binarytrees and churn +13 %, exprtree +23 %. arm64 executed instructions rose 4.5 %
+  and 9 % on binarytrees and churn, against +0.6 % and +1.0 % on x86-64. The rest of the arm64 gap is not explained
+  yet, and these programs never start a cycle.
+- **Decision:** the flag stays off by default, because it still costs throughput.
+
 ## Plan
 
 1. The cheap barrier (inline flag test, reference-free copies skipped), behind `--gc-concurrent`, with its cost on the

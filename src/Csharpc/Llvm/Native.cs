@@ -291,6 +291,7 @@ internal static unsafe partial class Native
     [LibraryImport(Lib, StringMarshalling = StringMarshalling.Utf8)]
     public static partial uint LLVMGetMDKindIDInContext(LLVMContextRef c, string name, uint length);
     [LibraryImport(Lib)] public static partial void LLVMSetMetadata(LLVMValueRef instruction, uint kindId, LLVMValueRef node);
+    [LibraryImport(Lib)] public static partial LLVMValueRef LLVMGetMetadata(LLVMValueRef instruction, uint kindId);
     [LibraryImport(Lib)] public static partial void LLVMSetThreadLocal(LLVMValueRef global, int isThreadLocal);
     [LibraryImport(Lib, StringMarshalling = StringMarshalling.Utf8)]
     public static partial LLVMValueRef LLVMBuildInBoundsGEP2(LLVMBuilderRef b, LLVMTypeRef type, LLVMValueRef ptr, [In] LLVMValueRef[] indices, uint count, string name);
