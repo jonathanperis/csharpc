@@ -95,7 +95,9 @@ attribute factories) with a ~25 % faster build.
   loop 165 → 95 ns, JIT 50). Real-entry verdict (TechEmpower run 41247424405, before the JSON writer
   change): **275 of 456** (was 242), JSON 1.09–1.13×, plaintext 1.14/1.13/0.98/1.07 at
   256/1024/4096/16384. Left in this area: plaintext latency at 4096 connections, JSON RSS flat at
-  42 MiB from the first level (budget floor), executable +0.2 MiB, build 150 vs 24 s (single-threaded
+  42 MiB from the first level (budget floor; a floor of 8 MiB under 0.5 % GC overhead gave 35.5 MiB in run
+  41254935185 but was reverted: one runner's JSON rounds spread to 0.82 of NativeAOT), GC pauses of
+  ~25 ms at 4096+ plaintext connections (stop-the-world marking of ~1.4 M live objects: the latency gap), executable +0.2 MiB, build 150 vs 24 s (single-threaded
   optimizer: per-partition optimization next), the rest of the JSON writer's 1,100 instructions per call.
   The M7 perf workflow also profiles the Platform entry's json and plaintext tests.
 - `ci/m7-platform` — csharpc builds and runs TechEmpower's Platform entry (`csharpc Platform.dll`, frameworks
