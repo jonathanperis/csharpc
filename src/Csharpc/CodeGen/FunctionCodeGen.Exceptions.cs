@@ -459,6 +459,7 @@ public sealed partial class FunctionCodeGen
                 case "innerException": inner = value; break;
                 case "paramName": paramName = value; break;
                 case "fileName": paramName = value; break; // FileNotFoundException.FileName (csrt keeps it in param_name)
+                case "directoryPath": paramName = value; break; // DirectoryNotFoundException.DirectoryPath (.NET 11), likewise
                 case "objectName": objectName = value; break;
                 case "hresult" when argument.Parameter!.Type.SpecialType == SpecialType.System_Int32: hresult = value; break; // IOException(message, hresult)
                 case "token" when argument.Parameter!.Type.Name == "CancellationToken": token = value; break; // OperationCanceledException(..., token)
@@ -567,6 +568,7 @@ public sealed partial class FunctionCodeGen
             "InnerException" => ModuleCodeGen.ExceptionInnerField,
             "ParamName" => ModuleCodeGen.ExceptionParamNameField,
             "FileName" when IsFileException(property.ContainingType) => ModuleCodeGen.ExceptionParamNameField,
+            "DirectoryPath" when property.ContainingType.ToDisplayString() == "System.IO.DirectoryNotFoundException" => ModuleCodeGen.ExceptionParamNameField,
             _ => null,
         };
         var innerExceptions = property.Name == "InnerExceptions" && Mangler.MetadataName(property.ContainingType) == "System.AggregateException";

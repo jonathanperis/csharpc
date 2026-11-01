@@ -97,11 +97,13 @@ static bool is_exception_of(const csrt_Exception* e, const csrt_MethodTable* typ
 }
 
 /// FileNotFoundException keeps its FileName in the param_name slot (ArgumentException's ParamName).
-static bool is_file_not_found(const csrt_Exception* e) {
+static bool derives_from(const csrt_Exception* e, const char* name) {
     for (const csrt_MethodTable* mt = e->mt; mt; mt = mt->base)
-        if (strcmp(mt->name, "System.IO.FileNotFoundException") == 0) return true;
+        if (strcmp(mt->name, name) == 0) return true;
     return false;
 }
+
+static bool is_file_not_found(const csrt_Exception* e) { return derives_from(e, "System.IO.FileNotFoundException"); }
 
 // Exception.Message (+ ArgumentException's " (Parameter 'x')" suffix).
 csrt_String* csrt_exception_get_message(void* exception) {
@@ -203,10 +205,12 @@ csrt_String* csrt_exception_to_string(void* exception) {
     csrt_String* s = csrt_string_from_utf8(e->mt->name);
     csrt_String* message = virtual_message(exception);
     if (message && message->length > 0) s = csrt_string_concat(concat_utf8(s, ": "), message);
-    if (is_file_not_found(e)) {
-        // FileNotFoundException.ToString(): "File name: '...'", and the inner exception without the end line.
+    bool file = is_file_not_found(e);
+    if (file || derives_from(e, "System.IO.DirectoryNotFoundException")) {
+        // FileNotFoundException.ToString(): "File name: '...'"; DirectoryNotFoundException's (.NET 11):
+        // "Directory path: '...'"; both list the inner exception without the end line.
         if (e->param_name && e->param_name->length > 0)
-            s = concat_utf8(csrt_string_concat(concat_utf8(s, CSRT_NEWLINE "File name: '"), e->param_name), "'");
+            s = concat_utf8(csrt_string_concat(concat_utf8(s, file ? CSRT_NEWLINE "File name: '" : CSRT_NEWLINE "Directory path: '"), e->param_name), "'");
         if (e->inner) s = csrt_string_concat(concat_utf8(s, CSRT_NEWLINE " ---> "), csrt_object_to_string(e->inner));
     } else if (e->inner) {
         s = csrt_string_concat(concat_utf8(s, CSRT_NEWLINE " ---> "), csrt_object_to_string(e->inner));

@@ -205,3 +205,4 @@ wasi 848_stringbuilder_provider_text_encoder no ICU on WASI (invariant globaliza
 wasi 903_stack_trace_socket_connect     opens loopback sockets: WASI preview 1 has none (PlatformNotSupportedException)
 windows 903_stack_trace_socket_connect  live: the socket implementation behind the frames is per OS (Winsock overlapped connects)
 macos 903_stack_trace_socket_connect    live: the socket implementation behind the frames is per OS (kqueue)
+windows 912_directory_not_found_path   live: Path.Combine and the messages use the OS's directory separator
