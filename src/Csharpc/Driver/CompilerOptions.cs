@@ -62,6 +62,11 @@ public sealed record CompilerOptions
     /// size budgets and slow churn on coarse per-chunk cards (docs/adr/0004).
     /// </summary>
     public bool GcNursery { get; set; } = Environment.GetEnvironmentVariable("CSHARPC_GC_NURSERY") == "1";
+    /// <summary>
+    /// The concurrent marker's write barrier (CSHARPC_GC_CONCURRENT=1 / --gc-concurrent; docs/adr/0020):
+    /// a flag test per heap reference store. Experimental, off by default; not on wasm32 (no threads).
+    /// </summary>
+    public bool GcConcurrent { get; set; } = Environment.GetEnvironmentVariable("CSHARPC_GC_CONCURRENT") == "1";
     public List<string> Defines { get; } = [];
     public string CC { get; set; } = Environment.GetEnvironmentVariable("CSHARPC_CC") ?? "clang";
     /// <summary>A .csproj to evaluate instead of loose files (drop-in mode).</summary>
@@ -114,6 +119,7 @@ public sealed record CompilerOptions
                                  (default: il, or $CSHARPC_CORELIB)
           --no-implicit-usings   Don't add the SDK's implicit global usings
           --no-runtime-lto       Link the runtime as objects instead of LTO-ing its bitcode
+          --gc-concurrent        Emit the concurrent marker's write barrier (experimental, docs/adr/0020)
           --gc-nursery           Emit heap write barriers and enable the non-moving nursery by default
                                  (also CSHARPC_GC_NURSERY=1; off by default — see docs/adr/0004)
           --stack-traces         Record stack traces in every program (default: only programs that print
@@ -204,6 +210,7 @@ public sealed record CompilerOptions
                 case "--no-implicit-usings": o.ImplicitUsings = false; break;
                 case "--no-runtime-lto": o.RuntimeLto = false; break;
                 case "--gc-nursery": o.GcNursery = true; break;
+                case "--gc-concurrent": o.GcConcurrent = true; break;
                 case "--stack-traces": o.StackTraces = true; break;
                 case "--hardening": o.Hardening = Driver.Hardening.Parse(Next()); break;
                 case "--sanitize": o.Sanitize = Next(); break;

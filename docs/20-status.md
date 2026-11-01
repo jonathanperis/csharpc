@@ -119,6 +119,14 @@ attribute factories) with a ~25 % faster build.
   ~25 ms at 4096+ plaintext connections (stop-the-world marking of ~1.4 M live objects: the latency gap), executable +0.2 MiB, build 150 vs 24 s (single-threaded
   optimizer: per-partition optimization next), the rest of the JSON writer's 1,100 instructions per call.
   The M7 perf workflow also profiles the Platform entry's json and plaintext tests.
+- `ci/m7-gc-concurrent` — concurrent marking ([ADR 0020](adr/0020-concurrent-marking.md), on main `4cc0e5b`). Step 1:
+  `--gc-concurrent` emits the marker's barrier through the nursery pass's store discovery (an inline volatile flag
+  test per heap reference store, the log call out of line; the runtime's CSRT_STORE_REF/CSRT_DIRTY too); no marker
+  yet, the default build unchanged. Benchmarks run 41294402756, executed instructions with the barrier: binarytrees
+  +4.5 % (arm64 +3.4), sbops +3.0 (+5.4), churn +2.7 (+1.0), exprtree +2.0 (x86-64), strbuild +0.7 (+2.0), the rest
+  under 1 % (the nursery's barrier measured the same way: binarytrees +12.6, strbuild +45.4). What costs is
+  initializing stores into fresh objects; skipping them is only sound if objects allocated during a cycle are
+  rescanned at the remark. Next: the marker thread, buffers, allocate-black, frame rescans, the remark.
 - `ci/m7-perf-4` — M7 performance, fourth round (on main `774b977`). `ArrayPool<T>.Shared` pools (it allocated a
   fresh array per Rent): the Platform entry's cached queries allocated 13.3 → 3.2 GB per run, GC 1.56 → 0.77 s;
   cached queries 1.08/1.14/1.05/0.99/0.93× at 1-100 on an Intel runner (M7 perf 41288905514; were
