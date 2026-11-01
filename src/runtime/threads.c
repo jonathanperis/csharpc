@@ -553,6 +553,20 @@ static bool monitor_acquire_contended(MonitorBucket* b, Monitor* m, int32_t ms) 
         return false;
     }
     if (m->recursion > 0) {
+        // Spin briefly first, as .NET's Monitor and csharpc's Lock do: most holders keep a monitor for a
+        // few microseconds (a socket's queue around one recv), and parking costs a futex wait, the owner's
+        // futex wake and two context switches. The entry stays (interest) while the bucket is unlocked.
+        pthread_mutex_unlock(&b->lock);
+        for (int i = 0; i < 64 && __atomic_load_n(&m->recursion, __ATOMIC_RELAXED) > 0; i++) {
+#if defined(__x86_64__) || defined(__i386__)
+            __builtin_ia32_pause();
+#elif defined(__aarch64__)
+            __asm__ __volatile__("yield");
+#endif
+        }
+        pthread_mutex_lock(&b->lock);
+    }
+    if (m->recursion > 0) {
         struct timespec deadline;
         if (ms > 0) deadline_after(&deadline, ms);
         m->entering++;
