@@ -1,6 +1,7 @@
 # ADR 0020 — Mostly-concurrent marking
 
-- **Status:** Proposed (2026-11-01). Step 1 (the barrier and its cost) in progress on `ci/m7-gc-concurrent`.
+- **Status:** Accepted (2026-11-01), behind `--gc-concurrent`. Step 1 (the barrier) on main; step 2 (the marker)
+  on `ci/m7-gc-concurrent`.
 - **Context:** [ADR 0004](0004-memory-management.md) (conservative non-moving mark-sweep, the opt-in nursery and its
   compiler write barrier), [ADR 0011](0011-wasm32.md) (wasm32: no threads, shadow-stack roots), M7 in
   [06](../06-roadmap.md) (TechEmpower plaintext p99 at 4096+ connections is one of the metrics).
@@ -161,6 +162,45 @@ nodes, StringBuilder chunks): a store into an object allocated by the same funct
 the barrier if objects allocated during a cycle were scanned at the remark instead of logged, which moves that cost
 into the pause; the Benchmarks workflow's wall times decide whether that trade is needed. The workflow now also
 reports executed instructions with `--gc-concurrent` on both architectures.
+
+## Step 2: the marker
+
+Implemented in `src/runtime/gc.c` under `CSRT_HAS_CONCURRENT` (a `--gc-concurrent` runtime on a native target); the
+default runtime is unchanged.
+
+- **Cycle start.** An allocation that reaches the trigger, under the allocation lock, runs the initial mark: stop the
+  world, sort what was appended to the large-object table since it was last sorted and merge it in, make the
+  remaining slots of every thread's allocation words black, scan the roots, set `csrt_gc_marking`, resume, wake the
+  marker thread. Cycles run only for multithreaded programs with a live heap of 8 MiB or more
+  (`CSRT_GC_CONCURRENT_MIN_MB`), not under `CSRT_GC_STRESS`; `CSRT_GC_CONCURRENT=0` turns them off.
+- **Marking.** The marker thread drains the mark stack and the barrier buffers the mutators hand over when full
+  (512 entries; values, and ranges for copies). Mark bits are set with an atomic OR, because claim_word sets the bits
+  of words claimed during a cycle (allocate-black) in the same bitmap words. The marker looks chunks up in the
+  never-freed chunk-set tables the nursery's barrier already uses, and large objects in the table as sorted at the
+  cycle's start; a table regrown during the cycle is a copy, the old one is freed after the cycle, and the marks the
+  marker set in it are copied over at the remark.
+- **Remark.** The marker stops the world: every thread's partial buffer, the roots again, every marked coroutine
+  frame (chunks with a frame are remembered, as the nursery does), marking to completion, weak handles and
+  ephemerons, the threads' allocation words, the large objects' sweep. The small objects are swept after the world
+  resumes, 32 chunks at a time under the allocation lock, by the marker and by allocations that would otherwise map
+  a new chunk; until a chunk is swept, its dead objects stay allocated and words claimed in it are black.
+- **Pacing.** Allocation continues during a cycle; an allocation that reaches twice the trigger waits for the cycle.
+  Between cycles the marker sorts newly appended large objects every 20 ms (a copy, outside the lock, merged under
+  it), so the initial mark sorts only what came in the last milliseconds.
+
+Locally (4 cores, shared machine) on a server-shaped program — 36,000 connections with a 4 KiB buffer and eight
+small arrays each, a ring of one million objects, two threads replacing ring entries and connection state with fresh
+objects (old-to-new edges through the barrier) for six seconds:
+
+| collector | pauses | pause max | longest mutator iteration | GC time | iterations |
+|---|---|---:|---:|---:|---:|
+| stop-the-world (default) | 11 collections, 1,033 ms | (per collection ~95 ms) | 145 ms | 1,033 ms | 81,494 |
+| concurrent | 20 pauses: p50 0.70 ms, p99 2.90 ms | 2.90 ms | 12-27 ms (scheduling on a shared machine) | 17.8 ms of pauses | 77,321 |
+
+The ring's and the connections' checksums match. Of the remark, the coroutine frames took 0.07-0.15 ms here (few
+frames); the TechEmpower runs measure it with thousands of suspended request frames. Tests: sample 838 (each
+hazard above, recorded from .NET), and the `GC concurrent` workflow (the differential suite and the conformance
+corpus with cycles on every multithreaded program and a collection every MiB, the threaded samples ten times).
 
 ## Plan
 

@@ -319,7 +319,7 @@ static void pool_start_locked(void) {
 #define CORO_FRAME_OFFSET 16
 void* csrt_coro_alloc(int64_t size) {
     void* frame = csrt_alloc(&csrt_CoroFrame_MT.header, size + CORO_FRAME_OFFSET);
-#if defined(CSRT_GC_NURSERY_DEFAULT)
+#if defined(CSRT_GC_NURSERY_DEFAULT) || (defined(CSRT_GC_CONCURRENT) && !defined(__wasi__))
     // LLVM's coroutine lowering spills locals into the frame with plain stores (after csharpc's write
     // barriers were placed): every minor collection scans the frame instead (gc.c, "remembered").
     csrt_gc_remember(frame);
@@ -327,7 +327,7 @@ void* csrt_coro_alloc(int64_t size) {
     return (uint8_t*)frame + CORO_FRAME_OFFSET;
 }
 
-#if defined(CSRT_GC_NURSERY_DEFAULT)
+#if defined(CSRT_GC_NURSERY_DEFAULT) || (defined(CSRT_GC_CONCURRENT) && !defined(__wasi__))
 /// The objects csrt_gc_remember is called for: iterator frames and tasks (an async method's frame is
 /// inside its task; other tasks are scanned too, which is only conservative).
 bool csrt_gc_remembered_object(const void* obj) {
@@ -380,7 +380,7 @@ CSRT_PROFILED_ALLOCATOR void* csrt_coro_alloc_task(int64_t size, int32_t payload
     CSRT_TASK_SITE();
     int64_t head = ((int64_t)sizeof(csrt_Task) + (payload_size > 0 ? payload_size : 0) + 15) & ~(int64_t)15;
     csrt_Task* t = csrt_alloc(&csrt_Task_MT.header, head + size);
-#if defined(CSRT_GC_NURSERY_DEFAULT)
+#if defined(CSRT_GC_NURSERY_DEFAULT) || (defined(CSRT_GC_CONCURRENT) && !defined(__wasi__))
     csrt_gc_remember(t);  // the frame part: see csrt_coro_alloc
 #endif
     t->payload_size = payload_size;

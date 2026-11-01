@@ -119,6 +119,13 @@
 #else
 #define CSRT_HAS_NURSERY 0
 #endif
+// Concurrent marking (--gc-concurrent, docs/adr/0020-concurrent-marking.md): native targets only, and not
+// together with the nursery.
+#if defined(CSRT_GC_CONCURRENT) && !defined(__wasi__) && !CSRT_HAS_NURSERY
+#define CSRT_HAS_CONCURRENT 1
+#else
+#define CSRT_HAS_CONCURRENT 0
+#endif
 
 static const uint32_t k_size_classes[17] = {16, 32, 48, 64, 80, 96, 128, 160, 192, 256, 320, 384, 512, 768, 1024, 1536, 2048};
 #define NUM_CLASSES (sizeof k_size_classes / sizeof k_size_classes[0])
@@ -137,6 +144,9 @@ struct Chunk {
 #endif
 #if defined(CSRT_GC_PARALLEL_MARK)
     uint8_t owner;         // which parallel marker writes this chunk's mark bits
+#endif
+#if CSRT_HAS_CONCURRENT
+    uint8_t remembered;    // may hold a coroutine frame: the remark rescans those objects (csrt_gc_remember)
 #endif
     uint8_t released;      // empty, and its slot pages were given back to the OS (release_chunk)
     Chunk* next;           // all chunks
@@ -187,6 +197,9 @@ typedef struct {
 
 static struct {
     bool enabled, stats, initialized, collecting, multithreaded;
+#if CSRT_HAS_CONCURRENT
+    bool large_remembered; // a large coroutine frame may exist (csrt_gc_remember)
+#endif
 #if CSRT_HAS_NURSERY
     bool nursery;          // generational mode (--gc-nursery build; CSRT_GC_NURSERY=0 disables)
     bool minor;            // true while a minor collection is marking/sweeping
@@ -256,6 +269,18 @@ static struct {
 #endif
     double total_gc_seconds;
 } g;
+#if CSRT_HAS_CONCURRENT
+// The large-object table marking searches: g.large as sorted when the cycle (or collection) began.
+static LargeObject* cm_large;
+static size_t cm_large_count;
+static void defer_free(void* table);
+static bool cm_sweeping;          // the remark is over; chunks are being swept (lazily, and by the marker)
+static bool sweep_some(size_t chunks);
+static void sort_large_appended(LargeObject* a, size_t sorted, size_t n);
+static bool concurrent_trigger(void);
+static void concurrent_wait(void);
+bool csrt_gc_remembered_object(const void* obj);  // async.c
+#endif
 
 /// Size -> class index. Written as comparisons (not a table) so it constant-folds when the
 /// allocation size is a compile-time constant, which it is after LTO inlines csrt_alloc.
@@ -291,8 +316,8 @@ static void chunk_set_insert_raw(uintptr_t* table, size_t capacity, uintptr_t ba
 static void chunk_set_insert(uintptr_t base) {
     if ((g.chunk_count + 1) * 2 > g.chunk_set_capacity) {
         size_t capacity = g.chunk_set_capacity ? g.chunk_set_capacity * 2 : 64;
-#if CSRT_HAS_NURSERY
-        // Write barriers look chunks up without the lock (chunk_set_contains_unlocked): the capacity
+#if CSRT_HAS_NURSERY || CSRT_HAS_CONCURRENT
+        // Write barriers (and the concurrent marker) look chunks up without the lock (chunk_set_contains_unlocked): the capacity
         // travels with the table, and a table a mutator may still be reading is never freed.
         uintptr_t* table = calloc(capacity + 1, sizeof *table);
         if (!table) { fputs("csrt: out of memory (gc metadata)\n", stderr); abort(); }
@@ -324,6 +349,22 @@ static inline bool chunk_set_contains(uintptr_t base) {
         i = (i + 1) & (g.chunk_set_capacity - 1);
     }
 }
+
+#if CSRT_HAS_CONCURRENT
+/// The concurrent marker's chunk lookup: mutators may grow the set meanwhile (see the nursery's
+/// chunk_set_contains_unlocked below; the same table layout). A chunk mapped after the table was read
+/// holds only objects allocated during the cycle, which are black.
+static inline bool chunk_set_contains_marker(uintptr_t base) {
+    const uintptr_t* table = __atomic_load_n(&g.chunk_set, __ATOMIC_ACQUIRE);
+    if (!table) return false;
+    size_t mask = (size_t)table[-1] - 1;
+    for (size_t i = hash_ptr(base) & mask;; i = (i + 1) & mask) {
+        uintptr_t v = __atomic_load_n(&table[i], __ATOMIC_RELAXED);
+        if (v == base) return true;
+        if (!v) return false;
+    }
+}
+#endif
 
 static void note_range(uintptr_t lo, uintptr_t hi) {
     if (!g.heap_min || lo < g.heap_min) g.heap_min = lo;
@@ -396,8 +437,10 @@ void csrt_gc_write(void** slot, void* value) {
 // cost). Generated code and CSRT_STORE_REF test `csrt_gc_marking` inline and call these only while a
 // cycle marks; no cycle sets it yet, so they are never reached.
 volatile uint8_t csrt_gc_marking;
+#if !CSRT_HAS_CONCURRENT
 __attribute__((noinline, cold)) void csrt_gc_log(void* value) { (void)value; }
 __attribute__((noinline, cold)) void csrt_gc_log_range(void* start, size_t bytes) { (void)start; (void)bytes; }
+#endif
 #endif
 
 // ---------------------------------------------------------------------------------------------
@@ -453,6 +496,9 @@ static void chunk_format(Chunk* c, uint32_t cls) {
 #endif
     memset(c->allocated, 0, sizeof c->allocated);
     memset(c->marked, 0, sizeof c->marked);
+#if CSRT_HAS_CONCURRENT
+    c->remembered = 0;
+#endif
 }
 
 static inline uint64_t valid_mask(const Chunk* c, size_t w) {
@@ -500,6 +546,10 @@ static bool claim_word(SizeClass* sc, AllocCache* cache, uint32_t cls) {
                         *(void**)slot = NULL;
                 chunk_format(c, cls);
             } else {
+#if CSRT_HAS_CONCURRENT
+                // Chunks the last cycle hasn't swept yet may free slots: sweep some before mapping more.
+                if (cm_sweeping && sweep_some(16)) continue;
+#endif
                 c = chunk_map();
                 if (!c) return false;
                 chunk_format(c, cls);
@@ -512,6 +562,13 @@ static bool claim_word(SizeClass* sc, AllocCache* cache, uint32_t cls) {
             uint64_t free_bits = ~c->allocated[w] & valid_mask(c, w);
             if (!free_bits) continue;
             c->allocated[w] |= free_bits;  // claim the whole word for this thread's cache
+#if CSRT_HAS_CONCURRENT
+            // Allocation is black while a cycle marks: the cycle never frees what was allocated during it.
+            // Not while the chunks are swept: claim_word then only takes swept chunks (the lists are rebuilt
+            // by the sweep) or new ones, which this sweep never visits, so marks set there would outlive it
+            // and the next cycle would take those objects as already traced.
+            if (csrt_gc_marking) __atomic_fetch_or(&c->marked[w], free_bits, __ATOMIC_RELAXED);
+#endif
             cache->free_bits = free_bits;
             cache->word_base = (uint8_t*)c + CHUNK_HEADER + w * 64 * (size_t)c->object_size;
             sc->word = w + 1;
@@ -890,13 +947,24 @@ static void* alloc_large(size_t size, bool clear) {
     }
     if (g.large_count == g.large_capacity) {
         size_t capacity = g.large_capacity ? g.large_capacity * 2 : 64;
+#if CSRT_HAS_CONCURRENT
+        // The marker may be reading the old table: copy, and free the old one after the cycle.
+        LargeObject* grown = malloc(capacity * sizeof *grown);
+        if (!grown) { free(p); return NULL; }
+        if (g.large_count) memcpy(grown, g.large, g.large_count * sizeof *grown);
+        if (g.large && csrt_gc_marking) defer_free(g.large);
+        else free(g.large);
+#else
         LargeObject* grown = realloc(g.large, capacity * sizeof *grown);
         if (!grown) { free(p); return NULL; }
+#endif
         g.large = grown;
         g.large_capacity = capacity;
     }
 #if CSRT_HAS_NURSERY
     g.large[g.large_count++] = (LargeObject){ p, size, false, false };
+#elif CSRT_HAS_CONCURRENT
+    g.large[g.large_count++] = (LargeObject){ p, size, csrt_gc_marking != 0 };  // black during a cycle
 #else
     g.large[g.large_count++] = (LargeObject){ p, size, false };
 #endif
@@ -979,7 +1047,11 @@ __attribute__((noinline, cold)) static void* alloc_small_slow(uint32_t cls) {
     void* result = NULL;
     if (g.stress && g.enabled && ++g.stress_count % g.stress == 0 && !g.collecting) { collect(); collected = true; }
     for (;;) {
+#if CSRT_HAS_CONCURRENT
+        if (g.enabled && g.allocated_since_gc >= g.trigger && !g.collecting && !concurrent_trigger()) { collect(); collected = true; }
+#else
         if (g.enabled && g.allocated_since_gc >= g.trigger && !g.collecting) { collect(); collected = true; }
+#endif
         if (cache->free_bits || claim_word(sc, cache, cls)) break;
         if (!g.enabled || collected) goto out;
         collect();
@@ -1003,7 +1075,12 @@ out:
 }
 
 static void* alloc_large_locked(size_t size, bool clear) {
+#if CSRT_HAS_CONCURRENT
+    if (g.enabled && g.stress && ++g.stress_count % g.stress == 0) collect();
+    else if (g.enabled && g.allocated_since_gc >= g.trigger && !g.collecting && !concurrent_trigger()) collect();
+#else
     if (g.enabled && (g.allocated_since_gc >= g.trigger || (g.stress && ++g.stress_count % g.stress == 0))) collect();
+#endif
     void* result = alloc_large(size, clear);
     if (!result && g.enabled) { collect(); result = alloc_large(size, clear); }
     if (result) {
@@ -1106,6 +1183,7 @@ __attribute__((noinline, cold)) static void mark_stack_grow(void) {
     g.mark_capacity = capacity;
 }
 
+
 static inline __attribute__((always_inline)) void mark_push(uint8_t* start, size_t size) {
     if (__builtin_expect(g.mark_count == g.mark_capacity, 0)) mark_stack_grow();
     g.mark_stack[g.mark_count].start = start;
@@ -1158,7 +1236,11 @@ static inline __attribute__((always_inline)) void mark_candidate(uintptr_t word)
     if (word < g.heap_min || word >= g.heap_max) return;
 
     uintptr_t base = word & ~(CHUNK_SIZE - 1);
+#if CSRT_HAS_CONCURRENT
+    if (chunk_set_contains_marker(base)) {
+#else
     if (chunk_set_contains(base)) {
+#endif
         Chunk* c = (Chunk*)base;
 #if CSRT_HAS_NURSERY
         if (g.minor && !c->young) return;
@@ -1167,7 +1249,13 @@ static inline __attribute__((always_inline)) void mark_candidate(uintptr_t word)
         if (c->object_size == 0 || offset < CHUNK_HEADER) return;
         size_t index = slot_of(c, offset - CHUNK_HEADER);
         if (index >= c->slots || !bit_get(c->allocated, index) || bit_get(c->marked, index)) return;
+#if CSRT_HAS_CONCURRENT
+        // Mutators set mark bits too while a cycle runs (allocation is black, claim_word): atomically.
+        uint64_t bit = (uint64_t)1 << (index & 63);
+        if (__atomic_fetch_or(&c->marked[index >> 6], bit, __ATOMIC_RELAXED) & bit) return;
+#else
         bit_set(c->marked, index);
+#endif
         mark_push((uint8_t*)base + CHUNK_HEADER + index * c->object_size, c->object_size);
         return;
     }
@@ -1178,10 +1266,17 @@ static inline __attribute__((always_inline)) void mark_candidate(uintptr_t word)
 #endif
 
     // Large objects: binary search the (sorted) table; interior pointers count.
+#if CSRT_HAS_CONCURRENT
+    // The table the cycle sorted: mutators may append to (or regrow) g.large while the marker reads it.
+    LargeObject* table = cm_large;
+    size_t lo = 0, hi = cm_large_count;
+#else
+    LargeObject* table = g.large;
     size_t lo = 0, hi = g.large_count;
+#endif
     while (lo < hi) {
         size_t mid = (lo + hi) / 2;
-        LargeObject* obj = &g.large[mid];
+        LargeObject* obj = &table[mid];
         if (word < (uintptr_t)obj->start) hi = mid;
         else if (word >= (uintptr_t)obj->start + obj->size) lo = mid + 1;
         else {
@@ -1199,8 +1294,13 @@ static inline __attribute__((always_inline)) void mark_candidate(uintptr_t word)
 /// The large object containing `word`, outside a collection: the table is sorted at each collection, and
 /// objects allocated since then are appended unsorted (a short tail, scanned; sorted once it grows).
 static LargeObject* find_large_between_collections(uintptr_t word) {
+#if CSRT_HAS_CONCURRENT
+    if (g.large_count - g.large_sorted > 64 && !csrt_gc_marking) {
+        sort_large_appended(g.large, g.large_sorted, g.large_count);
+#else
     if (g.large_count - g.large_sorted > 64) {
         sort_large(g.large, g.large_count);
+#endif
         g.large_sorted = g.large_count;
     }
     size_t lo = 0, hi = g.large_sorted;
@@ -2405,6 +2505,511 @@ static void release_surplus_chunks(void) {
 #endif
 }
 
+#if CSRT_HAS_CONCURRENT
+// ---------------------------------------------------------------------------------------------
+// Concurrent marking (docs/adr/0020-concurrent-marking.md)
+// ---------------------------------------------------------------------------------------------
+// A cycle: the allocating thread that reaches the trigger stops the world for the initial mark
+// (roots, the threads' allocation words made black, the large-object table sorted and snapshotted),
+// sets csrt_gc_marking and wakes the marker thread. The marker drains the mark stack while the
+// mutators run; their barrier logs what they store into the heap (values, and ranges for copies)
+// into per-thread buffers, which the marker takes as they fill. Objects allocated during the cycle
+// are black. When the marker runs dry it stops the world for the remark: the threads' partial
+// buffers, the roots again, every live coroutine frame (LLVM's coroutine lowering writes frames
+// without barriers), the ephemerons and weak handles, then the sweep. A mutator that allocates
+// another full budget before the cycle ends waits for it.
+#define LOG_ENTRIES 512
+#define LOG_RANGE_TAG ((uintptr_t)1)  // an entry with the low bit set is a range start; the next is its length
+
+typedef struct LogBuffer { struct LogBuffer* next; size_t count; uintptr_t entries[LOG_ENTRIES]; } LogBuffer;
+typedef struct ThreadLog { struct ThreadLog* next; LogBuffer* current; } ThreadLog;
+
+static pthread_mutex_t cm_lock = PTHREAD_MUTEX_INITIALIZER;  // the lists below
+static pthread_cond_t cm_start = PTHREAD_COND_INITIALIZER;   // a cycle began (the marker waits)
+static pthread_cond_t cm_done = PTHREAD_COND_INITIALIZER;    // a cycle ended (waits on g.lock)
+static LogBuffer* cm_full;        // filled buffers for the marker
+static LogBuffer* cm_spare;       // empty buffers to reuse (no malloc while the world is stopped)
+static ThreadLog* cm_logs;        // every thread's log (threads that exited keep theirs: it is small)
+static CSRT_TLS ThreadLog* tl_log;
+static bool cm_active;            // between the initial mark and the end of the remark
+static bool cm_marker_started;
+static uint64_t cm_cycles;
+static double cm_pause_max_ms, cm_pause_total_ms;
+// The longest remark's phases (CSRT_GC_STATS=1): buffers, roots, frames, drain, weak+sweep; and the longest initial mark.
+static double cm_phase_ms[5], cm_initial_max_ms, cm_remark_max_ms;
+static double cm_pauses[4096];
+static size_t cm_pause_count;
+static void* cm_old_tables[64];   // large-object tables replaced during the cycle (the marker may read them)
+static size_t cm_old_count;
+
+static void defer_free(void* table) {
+    if (cm_old_count < sizeof cm_old_tables / sizeof cm_old_tables[0]) cm_old_tables[cm_old_count++] = table;
+    // More than 64 doublings of the table in one cycle cannot happen (2^64 entries); keep it anyway.
+}
+
+static LogBuffer* log_buffer_new(void) {
+    LogBuffer* b = NULL;
+    pthread_mutex_lock(&cm_lock);
+    if (cm_spare) { b = cm_spare; cm_spare = b->next; }
+    pthread_mutex_unlock(&cm_lock);
+    if (!b) {
+        b = malloc(sizeof *b);
+        if (!b) { fputs("csrt: out of memory (gc metadata)\n", stderr); abort(); }
+    }
+    b->next = NULL;
+    b->count = 0;
+    return b;
+}
+
+static ThreadLog* thread_log(void) {
+    ThreadLog* t = tl_log;
+    if (t) return t;
+    t = malloc(sizeof *t);
+    if (!t) { fputs("csrt: out of memory (gc metadata)\n", stderr); abort(); }
+    t->current = log_buffer_new();
+    pthread_mutex_lock(&cm_lock);
+    t->next = cm_logs;
+    cm_logs = t;
+    pthread_mutex_unlock(&cm_lock);
+    tl_log = t;
+    return t;
+}
+
+/// Hands a full buffer to the marker and starts a new one. The entries were all logged before stores
+/// that came before this call in program order, so the marker reads finished stores.
+static void log_flush(ThreadLog* t) {
+    LogBuffer* full = t->current;
+    LogBuffer* fresh = log_buffer_new();
+    pthread_mutex_lock(&cm_lock);
+    full->next = cm_full;
+    cm_full = full;
+    pthread_mutex_unlock(&cm_lock);
+    t->current = fresh;
+}
+
+__attribute__((noinline, cold)) void csrt_gc_log(void* value) {
+    if (!value) return;
+    ThreadLog* t = thread_log();
+    if (t->current->count >= LOG_ENTRIES) log_flush(t);
+    LogBuffer* b = t->current;
+    b->entries[b->count] = (uintptr_t)value & ~LOG_RANGE_TAG;
+    __atomic_store_n(&b->count, b->count + 1, __ATOMIC_RELEASE);
+}
+
+__attribute__((noinline, cold)) void csrt_gc_log_range(void* start, size_t bytes) {
+    if (!start || !bytes) return;
+    ThreadLog* t = thread_log();
+    if (t->current->count + 2 > LOG_ENTRIES) log_flush(t);
+    LogBuffer* b = t->current;
+    b->entries[b->count] = (uintptr_t)start | LOG_RANGE_TAG;
+    b->entries[b->count + 1] = (uintptr_t)bytes;
+    __atomic_store_n(&b->count, b->count + 2, __ATOMIC_RELEASE);
+}
+
+CSRT_GC_NO_SANITIZE static void log_process(const LogBuffer* b, size_t count) {
+    for (size_t i = 0; i < count; i++) {
+        uintptr_t e = b->entries[i];
+        if (e & LOG_RANGE_TAG) {
+            const uint8_t* start = (const uint8_t*)(e & ~LOG_RANGE_TAG);
+            size_t bytes = i + 1 < count ? (size_t)b->entries[++i] : 0;
+            scan_range(start, start + bytes);
+        } else mark_candidate(e);
+    }
+}
+
+/// The marker's side of the full buffers: true when it took one.
+static bool take_full_buffer(void) {
+    pthread_mutex_lock(&cm_lock);
+    LogBuffer* b = cm_full;
+    if (b) cm_full = b->next;
+    pthread_mutex_unlock(&cm_lock);
+    if (!b) return false;
+    log_process(b, b->count);
+    b->count = 0;
+    pthread_mutex_lock(&cm_lock);
+    b->next = cm_spare;
+    cm_spare = b;
+    pthread_mutex_unlock(&cm_lock);
+    return true;
+}
+
+/// Every live coroutine frame (and task: an async method's frame is inside its task), from the
+/// remembered chunks and large objects. Unmarked ones are not live yet; marking them later scans them.
+CSRT_GC_NO_SANITIZE static void rescan_frames(void) {
+    for (Chunk* c = g.chunks; c; c = c->next) {
+        if (!c->remembered || c->object_size == 0) continue;
+        size_t words = (c->slots + 63) / 64;
+        for (size_t w = 0; w < words; w++)
+            for (uint64_t bits = c->allocated[w] & c->marked[w]; bits; bits &= bits - 1) {
+                const uint8_t* start = (const uint8_t*)c + CHUNK_HEADER + (w * 64 + (size_t)__builtin_ctzll(bits)) * c->object_size;
+                if (csrt_gc_remembered_object(start)) scan_range(start + sizeof(void*), start + c->object_size);
+            }
+    }
+    if (!g.large_remembered) return;
+    for (size_t i = 0; i < cm_large_count; i++) {
+        LargeObject* obj = &cm_large[i];
+        if (obj->marked && csrt_gc_remembered_object(obj->start)) scan_range(obj->start + sizeof(void*), obj->start + obj->size);
+    }
+}
+
+static double elapsed_ms(struct timespec a, struct timespec b) {
+    return (double)(b.tv_sec - a.tv_sec) * 1e3 + (double)(b.tv_nsec - a.tv_nsec) / 1e6;
+}
+
+static void note_pause(struct timespec a, struct timespec b) {
+    double ms = elapsed_ms(a, b);
+    if (cm_pause_count < sizeof cm_pauses / sizeof cm_pauses[0]) cm_pauses[cm_pause_count++] = ms;
+    cm_pause_total_ms += ms;
+    if (ms > cm_pause_max_ms) cm_pause_max_ms = ms;
+    g.total_gc_seconds += ms / 1e3;
+}
+
+static void* marker_main(void* arg);
+extern int32_t csrt_processor_count(void);
+void csrt_os_thread_name(const char* name);
+
+/// Whether a collection runs concurrently: a heap worth it, threads, and no stress mode.
+static bool concurrent_wanted(void) {
+    // CSRT_GC_CONCURRENT=0 turns cycles off; CSRT_GC_CONCURRENT_MIN_MB (default 8) is the live heap
+    // below which collections stay stop-the-world (tests set 0 to run cycles on small heaps).
+    static int setting = -2;
+    static size_t min_live;
+    if (setting == -2) {
+        const char* e = getenv("CSRT_GC_CONCURRENT");
+        setting = e ? atoi(e) : 1;
+        const char* m = getenv("CSRT_GC_CONCURRENT_MIN_MB");
+        min_live = (m ? (size_t)atol(m) : 8) * 1024 * 1024;
+    }
+    return setting != 0 && !g.stress && g.multithreaded && csrt_processor_count() > 1 && g.live_bytes >= min_live;
+}
+
+// Sweeping after the remark, outside the pause: chunks are swept a batch at a time under g.lock, by the
+// marker and by allocations that would otherwise map a new chunk. Until a chunk is swept its dead
+// objects stay allocated, and no word is claimed in it: the size classes' lists hold swept chunks only.
+static Chunk* cm_sweep_cursor;
+static size_t cm_sweep_live;
+
+/// Under g.lock, at the remark: start sweeping. Large objects are swept now (their table is small).
+static void sweep_begin(void) {
+    for (size_t cls = 0; cls < NUM_CLASSES; cls++) {
+        g.classes[cls].chunk = NULL;
+        g.classes[cls].partial = NULL;
+    }
+    g.empty = NULL;
+    size_t live = 0, kept = 0, sorted_kept = 0;
+    for (size_t i = 0; i < g.large_count; i++) {
+        LargeObject obj = g.large[i];
+        if (obj.marked) {
+            obj.marked = false;
+            g.large[kept++] = obj;
+            if (i < cm_large_count) sorted_kept = kept;
+            live += obj.size;
+        } else {
+            if (g.deferred_count == g.deferred_capacity) {
+                size_t capacity = g.deferred_capacity ? g.deferred_capacity * 2 : 1024;
+                g.deferred_free = mmap_grow(g.deferred_free, g.deferred_capacity * sizeof(void*), capacity * sizeof(void*));
+                g.deferred_capacity = capacity;
+            }
+            g.deferred_free[g.deferred_count++] = obj.start;
+        }
+    }
+    g.large_count = kept;
+    g.large_sorted = sorted_kept;
+    cm_sweep_live = live;
+    cm_sweep_cursor = g.chunks;
+    cm_sweeping = true;
+}
+
+static void sweep_end(void) {
+    cm_sweeping = false;
+    g.live_bytes = cm_sweep_live;
+    size_t grown = g.live_bytes / 100 * g.growth_pct;
+    g.trigger = grown > g.budget_floor ? grown : g.budget_floor;
+    release_surplus_chunks();
+}
+
+/// Under g.lock: sweeps up to `chunks` chunks; false once nothing is left to sweep.
+static bool sweep_some(size_t chunks) {
+    if (!cm_sweeping) return false;
+    for (size_t n = 0; n < chunks && cm_sweep_cursor; n++) {
+        Chunk* c = cm_sweep_cursor;
+        cm_sweep_cursor = c->next;
+        if (c->object_size == 0) { c->next_free = g.empty; g.empty = c; continue; }
+        uint32_t still_live = 0;
+        size_t words = (c->slots + 63) / 64;
+        for (size_t w = 0; w < words; w++) {
+            c->allocated[w] &= c->marked[w];
+            still_live += (uint32_t)__builtin_popcountll(c->allocated[w]);
+            c->marked[w] = 0;
+        }
+        c->live = still_live;
+        if (still_live == 0) {
+            c->object_size = 0;
+            c->next_free = g.empty;
+            g.empty = c;
+            continue;
+        }
+        if (still_live < c->slots) {
+            SizeClass* sc = &g.classes[c->size_class];
+            c->next_free = sc->partial;
+            sc->partial = c;
+        }
+        cm_sweep_live += (size_t)still_live * c->object_size;
+    }
+    if (!cm_sweep_cursor) { sweep_end(); return false; }
+    return true;
+}
+
+static void sweep_all(void) { while (sweep_some(256)) {} }
+
+/// The large-object table sorted for the initial mark: [0, sorted) is sorted already (sweeps keep the
+/// order), so only the objects appended since are sorted, then merged into it through a scratch table
+/// (mmap'd: this runs with the world stopped). The full heapsort took 5-6 ms for 56,000 objects.
+static LargeObject* cm_scratch;
+static size_t cm_scratch_capacity;
+
+static void sort_large_appended(LargeObject* a, size_t sorted, size_t n) {
+    if (sorted > n) sorted = 0;
+    if (n == sorted) return;
+    bool tail_sorted = true;
+    for (size_t i = sorted + 1; i < n && tail_sorted; i++) tail_sorted = a[i - 1].start <= a[i].start;
+    if (!tail_sorted) sort_large(a + sorted, n - sorted);
+    if (sorted == 0 || a[sorted - 1].start <= a[sorted].start) return;
+    if (cm_scratch_capacity < n) {
+        size_t capacity = cm_scratch_capacity ? cm_scratch_capacity : 1024;
+        while (capacity < n) capacity *= 2;
+        cm_scratch = mmap_grow(cm_scratch, cm_scratch_capacity * sizeof *cm_scratch, capacity * sizeof *cm_scratch);
+        cm_scratch_capacity = capacity;
+    }
+    size_t i = 0, j = sorted, k = 0;
+    while (i < sorted && j < n) cm_scratch[k++] = a[i].start <= a[j].start ? a[i++] : a[j++];
+    while (i < sorted) cm_scratch[k++] = a[i++];
+    while (j < n) cm_scratch[k++] = a[j++];
+    memcpy(a, cm_scratch, n * sizeof *a);
+}
+
+/// On the marker, after the sweep: sorts the large objects allocated since the table was last sorted
+/// outside the lock (a copy), then merges them in under it, so the next initial mark only sorts what was
+/// allocated since. Gives up if a collection or a cycle ran meanwhile.
+static LargeObject* cm_presort;
+static size_t cm_presort_capacity;
+
+static void presort_large(void) {
+    gc_lock();
+    size_t sorted = g.large_sorted, count = g.large_count, collections = g.collections;
+    if (cm_active || cm_sweeping || count - sorted < 64 || sorted > count) { gc_unlock(); return; }
+    size_t tail = count - sorted;
+    if (cm_presort_capacity < tail) {
+        size_t capacity = cm_presort_capacity ? cm_presort_capacity : 1024;
+        while (capacity < tail) capacity *= 2;
+        cm_presort = mmap_grow(cm_presort, cm_presort_capacity * sizeof *cm_presort, capacity * sizeof *cm_presort);
+        cm_presort_capacity = capacity;
+    }
+    memcpy(cm_presort, g.large + sorted, tail * sizeof *cm_presort);
+    gc_unlock();
+    sort_large(cm_presort, tail);
+    gc_lock();
+    // Only appends happen between collections: [sorted, count) still holds what was copied.
+    if (!cm_active && !cm_sweeping && g.collections == collections && g.large_sorted == sorted && g.large_count >= count) {
+        memcpy(g.large + sorted, cm_presort, tail * sizeof *cm_presort);
+        sort_large_appended(g.large, sorted, count);  // [sorted, count) is sorted: a merge
+        g.large_sorted = count;
+    }
+    gc_unlock();
+}
+
+/// Under g.lock: the initial mark. Returns false (nothing started) if the marker thread can't run.
+/// Like csrt_gc_collect_now, it spills the caller's registers into its frame and scans the calling
+/// thread's stack from there (scan_own_stack).
+CSRT_GC_NO_SANITIZE __attribute__((noinline)) static bool cycle_begin(void) {
+    jmp_buf registers;
+    setjmp(registers);
+    __builtin_unwind_init();
+    volatile uintptr_t own = 0;
+    const void* top = (const void*)&own;
+    if ((const void*)registers < top) top = (const void*)registers;
+    g.own_stack_top = top;
+    if (!cm_marker_started) {
+        pthread_t thread;
+        if (pthread_create(&thread, NULL, marker_main, NULL) != 0) return false;
+        pthread_detach(thread);
+        cm_marker_started = true;
+    }
+    struct timespec t0, t1;
+    clock_gettime(CLOCK_MONOTONIC, &t0);
+    g.collecting = true;
+    stop_world();
+    sort_large_appended(g.large, g.large_sorted, g.large_count);
+    g.large_sorted = g.large_count;
+    cm_large = g.large;
+    cm_large_count = g.large_count;
+    cm_old_count = 0;
+    __atomic_store_n(&csrt_gc_marking, 1, __ATOMIC_SEQ_CST);
+    // The slots the threads' allocation words still hold are black too: they are handed out during the cycle.
+    for (csrt_GcThread* t = g.threads; t; t = t->next) {
+        if (t->state != THREAD_RUNNING || !t->cache) continue;
+        for (size_t cls = 0; cls < NUM_CLASSES; cls++) {
+            AllocCache* ac = &((AllocCache*)t->cache)[cls];
+            if (!ac->word_base || !ac->free_bits) continue;
+            size_t w;
+            Chunk* c = cache_word(ac, &w);
+            __atomic_fetch_or(&c->marked[w], ac->free_bits, __ATOMIC_RELAXED);
+        }
+    }
+    scan_roots();
+    cm_active = true;
+    g.collecting = false;
+    resume_world();
+    clock_gettime(CLOCK_MONOTONIC, &t1);
+    note_pause(t0, t1);
+    if (elapsed_ms(t0, t1) > cm_initial_max_ms) cm_initial_max_ms = elapsed_ms(t0, t1);
+    pthread_mutex_lock(&cm_lock);
+    pthread_cond_signal(&cm_start);
+    pthread_mutex_unlock(&cm_lock);
+    __asm__ volatile("" : : "r"(&registers), "r"(&own) : "memory");
+    return true;
+}
+
+/// The remark, on the marker thread: stop the world, finish marking, sweep.
+CSRT_GC_NO_SANITIZE static void cycle_finish(void) {
+    gc_lock();
+    struct timespec t0, t1;
+    clock_gettime(CLOCK_MONOTONIC, &t0);
+    g.collecting = true;
+    stop_world();
+    struct timespec tp[6];
+    clock_gettime(CLOCK_MONOTONIC, &tp[0]);
+    // The threads' partial buffers and anything flushed since the marker last looked.
+    for (ThreadLog* t = cm_logs; t; t = t->next) {
+        LogBuffer* b = t->current;
+        size_t count = __atomic_load_n(&b->count, __ATOMIC_ACQUIRE);
+        log_process(b, count);
+        b->count = 0;
+    }
+    for (LogBuffer* b = cm_full; b; ) {
+        LogBuffer* next = b->next;
+        log_process(b, b->count);
+        b->count = 0;
+        b->next = cm_spare;
+        cm_spare = b;
+        b = next;
+    }
+    cm_full = NULL;
+    drain();
+    clock_gettime(CLOCK_MONOTONIC, &tp[1]);
+    scan_roots();
+    drain();
+    clock_gettime(CLOCK_MONOTONIC, &tp[2]);
+    rescan_frames();
+    clock_gettime(CLOCK_MONOTONIC, &tp[3]);
+    drain();
+    clock_gettime(CLOCK_MONOTONIC, &tp[4]);
+    // The marker set bits in the table it searched; a table regrown during the cycle is a copy.
+    if (g.large != cm_large)
+        for (size_t i = 0; i < cm_large_count; i++) g.large[i].marked |= cm_large[i].marked;
+    // No sort here: the sweep keeps the order, so the survivors of the sorted part stay sorted, and
+    // what was allocated during the cycle is sorted (and merged) at the next initial mark.
+    __atomic_store_n(&csrt_gc_marking, 0, __ATOMIC_SEQ_CST);
+    weak_process();
+    protect_caches();
+    sweep_begin();
+    cm_active = false;
+    clock_gettime(CLOCK_MONOTONIC, &tp[5]);
+    resume_world();
+    clock_gettime(CLOCK_MONOTONIC, &t1);
+    note_pause(t0, t1);
+    if (elapsed_ms(t0, t1) >= cm_remark_max_ms) {
+        cm_remark_max_ms = elapsed_ms(t0, t1);
+        for (int k = 0; k < 5; k++) cm_phase_ms[k] = elapsed_ms(tp[k], tp[k + 1]);
+    }
+    adapt_budget(t0, t1);
+    for (size_t i = 0; i < g.deferred_count; i++) free(g.deferred_free[i]);
+    g.deferred_count = 0;
+    for (size_t i = 0; i < cm_old_count; i++) free(cm_old_tables[i]);
+    cm_old_count = 0;
+    g.allocated_since_gc = 0;
+    g.collections++;
+    cm_cycles++;
+    g.collecting = false;
+    gc_unlock();
+    // The sweep, a batch at a time: allocations take the lock between batches.
+    for (bool more = true; more; ) {
+        gc_lock();
+        more = sweep_some(32);
+        if (!more && g.multithreaded) pthread_cond_broadcast(&cm_done);
+        gc_unlock();
+    }
+    presort_large();
+}
+
+CSRT_GC_NO_SANITIZE static void* marker_main(void* arg) {
+    (void)arg;
+    csrt_os_thread_name(".NET GC");
+    for (;;) {
+        // Between cycles, every 20 ms: keep the large-object table sorted, so the initial mark sorts
+        // only what was allocated in the last few milliseconds.
+        pthread_mutex_lock(&cm_lock);
+        while (!cm_active) {
+            struct timespec until;
+            clock_gettime(CLOCK_REALTIME, &until);
+            until.tv_nsec += 20 * 1000000;
+            if (until.tv_nsec >= 1000000000) { until.tv_sec++; until.tv_nsec -= 1000000000; }
+            if (pthread_cond_timedwait(&cm_start, &cm_lock, &until) != 0 && !cm_active) {
+                pthread_mutex_unlock(&cm_lock);
+                presort_large();
+                pthread_mutex_lock(&cm_lock);
+            }
+        }
+        pthread_mutex_unlock(&cm_lock);
+        // Concurrent marking and pre-cleaning: until the mark stack and the full buffers run dry.
+        for (int idle = 0; idle < 2; ) {
+            drain();
+            if (take_full_buffer()) { idle = 0; continue; }
+            idle++;
+        }
+        cycle_finish();
+    }
+    return NULL;
+}
+
+/// Under g.lock, from an allocation that reached the trigger: start a cycle, keep allocating while it
+/// runs, or wait for it after another full budget. Returns false when a stop-the-world collection
+/// should run instead.
+static uint64_t cm_waits;
+static double cm_wait_max_ms;
+
+static bool concurrent_trigger(void) {
+    if (cm_sweeping) sweep_all();
+    if (cm_active) {
+        if (g.allocated_since_gc < 2 * g.trigger) return true;
+        // The mutators outran the marker by another full budget: wait for the cycle (counted: a stall).
+        struct timespec a, b;
+        clock_gettime(CLOCK_MONOTONIC, &a);
+        while (cm_active) pthread_cond_wait(&cm_done, &g.lock);
+        clock_gettime(CLOCK_MONOTONIC, &b);
+        cm_waits++;
+        if (elapsed_ms(a, b) > cm_wait_max_ms) cm_wait_max_ms = elapsed_ms(a, b);
+        return true;
+    }
+    if (!concurrent_wanted()) return false;
+    return cycle_begin();
+}
+
+/// Under g.lock: a stop-the-world collection waits for a running cycle first (GC.Collect, out of memory).
+static void concurrent_wait(void) {
+    while (cm_active) pthread_cond_wait(&cm_done, &g.lock);
+    sweep_all();
+}
+
+/// Coroutine frames: LLVM's coroutine lowering stores into them without barriers, so the remark
+/// rescans every live one. Called right after allocation.
+void csrt_gc_remember(void* obj) {
+    uintptr_t base = (uintptr_t)obj & ~(CHUNK_SIZE - 1);
+    if (chunk_set_contains_marker(base)) ((Chunk*)base)->remembered = 1;
+    else g.large_remembered = true;
+}
+#endif
+
 static void collect_now(void);
 
 /// Every collection starts here. The caller's callee-saved registers are spilled into this frame (the
@@ -2412,6 +3017,12 @@ static void collect_now(void);
 /// stack is scanned from this frame up (scan_own_stack).
 CSRT_GC_NO_SANITIZE __attribute__((noinline)) void csrt_gc_collect_now(void) {
     if (g.collecting) return;
+#if CSRT_HAS_CONCURRENT
+    // Before taking the stack's top: waiting releases the lock, and the cycle's initial mark (another
+    // thread) sets g.own_stack_top for its own stack meanwhile.
+    concurrent_wait();
+    if (g.collecting) return;
+#endif
 #ifndef __wasi__
     jmp_buf registers;
     setjmp(registers);
@@ -2454,6 +3065,10 @@ __attribute__((noinline)) static void collect_now(void) {
 
     stop_world();
     sort_large(g.large, g.large_count);
+#if CSRT_HAS_CONCURRENT
+    cm_large = g.large;
+    cm_large_count = g.large_count;
+#endif
     scan_roots();
 #if CSRT_HAS_NURSERY
     if (g.minor) scan_cards();
@@ -2546,6 +3161,18 @@ void csrt_gc_shutdown(void) {
             "csrt gc: %zu collections, %.1f ms total, allocated %.1f MiB, peak heap %.1f MiB, live %.1f MiB, %zu chunks (%zu released), %zu large objects\n",
             g.collections, g.total_gc_seconds * 1000.0, g.total_allocated / 1048576.0, g.peak_heap / 1048576.0,
             (g.live_bytes + g.allocated_since_gc) / 1048576.0, g.chunk_count, g.released_chunks, g.large_count);
+#endif
+#if CSRT_HAS_CONCURRENT
+    fprintf(stderr, "csrt gc: %llu allocation waits for a cycle, %.2f ms max\n", (unsigned long long)cm_waits, cm_wait_max_ms);
+    fprintf(stderr, "csrt gc: %llu concurrent cycles, pauses %.1f ms total, %.2f ms max (initial mark max %.2f; longest remark %.2f: buffers %.2f, roots %.2f, frames %.2f, drain %.2f, weak+sweep %.2f)\n",
+            (unsigned long long)cm_cycles, cm_pause_total_ms, cm_pause_max_ms, cm_initial_max_ms, cm_remark_max_ms,
+            cm_phase_ms[0], cm_phase_ms[1], cm_phase_ms[2], cm_phase_ms[3], cm_phase_ms[4]);
+    if (cm_pause_count) {
+        for (size_t i = 1; i < cm_pause_count; i++)
+            for (size_t j = i; j > 0 && cm_pauses[j - 1] > cm_pauses[j]; j--) { double t = cm_pauses[j]; cm_pauses[j] = cm_pauses[j - 1]; cm_pauses[j - 1] = t; }
+        fprintf(stderr, "csrt gc: pause p50 %.2f ms, p99 %.2f ms, max %.2f ms (%zu pauses)\n", cm_pauses[cm_pause_count / 2],
+                cm_pauses[cm_pause_count * 99 / 100], cm_pauses[cm_pause_count - 1], cm_pause_count);
+    }
 #endif
 #ifdef CSRT_ALLOC_PROFILE
     profile_print();
