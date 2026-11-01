@@ -48,12 +48,20 @@ attribute factories) with a ~25 % faster build.
   closed-port trace is now the JIT's; its -O2 executable grows 11 % (it records traces because it prints
   an exception: a decision for M7). Samples 900–903, `tests/il.sh` IlStackTracesApp. Known gaps
   (CSLLVM0006): parse family, string.Format, Task.Run/WaitAll, TcpClient.ConnectAsync, frames of library
-  members that call back into the program (ForEach, LINQ, Lazy, Sort). Found, not fixed: `List<T>.Sort`
-  with a throwing comparison doesn't wrap it in InvalidOperationException("Failed to compare two elements
-  in the array."), empty `List<int>.Max()` says "Sequence contains no elements" without .NET's final
-  period, `Directory.GetFiles` of a missing directory lacks "Directory path: '...'"; an Npgsql program
-  built with `NpgsqlSlimDataSourceBuilder(...).Build()` alone stops with an InvalidCastException
-  (`Action`1[]` to `IEnumerable`1`).
+  members that call back into the program (ForEach, LINQ, Lazy, Sort).
+- `ci/il-traces-2` (on `ci/il-stack-traces`) — the trace tables made cheaper and four silent
+  differences fixed. Frame names DEFLATE-compressed (inflated at the first formatted trace), 8-byte
+  descriptors for frames without a location, an empty-asm pad anchor: the Platform entry's -O2 executable
+  is 18,330,832 bytes, +5.3 % over `main` 774b977 (17,405,512; +11.2 % on `ci/il-stack-traces`); the rest
+  is the per-call-site recording (LSDAs +420 KB, pads +197 KB). TechEmpower run 41291420634: 277 of 456 on
+  EPYC 7763 (fortunes 1.04-1.18 of NativeAOT, executable 17.48 vs 16.36 MiB; `ci/m7-perf-3` had 276 of 456,
+  its start-up regression, 1.4 s vs 0.7 s, is unchanged here); its first attempt ran on a Xeon 6973P-C,
+  where NativeAOT's fortunes are 2.5x other runners' (275 of 449, fortunes 0.73-0.86). Fixes: List<T>.Sort/Array.Sort wrap what the comparison throws
+  (sample 910); Min/Max of empty arrays and lists as .NET (the period of MemoryExtensions' message; null
+  for reference types; sample 911); DirectoryNotFoundException.DirectoryPath and its "Directory path"
+  line (sample 912); IL stack slots that merge a list and an array (`list ?? (IEnumerable<T>)[]`, Npgsql's
+  builders) typed as both, so the array's interface map includes the interface (sample 913); `nint.ToString()`
+  through IL (sample 846: "Program as IL" green again).
 
 - `ci/m7-harness` — M7 step 1: the TechEmpower harness measures TechEmpower's real ASP.NET Core
   [Platform] entry (all seven test types on PostgreSQL, every level TechEmpower uses, TechEmpower's own
