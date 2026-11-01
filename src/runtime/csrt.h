@@ -146,6 +146,8 @@ void csrt_gc_remember(void* obj);  // scanned by every minor collection while it
 // copied into the heap is logged for rescanning. Outside a cycle the barrier is the flag test.
 extern volatile uint8_t csrt_gc_marking;
 void csrt_gc_remember(void* obj);  // coroutine frames: rescanned by every remark while they live
+void csrt_gc_frame_enter(void* frame);  // a coroutine frame starts running (gc.c, concurrent marking)
+void csrt_gc_frame_exit(void* frame);   // ...and suspends or finishes
 void csrt_gc_log(void* value);
 void csrt_gc_log_range(void* start, size_t bytes);
 #define CSRT_STORE_REF(lvalue, value) \

@@ -258,6 +258,7 @@ public static class ParallelOptimize
                 using var machine = target.CreateSibling();
                 Prune(m, partition, plan, machine);
                 LlvmModule.RunPasses(m, pipeline, machine);
+                Csharpc.CodeGen.ConcurrentBarrierElision.Run(m, machine);
                 if (partition == 0) Reattach(m, LLVMPointerTypeInContext(context, 0), detached);
                 LlvmModule.RunPasses(m, "globaldce", machine);
                 DropUnusedDeclarations(m);

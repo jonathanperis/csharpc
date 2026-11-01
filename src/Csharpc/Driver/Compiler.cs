@@ -359,6 +359,7 @@ public sealed class Compiler(CompilerOptions options)
             if (prebuiltObjects is null)
             {
                 module.RunPasses(pipeline, target);
+                Csharpc.CodeGen.ConcurrentBarrierElision.Run(module.Ref, target);
                 TypeDataDetach.Reattach(module, detached, target);
                 Phase($"optimize ({pipeline})");
             }

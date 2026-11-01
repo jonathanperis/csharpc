@@ -1377,7 +1377,11 @@ public sealed partial class ModuleCodeGen
             var target = Intrinsic(intrinsic, Llvm.Void, Llvm.Ptr);
             using var b = new IrBuilder(Llvm);
             b.PositionAtEnd(b.AppendBlock(fn, "entry"));
+            // --gc-concurrent: a resumed frame is running until it suspends again (gc.c, csrt_gc_frame_enter).
+            var tracked = GcConcurrent && intrinsic == "llvm.coro.resume";
+            if (tracked) { var enter = Runtime("csrt_gc_frame_enter", Llvm.Void, Llvm.Ptr); b.Call(enter.Type, enter.Fn, [fn.Param(0)]); }
             b.Call(target.Type, target.Fn, [fn.Param(0)]);
+            if (tracked) { var exit = Runtime("csrt_gc_frame_exit", Llvm.Void, Llvm.Ptr); b.Call(exit.Type, exit.Fn, [fn.Param(0)]); }
             b.RetVoid();
         }
     }

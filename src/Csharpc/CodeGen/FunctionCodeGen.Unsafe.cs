@@ -138,10 +138,11 @@ public sealed partial class FunctionCodeGen
         _b.Call(f.Type, f.Fn, [destination, L.ConstInt(L.I8, value), bytes, L.False]);
     }
 
-    internal void MemMove(LLVMValueRef destination, LLVMValueRef source, LLVMValueRef bytes)
+    internal void MemMove(LLVMValueRef destination, LLVMValueRef source, LLVMValueRef bytes, bool noReferences = false)
     {
         var f = _m.Intrinsic("llvm.memmove.p0.p0.i64", L.Void, L.Ptr, L.Ptr, L.I64, L.I1);
-        _b.Call(f.Type, f.Fn, [destination, source, bytes, L.False]);
+        var copy = _b.Call(f.Type, f.Fn, [destination, source, bytes, L.False]);
+        if (noReferences) _m.Facts.NoReferences(copy);
     }
 
     private LLVMValueRef EmitAddressOf(IAddressOfOperation op)

@@ -234,7 +234,76 @@ The remark rescans every marked frame because their spills have no barrier. Opti
 3. **Barriers on spills:** run the barrier pass after CoroSplit, which needs a second pass over the split
    functions and costs a flag test per spill.
 
-Option 1 is next.
+Option 1 is done, in the form of a running-frame stack. Each thread keeps a stack of the frames it is running:
+`csrt_coro_resume` and the frame's creation (`csrt_coro_alloc*`) push one, and its suspension or the end of its first
+run (the barrier pass puts `csrt_gc_frame_exit` after each call of a coroutine ramp) pops it. A frame that suspends
+while marking is logged as a frame entry, and the marker scans it whole. The remark then rescans only the frames
+still running on some thread. When a thread's stack overflows (more than 64 nested frames), the remark falls back to
+rescanning every remembered frame. Locally, with 8000 suspended loops, the frames' part of the remark went from
+milliseconds to 0.00 ms, and the longest pause was 1.2 ms.
+
+## Step 3: the barrier's remaining cost and the heap
+
+- **Fresh values have no barrier.** After the optimizer runs, `ConcurrentBarrierElision` removes the barrier of a
+  store whose value is null or fresh. A value is fresh if it comes from an allocation, from a call to a function
+  that returns only fresh values, or from a phi or select of fresh values. The thread has held such an object
+  since it allocated it, so it is always marked during a cycle:
+  - if it was allocated before the initial mark, that mark took it as a root;
+  - if it was allocated during the cycle, it is black.
+
+  Because of runtime LTO, the allocator is inlined, so `gc.c` tags its result with an empty asm (`FRESH`). The pass
+  recognizes that tag and then removes it. One window remains: a thread can be stopped in the fast path after it
+  took a slot's bit out of `free_bits` but before it holds the slot's address. To close it, the initial mark makes
+  the last slot handed out by each cache gray (`AllocCache.claimed`). Running binarytrees' `new TreeNode(Bottom(),
+  Bottom())` now needs no flag test at all.
+- **Mark bits are atomic only during a cycle.** Stop-the-world collections in a `--gc-concurrent` build set mark
+  bits with a plain OR again.
+- **Pacing.**
+  - A cycle starts earlier than the trigger, by what the last cycle allocated (at most half the budget).
+  - The next budget grows from the live heap minus what the cycle allocated. Those objects are black and survive the
+    cycle whether or not they are reachable, and before this change they compounded into every following budget.
+
+Executed instructions with the flag against the default build (x86-64, callgrind):
+
+| Program | Before step 3 | After step 3 |
+|---|---|---|
+| binarytrees | +12.1 % | +0.6 % |
+| churn | +8.4 % | +1.0 % |
+| exprtree | +5.8 % | +3.1 % |
+| listsort | | +2.5 % |
+| wordfreq | | +5.5 % |
+
+GC latency suite, peak RSS over 6 local runs (4 threads, median):
+
+| Build | Peak RSS |
+|---|---|
+| Stop-the-world | 209 MiB |
+| Concurrent, before step 3 | 256 MiB (+23 %) |
+| Concurrent, after step 3 | 207 MiB |
+
+Wall time did not change. The longest pause stayed under 1 ms.
+
+Copies that move no references have no barrier:
+- copies the compiler knows are reference-free (cpblk, `Unsafe.CopyBlock`, span copies of reference-free elements),
+  which carry a `csharpc.noref` tag;
+- copies out of constant globals (InitializeArray).
+
+A store of a small aggregate (up to 8 references) gets one value barrier per reference instead of a range barrier
+on its address. The address passed to the range barrier's call kept an inlined `out` span from being promoted to
+registers. Inside a lazy initialization in a loop, that call also kept LLVM from hoisting the loop's loads. Together
+these made strbuild's IndexOf loop run 60 % more instructions, and strbuild as a whole went from +36 % to +5.5 %.
+
+### On CI (M7 perf 41319120179, Benchmarks 41319120195, TechEmpower 41315086945)
+
+- **Platform plaintext with the flag:** pause p50 0.37 ms. The maximum was 2.69, 0.92 and 3.46 ms over three runs.
+  The frames' part is 0.00 ms. The rest is the stop-the-world handshake, where the phases inside the pause total
+  under 0.8 ms. JSON, db and cached queries: max 0.7–1.9 ms.
+- **Throughput on one CPU type** (EPYC 7763, Interim plaintext): csharpc/NativeAOT is 1.15/1.15/1.08/1.16 at
+  256/1024/4096/16384 connections without the flag, and 1.06/1.05/1.03/1.08 with it.
+- **arm64 Benchmarks wall time:** binarytrees and churn +13 %, exprtree +23 %. arm64 executed instructions rose 4.5 %
+  and 9 % on binarytrees and churn, against +0.6 % and +1.0 % on x86-64. The rest of the arm64 gap is not explained
+  yet, and these programs never start a cycle.
+- **Decision:** the flag stays off by default, because it still costs throughput.
 
 ## Plan
 

@@ -379,13 +379,13 @@ public sealed partial class FunctionCodeGen
                     var done = NewBlock("trycopy.done");
                     _b.CondBr(tooShort, done, copy);
                     _b.PositionAtEnd(copy);
-                    MemMove(SpanPointer(destination), SpanPointer(span), SpanByteCount(span, element));
+                    MemMove(SpanPointer(destination), SpanPointer(span), SpanByteCount(span, element), !Optimizations.IsReferenceOrContainsReferences(element));
                     _b.Br(done);
                     _b.PositionAtEnd(done);
                     return _b.Not(tooShort);
                 }
                 ThrowLibraryExceptionIf(tooShort, "System.ArgumentException", "Destination is too short. (Parameter 'destination')");
-                MemMove(SpanPointer(destination), SpanPointer(span), SpanByteCount(span, element));
+                MemMove(SpanPointer(destination), SpanPointer(span), SpanByteCount(span, element), !Optimizations.IsReferenceOrContainsReferences(element));
                 return default;
             }
             // Memory<T>.Equals(Memory<T>) / ReadOnlyMemory<T>.Equals(ReadOnlyMemory<T>); Span's Equals throws in .NET.
