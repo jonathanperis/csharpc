@@ -10,7 +10,7 @@ name: M7 perf
 on:
   workflow_dispatch:
   push:
-    branches: ["ci/m7-perf*"]
+    branches: ["ci/m7-perf*", "ci/m7-gc-concurrent*"]
     paths: ["src/**", ".github/workflows/m7-perf.yml"]
 
 permissions:
