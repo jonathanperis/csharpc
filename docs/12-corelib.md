@@ -145,7 +145,8 @@ Limitation: `object is IEnumerable<X>` on an array can't check the element type 
   `DateTimeOffset.cs`: same layout, equality and ordering on the UTC instant, formatting and parsing through the
   ported `DateTimeFormat`/`DateTimeParse` with the offset, the local zone from libc like `DateTime`; binary
   serialization is not implemented).
-* **`System.Buffers`:** `ArrayPool<T>`, `MemoryPool<T>` (port of System.Memory's `ArrayMemoryPool`, buffers from
+* **`System.Buffers`:** `ArrayPool<T>` (keeps returned arrays as .NET's shared pool does: one per size bucket per
+  thread, then 32 per bucket shared, up to 1 Mi elements), `MemoryPool<T>` (port of System.Memory's `ArrayMemoryPool`, buffers from
   `ArrayPool<T>.Shared`, so sizes are .NET's), `IMemoryOwner<T>`.
 * **`MemoryExtensions`:** searches and comparisons compare integers, chars, bools and enums byte-wise in the
   runtime and every other element type with `EqualityComparer<T>.Default` semantics (`SpanEquality.cs`), plus the

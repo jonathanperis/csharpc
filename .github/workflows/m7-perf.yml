@@ -75,7 +75,7 @@ jobs:
       - name: Build, verify and load
         run: |
           ulimit -n 65535 || true
-          PROFILE="${{ matrix.profile }}" PROFILE_SCENARIOS="plaintext,256 plaintext,4096 json,256 cached-query,20 db,32" DURATION=15 benchmarks/techempower/run.sh --app ${{ matrix.app }} --tests ${{ matrix.tests }} \
+          PROFILE="${{ matrix.profile }}" PROFILE_SCENARIOS="plaintext,256 plaintext,4096 json,256 cached-query,20 cached-query,100 db,32" DURATION=15 benchmarks/techempower/run.sh --app ${{ matrix.app }} --tests ${{ matrix.tests }} \
             --only aot,csharpc --rounds 3 --out m7-results || status=$?
           cat m7-results/results.md >> "$GITHUB_STEP_SUMMARY" || true
           # Phase timings of the csharpc build (-v), for the build-time work.
