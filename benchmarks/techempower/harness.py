@@ -19,7 +19,7 @@ what stops it. (The entry prints an exception when its database is unreachable, 
 stack traces, through all of its Npgsql and ASP.NET Core frames: docs/adr/0012-stack-traces.md.)
 
 measure: one TechEmpower test type (plaintext, json, db, query, fortune, update, cached-query) or `deploy`
-(start-up to the first response and idle RSS, 5 starts per round; recorded beside them, not judged: the
+(start-up to the first response, which includes the entry's 10,000-query cache fill, and idle RSS, 5 starts per round; recorded beside them, not judged: the
 start-up's CPU time and voluntary context switches, and the idle RSS by mapping). Each round restarts every build (the order
 alternates between rounds) and runs TechEmpower's script for the type: primer (5 s, 8 connections), warm-up
 (DURATION s at 512 connections), then every level TechEmpower uses, DURATION s each (plaintext 256-16384

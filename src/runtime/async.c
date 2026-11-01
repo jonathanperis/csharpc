@@ -253,7 +253,10 @@ static void worker_loop(void) {
         intptr_t kind; void* a; void* b; void* flow;
         pthread_mutex_lock(&s_qlock);
         bool got = dequeue_locked(&kind, &a, &b, &flow);
-        if (!got && s_pool_spin_ns > 0) {
+        // One idle worker at a time polls: it takes the next item, and the others sleep. When every idle
+        // worker polled, a start-up that hands each of 10,000 database replies to the pool kept all the
+        // server's CPUs spinning for the one that worked (TechEmpower's start-up 0.63 -> 1.4 s).
+        if (!got && s_pool_spin_ns > 0 && s_spinning == 0) {
             // Poll before sleeping: under load the next item comes within microseconds.
             s_spinning++;
             pthread_mutex_unlock(&s_qlock);
