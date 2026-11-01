@@ -69,6 +69,19 @@ attribute factories) with a ~25 % faster build.
   monomorphic IFeatureCollection/ILogger calls on interfaces with more than three implementers); the
   optimizer's inliner (half of the 150–220 s `default<O2>` phase); type metadata (930 KB of
   `csharpc.typeinfo.entries`).
+- `ci/m7-correctness` — M7 silent differences and gaps. Console.Out writes through on every call and SIGPIPE
+  is ignored, as in .NET (a killed server lost its log; `app | head -1` killed csharpc's program); Process.Start
+  redirects standard input; `Socket.ConnectAsync` is an engine operation honouring its token (Npgsql's 15 s
+  connect timeout: csharpc's /db waited ~2 min for the kernel's); ExternalException/Win32Exception ToString as
+  .NET's; `[DynamicDependency]` keeps methods, with lazy reflection invokers (Platform -O0 +0.8 %);
+  ISpanFormattable/IUtf8SpanFormattable on decimal, char, dates, TimeSpan, Guid (DateOnly/TimeOnly/Guid emitted
+  invalid IR before); inbox text encoders encode UTF-8 by allowed runs and Utf8 transcoding narrows ASCII runs
+  (invalid UTF-8 now escaped as .NET does); C# interceptors applied (`csharpc Platform.csproj` runs);
+  `Socket.Blocking = false`/`Select` on Windows. Kestrel's application-exception handling already matched the
+  JIT (tests/il.sh IlKestrelErrorsApp). Samples 860–866. TechEmpower run 41253596724: **258 of 456** (was 242;
+  worse 120 → 81); fortunes 0.77–0.92 (was 0.57–0.76); cached queries 10–100 still 0.59–0.87, which is the
+  JSON serialization of `CachedWorld[]` (~3× the JIT's per array locally; MemoryCache lookups are faster
+  than the JIT's).
 - `ci/m7-platform` — csharpc builds and runs TechEmpower's Platform entry (`csharpc Platform.dll`, frameworks
   from its runtimeconfig.json); all seven test types answer as the JIT does (identical verify.py
   transcripts locally). Fixes: SO_REUSEADDR on bind, non-blocking connect/Select, async NetworkStream over
