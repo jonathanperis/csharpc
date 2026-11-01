@@ -76,6 +76,8 @@ public sealed partial class ModuleCodeGen
 
     /// <summary>Emit write barriers and build a nursery-default runtime (--gc-nursery / ADR 0004).</summary>
     public bool GcNursery { get; init; }
+    /// <summary>--gc-concurrent: the concurrent marker's barrier (ModuleCodeGen.WriteBarriers.cs).</summary>
+    public bool GcConcurrent { get; init; }
 
     private LLVMValueRef _traceTables;
     private LLVMValueRef _tracePadAnchor;

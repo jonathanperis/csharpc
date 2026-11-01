@@ -140,6 +140,17 @@ void csrt_gc_remember(void* obj);  // scanned by every minor collection while it
 // already dirty if it holds a young reference. Without the nursery these are plain stores.
 #define CSRT_STORE_REF(lvalue, value) csrt_gc_write((void**)&(lvalue), (void*)(value))
 #define CSRT_DIRTY(start, bytes) csrt_gc_cards_dirty((void*)(start), (size_t)(bytes))
+#elif defined(CSRT_GC_CONCURRENT)
+// Concurrent marking (--gc-concurrent, docs/adr/0020-concurrent-marking.md): while a cycle marks, a
+// reference stored into the heap is logged for the marker (an incremental-update barrier); a range
+// copied into the heap is logged for rescanning. Outside a cycle the barrier is the flag test.
+extern volatile uint8_t csrt_gc_marking;
+void csrt_gc_log(void* value);
+void csrt_gc_log_range(void* start, size_t bytes);
+#define CSRT_STORE_REF(lvalue, value) \
+    ((void)(csrt_gc_marking ? csrt_gc_log((void*)(value)) : (void)0), (void)((lvalue) = (value)))
+#define CSRT_DIRTY(start, bytes) \
+    ((void)(csrt_gc_marking ? csrt_gc_log_range((void*)(start), (size_t)(bytes)) : (void)0))
 #else
 #define CSRT_STORE_REF(lvalue, value) ((void)((lvalue) = (value)))
 #define CSRT_DIRTY(start, bytes) ((void)0)

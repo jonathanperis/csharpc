@@ -256,6 +256,7 @@ public sealed class Compiler(CompilerOptions options)
             ProgramAssemblies = mainIl is null ? ProgramAssembly.From(settings, codegenCompilation.AssemblyName ?? "program") : [],
             LinkedShims = linkedShims,
             GcNursery = options.GcNursery,
+            GcConcurrent = options.GcConcurrent && !options.GcNursery && !wasm,
         };
         using var debugInfo = options.Debug
             ? codegen.Debug = new DebugInfo(codegen, settings.Files.Count > 0 ? settings.Files[0] : "program.cs", options.OptLevel > 0)
@@ -264,6 +265,7 @@ public sealed class Compiler(CompilerOptions options)
         {
             codegen.Generate();
             if (options.GcNursery) codegen.InsertWriteBarriers();
+            else if (codegen.GcConcurrent) codegen.InsertConcurrentBarriers();
         }
         catch (CompileError e)
         {

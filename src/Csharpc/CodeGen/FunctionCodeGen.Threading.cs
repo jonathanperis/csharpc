@@ -330,6 +330,7 @@ public sealed partial class FunctionCodeGen
                 // Dirty before the atomic so a suspend cannot hide an old→young edge.
                 if (_m.GcNursery && TArg(inv, 1).Type.IsPointer && !ModuleCodeGen.IsRootAddress(address))
                     CallRuntime("csrt_gc_cards_dirty", L.Void, [L.Ptr, L.I64], address, L.ConstInt(L.I64, (long)T.PointerSize));
+                if (_m.GcConcurrent && TArg(inv, 1).Type.IsPointer && !ModuleCodeGen.IsRootAddress(address)) _m.EmitConcurrentBarrier(_b, TArg(inv, 1));
                 result = back(Rmw(LLVMAtomicRMWBinOp.Xchg, address, value));
                 return true;
             }
@@ -340,6 +341,7 @@ public sealed partial class FunctionCodeGen
                 var (comparand, _) = AsAtomicInt(TArg(inv, 2));
                 if (_m.GcNursery && TArg(inv, 1).Type.IsPointer && !ModuleCodeGen.IsRootAddress(address))
                     CallRuntime("csrt_gc_cards_dirty", L.Void, [L.Ptr, L.I64], address, L.ConstInt(L.I64, (long)T.PointerSize));
+                if (_m.GcConcurrent && TArg(inv, 1).Type.IsPointer && !ModuleCodeGen.IsRootAddress(address)) _m.EmitConcurrentBarrier(_b, TArg(inv, 1));
                 var pair = Native.LLVMBuildAtomicCmpXchg(_b.Ref, address, comparand, value, seq, seq, 0);
                 result = back(_b.ExtractValue(pair, 0));
                 return true;

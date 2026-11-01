@@ -391,6 +391,15 @@ void csrt_gc_write(void** slot, void* value) {
 // Without CSRT_HAS_NURSERY the barrier symbols are not defined: default binaries must not
 // reference them (codegen emits calls only under --gc-nursery; bclmisc gates Array.Copy).
 
+#if defined(CSRT_GC_CONCURRENT)
+// The concurrent marker's barrier (docs/adr/0020-concurrent-marking.md, step 1: the barrier and its
+// cost). Generated code and CSRT_STORE_REF test `csrt_gc_marking` inline and call these only while a
+// cycle marks; no cycle sets it yet, so they are never reached.
+volatile uint8_t csrt_gc_marking;
+__attribute__((noinline, cold)) void csrt_gc_log(void* value) { (void)value; }
+__attribute__((noinline, cold)) void csrt_gc_log_range(void* start, size_t bytes) { (void)start; (void)bytes; }
+#endif
+
 // ---------------------------------------------------------------------------------------------
 // Chunks
 // ---------------------------------------------------------------------------------------------

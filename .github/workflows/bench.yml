@@ -69,6 +69,11 @@ jobs:
           benchmarks/instructions.sh | tee instructions.md
           { echo "## Executed instructions, csharpc -O2 (${{ matrix.arch }})"; cat instructions.md; } >> "$GITHUB_STEP_SUMMARY"
 
+      - name: Executed instructions with the concurrent marker's barrier (docs/adr/0020)
+        run: |
+          CSHARPC_GC_CONCURRENT=1 benchmarks/instructions.sh | tee instructions-concurrent.md
+          { echo "## Executed instructions, csharpc -O2 --gc-concurrent (${{ matrix.arch }})"; cat instructions-concurrent.md; } >> "$GITHUB_STEP_SUMMARY"
+
       - name: GC throughput, pauses and RSS
         run: |
           GC_BENCH_RUNS=3 benchmarks/gc/gc.sh | tee gc.md
@@ -80,4 +85,5 @@ jobs:
           path: |
             bench.md
             instructions.md
+            instructions-concurrent.md
             gc.md

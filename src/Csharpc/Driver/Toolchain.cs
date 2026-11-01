@@ -26,7 +26,8 @@ public sealed class Toolchain(CompilerOptions options, Csharpc.Llvm.TargetMachin
         Environment.GetEnvironmentVariable("CSHARPC_RUNTIME_CFLAGS")?.Split(' ', StringSplitOptions.RemoveEmptyEntries) ?? [];
 
     /// <summary>--gc-nursery / CSHARPC_GC_NURSERY=1: runtime defaults the nursery on (still overridable with CSRT_GC_NURSERY=0).</summary>
-    private string[] NurseryRuntimeCFlags => options.GcNursery ? ["-DCSRT_GC_NURSERY_DEFAULT"] : [];
+    private string[] NurseryRuntimeCFlags => options.GcNursery ? ["-DCSRT_GC_NURSERY_DEFAULT"]
+        : options.GcConcurrent && !target.IsWasm ? ["-DCSRT_GC_CONCURRENT"] : [];
 
     /// <summary>
     /// Windows: the UCRT's own printf family. _GNU_SOURCE/_POSIX_C_SOURCE would otherwise select
