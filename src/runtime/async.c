@@ -173,7 +173,8 @@ static int s_workers, s_idle, s_blocked;   // pool workers; idle (waiting for wo
 static int s_spinning;                     // workers polling the queue before they sleep
 static int64_t s_dequeued;                 // progress counter (starvation detection)
 static bool s_pool_started;
-static int64_t s_pool_spin_ns;             // how long an idle worker polls (0 on one CPU)
+static int64_t s_pool_spin_ns;             // how long an idle worker polls at most (0 on one CPU)
+static int64_t s_pool_spin_budget_ns;      // how long the next one polls: halved by a poll that found nothing
 static _Thread_local bool tl_worker;       // this thread is a pool worker
 enum { MAX_WORKERS = 512 };
 
@@ -258,16 +259,24 @@ static void worker_loop(void) {
         // server's CPUs spinning for the one that worked (TechEmpower's start-up 0.63 -> 1.4 s).
         if (!got && s_pool_spin_ns > 0 && s_spinning == 0) {
             // Poll before sleeping: under load the next item comes within microseconds.
+            // Adaptive, as .NET's spin-before-block: a poll that finds work restores the full budget, one that
+            // times out halves the next (down to 1/16). Where replies come faster than the budget (the /db
+            // levels the polling is for) it stays at 100 us; where they don't, a worker that kept polling burned
+            // a CPU the server needed (21.6 % of TechEmpower's fortunes profile, where NativeAOT's workers sleep).
             s_spinning++;
+            int64_t budget = s_pool_spin_budget_ns;
             pthread_mutex_unlock(&s_qlock);
-            int64_t deadline = now_ns() + s_pool_spin_ns;
+            int64_t deadline = now_ns() + budget;
+            bool found = true;
             for (int i = 1; __atomic_load_n(&s_qcount, __ATOMIC_RELAXED) == 0; i++) {
                 pool_cpu_relax();
-                if ((i & 31) == 0 && now_ns() >= deadline) break;
+                if ((i & 31) == 0 && now_ns() >= deadline) { found = false; break; }
             }
             pthread_mutex_lock(&s_qlock);
             s_spinning--;
             got = dequeue_locked(&kind, &a, &b, &flow);
+            if (got && found) s_pool_spin_budget_ns = s_pool_spin_ns;
+            else if (!found && budget > s_pool_spin_ns / 16) s_pool_spin_budget_ns = budget / 2;
         }
         while (!got) {
             s_idle++;
@@ -304,6 +313,7 @@ static void pool_start_locked(void) {
     // overrides it.
     const char* spin = getenv("CSRT_POOL_SPIN_US");
     s_pool_spin_ns = n > 1 ? (spin && atol(spin) >= 0 ? (int64_t)atol(spin) * 1000 : 100000) : 0;
+    s_pool_spin_budget_ns = s_pool_spin_ns;
     if (n < 2) n = 2;
     for (int i = 0; i < n; i++) spawn_worker_locked();
     if (!csrt_start_background_thread(timer_loop)) async_fail("csharpc: could not start the timer thread.");
