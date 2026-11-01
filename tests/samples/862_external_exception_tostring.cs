@@ -26,7 +26,8 @@ try { Thrower.Win32(); }
 catch (Win32Exception e) { Console.WriteLine(Shape(e)); }
 
 try { Thrower.Socket(); }
-catch (SocketException e) { Console.WriteLine($"{Shape(e)} | {e.HResult:X8} {e.ErrorCode} {e.NativeErrorCode}"); }
+// The native error and its message are the OS's (111 "Connection refused" on Linux, 10061 on Windows).
+catch (SocketException e) { Console.WriteLine($"{Shape(e).Replace(e.Message, "MESSAGE").Replace($"({e.NativeErrorCode})", "(NATIVE)")} | {e.HResult:X8} {e.ErrorCode == e.NativeErrorCode}"); }
 
 Console.WriteLine(new Win32Exception(2, "native two").ToString());
 Console.WriteLine(new Win32Exception(0, "zero").ToString());

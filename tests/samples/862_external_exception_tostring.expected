@@ -8,6 +8,6 @@ AppDbException (0x80004005): db failed
 AppDbException (0x0000002A): db code
 AppDbException (0x80004005): wrapped |  ---> System.InvalidOperationException: inner thrown | at
 System.ComponentModel.Win32Exception (13): denied | at
-System.Net.Sockets.SocketException (111): Connection refused | at | 80004005 111 111
+System.Net.Sockets.SocketException (NATIVE): MESSAGE | at | 80004005 True
 System.ComponentModel.Win32Exception (2): native two
 System.ComponentModel.Win32Exception (0x80004005): zero

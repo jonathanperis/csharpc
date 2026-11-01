@@ -36,13 +36,14 @@ using (var probe = new Socket(AddressFamily.InterNetwork, SocketType.Stream, Pro
 using (var refused = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp))
 {
     try { await refused.ConnectAsync(new IPEndPoint(IPAddress.Loopback, closedPort)); }
-    catch (SocketException e) { Console.WriteLine($"async: {e.SocketErrorCode} '{e.Message}' connected {refused.Connected}"); }
+    catch (SocketException e) { Console.WriteLine($"async: {e.SocketErrorCode} endpoint in message {e.Message.Contains(closedPort.ToString())} connected {refused.Connected}"); }
 }
 
 using (var refused = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp))
 {
     try { refused.Connect(new IPEndPoint(IPAddress.Loopback, closedPort)); }
-    catch (SocketException e) { Console.WriteLine($"sync: {e.SocketErrorCode} '{e.Message.Replace(closedPort.ToString(), "PORT")}'"); }
+    // The message itself is the OS's ("Connection refused" on Linux).
+    catch (SocketException e) { Console.WriteLine($"sync: {e.SocketErrorCode} ends with endpoint {e.Message.EndsWith(" 127.0.0.1:" + closedPort)}"); }
 }
 
 using (var canceled = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp))

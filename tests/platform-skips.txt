@@ -194,6 +194,7 @@ wasi 659_reader_writer_lock_slim  needs threads: Thread.Start throws PlatformNot
 wasi 555_monitor_pulse_handoff         needs threads: Thread.Start throws PlatformNotSupportedException on WebAssembly
 wasi 840_socket_rebind_time_wait      opens loopback sockets: WASI preview 1 has none (PlatformNotSupportedException)
 wasi 841_socket_nonblocking_connect   opens loopback sockets: WASI preview 1 has none (PlatformNotSupportedException)
+wasi 861_socket_connect_async         opens loopback sockets: WASI preview 1 has none (PlatformNotSupportedException)
 wasi 845_networkstream_async_receive_timeout opens loopback sockets: WASI preview 1 has none (PlatformNotSupportedException)
 wasi 846_npgsql_bcl_members           no ICU on WASI (invariant globalization mode): Unicode normalization and culture-aware comparison
 wasi 848_stringbuilder_provider_text_encoder no ICU on WASI (invariant globalization mode): the sample uses specific cultures
