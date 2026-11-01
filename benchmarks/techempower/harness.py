@@ -40,8 +40,9 @@ Linux only (taskset, /proc). The server gets half the CPUs, wrk the rest (with a
 TechEmpower's image, from the pinned FrameworkBenchmarks commit -- takes one quarter of them). Environment:
 DOTNET (dotnet), DURATION (15), PORT (8080), CSHARPC_FLAGS (-O2), TFB_DIR (a FrameworkBenchmarks checkout;
 fetched into ~/.cache/csharpc otherwise), TFB_DATABASE_HOST (use this PostgreSQL instead of starting one).
-PROFILE=1 / --profile: unstripped builds, and the levels in PROFILE_SCENARIOS ("plaintext,256 json,256") are
-sampled with perf on the server (DIR/<build>.<test>-<level>.perf.txt and .annotate.txt).
+PROFILE=1 / --profile: unstripped builds, and the levels in PROFILE_SCENARIOS ("plaintext,256 json,256"; the
+CPU-bound fortunes of a fast database: "fortune,256") are sampled with perf on the server
+(DIR/<build>.<test>-<level>.perf.txt and .annotate.txt).
 """
 import argparse
 import json
