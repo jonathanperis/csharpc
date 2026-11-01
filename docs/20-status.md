@@ -82,7 +82,7 @@ attribute factories) with a ~25 % faster build.
   worse 120 → 81); fortunes 0.77–0.92 (was 0.57–0.76); cached queries 10–100 still 0.59–0.87, which is the
   JSON serialization of `CachedWorld[]` (~3× the JIT's per array locally; MemoryCache lookups are faster
   than the JIT's).
-- `ci/m7-perf-2` — M7 performance, second round (on main `42479ae`). Adaptive collector budget (growth and
+- `ci/m7-perf-2` — M7 performance, second round (on main `365768e`). Adaptive collector budget (growth and
   floor follow the pause overhead; Benchmarks instruction counts as main). `ValueTask<T>` as .NET's
   two-word struct (corelib `Tasks/ValueTaskOfT.cs`, [10](10-async.md)): the interim app's plaintext
   allocations dropped from 4.7 GiB to 0.35 GiB per run, RSS at 256/16384 connections 50.8/739 → 25.5/257
