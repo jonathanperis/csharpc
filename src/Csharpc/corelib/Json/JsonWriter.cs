@@ -474,10 +474,16 @@ namespace CsharpcCoreLib
 
         // ------------------------------------------------------------------ buffer
 
+        // The capacity checks inline into every write; growing (rare) is out of line.
         private void Ensure(int extra)
         {
+            if (_pending + extra > _buffer.Length) Grow(extra);
+        }
+
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private void Grow(int extra)
+        {
             int needed = _pending + extra;
-            if (needed <= _buffer.Length) return;
             int size = _buffer.Length * 2;
             if (size < needed) size = needed;
             byte[] grown = new byte[size];
@@ -487,7 +493,15 @@ namespace CsharpcCoreLib
 
         private void Put(byte b)
         {
-            if (_pending == _buffer.Length) Ensure(1);
+            byte[] buffer = _buffer;
+            int pos = _pending;
+            if ((uint)pos < (uint)buffer.Length)
+            {
+                buffer[pos] = b;
+                _pending = pos + 1;
+                return;
+            }
+            Grow(1);
             _buffer[_pending++] = b;
         }
 
@@ -930,6 +944,9 @@ namespace CsharpcCoreLib
             _tokenType = JsonTokenType.Number;
         }
 
+        private static ReadOnlySpan<byte> DigitPairs =>
+            "00010203040506070809101112131415161718192021222324252627282930313233343536373839404142434445464748495051525354555657585960616263646566676869707172737475767778798081828384858687888990919293949596979899"u8;
+
         /// <summary>An integer's invariant digits, written into the buffer (no string in between).</summary>
         private void PutInteger(bool negative, ulong magnitude)
         {
@@ -943,13 +960,24 @@ namespace CsharpcCoreLib
                 uint v = (uint)magnitude;
                 int end = pos + (v < 10 ? 1 : v < 100 ? 2 : v < 1000 ? 3 : v < 10000 ? 4 : v < 100000 ? 5
                     : v < 1000000 ? 6 : v < 10000000 ? 7 : v < 100000000 ? 8 : v < 1000000000 ? 9 : 10);
-                for (int i = end - 1; i > pos; i--)
+                // Two digits per division, from a table of "00".."99".
+                ReadOnlySpan<byte> pairs = DigitPairs;
+                int i = end;
+                while (v >= 100)
                 {
-                    uint quotient = v / 10;
-                    buffer[i] = (byte)('0' + (v - quotient * 10));
+                    uint quotient = v / 100;
+                    int pair = (int)(v - quotient * 100) * 2;
+                    buffer[i - 1] = pairs[pair + 1];
+                    buffer[i - 2] = pairs[pair];
+                    i -= 2;
                     v = quotient;
                 }
-                buffer[pos] = (byte)('0' + v);
+                if (v >= 10)
+                {
+                    buffer[i - 1] = pairs[(int)v * 2 + 1];
+                    buffer[i - 2] = pairs[(int)v * 2];
+                }
+                else buffer[i - 1] = (byte)('0' + v);
                 _pending = end;
                 return;
             }
