@@ -423,6 +423,23 @@ def rss_breakdown(pid):
     return out
 
 
+def context_switches(pid):
+    """Voluntary context switches of all the server's threads so far: a latency-bound start-up's thread hand-offs
+    (a thread that blocks to wait for another one)."""
+    total = 0
+    try:
+        for tid in os.listdir(f"/proc/{pid}/task"):
+            try:
+                for line in open(f"/proc/{pid}/task/{tid}/status"):
+                    if line.startswith("voluntary_ctxt_switches:"):
+                        total += int(line.split()[1])
+            except OSError:
+                pass  # the thread exited
+    except OSError:
+        return None
+    return total
+
+
 def cpu_ticks(pid):
     try:
         fields = open(f"/proc/{pid}/stat").read().rsplit(")", 1)[1].split()
@@ -748,6 +765,7 @@ def measure(args):
                         # for the database's 10,000 answers).
                         ticks = cpu_ticks(server.proc.pid)
                         entry.setdefault("startup_cpu_ms", []).append(ticks * 1000 / os.sysconf("SC_CLK_TCK") if ticks is not None else None)
+                        entry.setdefault("startup_context_switches", []).append(context_switches(server.proc.pid))
                         time.sleep(2)
                         entry["idle_rss_kib"].append(proc_status(server.proc.pid)[0])
                         entry.setdefault("idle_rss_split_kib", []).append(rss_breakdown(server.proc.pid))
@@ -756,7 +774,8 @@ def measure(args):
                             entry["verified"] = True
                         server.stop()
                     log(f"   start-up {min(entry['startup_ms']):.0f}-{max(entry['startup_ms']):.0f} ms "
-                        f"(CPU {', '.join(f'{t:.0f}' for t in entry['startup_cpu_ms'] if t is not None)} ms), idle RSS "
+                        f"(CPU {', '.join(f'{t:.0f}' for t in entry['startup_cpu_ms'] if t is not None)} ms, voluntary context switches "
+                        f"{', '.join(str(c) for c in entry['startup_context_switches'] if c is not None)}), idle RSS "
                         f"{statistics.median(entry['idle_rss_kib']) / 1024:.1f} MiB "
                         f"({', '.join(f'{k} {v / 1024:.1f}' for k, v in entry['idle_rss_split_kib'][-1].items())} MiB)")
                 else:
