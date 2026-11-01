@@ -625,9 +625,9 @@ internal static class Intrinsics
     /// <summary>The awaiters that are a csrt task pointer (a property: the tables above are built first).</summary>
     private static string[] TaskAwaiterTypes =>
     [
-        $"{Rcs}.TaskAwaiter", $"{Rcs}.TaskAwaiter<TResult>", $"{Rcs}.ValueTaskAwaiter", $"{Rcs}.ValueTaskAwaiter<TResult>",
+        $"{Rcs}.TaskAwaiter", $"{Rcs}.TaskAwaiter<TResult>", $"{Rcs}.ValueTaskAwaiter",
         $"{Rcs}.ConfiguredTaskAwaitable.ConfiguredTaskAwaiter", $"{Rcs}.ConfiguredTaskAwaitable<TResult>.ConfiguredTaskAwaiter",
-        $"{Rcs}.ConfiguredValueTaskAwaitable.ConfiguredValueTaskAwaiter", $"{Rcs}.ConfiguredValueTaskAwaitable<TResult>.ConfiguredValueTaskAwaiter",
+        $"{Rcs}.ConfiguredValueTaskAwaitable.ConfiguredValueTaskAwaiter",
     ];
 
     private static void AddTaskMethods(Dictionary<string, IntrinsicHandler> t)
@@ -651,8 +651,15 @@ internal static class Intrinsics
         };
         t[$"{Tasks}.Task.FromException(System.Exception)"] = fromException;
         t[$"{Tasks}.Task.FromException<TResult>(System.Exception)"] = fromException;
-        t[$"{Tasks}.ValueTask.FromException(System.Exception)"] = fromException;
-        t[$"{Tasks}.ValueTask.FromException<TResult>(System.Exception)"] = fromException;
+        // (Keys don't tell generic methods apart: this is also FromException<TResult>, whose ValueTask<TResult>
+        // is a struct over the faulted task, corelib/Tasks/ValueTaskOfT.cs.)
+        t[$"{Tasks}.ValueTask.FromException(System.Exception)"] = (g, inv) =>
+        {
+            var task = fromException(g, inv);
+            if (!inv.TargetMethod.IsGenericMethod) return task;
+            return g.CallCoreLibGeneric("ValueTaskAwait`1", "OfTask", [g.S(inv.TargetMethod.TypeArguments[0])],
+                g.Builder.Cast(LLVMOpcode.PtrToInt, task, g.Module.Types.NativeInt));
+        };
 
         // TaskCompletionSource(<T>): the source object is its task.
         foreach (var tcs in new[] { $"{Tasks}.TaskCompletionSource", $"{Tasks}.TaskCompletionSource<TResult>" })
@@ -823,8 +830,6 @@ internal static class Intrinsics
         t[$"{Tasks}.Task.Yield()"] = (g, _) => LlvmContext.Null(g.Module.Llvm.Ptr);
         t[$"{Tasks}.Task.FromResult(TResult)"] = (g, inv) =>
             g.CompletedTask(Arg(g, inv, 0), ((INamedTypeSymbol)g.TypeOf(inv)!).TypeArguments[0]);
-        t[$"{Tasks}.ValueTask.FromResult(TResult)"] = (g, inv) =>
-            g.CompletedValueTask(Arg(g, inv, 0), ((INamedTypeSymbol)g.TypeOf(inv)!).TypeArguments[0]);
 
         IntrinsicHandler whenAll = (g, inv) =>
         {
@@ -870,7 +875,7 @@ internal static class Intrinsics
             return g.CallRuntime("csrt_task_run_thunk", l.Ptr, [l.Ptr, l.Ptr, l.I32], thunk.Fn, Arg(g, inv, 0), l.ConstInt(l.I32, size));
         };
 
-        foreach (var type in new[] { "Task", "Task<TResult>", "ValueTask", "ValueTask<TResult>" })
+        foreach (var type in new[] { "Task", "Task<TResult>", "ValueTask" })
         {
             t[$"{Tasks}.{type}.GetAwaiter()"] = self;
             t[$"{Tasks}.{type}.ConfigureAwait(bool)"] = self;
@@ -879,12 +884,6 @@ internal static class Intrinsics
         }
         t[$"{Tasks}.ValueTask.AsTask()"] = (g, inv) =>
             g.CallRuntime("csrt_valuetask_as_task", g.Module.Llvm.Ptr, [g.Module.Llvm.Ptr, g.Module.Llvm.I32], g.EmitValue(inv.Instance!), g.Module.Llvm.ConstInt(g.Module.Llvm.I32, 0));
-        t[$"{Tasks}.ValueTask<TResult>.AsTask()"] = (g, inv) =>
-        {
-            var result = ((INamedTypeSymbol)g.TypeOf(inv)!).TypeArguments[0];
-            var size = (long)g.Module.Types.Target.SizeOf(g.Module.Types.Storage(result));
-            return g.CallRuntime("csrt_valuetask_as_task", g.Module.Llvm.Ptr, [g.Module.Llvm.Ptr, g.Module.Llvm.I32], g.EmitValue(inv.Instance!), g.Module.Llvm.ConstInt(g.Module.Llvm.I32, size));
-        };
         foreach (var awaiter in TaskAwaiterTypes)
             t[$"{awaiter}.GetResult()"] = (g, inv) =>
             {
@@ -893,7 +892,7 @@ internal static class Intrinsics
                 return g.TaskResult(task, ResultOf(g, inv));
             };
         foreach (var awaitable in new[] { $"{Rcs}.ConfiguredTaskAwaitable", $"{Rcs}.ConfiguredTaskAwaitable<TResult>",
-                     $"{Rcs}.ConfiguredValueTaskAwaitable", $"{Rcs}.ConfiguredValueTaskAwaitable<TResult>" })
+                     $"{Rcs}.ConfiguredValueTaskAwaitable" })
             t[$"{awaitable}.GetAwaiter()"] = self;
 
         // The awaiter pattern as compiled async state machines (IL) and custom awaitables call it:
@@ -936,7 +935,7 @@ internal static class Intrinsics
         // Task<TResult>.Factory: a default TaskFactory<TResult> (corelib/Tasks/TaskScheduling.cs).
         t[$"{Tasks}.Task<TResult>.Factory"] = (g, p) =>
             g.CallCoreLibGeneric("TaskFactoryImpl`1", "CreateDefault", [((INamedTypeSymbol)g.S(p.Property.ContainingType)).TypeArguments[0]]);
-        foreach (var type in new[] { $"{Tasks}.Task", $"{Tasks}.ValueTask", $"{Tasks}.ValueTask<TResult>" })
+        foreach (var type in new[] { $"{Tasks}.Task", $"{Tasks}.ValueTask" })
         {
             t[$"{type}.IsFaulted"] = (g, p) => g.CallRuntime("csrt_task_is_faulted", g.Module.Llvm.I1, [g.Module.Llvm.Ptr], g.EmitValue(p.Instance!));
             t[$"{type}.IsCanceled"] = (g, p) => g.CallRuntime("csrt_task_is_canceled", g.Module.Llvm.I1, [g.Module.Llvm.Ptr], g.EmitValue(p.Instance!));
@@ -962,13 +961,12 @@ internal static class Intrinsics
             g.Builder.ICmp(LLVMIntPredicate.NE, g.EmitValue(p.Instance!), LlvmContext.Null(g.Module.Llvm.Ptr));
         t[$"{Th}.CancellationToken.None"] = (g, _) => LlvmContext.Null(g.Module.Llvm.Ptr);
         PropertyHandler isCompleted = (g, p) => g.CallRuntime("csrt_task_is_completed", g.Module.Llvm.I1, [g.Module.Llvm.Ptr], g.EmitValue(p.Instance!));
-        foreach (var type in TaskAwaiterTypes.Concat([$"{Tasks}.Task", $"{Tasks}.ValueTask", $"{Tasks}.ValueTask<TResult>"]))
+        foreach (var type in TaskAwaiterTypes.Concat([$"{Tasks}.Task", $"{Tasks}.ValueTask"]))
             t[$"{type}.IsCompleted"] = isCompleted;
         t[$"{Rcs}.YieldAwaitable.YieldAwaiter.IsCompleted"] = (g, p) => { g.EmitValue(p.Instance!); return g.Module.Llvm.False; };
         t[$"{Tasks}.Task.IsCompletedSuccessfully"] = (g, p) =>
             g.CallRuntime("csrt_task_is_completed_successfully", g.Module.Llvm.I1, [g.Module.Llvm.Ptr], g.EmitValue(p.Instance!));
         t[$"{Tasks}.ValueTask.IsCompletedSuccessfully"] = t[$"{Tasks}.Task.IsCompletedSuccessfully"];
-        t[$"{Tasks}.ValueTask<TResult>.IsCompletedSuccessfully"] = t[$"{Tasks}.Task.IsCompletedSuccessfully"];
         PropertyHandler result = (g, p) =>
         {
             var task = g.EmitValue(p.Instance!);
@@ -977,7 +975,6 @@ internal static class Intrinsics
             return g.TaskResult(task, g.TypeOf(p));
         };
         t[$"{Tasks}.Task<TResult>.Result"] = result;
-        t[$"{Tasks}.ValueTask<TResult>.Result"] = result;
         t[$"{Tasks}.Task.CompletedTask"] = (g, _) => g.CallRuntime("csrt_task_completed_task", g.Module.Llvm.Ptr, []);
         t[$"{Tasks}.ValueTask.CompletedTask"] = t[$"{Tasks}.Task.CompletedTask"];
     }
@@ -997,10 +994,7 @@ internal static class Intrinsics
                     var value = g.EmitValue(argument.Value);
                     return g.ConvertNumeric(value, from, to, c, isChecked: from is not IPointerTypeSymbol);
                 };
-        t[$"{Tasks}.ValueTask<TResult>..ctor(TResult)"] = (g, c) =>
-            g.CompletedValueTask(CtorArg(g, c, 0), ((INamedTypeSymbol)g.TypeOf(c)!).TypeArguments[0]);
         t[$"{Tasks}.ValueTask..ctor({Tasks}.Task)"] = (g, c) => CtorArg(g, c, 0);
-        t[$"{Tasks}.ValueTask<TResult>..ctor({Tasks}.Task<TResult>)"] = (g, c) => CtorArg(g, c, 0);
         ConstructorHandler newTcs = (g, c) =>
         {
             foreach (var a in c.Arguments) g.EmitValue(a.Value); // TaskCreationOptions / state: ignored (continuations are always queued)
@@ -1043,10 +1037,8 @@ internal static class Intrinsics
         t["System.Threading.CancellationTokenSource..ctor(System.TimeSpan)"] = (g, c) =>
             g.CallRuntime("csrt_cts_new_after", g.Module.Llvm.Ptr, [g.Module.Llvm.I32],
                 g.CallCoreLib("CancellationRuntime", "DelayMilliseconds", CtorArg(g, c, 0)));
-        t[$"{Tasks}.ValueTask<TResult>..ctor({Tasks}.Task<TResult>)"] = (g, c) => CtorArg(g, c, 0);
-        // ValueTasks over an IValueTaskSource (async iterators' MoveNextAsync): bridged to a csrt task (corelib/AsyncIterators.cs).
-        t[$"{Tasks}.ValueTask<TResult>..ctor({Tasks}.Sources.IValueTaskSource<TResult>, short)"] = (g, c) =>
-            g.CallCoreLibGeneric("ValueTaskSourceBridge`1", "Create", [((INamedTypeSymbol)g.TypeOf(c)!).TypeArguments[0]], CtorArg(g, c, 0), CtorArg(g, c, 1));
+        // A non-generic ValueTask over an IValueTaskSource: bridged to a csrt task (corelib/AsyncIterators.cs).
+        // ValueTask<TResult> is a struct (corelib/Tasks/ValueTaskOfT.cs) and holds its source as .NET does.
         t[$"{Tasks}.ValueTask..ctor({Tasks}.Sources.IValueTaskSource, short)"] = (g, c) =>
             g.CallCoreLibGeneric("ValueTaskSourceBridge", "Create", [], CtorArg(g, c, 0), CtorArg(g, c, 1));
         // `a..b` compiled to IL: two Index conversions and this constructor.

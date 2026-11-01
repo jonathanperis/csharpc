@@ -655,11 +655,12 @@ namespace CsharpcCoreLib
         /// <summary>Index of the first char that is escaped, or -1.</summary>
         internal int FindFirstToEncode(string value, int start)
         {
+            uint[] bits = _allowed.Bits; // a local: the stores the loop can't see past otherwise reload it per char
             for (int i = start; i < value.Length; i++)
             {
                 char c = value[i];
                 if (c >= 0xD800 && c <= 0xDFFF) return i; // supplementary or invalid: always encoded
-                if (!_allowed.IsAllowed(c)) return i;
+                if ((bits[c >> 5] & (1u << (c & 31))) == 0) return i;
             }
             return -1;
         }

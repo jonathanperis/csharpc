@@ -34,8 +34,11 @@ public sealed partial class FunctionCodeGen
         var handled = new IlEntry(IlKind.Token, default, null);
         if (method.Name == "Await")
         {
-            // Await(Task / ValueTask / their configured awaitables) and the generic Await<T> overloads: all of
-            // them are a csrt task pointer (TypeMapper); a configured awaitable doesn't post to a SynchronizationContext.
+            // Await<T>(ValueTask<T>) / Await<T>(ConfiguredValueTaskAwaitable<T>): the struct (corelib/Tasks/ValueTaskOfT.cs).
+            if (ValueTaskResultType(operandType) is { } valueTaskResult)
+                return IlPush(AwaitValueTask(IlTyped(args[0], parameterType), operandType, valueTaskResult), method.ReturnType);
+            // Await(Task / ValueTask / their configured awaitables) and Await<T>(Task<T> ...): a csrt task pointer
+            // (TypeMapper); a configured awaitable doesn't post to a SynchronizationContext.
             if (!Coroutines.IsTaskHandleType(operandType) || Coroutines.IsYieldAwaitable(operandType))
                 throw new Frontend.Il.IlException($"AsyncHelpers.Await({operandType})");
             var task = IlTyped(args[0], parameterType);

@@ -62,13 +62,26 @@ with `<Features>runtime-async=on</Features>`.
 
 ## Tasks and the scheduler
 
-`Task`, `Task<T>`, `ValueTask`, `ValueTask<T>`, the awaiters (`TaskAwaiter`, `ValueTaskAwaiter`,
-the `Configured*` ones, `YieldAwaitable`) and `CancellationToken` are all represented by a pointer
-to one csrt task object (`TypeMapper` maps these library types to `ptr`):
+`Task`, `Task<T>`, the non-generic `ValueTask`, the awaiters (`TaskAwaiter`, the non-generic
+`ValueTaskAwaiter`, the `Configured*` ones, `YieldAwaitable`) and `CancellationToken` are all represented
+by a pointer to one csrt task object (`TypeMapper` maps these library types to `ptr`):
 
 ```
 { mt, i32 state, i32 payload_size, conts, i32 ncont, i32 lock, exception, aggregate, i32 id, i32 flags, payload @ +56 }
 ```
+
+**`ValueTask<T>` is .NET's struct** (`corelib/Tasks/ValueTaskOfT.cs`, a port of .NET's `ValueTask<T>`,
+`ValueTaskAwaiter<T>` and `ConfiguredValueTaskAwaitable<T>`): `{ object _obj, T _result, short _token, bool
+_continueOnCapturedContext }`, where `_obj` is null (the result is inline: a synchronously completed
+`ValueTask<T>` allocates nothing), a csrt task, or an `IValueTaskSource<T>` called exactly as .NET calls it
+(awaiting one twice is the source's error, `AsTask()` makes one task, `Preserve()` keeps an inline result).
+`await` of one (`FunctionCodeGen.AwaitValueTask`, also `AsyncHelpers.Await<T>` in runtime-async IL) tests
+`IsCompleted`, then resumes the coroutine straight from the task (as `await task` does) or through the
+source's `OnCompleted` (`csrt_coro_resume_token` / `csrt_coro_resume_state` keep the await's execution-context
+flow), and reads `GetResult()`. An async method returning `ValueTask<T>` returns the struct over its task
+(`ValueTaskAwait<T>.OfTask`), as does an async iterator's `MoveNextAsync()`. In the TechEmpower server,
+synchronous `ValueTask<T>` results (Pipe.ReadAsync, socket sends and receives) were 64 % of the tasks
+allocated before.
 
 (+40 on wasm32.) `default(ValueTask)` is a null pointer, meaning "completed". `id` is `Task.Id`, assigned
 on first use from one counter as in .NET; `flags` tells `Task.Status` a pending `Task.Run` delegate task
@@ -142,22 +155,23 @@ their `async` methods: an `IAsyncStateMachine` (a struct in Release builds, a cl
   does not complete synchronously creates the builder's task, then copies the state machine into a heap
   box (.NET's `AsyncStateMachineBox`) whose `MoveNext` delegate is the continuation; the ramp's stack
   copy and the box share the task, later awaits reuse the box. A method that completes synchronously
-  never allocates a pending task. `ValueTask`s are task pointers here too, so the `ValueTask` builders
-  wrap the `Task` ones.
-- **Awaiters.** `TaskAwaiter`, `ValueTaskAwaiter`, the `Configured*` awaiters (`IsCompleted`,
+  never allocates a pending task. The `ValueTask` builders wrap the `Task` ones; the generic ones keep a
+  synchronous result inline, so the method returns `new ValueTask<T>(result)`, as .NET's do.
+- **Awaiters.** `TaskAwaiter`, the non-generic `ValueTaskAwaiter`, the `Configured*` task awaiters (`IsCompleted`,
   `GetResult`, `OnCompleted`, `UnsafeOnCompleted`) and `YieldAwaitable.YieldAwaiter` are intrinsics over
   the task pointer: `OnCompleted(action)` registers an `Action` continuation (`csrt_task_on_completed_action`),
   run inline by the thread that completes the task, or queued to the pool if the task had already
-  completed — `TaskAwaiter` without a `SynchronizationContext`. Custom awaiters work through the
+  completed — `TaskAwaiter` without a `SynchronizationContext`. `ValueTaskAwaiter<T>` and its configured
+  awaiter are corelib C# (the struct `ValueTask<T>`, above). Custom awaiters work through the
   builders' generic `AwaitOnCompleted`/`AwaitUnsafeOnCompleted` (constrained calls after monomorphization).
 - **Exceptions.** `await` inside `catch`/`finally` rethrows through `ExceptionDispatchInfo` (corelib;
   no stack traces, so `Throw()` rethrows the same object). Async `void` exceptions end the process
   through `csrt_unhandled_exception`, as in the source path.
 - **Async iterators.** `AsyncIteratorMethodBuilder` and `ManualResetValueTaskSourceCore<T>` (a port of
-  .NET's, without execution contexts). `MoveNextAsync()` returns `new ValueTask<bool>(this, version)`;
-  a `ValueTask` over an `IValueTaskSource` is bridged to a csrt task, completed at once if the source
-  is, otherwise from the source's `OnCompleted` continuation (`GetResult` is called once, after
-  completion, as an awaiter would). `[EnumeratorCancellation]` tokens combine through
+  .NET's, without execution contexts). `MoveNextAsync()` returns `new ValueTask<bool>(this, version)`,
+  which keeps the source (the struct `ValueTask<T>`, above). A non-generic `ValueTask` over an
+  `IValueTaskSource` is still bridged to a csrt task, completed at once if the source is, otherwise from
+  the source's `OnCompleted` continuation (`GetResult` is called once, after completion). `[EnumeratorCancellation]` tokens combine through
   `CancellationTokenSource.CreateLinkedTokenSource`.
 
 **Cancellation (both paths).** An `OperationCanceledException` escaping an async method *cancels* its

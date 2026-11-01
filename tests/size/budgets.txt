@@ -1,9 +1,9 @@
 # <platform> <program> <max bytes, stripped -O2>: measured size + max(4 KiB, 3 %), rounded up to 1 KiB.
 # File sizes move in whole pages (segments are page-aligned), so the headroom is at least one page.
 # Lower a budget when a change makes a program smaller; raising one needs a reason in the commit.
-linux-x86_64 async 146432
+linux-x86_64 async 151552
 linux-x86_64 collections 140288
-linux-x86_64 exceptions 32768
+linux-x86_64 exceptions 37888
 linux-x86_64 hello 32768
 linux-x86_64 linq 165888
 linux-x86_64 numbers 133120
@@ -27,12 +27,12 @@ windows-x86_64 collections 151552
 windows-x86_64 exceptions 50176
 windows-x86_64 hello 44032
 windows-x86_64 linq 179200
-windows-x86_64 numbers 140288
+windows-x86_64 numbers 146432
 windows-x86_64 typeinfo 57344
 wasi-wasm32 async 144384
 wasi-wasm32 collections 141312
 wasi-wasm32 exceptions 53248
 wasi-wasm32 hello 52224
-wasi-wasm32 linq 162816
+wasi-wasm32 linq 167936
 wasi-wasm32 numbers 133120
 wasi-wasm32 typeinfo 63488

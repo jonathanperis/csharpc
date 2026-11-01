@@ -126,6 +126,7 @@ struct Chunk {
 #if defined(CSRT_GC_PARALLEL_MARK)
     uint8_t owner;         // which parallel marker writes this chunk's mark bits
 #endif
+    uint8_t released;      // empty, and its slot pages were given back to the OS (zero when touched again)
     Chunk* next;           // all chunks
     Chunk* next_free;      // per-class list of chunks with free slots / list of empty chunks
     uint64_t allocated[MAX_SLOTS / 64];
@@ -226,6 +227,10 @@ static struct {
     size_t mark_count, mark_capacity;
 
     size_t allocated_since_gc, live_bytes, trigger, min_trigger;
+    size_t growth_pct, budget_floor;  // the budget after a collection: growth_pct % of live, at least budget_floor (adapt_budget)
+    double last_gc_end;               // CLOCK_MONOTONIC seconds when the previous collection resumed the world
+    const void* own_stack_top;        // the collecting thread's scan starts here (csrt_gc_collect_now)
+    size_t released_chunks;           // empty chunks whose pages went back to the OS (release_surplus_chunks)
 #if CSRT_HAS_NURSERY
     // Minors run every nursery_trigger bytes of allocation of any kind (small, large, into reused
     // old chunks); a collection is major once the heap reaches major_trigger (2x the last major's live).
@@ -459,6 +464,8 @@ static bool claim_word(SizeClass* sc, AllocCache* cache, uint32_t cls) {
                 // reading flags through a garbage "method table".
                 // Slot starts of a class whose size is a multiple of the old one's are old slot starts.
                 uint32_t old_size = k_size_classes[c->size_class], new_size = k_size_classes[cls];
+                if (c->released) { c->released = 0; g.released_chunks--; }  // its pages read as zero again: nothing to clear
+                else
 #if CSRT_HAS_NURSERY
                 if (g.nursery && c->size_class != cls) memset((uint8_t*)c + CHUNK_HEADER, 0, CHUNK_SIZE - CHUNK_HEADER);  // minors scan whole chunks
                 else
@@ -789,6 +796,8 @@ void csrt_gc_init(void) {
     env = getenv("CSRT_GC_TRIGGER_MB");
     g.min_trigger = env && atol(env) > 0 ? (size_t)atol(env) * 1024 * 1024 : MIN_TRIGGER;
     g.trigger = g.min_trigger;
+    g.growth_pct = 200;
+    g.budget_floor = g.min_trigger;
 #if CSRT_HAS_NURSERY
     // Built with --gc-nursery: on unless CSRT_GC_NURSERY=0. Coarse per-chunk cards help RSS on
     // livemutate but cost churn throughput and binary size (docs/adr/0004).
@@ -1663,12 +1672,11 @@ CSRT_GC_NO_SANITIZE __attribute__((noinline)) static void scan_own_stack(const v
     volatile uintptr_t marker = 0;
     const void* top = (const void*)&marker;
 #else
-    jmp_buf registers;  // spills callee-saved registers onto this frame
-    setjmp(registers);
-    __builtin_unwind_init();
-    volatile uintptr_t marker = 0;
-    const void* top = (const void*)&marker;
-    if ((const void*)registers < top) top = (const void*)registers;
+    // From where the collection was entered (csrt_gc_collect_now saved the caller's registers there),
+    // not from here: the collector's own frames below it hold only its values, and their unwritten
+    // slots still hold whatever the program's returned calls left there, which kept whole dead
+    // structures alive (a 50 MB list built by a method that had returned, in tests/samples/833).
+    const void* top = g.own_stack_top;
 #endif
     scan_range(top, bottom);
 }
@@ -1678,7 +1686,16 @@ static void scan_roots(void) {
     for (csrt_GcThread* t = g.threads; t; t = t->next) {
         mark_candidate((uintptr_t)t->managed);  // e.g. the Thread object of a starting thread
         if (t->state != THREAD_RUNNING) continue;
-        if (t->tls_hi) scan_range((const void*)t->tls_lo, (const void*)t->tls_hi);
+        if (t->tls_hi) {
+            // Not the thread's allocation caches (tl_cache, in its TLS block): a cache's word_base is the
+            // first slot of the bitmap word it claimed, whatever object sits there, and as a root it kept
+            // that object and everything it reaches alive (one per size class and thread).
+            uintptr_t cache = (uintptr_t)t->cache, cache_end = cache + sizeof tl_cache;
+            if (cache >= t->tls_lo && cache_end <= t->tls_hi) {
+                scan_range((const void*)t->tls_lo, (const void*)cache);
+                scan_range((const void*)cache_end, (const void*)t->tls_hi);
+            } else scan_range((const void*)t->tls_lo, (const void*)t->tls_hi);
+        }
         if (t == tl_self) scan_own_stack(t->stack_bottom);
         else {
 #ifdef _WIN32
@@ -2191,8 +2208,72 @@ void csrt_weak_free(intptr_t handle) {
     gc_unlock();
 }
 
-__attribute__((noinline)) void csrt_gc_collect_now(void) {
+/// The allocation budget follows what collecting costs. It starts at the throughput setting (twice the
+/// live heap, at least min_trigger) and steps toward the live heap and half of min_trigger while pauses
+/// take under 2 % of the time, back up past 4 %. Allocation-bound programs (binarytrees, churn: GC is
+/// several % of their time) keep the large budget; a server whose request garbage is cheap to collect
+/// runs near its live size. A fixed growth of 100 % with 16 MiB cost binarytrees +26 % and churn +17 %
+/// executed instructions, and took the TechEmpower server from 72 to 52-56 MiB (NativeAOT: 65).
+static void adapt_budget(struct timespec start, struct timespec end) {
+    double now = (double)end.tv_sec + (double)end.tv_nsec / 1e9;
+    double pause = now - ((double)start.tv_sec + (double)start.tv_nsec / 1e9);
+    double since = now - g.last_gc_end;
+    bool first = g.last_gc_end == 0;
+    g.last_gc_end = now;
+    if (first || since <= pause) return;
+    double overhead = pause / since;
+    size_t floor_min = g.min_trigger / 2, step = g.min_trigger / 8;
+    if (overhead < 0.02) {
+        if (g.growth_pct > 100) g.growth_pct -= 25;
+        g.budget_floor = g.budget_floor > floor_min + step ? g.budget_floor - step : floor_min;
+    } else if (overhead > 0.04) {
+        g.growth_pct = g.growth_pct + 50 < 200 ? g.growth_pct + 50 : 200;
+        g.budget_floor = g.budget_floor + 2 * step < g.min_trigger ? g.budget_floor + 2 * step : g.min_trigger;
+    }
+}
+
+/// Empty chunks beyond what the next allocation budget can fill give their pages back to the OS, so the
+/// process shrinks after a burst: a server's heap peaks under its warm-up's connections and, without
+/// this, its RSS never came down again (TechEmpower JSON: 52 MiB at every later load level, against
+/// NativeAOT's 30-44). In a steady state the empty chunks a sweep finds are about the budget, so none
+/// are released and none fault in again. The chunk header (bitmaps, links) stays resident; Linux
+/// zero-fills the released pages on their next touch, which claim_word relies on.
+static void release_surplus_chunks(void) {
+#ifdef __linux__
+    size_t keep = g.trigger / CHUNK_SIZE + 4, committed = 0;
+    for (Chunk* c = g.empty; c; c = c->next_free) {
+        if (c->released || ++committed <= keep) continue;
+        if (madvise((uint8_t*)c + CHUNK_HEADER, CHUNK_SIZE - CHUNK_HEADER, MADV_DONTNEED) != 0) return;
+        c->released = 1;
+        g.released_chunks++;
+    }
+#endif
+}
+
+static void collect_now(void);
+
+/// Every collection starts here. The caller's callee-saved registers are spilled into this frame (the
+/// jmp_buf, and the prologue's saves that __builtin_unwind_init forces), and the collecting thread's
+/// stack is scanned from this frame up (scan_own_stack).
+CSRT_GC_NO_SANITIZE __attribute__((noinline)) void csrt_gc_collect_now(void) {
     if (g.collecting) return;
+#ifndef __wasi__
+    jmp_buf registers;
+    setjmp(registers);
+    __builtin_unwind_init();
+    volatile uintptr_t marker = 0;
+    const void* top = (const void*)&marker;
+    if ((const void*)registers < top) top = (const void*)registers;
+    g.own_stack_top = top;
+#endif
+    collect_now();
+#ifndef __wasi__
+    // Keeps the frame (and so the saved registers) alive until the collection is over.
+    __asm__ volatile("" : : "r"(&registers), "r"(&marker) : "memory");
+#endif
+}
+
+__attribute__((noinline)) static void collect_now(void) {
     g.collecting = true;
 #if CSRT_HAS_NURSERY
     // Stress and explicit Collect always major. Many minors without a major would never sweep
@@ -2253,12 +2334,17 @@ __attribute__((noinline)) void csrt_gc_collect_now(void) {
     g.live_bytes = sweep();
 #endif
     resume_world();
+    clock_gettime(CLOCK_MONOTONIC, &t1);
+    adapt_budget(t0, t1);
     for (size_t i = 0; i < g.deferred_count; i++) free(g.deferred_free[i]);
     g.deferred_count = 0;
     g.allocated_since_gc = 0;
-    g.trigger = 2 * g.live_bytes > g.min_trigger ? 2 * g.live_bytes : g.min_trigger;
+    size_t grown = g.live_bytes / 100 * g.growth_pct;
+    g.trigger = grown > g.budget_floor ? grown : g.budget_floor;
+    release_surplus_chunks();
 #if CSRT_HAS_NURSERY
-    if (!was_minor) g.major_trigger = g.trigger;
+    // Majors stay at twice the last major's live heap (live + a smaller budget would make every one major).
+    if (!was_minor) g.major_trigger = 2 * g.live_bytes > g.min_trigger ? 2 * g.live_bytes : g.min_trigger;
     if (g.nursery && !was_minor) g.nursery_trigger = g.nursery_trigger_min;
     g.collections++;
     if (!was_minor) { g.major_collections++; g.minors_since_major = 0; }
@@ -2268,7 +2354,6 @@ __attribute__((noinline)) void csrt_gc_collect_now(void) {
     g.collections++;
 #endif
 
-    clock_gettime(CLOCK_MONOTONIC, &t1);
     g.total_gc_seconds += (double)(t1.tv_sec - t0.tv_sec) + (double)(t1.tv_nsec - t0.tv_nsec) / 1e9;
 #if defined(CSRT_GC_PARALLEL_MARK) && !defined(__wasi__)
     if ((double)(t1.tv_sec - t0.tv_sec) + (double)(t1.tv_nsec - t0.tv_nsec) / 1e9 >= 0.003) g_mark_heavy = 1;
@@ -2297,15 +2382,15 @@ void csrt_gc_shutdown(void) {
     if (!g.stats) return;
 #if CSRT_HAS_NURSERY
     fprintf(stderr,
-            "csrt gc: %zu collections (%zu major), %.1f ms total, allocated %.1f MiB, peak heap %.1f MiB, live %.1f MiB, %zu chunks, %zu large objects%s\n",
+            "csrt gc: %zu collections (%zu major), %.1f ms total, allocated %.1f MiB, peak heap %.1f MiB, live %.1f MiB, %zu chunks (%zu released), %zu large objects%s\n",
             g.collections, g.major_collections, g.total_gc_seconds * 1000.0, g.total_allocated / 1048576.0, g.peak_heap / 1048576.0,
-            (g.live_bytes + g.allocated_since_gc) / 1048576.0, g.chunk_count, g.large_count,
+            (g.live_bytes + g.allocated_since_gc) / 1048576.0, g.chunk_count, g.released_chunks, g.large_count,
             g.nursery ? ", nursery on" : "");
 #else
     fprintf(stderr,
-            "csrt gc: %zu collections, %.1f ms total, allocated %.1f MiB, peak heap %.1f MiB, live %.1f MiB, %zu chunks, %zu large objects\n",
+            "csrt gc: %zu collections, %.1f ms total, allocated %.1f MiB, peak heap %.1f MiB, live %.1f MiB, %zu chunks (%zu released), %zu large objects\n",
             g.collections, g.total_gc_seconds * 1000.0, g.total_allocated / 1048576.0, g.peak_heap / 1048576.0,
-            (g.live_bytes + g.allocated_since_gc) / 1048576.0, g.chunk_count, g.large_count);
+            (g.live_bytes + g.allocated_since_gc) / 1048576.0, g.chunk_count, g.released_chunks, g.large_count);
 #endif
 #ifdef CSRT_ALLOC_PROFILE
     profile_print();

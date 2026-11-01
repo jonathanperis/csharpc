@@ -34,7 +34,7 @@ public enum LLVMAtomicOrdering { NotAtomic = 0, Unordered = 1, Monotonic = 2, Ac
 
 public enum LLVMAtomicRMWBinOp { Xchg, Add, Sub, And, Nand, Or, Xor, Max, Min, UMax, UMin, FAdd, FSub }
 
-public enum LLVMLinkage { External = 0, LinkOnceODR = 3, WeakAny = 5, Internal = 8, Private = 9 }
+public enum LLVMLinkage { External = 0, LinkOnceODR = 3, WeakAny = 5, Appending = 6, Internal = 8, Private = 9 }
 
 public enum LLVMCodeGenOptLevel { None, Less, Default, Aggressive }
 public enum LLVMRelocMode { Default, Static, PIC, DynamicNoPic }
@@ -238,8 +238,6 @@ internal static unsafe partial class Native
     [LibraryImport(Lib)] public static partial void LLVMSetPersonalityFn(LLVMValueRef fn, LLVMValueRef personality);
     [LibraryImport(Lib, StringMarshalling = StringMarshalling.Utf8)]
     public static partial LLVMValueRef LLVMBuildExtractValue(LLVMBuilderRef b, LLVMValueRef aggregate, uint index, string name);
-    [LibraryImport(Lib, StringMarshalling = StringMarshalling.Utf8)]
-    public static partial LLVMValueRef LLVMBuildFreeze(LLVMBuilderRef b, LLVMValueRef value, string name);
     [LibraryImport(Lib)] public static partial LLVMValueRef LLVMGetBasicBlockParent(LLVMBasicBlockRef block);
     [LibraryImport(Lib)] public static partial LLVMValueRef LLVMBuildResume(LLVMBuilderRef b, LLVMValueRef exception);
     [LibraryImport(Lib)]

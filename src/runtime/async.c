@@ -741,6 +741,32 @@ void csrt_task_on_completed(csrt_Task* t, void* frame) {
 /// `await t.ConfigureAwait(false)`: no context to post to.
 void csrt_task_on_completed_no_context(csrt_Task* t, void* frame) { on_completed_no_context(t, frame); }
 
+/// ValueTask<T>'s object (corelib/Tasks/ValueTaskOfT.cs): a csrt task, as opposed to an IValueTaskSource.
+int32_t csrt_object_is_task(void* obj) { return obj && ((csrt_Object*)obj)->mt == &csrt_Task_MT.header; }
+
+/// `await` of a pending source-backed ValueTask: the state the source hands back to csrt_coro_resume_state,
+/// the frame itself or, when the await has an execution-context flow, the frame and that flow (as
+/// on_completed_no_context does for a task).
+void* csrt_coro_resume_token(void* frame) {
+    void* flow = csrt_flow_capture();
+    if (!flow) return frame;
+    ResumeWithFlow* r = csrt_alloc(&csrt_Object_MT.header, sizeof(ResumeWithFlow));
+    CSRT_STORE_REF(r->frame, frame);
+    CSRT_STORE_REF(r->flow, flow);
+    return r;
+}
+
+/// The source's continuation: resumes the coroutine with its flow (a frame starts with its resume function,
+/// never with a method table).
+void csrt_coro_resume_state(void* state) {
+    bool withFlow = ((csrt_Object*)state)->mt == &csrt_Object_MT.header;
+    void* frame = withFlow ? ((ResumeWithFlow*)state)->frame : state;
+    void* saved = csrt_tl_flow;
+    csrt_tl_flow = withFlow ? ((ResumeWithFlow*)state)->flow : NULL;
+    csrt_coro_resume(frame);
+    csrt_tl_flow = saved;
+}
+
 /// `await` of a configured awaitable whose setting isn't known at the await (one kept in a variable).
 void csrt_task_on_completed_unknown_context(csrt_Task* t, void* frame) {
     if (csrt_tl_sync_context)

@@ -232,8 +232,14 @@ math). Hello world is about 65 KiB at -O2.
 The collector in `src/runtime/gc.c` is a conservative, non-moving, stop-the-world mark-sweep.
 Small objects live in 256 KiB size-classed chunks; large objects are tracked in a sorted table.
 Roots are the writable data segments, each thread's stack (registers spilled by `setjmp` or, on
-Windows, `GetThreadContext`) and its TLS. Strings and arrays of primitives are not scanned
-(`CSRT_MT_NO_REFERENCES`). Allocation is thread-local (one claimed bitmap word per size class).
+Windows, `GetThreadContext`) and its TLS. The collecting thread's stack is scanned from the frame
+where the collection was entered, not from the collector's own frames, whose unwritten slots hold
+stale values of returned calls; the TLS block is scanned without the allocation caches, whose word
+pointers name whatever object starts the claimed bitmap word. Strings and arrays of primitives are
+not scanned (`CSRT_MT_NO_REFERENCES`). Allocation is thread-local (one claimed bitmap word per size
+class). After a collection, empty chunks beyond what the next allocation budget can fill give their
+pages back to the OS (`madvise(MADV_DONTNEED)`, Linux), so a process shrinks after a burst; a
+released chunk is zero when it is handed out again.
 The full design, including why the next step is a non-moving nursery rather than LLVM statepoints,
 is [ADR 0004](adr/0004-memory-management.md). On wasm32 the shadow stack is [ADR 0011](adr/0011-wasm32.md).
 

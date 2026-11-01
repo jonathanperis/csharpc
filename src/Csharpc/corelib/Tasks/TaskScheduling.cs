@@ -546,6 +546,9 @@ namespace CsharpcCoreLib
     {
         public static ValueTask FromCanceled(CancellationToken cancellationToken) => new ValueTask(Task.FromCanceled(cancellationToken));
         public static ValueTask<TResult> FromCanceled<TResult>(CancellationToken cancellationToken) => new ValueTask<TResult>(Task.FromCanceled<TResult>(cancellationToken));
+        // ValueTask<TResult> is a struct (ValueTaskOfT.cs): the result inline, as .NET's ValueTask.FromResult.
+        public static ValueTask<TResult> FromResult<TResult>(TResult result) => new ValueTask<TResult>(result);
+        public static ValueTask<TResult> FromException<TResult>(Exception exception) => new ValueTask<TResult>(Task.FromException<TResult>(exception));
     }
 
     /// <summary>Task.Factory and Task.ContinueWith (Task&lt;TResult&gt;'s are Intrinsics.cs forwarders to TaskResultContinuations).</summary>
