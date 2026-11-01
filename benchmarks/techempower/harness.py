@@ -397,6 +397,32 @@ def proc_status(pid):
     return rss, hwm, threads
 
 
+def rss_breakdown(pid):
+    """Idle RSS by mapping, KiB, from /proc/PID/smaps: anonymous (the GC heap, malloc, stacks; in mappings of at
+    least 1 MiB or smaller) and file-backed (the executable, shared libraries). Informational: the server log and
+    the measure JSON, outside the verdict."""
+    out = {"anon": 0, "file": 0, "binary": 0, "libraries": 0, "anon_large": 0, "anon_small": 0}
+    try:
+        exe = os.path.realpath(f"/proc/{pid}/exe")
+        name = size = None
+        for line in open(f"/proc/{pid}/smaps"):
+            head = line.split()
+            if "-" in head[0] and len(head) >= 5 and not head[0].endswith(":"):
+                lo, hi = (int(x, 16) for x in head[0].split("-"))
+                size, name = hi - lo, (head[5] if len(head) > 5 else "")
+            elif head[0] == "Rss:":
+                kib = int(head[1])
+                if not name or name.startswith("[heap]") or name.startswith("[stack"):
+                    out["anon"] += kib
+                    out["anon_large" if size >= 1 << 20 else "anon_small"] += kib
+                else:
+                    out["file"] += kib
+                    out["binary" if name == exe else "libraries"] += kib
+    except (OSError, ValueError):
+        pass
+    return out
+
+
 def cpu_ticks(pid):
     try:
         fields = open(f"/proc/{pid}/stat").read().rsplit(")", 1)[1].split()
@@ -718,14 +744,21 @@ def measure(args):
                     entry["startup_ms"], entry["idle_rss_kib"] = [], []
                     for _ in range(5):
                         entry["startup_ms"].append(server.start())
+                        # CPU the start-up took, all threads (informational: what the start-up costs beside waiting
+                        # for the database's 10,000 answers).
+                        ticks = cpu_ticks(server.proc.pid)
+                        entry.setdefault("startup_cpu_ms", []).append(ticks * 1000 / os.sysconf("SC_CLK_TCK") if ticks is not None else None)
                         time.sleep(2)
                         entry["idle_rss_kib"].append(proc_status(server.proc.pid)[0])
+                        entry.setdefault("idle_rss_split_kib", []).append(rss_breakdown(server.proc.pid))
                         if round_no == 1 and not entry.get("verified"):
                             result["verification"][build] = verify(ctx, build)
                             entry["verified"] = True
                         server.stop()
-                    log(f"   start-up {min(entry['startup_ms']):.0f}-{max(entry['startup_ms']):.0f} ms, idle RSS "
-                        f"{statistics.median(entry['idle_rss_kib']) / 1024:.1f} MiB")
+                    log(f"   start-up {min(entry['startup_ms']):.0f}-{max(entry['startup_ms']):.0f} ms "
+                        f"(CPU {', '.join(f'{t:.0f}' for t in entry['startup_cpu_ms'] if t is not None)} ms), idle RSS "
+                        f"{statistics.median(entry['idle_rss_kib']) / 1024:.1f} MiB "
+                        f"({', '.join(f'{k} {v / 1024:.1f}' for k, v in entry['idle_rss_split_kib'][-1].items())} MiB)")
                 else:
                     entry["startup_ms"] = server.start()
                     if round_no == 1:
