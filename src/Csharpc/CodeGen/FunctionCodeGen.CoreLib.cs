@@ -197,14 +197,28 @@ public sealed partial class FunctionCodeGen
     /// <summary>CoreIntrinsics.LibraryFrames: preset the exception's trace with these library frames (no-op without stack traces).</summary>
     private LLVMValueRef LibraryFrames(LLVMValueRef exception, IInvocationOperation inv, bool preset)
     {
-        if (_m.StackTraces is not { } traces) return preset ? exception : L.False;
+        if (_m.StackTraces is null) return preset ? exception : L.False;
         var text = inv.Arguments.First(a => a.Parameter!.Ordinal == 1).Value.ConstantValue.Value as string
             ?? throw CompileError.Unsupported("LibraryFrames with a non-constant frame list", inv);
-        var sites = text.Split('\n').Select(frame => traces.SiteDescriptor(_m, traces.LibrarySite(frame))).ToArray();
-        var table = LlvmContext.ConstArray(L.Ptr, sites);
-        var global = _m.Module.AddGlobal("csharpc.trace.library", Native.LLVMTypeOf(table), table, constant: true, linkage: LLVMLinkage.Internal);
-        CallRuntime(preset ? "csrt_trace_preset" : "csrt_trace_append_library", L.Void, [L.Ptr, L.Ptr, L.I32], exception, global, L.ConstInt(L.I32, sites.Length));
+        var (table, count) = LibraryFrameTable(text);
+        CallRuntime(preset ? "csrt_trace_preset" : "csrt_trace_append_library", L.Void, [L.Ptr, L.Ptr, L.I32], exception, table, L.ConstInt(L.I32, count));
         return preset ? exception : L.False;
+    }
+
+    /// <summary>
+    /// The site descriptors of library frames, one per line (CoreIntrinsics.LibraryFrames): "---" is .NET's
+    /// "--- End of stack trace from previous location ---" (an ExceptionDispatchInfo rethrow inside the
+    /// library), a prefix "async " the frame of an async method (no such line follows it).
+    /// </summary>
+    internal (LLVMValueRef Table, int Count) LibraryFrameTable(string text)
+    {
+        var traces = _m.StackTraces!;
+        var sites = text.Split('\n').Select(frame => frame == "---" ? LlvmContext.Null(L.Ptr)
+            : frame.StartsWith("async ", StringComparison.Ordinal)
+                ? traces.SiteDescriptor(_m, traces.LibrarySite(frame["async ".Length..], StackTraceInfo.FrameFlags.Async))
+                : traces.SiteDescriptor(_m, traces.LibrarySite(frame))).ToArray();
+        var table = LlvmContext.ConstArray(L.Ptr, sites);
+        return (_m.Module.AddGlobal("csharpc.trace.library", Native.LLVMTypeOf(table), table, constant: true, linkage: LLVMLinkage.Internal), sites.Length);
     }
 
     private LLVMValueRef ThrowWithStackTrace(LLVMValueRef exception, LLVMValueRef captured)

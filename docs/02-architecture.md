@@ -343,7 +343,7 @@ builder, for example) shows up as a segfault inside libLLVM. Debug it with
 | `CSLLVM0001` | Valid C#, but the construct isn't supported by csharpc yet |
 | `CSLLVM0002` | A library member with no csharpc implementation (`'System.Foo.Bar(int)' has no implementation in the csharpc runtime yet`) |
 | `CSLLVM0003` | No entry point |
-| `CSLLVM0006` (warning) | A known run-time difference from .NET that can't be avoided yet. Today: turning an exception into text or reading `StackTrace`: the trace lists the program's own frames exactly like .NET, but not frames inside .NET's library ([ADR 0012](adr/0012-stack-traces.md)). IL: `tail.` calls compiled as ordinary calls |
+| `CSLLVM0006` (warning) | A known run-time difference from .NET that can't be avoided yet. Today: turning an exception into text or reading `StackTrace`: the trace lists the program's own frames and those of code compiled from IL exactly like .NET, but frames inside the .NET library code csharpc's corelib implements only for common members ([ADR 0012](adr/0012-stack-traces.md)). IL: `tail.` calls compiled as ordinary calls |
 | `CSLLVM0007` (warning) | A method of an assembly compiled from IL could not be compiled, but the program cannot reach it (class-hierarchy analysis): it was compiled as a stub that prints the diagnostic and aborts if it is ever called ([ADR 0010](adr/0010-il-frontend.md)) |
 | `CSLLVM0008` (warning) | The program can reach a framework method csharpc deliberately doesn't compile (a boundary in `ModuleCodeGen.IlBoundary`: System.Xml's http(s) downloads, which need System.Net.Http): it is a stub that prints the reason and aborts if it is called |
 | exit code 70 | Internal compiler error: invalid LLVM IR was produced |

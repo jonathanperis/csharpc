@@ -332,7 +332,10 @@ namespace CsharpcCoreLib
             _entries = entries;
         }
 
-        public void Add(TKey key, TValue value) => TryInsert(key, value, true);
+        public void Add(TKey key, TValue value)
+        {
+            if (!TryInsert(key, value, true, false)) LibraryThrowHelper.DictionaryAddDuplicate(key.ToString());
+        }
 
         public bool TryAdd(TKey key, TValue value) => TryInsert(key, value, true, false);
 

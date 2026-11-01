@@ -1,0 +1,34 @@
+== hidden method: negative -1
+   at Program.Thrower(String what) in 900_stack_trace_hidden_frames.cs:line 25
+   at Program.<>c.<Main>b__0_0() in 900_stack_trace_hidden_frames.cs:line 15
+   at Program.Show(String name, Action action) in 900_stack_trace_hidden_frames.cs:line 87
+== hidden type: required flag
+   at Program.Thrower(String what) in 900_stack_trace_hidden_frames.cs:line 25
+   at Program.<>c.<Main>b__0_1() in 900_stack_trace_hidden_frames.cs:line 16
+   at Program.Show(String name, Action action) in 900_stack_trace_hidden_frames.cs:line 87
+== aggressive inlining: inlined 3
+   at Program.Thrower(String what) in 900_stack_trace_hidden_frames.cs:line 25
+   at Program.Twice(Int32 x) in 900_stack_trace_hidden_frames.cs:line 32
+   at Program.<>c.<Main>b__0_2() in 900_stack_trace_hidden_frames.cs:line 17
+   at Program.Show(String name, Action action) in 900_stack_trace_hidden_frames.cs:line 87
+== lambda in a hidden type: lambda
+   at Program.Thrower(String what) in 900_stack_trace_hidden_frames.cs:line 25
+   at Program.Validation.<>c.<ViaLambda>b__2_0() in 900_stack_trace_hidden_frames.cs:line 57
+   at Program.<>c.<Main>b__0_3() in 900_stack_trace_hidden_frames.cs:line 18
+   at Program.Show(String name, Action action) in 900_stack_trace_hidden_frames.cs:line 87
+== local function in a hidden type: local 1
+   at Program.Thrower(String what) in 900_stack_trace_hidden_frames.cs:line 25
+   at Program.<>c.<Main>b__0_4() in 900_stack_trace_hidden_frames.cs:line 19
+   at Program.Show(String name, Action action) in 900_stack_trace_hidden_frames.cs:line 87
+== nested type of a hidden type: nested
+   at Program.Thrower(String what) in 900_stack_trace_hidden_frames.cs:line 25
+   at Program.Validation.Nested.Fail() in 900_stack_trace_hidden_frames.cs:line 81
+   at Program.<>c.<Main>b__0_5() in 900_stack_trace_hidden_frames.cs:line 20
+   at Program.Show(String name, Action action) in 900_stack_trace_hidden_frames.cs:line 87
+== caught in a hidden method: required caught
+   at Program.Thrower(String what) in 900_stack_trace_hidden_frames.cs:line 25
+   at Program.Validation.CatchHere() in 900_stack_trace_hidden_frames.cs:line 69
+== hidden async method: async
+   at Program.Thrower(String what) in 900_stack_trace_hidden_frames.cs:line 25
+   at Program.Validation.HiddenAsync() in 900_stack_trace_hidden_frames.cs:line 76
+   at Program.Main() in 900_stack_trace_hidden_frames.cs:line 22

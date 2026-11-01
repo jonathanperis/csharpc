@@ -190,6 +190,8 @@ void csrt_trace_init(const void* tables);
 void csrt_trace_frame(void* unwind_exception, const void* site);   // wasm32 only
 void csrt_trace_finally(void* unwind_exception, const void* site, const void* parent);
 void csrt_trace_new_stack(void* exception);
+void csrt_trace_await(void* exception, int32_t depth);
+int32_t csrt_trace_depth(void* exception);
 void csrt_trace_preset(void* exception, const void* const* sites, int32_t count);
 void csrt_trace_append_library(void* exception, const void* const* sites, int32_t count);
 csrt_String* csrt_exception_get_stack_trace(void* exception);

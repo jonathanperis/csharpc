@@ -332,7 +332,7 @@ namespace CsharpcCoreLib
 
         public void Insert(int index, T item)
         {
-            if ((uint)index > (uint)_size) ThrowHelper.ArgumentOutOfRange("index", "Index must be within the bounds of the List.");
+            if ((uint)index > (uint)_size) LibraryThrowHelper.ListInsertOutOfRange();
             if (_size == _items.Length) Grow(_size + 1);
             for (int i = _size; i > index; i--) _items[i] = _items[i - 1];
             _items[index] = item;
@@ -500,7 +500,7 @@ namespace CsharpcCoreLib
                     _index++;
                     return true;
                 }
-                if (_version != _list._version) ThrowHelper.VersionChanged();
+                if (_version != _list._version) LibraryThrowHelper.ListEnumeratorVersionChanged();
                 _index = _list._size + 1;
                 _current = default(T);
                 return false;
@@ -544,7 +544,8 @@ namespace CsharpcCoreLib
                 _index++;
                 return true;
             }
-            if (_version != _list._version) ThrowHelper.VersionChanged();
+            // .NET enumerates a List<T> through its (boxed) List<T>.Enumerator here too.
+            if (_version != _list._version) LibraryThrowHelper.ListEnumeratorVersionChanged();
             _index = _list._size + 1;
             _current = default(T);
             return false;

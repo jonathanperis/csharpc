@@ -29,9 +29,10 @@ public sealed partial class ModuleCodeGen
 
     /// <summary>
     /// Exception.ToString() in .NET appends the stack trace ("   at Type.Method(...) in file:line N")
-    /// of a thrown exception. csharpc records the frames of the program's own code exactly
-    /// (docs/adr/0012-stack-traces.md), but not those inside .NET's library, whose internals differ:
-    /// say so where a program turns an exception into text.
+    /// of a thrown exception. csharpc records the frames of the program's own code and of every method
+    /// it compiles from IL exactly (docs/adr/0012-stack-traces.md), but those of the .NET library code
+    /// its corelib implements only where it reproduces them, as its internals differ: say so where a
+    /// program turns an exception into text.
     /// </summary>
     public void WarnExceptionToString(ITypeSymbol? type, IOperation? at)
     {
@@ -55,7 +56,7 @@ public sealed partial class ModuleCodeGen
         // Code bound for a dynamic operation (ModuleCodeGen.Dynamic.cs), for run-time types it may never see.
         if (_dynamicOrigins.ContainsKey(at.Syntax.SyntaxTree)) return;
         Warnings.Add(new CompileError("CSLLVM0006",
-            "stack traces list the frames of the program's own code as .NET does, but .NET's library frames only for common members (an exception thrown by, or passing through, other BCL code shows fewer \"   at ...\" lines)",
+            "stack traces list the frames of the program's own code and of the libraries compiled from IL as .NET does, but the frames of the .NET library code csharpc implements itself only for common members (an exception thrown by, or passing through, other BCL code shows fewer \"   at ...\" lines)",
             at.Syntax.GetLocation()));
     }
 

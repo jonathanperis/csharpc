@@ -92,7 +92,12 @@ included (on wasm32 the pad code records them). `eh.c` formats them on demand li
 (`   at Ns.Type.Method(Int32 x) in /path/file.cs:line 12`), handles `throw;` / `throw e;` /
 `ExceptionDispatchInfo` semantics, and `ToString()` appends the trace. Names of lambdas and local
 functions and the lines come from a PDB of the user's sources emitted by Roslyn at compile time.
-Frames inside the BCL are reproduced for common members only (`CoreIntrinsics.LibraryFrames`; `CSLLVM0006` warns where a program prints a trace).
+Methods compiled from IL (the program as IL, libraries, framework IL) are frames named from their
+metadata, with lines where .NET would find their PDB. Frames inside the BCL code the corelib implements
+are reproduced for common members only (`CoreIntrinsics.LibraryFrames`; `CSLLVM0006` warns where a
+program prints a trace). The formatter applies `StackTrace.ToString`'s filters: `[StackTraceHidden]` and
+AggressiveInlining frames are left out, and the "previous location" marker an await or
+ExceptionDispatchInfo adds is printed only after a frame that is not an async method's.
 
 ## The C / C# boundary
 

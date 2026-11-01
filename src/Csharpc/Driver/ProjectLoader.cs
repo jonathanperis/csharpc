@@ -62,7 +62,7 @@ public static class ProjectLoader
         "ImplicitUsings", "TargetFramework", "TargetFrameworks", "MSBuildProjectFullPath",
         "StartupObject", "InvariantGlobalization", "PredefinedCulturesOnly", "JsonSerializerIsReflectionEnabledByDefault",
         "AssemblyVersion", "Version", "GenerateAssemblyInfo", "GenerateAssemblyVersionAttribute", "SignAssembly",
-        "Optimize", "DebugType", "DebugSymbols", "PathMap",
+        "Optimize", "DebugType", "DebugSymbols", "PathMap", "CopyDebugSymbolFilesFromPackages",
         "TargetFrameworkMoniker", "TargetFrameworkMonikerDisplayName", "GenerateTargetFrameworkAttribute",
     ];
 
@@ -418,6 +418,7 @@ public static class ProjectLoader
                     ? !debugType.Equals("none", StringComparison.OrdinalIgnoreCase)
                     : !string.Equals(Prop("DebugSymbols"), "false", StringComparison.OrdinalIgnoreCase),
                 PathMap = Prop("PathMap"),
+                PackagePdbs = string.Equals(Prop("CopyDebugSymbolFilesFromPackages"), "true", StringComparison.OrdinalIgnoreCase),
             },
         };
 

@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
@@ -33,7 +34,7 @@ public sealed class StackTraceInfo
     /// <summary>Non-hidden sequence points of every method, by PDB document; sorted by start.</summary>
     private readonly Dictionary<string, List<SequencePointSpan>> _points = new(StringComparer.Ordinal);
     /// <summary>Compiler-generated methods (lambdas, local functions), by document; sorted by first sequence point.</summary>
-    private readonly Dictionary<string, List<(SequencePointSpan First, string Name)>> _synthesized = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, List<(SequencePointSpan First, string Name, FrameFlags Flags)>> _synthesized = new(StringComparer.Ordinal);
     private readonly List<string> _methods = [];
     private readonly Dictionary<string, int> _methodIndex = new(StringComparer.Ordinal);
     private readonly List<string> _files = [];
@@ -81,6 +82,7 @@ public sealed class StackTraceInfo
     public StackTraceInfo(CSharpCompilation program, DebugSymbolSettings symbols)
     {
         Release = symbols.Optimize;
+        _packagePdbs = symbols.PackagePdbs;
         _lines = symbols.HasPdb;
         var baseDirectory = program.SyntaxTrees.Select(t => t.FilePath).FirstOrDefault(Path.IsPathRooted) is { } first
             ? Path.GetDirectoryName(first) : null;
@@ -116,54 +118,115 @@ public sealed class StackTraceInfo
     }
 
     // ======================================================================================
-    // A program given as IL: names and lines from its own assembly and PDB
+    // Methods compiled from IL: names from their assembly's metadata, lines from its PDB
     // ======================================================================================
 
-    private readonly MetadataReader? _ilMetadata;
-    /// <summary>Per method token: its sequence points (IL offset, document, start line; hidden ones as line -1), by offset.</summary>
-    private readonly Dictionary<int, List<(int Offset, string? Document, int Line)>> _ilPoints = [];
-    /// <summary>MoveNext token → (kickoff token, the kickoff is an iterator) for state machines csc generated.</summary>
-    private readonly Dictionary<int, (int Kickoff, bool Iterator)> _ilKickoff = [];
-    private readonly Dictionary<int, int> _ilFrames = [];
+    /// <summary>What a frame's text depends on beyond its name (csrt_TraceSite.flags in src/runtime/eh.c).</summary>
+    [Flags]
+    public enum FrameFlags
+    {
+        None = 0,
+        /// <summary>An async method's frame (a state machine's MoveNext, or runtime-async): .NET prints no
+        /// "--- End of stack trace from previous location ---" after it.</summary>
+        Async = 1,
+        /// <summary>Not listed (System.Diagnostics.StackTrace.ShowInStackTrace): [StackTraceHidden] on the method or
+        /// its declaring type, or [MethodImpl(AggressiveInlining)]; still listed as a trace's last frame.</summary>
+        Hidden = 2,
+    }
+
+    /// <summary>One IL assembly whose methods are frames: the program's own (`csharpc app.dll`), or a library.</summary>
+    private sealed class IlModule(MetadataReader metadata)
+    {
+        public MetadataReader Metadata { get; } = metadata;
+        /// <summary>Per method token: its sequence points (IL offset, document, start line; hidden ones as line -1), by offset.
+        /// Empty when .NET would find no PDB for the assembly (frames without " in file:line N").</summary>
+        public Dictionary<int, List<(int Offset, string? Document, int Line)>> Points { get; } = [];
+        public Dictionary<int, int> Frames { get; } = [];
+        public bool HasPdb { get; set; }
+        /// <summary>State machine type → (kickoff method, an iterator: "+MoveNext()"), from the kickoffs' StateMachine attributes.</summary>
+        public Dictionary<TypeDefinitionHandle, (MethodDefinitionHandle Kickoff, bool Iterator)>? StateMachines { get; set; }
+    }
+
+    private readonly Dictionary<Frontend.Il.IlAssembly, IlModule> _ilModules = [];
+    /// <summary>The program's own assembly (`csharpc app.dll`), whose PDB says whether its build was optimized.</summary>
+    private readonly Frontend.Il.IlAssembly? _mainIl;
+    /// <summary>&lt;CopyDebugSymbolFilesFromPackages&gt;: the build copies package PDBs next to their assemblies.</summary>
+    private readonly bool _packagePdbs;
 
     /// <summary>
     /// Stack-trace metadata of a program compiled from its main assembly (ADR 0010, "The program as IL"):
     /// frame names from the assembly's metadata (the names csc chose, as .NET prints them), lines from its
     /// portable PDB (next to it or embedded), as System.Diagnostics.StackTrace reads them: the last
     /// non-hidden sequence point at or before the frame's IL offset. Without a PDB, frames have no location.
+    /// The libraries next to it are frames too, with lines where their PDB was copied beside them.
     /// </summary>
     public StackTraceInfo(Frontend.Il.IlAssembly program)
     {
         _resolver = new SourceFileResolver([], null);
-        _ilMetadata = program.Reader;
+        _mainIl = program;
         Release = !DisablesOptimizations(program.Reader);
+        _lines = HasPdb = Module(program).HasPdb;
+    }
+
+    private IlModule Module(Frontend.Il.IlAssembly assembly)
+    {
+        if (_ilModules.TryGetValue(assembly, out var known)) return known;
+        var module = _ilModules[assembly] = new IlModule(assembly.Reader);
+        // .NET reads the PDB embedded in the assembly or the one beside the file it loaded. `dotnet build`
+        // copies a referenced assembly's PDB along (and csc's beside the program), but not a NuGet
+        // package's (unless CopyDebugSymbolFilesFromPackages): its frames have no location.
+        var sibling = assembly == _mainIl || _packagePdbs || !IsPackageAssembly(assembly.Path);
         MetadataReaderProvider? provider = null;
         try
         {
-            var pdbPath = Path.ChangeExtension(program.Path, ".pdb");
-            if (program.Pe.ReadDebugDirectory().FirstOrDefault(e => e.Type == DebugDirectoryEntryType.EmbeddedPortablePdb) is { DataSize: > 0 } embedded)
-                provider = program.Pe.ReadEmbeddedPortablePdbDebugDirectoryData(embedded);
-            else if (File.Exists(pdbPath))
-                provider = MetadataReaderProvider.FromPortablePdbStream(File.OpenRead(pdbPath));
-            if (provider is not null) ReadIlPdb(provider.GetMetadataReader());
+            provider = PdbOf(assembly, sibling);
+            if (provider is not null)
+            {
+                ReadIlPdb(module, provider.GetMetadataReader());
+                module.HasPdb = true;
+            }
         }
         catch (Exception e) when (e is BadImageFormatException or IOException or InvalidOperationException)
         {
-            Warnings.Add(new CompileError("CSLLVM0006", $"stack traces: the PDB of {program.Name}.dll could not be read ({e.Message}); frames have no file and line", null));
-            _ilPoints.Clear();
-            provider = null;
+            Warnings.Add(new CompileError("CSLLVM0006", $"stack traces: the PDB of {assembly.Name}.dll could not be read ({e.Message}); frames have no file and line", null));
+            module.Points.Clear();
+            module.HasPdb = false;
         }
         finally { provider?.Dispose(); }
-        _lines = HasPdb = provider is not null;
+        return module;
     }
 
-    private void ReadIlPdb(MetadataReader pdb)
+    private static MetadataReaderProvider? PdbOf(Frontend.Il.IlAssembly assembly, bool sibling)
+    {
+        if (assembly.Pe.ReadDebugDirectory().FirstOrDefault(e => e.Type == DebugDirectoryEntryType.EmbeddedPortablePdb) is { DataSize: > 0 } embedded)
+            return assembly.Pe.ReadEmbeddedPortablePdbDebugDirectoryData(embedded);
+        var pdbPath = Path.ChangeExtension(assembly.Path, ".pdb");
+        // .NET's StackTraceSymbols reads portable PDBs only (a Windows PDB beside it gives no lines there either).
+        return sibling && File.Exists(pdbPath) && IsPortablePdb(pdbPath) ? MetadataReaderProvider.FromPortablePdbStream(File.OpenRead(pdbPath)) : null;
+    }
+
+    private static bool IsPortablePdb(string path)
+    {
+        Span<byte> magic = stackalloc byte[4];
+        using var file = File.OpenRead(path);
+        return file.Read(magic) == 4 && magic.SequenceEqual("BSJB"u8);
+    }
+
+    /// <summary>An assembly restored from a NuGet package (the global packages folder).</summary>
+    private static bool IsPackageAssembly(string path)
+    {
+        var folder = Environment.GetEnvironmentVariable("NUGET_PACKAGES") is { Length: > 0 } explicitFolder ? explicitFolder
+            : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".nuget", "packages");
+        folder = Path.TrimEndingDirectorySeparator(Path.GetFullPath(folder)) + Path.DirectorySeparatorChar;
+        return Path.GetFullPath(path).StartsWith(folder, OperatingSystem.IsLinux() ? StringComparison.Ordinal : StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static void ReadIlPdb(IlModule module, MetadataReader pdb)
     {
         var documents = new Dictionary<DocumentHandle, string>();
-        foreach (var handle in _ilMetadata!.MethodDefinitions)
+        foreach (var handle in module.Metadata.MethodDefinitions)
         {
             var info = pdb.GetMethodDebugInformation(handle.ToDebugInformationHandle());
-            var token = MetadataTokens.GetToken(handle);
             List<(int, string?, int)> points = [];
             foreach (var sp in info.GetSequencePoints())
             {
@@ -171,13 +234,7 @@ public sealed class StackTraceInfo
                 if (!documents.TryGetValue(sp.Document, out var name)) documents[sp.Document] = name = pdb.GetString(pdb.GetDocument(sp.Document).Name);
                 points.Add((sp.Offset, name, sp.StartLine));
             }
-            if (points.Count > 0) _ilPoints[token] = points;
-            if (info.GetStateMachineKickoffMethod() is { IsNil: false } kickoff)
-            {
-                var kickoffMethod = _ilMetadata.GetMethodDefinition(kickoff);
-                var iterator = kickoffMethod.GetCustomAttributes().Any(a => AttributeName(_ilMetadata, a) is "IteratorStateMachineAttribute" or "AsyncIteratorStateMachineAttribute");
-                _ilKickoff[token] = (MetadataTokens.GetToken(kickoff), iterator);
-            }
+            if (points.Count > 0) module.Points[MetadataTokens.GetToken(handle)] = points;
         }
     }
 
@@ -214,34 +271,139 @@ public sealed class StackTraceInfo
         };
     }
 
-    /// <summary>The frame of a method of the IL program: its metadata name; a state machine's MoveNext is its kickoff method (+MoveNext() for iterators).</summary>
-    public int IlFrameOf(IMethodSymbol method)
+    private static bool HasAttribute(MetadataReader md, CustomAttributeHandleCollection attributes, string name)
     {
+        foreach (var a in attributes)
+            if (AttributeName(md, a) == name) return true;
+        return false;
+    }
+
+    private static bool Implements(MetadataReader md, TypeDefinition type, string interfaceName)
+    {
+        foreach (var handle in type.GetInterfaceImplementations())
+        {
+            var iface = md.GetInterfaceImplementation(handle).Interface;
+            var name = iface.Kind switch
+            {
+                HandleKind.TypeReference => md.GetString(md.GetTypeReference((TypeReferenceHandle)iface).Name),
+                HandleKind.TypeDefinition => md.GetString(md.GetTypeDefinition((TypeDefinitionHandle)iface).Name),
+                _ => null,
+            };
+            if (name == interfaceName) return true;
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// The frame of a method compiled from IL, as System.Diagnostics.StackTrace prints it: its metadata name;
+    /// a method of a compiler-generated state machine is its kickoff method (+MoveNext() for iterators).
+    /// </summary>
+    public int IlFrameOf(Frontend.Il.IlAssembly owner, IMethodSymbol method)
+    {
+        var module = Module(owner);
         var token = method.OriginalDefinition.MetadataToken;
-        if (_ilFrames.TryGetValue(token, out var known)) return known;
-        var md = _ilMetadata!;
-        string name;
-        if (_ilKickoff.TryGetValue(token, out var kickoff))
-            name = FormatMethod(md, MetadataTokens.MethodDefinitionHandle(kickoff.Kickoff & 0xFFFFFF)) + (kickoff.Iterator ? "+MoveNext()" : "");
-        else name = FormatMethod(md, MetadataTokens.MethodDefinitionHandle(token & 0xFFFFFF));
-        return _ilFrames[token] = Intern(_methods, _methodIndex, name);
+        if (module.Frames.TryGetValue(token, out var known)) return known;
+        var (name, flags) = FormatIlFrame(module, MetadataTokens.MethodDefinitionHandle(token & 0xFFFFFF));
+        return module.Frames[token] = Intern(_methods, _methodIndex, name, flags);
+    }
+
+    private static (string Name, FrameFlags Flags) FormatIlFrame(IlModule module, MethodDefinitionHandle handle)
+    {
+        var md = module.Metadata;
+        var (named, suffix, flags) = ResolveFrame(md, handle, () => module.StateMachines ??= StateMachinesOf(md));
+        return (FormatMethod(md, named) + suffix, flags);
+    }
+
+    /// <summary>
+    /// StackTrace.ToString's rules for one frame: methods of a [CompilerGenerated] type implementing IAsyncStateMachine
+    /// or IEnumerator print as the method whose StateMachine attribute names that type (iterators add "+Name()");
+    /// ShowInStackTrace hides AggressiveInlining and [StackTraceHidden] methods (checked on the frame's own method).
+    /// </summary>
+    private static (MethodDefinitionHandle Named, string Suffix, FrameFlags Flags) ResolveFrame(MetadataReader md, MethodDefinitionHandle handle,
+        Func<Dictionary<TypeDefinitionHandle, (MethodDefinitionHandle Kickoff, bool Iterator)>> stateMachines)
+    {
+        var method = md.GetMethodDefinition(handle);
+        var declaringHandle = method.GetDeclaringType();
+        var declaring = md.GetTypeDefinition(declaringHandle);
+        var flags = FrameFlags.None;
+        if ((method.ImplAttributes & System.Reflection.MethodImplAttributes.AggressiveInlining) != 0
+            || HasAttribute(md, method.GetCustomAttributes(), "StackTraceHiddenAttribute")
+            || HasAttribute(md, declaring.GetCustomAttributes(), "StackTraceHiddenAttribute"))
+            flags |= FrameFlags.Hidden;
+        if (((int)method.ImplAttributes & 0x2000) != 0) return (handle, "", flags | FrameFlags.Async); // MethodImplAttributes.Async: runtime-async
+        if (!HasAttribute(md, declaring.GetCustomAttributes(), "CompilerGeneratedAttribute")) return (handle, "", flags);
+        var isAsync = Implements(md, declaring, "IAsyncStateMachine");
+        if (isAsync) flags |= FrameFlags.Async;
+        if (!isAsync && !Implements(md, declaring, "IEnumerator")) return (handle, "", flags);
+        if (!stateMachines().TryGetValue(declaringHandle, out var kickoff)) return (handle, "", flags);
+        return (kickoff.Kickoff, kickoff.Iterator ? "+" + md.GetString(method.Name) + "()" : "", flags);
+    }
+
+    /// <summary>[AsyncStateMachine(typeof(X))] and its kin on the methods of a type: X → (that method, an iterator).</summary>
+    private static Dictionary<TypeDefinitionHandle, (MethodDefinitionHandle, bool)> StateMachinesOf(MetadataReader md)
+    {
+        var result = new Dictionary<TypeDefinitionHandle, (MethodDefinitionHandle, bool)>();
+        var provider = new AttributeTypeProvider();
+        foreach (var typeHandle in md.TypeDefinitions)
+        {
+            var type = md.GetTypeDefinition(typeHandle);
+            var nested = type.GetNestedTypes();
+            if (nested.IsEmpty) continue;
+            foreach (var methodHandle in type.GetMethods())
+                foreach (var attributeHandle in md.GetMethodDefinition(methodHandle).GetCustomAttributes())
+                {
+                    // StackTrace looks for any StateMachineAttribute (AsyncStateMachine, IteratorStateMachine, ...).
+                    if (AttributeName(md, attributeHandle) is not { } attributeName || !attributeName.EndsWith("StateMachineAttribute", StringComparison.Ordinal)) continue;
+                    string? serialized;
+                    try { serialized = md.GetCustomAttribute(attributeHandle).DecodeValue(provider).FixedArguments is [{ Value: string s }] ? s : null; }
+                    catch (Exception e) when (e is BadImageFormatException or InvalidOperationException or NotSupportedException) { serialized = null; }
+                    if (serialized is null) continue;
+                    // "Ns.Outer+<M>d__3, Assembly, ...": the state machine is a type nested in this one.
+                    var comma = serialized.IndexOf(',');
+                    var typeName = comma >= 0 ? serialized[..comma] : serialized;
+                    var simple = typeName[(typeName.LastIndexOf('+') + 1)..];
+                    foreach (var candidate in nested)
+                        if (md.GetString(md.GetTypeDefinition(candidate).Name) == simple)
+                            result.TryAdd(candidate, (methodHandle, attributeName is "IteratorStateMachineAttribute" or "AsyncIteratorStateMachineAttribute"));
+                }
+        }
+        return result;
+    }
+
+    /// <summary>Custom attribute arguments as text: a System.Type argument is its serialized name.</summary>
+    private sealed class AttributeTypeProvider : ICustomAttributeTypeProvider<string>
+    {
+        public string GetPrimitiveType(PrimitiveTypeCode typeCode) => typeCode.ToString();
+        public string GetSystemType() => "System.Type";
+        public string GetSZArrayType(string elementType) => elementType + "[]";
+        // Namespace-qualified: the decoder asks IsSystemType about the constructor's parameter types.
+        public string GetTypeFromDefinition(MetadataReader reader, TypeDefinitionHandle handle, byte rawTypeKind) =>
+            reader.GetString(reader.GetTypeDefinition(handle).Namespace) + "." + reader.GetString(reader.GetTypeDefinition(handle).Name);
+        public string GetTypeFromReference(MetadataReader reader, TypeReferenceHandle handle, byte rawTypeKind) =>
+            reader.GetString(reader.GetTypeReference(handle).Namespace) + "." + reader.GetString(reader.GetTypeReference(handle).Name);
+        public string GetTypeFromSerializedName(string name) => name;
+        public PrimitiveTypeCode GetUnderlyingEnumType(string type) => PrimitiveTypeCode.Int32;
+        public bool IsSystemType(string type) => type == "System.Type";
     }
 
     /// <summary>The site of the first non-hidden sequence point at or after <paramref name="fromOffset"/> (CoreCLR's parent frame of a finally funclet).</summary>
-    public int IlFirstSite(int frame, IMethodSymbol method, int fromOffset)
+    public int IlFirstSite(Frontend.Il.IlAssembly owner, int frame, IMethodSymbol method, int fromOffset)
     {
-        if (_lines && _ilPoints.TryGetValue(method.OriginalDefinition.MetadataToken, out var points))
+        if (Module(owner).Points.TryGetValue(method.OriginalDefinition.MetadataToken, out var points))
             foreach (var (offset, _, startLine) in points)
-                if (offset >= fromOffset && startLine >= 0) return IlSite(frame, method, offset);
-        return IlSite(frame, method, fromOffset);
+                if (offset >= fromOffset && startLine >= 0) return IlSite(owner, frame, method, offset);
+        return IlSite(owner, frame, method, fromOffset);
     }
 
-    /// <summary>The site of IL offset <paramref name="ilOffset"/> in a method of the IL program.</summary>
-    public int IlSite(int frame, IMethodSymbol method, int ilOffset)
+    /// <summary>Whether the IL of <paramref name="owner"/> was optimized (no DisableOptimizations): where CoreCLR reports some frames depends on it.</summary>
+    public bool IlRelease(Frontend.Il.IlAssembly owner) => owner == _mainIl ? Release : !DisablesOptimizations(owner.Reader);
+
+    /// <summary>The site of IL offset <paramref name="ilOffset"/> in a method compiled from IL.</summary>
+    public int IlSite(Frontend.Il.IlAssembly owner, int frame, IMethodSymbol method, int ilOffset)
     {
         string? file = null;
         var line = 0;
-        if (_lines && _ilPoints.TryGetValue(method.OriginalDefinition.MetadataToken, out var points))
+        if (Module(owner).Points.TryGetValue(method.OriginalDefinition.MetadataToken, out var points))
             foreach (var (offset, document, startLine) in points)
             {
                 if (offset > ilOffset) break;
@@ -345,13 +507,16 @@ public sealed class StackTraceInfo
         if (syntax is not null && !RoslynFrontend.IsCoreLibTree(syntax.SyntaxTree)
             && !syntax.HasAnnotation(MethodGroupRewriter.Synthesized))
         {
-            string? name = definition.MethodKind is MethodKind.AnonymousFunction or MethodKind.LocalFunction
+            var kind = Coroutines.KindOf(definition);
+            var (name, flags) = definition.MethodKind is MethodKind.AnonymousFunction or MethodKind.LocalFunction
                 ? SynthesizedName(syntax)
-                : FormatMethod(definition);
+                : (FormatMethod(definition), SourceFlags(definition, kind));
             if (name is not null)
             {
-                if (Coroutines.KindOf(definition) is CoroutineKind.Iterator or CoroutineKind.AsyncIterator) name += "+MoveNext()";
-                frame = Intern(_methods, _methodIndex, name);
+                // (A lambda's or local function's name is the state machine's frame already.)
+                if (kind is CoroutineKind.Iterator or CoroutineKind.AsyncIterator && definition.MethodKind is not (MethodKind.AnonymousFunction or MethodKind.LocalFunction))
+                    name += "+MoveNext()";
+                frame = Intern(_methods, _methodIndex, name, flags);
             }
         }
         else if (syntax is null && definition.MethodKind == MethodKind.Constructor && definition.IsImplicitlyDeclared
@@ -359,6 +524,21 @@ public sealed class StackTraceInfo
                  && !RoslynFrontend.IsCoreLibTree(typeSyntax.SyntaxTree))
             frame = Intern(_methods, _methodIndex, FormatMethod(definition)); // runs the field initializers
         return _frameOf[definition] = frame;
+    }
+
+    /// <summary>
+    /// What StackTrace.ToString checks on a method of the program's source: the frame of an async method or
+    /// iterator is its state machine's MoveNext (async; never hidden: attributes stay on the kickoff method).
+    /// </summary>
+    private static FrameFlags SourceFlags(IMethodSymbol method, CoroutineKind kind)
+    {
+        if (kind is CoroutineKind.Async or CoroutineKind.AsyncIterator) return FrameFlags.Async;
+        if (kind != CoroutineKind.None) return FrameFlags.None;
+        static bool Hidden(ImmutableArray<AttributeData> attributes) =>
+            attributes.Any(a => a.AttributeClass is { Name: "StackTraceHiddenAttribute", ContainingNamespace: var ns } && ns.ToDisplayString() == "System.Diagnostics");
+        return (method.MethodImplementationFlags & System.Reflection.MethodImplAttributes.AggressiveInlining) != 0
+            || Hidden(method.GetAttributes()) || Hidden(method.ContainingType.GetAttributes())
+            ? FrameFlags.Hidden : FrameFlags.None;
     }
 
     /// <summary>
@@ -375,12 +555,29 @@ public sealed class StackTraceInfo
     }
 
     /// <summary>A frame of .NET's library code (no source location), for CoreIntrinsics.LibraryFrames.</summary>
-    public int LibrarySite(string frame)
+    public int LibrarySite(string frame, FrameFlags flags = FrameFlags.None)
     {
-        var key = (Intern(_methods, _methodIndex, frame), -1, 0);
+        var key = (Intern(_methods, _methodIndex, frame, flags), -1, 0);
         if (_siteIndex.TryGetValue(key, out var site)) return site;
         _sites.Add(key);
         return _siteIndex[key] = _sites.Count - 1;
+    }
+
+    /// <summary>Per entry of the method table: its <see cref="FrameFlags"/>.</summary>
+    private readonly Dictionary<int, FrameFlags> _methodFlags = [];
+
+    /// <summary>
+    /// A frame's entry: frames that print the same but differ in flags (an async method's kickoff stub and its
+    /// state machine's MoveNext) are separate entries, so that sites, keyed on the entry, never share a descriptor.
+    /// </summary>
+    private int Intern(List<string> list, Dictionary<string, int> index, string value, FrameFlags flags)
+    {
+        if (flags == FrameFlags.None) return Intern(list, index, value);
+        var key = value + "\u0001" + (int)flags;
+        if (index.TryGetValue(key, out var i)) return i;
+        list.Add(value);
+        _methodFlags[list.Count - 1] = flags;
+        return index[key] = list.Count - 1;
     }
 
     private static int Intern(List<string> list, Dictionary<string, int> index, string value)
@@ -448,16 +645,16 @@ public sealed class StackTraceInfo
     }
 
     /// <summary>The metadata name Roslyn gave a lambda or local function: the generated method whose body starts first inside it.</summary>
-    private string? SynthesizedName(SyntaxNode syntax)
+    private (string? Name, FrameFlags Flags) SynthesizedName(SyntaxNode syntax)
     {
-        if (!HasPdb) return null;
+        if (!HasPdb) return (null, FrameFlags.None);
         var (tree, span) = MethodGroupRewriter.Original(syntax.SyntaxTree, syntax.Span);
         var mapped = tree.GetMappedLineSpan(span);
-        if (Document(tree, mapped) is not { } document || !_synthesized.TryGetValue(document, out var methods)) return null;
+        if (Document(tree, mapped) is not { } document || !_synthesized.TryGetValue(document, out var methods)) return (null, FrameFlags.None);
         var range = Span(mapped);
-        foreach (var (first, name) in methods)
-            if (range.Contains(first)) return name; // sorted: the first one inside is the outermost
-        return null;
+        foreach (var (first, name, flags) in methods)
+            if (range.Contains(first)) return (name, flags); // sorted: the first one inside is the outermost
+        return (null, FrameFlags.None);
     }
 
     // ======================================================================================
@@ -525,6 +722,7 @@ public sealed class StackTraceInfo
         string DocumentName(DocumentHandle h) =>
             documents.TryGetValue(h, out var name) ? name : documents[h] = pdb.GetString(pdb.GetDocument(h).Name);
 
+        Dictionary<TypeDefinitionHandle, (MethodDefinitionHandle, bool)>? stateMachines = null;
         foreach (var handle in md.MethodDefinitions)
         {
             var info = pdb.GetMethodDebugInformation(handle.ToDebugInformationHandle());
@@ -540,11 +738,13 @@ public sealed class StackTraceInfo
                 if (first is null) { first = span; firstDocument = name; }
             }
             if (first is null) continue;
-            // A state machine's MoveNext carries the body; the frame is named after its kickoff method.
-            var named = info.GetStateMachineKickoffMethod() is { IsNil: false } kickoff ? kickoff : handle;
-            if (!IsCompilerGenerated(md, named)) continue;
+            // A state machine's MoveNext carries the body of a lambda or local function (its kickoff method).
+            if (!IsCompilerGenerated(md, info.GetStateMachineKickoffMethod() is { IsNil: false } kickoff ? kickoff : handle)) continue;
             if (!_synthesized.TryGetValue(firstDocument!, out var methods)) _synthesized[firstDocument!] = methods = [];
-            methods.Add((first.Value, FormatMethod(md, named)));
+            // Named as StackTrace names the frame: csc leaves [CompilerGenerated] off the state machine of an async
+            // lambda (its <>c class has it), so .NET prints that one as "<>c.<<Main>b__0_0>d.MoveNext()".
+            var (named, suffix, flags) = ResolveFrame(md, handle, () => stateMachines ??= StateMachinesOf(md));
+            methods.Add((first.Value, FormatMethod(md, named) + suffix, flags));
         }
         static int Compare(SequencePointSpan a, SequencePointSpan b) =>
             (a.StartLine, a.StartColumn).CompareTo((b.StartLine, b.StartColumn));
@@ -638,7 +838,7 @@ public sealed class StackTraceInfo
         var l = m.Llvm;
         var (method, file, line) = _sites[site];
         var init = l.ConstStruct(l.ConstUInt(l.I64, SiteMagic), l.ConstInt(l.I32, method), l.ConstInt(l.I32, file),
-            l.ConstInt(l.I32, line), l.ConstInt(l.I32, 0));
+            l.ConstInt(l.I32, line), l.ConstInt(l.I32, (int)_methodFlags.GetValueOrDefault(method)));
         var global = m.Module.AddGlobal($"csharpc.trace.site.{site}", Native.LLVMTypeOf(init), init, constant: true, linkage: LLVMLinkage.Internal);
         return _descriptors[site] = global;
     }
