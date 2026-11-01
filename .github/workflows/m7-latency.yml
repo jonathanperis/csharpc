@@ -28,8 +28,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        variant: [base, dispatch, nogc, nursery]
-        n: [1, 2]
+        # First run (41335766330): nogc and nursery left the 4096 p99 where it was (75-83 vs 44-47 ms), dispatch
+        # matched NativeAOT. Now base against dispatch, more runners, plaintext and JSON.
+        variant: [base, dispatch]
+        n: [1, 2, 3, 4]
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     env:
@@ -63,7 +65,7 @@ jobs:
       - name: Build, verify and load
         run: |
           ulimit -n 65535 || true
-          DURATION=15 benchmarks/techempower/run.sh --app platform --tests plaintext --only aot,csharpc --rounds 3 --out m7-results || status=$?
+          DURATION=15 benchmarks/techempower/run.sh --app platform --tests plaintext,json --only aot,csharpc --rounds 3 --out m7-results || status=$?
           cat m7-results/results.md >> "$GITHUB_STEP_SUMMARY" || true
           { echo '### csharpc collections (per pause)'; echo '```'; grep -h "csrt gc" m7-results/*/*.csharpc.server.log | grep -v "by type\|allocation sites\|interface dispatches" | head -80; echo '```'; } >> "$GITHUB_STEP_SUMMARY" || true
           find m7-results/build -type f -size +2M -delete 2>/dev/null || true
