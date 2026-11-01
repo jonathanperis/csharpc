@@ -284,7 +284,7 @@ namespace CsharpcCoreLib
         /// </summary>
         internal Action<Utf8JsonWriter, object> _untypedSerializeHandler;
 
-        private bool _fastPathUsable;
+        internal bool _fastPathUsable;
 
         internal bool SerializationOnly => _untypedSerializeHandler != null && _propertyInitializer == null;
 

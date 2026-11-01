@@ -292,7 +292,13 @@ static void pool_start_locked(void) {
     return;  // no threads: blocked callers run the queue (csrt_task_wait, csrt_scheduler_run_until)
 #endif
     int n = csrt_processor_count();
-    s_pool_spin_ns = n > 1 ? 30000 : 0;  // 30 us, about a futex sleep + wake round trip on a VM
+    // 100 us: longer than a futex sleep + wake round trip on a VM (30 us was that), and than a
+    // database round trip on a local network, so the worker that will run a query's continuation is
+    // usually still polling when the reply arrives instead of asleep (TechEmpower's /db at 16-32
+    // connections made about one more context switch per query than NativeAOT). CSRT_POOL_SPIN_US
+    // overrides it.
+    const char* spin = getenv("CSRT_POOL_SPIN_US");
+    s_pool_spin_ns = n > 1 ? (spin && atol(spin) >= 0 ? (int64_t)atol(spin) * 1000 : 100000) : 0;
     if (n < 2) n = 2;
     for (int i = 0; i < n; i++) spawn_worker_locked();
     if (!csrt_start_background_thread(timer_loop)) async_fail("csharpc: could not start the timer thread.");

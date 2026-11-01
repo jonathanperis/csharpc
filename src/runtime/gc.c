@@ -129,6 +129,7 @@ struct Chunk {
     uint32_t slots;
     uint32_t live;         // live slots after the last sweep
     uint32_t size_class;
+    uint32_t slot_magic;   // floor(2^32 / object_size) + 1: offset / object_size as a multiply (slot_of)
 #if CSRT_HAS_NURSERY
     uint8_t young;         // 1: nursery chunk (minor collections sweep these)
     uint8_t dirty;         // old→young card: set by the write barrier, cleared when scanned
@@ -434,6 +435,7 @@ static void chunk_format(Chunk* c, uint32_t cls) {
     c->object_size = size;
     c->size_class = cls;
     c->slots = (uint32_t)((CHUNK_SIZE - CHUNK_HEADER) / size);
+    c->slot_magic = (uint32_t)((((uint64_t)1 << 32) / size) + 1);
     c->live = 0;
 #if CSRT_HAS_NURSERY
     c->young = g.nursery ? 1 : 0;
@@ -1105,6 +1107,21 @@ static inline __attribute__((always_inline)) void mark_push(uint8_t* start, size
 /// Heapsort by start address (in place, no allocation: glibc's qsort may malloc).
 static void sort_large(LargeObject* a, size_t n) {
     if (n < 2) return;
+    // Between collections the table is almost sorted (survivors stay in order, new objects are
+    // appended, malloc mostly hands out rising addresses): then an insertion sort is a few passes
+    // over the table, where the heapsort took ~n log n swaps (36,000 large objects in a server).
+    size_t descents = 0;
+    for (size_t i = 1; i < n && descents <= 64; i++) descents += a[i].start < a[i - 1].start;
+    if (descents <= 64) {
+        for (size_t i = 1; i < n; i++) {
+            if (a[i].start >= a[i - 1].start) continue;
+            LargeObject t = a[i];
+            size_t j = i;
+            while (j > 0 && a[j - 1].start > t.start) { a[j] = a[j - 1]; j--; }
+            a[j] = t;
+        }
+        return;
+    }
     for (size_t start = n / 2; start-- > 0;)
         for (size_t root = start, child; (child = 2 * root + 1) < n; root = child) {
             if (child + 1 < n && a[child].start < a[child + 1].start) child++;
@@ -1121,6 +1138,12 @@ static void sort_large(LargeObject* a, size_t n) {
     }
 }
 
+/// The slot an offset into a chunk's slot area falls in, without a division: exact for offsets below
+/// 2^18 (CHUNK_SIZE) and sizes up to 2048 (the error of the magic multiply stays under 1/size).
+static inline __attribute__((always_inline)) size_t slot_of(const Chunk* c, size_t offset) {
+    return (size_t)(((uint64_t)offset * c->slot_magic) >> 32);
+}
+
 /// If `word` points into a live, unmarked heap object, marks it and queues it for scanning.
 static inline __attribute__((always_inline)) void mark_candidate(uintptr_t word) {
     if (word < g.heap_min || word >= g.heap_max) return;
@@ -1133,7 +1156,7 @@ static inline __attribute__((always_inline)) void mark_candidate(uintptr_t word)
 #endif
         size_t offset = word - base;
         if (c->object_size == 0 || offset < CHUNK_HEADER) return;
-        size_t index = (offset - CHUNK_HEADER) / c->object_size;
+        size_t index = slot_of(c, offset - CHUNK_HEADER);
         if (index >= c->slots || !bit_get(c->allocated, index) || bit_get(c->marked, index)) return;
         bit_set(c->marked, index);
         mark_push((uint8_t*)base + CHUNK_HEADER + index * c->object_size, c->object_size);
@@ -1222,17 +1245,37 @@ CSRT_GC_NO_SANITIZE static void scan_range(const void* from, const void* to) {
     for (const uintptr_t* p = (const uintptr_t*)lo; (const void*)(p + 1) <= to; p++) mark_candidate(*p);
 }
 
+static inline __attribute__((always_inline)) void scan_object(uint8_t* start, size_t size) {
+    // Word 0 is the method-table pointer (static data, never a heap reference); strings and
+    // arrays of primitives hold no references, so they have nothing to scan at all.
+    // (The compiler also emits element-typed array method tables, e.g. "System.Int32[]", with the flag.)
+    const csrt_MethodTable* mt = *(const csrt_MethodTable* const*)start;
+    if (mt && (mt->flags & CSRT_MT_NO_REFERENCES)) return;
+    scan_range(start + sizeof(void*), start + size);
+}
+
+/// Marks everything reachable from the mark stack. Objects popped go through a small FIFO and are
+/// prefetched when they enter it, so each is in cache by the time it is scanned: the marker is
+/// bound by misses on the objects it visits (OpenJDK's and Boehm's prefetch-on-grey).
+#define MARK_PREFETCH 8
 static void drain(void) {
-    while (g.mark_count) {
-        g.mark_count--;
-        uint8_t* start = g.mark_stack[g.mark_count].start;
-        size_t size = g.mark_stack[g.mark_count].size;
-        // Word 0 is the method-table pointer (static data, never a heap reference); strings and
-        // arrays of primitives hold no references, so they have nothing to scan at all.
-        // (The compiler also emits element-typed array method tables, e.g. "System.Int32[]", with the flag.)
-        const csrt_MethodTable* mt = *(const csrt_MethodTable* const*)start;
-        if (mt && (mt->flags & CSRT_MT_NO_REFERENCES)) continue;
-        scan_range(start + sizeof(void*), start + size);
+    struct { uint8_t* start; size_t size; } fifo[MARK_PREFETCH];
+    size_t head = 0, filled = 0;
+    for (;;) {
+        while (filled < MARK_PREFETCH && g.mark_count) {
+            g.mark_count--;
+            size_t slot = (head + filled) % MARK_PREFETCH;
+            fifo[slot].start = g.mark_stack[g.mark_count].start;
+            fifo[slot].size = g.mark_stack[g.mark_count].size;
+            __builtin_prefetch(fifo[slot].start);
+            filled++;
+        }
+        if (!filled) return;
+        uint8_t* start = fifo[head].start;
+        size_t size = fifo[head].size;
+        head = (head + 1) % MARK_PREFETCH;
+        filled--;
+        scan_object(start, size);
     }
 }
 

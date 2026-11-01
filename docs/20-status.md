@@ -100,6 +100,19 @@ attribute factories) with a ~25 % faster build.
   ~25 ms at 4096+ plaintext connections (stop-the-world marking of ~1.4 M live objects: the latency gap), executable +0.2 MiB, build 150 vs 24 s (single-threaded
   optimizer: per-partition optimization next), the rest of the JSON writer's 1,100 instructions per call.
   The M7 perf workflow also profiles the Platform entry's json and plaintext tests.
+- `ci/m7-perf-3` — M7 performance, third round (on main `9d234c3`). Large executables are optimized and
+  code-generated per partition in parallel (ADR 0014 §5: small callees and constants imported as
+  available_externally, shared symbols hidden-external, a section per function for --gc-sections):
+  interim build 140 → 71-103 s on CI with the same throughput ratios (M7 perf 41269198431), Platform
+  optimize+codegen 90 s on 8 partitions. JSON writer: integers into the buffer, arrays by index, inline
+  capacity checks, the typed fast path per element (a 20-element CachedWorld[] 1,650 → ~950 ns locally,
+  JIT 775). Collector marking: prefetch FIFO, no division per candidate, insertion sort of the
+  large-object table (a server-shaped heap's pause 27-29 → 20-21 ms locally). Pool workers poll 100 µs
+  (was 30) before sleeping. `LLVMLinkage.Appending` was 6 (WeakODR): fixed. Profiled Platform job (M7 perf
+  41273945069, one runner): /db 1.11-1.18× with 355k vs 650k context switches, JSON 1.06-1.12×,
+  plaintext 1.15/1.12/0.96/1.05, cached queries still 1.17/0.94/0.87/0.79/0.76 at 1-100 (MemoryCache
+  lookups and the serializer's per-property layers). Left: cached queries at 20-100, plaintext p99 at
+  4096 (GC pauses, now ~25 % shorter), Intel runners give csharpc lower ratios than AMD ones.
 - `ci/m7-deploy` — M7 deployment metrics and two silent differences. Idle RSS of the Platform entry 49.5 →
   27.6 MiB (NativeAOT 37.7; TechEmpower runs 41260599507 and 41266326519: **275 and 264 of 456**, the verdict moving with the runner, 232–275 on this branch): the collector kept the peak its
   start-up's cache fill reached (31 MiB of chunks for 8 MiB live); the pool's timer thread now gives free slot

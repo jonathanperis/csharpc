@@ -337,15 +337,30 @@ public sealed class Compiler(CompilerOptions options)
             module.RunPasses("default<O0>", target);
             Phase("coroutine lowering (default<O0>)");
         }
+        List<string>? prebuiltObjects = null, prebuiltWeakImports = null;
+        string? prebuiltObjectBase = null;
         if (options.OptLevel > 0)
         {
             var pipeline = options.SizeLevel switch { 1 => "default<Os>", 2 => "default<Oz>", _ => $"default<O{options.OptLevel}>" };
             if (options.SizeLevel > 0) Optimizations.MarkOptimizeForSize(module, llvm, minimize: options.SizeLevel == 2);
             // The type data's function pointers stay out of the inliner's call graph (TypeDataDetach).
             var detached = TypeDataDetach.Detach(module, llvm);
-            module.RunPasses(pipeline, target);
-            TypeDataDetach.Reattach(module, detached, target);
-            Phase($"optimize ({pipeline})");
+            // Large executables: optimization and the backend run per partition, on several threads
+            // (not with -g: one compile unit per program; not wasm: its passes need the whole program).
+            if (options.Emit == EmitKind.Exe && !wasm && !options.Debug)
+            {
+                prebuiltWeakImports = WeakImports(module);
+                prebuiltObjectBase = Path.Combine(Path.GetTempPath(), $"csharpc-{Environment.ProcessId}-{Path.GetFileNameWithoutExtension(options.OutputPath)}");
+                prebuiltObjects = ParallelOptimize.TryRun(module, detached, pipeline, target, prebuiltObjectBase,
+                    options.Verbose ? m => Console.Error.WriteLine($"             {m}") : null);
+            }
+            if (prebuiltObjects is null)
+            {
+                module.RunPasses(pipeline, target);
+                TypeDataDetach.Reattach(module, detached, target);
+                Phase($"optimize ({pipeline})");
+            }
+            else Phase($"optimize ({pipeline}) and codegen, {prebuiltObjects.Count} partitions");
         }
 
         if (wasm)
@@ -370,6 +385,13 @@ public sealed class Compiler(CompilerOptions options)
                 List<string> objects = [];
                 try
                 {
+                    if (prebuiltObjects is not null)
+                    {
+                        objects = prebuiltObjects;
+                        toolchain.Link(target.Triple, objects, output, runtimeLinkedIn: runtimeLto, prebuiltWeakImports!, ShimArchives(linkedShims, target.Triple));
+                        Phase("link");
+                        break;
+                    }
                     var weakImports = WeakImports(module);
                     // Large programs: the backend runs on several threads, one object per partition
                     // (not with -g: one compile unit per program keeps the DWARF as gdb/lldb expect it).
