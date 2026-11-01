@@ -202,6 +202,40 @@ frames); the TechEmpower runs measure it with thousands of suspended request fra
 hazard above, recorded from .NET), and the `GC concurrent` workflow (the differential suite and the conformance
 corpus with cycles on every multithreaded program and a collection every MiB, the threaded samples ten times).
 
+### On CI (M7 perf 41306893767, Benchmarks 41306874150, GC concurrent 41306874237)
+
+- **Platform entry, plaintext (16384 connections at the end), CSRT_GC_STATS of the profiled server:**
+  stop-the-world, 7 collections of 93-164 ms in all per run (13-23 ms each); concurrent, 7 cycles with
+  14 pauses, p50 0.64-0.87 ms, max 5.2-5.4 ms. Every maximum is a remark, and 4.5 ms of it is the coroutine
+  frames' rescan (thousands of suspended connection frames); initial marks 0.6-4 ms, the rest of a remark
+  under 0.6 ms. Cached queries and JSON: max 0.6-1.0 ms.
+- **Throughput:** the runs landed on different CPU types, so the ratios only bound the effect: interim
+  plaintext at 256/1024 connections 1.07-1.10x NativeAOT with the flag against 1.11-1.16x without, 4096
+  0.99-1.05 against 0.95-1.03; the Platform entry's JSON, /db and cached queries within the runner spread.
+- **Benchmarks wall time (arm64, the steadier runner):** binarytrees +10.7 %, churn +9.3 %, exprtree +8.3 %,
+  the others within +-3 %; x86-64's second run was slower across the board (fib, fasta, nbody +7-10 % with
+  identical instruction counts). GC latency suite: livemutate's pause 32.0 -> 0.21 ms (x86-64), 36.6 ->
+  0.36 ms (arm64), its longest operation 17.6 -> 1.0 ms; churn's longest operation 0.2 -> 1.8 ms; RSS
+  +33 % (floating garbage: objects allocated during a cycle live until the next).
+- **Tests:** the GC concurrent workflow (differential suite at -O0/-O2, conformance corpus, threaded samples
+  ten times) passes.
+
+### The coroutine-frame rescan
+
+The remark rescans every marked frame because their spills have no barrier. Options, cheapest first:
+
+1. **Concurrent pre-cleaning of frames:** the marker scans the frames before the remark; the remark then
+   rescans only frames resumed since, which the runtime notes when it resumes one (`csrt_coro_resume` and the
+   scheduler's continuation paths; iterators' MoveNext resumes in generated code, which the barrier pass can
+   wrap). Frames suspended for the whole cycle — most connections in a server — are scanned once, outside the
+   pause.
+2. **A frame registry with dirty bits:** frames in a separate list with a byte each, set on resume; the same
+   effect without walking the remembered chunks.
+3. **Barriers on spills:** run the barrier pass after CoroSplit, which needs a second pass over the split
+   functions and costs a flag test per spill.
+
+Option 1 is next.
+
 ## Plan
 
 1. The cheap barrier (inline flag test, reference-free copies skipped), behind `--gc-concurrent`, with its cost on the
