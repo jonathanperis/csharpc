@@ -126,6 +126,14 @@
 #else
 #define CSRT_HAS_CONCURRENT 0
 #endif
+// A new object, as the compiler sees it after the allocator is inlined (runtime LTO): an empty asm that
+// ConcurrentBarrierElision.cs recognizes, after the optimizer, to drop the barriers of stores of objects
+// that were held since they were allocated (they are marked whenever a cycle runs), and then removes.
+#if CSRT_HAS_CONCURRENT
+#define FRESH(p) __asm__("/* csrt.fresh */" : "+r"(p))
+#else
+#define FRESH(p) ((void)0)
+#endif
 
 static const uint32_t k_size_classes[17] = {16, 32, 48, 64, 80, 96, 128, 160, 192, 256, 320, 384, 512, 768, 1024, 1536, 2048};
 #define NUM_CLASSES (sizeof k_size_classes / sizeof k_size_classes[0])
@@ -160,6 +168,9 @@ _Static_assert(sizeof(Chunk) <= CHUNK_HEADER, "chunk header too large");
 typedef struct {
     uint64_t free_bits;   // unallocated slots of the claimed word: bit i -> word_base + i * size
     uint8_t* word_base;
+#if defined(CSRT_GC_CONCURRENT) && !defined(__wasi__)
+    uint64_t claimed;     // the word's free slots when it was claimed (the initial mark's in-flight slot)
+#endif
 } AllocCache;
 
 // local-exec: csrt is always linked into the executable, so TLS is a direct %fs-relative access.
@@ -275,10 +286,15 @@ static LargeObject* cm_large;
 static size_t cm_large_count;
 static void defer_free(void* table);
 static bool cm_sweeping;          // the remark is over; chunks are being swept (lazily, and by the marker)
+static bool cm_active;            // between the initial mark and the end of the remark
 static bool sweep_some(size_t chunks);
 static void sort_large_appended(LargeObject* a, size_t sorted, size_t n);
 static bool concurrent_trigger(void);
 static void concurrent_wait(void);
+static size_t cm_alloc_at_start, cm_cycle_alloc;  // allocation before the initial mark, and during the cycle
+static size_t cm_start_at;        // allocation that starts a cycle (cm_pace): below the trigger, 0 = the trigger
+static inline size_t cm_threshold(void) { return cm_start_at && cm_start_at < g.trigger ? cm_start_at : g.trigger; }
+static void cm_pace(void);
 bool csrt_gc_remembered_object(const void* obj);  // async.c
 #endif
 
@@ -570,6 +586,9 @@ static bool claim_word(SizeClass* sc, AllocCache* cache, uint32_t cls) {
             if (csrt_gc_marking) __atomic_fetch_or(&c->marked[w], free_bits, __ATOMIC_RELAXED);
 #endif
             cache->free_bits = free_bits;
+#if CSRT_HAS_CONCURRENT
+            cache->claimed = free_bits;
+#endif
             cache->word_base = (uint8_t*)c + CHUNK_HEADER + w * 64 * (size_t)c->object_size;
             sc->word = w + 1;
             size_t bytes = (size_t)__builtin_popcountll(free_bits) * c->object_size;
@@ -1048,7 +1067,7 @@ __attribute__((noinline, cold)) static void* alloc_small_slow(uint32_t cls) {
     if (g.stress && g.enabled && ++g.stress_count % g.stress == 0 && !g.collecting) { collect(); collected = true; }
     for (;;) {
 #if CSRT_HAS_CONCURRENT
-        if (g.enabled && g.allocated_since_gc >= g.trigger && !g.collecting && !concurrent_trigger()) { collect(); collected = true; }
+        if (g.enabled && g.allocated_since_gc >= cm_threshold() && !g.collecting && !concurrent_trigger()) { collect(); collected = true; }
 #else
         if (g.enabled && g.allocated_since_gc >= g.trigger && !g.collecting) { collect(); collected = true; }
 #endif
@@ -1077,7 +1096,7 @@ out:
 static void* alloc_large_locked(size_t size, bool clear) {
 #if CSRT_HAS_CONCURRENT
     if (g.enabled && g.stress && ++g.stress_count % g.stress == 0) collect();
-    else if (g.enabled && g.allocated_since_gc >= g.trigger && !g.collecting && !concurrent_trigger()) collect();
+    else if (g.enabled && g.allocated_since_gc >= cm_threshold() && !g.collecting && !concurrent_trigger()) collect();
 #else
     if (g.enabled && (g.allocated_since_gc >= g.trigger || (g.stress && ++g.stress_count % g.stress == 0))) collect();
 #endif
@@ -1103,7 +1122,11 @@ __attribute__((noinline)) static void* alloc_large_slow(size_t size, bool clear)
 }
 
 static inline void* gc_alloc(size_t size, bool clear) {
-    if (__builtin_expect(size > LARGE_LIMIT, 0)) return alloc_large_slow(size, clear);
+    if (__builtin_expect(size > LARGE_LIMIT, 0)) {
+        void* large = alloc_large_slow(size, clear);
+        FRESH(large);
+        return large;
+    }
     uint32_t cls = size_class_of(size);
     AllocCache* cache = &tl_cache[cls];
     uint64_t bits = cache->free_bits;
@@ -1115,6 +1138,7 @@ static inline void* gc_alloc(size_t size, bool clear) {
         slot = alloc_small_slow(cls);
         if (!slot) return NULL;
     }
+    FRESH(slot);
     if (clear) memset(slot, 0, k_size_classes[cls]);  // C# semantics: fresh objects are zeroed
     return slot;
 }
@@ -1250,9 +1274,13 @@ static inline __attribute__((always_inline)) void mark_candidate(uintptr_t word)
         size_t index = slot_of(c, offset - CHUNK_HEADER);
         if (index >= c->slots || !bit_get(c->allocated, index) || bit_get(c->marked, index)) return;
 #if CSRT_HAS_CONCURRENT
-        // Mutators set mark bits too while a cycle runs (allocation is black, claim_word): atomically.
-        uint64_t bit = (uint64_t)1 << (index & 63);
-        if (__atomic_fetch_or(&c->marked[index >> 6], bit, __ATOMIC_RELAXED) & bit) return;
+        // Mutators set mark bits too while a cycle runs (allocation is black, claim_word): atomically
+        // then, and with a plain store in stop-the-world collections (a locked OR per object cost
+        // single-threaded allocation benchmarks several % of their wall time).
+        if (__builtin_expect(cm_active, 0)) {
+            uint64_t bit = (uint64_t)1 << (index & 63);
+            if (__atomic_fetch_or(&c->marked[index >> 6], bit, __ATOMIC_RELAXED) & bit) return;
+        } else bit_set(c->marked, index);
 #else
         bit_set(c->marked, index);
 #endif
@@ -2543,7 +2571,6 @@ static LogBuffer* cm_full;        // filled buffers for the marker
 static LogBuffer* cm_spare;       // empty buffers to reuse (no malloc while the world is stopped)
 static ThreadLog* cm_logs;        // every thread's log (threads that exited keep theirs: it is small)
 static CSRT_TLS ThreadLog* tl_log;
-static bool cm_active;            // between the initial mark and the end of the remark
 static bool cm_marker_started;
 static uint64_t cm_cycles;
 static double cm_pause_max_ms, cm_pause_total_ms;
@@ -2805,8 +2832,12 @@ static void sweep_begin(void) {
 static void sweep_end(void) {
     cm_sweeping = false;
     g.live_bytes = cm_sweep_live;
-    size_t grown = g.live_bytes / 100 * g.growth_pct;
+    // The budget grows from the live heap less what the cycle allocated: that is black, survives this
+    // cycle whether reachable or not, and would otherwise compound into every next budget.
+    size_t base = cm_cycle_alloc < g.live_bytes / 2 ? g.live_bytes - cm_cycle_alloc : g.live_bytes / 2;
+    size_t grown = base / 100 * g.growth_pct;
     g.trigger = grown > g.budget_floor ? grown : g.budget_floor;
+    cm_pace();
     release_surplus_chunks();
 }
 
@@ -2928,17 +2959,25 @@ CSRT_GC_NO_SANITIZE __attribute__((noinline)) static bool cycle_begin(void) {
     cm_old_count = 0;
     __atomic_store_n(&csrt_gc_marking, 1, __ATOMIC_SEQ_CST);
     // The slots the threads' allocation words still hold are black too: they are handed out during the cycle.
+    // The last one handed out is a root: a thread stopped in the inlined fast path may have taken its bit
+    // out of free_bits without holding the slot's address anywhere yet, and the compiler drops the barriers
+    // of stores of new objects (ConcurrentBarrierElision.cs), so it must not stay white. Slots go out
+    // lowest first: the last is the highest of the claimed ones no longer free. (Gray, not black: it may
+    // be an older object, with references.)
     for (csrt_GcThread* t = g.threads; t; t = t->next) {
         if (t->state != THREAD_RUNNING || !t->cache) continue;
         for (size_t cls = 0; cls < NUM_CLASSES; cls++) {
             AllocCache* ac = &((AllocCache*)t->cache)[cls];
-            if (!ac->word_base || !ac->free_bits) continue;
+            if (!ac->word_base) continue;
             size_t w;
             Chunk* c = cache_word(ac, &w);
-            __atomic_fetch_or(&c->marked[w], ac->free_bits, __ATOMIC_RELAXED);
+            if (ac->free_bits) __atomic_fetch_or(&c->marked[w], ac->free_bits, __ATOMIC_RELAXED);
+            uint64_t handed = ac->claimed & ~ac->free_bits;
+            if (handed) mark_candidate((uintptr_t)(ac->word_base + (size_t)(63 - __builtin_clzll(handed)) * c->object_size));
         }
     }
     scan_roots();
+    cm_alloc_at_start = g.allocated_since_gc;
     cm_active = true;
     g.collecting = false;
     resume_world();
@@ -3016,6 +3055,7 @@ CSRT_GC_NO_SANITIZE static void cycle_finish(void) {
     g.deferred_count = 0;
     for (size_t i = 0; i < cm_old_count; i++) free(cm_old_tables[i]);
     cm_old_count = 0;
+    cm_cycle_alloc = g.allocated_since_gc - cm_alloc_at_start;
     g.allocated_since_gc = 0;
     g.collections++;
     cm_cycles++;
@@ -3067,8 +3107,18 @@ CSRT_GC_NO_SANITIZE static void* marker_main(void* arg) {
 static uint64_t cm_waits;
 static double cm_wait_max_ms;
 
+/// Cycles start early enough to end near the trigger: the budget less what the mutators allocated
+/// during the last cycle (at most half of it). Starting at the trigger, the heap reached live + the
+/// budget + a cycle's allocation, which is black and survives it. With sweep_end's discount, the GC
+/// suite's peak RSS went from 256 to 207 MiB (stop-the-world: 209).
+static void cm_pace(void) {
+    size_t early = cm_cycle_alloc < g.trigger / 2 ? cm_cycle_alloc : g.trigger / 2;
+    cm_start_at = g.trigger - early;
+}
+
 static bool concurrent_trigger(void) {
     if (cm_sweeping) sweep_all();
+    if (!cm_active && g.allocated_since_gc < g.trigger && !concurrent_wanted()) return true;  // early start: cycles only
     if (cm_active) {
         if (g.allocated_since_gc < 2 * g.trigger) return true;
         // The mutators outran the marker by another full budget: wait for the cycle (counted: a stall).
@@ -3200,6 +3250,9 @@ __attribute__((noinline)) static void collect_now(void) {
     g.allocated_since_gc = 0;
     size_t grown = g.live_bytes / 100 * g.growth_pct;
     g.trigger = grown > g.budget_floor ? grown : g.budget_floor;
+#if CSRT_HAS_CONCURRENT
+    cm_pace();
+#endif
     release_surplus_chunks();
 #if CSRT_HAS_NURSERY
     // Majors stay at twice the last major's live heap (live + a smaller budget would make every one major).

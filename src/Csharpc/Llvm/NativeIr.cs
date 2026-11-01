@@ -53,6 +53,9 @@ internal static unsafe partial class Native
     [LibraryImport(Lib)] public static partial nint LLVMGetNextUse(nint use);
     [LibraryImport(Lib)] public static partial LLVMValueRef LLVMGetUser(nint use);
     [LibraryImport(Lib)] public static partial LLVMValueRef LLVMIsAFunction(LLVMValueRef value);
+    [LibraryImport(Lib)] public static partial LLVMValueRef LLVMIsAConstantPointerNull(LLVMValueRef value);
+    [LibraryImport(Lib)] public static partial LLVMValueRef LLVMIsAUndefValue(LLVMValueRef value);
+    [LibraryImport(Lib)] public static partial nint LLVMGetInlineAsmAsmString(LLVMValueRef inlineAsm, out nuint length);
     [LibraryImport(Lib)] public static partial LLVMValueRef LLVMIsAInlineAsm(LLVMValueRef value);
     [LibraryImport(Lib)] public static partial LLVMValueRef LLVMIsAInstruction(LLVMValueRef value);
     [LibraryImport(Lib)] public static partial LLVMValueRef LLVMIsAArgument(LLVMValueRef value);
