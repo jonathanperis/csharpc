@@ -29,6 +29,10 @@ public static class TypeDataDetach
         internal readonly List<(LLVMValueRef Global, LLVMValueRef Stash, LLVMLinkage Linkage)> Globals = [];
         internal LLVMValueRef[] PreviousUsed = [];
         internal LLVMTypeRef Ptr;
+
+        /// <summary>The detached globals and the previous llvm.compiler.used entries, by name (ParallelOptimize reattaches in another context).</summary>
+        internal (List<(string Name, LLVMLinkage Linkage)> Globals, List<string> PreviousUsed) Names() =>
+            ([.. Globals.Select(d => (NameOf(d.Global), d.Linkage))], [.. PreviousUsed.Select(NameOf)]);
     }
 
     private const string UsedName = "llvm.compiler.used";
@@ -91,10 +95,12 @@ public static class TypeDataDetach
         module.RunPasses("globaldce", target);
     }
 
-    private static void SetUsed(LlvmModule module, LLVMTypeRef ptr, IReadOnlyList<LLVMValueRef> values)
+    private static void SetUsed(LlvmModule module, LLVMTypeRef ptr, IReadOnlyList<LLVMValueRef> values) => SetUsedList(module.Ref, ptr, values);
+
+    internal static void SetUsedList(LLVMModuleRef module, LLVMTypeRef ptr, IReadOnlyList<LLVMValueRef> values)
     {
         var array = LLVMArrayType2(ptr, (ulong)values.Count);
-        var used = LLVMAddGlobal(module.Ref, array, UsedName);
+        var used = LLVMAddGlobal(module, array, UsedName);
         LLVMSetInitializer(used, LLVMConstArray2(ptr, [.. values], (ulong)values.Count));
         LLVMSetLinkage(used, LLVMLinkage.Appending);
         LLVMSetSection(used, "llvm.metadata");

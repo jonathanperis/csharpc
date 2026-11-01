@@ -87,6 +87,20 @@ afterwards, while the LLVM phases reach the process's peak RSS on top of it. `Mo
 drops its model and CFG caches; when it built many CFGs (≥ 500) the driver runs one full compacting
 collection (~0.15 s) before optimization.
 
+### 5. Large executables are optimized per partition, in parallel (`Driver/ParallelOptimize.cs`)
+
+Above about 400,000 instructions before optimization (two units of 200,000; at most 8 partitions), the
+module is cut into partitions before `default<O2>`, and each partition is optimized and
+code-generated on its own thread. A partition gets available_externally copies of the small functions
+(at most 80 instructions, or `alwaysinline`) its code calls, three levels down, and of the constant
+globals its code reads, so the inliner and constant folding see what they would in the whole program;
+larger callees are declarations. A symbol stays internal when only its partition refers to it; shared
+ones become hidden externals, and on ELF every function gets its own section so `--gc-sections` drops
+the shared functions nothing calls once inlined (what GlobalDCE did for internal ones). Partition 0
+owns the llvm.* lists and reattaches the type data (`TypeDataDetach`). TechEmpower's interim app,
+locally with 2 threads: optimization and code generation 160 → 106 s, the build 205 → 136 s,
+executable 11.49 → 11.59 MB. `CSHARPC_OPT_UNITS=N` forces N partitions (1: the single-module path).
+
 ### Rejected or deferred
 
 - **Caching lowered code across compilations** (per-method bitcode in `~/.cache/csharpc`): a corelib
@@ -95,12 +109,10 @@ collection (~0.15 s) before optimization.
   static initializers run eagerly, whether stack traces are recorded. A key covering all of that is the
   program itself. The C runtime stays the only cross-compilation cache.
 - **Persisting Roslyn's CFGs or bound trees:** not serializable, and tied to one compilation's symbols.
-- **Splitting the optimizer:** in `default<O2>` the CGSCC inliner and the function simplification it
-  drives (~80 % of the pipeline for the metadata program, measured with `opt -passes=...` on its
-  bitcode) need the whole call graph; only the final per-function pipeline (vectorizers, unrolling,
-  ~15 %) is partitionable, and running module passes per partition (global DCE, constant merging,
-  relative lookup tables) would change the code. ThinLTO-style summaries are the route if `-O2`
-  optimization becomes the bottleneck for Roslyn-sized programs.
+- **Splitting the optimizer without imports:** in `default<O2>` the CGSCC inliner and the function
+  simplification it drives (~85 % of the pipeline: 97 of 112 s for TechEmpower's interim app) need
+  the callees' bodies; only the final per-function pipeline is partitionable as is. Section 5 is the
+  ThinLTO-style route.
 - **NativeAOT-compiled csharpc by default:** faster still to start (`tools/publish-native.sh`), but
   a platform-specific single binary instead of the framework-dependent tool the SDK package and
   `dotnet tool install` use; ReadyToRun gets most of the gain with the same deployment.
@@ -142,7 +154,8 @@ threads alone (against the branch point).
 2. **Lowering is single-threaded** after the CFGs: emitting LLVM IR for independent functions needs a
    context per thread and a merge (or lowering straight into partitions), since an LLVM context is
    not thread-safe.
-3. **`-O2` optimization** stays one thread over the whole program (see above).
+3. **`-O2` optimization** of small programs stays one thread over the whole program; large ones are
+   partitioned (section 5), and partitioning by the call graph instead of module order would import less.
 4. **Memory:** each code-generation thread parses the whole bitcode image before pruning it; lazy
    bitcode loading (or per-partition images) would bound it by the partition, and lowering should drop
    Roslyn operation trees and CFGs as soon as a function is emitted.
