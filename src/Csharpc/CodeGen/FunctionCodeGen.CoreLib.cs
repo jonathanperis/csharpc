@@ -163,6 +163,7 @@ public sealed partial class FunctionCodeGen
             "ReflectionTableAddress" => _b.Cast(LLVMOpcode.PtrToInt, _m.ReflectionTable(), T.NativeInt),
             "DelegateMethodTableAddress" => _b.Cast(LLVMOpcode.PtrToInt, _m.DelegateMethodTable(), T.NativeInt),
             "IsExactClass" => IsExactClass(S(t!), args[0], inv),
+            "IsBitwiseEquatable" => IsBitwiseEquatable(S(t!)) ? L.True : L.False,
             "DelegateSignatureTableAddress" => _b.Cast(LLVMOpcode.PtrToInt, _m.DelegateSignatureTable(), T.NativeInt),
             "ObjectArrayThunkTableAddress" => _b.Cast(LLVMOpcode.PtrToInt, _m.ObjectArrayThunkTable(), T.NativeInt),
             "OperatorsKept" => _b.ICmp(LLVMIntPredicate.NE, _b.Load(L.I8, _m.OperatorsKeptFlag()), L.ConstInt(L.I8, 0)),

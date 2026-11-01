@@ -1,0 +1,127 @@
+int[] Sum: 1003
+List<int> Sum: 1003
+short int[] Sum: 6
+int[17] Sum: 153
+int[] Sum overflow (all lanes): OverflowException: Arithmetic operation resulted in an overflow.
+int[] Sum overflow (short): OverflowException: Arithmetic operation resulted in an overflow.
+int[] Sum negative overflow: OverflowException: Arithmetic operation resulted in an overflow.
+int[] Sum no overflow at the limit: 2147483647
+long[] Sum: 1003000007021
+long[] Sum overflow: OverflowException: Arithmetic operation resulted in an overflow.
+empty int[] Sum: 0
+empty List<long> Sum: 0
+double[] Sum: 7.485470860550343
+List<double> Sum: 7.485470860550343
+enumerated double Sum: 7.485470860550343
+double[] Sum cancellation: 1
+float[] Sum: 7.485471
+float[] Sum beyond float: 3.4028235E+38
+decimal[] Sum: 0.6
+double[] Sum NaN: NaN
+double[] Sum infinities: NaN
+int[] Average: 1
+List<int> Average: 1
+long[] Average: 2.0496382304121723E+18
+double[] Average: 0.007485470860550343
+float[] Average: 2.3333333
+empty int[] Average: InvalidOperationException: Sequence contains no elements
+empty List<double> Average: InvalidOperationException: Sequence contains no elements
+empty float[] Average: InvalidOperationException: Sequence contains no elements
+int[] Min: -500
+int[] Max: 502
+List<long> Min: -9223372036854775808
+List<long> Max: 9223372036854775807
+empty int[] Min: InvalidOperationException: Sequence contains no elements.
+empty List<long> Max: InvalidOperationException: Sequence contains no elements.
+double[] Min NaN: NaN
+double[] Max NaN first: 3
+double[] Max all NaN: NaN
+double[] Max NaN later: 3
+double[] Min -0.0 first: -0 (negative zero)
+double[] Min 0.0 first: 0
+double[] Max 0.0 first: 0
+double[] Max -0.0 first: -0 (negative zero)
+double[] Min infinities: -Infinity
+float[] Min NaN: NaN
+float[] Max: 3.5
+float[] Min -0: -0 (negative zero)
+List<double> Max: 1
+empty double[] Min: InvalidOperationException: Sequence contains no elements.
+empty float[] Max: InvalidOperationException: Sequence contains no elements.
+int[] Contains: True
+int[] Contains missing: False
+long[] Contains: True
+List<int> Contains: True
+byte[] Contains: True
+double[] Contains NaN: True
+double[] Contains -0.0: True
+List<string> Contains null: True
+string[] Contains: True
+int[] SequenceEqual: True
+int[] SequenceEqual differs: False
+int[] SequenceEqual List<int>: True
+int[] SequenceEqual length: False
+double[] SequenceEqual NaN: True
+char[] SequenceEqual: True
+int[] SequenceEqual comparer: True
+empty SequenceEqual: True
+int[] ToArray: [3,1,2]
+List<int> ToArray: [4,5]
+empty List ToArray is Array.Empty: False
+empty HashSet ToArray is Array.Empty: True
+HashSet ToArray: [9]
+int[] Count: 1003
+custom IList:
+  Count
+  indexer 0
+First: 1
+  Count
+  indexer 3
+Last: 4
+  Count
+  indexer 3
+LastOrDefault: 4
+  Count
+  indexer 3
+  predicate 4
+  indexer 2
+  predicate 3
+  indexer 1
+  predicate 2
+Last(predicate): 2
+  Count
+  indexer 2
+ElementAtOrDefault: 3
+  Count
+ElementAtOrDefault out of range: 0
+  Count
+  CopyTo
+ToArray: [1,2,3,4]
+  Contains
+Contains: True
+  Count
+  Count
+SequenceEqual other count: False
+  Count
+  Count
+  Count
+  indexer 0
+  indexer 0
+  indexer 1
+  indexer 1
+  indexer 2
+  indexer 2
+  indexer 3
+  indexer 3
+SequenceEqual same: True
+  Count
+  Count
+  indexer 0
+  indexer 1
+  indexer 2
+  indexer 3
+SequenceEqual array: True
+  Count
+empty First: InvalidOperationException: Sequence contains no elements
+  Count
+empty Last: InvalidOperationException: Sequence contains no elements

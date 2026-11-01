@@ -160,6 +160,8 @@ namespace CsharpcCoreLib
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern nint DelegateMethodTableAddress();
         /// <summary>`obj` is non-null and exactly of class T: one method-table compare, inline (no base-type walk).</summary>
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern bool IsExactClass<T>(object obj) where T : class;
+        /// <summary>RuntimeHelpers.IsBitwiseEquatable&lt;T&gt;: T's equality is its bits (integers, bool, char, enums, pointers).</summary>
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern bool IsBitwiseEquatable<T>();
         /// <summary>The version of the shared framework the program was compiled against ("11.0.0-rc.2.26504.105").</summary>
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern string FrameworkVersion();
         /// <summary>System.Runtime.InteropServices.Architecture of the target triple (X64 1, Arm64 3, Wasm 5).</summary>
