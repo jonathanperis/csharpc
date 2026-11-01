@@ -86,32 +86,64 @@ public static class ConcurrentBarrierElision
         }
     }
 
-    /// <summary>Defined functions whose every return value is fresh (the greatest fixpoint: recursion is fine).</summary>
+    /// <summary>
+    /// Facts, as handles: defined functions whose every return value is fresh, and parameters whose every
+    /// argument is (of internal functions only called directly: a constructor's `left` when every `new`
+    /// passes a new object, which matters where the constructor is not inlined). The greatest fixpoint:
+    /// recursion is fine, the value is still held from its allocation to the store.
+    /// </summary>
     private static HashSet<IntPtr> FreshFunctions(LLVMModuleRef module)
     {
-        var candidates = new Dictionary<IntPtr, List<LLVMValueRef>>();
+        var returns = new Dictionary<IntPtr, List<LLVMValueRef>>();
+        var arguments = new Dictionary<IntPtr, List<LLVMValueRef>>();
         for (var fn = LLVMGetFirstFunction(module); !fn.IsNull; fn = LLVMGetNextFunction(fn))
         {
-            if (LLVMIsDeclaration(fn) != 0 || !LLVMGetReturnType(LLVMGlobalGetValueType(fn)).IsPointer) continue;
-            var returned = new List<LLVMValueRef>();
-            for (var bb = LLVMGetFirstBasicBlock(fn); !bb.IsNull; bb = LLVMGetNextBasicBlock(bb))
+            if (LLVMIsDeclaration(fn) != 0) continue;
+            if (LLVMGetReturnType(LLVMGlobalGetValueType(fn)).IsPointer)
             {
-                var term = LLVMGetBasicBlockTerminator(bb);
-                if (!term.IsNull && LLVMGetInstructionOpcode(term) == LLVMOpcode.Ret && LLVMGetNumOperands(term) == 1)
-                    returned.Add(LLVMGetOperand(term, 0));
+                var returned = new List<LLVMValueRef>();
+                for (var bb = LLVMGetFirstBasicBlock(fn); !bb.IsNull; bb = LLVMGetNextBasicBlock(bb))
+                {
+                    var term = LLVMGetBasicBlockTerminator(bb);
+                    if (!term.IsNull && LLVMGetInstructionOpcode(term) == LLVMOpcode.Ret && LLVMGetNumOperands(term) == 1)
+                        returned.Add(LLVMGetOperand(term, 0));
+                }
+                returns[fn.Handle] = returned;
             }
-            candidates[fn.Handle] = returned;
+            var linkage = LLVMGetLinkage(fn);
+            if (linkage is not (LLVMLinkage.Internal or LLVMLinkage.Private)) continue;
+            uint count = LLVMCountParams(fn);
+            if (count == 0) continue;
+            var sites = new List<LLVMValueRef>();
+            bool direct = true;
+            for (var use = LLVMGetFirstUse(fn); use != 0 && direct; use = LLVMGetNextUse(use))
+            {
+                var user = LLVMGetUser(use);
+                direct = !LLVMIsAInstruction(user).IsNull
+                    && LLVMGetInstructionOpcode(user) is LLVMOpcode.Call or LLVMOpcode.Invoke
+                    && LLVMGetCalledValue(user).Handle == fn.Handle && LLVMGetNumArgOperands(user) == count;
+                if (direct) sites.Add(user);
+            }
+            if (!direct || sites.Count == 0) continue;
+            for (uint i = 0; i < count; i++)
+            {
+                var param = LLVMGetParam(fn, i);
+                if (!param.Type.IsPointer) continue;
+                arguments[param.Handle] = sites.Select(site => LLVMGetOperand(site, i)).ToList();
+            }
         }
-        var fresh = new HashSet<IntPtr>(candidates.Keys);
+        var fresh = new HashSet<IntPtr>(returns.Keys);
+        fresh.UnionWith(arguments.Keys);
         for (var changed = true; changed;)
         {
             changed = false;
-            foreach (var (fn, returned) in candidates)
-                if (fresh.Contains(fn) && !returned.All(v => IsFresh(v, fresh, [])))
-                {
-                    fresh.Remove(fn);
-                    changed = true;
-                }
+            foreach (var facts in (Dictionary<IntPtr, List<LLVMValueRef>>[])[returns, arguments])
+                foreach (var (fact, values) in facts)
+                    if (fresh.Contains(fact) && !values.All(v => IsFresh(v, fresh, [])))
+                    {
+                        fresh.Remove(fact);
+                        changed = true;
+                    }
         }
         return fresh;
     }
@@ -119,6 +151,7 @@ public static class ConcurrentBarrierElision
     private static bool IsFresh(LLVMValueRef value, HashSet<IntPtr> freshFunctions, HashSet<IntPtr> visiting)
     {
         if (!LLVMIsAConstantPointerNull(value).IsNull || !LLVMIsAUndefValue(value).IsNull) return true;
+        if (!LLVMIsAArgument(value).IsNull) return freshFunctions.Contains(value.Handle);
         if (LLVMIsAInstruction(value).IsNull) return false;
         switch (LLVMGetInstructionOpcode(value))
         {

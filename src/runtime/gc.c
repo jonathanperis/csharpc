@@ -1268,7 +1268,9 @@ static inline __attribute__((always_inline)) void mark_candidate(uintptr_t word)
 
     uintptr_t base = word & ~(CHUNK_SIZE - 1);
 #if CSRT_HAS_CONCURRENT
-    if (chunk_set_contains_marker(base)) {
+    // The racing lookup only while a cycle marks: its load-acquire per scanned word is an LDAR on
+    // AArch64, which made stop-the-world marking (all of a single-threaded program's) measurably slower.
+    if (__builtin_expect(cm_active, 0) ? chunk_set_contains_marker(base) : chunk_set_contains(base)) {
 #else
     if (chunk_set_contains(base)) {
 #endif
