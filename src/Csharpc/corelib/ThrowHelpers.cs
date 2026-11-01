@@ -14,7 +14,9 @@ namespace CsharpcCoreLib
     {
         public static void ThrowIfNull(object argument, string paramName)
         {
-            if (argument == null) throw new ArgumentNullException(paramName);
+            if (argument == null)
+                throw CoreIntrinsics.LibraryFrames(new ArgumentNullException(paramName),
+                    "System.ArgumentNullException.Throw(String paramName)\nSystem.ArgumentNullException.ThrowIfNull(Object argument, String paramName)");
         }
 
         public static unsafe void ThrowIfNull(void* argument, string paramName)
@@ -29,7 +31,9 @@ namespace CsharpcCoreLib
         public static void ThrowIfNullOrEmpty(string argument, string paramName)
         {
             if (argument == null) throw new ArgumentNullException(paramName);
-            if (argument.Length == 0) throw new ArgumentException("The value cannot be an empty string.", paramName);
+            if (argument.Length == 0)
+                throw CoreIntrinsics.LibraryFrames(new ArgumentException("The value cannot be an empty string.", paramName),
+                    "System.ArgumentException.ThrowNullOrEmptyException(String argument, String paramName)\nSystem.ArgumentException.ThrowIfNullOrEmpty(String argument, String paramName)");
         }
 
         public static void ThrowIfNullOrWhiteSpace(string argument, string paramName)
@@ -60,7 +64,10 @@ namespace CsharpcCoreLib
 
         public static void ThrowIfNegative<T>(T value, string paramName) where T : INumberBase<T>
         {
-            if (T.IsNegative(value)) Throw(value, paramName, paramName + " ('" + Text(value) + "') must be a non-negative value.");
+            // A negative value is never null: Throw's ActualValue case.
+            if (T.IsNegative(value))
+                throw CoreIntrinsics.LibraryFrames(new ArgumentOutOfRangeException(paramName, value, paramName + " ('" + Text(value) + "') must be a non-negative value."),
+                    "System.ArgumentOutOfRangeException.ThrowNegative[T](T value, String paramName)\nSystem.ArgumentOutOfRangeException.ThrowIfNegative[T](T value, String paramName)");
         }
 
         public static void ThrowIfNegativeOrZero<T>(T value, string paramName) where T : INumberBase<T>

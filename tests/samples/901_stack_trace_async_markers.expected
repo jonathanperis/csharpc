@@ -1,0 +1,68 @@
+== TaskCompletionSource, awaited: InvalidOperationException: completion source
+   at Program.Thrower(String what) in 901_stack_trace_async_markers.cs:line 33
+   at Program.FromCompletionSource() in 901_stack_trace_async_markers.cs:line 38
+--- End of stack trace from previous location ---
+   at Program.Main() in 901_stack_trace_async_markers.cs:line 14
+== TaskCompletionSource, GetResult(): InvalidOperationException: completion source
+   at Program.Thrower(String what) in 901_stack_trace_async_markers.cs:line 33
+   at Program.FromCompletionSource() in 901_stack_trace_async_markers.cs:line 38
+--- End of stack trace from previous location ---
+   at Program.Main() in 901_stack_trace_async_markers.cs:line 15
+== Task.FromException: InvalidOperationException: from exception
+   at Program.Main() in 901_stack_trace_async_markers.cs:line 16
+== ExceptionDispatchInfo after an await: InvalidOperationException: captured
+   at Program.Thrower(String what) in 901_stack_trace_async_markers.cs:line 33
+   at Program.Inner(String what) in 901_stack_trace_async_markers.cs:line 46
+   at Program.RethrowAfterAwait() in 901_stack_trace_async_markers.cs:line 72
+   at Program.RethrowAfterAwait() in 901_stack_trace_async_markers.cs:line 74
+   at Program.Main() in 901_stack_trace_async_markers.cs:line 17
+== ExceptionDispatchInfo in a method: InvalidOperationException: captured sync
+   at Program.Thrower(String what) in 901_stack_trace_async_markers.cs:line 33
+   at Program.RethrowSync() in 901_stack_trace_async_markers.cs:line 80
+--- End of stack trace from previous location ---
+   at Program.RethrowSync() in 901_stack_trace_async_markers.cs:line 82
+   at Program.Main() in 901_stack_trace_async_markers.cs:line 18
+== ConfigureAwait(false): InvalidOperationException: outer
+   at Program.Thrower(String what) in 901_stack_trace_async_markers.cs:line 33
+   at Program.Inner(String what) in 901_stack_trace_async_markers.cs:line 46
+   at Program.Outer() in 901_stack_trace_async_markers.cs:line 52
+   at Program.Main() in 901_stack_trace_async_markers.cs:line 19
+== Task.WhenAll: InvalidOperationException: first
+   at Program.Thrower(String what) in 901_stack_trace_async_markers.cs:line 33
+   at Program.Inner(String what) in 901_stack_trace_async_markers.cs:line 46
+   at Program.Main() in 901_stack_trace_async_markers.cs:line 20
+== ValueTask: InvalidOperationException: value task
+   at Program.Thrower(String what) in 901_stack_trace_async_markers.cs:line 33
+   at Program.Inner(String what) in 901_stack_trace_async_markers.cs:line 46
+   at Program.AsValueTask() in 901_stack_trace_async_markers.cs:line 66
+   at Program.Main() in 901_stack_trace_async_markers.cs:line 21
+== async lambda: InvalidOperationException: async lambda
+   at Program.Thrower(String what) in 901_stack_trace_async_markers.cs:line 33
+   at Program.<>c.<<Main>b__0_0>d.MoveNext() in 901_stack_trace_async_markers.cs:line 22
+--- End of stack trace from previous location ---
+   at Program.Main() in 901_stack_trace_async_markers.cs:line 23
+== first await: InvalidOperationException: awaited twice
+   at Program.Thrower(String what) in 901_stack_trace_async_markers.cs:line 33
+   at Program.Inner(String what) in 901_stack_trace_async_markers.cs:line 46
+   at Program.Main() in 901_stack_trace_async_markers.cs:line 26
+== second await: InvalidOperationException: awaited twice
+   at Program.Thrower(String what) in 901_stack_trace_async_markers.cs:line 33
+   at Program.Inner(String what) in 901_stack_trace_async_markers.cs:line 46
+   at Program.Main() in 901_stack_trace_async_markers.cs:line 27
+== third await, through a method: InvalidOperationException: awaited twice
+   at Program.Thrower(String what) in 901_stack_trace_async_markers.cs:line 33
+   at Program.Inner(String what) in 901_stack_trace_async_markers.cs:line 46
+   at Program.Rethrow(Task task) in 901_stack_trace_async_markers.cs:line 62
+   at Program.Main() in 901_stack_trace_async_markers.cs:line 28
+== Wait(): AggregateException: One or more errors occurred. (outer)
+   at System.Threading.Tasks.Task.ThrowIfExceptional(Boolean includeTaskCanceledExceptions)
+   at System.Threading.Tasks.Task.Wait(Int32 millisecondsTimeout, CancellationToken cancellationToken)
+   at System.Threading.Tasks.Task.Wait()
+   at Program.Main() in 901_stack_trace_async_markers.cs:line 29
+== Wait() inner: InvalidOperationException: outer
+   at Program.Thrower(String what) in 901_stack_trace_async_markers.cs:line 33
+   at Program.Inner(String what) in 901_stack_trace_async_markers.cs:line 46
+   at Program.Outer() in 901_stack_trace_async_markers.cs:line 52
+== Result: AggregateException: One or more errors occurred. (result)
+   at System.Threading.Tasks.Task`1.GetResultCore(Boolean waitCompletionNotification)
+   at Program.Main() in 901_stack_trace_async_markers.cs:line 30

@@ -1,0 +1,8 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- A library IlStackTracesApp references as a DLL: its frames are named from its metadata, with lines from the
+       PDB the app's build copies beside it (as `dotnet run` finds it). -->
+  <PropertyGroup>
+    <TargetFramework>net11.0</TargetFramework>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+</Project>

@@ -644,8 +644,8 @@ namespace CsharpcCoreLib
         public static TSource Single<TSource>(IEnumerable<TSource> source)
         {
             int n = TrySingle(source, null, out TSource r);
-            if (n == 0) ThrowHelper.NoElements();
-            if (n > 1) ThrowHelper.MoreThanOne();
+            if (n == 0) LibraryThrowHelper.SingleNoElements();
+            if (n > 1) LibraryThrowHelper.SingleMoreThanOne();
             return r;
         }
 

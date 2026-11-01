@@ -202,3 +202,6 @@ wasi 861_socket_connect_async         opens loopback sockets: WASI preview 1 has
 wasi 845_networkstream_async_receive_timeout opens loopback sockets: WASI preview 1 has none (PlatformNotSupportedException)
 wasi 846_npgsql_bcl_members           no ICU on WASI (invariant globalization mode): Unicode normalization and culture-aware comparison
 wasi 848_stringbuilder_provider_text_encoder no ICU on WASI (invariant globalization mode): the sample uses specific cultures
+wasi 903_stack_trace_socket_connect     opens loopback sockets: WASI preview 1 has none (PlatformNotSupportedException)
+windows 903_stack_trace_socket_connect  live: the socket implementation behind the frames is per OS (Winsock overlapped connects)
+macos 903_stack_trace_socket_connect    live: the socket implementation behind the frames is per OS (kqueue)

@@ -739,9 +739,11 @@ namespace CsharpcCoreLib
             throw last ?? new SocketException((int)SocketError.AddressFamilyNotSupported);
         }
 
-        public Task ConnectAsync(EndPoint remoteEP) => ConnectAsync(remoteEP, CancellationToken.None).AsTask();
+        public Task ConnectAsync(EndPoint remoteEP) => ConnectAsync(remoteEP, CancellationToken.None, asTask: true).AsTask();
 
-        public ValueTask ConnectAsync(EndPoint remoteEP, CancellationToken cancellationToken)
+        public ValueTask ConnectAsync(EndPoint remoteEP, CancellationToken cancellationToken) => ConnectAsync(remoteEP, cancellationToken, asTask: false);
+
+        private ValueTask ConnectAsync(EndPoint remoteEP, CancellationToken cancellationToken, bool asTask)
         {
             if (cancellationToken.IsCancellationRequested) return new ValueTask(Task.FromCanceled(cancellationToken));
             if (remoteEP == null) throw new ArgumentNullException("remoteEP");
@@ -749,7 +751,7 @@ namespace CsharpcCoreLib
             if (_connected) throw new SocketException((int)SocketError.IsConnected);
             if (_listening) throw new InvalidOperationException("You may not perform this operation after calling the Listen method.");
             // A non-blocking connect on the socket engine (a canceled token ends it with OperationCanceledException).
-            return new ValueTask(StartTask(new TaskOperations.Connect { Target = Adapt(remoteEP) }, cancellationToken).Source.Task);
+            return new ValueTask(StartTask(new TaskOperations.Connect { Target = Adapt(remoteEP), AsTask = asTask }, cancellationToken).Source.Task);
         }
 
         public ValueTask ConnectAsync(IPAddress address, int port, CancellationToken cancellationToken) =>

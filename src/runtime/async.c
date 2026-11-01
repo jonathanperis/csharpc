@@ -73,7 +73,9 @@ _Static_assert(offsetof(csrt_Task, payload) == (sizeof(void*) == 8 ? 56 : 40), "
 // TF_WAITED: a thread blocks on the task (csrt_task_wait), so completing it must wake the waiters;
 // set under the task's lock while it is pending. TF_CREATED: new Task(...) not started yet
 // (TaskStatus.Created). Distinct bits: a created task can also be waited on.
-enum { TF_DELEGATE = 1, TF_RUNNING = 2, TF_WAITED = 4, TF_CREATED = 8 };
+// The bits from TF_TRACE_SHIFT up: the number of stack-trace frames the exception of a faulted task had
+// when it faulted it (csrt_trace_await).
+enum { TF_DELEGATE = 1, TF_RUNNING = 2, TF_WAITED = 4, TF_CREATED = 8, TF_TRACE_SHIFT = 8 };
 
 typedef struct csrt_Iterator {
     const csrt_MethodTable* mt;
@@ -495,7 +497,13 @@ static void run_continuations(csrt_Task* t, csrt_Array* conts, int32_t n);
 static bool try_finish_aggregate(csrt_Task* t, int32_t state, void* exception, void* aggregate) {
     task_lock(t);
     if (task_state(t) != T_PENDING) { task_unlock(t); return false; }
-    if (exception) CSRT_STORE_REF(t->exception, exception);
+    if (exception) {
+        CSRT_STORE_REF(t->exception, exception);
+        // The stack-trace frames the exception has now are what each await of this task rethrows it
+        // with (csrt_trace_await); 0 in programs without stack traces.
+        int32_t depth = csrt_trace_depth(exception);
+        if (depth > 0) __atomic_or_fetch(&t->flags, (int32_t)((uint32_t)depth << TF_TRACE_SHIFT), __ATOMIC_RELAXED);
+    }
     if (aggregate) CSRT_STORE_REF(t->aggregate, aggregate);
     csrt_Array* conts = t->conts;
     int32_t n = t->ncont;
@@ -668,9 +676,10 @@ void csrt_task_throw_if_faulted(csrt_Task* t) {
     if (!t) return;
     int32_t st = task_state(t);
     // The awaiting frame is elsewhere on the stack than the frames recorded so far (eh.c).
-    if (st == T_FAULTED) { csrt_trace_new_stack(t->exception); csrt_rethrow(t->exception); }
+    int32_t depth = (int32_t)((uint32_t)__atomic_load_n(&t->flags, __ATOMIC_RELAXED) >> TF_TRACE_SHIFT);
+    if (st == T_FAULTED) { csrt_trace_await(t->exception, depth); csrt_rethrow(t->exception); }
     if (st == T_CANCELED) {
-        if (t->exception) { csrt_trace_new_stack(t->exception); csrt_rethrow(t->exception); } // canceled by an OperationCanceledException
+        if (t->exception) { csrt_trace_await(t->exception, depth); csrt_rethrow(t->exception); } // canceled by an OperationCanceledException
         csrt_throw_object(csrt_task_canceled_exception_new());
     }
 }
@@ -696,6 +705,22 @@ void csrt_task_throw_aggregate_if_faulted(csrt_Task* t) {
         void* inner = csrt_task_canceled_exception_new();
         csrt_throw_object(csrt_aggregate_exception_new(&inner, 1));
     }
+}
+
+/// The same in a program that records stack traces: the AggregateException starts its trace with the
+/// frames .NET's Wait()/Result throw it from (CoreIntrinsics.LibraryFrames).
+void csrt_task_throw_aggregate_if_faulted_traced(csrt_Task* t, const void* const* sites, int32_t count) {
+    if (!t) return;
+    int32_t st = task_state(t);
+    if (st != T_FAULTED && st != T_CANCELED) return;
+    void* aggregate;
+    if (st == T_FAULTED) aggregate = csrt_task_exception(t);
+    else {
+        void* inner = csrt_task_canceled_exception_new();
+        aggregate = csrt_aggregate_exception_new(&inner, 1);
+    }
+    csrt_trace_preset(aggregate, sites, count);
+    csrt_throw_object(aggregate);
 }
 
 /// Task.FromException(e) / FromException<T>(e)

@@ -213,17 +213,28 @@ namespace CsharpcCoreLib
 
         // ---- slicing ----------------------------------------------------------------------------
         [ShadowInstance]
-        public static string Substring(string s, int startIndex) => Substring(s, startIndex, s.Length - startIndex);
+        public static string Substring(string s, int startIndex) => Substring(s, startIndex, s.Length - startIndex, oneArgument: true);
 
         [ShadowInstance]
-        public static string Substring(string s, int startIndex, int length)
+        public static string Substring(string s, int startIndex, int length) => Substring(s, startIndex, length, oneArgument: false);
+
+        // oneArgument (a constant once inlined) only chooses the library frames of the trace (.NET lists the overload
+        // that was called); without stack traces both throws are the same `throw e`.
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
+        private static string Substring(string s, int startIndex, int length, bool oneArgument)
         {
             ThrowHelper.IfNegative(startIndex, "startIndex");
             if (startIndex > s.Length)
-                throw new ArgumentOutOfRangeException("startIndex", "startIndex cannot be larger than length of string.");
+            {
+                var e = new ArgumentOutOfRangeException("startIndex", "startIndex cannot be larger than length of string.");
+                if (oneArgument)
+                    throw CoreIntrinsics.LibraryFrames(e, "System.String.ThrowSubstringArgumentOutOfRange(Int32 startIndex, Int32 length, Int32 thisLength)\nSystem.String.Substring(Int32 startIndex)");
+                throw CoreIntrinsics.LibraryFrames(e, "System.String.ThrowSubstringArgumentOutOfRange(Int32 startIndex, Int32 length, Int32 thisLength)\nSystem.String.Substring(Int32 startIndex, Int32 length)");
+            }
             ThrowHelper.IfNegative(length, "length");
             if (startIndex > s.Length - length)
-                throw new ArgumentOutOfRangeException("length", "Index and length must refer to a location within the string.");
+                throw CoreIntrinsics.LibraryFrames(new ArgumentOutOfRangeException("length", "Index and length must refer to a location within the string."),
+                    "System.String.ThrowSubstringArgumentOutOfRange(Int32 startIndex, Int32 length, Int32 thisLength)\nSystem.String.Substring(Int32 startIndex, Int32 length)");
             if (length == s.Length) return s;
             return Copy(s.AsSpan(startIndex, length));
         }

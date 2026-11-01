@@ -275,13 +275,24 @@ namespace CsharpcCoreLib
         internal sealed class Connect : ConnectOperation
         {
             internal readonly TaskCompletionSource Source = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            /// <summary>Socket.ConnectAsync's Task overloads: .NET wraps the ValueTask (ValueTaskSourceAsTask).</summary>
+            internal bool AsTask;
             internal override void Complete(bool synchronously)
             {
                 Registration.Dispose();
                 if (Canceled) CoreIntrinsics.TryFaultAsyncTask(Source.Task, new OperationCanceledException(Token)); // .NET: the socket throws OperationCanceledException(token)
                 else if (Error == SocketError.Success) Source.TrySetResult();
-                else Source.TrySetException(new SocketException((int)Error)); // .NET's asynchronous connect: no endpoint in the message
+                else Source.TrySetException(Failure(new SocketException((int)Error), AsTask)); // .NET's asynchronous connect: no endpoint in the message
             }
+
+            // The frames .NET lists for the failure: AwaitableSocketAsyncEventArgs throws it in GetResult, called by
+            // the await (the ValueTask) or by the Task wrapper's completion callback, which the await rethrows.
+            private static Exception Failure(SocketException e, bool asTask) => asTask
+                ? CoreIntrinsics.LibraryFrames(e, "System.Net.Sockets.Socket.AwaitableSocketAsyncEventArgs.ThrowException(SocketError error, CancellationToken cancellationToken)\n"
+                    + "System.Net.Sockets.Socket.AwaitableSocketAsyncEventArgs.System.Threading.Tasks.Sources.IValueTaskSource.GetResult(Int16 token)\n"
+                    + "System.Threading.Tasks.ValueTask.ValueTaskSourceAsTask.<>c.<.cctor>b__4_0(Object state)\n---")
+                : CoreIntrinsics.LibraryFrames(e, "System.Net.Sockets.Socket.AwaitableSocketAsyncEventArgs.ThrowException(SocketError error, CancellationToken cancellationToken)\n"
+                    + "System.Net.Sockets.Socket.AwaitableSocketAsyncEventArgs.System.Threading.Tasks.Sources.IValueTaskSource.GetResult(Int16 token)");
         }
 
         internal sealed class Accept : AcceptOperation

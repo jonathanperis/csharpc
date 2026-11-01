@@ -21,8 +21,15 @@ What .NET prints, measured against .NET 11 RC2 (the oracle):
 - **The frame list** runs from the throw point to the catching frame. `throw;` keeps the frames
   (the rethrowing frame is not listed again), `throw e;` starts over even for an exception thrown
   before, `ExceptionDispatchInfo.Throw()` appends `--- End of stack trace from previous location ---`
-  and continues. With .NET 11's runtime-async, awaits add no marker: an exception that went through
-  `Inner` ← `Middle` ← `Outer` lists those frames in order.
+  and continues. An await of a faulted task rethrows the exception the same way, but
+  `StackTrace.ToString` leaves the marker out after an async method's frame (a state machine's
+  `MoveNext`, or a runtime-async method): an exception that went through `Inner` ← `Middle` ← `Outer`
+  lists those frames in order, while one a `TaskCompletionSource` captured in an ordinary method shows
+  the marker before the awaiting frame.
+- **Hidden frames** (`StackTrace.ShowInStackTrace`): methods marked `[StackTraceHidden]`, methods of a
+  type marked so (its own methods only: not its nested, closure or state-machine types), and
+  `[MethodImpl(AggressiveInlining)]` methods are not listed — except as the trace's last frame. A marker
+  that follows a hidden frame isn't printed either.
 - **Each frame** is `Namespace.Type.Method[T](Int32 x, String& s)`: nested types joined with `.`,
   generic types as ``List`1``, generic methods with their parameter names, parameter types as
   `System.Type.Name` (`Int32`, `Decimal`, ``Nullable`1``, `Int32[,]`, `Int32&` for ref/out/in, `Int32*`).
@@ -103,7 +110,15 @@ unwinder does anyway.
 - **Windows** reaches the same personality through libunwind's SEH adapter.
 
 Formatting happens only when `StackTrace` or `ToString()` is called (`csrt_exception_get_stack_trace`
-in `eh.c`): `"   at " + method + " in " + file + ":line " + N`, joined with `Environment.NewLine`.
+in `eh.c`): `"   at " + method + " in " + file + ":line " + N`, joined with `Environment.NewLine`,
+with `StackTrace.ToString`'s two filters, from flags the compiler puts in each descriptor
+(`StackTraceInfo.FrameFlags`): a *hidden* frame is skipped unless it is the last one, and the
+"previous location" marker is printed only after a listed frame that is not *async*. An await of a
+faulted task (`csrt_task_throw_if_faulted` → `csrt_trace_await`) appends the marker, as .NET's
+ExceptionDispatchInfo rethrow does, so an exception a `TaskCompletionSource` captured in an ordinary
+method reads `... FromCompletionSource() / --- End of stack trace ... --- / Main()` while await chains
+read as one trace. Each await starts from the frames the exception had when it faulted the task (their
+count is kept in the task's flags), so awaiting a task twice doesn't list the first await's frames again.
 
 ### Names and lines: from the program as .NET builds it
 
@@ -125,6 +140,30 @@ and reads the portable PDB back with System.Reflection.Metadata:
 Each site's descriptor indexes the method and file string tables the compiler emits; `main`
 registers them (`csrt_trace_init`) before user code runs.
 
+### Methods compiled from IL: names from metadata, lines where .NET finds a PDB
+
+Every method csharpc lowers from IL — the program given as IL (`csharpc app.dll`), referenced and NuGet
+libraries, framework assemblies taken as IL (ADR 0013) — is a frame too, except the precompiled corelib
+(ADR 0015), which stands in for .NET's own library code (next section). The name follows
+`StackTrace.ToString` over the assembly's metadata: the declaring type's full name with `+` printed as
+`.`, generic definitions (``Box`1.Nested`1.Go(T value, U u)``), method generic parameters
+(`Generic[T](T value, Int32& x)`), parameter types as `Type.Name` and unnamed parameters as the bare type
+(`<Local>g__Inner|7_0(<>c__DisplayClass7_0&)`). A method of a `[CompilerGenerated]` type implementing
+`IAsyncStateMachine` or `IEnumerator` prints as the method whose `StateMachine` attribute names that
+type — iterators with `+MoveNext()` — decided from the attributes, not the PDB, as the runtime does:
+csc leaves `[CompilerGenerated]` off an async lambda's state machine (its `<>c` class has it), so .NET
+prints that frame as `Program.<>c.<<Main>b__0_0>d.MoveNext()`, and so does csharpc (source programs
+take the same rule from the PE they emit). `[MethodImpl(MethodImplOptions.Async)]` methods
+(runtime-async) are async frames under their own name.
+
+Lines come from the assembly's portable PDB as .NET's `StackTraceSymbols` would find it: embedded, or
+beside the file .NET loads. `dotnet build` copies the PDB of a `<Reference>`d or project-referenced
+assembly into the output (and csc writes the program's beside it), but not a NuGet package's unless
+`CopyDebugSymbolFilesFromPackages` is set: an assembly under the global packages folder gets lines only
+then (`DebugSymbolSettings.PackagePdbs`). The shared framework ships without PDBs. Frames that print the
+same text but differ in flags (an async method's kickoff stub and its `MoveNext`) are separate table
+entries, since sites — keyed on the entry, the document and the line — share descriptors.
+
 ### Pay for play
 
 A program records traces only when it can observe one (`StackTraceInfo.FindObservation`): it reads
@@ -142,17 +181,34 @@ unhandled-exception reports on stderr).
   which presets them as the start of the trace (`csrt_trace_preset`; nothing at all in programs that
   don't record traces), and a `when` filter adds them to an exception already in flight
   (`AppendLibraryFrames`, for File's text readers, whose frames are per public member and per OS).
-  Covered today: `Dictionary`/`SortedDictionary` indexers, `List<T>` indexer and `RemoveAt`, `First`
-  and `Last`, `Stack.Pop`, `Queue.Dequeue`, `Array.Copy` (.NET on Windows also lists `Array.Copy` itself, which
-  isn't reproduced), and on Unix `File.OpenText`/`ReadAllText`/
-  `ReadAllLines` (with `FileNotFoundException`'s `File name: '...'` line). Elsewhere an exception thrown
-  by or passing through BCL code shows the program's frames only. Warning `CSLLVM0006` is reported
+  Covered today: `Dictionary`/`SortedDictionary` indexers, `Dictionary.Add`, `List<T>` indexer,
+  `RemoveAt` and `Insert`, `List<T>`'s enumerator (also through `IEnumerable<T>`), `First`, `Last` and
+  `Single`, `Stack.Pop`, `Queue.Dequeue`, `string.Substring` (both overloads, past the end),
+  `ArgumentNullException.ThrowIfNull`, `ArgumentException.ThrowIfNullOrEmpty` (empty),
+  `ArgumentOutOfRangeException.ThrowIfNegative`, `Array.Copy` (.NET on Windows also lists `Array.Copy`
+  itself, which isn't reproduced), `Task.Wait()` and `Task<T>.Result` (the AggregateException's frames,
+  `csrt_task_throw_aggregate_if_faulted_traced`), `Socket.ConnectAsync` failures (the ValueTask
+  overloads' `AwaitableSocketAsyncEventArgs.ThrowException`/`GetResult` frames; the Task overloads add
+  `ValueTaskSourceAsTask`'s callback and a marker — a frame list line `---` is the marker, `async ` marks
+  an async frame), and on Unix `File.OpenText`/`ReadAllText`/`ReadAllLines` (with `FileNotFoundException`'s
+  `File name: '...'` line). An exception that faults a task instead of being thrown keeps its preset
+  frames for the await that rethrows it, without a marker. Elsewhere an exception thrown by or passing
+  through BCL code shows the program's frames (and those of IL-compiled code) only. Known gaps, all
+  behind `CSLLVM0006`: the parse family (`int.Parse`, `double.Parse`, `Convert.ToInt32`, `Guid.Parse`,
+  `Enum.Parse`, `DateTime.Parse`: their frames depend on the public overload and the throw is deep in
+  shared parsing code), `string.Format`, `Task.WaitAll`, `Task.Run` (.NET lists the thread pool's
+  dispatch frames and two markers), `TcpClient.ConnectAsync` and `Socket.ConnectAsync(string, int)`
+  (csharpc connects on a pool thread), `Socket.Connect` (`DoConnect`), directory enumeration and file
+  opening other than the members above, and every frame an exception passes through on its way out of
+  a library member that called back into the program (`List<T>.ForEach`, LINQ iterators, `Lazy<T>`,
+  `List<T>.Sort`).
+  Reproducing a frame where csharpc's call structure differs would need a `when` filter on the hot
+  path (code in every program), so these stay explicit differences. Warning `CSLLVM0006` is reported
   wherever a program turns an exception into text or reads `StackTrace`, so the difference is never
   silent.
 - Static field initializers and static constructors run from csharpc's own class-init function:
   their `..cctor` frame is missing (.NET also shows a BCL frame there).
-- Frames of methods compiled from IL (ADR 0010) and of record members the compiler synthesizes are
-  not recorded.
+- Frames of record members the compiler synthesizes are not recorded.
 - If the program cannot be emitted by Roslyn as-is, lines fall back to statement starts and lambda
   frames are named `<lambda>()`, with a `CSLLVM0006` warning.
 - Optimized .NET code (`-c Release`) can lose frames when the JIT's later tiers inline hot methods;
@@ -179,6 +235,15 @@ Measured on x86-64 Linux (shared 4-vCPU VPS), -O2, benchmark programs compiled w
   compatibility programs whose only difference was the missing trace pass; the two that remain print
   BCL-internal frames (`ArgumentOutOfRangeException.ThrowNegative[T]`, `Array.CopyImpl`,
   `SafeFileHandle.Open`, ...).
+- Recording the frames of IL-compiled code (2026-11-01): TechEmpower's Platform entry (`csharpc
+  Platform.dll`, which prints an exception when the database is unreachable, so it records traces)
+  against a closed PostgreSQL port now prints the JIT's trace exactly (the socket frames, 10 Npgsql
+  frames, the program's two). It pays for the frames of all its Npgsql, ASP.NET Core and framework IL:
+  -O2 executable 17,088,656 → 18,975,808 bytes (+11.0 %: `.text` +387 KB and `.gcc_except_table`
+  +360 KB for the per-site pads, `.rodata` +0.9 MB for 11.6 k frame names and descriptors; frame names
+  share their type prefix, which saved 0.56 MB), build time unchanged (295 vs 290 s). Programs that
+  don't observe traces are unchanged (`tests/size.sh`: `.text` equal or smaller, `.eh_frame` +24–48 B
+  for two out-of-line corelib throw helpers).
 - `dotnet run app.cs` (the oracle for the differential tests) sometimes runs a cached build whose PDB
   is stale; .NET then prints frames without lines. Recording a stack-trace sample therefore needs a
   fresh build (delete the app's `~/.local/share/dotnet/runfile/<name>-*` directory first).

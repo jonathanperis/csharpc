@@ -242,10 +242,14 @@ csrt_String* csrt_exception_to_string(void* exception) {
 // from previous location ---" line ExceptionDispatchInfo.Throw() adds.
 // ---------------------------------------------------------------------------------------------
 #define CSRT_TRACE_SITE_MAGIC 0xC5A7AC5E7A1E5175ULL  // not a canonical address: no method table starts with it
-typedef struct { uint64_t magic; int32_t method, file, line, unused; } csrt_TraceSite;  // file < 0: no location
+// flags: TRACE_ASYNC, TRACE_HIDDEN (CodeGen/StackTraces.cs, FrameFlags)
+typedef struct { uint64_t magic; int32_t method, file, line, flags; } csrt_TraceSite;  // file < 0: no location
+enum { TRACE_ASYNC = 1, TRACE_HIDDEN = 2 };
 typedef struct {
-    const char* const* methods;  // "Namespace.Type.Method(Int32 x)", formatted like .NET's StackTrace
+    const char* const* methods;  // "Method(Int32 x)": a frame as .NET's StackTrace formats it, after its type prefix
     const char* const* files;    // document paths, as the PDB records them
+    const int32_t* method_types; // per method: its entry in types (-1: none, methods has the whole text)
+    const char* const* types;    // "Namespace.Type.", shared by the methods of a type
 } csrt_TraceTables;
 
 // preset: the frames are library frames set before the throw (csrt_trace_preset), kept by it.
@@ -288,6 +292,29 @@ static void trace_reset(csrt_Exception* e) {
 void csrt_trace_new_stack(void* exception) {
     csrt_Exception* e = exception;
     if (e && e->trace) trace_data(e->trace)->frame = 0;
+}
+
+/// The number of stack-trace entries of an exception (0 in programs without stack traces).
+int32_t csrt_trace_depth(void* exception) {
+    if (!s_trace || !exception) return 0;
+    return trace_count(((csrt_Exception*)exception)->trace);
+}
+
+/// `await` (GetResult) of a faulted task: .NET rethrows the exception the task captured through
+/// ExceptionDispatchInfo, so its trace goes on after a "previous location" marker -- which the text
+/// leaves out when the frame before it is an async method's (csrt_exception_get_stack_trace).
+/// `depth`: the frames the exception had when it faulted the task (csrt_trace_depth). .NET captured
+/// them then, so every await of the task starts from those, however often it is awaited.
+void csrt_trace_await(void* exception, int32_t depth) {
+    csrt_Exception* e = exception;
+    if (!s_trace || !e || !e->trace) return;
+    TraceData* data = trace_data(e->trace);
+    data->frame = 0;
+    if (depth > 0 && depth < data->count) data->count = depth;
+    // Library frames preset for this rethrow (a socket operation's GetResult, csrt_trace_preset): .NET
+    // throws the exception there, on the awaiting stack, so its trace goes straight on.
+    if (data->preset) { data->preset = 0; return; }
+    if (data->count > 0 && data->sites[data->count - 1] != TRACE_PREVIOUS_LOCATION) trace_append(e, TRACE_PREVIOUS_LOCATION);
 }
 
 /// The corelib's stand-in for the frames .NET's own library code lists below the program's (e.g.
@@ -341,18 +368,34 @@ static void trace_check_first_pass(csrt_Exception* e) { (void)e; }
 #endif
 
 /// Exception.StackTrace: null until the exception is thrown (or when no frame was recorded).
+/// System.Diagnostics.StackTrace.ToString's rules: hidden frames ([StackTraceHidden], AggressiveInlining)
+/// aren't listed, except the last one; the "--- End of stack trace from previous location ---" line
+/// follows the last frame of a captured trace only when that frame is listed and not an async method's.
 csrt_String* csrt_exception_get_stack_trace(void* exception) {
     csrt_Exception* e = exception;
     trace_check_first_pass(e);
     int32_t count = trace_count(e->trace);
     if (count == 0 || !s_trace) return NULL;
     const csrt_TraceSite* const* entries = trace_data(e->trace)->sites;
+    int32_t last = count - 1;
+    while (last >= 0 && entries[last] == TRACE_PREVIOUS_LOCATION) last--;
+    if (last < 0) return NULL;
     TraceText text = { 0 };
-    for (int32_t i = 0; i < count; i++) {
-        if (i > 0) text_append_str(&text, CSRT_NEWLINE);
+    bool first = true;
+    for (int32_t i = 0; i <= last; i++) {
         const csrt_TraceSite* site = entries[i];
-        if (site == TRACE_PREVIOUS_LOCATION) { text_append_str(&text, "--- End of stack trace from previous location ---"); continue; }
+        if (site == TRACE_PREVIOUS_LOCATION) {
+            const csrt_TraceSite* before = i > 0 ? entries[i - 1] : TRACE_PREVIOUS_LOCATION;
+            if (before != TRACE_PREVIOUS_LOCATION && !(before->flags & (TRACE_ASYNC | TRACE_HIDDEN)))
+                text_append_str(&text, CSRT_NEWLINE "--- End of stack trace from previous location ---");
+            continue;
+        }
+        if ((site->flags & TRACE_HIDDEN) && i != last) continue;
+        if (!first) text_append_str(&text, CSRT_NEWLINE);
+        first = false;
         text_append_str(&text, "   at ");
+        int32_t type = s_trace->method_types[site->method];
+        if (type >= 0) text_append_str(&text, s_trace->types[type]);
         text_append_str(&text, s_trace->methods[site->method]);
         if (site->file >= 0) {
             char number[24];

@@ -39,11 +39,19 @@ public sealed partial class FunctionCodeGen
 
     private bool Traced => _traceFrame >= 0;
 
-    private static int TraceFrameOf(ModuleCodeGen module, IMethodSymbol? method) =>
-        module.StackTraces is not { } traces || method is null || !module.IsUserMethod(method) ? -1
-        // The program given as IL (ADR 0010): every method of its assembly is a frame, named from metadata.
-        : module.MainIl is { } main ? (module.Il.OwnerOf(method) == main ? traces.IlFrameOf(method) : -1)
-        : module.Il.OwnerOf(method) is null ? traces.FrameOf(method) : -1;
+    private static int TraceFrameOf(ModuleCodeGen module, IMethodSymbol? method)
+    {
+        if (module.StackTraces is not { } traces || method is null || !module.IsUserMethod(method)) return -1;
+        // Methods compiled from IL (ADR 0010: the program given as IL, its libraries, framework IL) are frames
+        // named from their assembly's metadata; the corelib stands in for .NET's own library code, whose frames
+        // it lists only where it reproduces them (CoreIntrinsics.LibraryFrames).
+        if (module.Il.OwnerOf(method) is { } owner) return owner.IsCoreLib ? -1 : traces.IlFrameOf(owner, method);
+        return module.MainIl is null ? traces.FrameOf(method) : -1;
+    }
+
+    /// <summary>The IL assembly of a traced function lowered from IL.</summary>
+    private Frontend.Il.IlAssembly TraceIl => _traceIl ??= _m.Il.OwnerOf(_method) ?? throw new InvalidOperationException("traced IL function without an assembly");
+    private Frontend.Il.IlAssembly? _traceIl;
 
     /// <summary>Calls lowered from the CFG get per-site pads; synthesized scaffolding doesn't.</summary>
     private void EnableTraceHook() => _b.UnwindHook = Traced ? SitePad : null;
@@ -148,7 +156,7 @@ public sealed partial class FunctionCodeGen
         if (_finallyParentSite.TryGetValue(region, out var known)) return known;
         // IL: the same rule over the PDB's sequence points (the method's first one; the try's first one when optimized).
         if (region is IlClause clause)
-            return _finallyParentSite[region] = _m.StackTraces!.IlFirstSite(_traceFrame, _method!, _m.StackTraces.Release ? clause.Try.Start : 0);
+            return _finallyParentSite[region] = _m.StackTraces!.IlFirstSite(TraceIl, _traceFrame, _method!, _m.StackTraces.IlRelease(TraceIl) ? clause.Try.Start : 0);
         var finallyRegion = (ControlFlowRegion)region;
         SyntaxNode? at = null;
         if (_m.StackTraces!.Release)
@@ -203,7 +211,7 @@ public sealed partial class FunctionCodeGen
     }
 
     private int CurrentTraceSite() => _il is { } il
-        ? _m.StackTraces!.IlSite(_traceFrame, _method!, il.Current.Offset)
+        ? _m.StackTraces!.IlSite(TraceIl, _traceFrame, _method!, il.Current.Offset)
         : _m.StackTraces!.Site(_traceFrame, _traceAt ?? DeclarationSyntax(), _traceAtEnd);
 
     /// <summary>Set with <see cref="_traceAt"/>: the location is the node's last token.</summary>

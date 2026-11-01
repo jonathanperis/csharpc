@@ -401,6 +401,9 @@ public sealed record DebugSymbolSettings
     public bool HasPdb { get; init; } = true;
     /// <summary>&lt;PathMap&gt; ("from=to,..."): the document paths the PDB records.</summary>
     public string? PathMap { get; init; }
+    /// <summary>&lt;CopyDebugSymbolFilesFromPackages&gt;: the build copies NuGet packages' PDBs beside their
+    /// assemblies, so .NET finds them (frames of package code then have lines).</summary>
+    public bool PackagePdbs { get; init; }
 }
 
 /// <summary>One project's own compilation settings (projects keep them when folded into one program).</summary>

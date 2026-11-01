@@ -880,7 +880,7 @@ internal static class Intrinsics
             t[$"{Tasks}.{type}.GetAwaiter()"] = self;
             t[$"{Tasks}.{type}.ConfigureAwait(bool)"] = self;
             if (type.StartsWith("ValueTask", StringComparison.Ordinal)) t[$"{Tasks}.{type}.Preserve()"] = self; // the task itself can be awaited again
-            t[$"{Tasks}.{type}.Wait()"] = (g, inv) => { ThrowAggregate(g, Wait(g, g.EmitValue(inv.Instance!))); return default; };
+            t[$"{Tasks}.{type}.Wait()"] = (g, inv) => { ThrowAggregate(g, Wait(g, g.EmitValue(inv.Instance!)), WaitFrames); return default; };
         }
         t[$"{Tasks}.ValueTask.AsTask()"] = (g, inv) =>
             g.CallRuntime("csrt_valuetask_as_task", g.Module.Llvm.Ptr, [g.Module.Llvm.Ptr, g.Module.Llvm.I32], g.EmitValue(inv.Instance!), g.Module.Llvm.ConstInt(g.Module.Llvm.I32, 0));
@@ -927,8 +927,19 @@ internal static class Intrinsics
         t[$"{yieldAwaiter}.UnsafeOnCompleted(System.Action)"] = queue;
     }
 
-    private static void ThrowAggregate(FunctionCodeGen g, LLVMValueRef task) =>
-        g.CallRuntime("csrt_task_throw_aggregate_if_faulted", g.Module.Llvm.Void, [g.Module.Llvm.Ptr], task);
+    /// <summary>.Wait() / .Result of a faulted task: an AggregateException, thrown from .NET's frames (<paramref name="frames"/>,
+    /// listed when the program records stack traces: CoreIntrinsics.LibraryFrames).</summary>
+    private static void ThrowAggregate(FunctionCodeGen g, LLVMValueRef task, string frames)
+    {
+        var l = g.Module.Llvm;
+        if (g.Module.StackTraces is null) { g.CallRuntime("csrt_task_throw_aggregate_if_faulted", l.Void, [l.Ptr], task); return; }
+        var (table, count) = g.LibraryFrameTable(frames);
+        g.CallRuntime("csrt_task_throw_aggregate_if_faulted_traced", l.Void, [l.Ptr, l.Ptr, l.I32], task, table, l.ConstInt(l.I32, count));
+    }
+
+    private const string WaitFrames = "System.Threading.Tasks.Task.ThrowIfExceptional(Boolean includeTaskCanceledExceptions)\n"
+        + "System.Threading.Tasks.Task.Wait(Int32 millisecondsTimeout, CancellationToken cancellationToken)\nSystem.Threading.Tasks.Task.Wait()";
+    private const string ResultFrames = "System.Threading.Tasks.Task`1.GetResultCore(Boolean waitCompletionNotification)";
 
     private static void AddTaskProperties(Dictionary<string, PropertyHandler> t)
     {
@@ -971,7 +982,7 @@ internal static class Intrinsics
         {
             var task = g.EmitValue(p.Instance!);
             g.CallRuntime("csrt_task_wait", g.Module.Llvm.Void, [g.Module.Llvm.Ptr], task);
-            ThrowAggregate(g, task); // .Result wraps failures in an AggregateException
+            ThrowAggregate(g, task, ResultFrames); // .Result wraps failures in an AggregateException
             return g.TaskResult(task, g.TypeOf(p));
         };
         t[$"{Tasks}.Task<TResult>.Result"] = result;

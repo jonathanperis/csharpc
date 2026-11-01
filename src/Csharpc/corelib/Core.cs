@@ -73,6 +73,9 @@ namespace CsharpcCoreLib
         /// The frames .NET's own library lists for this exception below the program's frames, innermost
         /// first, one per line (a constant): `throw LibraryFrames(new X(...), "System.Ns.Type.Method(Int32 a)")`.
         /// Copy them from .NET 11's output; they only appear when the program records stack traces.
+        /// A line "---" is .NET's "--- End of stack trace from previous location ---" (an ExceptionDispatchInfo
+        /// rethrow inside the library), a prefix "async " marks an async method's frame (no such line after it).
+        /// An exception that is not thrown but faults a task keeps them for the await that rethrows it.
         /// </summary>
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern Exception LibraryFrames(Exception exception, string frames);
         /// <summary>
@@ -283,6 +286,32 @@ namespace CsharpcCoreLib
 
         public static void IndexMustBeLessOrEqual(string paramName) =>
             throw new ArgumentOutOfRangeException(paramName, "Index was out of range. Must be non-negative and less than or equal to the size of the collection.");
+    }
+
+    /// <summary>
+    /// Throws that reproduce the frames .NET's library lists for them (CoreIntrinsics.LibraryFrames): out of line,
+    /// and small (the callers are hot members, inlined everywhere).
+    /// </summary>
+    [OptimizeForSize]
+    internal static class LibraryThrowHelper
+    {
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        public static void ListEnumeratorVersionChanged() =>
+            throw CoreIntrinsics.LibraryFrames(new InvalidOperationException("Collection was modified; enumeration operation may not execute."), "System.Collections.Generic.List`1.Enumerator.MoveNext()");
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        public static void DictionaryAddDuplicate(string key) =>
+            throw CoreIntrinsics.LibraryFrames(new ArgumentException("An item with the same key has already been added. Key: " + key),
+                "System.Collections.Generic.Dictionary`2.TryInsert(TKey key, TValue value, InsertionBehavior behavior)\nSystem.Collections.Generic.Dictionary`2.Add(TKey key, TValue value)");
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        public static void ListInsertOutOfRange() =>
+            throw CoreIntrinsics.LibraryFrames(new ArgumentOutOfRangeException("index", "Index must be within the bounds of the List."), "System.Collections.Generic.List`1.Insert(Int32 index, T item)");
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        public static void SingleNoElements() =>
+            throw CoreIntrinsics.LibraryFrames(ThrowHelper.NoElementsException(), "System.Linq.ThrowHelper.ThrowNoElementsException()\nSystem.Linq.Enumerable.Single[TSource](IEnumerable`1 source)");
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        public static void SingleMoreThanOne() =>
+            throw CoreIntrinsics.LibraryFrames(new InvalidOperationException("Sequence contains more than one element"), "System.Linq.ThrowHelper.ThrowMoreThanOneElementException()\n"
+                + "System.Linq.Enumerable.TryGetSingle[TSource](IEnumerable`1 source, Boolean& found)\nSystem.Linq.Enumerable.Single[TSource](IEnumerable`1 source)");
     }
 
     // ---------------------------------------------------------------------------------------------

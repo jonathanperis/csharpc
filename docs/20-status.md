@@ -36,6 +36,25 @@ attribute factories) with a ~25 % faster build.
 
 ## Open branches
 
+- `ci/il-stack-traces` — stack traces through code compiled from IL and the corelib (ADR 0012). Every
+  IL-compiled method (program as IL, libraries, NuGet packages, framework IL) is a frame, named as
+  `StackTrace.ToString` names it (state machines through their StateMachine attributes, runtime-async),
+  with lines where .NET finds a PDB (embedded or beside the assembly; NuGet packages' only with
+  `CopyDebugSymbolFilesFromPackages`). The formatter applies .NET's filters ([StackTraceHidden],
+  AggressiveInlining, last frame kept; no "previous location" marker after async frames); awaits of a
+  faulted task add the marker and restart from the fault-time frames (awaiting a task twice repeated
+  frames: a silent difference on `main`). Library frames for Task.Wait/Result, Socket.ConnectAsync,
+  Substring, the ThrowIf helpers, Dictionary.Add, List<T> enumerator/Insert, Single. The Platform entry's
+  closed-port trace is now the JIT's; its -O2 executable grows 11 % (it records traces because it prints
+  an exception: a decision for M7). Samples 900–903, `tests/il.sh` IlStackTracesApp. Known gaps
+  (CSLLVM0006): parse family, string.Format, Task.Run/WaitAll, TcpClient.ConnectAsync, frames of library
+  members that call back into the program (ForEach, LINQ, Lazy, Sort). Found, not fixed: `List<T>.Sort`
+  with a throwing comparison doesn't wrap it in InvalidOperationException("Failed to compare two elements
+  in the array."), empty `List<int>.Max()` says "Sequence contains no elements" without .NET's final
+  period, `Directory.GetFiles` of a missing directory lacks "Directory path: '...'"; an Npgsql program
+  built with `NpgsqlSlimDataSourceBuilder(...).Build()` alone stops with an InvalidCastException
+  (`Action`1[]` to `IEnumerable`1`).
+
 - `ci/m7-harness` — M7 step 1: the TechEmpower harness measures TechEmpower's real ASP.NET Core
   [Platform] entry (all seven test types on PostgreSQL, every level TechEmpower uses, TechEmpower's own
   verification), every metric side by side with a csharpc-vs-NativeAOT verdict

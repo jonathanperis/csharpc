@@ -1,0 +1,22 @@
+== ValueTask ConnectAsync(EndPoint, CancellationToken): ConnectionRefused
+   at System.Net.Sockets.Socket.AwaitableSocketAsyncEventArgs.ThrowException(SocketError error, CancellationToken cancellationToken)
+   at System.Net.Sockets.Socket.AwaitableSocketAsyncEventArgs.System.Threading.Tasks.Sources.IValueTaskSource.GetResult(Int16 token)
+   at Program.Main() in 903_stack_trace_socket_connect.cs:line 26
+== Task ConnectAsync(EndPoint): ConnectionRefused
+   at System.Net.Sockets.Socket.AwaitableSocketAsyncEventArgs.ThrowException(SocketError error, CancellationToken cancellationToken)
+   at System.Net.Sockets.Socket.AwaitableSocketAsyncEventArgs.System.Threading.Tasks.Sources.IValueTaskSource.GetResult(Int16 token)
+   at System.Threading.Tasks.ValueTask.ValueTaskSourceAsTask.<>c.<.cctor>b__4_0(Object state)
+--- End of stack trace from previous location ---
+   at Program.Main() in 903_stack_trace_socket_connect.cs:line 28
+== Task ConnectAsync(IPAddress, Int32): ConnectionRefused
+   at System.Net.Sockets.Socket.AwaitableSocketAsyncEventArgs.ThrowException(SocketError error, CancellationToken cancellationToken)
+   at System.Net.Sockets.Socket.AwaitableSocketAsyncEventArgs.System.Threading.Tasks.Sources.IValueTaskSource.GetResult(Int16 token)
+   at System.Threading.Tasks.ValueTask.ValueTaskSourceAsTask.<>c.<.cctor>b__4_0(Object state)
+--- End of stack trace from previous location ---
+   at Program.Main() in 903_stack_trace_socket_connect.cs:line 30
+== through async methods: ConnectionRefused
+   at System.Net.Sockets.Socket.AwaitableSocketAsyncEventArgs.ThrowException(SocketError error, CancellationToken cancellationToken)
+   at System.Net.Sockets.Socket.AwaitableSocketAsyncEventArgs.System.Threading.Tasks.Sources.IValueTaskSource.GetResult(Int16 token)
+   at Program.ConnectCore(Socket s, EndPoint endPoint) in 903_stack_trace_socket_connect.cs:line 40
+   at Program.OpenAsync(EndPoint endPoint) in 903_stack_trace_socket_connect.cs:line 37
+   at Program.Main() in 903_stack_trace_socket_connect.cs:line 31

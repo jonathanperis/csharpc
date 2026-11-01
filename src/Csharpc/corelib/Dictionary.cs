@@ -265,7 +265,8 @@ namespace CsharpcCoreLib
                         _entries[i].value = value;
                         return true;
                     }
-                    if (throwOnExisting) ThrowHelper.DuplicateKey(key.ToString());
+                    // Only Add throws (.NET: from TryInsert, called by Add).
+                    if (throwOnExisting) LibraryThrowHelper.DictionaryAddDuplicate(key.ToString());
                     return false;
                 }
                 i = _entries[i].next;

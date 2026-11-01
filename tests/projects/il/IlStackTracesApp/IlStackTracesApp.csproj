@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Stack traces through methods compiled from IL (docs/adr/0012-stack-traces.md): IlStackTracesLib with its
+       PDB beside it (frames with lines), IlStackTracesNoPdbLib without one (frames without). -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net11.0</TargetFramework>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="IlStackTracesLib">
+      <HintPath>../IlStackTracesLib/bin/Release/net11.0/IlStackTracesLib.dll</HintPath>
+    </Reference>
+    <Reference Include="IlStackTracesNoPdbLib">
+      <HintPath>../IlStackTracesNoPdbLib/bin/Release/net11.0/IlStackTracesNoPdbLib.dll</HintPath>
+    </Reference>
+  </ItemGroup>
+</Project>
