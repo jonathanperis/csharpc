@@ -15,12 +15,13 @@ namespace CsharpcCoreLib
         internal int _size;
         internal int _version;
 
-        public ListImpl() { _items = new T[0]; }
+        // An empty list shares the type's empty array, as .NET's s_emptyArray: `new List<T>()` allocates one object.
+        public ListImpl() { _items = EmptyArray<T>.Value; }
 
         public ListImpl(int capacity)
         {
             if (capacity < 0) ThrowHelper.ArgumentOutOfRange("capacity", "Non-negative number required.");
-            _items = new T[capacity];
+            _items = capacity == 0 ? EmptyArray<T>.Value : new T[capacity];
         }
 
         public ListImpl(IEnumerable<T> collection)
@@ -29,13 +30,13 @@ namespace CsharpcCoreLib
             if (collection is ICollection<T> c)
             {
                 int count = c.Count;
-                _items = new T[count];
+                _items = count == 0 ? EmptyArray<T>.Value : new T[count];
                 c.CopyTo(_items, 0);
                 _size = count;
             }
             else
             {
-                _items = new T[0];
+                _items = EmptyArray<T>.Value;
                 foreach (T item in collection) Add(item);
             }
         }
@@ -48,7 +49,7 @@ namespace CsharpcCoreLib
                 if (value < _size) ThrowHelper.ArgumentOutOfRange("value", "capacity was less than the current size.");
                 if (value != _items.Length)
                 {
-                    T[] items = new T[value];
+                    T[] items = value == 0 ? EmptyArray<T>.Value : new T[value];
                     for (int i = 0; i < _size; i++) items[i] = _items[i];
                     _items = items;
                 }
