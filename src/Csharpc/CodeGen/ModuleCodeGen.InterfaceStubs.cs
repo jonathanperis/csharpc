@@ -156,45 +156,38 @@ public sealed partial class ModuleCodeGen
     /// </summary>
     private LLVMValueRef CachedDispatch(IrBuilder b, InterfaceCallStub stub, LoweredFunction lookup, LLVMValueRef[] args, LLVMValueRef site)
     {
-        var slots = CachedSlotTable(b, lookup, args[0], stub.Interface, site);
+        LLVMValueRef slots;
+        if (s_profilingRuntime) slots = b.Call(lookup.Type, lookup.Fn, [args[0], stub.Interface, site]);
+        else
+        {
+            var function = Native.LLVMGetBasicBlockParent(b.InsertBlock);
+            var word = b.Load(Llvm.I64, site, "icache");
+            Native.LLVMSetOrdering(word, LLVMAtomicOrdering.Monotonic);
+            Native.LLVMSetAlignment(word, 8);
+            var mt = b.Load(Llvm.Ptr, args[0], "mt");
+            var mtBits = b.Cast(LLVMOpcode.PtrToInt, mt, Llvm.I64);
+            var cached = b.BinOp(LLVMOpcode.And, word, Llvm.ConstInt(Llvm.I64, (1L << 48) - 1));
+            var hit = b.AppendBlock(function, "icache.hit");
+            var miss = b.AppendBlock(function, "icache.miss");
+            var done = b.AppendBlock(function, "icache.done");
+            b.CondBr(b.ICmp(LLVMIntPredicate.EQ, cached, mtBits), hit, miss);
+            b.PositionAtEnd(hit);
+            var map = b.Load(Llvm.Ptr, b.StructGep(Types.MethodTableHeader, mt, 4), "imap");
+            var index = b.BinOp(LLVMOpcode.LShr, word, Llvm.ConstInt(Llvm.I64, 48));
+            var entry = b.InBoundsGep(Llvm.Struct(Llvm.Ptr, Llvm.Ptr), map, [index], "ientry");
+            var fast = b.Load(Llvm.Ptr, b.StructGep(Llvm.Struct(Llvm.Ptr, Llvm.Ptr), entry, 1), "islots");
+            b.Br(done);
+            b.PositionAtEnd(miss);
+            var slow = b.Call(lookup.Type, lookup.Fn, [args[0], stub.Interface, site]);
+            b.Br(done);
+            b.PositionAtEnd(done);
+            slots = b.Phi(Llvm.Ptr, "slots");
+            IrBuilder.AddIncoming(slots, fast, hit);
+            IrBuilder.AddIncoming(slots, slow, miss);
+        }
         var slot = b.InBoundsGep(Llvm.I8, slots, [Llvm.ConstInt(Llvm.I64, (long)((ulong)stub.Index * Types.PointerSize))], "islot");
         var fn = b.Load(Llvm.Ptr, slot, "ifn");
         return b.Call(stub.CalleeType, fn, args);
-    }
-
-    /// <summary>
-    /// The receiver's slot table for <paramref name="itf"/>: the site cache's hit inline, the runtime
-    /// (csrt_interface_slots_cached) on a miss; always the runtime in profiling builds.
-    /// </summary>
-    internal LLVMValueRef CachedSlotTable(IrBuilder b, LoweredFunction lookup, LLVMValueRef self, LLVMValueRef itf, LLVMValueRef site)
-    {
-        if (s_profilingRuntime) return b.Call(lookup.Type, lookup.Fn, [self, itf, site]);
-        var function = Native.LLVMGetBasicBlockParent(b.InsertBlock);
-        var word = b.Load(Llvm.I64, site, "icache");
-        Native.LLVMSetOrdering(word, LLVMAtomicOrdering.Monotonic);
-        Native.LLVMSetAlignment(word, 8);
-        var mt = b.Load(Llvm.Ptr, self, "mt");
-        var mtBits = b.Cast(LLVMOpcode.PtrToInt, mt, Llvm.I64);
-        var cached = b.BinOp(LLVMOpcode.And, word, Llvm.ConstInt(Llvm.I64, (1L << 48) - 1));
-        var hit = b.AppendBlock(function, "icache.hit");
-        var miss = b.AppendBlock(function, "icache.miss");
-        var done = b.AppendBlock(function, "icache.done");
-        b.CondBr(b.ICmp(LLVMIntPredicate.EQ, cached, mtBits), hit, miss);
-        b.PositionAtEnd(hit);
-        var map = b.Load(Llvm.Ptr, b.StructGep(Types.MethodTableHeader, mt, 4), "imap");
-        var index = b.BinOp(LLVMOpcode.LShr, word, Llvm.ConstInt(Llvm.I64, 48));
-        var entry = b.InBoundsGep(Llvm.Struct(Llvm.Ptr, Llvm.Ptr), map, [index], "ientry");
-        var fast = b.Load(Llvm.Ptr, b.StructGep(Llvm.Struct(Llvm.Ptr, Llvm.Ptr), entry, 1), "islots");
-        b.Br(done);
-        b.PositionAtEnd(miss);
-        var slow = b.Call(lookup.Type, lookup.Fn, [self, itf, site]);
-        var missEnd = b.InsertBlock; // inside a try region the call is an invoke, which ends its block
-        b.Br(done);
-        b.PositionAtEnd(done);
-        var slots = b.Phi(Llvm.Ptr, "slots");
-        IrBuilder.AddIncoming(slots, fast, hit);
-        IrBuilder.AddIncoming(slots, slow, missEnd);
-        return slots;
     }
 
     /// <summary>

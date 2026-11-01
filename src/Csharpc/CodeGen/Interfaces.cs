@@ -262,9 +262,7 @@ public sealed partial class FunctionCodeGen
             var stub = _m.InterfaceCallStubFor(itf, index, target, _m.FunctionTypeOf(target));
             return _b.Call(stub.Type, stub.Fn, [.. args, _m.NewInterfaceCallSiteCache()]);
         }
-        // The corelib's own calls: no guards, but the site cache's hit inline as in the stubs.
-        var lookup = _m.Runtime("csrt_interface_slots_cached", L.Ptr, L.Ptr, L.Ptr, L.Ptr);
-        var slots = _m.CachedSlotTable(_b, lookup, self, _m.InterfaceMethodTable(itf), _m.NewInterfaceCallSiteCache());
+        var slots = InterfaceSlotTable(self, itf);
         var slotAddress = _b.InBoundsGep(L.I8, slots, [L.ConstUInt(L.I64, (ulong)index * T.PointerSize)], "islot");
         var fn = _b.Load(L.Ptr, slotAddress, "ifn");
         return _b.Call(_m.FunctionTypeOf(target), fn, args);
