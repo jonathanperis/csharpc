@@ -2210,7 +2210,7 @@ void csrt_weak_free(intptr_t handle) {
 
 /// The allocation budget follows what collecting costs. It starts at the throughput setting (twice the
 /// live heap, at least min_trigger) and steps toward the live heap and half of min_trigger while pauses
-/// take under 2 % of the time (further under 0.5 %, below), back up past 4 %. Allocation-bound programs (binarytrees, churn: GC is
+/// take under 2 % of the time, back up past 4 %. Allocation-bound programs (binarytrees, churn: GC is
 /// several % of their time) keep the large budget; a server whose request garbage is cheap to collect
 /// runs near its live size. A fixed growth of 100 % with 16 MiB cost binarytrees +26 % and churn +17 %
 /// executed instructions, and took the TechEmpower server from 72 to 52-56 MiB (NativeAOT: 65).
@@ -2222,15 +2222,10 @@ static void adapt_budget(struct timespec start, struct timespec end) {
     g.last_gc_end = now;
     if (first || since <= pause) return;
     double overhead = pause / since;
-    // Under 0.5 % (a server between bursts, or one whose live heap is small), down to half the live
-    // heap and a quarter of min_trigger: the interim TechEmpower app's JSON test spent 0.3 % in pauses
-    // and kept 42 MiB of RSS at every load level, NativeAOT 27-38.
-    bool cheap = overhead < 0.005;
-    size_t floor_min = cheap ? g.min_trigger / 4 : g.min_trigger / 2, step = g.min_trigger / 8;
-    size_t growth_min = cheap ? 50 : 100;
+    size_t floor_min = g.min_trigger / 2, step = g.min_trigger / 8;
     if (overhead < 0.02) {
-        if (g.growth_pct >= growth_min + 25) g.growth_pct -= 25;
-        if (g.budget_floor > floor_min) g.budget_floor = g.budget_floor > floor_min + step ? g.budget_floor - step : floor_min;
+        if (g.growth_pct > 100) g.growth_pct -= 25;
+        g.budget_floor = g.budget_floor > floor_min + step ? g.budget_floor - step : floor_min;
     } else if (overhead > 0.04) {
         g.growth_pct = g.growth_pct + 50 < 200 ? g.growth_pct + 50 : 200;
         g.budget_floor = g.budget_floor + 2 * step < g.min_trigger ? g.budget_floor + 2 * step : g.min_trigger;
