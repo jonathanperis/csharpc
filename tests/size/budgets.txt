@@ -18,7 +18,7 @@ linux-aarch64 typeinfo 48128
 macos-arm64 async 158720
 macos-arm64 collections 157696
 macos-arm64 exceptions 73728
-macos-arm64 hello 57344
+macos-arm64 hello 73728
 macos-arm64 linq 175104
 macos-arm64 numbers 157696
 macos-arm64 typeinfo 73728
@@ -30,9 +30,9 @@ windows-x86_64 linq 179200
 windows-x86_64 numbers 146432
 windows-x86_64 typeinfo 57344
 wasi-wasm32 async 144384
-wasi-wasm32 collections 141312
+wasi-wasm32 collections 147456
 wasi-wasm32 exceptions 53248
 wasi-wasm32 hello 52224
 wasi-wasm32 linq 167936
-wasi-wasm32 numbers 133120
+wasi-wasm32 numbers 138240
 wasi-wasm32 typeinfo 63488
