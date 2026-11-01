@@ -106,7 +106,9 @@ attribute factories) with a ~25 % faster build.
   pages back to the OS once allocation goes quiet (gc.c, "Idle trimming"; size budget linux-x86_64 async
   +4 KiB). Rebased onto main `97ca487`: the idle trim and `ci/m7-perf-2`'s surplus release share one
   `released` flag (release_chunk, now on Windows and macOS too), and a reused released chunk skips clearing
-  where released pages read as zero (Linux, Windows). Start-up is still behind (747–751 vs 600–610 ms in runs 41266326519/41268870848, with about the
+  where released pages read as zero (Linux, Windows; size budget windows-x86_64 async +6 KiB). On the rebased
+  head (TechEmpower run 41273842626): **243 of 456** (35 worse), start-up 628 vs 752 ms and idle RSS 26.5 vs
+  37.8 MiB, both better on that runner (start-up CPU 0.96 vs 1.28 s, context switches 39.4k vs 35.9k). Start-up is still behind (747–751 vs 600–610 ms in runs 41266326519/41268870848, with about the
   same CPU time, 1.11 vs 1.00 s: the 10,000-query fill is latency-bound): the timer thread no longer wakes per
   Npgsql command timeout, and the socket engine takes no lock for readiness with nothing pending (futex calls
   to the first response 204k → 116k locally, NativeAOT 60k; start-up 762 → 747 ms). Left: ~38.4k voluntary
