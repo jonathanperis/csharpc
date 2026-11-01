@@ -1,0 +1,76 @@
+name: M7 latency
+
+# The M7 latency work (docs/20-status.md): the Platform entry's plaintext test against NativeAOT, with the latency
+# probe of pipelined levels and the collector's per-pause log (CSRT_GC_STATS), for csharpc builds that each change
+# one suspect of the p99 gap at 4096+ connections:
+#   base      the default build;
+#   dispatch  socket events handed to the thread pool, as .NET does (CSHARPC_SOCKET_DISPATCH=pool);
+#   nogc      no collection during the run (CSRT_GC_TRIGGER_MB=8192): what the pauses cost at most;
+#   nursery   the generational collector (--gc-nursery, ADR 0004).
+# Each job measures NativeAOT on the same runner, so its csharpc/NativeAOT ratios are comparable across jobs
+# that land on the same CPU type. Gates nothing; runs on ci/m7-latency* pushes and on demand.
+on:
+  workflow_dispatch:
+  push:
+    branches: ["ci/m7-latency*"]
+    paths: ["src/**", "benchmarks/techempower/**", ".github/workflows/m7-latency.yml"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: m7-latency-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  measure:
+    name: ${{ matrix.variant }} ${{ matrix.n }}
+    strategy:
+      fail-fast: false
+      matrix:
+        variant: [base, dispatch, nogc, nursery]
+        n: [1, 2]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    env:
+      DOTNET_CLI_TELEMETRY_OPTOUT: 1
+      DOTNET_NOLOGO: 1
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install LLVM 18, clang, wrk, TechEmpower's verification dependencies and NativeAOT prerequisites
+        run: |
+          sudo apt-get update && sudo apt-get install -y llvm-18 clang-18 libllvm18 lld-18 zlib1g-dev wrk siege python3-requests python3-colorama python3-psycopg2
+          sudo ln -sf /usr/bin/clang-18 /usr/local/bin/clang && sudo ln -sf /usr/bin/ld.lld-18 /usr/local/bin/ld.lld
+          sudo sysctl -w net.core.somaxconn=65535 net.ipv4.tcp_max_syn_backlog=65535 net.ipv4.ip_local_port_range="10000 65535"
+
+      - name: Install .NET 11 SDK
+        run: |
+          curl -sSL https://dot.net/v1/dotnet-install.sh -o dotnet-install.sh
+          bash dotnet-install.sh --jsonfile global.json --install-dir "$HOME/.dotnet11"
+          echo "$HOME/.dotnet11" >> "$GITHUB_PATH"
+          echo "DOTNET_ROOT=$HOME/.dotnet11" >> "$GITHUB_ENV"
+
+      - name: Variant
+        run: |
+          case "${{ matrix.variant }}" in
+            dispatch) echo "CSHARPC_SOCKET_DISPATCH=pool" >> "$GITHUB_ENV" ;;
+            nogc) echo "CSRT_GC_TRIGGER_MB=8192" >> "$GITHUB_ENV" ;;
+            nursery) echo "CSHARPC_FLAGS=-O2 --gc-nursery" >> "$GITHUB_ENV" ;;
+          esac
+          { echo "## ${{ matrix.variant }} ${{ matrix.n }}"; echo '```'; lscpu | grep -E 'Model name|^CPU\(s\)' || true; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Build, verify and load
+        run: |
+          ulimit -n 65535 || true
+          DURATION=15 benchmarks/techempower/run.sh --app platform --tests plaintext --only aot,csharpc --rounds 3 --out m7-results || status=$?
+          cat m7-results/results.md >> "$GITHUB_STEP_SUMMARY" || true
+          { echo '### csharpc collections (per pause)'; echo '```'; grep -h "csrt gc" m7-results/*/*.csharpc.server.log | grep -v "by type\|allocation sites\|interface dispatches" | head -80; echo '```'; } >> "$GITHUB_STEP_SUMMARY" || true
+          find m7-results/build -type f -size +2M -delete 2>/dev/null || true
+          exit "${status:-0}"
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: m7-latency-${{ matrix.variant }}-${{ matrix.n }}
+          path: m7-results/

@@ -279,6 +279,12 @@ static struct {
     size_t major_collections;  // CollectionCount(gen>0); equals collections when nursery is off
 #endif
     double total_gc_seconds;
+    // CSRT_GC_STATS: each stop-the-world collection's start (ms since csrt_gc_init) and its phases, to line
+    // collections up with a server's latency (the M7 latency work): the threads' stop handshake, marking
+    // (roots and drain), the rest (weak handles, sweep, resume).
+    struct { float at_ms, stop_ms, mark_ms, rest_ms; uint32_t live_mib; uint8_t minor; } pause_log[1024];
+    size_t pause_logged;
+    struct timespec started;
 } g;
 #if CSRT_HAS_CONCURRENT
 // The large-object table marking searches: g.large as sorted when the cycle (or collection) began.
@@ -889,6 +895,7 @@ size_t csrt_stack_remaining(void) {
 void csrt_gc_init(void) {
     if (g.initialized) return;
     g.initialized = true;
+    clock_gettime(CLOCK_MONOTONIC, &g.started);
     const char* env = getenv("CSRT_GC");
     g.enabled = !(env && env[0] == '0');
     env = getenv("CSRT_GC_STATS");
@@ -3178,6 +3185,10 @@ CSRT_GC_NO_SANITIZE __attribute__((noinline)) void csrt_gc_collect_now(void) {
 #endif
 }
 
+static double span_ms(struct timespec a, struct timespec b) {
+    return (double)(b.tv_sec - a.tv_sec) * 1e3 + (double)(b.tv_nsec - a.tv_nsec) / 1e6;
+}
+
 __attribute__((noinline)) static void collect_now(void) {
     g.collecting = true;
 #if CSRT_HAS_NURSERY
@@ -3199,10 +3210,11 @@ __attribute__((noinline)) static void collect_now(void) {
     int parallel = want_parallel() && ensure_pool() > 0;
 #endif
 #endif
-    struct timespec t0, t1;
+    struct timespec t0, t1, t_stopped, t_marked;
     clock_gettime(CLOCK_MONOTONIC, &t0);  // GC.GetTotalPauseDuration
 
     stop_world();
+    clock_gettime(CLOCK_MONOTONIC, &t_stopped);
     sort_large(g.large, g.large_count);
 #if CSRT_HAS_CONCURRENT
     cm_large = g.large;
@@ -3217,6 +3229,7 @@ __attribute__((noinline)) static void collect_now(void) {
     else
 #endif
     drain();
+    clock_gettime(CLOCK_MONOTONIC, &t_marked);
     weak_process();
     protect_caches();
 #if CSRT_HAS_NURSERY
@@ -3244,6 +3257,19 @@ __attribute__((noinline)) static void collect_now(void) {
 #endif
     resume_world();
     clock_gettime(CLOCK_MONOTONIC, &t1);
+    if (g.stats && g.pause_logged < sizeof g.pause_log / sizeof g.pause_log[0]) {
+        size_t i = g.pause_logged++;
+        g.pause_log[i].at_ms = (float)span_ms(g.started, t0);
+        g.pause_log[i].stop_ms = (float)span_ms(t0, t_stopped);
+        g.pause_log[i].mark_ms = (float)span_ms(t_stopped, t_marked);
+        g.pause_log[i].rest_ms = (float)span_ms(t_marked, t1);
+        g.pause_log[i].live_mib = (uint32_t)(g.live_bytes >> 20);
+#if CSRT_HAS_NURSERY
+        g.pause_log[i].minor = was_minor;
+#else
+        g.pause_log[i].minor = 0;
+#endif
+    }
     adapt_budget(t0, t1);
     for (size_t i = 0; i < g.deferred_count; i++) free(g.deferred_free[i]);
     g.deferred_count = 0;
@@ -3304,6 +3330,11 @@ void csrt_gc_shutdown(void) {
             g.collections, g.total_gc_seconds * 1000.0, g.total_allocated / 1048576.0, g.peak_heap / 1048576.0,
             (g.live_bytes + g.allocated_since_gc) / 1048576.0, g.chunk_count, g.released_chunks, g.large_count);
 #endif
+    // One line per stop-the-world collection: start (s), stop handshake, mark, rest (ms), live heap after (MiB).
+    for (size_t i = 0; i < g.pause_logged; i++)
+        fprintf(stderr, "csrt gc: pause at %.3f s: stop %.2f, mark %.2f, rest %.2f ms, live %u MiB%s\n",
+                g.pause_log[i].at_ms / 1e3, g.pause_log[i].stop_ms, g.pause_log[i].mark_ms, g.pause_log[i].rest_ms,
+                g.pause_log[i].live_mib, g.pause_log[i].minor ? " (minor)" : "");
 #if CSRT_HAS_CONCURRENT
     fprintf(stderr, "csrt gc: %llu allocation waits for a cycle, %.2f ms max\n", (unsigned long long)cm_waits, cm_wait_max_ms);
     fprintf(stderr, "csrt gc: %llu concurrent cycles, pauses %.1f ms total, %.2f ms max (initial mark max %.2f; longest remark %.2f: buffers %.2f, roots %.2f, frames %.2f, drain %.2f, weak+sweep %.2f)\n",

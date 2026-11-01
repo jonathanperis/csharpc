@@ -160,6 +160,13 @@ namespace CsharpcCoreLib
         {
             BytesTransferred = bytesTransferred;
             SocketError = error;
+#if CSHARPC_TARGET_LINUX
+            if (SocketEngine.CompleteInline)
+            {
+                RaiseCompleted();
+                return;
+            }
+#endif
             ThreadPool.UnsafeQueueUserWorkItem(static e => e.RaiseCompleted(), this, false);
         }
 

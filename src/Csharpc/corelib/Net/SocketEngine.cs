@@ -6,6 +6,7 @@
 // operation runs as a blocking call on the thread pool: correct, but a thread per pending operation.
 #nullable disable
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Net;
 using System.Net.Sockets;
@@ -532,15 +533,71 @@ namespace CsharpcCoreLib
             {
                 int n = EpollWait(s_epoll, datas, events, Max);
                 if (n < 0) throw NetNative.Error(-n);
+                if (s_dispatch)
+                {
+                    // .NET's engine (SocketAsyncEngine.Unix): the loop only queues the events; pool threads run
+                    // the operations and their completions, so no single thread does every connection's recv.
+                    for (int i = 0; i < n; i++)
+                        s_events.Enqueue(new SocketEvent((SocketAsyncContext)CoreIntrinsics.PointerToObject((IntPtr)(long)datas[i]), events[i]));
+                    ScheduleEvents();
+                    continue;
+                }
                 for (int i = 0; i < n; i++)
                 {
                     var context = (SocketAsyncContext)CoreIntrinsics.PointerToObject((IntPtr)(long)datas[i]);
-                    uint e = events[i];
-                    bool error = (e & (EPOLLERR | EPOLLHUP)) != 0;
-                    context.Process(error || (e & (EPOLLIN | EPOLLRDHUP)) != 0, error || (e & EPOLLOUT) != 0);
+                    Process(context, events[i]);
                 }
             }
         }
+
+        private static void Process(SocketAsyncContext context, uint e)
+        {
+            bool error = (e & (EPOLLERR | EPOLLHUP)) != 0;
+            context.Process(error || (e & (EPOLLIN | EPOLLRDHUP)) != 0, error || (e & EPOLLOUT) != 0);
+        }
+
+        // CSHARPC_SOCKET_DISPATCH=pool (an experiment of the M7 latency work): events go to the thread pool.
+        private static readonly bool s_dispatch = Environment.GetEnvironmentVariable("CSHARPC_SOCKET_DISPATCH") == "pool";
+        private static readonly ConcurrentQueue<SocketEvent> s_events = new ConcurrentQueue<SocketEvent>();
+        private static readonly EventProcessor s_processor = new EventProcessor();
+        private static int s_scheduled;
+        [ThreadStatic] internal static bool t_processingEvents;
+
+        private readonly struct SocketEvent(SocketAsyncContext context, uint events)
+        {
+            internal readonly SocketAsyncContext Context = context;
+            internal readonly uint Events = events;
+        }
+
+        private static void ScheduleEvents()
+        {
+            if (Interlocked.CompareExchange(ref s_scheduled, 1, 0) == 0) ThreadPool.UnsafeQueueUserWorkItem(s_processor, false);
+        }
+
+        /// <summary>Takes events until the queue is empty, asking for another worker while some remain.</summary>
+        private sealed class EventProcessor : IThreadPoolWorkItem
+        {
+            public void Execute()
+            {
+                Interlocked.Exchange(ref s_scheduled, 0);
+                t_processingEvents = true;
+                try
+                {
+                    long start = Environment.TickCount64;
+                    while (s_events.TryDequeue(out SocketEvent ev))
+                    {
+                        if (!s_events.IsEmpty) ScheduleEvents();
+                        Process(ev.Context, ev.Events);
+                        if (Environment.TickCount64 - start >= 15) break;
+                    }
+                }
+                finally { t_processingEvents = false; }
+                if (!s_events.IsEmpty) ScheduleEvents();
+            }
+        }
+
+        /// <summary>A completion found while processing events on a pool thread runs there, as in .NET.</summary>
+        internal static bool CompleteInline => t_processingEvents;
 
         internal const bool Blocking = false;
 #else
