@@ -715,7 +715,11 @@ namespace CsharpcCoreLib
         private void WriteElements(Utf8JsonWriterImpl writer, TCollection value, JsonConverterImpl<TElement> element, JsonSerializerOptionsImpl options, JsonWriteState state)
         {
             writer.WriteStartArray();
-            foreach (TElement item in Elements(value)) element.WriteWithState(writer, item, options, state);
+            // An exact T[] by index: enumerating it through IEnumerable<T> cost two interface calls per element.
+            if (value is TElement[] array && array.GetType() == typeof(TElement[]))
+                for (int i = 0; i < array.Length; i++) element.WriteWithState(writer, array[i], options, state);
+            else
+                foreach (TElement item in Elements(value)) element.WriteWithState(writer, item, options, state);
             writer.WriteEndArray();
         }
 

@@ -776,17 +776,29 @@ namespace CsharpcCoreLib
         /// <summary>[,][newline indent]"name":[ ] — the part of every property write before its value.</summary>
         private void WritePropertyNamePrefix(byte[] escapedName)
         {
-            if (_currentDepth < 0) Put(JsonConstants.ListSeparator);
             if (_indented)
             {
+                if (_currentDepth < 0) Put(JsonConstants.ListSeparator);
                 if (_tokenType != JsonTokenType.None) WriteNewLine();
                 WriteIndentation(Indentation);
+                Put(JsonConstants.Quote);
+                PutBytes(escapedName);
+                Put(JsonConstants.Quote);
+                Put(JsonConstants.KeyValueSeparator);
+                Put(JsonConstants.Space);
+                return;
             }
-            Put(JsonConstants.Quote);
-            PutBytes(escapedName);
-            Put(JsonConstants.Quote);
-            Put(JsonConstants.KeyValueSeparator);
-            if (_indented) Put(JsonConstants.Space);
+            // Minimized: one capacity check, then the bytes ([,]"name":) stored directly.
+            Ensure(escapedName.Length + 4);
+            byte[] buffer = _buffer;
+            int pos = _pending;
+            if (_currentDepth < 0) buffer[pos++] = JsonConstants.ListSeparator;
+            buffer[pos++] = JsonConstants.Quote;
+            escapedName.AsSpan().CopyTo(buffer.AsSpan(pos));
+            pos += escapedName.Length;
+            buffer[pos++] = JsonConstants.Quote;
+            buffer[pos++] = JsonConstants.KeyValueSeparator;
+            _pending = pos;
         }
 
         public void WriteEndArray()
@@ -899,6 +911,58 @@ namespace CsharpcCoreLib
             PutBytes(raw);
             SetFlagToAddListSeparatorBeforeNextItem();
             _tokenType = tokenType;
+        }
+
+        private void WritePropertyAndInteger(byte[] escapedName, bool negative, ulong magnitude)
+        {
+            ValidateWritingProperty();
+            WritePropertyNamePrefix(escapedName);
+            PutInteger(negative, magnitude);
+            SetFlagToAddListSeparatorBeforeNextItem();
+            _tokenType = JsonTokenType.Number;
+        }
+
+        private void WriteIntegerValue(bool negative, ulong magnitude)
+        {
+            WriteValuePrefix();
+            PutInteger(negative, magnitude);
+            SetFlagToAddListSeparatorBeforeNextItem();
+            _tokenType = JsonTokenType.Number;
+        }
+
+        /// <summary>An integer's invariant digits, written into the buffer (no string in between).</summary>
+        private void PutInteger(bool negative, ulong magnitude)
+        {
+            Ensure(21);
+            byte[] buffer = _buffer;
+            int pos = _pending;
+            if (negative) buffer[pos++] = (byte)'-';
+            if (magnitude <= uint.MaxValue)
+            {
+                // 32-bit divisions by 10 (a multiply), the length from compares.
+                uint v = (uint)magnitude;
+                int end = pos + (v < 10 ? 1 : v < 100 ? 2 : v < 1000 ? 3 : v < 10000 ? 4 : v < 100000 ? 5
+                    : v < 1000000 ? 6 : v < 10000000 ? 7 : v < 100000000 ? 8 : v < 1000000000 ? 9 : 10);
+                for (int i = end - 1; i > pos; i--)
+                {
+                    uint quotient = v / 10;
+                    buffer[i] = (byte)('0' + (v - quotient * 10));
+                    v = quotient;
+                }
+                buffer[pos] = (byte)('0' + v);
+                _pending = end;
+                return;
+            }
+            int digits = 1;
+            for (ulong rest = magnitude / 10; rest != 0; rest /= 10) digits++;
+            int last = pos + digits;
+            for (int i = last - 1; i >= pos; i--)
+            {
+                ulong quotient = magnitude / 10;
+                buffer[i] = (byte)('0' + (int)(magnitude - quotient * 10));
+                magnitude = quotient;
+            }
+            _pending = last;
         }
 
         private void WritePropertyAndAscii(byte[] escapedName, string ascii, JsonTokenType tokenType)
@@ -1049,10 +1113,10 @@ namespace CsharpcCoreLib
             return b;
         }
 
-        public void WriteNumberValue(int value) => WriteAsciiValue(value.ToString(), JsonTokenType.Number);
-        public void WriteNumberValue(long value) => WriteAsciiValue(value.ToString(), JsonTokenType.Number);
-        public void WriteNumberValue(uint value) => WriteAsciiValue(value.ToString(), JsonTokenType.Number);
-        public void WriteNumberValue(ulong value) => WriteAsciiValue(value.ToString(), JsonTokenType.Number);
+        public void WriteNumberValue(int value) => WriteIntegerValue(value < 0, value < 0 ? (ulong)-(long)value : (ulong)value);
+        public void WriteNumberValue(long value) => WriteIntegerValue(value < 0, value < 0 ? (ulong)-(value + 1) + 1 : (ulong)value);
+        public void WriteNumberValue(uint value) => WriteIntegerValue(false, value);
+        public void WriteNumberValue(ulong value) => WriteIntegerValue(false, value);
         public void WriteNumberValue(decimal value) => WriteAsciiValue(value.ToString(), JsonTokenType.Number);
 
         public void WriteNumberValue(double value)
@@ -1224,25 +1288,25 @@ namespace CsharpcCoreLib
         public void WriteBoolean(ReadOnlySpan<char> propertyName, bool value) => WriteBoolean(new string(propertyName), value);
         public void WriteBoolean(ReadOnlySpan<byte> utf8PropertyName, bool value) => WritePropertyAndAscii(EscapedName(utf8PropertyName), value ? "true" : "false", value ? JsonTokenType.True : JsonTokenType.False);
 
-        public void WriteNumber(JsonEncodedTextImpl propertyName, int value) => WritePropertyAndAscii(propertyName.Utf8, value.ToString(), JsonTokenType.Number);
-        public void WriteNumber(string propertyName, int value) => WritePropertyAndAscii(EscapedName(propertyName), value.ToString(), JsonTokenType.Number);
+        public void WriteNumber(JsonEncodedTextImpl propertyName, int value) => WritePropertyAndInteger(propertyName.Utf8, value < 0, value < 0 ? (ulong)-(long)value : (ulong)value);
+        public void WriteNumber(string propertyName, int value) => WritePropertyAndInteger(EscapedName(propertyName), value < 0, value < 0 ? (ulong)-(long)value : (ulong)value);
         public void WriteNumber(ReadOnlySpan<char> propertyName, int value) => WriteNumber(new string(propertyName), value);
-        public void WriteNumber(ReadOnlySpan<byte> utf8PropertyName, int value) => WritePropertyAndAscii(EscapedName(utf8PropertyName), value.ToString(), JsonTokenType.Number);
+        public void WriteNumber(ReadOnlySpan<byte> utf8PropertyName, int value) => WritePropertyAndInteger(EscapedName(utf8PropertyName), value < 0, value < 0 ? (ulong)-(long)value : (ulong)value);
 
-        public void WriteNumber(JsonEncodedTextImpl propertyName, long value) => WritePropertyAndAscii(propertyName.Utf8, value.ToString(), JsonTokenType.Number);
-        public void WriteNumber(string propertyName, long value) => WritePropertyAndAscii(EscapedName(propertyName), value.ToString(), JsonTokenType.Number);
+        public void WriteNumber(JsonEncodedTextImpl propertyName, long value) => WritePropertyAndInteger(propertyName.Utf8, value < 0, value < 0 ? (ulong)-(value + 1) + 1 : (ulong)value);
+        public void WriteNumber(string propertyName, long value) => WritePropertyAndInteger(EscapedName(propertyName), value < 0, value < 0 ? (ulong)-(value + 1) + 1 : (ulong)value);
         public void WriteNumber(ReadOnlySpan<char> propertyName, long value) => WriteNumber(new string(propertyName), value);
-        public void WriteNumber(ReadOnlySpan<byte> utf8PropertyName, long value) => WritePropertyAndAscii(EscapedName(utf8PropertyName), value.ToString(), JsonTokenType.Number);
+        public void WriteNumber(ReadOnlySpan<byte> utf8PropertyName, long value) => WritePropertyAndInteger(EscapedName(utf8PropertyName), value < 0, value < 0 ? (ulong)-(value + 1) + 1 : (ulong)value);
 
-        public void WriteNumber(JsonEncodedTextImpl propertyName, uint value) => WritePropertyAndAscii(propertyName.Utf8, value.ToString(), JsonTokenType.Number);
-        public void WriteNumber(string propertyName, uint value) => WritePropertyAndAscii(EscapedName(propertyName), value.ToString(), JsonTokenType.Number);
+        public void WriteNumber(JsonEncodedTextImpl propertyName, uint value) => WritePropertyAndInteger(propertyName.Utf8, false, value);
+        public void WriteNumber(string propertyName, uint value) => WritePropertyAndInteger(EscapedName(propertyName), false, value);
         public void WriteNumber(ReadOnlySpan<char> propertyName, uint value) => WriteNumber(new string(propertyName), value);
-        public void WriteNumber(ReadOnlySpan<byte> utf8PropertyName, uint value) => WritePropertyAndAscii(EscapedName(utf8PropertyName), value.ToString(), JsonTokenType.Number);
+        public void WriteNumber(ReadOnlySpan<byte> utf8PropertyName, uint value) => WritePropertyAndInteger(EscapedName(utf8PropertyName), false, value);
 
-        public void WriteNumber(JsonEncodedTextImpl propertyName, ulong value) => WritePropertyAndAscii(propertyName.Utf8, value.ToString(), JsonTokenType.Number);
-        public void WriteNumber(string propertyName, ulong value) => WritePropertyAndAscii(EscapedName(propertyName), value.ToString(), JsonTokenType.Number);
+        public void WriteNumber(JsonEncodedTextImpl propertyName, ulong value) => WritePropertyAndInteger(propertyName.Utf8, false, value);
+        public void WriteNumber(string propertyName, ulong value) => WritePropertyAndInteger(EscapedName(propertyName), false, value);
         public void WriteNumber(ReadOnlySpan<char> propertyName, ulong value) => WriteNumber(new string(propertyName), value);
-        public void WriteNumber(ReadOnlySpan<byte> utf8PropertyName, ulong value) => WritePropertyAndAscii(EscapedName(utf8PropertyName), value.ToString(), JsonTokenType.Number);
+        public void WriteNumber(ReadOnlySpan<byte> utf8PropertyName, ulong value) => WritePropertyAndInteger(EscapedName(utf8PropertyName), false, value);
 
         public void WriteNumber(JsonEncodedTextImpl propertyName, decimal value) => WritePropertyAndAscii(propertyName.Utf8, value.ToString(), JsonTokenType.Number);
         public void WriteNumber(string propertyName, decimal value) => WritePropertyAndAscii(EscapedName(propertyName), value.ToString(), JsonTokenType.Number);
