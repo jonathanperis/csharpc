@@ -10,7 +10,7 @@ name: M7 perf
 on:
   workflow_dispatch:
   push:
-    branches: ["ci/m7-perf*"]
+    branches: ["ci/m7-perf*", "ci/m7-gc-concurrent*"]
     paths: ["src/**", ".github/workflows/m7-perf.yml"]
 
 permissions:
@@ -33,11 +33,16 @@ jobs:
           - { kind: profile, n: 1, profile: "1", app: interim, tests: "deploy,plaintext,json" }
           # TechEmpower's real Platform entry (the M7 verdict's): a profile of its JSON and plaintext tests.
           - { kind: platform-profile, n: 1, profile: "1", app: platform, tests: "json,plaintext,cached-query,db" }
+          # Concurrent marking (--gc-concurrent, docs/adr/0020): the same measurements with the flag on.
+          - { kind: concurrent-load, n: 1, profile: "0", app: interim, tests: "deploy,plaintext,json", concurrent: "1" }
+          - { kind: concurrent-load, n: 2, profile: "0", app: interim, tests: "deploy,plaintext,json", concurrent: "1" }
+          - { kind: platform-concurrent, n: 1, profile: "1", app: platform, tests: "json,plaintext,cached-query,db", concurrent: "1" }
     runs-on: ubuntu-24.04
     timeout-minutes: 120
     env:
       DOTNET_CLI_TELEMETRY_OPTOUT: 1
       DOTNET_NOLOGO: 1
+      CSHARPC_GC_CONCURRENT: ${{ matrix.concurrent }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 

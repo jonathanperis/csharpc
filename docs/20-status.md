@@ -143,6 +143,11 @@ attribute factories) with a ~25 % faster build.
   under 1 % (the nursery's barrier measured the same way: binarytrees +12.6, strbuild +45.4). What costs is
   initializing stores into fresh objects; skipping them is only sound if objects allocated during a cycle are
   rescanned at the remark. Next: the marker thread, buffers, allocate-black, frame rescans, the remark.
+- `ci/m7-gc-concurrent` (step 2) — the concurrent marker behind `--gc-concurrent` ([ADR 0020](adr/0020-concurrent-marking.md),
+  "Step 2"). Platform plaintext: stop-the-world collections 13-23 ms each, concurrent pauses p50 0.6-0.9 ms, max
+  5.2-5.4 ms, of which 4.5 ms is the remark's rescan of coroutine frames (next: concurrent pre-cleaning of frames);
+  livemutate pause 32 -> 0.2 ms; wall time on arm64 +9-11 % on binarytrees/churn/exprtree, RSS +33 % in the GC suite.
+  GC concurrent workflow green.
 - `ci/m7-perf-4` — M7 performance, fourth round (on main `774b977`). `ArrayPool<T>.Shared` pools (it allocated a
   fresh array per Rent): the Platform entry's cached queries allocated 13.3 → 3.2 GB per run, GC 1.56 → 0.77 s;
   cached queries 1.08/1.14/1.05/0.99/0.93× at 1-100 on an Intel runner (M7 perf 41288905514; were

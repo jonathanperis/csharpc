@@ -1,0 +1,80 @@
+name: GC concurrent
+
+# Concurrent marking (--gc-concurrent, docs/adr/0020-concurrent-marking.md) on Linux x86-64: the
+# differential suite at -O0 and -O2 and the conformance corpus compiled with CSHARPC_GC_CONCURRENT=1.
+# CSRT_GC_CONCURRENT_MIN_MB=0 lets any multithreaded program run concurrent cycles (by default only
+# heaps of 8 MiB and more do), and CSRT_GC_TRIGGER_MB=1 starts a collection every MiB of allocation,
+# so the suite's small programs mark concurrently too. A missed barrier, frame rescan or race frees a
+# live object, which shows up as wrong output or a crash. Then the threaded and collection-heavy
+# samples several times each (the races are timing-dependent). Informational: not one of the
+# `test (<platform>)` merge-bar jobs. Runs on ci/m7-gc-concurrent* pushes, on main and on demand.
+on:
+  push:
+    branches: [main, "ci/m7-gc-concurrent*"]
+    paths: ['src/**', 'tests/**', '.github/workflows/gc-concurrent.yml', '.github/actions/**']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: gc-concurrent-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  DOTNET_CLI_TELEMETRY_OPTOUT: 1
+  DOTNET_NOLOGO: 1
+  CSHARPC_GC_CONCURRENT: 1
+  CSRT_GC_CONCURRENT_MIN_MB: 0
+  CSRT_GC_TRIGGER_MB: 1
+
+jobs:
+  differential:
+    name: concurrent differential (${{ matrix.shard }}/4)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3]
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: ./.github/actions/setup-toolchain
+        with:
+          os: linux
+
+      - name: Differential suite, -O0 and -O2
+        run: tests/run.sh --all-opts --shard ${{ matrix.shard }}/4
+
+  suites:
+    name: concurrent conformance and repeated threaded samples
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: ./.github/actions/setup-toolchain
+        with:
+          os: linux
+
+      - name: Conformance corpus
+        run: tests/conformance.sh -j 4
+
+      - name: Threaded and collection-heavy samples, 10 runs each
+        if: success() || failure()
+        env:
+          CSHARPC_TEST_TIMEOUT: 300
+        run: |
+          failed=0
+          for filter in gc_ 83[0-8]_ async await iterator yield task 120_threads threadstatic threadpool \
+                        threading_timer thread_interrupt culture_threads threadlocal weak conditional; do
+            tests/run.sh --repeat 10 "$filter" || failed=1
+          done
+          exit $failed

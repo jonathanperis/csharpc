@@ -1,6 +1,7 @@
 # ADR 0020 — Mostly-concurrent marking
 
-- **Status:** Proposed (2026-11-01). Step 1 (the barrier and its cost) in progress on `ci/m7-gc-concurrent`.
+- **Status:** Accepted (2026-11-01), behind `--gc-concurrent`. Step 1 (the barrier) on main; step 2 (the marker)
+  on `ci/m7-gc-concurrent`.
 - **Context:** [ADR 0004](0004-memory-management.md) (conservative non-moving mark-sweep, the opt-in nursery and its
   compiler write barrier), [ADR 0011](0011-wasm32.md) (wasm32: no threads, shadow-stack roots), M7 in
   [06](../06-roadmap.md) (TechEmpower plaintext p99 at 4096+ connections is one of the metrics).
@@ -161,6 +162,79 @@ nodes, StringBuilder chunks): a store into an object allocated by the same funct
 the barrier if objects allocated during a cycle were scanned at the remark instead of logged, which moves that cost
 into the pause; the Benchmarks workflow's wall times decide whether that trade is needed. The workflow now also
 reports executed instructions with `--gc-concurrent` on both architectures.
+
+## Step 2: the marker
+
+Implemented in `src/runtime/gc.c` under `CSRT_HAS_CONCURRENT` (a `--gc-concurrent` runtime on a native target); the
+default runtime is unchanged.
+
+- **Cycle start.** An allocation that reaches the trigger, under the allocation lock, runs the initial mark: stop the
+  world, sort what was appended to the large-object table since it was last sorted and merge it in, make the
+  remaining slots of every thread's allocation words black, scan the roots, set `csrt_gc_marking`, resume, wake the
+  marker thread. Cycles run only for multithreaded programs with a live heap of 8 MiB or more
+  (`CSRT_GC_CONCURRENT_MIN_MB`), not under `CSRT_GC_STRESS`; `CSRT_GC_CONCURRENT=0` turns them off.
+- **Marking.** The marker thread drains the mark stack and the barrier buffers the mutators hand over when full
+  (512 entries; values, and ranges for copies). Mark bits are set with an atomic OR, because claim_word sets the bits
+  of words claimed during a cycle (allocate-black) in the same bitmap words. The marker looks chunks up in the
+  never-freed chunk-set tables the nursery's barrier already uses, and large objects in the table as sorted at the
+  cycle's start; a table regrown during the cycle is a copy, the old one is freed after the cycle, and the marks the
+  marker set in it are copied over at the remark.
+- **Remark.** The marker stops the world: every thread's partial buffer, the roots again, every marked coroutine
+  frame (chunks with a frame are remembered, as the nursery does), marking to completion, weak handles and
+  ephemerons, the threads' allocation words, the large objects' sweep. The small objects are swept after the world
+  resumes, 32 chunks at a time under the allocation lock, by the marker and by allocations that would otherwise map
+  a new chunk; until a chunk is swept, its dead objects stay allocated and words claimed in it are black.
+- **Pacing.** Allocation continues during a cycle; an allocation that reaches twice the trigger waits for the cycle.
+  Between cycles the marker sorts newly appended large objects every 20 ms (a copy, outside the lock, merged under
+  it), so the initial mark sorts only what came in the last milliseconds.
+
+Locally (4 cores, shared machine) on a server-shaped program — 36,000 connections with a 4 KiB buffer and eight
+small arrays each, a ring of one million objects, two threads replacing ring entries and connection state with fresh
+objects (old-to-new edges through the barrier) for six seconds:
+
+| collector | pauses | pause max | longest mutator iteration | GC time | iterations |
+|---|---|---:|---:|---:|---:|
+| stop-the-world (default) | 11 collections, 1,033 ms | (per collection ~95 ms) | 145 ms | 1,033 ms | 81,494 |
+| concurrent | 20 pauses: p50 0.70 ms, p99 2.90 ms | 2.90 ms | 12-27 ms (scheduling on a shared machine) | 17.8 ms of pauses | 77,321 |
+
+The ring's and the connections' checksums match. Of the remark, the coroutine frames took 0.07-0.15 ms here (few
+frames); the TechEmpower runs measure it with thousands of suspended request frames. Tests: sample 838 (each
+hazard above, recorded from .NET), and the `GC concurrent` workflow (the differential suite and the conformance
+corpus with cycles on every multithreaded program and a collection every MiB, the threaded samples ten times).
+
+### On CI (M7 perf 41306893767, Benchmarks 41306874150, GC concurrent 41306874237)
+
+- **Platform entry, plaintext (16384 connections at the end), CSRT_GC_STATS of the profiled server:**
+  stop-the-world, 7 collections of 93-164 ms in all per run (13-23 ms each); concurrent, 7 cycles with
+  14 pauses, p50 0.64-0.87 ms, max 5.2-5.4 ms. Every maximum is a remark, and 4.5 ms of it is the coroutine
+  frames' rescan (thousands of suspended connection frames); initial marks 0.6-4 ms, the rest of a remark
+  under 0.6 ms. Cached queries and JSON: max 0.6-1.0 ms.
+- **Throughput:** the runs landed on different CPU types, so the ratios only bound the effect: interim
+  plaintext at 256/1024 connections 1.07-1.10x NativeAOT with the flag against 1.11-1.16x without, 4096
+  0.99-1.05 against 0.95-1.03; the Platform entry's JSON, /db and cached queries within the runner spread.
+- **Benchmarks wall time (arm64, the steadier runner):** binarytrees +10.7 %, churn +9.3 %, exprtree +8.3 %,
+  the others within +-3 %; x86-64's second run was slower across the board (fib, fasta, nbody +7-10 % with
+  identical instruction counts). GC latency suite: livemutate's pause 32.0 -> 0.21 ms (x86-64), 36.6 ->
+  0.36 ms (arm64), its longest operation 17.6 -> 1.0 ms; churn's longest operation 0.2 -> 1.8 ms; RSS
+  +33 % (floating garbage: objects allocated during a cycle live until the next).
+- **Tests:** the GC concurrent workflow (differential suite at -O0/-O2, conformance corpus, threaded samples
+  ten times) passes.
+
+### The coroutine-frame rescan
+
+The remark rescans every marked frame because their spills have no barrier. Options, cheapest first:
+
+1. **Concurrent pre-cleaning of frames:** the marker scans the frames before the remark; the remark then
+   rescans only frames resumed since, which the runtime notes when it resumes one (`csrt_coro_resume` and the
+   scheduler's continuation paths; iterators' MoveNext resumes in generated code, which the barrier pass can
+   wrap). Frames suspended for the whole cycle — most connections in a server — are scanned once, outside the
+   pause.
+2. **A frame registry with dirty bits:** frames in a separate list with a byte each, set on resume; the same
+   effect without walking the remembered chunks.
+3. **Barriers on spills:** run the barrier pass after CoroSplit, which needs a second pass over the split
+   functions and costs a flag test per spill.
+
+Option 1 is next.
 
 ## Plan
 
