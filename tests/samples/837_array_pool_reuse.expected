@@ -1,0 +1,8 @@
+1024
+True 1024 42 7
+True 0 0
+False 1024
+True 32 kept
+ArgumentException
+0
+128 True

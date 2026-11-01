@@ -142,8 +142,10 @@ namespace CsharpcCoreLib
 
     /// <summary>
     /// ArrayPool&lt;T&gt;: the shared pool's sizing and validation are .NET's (power-of-two buckets from 16
-    /// elements to 2^30, exact sizes above, Array.Empty for 0), but nothing is cached: every Rent returns
-    /// a fresh zeroed array, which is one of the outcomes .NET allows (pooled arrays may hold any data).
+    /// elements to 2^30, exact sizes above, Array.Empty for 0). Returned arrays are kept for the next
+    /// Rent of their bucket, as .NET's TlsOverPerCoreLockedStacksArrayPool does: one per bucket per
+    /// thread, then a small shared stack per bucket. A rented array may hold what its last user left in
+    /// it, as in .NET.
     /// </summary>
     [Shadows("System.Buffers.ArrayPool`1")]
     public abstract class ArrayPoolImpl<T>
@@ -155,13 +157,13 @@ namespace CsharpcCoreLib
             get
             {
                 ArrayPool<T> pool = s_shared;
-                if (pool == null) { pool = new SharedArrayPoolImpl<T>(); pool = Interlocked.CompareExchange(ref s_shared, pool, null) ?? pool; }
+                if (pool == null) { pool = new SharedArrayPoolImpl<T>(shared: true); pool = Interlocked.CompareExchange(ref s_shared, pool, null) ?? pool; }
                 return pool;
             }
         }
 
-        public static ArrayPool<T> Create() => new SharedArrayPoolImpl<T>();
-        public static ArrayPool<T> Create(int maxArrayLength, int maxArraysPerBucket) => new SharedArrayPoolImpl<T>();
+        public static ArrayPool<T> Create() => new SharedArrayPoolImpl<T>(shared: false);
+        public static ArrayPool<T> Create(int maxArrayLength, int maxArraysPerBucket) => new SharedArrayPoolImpl<T>(shared: false);
 
         public abstract T[] Rent(int minimumLength);
         public abstract void Return(T[] array, bool clearArray = false);
@@ -170,6 +172,18 @@ namespace CsharpcCoreLib
     internal sealed class SharedArrayPoolImpl<T> : ArrayPool<T>
     {
         private const int NumBuckets = 27;
+        /// <summary>Buckets above this one (arrays over 1 Mi elements) are not kept: a server's RSS would hold them.</summary>
+        private const int MaxPooledBucket = 16;
+        private const int ArraysPerSharedBucket = 32;
+
+        // ArrayPool<T>.Shared only: one array per bucket per thread, the first place Rent looks and
+        // Return fills (no lock); then the shared stacks, which ArrayPool.Create()'s pools use alone.
+        [ThreadStatic] private static T[][] t_cache;
+        private readonly bool _isShared;
+        private readonly T[][][] _shared = new T[MaxPooledBucket + 1][][];
+        private readonly int[] _sharedCounts = new int[MaxPooledBucket + 1];
+
+        internal SharedArrayPoolImpl(bool shared) { _isShared = shared; }
 
         // .NET's Utilities.SelectBucketIndex: Log2((uint)size - 1 | 15) - 3.
         private static int SelectBucketIndex(int size)
@@ -180,10 +194,43 @@ namespace CsharpcCoreLib
             return log - 3;
         }
 
+        private T[][] ThreadCache(bool create)
+        {
+            if (!_isShared) return null;
+            T[][] cache = t_cache;
+            if (cache == null && create) t_cache = cache = new T[MaxPooledBucket + 1][];
+            return cache;
+        }
+
         public override T[] Rent(int minimumLength)
         {
             int bucket = SelectBucketIndex(minimumLength);
-            if ((uint)bucket < NumBuckets) return new T[16 << bucket];
+            if ((uint)bucket < NumBuckets)
+            {
+                if (bucket <= MaxPooledBucket)
+                {
+                    T[][] cache = ThreadCache(create: false);
+                    if (cache != null && cache[bucket] is { } cached)
+                    {
+                        cache[bucket] = null;
+                        return cached;
+                    }
+                    T[][] stack = _shared[bucket];
+                    if (stack != null)
+                        lock (stack)
+                        {
+                            int count = _sharedCounts[bucket];
+                            if (count > 0)
+                            {
+                                T[] array = stack[--count];
+                                stack[count] = null;
+                                _sharedCounts[bucket] = count;
+                                return array;
+                            }
+                        }
+                }
+                return new T[16 << bucket];
+            }
             if (minimumLength == 0) return Array.Empty<T>();
             if (minimumLength < 0) throw new ArgumentOutOfRangeException("minimumLength");
             return new T[minimumLength];
@@ -198,6 +245,28 @@ namespace CsharpcCoreLib
                 if (clearArray) Array.Clear(array);
                 if (array.Length != 16 << bucket)
                     throw new ArgumentException("The buffer is not associated with this pool and may not be returned to it.", "array");
+                if (bucket > MaxPooledBucket) return;
+                T[][] cache = ThreadCache(create: true);
+                if (cache != null && cache[bucket] == null)
+                {
+                    cache[bucket] = array;
+                    return;
+                }
+                T[][] stack = _shared[bucket];
+                if (stack == null)
+                {
+                    Interlocked.CompareExchange(ref _shared[bucket], new T[ArraysPerSharedBucket][], null);
+                    stack = _shared[bucket];
+                }
+                lock (stack)
+                {
+                    int count = _sharedCounts[bucket];
+                    if (count < ArraysPerSharedBucket)
+                    {
+                        stack[count] = array;
+                        _sharedCounts[bucket] = count + 1;
+                    }
+                }
             }
         }
     }
