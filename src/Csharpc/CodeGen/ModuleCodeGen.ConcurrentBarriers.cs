@@ -24,6 +24,8 @@ public sealed partial class ModuleCodeGen
     public void InsertConcurrentBarriers()
     {
         var (value, range) = ConcurrentBarrierHelpers();
+        var frameExit = Runtime("csrt_gc_frame_exit", Llvm.Void, Llvm.Ptr);
+        var frameExitTop = Runtime("csrt_gc_frame_exit_top", Llvm.Void);
         var pointerSize = (long)Types.PointerSize;
         using var b = new IrBuilder(Llvm);
         for (var fn = LLVMGetFirstFunction(Module.Ref); !fn.IsNull; fn = LLVMGetNextFunction(fn))
@@ -79,6 +81,13 @@ public sealed partial class ModuleCodeGen
                         case LLVMOpcode.Call or LLVMOpcode.Invoke:
                         {
                             var callee = LLVMIsAFunction(LLVMGetCalledValue(inst));
+                            if (!callee.IsNull && Wasm.Ir.HasEnumAttribute(callee, "presplitcoroutine") && callee.Handle != fn.Handle)
+                            {
+                                // The first run of an async method or iterator (its frame was entered when it was
+                                // allocated): it has suspended once this call returns.
+                                FirstRunEnded(b, inst, frameExit, frameExitTop);
+                                break;
+                            }
                             if (callee.IsNull || LLVMGetIntrinsicID(callee) == 0) break;
                             var name = LLVMGetValueName(callee);
                             if (!name.StartsWith("llvm.memcpy", StringComparison.Ordinal) && !name.StartsWith("llvm.memmove", StringComparison.Ordinal)) break;
@@ -94,6 +103,27 @@ public sealed partial class ModuleCodeGen
                 }
             }
         }
+    }
+
+    /// <summary>After a coroutine's first run: csrt_gc_frame_exit(its task or frame), or the top frame for async void.</summary>
+    private static void FirstRunEnded(IrBuilder b, LLVMValueRef call, LoweredFunction exit, LoweredFunction exitTop)
+    {
+        if (LLVMGetInstructionOpcode(call) == LLVMOpcode.Invoke)
+        {
+            var normal = LLVMGetNormalDest(call);
+            var first = LLVMGetFirstInstruction(normal);
+            while (!first.IsNull && LLVMGetInstructionOpcode(first) == LLVMOpcode.PHI) first = LLVMGetNextInstruction(first);
+            if (first.IsNull) return;
+            LLVMPositionBuilderBefore(b.Ref, first);
+        }
+        else
+        {
+            var next = LLVMGetNextInstruction(call);
+            if (next.IsNull) return;
+            LLVMPositionBuilderBefore(b.Ref, next);
+        }
+        if (call.Type.IsPointer) Located(call, b.Call(exit.Type, exit.Fn, [call]));
+        else Located(call, b.Call(exitTop.Type, exitTop.Fn, []));
     }
 
     /// <summary>The inline helper for an atomic reference store lowered as an integer (Interlocked on references).</summary>

@@ -327,6 +327,9 @@ void* csrt_coro_alloc(int64_t size) {
     // barriers were placed): every minor collection scans the frame instead (gc.c, "remembered").
     csrt_gc_remember(frame);
 #endif
+#if defined(CSRT_GC_CONCURRENT) && !defined(__wasi__)
+    csrt_gc_frame_enter(frame);  // the coroutine's first run; exited when it first suspends (gc.c)
+#endif
     return (uint8_t*)frame + CORO_FRAME_OFFSET;
 }
 
@@ -385,6 +388,9 @@ CSRT_PROFILED_ALLOCATOR void* csrt_coro_alloc_task(int64_t size, int32_t payload
     csrt_Task* t = csrt_alloc(&csrt_Task_MT.header, head + size);
 #if defined(CSRT_GC_NURSERY_DEFAULT) || (defined(CSRT_GC_CONCURRENT) && !defined(__wasi__))
     csrt_gc_remember(t);  // the frame part: see csrt_coro_alloc
+#endif
+#if defined(CSRT_GC_CONCURRENT) && !defined(__wasi__)
+    csrt_gc_frame_enter(t);
 #endif
     t->payload_size = payload_size;
     *task = t;

@@ -2520,9 +2520,21 @@ static void release_surplus_chunks(void) {
 // another full budget before the cycle ends waits for it.
 #define LOG_ENTRIES 512
 #define LOG_RANGE_TAG ((uintptr_t)1)  // an entry with the low bit set is a range start; the next is its length
+#define LOG_FRAME_TAG ((uintptr_t)2)  // else bit 1: a coroutine frame (or its task) to rescan whole
+#define RUNNING_FRAMES 64
 
 typedef struct LogBuffer { struct LogBuffer* next; size_t count; uintptr_t entries[LOG_ENTRIES]; } LogBuffer;
-typedef struct ThreadLog { struct ThreadLog* next; LogBuffer* current; } ThreadLog;
+// A thread's log, and the coroutine frames it is running: resumed (csrt_coro_resume) or being created
+// (an async method's or iterator's first run), not yet suspended. LLVM's coroutine lowering writes
+// frames without barriers, so a frame is logged when it suspends, and the remark rescans the frames
+// still running then. More than RUNNING_FRAMES nested ones (overflow): the remark rescans every frame.
+typedef struct ThreadLog {
+    struct ThreadLog* next;
+    LogBuffer* current;
+    void* running[RUNNING_FRAMES];
+    uint32_t depth;
+    bool overflow;
+} ThreadLog;
 
 static pthread_mutex_t cm_lock = PTHREAD_MUTEX_INITIALIZER;  // the lists below
 static pthread_cond_t cm_start = PTHREAD_COND_INITIALIZER;   // a cycle began (the marker waits)
@@ -2567,6 +2579,8 @@ static ThreadLog* thread_log(void) {
     t = malloc(sizeof *t);
     if (!t) { fputs("csrt: out of memory (gc metadata)\n", stderr); abort(); }
     t->current = log_buffer_new();
+    t->depth = 0;
+    t->overflow = false;
     pthread_mutex_lock(&cm_lock);
     t->next = cm_logs;
     cm_logs = t;
@@ -2606,6 +2620,31 @@ __attribute__((noinline, cold)) void csrt_gc_log_range(void* start, size_t bytes
     __atomic_store_n(&b->count, b->count + 2, __ATOMIC_RELEASE);
 }
 
+/// Scans the heap object `p` points into, whole (a coroutine frame, or the task holding one), if it is
+/// allocated; unmarked ones are scanned too (harmless: marking them later scans them again).
+CSRT_GC_NO_SANITIZE static void scan_object_at(uintptr_t p) {
+    if (p < g.heap_min || p >= g.heap_max) return;
+    uintptr_t base = p & ~(CHUNK_SIZE - 1);
+    if (chunk_set_contains_marker(base)) {
+        Chunk* c = (Chunk*)base;
+        size_t offset = p - base;
+        if (c->object_size == 0 || offset < CHUNK_HEADER) return;
+        size_t index = slot_of(c, offset - CHUNK_HEADER);
+        if (index >= c->slots || !bit_get(c->allocated, index)) return;
+        const uint8_t* start = (const uint8_t*)base + CHUNK_HEADER + index * c->object_size;
+        scan_range(start + sizeof(void*), start + c->object_size);
+        return;
+    }
+    size_t lo = 0, hi = cm_large_count;
+    while (lo < hi) {
+        size_t mid = (lo + hi) / 2;
+        LargeObject* obj = &cm_large[mid];
+        if (p < (uintptr_t)obj->start) hi = mid;
+        else if (p >= (uintptr_t)obj->start + obj->size) lo = mid + 1;
+        else { scan_range(obj->start + sizeof(void*), obj->start + obj->size); return; }
+    }
+}
+
 CSRT_GC_NO_SANITIZE static void log_process(const LogBuffer* b, size_t count) {
     for (size_t i = 0; i < count; i++) {
         uintptr_t e = b->entries[i];
@@ -2613,8 +2652,51 @@ CSRT_GC_NO_SANITIZE static void log_process(const LogBuffer* b, size_t count) {
             const uint8_t* start = (const uint8_t*)(e & ~LOG_RANGE_TAG);
             size_t bytes = i + 1 < count ? (size_t)b->entries[++i] : 0;
             scan_range(start, start + bytes);
+        } else if (e & LOG_FRAME_TAG) {
+            uintptr_t frame = e & ~LOG_FRAME_TAG;
+            mark_candidate(frame);
+            scan_object_at(frame);
         } else mark_candidate(e);
     }
+}
+
+/// The first run of an async method that returns nothing (async void) has ended: its frame is the top.
+void csrt_gc_frame_exit_top(void) {
+    ThreadLog* t = tl_log;
+    if (!t || t->depth == 0) return;
+    if (t->depth <= RUNNING_FRAMES) csrt_gc_frame_exit(t->running[t->depth - 1]);
+    else __atomic_store_n(&t->depth, t->depth - 1, __ATOMIC_RELEASE);
+}
+
+/// A coroutine frame starts running on this thread: csrt_coro_resume, or its creation (csrt_coro_alloc*).
+void csrt_gc_frame_enter(void* frame) {
+    ThreadLog* t = thread_log();
+    if (t->depth < RUNNING_FRAMES) t->running[t->depth] = frame;
+    else t->overflow = true;
+    __atomic_store_n(&t->depth, t->depth + 1, __ATOMIC_RELEASE);
+}
+
+/// ...and suspends, or finishes: logged for the marker while a cycle runs (it was written without
+/// barriers). Frames above it that never exited (an exception unwound through them) are popped too; a
+/// frame not on the stack (a first run whose frame LLVM put on the caller's stack) pops nothing.
+void csrt_gc_frame_exit(void* frame) {
+    ThreadLog* t = tl_log;
+    if (!t) return;
+    // A frame created by csrt_coro_alloc* is entered with its object and exited with what its first
+    // run returns: the task (the same object) or the frame (16 bytes into it).
+    uint32_t depth = t->depth, top = depth < RUNNING_FRAMES ? depth : RUNNING_FRAMES;
+    for (uint32_t i = top; i > 0; i--)
+        if ((uintptr_t)frame - (uintptr_t)t->running[i - 1] < 64) {
+            depth = depth > RUNNING_FRAMES ? depth : i - 1;
+            break;
+        }
+    __atomic_store_n(&t->depth, depth, __ATOMIC_RELEASE);
+    if (depth == 0) t->overflow = false;
+    if (!csrt_gc_marking || !frame) return;
+    if (t->current->count >= LOG_ENTRIES) log_flush(t);
+    LogBuffer* b = t->current;
+    b->entries[b->count] = ((uintptr_t)frame & ~(LOG_RANGE_TAG | LOG_FRAME_TAG)) | LOG_FRAME_TAG;
+    __atomic_store_n(&b->count, b->count + 1, __ATOMIC_RELEASE);
 }
 
 /// The marker's side of the full buffers: true when it took one.
@@ -2900,7 +2982,14 @@ CSRT_GC_NO_SANITIZE static void cycle_finish(void) {
     scan_roots();
     drain();
     clock_gettime(CLOCK_MONOTONIC, &tp[2]);
-    rescan_frames();
+    // The frames still running: written since they were last logged, or not logged yet.
+    bool overflow = false;
+    for (ThreadLog* t = cm_logs; t; t = t->next) {
+        uint32_t depth = t->depth < RUNNING_FRAMES ? t->depth : RUNNING_FRAMES;
+        for (uint32_t i = 0; i < depth; i++) { mark_candidate((uintptr_t)t->running[i]); scan_object_at((uintptr_t)t->running[i]); }
+        overflow |= t->overflow;
+    }
+    if (overflow) rescan_frames();
     clock_gettime(CLOCK_MONOTONIC, &tp[3]);
     drain();
     clock_gettime(CLOCK_MONOTONIC, &tp[4]);
