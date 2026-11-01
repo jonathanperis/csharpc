@@ -180,7 +180,8 @@ attribute factories) with a ~25 % faster build.
   - **M7 verdict** (TechEmpower 41315086945, default build): 308 of 456.
 
   Default: still off. Speed comes first, and the flag still costs about 5 % plaintext throughput and 13–23 % wall time
-  on arm64's allocation-heavy programs.
+  on arm64's allocation-heavy programs. On `63320ed`, CI 41329624720 is green (after re-running a wasm toolchain
+  download failure and one Windows run of sample 901) and GC concurrent 41329624527 is green.
 - `ci/m7-perf-4` — M7 performance, fourth round (on main `774b977`). `ArrayPool<T>.Shared` pools (it allocated a
   fresh array per Rent): the Platform entry's cached queries allocated 13.3 → 3.2 GB per run, GC 1.56 → 0.77 s;
   cached queries 1.08/1.14/1.05/0.99/0.93× at 1-100 on an Intel runner (M7 perf 41288905514; were
