@@ -29,7 +29,7 @@ namespace CsharpcCoreLib
         internal int _size;
         internal int _version;
 
-        public QueueImpl() { _array = EmptyArray<T>.Value; }
+        public QueueImpl() { _array = new T[0]; }
 
         public QueueImpl(int capacity)
         {
@@ -40,7 +40,7 @@ namespace CsharpcCoreLib
         public QueueImpl(IEnumerable<T> collection)
         {
             if (collection == null) ThrowHelper.ArgumentNull("collection");
-            _array = EmptyArray<T>.Value;
+            _array = new T[0];
             foreach (T item in collection) Enqueue(item);
         }
 
@@ -200,7 +200,7 @@ namespace CsharpcCoreLib
         internal int _size;
         internal int _version;
 
-        public StackImpl() { _array = EmptyArray<T>.Value; }
+        public StackImpl() { _array = new T[0]; }
 
         public StackImpl(int capacity)
         {
@@ -211,7 +211,7 @@ namespace CsharpcCoreLib
         public StackImpl(IEnumerable<T> collection)
         {
             if (collection == null) ThrowHelper.ArgumentNull("collection");
-            _array = EmptyArray<T>.Value;
+            _array = new T[0];
             foreach (T item in collection) Push(item);
         }
 
