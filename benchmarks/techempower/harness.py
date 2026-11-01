@@ -25,7 +25,7 @@ alternates between rounds) and runs TechEmpower's script for the type: primer (5
 (DURATION s at 512 connections), then every level TechEmpower uses, DURATION s each (plaintext 256-16384
 connections pipelined x16; json, db, fortune 16-512 connections; query and update 1-20 queries and
 cached-query 1-100 at 512 connections). Per level: wrk's requests/s, latency (avg, stdev, max, p50/p75/p90/
-p99), socket errors and non-2xx answers; from /proc, the server's peak and steady RSS, threads and CPU time per
+p99; pipelined levels: from an 8-connection probe without pipelining run alongside), socket errors and non-2xx answers; from /proc, the server's peak and steady RSS, threads and CPU time per
 request. The first round also verifies every build with TechEmpower's verification code (tfb_verify.py) and
 records a normalized transcript of its answers (verify.py), which must be identical across builds.
 
@@ -599,6 +599,13 @@ def start_database(tfb, cpus, out):
     return docker_address()
 
 
+# Pipelined (plaintext), wrk times only some of the batches, so its own latency figures are no measurement.
+# Its levels get them from a probe instead: one more wrk, PROBE_CONNECTIONS connections without pipelining,
+# running through the middle of the level on the same client CPUs; its latency distribution is the time one
+# request waits on a server under that level's load.
+PROBE_CONNECTIONS = 8
+
+
 def wrk(ctx, connections, threads, url, pipeline=False, duration=None):
     cmd = ["taskset", "-c", ctx.client_cpus, "wrk", "-H", "Host: localhost", "-H", f"Accept: {ACCEPT[ctx.test['accept']]}",
            "-H", "Connection: keep-alive", "--latency", "-d", str(duration or ctx.duration), "-c", str(connections), "--timeout", "8",
@@ -633,17 +640,34 @@ def load_test(ctx, server, build, round_no):
         if ctx.profile and build in ("aot", "csharpc") and round_no == 1 and f"{ctx.test_name},{level}" in ctx.profile_scenarios:
             stem = ctx.out / f"{build}.{ctx.test_name}-{level}"
             perf = profile_start(pid, stem, ctx.duration)
-        text = wrk(ctx, connections, min(connections, max_threads), url, pipeline=test["script"] == "pipeline")
+        pipelined = test["script"] == "pipeline"
+        probe = None
+        if pipelined:
+            probe = threading.Thread(target=lambda: probe_out.append(
+                (time.sleep(2), wrk(ctx, PROBE_CONNECTIONS, 1, url, duration=max(1, ctx.duration - 4)))[1]))
+            probe_out = []
+            probe.start()
+        text = wrk(ctx, connections, min(connections, max_threads), url, pipeline=pipelined)
+        if probe:
+            probe.join()
         if stem:
             profile_finish(perf, stem)
         ticks1 = cpu_ticks(pid)
         r = parse_wrk(text)
+        if probe and probe_out:
+            # The probe's latency distribution stands for the level's (wrk's pipelined one is unmeasured).
+            measured = parse_wrk(probe_out[0])
+            for key in ("lat_avg", "lat_stdev", "lat_max", "lat_p50", "lat_p75", "lat_p90", "lat_p99"):
+                r[key] = measured.get(key)
+            transcript_probe = f"### latency probe ({PROBE_CONNECTIONS} connections, not pipelined)\n{probe_out[0]}\n"
+        else:
+            transcript_probe = ""
         r.update(sampler.finish())
         r["level"] = level
         if ticks0 is not None and ticks1 is not None and r.get("requests"):
             r["cpu_us_per_req"] = (ticks1 - ticks0) / os.sysconf("SC_CLK_TCK") / r["requests"] * 1e6
         levels.append(r)
-        transcript.write(f"### {test['level']} {level}\n{text}\n")
+        transcript.write(f"### {test['level']} {level}\n{text}\n{transcript_probe}")
         log(f"   {build} round {round_no} {ctx.test_name} {level}: {r.get('rps', 0):.0f} req/s, p99 {r.get('lat_p99')} ms, "
             f"{r.get('socket_errors', 0)} socket errors, {r.get('non_2xx', 0)} non-2xx")
         time.sleep(2)
