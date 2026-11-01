@@ -265,7 +265,8 @@ namespace CsharpcCoreLib
                         _entries[i].value = value;
                         return true;
                     }
-                    if (throwOnExisting) ThrowHelper.DuplicateKey(key.ToString());
+                    // Only Add throws (.NET: from TryInsert, called by Add).
+                    if (throwOnExisting) LibraryThrowHelper.DictionaryAddDuplicate(key.ToString());
                     return false;
                 }
                 i = _entries[i].next;
@@ -332,10 +333,7 @@ namespace CsharpcCoreLib
             _entries = entries;
         }
 
-        public void Add(TKey key, TValue value)
-        {
-            if (!TryInsert(key, value, true, false)) LibraryThrowHelper.DictionaryAddDuplicate(key.ToString());
-        }
+        public void Add(TKey key, TValue value) => TryInsert(key, value, true);
 
         public bool TryAdd(TKey key, TValue value) => TryInsert(key, value, true, false);
 
