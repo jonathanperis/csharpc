@@ -1,5 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
-  <!-- UseSystemResourceKeys (the TechEmpower entries set it): library messages are their resource keys. -->
+  <!-- UseSystemResourceKeys: .NET's library messages are their resource keys. csharpc refuses it (expect-error):
+       its corelib writes the full messages. The libraries compiled from IL would give keys (SR substitutions). -->
   <PropertyGroup>
     <OutputType>Exe</OutputType>
     <TargetFramework>net11.0</TargetFramework>

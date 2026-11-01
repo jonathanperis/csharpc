@@ -105,6 +105,8 @@ public sealed class Compiler(CompilerOptions options)
                 AssemblyInfo = options.Inputs.Count > 0 ? ProjectLoader.FileBasedAssemblyInfo(options.Inputs[0], options.Configuration) : null,
             };
         }
+        if (UsesSystemResourceKeys(settings.RuntimeConfig))
+            return Fail(UseSystemResourceKeysUnsupported);
         if (options.SharedFrameworks.Count > 0)
             settings = settings with { SharedFrameworks = [.. settings.SharedFrameworks.Concat(options.SharedFrameworks).Distinct(StringComparer.OrdinalIgnoreCase)] };
         // Assemblies without sources: bound against like any reference, compiled from IL (ADR 0010).
@@ -397,6 +399,22 @@ public sealed class Compiler(CompilerOptions options)
         if (options.Verbose) Console.Error.WriteLine($"csharpc: wrote {output}");
         return 0;
     }
+
+    /// <summary>
+    /// UseSystemResourceKeys=true (runtimeconfig System.Resources.UseSystemResourceKeys) makes .NET's libraries
+    /// give their exception messages as resource keys ("ArgumentNull_Generic Arg_ParamName_Name, x" for "Value
+    /// cannot be null. (Parameter 'x')"), under the JIT and NativeAOT alike. Libraries compiled from IL honour it
+    /// (their SR reads the switch, or ILLink's substitution folds it), but csharpc's corelib and runtime write the
+    /// full text, so every message they produce would differ: refused rather than printed differently. The value
+    /// is "true" exactly when bool.TryParse reads true (ProjectLoader and IlProgram normalize booleans).
+    /// </summary>
+    internal static bool UsesSystemResourceKeys(IEnumerable<KeyValuePair<string, string>> runtimeConfig) =>
+        runtimeConfig.LastOrDefault(kv => kv.Key == "System.Resources.UseSystemResourceKeys").Value is { } value
+        && bool.TryParse(value, out var on) && on;
+
+    internal const string UseSystemResourceKeysUnsupported =
+        "UseSystemResourceKeys=true (System.Resources.UseSystemResourceKeys) is not supported by csharpc yet: .NET then gives "
+        + "its exception messages as resource keys, and csharpc's library writes the full messages; remove the setting or set it to false";
 
     /// <summary>
     /// csharpc's WebAssembly target is WASI preview 1 (wasi-libc; run with wasmtime or another WASI

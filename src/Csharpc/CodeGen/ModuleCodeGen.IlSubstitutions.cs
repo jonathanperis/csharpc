@@ -8,10 +8,11 @@ namespace Csharpc.CodeGen;
 /// The ILLink.Substitutions.xml an IL assembly embeds, applied as NativeAOT's ILCompiler applies it under the
 /// program's feature switches (runtimeconfig configProperties, which carry the project's
 /// RuntimeHostConfigurationOption items): parameterless bool methods stubbed with a value fold to it, and
-/// resources marked `action="remove"` are not compiled in. With UseSystemResourceKeys=true (the TechEmpower
-/// project's setting), every runtime library's SR.UsingResourceKeys() is true and its FxResources string
-/// table goes away: 670 KB of the TechEmpower binary were those strings, which nothing could read (SR returns
-/// the key) — what NativeAOT removes too. Other substitution kinds (fields, removed bodies) are not applied:
+/// resources marked `action="remove"` are not compiled in. With UseSystemResourceKeys=true, every runtime
+/// library's SR.UsingResourceKeys() is true and its FxResources string table goes away: 670 KB of the interim
+/// TechEmpower binary were those strings, which nothing could read (SR returns the key) — what NativeAOT
+/// removes too. (The driver refuses that switch for now, Compiler.UsesSystemResourceKeys: the corelib's own
+/// messages aren't keys.) Other substitution kinds (fields, removed bodies) are not applied:
 /// the code they would drop just stays.
 /// </summary>
 public sealed partial class ModuleCodeGen

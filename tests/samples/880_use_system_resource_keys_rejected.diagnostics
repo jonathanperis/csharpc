@@ -1,0 +1,1 @@
+csharpc: error : UseSystemResourceKeys=true (System.Resources.UseSystemResourceKeys) is not supported by csharpc yet: .NET then gives its exception messages as resource keys, and csharpc's library writes the full messages; remove the setting or set it to false
