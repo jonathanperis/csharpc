@@ -261,6 +261,41 @@ namespace CsharpcCoreLib
         public static string PtrToStringAnsi(IntPtr ptr, int len) => ptr == IntPtr.Zero ? null : Utf8.Decode((byte*)ptr, len);
         public static string PtrToStringAuto(IntPtr ptr) => Utf8.FromNative((byte*)ptr);
 #endif
+        // BSTR: a 4-byte byte-length prefix, the UTF-16 text and a terminating NUL, the pointer at the text.
+        // Windows allocates it with oleaut32 (native code frees it with SysFreeString); elsewhere .NET's PAL
+        // does the same with malloc, so the layout is built here.
+        public static IntPtr StringToBSTR(string s)
+        {
+            if (s == null) return IntPtr.Zero;
+#if CSHARPC_TARGET_WINDOWS
+            fixed (char* text = s) return (IntPtr)SysAllocStringLen(text, (uint)s.Length);
+#else
+            byte* block = (byte*)Libc.Alloc((nuint)(4 + (s.Length + 1) * 2));
+            *(int*)block = s.Length * 2;
+            char* chars = (char*)(block + 4);
+            for (int i = 0; i < s.Length; i++) chars[i] = s[i];
+            chars[s.Length] = '\0';
+            return (IntPtr)chars;
+#endif
+        }
+
+        public static string PtrToStringBSTR(IntPtr ptr) => ptr == IntPtr.Zero ? null : new string((char*)ptr, 0, *(int*)((byte*)ptr - 4) >> 1);
+
+        public static void FreeBSTR(IntPtr ptr)
+        {
+            if (ptr == IntPtr.Zero) return;
+#if CSHARPC_TARGET_WINDOWS
+            SysFreeString((void*)ptr);
+#else
+            Libc.free((byte*)ptr - 4);
+#endif
+        }
+
+#if CSHARPC_TARGET_WINDOWS
+        [DllImport("oleaut32")] private static extern void* SysAllocStringLen(char* text, uint length);
+        [DllImport("oleaut32")] private static extern void SysFreeString(void* bstr);
+#endif
+
         public static string PtrToStringUni(IntPtr ptr) => Utf16.FromNative((char*)ptr);
         public static string PtrToStringUni(IntPtr ptr, int len) => ptr == IntPtr.Zero ? null : new string((char*)ptr, 0, len);
 

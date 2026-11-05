@@ -1,0 +1,12 @@
+changed 5
+1
+0
+self saw 7
+string hello
+self saw 8
+broadcast int 1
+broadcast string two
+notified 2.5
+derived changed 9
+done
+a=1

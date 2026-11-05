@@ -1,0 +1,87 @@
+MaxEncoded 10: 16
+MaxEncoded 0: 0
+MaxEncoded max: 2147483644
+MaxEncoded over: ArgumentOutOfRangeException: (uint)bytesLength ('1610612734') must be less than or equal to '1610612733'. (Parameter '(uint)bytesLength')
+Actual value was 1610612734.
+MaxEncoded negative: ArgumentOutOfRangeException: (uint)bytesLength ('4294967295') must be less than or equal to '1610612733'. (Parameter '(uint)bytesLength')
+Actual value was 4294967295.
+MaxDecoded 16: 12
+MaxDecoded 3: 0
+MaxDecoded negative: ArgumentOutOfRangeException: base64Length ('-4') must be a non-negative value. (Parameter 'base64Length')
+Actual value was -4.
+IsValid 'SGVsbG8=': True / True
+IsValid '': True / True
+IsValid 'SGVs': True / True
+IsValid 'SGVsbG8': False / False
+IsValid 'SGVsbG8==': False / False
+IsValid 'SG Vs\r\nbG8=': True / True
+IsValid '====': False / False
+IsValid 'AA==': True / True
+IsValid 'A===': False / False
+IsValid 'AA=A': False / False
+IsValid 'S*Vs': False / False
+IsValid 'AAA=AAAA': False / False
+TrimEnd: [abc]
+TrimStart: [abc  ]
+Trim: [abc]
+TrimEnd all: []
+IsWhiteSpace ws: True
+IsWhiteSpace empty: True
+IsWhiteSpace text: False
+IsWhiteSpace unicode: True
+UTF32 name: Unicode (UTF-32) utf-32 12000 1200
+UTF32 count: 8
+UTF32 bytes: 680000006900000000F60100E9000000
+UTF32 preamble: FFFE0000
+UTF32 BE preamble: 0000FEFF
+UTF32 BE bytes: 000000610001F600
+UTF32 chars: h😀
+UTF32 BE chars: h😀
+UTF32 lone surrogate: 61000000FDFF000062000000
+UTF32 invalid scalar: A��B
+UTF32 truncated: A�
+UTF32 throwing: EncoderFallbackException: Unable to translate Unicode character \\uD800 at index 1 to specified code page.
+UTF32 throwing decode: DecoderFallbackException: Unable to translate bytes [00][00][11][00] at index 0 from specified code page to Unicode.
+UTF32 max counts: 32 5 2
+UTF32 max char counts: 2 2 3 3 4 4 5 5 6 6 
+UTF32 max counts negative: ArgumentOutOfRangeException: charCount ('-1') must be a non-negative value. (Parameter 'charCount')
+Actual value was -1.
+UTF32 chars count: 2
+UTF32 equals: True False
+GetEncoding 12000: Unicode (UTF-32) 12000 Unicode (UTF-32 Big-Endian)
+UTF32 decoder: 3 A😀
+DivRem nuint: 3 2
+DivRem nint: -3 -2
+DivRem by zero: DivideByZeroException: Attempted to divide by zero.
+MemoryCopy: 1 4
+MemoryCopy overlap: 1 2 1 2 3 4
+MemoryCopy too small: ArgumentOutOfRangeException: Specified argument was out of the range of valid values. (Parameter 'sourceBytesToCopy')
+MemoryCopy zero: ok
+UrlDecode 'a%20b+c': 5 6120622063
+UrlDecode '%41%42': 2 4142
+UrlDecode 'caf%C3%A9': 4 636166C3A9
+UrlDecode '%E2%82': 1 EFBFBD
+UrlDecode '%E2%82%AC': 1 E282AC
+UrlDecode '%zz': 3 257A7A
+UrlDecode '%4': 2 2534
+UrlDecode '100%': 4 31303025
+UrlDecode '%u0041%u00e9': 12 257530303431257530306539
+UrlDecode '%u12': 4 25753132
+UrlDecode 'a%2': 3 612532
+UrlDecode '%uD83D%uDE00': 12 257544383344257544453030
+UrlDecode '%C3%A9%u0041': 7 C3A9257530303431
+UrlDecode 'é+x': 3 C3A92078
+UrlDecode '%F0%9F%98%80': 2 F09F9880
+UrlDecode '%80': 1 EFBFBD
+UrlDecode '': 0 
+UrlDecode null: True
+nint hex: ff
+nint format: -1,234
+nint provider: 42
+nint ToInt64: 255
+nint ToInt32: -5
+nuint hex: 00FF
+nuint ToUInt64: 255
+BSTR: hi é 8
+BSTR null: True
+BSTR empty: []

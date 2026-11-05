@@ -1218,8 +1218,7 @@ public sealed partial class FunctionCodeGen
         LLVMValueRef address;
         if (op is ILOpCode.Ldsfld or ILOpCode.Ldsflda or ILOpCode.Stsfld)
         {
-            if (TypeSubstitution.IsGenericContext(e.ContainingType)) throw new IlException($"static event '{e}' of a generic type");
-            address = _m.StaticEventField(e);
+            address = StaticEventSlot(e);
         }
         else
         {

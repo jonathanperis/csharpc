@@ -466,6 +466,8 @@ public sealed class IlAssembly : IDisposable, ISignatureTypeProvider<IlType, IlG
                 var field = t.GetMembers(name).OfType<IFieldSymbol>().FirstOrDefault(f => SameType(f.Type, fieldType.Type))
                     ?? t.GetMembers(name).OfType<IFieldSymbol>().FirstOrDefault();
                 if (field is not null) return OnConstructed(owner, field);
+                // A field-like event's backing field (hidden from Roslyn's symbols), as a FieldDef token resolves.
+                if (t.GetMembers(name).OfType<IEventSymbol>().FirstOrDefault() is { } backed) return OnConstructed(owner, backed);
             }
             throw new IlException($"field '{owner}.{name}' not found");
         }
