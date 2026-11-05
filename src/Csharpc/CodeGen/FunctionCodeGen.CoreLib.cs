@@ -683,6 +683,7 @@ public sealed partial class FunctionCodeGen
             case SpecialType.System_Int32 or SpecialType.System_UInt32: return a;
             case SpecialType.System_Int64 or SpecialType.System_UInt64 or SpecialType.System_IntPtr or SpecialType.System_UIntPtr:
             {
+                if (a.Type.IntWidth == 32) return a; // nint/nuint on wasm32: (int)value — shifting an i32 by 32 is poison
                 var lo = _b.Cast(LLVMOpcode.Trunc, a, i32);
                 var hi = _b.Cast(LLVMOpcode.Trunc, _b.BinOp(LLVMOpcode.LShr, a, L.ConstInt(a.Type, 32)), i32);
                 return _b.BinOp(LLVMOpcode.Xor, lo, hi);

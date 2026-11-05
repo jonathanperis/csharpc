@@ -317,6 +317,19 @@ namespace CsharpcCoreLib
             return y * BitConverter.Int64BitsToDouble((long)(0x3FF + n) << 52);
         }
 
+        public static (nuint Quotient, nuint Remainder) DivRem(nuint left, nuint right)
+        {
+            nuint quotient = left / right;
+            return (quotient, left - quotient * right);
+        }
+
+        public static (nint Quotient, nint Remainder) DivRem(nint left, nint right)
+        {
+            if (right == -1 && left == unchecked((nint)((nuint)1 << (IntPtr.Size * 8 - 1)))) throw new OverflowException("Arithmetic operation resulted in an overflow.");
+            nint quotient = left / right;
+            return (quotient, left - quotient * right);
+        }
+
         /// <summary>The high 64 bits of the 128-bit product; the low ones through <paramref name="low"/>.</summary>
         public static ulong BigMul(ulong a, ulong b, out ulong low) => CoreDebug.BigMul(a, b, out low);
 
@@ -676,6 +689,31 @@ namespace CsharpcCoreLib
             for (int i = 0; i < values.Length; i++)
                 if (CoreIntrinsics.AreEqual(values[i], value)) return true;
             return false;
+        }
+
+        // .NET 11's char overloads: the generic ones' result for one char, without the IEquatable dispatch.
+        public static ReadOnlySpan<char> Trim(ReadOnlySpan<char> span, char trimChar) => TrimEnd(TrimStart(span, trimChar), trimChar);
+
+        public static ReadOnlySpan<char> TrimStart(ReadOnlySpan<char> span, char trimChar)
+        {
+            int start = 0;
+            while (start < span.Length && span[start] == trimChar) start++;
+            return span.Slice(start);
+        }
+
+        public static ReadOnlySpan<char> TrimEnd(ReadOnlySpan<char> span, char trimChar)
+        {
+            int end = span.Length - 1;
+            while (end >= 0 && span[end] == trimChar) end--;
+            return span.Slice(0, end + 1);
+        }
+
+        /// <summary>True when every char is white space (an empty span is).</summary>
+        public static bool IsWhiteSpace(ReadOnlySpan<char> span)
+        {
+            for (int i = 0; i < span.Length; i++)
+                if (!char.IsWhiteSpace(span[i])) return false;
+            return true;
         }
 
         public static ReadOnlySpan<char> Trim(ReadOnlySpan<char> span, ReadOnlySpan<char> trimChars) =>

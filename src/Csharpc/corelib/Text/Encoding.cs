@@ -16,17 +16,18 @@ namespace CsharpcCoreLib
     [Shadows("System.Text.Encoding")]
     public abstract unsafe class EncodingImpl : ICloneable
     {
-        private static Encoding s_utf8, s_utf8NoBom, s_ascii, s_unicode, s_bigEndianUnicode, s_latin1;
+        private static Encoding s_utf8, s_utf8NoBom, s_ascii, s_unicode, s_bigEndianUnicode, s_latin1, s_utf32;
 
         public static Encoding UTF8 => s_utf8 ??= new UTF8Encoding(true);
         public static Encoding Default => s_utf8NoBom ??= new UTF8Encoding(false);
         public static Encoding ASCII => s_ascii ??= new ASCIIEncoding();
         public static Encoding Unicode => s_unicode ??= new UnicodeEncoding(false, true);
         public static Encoding BigEndianUnicode => s_bigEndianUnicode ??= new UnicodeEncoding(true, true);
+        public static Encoding UTF32 => s_utf32 ??= new UTF32Encoding(false, true);
         public static Encoding Latin1 => s_latin1 ??= (Encoding)(object)new Latin1EncodingImpl();
 
         // ---- the codec of a built-in encoding (0: none — a derived encoding) ----
-        internal const int CodecUtf8 = 1, CodecUtf16LE = 2, CodecUtf16BE = 3, CodecAscii = 4, CodecLatin1 = 5;
+        internal const int CodecUtf8 = 1, CodecUtf16LE = 2, CodecUtf16BE = 3, CodecAscii = 4, CodecLatin1 = 5, CodecUtf32LE = 6, CodecUtf32BE = 7;
         internal int _codec;
 
         internal int _codePage;
@@ -72,6 +73,8 @@ namespace CsharpcCoreLib
                 case 0: return Default;
                 case 1200: return Unicode;
                 case 1201: return BigEndianUnicode;
+                case 12000: return UTF32;
+                case 12001: return new UTF32Encoding(true, true);
                 case 65001: return UTF8;
                 case 20127: return ASCII;
                 case 28591: return Latin1;
@@ -79,8 +82,6 @@ namespace CsharpcCoreLib
                     throw new ArgumentException(string.Format("{0} is not a supported code page.", codepage), "codepage");
                 case 65000:
                     throw new NotSupportedException("Support for UTF-7 is disabled. See https://aka.ms/dotnet-warnings/SYSLIB0001 for more information.");
-                case 12000: case 12001:
-                    throw new NotSupportedException("not supported by csharpc yet: UTF-32 encodings");
             }
             if (codepage < 0 || codepage > 65535)
                 throw new ArgumentOutOfRangeException("codepage", string.Format("Valid values are between {0} and {1}, inclusive.", 0, 65535));
@@ -159,6 +160,8 @@ namespace CsharpcCoreLib
                 case 65001: return ["utf-8", "Unicode (UTF-8)"];
                 case 1200: return ["utf-16", "Unicode"];
                 case 1201: return ["utf-16BE", "Unicode (Big-Endian)"];
+                case 12000: return ["utf-32", "Unicode (UTF-32)"];
+                case 12001: return ["utf-32BE", "Unicode (UTF-32 Big-Endian)"];
                 case 20127: return ["us-ascii", "US-ASCII"];
                 case 28591: return ["iso-8859-1", "Western European (ISO)"];
             }
@@ -554,6 +557,7 @@ namespace CsharpcCoreLib
             if (EncoderFallback.MaxCharCount > 1) byteCount *= EncoderFallback.MaxCharCount;
             if (_codec == CodecUtf8) byteCount *= 3;
             else if (_codec is CodecUtf16LE or CodecUtf16BE) byteCount <<= 1;
+            else if (_codec is CodecUtf32LE or CodecUtf32BE) byteCount <<= 2;
             if (byteCount > 0x7fffffff) throw new ArgumentOutOfRangeException("charCount", GetByteCountOverflow);
             return (int)byteCount;
         }
@@ -566,6 +570,7 @@ namespace CsharpcCoreLib
             {
                 CodecUtf8 => (long)byteCount + 1,
                 CodecUtf16LE or CodecUtf16BE => (long)(byteCount >> 1) + (byteCount & 1) + 1,
+                CodecUtf32LE or CodecUtf32BE => (long)(byteCount >> 1) + 2,
                 _ => byteCount,
             };
             if (_codec != CodecLatin1 && DecoderFallback.MaxCharCount > 1) charCount *= DecoderFallback.MaxCharCount;
@@ -689,6 +694,17 @@ namespace CsharpcCoreLib
                     scalar = 0x10000 + ((u - 0xD800) << 10) + (u2 - 0xDC00);
                     return 4;
                 }
+                case EncodingImpl.CodecUtf32LE:
+                case EncodingImpl.CodecUtf32BE:
+                {
+                    if (available < 4) return final ? -available : 0;
+                    uint u = codec == EncodingImpl.CodecUtf32BE
+                        ? ((uint)bytes[i] << 24) | ((uint)bytes[i + 1] << 16) | ((uint)bytes[i + 2] << 8) | bytes[i + 3]
+                        : bytes[i] | ((uint)bytes[i + 1] << 8) | ((uint)bytes[i + 2] << 16) | ((uint)bytes[i + 3] << 24);
+                    if (u > 0x10FFFF || (u >= 0xD800 && u <= 0xDFFF)) return -4;
+                    scalar = (int)u;
+                    return 4;
+                }
                 case EncodingImpl.CodecAscii:
                     if (bytes[i] < 0x80) { scalar = bytes[i]; return 1; }
                     return -1;
@@ -709,6 +725,9 @@ namespace CsharpcCoreLib
                 case EncodingImpl.CodecUtf16LE:
                 case EncodingImpl.CodecUtf16BE:
                     return surrogate ? -1 : scalar < 0x10000 ? 2 : 4;
+                case EncodingImpl.CodecUtf32LE:
+                case EncodingImpl.CodecUtf32BE:
+                    return surrogate ? -1 : 4;
                 case EncodingImpl.CodecAscii:
                     return scalar < 0x80 ? 1 : -1;
                 default:
@@ -745,6 +764,11 @@ namespace CsharpcCoreLib
                     }
                     break;
                 }
+                case EncodingImpl.CodecUtf32LE:
+                case EncodingImpl.CodecUtf32BE:
+                    for (int k = 0; k < 4; k++)
+                        dest[k] = (byte)(scalar >> (codec == EncodingImpl.CodecUtf32BE ? 24 - 8 * k : 8 * k));
+                    break;
                 default:
                     dest[0] = (byte)scalar;
                     break;
@@ -1350,6 +1374,53 @@ namespace CsharpcCoreLib
 
         public override int GetHashCode() =>
             CodePage + EncoderFallback.GetHashCode() + DecoderFallback.GetHashCode() + (_byteOrderMark ? 4 : 0) + (_bigEndian ? 8 : 0);
+    }
+
+    [Shadows("System.Text.UTF32Encoding")]
+    public unsafe class UTF32EncodingImpl : EncodingImpl
+    {
+        private readonly bool _bigEndian, _byteOrderMark, _isThrowException;
+
+        public UTF32EncodingImpl() : this(false, true) { }
+
+        public UTF32EncodingImpl(bool bigEndian, bool byteOrderMark) : base(bigEndian ? 12001 : 12000)
+        {
+            _bigEndian = bigEndian;
+            _byteOrderMark = byteOrderMark;
+            _codec = bigEndian ? CodecUtf32BE : CodecUtf32LE;
+        }
+
+        public UTF32EncodingImpl(bool bigEndian, bool byteOrderMark, bool throwOnInvalidCharacters) : this(bigEndian, byteOrderMark)
+        {
+            _isThrowException = throwOnInvalidCharacters;
+            if (_isThrowException) SetDefaultFallbacks();
+        }
+
+        internal override void SetDefaultFallbacks()
+        {
+            if (_isThrowException)
+            {
+                encoderFallback = EncoderFallback.ExceptionFallback;
+                decoderFallback = DecoderFallback.ExceptionFallback;
+            }
+            else
+            {
+                encoderFallback = new EncoderReplacementFallback("�");
+                decoderFallback = new DecoderReplacementFallback("�");
+            }
+        }
+
+        public override byte[] GetPreamble() =>
+            !_byteOrderMark ? [] : _bigEndian ? [0x00, 0x00, 0xFE, 0xFF] : [0xFF, 0xFE, 0x00, 0x00];
+
+        public override ReadOnlySpan<byte> Preamble => GetPreamble();
+
+        public override bool Equals(object value) =>
+            value is UTF32EncodingImpl that && _bigEndian == that._bigEndian && _byteOrderMark == that._byteOrderMark
+            && EncoderFallback.Equals(that.EncoderFallback) && DecoderFallback.Equals(that.DecoderFallback);
+
+        public override int GetHashCode() =>
+            EncoderFallback.GetHashCode() + DecoderFallback.GetHashCode() + CodePage + (_byteOrderMark ? 4 : 0) + (_bigEndian ? 8 : 0);
     }
 
     [Shadows("System.Text.ASCIIEncoding")]
