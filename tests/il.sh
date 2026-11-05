@@ -109,6 +109,24 @@ if [[ -z "$FILTER" || "IlApp" == *"$FILTER"* ]]; then
   else echo "FAIL IlApp: csharpc IlApp.dll"; sed 's/^/     /' "$WORK/log" | head; fail=$((fail+1)); fi
 fi
 
+# 3b2. A self-contained build as IL: the framework's implementation assemblies sit next to the app and are
+#      not references (deps.json's runtime pack); csharpc binds and compiles its own framework instead.
+if [[ -z "$FILTER" || "IlSelfContainedApp" == *"$FILTER"* ]]; then
+  case "$(uname -s)-$(uname -m)" in
+    Darwin-arm64) rid=osx-arm64 ;; Darwin-*) rid=osx-x64 ;; MINGW*|MSYS*|CYGWIN*) rid=win-x64 ;;
+    Linux-aarch64|Linux-arm64) rid=linux-arm64 ;; *) rid=linux-x64 ;;
+  esac
+  sc="$WORK/il-selfcontained/IlSelfContainedApp"
+  mkdir -p "$WORK/il-selfcontained" && cp -r "$ROOT/tests/projects/il-selfcontained/IlSelfContainedApp" "$sc"
+  (cd "$sc" && "$DOTNET" run -v quiet -p:IlRid="$rid" 2>/dev/null) > "$WORK/expected"
+  rm -rf "$sc/bin" "$sc/obj"
+  if "$DOTNET" build "$sc/IlSelfContainedApp.csproj" -c Release -p:IlRid="$rid" -o "$WORK/scmain" -v quiet -nologo > "$WORK/log" 2>&1 \
+     && [[ -f "$WORK/scmain/System.Private.CoreLib.dll" ]] \
+     && "$DOTNET" "$CSHARPC_DLL" "$WORK/scmain/IlSelfContainedApp.dll" -O0 -o "$WORK/scmain-exe/" > "$WORK/log" 2>&1; then
+    "$WORK/scmain-exe/IlSelfContainedApp" > "$WORK/actual" 2>&1; check "IlSelfContainedApp: csharpc IlSelfContainedApp.dll (a self-contained build)" "$WORK/expected" "$WORK/actual"
+  else echo "FAIL IlSelfContainedApp: csharpc IlSelfContainedApp.dll"; sed 's/^/     /' "$WORK/log" | head; fail=$((fail+1)); fi
+fi
+
 # 3c. A web app as IL: its runtimeconfig.json lists Microsoft.AspNetCore.App, which csharpc references as the
 #     host would load it (no --framework).
 if [[ -z "$FILTER" || "IlAspNetCoreApp" == *"$FILTER"* ]]; then

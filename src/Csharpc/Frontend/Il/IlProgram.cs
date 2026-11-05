@@ -2,6 +2,7 @@ using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 using System.Text.Json;
+using Microsoft.CodeAnalysis;
 
 namespace Csharpc.Frontend.Il;
 
@@ -62,7 +63,9 @@ public sealed record IlProgram
     /// <summary>
     /// The assemblies the program references that sit next to it (ProjectReference and package outputs that
     /// `dotnet build` copies there, transitively): the host loads those from the app directory, so they are
-    /// compiled from IL like `-r` references. Framework assemblies are not in the app directory.
+    /// compiled from IL like `-r` references. A framework-dependent app has no framework assemblies there;
+    /// a self-contained (or RID-specific) one does, and those are not references: csharpc binds the
+    /// framework it targets and compiles its own corelib, as NativeAOT gets its framework from the runtime pack.
     /// </summary>
     public required IReadOnlyList<string> AppLocalAssemblies { get; init; }
 
@@ -71,6 +74,8 @@ public sealed record IlProgram
         var directory = System.IO.Path.GetDirectoryName(path)!;
         List<string> found = [];
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { System.IO.Path.GetFileNameWithoutExtension(path) };
+        // Framework assemblies are skipped as if already seen.
+        foreach (var framework in FrameworkAssemblies(path, directory)) seen.Add(framework);
         var queue = new Queue<MetadataReader>();
         queue.Enqueue(main);
         List<PEReader> opened = [];
@@ -92,6 +97,40 @@ public sealed record IlProgram
         }
         finally { foreach (var pe in opened) pe.Dispose(); }
         return found;
+    }
+
+    /// <summary>
+    /// The simple names of the framework assemblies copied next to a self-contained app: the runtime pack's
+    /// entries in its deps.json (`type: runtimepack`), or, without one, the reference pack's names plus the
+    /// System.Private.* implementation assemblies when the directory holds System.Private.CoreLib.dll.
+    /// </summary>
+    private static HashSet<string> FrameworkAssemblies(string path, string directory)
+    {
+        var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var deps = System.IO.Path.ChangeExtension(path, ".deps.json");
+        if (File.Exists(deps))
+        {
+            try
+            {
+                using var document = JsonDocument.Parse(File.ReadAllText(deps), new JsonDocumentOptions { CommentHandling = JsonCommentHandling.Skip, AllowTrailingCommas = true });
+                if (document.RootElement.TryGetProperty("targets", out var targets) && targets.ValueKind == JsonValueKind.Object)
+                    foreach (var target in targets.EnumerateObject())
+                        foreach (var library in target.Value.EnumerateObject())
+                            if (library.Value.ValueKind == JsonValueKind.Object && library.Value.TryGetProperty("type", out var type) && type.GetString() == "runtimepack"
+                                && library.Value.TryGetProperty("runtime", out var runtime) && runtime.ValueKind == JsonValueKind.Object)
+                                foreach (var file in runtime.EnumerateObject())
+                                    names.Add(System.IO.Path.GetFileNameWithoutExtension(file.Name));
+            }
+            catch (JsonException) { /* a malformed deps.json says nothing; the fallback below still applies */ }
+        }
+        if (names.Count == 0 && File.Exists(System.IO.Path.Combine(directory, "System.Private.CoreLib.dll")))
+        {
+            foreach (var reference in RoslynFrontend.ReferenceAssemblies().OfType<PortableExecutableReference>())
+                if (reference.FilePath is { } file) names.Add(System.IO.Path.GetFileNameWithoutExtension(file));
+            foreach (var file in Directory.EnumerateFiles(directory, "System.Private.*.dll"))
+                names.Add(System.IO.Path.GetFileNameWithoutExtension(file));
+        }
+        return names;
     }
 
     /// <summary>
