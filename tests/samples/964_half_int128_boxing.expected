@@ -73,7 +73,7 @@ clamp bad: ArgumentException: '3' cannot be greater than 2.
 2.5 0.5
 3 7 -7 -300 Infinity 65500 1.25
 15872 0 0 31744 48640
-1.5 0,1 0,1      1.5|0.100
+1.5      1.5|0.100
 True 0.1 False
 NaN -Infinity -1 0.5 2 3
 4

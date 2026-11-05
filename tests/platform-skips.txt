@@ -92,6 +92,7 @@ windows 376_boxed_datetime_composite   live: culture data comes from the OS's IC
 # errno numbers, no time zone database. Never "live": there is no .NET for plain WASI to record with.
 windows 967_thread_apartment_state     COM apartments exist on Windows: .NET sets STA/MTA there instead of throwing PlatformNotSupportedException
 wasi 967_thread_apartment_state        needs threads: Thread.Start throws PlatformNotSupportedException on WebAssembly
+wasi 969_half_culture_formatting     needs a named culture: WebAssembly runs in globalization-invariant mode, where "de-DE" is a CultureNotFoundException
 wasi 120_threads                  needs threads: Thread.Start throws PlatformNotSupportedException on WebAssembly
 wasi 121_locks_interlocked        needs threads: Thread.Start throws PlatformNotSupportedException on WebAssembly
 wasi 123_monitor_wait_pulse       needs threads: Thread.Start throws PlatformNotSupportedException on WebAssembly

@@ -108,7 +108,7 @@ class Program
         Half fromInt = (Half)3; Half fromByte = (byte)7; Half fromSByte = (sbyte)(-7);
         Console.WriteLine(fromInt + " " + fromByte + " " + fromSByte + " " + (Half)(short)(-300) + " " + (Half)12345678L + " " + (Half)65504UL + " " + (Half)(decimal)1.25);
         Console.WriteLine(((Half)1.5f).GetHashCode() + " " + ((Half)0).GetHashCode() + " " + Half.NegativeZero.GetHashCode() + " " + Half.NaN.GetHashCode() + " " + ((Half)(-1.5f)).GetHashCode());
-        Console.WriteLine(a.ToString("F1") + " " + b.ToString(CultureInfo.GetCultureInfo("de-DE")) + " " + b.ToString("G", CultureInfo.GetCultureInfo("fr-FR")) + " " + $"{a,8}|{b:F3}");
+        Console.WriteLine(a.ToString("F1") + " " + $"{a,8}|{b:F3}");
         Span<char> buffer = stackalloc char[16];
         Console.WriteLine(b.TryFormat(buffer, out int written, "G", CultureInfo.InvariantCulture) + " " + buffer.Slice(0, written).ToString() + " " + b.TryFormat(buffer.Slice(0, 2), out written));
         var sorted = new List<Half> { (Half)3, Half.NaN, (Half)(-1), (Half)2, Half.NegativeInfinity, (Half)0.5f };
