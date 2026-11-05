@@ -38,7 +38,7 @@ programs = sorted(
 if args.filters:
     programs = [p for p in programs if any(f in p for f in args.filters)]
 
-env = dict(os.environ, DOTNET_CLI_TELEMETRY_OPTOUT="1", DOTNET_NOLOGO="1")
+env = dict(os.environ, DOTNET_CLI_TELEMETRY_OPTOUT="1", DOTNET_NOLOGO="1", NuGetAudit="false")
 WINDOWS = os.name == "nt"
 HOST_OS = "windows" if WINDOWS else "macos" if sys.platform == "darwin" else "linux"
 # Culture (tests/platform.sh): the recordings come from Linux with the C locale, so the current culture is
