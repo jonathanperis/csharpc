@@ -196,36 +196,33 @@ public sealed class IlAssembly : IDisposable, ISignatureTypeProvider<IlType, IlG
     /// </summary>
     public IEnumerable<(string BaseName, string Key, string Value)> ReadStringResources()
     {
-        if (Pe.PEHeaders.CorHeader is not { } cor || cor.ResourcesDirectory.Size == 0) yield break;
-        var directory = Pe.GetSectionData(cor.ResourcesDirectory.RelativeVirtualAddress);
-        foreach (var handle in Reader.ManifestResources)
+        foreach (var (name, bytes) in ReadManifestResources())
+            foreach (var entry in StringResources(name, bytes, $"{Name}.dll")) yield return entry;
+    }
+
+    /// <summary>The string entries of one embedded resource, when it is a `.resources` file (others: none).</summary>
+    public static IEnumerable<(string BaseName, string Key, string Value)> StringResources(string name, byte[] bytes, string owner)
+    {
+        if (!name.EndsWith(".resources", StringComparison.Ordinal)) yield break;
+        List<(string, string, string)> entries = [];
+        try
         {
-            var resource = Reader.GetManifestResource(handle);
-            if (!resource.Implementation.IsNil) continue; // linked or in another assembly
-            var name = Reader.GetString(resource.Name);
-            if (!name.EndsWith(".resources", StringComparison.Ordinal)) continue;
-            var block = directory.GetReader((int)resource.Offset, directory.Length - (int)resource.Offset);
-            var bytes = block.ReadBytes(block.ReadInt32());
-            List<(string, string, string)> entries = [];
-            try
+            using var reader = new System.Resources.ResourceReader(new MemoryStream(bytes));
+            var e = reader.GetEnumerator();
+            while (e.MoveNext())
             {
-                using var reader = new System.Resources.ResourceReader(new MemoryStream(bytes));
-                var e = reader.GetEnumerator();
-                while (e.MoveNext())
-                {
-                    var key = (string)e.Key;
-                    reader.GetResourceData(key, out var type, out var data);
-                    if (type != "ResourceTypeCode.String") continue;
-                    using var value = new BinaryReader(new MemoryStream(data));
-                    entries.Add((name[..^".resources".Length], key, value.ReadString()));
-                }
+                var key = (string)e.Key;
+                reader.GetResourceData(key, out var type, out var data);
+                if (type != "ResourceTypeCode.String") continue;
+                using var value = new BinaryReader(new MemoryStream(data));
+                entries.Add((name[..^".resources".Length], key, value.ReadString()));
             }
-            catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or IOException or ArgumentException or FormatException)
-            {
-                throw new IlException($"embedded resource '{name}' of {Name}.dll is not in the .resources format: {ex.Message}");
-            }
-            foreach (var entry in entries) yield return entry;
         }
+        catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or IOException or ArgumentException or FormatException)
+        {
+            throw new IlException($"embedded resource '{name}' of {owner} is not in the .resources format: {ex.Message}");
+        }
+        foreach (var entry in entries) yield return entry;
     }
 
     public void Dispose() => Pe.Dispose();

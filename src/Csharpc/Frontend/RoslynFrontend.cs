@@ -380,6 +380,11 @@ public sealed record FrontendSettings
     /// </summary>
     public IReadOnlyList<KeyValuePair<string, string>> RuntimeConfig { get; init; } = [];
     /// <summary>
+    /// The files the projects embed as manifest resources (EmbeddedResource items: .resx already converted to
+    /// .resources by the SDK's GenerateResource, as csc's /resource: arguments name them).
+    /// </summary>
+    public IReadOnlyList<ProgramResource> EmbeddedResources { get; init; } = [];
+    /// <summary>
     /// How `dotnet build` would compile and describe the program (stack-trace names and lines);
     /// null for single files, decided by the configuration (`dotnet run app.cs`).
     /// </summary>
@@ -407,6 +412,9 @@ public sealed record DebugSymbolSettings
 }
 
 /// <summary>One project's own compilation settings (projects keep them when folded into one program).</summary>
+/// <summary>A file a project embeds in its assembly: the owning assembly, the manifest resource name, the file.</summary>
+public sealed record ProgramResource(string Assembly, string Name, string Path);
+
 public sealed record ProjectUnit
 {
     public required string ProjectPath { get; init; }
