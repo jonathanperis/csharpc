@@ -1080,13 +1080,60 @@ public sealed partial class ModuleCodeGen
         };
         public bool IsSystemType(ITypeSymbol type) => type.ToDisplayString() == "System.Type";
 
-        // "Ns.Type, Assembly, ..." / "Ns.Outer+Inner": the type by its CLR name.
+        // CLR type names: "Ns.Type, Assembly, ...", "Ns.Outer+Inner", "Ns.Generic`1[[System.String, System.Runtime, ...]]"
+        // (type arguments are bracketed assembly-qualified names, themselves possibly generic) and "T[]" / "T[,]".
         private ITypeSymbol? ResolveSerialized(string name)
         {
-            var comma = name.IndexOf(',');
-            var typeName = (comma < 0 ? name : name[..comma]).Trim();
-            if (typeName.Contains('[')) return null;
-            return m.Compilation.GetTypeByMetadataName(typeName) ?? il.Compilation.GetTypeByMetadataName(typeName);
+            var position = 0;
+            return ParseSerialized(name, ref position, nested: false);
+        }
+
+        private ITypeSymbol? ParseSerialized(string s, ref int pos, bool nested)
+        {
+            var start = pos;
+            while (pos < s.Length && s[pos] != '[' && s[pos] != ',' && s[pos] != ']') pos++;
+            var typeName = s[start..pos].Trim();
+            List<ITypeSymbol> arguments = [];
+            List<int> ranks = [];
+            while (pos < s.Length && s[pos] == '[')
+            {
+                if (pos + 1 < s.Length && s[pos + 1] == '[')
+                {
+                    pos++; // the list's '['; each argument is "[type, assembly]"
+                    while (true)
+                    {
+                        if (pos >= s.Length || s[pos] != '[') return null;
+                        pos++;
+                        if (ParseSerialized(s, ref pos, nested: true) is not { } argument) return null;
+                        if (pos >= s.Length || s[pos] != ']') return null;
+                        pos++;
+                        arguments.Add(argument);
+                        if (pos < s.Length && s[pos] == ',') { pos++; continue; }
+                        break;
+                    }
+                    if (pos >= s.Length || s[pos] != ']') return null;
+                    pos++;
+                }
+                else
+                {
+                    var close = s.IndexOf(']', pos);
+                    if (close < 0) return null;
+                    ranks.Add(s[pos..close].Count(c => c == ',') + 1);
+                    pos = close + 1;
+                }
+            }
+            // ", Assembly, Version=..., Culture=..., PublicKeyToken=...": not needed to find the type
+            if (pos < s.Length && s[pos] == ',')
+                while (pos < s.Length && (!nested || s[pos] != ']')) pos++;
+            if ((m.Compilation.GetTypeByMetadataName(typeName) ?? il.Compilation.GetTypeByMetadataName(typeName)) is not { } definition) return null;
+            ITypeSymbol type = definition;
+            if (arguments.Count > 0)
+            {
+                if (definition.Arity != arguments.Count) return null;
+                type = definition.Construct([.. arguments]);
+            }
+            foreach (var rank in ranks) type = m.Compilation.CreateArrayTypeSymbol(type, rank);
+            return type;
         }
     }
 
