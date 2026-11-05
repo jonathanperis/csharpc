@@ -305,6 +305,15 @@ public sealed partial class FunctionCodeGen
             INamedTypeSymbol n => n.ToDisplayString() switch
             {
                 "System.TimeSpan" => "TimeSpanConverter",
+                "System.Int128" => "Int128Converter",
+                "System.UInt128" => "UInt128Converter",
+                "System.Half" or CoreLib.Namespace + ".HalfImpl" => "HalfConverter",
+                "System.DateOnly" or CoreLib.Namespace + ".DateOnlyImpl" => "DateOnlyConverter",
+                "System.TimeOnly" or CoreLib.Namespace + ".TimeOnlyImpl" => "TimeOnlyConverter",
+                "System.Uri" or CoreLib.Namespace + ".UriImpl" => "UriConverter",
+                "System.Version" or CoreLib.Namespace + ".VersionImpl" => "VersionConverter",
+                "System.ReadOnlyMemory<byte>" => "ReadOnlyMemoryByteConverter",
+                "System.Memory<byte>" => "MemoryByteConverter",
                 "System.DateTimeOffset" or CoreLib.Namespace + ".DateTimeOffsetImpl" => "DateTimeOffsetConverter",
                 "System.Text.Json.JsonElement" or CoreLib.Namespace + ".JsonElementImpl" => "JsonElementConverter",
                 "System.Text.Json.JsonDocument" or CoreLib.Namespace + ".JsonDocumentImpl" => "JsonDocumentConverter",

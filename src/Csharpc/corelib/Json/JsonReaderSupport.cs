@@ -147,7 +147,7 @@ namespace CsharpcCoreLib
 
     internal enum NumericType
     {
-        Byte, SByte, Int16, Int32, Int64, UInt16, UInt32, UInt64, Single, Double, Decimal,
+        Byte, SByte, Int16, Int32, Int64, UInt16, UInt32, UInt64, Single, Double, Decimal, Int128, UInt128,
     }
 
     internal enum DataType
@@ -288,6 +288,8 @@ namespace CsharpcCoreLib
                 case NumericType.UInt64: return "UInt64";
                 case NumericType.Single: return "Single";
                 case NumericType.Double: return "Double";
+                case NumericType.Int128: return "Int128";
+                case NumericType.UInt128: return "UInt128";
                 default: return "Decimal";
             }
         }

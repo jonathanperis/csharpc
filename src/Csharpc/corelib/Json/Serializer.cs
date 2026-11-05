@@ -711,6 +711,15 @@ namespace CsharpcCoreLib
             if (type == typeof(DateTimeOffset)) return JsonMetadataServicesImpl.DateTimeOffsetConverter;
             if (type == typeof(TimeSpan)) return JsonMetadataServicesImpl.TimeSpanConverter;
             if (type == typeof(byte[])) return JsonMetadataServicesImpl.ByteArrayConverter;
+            if (type == typeof(Int128)) return JsonMetadataServicesImpl.Int128Converter;
+            if (type == typeof(UInt128)) return JsonMetadataServicesImpl.UInt128Converter;
+            if (type == typeof(Half)) return JsonMetadataServicesImpl.HalfConverter;
+            if (type == typeof(DateOnly)) return JsonMetadataServicesImpl.DateOnlyConverter;
+            if (type == typeof(TimeOnly)) return JsonMetadataServicesImpl.TimeOnlyConverter;
+            if (type == typeof(Uri)) return JsonMetadataServicesImpl.UriConverter;
+            if (type == typeof(Version)) return JsonMetadataServicesImpl.VersionConverter;
+            if (type == typeof(ReadOnlyMemory<byte>)) return JsonMetadataServicesImpl.ReadOnlyMemoryByteConverter;
+            if (type == typeof(Memory<byte>)) return JsonMetadataServicesImpl.MemoryByteConverter;
             if (type == typeof(object)) return JsonMetadataServicesImpl.ObjectConverter;
             if (type == typeof(JsonElement)) return JsonMetadataServicesImpl.JsonElementConverter;
             if (type == typeof(JsonDocument)) return JsonMetadataServicesImpl.JsonDocumentConverter;

@@ -1042,6 +1042,25 @@ namespace CsharpcCoreLib
         public static JsonConverterImpl<System.Text.Json.Nodes.JsonArray> JsonArrayConverter => s_jsonArray ??= new JsonNodeSubtypeConverter<System.Text.Json.Nodes.JsonArray>();
         public static JsonConverterImpl<System.Text.Json.Nodes.JsonValue> JsonValueConverter => s_jsonValue ??= new JsonNodeSubtypeConverter<System.Text.Json.Nodes.JsonValue>();
 
+        private static JsonConverterImpl<Int128> s_int128;
+        private static JsonConverterImpl<UInt128> s_uint128;
+        private static JsonConverterImpl<Half> s_half;
+        private static JsonConverterImpl<DateOnly> s_dateOnly;
+        private static JsonConverterImpl<TimeOnly> s_timeOnly;
+        private static JsonConverterImpl<Uri> s_uri;
+        private static JsonConverterImpl<Version> s_version;
+        private static JsonConverterImpl<ReadOnlyMemory<byte>> s_readOnlyMemoryByte;
+        private static JsonConverterImpl<Memory<byte>> s_memoryByte;
+        public static JsonConverterImpl<Int128> Int128Converter => s_int128 ??= new Int128Converter();
+        public static JsonConverterImpl<UInt128> UInt128Converter => s_uint128 ??= new UInt128Converter();
+        public static JsonConverterImpl<Half> HalfConverter => s_half ??= new HalfConverter();
+        public static JsonConverterImpl<DateOnly> DateOnlyConverter => s_dateOnly ??= new DateOnlyConverter();
+        public static JsonConverterImpl<TimeOnly> TimeOnlyConverter => s_timeOnly ??= new TimeOnlyConverter();
+        public static JsonConverterImpl<Uri> UriConverter => s_uri ??= new UriConverter();
+        public static JsonConverterImpl<Version> VersionConverter => s_version ??= new VersionConverter();
+        public static JsonConverterImpl<ReadOnlyMemory<byte>> ReadOnlyMemoryByteConverter => s_readOnlyMemoryByte ??= new ReadOnlyMemoryByteConverter();
+        public static JsonConverterImpl<Memory<byte>> MemoryByteConverter => s_memoryByte ??= new MemoryByteConverter();
+
         public static JsonConverterImpl<T> GetUnsupportedTypeConverter<T>() => new UnsupportedTypeConverter<T>();
 
         public static JsonConverterImpl<T> GetEnumConverter<T>(JsonSerializerOptionsImpl options) where T : struct, Enum
@@ -1215,6 +1234,12 @@ namespace CsharpcCoreLib
         public static JsonTypeInfoImpl<TCollection> CreateIReadOnlySetInfo<TCollection, TElement>(JsonSerializerOptionsImpl options, JsonCollectionInfoValuesImpl<TCollection> collectionInfo)
             where TCollection : IReadOnlySet<TElement> =>
             Collection(options, collectionInfo, new IEnumerableOfTConverter<TCollection, TElement>());
+
+        public static JsonTypeInfoImpl<ReadOnlyMemory<TElement>> CreateReadOnlyMemoryInfo<TElement>(JsonSerializerOptionsImpl options, JsonCollectionInfoValuesImpl<ReadOnlyMemory<TElement>> collectionInfo) =>
+            Collection(options, collectionInfo, new ReadOnlyMemoryConverter<TElement>());
+
+        public static JsonTypeInfoImpl<Memory<TElement>> CreateMemoryInfo<TElement>(JsonSerializerOptionsImpl options, JsonCollectionInfoValuesImpl<Memory<TElement>> collectionInfo) =>
+            Collection(options, collectionInfo, new MemoryConverter<TElement>());
 
         public static JsonTypeInfoImpl<TCollection> CreateQueueInfo<TCollection, TElement>(JsonSerializerOptionsImpl options, JsonCollectionInfoValuesImpl<TCollection> collectionInfo)
             where TCollection : Queue<TElement> =>
