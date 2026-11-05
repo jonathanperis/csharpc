@@ -184,7 +184,9 @@ public static class SourceGenerators
     /// <summary>
     /// The JSON source generator emits reflection lambdas (`AttributeProviderFactory = static () =>
     /// typeof(T).GetProperty(...)`) that System.Text.Json only invokes when a program inspects
-    /// JsonPropertyInfo.AttributeProvider. csharpc has no run-time reflection, so they become null.
+    /// JsonPropertyInfo.AttributeProvider. csharpc keeps reflection metadata only where a program needs it, so they
+    /// become null: except for a member marked [Obsolete], whose factory stays because JsonSchemaExporter reads it
+    /// to write `"deprecated": true`.
     /// </summary>
     private static CSharpCompilation DropReflectionOnlyMetadata(CSharpCompilation before, CSharpCompilation after)
     {
@@ -197,11 +199,29 @@ public static class SourceGenerators
                 .Where(a => a.Left is Microsoft.CodeAnalysis.CSharp.Syntax.IdentifierNameSyntax { Identifier.ValueText: "AttributeProviderFactory" or "ConstructorAttributeProviderFactory" })
                 .ToList();
             if (assignments.Count == 0) continue;
-            var newRoot = root.ReplaceNodes(assignments.Select(a => a.Right),
+            var model = after.GetSemanticModel(tree);
+            var keep = assignments
+                .Where(a => ((Microsoft.CodeAnalysis.CSharp.Syntax.IdentifierNameSyntax)a.Left).Identifier.ValueText == "AttributeProviderFactory" && IsObsoleteMemberLookup(a.Right, model))
+                .Select(a => a.Right).ToHashSet();
+            var newRoot = root.ReplaceNodes(assignments.Select(a => a.Right).Where(r => !keep.Contains(r)),
                 (_, _) => SyntaxFactory.LiteralExpression(SyntaxKind.NullLiteralExpression));
             after = after.ReplaceSyntaxTree(tree, tree.WithRootAndOptions(newRoot, tree.Options));
         }
         return after;
+    }
+
+    /// <summary>`static () => typeof(T).GetProperty("Name", ...)` / GetField: does T declare that member with [Obsolete]?</summary>
+    private static bool IsObsoleteMemberLookup(Microsoft.CodeAnalysis.CSharp.Syntax.ExpressionSyntax factory, SemanticModel model)
+    {
+        var call = factory.DescendantNodesAndSelf().OfType<Microsoft.CodeAnalysis.CSharp.Syntax.InvocationExpressionSyntax>().FirstOrDefault();
+        if (call is not { Expression: Microsoft.CodeAnalysis.CSharp.Syntax.MemberAccessExpressionSyntax { Name.Identifier.ValueText: "GetProperty" or "GetField" } access } ||
+            access.Expression is not Microsoft.CodeAnalysis.CSharp.Syntax.TypeOfExpressionSyntax typeOf ||
+            call.ArgumentList.Arguments.Count == 0 ||
+            call.ArgumentList.Arguments[0].Expression is not Microsoft.CodeAnalysis.CSharp.Syntax.LiteralExpressionSyntax { Token.Value: string name } ||
+            model.GetTypeInfo(typeOf.Type).Type is not { } type)
+            return false;
+        return type.GetMembers(name).Any(m => m is IPropertySymbol or IFieldSymbol &&
+            m.GetAttributes().Any(a => a.AttributeClass is { Name: "ObsoleteAttribute", ContainingNamespace.Name: "System" }));
     }
 
     /// <summary>packs/Microsoft.NETCore.App.Ref/&lt;version&gt;/analyzers/dotnet/cs of the SDK csharpc runs on.</summary>

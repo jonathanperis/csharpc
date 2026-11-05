@@ -1,0 +1,66 @@
+{"type":["object","null"],"properties":{"X":{"type":"integer","description":"the X"},"Y":{"type":"integer","description":"the Y"}},"required":["X","Y"]}
+int: {"type":"integer"}
+bool: {"type":"boolean"}
+string: {"type":["string","null"]}
+char: {"type":"string","minLength":1,"maxLength":1}
+double: {"type":"number"}
+decimal: {"type":"number"}
+byte: {"type":"integer"}
+sbyte: {"type":"integer"}
+short: {"type":"integer"}
+ushort: {"type":"integer"}
+uint: {"type":"integer"}
+long: {"type":"integer"}
+ulong: {"type":"integer"}
+float: {"type":"number"}
+DateTime: {"type":"string","format":"date-time"}
+DateTimeOffset: {"type":"string","format":"date-time"}
+TimeSpan: {"$comment":"Represents a System.TimeSpan value.","type":"string","pattern":"^-?(\\d\u002B\\.)?\\d{2}:\\d{2}:\\d{2}(\\.\\d{1,7})?$"}
+Guid: {"type":"string","format":"uuid"}
+byte[]: {"type":["string","null"],"contentEncoding":"base64"}
+object: true
+JsonElement: true
+JsonNode: true
+int?: {"type":["integer","null"]}
+Color: {"type":"integer"}
+Color?: {"type":["integer","null"]}
+Shade: {"enum":["Light","Dark"]}
+Flags: {"type":"integer"}
+int[]: {"type":["array","null"],"items":{"type":"integer"}}
+List<string>: {"type":["array","null"],"items":{"type":["string","null"]}}
+Dictionary<string,int>: {"type":["object","null"],"additionalProperties":{"type":"integer"}}
+List<Point>: {"type":["array","null"],"items":{"type":["object","null"],"properties":{"X":{"type":"integer"},"Y":{"type":"integer"}},"required":["X","Y"]}}
+Point: {"type":["object","null"],"properties":{"X":{"type":"integer"},"Y":{"type":"integer"}},"required":["X","Y"]}
+Profile: {"type":["object","null"],"properties":{"Name":{"type":"string"},"Nickname":{"type":["string","null"]},"Age":{"type":"integer"},"Score":{"type":["integer","null"]},"Tags":{"type":"array","items":{"type":["string","null"]}},"Favorite":{"type":"integer"},"Id":{"type":"string"},"Legacy":{"type":["string","null"],"deprecated":true},"e-mail":{"type":["string","null"]},"Created":{"type":"string","format":"date-time"},"Key":{"type":"string","format":"uuid"}},"required":["Id"]}
+Account: {"type":["object","null"],"properties":{"Name":{"type":"string"},"Level":{"type":"integer","default":3},"Note":{"type":["string","null"],"default":null}},"required":["Name"]}
+Tree: {"type":["object","null"],"properties":{"Label":{"type":["string","null"]},"Left":{"type":["object","null"],"properties":{"Label":{"type":["string","null"]},"Left":{"$ref":"#/properties/Left"},"Right":{"type":["object","null"],"properties":{"Label":{"type":["string","null"]},"Left":{"$ref":"#/properties/Left"},"Right":{"$ref":"#/properties/Left/properties/Right"},"Children":{"type":"array","items":{"$ref":"#"}}}},"Children":{"$ref":"#/properties/Left/properties/Right/properties/Children"}}},"Right":{"$ref":"#/properties/Left/properties/Right"},"Children":{"$ref":"#/properties/Left/properties/Right/properties/Children"}}}
+Shape: {"type":["object","null"],"required":["kind"],"anyOf":[{"properties":{"kind":{"const":"circle"},"Radius":{"type":"number"},"Name":{"type":["string","null"]}}},{"properties":{"kind":{"const":"square"},"Side":{"type":"number"},"Name":{"type":["string","null"]}}}]}
+Opaque: true
+Strict: InvalidOperationException: The type 'Strict' is marked 'JsonUnmappedMemberHandling.Disallow' which conflicts with extension data property 'Extra'.
+Counts: {"type":["object","null"],"properties":{"A":{"type":["string","integer"],"pattern":"^-?(?:0|[1-9]\\d*)$"},"B":{"type":["string","number"],"pattern":"^-?(?:0|[1-9]\\d*)(?:\\.\\d\u002B)?(?:[eE][\u002B-]?\\d\u002B)?$"},"C":{"type":"array","items":{"type":["string","integer"],"pattern":"^-?(?:0|[1-9]\\d*)$"}}}}
+Sequence: {"type":["array","null"],"items":{"type":["object","null"],"properties":{"X":{"type":"integer"},"Y":{"type":"integer"}},"required":["X","Y"]}}
+Retired: {"type":["object","null"],"properties":{"Value":{"type":"integer"}},"deprecated":true}
+camel Profile: {"type":["object","null"],"properties":{"name":{"type":"string"},"nickname":{"type":["string","null"]},"age":{"type":"integer"},"score":{"type":["integer","null"]},"tags":{"type":"array","items":{"type":["string","null"]}},"favorite":{"type":"integer"},"id":{"type":"string"},"legacy":{"type":["string","null"],"deprecated":true},"e-mail":{"type":["string","null"]},"created":{"type":"string","format":"date-time"},"key":{"type":"string","format":"uuid"}},"required":["id"]}
+oblivious Profile: {"type":"object","properties":{"Name":{"type":"string"},"Nickname":{"type":["string","null"]},"Age":{"type":"integer"},"Score":{"type":["integer","null"]},"Tags":{"type":"array","items":{"type":"string"}},"Favorite":{"type":"integer"},"Id":{"type":"string"},"Legacy":{"type":["string","null"],"deprecated":true},"e-mail":{"type":["string","null"]},"Created":{"type":"string","format":"date-time"},"Key":{"type":"string","format":"uuid"}},"required":["Id"]}
+oblivious string: {"type":"string"}
+typeinfo Point: {"type":["object","null"],"properties":{"X":{"type":"integer"},"Y":{"type":"integer"}},"required":["X","Y"]}
+typeinfo int: {"type":"integer"}
+#/ Tree - -
+#/properties/Children List`1 Children -
+#/properties/Label String Label -
+#/properties/Left Tree Left -
+#/properties/Left/properties/Children List`1 Children -
+#/properties/Left/properties/Label String Label -
+#/properties/Left/properties/Left Tree Left -
+#/properties/Left/properties/Right Tree Right -
+#/properties/Left/properties/Right/properties/Children List`1 Children -
+#/properties/Left/properties/Right/properties/Children/items Tree - -
+#/properties/Left/properties/Right/properties/Label String Label -
+#/properties/Left/properties/Right/properties/Left Tree Left -
+#/properties/Left/properties/Right/properties/Right Tree Right -
+#/properties/Right Tree Right -
+NotSupportedException: JSON schema generation is not supported for contracts using ReferenceHandler.Preserve.
+ArgumentNullException: Value cannot be null. (Parameter 'options')
+ArgumentNullException: Value cannot be null. (Parameter 'type')
+ArgumentNullException: Value cannot be null. (Parameter 'typeInfo')
+unknown type: NotSupportedException: JsonTypeInfo metadata for type 'System.Uri' was not provided by TypeInfoResolver of type 'Ctx'. If using source generation, ensure that all root types passed to the serializer have been annotated with 'JsonSerializableAttribute', along with any types that might be serialized polymorphically.

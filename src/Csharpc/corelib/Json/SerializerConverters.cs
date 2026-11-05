@@ -33,6 +33,15 @@ namespace CsharpcCoreLib
 
         internal virtual JsonTypeInfoKind Kind => JsonTypeInfoKind.None;
 
+        /// <summary>The JSON schema of the values this converter writes, or null for a converter whose shape the exporter can't know.</summary>
+        internal virtual JsonSchema GetSchema(JsonNumberHandling numberHandling) => null;
+
+        /// <summary>For Nullable&lt;T&gt;: the converter of T.</summary>
+        internal virtual JsonConverterImpl NullableElementConverter => null;
+
+        /// <summary>double, float and Half: AllowNamedFloatingPointLiterals adds the "NaN"/"Infinity" strings to their schema.</summary>
+        internal virtual bool IsIeeeFloatingPointConverter => false;
+
         /// <summary>Number handling applies (numeric primitives, their collections, object).</summary>
         internal virtual bool IsNumberHandlingApplicable => false;
 
@@ -427,10 +436,45 @@ namespace CsharpcCoreLib
             throw new NotSupportedException("The type '" + typeof(T).ToString() + "' is not a supported dictionary key using converter of type '" + GetType().ToString() + "'.");
 
         internal static string PropertyNameText(ref Utf8JsonReaderImpl reader) => reader.GetString();
+
+        /// <summary>JsonPrimitiveConverter.GetSchemaForNumericType: numbers, plus strings under AllowReadingFromString/WriteAsString.</summary>
+        internal static JsonSchema GetSchemaForNumericType(JsonSchemaType schemaType, JsonNumberHandling numberHandling, bool isIeeeFloatingPoint = false)
+        {
+            string pattern = null;
+            if ((numberHandling & (JsonNumberHandling.AllowReadingFromString | JsonNumberHandling.WriteAsString)) != 0)
+            {
+                pattern = schemaType == JsonSchemaType.Integer
+                    ? @"^-?(?:0|[1-9]\d*)$"
+                    : isIeeeFloatingPoint
+                        ? @"^-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?$"
+                        : @"^-?(?:0|[1-9]\d*)(?:\.\d+)?$";
+                schemaType |= JsonSchemaType.String;
+            }
+
+            if (isIeeeFloatingPoint && (numberHandling & JsonNumberHandling.AllowNamedFloatingPointLiterals) != 0)
+            {
+                JsonArray names = new JsonArray();
+                names.Add((JsonNode)"NaN");
+                names.Add((JsonNode)"Infinity");
+                names.Add((JsonNode)"-Infinity");
+                return new JsonSchema
+                {
+                    AnyOf = new List<JsonSchema>
+                    {
+                        new JsonSchema { Type = schemaType, Pattern = pattern },
+                        new JsonSchema { Enum = names },
+                    }
+                };
+            }
+
+            return new JsonSchema { Type = schemaType, Pattern = pattern };
+        }
     }
 
     internal sealed class BooleanConverter : JsonPrimitiveConverter<bool>
     {
+        internal override JsonSchema GetSchema(JsonNumberHandling _) => new JsonSchema { Type = JsonSchemaType.Boolean };
+
         public override bool Read(ref Utf8JsonReaderImpl reader, Type typeToConvert, JsonSerializerOptionsImpl options) => reader.GetBoolean();
         public override void Write(Utf8JsonWriterImpl writer, bool value, JsonSerializerOptionsImpl options) => writer.WriteBooleanValue(value);
 
@@ -449,6 +493,9 @@ namespace CsharpcCoreLib
     /// <summary>Integers: number tokens, or strings under AllowReadingFromString/WriteAsString.</summary>
     internal abstract class IntegerConverter<T> : JsonPrimitiveConverter<T>
     {
+        internal override JsonSchema GetSchema(JsonNumberHandling numberHandling) =>
+            GetSchemaForNumericType(typeof(T) == typeof(decimal) ? JsonSchemaType.Number : JsonSchemaType.Integer, numberHandling);
+
         internal override bool IsNumberConverter => true;
 
         protected abstract bool TryGet(ref Utf8JsonReaderImpl reader, out T value);
@@ -580,6 +627,9 @@ namespace CsharpcCoreLib
     /// <summary>double/float: finite numbers only, unless AllowNamedFloatingPointLiterals ("NaN", "Infinity", "-Infinity").</summary>
     internal sealed class DoubleConverter : JsonPrimitiveConverter<double>
     {
+        internal override bool IsIeeeFloatingPointConverter => true;
+        internal override JsonSchema GetSchema(JsonNumberHandling numberHandling) => GetSchemaForNumericType(JsonSchemaType.Number, numberHandling, isIeeeFloatingPoint: true);
+
         internal override bool IsNumberConverter => true;
 
         public override double Read(ref Utf8JsonReaderImpl reader, Type typeToConvert, JsonSerializerOptionsImpl options) => reader.GetDouble();
@@ -635,6 +685,9 @@ namespace CsharpcCoreLib
 
     internal sealed class SingleConverter : JsonPrimitiveConverter<float>
     {
+        internal override bool IsIeeeFloatingPointConverter => true;
+        internal override JsonSchema GetSchema(JsonNumberHandling numberHandling) => GetSchemaForNumericType(JsonSchemaType.Number, numberHandling, isIeeeFloatingPoint: true);
+
         internal override bool IsNumberConverter => true;
 
         public override float Read(ref Utf8JsonReaderImpl reader, Type typeToConvert, JsonSerializerOptionsImpl options) => reader.GetSingle();
@@ -687,6 +740,8 @@ namespace CsharpcCoreLib
 
     internal sealed class StringConverter : JsonPrimitiveConverter<string>
     {
+        internal override JsonSchema GetSchema(JsonNumberHandling _) => new JsonSchema { Type = JsonSchemaType.String };
+
         public override string Read(ref Utf8JsonReaderImpl reader, Type typeToConvert, JsonSerializerOptionsImpl options)
         {
             if (options != null && reader.TokenType == JsonTokenType.Null) return null;
@@ -710,6 +765,8 @@ namespace CsharpcCoreLib
 
     internal sealed class CharConverter : JsonPrimitiveConverter<char>
     {
+        internal override JsonSchema GetSchema(JsonNumberHandling _) => new JsonSchema { Type = JsonSchemaType.String, MinLength = 1, MaxLength = 1 };
+
         public override char Read(ref Utf8JsonReaderImpl reader, Type typeToConvert, JsonSerializerOptionsImpl options)
         {
             if (reader.TokenType != JsonTokenType.String && reader.TokenType != JsonTokenType.PropertyName)
@@ -730,6 +787,8 @@ namespace CsharpcCoreLib
 
     internal sealed class DateTimeConverter : JsonPrimitiveConverter<DateTime>
     {
+        internal override JsonSchema GetSchema(JsonNumberHandling _) => new JsonSchema { Type = JsonSchemaType.String, Format = "date-time" };
+
         public override DateTime Read(ref Utf8JsonReaderImpl reader, Type typeToConvert, JsonSerializerOptionsImpl options)
         {
             if (reader.TokenType != JsonTokenType.String) JsonThrowHelper.ThrowInvalidOperationException_ExpectedString(reader.TokenType);
@@ -751,6 +810,8 @@ namespace CsharpcCoreLib
 
     internal sealed class DateTimeOffsetConverter : JsonPrimitiveConverter<DateTimeOffset>
     {
+        internal override JsonSchema GetSchema(JsonNumberHandling _) => new JsonSchema { Type = JsonSchemaType.String, Format = "date-time" };
+
         public override DateTimeOffset Read(ref Utf8JsonReaderImpl reader, Type typeToConvert, JsonSerializerOptionsImpl options) => reader.GetDateTimeOffset();
 
         public override void Write(Utf8JsonWriterImpl writer, DateTimeOffset value, JsonSerializerOptionsImpl options) => writer.WriteStringValue(value);
@@ -764,6 +825,8 @@ namespace CsharpcCoreLib
 
     internal sealed class GuidConverter : JsonPrimitiveConverter<Guid>
     {
+        internal override JsonSchema GetSchema(JsonNumberHandling _) => new JsonSchema { Type = JsonSchemaType.String, Format = "uuid" };
+
         public override Guid Read(ref Utf8JsonReaderImpl reader, Type typeToConvert, JsonSerializerOptionsImpl options) => reader.GetGuid();
 
         public override void Write(Utf8JsonWriterImpl writer, Guid value, JsonSerializerOptionsImpl options) => writer.WriteStringValue(value);
@@ -780,6 +843,13 @@ namespace CsharpcCoreLib
 
     internal sealed class TimeSpanConverter : JsonPrimitiveConverter<TimeSpan>
     {
+        internal override JsonSchema GetSchema(JsonNumberHandling _) => new JsonSchema
+        {
+            Type = JsonSchemaType.String,
+            Comment = "Represents a System.TimeSpan value.",
+            Pattern = @"^-?(\d+\.)?\d{2}:\d{2}:\d{2}(\.\d{1,7})?$",
+        };
+
         public override TimeSpan Read(ref Utf8JsonReaderImpl reader, Type typeToConvert, JsonSerializerOptionsImpl options)
         {
             if (reader.TokenType != JsonTokenType.String) JsonThrowHelper.ThrowInvalidOperationException_ExpectedString(reader.TokenType);
@@ -807,6 +877,8 @@ namespace CsharpcCoreLib
 
     internal sealed class ByteArrayConverter : JsonConverterImpl<byte[]>
     {
+        internal override JsonSchema GetSchema(JsonNumberHandling _) => new JsonSchema { Type = JsonSchemaType.String, ContentEncoding = "base64" };
+
         internal override bool IsInternalConverter => true;
 
         public override byte[] Read(ref Utf8JsonReaderImpl reader, Type typeToConvert, JsonSerializerOptionsImpl options)
@@ -824,6 +896,8 @@ namespace CsharpcCoreLib
 
     internal sealed class JsonElementConverter : JsonConverterImpl<JsonElement>
     {
+        internal override JsonSchema GetSchema(JsonNumberHandling _) => JsonSchema.CreateTrueSchema();
+
         internal override bool IsInternalConverter => true;
 
         public override JsonElement Read(ref Utf8JsonReaderImpl reader, Type typeToConvert, JsonSerializerOptionsImpl options) =>
@@ -838,6 +912,8 @@ namespace CsharpcCoreLib
 
     internal sealed class JsonDocumentConverter : JsonConverterImpl<JsonDocument>
     {
+        internal override JsonSchema GetSchema(JsonNumberHandling _) => JsonSchema.CreateTrueSchema();
+
         internal override bool IsInternalConverter => true;
 
         public override bool HandleNull => true;
@@ -855,6 +931,8 @@ namespace CsharpcCoreLib
     /// <summary>object: the run-time type's metadata when writing; JsonElement (or JsonNode) when reading.</summary>
     internal sealed class ObjectConverter : JsonConverterImpl<object>
     {
+        internal override JsonSchema GetSchema(JsonNumberHandling _) => JsonSchema.CreateTrueSchema();
+
         internal override bool IsInternalConverter => true;
 
         internal override bool IsNumberHandlingApplicable => true;
@@ -950,6 +1028,9 @@ namespace CsharpcCoreLib
 
     internal sealed class UnsupportedTypeConverter<T> : JsonConverterImpl<T>
     {
+        internal override JsonSchema GetSchema(JsonNumberHandling _) =>
+            new JsonSchema { Comment = "Unsupported .NET type", Not = JsonSchema.CreateTrueSchema() };
+
         internal override bool IsInternalConverter => true;
 
         private NotSupportedException Unsupported() =>
@@ -963,6 +1044,8 @@ namespace CsharpcCoreLib
     /// <summary>A shape csharpc's serializer doesn't implement yet: an explicit NotSupportedException when used.</summary>
     internal sealed class CsharpcUnsupportedConverter<T> : JsonConverterImpl<T>
     {
+        internal override JsonSchema GetSchema(JsonNumberHandling _) => throw Unsupported();
+
         private readonly string _what;
         public CsharpcUnsupportedConverter(string what) { _what = what; }
         internal override bool IsInternalConverter => true;
@@ -975,6 +1058,8 @@ namespace CsharpcCoreLib
     /// <summary>A converter for a type assignable to T, used where a JsonConverter&lt;T&gt; is required.</summary>
     internal sealed class CastingConverter<T> : JsonConverterImpl<T>
     {
+        internal override JsonSchema GetSchema(JsonNumberHandling numberHandling) => _source.GetSchema(numberHandling);
+
         private readonly JsonConverterImpl _source;
 
         public CastingConverter(JsonConverterImpl source) { _source = source; }
@@ -990,6 +1075,8 @@ namespace CsharpcCoreLib
 
     internal sealed class NullableConverter<T> : JsonConverterImpl<T?> where T : struct
     {
+        internal override JsonConverterImpl NullableElementConverter => Element;
+
         private readonly JsonTypeInfoImpl<T> _elementInfo;
         private JsonConverterImpl<T> _elementConverter;
         private readonly JsonSerializerOptionsImpl _options;
@@ -1065,6 +1152,22 @@ namespace CsharpcCoreLib
 
     internal sealed class EnumConverter<T> : JsonPrimitiveConverter<T> where T : struct, Enum
     {
+        internal override JsonSchema GetSchema(JsonNumberHandling numberHandling)
+        {
+            if ((_converterOptions & EnumConverterOptions.AllowStrings) != 0)
+            {
+                // This ignores the integer component of converters configured as AllowNumbers | AllowStrings, the default of
+                // JsonStringEnumConverter, which sacrifices some precision in the schema for simplicity.
+                if (_isFlags) return new JsonSchema { Type = JsonSchemaType.String }; // flags: no enum values
+
+                JsonArray enumValues = new JsonArray();
+                foreach (EnumFieldInfo field in _fields) enumValues.Add((JsonNode)field.JsonName);
+                return new JsonSchema { Enum = enumValues };
+            }
+
+            return new JsonSchema { Type = JsonSchemaType.Integer };
+        }
+
         private const int KindDefault = 0, KindNamingPolicy = 1, KindAttribute = 2;
 
         private sealed class EnumFieldInfo

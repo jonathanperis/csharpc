@@ -277,6 +277,7 @@ namespace CsharpcCoreLib
         // Facts about the type the (non-generic) object converter needs.
         internal bool IsValueTypeInfo;
         internal bool IsAbstractTypeInfo;
+        internal bool IsObsoleteTypeInfo;
         /// <summary>
         /// The source generator's fast-path serializer, kept only for types generated in
         /// JsonSourceGenerationMode.Serialization (no property metadata): metadata-based serialization
@@ -389,6 +390,9 @@ namespace CsharpcCoreLib
 
         internal bool IsConfigured => _configured;
 
+        /// <summary>Nullable&lt;T&gt;: the converter wraps an element converter (JsonTypeInfo.IsNullable).</summary>
+        internal bool IsNullable => _converter != null && _converter.NullableElementConverter != null;
+
         /// <summary>JsonTypeInfo.Configure: resolve property names, converters and constructor parameters once.</summary>
         internal void EnsureConfigured()
         {
@@ -436,6 +440,8 @@ namespace CsharpcCoreLib
             }
             _sortedProperties = sorted.ToArray();
             _requiredProperties = required?.ToArray();
+            if (_extensionData != null && (UnmappedMemberHandling ?? _options.UnmappedMemberHandling) == JsonUnmappedMemberHandling.Disallow)
+                throw new InvalidOperationException("The type '" + _type.ToString() + "' is marked 'JsonUnmappedMemberHandling.Disallow' which conflicts with extension data property '" + (_extensionData.MemberName ?? _extensionData.Name) + "'.");
 
             if (_parameterInitializer != null)
             {
@@ -483,6 +489,7 @@ namespace CsharpcCoreLib
         {
             IsValueTypeInfo = CoreIntrinsics.IsValueType<T>();
             IsAbstractTypeInfo = CoreIntrinsics.IsAbstractType<T>();
+            IsObsoleteTypeInfo = CoreIntrinsics.IsObsoleteType<T>();
         }
 
 
@@ -568,11 +575,27 @@ namespace CsharpcCoreLib
         public int Order { get; set; }
         public bool IsExtensionData { get; set; }
         public bool IsRequired { get; set; }
-        public bool IsGetNullable { get; set; } = true;
-        public bool IsSetNullable { get; set; } = true;
+        public bool IsGetNullable { get; set; }
+        public bool IsSetNullable { get; set; }
         public JsonNumberHandling? NumberHandling { get; set; }
         public JsonObjectCreationHandling? ObjectCreationHandling { get; set; }
-        public ICustomAttributeProvider AttributeProvider { get; set; }
+        internal Func<ICustomAttributeProvider> _attributeProviderFactory;
+        private ICustomAttributeProvider _attributeProvider;
+
+        /// <summary>The member's attributes: set directly, else produced once by the source generator's factory.</summary>
+        public ICustomAttributeProvider AttributeProvider
+        {
+            get
+            {
+                if (_attributeProvider == null && _attributeProviderFactory != null)
+                {
+                    _attributeProvider = _attributeProviderFactory();
+                    _attributeProviderFactory = null;
+                }
+                return _attributeProvider;
+            }
+            set => _attributeProvider = value;
+        }
         public Func<object, object, bool> ShouldSerialize { get; set; }
 
         public abstract JsonConverterImpl CustomConverter { get; set; }
@@ -595,6 +618,16 @@ namespace CsharpcCoreLib
 
         internal abstract object UntypedGetter { get; }
         internal abstract object UntypedSetter { get; }
+
+        /// <summary>The metadata of the property's type, resolved on first use (JsonPropertyInfo.JsonTypeInfo).</summary>
+        internal abstract JsonTypeInfoImpl PropertyTypeInfoUntyped { get; }
+
+        /// <summary>The converter used for the property: its custom converter, else its type's.</summary>
+        internal abstract JsonConverterImpl EffectiveConverterUntyped { get; }
+
+        /// <summary>The constructor parameter this property is bound to, if any.</summary>
+        internal JsonParameterInfoValues AssociatedParameter =>
+            AssociatedParameterPosition >= 0 && DeclaringTypeInfo?._parameters != null ? DeclaringTypeInfo._parameters[AssociatedParameterPosition] : null;
 
         internal bool IsIgnored => _ignoreCondition == JsonIgnoreCondition.Always && UntypedGetter == null && UntypedSetter == null;
 
@@ -729,6 +762,8 @@ namespace CsharpcCoreLib
         internal JsonPropertyInfoImpl(Type declaringType, JsonSerializerOptionsImpl options)
             : base(typeof(T), declaringType, options)
         {
+            // Null-oblivious until a nullability annotation says otherwise: nullable for reference types and Nullable<T> only.
+            IsGetNullable = IsSetNullable = default(T) == null;
         }
 
         public override JsonConverterImpl CustomConverter
@@ -775,6 +810,18 @@ namespace CsharpcCoreLib
 
         internal override object UntypedGetter => _getter;
         internal override object UntypedSetter => _setter;
+
+        internal override JsonTypeInfoImpl PropertyTypeInfoUntyped
+        {
+            get
+            {
+                _propertyTypeInfo ??= (JsonTypeInfoImpl<T>)_options.GetTypeInfoForRuntimeType(typeof(T));
+                _propertyTypeInfo.EnsureConfigured();
+                return _propertyTypeInfo;
+            }
+        }
+
+        internal override JsonConverterImpl EffectiveConverterUntyped => _effectiveConverter;
 
         internal override bool PropertyTypeCanBeNull => default(T) == null;
 
@@ -1121,9 +1168,11 @@ namespace CsharpcCoreLib
                 info._getter = propertyInfo.Getter;
                 info._setter = propertyInfo.Setter;
             }
+            if (info._setter == null) info.IsSetNullable = false; // nothing to set: only the getter's annotation counts
             info._ignoreCondition = propertyInfo.IgnoreCondition;
             if (propertyInfo.PropertyTypeInfo != null) info._propertyTypeInfo = (JsonTypeInfoImpl<T>)(object)propertyInfo.PropertyTypeInfo;
             info.NumberHandling = propertyInfo.NumberHandling;
+            info._attributeProviderFactory = propertyInfo.AttributeProviderFactory;
             return info;
         }
 
