@@ -103,7 +103,7 @@ if [[ $REGEN == 1 ]]; then
     # WarningLevel=0 keeps compiler warnings out of stdout; strip_warnings is a safety net.
     stdin_file=/dev/null; [[ -f "$SAMPLES/$name.stdin" ]] && stdin_file="$SAMPLES/$name.stdin"
     read -ra test_env <<< "$(platform_env "$SAMPLES" "$name")"
-    (cd "$SAMPLES" && env "${test_env[@]}" "$DOTNET" run "$name.cs" -p:WarningLevel=0 2>/dev/null < "$stdin_file") > "$SAMPLES/$name.raw"
+    (cd "$SAMPLES" && env "${test_env[@]}" "$DOTNET" run "$name.cs" -p:WarningLevel=0 -p:NuGetAudit=false 2>/dev/null < "$stdin_file") > "$SAMPLES/$name.raw"
     code=$?
     strip_warnings < "$SAMPLES/$name.raw" > "$SAMPLES/$name.expected"
     rm -f "$SAMPLES/$name.raw"
