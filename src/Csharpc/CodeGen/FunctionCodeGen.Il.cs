@@ -399,7 +399,12 @@ public sealed partial class FunctionCodeGen
     /// <summary>Hands the current stack to a successor block: its entry slots receive the values.</summary>
     private void IlTransfer(IlBlock target, Stack<IlEntry> stack)
     {
-        var values = stack.Reverse().ToList(); // bottom first
+        // A plain `ldftn` (`&M`) crossing a branch becomes its code pointer: csc pushes the function pointer
+        // argument first and the cached-delegate check (ldsfld; dup; brtrue) comes after it. (A pointer that
+        // feeds a delegate constructor never crosses one.)
+        var values = stack.Reverse().Select(v => v is { Kind: IlKind.MethodPtr, Target: null, Symbol: IMethodSymbol pointed }
+            ? new IlEntry(IlKind.Pointer, FunctionPointerTo(S(pointed), IlAt()), _m.Compilation.CreatePointerTypeSymbol(_m.Compilation.GetSpecialType(SpecialType.System_Void)))
+            : v).ToList(); // bottom first
         if (target.Entry is null)
         {
             if (target.Emitted && values.Count > 0)
