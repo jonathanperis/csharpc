@@ -27,6 +27,7 @@ public sealed class Compiler(CompilerOptions options)
     public int Run()
     {
         _clock.Start();
+        Csharpc.Llvm.Native.EnsureSupportedVersion(); // an LLVM outside 18-20 aborts inside LLVM; say so here
         // The target decides the corelib's per-OS code (CSHARPC_TARGET_*) before anything is parsed.
         var triple = options.Target ?? TargetMachine.HostTriple;
         var darwin = TargetMachine.IsDarwinTriple(triple);
@@ -253,6 +254,7 @@ public sealed class Compiler(CompilerOptions options)
             IlSurveyAssemblies = options.IlSurveyAssemblies,
             IlSurveyShard = options.IlSurveyShard,
             RuntimeConfig = settings.RuntimeConfig,
+            ProgramResources = [.. settings.EmbeddedResources.Select(r => new ProgramResourceData(r.Assembly, r.Name, File.ReadAllBytes(r.Path)))],
             ProgramAssemblies = mainIl is null ? ProgramAssembly.From(settings, codegenCompilation.AssemblyName ?? "program") : [],
             LinkedShims = linkedShims,
             GcNursery = options.GcNursery,

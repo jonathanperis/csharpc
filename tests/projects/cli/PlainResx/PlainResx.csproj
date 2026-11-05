@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- A .resx EmbeddedResource: the SDK's GenerateResource turns it into a .resources file that csc embeds;
+       csharpc takes the files from csc's /resource: arguments and serves them to ResourceManager and
+       Assembly.GetManifestResourceStream. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net11.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>Repro</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="data.bin" LogicalName="Repro.data.bin" />
+  </ItemGroup>
+</Project>

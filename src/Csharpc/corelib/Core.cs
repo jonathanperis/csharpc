@@ -124,6 +124,8 @@ namespace CsharpcCoreLib
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern bool IsSignedEnum<T>();
         /// <summary>T is an interface or an abstract class (compile-time constant).</summary>
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern bool IsAbstractType<T>();
+        /// <summary>typeof(T).IsDefined(typeof(ObsoleteAttribute)), resolved at compile time (JsonSchemaExporter's "deprecated").</summary>
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern bool IsObsoleteType<T>();
         /// <summary>Whether a run-time Type is one of the program's enum types (Type.IsEnum for JsonStringEnumConverter).</summary>
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern bool IsEnumType(Type type);
         /// <summary>Type.IsInstanceOfType: obj's class, a base class or an implemented interface is `type`.</summary>

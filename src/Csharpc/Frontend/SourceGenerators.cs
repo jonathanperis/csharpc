@@ -22,11 +22,20 @@ public sealed record GeneratorInputs
 {
     public IReadOnlyList<string> Analyzers { get; init; } = [];
     public IReadOnlyList<string> AdditionalFiles { get; init; } = [];
+    /// <summary>
+    /// Additional files of the projects the root references (analyzer settings such as stylecop.json, or what a
+    /// generator of that project consumes). The generators run once over the merged program with the root's
+    /// options, so a generator reading one of these would produce what a build of that project would not:
+    /// those reads are an explicit error, the files nobody reads are harmless.
+    /// </summary>
+    public IReadOnlyList<ReferencedAdditionalFile> ReferencedAdditionalFiles { get; init; } = [];
     public IReadOnlyList<string> AnalyzerConfigFiles { get; init; } = [];
     public IReadOnlyDictionary<string, string> Features { get; init; } = ImmutableDictionary<string, string>.Empty;
     /// <summary>csc's base directory for generated files (its /out directory): generated trees' paths, as PDBs and stack traces show them.</summary>
     public string? GeneratedFilesDirectory { get; init; }
 }
+
+public sealed record ReferencedAdditionalFile(string Project, string Path);
 
 /// <summary>
 /// Runs Roslyn source generators over the program, as csc does, and compiles the generated C# with the
@@ -62,11 +71,18 @@ public static class SourceGenerators
 
         var parseOptions = (CSharpParseOptions)compilation.SyntaxTrees.First().Options;
         ImmutableArray<AdditionalText> additionalTexts = [];
+        List<(ReferencedAdditionalFile Info, AdditionalFile File)> referencedTexts = [];
         AnalyzerConfigOptionsProvider? optionsProvider = null;
         string? generatedDirectory = null;
         if (inputs is not null)
         {
             additionalTexts = [.. inputs.AdditionalFiles.Select(p => (AdditionalText)new AdditionalFile(p))];
+            foreach (var referenced in inputs.ReferencedAdditionalFiles)
+            {
+                var file = new AdditionalFile(referenced.Path);
+                referencedTexts.Add((referenced, file));
+                additionalTexts = additionalTexts.Add(file);
+            }
             optionsProvider = ConfigOptions.Create(inputs.AnalyzerConfigFiles, found);
             generatedDirectory = inputs.GeneratedFilesDirectory is { } dir && Path.IsPathRooted(dir) ? dir : null;
         }
@@ -75,6 +91,10 @@ public static class SourceGenerators
             new GeneratorDriverOptions(IncrementalGeneratorOutputKind.Host, trackIncrementalGeneratorSteps: false, generatedDirectory));
         driver.RunGeneratorsAndUpdateCompilation(compilation, out var updated, out var generatorDiagnostics);
         found.AddRange(generatorDiagnostics.Select(GeneratorFailureAsError));
+        foreach (var (info, file) in referencedTexts)
+            if (file.WasRead)
+                found.Add(Error("CSLLVM0001", $"not supported by csharpc yet: a source generator read the additional file '{System.IO.Path.GetFileName(info.Path)}' of the referenced project "
+                    + $"'{info.Project}' (generators run once over the merged program with the root project's options)"));
         diagnostics = found;
         updated = DropReflectionOnlyMetadata(compilation, (CSharpCompilation)updated);
         if (Environment.GetEnvironmentVariable("CSHARPC_DUMP_GENERATED") is { Length: > 0 } dumpDir)
@@ -164,7 +184,9 @@ public static class SourceGenerators
     /// <summary>
     /// The JSON source generator emits reflection lambdas (`AttributeProviderFactory = static () =>
     /// typeof(T).GetProperty(...)`) that System.Text.Json only invokes when a program inspects
-    /// JsonPropertyInfo.AttributeProvider. csharpc has no run-time reflection, so they become null.
+    /// JsonPropertyInfo.AttributeProvider. csharpc keeps reflection metadata only where a program needs it, so they
+    /// become null: except for a member marked [Obsolete], whose factory stays because JsonSchemaExporter reads it
+    /// to write `"deprecated": true`.
     /// </summary>
     private static CSharpCompilation DropReflectionOnlyMetadata(CSharpCompilation before, CSharpCompilation after)
     {
@@ -177,11 +199,29 @@ public static class SourceGenerators
                 .Where(a => a.Left is Microsoft.CodeAnalysis.CSharp.Syntax.IdentifierNameSyntax { Identifier.ValueText: "AttributeProviderFactory" or "ConstructorAttributeProviderFactory" })
                 .ToList();
             if (assignments.Count == 0) continue;
-            var newRoot = root.ReplaceNodes(assignments.Select(a => a.Right),
+            var model = after.GetSemanticModel(tree);
+            var keep = assignments
+                .Where(a => ((Microsoft.CodeAnalysis.CSharp.Syntax.IdentifierNameSyntax)a.Left).Identifier.ValueText == "AttributeProviderFactory" && IsObsoleteMemberLookup(a.Right, model))
+                .Select(a => a.Right).ToHashSet();
+            var newRoot = root.ReplaceNodes(assignments.Select(a => a.Right).Where(r => !keep.Contains(r)),
                 (_, _) => SyntaxFactory.LiteralExpression(SyntaxKind.NullLiteralExpression));
             after = after.ReplaceSyntaxTree(tree, tree.WithRootAndOptions(newRoot, tree.Options));
         }
         return after;
+    }
+
+    /// <summary>`static () => typeof(T).GetProperty("Name", ...)` / GetField: does T declare that member with [Obsolete]?</summary>
+    private static bool IsObsoleteMemberLookup(Microsoft.CodeAnalysis.CSharp.Syntax.ExpressionSyntax factory, SemanticModel model)
+    {
+        var call = factory.DescendantNodesAndSelf().OfType<Microsoft.CodeAnalysis.CSharp.Syntax.InvocationExpressionSyntax>().FirstOrDefault();
+        if (call is not { Expression: Microsoft.CodeAnalysis.CSharp.Syntax.MemberAccessExpressionSyntax { Name.Identifier.ValueText: "GetProperty" or "GetField" } access } ||
+            access.Expression is not Microsoft.CodeAnalysis.CSharp.Syntax.TypeOfExpressionSyntax typeOf ||
+            call.ArgumentList.Arguments.Count == 0 ||
+            call.ArgumentList.Arguments[0].Expression is not Microsoft.CodeAnalysis.CSharp.Syntax.LiteralExpressionSyntax { Token.Value: string name } ||
+            model.GetTypeInfo(typeOf.Type).Type is not { } type)
+            return false;
+        return type.GetMembers(name).Any(m => m is IPropertySymbol or IFieldSymbol &&
+            m.GetAttributes().Any(a => a.AttributeClass is { Name: "ObsoleteAttribute", ContainingNamespace.Name: "System" }));
     }
 
     /// <summary>packs/Microsoft.NETCore.App.Ref/&lt;version&gt;/analyzers/dotnet/cs of the SDK csharpc runs on.</summary>
@@ -258,9 +298,11 @@ public static class SourceGenerators
     {
         private SourceText? _text;
         public override string Path => path;
+        public bool WasRead { get; private set; }
 
         public override SourceText? GetText(CancellationToken cancellationToken = default)
         {
+            WasRead = true;
             if (_text is not null) return _text;
             try
             {

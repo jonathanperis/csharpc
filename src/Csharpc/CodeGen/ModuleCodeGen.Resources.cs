@@ -9,10 +9,16 @@ namespace Csharpc.CodeGen;
 /// configProperties (AppContext). Both are compiled in as one string constant each and decoded by
 /// the corelib on first use (corelib/Resources.cs).
 /// </summary>
+/// <summary>An embedded resource of the program's own assembly with its bytes.</summary>
+public sealed record ProgramResourceData(string Assembly, string Name, byte[] Bytes);
+
 public sealed partial class ModuleCodeGen
 {
     /// <summary>runtimeconfig.json configProperties (FrontendSettings.RuntimeConfig).</summary>
     public IReadOnlyList<KeyValuePair<string, string>> RuntimeConfig { get; init; } = [];
+
+    /// <summary>The program's own embedded resources (EmbeddedResource items, .resx already converted by the SDK).</summary>
+    public IReadOnlyList<ProgramResourceData> ProgramResources { get; init; } = [];
 
     private string? _resourceBlob;
 
@@ -21,6 +27,7 @@ public sealed partial class ModuleCodeGen
     {
         // Resources an ILLink substitution removes under the program's feature switches stay out (ModuleCodeGen.IlSubstitutions.cs).
         _resourceBlob ??= Encode(Il.Assemblies.SelectMany(a => a.ReadStringResources().Where(e => !IsResourceRemoved(a, e.BaseName + ".resources")))
+            .Concat(ProgramResources.SelectMany(r => Csharpc.Frontend.Il.IlAssembly.StringResources(r.Name, r.Bytes, r.Assembly)))
             .SelectMany(e => new[] { e.BaseName, e.Key, e.Value }));
         return StringLiteral(_resourceBlob);
     }
@@ -82,6 +89,16 @@ public sealed partial class ModuleCodeGen
                     bytes.Length.ToString(System.Globalization.CultureInfo.InvariantCulture)]);
                 data.Write(bytes);
             }
+        }
+        foreach (var resource in ProgramResources)
+        {
+            while (data.Length % 8 != 0) data.WriteByte(0);
+            var fullName = ProgramAssemblies.FirstOrDefault(u => u.Name == resource.Assembly) is { } unit
+                ? $"{unit.Name}, Version={(unit.Version == "source" ? Compilation.Assembly.Identity.Version.ToString() : unit.Version ?? "1.0.0.0")}, Culture=neutral, PublicKeyToken=null"
+                : $"{resource.Assembly}, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null";
+            fields.AddRange([fullName, resource.Name, data.Length.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                resource.Bytes.Length.ToString(System.Globalization.CultureInfo.InvariantCulture)]);
+            data.Write(resource.Bytes);
         }
         if (data.Length == 0) data.WriteByte(0);
         var init = Llvm.ConstBytes(data.ToArray());

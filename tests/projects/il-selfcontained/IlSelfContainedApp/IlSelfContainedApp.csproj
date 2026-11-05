@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- A self-contained build puts the framework's implementation assemblies next to the app. tests/il.sh
+       passes the host's runtime identifier in IlRid and compiles the resulting .dll: csharpc must ignore
+       the framework copies (their System.Text.Json is not the one the source generator targets). -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net11.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RuntimeIdentifier>$(IlRid)</RuntimeIdentifier>
+    <SelfContained>true</SelfContained>
+  </PropertyGroup>
+</Project>

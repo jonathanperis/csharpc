@@ -258,6 +258,16 @@ all option combinations) checks.
   compilation imports private members, so internal types, internal and private `[JsonInclude]` members
   look as they do from source. Private nested types, which a source context reaches by being nested
   beside them, are a `CSLLVM0001` where the call is lowered.
+* **JSON schema export.** `JsonSchemaExporter.GetJsonSchemaAsNode` (over `JsonSerializerOptions` or a
+  `JsonTypeInfo`) with `JsonSchemaExporterOptions` (`TreatNullObliviousAsNonNullable`,
+  `TransformSchemaNode`) and `JsonSchemaExporterContext`, ported from `release/11.0`
+  (`corelib/Json/SchemaExporter.cs`). Each built-in converter reports its own schema
+  (`JsonConverterImpl.GetSchema`: numbers with their string patterns under `NumberHandling`, enums,
+  `format`s, `contentEncoding`, the `true` schema for opaque converters); objects, collections,
+  dictionaries, polymorphism (`anyOf` with the discriminator), recursive types (`$ref`), constructor
+  defaults, required members and nullability follow the contract. `deprecated` comes from `[Obsolete]`: a
+  type's at compile time, a member's through the generator's `AttributeProviderFactory`, which csharpc
+  otherwise drops, kept only for members carrying the attribute.
 * **Code size.** The object converter's work is in a non-generic core, the built-in metadata
   (every primitive converter) is linked only when reflection-based metadata can be requested, and
   `BuiltInJsonConverter<T>` resolves dictionary-key converters at compile time. Hello world is
@@ -265,8 +275,7 @@ all option combinations) checks.
   using the reflection-style API about 1.5 MB, and these compile in 20–60 s (most of it in LLVM).
 * **Explicit diagnostics (CSLLVM0001/0002)** instead of run-time surprises: anonymous types with the
   reflection-style API, `Guid` members and BCL types csharpc
-  doesn't implement yet (`ConcurrentDictionary`, `ReadOnlyCollection`, immutable collections), and
-  `System.Text.Json.Schema`.
+  doesn't implement yet (`ConcurrentDictionary`, `ReadOnlyCollection`, immutable collections).
 
 Codegen improvements made along the way (general, not corelib-specific): generic structs, structs
 implementing interfaces (constrained calls on struct receivers), property/indexer lvalue captures

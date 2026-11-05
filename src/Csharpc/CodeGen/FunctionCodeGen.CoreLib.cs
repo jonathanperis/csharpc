@@ -131,6 +131,7 @@ public sealed partial class FunctionCodeGen
             "IsFlagsEnum" => t!.GetAttributes().Any(a => a.AttributeClass is { Name: "FlagsAttribute", ContainingNamespace.Name: "System" }) ? L.True : L.False,
             "EnumMemberJsonNames" => EnumMemberJsonNames(t!),
             "IsAbstractType" => t!.IsAbstract ? L.True : L.False,
+            "IsObsoleteType" => t!.GetAttributes().Any(a => a.AttributeClass is { Name: "ObsoleteAttribute", ContainingNamespace.Name: "System" }) ? L.True : L.False,
             "IsEnumType" => JsonEnumSwitch(args[0], null),
             "BuiltInJsonConverter" => BuiltInJsonConverter(S(t!)),
             "IsInstanceOfType" => CallRuntime("csrt_type_is_instance", L.I1, [L.Ptr, L.Ptr], args[0], args[1]),

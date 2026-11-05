@@ -45,6 +45,12 @@ runs:
       shell: bash
       run: tests/check-oracle.sh -j 4
 
+    # The runtime's C compiler must match libLLVM (Homebrew llvm@18 / apt llvm-18); skips without one.
+    - name: Toolchain discovery
+      if: ${{ (success() || failure()) && (inputs.os == 'linux' || inputs.os == 'macos') }}
+      shell: bash
+      run: tests/toolchain.sh
+
     - name: IL front-end (libraries consumed as DLLs and NuGet packages)
       if: ${{ (success() || failure()) && inputs.os != 'wasm' }}
       shell: bash
