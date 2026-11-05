@@ -87,6 +87,19 @@ for proj_src in "$ROOT"/tests/projects/cli/*/*.csproj; do
   else echo "FAIL $app: csharpc <project>"; sed 's/^/     /' "$WORK/log" | head; fail=$((fail+1)); fi
 done
 
+# Projects csharpc must refuse with a diagnostic and exit code 1 (tests/projects/cli-errors/<Name>/expect-error
+# holds the text; App/App.csproj is compiled): a failing referenced project is a diagnostic, never a crash.
+for dir in "$ROOT"/tests/projects/cli-errors/*/; do
+  name="$(basename "$dir")"
+  [[ -f "$dir/expect-error" ]] || continue
+  rm -rf "$WORK/cli-errors"; cp -r "$ROOT/tests/projects/cli-errors" "$WORK/cli-errors"
+  "$DOTNET" "$CSHARPC_DLL" "$WORK/cli-errors/$name/App/App.csproj" -o "$WORK/cli-errors-out/" > "$WORK/log" 2>&1; code=$?
+  if [[ $code != 1 ]]; then echo "FAIL $name: exit code $code, expected 1"; sed 's/^/     /' "$WORK/log" | head; fail=$((fail+1))
+  elif grep -q "Unhandled exception" "$WORK/log"; then echo "FAIL $name: unhandled exception"; sed 's/^/     /' "$WORK/log" | head; fail=$((fail+1))
+  elif grep -qF -f "$dir/expect-error" "$WORK/log"; then echo "PASS $name: diagnostic, exit code 1"; pass=$((pass+1))
+  else echo "FAIL $name: wrong diagnostic"; sed 's/^/     /' "$WORK/log" | head; fail=$((fail+1)); fi
+done
+
 echo
 echo "$pass passed, $fail failed"
 [[ $fail == 0 ]]
