@@ -186,6 +186,12 @@ public sealed partial class FunctionCodeGen
                     Rt("csrt_thread_sleep", L.Void, [L.I32], TArg(inv, 0)); return true;
                 case "Sleep" when n == 1 && BclValueTypes.IsTimeSpan(m.Parameters[0].Type):
                     Rt("csrt_thread_sleep", L.Void, [L.I32], CallCoreLib("WaitTimeouts", "TimeoutMilliseconds", TArg(inv, 0))); return true;
+                case "GetApartmentState" when n == 0:
+                    Self(); result = CallCoreLib("ThreadApartment", "Get"); return true;
+                case "SetApartmentState" when n == 1:
+                    Self(); CallCoreLib("ThreadApartment", "Set", TArg(inv, 0)); return true;
+                case "TrySetApartmentState" when n == 1:
+                    Self(); result = CallCoreLib("ThreadApartment", "TrySet", TArg(inv, 0)); return true;
                 case "Yield": result = Rt("csrt_thread_yield", L.I1, []); return true;
                 case "SpinWait": EmitValue(inv.Arguments[0].Value); return true;
                 case "MemoryBarrier": Native.LLVMBuildFence(_b.Ref, LLVMAtomicOrdering.SequentiallyConsistent, 0, ""); return true;
