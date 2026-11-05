@@ -9,7 +9,7 @@ set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DOTNET="${DOTNET:-dotnet}"
-export DOTNET_CLI_TELEMETRY_OPTOUT=1 DOTNET_NOLOGO=1
+export DOTNET_CLI_TELEMETRY_OPTOUT=1 DOTNET_NOLOGO=1 NuGetAudit=false
 # Resolved path: on macOS mktemp's /var/folders/... is a symlinked path, and MSBuild's incremental clean
 # deletes outputs it recorded under the other spelling (/private/var/...) of the same directory.
 WORK="$(cd "$(mktemp -d)" && pwd -P)"
