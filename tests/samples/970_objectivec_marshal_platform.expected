@@ -1,0 +1,12 @@
+Initialize: PlatformNotSupportedException: Operation is not supported on this platform.
+Initialize null: PlatformNotSupportedException: Operation is not supported on this platform.
+Initialize again: PlatformNotSupportedException: Operation is not supported on this platform.
+CreateReferenceTrackingHandle: PlatformNotSupportedException: Operation is not supported on this platform.
+CreateReferenceTrackingHandle null: PlatformNotSupportedException: Operation is not supported on this platform.
+CreateReferenceTrackingHandle untracked: PlatformNotSupportedException: Operation is not supported on this platform.
+GetOrCreateReferenceTrackingMemory: PlatformNotSupportedException: Operation is not supported on this platform.
+SetMessageSendCallback: PlatformNotSupportedException: Operation is not supported on this platform.
+SetMessageSendCallback bad: PlatformNotSupportedException: Operation is not supported on this platform.
+SetMessageSendPendingException: PlatformNotSupportedException: Operation is not supported on this platform.
+SetMessageSendPendingException null: PlatformNotSupportedException: Operation is not supported on this platform.
+done
