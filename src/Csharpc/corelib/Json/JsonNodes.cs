@@ -1209,6 +1209,8 @@ namespace CsharpcCoreLib
     {
         internal override bool IsInternalConverter => true;
 
+        internal override JsonSchema GetSchema(JsonNumberHandling _) => JsonSchema.CreateTrueSchema();
+
         public override bool HandleNull => true;
 
         public override JsonNode Read(ref Utf8JsonReaderImpl reader, Type typeToConvert, JsonSerializerOptionsImpl options)
@@ -1227,6 +1229,11 @@ namespace CsharpcCoreLib
     internal sealed class JsonNodeSubtypeConverter<TNode> : JsonConverterImpl<TNode> where TNode : class
     {
         internal override bool IsInternalConverter => true;
+
+        internal override JsonSchema GetSchema(JsonNumberHandling _) =>
+            typeof(TNode) == typeof(JsonObject) ? new JsonSchema { Type = JsonSchemaType.Object }
+            : typeof(TNode) == typeof(JsonArray) ? new JsonSchema { Type = JsonSchemaType.Array }
+            : JsonSchema.CreateTrueSchema();
 
         public override bool HandleNull => true;
 

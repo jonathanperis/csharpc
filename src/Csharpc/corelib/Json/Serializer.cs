@@ -392,6 +392,10 @@ namespace CsharpcCoreLib
         public static JsonNodeImpl SerializeToNode<TValue>(TValue value, JsonTypeInfoImpl<TValue> jsonTypeInfo) =>
             JsonNodeImpl.Parse(ToUtf8Bytes(value, Checked(jsonTypeInfo)), null);
 
+        /// <summary>JsonSerializer.SerializeToNode(object, JsonTypeInfo): a value known only through its untyped metadata.</summary>
+        internal static JsonNodeImpl SerializeToNodeUntyped(object value, JsonTypeInfoImpl jsonTypeInfo) =>
+            JsonNodeImpl.Parse(ToUtf8Bytes(value, Checked(jsonTypeInfo)), null);
+
         // ---------------------------------------------------------------- Deserialize
 
         public static TValue Deserialize<TValue>(string json, JsonSerializerOptionsImpl options = null)
