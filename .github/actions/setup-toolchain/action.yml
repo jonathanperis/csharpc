@@ -7,6 +7,13 @@ inputs:
 runs:
   using: composite
   steps:
+    # NuGet's audit warns (NU1903) about Microsoft.DotNet.ILCompiler, which file-based apps (`dotnet run
+    # x.cs`) restore for PublishAot, and the warning lands in the stdout the tests compare with real .NET's.
+    # The audit says nothing about the programs under test.
+    - name: Turn NuGet audit off
+      shell: bash
+      run: echo "NuGetAudit=false" >> "$GITHUB_ENV"
+
     - name: Install LLVM 18, clang and lld (Linux)
       if: inputs.os == 'linux'
       shell: bash
