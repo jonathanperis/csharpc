@@ -1,0 +1,9 @@
+{"Items":"a"}
+{"Items":["a","b"]}
+x
+Pair`2[System.String,System.Int32]
+Pair`2[System.Collections.Generic.List`1[System.String],System.Collections.Generic.Dictionary`2[System.Int32,System.String[]]]
+Pair`2[System.Int32[],System.Int32]
+Pair`2[A,B]
+Pair`2[System.String,System.Int32][]
+Outer+Inner`1[System.Int64]
