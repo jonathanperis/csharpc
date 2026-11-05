@@ -87,7 +87,7 @@ public sealed partial class ModuleCodeGen
     /// IFormattable/IComparable too (without the registration `o is IFormattable` was silently false).
     /// </summary>
     internal static bool IsBoxedBuiltinValue(ITypeSymbol type) =>
-        type.SpecialType is >= SpecialType.System_Boolean and <= SpecialType.System_Double || BclValueTypes.IsTicks(type);
+        type.SpecialType is >= SpecialType.System_Boolean and <= SpecialType.System_Double || BclValueTypes.IsTicks(type) || Int128Support.Is128(type);
 
     private LLVMValueRef PrimitiveSlot(ITypeSymbol primitive, INamedTypeSymbol itf, IMethodSymbol member)
     {
@@ -217,6 +217,10 @@ public sealed partial class FunctionCodeGen
             SpecialType.System_Decimal => CallCoreLib("Number", "FormatBoxedDecimal", value, format, provider),
             SpecialType.System_DateTime => CallCoreLib("DateTimeOps", "BoxedDateTimeFormatWith", value, format, provider),
             _ when BclValueTypes.IsTimeSpan(primitive) => CallCoreLib("DateTimeOps", "BoxedTimeSpanFormatWith", value, format, provider),
+            _ when Int128Support.Is128(primitive) => CallCoreLib("Number", "FormatBoxedInt128",
+                _b.Cast(LLVMOpcode.Trunc, value, L.I64),
+                _b.Cast(LLVMOpcode.Trunc, _b.BinOp(LLVMOpcode.LShr, value, L.ConstInt(value.Type, 64)), L.I64),
+                TypeMapper.IsSigned(primitive) ? L.True : L.False, format, provider),
             _ => FormatPrimitive(value, primitive) ?? CallRuntime("csrt_format_object", L.Ptr, [L.Ptr, L.Ptr], _fn.Fn.Param(0), format),
         });
         Finish();

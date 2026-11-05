@@ -1483,7 +1483,7 @@ public sealed partial class ModuleCodeGen
         // only once the program boxes one (EmitDeferredBclBoxRegistrations): most programs never do, and a
         // registration per interface they use is code in main.
         ITypeSymbol?[] bclBoxes = [Compilation.GetSpecialType(SpecialType.System_Decimal), Compilation.GetSpecialType(SpecialType.System_DateTime),
-            Compilation.GetTypeByMetadataName("System.TimeSpan")];
+            Compilation.GetTypeByMetadataName("System.TimeSpan"), Compilation.GetTypeByMetadataName("System.Int128"), Compilation.GetTypeByMetadataName("System.UInt128")];
         var registerBcl = Module.AddFunction("csharpc.register.bclboxes", Llvm.FunctionType(Llvm.Void));
         Native.LLVMSetLinkage(registerBcl, LLVMLinkage.Internal);
         using (var rb = new IrBuilder(Llvm)) { rb.PositionAtEnd(rb.AppendBlock(registerBcl, "entry")); rb.RetVoid(); }

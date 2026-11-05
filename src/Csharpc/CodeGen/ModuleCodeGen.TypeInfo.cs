@@ -576,6 +576,7 @@ public sealed partial class ModuleCodeGen
     [
         ("csrt_Boxed_Decimal_MT", "System.Decimal"), ("csrt_Boxed_TimeSpan_MT", "System.TimeSpan"),
         ("csrt_Boxed_DateTime_MT", "System.DateTime"), ("csrt_Boxed_BigInteger_MT", "System.Numerics.BigInteger"),
+        ("csrt_Boxed_Int128_MT", "System.Int128"), ("csrt_Boxed_UInt128_MT", "System.UInt128"),
     ];
 
     /// <summary>The method table reflection hands out for a type (typeof's).</summary>
