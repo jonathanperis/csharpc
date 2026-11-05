@@ -254,6 +254,7 @@ public sealed class Compiler(CompilerOptions options)
             IlSurveyAssemblies = options.IlSurveyAssemblies,
             IlSurveyShard = options.IlSurveyShard,
             RuntimeConfig = settings.RuntimeConfig,
+            ProgramResources = [.. settings.EmbeddedResources.Select(r => new ProgramResourceData(r.Assembly, r.Name, File.ReadAllBytes(r.Path)))],
             ProgramAssemblies = mainIl is null ? ProgramAssembly.From(settings, codegenCompilation.AssemblyName ?? "program") : [],
             LinkedShims = linkedShims,
             GcNursery = options.GcNursery,
