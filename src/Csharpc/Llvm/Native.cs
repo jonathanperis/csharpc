@@ -78,11 +78,35 @@ internal static unsafe partial class Native
         ];
         foreach (var candidate in candidates)
             if (candidate is not null && NativeLibrary.TryLoad(candidate, out var handle))
+            {
+                LoadedLibraryPath = candidate;
                 return handle;
+            }
         throw new DllNotFoundException(
             "csharpc could not locate libLLVM (tried the release bundle's lib/, then LLVM 18-20 on the system). " +
             "Install LLVM 18 (apt: libllvm18; brew: llvm@18; Windows: LLVM-MinGW) or set CSHARPC_LIBLLVM to the shared library path. " +
             "See https://github.com/jonathanperis/csharpc#install");
+    }
+
+    /// <summary>What libLLVM was loaded from (a path, or the bare name the loader resolved).</summary>
+    public static string? LoadedLibraryPath { get; private set; }
+
+    [LibraryImport(Lib)] private static partial void LLVMGetVersion(out uint major, out uint minor, out uint patch);
+
+    /// <summary>The loaded libLLVM's version.</summary>
+    public static (uint Major, uint Minor, uint Patch) LlvmVersion
+    {
+        get { LLVMGetVersion(out var major, out var minor, out var patch); return (major, minor, patch); }
+    }
+
+    /// <summary>csharpc is built and tested against LLVM 18 and takes 19 and 20; others fail with a message, not inside LLVM.</summary>
+    public static void EnsureSupportedVersion()
+    {
+        var (major, minor, patch) = LlvmVersion;
+        if (major is >= 18 and <= 20) return;
+        throw new InvalidOperationException($"csharpc supports libLLVM 18 to 20, but loaded libLLVM {major}.{minor}.{patch}"
+            + (LoadedLibraryPath is { } path ? $" ({path})" : "")
+            + ": install LLVM 18 (apt: libllvm18; brew: llvm@18; Windows: LLVM-MinGW) or point CSHARPC_LIBLLVM at one of those.");
     }
 
     /// <summary>The name of a global value.</summary>
@@ -124,6 +148,9 @@ internal static unsafe partial class Native
     [LibraryImport(Lib)]
     public static partial int LLVMParseBitcodeInContext2(LLVMContextRef c, LLVMMemoryBufferRef buffer, out LLVMModuleRef module);
     [LibraryImport(Lib)] public static partial int LLVMLinkModules2(LLVMModuleRef dest, LLVMModuleRef src);
+    // Without a handler LLVM prints an error diagnostic and exits the process; a handler turns it into a failed call.
+    [LibraryImport(Lib)] public static partial void LLVMContextSetDiagnosticHandler(LLVMContextRef c, delegate* unmanaged<nint, nint, void> handler, nint diagnosticContext);
+    [LibraryImport(Lib)] public static partial nint LLVMGetDiagInfoDescription(nint info);
     [LibraryImport(Lib)] public static partial LLVMValueRef LLVMGetFirstFunction(LLVMModuleRef m);
     [LibraryImport(Lib)] public static partial LLVMValueRef LLVMGetNextFunction(LLVMValueRef fn);
     [LibraryImport(Lib)] public static partial LLVMValueRef LLVMGetFirstGlobal(LLVMModuleRef m);

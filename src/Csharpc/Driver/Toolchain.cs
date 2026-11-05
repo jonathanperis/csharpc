@@ -47,9 +47,22 @@ public sealed class Toolchain(CompilerOptions options, Csharpc.Llvm.TargetMachin
     private static string WasiSdk => Environment.GetEnvironmentVariable("WASI_SDK_PATH") is { Length: > 0 } sdk ? sdk : "/opt/wasi-sdk";
 
     /// <summary>The C compiler and linker driver: --cc / $CSHARPC_CC, else clang (the WASI SDK's for wasm32).</summary>
-    private string CC => target.IsWasm && options.CC == "clang" && Environment.GetEnvironmentVariable("CSHARPC_CC") is null
-        ? Path.Combine(WasiSdk, "bin", OperatingSystem.IsWindows() ? "clang.exe" : "clang")
-        : options.CC;
+    private string CC => options.CC != "clang" || Environment.GetEnvironmentVariable("CSHARPC_CC") is not null ? options.CC
+        : target.IsWasm ? Path.Combine(WasiSdk, "bin", OperatingSystem.IsWindows() ? "clang.exe" : "clang")
+        : SiblingClang() ?? options.CC;
+
+    /// <summary>
+    /// The clang of the LLVM install csharpc loaded libLLVM from (Homebrew's llvm@18/bin, /usr/lib/llvm-18/bin):
+    /// the runtime's bitcode is read by that libLLVM, so a clang of the same install is the one that always
+    /// matches, where the clang on PATH (Apple clang, a newer LLVM) may write bitcode it can't read.
+    /// </summary>
+    private static string? SiblingClang()
+    {
+        if (Csharpc.Llvm.Native.LoadedLibraryPath is not { } library || !Path.IsPathRooted(library)) return null;
+        var bin = Path.Combine(Path.GetDirectoryName(Path.GetFullPath(library))!, "..", "bin");
+        var clang = Path.GetFullPath(Path.Combine(bin, OperatingSystem.IsWindows() ? "clang.exe" : "clang"));
+        return File.Exists(clang) ? clang : null;
+    }
 
     /// <summary>macOS: headers and libSystem stubs come from the SDK (clang also honours $SDKROOT).</summary>
     private string[] SysrootFlags => target.IsDarwin && MacSdk is { } sdk ? ["-isysroot", sdk] : [];
@@ -173,7 +186,7 @@ public sealed class Toolchain(CompilerOptions options, Csharpc.Llvm.TargetMachin
             // Apple's linker rejects undefined symbols even when weak; -U lets each bind to null at
             // run time (EntryPointNotFoundException at the call, as on Linux).
             var weak = (weakImports ?? []).SelectMany(name => new[] { "-Wl,-U,_" + name });
-            Run(options.CC, [$"--target={triple}", .. SysrootFlags, .. programObjects, .. runtime, .. DarwinLinkFlags(), .. weak, .. sanitize, "-o", output]);
+            Run(CC, [$"--target={triple}", .. SysrootFlags, .. programObjects, .. runtime, .. DarwinLinkFlags(), .. weak, .. sanitize, "-o", output]);
             // DWARF stays in the object files on macOS (the executable only records where): collect it
             // into output.dSYM before the temporary program object is deleted.
             if (options.Debug) Run(Environment.GetEnvironmentVariable("CSHARPC_DSYMUTIL") ?? "dsymutil", [output]);
@@ -187,10 +200,10 @@ public sealed class Toolchain(CompilerOptions options, Csharpc.Llvm.TargetMachin
         }
         if (target.IsWindows)
         {
-            Run(options.CC, [$"--target={triple}", .. programObjects, .. runtime, .. WindowsLinkFlags(), .. Hardening.WindowsLinkFlags(options.Hardening), .. sanitize, "-o", output]);
+            Run(CC, [$"--target={triple}", .. programObjects, .. runtime, .. WindowsLinkFlags(), .. Hardening.WindowsLinkFlags(options.Hardening), .. sanitize, "-o", output]);
             return;
         }
-        Run(options.CC, [$"--target={triple}", .. programObjects, .. runtime, "-lm", "-pthread", .. LinkFlags(), .. Hardening.LinkFlags(options.Hardening, SegmentOrderFile()), .. sanitize, "-o", output]);
+        Run(CC, [$"--target={triple}", .. programObjects, .. runtime, "-lm", "-pthread", .. LinkFlags(), .. Hardening.LinkFlags(options.Hardening, SegmentOrderFile()), .. sanitize, "-o", output]);
     }
 
     /// <summary>
