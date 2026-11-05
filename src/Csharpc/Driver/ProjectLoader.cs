@@ -563,7 +563,14 @@ public static class ProjectLoader
         while (level.Count > 0)
         {
             foreach (var reference in level) log?.WriteLine($"  project reference: {reference}");
-            var evaluated = level.AsParallel().AsOrdered().Select(r => Evaluate(r, configuration, globalProperties)).ToList();
+            List<ProjectInfo> evaluated;
+            try { evaluated = level.AsParallel().AsOrdered().Select(r => Evaluate(r, configuration, globalProperties)).ToList(); }
+            // PLINQ wraps a failed evaluation; the driver reports the original (as for the root project), not a crash.
+            catch (AggregateException e) when (e.Flatten().InnerExceptions.Count > 0)
+            {
+                System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(e.Flatten().InnerExceptions[0]).Throw();
+                throw;
+            }
             all.AddRange(evaluated);
             level = [.. evaluated.SelectMany(p => p.ProjectReferences).Select(Path.GetFullPath).Where(seen.Add)];
         }

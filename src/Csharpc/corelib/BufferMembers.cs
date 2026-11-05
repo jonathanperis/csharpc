@@ -27,6 +27,24 @@ namespace CsharpcCoreLib
             source.Slice(srcOffset, count).CopyTo(destination.Slice(dstOffset, count));
         }
 
+        // Buffer.MemoryCopy: the ranges may overlap; a destination smaller than the byte count is refused.
+        public static void MemoryCopy(void* source, void* destination, long destinationSizeInBytes, long sourceBytesToCopy)
+        {
+            if (sourceBytesToCopy > destinationSizeInBytes) throw new ArgumentOutOfRangeException("sourceBytesToCopy");
+            Memmove(destination, source, (ulong)sourceBytesToCopy);
+        }
+
+        public static void MemoryCopy(void* source, void* destination, ulong destinationSizeInBytes, ulong sourceBytesToCopy)
+        {
+            if (sourceBytesToCopy > destinationSizeInBytes) throw new ArgumentOutOfRangeException("sourceBytesToCopy");
+            Memmove(destination, source, sourceBytesToCopy);
+        }
+
+        private static void Memmove(void* destination, void* source, ulong byteCount)
+        {
+            if (byteCount != 0) Libc.memmove(destination, source, (nuint)byteCount);
+        }
+
         public static int ByteLength(Array array)
         {
             ArgumentNullException.ThrowIfNull(array);
