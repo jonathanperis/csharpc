@@ -1,0 +1,11 @@
+Task[] completion order: awaited second input, completed first
+  Faulted: second input, completed first | first input, completed last
+Task<T>[] array order: awaited first input, completed last
+  Faulted: first input, completed last | second input, completed first
+already completed: awaited one
+  Faulted: one | two
+canceled: token matches True, status Canceled
+several exceptions: awaited single
+  Faulted: single | many 1 | many 2
+faulted and canceled: awaited faulted wins
+  Faulted: faulted wins

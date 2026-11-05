@@ -139,6 +139,11 @@ typedef struct {
     csrt_Array* tasks;
     int32_t remaining;        // atomic
     int32_t element_size;     // 0: WhenAll(Task[]) ; otherwise Task<T>[] -> T[]
+    // WhenAll(Task[]): the inputs that didn't run to completion, in the order they completed (as .NET's
+    // WhenAllPromise records them). malloc'ed on the first one; the tasks stay reachable through `tasks`,
+    // and the collector doesn't move objects.
+    csrt_Task** failed;       // atomic pointer
+    int32_t nfailed;          // atomic
 } WhenAllState;
 
 static _Noreturn void async_fail(const char* message) {
@@ -584,25 +589,46 @@ bool csrt_task_try_cancel_token(csrt_Task* t, void* token) {
     return try_finish(t, T_CANCELED, e);
 }
 
-static void when_all_step(WhenAllState* s) {
-    if (__atomic_sub_fetch(&s->remaining, 1, __ATOMIC_ACQ_REL) > 0) return;
-    // Faulted inputs: the result faults with all their exceptions (await rethrows the first);
-    // otherwise any canceled input cancels the result.
-    int64_t n = s->tasks->length, faulted = 0;
-    bool canceled = false;
-    for (int64_t i = 0; i < n; i++) {
-        csrt_Task* t = words(s->tasks)[i];
-        int32_t st = task_state(t);
-        if (st == T_FAULTED) faulted++;
-        else if (st == T_CANCELED) canceled = true;
+// All exceptions of a faulted task (TrySetException(IEnumerable) stores several), as GetExceptionDispatchInfos.
+static void append_exceptions(csrt_Task* t, void*** items, int64_t* count, int64_t* capacity) {
+    int32_t k = t->aggregate ? csrt_exception_inner_count(t->aggregate) : 1;
+    if (*count + k > *capacity) {
+        *capacity = (*count + k) * 2;
+        *items = realloc(*items, sizeof(void*) * (size_t)*capacity);
     }
-    if (faulted > 0) {
-        void** inners = malloc(sizeof(void*) * (size_t)faulted);
-        int64_t k = 0;
-        for (int64_t i = 0; i < n; i++) {
-            csrt_Task* t = words(s->tasks)[i];
-            if (task_state(t) == T_FAULTED) inners[k++] = t->exception;
+    if (t->aggregate) for (int32_t i = 0; i < k; i++) (*items)[(*count)++] = csrt_exception_inner_at(t->aggregate, i);
+    else (*items)[(*count)++] = t->exception;
+}
+
+/// One input of a WhenAll completed (`completed`; NULL for the registration guard).
+static void when_all_step(WhenAllState* s, csrt_Task* completed) {
+    if (completed && s->element_size == 0 && task_state(completed) != T_DONE) {
+        csrt_Task** failed = __atomic_load_n(&s->failed, __ATOMIC_ACQUIRE);
+        if (!failed) {
+            csrt_Task** fresh = malloc(sizeof(csrt_Task*) * (size_t)(s->tasks->length > 0 ? s->tasks->length : 1));
+            if (__atomic_compare_exchange_n(&s->failed, &failed, fresh, false, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) failed = fresh;
+            else free(fresh);
         }
+        failed[__atomic_fetch_add(&s->nfailed, 1, __ATOMIC_ACQ_REL)] = completed;
+    }
+    if (__atomic_sub_fetch(&s->remaining, 1, __ATOMIC_ACQ_REL) > 0) return;
+    // Faulted inputs: the result faults with all their exceptions (await rethrows the first); otherwise
+    // the first canceled input cancels it, with that input's token and exception. WhenAll(Task[]) takes
+    // them in completion order, WhenAll(Task<T>[]) in array order, as .NET does.
+    int64_t n = s->tasks->length;
+    csrt_Task** order = s->element_size == 0 ? s->failed : NULL;
+    int64_t norder = s->element_size == 0 ? s->nfailed : n;
+    void** inners = NULL;
+    int64_t faulted = 0, capacity = 0;
+    csrt_Task* canceled = NULL;
+    for (int64_t i = 0; i < norder; i++) {
+        csrt_Task* t = order ? order[i] : words(s->tasks)[i];
+        int32_t st = task_state(t);
+        if (st == T_FAULTED) append_exceptions(t, &inners, &faulted, &capacity);
+        else if (st == T_CANCELED && !canceled) canceled = t;
+    }
+    if (order) free(order);
+    if (faulted > 0) {
         void* first = inners[0];
         // The aggregate is created before the result completes (nobody can observe it earlier).
         CSRT_STORE_REF(s->result->aggregate, csrt_aggregate_exception_new(inners, faulted));
@@ -610,7 +636,8 @@ static void when_all_step(WhenAllState* s) {
         finish(s->result, T_FAULTED, first);
         return;
     }
-    if (canceled) { finish(s->result, T_CANCELED, NULL); return; }
+    free(inners);
+    if (canceled) { finish(s->result, T_CANCELED, canceled->exception); return; }
     if (s->element_size > 0) {
         csrt_Array* values = csrt_new_array(s->element_size, n);
         CSRT_DIRTY(values->data, n * s->element_size);
@@ -683,7 +710,7 @@ static void run_continuations(csrt_Task* t, csrt_Array* conts, int32_t n) {
                     tl_inline_depth--;
                 } else enqueue(K_INVOKE, p, NULL);
                 break;
-            case K_WHEN_ALL: when_all_step(p); break;
+            case K_WHEN_ALL: when_all_step(p, t); break;
             case K_CHAIN: chain(t, p); break;
             case K_WHEN_ANY: when_any_hit(p, t); break;
         }
@@ -1368,9 +1395,9 @@ csrt_Task* csrt_task_when_all(csrt_Array* tasks, int32_t element_size) {
         csrt_Task* t = words(tasks)[i];
         if (!t) csrt_throw_null_reference();
         __atomic_add_fetch(&s->remaining, 1, __ATOMIC_ACQ_REL);
-        if (!add_continuation(t, K_WHEN_ALL, s)) when_all_step(s);
+        if (!add_continuation(t, K_WHEN_ALL, s)) when_all_step(s, t);
     }
-    when_all_step(s);
+    when_all_step(s, NULL);
     return result;
 }
 

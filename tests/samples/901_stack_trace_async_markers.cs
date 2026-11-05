@@ -17,7 +17,7 @@ class Program
         try { await RethrowAfterAwait(); } catch (Exception e) { Report("ExceptionDispatchInfo after an await", e); }
         try { RethrowSync(); } catch (Exception e) { Report("ExceptionDispatchInfo in a method", e); }
         try { await Outer().ConfigureAwait(false); } catch (Exception e) { Report("ConfigureAwait(false)", e); }
-        try { await Task.WhenAll(Inner("first"), Inner("second")); } catch (Exception e) { Report("Task.WhenAll", e); }
+        try { await Task.WhenAll(Inner("first"), Task.Delay(1)); } catch (Exception e) { Report("Task.WhenAll", e); }
         try { await AsValueTask(); } catch (Exception e) { Report("ValueTask", e); }
         Func<Task> lambda = async () => { await Task.Yield(); Thrower("async lambda"); };
         try { await lambda(); } catch (Exception e) { Report("async lambda", e); }
