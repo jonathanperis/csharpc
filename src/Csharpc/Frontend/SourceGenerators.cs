@@ -22,11 +22,20 @@ public sealed record GeneratorInputs
 {
     public IReadOnlyList<string> Analyzers { get; init; } = [];
     public IReadOnlyList<string> AdditionalFiles { get; init; } = [];
+    /// <summary>
+    /// Additional files of the projects the root references (analyzer settings such as stylecop.json, or what a
+    /// generator of that project consumes). The generators run once over the merged program with the root's
+    /// options, so a generator reading one of these would produce what a build of that project would not:
+    /// those reads are an explicit error, the files nobody reads are harmless.
+    /// </summary>
+    public IReadOnlyList<ReferencedAdditionalFile> ReferencedAdditionalFiles { get; init; } = [];
     public IReadOnlyList<string> AnalyzerConfigFiles { get; init; } = [];
     public IReadOnlyDictionary<string, string> Features { get; init; } = ImmutableDictionary<string, string>.Empty;
     /// <summary>csc's base directory for generated files (its /out directory): generated trees' paths, as PDBs and stack traces show them.</summary>
     public string? GeneratedFilesDirectory { get; init; }
 }
+
+public sealed record ReferencedAdditionalFile(string Project, string Path);
 
 /// <summary>
 /// Runs Roslyn source generators over the program, as csc does, and compiles the generated C# with the
@@ -62,11 +71,18 @@ public static class SourceGenerators
 
         var parseOptions = (CSharpParseOptions)compilation.SyntaxTrees.First().Options;
         ImmutableArray<AdditionalText> additionalTexts = [];
+        List<(ReferencedAdditionalFile Info, AdditionalFile File)> referencedTexts = [];
         AnalyzerConfigOptionsProvider? optionsProvider = null;
         string? generatedDirectory = null;
         if (inputs is not null)
         {
             additionalTexts = [.. inputs.AdditionalFiles.Select(p => (AdditionalText)new AdditionalFile(p))];
+            foreach (var referenced in inputs.ReferencedAdditionalFiles)
+            {
+                var file = new AdditionalFile(referenced.Path);
+                referencedTexts.Add((referenced, file));
+                additionalTexts = additionalTexts.Add(file);
+            }
             optionsProvider = ConfigOptions.Create(inputs.AnalyzerConfigFiles, found);
             generatedDirectory = inputs.GeneratedFilesDirectory is { } dir && Path.IsPathRooted(dir) ? dir : null;
         }
@@ -75,6 +91,10 @@ public static class SourceGenerators
             new GeneratorDriverOptions(IncrementalGeneratorOutputKind.Host, trackIncrementalGeneratorSteps: false, generatedDirectory));
         driver.RunGeneratorsAndUpdateCompilation(compilation, out var updated, out var generatorDiagnostics);
         found.AddRange(generatorDiagnostics.Select(GeneratorFailureAsError));
+        foreach (var (info, file) in referencedTexts)
+            if (file.WasRead)
+                found.Add(Error("CSLLVM0001", $"not supported by csharpc yet: a source generator read the additional file '{System.IO.Path.GetFileName(info.Path)}' of the referenced project "
+                    + $"'{info.Project}' (generators run once over the merged program with the root project's options)"));
         diagnostics = found;
         updated = DropReflectionOnlyMetadata(compilation, (CSharpCompilation)updated);
         if (Environment.GetEnvironmentVariable("CSHARPC_DUMP_GENERATED") is { Length: > 0 } dumpDir)
@@ -258,9 +278,11 @@ public static class SourceGenerators
     {
         private SourceText? _text;
         public override string Path => path;
+        public bool WasRead { get; private set; }
 
         public override SourceText? GetText(CancellationToken cancellationToken = default)
         {
+            WasRead = true;
             if (_text is not null) return _text;
             try
             {
