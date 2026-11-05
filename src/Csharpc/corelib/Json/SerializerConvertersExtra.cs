@@ -43,6 +43,8 @@ namespace CsharpcCoreLib
 
     internal sealed class HalfConverter : JsonPrimitiveConverter<Half>
     {
+        internal override JsonSchema GetSchema(JsonNumberHandling numberHandling) => GetSchemaForNumericType(JsonSchemaType.Number, numberHandling, isIeeeFloatingPoint: true);
+
         internal override bool IsNumberConverter => true;
 
         public override Half Read(ref Utf8JsonReaderImpl reader, Type typeToConvert, JsonSerializerOptionsImpl options)
@@ -100,6 +102,8 @@ namespace CsharpcCoreLib
 
     internal sealed class DateOnlyConverter : JsonPrimitiveConverter<DateOnly>
     {
+        internal override JsonSchema GetSchema(JsonNumberHandling _) => new JsonSchema { Type = JsonSchemaType.String, Format = "date" };
+
         public override DateOnly Read(ref Utf8JsonReaderImpl reader, Type typeToConvert, JsonSerializerOptionsImpl options)
         {
             if (reader.TokenType != JsonTokenType.String) JsonThrowHelper.ThrowInvalidOperationException_ExpectedString(reader.TokenType);
@@ -137,6 +141,8 @@ namespace CsharpcCoreLib
 
     internal sealed class TimeOnlyConverter : JsonPrimitiveConverter<TimeOnly>
     {
+        internal override JsonSchema GetSchema(JsonNumberHandling _) => new JsonSchema { Type = JsonSchemaType.String, Format = "time" };
+
         public override TimeOnly Read(ref Utf8JsonReaderImpl reader, Type typeToConvert, JsonSerializerOptionsImpl options)
         {
             if (reader.TokenType != JsonTokenType.String) JsonThrowHelper.ThrowInvalidOperationException_ExpectedString(reader.TokenType);
@@ -200,6 +206,8 @@ namespace CsharpcCoreLib
 
     internal sealed class UriConverter : JsonPrimitiveConverter<Uri>
     {
+        internal override JsonSchema GetSchema(JsonNumberHandling _) => new JsonSchema { Type = JsonSchemaType.String, Format = "uri" };
+
         public override Uri Read(ref Utf8JsonReaderImpl reader, Type typeToConvert, JsonSerializerOptionsImpl options)
         {
             if (reader.TokenType == JsonTokenType.Null) return null;
@@ -227,6 +235,13 @@ namespace CsharpcCoreLib
 
     internal sealed class VersionConverter : JsonPrimitiveConverter<Version>
     {
+        internal override JsonSchema GetSchema(JsonNumberHandling _) => new JsonSchema
+        {
+            Type = JsonSchemaType.String,
+            Comment = "Represents a version string.",
+            Pattern = @"^\d+(\.\d+){1,3}$",
+        };
+
         public override Version Read(ref Utf8JsonReaderImpl reader, Type typeToConvert, JsonSerializerOptionsImpl options)
         {
             if (reader.TokenType == JsonTokenType.Null) return null;
@@ -254,6 +269,8 @@ namespace CsharpcCoreLib
 
     internal sealed class ReadOnlyMemoryByteConverter : JsonConverterImpl<ReadOnlyMemory<byte>>
     {
+        internal override JsonSchema GetSchema(JsonNumberHandling _) => new JsonSchema { Type = JsonSchemaType.String, ContentEncoding = "base64" };
+
         internal override bool IsInternalConverter => true;
 
         public override ReadOnlyMemory<byte> Read(ref Utf8JsonReaderImpl reader, Type typeToConvert, JsonSerializerOptionsImpl options) =>
@@ -265,6 +282,8 @@ namespace CsharpcCoreLib
 
     internal sealed class MemoryByteConverter : JsonConverterImpl<Memory<byte>>
     {
+        internal override JsonSchema GetSchema(JsonNumberHandling _) => new JsonSchema { Type = JsonSchemaType.String, ContentEncoding = "base64" };
+
         internal override bool IsInternalConverter => true;
 
         public override Memory<byte> Read(ref Utf8JsonReaderImpl reader, Type typeToConvert, JsonSerializerOptionsImpl options) =>
