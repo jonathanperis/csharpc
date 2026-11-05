@@ -8,7 +8,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PROGRAMS="$ROOT/benchmarks/programs"
 DOTNET="${DOTNET:-dotnet}"
 FILTER="${1:-}"
-export DOTNET_CLI_TELEMETRY_OPTOUT=1 DOTNET_NOLOGO=1
+export DOTNET_CLI_TELEMETRY_OPTOUT=1 DOTNET_NOLOGO=1 NuGetAudit=false
 command -v valgrind > /dev/null || { echo "valgrind is required" >&2; exit 1; }
 "$DOTNET" build "$ROOT/src/Csharpc" -c Release -v quiet -nologo > /dev/null || { echo "compiler build failed" >&2; exit 1; }
 WORK="$(mktemp -d)"

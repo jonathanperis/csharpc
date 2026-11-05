@@ -22,7 +22,7 @@ for arg in "$@"; do
     *) FILTER="$arg" ;;
   esac
 done
-export DOTNET_CLI_TELEMETRY_OPTOUT=1 DOTNET_NOLOGO=1
+export DOTNET_CLI_TELEMETRY_OPTOUT=1 DOTNET_NOLOGO=1 NuGetAudit=false
 
 if [[ $REGEN == 1 ]]; then
   for src in "$PROGRAMS"/*.cs; do
