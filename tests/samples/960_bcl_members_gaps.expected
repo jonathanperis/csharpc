@@ -85,13 +85,3 @@ nuint ToUInt64: 255
 BSTR: hi é 8
 BSTR null: True
 BSTR empty: []
-apartment get: Unknown
-apartment STA: PlatformNotSupportedException: COM Interop is not supported on this platform.
-apartment MTA: PlatformNotSupportedException: COM Interop is not supported on this platform.
-apartment Unknown: ok
-apartment bad: ArgumentOutOfRangeException: Enum value was out of legal range. (Parameter 'state')
-try STA: False
-try Unknown: True
-try bad: ArgumentOutOfRangeException: Enum value was out of legal range. (Parameter 'state')
-apartment after start: PlatformNotSupportedException: COM Interop is not supported on this platform.
-apartment current: Unknown

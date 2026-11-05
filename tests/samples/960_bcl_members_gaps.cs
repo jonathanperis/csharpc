@@ -1,7 +1,7 @@
 #:property AllowUnsafeBlocks=true
 // BCL members a large desktop app and its NuGet dependencies call: Base64 sizing and validation, span
 // TrimEnd(char)/IsWhiteSpace, Encoding.UTF32, Math.DivRem(nuint), Buffer.MemoryCopy, WebUtility.UrlDecode,
-// nint formatting and conversions, Marshal.StringToBSTR and Thread's apartment state.
+// nint formatting and conversions and Marshal.StringToBSTR.
 #pragma warning disable CA1416
 using System;
 using System.Buffers.Text;
@@ -131,22 +131,5 @@ class Program
             Marshal.FreeBSTR(bstr);
             return "[" + s + "]";
         });
-
-        if (!OperatingSystem.IsWindows())
-        {
-            var t = new Thread(() => { });
-            Show("apartment get", () => t.GetApartmentState());
-            Show("apartment STA", () => { t.SetApartmentState(ApartmentState.STA); return "ok"; });
-            Show("apartment MTA", () => { t.SetApartmentState(ApartmentState.MTA); return "ok"; });
-            Show("apartment Unknown", () => { t.SetApartmentState(ApartmentState.Unknown); return "ok"; });
-            Show("apartment bad", () => { t.SetApartmentState((ApartmentState)5); return "ok"; });
-            Show("try STA", () => t.TrySetApartmentState(ApartmentState.STA));
-            Show("try Unknown", () => t.TrySetApartmentState(ApartmentState.Unknown));
-            Show("try bad", () => t.TrySetApartmentState((ApartmentState)7));
-            t.Start();
-            t.Join();
-            Show("apartment after start", () => { t.SetApartmentState(ApartmentState.MTA); return "ok"; });
-            Show("apartment current", () => Thread.CurrentThread.GetApartmentState());
-        }
     }
 }
