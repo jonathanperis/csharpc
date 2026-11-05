@@ -25,6 +25,7 @@
 #              DOTNET=path/to/dotnet, CSHARPC_TEST_TARGET=wasm32-wasip1 (compile for WebAssembly and run with
 #              wasmtime; see tests/platform.sh).
 set -uo pipefail
+export NuGetAudit=false # NU1903 about Microsoft.DotNet.ILCompiler (file-based apps) would land in recorded stdout
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SAMPLES="$ROOT/tests/samples"
