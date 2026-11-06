@@ -436,7 +436,7 @@ public sealed partial class FunctionCodeGen
     /// <summary>Runs a BCL exception constructor: binds message / innerException / paramName by name.</summary>
     private void EmitExceptionConstructor(IMethodSymbol constructor, LLVMValueRef exception, ImmutableArray<IArgumentOperation> arguments)
     {
-        LLVMValueRef? message = null, inner = null, paramName = null, actualValue = null, objectName = null, inners = null, hresult = null, token = null;
+        LLVMValueRef? message = null, inner = null, paramName = null, actualValue = null, objectName = null, inners = null, hresult = null, token = null, task = null;
         var aggregate = Mangler.MetadataName(constructor.ContainingType) == "System.AggregateException";
         foreach (var argument in arguments)
         {
@@ -463,6 +463,7 @@ public sealed partial class FunctionCodeGen
                 case "objectName": objectName = value; break;
                 case "hresult" when argument.Parameter!.Type.SpecialType == SpecialType.System_Int32: hresult = value; break; // IOException(message, hresult)
                 case "token" when argument.Parameter!.Type.Name == "CancellationToken": token = value; break; // OperationCanceledException(..., token)
+                case "task" when argument.Parameter!.Type.Name == "Task": task = value; break; // TaskCanceledException(Task)
                 case "innerExceptions" when aggregate: // Exception[] or IEnumerable<Exception>
                     inners = CallCoreLib("AggregateExceptionSupport", argument.Parameter!.Type is IArrayTypeSymbol ? "FromArray" : "FromEnumerable", value);
                     break;
@@ -489,6 +490,7 @@ public sealed partial class FunctionCodeGen
         if (actualValue is { } actual) CallRuntime("csrt_exception_set_actual_value", L.Void, [L.Ptr, L.Ptr], exception, actual);
         if (hresult is { } h) CallRuntime("csrt_exception_set_hresult", L.Void, [L.Ptr, L.I32], exception, h);
         if (token is { } t) CallRuntime("csrt_exception_set_token", L.Void, [L.Ptr, L.Ptr], exception, t);
+        if (task is { } canceledTask) CallRuntime("csrt_exception_set_task", L.Void, [L.Ptr, L.Ptr], exception, canceledTask);
     }
 
     private bool TryEmitLibraryExceptionCall(IInvocationOperation inv, out LLVMValueRef result)
@@ -573,9 +575,15 @@ public sealed partial class FunctionCodeGen
         };
         var innerExceptions = property.Name == "InnerExceptions" && Mangler.MetadataName(property.ContainingType) == "System.AggregateException";
         var cancellationToken = property.Name == "CancellationToken" && Mangler.MetadataName(property.ContainingType) == "System.OperationCanceledException";
-        if (field is null && property.Name is not ("Message" or "StackTrace") && !innerExceptions && !cancellationToken) return false;
+        var canceledTask = property.Name == "Task" && Mangler.MetadataName(property.ContainingType) == "System.Threading.Tasks.TaskCanceledException";
+        if (field is null && property.Name is not ("Message" or "StackTrace") && !innerExceptions && !cancellationToken && !canceledTask) return false;
         var self = EmitValue(p.Instance!);
         NullCheck(self);
+        if (canceledTask)
+        {
+            result = CallRuntime("csrt_exception_get_data", L.Ptr, [L.Ptr], self); // TaskCanceledException.Task
+            return true;
+        }
         if (cancellationToken)
         {
             result = CallRuntime("csrt_exception_get_token", L.Ptr, [L.Ptr], self);

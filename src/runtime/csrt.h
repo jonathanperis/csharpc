@@ -57,7 +57,8 @@ enum { CSRT_MT_ABSTRACT = 1, CSRT_MT_INTERFACE = 2, CSRT_MT_ITERATOR = 4 /* src/
        CSRT_MT_REFERENCE_ELEMENTS = 512 /* an array type whose elements are references (array covariance) */,
        CSRT_MT_DELEGATE = 1024 /* a delegate type (`is System.Delegate`) */,
        CSRT_MT_PRIMITIVE = 2048 /* a boxed primitive; with CSRT_MT_ENUM: `reserved` is the (underlying) CorElementType */,
-       CSRT_MT_SYNTHESIZED_INTERFACE = 1 << 16 /* made by csrt from a csrt_LazyInterface (type.c) */ };
+       CSRT_MT_SYNTHESIZED_INTERFACE = 1 << 16 /* made by csrt from a csrt_LazyInterface (type.c) */,
+       CSRT_MT_TRACKED_REFERENCE = 1 << 17 /* [ObjectiveCTrackedType] (inherited) and a finalizer: ObjectiveCMarshal tracking (gc.c) */ };
 // Array types of integers and enums: the ECMA-335 reduced element type (4 bits: 1 int8, 2 int16, 3 int32,
 // 4 int64, 5 native int), so int[] and uint[] (and an enum's array) are cast-compatible like in the CLR.
 #define CSRT_MT_ELEMENT_CLASS_SHIFT 12
@@ -184,6 +185,7 @@ typedef struct csrt_Exception {
     // clause that accepted it and its frame record, CSRT_EH_SEARCHED, or null (no filter has run).
     const void* eh_clause;
     void* eh_frame;
+    void* data;                 // TaskCanceledException.Task (the canceled task); null otherwise
 } csrt_Exception;
 typedef struct { csrt_MethodTable header; void* vtable[4]; } csrt_ExceptionMethodTable;
 enum { CSRT_SLOT_GET_MESSAGE = 3 };
@@ -191,6 +193,7 @@ enum { CSRT_SLOT_GET_MESSAGE = 3 };
 CSRT_THROWS void csrt_throw_object(void* exception);
 int32_t csrt_exception_get_hresult(void* exception);
 void csrt_exception_set_token(void* exception, void* token);
+void* csrt_exception_get_token(void* exception);
 void csrt_exception_set_hresult(void* exception, int32_t hresult);
 CSRT_THROWS void csrt_rethrow(void* exception);
 CSRT_THROWS void csrt_propagate(void* exception);
@@ -233,6 +236,7 @@ void csrt_exception_set_inners(void* exception, csrt_Array* inners);
 int32_t csrt_exception_inner_count(void* exception);
 void* csrt_exception_inner_at(void* exception, int32_t index);
 void* csrt_task_canceled_exception_new(void);
+void* csrt_task_canceled_exception_for(void* task);  // TaskCanceledException(Task): Task and its token
 bool csrt_is_operation_canceled(void* exception);
 void* csrt_operation_canceled_exception_new(void* token);
 void* csrt_object_disposed_exception_new(const char* message); // ObjectDisposedException(null, message)

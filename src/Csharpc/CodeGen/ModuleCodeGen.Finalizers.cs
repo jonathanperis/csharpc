@@ -48,4 +48,19 @@ public sealed partial class ModuleCodeGen
         b.RetVoid();
         return _finalizerThunks[methodTable.Handle] = fn;
     }
+
+    private const int CsrtMtTrackedReference = 1 << 17; // CSRT_MT_TRACKED_REFERENCE (src/runtime/csrt.h)
+
+    /// <summary>
+    /// ObjectiveCMarshal's "tracked reference with finalizer": the class or a base carries [ObjectiveCTrackedType]
+    /// (inherited) and the class has a finalizer (ObjectiveCMarshal.CreateReferenceTrackingHandle requires both).
+    /// </summary>
+    private bool IsTrackedReference(ClassLayout layout)
+    {
+        if (layout.IsLibrary || FinalizerChain(layout).Count == 0) return false;
+        for (INamedTypeSymbol? type = layout.Type; type is { SpecialType: not SpecialType.System_Object }; type = type.BaseType)
+            if (type.GetAttributes().Any(a => a.AttributeClass is { Name: "ObjectiveCTrackedTypeAttribute", ContainingNamespace: { Name: "ObjectiveC" } }))
+                return true;
+        return false;
+    }
 }

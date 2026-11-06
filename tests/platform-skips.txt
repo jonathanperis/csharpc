@@ -16,7 +16,9 @@ windows 312_json_reader                 live: indented JSON uses the writer's Ne
 windows 314_json_document               live: indented JSON uses the writer's NewLine handling, not the "\n" -> "\r\n" derivation
 windows 315_json_node                   live: indented JSON uses the writer's NewLine handling, not the "\n" -> "\r\n" derivation
 windows 318_json_options                live: indented JSON uses the writer's NewLine handling, not the "\n" -> "\r\n" derivation
-macos 970_objectivec_marshal_platform  known gap: real .NET on macOS runs ObjectiveCMarshal (reference tracking needs finalizers and the collector's tracked-reference callbacks); csharpc throws NotSupportedException there (#23)
+macos 970_objectivec_marshal_platform  live: real .NET on macOS runs ObjectiveCMarshal (argument and state errors included); samples 977 and 978 cover its behaviour
+macos 977_objectivec_tracking  live: real .NET runs ObjectiveCMarshal only on macOS (elsewhere it prints "not macOS"); recorded there
+macos 978_objectivec_msgsend  live: real .NET runs ObjectiveCMarshal only on macOS (elsewhere it prints "not macOS"); recorded there
 windows 199_debug_assert_failfast       known gap: a failed Debug.Assert's fail-fast exit status on Windows isn't matched yet (.NET 35, csharpc 127); stdout matches
 windows 07_arrays                       live: writes a bare "\n" itself, next to WriteLine's "\r\n"
 windows 163_number_parse                live: writes a bare "\n" itself, next to WriteLine's "\r\n"
@@ -215,6 +217,8 @@ macos 903_stack_trace_socket_connect  live: a refused connect completes asynchro
 windows 940_expand_environment_variables  live: .NET expands through Win32's ExpandEnvironmentStrings, whose handling of unset names differs from the Unix algorithm
 windows 972_uri_rooted_path_unix     Windows .NET takes "/rel" for an implicit file path (absolute); csharpc reports drive-less file paths there as not supported
 windows 981_uri_file_paths_unix     Windows .NET takes "/rel", "//host/x" and file:///tmp/x paths differently (implicit file paths, UNC); csharpc reports drive-less file paths there as not supported
+wasi 1020_task_async_state_options     needs threads: it waits on a started task's AsyncWaitHandle and disposes a task a pool worker is blocked in; WebAssembly runs work items one after another
+wasi 1021_task_exceptions_status       needs threads: it spins until a pool worker's task stops Running, which one thread can't observe
 # HttpClient samples (System.Net.Http from IL over csharpc's sockets): loopback servers in the sample itself.
 wasi 1000_httpclient_get                opens loopback sockets: WASI preview 1 has none (PlatformNotSupportedException)
 wasi 1001_httpclient_post               opens loopback sockets: WASI preview 1 has none (PlatformNotSupportedException)
@@ -241,3 +245,7 @@ windows 1010_httpclient_base_address  known gap: System.Net.Http's system-proxy 
 wasi 1053_binary_primitives_native_int  nint/nuint are 4 bytes on wasm32: the bytes written and reversed differ from the 64-bit recording
 windows 1057_marshal_memory_copy_strings  live: Marshal's ANSI conversions use the Windows ANSI code page (1252, where é survives), UTF-8 on Linux and macOS
 windows 1058_marshal_variant_bool  known gap: .NET on Windows marshals VARIANT_BOOL fields with its built-in COM support and gives their size; csharpc reports them as unmarshalable there as elsewhere
+windows 1001_httpclient_post            live: the request text it echoes is built with bare "\n"s, next to WriteLine's "\r\n"
+windows 1005_httpclient_handlers        known gap: gzip, deflate and brotli decompression need .NET's native compression shim, which csharpc can't link with MinGW yet (see 537_compression_streams)
+windows 1010_httpclient_base_address    known gap: the corelib's System.Uri rejects drive-less file paths ("/absolute/path") on Windows with an explicit NotSupportedException
+wasi 1141_network_interface_addresses   WASI preview 1 has no network interfaces to enumerate (NotSupportedException)

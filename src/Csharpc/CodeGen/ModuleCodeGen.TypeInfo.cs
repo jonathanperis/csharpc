@@ -326,7 +326,7 @@ public sealed partial class ModuleCodeGen
             {
                 // Only types whose FullName differs from the method table's name (ToString's form).
                 if (type is ITypeSymbol symbol && IsOpenInstance(symbol)) continue;
-                if (type is DisplayClassType or RuntimeTypeMarker) continue; // FullName is the method table's name
+                if (type is DisplayClassType or RuntimeTypeMarker or SynthesizedType) continue; // FullName is the method table's name
                 var real = type is GenericParameter ? null : RealType((ITypeSymbol)type);
                 if (real is not null && !HasGenericArguments(real) && !IsCoreLibInternal(real)) continue;
                 var unknown = false;
@@ -599,6 +599,7 @@ public sealed partial class ModuleCodeGen
     private TypeInfoRecord TypeInfoRecordFor(LLVMValueRef mt, object described)
     {
         if (described is DisplayClassType displayClass) return DisplayClassRecord(mt, displayClass);
+        if (described is SynthesizedType synthesized) return SynthesizedRecord(mt, synthesized);
         if (described is RuntimeTypeMarker) return RuntimeTypeRecord(mt);
         var none = LlvmContext.Null(Llvm.Ptr);
         LLVMValueRef baseMt = none, element = none, definition = none, declaring = none, arguments = none;

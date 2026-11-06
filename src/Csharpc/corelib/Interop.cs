@@ -244,6 +244,21 @@ namespace CsharpcCoreLib
         private static NotSupportedException BuiltInComNotSupported() => new NotSupportedException("Built-in COM interop is not supported by csharpc yet.");
 #endif
 
+        // Delegates as native callbacks (DelegateThunks.cs): a pool of generated reverse P/Invoke thunks per delegate
+        // type, so only a delegate type known at compile time can be marshalled.
+        public static IntPtr GetFunctionPointerForDelegate<TDelegate>(TDelegate d) =>
+            DelegateThunks.GetPointer((Delegate)(object)d, CoreIntrinsics.ReverseThunkTable<TDelegate>());
+        public static IntPtr GetFunctionPointerForDelegate(Delegate d) => DelegateThunks.GetPointerUntyped(d);
+        public static TDelegate GetDelegateForFunctionPointer<TDelegate>(IntPtr ptr) =>
+            CoreIntrinsics.CastOrThrow<TDelegate>(DelegateThunks.FromPointer<TDelegate>(ptr));
+        public static Delegate GetDelegateForFunctionPointer(IntPtr ptr, Type t)
+        {
+            if (ptr == IntPtr.Zero) throw new ArgumentNullException("ptr");
+            if (t == null) throw new ArgumentNullException("t");
+            throw new NotSupportedException("Marshal.GetDelegateForFunctionPointer(IntPtr, Type) is not supported by csharpc yet:"
+                + " use the generic overload GetDelegateForFunctionPointer<TDelegate>, whose delegate type is known at compile time.");
+        }
+
         /// <summary>Marshal.InitHandle: a SafeHandle created by marshalling code takes the native handle.</summary>
         public static void InitHandle(SafeHandle safeHandle, IntPtr handle) => ((SafeHandleImpl)(object)safeHandle).SetHandle(handle);
 #if CSHARPC_TARGET_WINDOWS
@@ -652,6 +667,42 @@ namespace CsharpcCoreLib
         [Shadows("System.Runtime.InteropServices.Marshalling.ArrayMarshaller`2+ManagedToUnmanagedIn")]
         internal ref struct ManagedToUnmanagedIn
         {
+            // The stack buffer the generated stub offers (a 512-byte budget), as in .NET.
+            public static int BufferSize => 0x200 / sizeof(TUnmanaged);
+
+            private T[] _managedArray;
+            private TUnmanaged* _allocatedMemory;
+            private Span<TUnmanaged> _span;
+
+            public void FromManaged(T[] array, Span<TUnmanaged> buffer)
+            {
+                _managedArray = array;
+                if (array == null) return;
+                // Always at least one byte when the array is empty.
+                int spaceToAllocate = Math.Max(checked(array.Length * sizeof(TUnmanaged)), 1);
+                if (spaceToAllocate <= buffer.Length * sizeof(TUnmanaged))
+                {
+                    _span = buffer.Slice(0, array.Length);
+                }
+                else
+                {
+                    _allocatedMemory = (TUnmanaged*)Libc.Alloc((nuint)spaceToAllocate);
+                    _span = new Span<TUnmanaged>(_allocatedMemory, array.Length);
+                }
+            }
+
+            public ReadOnlySpan<T> GetManagedValuesSource() => _managedArray;
+            public Span<TUnmanaged> GetUnmanagedValuesDestination() => _span;
+
+            public ref TUnmanaged GetPinnableReference()
+            {
+                if (_span.Length == 0) return ref *(TUnmanaged*)null;
+                return ref _span[0];
+            }
+
+            public TUnmanaged* ToUnmanaged() => (TUnmanaged*)CoreIntrinsics.SpanAddress<TUnmanaged>(_span);
+            public void Free() => Libc.free(_allocatedMemory);
+
             public static ref T GetPinnableReference(T[] array)
             {
                 if (array == null || array.Length == 0) return ref *(T*)null;

@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- References IlTypesLib only as a prebuilt DLL: csharpc compiles the library from its IL. tests/il.sh builds
+       IlTypesLib first and passes its path in IlTypesLibDll. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net11.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IlTypesLibDll Condition="'$(IlTypesLibDll)' == ''">../IlTypesLib/bin/Release/net11.0/IlTypesLib.dll</IlTypesLibDll>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="IlTypesLib">
+      <HintPath>$(IlTypesLibDll)</HintPath>
+    </Reference>
+  </ItemGroup>
+</Project>

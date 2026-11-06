@@ -63,6 +63,14 @@ namespace CsharpcCoreLib
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern object PointerToObject(IntPtr pointer);
         /// <summary>The same reference, typed as T without a type test (Unsafe.As).</summary>
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern T ReinterpretAs<T>(object o) where T : class;
+        /// <summary>
+        /// For a concrete (non-generic) delegate type: the address of its pool of reverse P/Invoke thunks
+        /// (ModuleCodeGen.ReverseThunks.cs), the thunk that calls a native pointer boxed as a delegate's target,
+        /// and its method table. 0 for a generic delegate type, -1 when T isn't a delegate type.
+        /// </summary>
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern IntPtr ReverseThunkTable<TDelegate>();
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern IntPtr NativeInvokeThunk<TDelegate>();
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern IntPtr DelegateTypeTable<TDelegate>();
         /// <summary>sizeof(T) as csharpc lays T out (its storage type).</summary>
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern int SizeOf<T>();
         /// <summary>The address of a span's first element (never moves: the GC doesn't).</summary>
@@ -106,6 +114,10 @@ namespace CsharpcCoreLib
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern string ModuleVersionIds();
         /// <summary>(assembly, count, referenced full names...) of the IL assemblies, encoded (ModuleCodeGen.Resources.cs).</summary>
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern string AssemblyReferences();
+        /// <summary>(assembly full name, failure or "") of every assembly with a compiled-in type list, encoded (ModuleCodeGen.AssemblyTypes.cs).</summary>
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern string AssemblyTypeNames();
+        /// <summary>The type lists AssemblyTypeNames indexes: per assembly {method tables, i32 count, i32 reserved}.</summary>
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern nint AssemblyTypeTableAddress();
         /// <summary>The bytes ManifestResourceIndex's offsets point into.</summary>
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern unsafe byte* ManifestResourceData();
         /// <summary>
