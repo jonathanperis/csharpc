@@ -116,6 +116,24 @@ csharpc keeps reflection metadata the same way, generated at compile time by
   direct `typeof` initializers and assignments count, not `cond ? typeof(A) : typeof(B)` (which ILLink merges); fields and
   `obj.GetType()` aren't followed by ILLink either. A local captured by a lambda is followed in source but not in IL (the
   closure field). Test: `tests/samples/993_reflection_typeof_local_flow`.
+- Attributes csc synthesizes (2026-11-06, `ModuleCodeGen.SourceAttributes.cs`): Roslyn's symbols list the attributes the
+  source writes (pseudo-custom ones like `[MethodImpl]` included) and omit those csc adds to metadata, so a list taken from
+  them differs from the JIT's. Source members now list what csharpc reproduces exactly: `[CompilerGenerated]` (with
+  `[DebuggerBrowsable]` on the field) on auto-property and field-like event accessors and backing fields, `[ParamArray]`,
+  `[Extension]`, always before the source's own attributes; `[Optional]`/`[In]`/`[Out]` and the other pseudo-custom ones
+  (`[DllImport]` + its `[PreserveSig]`, `[NonSerialized]`, `[FieldOffset]`, `[MarshalAs]`) once, after them in
+  `GetCustomAttributes()` and before them in `GetCustomAttributesData()` (CoreCLR's two orders; the count word of an
+  attribute list carries how many trailing records are pseudo). `[MethodImpl]`, `[SpecialName]` and `[StructLayout]`, which
+  reflection never lists, are dropped. Where csc adds attributes csharpc doesn't (nullable annotations on any reference
+  type or type parameter in a `#nullable` annotations context, async and iterator methods, readonly struct members,
+  `in`/`scoped` parameters, `dynamic`/tuple-name/`nint` types, `decimal` constants and defaults, records, anonymous types,
+  `required`/fixed members), the list is marked *unknown* (bit 30 of the count word): an untyped query
+  (`GetCustomAttributes()`, `GetCustomAttributesData`, `IsDefined` of a System attribute) throws `NotSupportedException`,
+  while a query for an attribute csc never synthesizes (the program's own, `[Obsolete]`) stays exact. Methods csc adds to a
+  type that Roslyn has no symbol for (local functions and lambdas that use `this`) make the non-public-method list of that
+  type unknown the same way instead of silently one method short. The nullable context is the project's setting
+  (`Nullable`, per file with its `#nullable` directives), not Roslyn's: codegen binds a compilation with the context off.
+  Tests: `tests/samples/1070_reflection_source_attributes`, `1071_reflection_nullable_attributes`.
 - Added for expression trees (2026-10-30, [18](../18-compatibility.md#expression-trees)): standalone
   records of the members a program names directly — `ldtoken` + `GetMethodFromHandle`/`GetFieldFromHandle`
   and the `MethodInfo`/`FieldInfo` constants of lowered expression trees — with a per-method identity, so

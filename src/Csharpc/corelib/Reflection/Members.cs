@@ -1023,12 +1023,34 @@ namespace CsharpcCoreLib
 
         internal static object CallFactory(nint factory) => factory == 0 ? null : ((delegate*<object>)factory)();
 
-        internal static object[] CreateAttributes(byte* records, int count, Type attributeType)
+        // An attribute list's count carries more than the number of records (ModuleCodeGen.AttributeCount):
+        // bits 0-23 the records, bits 24-29 how many of the last records are pseudo-custom attributes (CoreCLR
+        // lists those after the metadata's attributes in GetCustomAttributes but before them in
+        // GetCustomAttributesData), bit 30 that csc synthesizes attributes csharpc can't reproduce for the member.
+        internal const int AttributesUnknown = 0x40000000;
+
+        /// <summary>
+        /// Whether a typed query could have matched an attribute csc synthesizes into metadata (nullable annotations,
+        /// [CompilerGenerated], [ParamArray], state machines, [IsReadOnly], ...): those are System attributes, and
+        /// an untyped query (object, Attribute, an interface) asks for all of them.
+        /// </summary>
+        private static bool MaybeSynthesized(Type attributeType) =>
+            attributeType == typeof(object) || attributeType == typeof(Attribute) || attributeType.IsInterface
+            || attributeType.Namespace == "System.Runtime.CompilerServices" || attributeType.Namespace == "System.Diagnostics"
+            || attributeType == typeof(ParamArrayAttribute);
+
+        private static NotSupportedException UnknownAttributes() =>
+            new NotSupportedException("The custom attributes of this member are not supported by csharpc yet: it can't reproduce the attributes " +
+                "the C# compiler synthesizes for it (nullable annotations, state machines, readonly members, ...).");
+
+        internal static object[] CreateAttributes(byte* records, int raw, Type attributeType)
         {
             ArgumentNullException.ThrowIfNull(attributeType);
+            int count = raw & 0xFFFFFF;
             bool all = attributeType == typeof(object);
             if (!all && attributeType != typeof(Attribute) && !attributeType.IsSubclassOf(typeof(Attribute)) && !attributeType.IsInterface)
                 throw new ArgumentException("Type passed in must be derived from System.Attribute or System.Attribute itself.");
+            if ((raw & AttributesUnknown) != 0 && MaybeSynthesized(attributeType)) throw UnknownAttributes();
             var list = new List<object>();
             for (int i = 0; i < count; i++)
             {
@@ -1047,18 +1069,28 @@ namespace CsharpcCoreLib
             return result;
         }
 
-        internal static bool IsDefined(byte* records, int count, Type attributeType)
+        internal static bool IsDefined(byte* records, int raw, Type attributeType)
         {
             ArgumentNullException.ThrowIfNull(attributeType);
+            int count = raw & 0xFFFFFF;
             for (int i = 0; i < count; i++)
                 if (attributeType.IsAssignableFrom(TypeOf(ReflectionRecords.AttributeType(records + i * ReflectionRecords.AttributeSize)))) return true;
+            if ((raw & AttributesUnknown) != 0 && MaybeSynthesized(attributeType)) throw UnknownAttributes();
             return false;
         }
 
-        internal static IList<CustomAttributeData> AttributeData(byte* records, int count)
+        /// <summary>CustomAttributeData lists the pseudo-custom attributes (In, Optional, MarshalAs, ...) before the metadata's.</summary>
+        internal static IList<CustomAttributeData> AttributeData(byte* records, int raw)
         {
+            if ((raw & AttributesUnknown) != 0) throw UnknownAttributes();
+            int count = raw & 0xFFFFFF;
+            int pseudo = (raw >> 24) & 0x3F;
             var list = new CustomAttributeData[count];
-            for (int i = 0; i < count; i++) list[i] = (CustomAttributeData)CallFactory(ReflectionRecords.AttributeData(records + i * ReflectionRecords.AttributeSize));
+            for (int i = 0; i < count; i++)
+            {
+                int slot = i < pseudo ? count - pseudo + i : i - pseudo;
+                list[i] = (CustomAttributeData)CallFactory(ReflectionRecords.AttributeData(records + slot * ReflectionRecords.AttributeSize));
+            }
             return new ReadOnlyCollection<CustomAttributeData>(list);
         }
 
