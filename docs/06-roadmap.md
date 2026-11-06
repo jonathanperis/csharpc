@@ -204,9 +204,17 @@ nested types too (the binding compilation reads the program with those types mar
 [ADR 0010](adr/0010-il-frontend.md#the-program-as-il-2026-10-30)). Left as diagnostics from IL: JSON of
 anonymous, file-local and other compiler-generated types, as in source. Gaps between the two front-ends are bugs.
 
+**RID-specific and native package assets** (2026-11-06): the packages' `runtimes/<rid>/lib` assemblies and
+`runtimes/<rid>/native` libraries for the target's runtime identifier, as the host and `PublishAot` select them. A
+project with packages is restored for the target's RID (`--target` -> linux-x64, linux-arm64, osx-arm64, win-x64;
+the host's by default; a RID the project or `-p:RuntimeIdentifier` sets wins), so NuGet's own selection applies: the
+RID-specific assembly replaces the portable `lib/` one. The program as IL reads deps.json's `runtimeTargets`
+with the runtime graph's fallbacks (linux-x64 -> linux -> unix-x64 -> unix -> any). The native libraries are copied
+next to the executable, where a P/Invoke probes first (`tests/il.sh`, RidApp, against a package built locally).
+Left: satellite resource assemblies, `ref/` vs `lib/` binding, linking a package's static archives.
+
 Next: `-g` from the assembly's PDB, the BCL
-surface packages use (ranked by the survey), `typeof(X).Assembly`, `calli`, RID-specific/native package
-assets.
+surface packages use (ranked by the survey), `typeof(X).Assembly`, `calli`.
 
 ### M6 — Bootstrapping
 csharpc compiles csharpc (and Roslyn) — the strongest possible proof of maturity.
