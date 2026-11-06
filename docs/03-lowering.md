@@ -620,6 +620,15 @@ move objects, so `fixed` just takes the address of the first element (null for a
 array or string, as in C#). Roslyn's IOperation API doesn't model most of these, so they are
 recognized by syntax shape and child types.
 
+`System.Runtime.CompilerServices.Unsafe` is lowered from source too (`FunctionCodeGen.UnsafeClass.cs`; the
+IL front-end's `FunctionCodeGen.IlUnsafe.cs` shares its helpers): `As`, `AsRef`, `AsPointer`, `Add`/`Subtract`
+(int, nint, nuint and `void*`), the byte-offset forms, `ByteOffset`, `AreSame`, `IsAddress*`, `NullRef`/`IsNullRef`,
+`SizeOf`, `SkipInit`, `Read`/`Write` (+ `Unaligned`), `Copy`, `CopyBlock`, `InitBlock`, `BitCast` and `Unbox` are plain
+address arithmetic, loads, stores and `memmove`/`memset`. A `ref` result is the address itself, like any ref-returning
+call, so ref locals and ref returns follow it. Reinterpreting refs (`As`, `AsRef`, `AsPointer`) yield a fresh value
+without the data-access TBAA tag of the field or element the address came from (`As<int, long>(ref obj.A)` overlaps
+`obj.B`). `MemoryMarshal.GetReference` and `GetArrayDataReference` are lowered the same way.
+
 ## String concatenation and interpolation
 
 `a + b` with a string operand, `string.Concat(...)` and `$"..."` all become a left-to-right chain of

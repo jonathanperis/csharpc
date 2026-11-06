@@ -75,6 +75,9 @@ namespace CsharpcCoreLib
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern int SizeOf<T>();
         /// <summary>The address of a span's first element (never moves: the GC doesn't).</summary>
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern nint SpanAddress<T>(ReadOnlySpan<T> span);
+        /// <summary>A span over a reference and a length, as given: unlike the pointer constructors, a negative length is not rejected.</summary>
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern Span<T> SpanOf<T>(ref T reference, int length);
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern ReadOnlySpan<T> ReadOnlySpanOf<T>(in T reference, int length);
         /// <summary>The address a reference points at.</summary>
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern nint RefAddress<T>(in T value);
         /// <summary>
@@ -286,6 +289,13 @@ namespace CsharpcCoreLib
         public static void EnumCompareMismatch(object other, string source) =>
             throw new ArgumentException("Object must be the same type as the enum. The type passed in was '" + other.GetType().FullName +
                 "'; the enum type was '" + source + "'.");
+
+        // Marshal.SizeOf/OffsetOf/PtrToStructure/StructureToPtr argument errors (FunctionCodeGen.MarshalLayout.cs).
+        public static void MarshalNotMarshalable(string message) => throw new ArgumentException(message);
+        public static void MarshalArgument(string message, string paramName) => throw new ArgumentException(message, paramName);
+        public static void MarshalArgumentNull(string paramName) => throw new ArgumentNullException(paramName);
+        public static void MarshalNotMember(string typeName) =>
+            throw new ArgumentException("Field passed in is not a marshaled member of the type '" + typeName + "'.", "fieldName");
 
         // ArgumentOutOfRangeException.ThrowIf* (.NET 8+): exact messages, with the actual value.
         public static void IfNegative(int value, string paramName)
