@@ -72,10 +72,6 @@ var post = await http.PostAsync($"http://localhost:{port}/submit", new StringCon
 Console.WriteLine($"{(int)post.StatusCode} {await post.Content.ReadAsStringAsync()}");
 Console.WriteLine($"connections used: {connections}");
 
-using var other = new HttpClient();
-other.BaseAddress = new Uri($"http://localhost:{port}");
-Console.WriteLine(await other.GetStringAsync("/based"));
-
 listener.Stop();
 
 // Nothing listens any more on that port (a new client: the old one may reuse a connection it already holds).
