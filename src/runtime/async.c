@@ -348,6 +348,14 @@ void* csrt_coro_alloc(int64_t size) {
     return (uint8_t*)frame + CORO_FRAME_OFFSET;
 }
 
+/// A task, or an object of a class deriving from TaskCompletionSource (laid out over csrt_Task, whose
+/// method table chains to csrt_Task_MT: the compiler's ModuleCodeGen.TaskSources.cs).
+static inline bool is_task_mt(const csrt_MethodTable* mt) {
+    for (; mt; mt = mt->base)
+        if (mt == &csrt_Task_MT.header) return true;
+    return false;
+}
+
 #if defined(CSRT_GC_NURSERY_DEFAULT) || (defined(CSRT_GC_CONCURRENT) && !defined(__wasi__))
 /// The objects csrt_gc_remember is called for: iterator frames and tasks (an async method's frame is
 /// inside its task; other tasks are scanned too, which is only conservative).
@@ -820,7 +828,7 @@ void csrt_task_on_completed(csrt_Task* t, void* frame) {
 void csrt_task_on_completed_no_context(csrt_Task* t, void* frame) { on_completed_no_context(t, frame); }
 
 /// ValueTask<T>'s object (corelib/Tasks/ValueTaskOfT.cs): a csrt task, as opposed to an IValueTaskSource.
-int32_t csrt_object_is_task(void* obj) { return obj && ((csrt_Object*)obj)->mt == &csrt_Task_MT.header; }
+int32_t csrt_object_is_task(void* obj) { return obj && is_task_mt(((csrt_Object*)obj)->mt); }
 
 /// `await` of a pending source-backed ValueTask: the state the source hands back to csrt_coro_resume_state,
 /// the frame itself or, when the await has an execution-context flow, the frame and that flow (as

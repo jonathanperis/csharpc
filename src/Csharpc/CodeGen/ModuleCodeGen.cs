@@ -120,10 +120,12 @@ public sealed partial class ModuleCodeGen
 
     /// <summary>Compiled by csharpc: defined in the program's sources (incl. the corelib) or in an IL assembly (ADR 0010).</summary>
     public bool IsUserType(ITypeSymbol? type) =>
-        type is INamedTypeSymbol && (SymbolEqualityComparer.Default.Equals(type.ContainingAssembly, Compilation.Assembly) || Il.Contains(type.ContainingAssembly));
+        type is INamedTypeSymbol named && (SymbolEqualityComparer.Default.Equals(type.ContainingAssembly, Compilation.Assembly)
+            || (Il.Contains(type.ContainingAssembly) && !IsShadowedIlType(named)));
 
     public bool IsUserMethod(IMethodSymbol method) =>
-        SymbolEqualityComparer.Default.Equals(method.ContainingAssembly, Compilation.Assembly) || Il.Contains(method.ContainingAssembly);
+        SymbolEqualityComparer.Default.Equals(method.ContainingAssembly, Compilation.Assembly)
+        || (Il.Contains(method.ContainingAssembly) && !(method.ContainingType is { } owner && IsShadowedIlType(owner)));
 
     // ======================================================================================
     // Driver
@@ -927,7 +929,9 @@ public sealed partial class ModuleCodeGen
                 ? GetLibraryExceptionLayout(type)
                 : IsRuntimeCancellationSource(type)
                     ? GetCancellationSourceLayout(type)
-                    : throw CompileError.Unsupported($"instances of library class '{type}'", type);
+                    : IsRuntimeTaskSource(type)
+                        ? GetTaskSourceLayout(type)
+                        : throw CompileError.Unsupported($"instances of library class '{type}'", type);
         if (TypeSubstitution.IsOpen(type)) throw CompileError.Unsupported($"open generic type '{type}'", type);
         NoteDynamicallyAccessedInstantiation(type);
         RejectCustomLayout(type);
@@ -973,7 +977,7 @@ public sealed partial class ModuleCodeGen
         if (type.BaseType is { SpecialType: not SpecialType.System_Object } declaredBase)
         {
             var baseType = CoreLib.TryMap(declaredBase) ?? declaredBase; // e.g. `class ByLength : Comparer<string>`
-            if (!IsUserType(baseType) && !IsLibraryException(baseType) && !IsRuntimeCancellationSource(baseType))
+            if (!IsUserType(baseType) && !IsLibraryException(baseType) && !IsRuntimeCancellationSource(baseType) && !IsRuntimeTaskSource(baseType))
                 throw CompileError.Unsupported($"deriving from library class '{baseType}'", type);
             baseLayout = GetLayout(baseType);
         }

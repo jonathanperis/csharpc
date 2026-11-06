@@ -90,6 +90,61 @@ namespace CsharpcCoreLib
             return GetInt32(0, toExclusive);
         }
 
+        // GetItems / GetString / GetHexString / Shuffle (.NET 8): HttpClient's digest authentication draws
+        // its client nonce with GetString.
+        public static void GetItems<T>(ReadOnlySpan<T> choices, Span<T> destination)
+        {
+            if (choices.IsEmpty) throw new ArgumentException("Span may not be empty.", "choices");
+            GetItemsCore(choices, destination);
+        }
+
+        public static T[] GetItems<T>(ReadOnlySpan<T> choices, int length)
+        {
+            if (choices.IsEmpty) throw new ArgumentException("Span may not be empty.", "choices");
+            ArgumentOutOfRangeException.ThrowIfNegative(length);
+            var result = new T[length];
+            GetItemsCore(choices, result);
+            return result;
+        }
+
+        public static string GetString(ReadOnlySpan<char> choices, int length)
+        {
+            if (choices.IsEmpty) throw new ArgumentException("Span may not be empty.", "choices");
+            ArgumentOutOfRangeException.ThrowIfNegative(length);
+            var chars = new char[length];
+            GetItemsCore(choices, chars);
+            return new string(chars);
+        }
+
+        public static void GetHexString(Span<char> destination, bool lowercase = false)
+        {
+            if (destination.IsEmpty) return;
+            GetItemsCore((lowercase ? "0123456789abcdef" : "0123456789ABCDEF").AsSpan(), destination);
+        }
+
+        public static string GetHexString(int stringLength, bool lowercase = false)
+        {
+            if (stringLength == 0) return string.Empty;
+            var chars = new char[stringLength];
+            GetHexString(chars, lowercase);
+            return new string(chars);
+        }
+
+        public static void Shuffle<T>(Span<T> values)
+        {
+            int n = values.Length;
+            for (int i = 0; i < n - 1; i++)
+            {
+                int j = GetInt32(i, n);
+                if (i != j) { T temp = values[i]; values[i] = values[j]; values[j] = temp; }
+            }
+        }
+
+        private static void GetItemsCore<T>(ReadOnlySpan<T> choices, Span<T> destination)
+        {
+            for (int i = 0; i < destination.Length; i++) destination[i] = choices[GetInt32(choices.Length)];
+        }
+
         public static byte[] GetBytes(int count)
         {
             ArgumentOutOfRangeException.ThrowIfNegative(count);

@@ -215,3 +215,10 @@ macos 903_stack_trace_socket_connect  live: a refused connect completes asynchro
 windows 940_expand_environment_variables  live: .NET expands through Win32's ExpandEnvironmentStrings, whose handling of unset names differs from the Unix algorithm
 windows 972_uri_rooted_path_unix     Windows .NET takes "/rel" for an implicit file path (absolute); csharpc reports drive-less file paths there as not supported
 windows 981_uri_file_paths_unix     Windows .NET takes "/rel", "//host/x" and file:///tmp/x paths differently (implicit file paths, UNC); csharpc reports drive-less file paths there as not supported
+# HttpClient samples (System.Net.Http from IL over csharpc's sockets): loopback servers in the sample itself.
+wasi 1000_httpclient_get                opens loopback sockets: WASI preview 1 has none (PlatformNotSupportedException)
+wasi 1001_httpclient_post               opens loopback sockets: WASI preview 1 has none (PlatformNotSupportedException)
+wasi 1002_httpclient_errors             opens loopback sockets: WASI preview 1 has none (PlatformNotSupportedException)
+windows 1001_httpclient_post            live: the echo server's report separates its lines with a bare "\n"
+macos 1002_httpclient_errors            known gap: asynchronous socket operations are blocking calls on the thread pool on macOS (no kqueue engine yet), so a pending read cannot be canceled
+windows 1002_httpclient_errors          known gap: asynchronous socket operations are blocking calls on the thread pool on Windows (no IOCP engine yet), so a pending read cannot be canceled

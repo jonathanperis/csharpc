@@ -1,0 +1,77 @@
+== StringContent: 201 Created
+POST /string HTTP/1.1
+  Host: 127.0.0.1:PORT
+  Content-Type: text/plain; charset=utf-8
+  Content-Length: 13
+  body (13 bytes): hello, wörld
+== StringContent (default type): 201 Created
+POST /default HTTP/1.1
+  Host: 127.0.0.1:PORT
+  Content-Type: text/plain; charset=utf-8
+  Content-Length: 7
+  body (7 bytes): {"a":1}
+== StringContent (media type): 201 Created
+POST /json HTTP/1.1
+  Host: 127.0.0.1:PORT
+  Content-Type: application/json; charset=utf-8
+  Content-Length: 7
+  body (7 bytes): {"a":1}
+== ByteArrayContent: 201 Created
+POST /bytes HTTP/1.1
+  Host: 127.0.0.1:PORT
+  Content-Length: 4
+  body (4 bytes): \u0001\u0002\u0003\ufffd
+== FormUrlEncodedContent: 201 Created
+POST /form HTTP/1.1
+  Host: 127.0.0.1:PORT
+  Content-Type: application/x-www-form-urlencoded
+  Content-Length: 32
+  body (32 bytes): name=a+b%26c&x=%C3%BC%3D1&empty=
+== MultipartFormDataContent: 201 Created
+POST /multipart HTTP/1.1
+  Host: 127.0.0.1:PORT
+  Content-Type: multipart/form-data; boundary="sample-boundary"
+  Content-Length: 302
+  body (302 bytes): --sample-boundary\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Disposition: form-data; name=first\r\n\r\nvalue one\r\n--sample-boundary\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Disposition: form-data; name=second; filename=note.txt; filename*=utf-8''note.txt\r\n\r\nfile text\r\n--sample-boundary--\r\n
+== StreamContent (known length): 201 Created
+POST /stream HTTP/1.1
+  Host: 127.0.0.1:PORT
+  Content-Length: 13
+  body (13 bytes): streamed body
+== StreamContent (unknown length): 201 Created
+POST /unknown HTTP/1.1
+  Host: 127.0.0.1:PORT
+  Transfer-Encoding: chunked
+  body (12 bytes): chunked body
+== PUT: 201 Created
+PUT /put HTTP/1.1
+  Host: 127.0.0.1:PORT
+  Authorization: Basic dXNlcjpzZWNyZXQ=
+  X-Token: abc123
+  Content-Type: text/plain; charset=us-ascii
+  Content-Language: en
+  Content-Length: 7
+  body (7 bytes): replace
+content length: 7, type text/plain; charset=us-ascii
+== PATCH: 201 Created
+PATCH /patch HTTP/1.1
+  Host: 127.0.0.1:PORT
+  Content-Type: text/plain; charset=utf-8
+  Content-Length: 4
+  body (4 bytes): part
+== DELETE: 201 Created
+DELETE /delete HTTP/1.1
+  Host: 127.0.0.1:PORT
+  body (0 bytes): 
+== PostAsync(null): 201 Created
+POST /nothing HTTP/1.1
+  Host: 127.0.0.1:PORT
+  Content-Length: 0
+  body (0 bytes): 
+== custom method: 201 Created
+PURGE /purge HTTP/1.1
+  Host: 127.0.0.1:PORT
+  Content-Length: 0
+  body (0 bytes): 
+content: abc / 3 bytes / 3
+form: name=a+b%26c&x=%C3%BC%3D1&empty=
