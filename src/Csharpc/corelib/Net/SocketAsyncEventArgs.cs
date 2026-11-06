@@ -28,6 +28,10 @@ namespace CsharpcCoreLib
         internal EventArgsOperations.Receive ReceiveOperation;
         internal EventArgsOperations.Send SendOperation;
         internal EventArgsOperations.Accept AcceptOperation;
+        internal EventArgsOperations.Connect ConnectOperation;
+        // Socket.ConnectAsync(SocketType, ProtocolType, e) makes the socket it connects; a failed attempt disposes it.
+        internal SocketImpl AttemptSocket;
+        internal CancellationTokenSource ConnectCancel;
 
         public SocketAsyncEventArgsImpl() : this(false) { }
 
@@ -68,10 +72,10 @@ namespace CsharpcCoreLib
         public SocketFlags SocketFlags { get; set; }
         public object UserToken { get; set; }
         public Socket AcceptSocket { get; set; }
-        public Socket ConnectSocket => null;
+        public Socket ConnectSocket { get; internal set; }
         public EndPoint RemoteEndPoint { get; set; }
         public SocketAsyncOperation LastOperation { get; private set; }
-        public Exception ConnectByNameError => null;
+        public Exception ConnectByNameError { get; internal set; }
 
         public void SetBuffer(int offset, int count)
         {
@@ -141,6 +145,8 @@ namespace CsharpcCoreLib
             }
             CurrentSocket = socket;
             LastOperation = operation;
+            ConnectSocket = null;
+            ConnectByNameError = null;
             BytesTransferred = 0;
             SocketError = SocketError.Success;
             _capturedFlow = _flowExecutionContext ? ExecutionFlow.Current : null;
@@ -149,6 +155,7 @@ namespace CsharpcCoreLib
         /// <summary>The operation completed synchronously (the caller returns false).</summary>
         internal void FinishSynchronously(SocketError error, int bytesTransferred)
         {
+            ReleaseAttempt(error);
             BytesTransferred = bytesTransferred;
             SocketError = error;
             _capturedFlow = null;
@@ -158,9 +165,18 @@ namespace CsharpcCoreLib
         /// <summary>A pending operation completed: OnCompleted runs on the thread pool.</summary>
         internal void FinishAsynchronously(SocketError error, int bytesTransferred)
         {
+            ReleaseAttempt(error);
             BytesTransferred = bytesTransferred;
             SocketError = error;
             ThreadPool.UnsafeQueueUserWorkItem(static e => e.RaiseCompleted(), this, false);
+        }
+
+        private void ReleaseAttempt(SocketError error)
+        {
+            SocketImpl attempt = AttemptSocket;
+            if (attempt == null || error == SocketError.Success) return;
+            AttemptSocket = null;
+            attempt.Dispose();
         }
 
         private void RaiseCompleted()
