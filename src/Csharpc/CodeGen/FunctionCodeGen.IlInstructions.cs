@@ -911,7 +911,8 @@ public sealed partial class FunctionCodeGen
         var local = IlLocal(index);
         var slot = IlLocalSlot(index);
         if (local.IsByRef) return new IlEntry(IlKind.ByRef, _b.Load(L.Ptr, slot), local.Type);
-        return IlPush(LoadValue(slot, S(local.Type)), local.Type);
+        var loaded = IlPush(LoadValue(slot, S(local.Type)), local.Type);
+        return IsSystemType(local.Type) ? loaded with { FromLocal = index } : loaded;
     }
 
     private void IlStoreLocal(int index, IlEntry value)

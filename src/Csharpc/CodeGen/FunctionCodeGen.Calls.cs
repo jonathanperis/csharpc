@@ -25,7 +25,11 @@ public sealed partial class FunctionCodeGen
         // typeof(X).M(...), or typeof(X).GetTypeInfo().M(...) (GetTypeInfo is the identity).
         var reflectedType = inv.Instance as ITypeOfOperation
             ?? (inv.Instance as IInvocationOperation is { TargetMethod.Name: "GetTypeInfo", Arguments: [{ Value: ITypeOfOperation viaInfo }] } ? viaInfo : null);
-        if (reflectedType is not null) NoteReflectedType(target, S(reflectedType.TypeOperand), inv.Arguments is [{ Value.ConstantValue: { HasValue: true, Value: string name } }, ..] ? name : null);
+        var reflectedName = inv.Arguments is [{ Value.ConstantValue: { HasValue: true, Value: string name } }, ..] ? name : null;
+        if (reflectedType is not null) NoteReflectedType(target, S(reflectedType.TypeOperand), reflectedName);
+        // `var t = typeof(X); t.GetFields()`: a local assigned typeof(X) stands for it (FunctionCodeGen.TypeofLocals.cs).
+        else if (inv.Instance is ILocalReferenceOperation && target.ContainingType is { Name: "Type" or "TypeInfo" })
+            foreach (var known in KnownTypeofValues(inv.Instance)) NoteReflectedType(target, S(known), reflectedName);
         if (inv.Instance is { } shadowReceiver && _m.CoreLib.MapForReceiver(target, TypeOf(shadowReceiver)) is { } shadowMember) target = shadowMember;
         if (IsCoreIntrinsic(target)) return EmitCoreIntrinsic(target, inv);
         if (target.IsStatic) CheckJsonSerializerRoots(target, inv);

@@ -40,8 +40,16 @@ public sealed partial class FunctionCodeGen
             return;
         }
 
-        if (args.Any(a => a is { Kind: IlKind.Ref, Symbol: ITypeSymbol }))
-            _m.NoteDynamicallyAccessedArguments(S(method), i => args[i] is { Kind: IlKind.Ref, Symbol: ITypeSymbol type } ? type : null);
+        if (args.Any(a => a is { Kind: IlKind.Ref, Symbol: ITypeSymbol } or { Kind: IlKind.Ref, FromLocal: not null }))
+        {
+            // An argument is a typeof(X) or a local assigned one; one round per position of the longest list.
+            var known = args.Select(IlKnownTypeofValues).ToArray();
+            for (var round = 0; round < known.Max(k => k.Count); round++)
+            {
+                var current = round;
+                _m.NoteDynamicallyAccessedArguments(S(method), i => known[i] is { Count: > 0 } values ? S(values[Math.Min(current, values.Count - 1)]) : null);
+            }
+        }
         IlCheckExceptionText(method, receiver, args);
         if (IlSpecialCall(method, receiver, args) is { } special)
         {
@@ -168,6 +176,8 @@ public sealed partial class FunctionCodeGen
             _m.RequestArrayInterface(arrayInterface);
         if (args is [{ Constant: string typeName }, ..] && IsGetTypeByName(method)) _m.NoteTypeByName(typeName);
         if (receiver is { Symbol: ITypeSymbol reflected }) NoteReflectedType(method, S(reflected), args is [{ Constant: string name }, ..] ? name : null);
+        else if (receiver is { FromLocal: not null } && method.ContainingType is { Name: "Type" or "TypeInfo" })
+            foreach (var known in IlKnownTypeofValues(receiver)) NoteReflectedType(method, S(known), args is [{ Constant: string name }, ..] ? name : null);
 
         // Library operators and conversions (decimal + decimal, (long)BigInteger ...): the source path's operator lowering.
         if (method.MethodKind is MethodKind.UserDefinedOperator or MethodKind.Conversion && method.IsStatic && !_m.IsUserMethod(mapped)

@@ -202,6 +202,14 @@ namespace CsharpcCoreLib
         public EditorBrowsableState State { get; }
     }
 
+    // On the backing field of every auto-property and field-like event ([DebuggerBrowsable(Never)]).
+    [Shadows("System.Diagnostics.DebuggerBrowsableAttribute")]
+    public sealed class DebuggerBrowsableAttributeImpl : Attribute
+    {
+        public DebuggerBrowsableAttributeImpl(DebuggerBrowsableState state) { State = state; }
+        public DebuggerBrowsableState State { get; }
+    }
+
     [Shadows("System.Diagnostics.DebuggerHiddenAttribute")]
     public sealed class DebuggerHiddenAttributeImpl : Attribute { public DebuggerHiddenAttributeImpl() { } }
 
