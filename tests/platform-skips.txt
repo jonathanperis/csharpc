@@ -243,3 +243,12 @@ windows 1010_httpclient_base_address  known gap: System.Net.Http's system-proxy 
 macos 1100_x509_certificates  known gap: X.509 certificates, PKCS#12 and chains need Security.framework on macOS, not implemented yet (an explicit NotSupportedException)
 windows 1100_x509_certificates  known gap: X.509 certificates, PKCS#12 and chains need CNG/CryptoAPI on Windows, not implemented yet (an explicit NotSupportedException)
 wasi 1100_x509_certificates  known gap: no OpenSSL on WebAssembly (WASI): certificates throw NotSupportedException
+macos 1101_sslstream_loopback  known gap: SslStream needs SecureTransport/Network.framework on macOS, not implemented yet (an explicit NotSupportedException)
+windows 1101_sslstream_loopback  known gap: SslStream needs SChannel on Windows, not implemented yet (an explicit NotSupportedException)
+wasi 1101_sslstream_loopback  opens loopback sockets: WASI preview 1 has none (PlatformNotSupportedException)
+macos 1102_sslstream_validation  known gap: SslStream needs SecureTransport/Network.framework on macOS, not implemented yet (an explicit NotSupportedException)
+windows 1102_sslstream_validation  known gap: SslStream needs SChannel on Windows, not implemented yet (an explicit NotSupportedException)
+wasi 1102_sslstream_validation  opens loopback sockets: WASI preview 1 has none (PlatformNotSupportedException)
+macos 1103_httpclient_https  known gap: https needs SslStream (SecureTransport/Network.framework on macOS, not implemented yet), and the system-proxy gap of HttpClient applies too
+windows 1103_httpclient_https  known gap: https needs SslStream (SChannel on Windows, not implemented yet), and the system-proxy gap of HttpClient applies too
+wasi 1103_httpclient_https  opens loopback sockets: WASI preview 1 has none (PlatformNotSupportedException)

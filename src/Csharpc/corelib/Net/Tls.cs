@@ -201,6 +201,7 @@ namespace CsharpcCoreLib
         }
     }
 
+#if !CSHARPC_TARGET_LINUX
     [Shadows("System.Net.Security.SslStream")]
     public class SslStreamImpl : Stream
     {
@@ -248,6 +249,7 @@ namespace CsharpcCoreLib
         public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
         public override void SetLength(long value) => throw new NotSupportedException();
     }
+#endif
 
 #if !CSHARPC_TARGET_LINUX
     [Shadows("System.Security.Cryptography.X509Certificates.X509Certificate")]

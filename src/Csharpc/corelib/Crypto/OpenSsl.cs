@@ -79,7 +79,14 @@ namespace CsharpcCoreLib
         [DllImport(Crypto)] internal static extern int X509_VERIFY_PARAM_set_flags(IntPtr param, ulong flags);
         [DllImport(Crypto)] internal static extern IntPtr X509_verify_cert_error_string(long n);
 
+        [DllImport(Crypto)] internal static extern IntPtr X509_STORE_CTX_get_ex_data(IntPtr ctx, int idx);
+        [DllImport(Crypto)] internal static extern IntPtr X509_STORE_CTX_get0_cert(IntPtr ctx);
+        [DllImport(Crypto)] internal static extern IntPtr X509_STORE_CTX_get0_untrusted(IntPtr ctx);
+
         // ---- libssl ----
+        [DllImport(Ssl)] internal static extern int SSL_get_ex_data_X509_STORE_CTX_idx();
+        [DllImport(Ssl)] internal static extern void SSL_CTX_set_cert_verify_callback(IntPtr ctx, delegate* unmanaged<IntPtr, IntPtr, int> cb, IntPtr arg);
+        [DllImport(Ssl)] internal static extern int SSL_CTX_set_session_id_context(IntPtr ctx, byte* sidCtx, uint len);
         [DllImport(Ssl)] internal static extern int OPENSSL_init_ssl(ulong opts, IntPtr settings);
         [DllImport(Ssl)] internal static extern IntPtr TLS_client_method();
         [DllImport(Ssl)] internal static extern IntPtr TLS_server_method();
