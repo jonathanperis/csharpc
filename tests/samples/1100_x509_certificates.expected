@@ -1,0 +1,47 @@
+subject: CN=localhost, O=csharpc tests, C=BR
+issuer: CN=localhost, O=csharpc tests, C=BR
+subject name: CN=localhost, O=csharpc tests, C=BR | C=BR, O=csharpc tests, CN=localhost
+serial: 6EED0F47D49FB247ED41CABBB038B386025915B2 6EED0F47D49FB247ED41CABBB038B386025915B2 B215590286B338B0BBCA41ED47B29FD4470FED6E 20
+thumbprint: 975E04E0E826C97105D8D0867FF95E73F26FE328 975E04E0E826C97105D8D0867FF95E73F26FE328 EF0BA8F1C76F874651EB7E6E85D6FC114BBF42103DE44D12F21BD563F1A38BB8
+hash: 975E04E0E826C97105D8D0867FF95E73F26FE328 48
+not before: 2026-11-06 07:44:25 kind Local
+not after: 2126-10-13 07:44:25
+has private key: True, version 3, archived False, friendly ''
+signature: sha256RSA 1.2.840.113549.1.1.11
+public key: RSA 1.2.840.113549.1.1.1 270 0500
+key algorithm: 1.2.840.113549.1.1.1 0500 3082010A0282010100DE 270
+name info: localhost localhost localhost localhost
+format: X509, raw 931 931 931 1862
+type: System.Security.Cryptography.X509Certificates.X509Certificate2 System.Security.Cryptography.X509Certificates.X509Certificate
+content type: Pfx Cert
+der: private key False, equals True, hash codes True
+pem: private key True, equals True, 975E04E0E826C97105D8D0867FF95E73F26FE328
+pem without key: private key False, CN=localhost, O=csharpc tests, C=BR
+ctor: CN=localhost, O=csharpc tests, C=BR True
+exported cert: 931 -----BEGIN CERTIFICATE----- True False
+from file: CN=localhost, O=csharpc tests, C=BR 975E04E0E826C97105D8D0867FF95E73F26FE328 Pfx
+rsa: 2048 2048 signature 256 verifies True tampered False
+rsa encrypt: 256 csharpc and certificates
+public parameters equal: True
+no private key for the loader: True
+collection: 3 True 0 CN=localhost, O=csharpc tests, C=BR
+K-K
+find: 3 3 0 3
+after remove: 2
+chain: False elements 1
+  status UntrustedRoot | self-signed certificate
+  element CN=localhost, O=csharpc tests, C=BR 1
+    UntrustedRoot | self-signed certificate
+custom root trust: True 0 1
+allow unknown CA: True 1
+expired: False
+  status NotTimeValid | certificate has expired
+wrong password: CryptographicException: The certificate data cannot be read with the provided password, the password may be incorrect.
+garbage: CryptographicException: ASN1 corrupted data.
+garbage ctor: CryptographicException: ASN1 corrupted data.
+missing file: CryptographicException: error:10000080:BIO routines::no such file
+null file name: System.ArgumentNullException: Value cannot be null. (Parameter 'fileName')
+null data: System.ArgumentNullException: Value cannot be null. (Parameter 'data')
+bad key PEM: CryptographicException: The key contents do not contain a PEM, the content is malformed, or the key does not match the certificate.
+disposed: CryptographicException: m_safeCertContext is an invalid handle.
+empty certificate: CryptographicException: m_safeCertContext is an invalid handle.
