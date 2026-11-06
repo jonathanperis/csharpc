@@ -51,8 +51,9 @@ generic delegate types are a `NotSupportedException` / `ArgumentException`. A po
   suffix), `__Internal` and `csrt` are resolved by the linker. The symbol is declared weak, so a
   missing entry point compiles and throws `EntryPointNotFoundException` at the call, as in .NET.
 * **Everything else** is loaded lazily with `dlopen` on first call and cached per call site.
-  Probing follows .NET: the name as given, `name.so`, `libname.so`, `name`, `libname`. Failures
-  throw `DllNotFoundException` / `EntryPointNotFoundException` with .NET's messages.
+  Probing follows .NET: the executable's directory first (where csharpc copies the native libraries of
+  the program's NuGet packages, `runtimes/<rid>/native`), then the system's search, each with the name as
+  given, `name.so`, `libname.so`, `name`, `libname`. Failures throw `DllNotFoundException` / `EntryPointNotFoundException` with .NET's messages.
 * **Windows**: there is no `libc` to load (`DllImport("libc")` throws `DllNotFoundException` under
   .NET on Windows too), so user code binds everything except `__Internal`/`csrt` through
   `LoadLibraryExW`/`GetProcAddress`, probing `name.dll` then `name`, with .NET's Windows messages

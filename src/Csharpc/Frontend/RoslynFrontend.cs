@@ -385,6 +385,11 @@ public sealed record FrontendSettings
     /// </summary>
     public IReadOnlyList<ProgramResource> EmbeddedResources { get; init; } = [];
     /// <summary>
+    /// Native libraries the program's packages ship for its target (runtimes/&lt;rid&gt;/native, a deployed app's
+    /// native files): copied next to the executable, where P/Invoke probing finds them as .NET's does.
+    /// </summary>
+    public IReadOnlyList<string> NativeAssets { get; init; } = [];
+    /// <summary>
     /// How `dotnet build` would compile and describe the program (stack-trace names and lines);
     /// null for single files, decided by the configuration (`dotnet run app.cs`).
     /// </summary>

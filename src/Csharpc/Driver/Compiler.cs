@@ -54,7 +54,8 @@ public sealed class Compiler(CompilerOptions options)
         IlProgram? mainProgram = null;
         if (options.Project is { } project)
         {
-            var (projectSettings, root, all) = ProjectLoader.Load(project, options.Configuration, options.Verbose ? Console.Error : null, options.Properties);
+            var (projectSettings, root, all) = ProjectLoader.Load(project, options.Configuration, options.Verbose ? Console.Error : null, options.Properties,
+                RuntimeIdentifiers.FromTriple(triple) ?? (wasm ? null : RuntimeIdentifiers.Host));
             Phase($"evaluate project ({all.Count} project(s), {projectSettings.Files.Count} file(s))");
             if (!root.OutputType.Equals("Exe", StringComparison.OrdinalIgnoreCase) && !root.OutputType.Equals("WinExe", StringComparison.OrdinalIgnoreCase)
                 && options.Emit == EmitKind.Exe)
@@ -74,7 +75,7 @@ public sealed class Compiler(CompilerOptions options)
             // reference whose entry point is the program's, and what `dotnet app.dll` would read next to
             // it (app.runtimeconfig.json) configures the runtime. File-based `#:` directives were
             // already applied by the build that produced it.
-            try { mainProgram = IlProgram.Read(mainAssembly); }
+            try { mainProgram = IlProgram.Read(mainAssembly, RuntimeIdentifiers.FromTriple(triple)); }
             catch (InvalidOperationException e) { return Fail(e.Message); }
             options.DefaultOutputName = mainProgram.Name;
             settings = new FrontendSettings
@@ -89,6 +90,7 @@ public sealed class Compiler(CompilerOptions options)
                 AssemblyName = mainProgram.Name + ".csharpc",
                 AssemblyVersion = null,
                 IlReferencePaths = [mainAssembly, .. mainProgram.AppLocalAssemblies],
+                NativeAssets = mainProgram.NativeAssets,
                 // The shared frameworks the host would run it on (Microsoft.AspNetCore.App), as --framework adds them.
                 SharedFrameworks = mainProgram.Frameworks,
             };
@@ -425,6 +427,15 @@ public sealed class Compiler(CompilerOptions options)
                 break;
         }
         if (options.Emit != EmitKind.Exe) Phase("emit");
+        // The packages' native libraries for the target (NuGet's runtimes/<rid>/native) go next to the executable, where
+        // P/Invoke probing looks first (csrt_pinvoke_load_library), as `dotnet publish` places them for the host.
+        if (options.Emit == EmitKind.Exe && settings.NativeAssets.Count > 0 && Path.GetDirectoryName(Path.GetFullPath(output)) is { } assetDirectory)
+            foreach (var asset in settings.NativeAssets)
+            {
+                var destination = Path.Combine(assetDirectory, Path.GetFileName(asset));
+                if (!string.Equals(Path.GetFullPath(asset), destination, StringComparison.Ordinal)) File.Copy(asset, destination, overwrite: true);
+                if (options.Verbose) Console.Error.WriteLine($"csharpc: native asset {destination}");
+            }
         if (options.Verbose) Console.Error.WriteLine($"csharpc: wrote {output}");
         return 0;
     }
