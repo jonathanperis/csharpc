@@ -4,9 +4,11 @@ name: Bootstrap
 #   - roslyn-host: tests/projects/il/IlRoslynHostApp, a program that hosts Roslyn from its NuGet package
 #     (parse, bind, diagnostics, deterministic emit), compiled by csharpc and checked against `dotnet run`
 #     (tests/il.sh with CSHARPC_HEAVY_IL=1; ~8 minutes and ~6 GB at -O0);
-#   - selfhost: csharpc compiling its own csharpc.dll (tools/bootstrap/selfhost.sh), then the native
-#     compiler compiling samples exactly as the managed one does.
-# Both report compile time and peak memory. Informational: not one of the `test (<platform>)` merge-bar jobs.
+#   - selfhost: csharpc compiling its own csharpc.dll (tools/bootstrap/selfhost.sh) at -O0 and -O2, then the
+#     native compiler compiling samples exactly as the managed one does;
+#   - native-suite: the differential suite (tests/run.sh --all-opts, 8 shards) run with each native compiler
+#     in place of the managed one (CSHARPC_NATIVE), so a miscompiled csharpc shows as a failing sample.
+# The first two report compile time and peak memory. Informational: not one of the `test (<platform>)` merge-bar jobs.
 on:
   push:
     branches: [main, "ci/m6-**"]
@@ -80,3 +82,60 @@ jobs:
           name: selfhost-log${{ matrix.opt }}
           path: selfhost.log
           if-no-files-found: ignore
+
+      # The suite below runs this compiler (a self-compile that printed diagnostics but linked is still tested).
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: csharpc-native${{ matrix.opt }}
+          path: src/Csharpc/bin/Release/net11.0/csharpc-native
+          retention-days: 2
+          if-no-files-found: ignore
+
+  native-suite:
+    name: native csharpc (${{ matrix.native }}) on the differential suite, shard ${{ matrix.shard }}/8
+    needs: selfhost
+    if: ${{ !cancelled() }}
+    strategy:
+      fail-fast: false
+      matrix:
+        native: ["-O0", "-O2"]
+        shard: [0, 1, 2, 3, 4, 5, 6, 7]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: ./.github/actions/setup-toolchain
+        with:
+          os: linux
+
+      - name: Build the managed compiler (it ships the corelib and runtime sources the native one reads)
+        run: dotnet build src/Csharpc -c Release -m:1 -v quiet -nologo
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        id: native
+        continue-on-error: true
+        with:
+          name: csharpc-native${{ matrix.native }}
+          path: native
+
+      - name: No native compiler to test
+        if: steps.native.outcome != 'success'
+        run: echo "the ${{ matrix.native }} self-compile left no csharpc-native"; exit 1
+
+      - name: tests/run.sh --all-opts --shard ${{ matrix.shard }}/8 with the native compiler
+        if: steps.native.outcome == 'success'
+        run: |
+          native="$PWD/src/Csharpc/bin/Release/net11.0/csharpc-native"
+          cp native/csharpc-native "$native" && chmod +x "$native"
+          CSHARPC_NATIVE="$native" CSHARPC_THREADS=2 tests/run.sh --all-opts --shard ${{ matrix.shard }}/8 2>&1 | tee suite.log
+          grep -q " 0 failed" suite.log
+
+      - name: Report
+        if: always()
+        run: |
+          { echo '### native csharpc (${{ matrix.native }}), shard ${{ matrix.shard }}/8'; echo '```'; grep -E "^FAIL|passed" suite.log || echo "no native compiler or no run"; echo '```'; } >> "$GITHUB_STEP_SUMMARY" || true
