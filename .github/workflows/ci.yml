@@ -3,7 +3,8 @@ name: CI
 # Merge bar: the five jobs named `test (<platform>)`. A full run shards the differential suite
 # and those jobs fail unless every shard passed and the shards cover every sample at -O0 and -O2
 # exactly once. A docs-only push reports the same five names as success without rerunning the
-# compiler, but only when an ancestor commit already has them green (tools/ci-plan.sh).
+# compiler, but only when an ancestor commit already has them green (tools/ci-plan.sh). So does a
+# push to main whose tree is the tree of a commit that already has them green (the merged PR's head).
 #
 # A targeted run (CI-Only trailer or ci/targets on a ci/** branch) is labeled `partial (...)` and
 # does not report `test (<platform>)` as success, so it cannot satisfy the merge bar or a release.
@@ -74,7 +75,7 @@ jobs:
   diff:
     name: ${{ matrix.job_name }}
     needs: plan
-    if: needs.plan.result == 'success' && needs.plan.outputs.mode != 'docs'
+    if: needs.plan.result == 'success' && needs.plan.outputs.mode != 'docs' && needs.plan.outputs.mode != 'tree'
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 100
     strategy:
@@ -177,7 +178,7 @@ jobs:
           if-no-files-found: error
           retention-days: 3
 
-  # These names are the merge bar. They run for a full gate and for a docs-only skip, and they are
+  # These names are the merge bar. They run for a full gate and for a docs-only or identical-tree skip, and they are
   # skipped (not passed) for a partial run. A skipped job is not a successful `test (<platform>)`
   # check: when the job-level `if` is false the matrix is not expanded, so the check name stays the
   # literal template and does not replace a previous green `test (x86-64)`.
@@ -199,6 +200,14 @@ jobs:
         run: |
           echo "Docs-only change. The compiler suite did not run."
           echo "Parent gate: ${{ needs.plan.outputs.parent_sha }}"
+          echo "Required check 'test (${{ matrix.platform }})' reports success."
+          echo "${{ needs.plan.outputs.reason }}"
+
+      - name: Identical tree
+        if: needs.plan.outputs.mode == 'tree'
+        run: |
+          echo "This push has the same tree as a commit that already passed the full gate. The compiler suite did not run."
+          echo "Tested commit: ${{ needs.plan.outputs.parent_sha }}"
           echo "Required check 'test (${{ matrix.platform }})' reports success."
           echo "${{ needs.plan.outputs.reason }}"
 
