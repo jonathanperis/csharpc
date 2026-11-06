@@ -71,7 +71,7 @@ every failure is a clean "not supported by csharpc yet" diagnostic.
 | Unhandled exceptions (message + exit 134) | ✅ | |
 | Static initialization | ✅ | lazy per type with CoreCLR's triggers, `TypeInitializationException`; generic types ❌ |
 | Reflection | 🟡 | `GetType()`, `typeof`, names; `System.Type` predicates, generics, assignability and `Type.Assembly` over compile-time metadata ([12-corelib.md](12-corelib.md#type-metadata-systemtype-reflection)); constructors, methods, properties, attributes, `Invoke`, `CreateDelegate`, closed-world `MakeGenericType` for what `[DynamicallyAccessedMembers]` reaches ([ADR 0018](adr/0018-reflection-metadata.md)); fields, events, `GetInterfaces` ❌ |
-| Finalizers | ⬜ | |
+| Finalizers | ✅ | `~T()` and IL `Finalize` overrides of the program's classes, `GC.SuppressFinalize`/`ReRegisterForFinalize`/`WaitForPendingFinalizers`, resurrection, a finalizer thread ([ADR 0021](adr/0021-finalizers.md)); the corelib's own types declare none |
 | Debug info (DWARF, gdb/lldb) | ✅ | `-g` |
 
 ### Library (BCL)

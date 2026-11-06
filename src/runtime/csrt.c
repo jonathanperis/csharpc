@@ -169,6 +169,7 @@ void* csrt_object_memberwise_clone(void* obj) {
     csrt_Object* copy = csrt_alloc(mt, mt->instance_size);
     CSRT_DIRTY(copy, mt->instance_size);
     memcpy((char*)copy + sizeof(csrt_Object), (char*)obj + sizeof(csrt_Object), mt->instance_size - sizeof(csrt_Object));
+    csrt_gc_reregister_finalizer(copy);  // a clone of an object with a finalizer has one too (gc.c)
     return copy;
 }
 

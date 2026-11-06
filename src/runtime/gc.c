@@ -39,8 +39,8 @@
 // sleeps in sigsuspend until the collector resumes it. While the world is stopped the collector
 // never calls malloc/free, stdio or the dynamic loader (a stopped thread may hold their locks).
 //
-// Limitations: conservative scanning can retain garbage that happens to look like a pointer; no
-// finalizers; empty chunks are kept mapped for reuse by any size class (with the thread pool, its
+// Limitations: conservative scanning can retain garbage that happens to look like a pointer (so a
+// finalizer may run later than precise .NET's, or never, for an object a stale word still names); empty chunks are kept mapped for reuse by any size class (with the thread pool, its
 // timer thread gives their pages and other free slot pages back to the OS once allocation goes quiet). An
 // ownership parallel marker can be compiled in with -DCSRT_GC_PARALLEL_MARK. It was slower than this serial marker
 // on a 4-core machine, so the default binary does not include it (docs/adr/0004-memory-management.md).
@@ -2368,8 +2368,8 @@ static size_t sweep(void) {
 // A table outside the managed heap, so the conservative scan never sees the targets it holds. After
 // marking, a slot whose target wasn't reached is cleared. An ephemeron slot (a ConditionalWeakTable
 // entry) also keeps its value alive, but only while its key is reachable some other way. A slot
-// with an owner (the WeakReference object, the table's storage) is freed when the owner dies: csharpc
-// runs no finalizers, which is how .NET releases these handles.
+// with an owner (the WeakReference object, the table's storage) is freed when the owner dies, which
+// is how .NET's finalizers release these handles (the corelib's own types have none).
 
 typedef struct {
     uintptr_t target, value, owner;
@@ -2490,6 +2490,267 @@ void csrt_weak_set(intptr_t handle, void* target, void* value) {
 void csrt_weak_free(intptr_t handle) {
     gc_lock();
     weak_release((size_t)handle - 1);
+    gc_unlock();
+}
+
+// ---------------------------------------------------------------------------------------------
+// Finalizers (System.Object.Finalize: ~T() in C#, GC.SuppressFinalize / ReRegisterForFinalize /
+// WaitForPendingFinalizers)
+// ---------------------------------------------------------------------------------------------
+// An object whose class declares a finalizer is registered when it is allocated (csrt_alloc_finalizable:
+// the compiler passes the function that runs the finalizers of its class chain). Like the weak table,
+// the registry lives outside the collected heap, so it never keeps its objects alive. After marking,
+// every registered object nobody reached moves, oldest first, to the queue of objects waiting to be
+// finalized, and the queue is marked: those objects, and everything they reach, survive this collection
+// (resurrection) and are finalized by a dedicated finalizer thread (as in .NET) once the world runs again.
+// Pending objects stay marked until their finalizer has run; the next collection that finds them
+// unreachable frees them, and a finalizer runs once unless ReRegisterForFinalize says otherwise.
+// Programs without finalizable objects skip all of this (fin.live and fin.q_len stay 0).
+//
+// The registry and the queue are guarded by g.lock, which a collection holds; the collector only moves
+// entries between them while the world is stopped and never allocates then (the queue is grown at
+// registration to hold every registered object). Without threads (WASI) there is no finalizer thread:
+// GC.WaitForPendingFinalizers runs what is pending on the calling thread.
+typedef struct { uintptr_t obj; void (*fn)(void*); uint64_t seq; } FinEntry;
+typedef struct { const csrt_MethodTable* mt; void (*fn)(void*); } FinType;
+
+#define FIN_EMPTY ((uintptr_t)0)
+#define FIN_DELETED ((uintptr_t)1)
+
+static struct {
+    FinEntry* table;                // open-addressing hash keyed by object address
+    size_t cap, used, live;         // slots, slots not empty (live + deleted), live registrations
+    FinEntry* queue;                // unreachable objects waiting for their finalizer: [q_head, q_head + q_len)
+    size_t q_head, q_len, q_cap;
+    uint64_t seq;
+    FinType* types;                 // class method table -> finalizer chain, for ReRegisterForFinalize
+    size_t type_count, type_cap;
+    int running;                    // the finalizer thread is inside a finalizer
+    int thread;                     // 0 not started, 1 running, -1 unavailable (no threads)
+    pthread_cond_t work, idle;
+} fin = { .work = PTHREAD_COND_INITIALIZER, .idle = PTHREAD_COND_INITIALIZER };
+
+static inline size_t fin_hash(uintptr_t obj, size_t cap) { return (size_t)(((obj >> 4) * (uintptr_t)0x9E3779B97F4A7C15ull) >> 20) & (cap - 1); }
+
+static FinEntry* fin_find(uintptr_t obj) {
+    if (!fin.cap) return NULL;
+    for (size_t i = fin_hash(obj, fin.cap);; i = (i + 1) & (fin.cap - 1)) {
+        FinEntry* e = &fin.table[i];
+        if (e->obj == obj) return e;
+        if (e->obj == FIN_EMPTY) return NULL;
+    }
+}
+
+/// Under g.lock (the mutator side: this allocates).
+static void fin_reserve(void) {
+    if ((fin.used + 1) * 10 > fin.cap * 7) {
+        size_t cap = fin.cap ? fin.cap * 2 : 256;
+        while ((fin.live + 1) * 10 > cap * 5) cap *= 2;
+        FinEntry* table = calloc(cap, sizeof *table);
+        if (!table) { static const char m[] = "csrt: out of memory (finalizer registry)\n"; (void)!write(2, m, sizeof m - 1); abort(); }
+        for (size_t i = 0; i < fin.cap; i++) {
+            FinEntry* e = &fin.table[i];
+            if (e->obj == FIN_EMPTY || e->obj == FIN_DELETED) continue;
+            size_t j = fin_hash(e->obj, cap);
+            while (table[j].obj != FIN_EMPTY) j = (j + 1) & (cap - 1);
+            table[j] = *e;
+        }
+        free(fin.table);
+        fin.table = table;
+        fin.cap = cap;
+        fin.used = fin.live;
+    }
+    // The collector queues at most every registered object and never allocates: keep room for all of them.
+    size_t need = fin.q_len + fin.live + 1;
+    if (fin.q_head + need > fin.q_cap) {
+        if (fin.q_head) { memmove(fin.queue, fin.queue + fin.q_head, fin.q_len * sizeof *fin.queue); fin.q_head = 0; }
+        if (need > fin.q_cap) {
+            size_t cap = fin.q_cap ? fin.q_cap : 256;
+            while (cap < need) cap *= 2;
+            FinEntry* queue = realloc(fin.queue, cap * sizeof *queue);
+            if (!queue) { static const char m[] = "csrt: out of memory (finalizer queue)\n"; (void)!write(2, m, sizeof m - 1); abort(); }
+            fin.queue = queue;
+            fin.q_cap = cap;
+        }
+    }
+}
+
+static void (*fin_type_fn(const csrt_MethodTable* mt))(void*) {
+    for (size_t i = 0; i < fin.type_count; i++) if (fin.types[i].mt == mt) return fin.types[i].fn;
+    return NULL;
+}
+
+/// Under g.lock.
+static void fin_insert(uintptr_t obj, void (*fn)(void*)) {
+    if (fin_find(obj)) return;
+    fin_reserve();
+    size_t i = fin_hash(obj, fin.cap);
+    while (fin.table[i].obj != FIN_EMPTY && fin.table[i].obj != FIN_DELETED) i = (i + 1) & (fin.cap - 1);
+    if (fin.table[i].obj == FIN_EMPTY) fin.used++;
+    fin.table[i] = (FinEntry){ obj, fn, ++fin.seq };
+    fin.live++;
+}
+
+static void fin_remove(FinEntry* e) {
+    e->obj = FIN_DELETED;
+    fin.live--;
+}
+
+static void finalizer_loop(void);
+bool csrt_start_background_thread(void (*loop)(void));  // threads.c
+
+/// Registers an object for finalization; `fn` runs its finalizers (it takes the object).
+static void fin_register(void* obj, void (*fn)(void*)) {
+    if (!g.initialized) csrt_gc_init();
+    gc_lock();
+    if (!fin_type_fn(((csrt_Object*)obj)->mt)) {
+        if (fin.type_count == fin.type_cap) {
+            size_t cap = fin.type_cap ? fin.type_cap * 2 : 16;
+            FinType* types = realloc(fin.types, cap * sizeof *types);
+            if (!types) abort();
+            fin.types = types;
+            fin.type_cap = cap;
+        }
+        fin.types[fin.type_count++] = (FinType){ ((csrt_Object*)obj)->mt, fn };
+    }
+    fin_insert((uintptr_t)obj, fn);
+    gc_unlock();
+#ifndef __wasi__
+    // The first registration starts the finalizer thread (the program becomes multithreaded then, as in .NET).
+    if (fin.thread == 0) {
+        fin.thread = -1;
+        if (csrt_start_background_thread(finalizer_loop)) fin.thread = 1;
+    }
+#else
+    fin.thread = -1;
+#endif
+}
+
+void* csrt_alloc_finalizable(const csrt_MethodTable* mt, int64_t size, void (*fn)(void*)) {
+    void* obj = csrt_alloc(mt, size);
+    fin_register(obj, fn);
+    return obj;
+}
+
+/// GC.SuppressFinalize: the object's finalizer does not run (also when it is already waiting in the queue).
+void csrt_gc_suppress_finalize(void* obj) {
+    if (!obj) return;
+    gc_lock();
+    FinEntry* e = fin_find((uintptr_t)obj);
+    if (e) fin_remove(e);
+    else for (size_t i = 0; i < fin.q_len; i++) {
+        FinEntry* q = &fin.queue[fin.q_head + i];
+        if (q->obj == (uintptr_t)obj) q->fn = NULL;
+    }
+    gc_unlock();
+}
+
+/// GC.ReRegisterForFinalize: the object's finalizer runs again once it becomes unreachable. A type that
+/// never had a registered instance has no finalizer.
+void csrt_gc_reregister_finalizer(void* obj) {
+    if (!obj || !fin.type_count) return;  // no class with a finalizer was ever instantiated
+    gc_lock();
+    void (*fn)(void*) = fin_type_fn(((csrt_Object*)obj)->mt);
+    if (fn) {
+        bool queued = false;
+        for (size_t i = 0; i < fin.q_len; i++) {
+            FinEntry* q = &fin.queue[fin.q_head + i];
+            if (q->obj == (uintptr_t)obj) { queued = true; if (!q->fn) q->fn = fn; }
+        }
+        if (!queued) fin_insert((uintptr_t)obj, fn);
+    }
+    gc_unlock();
+}
+
+static void fin_sort(FinEntry* a, size_t n) {
+    // Shell sort by registration order (the collector never allocates; batches are usually small).
+    for (size_t gap = n / 2; gap > 0; gap /= 2)
+        for (size_t i = gap; i < n; i++) {
+            FinEntry t = a[i];
+            size_t j = i;
+            for (; j >= gap && a[j - gap].seq > t.seq; j -= gap) a[j] = a[j - gap];
+            a[j] = t;
+        }
+}
+
+/// Runs with the world stopped, after weak references were cleared and before the sweep.
+static void finalize_process(void) {
+    if (!fin.live && !fin.q_len) return;
+    size_t first = fin.q_head + fin.q_len;
+    for (size_t i = 0; i < fin.cap; i++) {
+        FinEntry* e = &fin.table[i];
+        if (e->obj == FIN_EMPTY || e->obj == FIN_DELETED || weak_is_marked(e->obj)) continue;
+        fin.queue[fin.q_head + fin.q_len++] = *e;
+        e->obj = FIN_DELETED;
+        fin.live--;
+    }
+    fin_sort(fin.queue + first, fin.q_head + fin.q_len - first);
+    // Everything waiting survives, with what it reaches.
+    for (size_t i = 0; i < fin.q_len; i++) {
+        mark_candidate(fin.queue[fin.q_head + i].obj);
+        drain();
+    }
+}
+
+/// After the world restarts: wake the finalizer thread if a collection queued work for it.
+static void finalizer_wake(void) {
+    if (fin.q_len && fin.thread == 1) pthread_cond_broadcast(&fin.work);
+}
+
+/// Takes the next pending object off the queue (under g.lock); false when there is none.
+static bool fin_next(FinEntry* out) {
+    if (!fin.q_len) return false;
+    *out = fin.queue[fin.q_head++];
+    fin.q_len--;
+    if (!fin.q_len) fin.q_head = 0;
+    return true;
+}
+
+static void fin_run(void* arg) {
+    FinEntry* e = arg;
+    e->fn((void*)e->obj);
+}
+
+/// Runs one finalizer (no lock held); an exception out of it is unhandled, as in .NET.
+static void fin_call(FinEntry* e) {
+    if (!e->fn) return;
+    void* exception = csrt_trap_call(fin_run, e);
+    if (exception) csrt_unhandled_exception(exception);
+}
+
+static void finalizer_loop(void) {
+    gc_lock();
+    for (;;) {
+        FinEntry e;
+        while (!fin_next(&e)) {
+            pthread_cond_broadcast(&fin.idle);
+            pthread_cond_wait(&fin.work, &g.lock);
+        }
+        fin.running = 1;
+        gc_unlock();
+        fin_call(&e);
+        e.obj = 0;  // the object is garbage again once the thread's stack no longer names it
+        gc_lock();
+        fin.running = 0;
+    }
+}
+
+/// GC.WaitForPendingFinalizers: returns once every object queued so far has been finalized.
+void csrt_gc_wait_for_pending_finalizers(void) {
+    if (!g.initialized) return;
+    gc_lock();
+    if (fin.thread == 1) {
+        while (fin.q_len || fin.running) pthread_cond_wait(&fin.idle, &g.lock);
+        gc_unlock();
+        return;
+    }
+    // No finalizer thread: run them here.
+    FinEntry e;
+    while (fin_next(&e)) {
+        gc_unlock();
+        fin_call(&e);
+        gc_lock();
+    }
     gc_unlock();
 }
 
@@ -3039,11 +3300,13 @@ CSRT_GC_NO_SANITIZE static void cycle_finish(void) {
     // what was allocated during the cycle is sorted (and merged) at the next initial mark.
     __atomic_store_n(&csrt_gc_marking, 0, __ATOMIC_SEQ_CST);
     weak_process();
+    finalize_process();
     protect_caches();
     sweep_begin();
     cm_active = false;
     clock_gettime(CLOCK_MONOTONIC, &tp[5]);
     resume_world();
+    finalizer_wake();
     clock_gettime(CLOCK_MONOTONIC, &t1);
     note_pause(t0, t1);
     if (elapsed_ms(t0, t1) >= cm_remark_max_ms) {
@@ -3218,6 +3481,7 @@ __attribute__((noinline)) static void collect_now(void) {
 #endif
     drain();
     weak_process();
+    finalize_process();
     protect_caches();
 #if CSRT_HAS_NURSERY
     g.live_bytes = sweep(!g.minor);
@@ -3243,6 +3507,7 @@ __attribute__((noinline)) static void collect_now(void) {
     g.live_bytes = sweep();
 #endif
     resume_world();
+    finalizer_wake();
     clock_gettime(CLOCK_MONOTONIC, &t1);
     adapt_budget(t0, t1);
     for (size_t i = 0; i < g.deferred_count; i++) free(g.deferred_free[i]);

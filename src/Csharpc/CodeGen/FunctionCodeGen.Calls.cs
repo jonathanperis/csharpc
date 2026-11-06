@@ -480,6 +480,9 @@ public sealed partial class FunctionCodeGen
     private LLVMValueRef Allocate(LLVMValueRef methodTable, LLVMValueRef size)
     {
         _m.NoteConstructed(methodTable); // its vtable slots can be dispatched now (ModuleCodeGen.VTables.cs)
+        // A class with a finalizer registers each instance with the collector (ModuleCodeGen.Finalizers.cs).
+        if (_m.FinalizerThunk(methodTable) is { } finalizer)
+            return CallRuntime("csrt_alloc_finalizable", L.Ptr, [L.Ptr, L.I64, L.Ptr], methodTable, size, finalizer);
         return CallRuntime("csrt_alloc", L.Ptr, [L.Ptr, L.I64], methodTable, size);
     }
 
