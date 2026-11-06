@@ -44,7 +44,7 @@ public sealed partial class ModuleCodeGen
     }
 
     private LLVMValueRef FieldRecordConstant(FieldRecordData f) =>
-        Llvm.ConstStruct(f.Name, f.Declaring, f.Type, f.Get, f.Set, AttributeArray(f.Attributes), Llvm.ConstInt(Llvm.I32, f.Attributes.Count),
+        Llvm.ConstStruct(f.Name, f.Declaring, f.Type, f.Get, f.Set, AttributeArray(f.Attributes), AttributeCount(f.Attributes),
             Llvm.ConstUInt(Llvm.I32, f.FieldAttributes));
 
     private int _strongBoxesScanned;

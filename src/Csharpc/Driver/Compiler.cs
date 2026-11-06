@@ -254,6 +254,7 @@ public sealed class Compiler(CompilerOptions options)
             IlSurveyAssemblies = options.IlSurveyAssemblies,
             IlSurveyShard = options.IlSurveyShard,
             RuntimeConfig = settings.RuntimeConfig,
+            ProjectAnnotations = path => RoslynFrontend.NullableOf(settings.Projects.FirstOrDefault(p => p.Files.Any(f => string.Equals(Path.GetFullPath(f), path, StringComparison.Ordinal)))?.Nullable ?? settings.Nullable).AnnotationsEnabled(),
             ProgramResources = [.. settings.EmbeddedResources.Select(r => new ProgramResourceData(r.Assembly, r.Name, File.ReadAllBytes(r.Path)))],
             ProgramAssemblies = mainIl is null ? ProgramAssembly.From(settings, codegenCompilation.AssemblyName ?? "program") : [],
             LinkedShims = linkedShims,
