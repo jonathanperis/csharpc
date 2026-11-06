@@ -221,7 +221,10 @@ public sealed class IlAssembly : IDisposable, ISignatureTypeProvider<IlType, IlG
         }
         var baseName = name[..^".resources".Length];
         foreach (var entry in entries)
-            yield return (baseName, entry.Name, entry.Text ?? NonStringPrefix + entry.TypeName + "\u0001" + entry.Value);
+            // A preserialized user type is marked with "\u0002<format>" after the type name (3: the value is the type converter's
+            // string, else a byte array, an activator stream or BinaryFormatter output the runtime can't create), so the runtime
+            // can tell it from a primitive stored by type code and say how it is stored.
+            yield return (baseName, entry.Name, entry.Text ?? NonStringPrefix + entry.TypeName + (entry.Format != 0 ? "\u0002" + entry.Format : "") + "\u0001" + entry.Value);
     }
 
     /// <summary>Starts the value of a resource entry that is not a string: the prefix, the type's full name, U+0001 and the value's text (corelib/Resources.cs reads it).</summary>

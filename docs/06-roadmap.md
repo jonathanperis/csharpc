@@ -184,7 +184,9 @@ boundary, EH incl. filters, static constructors (`beforefieldinit`), RVA data, P
 compiled C# idioms (interpolation handlers, closures, iterators, records, generic math); unreachable
 failures compile to stubs (`CSLLVM0007`); compiled `async` (method builders, awaiters, async
 iterators, `IValueTaskSource`); embedded resource strings (`ResourceManager`, framework `SR`
-messages); `AppContext` with runtimeconfig defaults; `System.Collections.Immutable` compiled from the
+messages) and the objects of a preserialized `.resx` (`GetObject` of `System.Drawing.Point`/`Size`/`Rectangle`/`Color`,
+enums, dates, `[TypeConverter]` types: the converters are System.ComponentModel.TypeConverter's own IL, created for the
+types the resources and `typeof` + `GetConverter` name, #53); `AppContext` with runtimeconfig defaults; `System.Collections.Immutable` compiled from the
 shared framework's IL. `tests/il.sh` checks library projects consumed as DLLs, a nuget.org package
 (Ardalis.GuardClauses) and a framework assembly against `dotnet run`; `tools/il-survey` ranks what the
 top pure-IL packages still need ([18-compatibility.md](18-compatibility.md#il-front-end-survey)).

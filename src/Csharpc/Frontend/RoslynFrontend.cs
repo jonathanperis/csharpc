@@ -89,6 +89,17 @@ public static class RoslynFrontend
         List<Diagnostic> jsonDiagnostics = [];
         compilation = JsonReflectionContexts.Add(compilation, [.. trees.Where(t => !IsCoreLibTree(t) && t.FilePath is not ("<global-usings>.g.cs" or AssemblyInfoTreePath))],
             settings.JsonReflectionEnabled, jsonDiagnostics, out _, settings.IlSet, settings.JsonFromIl ? settings.ProgramIl : null);
+        // ResourceManager.GetObject of preserialized TypeConverter strings (System.Drawing.Point from a .resx), TypeDescriptor.GetConverter(typeof(X)).
+        if (settings.ProgramIl is null) compilation = ResourceConverters.Add(compilation, settings.ResourceTypes, [.. trees.Where(t => !IsCoreLibTree(t) && t.FilePath is not ("<global-usings>.g.cs" or AssemblyInfoTreePath))],
+            compilation.SyntaxTrees.FirstOrDefault()?.Options as CSharpParseOptions ?? parseOptions);
+        // The same for an IL program: its resources' types, and its ldtokens next to a GetConverter call (internals visible, as for JSON).
+        if (settings.ProgramIl is { } converterProgram && settings.ConvertersFromIl && settings.IlSet is { } converterSet)
+        {
+            var symbols = compilation.WithOptions(compilation.Options.WithMetadataImportOptions(MetadataImportOptions.All));
+            converterSet.Bind(symbols);
+            compilation = ResourceConverters.AddFromIl(compilation, symbols, settings.ResourceTypes, converterProgram,
+                compilation.SyntaxTrees.FirstOrDefault()?.Options as CSharpParseOptions ?? parseOptions);
+        }
         // The IL program's [GeneratedRegex] members, as the source path's generator makes them.
         if (settings.ProgramIl is { } programIl && IlGeneratedRegex.Synthesize(programIl, compilation.SyntaxTrees.FirstOrDefault()?.Options as CSharpParseOptions ?? parseOptions) is { } regexHolders)
             compilation = compilation.AddSyntaxTrees(regexHolders);
@@ -389,6 +400,13 @@ public sealed record FrontendSettings
     /// native files): copied next to the executable, where P/Invoke probing finds them as .NET's does.
     /// </summary>
     public IReadOnlyList<string> NativeAssets { get; init; } = [];
+    /// <summary>
+    /// The full names of the types the embedded .resources files hold as TypeConverter strings (ResourceConverters.TypeNames):
+    /// the front end generates their conversions, and FrameworkIl takes the framework assemblies that define them.
+    /// </summary>
+    public IReadOnlyList<string> ResourceTypes { get; init; } = [];
+    /// <summary>The IL program's converter hooks are generated (its resources name converted types, or it calls TypeDescriptor.GetConverter) in a compilation that sees its internals.</summary>
+    public bool ConvertersFromIl { get; init; }
     /// <summary>
     /// How `dotnet build` would compile and describe the program (stack-trace names and lines);
     /// null for single files, decided by the configuration (`dotnet run app.cs`).
