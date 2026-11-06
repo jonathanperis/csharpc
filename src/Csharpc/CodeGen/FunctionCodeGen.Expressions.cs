@@ -32,6 +32,9 @@ public sealed partial class FunctionCodeGen
             // IntPtr.Zero / UIntPtr.Zero: the only static fields interop code reads off these types.
             IFieldReferenceOperation { Field: { IsStatic: true, Name: "Zero", ContainingType.SpecialType: SpecialType.System_IntPtr or SpecialType.System_UIntPtr } } zf =>
                 LlvmContext.Null(T.Value(zf.Field.Type)),
+            // Type.Delimiter: a static readonly char '.' (the separator of a type's namespace), which the SDK's generators read.
+            IFieldReferenceOperation { Field: { IsStatic: true, Name: "Delimiter", ContainingType: { Name: "Type", ContainingNamespace: { Name: "System", ContainingNamespace.IsGlobalNamespace: true } } } } df =>
+                Constant('.', S(df.Field.Type), df),
             IFieldReferenceOperation f when TryLowLevelLibraryMember(f, out var libraryField) => libraryField,
             // Library constants IL reads as fields: decimal's (decimal.Zero/One/MinusOne/MaxValue/MinValue are
             // `const` in C#, static readonly fields with [DecimalConstant] in metadata).
