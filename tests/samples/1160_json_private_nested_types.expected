@@ -1,0 +1,18 @@
+{"X":3,"Y":4}
+3,4
+{"Name":"Ada","Age":36}
+Named { Name = Bob, Age = 41 }
+{"Left":"l","Right":2.5}
+0.25
+{"Label":"tri","Corner":{"X":3,"Y":4},"Others":[{"X":1,"Y":2}],"People":{"a":{"Name":"A","Age":1}},"Sides":3,"sides":3}
+tri 3 3 2 A
+[{"X":3,"Y":4},{"X":9,"Y":0}]
+{"p":{"X":3,"Y":4}}
+2
+{"X":3,"Y":4}
+abc {"Code":"abc"}
+Point: private=True family=False internal=False public=False
+Named: private=True family=False internal=False public=False
+Pair: private=False family=True internal=False public=False
+Shape: private=True family=False internal=False public=False
+Holder: private=False family=False internal=True public=False

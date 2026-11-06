@@ -19,7 +19,7 @@ every failure is a clean "not supported by csharpc yet" diagnostic.
 | `dotnet build -p:UseCsharpc=true`, `dotnet publish -p:PublishCsharpc=true` | ✅ | `Csharpc.Sdk` package |
 | File-based apps (`#:property` directives) | ✅ | |
 | Assemblies without sources: `-r X.dll`, `<Reference>`, NuGet `PackageReference` | 🟡 | IL front-end (M5): the IL side is complete except `calli`/TypedReference; packages still hit BCL gaps (M2) |
-| The program as IL: `csharpc app.dll` (csc's output, the dotnet pipeline's input) | 🟡 | M5: 480/481 samples through `tests/run.sh --via-il` (`dynamic` included); JSON of a private nested type stays a diagnostic |
+| The program as IL: `csharpc app.dll` (csc's output, the dotnet pipeline's input) | 🟡 | M5: every sample passes through `tests/run.sh --via-il` (`dynamic` and reflection-based JSON of private nested types included) |
 
 ### Types
 
@@ -137,7 +137,9 @@ The BCL surface written in C# and compiled by csharpc together with the program;
 Roslyn binds against the real reference assemblies are redirected to it
 ([12-corelib.md](12-corelib.md)). Done: collections, LINQ, tasks, `System.Text.RegularExpressions`,
 `System.Text.Json` (ported from dotnet/runtime; `JsonSerializer` runs on compile-time metadata from the
-JSON source generator, which csharpc also synthesizes for reflection-style calls); formatting, parsing,
+JSON source generator, which csharpc also synthesizes for reflection-style calls; with `ProjectReference`s each
+project's source generators run on that project's own compilation, with its options and additional files,
+[16-interop-io.md](16-interop-io.md#libraryimport-and-other-source-generators)); formatting, parsing,
 `decimal`, `BigInteger` and `DateTime` (moved from the C runtime into C#); P/Invoke and `System.IO`;
 sockets (`Socket`, `TcpListener`/`TcpClient`, `UdpClient`, `Dns`); library value types (`Guid`,
 `ArraySegment<T>`, `DateTimeOffset`); `MemoryPool<T>`, `Convert`; `System.Type` reflection basics; globalization (cultures via ICU, as .NET:
@@ -184,7 +186,9 @@ boundary, EH incl. filters, static constructors (`beforefieldinit`), RVA data, P
 compiled C# idioms (interpolation handlers, closures, iterators, records, generic math); unreachable
 failures compile to stubs (`CSLLVM0007`); compiled `async` (method builders, awaiters, async
 iterators, `IValueTaskSource`); embedded resource strings (`ResourceManager`, framework `SR`
-messages); `AppContext` with runtimeconfig defaults; `System.Collections.Immutable` compiled from the
+messages) and the objects of a preserialized `.resx` (`GetObject` of `System.Drawing.Point`/`Size`/`Rectangle`/`Color`,
+enums, dates, `[TypeConverter]` types: the converters are System.ComponentModel.TypeConverter's own IL, created for the
+types the resources and `typeof` + `GetConverter` name, #53); `AppContext` with runtimeconfig defaults; `System.Collections.Immutable` compiled from the
 shared framework's IL. `tests/il.sh` checks library projects consumed as DLLs, a nuget.org package
 (Ardalis.GuardClauses) and a framework assembly against `dotnet run`; `tools/il-survey` ranks what the
 top pure-IL packages still need ([18-compatibility.md](18-compatibility.md#il-front-end-survey)).
@@ -193,10 +197,12 @@ top pure-IL packages still need ([18-compatibility.md](18-compatibility.md#il-fr
 main assembly — entry point from the CLI header, identity, module initializers and runtimeconfig.json
 from the build ([ADR 0010](adr/0010-il-frontend.md#the-program-as-il-2026-10-30)). `tests/run.sh --via-il`
 runs every sample through `dotnet build` → csharpc against the same recordings (CI: the informational
-`il-main.yml`): **480 / 481** pass (2026-10-31, -O0 and -O2), stack traces included (names from the
+`il-main.yml`): **all** pass (2026-11-06, -O0 and -O2), stack traces included (names from the
 assembly, lines from its PDB), reflection-based JSON, `[GeneratedRegex]` and `dynamic` (csc's call sites decoded
-and bound like source sites, ADR 0019 "From IL") included; the one left is a diagnostic — JSON of a private
-nested type. Gaps between the two front-ends are bugs.
+and bound like source sites, ADR 0019 "From IL") included; reflection-based JSON of private and protected
+nested types too (the binding compilation reads the program with those types marked internal, see
+[ADR 0010](adr/0010-il-frontend.md#the-program-as-il-2026-10-30)). Left as diagnostics from IL: JSON of
+anonymous, file-local and other compiler-generated types, as in source. Gaps between the two front-ends are bugs.
 
 `-g` works from IL too (2026-11-06): `csharpc -g app.dll` (or a library DLL it references) emits the DWARF
 line table, parameter and local names from the assembly's portable PDB — beside the DLL or embedded —

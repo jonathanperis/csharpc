@@ -141,6 +141,10 @@ namespace CsharpcCoreLib
         // started on a non-blocking socket, which Connected completes (.NET's _nonBlockingConnectInProgress).
         private bool _willBlock = true;
         private bool _connectInProgress;
+        // The last connect attempt failed (.NET's SafeSocketHandle.LastConnectFailed), and the local endpoint of an explicit
+        // Bind, which a replacement socket gets again.
+        private bool _lastConnectFailed;
+        private EndPoint _explicitBind;
 
         internal long RawHandle => _handle;
 
@@ -694,6 +698,7 @@ namespace CsharpcCoreLib
 #endif
             NetNative.Bind(_handle, target);
             _bound = true;
+            _explicitBind = localEP;
         }
 
         public void Listen() => Listen(int.MaxValue);
@@ -727,7 +732,7 @@ namespace CsharpcCoreLib
         // another address family than the socket's is NotSupportedException (SR.net_invalidversion).
         private void CheckDnsEndPoint(DnsEndPoint dns)
         {
-            if (dns.AddressFamily != AddressFamily.Unspecified && AddressFamily != AddressFamily.Unspecified && dns.AddressFamily != AddressFamily)
+            if (dns.AddressFamily != AddressFamily.Unspecified && !CanTryAddressFamily(dns.AddressFamily))
                 throw new NotSupportedException("This protocol version is not supported.");
         }
 
@@ -744,6 +749,7 @@ namespace CsharpcCoreLib
             EnsureOpen();
             if (_connected) throw new SocketException((int)SocketError.IsConnected);
             var target = Adapt(remoteEP);
+            ReplaceHandleIfNecessaryAfterFailedConnect();
             if (!_willBlock)
             {
                 // A non-blocking connect: under way is WouldBlock (.NET's SocketPal.Connect); Connected completes it.
@@ -753,11 +759,71 @@ namespace CsharpcCoreLib
                 _bound = true;
                 if (error == 0) { _connectInProgress = false; _connected = true; return; }
                 if (error == NetNative.EINPROGRESS || NetNative.IsWouldBlock(error)) throw NetNative.Error(NetNative.EAGAIN, remoteEP);
+                _lastConnectFailed = true;
                 throw NetNative.Error(error, remoteEP);
             }
-            NetNative.Connect(_handle, target);
+            try { NetNative.Connect(_handle, target); }
+            catch (SocketException) { _lastConnectFailed = true; throw; }
             _connected = true;
             _bound = true;
+        }
+
+        /// <summary>A connect attempt the socket engine saw fail.</summary>
+        internal void ConnectFailed() => _lastConnectFailed = true;
+
+        // .NET's ReplaceHandleIfNecessaryAfterFailedConnect: a socket whose connect failed is in an unspecified
+        // state on Unix (Linux keeps an IPv4-mapped connect's protocol operations after the peer refused it, so a
+        // second attempt with a real IPv6 address never gets an answer), so the next attempt runs on a new
+        // descriptor with the old one's options. This is what lets one socket try the addresses of a name in turn.
+        private void ReplaceHandleIfNecessaryAfterFailedConnect()
+        {
+#if !CSHARPC_TARGET_WINDOWS && !CSHARPC_TARGET_WASI
+            if (!_lastConnectFailed || !_ownsHandle) return;
+            _lastConnectFailed = false;
+            long old = _handle;
+            long replacement = NetNative.Socket(AddressFamily == AddressFamily.InterNetworkV6 ? NetNative.AF_INET6 : NetNative.AF_INET,
+                SocketType == SocketType.Stream ? NetNative.SOCK_STREAM : NetNative.SOCK_DGRAM,
+                ProtocolType == ProtocolType.Tcp ? NetNative.IPPROTO_TCP : ProtocolType == ProtocolType.Udp ? NetNative.IPPROTO_UDP : 0);
+            try
+            {
+                if (AddressFamily == AddressFamily.InterNetworkV6) NetNative.SetInt(replacement, NetNative.IPPROTO_IPV6, NetNative.IPV6_V6ONLY, _dualMode ? 0 : 1);
+                if (_noDelay) NetNative.SetInt(replacement, NetNative.IPPROTO_TCP, NetNative.TCP_NODELAY, 1);
+                // Linux doubles the value it is given for these (and reports the doubled one).
+                int divisor = OperatingSystem.IsLinux() ? 2 : 1;
+                NetNative.SetInt(replacement, NetNative.SOL_SOCKET, NetNative.SO_RCVBUF, NetNative.GetInt(old, NetNative.SOL_SOCKET, NetNative.SO_RCVBUF) / divisor);
+                NetNative.SetInt(replacement, NetNative.SOL_SOCKET, NetNative.SO_SNDBUF, NetNative.GetInt(old, NetNative.SOL_SOCKET, NetNative.SO_SNDBUF) / divisor);
+                if (_receiveTimeout > 0) NetNative.SetTimeout(replacement, NetNative.SO_RCVTIMEO, _receiveTimeout);
+                if (_sendTimeout > 0) NetNative.SetTimeout(replacement, NetNative.SO_SNDTIMEO, _sendTimeout);
+                if (NetNative.GetInt(old, NetNative.SOL_SOCKET, NetNative.SO_KEEPALIVE) != 0)
+                {
+                    NetNative.SetInt(replacement, NetNative.SOL_SOCKET, NetNative.SO_KEEPALIVE, 1);
+                    NetNative.SetInt(replacement, NetNative.IPPROTO_TCP, NetNative.TCP_KEEPIDLE, NetNative.GetInt(old, NetNative.IPPROTO_TCP, NetNative.TCP_KEEPIDLE));
+                    NetNative.SetInt(replacement, NetNative.IPPROTO_TCP, NetNative.TCP_KEEPINTVL, NetNative.GetInt(old, NetNative.IPPROTO_TCP, NetNative.TCP_KEEPINTVL));
+                    NetNative.SetInt(replacement, NetNative.IPPROTO_TCP, NetNative.TCP_KEEPCNT, NetNative.GetInt(old, NetNative.IPPROTO_TCP, NetNative.TCP_KEEPCNT));
+                }
+                if (_explicitBind != null)
+                {
+                    EndPoint local = NetNative.LocalEndPoint(old);
+                    if (ProtocolType == ProtocolType.Tcp) NetNative.SetInt(replacement, NetNative.SOL_SOCKET, NetNative.SO_REUSEADDR, 1);
+                    NetNative.Bind(replacement, local);
+                }
+                if (!_willBlock) NetNative.SetBlockingMode(replacement, false);
+            }
+            catch
+            {
+                NetNative.Close(replacement);
+                throw;
+            }
+            // The engine watches descriptors: the old one's context is closed (nothing is pending on a socket that is
+            // about to connect), and the new descriptor registers with the next asynchronous operation.
+            SocketAsyncContext context = _async;
+            _async = null;
+            context?.Close();
+            _nonBlocking = false;
+            _handle = replacement;
+            _remote = null;
+            NetNative.Close(old);
+#endif
         }
 
         public void Connect(IPAddress address, int port) => Connect(new IPEndPoint(address, port));
@@ -766,22 +832,41 @@ namespace CsharpcCoreLib
         {
             if (host == null) throw new ArgumentNullException("host");
             IPAddress literal;
-            if (IPAddress.TryParse(host, out literal)) { Connect(literal, port); return; }
+            if (IPAddress.TryParse(host, out literal)) { CheckLiteral(literal); Connect(literal, port); return; }
             Connect(Dns.GetHostAddresses(host), port);
         }
 
         public void Connect(IPAddress[] addresses, int port)
         {
             if (addresses == null) throw new ArgumentNullException("addresses");
+            if (addresses.Length == 0) throw new ArgumentException("The number of specified IP addresses has to be greater than 0.", "addresses");
+            if (port < IPEndPoint.MinPort || port > IPEndPoint.MaxPort) throw new ArgumentOutOfRangeException("port");
+            EnsureOpen();
+            if (_listening) throw new InvalidOperationException("You may not perform this operation after calling the Listen method.");
+            // .NET keeps the last failure and rethrows it when no address worked.
             SocketException last = null;
             foreach (var address in addresses)
             {
-                if (address.AddressFamily != AddressFamily && !(AddressFamily == AddressFamily.InterNetworkV6 && _dualMode)) continue;
+                if (!CanTryAddressFamily(address.AddressFamily)) continue;
                 try { Connect(new IPEndPoint(address, port)); return; }
                 catch (SocketException e) { last = e; }
             }
-            throw last ?? new SocketException((int)SocketError.AddressFamilyNotSupported);
+            if (last != null) throw last;
+            throw NoMatchingAddress();
         }
+
+        // An address literal the socket can't use is NotSupportedException (SR.net_invalidversion), not a failed attempt.
+        private void CheckLiteral(IPAddress literal)
+        {
+            if (!CanTryAddressFamily(literal.AddressFamily)) throw new NotSupportedException("This protocol version is not supported.");
+        }
+
+        /// <summary>.NET's CanTryAddressFamily: the socket's family, or IPv4 on a dual-mode IPv6 socket.</summary>
+        private bool CanTryAddressFamily(AddressFamily family) =>
+            family == AddressFamily || (family == AddressFamily.InterNetwork && AddressFamily == AddressFamily.InterNetworkV6 && _dualMode);
+
+        private static ArgumentException NoMatchingAddress() =>
+            new ArgumentException("None of the discovered or specified addresses match the socket address family.", "addresses");
 
         public Task ConnectAsync(EndPoint remoteEP) => ConnectAsync(remoteEP, CancellationToken.None, asTask: true).AsTask();
 
@@ -797,8 +882,11 @@ namespace CsharpcCoreLib
             if (remoteEP is DnsEndPoint dns)
             {
                 CheckDnsEndPoint(dns);
-                return new ValueTask(ConnectToHostAsync(dns.Host, dns.Port, cancellationToken));
+                return new ValueTask(ConnectToNameAsync(dns, cancellationToken));
             }
+            if (remoteEP is IPEndPoint && !CanTryAddressFamily(remoteEP.AddressFamily))
+                throw new NotSupportedException("This protocol version is not supported.");
+            ReplaceHandleIfNecessaryAfterFailedConnect();
             // A non-blocking connect on the socket engine (a canceled token ends it with OperationCanceledException).
             return new ValueTask(StartTask(new TaskOperations.Connect { Target = Adapt(remoteEP), AsTask = asTask }, cancellationToken).Source.Task);
         }
@@ -814,37 +902,212 @@ namespace CsharpcCoreLib
             _connected = true;
             _bound = true;
         }
-        public Task ConnectAsync(string host, int port) => Task.Run(() => Connect(host, port));
+        public Task ConnectAsync(string host, int port) => ConnectAsync(host, port, CancellationToken.None, asTask: true).AsTask();
 
-        public ValueTask ConnectAsync(string host, int port, CancellationToken cancellationToken)
+        public ValueTask ConnectAsync(string host, int port, CancellationToken cancellationToken) =>
+            ConnectAsync(host, port, cancellationToken, asTask: false);
+
+        private ValueTask ConnectAsync(string host, int port, CancellationToken cancellationToken, bool asTask)
         {
             if (host == null) throw new ArgumentNullException("host");
-            if (port < IPEndPoint.MinPort || port > IPEndPoint.MaxPort) throw new ArgumentOutOfRangeException("port");
+            ArgumentOutOfRangeException.ThrowIfLessThan(port, IPEndPoint.MinPort);
+            ArgumentOutOfRangeException.ThrowIfGreaterThan(port, IPEndPoint.MaxPort);
             EnsureOpen();
             if (_connected) throw new SocketException((int)SocketError.IsConnected);
             if (_listening) throw new InvalidOperationException("You may not perform this operation after calling the Listen method.");
             if (cancellationToken.IsCancellationRequested) return new ValueTask(Task.FromCanceled(cancellationToken));
-            return new ValueTask(ConnectToHostAsync(host, port, cancellationToken));
+            IPAddress literal;
+            if (IPAddress.TryParse(host, out literal)) CheckLiteral(literal);
+            return new ValueTask(ConnectToHostAsync(host, AddressFamily == AddressFamily.InterNetworkV6 && _dualMode ? AddressFamily.Unspecified : AddressFamily, port, cancellationToken));
         }
 
-        // Resolve (off the caller's thread, observing the token), then connect to each address in turn: the last
-        // failure is the one thrown, a canceled token ends it with OperationCanceledException.
-        private async Task ConnectToHostAsync(string host, int port, CancellationToken cancellationToken)
+        public Task ConnectAsync(IPAddress[] addresses, int port) => ConnectAsync(addresses, port, CancellationToken.None).AsTask();
+
+        public ValueTask ConnectAsync(IPAddress[] addresses, int port, CancellationToken cancellationToken)
         {
-            IPAddress[] addresses = await Dns.GetHostAddressesAsync(host, cancellationToken).ConfigureAwait(false);
+            if (addresses == null) throw new ArgumentNullException("addresses");
+            ArgumentOutOfRangeException.ThrowIfLessThan(port, IPEndPoint.MinPort);
+            ArgumentOutOfRangeException.ThrowIfGreaterThan(port, IPEndPoint.MaxPort);
+            EnsureOpen();
+            if (_connected) throw new SocketException((int)SocketError.IsConnected);
+            if (_listening) throw new InvalidOperationException("You may not perform this operation after calling the Listen method.");
+            if (cancellationToken.IsCancellationRequested) return new ValueTask(Task.FromCanceled(cancellationToken));
+            return new ValueTask(ConnectToAddressesAsync(addresses, port, cancellationToken));
+        }
+
+        // ---- Socket.ConnectAsync(SocketAsyncEventArgs) ----------------------------------------------
+        // An IPEndPoint is one engine connect; a DnsEndPoint resolves the name and tries its addresses in turn
+        // (the failure of the last one is SocketError, and also ConnectByNameError), as .NET's MultipleConnectAsync.
+        public bool ConnectAsync(SocketAsyncEventArgs e)
+        {
+            EnsureOpen();
+            var args = ConnectArguments(e, out EndPoint remote);
+            if (_listening) throw new InvalidOperationException("You may not perform this operation after calling the Listen method.");
+            if (_connected) throw new SocketException((int)SocketError.IsConnected);
+            DnsEndPoint dns = remote as DnsEndPoint;
+            if (dns != null) CheckDnsEndPoint(dns);
+            else if (!CanTryAddressFamily(remote.AddressFamily)) throw new NotSupportedException("This protocol version is not supported.");
+            Begin(e, SocketAsyncOperation.Connect);
+            if (dns != null) return StartConnectByName(args, dns, this, SocketType.Unknown, ProtocolType.Unknown);
+            var op = args.ConnectOperation ??= new EventArgsOperations.Connect { Args = args };
+            op.Reset();
+            op.Target = Adapt(remote);
+            ReplaceHandleIfNecessaryAfterFailedConnect();
+            return Run(StartContext(args), op);
+        }
+
+        /// <summary>Socket.ConnectAsync(SocketType, ProtocolType, e): the sockets are made here, one per address family.</summary>
+        public static bool ConnectAsync(SocketType socketType, ProtocolType protocolType, SocketAsyncEventArgs e)
+        {
+            var args = ConnectArguments(e, out EndPoint remote);
+            DnsEndPoint dns = remote as DnsEndPoint;
+            if (dns != null)
+            {
+                args.StartOperation(null, SocketAsyncOperation.Connect);
+                return StartConnectByName(args, dns, null, socketType, protocolType);
+            }
+            var socket = new SocketImpl(remote.AddressFamily, socketType, protocolType);
+            // The attempt is recorded first: an operation that fails right away (or on another thread) disposes it.
+            args.AttemptSocket = socket;
+            try { return socket.ConnectAsync(e); }
+            catch { args.AttemptSocket = null; socket.Dispose(); throw; }
+        }
+
+        public static void CancelConnectAsync(SocketAsyncEventArgs e)
+        {
+            if (e == null) throw new ArgumentNullException("e");
+            ((SocketAsyncEventArgsImpl)(object)e).ConnectCancel?.Cancel();
+        }
+
+        private static SocketAsyncEventArgsImpl ConnectArguments(SocketAsyncEventArgs e, out EndPoint remote)
+        {
+            if (e == null) throw new ArgumentNullException("e");
+            var args = (SocketAsyncEventArgsImpl)(object)e;
+            remote = args.RemoteEndPoint ?? throw new ArgumentNullException("remoteEP");
+            return args;
+        }
+
+        // An address literal no socket of ours can use is known to fail without a lookup (NoData).
+        private static bool NameConnectPossible(DnsEndPoint dns, SocketImpl user)
+        {
+            IPAddress literal;
+            if (!IPAddress.TryParse(dns.Host, out literal)) return true;
+            if (dns.AddressFamily != AddressFamily.Unspecified && literal.AddressFamily != dns.AddressFamily) return false;
+            return user == null || user.CanTryAddressFamily(literal.AddressFamily);
+        }
+
+        private static bool StartConnectByName(SocketAsyncEventArgsImpl args, DnsEndPoint dns, SocketImpl user, SocketType socketType, ProtocolType protocolType)
+        {
+            if (!NameConnectPossible(dns, user))
+            {
+                args.ConnectByNameError = new SocketException((int)SocketError.NoData);
+                args.FinishSynchronously(SocketError.NoData, 0);
+                return false;
+            }
+            var cancel = args.ConnectCancel = new CancellationTokenSource();
+            _ = FinishConnectByNameAsync(args, dns, user, socketType, protocolType, cancel);
+            return true;
+        }
+
+        private static async Task FinishConnectByNameAsync(SocketAsyncEventArgsImpl args, DnsEndPoint dns, SocketImpl user, SocketType socketType, ProtocolType protocolType, CancellationTokenSource cancel)
+        {
+            NameConnect result = await ConnectByNameAsync(dns, user, socketType, protocolType, cancel.Token).ConfigureAwait(false);
+            args.ConnectCancel = null;
+            cancel.Dispose();
+            args.ConnectByNameError = result.Failure;
+            if (result.Connected != null) args.ConnectSocket = (Socket)(object)result.Connected;
+            if (user == null) args.CurrentSocket = result.Connected;
+            args.FinishAsynchronously(result.Error, 0);
+        }
+
+        private sealed class NameConnect
+        {
+            internal SocketError Error = SocketError.NoData;
+            internal Exception Failure;
+            internal SocketImpl Connected;
+        }
+
+        // Resolves the name (only the endpoint's address family when it has one) and connects to its addresses
+        // in turn: with the caller's socket (user), or with sockets made here, one per address family. The
+        // outcome is never thrown: Error and Failure say what the last attempt (or the lookup) ended with.
+        private static async Task<NameConnect> ConnectByNameAsync(DnsEndPoint dns, SocketImpl user, SocketType socketType, ProtocolType protocolType, CancellationToken token)
+        {
+            var result = new NameConnect();
+            SocketImpl ipv4 = null, ipv6 = null;
+            try
+            {
+                IPAddress[] addresses = await Dns.GetHostAddressesAsync(dns.Host, dns.AddressFamily, token).ConfigureAwait(false);
+                foreach (var address in addresses)
+                {
+                    SocketImpl socket;
+                    if (user != null)
+                    {
+                        if (!user.CanTryAddressFamily(address.AddressFamily)) continue;
+                        socket = user;
+                    }
+                    else socket = address.AddressFamily == AddressFamily.InterNetwork
+                        ? ipv4 ??= new SocketImpl(AddressFamily.InterNetwork, socketType, protocolType)
+                        : ipv6 ??= new SocketImpl(AddressFamily.InterNetworkV6, socketType, protocolType);
+                    try
+                    {
+                        await socket.ConnectAsync(new IPEndPoint(address, dns.Port), token, asTask: true).AsTask().ConfigureAwait(false);
+                        result.Connected = socket;
+                        result.Error = SocketError.Success;
+                        result.Failure = null;
+                        break;
+                    }
+                    catch (OperationCanceledException) { throw; }
+                    catch (SocketException ex) { result.Error = ex.SocketErrorCode; result.Failure = ex; }
+                }
+                if (result.Failure == null && result.Error == SocketError.NoData) result.Failure = new SocketException((int)SocketError.NoData);
+            }
+            catch (OperationCanceledException ex) { result.Error = SocketError.OperationAborted; result.Failure = ex; }
+            catch (SocketException ex) { result.Error = ex.SocketErrorCode; result.Failure = ex; }
+            finally
+            {
+                if (user == null)
+                {
+                    if (ipv4 != null && ipv4 != result.Connected) ipv4.Dispose();
+                    if (ipv6 != null && ipv6 != result.Connected) ipv6.Dispose();
+                }
+            }
+            return result;
+        }
+
+        // Resolve (off the caller's thread, observing the token; a DnsEndPoint of a family resolves only that
+        // family's addresses, as .NET's does), then connect to each address in turn.
+        private async Task ConnectToHostAsync(string host, AddressFamily family, int port, CancellationToken cancellationToken)
+        {
+            IPAddress[] addresses = await Dns.GetHostAddressesAsync(host, family, cancellationToken).ConfigureAwait(false);
+            await ConnectToAddressesAsync(addresses, port, cancellationToken).ConfigureAwait(false);
+        }
+
+        // One socket tries the addresses in order: a failed attempt (an address of a family the socket can't use
+        // included: NotSupportedException) leaves it ready for the next, the last failure is the one thrown, a
+        // canceled token ends it with OperationCanceledException, all as in .NET.
+        private async Task ConnectToAddressesAsync(IPAddress[] addresses, int port, CancellationToken cancellationToken)
+        {
             Exception last = null;
             foreach (var address in addresses)
             {
-                if (address.AddressFamily != AddressFamily && !(AddressFamily == AddressFamily.InterNetworkV6 && _dualMode)) continue;
                 try
                 {
                     await ConnectAsync(new IPEndPoint(address, port), cancellationToken, asTask: true).AsTask().ConfigureAwait(false);
                     return;
                 }
                 catch (OperationCanceledException) { throw; }
-                catch (SocketException e) { last = e; }
+                catch (Exception e) { last = e; }
             }
-            throw last ?? new SocketException((int)SocketError.AddressFamilyNotSupported);
+            throw last ?? NoMatchingAddress();
+        }
+
+        // ConnectAsync(DnsEndPoint) runs the same name connect as SocketAsyncEventArgs: no usable address is a
+        // SocketException with NoData, the other failures are those of the last attempt.
+        private async Task ConnectToNameAsync(DnsEndPoint dns, CancellationToken cancellationToken)
+        {
+            if (!NameConnectPossible(dns, this)) throw new SocketException((int)SocketError.NoData);
+            NameConnect result = await ConnectByNameAsync(dns, this, SocketType.Unknown, ProtocolType.Unknown, cancellationToken).ConfigureAwait(false);
+            if (result.Failure != null) throw result.Failure;
         }
 
         public int Send(byte[] buffer) => Send(buffer, 0, buffer?.Length ?? 0, SocketFlags.None);
@@ -1194,8 +1457,16 @@ namespace CsharpcCoreLib
         }
 
         public TcpClient AcceptTcpClient() => (TcpClient)(object)new TcpClientImpl(AcceptSocket());
-        public Task<Socket> AcceptSocketAsync() => Task.Run(() => AcceptSocket());
-        public Task<TcpClient> AcceptTcpClientAsync() => Task.Run(() => AcceptTcpClient());
+
+        // The asynchronous accepts run on the socket engine, as .NET's: no pool thread blocks in accept(), and
+        // Stop ends a pending one (a thread blocked in accept() would keep the listening socket open after it).
+        public Task<Socket> AcceptSocketAsync()
+        {
+            if (!_active) throw new InvalidOperationException("Not listening. You must call the Start() method before calling this method.");
+            return _server.AcceptAsync();
+        }
+
+        public async Task<TcpClient> AcceptTcpClientAsync() => (TcpClient)(object)new TcpClientImpl(await AcceptSocketAsync().ConfigureAwait(false));
 
         public void Dispose() => Stop();
     }
@@ -1218,7 +1489,9 @@ namespace CsharpcCoreLib
         public TcpClientImpl(string hostname, int port)
         {
             if (hostname == null) throw new ArgumentNullException("hostname");
-            Connect(hostname, port);
+            _client = new Socket(SocketType.Stream, ProtocolType.Tcp);
+            try { Connect(hostname, port); }
+            catch { _client.Dispose(); throw; }
         }
 
         internal TcpClientImpl(Socket acceptedSocket) { _client = acceptedSocket; }
@@ -1232,36 +1505,34 @@ namespace CsharpcCoreLib
 
         public void Connect(string hostname, int port)
         {
-            if (hostname == null) throw new ArgumentNullException("hostname");
             if (_disposed) throw new ObjectDisposedException(typeof(TcpClient).FullName);
-            // As .NET: try each resolved address with a socket of its family.
-            SocketException last = null;
-            IPAddress literal;
-            IPAddress[] addresses = IPAddress.TryParse(hostname, out literal) ? new[] { literal } : Dns.GetHostAddresses(hostname);
-            foreach (var address in addresses)
-            {
-                var socket = _client != null && !_client.Connected && Accepts(_client, address.AddressFamily)
-                    ? _client : new Socket(address.AddressFamily, SocketType.Stream, ProtocolType.Tcp);
-                try
-                {
-                    socket.Connect(new IPEndPoint(address, port));
-                    _client = socket;
-                    return;
-                }
-                catch (SocketException e)
-                {
-                    last = e;
-                    if (socket != _client) socket.Dispose();
-                }
-            }
-            throw last ?? new SocketException((int)SocketError.HostNotFound);
+            if (hostname == null) throw new ArgumentNullException("hostname");
+            if (port < IPEndPoint.MinPort || port > IPEndPoint.MaxPort) throw new ArgumentOutOfRangeException("port");
+            // .NET resolves the name and lets the one socket try each address of its family in turn (Connect to
+            // "localhost" reaches an IPv4-only listener after ::1 is refused); the last failure is the one thrown.
+            _client.Connect(hostname, port);
         }
 
-        public void Connect(IPAddress address, int port) => Connect(new IPEndPoint(address, port));
+        public void Connect(IPAddress address, int port)
+        {
+            if (_disposed) throw new ObjectDisposedException(typeof(TcpClient).FullName);
+            if (address == null) throw new ArgumentNullException("address");
+            if (port < IPEndPoint.MinPort || port > IPEndPoint.MaxPort) throw new ArgumentOutOfRangeException("port");
+            Connect(new IPEndPoint(address, port));
+        }
+
+        public void Connect(IPAddress[] ipAddresses, int port)
+        {
+            if (_disposed) throw new ObjectDisposedException(typeof(TcpClient).FullName);
+            if (ipAddresses == null) throw new ArgumentNullException("ipAddresses");
+            if (port < IPEndPoint.MinPort || port > IPEndPoint.MaxPort) throw new ArgumentOutOfRangeException("port");
+            _client.Connect(ipAddresses, port);
+        }
 
         public void Connect(IPEndPoint remoteEP)
         {
             if (_disposed) throw new ObjectDisposedException(typeof(TcpClient).FullName);
+            if (remoteEP == null) throw new ArgumentNullException("remoteEP");
             if (_client == null || !Accepts(_client, remoteEP.AddressFamily))
                 _client = new Socket(remoteEP.AddressFamily, SocketType.Stream, ProtocolType.Tcp);
             _client.Connect(remoteEP);
@@ -1271,8 +1542,57 @@ namespace CsharpcCoreLib
         private static bool Accepts(Socket socket, AddressFamily family) =>
             socket.AddressFamily == family || (socket.AddressFamily == AddressFamily.InterNetworkV6 && socket.DualMode);
 
-        public Task ConnectAsync(string host, int port) => Task.Run(() => Connect(host, port));
-        public Task ConnectAsync(IPAddress address, int port) => Task.Run(() => Connect(address, port));
+        // The asynchronous overloads run on the socket's asynchronous connect (no pool thread blocks in it); the
+        // socket validates the arguments and tries the resolved addresses in turn, like the synchronous ones.
+        public Task ConnectAsync(string host, int port)
+        {
+            if (_disposed) throw new ObjectDisposedException(typeof(TcpClient).FullName);
+            return _client.ConnectAsync(host, port);
+        }
+
+        public ValueTask ConnectAsync(string host, int port, CancellationToken cancellationToken)
+        {
+            if (_disposed) throw new ObjectDisposedException(typeof(TcpClient).FullName);
+            return _client.ConnectAsync(host, port, cancellationToken);
+        }
+
+        public Task ConnectAsync(IPAddress address, int port)
+        {
+            if (_disposed) throw new ObjectDisposedException(typeof(TcpClient).FullName);
+            return _client.ConnectAsync(address, port);
+        }
+
+        public ValueTask ConnectAsync(IPAddress address, int port, CancellationToken cancellationToken)
+        {
+            if (_disposed) throw new ObjectDisposedException(typeof(TcpClient).FullName);
+            return _client.ConnectAsync(address, port, cancellationToken);
+        }
+
+        public Task ConnectAsync(IPAddress[] addresses, int port)
+        {
+            if (_disposed) throw new ObjectDisposedException(typeof(TcpClient).FullName);
+            return _client.ConnectAsync(addresses, port);
+        }
+
+        public ValueTask ConnectAsync(IPAddress[] addresses, int port, CancellationToken cancellationToken)
+        {
+            if (_disposed) throw new ObjectDisposedException(typeof(TcpClient).FullName);
+            return _client.ConnectAsync(addresses, port, cancellationToken);
+        }
+
+        public Task ConnectAsync(IPEndPoint remoteEP)
+        {
+            if (_disposed) throw new ObjectDisposedException(typeof(TcpClient).FullName);
+            if (remoteEP == null) throw new ArgumentNullException("remoteEP");
+            return _client.ConnectAsync(remoteEP);
+        }
+
+        public ValueTask ConnectAsync(IPEndPoint remoteEP, CancellationToken cancellationToken)
+        {
+            if (_disposed) throw new ObjectDisposedException(typeof(TcpClient).FullName);
+            if (remoteEP == null) throw new ArgumentNullException("remoteEP");
+            return _client.ConnectAsync(remoteEP, cancellationToken);
+        }
 
         public NetworkStream GetStream()
         {
