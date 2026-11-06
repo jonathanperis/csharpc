@@ -2596,6 +2596,11 @@ static void fin_remove(FinEntry* e) {
     fin.live--;
 }
 
+// Set by the first registration only: a program that never allocates a finalizable object (nothing references
+// csrt_alloc_finalizable) has this constant false at link time, and the whole finalization machinery folds away
+// (binary size is a budget: tests/size.sh).
+static bool fin_active;
+
 static void finalizer_loop(void);
 bool csrt_start_background_thread(void (*loop)(void));  // threads.c
 
@@ -2603,6 +2608,7 @@ bool csrt_start_background_thread(void (*loop)(void));  // threads.c
 static void fin_register(void* obj, void (*fn)(void*)) {
     if (!g.initialized) csrt_gc_init();
     gc_lock();
+    fin_active = true;
     if (!fin_type_fn(((csrt_Object*)obj)->mt)) {
         if (fin.type_count == fin.type_cap) {
             size_t cap = fin.type_cap ? fin.type_cap * 2 : 16;
@@ -2634,7 +2640,7 @@ void* csrt_alloc_finalizable(const csrt_MethodTable* mt, int64_t size, void (*fn
 
 /// GC.SuppressFinalize: the object's finalizer does not run (also when it is already waiting in the queue).
 void csrt_gc_suppress_finalize(void* obj) {
-    if (!obj) return;
+    if (!obj || !fin_active) return;
     gc_lock();
     FinEntry* e = fin_find((uintptr_t)obj);
     if (e) fin_remove(e);
@@ -2648,7 +2654,7 @@ void csrt_gc_suppress_finalize(void* obj) {
 /// GC.ReRegisterForFinalize: the object's finalizer runs again once it becomes unreachable. A type that
 /// never had a registered instance has no finalizer.
 void csrt_gc_reregister_finalizer(void* obj) {
-    if (!obj || !fin.type_count) return;  // no class with a finalizer was ever instantiated
+    if (!obj || !fin_active || !fin.type_count) return;  // no class with a finalizer was ever instantiated
     gc_lock();
     void (*fn)(void*) = fin_type_fn(((csrt_Object*)obj)->mt);
     if (fn) {
@@ -2675,7 +2681,7 @@ static void fin_sort(FinEntry* a, size_t n) {
 
 /// Runs with the world stopped, after weak references were cleared and before the sweep.
 static void finalize_process(void) {
-    if (!fin.live && !fin.q_len) return;
+    if (!fin_active || (!fin.live && !fin.q_len)) return;
     size_t first = fin.q_head + fin.q_len;
     for (size_t i = 0; i < fin.cap; i++) {
         FinEntry* e = &fin.table[i];
@@ -2694,7 +2700,7 @@ static void finalize_process(void) {
 
 /// After the world restarts: wake the finalizer thread if a collection queued work for it.
 static void finalizer_wake(void) {
-    if (fin.q_len && fin.thread == 1) pthread_cond_broadcast(&fin.work);
+    if (fin_active && fin.q_len && fin.thread == 1) pthread_cond_broadcast(&fin.work);
 }
 
 /// Takes the next pending object off the queue (under g.lock); false when there is none.
@@ -2743,7 +2749,7 @@ static void finalizer_loop(void) {
 
 /// GC.WaitForPendingFinalizers: returns once every object queued so far has been finalized.
 void csrt_gc_wait_for_pending_finalizers(void) {
-    if (!g.initialized) return;
+    if (!g.initialized || !fin_active) return;
     gc_lock();
     if (fin.thread == 1) {
         while (fin.q_len || fin.running) pthread_cond_wait(&fin.idle, &g.lock);
