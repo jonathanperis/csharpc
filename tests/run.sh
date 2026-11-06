@@ -294,7 +294,7 @@ run_pass() { # opt rep
       mv "$res/$i.out.tmp" "$res/$i.out"; mv "$res/$i.rc.tmp" "$res/$i.rc"
     ) &
     running=$((running + 1))
-    if [[ "$SERIAL" == *" $name "* ]]; then while (( running > 0 )); do reap; done; fi
+    if (( i == 0 )) || [[ "$SERIAL" == *" $name "* ]]; then while (( running > 0 )); do reap; done; fi
     flush
   done
   while (( running > 0 )); do reap; done
