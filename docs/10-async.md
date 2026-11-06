@@ -74,10 +74,29 @@ by a pointer to one csrt task object (`TypeMapper` maps these library types to `
 out over that struct (`ModuleCodeGen.TaskSources.cs`): the header, `T`'s payload at the fixed offset, then the
 class's own fields; the method table chains to `csrt_Task_MT` (so every task test accepts them, and
 `csrt_object_is_task` walks the chain) and the base constructor stores the payload size. The task creation options
-passed to `base(...)` are ignored, as for `new TaskCompletionSource(options)`. A task doesn't record its result
-type, so `x is Task<T>` can't tell `Task<Stream>` from `Task<string>`: framework IL gets an is-any-task test (what
-`HttpContent` means with a field that holds a `Stream` or the `Task<Stream>` reading it), a program's source keeps
-the explicit diagnostic.
+passed to `base(...)` are ignored, as for `new TaskCompletionSource(options)`.
+
+**Task<T> is told from Task<U> by the method table the task carries** (`ModuleCodeGen.TaskTypes.cs`). The code that
+creates a `Task<T>` (an async method's task, `Task.FromResult`, `new TaskCompletionSource<T>()`, `Task.Run`,
+`WhenAll`/`WhenAny`, `FromException<T>`, a class deriving from `TaskCompletionSource<T>`) stores a per-`T` table in the
+object's header instead of `csrt_Task_MT`: same flags and `Object` virtuals, the name
+`System.Threading.Tasks.Task`1[System.Int32]`, and `csrt_Task_MT` as its base class, so `is Task`, the await fast
+paths and `csrt_object_is_task` (which walk the chain) accept it unchanged and `x is Task<string>`, `(Task<int>)o`
+(`InvalidCastException` with .NET's message), `as`, patterns and `List<Task<T>>`'s `IList` slots are identity tests like
+any class's. The one stored word is the whole cost of a typed task (an async method's allocation, `Task.FromResult` and
+`new TaskCompletionSource<T>()` store it inline; nothing is called). It is pay for play in size: creation sites store a
+placeholder global, and only a program that can tell task types apart (a type test or cast against a `Task<T>`
+or `TaskCompletionSource<T>`, `typeof(Task<T>)`, or `GetType()` on an object, interface or task) gets the tables
+defined (a name and 64 bytes per `T`, plus the type metadata); any other program has the placeholders replaced by
+`csrt_Task_MT` when code generation ends and emits nothing. The non-generic `Task` and `Task<VoidTaskResult>` (what an
+`async Task` method, `Task.Delay` or a result-less `TaskCompletionSource` make in .NET) are one type, the plain table,
+so `is Task<VoidTaskResult>` holds for every task, as the framework's IL expects of its own tasks.
+
+What the tables don't give: `GetType()` of a task an async method, `WhenAll`, `ContinueWith`... made is `Task`1[T]`, where
+.NET names an internal derived class (`AsyncStateMachineBox`...); the result of `is`/casts agrees, the class name doesn't.
+`Task.CompletedTask.GetType()` is `Task` (.NET: `Task`1[VoidTaskResult]`). A `Task<T>` array doesn't check stores through a
+covariant `object[]` (the element table of a task array is empty), and `x is TaskCompletionSource<T>` is true of any
+`Task<T>`, as a source is its task here.
 
 **`ValueTask<T>` is .NET's struct** (`corelib/Tasks/ValueTaskOfT.cs`, a port of .NET's `ValueTask<T>`,
 `ValueTaskAwaiter<T>` and `ConfiguredValueTaskAwaitable<T>`): `{ object _obj, T _result, short _token, bool
@@ -108,8 +127,7 @@ table (`ModuleCodeGen.TaskAsyncResultMember`); `Task.Dispose` only checks that t
 .NET's does. `Task.Exception` and the `AggregateException` that `Wait()`/`Result` throw are new objects on
 every read (the task keeps only the inner-exception list), as in .NET; `TaskCanceledException.Task` is a
 field of the exception (`data` in `csrt_Exception`) and its `CancellationToken` is the canceled task's own.
-Not told apart: `GetType()` and type tests of tasks, which all share one method table (`t is Task<int>` is
-an explicit diagnostic).
+The task object is the same csrt struct whatever its type: only the table pointer differs.
 
 **Threading model** (.NET semantics for console apps, `src/runtime/async.c`):
 

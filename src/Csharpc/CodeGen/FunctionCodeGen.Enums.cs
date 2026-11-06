@@ -30,6 +30,9 @@ public sealed partial class FunctionCodeGen
                 {
                     var typeArg = EmitValue(args[0].Value);
                     var text = Coerce(EmitValue(args[1].Value), TypeOf(args[1].Value), S(args[1].Parameter!.Type));
+                    // The ReadOnlySpan<char> overload (EnumConverter parses the pieces of a flag list): the string with those chars.
+                    if (S(args[1].Parameter!.Type) is INamedTypeSymbol { Name: "ReadOnlySpan", ContainingNamespace.Name: "System" })
+                        text = CallCoreLib("EnumRuntime", "SpanText", text);
                     var ignore = args.Count == 3
                         ? Coerce(EmitValue(args[2].Value), TypeOf(args[2].Value), S(args[2].Parameter!.Type))
                         : L.False;

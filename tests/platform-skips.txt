@@ -243,6 +243,20 @@ macos 1009_httpclient_json  known gap: System.Net.Http's system-proxy support (C
 windows 1009_httpclient_json  known gap: System.Net.Http's system-proxy support (HttpWindowsProxy: WinINet, WindowsIdentity, EventWaitHandle) isn't implemented, so HttpClient is an explicit compile error on Windows
 macos 1010_httpclient_base_address  known gap: System.Net.Http's system-proxy support (CFNetwork: Marshal.GetFunctionPointerForDelegate) isn't implemented, so HttpClient is an explicit compile error on macOS
 windows 1010_httpclient_base_address  known gap: System.Net.Http's system-proxy support (HttpWindowsProxy: WinINet, WindowsIdentity, EventWaitHandle) isn't implemented, so HttpClient is an explicit compile error on Windows
+
+# TLS and X.509 (docs/adr/0022-tls.md): over OpenSSL on Linux only.
+macos 1100_x509_certificates  known gap: X.509 certificates, PKCS#12 and chains need Security.framework on macOS, not implemented yet (an explicit NotSupportedException)
+windows 1100_x509_certificates  known gap: X.509 certificates, PKCS#12 and chains need CNG/CryptoAPI on Windows, not implemented yet (an explicit NotSupportedException)
+wasi 1100_x509_certificates  known gap: no OpenSSL on WebAssembly (WASI): certificates throw NotSupportedException
+macos 1101_sslstream_loopback  known gap: SslStream needs SecureTransport/Network.framework on macOS, not implemented yet (an explicit NotSupportedException)
+windows 1101_sslstream_loopback  known gap: SslStream needs SChannel on Windows, not implemented yet (an explicit NotSupportedException)
+wasi 1101_sslstream_loopback  opens loopback sockets: WASI preview 1 has none (PlatformNotSupportedException)
+macos 1102_sslstream_validation  known gap: SslStream needs SecureTransport/Network.framework on macOS, not implemented yet (an explicit NotSupportedException)
+windows 1102_sslstream_validation  known gap: SslStream needs SChannel on Windows, not implemented yet (an explicit NotSupportedException)
+wasi 1102_sslstream_validation  opens loopback sockets: WASI preview 1 has none (PlatformNotSupportedException)
+macos 1103_httpclient_https  known gap: https needs SslStream (SecureTransport/Network.framework on macOS, not implemented yet), and the system-proxy gap of HttpClient applies too
+windows 1103_httpclient_https  known gap: https needs SslStream (SChannel on Windows, not implemented yet), and the system-proxy gap of HttpClient applies too
+wasi 1103_httpclient_https  opens loopback sockets: WASI preview 1 has none (PlatformNotSupportedException)
 wasi 1053_binary_primitives_native_int  nint/nuint are 4 bytes on wasm32: the bytes written and reversed differ from the 64-bit recording
 windows 1057_marshal_memory_copy_strings  live: Marshal's ANSI conversions use the Windows ANSI code page (1252, where é survives), UTF-8 on Linux and macOS
 windows 1058_marshal_variant_bool  known gap: .NET on Windows marshals VARIANT_BOOL fields with its built-in COM support and gives their size; csharpc reports them as unmarshalable there as elsewhere
@@ -250,3 +264,8 @@ windows 1001_httpclient_post            live: the request text it echoes is buil
 windows 1005_httpclient_handlers        known gap: gzip, deflate and brotli decompression need .NET's native compression shim, which csharpc can't link with MinGW yet (see 537_compression_streams)
 windows 1010_httpclient_base_address    known gap: the corelib's System.Uri rejects drive-less file paths ("/absolute/path") on Windows with an explicit NotSupportedException
 wasi 1141_network_interface_addresses   WASI preview 1 has no network interfaces to enumerate (NotSupportedException)
+wasi 1180_socket_dns_endpoint_fallback  opens loopback sockets: WASI preview 1 has none (PlatformNotSupportedException)
+wasi 1181_socket_dns_endpoint_failure_messages  opens loopback sockets: WASI preview 1 has none (PlatformNotSupportedException)
+wasi 1182_httpclient_localhost_ipv4_server  opens loopback sockets: WASI preview 1 has none (PlatformNotSupportedException)
+macos 1181_socket_dns_endpoint_failure_messages  the texts and native codes are the OS's: "Connection refused" and errno 111 are Linux's
+windows 1181_socket_dns_endpoint_failure_messages  the texts and native codes are the OS's: Winsock says "No connection could be made because the target machine actively refused it." (10061)
