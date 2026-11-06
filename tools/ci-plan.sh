@@ -7,26 +7,27 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
-# Shard counts measured from CI run 40310822368 (docs/05-testing.md). x86-64 and Windows are the
-# long poles and have runners to spare. arm64 and macOS queue, so two shards keeps them inside
-# the wall-clock target without a second wave. wasm shares ubuntu-24.04 with x86-64; two shards
-# is enough (the unsharded differential step was 21.5 min).
+# Shard counts. With CSHARPC_JOBS samples at once a shard runs 2-3x faster than the sequential one
+# the counts were first measured on (run 40310822368, docs/05-testing.md), so a platform needs only
+# as many shards as it takes to finish near its suites job (7-26 min). That keeps the gate's wall
+# clock where the suites job puts it and spends fewer runner minutes, which are what queue.
+# Measured on run 42269384295 (docs/05-testing.md, "Shard counts").
 shard_count() {
   case "$1" in
-    x86-64|windows-x64) echo 4 ;;
-    arm64|macos-arm64|wasm32-wasi) echo 2 ;;
+    x86-64) echo 3 ;;
+    windows-x64|arm64|macos-arm64|wasm32-wasi) echo 2 ;;
     *) echo "unknown platform: $1" >&2; return 1 ;;
   esac
 }
 
 # Samples a shard compiles and runs at once (tests/run.sh, CSHARPC_JOBS). GitHub's hosted runners
 # have 4 vCPUs (ubuntu, windows, ubuntu-24.04-arm) and 3 on macOS (macos-15 arm64); a compilation
-# is itself multi-threaded, so a little over one sample per core already keeps the cores busy
-# while others wait for the linker and the sample's own run.
+# is itself multi-threaded, so about one sample per core already keeps the cores busy while others
+# wait for the linker and the sample's own run. Run 42269384295 used 2 on macOS (its shard took
+# 24 min, 1.45x faster than sequential); 3 is tried there next.
 jobs_for_platform() {
   case "$1" in
-    x86-64|arm64|windows-x64|wasm32-wasi) echo 3 ;;
-    macos-arm64) echo 2 ;;
+    x86-64|arm64|windows-x64|wasm32-wasi|macos-arm64) echo 3 ;;
     *) echo 1 ;;
   esac
 }
@@ -642,7 +643,7 @@ cmd_self_check() {
   all="$(bash "$ROOT/tests/run.sh" --list | LC_ALL=C sort)"
   : >"$tmp/union"
   local i n
-  for n in 2 4; do
+  for n in 2 3 4; do
     : >"$tmp/union"
     for ((i = 0; i < n; i++)); do
       bash "$ROOT/tests/run.sh" --list --shard "$i/$n" >>"$tmp/union"
