@@ -1,0 +1,74 @@
+-- AsyncState
+True
+cold
+77
+True
+5
+act
+True
+True
+True
+True
+continuation
+continuation of T
+with options
+tcs
+42
+True
+-- CreationOptions
+None
+PreferFairness, LongRunning
+HideScheduler
+DenyChildAttach
+DenyChildAttach
+DenyChildAttach
+DenyChildAttach
+None
+None
+None
+None
+None
+PreferFairness
+LongRunning
+LongRunning
+None
+None
+None
+RunContinuationsAsynchronously
+RunContinuationsAsynchronously
+-- TaskCompletionSource arguments
+LongRunning: ArgumentOutOfRangeException: Specified argument was out of the range of valid values. (Parameter 'creationOptions')
+DenyChildAttach: ArgumentOutOfRangeException: Specified argument was out of the range of valid values. (Parameter 'creationOptions')
+HideScheduler: ArgumentOutOfRangeException: Specified argument was out of the range of valid values. (Parameter 'creationOptions')
+PreferFairness: ArgumentOutOfRangeException: Specified argument was out of the range of valid values. (Parameter 'creationOptions')
+undefined bit: ArgumentOutOfRangeException: Specified argument was out of the range of valid values. (Parameter 'creationOptions')
+AttachedToParent
+AttachedToParent: ok
+task options: ArgumentOutOfRangeException: Specified argument was out of the range of valid values. (Parameter 'creationOptions')
+null action: ArgumentNullException: Value cannot be null. (Parameter 'action')
+TrySetException(null): ArgumentNullException: Value cannot be null. (Parameter 'exception')
+SetException(null): ArgumentNullException: Value cannot be null. (Parameter 'exception')
+-- IAsyncResult
+iar
+True
+True
+False
+False True True
+ManualResetEvent
+False False
+True True
+True
+True
+True
+True
+False
+-- Dispose
+created: InvalidOperationException: A task may only be disposed if it is in a completion state (RanToCompletion, Faulted or Canceled).
+completed twice: ok
+pending: InvalidOperationException: A task may only be disposed if it is in a completion state (RanToCompletion, Faulted or Canceled).
+canceled: ok
+kept
+faulted: ok
+4 RanToCompletion 5
+used after: ok
+started: InvalidOperationException: A task may only be disposed if it is in a completion state (RanToCompletion, Faulted or Canceled).

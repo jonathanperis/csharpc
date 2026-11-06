@@ -1,0 +1,63 @@
+-- status of a task with an attached child
+WaitingForChildrenToComplete
+False
+RanToCompletion
+WaitingForChildrenToComplete
+RanToCompletion
+-- status of cold and started tasks
+Created
+RanToCompletion
+Canceled
+Faulted
+Canceled
+WaitingForActivation
+-- TaskCanceledException.Task and token
+True
+True
+True
+True
+1
+True
+False
+True
+True
+A task was canceled.
+True
+text
+inner
+True
+True
+-- exception identity
+False
+True
+False
+True
+True
+True
+True
+add: NotSupportedException: Collection is read-only.
+2 False
+p,q
+-- argument checks
+WhenAll(null array): ArgumentNullException: Value cannot be null. (Parameter 'tasks')
+WhenAll(null enumerable): ArgumentNullException: Value cannot be null. (Parameter 'tasks')
+WhenAll<T>(null enumerable): ArgumentNullException: Value cannot be null. (Parameter 'tasks')
+WhenAll(null element): ArgumentException: The tasks argument included a null value. (Parameter 'tasks')
+WhenAll<T>(null element): ArgumentException: The tasks argument included a null value. (Parameter 'tasks')
+RanToCompletion
+WhenAll(empty): ok
+WhenAny(empty): ArgumentException: The tasks argument contains no tasks. (Parameter 'tasks')
+WhenAny(empty enumerable): ArgumentException: The tasks argument contains no tasks. (Parameter 'tasks')
+WhenAny(null): ArgumentNullException: Value cannot be null. (Parameter 'tasks')
+WhenAny(null enumerable): ArgumentNullException: Value cannot be null. (Parameter 'tasks')
+WhenAny(null element): ArgumentException: The tasks argument included a null value. (Parameter 'tasks')
+WaitAll(null): ArgumentNullException: Value cannot be null. (Parameter 'tasks')
+WaitAll(null element): ArgumentException: The tasks array included at least one null element. (Parameter 'tasks')
+WaitAny(null): ArgumentNullException: Value cannot be null. (Parameter 'tasks')
+FromCanceled(not canceled): ArgumentOutOfRangeException: Specified argument was out of the range of valid values. (Parameter 'cancellationToken')
+FromCanceled<T>(not canceled): ArgumentOutOfRangeException: Specified argument was out of the range of valid values. (Parameter 'cancellationToken')
+FromException(null): ArgumentNullException: Value cannot be null. (Parameter 'exception')
+SetException(empty): ArgumentException: The exceptions collection was empty. (Parameter 'exceptions')
+SetException(null element): ArgumentException: The exceptions collection included at least one null element. (Parameter 'exceptions')
+True False
+TrySetResult twice: InvalidOperationException: An attempt was made to transition a task to a final state when it had already completed.
