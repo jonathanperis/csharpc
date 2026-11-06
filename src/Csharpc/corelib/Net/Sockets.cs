@@ -364,6 +364,11 @@ namespace CsharpcCoreLib
         public Task<int> SendAsync(ArraySegment<byte> buffer, SocketFlags socketFlags) =>
             SendAsync((ReadOnlyMemory<byte>)buffer, socketFlags, CancellationToken.None).AsTask();
 
+        // `await socket.SendAsync(bytes)` binds to these (a byte[] converts to ArraySegment<byte>).
+        public Task<int> ReceiveAsync(ArraySegment<byte> buffer) => ReceiveAsync(buffer, SocketFlags.None);
+
+        public Task<int> SendAsync(ArraySegment<byte> buffer) => SendAsync(buffer, SocketFlags.None);
+
         public bool DualMode
         {
             get

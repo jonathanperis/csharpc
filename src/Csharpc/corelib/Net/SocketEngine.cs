@@ -39,6 +39,21 @@ namespace CsharpcCoreLib
 
         internal virtual bool IsWrite => false;
 
+        /// <summary>
+        /// Task-based operations (ValueTask&lt;int&gt; ReceiveAsync, ConnectAsync, AcceptAsync) are completed on the thread
+        /// pool when the event loop finishes them: an await's continuation runs inline where its task completes, and
+        /// the one epoll thread must neither run user code nor block in it (a synchronous call in the continuation
+        /// would wait for readiness that only this thread delivers). SocketAsyncEventArgs operations keep the
+        /// inline completion their callbacks (Kestrel's transport) are written for.
+        /// </summary>
+        internal virtual bool CompleteOnPool => false;
+
+        internal void CompleteFromEngine()
+        {
+            if (CompleteOnPool && !SocketEngine.Blocking) ThreadPool.UnsafeQueueUserWorkItem(static op => op.Complete(false), this, false);
+            else Complete(false);
+        }
+
         /// <summary>Clears the outcome of a previous run (operations owned by a SocketAsyncEventArgs are reused).</summary>
         internal virtual void Reset()
         {
@@ -250,6 +265,7 @@ namespace CsharpcCoreLib
     {
         internal sealed class Receive : ReceiveOperation
         {
+            internal override bool CompleteOnPool => true;
             internal readonly TaskCompletionSource<int> Source = new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously);
             internal override void Complete(bool synchronously)
             {
@@ -262,6 +278,7 @@ namespace CsharpcCoreLib
 
         internal sealed class Send : SendOperation
         {
+            internal override bool CompleteOnPool => true;
             internal readonly TaskCompletionSource<int> Source = new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously);
             internal override void Complete(bool synchronously)
             {
@@ -274,6 +291,7 @@ namespace CsharpcCoreLib
 
         internal sealed class Connect : ConnectOperation
         {
+            internal override bool CompleteOnPool => true;
             internal readonly TaskCompletionSource Source = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             /// <summary>Socket.ConnectAsync's Task overloads: .NET wraps the ValueTask (ValueTaskSourceAsTask).</summary>
             internal bool AsTask;
@@ -297,6 +315,7 @@ namespace CsharpcCoreLib
 
         internal sealed class Accept : AcceptOperation
         {
+            internal override bool CompleteOnPool => true;
             internal readonly TaskCompletionSource<Socket> Source = new TaskCompletionSource<Socket>(TaskCreationOptions.RunContinuationsAsynchronously);
             internal override void Complete(bool synchronously)
             {
@@ -432,12 +451,12 @@ namespace CsharpcCoreLib
             if (readable)
             {
                 Interlocked.Increment(ref _readEvents);
-                while (Volatile.Read(ref _pendingReads) != 0 && DrainOne(Reads, ref _pendingReads) is { } op) op.Complete(false);
+                while (Volatile.Read(ref _pendingReads) != 0 && DrainOne(Reads, ref _pendingReads) is { } op) op.CompleteFromEngine();
             }
             if (writable)
             {
                 Interlocked.Increment(ref _writeEvents);
-                while (Volatile.Read(ref _pendingWrites) != 0 && DrainOne(Writes, ref _pendingWrites) is { } op) op.Complete(false);
+                while (Volatile.Read(ref _pendingWrites) != 0 && DrainOne(Writes, ref _pendingWrites) is { } op) op.CompleteFromEngine();
             }
         }
 
@@ -467,7 +486,7 @@ namespace CsharpcCoreLib
             foreach (SocketOperation op in aborted)
             {
                 op.Error = SocketError.OperationAborted;
-                op.Complete(false);
+                op.CompleteFromEngine();
             }
         }
     }

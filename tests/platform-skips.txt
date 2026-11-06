@@ -222,3 +222,7 @@ wasi 1002_httpclient_errors             opens loopback sockets: WASI preview 1 h
 windows 1001_httpclient_post            live: the echo server's report separates its lines with a bare "\n"
 macos 1002_httpclient_errors            known gap: asynchronous socket operations are blocking calls on the thread pool on macOS (no kqueue engine yet), so a pending read cannot be canceled
 windows 1002_httpclient_errors          known gap: asynchronous socket operations are blocking calls on the thread pool on Windows (no IOCP engine yet), so a pending read cannot be canceled
+wasi 1005_httpclient_handlers           opens loopback sockets: WASI preview 1 has none (PlatformNotSupportedException)
+wasi 1007_httpclient_concurrency        opens loopback sockets: WASI preview 1 has none (PlatformNotSupportedException)
+wasi 1008_socket_await_then_blocking_call opens loopback sockets: WASI preview 1 has none (PlatformNotSupportedException)
+wasi 1009_httpclient_json               opens loopback sockets: WASI preview 1 has none (PlatformNotSupportedException)

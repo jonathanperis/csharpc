@@ -1,0 +1,10 @@
+Product { Id = 7, Name = Widget é, Price = 9.5, Tags = System.String[], Stock =  }
+tags: a+b, stock: none
+2 products: one=1; two=2.25
+200 {"contentType":"application/json; charset=utf-8","received":{"id":3,"name":"Gadget","price":19.99,"tags":["new"],"stock":5}}
+content type of the response: application/json; charset=utf-8
+application/json; charset=utf-8 / Product { Id = 4, Name = Thing, Price = 1, Tags = System.String[], Stock =  }
+application/json; charset=utf-16 -> Product { Id = 9, Name = wide é世, Price = 3, Tags = System.String[], Stock =  }
+broken: JsonException at byte 6
+forbidden: Forbidden Response status code does not indicate success: 403 (Forbidden).
+null body: True

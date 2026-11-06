@@ -354,6 +354,16 @@ namespace CsharpcCoreLib
             catch (Exception ex) { return Task.FromException(ex); }
         }
 
+        public static Task SerializeAsync(Stream utf8Json, object value, JsonTypeInfoImpl jsonTypeInfo, CancellationToken cancellationToken = default)
+        {
+            try
+            {
+                WriteToStream(utf8Json, value, Checked(jsonTypeInfo));
+                return Task.CompletedTask;
+            }
+            catch (Exception ex) { return Task.FromException(ex); }
+        }
+
         public static Task SerializeAsync(Stream utf8Json, object value, Type inputType, JsonSerializerOptionsImpl options = null, CancellationToken cancellationToken = default)
         {
             try

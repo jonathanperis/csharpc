@@ -769,6 +769,58 @@ What it took, besides library members (all with regression samples 840–849):
   are a property bag; certificates, SSL streams and the post-quantum keys Kestrel's certificate loader names
   throw `NotSupportedException` (TLS is not implemented yet).
 
+## HttpClient (plain HTTP/1.1)
+
+`System.Net.Http.HttpClient` works over plain HTTP/1.1 since 2026-11-06 (M2). `System.Net.Http` is compiled from the
+shared framework's IL ([ADR 0013](adr/0013-framework-il.md)): the whole of SocketsHttpHandler (connection pool,
+header parsing, redirects, cookies, authentication, decompression, proxy support) and `System.Net.Http.Json`
+compile, and what the samples exercise is checked against .NET. Samples 1000-1009 run it against a `TcpListener`
+server in the same program (no network) and compare with `dotnet run`: GET / POST /
+PUT / PATCH / DELETE and custom methods, `StringContent`, `ByteArrayContent`, `FormUrlEncodedContent`,
+`MultipartFormDataContent`, `StreamContent` of known and unknown length, `DefaultRequestHeaders`, response and content
+headers, `HttpCompletionOption.ResponseHeadersRead`, parallel requests over bounded connections, large bodies,
+close-delimited HTTP/1.0 responses, the synchronous `Send`, handlers (`HttpClientHandler`, `SocketsHttpHandler`,
+custom `DelegatingHandler`s), cookies, absolute redirects, gzip and deflate decompression, Basic authentication,
+`GetFromJsonAsync` /
+`PostAsJsonAsync` with a source-generated context, and the exception types and messages of refused connections,
+cancellation, `HttpClient.Timeout`, hung-up and garbage responses, bad URIs and a disposed client.
+
+What it took, besides library members (`Socket.Poll`, `DnsEndPoint` connects, `SpinLock`, `SecureString`,
+`EventCounter`, `NetworkChange`, `Encoding.CreateTranscodingStream`, `Uri.GetComponents`, digest hashing ...):
+
+- **Classes deriving from `TaskCompletionSource(<T>)`**: the connection waiters and write-queue entries of the
+  pool. A derived class is laid out over csrt's task struct ([10-async.md](10-async.md#tasks-and-the-scheduler)).
+- **System.Net.Primitives from IL** next to the corelib's `IPAddress`/`IPEndPoint` shadows (a *mixed* assembly,
+  ADR 0013): `CookieContainer`, `CredentialCache`, `NetworkCredential`, `DnsEndPoint`, `HttpVersion` are .NET's own code.
+- **Awaits on socket operations continue on the thread pool.** The epoll thread used to complete Task-based
+  operations inline, so an `await` continuation (and the rest of `Main`) ran on it; one synchronous socket call there
+  (`HttpClient.Send` after an `await`) blocked the only thread that delivers readiness, a deadlock (sample 1008).
+  `SocketAsyncEventArgs` operations (Kestrel's transport) still complete inline.
+- Found on the way, independent of HTTP: `new Span<T>(null, 0, 0)` and `AsSpan(null, 0)` threw a
+  NullReferenceException instead of being the empty span (sample 1004), and an array viewed as `IList` with no
+  conversion instruction in IL (non-generic `SortedList`, which `CookieContainer` uses) was an InvalidCastException
+  (sample 1006).
+
+Explicit diagnostics, never a different behavior:
+
+- **TLS.** `https://` fails with `NotSupportedException: TLS and X.509 certificates ... are not supported by csharpc
+  yet` when the connection would need an `SslStream`; so do certificate APIs. HTTP/2 and HTTP/3 need TLS (ALPN) in
+  practice and QUIC is a stub (HTTP/2 over cleartext "prior knowledge" is not tested).
+- **NTLM / Negotiate** authentication (`NegotiateAuthentication` needs GSSAPI/SSPI): `NotSupportedException` when a
+  server challenges with it and the handler has credentials.
+- `Dns.GetHostEntry*` (canonical names and aliases are not resolved): `NotSupportedException`.
+- `NetworkChange.NetworkAddressChanged` accepts subscriptions and never fires (the pool only uses it to drop its
+  Alt-Svc cache).
+- `Uri` is the corelib's: a relative request URI or `HttpClient.BaseAddress` needs `new Uri(Uri, string)`, which
+  is an explicit `NotSupportedException` until the Uri work on `feat/m2-uri-members` lands (the same for a relative
+  `Location` header of a redirect; absolute ones work).
+- Stack traces of exceptions thrown by `System.Net.Http` list its frames as .NET does only where csharpc compiles them
+  from IL the same way; `ExceptionDispatchInfo.SetCurrentStackTrace` returns its argument unchanged.
+
+Not yet measured: HttpClient's speed against NativeAOT's (the pool, header parsing and `Task` machinery are the same
+IL; the sockets under it are csharpc's). A program that does one `GetStringAsync` is 3.2 MB at `-O2` (`tests/size.sh` has
+no HttpClient program yet); the budgets of the programs it has are unchanged.
+
 ## Expression trees
 
 csharpc runs expression trees the way NativeAOT does: `System.Linq.Expressions` is compiled from the
