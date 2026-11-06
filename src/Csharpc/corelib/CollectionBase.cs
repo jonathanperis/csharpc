@@ -65,35 +65,45 @@ namespace CsharpcCoreLib
 
         object IList.this[int index]
         {
-            get
+            get => GetItem(index);
+            set => SetItem(index, value);
+        }
+
+        // The IList members' bodies are internal methods: the corelib's own collections call these directly, so an
+        // IList.Add(object) call site doesn't make every List<T> in the program lower its IList slots.
+        internal object GetItem(int index)
+        {
+            if (index < 0 || index >= Count)
+                throw new ArgumentOutOfRangeException("index", "Index was out of range. Must be non-negative and less than the size of the collection.");
+            return InnerList[index];
+        }
+
+        internal void SetItem(int index, object value)
+        {
+            if (index < 0 || index >= Count)
+                throw new ArgumentOutOfRangeException("index", "Index was out of range. Must be non-negative and less than the size of the collection.");
+            OnValidate(value);
+            object temp = InnerList[index];
+            OnSet(index, temp, value);
+            InnerList[index] = value;
+            try
             {
-                if (index < 0 || index >= Count)
-                    throw new ArgumentOutOfRangeException("index", "Index was out of range. Must be non-negative and less than the size of the collection.");
-                return InnerList[index];
+                OnSetComplete(index, temp, value);
             }
-            set
+            catch
             {
-                if (index < 0 || index >= Count)
-                    throw new ArgumentOutOfRangeException("index", "Index was out of range. Must be non-negative and less than the size of the collection.");
-                OnValidate(value);
-                object temp = InnerList[index];
-                OnSet(index, temp, value);
-                InnerList[index] = value;
-                try
-                {
-                    OnSetComplete(index, temp, value);
-                }
-                catch
-                {
-                    InnerList[index] = temp;
-                    throw;
-                }
+                InnerList[index] = temp;
+                throw;
             }
         }
 
         bool IList.Contains(object value) => InnerList.Contains(value);
 
-        int IList.Add(object value)
+        internal bool ContainsItem(object value) => InnerList.Contains(value);
+
+        int IList.Add(object value) => AddItem(value);
+
+        internal int AddItem(object value)
         {
             OnValidate(value);
             OnInsert(InnerList.Count, value);
@@ -110,7 +120,9 @@ namespace CsharpcCoreLib
             return index;
         }
 
-        void IList.Remove(object value)
+        void IList.Remove(object value) => RemoveItem(value);
+
+        internal void RemoveItem(object value)
         {
             OnValidate(value);
             int index = InnerList.IndexOf(value);
@@ -130,7 +142,11 @@ namespace CsharpcCoreLib
 
         int IList.IndexOf(object value) => InnerList.IndexOf(value);
 
-        void IList.Insert(int index, object value)
+        internal int IndexOfItem(object value) => InnerList.IndexOf(value);
+
+        void IList.Insert(int index, object value) => InsertItem(index, value);
+
+        internal void InsertItem(int index, object value)
         {
             if (index < 0 || index > Count)
                 throw new ArgumentOutOfRangeException("index", "Index was out of range. Must be non-negative and less than or equal to the size of the collection.");

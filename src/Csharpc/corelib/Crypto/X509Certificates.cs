@@ -819,11 +819,11 @@ namespace CsharpcCoreLib
 
         public X509Certificate this[int index]
         {
-            get => (X509Certificate)List[index];
-            set => List[index] = value;
+            get => (X509Certificate)GetItem(index);
+            set => SetItem(index, value);
         }
 
-        public int Add(X509Certificate value) => List.Add(value);
+        public int Add(X509Certificate value) => AddItem(value);
 
         public void AddRange(X509Certificate[] value)
         {
@@ -838,15 +838,15 @@ namespace CsharpcCoreLib
             for (int i = 0; i < other.Count; i++) Add(other.At(i));
         }
 
-        public bool Contains(X509Certificate value) => List.Contains(value);
+        public bool Contains(X509Certificate value) => ContainsItem(value);
 
-        public void CopyTo(X509Certificate[] array, int index) => List.CopyTo(array, index);
+        public void CopyTo(X509Certificate[] array, int index) => InnerList.CopyTo(array, index);
 
-        public int IndexOf(X509Certificate value) => List.IndexOf(value);
+        public int IndexOf(X509Certificate value) => IndexOfItem(value);
 
-        public void Insert(int index, X509Certificate value) => List.Insert(index, value);
+        public void Insert(int index, X509Certificate value) => InsertItem(index, value);
 
-        public void Remove(X509Certificate value) => List.Remove(value);
+        public void Remove(X509Certificate value) => RemoveItem(value);
 
         public new X509CertificateCollection.X509CertificateEnumerator GetEnumerator() =>
             (X509CertificateCollection.X509CertificateEnumerator)(object)new X509CertificateEnumeratorImpl((X509CertificateCollection)(object)this);
@@ -885,18 +885,18 @@ namespace CsharpcCoreLib
 
         public new X509Certificate2 this[int index]
         {
-            get => (X509Certificate2)List[index];
+            get => (X509Certificate2)GetItem(index);
             set
             {
                 ArgumentNullException.ThrowIfNull(value);
-                List[index] = value;
+                SetItem(index, value);
             }
         }
 
         public int Add(X509Certificate2 certificate)
         {
             ArgumentNullException.ThrowIfNull(certificate);
-            return List.Add(certificate);
+            return AddItem(certificate);
         }
 
         public void AddRange(X509Certificate2[] certificates)
@@ -921,15 +921,15 @@ namespace CsharpcCoreLib
             for (int i = 0; i < other.Count; i++) Add((X509Certificate2)other.At(i));
         }
 
-        public bool Contains(X509Certificate2 certificate) => List.Contains(certificate);
+        public bool Contains(X509Certificate2 certificate) => ContainsItem(certificate);
 
-        public int IndexOf(X509Certificate2 certificate) => List.IndexOf(certificate);
+        public int IndexOf(X509Certificate2 certificate) => IndexOfItem(certificate);
 
-        public void Insert(int index, X509Certificate2 certificate) => List.Insert(index, certificate);
+        public void Insert(int index, X509Certificate2 certificate) => InsertItem(index, certificate);
 
-        public void Remove(X509Certificate2 certificate) => List.Remove(certificate);
+        public void Remove(X509Certificate2 certificate) => RemoveItem(certificate);
 
-        public void CopyTo(X509Certificate2[] array, int index) => List.CopyTo(array, index);
+        public void CopyTo(X509Certificate2[] array, int index) => InnerList.CopyTo(array, index);
 
         public X509Certificate2Collection Find(X509FindType findType, object findValue, bool validOnly)
         {
