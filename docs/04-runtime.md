@@ -267,12 +267,24 @@ waits for it (on WebAssembly, with no threads, it runs what is pending itself). 
 `GC.ReRegisterForFinalize` edit the registry; an exception escaping a finalizer is unhandled and ends the
 process like any other. Nothing runs at exit, as in .NET. Details and limits: [ADR 0021](adr/0021-finalizers.md).
 
+### Objective-C reference tracking
+
+`ObjectiveCMarshal` (corelib `ObjectiveCMarshal.cs`, macOS only) keeps a table of tracked objects in `gc.c`, outside the
+managed heap like the finalizer registry. A class with `[ObjectiveCTrackedType]` (inherited) and a finalizer carries
+`CSRT_MT_TRACKED_REFERENCE`; `GetOrCreateReferenceTrackingMemory` gives such an object two words of native-owned tagged
+memory and `CreateReferenceTrackingHandle` adds a handle to it (a weak slot that tracks resurrection). After marking,
+each collection calls the registered begin/end callback around one pass: for every object with a handle that nothing else
+reached it calls `isReferenced(taggedMemory)`, and marks the object (and what it reaches) when the answer is non-zero. An
+object that enters the finalizer queue is announced to `trackedObjectEnteredFinalization(taggedMemory)` first; the tagged
+memory is freed once the object is gone for good. The callbacks run with the world stopped on the collecting thread and
+must not call managed code that allocates. Programs that never call `Initialize` have none of this in the binary.
+
 ### Weak references and ephemerons
 
 `WeakReference`, `WeakReference<T>` and `ConditionalWeakTable<TKey, TValue>` (corelib
 `WeakReferences.cs`) sit on a table of weak slots in `gc.c`, kept outside the managed heap so the
 conservative scan never sees the targets. After marking, a slot whose target wasn't reached is
-cleared. A `ConditionalWeakTable` entry is an ephemeron: its value is marked only while its key is
+cleared. A weak reference that tracks resurrection (`WeakReference(target, true)`, `GCHandleType.WeakTrackResurrection`) is cleared only once finalization has run and the object is gone for good, so it stays alive across a finalizer that resurrects its target; weak `GCHandle`s are slots of the same table. A `ConditionalWeakTable` entry is an ephemeron: its value is marked only while its key is
 reachable some other way, to a fixed point, so a value referenced only by the table lives exactly as
 long as its key. The corelib's own types declare no finalizers, so each slot names its owner (the
 `WeakReference`, the table) and the collector frees the slot when the owner dies — when .NET's

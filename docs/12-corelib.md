@@ -366,9 +366,13 @@ corelib methods the program reaches from IL, with no parsing or binding of the c
 * Anonymous types (multi-`from` queries with `let`/`where`), `ImmutableArray`/`Immutable*`,
   `BitArray`, `ObservableCollection`, `Tuple<...>` classes, `BlockingCollection`, `Partitioner` not yet shadowed.
 * `SortedDictionary`/`SortedSet` use sorted arrays (same order, O(n) insertion).
-* **`ObjectiveCMarshal`** (`corelib/ObjectiveCMarshal.cs`, the hooks of the .NET for macOS / iOS bindings): the
-  API compiles and, off macOS, throws `PlatformNotSupportedException` from every member as .NET does. On a macOS
-  target every member is an explicit `NotSupportedException`: .NET's reference tracking is built on finalizers
-  (tracked types need one) and on the collector calling `isReferencedCallback` for each tracked object while it
-  marks and `trackedObjectEnteredFinalization` as an object enters the finalizer queue. Finalizers exist now
-  ([ADR 0021](adr/0021-finalizers.md)); the collector's tracked-reference callbacks, then these hooks, are what remains.
+* **`ObjectiveCMarshal`** (`corelib/ObjectiveCMarshal.cs`, the hooks of the .NET for macOS / iOS bindings): off macOS
+  every member throws `PlatformNotSupportedException` as .NET does. On macOS the reference tracking works as in
+  NativeAOT: `Initialize` registers the begin/end, `isReferenced` and entered-finalization callbacks with the
+  collector; a class with `[ObjectiveCTrackedType]` and a finalizer gets tagged memory (`GetOrCreateReferenceTrackingMemory`)
+  and reference-tracking handles (`CreateReferenceTrackingHandle`); each collection asks `isReferenced(taggedMemory)`
+  about the tracked objects nothing else reached (a referenced one survives with what it reaches), and announces an
+  object entering the finalizer queue ([04-runtime.md](04-runtime.md#objective-c-reference-tracking),
+  [ADR 0021](adr/0021-finalizers.md)). Still explicit: `SetMessageSendCallback` and `SetMessageSendPendingException`
+  (overriding `objc_msgSend` needs a redirect in the P/Invoke lowering). The unhandled-exception propagation handler
+  is stored but never called (an exception escaping an `[UnmanagedCallersOnly]` method ends the process).

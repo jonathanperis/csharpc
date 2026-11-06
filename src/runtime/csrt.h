@@ -57,7 +57,8 @@ enum { CSRT_MT_ABSTRACT = 1, CSRT_MT_INTERFACE = 2, CSRT_MT_ITERATOR = 4 /* src/
        CSRT_MT_REFERENCE_ELEMENTS = 512 /* an array type whose elements are references (array covariance) */,
        CSRT_MT_DELEGATE = 1024 /* a delegate type (`is System.Delegate`) */,
        CSRT_MT_PRIMITIVE = 2048 /* a boxed primitive; with CSRT_MT_ENUM: `reserved` is the (underlying) CorElementType */,
-       CSRT_MT_SYNTHESIZED_INTERFACE = 1 << 16 /* made by csrt from a csrt_LazyInterface (type.c) */ };
+       CSRT_MT_SYNTHESIZED_INTERFACE = 1 << 16 /* made by csrt from a csrt_LazyInterface (type.c) */,
+       CSRT_MT_TRACKED_REFERENCE = 1 << 17 /* [ObjectiveCTrackedType] (inherited) and a finalizer: ObjectiveCMarshal tracking (gc.c) */ };
 // Array types of integers and enums: the ECMA-335 reduced element type (4 bits: 1 int8, 2 int16, 3 int32,
 // 4 int64, 5 native int), so int[] and uint[] (and an enum's array) are cast-compatible like in the CLR.
 #define CSRT_MT_ELEMENT_CLASS_SHIFT 12
