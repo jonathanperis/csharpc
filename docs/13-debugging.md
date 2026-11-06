@@ -50,6 +50,18 @@ bindings in `src/Csharpc/Llvm/NativeDebugInfo.cs`), plus small hooks in `Functio
 and without `-g` at -O2 (checked with `objcopy --only-section=.text` + `cmp`). Binary size grows by
 0–4 KiB for those programs.
 
+### From the assembly's PDB
+
+`csharpc -g app.dll` (the program as IL) and libraries consumed as DLLs take their debug info from the
+assembly's portable PDB — the one embedded in the DLL or the `.pdb` beside it (`src/Csharpc/CodeGen/DebugInfo.Il.cs`).
+For each method with sequence points: a `DISubprogram` named like the source path's (`DebugLib.Counter.Add`), the
+document and line of its first sequence point, a location for every IL instruction (the sequence point in
+effect at its offset; hidden points give line 0; `#line` files get a lexical block file), parameters and `this`
+from the metadata and locals under the PDB's names. Types are described as for source. Assemblies without
+a PDB, the precompiled corelib, framework assemblies and Windows PDBs get none (the code still compiles).
+`tests/debuginfo.sh` drives gdb on `tests/debuginfo/il` (an app with a portable PDB referencing a library with an
+embedded one) at -O0 and -O2.
+
 ### Coroutines
 
 LLVM 18's coroutine frame builder (`CoroSplit` → `buildFrameDebugInfo`) dereferences the coroutine's
@@ -61,7 +73,8 @@ frame layout of `-g` builds.
 
 - `tests/debuginfo.sh` — compiles `tests/debuginfo/app.cs` with `-g` at -O0 and -O2 and drives gdb in
   batch mode: breakpoint by line, arguments, locals, string pretty-printing, fields through `this`,
-  C# names in backtraces, inlined frames at -O2.
+  C# names in backtraces, inlined frames at -O2; then the same for a program and library compiled from
+  their DLLs, with lines from the PDBs (`tests/debuginfo/il`).
 - `CSHARPC_FLAGS=-g tests/run.sh --all-opts` — the whole differential suite with debug info (every
   sample must still pass the LLVM verifier and produce identical output).
 

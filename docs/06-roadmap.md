@@ -198,9 +198,14 @@ assembly, lines from its PDB), reflection-based JSON, `[GeneratedRegex]` and `dy
 and bound like source sites, ADR 0019 "From IL") included; the one left is a diagnostic — JSON of a private
 nested type. Gaps between the two front-ends are bugs.
 
-Next: `-g` from the assembly's PDB, the BCL
-surface packages use (ranked by the survey), `typeof(X).Assembly`, `calli`, RID-specific/native package
-assets.
+`-g` works from IL too (2026-11-06): `csharpc -g app.dll` (or a library DLL it references) emits the DWARF
+line table, parameter and local names from the assembly's portable PDB — beside the DLL or embedded —
+so gdb breaks on `Counter.cs:10` of a library compiled from its IL, with inlined frames at -O2
+(`tests/debuginfo.sh`, [13-debugging.md](13-debugging.md#from-the-assemblys-pdb)). An assembly without a
+PDB, the precompiled corelib and shared-framework assemblies get no debug info (Windows PDBs aren't read).
+
+Next: the BCL surface packages use (ranked by the survey), `typeof(X).Assembly`, `calli`,
+RID-specific/native package assets.
 
 ### M6 — Bootstrapping
 csharpc compiles csharpc (and Roslyn) — the strongest possible proof of maturity.
