@@ -538,20 +538,13 @@ public sealed partial class ModuleCodeGen
     /// <summary>Whether Roslyn emits attributes for a source type that its symbol doesn't list (Nullable, DefaultMember, Extension, IsReadOnly...).</summary>
     private bool SynthesizesTypeAttributes(INamedTypeSymbol type)
     {
-        if (type.IsRecord || type.IsReadOnly || type.IsRefLikeType || type.IsSerializable) return true;
+        if (type.IsRecord || type.IsReadOnly || type.IsRefLikeType || type.IsSerializable || type.IsImplicitlyDeclared) return true;
         if (type.GetMembers().Any(m => m is IPropertySymbol { IsIndexer: true } or IMethodSymbol { IsExtensionMethod: true }
                 or IPropertySymbol { IsRequired: true } or IFieldSymbol { IsRequired: true }))
             return true;
-        // Nullable annotations in the declaration become [NullableContext]/[Nullable] attributes.
-        foreach (var reference in type.DeclaringSyntaxReferences)
-        {
-            var syntax = reference.GetSyntax();
-            var model = Compilation.GetSemanticModel(reference.SyntaxTree);
-            if (model.GetNullableContext(syntax.SpanStart).AnnotationsEnabled() || model.GetNullableContext(syntax.Span.End).AnnotationsEnabled()
-                || syntax.DescendantTrivia().Any(t => t.IsKind(Microsoft.CodeAnalysis.CSharp.SyntaxKind.NullableDirectiveTrivia)))
-                return true;
-        }
-        return false;
+        // Nullable annotations in the declaration become [NullableContext]/[Nullable] attributes: on the type when its base
+        // class or members mention reference types.
+        return TypeHasNullableAttributes(type);
     }
 
     /// <summary>A generic parameter's attributes; null when csharpc can't know them exactly.</summary>
@@ -568,6 +561,7 @@ public sealed partial class ModuleCodeGen
         if (owner.MetadataToken != 0 || !owner.Locations.Any(l => l.IsInSource)) return null;
         // Source: [Nullable] on constrained or annotated parameters is synthesized.
         if (parameter.HasNotNullConstraint || parameter.ConstraintTypes.Length > 0
+            || (AnnotationsEnabled(owner) && !parameter.HasValueTypeConstraint && !parameter.HasUnmanagedTypeConstraint)
             || (owner is INamedTypeSymbol ownerType ? SynthesizesTypeAttributes(ownerType) : owner.ContainingType is { } c && SynthesizesTypeAttributes(c)))
             return null;
         return parameter.GetAttributes().Select(FromAttributeData).OfType<AttributeInstance>().ToList();
