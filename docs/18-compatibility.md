@@ -786,7 +786,7 @@ custom `DelegatingHandler`s), cookies, absolute redirects, gzip and deflate deco
 cancellation, `HttpClient.Timeout`, hung-up and garbage responses, bad URIs and a disposed client.
 
 What it took, besides library members (`Socket.Poll`, `DnsEndPoint` connects, `SpinLock`, `SecureString`,
-`EventCounter`, `NetworkChange`, `Encoding.CreateTranscodingStream`, `Uri.GetComponents`, digest hashing ...):
+`EventCounter`, `NetworkChange`, `Encoding.CreateTranscodingStream`, digest hashing ...):
 
 - **Classes deriving from `TaskCompletionSource(<T>)`**: the connection waiters and write-queue entries of the
   pool. A derived class is laid out over csrt's task struct ([10-async.md](10-async.md#tasks-and-the-scheduler)).
@@ -811,9 +811,8 @@ Explicit diagnostics, never a different behavior:
 - `Dns.GetHostEntry*` (canonical names and aliases are not resolved): `NotSupportedException`.
 - `NetworkChange.NetworkAddressChanged` accepts subscriptions and never fires (the pool only uses it to drop its
   Alt-Svc cache).
-- `Uri` is the corelib's: a relative request URI or `HttpClient.BaseAddress` needs `new Uri(Uri, string)`, which
-  is an explicit `NotSupportedException` until the Uri work on `feat/m2-uri-members` lands (the same for a relative
-  `Location` header of a redirect; absolute ones work).
+- `Uri` is the corelib's: a relative request URI that has a query or escaped characters (`"items?id=7"`, `"with space"`) is the
+  Uri shadow's explicit `NotSupportedException` ("System.Uri with this relative URI").
 - Stack traces of exceptions thrown by `System.Net.Http` list its frames as .NET does only where csharpc compiles them
   from IL the same way; `ExceptionDispatchInfo.SetCurrentStackTrace` returns its argument unchanged.
 

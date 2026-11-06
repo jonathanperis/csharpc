@@ -226,3 +226,4 @@ wasi 1005_httpclient_handlers           opens loopback sockets: WASI preview 1 h
 wasi 1007_httpclient_concurrency        opens loopback sockets: WASI preview 1 has none (PlatformNotSupportedException)
 wasi 1008_socket_await_then_blocking_call opens loopback sockets: WASI preview 1 has none (PlatformNotSupportedException)
 wasi 1009_httpclient_json               opens loopback sockets: WASI preview 1 has none (PlatformNotSupportedException)
+wasi 1010_httpclient_base_address       opens loopback sockets: WASI preview 1 has none (PlatformNotSupportedException)
