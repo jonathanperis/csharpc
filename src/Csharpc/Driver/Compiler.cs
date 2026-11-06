@@ -144,7 +144,7 @@ public sealed class Compiler(CompilerOptions options)
             Phase("corelib assembly");
         }
         IlAssemblySet il;
-        try { il = IlAssemblySet.Load(ilPaths); }
+        try { il = IlAssemblySet.Load(ilPaths, settings.JsonReflectionEnabled == true ? mainProgram?.Path : null); }
         catch (Exception e) when (e is InvalidOperationException or IOException or BadImageFormatException) { return Fail(e.Message); }
         using var ilScope = il;
         if (!il.IsEmpty)
