@@ -121,6 +121,7 @@ public sealed partial class FunctionCodeGen
             "ObjectToPointer" => args[0].Type.Kind == LLVMTypeKind.Pointer
                 ? _b.Cast(LLVMOpcode.PtrToInt, args[0], T.Value(_m.Compilation.GetSpecialType(SpecialType.System_IntPtr))) : args[0],
             "ReinterpretAs" => args[0],
+            "ReverseThunkTable" or "NativeInvokeThunk" or "DelegateTypeTable" => DelegateThunkIntrinsic(target.Name, S(t!), inv),
             "SizeOf" => L.ConstInt(L.I32, (long)T.Target.SizeOf(T.Storage(S(t!)))),
             "SpanAddress" => _b.Cast(LLVMOpcode.PtrToInt, SpanPointer(args[0]), T.NativeInt),
             "RefAddress" => _b.Cast(LLVMOpcode.PtrToInt, args[0], T.NativeInt),
