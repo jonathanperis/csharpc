@@ -237,7 +237,13 @@ facade can't supply from IL (`ConcurrentDictionary` ported so it enumerates in .
 `ValueType`/`Enum`. The rest of that list (`BlockingCollection`'s multi-collection calls, `Partitioner` and the `Parallel`
 loops with a loop state, `Task.AsyncState`/`CreationOptions`/`Dispose`/`IAsyncResult`, `AggregateException.InnerExceptions`,
 `new Task(...)`, `EventListener`) was probed against .NET one type at a time and closed (samples 1020-1044,
-[12-corelib.md](12-corelib.md)); still open: `EventSource.Write<T>` payloads, `TaskFactory.ContinueWhenAll/Any/FromAsync`,
+[12-corelib.md](12-corelib.md)); a second probe round (2026-11-06: Partitioner and OrderablePartitioner with
+`Parallel.ForEach`/PLINQ, `AggregateException`, `Task` status/state and `new Task`, `EventListener`,
+`BlockingCollection`) found and closed the leftovers: `ReadOnlyCollection<T>` as the non-generic `IList`/`ICollection`
+(what `AggregateException.InnerExceptions` is cast to), `Task.Run(Func<Task>)` canceling on an
+`OperationCanceledException` as .NET's unwrap proxy does, the "continuation task" errors of `Start`/`RunSynchronously`,
+a null `AggregateException` message, and lambdas inside a `when` filter (their blocks were taken for the filter's and
+lowered as `unreachable`; samples 1060-1063); still open: `EventSource.Write<T>` payloads, `TaskFactory.ContinueWhenAll/Any/FromAsync`,
 type identity of tasks (`GetType()` and `is Task<T>`).
 Roslyn from IL, measured: the `IL survey` workflow's `roslyn` target lowers every method of Roslyn and
 `csharpc.dll` in 16 parallel shards and ranks what stops them

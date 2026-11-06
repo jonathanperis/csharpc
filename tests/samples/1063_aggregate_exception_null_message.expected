@@ -1,0 +1,13 @@
+null message only: [One or more errors occurred.] 0
+null message and inner: [One or more errors occurred. (z)] 1
+null message and inners: [One or more errors occurred. (a) (b)] 2
+null message and enumerable: [One or more errors occurred. (c)] 1
+empty message: [ (z)] 1
+message: [custom (z)] 1
+no arguments: [One or more errors occurred.] 0
+inner only: [One or more errors occurred. (only)] 1
+inners only: [One or more errors occurred. (one) (two)] 2
+flattened null message: [One or more errors occurred. (deep)] 1
+derived null message: [One or more errors occurred. (d)] 1
+derived message: [derived (d)] 1
+caught: One or more errors occurred. (thrown)
