@@ -1,0 +1,9 @@
+connected after await: True
+async echo: first
+sync echo: sync 0
+async echo: async 0
+sync echo: sync 1
+async echo: async 1
+sync echo: sync 2
+async echo: async 2
+stream: blocking

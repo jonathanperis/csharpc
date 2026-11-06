@@ -28,6 +28,16 @@ namespace CsharpcCoreLib
             return awaited.ConfigureAwait((options & ConfigureAwaitOptions.ContinueOnCapturedContext) != 0);
         }
 
+        // Task<TResult>.ConfigureAwait(ConfigureAwaitOptions): IL compiled against a Task<T> receiver (System.Net.Http)
+        // names the member through the closed generic type, which the Intrinsics table binds here (the awaitable
+        // of a Task<T> is the task too). As in .NET, SuppressThrowing is not allowed on a Task<TResult>.
+        public static ConfiguredTaskAwaitable ConfigureAwaitOfT(Task task, ConfigureAwaitOptions options)
+        {
+            if ((options & ~(ConfigureAwaitOptions.ContinueOnCapturedContext | ConfigureAwaitOptions.ForceYielding)) != 0)
+                throw new ArgumentOutOfRangeException("options");
+            return ConfigureAwait(task, options);
+        }
+
         private static async Task Yielding(Task task)
         {
             await Task.Yield();

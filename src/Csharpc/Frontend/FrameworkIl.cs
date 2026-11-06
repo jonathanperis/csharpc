@@ -49,6 +49,18 @@ public static partial class FrameworkIl
         public Dictionary<string, string[]> Extensions { get; } = new(StringComparer.Ordinal);
     }
 
+    /// <summary>
+    /// Assemblies with some types csharpc implements itself (corelib shadows) and the rest portable IL:
+    /// eligible anyway. Every member of a shadowed type is redirected to its shadow (the IL of those types
+    /// is never lowered, so the native calls in them are not either), and the other types are compiled
+    /// from IL. System.Net.Primitives: IPAddress, IPEndPoint and EndPoint are shadows (their IL calls
+    /// libSystem.Native's socket-address shims); Cookie, CookieContainer, CredentialCache,
+    /// NetworkCredential, DnsEndPoint and HttpVersion are plain C#.
+    /// </summary>
+    private static readonly string[] MixedWithShadows = ["System.Net.Primitives"];
+
+    public static bool IsMixedWithShadows(string? assembly) => assembly is not null && MixedWithShadows.Contains(assembly, StringComparer.OrdinalIgnoreCase);
+
     /// <summary>Shared frameworks a project can reference besides Microsoft.NETCore.App.</summary>
     public static readonly string[] SupportedFrameworks = ["Microsoft.AspNetCore.App"];
 
@@ -128,6 +140,12 @@ public static partial class FrameworkIl
                 .OrderBy(u => u, StringComparer.Ordinal).FirstOrDefault();
             if (use is not null && Unusable(a) is null) Add(a, $"the program uses {use}");
         }
+
+        // The corelib's sockets (shadows) take and test types of System.Net.Primitives that are plain IL there
+        // (DnsEndPoint, for Socket.Connect(EndPoint)): a program that names System.Net.Sockets needs them, even
+        // when it never names System.Net.
+        if (Named("System.Net.Sockets") && index.TryGetValue("System.Net.Primitives", out var primitives) && primitives.Ineligible is null)
+            Add(primitives, "the corelib's sockets use its DnsEndPoint");
 
         // Closure: what the IL assemblies (the program's and the chosen framework ones) reference.
         var queue = new Queue<(string Name, string[] References)>();
@@ -298,6 +316,7 @@ public static partial class FrameworkIl
         // System.Private.* assemblies (Xml, Xml.Linq, DataContractSerialization, Uri) are ordinary libraries
         // behind facades and get the same checks as any other assembly.
         a.Ineligible = a.Name.Equals("System.Private.CoreLib", StringComparison.OrdinalIgnoreCase) ? "it is part of the runtime itself"
+            : MixedWithShadows.Contains(a.Name, StringComparer.OrdinalIgnoreCase) ? null
             : ModuleOfRuntime() is { } native ? $"it calls native code of the .NET runtime ({native})"
             : fullNames.FirstOrDefault(known.Contains) is { } shadowed ? $"csharpc implements its type '{shadowed}' itself"
             : null;

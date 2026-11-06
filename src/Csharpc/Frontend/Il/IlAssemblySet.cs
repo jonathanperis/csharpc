@@ -146,6 +146,9 @@ public sealed class IlAssembly : IDisposable, ISignatureTypeProvider<IlType, IlG
     /// <summary>The precompiled corelib (ADR 0015): lowered from IL, but with the source corelib's policies.</summary>
     public bool IsCoreLib { get; }
 
+    /// <summary>An assembly of a shared framework (Microsoft.NETCore.App, Microsoft.AspNetCore.App) rather than a package or the program's own.</summary>
+    public bool IsFramework { get; }
+
     /// <summary>Decoded bodies by generic definition (IlMethodBody.For).</summary>
     internal Dictionary<IMethodSymbol, IlMethodBody> DecodedBodies { get; } = new(SymbolEqualityComparer.Default);
 
@@ -161,6 +164,8 @@ public sealed class IlAssembly : IDisposable, ISignatureTypeProvider<IlType, IlG
         Reader = reader;
         Reference = reference;
         IsCoreLib = Name == CoreLibAssembly.Name;
+        var normalized = path.Replace('\\', '/');
+        IsFramework = normalized.Contains("/shared/Microsoft.", StringComparison.Ordinal);
     }
 
     internal void Bind(Compilation compilation, IAssemblySymbol symbol, Dictionary<string, IAssemblySymbol> referenced)

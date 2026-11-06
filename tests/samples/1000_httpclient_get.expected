@@ -1,0 +1,45 @@
+timeout: 00:01:40
+default version: 1.1, policy RequestVersionOrLower
+hello world
+  server saw: GET /hello HTTP/1.1 | Host: 127.0.0.1:PORT
+200 OK / OK / HTTP 1.1
+success: True
+  header X-Multi = a, b
+  header ETag = "abc"
+  header Server = sample
+  content header Content-Type = application/json
+  content header Content-Length = 7
+ETag: "abc", Server: sample
+ContentType: application/json, media application/json, length 7
+body: {"a":1}
+request: GET /headers
+  server saw: GET /headers HTTP/1.1 | Host: 127.0.0.1:PORT
+chunked: True True
+hello, world!
+bytes: 11 68656C6C6F
+stream: hello world
+  server saw: GET /chunked HTTP/1.1 | Host: 127.0.0.1:PORT
+  server saw: GET /hello HTTP/1.1 | Host: 127.0.0.1:PORT
+  server saw: GET /hello HTTP/1.1 | Host: 127.0.0.1:PORT
+204: NoContent length 0 body ''
+HEAD: OK length 11 body ''
+  server saw: GET /empty HTTP/1.1 | Host: 127.0.0.1:PORT
+  server saw: HEAD /hello HTTP/1.1 | Host: 127.0.0.1:PORT
+GetStringAsync: Response status code does not indicate success: 404 (Not Found). | NotFound | Unknown
+418 I'm a teapot success False: short and stout
+EnsureSuccessStatusCode: Response status code does not indicate success: 418 (I'm a teapot). | 418
+  server saw: GET /missing HTTP/1.1 | Host: 127.0.0.1:PORT
+  server saw: GET /teapot HTTP/1.1 | Host: 127.0.0.1:PORT
+with headers: OK hello world
+request headers: X-Request: two, three
+Referer: http://example.invalid/page
+X-Default: one
+User-Agent: sample-agent/1.0
+Accept: text/plain
+
+  server saw: GET /hello HTTP/1.1 | Host: 127.0.0.1:PORT | X-Request: two, three | Referer: http://example.invalid/page | X-Default: one | User-Agent: sample-agent/1.0 | Accept: text/plain
+bye
+hello world
+  server saw: GET /close HTTP/1.1 | Host: 127.0.0.1:PORT | X-Default: one | User-Agent: sample-agent/1.0 | Accept: text/plain
+  server saw: GET /hello HTTP/1.1 | Host: 127.0.0.1:PORT | X-Default: one | User-Agent: sample-agent/1.0 | Accept: text/plain
+connections opened: 2

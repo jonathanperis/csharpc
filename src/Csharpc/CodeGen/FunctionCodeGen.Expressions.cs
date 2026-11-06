@@ -782,7 +782,8 @@ public sealed partial class FunctionCodeGen
             // Implicit T[]/string -> BCL interface (argument passing, spreads...): ensure the corelib slot tables exist.
             if (to is INamedTypeSymbol { TypeKind: TypeKind.Interface } itf)
             {
-                if (from is IArrayTypeSymbol { Rank: 1 }) _m.RequestArrayInterface(itf);
+                // (An Array is an IList too: IL converts it with no instruction, Array.BinarySearch's IList view.)
+                if (from is IArrayTypeSymbol { Rank: 1 } || from.SpecialType == SpecialType.System_Array) _m.RequestArrayInterface(itf);
                 else if (from.SpecialType == SpecialType.System_String) _m.RequestStringInterface(itf);
             }
             return value;
