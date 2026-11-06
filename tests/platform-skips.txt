@@ -217,6 +217,7 @@ macos 903_stack_trace_socket_connect  live: a refused connect completes asynchro
 windows 940_expand_environment_variables  live: .NET expands through Win32's ExpandEnvironmentStrings, whose handling of unset names differs from the Unix algorithm
 windows 972_uri_rooted_path_unix     Windows .NET takes "/rel" for an implicit file path (absolute); csharpc reports drive-less file paths there as not supported
 windows 981_uri_file_paths_unix     Windows .NET takes "/rel", "//host/x" and file:///tmp/x paths differently (implicit file paths, UNC); csharpc reports drive-less file paths there as not supported
+wasi 1031_blocking_collection_threads  needs threads: tasks block in Take/Add/WaitAny until another task signals them, which one thread can't do
 wasi 1020_task_async_state_options     needs threads: it waits on a started task's AsyncWaitHandle and disposes a task a pool worker is blocked in; WebAssembly runs work items one after another
 wasi 1021_task_exceptions_status       needs threads: it spins until a pool worker's task stops Running, which one thread can't observe
 # HttpClient samples (System.Net.Http from IL over csharpc's sockets): loopback servers in the sample itself.

@@ -206,6 +206,9 @@ namespace CsharpcCoreLib
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern void csrt_array_set_value(Array array, object value, long index, nint table);
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern object csrt_array_get_value(Array array, long index, nint table);
         // Runtime functions called directly (an extern named csrt_*: FunctionCodeGen.CoreLib.cs).
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern int csrt_event_kind(object handle);
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern void csrt_parallel_for(long from, long to, object body, object context);
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern void csrt_parallel_invoke(Action[] actions);
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern int csrt_cts_register_node(object token, object node);
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern bool csrt_cts_unregister(object token, object node);
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern void csrt_cts_wait_for_callback(object token, object node);

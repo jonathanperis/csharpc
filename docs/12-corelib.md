@@ -124,7 +124,21 @@ Limitation: `object is IEnumerable<X>` on an array can't check the element type 
   port; `ConcurrentQueue<T>` and `ConcurrentBag<T>` are lock-based with .NET's observable order (FIFO; per
   thread LIFO, stealing oldest-first from other threads, snapshots newest queue first) and snapshot
   enumeration. `BlockingCollection<T>` is a port (its blocking waits are cancelable SemaphoreSlim waits
-  over the runtime's events); `Partitioner` is not implemented yet (CSLLVM0001/0002).
+  over the runtime's events; `AddToAny`/`TakeFromAny` wait on several of them with
+  `WaitHandle.WaitAny`, `corelib/Threading/WaitHandles.cs`: the runtime has no multi-object wait, so a wait that
+  has to block sleeps on the first handle in 1-4 ms slices and re-checks the others, and `WaitAll` takes an
+  auto-reset event back (`Set`) when another handle isn't signaled yet; `CancellationToken.WaitHandle` and
+  `SemaphoreSlim.AvailableWaitHandle` are `ManualResetEvent`s kept in step as .NET's). `Partitioner`,
+  `OrderablePartitioner<T>` and the range/array/list/enumerable partitioners are ports (`corelib/Concurrent/Partitioner.cs`).
+  `Parallel.For` / `ForEach` with a `ParallelLoopState`, an index, thread-local state, `ParallelOptions` or a
+  partitioner, `Parallel.Invoke(options, ...)`, `ForEachAsync` and `ForAsync` are corelib C#
+  (`corelib/Tasks/ParallelState.cs`: .NET's flags: `Stop` starts nothing new, `Break` lets lower iterations finish and
+  starts none above it, an orderable partitioner's keys are the iteration indexes); the plain loops run on the
+  runtime's pool loop and throw an `AggregateException` around the body's exception, as .NET's. Differences: workers claim
+  indexes one by one (not in .NET's growing ranges), so how many iterations above a `Break` run differs, and
+  `Enumerable.Range` is not an `IList<int>` here (.NET loops over its positions: a `Break` in a
+  `ForEach` over a range stops at a different iteration); `ForEachAsync` over an `IAsyncEnumerable<T>`
+  has no implementation yet (explicit CSLLVM0002).
 * **Observable behavior follows .NET's implementations:** `List` growth (`Capacity`), `Dictionary`/`HashSet`
   bucket+entries+free-list design (iteration order after removals, prime sizes, FastMod), `PriorityQueue`'s
   4-ary heap (dequeue order of equal priorities), the introsort port (order of equal keys in `List.Sort` /
@@ -383,7 +397,7 @@ corelib methods the program reaches from IL, with no parsing or binding of the c
   `NotSupportedException` when executed. (Boxed structs do have interface maps: the corelib's struct
   enumerators are `IEnumerator<T>`/`IEnumerator`/`IDisposable` when boxed, as in .NET.)
 * Anonymous types (multi-`from` queries with `let`/`where`), `ImmutableArray`/`Immutable*`,
-  `BitArray`, `ObservableCollection`, `Tuple<...>` classes, `BlockingCollection`, `Partitioner` not yet shadowed.
+  `BitArray`, `ObservableCollection`, `Tuple<...>` classes not yet shadowed (this list predates the ports above).
 * `SortedDictionary`/`SortedSet` use sorted arrays (same order, O(n) insertion).
 * **`ObjectiveCMarshal`** (`corelib/ObjectiveCMarshal.cs`, the hooks of the .NET for macOS / iOS bindings): off macOS
   every member throws `PlatformNotSupportedException` as .NET does. On macOS the reference tracking works as in

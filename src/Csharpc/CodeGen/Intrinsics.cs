@@ -1013,6 +1013,8 @@ internal static class Intrinsics
         t[$"{Th}.CancellationToken.CanBeCanceled"] = (g, p) =>
             g.Builder.ICmp(LLVMIntPredicate.NE, g.EmitValue(p.Instance!), LlvmContext.Null(g.Module.Llvm.Ptr));
         t[$"{Th}.CancellationToken.None"] = (g, _) => LlvmContext.Null(g.Module.Llvm.Ptr);
+        // A ManualResetEvent per source, set when it is canceled (corelib/Threading/WaitHandles.cs).
+        t[$"{Th}.CancellationToken.WaitHandle"] = (g, p) => g.CallCoreLib("CancellationWaitHandles", "Get", g.EmitValue(p.Instance!));
         PropertyHandler isCompleted = (g, p) => g.CallRuntime("csrt_task_is_completed", g.Module.Llvm.I1, [g.Module.Llvm.Ptr], g.EmitValue(p.Instance!));
         foreach (var type in TaskAwaiterTypes.Concat([$"{Tasks}.Task", $"{Tasks}.ValueTask"]))
             t[$"{type}.IsCompleted"] = isCompleted;
