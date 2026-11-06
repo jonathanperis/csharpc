@@ -282,8 +282,14 @@ managed one (run 41171411931). The self-compile broke on 2026-11-06 when csharpc
 calling `BinaryReader.ReadDecimal` (which the corelib lacked, `CSLLVM0002`; fixed, sample 1160) and was green
 again at both levels on 2026-11-06 (run 42244078369, 8 samples identical to the managed compiler's):
 **-O0** 238 s, 9.3 GB peak; **-O2** 577 s (optimization and code generation in 8 partitions of the 8.9 M
-instructions, 2 threads), 8.6 GB peak, a 76 MB native compiler (107 MB at -O0). Next: the native compiler on
-the whole differential suite, and code-generation memory.
+instructions, 2 threads), 8.6 GB peak, a 76 MB native compiler (107 MB at -O0). Code-generation memory ([ADR 0014](adr/0014-compile-time.md), section 6): no local value names in the IR, the
+bitcode image kept in LLVM's buffer and the partition workers limited by the memory available (the first one is
+free, each further one is estimated at ten times the image): the self-compile peaks at 8.0 GB at -O0 and 7.6 GB at
+-O2 with two workers (9.3 and 8.6 GB before), 5.3 and 5.5 GB with one (backend 219 s instead of 122 s at -O0,
+1076 s instead of 462 s at -O2), executables byte-identical (run 42256286314). What remains is the module itself,
+about 2.7 GB for 9 M instructions, and the managed heap at the end of lowering (3.7 GB). Lowering on several threads is
+an open design question: single-threaded lowering is 75 s of the 238 s self-compile at -O0 and 69 s of 577 s at -O2
+(ADR 0014, "Next hot spots"). Next: the native compiler on the whole differential suite.
 
 ### Runtime tiers — C# for library code, C where it is the right tool
 [ADR 0017](adr/0017-runtime-tiers.md); a C-free runtime is not a goal (owner, 2026-10-30). **Tier 1 (now,
