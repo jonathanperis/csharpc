@@ -341,7 +341,7 @@ of the kind/visibility/generic families, `BaseType`, `GetElementType`, `GetArray
 `GetGenericTypeDefinition`, `GetGenericArguments`, `GenericTypeArguments`, `GenericParameterPosition`,
 `UnderlyingSystemType`, `Nullable.GetUnderlyingType`, `FullName`, `AssemblyQualifiedName`, `Assembly`,
 `Assembly.GetExecutingAssembly`/`GetEntryAssembly`, with .NET's exception types and messages.
-Member reflection — constructors, methods, properties, fields, parameters, attributes, `Invoke`,
+Member reflection — constructors, methods, properties, fields, events, parameters, attributes, `Invoke`,
 `GetValue`/`SetValue`, `CreateDelegate`, `GetInterfaces`, `Activator.CreateInstance(Type)`, and
 `MakeGenericType` over the instantiations the program has — works over metadata kept for what
 `[DynamicallyAccessedMembers]` and constant `typeof(X).GetMethod("Name")` patterns reach, as under

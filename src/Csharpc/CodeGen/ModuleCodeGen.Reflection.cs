@@ -23,13 +23,15 @@ public sealed partial class ModuleCodeGen
     // DynamicallyAccessedMemberTypes values csharpc keeps metadata for.
     internal const int DamPublicParameterlessConstructor = 0x1, DamPublicConstructors = 0x3, DamNonPublicConstructors = 0x4,
         DamPublicMethods = 0x8, DamNonPublicMethods = 0x10, DamPublicFields = 0x20, DamNonPublicFields = 0x40,
-        DamPublicProperties = 0x200, DamNonPublicProperties = 0x400;
+        DamPublicProperties = 0x200, DamNonPublicProperties = 0x400, DamPublicEvents = 0x800, DamNonPublicEvents = 0x1000;
     internal const int DamConstructors = DamPublicConstructors | DamNonPublicConstructors, DamMethods = DamPublicMethods | DamNonPublicMethods,
-        DamProperties = DamPublicProperties | DamNonPublicProperties, DamFields = DamPublicFields | DamNonPublicFields;
+        DamProperties = DamPublicProperties | DamNonPublicProperties, DamFields = DamPublicFields | DamNonPublicFields,
+        DamEvents = DamPublicEvents | DamNonPublicEvents;
 
     // CSRT_RI_* (csrt.h)
     private const uint RiPublicConstructors = 1, RiNonPublicConstructors = 2, RiPublicMethods = 4, RiNonPublicMethods = 8,
-        RiPublicProperties = 32, RiNonPublicProperties = 64, RiPublicFields = 256, RiNonPublicFields = 512;
+        RiPublicProperties = 32, RiNonPublicProperties = 64, RiPublicFields = 256, RiNonPublicFields = 512,
+        RiPublicEvents = 1024, RiNonPublicEvents = 2048;
 
     private readonly Dictionary<ITypeSymbol, int> _damMarks = new(SymbolEqualityComparer.Default);
     private readonly Queue<ITypeSymbol> _damQueue = new();
@@ -66,11 +68,19 @@ public sealed partial class ModuleCodeGen
         public List<AttributeRecordData> Attributes = [];
         public List<PropertyRecordData> Properties = [];
         public List<FieldRecordData> Fields = [];
+        public List<EventRecordData> Events = [];
     }
 
     /// <summary>A field: accessor stubs (object Get(object), void Set(object, object)), attributes and FieldAttributes.</summary>
     internal sealed record FieldRecordData(LLVMValueRef Name, LLVMValueRef Declaring, LLVMValueRef Type, LLVMValueRef Get, LLVMValueRef Set,
         List<AttributeRecordData> Attributes, uint FieldAttributes);
+
+    /// <summary>
+    /// An event: the handler type, its add/remove/raise accessors' method records (null: none visible from the reflected type),
+    /// attributes, CSRT_EVENT_* flags and EventAttributes.
+    /// </summary>
+    internal sealed record EventRecordData(IEventSymbol Event, LLVMValueRef Name, LLVMValueRef Declaring, LLVMValueRef Type, MethodRecordData? Add, MethodRecordData? Remove,
+        MethodRecordData? Raise, List<AttributeRecordData> Attributes, uint Flags, uint EventAttributes);
 
     /// <summary>A property: its accessors' method records (null: none), attributes, and CSRT_PROPERTY_* flags.</summary>
     internal sealed record PropertyRecordData(IPropertySymbol Property, LLVMValueRef Name, LLVMValueRef Type, MethodRecordData? Getter, MethodRecordData? Setter,
@@ -169,7 +179,7 @@ public sealed partial class ModuleCodeGen
     /// <summary>Keeps metadata for the members of <paramref name="type"/> that <paramref name="kinds"/> names.</summary>
     internal void MarkDynamicallyAccessed(ITypeSymbol type, int kinds, string? name = null)
     {
-        kinds &= DamConstructors | DamMethods | DamProperties | DamFields;
+        kinds &= DamConstructors | DamMethods | DamProperties | DamFields | DamEvents;
         if (s_traceDam) Console.Error.WriteLine($"[csharpc] keep {kinds:x} {(name is null ? "(all)" : name)} of {type}");
         if (kinds == 0 || type is ITypeParameterSymbol || type.TypeKind == TypeKind.Error) return;
         if (type is INamedTypeSymbol named && (named.IsUnboundGenericType || TypeSubstitution.IsOpen(named)))
@@ -361,6 +371,15 @@ public sealed partial class ModuleCodeGen
         var any = CloseOpenGenericRegistrations() | DescribeDelegateMethods() | DescribeDelegateSignatures();
         if (_reflectionTable.IsNull) return any;
         any |= DescribeTypeAttributes();
+        if (_replayEvents)
+        {
+            _replayEvents = false;
+            foreach (var (marked, kinds) in _damMarks)
+                if ((kinds & DamEvents) != 0) _damQueue.Enqueue(marked);
+            foreach (var (marked, names) in _damNames)
+                foreach (var (kinds, name) in names)
+                    if ((kinds & DamEvents) != 0) _damNamedQueue.Enqueue((marked, kinds, name));
+        }
         while (_damQueue.TryDequeue(out var type))
         {
             any = true;
@@ -376,6 +395,17 @@ public sealed partial class ModuleCodeGen
         return any;
     }
 
+    private bool _eventsQueried, _replayEvents;
+
+    /// <summary>The program calls Type.GetEvent/GetEvents: events are described (also for what was marked before).</summary>
+    internal void NoteEventsQueried()
+    {
+        if (_eventsQueried) return;
+        _eventsQueried = true;
+        _replayEvents = true;
+        ReflectionTable();
+    }
+
     private void Describe(ITypeSymbol type, int kinds)
     {
         // Members listed by name first: list everything again in RuntimeType's order, then the named ones not
@@ -386,6 +416,7 @@ public sealed partial class ModuleCodeGen
             entry.Methods.Clear();
             entry.Properties.Clear();
             entry.Fields.Clear();
+            entry.Events.Clear();
             entry.Listed.Clear();
             entry.Described = entry.Complete = 0;
             Describe(type, kinds, null);
@@ -555,7 +586,11 @@ public sealed partial class ModuleCodeGen
         uint wanted = ((kinds & DamPublicConstructors) != 0 ? RiPublicConstructors : 0) | ((kinds & DamNonPublicConstructors) != 0 ? RiNonPublicConstructors : 0)
             | ((kinds & DamPublicMethods) != 0 ? RiPublicMethods : 0) | ((kinds & DamNonPublicMethods) != 0 ? RiNonPublicMethods : 0)
             | ((kinds & DamPublicProperties) != 0 ? RiPublicProperties : 0) | ((kinds & DamNonPublicProperties) != 0 ? RiNonPublicProperties : 0)
-            | ((kinds & DamPublicFields) != 0 ? RiPublicFields : 0) | ((kinds & DamNonPublicFields) != 0 ? RiNonPublicFields : 0);
+            | ((kinds & DamPublicFields) != 0 ? RiPublicFields : 0) | ((kinds & DamNonPublicFields) != 0 ? RiNonPublicFields : 0)
+            | ((kinds & DamPublicEvents) != 0 ? RiPublicEvents : 0) | ((kinds & DamNonPublicEvents) != 0 ? RiNonPublicEvents : 0);
+        // Events are described only for programs that read them (Type.GetEvent/GetEvents): like the table itself, they
+        // cost nothing otherwise. NoteEventsQueried replays what was marked before the first such call.
+        if (!_eventsQueried) wanted &= ~(RiPublicEvents | RiNonPublicEvents);
         var added = wanted & ~entry.Complete;
         if (name is null) added &= ~entry.Described;
         if (added == 0) return;
@@ -577,6 +612,7 @@ public sealed partial class ModuleCodeGen
                 entry.Constructors.Add(MethodRecord(cctor, invoker: false));
         if ((added & (RiPublicProperties | RiNonPublicProperties)) != 0) DescribeProperties(entry, real, added, name);
         if ((added & (RiPublicFields | RiNonPublicFields)) != 0) DescribeFields(entry, real, added, name);
+        if ((added & (RiPublicEvents | RiNonPublicEvents)) != 0) DescribeEvents(entry, real, added, name);
         if ((added & (RiPublicMethods | RiNonPublicMethods)) == 0) return;
         // Declared methods, then inherited ones not overridden (RuntimeType's order: most derived first).
         var seen = new HashSet<IMethodSymbol>(SymbolEqualityComparer.Default);
@@ -689,6 +725,91 @@ public sealed partial class ModuleCodeGen
             entry.Complete &= ~bit;
             added &= ~bit;
         }
+    }
+
+    /// <summary>
+    /// RuntimeType.GetEvents' list: the declared events, then those of the base types (inherited private ones aren't
+    /// listed); public when an accessor is. Hiding by name is the query's job (GetEvents drops a base event of a
+    /// name the derived type has).
+    /// </summary>
+    private void DescribeEvents(ReflectionEntry entry, INamedTypeSymbol real, uint added, string? name)
+    {
+        for (INamedTypeSymbol? t = real; t is not null; t = t.BaseType)
+        {
+            if (t.SpecialType is SpecialType.System_Object) break;
+            var own = SymbolEqualityComparer.Default.Equals(t, real);
+            foreach (var e in t.GetMembers().OfType<IEventSymbol>())
+            {
+                if (name is not null && e.MetadataName != name) continue;
+                bool isPublic = e.AddMethod?.DeclaredAccessibility == Accessibility.Public || e.RemoveMethod?.DeclaredAccessibility == Accessibility.Public;
+                bool anyVisible = isPublic || e.AddMethod?.DeclaredAccessibility is not (null or Accessibility.Private)
+                    || e.RemoveMethod?.DeclaredAccessibility is not (null or Accessibility.Private);
+                if (!own && !anyVisible) continue; // inherited private events aren't listed
+                var bit = isPublic ? RiPublicEvents : RiNonPublicEvents;
+                if ((added & bit) == 0 || entry.Listed.Contains(e)) continue;
+                EventRecordData? record = null;
+                try { record = EventRecord(e, inherited: !own); }
+                catch (CompileError) { }
+                if (record is null)
+                {
+                    // An event csharpc can't describe: listing that kind throws instead of omitting it.
+                    entry.Described &= ~bit;
+                    entry.Complete &= ~bit;
+                    added &= ~bit;
+                    continue;
+                }
+                entry.Listed.Add(e);
+                entry.Events.Add(record);
+            }
+        }
+    }
+
+    private EventRecordData EventRecord(IEventSymbol e, bool inherited)
+    {
+        var definition = e.OriginalDefinition;
+        var il = definition.MetadataToken != 0 ? Il.OwnerOf(definition) : null;
+        uint eventAttributes = 0, flags = 0;
+        List<AttributeInstance> instances;
+        if (il is not null)
+        {
+            var row = il.EventDefinitionOf(definition);
+            eventAttributes = (uint)row.Attributes;
+            instances = DecodeAttributes(il, row.GetCustomAttributes(), IlGenericContext.For(definition.ContainingType)).ToList();
+            if (row.GetAccessors().Others.Length > 0) flags |= 8; // CSRT_EVENT_HAS_OTHER_METHODS
+        }
+        else
+        {
+            instances = definition.GetAttributes().Select(FromAttributeData).OfType<AttributeInstance>().ToList();
+            // Reference-assembly events: the implementation's attributes can differ. Source events whose type needs
+            // a [Nullable] attribute csc synthesizes (Roslyn's symbols omit them).
+            if (definition.MetadataToken != 0 || NeedsNullableAttribute(definition)) flags |= 4; // CSRT_EVENT_ATTRIBUTES_UNKNOWN
+        }
+        // Inherited events don't expose private accessors; a virtual one stands for the override visible from the
+        // reflected type, which a C# override of an event lists as its own event instead.
+        MethodRecordData? Accessor(IMethodSymbol? m) =>
+            m is null || (inherited && m.DeclaredAccessibility == Accessibility.Private) ? null : MethodRecord(m, invoker: true, lazy: true);
+        var add = Accessor(e.AddMethod);
+        var remove = Accessor(e.RemoveMethod);
+        if (e.AddMethod?.DeclaredAccessibility == Accessibility.Public || e.RemoveMethod?.DeclaredAccessibility == Accessibility.Public) flags |= 1; // CSRT_EVENT_PUBLIC
+        if (e.IsStatic) flags |= 2; // CSRT_EVENT_STATIC
+        return new EventRecordData(e, CString(e.MetadataName), MetadataMethodTable(e.ContainingType), MetadataMethodTable(e.Type), add, remove, null,
+            Attributes(instances), flags, eventAttributes);
+    }
+
+    /// <summary>
+    /// A source event in an annotations-enabled context whose type is annotated (`event Action? E`) or that shares a
+    /// type with such events gets [Nullable]/[NullableContext] attributes from csc, which Roslyn's symbols hide.
+    /// </summary>
+    private bool NeedsNullableAttribute(IEventSymbol e)
+    {
+        foreach (var reference in e.DeclaringSyntaxReferences)
+        {
+            var model = Compilation.GetSemanticModel(reference.SyntaxTree);
+            var syntax = reference.GetSyntax();
+            if (!(model.GetNullableContext(syntax.SpanStart).AnnotationsEnabled() || model.GetNullableContext(syntax.Span.End).AnnotationsEnabled())) continue;
+            return e.ContainingType.GetMembers().OfType<IEventSymbol>().Any(x => x.NullableAnnotation == NullableAnnotation.Annotated || x.Type.NullableAnnotation == NullableAnnotation.Annotated);
+        }
+        return false;
     }
 
     private FieldRecordData FieldRecord(IFieldSymbol field)
@@ -986,6 +1107,10 @@ public sealed partial class ModuleCodeGen
         if (definition.IsExtensionMethod && PseudoAttribute("System.Runtime.CompilerServices.ExtensionAttribute") is { } extension
             && !list.Any(a => a.Constructor.ContainingType.Name == "ExtensionAttribute"))
             list.Insert(0, extension);
+        // The accessors csc synthesizes for a field-like event are [CompilerGenerated].
+        if (definition is { MethodKind: MethodKind.EventAdd or MethodKind.EventRemove, IsImplicitlyDeclared: true }
+            && PseudoAttribute("System.Runtime.CompilerServices.CompilerGeneratedAttribute") is { } generated)
+            list.Add(generated);
         return list;
     }
 
@@ -1245,7 +1370,8 @@ public sealed partial class ModuleCodeGen
     private LLVMTypeRef ParameterRecordType => Llvm.Struct(Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.I32, Llvm.I32);
     private LLVMTypeRef MethodRecordType => Llvm.Struct(Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.I32, Llvm.I32, Llvm.I32, Llvm.I32, Llvm.Ptr, Llvm.Ptr);
     private LLVMTypeRef DelegateSignatureType => Llvm.Struct(Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.I32, Llvm.I32);
-    private LLVMTypeRef ReflectionInfoType => Llvm.Struct(Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.I32, Llvm.I32, Llvm.I32, Llvm.I32, Llvm.I32, Llvm.I32, Llvm.Ptr);
+    private LLVMTypeRef ReflectionInfoType => Llvm.Struct(Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.I32, Llvm.I32, Llvm.I32, Llvm.I32, Llvm.I32, Llvm.I32, Llvm.Ptr, Llvm.Ptr, Llvm.I32);
+    private LLVMTypeRef EventRecordType => Llvm.Struct(Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.I32, Llvm.I32, Llvm.I32, Llvm.I32);
     private LLVMTypeRef FieldRecordType => Llvm.Struct(Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.I32, Llvm.I32);
     private LLVMTypeRef PropertyRecordType => Llvm.Struct(Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.I32, Llvm.I32);
 
@@ -1255,6 +1381,14 @@ public sealed partial class ModuleCodeGen
             : Module.AddGlobal("csharpc.reflection.accessor", MethodRecordType, MethodRecordConstant(m), constant: true, linkage: LLVMLinkage.Private);
         return Llvm.ConstStruct(p.Name, Checked(p.Type, "property type"), Accessor(p.Getter), Accessor(p.Setter), AttributeArray(p.Attributes),
             Llvm.ConstInt(Llvm.I32, p.Attributes.Count), Llvm.ConstUInt(Llvm.I32, p.Flags));
+    }
+
+    private LLVMValueRef EventRecordConstant(EventRecordData e)
+    {
+        LLVMValueRef Accessor(MethodRecordData? m) => m is null ? LlvmContext.Null(Llvm.Ptr)
+            : Module.AddGlobal("csharpc.reflection.accessor", MethodRecordType, MethodRecordConstant(m), constant: true, linkage: LLVMLinkage.Private);
+        return Llvm.ConstStruct(e.Name, Checked(e.Declaring, "event declaring type"), Checked(e.Type, "event handler type"), Accessor(e.Add), Accessor(e.Remove), Accessor(e.Raise),
+            AttributeArray(e.Attributes), Llvm.ConstInt(Llvm.I32, e.Attributes.Count), Llvm.ConstUInt(Llvm.I32, e.Flags), Llvm.ConstUInt(Llvm.I32, e.EventAttributes), Llvm.ConstInt(Llvm.I32, 0));
     }
 
     private LLVMValueRef ConstTable(string name, LLVMTypeRef entryType, IReadOnlyList<LLVMValueRef> entries)
@@ -1312,9 +1446,11 @@ public sealed partial class ModuleCodeGen
                 var properties = ConstTable("csharpc.reflection.properties", PropertyRecordType, e.Properties.Select(PropertyRecordConstant).ToList());
                 var fields = ConstTable("csharpc.reflection.fields", FieldRecordType, e.Fields.Select(f => Llvm.ConstStruct(f.Name, Checked(f.Declaring, "field declaring type"),
                     Checked(f.Type, "field type"), f.Get, f.Set, AttributeArray(f.Attributes), Llvm.ConstInt(Llvm.I32, f.Attributes.Count), Llvm.ConstUInt(Llvm.I32, f.FieldAttributes))).ToList());
+                var events = ConstTable("csharpc.reflection.events", EventRecordType, e.Events.Select(EventRecordConstant).ToList());
                 entries.Add(Llvm.ConstStruct(Checked(e.Mt, "method table of " + e.Type), ctors, methods, AttributeArray(e.Attributes), properties,
                     Llvm.ConstInt(Llvm.I32, e.Constructors.Count), Llvm.ConstInt(Llvm.I32, e.Methods.Count), Llvm.ConstInt(Llvm.I32, e.Attributes.Count),
-                    Llvm.ConstUInt(Llvm.I32, e.Described), Llvm.ConstInt(Llvm.I32, e.Properties.Count), Llvm.ConstInt(Llvm.I32, e.Fields.Count), fields));
+                    Llvm.ConstUInt(Llvm.I32, e.Described), Llvm.ConstInt(Llvm.I32, e.Properties.Count), Llvm.ConstInt(Llvm.I32, e.Fields.Count), fields,
+                    events, Llvm.ConstInt(Llvm.I32, e.Events.Count)));
             }
             Native.LLVMSetInitializer(_reflectionTable, Header(ConstTable("csharpc.reflection.entries", ReflectionInfoType, entries), entries.Count));
         }

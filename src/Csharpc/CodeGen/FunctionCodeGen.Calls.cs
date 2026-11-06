@@ -733,9 +733,10 @@ public sealed partial class FunctionCodeGen
             "GetMethod" or "GetMethods" => ModuleCodeGen.DamMethods,
             "GetConstructor" or "GetConstructors" => ModuleCodeGen.DamConstructors,
             "GetField" or "GetFields" => ModuleCodeGen.DamFields,
+            "GetEvent" or "GetEvents" => ModuleCodeGen.DamEvents,
             _ => 0,
         };
-        if (kinds != 0) _m.MarkDynamicallyAccessed(type, kinds, target.Name is "GetProperty" or "GetMethod" or "GetField" ? name : null);
+        if (kinds != 0) _m.MarkDynamicallyAccessed(type, kinds, target.Name is "GetProperty" or "GetMethod" or "GetField" or "GetEvent" ? name : null);
     }
 
     /// <summary>Type.GetType(string, ...) or Assembly.GetType(string, ...): a lookup by name.</summary>

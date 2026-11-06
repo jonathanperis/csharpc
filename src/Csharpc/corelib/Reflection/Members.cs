@@ -485,6 +485,19 @@ namespace CsharpcCoreLib
         internal static int InfoPropertyCount(byte* i) => *(int*)(i + 5 * P + 16);
         internal static int InfoFieldCount(byte* i) => *(int*)(i + 5 * P + 20);
         internal static byte* InfoFields(byte* i) => (byte*)*(nint*)(i + 5 * P + 24);
+        internal static byte* InfoEvents(byte* i) => (byte*)*(nint*)(i + 6 * P + 24);
+        internal static int InfoEventCount(byte* i) => *(int*)(i + 7 * P + 24);
+        // csrt_EventRecord
+        internal static int EventSize => 7 * P + 16;
+        internal static byte* EventName(byte* e) => (byte*)*(nint*)e;
+        internal static nint EventDeclaring(byte* e) => *(nint*)(e + P);
+        internal static byte* EventAdd(byte* e) => (byte*)*(nint*)(e + 3 * P);
+        internal static byte* EventRemove(byte* e) => (byte*)*(nint*)(e + 4 * P);
+        internal static byte* EventRaise(byte* e) => (byte*)*(nint*)(e + 5 * P);
+        internal static byte* EventAttributeRecords(byte* e) => (byte*)*(nint*)(e + 6 * P);
+        internal static int EventAttributeCount(byte* e) => *(int*)(e + 7 * P);
+        internal static int EventFlags(byte* e) => *(int*)(e + 7 * P + 4);
+        internal static int EventAttributes(byte* e) => *(int*)(e + 7 * P + 8);
         // csrt_FieldRecord
         internal static int FieldSize => 6 * P + 8;
         internal static byte* FieldName(byte* f) => (byte*)*(nint*)f;
@@ -685,7 +698,7 @@ namespace CsharpcCoreLib
             if (!IsStatic)
             {
                 if (obj == null) throw new TargetException("Non-static method requires a target.");
-                if (!DeclaringType.IsInstanceOfType(obj)) throw new TargetException("Object does not match target type.");
+                if (!DeclaringType.IsInstanceOfType(obj)) throw new TargetException("Object type " + DeclaringType + " does not match target type " + obj.GetType() + ".");
             }
             return ReflectionRuntime.Invoke(_record, ParametersNoCopy, IsStatic ? null : obj, invokeAttr, parameters, this);
         }

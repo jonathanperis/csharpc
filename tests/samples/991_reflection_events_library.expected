@@ -1,0 +1,11 @@
+PropertyChanged System.ComponentModel.PropertyChangedEventHandler ViewModel ViewModel True
+False
+System.ComponentModel.INotifyPropertyChanged
+Title,Title
+PropertyChanged:System.ComponentModel.PropertyChangedEventHandler
+PropertyChanged:PropertyChangedEventHandler
+CancelKeyPress System.ConsoleCancelEventHandler True System.Console True False
+True
+Loaded System.EventHandler`1[System.String] Store`1[System.String] Repository
+loaded alpha
+1 1

@@ -86,10 +86,20 @@ csharpc keeps reflection metadata the same way, generated at compile time by
   boundary, with trimming warnings at compile time; csharpc doesn't issue those warnings yet.
 - Fields: a type whose non-public fields csharpc can't see (a reference-assembly base type) or a field it
   can't describe (fixed buffers, ref fields) leaves that kind undescribed, so asking for it throws.
-- Not covered yet: events, `GetInterfaces`, `Activator.CreateInstance(Type)`, `MakeGenericMethod`,
+- Not covered yet: `GetInterfaces`, `Activator.CreateInstance(Type)`, `MakeGenericMethod`,
   `GetBaseDefinition` of overrides, inherited attribute lookup on overrides (answered when the overridden
   methods have no inheritable attributes). Each is an explicit `NotSupportedException` or compile-time
   error until it is added in the same scheme.
+- Events (2026-11-06): `Type.GetEvent`/`GetEvents` and `EventInfo` work over `csrt_EventRecord`s (`PublicEvents` /
+  `NonPublicEvents` in the dataflow, `typeof(X).GetEvent("Name")`). Like the table itself they cost nothing until the
+  program calls one of them: events are described only once a `GetEvent`/`GetEvents` call is lowered
+  (`NoteEventsQueried` replays what was marked before). The list follows RuntimeType (declared events, then the base
+  types' non-private ones; `GetEvents` hides a base event by name, a case-sensitive `GetEvent` takes the most derived one);
+  accessors are the methods' own records (so `AddEventHandler` goes through their invokers). Explicit failures: an event
+  whose custom attributes csharpc can't list exactly (declared in a reference assembly, or a source event in a
+  nullable-annotated type that has annotated events: csc synthesizes `[Nullable]`) throws `NotSupportedException` from
+  `GetCustomAttributes*`/`IsDefined` only, as does `GetOtherMethods` of an IL event with `.other` accessors.
+  Tests: `tests/samples/990_reflection_events`, `991_reflection_events_library`.
 - Added for expression trees (2026-10-30, [18](../18-compatibility.md#expression-trees)): standalone
   records of the members a program names directly — `ldtoken` + `GetMethodFromHandle`/`GetFieldFromHandle`
   and the `MethodInfo`/`FieldInfo` constants of lowered expression trees — with a per-method identity, so

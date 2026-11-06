@@ -363,7 +363,8 @@ void* csrt_gc_object_base(const void* p);   // the heap object an interior point
 enum { CSRT_RI_PUBLIC_CONSTRUCTORS = 1, CSRT_RI_NONPUBLIC_CONSTRUCTORS = 2, CSRT_RI_PUBLIC_METHODS = 4,
        CSRT_RI_NONPUBLIC_METHODS = 8, CSRT_RI_ATTRIBUTES = 16, CSRT_RI_PUBLIC_PROPERTIES = 32, CSRT_RI_NONPUBLIC_PROPERTIES = 64,
        CSRT_RI_ATTRIBUTES_UNKNOWN = 128 /* the type's attributes can't be listed exactly: querying them throws */,
-       CSRT_RI_PUBLIC_FIELDS = 256, CSRT_RI_NONPUBLIC_FIELDS = 512 };
+       CSRT_RI_PUBLIC_FIELDS = 256, CSRT_RI_NONPUBLIC_FIELDS = 512,
+       CSRT_RI_PUBLIC_EVENTS = 1024, CSRT_RI_NONPUBLIC_EVENTS = 2048 };
 enum { CSRT_PROPERTY_PUBLIC = 1 /* an accessor is public */, CSRT_PROPERTY_STATIC = 2 };
 typedef struct csrt_PropertyRecord {
     const char* name;
@@ -384,6 +385,22 @@ typedef struct csrt_FieldRecord {
     uint32_t attribute_count;
     uint32_t field_attributes;                 // FieldAttributes
 } csrt_FieldRecord;
+enum { CSRT_EVENT_PUBLIC = 1 /* an accessor is public */, CSRT_EVENT_STATIC = 2,
+       CSRT_EVENT_ATTRIBUTES_UNKNOWN = 4 /* the event's attributes can't be listed exactly: querying them throws */,
+       CSRT_EVENT_HAS_OTHER_METHODS = 8 /* IL `.other` accessors, not described: GetOtherMethods throws */ };
+typedef struct csrt_EventRecord {
+    const char* name;
+    const csrt_MethodTable* declaring;
+    const csrt_MethodTable* type;              // the event handler type
+    const csrt_MethodRecord* add;              // NULL: no accessor visible from the reflected type
+    const csrt_MethodRecord* remove;
+    const csrt_MethodRecord* raise;
+    const csrt_AttributeRecord* attributes;
+    uint32_t attribute_count;
+    uint32_t flags;                            // CSRT_EVENT_*
+    uint32_t event_attributes;                 // EventAttributes
+    uint32_t reserved;
+} csrt_EventRecord;
 typedef struct csrt_ReflectionInfo {
     const csrt_MethodTable* mt;
     const csrt_MethodRecord* constructors;
@@ -397,6 +414,8 @@ typedef struct csrt_ReflectionInfo {
     uint32_t property_count;
     uint32_t field_count;
     const csrt_FieldRecord* fields;
+    const csrt_EventRecord* events;
+    uint32_t event_count;
 } csrt_ReflectionInfo;
 typedef struct { int64_t count; const csrt_ReflectionInfo* entries; } csrt_ReflectionTable;
 
