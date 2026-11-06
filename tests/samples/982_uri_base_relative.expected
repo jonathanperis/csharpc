@@ -1,0 +1,294 @@
+== http://Host:8080/a/b/c?x=1#frag
+[] http://host:8080/a/b/c?x=1#frag | http://host:8080/a/b/c?x=1#frag | True True True True True
+[#g] http://host:8080/a/b/c?x=1#g | http://host:8080/a/b/c?x=1#g | True True True True True
+[?y] http://host:8080/a/b/c?y | http://host:8080/a/b/c?y | True True True True True
+[g] http://host:8080/a/b/g | http://host:8080/a/b/g | True True True True True
+[./g] http://host:8080/a/b/g | http://host:8080/a/b/g | True True True True True
+[g/] http://host:8080/a/b/g/ | http://host:8080/a/b/g/ | True True True True True
+[../g] http://host:8080/a/g | http://host:8080/a/g | True True True True True
+[../../g] http://host:8080/g | http://host:8080/g | True True True True True
+[../../../g] http://host:8080/g | http://host:8080/g | True True True True True
+[../../../../g] http://host:8080/g | http://host:8080/g | True True True True True
+[g?y] http://host:8080/a/b/g?y | http://host:8080/a/b/g?y | True True True True True
+[g#s] http://host:8080/a/b/g#s | http://host:8080/a/b/g#s | True True True True True
+[g?y#s] http://host:8080/a/b/g?y#s | http://host:8080/a/b/g?y#s | True True True True True
+[;x] http://host:8080/a/b/;x | http://host:8080/a/b/;x | True True True True True
+[g;x] http://host:8080/a/b/g;x | http://host:8080/a/b/g;x | True True True True True
+[g;x?y#s] http://host:8080/a/b/g;x?y#s | http://host:8080/a/b/g;x?y#s | True True True True True
+[.] http://host:8080/a/b/ | http://host:8080/a/b/ | True True True True True
+[./] http://host:8080/a/b/ | http://host:8080/a/b/ | True True True True True
+[..] http://host:8080/a/ | http://host:8080/a/ | True True True True True
+[../] http://host:8080/a/ | http://host:8080/a/ | True True True True True
+[./../g] http://host:8080/a/g | http://host:8080/a/g | True True True True True
+[./g/.] http://host:8080/a/b/g/ | http://host:8080/a/b/g/ | True True True True True
+[g/./h] http://host:8080/a/b/g/h | http://host:8080/a/b/g/h | True True True True True
+[g/../h] http://host:8080/a/b/h | http://host:8080/a/b/h | True True True True True
+[g/..] http://host:8080/a/b/ | http://host:8080/a/b/ | True True True True True
+[g/../] http://host:8080/a/b/ | http://host:8080/a/b/ | True True True True True
+[x/./../y] http://host:8080/a/b/y | http://host:8080/a/b/y | True True True True True
+[g.] http://host:8080/a/b/g. | http://host:8080/a/b/g. | True True True True True
+[.g] http://host:8080/a/b/.g | http://host:8080/a/b/.g | True True True True True
+[..g] http://host:8080/a/b/..g | http://host:8080/a/b/..g | True True True True True
+[g..] http://host:8080/a/b/g.. | http://host:8080/a/b/g.. | True True True True True
+[...] http://host:8080/a/b/... | http://host:8080/a/b/... | True True True True True
+[a//b] http://host:8080/a/b/a//b | http://host:8080/a/b/a//b | True True True True True
+[?] http://host:8080/a/b/c? | http://host:8080/a/b/c? | True True True True True
+[#] http://host:8080/a/b/c?x=1# | http://host:8080/a/b/c?x=1# | True True True True True
+[g?y/./x] http://host:8080/a/b/g?y/./x | http://host:8080/a/b/g?y/./x | True True True True True
+[g#s/../x] http://host:8080/a/b/g#s/../x | http://host:8080/a/b/g#s/../x | True True True True True
+[http://x/y] http://x/y | http://x/y | True True True True True
+[https://x] https://x/ | https://x | True True True True True
+[http://x/../y] http://x/y | http://x/../y | True True True True True
+[ftp://h2/p] ftp://h2/p | ftp://h2/p | True True True True True
+== https://h/
+[] https://h/ | https://h/ | True True True True True
+[#g] https://h/#g | https://h/#g | True True True True True
+[?y] https://h/?y | https://h/?y | True True True True True
+[g] https://h/g | https://h/g | True True True True True
+[./g] https://h/g | https://h/g | True True True True True
+[g/] https://h/g/ | https://h/g/ | True True True True True
+[../g] https://h/g | https://h/g | True True True True True
+[../../g] https://h/g | https://h/g | True True True True True
+[../../../g] https://h/g | https://h/g | True True True True True
+[../../../../g] https://h/g | https://h/g | True True True True True
+[g?y] https://h/g?y | https://h/g?y | True True True True True
+[g#s] https://h/g#s | https://h/g#s | True True True True True
+[g?y#s] https://h/g?y#s | https://h/g?y#s | True True True True True
+[;x] https://h/;x | https://h/;x | True True True True True
+[g;x] https://h/g;x | https://h/g;x | True True True True True
+[g;x?y#s] https://h/g;x?y#s | https://h/g;x?y#s | True True True True True
+[.] https://h/ | https://h/ | True True True True True
+[./] https://h/ | https://h/ | True True True True True
+[..] https://h/ | https://h/ | True True True True True
+[../] https://h/ | https://h/ | True True True True True
+[./../g] https://h/g | https://h/g | True True True True True
+[./g/.] https://h/g/ | https://h/g/ | True True True True True
+[g/./h] https://h/g/h | https://h/g/h | True True True True True
+[g/../h] https://h/h | https://h/h | True True True True True
+[g/..] https://h/ | https://h/ | True True True True True
+[g/../] https://h/ | https://h/ | True True True True True
+[x/./../y] https://h/y | https://h/y | True True True True True
+[g.] https://h/g. | https://h/g. | True True True True True
+[.g] https://h/.g | https://h/.g | True True True True True
+[..g] https://h/..g | https://h/..g | True True True True True
+[g..] https://h/g.. | https://h/g.. | True True True True True
+[...] https://h/... | https://h/... | True True True True True
+[a//b] https://h/a//b | https://h/a//b | True True True True True
+[?] https://h/? | https://h/? | True True True True True
+[#] https://h/# | https://h/# | True True True True True
+[g?y/./x] https://h/g?y/./x | https://h/g?y/./x | True True True True True
+[g#s/../x] https://h/g#s/../x | https://h/g#s/../x | True True True True True
+[http://x/y] http://x/y | http://x/y | True True True True True
+[https://x] https://x/ | https://x | True True True True True
+[http://x/../y] http://x/y | http://x/../y | True True True True True
+[ftp://h2/p] ftp://h2/p | ftp://h2/p | True True True True True
+== http://h
+[] http://h/ | http://h/ | True True True True True
+[#g] http://h/#g | http://h/#g | True True True True True
+[?y] http://h/?y | http://h/?y | True True True True True
+[g] http://h/g | http://h/g | True True True True True
+[./g] http://h/g | http://h/g | True True True True True
+[g/] http://h/g/ | http://h/g/ | True True True True True
+[../g] http://h/g | http://h/g | True True True True True
+[../../g] http://h/g | http://h/g | True True True True True
+[../../../g] http://h/g | http://h/g | True True True True True
+[../../../../g] http://h/g | http://h/g | True True True True True
+[g?y] http://h/g?y | http://h/g?y | True True True True True
+[g#s] http://h/g#s | http://h/g#s | True True True True True
+[g?y#s] http://h/g?y#s | http://h/g?y#s | True True True True True
+[;x] http://h/;x | http://h/;x | True True True True True
+[g;x] http://h/g;x | http://h/g;x | True True True True True
+[g;x?y#s] http://h/g;x?y#s | http://h/g;x?y#s | True True True True True
+[.] http://h/ | http://h/ | True True True True True
+[./] http://h/ | http://h/ | True True True True True
+[..] http://h/ | http://h/ | True True True True True
+[../] http://h/ | http://h/ | True True True True True
+[./../g] http://h/g | http://h/g | True True True True True
+[./g/.] http://h/g/ | http://h/g/ | True True True True True
+[g/./h] http://h/g/h | http://h/g/h | True True True True True
+[g/../h] http://h/h | http://h/h | True True True True True
+[g/..] http://h/ | http://h/ | True True True True True
+[g/../] http://h/ | http://h/ | True True True True True
+[x/./../y] http://h/y | http://h/y | True True True True True
+[g.] http://h/g. | http://h/g. | True True True True True
+[.g] http://h/.g | http://h/.g | True True True True True
+[..g] http://h/..g | http://h/..g | True True True True True
+[g..] http://h/g.. | http://h/g.. | True True True True True
+[...] http://h/... | http://h/... | True True True True True
+[a//b] http://h/a//b | http://h/a//b | True True True True True
+[?] http://h/? | http://h/? | True True True True True
+[#] http://h/# | http://h/# | True True True True True
+[g?y/./x] http://h/g?y/./x | http://h/g?y/./x | True True True True True
+[g#s/../x] http://h/g#s/../x | http://h/g#s/../x | True True True True True
+[http://x/y] http://x/y | http://x/y | True True True True True
+[https://x] https://x/ | https://x | True True True True True
+[http://x/../y] http://x/y | http://x/../y | True True True True True
+[ftp://h2/p] ftp://h2/p | ftp://h2/p | True True True True True
+== http://h/a/b/
+[] http://h/a/b/ | http://h/a/b/ | True True True True True
+[#g] http://h/a/b/#g | http://h/a/b/#g | True True True True True
+[?y] http://h/a/b/?y | http://h/a/b/?y | True True True True True
+[g] http://h/a/b/g | http://h/a/b/g | True True True True True
+[./g] http://h/a/b/g | http://h/a/b/g | True True True True True
+[g/] http://h/a/b/g/ | http://h/a/b/g/ | True True True True True
+[../g] http://h/a/g | http://h/a/g | True True True True True
+[../../g] http://h/g | http://h/g | True True True True True
+[../../../g] http://h/g | http://h/g | True True True True True
+[../../../../g] http://h/g | http://h/g | True True True True True
+[g?y] http://h/a/b/g?y | http://h/a/b/g?y | True True True True True
+[g#s] http://h/a/b/g#s | http://h/a/b/g#s | True True True True True
+[g?y#s] http://h/a/b/g?y#s | http://h/a/b/g?y#s | True True True True True
+[;x] http://h/a/b/;x | http://h/a/b/;x | True True True True True
+[g;x] http://h/a/b/g;x | http://h/a/b/g;x | True True True True True
+[g;x?y#s] http://h/a/b/g;x?y#s | http://h/a/b/g;x?y#s | True True True True True
+[.] http://h/a/b/ | http://h/a/b/ | True True True True True
+[./] http://h/a/b/ | http://h/a/b/ | True True True True True
+[..] http://h/a/ | http://h/a/ | True True True True True
+[../] http://h/a/ | http://h/a/ | True True True True True
+[./../g] http://h/a/g | http://h/a/g | True True True True True
+[./g/.] http://h/a/b/g/ | http://h/a/b/g/ | True True True True True
+[g/./h] http://h/a/b/g/h | http://h/a/b/g/h | True True True True True
+[g/../h] http://h/a/b/h | http://h/a/b/h | True True True True True
+[g/..] http://h/a/b/ | http://h/a/b/ | True True True True True
+[g/../] http://h/a/b/ | http://h/a/b/ | True True True True True
+[x/./../y] http://h/a/b/y | http://h/a/b/y | True True True True True
+[g.] http://h/a/b/g. | http://h/a/b/g. | True True True True True
+[.g] http://h/a/b/.g | http://h/a/b/.g | True True True True True
+[..g] http://h/a/b/..g | http://h/a/b/..g | True True True True True
+[g..] http://h/a/b/g.. | http://h/a/b/g.. | True True True True True
+[...] http://h/a/b/... | http://h/a/b/... | True True True True True
+[a//b] http://h/a/b/a//b | http://h/a/b/a//b | True True True True True
+[?] http://h/a/b/? | http://h/a/b/? | True True True True True
+[#] http://h/a/b/# | http://h/a/b/# | True True True True True
+[g?y/./x] http://h/a/b/g?y/./x | http://h/a/b/g?y/./x | True True True True True
+[g#s/../x] http://h/a/b/g#s/../x | http://h/a/b/g#s/../x | True True True True True
+[http://x/y] http://x/y | http://x/y | True True True True True
+[https://x] https://x/ | https://x | True True True True True
+[http://x/../y] http://x/y | http://x/../y | True True True True True
+[ftp://h2/p] ftp://h2/p | ftp://h2/p | True True True True True
+== ftp://h/a/b#f
+[] ftp://h/a/b#f | ftp://h/a/b#f | True True True True True
+[#g] ftp://h/a/b#g | ftp://h/a/b#g | True True True True True
+[g] ftp://h/a/g | ftp://h/a/g | True True True True True
+[./g] ftp://h/a/g | ftp://h/a/g | True True True True True
+[g/] ftp://h/a/g/ | ftp://h/a/g/ | True True True True True
+[../g] ftp://h/g | ftp://h/g | True True True True True
+[../../g] ftp://h/g | ftp://h/g | True True True True True
+[../../../g] ftp://h/g | ftp://h/g | True True True True True
+[../../../../g] ftp://h/g | ftp://h/g | True True True True True
+[g#s] ftp://h/a/g#s | ftp://h/a/g#s | True True True True True
+[;x] ftp://h/a/;x | ftp://h/a/;x | True True True True True
+[g;x] ftp://h/a/g;x | ftp://h/a/g;x | True True True True True
+[.] ftp://h/a/ | ftp://h/a/ | True True True True True
+[./] ftp://h/a/ | ftp://h/a/ | True True True True True
+[..] ftp://h/ | ftp://h/ | True True True True True
+[../] ftp://h/ | ftp://h/ | True True True True True
+[./../g] ftp://h/g | ftp://h/g | True True True True True
+[./g/.] ftp://h/a/g/ | ftp://h/a/g/ | True True True True True
+[g/./h] ftp://h/a/g/h | ftp://h/a/g/h | True True True True True
+[g/../h] ftp://h/a/h | ftp://h/a/h | True True True True True
+[g/..] ftp://h/a/ | ftp://h/a/ | True True True True True
+[g/../] ftp://h/a/ | ftp://h/a/ | True True True True True
+[x/./../y] ftp://h/a/y | ftp://h/a/y | True True True True True
+[g.] ftp://h/a/g. | ftp://h/a/g. | True True True True True
+[.g] ftp://h/a/.g | ftp://h/a/.g | True True True True True
+[..g] ftp://h/a/..g | ftp://h/a/..g | True True True True True
+[g..] ftp://h/a/g.. | ftp://h/a/g.. | True True True True True
+[...] ftp://h/a/... | ftp://h/a/... | True True True True True
+[a//b] ftp://h/a/a//b | ftp://h/a/a//b | True True True True True
+[#] ftp://h/a/b# | ftp://h/a/b# | True True True True True
+[g#s/../x] ftp://h/a/g#s/../x | ftp://h/a/g#s/../x | True True True True True
+[http://x/y] http://x/y | http://x/y | True True True True True
+[https://x] https://x/ | https://x | True True True True True
+[http://x/../y] http://x/y | http://x/../y | True True True True True
+[ftp://h2/p] ftp://h2/p | ftp://h2/p | True True True True True
+== ws://h:81/a
+[] ws://h:81/a | ws://h:81/a | True True True True True
+[#g] ws://h:81/a#g | ws://h:81/a#g | True True True True True
+[?y] ws://h:81/a?y | ws://h:81/a?y | True True True True True
+[g] ws://h:81/g | ws://h:81/g | True True True True True
+[./g] ws://h:81/g | ws://h:81/g | True True True True True
+[g/] ws://h:81/g/ | ws://h:81/g/ | True True True True True
+[../g] ws://h:81/g | ws://h:81/g | True True True True True
+[../../g] ws://h:81/g | ws://h:81/g | True True True True True
+[../../../g] ws://h:81/g | ws://h:81/g | True True True True True
+[../../../../g] ws://h:81/g | ws://h:81/g | True True True True True
+[g?y] ws://h:81/g?y | ws://h:81/g?y | True True True True True
+[g#s] ws://h:81/g#s | ws://h:81/g#s | True True True True True
+[g?y#s] ws://h:81/g?y#s | ws://h:81/g?y#s | True True True True True
+[;x] ws://h:81/;x | ws://h:81/;x | True True True True True
+[g;x] ws://h:81/g;x | ws://h:81/g;x | True True True True True
+[g;x?y#s] ws://h:81/g;x?y#s | ws://h:81/g;x?y#s | True True True True True
+[.] ws://h:81/ | ws://h:81/ | True True True True True
+[./] ws://h:81/ | ws://h:81/ | True True True True True
+[..] ws://h:81/ | ws://h:81/ | True True True True True
+[../] ws://h:81/ | ws://h:81/ | True True True True True
+[./../g] ws://h:81/g | ws://h:81/g | True True True True True
+[./g/.] ws://h:81/g/ | ws://h:81/g/ | True True True True True
+[g/./h] ws://h:81/g/h | ws://h:81/g/h | True True True True True
+[g/../h] ws://h:81/h | ws://h:81/h | True True True True True
+[g/..] ws://h:81/ | ws://h:81/ | True True True True True
+[g/../] ws://h:81/ | ws://h:81/ | True True True True True
+[x/./../y] ws://h:81/y | ws://h:81/y | True True True True True
+[g.] ws://h:81/g. | ws://h:81/g. | True True True True True
+[.g] ws://h:81/.g | ws://h:81/.g | True True True True True
+[..g] ws://h:81/..g | ws://h:81/..g | True True True True True
+[g..] ws://h:81/g.. | ws://h:81/g.. | True True True True True
+[...] ws://h:81/... | ws://h:81/... | True True True True True
+[a//b] ws://h:81/a//b | ws://h:81/a//b | True True True True True
+[?] ws://h:81/a? | ws://h:81/a? | True True True True True
+[#] ws://h:81/a# | ws://h:81/a# | True True True True True
+[g?y/./x] ws://h:81/g?y/./x | ws://h:81/g?y/./x | True True True True True
+[g#s/../x] ws://h:81/g#s/../x | ws://h:81/g#s/../x | True True True True True
+[http://x/y] http://x/y | http://x/y | True True True True True
+[https://x] https://x/ | https://x | True True True True True
+[http://x/../y] http://x/y | http://x/../y | True True True True True
+[ftp://h2/p] ftp://h2/p | ftp://h2/p | True True True True True
+http://h/a/../b | http://h/b | /b | /b | [/,b] | True
+http://h/a/./b | http://h/a/b | /a/b | /a/b | [/,a/,b] | True
+http://h/a/.. | http://h/ | / | / | [/] | True
+http://h/.. | http://h/ | / | / | [/] | True
+http://h/. | http://h/ | / | / | [/] | True
+http://h/./a | http://h/a | /a | /a | [/,a] | True
+http://h/a/b/../../../c | http://h/c | /c | /c | [/,c] | True
+http://h/a//../b | http://h/a/b | /a/b | /a/b | [/,a/,b] | True
+http://h/a/b//../../c | http://h/a/c | /a/c | /a/c | [/,a/,c] | True
+http://h/..a/../b | http://h/b | /b | /b | [/,b] | True
+http://h/a/.... | http://h/a/.... | /a/.... | /a/.... | [/,a/,....] | True
+http://h/a/..../b | http://h/a/..../b | /a/..../b | /a/..../b | [/,a/,..../,b] | True
+http://h/a./b../..c/.d/e... | http://h/a./b../..c/.d/e... | /a./b../..c/.d/e... | /a./b../..c/.d/e... | [/,a./,b../,..c/,.d/,e...] | True
+ftp://h/a/../b#x?y | ftp://h/b#x?y | /b | /b | [/,b] | True
+ws://h/a/b/../c | ws://h/a/c | /a/c | /a/c | [/,a/,c] | True
+http://h/a/..;x/b/.. | http://h/a/..;x/ | /a/..;x/ | /a/..;x/ | [/,a/,..;x/] | True
+http://h/a/b/c/../../.. | http://h/ | / | / | [/] | True
+http://h/../../a | http://h/a | /a | /a | [/,a] | True
+True
+True
+http://h/a/b/
+ArgumentNullException: Value cannot be null. (Parameter 'baseUri')
+ArgumentNullException: Value cannot be null. (Parameter 'relativeUri')
+ArgumentOutOfRangeException: Specified argument was out of the range of valid values. (Parameter 'baseUri')
+ArgumentOutOfRangeException: Specified argument was out of the range of valid values. (Parameter 'baseUri')
+ArgumentOutOfRangeException: Specified argument was out of the range of valid values. (Parameter 'baseUri')
+False
+False
+False
+False
+True http://other/z
+http://h/a/b/c: 1 1 0 0 0 0 0 0 1 0
+http://h/a/b/: 1 1 0 0 0 0 0 0 1 0
+http://h/a/b: 1 1 1 1 0 0 0 0 1 0
+http://h/a/: 1 1 1 1 0 0 0 0 1 0
+http://h/: 1 1 1 1 1 1 1 0 1 0
+http://h: 1 1 1 1 1 1 1 0 1 0
+http://H:80/A/B/: 0 0 0 0 0 0 1 0 0 0
+https://h/a/b/: 0 0 0 0 0 0 0 1 0 0
+http://h/a/b/c?q#f: 1 1 0 0 0 0 0 0 1 0
+http://h:81/a/b/: 0 0 0 0 0 0 0 0 0 1
+True
+False
+False
+False
+ArgumentNullException: Value cannot be null. (Parameter 'uri')
+True False False
+True False

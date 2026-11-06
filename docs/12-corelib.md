@@ -176,6 +176,17 @@ Limitation: `object is IEnumerable<X>` on an array can't check the element type 
   validation, traits, `ConstructionException`, `ToString`. `GetSources`, `SendCommand`,
   `GenerateManifest` and the event counters are not implemented (CSLLVM0002).
 
+* **`System.Uri`** (`corelib/Net/Uri.cs`, `UriRelative.cs`, `UriMembers.cs`): the URIs whose .NET behaviour needs no
+  escaping rules (absolute http, https, ftp, ws and wss URIs with a DNS name or canonical IPv4 host, plain file
+  paths, relative references of plain text); everything else is a `NotSupportedException` naming the case. On
+  those it is exact, down to messages: dot-segment removal (`Uri.Compress`), `MakeRelativeUri` / `MakeRelative`
+  (`PathDifference`, the case-insensitive DOS-path comparison, the `./` guard for a ':' in the first segment),
+  `new Uri(Uri, string/Uri)` and `Uri.TryCreate(Uri, ...)` (`CombineUri`), `GetComponents` / `GetLeftPart` /
+  `Compare` / `IsBaseOf`, `IsWellFormedOriginalString`, `TryFormat`, `CheckHostName` for DNS and IPv4 names,
+  `EscapeUriString`, `TryEscapeDataString`, `HexEscape` / `HexUnescape` / `FromHex`, `UriCreationOptions`
+  (the canonicalization-off option is a `NotSupportedException`). Resolving against a file URI, references
+  with a ':' in the first segment (`g:h`, `http:g`) and IPv6/IDN/user info hosts are not covered.
+
 ### Regular expressions
 
 `corelib/Regex/` is a port of .NET's own engine (dotnet/runtime release/11.0, commit `bc123d0`,
