@@ -197,6 +197,11 @@ public sealed class Compiler(CompilerOptions options)
         if (errors > 0) return Fail($"{errors} error(s) from the C# front-end");
 
         using var llvm = new LlvmContext();
+        // Local value names ("%add", "%call3", block labels) only matter to someone reading the IR: they
+        // cost a string-map entry per value in the program's memory and again in every partition's copy.
+        // Globals keep theirs; --emit llvm-ir|llvm-bc, or CSHARPC_KEEP_VALUE_NAMES=1, keeps the rest.
+        if (options.Emit is not (EmitKind.LlvmIr or EmitKind.LlvmBc) && Environment.GetEnvironmentVariable("CSHARPC_KEEP_VALUE_NAMES") != "1")
+            Native.LLVMContextSetDiscardValueNames(llvm.Ref, 1);
         using var target = TargetMachine.Create(options.Target, options.OptLevel switch
         {
             0 => LLVMCodeGenOptLevel.None,
@@ -500,8 +505,8 @@ public sealed class Compiler(CompilerOptions options)
         var allocated = GC.GetTotalAllocatedBytes();
         using var process = System.Diagnostics.Process.GetCurrentProcess();
         var cpu = process.TotalProcessorTime;
-        // Peak RSS so far (managed heap + LLVM's native allocations): compile-time scale is memory too.
-        Console.Error.WriteLine($"  {(now - _last).TotalMilliseconds,8:F1} ms  {(cpu - _lastCpu).TotalMilliseconds,8:F1} ms cpu  {(allocated - _lastAllocated) / 1048576.0,7:F1} MB alloc  gc {GC.CollectionCount(0)}/{GC.CollectionCount(1)}/{GC.CollectionCount(2)}  peak {process.PeakWorkingSet64 / 1048576,5} MB  {name}");
+        // Current and peak RSS (managed heap + LLVM's native allocations): compile-time scale is memory too.
+        Console.Error.WriteLine($"  {(now - _last).TotalMilliseconds,8:F1} ms  {(cpu - _lastCpu).TotalMilliseconds,8:F1} ms cpu  {(allocated - _lastAllocated) / 1048576.0,7:F1} MB alloc  gc {GC.CollectionCount(0)}/{GC.CollectionCount(1)}/{GC.CollectionCount(2)}  rss {process.WorkingSet64 / 1048576,5} peak {process.PeakWorkingSet64 / 1048576,5} MB  {name}");
         _last = now;
         _lastAllocated = allocated;
         _lastCpu = cpu;

@@ -101,6 +101,32 @@ owns the llvm.* lists and reattaches the type data (`TypeDataDetach`). TechEmpow
 locally with 2 threads: optimization and code generation 160 → 106 s, the build 205 → 136 s,
 executable 11.49 → 11.59 MB. `CSHARPC_OPT_UNITS=N` forces N partitions (1: the single-module path).
 
+### 6. Memory of the partitioned backend (`Driver/BitcodeImage.cs`, `Driver/MemoryBudget.cs`)
+
+Measured on csharpc compiling itself (`tools/bootstrap/selfhost.sh`: 9 M instructions, a CI runner with
+2 threads), the peak was in the partitions: the process held 4.9 GB when the program's module had been
+written out and freed (glibc keeps the freed memory, so the first partition parses into it), and every
+further worker parsed the whole image into 2.0 to 2.7 GB more. Three changes, none touching the output
+(the executables are byte-identical):
+
+- **No local value names.** `LLVMContextSetDiscardValueNames`: arguments, blocks and instructions
+  (`%add`, `%call3`, `entry`) are created without names, globals keep theirs. The names were a string-map
+  entry per value in the program's module and in every partition's copy. Kept for `--emit llvm-ir|llvm-bc`
+  and with `CSHARPC_KEEP_VALUE_NAMES=1`. Self-compile peak at -O0 9.2 → 8.0 GB, bitcode image 319 → 274 MB,
+  at -O2 8.6 → 7.6 GB.
+- **The bitcode image stays in LLVM's buffer** (`BitcodeImage`), not in a managed array copied from it: one
+  copy less, and no 2 GB array limit for a larger program.
+- **Workers follow the memory** (`MemoryBudget`): the first partition worker is free, each further one is
+  estimated at 10 times the image and has to fit in 90 % of the memory the process may use (the machine's
+  or its container's; `CSHARPC_MEMORY_MB` overrides) less what it already holds. The self-compile with one
+  worker: 5.3 GB at -O0 (backend 219 s instead of 122 s) and 5.5 GB at -O2 (1076 s instead of 462 s), so an
+  8 GB machine compiles csharpc where two workers needed more than 9 GB. A 16 GB runner keeps both.
+  `-v` prints the decision, and the resident set size after every phase and partition.
+
+What was tried and does not work: lazy bitcode loading (`LLVMGetBitcodeModuleInContext2`), so a worker would
+read only its own functions. The C API has no way to materialize the bodies that are left, and the code
+generator crashes on them; `Module::materializeAll` is not exported by LLVM's C interface.
+
 ### Rejected or deferred
 
 - **Caching lowered code across compilations** (per-method bitcode in `~/.cache/csharpc`): a corelib
@@ -156,9 +182,10 @@ threads alone (against the branch point).
    not thread-safe.
 3. **`-O2` optimization** of small programs stays one thread over the whole program; large ones are
    partitioned (section 5), and partitioning by the call graph instead of module order would import less.
-4. **Memory:** each code-generation thread parses the whole bitcode image before pruning it; lazy
-   bitcode loading (or per-partition images) would bound it by the partition, and lowering should drop
-   Roslyn operation trees and CFGs as soon as a function is emitted.
+4. **Memory:** each code-generation thread still parses the whole bitcode image before pruning it
+   (section 6 caps the workers by memory, lazy loading is not available through the C API); per-partition
+   images written from the lowering side would bound it by the partition. The managed heap peaks at 3.7 GB
+   at the end of lowering of the self-compile, with the program's module (about 2.7 GB) in LLVM's.
 5. **Tiered compilation's background JIT** rejits hot Roslyn and csharpc methods while LLVM runs
    (~3 s of CPU at `-O2` for the double-formatting program, on another core); `TieredCompilation=false`
    removes it but slows the managed phases on ReadyToRun code.
