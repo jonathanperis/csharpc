@@ -1,0 +1,23 @@
+1073_assembly_identity 1.0.0.0 [] 
+key=0 token=0 flags=PublicKey
+True
+True
+True
+True
+True
+-- referenced assemblies
+System.Runtime 11.0.0.0 PublicKeyToken=b03f5f7f11d50a3a
+System.Collections 11.0.0.0 PublicKeyToken=b03f5f7f11d50a3a
+System.Console 11.0.0.0 PublicKeyToken=b03f5f7f11d50a3a
+System.Linq 11.0.0.0 PublicKeyToken=b03f5f7f11d50a3a
+True
+-- attributes
+Channel=stable
+Build=42
+1 0 0
+-- entry point
+Program.Main(String[] args) -> Void static=True public=False
+True
+True
+True
+True

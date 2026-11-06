@@ -1229,7 +1229,9 @@ public sealed partial class ModuleCodeGen
     public LLVMValueRef StringLiteral(string value)
     {
         if (_strings.TryGetValue(value, out var g)) return g;
-        var chars = value.Select(c => Llvm.ConstInt(Llvm.I16, c)).ToArray();
+        // The char after the last one is 0, as in .NET (`fixed (char* p = s)` and native code reading wide strings rely on it);
+        // padding often provides it for free, but not on every layout (wasm32's 4-byte header).
+        var chars = value.Select(c => Llvm.ConstInt(Llvm.I16, c)).Append(Llvm.ConstInt(Llvm.I16, 0)).ToArray();
         var init = Llvm.ConstStruct(ExternalGlobal("csrt_String_MT"), Llvm.ConstInt(Llvm.I32, value.Length),
             LlvmContext.ConstArray(Llvm.I16, chars));
         g = Module.AddGlobal(".str", Native.LLVMTypeOf(init), init, constant: true, linkage: LLVMLinkage.Private);

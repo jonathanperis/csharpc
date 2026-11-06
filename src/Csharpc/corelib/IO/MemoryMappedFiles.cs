@@ -142,6 +142,130 @@ namespace CsharpcCoreLib
             _numBytes = (nuint)total;
         }
 
+        public void Initialize<T>(uint numElements) where T : struct => Initialize(numElements, (uint)sizeof(T));
+
+        // Typed access (dotnet/runtime SafeBuffer.cs): every access checks the buffer's length and holds a reference
+        // to the handle so that it can't be released meanwhile.
+#pragma warning disable CS8500 // structs of unmanaged data only, as in .NET (T is not constrained to unmanaged there either)
+        public T Read<T>(ulong byteOffset) where T : struct
+        {
+            if (_numBytes == Uninitialized) throw NotInitialized();
+            byte* ptr = (byte*)handle + byteOffset;
+            SpaceCheck(ptr, (nuint)sizeof(T));
+            T value = default;
+            bool mustCallRelease = false;
+            try
+            {
+                DangerousAddRef(ref mustCallRelease);
+                value = *(T*)ptr;
+            }
+            finally
+            {
+                if (mustCallRelease) DangerousRelease();
+            }
+            return value;
+        }
+
+        public void Write<T>(ulong byteOffset, T value) where T : struct
+        {
+            if (_numBytes == Uninitialized) throw NotInitialized();
+            byte* ptr = (byte*)handle + byteOffset;
+            SpaceCheck(ptr, (nuint)sizeof(T));
+            bool mustCallRelease = false;
+            try
+            {
+                DangerousAddRef(ref mustCallRelease);
+                *(T*)ptr = value;
+            }
+            finally
+            {
+                if (mustCallRelease) DangerousRelease();
+            }
+        }
+
+        public void ReadArray<T>(ulong byteOffset, T[] array, int index, int count) where T : struct
+        {
+            if (array == null) throw new ArgumentNullException("array", "Buffer cannot be null.");
+            if (index < 0) throw new ArgumentOutOfRangeException("index", "Non-negative number required.");
+            if (count < 0) throw new ArgumentOutOfRangeException("count", "Non-negative number required.");
+            if (array.Length - index < count) throw new ArgumentException("Offset and length were out of bounds for the array or count is greater than the number of elements from index to the end of the source collection.");
+            if (_numBytes == Uninitialized) throw NotInitialized();
+            byte* ptr = (byte*)handle + byteOffset;
+            SpaceCheck(ptr, checked((nuint)sizeof(T) * (nuint)count));
+            bool mustCallRelease = false;
+            try
+            {
+                DangerousAddRef(ref mustCallRelease);
+                for (int i = 0; i < count; i++) array[index + i] = ((T*)ptr)[i];
+            }
+            finally
+            {
+                if (mustCallRelease) DangerousRelease();
+            }
+        }
+
+        public void WriteArray<T>(ulong byteOffset, T[] array, int index, int count) where T : struct
+        {
+            if (array == null) throw new ArgumentNullException("array", "Buffer cannot be null.");
+            if (index < 0) throw new ArgumentOutOfRangeException("index", "Non-negative number required.");
+            if (count < 0) throw new ArgumentOutOfRangeException("count", "Non-negative number required.");
+            if (array.Length - index < count) throw new ArgumentException("Offset and length were out of bounds for the array or count is greater than the number of elements from index to the end of the source collection.");
+            if (_numBytes == Uninitialized) throw NotInitialized();
+            byte* ptr = (byte*)handle + byteOffset;
+            SpaceCheck(ptr, checked((nuint)sizeof(T) * (nuint)count));
+            bool mustCallRelease = false;
+            try
+            {
+                DangerousAddRef(ref mustCallRelease);
+                for (int i = 0; i < count; i++) ((T*)ptr)[i] = array[index + i];
+            }
+            finally
+            {
+                if (mustCallRelease) DangerousRelease();
+            }
+        }
+
+        public void ReadSpan<T>(ulong byteOffset, Span<T> buffer) where T : struct
+        {
+            if (_numBytes == Uninitialized) throw NotInitialized();
+            byte* ptr = (byte*)handle + byteOffset;
+            SpaceCheck(ptr, checked((nuint)sizeof(T) * (nuint)buffer.Length));
+            bool mustCallRelease = false;
+            try
+            {
+                DangerousAddRef(ref mustCallRelease);
+                for (int i = 0; i < buffer.Length; i++) buffer[i] = ((T*)ptr)[i];
+            }
+            finally
+            {
+                if (mustCallRelease) DangerousRelease();
+            }
+        }
+
+        public void WriteSpan<T>(ulong byteOffset, ReadOnlySpan<T> data) where T : struct
+        {
+            if (_numBytes == Uninitialized) throw NotInitialized();
+            byte* ptr = (byte*)handle + byteOffset;
+            SpaceCheck(ptr, checked((nuint)sizeof(T) * (nuint)data.Length));
+            bool mustCallRelease = false;
+            try
+            {
+                DangerousAddRef(ref mustCallRelease);
+                for (int i = 0; i < data.Length; i++) ((T*)ptr)[i] = data[i];
+            }
+            finally
+            {
+                if (mustCallRelease) DangerousRelease();
+            }
+        }
+#pragma warning restore CS8500
+
+        private void SpaceCheck(byte* ptr, nuint sizeInBytes)
+        {
+            if (_numBytes < sizeInBytes || (nuint)(ptr - (byte*)handle) > _numBytes - sizeInBytes)
+                throw new ArgumentException("Not enough space available in the buffer.");
+        }
+
         public void AcquirePointer(ref byte* pointer)
         {
             if (_numBytes == Uninitialized) throw NotInitialized();
