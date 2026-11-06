@@ -458,11 +458,12 @@ public sealed partial class ModuleCodeGen
             var (mt, described) = _typeMts[_typeAttributesScanned];
             ITypeSymbol key;
             List<AttributeInstance>? attributes;
+            var synthesizedUnknown = false;
             switch (described)
             {
                 case INamedTypeSymbol named when DescribesOwnAttributes(named) && IsProgramType(named):
                     key = named;
-                    attributes = Decoded(() => TypeAttributeInstances(named.OriginalDefinition));
+                    attributes = Decoded(() => { var list = TypeAttributeInstances(named.OriginalDefinition, out var unknown); synthesizedUnknown = unknown; return list; });
                     break;
                 case GenericParameter parameter:
                     key = parameter.Parameter;
@@ -478,7 +479,7 @@ public sealed partial class ModuleCodeGen
                 _reflectionEntries[key] = entry;
                 _reflectionOrder.Add(entry);
             }
-            SetTypeAttributes(entry, attributes);
+            SetTypeAttributes(entry, attributes, synthesizedUnknown);
             any = true;
         }
         // Types kept for [DynamicallyAccessedMembers] (whenever their entry appeared).
@@ -486,7 +487,9 @@ public sealed partial class ModuleCodeGen
         {
             var entry = _reflectionOrder[i];
             if ((entry.Described & (RiAttributes | RiAttributesUnknown)) != 0 || entry.Type is not INamedTypeSymbol named || !DescribesOwnAttributes(named)) continue;
-            SetTypeAttributes(entry, Decoded(() => TypeAttributeInstances(named.OriginalDefinition)));
+            var unknownSynthesized = false;
+            var list = Decoded(() => { var l = TypeAttributeInstances(named.OriginalDefinition, out var unknown); unknownSynthesized = unknown; return l; });
+            SetTypeAttributes(entry, list, unknownSynthesized);
             any = true;
         }
         return any;
@@ -499,12 +502,14 @@ public sealed partial class ModuleCodeGen
     private static bool DescribesOwnAttributes(INamedTypeSymbol type) =>
         type.TypeKind is TypeKind.Class or TypeKind.Struct or TypeKind.Interface or TypeKind.Enum or TypeKind.Delegate && !type.IsAnonymousType && !type.IsTupleType;
 
-    private void SetTypeAttributes(ReflectionEntry entry, List<AttributeInstance>? attributes)
+    private void SetTypeAttributes(ReflectionEntry entry, List<AttributeInstance>? attributes, bool synthesizedUnknown = false)
     {
         if (attributes is null) entry.Described |= RiAttributesUnknown;
         else
         {
-            entry.Attributes = Attributes(attributes);
+            // The declared attributes are exact; the list's count word says csc synthesizes more (Nullable, ...), which
+            // makes the untyped queries and those for System attributes throw while a program's own attributes stay exact.
+            entry.Attributes = synthesizedUnknown ? Attributes(new AttributeSet(attributes, 0, true)) : Attributes(attributes);
             entry.Described |= RiAttributes;
         }
     }
@@ -517,8 +522,9 @@ public sealed partial class ModuleCodeGen
     }
 
     /// <summary>A type definition's attributes as RuntimeType reports them; null when csharpc can't know them exactly.</summary>
-    private List<AttributeInstance>? TypeAttributeInstances(INamedTypeSymbol definition)
+    private List<AttributeInstance>? TypeAttributeInstances(INamedTypeSymbol definition, out bool synthesizedUnknown)
     {
+        synthesizedUnknown = false;
         var il = definition.MetadataToken != 0 ? Il.OwnerOf(definition) : null;
         if (il is not null)
         {
@@ -530,7 +536,7 @@ public sealed partial class ModuleCodeGen
         // assemblies differ from the implementation .NET loads.
         if (definition.MetadataToken != 0 || !definition.Locations.Any(l => l.IsInSource)) return null;
         // Source types: Roslyn's symbols omit the attributes the compiler synthesizes into metadata.
-        if (SynthesizesTypeAttributes(definition)) return null;
+        synthesizedUnknown = SynthesizesTypeAttributes(definition);
         // [StructLayout] is the type's layout flag, not a listed attribute.
         return definition.GetAttributes().Where(a => !IsUnlistedAttribute(a)).Select(FromAttributeData).OfType<AttributeInstance>().ToList();
     }
