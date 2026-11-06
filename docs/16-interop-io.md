@@ -114,8 +114,11 @@ csc would compile without its output, so the program would silently differ.
 
 * `CSHARPC_DUMP_GENERATED=dir` writes the generated files to `dir`.
 * `CSHARPC_NO_GENERATORS=1` disables generators.
-* `CSHARPC_ANALYZERS=dir` overrides the single-file analyzer directory
-  (default: `packs/Microsoft.NETCore.App.Ref/<version>/analyzers/dotnet/cs`).
+
+The SDK's generators for `[JsonSerializable]` and `[LibraryImport]` are linked into csharpc, taken from the
+`Microsoft.NETCore.App.Ref` pack of the SDK that builds it (`analyzers/dotnet/cs`), so a csharpc compiled by csharpc
+runs them too; a project's `/analyzer` file of the same assembly version uses the linked copy, any other
+generator assembly is loaded from its file (the native compiler cannot load assemblies: an explicit diagnostic).
 
 ## System.IO
 
