@@ -64,11 +64,13 @@ public sealed partial class ModuleCodeGen
     private bool EmitGenericInterfaceDispatchers(bool final)
     {
         var changed = false;
+        using var _ = Stats.Time("generic interface dispatchers/rounds");
         foreach (var d in _genericInterfaceDispatchers.Values.ToList())
             Guard(d.Target, () =>
             {
                 if (d.Closed) return;
-                var cases = ImplementingTypes(d.Target).Where(c => !d.Covered.Contains(c.Type)).ToList();
+                List<(INamedTypeSymbol Type, LLVMValueRef MethodTable, IMethodSymbol Callee)> cases;
+                using (Stats.Time("generic interface dispatchers/implementing types")) cases = ImplementingTypes(d.Target, d.Covered).ToList();
                 if (cases.Count == 0 && !final) return;
                 changed |= cases.Count > 0;
                 using var b = new IrBuilder(Llvm);
@@ -143,7 +145,7 @@ public sealed partial class ModuleCodeGen
     private void CheckGenericInterfaceDispatchers()
     {
         foreach (var d in _genericInterfaceDispatchers.Values)
-            if (ImplementingTypes(d.Target).FirstOrDefault(c => !d.Covered.Contains(c.Type)) is { Type: { } missed })
+            if (ImplementingTypes(d.Target, d.Covered).FirstOrDefault() is { Type: { } missed })
                 Errors.Add(CompileError.Unsupported($"generic interface method '{d.Target}' implemented by '{missed}', which appeared after its dispatcher was closed", d.Target));
         foreach (var t in _variantDelegateTests.Values)
             if (DelegatesConvertibleTo(t.Target).FirstOrDefault(d => !t.Covered.Contains(d)) is { } late)
@@ -151,11 +153,11 @@ public sealed partial class ModuleCodeGen
     }
 
     /// <summary>Instantiable types implementing the target's interface that the program has method tables for, with their implementation.</summary>
-    private IEnumerable<(INamedTypeSymbol Type, LLVMValueRef MethodTable, IMethodSymbol Callee)> ImplementingTypes(IMethodSymbol target)
+    private IEnumerable<(INamedTypeSymbol Type, LLVMValueRef MethodTable, IMethodSymbol Callee)> ImplementingTypes(IMethodSymbol target, HashSet<INamedTypeSymbol> covered)
     {
         if (target.ContainingType.TypeKind != TypeKind.Interface)
         {
-            foreach (var entry in OverridingClasses(target)) yield return entry;
+            foreach (var entry in OverridingClasses(target)) if (!covered.Contains(entry.Type)) yield return entry;
             yield break;
         }
         var itf = target.ContainingType;
@@ -196,11 +198,46 @@ public sealed partial class ModuleCodeGen
             }
             return impl.Construct(typeArgs);
         }
-        foreach (var (type, layout) in _layouts.ToList())
-            if (type is { TypeKind: TypeKind.Class, IsAbstract: false } && !layout.MethodTable.IsNull && IsConstructed(layout) && CalleeIn(type) is { } callee)
-                yield return (type, layout.MethodTable, callee);
-        foreach (var (type, layout) in _structs.ToList())
-            if (!layout.MethodTable.IsNull && CalleeIn(type) is { } callee)
-                yield return (type, layout.MethodTable, callee);
+        // Only the types that implement an instantiation of the interface (indexed as layouts appear), in layout order;
+        // the ones the dispatcher covers already are not looked at again (every round used to resolve the
+        // implementation of every class of the program for every dispatcher).
+        IndexImplementers();
+        if (_classesByInterface.TryGetValue(itf.OriginalDefinition, out var classes))
+            foreach (var type in classes.ToArray())
+                if (!covered.Contains(type) && _layouts.TryGetValue(type, out var layout) && !layout.MethodTable.IsNull && IsConstructed(layout) && CalleeIn(type) is { } callee)
+                    yield return (type, layout.MethodTable, callee);
+        if (_structsByInterface.TryGetValue(itf.OriginalDefinition, out var structs))
+            foreach (var type in structs.ToArray())
+                if (!covered.Contains(type) && _structs.TryGetValue(type, out var layout) && !layout.MethodTable.IsNull && CalleeIn(type) is { } callee)
+                    yield return (type, layout.MethodTable, callee);
+    }
+
+    private readonly Dictionary<INamedTypeSymbol, List<INamedTypeSymbol>> _classesByInterface = new(SymbolEqualityComparer.Default);
+    private readonly Dictionary<INamedTypeSymbol, List<INamedTypeSymbol>> _structsByInterface = new(SymbolEqualityComparer.Default);
+    private readonly HashSet<INamedTypeSymbol> _indexedImplementers = new(SymbolEqualityComparer.Default);
+
+    /// <summary>
+    /// Files the concrete classes and structs with a layout under each interface (definition) they implement, in the
+    /// order their layouts appeared: what a dispatcher for an interface method has to consider.
+    /// </summary>
+    private void IndexImplementers()
+    {
+        using var _ = Stats.Time("generic interface dispatchers/index");
+        foreach (var (type, layout) in _layouts)
+        {
+            if (type is not { TypeKind: TypeKind.Class, IsAbstract: false } || !_indexedImplementers.Add(type)) continue;
+            foreach (var itf in type.AllInterfaces) AddImplementer(_classesByInterface, itf.OriginalDefinition, type);
+        }
+        foreach (var (type, layout) in _structs)
+        {
+            if (!_indexedImplementers.Add(type)) continue;
+            foreach (var itf in type.AllInterfaces) AddImplementer(_structsByInterface, itf.OriginalDefinition, type);
+        }
+    }
+
+    private static void AddImplementer(Dictionary<INamedTypeSymbol, List<INamedTypeSymbol>> index, INamedTypeSymbol itf, INamedTypeSymbol type)
+    {
+        if (!index.TryGetValue(itf, out var list)) index[itf] = list = [];
+        list.Add(type);
     }
 }
