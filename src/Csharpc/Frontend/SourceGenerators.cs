@@ -120,7 +120,15 @@ public static class SourceGenerators
             if (!text.Contains(trigger, StringComparison.Ordinal)) continue;
             if (assembly is null) { generators.Add(new GeneratedRegexGenerator().AsSourceGenerator()); continue; }
             var path = dir is null ? null : Path.Combine(dir, assembly);
-            if (path is null || !File.Exists(path)) continue;
+            if (path is null || !File.Exists(path))
+            {
+                // Without the SDK's reference pack (or in a csharpc compiled by csharpc, which does not run on the SDK's
+                // runtime directory) the generator's output is missing and the program differs from `dotnet build`'s.
+                if (UsesAttribute(text, trigger))
+                    diagnostics.Add(Error("CSLLVM0001", $"not supported by csharpc yet: [{trigger}] needs the SDK's source generator '{assembly}' "
+                        + $"(from the analyzers folder of the Microsoft.NETCore.App.Ref pack, found next to the .NET runtime csharpc runs on), which was not found"));
+                continue;
+            }
             // The SDK's generators are assemblies loaded at run time. A csharpc that is itself compiled by csharpc
             // cannot load code (like NativeAOT), and a program compiled without their output differs from
             // `dotnet build`'s: say so instead of continuing.
@@ -145,6 +153,10 @@ public static class SourceGenerators
         }
         return generators;
     }
+
+    /// <summary>`[Trigger(`, `[Trigger]`, `[N.Trigger(`, `[A, Trigger(` and the Attribute-suffixed spellings: the text mentions the trigger as an attribute, not in a comment.</summary>
+    private static bool UsesAttribute(string text, string trigger) =>
+        System.Text.RegularExpressions.Regex.IsMatch(text, @"[\[,]\s*(?:[\w.]+\.)?" + trigger + @"(?:Attribute)?\s*[(\]]");
 
     /// <summary>
     /// The generators of a project's /analyzer assemblies (assemblies with only analyzers contribute

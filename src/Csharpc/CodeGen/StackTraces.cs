@@ -104,7 +104,11 @@ public sealed class StackTraceInfo
             var result = user.Emit(pe, pdb, options: new EmitOptions(debugInformationFormat: DebugInformationFormat.PortablePdb));
             failure = result.Success ? null : result.Diagnostics.FirstOrDefault(d => d.Severity == DiagnosticSeverity.Error)?.ToString() ?? "emit failed";
         }
-        catch (Exception e) when (e is not OutOfMemoryException) { failure = e.Message; }
+        catch (Exception e) when (e is not OutOfMemoryException)
+        {
+            failure = e.Message;
+            if (Environment.GetEnvironmentVariable("CSHARPC_TRACE") == "1") Console.Error.WriteLine($"[csharpc] emitting the program for its stack-trace metadata failed: {e}");
+        }
         if (failure is not null)
         {
             Warnings.Add(new CompileError("CSLLVM0006",

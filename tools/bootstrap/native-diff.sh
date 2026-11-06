@@ -37,7 +37,7 @@ for name in "$@"; do
   fi
   CSHARPC_TRACE=1 "$NATIVE" "$src" "$OPT" --emit llvm-ir -o "$OUT/$name.trace.ll" > /dev/null 2> "$OUT/$name.native.trace"
   # the trace lists every symbol lowered: keep the generators' exceptions (with stack traces) and internal errors only
-  grep -A25 -E "^\[csharpc\] generator|^[A-Za-z.]*(Exception|Error):" "$OUT/$name.native.trace" > "$OUT/$name.native.failures" || true
+  grep -A25 -E "^\[csharpc\] (generator|emitting)|^[A-Za-z.]*(Exception|Error):" "$OUT/$name.native.trace" > "$OUT/$name.native.failures" || true
   rm -f "$OUT/$name.native.trace"
   if [[ -s "$OUT/$name.native.failures" ]]; then
     echo "   native failures (CSHARPC_TRACE=1):"
