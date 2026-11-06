@@ -16,7 +16,9 @@ windows 312_json_reader                 live: indented JSON uses the writer's Ne
 windows 314_json_document               live: indented JSON uses the writer's NewLine handling, not the "\n" -> "\r\n" derivation
 windows 315_json_node                   live: indented JSON uses the writer's NewLine handling, not the "\n" -> "\r\n" derivation
 windows 318_json_options                live: indented JSON uses the writer's NewLine handling, not the "\n" -> "\r\n" derivation
-macos 970_objectivec_marshal_platform  known gap: real .NET on macOS runs ObjectiveCMarshal (reference tracking needs finalizers and the collector's tracked-reference callbacks); csharpc throws NotSupportedException there (#23)
+macos 970_objectivec_marshal_platform  live: real .NET on macOS runs ObjectiveCMarshal (argument and state errors included); samples 977 and 978 cover its behaviour
+macos 977_objectivec_tracking  live: real .NET runs ObjectiveCMarshal only on macOS (elsewhere it prints "not macOS"); recorded there
+macos 978_objectivec_msgsend  live: real .NET runs ObjectiveCMarshal only on macOS (elsewhere it prints "not macOS"); recorded there
 windows 199_debug_assert_failfast       known gap: a failed Debug.Assert's fail-fast exit status on Windows isn't matched yet (.NET 35, csharpc 127); stdout matches
 windows 07_arrays                       live: writes a bare "\n" itself, next to WriteLine's "\r\n"
 windows 163_number_parse                live: writes a bare "\n" itself, next to WriteLine's "\r\n"

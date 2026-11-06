@@ -23,8 +23,9 @@ namespace CsharpcCoreLib
         [DllImport("__Internal")] public static extern void csrt_weak_set(IntPtr handle, IntPtr target, IntPtr value);
         [DllImport("__Internal")] public static extern void csrt_weak_free(IntPtr handle);
 
-        public static IntPtr Alloc(object target, object owner) =>
-            csrt_weak_alloc(CoreIntrinsics.ObjectToPointer(target), IntPtr.Zero, CoreIntrinsics.ObjectToPointer(owner), 0);
+        // kind: 0 weak, 1 ephemeron, 2 weak that tracks resurrection (cleared once the object is gone for good, after its finalizer ran)
+        public static IntPtr Alloc(object target, object owner, bool trackResurrection = false) =>
+            csrt_weak_alloc(CoreIntrinsics.ObjectToPointer(target), IntPtr.Zero, CoreIntrinsics.ObjectToPointer(owner), trackResurrection ? 2 : 0);
 
         public static IntPtr AllocEphemeron(object key, object value, object owner) =>
             csrt_weak_alloc(CoreIntrinsics.ObjectToPointer(key), CoreIntrinsics.ObjectToPointer(value), CoreIntrinsics.ObjectToPointer(owner), 1);
@@ -46,8 +47,7 @@ namespace CsharpcCoreLib
 
         public WeakReferenceImpl(T target, bool trackResurrection)
         {
-            // trackResurrection only matters to finalizers, which csharpc never runs.
-            _handle = WeakSlots.Alloc(target, this);
+            _handle = WeakSlots.Alloc(target, this, trackResurrection);
         }
 
         public bool TryGetTarget(out T target)
@@ -70,7 +70,7 @@ namespace CsharpcCoreLib
 
         public WeakReferenceImpl(object target, bool trackResurrection)
         {
-            _handle = WeakSlots.Alloc(target, this);
+            _handle = WeakSlots.Alloc(target, this, trackResurrection);
             _trackResurrection = trackResurrection;
         }
 
