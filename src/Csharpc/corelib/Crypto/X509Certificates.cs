@@ -558,6 +558,16 @@ namespace CsharpcCoreLib
 
         public bool HasPrivateKey { get { ThrowIfInvalid(); return _key != IntPtr.Zero; } }
 
+        // Kestrel's certificate loader reaches these overloads for key types csharpc has no implementation of (only RSA keys are
+        // loaded, from PEM and PKCS#12); a program that loads a certificate with such a key gets this explicit diagnostic.
+        public X509Certificate2 CopyWithPrivateKey(ECDiffieHellman privateKey) => throw Tls.NotSupported("X509Certificate2.CopyWithPrivateKey(ECDiffieHellman)");
+        public X509Certificate2 CopyWithPrivateKey(MLDsa privateKey) => throw Tls.NotSupported("X509Certificate2.CopyWithPrivateKey(MLDsa)");
+#pragma warning disable SYSLIB5006 // SlhDsa and CompositeMLDsa are [Experimental]: named here only to refuse them
+        public X509Certificate2 CopyWithPrivateKey(MLKem privateKey) => throw Tls.NotSupported("X509Certificate2.CopyWithPrivateKey(MLKem)");
+        public X509Certificate2 CopyWithPrivateKey(SlhDsa privateKey) => throw Tls.NotSupported("X509Certificate2.CopyWithPrivateKey(SlhDsa)");
+        public X509Certificate2 CopyWithPrivateKey(CompositeMLDsa privateKey) => throw Tls.NotSupported("X509Certificate2.CopyWithPrivateKey(CompositeMLDsa)");
+#pragma warning restore SYSLIB5006
+
         public byte[] RawData { get { ThrowIfInvalid(); return (byte[])_der.Clone(); } }
 
         public ReadOnlyMemory<byte> RawDataMemory { get { ThrowIfInvalid(); return _der; } }
