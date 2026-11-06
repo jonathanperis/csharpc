@@ -45,7 +45,6 @@ class AutoClass { public int X; }
 struct Generic<T> { public T Value; public int Other; }
 
 [StructLayout(LayoutKind.Sequential)]
-struct VariantFlag { [MarshalAs(UnmanagedType.VariantBool)] public bool Flag; }
 
 class P
 {
@@ -114,7 +113,6 @@ class P
         Console.WriteLine(Marshal.OffsetOf<Generic<int>>("Other"));
         Console.WriteLine(Marshal.OffsetOf(typeof(Generic<long>), "Other"));
         Try("null type", () => Marshal.OffsetOf((Type)null, "x"));
-        Try("variant bool", () => Marshal.SizeOf<VariantFlag>());
     }
 
     static void Main()

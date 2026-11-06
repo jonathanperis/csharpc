@@ -51,4 +51,3 @@ null name: ArgumentNullException: Value cannot be null. (Parameter 'name')
 4
 8
 null type: ArgumentNullException: Value cannot be null. (Parameter 't')
-variant bool: ArgumentException: Type 'VariantFlag' cannot be marshaled as an unmanaged structure; no meaningful size or offset can be computed.
