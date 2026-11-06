@@ -321,6 +321,9 @@ namespace CsharpcCoreLib
             : antecedent.IsFaulted ? (options & TaskContinuationOptions.NotOnFaulted) != 0
             : (options & TaskContinuationOptions.NotOnRanToCompletion) != 0;
 
+        [System.Runtime.InteropServices.DllImport("__Internal", EntryPoint = "csrt_task_mark_continuation")]
+        private static extern void MarkContinuation(IntPtr task);
+
         internal static Task ContinueWith(Task antecedent, Action body, object callback, CancellationToken token, TaskContinuationOptions options, TaskSchedulerImpl scheduler, string callbackName, object state = null)
         {
             if (callback == null) throw new ArgumentNullException(callbackName);
@@ -329,6 +332,7 @@ namespace CsharpcCoreLib
             TaskCompletionSource tcs = new TaskCompletionSource();
             AttachToParent(tcs.Task, creation);
             TaskState.Set(tcs.Task, state, creation);
+            MarkContinuation(CoreIntrinsics.ObjectToPointer(tcs.Task));
             Action work = Work(body, tcs, token, creation, scheduler);
             Hook(antecedent, () => tcs.TrySetCanceled(), tcs.Task, work, token, options, scheduler);
             return tcs.Task;
@@ -342,6 +346,7 @@ namespace CsharpcCoreLib
             TaskCompletionSource<TResult> tcs = new TaskCompletionSource<TResult>();
             AttachToParent(tcs.Task, creation);
             TaskState.Set(tcs.Task, state, creation);
+            MarkContinuation(CoreIntrinsics.ObjectToPointer(tcs.Task));
             Action work = Work(body, tcs, token, creation, scheduler);
             Hook(antecedent, () => tcs.TrySetCanceled(), tcs.Task, work, token, options, scheduler);
             return tcs.Task;

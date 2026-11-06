@@ -77,7 +77,7 @@ _Static_assert(offsetof(csrt_Task, payload) == (sizeof(void*) == 8 ? 56 : 40), "
 // when it faulted it (csrt_trace_await).
 // TF_WAIT_CHILDREN: the body has finished but attached children haven't (WaitingForChildrenToComplete).
 // TF_DENY_CHILD: a Task.Run task, whose Task.CreationOptions is DenyChildAttach (corelib TaskState).
-enum { TF_DELEGATE = 1, TF_RUNNING = 2, TF_WAITED = 4, TF_CREATED = 8, TF_DENY_CHILD = 16, TF_WAIT_CHILDREN = 32, TF_TRACE_SHIFT = 8 };
+enum { TF_DELEGATE = 1, TF_RUNNING = 2, TF_WAITED = 4, TF_CREATED = 8, TF_DENY_CHILD = 16, TF_WAIT_CHILDREN = 32, TF_CONTINUATION = 64, TF_TRACE_SHIFT = 8 };
 
 typedef struct csrt_Iterator {
     const csrt_MethodTable* mt;
@@ -474,6 +474,9 @@ bool csrt_task_denies_children(csrt_Task* t) { return t && (__atomic_load_n(&t->
 void csrt_task_mark_waiting_children(csrt_Task* t) { if (t) __atomic_or_fetch(&t->flags, TF_WAIT_CHILDREN, __ATOMIC_RELEASE); }
 void csrt_task_mark_created(csrt_Task* t) { if (t) __atomic_or_fetch(&t->flags, TF_CREATED, __ATOMIC_RELEASE); }
 void csrt_task_clear_created(csrt_Task* t) { if (t) __atomic_and_fetch(&t->flags, ~TF_CREATED, __ATOMIC_RELEASE); }
+/// ContinueWith's task: Start and RunSynchronously refuse it with a message of its own (ColdTasks.cs).
+void csrt_task_mark_continuation(csrt_Task* t) { if (t) __atomic_or_fetch(&t->flags, TF_CONTINUATION, __ATOMIC_RELEASE); }
+int32_t csrt_task_is_continuation(csrt_Task* t) { return t && (__atomic_load_n(&t->flags, __ATOMIC_ACQUIRE) & TF_CONTINUATION) ? 1 : 0; }
 void csrt_task_mark_running(csrt_Task* t) { if (t) __atomic_or_fetch(&t->flags, TF_DELEGATE | TF_RUNNING, __ATOMIC_RELEASE); }
 
 static int32_t s_task_id_counter;
@@ -1526,8 +1529,11 @@ static void run_item(intptr_t kind, void* a, void* b) {
             csrt_Task* inner = NULL;
             tl_current_task = csrt_task_new(0); // .NET's hidden delegate task behind the unwrapping proxy
             void* exception = csrt_call_catching_ptr((void* (*)(void*))d->fn, d->target, (void**)&inner);
-            if (exception) csrt_task_fault(b, exception);
-            else if (!inner || !add_continuation(inner, K_CHAIN, b)) chain(inner, b);
+            // Task.Run's proxy looks for an OperationCanceledException (UnwrapPromise lookForOce): it cancels the
+            // proxy, as it does an async method.
+            if (exception) csrt_task_try_fault_async(b, exception);
+            else if (!inner) csrt_task_cancel(b);  // a null task is a cancellation (UnwrapPromise)
+            else if (!add_continuation(inner, K_CHAIN, b)) chain(inner, b);
             break;
         }
         case K_RUN_THUNK: {
