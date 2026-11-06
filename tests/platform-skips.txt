@@ -238,3 +238,8 @@ macos 1009_httpclient_json  known gap: System.Net.Http's system-proxy support (C
 windows 1009_httpclient_json  known gap: System.Net.Http's system-proxy support (HttpWindowsProxy: WinINet, WindowsIdentity, EventWaitHandle) isn't implemented, so HttpClient is an explicit compile error on Windows
 macos 1010_httpclient_base_address  known gap: System.Net.Http's system-proxy support (CFNetwork: Marshal.GetFunctionPointerForDelegate) isn't implemented, so HttpClient is an explicit compile error on macOS
 windows 1010_httpclient_base_address  known gap: System.Net.Http's system-proxy support (HttpWindowsProxy: WinINet, WindowsIdentity, EventWaitHandle) isn't implemented, so HttpClient is an explicit compile error on Windows
+
+# TLS and X.509 (docs/adr/0022-tls.md): over OpenSSL on Linux only.
+macos 1100_x509_certificates  known gap: X.509 certificates, PKCS#12 and chains need Security.framework on macOS, not implemented yet (an explicit NotSupportedException)
+windows 1100_x509_certificates  known gap: X.509 certificates, PKCS#12 and chains need CNG/CryptoAPI on Windows, not implemented yet (an explicit NotSupportedException)
+wasi 1100_x509_certificates  known gap: no OpenSSL on WebAssembly (WASI): certificates throw NotSupportedException

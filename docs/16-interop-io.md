@@ -150,7 +150,7 @@ length byte first) and errno values are per target OS. Errors are `SocketExcepti
 `SocketErrorCode` (Winsock numbering, mapped from errno), the native error as `ErrorCode`/
 `NativeErrorCode`, the OS's message text, and — for failed connects — the endpoint appended, as .NET
 does; `SocketException` derives from `Win32Exception` and `ExternalException` like in .NET. The
-`*Async` methods run the blocking call on the thread pool. Not yet: TLS/`SslStream`, `HttpClient`,
+`*Async` methods run the blocking call on the thread pool. Not yet: TLS/`SslStream` (X.509 certificates exist on Linux, [ADR 0022](adr/0022-tls.md)), `HttpClient`,
 `Socket.Select`/`Poll`, socket flags, most socket options (other members are compile-time
 "not supported" diagnostics). Samples `195_ip_addresses` and `196_sockets_loopback`.
 
