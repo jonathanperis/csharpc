@@ -277,7 +277,7 @@ each collection calls the registered begin/end callback around one pass: for eve
 reached it calls `isReferenced(taggedMemory)`, and marks the object (and what it reaches) when the answer is non-zero. An
 object that enters the finalizer queue is announced to `trackedObjectEnteredFinalization(taggedMemory)` first; the tagged
 memory is freed once the object is gone for good. The callbacks run with the world stopped on the collecting thread and
-must not call managed code that allocates. Programs that never call `Initialize` have none of this in the binary.
+must not call managed code (real CoreCLR aborts when they do). `SetMessageSendCallback` fills a per-kind override table that the P/Invoke stubs of libobjc's `objc_msgSend`, `_fpret`, `_stret`, `Super` and `Super_stret` consult before every call, and `SetMessageSendPendingException` leaves an exception on the thread that the stub throws after the call. Programs that never call `Initialize` have none of this in the binary.
 
 ### Weak references and ephemerons
 

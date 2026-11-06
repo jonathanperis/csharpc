@@ -51,4 +51,4 @@ registers again (at most one registration per object: a second call is a no-op, 
   disposed is released at process exit, not when collected.
 - Objects created by `Activator`/reflection helpers other than `Activator.CreateInstance<T>()` and `new` are not yet registered
   (`RuntimeHelpers.GetUninitializedObject` makes unregistered instances).
-- `ObjectiveCMarshal` reference tracking (macOS) is built on this: [04-runtime.md](../04-runtime.md#objective-c-reference-tracking). The `objc_msgSend` overrides are the remaining part of #23.
+- `ObjectiveCMarshal` reference tracking (macOS) is built on this: [04-runtime.md](../04-runtime.md#objective-c-reference-tracking). The `objc_msgSend` overrides live in the P/Invoke lowering.

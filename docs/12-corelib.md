@@ -373,6 +373,8 @@ corelib methods the program reaches from IL, with no parsing or binding of the c
   and reference-tracking handles (`CreateReferenceTrackingHandle`); each collection asks `isReferenced(taggedMemory)`
   about the tracked objects nothing else reached (a referenced one survives with what it reaches), and announces an
   object entering the finalizer queue ([04-runtime.md](04-runtime.md#objective-c-reference-tracking),
-  [ADR 0021](adr/0021-finalizers.md)). Still explicit: `SetMessageSendCallback` and `SetMessageSendPendingException`
-  (overriding `objc_msgSend` needs a redirect in the P/Invoke lowering). The unhandled-exception propagation handler
-  is stored but never called (an exception escaping an `[UnmanagedCallersOnly]` method ends the process).
+  [ADR 0021](adr/0021-finalizers.md)). `SetMessageSendCallback` overrides libobjc's `objc_msgSend` family (the P/Invoke
+  stubs of those entry points call the registered function) and `SetMessageSendPendingException` stores an exception
+  the stub throws when the call returns. Verified on the macOS runner against real .NET (samples 970, 977, 978). The
+  unhandled-exception propagation handler is stored but never called (an exception escaping an `[UnmanagedCallersOnly]`
+  method ends the process).
