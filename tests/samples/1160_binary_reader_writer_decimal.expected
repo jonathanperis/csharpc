@@ -1,0 +1,14 @@
+148
+0000000000000000000000000000000001000000000000000000000000000000
+0 True 0
+1 True 0
+-1 True 0
+1.50 True 2
+-0.0001 True 4
+79228162514264337593543950335 True 0
+-79228162514264337593543950335 True 0
+12345.6789000 True 7
+0.0000000000000000000000000001 True 28
+7
+EndOfStreamException: Unable to read beyond the end of the stream.
+IOException: Decimal constructor requires an array or span of four valid decimal bytes.

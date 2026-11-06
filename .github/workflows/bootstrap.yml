@@ -49,7 +49,11 @@ jobs:
           { echo '### Roslyn hosted from IL'; echo '```'; grep -E "^(PASS|FAIL|SKIP)|passed|Maximum resident|Elapsed \(wall" host.log; echo '```'; } >> "$GITHUB_STEP_SUMMARY" || true
 
   selfhost:
-    name: csharpc compiles csharpc
+    strategy:
+      fail-fast: false
+      matrix:
+        opt: ["-O0", "-O2"]
+    name: csharpc compiles csharpc (${{ matrix.opt }})
     runs-on: ubuntu-24.04
     timeout-minutes: 180
     defaults:
@@ -62,8 +66,8 @@ jobs:
         with:
           os: linux
 
-      - name: Self-compile and compare (-O0)
-        run: SELFHOST_LOG="$PWD/selfhost.log" tools/bootstrap/selfhost.sh -O0 2>&1 | tee selfhost-summary.log; grep -q " 0 failed" selfhost-summary.log
+      - name: Self-compile and compare (${{ matrix.opt }})
+        run: SELFHOST_LOG="$PWD/selfhost.log" tools/bootstrap/selfhost.sh ${{ matrix.opt }} 2>&1 | tee selfhost-summary.log; grep -q " 0 failed" selfhost-summary.log
 
       - name: Report
         if: always()
@@ -73,6 +77,6 @@ jobs:
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
-          name: selfhost-log
+          name: selfhost-log${{ matrix.opt }}
           path: selfhost.log
           if-no-files-found: ignore
