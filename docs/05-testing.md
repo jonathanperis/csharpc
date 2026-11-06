@@ -43,6 +43,15 @@ tests/run.sh --regen 07         # re-record a single sample
 tests/run.sh --via-il -O0 07    # the program as IL: `dotnet build 07*.cs`, then `csharpc 07*.dll`
 ```
 
+`CSHARPC_JOBS=N tests/run.sh` compiles and runs up to N samples at once (default 1). The output is what a
+sequential run prints, in sample order, with the same `PASS`/`FAIL`/`SKIP` lines, per-binary timeout and
+exit code; every sample gets scratch files of its own. The first sample of each pass (-O0, -O2) runs alone
+so the shared runtime/corelib cache in `~/.cache/csharpc` is filled once, and the samples listed in
+`tests/serial-samples.txt` run alone too: those that observe their neighbours (connecting to a port that
+was just closed on purpose, wall-clock windows of a few tens of milliseconds, inotify). Add a sample
+there if it flakes only when run next to others. `--repeat` and `--via-il` always run one sample at a
+time. CI picks N per platform in `tools/ci-plan.sh` (`jobs_for_platform`: 3, macOS 2).
+
 `--via-il` runs the same samples against the same recordings through csc first, as the dotnet pipeline
 hands csharpc its input ([ADR 0010](adr/0010-il-frontend.md#the-program-as-il-2026-10-30)): each sample is
 built with `dotnet build NAME.cs` (the build `dotnet run NAME.cs` makes, with its runtimeconfig.json) and
