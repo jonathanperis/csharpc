@@ -1,0 +1,26 @@
+items: 10,15,20 count 3
+after adds: OnInsert(0,10) OnInsertComplete(0,10) OnInsert(1,20) OnInsertComplete(1,20) OnInsert(1,15) OnInsertComplete(1,15)
+after set: OnSet(0,10->11) OnSetComplete(0,10->11)
+contains 15: True, index of 20: 2, of 99: -1
+items: 20
+after removes: OnRemove(1,15) OnRemoveComplete(1,15) OnRemove(0,11) OnRemoveComplete(0,11)
+validate: only ints
+null: value
+after invalid adds: 
+rolled back insert: OnInsertComplete failed count 1
+vetoed remove: OnRemove failed count 1
+rolled back remove: OnRemoveComplete failed items 20
+rolled back set: OnSetComplete failed items 20
+after failures: OnInsert(1,30) OnInsertComplete(1,30) OnRemove(0,20) OnRemove(0,20) OnRemoveComplete(0,20) OnSet(0,20->99) OnSetComplete(0,20->99)
+get: index | Index was out of range. Must be non-negative and less than the size of the collection. (Parameter 'index')
+set: Index was out of range. Must be non-negative and less than the size of the collection. (Parameter 'index')
+remove at: Index was out of range. Must be non-negative and less than the size of the collection. (Parameter 'index')
+insert: Index was out of range. Must be non-negative and less than or equal to the size of the collection. (Parameter 'index')
+remove object: ArgumentException
+remove missing: Cannot remove the specified item because it was not found in the specified Collection.
+IList: fixed=False readonly=False; ICollection: sync=False root=True
+copy: 20
+20;
+capacity 64 count 1
+cleared: 0
+after clear: OnClear OnClearComplete

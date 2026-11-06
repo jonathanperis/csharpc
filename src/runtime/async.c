@@ -365,7 +365,8 @@ static inline bool is_task_mt(const csrt_MethodTable* mt) {
 /// inside its task; other tasks are scanned too, which is only conservative).
 bool csrt_gc_remembered_object(const void* obj) {
     const csrt_MethodTable* mt = *(const csrt_MethodTable* const*)obj;
-    return mt == &csrt_CoroFrame_MT.header || mt == &csrt_Task_MT.header;
+    // A Task<T> carries its own table, derived from csrt_Task_MT (compiler: ModuleCodeGen.TaskTypes.cs).
+    return mt == &csrt_CoroFrame_MT.header || mt == &csrt_Task_MT.header || mt->base == &csrt_Task_MT.header;
 }
 #endif
 

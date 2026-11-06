@@ -1,0 +1,65 @@
+FromResult(1): Task True, Task<int> True, Task<string> False, Task<long> False, Task<object> False, kind Task<int>
+FromResult("s"): Task True, Task<int> False, Task<string> True, Task<long> False, Task<object> False, kind Task<string>
+FromResult(1L): Task True, Task<int> False, Task<string> False, Task<long> True, Task<object> False, kind Task<long>
+FromResult<object>: Task True, Task<int> False, Task<string> False, Task<long> False, Task<object> True, kind Task<object>
+FromResult(true): Task True, Task<int> False, Task<string> False, Task<long> False, Task<object> False, kind Task<bool>
+FromResult(int[]): Task True, Task<int> False, Task<string> False, Task<long> False, Task<object> False, kind Task<int[]>
+FromResult(Task<int>): Task True, Task<int> False, Task<string> False, Task<long> False, Task<object> False, kind Task<Task<int>>
+FromResult(List<string>): Task True, Task<int> False, Task<string> False, Task<long> False, Task<object> False, kind Task<List<string>>
+CompletedTask: Task True, Task<int> False, Task<string> False, Task<long> False, Task<object> False, kind Task
+Task.Run(Func<int>): Task True, Task<int> True, Task<string> False, Task<long> False, Task<object> False, kind Task<int>
+Task.Run(Func<string>): Task True, Task<int> False, Task<string> True, Task<long> False, Task<object> False, kind Task<string>
+Task.Run(Func<Task<string>>): Task True, Task<int> False, Task<string> True, Task<long> False, Task<object> False, kind Task<string>
+Task.Run(Action): Task True, Task<int> False, Task<string> False, Task<long> False, Task<object> False, kind Task
+new TaskCompletionSource<int>().Task: Task True, Task<int> True, Task<string> False, Task<long> False, Task<object> False, kind Task<int>
+new TaskCompletionSource<string>().Task: Task True, Task<int> False, Task<string> True, Task<long> False, Task<object> False, kind Task<string>
+new Task<int>(...): Task True, Task<int> True, Task<string> False, Task<long> False, Task<object> False, kind Task<int>
+FromException<int>: Task True, Task<int> True, Task<string> False, Task<long> False, Task<object> False, kind Task<int>
+FromCanceled<string>: Task True, Task<int> False, Task<string> True, Task<long> False, Task<object> False, kind Task<string>
+async Task<int>: Task True, Task<int> True, Task<string> False, Task<long> False, Task<object> False, kind Task<int>
+async Task<string>: Task True, Task<int> False, Task<string> True, Task<long> False, Task<object> False, kind Task<string>
+async Task<int> (completed synchronously): Task True, Task<int> True, Task<string> False, Task<long> False, Task<object> False, kind Task<int>
+async ValueTask<int>.AsTask(): Task True, Task<int> True, Task<string> False, Task<long> False, Task<object> False, kind Task<int>
+async Task: Task True, Task<int> False
+WhenAll(Task<int>[]): Task True, Task<int> False, Task<string> False, Task<long> False, Task<object> False, kind Task<int[]>
+WhenAll(Task<string>[]): Task True, Task<int> False, Task<string> False, Task<long> False, Task<object> False, kind Task
+WhenAny(Task<int>, Task<int>): Task True, Task<int> False, Task<string> False, Task<long> False, Task<object> False, kind Task<Task<int>>
+ContinueWith<string>: Task True, Task<int> False, Task<string> True, Task<long> False, Task<object> False, kind Task<string>
+ContinueWith<int>: Task True, Task<int> True, Task<string> False, Task<long> False, Task<object> False, kind Task<int>
+as Task<string>: text; as Task<int>: null
+pattern: text
+cast: text
+is not: True
+Unable to cast object of type 'System.Threading.Tasks.Task`1[System.String]' to type 'System.Threading.Tasks.Task`1[System.Int32]'.
+Unable to cast object of type 'System.Threading.Tasks.Task`1[System.String]' to type 'System.Threading.Tasks.Task`1[System.Object]'.
+null: False, True
+Unable to cast object of type 'System.String' to type 'System.Threading.Tasks.Task`1[System.String]'.
+GetType: System.Threading.Tasks.Task`1[System.Int32]; ToString: System.Threading.Tasks.Task`1[System.Int32]
+GetType: System.Threading.Tasks.Task`1[System.String]; ToString: System.Threading.Tasks.Task`1[System.String]
+GetType: System.Threading.Tasks.Task`1[System.Object]; ToString: System.Threading.Tasks.Task`1[System.Object]
+GetType: System.Threading.Tasks.Task`1[System.Int64]; ToString: System.Threading.Tasks.Task`1[System.Int64]
+GetType: System.Threading.Tasks.Task`1[System.Double]; ToString: System.Threading.Tasks.Task`1[System.Double]
+typeof(Task<int>) == GetType: True, typeof(Task<string>) == GetType: False
+typeof(Task<int>): System.Threading.Tasks.Task`1[System.Int32], generic definition System.Threading.Tasks.Task`1[TResult], argument System.Int32
+base type of Task<int>: System.Threading.Tasks.Task, assignable to Task: True, instance: True, False
+IsTaskOf<int>: True, <string>: False, <string> of string task: True, <object>: False
+IAsyncResult: True, completed True, IDisposable: True
+IList: Count 2, Contains True, IndexOf 1
+ArgumentException: The value "System.Threading.Tasks.Task`1[System.Int32]" is not of type "System.Threading.Tasks.Task`1[System.String]" and cannot be used in this generic collection. (Parameter 'value')
+ArgumentException: The value "not a task" is not of type "System.Threading.Tasks.Task`1[System.String]" and cannot be used in this generic collection. (Parameter 'value')
+ArgumentException: The value "System.Threading.Tasks.Task`1[System.Int64]" is not of type "System.Threading.Tasks.Task`1[System.String]" and cannot be used in this generic collection. (Parameter 'value')
+IList after null: Count 3
+  item: one
+  item: two
+  item: null
+IList<Task<int>>: 2
+ICollection: 1
+  array item: Task<bool>
+ArgumentException: The value "System.Threading.Tasks.Task`1[System.String]" is not of type "System.Threading.Tasks.Task`1[System.Int32]" and cannot be used in this generic collection. (Parameter 'value')
+IDictionary: 2
+  mixed: Task<int>
+  mixed: Task<string>
+  mixed: not a task: Int32
+  mixed: null
+awaited: 1 r 1 1
+WhenAll(Task, Task) is Task<int>: False, status RanToCompletion

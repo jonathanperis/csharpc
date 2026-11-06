@@ -1,0 +1,33 @@
+== untrusted root
+  client: failed: AuthenticationException: Authentication failed, see inner exception. / AuthenticationException: The remote certificate is invalid because of errors in the certificate chain: UntrustedRoot
+== callback returns false
+  client: AuthenticationException: Authentication failed, see inner exception. / AuthenticationException: The remote certificate was rejected by the provided RemoteCertificateValidationCallback. | errors=RemoteCertificateChainErrors status=UntrustedRoot
+== host name mismatch accepted by callback
+  server: read 0
+  client: authenticated errors=RemoteCertificateNameMismatch, RemoteCertificateChainErrors
+== custom root trust, right host
+  server: read 0
+  client: authenticated, remote=CN=localhost, O=csharpc tests, C=BR
+== custom root trust, wrong host
+  client: failed: AuthenticationException: Authentication failed, see inner exception. / AuthenticationException: The remote certificate is invalid according to the validation procedure: RemoteCertificateNameMismatch
+== custom root trust, IP address host
+  server: read 0
+  client: authenticated
+== protocol mismatch
+  client: failed: AuthenticationException: Authentication failed, see inner exception. / inner: SSL Handshake failed with OpenSSL error - SSL_ERROR_SSL.
+== plain text sent to a TLS server
+  server: failed: AuthenticationException: Cannot determine the frame size or a corrupted frame was received.
+  client: sent
+== a TLS client talking to an HTTP server
+  client: failed: AuthenticationException: Cannot determine the frame size or a corrupted frame was received.
+== server hangs up
+  client: failed: IOException: Received an unexpected EOF or 0 bytes from the transport stream.
+== client certificate required but missing
+  server: AuthenticationException: The remote certificate was rejected by the provided RemoteCertificateValidationCallback. | callback: certificate=none chain=none errors=RemoteCertificateNotAvailable
+== invalid server certificates
+  client: null certificate: NotSupportedException: The server mode SSL must use a certificate with the associated private key.
+    certificate without a key: AuthenticationException: The server mode SSL must use a certificate with the associated private key.
+    null options: ArgumentNullException: Value cannot be null. (Parameter 'sslServerAuthenticationOptions')
+    null client options: ArgumentNullException: Value cannot be null. (Parameter 'sslClientAuthenticationOptions')
+== callback set twice
+  client: InvalidOperationException: The 'RemoteCertificateValidationCallback' option was already set in the SslStream constructor.
