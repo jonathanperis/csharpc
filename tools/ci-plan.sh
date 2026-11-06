@@ -19,6 +19,18 @@ shard_count() {
   esac
 }
 
+# Samples a shard compiles and runs at once (tests/run.sh, CSHARPC_JOBS). GitHub's hosted runners
+# have 4 vCPUs (ubuntu, windows, ubuntu-24.04-arm) and 3 on macOS (macos-15 arm64); a compilation
+# is itself multi-threaded, so a little over one sample per core already keeps the cores busy
+# while others wait for the linker and the sample's own run.
+jobs_for_platform() {
+  case "$1" in
+    x86-64|arm64|windows-x64|wasm32-wasi) echo 3 ;;
+    macos-arm64) echo 2 ;;
+    *) echo 1 ;;
+  esac
+}
+
 platform_os() {
   case "$1" in
     x86-64|arm64) echo linux ;;
@@ -494,7 +506,9 @@ cmd_run_shard() {
   if [[ "$opt" == all ]]; then args+=(--all-opts); else args+=(--opt "$opt"); fi
   if [[ "$repeat" != 1 ]]; then args+=(--repeat "$repeat"); fi
   if [[ -n "$filter" ]]; then args+=("$filter"); fi
-  bash "$ROOT/tests/run.sh" "${args[@]}"
+  # CSHARPC_JOBS from the workflow (or a local override) wins; a flake-hunting repeat stays sequential
+  # inside tests/run.sh whatever this says.
+  CSHARPC_JOBS="${CSHARPC_JOBS:-$(jobs_for_platform "${CI_PLATFORM:-}")}" bash "$ROOT/tests/run.sh" "${args[@]}"
 }
 
 cmd_coverage() {
@@ -709,6 +723,17 @@ EOF
   listed="$(bash "$ROOT/tests/run.sh" --list --shard 0/4 | wc -l)"
   pairs="$(wc -l <"$tmp/man")"
   [[ "$pairs" == $((listed * 2)) ]] || { echo "manifest pair count $pairs vs $listed"; fail=1; }
+
+  # Every platform has a parallelism, and every name in tests/serial-samples.txt is a real sample.
+  local p line
+  for p in $ALL_PLATFORMS; do
+    [[ "$(jobs_for_platform "$p")" =~ ^[1-9][0-9]*$ ]] || { echo "no sample parallelism for $p"; fail=1; }
+  done
+  while IFS= read -r line; do
+    line="${line%%#*}"; line="${line//[[:space:]]/}"
+    [[ -z "$line" ]] && continue
+    [[ -f "$ROOT/tests/samples/$line.cs" ]] || { echo "tests/serial-samples.txt names a missing sample: $line"; fail=1; }
+  done < "$ROOT/tests/serial-samples.txt"
 
   rm -rf "$tmp"
   if [[ "$fail" != 0 ]]; then
