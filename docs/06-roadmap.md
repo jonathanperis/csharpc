@@ -213,9 +213,16 @@ caller (samples 1150-1152, checked against libc/libm and across both ends); `&Ma
 methods can be pointer targets (sample 1153). Left as diagnostics: `calli` with an instance signature or
 `vararg`, and `char`/`string`/array/delegate in an unmanaged function pointer's signature (.NET marshals them).
 
-Next: `-g` from the assembly's PDB, the BCL
-surface packages use (ranked by the survey), `typeof(X).Assembly`, RID-specific/native package
-assets.
+**RID-specific and native package assets** (2026-11-06): the packages' `runtimes/<rid>/lib` assemblies and
+`runtimes/<rid>/native` libraries for the target's runtime identifier, as the host and `PublishAot` select them. A
+project with packages is restored for the target's RID (`--target` -> linux-x64, linux-arm64, osx-arm64, win-x64;
+the host's by default; a RID the project or `-p:RuntimeIdentifier` sets wins), so NuGet's own selection applies: the
+RID-specific assembly replaces the portable `lib/` one. The program as IL reads deps.json's `runtimeTargets`
+with the runtime graph's fallbacks (linux-x64 -> linux -> unix-x64 -> unix -> any). The native libraries are copied
+next to the executable, where a P/Invoke probes first (`tests/il.sh`, RidApp, against a package built locally).
+Left: satellite resource assemblies, `ref/` vs `lib/` binding, linking a package's static archives.
+
+Next: `-g` from the assembly's PDB, the BCL surface packages use (ranked by the survey), `typeof(X).Assembly`.
 
 ### M6 — Bootstrapping
 csharpc compiles csharpc (and Roslyn) — the strongest possible proof of maturity.

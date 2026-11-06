@@ -149,6 +149,35 @@ before every commit that touches `src/`.
 - Exact .NET semantics include exception types and messages, number formatting (invariant
   culture), and evaluation order.
 
+## Workflow: issue, branch, PR, report
+
+Every change to this repository, whether a bug, a roadmap bullet, a docs fix or a CI change, goes through the same
+five steps. Nothing is pushed to `main` directly.
+
+1. **Raise the issue first**, before any code, and fill in everything GitHub offers that applies:
+   - a title naming the symptom or the capability, and a body with the context, how to reproduce it (or the
+     acceptance criteria for a feature), the expected result from real .NET, and what is explicitly out of scope;
+   - labels: the kind (`bug`, `enhancement`, `documentation`, `ci`), the area (`area: bcl`, `area: codegen`,
+     `area: il-frontend`, `area: json`, `area: resources`, `area: runtime`, `area: drop-in`, `area: toolchain`), the
+     platform where it is specific to one (`platform: macos`, `platform: windows`), and `reproduced` /
+     `partially fixed` as the work shows it;
+   - the assignee, the milestone (currently "Drop-in for large apps"), and links to related issues and PRs.
+   A bug is reproduced first (a failing sample or project test), then fixed.
+2. **Work on a branch** from current `main`, named for the change (`fix/...`, `feat/...`, `docs/...`), one topic per
+   branch. Keep it current by merging `main` into it. `tests/platform-skips.txt` is append-only, so conflicts there
+   keep both sides.
+3. **Open a PR that references the issue** (`Fixes #N` in the body, so merging closes it), with the same labels,
+   assignee and milestone as the issue. The description says what changed and why, what the tests prove, and what stays
+   an explicit "not supported by csharpc yet" diagnostic. A stacked PR is retargeted to `main` before its base merges,
+   because deleting the base branch closes it.
+4. **Merge only on green CI**: the five `test (<platform>)` jobs (below) on the PR's current head, and no
+   conflict with `main`. Merge with a merge commit, delete the branch and any worktree, and re-check the PRs that were
+   waiting, since a merge can make them conflict.
+5. **Report back on the issue and close it**: a comment with the fix (what was wrong, what changed, a link to the PR,
+   the regression tests, and the limits that remain as diagnostics or follow-up issues), then close it. A follow-up
+   found along the way gets its own issue, linked, not a silent TODO. An issue that is only partly solved stays
+   open, labeled `partially fixed`, with the remainder stated.
+
 ## Commits and pull requests
 
 - Imperative summary line; a body explaining what changed and why.

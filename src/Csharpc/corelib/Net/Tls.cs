@@ -23,6 +23,9 @@ namespace CsharpcCoreLib
     {
         internal static NotSupportedException NotSupported() =>
             new NotSupportedException("TLS and X.509 certificates (System.Net.Security, System.Security.Cryptography.X509Certificates) are not supported by csharpc yet.");
+
+        internal static NotSupportedException NotSupported(string what) =>
+            new NotSupportedException(what + " is not supported by csharpc yet.");
     }
 
     [Shadows("System.Net.Security.SslApplicationProtocol")]
@@ -198,6 +201,7 @@ namespace CsharpcCoreLib
         }
     }
 
+#if !CSHARPC_TARGET_LINUX
     [Shadows("System.Net.Security.SslStream")]
     public class SslStreamImpl : Stream
     {
@@ -245,7 +249,9 @@ namespace CsharpcCoreLib
         public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
         public override void SetLength(long value) => throw new NotSupportedException();
     }
+#endif
 
+#if !CSHARPC_TARGET_LINUX
     [Shadows("System.Security.Cryptography.X509Certificates.X509Certificate")]
     public class X509CertificateImpl : IDisposable
     {
@@ -263,12 +269,31 @@ namespace CsharpcCoreLib
         public void Dispose() { }
         protected virtual void Dispose(bool disposing) { }
     }
+#endif
 
     [Shadows("System.Security.Cryptography.Oid")]
     public sealed class OidImpl
     {
         public OidImpl() { }
-        public OidImpl(string oid) { Value = oid; }
+        public OidImpl(string oid)
+        {
+#if CSHARPC_TARGET_LINUX
+            // A dotted value or a friendly name: the table fills in the other (OidLookup).
+            if (oid != null && oid.Length > 0 && char.IsDigit(oid[0]))
+            {
+                Value = oid;
+                FriendlyName = OidTable.FriendlyName(oid);
+            }
+            else
+            {
+                string value = oid == null ? null : OidTable.Value(oid);
+                Value = value ?? oid;
+                FriendlyName = value == null ? null : OidTable.FriendlyName(value);
+            }
+#else
+            Value = oid;
+#endif
+        }
         public OidImpl(string value, string friendlyName) { Value = value; FriendlyName = friendlyName; }
         public OidImpl(OidImpl oid)
         {
@@ -304,8 +329,9 @@ namespace CsharpcCoreLib
     }
 
     [Shadows("System.Security.Cryptography.OidEnumerator")]
-    public sealed class OidEnumeratorImpl : System.Collections.IEnumerator
+    public sealed class OidEnumeratorImpl : System.Collections.IEnumerator, IDisposable
     {
+        public void Dispose() { }
         private readonly OidCollectionImpl _oids;
         private int _current = -1;
         internal OidEnumeratorImpl(OidCollectionImpl oids) { _oids = oids; }
@@ -320,6 +346,7 @@ namespace CsharpcCoreLib
         public void Reset() => _current = -1;
     }
 
+#if !CSHARPC_TARGET_LINUX
     [Shadows("System.Security.Cryptography.AsnEncodedData")]
     public class AsnEncodedDataImpl
     {
@@ -328,6 +355,7 @@ namespace CsharpcCoreLib
         public Oid Oid { get => throw Tls.NotSupported(); set => throw Tls.NotSupported(); }
         public byte[] RawData { get => throw Tls.NotSupported(); set => throw Tls.NotSupported(); }
     }
+#endif
 
     // Like the certificate collections: a certificate's Extensions can't be read, so no instance exists.
     [Shadows("System.Security.Cryptography.X509Certificates.X509ExtensionCollection")]
@@ -389,6 +417,7 @@ namespace CsharpcCoreLib
         public IEnumerable<System.Net.IPAddress> EnumerateIPAddresses() => throw Tls.NotSupported();
     }
 
+#if !CSHARPC_TARGET_LINUX
     [Shadows("System.Security.Cryptography.X509Certificates.X509ChainPolicy")]
     public sealed class X509ChainPolicyImpl
     {
@@ -396,7 +425,9 @@ namespace CsharpcCoreLib
         public X509RevocationMode RevocationMode { get => throw Tls.NotSupported(); set => throw Tls.NotSupported(); }
         public X509RevocationFlag RevocationFlag { get => throw Tls.NotSupported(); set => throw Tls.NotSupported(); }
     }
+#endif
 
+#if !CSHARPC_TARGET_LINUX
     [Shadows("System.Security.Cryptography.X509Certificates.X509ChainElementCollection")]
     public sealed class X509ChainElementCollectionImpl
     {
@@ -404,13 +435,16 @@ namespace CsharpcCoreLib
         public int Count => throw Tls.NotSupported();
         public X509ChainElement this[int index] => throw Tls.NotSupported();
     }
+#endif
 
+#if !CSHARPC_TARGET_LINUX
     [Shadows("System.Security.Cryptography.X509Certificates.X509ChainElement")]
     public class X509ChainElementImpl
     {
         private X509ChainElementImpl() { }
         public X509Certificate2 Certificate => throw Tls.NotSupported();
     }
+#endif
 
     [Shadows("System.Security.Cryptography.RSACryptoServiceProvider")]
     public sealed class RSACryptoServiceProviderImpl
@@ -529,6 +563,7 @@ namespace CsharpcCoreLib
         public static DSA Create() => throw Tls.NotSupported();
     }
 
+#if !CSHARPC_TARGET_LINUX
     [ShadowMembers("System.Security.Cryptography.X509Certificates.X509CertificateLoader")]
     internal static class X509CertificateLoaderMembers
     {
@@ -540,6 +575,7 @@ namespace CsharpcCoreLib
         public static X509Certificate2 LoadPkcs12FromFile(string path, string password, X509KeyStorageFlags keyStorageFlags = X509KeyStorageFlags.DefaultKeySet,
             Pkcs12LoaderLimits loaderLimits = null) => throw Tls.NotSupported();
     }
+#endif
 
     [Shadows("System.Security.Cryptography.CspKeyContainerInfo")]
     public sealed class CspKeyContainerInfoImpl
@@ -573,6 +609,7 @@ namespace CsharpcCoreLib
         public X509Certificate2 TargetCertificate => throw Tls.NotSupported();
     }
 
+#if !CSHARPC_TARGET_LINUX
     [ShadowMembers("System.Security.Cryptography.X509Certificates.RSACertificateExtensions")]
     internal static class RSACertificateExtensionsMembers
     {
@@ -580,6 +617,7 @@ namespace CsharpcCoreLib
         public static RSA GetRSAPublicKey(X509Certificate2 certificate) => throw Tls.NotSupported();
         public static X509Certificate2 CopyWithPrivateKey(X509Certificate2 certificate, RSA privateKey) => throw Tls.NotSupported();
     }
+#endif
 
     // The post-quantum signature keys Kestrel can load from PEM files (no key can be created: Import* throw).
     [ShadowMembers("System.Security.Cryptography.MLDsa")]
@@ -622,6 +660,7 @@ namespace CsharpcCoreLib
         public static X509Certificate2 CopyWithPrivateKey(X509Certificate2 certificate, DSA privateKey) => throw Tls.NotSupported();
     }
 
+#if !CSHARPC_TARGET_LINUX
     [Shadows("System.Security.Cryptography.X509Certificates.X509Certificate2")]
     public class X509Certificate2Impl : X509CertificateImpl
     {
@@ -652,8 +691,10 @@ namespace CsharpcCoreLib
         public static X509ContentType GetCertContentType(byte[] rawData) => throw Tls.NotSupported();
         public static X509ContentType GetCertContentType(string fileName) => throw Tls.NotSupported();
     }
+#endif
 
     // Certificate collections can't be created (X509CertificateCollection's constructors throw): no instance exists.
+#if !CSHARPC_TARGET_LINUX
     [Shadows("System.Security.Cryptography.X509Certificates.X509CertificateCollection")]
     public class X509CertificateCollectionImpl : System.Collections.IEnumerable
     {
@@ -667,7 +708,9 @@ namespace CsharpcCoreLib
         public X509Certificate this[int index] { get => throw Tls.NotSupported(); set => throw Tls.NotSupported(); }
         System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() => throw Tls.NotSupported();
     }
+#endif
 
+#if !CSHARPC_TARGET_LINUX
     [Shadows("System.Security.Cryptography.X509Certificates.X509Certificate2Collection")]
     public class X509Certificate2CollectionImpl : X509CertificateCollectionImpl, IEnumerable<X509Certificate2>
     {
@@ -679,7 +722,9 @@ namespace CsharpcCoreLib
         public X509Certificate2EnumeratorImpl GetEnumerator() => throw Tls.NotSupported();
         IEnumerator<X509Certificate2> IEnumerable<X509Certificate2>.GetEnumerator() => throw Tls.NotSupported();
     }
+#endif
 
+#if !CSHARPC_TARGET_LINUX
     [Shadows("System.Security.Cryptography.X509Certificates.X509Certificate2Enumerator")]
     public sealed class X509Certificate2EnumeratorImpl : IEnumerator<X509Certificate2>
     {
@@ -690,14 +735,18 @@ namespace CsharpcCoreLib
         public void Reset() => throw Tls.NotSupported();
         public void Dispose() { }
     }
+#endif
 
+#if !CSHARPC_TARGET_LINUX
     [Shadows("System.Security.Cryptography.X509Certificates.PublicKey")]
     public sealed class PublicKeyImpl
     {
         public PublicKeyImpl(Oid oid, AsnEncodedData parameters, AsnEncodedData keyValue) => throw Tls.NotSupported();
         public Oid Oid => throw Tls.NotSupported();
     }
+#endif
 
+#if !CSHARPC_TARGET_LINUX
     [Shadows("System.Security.Cryptography.X509Certificates.X509Chain")]
     public class X509ChainImpl : IDisposable
     {
@@ -707,6 +756,7 @@ namespace CsharpcCoreLib
         public X509ChainElementCollection ChainElements => throw Tls.NotSupported();
         public void Dispose() { }
     }
+#endif
 
     [Shadows("System.Security.Cryptography.X509Certificates.X509Store")]
     public sealed class X509StoreImpl : IDisposable
