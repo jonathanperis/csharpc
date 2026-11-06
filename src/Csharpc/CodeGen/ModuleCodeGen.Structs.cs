@@ -314,28 +314,45 @@ public sealed partial class ModuleCodeGen
             ? "System.ValueTuple`" + elements.Count + "[" + string.Join(",", elements.Select(ClrName)) + "]"
             : "System.ValueTuple`8[" + string.Join(",", elements.Take(7).Select(ClrName)) + "," + TupleClrName([.. elements.Skip(7)]) + "]";
 
+    /// <summary>
+    /// csc reaches Item8 and up as `ldflda Rest; ldfld ItemN`. The elements are stored flat, so the address of Rest is the
+    /// address of the eighth element, which is also the rest tuple's address when its elements sit at the same relative
+    /// offsets in both (alignment padding can differ).
+    /// </summary>
+    private (LLVMTypeRef Type, uint Index) RestOf(INamedTypeSymbol tuple, ITypeSymbol restType, IFieldSymbol field)
+    {
+        var outer = Types.Value(tuple);
+        var rest = Types.Value(restType);
+        var target = Types.Target;
+        var count = restType is INamedTypeSymbol { IsTupleType: true } r ? r.TupleElements.Length : 1;
+        var aligned = target.OffsetOf(outer, 7) % target.AlignOf(rest) == 0;
+        for (uint i = 0; aligned && i < count; i++)
+            aligned = target.OffsetOf(outer, 7 + i) - target.OffsetOf(outer, 7) == target.OffsetOf(rest, i);
+        if (!aligned) throw CompileError.Unsupported($"the Rest of tuple '{tuple}' (its elements are laid out differently in csharpc's flat tuple)", field);
+        return (outer, 7);
+    }
+
     /// <summary>LLVM struct type + element index of an instance field of a struct or tuple.</summary>
     public (LLVMTypeRef Type, uint Index) ValueTypeField(IFieldSymbol field)
     {
         var owner = field.ContainingType;
+        // csc names the tuple through its metadata type: System.ValueTuple<T1..T7, TRest> (Rest), and ValueTuple<T1> for a
+        // one-element Rest. The flat tuple of all the elements is what csharpc stores.
+        if (!owner.IsTupleType && TypeMapper.IsSystemStruct(owner, "ValueTuple`1") && field.Name == "Item1")
+            return (Types.Value(owner), 0);
+        if (!owner.IsTupleType && TypeMapper.IsSystemStruct(owner, "ValueTuple`8") && field.Name == "Rest")
+        {
+            var flat = new List<ITypeSymbol>(owner.TypeArguments.Take(7));
+            flat.AddRange(owner.TypeArguments[7] is INamedTypeSymbol { IsTupleType: true } restTuple ? restTuple.TupleElements.Select(e => e.Type) : [owner.TypeArguments[7]]);
+            var tuple = Compilation.CreateTupleTypeSymbol([.. flat]);
+            return RestOf(tuple, owner.TypeArguments[7], field);
+        }
+        if (owner.IsTupleType && (field.CorrespondingTupleField ?? field).Name == "Rest" && owner.TupleElements.Length > 7)
+            return RestOf(owner, field.Type, field);
         if (owner.IsTupleType)
         {
             // Named elements (`t.x`) alias the underlying ItemN field.
             var name = (field.CorrespondingTupleField ?? field).Name;
-            // csc reaches Item8 and up as `ldflda Rest; ldfld Item1`. The elements are stored flat, so the address of
-            // Rest is the address of the eighth element, which is the rest tuple's address only when the elements
-            // sit at the same relative offsets in both (alignment padding can differ).
-            if (name == "Rest" && owner.TupleElements.Length > 7 && field.Type is INamedTypeSymbol { IsTupleType: true } restTuple)
-            {
-                var outer = Types.Value(owner);
-                var rest = Types.Value(restTuple);
-                var target = Types.Target;
-                var aligned = target.OffsetOf(outer, 7) % target.AlignOf(rest) == 0;
-                for (uint i = 0; aligned && i < restTuple.TupleElements.Length; i++)
-                    aligned = target.OffsetOf(outer, 7 + i) - target.OffsetOf(outer, 7) == target.OffsetOf(rest, i);
-                if (!aligned) throw CompileError.Unsupported($"the Rest of tuple '{owner}' (its elements are laid out differently in csharpc's flat tuple)", field);
-                return (outer, 7);
-            }
             if (!name.StartsWith("Item", StringComparison.Ordinal) || !uint.TryParse(name.AsSpan(4), out var n) || n == 0 || n > owner.TupleElements.Length)
                 throw CompileError.Unsupported($"tuple field '{field.Name}'" + (name == "Rest" ? " (csharpc flattens tuples of more than seven elements)" : ""), field);
             return (Types.Value(owner), n - 1);

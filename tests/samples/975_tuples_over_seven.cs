@@ -24,3 +24,17 @@ var d2 = new Dictionary<(int, int, int, int, int, int, int, int), string> { [(1,
 Console.WriteLine(d2[(1, 2, 3, 4, 5, 6, 7, 8)]);
 var big = new ValueTuple<int, int, int, int, int, int, int, ValueTuple<string, string>>(1, 2, 3, 4, 5, 6, 7, new ValueTuple<string, string>("r1", "r2"));
 Console.WriteLine(big);
+
+// Eight elements (the Rest holds one), and writes to the elements past the seventh.
+var eight = (1, 2, 3, 4, 5, 6, 7, 8);
+eight.Item8 = 80;
+Console.WriteLine(eight + " " + (eight.Item8 + eight.Item1));
+var nine = (1, 2, 3, 4, 5, 6, 7, 8, 9);
+nine.Item9 = 90;
+nine.Item8 += 1;
+Console.WriteLine(nine);
+var copy = nine;
+copy.Item9 = 0;
+Console.WriteLine(nine.Item9 + " " + copy.Item9);
+(int, int, int, int, int, int, int, int, int) swapped = (nine.Item9, nine.Item8, nine.Item7, nine.Item6, nine.Item5, nine.Item4, nine.Item3, nine.Item2, nine.Item1);
+Console.WriteLine(swapped);

@@ -536,7 +536,14 @@ public sealed class IlAssembly : IDisposable, ISignatureTypeProvider<IlType, IlG
         {
             if (!SymbolEqualityComparer.Default.Equals(t.OriginalDefinition, definitionMember.ContainingType.OriginalDefinition)) continue;
             if (SymbolEqualityComparer.Default.Equals(t, t.OriginalDefinition)) return definitionMember;
-            return t.GetMembers(definitionMember.Name).First(m => SymbolEqualityComparer.Default.Equals(m.OriginalDefinition, definitionMember.OriginalDefinition));
+            var match = t.GetMembers(definitionMember.Name).FirstOrDefault(m => SymbolEqualityComparer.Default.Equals(m.OriginalDefinition, definitionMember.OriginalDefinition));
+            // A tuple type of more than seven elements wraps the first seven fields of ValueTuple`8 in its own symbols, which
+            // don't compare equal to the definition's; its field names are unique.
+            if (match is null && t.IsTupleType && definitionMember is IFieldSymbol)
+                match = t.GetMembers(definitionMember.Name).OfType<IFieldSymbol>().FirstOrDefault();
+            // ... and doesn't list ValueTuple's Rest field: it is the underlying type's.
+            match ??= t.TupleUnderlyingType?.GetMembers(definitionMember.Name).FirstOrDefault(m => SymbolEqualityComparer.Default.Equals(m.OriginalDefinition, definitionMember.OriginalDefinition));
+            return match ?? throw new IlException($"member '{definitionMember.Name}' of '{t}' not found");
         }
         return definitionMember;
     }

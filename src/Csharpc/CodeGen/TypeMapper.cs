@@ -56,6 +56,8 @@ public sealed class TypeMapper(LlvmContext llvm, TargetMachine target)
             Llvm.Struct(Llvm.I8, Storage(n.TypeArguments[0])),              // { hasValue, value }
         INamedTypeSymbol { IsTupleType: true } t =>
             Llvm.Struct([.. t.TupleElements.Select(e => Storage(e.Type))]),  // ValueTuple<...>: flattened, whatever its length (Rest nesting is only a name)
+        // ValueTuple<T1> (a Rest of exactly one element: the eighth of an 8-tuple): just its element.
+        INamedTypeSymbol n when IsSystemStruct(n, "ValueTuple`1") => Llvm.Struct(Storage(n.TypeArguments[0])),
         INamedTypeSymbol n when IsSystemStruct(n, "Index") => Llvm.I32,                       // .NET's own encoding: ~n = from end
         INamedTypeSymbol n when IsSystemStruct(n, "Range") => Llvm.Struct(Llvm.I32, Llvm.I32), // { Index start, Index end }
         // StringBuilder.AppendInterpolatedStringHandler: represented by the StringBuilder it appends into.
