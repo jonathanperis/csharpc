@@ -40,7 +40,8 @@ public sealed partial class FunctionCodeGen
             if (value is ITypeOfOperation t && !types.Any(x => SymbolEqualityComparer.Default.Equals(x, t.TypeOperand))) types.Add(t.TypeOperand);
         }
         if (local.Type is { Name: "Type", ContainingNamespace: { Name: "System", ContainingNamespace.IsGlobalNamespace: true } }
-            && local.DeclaringSyntaxReferences.FirstOrDefault()?.GetSyntax() is VariableDeclaratorSyntax declarator)
+            && local.DeclaringSyntaxReferences.FirstOrDefault()?.GetSyntax() is VariableDeclaratorSyntax declarator
+            && _m.Compilation.ContainsSyntaxTree(declarator.SyntaxTree)) // not the synthesized compilations that bind `dynamic` operations
         {
             var model = _m.Compilation.GetSemanticModel(declarator.SyntaxTree);
             if (declarator.Initializer is { } initializer) Add(model.GetOperation(initializer.Value));
