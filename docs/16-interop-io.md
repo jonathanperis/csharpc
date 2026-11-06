@@ -62,9 +62,22 @@ generic delegate types are a `NotSupportedException` / `ArgumentException`. A po
   say, `malloc` would also capture the C runtime's own references to it).
 
 `NativeLibrary.Load/TryLoad/GetExport/TryGetExport/Free`, `Marshal.AllocHGlobal/FreeHGlobal`,
-`Marshal.StringToHGlobalAnsi/Uni`, `PtrToStringUTF8/Ansi/Uni`, `Read*/Write*`, `Copy`,
-`SizeOf`, `PtrToStructure`, `StructureToPtr` and `NativeMemory.*` are C# in
-`corelib/Interop.cs`.
+`Marshal.StringToHGlobalAnsi/Uni`, `PtrToStringUTF8/Ansi/Uni`, `Read*/Write*`, `Copy` (every primitive array type, range-checked
+like the span constructors) and `NativeMemory.*` (including the aligned allocators, over a header kept below the aligned
+address) are C# in `corelib/Interop.cs`.
+
+### Marshal.SizeOf / OffsetOf / PtrToStructure / StructureToPtr / DestroyStructure
+
+These are resolved at the call site (`FunctionCodeGen.MarshalLayout.cs`), where the type is a type argument, `typeof(X)` or
+the static type of the structure: the unmanaged layout is computed at compile time as the CLR's marshaller lays it out
+(sequential or explicit, `Pack`, `bool` as a 4-byte `BOOL` or one byte with `[MarshalAs(U1/I1)]`, a char as one ANSI
+byte unless the layout says `CharSet.Unicode`, nested structs, enums) and the copies are generated field by field, or as
+one block copy when the unmanaged bytes are the managed ones. A layout with a converted field (`bool`) is written into
+zeroed bytes and cleared by `DestroyStructure`, as the CLR does. The marshaller's own refusals (an enum, string, array
+or auto-layout class given to `SizeOf`, generic types, null arguments) are the same `ArgumentException`s at run time.
+Explicit diagnostics: a type known only at run time (`Type` variables, a structure typed `object` or an unsealed class), fields
+that need real marshalling (strings, arrays, delegates, object references, fixed buffers) and ANSI `char` fields when
+reading or writing memory.
 
 ### `[LibraryImport]` and other source generators
 

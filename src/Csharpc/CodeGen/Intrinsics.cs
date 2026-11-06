@@ -1013,6 +1013,8 @@ internal static class Intrinsics
         t[$"{Th}.CancellationToken.CanBeCanceled"] = (g, p) =>
             g.Builder.ICmp(LLVMIntPredicate.NE, g.EmitValue(p.Instance!), LlvmContext.Null(g.Module.Llvm.Ptr));
         t[$"{Th}.CancellationToken.None"] = (g, _) => LlvmContext.Null(g.Module.Llvm.Ptr);
+        // A ManualResetEvent per source, set when it is canceled (corelib/Threading/WaitHandles.cs).
+        t[$"{Th}.CancellationToken.WaitHandle"] = (g, p) => g.CallCoreLib("CancellationWaitHandles", "Get", g.EmitValue(p.Instance!));
         PropertyHandler isCompleted = (g, p) => g.CallRuntime("csrt_task_is_completed", g.Module.Llvm.I1, [g.Module.Llvm.Ptr], g.EmitValue(p.Instance!));
         foreach (var type in TaskAwaiterTypes.Concat([$"{Tasks}.Task", $"{Tasks}.ValueTask"]))
             t[$"{type}.IsCompleted"] = isCompleted;
@@ -1047,6 +1049,16 @@ internal static class Intrinsics
                     var value = g.EmitValue(argument.Value);
                     return g.ConvertNumeric(value, from, to, c, isChecked: from is not IPointerTypeSymbol);
                 };
+        // new Int128(ulong upper, ulong lower) / new UInt128(...): the two halves of the i128.
+        foreach (var wide in new[] { "System.Int128", "System.UInt128" })
+            t[$"{wide}..ctor(ulong, ulong)"] = (g, c) =>
+            {
+                var l = g.Module.Llvm;
+                var arguments = c.Arguments.OrderBy(a => a.Parameter!.Ordinal).Select(a => g.EmitValue(a.Value)).ToArray();
+                var i128 = l.IntTypeOf(128);
+                var upper = g.Builder.BinOp(LLVMOpcode.Shl, g.Builder.Cast(LLVMOpcode.ZExt, arguments[0], i128), l.ConstInt(i128, 64));
+                return g.Builder.BinOp(LLVMOpcode.Or, upper, g.Builder.Cast(LLVMOpcode.ZExt, arguments[1], i128));
+            };
         t[$"{Tasks}.ValueTask..ctor({Tasks}.Task)"] = (g, c) => CtorArg(g, c, 0);
         // The state and creation options are kept in corelib/Tasks/TaskState.cs (checked there: only
         // AttachedToParent and RunContinuationsAsynchronously are legal); continuations are always queued.

@@ -217,6 +217,7 @@ macos 903_stack_trace_socket_connect  live: a refused connect completes asynchro
 windows 940_expand_environment_variables  live: .NET expands through Win32's ExpandEnvironmentStrings, whose handling of unset names differs from the Unix algorithm
 windows 972_uri_rooted_path_unix     Windows .NET takes "/rel" for an implicit file path (absolute); csharpc reports drive-less file paths there as not supported
 windows 981_uri_file_paths_unix     Windows .NET takes "/rel", "//host/x" and file:///tmp/x paths differently (implicit file paths, UNC); csharpc reports drive-less file paths there as not supported
+wasi 1031_blocking_collection_threads  needs threads: tasks block in Take/Add/WaitAny until another task signals them, which one thread can't do
 wasi 1020_task_async_state_options     needs threads: it waits on a started task's AsyncWaitHandle and disposes a task a pool worker is blocked in; WebAssembly runs work items one after another
 wasi 1021_task_exceptions_status       needs threads: it spins until a pool worker's task stops Running, which one thread can't observe
 # HttpClient samples (System.Net.Http from IL over csharpc's sockets): loopback servers in the sample itself.
@@ -256,6 +257,9 @@ wasi 1102_sslstream_validation  opens loopback sockets: WASI preview 1 has none 
 macos 1103_httpclient_https  known gap: https needs SslStream (SecureTransport/Network.framework on macOS, not implemented yet), and the system-proxy gap of HttpClient applies too
 windows 1103_httpclient_https  known gap: https needs SslStream (SChannel on Windows, not implemented yet), and the system-proxy gap of HttpClient applies too
 wasi 1103_httpclient_https  opens loopback sockets: WASI preview 1 has none (PlatformNotSupportedException)
+wasi 1053_binary_primitives_native_int  nint/nuint are 4 bytes on wasm32: the bytes written and reversed differ from the 64-bit recording
+windows 1057_marshal_memory_copy_strings  live: Marshal's ANSI conversions use the Windows ANSI code page (1252, where é survives), UTF-8 on Linux and macOS
+windows 1058_marshal_variant_bool  known gap: .NET on Windows marshals VARIANT_BOOL fields with its built-in COM support and gives their size; csharpc reports them as unmarshalable there as elsewhere
 windows 1001_httpclient_post            live: the request text it echoes is built with bare "\n"s, next to WriteLine's "\r\n"
 windows 1005_httpclient_handlers        known gap: gzip, deflate and brotli decompression need .NET's native compression shim, which csharpc can't link with MinGW yet (see 537_compression_streams)
 windows 1010_httpclient_base_address    known gap: the corelib's System.Uri rejects drive-less file paths ("/absolute/path") on Windows with an explicit NotSupportedException

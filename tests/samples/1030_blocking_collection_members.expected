@@ -1,0 +1,91 @@
+0 -1 False False
+3
+1 True2
+3
+True 3
+False 0
+False
+True True
+add after complete: InvalidOperationException: The collection has been marked as complete with regards to additions.
+tryadd after complete: InvalidOperationException: The collection has been marked as complete with regards to additions.
+take after complete: InvalidOperationException: The collection argument is empty and has been marked as complete with regards to additions.
+False
+trytake after complete: ok
+2
+True True False False False
+2
+bad capacity 0: ArgumentOutOfRangeException: boundedCapacity ('0') must be a non-negative and non-zero value. (Parameter 'boundedCapacity')
+Actual value was 0.
+bad capacity -1: ArgumentOutOfRangeException: boundedCapacity ('-1') must be a non-negative and non-zero value. (Parameter 'boundedCapacity')
+Actual value was -1.
+capacity coll too big: ArgumentException: The collection argument contains more items than are allowed by the boundedCapacity.
+null coll: ArgumentNullException: Value cannot be null. (Parameter 'collection')
+null coll 2: ArgumentNullException: Value cannot be null. (Parameter 'collection')
+tryadd -2: ArgumentOutOfRangeException: The specified timeout must represent a value between -1 and 2147483647, inclusive. (Parameter 'millisecondsTimeout')
+Actual value was -2.
+trytake -2: ArgumentOutOfRangeException: The specified timeout must represent a value between -1 and 2147483647, inclusive. (Parameter 'millisecondsTimeout')
+Actual value was -2.
+trytake huge timeout: ArgumentOutOfRangeException: The specified timeout must represent a value between -1 and 2147483647, inclusive. (Parameter 'timeout')
+Actual value was -00:00:00.0020000.
+trytake too large timeout: ArgumentOutOfRangeException: The specified timeout must represent a value between -1 and 2147483647, inclusive. (Parameter 'timeout')
+Actual value was 24.20:31:23.6480000.
+take canceled: OperationCanceledException: The operation was canceled.
+trytake canceled: OperationCanceledException: The operation was canceled.
+add canceled: OperationCanceledException: The operation was canceled.
+tryadd canceled: OperationCanceledException: The operation was canceled.
+enumerate canceled: OperationCanceledException: The operation was canceled.
+0,1,2,3,4
+0 True
+took 1, 2 left
+took 2, 1 left
+False 1
+1 True True
+1,2
+2
+True
+False
+syncroot: NotSupportedException: The SyncRoot property may not be used for the synchronization of concurrent collections.
+0,1,2,0
+copyto null: ArgumentNullException: Value cannot be null. (Parameter 'array')
+copyto small: ArgumentException: The number of elements in the collection is greater than the available space from index to the end of the destination array. (Parameter 'index')
+copyto neg: ArgumentOutOfRangeException: The index argument must be greater than or equal zero. (Parameter 'index')
+Actual value was -1.
+1,2,0,0
+3,2,1
+2 3
+3 7
+False 2
+0
+0
+0
+0
+0 10
+0 11
+0 12
+0 13
+-1 0
+addtoany null: ArgumentNullException: Value cannot be null. (Parameter 'collections')
+addtoany empty: ArgumentException: The collections argument is a zero-length array. (Parameter 'collections')
+addtoany null elem: ArgumentException: The collections argument contains at least one null element. (Parameter 'collections')
+takefromany null: ArgumentNullException: Value cannot be null. (Parameter 'collections')
+takefromany disposed: ObjectDisposedException: The collections argument contains at least one disposed element.
+Object name: 'collections'.
+addtoany completed: ArgumentException: At least one of the specified collections is marked as complete with regards to additions. (Parameter 'collections')
+takefromany completed: ArgumentException: All collections are marked as complete with regards to additions. (Parameter 'collections')
+-1
+trytakefromany completed: ok
+add disposed: ObjectDisposedException
+take disposed: ObjectDisposedException
+count disposed: ObjectDisposedException
+toarray disposed: ObjectDisposedException
+complete disposed: ObjectDisposedException
+enumerate disposed: ObjectDisposedException
+capacity disposed: ObjectDisposedException
+iscompleted disposed: ObjectDisposedException
+isaddingcompleted disposed: ObjectDisposedException
+False
+False
+False
+weird add: InvalidOperationException: The underlying collection didn't accept the item.
+weird tryadd: InvalidOperationException: The underlying collection didn't accept the item.
+0
