@@ -940,14 +940,8 @@ public sealed partial class ModuleCodeGen
     /// </summary>
     private bool NeedsNullableAttribute(IEventSymbol e)
     {
-        foreach (var reference in e.DeclaringSyntaxReferences)
-        {
-            var model = Compilation.GetSemanticModel(reference.SyntaxTree);
-            var syntax = reference.GetSyntax();
-            if (!(model.GetNullableContext(syntax.SpanStart).AnnotationsEnabled() || model.GetNullableContext(syntax.Span.End).AnnotationsEnabled())) continue;
-            return e.ContainingType.GetMembers().OfType<IEventSymbol>().Any(x => x.NullableAnnotation == NullableAnnotation.Annotated || x.Type.NullableAnnotation == NullableAnnotation.Annotated);
-        }
-        return false;
+        if (!AnnotationsEnabled(e)) return false;
+        return e.ContainingType.GetMembers().OfType<IEventSymbol>().Any(x => x.NullableAnnotation == NullableAnnotation.Annotated || x.Type.NullableAnnotation == NullableAnnotation.Annotated);
     }
 
     private FieldRecordData FieldRecord(IFieldSymbol field)
