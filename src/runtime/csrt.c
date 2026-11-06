@@ -208,18 +208,20 @@ csrt_Array* csrt_new_array_primitive_noclear(int64_t element_size, int64_t lengt
 /// (a + b, count * n) without wrapping; anything above the CLR limit is an OutOfMemoryException.
 csrt_String* csrt_string_alloc_checked(int64_t length) {
     if (length < 0 || length > CSRT_MAX_STRING_LENGTH) out_of_memory();
-    // Not zeroed: every caller writes all `length` chars, and the GC never scans strings.
-    csrt_String* s = csrt_gc_alloc_noclear(sizeof(csrt_String) + sizeof(uint16_t) * (size_t)length);
+    // Not zeroed: every caller writes all `length` chars, and the GC never scans strings. The char after the last one is
+    // the terminator .NET guarantees (`fixed (char* p = s)` and native code reading wide strings rely on it).
+    csrt_String* s = csrt_gc_alloc_noclear(sizeof(csrt_String) + sizeof(uint16_t) * ((size_t)length + 1));
     if (!s) out_of_memory();
     s->mt = &csrt_String_MT.header;
     s->length = (int32_t)length;
+    s->chars[length] = 0;
     return s;
 }
 
 /// Same limit check, zero-filled (for callers that may not write every char).
 csrt_String* csrt_string_alloc_zeroed(int64_t length) {
     if (length < 0 || length > CSRT_MAX_STRING_LENGTH) out_of_memory();
-    csrt_String* s = csrt_gc_alloc(sizeof(csrt_String) + sizeof(uint16_t) * (size_t)length);
+    csrt_String* s = csrt_gc_alloc(sizeof(csrt_String) + sizeof(uint16_t) * ((size_t)length + 1));  // + the terminator
     if (!s) out_of_memory();
     s->mt = &csrt_String_MT.header;
     s->length = (int32_t)length;

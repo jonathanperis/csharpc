@@ -122,7 +122,7 @@ public static class RoslynFrontend
             // a project's /features (e.g. InterceptorsNamespaces for generated interceptors) as csc gets them.
             .WithFeatures([new("FileBasedProgram", "true"), .. (features ?? ImmutableDictionary<string, string>.Empty).Where(f => f.Key != "FileBasedProgram")]);
 
-    private static NullableContextOptions NullableOf(string? text) => text?.ToLowerInvariant() switch
+    internal static NullableContextOptions NullableOf(string? text) => text?.ToLowerInvariant() switch
     {
         "disable" => NullableContextOptions.Disable,
         "warnings" => NullableContextOptions.Warnings,

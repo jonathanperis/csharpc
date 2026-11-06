@@ -1137,6 +1137,7 @@ internal static class Intrinsics
     {
         Dictionary<string, PropertyHandler> t = [];
         AddTaskProperties(t);
+        t["System.Reflection.Assembly.EntryPoint"] = (g, p) => g.AssemblyEntryPoint(g.EmitValue(p.Instance!), p);
         t["string.Length"] = (g, p) =>
         {
             var s = g.EmitValue(p.Instance!);

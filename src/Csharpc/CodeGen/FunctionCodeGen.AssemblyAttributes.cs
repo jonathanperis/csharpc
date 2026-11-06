@@ -45,7 +45,9 @@ public sealed partial class FunctionCodeGen
             var same = CallRuntime("csrt_string_equals", L.I1, [L.Ptr, L.Ptr], name, _m.StringLiteral(identity));
             _b.CondBr(same, hit, next);
             _b.PositionAtEnd(hit);
-            if (matches.Count > 1)
+            if (SynthesizedForProgram(identity, attributeType))
+                ThrowNewLibraryException(_m.Compilation.GetTypeByMetadataName("System.NotSupportedException")!, ProgramAttributesMessage);
+            else if (matches.Count > 1)
                 ThrowNewLibraryException(_m.Compilation.GetTypeByMetadataName("System.Reflection.AmbiguousMatchException")!,
                     $"Multiple custom attributes of the same type '{attributeType.ToDisplayString()}' found.");
             else
@@ -61,6 +63,18 @@ public sealed partial class FunctionCodeGen
         return _b.Load(L.Ptr, result);
     }
 
+    private const string ProgramAttributesMessage = "The custom attributes of the program's assembly are not available to csharpc yet for this attribute type: " +
+        "csc adds [CompilationRelaxations], [RuntimeCompatibility] and [Debuggable] to the assembly, which csharpc doesn't list.";
+
+    /// <summary>
+    /// A query of the program's own (source) assembly that csc's synthesized assembly attributes could answer: for
+    /// Attribute itself and for those attributes, the compiled-in list would be shorter than .NET's.
+    /// </summary>
+    private bool SynthesizedForProgram(string identity, ITypeSymbol attributeType) =>
+        _m.MainIl is null && identity == _m.ProgramAssemblyName(null)
+        && attributeType.ToDisplayString() is "System.Attribute" or "System.Runtime.CompilerServices.CompilationRelaxationsAttribute"
+            or "System.Runtime.CompilerServices.RuntimeCompatibilityAttribute" or "System.Diagnostics.DebuggableAttribute";
+
     /// <summary>
     /// assembly.GetCustomAttributes(typeof(A), inherit): an A[] of the matching attributes (assemblies have no
     /// base to inherit from, so `inherit` changes nothing), built from the same compile-time metadata.
@@ -68,6 +82,10 @@ public sealed partial class FunctionCodeGen
     internal LLVMValueRef AssemblyCustomAttributes(INamedTypeSymbol attributeType, LLVMValueRef assembly, IOperation at)
     {
         NullCheck(assembly);
+        // The A[] is handed out as the IEnumerable<A> of GetCustomAttributes<A>() (a conversion the call hides).
+        foreach (var itf in new[] { SpecialType.System_Collections_Generic_IEnumerable_T, SpecialType.System_Collections_Generic_IReadOnlyCollection_T,
+                     SpecialType.System_Collections_Generic_IReadOnlyList_T, SpecialType.System_Collections_Generic_ICollection_T, SpecialType.System_Collections_Generic_IList_T })
+            _m.RequestArrayInterface(_m.Compilation.GetSpecialType(itf).Construct(attributeType));
         var name = CallCoreLib("AssemblyImpl", "NameOf", assembly);
         var result = NewTemp(L.Ptr, "attributes");
         var done = NewBlock("attributes.done");
@@ -78,15 +96,47 @@ public sealed partial class FunctionCodeGen
             var next = NewBlock("attributes.next");
             _b.CondBr(CallRuntime("csrt_string_equals", L.I1, [L.Ptr, L.Ptr], name, _m.StringLiteral(identity)), hit, next);
             _b.PositionAtEnd(hit);
-            var array = NewArray(attributeType, L.ConstInt(L.I64, matches.Count));
-            for (var i = 0; i < matches.Count; i++)
-                StoreValue(ConstructAttribute(matches[i], at), ArrayElementAddress(array, attributeType, L.ConstInt(L.I64, i)));
-            _b.Store(array, result);
-            _b.Br(done);
+            if (SynthesizedForProgram(identity, attributeType))
+                ThrowNewLibraryException(_m.Compilation.GetTypeByMetadataName("System.NotSupportedException")!, ProgramAttributesMessage);
+            else
+            {
+                var array = NewArray(attributeType, L.ConstInt(L.I64, matches.Count));
+                for (var i = 0; i < matches.Count; i++)
+                    StoreValue(ConstructAttribute(matches[i], at), ArrayElementAddress(array, attributeType, L.ConstInt(L.I64, i)));
+                _b.Store(array, result);
+                _b.Br(done);
+            }
             _b.PositionAtEnd(next);
         }
         ThrowNewLibraryException(_m.Compilation.GetTypeByMetadataName("System.NotSupportedException")!,
             "The custom attributes of this assembly are not available to csharpc yet (only those of assemblies compiled from IL are).");
+        _b.PositionAtEnd(done);
+        return _b.Load(L.Ptr, result);
+    }
+
+    /// <summary>
+    /// Assembly.EntryPoint: the program's entry method for the assembly that has it (a standalone reflection record, as
+    /// `ldtoken` of it would give), null for every other assembly. When csc's entry point is a method it synthesizes
+    /// (`&lt;Main&gt;` bridging an async or Task-returning Main) csharpc has no symbol for it: NotSupportedException.
+    /// </summary>
+    internal LLVMValueRef AssemblyEntryPoint(LLVMValueRef assembly, IOperation at)
+    {
+        NullCheck(assembly);
+        var entry = _m.ProgramEntryPoint;
+        var owner = entry is null ? null : _m.AssemblyOf(entry.ContainingType);
+        if (entry is null || owner is null) return LlvmContext.Null(L.Ptr);
+        var result = NewTemp(L.Ptr, "entrypoint");
+        _b.Store(LlvmContext.Null(L.Ptr), result);
+        var hit = NewBlock("entrypoint.hit");
+        var done = NewBlock("entrypoint.done");
+        var name = CallCoreLib("AssemblyImpl", "NameOf", assembly);
+        _b.CondBr(CallRuntime("csrt_string_equals", L.I1, [L.Ptr, L.Ptr], name, _m.StringLiteral(owner)), hit, done);
+        _b.PositionAtEnd(hit);
+        var bridged = _m.MainIl is null && (entry.IsAsync || entry.ReturnType.SpecialType is not (SpecialType.System_Void or SpecialType.System_Int32));
+        _b.Store(bridged
+            ? CallCoreLib("AssemblyImpl", "EntryPointUnsupported")
+            : CallCoreLib("MemberRecords", "Method", _b.Cast(LLVMOpcode.PtrToInt, _m.MethodRecordGlobal(entry), T.NativeInt)), result);
+        _b.Br(done);
         _b.PositionAtEnd(done);
         return _b.Load(L.Ptr, result);
     }

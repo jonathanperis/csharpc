@@ -121,6 +121,7 @@ public sealed partial class FunctionCodeGen
             "ObjectToPointer" => args[0].Type.Kind == LLVMTypeKind.Pointer
                 ? _b.Cast(LLVMOpcode.PtrToInt, args[0], T.Value(_m.Compilation.GetSpecialType(SpecialType.System_IntPtr))) : args[0],
             "ReinterpretAs" => args[0],
+            "ReverseThunkTable" or "NativeInvokeThunk" or "DelegateTypeTable" => DelegateThunkIntrinsic(target.Name, S(t!), inv),
             "SizeOf" => L.ConstInt(L.I32, (long)T.Target.SizeOf(T.Storage(S(t!)))),
             "SpanAddress" => _b.Cast(LLVMOpcode.PtrToInt, SpanPointer(args[0]), T.NativeInt),
             "RefAddress" => _b.Cast(LLVMOpcode.PtrToInt, args[0], T.NativeInt),
@@ -151,6 +152,8 @@ public sealed partial class FunctionCodeGen
             "ManifestResourceIndex" => _m.ManifestResourceIndex(),
             "ModuleVersionIds" => _m.ModuleVersionIdsBlob(),
             "AssemblyReferences" => _m.AssemblyReferencesBlob(),
+            "AssemblyTypeNames" => _m.AssemblyTypeNamesBlob(),
+            "AssemblyTypeTableAddress" => _b.Cast(LLVMOpcode.PtrToInt, _m.AssemblyTypeTable(), T.NativeInt),
             "ManifestResourceData" => _m.ManifestResourceData(),
             // The shared framework the program was compiled against ("11.0.0-rc.2.26504.105"), as NativeAOT
             // bakes in its System.Private.CoreLib's version.

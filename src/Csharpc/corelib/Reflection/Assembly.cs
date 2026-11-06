@@ -12,8 +12,10 @@ using System.Threading;
 namespace CsharpcCoreLib
 {
     /// <summary>
-    /// System.Reflection.Module: the identity of an assembly's manifest module, from its metadata (compiled in:
-    /// ModuleCodeGen.ModuleVersionIdsBlob). File-related members stay "not supported" (assemblies are compiled into the program).
+    /// System.Reflection.Module: an assembly's one (manifest) module. Its name is the assembly's file name as .NET
+    /// loads it ("App.dll", "System.Private.CoreLib.dll"); an IL assembly's module id comes from its metadata
+    /// (compiled in: ModuleCodeGen.ModuleVersionIdsBlob). The module's path (FullyQualifiedName) and the module id of
+    /// an assembly csharpc compiled from source stay "not supported": assemblies are compiled into the program.
     /// </summary>
     [Shadows("System.Reflection.Module")]
     public abstract class ModuleImpl
@@ -24,7 +26,29 @@ namespace CsharpcCoreLib
         public virtual Assembly Assembly => throw new NotSupportedException("Module.Assembly is not supported by csharpc yet.");
         public virtual string Name => throw new NotSupportedException("Module.Name is not supported by csharpc yet (the module has no file).");
         public virtual string FullyQualifiedName => throw new NotSupportedException("Module.FullyQualifiedName is not supported by csharpc yet (the module has no file).");
+        /// <summary>The manifest module's token (0x00000001), the only module an assembly of csharpc's has.</summary>
+        public virtual int MetadataToken => 1;
+        public virtual bool IsResource() => false;
+        public virtual Type[] GetTypes() => Assembly.GetTypes();
+
+        public virtual Type GetType(string className) => GetType(className, false, false);
+        public virtual Type GetType(string className, bool ignoreCase) => GetType(className, false, ignoreCase);
+        public virtual Type GetType(string className, bool throwOnError, bool ignoreCase)
+        {
+            ArgumentNullException.ThrowIfNull(className);
+            return Assembly.GetType(className, throwOnError, ignoreCase);
+        }
+
         public override string ToString() => ScopeName;
+        public override bool Equals(object o) => ReferenceEquals(this, o);
+        public override int GetHashCode() => base.GetHashCode();
+
+        public static bool operator ==(ModuleImpl left, ModuleImpl right)
+        {
+            if ((object)right == null) return (object)left == null;
+            return ReferenceEquals(left, right);
+        }
+        public static bool operator !=(ModuleImpl left, ModuleImpl right) => !(left == right);
     }
 
     [Shadows("System.Reflection.RuntimeModule")]
@@ -33,11 +57,14 @@ namespace CsharpcCoreLib
         private readonly Assembly _assembly;
         private readonly string _scopeName;
         private readonly Guid _mvid;
+        private readonly bool _hasMvid;
 
-        internal RuntimeModuleImpl(Assembly assembly, string scopeName, Guid mvid) { _assembly = assembly; _scopeName = scopeName; _mvid = mvid; }
+        internal RuntimeModuleImpl(Assembly assembly, string scopeName, Guid mvid, bool hasMvid) { _assembly = assembly; _scopeName = scopeName; _mvid = mvid; _hasMvid = hasMvid; }
 
-        public override Guid ModuleVersionId => _mvid;
+        public override Guid ModuleVersionId => _hasMvid ? _mvid
+            : throw new NotSupportedException("Module.ModuleVersionId of '" + _scopeName + "' is not supported by csharpc yet (only assemblies compiled from IL carry their module id).");
         public override string ScopeName => _scopeName;
+        public override string Name => _scopeName;
         public override Assembly Assembly => _assembly;
     }
 
@@ -72,6 +99,13 @@ namespace CsharpcCoreLib
             }
         }
 
+        /// <summary>Assembly.EntryPoint of a program whose entry method csc bridges (async or Task-returning Main).</summary>
+        internal static MethodInfo EntryPointUnsupported() =>
+            throw new NotSupportedException("Assembly.EntryPoint of an async or Task-returning Main is not supported by csharpc yet (csc's entry point is a method it synthesizes).");
+
+        /// <summary>Type.Module: the assembly's manifest module.</summary>
+        internal static Module ModuleOf(Assembly assembly) => assembly.ManifestModule;
+
         /// <summary>The identity compiled-in attribute lookups dispatch on (FunctionCodeGen.AssemblyAttributes.cs).</summary>
         internal static string NameOf(Assembly assembly) => ((AssemblyImpl)(object)assembly)._fullName;
 
@@ -102,6 +136,14 @@ namespace CsharpcCoreLib
             throw new NotSupportedException("Assembly.Load('" + assemblyRef.FullName + "') is not supported by csharpc yet: only the program's own and its IL assemblies can be loaded.");
         }
 
+        public static Assembly GetAssembly(Type type)
+        {
+            ArgumentNullException.ThrowIfNull(type);
+            return type.Assembly;
+        }
+
+        public static string CreateQualifiedName(string assemblyName, string typeName) => typeName + ", " + assemblyName;
+
         public static Assembly Load(string assemblyString)
         {
             ArgumentNullException.ThrowIfNull(assemblyString);
@@ -123,7 +165,20 @@ namespace CsharpcCoreLib
         public virtual Type GetType(string name, bool throwOnError, bool ignoreCase)
         {
             ArgumentNullException.ThrowIfNull(name);
-            Type found = ReflectionRuntime.GetTypeByName(name, false, ignoreCase);
+            Type found;
+            // The types only the assembly's list knows: a compiler-synthesized one (its name has '<': closures, state machines)
+            // or a generic type definition by its metadata name (`Registry`1`, no type arguments).
+            if (name.IndexOf('<') >= 0 || (name.IndexOf('`') >= 0 && name.IndexOf('[') < 0))
+            {
+                found = null;
+                var comparison = ignoreCase ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+                // An incomplete list (csc's generic synthesized types aren't in it) can only vouch for what it holds.
+                var all = TypeList(out var failure);
+                foreach (var type in all)
+                    if (string.Equals(type.FullName, name, comparison)) { found = type; break; }
+                if (found == null && failure != null) throw new NotSupportedException(failure);
+            }
+            else found = ReflectionRuntime.GetTypeByName(name, false, ignoreCase);
             if (found != null && !ReferenceEquals(found.Assembly, this)) found = null;
             if (found == null && throwOnError)
                 throw new TypeLoadException("Could not resolve type '" + name + "' in assembly '" + _fullName + "'.");
@@ -131,35 +186,109 @@ namespace CsharpcCoreLib
         }
 
         // Enumerating an assembly's types (hosting's UseStartup(assemblyName) / startupAssembly setting looks for a
-        // Startup class this way): csharpc keeps metadata only for the types the program reflects on by name, so
-        // the list would be incomplete; it is an explicit error rather than a partial answer.
-        public virtual IEnumerable<TypeInfo> DefinedTypes =>
-            throw new NotSupportedException("Assembly.DefinedTypes is not supported by csharpc yet (enumerating an assembly's types).");
-        public virtual Type[] GetTypes() =>
-            throw new NotSupportedException("Assembly.GetTypes() is not supported by csharpc yet (enumerating an assembly's types).");
-        public virtual IEnumerable<Type> ExportedTypes =>
-            throw new NotSupportedException("Assembly.ExportedTypes is not supported by csharpc yet (enumerating an assembly's types).");
-        public virtual Type[] GetExportedTypes() =>
-            throw new NotSupportedException("Assembly.GetExportedTypes() is not supported by csharpc yet (enumerating an assembly's types).");
+        // Startup class this way): the type lists of the program's own assembly and of the IL assemblies compiled in are
+        // known at compile time (ModuleCodeGen.AssemblyTypes.cs), in metadata order; any other assembly (the shared
+        // framework's) has none and throws NotSupportedException rather than answer with a partial list.
+        public virtual Type[] GetTypes() => (Type[])TypeList().Clone();
+
+        private Type[] TypeList() => TypeList(out var failure) is var list && failure == null ? list : throw new NotSupportedException(failure);
+
+        public virtual IEnumerable<TypeInfo> DefinedTypes
+        {
+            get
+            {
+                var types = TypeList();
+                var list = new TypeInfo[types.Length];
+                for (int i = 0; i < types.Length; i++) list[i] = types[i].GetTypeInfo();
+                return list;
+            }
+        }
+
+        public virtual Type[] GetExportedTypes()
+        {
+            // The public types are all there even when csc's generic synthesized ones (never public) aren't.
+            var types = TypeList(out _);
+            var exported = new List<Type>();
+            foreach (var type in types) if (type.IsVisible) exported.Add(type);
+            return exported.ToArray();
+        }
+
+        public virtual IEnumerable<Type> ExportedTypes => GetExportedTypes();
+
+        private Type[] _types;
+        private Type[] _partialTypes;
+        private string _typeListFailure;
+
+        /// <summary>
+        /// The compiled-in type list; <paramref name="failure"/> says why it isn't complete (the list then holds what it can,
+        /// right for the public types only when the failure is csc's generic synthesized types) and throws when there is none.
+        /// </summary>
+        private unsafe Type[] TypeList(out string failure)
+        {
+            if (_types != null) { failure = null; return _types; }
+            if (_partialTypes != null) { failure = _typeListFailure; return _partialTypes; }
+            var names = CompiledBlob.Fields(CoreIntrinsics.AssemblyTypeNames());
+            for (int i = 0; i + 2 < names.Count; i += 3)
+            {
+                if (names[i] != _fullName) continue;
+                bool partial = names[i + 2].Length > 0;
+                if (names[i + 1].Length > 0 && !partial) throw new NotSupportedException(names[i + 1]);
+                int pointer = ReflectionRecords.P;
+                int stride = (pointer + 8 + pointer - 1) / pointer * pointer;
+                byte* entry = (byte*)CoreIntrinsics.AssemblyTypeTableAddress() + (i / 3) * stride;
+                nint* methodTables = *(nint**)entry;
+                int count = *(int*)(entry + pointer);
+                var list = new Type[count];
+                for (int k = 0; k < count; k++) list[k] = ReflectionRuntime.TypeOf(methodTables[k]);
+                if (!partial) { failure = null; return _types = list; }
+                failure = _typeListFailure = names[i + 1];
+                return _partialTypes = list;
+            }
+            throw new NotSupportedException("Assembly.GetTypes() of '" + _fullName + "' is not supported by csharpc yet (only the program's own and its IL assemblies have a type list).");
+        }
 
         private Module _manifestModule;
 
-        /// <summary>The manifest module of an IL assembly (its metadata name and MVID); the one object per assembly, as in .NET.</summary>
+        /// <summary>
+        /// The manifest module: an IL assembly's own (its metadata name and MVID), else the file name .NET loads the assembly from,
+        /// "&lt;name&gt;.dll" (the program's own assembly and the shared framework's), without a module id; one object per assembly.
+        /// </summary>
         public virtual Module ManifestModule
         {
             get
             {
                 if ((object)_manifestModule != null) return _manifestModule;
                 var ids = CompiledBlob.Fields(CoreIntrinsics.ModuleVersionIds());
+                Module module = null;
                 for (int i = 0; i + 2 < ids.Count; i += 3)
                     if (ids[i] == _fullName)
                     {
-                        var module = (Module)(object)new RuntimeModuleImpl((Assembly)(object)this, ids[i + 1], Guid.Parse(ids[i + 2]));
-                        Interlocked.CompareExchange(ref _manifestModule, module, null);
-                        return _manifestModule;
+                        module = (Module)(object)new RuntimeModuleImpl((Assembly)(object)this, ids[i + 1], Guid.Parse(ids[i + 2]), true);
+                        break;
                     }
-                throw new NotSupportedException("Assembly.ManifestModule of '" + _fullName + "' is not supported by csharpc yet (only assemblies compiled from IL have their module metadata).");
+                if ((object)module == null)
+                {
+                    int comma = _fullName.IndexOf(',');
+                    string simple = comma < 0 ? _fullName : _fullName.Substring(0, comma);
+                    module = (Module)(object)new RuntimeModuleImpl((Assembly)(object)this, simple + ".dll", default, false);
+                }
+                Interlocked.CompareExchange(ref _manifestModule, module, null);
+                return _manifestModule;
             }
+        }
+
+        public virtual Module[] GetModules() => GetModules(false);
+        public virtual Module[] GetModules(bool getResourceModules) => new Module[] { ManifestModule };
+        public virtual Module[] GetLoadedModules() => GetLoadedModules(false);
+        public virtual Module[] GetLoadedModules(bool getResourceModules) => new Module[] { ManifestModule };
+        public virtual IEnumerable<Module> Modules => GetLoadedModules(true);
+
+        public virtual Module GetModule(string name)
+        {
+            if (name == null) throw new ArgumentNullException(null, "File name cannot be null.");
+            if (name.Length == 0) throw new ArgumentException("Empty file name is not legal.");
+            Module module = ManifestModule;
+            return string.Equals(module.ScopeName, name, StringComparison.OrdinalIgnoreCase) ? module : null;
         }
 
         /// <summary>The assemblies this one references, from its metadata (a new array of new names per call, as in .NET).</summary>
@@ -174,7 +303,7 @@ namespace CsharpcCoreLib
                 for (int k = 0; k < count; k++) names[k] = AssemblyNameImpl.FromFullName(fields[i + 2 + k]);
                 return names;
             }
-            throw new NotSupportedException("Assembly.GetReferencedAssemblies of '" + _fullName + "' is not supported by csharpc yet (only assemblies compiled from IL have their references).");
+            throw new NotSupportedException("Assembly.GetReferencedAssemblies of '" + _fullName + "' is not supported by csharpc yet (only the program's own assembly and assemblies compiled from IL have their references).");
         }
 
         // ---- manifest resources (compiled in: ModuleCodeGen.Resources.cs) ----
@@ -210,9 +339,15 @@ namespace CsharpcCoreLib
         /// <summary>NativeAOT's answer: assemblies are compiled into the executable, so they have no file.</summary>
         public virtual string Location => "";
         public virtual bool IsDynamic => false;
+        /// <summary>.NET's answers for any assembly: code access security is gone (always true / None), the image runtime version is CoreCLR's.</summary>
+        public virtual bool IsFullyTrusted => true;
+        public virtual string ImageRuntimeVersion => "v4.0.30319";
+        public virtual bool ReflectionOnly => false;
+        public virtual long HostContext => 0;
+        public virtual System.Security.SecurityRuleSet SecurityRuleSet => System.Security.SecurityRuleSet.None;
         /// <summary>A csharpc program's assemblies are compiled in: none can be unloaded.</summary>
         public virtual bool IsCollectible => false;
-        public virtual AssemblyName GetName() => AssemblyNameImpl.FromFullName(_fullName);
+        public virtual AssemblyName GetName() => AssemblyNameImpl.ForLoadedAssembly(_fullName);
         public override string ToString() => _fullName;
         public override bool Equals(object o) => ReferenceEquals(this, o);
         public override int GetHashCode() => base.GetHashCode();
