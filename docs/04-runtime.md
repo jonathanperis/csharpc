@@ -187,8 +187,13 @@ pthread subset csrt uses):
 An uncaught exception on Windows: `_Unwind_RaiseException` raises an SEH exception that no frame
 handles, and MinGW's top-level filter (`_gnu_exception_handler`) resumes it, so it returns
 `_URC_END_OF_STACK` as on Unix; csrt then runs the `finally` blocks (forced unwind) and reports it.
-The thread-pool trap (`csrt_trap_call`) uses `__builtin_setjmp`/`__builtin_longjmp` there, because
-MinGW's `longjmp` unwinds the stack through SEH (`RtlUnwindEx`) and it jumps out of a forced unwind.
+The thread-pool trap (`csrt_trap_call`) needs a plain register-restoring jump there, because MinGW's
+`longjmp` unwinds the stack through SEH (`RtlUnwindEx`) and it jumps out of a forced unwind. It is not
+`__builtin_setjmp`/`__builtin_longjmp`: on Windows x64 LLVM's frame address is the SEH establisher frame
+(RBP minus the `.seh_setframe` offset), which `__builtin_longjmp` loads into RBP, so the code after the jump
+addressed its locals 128 bytes below the real frame (an access violation, or a garbage exception, whenever an
+iteration threw on a pool worker). `eh.c` carries its own `csrt_trap_save`/`csrt_trap_restore` pair in module
+assembly instead (callee-saved registers, RDI/RSI and XMM6-15 included).
 `win32.c` supplies C library functions the UCRT lacks (`roundeven`, which LLVM calls for
 `Math.Round` without SSE4.1).
 
