@@ -1,0 +1,96 @@
+== Widget
+-- Instance, Static, Public, NonPublic: Id@Widget, Changed@Widget, _hidden@Widget, Virtual@Widget, Counted@Widget, Name@Widget, Tick@Widget, InternalTick@Widget, Limit@Widget
+-- Instance, Static, Public: Id@Widget, Name@Widget
+-- Instance, NonPublic: Changed@Widget, _hidden@Widget, Virtual@Widget, Counted@Widget
+-- Static, NonPublic: Tick@Widget, InternalTick@Widget, Limit@Widget
+-- DeclaredOnly, Instance, Static, Public, NonPublic: Id@Widget, Changed@Widget, _hidden@Widget, Virtual@Widget, Counted@Widget, Name@Widget, Tick@Widget, InternalTick@Widget, Limit@Widget
+-- Instance, Static, Public, NonPublic, FlattenHierarchy: Id@Widget, Changed@Widget, _hidden@Widget, Virtual@Widget, Counted@Widget, Name@Widget, Tick@Widget, InternalTick@Widget, Limit@Widget
+== Gadget
+-- Instance, Static, Public, NonPublic: Fired@Gadget, Virtual@Gadget, Id@Widget
+-- Instance, Static, Public: Id@Widget
+-- Instance, NonPublic: Fired@Gadget, Virtual@Gadget
+-- Static, NonPublic: 
+-- DeclaredOnly, Instance, Static, Public, NonPublic: Fired@Gadget, Virtual@Gadget
+-- Instance, Static, Public, NonPublic, FlattenHierarchy: Fired@Gadget, Virtual@Gadget, Id@Widget, Name@Widget
+== Box`1[System.Int32]
+-- Instance, Static, Public, NonPublic: Counted@Box`1, StaticCounted@Box`1
+-- Instance, Static, Public: 
+-- Instance, NonPublic: Counted@Box`1
+-- Static, NonPublic: StaticCounted@Box`1
+-- DeclaredOnly, Instance, Static, Public, NonPublic: Counted@Box`1, StaticCounted@Box`1
+-- Instance, Static, Public, NonPublic, FlattenHierarchy: Counted@Box`1, StaticCounted@Box`1
+== Plain
+-- Instance, Static, Public, NonPublic: A@Plain, B@Plain
+-- Instance, Static, Public: A@Plain, B@Plain
+-- Instance, NonPublic: 
+-- Static, NonPublic: 
+-- DeclaredOnly, Instance, Static, Public, NonPublic: A@Plain, B@Plain
+-- Instance, Static, Public, NonPublic, FlattenHierarchy: A@Plain, B@Plain
+Id: System.Int32 [Public] private=False static=False initonly=False special=False literal=False
+   Int32 Id | Field Widget Widget False
+   0 attributes
+Changed: System.EventHandler [Private] private=True static=False initonly=False special=False literal=False
+   System.EventHandler Changed | Field Widget Widget True
+   [CompilerGeneratedAttribute] 
+   [DebuggerBrowsableAttribute] (System.Diagnostics.DebuggerBrowsableState)0
+   2 attributes
+_hidden: System.Int64 [Private] private=True static=False initonly=False special=False literal=False
+   Int64 _hidden | Field Widget Widget False
+   0 attributes
+Virtual: System.Action [Private] private=True static=False initonly=False special=False literal=False
+   System.Action Virtual | Field Widget Widget True
+   [CompilerGeneratedAttribute] 
+   [DebuggerBrowsableAttribute] (System.Diagnostics.DebuggerBrowsableState)0
+   2 attributes
+Counted: System.Action`1[System.Int32] [Private] private=True static=False initonly=False special=False literal=False
+   System.Action`1[System.Int32] Counted | Field Widget Widget True
+   [CompilerGeneratedAttribute] 
+   [DebuggerBrowsableAttribute] (System.Diagnostics.DebuggerBrowsableState)0
+   2 attributes
+Name: System.String [Public, Static] private=False static=True initonly=False special=False literal=False
+   System.String Name | Field Widget Widget False
+   0 attributes
+Tick: System.Action [Private, Static] private=True static=True initonly=False special=False literal=False
+   System.Action Tick | Field Widget Widget True
+   [CompilerGeneratedAttribute] 
+   [DebuggerBrowsableAttribute] (System.Diagnostics.DebuggerBrowsableState)0
+   2 attributes
+InternalTick: System.Action`1[System.String] [Private, Static] private=True static=True initonly=False special=False literal=False
+   System.Action`1[System.String] InternalTick | Field Widget Widget True
+   [CompilerGeneratedAttribute] 
+   [DebuggerBrowsableAttribute] (System.Diagnostics.DebuggerBrowsableState)0
+   2 attributes
+Limit: System.Int32 [Private, Static, Literal, HasDefault] private=True static=True initonly=False special=False literal=True
+   Int32 Limit | Field Widget Widget False
+   0 attributes
+== GetField
+True
+True
+True
+Changed
+True
+Changed
+True
+True
+True
+Gadget
+True
+True
+== GetValue / SetValue
+True
+System.EventHandler 2 True
+first handler
+second handler
+replaced
+True
+kept alive
+ArgumentException
+TargetException
+ArgumentException
+True
+True
+static tick
+swapped tick
+True
+counted 7
+counted again 8

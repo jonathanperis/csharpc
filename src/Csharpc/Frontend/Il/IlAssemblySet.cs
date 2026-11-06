@@ -146,6 +146,9 @@ public sealed class IlAssembly : IDisposable, ISignatureTypeProvider<IlType, IlG
     /// <summary>The precompiled corelib (ADR 0015): lowered from IL, but with the source corelib's policies.</summary>
     public bool IsCoreLib { get; }
 
+    /// <summary>An assembly of a shared framework (Microsoft.NETCore.App, Microsoft.AspNetCore.App) rather than a package or the program's own.</summary>
+    public bool IsFramework { get; }
+
     /// <summary>Decoded bodies by generic definition (IlMethodBody.For).</summary>
     internal Dictionary<IMethodSymbol, IlMethodBody> DecodedBodies { get; } = new(SymbolEqualityComparer.Default);
 
@@ -161,6 +164,8 @@ public sealed class IlAssembly : IDisposable, ISignatureTypeProvider<IlType, IlG
         Reader = reader;
         Reference = reference;
         IsCoreLib = Name == CoreLibAssembly.Name;
+        var normalized = path.Replace('\\', '/');
+        IsFramework = normalized.Contains("/shared/Microsoft.", StringComparison.Ordinal);
     }
 
     internal void Bind(Compilation compilation, IAssemblySymbol symbol, Dictionary<string, IAssemblySymbol> referenced)
@@ -337,6 +342,18 @@ public sealed class IlAssembly : IDisposable, ISignatureTypeProvider<IlType, IlG
         foreach (var handle in type.GetFields())
             if (Reader.StringComparer.Equals(Reader.GetFieldDefinition(handle).Name, e.Name)) return true;
         return false;
+    }
+
+    /// <summary>The FieldDef behind a field-like event (the field named like the event), or null.</summary>
+    public (FieldDefinitionHandle Handle, FieldDefinition Definition)? BackingFieldOf(IEventSymbol e)
+    {
+        var type = TypeDefinitionOf(e.ContainingType);
+        foreach (var handle in type.GetFields())
+        {
+            var definition = Reader.GetFieldDefinition(handle);
+            if (Reader.StringComparer.Equals(definition.Name, e.Name)) return (handle, definition);
+        }
+        return null;
     }
 
     /// <summary>Explicit class size (.size) of a type, 0 if none.</summary>

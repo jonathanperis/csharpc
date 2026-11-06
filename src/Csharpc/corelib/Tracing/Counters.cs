@@ -75,4 +75,30 @@ namespace CsharpcCoreLib
 
         public override string ToString() => "IncrementingPollingCounter '" + Name + "' Increment " + _increment.ToString();
     }
+
+    // Never flushed without a listener: the buffered values stay unobserved, the statistics read as in .NET before
+    // the first polling interval.
+    [Shadows("System.Diagnostics.Tracing.EventCounter")]
+    public class EventCounterImpl : DiagnosticCounterImpl
+    {
+        public EventCounterImpl(string name, EventSource eventSource) : base(name, eventSource) { }
+
+        public void WriteMetric(float value) { }
+
+        public void WriteMetric(double value) { }
+
+        public override string ToString() => "EventCounter '" + Name + "' Count 0 Mean " + double.NaN.ToString("n3");
+    }
+
+    [Shadows("System.Diagnostics.Tracing.IncrementingEventCounter")]
+    public class IncrementingEventCounterImpl : DiagnosticCounterImpl
+    {
+        public IncrementingEventCounterImpl(string name, EventSource eventSource) : base(name, eventSource) { }
+
+        public void Increment(double increment = 1) { }
+
+        public TimeSpan DisplayRateTimeScale { get; set; }
+
+        public override string ToString() => "IncrementingEventCounter '" + Name + "' Increment 0";
+    }
 }

@@ -364,6 +364,11 @@ namespace CsharpcCoreLib
         public Task<int> SendAsync(ArraySegment<byte> buffer, SocketFlags socketFlags) =>
             SendAsync((ReadOnlyMemory<byte>)buffer, socketFlags, CancellationToken.None).AsTask();
 
+        // `await socket.SendAsync(bytes)` binds to these (a byte[] converts to ArraySegment<byte>).
+        public Task<int> ReceiveAsync(ArraySegment<byte> buffer) => ReceiveAsync(buffer, SocketFlags.None);
+
+        public Task<int> SendAsync(ArraySegment<byte> buffer) => SendAsync(buffer, SocketFlags.None);
+
         public bool DualMode
         {
             get
@@ -503,6 +508,29 @@ namespace CsharpcCoreLib
             Filter(checkRead, reads, NetNative.POLLIN | NetNative.POLLHUP);
             Filter(checkWrite, writes, NetNative.POLLOUT);
             Filter(checkError, errors, NetNative.POLLPRI | NetNative.POLLERR);
+#endif
+        }
+
+        /// <summary>
+        /// Socket.Poll as .NET does it on Unix (SocketPal.Poll over poll()): SelectRead is readable or hung up,
+        /// SelectWrite writable, SelectError urgent data or an error. HttpClient asks a pooled connection whether
+        /// the server closed it (`Poll(0, SelectRead)` with nothing to read).
+        /// </summary>
+        public bool Poll(int microSeconds, SelectMode mode)
+        {
+            EnsureOpen();
+            if (mode != SelectMode.SelectRead && mode != SelectMode.SelectWrite && mode != SelectMode.SelectError)
+                throw new NotSupportedException("The specified mode is not supported.");
+#if CSHARPC_TARGET_WASI
+            throw new NotSupportedException("csharpc: Socket.Poll is not supported yet on this platform.");
+#else
+            int wanted = mode == SelectMode.SelectRead ? NetNative.POLLIN : mode == SelectMode.SelectWrite ? NetNative.POLLOUT : NetNative.POLLPRI;
+            int ready = mode == SelectMode.SelectRead ? NetNative.POLLIN | NetNative.POLLHUP
+                : mode == SelectMode.SelectWrite ? NetNative.POLLOUT : NetNative.POLLPRI | NetNative.POLLERR;
+            long handle = _handle;
+            int events = wanted, revents = 0;
+            NetNative.Poll(&handle, &events, &revents, 1, microSeconds == -1 ? -1 : microSeconds / 1000);
+            return (revents & ready) != 0;
 #endif
         }
 
@@ -695,8 +723,24 @@ namespace CsharpcCoreLib
             return (Socket)(object)new SocketImpl(client, AddressFamily, SocketType, ProtocolType, _dualMode);
         }
 
+        // .NET: a DnsEndPoint is resolved and each address tried in turn, like Connect(host, port). A DnsEndPoint of
+        // another address family than the socket's is NotSupportedException (SR.net_invalidversion).
+        private void CheckDnsEndPoint(DnsEndPoint dns)
+        {
+            if (dns.AddressFamily != AddressFamily.Unspecified && AddressFamily != AddressFamily.Unspecified && dns.AddressFamily != AddressFamily)
+                throw new NotSupportedException("This protocol version is not supported.");
+        }
+
         public void Connect(EndPoint remoteEP)
         {
+            if (remoteEP is DnsEndPoint dns)
+            {
+                EnsureOpen();
+                if (_connected) throw new SocketException((int)SocketError.IsConnected);
+                CheckDnsEndPoint(dns);
+                Connect(dns.Host, dns.Port);
+                return;
+            }
             EnsureOpen();
             if (_connected) throw new SocketException((int)SocketError.IsConnected);
             var target = Adapt(remoteEP);
@@ -750,6 +794,11 @@ namespace CsharpcCoreLib
             EnsureOpen();
             if (_connected) throw new SocketException((int)SocketError.IsConnected);
             if (_listening) throw new InvalidOperationException("You may not perform this operation after calling the Listen method.");
+            if (remoteEP is DnsEndPoint dns)
+            {
+                CheckDnsEndPoint(dns);
+                return new ValueTask(ConnectToHostAsync(dns.Host, dns.Port, cancellationToken));
+            }
             // A non-blocking connect on the socket engine (a canceled token ends it with OperationCanceledException).
             return new ValueTask(StartTask(new TaskOperations.Connect { Target = Adapt(remoteEP), AsTask = asTask }, cancellationToken).Source.Task);
         }
@@ -766,6 +815,37 @@ namespace CsharpcCoreLib
             _bound = true;
         }
         public Task ConnectAsync(string host, int port) => Task.Run(() => Connect(host, port));
+
+        public ValueTask ConnectAsync(string host, int port, CancellationToken cancellationToken)
+        {
+            if (host == null) throw new ArgumentNullException("host");
+            if (port < IPEndPoint.MinPort || port > IPEndPoint.MaxPort) throw new ArgumentOutOfRangeException("port");
+            EnsureOpen();
+            if (_connected) throw new SocketException((int)SocketError.IsConnected);
+            if (_listening) throw new InvalidOperationException("You may not perform this operation after calling the Listen method.");
+            if (cancellationToken.IsCancellationRequested) return new ValueTask(Task.FromCanceled(cancellationToken));
+            return new ValueTask(ConnectToHostAsync(host, port, cancellationToken));
+        }
+
+        // Resolve (off the caller's thread, observing the token), then connect to each address in turn: the last
+        // failure is the one thrown, a canceled token ends it with OperationCanceledException.
+        private async Task ConnectToHostAsync(string host, int port, CancellationToken cancellationToken)
+        {
+            IPAddress[] addresses = await Dns.GetHostAddressesAsync(host, cancellationToken).ConfigureAwait(false);
+            Exception last = null;
+            foreach (var address in addresses)
+            {
+                if (address.AddressFamily != AddressFamily && !(AddressFamily == AddressFamily.InterNetworkV6 && _dualMode)) continue;
+                try
+                {
+                    await ConnectAsync(new IPEndPoint(address, port), cancellationToken, asTask: true).AsTask().ConfigureAwait(false);
+                    return;
+                }
+                catch (OperationCanceledException) { throw; }
+                catch (SocketException e) { last = e; }
+            }
+            throw last ?? new SocketException((int)SocketError.AddressFamilyNotSupported);
+        }
 
         public int Send(byte[] buffer) => Send(buffer, 0, buffer?.Length ?? 0, SocketFlags.None);
         public int Send(byte[] buffer, SocketFlags socketFlags) => Send(buffer, 0, buffer?.Length ?? 0, socketFlags);
@@ -1278,6 +1358,14 @@ namespace CsharpcCoreLib
         public void Dispose() => _client?.Dispose();
     }
 
+    [Shadows("System.Net.IPHostEntry")]
+    public class IPHostEntryImpl
+    {
+        public string HostName { get; set; }
+        public string[] Aliases { get; set; }
+        public IPAddress[] AddressList { get; set; }
+    }
+
     [Shadows("System.Net.Dns")]
     public static class DnsImpl
     {
@@ -1301,6 +1389,42 @@ namespace CsharpcCoreLib
             if (IPAddress.TryParse(hostNameOrAddress, out literal)) return Task.FromResult(new[] { literal });
             return Task.Run(() => NetNative.Resolve(hostNameOrAddress), cancellationToken);
         }
+
+        // .NET 8's overloads with an address family (HttpClient's SOCKS4 proxy resolves with InterNetwork).
+        public static IPAddress[] GetHostAddresses(string hostNameOrAddress, AddressFamily family)
+        {
+            CheckFamily(family);
+            var all = GetHostAddresses(hostNameOrAddress);
+            return family == AddressFamily.Unspecified ? all : FilterFamily(all, family);
+        }
+
+        public static Task<IPAddress[]> GetHostAddressesAsync(string hostNameOrAddress, AddressFamily family, CancellationToken cancellationToken = default)
+        {
+            ArgumentNullException.ThrowIfNull(hostNameOrAddress);
+            CheckFamily(family);
+            if (family == AddressFamily.Unspecified) return GetHostAddressesAsync(hostNameOrAddress, cancellationToken);
+            return GetHostAddressesAsync(hostNameOrAddress, cancellationToken).ContinueWith(
+                static (task, state) => FilterFamily(task.GetAwaiter().GetResult(), (AddressFamily)state), family,
+                CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+        }
+
+        private static void CheckFamily(AddressFamily family)
+        {
+            if (family != AddressFamily.Unspecified && family != AddressFamily.InterNetwork && family != AddressFamily.InterNetworkV6)
+                throw new ArgumentException("The specified value is not valid in the 'AddressFamily' enumeration.", "family");
+        }
+
+        private static IPAddress[] FilterFamily(IPAddress[] addresses, AddressFamily family)
+        {
+            var kept = new System.Collections.Generic.List<IPAddress>();
+            foreach (var address in addresses) if (address.AddressFamily == family) kept.Add(address);
+            return kept.ToArray();
+        }
+
+        // A host entry needs the canonical name and aliases getaddrinfo reports, which csharpc's resolver doesn't
+        // return yet (HttpClient asks only for NTLM/Negotiate authentication, which needs SSPI-style negotiation anyway).
+        public static Task<IPHostEntry> GetHostEntryAsync(string hostNameOrAddress, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException("csharpc: Dns.GetHostEntry is not supported yet (canonical names and aliases are not resolved).");
 
         public static string GetHostName() => NetNative.HostName();
     }

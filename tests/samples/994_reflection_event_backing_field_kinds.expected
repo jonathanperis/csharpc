@@ -1,0 +1,25 @@
+Shape: Moved@Shape/Action
+  declared: Moved
+Circle: Resized@Circle/Action, Moved@Circle/Action
+  declared: Resized, Moved
+Square: _resized@Square/Action
+  declared: _resized
+IDrawable: 
+  declared: 
+Canvas: _drawn@Canvas/Action, Changed@Canvas/Action, Width@Canvas/Int32
+  declared: _drawn, Changed, Width
+Mixed: Label@Mixed/String, Alarm@Mixed/Action, Tick@Mixed/static/Action, Counter@Mixed/static/Int32
+  declared: Label, Alarm, Tick, Counter
+Circle
+
+
+False
+True
+False
+True
+circle slot
+circle slot
+shape slot
+True
+tick
+1
