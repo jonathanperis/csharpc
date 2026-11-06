@@ -2714,8 +2714,14 @@ static void fin_run(void* arg) {
 /// Runs one finalizer (no lock held); an exception out of it is unhandled, as in .NET.
 static void fin_call(FinEntry* e) {
     if (!e->fn) return;
+#ifdef __wasm__
+    // Exceptions are explicit returns there: look at the pending one.
     void* exception = csrt_trap_call(fin_run, e);
     if (exception) csrt_unhandled_exception(exception);
+#else
+    // Nothing on this thread catches it, so it reaches the top of the stack and ends the process (eh.c), as on any thread.
+    fin_run(e);
+#endif
 }
 
 static void finalizer_loop(void) {

@@ -31,8 +31,18 @@ internal static class Intrinsics
 
     internal static string TypeName(ITypeSymbol t) => t.WithNullableAnnotation(NullableAnnotation.None).ToDisplayString(s_keyFormat);
 
-    public static bool TryGet(IMethodSymbol method, out IntrinsicHandler handler) =>
-        s_methods.TryGetValue(Key(method.OriginalDefinition), out handler!);
+    public static bool TryGet(IMethodSymbol method, out IntrinsicHandler handler)
+    {
+        if (s_methods.TryGetValue(Key(method.OriginalDefinition), out handler!)) return true;
+        // `base.Finalize()` at the end of a destructor compiled by csc, reaching a library class (CriticalFinalizerObject,
+        // SafeHandle, ...): library classes declare no finalizers here (ADR 0021), so there is nothing to run.
+        if (method is { Name: "Finalize", IsStatic: false, ReturnsVoid: true, Parameters.IsEmpty: true })
+        {
+            handler = (_, _) => default;
+            return true;
+        }
+        return false;
+    }
 
     public static bool TryGetProperty(IPropertySymbol property, out PropertyHandler handler) =>
         s_properties.TryGetValue(PropertyKey(property.OriginalDefinition), out handler!);
