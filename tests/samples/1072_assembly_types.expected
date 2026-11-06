@@ -1,0 +1,74 @@
+-- GetTypes
+Top | class | public visible | ns=- | declaring=- | base=Object
+Program | class | internal abstract sealed | ns=- | declaring=- | base=Object
+Shapes.IShape | interface | public abstract visible | ns=Shapes | declaring=- | base=-
+Shapes.Shape | class | public abstract visible | ns=Shapes | declaring=- | base=Object
+Shapes.Circle | class | public sealed visible | ns=Shapes | declaring=- | base=Shape
+Shapes.Point | struct | public sealed visible | ns=Shapes | declaring=- | base=ValueType
+Shapes.Color | enum | public sealed visible | ns=Shapes | declaring=- | base=Enum
+Shapes.Transform | delegate | public sealed visible | ns=Shapes | declaring=- | base=MulticastDelegate
+Shapes.Helpers | class | public abstract sealed visible | ns=Shapes | declaring=- | base=Object
+Shapes.Registry`1 | class | internal generic | ns=Shapes | declaring=- | base=Object
+Shapes.Outer | class | public visible | ns=Shapes | declaring=- | base=Object
+Top+<>O | class | nested-private abstract sealed | ns=- | declaring=Top | base=Object
+Top+<>c | class | nested-private sealed | ns=- | declaring=Top | base=Object
+Top+<>c__DisplayClass0_0 | class | nested-private sealed | ns=- | declaring=Top | base=Object
+Top+<Numbers>d__2 | class | nested-private sealed | ns=- | declaring=Top | base=Object
+Top+<Wait>d__1 | class | nested-private sealed | ns=- | declaring=Top | base=Object
+Program+<>c | class | nested-private sealed | ns=- | declaring=Program | base=Object
+Shapes.Shape+Metrics | class | nested-public visible | ns=Shapes | declaring=Shape | base=Object
+Shapes.Shape+Hidden | class | nested-protected | ns=Shapes | declaring=Shape | base=Object
+Shapes.Registry`1+Entry | class | nested-internal generic | ns=Shapes | declaring=Registry`1 | base=Object
+Shapes.Outer+Middle | class | nested-public visible | ns=Shapes | declaring=Outer | base=Object
+Shapes.Outer+Packed | struct | nested-internal sealed | ns=Shapes | declaring=Outer | base=ValueType
+Shapes.Outer+Middle+Inner | class | nested-public visible | ns=Shapes | declaring=Middle | base=Object
+Shapes.Outer+Middle+Secret | class | nested-private | ns=Shapes | declaring=Middle | base=Object
+-- GetExportedTypes
+Top
+Shapes.IShape
+Shapes.Shape
+Shapes.Circle
+Shapes.Point
+Shapes.Color
+Shapes.Transform
+Shapes.Helpers
+Shapes.Outer
+Shapes.Shape+Metrics
+Shapes.Outer+Middle
+Shapes.Outer+Middle+Inner
+True
+-- DefinedTypes / Module.GetTypes
+True
+True
+True
+True
+True
+True
+-- GetType by name
+Top: Top / Top
+Shapes.Circle: Shapes.Circle / Shapes.Circle
+Shapes.Outer+Middle+Inner: Shapes.Outer+Middle+Inner / Shapes.Outer+Middle+Inner
+Shapes.Registry`1: Shapes.Registry`1 / Shapes.Registry`1
+Shapes.Registry`1+Entry: Shapes.Registry`1+Entry / Shapes.Registry`1+Entry
+Nope: null / null
+Shapes.Outer+Nope: null / null
+Shapes.Circle
+synthesized Top+<>O: True
+synthesized Top+<>c: True
+synthesized Top+<>c__DisplayClass0_0: True
+-- entry point and modules
+Program Main System.Void 1 True
+True
+1 True 1 1
+1072_assembly_types.dll 1072_assembly_types.dll True
+True
+True
+True
+System.Private.CoreLib.dll System.Private.CoreLib.dll System.Private.Uri.dll
+True
+True
+1
+1072_assembly_types.dll
+True
+True
+True v4.0.30319 False False

@@ -103,6 +103,10 @@ namespace CsharpcCoreLib
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern string ModuleVersionIds();
         /// <summary>(assembly, count, referenced full names...) of the IL assemblies, encoded (ModuleCodeGen.Resources.cs).</summary>
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern string AssemblyReferences();
+        /// <summary>(assembly full name, failure or "") of every assembly with a compiled-in type list, encoded (ModuleCodeGen.AssemblyTypes.cs).</summary>
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern string AssemblyTypeNames();
+        /// <summary>The type lists AssemblyTypeNames indexes: per assembly {method tables, i32 count, i32 reserved}.</summary>
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern nint AssemblyTypeTableAddress();
         /// <summary>The bytes ManifestResourceIndex's offsets point into.</summary>
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern unsafe byte* ManifestResourceData();
         /// <summary>

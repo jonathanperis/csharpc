@@ -209,6 +209,9 @@ internal static partial class BclValueTypes
         // Assembly objects are corelib C# (corelib/Reflection/Assembly.cs), one per assembly name.
         t[$"{Type}.get_Assembly()"] = (g, _, self, _, _) =>
             g.CallCoreLib("AssemblyImpl", "ForName", TypeResult(g, "csrt_type_assembly_name", self));
+        // A type's module is its assembly's manifest module (assemblies have one module).
+        t[$"{Type}.get_Module()"] = (g, _, self, _, _) =>
+            g.CallCoreLib("AssemblyImpl", "ModuleOf", g.CallCoreLib("AssemblyImpl", "ForName", TypeResult(g, "csrt_type_assembly_name", self)));
         t["System.Reflection.Assembly.GetExecutingAssembly()"] = (g, _, _, _, at) =>
         {
             var owner = g.CurrentMethod?.ContainingType;

@@ -34,7 +34,10 @@ namespace CsharpcCoreLib
         public virtual IEnumerable<CustomAttributeData> CustomAttributes => GetCustomAttributesData();
         public virtual IList<CustomAttributeData> GetCustomAttributesData() => throw new NotImplementedException();
         public virtual bool IsCollectible => true;
-        public virtual int MetadataToken => throw new InvalidOperationException();
+        /// <summary>The member's assembly's one module (a Type's Module is lowered in BclValueTypes.Reflection.cs).</summary>
+        public virtual Module Module => DeclaringType.Module;
+        /// <summary>Tokens of a program's members aren't kept: .NET answers with the metadata token.</summary>
+        public virtual int MetadataToken => throw new NotSupportedException("MemberInfo.MetadataToken is not supported by csharpc yet.");
         public override bool Equals(object obj) => base.Equals(obj);
         public override int GetHashCode() => base.GetHashCode();
 

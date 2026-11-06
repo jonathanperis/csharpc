@@ -151,6 +151,8 @@ public sealed partial class FunctionCodeGen
             "ManifestResourceIndex" => _m.ManifestResourceIndex(),
             "ModuleVersionIds" => _m.ModuleVersionIdsBlob(),
             "AssemblyReferences" => _m.AssemblyReferencesBlob(),
+            "AssemblyTypeNames" => _m.AssemblyTypeNamesBlob(),
+            "AssemblyTypeTableAddress" => _b.Cast(LLVMOpcode.PtrToInt, _m.AssemblyTypeTable(), T.NativeInt),
             "ManifestResourceData" => _m.ManifestResourceData(),
             // The shared framework the program was compiled against ("11.0.0-rc.2.26504.105"), as NativeAOT
             // bakes in its System.Private.CoreLib's version.
