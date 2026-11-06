@@ -179,7 +179,23 @@ threads alone (against the branch point).
    lowered through the IL front-end ([ADR 0015](0015-corelib-il.md)).
 2. **Lowering is single-threaded** after the CFGs: emitting LLVM IR for independent functions needs a
    context per thread and a merge (or lowering straight into partitions), since an LLVM context is
-   not thread-safe.
+   not thread-safe. Measured on csharpc compiling itself (CI runner, 2 threads, run 42244078369): lowering
+   is 75 s of the 238 s at -O0 (backend 120 s, coroutine lowering 24 s) and 69 s of the 577 s at -O2
+   (optimization and backend 490 s), so two perfectly parallel lowering threads would save about 35 s at either
+   level (15 % and 6 %) and cost a second set of types, declarations and constants in memory. 130 000 IL
+   methods lower in 46 s (decoding 0.8 s) and the module-level steps (builtin interface tables 8.6 s, generic
+   interface dispatchers 13.5 s, IL failure reachability 4.4 s) are 26 s of the single thread: those are
+   the cheaper first target. Lowering reaches functions through a worklist that `GetFunction` fills from
+   inside the function being lowered (37 000 lines of `CodeGen` share one `ModuleCodeGen`), so threading
+   it is a redesign (discover first, emit after) and needs the owner's decision, not a change in place. Measured on csharpc compiling itself (CI runner, 2 threads, run 42244078369): lowering
+   is 75 s of the 238 s at -O0 (backend 120 s, coroutine lowering 24 s) and 69 s of the 577 s at -O2
+   (optimization and backend 490 s), so two perfectly parallel lowering threads would save about 35 s at either
+   level (15 % and 6 %) and cost a second set of types, declarations and constants in memory. 130 000 IL
+   methods lower in 46 s (decoding 0.8 s) and the module-level steps (builtin interface tables 8.6 s, generic
+   interface dispatchers 13.5 s, IL failure reachability 4.4 s) are 26 s of the single thread: those are
+   the cheaper first target. Lowering reaches functions through a worklist that `GetFunction` fills from
+   inside the function being lowered (37 000 lines of `CodeGen` share one `ModuleCodeGen`), so threading
+   it is a redesign (discover first, emit after) and needs the owner's decision, not a change in place.
 3. **`-O2` optimization** of small programs stays one thread over the whole program; large ones are
    partitioned (section 5), and partitioning by the call graph instead of module order would import less.
 4. **Memory:** each code-generation thread still parses the whole bitcode image before pruning it
