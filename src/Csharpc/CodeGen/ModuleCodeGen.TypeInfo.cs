@@ -767,7 +767,7 @@ public sealed partial class ModuleCodeGen
                 if (named.ContainingType is null)
                     f |= named.DeclaredAccessibility == Accessibility.Public ? TI.Public : TI.NotPublic;
                 else
-                    f |= TI.Nested | named.DeclaredAccessibility switch
+                    f |= TI.Nested | NestedAccessibility(named) switch
                     {
                         Accessibility.Public => TI.NestedPublic,
                         Accessibility.Private => TI.NestedPrivate,
@@ -807,6 +807,24 @@ public sealed partial class ModuleCodeGen
         };
 
     /// <summary>Type.IsVisible: public all the way out, and so are the type arguments.</summary>
+    /// <summary>
+    /// A nested type's accessibility: the program's own private nested types are bound as internal when its
+    /// reflection-based JSON metadata is generated (JsonReflectionContexts.WithPrivateNestedTypesInternal), so
+    /// those read the real one from the assembly.
+    /// </summary>
+    private Accessibility NestedAccessibility(INamedTypeSymbol type)
+    {
+        if (type.DeclaredAccessibility == Accessibility.Internal && Il.OwnerOf(type) is { IsCoreLib: false } owner && type.OriginalDefinition is { } definition)
+            return (owner.AttributesOf(definition) & System.Reflection.TypeAttributes.VisibilityMask) switch
+            {
+                System.Reflection.TypeAttributes.NestedPrivate => Accessibility.Private,
+                System.Reflection.TypeAttributes.NestedFamily => Accessibility.Protected,
+                System.Reflection.TypeAttributes.NestedFamANDAssem => Accessibility.ProtectedAndInternal,
+                _ => Accessibility.Internal,
+            };
+        return type.DeclaredAccessibility;
+    }
+
     private static bool IsVisible(ITypeSymbol type) => type switch
     {
         IArrayTypeSymbol array => IsVisible(array.ElementType),
