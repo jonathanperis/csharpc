@@ -321,8 +321,11 @@ Semantics that sources gave the lowering and IL has to restate:
 - **Reflection-based `System.Text.Json`** gets the source path's synthesized contexts, with the roots read
   from the program's bodies, and the program grants csharpc's binding compilation internals access so the
   JSON generator sees its types as it does from source (docs/12-corelib.md#systemtextjson). A call on a
-  root the contexts can't cover (a private nested type, a compiler-generated one) is a diagnostic where it
-  is lowered. **`[GeneratedRegex]`** members (`ldsfld <Generated>::Instance; ret`, the SDK generator's
+  root the contexts can't cover (a compiler-generated type) is a diagnostic where it is lowered. The
+  program's private and protected nested types are marked internal in the copy of its image that the binding
+  compilation reads (the type-definition flags only; IL, `Type.IsNestedPrivate` and the like come from the
+  original), which the internals access then makes visible to the generator, as a source context nested
+  beside them is. **`[GeneratedRegex]`** members (`ldsfld <Generated>::Instance; ret`, the SDK generator's
   output built on RegexRunner internals) become cached corelib interpreters built from their attribute.
 - What IL can't reach yet is explicit: `dynamic` (ADR 0019 binds from source; see its "From IL" note),
   and turning an exception into text in IL that names no exception type (no traces were recorded).
