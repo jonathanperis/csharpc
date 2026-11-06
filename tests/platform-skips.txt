@@ -238,4 +238,3 @@ macos 1009_httpclient_json  known gap: System.Net.Http's system-proxy support (C
 windows 1009_httpclient_json  known gap: System.Net.Http's system-proxy support (HttpWindowsProxy: WinINet, WindowsIdentity, EventWaitHandle) isn't implemented, so HttpClient is an explicit compile error on Windows
 macos 1010_httpclient_base_address  known gap: System.Net.Http's system-proxy support (CFNetwork: Marshal.GetFunctionPointerForDelegate) isn't implemented, so HttpClient is an explicit compile error on macOS
 windows 1010_httpclient_base_address  known gap: System.Net.Http's system-proxy support (HttpWindowsProxy: WinINet, WindowsIdentity, EventWaitHandle) isn't implemented, so HttpClient is an explicit compile error on Windows
-windows 1072_assembly_types  live: the Windows test harness adds a culture-pin class (CsharpcTestCulturePin) to the program's assembly, which GetTypes lists

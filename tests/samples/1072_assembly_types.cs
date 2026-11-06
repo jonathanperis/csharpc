@@ -50,11 +50,14 @@ static class Program
         return $"{t.FullName ?? t.Name} | {kind} | {flags} | ns={t.Namespace ?? "-"} | declaring={t.DeclaringType?.Name ?? "-"} | base={t.BaseType?.Name ?? "-"}";
     }
 
+    // The Windows test harness adds a class that pins the culture to the program (tests/culture-pin); it is no part of what this checks.
+    static bool IsProgramType(Type t) => t.Name != "CsharpcTestCulturePin";
+
     static void Main(string[] args)
     {
         var assembly = typeof(Top).Assembly;
         Console.WriteLine("-- GetTypes");
-        var types = assembly.GetTypes();
+        var types = assembly.GetTypes().Where(IsProgramType).ToArray();
         foreach (var t in types) Console.WriteLine(Describe(t));
 
         Console.WriteLine("-- GetExportedTypes");
@@ -62,8 +65,8 @@ static class Program
         Console.WriteLine(assembly.ExportedTypes.Count() == assembly.GetExportedTypes().Length);
 
         Console.WriteLine("-- DefinedTypes / Module.GetTypes");
-        Console.WriteLine(assembly.DefinedTypes.Select(t => t.FullName).SequenceEqual(types.Select(t => t.FullName)));
-        Console.WriteLine(assembly.ManifestModule.GetTypes().SequenceEqual(types));
+        Console.WriteLine(assembly.DefinedTypes.Where(IsProgramType).Select(t => t.FullName).SequenceEqual(types.Select(t => t.FullName)));
+        Console.WriteLine(assembly.ManifestModule.GetTypes().Where(IsProgramType).SequenceEqual(types));
         Console.WriteLine(assembly.GetTypes() != assembly.GetTypes());
         Console.WriteLine(typeof(Top).Assembly.GetTypes().Contains(typeof(Top)));
         Console.WriteLine(types.Contains(typeof(Shapes.Circle)) && types.Contains(typeof(Shapes.Outer.Middle.Inner)) && types.Contains(typeof(Shapes.Color)));

@@ -15,6 +15,7 @@ Top+<>c | class | nested-private sealed | ns=- | declaring=Top | base=Object
 Top+<>c__DisplayClass0_0 | class | nested-private sealed | ns=- | declaring=Top | base=Object
 Top+<Numbers>d__2 | class | nested-private sealed | ns=- | declaring=Top | base=Object
 Top+<Wait>d__1 | class | nested-private sealed | ns=- | declaring=Top | base=Object
+Program+<>O | class | nested-private abstract sealed | ns=- | declaring=Program | base=Object
 Program+<>c | class | nested-private sealed | ns=- | declaring=Program | base=Object
 Shapes.Shape+Metrics | class | nested-public visible | ns=Shapes | declaring=Shape | base=Object
 Shapes.Shape+Hidden | class | nested-protected | ns=Shapes | declaring=Shape | base=Object
