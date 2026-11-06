@@ -1245,6 +1245,12 @@ namespace CsharpcCoreLib
         public virtual void Write(ulong value) => Raw((byte*)&value, 8);
         public virtual void Write(float value) => Raw((byte*)&value, 4);
         public virtual void Write(double value) => Raw((byte*)&value, 8);
+        // .NET writes the four ints decimal.GetBits returns (lo, mid, hi, flags), little endian
+        public virtual void Write(decimal value)
+        {
+            int[] bits = decimal.GetBits(value);
+            for (int i = 0; i < 4; i++) Write(bits[i]);
+        }
         public virtual void Write(char ch)
         {
             byte[] bytes = _encoding.GetBytes(new string(ch, 1));
@@ -1325,6 +1331,17 @@ namespace CsharpcCoreLib
         public virtual ulong ReadUInt64() => *(ulong*)Fill(8);
         public virtual float ReadSingle() => *(float*)Fill(4);
         public virtual double ReadDouble() => *(double*)Fill(8);
+        // invalid bits (scale above 28, reserved flag bits) are an IOException wrapping the ArgumentException
+        public virtual decimal ReadDecimal()
+        {
+            int[] bits = new int[4];
+            for (int i = 0; i < 4; i++) bits[i] = ReadInt32();
+            try { return new decimal(bits); }
+            catch (ArgumentException e)
+            {
+                throw new IOException("Decimal constructor requires an array or span of four valid decimal bytes.", e);
+            }
+        }
 
         public virtual int Read(byte[] buffer, int index, int count)
         {

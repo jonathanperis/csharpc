@@ -278,8 +278,12 @@ instructions on one thread at -O0) and its peak (5.6 GB, 8.4 GB with two threads
 of step 3. (4) Manifest resources, `Assembly.ManifestModule`/`GetReferencedAssemblies`/`GetCustomAttributes`
 are compile-time metadata. (5) csharpc compiles itself (`tools/bootstrap/selfhost.sh`, the `Bootstrap` workflow): 248 s and
 11.6 GB on a CI runner at -O0, and the native compiler compiles hello world and samples exactly as the
-managed one (run 41171411931). Next: the self-compile at -O2, the native compiler on the whole
-differential suite, and code-generation memory.
+managed one (run 41171411931). The self-compile broke on 2026-11-06 when csharpc's own resource reader started
+calling `BinaryReader.ReadDecimal` (which the corelib lacked, `CSLLVM0002`; fixed, sample 1160) and was green
+again at both levels on 2026-11-06 (run 42244078369, 8 samples identical to the managed compiler's):
+**-O0** 238 s, 9.3 GB peak; **-O2** 577 s (optimization and code generation in 8 partitions of the 8.9 M
+instructions, 2 threads), 8.6 GB peak, a 76 MB native compiler (107 MB at -O0). Next: the native compiler on
+the whole differential suite, and code-generation memory.
 
 ### Runtime tiers — C# for library code, C where it is the right tool
 [ADR 0017](adr/0017-runtime-tiers.md); a C-free runtime is not a goal (owner, 2026-10-30). **Tier 1 (now,
