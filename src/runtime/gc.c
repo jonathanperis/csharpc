@@ -2605,6 +2605,34 @@ void csrt_objc_release_handle(void* obj) {
     gc_unlock();
 }
 
+// objc_msgSend overrides (ObjectiveCMarshal.SetMessageSendCallback): the P/Invoke stubs of libobjc's message-send entry
+// points (kind 0 objc_msgSend, 1 _fpret, 2 _stret, 3 Super, 4 Super_stret: ObjectiveCMarshal.MessageSendFunction) call
+// the registered function instead of the resolved symbol, and throw the exception SetMessageSendPendingException left
+// on this thread once the call returns.
+static void* volatile objc_msgsend_override[5];
+static _Thread_local void* tl_objc_pending;
+
+/// Sets an override once; false if one was set already.
+bool csrt_objc_set_msgsend(int32_t kind, void* fn) {
+    void* expected = NULL;
+    return __atomic_compare_exchange_n(&objc_msgsend_override[kind], &expected, fn, false, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST);
+}
+
+void* csrt_objc_msgsend_select(int32_t kind, void* resolved) {
+    void* fn = objc_msgsend_override[kind];
+    return fn ? fn : resolved;
+}
+
+void csrt_objc_set_pending(void* exception) { tl_objc_pending = exception; }
+
+void csrt_objc_throw_pending(void) {
+    void* exception = tl_objc_pending;
+    if (exception) {
+        tl_objc_pending = NULL;
+        csrt_throw_object(exception);
+    }
+}
+
 /// Runs with the world stopped, after marking: ask for each tracked object nothing else reached.
 static void objc_process(void) {
     if (!objc_active || !objc.count) return;

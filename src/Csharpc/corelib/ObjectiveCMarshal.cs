@@ -6,8 +6,9 @@
 // registers the begin/end, isReferenced and entered-finalization callbacks with the collector (src/runtime/gc.c,
 // "Objective-C reference tracking"), a type with [ObjectiveCTrackedType] and a finalizer gets tagged memory (two words
 // the native side owns) and reference-tracking handles; every collection asks the native side about the tracked objects
-// nothing else reached. Not done yet, explicit: the msgSend overrides (SetMessageSendCallback and
-// SetMessageSendPendingException need the P/Invoke redirect of objc_msgSend). The unhandled-exception propagation
+// nothing else reached. SetMessageSendCallback overrides libobjc's objc_msgSend family: the P/Invoke stubs of those
+// entry points (ModuleCodeGen.PInvoke.cs) call the registered function instead, and throw the exception
+// SetMessageSendPendingException stored on the thread once the call returns. The unhandled-exception propagation
 // handler is stored but never called: an exception that escapes an [UnmanagedCallersOnly] method ends the process.
 #nullable disable
 using System;
@@ -22,6 +23,8 @@ namespace CsharpcCoreLib
         [DllImport("__Internal")] public static extern byte csrt_objc_is_tracked_type(IntPtr obj);
         [DllImport("__Internal")] public static extern IntPtr csrt_objc_tagged_memory(IntPtr obj, int handle);
         [DllImport("__Internal")] public static extern void csrt_objc_release_handle(IntPtr obj);
+        [DllImport("__Internal")] public static extern byte csrt_objc_set_msgsend(int kind, IntPtr func);
+        [DllImport("__Internal")] public static extern void csrt_objc_set_pending(IntPtr exception);
     }
 
     [Shadows("System.Runtime.InteropServices.ObjectiveC.ObjectiveCMarshal")]
@@ -30,9 +33,6 @@ namespace CsharpcCoreLib
 #if CSHARPC_TARGET_MACOS
         private static bool s_initialized;
         private static ObjectiveCMarshal.UnhandledExceptionPropagationHandler s_unhandledExceptionPropagationHandler;
-
-        private static Exception Unsupported(string member) => new NotSupportedException(
-            "ObjectiveCMarshal." + member + " is not supported by csharpc yet: overriding objc_msgSend needs a P/Invoke redirect.");
 
         public static void Initialize(
             delegate* unmanaged<void> beginEndCallback,
@@ -70,11 +70,17 @@ namespace CsharpcCoreLib
             return new Span<IntPtr>((void*)ObjcTracking.csrt_objc_tagged_memory(pointer, 0), 2);
         }
 
-        public static void SetMessageSendCallback(ObjectiveCMarshal.MessageSendFunction msgSendFunction, IntPtr func) =>
-            throw Unsupported("SetMessageSendCallback");
+        public static void SetMessageSendCallback(ObjectiveCMarshal.MessageSendFunction msgSendFunction, IntPtr func)
+        {
+            if (msgSendFunction < ObjectiveCMarshal.MessageSendFunction.MsgSend || msgSendFunction > ObjectiveCMarshal.MessageSendFunction.MsgSendSuperStret)
+                throw new ArgumentOutOfRangeException("msgSendFunction");
+            if (ObjcTracking.csrt_objc_set_msgsend((int)msgSendFunction, func) == 0)
+                throw new InvalidOperationException("Attempt to update previously set Objective-C msgSend API overrides.");
+        }
 
+        // Thrown by the P/Invoke stub of the next objc_msgSend call on this thread to return (ModuleCodeGen.PInvoke.cs).
         public static void SetMessageSendPendingException(Exception exception) =>
-            throw Unsupported("SetMessageSendPendingException");
+            ObjcTracking.csrt_objc_set_pending(CoreIntrinsics.ObjectToPointer(exception));
 #else
         public static void Initialize(
             delegate* unmanaged<void> beginEndCallback,
