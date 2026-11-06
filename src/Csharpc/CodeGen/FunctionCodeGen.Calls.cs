@@ -648,18 +648,23 @@ public sealed partial class FunctionCodeGen
         { SpecialType: SpecialType.System_Enum } => _m.ExternalGlobal("csrt_Enum_MT"),
         { SpecialType: SpecialType.System_Delegate } => _m.ExternalGlobal("csrt_Delegate_MT"),
         { SpecialType: SpecialType.System_MulticastDelegate } => _m.ExternalGlobal("csrt_MulticastDelegate_MT"),
-        // Tasks are runtime objects with one method table (docs/10-async.md): `is Task` holds for every task.
-        // A TaskCompletionSource is its task, so a test against TaskCompletionSource(<T>) accepts any task
-        // object (the cast .NET would reject, of a plain Task, is the one csharpc can't tell apart).
+        // Tasks are runtime objects (docs/10-async.md): `is Task` holds for every task. A TaskCompletionSource is
+        // its task, so a test against TaskCompletionSource<T> is the test against the Task<T> it is (the cast
+        // .NET would reject, of a Task<T> that isn't a source, is the one csharpc can't tell apart).
         INamedTypeSymbol { Name: "Task", TypeArguments.Length: 0, ContainingNamespace: { Name: "Tasks", ContainingNamespace: { Name: "Threading", ContainingNamespace.Name: "System" } } }
-            or INamedTypeSymbol { Name: "TaskCompletionSource", ContainingNamespace: { Name: "Tasks", ContainingNamespace: { Name: "Threading", ContainingNamespace.Name: "System" } } } =>
+            or INamedTypeSymbol { Name: "TaskCompletionSource", TypeArguments.Length: 0, ContainingNamespace: { Name: "Tasks", ContainingNamespace: { Name: "Threading", ContainingNamespace.Name: "System" } } } =>
             _m.ExternalGlobal("csrt_Task_MT"),
-        // A task doesn't record its result type, so `x is Task<T>` can only tell tasks from other objects. In
-        // framework IL that is what the code means (System.Net.Http's HttpContent keeps a Stream or the
-        // Task<Stream> reading it in one object field); a program's own source gets the explicit diagnostic below.
-        INamedTypeSymbol { Name: "Task", TypeArguments.Length: 1, ContainingNamespace: { Name: "Tasks", ContainingNamespace: { Name: "Threading", ContainingNamespace.Name: "System" } } }
-            when CurrentMethod is { } current && _m.IsIlMethod(current) && !CoreLib.IsCoreLib(current) && _m.Il.OwnerOf(current) is { IsFramework: true } =>
+        INamedTypeSymbol { Name: "TaskCompletionSource", TypeArguments.Length: 1, ContainingNamespace: { Name: "Tasks", ContainingNamespace: { Name: "Threading", ContainingNamespace.Name: "System" } } } source
+            when _m.TaskTypeOf(source) is { } sourceTask => _m.TaskMethodTable(sourceTask, observed: true),
+        INamedTypeSymbol { Name: "TaskCompletionSource", ContainingNamespace: { Name: "Tasks", ContainingNamespace: { Name: "Threading", ContainingNamespace.Name: "System" } } } =>
             _m.ExternalGlobal("csrt_Task_MT"),
+        // Task<T> is told from Task<U> by the table the task carries (ModuleCodeGen.TaskTypes.cs); the non-generic
+        // Task and Task<VoidTaskResult> (what a TaskCompletionSource without a result, an async Task method or
+        // Task.Delay make in .NET) are one type here: the plain task table.
+        INamedTypeSymbol { Name: "Task", TypeArguments.Length: 1, ContainingNamespace: { Name: "Tasks", ContainingNamespace: { Name: "Threading", ContainingNamespace.Name: "System" } } } voidTask
+            when voidTask.TypeArguments[0].Name == "VoidTaskResult" => _m.ExternalGlobal("csrt_Task_MT"),
+        INamedTypeSymbol { Name: "Task", TypeArguments.Length: 1, ContainingNamespace: { Name: "Tasks", ContainingNamespace: { Name: "Threading", ContainingNamespace.Name: "System" } } } typed
+            when _m.TaskTypeOf(typed) is { } taskType => _m.TaskMethodTable(taskType, observed: true),
         // Type objects are runtime objects (src/runtime/type.c), all with one method table.
         // They are csharpc's TypeInfo objects too (GetTypeInfo is the identity), as every RuntimeType is a TypeInfo.
         INamedTypeSymbol { Name: "Type", ContainingType: null, ContainingNamespace: { Name: "System", ContainingNamespace.IsGlobalNamespace: true } }

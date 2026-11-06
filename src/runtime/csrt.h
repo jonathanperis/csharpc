@@ -90,6 +90,7 @@ typedef struct { csrt_MethodTable header; void* vtable[3]; } csrt_BuiltinMethodT
 
 extern const csrt_BuiltinMethodTable csrt_Object_MT;
 extern const csrt_BuiltinMethodTable csrt_String_MT;
+extern const csrt_BuiltinMethodTable csrt_Task_MT;  // async.c; Task<T> tables derive from it
 // Array method tables (per element type, ModuleCodeGen.Bcl.cs; synthesized ones, type.c; the untagged
 // tables below) end with the element type's method table, the one its instances carry, for array covariance
 // (stelem.ref's store check, ldelema's exact-type check, casts between array types). NULL: a value type, or
