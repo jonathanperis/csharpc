@@ -45,7 +45,7 @@ csrt_String* csrt_enum_format_flags(uint64_t value, const uint64_t* values, csrt
     csrt_String* result = NULL;
     static csrt_String* separator;
     if (!separator) {
-        separator = csrt_alloc(&csrt_String_MT.header, (int64_t)(sizeof(csrt_String) + 4));
+        separator = csrt_alloc(&csrt_String_MT.header, (int64_t)(sizeof(csrt_String) + 6));  // + the terminator
         separator->length = 2; separator->chars[0] = ','; separator->chars[1] = ' ';
     }
     for (int32_t i = 0; i < count && i < 64; i++) {
@@ -71,7 +71,7 @@ csrt_String* csrt_enum_format(uint64_t value, int64_t signed_value, csrt_String*
         case 'D': case 'd': return is_signed ? csrt_string_from_i64(signed_value) : csrt_string_from_u64(value);
         case 'X': case 'x': {
             int digits = bits / 4;
-            csrt_String* s = csrt_alloc(&csrt_String_MT.header, (int64_t)(sizeof(csrt_String) + 2 * (size_t)digits));
+            csrt_String* s = csrt_alloc(&csrt_String_MT.header, (int64_t)(sizeof(csrt_String) + 2 * ((size_t)digits + 1)));  // + the terminator
             s->length = digits;
             for (int i = digits - 1; i >= 0; i--) { s->chars[i] = (uint16_t)"0123456789ABCDEF"[value & 15]; value >>= 4; }
             return s;
