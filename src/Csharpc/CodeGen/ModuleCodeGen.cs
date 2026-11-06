@@ -607,7 +607,7 @@ public sealed partial class ModuleCodeGen
 
     private static readonly HashSet<string> s_noThrowRuntime =
     [
-        "csrt_init", "csrt_shutdown", "csrt_get_args", "csrt_alloc", "csrt_begin_catch", "csrt_personality",
+        "csrt_init", "csrt_shutdown", "csrt_get_args", "csrt_alloc", "csrt_alloc_finalizable", "csrt_begin_catch", "csrt_personality",
         "csrt_isinst_class", "csrt_string_concat", "csrt_string_equals", "csrt_string_is_null_or_empty",
         "csrt_console_newline", "csrt_console_flush", "csrt_object_to_string_default", "csrt_object_equals_default",
         "csrt_object_get_hash_code_default", "csrt_exception_init", "csrt_environment_tick_count64",
@@ -698,7 +698,7 @@ public sealed partial class ModuleCodeGen
         }
         if (method.MethodKind is not (MethodKind.Ordinary or MethodKind.Constructor or MethodKind.StaticConstructor
             or MethodKind.PropertyGet or MethodKind.PropertySet or MethodKind.UserDefinedOperator or MethodKind.Conversion
-            or MethodKind.EventAdd or MethodKind.EventRemove or MethodKind.ExplicitInterfaceImplementation))
+            or MethodKind.EventAdd or MethodKind.EventRemove or MethodKind.ExplicitInterfaceImplementation or MethodKind.Destructor))
             return;
         // Field-like events have synthesized accessors; `+=`/`-=` update the backing field inline, so a
         // function is only lowered when something references it (interface slots, virtual calls).
@@ -769,7 +769,7 @@ public sealed partial class ModuleCodeGen
             case AccessorDeclarationSyntax { Body: null, ExpressionBody: null }:
                 gen.EmitAutoPropertyAccessor(); // `{ get; set; }`
                 break;
-            case MethodDeclarationSyntax or ConstructorDeclarationSyntax or AccessorDeclarationSyntax
+            case MethodDeclarationSyntax or ConstructorDeclarationSyntax or DestructorDeclarationSyntax or AccessorDeclarationSyntax
                 or ArrowExpressionClauseSyntax or CompilationUnitSyntax or OperatorDeclarationSyntax
                 or ConversionOperatorDeclarationSyntax:
                 var cfg = CfgFor(syntax)
@@ -1051,12 +1051,6 @@ public sealed partial class ModuleCodeGen
     /// an ordinary method): Exception.GetObjectData was only called by BinaryFormatter, which .NET 9
     /// removed. Most exception classes in framework IL still override it.
     /// </summary>
-    private bool? _programHasFinalizers;
-
-    /// <summary>Whether a type of the program's own source declares a finalizer (~T()).</summary>
-    internal bool ProgramHasFinalizers() => _programHasFinalizers ??= Compilation.SyntaxTrees
-        .Any(tree => tree.GetRoot().DescendantNodes().OfType<Microsoft.CodeAnalysis.CSharp.Syntax.DestructorDeclarationSyntax>().Any());
-
     internal static bool IsUndispatchedLibraryVirtual(IMethodSymbol root) =>
         root is { Name: "GetObjectData", ContainingType: { Name: "Exception", ContainingNamespace.Name: "System" } };
 
@@ -1160,6 +1154,7 @@ public sealed partial class ModuleCodeGen
         var global = Module.AddGlobal(Mangler.TypeSymbol(layout.Type, "MT"), layout.MethodTableType,
             constant: true, linkage: LLVMLinkage.Internal);
         layout.MethodTable = global; // set before initializing: methods may reference it
+        _layoutByMethodTable[global.Handle] = layout;
         // The initializer (vtable and interface slots) is set by FinishMethodTables (ModuleCodeGen.VTables.cs).
         var table = new PendingMethodTable { Layout = layout, Global = global };
         EmitInterfaceMap(table);

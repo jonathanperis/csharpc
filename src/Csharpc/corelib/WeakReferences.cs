@@ -1,8 +1,8 @@
 // WeakReference, WeakReference<T> and ConditionalWeakTable<TKey, TValue> over the collector's weak
 // slots (src/runtime/gc.c, "Weak references and ephemerons"). A slot is cleared when a collection
 // finds its target unreachable; a ConditionalWeakTable entry is an ephemeron (its value lives while
-// its key does). csharpc runs no finalizers, so a slot names its owner and the collector frees it when
-// the owner dies, which is when .NET's finalizers would release the handle.
+// its key does). The corelib's types declare no finalizers, so a slot names its owner and the collector
+// frees it when the owner dies, which is when .NET's finalizers would release the handle.
 // ConditionalWeakTable follows dotnet/runtime (release/11.0) src/libraries/System.Private.CoreLib/src/
 // System/Runtime/CompilerServices/ConditionalWeakTable.cs where it is observable: identity keys,
 // enumeration in insertion order, exception types and messages. See THIRD-PARTY-NOTICES.md.

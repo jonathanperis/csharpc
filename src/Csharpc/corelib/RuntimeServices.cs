@@ -1,6 +1,7 @@
 // Runtime-facing BCL types that framework libraries compiled from IL use (System.Reflection.Metadata pins
 // its byte arrays, rents decoding buffers and derives its disposables from CriticalFinalizerObject).
-// csharpc's GC is conservative and non-moving (ADR 0004) and runs no finalizers.
+// csharpc's GC is conservative and non-moving (ADR 0004); finalizers run for classes that declare one
+// (ADR 0021), and the corelib's own types declare none.
 #nullable disable
 using System;
 using System.Buffers;
@@ -9,7 +10,7 @@ using System.Threading;
 
 namespace CsharpcCoreLib
 {
-    /// <summary>A base class whose only runtime meaning is "finalize reliably": csharpc runs no finalizers.</summary>
+    /// <summary>A base class whose only runtime meaning is "finalize reliably": the corelib has no finalizers of its own.</summary>
     [Shadows("System.Runtime.ConstrainedExecution.CriticalFinalizerObject")]
     public abstract class CriticalFinalizerObjectImpl
     {

@@ -31,8 +31,18 @@ internal static class Intrinsics
 
     internal static string TypeName(ITypeSymbol t) => t.WithNullableAnnotation(NullableAnnotation.None).ToDisplayString(s_keyFormat);
 
-    public static bool TryGet(IMethodSymbol method, out IntrinsicHandler handler) =>
-        s_methods.TryGetValue(Key(method.OriginalDefinition), out handler!);
+    public static bool TryGet(IMethodSymbol method, out IntrinsicHandler handler)
+    {
+        if (s_methods.TryGetValue(Key(method.OriginalDefinition), out handler!)) return true;
+        // `base.Finalize()` at the end of a destructor compiled by csc, reaching a library class (CriticalFinalizerObject,
+        // SafeHandle, ...): library classes declare no finalizers here (ADR 0021), so there is nothing to run.
+        if (method is { Name: "Finalize", IsStatic: false, ReturnsVoid: true, Parameters.IsEmpty: true })
+        {
+            handler = (_, _) => default;
+            return true;
+        }
+        return false;
+    }
 
     public static bool TryGetProperty(IPropertySymbol property, out PropertyHandler handler) =>
         s_properties.TryGetValue(PropertyKey(property.OriginalDefinition), out handler!);
@@ -561,14 +571,25 @@ internal static class Intrinsics
             Native.LLVMSetVolatile(g.Builder.Store(value, slot), 1);
             return default;
         };
-        // csharpc runs no finalizers (.NET does not promise to run them either, and never at exit), so
-        // there is nothing to suppress or re-register.
-        t["System.GC.SuppressFinalize(object)"] = (g, inv) => { Arg(g, inv, 0); return default; };
-        t["System.GC.ReRegisterForFinalize(object)"] = (g, inv) => { Arg(g, inv, 0); return default; };
-        // Nothing is pending — unless the program declares finalizers, which .NET would run before returning.
-        t["System.GC.WaitForPendingFinalizers()"] = (g, inv) => g.Module.ProgramHasFinalizers()
-            ? throw CompileError.Unsupported("GC.WaitForPendingFinalizers in a program with finalizers (csharpc runs no finalizers)", inv)
-            : default;
+        // Finalizers (ModuleCodeGen.Finalizers.cs, gc.c): the collector queues unreachable registered objects, a
+        // finalizer thread runs them; .NET does not run them at exit either.
+        t["System.GC.SuppressFinalize(object)"] = (g, inv) =>
+        {
+            g.CallRuntime("csrt_gc_suppress_finalize", g.Module.Llvm.Void, [g.Module.Llvm.Ptr], Arg(g, inv, 0));
+            return default;
+        };
+        t["System.GC.ReRegisterForFinalize(object)"] = (g, inv) =>
+        {
+            g.CallRuntime("csrt_gc_reregister_finalizer", g.Module.Llvm.Void, [g.Module.Llvm.Ptr], Arg(g, inv, 0));
+            return default;
+        };
+        // csc ends every destructor with `try { ... } finally { base.Finalize(); }`; the root of the chain does nothing.
+        t["object.Finalize()"] = (_, _) => default;
+        t["System.GC.WaitForPendingFinalizers()"] = (g, inv) =>
+        {
+            g.CallRuntime("csrt_gc_wait_for_pending_finalizers", g.Module.Llvm.Void, []);
+            return default;
+        };
         t["System.GC.GetTotalMemory(bool)"] = (g, inv) =>
         {
             g.EmitValue(inv.Arguments[0].Value);

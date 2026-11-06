@@ -369,6 +369,6 @@ corelib methods the program reaches from IL, with no parsing or binding of the c
 * **`ObjectiveCMarshal`** (`corelib/ObjectiveCMarshal.cs`, the hooks of the .NET for macOS / iOS bindings): the
   API compiles and, off macOS, throws `PlatformNotSupportedException` from every member as .NET does. On a macOS
   target every member is an explicit `NotSupportedException`: .NET's reference tracking is built on finalizers
-  (tracked types need one; the collector calls `isReferencedCallback` while it marks and
-  `trackedObjectEnteredFinalization` as an object enters the finalizer queue), and csharpc runs no finalizers
-  ([04-runtime.md](04-runtime.md)). Finalization in the collector, then these hooks, is what remains.
+  (tracked types need one) and on the collector calling `isReferencedCallback` for each tracked object while it
+  marks and `trackedObjectEnteredFinalization` as an object enters the finalizer queue. Finalizers exist now
+  ([ADR 0021](adr/0021-finalizers.md)); the collector's tracked-reference callbacks, then these hooks, are what remains.

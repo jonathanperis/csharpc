@@ -219,6 +219,14 @@ csrt_String* csrt_object_disposed_message(csrt_String* message, csrt_String* obj
 csrt_String* csrt_exception_get_message(void* exception);
 csrt_String* csrt_exception_to_string(void* exception);
 _Noreturn void csrt_unhandled_exception(void* exception);
+/// Calls fn(arg); the exception that escapes it (finally blocks run), or NULL (eh.c).
+void* csrt_trap_call(void (*fn)(void*), void* arg);
+/// Finalizers (gc.c): an object of a class with a finalizer is allocated with csrt_alloc_finalizable, `fn` runs its
+/// finalizers; GC.SuppressFinalize, GC.ReRegisterForFinalize and GC.WaitForPendingFinalizers.
+void* csrt_alloc_finalizable(const csrt_MethodTable* mt, int64_t size, void (*fn)(void*));
+void csrt_gc_suppress_finalize(void* obj);
+void csrt_gc_reregister_finalizer(void* obj);
+void csrt_gc_wait_for_pending_finalizers(void);
 void* csrt_aggregate_exception_new(void** inners, int64_t count);
 void csrt_exception_set_inners(void* exception, csrt_Array* inners);
 int32_t csrt_exception_inner_count(void* exception);

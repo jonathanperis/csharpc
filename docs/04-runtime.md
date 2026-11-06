@@ -256,6 +256,17 @@ recommit on Windows), and glibc's free memory with `malloc_trim`. Under load the
 trimming, so no allocation pays a page fault for it; after a burst (TechEmpower's 10,000-row cache
 fill at start-up) the idle process shrinks to about its live heap.
 
+### Finalizers
+
+A class of the program that declares `~T()` (or, from IL, overrides `Finalize`) allocates its instances with
+`csrt_alloc_finalizable`, which registers the object with the collector; the compiler passes a thunk that runs
+the finalizers of the class chain, most derived first. After marking, the registered objects nobody reached move,
+in registration order, to a queue, and the queue is marked (the objects and everything they reach survive this
+collection). A finalizer thread, started at the first registration, runs them; `GC.WaitForPendingFinalizers`
+waits for it (on WebAssembly, with no threads, it runs what is pending itself). `GC.SuppressFinalize` and
+`GC.ReRegisterForFinalize` edit the registry; an exception escaping a finalizer is unhandled and ends the
+process like any other. Nothing runs at exit, as in .NET. Details and limits: [ADR 0021](adr/0021-finalizers.md).
+
 ### Weak references and ephemerons
 
 `WeakReference`, `WeakReference<T>` and `ConditionalWeakTable<TKey, TValue>` (corelib
@@ -263,7 +274,7 @@ fill at start-up) the idle process shrinks to about its live heap.
 conservative scan never sees the targets. After marking, a slot whose target wasn't reached is
 cleared. A `ConditionalWeakTable` entry is an ephemeron: its value is marked only while its key is
 reachable some other way, to a fixed point, so a value referenced only by the table lives exactly as
-long as its key. csharpc runs no finalizers, so each slot names its owner (the `WeakReference`, the
-table) and the collector frees the slot when the owner dies — when .NET's finalizer would release the
-handle. Whether an unreferenced target is collected at a given `GC.Collect()` is up to the
+long as its key. The corelib's own types declare no finalizers, so each slot names its owner (the
+`WeakReference`, the table) and the collector frees the slot when the owner dies — when .NET's
+finalizer would release the handle. Whether an unreferenced target is collected at a given `GC.Collect()` is up to the
 (conservative) collector, as it is up to .NET's.
