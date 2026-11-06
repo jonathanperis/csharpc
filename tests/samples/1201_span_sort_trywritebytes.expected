@@ -1,0 +1,30 @@
+bool True 01EEEE
+bool short False 
+char True 4100EEEE
+char short False EE
+short True FEFFEEEE
+short short False EE
+ushort True CDABEEEE
+ushort short False EE
+int True EB32A4F8EEEE
+int short False EEEEEE
+uint True EFBEADDEEEEE
+uint short False EEEEEE
+long True 35FB048EE0FEFFFFEEEE
+long short False EEEEEEEEEEEEEE
+ulong True 0807060504030201EEEE
+ulong short False EEEEEEEEEEEEEE
+float True 0000C03FEEEE
+float short False EEEEEE
+double True 00000000000002C0EEEE
+double short False EEEEEEEEEEEEEE
+1,3,3,5,7,8,9
+1,7,5,3,3,8,9
+9,8,7,5,3,3,1
+apple,fig,kiwi,pear
+fig,kiwi,pear,apple
+4
+InvalidOperationException: Failed to compare two elements in the array. / FormatException
+ArgumentNullException
+.
+System.Collections.Generic.List`1
