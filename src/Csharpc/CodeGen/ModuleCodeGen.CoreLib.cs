@@ -73,17 +73,30 @@ public sealed partial class ModuleCodeGen
             }
     }
 
+    private static readonly HashSet<string> s_arrayGenericInterfaces =
+    [
+        "System.Collections.Generic.IEnumerable<T>", "System.Collections.Generic.ICollection<T>", "System.Collections.Generic.IList<T>",
+        "System.Collections.Generic.IReadOnlyCollection<T>", "System.Collections.Generic.IReadOnlyList<T>",
+    ];
+
+    /// <summary>Per requested interface, once: does every array implement it, and else the (mapped) element type that makes one.</summary>
+    private readonly Dictionary<INamedTypeSymbol, (bool Always, ITypeSymbol? Element)> _arrayInterfaceKinds = new(SymbolEqualityComparer.Default);
+    private readonly Dictionary<ITypeSymbol, ITypeSymbol> _mappedElements = new(SymbolEqualityComparer.Default);
+
     /// <summary>Does an array with this element type implement the (requested) interface?</summary>
     private bool ArrayImplements(ITypeSymbol element, INamedTypeSymbol itf)
     {
-        if (!itf.IsGenericType) return true;
-        if (itf.TypeArguments.Length != 1) return false;
-        var name = itf.OriginalDefinition.ToDisplayString();
-        if (name is not ("System.Collections.Generic.IEnumerable<T>" or "System.Collections.Generic.ICollection<T>" or "System.Collections.Generic.IList<T>"
-            or "System.Collections.Generic.IReadOnlyCollection<T>" or "System.Collections.Generic.IReadOnlyList<T>")) return false;
+        // Every (array, interface) pair is tested once, and there are millions of them in a Roslyn-sized program:
+        // what depends on the interface alone (its name, its mapped type argument) and on the element alone is computed once.
+        if (!_arrayInterfaceKinds.TryGetValue(itf, out var kind))
+            _arrayInterfaceKinds[itf] = kind = !itf.IsGenericType ? (true, null)
+                : itf.TypeArguments.Length == 1 && s_arrayGenericInterfaces.Contains(itf.OriginalDefinition.ToDisplayString()) ? (false, CoreLib.Map(itf.TypeArguments[0]))
+                : (false, null);
+        if (kind.Always) return true;
+        if (kind.Element is not { } u) return false;
         // Compare as codegen sees types: List<T> and its corelib shadow are the same element type.
-        element = CoreLib.Map(element);
-        var u = CoreLib.Map(itf.TypeArguments[0]);
+        if (!_mappedElements.TryGetValue(element, out var mapped)) _mappedElements[element] = mapped = CoreLib.Map(element);
+        element = mapped;
         if (SymbolEqualityComparer.Default.Equals(element, u)) return true;
         // Array covariance: string[] is an IList<object>.
         if (element.IsReferenceType && u.IsReferenceType)

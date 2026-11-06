@@ -198,15 +198,15 @@ public sealed partial class ModuleCodeGen
             }
             return impl.Construct(typeArgs);
         }
-        // Only the types that implement an instantiation of the interface (indexed as layouts appear), in layout order;
+        // Only the types that implement the interface (indexed as layouts appear), in layout order;
         // the ones the dispatcher covers already are not looked at again (every round used to resolve the
         // implementation of every class of the program for every dispatcher).
         IndexImplementers();
-        if (_classesByInterface.TryGetValue(itf.OriginalDefinition, out var classes))
+        if (_classesByInterface.TryGetValue(itf, out var classes))
             foreach (var type in classes.ToArray())
                 if (!covered.Contains(type) && _layouts.TryGetValue(type, out var layout) && !layout.MethodTable.IsNull && IsConstructed(layout) && CalleeIn(type) is { } callee)
                     yield return (type, layout.MethodTable, callee);
-        if (_structsByInterface.TryGetValue(itf.OriginalDefinition, out var structs))
+        if (_structsByInterface.TryGetValue(itf, out var structs))
             foreach (var type in structs.ToArray())
                 if (!covered.Contains(type) && _structs.TryGetValue(type, out var layout) && !layout.MethodTable.IsNull && CalleeIn(type) is { } callee)
                     yield return (type, layout.MethodTable, callee);
@@ -217,7 +217,7 @@ public sealed partial class ModuleCodeGen
     private readonly HashSet<INamedTypeSymbol> _indexedImplementers = new(SymbolEqualityComparer.Default);
 
     /// <summary>
-    /// Files the concrete classes and structs with a layout under each interface (definition) they implement, in the
+    /// Files the concrete classes and structs with a layout under each interface (instantiation) they implement, in the
     /// order their layouts appeared: what a dispatcher for an interface method has to consider.
     /// </summary>
     private void IndexImplementers()
@@ -226,12 +226,12 @@ public sealed partial class ModuleCodeGen
         foreach (var (type, layout) in _layouts)
         {
             if (type is not { TypeKind: TypeKind.Class, IsAbstract: false } || !_indexedImplementers.Add(type)) continue;
-            foreach (var itf in type.AllInterfaces) AddImplementer(_classesByInterface, itf.OriginalDefinition, type);
+            foreach (var itf in type.AllInterfaces) AddImplementer(_classesByInterface, itf, type);
         }
         foreach (var (type, layout) in _structs)
         {
             if (!_indexedImplementers.Add(type)) continue;
-            foreach (var itf in type.AllInterfaces) AddImplementer(_structsByInterface, itf.OriginalDefinition, type);
+            foreach (var itf in type.AllInterfaces) AddImplementer(_structsByInterface, itf, type);
         }
     }
 
