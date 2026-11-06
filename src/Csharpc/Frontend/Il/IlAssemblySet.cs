@@ -200,30 +200,27 @@ public sealed class IlAssembly : IDisposable, ISignatureTypeProvider<IlType, IlG
             foreach (var entry in StringResources(name, bytes, $"{Name}.dll")) yield return entry;
     }
 
-    /// <summary>The string entries of one embedded resource, when it is a `.resources` file (others: none).</summary>
+    /// <summary>
+    /// The entries of one embedded resource, when it is a `.resources` file (others: none): the base name, the key and
+    /// the string value, or, for an entry of another type, the marker NonStringPrefix + the type's name (so the runtime
+    /// can tell GetString/GetObject why it has no text instead of reporting a missing key).
+    /// </summary>
     public static IEnumerable<(string BaseName, string Key, string Value)> StringResources(string name, byte[] bytes, string owner)
     {
         if (!name.EndsWith(".resources", StringComparison.Ordinal)) yield break;
-        List<(string, string, string)> entries = [];
-        try
-        {
-            using var reader = new System.Resources.ResourceReader(new MemoryStream(bytes));
-            var e = reader.GetEnumerator();
-            while (e.MoveNext())
-            {
-                var key = (string)e.Key;
-                reader.GetResourceData(key, out var type, out var data);
-                if (type != "ResourceTypeCode.String") continue;
-                using var value = new BinaryReader(new MemoryStream(data));
-                entries.Add((name[..^".resources".Length], key, value.ReadString()));
-            }
-        }
-        catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or IOException or ArgumentException or FormatException)
+        List<ResourcesFile.Entry> entries;
+        try { entries = [.. ResourcesFile.Read(bytes)]; }
+        catch (Exception ex) when (ex is InvalidDataException or EndOfStreamException or IOException or ArgumentException or FormatException)
         {
             throw new IlException($"embedded resource '{name}' of {owner} is not in the .resources format: {ex.Message}");
         }
-        foreach (var entry in entries) yield return entry;
+        var baseName = name[..^".resources".Length];
+        foreach (var entry in entries)
+            yield return (baseName, entry.Name, entry.Text ?? NonStringPrefix + entry.TypeName + "\u0001" + entry.Value);
     }
+
+    /// <summary>Starts the value of a resource entry that is not a string: the prefix, the type's full name, U+0001 and the value's text (corelib/Resources.cs reads it).</summary>
+    public const string NonStringPrefix = "\uFFFF\u0001";
 
     public void Dispose() => Pe.Dispose();
 

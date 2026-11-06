@@ -85,6 +85,62 @@ namespace CsharpcCoreLib
 
         public virtual string GetString(string name, CultureInfo culture)
         {
+            string value = Lookup(name);
+            if (value == null) return null;
+            if (value.StartsWith(NonStringPrefix, StringComparison.Ordinal))
+                throw new InvalidOperationException("Resource was of type '" + NonStringTypeName(value) + "' instead of String - call GetObject instead.");
+            return value;
+        }
+
+        public virtual object GetObject(string name) => GetObject(name, null);
+
+        public virtual object GetObject(string name, CultureInfo culture)
+        {
+            string value = Lookup(name);
+            if (value == null || !value.StartsWith(NonStringPrefix, StringComparison.Ordinal)) return value;
+            string type = NonStringTypeName(value);
+            string text = value.Substring(value.IndexOf('\u0001', NonStringPrefix.Length) + 1);
+            try { return Create(name, type, text); }
+            catch (FormatException) { }
+            catch (OverflowException) { }
+            throw new NotSupportedException("csharpc: the resource '" + name + "' of '" + _baseName + "' is a " + type + ", which ResourceManager.GetObject does not create yet (only strings, numbers, bools, chars and byte arrays).");
+        }
+
+        private static object Create(string name, string type, string text)
+        {
+            var invariant = CultureInfo.InvariantCulture;
+            switch (type)
+            {
+                case "null": return null;
+                case "System.Boolean": return text == "True";
+                case "System.Char": return (char)ushort.Parse(text, invariant);
+                case "System.Byte": return byte.Parse(text, invariant);
+                case "System.SByte": return sbyte.Parse(text, invariant);
+                case "System.Int16": return short.Parse(text, invariant);
+                case "System.UInt16": return ushort.Parse(text, invariant);
+                case "System.Int32": return int.Parse(text, invariant);
+                case "System.UInt32": return uint.Parse(text, invariant);
+                case "System.Int64": return long.Parse(text, invariant);
+                case "System.UInt64": return ulong.Parse(text, invariant);
+                case "System.Single": return float.Parse(text, invariant);
+                case "System.Double": return double.Parse(text, invariant);
+                case "System.Decimal": return decimal.Parse(text, invariant);
+                case "System.Byte[]": return Convert.FromBase64String(text);
+            }
+            throw new FormatException();
+        }
+
+        // "\uFFFF\u0001" + the type's full name + "\u0001" + the value (IlAssembly.StringResources writes it).
+        private const string NonStringPrefix = "\uFFFF\u0001";
+
+        private static string NonStringTypeName(string value)
+        {
+            int end = value.IndexOf('\u0001', NonStringPrefix.Length);
+            return value.Substring(NonStringPrefix.Length, end - NonStringPrefix.Length);
+        }
+
+        private string Lookup(string name)
+        {
             if (name == null) throw new ArgumentNullException("name");
             var strings = _strings ??= ResourceTable.Find(_baseName)
                 ?? throw new NotSupportedException("csharpc: no embedded resources named '" + _baseName + ".resources' in the assemblies compiled from IL; this resource lookup is not supported by csharpc yet.");
