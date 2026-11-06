@@ -669,8 +669,8 @@ internal static class Intrinsics
         {
             var result = ((INamedTypeSymbol)g.TypeOf(inv)!).TypeArguments.FirstOrDefault();
             var size = result is null ? 0 : (long)g.Module.Types.Target.SizeOf(g.Module.Types.Storage(result));
-            return g.CallRuntime("csrt_task_from_exception", g.Module.Llvm.Ptr, [g.Module.Llvm.Ptr, g.Module.Llvm.I32], Arg(g, inv, 0),
-                g.Module.Llvm.ConstInt(g.Module.Llvm.I32, size));
+            return g.StampTask(g.CallRuntime("csrt_task_from_exception", g.Module.Llvm.Ptr, [g.Module.Llvm.Ptr, g.Module.Llvm.I32], Arg(g, inv, 0),
+                g.Module.Llvm.ConstInt(g.Module.Llvm.I32, size)), g.TypeOf(inv));
         };
         t[$"{Tasks}.Task.FromException(System.Exception)"] = fromException;
         t[$"{Tasks}.Task.FromException<TResult>(System.Exception)"] = fromException;
@@ -867,18 +867,18 @@ internal static class Intrinsics
             var tasks = g.TaskArrayArgument(inv.Arguments[0]);
             var result = ((INamedTypeSymbol)g.TypeOf(inv)!).TypeArguments.FirstOrDefault() is IArrayTypeSymbol array ? array.ElementType : null;
             var size = result is null ? 0 : (long)g.Module.Types.Target.SizeOf(g.Module.Types.Storage(result));
-            return g.CallRuntime("csrt_task_when_all", g.Module.Llvm.Ptr, [g.Module.Llvm.Ptr, g.Module.Llvm.I32], tasks, g.Module.Llvm.ConstInt(g.Module.Llvm.I32, size));
+            return g.StampTask(g.CallRuntime("csrt_task_when_all", g.Module.Llvm.Ptr, [g.Module.Llvm.Ptr, g.Module.Llvm.I32], tasks, g.Module.Llvm.ConstInt(g.Module.Llvm.I32, size)), g.TypeOf(inv));
         };
         t[$"{Tasks}.Task.WhenAll({Tasks}.Task[])"] = whenAll;
         t[$"{Tasks}.Task.WhenAll(System.ReadOnlySpan<{Tasks}.Task>)"] = whenAll;
         t[$"{Tasks}.Task.WhenAll({Tasks}.Task<TResult>[])"] = whenAll;
         t[$"{Tasks}.Task.WhenAll(System.ReadOnlySpan<{Tasks}.Task<TResult>>)"] = whenAll;
         IntrinsicHandler whenAny = (g, inv) =>
-            g.CallRuntime("csrt_task_when_any", g.Module.Llvm.Ptr, [g.Module.Llvm.Ptr], g.TaskArrayArgument(inv.Arguments[0]));
+            g.StampTask(g.CallRuntime("csrt_task_when_any", g.Module.Llvm.Ptr, [g.Module.Llvm.Ptr], g.TaskArrayArgument(inv.Arguments[0])), g.TypeOf(inv));
         t[$"{Tasks}.Task.WhenAny({Tasks}.Task[])"] = whenAny;
         IntrinsicHandler whenAnyPair = (g, inv) =>
-            g.CallRuntime("csrt_task_when_any", g.Module.Llvm.Ptr, [g.Module.Llvm.Ptr],
-                g.ObjectArray([.. inv.Arguments.OrderBy(a => a.Parameter!.Ordinal).Select(a => a.Value)]));
+            g.StampTask(g.CallRuntime("csrt_task_when_any", g.Module.Llvm.Ptr, [g.Module.Llvm.Ptr],
+                g.ObjectArray([.. inv.Arguments.OrderBy(a => a.Parameter!.Ordinal).Select(a => a.Value)])), g.TypeOf(inv));
         t[$"{Tasks}.Task.WhenAny({Tasks}.Task, {Tasks}.Task)"] = whenAnyPair;
         t[$"{Tasks}.Task.WhenAny({Tasks}.Task<TResult>, {Tasks}.Task<TResult>)"] = whenAnyPair;
         t[$"{Tasks}.Task.WhenAny(System.ReadOnlySpan<{Tasks}.Task>)"] = whenAny;
@@ -894,7 +894,7 @@ internal static class Intrinsics
         {
             var result = ((INamedTypeSymbol)g.TypeOf(inv)!).TypeArguments[0];
             var size = (long)g.Module.Types.Target.SizeOf(g.Module.Types.Storage(result));
-            return g.CallRuntime("csrt_task_run_func_task", g.Module.Llvm.Ptr, [g.Module.Llvm.Ptr, g.Module.Llvm.I32], Arg(g, inv, 0), g.Module.Llvm.ConstInt(g.Module.Llvm.I32, size));
+            return g.StampTask(g.CallRuntime("csrt_task_run_func_task", g.Module.Llvm.Ptr, [g.Module.Llvm.Ptr, g.Module.Llvm.I32], Arg(g, inv, 0), g.Module.Llvm.ConstInt(g.Module.Llvm.I32, size)), g.TypeOf(inv));
         };
         // Func<T> with a non-task T: a compiler-generated per-T thunk runs it on the pool.
         t[$"{Tasks}.Task.Run(System.Func<TResult>)"] = (g, inv) =>
@@ -903,7 +903,7 @@ internal static class Intrinsics
             var result = ((INamedTypeSymbol)g.TypeOf(inv)!).TypeArguments[0];
             var size = (long)g.Module.Types.Target.SizeOf(g.Module.Types.Storage(result));
             var thunk = g.Module.TaskRunThunk(result);
-            return g.CallRuntime("csrt_task_run_thunk", l.Ptr, [l.Ptr, l.Ptr, l.I32], thunk.Fn, Arg(g, inv, 0), l.ConstInt(l.I32, size));
+            return g.StampTask(g.CallRuntime("csrt_task_run_thunk", l.Ptr, [l.Ptr, l.Ptr, l.I32], thunk.Fn, Arg(g, inv, 0), l.ConstInt(l.I32, size)), g.TypeOf(inv));
         };
 
         foreach (var type in new[] { "Task", "Task<TResult>", "ValueTask" })
@@ -1060,7 +1060,7 @@ internal static class Intrinsics
             var options = Named("creationOptions", l.ConstInt(l.I32, 0));
             var result = ((INamedTypeSymbol)g.TypeOf(c)!).TypeArguments.FirstOrDefault();
             var size = result is null ? 0 : (long)g.Module.Types.Target.SizeOf(g.Module.Types.Storage(result));
-            var task = g.CallRuntime("csrt_task_new", l.Ptr, [l.I32], l.ConstInt(l.I32, size));
+            var task = g.StampTask(g.CallRuntime("csrt_task_new", l.Ptr, [l.I32], l.ConstInt(l.I32, size)), g.TypeOf(c));
             if (c.Arguments.Length > 0) g.CallCoreLib("TaskState", "Promise", task, state, options);
             return task;
         };

@@ -414,6 +414,8 @@ static void* const s_unsupported_slots[64] = {
 };
 
 static void* const* builtin_interface_slots(const csrt_MethodTable* objmt, const csrt_MethodTable* itf) {
+    // A Task<T> has its own table (derived from csrt_Task_MT); its interfaces are the plain task's.
+    if (objmt->base == &csrt_Task_MT.header) objmt = &csrt_Task_MT.header;
     // Arrays allocated by generated code have a per-element-type MT ("System.Int32[]") whose
     // interface map lists exactly the interfaces of that element type; the shared tables only serve
     // untagged arrays (made by the runtime), whose element type is unknown.
