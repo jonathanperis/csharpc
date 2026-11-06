@@ -1,4 +1,8 @@
+using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
+using System.Reflection.PortableExecutable;
 using System.Text;
+using Csharpc.Frontend.Il;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
@@ -78,7 +82,14 @@ public static class ResourceConverters
     /// Generates the hooks: ResourceObject for the .resources types <paramref name="typeNames"/>, and TypeConverterFor(Type) for the
     /// types the sources name in `typeof(...)` when they call GetConverter (TypeDescriptor.GetConverter(typeof(Point))).
     /// </summary>
-    public static CSharpCompilation Add(CSharpCompilation compilation, IReadOnlyList<string> typeNames, IReadOnlyList<SyntaxTree> userTrees, CSharpParseOptions parseOptions)
+    public static CSharpCompilation Add(CSharpCompilation compilation, IReadOnlyList<string> typeNames, IReadOnlyList<SyntaxTree> userTrees, CSharpParseOptions parseOptions) =>
+        Add(compilation, compilation, typeNames, TypeofTypes(compilation, userTrees), parseOptions);
+
+    /// <summary>The same for an IL program: its `ldtoken` types stand for the `typeof`s, resolved in <paramref name="symbols"/> (the compilation that imports its internals).</summary>
+    public static CSharpCompilation AddFromIl(CSharpCompilation compilation, CSharpCompilation symbols, IReadOnlyList<string> typeNames, IlAssembly program, CSharpParseOptions parseOptions) =>
+        Add(compilation, symbols, typeNames, CallsGetConverter(program.Reader) ? IlTypeofTypes(program) : [], parseOptions);
+
+    private static CSharpCompilation Add(CSharpCompilation target, CSharpCompilation compilation, IReadOnlyList<string> typeNames, IEnumerable<ITypeSymbol> typeofTypes, CSharpParseOptions parseOptions)
     {
         var resourceCases = new StringBuilder();
         foreach (var name in typeNames)
@@ -86,11 +97,11 @@ public static class ResourceConverters
                 resourceCases.AppendLine($"                case {Literal(name)}: return new object[] {{ {creation}.ConvertFromInvariantString(text) }};");
 
         var converterCases = new StringBuilder();
-        foreach (var type in TypeofTypes(compilation, userTrees))
+        foreach (var type in typeofTypes)
             if (Creation(compilation, type) is { } creation)
                 converterCases.AppendLine($"            if (type == typeof({TypeName(type)})) return {creation};");
 
-        if (resourceCases.Length == 0 && converterCases.Length == 0) return compilation;
+        if (resourceCases.Length == 0 && converterCases.Length == 0) return target;
         var source = new StringBuilder();
         source.AppendLine("#pragma warning disable CS0612, CS0618, CS0619");
         source.AppendLine("namespace CsharpcCoreLib");
@@ -118,10 +129,77 @@ public static class ResourceConverters
         }
         source.AppendLine("    }");
         source.AppendLine("}");
-        return compilation.AddSyntaxTrees(CSharpSyntaxTree.ParseText(source.ToString(), parseOptions, path: TreePath));
+        return target.AddSyntaxTrees(CSharpSyntaxTree.ParseText(source.ToString(), parseOptions, path: TreePath));
     }
 
     public static bool IsSynthesizedTree(SyntaxTree tree) => tree.FilePath == TreePath;
+
+    /// <summary>The type names of the TypeConverter strings in the `.resources` manifest resources of the assemblies at <paramref name="paths"/> (IL programs).</summary>
+    public static IReadOnlyList<string> TypeNamesOfAssemblies(IEnumerable<string> paths)
+    {
+        var names = new SortedSet<string>(StringComparer.Ordinal);
+        foreach (var path in paths)
+        {
+            try
+            {
+                using var pe = new PEReader(File.OpenRead(path));
+                if (!pe.HasMetadata || pe.PEHeaders.CorHeader is not { } cor || cor.ResourcesDirectory.Size == 0) continue;
+                var reader = pe.GetMetadataReader();
+                var directory = pe.GetSectionData(cor.ResourcesDirectory.RelativeVirtualAddress);
+                foreach (var handle in reader.ManifestResources)
+                {
+                    var resource = reader.GetManifestResource(handle);
+                    if (!resource.Implementation.IsNil || !reader.GetString(resource.Name).EndsWith(".resources", StringComparison.Ordinal)) continue;
+                    var block = directory.GetReader((int)resource.Offset, directory.Length - (int)resource.Offset);
+                    foreach (var entry in ResourcesFile.Read(block.ReadBytes(block.ReadInt32())))
+                        if (entry.Text is null && entry.Format == 3 && !s_primitives.Contains(entry.TypeName)) names.Add(entry.TypeName);
+                }
+            }
+            catch (Exception e) when (e is InvalidDataException or EndOfStreamException or IOException or ArgumentException or FormatException or BadImageFormatException) { }
+        }
+        return [.. names];
+    }
+
+    /// <summary>Does the IL assembly reference TypeDescriptor.GetConverter?</summary>
+    public static bool CallsGetConverter(MetadataReader reader)
+    {
+        foreach (var handle in reader.MemberReferences)
+        {
+            var member = reader.GetMemberReference(handle);
+            if (!reader.StringComparer.Equals(member.Name, "GetConverter") || member.Parent.Kind != HandleKind.TypeReference) continue;
+            if (reader.StringComparer.Equals(reader.GetTypeReference((TypeReferenceHandle)member.Parent).Name, "TypeDescriptor")) return true;
+        }
+        return false;
+    }
+
+    /// <summary>Every type the program's IL loads with `ldtoken` (what `typeof` compiles to): the types a GetConverter(Type) call can be handed.</summary>
+    private static IEnumerable<ITypeSymbol> IlTypeofTypes(IlAssembly program)
+    {
+        var seen = new HashSet<ITypeSymbol>(SymbolEqualityComparer.Default);
+        var reader = program.Reader;
+        foreach (var typeHandle in reader.TypeDefinitions)
+            foreach (var methodHandle in reader.GetTypeDefinition(typeHandle).GetMethods())
+            {
+                if (program.Definition(methodHandle) is not IMethodSymbol method) continue;
+                IlMethodBody body;
+                try
+                {
+                    if (program.Body(method) is not { } block) continue;
+                    body = IlMethodBody.Decode(program, method, block);
+                }
+                catch (Exception e) when (e is IlException or BadImageFormatException) { continue; }
+                foreach (var instruction in body.Instructions)
+                {
+                    if (instruction.OpCode != ILOpCode.Ldtoken) continue;
+                    ITypeSymbol? type;
+                    try { type = program.ResolveType(MetadataTokens.EntityHandle(instruction.Token), body.Context) is { IsByRef: false } t ? t.Type : null; }
+                    catch (Exception e) when (e is IlException or BadImageFormatException or InvalidOperationException) { continue; }
+                    if (type is { TypeKind: not (TypeKind.TypeParameter or TypeKind.Error or TypeKind.Pointer or TypeKind.FunctionPointer) }
+                        and not INamedTypeSymbol { IsUnboundGenericType: true } && seen.Add(type))
+                        yield return type;
+                }
+            }
+    }
 
     /// <summary>The types of `typeof(X)` expressions in sources that call GetConverter (the types a GetConverter(Type) call can be handed).</summary>
     private static IEnumerable<ITypeSymbol> TypeofTypes(CSharpCompilation compilation, IReadOnlyList<SyntaxTree> userTrees)

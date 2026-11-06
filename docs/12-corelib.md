@@ -165,6 +165,17 @@ Limitation: `object is IEnumerable<X>` on an array can't check the element type 
   [10-async.md](10-async.md#async-state-machines-compiled-from-il)); `ResourceManager` over the IL
   assemblies' embedded string resources and `AppContext` over runtimeconfig data (`Resources.cs`; both
   read constants codegen builds through the `ResourceStrings()`/`RuntimeConfig()` core intrinsics).
+* **`TypeConverter` / `TypeDescriptor`** (`corelib/ComponentModel/TypeConverter.cs`, `EnumConverter.cs`):
+  `TypeConverter` (and `EnumConverter`) are shadows with dotnet/runtime's full virtual surface, so the other converters
+  (`PointConverter`, `SizeConverter`, `RectangleConverter`, `ColorConverter`, `DateTimeConverter`, `UriTypeConverter` ...)
+  come from `System.ComponentModel.TypeConverter`'s IL (a "mixed" assembly, [ADR 0013](adr/0013-framework-il.md)).
+  `TypeDescriptor.GetConverter(Type)` creates the primitives itself and asks a hook for the rest: the front end
+  (`Frontend/ResourceConverters.cs`) generates `ProgramHooks.TypeConverterFor` for the types the sources name in `typeof(...)`
+  (the IL front-end: every `ldtoken`) when they call `GetConverter`, and `ProgramHooks.ResourceObject` for the types a
+  program's preserialized `.resources` name, which `ResourceManager.GetObject` creates with `ConvertFromInvariantString`
+  as `DeserializingResourceReader` does. A type the closed world can't resolve, `InstanceDescriptor`, `Enum[]`
+  conversions, `GetStandardValues` of an enum, and resources stored as BinaryFormatter data, byte arrays or activator
+  streams (`Bitmap`, `Icon`, `ResXFileRef`) are explicit `NotSupportedException`s naming the type.
 * **`System.Text.Json`** (`corelib/Json/`, see [System.Text.Json](#systemtextjson)).
 * **`EventSource`** (`corelib/Tracing/EventSource.cs`): a csharpc executable has no EventPipe/ETW session
   and no `EventListener` (deriving from it is a CSLLVM0001 error), the state in which .NET's EventSource

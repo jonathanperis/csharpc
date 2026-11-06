@@ -157,6 +157,9 @@ namespace CsharpcCoreLib
                 case "System.Double": return TypeDescriptor.GetConverter(typeof(double)).ConvertFromInvariantString(text);
                 case "System.Decimal": return TypeDescriptor.GetConverter(typeof(decimal)).ConvertFromInvariantString(text);
                 case "System.String": return text;
+                case "System.TimeSpan": return TypeDescriptor.GetConverter(typeof(TimeSpan)).ConvertFromInvariantString(text);
+                case "System.Guid": return TypeDescriptor.GetConverter(typeof(Guid)).ConvertFromInvariantString(text);
+                case "System.Version": return TypeDescriptor.GetConverter(typeof(Version)).ConvertFromInvariantString(text);
             }
             return null;
         }
