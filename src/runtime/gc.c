@@ -2371,9 +2371,15 @@ static size_t sweep(void) {
 // with an owner (the WeakReference object, the table's storage) is freed when the owner dies, which
 // is how .NET's finalizers release these handles (the corelib's own types have none).
 
+// Set by the first registration only: a program that never allocates a finalizable object (nothing references
+// csrt_alloc_finalizable) has this constant false at link time, and the whole finalization machinery folds away
+// (binary size is a budget: tests/size.sh). objc_active likewise for Objective-C reference tracking.
+static bool fin_active;
+static bool objc_active;
+
 typedef struct {
     uintptr_t target, value, owner;
-    int32_t kind;       // 0 free, 1 weak, 2 ephemeron
+    int32_t kind;       // 0 free, 1 weak, 2 ephemeron, 3 weak that tracks resurrection (cleared after finalization)
     int32_t next_free;  // free list (index), -1 at the end
 } WeakSlot;
 
@@ -2441,6 +2447,18 @@ static void weak_process(void) {
         WeakSlot* s = &weak.slots[i];
         if (s->kind == 0) continue;
         if (s->owner && !weak_is_marked(s->owner)) { weak_release(i); continue; }
+        if (s->kind == 3 && fin_active) continue;  // long weak: after finalization, see weak_process_long (nothing resurrects without finalizers)
+        if (s->target && !weak_is_marked(s->target)) { s->target = 0; s->value = 0; }
+    }
+}
+
+/// Weak slots that track resurrection (WeakReference(trackResurrection: true), GCHandleType.WeakTrackResurrection):
+/// cleared only when the object is gone for good, that is after finalization has resurrected what it will run on.
+static void weak_process_long(void) {
+    if (!fin_active || !weak.any) return;
+    for (size_t i = 0; i < weak.count; i++) {
+        WeakSlot* s = &weak.slots[i];
+        if (s->kind != 3) continue;
         if (s->target && !weak_is_marked(s->target)) { s->target = 0; s->value = 0; }
     }
 }
@@ -2459,7 +2477,7 @@ intptr_t csrt_weak_alloc(void* target, void* value, void* owner, int32_t ephemer
     }
     size_t i = (size_t)weak.free_head;
     weak.free_head = weak.slots[i].next_free;
-    weak.slots[i] = (WeakSlot){ (uintptr_t)target, (uintptr_t)value, (uintptr_t)owner, ephemeron ? 2 : 1, -1 };
+    weak.slots[i] = (WeakSlot){ (uintptr_t)target, (uintptr_t)value, (uintptr_t)owner, ephemeron == 2 ? 3 : ephemeron ? 2 : 1, -1 };
     weak.any = true;
     gc_unlock();
     return (intptr_t)i + 1;
@@ -2492,6 +2510,180 @@ void csrt_weak_free(intptr_t handle) {
     weak_release((size_t)handle - 1);
     gc_unlock();
 }
+
+// ---------------------------------------------------------------------------------------------
+// Objective-C reference tracking (System.Runtime.InteropServices.ObjectiveC.ObjectiveCMarshal, corelib/ObjectiveCMarshal.cs)
+// ---------------------------------------------------------------------------------------------
+// A type with [ObjectiveCTrackedType] and a finalizer (CSRT_MT_TRACKED_REFERENCE) can be given tagged memory (two
+// words the native side owns: GetOrCreateReferenceTrackingMemory) and reference-tracking handles. Like NativeAOT, each
+// collection brackets one pass over the objects that have a handle but weren't reached with the registered
+// beginEnd callback; for each of them it asks isReferenced(taggedMemory), and an object the native side still
+// references is marked (with what it reaches). When such an object enters the finalizer queue, the
+// entered-finalization callback gets its tagged memory. The callbacks run with the world stopped, on the
+// collecting thread, and mustn't call managed code. The tagged memory is freed once the object is gone for good.
+// The table is outside the heap and guarded by g.lock, like the finalizer registry; nothing allocates while
+// the world is stopped (freed blocks are collected for the mutator side to free).
+#ifndef __wasi__
+typedef struct { uintptr_t obj; void* tagged; uint32_t handles; } ObjcEntry;
+
+static struct {
+    void (*begin_end)(void);
+    int (*is_referenced)(void*);
+    void (*entered_finalization)(void*);
+    ObjcEntry* table;
+    size_t count, cap;
+    void** dead;  // tagged memory of objects that are gone, freed by the next call from managed code
+    size_t dead_count, dead_cap;
+    bool initialized;
+} objc;
+
+static ObjcEntry* objc_find(uintptr_t obj) {
+    for (size_t i = 0; i < objc.count; i++) if (objc.table[i].obj == obj) return &objc.table[i];
+    return NULL;
+}
+
+static void objc_free_dead(void) {
+    // Under g.lock.
+    for (size_t i = 0; i < objc.dead_count; i++) free(objc.dead[i]);
+    objc.dead_count = 0;
+}
+
+/// ObjectiveCMarshal.Initialize: false when it was initialized already.
+bool csrt_objc_initialize(void (*begin_end)(void), int (*is_referenced)(void*), void (*entered_finalization)(void*)) {
+    if (!g.initialized) csrt_gc_init();
+    gc_lock();
+    bool first = !objc.initialized;
+    if (first) {
+        objc.begin_end = begin_end;
+        objc.is_referenced = is_referenced;
+        objc.entered_finalization = entered_finalization;
+        objc.initialized = true;
+        objc_active = true;
+    }
+    gc_unlock();
+    return first;
+}
+
+bool csrt_objc_initialized(void) { return objc.initialized; }
+
+/// Whether the object's class is tracked and has a finalizer (what CreateReferenceTrackingHandle requires).
+bool csrt_objc_is_tracked_type(void* obj) {
+    return (((csrt_Object*)obj)->mt->flags & CSRT_MT_TRACKED_REFERENCE) != 0;
+}
+
+/// The object's tagged memory (two words, zeroed on creation), created on first use; `handle` counts a
+/// reference-tracking handle on it (CreateReferenceTrackingHandle), which makes the collector ask isReferenced.
+void* csrt_objc_tagged_memory(void* obj, int32_t handle) {
+    gc_lock();
+    objc_free_dead();
+    ObjcEntry* e = objc_find((uintptr_t)obj);
+    if (!e) {
+        if (objc.count == objc.cap) {
+            size_t cap = objc.cap ? objc.cap * 2 : 64;
+            ObjcEntry* table = realloc(objc.table, cap * sizeof *table);
+            void** dead = realloc(objc.dead, cap * sizeof *dead);  // room for every entry to die in one collection
+            if (!table || !dead) abort();
+            objc.table = table;
+            objc.dead = dead;
+            objc.cap = objc.dead_cap = cap;
+        }
+        void* tagged = calloc(2, sizeof(void*));
+        if (!tagged) abort();
+        e = &objc.table[objc.count++];
+        *e = (ObjcEntry){ (uintptr_t)obj, tagged, 0 };
+    }
+    if (handle) e->handles++;
+    void* tagged = e->tagged;
+    gc_unlock();
+    return tagged;
+}
+
+/// Frees a reference-tracking handle (GCHandle.Free on the handle CreateReferenceTrackingHandle returned).
+void csrt_objc_release_handle(void* obj) {
+    gc_lock();
+    ObjcEntry* e = objc_find((uintptr_t)obj);
+    if (e && e->handles) e->handles--;
+    gc_unlock();
+}
+
+// objc_msgSend overrides (ObjectiveCMarshal.SetMessageSendCallback): the P/Invoke stubs of libobjc's message-send entry
+// points (kind 0 objc_msgSend, 1 _fpret, 2 _stret, 3 Super, 4 Super_stret: ObjectiveCMarshal.MessageSendFunction) call
+// the registered function instead of the resolved symbol, and throw the exception SetMessageSendPendingException left
+// on this thread once the call returns.
+static void* volatile objc_msgsend_override[5];
+static _Thread_local void* tl_objc_pending;
+
+/// Sets an override once; false if one was set already.
+bool csrt_objc_set_msgsend(int32_t kind, void* fn) {
+    void* expected = NULL;
+    return __atomic_compare_exchange_n(&objc_msgsend_override[kind], &expected, fn, false, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST);
+}
+
+void* csrt_objc_msgsend_select(int32_t kind, void* resolved) {
+    void* fn = objc_msgsend_override[kind];
+    return fn ? fn : resolved;
+}
+
+void csrt_objc_set_pending(void* exception) { tl_objc_pending = exception; }
+
+void csrt_objc_throw_pending(void) {
+    void* exception = tl_objc_pending;
+    if (exception) {
+        tl_objc_pending = NULL;
+        csrt_throw_object(exception);
+    }
+}
+
+/// Runs with the world stopped, after marking: ask for each tracked object nothing else reached.
+static void objc_process(void) {
+    if (!objc_active || !objc.count) return;
+    objc.begin_end();
+    for (size_t i = 0; i < objc.count; i++) {
+        ObjcEntry* e = &objc.table[i];
+        if (!e->handles || weak_is_marked(e->obj)) continue;
+        if (objc.is_referenced(e->tagged)) {
+            mark_candidate(e->obj);
+            drain();
+        }
+    }
+    objc.begin_end();
+}
+
+/// An object entering the finalizer queue (finalize_process): tell the native side.
+static void objc_entering_finalization(uintptr_t obj) {
+    if (!objc_active || !(((csrt_Object*)obj)->mt->flags & CSRT_MT_TRACKED_REFERENCE)) return;
+    ObjcEntry* e = objc_find(obj);
+    if (e) objc.entered_finalization(e->tagged);
+}
+
+/// After finalization has marked what it resurrects: entries whose object is gone for good give up their memory.
+static void objc_sweep_entries(void) {
+    if (!objc_active || !objc.count) return;
+    size_t keep = 0;
+    for (size_t i = 0; i < objc.count; i++) {
+        ObjcEntry e = objc.table[i];
+        if (weak_is_marked(e.obj)) objc.table[keep++] = e;
+        else objc.dead[objc.dead_count++] = e.tagged;
+    }
+    objc.count = keep;
+}
+#else
+// WebAssembly has no Objective-C: the entry points exist for the corelib to link, and do nothing. (The callbacks the real
+// ones call through function pointers would make the wasm exception lowering treat the collector, and so every
+// allocation, as able to throw: ExceptionLowering.cs.)
+bool csrt_objc_initialize(void (*begin_end)(void), int (*is_referenced)(void*), void (*entered_finalization)(void*)) { (void)begin_end; (void)is_referenced; (void)entered_finalization; return false; }
+bool csrt_objc_initialized(void) { return false; }
+bool csrt_objc_is_tracked_type(void* obj) { (void)obj; return false; }
+void* csrt_objc_tagged_memory(void* obj, int32_t handle) { (void)obj; (void)handle; return NULL; }
+void csrt_objc_release_handle(void* obj) { (void)obj; }
+bool csrt_objc_set_msgsend(int32_t kind, void* fn) { (void)kind; (void)fn; return false; }
+void* csrt_objc_msgsend_select(int32_t kind, void* resolved) { (void)kind; return resolved; }
+void csrt_objc_set_pending(void* exception) { (void)exception; }
+void csrt_objc_throw_pending(void) {}
+static void objc_process(void) {}
+static void objc_entering_finalization(uintptr_t obj) { (void)obj; }
+static void objc_sweep_entries(void) {}
+#endif
 
 // ---------------------------------------------------------------------------------------------
 // Finalizers (System.Object.Finalize: ~T() in C#, GC.SuppressFinalize / ReRegisterForFinalize /
@@ -2596,11 +2788,6 @@ static void fin_remove(FinEntry* e) {
     fin.live--;
 }
 
-// Set by the first registration only: a program that never allocates a finalizable object (nothing references
-// csrt_alloc_finalizable) has this constant false at link time, and the whole finalization machinery folds away
-// (binary size is a budget: tests/size.sh).
-static bool fin_active;
-
 static void finalizer_loop(void);
 bool csrt_start_background_thread(void (*loop)(void));  // threads.c
 
@@ -2686,6 +2873,7 @@ static void finalize_process(void) {
     for (size_t i = 0; i < fin.cap; i++) {
         FinEntry* e = &fin.table[i];
         if (e->obj == FIN_EMPTY || e->obj == FIN_DELETED || weak_is_marked(e->obj)) continue;
+        objc_entering_finalization(e->obj);
         fin.queue[fin.q_head + fin.q_len++] = *e;
         e->obj = FIN_DELETED;
         fin.live--;
@@ -3311,8 +3499,11 @@ CSRT_GC_NO_SANITIZE static void cycle_finish(void) {
     // No sort here: the sweep keeps the order, so the survivors of the sorted part stay sorted, and
     // what was allocated during the cycle is sorted (and merged) at the next initial mark.
     __atomic_store_n(&csrt_gc_marking, 0, __ATOMIC_SEQ_CST);
+    objc_process();
     weak_process();
     finalize_process();
+    weak_process_long();
+    objc_sweep_entries();
     protect_caches();
     sweep_begin();
     cm_active = false;
@@ -3492,8 +3683,11 @@ __attribute__((noinline)) static void collect_now(void) {
     else
 #endif
     drain();
+    objc_process();
     weak_process();
     finalize_process();
+    weak_process_long();
+    objc_sweep_entries();
     protect_caches();
 #if CSRT_HAS_NURSERY
     g.live_bytes = sweep(!g.minor);

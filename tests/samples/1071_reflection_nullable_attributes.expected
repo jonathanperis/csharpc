@@ -1,0 +1,27 @@
+field Name: mine=[] defined=False obsolete=0
+field Maybe: mine=[] defined=False obsolete=0
+field Tagged: mine=[1] defined=True obsolete=0
+field Items: mine=[2,3] defined=True obsolete=0
+field Count: mine=[] defined=False obsolete=0
+field Number: mine=[4] defined=True obsolete=0
+property Title: mine=[5] defined=True obsolete=0 get: mine=[] defined=False obsolete=0
+property Subtitle: mine=[] defined=False obsolete=1 get: mine=[] defined=False obsolete=0
+property Size: mine=[] defined=False obsolete=0 get: mine=[] defined=False obsolete=0
+method Echo: mine=[6] defined=True obsolete=0
+  text: mine=[7] defined=True obsolete=0
+  other: mine=[] defined=False obsolete=0
+method Twice: mine=[] defined=False obsolete=1
+  x: mine=[] defined=False obsolete=0
+method Plain: mine=[] defined=False obsolete=0
+  a: mine=[] defined=False obsolete=0
+  b: mine=[] defined=False obsolete=0
+Generic: mine=[] defined=False obsolete=0
+Obsolete message: old
+-- complete lists of members without reference types
+Count: []
+Number: [MyAttribute]
+get_Size: [CompilerGeneratedAttribute]
+Twice: [ObsoleteAttribute] x: []
+Plain: [] data 0
+  a: []
+  b: []

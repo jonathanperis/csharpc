@@ -46,9 +46,9 @@ registers again (at most one registration per object: a second call is a no-op, 
 - Finalizers of one batch run in registration order; .NET documents no order, and its observed order matches.
 - If a derived finalizer throws, the base finalizers do not run first (csc wraps the base call in `finally`); the process ends
   either way, so only output printed by a base finalizer in that case differs.
-- `WeakReference(trackResurrection: true)` is not distinguished: weak slots are cleared before resurrection.
+- Weak references and handles that track resurrection (`WeakReference(.., true)`, `GCHandleType.WeakTrackResurrection`) are cleared after finalization has resurrected what it will run on; short ones are cleared before it, as in .NET.
 - The corelib's own types (`SafeHandle`, `CriticalFinalizerObject`, streams) declare no finalizers: a handle that is never
   disposed is released at process exit, not when collected.
 - Objects created by `Activator`/reflection helpers other than `Activator.CreateInstance<T>()` and `new` are not yet registered
   (`RuntimeHelpers.GetUninitializedObject` makes unregistered instances).
-- Next: the collector's tracked-reference callbacks and the `ObjectiveCMarshal` hooks (#23), verified on the macOS runner.
+- `ObjectiveCMarshal` reference tracking (macOS) is built on this: [04-runtime.md](../04-runtime.md#objective-c-reference-tracking). The `objc_msgSend` overrides live in the P/Invoke lowering.

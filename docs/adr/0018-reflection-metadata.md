@@ -116,11 +116,48 @@ csharpc keeps reflection metadata the same way, generated at compile time by
   direct `typeof` initializers and assignments count, not `cond ? typeof(A) : typeof(B)` (which ILLink merges); fields and
   `obj.GetType()` aren't followed by ILLink either. A local captured by a lambda is followed in source but not in IL (the
   closure field). Test: `tests/samples/993_reflection_typeof_local_flow`.
+- Attributes csc synthesizes (2026-11-06, `ModuleCodeGen.SourceAttributes.cs`): Roslyn's symbols list the attributes the
+  source writes (pseudo-custom ones like `[MethodImpl]` included) and omit those csc adds to metadata, so a list taken from
+  them differs from the JIT's. Source members now list what csharpc reproduces exactly: `[CompilerGenerated]` (with
+  `[DebuggerBrowsable]` on the field) on auto-property and field-like event accessors and backing fields, `[ParamArray]`,
+  `[Extension]`, always before the source's own attributes; `[Optional]`/`[In]`/`[Out]` and the other pseudo-custom ones
+  (`[DllImport]` + its `[PreserveSig]`, `[NonSerialized]`, `[FieldOffset]`, `[MarshalAs]`) once, after them in
+  `GetCustomAttributes()` and before them in `GetCustomAttributesData()` (CoreCLR's two orders; the count word of an
+  attribute list carries how many trailing records are pseudo). `[MethodImpl]`, `[SpecialName]` and `[StructLayout]`, which
+  reflection never lists, are dropped. Where csc adds attributes csharpc doesn't (nullable annotations on any reference
+  type or type parameter in a `#nullable` annotations context, async and iterator methods, readonly struct members,
+  `in`/`scoped` parameters, `dynamic`/tuple-name/`nint` types, `decimal` constants and defaults, records, anonymous types,
+  `required`/fixed members), the list is marked *unknown* (bit 30 of the count word): an untyped query
+  (`GetCustomAttributes()`, `GetCustomAttributesData`, `IsDefined` of a System attribute) throws `NotSupportedException`,
+  while a query for an attribute csc never synthesizes (the program's own, `[Obsolete]`) stays exact. Methods csc adds to a
+  type that Roslyn has no symbol for (local functions and lambdas that use `this`) make the non-public-method list of that
+  type unknown the same way instead of silently one method short. The nullable context is the project's setting
+  (`Nullable`, per file with its `#nullable` directives), not Roslyn's: codegen binds a compilation with the context off.
+  Tests: `tests/samples/1070_reflection_source_attributes`, `1071_reflection_nullable_attributes`.
 - Added for expression trees (2026-10-30, [18](../18-compatibility.md#expression-trees)): standalone
   records of the members a program names directly — `ldtoken` + `GetMethodFromHandle`/`GetFieldFromHandle`
   and the `MethodInfo`/`FieldInfo` constants of lowered expression trees — with a per-method identity, so
   every record of one method is the same `MethodInfo` (`ModuleCodeGen.MemberRecords.cs`); a delegate
   type's `Invoke` for programs that use `System.Linq.Expressions` or `Delegate.DynamicInvoke`;
   `typeof(Impl<>).GetMethod("Name")` keeping only the named member on the instantiations.
+- Assembly-level reflection (2026-11-06, `ModuleCodeGen.AssemblyTypes.cs`, `corelib/Reflection/Assembly.cs`): the program's own
+  assemblies are known at compile time, so `Assembly.GetTypes()`/`DefinedTypes`/`GetExportedTypes()`/`ExportedTypes`,
+  `Module.GetTypes()` and `Assembly.GetType(name)` of a synthesized or generic-definition name are answered from compiled-in
+  type lists (arrays of method tables, read once per assembly), only for programs that reach them. An IL assembly's list is its
+  TypeDef table in metadata order. The program's source assembly is what csc would write: the compilation csharpc started from
+  is emitted once with Roslyn (as the program's own build is configured, Debug or Release) and its TypeDef table is read back,
+  which gives csc's order and the types it synthesizes (`<>c`, closure classes, state machines, `<>O`,
+  `<PrivateImplementationDetails>`). Declared types map to their source symbols (so `typeof(X)` is the listed Type); synthesized
+  ones get name-only Type objects (kind, visibility, nesting, base type; no members, attributes or interface list). The same
+  emitted image gives `GetReferencedAssemblies()` of the program (its AssemblyRef table). `Assembly.EntryPoint` is the
+  entry method's record (`<Main>$` of top-level programs included); an async or Task-returning `Main` is bridged by a method csc
+  synthesizes, and stays a `NotSupportedException`. `Module`: one manifest module per assembly (`Name`/`ScopeName` the file name
+  .NET loads it from, `MetadataToken` 1, `Type.Module`, `MemberInfo.Module`, `GetModules`/`GetModule`); `ModuleVersionId` is
+  known for IL assemblies only, `FullyQualifiedName` (a path) never. `GetName()` of an unsigned assembly has the empty public key
+  .NET reports. Explicit failures: a type list of a shared-framework assembly, a program with anonymous types or generic closures
+  or state machines (csc's generic synthesized types), several projects folded into one assembly, and a source program csc
+  couldn't emit; `GetCustomAttribute<T>`/`GetCustomAttributes<T>` of the program's assembly for `Attribute` itself and the
+  attributes csc synthesizes ([CompilationRelaxations], [RuntimeCompatibility], [Debuggable]); `Type.MetadataToken` and
+  `MemberInfo.MetadataToken`. Tests: `tests/samples/1072_assembly_types`, `1073_assembly_identity`, `tests/projects/il/IlTypesApp`.
 - Tests: `tests/samples/604_reflection_constructors`, `617_reflection_create_delegate`,
   `623_reflection_properties`, `667_reflection_fields`, plus the DI and hosting paths exercised by the TechEmpower workflow.
