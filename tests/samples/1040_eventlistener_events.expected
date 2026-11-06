@@ -1,0 +1,89 @@
+before listener: False Demo-Events a6ac8659-b7c9-5a32-6d41-474f3a41cd0c
+-- listener 1 (verbose)
+created: Demo-Events
+OnEventCommand Enable args=
+enabled: True True True
+event 1 Hello level=Informational kw=263882790666240 opcode=Info task=65533 version=0 channel=None tags=None msg=Hello {0}
+  names=name
+  payload=String:world
+  source=Demo-Events activity=True related=True thread=True ts=True
+  formatted=Hello world
+event 2 Counted level=Warning kw=263882790666242 opcode=Start task=5 version=3 channel=None tags=None msg=
+  names=a,b
+  payload=Int32:1 | Int64:2
+  source=Demo-Events activity=True related=True thread=True ts=True
+event 3 Verb level=Verbose kw=263882790666240 opcode=Info task=65531 version=0 channel=None tags=None msg=
+  names=s,n,flag,d,color
+  payload=String:s | Int32:7 | Boolean:True | Double:2.5 | Color:Green
+  source=Demo-Events activity=True related=True thread=True ts=True
+event 4 Failed level=Error kw=263882790666240 opcode=Info task=65530 version=0 channel=None tags=None msg=Failed: {0} ({1})
+  names=reason,code
+  payload=String:disk | Int32:42
+  source=Demo-Events activity=True related=True thread=True ts=True
+  formatted=Failed: disk (42)
+event 5 NoArgs level=Informational kw=263882790666240 opcode=Info task=65529 version=0 channel=None tags=None msg=
+  names=
+  payload=
+  source=Demo-Events activity=True related=True thread=True ts=True
+event 6 Many level=Critical kw=263882790666244 opcode=Info task=65528 version=0 channel=None tags=None msg=
+  names=a,b,c,d
+  payload=String:a | String:b | String:c | String:d
+  source=Demo-Events activity=True related=True thread=True ts=True
+event 7 Bytes level=Informational kw=263882790666240 opcode=Info task=65527 version=0 channel=None tags=None msg=
+  names=data
+  payload=Byte[]:1,2,3
+  source=Demo-Events activity=True related=True thread=True ts=True
+event 8 Guids level=Informational kw=263882790666240 opcode=Info task=65526 version=0 channel=None tags=None msg=
+  names=g,when
+  payload=Guid:11111111-2222-3333-4444-555555555555 | DateTime:01/02/2020 03:04:05
+  source=Demo-Events activity=True related=True thread=True ts=True
+helper
+event 9 OpStart level=Informational kw=263882790666240 opcode=Start task=0 version=0 channel=None tags=None msg=
+  names=
+  payload=
+  source=Demo-Events activity=True related=True thread=True ts=True
+event 10 OpStop level=LogAlways kw=263882790666240 opcode=Stop task=0 version=0 channel=None tags=None msg=
+  names=
+  payload=
+  source=Demo-Events activity=True related=True thread=True ts=True
+event 11 Always level=LogAlways kw=263882790666240 opcode=Info task=65523 version=0 channel=None tags=None msg={0} is {1:X}
+  names=what,value
+  payload=String:n | Int32:255
+  source=Demo-Events activity=True related=True thread=True ts=True
+  formatted=n is FF
+-- listener 2 (warning, keyword 2)
+created: Demo-Events
+OnEventCommand Enable args=
+event 1 Hello level=Informational kw=263882790666240 opcode=Info task=65533 version=0 channel=None tags=None msg=Hello {0}
+  names=name
+  payload=String:both
+  source=Demo-Events activity=True related=True thread=True ts=True
+  formatted=Hello both
+event 2 Counted level=Warning kw=263882790666242 opcode=Start task=5 version=3 channel=None tags=None msg=
+  names=a,b
+  payload=Int32:3 | Int64:4
+  source=Demo-Events activity=True related=True thread=True ts=True
+event 2 Counted level=Warning kw=263882790666242 opcode=Start task=5 version=3 channel=None tags=None msg=
+  names=a,b
+  payload=Int32:3 | Int64:4
+  source=Demo-Events activity=True related=True thread=True ts=True
+event 4 Failed level=Error kw=263882790666240 opcode=Info task=65530 version=0 channel=None tags=None msg=Failed: {0} ({1})
+  names=reason,code
+  payload=String:x | Int32:1
+  source=Demo-Events activity=True related=True thread=True ts=True
+  formatted=Failed: x (1)
+event 4 Failed level=Error kw=263882790666240 opcode=Info task=65530 version=0 channel=None tags=None msg=Failed: {0} ({1})
+  names=reason,code
+  payload=String:x | Int32:1
+  source=Demo-Events activity=True related=True thread=True ts=True
+  formatted=Failed: x (1)
+-- dispose listener 1
+OnEventCommand Disable args=
+event 2 Counted level=Warning kw=263882790666242 opcode=Start task=5 version=3 channel=None tags=None msg=
+  names=a,b
+  payload=Int32:5 | Int64:6
+  source=Demo-Events activity=True related=True thread=True ts=True
+l1=14 l2=3
+OnEventCommand Disable args=
+after: False
+Demo-Events

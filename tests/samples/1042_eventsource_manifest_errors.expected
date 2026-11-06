@@ -1,0 +1,28 @@
+== Probe-A
+created Probe-A
+enabled=True construction=none 
+event id=1 name=E1 task=5 opcode=Info names= payload=
+== Probe-B
+created Probe-B
+event id=0 name=EventSourceMessage task=0 opcode=Info names=message payload=ERROR: Exception in Command Processing for EventSource Probe-B: Use of undefined opcode value 99 for event E1.
+enabled=False construction=none 
+== Probe-C
+created Probe-C
+event id=0 name=EventSourceMessage task=0 opcode=Info names=message payload=ERROR: Exception in Command Processing for EventSource Probe-C: Event E2 has ID 1 which is already in use.
+enabled=False construction=none 
+== Probe-E
+created Probe-E
+enabled=True construction=none 
+event id=1 name=E1 task=65533 opcode=Info names=s payload=a
+event id=0 name=EventSourceMessage task=0 opcode=Info names=message payload=Event 2 was called with 3 argument(s), but it is defined with 2 parameter(s).
+event id=2 name=Two task=65532 opcode=Info names=s,n payload=b|1
+== Probe-F
+created Probe-F
+event id=0 name=EventSourceMessage task=0 opcode=Info names=message payload=ERROR: Exception in Command Processing for EventSource Probe-F: Event IDs must be positive integers.
+enabled=False construction=none 
+== Probe-G
+created Probe-G
+enabled=True construction=none 
+event id=1 name=Ok task=65533 opcode=Info names=s payload=fine
+event id=0 name=EventSourceMessage task=0 opcode=Info names=message payload=Event 2 was called with 2 argument(s), but it is defined with 1 parameter(s).
+event id=2 name=Mismatch task=65532 opcode=Info names=s payload=x

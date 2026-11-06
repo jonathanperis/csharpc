@@ -166,15 +166,31 @@ Limitation: `object is IEnumerable<X>` on an array can't check the element type 
   assemblies' embedded string resources and `AppContext` over runtimeconfig data (`Resources.cs`; both
   read constants codegen builds through the `ResourceStrings()`/`RuntimeConfig()` core intrinsics).
 * **`System.Text.Json`** (`corelib/Json/`, see [System.Text.Json](#systemtextjson)).
-* **`EventSource`** (`corelib/Tracing/EventSource.cs`): a csharpc executable has no EventPipe/ETW session
-  and no `EventListener` (deriving from it is a CSLLVM0001 error), the state in which .NET's EventSource
-  writes nothing: `IsEnabled()` is false and `WriteEvent`/`WriteEventCore`/`Write` return at once.
-  What a program can observe without a listener is .NET's: the `EventSource.IsSupported` feature switch
-  (off for file-based apps unless `#:property EventSourceSupport=true`), `Name` and `Guid` from
-  `[EventSource]` (read at compile time: `ModuleCodeGen.EventSource.cs` compares the Type's method table
-  with the program's classes) or derived from the name with .NET's SHA-1 name hashing, settings
-  validation, traits, `ConstructionException`, `ToString`. `GetSources`, `SendCommand`,
-  `GenerateManifest` and the event counters are not implemented (CSLLVM0002).
+* **`EventSource` and `EventListener`** (`corelib/Tracing/EventSource.cs`, `EventListener.cs`): a csharpc executable
+  has no EventPipe/ETW session, so what enables an `EventSource` is an in-process `EventListener` (derivable). Without
+  one `IsEnabled()` is false and `WriteEvent`/`WriteEventCore`/`Write` return at once. A listener's `EnableEvents`
+  builds the event table from the `[Event]` methods (the compiler records them as text, `EventSourceAttribute(type, 2)`
+  in `ModuleCodeGen.EventSource.cs`, instead of .NET's reflection), checks it as .NET checks a manifest (positive
+  ids, no duplicate ids, keywords defined in the nested `Keywords` class, defined opcodes, supported parameter types:
+  an error reaches the listener as an `EventSourceMessage` event and the source stays disabled), calls
+  `OnEventCommand`, and then `WriteEvent` dispatches to every listener whose level and keyword filter lets the event
+  through, newest listener first: `EventWrittenEventArgs` has .NET's id, name, level, keywords (with ETW's session
+  bits), opcode, task (an event with neither task nor opcode gets 0xFFFE minus its id), version, channel, tags,
+  message, payload names and values (the declared parameter types for the fixed-arity `WriteEvent` overloads, the
+  boxed arguments for `params object[]`), activity ids, thread id and time stamp. `OnEventSourceCreated` runs for
+  the sources that exist when a listener is created (from the listener's base constructor, before the derived
+  constructor, as in .NET) and for later ones; a new `EventSourceCreated` handler hears of the existing sources
+  at once. `Write(name)` / `Write(name, options)` dispatch; `Write<T>` with a payload throws a
+  `NotSupportedException` when a listener would receive it (.NET reads the payload from the properties of an
+  anonymous or `[EventData]` type by reflection). Differences: a listener does not see the EventSources .NET's runtime
+  and libraries create (`Microsoft-Windows-DotNETRuntime`, `System.Runtime`, `System.Threading.Tasks.TplEventSource` ...),
+  so `GetSources()` lists only the program's own; the manifest check that .NET makes by reading each event method's IL
+  ("Event X was assigned event ID n but m was passed to WriteEvent") is not made; `SendCommand`, `GenerateManifest`
+  and the event counters are not implemented (CSLLVM0002), `WriteEventCore` of a `DateTime` parameter is a NotSupportedException (boxing one would link the whole date formatter), and a program that writes events with typed payloads links the boxed-primitive formatters its payload values need (the 446 sample grows from 204 to 274 KB). Without `#:property EventSourceSupport=true` (the file-based
+  app default) `EventSource.IsSupported` is false, a source never registers and no listener sees it, as in .NET.
+  What a program can observe without a listener is .NET's: the `IsSupported` feature switch, `Name` and `Guid` from
+  `[EventSource]` or derived from the name with .NET's SHA-1 name hashing, settings validation, traits,
+  `ConstructionException`, `ToString`.
 
 * **`System.Uri`** (`corelib/Net/Uri.cs`, `UriRelative.cs`, `UriMembers.cs`): the URIs whose .NET behaviour needs no
   escaping rules (absolute http, https, ftp, ws and wss URIs with a DNS name or canonical IPv4 host, plain file

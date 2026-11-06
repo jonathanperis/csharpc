@@ -1,0 +1,11 @@
+event id=1 name=ExplicitInfo task=65533 opcode=Info tags=0 channel=None version=0 names= payload= related=00000000-0000-0000-0000-000000000000 activity=00000000-0000-0000-0000-000000000000 msg=NULL
+event id=2 name=Plain task=65532 opcode=Info tags=0 channel=None version=0 names= payload= related=00000000-0000-0000-0000-000000000000 activity=00000000-0000-0000-0000-000000000000 msg=NULL
+event id=3 name=FooStart task=0 opcode=Start tags=0 channel=None version=0 names= payload= related=00000000-0000-0000-0000-000000000000 activity=00000000-0000-0000-0000-000000000000 msg=NULL
+event id=4 name=FooStop task=0 opcode=Stop tags=0 channel=None version=0 names= payload= related=00000000-0000-0000-0000-000000000000 activity=00000000-0000-0000-0000-000000000000 msg=NULL
+event id=5 name=Tagged task=65529 opcode=Info tags=3 channel=Operational version=0 names= payload= related=00000000-0000-0000-0000-000000000000 activity=00000000-0000-0000-0000-000000000000 msg=NULL
+event id=6 name=Act task=65528 opcode=Info tags=0 channel=None version=0 names= payload= related=00000000-0000-0000-0000-000000000000 activity=00000000-0000-0000-0000-000000000000 msg=NULL
+event id=7 name=Related task=65527 opcode=Info tags=0 channel=None version=0 names=s payload=String:rel related=11111111-2222-3333-4444-555555555555 activity=00000000-0000-0000-0000-000000000000 msg=NULL
+event id=8 name=Ints task=65526 opcode=Info tags=0 channel=None version=0 names=a,b,c,d,e,f,g,h,i payload=Int32:1|UInt32:2|Int16:3|Byte:4|SByte:5|UInt16:6|UInt64:7|Single:8.5|Char:z related=00000000-0000-0000-0000-000000000000 activity=00000000-0000-0000-0000-000000000000 msg=NULL
+event id=9 name=Core task=65525 opcode=Info tags=0 channel=None version=0 names=s,n payload=String:core|Int32:5 related=00000000-0000-0000-0000-000000000000 activity=00000000-0000-0000-0000-000000000000 msg=NULL
+event id=2 name=Plain task=65532 opcode=Info tags=0 channel=None version=0 names= payload= related=00000000-0000-0000-0000-000000000000 activity=aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee msg=NULL
+True True
