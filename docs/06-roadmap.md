@@ -137,7 +137,9 @@ The BCL surface written in C# and compiled by csharpc together with the program;
 Roslyn binds against the real reference assemblies are redirected to it
 ([12-corelib.md](12-corelib.md)). Done: collections, LINQ, tasks, `System.Text.RegularExpressions`,
 `System.Text.Json` (ported from dotnet/runtime; `JsonSerializer` runs on compile-time metadata from the
-JSON source generator, which csharpc also synthesizes for reflection-style calls); formatting, parsing,
+JSON source generator, which csharpc also synthesizes for reflection-style calls; with `ProjectReference`s each
+project's source generators run on that project's own compilation, with its options and additional files,
+[16-interop-io.md](16-interop-io.md#libraryimport-and-other-source-generators)); formatting, parsing,
 `decimal`, `BigInteger` and `DateTime` (moved from the C runtime into C#); P/Invoke and `System.IO`;
 sockets (`Socket`, `TcpListener`/`TcpClient`, `UdpClient`, `Dns`); library value types (`Guid`,
 `ArraySegment<T>`, `DateTimeOffset`); `MemoryPool<T>`, `Convert`; `System.Type` reflection basics; globalization (cultures via ICU, as .NET:
