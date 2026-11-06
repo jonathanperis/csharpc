@@ -223,6 +223,7 @@ public sealed partial class ModuleCodeGen
             FinishEnumParseTable();
             FinishEventSourceAttributes();
             FinishPInvokeResolver();
+            ResolveTaskMethodTables();
         }
         finally { Timed("IL failure reachability", ReportIlFailures); ReportWhyLowered(); }
         // Every call site is known now: the stack-trace tables main registers.

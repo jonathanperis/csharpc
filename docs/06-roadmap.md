@@ -210,8 +210,16 @@ so gdb breaks on `Counter.cs:10` of a library compiled from its IL, with inlined
 (`tests/debuginfo.sh`, [13-debugging.md](13-debugging.md#from-the-assemblys-pdb)). An assembly without a
 PDB, the precompiled corelib and shared-framework assemblies get no debug info (Windows PDBs aren't read).
 
-Next: the BCL surface packages use (ranked by the survey), `typeof(X).Assembly`, `calli`,
-RID-specific/native package assets.
+**RID-specific and native package assets** (2026-11-06): the packages' `runtimes/<rid>/lib` assemblies and
+`runtimes/<rid>/native` libraries for the target's runtime identifier, as the host and `PublishAot` select them. A
+project with packages is restored for the target's RID (`--target` -> linux-x64, linux-arm64, osx-arm64, win-x64;
+the host's by default; a RID the project or `-p:RuntimeIdentifier` sets wins), so NuGet's own selection applies: the
+RID-specific assembly replaces the portable `lib/` one. The program as IL reads deps.json's `runtimeTargets`
+with the runtime graph's fallbacks (linux-x64 -> linux -> unix-x64 -> unix -> any). The native libraries are copied
+next to the executable, where a P/Invoke probes first (`tests/il.sh`, RidApp, against a package built locally).
+Left: satellite resource assemblies, `ref/` vs `lib/` binding, linking a package's static archives.
+
+Next: the BCL surface packages use (ranked by the survey), `typeof(X).Assembly`, `calli`.
 
 ### M6 — Bootstrapping
 csharpc compiles csharpc (and Roslyn) — the strongest possible proof of maturity.

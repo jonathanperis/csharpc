@@ -490,6 +490,18 @@ namespace CsharpcCoreLib
 
         public RsaOpenSsl(int keySize) => base.KeySize = keySize;
 
+        [DllImport(Lib)] private static extern int EVP_PKEY_up_ref(IntPtr pkey);
+
+        // The RSA of a certificate's private key (X509Certificate2.GetRSAPrivateKey): shares the EVP_PKEY.
+        private RsaOpenSsl(IntPtr key, bool share)
+        {
+            EVP_PKEY_up_ref(key);
+            _key = key;
+            base.KeySize = EVP_PKEY_get_bits(key);
+        }
+
+        internal static RSA FromKey(IntPtr key) => new RsaOpenSsl(key, true);
+
         // Interop.Crypto.HashAlgorithmToEvp.
         internal static IntPtr Digest(string name) => name switch
         {

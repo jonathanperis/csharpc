@@ -51,8 +51,9 @@ generic delegate types are a `NotSupportedException` / `ArgumentException`. A po
   suffix), `__Internal` and `csrt` are resolved by the linker. The symbol is declared weak, so a
   missing entry point compiles and throws `EntryPointNotFoundException` at the call, as in .NET.
 * **Everything else** is loaded lazily with `dlopen` on first call and cached per call site.
-  Probing follows .NET: the name as given, `name.so`, `libname.so`, `name`, `libname`. Failures
-  throw `DllNotFoundException` / `EntryPointNotFoundException` with .NET's messages.
+  Probing follows .NET: the executable's directory first (where csharpc copies the native libraries of
+  the program's NuGet packages, `runtimes/<rid>/native`), then the system's search, each with the name as
+  given, `name.so`, `libname.so`, `name`, `libname`. Failures throw `DllNotFoundException` / `EntryPointNotFoundException` with .NET's messages.
 * **Windows**: there is no `libc` to load (`DllImport("libc")` throws `DllNotFoundException` under
   .NET on Windows too), so user code binds everything except `__Internal`/`csrt` through
   `LoadLibraryExW`/`GetProcAddress`, probing `name.dll` then `name`, with .NET's Windows messages
@@ -179,7 +180,8 @@ length byte first) and errno values are per target OS. Errors are `SocketExcepti
 `SocketErrorCode` (Winsock numbering, mapped from errno), the native error as `ErrorCode`/
 `NativeErrorCode`, the OS's message text, and — for failed connects — the endpoint appended, as .NET
 does; `SocketException` derives from `Win32Exception` and `ExternalException` like in .NET. The
-`*Async` methods run the blocking call on the thread pool. Not yet: TLS/`SslStream`, `HttpClient`,
+`*Async` methods run the blocking call on the thread pool. TLS (`SslStream`, X.509) works on Linux, [ADR 0022](adr/0022-tls.md). Not yet: `HttpClient`
+on macOS and Windows,
 `Socket.Select`/`Poll`, socket flags, most socket options (other members are compile-time
 "not supported" diagnostics). Samples `195_ip_addresses` and `196_sockets_loopback`.
 

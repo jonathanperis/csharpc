@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Uses a NuGet package with RID-specific assets (RidPkg, from the local feed tests/il.sh creates next to
+       this project in nuget.config): the managed assembly under runtimes/<rid>/lib and a native library under
+       runtimes/<rid>/native. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net11.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="RidPkg" Version="1.0.0" />
+  </ItemGroup>
+</Project>
