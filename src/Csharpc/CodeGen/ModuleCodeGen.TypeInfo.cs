@@ -10,7 +10,7 @@ public sealed record ProgramAssembly(string Name, string? Version, IReadOnlySet<
     public static IReadOnlyList<ProgramAssembly> From(FrontendSettings settings, string assemblyName) =>
         settings.Projects.Count > 0
             ? [.. settings.Projects.Select(p => new ProgramAssembly(p.AssemblyName, p.AssemblyVersion,
-                p.Files.Select(Path.GetFullPath).ToHashSet(StringComparer.Ordinal), p.IsRoot))]
+                p.Files.Select(Path.GetFullPath).Concat(RoslynFrontend.GeneratedFilesOf(p.ProjectPath)).ToHashSet(StringComparer.Ordinal), p.IsRoot))]
             : [new ProgramAssembly(assemblyName, settings.AssemblyVersion, new HashSet<string>(), IsRoot: true)];
 }
 

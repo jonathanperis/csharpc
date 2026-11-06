@@ -99,9 +99,13 @@ Which generators, with which inputs:
   `build_metadata.*` from `CompilerVisibleItemMetadata`, `.editorconfig`, `.globalconfig`) and the
   `/features` (`InterceptorsNamespaces` for the request-delegate and configuration-binder interceptors).
   Generated files get csc's paths (under the `/out` directory). Analyzers that aren't generators are not
-  run: their findings never change the program. With ProjectReferences, one generator run covers the
-  merged program with the root's options and the union of the projects' analyzers; additional files in a
-  referenced project are reported as not supported.
+  run: their findings never change the program. With ProjectReferences, each project's generators run on
+  that project's own compilation (`RoslynFrontend.BuildProjects`, the compilations `dotnet build` would make:
+  its references, parse options, analyzers, `RootNamespace` and other global options, additional files), and the
+  generated trees are folded into the merged program, attributed to the project for `Type.Assembly`.
+  Post-initialization sources every project's generator emits (identical text) are kept once. The one run
+  over the merged program left is the JSON generator for the contexts csharpc synthesizes for reflection-style
+  `System.Text.Json` calls.
 * **Single files**: the targeting pack's LibraryImport and System.Text.Json generators, when their
   attribute appears in the code, and csharpc's `[GeneratedRegex]`.
 
