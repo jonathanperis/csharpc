@@ -62,10 +62,22 @@ public sealed class IrBuilder(LlvmContext context) : IDisposable
 
     // Memory
     public LLVMValueRef Alloca(LLVMTypeRef type, string? name = "") => LLVMBuildAlloca(Ref, type, name ?? ""); // synthesized locals (e.g. lock's lockTaken) have null names
-    public LLVMValueRef Load(LLVMTypeRef type, LLVMValueRef ptr, string name = "") => LLVMBuildLoad2(Ref, type, ptr, name);
+    // 128-bit integers are accessed 8-aligned: boxes keep their payload at offset 8 (a 16-aligned access there
+    // is a movaps on a misaligned address), and csharpc's objects are 8-aligned.
+    public LLVMValueRef Load(LLVMTypeRef type, LLVMValueRef ptr, string name = "")
+    {
+        var load = LLVMBuildLoad2(Ref, type, ptr, name);
+        if (type.IsInteger && type.IntWidth == 128) LLVMSetAlignment(load, 8);
+        return load;
+    }
 
     // --gc-nursery write barriers are added over the finished module (ModuleCodeGen.WriteBarriers.cs).
-    public LLVMValueRef Store(LLVMValueRef value, LLVMValueRef ptr) => LLVMBuildStore(Ref, value, ptr);
+    public LLVMValueRef Store(LLVMValueRef value, LLVMValueRef ptr)
+    {
+        var store = LLVMBuildStore(Ref, value, ptr);
+        if (value.Type is { IsInteger: true, IntWidth: 128 }) LLVMSetAlignment(store, 8);
+        return store;
+    }
     public LLVMValueRef StructGep(LLVMTypeRef type, LLVMValueRef ptr, uint index, string name = "") =>
         LLVMBuildStructGEP2(Ref, type, ptr, index, name);
     public LLVMValueRef InBoundsGep(LLVMTypeRef type, LLVMValueRef ptr, LLVMValueRef[] indices, string name = "") =>

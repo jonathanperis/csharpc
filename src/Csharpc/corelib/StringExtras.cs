@@ -287,6 +287,36 @@ namespace CsharpcCoreLib
     [ShadowMembers("System.Math")]
     internal static class MathExtras
     {
+        /// <summary>x * 2^n computed in steps so intermediate overflow and underflow round once (musl's scalbn, as .NET).</summary>
+        public static double ScaleB(double x, int n)
+        {
+            double y = x;
+            if (n > 1023)
+            {
+                y *= BitConverter.Int64BitsToDouble(0x7FE0000000000000); // 2^1023
+                n -= 1023;
+                if (n > 1023)
+                {
+                    y *= BitConverter.Int64BitsToDouble(0x7FE0000000000000);
+                    n -= 1023;
+                    if (n > 1023) n = 1023;
+                }
+            }
+            else if (n < -1022)
+            {
+                // 2^-1022 * 2^53: keeps the product normal so only the last step rounds
+                y *= BitConverter.Int64BitsToDouble(0x0010000000000000) * 9007199254740992.0;
+                n += 1022 - 53;
+                if (n < -1022)
+                {
+                    y *= BitConverter.Int64BitsToDouble(0x0010000000000000) * 9007199254740992.0;
+                    n += 1022 - 53;
+                    if (n < -1022) n = -1022;
+                }
+            }
+            return y * BitConverter.Int64BitsToDouble((long)(0x3FF + n) << 52);
+        }
+
         public static (nuint Quotient, nuint Remainder) DivRem(nuint left, nuint right)
         {
             nuint quotient = left / right;

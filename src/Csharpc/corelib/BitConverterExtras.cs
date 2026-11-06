@@ -11,6 +11,12 @@ namespace CsharpcCoreLib
     [ShadowMembers("System.BitConverter")]
     internal static class BitConverterExtras
     {
+        // Half <-> its bits (HalfImpl.cs): the value is a 16-bit pattern.
+        public static short HalfToInt16Bits(Half value) => (short)HalfImpl.BitsOf(value);
+        public static ushort HalfToUInt16Bits(Half value) => HalfImpl.BitsOf(value);
+        public static Half Int16BitsToHalf(short value) => HalfImpl.FromBits((ushort)value);
+        public static Half UInt16BitsToHalf(ushort value) => HalfImpl.FromBits(value);
+
         public static string ToString(byte[] value)
         {
             if (value == null) throw new ArgumentNullException("value");

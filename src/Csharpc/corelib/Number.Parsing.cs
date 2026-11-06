@@ -400,6 +400,25 @@ namespace CsharpcCoreLib
         // Int128 / UInt128 -> string
         // ==========================================================================================
 
+        /// <summary>Boxed Int128's / UInt128's ToString (the runtime passes the payload's low and high words).</summary>
+        [RuntimeExport("csrt_int128_to_string", "csrt_Boxed_Int128_MT")]
+        internal static string Int128ToString(ulong lo, ulong hi) => FormatInt128(lo, hi, true);
+
+        [RuntimeExport("csrt_uint128_to_string", "csrt_Boxed_UInt128_MT")]
+        internal static string UInt128ToString(ulong lo, ulong hi) => FormatInt128(lo, hi, false);
+
+        /// <summary>
+        /// IFormattable.ToString on a boxed Int128 / UInt128: the plain digits ("G", "D", "R" or no format, under a
+        /// culture whose negative sign is "-"). Other formats need the 128-bit number formatter csharpc doesn't have yet.
+        /// </summary>
+        internal static string FormatBoxedInt128(ulong lo, ulong hi, bool isSigned, string format, IFormatProvider provider)
+        {
+            bool plain = format is null or "" or "G" or "g" or "D" or "d" or "R" or "r";
+            if (!plain || System.Globalization.NumberFormatInfo.GetInstance(provider).NegativeSign != "-")
+                throw new NotSupportedException("Formatting " + (isSigned ? "Int128" : "UInt128") + " with a format string or a culture-specific sign is not supported by csharpc yet.");
+            return FormatInt128(lo, hi, isSigned);
+        }
+
         internal static string FormatInt128(ulong lo, ulong hi, bool isSigned)
         {
             bool negative = isSigned && (long)hi < 0;
