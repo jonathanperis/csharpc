@@ -140,5 +140,24 @@ csharpc keeps reflection metadata the same way, generated at compile time by
   every record of one method is the same `MethodInfo` (`ModuleCodeGen.MemberRecords.cs`); a delegate
   type's `Invoke` for programs that use `System.Linq.Expressions` or `Delegate.DynamicInvoke`;
   `typeof(Impl<>).GetMethod("Name")` keeping only the named member on the instantiations.
+- Assembly-level reflection (2026-11-06, `ModuleCodeGen.AssemblyTypes.cs`, `corelib/Reflection/Assembly.cs`): the program's own
+  assemblies are known at compile time, so `Assembly.GetTypes()`/`DefinedTypes`/`GetExportedTypes()`/`ExportedTypes`,
+  `Module.GetTypes()` and `Assembly.GetType(name)` of a synthesized or generic-definition name are answered from compiled-in
+  type lists (arrays of method tables, read once per assembly), only for programs that reach them. An IL assembly's list is its
+  TypeDef table in metadata order. The program's source assembly is what csc would write: the compilation csharpc started from
+  is emitted once with Roslyn (as the program's own build is configured, Debug or Release) and its TypeDef table is read back,
+  which gives csc's order and the types it synthesizes (`<>c`, closure classes, state machines, `<>O`,
+  `<PrivateImplementationDetails>`). Declared types map to their source symbols (so `typeof(X)` is the listed Type); synthesized
+  ones get name-only Type objects (kind, visibility, nesting, base type; no members, attributes or interface list). The same
+  emitted image gives `GetReferencedAssemblies()` of the program (its AssemblyRef table). `Assembly.EntryPoint` is the
+  entry method's record (`<Main>$` of top-level programs included); an async or Task-returning `Main` is bridged by a method csc
+  synthesizes, and stays a `NotSupportedException`. `Module`: one manifest module per assembly (`Name`/`ScopeName` the file name
+  .NET loads it from, `MetadataToken` 1, `Type.Module`, `MemberInfo.Module`, `GetModules`/`GetModule`); `ModuleVersionId` is
+  known for IL assemblies only, `FullyQualifiedName` (a path) never. `GetName()` of an unsigned assembly has the empty public key
+  .NET reports. Explicit failures: a type list of a shared-framework assembly, a program with anonymous types or generic closures
+  or state machines (csc's generic synthesized types), several projects folded into one assembly, and a source program csc
+  couldn't emit; `GetCustomAttribute<T>`/`GetCustomAttributes<T>` of the program's assembly for `Attribute` itself and the
+  attributes csc synthesizes ([CompilationRelaxations], [RuntimeCompatibility], [Debuggable]); `Type.MetadataToken` and
+  `MemberInfo.MetadataToken`. Tests: `tests/samples/1072_assembly_types`, `1073_assembly_identity`, `tests/projects/il/IlTypesApp`.
 - Tests: `tests/samples/604_reflection_constructors`, `617_reflection_create_delegate`,
   `623_reflection_properties`, `667_reflection_fields`, plus the DI and hosting paths exercised by the TechEmpower workflow.

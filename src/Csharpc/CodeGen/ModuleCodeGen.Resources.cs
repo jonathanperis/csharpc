@@ -141,6 +141,13 @@ public sealed partial class ModuleCodeGen
         if (_assemblyReferences is null)
         {
             var fields = new List<string>();
+            // The program's own assembly: the references csc would write, from its emitted metadata.
+            if (MainIl is null && ProgramAssemblyName(null) is { } programName && ProgramReferences() is { } programReferences)
+            {
+                fields.Add(programName);
+                fields.Add(programReferences.Count.ToString(System.Globalization.CultureInfo.InvariantCulture));
+                fields.AddRange(programReferences);
+            }
             foreach (var assembly in Il.Assemblies)
             {
                 if (assembly.IsCoreLib) continue;
