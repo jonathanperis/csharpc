@@ -166,6 +166,18 @@ does; `SocketException` derives from `Win32Exception` and `ExternalException` li
 `Socket.Select`/`Poll`, socket flags, most socket options (other members are compile-time
 "not supported" diagnostics). Samples `195_ip_addresses` and `196_sockets_loopback`.
 
+Connecting by name follows .NET's rules (samples `1180`-`1182`): `Connect`/`ConnectAsync(host, port)`,
+`(DnsEndPoint)`, `(IPAddress[], port)`, `SocketAsyncEventArgs` with a `DnsEndPoint` (instance and static
+`Socket.ConnectAsync`, `ConnectSocket`, `ConnectByNameError`) and `TcpClient`'s overloads resolve the name and
+try its addresses in turn, `::1` before `127.0.0.1` for `localhost`: a socket of one address family only tries
+that family (a dual-mode one reaches IPv4 too), the failure of the last attempt is the exception, a canceled
+token ends the connect, and no usable address is `ArgumentException`/`NoData` as in .NET. On Unix a socket
+whose connect failed is replaced by a new descriptor with the same options before the next attempt
+(`ReplaceHandleIfNecessaryAfterFailedConnect`, .NET's `SafeSocketHandle.LastConnectFailed`): Linux leaves an
+IPv4-mapped connect's protocol operations on the socket after the peer refused it, so an attempt with a real
+IPv6 address would never complete. `TcpListener.AcceptTcpClientAsync`/`AcceptSocketAsync` are the socket
+engine's asynchronous accepts, so `Stop` ends them and closes the listening socket.
+
 ## Tests and benchmark
 
 * `tests/samples/160_pinvoke_dllimport.cs` — libc/libm, struct return, `qsort` with an

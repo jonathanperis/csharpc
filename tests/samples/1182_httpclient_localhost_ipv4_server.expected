@@ -1,0 +1,6 @@
+GET /hello Host: localhost:PORT body=[]
+GET /again Host: localhost:PORT body=[]
+200 POST /submit Host: localhost:PORT body=[payload]
+connections used: 1
+GET /based Host: localhost:PORT body=[]
+failed: HttpRequestException ConnectionRefused no status
