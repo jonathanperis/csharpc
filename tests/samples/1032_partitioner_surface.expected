@@ -6,7 +6,7 @@
 
 [0,3) [3,6) [6,9) [9,10)
 [0,3) [3,6) [6,9) [9,10)
-[0,1) [1,2) [2,3) [3,4) [4,5) [5,6) [6,7)
+[0,2) [2,4) [4,6) [6,7)
 range equal: ArgumentOutOfRangeException: toExclusive ('5') must be greater than '5'. (Parameter 'toExclusive')
 Actual value was 5.
 True DynamicPartitionerForIEnumerable`1 True False True
@@ -21,7 +21,7 @@ range partitions 0: ArgumentOutOfRangeException: partitionCount ('0') must be a 
 Actual value was 0.
 range long bad: ArgumentOutOfRangeException: toExclusive ('4') must be greater than '5'. (Parameter 'toExclusive')
 Actual value was 4.
-10
+4
 range huge: ok
 [0,7) [7,10)
 range tail: ok

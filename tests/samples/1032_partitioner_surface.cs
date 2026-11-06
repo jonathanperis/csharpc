@@ -29,9 +29,9 @@ foreach (var r in Partitioner.Create(0, 10).GetPartitions(3).Select(p => DrainWi
 foreach (var r in Partitioner.Create(0, 10, 4).GetPartitions(2).Select(p => DrainWith(p, t => $"[{t.Item1},{t.Item2})"))) Console.WriteLine(r);
 Console.WriteLine(string.Join(" ", Partitioner.Create(0, 10, 3).GetDynamicPartitions().Select(t => $"[{t.Item1},{t.Item2})")));
 Console.WriteLine(string.Join(" ", Partitioner.Create(0L, 10L, 3L).GetDynamicPartitions().Select(t => $"[{t.Item1},{t.Item2})")));
-Console.WriteLine(string.Join(" ", Partitioner.Create(0L, 7L).GetDynamicPartitions().Select(t => $"[{t.Item1},{t.Item2})")));
+Console.WriteLine(string.Join(" ", Partitioner.Create(0L, 7L, 2L).GetDynamicPartitions().Select(t => $"[{t.Item1},{t.Item2})")));
 Try("range equal", () => Partitioner.Create(5, 5));
-var rp = Partitioner.Create(0, 100);
+var rp = Partitioner.Create(0, 100, 11); // (the default range size depends on Environment.ProcessorCount)
 Console.WriteLine(rp.SupportsDynamicPartitions + " " + rp.GetType().Name + " " + rp.KeysOrderedInEachPartition + " " + rp.KeysOrderedAcrossPartitions + " " + rp.KeysNormalized);
 Console.WriteLine(string.Join(" ", rp.GetOrderableDynamicPartitions().Take(3).Select(kv => $"{kv.Key}:[{kv.Value.Item1},{kv.Value.Item2})")));
 Try("range bad", () => Partitioner.Create(5, 4));
@@ -39,7 +39,7 @@ Try("range bad size", () => Partitioner.Create(0, 4, 0));
 Try("range bad size neg", () => Partitioner.Create(0L, 4L, -1L));
 Try("range partitions 0", () => Partitioner.Create(0, 4).GetPartitions(0));
 Try("range long bad", () => Partitioner.Create(5L, 4L));
-Try("range huge", () => Console.WriteLine(Partitioner.Create(int.MinValue, int.MaxValue).GetDynamicPartitions().Count()));
+Try("range huge", () => Console.WriteLine(Partitioner.Create(int.MinValue, int.MaxValue, 1 << 30).GetDynamicPartitions().Count()));
 Try("range tail", () => Console.WriteLine(DrainWith(Partitioner.Create(0, 10, 7).GetPartitions(1)[0], t => $"[{t.Item1},{t.Item2})")));
 
 Console.WriteLine("-- array / list static (no load balance)");
