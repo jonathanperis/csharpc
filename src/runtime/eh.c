@@ -171,6 +171,18 @@ void* csrt_exception_get_token(void* exception) {
     return ((csrt_Exception*)exception)->token;
 }
 
+void csrt_exception_set_data(void* exception, void* data) { CSRT_STORE_REF(((csrt_Exception*)exception)->data, data); }
+void* csrt_task_cancellation_token(void* task);
+/// new TaskCanceledException(task): the Task, and its cancellation token as CancellationToken.
+void csrt_exception_set_task(void* exception, void* task) {
+    CSRT_STORE_REF(((csrt_Exception*)exception)->data, task);
+    if (task) CSRT_STORE_REF(((csrt_Exception*)exception)->token, csrt_task_cancellation_token(task));
+}
+void* csrt_exception_get_data(void* exception) {
+    if (!exception) csrt_throw_null_reference();
+    return ((csrt_Exception*)exception)->data;
+}
+
 void csrt_exception_set_actual_value(void* exception, csrt_String* actual_value) {
     CSRT_STORE_REF(((csrt_Exception*)exception)->actual_value, actual_value);
 }
@@ -950,6 +962,15 @@ bool csrt_is_operation_canceled(void* exception) {
 
 void* csrt_task_canceled_exception_new(void) {
     csrt_Exception* e = new_exception(&csrt_MT_System_Threading_Tasks_TaskCanceledException, "A task was canceled.");
+    return e;
+}
+
+// TaskCanceledException(Task): .NET's constructor reports the task's own cancellation token
+// (csrt_task_cancellation_token, async.c: the token of the exception that canceled it).
+void* csrt_task_canceled_exception_for(void* task) {
+    csrt_Exception* e = new_exception(&csrt_MT_System_Threading_Tasks_TaskCanceledException, "A task was canceled.");
+    CSRT_STORE_REF(e->data, task);
+    if (task) CSRT_STORE_REF(e->token, csrt_task_cancellation_token(task));
     return e;
 }
 

@@ -1116,11 +1116,11 @@ public sealed partial class ModuleCodeGen
         var baseLayout = type.BaseType is { SpecialType: not SpecialType.System_Object } b ? GetLibraryExceptionLayout(b) : null;
 
         var structType = Llvm.NamedStruct("class." + name);
-        // { mt, message, inner, paramName, actualValue, trace, inners, token, hresult, ehClause, ehFrame } — csrt_Exception
+        // { mt, message, inner, paramName, actualValue, trace, inners, token, hresult, ehClause, ehFrame, data } — csrt_Exception
         // in src/runtime/csrt.h.
-        LlvmContext.SetBody(structType, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.I32, Llvm.Ptr, Llvm.Ptr);
+        LlvmContext.SetBody(structType, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.I32, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr);
         var layout = new ClassLayout { Type = type, InstanceType = structType, Base = baseLayout, IsLibrary = true };
-        layout.Elements.AddRange([Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.I32, Llvm.Ptr, Llvm.Ptr]);
+        layout.Elements.AddRange([Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.I32, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr]);
         layout.InstanceSize = Types.Target.SizeOf(structType);
         AddObjectSlots(layout);
         layout.VTable.Add(null);
@@ -1477,6 +1477,10 @@ public sealed partial class ModuleCodeGen
         // Registering doesn't box anything either: it doesn't count as a reference that triggers the
         // corelib's runtime exports for that type (ModuleCodeGen.RuntimeExports.cs).
         var builtins = new List<(ITypeSymbol Type, string MT)> { (Compilation.GetSpecialType(SpecialType.System_String), "csrt_String_MT") };
+        // A Task is a runtime object with one method table (docs/10-async.md): it implements IAsyncResult, whose slots
+        // are corelib/Tasks/TaskState.cs (IDisposable is the method table's flag, not a registration).
+        var taskType = Compilation.GetTypeByMetadataName("System.Threading.Tasks.Task");
+        if (taskType is not null) builtins.Add((taskType, "csrt_Task_MT"));
         foreach (var sp in primitives) builtins.Add((Compilation.GetSpecialType(sp), $"csrt_Boxed_{Compilation.GetSpecialType(sp).MetadataName}_MT"));
         // decimal, DateTime and TimeSpan boxes are runtime method tables too (decimal.c, datetime.c), registered
         // only once the program boxes one (EmitDeferredBclBoxRegistrations): most programs never do, and a
@@ -1497,13 +1501,16 @@ public sealed partial class ModuleCodeGen
             {
                 var conversion = Compilation.ClassifyCommonConversion(builtinType, itf);
                 if (!conversion.Exists || !conversion.IsImplicit || conversion.IsUserDefined) continue;
+                var isTask = mtName == "csrt_Task_MT";
+                if (isTask && itf.ToDisplayString() != "System.IAsyncResult") continue;
                 // Registering doesn't box anything: it mustn't count as a reference for the runtime exports.
                 if (!_globals.ContainsKey(mtName)) _registrationOnlyGlobals.Add(mtName);
                 var mt = _globals.TryGetValue(mtName, out var existing) ? existing : _globals[mtName] = Module.AddGlobal(mtName, Llvm.I8, constant: true);
                 if (builtinType is IArrayTypeSymbol { Rank: 1 }) RequestArrayInterface(itf);
                 else if (builtinType.SpecialType == SpecialType.System_String) RequestStringInterface(itf);
                 var registerBuiltin = Runtime("csrt_register_builtin_interface", Llvm.Void, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr);
-                var slots = builtinType.SpecialType != SpecialType.System_String && builtinType is not IArrayTypeSymbol
+                var slots = isTask ? BuiltinSlotTable(itf, "csrt.tasktbl.IAsyncResult", LLVMLinkage.Private, TaskAsyncResultMember)
+                    : builtinType.SpecialType != SpecialType.System_String && builtinType is not IArrayTypeSymbol
                     ? DeferredPrimitiveInterfaceSlots(builtinType, itf, mtName) : LlvmContext.Null(Llvm.Ptr);
                 b.Call(registerBuiltin.Type, registerBuiltin.Fn, [mt, InterfaceMethodTable(itf), slots]);
             }

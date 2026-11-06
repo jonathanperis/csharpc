@@ -183,6 +183,7 @@ typedef struct csrt_Exception {
     // clause that accepted it and its frame record, CSRT_EH_SEARCHED, or null (no filter has run).
     const void* eh_clause;
     void* eh_frame;
+    void* data;                 // TaskCanceledException.Task (the canceled task); null otherwise
 } csrt_Exception;
 typedef struct { csrt_MethodTable header; void* vtable[4]; } csrt_ExceptionMethodTable;
 enum { CSRT_SLOT_GET_MESSAGE = 3 };
@@ -190,6 +191,7 @@ enum { CSRT_SLOT_GET_MESSAGE = 3 };
 CSRT_THROWS void csrt_throw_object(void* exception);
 int32_t csrt_exception_get_hresult(void* exception);
 void csrt_exception_set_token(void* exception, void* token);
+void* csrt_exception_get_token(void* exception);
 void csrt_exception_set_hresult(void* exception, int32_t hresult);
 CSRT_THROWS void csrt_rethrow(void* exception);
 CSRT_THROWS void csrt_propagate(void* exception);
@@ -232,6 +234,7 @@ void csrt_exception_set_inners(void* exception, csrt_Array* inners);
 int32_t csrt_exception_inner_count(void* exception);
 void* csrt_exception_inner_at(void* exception, int32_t index);
 void* csrt_task_canceled_exception_new(void);
+void* csrt_task_canceled_exception_for(void* task);  // TaskCanceledException(Task): Task and its token
 bool csrt_is_operation_canceled(void* exception);
 void* csrt_operation_canceled_exception_new(void* token);
 void* csrt_object_disposed_exception_new(const char* message); // ObjectDisposedException(null, message)

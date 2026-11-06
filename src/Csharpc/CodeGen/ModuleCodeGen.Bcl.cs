@@ -167,6 +167,11 @@ public sealed partial class ModuleCodeGen
         Compilation.GetTypeByMetadataName(CoreLib.Namespace + ".BoxedConvertible")?.GetMembers(member.Name).OfType<IMethodSymbol>()
             .SingleOrDefault(m => m.Parameters.Length == member.Parameters.Length + 1);
 
+    /// <summary>corelib's TaskState method for an IAsyncResult member of a Task: (object self, args...).</summary>
+    internal IMethodSymbol? TaskAsyncResultMember(IMethodSymbol member) =>
+        Compilation.GetTypeByMetadataName(CoreLib.Namespace + ".TaskState")?.GetMembers(member.Name).OfType<IMethodSymbol>()
+            .SingleOrDefault(m => m.Parameters.Length == member.Parameters.Length + 1);
+
     /// <summary>The CLR's CorElementType of an enum's underlying type (csrt_unbox lets the two unbox as each other).</summary>
     private static int ElementKind(ITypeSymbol underlying) => underlying.SpecialType switch
     {

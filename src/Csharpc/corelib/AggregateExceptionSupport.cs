@@ -57,9 +57,14 @@ namespace CsharpcCoreLib
             return inners;
         }
 
-        /// <summary>AggregateException.InnerExceptions: the exceptions it was created with, read-only.</summary>
+        private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<Exception, System.Collections.ObjectModel.ReadOnlyCollection<Exception>> s_readOnlyInners = new();
+
+        /// <summary>
+        /// AggregateException.InnerExceptions: the exceptions it was created with, read-only. One collection per
+        /// exception, as .NET's property returns its field (its list never changes after construction).
+        /// </summary>
         public static System.Collections.ObjectModel.ReadOnlyCollection<Exception> InnerExceptions(Exception aggregate) =>
-            new System.Collections.ObjectModel.ReadOnlyCollection<Exception>(Inners(aggregate));
+            s_readOnlyInners.GetValue(aggregate, static e => new System.Collections.ObjectModel.ReadOnlyCollection<Exception>(Inners(e)));
 
         /// <summary>
         /// AggregateException.Flatten: the inner exceptions of nested AggregateExceptions, breadth first, in a

@@ -684,6 +684,14 @@ internal static class Intrinsics
                 g.Builder.Cast(LLVMOpcode.PtrToInt, task, g.Module.Types.NativeInt));
         };
 
+        t[$"{Tasks}.Task.Dispose()"] = (g, inv) =>
+        {
+            var task = g.EmitValue(inv.Instance!);
+            g.NullCheck(task);
+            g.CallCoreLib("TaskState", "Dispose", task);
+            return default;
+        };
+
         // TaskCompletionSource(<T>): the source object is its task.
         foreach (var tcs in new[] { $"{Tasks}.TaskCompletionSource", $"{Tasks}.TaskCompletionSource<TResult>" })
         {
@@ -986,6 +994,14 @@ internal static class Intrinsics
             return g.CallRuntime("csrt_task_status", g.Module.Llvm.I32, [g.Module.Llvm.Ptr], task);
         };
         t[$"{Tasks}.Task.Id"] = (g, p) => g.CallRuntime("csrt_task_id", g.Module.Llvm.I32, [g.Module.Llvm.Ptr], g.EmitValue(p.Instance!));
+        // AsyncState and CreationOptions: kept for the tasks that have them (corelib/Tasks/TaskState.cs).
+        foreach (var name in new[] { "AsyncState", "CreationOptions" })
+            t[$"{Tasks}.Task.{name}"] = (g, p) =>
+            {
+                var task = g.EmitValue(p.Instance!);
+                g.NullCheck(task);
+                return g.CallCoreLib("TaskState", name, task);
+            };
         foreach (var tcs in new[] { $"{Tasks}.TaskCompletionSource", $"{Tasks}.TaskCompletionSource<TResult>" })
             t[$"{tcs}.Task"] = (g, p) => g.EmitValue(p.Instance!);
         const string Th = "System.Threading";
@@ -1032,17 +1048,28 @@ internal static class Intrinsics
                     return g.ConvertNumeric(value, from, to, c, isChecked: from is not IPointerTypeSymbol);
                 };
         t[$"{Tasks}.ValueTask..ctor({Tasks}.Task)"] = (g, c) => CtorArg(g, c, 0);
+        // The state and creation options are kept in corelib/Tasks/TaskState.cs (checked there: only
+        // AttachedToParent and RunContinuationsAsynchronously are legal); continuations are always queued.
         ConstructorHandler newTcs = (g, c) =>
         {
-            foreach (var a in c.Arguments) g.EmitValue(a.Value); // TaskCreationOptions / state: ignored (continuations are always queued)
+            var l = g.Module.Llvm;
+            LLVMValueRef Named(string name, LLVMValueRef fallback) =>
+                c.Arguments.FirstOrDefault(a => a.Parameter!.Name == name) is { } argument
+                    ? g.Coerce(g.EmitValue(argument.Value), g.TypeOf(argument.Value), g.S(argument.Parameter!.Type)) : fallback;
+            var state = Named("state", LlvmContext.Null(l.Ptr));
+            var options = Named("creationOptions", l.ConstInt(l.I32, 0));
             var result = ((INamedTypeSymbol)g.TypeOf(c)!).TypeArguments.FirstOrDefault();
             var size = result is null ? 0 : (long)g.Module.Types.Target.SizeOf(g.Module.Types.Storage(result));
-            return g.CallRuntime("csrt_task_new", g.Module.Llvm.Ptr, [g.Module.Llvm.I32], g.Module.Llvm.ConstInt(g.Module.Llvm.I32, size));
+            var task = g.CallRuntime("csrt_task_new", l.Ptr, [l.I32], l.ConstInt(l.I32, size));
+            if (c.Arguments.Length > 0) g.CallCoreLib("TaskState", "Promise", task, state, options);
+            return task;
         };
         foreach (var tcs in new[] { $"{Tasks}.TaskCompletionSource", $"{Tasks}.TaskCompletionSource<TResult>" })
         {
             t[$"{tcs}..ctor()"] = newTcs;
             t[$"{tcs}..ctor({Tasks}.TaskCreationOptions)"] = newTcs;
+            t[$"{tcs}..ctor(object)"] = newTcs;
+            t[$"{tcs}..ctor(object, {Tasks}.TaskCreationOptions)"] = newTcs;
         }
         // new Task(...) / new Task<TResult>(...): a created (cold) task, corelib/Tasks/ColdTasks.cs.
         ConstructorHandler newColdTask = (g, c) =>
