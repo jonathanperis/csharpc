@@ -227,7 +227,7 @@ public sealed partial class ModuleCodeGen
                 baseMt,
                 CString(Mangler.MetadataName(layout.Type)),
                 Llvm.ConstInt(Llvm.I32, IsConstructed(layout) ? (long)layout.InstanceSize : 0),
-                Llvm.ConstInt(Llvm.I32, layout.Type.IsAbstract ? 1 : 0),
+                Llvm.ConstInt(Llvm.I32, (layout.Type.IsAbstract ? 1 : 0) | (IsTrackedReference(layout) ? CsrtMtTrackedReference : 0)),
                 map,
                 Llvm.ConstInt(Llvm.I32, table.Interfaces.Count),
                 Llvm.ConstInt(Llvm.I32, 0),

@@ -802,6 +802,22 @@ What it took, besides library members (`Socket.Poll`, `DnsEndPoint` connects, `S
   conversion instruction in IL (non-generic `SortedList`, which `CookieContainer` uses) was an InvalidCastException
   (sample 1006).
 
+**The system proxy on macOS and Windows** is .NET's own code, reading the OS settings the way .NET does (the environment
+variables first, then `MacProxy` over CFNetwork / `HttpWindowsProxy` over WinINet and the registry), since 2026-11-06:
+
+- *macOS:* `Marshal.GetFunctionPointerForDelegate` for CFNetwork's PAC callback (generated reverse P/Invoke thunks, see
+  [16-interop-io.md](16-interop-io.md)), `SafeCreateHandle` and the CoreFoundation imports run as they are.
+- *Windows:* `WinHttpGetIEProxyConfigForCurrentUser` / `WinHttpGetProxyForUrl` (auto-detect and PAC included) run as they
+  are; `RegNotifyChangeKeyValue` signals a real OS event that `WaitHandle.SafeWaitHandle` creates and a bridge thread
+  forwards to the runtime's event, and `ThreadPool.RegisterWaitForSingleObject` (one background waiter per registration)
+  reloads the settings when the registry changes. A `"<local>"` bypass lists the machine's addresses
+  (`NetworkInterface.GetAllNetworkInterfaces`: `GetAdaptersAddresses` on Windows, `getifaddrs` on Linux and macOS;
+  only the unicast addresses are exposed, every other member of those types is CSLLVM0002).
+  `System.Security.Principal.Windows` (`WindowsIdentity`, reached by NTLM/Negotiate code) compiles; creating its
+  `AsyncLocal<SafeAccessTokenHandle>` with a value-changed handler is the `AsyncLocal` shadow's explicit
+  `NotSupportedException` (execution-context switches don't notify handlers yet), so only a program that uses
+  `WindowsIdentity` hits it, not `new HttpClient()`.
+
 Explicit diagnostics, never a different behavior:
 
 - **TLS** works on Linux (see "SslStream and https" below); on macOS and Windows `https://` fails with `NotSupportedException:

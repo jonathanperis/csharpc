@@ -19,13 +19,15 @@ namespace CsharpcCoreLib
 
     /// <summary>
     /// GCHandle as an index into a process-wide table of strong references. Pinning is free (objects never
-    /// move), so a pinned handle only remembers that AddrOfPinnedObject is allowed. Weak handles would need
-    /// GC support (clearing on collection); they throw instead of silently keeping the target alive.
+    /// move), so a pinned handle only remembers that AddrOfPinnedObject is allowed. Weak and
+    /// WeakTrackResurrection handles are slots of the collector's weak table (gc.c), cleared when the target dies
+    /// (the second after its finalizer ran); the reference-tracking handle of ObjectiveCMarshal is one of those too.
+    /// The handle value is (index + 1) &lt;&lt; 3 | kind &lt;&lt; 1 | pinned, kind: 0 strong, 1 weak, 2 weak tracking
+    /// resurrection, 3 reference tracking (ObjectiveCMarshal).
     /// </summary>
     [Shadows("System.Runtime.InteropServices.GCHandle")]
     public unsafe struct GCHandleImpl : IEquatable<GCHandle>
     {
-        // (index + 1) << 1 | pinned; 0 is "not allocated", as in .NET.
         private IntPtr _handle;
 
         private static object s_lock;
@@ -54,7 +56,7 @@ namespace CsharpcCoreLib
         {
             if ((uint)type > (uint)GCHandleType.Pinned) throw new ArgumentOutOfRangeException("type", "Specified argument was out of the range of valid values.");
             if (type == GCHandleType.Weak || type == GCHandleType.WeakTrackResurrection)
-                throw new NotSupportedException("Weak GC handles are not supported by csharpc yet.");
+                return AllocWeak(value, type == GCHandleType.Weak ? 1 : 2);
             int index;
             lock (Lock)
             {
@@ -75,15 +77,32 @@ namespace CsharpcCoreLib
                 }
                 s_targets[index] = value;
             }
-            return To(new GCHandleImpl((IntPtr)(((long)index + 1) << 1 | (type == GCHandleType.Pinned ? 1L : 0L))));
+            return To(new GCHandleImpl((IntPtr)(((long)index + 1) << 3 | (type == GCHandleType.Pinned ? 1L : 0L))));
         }
+
+        // A weak slot of the collector: the slot number replaces the table index (kind 1 weak, 2 tracks resurrection, 3 tracking).
+        private static GCHandle AllocWeak(object value, int kind)
+        {
+            // Slot owner: none (a handle lives until Free, as in .NET); trackResurrection selects the second pass.
+            IntPtr slot = WeakSlots.csrt_weak_alloc(CoreIntrinsics.ObjectToPointer(value), IntPtr.Zero, IntPtr.Zero, kind == 1 ? 0 : 2);
+            return To(new GCHandleImpl((IntPtr)(((long)slot) << 3 | (long)kind << 1)));
+        }
+
+        /// <summary>ObjectiveCMarshal.CreateReferenceTrackingHandle's handle: a weak slot that tracks resurrection.</summary>
+        internal static GCHandle AllocReferenceTracking(object value)
+        {
+            IntPtr slot = WeakSlots.csrt_weak_alloc(CoreIntrinsics.ObjectToPointer(value), IntPtr.Zero, IntPtr.Zero, 2);
+            return To(new GCHandleImpl((IntPtr)(((long)slot) << 3 | 3L << 1)));
+        }
+
+        private int Kind => (int)(((long)_handle >> 1) & 3);
 
         private int Index
         {
             get
             {
                 if (_handle == IntPtr.Zero) throw new InvalidOperationException("Handle is not initialized.");
-                return (int)(((long)_handle >> 1) - 1);
+                return (int)(((long)_handle >> 3) - 1);
             }
         }
 
@@ -91,12 +110,35 @@ namespace CsharpcCoreLib
 
         public object Target
         {
-            get { int i = Index; lock (Lock) return s_targets[i]; }
-            set { int i = Index; lock (Lock) s_targets[i] = value; }
+            get
+            {
+                if (_handle == IntPtr.Zero) throw new InvalidOperationException("Handle is not initialized.");
+                if (Kind != 0) return CoreIntrinsics.PointerToObject(WeakSlots.csrt_weak_target((IntPtr)((long)_handle >> 3)));
+                int i = Index; lock (Lock) return s_targets[i];
+            }
+            set
+            {
+                if (_handle == IntPtr.Zero) throw new InvalidOperationException("Handle is not initialized.");
+                if (Kind != 0) { WeakSlots.csrt_weak_set((IntPtr)((long)_handle >> 3), CoreIntrinsics.ObjectToPointer(value), IntPtr.Zero); return; }
+                int i = Index; lock (Lock) s_targets[i] = value;
+            }
         }
 
         public void Free()
         {
+            if (_handle == IntPtr.Zero) throw new InvalidOperationException("Handle is not initialized.");
+            if (Kind != 0)
+            {
+                IntPtr slot = (IntPtr)((long)_handle >> 3);
+                if (Kind == 3)
+                {
+                    object target = CoreIntrinsics.PointerToObject(WeakSlots.csrt_weak_target(slot));
+                    if (target != null) ObjcTracking.csrt_objc_release_handle(CoreIntrinsics.ObjectToPointer(target));
+                }
+                WeakSlots.csrt_weak_free(slot);
+                _handle = IntPtr.Zero;
+                return;
+            }
             int i = Index;
             _handle = IntPtr.Zero;
             lock (Lock)

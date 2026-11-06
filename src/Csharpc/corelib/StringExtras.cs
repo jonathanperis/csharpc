@@ -927,10 +927,12 @@ namespace CsharpcCoreLib
     [ShadowMembers("System.Threading.Tasks.Task")]
     internal static class TaskExtras
     {
-        public static Task<TResult[]> WhenAll<TResult>(IEnumerable<Task<TResult>> tasks) => Task.WhenAll(Enumerable.ToArray(tasks));
-        public static Task WhenAll(IEnumerable<Task> tasks) => Task.WhenAll(Enumerable.ToArray(tasks));
-        public static Task<Task> WhenAny(IEnumerable<Task> tasks) => Task.WhenAny(Enumerable.ToArray(tasks));
-        public static Task<Task<TResult>> WhenAny<TResult>(IEnumerable<Task<TResult>> tasks) => Task.WhenAny(Enumerable.ToArray(tasks));
+        // The checks .NET makes on the collection itself (a null one is ArgumentNullException 'tasks', not 'source').
+        private static T[] TasksArray<T>(IEnumerable<T> tasks) => tasks == null ? throw new ArgumentNullException("tasks") : Enumerable.ToArray(tasks);
+        public static Task<TResult[]> WhenAll<TResult>(IEnumerable<Task<TResult>> tasks) => Task.WhenAll(TasksArray(tasks));
+        public static Task WhenAll(IEnumerable<Task> tasks) => Task.WhenAll(TasksArray(tasks));
+        public static Task<Task> WhenAny(IEnumerable<Task> tasks) => Task.WhenAny(TasksArray(tasks));
+        public static Task<Task<TResult>> WhenAny<TResult>(IEnumerable<Task<TResult>> tasks) => Task.WhenAny(TasksArray(tasks));
     }
 }
 
