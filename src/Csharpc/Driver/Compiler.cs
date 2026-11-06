@@ -114,6 +114,8 @@ public sealed class Compiler(CompilerOptions options)
         List<string> ilPaths = [.. settings.IlReferencePaths, .. options.References];
         // .NET's native shims the framework IL calls, linked from the NativeAOT runtime pack (NativeAotPack).
         var linkedShims = new SortedSet<string>(StringComparer.Ordinal);
+        // The types a preserialized .resx holds (System.Drawing.Point ...): converted at run time by their TypeConverter.
+        settings = settings with { ResourceTypes = ResourceConverters.TypeNames(settings.EmbeddedResources) };
         try
         {
             var framework = FrameworkIl.Select(settings, ilPaths, options.FrameworkIl, options.FrameworkIlAutomatic, triple);

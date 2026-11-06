@@ -12,6 +12,7 @@
 #nullable disable
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.Globalization;
 using System.Reflection;
 using System.Threading;
@@ -100,10 +101,64 @@ namespace CsharpcCoreLib
             if (value == null || !value.StartsWith(NonStringPrefix, StringComparison.Ordinal)) return value;
             string type = NonStringTypeName(value);
             string text = value.Substring(value.IndexOf('\u0001', NonStringPrefix.Length) + 1);
-            try { return Create(name, type, text); }
-            catch (FormatException) { }
-            catch (OverflowException) { }
-            throw new NotSupportedException("csharpc: the resource '" + name + "' of '" + _baseName + "' is a " + type + ", which ResourceManager.GetObject does not create yet (only strings, numbers, bools, chars and byte arrays).");
+            string stored = StorageFormat(value);
+            if (stored == null)
+            {
+                try { return Create(name, type, text); }
+                catch (FormatException) { }
+                catch (OverflowException) { }
+            }
+            else if (stored == ConverterString)
+            {
+                // A value DeserializingResourceReader creates with TypeDescriptor.GetConverter(type).ConvertFromInvariantString(text).
+                // A converter's own exceptions (bad text) propagate, as they do from .NET; a null result is a NullReferenceException there.
+                object created = ConvertPrimitive(type, text);
+                if (created != null) return created;
+                // The other types: the front end generated the conversions of the program's own resources
+                // (ProgramHooks.ResourceObject, Frontend/ResourceConverters.cs).
+                object[] converted = CoreIntrinsics.ResourceObjectHook(type, text);
+                if (converted != null) return converted[0] ?? throw new NullReferenceException();
+            }
+            throw new NotSupportedException("csharpc: the resource '" + name + "' of '" + _baseName + "' is a " + type
+                + (stored != null && stored != ConverterString ? " stored " + StoredHow(stored) : "")
+                + ", which ResourceManager.GetObject does not create yet (only strings, numbers, bools, chars, byte arrays and types whose TypeConverter csharpc can create from the string in the .resx, from the types the project's .resx files name).");
+        }
+
+        // A preserialized value that is the type converter's string ("\u0002" + this after the type name).
+        private const string ConverterString = "3";
+
+        private static string StoredHow(string format)
+        {
+            switch (format)
+            {
+                case "1": return "as BinaryFormatter data";
+                case "2": return "as the byte array of its TypeConverter";
+                case "4": return "as a stream for its constructor";
+                default: return "in an unknown format";
+            }
+        }
+
+        /// <summary>The primitives' converters (TypeDescriptor.GetConverter: trimming, hex prefixes, culture-free), or null for any other type.</summary>
+        private static object ConvertPrimitive(string type, string text)
+        {
+            switch (type)
+            {
+                case "System.Boolean": return TypeDescriptor.GetConverter(typeof(bool)).ConvertFromInvariantString(text);
+                case "System.Char": return TypeDescriptor.GetConverter(typeof(char)).ConvertFromInvariantString(text);
+                case "System.Byte": return TypeDescriptor.GetConverter(typeof(byte)).ConvertFromInvariantString(text);
+                case "System.SByte": return TypeDescriptor.GetConverter(typeof(sbyte)).ConvertFromInvariantString(text);
+                case "System.Int16": return TypeDescriptor.GetConverter(typeof(short)).ConvertFromInvariantString(text);
+                case "System.UInt16": return TypeDescriptor.GetConverter(typeof(ushort)).ConvertFromInvariantString(text);
+                case "System.Int32": return TypeDescriptor.GetConverter(typeof(int)).ConvertFromInvariantString(text);
+                case "System.UInt32": return TypeDescriptor.GetConverter(typeof(uint)).ConvertFromInvariantString(text);
+                case "System.Int64": return TypeDescriptor.GetConverter(typeof(long)).ConvertFromInvariantString(text);
+                case "System.UInt64": return TypeDescriptor.GetConverter(typeof(ulong)).ConvertFromInvariantString(text);
+                case "System.Single": return TypeDescriptor.GetConverter(typeof(float)).ConvertFromInvariantString(text);
+                case "System.Double": return TypeDescriptor.GetConverter(typeof(double)).ConvertFromInvariantString(text);
+                case "System.Decimal": return TypeDescriptor.GetConverter(typeof(decimal)).ConvertFromInvariantString(text);
+                case "System.String": return text;
+            }
+            return null;
         }
 
         private static object Create(string name, string type, string text)
@@ -126,6 +181,8 @@ namespace CsharpcCoreLib
                 case "System.Double": return double.Parse(text, invariant);
                 case "System.Decimal": return decimal.Parse(text, invariant);
                 case "System.Byte[]": return Convert.FromBase64String(text);
+                case "System.DateTime": return new DateTime(long.Parse(text, invariant));
+                case "System.TimeSpan": return new TimeSpan(long.Parse(text, invariant));
             }
             throw new FormatException();
         }
@@ -136,7 +193,16 @@ namespace CsharpcCoreLib
         private static string NonStringTypeName(string value)
         {
             int end = value.IndexOf('\u0001', NonStringPrefix.Length);
-            return value.Substring(NonStringPrefix.Length, end - NonStringPrefix.Length);
+            int marker = value.IndexOf('\u0002', NonStringPrefix.Length, end - NonStringPrefix.Length);
+            return value.Substring(NonStringPrefix.Length, (marker < 0 ? end : marker) - NonStringPrefix.Length);
+        }
+
+        // The SerializationFormat of a preserialized value ("\u0002<format>" after the type name), or null for a primitive stored by type code.
+        private static string StorageFormat(string value)
+        {
+            int end = value.IndexOf('\u0001', NonStringPrefix.Length);
+            int marker = value.IndexOf('\u0002', NonStringPrefix.Length, end - NonStringPrefix.Length);
+            return marker < 0 ? null : value.Substring(marker + 1, end - marker - 1);
         }
 
         private string Lookup(string name)

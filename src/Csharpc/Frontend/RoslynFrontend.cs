@@ -89,6 +89,9 @@ public static class RoslynFrontend
         List<Diagnostic> jsonDiagnostics = [];
         compilation = JsonReflectionContexts.Add(compilation, [.. trees.Where(t => !IsCoreLibTree(t) && t.FilePath is not ("<global-usings>.g.cs" or AssemblyInfoTreePath))],
             settings.JsonReflectionEnabled, jsonDiagnostics, out _, settings.IlSet, settings.JsonFromIl ? settings.ProgramIl : null);
+        // ResourceManager.GetObject of preserialized TypeConverter strings (System.Drawing.Point from a .resx), TypeDescriptor.GetConverter(typeof(X)).
+        compilation = ResourceConverters.Add(compilation, settings.ResourceTypes, [.. trees.Where(t => !IsCoreLibTree(t) && t.FilePath is not ("<global-usings>.g.cs" or AssemblyInfoTreePath))],
+            compilation.SyntaxTrees.FirstOrDefault()?.Options as CSharpParseOptions ?? parseOptions);
         // The IL program's [GeneratedRegex] members, as the source path's generator makes them.
         if (settings.ProgramIl is { } programIl && IlGeneratedRegex.Synthesize(programIl, compilation.SyntaxTrees.FirstOrDefault()?.Options as CSharpParseOptions ?? parseOptions) is { } regexHolders)
             compilation = compilation.AddSyntaxTrees(regexHolders);
@@ -384,6 +387,11 @@ public sealed record FrontendSettings
     /// .resources by the SDK's GenerateResource, as csc's /resource: arguments name them).
     /// </summary>
     public IReadOnlyList<ProgramResource> EmbeddedResources { get; init; } = [];
+    /// <summary>
+    /// The full names of the types the embedded .resources files hold as TypeConverter strings (ResourceConverters.TypeNames):
+    /// the front end generates their conversions, and FrameworkIl takes the framework assemblies that define them.
+    /// </summary>
+    public IReadOnlyList<string> ResourceTypes { get; init; } = [];
     /// <summary>
     /// How `dotnet build` would compile and describe the program (stack-trace names and lines);
     /// null for single files, decided by the configuration (`dotnet run app.cs`).
