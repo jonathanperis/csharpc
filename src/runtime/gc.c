@@ -2523,6 +2523,7 @@ void csrt_weak_free(intptr_t handle) {
 // collecting thread, and mustn't call managed code. The tagged memory is freed once the object is gone for good.
 // The table is outside the heap and guarded by g.lock, like the finalizer registry; nothing allocates while
 // the world is stopped (freed blocks are collected for the mutator side to free).
+#ifndef __wasi__
 typedef struct { uintptr_t obj; void* tagged; uint32_t handles; } ObjcEntry;
 
 static struct {
@@ -2666,6 +2667,23 @@ static void objc_sweep_entries(void) {
     }
     objc.count = keep;
 }
+#else
+// WebAssembly has no Objective-C: the entry points exist for the corelib to link, and do nothing. (The callbacks the real
+// ones call through function pointers would make the wasm exception lowering treat the collector, and so every
+// allocation, as able to throw: ExceptionLowering.cs.)
+bool csrt_objc_initialize(void (*begin_end)(void), int (*is_referenced)(void*), void (*entered_finalization)(void*)) { (void)begin_end; (void)is_referenced; (void)entered_finalization; return false; }
+bool csrt_objc_initialized(void) { return false; }
+bool csrt_objc_is_tracked_type(void* obj) { (void)obj; return false; }
+void* csrt_objc_tagged_memory(void* obj, int32_t handle) { (void)obj; (void)handle; return NULL; }
+void csrt_objc_release_handle(void* obj) { (void)obj; }
+bool csrt_objc_set_msgsend(int32_t kind, void* fn) { (void)kind; (void)fn; return false; }
+void* csrt_objc_msgsend_select(int32_t kind, void* resolved) { (void)kind; return resolved; }
+void csrt_objc_set_pending(void* exception) { (void)exception; }
+void csrt_objc_throw_pending(void) {}
+static void objc_process(void) {}
+static void objc_entering_finalization(uintptr_t obj) { (void)obj; }
+static void objc_sweep_entries(void) {}
+#endif
 
 // ---------------------------------------------------------------------------------------------
 // Finalizers (System.Object.Finalize: ~T() in C#, GC.SuppressFinalize / ReRegisterForFinalize /
