@@ -108,8 +108,18 @@ public sealed partial class FunctionCodeGen
         {
             var tuple = LlvmContext.Null(llvmType);
             for (var i = 0; i < args.Length; i++)
-                // The element type, not the constructor parameter's: in generic code (IL) that is an unsubstituted T1.
-                tuple = _b.InsertValue(tuple, ToStorage(EmitArgumentValue(args[i]), S(type.TypeArguments[args[i].Parameter!.Ordinal])), (uint)i);
+            {
+                var elementType = S(type.TypeArguments[args[i].Parameter!.Ordinal]);
+                var value = ToStorage(EmitArgumentValue(args[i]), elementType);
+                // `new ValueTuple<T1..T7, TRest>(.., rest)`: csharpc stores the elements flat, so the rest's elements follow the seventh.
+                if (i == 7 && args.Length == 8 && elementType is INamedTypeSymbol { IsTupleType: true } rest)
+                {
+                    for (var j = 0; j < rest.TupleElements.Length; j++)
+                        tuple = _b.InsertValue(tuple, _b.ExtractValue(value, (uint)j), (uint)(7 + j));
+                    break;
+                }
+                tuple = _b.InsertValue(tuple, value, (uint)i);
+            }
             return tuple;
         }
         if (!_m.IsUserType(type))
