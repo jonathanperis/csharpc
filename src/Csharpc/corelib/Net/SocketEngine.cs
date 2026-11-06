@@ -209,7 +209,9 @@ namespace CsharpcCoreLib
                 _started = true;
                 int error = NetNative.TryConnect(socket.RawHandle, Target);
                 if (error == 0) { socket.ConnectCompleted(); return true; }
-                return error == NetNative.EINPROGRESS || NetNative.IsWouldBlock(error) ? false : Fail(error);
+                if (error == NetNative.EINPROGRESS || NetNative.IsWouldBlock(error)) return false;
+                socket.ConnectFailed();
+                return Fail(error);
             }
 #if !CSHARPC_TARGET_WASI
             // A readiness event can predate the connect (an unconnected socket reports POLLOUT|POLLHUP when it
@@ -217,7 +219,7 @@ namespace CsharpcCoreLib
             if (!NetNative.Wait(socket.RawHandle, true, 0)) return false;
 #endif
             int outcome = NetNative.GetInt(socket.RawHandle, NetNative.SOL_SOCKET, NetNative.SO_ERROR);
-            if (outcome != 0) return Fail(outcome);
+            if (outcome != 0) { socket.ConnectFailed(); return Fail(outcome); }
             socket.ConnectCompleted();
             return true;
         }
@@ -245,6 +247,17 @@ namespace CsharpcCoreLib
             {
                 if (synchronously) Args.FinishSynchronously(Error, Transferred);
                 else Args.FinishAsynchronously(Error, Transferred);
+            }
+        }
+
+        internal sealed class Connect : ConnectOperation
+        {
+            internal SocketAsyncEventArgsImpl Args;
+            internal override void Complete(bool synchronously)
+            {
+                if (Error == SocketError.Success) Args.ConnectSocket = (Socket)(object)Args.CurrentSocket;
+                if (synchronously) Args.FinishSynchronously(Error, 0);
+                else Args.FinishAsynchronously(Error, 0);
             }
         }
 

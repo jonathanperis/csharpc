@@ -1,0 +1,50 @@
+PointConverter
+point: {X=10,Y=20} [Point]
+point trimmed: ArgumentException:  is not a valid value for Int32. (Parameter 'value')
+point empty:  []
+point one: ArgumentException: Text "1" cannot be parsed. The expected text format is "x, y".
+point bad: ArgumentException: a is not a valid value for Int32. (Parameter 'value')
+point from int: NotSupportedException: PointConverter cannot convert from System.Int32.
+point to string: 7, 8 [String]
+point to int: NotSupportedException: 'PointConverter' is unable to convert 'System.Drawing.Point' to 'System.Int32'.
+True False True False
+True True
+point create: {X=5,Y=6} [Point]
+point create bad: ArgumentException: IDictionary parameter contains at least one entry that is not valid. Ensure all values are consistent with the object's properties.
+size: {Width=284, Height=261} [Size]
+size to string: 1, 2 [String]
+sizeF: {Width=1.5, Height=2.25} [SizeF]
+sizeF to string: 1.5, 2.25 [String]
+rectangle: {X=1,Y=2,Width=300,Height=400} [Rectangle]
+rectangle bad: ArgumentException: Text "1, 2, 3" cannot be parsed. The expected text format is "x, y, width, height".
+rectangle to string: 1, 2, 3, 4 [String]
+color [Red]: Color [Red] [Color]
+color [red]: Color [Red] [Color]
+color [Control]: Color [Control] [Color]
+color [#FF8000]: Color [A=255, R=255, G=128, B=0] [Color]
+color [#80FF8000]: Color [A=128, R=255, G=128, B=0] [Color]
+color [128, 64, 32]: Color [A=255, R=128, G=64, B=32] [Color]
+color [64, 1, 2, 3]: Color [A=64, R=1, G=2, B=3] [Color]
+color []: Color [Empty] [Color]
+color [NoSuchColor]: ArgumentException: NoSuchColor is not a valid value for Int32.
+color to string: 1, 2, 3 [String]
+color named to string: Blue [String]
+color alpha to string: 10, 1, 2, 3 [String]
+True 175
+EnumConverter
+edges: Top, Left [Edges]
+edges number: Top, Bottom [Edges]
+edges bad: FormatException: Sideways is not a valid value for Edges.
+edges to string: Top, Bottom [String]
+mode: Slow [Mode]
+nullable: 42 [Int32]
+nullable empty:  []
+datetime: 03/05/2024 06:07:08 [DateTime]
+datetime to string: 03/05/2024 06:07:08 [String]
+uri: https://example.com/a?b=c [Uri]
+temperature: 21.5C [Temperature]
+temperature bad type: NotSupportedException: TemperatureConverter cannot convert from System.Int32.
+int: 31 [Int32]
+base: NotSupportedException: TypeConverter cannot convert from System.String.
+base to string: 12 [String]
+base to int: NotSupportedException: 'TypeConverter' is unable to convert 'System.Int32' to 'System.Int64'.

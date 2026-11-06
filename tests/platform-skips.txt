@@ -253,3 +253,8 @@ wasi 1141_network_interface_addresses   WASI preview 1 has no network interfaces
 macos 1151_unmanaged_function_pointer_libc   loads the Linux sonames "libc.so.6" and "libm.so.6": .NET on macOS throws DllNotFoundException
 windows 1151_unmanaged_function_pointer_libc live: loads the Linux sonames "libc.so.6" and "libm.so.6" (DllNotFoundException on Windows)
 wasi 1151_unmanaged_function_pointer_libc   WASI has no dynamic loading (NativeLibrary.Load fails), and wasm32 C types differ
+wasi 1180_socket_dns_endpoint_fallback  opens loopback sockets: WASI preview 1 has none (PlatformNotSupportedException)
+wasi 1181_socket_dns_endpoint_failure_messages  opens loopback sockets: WASI preview 1 has none (PlatformNotSupportedException)
+wasi 1182_httpclient_localhost_ipv4_server  opens loopback sockets: WASI preview 1 has none (PlatformNotSupportedException)
+macos 1181_socket_dns_endpoint_failure_messages  the texts and native codes are the OS's: "Connection refused" and errno 111 are Linux's
+windows 1181_socket_dns_endpoint_failure_messages  the texts and native codes are the OS's: Winsock says "No connection could be made because the target machine actively refused it." (10061)

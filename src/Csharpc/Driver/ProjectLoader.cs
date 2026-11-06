@@ -604,23 +604,10 @@ public static class ProjectLoader
         }
 
         var files = all.SelectMany(p => p.Files).Distinct(StringComparer.Ordinal).ToList();
-        // One generator run over the merged program (generators work per declaration, so their output for all
-        // projects' code at once is the projects' outputs together): the root's options, and the analyzers of
-        // the referenced projects the root doesn't have (by file name: a package's copy of an SDK generator
-        // isn't run twice). Additional files of a referenced project would be read with the root's global
-        // options (RootNamespace...), which can change what is generated: a generator reading one is an error
-        // (SourceGenerators.Run); files no generator reads are harmless.
+        // Source generators run per project, on that project's own compilation with its own analyzers, options and
+        // additional files (RoslynFrontend.Analyze); the merged settings carry the root's, for the parse
+        // features and the JSON contexts csharpc synthesizes for the merged program.
         var generators = root.Generators;
-        List<ReferencedAdditionalFile> referencedFiles = [];
-        foreach (var p in all.Where(p => !ReferenceEquals(p, root) && p.Generators is not null))
-        {
-            referencedFiles.AddRange(p.Generators!.AdditionalFiles.Select(f => new ReferencedAdditionalFile(Path.GetFileName(p.ProjectPath), f)));
-            if (generators is null) continue;
-            var names = generators.Analyzers.Select(Path.GetFileName).ToHashSet(StringComparer.OrdinalIgnoreCase);
-            var extra = p.Generators.Analyzers.Where(a => !names.Contains(Path.GetFileName(a))).ToList();
-            if (extra.Count > 0) generators = generators with { Analyzers = [.. generators.Analyzers, .. extra] };
-        }
-        if (generators is not null && referencedFiles.Count > 0) generators = generators with { ReferencedAdditionalFiles = referencedFiles };
         var usings = all.SelectMany(p => p.GlobalUsings).Distinct(StringComparer.Ordinal).ToList();
         var settings = new FrontendSettings
         {

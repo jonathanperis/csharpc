@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk.Razor">
+  <!-- A Razor library referenced by an app with a RootNamespace of its own: the library's Razor generator reads
+       the library's .razor additional files with the library's options (its components live under
+       Shop.Library, not the app's namespace), as the library's own build does. Rendering.cs is the small
+       part of the components runtime the generated BuildRenderTree code calls. -->
+  <PropertyGroup>
+    <TargetFramework>net11.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>Shop.Library</RootNamespace>
+  </PropertyGroup>
+</Project>
