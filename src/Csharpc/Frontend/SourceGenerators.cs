@@ -66,7 +66,7 @@ public static class SourceGenerators
         diagnostics = [];
         if (Environment.GetEnvironmentVariable("CSHARPC_NO_GENERATORS") == "1") return compilation;
         List<Diagnostic> found = [];
-        var generators = inputs is null ? DefaultGenerators(userTrees) : ProjectGenerators(compilation, inputs, found);
+        var generators = inputs is null ? DefaultGenerators(userTrees, found) : ProjectGenerators(compilation, inputs, found);
         if (generators.Count == 0) { diagnostics = found; return compilation; }
 
         var parseOptions = (CSharpParseOptions)compilation.SyntaxTrees.First().Options;
@@ -89,8 +89,12 @@ public static class SourceGenerators
         // csc disables host outputs (RegisterHostOutput is for IDEs) and roots generated files at its /out directory.
         var driver = CSharpGeneratorDriver.Create(generators, additionalTexts, parseOptions, optionsProvider,
             new GeneratorDriverOptions(IncrementalGeneratorOutputKind.Host, trackIncrementalGeneratorSteps: false, generatedDirectory));
-        driver.RunGeneratorsAndUpdateCompilation(compilation, out var updated, out var generatorDiagnostics);
+        var ran = driver.RunGeneratorsAndUpdateCompilation(compilation, out var updated, out var generatorDiagnostics);
         found.AddRange(generatorDiagnostics.Select(GeneratorFailureAsError));
+        // The diagnostic carries a failed generator's exception type and message only.
+        if (Environment.GetEnvironmentVariable("CSHARPC_TRACE") == "1")
+            foreach (var result in ran.GetRunResult().Results.Where(r => r.Exception is not null))
+                Console.Error.WriteLine($"[csharpc] generator {result.Generator.GetType().Name} failed: {result.Exception}");
         foreach (var (info, file) in referencedTexts)
             if (file.WasRead)
                 found.Add(Error("CSLLVM0001", $"not supported by csharpc yet: a source generator read the additional file '{System.IO.Path.GetFileName(info.Path)}' of the referenced project "
@@ -106,7 +110,7 @@ public static class SourceGenerators
         return (CSharpCompilation)updated;
     }
 
-    private static List<ISourceGenerator> DefaultGenerators(IEnumerable<SyntaxTree> userTrees)
+    private static List<ISourceGenerator> DefaultGenerators(IEnumerable<SyntaxTree> userTrees, List<Diagnostic> diagnostics)
     {
         var text = string.Concat(userTrees.Select(t => t.GetText().ToString()));
         var dir = AnalyzerDirectory();
@@ -115,8 +119,29 @@ public static class SourceGenerators
         {
             if (!text.Contains(trigger, StringComparison.Ordinal)) continue;
             if (assembly is null) { generators.Add(new GeneratedRegexGenerator().AsSourceGenerator()); continue; }
-            if (dir is not null && File.Exists(Path.Combine(dir, assembly)))
-                generators.AddRange(Reference(Path.Combine(dir, assembly)).GetGenerators(LanguageNames.CSharp));
+            var path = dir is null ? null : Path.Combine(dir, assembly);
+            if (path is null || !File.Exists(path)) continue;
+            // The SDK's generators are assemblies loaded at run time. A csharpc that is itself compiled by csharpc
+            // cannot load code (like NativeAOT), and a program compiled without their output differs from
+            // `dotnet build`'s: say so instead of continuing.
+            var reference = Reference(path);
+            var failed = false;
+            void OnFailure(object? sender, AnalyzerLoadFailureEventArgs e)
+            {
+                if (e.ErrorCode == AnalyzerLoadFailureEventArgs.FailureErrorCode.NoAnalyzers) return;
+                failed = true;
+                diagnostics.Add(Error("CSLLVM0001", $"not supported by csharpc yet: loading the source generator '{assembly}' for [{trigger}] at run time failed: {e.Message}"
+                    + (e.Exception is { } x ? $" ({x.GetType().Name}: {x.Message})" : "")));
+            }
+            reference.AnalyzerLoadFailed += OnFailure;
+            try
+            {
+                var loaded = reference.GetGenerators(LanguageNames.CSharp);
+                if (loaded.Length == 0 && !failed)
+                    diagnostics.Add(Error("CSLLVM0001", $"not supported by csharpc yet: the source generator '{assembly}' for [{trigger}] has no generators to run here (this csharpc cannot load assemblies at run time)"));
+                generators.AddRange(loaded);
+            }
+            finally { reference.AnalyzerLoadFailed -= OnFailure; }
         }
         return generators;
     }

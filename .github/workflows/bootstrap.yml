@@ -71,6 +71,24 @@ jobs:
       - name: Self-compile and compare (${{ matrix.opt }})
         run: SELFHOST_LOG="$PWD/selfhost.log" tools/bootstrap/selfhost.sh ${{ matrix.opt }} 2>&1 | tee selfhost-summary.log; grep -q " 0 failed" selfhost-summary.log
 
+      # One sample per known cause (tools/bootstrap/native-known-failures.txt): where the native compiler's IR and
+      # diagnostics differ from the managed one's.
+      - name: Where the native compiler differs
+        if: always() && matrix.opt == '-O0'
+        continue-on-error: true
+        run: NATIVE_DIFF_DIR="$PWD/native-diff" tools/bootstrap/native-diff.sh -O0 414_stack_trace_lines 305_regex_generated 322_json_source_gen 730_pinvoke_static_constructor 2>&1 | tee native-diff.log
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always() && matrix.opt == '-O0'
+        with:
+          name: native-diff
+          path: |
+            native-diff.log
+            native-diff/*.diff
+            native-diff/*.log
+            native-diff/*.failures
+          if-no-files-found: ignore
+
       - name: Report
         if: always()
         run: |
@@ -132,8 +150,9 @@ jobs:
         run: |
           native="$PWD/src/Csharpc/bin/Release/net11.0/csharpc-native"
           cp native/csharpc-native "$native" && chmod +x "$native"
-          CSHARPC_NATIVE="$native" CSHARPC_THREADS=2 tests/run.sh --all-opts --shard ${{ matrix.shard }}/8 2>&1 | tee suite.log
-          grep -q " 0 failed" suite.log
+          CSHARPC_NATIVE="$native" CSHARPC_THREADS=2 tests/run.sh --all-opts --shard ${{ matrix.shard }}/8 2>&1 | tee suite.log || true
+          # fails on a sample that is not in the known failures, and on a listed one that passes
+          tests/il-main-check.sh suite.log tools/bootstrap/native-known-failures.txt "native ${{ matrix.native }}, shard ${{ matrix.shard }}/8" | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: Report
         if: always()
