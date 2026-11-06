@@ -41,7 +41,7 @@ namespace CsharpcCoreLib
         public void RemoveAt(int index)
         {
             if (index < 0 || index >= Count)
-                throw new ArgumentOutOfRangeException("index", "Index must be within the bounds of the List.");
+                throw new ArgumentOutOfRangeException("index", "Index was out of range. Must be non-negative and less than the size of the collection.");
             object temp = InnerList[index];
             OnValidate(temp);
             OnRemove(index, temp);
@@ -68,13 +68,13 @@ namespace CsharpcCoreLib
             get
             {
                 if (index < 0 || index >= Count)
-                    throw new ArgumentOutOfRangeException("index", "Index must be within the bounds of the List.");
+                    throw new ArgumentOutOfRangeException("index", "Index was out of range. Must be non-negative and less than the size of the collection.");
                 return InnerList[index];
             }
             set
             {
                 if (index < 0 || index >= Count)
-                    throw new ArgumentOutOfRangeException("index", "Index must be within the bounds of the List.");
+                    throw new ArgumentOutOfRangeException("index", "Index was out of range. Must be non-negative and less than the size of the collection.");
                 OnValidate(value);
                 object temp = InnerList[index];
                 OnSet(index, temp, value);
@@ -133,7 +133,7 @@ namespace CsharpcCoreLib
         void IList.Insert(int index, object value)
         {
             if (index < 0 || index > Count)
-                throw new ArgumentOutOfRangeException("index", "Index must be within the bounds of the List.");
+                throw new ArgumentOutOfRangeException("index", "Index was out of range. Must be non-negative and less than or equal to the size of the collection.");
             OnValidate(value);
             OnInsert(index, value);
             InnerList.Insert(index, value);
