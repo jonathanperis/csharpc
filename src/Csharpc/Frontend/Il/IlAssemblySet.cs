@@ -339,6 +339,18 @@ public sealed class IlAssembly : IDisposable, ISignatureTypeProvider<IlType, IlG
         return false;
     }
 
+    /// <summary>The FieldDef behind a field-like event (the field named like the event), or null.</summary>
+    public (FieldDefinitionHandle Handle, FieldDefinition Definition)? BackingFieldOf(IEventSymbol e)
+    {
+        var type = TypeDefinitionOf(e.ContainingType);
+        foreach (var handle in type.GetFields())
+        {
+            var definition = Reader.GetFieldDefinition(handle);
+            if (Reader.StringComparer.Equals(definition.Name, e.Name)) return (handle, definition);
+        }
+        return null;
+    }
+
     /// <summary>Explicit class size (.size) of a type, 0 if none.</summary>
     public int ClassSize(INamedTypeSymbol type) => TypeDefinitionOf(type).GetLayout().Size;
 

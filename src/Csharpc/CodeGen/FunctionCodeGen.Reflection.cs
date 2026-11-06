@@ -16,15 +16,21 @@ public sealed partial class FunctionCodeGen
     /// <summary>`typeof(T)` arguments of a source call site for the [DynamicallyAccessedMembers] dataflow.</summary>
     private void NoteDynamicallyAccessedArguments(IMethodSymbol target, ImmutableArray<IArgumentOperation> arguments)
     {
-        var byOrdinal = new ITypeSymbol?[target.Parameters.Length];
-        var any = false;
+        // An argument is a typeof(X) or a local assigned one (`var t = typeof(X); Show(t)`, which can hold several types:
+        // one round per position of the longest list, the shorter ones repeating their last).
+        var known = new IReadOnlyList<ITypeSymbol>?[target.Parameters.Length];
+        var rounds = 0;
         foreach (var a in arguments)
-            if (a.Value is ITypeOfOperation t && a.Parameter is { } p && p.Ordinal < byOrdinal.Length)
+            if (a.Parameter is { } p && p.Ordinal < known.Length && KnownTypeofValues(a.Value) is { Count: > 0 } values)
             {
-                byOrdinal[p.Ordinal] = S(t.TypeOperand);
-                any = true;
+                known[p.Ordinal] = values;
+                rounds = Math.Max(rounds, values.Count);
             }
-        if (any) _m.NoteDynamicallyAccessedArguments(target, i => byOrdinal[i]);
+        for (var round = 0; round < rounds; round++)
+        {
+            var current = round;
+            _m.NoteDynamicallyAccessedArguments(target, i => known[i] is { } values ? S(values[Math.Min(current, values.Count - 1)]) : null);
+        }
 
         // ConfigurationBinder.Bind(object) has no [DynamicallyAccessedMembers] on the instance (it uses
         // RequiresUnreferencedCode + a source generator under NativeAOT). csharpc has no that generator
@@ -206,6 +212,33 @@ public sealed partial class FunctionCodeGen
         else if (field.ContainingType.IsValueType) address = FieldAddressOn(_b.InBoundsGep(L.I8, target, [L.ConstInt(L.I64, 8)]), field);
         else if (_m.IsUserType(field.ContainingType)) address = FieldAddressOn(target, field);
         else throw CompileError.Unsupported($"field '{field}' of a library type", field);
+        if (set)
+        {
+            StoreValue(ToStorage(FromReflectionArgument(ParamOf(1), type), type), address);
+            _b.RetVoid();
+        }
+        else _b.Ret(ToReflectionResult(LoadValue(address, type), type, at));
+        Finish();
+    }
+
+    /// <summary>
+    /// Get/Set of the backing field of a field-like event (its delegate slot: a class's layout slot, a static event's
+    /// global), behind FieldInfo.GetValue/SetValue of the field Roslyn hides. A struct's event isn't lowered yet.
+    /// </summary>
+    internal void EmitEventFieldAccessor(IEventSymbol e, bool set, SyntaxNode syntax)
+    {
+        var target = ParamOf(0);
+        var at = new IlValueOperation(syntax, ObjectType, () => target);
+        LLVMValueRef address;
+        if (e.IsStatic) address = StaticEventSlot(e);
+        else if (!e.ContainingType.IsValueType && _m.IsUserType(e.ContainingType))
+        {
+            var layout = _m.GetLayout((INamedTypeSymbol)S(e.ContainingType));
+            if (!TryEventFieldIndex(layout, e, out var index)) throw CompileError.Unsupported($"event '{e.Name}' without a backing field", e);
+            address = _b.StructGep(layout.InstanceType, target, index, e.Name);
+        }
+        else throw CompileError.Unsupported($"the backing field of event '{e}' of a value or library type", e);
+        var type = S(e.Type);
         if (set)
         {
             StoreValue(ToStorage(FromReflectionArgument(ParamOf(1), type), type), address);

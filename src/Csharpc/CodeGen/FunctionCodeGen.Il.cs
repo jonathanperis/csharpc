@@ -25,6 +25,8 @@ internal sealed record IlEntry(IlKind Kind, LLVMValueRef Value, ITypeSymbol? Typ
 {
     public ISymbol? Symbol { get; init; }         // MethodPtr: the method; Token: the type/field
     public IlEntry? Target { get; init; }         // ldvirtftn: the receiver
+    /// <summary>The local a System.Type value was loaded from: the `typeof`s stored into it count for reflection (FunctionCodeGen.TypeofLocals.cs).</summary>
+    public int? FromLocal { get; init; }
     public bool IsThis { get; init; }
     public bool NonNull { get; init; }
     /// <summary>
