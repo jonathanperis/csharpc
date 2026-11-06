@@ -262,8 +262,16 @@ managed one (run 41171411931). The self-compile broke on 2026-11-06 when csharpc
 calling `BinaryReader.ReadDecimal` (which the corelib lacked, `CSLLVM0002`; fixed, sample 1160) and was green
 again at both levels on 2026-11-06 (run 42244078369, 8 samples identical to the managed compiler's):
 **-O0** 238 s, 9.3 GB peak; **-O2** 577 s (optimization and code generation in 8 partitions of the 8.9 M
-instructions, 2 threads), 8.6 GB peak, a 76 MB native compiler (107 MB at -O0). Next: the native compiler on
-the whole differential suite, and code-generation memory.
+instructions, 2 threads), 8.6 GB peak, a 76 MB native compiler (107 MB at -O0).
+The native compiler on the whole differential suite (`CSHARPC_NATIVE` in `tests/run.sh`, the `native-suite` jobs of the
+`Bootstrap` workflow, run 42247074061): 582 of 616 samples pass at -O0 and -O2, 34 do not, the same with both native
+compilers (`tools/bootstrap/native-known-failures.txt`). 21 are source generators the SDK ships as assemblies
+(System.Text.Json, LibraryImport), which a csharpc compiled by csharpc cannot load at run time (the single-file path
+was silent about it; it is an explicit CSLLVM0001 now) and need a decision (PR description); 11 are stack traces, where the
+native compiler's emit of the program for its PDB stops because Roslyn reads an attribute of System.Private.CoreLib
+(csharpc has none, a NotSupportedException), so the lambda frames are missing; 2 are the built-in `[GeneratedRegex]`
+generator failing to initialize with an ArrayTypeMismatchException in `ArrayBuilder<IIncrementalGeneratorOutputNode>.Add`
+(a store check Roslyn's driver passes under the JIT, cause not found). Next: code-generation memory.
 
 ### Runtime tiers — C# for library code, C where it is the right tool
 [ADR 0017](adr/0017-runtime-tiers.md); a C-free runtime is not a goal (owner, 2026-10-30). **Tier 1 (now,
