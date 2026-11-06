@@ -1,0 +1,33 @@
+Socket.ConnectAsync(DnsEndPoint): System.Net.Sockets.SocketException: Connection refused
+    code ConnectionRefused, native 111
+Socket.ConnectAsync(host, port): System.Net.Sockets.SocketException: Connection refused
+    code ConnectionRefused, native 111
+Socket.ConnectAsync(host, port, token): System.Net.Sockets.SocketException: Connection refused
+    code ConnectionRefused, native 111
+Socket.ConnectAsync(IPAddress[]): System.Net.Sockets.SocketException: Connection refused
+    code ConnectionRefused, native 111
+Socket.Connect(host, port): System.Net.Sockets.SocketException: Connection refused ADDRESS:PORT
+    code ConnectionRefused, native 111
+Socket.Connect(DnsEndPoint): System.Net.Sockets.SocketException: Connection refused ADDRESS:PORT
+    code ConnectionRefused, native 111
+Socket.Connect(IPAddress[]): System.Net.Sockets.SocketException: Connection refused ADDRESS:PORT
+    code ConnectionRefused, native 111
+IPv4 socket, Connect(host, port): System.Net.Sockets.SocketException: Connection refused ADDRESS:PORT
+    code ConnectionRefused, native 111
+IPv4 socket, ConnectAsync(host, port): System.Net.Sockets.SocketException: Connection refused
+    code ConnectionRefused, native 111
+TcpClient.Connect(host, port): System.Net.Sockets.SocketException: Connection refused ADDRESS:PORT
+    code ConnectionRefused, native 111
+TcpClient.ConnectAsync(host, port): System.Net.Sockets.SocketException: Connection refused
+    code ConnectionRefused, native 111
+new TcpClient(host, port): System.Net.Sockets.SocketException: Connection refused ADDRESS:PORT
+    code ConnectionRefused, native 111
+IPv4 socket, only IPv6 addresses: System.ArgumentException: None of the discovered or specified addresses match the socket address family. (Parameter 'addresses')
+IPv4 socket, DnsEndPoint for IPv6: System.NotSupportedException: This protocol version is not supported.
+empty address list: System.ArgumentException: None of the discovered or specified addresses match the socket address family. (Parameter 'addresses')
+port out of range: System.ArgumentOutOfRangeException: port ('70000') must be less than or equal to '65535'. (Parameter 'port')
+Actual value was 70000.
+TcpClient, port out of range: System.ArgumentOutOfRangeException: Specified argument was out of the range of valid values. (Parameter 'port')
+SocketAsyncEventArgs: ConnectionRefused: SocketException: Connection refused
+HttpClient: System.Net.Http.HttpRequestException: Connection refused (localhost:PORT)
+  inner: System.Net.Sockets.SocketException: Connection refused
