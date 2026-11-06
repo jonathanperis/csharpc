@@ -75,23 +75,6 @@ public sealed partial class FunctionCodeGen
         }
     }
 
-    /// <summary>System.Runtime.CompilerServices.Unsafe members the JSON source generator emits.</summary>
-    private LLVMValueRef? TryUnsafeMethod(IMethodSymbol target, IInvocationOperation inv)
-    {
-        if (target.ContainingType is not { Name: "Unsafe", ContainingNamespace: { Name: "CompilerServices", ContainingNamespace.Name: "Runtime" } }) return null;
-        if (target is { Name: "Unbox", TypeArguments.Length: 1 })
-        {
-            // ref T into the box: struct setters of source-generated metadata write through it.
-            var t = S(target.TypeArguments[0]);
-            var obj = EmitValue(inv.Arguments[0].Value);
-            return CallRuntime("csrt_unbox", L.Ptr, [L.Ptr, L.Ptr], obj, MethodTableFor(t, inv));
-        }
-        // Unsafe.SizeOf<T>(): the size of T's storage (a reference for classes), as sizeof(T).
-        if (target is { Name: "SizeOf", TypeArguments.Length: 1, Parameters.Length: 0 })
-            return L.ConstInt(L.I32, (long)_m.Types.Target.SizeOf(T.Storage(S(target.TypeArguments[0]))));
-        return null;
-    }
-
     private static T? FindMember<T>(ITypeSymbol owner, string name, Func<T, bool> predicate) where T : class, ISymbol
     {
         for (var t = owner; t is not null; t = t.BaseType)

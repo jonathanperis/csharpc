@@ -81,6 +81,7 @@ typedef struct { const csrt_MethodTable* mt; int64_t length; uint8_t data[]; } c
 typedef struct { const csrt_MethodTable* mt; int64_t length; int64_t lengths[]; } csrt_MdArray;
 int32_t csrt_array_rank(void* array);                               // Array.Rank of an `Array`
 int64_t csrt_array_dimension_length(void* array, int32_t dimension); // Array.GetLength(d) of an `Array`
+void* csrt_array_data(void* array);                                 // the first element of an `Array` of any rank
 
 // Every method table is followed by its vtable. Slots 0..2 are System.Object's virtuals.
 enum { CSRT_SLOT_TO_STRING = 0, CSRT_SLOT_EQUALS = 1, CSRT_SLOT_GET_HASH_CODE = 2 };

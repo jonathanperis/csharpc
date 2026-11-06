@@ -123,6 +123,7 @@ public sealed partial class FunctionCodeGen
             "ReinterpretAs" => args[0],
             "SizeOf" => L.ConstInt(L.I32, (long)T.Target.SizeOf(T.Storage(S(t!)))),
             "SpanAddress" => _b.Cast(LLVMOpcode.PtrToInt, SpanPointer(args[0]), T.NativeInt),
+            "SpanOf" or "ReadOnlySpanOf" => MakeSpan(args[0], args[1]),
             "RefAddress" => _b.Cast(LLVMOpcode.PtrToInt, args[0], T.NativeInt),
             "PointerToObject" => args[0].Type.Kind == LLVMTypeKind.Pointer ? args[0] : _b.Cast(LLVMOpcode.IntToPtr, args[0], L.Ptr),
             "EnumToUInt64" => EnumToUInt64(t!, args[0]),

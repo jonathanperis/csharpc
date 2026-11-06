@@ -393,6 +393,11 @@ int32_t csrt_array_rank(void* array) {
     return mt->flags & CSRT_MT_MDARRAY ? (int32_t)mt->reserved : 1;
 }
 
+void* csrt_array_data(void* array) {
+    const csrt_MethodTable* mt = ((csrt_Object*)array)->mt;
+    return (uint8_t*)array + (mt->flags & CSRT_MT_MDARRAY ? sizeof(csrt_Array) + (size_t)mt->reserved * sizeof(int64_t) : sizeof(csrt_Array));
+}
+
 int64_t csrt_array_dimension_length(void* array, int32_t dimension) {
     if (dimension < 0 || dimension >= csrt_array_rank(array)) { csrt_throw_rank_out_of_range(); return 0; }
     const csrt_MethodTable* mt = ((csrt_Object*)array)->mt;

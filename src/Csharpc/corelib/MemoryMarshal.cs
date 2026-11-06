@@ -2,9 +2,13 @@
 // objects, so an element address stays valid while the span is reachable). Semantics and exceptions
 // follow dotnet/runtime's MemoryMarshal.cs: casts require element types without references (.NET throws
 // ArgumentException for those), lengths are checked, Read/Write check the span's length.
-// GetReference and GetArrayDataReference are lowered directly (FunctionCodeGen.IlCalls.cs).
+// GetReference and GetArrayDataReference are lowered directly (FunctionCodeGen.IlCalls.cs for IL,
+// FunctionCodeGen.UnsafeClass.cs for source).
 #nullable disable
 using System;
+using System.Buffers;
+using System.Collections.Generic;
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 
 namespace CsharpcCoreLib
@@ -38,6 +42,82 @@ namespace CsharpcCoreLib
             return false;
         }
 
+        /// <summary>
+        /// The string behind a ReadOnlyMemory&lt;char&gt;, found like the array in TryGetArray: the heap object the data
+        /// pointer is in, when that is a string. A default memory (no pointer) is not string-backed.
+        /// </summary>
+        public static bool TryGetString(ReadOnlyMemory<char> memory, out string text, out int start, out int length)
+        {
+            byte* data = (byte*)CoreIntrinsics.SpanAddress(memory.Span);
+            byte* head = data == null ? null : (byte*)CoreIntrinsics.csrt_gc_object_base(data);
+            if (head != null && *(nint*)head == CoreIntrinsics.csrt_type_handle(typeof(string)))
+            {
+                text = CoreIntrinsics.ReinterpretAs<string>(CoreIntrinsics.PointerToObject((nint)head));
+                start = (int)((data - (head + sizeof(nint) + 4)) / 2); // { mt, int32 length, chars }
+                length = memory.Length;
+                return true;
+            }
+            // Outside the GC heap the only ReadOnlyMemory<char> csharpc can hold is one over a string constant (static
+            // data), whose string object can't be found from an interior pointer: not guessing.
+            if (data != null && head == null)
+                throw new NotSupportedException("MemoryMarshal.TryGetString on memory over a constant string is not supported by csharpc yet.");
+            text = null;
+            start = 0;
+            length = 0;
+            return false;
+        }
+
+        // csharpc's memories are bare { pointer, length }: a MemoryManager<T> can't be what one was made from
+        // (its Memory property isn't available), so there is never a manager to report.
+        public static bool TryGetMemoryManager<T, TManager>(ReadOnlyMemory<T> memory, out TManager manager) where TManager : MemoryManager<T>
+        {
+            manager = null;
+            return false;
+        }
+
+        public static bool TryGetMemoryManager<T, TManager>(ReadOnlyMemory<T> memory, out TManager manager, out int start, out int length) where TManager : MemoryManager<T>
+        {
+            manager = null;
+            start = 0;
+            length = 0;
+            return false;
+        }
+
+        public static IEnumerable<T> ToEnumerable<T>(ReadOnlyMemory<T> memory)
+        {
+            for (int i = 0; i < memory.Length; i++) yield return memory.Span[i];
+        }
+
+        public static ref T AsRef<T>(Span<byte> span) where T : struct
+        {
+            ThrowIfReferences<T>();
+            if (CoreIntrinsics.SizeOf<T>() > span.Length) throw new ArgumentOutOfRangeException("length");
+            return ref Unsafe.AsRef<T>((void*)CoreIntrinsics.SpanAddress<byte>(span));
+        }
+
+        public static ref readonly T AsRef<T>(ReadOnlySpan<byte> span) where T : struct
+        {
+            ThrowIfReferences<T>();
+            if (CoreIntrinsics.SizeOf<T>() > span.Length) throw new ArgumentOutOfRangeException("length");
+            return ref Unsafe.AsRef<T>((void*)CoreIntrinsics.SpanAddress(span));
+        }
+
+        public static ReadOnlySpan<byte> CreateReadOnlySpanFromNullTerminated(byte* value)
+        {
+            if (value == null) return default;
+            int length = 0;
+            while (value[length] != 0) length++;
+            return new ReadOnlySpan<byte>(value, length);
+        }
+
+        public static ReadOnlySpan<char> CreateReadOnlySpanFromNullTerminated(char* value)
+        {
+            if (value == null) return default;
+            int length = 0;
+            while (value[length] != 0) length++;
+            return new ReadOnlySpan<char>(value, length);
+        }
+
         /// <summary>Memory over a pinned array: every array is pinned for csharpc's non-moving collector.</summary>
         public static Memory<T> CreateFromPinnedArray<T>(T[] array, int start, int length)
         {
@@ -57,7 +137,7 @@ namespace CsharpcCoreLib
         private static void ThrowIfReferences<T>()
         {
             if (System.Runtime.CompilerServices.RuntimeHelpers.IsReferenceOrContainsReferences<T>())
-                throw new ArgumentException("Cannot use type '" + typeof(T) + "'. Only value types without pointers or references are supported.");
+                throw new ArgumentException("The type '" + typeof(T) + "' is not supported because it contains references.");
         }
 
         public static ReadOnlySpan<byte> AsBytes<T>(ReadOnlySpan<T> span) where T : struct
@@ -90,14 +170,12 @@ namespace CsharpcCoreLib
 
         public static Span<T> CreateSpan<T>(ref T reference, int length)
         {
-            ArgumentOutOfRangeException.ThrowIfNegative(length);
-            return new Span<T>((void*)CoreIntrinsics.RefAddress(in reference), length);
+            return CoreIntrinsics.SpanOf(ref reference, length);
         }
 
         public static ReadOnlySpan<T> CreateReadOnlySpan<T>(ref readonly T reference, int length)
         {
-            ArgumentOutOfRangeException.ThrowIfNegative(length);
-            return new ReadOnlySpan<T>((void*)CoreIntrinsics.RefAddress(in reference), length);
+            return CoreIntrinsics.ReadOnlySpanOf(in reference, length);
         }
 
         public static T Read<T>(ReadOnlySpan<byte> source) where T : unmanaged

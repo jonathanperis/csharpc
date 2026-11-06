@@ -506,6 +506,12 @@ public sealed partial class FunctionCodeGen
                 NullCheck(array);
                 return new IlEntry(IlKind.ByRef, _b.InBoundsGep(L.I8, array, [L.ConstInt(L.I64, 16)]), method.TypeArguments[0]); // { mt, i64 length, data }
             }
+            case ("System.Runtime.InteropServices.MemoryMarshal", "GetArrayDataReference") when args.Length == 1 && method.TypeArguments.Length == 0: // Array of any rank
+            {
+                var array = IlRef(args[0]);
+                NullCheck(array);
+                return new IlEntry(IlKind.ByRef, CallRuntime("csrt_array_data", L.Ptr, [L.Ptr], array), Special(SpecialType.System_Byte));
+            }
             case ("System.Runtime.CompilerServices.RuntimeHelpers", "IsReferenceOrContainsReferences") when method.TypeArguments.Length == 1:
                 return I4(Optimizations.IsReferenceOrContainsReferences(S(method.TypeArguments[0])) ? 1 : 0);
         }
