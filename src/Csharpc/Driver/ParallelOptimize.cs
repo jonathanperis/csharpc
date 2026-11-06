@@ -197,15 +197,18 @@ public static class ParallelOptimize
         var threads = Math.Min(count, Parallelism.Threads);
         log?.Invoke($"optimize in {count} partitions ({total} instructions, {imports.Sum(s => s.Count)} imported functions), {threads} thread(s)");
 
-        var bitcode = Serialize(m);
+        using var image = BitcodeImage.Write(m);
+        log?.Invoke($"bitcode image {image.Size >> 20} MB, rss {Rss()} MB");
         module.Dispose();
+        log?.Invoke($"program module freed, rss {Rss()} MB");
+        threads = MemoryBudget.Workers(threads, image.Size, log);
         var objects = Enumerable.Range(0, count).Select(i => $"{objectPathBase}.{i}.o").ToList();
         var nextPartition = -1;
         var failures = new ConcurrentQueue<Exception>();
         void Work()
         {
             for (int i; (i = Interlocked.Increment(ref nextPartition)) < count && failures.IsEmpty;)
-                try { RunPartition(bitcode, i, plans[i], detachedNames, pipeline, target, objects[i]); }
+                try { RunPartition(image, i, plans[i], detachedNames, pipeline, target, objects[i], log); }
                 catch (Exception e) { failures.Enqueue(e); }
         }
         // The optimizer and the backend recurse deeply: helper threads get the main thread's stack size.
@@ -236,23 +239,16 @@ public static class ParallelOptimize
         !LLVMIsAFunction(g).IsNull ? false
         : LLVMIsDeclaration(g) == 0 && LLVMIsGlobalConstant(g) != 0 && LLVMIsThreadLocal(g) == 0 && !IsLlvmGlobal(g);
 
-    private static unsafe void RunPartition(byte[] bitcode, int partition, PartitionPlan plan,
-        (List<(string Name, LLVMLinkage Linkage)> Globals, List<string> PreviousUsed) detached, string pipeline, TargetMachine target, string path)
+    private static long Rss() => Environment.WorkingSet >> 20;
+
+    private static void RunPartition(BitcodeImage image, int partition, PartitionPlan plan,
+        (List<(string Name, LLVMLinkage Linkage)> Globals, List<string> PreviousUsed) detached, string pipeline, TargetMachine target, string path, Action<string>? log)
     {
         var context = LLVMContextCreate();
         try
         {
-            LLVMModuleRef m;
-            fixed (byte* data = bitcode)
-            {
-                var buffer = LLVMCreateMemoryBufferWithMemoryRange(data, (nuint)bitcode.Length, "partition", 0);
-                try
-                {
-                    if (LLVMParseBitcodeInContext2(context, buffer, out m) != 0)
-                        throw new InvalidOperationException("internal compiler error: csharpc could not re-read its own bitcode for parallel optimization");
-                }
-                finally { LLVMDisposeMemoryBuffer(buffer); }
-            }
+            var m = image.Parse(context, "parallel optimization");
+            log?.Invoke($"partition {partition} parsed, rss {Rss()} MB");
             try
             {
                 using var machine = target.CreateSibling();
@@ -267,6 +263,7 @@ public static class ParallelOptimize
                     throw new InvalidOperationException($"LLVM code generation failed: {TakeMessage(error)}");
             }
             finally { LLVMDisposeModule(m); }
+            log?.Invoke($"partition {partition} emitted, rss {Rss()} MB");
         }
         finally { LLVMContextDispose(context); }
     }
@@ -384,13 +381,6 @@ public static class ParallelOptimize
     {
         LLVMSetComdat(value, 0);
         LLVMSetLinkage(value, AvailableExternally);
-    }
-
-    private static unsafe byte[] Serialize(LLVMModuleRef m)
-    {
-        var buffer = LLVMWriteBitcodeToMemoryBuffer(m);
-        try { return new ReadOnlySpan<byte>(LLVMGetBufferStart(buffer), checked((int)LLVMGetBufferSize(buffer))).ToArray(); }
-        finally { LLVMDisposeMemoryBuffer(buffer); }
     }
 
     private static void Externalize(LLVMValueRef value, HashSet<LLVMValueRef> keepName, ref int anonymous)

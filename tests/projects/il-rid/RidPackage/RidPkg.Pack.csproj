@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Packs the RidPkg test package from pre-built pieces (tests/il.sh passes their paths and the host's RID):
+         lib/net11.0/RidPkg.dll                       the portable assembly
+         runtimes/<rid>/lib/net11.0/RidPkg.dll        the platform's assembly (NuGet prefers it for that RID)
+         runtimes/<rid>/native/<native library>       the native asset an app's DllImport("ridnative") loads -->
+  <PropertyGroup>
+    <TargetFramework>net11.0</TargetFramework>
+    <PackageId>RidPkg</PackageId>
+    <Version>1.0.0</Version>
+    <IncludeBuildOutput>false</IncludeBuildOutput>
+    <NoWarn>$(NoWarn);NU5128;NU5100</NoWarn>
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+  </PropertyGroup>
+  <ItemGroup>
+    <None Include="$(PortableDll)" Pack="true" PackagePath="lib/net11.0/" />
+    <None Include="$(SpecificDll)" Pack="true" PackagePath="runtimes/$(PackRid)/lib/net11.0/" />
+    <None Include="$(NativeLibrary)" Pack="true" PackagePath="runtimes/$(PackRid)/native/" />
+  </ItemGroup>
+</Project>

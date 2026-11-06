@@ -20,6 +20,8 @@ internal static unsafe partial class Native
     [LibraryImport(Lib)] public static partial LLVMMemoryBufferRef LLVMWriteBitcodeToMemoryBuffer(LLVMModuleRef m);
     [LibraryImport(Lib)] public static partial byte* LLVMGetBufferStart(LLVMMemoryBufferRef buffer);
     [LibraryImport(Lib)] public static partial nuint LLVMGetBufferSize(LLVMMemoryBufferRef buffer);
+    /// <summary>Local values (arguments, blocks, instructions) are created without names; globals keep theirs.</summary>
+    [LibraryImport(Lib)] public static partial void LLVMContextSetDiscardValueNames(LLVMContextRef c, int discard);
     [LibraryImport(Lib, StringMarshalling = StringMarshalling.Utf8)]
     public static partial LLVMMemoryBufferRef LLVMCreateMemoryBufferWithMemoryRange(byte* data, nuint length, string name, int requiresNullTerminator);
 }

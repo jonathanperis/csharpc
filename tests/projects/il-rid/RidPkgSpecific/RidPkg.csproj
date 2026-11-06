@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- The runtimes/<rid>/lib asset of the RidPkg test package: same assembly name and API, a different implementation. -->
+  <PropertyGroup>
+    <TargetFramework>net11.0</TargetFramework>
+    <AssemblyName>RidPkg</AssemblyName>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <DefineConstants>$(DefineConstants);RID_SPECIFIC</DefineConstants>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../RidPkg.cs" />
+  </ItemGroup>
+</Project>

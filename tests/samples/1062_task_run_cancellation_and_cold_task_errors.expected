@@ -1,0 +1,24 @@
+run Func<Task> throwing OCE(token): Canceled TaskCanceledException True False
+run Func<Task> throwing OCE: Canceled TaskCanceledException True False
+run Func<Task> throwing other: Faulted InvalidOperationException False True
+run Func<Task<int>> throwing OCE: Canceled TaskCanceledException True False
+run Func<int> throwing OCE: Faulted OperationCanceledException False True
+run Action throwing OCE: Faulted OperationCanceledException False True
+run async throwing OCE: Canceled TaskCanceledException True False
+run with token throwing OCE(token): Canceled TaskCanceledException True False
+run returning null Task: Canceled TaskCanceledException True False
+await: OperationCanceledException Canceled
+-- cold task errors
+start continuation: InvalidOperationException: Start may not be called on a continuation task.
+run continuation synchronously: InvalidOperationException: RunSynchronously may not be called on a continuation task.
+start continuation<T>: InvalidOperationException: Start may not be called on a continuation task.
+run continuation<T> synchronously: InvalidOperationException: RunSynchronously may not be called on a continuation task.
+start continuation with state: InvalidOperationException: Start may not be called on a continuation task.
+RanToCompletion 5 state
+start completed continuation: InvalidOperationException: Start may not be called on a task that has completed.
+start promise: InvalidOperationException: Start may not be called on a promise-style task.
+run promise synchronously: InvalidOperationException: RunSynchronously may not be called on a task not bound to a delegate, such as the task returned from an asynchronous method.
+start twice: InvalidOperationException: Start may not be called on a task that was already started.
+run started synchronously: InvalidOperationException: RunSynchronously may not be called on a task that was already started.
+start completed: InvalidOperationException: Start may not be called on a task that has completed.
+run completed synchronously: InvalidOperationException: RunSynchronously may not be called on a task that has already completed.
