@@ -20,12 +20,33 @@ namespace CsharpcCoreLib
 
         public static string EscapeDataString(ReadOnlySpan<char> charsToEscape) => Escape(charsToEscape, null);
 
+        // Obsolete: keeps the reserved characters too ("!#$&'()*+,/:;=?@[]"), and escapes '%'.
+        public static string EscapeUriString(string stringToEscape)
+        {
+            if (stringToEscape == null) throw new ArgumentNullException("stringToEscape");
+            return Escape(stringToEscape.AsSpan(), stringToEscape, true);
+        }
+
+        // false, writing nothing, when `destination` is shorter than the input or than the result.
+        public static bool TryEscapeDataString(ReadOnlySpan<char> charsToEscape, Span<char> destination, out int charsWritten)
+        {
+            charsWritten = 0;
+            if (destination.Length < charsToEscape.Length) return false;
+            string escaped = Escape(charsToEscape, null);
+            if (escaped.Length > destination.Length) return false;
+            escaped.AsSpan().CopyTo(destination);
+            charsWritten = escaped.Length;
+            return true;
+        }
+
         private static bool IsUnreserved(char c) => char.IsAsciiLetterOrDigit(c) || c == '-' || c == '.' || c == '_' || c == '~';
 
-        private static string Escape(ReadOnlySpan<char> chars, string backing)
+        private static bool IsUnreservedOrReserved(char c) => IsUnreserved(c) || "!#$&'()*+,/:;=?@[]".IndexOf(c) >= 0;
+
+        private static string Escape(ReadOnlySpan<char> chars, string backing, bool keepReserved = false)
         {
             int first = 0;
-            while (first < chars.Length && IsUnreserved(chars[first])) first++;
+            while (first < chars.Length && (keepReserved ? IsUnreservedOrReserved(chars[first]) : IsUnreserved(chars[first]))) first++;
             if (first == chars.Length) return backing ?? chars.ToString();
             var builder = new System.Text.StringBuilder(chars.Length + 16);
             builder.Append(chars.Slice(0, first));
@@ -35,7 +56,7 @@ namespace CsharpcCoreLib
                 char c = chars[i];
                 if (c < 0x80)
                 {
-                    if (IsUnreserved(c)) builder.Append(c);
+                    if (keepReserved ? IsUnreservedOrReserved(c) : IsUnreserved(c)) builder.Append(c);
                     else PercentEncode(builder, (byte)c);
                     i++;
                     continue;
@@ -54,6 +75,35 @@ namespace CsharpcCoreLib
             const string Hex = "0123456789ABCDEF";
             builder.Append('%').Append(Hex[value >> 4]).Append(Hex[value & 0xF]);
         }
+
+        public static string HexEscape(char character)
+        {
+            ArgumentOutOfRangeException.ThrowIfGreaterThan(character, '\xff');
+            const string Hex = "0123456789ABCDEF";
+            return new string(new[] { '%', Hex[character >> 4], Hex[character & 0xF] });
+        }
+
+        // The character a "%XX" at `index` stands for, or the character there; `index` moves past what was read.
+        public static char HexUnescape(string pattern, ref int index)
+        {
+            ArgumentOutOfRangeException.ThrowIfNegative(index);
+            ArgumentOutOfRangeException.ThrowIfGreaterThanOrEqual(index, pattern.Length);
+            if (pattern[index] == '%' && pattern.Length - index >= 3 && char.IsAsciiHexDigit(pattern[index + 1]) && char.IsAsciiHexDigit(pattern[index + 2]))
+            {
+                char unescaped = (char)((HexValue(pattern[index + 1]) << 4) | HexValue(pattern[index + 2]));
+                index += 3;
+                return unescaped;
+            }
+            return pattern[index++];
+        }
+
+        public static int FromHex(char digit)
+        {
+            if (!char.IsAsciiHexDigit(digit)) throw new ArgumentException("Value does not fall within the expected range.", "digit");
+            return HexValue(digit);
+        }
+
+        private static int HexValue(char c) => c <= '9' ? c - '0' : (c | 0x20) - 'a' + 10;
 
         // As .NET: no argument checks (a null pattern or a negative index fail on the indexing).
         public static bool IsHexEncoding(string pattern, int index) =>
