@@ -1,0 +1,109 @@
+-- range partitioner
+[0,1) [1,2) [2,3) [3,4) [4,5) [5,6) [6,7) [7,8) [8,9) [9,10)
+
+
+[0,4) [4,8) [8,10)
+
+[0,3) [3,6) [6,9) [9,10)
+[0,3) [3,6) [6,9) [9,10)
+[0,1) [1,2) [2,3) [3,4) [4,5) [5,6) [6,7)
+range equal: ArgumentOutOfRangeException: toExclusive ('5') must be greater than '5'. (Parameter 'toExclusive')
+Actual value was 5.
+True DynamicPartitionerForIEnumerable`1 True False True
+0:[0,11) 1:[11,22) 2:[22,33)
+range bad: ArgumentOutOfRangeException: toExclusive ('4') must be greater than '5'. (Parameter 'toExclusive')
+Actual value was 4.
+range bad size: ArgumentOutOfRangeException: rangeSize ('0') must be a non-negative and non-zero value. (Parameter 'rangeSize')
+Actual value was 0.
+range bad size neg: ArgumentOutOfRangeException: rangeSize ('-1') must be a non-negative and non-zero value. (Parameter 'rangeSize')
+Actual value was -1.
+range partitions 0: ArgumentOutOfRangeException: partitionCount ('0') must be a non-negative and non-zero value. (Parameter 'partitionCount')
+Actual value was 0.
+range long bad: ArgumentOutOfRangeException: toExclusive ('4') must be greater than '5'. (Parameter 'toExclusive')
+Actual value was 4.
+10
+range huge: ok
+[0,7) [7,10)
+range tail: ok
+-- array / list static (no load balance)
+0,1,2,3
+4,5,6
+7,8,9
+0,1,2
+3,4,5
+6,7
+8,9
+False StaticIndexRangePartitionerForArray`1
+static dynamic: NotSupportedException: Dynamic partitions are not supported by this partitioner.
+5:5,6:6,7:7,8:8,9:9
+orderable static: ok
+True True True
+partitions 0: ArgumentOutOfRangeException: partitionCount ('0') must be a non-negative and non-zero value. (Parameter 'partitionCount')
+Actual value was 0.
+partitions -1: ArgumentOutOfRangeException: partitionCount ('-1') must be a non-negative and non-zero value. (Parameter 'partitionCount')
+Actual value was -1.
+create null arr: ArgumentNullException: Value cannot be null. (Parameter 'array')
+create null list: ArgumentNullException: Value cannot be null. (Parameter 'list')
+create null enum: ArgumentNullException: Value cannot be null. (Parameter 'source')
+||
+empty partitions: ok
+1|2||
+more partitions than items: ok
+-- array / list dynamic (load balance)
+True DynamicPartitionerForArray`1
+0,1,2,3,4,5,6,7,8,9
+True False True
+0:0,1:1,2:2,3:3,4:4,5:5,6:6,7:7,8:8,9:9
+0,1,2,3,4,5,6,7,8,9
+10 45
+2 1
+current before movenext: InvalidOperationException: MoveNext must be called at least once before calling Current.
+dispose enumerator: ok
+reset: NotSupportedException: Specified method is not supported.
+-- enumerable
+True DynamicPartitionerForIEnumerable`1
+100,101,102,103,104,105,106,107
+0,2,4,6,8
+0,1,2,3,4
+0=7,1=8,2=9
+True False True
+bad options: ArgumentOutOfRangeException: Specified argument was out of the range of valid values. (Parameter 'partitionerOptions')
+enum partitions 0: ArgumentOutOfRangeException: partitionCount ('0') must be a non-negative and non-zero value. (Parameter 'partitionCount')
+Actual value was 0.
+0
+enum empty: ok
+enum throws: InvalidOperationException: source failed
+buffered ahead: False
+nobuffering ahead: 1
+source disposed: 1
+-- Parallel.ForEach and PLINQ
+499500
+0,1,2,3,4,5,6,7,8,9
+static orderable foreach: InvalidOperationException: The Partitioner must support dynamic partitioning.
+0=0,1=1,2=2,3=3,4=4,5=5,6=6,7=7,8=8,9=9
+0=50,1=51,2=52,3=53,4=54,5=55
+True
+285
+1,2,3,4,5,6,7,8,9,10
+15
+static ForEach no dynamic: InvalidOperationException: The Partitioner must support dynamic partitioning.
+ForEach null: ArgumentNullException: Value cannot be null. (Parameter 'source')
+ForEach bad partitioner: InvalidOperationException: The Partitioner must support dynamic partitioning.
+ForEach throwing body: AggregateException: One or more errors occurred. (bad item)
+-- user partitioners
+0,1,2|3,4,5
+False
+user dynamic: NotSupportedException: Dynamic partitions are not supported by this partitioner.
+user partitions 0: ArgumentOutOfRangeException: Specified argument was out of the range of valid values. (Parameter 'partitionCount')
+True False True
+0,1,2|3,4,5
+0:0,1:1,2:2|3:3,4:4,5:5
+orderable dynamic default: NotSupportedException: Dynamic partitions are not supported by this partitioner.
+orderable dynamic default 2: NotSupportedException: Dynamic partitions are not supported by this partitioner.
+orderable partitions null: NullReferenceException: Object reference not set to an instance of an object.
+orderable partitions wrong count: InvalidOperationException: OrderablePartitioner_GetPartitions_WrongNumberOfPartitions
+False
+orderable ctor flags: ok
+orderable ctor bad: ok
+user orderable: InvalidOperationException: The Partitioner must support dynamic partitioning.
+

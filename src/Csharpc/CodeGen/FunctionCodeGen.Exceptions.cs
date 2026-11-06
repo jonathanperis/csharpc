@@ -417,6 +417,7 @@ public sealed partial class FunctionCodeGen
         ["System.OperationCanceledException"] = "The operation was canceled.",
         ["System.Threading.Tasks.TaskCanceledException"] = "A task was canceled.",
         ["System.AggregateException"] = "One or more errors occurred.",
+        ["System.DuplicateWaitObjectException"] = "Duplicate objects in argument.",
         ["System.Threading.SemaphoreFullException"] = "Adding the specified count to the semaphore would cause it to exceed its maximum count.",
         ["System.TimeoutException"] = "The operation has timed out.",
         ["System.IO.IOException"] = "I/O error occurred.",
@@ -457,7 +458,7 @@ public sealed partial class FunctionCodeGen
                 case "textString" when uriFormat: message = value; break; // UriFormatException(string textString, Exception e)
                 case "e" when uriFormat: inner = value; break;
                 case "innerException": inner = value; break;
-                case "paramName": paramName = value; break;
+                case "paramName" or "parameterName": paramName = value; break; // parameterName: DuplicateWaitObjectException
                 case "fileName": paramName = value; break; // FileNotFoundException.FileName (csrt keeps it in param_name)
                 case "directoryPath": paramName = value; break; // DirectoryNotFoundException.DirectoryPath (.NET 11), likewise
                 case "objectName": objectName = value; break;

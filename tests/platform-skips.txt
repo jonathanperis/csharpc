@@ -215,3 +215,4 @@ macos 903_stack_trace_socket_connect  live: a refused connect completes asynchro
 windows 940_expand_environment_variables  live: .NET expands through Win32's ExpandEnvironmentStrings, whose handling of unset names differs from the Unix algorithm
 windows 972_uri_rooted_path_unix     Windows .NET takes "/rel" for an implicit file path (absolute); csharpc reports drive-less file paths there as not supported
 windows 981_uri_file_paths_unix     Windows .NET takes "/rel", "//host/x" and file:///tmp/x paths differently (implicit file paths, UNC); csharpc reports drive-less file paths there as not supported
+wasi 1031_blocking_collection_threads  needs threads: tasks block in Take/Add/WaitAny until another task signals them, which one thread can't do

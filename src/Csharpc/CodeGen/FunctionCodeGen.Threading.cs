@@ -430,7 +430,7 @@ public sealed partial class FunctionCodeGen
             var actions = arg.Value is IArrayCreationOperation { Initializer: { } init } && arg.ArgumentKind == ArgumentKind.ParamArray
                 ? EmitValue(arg.Value)
                 : EmitValue(arg.Value);
-            Rt("csrt_parallel_invoke", L.Void, [L.Ptr], actions);
+            CallCoreLib("ParallelForSupport", "Invoke", actions);
             return true;
         }
         if (m.Name == "For" && m.Parameters.Length == 3 && m.Parameters[2].Type is INamedTypeSymbol { Name: "Action", TypeArguments.Length: 1 } action)
@@ -494,7 +494,8 @@ public sealed partial class FunctionCodeGen
         var context = NewTemp(ParallelContextType, "parallel.ctx");
         _b.Store(body, _b.StructGep(ParallelContextType, context, 0));
         _b.Store(array, _b.StructGep(ParallelContextType, context, 1));
-        Rt("csrt_parallel_for", L.Void, [L.I64, L.I64, L.Ptr, L.Ptr], from, to, thunk.Fn, context);
+        // Through the corelib, which wraps what the body throws in an AggregateException (ParallelForSupport.RunLoop).
+        CallCoreLib("ParallelForSupport", "RunLoop", from, to, thunk.Fn, context);
     }
 
     /// thunk(ctx, i): ctx->delegate(i) for Parallel.For, ctx->delegate(ctx->array[i]) for ForEach.

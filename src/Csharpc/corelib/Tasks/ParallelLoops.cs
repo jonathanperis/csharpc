@@ -47,6 +47,26 @@ namespace CsharpcCoreLib
 
     internal static class ParallelForSupport
     {
+        /// <summary>
+        /// The runtime's parallel loop (csrt_parallel_for: `body(context, i)` over [from, to) on the pool and the calling
+        /// thread). What a body throws reaches here as thrown and leaves as .NET's AggregateException.
+        /// </summary>
+        public static void RunLoop(long from, long to, object body, object context)
+        {
+            try { CoreIntrinsics.csrt_parallel_for(from, to, body, context); }
+            catch (Exception e) { throw new AggregateException(e); }
+        }
+
+        /// <summary>Parallel.Invoke(params Action[]): the argument checks, then the actions as a parallel loop.</summary>
+        public static void Invoke(Action[] actions)
+        {
+            if (actions == null) throw new ArgumentNullException("actions");
+            foreach (Action action in actions)
+                if (action == null) throw new ArgumentException("One of the actions was null.");
+            try { CoreIntrinsics.csrt_parallel_invoke(actions); }
+            catch (Exception e) { throw new AggregateException(e); }
+        }
+
         /// <summary>The result of a loop that ran every iteration (the runtime loop's overloads).</summary>
         public static ParallelLoopResultImpl Completed()
         {

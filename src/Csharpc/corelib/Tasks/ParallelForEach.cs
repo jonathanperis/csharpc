@@ -24,7 +24,7 @@ namespace CsharpcCoreLib
         {
             if (source == null) throw new ArgumentNullException("source");
             if (body == null) throw new ArgumentNullException("body");
-            if (!source.SupportsDynamicPartitions) throw new InvalidOperationException("The Partitioner used here must support dynamic partitioning.");
+            if (!source.SupportsDynamicPartitions) throw new InvalidOperationException("The Partitioner must support dynamic partitioning.");
             IEnumerable<T> partitions = source.GetDynamicPartitions();
             if (partitions == null) throw new InvalidOperationException("The Partitioner used here returned a null partitioner source.");
             Run(partitions, body);
