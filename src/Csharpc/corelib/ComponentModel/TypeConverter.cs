@@ -1,14 +1,20 @@
 // System.ComponentModel.TypeConverter / TypeDescriptor: what Microsoft.Extensions.Configuration.Binder
-// uses (GetConverter → CanConvertFrom(typeof(string)) → ConvertFromInvariantString). Shadowing these keeps
-// System.ComponentModel.TypeConverter.dll out of the closed world (ReflectTypeDescriptionProvider and
-// dozens of Half/Int128/COM APIs). The string, number, Boolean, Char, Guid, TimeSpan and Version
-// converters follow .NET's (trim, hex prefixes, NumberStyles, exception types and messages). Any type whose
-// .NET converter isn't reproduced here — enums, Nullable<T>, DateTime,
-// Uri, a [TypeConverter] attribute, or a type whose attributes csharpc can't see — is an explicit
-// NotSupportedException from GetConverter: a converter that can't convert would make Binder silently
+// uses (GetConverter → CanConvertFrom(typeof(string)) → ConvertFromInvariantString), and the base class of
+// the converters compiled from System.ComponentModel.TypeConverter's IL (PointConverter, ColorConverter, ...: that
+// assembly is "mixed", FrameworkIl.MixedWithShadows, so TypeConverter is this class and its derived converters
+// are the framework's own code). TypeConverter follows dotnet/runtime's member for member (the virtual
+// ITypeDescriptorContext overloads, ConvertTo, CreateInstance, standard values); only InstanceDescriptor, which
+// needs reflection invocation, is an explicit NotSupportedException. Shadowing TypeDescriptor keeps
+// ReflectTypeDescriptionProvider and dozens of Half/Int128/COM APIs out of the closed world. The string,
+// number, Boolean, Char, Guid, TimeSpan and Version converters follow .NET's (trim, hex prefixes,
+// NumberStyles, exception types and messages). Any type whose .NET converter isn't reproduced here — enums,
+// Nullable<T>, DateTime, Uri, a [TypeConverter] attribute, or a type whose attributes csharpc can't see — is an
+// explicit NotSupportedException from GetConverter: a converter that can't convert would make Binder silently
 // leave the setting at its default.
 #nullable disable
 using System;
+using System.Collections;
+using System.ComponentModel;
 using System.Globalization;
 
 namespace CsharpcCoreLib
@@ -16,31 +22,214 @@ namespace CsharpcCoreLib
     [Shadows("System.ComponentModel.TypeConverter")]
     public class TypeConverterImpl
     {
+        private const string InstanceDescriptorName = "System.ComponentModel.Design.Serialization.InstanceDescriptor";
+
         public TypeConverterImpl() { }
 
         public bool CanConvertFrom(Type sourceType) => CanConvertFrom(null, sourceType);
 
-        public virtual bool CanConvertFrom(object context, Type sourceType) => false;
+        // InstanceDescriptor is compared by name so that a program that never meets one doesn't need its assembly.
+        public virtual bool CanConvertFrom(ITypeDescriptorContext context, Type sourceType) =>
+            sourceType != null && sourceType.FullName == InstanceDescriptorName;
+
+        public bool CanConvertTo(Type destinationType) => CanConvertTo(null, destinationType);
+
+        public virtual bool CanConvertTo(ITypeDescriptorContext context, Type destinationType) => destinationType == typeof(string);
 
         public object ConvertFrom(object value) => ConvertFrom(null, CultureInfo.CurrentCulture, value);
 
-        public object ConvertFromInvariantString(string text) =>
-            ConvertFromString(null, CultureInfo.InvariantCulture, text);
+        public virtual object ConvertFrom(ITypeDescriptorContext context, CultureInfo culture, object value)
+        {
+            if (value != null && value.GetType().FullName == InstanceDescriptorName)
+                throw new NotSupportedException("Converting an InstanceDescriptor (System.ComponentModel.TypeConverter.ConvertFrom) is not supported by csharpc yet: it invokes a member through reflection.");
+            throw GetConvertFromException(value);
+        }
 
-        public object ConvertFromString(string text) =>
-            ConvertFromString(null, CultureInfo.CurrentCulture, text);
+        public object ConvertFromInvariantString(string text) => ConvertFromString(null, CultureInfo.InvariantCulture, text);
 
-        public virtual object ConvertFromString(object context, CultureInfo culture, string text) =>
+        public object ConvertFromInvariantString(ITypeDescriptorContext context, string text) =>
+            ConvertFromString(context, CultureInfo.InvariantCulture, text);
+
+        public object ConvertFromString(string text) => ConvertFrom(null, null, text);
+
+        public object ConvertFromString(ITypeDescriptorContext context, string text) =>
+            ConvertFrom(context, CultureInfo.CurrentCulture, text);
+
+        public object ConvertFromString(ITypeDescriptorContext context, CultureInfo culture, string text) =>
             ConvertFrom(context, culture, text);
 
-        public virtual object ConvertFrom(object context, CultureInfo culture, object value)
+        public object ConvertTo(object value, Type destinationType) => ConvertTo(null, null, value, destinationType);
+
+        public virtual object ConvertTo(ITypeDescriptorContext context, CultureInfo culture, object value, Type destinationType)
         {
-            throw new NotSupportedException(GetType().Name + " cannot convert from " +
-                (value == null ? "(null)" : value.GetType().FullName) + ".");
+            ArgumentNullException.ThrowIfNull(destinationType);
+            if (destinationType == typeof(string))
+            {
+                if (value == null) return string.Empty;
+                if (culture != null && culture != CultureInfo.CurrentCulture && value is IFormattable formattable)
+                    return formattable.ToString(null, culture);
+                return value.ToString();
+            }
+            throw GetConvertToException(value, destinationType);
+        }
+
+        public string ConvertToInvariantString(object value) => ConvertToString(null, CultureInfo.InvariantCulture, value);
+
+        public string ConvertToInvariantString(ITypeDescriptorContext context, object value) =>
+            ConvertToString(context, CultureInfo.InvariantCulture, value);
+
+        public string ConvertToString(object value) => (string)ConvertTo(null, CultureInfo.CurrentCulture, value, typeof(string));
+
+        public string ConvertToString(ITypeDescriptorContext context, object value) =>
+            (string)ConvertTo(context, CultureInfo.CurrentCulture, value, typeof(string));
+
+        public string ConvertToString(ITypeDescriptorContext context, CultureInfo culture, object value) =>
+            (string)ConvertTo(context, culture, value, typeof(string));
+
+        public object CreateInstance(IDictionary propertyValues) => CreateInstance(null, propertyValues);
+
+        public virtual object CreateInstance(ITypeDescriptorContext context, IDictionary propertyValues) => null;
+
+        protected Exception GetConvertFromException(object value)
+        {
+            string valueTypeName = value == null ? "(null)" : value.GetType().FullName;
+            throw new NotSupportedException(GetType().Name + " cannot convert from " + valueTypeName + ".");
+        }
+
+        protected Exception GetConvertToException(object value, Type destinationType)
+        {
+            string valueTypeName = value == null ? "(null)" : value.GetType().FullName;
+            throw new NotSupportedException("'" + GetType().Name + "' is unable to convert '" + valueTypeName + "' to '" + destinationType.FullName + "'.");
+        }
+
+        public bool GetCreateInstanceSupported() => GetCreateInstanceSupported(null);
+
+        public virtual bool GetCreateInstanceSupported(ITypeDescriptorContext context) => false;
+
+        public PropertyDescriptorCollection GetProperties(object value) => GetProperties(null, value);
+
+        public PropertyDescriptorCollection GetProperties(ITypeDescriptorContext context, object value) =>
+            GetProperties(context, value, new Attribute[] { BrowsableAttribute.Yes });
+
+        public virtual PropertyDescriptorCollection GetProperties(ITypeDescriptorContext context, object value, Attribute[] attributes) => null;
+
+        public bool GetPropertiesSupported() => GetPropertiesSupported(null);
+
+        public virtual bool GetPropertiesSupported(ITypeDescriptorContext context) => false;
+
+        public ICollection GetStandardValues() => GetStandardValues(null);
+
+        public virtual TypeConverter.StandardValuesCollection GetStandardValues(ITypeDescriptorContext context) => null;
+
+        public bool GetStandardValuesExclusive() => GetStandardValuesExclusive(null);
+
+        public virtual bool GetStandardValuesExclusive(ITypeDescriptorContext context) => false;
+
+        public bool GetStandardValuesSupported() => GetStandardValuesSupported(null);
+
+        public virtual bool GetStandardValuesSupported(ITypeDescriptorContext context) => false;
+
+        public bool IsValid(object value) => IsValid(null, value);
+
+        public virtual bool IsValid(ITypeDescriptorContext context, object value)
+        {
+            bool isValid = true;
+            try
+            {
+                // null has no type to pass to CanConvertFrom; NullableConverter-like converters accept it.
+                if (value == null || CanConvertFrom(context, value.GetType())) ConvertFrom(context, CultureInfo.InvariantCulture, value);
+                else isValid = false;
+            }
+            catch
+            {
+                isValid = false;
+            }
+            return isValid;
+        }
+
+        protected PropertyDescriptorCollection SortProperties(PropertyDescriptorCollection props, string[] names)
+        {
+            props.Sort(names);
+            return props;
         }
 
         internal static string InvalidPrimitive(string text, string type) => text + " is not a valid value for " + type + ".";
+
+        /// <summary>A collection of standard values (EnumConverter, ColorConverter, ...).</summary>
+        [Shadows("System.ComponentModel.TypeConverter+StandardValuesCollection")]
+        public class StandardValuesCollectionImpl : ICollection
+        {
+            private readonly ICollection _values;
+            private Array _valueArray;
+
+            public StandardValuesCollectionImpl(ICollection values)
+            {
+                values ??= Array.Empty<object>();
+                if (values is Array a) _valueArray = a;
+                _values = values;
+            }
+
+            public int Count => _valueArray != null ? _valueArray.Length : _values.Count;
+
+            public object this[int index]
+            {
+                get
+                {
+                    if (_valueArray != null) return _valueArray.GetValue(index);
+                    if (_values is IList list) return list[index];
+                    // No other choice but to enumerate the collection.
+                    _valueArray = new object[_values.Count];
+                    _values.CopyTo(_valueArray, 0);
+                    return _valueArray.GetValue(index);
+                }
+            }
+
+            public void CopyTo(Array array, int index) => _values.CopyTo(array, index);
+
+            public IEnumerator GetEnumerator() => _values.GetEnumerator();
+
+            bool ICollection.IsSynchronized => false;
+
+            object ICollection.SyncRoot => null;
+        }
+
+        /// <summary>Provides properties for objects that have none (the base of ArrayConverter's element descriptors).</summary>
+        [Shadows("System.ComponentModel.TypeConverter+SimplePropertyDescriptor")]
+        protected abstract class SimplePropertyDescriptorImpl : PropertyDescriptor
+        {
+            protected SimplePropertyDescriptorImpl(Type componentType, string name, Type propertyType) : this(componentType, name, propertyType, Array.Empty<Attribute>())
+            {
+            }
+
+            protected SimplePropertyDescriptorImpl(Type componentType, string name, Type propertyType, Attribute[] attributes) : base(name, attributes)
+            {
+                ComponentType = componentType;
+                PropertyType = propertyType;
+            }
+
+            public override Type ComponentType { get; }
+
+            public override bool IsReadOnly => Attributes.Contains(ReadOnlyAttribute.Yes);
+
+            public override Type PropertyType { get; }
+
+            public override bool CanResetValue(object component)
+            {
+                DefaultValueAttribute attr = (DefaultValueAttribute)Attributes[typeof(DefaultValueAttribute)];
+                if (attr == null) return false;
+                return attr.Value.Equals(GetValue(component));
+            }
+
+            public override void ResetValue(object component)
+            {
+                DefaultValueAttribute attr = (DefaultValueAttribute)Attributes[typeof(DefaultValueAttribute)];
+                if (attr != null) SetValue(component, attr.Value);
+            }
+
+            public override bool ShouldSerializeValue(object component) => false;
+        }
     }
+
 
     [Shadows("System.ComponentModel.TypeDescriptor")]
     public static class TypeDescriptorImpl
@@ -70,11 +259,24 @@ namespace CsharpcCoreLib
             // (TypeConverter, ArrayConverter, CollectionConverter, ReferenceConverter) can't convert from a
             // string without a context either. Enums, Nullable<T> and the remaining BCL converters (DateTime, DateTimeOffset, DateOnly, TimeOnly, Uri, CultureInfo, Half, Int128, UInt128) can.
             if (type == typeof(object)) return new TypeConverterImpl();
+            // [TypeConverter] attributes, enums, Nullable<T> and the other BCL converters: the front end generated them for
+            // the types the program names in typeof(...) next to a GetConverter call.
+            if (CoreIntrinsics.TypeConverterHook(type) is object hooked) return (TypeConverterImpl)hooked;
             if (!type.IsEnum && Nullable.GetUnderlyingType(type) == null && !type.IsPrimitive && type.Namespace != "System"
                 && ReflectionRuntime.HasTypeAttributeNamed(type, "System.ComponentModel.TypeConverterAttribute") == 0)
                 return new TypeConverterImpl();
             throw new NotSupportedException("TypeDescriptor.GetConverter(" + type + ") is not supported by csharpc yet.");
         }
+
+        /// <summary>csharpc has no type description providers: a type's reflection type is itself.</summary>
+        public static Type GetReflectionType(Type type)
+        {
+            ArgumentNullException.ThrowIfNull(type);
+            return type;
+        }
+
+        /// <summary>The internal overload the framework's own converters call (PointConverter's int converter).</summary>
+        internal static TypeConverterImpl GetConverterTrimUnsafe(Type type) => GetConverter(type);
 
         public static TypeConverterImpl GetConverter(object component)
         {
@@ -89,10 +291,10 @@ namespace CsharpcCoreLib.ComponentModelConverters
         /// <summary>The names below are .NET's (GetType().Name appears in ConvertFrom's NotSupportedException).</summary>
         internal sealed class StringConverter : CsharpcCoreLib.TypeConverterImpl
         {
-            public override bool CanConvertFrom(object context, Type sourceType) =>
+            public override bool CanConvertFrom(ITypeDescriptorContext context, Type sourceType) =>
                 sourceType == typeof(string) || base.CanConvertFrom(context, sourceType);
 
-            public override object ConvertFrom(object context, CultureInfo culture, object value)
+            public override object ConvertFrom(ITypeDescriptorContext context, CultureInfo culture, object value)
             {
                 if (value is string) return value;
                 if (value == null) return string.Empty;
@@ -102,10 +304,10 @@ namespace CsharpcCoreLib.ComponentModelConverters
 
         internal sealed class BooleanConverter : CsharpcCoreLib.TypeConverterImpl
         {
-            public override bool CanConvertFrom(object context, Type sourceType) =>
+            public override bool CanConvertFrom(ITypeDescriptorContext context, Type sourceType) =>
                 sourceType == typeof(string) || base.CanConvertFrom(context, sourceType);
 
-            public override object ConvertFrom(object context, CultureInfo culture, object value)
+            public override object ConvertFrom(ITypeDescriptorContext context, CultureInfo culture, object value)
             {
                 if (value is string s)
                 {
@@ -118,10 +320,10 @@ namespace CsharpcCoreLib.ComponentModelConverters
 
         internal sealed class CharConverter : CsharpcCoreLib.TypeConverterImpl
         {
-            public override bool CanConvertFrom(object context, Type sourceType) =>
+            public override bool CanConvertFrom(ITypeDescriptorContext context, Type sourceType) =>
                 sourceType == typeof(string) || base.CanConvertFrom(context, sourceType);
 
-            public override object ConvertFrom(object context, CultureInfo culture, object value)
+            public override object ConvertFrom(ITypeDescriptorContext context, CultureInfo culture, object value)
             {
                 if (value is string text)
                 {
@@ -139,10 +341,10 @@ namespace CsharpcCoreLib.ComponentModelConverters
 
         internal sealed class TimeSpanConverter : CsharpcCoreLib.TypeConverterImpl
         {
-            public override bool CanConvertFrom(object context, Type sourceType) =>
+            public override bool CanConvertFrom(ITypeDescriptorContext context, Type sourceType) =>
                 sourceType == typeof(string) || base.CanConvertFrom(context, sourceType);
 
-            public override object ConvertFrom(object context, CultureInfo culture, object value)
+            public override object ConvertFrom(ITypeDescriptorContext context, CultureInfo culture, object value)
             {
                 if (value is string s)
                 {
@@ -155,10 +357,10 @@ namespace CsharpcCoreLib.ComponentModelConverters
 
         internal sealed class VersionConverter : CsharpcCoreLib.TypeConverterImpl
         {
-            public override bool CanConvertFrom(object context, Type sourceType) =>
+            public override bool CanConvertFrom(ITypeDescriptorContext context, Type sourceType) =>
                 sourceType == typeof(string) || base.CanConvertFrom(context, sourceType);
 
-            public override object ConvertFrom(object context, CultureInfo culture, object value)
+            public override object ConvertFrom(ITypeDescriptorContext context, CultureInfo culture, object value)
             {
                 if (value is string s)
                 {
@@ -171,10 +373,10 @@ namespace CsharpcCoreLib.ComponentModelConverters
 
         internal sealed class GuidConverter : CsharpcCoreLib.TypeConverterImpl
         {
-            public override bool CanConvertFrom(object context, Type sourceType) =>
+            public override bool CanConvertFrom(ITypeDescriptorContext context, Type sourceType) =>
                 sourceType == typeof(string) || base.CanConvertFrom(context, sourceType);
 
-            public override object ConvertFrom(object context, CultureInfo culture, object value) =>
+            public override object ConvertFrom(ITypeDescriptorContext context, CultureInfo culture, object value) =>
                 value is string s ? new Guid(s.Trim()) : base.ConvertFrom(context, culture, value);
         }
 
@@ -187,10 +389,10 @@ namespace CsharpcCoreLib.ComponentModelConverters
             internal abstract object FromString(string value, int radix);
             internal abstract object FromString(string value, NumberFormatInfo formatInfo);
 
-            public override bool CanConvertFrom(object context, Type sourceType) =>
+            public override bool CanConvertFrom(ITypeDescriptorContext context, Type sourceType) =>
                 sourceType == typeof(string) || base.CanConvertFrom(context, sourceType);
 
-            public override object ConvertFrom(object context, CultureInfo culture, object value)
+            public override object ConvertFrom(ITypeDescriptorContext context, CultureInfo culture, object value)
             {
                 if (value is string s)
                 {
