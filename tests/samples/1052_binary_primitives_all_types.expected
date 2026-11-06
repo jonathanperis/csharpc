@@ -1,0 +1,218 @@
+Int16Big FB2E000000000000000000000000000000000000000000000000000000000000
+-1234
+True -1234
+False 0
+False
+True
+FB2E00FB2E000000000000000000000000000000000000000000000000000000
+ArgumentOutOfRangeException: Specified argument was out of the range of valid values. (Parameter 'length')
+ArgumentOutOfRangeException: Specified argument was out of the range of valid values. (Parameter 'length')
+Int16Little 2EFB000000000000000000000000000000000000000000000000000000000000
+-1234
+True -1234
+False 0
+False
+True
+2EFB002EFB000000000000000000000000000000000000000000000000000000
+ArgumentOutOfRangeException: Specified argument was out of the range of valid values. (Parameter 'length')
+ArgumentOutOfRangeException: Specified argument was out of the range of valid values. (Parameter 'length')
+UInt16Big ABCD000000000000000000000000000000000000000000000000000000000000
+43981
+True 43981
+False 0
+False
+True
+ABCD00ABCD000000000000000000000000000000000000000000000000000000
+ArgumentOutOfRangeException: Specified argument was out of the range of valid values. (Parameter 'length')
+ArgumentOutOfRangeException: Specified argument was out of the range of valid values. (Parameter 'length')
+UInt16Little CDAB000000000000000000000000000000000000000000000000000000000000
+43981
+True 43981
+False 0
+False
+True
+CDAB00CDAB000000000000000000000000000000000000000000000000000000
+ArgumentOutOfRangeException: Specified argument was out of the range of valid values. (Parameter 'length')
+ArgumentOutOfRangeException: Specified argument was out of the range of valid values. (Parameter 'length')
+Int32Big F8A432EB00000000000000000000000000000000000000000000000000000000
+-123456789
+True -123456789
+False 0
+False
+True
+F8A432F8A432EB00000000000000000000000000000000000000000000000000
+ArgumentOutOfRangeException: Specified argument was out of the range of valid values. (Parameter 'length')
+ArgumentOutOfRangeException: Specified argument was out of the range of valid values. (Parameter 'length')
+Int32Little EB32A4F800000000000000000000000000000000000000000000000000000000
+-123456789
+True -123456789
+False 0
+False
+True
+EB32A4EB32A4F800000000000000000000000000000000000000000000000000
+ArgumentOutOfRangeException: Specified argument was out of the range of valid values. (Parameter 'length')
+ArgumentOutOfRangeException: Specified argument was out of the range of valid values. (Parameter 'length')
+UInt32Big DEADBEEF00000000000000000000000000000000000000000000000000000000
+3735928559
+True 3735928559
+False 0
+False
+True
+DEADBEDEADBEEF00000000000000000000000000000000000000000000000000
+ArgumentOutOfRangeException: Specified argument was out of the range of valid values. (Parameter 'length')
+ArgumentOutOfRangeException: Specified argument was out of the range of valid values. (Parameter 'length')
+UInt32Little EFBEADDE00000000000000000000000000000000000000000000000000000000
+3735928559
+True 3735928559
+False 0
+False
+True
+EFBEADEFBEADDE00000000000000000000000000000000000000000000000000
+ArgumentOutOfRangeException: Specified argument was out of the range of valid values. (Parameter 'length')
+ArgumentOutOfRangeException: Specified argument was out of the range of valid values. (Parameter 'length')
+Int64Big EEDDEF0B82167EEB000000000000000000000000000000000000000000000000
+-1234567890123456789
+True -1234567890123456789
+False 0
+False
+True
+EEDDEFEEDDEF0B82167EEB000000000000000000000000000000000000000000
+ArgumentOutOfRangeException: Specified argument was out of the range of valid values. (Parameter 'length')
+ArgumentOutOfRangeException: Specified argument was out of the range of valid values. (Parameter 'length')
+Int64Little EB7E16820BEFDDEE000000000000000000000000000000000000000000000000
+-1234567890123456789
+True -1234567890123456789
+False 0
+False
+True
+EB7E16EB7E16820BEFDDEE000000000000000000000000000000000000000000
+ArgumentOutOfRangeException: Specified argument was out of the range of valid values. (Parameter 'length')
+ArgumentOutOfRangeException: Specified argument was out of the range of valid values. (Parameter 'length')
+UInt64Big FEDCBA9876543210000000000000000000000000000000000000000000000000
+18364758544493064720
+True 18364758544493064720
+False 0
+False
+True
+FEDCBAFEDCBA9876543210000000000000000000000000000000000000000000
+ArgumentOutOfRangeException: Specified argument was out of the range of valid values. (Parameter 'length')
+ArgumentOutOfRangeException: Specified argument was out of the range of valid values. (Parameter 'length')
+UInt64Little 1032547698BADCFE000000000000000000000000000000000000000000000000
+18364758544493064720
+True 18364758544493064720
+False 0
+False
+True
+1032541032547698BADCFE000000000000000000000000000000000000000000
+ArgumentOutOfRangeException: Specified argument was out of the range of valid values. (Parameter 'length')
+ArgumentOutOfRangeException: Specified argument was out of the range of valid values. (Parameter 'length')
+Int128Big FFFFFFFFFC02CA141A980EBED120E66D00000000000000000000000000000000
+-1234567898765432019864197523
+True -1234567898765432019864197523
+False 0
+False
+True
+FFFFFFFFFFFFFFFC02CA141A980EBED120E66D00000000000000000000000000
+ArgumentOutOfRangeException: Specified argument was out of the range of valid values. (Parameter 'length')
+ArgumentOutOfRangeException: Specified argument was out of the range of valid values. (Parameter 'length')
+Int128Little 6DE620D1BE0E981A14CA02FCFFFFFFFF00000000000000000000000000000000
+-1234567898765432019864197523
+True -1234567898765432019864197523
+False 0
+False
+True
+6DE6206DE620D1BE0E981A14CA02FCFFFFFFFF00000000000000000000000000
+ArgumentOutOfRangeException: Specified argument was out of the range of valid values. (Parameter 'length')
+ArgumentOutOfRangeException: Specified argument was out of the range of valid values. (Parameter 'length')
+UInt128Big 000000FEDCBA9876543210000000004D00000000000000000000000000000000
+20192265560968774111030117662797
+True 20192265560968774111030117662797
+False 0
+False
+True
+000000000000FEDCBA9876543210000000004D00000000000000000000000000
+ArgumentOutOfRangeException: Specified argument was out of the range of valid values. (Parameter 'length')
+ArgumentOutOfRangeException: Specified argument was out of the range of valid values. (Parameter 'length')
+UInt128Little 4D000000001032547698BADCFE00000000000000000000000000000000000000
+20192265560968774111030117662797
+True 20192265560968774111030117662797
+False 0
+False
+True
+4D00004D000000001032547698BADCFE00000000000000000000000000000000
+ArgumentOutOfRangeException: Specified argument was out of the range of valid values. (Parameter 'length')
+ArgumentOutOfRangeException: Specified argument was out of the range of valid values. (Parameter 'length')
+HalfBig 3E00000000000000000000000000000000000000000000000000000000000000
+1.5
+True 1.5
+False 0
+False
+True
+3E00003E00000000000000000000000000000000000000000000000000000000
+ArgumentOutOfRangeException: Specified argument was out of the range of valid values. (Parameter 'length')
+ArgumentOutOfRangeException: Specified argument was out of the range of valid values. (Parameter 'length')
+HalfLittle 003E000000000000000000000000000000000000000000000000000000000000
+1.5
+True 1.5
+False 0
+False
+True
+003E00003E000000000000000000000000000000000000000000000000000000
+ArgumentOutOfRangeException: Specified argument was out of the range of valid values. (Parameter 'length')
+ArgumentOutOfRangeException: Specified argument was out of the range of valid values. (Parameter 'length')
+SingleBig C030000000000000000000000000000000000000000000000000000000000000
+-2.75
+True -2.75
+False 0
+False
+True
+C03000C030000000000000000000000000000000000000000000000000000000
+ArgumentOutOfRangeException: Specified argument was out of the range of valid values. (Parameter 'length')
+ArgumentOutOfRangeException: Specified argument was out of the range of valid values. (Parameter 'length')
+SingleLittle 000030C000000000000000000000000000000000000000000000000000000000
+-2.75
+True -2.75
+False 0
+False
+True
+000030000030C000000000000000000000000000000000000000000000000000
+ArgumentOutOfRangeException: Specified argument was out of the range of valid values. (Parameter 'length')
+ArgumentOutOfRangeException: Specified argument was out of the range of valid values. (Parameter 'length')
+DoubleBig 400921FB54442D11000000000000000000000000000000000000000000000000
+3.14159265358979
+True 3.14159265358979
+False 0
+False
+True
+400921400921FB54442D11000000000000000000000000000000000000000000
+ArgumentOutOfRangeException: Specified argument was out of the range of valid values. (Parameter 'length')
+ArgumentOutOfRangeException: Specified argument was out of the range of valid values. (Parameter 'length')
+DoubleLittle 112D4454FB210940000000000000000000000000000000000000000000000000
+3.14159265358979
+True 3.14159265358979
+False 0
+False
+True
+112D44112D4454FB210940000000000000000000000000000000000000000000
+ArgumentOutOfRangeException: Specified argument was out of the range of valid values. (Parameter 'length')
+ArgumentOutOfRangeException: Specified argument was out of the range of valid values. (Parameter 'length')
+18
+-2
+13330
+56574
+2018915346
+2562383102
+-1090226688147180526
+1167088121787636990
+157016958608902048059325984886331801600
+157016958608902048059325984886331801600
+513,1027
+513,1027
+67305985,83886080
+67305985,83886080
+578437695752307201,360287970189639680
+578437695752307201,360287970189639680
+-61091917420672268151706363355459485696,6646139978924579364519035301401722880
+279190449500266195311668244076308725760,6646139978924579364519035301401722880
+ArgumentException: Not enough space available in the buffer. (Parameter 'destination')
+67305985,83886080

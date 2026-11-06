@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- GetObject of preserialized resources whose type a TypeConverter creates from the string in the .resx (the
+       System.Drawing values of a WinForms form, enums, dates, a [TypeConverter] type of the program itself): csharpc
+       resolves the types the .resx files name at compile time and creates them with the same converters, taken from
+       System.ComponentModel.TypeConverter's IL. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net11.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>Repro</RootNamespace>
+    <GenerateResourceUsePreserializedResources>true</GenerateResourceUsePreserializedResources>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="System.Resources.Extensions" Version="10.0.0" />
+  </ItemGroup>
+</Project>

@@ -1,0 +1,13 @@
+-- L2 only (enable in body)
+  [OnEventCommand Enable enabled=True]
+-- disable
+  [OnEventCommand Disable enabled=False]
+-- L1 then L2
+  [OnEventCommand Enable enabled=True]
+  [OnEventCommand Enable enabled=True]
+-- enable again by hand
+  [OnEventCommand Enable enabled=True]
+  [OnEventCommand Enable enabled=True]
+  [OnEventCommand Disable enabled=True]
+  [OnEventCommand Disable enabled=True]
+-- done

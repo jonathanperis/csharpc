@@ -114,6 +114,9 @@ public sealed class Compiler(CompilerOptions options)
         List<string> ilPaths = [.. settings.IlReferencePaths, .. options.References];
         // .NET's native shims the framework IL calls, linked from the NativeAOT runtime pack (NativeAotPack).
         var linkedShims = new SortedSet<string>(StringComparer.Ordinal);
+        // The types a preserialized .resx holds (System.Drawing.Point ...): converted at run time by their TypeConverter.
+        settings = settings with { ResourceTypes = mainProgram is null ? ResourceConverters.TypeNames(settings.EmbeddedResources)
+            : ResourceConverters.TypeNamesOfAssemblies([mainProgram.Path, .. mainProgram.AppLocalAssemblies]) };
         try
         {
             var framework = FrameworkIl.Select(settings, ilPaths, options.FrameworkIl, options.FrameworkIlAutomatic, triple);
@@ -154,7 +157,10 @@ public sealed class Compiler(CompilerOptions options)
             // program's internals as the program itself does (JsonReflectionContexts.Il.cs); before any binding.
             var jsonFromIl = programIl is not null && settings.JsonReflectionEnabled == true && JsonReflectionContexts.ReferencesJsonSerializer(programIl.Reader)
                 && JsonReflectionContexts.GrantInternalsAccess(programIl.Reference, settings.AssemblyName!);
-            settings = settings with { IlReferences = il.References, IlSet = il, ProgramIl = programIl, JsonFromIl = jsonFromIl };
+            // Converter hooks for the program's resources and GetConverter calls are generated like the JSON contexts: before any binding.
+            var convertersFromIl = programIl is not null && (settings.ResourceTypes.Count > 0 || ResourceConverters.CallsGetConverter(programIl.Reader))
+                && JsonReflectionContexts.GrantInternalsAccess(programIl.Reference, settings.AssemblyName!);
+            settings = settings with { IlReferences = il.References, IlSet = il, ProgramIl = programIl, JsonFromIl = jsonFromIl, ConvertersFromIl = convertersFromIl };
             Phase($"load {il.Assemblies.Count} IL assembl{(il.Assemblies.Count == 1 ? "y" : "ies")}");
         }
         // Nullable analysis only produces warnings, never different code. Lowering uses a compilation

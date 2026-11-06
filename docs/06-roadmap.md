@@ -184,7 +184,9 @@ boundary, EH incl. filters, static constructors (`beforefieldinit`), RVA data, P
 compiled C# idioms (interpolation handlers, closures, iterators, records, generic math); unreachable
 failures compile to stubs (`CSLLVM0007`); compiled `async` (method builders, awaiters, async
 iterators, `IValueTaskSource`); embedded resource strings (`ResourceManager`, framework `SR`
-messages); `AppContext` with runtimeconfig defaults; `System.Collections.Immutable` compiled from the
+messages) and the objects of a preserialized `.resx` (`GetObject` of `System.Drawing.Point`/`Size`/`Rectangle`/`Color`,
+enums, dates, `[TypeConverter]` types: the converters are System.ComponentModel.TypeConverter's own IL, created for the
+types the resources and `typeof` + `GetConverter` name, #53); `AppContext` with runtimeconfig defaults; `System.Collections.Immutable` compiled from the
 shared framework's IL. `tests/il.sh` checks library projects consumed as DLLs, a nuget.org package
 (Ardalis.GuardClauses) and a framework assembly against `dotnet run`; `tools/il-survey` ranks what the
 top pure-IL packages still need ([18-compatibility.md](18-compatibility.md#il-front-end-survey)).
@@ -220,8 +222,11 @@ from IL, closed since: `CancellationTokenRegistration` and every `Register`/`Uns
 facade can't supply from IL (`ConcurrentDictionary` ported so it enumerates in .NET's order,
 `ConcurrentQueue`/`Stack`/`Bag`), `EventSource` (no backend: never enabled, .NET's names and GUIDs),
 `TaskScheduler`/`Task.Factory.StartNew`/`ContinueWith` with custom schedulers, and type tests against
-`ValueType`/`Enum`. Still open there: `BlockingCollection`, `Partitioner`, `AggregateException.InnerExceptions`,
-`Task.Status`/`AsyncState`, `new Task(...)`, `EventListener` — none of them ranks high for Roslyn itself.
+`ValueType`/`Enum`. The rest of that list (`BlockingCollection`'s multi-collection calls, `Partitioner` and the `Parallel`
+loops with a loop state, `Task.AsyncState`/`CreationOptions`/`Dispose`/`IAsyncResult`, `AggregateException.InnerExceptions`,
+`new Task(...)`, `EventListener`) was probed against .NET one type at a time and closed (samples 1020-1044,
+[12-corelib.md](12-corelib.md)); still open: `EventSource.Write<T>` payloads, `TaskFactory.ContinueWhenAll/Any/FromAsync`,
+type identity of tasks (`GetType()` and `is Task<T>`).
 Roslyn from IL, measured: the `IL survey` workflow's `roslyn` target lowers every method of Roslyn and
 `csharpc.dll` in 16 parallel shards and ranks what stops them
 ([18-compatibility.md](18-compatibility.md#roslyn-and-csharpc)). On branch `m6-roslyn` the Roslyn methods

@@ -1,0 +1,40 @@
+IntPtrBig FFFFFFFFFFFE1DC0000000000000000000000000000000000000000000000000
+-123456
+True -123456
+False 0
+False
+True
+FFFFFFFFFFFFFFFFFE1DC0000000000000000000000000000000000000000000
+ArgumentOutOfRangeException: Specified argument was out of the range of valid values. (Parameter 'length')
+ArgumentOutOfRangeException: Specified argument was out of the range of valid values. (Parameter 'length')
+IntPtrLittle C01DFEFFFFFFFFFF000000000000000000000000000000000000000000000000
+-123456
+True -123456
+False 0
+False
+True
+C01DFEC01DFEFFFFFFFFFF000000000000000000000000000000000000000000
+ArgumentOutOfRangeException: Specified argument was out of the range of valid values. (Parameter 'length')
+ArgumentOutOfRangeException: Specified argument was out of the range of valid values. (Parameter 'length')
+UIntPtrBig 0000000000ABCDEF000000000000000000000000000000000000000000000000
+11259375
+True 11259375
+False 0
+False
+True
+0000000000000000ABCDEF000000000000000000000000000000000000000000
+ArgumentOutOfRangeException: Specified argument was out of the range of valid values. (Parameter 'length')
+ArgumentOutOfRangeException: Specified argument was out of the range of valid values. (Parameter 'length')
+UIntPtrLittle EFCDAB0000000000000000000000000000000000000000000000000000000000
+11259375
+True 11259375
+False 0
+False
+True
+EFCDABEFCDAB0000000000000000000000000000000000000000000000000000
+ArgumentOutOfRangeException: Specified argument was out of the range of valid values. (Parameter 'length')
+ArgumentOutOfRangeException: Specified argument was out of the range of valid values. (Parameter 'length')
+7441392446501552128
+7441392446501552128
+289077004400066560,360287970189639680
+289077004400066560,360287970189639680

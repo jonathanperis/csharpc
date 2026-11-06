@@ -1,0 +1,19 @@
+-- cancel and complete
+canceled True
+canceled
+The collection argument is empty and has been marked as complete with regards to additions.
+took 99
+-- consuming enumerable and producers
+0,1,2,3,4
+20200 True 0
+-- across collections
+added to 1 after taking 2
+1:from d
+canceled
+ArgumentException
+-- WaitHandle.WaitAny / WaitAll
+1
+True
+1 False
+1
+1 1

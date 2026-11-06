@@ -75,6 +75,9 @@ namespace CsharpcCoreLib
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern int SizeOf<T>();
         /// <summary>The address of a span's first element (never moves: the GC doesn't).</summary>
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern nint SpanAddress<T>(ReadOnlySpan<T> span);
+        /// <summary>A span over a reference and a length, as given: unlike the pointer constructors, a negative length is not rejected.</summary>
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern Span<T> SpanOf<T>(ref T reference, int length);
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern ReadOnlySpan<T> ReadOnlySpanOf<T>(in T reference, int length);
         /// <summary>The address a reference points at.</summary>
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern nint RefAddress<T>(in T value);
         /// <summary>
@@ -128,6 +131,18 @@ namespace CsharpcCoreLib
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern void JsonConfigureHook(ref bool reflectionEnabled, ref System.Text.Json.Serialization.Metadata.IJsonTypeInfoResolver resolver);
         /// <summary>The program's CsharpcCoreLib.ProgramHooks.JsonBuiltIn(type, options) if it has one, else null.</summary>
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern object JsonBuiltInHook(Type type, object options);
+        /// <summary>
+        /// The program's CsharpcCoreLib.ProgramHooks.ResourceObject(type, text) if it has one: a one-element array holding the
+        /// object a resource of that type and TypeConverter string is, or null when the program has no conversion for the
+        /// type (Frontend/ResourceConverters.cs generates one for the types its .resources files hold).
+        /// </summary>
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern object[] ResourceObjectHook(string type, string text);
+        /// <summary>
+        /// The program's CsharpcCoreLib.ProgramHooks.TypeConverterFor(type) if it has one: the converter TypeDescriptor.GetConverter gives a type
+        /// the corelib doesn't know (a [TypeConverter] attribute, enums, BCL types), or null (Frontend/ResourceConverters.cs generates it for
+        /// the types the sources name in `typeof` where they call GetConverter).
+        /// </summary>
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern object TypeConverterHook(Type type);
         /// <summary>csrt_task_try_fault_async: faults a pending task, or cancels it for an OperationCanceledException.</summary>
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern bool TryFaultAsyncTask(System.Threading.Tasks.Task task, Exception exception);
         /// <summary>An enum's underlying value as .NET's EnumConverter keys it: sign-extended, then reinterpreted as ulong.</summary>
@@ -203,6 +218,9 @@ namespace CsharpcCoreLib
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern void csrt_array_set_value(Array array, object value, long index, nint table);
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern object csrt_array_get_value(Array array, long index, nint table);
         // Runtime functions called directly (an extern named csrt_*: FunctionCodeGen.CoreLib.cs).
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern int csrt_event_kind(object handle);
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern void csrt_parallel_for(long from, long to, object body, object context);
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern void csrt_parallel_invoke(Action[] actions);
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern int csrt_cts_register_node(object token, object node);
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern bool csrt_cts_unregister(object token, object node);
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern void csrt_cts_wait_for_callback(object token, object node);
@@ -286,6 +304,13 @@ namespace CsharpcCoreLib
         public static void EnumCompareMismatch(object other, string source) =>
             throw new ArgumentException("Object must be the same type as the enum. The type passed in was '" + other.GetType().FullName +
                 "'; the enum type was '" + source + "'.");
+
+        // Marshal.SizeOf/OffsetOf/PtrToStructure/StructureToPtr argument errors (FunctionCodeGen.MarshalLayout.cs).
+        public static void MarshalNotMarshalable(string message) => throw new ArgumentException(message);
+        public static void MarshalArgument(string message, string paramName) => throw new ArgumentException(message, paramName);
+        public static void MarshalArgumentNull(string paramName) => throw new ArgumentNullException(paramName);
+        public static void MarshalNotMember(string typeName) =>
+            throw new ArgumentException("Field passed in is not a marshaled member of the type '" + typeName + "'.", "fieldName");
 
         // ArgumentOutOfRangeException.ThrowIf* (.NET 8+): exact messages, with the actual value.
         public static void IfNegative(int value, string paramName)
