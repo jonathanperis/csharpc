@@ -35,7 +35,7 @@ public sealed partial class FunctionCodeGen
         if (target.IsStatic) CheckJsonSerializerRoots(target, inv);
         if (TypeObjectMember(inv.TargetMethod, inv.Instance) is { } typeMember) return CallBcl(typeMember, inv.TargetMethod, inv.Instance, inv.Arguments, inv);
         if (UnsafeAccessorOf(target) is { } unsafeAccessor) return EmitUnsafeAccessor(target, unsafeAccessor, inv);
-        if (target.IsStatic && TryUnsafeMethod(target, inv) is { } unsafeResult) return unsafeResult;
+        if (target.IsStatic && (TryUnsafeMethod(target, inv) ?? TryMemoryMarshalReference(target, inv) ?? TryMarshalLayoutMethod(target, inv)) is { } unsafeResult) return unsafeResult;
         // `T.Create()` on a static abstract/virtual interface member: after substitution T is concrete.
         if (ResolveStaticInterfaceMember(target, inv.ConstrainedToType) is { } staticImpl)
             return EmitUserCall(staticImpl, default, true, inv.Arguments, isVirtual: false);

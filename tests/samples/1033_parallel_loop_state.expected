@@ -1,0 +1,99 @@
+completed=False lowest=4
+completed=False lowest=null
+completed=True lowest=null
+completed=False lowest=7
+0,1,2,3
+0,1,2,3
+0,1,2,3
+break after stop: AggregateException: One or more errors occurred. (Break was called after Stop was called.) [InvalidOperationException:Break was called after Stop was called.]
+stop after break: AggregateException: One or more errors occurred. (Stop was called after Break was called.) [InvalidOperationException:Stop was called after Break was called.]
+completed=False lowest=0
+break twice: ok
+False False False null
+state props: ok
+False False False 0
+state props after break: ok
+True False True 
+state props after stop: ok
+exceptional seen: False
+state after exception: AggregateException: One or more errors occurred. (x) [InvalidOperationException:x]
+exception: AggregateException: One or more errors occurred. (b2) [ArgumentException:b2]
+21 completed=False lowest=6
+local init: ok
+10 completed=True lowest=null
+local init no opts: ok
+10 completed=True lowest=null
+local init long: ok
+completed=False lowest=2
+1,2,3
+ForEach array state: ok
+completed=False lowest=null
+0,1
+ForEach list index: ok
+completed=False lowest=2
+0,1,2
+ForEach enumerable break: ok
+completed=False lowest=2
+0,1,2
+ForEach enumerable plain state: ok
+28 completed=True lowest=null
+ForEach enumerable local: ok
+28 completed=True lowest=null
+ForEach enumerable local index: ok
+completed=False lowest=2
+0,1,2,3
+ForEach orderable: ok
+completed=False lowest=null
+1,2
+ForEach partitioner state: ok
+ForEach partitioner state break: ok
+ForEach partitioner break (non orderable): ok
+
+
+
+
+ForEach partitioner lowest (non orderable): ok
+ForEach partitioner stop (non orderable): ok
+ForEach orderable not normalized: InvalidOperationException: This method requires the use of an OrderedPartitioner with the KeysNormalized property set to true.
+ForEach orderable not normalized plain: ok
+ForEach null body: ArgumentNullException: Value cannot be null. (Parameter 'body')
+ForEach null source: ArgumentNullException: Value cannot be null. (Parameter 'source')
+For null body: ArgumentNullException: Value cannot be null. (Parameter 'body')
+For null opts: ArgumentNullException: Value cannot be null. (Parameter 'parallelOptions')
+For local null init: ArgumentNullException: Value cannot be null. (Parameter 'localInit')
+For local null finally: ArgumentNullException: Value cannot be null. (Parameter 'localFinally')
+canceled before: OperationCanceledException: The operation was canceled.
+canceled during: OperationCanceledException: The operation was canceled.
+shouldexit False
+canceled during shouldexit: OperationCanceledException: The operation was canceled.
+completed=True lowest=null
+ForEach empty: ok
+completed=True lowest=null
+For empty: ok
+completed=True lowest=null
+For reversed: ok
+1000 completed=True lowest=null
+ForEach with many workers: ok
+True True True
+For many workers break: ok
+completed=False lowest=null
+For many workers stop: ok
+2
+Invoke options: ok
+Invoke empty: ok
+Invoke null: ArgumentNullException: Value cannot be null. (Parameter 'actions')
+Invoke null element: ArgumentException: One of the actions was null.
+Invoke throws: AggregateException: One or more errors occurred. (a) [InvalidOperationException:a]
+55
+ForEachAsync: ok
+6
+ForEachAsync plain: ok
+ForEachAsync throws: AggregateException: One or more errors occurred. (two) [ArgumentException:two]
+ForEachAsync null: ArgumentNullException: Value cannot be null. (Parameter 'source')
+ForEachAsync null body: ArgumentNullException: Value cannot be null. (Parameter 'body')
+ForEachAsync canceled: AggregateException: One or more errors occurred. (A task was canceled.) [TaskCanceledException:A task was canceled.]
+10
+ForAsync: ok
+10
+ForAsync long: ok
+ForAsync token dop: ok

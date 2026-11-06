@@ -41,61 +41,33 @@ public sealed partial class FunctionCodeGen
             case "AreSame" when args.Length == 2:
                 return I4Value(_b.Cast(LLVMOpcode.ZExt, _b.ICmp(LLVMIntPredicate.EQ, IlAddress(args[0]), IlAddress(args[1])), L.I32), Special(SpecialType.System_Boolean));
             case "IsAddressGreaterThan" or "IsAddressLessThan" or "IsAddressGreaterThanOrEqualTo" or "IsAddressLessThanOrEqualTo" when args.Length == 2:
-            {
-                var predicate = method.Name switch
-                {
-                    "IsAddressGreaterThan" => LLVMIntPredicate.UGT,
-                    "IsAddressLessThan" => LLVMIntPredicate.ULT,
-                    "IsAddressGreaterThanOrEqualTo" => LLVMIntPredicate.UGE,
-                    _ => LLVMIntPredicate.ULE,
-                };
-                var l = _b.Cast(LLVMOpcode.PtrToInt, IlAddress(args[0]), L.I64);
-                var r = _b.Cast(LLVMOpcode.PtrToInt, IlAddress(args[1]), L.I64);
-                return I4Value(_b.Cast(LLVMOpcode.ZExt, _b.ICmp(predicate, l, r), L.I32), Special(SpecialType.System_Boolean));
-            }
+                return I4Value(_b.Cast(LLVMOpcode.ZExt, UnsafeAddressCompare(method.Name, IlAddress(args[0]), IlAddress(args[1])), L.I32), Special(SpecialType.System_Boolean));
             case "ByteOffset" when args.Length == 2: // target - origin
-            {
-                var origin = _b.Cast(LLVMOpcode.PtrToInt, IlAddress(args[0]), L.I64);
-                var target = _b.Cast(LLVMOpcode.PtrToInt, IlAddress(args[1]), L.I64);
-                return new IlEntry(IlKind.NativeInt, _b.BinOp(LLVMOpcode.Sub, target, origin), Special(SpecialType.System_IntPtr));
-            }
+                return new IlEntry(IlKind.NativeInt, UnsafeByteOffset(IlAddress(args[0]), IlAddress(args[1]), L.I64), Special(SpecialType.System_IntPtr));
             case "Add" or "Subtract" when ta.Length == 1 && args.Length == 2:
             {
                 // Element offsets scale by sizeof(T); `void*` overloads return void*.
-                var count = ByteOffset(args[1], parameters[1].Type);
-                if (method.Name == "Subtract") count = _b.Neg(count);
-                var size = L.ConstInt(L.I64, (long)T.Target.SizeOf(T.Storage(S(T0()))));
-                var address = _b.Gep(L.I8, IlAddress(args[0]), [_b.BinOp(LLVMOpcode.Mul, count, size)]);
+                var address = UnsafeElementAddress(IlAddress(args[0]), ByteOffset(args[1], parameters[1].Type), T0(), subtract: method.Name == "Subtract");
                 return IsPointer(0) ? new IlEntry(IlKind.Pointer, address, null) : new IlEntry(IlKind.ByRef, address, T0());
             }
             case "AddByteOffset" or "SubtractByteOffset" when ta.Length == 1 && args.Length == 2:
-            {
-                var offset = ByteOffset(args[1], parameters[1].Type);
-                if (method.Name == "SubtractByteOffset") offset = _b.Neg(offset);
-                return new IlEntry(IlKind.ByRef, _b.Gep(L.I8, IlAddress(args[0]), [offset]), T0());
-            }
+                return new IlEntry(IlKind.ByRef, UnsafeByteAddress(IlAddress(args[0]), ByteOffset(args[1], parameters[1].Type), subtract: method.Name == "SubtractByteOffset"), T0());
             case "SizeOf" when ta.Length == 1 && args.Length == 0:
                 return I4((int)T.Target.SizeOf(T.Storage(S(T0()))));
             case "Read" or "ReadUnaligned" when ta.Length == 1 && args.Length == 1:
-                return IlPush(IlLoadAligned(IlAddress(args[0]), T0(), method.Name == "ReadUnaligned"), T0());
+                return IlPush(UnsafeLoad(IlAddress(args[0]), S(T0()), method.Name == "ReadUnaligned"), T0());
             case "Write" or "WriteUnaligned" when ta.Length == 1 && args.Length == 2:
-                IlStoreAligned(IlAddress(args[0]), args[1], T0(), method.Name == "WriteUnaligned");
+                UnsafeStore(IlAddress(args[0]), IlTyped(args[1], T0()), S(T0()), method.Name == "WriteUnaligned");
                 return handled;
             case "Copy" when ta.Length == 1 && args.Length == 2: // Copy<T>(void* destination, ref readonly T source) / Copy<T>(ref T destination, void* source)
                 _b.Store(_b.Load(T.Storage(S(T0())), IlAddress(args[1])), IlAddress(args[0]));
                 return handled;
             case "CopyBlock" or "CopyBlockUnaligned" when args.Length == 3:
-            {
-                var f = _m.Intrinsic("llvm.memmove.p0.p0.i64", L.Void, L.Ptr, L.Ptr, L.I64, L.I1);
-                _m.Facts.NoReferences(_b.Call(f.Type, f.Fn, [IlAddress(args[0]), IlAddress(args[1]), IlToI64(args[2], signed: false), L.False]));
+                UnsafeCopyBlock(IlAddress(args[0]), IlAddress(args[1]), IlToI64(args[2], signed: false));
                 return handled;
-            }
             case "InitBlock" or "InitBlockUnaligned" when args.Length == 3:
-            {
-                var f = _m.Intrinsic("llvm.memset.p0.i64", L.Void, L.Ptr, L.I8, L.I64, L.I1);
-                _b.Call(f.Type, f.Fn, [IlAddress(args[0]), _b.Cast(LLVMOpcode.Trunc, IlInt(args[1]).Value, L.I8), IlToI64(args[2], signed: false), L.False]);
+                UnsafeInitBlock(IlAddress(args[0]), IlInt(args[1]).Value, IlToI64(args[2], signed: false));
                 return handled;
-            }
             case "SkipInit" when args.Length == 1:
                 return handled;
             case "Unbox" when ta.Length == 1 && args.Length == 1:
@@ -106,26 +78,9 @@ public sealed partial class FunctionCodeGen
                 var (from, to) = (S(ta[0]), S(ta[1]));
                 if (T.Target.SizeOf(T.Storage(from)) != T.Target.SizeOf(T.Storage(to)))
                     return null; // .NET throws NotSupportedException; let the library body (which does) run
-                var temp = Spill(ToStorage(IlTyped(args[0], ta[0]), from));
-                return IlPush(LoadValue(temp, to), ta[1]);
+                return IlPush(UnsafeBitCast(IlTyped(args[0], ta[0]), from, to), ta[1]);
             }
         }
         throw new IlException($"'{method}' is not supported by csharpc yet");
-    }
-
-    private LLVMValueRef IlLoadAligned(LLVMValueRef address, ITypeSymbol type, bool unaligned)
-    {
-        var st = S(type);
-        var value = _b.Load(T.Storage(st), address);
-        // Alignment 1 keeps LLVM from assuming (and vectorizing on) the natural alignment.
-        if (unaligned) Native.LLVMSetAlignment(value, 1);
-        return st.SpecialType == SpecialType.System_Boolean ? _b.Cast(LLVMOpcode.Trunc, value, L.I1) : value;
-    }
-
-    private void IlStoreAligned(LLVMValueRef address, IlEntry value, ITypeSymbol type, bool unaligned)
-    {
-        var st = S(type);
-        var store = _b.Store(ToStorage(IlTyped(value, type), st), address);
-        if (unaligned) Native.LLVMSetAlignment(store, 1);
     }
 }
